@@ -357,6 +357,16 @@ parse_line_pass2:
         beq @emit_bcs
         jmp @done
 
+@bmi:
+        cpx #'I'
+        beq @emit_bmi
+        jmp @done
+
+@bpl:
+        cpx #'L'
+        beq @emit_bpl
+        jmp @done
+
 @bvc_or_bvs:
         cpx #'C'
         beq @emit_bvc

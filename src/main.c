@@ -26,7 +26,7 @@ static uint8_t state = 0;
 uint8_t *const SCREEN = (uint8_t *)0x0400;
 
 static uint8_t cmd_buffer[CMD_BUFFER_LENGTH][MAX_INPUT_LENGTH+1];
-static uint8_t cmd_lenght[CMD_BUFFER_LENGTH]; // lenght of current command line
+static uint8_t cmd_length[CMD_BUFFER_LENGTH]; // lenght of current command line
 static uint8_t cmd_current = 0;
 static uint8_t cmd_buffered = 0;
 static uint8_t cmd_cursor = 0; // cursor position in current command line
@@ -147,7 +147,7 @@ static void print_string(const uint8_t *str) {
     l = strlen(str);
     lines_required = (l + CURSOR_COL + 1) / SCREEN_WIDTH;  // +1 for cursor
     lines_free = SCREEN_HEIGHT - CURSOR_ROW - 1;
-    if (lines_free < lines_required > 0) {
+    if (lines_required > 0 && lines_free < lines_required) {
         scroll_up(lines_required - lines_free);
     }
 
@@ -157,24 +157,24 @@ static void print_string(const uint8_t *str) {
 static void print_prompt() {
     cputs("> ");
     cmd_buffer[cmd_current][0] = 0;
-    cmd_lenght[cmd_current] = 0;
+    cmd_length[cmd_current] = 0;
 }
 
 static void insert_char(uint8_t ch) {
     uint8_t *p, l;
-    l = cmd_lenght[cmd_current];
+    l = cmd_length[cmd_current];
     if (l < MAX_INPUT_LENGTH) {
         print_char(ch);
         p = cmd_buffer[cmd_current] + l;
         *(p++) = ch;
         *p = 0;
-        cmd_lenght[cmd_current] = l+1;
+        cmd_length[cmd_current] = l+1;
     }
 }
 
 static void delete_char() {
     uint8_t col, row;
-    if (cmd_lenght[cmd_current] == 0) return;
+    if (cmd_length[cmd_current] == 0) return;
     if (CURSOR_COL == 0) {
         if (CURSOR_ROW == 0) {
             print_string("ERROR"); // FIXME
@@ -188,7 +188,7 @@ static void delete_char() {
     row = CURSOR_ROW;
     cputc(' '); // Clear the character visually
     gotoxy(col, row);
-    cmd_buffer[cmd_current][--cmd_lenght[cmd_current]] = 0;
+    cmd_buffer[cmd_current][--cmd_length[cmd_current]] = 0;
 }
 
 static void print_inverse(const uint8_t *str) {
@@ -415,16 +415,15 @@ void maino(void) {
                 switch (ch) {
                     case CH_ENTER:
                         newline();
-                        parse_command(cmd_buffer[cmd_current], cmd_lenght[cmd_current]);
+                        parse_command(cmd_buffer[cmd_current], cmd_length[cmd_current]);
                         print_prompt();
                         break;
                     case CH_ESC:
-                        print_string("ESC");
-                        newline();
-                        print_prompt();
+                        state = RUN_STATE_EDITOR;
+                        reset_screen();
                         break;
                     case CH_DEL:
-                        if (cmd_lenght[cmd_current] > 0) {
+                        if (cmd_length[cmd_current] > 0) {
                             delete_char();
                         } else {
                             click_sound();
@@ -462,6 +461,13 @@ void maino(void) {
                 }
                 break;
             case RUN_STATE_EDITOR:
+                ch = cgetc();
+                if (ch == CH_ESC) {
+                    state = RUN_STATE_CMD;
+                    reset_screen();
+                    print_prompt();
+                }
+                // TODO: full editor input handling
                 break;
             default:
                 reset_screen();
