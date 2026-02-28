@@ -1,0 +1,13 @@
+{
+    "name": "cse",
+    "description": "Project cse",
+    "toolkit": "cc65",
+    "sources": [
+        "src/main.c"
+    ],
+    "build": "debug",
+    "definitions": [],
+    "includes": [],
+    "args": [],
+    "compiler": ""
+}
