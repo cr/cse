@@ -42,6 +42,11 @@ _reg_y:         .res 1          ; saved Y
 _reg_sp:        .res 1          ; saved SP
 _reg_p:         .res 1          ; saved P (status flags)
 
+ZP_SAVE_LO = $02               ; first ZP byte used by CSE
+ZP_SAVE_HI = $38               ; last ZP byte used by CSE (inclusive)
+ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1  ; 55 bytes
+_zp_save_buf:   .res ZP_SAVE_LEN ; buffer for ZP save/restore around jsr_addr
+
 .segment "CODE"
 
 ; ── al_error / au_syntax_error ──────────────────────────────────────────────
@@ -137,8 +142,22 @@ _ab_return:
 _jsr_addr:
         sta _jsr_vec            ; store target address lo
         stx _jsr_vec+1          ; store target address hi
+
+        ; ── save CSE's ZP $02-$38 so user code can use all of ZP ──
+        ldx #ZP_SAVE_LEN - 1
+@save:  lda ZP_SAVE_LO,x
+        sta _zp_save_buf,x
+        dex
+        bpl @save
+
+        ; ── load user's register state before calling ──
+        lda _reg_a
+        ldx _reg_x
+        ldy _reg_y
+
         jsr @trampoline         ; JSR → user code → RTS → back here
-        ; capture registers immediately after user code returns
+
+        ; ── capture registers immediately after user code returns ──
         sta _reg_a
         stx _reg_x
         sty _reg_y
@@ -147,6 +166,14 @@ _jsr_addr:
         sta _reg_p
         tsx
         stx _reg_sp
+
+        ; ── restore CSE's ZP ──
+        ldx #ZP_SAVE_LEN - 1
+@rest:  lda _zp_save_buf,x
+        sta ZP_SAVE_LO,x
+        dex
+        bpl @rest
+
         rts
 
 @trampoline:

@@ -80,20 +80,56 @@ the last repeatable command at the current address.
 | `=` | label  | yes       | `1000:= loop`  | Define symbolic label at address        |
 | `/` | search | bare      | `/loop`         | Search for label or text                |
 
-## Commands — Utility
+## Commands — Info / Utility
 
 | Key   | Name  | Type | Example         | Notes                                    |
 |-------|-------|------|-----------------|------------------------------------------|
+| `i`   | info  | bare | `i`              | Show memory map (see below)              |
 | `?`   | help  | bare | `?` or `? 1000+20` | Help, or hex expression calculator   |
 | `q`   | quit  | bare | `q`              | Exit CSE                                 |
 | `clr` | clear | bare | `clr`            | Clear screen                             |
+
+### `i` — Memory Map
+
+Shows all memory regions at a glance so the user knows what's free
+for their program. Example output:
+
+    zp   0002-007f cse runtime
+    stk  0100-01ff 6502 stack
+    scr  0400-07e7 screen
+    cse  0801-2a4f code+data+bss
+    free 2a50-c7ff 40880 bytes
+    cstk c800-cfff c stack
+    src  ----      (not allocated)
+    sym  ----      (not allocated)
+    io   d000-dfff vic/sid/cia
+    kern e000-ffff kernal rom
+
+Runtime detection via cc65 linker-exported symbols:
+
+    extern char __BSS_RUN__[], __BSS_SIZE__[];
+    extern char __HIMEM__[], __STACKSIZE__[];
+
+    cse_end  = __BSS_RUN__ + (size_t)__BSS_SIZE__
+    cstk_top = __HIMEM__  - (size_t)__STACKSIZE__
+    free     = cse_end  .. cstk_top - 1
+
+Future allocations grow from cse_end upward:
+
+    cse_end → [source buffer] → [symbol table] → [brk table] → free
+
+Each component tracks its own base+size. `i` reads these at runtime
+to show the current layout. When source/symbols are not yet allocated,
+the line shows `----`.
+
+Note: BASIC ROM ($A000-$BFFF) is unmapped by CSE — that RAM is part
+of the free/cstk region. The I/O area at $D000 is the hard ceiling.
 
 ## Reserved / Free Keys
 
 Currently unassigned, available for future use:
 
     e   editor mode (source buffer)
-    i   info / inspect
     k   (free)
     p   print / evaluate
     u   (free)
@@ -138,6 +174,9 @@ instruction line below, ready for immediate editing or RETURN.
     [x] $   directory listing
     [x] q   quit
     [x] clr clear screen
+    [x] +   seek forward
+    [x] -   seek backward
+    [ ] i   memory map info
     [ ] g   go / continue
     [ ] n   step next
     [ ] o   step over
@@ -153,5 +192,3 @@ instruction line below, ready for immediate editing or RETURN.
     [ ] =   labels
     [ ] /   search
     [ ] ?   help / calculator
-    [ ] +   seek forward
-    [ ] -   seek backward

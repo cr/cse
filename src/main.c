@@ -31,7 +31,8 @@
 /* ── Run state ──────────────────────────────────────────── */
 static uint8_t state = 0;
 #define ST_STOP 0
-#define ST_RUN  1
+#define ST_REPL 1
+#define ST_EDIT 2
 
 /* ── Globals ────────────────────────────────────────────── */
 uint8_t *const SCREEN = (uint8_t *)0x0400;
@@ -43,6 +44,17 @@ static uint8_t last_args[16];         /* saved args (e.g. "08" for m/d) */
 
 /* Block size for block commands (m, d, f, c, t).  Default 16 bytes. */
 static uint16_t block_size = 0x10;
+
+/* Future allocations — NULL = not yet allocated.
+ * Source grows down from cstk bottom, symbols below that. */
+static uint8_t *src_top = 0;       /* source ceiling (first byte above) */
+static uint8_t *src_bot = 0;       /* source floor (lowest byte used) */
+static uint8_t *sym_top = 0;       /* symbol table ceiling */
+static uint8_t *sym_bot = 0;       /* symbol table floor */
+
+/* ── Memory info (meminfo.s) ───────────────────────────── */
+extern uint16_t cse_start;            /* = __MAIN_START__ */
+extern uint16_t cse_end(void);        /* = __BSS_RUN__ + __BSS_SIZE__ */
 
 /* ── Forward declarations ───────────────────────────────── */
 static void exec_line(void);
@@ -567,11 +579,76 @@ static void cmd_reg(uint8_t *args)
     show_prompt();
 }
 
+/* ── i — memory map info ──────────────────────────────────── */
+static void cmd_info(void)
+{
+    uint16_t cse_hi;
+    uint16_t cstk_lo;
+    uint16_t f1_lo, f1_hi, f2_lo, f2_hi;
+
+    cse_hi  = cse_end();                       /* first byte after BSS */
+    cstk_lo = 0xD000 - 0x0800;                /* C stack bottom */
+
+    /* free region 1: after CSE to below C stack */
+    f1_lo = cse_hi;
+    f1_hi = cstk_lo - 1;
+    /* account for source/symbol allocations eating into top */
+    if (src_bot)      f1_hi = (uint16_t)src_bot - 1;
+    else if (sym_bot) f1_hi = (uint16_t)sym_bot - 1;
+
+    /* free region 2: $C000-$CFFF (always free in PRG layout) */
+    f2_lo = 0xC000;
+    f2_hi = 0xCFFF;
+
+    newline();
+    revers(1);
+    cprintf("free %04x-%04x %5u bytes", f1_lo, f1_hi, f1_hi - f1_lo + 1);
+    revers(0);
+    newline();
+    revers(1);
+    cprintf("free %04x-%04x %5u bytes", f2_lo, f2_hi, f2_hi - f2_lo + 1);
+    revers(0);
+    newline();
+    revers(1);
+    cputs("free zp 39-7f   71 bytes");
+    revers(0);
+    newline();
+    newline();
+
+    cputs("cse  zp 02-38 saved on j");
+    newline();
+    cputs("stk  0100-01ff 6502 stack");
+    newline();
+    cputs("scr  0400-07e7 repl screen");
+    newline();
+    cprintf("cse  %04x-%04x code+data+bss", cse_start, cse_hi - 1);
+    newline();
+
+    if (src_bot) {
+        cprintf("src  %04x-%04x source",
+                (uint16_t)src_bot, (uint16_t)src_top - 1);
+        newline();
+    }
+    if (sym_bot) {
+        cprintf("sym  %04x-%04x symbols",
+                (uint16_t)sym_bot, (uint16_t)sym_top - 1);
+        newline();
+    }
+
+    cprintf("cstk %04x-cfff c stack", cstk_lo);
+    newline();
+    cputs("io   d000-dfff vic/sid/cia");
+    newline();
+    cputs("kern e000-ffff kernal rom");
+    newline();
+    show_prompt();
+}
+
 /* ═══════════════════════════════════════════════════════════════
  * Command dispatcher — parse line_buf and execute
  *
- * Addressed: AAAA:cmd [args]   where cmd ∈ { . e d m j }
- * Bare:      cmd [args]        where cmd ∈ { r q $ clr }
+ * Addressed: AAAA:cmd [args]   where cmd ∈ { . d m j b + - r s q }
+ * Bare:      cmd [args]        where cmd ∈ { r s q $ i clr }
  * ═══════════════════════════════════════════════════════════════ */
 
 static void exec_line(void)
@@ -634,6 +711,32 @@ static void exec_line(void)
         case 'd': cmd_disasm(addr, q); break;
         case 'm': cmd_mem(addr, q);    break;
         case 'j': cmd_jmp(addr);       break;
+        case '+':                             /* + — seek forward */
+        {   uint16_t delta = block_size;
+            if (is_hex(q[0]) && is_hex(q[1])) {
+                if (is_hex(q[2]) && is_hex(q[3]))
+                    delta = parse_hex4(&q);
+                else
+                    delta = parse_hex2(&q);
+            }
+            cur_addr = addr + delta;
+            newline();
+            show_prompt();
+            break;
+        }
+        case '-':                             /* - — seek backward */
+        {   uint16_t delta = block_size;
+            if (is_hex(q[0]) && is_hex(q[1])) {
+                if (is_hex(q[2]) && is_hex(q[3]))
+                    delta = parse_hex4(&q);
+                else
+                    delta = parse_hex2(&q);
+            }
+            cur_addr = addr - delta;
+            newline();
+            show_prompt();
+            break;
+        }
         case 'b':                             /* b — set/show block size */
             if (is_hex(q[0]) && is_hex(q[1])) {
                 if (is_hex(q[2]) && is_hex(q[3]))
@@ -646,6 +749,23 @@ static void exec_line(void)
             clear_eol();
             newline();
             show_prompt();
+            break;
+        case 'i': cmd_info();          break; /* i — memory map */
+        case 'r': cmd_reg(q);          break; /* r — works with or without addr */
+        case 's':                             /* s AAAA — seek (also addressable) */
+            if (is_hex(q[0]) && is_hex(q[1]) && is_hex(q[2]) && is_hex(q[3]))
+                cur_addr = parse_hex4(&q);
+            newline();
+            show_prompt();
+            break;
+        case 'q':                             /* q — quit */
+            cputs("quit? y/n ");
+            while (kbhit());
+            if (cgetc() == 'y') {
+                state = ST_STOP;
+            }
+            newline();
+            if (state != ST_STOP) show_prompt();
             break;
         default:
             cputs("?cmd");
@@ -727,7 +847,7 @@ void main(void)
     *(uint8_t *)0x028a |= 0b11000000;    /* all keys repeat */
     MEM_CONFIG &= ~0x20;                 /* unmap BASIC ROM */
 
-    state = ST_RUN;
+    state = ST_REPL;
     reset_screen();
     cursor(1);
 

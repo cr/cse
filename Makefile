@@ -46,7 +46,8 @@ MAIN_O = $(BUILD)/src/main.o
 # ── Assembler source files linked into cse.prg ──────────────────────
 ASM_SRCS = asm_bridge asm_line asm_vars mn_vars mn_classify \
            mn7 mn7_tables mn6 mn6_tables mn_config \
-           au_mode parse_hex mn_modes mn_asm_tables opcode_lookup
+           au_mode parse_hex mn_modes mn_asm_tables opcode_lookup \
+           meminfo
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 
 .PHONY: all
