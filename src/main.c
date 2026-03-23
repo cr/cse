@@ -178,7 +178,7 @@ static void list_directory(uint8_t device) {
             cprintf("%d ", de.size);
             if (de.type == CBM_T_HEADER) {
                 revers(1);
-                cprintf("\"%-16s\"    %02X", de.name, de.access);
+                cprintf("\"%-16s\"    %02x", de.name, de.access);
                 revers(0);
                 newline();
             } else {
@@ -300,7 +300,7 @@ static void read_line(void) {
  * Cursor ends at col 5, ready for command input. */
 static void show_prompt(void) {
     gotox(0);
-    cprintf("%04X:", cur_addr);
+    cprintf("%04x:", cur_addr);
     clear_eol();
 }
 
@@ -326,10 +326,10 @@ static void emit_dot(uint16_t addr) {
     uint8_t olen, i;
     gotox(0);
     olen = t_opcode_len[*(uint8_t *)addr];
-    cprintf("%04X:.", addr);
+    cprintf("%04x:.", addr);
     for (i = 0; i < 3; ++i) {
         if (i < olen)
-            cprintf(" %02X", ((uint8_t *)addr)[i]);
+            cprintf(" %02x", ((uint8_t *)addr)[i]);
         else
             cputs("   ");
     }
@@ -346,10 +346,10 @@ static void emit_mem(uint16_t addr, uint8_t cols) {
     if (cols == 0) cols = 8;
     if (cols > 8)  cols = 8;
     gotox(0);
-    cprintf("%04X:m", addr);
+    cprintf("%04x:m", addr);
     for (i = 0; i < 8; ++i) {
         if (i < cols)
-            cprintf(" %02X", base[i]);
+            cprintf(" %02x", base[i]);
         else
             cputs("   ");
     }
@@ -366,7 +366,7 @@ static void emit_reg(void) {
     static const char flag_ch[] = "nv-bdizc";
     uint8_t i, p;
     gotox(0);
-    cprintf("r a:%02X x:%02X y:%02X s:%02X ",
+    cprintf("r a:%02x x:%02x y:%02x s:%02x ",
             reg_a, reg_x, reg_y, reg_sp);
     p = reg_p;
     for (i = 0; i < 8; ++i) {
@@ -642,7 +642,7 @@ static void exec_line(void)
                     block_size = parse_hex2(&q);
                 if (block_size == 0) block_size = 8;
             }
-            cprintf("b=%04X", block_size);
+            cprintf("b=%04x", block_size);
             clear_eol();
             newline();
             show_prompt();
