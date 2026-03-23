@@ -1,26 +1,29 @@
-; meminfo.s — expose linker symbols to C code
+; meminfo.s — expose linker segment boundaries to C code
 ;
 ; The cc65 linker defines __MAIN_START__, __BSS_RUN__, __BSS_SIZE__
-; etc. but they're assembly-level symbols.  C code sees names with
-; an extra underscore prefix.  This shim re-exports them.
+; etc. as assembly-level symbols.  C sees names with an underscore
+; prefix, and treats them as addresses of variables — not the values
+; themselves.  So we store the values in RODATA and provide accessor
+; functions.
 
-        .export _cse_start = __MAIN_START__
-        .export _cse_end              ; computed below
-
+        .export _cse_start, _cse_end
         .import __MAIN_START__
         .import __BSS_RUN__, __BSS_SIZE__
 
 .segment "RODATA"
-
-; cse_end = __BSS_RUN__ + __BSS_SIZE__  (end of BSS = first free byte)
-; We can't do arithmetic on imports in .export, so store as a word.
-_cse_end_val:
-        .word __BSS_RUN__ + __BSS_SIZE__
+_start_val:     .word __MAIN_START__
+_end_val:       .word __BSS_RUN__ + __BSS_SIZE__
 
 .segment "CODE"
 
-; uint16_t cse_end(void) — returns first byte after BSS
+; uint16_t cse_start(void)
+_cse_start:
+        lda _start_val
+        ldx _start_val+1
+        rts
+
+; uint16_t cse_end(void)
 _cse_end:
-        lda _cse_end_val
-        ldx _cse_end_val+1
+        lda _end_val
+        ldx _end_val+1
         rts

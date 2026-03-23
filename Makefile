@@ -25,6 +25,7 @@ CC65   ?= cc65
 PYTHON ?= pipenv run python
 PYTEST ?= pipenv run pytest
 VICE   ?= x64sc
+C1541  ?= c1541
 
 # ── CC65 main-binary flags (match VS64 / build.ninja) ───────────────────
 CFLAGS = -g -t c64 -DDEBUG -D__cc65__ -I$(ROOT) -I$(BUILD)
@@ -42,6 +43,10 @@ PRG    = $(BUILD)/cse.prg
 DBG    = $(BUILD)/cse.dbg
 MAIN_S = $(BUILD)/src/main.s
 MAIN_O = $(BUILD)/src/main.o
+
+# ── C source files (besides main.c) ──────────────────────────────
+C_SRCS   = editor repl
+C_OBJS   = $(patsubst %,$(BUILD)/src/%.o,$(C_SRCS))
 
 # ── Assembler source files linked into cse.prg ──────────────────────
 ASM_SRCS = asm_bridge asm_line asm_vars mn_vars mn_classify \
@@ -62,12 +67,32 @@ $(MAIN_S): $(SRC)/main.c | $(BUILD)/src/
 $(MAIN_O): $(MAIN_S)
 	$(CA65) $(AFLAGS) -o $@ $<
 
+# Pattern rule: compile + assemble src/*.c → build/src/*.o
+$(BUILD)/src/%.o: $(SRC)/%.c | $(BUILD)/src/
+	$(CC65) $(CFLAGS) -o $(BUILD)/src/$*.s $<
+	$(CA65) $(AFLAGS) -o $@ $(BUILD)/src/$*.s
+
 # Pattern rule: assemble src/*.s → build/src/*.o
 $(BUILD)/src/%.o: $(SRC)/%.s | $(BUILD)/src/
 	$(CA65) $(AFLAGS) -o $@ $<
 
-$(PRG): $(MAIN_O) $(ASM_OBJS) | $(BUILD)/
-	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) $(MAIN_O) $(ASM_OBJS) c64.lib
+$(PRG): $(MAIN_O) $(C_OBJS) $(ASM_OBJS) | $(BUILD)/
+	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) $(MAIN_O) $(C_OBJS) $(ASM_OBJS) c64.lib
+
+# -----------------------------------------------------------------------
+# disk — create a D64 disk image with cse.prg
+# -----------------------------------------------------------------------
+D64 = $(BUILD)/cse.d64
+
+.PHONY: disk
+disk: $(D64)
+
+$(D64): $(PRG)
+	@if [ -f $@ ]; then \
+		$(C1541) -attach $@ -delete cse -write $< cse; \
+	else \
+		$(C1541) -format "cse,01" d64 $@ -write $< cse; \
+	fi
 
 # -----------------------------------------------------------------------
 # tables — regenerate generated .s table files from Python
@@ -162,11 +187,11 @@ $(MN7_BIN): $(MN7_O1) $(MN7_O2) $(MN7_O3) $(DEV)/test.cfg
 test-bins: $(AU_BIN) $(MN6_BIN) $(MN7_BIN)
 
 # -----------------------------------------------------------------------
-# run — launch cse.prg in VICE (override VICE= to choose emulator)
+# run — build disk image and launch in VICE with D64 attached as drive 8
 # -----------------------------------------------------------------------
 .PHONY: run
-run: $(PRG)
-	$(VICE) $<
+run: $(D64)
+	$(VICE) -autostart $(PRG) -8 $(D64)
 
 # -----------------------------------------------------------------------
 # test — run pytest (conftest.py rebuilds test binaries if needed)
@@ -198,7 +223,8 @@ $(BUILD)/:
 .PHONY: help
 help:
 	@printf "%-15s %s\n" "all"          "Build cse.prg (default)"
-	@printf "%-15s %s\n" "run"          "Build and launch cse.prg in VICE (override VICE=x64 etc.)"
+	@printf "%-15s %s\n" "disk"         "Build cse.d64 disk image"
+	@printf "%-15s %s\n" "run"          "Build disk image and launch in VICE"
 	@printf "%-15s %s\n" "tables"       "Regenerate src/mn*_tables.s via mnemonic_tables.py"
 	@printf "%-15s %s\n" "test"         "Run all pytest tests"
 	@printf "%-15s %s\n" "test-bins"    "Assemble au_mode / mn6 / mn7 test binaries"

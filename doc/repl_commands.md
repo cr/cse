@@ -68,8 +68,8 @@ the last repeatable command at the current address.
 
 | Key | Name   | Type | Example              | Notes                                   |
 |-----|--------|------|----------------------|-----------------------------------------|
-| `l` | load   | bare | `l "file",8`         | Load PRG file                            |
-| `w` | write  | yes  | `w "file",8,1000,2000` | Save memory range to file             |
+| `l` | load   | yes  | `1000:l "file"`      | Load PRG to addr; remembers filename     |
+| `w` | write  | yes  | `1000:w "file" 2000` | Save addr..EEEE-1; remembers filename    |
 | `$` | disk   | bare | `$` dir, `$ 9` drive 9 | Directory; may send drive commands    |
 | `@` | doscmd | bare | `@ s:file`           | Send command to drive command channel    |
 
@@ -185,8 +185,8 @@ instruction line below, ready for immediate editing or RETURN.
     [ ] t   transfer
     [ ] c   compare
     [ ] h   hunt
-    [ ] l   load
-    [ ] w   write / save
+    [x] l   load file from disk
+    [x] w   write memory to disk
     [ ] @   disk command
     [ ] a   2-pass assembler
     [ ] =   labels
