@@ -3,6 +3,7 @@
 #include <conio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #define SCREEN_WIDTH 40     // C64 screen width
 #define SCREEN_HEIGHT 25    // C64 screen height
@@ -307,6 +308,343 @@ static void list_directory(uint8_t device) {
     floppy_status();
 }
 
+/* ── Assembler bridge (asm_bridge.s) ─────────────────────────────── */
+/* Returns number of bytes assembled (1–3), or 0 on error.           */
+extern uint8_t asm_line(uint16_t addr, char *text);
+/* JSR to addr, capture registers into reg_a..reg_p on return.       */
+extern void jsr_addr(uint16_t addr);
+/* Captured CPU registers (written by jsr_addr).                     */
+extern uint8_t reg_a, reg_x, reg_y, reg_sp, reg_p;
+
+/* Forward declaration — defined later in this file */
+static const uint8_t t_opcode_len[256];
+
+/* ── Hex parsing helpers (PETSCII input) ────────────────────────── */
+
+/* Return 0–15 for a PETSCII hex digit, or $FF if not hex. */
+static uint8_t hex_val(uint8_t ch)
+{
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;  /* shifted PETSCII */
+    return 0xFF;
+}
+
+static uint8_t is_hex(uint8_t ch) { return hex_val(ch) != 0xFF; }
+
+/* Parse exactly 4 hex digits → uint16_t.  Advances *pp.
+ * Returns 0 and does NOT advance on bad input. */
+static uint16_t parse_hex4(uint8_t **pp)
+{
+    uint8_t *q = *pp;
+    uint16_t v;
+
+    if (!is_hex(q[0]) || !is_hex(q[1]) || !is_hex(q[2]) || !is_hex(q[3]))
+        return 0;
+
+    v  = (uint16_t)hex_val(q[0]) << 12;
+    v |= (uint16_t)hex_val(q[1]) <<  8;
+    v |= (uint16_t)hex_val(q[2]) <<  4;
+    v |= (uint16_t)hex_val(q[3]);
+    *pp = q + 4;
+    return v;
+}
+
+/* Parse exactly 2 hex digits → uint8_t.  Advances *pp.
+ * Returns 0 and does NOT advance on bad input. */
+static uint8_t parse_hex2(uint8_t **pp)
+{
+    uint8_t *q = *pp;
+    uint8_t v;
+    if (!is_hex(q[0]) || !is_hex(q[1]))
+        return 0;
+    v = (hex_val(q[0]) << 4) | hex_val(q[1]);
+    *pp = q + 2;
+    return v;
+}
+
+static void skip_sp(uint8_t **pp)
+{
+    while (**pp == ' ') ++(*pp);
+}
+
+/* ── "e" command — write hex bytes to memory ─────────────────────── */
+/* e AAAA xx [xx ...]                                                  */
+
+static void cmd_edit(uint8_t *args)
+{
+    uint16_t addr;
+    uint8_t  *q;
+
+    q = args;
+    skip_sp(&q);
+
+    if (!is_hex(*q)) {
+        print_string("address?");
+        newline();
+        return;
+    }
+    addr = parse_hex4(&q);
+    skip_sp(&q);
+
+    if (!is_hex(*q)) {
+        print_string("bytes?");
+        newline();
+        return;
+    }
+
+    while (is_hex(*q) && is_hex(*(q+1))) {
+        *(uint8_t *)addr = parse_hex2(&q);
+        ++addr;
+        skip_sp(&q);
+    }
+}
+
+/* ── "m" command — memory dump, 8 bytes/line, prefixed with "e " ─── */
+/* m AAAA [BBBB]   — dump from AAAA to BBBB (inclusive).              */
+/*                   If BBBB is omitted, dump 8 bytes.                */
+/* Output: "e AAAA xx xx xx xx xx xx xx xx" (31 chars, fits 40-col)   */
+
+static void cmd_mem(uint8_t *args)
+{
+    uint16_t addr, end;
+    uint8_t  *q, *base, b, i, cols;
+
+    q = args;
+    skip_sp(&q);
+
+    if (!is_hex(*q)) {
+        print_string("address?");
+        newline();
+        return;
+    }
+    addr = parse_hex4(&q);
+    skip_sp(&q);
+
+    if (is_hex(*q)) {
+        end = parse_hex4(&q);
+        if (end < addr) { end = addr; }
+    } else {
+        end = addr + 7;
+        if (end < addr) end = 0xFFFF;  /* 16-bit wrap */
+    }
+
+    while (addr <= end) {
+        base = (uint8_t *)addr;
+        cols = 8;
+        if ((uint16_t)(end - addr + 1) < cols)
+            cols = (uint8_t)(end - addr + 1);
+
+        cprintf("e %04X", addr);
+        for (i = 0; i < cols; ++i)
+            cprintf(" %02X", base[i]);
+        /* pad short last line so ASCII column aligns */
+        for (i = cols; i < 8; ++i)
+            print_string("   ");
+        cputc(' ');
+        for (i = 0; i < cols; ++i) {
+            b = base[i];
+            cputc((b >= 0x20 && b <= 0x7E) ? b : '.');
+        }
+        newline();
+
+        addr += cols;
+        if (addr == 0) break;  /* 16-bit wrap */
+    }
+}
+
+/* ── Stub disassembler ───────────────────────────────────────────── */
+/* Returns a human-readable disassembly of the instruction at addr.   */
+/* TODO: replace with a real disassembler.                            */
+
+static const char *disasm(uint16_t addr)
+{
+    (void)addr;
+    return "---";
+}
+
+/* ── dot_echo — display ". AAAA BB BB BB disasm" ─────────────────── */
+/* Always prints 3 byte columns (padded) + disassembly + newline.     */
+
+static void dot_echo(uint16_t addr)
+{
+    uint8_t olen, i;
+    olen = t_opcode_len[*(uint8_t *)addr];
+    cprintf(". %04X", addr);
+    for (i = 0; i < 3; ++i) {
+        if (i < olen)
+            cprintf(" %02X", ((uint8_t *)addr)[i]);
+        else
+            print_string("   ");
+    }
+    cprintf(" %s", disasm(addr));
+    newline();
+}
+
+/* ── "." command ─────────────────────────────────────────────────── */
+/* . AAAA [xx [xx] [xx]] [mnemonic[digit] [operand]]                 */
+/*                                                                    */
+/* 1. Parse 4-digit hex address AAAA.                                 */
+/* 2. Try to parse up to N hex bytes (N = instruction length at AAAA).*/
+/* 3. If any parsed byte differs from memory → write them (patch).    */
+/* 4. If all bytes match → ignore them, try to assemble the rest.     */
+
+static void cmd_dot(uint8_t *args)
+{
+    uint16_t addr;
+    uint8_t  bytes[3];
+    uint8_t  nbytes, olen, i, changed;
+    uint8_t  *q, *mne;
+
+    q = args;
+    skip_sp(&q);
+
+    /* ── address ──────────────────────────────────────────────────── */
+    if (!is_hex(*q)) {
+        print_string("address?");
+        newline();
+        return;
+    }
+    addr = parse_hex4(&q);
+    skip_sp(&q);
+
+    /* ── instruction length at addr (determines how many hex bytes   */
+    /*    to expect on the line)                                      */
+    olen = t_opcode_len[*(uint8_t *)addr];  /* 1, 2, or 3 */
+
+    /* ── try to parse hex bytes ───────────────────────────────────── */
+    nbytes = 0;
+    while (nbytes < olen && is_hex(*q) && is_hex(*(q+1))) {
+        bytes[nbytes++] = parse_hex2(&q);
+        skip_sp(&q);
+    }
+
+    /* ── compare with memory ──────────────────────────────────────── */
+    changed = 0;
+    if (nbytes > 0) {
+        for (i = 0; i < nbytes; i++) {
+            if (bytes[i] != ((uint8_t *)addr)[i]) {
+                changed = 1;
+                break;
+            }
+        }
+    }
+
+    if (changed) {
+        /* Patch: write the new bytes to memory */
+        for (i = 0; i < nbytes; i++)
+            ((uint8_t *)addr)[i] = bytes[i];
+        dot_echo(addr);
+        return;
+    }
+
+    /* ── bytes matched (or none given) — try assembling ───────────── */
+    skip_sp(&q);
+    mne = q;
+
+    if (*mne == 0) {
+        /* No mnemonic either — just display the address and bytes     */
+        dot_echo(addr);
+        return;
+    }
+
+    /* Call the assembler.  asm_line() expects a PETSCII string       */
+    /* (asm_bridge.s converts to VICII screen codes internally).      */
+    /* It writes directly to addr and returns the byte count, or 0.   */
+    nbytes = asm_line(addr, (char *)mne);
+    if (nbytes == 0) {
+        print_string("asm error");
+        newline();
+        return;
+    }
+
+    /* Echo the result */
+    dot_echo(addr);
+}
+
+/* ── "r" command — display / edit CPU registers ─────────────────── */
+/* Output: "r A:xx X:xx Y:xx S:xx NV-BDIZC"                          */
+/* If args are given in that same format, parse them back.            */
+
+/* Parse "X:hh" — expects *pp pointing at the letter.                 */
+/* Advances *pp past "X:hh " and returns the byte value.              */
+static uint8_t parse_reg(uint8_t **pp)
+{
+    uint8_t *q = *pp;
+    uint8_t v;
+    /* skip the "X:" prefix */
+    q += 2;
+    v = (hex_val(q[0]) << 4) | hex_val(q[1]);
+    q += 2;
+    *pp = q;
+    return v;
+}
+
+static void print_reg(void)
+{
+    static const char flag_ch[] = "NV-BDIZC";
+    uint8_t i, p;
+
+    cprintf("r A:%02X X:%02X Y:%02X S:%02X ", reg_a, reg_x, reg_y, reg_sp);
+    p = reg_p;
+    for (i = 0; i < 8; ++i) {
+        cputc((p & 0x80) ? flag_ch[i] : '.');
+        p <<= 1;
+    }
+    newline();
+}
+
+static void cmd_reg(uint8_t *args)
+{
+    static const char flag_ch[] = "NV-BDIZC";
+    uint8_t *q, i, p;
+
+    q = args;
+    skip_sp(&q);
+
+    if (*q == 0) {
+        /* No arguments — just display */
+        print_reg();
+        return;
+    }
+
+    /* Parse "A:xx X:xx Y:xx S:xx NV-BDIZC" */
+    /* Expect A: */
+    reg_a = parse_reg(&q); skip_sp(&q);
+    reg_x = parse_reg(&q); skip_sp(&q);
+    reg_y = parse_reg(&q); skip_sp(&q);
+    reg_sp = parse_reg(&q); skip_sp(&q);
+
+    /* Parse flag characters: letter = set, anything else = clear */
+    p = 0;
+    for (i = 0; i < 8; ++i) {
+        p <<= 1;
+        if (*q == (uint8_t)flag_ch[i])
+            p |= 1;
+        if (*q) ++q;
+    }
+    reg_p = p;
+}
+
+/* ── "j" command — jump to address, then show registers ─────────── */
+/* j AAAA                                                             */
+
+static void cmd_jmp(uint8_t *args)
+{
+    uint16_t addr;
+    uint8_t  *q = args;
+
+    skip_sp(&q);
+    if (!is_hex(*q)) {
+        print_string("address?");
+        newline();
+        return;
+    }
+    addr = parse_hex4(&q);
+    jsr_addr(addr);
+    print_reg();
+}
+
 uint8_t *p, *e;
 
 // Function to parse the command
@@ -360,6 +698,16 @@ void parse_command(uint8_t *start, uint8_t length) {
         } else {
             newline();
         };
+    } else if (strcmp(cmd, "m") == 0) {
+        cmd_mem(args);
+    } else if (strcmp(cmd, "e") == 0) {
+        cmd_edit(args);
+    } else if (strcmp(cmd, ".") == 0) {
+        cmd_dot(args);
+    } else if (strcmp(cmd, "j") == 0) {
+        cmd_jmp(args);
+    } else if (strcmp(cmd, "r") == 0) {
+        cmd_reg(args);
     } else if (strcmp(cmd, "$") == 0) {
         list_directory(8);
     } else if (strcmp(cmd, "clr") == 0 || strcmp(cmd, "cls") == 0 ) {
@@ -383,7 +731,7 @@ void debug_cursor() {
 }
 
 // Main program loop
-void maino(void) {
+void main(void) {
     uint8_t ch;
 
     register_user_irq();
@@ -692,7 +1040,7 @@ static uint8_t opcode_len_opt(uint8_t op)
 /* main                                               */
 /* -------------------------------------------------- */
 
-void main(void)
+void maintest(void)
 {
     uint8_t op = 0;
     uint8_t i;

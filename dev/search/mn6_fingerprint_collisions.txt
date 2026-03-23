@@ -1,0 +1,67 @@
+mn6 fingerprint false positives — cross-analysis
+=================================================
+
+Fingerprint: fp = (c1 + c2*218) & $FF
+16 false positives out of 17,576 possible 3-letter strings (0.09%).
+
+Distance metric: weighted Hamming
+  1.0 per differing character position.
+  0.5 if the wrong key is QWERTY-adjacent to the right key (fat-finger).
+  Range 0 (identical) .. 3 (all characters differ).
+
+For each false positive, "H-slot" is the legal mnemonic it mimics via the
+hash+fingerprint check.  "Nearest" is the closest of the 56 legal mnemonics
+by weighted distance — which may differ from H-slot.
+
+  FP    H-slot  Nearest   Ham  WDist  Notes
+  ---   ------  -------   ---  -----  -----
+  JRZ   TYA     ORA         3    1.5
+  KUT   AND     BIT         3    1.5
+  KVX   SBC     BVC         3    1.5
+  KYX   SEC     INX         3    1.5
+  KYY   SED     INY         3    1.5  K adj L; KYY is wdist 0.5 from LYY
+                                      (itself wdist 1.0 from LDY).
+  LJS   BCC     LDA         3    1.5
+  LPS   BIT     CPX         3    1.5
+  LUU   BNE     LDY         3    1.5
+  MSC   CLV     ADC         3    1.5
+  SUS   INC     SED         3    1.5
+  WZR   CLC     EOR         3    1.5
+  WZS   CLD     TXS         3    1.5
+  WZX   CLI     STX         3    1.5
+  XSQ   DEC     BEQ         3    1.5
+  XVI   NOP     CLI         3    1.5
+  OVK   EOR     BRK         3    2.0
+
+All 16 false positives differ from their H-slot in all 3 characters
+(Hamming = 3).  Every false positive is at weighted distance >= 1.5 from
+every legal mnemonic — no false positive can be reached by a single
+adjacent-key error from any legal mnemonic.  Two independent errors are
+required to produce any false positive from any legal mnemonic.
+
+Comparison to previous hash (C1=9, C3=5, fp = c1*9 + c2)
+----------------------------------------------------------
+  Old:  33 FPs, min_wdl = 0.5
+        Worst: DDC mimics CMP; nearest legal DEC at wdist 0.5 (E->D adjacent).
+
+  New:  16 FPs, min_wdl = 1.5
+        All FPs require at least two simultaneous errors to reach from any
+        legal mnemonic.
+
+KYY analysis (most notable FP)
+-------------------------------
+KYY mimics SED and sits at wdist 1.5 from both INY and LDY:
+  - wdist(KYY, INY) = 0.5 (K adj I) + 1.0 (Y vs N) + 0.0 = 1.5
+  - wdist(KYY, LDY) = 0.5 (K adj L) + 1.0 (Y vs D) + 0.0 = 1.5
+No single-key error from any legal mnemonic produces KYY.
+
+Note on assembly carry behaviour
+---------------------------------
+The hash h = (c1*8 + c3*15 + T[c2]) & $3F requires two CLC instructions:
+
+  1. CLC before ADC mn6_h_tmp   — SEC/SBC (c3*15) leaves carry undefined.
+  2. CLC before ADC mn6_hash_t,Y — c1*8+c3*15 mod 256 may set carry when
+                                   the true sum exceeds 255.
+
+Both CLCs are necessary; without them, mnemonics with large c1 and c3
+values receive wrong slot assignments.  See src/mn6.s.

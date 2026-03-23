@@ -1,5 +1,12 @@
 # git ignores
 *~
-build
+build/
+__pycache__/
+
+# IDE / editor
 .vscode/c_cpp_properties.json
 .vscode/settings.json
+
+# Stale build artifacts in src/ (use build/ directory)
+src/*.o
+src/*.lst
