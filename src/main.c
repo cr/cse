@@ -32,34 +32,15 @@ uint8_t *src_bot = 0;
  * Hardware helpers
  * ═══════════════════════════════════════════════════════════════ */
 
-void custom_user_irq(void) {
-    __asm__("sei");
-    if (*((uint8_t *)0xCC) == 0) {
-        *((uint8_t *)0xCF) = 1;
-        *((uint8_t *)0x0287) = *((uint8_t *)(*(unsigned int *)0xF3
-                                + *(uint8_t *)0xD3));
-        *((uint8_t *)(*(unsigned int *)0xD1
-                      + *(uint8_t *)0xD3)) |= 0x80;
-        *((uint8_t *)0xCD) = 20;
-    }
-    __asm__("jmp $EA31");
+/* ── Steady cursor ──────────────────────────────────────── *
+ * KERNAL cursor blink disabled ($CC=1).  We reverse the char
+ * at the cursor position before io_getc and un-reverse after.
+ * No custom IRQ handler — zero race conditions. */
+static void cursor_show(void) {
+    SCREEN[io_cy * SCREEN_WIDTH + io_cx] |= 0x80;
 }
-
-void register_user_irq(void) {
-    *(void (**)(void))0x0314 = custom_user_irq;
-}
-
-void unregister_user_irq(void) {
-    *(void (**)(void))0x0314 = (void *)0xEA31;
-}
-
-void click_sound(void) {
-    volatile uint8_t i;
-    SID.v1.freq = 0x8000;
-    SID.v1.ctrl = 0x11;
-    SID.amp     = 10;
-    for (i = 0; i < 200; i++);
-    SID.v1.ctrl = 0x00;
+static void cursor_hide(void) {
+    SCREEN[io_cy * SCREEN_WIDTH + io_cx] &= 0x7F;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -276,14 +257,13 @@ void main(void)
 {
     uint8_t ch;
 
-    register_user_irq();
     *(uint8_t *)0x028a |= 0b11000000;    /* all keys repeat */
     MEM_CONFIG &= ~0x20;                 /* unmap BASIC ROM */
 
     state = ST_REPL;
     reset_screen();
     *(uint8_t *)0xD018 |= 0x02;          /* lowercase/uppercase charset */
-    io_cursor_on();
+    io_cursor_off();                      /* disable KERNAL cursor blink */
 
     /* greeter */
     io_cx = 0; io_cy = SCREEN_HEIGHT - 4; io_sync();
@@ -296,7 +276,9 @@ void main(void)
     /* ── main loop ──────────────────────────────────────── */
     while (state != ST_STOP) {
 
+        cursor_show();
         ch = io_getc();
+        cursor_hide();
 
         /* RUN/STOP toggles mode regardless */
         if (ch == CH_STOP) {
@@ -369,7 +351,7 @@ void main(void)
     /* ── exit cleanup ───────────────────────────────────── */
     *(unsigned long *)0x0800 = 0;
     MEM_CONFIG |= 0x20;
-    unregister_user_irq();
+    io_cursor_on();                       /* re-enable KERNAL cursor for BASIC */
     *(uint8_t *)0x028a &= 0b00111111;
     asm("jsr $A659");
 }
