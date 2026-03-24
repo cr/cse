@@ -345,14 +345,14 @@ static void ed_render_status(void)
         }
     }
 
-    /* ── right: fixed positions at cols 18-39 ──
-     * Layout: "  free:LLLL-HHHH LLL,CC"
-     *          18             33 34  38  */
+    /* ── right: fixed positions at cols 19-39 ──
+     * Layout: " free:LLLL-HHHH LLL,CC"
+     *          18            33 34  38  */
 
-    /* free:LLLL-HHHH at cols 20-33 */
+    /* free:LLLL-HHHH at cols 19-32 */
     lo = cse_end();
     hi = (uint16_t)buf_base - 1;
-    col = 20;
+    col = 19;
     s[col++] = 0x06 | 0x80;  /* f */
     s[col++] = 0x12 | 0x80;  /* r */
     s[col++] = 0x05 | 0x80;  /* e */
@@ -367,9 +367,9 @@ static void ed_render_status(void)
     s[col++] = hx[(hi >>  8) & 0xF] | 0x80;
     s[col++] = hx[(hi >>  4) & 0xF] | 0x80;
     s[col++] = hx[ hi        & 0xF] | 0x80;
-    /* col is now 34 */
+    /* col is now 33 */
 
-    /* col 34 = space (from fill).  LLL,CC at cols 35-39. */
+    /* col 33 = space (from fill).  LLL,CC at cols 34-39. */
     v = ed_cur_col + 1;
     s[39] = (0x30 + v % 10) | 0x80; v /= 10;
     s[38] = (0x30 + v % 10) | 0x80;
@@ -377,8 +377,7 @@ static void ed_render_status(void)
     v = ed_cur_line + 1;
     s[36] = (0x30 + v % 10) | 0x80; v /= 10;
     s[35] = v ? ((0x30 + v % 10) | 0x80) : 0xA0; v /= 10;
-    /* if line >= 100, need col 34 for hundreds digit */
-    if (v) s[34] = (0x30 + v % 10) | 0x80;
+    s[34] = v ? ((0x30 + v % 10) | 0x80) : 0xA0;
 }
 
 /* Render lines from_row to to_row using the cached view pointer. */
