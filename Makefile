@@ -28,8 +28,14 @@ VICE   ?= x64sc
 C1541  ?= c1541
 
 # ── CC65 main-binary flags (match VS64 / build.ninja) ───────────────────
-CFLAGS = -g -t c64 -DDEBUG -D__cc65__ -I$(ROOT) -I$(BUILD)
-AFLAGS = -g -t c64 -DDEBUG -D__cc65__ -I$(ROOT) -I$(BUILD)
+# -O for size optimization; add -g -DDEBUG with: make DEBUG=1
+ifdef DEBUG
+  CFLAGS = -g -O -t c64 -DDEBUG -D__cc65__ -I$(ROOT) -I$(BUILD)
+  AFLAGS = -g -t c64 -DDEBUG -D__cc65__ -I$(ROOT) -I$(BUILD)
+else
+  CFLAGS = -O -t c64 -D__cc65__ -I$(ROOT) -I$(BUILD)
+  AFLAGS = -t c64 -D__cc65__ -I$(ROOT) -I$(BUILD)
+endif
 LCFG   = $(SRC)/c64_cse.cfg
 LFLAGS = -C $(LCFG)
 
