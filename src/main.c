@@ -62,18 +62,22 @@ void scroll_up(uint8_t n) {
         memset(COLOR_RAM, io_color, 1000);
         io_cx = 0; io_cy = 0; io_sync();
     } else {
-        /* Disable IRQs: the custom IRQ handler writes to the screen
-         * via ($D1),Y and would corrupt data mid-memmove. */
+        /* SEI/CLI: prevent VIC-II from reading partially scrolled
+         * screen RAM during the copy (cosmetic — avoids 1-frame tear).
+         * With $CC=1 the KERNAL IRQ doesn't touch screen RAM, so this
+         * is only about the VIC raster read. */
         __asm__("sei");
         memmove(SCREEN, SCREEN + n * SCREEN_WIDTH,
                 SCREEN_WIDTH * (SCREEN_HEIGHT - n));
-        memmove(COLOR_RAM, COLOR_RAM + n * SCREEN_WIDTH,
-                SCREEN_WIDTH * (SCREEN_HEIGHT - n));
         memset(SCREEN + SCREEN_WIDTH * (SCREEN_HEIGHT - n),
                0x20, SCREEN_WIDTH * n);
+        __asm__("cli");
+        /* Color RAM: VIC reads it per-scanline but color glitches are
+         * less visible.  No SEI needed. */
+        memmove(COLOR_RAM, COLOR_RAM + n * SCREEN_WIDTH,
+                SCREEN_WIDTH * (SCREEN_HEIGHT - n));
         memset(COLOR_RAM + SCREEN_WIDTH * (SCREEN_HEIGHT - n),
                io_color, SCREEN_WIDTH * n);
-        __asm__("cli");
         io_cy = (io_cy > n) ? io_cy - n : 0;
         io_sync();
     }

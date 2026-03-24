@@ -224,10 +224,33 @@ void io_sync(void);
 #define io_bgcolor(c)      (*(uint8_t *)0xD021 = (c))
 ```
 
+## IRQ Safety
+
+**With $CC=1 (KERNAL cursor disabled), cse_io is fully IRQ-safe.**
+
+The KERNAL IRQ at $EA31 with $CC=1 only does:
+- Jiffy clock increment ($A0-$A2)
+- Keyboard scan (CIA1 → buffer at $0277, count at $C6)
+- STOP key check (CIA1)
+
+It does NOT touch: screen RAM, color RAM, $D1/$D2/$D3/$D6/$F3/$F4.
+
+Therefore:
+- io_putc, io_puts, io_puthex2/4, io_putdec, io_clear_eol: **no SEI needed**
+- io_sync (KERNAL PLOT): **no SEI needed** (PLOT is reentrant)
+- cursor_show/cursor_hide: **no SEI needed** (IRQ doesn't touch screen RAM)
+- scroll_up (memmove screen RAM): **SEI optional** — prevents VIC-II from
+  reading partially scrolled data (cosmetic: avoids 1-frame visual tear)
+
+**If $CC is ever set to 0 (cursor enabled), all bets are off** — the KERNAL
+IRQ would read/write screen RAM at $D1+$D3, conflicting with cse_io output.
+CSE keeps $CC=1 at all times and manages the cursor via cursor_show/hide.
+
 ## Caller Responsibilities
 
-1. Call `io_sync()` after changing `io_cy`.
-2. Fill screen RAM and color RAM at startup (`memset`).
-3. Manage color RAM in `scroll_up` (`memmove` + `memset`).
-4. Disable IRQs during screen memmove (`SEI`/`CLI`).
-5. Manage cursor visibility via `cursor_show()`/`cursor_hide()`.
+1. Set `$CC=1` (`io_cursor_off()`) at startup.  Never re-enable KERNAL cursor.
+2. Call `io_sync()` after changing `io_cy`.
+3. Fill screen RAM and color RAM at startup (`memset`).
+4. Manage color RAM in `scroll_up` (`memmove` + `memset`).
+5. Use `SEI`/`CLI` around screen RAM memmove in `scroll_up` (cosmetic).
+6. Manage cursor visibility via `cursor_show()`/`cursor_hide()`.
