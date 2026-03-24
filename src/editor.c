@@ -334,12 +334,17 @@ static void ed_render_status(void)
     col = 0;
     s[col++] = 0xA0;                          /* leading space */
     s[col++] = ed_dirty ? (0x2A | 0x80) : 0xA0;  /* '*' or space */
-    if (cur_filename[0])
-        for (j = 0; cur_filename[j] && col < 18; ++j) {
+    if (cur_filename[0]) {
+        uint8_t nlen = strlen(cur_filename);
+        /* strip ",s" or ",p" type suffix for display */
+        if (nlen >= 2 && cur_filename[nlen-2] == ',')
+            nlen -= 2;
+        for (j = 0; j < nlen && col < 18; ++j) {
             uint8_t sc = cur_filename[j];
             if (sc >= 0x41 && sc <= 0x5A) sc -= 0x40;
             s[col++] = sc | 0x80;
         }
+    }
 
     /* ── right: fixed positions at cols 18-39 ──
      * Layout: "  free:LLLL-HHHH LLL,CC"
