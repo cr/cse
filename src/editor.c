@@ -318,24 +318,71 @@ static uint8_t *prev_line_start(uint8_t *pos)
  * cols 0-17:  " *filename,s       " (dirty + name, 18 chars)
  * cols 18-39: "  free:LLLL-HHHH LLL,CC" (22 chars, right-aligned)
  */
+/* ── Status bar: partial update helpers ──────────────────────
+ *
+ * Layout (40 cols, all reversed):
+ *   *filename        free:LLLL-HHHH LLL,CC
+ *   0  1-17         18 19-32      33 34-39
+ *
+ * ed_status_full()   — rebuild everything (mode enter, load, save)
+ * ed_status_pos()    — update LLL,CC only (cursor movement)
+ * ed_status_dirty()  — update dirty flag only (first edit)
+ * ed_status_free()   — update HHHH only (buffer grew/shrank)
+ */
+
+static const uint8_t st_hx[] = {
+    0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,
+    0x38,0x39,0x01,0x02,0x03,0x04,0x05,0x06 };
+
+/* Update cursor position (cols 34-39). */
+static void ed_status_pos(void)
+{
+    uint8_t *s = SCREEN + ED_STATUS * SCREEN_WIDTH;
+    uint16_t v;
+
+    v = ed_cur_col + 1;
+    s[39] = (0x30 + v % 10) | 0x80; v /= 10;
+    s[38] = (0x30 + v % 10) | 0x80;
+    s[37] = 0x2C | 0x80;
+    v = ed_cur_line + 1;
+    s[36] = (0x30 + v % 10) | 0x80; v /= 10;
+    s[35] = v ? ((0x30 + v % 10) | 0x80) : 0xA0; v /= 10;
+    s[34] = v ? ((0x30 + v % 10) | 0x80) : 0xA0;
+}
+
+/* Update dirty flag (col 0). */
+static void ed_status_dirty(void)
+{
+    uint8_t *s = SCREEN + ED_STATUS * SCREEN_WIDTH;
+    s[0] = ed_dirty ? (0x2A | 0x80) : 0xA0;
+}
+
+/* Update upper free address (cols 29-32) — called when buf_base moves. */
+static void ed_status_free(void)
+{
+    uint8_t *s = SCREEN + ED_STATUS * SCREEN_WIDTH;
+    uint16_t hi = (uint16_t)buf_base - 1;
+    s[29] = st_hx[(hi >> 12) & 0xF] | 0x80;
+    s[30] = st_hx[(hi >>  8) & 0xF] | 0x80;
+    s[31] = st_hx[(hi >>  4) & 0xF] | 0x80;
+    s[32] = st_hx[ hi        & 0xF] | 0x80;
+}
+
+/* Full rebuild — called on mode enter, load, save, filename change. */
 static void ed_render_status(void)
 {
-    static const uint8_t hx[] = {
-        0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,
-        0x38,0x39,0x01,0x02,0x03,0x04,0x05,0x06 };
     uint8_t *s = SCREEN + ED_STATUS * SCREEN_WIDTH;
     uint8_t col, j;
-    uint16_t lo, hi, v;
+    uint16_t lo;
 
     /* fill with reversed spaces */
     for (col = 0; col < SCREEN_WIDTH; ++col) s[col] = 0xA0;
 
-    /* ── left: cols 0-17: dirty flag + filename ── */
+    /* dirty flag + filename (cols 0-17) */
     col = 0;
-    s[col++] = ed_dirty ? (0x2A | 0x80) : 0xA0;  /* '*' or space */
+    s[col++] = ed_dirty ? (0x2A | 0x80) : 0xA0;
     if (cur_filename[0]) {
         uint8_t nlen = strlen(cur_filename);
-        /* strip ",s" or ",p" type suffix for display */
         if (nlen >= 2 && cur_filename[nlen-2] == ',')
             nlen -= 2;
         for (j = 0; j < nlen && col < 18; ++j) {
@@ -345,39 +392,25 @@ static void ed_render_status(void)
         }
     }
 
-    /* ── right: fixed positions at cols 19-39 ──
-     * Layout: " free:LLLL-HHHH LLL,CC"
-     *          18            33 34  38  */
-
-    /* free:LLLL-HHHH at cols 19-32 */
-    lo = cse_end();
-    hi = (uint16_t)buf_base - 1;
+    /* "free:" label (cols 19-23) — static, only written on full rebuild */
     col = 19;
     s[col++] = 0x06 | 0x80;  /* f */
     s[col++] = 0x12 | 0x80;  /* r */
     s[col++] = 0x05 | 0x80;  /* e */
     s[col++] = 0x05 | 0x80;  /* e */
     s[col++] = 0x3A | 0x80;  /* : */
-    s[col++] = hx[(lo >> 12) & 0xF] | 0x80;
-    s[col++] = hx[(lo >>  8) & 0xF] | 0x80;
-    s[col++] = hx[(lo >>  4) & 0xF] | 0x80;
-    s[col++] = hx[ lo        & 0xF] | 0x80;
-    s[col++] = 0x2D | 0x80;  /* '-' */
-    s[col++] = hx[(hi >> 12) & 0xF] | 0x80;
-    s[col++] = hx[(hi >>  8) & 0xF] | 0x80;
-    s[col++] = hx[(hi >>  4) & 0xF] | 0x80;
-    s[col++] = hx[ hi        & 0xF] | 0x80;
-    /* col is now 33 */
 
-    /* col 33 = space (from fill).  LLL,CC at cols 34-39. */
-    v = ed_cur_col + 1;
-    s[39] = (0x30 + v % 10) | 0x80; v /= 10;
-    s[38] = (0x30 + v % 10) | 0x80;
-    s[37] = 0x2C | 0x80;  /* comma */
-    v = ed_cur_line + 1;
-    s[36] = (0x30 + v % 10) | 0x80; v /= 10;
-    s[35] = v ? ((0x30 + v % 10) | 0x80) : 0xA0; v /= 10;
-    s[34] = v ? ((0x30 + v % 10) | 0x80) : 0xA0;
+    /* lower free address (cols 24-27) — static within a session */
+    lo = cse_end();
+    s[col++] = st_hx[(lo >> 12) & 0xF] | 0x80;
+    s[col++] = st_hx[(lo >>  8) & 0xF] | 0x80;
+    s[col++] = st_hx[(lo >>  4) & 0xF] | 0x80;
+    s[col++] = st_hx[ lo        & 0xF] | 0x80;
+    s[col++] = 0x2D | 0x80;  /* '-' */
+
+    /* upper free address + cursor pos via partial updaters */
+    ed_status_free();
+    ed_status_pos();
 }
 
 /* Render lines from_row to to_row using the cached view pointer. */
@@ -440,7 +473,7 @@ static void ed_scroll_up(void)
         else
             ed_render_line(ED_LINES - 1, &pos);
     }
-    ed_render_status();
+    ed_status_pos();
 }
 
 /* Scroll screen down by one line, render new top line. */
@@ -463,7 +496,7 @@ static void ed_scroll_down(void)
         else
             ed_render_line(0, &pos);
     }
-    ed_render_status();
+    ed_status_pos();
 }
 
 /* ── Mode switching ─────────────────────────────────────── */
@@ -578,8 +611,8 @@ void ed_handle_key(uint8_t ch)
             gb_cursor_left();
             --ed_cur_col;
         }
-        /* cursor-only: just update status + reposition */
-        ed_render_status();
+        /* cursor-only: just update position in status bar */
+        ed_status_pos();
         goto reposition;
 
     case CH_CURS_RIGHT:
@@ -587,36 +620,35 @@ void ed_handle_key(uint8_t ch)
             gb_cursor_right();
             ++ed_cur_col;
         }
-        ed_render_status();
+        ed_status_pos();
         goto reposition;
 
     case CH_CURS_UP:
         ed_cursor_up();
         if (ed_cur_line < ed_top_line)
-            ed_scroll_down();             /* one-line scroll, render 1 row */
+            ed_scroll_down();
         else
-            ed_render_status();
+            ed_status_pos();
         goto reposition;
 
     case CH_CURS_DOWN:
         ed_cursor_down();
         if (ed_cur_line >= ed_top_line + ED_LINES)
-            ed_scroll_up();               /* one-line scroll, render 1 row */
+            ed_scroll_up();
         else
-            ed_render_status();
+            ed_status_pos();
         goto reposition;
 
     case CH_HOME:
         gb_home();
         ed_cur_col = 0;
-        ed_render_status();
+        ed_status_pos();
         goto reposition;
 
     case CH_DEL:
         if (ed_cur_col > 0) {
             gb_backspace();
             --ed_cur_col;
-            /* redraw current line to end of screen (text shifted) */
             scr_row = (uint8_t)(ed_cur_line - ed_top_line);
             ed_render_rows(scr_row, ED_LINES);
         } else if (ed_cur_line > 0) {
@@ -628,10 +660,12 @@ void ed_handle_key(uint8_t ch)
                 while (p > buf_base && *(p-1) != 0x0D) { --p; ++ed_cur_col; }
             }
             if (ed_cur_line < ed_top_line) ed_top_line = ed_cur_line;
-            /* line join — redraw from joined line down */
             scr_row = (uint8_t)(ed_cur_line - ed_top_line);
             ed_render_rows(scr_row, ED_LINES);
         }
+        if (!ed_dirty) { ed_dirty = 1; ed_status_dirty(); }
+        ed_status_free();
+        ed_status_pos();
         goto reposition;
 
     case CH_ENTER:
@@ -647,17 +681,21 @@ void ed_handle_key(uint8_t ch)
             else
                 ed_render();
         }
+        if (!ed_dirty) { ed_dirty = 1; ed_status_dirty(); }
+        ed_status_free();
+        ed_status_pos();
         goto reposition;
 
     default:
-        /* accept unshifted ($20-$7E) and shifted letters ($C1-$DA) */
         if (((ch >= 0x20 && ch <= 0x7E) || (ch >= 0xC1 && ch <= 0xDA))
             && ed_cur_col < SCREEN_WIDTH - 1) {
             gb_insert(ch);
             ++ed_cur_col;
-            /* redraw only the current line + status */
             scr_row = (uint8_t)(ed_cur_line - ed_top_line);
             ed_render_rows(scr_row, scr_row + 1);
+            if (!ed_dirty) { ed_dirty = 1; ed_status_dirty(); }
+            ed_status_free();
+            ed_status_pos();
         }
         goto reposition;
     }
