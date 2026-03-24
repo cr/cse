@@ -16,10 +16,10 @@
 
 #define MEM_CONFIG (*(uint8_t *)0x01)
 
-/* C64 key codes — CH_ENTER etc. come from <c64.h> via cbm.h.
- * CH_ESC is not defined by cc65, add it here. */
+/* CH_ENTER, CH_DEL, etc. come from <c64.h>.
+ * CH_ESC is not in cc65's headers. */
 #ifndef CH_ESC
-#define CH_ESC      0x1B
+#define CH_ESC  0x1B
 #endif
 
 /* ── Globals (defined here, declared extern in cse.h) ──── */

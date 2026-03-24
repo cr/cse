@@ -216,7 +216,7 @@ _io_clear_eol:
 _io_getc:
         jsr $FFE4               ; KERNAL GETIN
         beq _io_getc            ; loop until key pressed
-        ldx #0                  ; hi byte = 0 for uint8_t return
+        ldx #0
         rts
 
 ; ── io_kbhit — non-blocking keyboard check ──────────────────
