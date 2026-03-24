@@ -332,7 +332,6 @@ static void ed_render_status(void)
 
     /* ── left: cols 0-17: dirty flag + filename ── */
     col = 0;
-    s[col++] = 0xA0;                          /* leading space */
     s[col++] = ed_dirty ? (0x2A | 0x80) : 0xA0;  /* '*' or space */
     if (cur_filename[0]) {
         uint8_t nlen = strlen(cur_filename);
@@ -370,20 +369,16 @@ static void ed_render_status(void)
     s[col++] = hx[ hi        & 0xF] | 0x80;
     /* col is now 34 */
 
-    /* LLL,CC right-aligned at cols 34-39 (3 digits line, 2 digits col) */
-    /* col 39-38: column (2 digits, zero-padded) */
+    /* col 34 = space (from fill).  LLL,CC at cols 35-39. */
     v = ed_cur_col + 1;
     s[39] = (0x30 + v % 10) | 0x80; v /= 10;
     s[38] = (0x30 + v % 10) | 0x80;
-
-    /* col 37: comma */
-    s[37] = 0x2C | 0x80;
-
-    /* cols 34-36: line (3 digits, space-padded) */
+    s[37] = 0x2C | 0x80;  /* comma */
     v = ed_cur_line + 1;
     s[36] = (0x30 + v % 10) | 0x80; v /= 10;
     s[35] = v ? ((0x30 + v % 10) | 0x80) : 0xA0; v /= 10;
-    s[34] = v ? ((0x30 + v % 10) | 0x80) : 0xA0;
+    /* if line >= 100, need col 34 for hundreds digit */
+    if (v) s[34] = (0x30 + v % 10) | 0x80;
 }
 
 /* Render lines from_row to to_row using the cached view pointer. */
