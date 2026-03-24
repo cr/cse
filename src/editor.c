@@ -314,22 +314,26 @@ static uint8_t *prev_line_start(uint8_t *pos)
     return pos;
 }
 
-/* Render status bar (row 22), vim-style layout:
- *  *filename,s    $C700  3,12  50%
- * Left: dirty + filename.  Right: buf floor, line,col, percentage. */
+/* Render status bar (row 22).  Fixed layout, 40 cols:
+ * cols 0-17:  " *filename,s       " (dirty + name, 18 chars)
+ * cols 18-39: "  free:LLLL-HHHH LLL,CC" (22 chars, right-aligned)
+ */
 static void ed_render_status(void)
 {
+    static const uint8_t hx[] = {
+        0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,
+        0x38,0x39,0x01,0x02,0x03,0x04,0x05,0x06 };
     uint8_t *s = SCREEN + ED_STATUS * SCREEN_WIDTH;
-    uint8_t col, rcol, j;
-    uint16_t v;
-    uint8_t pct;
+    uint8_t col, j;
+    uint16_t lo, hi, v;
 
     /* fill with reversed spaces */
     for (col = 0; col < SCREEN_WIDTH; ++col) s[col] = 0xA0;
 
-    /* ── left side: dirty flag + filename ── */
-    col = 1;
-    if (ed_dirty) s[col++] = 0x2A | 0x80;   /* '*' */
+    /* ── left: cols 0-17: dirty flag + filename ── */
+    col = 0;
+    s[col++] = 0xA0;                          /* leading space */
+    s[col++] = ed_dirty ? (0x2A | 0x80) : 0xA0;  /* '*' or space */
     if (cur_filename[0])
         for (j = 0; cur_filename[j] && col < 18; ++j) {
             uint8_t sc = cur_filename[j];
@@ -337,79 +341,44 @@ static void ed_render_status(void)
             s[col++] = sc | 0x80;
         }
 
-    /* ── right side, built right-to-left ── */
+    /* ── right: fixed positions at cols 18-39 ──
+     * Layout: "  free:LLLL-HHHH LLL,CC"
+     *          18             33 34  38  */
 
-    /* percentage (or "all"/"top"/"bot") */
-    if (ed_total_lines <= 1) {
-        /* "all" */
-        s[37] = 0x01 | 0x80;  /* a */
-        s[38] = 0x0C | 0x80;  /* l */
-        s[39] = 0x0C | 0x80;  /* l */
-    } else {
-        pct = (uint8_t)((uint32_t)(ed_cur_line + 1) * 100 / ed_total_lines);
-        if (ed_cur_line == 0) {
-            s[37] = 0x14 | 0x80;  /* t */
-            s[38] = 0x0F | 0x80;  /* o */
-            s[39] = 0x10 | 0x80;  /* p */
-        } else if (ed_cur_line + 1 >= ed_total_lines) {
-            s[37] = 0x02 | 0x80;  /* b */
-            s[38] = 0x0F | 0x80;  /* o */
-            s[39] = 0x14 | 0x80;  /* t */
-        } else {
-            /* NN% right-aligned at cols 37-39 */
-            s[39] = 0x25 | 0x80;  /* '%' */
-            s[38] = (0x30 + pct % 10) | 0x80;
-            pct /= 10;
-            if (pct > 0) s[37] = (0x30 + pct % 10) | 0x80;
-        }
-    }
+    /* free:LLLL-HHHH at cols 20-33 */
+    lo = cse_end();
+    hi = (uint16_t)buf_base - 1;
+    col = 20;
+    s[col++] = 0x06 | 0x80;  /* f */
+    s[col++] = 0x12 | 0x80;  /* r */
+    s[col++] = 0x05 | 0x80;  /* e */
+    s[col++] = 0x05 | 0x80;  /* e */
+    s[col++] = 0x3A | 0x80;  /* : */
+    s[col++] = hx[(lo >> 12) & 0xF] | 0x80;
+    s[col++] = hx[(lo >>  8) & 0xF] | 0x80;
+    s[col++] = hx[(lo >>  4) & 0xF] | 0x80;
+    s[col++] = hx[ lo        & 0xF] | 0x80;
+    s[col++] = 0x2D | 0x80;  /* '-' */
+    s[col++] = hx[(hi >> 12) & 0xF] | 0x80;
+    s[col++] = hx[(hi >>  8) & 0xF] | 0x80;
+    s[col++] = hx[(hi >>  4) & 0xF] | 0x80;
+    s[col++] = hx[ hi        & 0xF] | 0x80;
+    /* col is now 34 */
 
-    /* "line,col" right-aligned before the percentage */
-    /* work backwards from col 35 */
-    rcol = 35;
-
-    /* column number */
+    /* LLL,CC right-aligned at cols 34-39 (3 digits line, 2 digits col) */
+    /* col 39-38: column (2 digits, zero-padded) */
     v = ed_cur_col + 1;
-    { char tmp[3]; uint8_t len = 0;
-      if (v == 0) tmp[len++] = 0;
-      else while (v) { tmp[len++] = v % 10; v /= 10; }
-      for (j = 0; j < len; ++j) s[rcol--] = (0x30 + tmp[j]) | 0x80;
-    }
+    s[39] = (0x30 + v % 10) | 0x80; v /= 10;
+    s[38] = (0x30 + v % 10) | 0x80;
 
-    /* comma */
-    s[rcol--] = 0x2C | 0x80;
+    /* col 37: comma */
+    s[37] = 0x2C | 0x80;
 
-    /* line number */
+    /* cols 34-36: line (3 digits, space-padded) */
     v = ed_cur_line + 1;
-    { char tmp[6]; uint8_t len = 0;
-      if (v == 0) tmp[len++] = 0;
-      else while (v) { tmp[len++] = v % 10; v /= 10; }
-      for (j = 0; j < len; ++j) s[rcol--] = (0x30 + tmp[j]) | 0x80;
-    }
-
-    /* free range for assembler output: cse_end..buf_base-1
-     * Show as "LLLL-HHHH" where LLLL=cse_end, HHHH=buf_base-1 */
-    { static const uint8_t hx[] = {
-        0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,
-        0x38,0x39,0x01,0x02,0x03,0x04,0x05,0x06 };
-      uint16_t lo = cse_end();
-      uint16_t hi = (uint16_t)buf_base - 1;
-      uint8_t p = rcol - 13;  /* "free:" + 4+1+4 = 14 chars */
-      s[p++] = 0x06 | 0x80;  /* f */
-      s[p++] = 0x12 | 0x80;  /* r */
-      s[p++] = 0x05 | 0x80;  /* e */
-      s[p++] = 0x05 | 0x80;  /* e */
-      s[p++] = 0x3A | 0x80;  /* : */
-      s[p++] = hx[(lo >> 12) & 0xF] | 0x80;
-      s[p++] = hx[(lo >>  8) & 0xF] | 0x80;
-      s[p++] = hx[(lo >>  4) & 0xF] | 0x80;
-      s[p++] = hx[ lo        & 0xF] | 0x80;
-      s[p++] = 0x2D | 0x80;  /* '-' */
-      s[p++] = hx[(hi >> 12) & 0xF] | 0x80;
-      s[p++] = hx[(hi >>  8) & 0xF] | 0x80;
-      s[p++] = hx[(hi >>  4) & 0xF] | 0x80;
-      s[p++] = hx[ hi        & 0xF] | 0x80;
-    }
+    s[36] = (0x30 + v % 10) | 0x80; v /= 10;
+    s[35] = v ? ((0x30 + v % 10) | 0x80) : 0xA0; v /= 10;
+    s[34] = v ? ((0x30 + v % 10) | 0x80) : 0xA0;
 }
 
 /* Render lines from_row to to_row using the cached view pointer. */
