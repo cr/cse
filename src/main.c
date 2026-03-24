@@ -81,6 +81,9 @@ void scroll_up(uint8_t n) {
         memset(COLOR_RAM, io_color, 1000);
         io_cx = 0; io_cy = 0; io_sync();
     } else {
+        /* Disable IRQs: the custom IRQ handler writes to the screen
+         * via ($D1),Y and would corrupt data mid-memmove. */
+        __asm__("sei");
         memmove(SCREEN, SCREEN + n * SCREEN_WIDTH,
                 SCREEN_WIDTH * (SCREEN_HEIGHT - n));
         memmove(COLOR_RAM, COLOR_RAM + n * SCREEN_WIDTH,
@@ -89,6 +92,7 @@ void scroll_up(uint8_t n) {
                0x20, SCREEN_WIDTH * n);
         memset(COLOR_RAM + SCREEN_WIDTH * (SCREEN_HEIGHT - n),
                io_color, SCREEN_WIDTH * n);
+        __asm__("cli");
         io_cy = (io_cy > n) ? io_cy - n : 0;
     }
 }
