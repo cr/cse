@@ -29,9 +29,9 @@ char cur_filename[FILENAME_MAX_LEN + 1] = "";
 /* newline + fresh prompt — used by most commands on exit */
 static void nl_prompt(void) { newline(); show_prompt(); }
 
-/* error message + newline + prompt */
+/* error message on next line + prompt */
 static void err_prompt(const char *msg) {
-    io_puts(msg); clear_eol(); nl_prompt();
+    newline(); io_puts(msg); clear_eol(); nl_prompt();
 }
 
 /* parse 2 or 4 hex digits from *q, return value.
@@ -179,7 +179,6 @@ static void cmd_dot(uint16_t addr, uint8_t *args)
         if (*mne >= 'a' && *mne <= 'z') {
             nbytes = asm_line(addr, (char *)mne);
             if (nbytes == 0) {
-                io_cx = 0;
                 err_prompt("?asm"); return;
             }
         }
@@ -294,9 +293,9 @@ static void cmd_reg(uint8_t *args)
         reg_p = p;
     }
 
-    emit_reg();
     newline();
-    show_prompt();
+    emit_reg();
+    nl_prompt();
 }
 
 /* Check if filename ends with ",s" (SEQ file type suffix).
@@ -575,6 +574,7 @@ void exec_line(void)
         case 'b':
         {   uint16_t v = parse_hex_flex(&q);
             if (v) block_size = v ? v : 8;
+            newline();
             io_puts("b="); io_puthex4(block_size);
             clear_eol(); nl_prompt(); break;
         }
@@ -586,6 +586,7 @@ void exec_line(void)
             nl_prompt(); break;
         }
         case 'q':
+            newline();
             io_puts("quit? y/n ");
             while (io_kbhit());
             if (io_getc() == 'y') state = ST_STOP;
