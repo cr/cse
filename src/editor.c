@@ -314,80 +314,60 @@ static uint8_t *prev_line_start(uint8_t *pos)
     return pos;
 }
 
-/* Render the status bar (row 22) into a temp buffer, then copy to
- * screen in one shot to prevent flicker from partial updates. */
-static uint8_t status_buf[SCREEN_WIDTH];
-
+/* Render the status bar (row 22).  Writes reversed screen codes
+ * directly — no temp buffer, no flicker. */
 static void ed_render_status(void)
 {
-    uint8_t *scr = SCREEN + ED_STATUS * SCREEN_WIDTH;
-    uint8_t i;
+    uint8_t *s = SCREEN + ED_STATUS * SCREEN_WIDTH;
+    uint8_t col = 0;
+    uint16_t v;
+    char tmp[6];
+    uint8_t len, j;
 
-    /* build into status_buf via io_puts/io_putdec (they write to screen
-     * RAM at the cursor row — temporarily point to a scratch row) */
-    uint8_t sav_cy = io_cy;
-    /* write into the actual screen row but we'll overwrite atomically */
-    /* Actually, simplest: build in status_buf manually */
+    /* " l:" */
+    s[col++] = 0xA0;
+    s[col++] = 0x0C | 0x80;
+    s[col++] = 0x3A | 0x80;
 
-    /* fill with reversed spaces */
-    for (i = 0; i < SCREEN_WIDTH; ++i) status_buf[i] = 0xA0;
+    /* line number */
+    v = ed_cur_line + 1; len = 0;
+    if (v == 0) tmp[len++] = 0;
+    else while (v) { tmp[len++] = v % 10; v /= 10; }
+    for (j = len; j > 0;) s[col++] = (0x30 + tmp[--j]) | 0x80;
 
-    /* write content at offsets, converting PETSCII → screencode | $80 */
-    {
-        uint8_t col = 0;
-        uint16_t v;
-        char tmp[6];
-        uint8_t len, j;
+    /* " c:" */
+    s[col++] = 0xA0;
+    s[col++] = 0x03 | 0x80;
+    s[col++] = 0x3A | 0x80;
 
-        /* " l:" */
-        status_buf[col++] = 0xA0;
-        status_buf[col++] = 0x0C | 0x80;  /* 'l' */
-        status_buf[col++] = 0x3A | 0x80;  /* ':' */
+    /* column */
+    v = ed_cur_col + 1; len = 0;
+    if (v == 0) tmp[len++] = 0;
+    else while (v) { tmp[len++] = v % 10; v /= 10; }
+    for (j = len; j > 0;) s[col++] = (0x30 + tmp[--j]) | 0x80;
 
-        /* decimal: line number */
-        v = ed_cur_line + 1;
-        len = 0;
-        if (v == 0) { tmp[len++] = 0; }
-        else { while (v > 0) { tmp[len++] = v % 10; v /= 10; } }
-        for (j = len; j > 0; --j) status_buf[col++] = (0x30 + tmp[j-1]) | 0x80;
+    /* free bytes */
+    s[col++] = 0xA0;
+    v = (uint16_t)(gap_hi - gap_lo); len = 0;
+    if (v == 0) tmp[len++] = 0;
+    else while (v) { tmp[len++] = v % 10; v /= 10; }
+    for (j = len; j > 0;) s[col++] = (0x30 + tmp[--j]) | 0x80;
 
-        /* " c:" */
-        status_buf[col++] = 0xA0;
-        status_buf[col++] = 0x03 | 0x80;  /* 'c' */
-        status_buf[col++] = 0x3A | 0x80;  /* ':' */
-
-        /* decimal: column */
-        v = ed_cur_col + 1;
-        len = 0;
-        if (v == 0) { tmp[len++] = 0; }
-        else { while (v > 0) { tmp[len++] = v % 10; v /= 10; } }
-        for (j = len; j > 0; --j) status_buf[col++] = (0x30 + tmp[j-1]) | 0x80;
-
-        /* " " + free bytes */
-        status_buf[col++] = 0xA0;
-        v = (uint16_t)(gap_hi - gap_lo);
-        len = 0;
-        if (v == 0) { tmp[len++] = 0; }
-        else { while (v > 0) { tmp[len++] = v % 10; v /= 10; } }
-        for (j = len; j > 0; --j) status_buf[col++] = (0x30 + tmp[j-1]) | 0x80;
-
-        /* " " + filename */
-        status_buf[col++] = 0xA0;
-        if (cur_filename[0]) {
-            for (j = 0; cur_filename[j] && col < SCREEN_WIDTH; ++j) {
-                uint8_t sc = cur_filename[j];
-                if (sc >= 0x41 && sc <= 0x5A) sc -= 0x40;
-                status_buf[col++] = sc | 0x80;
-            }
+    /* filename */
+    s[col++] = 0xA0;
+    if (cur_filename[0])
+        for (j = 0; cur_filename[j] && col < SCREEN_WIDTH; ++j) {
+            uint8_t sc = cur_filename[j];
+            if (sc >= 0x41 && sc <= 0x5A) sc -= 0x40;
+            s[col++] = sc | 0x80;
         }
 
-        /* dirty flag */
-        if (ed_dirty && col < SCREEN_WIDTH)
-            status_buf[col++] = 0x2A | 0x80;  /* '*' */
-    }
+    /* dirty flag */
+    if (ed_dirty && col < SCREEN_WIDTH)
+        s[col++] = 0x2A | 0x80;
 
-    /* single copy to screen — no flicker */
-    memcpy(scr, status_buf, SCREEN_WIDTH);
+    /* pad remainder */
+    while (col < SCREEN_WIDTH) s[col++] = 0xA0;
 }
 
 /* Render lines from_row to to_row using the cached view pointer. */
