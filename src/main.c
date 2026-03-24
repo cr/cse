@@ -90,15 +90,16 @@ void scroll_up(uint8_t n) {
         memset(COLOR_RAM + SCREEN_WIDTH * (SCREEN_HEIGHT - n),
                io_color, SCREEN_WIDTH * n);
         io_cy = (io_cy > n) ? io_cy - n : 0;
-        io_sync();
     }
 }
 
 void newline(void) {
-    if (io_cy == SCREEN_HEIGHT - 1)
-        scroll_up(1);
-    else
+    if (io_cy == SCREEN_HEIGHT - 1) {
+        scroll_up(1);              /* decrements io_cy to 23 */
+        io_cy = SCREEN_HEIGHT - 1; /* put it back to 24 (new empty row) */
+    } else {
         ++io_cy;
+    }
     io_cx = 0;
     io_sync();
 }

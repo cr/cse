@@ -86,6 +86,23 @@ def _parse_listing_syms():
     return offsets
 
 
+def _parse_exports():
+    """Parse exported symbols from map file."""
+    syms = {}
+    in_exports = False
+    for line in IO_MAP.read_text().splitlines():
+        if "Exports list by name" in line:
+            in_exports = True
+            continue
+        if in_exports:
+            m = re.match(r"(\w+)\s+([0-9a-fA-F]+)", line)
+            if m:
+                syms[m.group(1)] = int(m.group(2), 16)
+            elif line.strip() == "":
+                break
+    return syms
+
+
 class IoSymbols:
     def __init__(self):
         if _needs_rebuild():
@@ -103,6 +120,7 @@ class IoSymbols:
         self.io_putdec    = code + ofs["_io_putdec"]
         self.io_clear_eol = code + ofs["_io_clear_eol"]
         self.io_kbhit     = code + ofs["_io_kbhit"]
+
 
         zp_start = seg.get("ZEROPAGE", 0)
         raw = IO_BIN.read_bytes()
@@ -127,12 +145,65 @@ def io_syms():
 
 RTS_ADDR = 0x01F0  # place an RTS here for JSR returns
 
+PLOT_STUB = 0xFE00  # place our PLOT stub at $FE00 (safe, high memory)
+
+# Screen row addresses: $0400 + row*40
+SCR_ROW_LO = [(SCREEN + r * COLS) & 0xFF for r in range(ROWS)]
+SCR_ROW_HI = [(SCREEN + r * COLS) >> 8 for r in range(ROWS)]
+
 def make_cpu(io_syms):
     """Create a py65 CPU with the IO binary loaded, cursor at (0,0)."""
     cpu = MPU()
     mem = bytearray(0x10000)
     io_syms.load_into(mem)
     mem[RTS_ADDR] = 0x60  # RTS instruction for return
+
+    # Write a minimal KERNAL PLOT stub at PLOT_STUB.
+    # It reads X=row, Y=col and sets $D1/$D2/$D3/$D6/$F3/$F4.
+    # We write the scr_lo/scr_hi tables inline.
+    # But simpler: just make $FFF0 an RTS and handle sync in Python.
+    # Actually simplest: write the stub in machine code.
+    #
+    # PLOT stub:  BCS @get
+    #             STX $D6 / STY $D3
+    #             LDA scr_lo_tbl,X / STA $D1 / STA $F3
+    #             LDA scr_hi_tbl,X / STA $D2
+    #             CLC / ADC #$D4 / STA $F4
+    #             RTS
+    #  @get:      LDX $D6 / LDY $D3 / RTS
+    #
+    # Place row tables at PLOT_STUB + 0x30
+    tbl = PLOT_STUB + 0x30
+    stub = [
+        0xB0, 0x16,             # BCS +22 (@get at offset 24)
+        0x86, 0xD6,             # STX $D6
+        0x84, 0xD3,             # STY $D3
+        0xBD, tbl & 0xFF, tbl >> 8,       # LDA tbl_lo,X
+        0x85, 0xD1,             # STA $D1
+        0x85, 0xF3,             # STA $F3
+        0xBD, (tbl+25) & 0xFF, (tbl+25) >> 8,  # LDA tbl_hi,X
+        0x85, 0xD2,             # STA $D2
+        0x18,                   # CLC
+        0x69, 0xD4,             # ADC #$D4
+        0x85, 0xF4,             # STA $F4
+        0x60,                   # RTS
+        # @get (offset 0x16 = 22):
+        0xA6, 0xD6,             # LDX $D6
+        0xA4, 0xD3,             # LDY $D3
+        0x60,                   # RTS
+    ]
+    for i, b in enumerate(stub):
+        mem[PLOT_STUB + i] = b
+    # Row address tables
+    for r in range(ROWS):
+        mem[tbl + r] = SCR_ROW_LO[r]
+        mem[tbl + 25 + r] = SCR_ROW_HI[r]
+
+    # Patch $FFF0: JMP PLOT_STUB
+    mem[0xFFF0] = 0x4C
+    mem[0xFFF1] = PLOT_STUB & 0xFF
+    mem[0xFFF2] = PLOT_STUB >> 8
+
     cpu.memory = mem
 
     # Init cursor to (0, 0)

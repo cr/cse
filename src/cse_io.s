@@ -12,6 +12,7 @@
         .export _io_getc, _io_kbhit
         .export _io_sync
         .export _io_color
+        .export scr_lo, scr_hi  ; for test stub's PLOT replacement
 
 COLS    = 40
 ROWS    = 25
@@ -68,18 +69,15 @@ dec_hi:                 ; powers of 10, hi bytes
 ; ── CODE ────────────────────────────────────────────────────
 .segment "CODE"
 
-; ── io_sync — update $D1/$D2/$F3/$F4 from cursor row ───────
-; Call after changing $D6 (io_cy).
+; ── io_sync — update screen/color line pointers from cursor position ──
+; Call after changing $D6 (io_cy) or $D3 (io_cx).
+; Uses KERNAL PLOT to keep all internal state consistent,
+; preventing the IRQ cursor blinker from corrupting pointers.
 _io_sync:
         ldx CUR_ROW
-        lda scr_lo,x
-        sta SCR_PTR
-        sta COL_PTR             ; lo byte same for screen + color RAM
-        lda scr_hi,x
-        sta SCR_PTR+1
-        clc
-        adc #$D4                ; $04xx → $D8xx (screen → color RAM)
-        sta COL_PTR+1
+        ldy CUR_COL
+        clc                     ; CLC = set position
+        jsr $FFF0               ; KERNAL PLOT: sets $D1/$D2/$D3/$D6/$F3/$F4
         rts
 
 ; ── io_putc — write PETSCII char at cursor, advance ─────────
@@ -103,8 +101,6 @@ _io_putc:
 @write:
         ldy CUR_COL
         sta (SCR_PTR),y
-        lda _io_color
-        sta (COL_PTR),y
         iny
         cpy #COLS
         bcc :+
@@ -148,16 +144,12 @@ _io_puthex2:
         lda hex_tab,x           ; screen code for hi nibble
         ldy CUR_COL
         sta (SCR_PTR),y
-        lda _io_color
-        sta (COL_PTR),y
         iny
         pla                     ; recover byte
         and #$0F
         tax
         lda hex_tab,x           ; screen code for lo nibble
         sta (SCR_PTR),y
-        lda _io_color
-        sta (COL_PTR),y
         iny
         cpy #COLS
         bcc :+
@@ -201,8 +193,6 @@ _io_putdec:
         lda hex_tab,y           ; screen code for digit
         ldy CUR_COL
         sta (SCR_PTR),y
-        lda _io_color
-        sta (COL_PTR),y
         iny
         sty CUR_COL
 @next:  inx
@@ -218,8 +208,6 @@ _io_clear_eol:
         bcs @done
         lda #$20                ; space screen code
         sta (SCR_PTR),y
-        lda _io_color
-        sta (COL_PTR),y
         iny
         bne @loop               ; always (Y < 256)
 @done:  rts

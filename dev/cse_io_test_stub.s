@@ -1,7 +1,36 @@
-; cse_io_test_stub.s — test harness for cse_io.s
+; cse_io_test_stub.s — KERNAL PLOT stub for py65 test environment
 ;
-; cse_io.s already exports all symbols.  This stub exists only
-; to satisfy the two-file build pattern.  Empty.
+; io_sync calls JSR $FFF0 (KERNAL PLOT).  In py65 there's no ROM,
+; so we patch $FFF0 → JMP kplot_stub.  This stub uses the same
+; scr_lo/scr_hi tables from cse_io.s.
+
+        .export kplot_stub
+
+        .import _io_sync
+
+; Import the row address tables from cse_io.s
+        .import scr_lo, scr_hi
 
 .segment "CODE"
-; nothing needed — cse_io.s is self-contained
+
+; KERNAL PLOT replacement.
+;   CLC, X=row, Y=col → set cursor position + line pointers.
+;   SEC → get position: X=row, Y=col.
+kplot_stub:
+        bcs @get
+        ; SET
+        stx $D6                 ; cursor row
+        sty $D3                 ; cursor column
+        lda scr_lo,x
+        sta $D1
+        sta $F3                 ; color lo = screen lo
+        lda scr_hi,x
+        sta $D2
+        clc
+        adc #$D4                ; $04xx → $D8xx
+        sta $F4
+        rts
+@get:
+        ldx $D6
+        ldy $D3
+        rts
