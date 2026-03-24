@@ -8,10 +8,11 @@
  * ═══════════════════════════════════════════════════════════════ */
 
 #include <c64.h>
-#include <conio.h>
+#include <cbm.h>
 #include <string.h>
 #include <stdint.h>
 #include "cse.h"
+#include "cse_io.h"
 #include "editor.h"
 
 #define ED_LINES     22                   /* visible source lines */
@@ -108,14 +109,6 @@ static void gb_backspace(void)
     ed_dirty = 1;
 }
 
-static void gb_delete_fwd(void)
-{
-    if (gap_hi >= buf_end) return;
-    if (*gap_hi == 0x0D) --ed_total_lines;
-    ++gap_hi;
-    ed_dirty = 1;
-}
-
 static void gb_cursor_right(void)
 {
     if (gap_hi >= buf_end) return;
@@ -128,19 +121,7 @@ static void gb_cursor_left(void)
     *--gap_hi = *--gap_lo;
 }
 
-static void gb_goto_line(uint16_t target)
-{
-    uint16_t line;
 
-    while (gap_lo > buf_base) gb_cursor_left();
-
-    line = 0;
-    while (line < target) {
-        if (gap_hi >= buf_end) break;
-        if (*gap_hi == 0x0D) ++line;
-        gb_cursor_right();
-    }
-}
 
 /* ── Public: ensure gap buffer is initialized ────────────── */
 
@@ -327,19 +308,6 @@ static uint8_t *prev_line_start(uint8_t *pos)
     return pos;
 }
 
-/* Write a 16-bit hex value directly to screen RAM. */
-static void scr_hex4(uint8_t *scr, uint16_t v)
-{
-    static const uint8_t hex[] = {
-        0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,
-        0x38,0x39,0x01,0x02,0x03,0x04,0x05,0x06
-    };
-    scr[0] = hex[(v >> 12) & 0xF] | 0x80;
-    scr[1] = hex[(v >>  8) & 0xF] | 0x80;
-    scr[2] = hex[(v >>  4) & 0xF] | 0x80;
-    scr[3] = hex[ v        & 0xF] | 0x80;
-}
-
 /* Write a decimal number directly to screen RAM (reversed).
  * Returns number of chars written. */
 static uint8_t scr_dec(uint8_t *scr, uint16_t v)
@@ -485,8 +453,8 @@ static void ed_scroll_down(void)
 void enter_editor(void)
 {
     /* save REPL state */
-    repl_cur_x = wherex();
-    repl_cur_y = wherey();
+    repl_cur_x = io_cx;
+    repl_cur_y = io_cy;
     memcpy(repl_screen, SCREEN, 1000);
 
     if (buf_end == 0) ed_init();
@@ -507,14 +475,14 @@ void enter_editor(void)
 
     ed_render();
 
-    gotoxy(ed_cur_col, ed_cur_line - ed_top_line);
+    io_cx = ed_cur_col; io_cy = ed_cur_line - ed_top_line; io_sync();
     state = ST_EDIT;
 }
 
 void leave_editor(void)
 {
     memcpy(SCREEN, repl_screen, 1000);
-    gotoxy(repl_cur_x, repl_cur_y);
+    io_cx = repl_cur_x; io_cy = repl_cur_y; io_sync();
     state = ST_REPL;
 }
 
@@ -528,13 +496,7 @@ static void gb_home(void)
     }
 }
 
-static uint8_t ed_line_len(void)
-{
-    uint8_t *p = gap_hi;
-    uint8_t len = ed_cur_col;
-    while (p < buf_end && *p != 0x0D) { ++p; ++len; }
-    return len;
-}
+
 
 static void ed_cursor_up(void)
 {
@@ -684,6 +646,7 @@ void ed_handle_key(uint8_t ch)
 
 reposition:
     scr_row = (uint8_t)(ed_cur_line - ed_top_line);
-    if (scr_row < ED_LINES)
-        gotoxy(ed_cur_col, scr_row);
+    if (scr_row < ED_LINES) {
+        io_cx = ed_cur_col; io_cy = scr_row; io_sync();
+    }
 }

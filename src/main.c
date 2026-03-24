@@ -7,17 +7,20 @@
 
 #include <c64.h>
 #include <cbm.h>
-#include <conio.h>
 #include <string.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include "cse.h"
+#include "cse_io.h"
 #include "repl.h"
 #include "editor.h"
 
-#define MEM_CONFIG    (*(uint8_t *)0x01)
-#define CURSOR_ROW    (*(uint8_t *)0xD6)
-#define CURSOR_COL    (*(uint8_t *)0xD3)
+#define MEM_CONFIG (*(uint8_t *)0x01)
+
+/* C64 key codes — CH_ENTER etc. come from <c64.h> via cbm.h.
+ * CH_ESC is not defined by cc65, add it here. */
+#ifndef CH_ESC
+#define CH_ESC      0x1B
+#endif
 
 /* ── Globals (defined here, declared extern in cse.h) ──── */
 uint8_t state = 0;
@@ -64,50 +67,49 @@ void click_sound(void) {
  * ═══════════════════════════════════════════════════════════════ */
 
 void reset_screen(void) {
-    bgcolor(11);
-    bordercolor(12);
-    textcolor(5);
-    clrscr();
-    memset(COLOR_RAM, 5, 1000);
-    gotoxy(0, 0);
+    io_bgcolor(11);
+    io_bordercolor(12);
+    io_color = 5;
+    memset(SCREEN, 0x20, 1000);
+    memset(COLOR_RAM, io_color, 1000);
+    io_cx = 0; io_cy = 0; io_sync();
 }
 
 void scroll_up(uint8_t n) {
     if (n >= SCREEN_HEIGHT) {
-        clrscr();
-        gotoxy(0, 0);
+        memset(SCREEN, 0x20, 1000);
+        memset(COLOR_RAM, io_color, 1000);
+        io_cx = 0; io_cy = 0; io_sync();
     } else {
         memmove(SCREEN, SCREEN + n * SCREEN_WIDTH,
                 SCREEN_WIDTH * (SCREEN_HEIGHT - n));
         memmove(COLOR_RAM, COLOR_RAM + n * SCREEN_WIDTH,
                 SCREEN_WIDTH * (SCREEN_HEIGHT - n));
         memset(SCREEN + SCREEN_WIDTH * (SCREEN_HEIGHT - n),
-               ' ', SCREEN_WIDTH * n);
+               0x20, SCREEN_WIDTH * n);
         memset(COLOR_RAM + SCREEN_WIDTH * (SCREEN_HEIGHT - n),
-               5, SCREEN_WIDTH * n);
-        gotoy(CURSOR_ROW > n ? CURSOR_ROW - n : 0);
+               io_color, SCREEN_WIDTH * n);
+        io_cy = (io_cy > n) ? io_cy - n : 0;
+        io_sync();
     }
 }
 
 void newline(void) {
-    if (CURSOR_ROW == SCREEN_HEIGHT - 1)
+    if (io_cy == SCREEN_HEIGHT - 1)
         scroll_up(1);
-    gotoxy(0, CURSOR_ROW + 1);
+    else
+        ++io_cy;
+    io_cx = 0;
+    io_sync();
 }
 
 void print_string(const uint8_t *str) {
     uint8_t l = strlen(str);
-    uint8_t need = (l + CURSOR_COL + 1) / SCREEN_WIDTH;
-    uint8_t have = SCREEN_HEIGHT - CURSOR_ROW - 1;
+    uint8_t need = (l + io_cx + 1) / SCREEN_WIDTH;
+    uint8_t have = SCREEN_HEIGHT - io_cy - 1;
     if (need > 0 && have < need)
         scroll_up(need - have);
-    cputs(str);
-}
-
-void clear_eol(void) {
-    uint8_t col = CURSOR_COL;
-    uint8_t *row = SCREEN + CURSOR_ROW * SCREEN_WIDTH;
-    while (col < SCREEN_WIDTH) row[col++] = ' ';
+    io_puts((const char *)str);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -133,14 +135,14 @@ void floppy_status(void) {
 }
 
 void list_directory(uint8_t device) {
-    register struct cbm_dirent de;
+    struct cbm_dirent de;
 
     if (cbm_opendir(15, device)) { floppy_status(); return; }
 
     while (1) {
-        if (kbhit()) {
-            if (cgetc() == CH_STOP) {
-                cputs("break");
+        if (io_kbhit()) {
+            if (io_getc() == CH_STOP) {
+                io_puts("break");
                 newline();
                 cbm_closedir(15);
                 return;
@@ -148,32 +150,38 @@ void list_directory(uint8_t device) {
         }
         switch (cbm_readdir(15, &de)) {
         case 0:
-            cprintf("%d ", de.size);
+            io_putdec(de.size); io_putc(' ');
             if (de.type == CBM_T_HEADER) {
-                revers(1);
-                cprintf("\"%-16s\"    %02x", de.name, de.access);
-                revers(0);
+                uint8_t start_col = io_cx;
+                io_putc('"'); io_puts(de.name); io_putc('"');
+                io_cx = 24;
+                io_puthex2(de.access);
+                /* invert the header line */
+                { uint8_t *scr = SCREEN + io_cy * SCREEN_WIDTH;
+                  uint8_t i;
+                  for (i = start_col; i < io_cx; i++) scr[i] |= 0x80;
+                }
                 newline();
             } else {
-                gotox(5);
-                cputc('"'); cputs(de.name); cputc('"');
-                gotox(24);
+                io_cx = 5;
+                io_putc('"'); io_puts(de.name); io_putc('"');
+                io_cx = 24;
                 switch (de.type) {
-                case CBM_T_DEL: cputs("del"); break;
-                case CBM_T_SEQ: cputs("seq"); break;
-                case CBM_T_PRG: cputs("prg"); break;
-                case CBM_T_USR: cputs("usr"); break;
-                case CBM_T_REL: cputs("rel"); break;
-                case CBM_T_DIR: cputs("dir"); break;
-                default:        cprintf("%03d", de.type);
+                case CBM_T_DEL: io_puts("del"); break;
+                case CBM_T_SEQ: io_puts("seq"); break;
+                case CBM_T_PRG: io_puts("prg"); break;
+                case CBM_T_USR: io_puts("usr"); break;
+                case CBM_T_REL: io_puts("rel"); break;
+                case CBM_T_DIR: io_puts("dir"); break;
+                default:        io_putdec(de.type);
                 }
-                if (!de.access) cputc('*');
+                if (!de.access) io_putc('*');
                 newline();
             }
             break;
         case 2:
             cbm_closedir(15);
-            cprintf("%d blocks free.", de.size);
+            io_putdec(de.size); io_puts(" blocks free.");
             newline();
             floppy_status();
             return;
@@ -270,18 +278,20 @@ void main(void)
     state = ST_REPL;
     reset_screen();
     *(uint8_t *)0xD018 |= 0x02;          /* lowercase/uppercase charset */
-    cursor(1);
+    io_cursor_on();
 
     /* greeter */
-    cputsxy(0, SCREEN_HEIGHT - 4, "cse v0.1");
-    cputsxy(0, SCREEN_HEIGHT - 3, "(c) 2025 cr");
-    gotoxy(0, SCREEN_HEIGHT - 1);
+    io_cx = 0; io_cy = SCREEN_HEIGHT - 4; io_sync();
+    io_puts("cse v0.1");
+    io_cx = 0; io_cy = SCREEN_HEIGHT - 3; io_sync();
+    io_puts("(c) 2025 cr");
+    io_cx = 0; io_cy = SCREEN_HEIGHT - 1; io_sync();
     show_prompt();
 
     /* ── main loop ──────────────────────────────────────── */
     while (state != ST_STOP) {
 
-        ch = cgetc();
+        ch = io_getc();
 
         /* RUN/STOP toggles mode regardless */
         if (ch == CH_STOP) {
@@ -303,40 +313,40 @@ void main(void)
 
         case CH_ENTER:
             read_line();
-            gotox(0);
+            io_cx = 0;
             exec_line();
             break;
 
         case CH_DEL: {
             uint8_t mincol = 0;
-            if (SCREEN[CURSOR_ROW * SCREEN_WIDTH + 4] == 0x3A)
+            if (SCREEN[io_cy * SCREEN_WIDTH + 4] == 0x3A)
                 mincol = 5;
-            if (CURSOR_COL > mincol) {
-                gotox(CURSOR_COL - 1);
-                cputc(' ');
-                gotox(CURSOR_COL - 1);
+            if (io_cx > mincol) {
+                --io_cx;
+                io_putc(' ');
+                --io_cx;
             }
             break;
         }
 
         case CH_CURS_UP:
-            if (CURSOR_ROW > 0) gotoy(CURSOR_ROW - 1);
+            if (io_cy > 0) { --io_cy; io_sync(); }
             break;
 
         case CH_CURS_DOWN:
-            if (CURSOR_ROW < SCREEN_HEIGHT - 1) gotoy(CURSOR_ROW + 1);
+            if (io_cy < SCREEN_HEIGHT - 1) { ++io_cy; io_sync(); }
             break;
 
         case CH_CURS_LEFT:
-            if (CURSOR_COL > 0) gotox(CURSOR_COL - 1);
+            if (io_cx > 0) --io_cx;
             break;
 
         case CH_CURS_RIGHT:
-            if (CURSOR_COL < SCREEN_WIDTH - 1) gotox(CURSOR_COL + 1);
+            if (io_cx < SCREEN_WIDTH - 1) ++io_cx;
             break;
 
         case CH_HOME:
-            gotox(0);
+            io_cx = 0;
             break;
 
         case CH_ESC:
@@ -345,8 +355,8 @@ void main(void)
             break;
 
         default:
-            if (CURSOR_COL < SCREEN_WIDTH - 1)
-                cputc(ch);
+            if (io_cx < SCREEN_WIDTH - 1)
+                io_putc(ch);
             break;
         }
     }

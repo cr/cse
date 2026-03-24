@@ -23,12 +23,16 @@ extern uint8_t *src_top, *src_bot;
 extern uint16_t cse_start(void);
 extern uint16_t cse_end(void);
 
-/* ── Shared screen utilities (main.c) ───────────────────── */
-void clear_eol(void);
+/* ── Shared screen utilities (main.c + cse_io.s) ────────── */
+#define clear_eol io_clear_eol
 void newline(void);
 void scroll_up(uint8_t n);
 void print_string(const uint8_t *str);
 void reset_screen(void);
+#ifndef COLOR_RAM
+#define COLOR_RAM ((uint8_t *)0xD800)
+#endif
+
 
 /* ── Shared hex parsing (main.c) ────────────────────────── */
 uint8_t hex_val(uint8_t ch);

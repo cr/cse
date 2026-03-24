@@ -7,16 +7,13 @@
  * ═══════════════════════════════════════════════════════════════ */
 
 #include <c64.h>
-#include <conio.h>
+#include <cbm.h>
 #include <string.h>
-#include <stdio.h>
 #include <stdint.h>
 #include "cse.h"
+#include "cse_io.h"
 #include "repl.h"
 #include "editor.h"
-
-#define CURSOR_ROW (*(uint8_t *)0xD6)
-#define CURSOR_COL (*(uint8_t *)0xD3)
 
 /* ── REPL state ─────────────────────────────────────────── */
 static uint16_t cur_addr = 0x1000;
@@ -34,7 +31,7 @@ char cur_filename[FILENAME_MAX_LEN + 1] = "";
 static uint8_t line_buf[42];
 
 void read_line(void) {
-    uint8_t *src = SCREEN + CURSOR_ROW * SCREEN_WIDTH;
+    uint8_t *src = SCREEN + io_cy * SCREEN_WIDTH;
     uint8_t  i, sc;
     for (i = 0; i < SCREEN_WIDTH; ++i) {
         sc = src[i] & 0x7F;
@@ -49,8 +46,9 @@ void read_line(void) {
 }
 
 void show_prompt(void) {
-    gotox(0);
-    cprintf("%04x:", cur_addr);
+    io_cx = 0;
+    io_puthex4(cur_addr);
+    io_putc(':');
     clear_eol();
 }
 
@@ -69,17 +67,18 @@ static const char *disasm(uint16_t addr) {
 
 static void emit_dot(uint16_t addr) {
     uint8_t olen, i;
-    gotox(0);
+    io_cx = 0;
     olen = t_opcode_len[*(uint8_t *)addr];
-    cprintf("%04x:.", addr);
+    io_puthex4(addr); io_putc(':'); io_putc('.');
     for (i = 0; i < 3; ++i) {
-        if (i < olen)
-            cprintf(" %02x", ((uint8_t *)addr)[i]);
-        else
-            cputs("   ");
+        if (i < olen) {
+            io_putc(' '); io_puthex2(((uint8_t *)addr)[i]);
+        } else {
+            io_puts("   ");
+        }
     }
-    cputc(' ');
-    cputs(disasm(addr));
+    io_putc(' ');
+    io_puts(disasm(addr));
     clear_eol();
 }
 
@@ -88,18 +87,19 @@ static void emit_mem(uint16_t addr, uint8_t cols) {
     uint8_t  i, b;
     if (cols == 0) cols = 8;
     if (cols > 8)  cols = 8;
-    gotox(0);
-    cprintf("%04x:m", addr);
+    io_cx = 0;
+    io_puthex4(addr); io_putc(':'); io_putc('m');
     for (i = 0; i < 8; ++i) {
-        if (i < cols)
-            cprintf(" %02x", base[i]);
-        else
-            cputs("   ");
+        if (i < cols) {
+            io_putc(' '); io_puthex2(base[i]);
+        } else {
+            io_puts("   ");
+        }
     }
-    cputc(' ');
+    io_putc(' ');
     for (i = 0; i < cols; ++i) {
         b = base[i];
-        cputc((b >= 0x20 && b <= 0x7E) ? b : '.');
+        io_putc((b >= 0x20 && b <= 0x7E) ? b : '.');
     }
     clear_eol();
 }
@@ -107,12 +107,15 @@ static void emit_mem(uint16_t addr, uint8_t cols) {
 static void emit_reg(void) {
     static const char flag_ch[] = "nv-bdizc";
     uint8_t i, p;
-    gotox(0);
-    cprintf("r a:%02x x:%02x y:%02x s:%02x ",
-            reg_a, reg_x, reg_y, reg_sp);
+    io_cx = 0;
+    io_puts("r a:"); io_puthex2(reg_a);
+    io_puts(" x:"); io_puthex2(reg_x);
+    io_puts(" y:"); io_puthex2(reg_y);
+    io_puts(" s:"); io_puthex2(reg_sp);
+    io_putc(' ');
     p = reg_p;
     for (i = 0; i < 8; ++i) {
-        cputc((p & 0x80) ? flag_ch[i] : '.');
+        io_putc((p & 0x80) ? flag_ch[i] : '.');
         p <<= 1;
     }
     clear_eol();
@@ -150,8 +153,8 @@ static void cmd_dot(uint16_t addr, uint8_t *args)
         if (*mne >= 'a' && *mne <= 'z') {
             nbytes = asm_line(addr, (char *)mne);
             if (nbytes == 0) {
-                gotox(0);
-                cputs("?asm");
+                io_cx = 0;
+                io_puts("?asm");
                 clear_eol();
                 return;
             }
@@ -325,7 +328,7 @@ static void cmd_load(uint16_t addr, uint8_t *args)
         if (cur_filename[0])
             name = (uint8_t *)cur_filename;
         else {
-            cputs("?name");
+            io_puts("?name");
             clear_eol();
             newline();
             show_prompt();
@@ -342,10 +345,11 @@ static void cmd_load(uint16_t addr, uint8_t *args)
         /* source file → load into editor gap buffer */
         uint8_t err = ed_load_source((char *)name);
         if (err) {
-            cprintf("?load %s", (char *)name);
+            io_puts("?load "); io_puts((char *)name);
         } else {
-            cprintf("%s: %u lines, %u bytes",
-                    (char *)name, ed_save_lines, ed_save_bytes);
+            io_puts((char *)name); io_puts(": ");
+            io_putdec(ed_save_lines); io_puts(" lines, ");
+            io_putdec(ed_save_bytes); io_puts(" bytes");
         }
         clear_eol();
         newline();
@@ -355,10 +359,11 @@ static void cmd_load(uint16_t addr, uint8_t *args)
         target = (addr != 0) ? (void *)addr : (void *)0;
         result = cbm_load((char *)name, 8, target);
         if (result == 0) {
-            cprintf("?load %s", (char *)name);
+            io_puts("?load "); io_puts((char *)name);
         } else {
-            cprintf("%s: %u bytes at %04x", (char *)name, result,
-                    (addr != 0) ? addr : (uint16_t)result);
+            io_puts((char *)name); io_puts(": ");
+            io_putdec(result); io_puts(" bytes at ");
+            io_puthex4((addr != 0) ? addr : (uint16_t)result);
         }
         clear_eol();
         newline();
@@ -385,7 +390,7 @@ static void cmd_write(uint16_t addr, uint8_t *args)
         if (cur_filename[0])
             name = (uint8_t *)cur_filename;
         else {
-            cputs("?name");
+            io_puts("?name");
             clear_eol();
             newline();
             show_prompt();
@@ -402,10 +407,11 @@ static void cmd_write(uint16_t addr, uint8_t *args)
         ed_ensure_init();
         err = ed_save_source((char *)name);
         if (err) {
-            cprintf("?save %s", (char *)name);
+            io_puts("?save "); io_puts((char *)name);
         } else {
-            cprintf("%s: %u lines, %u bytes",
-                    (char *)name, ed_save_lines, ed_save_bytes);
+            io_puts((char *)name); io_puts(": ");
+            io_putdec(ed_save_lines); io_puts(" lines, ");
+            io_putdec(ed_save_bytes); io_puts(" bytes");
         }
         clear_eol();
         newline();
@@ -420,7 +426,7 @@ static void cmd_write(uint16_t addr, uint8_t *args)
         }
 
         if (end <= addr) {
-            cputs("?range");
+            io_puts("?range");
             clear_eol();
             newline();
             show_prompt();
@@ -431,10 +437,11 @@ static void cmd_write(uint16_t addr, uint8_t *args)
         err = cbm_save((char *)name, 8, (void *)addr, size);
 
         if (err) {
-            cprintf("?save %s", (char *)name);
+            io_puts("?save "); io_puts((char *)name);
         } else {
-            cprintf("%s: %u bytes %04x-%04x",
-                    (char *)name, size, addr, end - 1);
+            io_puts((char *)name); io_puts(": ");
+            io_putdec(size); io_puts(" bytes ");
+            io_puthex4(addr); io_putc('-'); io_puthex4(end - 1);
         }
         clear_eol();
         newline();
@@ -448,21 +455,42 @@ static void cmd_write(uint16_t addr, uint8_t *args)
 static void info_line(uint8_t inv, const char *tag,
                       uint16_t lo, uint16_t hi, const char *desc)
 {
-    uint8_t *scr;
+    uint8_t *scr = SCREEN + io_cy * SCREEN_WIDTH;
     uint8_t col;
-    if (inv) revers(1);
-    cprintf("%-4s %04x-%04x %s", tag, lo, hi, desc);
-    /* fill rest of line — use 0xA0 (reversed space) when inverted */
-    col = wherex();
-    scr = SCREEN + wherey() * SCREEN_WIDTH;
-    while (col < SCREEN_WIDTH) scr[col++] = inv ? 0xA0 : 0x20;
-    if (inv) revers(0);
+    io_cx = 0;
+    io_puts(tag);
+    { uint8_t pad = 4 - strlen(tag); while (pad--) io_putc(' '); }
+    io_putc(' ');
+    io_puthex4(lo); io_putc('-'); io_puthex4(hi);
+    io_putc(' ');
+    io_puts(desc);
+    col = io_cx;
+    /* pad + optional invert */
+    if (inv) {
+        uint8_t i;
+        for (i = 0; i < col; ++i) scr[i] |= 0x80;
+        while (col < SCREEN_WIDTH) scr[col++] = 0xA0;
+    } else {
+        while (col < SCREEN_WIDTH) scr[col++] = 0x20;
+    }
     newline();
 }
 
-static void free_line(uint16_t lo, uint16_t hi, char *fbuf)
+static void free_line(uint16_t lo, uint16_t hi)
 {
-    sprintf(fbuf, "%u bytes free", hi - lo + 1);
+    char fbuf[20];
+    /* manual utoa + " bytes free" — avoids sprintf */
+    uint16_t n = hi - lo + 1;
+    uint8_t pos = 0;
+    char tmp[6];
+    uint8_t tlen = 0;
+    if (n == 0) { tmp[tlen++] = '0'; }
+    else { while (n > 0) { tmp[tlen++] = '0' + (n % 10); n /= 10; } }
+    while (tlen > 0) fbuf[pos++] = tmp[--tlen];
+    fbuf[pos++] = ' '; fbuf[pos++] = 'b'; fbuf[pos++] = 'y';
+    fbuf[pos++] = 't'; fbuf[pos++] = 'e'; fbuf[pos++] = 's';
+    fbuf[pos++] = ' '; fbuf[pos++] = 'f'; fbuf[pos++] = 'r';
+    fbuf[pos++] = 'e'; fbuf[pos++] = 'e'; fbuf[pos] = 0;
     info_line(1, "free", lo, hi, fbuf);
 }
 
@@ -471,14 +499,13 @@ static void cmd_info(void)
     uint16_t cse_hi  = cse_end();
     uint16_t cstk_lo = 0xC800;
     uint16_t free_lo, free_hi;
-    char fbuf[20];
 
     newline();
 
     /* $0000-$00FF: zero page */
     info_line(0, "cpu",  0x0000, 0x0001, "i/o port");
     info_line(0, "zp",   0x0002, 0x0038, "cse (saved on j)");
-    free_line(0x0039, 0x007f, fbuf);
+    free_line(0x0039, 0x007f);
     info_line(0, "zp",   0x0080, 0x00ff, "kernal");
 
     /* $0100-$07FF: stack, system, screen */
@@ -498,7 +525,7 @@ static void cmd_info(void)
     if (src_bot) free_hi = (uint16_t)src_bot - 1;
 
     if (free_lo <= free_hi)
-        free_line(free_lo, free_hi, fbuf);
+        free_line(free_lo, free_hi);
 
     /* show allocations in address order (sym below src) */
     if (sym_bot)
@@ -611,7 +638,7 @@ void exec_line(void)
                     block_size = parse_hex2(&q);
                 if (block_size == 0) block_size = 8;
             }
-            cprintf("b=%04x", block_size);
+            io_puts("b="); io_puthex4(block_size);
             clear_eol();
             newline();
             show_prompt();
@@ -625,9 +652,9 @@ void exec_line(void)
             show_prompt();
             break;
         case 'q':
-            cputs("quit? y/n ");
-            while (kbhit());
-            if (cgetc() == 'y') {
+            io_puts("quit? y/n ");
+            while (io_kbhit());
+            if (io_getc() == 'y') {
                 state = ST_STOP;
             }
             newline();
@@ -639,7 +666,7 @@ void exec_line(void)
             show_prompt();
             break;
         default:
-            cputs("?cmd");
+            io_puts("?cmd");
             clear_eol();
             newline();
             show_prompt();
@@ -664,7 +691,7 @@ void exec_line(void)
     }
 
     /* anything else without a prefix is unknown */
-    cputs("?");
+    io_puts("?");
     clear_eol();
     newline();
     show_prompt();
