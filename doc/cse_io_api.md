@@ -1,69 +1,233 @@
-# cse_io API Contract
+# cse_io API Specification
 
-## Character Encoding
+## Overview
 
-PETSCII (what C code and keyboard use) and Screen Codes (what VIC-II
-displays from $0400) are different encodings.  cse_io converts between
-them.  The round-trip MUST be lossless for all characters CSE uses.
+cse_io.s provides screen output, keyboard input, and cursor management
+for CSE.  It replaces cc65's conio.h.  All output goes to screen RAM
+at $0400.  Cursor position uses KERNAL locations $D3 (column) and
+$D6 (row).
 
-### PETSCII → Screen Code (io_putc)
+## ZP Variables
 
-| PETSCII range | Screen code | Conversion | Characters |
-|--------------|-------------|------------|------------|
-| $20-$3F | $20-$3F | identity | space, 0-9, :;,.!?"#$%&'()*+-/<=>@ |
-| $40-$5F | $00-$1F | subtract $40 | @ A-Z [ \ ] ^ _ |
-| $60-$7F | $40-$5F | subtract $20 | (lowercase a-z in shifted charset) |
-| $C0-$DF | $40-$5F | subtract $80 | (shifted letters = lowercase) |
+| Address | Name | Size | Purpose |
+|---------|------|------|---------|
+| (alloc) | _io_tmp | 2 | Scratch: string pointer (io_puts), dividend (io_putdec) |
+| (alloc) | _io_scr | 2 | Screen row pointer (computed per write call) |
 
-### Screen Code → PETSCII (read_line)
+## BSS Variables
 
-| Screen code | PETSCII | Conversion |
-|-------------|---------|------------|
-| $00-$1F | $40-$5F | add $40 |
-| $20-$3F | $20-$3F | identity |
+| Name | Size | Purpose |
+|------|------|---------|
+| _io_color | 1 | Text color for screen clears (C: `io_color`) |
 
-Note: screen codes $40-$5F (produced by lowercase input) convert to
-$40-$5F which maps back to uppercase PETSCII range.  This means
-lowercase letters round-trip as uppercase — acceptable since CSE's
-parser is case-insensitive.
+## KERNAL Locations Used
 
-### Round-trip guarantee
+| Address | Name | Read/Write | Purpose |
+|---------|------|-----------|---------|
+| $D3 | CUR_COL | R/W | Cursor column (0–39). C: `io_cx` |
+| $D6 | CUR_ROW | R/W | Cursor row (0–24). C: `io_cy` |
+| $D1/$D2 | SCR_PTR | — | NOT used by cse_io; updated by io_sync via KERNAL PLOT |
+| $F3/$F4 | COL_PTR | — | NOT used by cse_io; updated by io_sync via KERNAL PLOT |
+| $C6 | KEY_COUNT | R | Keyboard buffer count (io_kbhit) |
+| $CC | CURS_FLAG | — | Set by C code, not by cse_io |
 
-For any PETSCII char `ch` in the CSE-used range:
+## RODATA
+
+| Name | Size | Contents |
+|------|------|---------|
+| scr_lo[25] | 25 | Low bytes of $0400 + row×40 for rows 0–24 |
+| scr_hi[25] | 25 | High bytes of same |
+| hex_tab[16] | 16 | Screen codes for hex digits: $30–$39, $01–$06 |
+| dec_lo[5] | 5 | Low bytes of 10000, 1000, 100, 10, 1 |
+| dec_hi[5] | 5 | High bytes of same |
+
+---
+
+## PETSCII → Screen Code Conversion
+
+Used by `io_putc`.  Input: PETSCII byte.  Output: screen code byte.
+
+| PETSCII range | Screen code | Rule | Example |
+|---------------|-------------|------|---------|
+| $00–$1F | $00–$1F | identity | (control chars, rarely used) |
+| $20–$3F | $20–$3F | identity | space, 0–9, :, ., +, -, etc. |
+| $40–$5F | $00–$1F | A − $40 | $41→$01 (A), $4D→$0D (M), $5A→$1A (Z) |
+| $60–$7F | $40–$5F | A − $20 | $61→$41 (a), $7A→$5A (z) |
+| $80–$BF | $80–$BF | identity | (reversed chars, pass through) |
+| $C0–$DF | $40–$5F | A − $80 | $C1→$41 (shifted A), $DA→$5A |
+| $E0–$FF | $E0–$FF | identity | (rarely used) |
+
+## Screen Code → PETSCII Conversion
+
+Used by `read_line` in C.  Input: screen code byte (bit 7 masked off).
+Output: PETSCII byte.
+
+| Screen code | PETSCII | Rule |
+|-------------|---------|------|
+| $00–$1F | $40–$5F | A + $40 |
+| $20–$3F | $20–$3F | identity |
+| $40–$5F | $40–$5F | identity |
+| $60–$7F | $60–$7F | identity |
+
+Note: the `& 0x7F` in read_line strips the reverse-video bit before
+conversion.  Screen codes $40–$5F map to PETSCII $40–$5F which are
+the same as uppercase letters in cc65 ($41='a', $42='b', ...).
+
+---
+
+## Functions
+
+### io_putc(ch)
+
+**Signature:** `void __fastcall__ io_putc(uint8_t ch)`
+**Input:** A = PETSCII character
+**Precondition:** io_cy and io_cx are valid (0–24, 0–39)
+
+**Behavior:**
+1. Convert PETSCII `ch` to screen code using the table above
+2. Compute screen address: `addr = scr_lo[io_cy] | (scr_hi[io_cy] << 8)`
+3. Write screen code to `addr + io_cx`
+4. Increment io_cx (clamped at 39: if io_cx was 39, stays 39)
+
+**Postconditions:**
+- Exactly 1 byte written to screen RAM at row io_cy, column (original io_cx)
+- io_cx = min(original_io_cx + 1, 39)
+- io_cy unchanged
+- _io_scr clobbered (used internally)
+- _io_tmp preserved (safe to call from io_puts)
+
+**Does NOT:**
+- Write to color RAM
+- Call io_sync
+- Modify io_cy
+- Scroll the screen
+
+### io_puts(s)
+
+**Signature:** `void __fastcall__ io_puts(const char *s)`
+**Input:** A/X = pointer to NUL-terminated PETSCII string
+**Precondition:** io_cy and io_cx are valid
+
+**Behavior:**
+For each byte in `s` until NUL: call io_putc(byte).
+
+**Postconditions:**
+- N bytes written to screen RAM starting at (io_cy, original_io_cx)
+- io_cx = min(original_io_cx + strlen(s), 39)
+- io_cy unchanged
+- _io_tmp clobbered (used for string pointer)
+
+### io_puthex2(v)
+
+**Signature:** `void __fastcall__ io_puthex2(uint8_t v)`
+**Input:** A = byte value
+
+**Behavior:**
+1. Compute screen address from scr_lo/scr_hi[io_cy]
+2. Write hex_tab[v >> 4] at io_cx
+3. Write hex_tab[v & $0F] at io_cx + 1
+4. Advance io_cx by 2 (clamped at 39)
+
+**Output screen codes:** hex_tab values: $30–$39 for 0–9, $01–$06 for A–F
+
+### io_puthex4(v)
+
+**Signature:** `void __fastcall__ io_puthex4(uint16_t v)`
+**Input:** A = lo byte, X = hi byte
+
+**Behavior:** Call io_puthex2(hi), then io_puthex2(lo).
+Writes 4 hex digits, advances io_cx by 4.
+
+### io_putdec(v)
+
+**Signature:** `void __fastcall__ io_putdec(uint16_t v)`
+**Input:** A = lo byte, X = hi byte
+
+**Behavior:**
+1. Compute screen address from scr_lo/scr_hi[io_cy]
+2. For each power of 10 (10000, 1000, 100, 10, 1):
+   subtract repeatedly, count digits
+3. Suppress leading zeros (except: always print at least "0")
+4. Write each digit as hex_tab[digit] ($30–$39)
+
+**Output:** 1–5 screen code bytes.  io_cx advances by the number of
+digits written.
+
+### io_clear_eol()
+
+**Signature:** `void io_clear_eol(void)`
+**Precondition:** io_cy and io_cx are valid
+
+**Behavior:**
+1. Compute screen address from scr_lo/scr_hi[io_cy]
+2. Fill screen RAM from io_cx to column 39 with $20 (space)
+
+**Postconditions:**
+- Columns io_cx through 39 of current row are $20
+- io_cx unchanged
+- io_cy unchanged
+
+### io_getc()
+
+**Signature:** `uint8_t io_getc(void)`
+
+**Behavior:** Call KERNAL GETIN ($FFE4) in a loop until nonzero.
+Return the PETSCII key code.
+
+**Note:** Returns raw KERNAL codes.  RETURN = $0D.
+
+### io_kbhit()
+
+**Signature:** `uint8_t io_kbhit(void)`
+
+**Behavior:** Return the value of $C6 (keyboard buffer count).
+0 = no key pending, nonzero = keys waiting.
+
+### io_sync()
+
+**Signature:** `void io_sync(void)`
+
+**Behavior:** Call KERNAL PLOT ($FFF0) with CLC, X=io_cy, Y=io_cx.
+This updates $D1/$D2 (screen line pointer) and $F3/$F4 (color
+line pointer) to match the current cursor position.
+
+**When to call:** After modifying io_cy ($D6).  Not needed after
+modifying only io_cx ($D3).
+
+**Note:** cse_io's output functions (io_putc, io_puts, io_puthex*,
+io_putdec, io_clear_eol) do NOT use $D1/$D2.  They compute the
+screen address directly from scr_lo/scr_hi[io_cy].  io_sync exists
+for the KERNAL's benefit (cursor blink, screen editor state).
+
+---
+
+## C Interface (cse_io.h)
+
+```c
+#define io_cx  (*(volatile uint8_t *)0xD3)
+#define io_cy  (*(volatile uint8_t *)0xD6)
+extern uint8_t io_color;
+
+void __fastcall__ io_putc(uint8_t ch);
+void __fastcall__ io_puts(const char *s);
+void __fastcall__ io_puthex4(uint16_t v);
+void __fastcall__ io_puthex2(uint8_t v);
+void __fastcall__ io_putdec(uint16_t v);
+void io_clear_eol(void);
+uint8_t io_getc(void);
+uint8_t io_kbhit(void);
+void io_sync(void);
+
+#define io_cursor_on()     (*(uint8_t *)0xCC = 0)
+#define io_cursor_off()    (*(uint8_t *)0xCC = 1)
+#define io_bordercolor(c)  (*(uint8_t *)0xD020 = (c))
+#define io_bgcolor(c)      (*(uint8_t *)0xD021 = (c))
 ```
-io_putc(ch)  →  screen code at SCREEN[row*40+col]
-read_line()  →  PETSCII in line_buf[]
-```
 
-The result `line_buf[col]` must satisfy:
-- For $20-$3F (digits, punctuation): exact match
-- For $40-$5F (uppercase letters): exact match
-- For $60-$7F (lowercase letters): maps to $40-$5F (uppercase)
-- For $C0-$DF (shifted letters): maps to $40-$5F (uppercase)
+## Caller Responsibilities
 
-### Critical characters for REPL parsing
-
-| Character | PETSCII | Screen code | Round-trip result |
-|-----------|---------|-------------|-------------------|
-| '0'-'9' | $30-$39 | $30-$39 | $30-$39 (exact) |
-| 'a'-'f' | $41-$46 | $01-$06 | $41-$46 (exact) |
-| ':' | $3A | $3A | $3A (exact) |
-| '.' | $2E | $2E | $2E (exact) |
-| ' ' | $20 | $20 | $20 (exact) |
-| 'm' | $4D | $0D | $4D (exact) |
-| 'r' | $52 | $12 | $52 (exact) |
-| 'd' | $44 | $04 | $44 (exact) |
-| '+' | $2B | $2B | $2B (exact) |
-| '-' | $2D | $2D | $2D (exact) |
-| '"' | $22 | $22 | $22 (exact) |
-
-### io_puthex4 / io_puthex2 output
-
-hex_tab[] screen codes: $30-$39 (digits), $01-$06 (a-f).
-These round-trip correctly through read_line:
-- $30-$39 → $30-$39 (identity, digits)
-- $01-$06 → $41-$46 (add $40, lowercase a-f)
-
-### io_putdec output
-
-Uses hex_tab[0..9] = $30-$39.  Round-trips as digits.  Correct.
+1. Call `io_sync()` after changing `io_cy`.
+2. Fill screen RAM and color RAM at startup (`memset`).
+3. Manage color RAM in `scroll_up` (`memmove` + `memset`).
+4. Disable IRQs during screen memmove (`SEI`/`CLI`).
+5. Manage cursor visibility via `cursor_show()`/`cursor_hide()`.
