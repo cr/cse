@@ -56,7 +56,12 @@ void read_line(void) {
     uint8_t  i, sc;
     for (i = 0; i < SCREEN_WIDTH; ++i) {
         sc = src[i] & 0x7F;
-        line_buf[i] = (sc < 0x20) ? (sc + 0x40) : sc;
+        /* if/else instead of ternary — cc65 -O miscompiles the ternary
+         * (uses wrong stack offset for the identity branch) */
+        if (sc < 0x20)
+            line_buf[i] = sc + 0x40;
+        else
+            line_buf[i] = sc;
     }
     i = SCREEN_WIDTH;
     while (i > 0 && line_buf[i - 1] == ' ') --i;
