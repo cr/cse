@@ -18,6 +18,11 @@
 extern uint8_t io_color;
 
 /* ── Assembly I/O functions (cse_io.s) ─────────────────── */
+
+/* Must be called once at startup.  Disables KERNAL cursor ($CC=1).
+ * All IRQ safety guarantees depend on this. */
+void io_init(void);
+
 void __fastcall__ io_putc(uint8_t ch);
 void __fastcall__ io_puts(const char *s);
 void __fastcall__ io_puthex4(uint16_t v);

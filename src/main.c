@@ -266,9 +266,9 @@ void main(void)
     MEM_CONFIG &= ~0x20;                 /* unmap BASIC ROM */
 
     state = ST_REPL;
+    io_init();                            /* disable KERNAL cursor — required */
     reset_screen();
     *(uint8_t *)0xD018 |= 0x02;          /* lowercase/uppercase charset */
-    io_cursor_off();                      /* disable KERNAL cursor blink */
 
     /* greeter */
     io_cx = 0; io_cy = SCREEN_HEIGHT - 4; io_sync();

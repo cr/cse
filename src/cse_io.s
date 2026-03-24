@@ -4,8 +4,12 @@
 ; Cursor position uses KERNAL's $D3 (column) and $D6 (row).
 ; Call io_sync after changing $D6 to update screen line pointers.
 ;
-; Code: ~250 bytes.  RODATA: 76 bytes.  ZP: 2 bytes.  BSS: 1 byte.
+; INVARIANT: $CC must be 1 (KERNAL cursor disabled).  io_init
+; enforces this.  All IRQ safety guarantees depend on it.
+;
+; Code: ~300 bytes.  RODATA: 76 bytes.  ZP: 4 bytes.  BSS: 1 byte.
 
+        .export _io_init
         .export _io_putc, _io_puts
         .export _io_puthex4, _io_puthex2, _io_putdec
         .export _io_clear_eol
@@ -69,6 +73,13 @@ dec_hi:                 ; powers of 10, hi bytes
 
 ; ── CODE ────────────────────────────────────────────────────
 .segment "CODE"
+
+; ── io_init — must be called once at startup ──────────────────────────
+; Disables KERNAL cursor ($CC=1).  All cse_io IRQ safety depends on this.
+_io_init:
+        lda #1
+        sta $CC                 ; KERNAL cursor off — required invariant
+        rts
 
 ; ── io_sync — update screen/color line pointers from cursor position ──
 ; Call after changing $D6 (io_cy) or $D3 (io_cx).

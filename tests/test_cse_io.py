@@ -80,6 +80,7 @@ class IoSymbols:
         seg = _parse_segments()
         ofs = _parse_listing_syms()
         code = seg.get("CODE", 0x0200)
+        self.io_init      = code + ofs["_io_init"]
         self.io_sync      = code + ofs["_io_sync"]
         self.io_putc      = code + ofs["_io_putc"]
         self.io_puts      = code + ofs["_io_puts"]
@@ -636,6 +637,13 @@ class TestKernalCoexistence:
                         f"row {row} write leaked to row {other_row}"
             # reset for next iteration
             cpu.memory[addr] = 0x20
+
+    def test_io_init_sets_cc(self, io):
+        """io_init must set $CC=1 (KERNAL cursor disabled)."""
+        cpu = make_cpu(io)
+        cpu.memory[0xCC] = 0  # pretend cursor enabled
+        jsr(cpu, io.io_init)
+        assert cpu.memory[0xCC] == 1
 
     def test_d3_equals_io_cx_after_sync(self, io):
         """After io_sync, $D3 must equal io_cx (they're the same location)."""
