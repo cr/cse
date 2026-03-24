@@ -387,13 +387,23 @@ static void ed_render_status(void)
       for (j = 0; j < len; ++j) s[rcol--] = (0x30 + tmp[j]) | 0x80;
     }
 
-    /* free bytes for assembler output (buf_base - cse_end) */
-    rcol -= 1;
-    { uint16_t free_bytes = (uint16_t)buf_base - cse_end();
-      char tmp[6]; uint8_t len = 0;
-      if (free_bytes == 0) tmp[len++] = 0;
-      else while (free_bytes) { tmp[len++] = free_bytes % 10; free_bytes /= 10; }
-      for (j = 0; j < len; ++j) s[rcol--] = (0x30 + tmp[j]) | 0x80;
+    /* free range for assembler output: cse_end..buf_base-1
+     * Show as "LLLL-HHHH" where LLLL=cse_end, HHHH=buf_base-1 */
+    { static const uint8_t hx[] = {
+        0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,
+        0x38,0x39,0x01,0x02,0x03,0x04,0x05,0x06 };
+      uint16_t lo = cse_end();
+      uint16_t hi = (uint16_t)buf_base - 1;
+      uint8_t p = rcol - 8;  /* 4+1+4 = 9 chars, start here */
+      s[p++] = hx[(lo >> 12) & 0xF] | 0x80;
+      s[p++] = hx[(lo >>  8) & 0xF] | 0x80;
+      s[p++] = hx[(lo >>  4) & 0xF] | 0x80;
+      s[p++] = hx[ lo        & 0xF] | 0x80;
+      s[p++] = 0x2D | 0x80;  /* '-' */
+      s[p++] = hx[(hi >> 12) & 0xF] | 0x80;
+      s[p++] = hx[(hi >>  8) & 0xF] | 0x80;
+      s[p++] = hx[(hi >>  4) & 0xF] | 0x80;
+      s[p++] = hx[ hi        & 0xF] | 0x80;
     }
 }
 
