@@ -24,6 +24,27 @@ static uint8_t  *sym_top = 0;
 static uint8_t  *sym_bot = 0;
 char cur_filename[FILENAME_MAX_LEN + 1] = "";
 
+/* ── Common patterns factored out ──────────────────────── */
+
+/* newline + fresh prompt — used by most commands on exit */
+static void nl_prompt(void) { newline(); show_prompt(); }
+
+/* error message + newline + prompt */
+static void err_prompt(const char *msg) {
+    io_puts(msg); clear_eol(); nl_prompt();
+}
+
+/* parse 2 or 4 hex digits from *q, return value.
+ * Returns 0 if no hex found. Advances *q. */
+static uint16_t parse_hex_flex(uint8_t **q) {
+    if (is_hex((*q)[0]) && is_hex((*q)[1])) {
+        if (is_hex((*q)[2]) && is_hex((*q)[3]))
+            return parse_hex4(q);
+        return parse_hex2(q);
+    }
+    return 0;
+}
+
 /* ═══════════════════════════════════════════════════════════════
  * Screen line I/O
  * ═══════════════════════════════════════════════════════════════ */
@@ -154,9 +175,7 @@ static void cmd_dot(uint16_t addr, uint8_t *args)
             nbytes = asm_line(addr, (char *)mne);
             if (nbytes == 0) {
                 io_cx = 0;
-                io_puts("?asm");
-                clear_eol();
-                return;
+                err_prompt("?asm"); return;
             }
         }
     }
@@ -327,22 +346,14 @@ static void cmd_load(uint16_t addr, uint8_t *args)
     if (!name) {
         if (cur_filename[0])
             name = (uint8_t *)cur_filename;
-        else {
-            io_puts("?name");
-            clear_eol();
-            newline();
-            show_prompt();
-            return;
-        }
+        else { err_prompt("?name"); return; }
     } else {
-        /* remember for next time */
         strncpy(cur_filename, (char *)name, FILENAME_MAX_LEN);
         cur_filename[FILENAME_MAX_LEN] = 0;
     }
 
     newline();
     if (is_seq_file(name)) {
-        /* source file → load into editor gap buffer */
         uint8_t err = ed_load_source((char *)name);
         if (err) {
             io_puts("?load "); io_puts((char *)name);
@@ -351,11 +362,7 @@ static void cmd_load(uint16_t addr, uint8_t *args)
             io_putdec(ed_save_lines); io_puts(" lines, ");
             io_putdec(ed_save_bytes); io_puts(" bytes");
         }
-        clear_eol();
-        newline();
-        floppy_status();
     } else {
-        /* PRG → load into memory */
         target = (addr != 0) ? (void *)addr : (void *)0;
         result = cbm_load((char *)name, 8, target);
         if (result == 0) {
@@ -365,11 +372,8 @@ static void cmd_load(uint16_t addr, uint8_t *args)
             io_putdec(result); io_puts(" bytes at ");
             io_puthex4((addr != 0) ? addr : (uint16_t)result);
         }
-        clear_eol();
-        newline();
-        floppy_status();
     }
-    show_prompt();
+    clear_eol(); newline(); floppy_status(); show_prompt();
 }
 
 /* ── AAAA:w "filename" EEEE — save memory range to disk ────
@@ -389,13 +393,7 @@ static void cmd_write(uint16_t addr, uint8_t *args)
     if (!name) {
         if (cur_filename[0])
             name = (uint8_t *)cur_filename;
-        else {
-            io_puts("?name");
-            clear_eol();
-            newline();
-            show_prompt();
-            return;
-        }
+        else { err_prompt("?name"); return; }
     } else {
         strncpy(cur_filename, (char *)name, FILENAME_MAX_LEN);
         cur_filename[FILENAME_MAX_LEN] = 0;
@@ -403,7 +401,6 @@ static void cmd_write(uint16_t addr, uint8_t *args)
 
     newline();
     if (is_seq_file(name)) {
-        /* source file → save editor gap buffer */
         ed_ensure_init();
         err = ed_save_source((char *)name);
         if (err) {
@@ -413,29 +410,14 @@ static void cmd_write(uint16_t addr, uint8_t *args)
             io_putdec(ed_save_lines); io_puts(" lines, ");
             io_putdec(ed_save_bytes); io_puts(" bytes");
         }
-        clear_eol();
-        newline();
-        floppy_status();
     } else {
-        /* PRG → save memory range */
         skip_sp(&q);
-        if (is_hex(q[0]) && is_hex(q[1]) && is_hex(q[2]) && is_hex(q[3])) {
-            end = parse_hex4(&q);
-        } else {
-            end = addr + block_size;
-        }
-
-        if (end <= addr) {
-            io_puts("?range");
-            clear_eol();
-            newline();
-            show_prompt();
-            return;
-        }
+        end = parse_hex_flex(&q);
+        if (!end) end = addr + block_size;
+        if (end <= addr) { err_prompt("?range"); return; }
 
         size = end - addr;
         err = cbm_save((char *)name, 8, (void *)addr, size);
-
         if (err) {
             io_puts("?save "); io_puts((char *)name);
         } else {
@@ -443,11 +425,8 @@ static void cmd_write(uint16_t addr, uint8_t *args)
             io_putdec(size); io_puts(" bytes ");
             io_puthex4(addr); io_putc('-'); io_puthex4(end - 1);
         }
-        clear_eol();
-        newline();
-        floppy_status();
     }
-    show_prompt();
+    clear_eol(); newline(); floppy_status(); show_prompt();
 }
 
 /* print one info line: "tag  AAAA-BBBB description" */
@@ -569,9 +548,7 @@ void exec_line(void)
                 cmd = last_cmd;
                 q = last_args;
             } else {
-                newline();
-                show_prompt();
-                return;
+                nl_prompt(); return;
             }
         } else {
             ++q;                          /* skip command letter */
@@ -580,14 +557,11 @@ void exec_line(void)
 
         /* seek: args override prefix address */
         if (cmd == 's') {
+            uint16_t v;
             skip_sp(&q);
-            if (is_hex(q[0]) && is_hex(q[1]) && is_hex(q[2]) && is_hex(q[3]))
-                cur_addr = parse_hex4(&q);
-            else
-                cur_addr = addr;
-            newline();
-            show_prompt();
-            return;
+            v = parse_hex_flex(&q);
+            cur_addr = v ? v : addr;
+            nl_prompt(); return;
         }
 
         cur_addr = addr;
@@ -603,96 +577,54 @@ void exec_line(void)
         case 'm': cmd_mem(addr, q);    break;
         case 'j': cmd_jmp(addr);       break;
         case '+':
-        {   uint16_t delta = block_size;
-            if (is_hex(q[0]) && is_hex(q[1])) {
-                if (is_hex(q[2]) && is_hex(q[3]))
-                    delta = parse_hex4(&q);
-                else
-                    delta = parse_hex2(&q);
-            }
-            cur_addr = addr + delta;
-            newline();
-            show_prompt();
-            break;
+        {   uint16_t d = parse_hex_flex(&q);
+            cur_addr = addr + (d ? d : block_size);
+            nl_prompt(); break;
         }
         case '-':
-        {   uint16_t delta = block_size;
-            if (is_hex(q[0]) && is_hex(q[1])) {
-                if (is_hex(q[2]) && is_hex(q[3]))
-                    delta = parse_hex4(&q);
-                else
-                    delta = parse_hex2(&q);
-            }
-            cur_addr = addr - delta;
-            newline();
-            show_prompt();
-            break;
+        {   uint16_t d = parse_hex_flex(&q);
+            cur_addr = addr - (d ? d : block_size);
+            nl_prompt(); break;
         }
         case 'l': cmd_load(addr, q);   break;
         case 'w': cmd_write(addr, q);  break;
         case 'b':
-            if (is_hex(q[0]) && is_hex(q[1])) {
-                if (is_hex(q[2]) && is_hex(q[3]))
-                    block_size = parse_hex4(&q);
-                else
-                    block_size = parse_hex2(&q);
-                if (block_size == 0) block_size = 8;
-            }
+        {   uint16_t v = parse_hex_flex(&q);
+            if (v) block_size = v ? v : 8;
             io_puts("b="); io_puthex4(block_size);
-            clear_eol();
-            newline();
-            show_prompt();
-            break;
+            clear_eol(); nl_prompt(); break;
+        }
         case 'i': cmd_info();          break;
         case 'r': cmd_reg(q);          break;
         case 's':
-            if (is_hex(q[0]) && is_hex(q[1]) && is_hex(q[2]) && is_hex(q[3]))
-                cur_addr = parse_hex4(&q);
-            newline();
-            show_prompt();
-            break;
+        {   uint16_t v = parse_hex_flex(&q);
+            if (v) cur_addr = v;
+            nl_prompt(); break;
+        }
         case 'q':
             io_puts("quit? y/n ");
             while (io_kbhit());
-            if (io_getc() == 'y') {
-                state = ST_STOP;
-            }
+            if (io_getc() == 'y') state = ST_STOP;
             newline();
             if (state != ST_STOP) show_prompt();
             break;
         case '$':
-            newline();
-            list_directory(8);
-            show_prompt();
+            newline(); list_directory(8); show_prompt();
             break;
         default:
-            io_puts("?cmd");
-            clear_eol();
-            newline();
-            show_prompt();
+            err_prompt("?cmd");
         }
         return;
     }
 
     /* ── No AAAA: prefix — bare input ────────────────────── */
 
-    /* empty line */
-    if (*q == 0) {
-        newline();
-        show_prompt();
-        return;
-    }
+    if (*q == 0) { nl_prompt(); return; }
 
     /* multi-char: clr/cls */
     if (q[0] == 'c' && q[1] == 'l' && (q[2] == 'r' || q[2] == 's')) {
-        reset_screen();
-        show_prompt();
-        return;
+        reset_screen(); show_prompt(); return;
     }
 
-    /* anything else without a prefix is unknown */
-    io_puts("?");
-    clear_eol();
-    newline();
-    show_prompt();
+    err_prompt("?");
 }
