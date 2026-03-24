@@ -525,8 +525,9 @@ void exec_line(void)
         ++q;                              /* skip ':' */
         cmd = *q;
 
-        /* empty after colon → repeat last command at this address */
-        if (cmd == 0 || cmd == ' ') {
+        /* empty after colon → repeat last command.
+         * Space after colon disables repeat (acts on empty input). */
+        if (cmd == 0) {
             if (last_cmd) {
                 cmd = last_cmd;
                 q = last_args;
