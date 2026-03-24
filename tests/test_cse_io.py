@@ -543,7 +543,105 @@ class TestReplSimulation:
         cpu = make_cpu(io)
         jsr(cpu, io.io_puthex4, a=0xCD, x=0xAB)  # "abcd"
         result = read_line_py(cpu, 0)
-        # Result should be $41,$42,$43,$44 — all must pass is_hex
         for b in result[:4]:
             assert (0x30 <= b <= 0x39) or (0x41 <= b <= 0x46), \
                 f"readback byte ${b:02X} would fail is_hex"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# §11  KERNAL Coexistence Guarantees
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestKernalCoexistence:
+    """Verify cse_io maintains KERNAL state consistency.
+
+    The KERNAL IRQ at $EA31 reads $D1/$D2/$D3/$D6/$F3/$F4 during its
+    cursor/screen editor code.  Even with cursor disabled ($CC=1), we
+    must not leave these in an invalid state.
+    """
+
+    def test_d3_valid_after_putc(self, io):
+        """$D3 must be 0–39 after io_putc."""
+        cpu = make_cpu(io)
+        for col in range(COLS):
+            cpu.memory[0xD3] = col
+            jsr(cpu, io.io_putc, a=0x41)
+            assert 0 <= cpu.memory[0xD3] <= 39
+
+    def test_d6_unchanged_by_putc(self, io):
+        """io_putc must never modify $D6."""
+        cpu = make_cpu(io)
+        for row in [0, 12, 24]:
+            cpu.memory[0xD6] = row
+            cpu.memory[0xD3] = 0
+            jsr(cpu, io.io_sync)
+            jsr(cpu, io.io_putc, a=0x41)
+            assert cpu.memory[0xD6] == row
+
+    def test_d6_unchanged_by_puts(self, io):
+        """io_puts must never modify $D6."""
+        cpu = make_cpu(io)
+        cpu.memory[0xD6] = 10
+        cpu.memory[0xD3] = 0
+        jsr(cpu, io.io_sync)
+        cpu.memory[0x1000] = 0x48; cpu.memory[0x1001] = 0x49; cpu.memory[0x1002] = 0
+        jsr(cpu, io.io_puts, a=0x00, x=0x10)
+        assert cpu.memory[0xD6] == 10
+
+    def test_d6_unchanged_by_puthex(self, io):
+        """io_puthex4 must never modify $D6."""
+        cpu = make_cpu(io)
+        cpu.memory[0xD6] = 15
+        jsr(cpu, io.io_sync)
+        jsr(cpu, io.io_puthex4, a=0x34, x=0x12)
+        assert cpu.memory[0xD6] == 15
+
+    def test_d6_unchanged_by_putdec(self, io):
+        """io_putdec must never modify $D6."""
+        cpu = make_cpu(io)
+        cpu.memory[0xD6] = 20
+        jsr(cpu, io.io_sync)
+        jsr(cpu, io.io_putdec, a=0xFF, x=0xFF)
+        assert cpu.memory[0xD6] == 20
+
+    def test_sync_after_row_change(self, io):
+        """After changing $D6 + io_sync, $D1/$D2/$F3/$F4 must be consistent."""
+        cpu = make_cpu(io)
+        for row in range(ROWS):
+            cpu.memory[0xD6] = row
+            jsr(cpu, io.io_sync)
+            exp_lo = (SCREEN + row * COLS) & 0xFF
+            exp_hi = (SCREEN + row * COLS) >> 8
+            assert cpu.memory[0xD1] == exp_lo, f"row {row}: $D1"
+            assert cpu.memory[0xD2] == exp_hi, f"row {row}: $D2"
+            assert cpu.memory[0xF3] == exp_lo, f"row {row}: $F3"
+            assert cpu.memory[0xF4] == exp_hi + 0xD4, f"row {row}: $F4"
+
+    def test_output_at_every_row(self, io):
+        """io_putc must write to the correct screen address for every row."""
+        cpu = make_cpu(io)
+        for row in range(ROWS):
+            cpu.memory[0xD6] = row
+            cpu.memory[0xD3] = 0
+            jsr(cpu, io.io_sync)
+            jsr(cpu, io.io_putc, a=0x41)  # 'a' → screen $01
+            addr = SCREEN + row * COLS
+            assert cpu.memory[addr] == 0x01, \
+                f"row {row}: expected $01 at ${addr:04X}, got ${cpu.memory[addr]:02X}"
+            # verify other rows untouched
+            for other_row in [0, 12, 24]:
+                if other_row != row:
+                    other_addr = SCREEN + other_row * COLS
+                    assert cpu.memory[other_addr] == 0x20, \
+                        f"row {row} write leaked to row {other_row}"
+            # reset for next iteration
+            cpu.memory[addr] = 0x20
+
+    def test_d3_equals_io_cx_after_sync(self, io):
+        """After io_sync, $D3 must equal io_cx (they're the same location)."""
+        cpu = make_cpu(io)
+        cpu.memory[0xD3] = 15
+        cpu.memory[0xD6] = 10
+        jsr(cpu, io.io_sync)
+        # KERNAL PLOT sets $D3 = Y, and we pass Y = $D3, so it's unchanged
+        assert cpu.memory[0xD3] == 15
