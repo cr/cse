@@ -394,7 +394,12 @@ static void ed_render_status(void)
         0x38,0x39,0x01,0x02,0x03,0x04,0x05,0x06 };
       uint16_t lo = cse_end();
       uint16_t hi = (uint16_t)buf_base - 1;
-      uint8_t p = rcol - 8;  /* 4+1+4 = 9 chars, start here */
+      uint8_t p = rcol - 13;  /* "free:" + 4+1+4 = 14 chars */
+      s[p++] = 0x06 | 0x80;  /* f */
+      s[p++] = 0x12 | 0x80;  /* r */
+      s[p++] = 0x05 | 0x80;  /* e */
+      s[p++] = 0x05 | 0x80;  /* e */
+      s[p++] = 0x3A | 0x80;  /* : */
       s[p++] = hx[(lo >> 12) & 0xF] | 0x80;
       s[p++] = hx[(lo >>  8) & 0xF] | 0x80;
       s[p++] = hx[(lo >>  4) & 0xF] | 0x80;
