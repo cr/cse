@@ -103,6 +103,8 @@ _io_putc:
 @write:
         ldy CUR_COL
         sta (SCR_PTR),y
+        lda _io_color
+        sta (COL_PTR),y
         iny
         cpy #COLS
         bcc :+
@@ -146,12 +148,16 @@ _io_puthex2:
         lda hex_tab,x           ; screen code for hi nibble
         ldy CUR_COL
         sta (SCR_PTR),y
+        lda _io_color
+        sta (COL_PTR),y
         iny
         pla                     ; recover byte
         and #$0F
         tax
         lda hex_tab,x           ; screen code for lo nibble
         sta (SCR_PTR),y
+        lda _io_color
+        sta (COL_PTR),y
         iny
         cpy #COLS
         bcc :+
@@ -195,6 +201,8 @@ _io_putdec:
         lda hex_tab,y           ; screen code for digit
         ldy CUR_COL
         sta (SCR_PTR),y
+        lda _io_color
+        sta (COL_PTR),y
         iny
         sty CUR_COL
 @next:  inx
@@ -206,10 +214,12 @@ _io_putdec:
 ; ── io_clear_eol — fill spaces from cursor to end of row ────
 _io_clear_eol:
         ldy CUR_COL
-        lda #$20                ; space screen code
 @loop:  cpy #COLS
         bcs @done
+        lda #$20                ; space screen code
         sta (SCR_PTR),y
+        lda _io_color
+        sta (COL_PTR),y
         iny
         bne @loop               ; always (Y < 256)
 @done:  rts
