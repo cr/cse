@@ -314,6 +314,9 @@ static void ed_render_status(void)
     uint8_t *scr = SCREEN + ED_STATUS * SCREEN_WIDTH;
     uint8_t i;
 
+    /* pre-fill with reversed spaces — prevents flicker from partial updates */
+    for (i = 0; i < SCREEN_WIDTH; ++i) scr[i] = 0xA0;
+
     io_cx = 0; io_cy = ED_STATUS; io_sync();
     io_puts(" l:"); io_putdec(ed_cur_line + 1);
     io_puts(" c:"); io_putdec(ed_cur_col + 1);
@@ -321,8 +324,8 @@ static void ed_render_status(void)
     io_putc(' ');
     if (cur_filename[0]) io_puts(cur_filename);
     if (ed_dirty) io_putc('*');
+    /* invert what we wrote (rest already reversed from pre-fill) */
     for (i = 0; i < io_cx; ++i) scr[i] |= 0x80;
-    for (i = io_cx; i < SCREEN_WIDTH; ++i) scr[i] = 0xA0;
 }
 
 /* Render lines from_row to to_row using the cached view pointer. */
