@@ -330,103 +330,82 @@ static uint8_t *parse_filename(uint8_t **pp)
     return (*name) ? name : 0;
 }
 
-/* ── AAAA:l "filename" — load PRG file from disk ───────────
- * If addr != 0, load to addr.  Otherwise load to the file's
- * embedded PRG address (like LOAD"X",8,1). */
+/* Parse and remember filename.  Returns name pointer or NULL. */
+static uint8_t *get_filename(uint8_t **q) {
+    uint8_t *name = parse_filename(q);
+    if (!name) {
+        if (cur_filename[0]) return (uint8_t *)cur_filename;
+        return 0;
+    }
+    strncpy(cur_filename, (char *)name, FILENAME_MAX_LEN);
+    cur_filename[FILENAME_MAX_LEN] = 0;
+    return name;
+}
+
+/* Print "name: N lines, M bytes" for SEQ file result */
+static void print_seq_stats(const char *name) {
+    io_puts(name); io_puts(": ");
+    io_putdec(ed_save_lines); io_puts(" lines, ");
+    io_putdec(ed_save_bytes); io_puts(" bytes");
+}
+
+/* Common disk-op footer: clear_eol, newline, drive status, prompt */
+static void disk_done(void) {
+    clear_eol(); newline(); floppy_status(); show_prompt();
+}
+
 static void cmd_load(uint16_t addr, uint8_t *args)
 {
     uint8_t *q = args;
-    uint8_t *name;
-    unsigned int result;
-    void *target;
-
-    name = parse_filename(&q);
-
-    /* use remembered filename if none given */
-    if (!name) {
-        if (cur_filename[0])
-            name = (uint8_t *)cur_filename;
-        else { err_prompt("?name"); return; }
-    } else {
-        strncpy(cur_filename, (char *)name, FILENAME_MAX_LEN);
-        cur_filename[FILENAME_MAX_LEN] = 0;
-    }
+    uint8_t *name = get_filename(&q);
+    if (!name) { err_prompt("?name"); return; }
 
     newline();
     if (is_seq_file(name)) {
         uint8_t err = ed_load_source((char *)name);
-        if (err) {
-            io_puts("?load "); io_puts((char *)name);
-        } else {
-            io_puts((char *)name); io_puts(": ");
-            io_putdec(ed_save_lines); io_puts(" lines, ");
-            io_putdec(ed_save_bytes); io_puts(" bytes");
-        }
+        if (err) { io_puts("?load "); io_puts((char *)name); }
+        else print_seq_stats((char *)name);
     } else {
-        target = (addr != 0) ? (void *)addr : (void *)0;
-        result = cbm_load((char *)name, 8, target);
-        if (result == 0) {
-            io_puts("?load "); io_puts((char *)name);
-        } else {
+        void *target = (addr != 0) ? (void *)addr : (void *)0;
+        unsigned int result = cbm_load((char *)name, 8, target);
+        if (result == 0) { io_puts("?load "); io_puts((char *)name); }
+        else {
             io_puts((char *)name); io_puts(": ");
             io_putdec(result); io_puts(" bytes at ");
             io_puthex4((addr != 0) ? addr : (uint16_t)result);
         }
     }
-    clear_eol(); newline(); floppy_status(); show_prompt();
+    disk_done();
 }
 
-/* ── AAAA:w "filename" EEEE — save memory range to disk ────
- * Saves addr..EEEE-1 (EEEE = end address exclusive).
- * Uses block_size if no end address given. */
 static void cmd_write(uint16_t addr, uint8_t *args)
 {
     uint8_t *q = args;
-    uint8_t *name;
-    uint16_t end;
-    uint16_t size;
+    uint8_t *name = get_filename(&q);
     uint8_t err;
-
-    name = parse_filename(&q);
-
-    /* use remembered filename if none given */
-    if (!name) {
-        if (cur_filename[0])
-            name = (uint8_t *)cur_filename;
-        else { err_prompt("?name"); return; }
-    } else {
-        strncpy(cur_filename, (char *)name, FILENAME_MAX_LEN);
-        cur_filename[FILENAME_MAX_LEN] = 0;
-    }
+    if (!name) { err_prompt("?name"); return; }
 
     newline();
     if (is_seq_file(name)) {
         ed_ensure_init();
         err = ed_save_source((char *)name);
-        if (err) {
-            io_puts("?save "); io_puts((char *)name);
-        } else {
-            io_puts((char *)name); io_puts(": ");
-            io_putdec(ed_save_lines); io_puts(" lines, ");
-            io_putdec(ed_save_bytes); io_puts(" bytes");
-        }
+        if (err) { io_puts("?save "); io_puts((char *)name); }
+        else print_seq_stats((char *)name);
     } else {
-        skip_sp(&q);
-        end = parse_hex_flex(&q);
+        uint16_t end = parse_hex_flex(&q);
+        uint16_t size;
         if (!end) end = addr + block_size;
         if (end <= addr) { err_prompt("?range"); return; }
-
         size = end - addr;
         err = cbm_save((char *)name, 8, (void *)addr, size);
-        if (err) {
-            io_puts("?save "); io_puts((char *)name);
-        } else {
+        if (err) { io_puts("?save "); io_puts((char *)name); }
+        else {
             io_puts((char *)name); io_puts(": ");
             io_putdec(size); io_puts(" bytes ");
             io_puthex4(addr); io_putc('-'); io_puthex4(end - 1);
         }
     }
-    clear_eol(); newline(); floppy_status(); show_prompt();
+    disk_done();
 }
 
 /* print one info line: "tag  AAAA-BBBB description" */
