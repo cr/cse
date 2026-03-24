@@ -27,6 +27,7 @@ COL_PTR = $F3           ; color RAM line pointer (lo/hi)
 ; ── ZP scratch ──────────────────────────────────────────────
 .segment "ZEROPAGE"
 _io_tmp:  .res 2        ; scratch: string pointer / putdec dividend
+_io_scr:  .res 2        ; screen row pointer for io_putc
 
 ; ── BSS ─────────────────────────────────────────────────────
 .segment "BSS"
@@ -99,12 +100,21 @@ _io_putc:
         bpl @write              ; always taken
 @sub20: sbc #$1F                ; C=0 from cmp #$80: A - $1F - 1 = A - $20
 @write:
+        ; Write directly to SCREEN + row*40 + col using the row table.
+        ; Uses _io_scr (not _io_tmp which io_puts needs for the string ptr).
+        pha                     ; save screen code
+        ldx CUR_ROW
+        lda scr_lo,x
+        sta _io_scr
+        lda scr_hi,x
+        sta _io_scr+1
+        pla
         ldy CUR_COL
-        sta (SCR_PTR),y
+        sta (_io_scr),y
         iny
         cpy #COLS
         bcc :+
-        ldy #COLS-1             ; clamp at column 39
+        ldy #COLS-1
 :       sty CUR_COL
         rts
 
@@ -136,6 +146,14 @@ _io_puthex4:
 ; __fastcall__: A = byte value
 _io_puthex2:
         pha                     ; save byte
+        ; setup screen row pointer
+        ldx CUR_ROW
+        lda scr_lo,x
+        sta _io_scr
+        lda scr_hi,x
+        sta _io_scr+1
+        pla
+        pha                     ; save byte again
         lsr                     ; shift hi nibble down
         lsr
         lsr
@@ -143,13 +161,13 @@ _io_puthex2:
         tax
         lda hex_tab,x           ; screen code for hi nibble
         ldy CUR_COL
-        sta (SCR_PTR),y
+        sta (_io_scr),y
         iny
         pla                     ; recover byte
         and #$0F
         tax
         lda hex_tab,x           ; screen code for lo nibble
-        sta (SCR_PTR),y
+        sta (_io_scr),y
         iny
         cpy #COLS
         bcc :+
@@ -163,6 +181,12 @@ _io_puthex2:
 _io_putdec:
         sta _io_tmp             ; dividend lo
         stx _io_tmp+1           ; dividend hi
+        ; setup screen row pointer
+        ldy CUR_ROW
+        lda scr_lo,y
+        sta _io_scr
+        lda scr_hi,y
+        sta _io_scr+1
         lda CUR_COL
         sta @start_col          ; remember starting column for leading-zero check
         ldx #0                  ; power-of-10 index (0..4)
@@ -192,7 +216,7 @@ _io_putdec:
 @print: tay
         lda hex_tab,y           ; screen code for digit
         ldy CUR_COL
-        sta (SCR_PTR),y
+        sta (_io_scr),y
         iny
         sty CUR_COL
 @next:  inx
@@ -203,11 +227,16 @@ _io_putdec:
 
 ; ── io_clear_eol — fill spaces from cursor to end of row ────
 _io_clear_eol:
+        ldx CUR_ROW
+        lda scr_lo,x
+        sta _io_scr
+        lda scr_hi,x
+        sta _io_scr+1
         ldy CUR_COL
 @loop:  cpy #COLS
         bcs @done
         lda #$20                ; space screen code
-        sta (SCR_PTR),y
+        sta (_io_scr),y
         iny
         bne @loop               ; always (Y < 256)
 @done:  rts

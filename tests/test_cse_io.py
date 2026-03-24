@@ -206,6 +206,10 @@ def make_cpu(io_syms):
 
     cpu.memory = mem
 
+    # Fill screen with spaces (like reset_screen does)
+    for i in range(1000):
+        mem[SCREEN + i] = 0x20
+
     # Init cursor to (0, 0)
     cpu.memory[0xD3] = 0   # column
     cpu.memory[0xD6] = 0   # row
@@ -478,3 +482,149 @@ class TestIoKbhit:
         cpu.memory[0xC6] = 3
         jsr(cpu, io_syms.io_kbhit)
         assert cpu.a == 3
+
+
+# ── Round-trip tests ─────────────────────────────────────────────────────────
+#
+# Verify the API contract: io_putc(petscii) → screen code → read_line → petscii
+# For each PETSCII character CSE uses, the round-trip must produce a known result.
+
+def read_line_py(cpu, row):
+    """Python reimplementation of repl.c's read_line for the given row."""
+    buf = []
+    for col in range(COLS):
+        sc = cpu.memory[SCREEN + row * COLS + col] & 0x7F
+        if sc < 0x20:
+            buf.append(sc + 0x40)
+        else:
+            buf.append(sc)
+    # trim trailing spaces
+    while buf and buf[-1] == 0x20:
+        buf.pop()
+    return buf
+
+
+class TestRoundTrip:
+    """io_putc(ch) → screen RAM → read_line_py → must match expected PETSCII."""
+
+    # Exact round-trip: PETSCII in == PETSCII out
+    @pytest.mark.parametrize("petscii,expected", [
+        # digits
+        (0x30, 0x30),  # '0'
+        (0x31, 0x31),  # '1'
+        (0x39, 0x39),  # '9'
+        # punctuation & operators
+        # space omitted — lone space on all-space row gets trimmed by read_line
+        (0x21, 0x21),  # '!'
+        (0x22, 0x22),  # '"'
+        (0x23, 0x23),  # '#'
+        (0x24, 0x24),  # '$'
+        (0x28, 0x28),  # '('
+        (0x29, 0x29),  # ')'
+        (0x2A, 0x2A),  # '*'
+        (0x2B, 0x2B),  # '+'
+        (0x2C, 0x2C),  # ','
+        (0x2D, 0x2D),  # '-'
+        (0x2E, 0x2E),  # '.'
+        (0x2F, 0x2F),  # '/'
+        (0x3A, 0x3A),  # ':'
+        (0x3B, 0x3B),  # ';'
+        (0x3D, 0x3D),  # '='
+        (0x3F, 0x3F),  # '?'
+        # uppercase letters (PETSCII $41-$5A → screen $01-$1A → PETSCII $41-$5A)
+        (0x41, 0x41),  # 'a' (cc65 lowercase = PETSCII $41)
+        (0x42, 0x42),  # 'b'
+        (0x46, 0x46),  # 'f'
+        (0x4D, 0x4D),  # 'm'
+        (0x52, 0x52),  # 'r'
+        (0x5A, 0x5A),  # 'z'
+        # '@' which is PETSCII $40 → screen $00 → PETSCII $40
+        (0x40, 0x40),  # '@'
+    ])
+    def test_exact_roundtrip(self, io_syms, petscii, expected):
+        cpu = make_cpu(io_syms)
+        # write one character at row 0, col 0
+        cpu.memory[0xD3] = 0
+        cpu.memory[0xD6] = 0
+        jsr(cpu, io_syms.io_sync)
+        jsr(cpu, io_syms.io_putc, a=petscii)
+        # read back
+        result = read_line_py(cpu, 0)
+        assert len(result) >= 1, f"read_line returned empty for PETSCII ${petscii:02X}"
+        assert result[0] == expected, \
+            f"PETSCII ${petscii:02X} → screen ${cpu.memory[SCREEN]:02X} → readback ${result[0]:02X}, expected ${expected:02X}"
+
+    # Screen code verification: io_putc produces the right screen code
+    @pytest.mark.parametrize("petscii,screencode", [
+        (0x20, 0x20),  # space
+        (0x30, 0x30),  # '0'
+        (0x39, 0x39),  # '9'
+        (0x3A, 0x3A),  # ':'
+        (0x2E, 0x2E),  # '.'
+        (0x41, 0x01),  # 'a' → screen A
+        (0x42, 0x02),  # 'b' → screen B
+        (0x46, 0x06),  # 'f' → screen F
+        (0x4D, 0x0D),  # 'm' → screen M
+        (0x5A, 0x1A),  # 'z' → screen Z
+        (0x40, 0x00),  # '@' → screen @
+    ])
+    def test_putc_screencode(self, io_syms, petscii, screencode):
+        cpu = make_cpu(io_syms)
+        cpu.memory[0xD3] = 0
+        jsr(cpu, io_syms.io_putc, a=petscii)
+        actual = cpu.memory[SCREEN]
+        assert actual == screencode, \
+            f"io_putc(${petscii:02X}) wrote screen code ${actual:02X}, expected ${screencode:02X}"
+
+    # hex_tab round-trip: io_puthex4 output must parse back correctly
+    @pytest.mark.parametrize("value,expected_petscii", [
+        (0x0000, [0x30, 0x30, 0x30, 0x30]),       # "0000"
+        (0x1234, [0x31, 0x32, 0x33, 0x34]),       # "1234"
+        (0xABCD, [0x41, 0x42, 0x43, 0x44]),       # "abcd"
+        (0xFFFF, [0x46, 0x46, 0x46, 0x46]),       # "ffff"
+        (0x1000, [0x31, 0x30, 0x30, 0x30]),       # "1000" — the prompt address
+    ])
+    def test_puthex4_roundtrip(self, io_syms, value, expected_petscii):
+        cpu = make_cpu(io_syms)
+        cpu.memory[0xD3] = 0
+        jsr(cpu, io_syms.io_puthex4, a=value & 0xFF, x=value >> 8)
+        result = read_line_py(cpu, 0)
+        assert result[:4] == expected_petscii, \
+            f"puthex4(${value:04X}) → readback {[f'${b:02X}' for b in result[:4]]}, expected {[f'${b:02X}' for b in expected_petscii]}"
+
+    # Full prompt round-trip: "1000:" must parse as 4 hex digits + colon
+    def test_prompt_roundtrip(self, io_syms):
+        """Simulate show_prompt: io_puthex4(0x1000) + io_putc(':')"""
+        cpu = make_cpu(io_syms)
+        cpu.memory[0xD3] = 0
+        jsr(cpu, io_syms.io_puthex4, a=0x00, x=0x10)  # $1000
+        jsr(cpu, io_syms.io_putc, a=0x3A)              # ':'
+        result = read_line_py(cpu, 0)
+        # Should be: $31, $30, $30, $30, $3A = "1000:"
+        assert result == [0x31, 0x30, 0x30, 0x30, 0x3A], \
+            f"Prompt readback: {[f'${b:02X}' for b in result]}"
+
+    # Full command round-trip: "1000:m" must survive read_line
+    def test_command_roundtrip(self, io_syms):
+        """Simulate typing '1000:m': prompt + user-typed 'm'"""
+        cpu = make_cpu(io_syms)
+        cpu.memory[0xD3] = 0
+        jsr(cpu, io_syms.io_puthex4, a=0x00, x=0x10)  # "1000"
+        jsr(cpu, io_syms.io_putc, a=0x3A)              # ":"
+        jsr(cpu, io_syms.io_putc, a=0x4D)              # "m"
+        result = read_line_py(cpu, 0)
+        assert result == [0x31, 0x30, 0x30, 0x30, 0x3A, 0x4D], \
+            f"Command readback: {[f'${b:02X}' for b in result]}"
+
+    # Verify screen codes for the full prompt
+    def test_prompt_screen_codes(self, io_syms):
+        """Check raw screen RAM after writing '1000:m'"""
+        cpu = make_cpu(io_syms)
+        cpu.memory[0xD3] = 0
+        jsr(cpu, io_syms.io_puthex4, a=0x00, x=0x10)
+        jsr(cpu, io_syms.io_putc, a=0x3A)
+        jsr(cpu, io_syms.io_putc, a=0x4D)
+        scr = [cpu.memory[SCREEN + i] for i in range(6)]
+        # Expected screen codes: $31 $30 $30 $30 $3A $0D
+        assert scr == [0x31, 0x30, 0x30, 0x30, 0x3A, 0x0D], \
+            f"Screen codes: {[f'${b:02X}' for b in scr]}"

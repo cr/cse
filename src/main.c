@@ -75,6 +75,7 @@ void scroll_up(uint8_t n) {
                io_color, SCREEN_WIDTH * n);
         __asm__("cli");
         io_cy = (io_cy > n) ? io_cy - n : 0;
+        io_sync();
     }
 }
 
