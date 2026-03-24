@@ -73,7 +73,6 @@ void read_line(void) {
 
 void show_prompt(void) {
     io_cx = 0;
-    io_sync();                            /* ensure $D1/$D2 match io_cy */
     io_puthex4(cur_addr);
     io_putc(':');
     clear_eol();
@@ -94,7 +93,7 @@ static const char *disasm(uint16_t addr) {
 
 static void emit_dot(uint16_t addr) {
     uint8_t olen, i;
-    io_cx = 0; io_sync();
+    io_cx = 0;
     olen = t_opcode_len[*(uint8_t *)addr];
     io_puthex4(addr); io_putc(':'); io_putc('.');
     for (i = 0; i < 3; ++i) {
@@ -114,7 +113,7 @@ static void emit_mem(uint16_t addr, uint8_t cols) {
     uint8_t  i, b;
     if (cols == 0) cols = 8;
     if (cols > 8)  cols = 8;
-    io_cx = 0; io_sync();
+    io_cx = 0;
     io_puthex4(addr); io_putc(':'); io_putc('m');
     for (i = 0; i < 8; ++i) {
         if (i < cols) {
@@ -134,7 +133,7 @@ static void emit_mem(uint16_t addr, uint8_t cols) {
 static void emit_reg(void) {
     static const char flag_ch[] = "nv-bdizc";
     uint8_t i, p;
-    io_cx = 0; io_sync();
+    io_cx = 0;
     io_puts("r a:"); io_puthex2(reg_a);
     io_puts(" x:"); io_puthex2(reg_x);
     io_puts(" y:"); io_puthex2(reg_y);
@@ -180,7 +179,7 @@ static void cmd_dot(uint16_t addr, uint8_t *args)
         if (*mne >= 'a' && *mne <= 'z') {
             nbytes = asm_line(addr, (char *)mne);
             if (nbytes == 0) {
-                io_cx = 0; io_sync();
+                io_cx = 0;
                 err_prompt("?asm"); return;
             }
         }
@@ -421,7 +420,7 @@ static void info_line(uint8_t inv, const char *tag,
 {
     uint8_t *scr = SCREEN + io_cy * SCREEN_WIDTH;
     uint8_t col;
-    io_cx = 0; io_sync();
+    io_cx = 0;
     io_puts(tag);
     { uint8_t pad = 4 - strlen(tag); while (pad--) io_putc(' '); }
     io_putc(' ');
