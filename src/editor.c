@@ -85,9 +85,15 @@ static uint8_t gb_ensure_room(void)
         uint8_t *new_base = buf_base - 256;
         if (pre_size > 0)
             memmove(new_base, buf_base, pre_size);
-        gap_lo = new_base + pre_size;
-        gap_hi = gap_lo + 256;
-        buf_base = new_base;
+        {   uint16_t shift = (uint16_t)(buf_base - new_base);
+            /* adjust ed_top_ptr if it's in the pre-gap region (inclusive
+             * of buf_base).  Post-gap pointers (> gap_lo) don't move. */
+            if (ed_top_ptr >= buf_base && ed_top_ptr <= gap_lo)
+                ed_top_ptr -= shift;
+            gap_lo = new_base + pre_size;
+            gap_hi = gap_lo + 256;
+            buf_base = new_base;
+        }
     }
     src_bot = buf_base;
     return 1;
