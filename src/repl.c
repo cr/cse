@@ -530,6 +530,11 @@ void exec_line(void)
             if (last_cmd) {
                 cmd = last_cmd;
                 q = last_args;
+                /* echo repeated command into the prompt line */
+                io_cx = 5;  /* after "AAAA:" */
+                io_putc(cmd);
+                if (*q) { io_putc(' '); io_puts((const char *)q); }
+                clear_eol();
             } else {
                 nl_prompt(); return;
             }
