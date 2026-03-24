@@ -308,58 +308,21 @@ static uint8_t *prev_line_start(uint8_t *pos)
     return pos;
 }
 
-/* Write a decimal number directly to screen RAM (reversed).
- * Returns number of chars written. */
-static uint8_t scr_dec(uint8_t *scr, uint16_t v)
-{
-    char buf[6];
-    uint8_t i, len = 0;
-    if (v == 0) { scr[0] = 0x30 | 0x80; return 1; }
-    while (v > 0 && len < 6) {
-        buf[len++] = (v % 10);
-        v /= 10;
-    }
-    for (i = 0; i < len; ++i)
-        scr[i] = (0x30 + buf[len - 1 - i]) | 0x80;
-    return len;
-}
-
-/* Write a string directly to screen RAM (reversed). */
-static uint8_t scr_str(uint8_t *scr, const char *s)
-{
-    uint8_t i = 0;
-    while (s[i]) {
-        uint8_t sc = s[i];
-        if (sc >= 0x41 && sc <= 0x5A) sc -= 0x40;       /* unshifted → $01-$1A */
-        else if (sc >= 0xC1 && sc <= 0xDA) sc -= 0x80; /* shifted → $41-$5A */
-        scr[i] = sc | 0x80;
-        ++i;
-    }
-    return i;
-}
-
-/* Render the status bar (row 22) using direct screen writes. */
+/* Render the status bar (row 22): write via io_puts/io_putdec, then invert. */
 static void ed_render_status(void)
 {
     uint8_t *scr = SCREEN + ED_STATUS * SCREEN_WIDTH;
-    uint8_t col = 0;
+    uint8_t i;
 
-    scr[col++] = 0xA0;                   /* leading space (reversed) */
-    scr[col++] = 0x0C | 0x80;            /* 'l' */
-    scr[col++] = 0x3A | 0x80;            /* ':' */
-    col += scr_dec(scr + col, ed_cur_line + 1);
-    scr[col++] = 0xA0;
-    scr[col++] = 0x03 | 0x80;            /* 'c' */
-    scr[col++] = 0x3A | 0x80;            /* ':' */
-    col += scr_dec(scr + col, ed_cur_col + 1);
-    scr[col++] = 0xA0;
-    col += scr_dec(scr + col, (uint16_t)(gap_hi - gap_lo));
-    scr[col++] = 0xA0;
-    if (cur_filename[0])
-        col += scr_str(scr + col, cur_filename);
-    if (ed_dirty)
-        scr[col++] = 0x2A | 0x80;        /* '*' */
-    while (col < SCREEN_WIDTH) scr[col++] = 0xA0;
+    io_cx = 0; io_cy = ED_STATUS; io_sync();
+    io_puts(" l:"); io_putdec(ed_cur_line + 1);
+    io_puts(" c:"); io_putdec(ed_cur_col + 1);
+    io_putc(' '); io_putdec((uint16_t)(gap_hi - gap_lo));
+    io_putc(' ');
+    if (cur_filename[0]) io_puts(cur_filename);
+    if (ed_dirty) io_putc('*');
+    for (i = 0; i < io_cx; ++i) scr[i] |= 0x80;
+    for (i = io_cx; i < SCREEN_WIDTH; ++i) scr[i] = 0xA0;
 }
 
 /* Render lines from_row to to_row using the cached view pointer. */
