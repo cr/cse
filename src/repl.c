@@ -156,7 +156,8 @@ static void cmd_dot(uint16_t addr, uint8_t *args)
     uint8_t *q = args, *mne;
 
     nbytes = 0;
-    while (nbytes < 3 && is_hex(*q) && is_hex(*(q + 1))) {
+    while (nbytes < 3 && is_hex(*q) && is_hex(*(q + 1))
+           && (*(q + 2) == ' ' || *(q + 2) == 0 || *(q + 2) == ';')) {
         bytes[nbytes++] = parse_hex2(&q);
         skip_sp(&q);
     }
