@@ -80,11 +80,24 @@ ASM_SRCS = asm_bridge asm_line asm_vars mn_vars mn_classify \
            meminfo cse_io dasm dasm_tables
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 
+# ── CPU change detection ─────────────────────────────────────────────────
+# Force rebuild when CPU= changes between invocations.
+CPU_STAMP = $(BUILD)/.cpu_stamp
+
 .PHONY: all
 all: $(PRG)
 
 $(BUILD)/src/:
 	mkdir -p $@
+
+# If the CPU stamp doesn't match, wipe and restart.
+# Uses $(shell) so it runs before dependency evaluation.
+_PREV_CPU := $(shell cat $(CPU_STAMP) 2>/dev/null)
+ifneq ($(_PREV_CPU),$(CPU))
+  $(shell mkdir -p $(BUILD) && rm -f $(BUILD)/src/*.o $(BUILD)/src/*.s $(PRG) $(D64))
+  $(info CPU changed: $(_PREV_CPU) -> $(CPU))
+endif
+$(shell mkdir -p $(BUILD) && echo "$(CPU)" > $(CPU_STAMP))
 
 $(MAIN_S): $(SRC)/main.c | $(BUILD)/src/
 	$(CC65) $(CFLAGS) -o $@ $<
