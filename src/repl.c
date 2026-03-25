@@ -597,7 +597,7 @@ void exec_line(void)
                     al_cpu = v;
             }
             newline();
-            io_puts("6502");
+            io_puts("cpu mode: 6502");
             io_putc(al_cpu == 0 ? '*' : ' ');
 #if CPU_CEIL >= 1
             io_puts(" 6510");
