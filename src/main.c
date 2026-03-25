@@ -290,13 +290,26 @@ void main(void)
     /* Restore key repeat default */
     *(uint8_t *)0x028a &= 0b00111111;
 
-    /* Remap BASIC ROM */
-    MEM_CONFIG |= 0x20;
+    /* Restore processor port: all ROMs + I/O visible */
+    MEM_CONFIG = 0x37;
 
-    /* BASIC cold start — reinitializes all ZP state.
-     * The user's code may have trashed ZP, so warm start
-     * ($A659) can't be trusted.  Cold start sets up BASIC
-     * cleanly.  The SYS stub at $0801 survives — the user
-     * types RUN or SYS 2061 to restart CSE. */
-    asm("jmp $FCE2");
+    /* KERNAL RESTOR: restore all I/O vectors to defaults */
+    asm("jsr $FF8A");
+    /* KERNAL IOINIT: initialize CIA, SID, VIC */
+    asm("jsr $FF84");
+    /* KERNAL CINT: initialize screen editor + keyboard */
+    asm("jsr $FF81");
+
+    /* Set BASIC start-of-program pointer (SYS stub is at $0801) */
+    *(uint8_t *)0x2B = 0x01;
+    *(uint8_t *)0x2C = 0x08;
+    /* Set BASIC end-of-memory pointer */
+    *(uint8_t *)0x37 = 0x00;
+    *(uint8_t *)0x38 = 0xA0;
+
+    /* BASIC CLR ($A65E): reset variable pointers, string stack,
+     * DATA pointer.  Then fall through to READY prompt.
+     * This is safe — it doesn't touch program memory, just
+     * clears variable state and resets the BASIC stack. */
+    asm("jmp $A65E");
 }
