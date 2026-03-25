@@ -686,9 +686,9 @@ void exec_line(void)
                 uint8_t b = (uint8_t)val;
                 int8_t  sb = (int8_t)b;
                 uint8_t i, av;
-                /* "  $00hh  %bbbbbbbb  sdddd" */
+                /* "    $hh  %bbbbbbbb  sdddd" */
 
-                io_puts("  $00");
+                io_puts("    $");
                 io_puthex2(b);
                 io_puts("  %");
                 for (i = 0; i < 8; ++i) {
