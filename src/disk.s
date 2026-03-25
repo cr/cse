@@ -348,12 +348,14 @@ callback:        .res 2     ; function pointer for SEQ I/O
         lda #'"'
         jsr _io_putc
 
-        ldy @fn_start
-@fname: cpy @fn_trimmed_end
+        ldx @fn_start
+@fname: cpx @fn_trimmed_end
         bcs @fname_done
-        lda fl_buf,y
+        lda fl_buf,x
+        stx @fn_tmp             ; save X (io_putc may clobber)
         jsr _io_putc
-        iny
+        ldx @fn_tmp
+        inx
         bne @fname
 @fname_done:
 
@@ -467,6 +469,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
 @fn_start:       .byte 0
 @fn_close:       .byte 0
 @fn_trimmed_end: .byte 0
+@fn_tmp:         .byte 0
 
 @dname:    .byte "$"
 @brk_msg:  .byte "break", 0
