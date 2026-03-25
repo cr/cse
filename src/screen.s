@@ -10,11 +10,12 @@
         .import _io_puts, _io_sync, _io_color
         .import scr_lo, scr_hi
 
+; NOTE: No cc65 runtime dependencies (no sp, popax, etc.)
+
 ; ── ZP pointers (reuse cse_io's area) ───────────────────
 src_ptr = $FB           ; 2 bytes
 dst_ptr = $FD           ; 2 bytes
 
-        .importzp sp
 
 ; ── C64 hardware ─────────────────────────────────────────
 SCREEN    = $0400

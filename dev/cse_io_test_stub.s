@@ -5,11 +5,15 @@
 ; scr_lo/scr_hi tables from cse_io.s.
 
         .export kplot_stub
+        .exportzp sp
 
         .import _io_sync
 
 ; Import the row address tables from cse_io.s
         .import scr_lo, scr_hi
+
+.segment "ZEROPAGE"
+sp:     .res 2          ; cc65 C stack pointer (needed by cse_popax)
 
 .segment "CODE"
 

@@ -5,8 +5,7 @@
 
         .export _expr_eval, _expr_error_str
 
-        .import popax
-        .importzp sp
+        .import cse_popax
 
 ; ── ZP ───────────────────────────────────────────────────
 pp_ptr  = $FB           ; 2 bytes: pointer to *pp / then reused as string ptr
@@ -32,7 +31,7 @@ edigits:  .res 1        ; digit count
         stx res_ptr+1
 
         ; Pop pp (pointer to pointer)
-        jsr popax
+        jsr cse_popax
         sta pp_ptr
         stx pp_ptr+1
 

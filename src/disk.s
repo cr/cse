@@ -15,9 +15,9 @@
         .import _newline, _print_string
         .import _cur_device
         .import scr_lo, scr_hi
-        .import popa, popax
+        .import cse_popax, cse_popa
 
-        .importzp sp
+        ; sp not imported — cse_popax/cse_popa handle the C stack internally
 
 ; ── KERNAL entry points ──────────────────────────────────
 SETLFS  = $FFBA
@@ -531,7 +531,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
         stx _io_tmp+1           ; save addr hi
 
         ; pop name pointer from C stack
-        jsr popax               ; A/X = name
+        jsr cse_popax               ; A/X = name
         jsr str_setup           ; ptr = name, Y = length
 
         ; SETNAM
@@ -592,7 +592,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
         stx callback+1
 
         ; Pop name
-        jsr popax
+        jsr cse_popax
         jsr str_setup           ; ptr = name, Y = length
 
         ; Build open string ",s,r"
@@ -710,7 +710,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
         stx callback+1
 
         ; Pop name
-        jsr popax
+        jsr cse_popax
         jsr str_setup           ; ptr = name, Y = length
 
         ; Build open string with @: prefix and ",s,w"
@@ -798,12 +798,12 @@ callback:        .res 2     ; function pointer for SEQ I/O
         stx @size+1
 
         ; pop addr
-        jsr popax
+        jsr cse_popax
         sta @addr
         stx @addr+1
 
         ; pop name
-        jsr popax
+        jsr cse_popax
         jsr str_setup           ; ptr = name, Y = length
 
         ; SETNAM

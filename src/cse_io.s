@@ -18,6 +18,10 @@
         .export _io_color
         .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
 
+        ; C stack helpers — our own impl to avoid importing cc65's popax/popa.
+        ; Still uses cc65's `sp` ZP pointer (shared with C code).
+        .export cse_popax, cse_popa
+
 COLS    = 40
 ROWS    = 25
 SCREEN  = $0400
@@ -61,6 +65,42 @@ dec_hi:                 ; powers of 10, hi bytes
 
 ; ── CODE ────────────────────────────────────────────────────
 .segment "CODE"
+
+; ═════════════════════════════════════════════════════════════════
+; C stack helpers — drop-in replacements for cc65's popax/popa.
+; Uses cc65's `sp` ZP pointer (still shared with C runtime).
+; When all C code is gone, sp becomes ours entirely.
+; ═════════════════════════════════════════════════════════════════
+
+        .importzp sp
+
+; cse_popax: pop 16-bit value from C stack → A (lo), X (hi)
+.proc cse_popax
+        ldy #1
+        lda (sp),y              ; hi byte
+        tax
+        dey
+        lda (sp),y              ; lo byte
+        pha                     ; save lo
+        clc
+        lda sp
+        adc #2
+        sta sp
+        bcc :+
+        inc sp+1
+:       pla                     ; restore lo → A
+        rts
+.endproc
+
+; cse_popa: pop 8-bit value from C stack → A
+.proc cse_popa
+        ldy #0
+        lda (sp),y
+        inc sp
+        bne :+
+        inc sp+1
+:       rts
+.endproc
 
 ; ── io_init — must be called once at startup ──────────────────────────
 ; Disables KERNAL cursor ($CC=1).  All cse_io IRQ safety depends on this.

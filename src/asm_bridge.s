@@ -28,7 +28,7 @@
 
         .import al_line_asm
         .importzp au_ptr, al_pc, al_out, al_cpu, al_len
-        .importzp sp              ; cc65 C stack pointer
+        .import cse_popax         ; our C stack pop (in cse_io.s)
 
 .segment "ZEROPAGE"
 _ab_saved_sp:   .res 1          ; saved 6502 SP for error recovery
@@ -96,23 +96,11 @@ _asm_line:
 @cvt_done:
 
         ; ── pop addr from C stack ───────────────────────────────────────
-        ldy #0
-        lda (sp),y
+        jsr cse_popax           ; A = lo, X = hi
         sta al_pc
         sta al_out              ; output → target address (assemble in place)
-        iny
-        lda (sp),y
-        sta al_pc+1
-        sta al_out+1
-
-        ; bump C stack (remove 2-byte argument)
-        lda sp
-        clc
-        adc #2
-        sta sp
-        bcc :+
-        inc sp+1
-:
+        stx al_pc+1
+        stx al_out+1
 
         ; ── set CPU mode from build-time default ────────────────────────
 .ifndef DEFAULT_CPU
