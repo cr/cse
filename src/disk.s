@@ -175,6 +175,18 @@ callback:        .res 2     ; function pointer for SEQ I/O
         bne @read
 
 @close:
+        ; Strip trailing CR ($0D) if present
+        cpy #0
+        beq @term
+        dey
+        lda fl_buf,y
+        cmp #$0D
+        bne @no_strip
+        ; Y already decremented past the CR
+        jmp @term
+@no_strip:
+        iny                     ; undo the dey
+@term:
         ; NUL-terminate
         lda #0
         sta fl_buf,y
