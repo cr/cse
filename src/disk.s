@@ -273,53 +273,42 @@ callback:        .res 2     ; function pointer for SEQ I/O
         bne @not_header
         inc @is_first
 
-        ; Print "; " then raw text, filtering $12/$92 control chars.
-        ; Track column of first " and last printed char for inversion.
+        ; Print "; " normally, then everything from first " onward inverted.
+        ; Filter $12/$92 control chars, convert $A0→$20 (shifted space).
         lda #';'
         jsr _io_putc
         lda #' '
         jsr _io_putc
 
-        lda #$FF
-        sta @hdr_start          ; $FF = no quote seen yet
-        lda CUR_COL
-        sta @hdr_end            ; will track last printed col
-
+        ; Scan to first " in fl_buf
         ldx #0
-@hdr_ch:
+@hdr_skip_pre:
+        lda fl_buf,x
+        beq @hdr_done
+        cmp #'"'
+        beq @hdr_inv
+        inx
+        bne @hdr_skip_pre
+
+        ; Print from first " to end of text, all inverted
+@hdr_inv:
         lda fl_buf,x
         beq @hdr_done
         cmp #$12                ; RVS ON — skip
-        beq @hdr_skip
+        beq @hdr_next
         cmp #$92                ; RVS OFF — skip
-        beq @hdr_skip
-        ; Check if this is the first quote
-        cmp #'"'
-        bne @hdr_notq
-        lda @hdr_start
-        cmp #$FF
-        bne @hdr_notq2
-        lda CUR_COL
-        sta @hdr_start          ; first " column
-@hdr_notq2:
-        lda fl_buf,x            ; reload char
-@hdr_notq:
-        stx @fn_tmp
-        jsr _io_putc
-        lda CUR_COL
-        sta @hdr_end            ; update last printed position
+        beq @hdr_next
+        cmp #$A0                ; shifted space → regular space
+        bne :+
+        lda #' '
+:       stx @fn_tmp
+        jsr @putc_inv
         ldx @fn_tmp
-@hdr_skip:
+@hdr_next:
         inx
-        bne @hdr_ch
+        bne @hdr_inv
 
 @hdr_done:
-        ; Invert from @hdr_start to @hdr_end (first " to last ID char)
-        lda @hdr_start
-        cmp #$FF
-        beq @hdr_no_inv         ; no quote found, skip inversion
-        jsr @invert_header
-@hdr_no_inv:
 
         jsr _io_clear_eol
         jsr _newline
@@ -492,22 +481,20 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr CLOSE
         jmp _floppy_status
 
-; Helper: invert screen RAM from @hdr_start to @hdr_end on current row
-@invert_header:
+; Helper: print char in A inverted (io_putc then OR $80 on screen)
+@putc_inv:
+        jsr _io_putc
+        ; flip bit 7 on the char we just wrote (at CUR_COL - 1)
         ldx CUR_ROW
         lda scrlo,x
         sta _io_tmp
         lda scrhi,x
         sta _io_tmp+1
-        ldy @hdr_start          ; start at first "
-@inv:   cpy @hdr_end
-        bcs @inv_done
+        ldy CUR_COL
+        dey
         lda (_io_tmp),y
         ora #$80
         sta (_io_tmp),y
-        iny
-        bne @inv
-@inv_done:
         rts
 
 @is_first:       .byte 0
