@@ -256,7 +256,7 @@ void main(void)
     /* splash screen */
     {   uint16_t wlo = cse_end();
         uint16_t whi = 0xC7FF;
-        uint8_t  row = SCREEN_HEIGHT - 8;
+        uint8_t  row = SCREEN_HEIGHT - 7;
 
         /* round cur_addr up to next $100 boundary */
         cur_addr = (wlo + 0xFF) & 0xFF00;
