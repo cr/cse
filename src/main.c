@@ -105,9 +105,9 @@ void skip_sp(uint8_t **pp) {
 
 static void fill_free_memory(void) {
     uint16_t wlo = cse_end();
-    /* ZP not filled — BASIC/KERNAL use $44-$8F for FAC, pointers, etc.
-     * Filling it with $FF causes BASIC overflow on SYS restart. */
-    /* Free work area only */
+    /* Free ZP: $44–$7F (KERNAL owns $80+, CSE owns $02–$43) */
+    memset((void *)0x44, 0xFF, 0x80 - 0x44);
+    /* Free work area */
     if (wlo < 0xC800)
         memset((void *)wlo, 0xFF, 0xC800 - wlo);
 }
@@ -293,8 +293,10 @@ void main(void)
     /* Remap BASIC ROM */
     MEM_CONFIG |= 0x20;
 
-    /* BASIC warm start — preserves program in memory.
-     * The BASIC SYS stub at $0801 is still intact, so
-     * SYS XXXX will restart CSE cleanly. */
-    asm("jsr $A659");
+    /* BASIC cold start — reinitializes all ZP state.
+     * The user's code may have trashed ZP, so warm start
+     * ($A659) can't be trusted.  Cold start sets up BASIC
+     * cleanly.  The SYS stub at $0801 survives — the user
+     * types RUN or SYS 2061 to restart CSE. */
+    asm("jmp $FCE2");
 }
