@@ -307,9 +307,8 @@ void main(void)
     *(uint8_t *)0x37 = 0x00;
     *(uint8_t *)0x38 = 0xA0;
 
-    /* BASIC CLR ($A65E): reset variable pointers, string stack,
-     * DATA pointer.  Then fall through to READY prompt.
-     * This is safe — it doesn't touch program memory, just
-     * clears variable state and resets the BASIC stack. */
-    asm("jmp $A65E");
+    /* BASIC MAIN ($A474): resets BASIC stack, enters input loop.
+     * Prints READY. and waits for commands.  Program memory
+     * intact — LIST shows the SYS stub, RUN restarts CSE. */
+    asm("jmp $A474");
 }
