@@ -66,10 +66,8 @@ void read_line(void) {
     i = SCREEN_WIDTH;
     while (i > 0 && line_buf[i - 1] == ' ') --i;
     line_buf[i] = 0;
-    /* Cut at ';' (comment marker) */
-    for (i = 0; line_buf[i]; ++i) {
-        if (line_buf[i] == ';') { line_buf[i] = 0; break; }
-    }
+    /* ';' is NOT cut here — it acts as a command if first char,
+     * or as a natural wall for arg parsers (is_hex/skip_sp stop at it). */
 }
 
 void show_prompt(void) {
@@ -536,15 +534,13 @@ void exec_line(void)
         skip_sp(&q);                      /* tolerate spaces after ':' */
         cmd = *q;
 
-        /* empty after colon: repeat only if nothing visible was typed.
-         * Screen code $3B = ';', $20 = space. */
+        if (cmd == ';') {
+            /* ';' command: clear repeat, fresh prompt */
+            last_cmd = 0;
+            nl_prompt(); return;
+        }
         if (cmd == 0) {
-            uint8_t scr5 = SCREEN[io_cy * SCREEN_WIDTH + 5];
-            if (scr5 != 0x20) {
-                /* something was typed (';', etc.) — clear repeat */
-                last_cmd = 0;
-                nl_prompt(); return;
-            }
+            /* empty: repeat last command */
             if (last_cmd) {
                 cmd = last_cmd;
                 q = last_args;
@@ -558,7 +554,6 @@ void exec_line(void)
         } else {
             ++q;                          /* skip command letter */
             if (*q == ' ') ++q;           /* optional space */
-            /* ';' already cut by read_line */
         }
 
         /* seek: args override prefix address */
@@ -680,9 +675,7 @@ void exec_line(void)
 
     /* ── No AAAA: prefix — bare input ────────────────────── */
 
-    if (*q == 0) { last_cmd = 0; nl_prompt(); return; }
-
-    /* ';' already cut by read_line */
+    if (*q == 0 || *q == ';') { last_cmd = 0; nl_prompt(); return; }
 
     /* multi-char: clr/cls */
     if (q[0] == 'c' && q[1] == 'l' && (q[2] == 'r' || q[2] == 's')) {
