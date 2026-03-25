@@ -253,20 +253,15 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr CHRIN
         sta @blocks+1
 
-        ; Read line text into fl_buf
+        ; Read line text into fl_buf (terminated by $00)
         ldy #0
 @rdtxt: jsr CHRIN
-        beq @got_line
+        beq @got_line           ; $00 = line end
         cpy #30
-        bcs @skip_rest          ; truncate
+        bcs @rdtxt              ; truncate: keep reading but don't store
         sta fl_buf,y
         iny
-        jsr READST
-        beq @rdtxt
-        bne @got_line           ; status set → done reading
-@skip_rest:
-        jsr CHRIN
-        bne @skip_rest
+        bne @rdtxt              ; always (Y < 30)
 @got_line:
         lda #0
         sta fl_buf,y            ; NUL-terminate
@@ -317,7 +312,35 @@ callback:        .res 2     ; function pointer for SEQ I/O
 
 @found_q:
         ; Y points to opening quote in fl_buf
-        ; Output: l "
+        ; Find closing quote, then trim trailing spaces from filename
+        iny                     ; skip opening quote
+        sty @fn_start
+
+        ; scan to closing quote to find end
+@scan_q:
+        lda fl_buf,y
+        beq @fn_found_end
+        cmp #'"'
+        beq @fn_found_end
+        iny
+        bne @scan_q
+@fn_found_end:
+        sty @fn_close           ; position of closing quote or NUL
+
+        ; trim trailing spaces: walk back from closing quote
+        dey
+@trim:  cpy @fn_start
+        bcc @trim_done          ; empty filename
+        lda fl_buf,y
+        cmp #' '
+        bne @trim_done
+        dey
+        bne @trim               ; always (Y >= 0 loop)
+@trim_done:
+        iny                     ; Y = one past last non-space char
+        sty @fn_trimmed_end
+
+        ; Output: l "filename
         lda #'l'
         jsr _io_putc
         lda #' '
@@ -325,19 +348,17 @@ callback:        .res 2     ; function pointer for SEQ I/O
         lda #'"'
         jsr _io_putc
 
-        ; Copy filename (chars between quotes)
-        iny                     ; skip opening quote
-@fname: lda fl_buf,y
-        beq @fname_end
-        cmp #'"'
-        beq @fname_end
-        jsr _io_putc            ; print filename char
+        ldy @fn_start
+@fname: cpy @fn_trimmed_end
+        bcs @fname_done
+        lda fl_buf,y
+        jsr _io_putc
         iny
         bne @fname
+@fname_done:
 
-@fname_end:
-        ; Now find the type: skip closing quote + spaces
-        ; Y is at the closing quote or NUL
+        ; Find type: skip closing quote + spaces
+        ldy @fn_close
         lda fl_buf,y
         beq @type_unk
         iny                     ; skip closing quote
@@ -350,12 +371,8 @@ callback:        .res 2     ; function pointer for SEQ I/O
         bne @skip_spc
 
 @got_type:
-        ; A = first char of type string (P, S, D, U, R)
-        ; Convert to lowercase and use as suffix: ,p ,s ,d ,u ,r
-        ora #$20                ; uppercase → lowercase in PETSCII
-        pha                     ; save type char
-
-        ; Print ",t"
+        ; A = first char of type (PETSCII: already lowercase on C64)
+        pha
         lda #','
         jsr _io_putc
         pla
@@ -363,7 +380,6 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jmp @close_quote
 
 @type_unk:
-        ; unknown type — skip the suffix
 @close_quote:
         lda #'"'
         jsr _io_putc
@@ -444,10 +460,13 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr CLOSE
         jmp _floppy_status
 
-@is_first: .byte 0
-@blocks:   .byte 0, 0
-@textlen:  .byte 0
-@dev:      .byte 0
+@is_first:       .byte 0
+@blocks:         .byte 0, 0
+@textlen:        .byte 0
+@dev:            .byte 0
+@fn_start:       .byte 0
+@fn_close:       .byte 0
+@fn_trimmed_end: .byte 0
 
 @dname:    .byte "$"
 @brk_msg:  .byte "break", 0
