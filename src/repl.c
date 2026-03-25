@@ -563,7 +563,11 @@ void exec_line(void)
         case '.': cmd_dot(addr, q);    break;
         case 'd': cmd_disasm(addr, q); break;
         case 'm': cmd_mem(addr, q);    break;
-        case 'j': cmd_jmp(addr);       break;
+        case 'j':
+        {   uint16_t v = parse_hex_flex(&q);
+            if (v) addr = v;
+            cmd_jmp(addr); break;
+        }
         case '+':
         {   uint16_t d = parse_hex_flex(&q);
             cur_addr = addr + (d ? d : block_size);
