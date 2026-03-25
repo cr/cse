@@ -300,15 +300,8 @@ void main(void)
     /* KERNAL CINT: initialize screen editor + keyboard */
     asm("jsr $FF81");
 
-    /* Set BASIC start-of-program pointer (SYS stub is at $0801) */
-    *(uint8_t *)0x2B = 0x01;
-    *(uint8_t *)0x2C = 0x08;
-    /* Set BASIC end-of-memory pointer */
-    *(uint8_t *)0x37 = 0x00;
-    *(uint8_t *)0x38 = 0xA0;
-
-    /* BASIC MAIN ($A474): resets BASIC stack, enters input loop.
-     * Prints READY. and waits for commands.  Program memory
-     * intact — LIST shows the SYS stub, RUN restarts CSE. */
-    asm("jmp $A474");
+    /* BASIC NEW ($A642): clears program, resets all ZP pointers.
+     * CSE's code at $080D+ survives (NEW only zeroes $0801-$0802).
+     * The user types SYS 2061 to restart. */
+    asm("jmp $A642");
 }
