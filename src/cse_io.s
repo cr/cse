@@ -115,15 +115,13 @@ _io_init:
         rts
 
 ; ── NMI handler — pure asm, no C prologue ────────────────────────────
-; The KERNAL NMI entry ($FE43) pushes A, X, Y then JMP ($0318).
-; We set the flag and restore registers for a clean RTI.
+; The KERNAL NMI entry ($FE43) does SEI + JMP ($0318).  It does NOT
+; push A/X/Y — only the CPU's automatic PC + SR are on the stack.
+; We save A (the only reg we touch), set the flag, restore A, RTI.
 _nmi_handler:
+        pha
         lda #1
         sta _nmi_pending
-        pla
-        tay
-        pla
-        tax
         pla
         rti
 
