@@ -525,162 +525,163 @@ void exec_line(void)
 
     skip_sp(&q);
 
-    /* ── Try AAAA:cmd format ─────────────────────────────── */
+    /* ── Parse optional AAAA: prefix ─────────────────────── */
     if (is_hex(q[0]) && is_hex(q[1]) && is_hex(q[2]) && is_hex(q[3])
         && q[4] == ':')
     {
         addr = parse_hex4(&q);
         ++q;                              /* skip ':' */
-        skip_sp(&q);                      /* tolerate spaces after ':' */
-        cmd = *q;
+    } else {
+        addr = cur_addr;                  /* no prefix: use current */
+    }
 
-        if (cmd == ';') {
-            /* ';' command: clear repeat, fresh prompt */
+    skip_sp(&q);
+    cmd = *q;
+
+    /* ── Empty / semicolon ───────────────────────────────── */
+    if (cmd == 0 || cmd == ';') {
+        if (cmd == 0 && last_cmd) {
+            /* repeat last command */
+            cmd = last_cmd;
+            q = last_args;
+            io_cx = 5;
+            io_putc(cmd);
+            if (*q) { io_putc(' '); io_puts((const char *)q); }
+            clear_eol();
+        } else {
+            /* ';' or empty with nothing to repeat */
             last_cmd = 0;
             nl_prompt(); return;
         }
-        if (cmd == 0) {
-            /* empty: repeat last command */
-            if (last_cmd) {
-                cmd = last_cmd;
-                q = last_args;
-                io_cx = 5;
-                io_putc(cmd);
-                if (*q) { io_putc(' '); io_puts((const char *)q); }
-                clear_eol();
-            } else {
-                nl_prompt(); return;
-            }
-        } else {
-            ++q;                          /* skip command letter */
-            if (*q == ' ') ++q;           /* optional space */
-        }
+    } else {
+        ++q;                              /* skip command letter */
+        if (*q == ' ') ++q;              /* optional space */
+    }
 
-        /* seek: args override prefix address */
-        if (cmd == 's') {
-            uint16_t v;
-            skip_sp(&q);
-            v = parse_hex_flex(&q);
-            cur_addr = v ? v : addr;
-            nl_prompt(); return;
-        }
+    cur_addr = addr;
 
-        cur_addr = addr;
-
-        /* save for repeat */
+    /* ── Save for repeat (only block commands) ───────────── */
+    if (cmd == 'm' || cmd == 'd' || cmd == '.') {
         last_cmd = cmd;
         strncpy(last_args, q, sizeof(last_args) - 1);
         last_args[sizeof(last_args) - 1] = 0;
+    }
 
-        switch (cmd) {
-        case '.': cmd_dot(addr, q);    break;
-        case 'd': cmd_disasm(addr, q); break;
-        case 'm': cmd_mem(addr, q);    break;
-        case 'j':
-        {   uint16_t v = parse_hex_flex(&q);
-            if (v) addr = v;
-            cmd_jmp(addr); break;
-        }
-        case '+':
-        {   uint16_t d = parse_hex_flex(&q);
-            cur_addr = addr + (d ? d : block_size);
-            nl_prompt(); break;
-        }
-        case '-':
-        {   uint16_t d = parse_hex_flex(&q);
-            cur_addr = addr - (d ? d : block_size);
-            nl_prompt(); break;
-        }
-        case 'c':                             /* color theme */
-        {   skip_sp(&q);                      /* c F, c BF, c DBF */
-            if (is_hex(q[0])) {
-                if (is_hex(q[1]) && is_hex(q[2])) {
-                    theme_border = hex_val(q[0]);
-                    theme_bg     = hex_val(q[1]);
-                    theme_fg     = hex_val(q[2]);
-                } else if (is_hex(q[1])) {
-                    theme_bg     = hex_val(q[0]);
-                    theme_fg     = hex_val(q[1]);
-                } else {
-                    theme_fg     = hex_val(q[0]);
-                }
-                restore_colors();
+    /* ── Dispatch ────────────────────────────────────────── */
+    switch (cmd) {
+
+    /* block commands */
+    case '.': cmd_dot(addr, q);    break;
+    case 'd': cmd_disasm(addr, q); break;
+    case 'm': cmd_mem(addr, q);    break;
+
+    /* navigation */
+    case 's':
+    {   uint16_t v = parse_hex_flex(&q);
+        if (v) cur_addr = v;
+        nl_prompt(); break;
+    }
+    case '+':
+    {   uint16_t d = parse_hex_flex(&q);
+        cur_addr = addr + (d ? d : block_size);
+        nl_prompt(); break;
+    }
+    case '-':
+    {   uint16_t d = parse_hex_flex(&q);
+        cur_addr = addr - (d ? d : block_size);
+        nl_prompt(); break;
+    }
+
+    /* execution */
+    case 'j':
+    {   uint16_t v = parse_hex_flex(&q);
+        if (v) addr = v;
+        cmd_jmp(addr); break;
+    }
+
+    /* registers */
+    case 'r': cmd_reg(q); break;
+
+    /* file I/O */
+    case 'l': cmd_load(addr, q); break;
+    case 'w': cmd_write(addr, q); break;
+
+    /* info / settings */
+    case 'i': cmd_info(); break;
+    case 'b':
+    {   uint16_t v = parse_hex_flex(&q);
+        if (v) block_size = v;
+        newline();
+        io_puts("b="); io_puthex4(block_size);
+        clear_eol(); nl_prompt(); break;
+    }
+    case 'c':
+    {   skip_sp(&q);
+        if (is_hex(q[0])) {
+            if (is_hex(q[1]) && is_hex(q[2])) {
+                theme_border = hex_val(q[0]);
+                theme_bg     = hex_val(q[1]);
+                theme_fg     = hex_val(q[2]);
+            } else if (is_hex(q[1])) {
+                theme_bg     = hex_val(q[0]);
+                theme_fg     = hex_val(q[1]);
+            } else {
+                theme_fg     = hex_val(q[0]);
             }
-            newline();
-            io_puts("color: ");
-            io_putc(hex_val_to_char(theme_border));
-            io_putc(hex_val_to_char(theme_bg));
-            io_putc(hex_val_to_char(theme_fg));
-            clear_eol(); nl_prompt(); break;
+            restore_colors();
         }
-        case 'l': cmd_load(addr, q);   break;
-        case 'w': cmd_write(addr, q);  break;
-        case 'b':
-        {   uint16_t v = parse_hex_flex(&q);
-            if (v) block_size = v ? v : 8;
-            newline();
-            io_puts("b="); io_puthex4(block_size);
-            clear_eol(); nl_prompt(); break;
-        }
-        case 'i': cmd_info();          break;
-        case 'r': cmd_reg(q);          break;
-        case 'u':                             /* CPU mode: u 6502|6510|65c02 */
-        {   skip_sp(&q);
-            if (*q == '6') {
-                /* match "6502", "6510", "65c02" */
-                uint8_t v = 0xFF;
-                if (q[1]=='5' && q[2]=='0' && q[3]=='2') v = 0;
-                else if (q[1]=='5' && q[2]=='1' && q[3]=='0') v = 1;
-                else if (q[1]=='5' && q[2]=='c' && q[3]=='0') v = 2;
-                /* 65C02 builds: only 0 and 2 valid (no 6510 illegals) */
-                if (v != 0xFF && v <= CPU_CEIL
+        newline();
+        io_puts("color: ");
+        io_putc(hex_val_to_char(theme_border));
+        io_putc(hex_val_to_char(theme_bg));
+        io_putc(hex_val_to_char(theme_fg));
+        clear_eol(); nl_prompt(); break;
+    }
+    case 'u':
+    {   skip_sp(&q);
+        if (*q == '6') {
+            uint8_t v = 0xFF;
+            if (q[1]=='5' && q[2]=='0' && q[3]=='2') v = 0;
+            else if (q[1]=='5' && q[2]=='1' && q[3]=='0') v = 1;
+            else if (q[1]=='5' && q[2]=='c' && q[3]=='0') v = 2;
+            if (v != 0xFF && v <= CPU_CEIL
 #if CPU_CEIL == 2
-                    && v != 1
+                && v != 1
 #endif
-                   ) al_cpu = v;
-            }
-            newline();
-            io_puts("cpu mode: 6502");
-            io_putc(al_cpu == 0 ? '*' : ' ');
+               ) al_cpu = v;
+        }
+        newline();
+        io_puts("cpu mode: 6502");
+        io_putc(al_cpu == 0 ? '*' : ' ');
 #if CPU_CEIL == 1
-            io_puts(" 6510");
-            io_putc(al_cpu == 1 ? '*' : ' ');
+        io_puts(" 6510");
+        io_putc(al_cpu == 1 ? '*' : ' ');
 #elif CPU_CEIL == 2
-            io_puts(" 65c02");
-            io_putc(al_cpu == 2 ? '*' : ' ');
+        io_puts(" 65c02");
+        io_putc(al_cpu == 2 ? '*' : ' ');
 #endif
-            clear_eol(); nl_prompt(); break;
-        }
-        case 's':
-        {   uint16_t v = parse_hex_flex(&q);
-            if (v) cur_addr = v;
-            nl_prompt(); break;
-        }
-        case 'q':
-            newline();
-            io_puts("quit? y/n ");
-            while (io_kbhit());
-            if (io_getc() == 'y') state = ST_STOP;
-            newline();
-            if (state != ST_STOP) show_prompt();
-            break;
-        case '$':
-            newline(); list_directory(8); show_prompt();
-            break;
-        default:
+        clear_eol(); nl_prompt(); break;
+    }
+
+    /* system */
+    case 'q':
+        newline();
+        io_puts("quit? y/n ");
+        while (io_kbhit());
+        if (io_getc() == 'y') state = ST_STOP;
+        newline();
+        if (state != ST_STOP) show_prompt();
+        break;
+    case '$':
+        newline(); list_directory(8); show_prompt();
+        break;
+
+    default:
+        /* multi-char: clr/cls (only reachable without prefix) */
+        if (cmd == 'c' && *q == 'l' && (*(q+1) == 'r' || *(q+1) == 's')) {
+            reset_screen(); show_prompt();
+        } else {
             err_prompt("?cmd");
         }
-        return;
     }
-
-    /* ── No AAAA: prefix — bare input ────────────────────── */
-
-    if (*q == 0 || *q == ';') { last_cmd = 0; nl_prompt(); return; }
-
-    /* multi-char: clr/cls */
-    if (q[0] == 'c' && q[1] == 'l' && (q[2] == 'r' || q[2] == 's')) {
-        reset_screen(); show_prompt(); return;
-    }
-
-    err_prompt("?");
 }
