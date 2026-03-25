@@ -19,6 +19,7 @@
 
 /* ── REPL state ─────────────────────────────────────────── */
 uint16_t cur_addr = 0x1000;
+uint8_t  cur_device = 8;
 static uint8_t  last_cmd = 0;
 static uint8_t  last_args[16];
 static uint16_t block_size = 0x10;
@@ -726,8 +727,18 @@ void exec_line(void)
         if (state != ST_STOP) show_prompt();
         break;
     case '$':
-        newline(); list_directory(8); show_prompt();
+    {   uint8_t dev;
+        skip_sp(&q);
+        if (*q >= '0' && *q <= '9') {
+            dev = 0;
+            while (*q >= '0' && *q <= '9')
+                dev = dev * 10 + (*q++ - '0');
+            if (dev >= 4 && dev <= 30)
+                cur_device = dev;
+        }
+        newline(); list_directory(cur_device); show_prompt();
         break;
+    }
 
     default:
         /* multi-char: clr/cls (only reachable without prefix) */

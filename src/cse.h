@@ -71,8 +71,9 @@ extern uint8_t *src_top, *src_bot;
 extern uint16_t cse_start(void);
 extern uint16_t cse_end(void);
 
-/* ── REPL current address ─────────────────────────────── */
+/* ── REPL current address / device ────────────────────── */
 extern uint16_t cur_addr;
+extern uint8_t  cur_device;           /* default 8 */
 
 /* ── Alias for io_clear_eol (used widely) ─────────────── */
 #define clear_eol io_clear_eol

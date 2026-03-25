@@ -14,7 +14,7 @@
         .import _io_color
         .import _newline, _print_string
         .import _show_prompt
-        .import _cur_addr
+        .import _cur_addr, _cur_device
         .import popa, popax
 
         .importzp sp
@@ -152,7 +152,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
         lda #0
         jsr SETNAM              ; empty filename
         lda #14                 ; lfn
-        ldx #8                  ; device
+        ldx _cur_device
         ldy #15                 ; secondary (command channel)
         jsr SETLFS
         jsr OPEN
@@ -499,13 +499,13 @@ callback:        .res 2     ; function pointer for SEQ I/O
         beq @use_header
         ; nonzero addr: secondary = 1
         lda #1
-        ldx #8
+        ldx _cur_device
         ldy #1
         jsr SETLFS
         jmp @do_load
 @use_header:
         lda #1
-        ldx #8
+        ldx _cur_device
         ldy #0
         jsr SETLFS
 
@@ -559,7 +559,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
 
         ; SETLFS 2,8,2
         lda #2
-        ldx #8
+        ldx _cur_device
         ldy #2
         jsr SETLFS
 
@@ -651,7 +651,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
         lda #0
         jsr SETNAM
         lda #15
-        ldx #8
+        ldx _cur_device
         ldy #15
         jsr SETLFS
         jsr OPEN
@@ -723,7 +723,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
 
         ; SETLFS 2,8,2
         lda #2
-        ldx #8
+        ldx _cur_device
         ldy #2
         jsr SETLFS
 
@@ -804,7 +804,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
 
         ; SETLFS 1,8,1
         lda #1
-        ldx #8
+        ldx _cur_device
         tay                     ; Y = 1
         jsr SETLFS
 
