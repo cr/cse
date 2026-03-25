@@ -616,25 +616,18 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr OPEN
         bcs @err
 
-        ; Check drive error channel
-        jsr @check_drive_err
-        bne @err_close
-
-        ; CHKIN 2
+        ; CHKIN 2 — no drive error check here; opening channel 15
+        ; between OPEN and CHKIN disrupts the serial bus channel.
+        ; Errors are caught by READST during the read loop.
         ldx #2
         jsr CHKIN
 
-        ; Clear stale KERNAL status from drive error check.
-        ; $90 is global — the ch15 read left EOF ($40) in it.
+        ; Clear counters (must explicitly load 0 — A is undefined after CHKIN)
         lda #0
-        sta $90
-
-        ; Clear counters
         sta _disk_seq_bytes
         sta _disk_seq_bytes+1
-        sta _disk_seq_lines
         sta _disk_seq_lines+1
-        lda #1                  ; start with 1 line
+        lda #1                  ; lines starts at 1 (N newlines = N+1 lines)
         sta _disk_seq_lines
 
 @read:

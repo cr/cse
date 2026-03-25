@@ -361,7 +361,7 @@ static uint8_t *get_filename(uint8_t **q) {
 
 /* Print "name: N lines, M bytes" for SEQ file result */
 static void print_seq_stats(const char *name) {
-    io_puts(name); io_puts(": ");
+    io_puts("; \""); io_puts(name); io_puts("\": ");
     io_putdec(ed_save_lines); io_puts(" lines, ");
     io_putdec(ed_save_bytes); io_puts(" bytes");
 }
@@ -387,7 +387,7 @@ static void cmd_load(uint8_t *args)
         uint16_t result = disk_load_prg((char *)name, addr);
         if (result == 0) { io_puts("?load "); io_puts((char *)name); }
         else {
-            io_puts((char *)name); io_puts(": ");
+            io_puts("; \""); io_puts((char *)name); io_puts("\": ");
             io_putdec(result); io_puts(" bytes at ");
             io_puthex4(addr ? addr : result);
         }
@@ -418,7 +418,7 @@ static void cmd_write(uint8_t *args)
         err = disk_save_prg((char *)name, addr, size);
         if (err) { io_puts("?save "); io_puts((char *)name); }
         else {
-            io_puts((char *)name); io_puts(": ");
+            io_puts("; \""); io_puts((char *)name); io_puts("\": ");
             io_putdec(size); io_puts(" bytes ");
             io_puthex4(addr); io_putc('-'); io_puthex4(end - 1);
         }
