@@ -49,8 +49,6 @@ extern char cur_filename[FILENAME_MAX_LEN + 1];
 void floppy_status(void);
 void list_directory(uint8_t device);
 
-/* ── Opcode length table ────────────────────────────────── */
-extern const uint8_t t_opcode_len[256];
 
 /* ── CPU mode ─────────────────────────────────────────── */
 /* al_cpu: 0=6502 (legal only), 1=6510 (+illegal), 2=65C02 (+CMOS)   */

@@ -89,7 +89,7 @@ extern char dasm_buf[];
  * Line emitters
  * ═══════════════════════════════════════════════════════════════ */
 
-static void emit_dot(uint16_t addr) {
+static uint8_t emit_dot(uint16_t addr) {
     uint8_t olen, i;
     io_cx = 0;
     olen = dasm_insn(addr);             /* disassemble first to get length */
@@ -104,6 +104,7 @@ static void emit_dot(uint16_t addr) {
     io_putc(' ');
     io_puts(dasm_buf);
     clear_eol();
+    return olen;
 }
 
 static void emit_mem(uint16_t addr, uint8_t cols) {
@@ -182,8 +183,7 @@ static void cmd_dot(uint16_t addr, uint8_t *args)
         }
     }
 
-    emit_dot(addr);
-    olen = t_opcode_len[*(uint8_t *)addr];
+    olen = emit_dot(addr);
     cur_addr = addr + olen;
     newline();
     show_prompt();
@@ -198,8 +198,7 @@ static void cmd_disasm(uint16_t addr, uint8_t *args)
     if (end < addr) end = 0xFFFF;
 
     while (addr < end) {
-        emit_dot(addr);
-        addr += t_opcode_len[*(uint8_t *)addr];
+        addr += emit_dot(addr);
         newline();
         if (addr == 0) break;
     }
