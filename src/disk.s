@@ -641,7 +641,13 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr CHRIN
         pha                     ; save byte
 
-        ; Call callback(byte) — byte in A
+        ; Check KERNAL status IMMEDIATELY after CHRIN,
+        ; before the callback (which may clobber $90).
+        jsr READST
+        and #$40
+        sta @eof_flag
+
+        ; Call callback(byte)
         pla
         pha
         jsr @do_callback
@@ -660,9 +666,8 @@ callback:        .res 2     ; function pointer for SEQ I/O
         inc _disk_seq_lines+1
 :
 @no_newline:
-        ; Check KERNAL status — bit 6 = EOF
-        jsr READST
-        and #$40
+        ; EOF check (saved before callback)
+        lda @eof_flag
         bne @ok
 
         jmp @read
@@ -694,6 +699,8 @@ callback:        .res 2     ; function pointer for SEQ I/O
         lda #1
         ldx #0
         rts
+
+@eof_flag: .byte 0
 
 ; Call the callback function pointer with A as argument
 @do_callback:
