@@ -1,15 +1,9 @@
 """
-test_dasm.py — pytest tests for the 6502 disassembler (dasm.s)
+test_dasm.py — Exhaustive disassembler tests (buffer-based).
 
-Tests every opcode in the 6502/65C02/illegal instruction set by:
-1. Placing known instruction bytes at a test address
-2. Calling _dasm_insn to render the disassembly to screen RAM
-3. Reading screen RAM and converting screen codes back to PETSCII
-4. Verifying the mnemonic and operand format match expectations
-
-Also includes round-trip tests: assemble an instruction with the line
-assembler, disassemble the resulting bytes, verify the disassembled
-output matches the expected canonical form.
+Tests all 256 opcodes × 3 CPU modes (6502, 6510, 65C02).
+The disassembler writes to dasm_buf (NUL-terminated PETSCII).
+No screen RAM, no cursor state — reads the buffer directly.
 """
 
 import sys
@@ -17,440 +11,182 @@ import pathlib
 import pytest
 from py65.devices.mpu6502 import MPU
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "dev"))
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "dev"))
+from instruction_set import OPCODES, MNEMONICS
 
-from instruction_set import OPCODES, MNEMONICS, MODE_EXAMPLES, ALL_MODES, mne_modes
+# ── CPU modes ────────────────────────────────────────────────────
+CPU_6502  = 0   # legal only
+CPU_6510  = 1   # legal + illegal
+CPU_65C02 = 2   # legal + CMOS
 
-# ---------------------------------------------------------------------------
-# Addressing mode expected output format
-# ---------------------------------------------------------------------------
-MODE_FMT = {
-    'IMP':   '',
-    'ACC':   'a',
-    'IMM':   '#$%02x',
-    'ZP':    '$%02x',
-    'ZPX':   '$%02x,x',
-    'ZPY':   '$%02x,y',
-    'ABS':   '$%04x',
-    'ABX':   '$%04x,x',
-    'ABY':   '$%04x,y',
-    'IND':   '($%04x)',
-    'INX':   '($%02x,x)',
-    'INY':   '($%02x),y',
-    'REL':   '$%04x',
-    'ZPI':   '($%02x)',
-    'AIX':   '($%04x,x)',
-    'ZPREL': '$%02x,$%04x',
+MODE_LEN = {
+    'IMP': 1, 'ACC': 1, 'IMM': 2, 'ZP': 2, 'ZPX': 2, 'ZPY': 2,
+    'ABS': 3, 'ABX': 3, 'ABY': 3, 'IND': 3, 'INX': 2, 'INY': 2,
+    'REL': 2, 'ZPI': 2, 'AIX': 3, 'ZPREL': 3,
 }
 
-# Operand length per mode (excluding opcode byte)
-MODE_OPLEN = {
-    'IMP': 0, 'ACC': 0, 'IMM': 1, 'ZP': 1, 'ZPX': 1, 'ZPY': 1,
-    'ABS': 2, 'ABX': 2, 'ABY': 2, 'IND': 2, 'INX': 1, 'INY': 1,
-    'REL': 1, 'ZPI': 1, 'AIX': 2, 'ZPREL': 2,
+# ── Operand formatters ───────────────────────────────────────────
+def fmt_operand(mode, operand_bytes, insn_addr):
+    b = operand_bytes
+    if mode == 'IMP':   return ''
+    if mode == 'ACC':   return 'A'
+    if mode == 'IMM':   return f'#${b[0]:02X}'
+    if mode == 'ZP':    return f'${b[0]:02X}'
+    if mode == 'ZPX':   return f'${b[0]:02X},X'
+    if mode == 'ZPY':   return f'${b[0]:02X},Y'
+    if mode == 'ABS':   return f'${b[1]:02X}{b[0]:02X}'
+    if mode == 'ABX':   return f'${b[1]:02X}{b[0]:02X},X'
+    if mode == 'ABY':   return f'${b[1]:02X}{b[0]:02X},Y'
+    if mode == 'IND':   return f'(${b[1]:02X}{b[0]:02X})'
+    if mode == 'INX':   return f'(${b[0]:02X},X)'
+    if mode == 'INY':   return f'(${b[0]:02X}),Y'
+    if mode == 'ZPI':   return f'(${b[0]:02X})'
+    if mode == 'AIX':   return f'(${b[1]:02X}{b[0]:02X},X)'
+    if mode == 'REL':
+        off = b[0] if b[0] < 0x80 else b[0] - 0x100
+        target = (insn_addr + 2 + off) & 0xFFFF
+        return f'${target:04X}'
+    if mode == 'ZPREL':
+        off = b[1] if b[1] < 0x80 else b[1] - 0x100
+        target = (insn_addr + 3 + off) & 0xFFFF
+        return f'${b[0]:02X},${target:04X}'
+    return ''
+
+# ── 65C02 additions ──────────────────────────────────────────────
+CMOS_ADDITIONS = {
+    0x80: ('BRA', 'REL'),
+    0x04: ('TSB', 'ZP'),  0x0C: ('TSB', 'ABS'),
+    0x14: ('TRB', 'ZP'),  0x1C: ('TRB', 'ABS'),
+    0x64: ('STZ', 'ZP'),  0x74: ('STZ', 'ZPX'),
+    0x9C: ('STZ', 'ABS'), 0x9E: ('STZ', 'ABX'),
+    0x34: ('BIT', 'ZPX'), 0x3C: ('BIT', 'ABX'), 0x89: ('BIT', 'IMM'),
+    0x7C: ('JMP', 'AIX'),
+    0x1A: ('INC', 'ACC'), 0x3A: ('DEC', 'ACC'),
+    0x5A: ('PHY', 'IMP'), 0x7A: ('PLY', 'IMP'),
+    0xDA: ('PHX', 'IMP'), 0xFA: ('PLX', 'IMP'),
+    0x12: ('ORA', 'ZPI'), 0x32: ('AND', 'ZPI'),
+    0x52: ('EOR', 'ZPI'), 0x72: ('ADC', 'ZPI'),
+    0x92: ('STA', 'ZPI'), 0xB2: ('LDA', 'ZPI'),
+    0xD2: ('CMP', 'ZPI'), 0xF2: ('SBC', 'ZPI'),
 }
-
-# ---------------------------------------------------------------------------
-# Test binary build
-# ---------------------------------------------------------------------------
-BUILD = ROOT / "build"
-BIN   = BUILD / "dasm_test.bin"
-MAP   = BUILD / "dasm_test.map"
-
-OBJS = [
-    ("dasm",            "src/dasm.s"),
-    ("dasm_tables",     "src/dasm_tables.s"),
-    ("cse_io",          "src/cse_io.s"),
-]
-
-def _needs_build():
-    if not BIN.exists():
-        return True
-    bin_mtime = BIN.stat().st_mtime
-    for _, src in OBJS:
-        p = ROOT / src
-        if p.stat().st_mtime > bin_mtime:
-            return True
-    return False
-
-@pytest.fixture(scope="session")
-def binary(tmp_path_factory):
-    """Assemble and link the disassembler test binary."""
-    import subprocess
-    BUILD.mkdir(exist_ok=True)
-
-    if not _needs_build():
-        return BIN.read_bytes()
-
-    ca65 = "ca65"
-    ld65 = "ld65"
-    obj_paths = []
-
-    for name, src in OBJS:
-        src_path = ROOT / src
-        obj_path = BUILD / f"{name}_dtest.o"
-        subprocess.check_call([
-            ca65, "--cpu", "6502", str(src_path), "-o", str(obj_path)
-        ])
-        obj_paths.append(str(obj_path))
-
-    cfg = ROOT / "dev" / "test.cfg"
-    subprocess.check_call([
-        ld65, "-C", str(cfg)] + obj_paths + [
-        "-o", str(BIN), "-m", str(MAP)
-    ])
-    return BIN.read_bytes()
+for d in range(8):
+    CMOS_ADDITIONS[0x07 + d * 0x10] = (f'RMB{d}', 'ZP')
+    CMOS_ADDITIONS[0x87 + d * 0x10] = (f'SMB{d}', 'ZP')
+    CMOS_ADDITIONS[0x0F + d * 0x10] = (f'BBR{d}', 'ZPREL')
+    CMOS_ADDITIONS[0x8F + d * 0x10] = (f'BBS{d}', 'ZPREL')
 
 
-# ---------------------------------------------------------------------------
-# CPU helper
-# ---------------------------------------------------------------------------
-ENTRY     = 0x0200   # test entry point (from test.cfg)
-INSTR_BUF = 0x0300   # where we place instruction bytes
-SCREEN    = 0x0400
+# ── Build per-CPU maps ───────────────────────────────────────────
+CMOS_ONLY_MODES = {'ZPI', 'AIX'}  # modes that exist only on 65C02
 
-def parse_map_symbols():
-    """Parse ld65 map file for exported symbol addresses."""
-    syms = {}
-    if MAP.exists():
-        for line in MAP.read_text().splitlines():
-            # Format: "symbolname             00XXXX RLA"
-            parts = line.split()
-            if len(parts) >= 2:
-                for i, p in enumerate(parts):
-                    if len(p) == 6 and all(c in '0123456789ABCDEFabcdef' for c in p):
-                        sym_name = parts[i-1] if i > 0 else None
-                        if sym_name and not sym_name[0].isdigit():
-                            syms[sym_name] = int(p, 16)
-    return syms
+# Specific opcodes that are 65C02-only despite the mnemonic being "legal"
+CMOS_ONLY_OPCODES = set(CMOS_ADDITIONS.keys())
 
-
-def make_cpu(binary_data):
-    """Create a py65 MPU with the test binary loaded and KERNAL PLOT patched."""
-    cpu = MPU()
-    # test.cfg layout: ZP at $0000 (256 bytes), RAM at $0200 (rest)
-    # Load ZP portion (first 256 bytes → address $0000)
-    for i in range(min(256, len(binary_data))):
-        cpu.memory[i] = binary_data[i]
-    # Load RAM portion (offset 256 → address $0200)
-    for i in range(256, len(binary_data)):
-        cpu.memory[0x0200 + (i - 256)] = binary_data[i]
-
-    # Parse symbols from map file
-    syms = parse_map_symbols()
-
-    # Store key addresses
-    cpu._dasm_insn = syms.get('_dasm_insn', 0x0200)
-
-    return cpu
-
-def run_disasm(cpu, instr_bytes):
-    """Place instruction bytes and call the disassembler.
-    Returns (length, screen_text)."""
-    # Place instruction bytes at INSTR_BUF
-    for i, b in enumerate(instr_bytes):
-        cpu.memory[INSTR_BUF + i] = b
-    # Pad with 0 to avoid reading garbage
-    for i in range(len(instr_bytes), 4):
-        cpu.memory[INSTR_BUF + i] = 0
-
-    # Set pointer at $F0/$F1
-    cpu.memory[0xF0] = INSTR_BUF & 0xFF
-    cpu.memory[0xF1] = (INSTR_BUF >> 8) & 0xFF
-
-    # Clear screen row 0
-    for i in range(40):
-        cpu.memory[SCREEN + i] = 0x20
-
-    # Reset CPU state
-    cpu.sp = 0xFF
-    cpu.pc = ENTRY
-    cpu.p = 0  # clear flags
-
-    # Reset cursor to row 0, col 0
-    # io_putc uses scr_lo/scr_hi[CUR_ROW] directly, no PLOT needed
-    cpu.memory[0xD3] = 0   # CUR_COL
-    cpu.memory[0xD6] = 0   # CUR_ROW
-
-    # Call _dasm_insn(__fastcall__): addr in A/X (lo/hi)
-    # Push return address to a BRK landing pad at $01F0
-    cpu.memory[0x01F0] = 0x00  # BRK
-    cpu.sp = 0xFD
-    cpu.memory[0x01FF] = 0x01          # hi byte of $01EF
-    cpu.memory[0x01FE] = 0xEF          # lo byte of $01EF
-    cpu.a = INSTR_BUF & 0xFF           # addr lo
-    cpu.x = (INSTR_BUF >> 8) & 0xFF   # addr hi
-    cpu.pc = cpu._dasm_insn
-    cpu.p = 0
-
-    steps = 0
-    max_steps = 100000
-    while steps < max_steps:
-        cpu.step()
-        steps += 1
-        if cpu.pc == 0x01F0:
-            break
-
-    # Read screen row 0, convert screen codes to PETSCII
-    text = []
-    for i in range(40):
-        sc = cpu.memory[SCREEN + i]
-        if sc == 0x20:  # space
-            text.append(' ')
-        elif sc >= 0x01 and sc <= 0x1A:  # letters A-Z
-            text.append(chr(sc + 0x60))  # lowercase ASCII
-        elif sc >= 0x30 and sc <= 0x39:  # digits
-            text.append(chr(sc))
-        elif sc == 0x24:  # '$'
-            text.append('$')
-        elif sc == 0x28:  # '('
-            text.append('(')
-        elif sc == 0x29:  # ')'
-            text.append(')')
-        elif sc == 0x2C:  # ','
-            text.append(',')
-        elif sc == 0x23:  # '#'
-            text.append('#')
-        elif sc == 0x2E:  # '.'
-            text.append('.')
-        elif sc == 0x3F:  # '?'
-            text.append('?')
-        else:
-            text.append(f'[{sc:02x}]')
-
-    return ''.join(text).rstrip()
-
-
-# ---------------------------------------------------------------------------
-# Build the expected disassembly for each opcode
-# ---------------------------------------------------------------------------
-def build_opcode_expectations():
-    """For each opcode 0-255, build (mnemonic, mode, expected_text, instr_bytes)."""
-    # Invert OPCODES: opcode_byte → (mne, mode)
-    opc_map = {}
+def build_cpu_maps():
+    maps = {CPU_6502: {}, CPU_6510: {}, CPU_65C02: {}}
     for mne, modes in OPCODES.items():
+        cat = MNEMONICS[mne][2]
         for mode, opc in modes.items():
-            opc_map[opc] = (mne.lower(), mode)
-
-    results = []
-    for opc in range(256):
-        if opc not in opc_map:
-            # Unknown/undefined opcode
-            instr = [opc]
-            results.append((opc, '???', 'IMP', '???', instr))
-            continue
-
-        mne, mode = opc_map[opc]
-        oplen = MODE_OPLEN[mode]
-
-        # Choose representative operand bytes
-        if oplen == 0:
-            op_bytes = []
-        elif oplen == 1:
-            if mode == 'REL':
-                op_bytes = [0x10]  # +16 offset
-            elif mode == 'ZPREL':
-                op_bytes = [0x42, 0x10]  # ZP=$42, offset=+16
-            else:
-                op_bytes = [0x42]
-        elif oplen == 2:
-            if mode == 'ZPREL':
-                op_bytes = [0x42, 0x10]
-            else:
-                op_bytes = [0x34, 0x12]  # $1234 little-endian
-
-        instr = [opc] + op_bytes
-
-        # Build expected operand string
-        if mode == 'IMP':
-            expected_op = ''
-        elif mode == 'ACC':
-            expected_op = 'a'
-        elif mode == 'REL':
-            # PC is at INSTR_BUF ($0300), offset is signed
-            # Target = PC + 2 + signed_offset
-            offset = op_bytes[0]
-            if offset >= 0x80:
-                offset -= 256
-            target = (INSTR_BUF + 2 + offset) & 0xFFFF
-            expected_op = '$%04x' % target
-        elif mode == 'ZPREL':
-            zp_val = op_bytes[0]
-            offset = op_bytes[1]
-            if offset >= 0x80:
-                offset -= 256
-            target = (INSTR_BUF + 3 + offset) & 0xFFFF
-            expected_op = '$%02x,$%04x' % (zp_val, target)
-        elif oplen == 1:
-            expected_op = MODE_FMT[mode] % op_bytes[0]
-        elif oplen == 2:
-            val16 = op_bytes[0] | (op_bytes[1] << 8)
-            expected_op = MODE_FMT[mode] % val16
-
-        if expected_op:
-            expected = f'{mne} {expected_op}'
-        else:
-            expected = mne
-
-        results.append((opc, mne, mode, expected, instr))
-
-    return results
-
-EXPECTATIONS = build_opcode_expectations()
-
-
-# ---------------------------------------------------------------------------
-# Parametrized test: one test per opcode
-# ---------------------------------------------------------------------------
-@pytest.fixture(scope="session")
-def cpu(binary):
-    return make_cpu(binary)
-
-
-@pytest.mark.parametrize(
-    "opc,mne,mode,expected,instr_bytes",
-    [(e[0], e[1], e[2], e[3], e[4]) for e in EXPECTATIONS],
-    ids=[f"${e[0]:02X}_{e[1]}_{e[2]}" for e in EXPECTATIONS]
-)
-def test_disasm(cpu, opc, mne, mode, expected, instr_bytes):
-    """Test that disassembling the given opcode produces the expected text."""
-    text = run_disasm(cpu, instr_bytes)
-
-    # Verify full disassembly (mnemonic + operand)
-    assert text == expected, f"${opc:02X}: '{text}' != '{expected}'"
-
-
-# ---------------------------------------------------------------------------
-# Round-trip tests: assemble → disassemble → verify
-#
-# For each (mnemonic, mode), assemble the canonical operand form, then
-# disassemble the resulting bytes and verify the output matches what the
-# disassembler should produce for those bytes.
-# ---------------------------------------------------------------------------
-
-# Reuse the assembler runner from test_asm_line
-from test_asm_line import _run as asm_run, _sc
-
-# Canonical operand per mode: the FIRST entry in MODE_EXAMPLES with
-# uppercase letters (what the assembler expects).
-# We use specific non-zero operand values so the disassembler output is
-# visually distinctive: ZP=$42, ABS=$1234, IMM=$42, REL→target=$0012.
-_CANONICAL_ASM = {
-    'IMP':   ('',              []),
-    'ACC':   ('A',             []),
-    'IMM':   ('#$42',          [0x42]),
-    'ZP':    ('$42',           [0x42]),
-    'ZPX':   ('$42,X',         [0x42]),
-    'ZPY':   ('$42,Y',         [0x42]),
-    'ABS':   ('$1234',         [0x34, 0x12]),
-    'ABX':   ('$1234,X',       [0x34, 0x12]),
-    'ABY':   ('$1234,Y',       [0x34, 0x12]),
-    'IND':   ('($1234)',       [0x34, 0x12]),
-    'INX':   ('($42,X)',       [0x42]),
-    'INY':   ('($42),Y',       [0x42]),
-    'REL':   ('$0012',         [0x10]),   # PC=$0000, offset=$10 → target=$0012
-    'ZPI':   ('($42)',         [0x42]),
-    'AIX':   ('($1234,X)',     [0x34, 0x12]),
-    'ZPREL': ('$42,$0013',     [0x42, 0x10]),  # PC=$0000, offset=$10 → target=$0013
-}
-
-# Expected disassembler output per mode (lowercase, matching dasm output)
-_CANONICAL_DASM = {
-    'IMP':   '',
-    'ACC':   'a',
-    'IMM':   '#$42',
-    'ZP':    '$42',
-    'ZPX':   '$42,x',
-    'ZPY':   '$42,y',
-    'ABS':   '$1234',
-    'ABX':   '$1234,x',
-    'ABY':   '$1234,y',
-    'IND':   '($1234)',
-    'INX':   '($42,x)',
-    'INY':   '($42),y',
-    'REL':   '$0012',           # target = INSTR_BUF + 2 + $10 = $0312
-    'ZPI':   '($42)',
-    'AIX':   '($1234,x)',
-    'ZPREL': '$42,$0313',       # target = INSTR_BUF + 3 + $10 = $0313
-}
-
-
-def _build_safe_opcodes():
-    """Opcodes with identical interpretation in NMOS+illegal and CMOS views."""
-    nmos, cmos = {}, {}
-    for mne, modes in OPCODES.items():
-        _, _, cat = MNEMONICS[mne]
-        for mode, opc in modes.items():
-            if cat in ('legal', 'illegal'):
-                nmos[opc] = (mne, mode)
-            if cat in ('legal', 'cmos'):
-                cmos[opc] = (mne, mode)
-    return {opc for opc in range(256) if nmos.get(opc) and nmos.get(opc) == cmos.get(opc)}
-
-_SAFE_OPCODES = _build_safe_opcodes()
-
-
-def _build_roundtrip_cases():
-    """Build (source, mne, mode, expected_dasm) for each valid mnemonic+mode.
-    Only includes opcodes that are unambiguous between NMOS and 65C02."""
-    cases = []
-    for mne, (profile, cmos_bit, cat) in MNEMONICS.items():
-        if cat not in ('legal',):   # only legal for now (safe round-trip)
-            continue
-        modes = mne_modes(profile, cmos_bit)
-        for mode in sorted(modes, key=lambda m: list(ALL_MODES).index(m)):
-            opcode = OPCODES[mne].get(mode)
-            if opcode is None:
-                continue    # Zone D/E digit-encoded
-            if opcode not in _SAFE_OPCODES:
-                continue    # differs between NMOS and CMOS
-            if mode not in _CANONICAL_ASM:
+            if opc is None:
                 continue
+            is_cmos_only = mode in CMOS_ONLY_MODES or opc in CMOS_ONLY_OPCODES
+            if cat == 'legal':
+                if not is_cmos_only:
+                    maps[CPU_6502][opc]  = (mne, mode)
+                    maps[CPU_6510][opc]  = (mne, mode)
+                maps[CPU_65C02][opc] = (mne, mode)
+            elif cat == 'illegal':
+                maps[CPU_6510][opc]  = (mne, mode)
+            elif cat == 'cmos':
+                maps[CPU_65C02][opc] = (mne, mode)
+    for opc, (mne, mode) in CMOS_ADDITIONS.items():
+        maps[CPU_65C02][opc] = (mne, mode)
+    return maps
 
-            asm_src, op_bytes = _CANONICAL_ASM[mode]
-            source = f"{mne} {asm_src}".strip()
+CPU_MAPS = build_cpu_maps()
 
-            # Expected disasm output
-            dasm_op = _CANONICAL_DASM[mode]
-            # REL/ZPREL targets depend on INSTR_BUF position in disasm test
-            if mode == 'REL':
-                # Assembled with PC=$0000 → offset=$10 → target=$0012
-                # Disassembled from INSTR_BUF=$0300 → target=$0300+2+$10=$0312
-                dasm_op = '$0312'
-            elif mode == 'ZPREL':
-                dasm_op = '$42,$0313'
+INSN_ADDR = 0x0B00  # Must be above CODE+RODATA+BSS (ends ~$095E)
+TEST_OPERANDS = [0x42, 0x34]  # arbitrary operand bytes
 
-            expected_mne = mne.lower()
-            if dasm_op:
-                expected = f'{expected_mne} {dasm_op}'
-            else:
-                expected = expected_mne
 
-            cases.append((source, opcode, expected_mne, mode, expected, op_bytes))
+def expected_string(cpu, opc):
+    if opc not in CPU_MAPS[cpu]:
+        return '???'
+    mne, mode = CPU_MAPS[cpu][opc]
+    operand = fmt_operand(mode, TEST_OPERANDS, INSN_ADDR)
+    if operand:
+        return f'{mne} {operand}'
+    return mne
+
+
+# ── Parametrize ──────────────────────────────────────────────────
+def gen_cases():
+    cases = []
+    for cpu in [CPU_6502, CPU_6510, CPU_65C02]:
+        for opc in range(256):
+            exp = expected_string(cpu, opc)
+            tag = ['6502', '6510', '65C02'][cpu]
+            cases.append(pytest.param(cpu, opc, exp, id=f'{tag}-${opc:02X}'))
     return cases
 
-_RT_CASES = _build_roundtrip_cases()
 
+@pytest.mark.parametrize("cpu,opc,exp", gen_cases())
+def test_dasm(dasm_syms, cpu, opc, exp):
+    """Disassemble one opcode and compare with expected output."""
+    mpu = MPU()
+    mem = bytearray(0x10000)
+    dasm_syms.load_into(mem)
 
-@pytest.mark.parametrize(
-    "source,opcode,mne,mode,expected,op_bytes",
-    _RT_CASES,
-    ids=[f"RT_{c[0]}" for c in _RT_CASES]
-)
-def test_roundtrip(al_syms, cpu, source, opcode, mne, mode, expected, op_bytes):
-    """Assemble an instruction, then disassemble and verify the output."""
-    # Step 1: assemble
-    assembled = asm_run(al_syms, source, al_cpu=1)
-    assert assembled[0] == opcode, (
-        f"assembled opcode ${assembled[0]:02X} != expected ${opcode:02X} for '{source}'"
-    )
+    # Place instruction at $0300
+    mem[INSN_ADDR]     = opc
+    mem[INSN_ADDR + 1] = TEST_OPERANDS[0]
+    mem[INSN_ADDR + 2] = TEST_OPERANDS[1]
 
-    # Step 2: disassemble the assembled bytes
-    text = run_disasm(cpu, list(assembled))
+    # Set CPU mode
+    mem[dasm_syms.al_cpu] = cpu
 
-    # Step 3: verify
-    assert text == expected, (
-        f"round-trip '{source}' → bytes={assembled.hex()} → '{text}' "
-        f"(expected '{expected}')"
-    )
+    # Place a BRK at return address so we know when done.
+    # Must be ABOVE the code region (CODE ends at ~$07A7, BSS at ~$095E).
+    RETURN_ADDR = 0x0A00
+    mem[RETURN_ADDR] = 0x00  # BRK
+
+    mpu.memory = mem
+    mpu.sp = 0xFF
+    # Push return address - 1 for the stub's RTS
+    mpu.sp -= 1
+    mem[0x01FF] = (RETURN_ADDR - 1) >> 8
+    mpu.sp -= 1
+    mem[0x01FE] = (RETURN_ADDR - 1) & 0xFF
+
+    mpu.pc = dasm_syms.dasm_test_entry
+
+    # Execute until PC hits RETURN_ADDR (BRK)
+    steps = 0
+    while steps < 10000:
+        if mpu.pc == RETURN_ADDR:
+            break
+        mpu.step()
+        steps += 1
+    else:
+        pytest.fail(f"Didn't return after 10000 steps (PC=${mpu.pc:04X})")
+
+    # Read dasm_buf
+    buf = dasm_syms.dasm_buf
+    result = ''
+    for i in range(24):
+        ch = mem[buf + i]
+        if ch == 0:
+            break
+        result += chr(ch)
+
+    # Compare (normalize to uppercase for PETSCII)
+    assert result.upper().rstrip() == exp.upper(), \
+        f'${opc:02X} cpu={cpu}: got {result!r}, expected {exp!r}'
+
+    # Check instruction length
+    if opc in CPU_MAPS[cpu]:
+        _, mode = CPU_MAPS[cpu][opc]
+        assert mpu.a == MODE_LEN[mode], \
+            f'${opc:02X} cpu={cpu}: length={mpu.a}, expected {MODE_LEN[mode]}'
+    else:
+        assert mpu.a == 1, f'${opc:02X} cpu={cpu}: unknown should be length 1'

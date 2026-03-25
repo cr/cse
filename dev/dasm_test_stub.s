@@ -1,43 +1,30 @@
-; dasm_test_stub.s — test harness for disassembler in py65
+; dasm_test_stub.s — Test harness for the bit-slice disassembler
 ;
-; Entry point: jsr $0600
-;   Before call:
-;     $00F0/$00F1 = pointer to instruction bytes
-;   After return:
-;     A = instruction length returned by _disasm
-;     Screen RAM at $0400+ contains the disassembled text
+; Memory layout:
+;   $0300-$030F: instruction bytes (placed by Python)
+;   $F0:         al_cpu value (set by Python before call)
+;
+; Entry: JSR dasm_test_entry
+;   Calls _dasm_insn with addr=$0300
+;   Returns instruction length in A
+;   Result string at _dasm_buf (NUL-terminated PETSCII)
 
         .export dasm_test_entry
 
         .import _dasm_insn
-        .import _io_sync
-        .import scr_lo, scr_hi
-        .import kplot_stub
+
+        .exportzp al_cpu
+
+.segment "ZEROPAGE"
+al_cpu:         .res 1          ; CPU mode: 0=6502 1=6510 2=65C02
 
 .segment "CODE"
 
-dasm_test_entry:
-        ; Reset cursor to 0,0
-        lda #0
-        sta $D3                 ; CUR_COL
-        sta $D6                 ; CUR_ROW
-        ; Sync KERNAL line pointers
-        clc
-        ldx #0
-        ldy #0
-        jsr $FFF0               ; KERNAL PLOT (uses kplot_stub)
-
-        ; Clear first screen row
-        ldy #39
-        lda #$20
-@clr:   sta $0400,y
-        dey
-        bpl @clr
-
-        ; Call disassembler: addr in A/X (lo/hi) -- __fastcall__
-        lda $F0                 ; ptr lo
-        ldx $F1                 ; ptr hi
+.proc dasm_test_entry
+        ; Call _dasm_insn with addr = $0B00 (__fastcall__: A=lo, X=hi)
+        lda #$00
+        ldx #$0B
         jsr _dasm_insn
-
-        ; A = instruction length, return it
+        ; A = instruction length, dasm_buf has the string
         rts
+.endproc

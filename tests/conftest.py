@@ -408,3 +408,121 @@ class AsmLineSymbols:
 def al_syms():
     """Session-scoped asm_line test binary + symbol addresses."""
     return AsmLineSymbols()
+
+
+# ── dasm test binary ─────────────────────────────────────────────────────────
+#
+# Links: dasm.s + dasm_tables.s + dasm_test_stub.s
+# The stub provides al_cpu (ZP) and exports dasm_test_entry.
+
+_DASM_BIN = BUILD / "dasm_test.bin"
+_DASM_MAP = BUILD / "dasm_test.map"
+
+_DASM_SOURCES = [
+    SRC / "dasm.s",
+    SRC / "dasm_tables.s",
+    DEV / "dasm_test_stub.s",
+]
+
+
+def _dasm_needs_rebuild():
+    if not _DASM_BIN.exists():
+        return True
+    bin_mtime = _DASM_BIN.stat().st_mtime
+    # Also check the include file
+    extra = [SRC / "dasm_mne_idx.s"]
+    return any(s.stat().st_mtime > bin_mtime
+               for s in _DASM_SOURCES + extra if s.exists())
+
+
+def _dasm_build():
+    BUILD.mkdir(exist_ok=True)
+    obj_files = []
+    for src in _DASM_SOURCES:
+        obj = BUILD / f"{src.stem}_dasm.o"
+        cmd = ["ca65", "--cpu", "6502",
+               "-I", str(SRC), "-I", str(BUILD),
+               str(src), "-o", str(obj)]
+        subprocess.run(cmd, check=True)
+        obj_files.append(str(obj))
+    subprocess.run(
+        ["ld65", "-C", str(DEV / "test.cfg"),
+         *obj_files,
+         "-o", str(_DASM_BIN),
+         "-m", str(_DASM_MAP)],
+        check=True,
+    )
+
+
+def _dasm_parse_map_exports():
+    """Parse ALL exports — ld65 packs 2 per line."""
+    syms = {}
+    in_exports = False
+    for line in _DASM_MAP.read_text().splitlines():
+        if "Exports list by name" in line:
+            in_exports = True
+            continue
+        if in_exports:
+            if line.strip() == "" or line.startswith("---"):
+                continue
+            if line.startswith("Exports list by value") or line.startswith("Imports"):
+                break
+            for name, addr in re.findall(r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line):
+                syms[name] = int(addr, 16)
+    return syms
+
+
+class DasmSymbols:
+    """Resolved symbol addresses + binary loader for the dasm test."""
+
+    def __init__(self):
+        if _dasm_needs_rebuild():
+            _dasm_build()
+
+        exports = _dasm_parse_map_exports()
+
+        # dasm_test_entry might not be in exports (not imported by anyone).
+        # Use _dasm_insn as fallback and compute stub entry from segment info.
+        if "dasm_test_entry" in exports:
+            self.dasm_test_entry = exports["dasm_test_entry"]
+        else:
+            # The stub is the last CODE contributor; its entry is at a known
+            # offset from the segment end.  Parse from the map file.
+            seg_info = {}
+            for line in _DASM_MAP.read_text().splitlines():
+                m = re.match(r"(\w+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)", line)
+                if m and m.group(1) == 'CODE':
+                    seg_info['start'] = int(m.group(2), 16)
+                    seg_info['end']   = int(m.group(3), 16)
+                    seg_info['size']  = int(m.group(4), 16)
+            # Find stub offset from module list
+            for line in _DASM_MAP.read_text().splitlines():
+                m = re.match(r"\s+CODE\s+Offs=([0-9a-fA-F]+)\s+Size=", line)
+                if m:
+                    stub_offs = int(m.group(1), 16)
+            self.dasm_test_entry = seg_info['start'] + stub_offs
+
+        self.al_cpu   = exports["al_cpu"]
+        # _dasm_buf is in BSS — first BSS symbol, not imported so not in exports.
+        # Parse BSS segment start from the map.
+        for line in _DASM_MAP.read_text().splitlines():
+            m = re.match(r"BSS\s+([0-9a-fA-F]+)\s+", line)
+            if m:
+                self.dasm_buf = int(m.group(1), 16)
+                break
+        else:
+            raise KeyError("BSS segment not found in map")
+
+        raw = _DASM_BIN.read_bytes()
+        self._zp_blob   = raw[:_ZP_SIZE]
+        self._code_blob = raw[_ZP_SIZE:]
+
+    def load_into(self, memory):
+        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
+        memory[_CODE_START : _CODE_START + len(self._code_blob)]   = self._code_blob
+
+
+@pytest.fixture(scope="session")
+def dasm_syms():
+    """Session-scoped dasm test binary + symbol addresses."""
+    return DasmSymbols()
