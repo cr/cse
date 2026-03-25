@@ -105,9 +105,9 @@ void skip_sp(uint8_t **pp) {
 
 static void fill_free_memory(void) {
     uint16_t wlo = cse_end();
-    /* Free ZP: our ZP ends at $43 (ZEROPAGE segment), KERNAL uses $80+ */
-    memset((void *)0x44, 0xFF, 0x80 - 0x44);  /* $44–$7F only (KERNAL owns $80+) */
-    /* Free work area */
+    /* ZP not filled — BASIC/KERNAL use $44-$8F for FAC, pointers, etc.
+     * Filling it with $FF causes BASIC overflow on SYS restart. */
+    /* Free work area only */
     if (wlo < 0xC800)
         memset((void *)wlo, 0xFF, 0xC800 - wlo);
 }
