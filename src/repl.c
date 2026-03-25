@@ -512,6 +512,11 @@ static void cmd_info(void)
     show_prompt();
 }
 
+/* cut trailing comment: NUL-terminate at first ';' */
+static void cut_comment(uint8_t *p) {
+    while (*p) { if (*p == ';') { *p = 0; return; } ++p; }
+}
+
 /* ═══════════════════════════════════════════════════════════════
  * Command dispatcher
  * ═══════════════════════════════════════════════════════════════ */
@@ -554,11 +559,7 @@ void exec_line(void)
         } else {
             ++q;                          /* skip command letter */
             if (*q == ' ') ++q;           /* optional space */
-            /* cut at ';' in the rest (comment) */
-            {   uint8_t *s;
-                for (s = q; *s; ++s)
-                    if (*s == ';') { *s = 0; break; }
-            }
+            cut_comment(q);
         }
 
         /* seek: args override prefix address */
@@ -682,11 +683,7 @@ void exec_line(void)
 
     if (*q == 0 || *q == ';') { last_cmd = 0; nl_prompt(); return; }
 
-    /* cut at ';' for bare commands too */
-    {   uint8_t *s;
-        for (s = q; *s; ++s)
-            if (*s == ';') { *s = 0; break; }
-    }
+    cut_comment(q);
 
     /* multi-char: clr/cls */
     if (q[0] == 'c' && q[1] == 'l' && (q[2] == 'r' || q[2] == 's')) {
