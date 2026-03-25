@@ -253,6 +253,9 @@ static void cmd_jmp(uint16_t addr)
 {
     cur_addr = addr;
     jsr_addr(addr);
+    /* restore color scheme in case user code changed it */
+    *(uint8_t *)0xD020 = 12;    /* border: medium grey */
+    *(uint8_t *)0xD021 = 11;    /* background: dark grey */
     newline();
     emit_reg();
     newline();
