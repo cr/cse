@@ -1,10 +1,11 @@
 /* ═══════════════════════════════════════════════════════════════
  * CSE — C64 Screen Editor / Assembler / Monitor
  *
- * main.c — hardware init, mode switch, main loop.
+ * main.c — hardware init, NMI intercept, mode switch, main loop.
  * ═══════════════════════════════════════════════════════════════ */
 
 #include <c64.h>
+#include <string.h>
 #include <stdint.h>
 #include "cse.h"
 #include "cse_io.h"
@@ -13,11 +14,9 @@
 #include "repl.h"
 #include "editor.h"
 
-#define MEM_CONFIG (*(uint8_t *)0x01)
-
-#ifndef CH_ESC
-#define CH_ESC  0x1B
-#endif
+#define MEM_CONFIG    (*(uint8_t *)0x01)
+#define NMI_VEC       (*(uint16_t *)0x0318) /* KERNAL NMI indirect vector */
+#define BASIC_WARM    0xA659                /* BASIC warm start ($A659) */
 
 /* ── Globals (defined here, declared extern in cse.h) ──── */
 uint8_t state = 0;
@@ -25,20 +24,49 @@ uint8_t *const SCREEN = (uint8_t *)0x0400;
 uint8_t *src_top = 0;
 uint8_t *src_bot = 0;
 
+/* NMI flag — set by our NMI handler, checked in main loop */
+volatile uint8_t nmi_pending = 0;
+
+/* Saved default NMI vector for restore on quit */
+static uint16_t saved_nmi_vec;
+
+/* ═══════════════════════════════════════════════════════════════
+ * NMI handler — intercepts RUN/STOP + RESTORE
+ *
+ * Sets nmi_pending flag.  The main loop checks this after each
+ * keypress and drops to the REPL.  User code running via 'j' is
+ * NOT interruptible (the flag is checked only when j returns).
+ * ═══════════════════════════════════════════════════════════════ */
+
+/* NMI handler in asm: must match KERNAL's register save convention.
+ * The KERNAL NMI entry ($FE43) does PHA/TXA/PHA/TYA/PHA then
+ * JMP ($0318).  So A/X/Y are on the stack when we run. */
+static void nmi_handler_asm(void) {
+    __asm__("lda #1");
+    __asm__("sta %v", nmi_pending);
+    /* Restore registers pushed by KERNAL NMI entry */
+    __asm__("pla");
+    __asm__("tay");
+    __asm__("pla");
+    __asm__("tax");
+    __asm__("pla");
+    __asm__("rti");
+}
+
 /* ═══════════════════════════════════════════════════════════════
  * Shared hex parsing helpers
  * ═══════════════════════════════════════════════════════════════ */
 
-uint8_t hex_val(uint8_t ch) {
+uint8_t __fastcall__ hex_val(uint8_t ch) {
     if (ch >= '0' && ch <= '9') return ch - '0';
     if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
     if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
     return 0xFF;
 }
 
-uint8_t is_hex(uint8_t ch) { return hex_val(ch) != 0xFF; }
+uint8_t __fastcall__ is_hex(uint8_t ch) { return hex_val(ch) != 0xFF; }
 
-uint8_t hex_val_to_char(uint8_t v) {
+uint8_t __fastcall__ hex_val_to_char(uint8_t v) {
     return v < 10 ? '0' + v : 'a' + v - 10;
 }
 
@@ -69,8 +97,35 @@ void skip_sp(uint8_t **pp) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
- * Main program loop
+ * Init: fill free memory with $FF
+ *
+ * Helps developers catch uninitialized memory reads.
+ * Free ZP: $44–$FF.  Free work: cse_end()–$C7FF.
  * ═══════════════════════════════════════════════════════════════ */
+
+static void fill_free_memory(void) {
+    uint16_t wlo = cse_end();
+    /* Free ZP: our ZP ends at $43 (ZEROPAGE segment), KERNAL uses $80+ */
+    memset((void *)0x44, 0xFF, 0x80 - 0x44);  /* $44–$7F only (KERNAL owns $80+) */
+    /* Free work area */
+    if (wlo < 0xC800)
+        memset((void *)wlo, 0xFF, 0xC800 - wlo);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * Main program
+ * ═══════════════════════════════════════════════════════════════ */
+
+#ifndef VERSION
+#define VERSION "0.1"
+#endif
+#ifndef BUILD_YEAR
+#define BUILD_YEAR "2025"
+#endif
+
+/* SYS address for restart — the STARTUP segment entry point.
+ * For the standard cc65 C64 target this is $080D = 2061. */
+#define SYS_ADDR 2061
 
 void main(void)
 {
@@ -84,19 +139,20 @@ void main(void)
     reset_screen();
     *(uint8_t *)0xD018 |= 0x02;          /* lowercase/uppercase charset */
 
-    /* splash screen */
+    /* Fill free memory with $FF (catch uninitialized reads) */
+    fill_free_memory();
+
+    /* Install NMI handler (RUN/STOP + RESTORE → REPL) */
+    saved_nmi_vec = NMI_VEC;
+    NMI_VEC = (uint16_t)nmi_handler_asm;
+
+    /* ── Splash screen ───────────────────────────────────── */
     {   uint16_t wlo = cse_end();
         uint16_t whi = 0xC7FF;
         uint8_t  row = SCREEN_HEIGHT - 7;
 
         cur_addr = (wlo + 0xFF) & 0xFF00;
 
-#ifndef VERSION
-#define VERSION "0.1"
-#endif
-#ifndef BUILD_YEAR
-#define BUILD_YEAR "2025"
-#endif
         io_cx = 0; io_cy = row++; io_sync();
         io_puts("cse v" VERSION);
         io_cx = 0; io_cy = row++; io_sync();
@@ -113,14 +169,29 @@ void main(void)
         show_prompt();
     }
 
-    /* ── main loop ──────────────────────────────────────── */
+    /* ── Main loop ───────────────────────────────────────── */
     while (state != ST_STOP) {
+
+        /* Check NMI flag (RUN/STOP + RESTORE) */
+        if (nmi_pending) {
+            nmi_pending = 0;
+            if (state == ST_EDIT) leave_editor();
+            state = ST_REPL;
+            restore_colors();
+            *(uint8_t *)0xD018 |= 0x02;  /* ensure lowercase charset */
+            newline();
+            io_puts("; run/stop+restore");
+            clear_eol();
+            newline();
+            show_prompt();
+            continue;
+        }
 
         cursor_show();
         ch = io_getc();
         cursor_hide();
 
-        /* RUN/STOP toggles mode regardless */
+        /* RUN/STOP toggles REPL ↔ editor */
         if (ch == CH_STOP) {
             if (state == ST_REPL)
                 enter_editor();
@@ -206,10 +277,24 @@ void main(void)
         }
     }
 
-    /* ── exit cleanup ───────────────────────────────────── */
-    *(unsigned long *)0x0800 = 0;
-    MEM_CONFIG |= 0x20;
+    /* ═══════════════════════════════════════════════════════
+     * Exit: restore BASIC and warm start
+     * ═══════════════════════════════════════════════════════ */
+
+    /* Restore NMI vector */
+    NMI_VEC = saved_nmi_vec;
+
+    /* Re-enable KERNAL cursor */
     io_cursor_on();
+
+    /* Restore key repeat default */
     *(uint8_t *)0x028a &= 0b00111111;
+
+    /* Remap BASIC ROM */
+    MEM_CONFIG |= 0x20;
+
+    /* BASIC warm start — preserves program in memory.
+     * The BASIC SYS stub at $0801 is still intact, so
+     * SYS XXXX will restart CSE cleanly. */
     asm("jsr $A659");
 }

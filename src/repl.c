@@ -720,8 +720,13 @@ void exec_line(void)
     /* system */
     case 'q':
         newline();
+        io_puts("; sys ");
+        io_putdec(SYS_ADDR);
+        io_puts(" to restart cse");
+        clear_eol();
+        newline();
         io_puts("quit? y/n ");
-        while (io_kbhit());
+        while (io_kbhit()) io_getc();  /* flush keyboard buffer */
         if (io_getc() == 'y') state = ST_STOP;
         newline();
         if (state != ST_STOP) show_prompt();
