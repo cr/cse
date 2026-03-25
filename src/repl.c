@@ -591,18 +591,19 @@ void exec_line(void)
                 uint8_t v = parse_hex2(&q);
                 if (v <= CPU_CEIL)
                     al_cpu = v;
-                else {
-                    newline();
-                    io_puts("?max="); io_putc('0' + CPU_CEIL);
-                    clear_eol();
-                }
             }
             newline();
-            io_puts("cpu=");
-            if (al_cpu == 0) io_puts("6502");
-            else if (al_cpu == 1) io_puts("6510");
-            else if (al_cpu == 2) io_puts("65c02");
-            else io_puts("?");
+            /* show current + available modes */
+            io_puts("0:6502");
+            io_putc(al_cpu == 0 ? '*' : ' ');
+#if CPU_CEIL >= 1
+            io_puts(" 1:6510");
+            io_putc(al_cpu == 1 ? '*' : ' ');
+#endif
+#if CPU_CEIL >= 2
+            io_puts(" 2:65c02");
+            io_putc(al_cpu == 2 ? '*' : ' ');
+#endif
             clear_eol(); nl_prompt(); break;
         }
         case 's':
