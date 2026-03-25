@@ -532,15 +532,19 @@ void exec_line(void)
     {
         addr = parse_hex4(&q);
         ++q;                              /* skip ':' */
+        skip_sp(&q);                      /* tolerate spaces after ':' */
         cmd = *q;
 
-        /* empty after colon: repeat only if prompt was completely blank
-         * (all spaces after ':'). Any visible char (;, space typed by user,
-         * etc.) clears the repeat buffer instead. */
+        /* empty after colon: repeat only if screen is all spaces after ':'.
+         * Any visible char (;, typed text) on screen means user typed something. */
         if (cmd == 0) {
-            /* check screen: was col 5 a space? (truly empty prompt) */
-            uint8_t scr5 = SCREEN[io_cy * SCREEN_WIDTH + 5];
-            if (scr5 == 0x20 && last_cmd) {
+            uint8_t *scr = SCREEN + io_cy * SCREEN_WIDTH;
+            uint8_t truly_empty = 1;
+            uint8_t col;
+            for (col = 5; col < SCREEN_WIDTH; ++col) {
+                if (scr[col] != 0x20) { truly_empty = 0; break; }
+            }
+            if (truly_empty && last_cmd) {
                 cmd = last_cmd;
                 q = last_args;
                 /* echo repeated command into the prompt line */
