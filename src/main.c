@@ -24,33 +24,8 @@ uint8_t *const SCREEN = (uint8_t *)0x0400;
 uint8_t *src_top = 0;
 uint8_t *src_bot = 0;
 
-/* NMI flag — set by our NMI handler, checked in main loop */
+/* NMI flag — set by nmi_handler (cse_io.s), checked in main loop */
 volatile uint8_t nmi_pending = 0;
-
-/* (NMI vector restored by KERNAL cold start on quit) */
-
-/* ═══════════════════════════════════════════════════════════════
- * NMI handler — intercepts RUN/STOP + RESTORE
- *
- * Sets nmi_pending flag.  The main loop checks this after each
- * keypress and drops to the REPL.  User code running via 'j' is
- * NOT interruptible (the flag is checked only when j returns).
- * ═══════════════════════════════════════════════════════════════ */
-
-/* NMI handler in asm: must match KERNAL's register save convention.
- * The KERNAL NMI entry ($FE43) does PHA/TXA/PHA/TYA/PHA then
- * JMP ($0318).  So A/X/Y are on the stack when we run. */
-static void nmi_handler_asm(void) {
-    __asm__("lda #1");
-    __asm__("sta %v", nmi_pending);
-    /* Restore registers pushed by KERNAL NMI entry */
-    __asm__("pla");
-    __asm__("tay");
-    __asm__("pla");
-    __asm__("tax");
-    __asm__("pla");
-    __asm__("rti");
-}
 
 /* ═══════════════════════════════════════════════════════════════
  * Shared hex parsing helpers
@@ -137,8 +112,11 @@ void main(void)
     /* Fill free memory with $FF (catch uninitialized reads) */
     fill_free_memory();
 
-    /* Install NMI handler (RUN/STOP + RESTORE → REPL) */
-    NMI_VEC = (uint16_t)nmi_handler_asm;
+    /* Install NMI handler (RUN/STOP + RESTORE → REPL).
+     * Handler is pure asm in cse_io.s — no C prologue. */
+    {   extern void nmi_handler(void);
+        NMI_VEC = (uint16_t)nmi_handler;
+    }
 
     /* ── Splash screen ───────────────────────────────────── */
     {   uint16_t wlo = cse_end();

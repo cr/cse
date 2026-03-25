@@ -22,6 +22,11 @@
         ; Still uses cc65's `sp` ZP pointer (shared with C code).
         .export cse_popax, cse_popa
 
+        ; NMI handler — pure asm, no C prologue.
+        .export _nmi_handler
+
+        .import _nmi_pending
+
 COLS    = 40
 ROWS    = 25
 SCREEN  = $0400
@@ -108,6 +113,19 @@ _io_init:
         lda #1
         sta $CC                 ; KERNAL cursor off — required invariant
         rts
+
+; ── NMI handler — pure asm, no C prologue ────────────────────────────
+; The KERNAL NMI entry ($FE43) pushes A, X, Y then JMP ($0318).
+; We set the flag and restore registers for a clean RTI.
+_nmi_handler:
+        lda #1
+        sta _nmi_pending
+        pla
+        tay
+        pla
+        tax
+        pla
+        rti
 
 ; ── io_sync — update screen/color line pointers from cursor position ──
 ; Call after changing $D6 (io_cy) or $D3 (io_cx).
