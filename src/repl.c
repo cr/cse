@@ -525,10 +525,13 @@ void exec_line(void)
         ++q;                              /* skip ':' */
         cmd = *q;
 
-        /* empty after colon → repeat last command.
-         * Space after colon disables repeat (acts on empty input). */
+        /* empty after colon: repeat only if prompt was completely blank
+         * (all spaces after ':'). Any visible char (;, space typed by user,
+         * etc.) clears the repeat buffer instead. */
         if (cmd == 0) {
-            if (last_cmd) {
+            /* check screen: was col 5 a space? (truly empty prompt) */
+            uint8_t scr5 = SCREEN[io_cy * SCREEN_WIDTH + 5];
+            if (scr5 == 0x20 && last_cmd) {
                 cmd = last_cmd;
                 q = last_args;
                 /* echo repeated command into the prompt line */
