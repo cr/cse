@@ -579,12 +579,19 @@ void exec_line(void)
             cur_addr = addr - (d ? d : block_size);
             nl_prompt(); break;
         }
-        case 'c':                             /* color theme: c BCF */
-        {   skip_sp(&q);
-            if (is_hex(*q) && is_hex(*(q+1)) && is_hex(*(q+2))) {
-                theme_border = hex_val(*q++);
-                theme_bg     = hex_val(*q++);
-                theme_fg     = hex_val(*q);
+        case 'c':                             /* color theme */
+        {   skip_sp(&q);                      /* c F, c BF, c DBF */
+            if (is_hex(q[0])) {
+                if (is_hex(q[1]) && is_hex(q[2])) {
+                    theme_border = hex_val(q[0]);
+                    theme_bg     = hex_val(q[1]);
+                    theme_fg     = hex_val(q[2]);
+                } else if (is_hex(q[1])) {
+                    theme_bg     = hex_val(q[0]);
+                    theme_fg     = hex_val(q[1]);
+                } else {
+                    theme_fg     = hex_val(q[0]);
+                }
                 restore_colors();
             }
             newline();
