@@ -94,6 +94,7 @@ static uint8_t emit_dot(uint16_t addr) {
     io_cx = 0;
     olen = dasm_insn(addr);             /* disassemble first to get length */
     io_puthex4(addr); io_putc(':'); io_putc('.');
+    io_putc(' ');                           /* 2 spaces before hex */
     for (i = 0; i < 3; ++i) {
         if (i < olen) {
             io_putc(' '); io_puthex2(((uint8_t *)addr)[i]);
@@ -101,7 +102,7 @@ static uint8_t emit_dot(uint16_t addr) {
             io_puts("   ");
         }
     }
-    io_putc(' ');
+    io_puts("  ");                          /* 2 spaces before mnemonic */
     io_puts(dasm_buf);
     clear_eol();
     return olen;
