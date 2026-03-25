@@ -27,14 +27,32 @@ PYTEST ?= pipenv run pytest
 VICE   ?= x64sc
 C1541  ?= c1541
 
-# ── CC65 main-binary flags (match VS64 / build.ninja) ───────────────────
+# ── CPU target selection ──────────────────────────────────────────────────
+# make CPU=6502   → MN6 assembler, disassembler in 6502 mode
+# make CPU=6510   → MN7 assembler, disassembler in 6510 mode (default)
+# make CPU=65c02  → MN7 assembler + CMOS, disassembler in 65C02 mode
+CPU ?= 6510
+
+ifeq ($(CPU),6502)
+  CPU_DEFS   = -DCPU_6502 -DUSE_MN6 -DDEFAULT_CPU=0
+  MN_SRCS    = mn6 mn6_tables
+else ifeq ($(CPU),65c02)
+  CPU_DEFS   = -DCPU_65C02 -DCMOS_SUPPORT -DDEFAULT_CPU=2
+  MN_SRCS    = mn7 mn7_tables
+else
+  # 6510 (default)
+  CPU_DEFS   = -DCPU_6510 -DDEFAULT_CPU=1
+  MN_SRCS    = mn7 mn7_tables
+endif
+
+# ── CC65 main-binary flags ───────────────────────────────────────────────
 # -O for size optimization; add -g -DDEBUG with: make DEBUG=1
 ifdef DEBUG
-  CFLAGS = -g -O -t c64 -DDEBUG -D__cc65__ -I$(ROOT) -I$(BUILD)
-  AFLAGS = -g -t c64 -DDEBUG -D__cc65__ -I$(ROOT) -I$(BUILD)
+  CFLAGS = -g -O -t c64 -DDEBUG -D__cc65__ $(CPU_DEFS) -I$(ROOT) -I$(BUILD)
+  AFLAGS = -g -t c64 -DDEBUG -D__cc65__ $(CPU_DEFS) -I$(ROOT) -I$(BUILD)
 else
-  CFLAGS = -O -t c64 -D__cc65__ -I$(ROOT) -I$(BUILD)
-  AFLAGS = -t c64 -D__cc65__ -I$(ROOT) -I$(BUILD)
+  CFLAGS = -O -t c64 -D__cc65__ $(CPU_DEFS) -I$(ROOT) -I$(BUILD)
+  AFLAGS = -t c64 -D__cc65__ $(CPU_DEFS) -I$(ROOT) -I$(BUILD)
 endif
 LCFG   = $(SRC)/c64_cse.cfg
 LFLAGS = -C $(LCFG)
@@ -57,7 +75,7 @@ C_OBJS   = $(patsubst %,$(BUILD)/src/%.o,$(C_SRCS))
 
 # ── Assembler source files linked into cse.prg ──────────────────────
 ASM_SRCS = asm_bridge asm_line asm_vars mn_vars mn_classify \
-           mn7 mn7_tables mn6 mn6_tables mn_config \
+           $(MN_SRCS) mn_config \
            au_mode parse_hex mn_modes mn_asm_tables opcode_lookup \
            meminfo cse_io dasm dasm_tables
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))

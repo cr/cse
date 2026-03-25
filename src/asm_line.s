@@ -56,7 +56,7 @@
         ; mnemonic classifier
         .importzp mn_c1, mn_c2, mn_c3
         .import   mn_classify
-        .import   mn7_base_op, mn7_profile
+        .import   mn_base_op, mn_profile
 
         ; opcode tables and helpers (opcode_lookup.s)
         .import   _al_validate_mode, al_opcode_lookup
@@ -181,9 +181,9 @@ al_line_asm:
 @found:
         sta al_slot
         tax
-        lda mn7_base_op,x
+        lda mn_base_op,x
         sta al_base
-        lda mn7_profile,x
+        lda mn_profile,x
         sta al_prof
         and #$1F
         sta al_pidx             ; raw profile index

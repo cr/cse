@@ -114,9 +114,12 @@ _asm_line:
         inc sp+1
 :
 
-        ; ── set CPU mode (NMOS 6502) ────────────────────────────────────
-        lda #0
-        sta al_cpu              ; 0 = NMOS 6502
+        ; ── set CPU mode from build-time default ────────────────────────
+.ifndef DEFAULT_CPU
+  DEFAULT_CPU = 1               ; fallback: 6510
+.endif
+        lda #DEFAULT_CPU
+        sta al_cpu
 
         ; ── save 6502 SP for error recovery ─────────────────────────────
         tsx
