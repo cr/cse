@@ -624,8 +624,12 @@ callback:        .res 2     ; function pointer for SEQ I/O
         ldx #2
         jsr CHKIN
 
-        ; Clear counters
+        ; Clear stale KERNAL status from drive error check.
+        ; $90 is global — the ch15 read left EOF ($40) in it.
         lda #0
+        sta $90
+
+        ; Clear counters
         sta _disk_seq_bytes
         sta _disk_seq_bytes+1
         sta _disk_seq_lines
@@ -792,9 +796,11 @@ callback:        .res 2     ; function pointer for SEQ I/O
         sta _disk_seq_lines+1
 
 @write:
-        ; Call read_fn — returns next byte in A, carry set = EOF
+        ; Call read_fn — returns int: 0-255 = byte (A=lo, X=0),
+        ; -1 = EOF (A=$FF, X=$FF).  Check X for hi byte.
         jsr @do_callback
-        bcs @done               ; EOF
+        cpx #$FF
+        beq @done               ; EOF: return value was -1
 
         ; Save byte for line counting
         pha
