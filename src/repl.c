@@ -82,7 +82,8 @@ void show_prompt(void) {
  * Stub disassembler
  * ═══════════════════════════════════════════════════════════════ */
 
-extern void __fastcall__ dasm_insn(uint16_t addr);
+extern uint8_t __fastcall__ dasm_insn(uint16_t addr);
+extern char dasm_buf[];
 
 /* ═══════════════════════════════════════════════════════════════
  * Line emitters
@@ -102,6 +103,7 @@ static void emit_dot(uint16_t addr) {
     }
     io_putc(' ');
     dasm_insn(addr);
+    io_puts(dasm_buf);
     clear_eol();
 }
 
