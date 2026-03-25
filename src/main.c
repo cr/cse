@@ -144,13 +144,20 @@ void main(void)
     /* ── Main loop ───────────────────────────────────────── */
     while (state != ST_STOP) {
 
-        /* Check NMI flag (RUN/STOP + RESTORE) */
+        cursor_show();
+        ch = io_getc();
+        cursor_hide();
+
+        /* NMI (RUN/STOP + RESTORE) takes priority over everything.
+         * Check AFTER io_getc returns — the NMI fired during the
+         * blocking read, and $03 may be in ch.  Skip it. */
         if (nmi_pending) {
             nmi_pending = 0;
+            *(uint8_t *)0xC6 = 0;        /* flush keyboard buffer */
             if (state == ST_EDIT) leave_editor();
             state = ST_REPL;
             restore_colors();
-            *(uint8_t *)0xD018 |= 0x02;  /* ensure lowercase charset */
+            *(uint8_t *)0xD018 |= 0x02;
             newline();
             io_puts("; run/stop+restore");
             clear_eol();
@@ -158,10 +165,6 @@ void main(void)
             show_prompt();
             continue;
         }
-
-        cursor_show();
-        ch = io_getc();
-        cursor_hide();
 
         /* RUN/STOP toggles REPL ↔ editor */
         if (ch == CH_STOP) {
