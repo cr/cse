@@ -66,9 +66,7 @@ void read_line(void) {
     i = SCREEN_WIDTH;
     while (i > 0 && line_buf[i - 1] == ' ') --i;
     line_buf[i] = 0;
-    for (i = 0; line_buf[i]; ++i) {
-        if (line_buf[i] == ';') { line_buf[i] = 0; break; }
-    }
+    /* ';' handling moved to exec_line — first char = command, else = EOL */
 }
 
 void show_prompt(void) {
@@ -535,30 +533,32 @@ void exec_line(void)
         skip_sp(&q);                      /* tolerate spaces after ':' */
         cmd = *q;
 
-        /* empty after colon: repeat only if screen is all spaces after ':'.
-         * Any visible char (;, typed text) on screen means user typed something. */
+        /* ';' as first char = command: clear repeat, fresh prompt */
+        if (cmd == ';') {
+            last_cmd = 0;
+            nl_prompt(); return;
+        }
+
+        /* empty = repeat last command if prompt was truly blank */
         if (cmd == 0) {
-            uint8_t *scr = SCREEN + io_cy * SCREEN_WIDTH;
-            uint8_t truly_empty = 1;
-            uint8_t col;
-            for (col = 5; col < SCREEN_WIDTH; ++col) {
-                if (scr[col] != 0x20) { truly_empty = 0; break; }
-            }
-            if (truly_empty && last_cmd) {
+            if (last_cmd) {
                 cmd = last_cmd;
                 q = last_args;
-                /* echo repeated command into the prompt line */
-                io_cx = 5;  /* after "AAAA:" */
+                io_cx = 5;
                 io_putc(cmd);
                 if (*q) { io_putc(' '); io_puts((const char *)q); }
                 clear_eol();
             } else {
-                last_cmd = 0;
                 nl_prompt(); return;
             }
         } else {
             ++q;                          /* skip command letter */
             if (*q == ' ') ++q;           /* optional space */
+            /* cut at ';' in the rest (comment) */
+            {   uint8_t *s;
+                for (s = q; *s; ++s)
+                    if (*s == ';') { *s = 0; break; }
+            }
         }
 
         /* seek: args override prefix address */
@@ -680,7 +680,13 @@ void exec_line(void)
 
     /* ── No AAAA: prefix — bare input ────────────────────── */
 
-    if (*q == 0) { last_cmd = 0; nl_prompt(); return; }
+    if (*q == 0 || *q == ';') { last_cmd = 0; nl_prompt(); return; }
+
+    /* cut at ';' for bare commands too */
+    {   uint8_t *s;
+        for (s = q; *s; ++s)
+            if (*s == ';') { *s = 0; break; }
+    }
 
     /* multi-char: clr/cls */
     if (q[0] == 'c' && q[1] == 'l' && (q[2] == 'r' || q[2] == 's')) {
