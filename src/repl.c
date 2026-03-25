@@ -7,7 +7,6 @@
  * ═══════════════════════════════════════════════════════════════ */
 
 #include <c64.h>
-#include <cbm.h>
 #include <string.h>
 #include <stdint.h>
 #include "cse.h"
@@ -384,13 +383,12 @@ static void cmd_load(uint8_t *args)
         if (err) { io_puts("?load "); io_puts((char *)name); }
         else print_seq_stats((char *)name);
     } else {
-        void *target = (addr != 0) ? (void *)addr : (void *)0;
-        unsigned int result = cbm_load((char *)name, 8, target);
+        uint16_t result = disk_load_prg((char *)name, addr);
         if (result == 0) { io_puts("?load "); io_puts((char *)name); }
         else {
             io_puts((char *)name); io_puts(": ");
             io_putdec(result); io_puts(" bytes at ");
-            io_puthex4((addr != 0) ? addr : (uint16_t)result);
+            io_puthex4(addr ? addr : result);
         }
     }
     disk_done();
@@ -416,7 +414,7 @@ static void cmd_write(uint8_t *args)
         if (!end) end = addr + block_size;
         if (end <= addr) { err_prompt("?range"); return; }
         size = end - addr;
-        err = cbm_save((char *)name, 8, (void *)addr, size);
+        err = disk_save_prg((char *)name, addr, size);
         if (err) { io_puts("?save "); io_puts((char *)name); }
         else {
             io_puts((char *)name); io_puts(": ");
