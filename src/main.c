@@ -101,7 +101,7 @@ void main(void)
 {
     uint8_t ch;
 
-    /* Key repeat: default (cursor, DEL, space only) */
+    *(uint8_t *)0x028a |= 0x80;          /* all keys repeat */
     MEM_CONFIG &= ~0x20;                 /* unmap BASIC ROM */
 
     state = ST_REPL;
