@@ -9,10 +9,12 @@
         .export _disk_load_seq, _disk_save_seq
         .export _disk_seq_bytes, _disk_seq_lines
 
-        .import _io_puts, _io_putc, _io_putdec, _io_puthex2
-        .import _io_getc, _io_kbhit
+        .import _io_puts, _io_putc, _io_putdec, _io_puthex2, _io_puthex4
+        .import _io_getc, _io_kbhit, _io_clear_eol
         .import _io_color
         .import _newline, _print_string
+        .import _show_prompt
+        .import _cur_addr
         .import popa, popax
 
         .importzp sp
@@ -192,30 +194,33 @@ callback:        .res 2     ; function pointer for SEQ I/O
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; list_directory(device) — read and print directory listing
+; list_directory(device) — directory listing with executable l commands
 ;   __fastcall__: device in A
+;
+; Output format:
+;   AAAA:; "disk name" id
+;   AAAA:l "filename,p"     ; 83
+;   AAAA:l "test,s"         ;  1
+;   AAAA:; 520 blocks free.
 ; ═════════════════════════════════════════════════════════
 .proc _list_directory
         tax                     ; X = device
 
         ; SETNAM "$"
-        lda #1                  ; name length
+        lda #1
+        ldx #<@dname
         ldy #>@dname
-        sty ptr+1
-        ldy #<@dname
-        sty ptr
-        tya
-        ldy ptr+1
         jsr SETNAM
 
         ; SETLFS 1,device,0
-        lda #1                  ; lfn
-        ldy #0                  ; secondary
+        lda #1
+        ldy #0
         jsr SETLFS
 
         jsr OPEN
-        bcs @err
-
+        bcc @opened
+        jmp @err
+@opened:
         ldx #1
         jsr CHKIN
 
@@ -223,50 +228,204 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr CHRIN
         jsr CHRIN
 
+        lda #0
+        sta @is_first           ; first entry = header
+
 @entry:
         ; Read 2-byte link pointer
         jsr CHRIN
-        sta _io_tmp
+        sta @blocks
         jsr READST
-        bne @done
-        jsr CHRIN
-        sta _io_tmp+1
-        ; link = 0 → end of directory
-        ora _io_tmp
-        beq @done
+        beq :+
+        jmp @done
+:       jsr CHRIN
+        sta @blocks+1
+        ; link = 0 → end
+        ora @blocks
+        bne :+
+        jmp @done
+:
 
         ; Read 2-byte line number (block count)
         jsr CHRIN
-        sta _io_tmp
+        sta @blocks
         jsr CHRIN
-        sta _io_tmp+1
+        sta @blocks+1
 
-        ; Print block count
-        lda _io_tmp
-        ldx _io_tmp+1
-        jsr _io_putdec
+        ; Read line text into fl_buf
+        ldy #0
+@rdtxt: jsr CHRIN
+        beq @got_line
+        cpy #30
+        bcs @skip_rest          ; truncate
+        sta fl_buf,y
+        iny
+        jsr READST
+        beq @rdtxt
+        bne @got_line           ; status set → done reading
+@skip_rest:
+        jsr CHRIN
+        bne @skip_rest
+@got_line:
+        lda #0
+        sta fl_buf,y            ; NUL-terminate
+        sty @textlen
 
-        ; Print space
+        ; Show prompt prefix: AAAA:
+        jsr _show_prompt
+
+        ; First entry = header → print as comment
+        lda @is_first
+        bne @not_header
+        inc @is_first
+        ; "; " + raw text (includes quoted disk name)
+        lda #';'
+        jsr _io_putc
+        lda #<fl_buf
+        ldx #>fl_buf
+        jsr _io_puts
+        jsr _io_clear_eol
+        jsr _newline
+        jmp @check_stop
+
+@not_header:
+        ; Check if this looks like a file entry (has a quote in text)
+        ldy #0
+@find_q:
+        lda fl_buf,y
+        beq @no_quote           ; no quote found → "blocks free" line
+        cmp #'"'
+        beq @found_q
+        iny
+        bne @find_q
+@no_quote:
+        ; "NNN blocks free." → print as "; NNN blocks free."
+        lda #';'
+        jsr _io_putc
         lda #' '
         jsr _io_putc
+        lda @blocks
+        ldx @blocks+1
+        jsr _io_putdec
+        lda #<@free_msg
+        ldx #>@free_msg
+        jsr _io_puts
+        jsr _io_clear_eol
+        jsr _newline
+        jmp @check_stop
 
-        ; Read and print text until $00
-@text:  jsr CHRIN
-        beq @eol                ; $00 = end of line
+@found_q:
+        ; Y points to opening quote in fl_buf
+        ; Output: l "
+        lda #'l'
         jsr _io_putc
-        jsr READST
-        beq @text
+        lda #' '
+        jsr _io_putc
+        lda #'"'
+        jsr _io_putc
 
-@eol:   jsr _newline
+        ; Copy filename (chars between quotes)
+        iny                     ; skip opening quote
+@fname: lda fl_buf,y
+        beq @fname_end
+        cmp #'"'
+        beq @fname_end
+        jsr _io_putc            ; print filename char
+        iny
+        bne @fname
 
-        ; Check for RUN/STOP
+@fname_end:
+        ; Now find the type: skip closing quote + spaces
+        ; Y is at the closing quote or NUL
+        lda fl_buf,y
+        beq @type_unk
+        iny                     ; skip closing quote
+@skip_spc:
+        lda fl_buf,y
+        beq @type_unk
+        cmp #' '
+        bne @got_type
+        iny
+        bne @skip_spc
+
+@got_type:
+        ; A = first char of type string (P, S, D, U, R)
+        ; Convert to lowercase and use as suffix: ,p ,s ,d ,u ,r
+        ora #$20                ; uppercase → lowercase in PETSCII
+        pha                     ; save type char
+
+        ; Print ",t"
+        lda #','
+        jsr _io_putc
+        pla
+        jsr _io_putc
+        jmp @close_quote
+
+@type_unk:
+        ; unknown type — skip the suffix
+@close_quote:
+        lda #'"'
+        jsr _io_putc
+
+        ; Pad to column 24 with spaces, then "; NNN"
+        ldy CUR_COL
+@pad:   cpy #24
+        bcs @blk_comment
+        lda #' '
+        jsr _io_putc
+        iny
+        bne @pad
+
+@blk_comment:
+        lda #';'
+        jsr _io_putc
+
+        ; Right-align block count in 4 chars
+        lda @blocks+1
+        bne @big_blocks         ; >= 256
+
+        ; < 256: right-align in 4 chars
+        lda @blocks
+        cmp #100
+        bcs @three_digits
+        cmp #10
+        bcs @two_digits
+        ; 1 digit
+        lda #' '
+        jsr _io_putc
+        jsr _io_putc
+        jsr _io_putc
+        jmp @print_blocks
+@two_digits:
+        lda #' '
+        jsr _io_putc
+        jsr _io_putc
+        jmp @print_blocks
+@three_digits:
+        lda #' '
+        jsr _io_putc
+        jmp @print_blocks
+
+@big_blocks:
+        ; >= 256, io_putdec handles it
+@print_blocks:
+        lda @blocks
+        ldx @blocks+1
+        jsr _io_putdec
+
+        jsr _io_clear_eol
+        jsr _newline
+
+@check_stop:
         jsr _io_kbhit
-        beq @entry              ; no key
-        jsr _io_getc
+        bne :+
+        jmp @entry
+:       jsr _io_getc
         cmp #CH_STOP
-        bne @entry
+        beq :+
+        jmp @entry
+:
 
-        ; break
         lda #<@brk_msg
         ldx #>@brk_msg
         jsr _io_puts
@@ -284,8 +443,13 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr CLOSE
         jmp _floppy_status
 
-@dname: .byte "$"
-@brk_msg: .byte "break", 0
+@is_first: .byte 0
+@blocks:   .byte 0, 0
+@textlen:  .byte 0
+
+@dname:    .byte "$"
+@brk_msg:  .byte "break", 0
+@free_msg: .byte " blocks free.", 0
 .endproc
 
 ; ═════════════════════════════════════════════════════════
