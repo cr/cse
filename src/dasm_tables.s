@@ -5,7 +5,7 @@
 
         .export dasm_mne_str
 dasm_mne_str:
-        .byte $6F,$7B         ;  0 ???
+        .byte $6F,$7B         ;  0 ...
         .byte $04,$23         ;  1 AAC
         .byte $04,$38         ;  2 AAX
         .byte $04,$83         ;  3 ADC

@@ -111,7 +111,7 @@ TEST_OPERANDS = [0x42, 0x34]  # arbitrary operand bytes
 
 def expected_string(cpu, opc):
     if opc not in CPU_MAPS[cpu]:
-        return '???'
+        return '...'
     mne, mode = CPU_MAPS[cpu][opc]
     operand = fmt_operand(mode, TEST_OPERANDS, INSN_ADDR)
     if operand:

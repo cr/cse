@@ -418,14 +418,14 @@ _dasm_mode:     .res 1          ; mode index
 ; Buffer write helpers
 ; ════════════════════════════════════════════════════════════
 
-; emit_alpha: A = 5-bit char code (1-26=A-Z, 27='?'), write PETSCII
+; emit_alpha: A = 5-bit char code (1-26=A-Z, 27='.'), write PETSCII
 .proc emit_alpha
         cmp #27
-        beq @qmark
+        beq @dot
         clc
         adc #$40                ; 1→$41='A', etc. (PETSCII uppercase)
         jmp buf_putc
-@qmark: lda #$3F                ; '?'
+@dot:   lda #$2E                ; '.'
         jmp buf_putc
 .endproc
 
