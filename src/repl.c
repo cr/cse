@@ -670,8 +670,16 @@ void exec_line(void)
     {   uint16_t val;
         if (expr_eval(&q, &val) == 0) {
             newline();
+            /* hex: right-aligned in 6 cols ("  $ff" or "$ffff") */
             io_puts("; ");
-            /* right-aligned 5-digit unsigned decimal (shared position) */
+            if (val < 256) {
+                io_puts("  $"); io_puthex2((uint8_t)val);
+            } else {
+                io_putc('$'); io_puthex4(val);
+            }
+
+            /* decimal: right-aligned 5 digits, 2sp gap */
+            io_puts("  ");
             if (val >= 10000) io_putc('0' + val / 10000);
             else io_putc(' ');
             if (val >= 1000) io_putc('0' + (val / 1000) % 10);
@@ -682,31 +690,24 @@ void exec_line(void)
             else io_putc(' ');
             io_putc('0' + val % 10);
 
+            /* 8-bit extras: binary + signed */
             if (val < 256) {
                 uint8_t b = (uint8_t)val;
                 int8_t  sb = (int8_t)b;
                 uint8_t i, av;
-                /* "    $hh  %bbbbbbbb  sdddd" */
 
-                io_puts("    $");
-                io_puthex2(b);
                 io_puts("  %");
                 for (i = 0; i < 8; ++i) {
                     io_putc((b & 0x80) ? '1' : '0');
                     b <<= 1;
                 }
 
-                /* s8: 2sp + sign + digits left-aligned */
                 av = (sb < 0) ? (uint8_t)(-sb) : (uint8_t)sb;
                 io_putc(' '); io_putc(' ');
                 io_putc(sb < 0 ? '-' : '+');
                 if (av >= 100) io_putc('0' + av / 100);
                 if (av >= 10) io_putc('0' + (av / 10) % 10);
                 io_putc('0' + av % 10);
-            } else {
-                /* "  $hhhh" */
-                io_puts("  $");
-                io_puthex4(val);
             }
             clear_eol();
         } else {
