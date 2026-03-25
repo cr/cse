@@ -15,6 +15,7 @@
         .import _newline, _print_string
         .import _show_prompt
         .import _cur_addr, _cur_device
+        .import scrlo, scrhi
         .import popa, popax
 
         .importzp sp
@@ -267,35 +268,77 @@ callback:        .res 2     ; function pointer for SEQ I/O
         sta fl_buf,y            ; NUL-terminate
         sty @textlen
 
-        ; Show prompt prefix: AAAA:
-        jsr _show_prompt
-
-        ; First entry = header → print as comment
+        ; ── Header (first entry) ──────────────────────────────
         lda @is_first
         bne @not_header
         inc @is_first
-        ; "; " + raw text (includes quoted disk name)
+
+        ; Print "; " then raw text, filtering $12/$92 control chars.
+        ; Track column of first " and last printed char for inversion.
         lda #';'
         jsr _io_putc
-        lda #<fl_buf
-        ldx #>fl_buf
-        jsr _io_puts
+        lda #' '
+        jsr _io_putc
+
+        lda #$FF
+        sta @hdr_start          ; $FF = no quote seen yet
+        lda CUR_COL
+        sta @hdr_end            ; will track last printed col
+
+        ldx #0
+@hdr_ch:
+        lda fl_buf,x
+        beq @hdr_done
+        cmp #$12                ; RVS ON — skip
+        beq @hdr_skip
+        cmp #$92                ; RVS OFF — skip
+        beq @hdr_skip
+        ; Check if this is the first quote
+        cmp #'"'
+        bne @hdr_notq
+        lda @hdr_start
+        cmp #$FF
+        bne @hdr_notq2
+        lda CUR_COL
+        sta @hdr_start          ; first " column
+@hdr_notq2:
+        lda fl_buf,x            ; reload char
+@hdr_notq:
+        stx @fn_tmp
+        jsr _io_putc
+        lda CUR_COL
+        sta @hdr_end            ; update last printed position
+        ldx @fn_tmp
+@hdr_skip:
+        inx
+        bne @hdr_ch
+
+@hdr_done:
+        ; Invert from @hdr_start to @hdr_end (first " to last ID char)
+        lda @hdr_start
+        cmp #$FF
+        beq @hdr_no_inv         ; no quote found, skip inversion
+        jsr @invert_header
+@hdr_no_inv:
+
         jsr _io_clear_eol
         jsr _newline
         jmp @check_stop
 
+        ; ── File entry or blocks-free ─────────────────────────
 @not_header:
-        ; Check if this looks like a file entry (has a quote in text)
+        ; Scan for opening quote to distinguish file from "blocks free"
         ldy #0
 @find_q:
         lda fl_buf,y
-        beq @no_quote           ; no quote found → "blocks free" line
+        beq @no_quote
         cmp #'"'
         beq @found_q
         iny
         bne @find_q
+
 @no_quote:
-        ; "NNN blocks free." → print as "; NNN blocks free."
+        ; "blocks free" line → "; NNN blocks free."
         lda #';'
         jsr _io_putc
         lda #' '
@@ -310,13 +353,11 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr _newline
         jmp @check_stop
 
+        ; ── File entry: l "name,t"  ; NNN ─────────────────────
 @found_q:
-        ; Y points to opening quote in fl_buf
-        ; Find closing quote, then trim trailing spaces from filename
+        ; Y = opening quote position. Find closing quote, trim spaces.
         iny                     ; skip opening quote
         sty @fn_start
-
-        ; scan to closing quote to find end
 @scan_q:
         lda fl_buf,y
         beq @fn_found_end
@@ -325,19 +366,19 @@ callback:        .res 2     ; function pointer for SEQ I/O
         iny
         bne @scan_q
 @fn_found_end:
-        sty @fn_close           ; position of closing quote or NUL
+        sty @fn_close
 
-        ; trim trailing spaces: walk back from closing quote
+        ; Trim trailing spaces from filename
         dey
 @trim:  cpy @fn_start
-        bcc @trim_done          ; empty filename
+        bcc @trim_done
         lda fl_buf,y
         cmp #' '
         bne @trim_done
         dey
-        bne @trim               ; always (Y >= 0 loop)
+        bne @trim
 @trim_done:
-        iny                     ; Y = one past last non-space char
+        iny
         sty @fn_trimmed_end
 
         ; Output: l "filename
@@ -352,81 +393,70 @@ callback:        .res 2     ; function pointer for SEQ I/O
 @fname: cpx @fn_trimmed_end
         bcs @fname_done
         lda fl_buf,x
-        stx @fn_tmp             ; save X (io_putc may clobber)
+        stx @fn_tmp
         jsr _io_putc
         ldx @fn_tmp
         inx
         bne @fname
 @fname_done:
 
-        ; Find type: skip closing quote + spaces
+        ; Find type after closing quote
         ldy @fn_close
         lda fl_buf,y
-        beq @type_unk
-        iny                     ; skip closing quote
+        beq @close_q
+        iny
 @skip_spc:
         lda fl_buf,y
-        beq @type_unk
+        beq @close_q
         cmp #' '
         bne @got_type
         iny
         bne @skip_spc
 
 @got_type:
-        ; A = first char of type (PETSCII: already lowercase on C64)
+        ; A = first char of type (PETSCII)
         pha
         lda #','
         jsr _io_putc
         pla
         jsr _io_putc
-        jmp @close_quote
 
-@type_unk:
-@close_quote:
+@close_q:
         lda #'"'
         jsr _io_putc
 
-        ; Pad to column 24 with spaces, then "; NNN"
+        ; Pad to column 23 (16+2 name field + 'l "' prefix + '"' + space)
         ldy CUR_COL
-@pad:   cpy #24
+@pad:   cpy #23
         bcs @blk_comment
         lda #' '
         jsr _io_putc
-        iny
+        ldy CUR_COL
         bne @pad
 
 @blk_comment:
+        ; "; NNN" — semicolon + right-aligned block count
         lda #';'
         jsr _io_putc
 
-        ; Right-align block count in 4 chars
+        ; Right-align in 4 columns
         lda @blocks+1
-        bne @big_blocks         ; >= 256
+        bne @print_blocks       ; >= 256: just print
 
-        ; < 256: right-align in 4 chars
         lda @blocks
         cmp #100
-        bcs @three_digits
+        bcs @pad3
         cmp #10
-        bcs @two_digits
-        ; 1 digit
-        lda #' '
-        jsr _io_putc
-        jsr _io_putc
-        jsr _io_putc
-        jmp @print_blocks
-@two_digits:
-        lda #' '
-        jsr _io_putc
-        jsr _io_putc
-        jmp @print_blocks
-@three_digits:
-        lda #' '
-        jsr _io_putc
-        jmp @print_blocks
+        bcs @pad2
 
-@big_blocks:
-        ; >= 256, io_putdec handles it
+        ; 1 digit: 3 spaces
+        lda #' '
+        jsr _io_putc
+@pad2:  lda #' '
+        jsr _io_putc
+@pad3:  lda #' '
+        jsr _io_putc
+
 @print_blocks:
         lda @blocks
         ldx @blocks+1
@@ -462,7 +492,27 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr CLOSE
         jmp _floppy_status
 
+; Helper: invert screen RAM from @hdr_start to @hdr_end on current row
+@invert_header:
+        ldx CUR_ROW
+        lda scrlo,x
+        sta _io_tmp
+        lda scrhi,x
+        sta _io_tmp+1
+        ldy @hdr_start          ; start at first "
+@inv:   cpy @hdr_end
+        bcs @inv_done
+        lda (_io_tmp),y
+        ora #$80
+        sta (_io_tmp),y
+        iny
+        bne @inv
+@inv_done:
+        rts
+
 @is_first:       .byte 0
+@hdr_start:      .byte 0
+@hdr_end:        .byte 0
 @blocks:         .byte 0, 0
 @textlen:        .byte 0
 @dev:            .byte 0
