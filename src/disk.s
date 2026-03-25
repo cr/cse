@@ -216,12 +216,16 @@ callback:        .res 2     ; function pointer for SEQ I/O
         ; print if we got anything
         cpy #0
         beq @err
+        lda #<@prefix
+        ldx #>@prefix
+        jsr _io_puts
         lda #<fl_buf
         ldx #>fl_buf
         jsr _print_string
         jmp _newline
 
 @err:   rts
+@prefix: .byte "; ", 0
 .endproc
 
 ; ═════════════════════════════════════════════════════════
