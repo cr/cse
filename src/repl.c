@@ -12,6 +12,8 @@
 #include <stdint.h>
 #include "cse.h"
 #include "cse_io.h"
+#include "screen.h"
+#include "disk.h"
 #include "repl.h"
 #include "editor.h"
 

@@ -8,11 +8,12 @@
  * ═══════════════════════════════════════════════════════════════ */
 
 #include <c64.h>
-#include <cbm.h>
 #include <string.h>
 #include <stdint.h>
 #include "cse.h"
 #include "cse_io.h"
+#include "screen.h"
+#include "disk.h"
 #include "editor.h"
 
 #define ED_LINES     22                   /* visible source lines */
@@ -136,111 +137,57 @@ void ed_ensure_init(void)
     if (buf_end == 0) ed_init();
 }
 
-/* ── Source I/O — SEQ files ─────────────────────────────── */
+/* ── Source I/O — via disk.c callbacks ─────────────────── */
 
-/* Build a CBM open string.  For write mode, prepends "@:" to
- * allow overwriting existing files.  Appends ",r" or ",w" if
- * not already present.  Writes to static buffer, returns pointer. */
-static char open_buf[FILENAME_MAX_LEN + 8];
+/* Save callback: reads sequentially from the gap buffer.
+ * Pre-gap first, then post-gap.  Returns -1 at end. */
+static uint8_t *save_ptr;
+static uint8_t  save_phase;   /* 0 = pre-gap, 1 = post-gap */
 
-static const char *cbm_open_str(const char *name, char mode)
-{
-    uint8_t len = 0;
-    uint8_t nlen = strlen(name);
-    if (nlen > FILENAME_MAX_LEN) nlen = FILENAME_MAX_LEN;
-
-    /* prepend @: for write to allow overwrite */
-    if (mode == 'w') {
-        open_buf[len++] = '@';
-        open_buf[len++] = ':';
+static int save_read_fn(void) {
+    if (save_phase == 0) {
+        if (save_ptr < gap_lo) return *save_ptr++;
+        /* switch to post-gap */
+        save_phase = 1;
+        save_ptr = gap_hi;
     }
-
-    memcpy(open_buf + len, name, nlen);
-    len += nlen;
-
-    /* append mode if name doesn't already end with ,r or ,w */
-    if (len < 2 || open_buf[len-2] != ',' ||
-        (open_buf[len-1] != 'r' && open_buf[len-1] != 'w')) {
-        open_buf[len++] = ',';
-        open_buf[len++] = mode;
-    }
-    open_buf[len] = 0;
-    return open_buf;
+    if (save_ptr < buf_end) return *save_ptr++;
+    return -1;  /* EOF */
 }
 
 uint8_t ed_save_source(const char *name)
 {
-    int n;
-    uint16_t total = 0;
-    const char *ostr = cbm_open_str(name, 'w');
+    uint8_t err;
 
     ed_ensure_init();
 
-    if (cbm_open(2, 8, 2, ostr) != 0)
-        return 1;
+    save_ptr   = buf_base;
+    save_phase = 0;
 
-    /* write pre-gap text */
-    n = (int)(gap_lo - buf_base);
-    if (n > 0) {
-        if (cbm_write(2, buf_base, n) != n) {
-            cbm_close(2);
-            return 2;
-        }
-        total += n;
-    }
+    err = disk_save_seq(name, save_read_fn);
+    if (err) return err;
 
-    /* write post-gap text */
-    n = (int)(buf_end - gap_hi);
-    if (n > 0) {
-        if (cbm_write(2, gap_hi, n) != n) {
-            cbm_close(2);
-            return 3;
-        }
-        total += n;
-    }
-
-    cbm_close(2);
     ed_dirty = 0;
-    ed_save_bytes = total;
-    ed_save_lines = ed_total_lines;
+    ed_save_bytes = disk_seq_bytes;
+    ed_save_lines = disk_seq_lines;
     return 0;
+}
+
+/* Load callback wrapper: gb_insert is the insert_fn */
+static void load_insert_fn(uint8_t ch) {
+    gb_insert(ch);
 }
 
 uint8_t ed_load_source(const char *name)
 {
-    int n;
-    uint8_t ch;
-    const char *ostr = cbm_open_str(name, 'r');
+    uint8_t err;
 
-    /* reinitialize buffer */
     ed_init();
 
-    if (cbm_open(2, 8, 2, ostr) != 0)
-        return 1;
-
-    /* read byte by byte into gap buffer.
-     * Check KERNAL status ($90) after each byte — bit 6 = EOF.
-     * Must stop immediately when EOF is signaled WITH the last
-     * byte, not after a failed read, or the drive hangs. */
-    while (1) {
-        n = cbm_read(2, &ch, 1);
-        if (n <= 0) break;
-        gb_insert(ch);
-        if (*(uint8_t *)0x90 & 0x40) break;  /* ST bit 6 = EOF */
-    }
-
-    cbm_close(2);
-
-    /* if nothing was read, the file likely doesn't exist.
-     * The drive error was cleared by close, so we just report
-     * failure and let floppy_status show whatever remains. */
-    {
-        uint16_t bytes = (uint16_t)(gap_lo - buf_base)
-                       + (uint16_t)(buf_end - gap_hi);
-        if (bytes == 0) {
-            ed_init();
-            return 1;
-        }
+    err = disk_load_seq(name, load_insert_fn);
+    if (err || disk_seq_bytes == 0) {
+        ed_init();   /* reset buffer on failure */
+        return err ? err : 1;
     }
 
     /* move cursor to start of buffer */
@@ -251,9 +198,8 @@ uint8_t ed_load_source(const char *name)
     ed_top_ptr  = buf_base;
     ed_dirty = 0;
 
-    /* report stats for caller */
-    ed_save_bytes = (uint16_t)(gap_lo - buf_base) + (uint16_t)(buf_end - gap_hi);
-    ed_save_lines = ed_total_lines;
+    ed_save_bytes = disk_seq_bytes;
+    ed_save_lines = disk_seq_lines;
 
     return 0;
 }

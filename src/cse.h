@@ -9,6 +9,51 @@
 #define SCREEN_WIDTH  40
 #define SCREEN_HEIGHT 25
 
+/* ── Key codes (from cbm.h, reproduced to avoid pulling
+ *    all of cbm.h into every module) ──────────────────── */
+#ifndef CH_ENTER
+#define CH_ENTER        13
+#endif
+#ifndef CH_STOP
+#define CH_STOP          3
+#endif
+#ifndef CH_DEL
+#define CH_DEL          20
+#endif
+#ifndef CH_INS
+#define CH_INS         148
+#endif
+#ifndef CH_CURS_UP
+#define CH_CURS_UP     145
+#endif
+#ifndef CH_CURS_DOWN
+#define CH_CURS_DOWN    17
+#endif
+#ifndef CH_CURS_LEFT
+#define CH_CURS_LEFT   157
+#endif
+#ifndef CH_CURS_RIGHT
+#define CH_CURS_RIGHT   29
+#endif
+#ifndef CH_HOME
+#define CH_HOME         19
+#endif
+#ifndef CH_ESC
+#define CH_ESC          0x1B
+#endif
+#ifndef CH_F1
+#define CH_F1          133
+#endif
+#ifndef CH_F3
+#define CH_F3          134
+#endif
+#ifndef CH_F5
+#define CH_F5          135
+#endif
+#ifndef CH_F7
+#define CH_F7          136
+#endif
+
 /* ── Run state ──────────────────────────────────────────── */
 #define ST_STOP 0
 #define ST_REPL 1
@@ -18,28 +63,19 @@ extern uint8_t state;
 /* ── Globals ────────────────────────────────────────────── */
 extern uint8_t *const SCREEN;
 extern uint8_t *src_top, *src_bot;
+#ifndef COLOR_RAM
+#define COLOR_RAM ((uint8_t *)0xD800)
+#endif
 
 /* ── Memory info (meminfo.s) ────────────────────────────── */
 extern uint16_t cse_start(void);
 extern uint16_t cse_end(void);
 
-/* ── Color theme ──────────────────────────────────────────── */
-extern uint8_t theme_border;     /* $D020 color */
-extern uint8_t theme_bg;         /* $D021 color */
-extern uint8_t theme_fg;         /* text/color RAM color */
-void restore_colors(void);       /* apply theme + fill color RAM */
-extern uint16_t cur_addr;        /* REPL current address */
+/* ── REPL current address ─────────────────────────────── */
+extern uint16_t cur_addr;
 
-/* ── Shared screen utilities (main.c + cse_io.s) ────────── */
+/* ── Alias for io_clear_eol (used widely) ─────────────── */
 #define clear_eol io_clear_eol
-void newline(void);
-void scroll_up(uint8_t n);
-void print_string(const uint8_t *str);
-void reset_screen(void);
-#ifndef COLOR_RAM
-#define COLOR_RAM ((uint8_t *)0xD800)
-#endif
-
 
 /* ── Shared hex parsing (main.c) ────────────────────────── */
 uint8_t hex_val(uint8_t ch);
@@ -53,14 +89,7 @@ void skip_sp(uint8_t **pp);
 #define FILENAME_MAX_LEN 16
 extern char cur_filename[FILENAME_MAX_LEN + 1];
 
-/* ── Floppy (main.c) ────────────────────────────────────── */
-void floppy_status(void);
-void list_directory(uint8_t device);
-
-
 /* ── CPU mode ─────────────────────────────────────────── */
-/* al_cpu: 0=6502 (legal only), 1=6510 (+illegal), 2=65C02 (+CMOS)   */
-/* CPU_CEIL: build-time maximum (passed as -DCPU_CEIL=N)              */
 extern uint8_t al_cpu;          /* ZP variable from asm_vars.s */
 #pragma zpsym("al_cpu")
 #ifndef CPU_CEIL

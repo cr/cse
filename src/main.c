@@ -1,23 +1,21 @@
 /* ═══════════════════════════════════════════════════════════════
  * CSE — C64 Screen Editor / Assembler / Monitor
  *
- * main.c — hardware init, shared utilities, main loop.
- * REPL commands are in repl.c, editor in editor.c.
+ * main.c — hardware init, mode switch, main loop.
  * ═══════════════════════════════════════════════════════════════ */
 
 #include <c64.h>
-#include <cbm.h>
 #include <string.h>
 #include <stdint.h>
 #include "cse.h"
 #include "cse_io.h"
+#include "screen.h"
+#include "disk.h"
 #include "repl.h"
 #include "editor.h"
 
 #define MEM_CONFIG (*(uint8_t *)0x01)
 
-/* CH_ENTER, CH_DEL, etc. come from <c64.h>.
- * CH_ESC is not in cc65's headers. */
 #ifndef CH_ESC
 #define CH_ESC  0x1B
 #endif
@@ -27,171 +25,6 @@ uint8_t state = 0;
 uint8_t *const SCREEN = (uint8_t *)0x0400;
 uint8_t *src_top = 0;
 uint8_t *src_bot = 0;
-
-/* ═══════════════════════════════════════════════════════════════
- * Hardware helpers
- * ═══════════════════════════════════════════════════════════════ */
-
-/* ── Steady cursor ──────────────────────────────────────── *
- * KERNAL cursor blink disabled ($CC=1).  We reverse the char
- * at the cursor position before io_getc and un-reverse after.
- * No custom IRQ handler — zero race conditions. */
-static void cursor_show(void) {
-    SCREEN[io_cy * SCREEN_WIDTH + io_cx] ^= 0x80;
-}
-static void cursor_hide(void) {
-    SCREEN[io_cy * SCREEN_WIDTH + io_cx] ^= 0x80;
-}
-
-/* ═══════════════════════════════════════════════════════════════
- * Shared screen utilities
- * ═══════════════════════════════════════════════════════════════ */
-
-/* ── Color theme defaults ─────────────────────────────── */
-uint8_t theme_border = 12;       /* medium grey */
-uint8_t theme_bg     = 11;       /* dark grey */
-uint8_t theme_fg     =  5;       /* green */
-
-void restore_colors(void) {
-    io_bordercolor(theme_border);
-    io_bgcolor(theme_bg);
-    io_color = theme_fg;
-    memset(COLOR_RAM, io_color, 1000);
-}
-
-void reset_screen(void) {
-    restore_colors();
-    memset(SCREEN, 0x20, 1000);
-    io_cx = 0; io_cy = 0; io_sync();
-}
-
-void scroll_up(uint8_t n) {
-    if (n >= SCREEN_HEIGHT) {
-        memset(SCREEN, 0x20, 1000);
-        memset(COLOR_RAM, io_color, 1000);
-        io_cx = 0; io_cy = 0; io_sync();
-    } else {
-        /* SEI/CLI: prevent VIC-II from reading partially scrolled
-         * screen RAM during the copy (cosmetic — avoids 1-frame tear).
-         * With $CC=1 the KERNAL IRQ doesn't touch screen RAM, so this
-         * is only about the VIC raster read. */
-        __asm__("sei");
-        memmove(SCREEN, SCREEN + n * SCREEN_WIDTH,
-                SCREEN_WIDTH * (SCREEN_HEIGHT - n));
-        memset(SCREEN + SCREEN_WIDTH * (SCREEN_HEIGHT - n),
-               0x20, SCREEN_WIDTH * n);
-        __asm__("cli");
-        /* Color RAM: VIC reads it per-scanline but color glitches are
-         * less visible.  No SEI needed. */
-        memmove(COLOR_RAM, COLOR_RAM + n * SCREEN_WIDTH,
-                SCREEN_WIDTH * (SCREEN_HEIGHT - n));
-        memset(COLOR_RAM + SCREEN_WIDTH * (SCREEN_HEIGHT - n),
-               io_color, SCREEN_WIDTH * n);
-        io_cy = (io_cy > n) ? io_cy - n : 0;
-        io_sync();
-    }
-}
-
-void newline(void) {
-    if (io_cy == SCREEN_HEIGHT - 1) {
-        scroll_up(1);              /* decrements io_cy to 23 */
-        io_cy = SCREEN_HEIGHT - 1; /* put it back to 24 (new empty row) */
-    } else {
-        ++io_cy;
-    }
-    io_cx = 0;
-    io_sync();
-}
-
-void print_string(const uint8_t *str) {
-    uint8_t l = strlen(str);
-    uint8_t need = (l + io_cx + 1) / SCREEN_WIDTH;
-    uint8_t have = SCREEN_HEIGHT - io_cy - 1;
-    if (need > 0 && have < need)
-        scroll_up(need - have);
-    io_puts((const char *)str);
-}
-
-/* ═══════════════════════════════════════════════════════════════
- * Floppy / directory listing
- * ═══════════════════════════════════════════════════════════════ */
-
-static uint8_t fl_len;
-static uint8_t fl_buf[32];
-
-void floppy_status(void) {
-    if (cbm_open(14, 8, 15, "") == 0) {
-        fl_len = cbm_read(14, fl_buf, sizeof(fl_buf) - 1);
-        cbm_close(14);
-        if (fl_len > 0) {
-            fl_buf[fl_len - 1] = 0;
-            print_string(fl_buf);
-            newline();
-        } else {
-            print_string("floppy error");
-            newline();
-        }
-    }
-}
-
-void list_directory(uint8_t device) {
-    struct cbm_dirent de;
-
-    if (cbm_opendir(15, device)) { floppy_status(); return; }
-
-    while (1) {
-        if (io_kbhit()) {
-            if (io_getc() == CH_STOP) {
-                io_puts("break");
-                newline();
-                cbm_closedir(15);
-                return;
-            }
-        }
-        switch (cbm_readdir(15, &de)) {
-        case 0:
-            io_putdec(de.size); io_putc(' ');
-            if (de.type == CBM_T_HEADER) {
-                uint8_t start_col = io_cx;
-                io_putc('"'); io_puts(de.name); io_putc('"');
-                io_cx = 24;
-                io_puthex2(de.access);
-                /* invert the header line */
-                { uint8_t *scr = SCREEN + io_cy * SCREEN_WIDTH;
-                  uint8_t i;
-                  for (i = start_col; i < io_cx; i++) scr[i] |= 0x80;
-                }
-                newline();
-            } else {
-                io_cx = 5;
-                io_putc('"'); io_puts(de.name); io_putc('"');
-                io_cx = 24;
-                switch (de.type) {
-                case CBM_T_DEL: io_puts("del"); break;
-                case CBM_T_SEQ: io_puts("seq"); break;
-                case CBM_T_PRG: io_puts("prg"); break;
-                case CBM_T_USR: io_puts("usr"); break;
-                case CBM_T_REL: io_puts("rel"); break;
-                case CBM_T_DIR: io_puts("dir"); break;
-                default:        io_putdec(de.type);
-                }
-                if (!de.access) io_putc('*');
-                newline();
-            }
-            break;
-        case 2:
-            cbm_closedir(15);
-            io_putdec(de.size); io_puts(" blocks free.");
-            newline();
-            floppy_status();
-            return;
-        default:
-            cbm_closedir(15);
-            floppy_status();
-            return;
-        }
-    }
-}
 
 /* ═══════════════════════════════════════════════════════════════
  * Shared hex parsing helpers
@@ -236,7 +69,6 @@ void skip_sp(uint8_t **pp) {
     while (**pp == ' ') ++(*pp);
 }
 
-
 /* ═══════════════════════════════════════════════════════════════
  * Main program loop
  * ═══════════════════════════════════════════════════════════════ */
@@ -258,7 +90,6 @@ void main(void)
         uint16_t whi = 0xC7FF;
         uint8_t  row = SCREEN_HEIGHT - 7;
 
-        /* round cur_addr up to next $100 boundary */
         cur_addr = (wlo + 0xFF) & 0xFF00;
 
 #ifndef VERSION
@@ -315,11 +146,10 @@ void main(void)
             break;
 
         case CH_DEL: {
-            /* Delete char behind cursor: shift rest of line left, pad with space */
             uint8_t *row = SCREEN + io_cy * SCREEN_WIDTH;
             uint8_t mincol = 0;
             uint8_t i;
-            if (row[4] == 0x3A) mincol = 5;  /* don't delete into AAAA: */
+            if (row[4] == 0x3A) mincol = 5;
             if (io_cx > mincol) {
                 --io_cx;
                 for (i = io_cx; i < SCREEN_WIDTH - 1; ++i)
@@ -330,14 +160,12 @@ void main(void)
         }
 
         case CH_INS: {
-            /* Insert space at cursor: shift rest of line right */
             uint8_t *row = SCREEN + io_cy * SCREEN_WIDTH;
             uint8_t i;
             for (i = SCREEN_WIDTH - 2; i > io_cx; --i)
                 row[i] = row[i - 1];
             if (io_cx < SCREEN_WIDTH - 1)
                 row[io_cx] = 0x20;
-            /* col 39 always stays empty (EOL cursor position) */
             row[SCREEN_WIDTH - 1] = 0x20;
             break;
         }
@@ -382,7 +210,7 @@ void main(void)
     /* ── exit cleanup ───────────────────────────────────── */
     *(unsigned long *)0x0800 = 0;
     MEM_CONFIG |= 0x20;
-    io_cursor_on();                       /* re-enable KERNAL cursor for BASIC */
+    io_cursor_on();
     *(uint8_t *)0x028a &= 0b00111111;
     asm("jsr $A659");
 }

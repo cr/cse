@@ -75,7 +75,7 @@ MAIN_S = $(BUILD)/src/main.s
 MAIN_O = $(BUILD)/src/main.o
 
 # ── C source files (besides main.c) ──────────────────────────────
-C_SRCS   = editor repl
+C_SRCS   = screen disk editor repl expr symtab asm_src
 C_OBJS   = $(patsubst %,$(BUILD)/src/%.o,$(C_SRCS))
 
 # ── Assembler source files linked into cse.prg ──────────────────────
