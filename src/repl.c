@@ -670,18 +670,21 @@ void exec_line(void)
     {   uint16_t val;
         if (expr_eval(&q, &val) == 0) {
             newline();
-            io_putc(';');
+            io_puts("; ");
             if (val < 256) {
                 uint8_t b = (uint8_t)val;
-                uint8_t i;
-                /* ";  ddd    $hh  %bbbbbbbb" = 1+2+3+4+3+2+8 = 23 */
-                io_putc(' '); io_putc(' ');
-                /* right-aligned 3-digit decimal */
+                int8_t  sb = (int8_t)b;
+                uint8_t i, av;
+                /* "; ddd    $hh  %bbbbbbbb  sddd" */
+                /*  2+3+4+3+2+9+2+4 = 29 cols */
+
+                /* u8: right-aligned 3 */
                 if (val >= 100) io_putc('0' + val / 100);
                 else io_putc(' ');
                 if (val >= 10) io_putc('0' + (val / 10) % 10);
                 else io_putc(' ');
                 io_putc('0' + val % 10);
+
                 io_puts("    $");
                 io_puthex2(b);
                 io_puts("  %");
@@ -689,9 +692,23 @@ void exec_line(void)
                     io_putc((b & 0x80) ? '1' : '0');
                     b <<= 1;
                 }
+
+                /* s8: sign + right-aligned abs, 4 cols total */
+                io_puts("  ");
+                av = (sb < 0) ? (uint8_t)(-sb) : (uint8_t)sb;
+                if (av >= 100) {
+                    io_putc(sb < 0 ? '-' : '+');
+                    io_putc('0' + av / 100);
+                } else {
+                    io_putc(' ');
+                    if (av >= 10) io_putc(sb < 0 ? '-' : '+');
+                    else { io_putc(' '); io_putc(sb < 0 ? '-' : '+'); }
+                }
+                if (av >= 10) io_putc('0' + (av / 10) % 10);
+                io_putc('0' + av % 10);
             } else {
-                /* ";ddddd  $hhhh" */
-                /* right-aligned 5-digit decimal */
+                /* "; ddddd  $hhhh" */
+                /*  2+5+2+5 = 14 cols */
                 if (val >= 10000) io_putc('0' + val / 10000);
                 else io_putc(' ');
                 if (val >= 1000) io_putc('0' + (val / 1000) % 10);
@@ -707,7 +724,7 @@ void exec_line(void)
             clear_eol();
         } else {
             newline();
-            io_puts("?"); io_puts(expr_error_str());
+            io_puts("; ?"); io_puts(expr_error_str());
             clear_eol();
         }
         nl_prompt(); break;
