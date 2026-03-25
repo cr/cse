@@ -23,6 +23,12 @@ extern uint8_t *src_top, *src_bot;
 extern uint16_t cse_start(void);
 extern uint16_t cse_end(void);
 
+/* ── Color theme ──────────────────────────────────────────── */
+extern uint8_t theme_border;     /* $D020 color */
+extern uint8_t theme_bg;         /* $D021 color */
+extern uint8_t theme_fg;         /* text/color RAM color */
+void restore_colors(void);       /* apply theme + fill color RAM */
+
 /* ── Shared screen utilities (main.c + cse_io.s) ────────── */
 #define clear_eol io_clear_eol
 void newline(void);
@@ -37,6 +43,7 @@ void reset_screen(void);
 /* ── Shared hex parsing (main.c) ────────────────────────── */
 uint8_t hex_val(uint8_t ch);
 uint8_t is_hex(uint8_t ch);
+uint8_t hex_val_to_char(uint8_t v);
 uint16_t parse_hex4(uint8_t **pp);
 uint8_t parse_hex2(uint8_t **pp);
 void skip_sp(uint8_t **pp);

@@ -253,9 +253,7 @@ static void cmd_jmp(uint16_t addr)
 {
     cur_addr = addr;
     jsr_addr(addr);
-    /* restore color scheme in case user code changed it */
-    *(uint8_t *)0xD020 = 12;    /* border: medium grey */
-    *(uint8_t *)0xD021 = 11;    /* background: dark grey */
+    restore_colors();
     newline();
     emit_reg();
     newline();
@@ -580,6 +578,21 @@ void exec_line(void)
         {   uint16_t d = parse_hex_flex(&q);
             cur_addr = addr - (d ? d : block_size);
             nl_prompt(); break;
+        }
+        case 'c':                             /* color theme: c BCF */
+        {   skip_sp(&q);
+            if (is_hex(*q) && is_hex(*(q+1)) && is_hex(*(q+2))) {
+                theme_border = hex_val(*q++);
+                theme_bg     = hex_val(*q++);
+                theme_fg     = hex_val(*q);
+                restore_colors();
+            }
+            newline();
+            io_puts("color: ");
+            io_putc(hex_val_to_char(theme_border));
+            io_putc(hex_val_to_char(theme_bg));
+            io_putc(hex_val_to_char(theme_fg));
+            clear_eol(); nl_prompt(); break;
         }
         case 'l': cmd_load(addr, q);   break;
         case 'w': cmd_write(addr, q);  break;

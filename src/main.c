@@ -47,12 +47,21 @@ static void cursor_hide(void) {
  * Shared screen utilities
  * ═══════════════════════════════════════════════════════════════ */
 
-void reset_screen(void) {
-    io_bgcolor(11);
-    io_bordercolor(12);
-    io_color = 5;
-    memset(SCREEN, 0x20, 1000);
+/* ── Color theme defaults ─────────────────────────────── */
+uint8_t theme_border = 12;       /* medium grey */
+uint8_t theme_bg     = 11;       /* dark grey */
+uint8_t theme_fg     =  5;       /* green */
+
+void restore_colors(void) {
+    io_bordercolor(theme_border);
+    io_bgcolor(theme_bg);
+    io_color = theme_fg;
     memset(COLOR_RAM, io_color, 1000);
+}
+
+void reset_screen(void) {
+    restore_colors();
+    memset(SCREEN, 0x20, 1000);
     io_cx = 0; io_cy = 0; io_sync();
 }
 
@@ -196,6 +205,10 @@ uint8_t hex_val(uint8_t ch) {
 }
 
 uint8_t is_hex(uint8_t ch) { return hex_val(ch) != 0xFF; }
+
+uint8_t hex_val_to_char(uint8_t v) {
+    return v < 10 ? '0' + v : 'a' + v - 10;
+}
 
 uint16_t parse_hex4(uint8_t **pp) {
     uint8_t *q = *pp;
