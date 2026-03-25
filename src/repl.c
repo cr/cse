@@ -696,21 +696,15 @@ void exec_line(void)
                     b <<= 1;
                 }
 
-                /* s8: sign + right-aligned abs, 5 cols total */
-                io_puts("  ");
+                /* s8: 2sp + sign + right-aligned abs = 2+4 cols */
+                /* sign of 3-digit value lands 2 cols after binary */
                 av = (sb < 0) ? (uint8_t)(-sb) : (uint8_t)sb;
-                if (av >= 100) {
-                    io_putc(' ');
-                    io_putc(sb < 0 ? '-' : '+');
-                    io_putc('0' + av / 100);
-                } else if (av >= 10) {
-                    io_putc(' '); io_putc(' ');
-                    io_putc(sb < 0 ? '-' : '+');
-                } else {
-                    io_putc(' '); io_putc(' '); io_putc(' ');
-                    io_putc(sb < 0 ? '-' : '+');
-                }
+                io_putc(' '); io_putc(' ');
+                io_putc(sb < 0 ? '-' : '+');
+                if (av >= 100) io_putc('0' + av / 100);
+                else io_putc(' ');
                 if (av >= 10) io_putc('0' + (av / 10) % 10);
+                else io_putc(' ');
                 io_putc('0' + av % 10);
             } else {
                 /* "  $hhhh" */
