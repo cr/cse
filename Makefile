@@ -47,6 +47,7 @@ T65 = $(CA65) --cpu 6502
 # -----------------------------------------------------------------------
 PRG    = $(BUILD)/cse.prg
 DBG    = $(BUILD)/cse.dbg
+MAP    = $(BUILD)/cse.map
 MAIN_S = $(BUILD)/src/main.s
 MAIN_O = $(BUILD)/src/main.o
 
@@ -83,7 +84,7 @@ $(BUILD)/src/%.o: $(SRC)/%.s | $(BUILD)/src/
 	$(CA65) $(AFLAGS) -o $@ $<
 
 $(PRG): $(MAIN_O) $(C_OBJS) $(ASM_OBJS) | $(BUILD)/
-	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) $(MAIN_O) $(C_OBJS) $(ASM_OBJS) c64.lib
+	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) -m $(MAP) $(MAIN_O) $(C_OBJS) $(ASM_OBJS) c64.lib
 
 # -----------------------------------------------------------------------
 # disk — create a D64 disk image with cse.prg
@@ -207,6 +208,13 @@ test:
 	$(PYTEST) tests/ -v
 
 # -----------------------------------------------------------------------
+# size — exhaustive size breakdown of cse.prg
+# -----------------------------------------------------------------------
+.PHONY: size
+size: $(PRG)
+	@$(PYTHON) $(DEV)/size_report.py
+
+# -----------------------------------------------------------------------
 # clean
 # -----------------------------------------------------------------------
 .PHONY: clean
@@ -234,6 +242,7 @@ help:
 	@printf "%-15s %s\n" "tables"       "Regenerate src/mn*_tables.s via mnemonic_tables.py"
 	@printf "%-15s %s\n" "test"         "Run all pytest tests"
 	@printf "%-15s %s\n" "test-bins"    "Assemble au_mode / mn6 / mn7 test binaries"
+	@printf "%-15s %s\n" "size"         "Exhaustive size breakdown of cse.prg"
 	@printf "%-15s %s\n" "clean"        "Remove the build/ directory"
 	@printf "%-15s %s\n" "clean-tables" "Remove generated table sources in src/"
 	@printf "%-15s %s\n" "help"         "Show this message"
