@@ -788,12 +788,13 @@ callback:        .res 2     ; function pointer for SEQ I/O
         ldx #2
         jsr CHKOUT
 
-        ; Clear counters
+        ; Clear counters (lines starts at 1: N newlines = N+1 lines)
         lda #0
         sta _disk_seq_bytes
         sta _disk_seq_bytes+1
-        sta _disk_seq_lines
         sta _disk_seq_lines+1
+        lda #1
+        sta _disk_seq_lines
 
 @write:
         ; Call read_fn — returns int: 0-255 = byte (A=lo, X=0),
