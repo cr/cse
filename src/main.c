@@ -315,14 +315,30 @@ void main(void)
             break;
 
         case CH_DEL: {
+            /* Delete char behind cursor: shift rest of line left, pad with space */
+            uint8_t *row = SCREEN + io_cy * SCREEN_WIDTH;
             uint8_t mincol = 0;
-            if (SCREEN[io_cy * SCREEN_WIDTH + 4] == 0x3A)
-                mincol = 5;
+            uint8_t i;
+            if (row[4] == 0x3A) mincol = 5;  /* don't delete into AAAA: */
             if (io_cx > mincol) {
                 --io_cx;
-                io_putc(' ');
-                --io_cx;
+                for (i = io_cx; i < SCREEN_WIDTH - 1; ++i)
+                    row[i] = row[i + 1];
+                row[SCREEN_WIDTH - 1] = 0x20;
             }
+            break;
+        }
+
+        case CH_INS: {
+            /* Insert space at cursor: shift rest of line right */
+            uint8_t *row = SCREEN + io_cy * SCREEN_WIDTH;
+            uint8_t i;
+            for (i = SCREEN_WIDTH - 2; i > io_cx; --i)
+                row[i] = row[i - 1];
+            if (io_cx < SCREEN_WIDTH - 1)
+                row[io_cx] = 0x20;
+            /* col 39 always stays empty (EOL cursor position) */
+            row[SCREEN_WIDTH - 1] = 0x20;
             break;
         }
 
@@ -344,6 +360,11 @@ void main(void)
 
         case CH_HOME:
             io_cx = 0;
+            break;
+
+        case 147:                             /* shift+HOME = CLR ($93) */
+            reset_screen();
+            show_prompt();
             break;
 
         case CH_ESC:
