@@ -37,10 +37,10 @@ uint8_t *src_bot = 0;
  * at the cursor position before io_getc and un-reverse after.
  * No custom IRQ handler — zero race conditions. */
 static void cursor_show(void) {
-    SCREEN[io_cy * SCREEN_WIDTH + io_cx] |= 0x80;
+    SCREEN[io_cy * SCREEN_WIDTH + io_cx] ^= 0x80;
 }
 static void cursor_hide(void) {
-    SCREEN[io_cy * SCREEN_WIDTH + io_cx] &= 0x7F;
+    SCREEN[io_cy * SCREEN_WIDTH + io_cx] ^= 0x80;
 }
 
 /* ═══════════════════════════════════════════════════════════════
