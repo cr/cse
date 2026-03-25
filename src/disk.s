@@ -204,7 +204,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
 ;   AAAA:; 520 blocks free.
 ; ═════════════════════════════════════════════════════════
 .proc _list_directory
-        tax                     ; X = device
+        sta @dev                ; save device number
 
         ; SETNAM "$"
         lda #1
@@ -214,6 +214,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
 
         ; SETLFS 1,device,0
         lda #1
+        ldx @dev
         ldy #0
         jsr SETLFS
 
@@ -446,6 +447,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
 @is_first: .byte 0
 @blocks:   .byte 0, 0
 @textlen:  .byte 0
+@dev:      .byte 0
 
 @dname:    .byte "$"
 @brk_msg:  .byte "break", 0
