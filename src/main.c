@@ -162,10 +162,6 @@ void main(void)
             clear_eol();
             newline();
             show_prompt();
-            /* Wait for RUN/STOP release so it doesn't trigger CH_STOP */
-            do { *(uint8_t *)0xDC00 = 0x7F; }
-            while (!(*(volatile uint8_t *)0xDC01 & 0x80));
-            *(uint8_t *)0xC6 = 0;
             continue;
         }
 
@@ -175,10 +171,6 @@ void main(void)
                 enter_editor();
             else if (state == ST_EDIT)
                 leave_editor();
-            /* Wait for physical key release (keyboard matrix row 7, bit 7) */
-            do { *(uint8_t *)0xDC00 = 0x7F; }
-            while (!(*(volatile uint8_t *)0xDC01 & 0x80));
-            *(uint8_t *)0xC6 = 0;  /* flush any buffered repeats */
             continue;
         }
 
