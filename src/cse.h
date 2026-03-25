@@ -97,11 +97,6 @@ extern uint8_t al_cpu;          /* ZP variable from asm_vars.s */
 #define CPU_CEIL 1              /* fallback: 6510 */
 #endif
 
-/* ── SYS restart address (STARTUP entry point) ────────── */
-#ifndef SYS_ADDR
-#define SYS_ADDR 2061   /* $080D — standard cc65 C64 STARTUP */
-#endif
-
 /* ── Assembler bridge ───────────────────────────────────── */
 extern uint8_t asm_line(uint16_t addr, char *text);
 extern void jsr_addr(uint16_t addr);

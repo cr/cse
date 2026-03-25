@@ -122,10 +122,6 @@ static void fill_free_memory(void) {
 #define BUILD_YEAR "2025"
 #endif
 
-/* SYS address for restart — the STARTUP segment entry point.
- * For the standard cc65 C64 target this is $080D = 2061. */
-#define SYS_ADDR 2061
-
 void main(void)
 {
     uint8_t ch;
@@ -152,8 +148,7 @@ void main(void)
         cur_addr = (wlo + 0xFF) & 0xFF00;
 
         io_cx = 0; io_cy = row++; io_sync();
-        io_puts("cse v" VERSION "  sys ");
-        io_putdec(SYS_ADDR);
+        io_puts("cse v" VERSION);
         io_cx = 0; io_cy = row++; io_sync();
         io_puts("(c) 2025-" BUILD_YEAR " cr@23bit.net");
         row++;
