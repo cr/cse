@@ -169,6 +169,7 @@ void main(void)
                 enter_editor();
             else if (state == ST_EDIT)
                 leave_editor();
+            *(uint8_t *)0xC6 = 0;  /* flush keyboard buffer — no repeat */
             continue;
         }
 
