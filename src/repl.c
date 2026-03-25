@@ -585,23 +585,26 @@ void exec_line(void)
         }
         case 'i': cmd_info();          break;
         case 'r': cmd_reg(q);          break;
-        case 'u':                             /* CPU mode selection */
+        case 'u':                             /* CPU mode: u 6502|6510|65c02 */
         {   skip_sp(&q);
-            if (is_hex(*q)) {
-                uint8_t v = parse_hex2(&q);
-                if (v <= CPU_CEIL)
+            if (*q == '6') {
+                /* match "6502", "6510", "65c02" */
+                uint8_t v = 0xFF;
+                if (q[1]=='5' && q[2]=='0' && q[3]=='2') v = 0;
+                else if (q[1]=='5' && q[2]=='1' && q[3]=='0') v = 1;
+                else if (q[1]=='5' && q[2]=='c' && q[3]=='0') v = 2;
+                if (v != 0xFF && v <= CPU_CEIL)
                     al_cpu = v;
             }
             newline();
-            /* show current + available modes */
-            io_puts("0:6502");
+            io_puts("6502");
             io_putc(al_cpu == 0 ? '*' : ' ');
 #if CPU_CEIL >= 1
-            io_puts(" 1:6510");
+            io_puts(" 6510");
             io_putc(al_cpu == 1 ? '*' : ' ');
 #endif
 #if CPU_CEIL >= 2
-            io_puts(" 2:65c02");
+            io_puts(" 65c02");
             io_putc(al_cpu == 2 ? '*' : ' ');
 #endif
             clear_eol(); nl_prompt(); break;
