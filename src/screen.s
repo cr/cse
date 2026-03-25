@@ -10,6 +10,10 @@
         .import _io_puts, _io_sync, _io_color
         .import scr_lo, scr_hi
 
+; ── ZP pointers (reuse cse_io's area) ───────────────────
+src_ptr = $FB           ; 2 bytes
+dst_ptr = $FD           ; 2 bytes
+
         .importzp sp
 
 ; ── C64 hardware ─────────────────────────────────────────
@@ -84,124 +88,136 @@ _theme_fg:     .byte  5            ; green
         jmp _reset_screen
 
 @partial:
-        ; A = number of rows to scroll
-        ; Save n for later
-        pha
-
-        ; Compute byte count to copy: (SCR_H - n) * SCR_W
-        ; and source offset: n * SCR_W
-        ; We'll iterate row-by-row for simplicity and correctness
+        ; A = n rows to scroll. Two passes: screen RAM, then color RAM.
+        pha                     ; save n
 
         sei                     ; prevent VIC tearing
 
-        ; Use self-modifying: src = SCREEN + n*40, dst = SCREEN
-        ; Copy (25-n)*40 bytes, then clear n*40 bytes at bottom
-        tsx                     ; save SP
-        pla                     ; A = n
-        pha                     ; keep on stack
-        tax                     ; X = n (rows to scroll)
-
-        ; Compute src row = n, dst row = 0
-        ; We copy row-by-row using Y as column index
-        lda #0
-        sta @dst_row
-        stx @src_row
-
-@copy_row:
-        ldx @src_row
+        ; ── Pass 1: scroll screen RAM ──
+        pla
+        pha                     ; keep n on stack
+        tax                     ; X = src_row (starts at n)
+        ldy #0                  ; Y = dst_row (starts at 0)
+@scr_copy:
         cpx #SCR_H
-        bcs @clear_rows         ; done copying
+        bcs @scr_clear
 
-        ; Get src screen address
+        ; src_ptr = scr[src_row], dst_ptr = scr[dst_row]
         lda scr_lo,x
-        sta @src+1
+        sta src_ptr
         lda scr_hi,x
-        sta @src+2
-
-        ; Get dst screen address
-        ldx @dst_row
+        sta src_ptr+1
+        stx @sav_x
+        sty @sav_y
+        ; dst
+        ldx @sav_y
         lda scr_lo,x
-        sta @dst+1
+        sta dst_ptr
         lda scr_hi,x
-        sta @dst+2
+        sta dst_ptr+1
 
-        ; Get src color address
-        ldx @src_row
-        lda collo,x
-        sta @csrc+1
-        lda colhi,x
-        sta @csrc+2
-
-        ; Get dst color address
-        ldx @dst_row
-        lda collo,x
-        sta @cdst+1
-        lda colhi,x
-        sta @cdst+2
-
-        ; Copy 40 bytes screen + color
+        ; copy 40 bytes
         ldy #SCR_W-1
-@src:   lda $FFFF,y             ; self-modified
-@dst:   sta $FFFF,y             ; self-modified
-@csrc:  lda $FFFF,y             ; self-modified
-@cdst:  sta $FFFF,y             ; self-modified
+@sc1:   lda (src_ptr),y
+        sta (dst_ptr),y
         dey
-        bpl @src
+        bpl @sc1
 
-        inc @src_row
-        inc @dst_row
-        bne @copy_row           ; always (row < 25)
-
-@clear_rows:
-        ; Clear rows dst_row..24 with spaces / io_color
-        ldx @dst_row
-        lda _io_color
-        sta @clr_col+1          ; self-mod: color value
-
-@clr_loop:
-        cpx #SCR_H
-        bcs @done
-
-        lda scr_lo,x
-        sta @cs+1
-        lda scr_hi,x
-        sta @cs+2
-        lda collo,x
-        sta @cc+1
-        lda colhi,x
-        sta @cc+2
-
-        ldy #SCR_W-1
-        lda #$20
-@cs:    sta $FFFF,y
-@clr_col:
-        lda #$05                ; self-modified: io_color
-@cc:    sta $FFFF,y
-        lda #$20                ; reload space for screen
-        dey
-        bpl @cs
-
+        ldx @sav_x
+        ldy @sav_y
         inx
-        bne @clr_loop           ; always
+        iny
+        bne @scr_copy           ; always
 
-@done:
-        cli
+@scr_clear:
+        ; clear rows dst_row..24 with $20
+@sc_clr:
+        cpy #SCR_H
+        bcs @scr_done
+        lda scr_lo,y
+        sta dst_ptr
+        lda scr_hi,y
+        sta dst_ptr+1
+        sty @sav_y
+        lda #$20
+        ldy #SCR_W-1
+@sc2:   sta (dst_ptr),y
+        dey
+        bpl @sc2
+        ldy @sav_y
+        iny
+        bne @sc_clr
+@scr_done:
+
+        cli                     ; screen done, VIC safe
+
+        ; ── Pass 2: scroll color RAM ──
+        pla
+        pha                     ; keep n
+        tax                     ; X = src_row
+        ldy #0                  ; Y = dst_row
+@col_copy:
+        cpx #SCR_H
+        bcs @col_clear
+
+        lda collo,x
+        sta src_ptr
+        lda colhi,x
+        sta src_ptr+1
+        stx @sav_x
+        sty @sav_y
+        ldx @sav_y
+        lda collo,x
+        sta dst_ptr
+        lda colhi,x
+        sta dst_ptr+1
+
+        ldy #SCR_W-1
+@cc1:   lda (src_ptr),y
+        sta (dst_ptr),y
+        dey
+        bpl @cc1
+
+        ldx @sav_x
+        ldy @sav_y
+        inx
+        iny
+        bne @col_copy
+
+@col_clear:
+        ; clear with io_color
+@cc_clr:
+        cpy #SCR_H
+        bcs @col_done
+        lda collo,y
+        sta dst_ptr
+        lda colhi,y
+        sta dst_ptr+1
+        sty @sav_y
+        lda _io_color
+        ldy #SCR_W-1
+@cc2:   sta (dst_ptr),y
+        dey
+        bpl @cc2
+        ldy @sav_y
+        iny
+        bne @cc_clr
+@col_done:
 
         ; Adjust cursor row: io_cy = max(io_cy - n, 0)
         pla                     ; A = n
-        sta @tmp
+        sta @sav_x              ; reuse as temp
         lda CUR_ROW
         sec
-        sbc @tmp
+        sbc @sav_x
         bcs @set_row
         lda #0
 @set_row:
         sta CUR_ROW
         jmp _io_sync
 
-@src_row: .byte 0
-@dst_row: .byte 0
-@tmp:     .byte 0
+@sav_x: .byte 0
+@sav_y: .byte 0
 .endproc
 
 ; ═════════════════════════════════════════════════════════
@@ -242,15 +258,13 @@ _theme_fg:     .byte  5            ; green
 .proc _cursor_show
         ldx CUR_ROW
         lda scr_lo,x
-        sta @rd+1
-        sta @wr+1
+        sta src_ptr
         lda scr_hi,x
-        sta @rd+2
-        sta @wr+2
+        sta src_ptr+1
         ldy CUR_COL
-@rd:    lda $FFFF,y
+        lda (src_ptr),y
         eor #$80
-@wr:    sta $FFFF,y
+        sta (src_ptr),y
         rts
 .endproc
 

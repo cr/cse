@@ -36,6 +36,7 @@ _io_scr:  .res 2        ; screen row pointer for io_putc
 ; ── BSS ─────────────────────────────────────────────────────
 .segment "BSS"
 _io_color: .res 1       ; text color for screen clears
+dec_start_col: .res 1   ; io_putdec: saved start column (ROM-safe)
 
 ; ── RODATA ──────────────────────────────────────────────────
 .segment "RODATA"
@@ -186,7 +187,7 @@ _io_putdec:
         lda scr_hi,y
         sta _io_scr+1
         lda CUR_COL
-        sta @start_col          ; remember starting column for leading-zero check
+        sta dec_start_col          ; remember starting column for leading-zero check
         ldx #0                  ; power-of-10 index (0..4)
 @pow:   ldy #0                  ; digit counter
 @sub:   lda _io_tmp
@@ -208,7 +209,7 @@ _io_putdec:
         cpx #4                  ; ones place?
         beq @force              ; always print ones digit
         lda CUR_COL             ; check if we've printed anything
-        cmp @start_col
+        cmp dec_start_col
         beq @next               ; no digits printed yet: skip leading zero
 @force: tya                     ; A = digit (might be 0)
 @print: tay
@@ -221,7 +222,7 @@ _io_putdec:
         cpx #5
         bne @pow
         rts
-@start_col: .byte 0             ; self-storage for start column
+        ; dec_start_col moved to BSS (ROM-safe)
 
 ; ── io_clear_eol — fill spaces from cursor to end of row ────
 _io_clear_eol:
