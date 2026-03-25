@@ -78,7 +78,8 @@ _theme_fg:     .byte  5            ; green
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; scroll_up(n) — scroll screen + color RAM up by A rows
+; scroll_up(n) — scroll screen RAM up by A rows
+; Color RAM is static (initialized once, never scrolled).
 ;   __fastcall__: n in A
 ; ═════════════════════════════════════════════════════════
 .proc _scroll_up
@@ -151,59 +152,6 @@ _theme_fg:     .byte  5            ; green
 
         cli                     ; screen done, VIC safe
 
-        ; ── Pass 2: scroll color RAM ──
-        pla
-        pha                     ; keep n
-        tax                     ; X = src_row
-        ldy #0                  ; Y = dst_row
-@col_copy:
-        cpx #SCR_H
-        bcs @col_clear
-
-        lda collo,x
-        sta src_ptr
-        lda colhi,x
-        sta src_ptr+1
-        stx @sav_x
-        sty @sav_y
-        ldx @sav_y
-        lda collo,x
-        sta dst_ptr
-        lda colhi,x
-        sta dst_ptr+1
-
-        ldy #SCR_W-1
-@cc1:   lda (src_ptr),y
-        sta (dst_ptr),y
-        dey
-        bpl @cc1
-
-        ldx @sav_x
-        ldy @sav_y
-        inx
-        iny
-        bne @col_copy
-
-@col_clear:
-        ; clear with io_color
-@cc_clr:
-        cpy #SCR_H
-        bcs @col_done
-        lda collo,y
-        sta dst_ptr
-        lda colhi,y
-        sta dst_ptr+1
-        sty @sav_y
-        lda _io_color
-        ldy #SCR_W-1
-@cc2:   sta (dst_ptr),y
-        dey
-        bpl @cc2
-        ldy @sav_y
-        iny
-        bne @cc_clr
-@col_done:
-
         ; Adjust cursor row: io_cy = max(io_cy - n, 0)
         pla                     ; A = n
         sta @sav_x              ; reuse as temp
@@ -271,17 +219,4 @@ _theme_fg:     .byte  5            ; green
 ; cursor_hide is identical
 _cursor_hide = _cursor_show
 
-; ═════════════════════════════════════════════════════════
-; Color RAM row address lookup tables
-; (scr_lo/scr_hi imported from cse_io.s)
-; ═════════════════════════════════════════════════════════
-        .segment "RODATA"
-
-collo:
-        .repeat 25, i
-        .byte <(COLOR_RAM + i * SCR_W)
-        .endrepeat
-colhi:
-        .repeat 25, i
-        .byte >(COLOR_RAM + i * SCR_W)
-        .endrepeat
+; Color RAM tables removed — color RAM is static (set once at init).
