@@ -696,15 +696,12 @@ void exec_line(void)
                     b <<= 1;
                 }
 
-                /* s8: 2sp + sign + right-aligned abs = 2+4 cols */
-                /* sign of 3-digit value lands 2 cols after binary */
+                /* s8: 2sp + sign + digits left-aligned */
                 av = (sb < 0) ? (uint8_t)(-sb) : (uint8_t)sb;
                 io_putc(' '); io_putc(' ');
                 io_putc(sb < 0 ? '-' : '+');
                 if (av >= 100) io_putc('0' + av / 100);
-                else io_putc(' ');
                 if (av >= 10) io_putc('0' + (av / 10) % 10);
-                else io_putc(' ');
                 io_putc('0' + av % 10);
             } else {
                 /* "  $hhhh" */
