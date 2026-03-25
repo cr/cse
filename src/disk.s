@@ -426,42 +426,16 @@ callback:        .res 2     ; function pointer for SEQ I/O
         lda #'"'
         jsr _io_putc
 
-        ; Pad to column 23 (16+2 name field + 'l "' prefix + '"' + space)
-        ldy CUR_COL
-@pad:   cpy #23
-        bcs @blk_comment
-        lda #' '
-        jsr _io_putc
-        ldy CUR_COL
-        bne @pad
-
-@blk_comment:
-        ; "; NNN" — semicolon + right-aligned block count
-        lda #';'
-        jsr _io_putc
-
-        ; Right-align in 4 columns
-        lda @blocks+1
-        bne @print_blocks       ; >= 256: just print
-
-        lda @blocks
-        cmp #100
-        bcs @pad3
-        cmp #10
-        bcs @pad2
-
-        ; 1 digit: 3 spaces
-        lda #' '
-        jsr _io_putc
-@pad2:  lda #' '
-        jsr _io_putc
-@pad3:  lda #' '
-        jsr _io_putc
-
-@print_blocks:
+        ; "; N blocks"
+        lda #<@blk_pre
+        ldx #>@blk_pre
+        jsr _io_puts
         lda @blocks
         ldx @blocks+1
         jsr _io_putdec
+        lda #<@blk_suf
+        ldx #>@blk_suf
+        jsr _io_puts
 
         jsr _io_clear_eol
         jsr _newline
@@ -523,6 +497,8 @@ callback:        .res 2     ; function pointer for SEQ I/O
 @dname:    .byte "$"
 @brk_msg:  .byte "break", 0
 @free_msg: .byte " blocks free.", 0
+@blk_pre:  .byte "; ", 0
+@blk_suf:  .byte " blocks", 0
 .endproc
 
 ; ═════════════════════════════════════════════════════════
