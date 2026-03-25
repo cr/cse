@@ -671,21 +671,24 @@ void exec_line(void)
         if (expr_eval(&q, &val) == 0) {
             newline();
             io_puts("; ");
+            /* right-aligned 5-digit unsigned decimal (shared position) */
+            if (val >= 10000) io_putc('0' + val / 10000);
+            else io_putc(' ');
+            if (val >= 1000) io_putc('0' + (val / 1000) % 10);
+            else io_putc(' ');
+            if (val >= 100) io_putc('0' + (val / 100) % 10);
+            else io_putc(' ');
+            if (val >= 10) io_putc('0' + (val / 10) % 10);
+            else io_putc(' ');
+            io_putc('0' + val % 10);
+
             if (val < 256) {
                 uint8_t b = (uint8_t)val;
                 int8_t  sb = (int8_t)b;
                 uint8_t i, av;
-                /* "; ddd    $hh  %bbbbbbbb  sddd" */
-                /*  2+3+4+3+2+9+2+4 = 29 cols */
+                /* "  $00hh  %bbbbbbbb  sdddd" */
 
-                /* u8: right-aligned 3 */
-                if (val >= 100) io_putc('0' + val / 100);
-                else io_putc(' ');
-                if (val >= 10) io_putc('0' + (val / 10) % 10);
-                else io_putc(' ');
-                io_putc('0' + val % 10);
-
-                io_puts("    $");
+                io_puts("  $00");
                 io_puthex2(b);
                 io_puts("  %");
                 for (i = 0; i < 8; ++i) {
@@ -693,31 +696,24 @@ void exec_line(void)
                     b <<= 1;
                 }
 
-                /* s8: sign + right-aligned abs, 4 cols total */
+                /* s8: sign + right-aligned abs, 5 cols total */
                 io_puts("  ");
                 av = (sb < 0) ? (uint8_t)(-sb) : (uint8_t)sb;
                 if (av >= 100) {
+                    io_putc(' ');
                     io_putc(sb < 0 ? '-' : '+');
                     io_putc('0' + av / 100);
+                } else if (av >= 10) {
+                    io_putc(' '); io_putc(' ');
+                    io_putc(sb < 0 ? '-' : '+');
                 } else {
-                    io_putc(' ');
-                    if (av >= 10) io_putc(sb < 0 ? '-' : '+');
-                    else { io_putc(' '); io_putc(sb < 0 ? '-' : '+'); }
+                    io_putc(' '); io_putc(' '); io_putc(' ');
+                    io_putc(sb < 0 ? '-' : '+');
                 }
                 if (av >= 10) io_putc('0' + (av / 10) % 10);
                 io_putc('0' + av % 10);
             } else {
-                /* "; ddddd  $hhhh" */
-                /*  2+5+2+5 = 14 cols */
-                if (val >= 10000) io_putc('0' + val / 10000);
-                else io_putc(' ');
-                if (val >= 1000) io_putc('0' + (val / 1000) % 10);
-                else io_putc(' ');
-                if (val >= 100) io_putc('0' + (val / 100) % 10);
-                else io_putc(' ');
-                if (val >= 10) io_putc('0' + (val / 10) % 10);
-                else io_putc(' ');
-                io_putc('0' + val % 10);
+                /* "  $hhhh" */
                 io_puts("  $");
                 io_puthex4(val);
             }
