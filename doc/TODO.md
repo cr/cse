@@ -26,17 +26,61 @@
 
 ## Test Coverage
 
+- [ ] Fix 13 xfails: CMOS mnemonic gate in assembler (test_nmos_rejects_cmos)
+- [ ] Fix 12 xfails: expr.s test harness cc65 C stack stubs (test_expr.py)
+- [ ] Fix 1 xpass: test_zero in expr accidentally passes — tighten test
 - [ ] build_open_str unit tests (suffix detection was buggy)
 - [ ] parse_hex.s standalone tests (VICII screencode edge cases)
 - [ ] Assembler→disassembler round-trip tests
 - [ ] Editor gap buffer binary tests (currently Python-only simulation)
 
+## Robustness
+
+- [ ] `j` command: reset colors after user code returns (user code may change VIC regs)
+- [ ] `j` command with arg: `j 1234` should JSR to $1234, not just cur_addr
+- [ ] Editor: handle files > gap buffer capacity gracefully (show error, don't crash)
+- [ ] Editor: warn on quit/switch if dirty flag set
+- [ ] Disk I/O: timeout handling for unresponsive drives
+- [ ] read_line: cc65 -O ternary miscompilation documented but not guarded — add regression test
+- [ ] `w` PRG without end address: save exactly block_size bytes (currently broken?)
+
+## UX Polish
+
+- [ ] `h` command: hunt/search for byte pattern in memory
+- [ ] `f` command: fill memory range with byte
+- [ ] `t` command: transfer/copy memory block
+- [ ] `n` command: compare two memory blocks
+- [ ] `.` command: when no operand given for mnemonic that requires one, show help not ?asm
+- [ ] `d` command: show ascii representation alongside disassembly (like the m command)
+- [ ] `$` command: support `$ pattern` to filter directory by filename glob
+- [ ] Editor: page up/down with shift+cursor or F-keys
+- [ ] Editor: search (ctrl+f equivalent via F-key)
+- [ ] Editor: goto line number
+- [ ] Startup: detect PAL/NTSC and adjust timing-sensitive code if any
+- [ ] Color command `c`: show color preview swatches on C64 color palette
+
+## Architecture
+
+- [ ] Relocate CSE to $8000 (PRG) or cartridge ROM (CRT)
+- [ ] CRT-ready: all self-modifying code removed ✓ — verify no regressions
+- [ ] Dual linker configs: c64_cse.cfg (PRG at $0801) and c64_cse_crt.cfg (ROM at $8000)
+- [ ] Editor screen: use $0C00 (CRT) or $8000 (PRG relocated) — currently saves to BSS
+- [ ] Consider: REU (RAM Expansion Unit) support for large source files
+- [ ] Consider: bank switching for >16KB cartridge (EasyFlash)
+
 ## Features
 
-- [ ] Disassembler: finish fixing remaining test failures across all 3 CPU modes
 - [ ] Source assembler (asm_src.c): 2-pass assembly from gap buffer
 - [ ] Symbol table (symtab.c): hash table for labels
 - [ ] Expression parser: extend beyond hex literals (+, -, *, /, <, >, labels, %)
-- [ ] Breakpoints (! command)
-- [ ] Single-step trace (t command)
-- [ ] Relocate CSE to $8000 (PRG) or cartridge ROM (CRT)
+- [ ] Directives: *= (origin), .byte, .word, .text, .cpu, .include
+- [ ] Labels: name: at start of line, .local labels with . prefix
+- [ ] Assembler error display: line number + source context
+- [ ] Breakpoints (! command): BRK vector intercept, breakpoint table
+- [ ] Single-step trace (t command): BRK after each instruction
+- [ ] `a` command: assemble source buffer to target memory
+- [ ] `=` command: define/query symbols from REPL
+- [ ] `>` / `<` commands: save/load memory blocks with address ranges
+- [ ] PRG load: auto-detect load address from PRG header, show in output
+- [ ] Macro support (future): .macro/.endmacro
+- [ ] Conditional assembly (future): .if/.else/.endif
