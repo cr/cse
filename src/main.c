@@ -169,7 +169,10 @@ void main(void)
                 enter_editor();
             else if (state == ST_EDIT)
                 leave_editor();
-            *(uint8_t *)0xC6 = 0;  /* flush keyboard buffer — no repeat */
+            /* Wait for physical key release (keyboard matrix row 7, bit 7) */
+            do { *(uint8_t *)0xDC00 = 0x7F; }
+            while (!(*(volatile uint8_t *)0xDC01 & 0x80));
+            *(uint8_t *)0xC6 = 0;  /* flush any buffered repeats */
             continue;
         }
 
