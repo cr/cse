@@ -217,7 +217,16 @@ static void cmd_mem(uint16_t addr, uint8_t *args)
 
     skip_sp(&q);
 
-    if (is_hex(q[0]) && is_hex(q[1]) && is_hex(q[2])) {
+    /* 4-digit hex = address override (not edit bytes) */
+    if (is_hex(q[0]) && is_hex(q[1]) && is_hex(q[2]) && is_hex(q[3])
+        && (q[4] == ' ' || q[4] == 0 || q[4] == ';')) {
+        addr = parse_hex4(&q);
+        skip_sp(&q);
+    }
+
+    /* 2+ hex digits followed by space/end = edit bytes */
+    if (is_hex(q[0]) && is_hex(q[1])
+        && (q[2] == ' ' || q[2] == 0 || q[2] == ';')) {
         nbytes = 0;
         while (nbytes < 8 && is_hex(*q) && is_hex(*(q + 1))) {
             uint8_t b = parse_hex2(&q);
