@@ -7,8 +7,8 @@
         .export _scroll_up, _newline, _print_string
         .export _cursor_show, _cursor_hide
         .export _theme_border, _theme_bg, _theme_fg
-
         .import _io_puts, _io_sync, _io_color
+        .import scr_lo, scr_hi
 
         .importzp sp
 
@@ -113,16 +113,16 @@ _theme_fg:     .byte  5            ; green
         bcs @clear_rows         ; done copying
 
         ; Get src screen address
-        lda scrlo,x
+        lda scr_lo,x
         sta @src+1
-        lda scrhi,x
+        lda scr_hi,x
         sta @src+2
 
         ; Get dst screen address
         ldx @dst_row
-        lda scrlo,x
+        lda scr_lo,x
         sta @dst+1
-        lda scrhi,x
+        lda scr_hi,x
         sta @dst+2
 
         ; Get src color address
@@ -162,9 +162,9 @@ _theme_fg:     .byte  5            ; green
         cpx #SCR_H
         bcs @done
 
-        lda scrlo,x
+        lda scr_lo,x
         sta @cs+1
-        lda scrhi,x
+        lda scr_hi,x
         sta @cs+2
         lda collo,x
         sta @cc+1
@@ -241,10 +241,10 @@ _theme_fg:     .byte  5            ; green
 ; ═════════════════════════════════════════════════════════
 .proc _cursor_show
         ldx CUR_ROW
-        lda scrlo,x
+        lda scr_lo,x
         sta @rd+1
         sta @wr+1
-        lda scrhi,x
+        lda scr_hi,x
         sta @rd+2
         sta @wr+2
         ldy CUR_COL
@@ -258,18 +258,11 @@ _theme_fg:     .byte  5            ; green
 _cursor_hide = _cursor_show
 
 ; ═════════════════════════════════════════════════════════
-; Row address lookup tables (screen + color RAM)
+; Color RAM row address lookup tables
+; (scr_lo/scr_hi imported from cse_io.s)
 ; ═════════════════════════════════════════════════════════
         .segment "RODATA"
 
-scrlo:
-        .repeat 25, i
-        .byte <(SCREEN + i * SCR_W)
-        .endrepeat
-scrhi:
-        .repeat 25, i
-        .byte >(SCREEN + i * SCR_W)
-        .endrepeat
 collo:
         .repeat 25, i
         .byte <(COLOR_RAM + i * SCR_W)

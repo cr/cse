@@ -79,9 +79,9 @@ extern uint8_t  cur_device;           /* default 8 */
 #define clear_eol io_clear_eol
 
 /* ── Shared hex parsing (main.c) ────────────────────────── */
-uint8_t hex_val(uint8_t ch);
-uint8_t is_hex(uint8_t ch);
-uint8_t hex_val_to_char(uint8_t v);
+uint8_t __fastcall__ hex_val(uint8_t ch);
+uint8_t __fastcall__ is_hex(uint8_t ch);
+uint8_t __fastcall__ hex_val_to_char(uint8_t v);
 uint16_t parse_hex4(uint8_t **pp);
 uint8_t parse_hex2(uint8_t **pp);
 void skip_sp(uint8_t **pp);

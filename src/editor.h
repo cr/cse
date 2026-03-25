@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 /* Called from main loop when in ST_EDIT mode */
-void ed_handle_key(uint8_t ch);
+void __fastcall__ ed_handle_key(uint8_t ch);
 
 /* Mode switching */
 void enter_editor(void);

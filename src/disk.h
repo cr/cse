@@ -8,7 +8,7 @@
 void floppy_status(void);
 
 /* Directory listing to screen. RUN/STOP breaks. */
-void list_directory(uint8_t device);
+void __fastcall__ list_directory(uint8_t device);
 
 /* PRG file I/O.
  * disk_load_prg returns end address (nonzero) on success, 0 on error.

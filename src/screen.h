@@ -13,9 +13,9 @@ void restore_colors(void);          /* apply theme + fill color RAM */
 void reset_screen(void);            /* clear screen + restore colors */
 
 /* Screen output */
-void scroll_up(uint8_t n);          /* scroll screen + color RAM up by n rows */
-void newline(void);                 /* advance to next row, scroll if needed */
-void print_string(const uint8_t *str); /* scroll-aware string output */
+void __fastcall__ scroll_up(uint8_t n);
+void newline(void);
+void __fastcall__ print_string(const uint8_t *str);
 
 /* Cursor show/hide (XOR $80 at cursor position) */
 void cursor_show(void);

@@ -16,7 +16,7 @@
         .export _io_getc, _io_kbhit
         .export _io_sync
         .export _io_color
-        .export scr_lo, scr_hi  ; for test stub's PLOT replacement
+        .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
 
 COLS    = 40
 ROWS    = 25
@@ -40,27 +40,14 @@ _io_color: .res 1       ; text color for screen clears
 ; ── RODATA ──────────────────────────────────────────────────
 .segment "RODATA"
 
-scr_lo:                 ; screen row address, lo bytes
-        .byte <(SCREEN+ 0*40), <(SCREEN+ 1*40), <(SCREEN+ 2*40)
-        .byte <(SCREEN+ 3*40), <(SCREEN+ 4*40), <(SCREEN+ 5*40)
-        .byte <(SCREEN+ 6*40), <(SCREEN+ 7*40), <(SCREEN+ 8*40)
-        .byte <(SCREEN+ 9*40), <(SCREEN+10*40), <(SCREEN+11*40)
-        .byte <(SCREEN+12*40), <(SCREEN+13*40), <(SCREEN+14*40)
-        .byte <(SCREEN+15*40), <(SCREEN+16*40), <(SCREEN+17*40)
-        .byte <(SCREEN+18*40), <(SCREEN+19*40), <(SCREEN+20*40)
-        .byte <(SCREEN+21*40), <(SCREEN+22*40), <(SCREEN+23*40)
-        .byte <(SCREEN+24*40)
-
-scr_hi:                 ; screen row address, hi bytes
-        .byte >(SCREEN+ 0*40), >(SCREEN+ 1*40), >(SCREEN+ 2*40)
-        .byte >(SCREEN+ 3*40), >(SCREEN+ 4*40), >(SCREEN+ 5*40)
-        .byte >(SCREEN+ 6*40), >(SCREEN+ 7*40), >(SCREEN+ 8*40)
-        .byte >(SCREEN+ 9*40), >(SCREEN+10*40), >(SCREEN+11*40)
-        .byte >(SCREEN+12*40), >(SCREEN+13*40), >(SCREEN+14*40)
-        .byte >(SCREEN+15*40), >(SCREEN+16*40), >(SCREEN+17*40)
-        .byte >(SCREEN+18*40), >(SCREEN+19*40), >(SCREEN+20*40)
-        .byte >(SCREEN+21*40), >(SCREEN+22*40), >(SCREEN+23*40)
-        .byte >(SCREEN+24*40)
+scr_lo:
+        .repeat 25, i
+        .byte <(SCREEN + i * 40)
+        .endrepeat
+scr_hi:
+        .repeat 25, i
+        .byte >(SCREEN + i * 40)
+        .endrepeat
 
 hex_tab:                ; screen codes for hex digits 0-9, a-f
         .byte $30,$31,$32,$33,$34,$35,$36,$37

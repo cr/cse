@@ -5,7 +5,6 @@
  * ═══════════════════════════════════════════════════════════════ */
 
 #include <c64.h>
-#include <string.h>
 #include <stdint.h>
 #include "cse.h"
 #include "cse_io.h"

@@ -13,9 +13,8 @@
         .import _io_getc, _io_kbhit, _io_clear_eol
         .import _io_color
         .import _newline, _print_string
-        .import _show_prompt
-        .import _cur_addr, _cur_device
-        .import scrlo, scrhi
+        .import _cur_device
+        .import scr_lo, scr_hi
         .import popa, popax
 
         .importzp sp
@@ -494,9 +493,9 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr _io_putc
         ; flip bit 7 on the char we just wrote (at CUR_COL - 1)
         ldx CUR_ROW
-        lda scrlo,x
+        lda scr_lo,x
         sta _io_tmp
-        lda scrhi,x
+        lda scr_hi,x
         sta _io_tmp+1
         ldy CUR_COL
         dey
@@ -506,8 +505,6 @@ callback:        .res 2     ; function pointer for SEQ I/O
         rts
 
 @is_first:       .byte 0
-@hdr_start:      .byte 0
-@hdr_end:        .byte 0
 @blocks:         .byte 0, 0
 @textlen:        .byte 0
 @dev:            .byte 0
@@ -699,56 +696,6 @@ callback:        .res 2     ; function pointer for SEQ I/O
 @do_callback:
         jmp (callback)
 
-; Check drive error: open ch15, read first 2 chars, close.
-; Returns Z=1 if OK (err < 20), Z=0 if error.
-@check_drive_err:
-        lda #0
-        jsr SETNAM
-        lda #15
-        ldx _cur_device
-        ldy #15
-        jsr SETLFS
-        jsr OPEN
-        bcs @drv_bad
-
-        ldx #15
-        jsr CHKIN
-
-        jsr CHRIN               ; tens digit
-        sec
-        sbc #'0'
-        asl
-        asl
-        asl                     ; * 8 (close enough for >= 20 check)
-        sta _io_tmp             ; save
-        asl                     ; * 16? no... let me just do it properly
-
-        ; Read two digits, compute err = d1*10 + d2
-        ; Already read first digit. Redo:
-        ; Actually the first CHRIN already consumed the byte.
-        ; Let's just check if first char >= '2' (error 20+)
-        ; Reset: first digit was (original - '0') * 8 in _io_tmp
-        ; Simpler: if original char >= '2', it's error 20+
-        ; But we already subtracted '0' and shifted. Ugh.
-
-        ; Simplest: just check the raw first character
-        ; But we already consumed it. Read the rest and close.
-        jsr CHRIN               ; units digit (discard)
-        jsr CLRCHN
-        lda #15
-        jsr CLOSE
-
-        ; Check: _io_tmp has (tens - '0') * 8
-        ; If tens >= 2, _io_tmp >= 16
-        lda _io_tmp
-        cmp #16                 ; 2*8 = 16
-        bcc @drv_ok
-@drv_bad:
-        lda #1                  ; Z=0 = error
-        rts
-@drv_ok:
-        lda #0                  ; Z=1 = OK
-        rts
 .endproc
 
 ; ═════════════════════════════════════════════════════════
