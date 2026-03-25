@@ -527,17 +527,31 @@ _dasm_mode:     .res 1          ; mode index
         and #$E0
         cmp #$A0                ; aaa=5 (LDX)?
         beq @aby7
-        ; Check SXA/SHX on NMOS ($9E)
+        ; Check $9E: SXA/SHX on 6510, STZ ABX on 65C02, ??? on 6502
         lda _dasm_opc
         cmp #$9E
         bne @abx7
         lda al_cpu
         cmp #1
-        bne @abx7
-        ; NMOS $9E = SXA ABY
+        bne :+
+        ; 6510: SXA ABY
         lda #MNE_SXA
         sta _dasm_midx
         lda #MODE_ABY
+        sta _dasm_mode
+        jmp finish
+:       cmp #2
+        bne @to_unk             ; 6502: ???
+        ; 65C02: STZ ABX
+        lda #MNE_STZ
+        sta _dasm_midx
+        lda #MODE_ABX
+        sta _dasm_mode
+        jmp finish
+@to_unk:
+        lda #MNE_UNK
+        sta _dasm_midx
+        lda #MODE_IMP
         sta _dasm_mode
         jmp finish
 @aby7:  lda #MODE_ABY
@@ -567,9 +581,12 @@ _dasm_mode:     .res 1          ; mode index
         cmp #$02
         beq @bbb2
         cmp #$04
-        beq @bbb4
-        cmp #$06
-        beq @bbb6
+        bne :+
+        jmp @bbb4
+:       cmp #$06
+        bne :+
+        jmp @bbb6
+:
 
         ; bbb=0: almost all unknown
         ; Only $A2 = LDX #imm (legal), $02 = KIL (6510)
@@ -630,10 +647,22 @@ _dasm_mode:     .res 1          ; mode index
         sta _dasm_mode
 @b2go:  jmp finish
 
-@bbb4:  ; 65C02: ZPI (zero-page indirect)
+@bbb4:  ; 65C02: ZPI. 6510: $D2=CIM
         lda al_cpu
         cmp #2
+        beq @bbb4_cmos
+        ; 6510: check for $D2=CIM
+        cmp #1
         bne @unk
+        lda _dasm_opc
+        cmp #$D2
+        bne @unk
+        lda #MNE_CIM
+        sta _dasm_midx
+        lda #MODE_IMP
+        sta _dasm_mode
+        jmp finish
+@bbb4_cmos:
         ; aaa selects same mnemonic as cc=01 (ORA,AND,EOR,ADC,STA,LDA,CMP,SBC)
         lda _dasm_opc
         lsr
@@ -680,7 +709,16 @@ _dasm_mode:     .res 1          ; mode index
 @b6_cmos:
         lda g2b6_mne_cmos,x
         sta _dasm_midx
+        ; INC/DEC use ACC mode, rest use IMP
+        cmp #MNE_INC
+        beq @b6_acc
+        cmp #MNE_DEC
+        beq @b6_acc
         lda #MODE_IMP
+        sta _dasm_mode
+        jmp finish
+@b6_acc:
+        lda #MODE_ACC
         sta _dasm_mode
         jmp finish
 
@@ -732,7 +770,14 @@ _dasm_mode:     .res 1          ; mode index
         cmp #2
         beq @bra
         cmp #1
-        beq @brgo               ; 6510: keep SKB
+        bne :+
+        ; 6510: $80 = SKB #imm
+        lda #MNE_SKB
+        sta _dasm_midx
+        lda #MODE_IMM
+        sta _dasm_mode
+        jmp finish
+:
         ; 6502: ??? (not a valid branch)
         lda #MNE_UNK
         sta _dasm_midx
@@ -797,15 +842,17 @@ _dasm_mode:     .res 1          ; mode index
         ; aaa 0-3: specials per bbb
         lda _dasm_mode          ; bbb
         cmp #0
-        beq @bbb0_low
+        bne :+
+        jmp @bbb0_low
+:
         cmp #1
         bne :+
         jmp @bbb1_low
 :       cmp #3
         bne :+
         jmp @bbb3_low
-:       ; bbb=5 or 7, aaa<4: mostly ???
-        jmp @unk
+:       ; bbb=5 or 7, aaa<4: check CPU-specific opcodes
+        jmp @bbb57_low
 
 @family:
         ; aaa 4-7 → STY(4), LDY(5), CPY(6), CPX(7)
@@ -818,18 +865,71 @@ _dasm_mode:     .res 1          ; mode index
         lda g0_fam_mode,x       ; bbb→mode (8-entry, 2/4/6 unused)
         sta _dasm_mode
 
-        ; STY has no IMM or ABX mode
+        ; Validity checks for cc=00 family modes
+        lda _dasm_mode
+        cmp #MODE_ZPX
+        beq @fam_zpx
+        cmp #MODE_ABX
+        beq @fam_abx
+        ; IMM/ZP/ABS: STY has no IMM.
+        ; $80 (aaa=4, bbb=0, IMM slot) = SKB(6510) / BRA(65C02) / ???(6502)
         lda _dasm_midx
         cmp #MNE_STY
         bne @famgo
         lda _dasm_mode
         cmp #MODE_IMM
+        bne @famgo
+        lda al_cpu
+        cmp #2
         bne :+
-        jmp @unk
-:       cmp #MODE_ABX
+        lda #MNE_BRA
+        sta _dasm_midx
+        lda #MODE_REL
+        sta _dasm_mode
+        jmp finish
+:       cmp #1
         bne :+
-        jmp @unk
-:
+        lda #MNE_SKB
+        sta _dasm_midx
+        jmp finish              ; keep IMM mode
+:       jmp @unk
+
+@fam_zpx:
+        ; ZPX valid only for STY and LDY
+        lda _dasm_midx
+        cmp #MNE_STY
+        beq @famgo
+        cmp #MNE_LDY
+        beq @famgo
+        jmp @unk                ; CPY/CPX have no ZPX
+
+@fam_abx:
+        ; ABX: only LDY has it. STY→??? or CPU override.
+        ; $9C (aaa=4, bbb=7): STY ABX slot
+        ; $BC (aaa=5, bbb=7): LDY ABX — valid
+        lda _dasm_midx
+        cmp #MNE_LDY
+        beq @famgo
+        cmp #MNE_STY
+        bne @fam_abx_unk
+        ; $9C: STZ ABS on 65C02, SYA ABX on 6510
+        lda al_cpu
+        cmp #2
+        bne :+
+        lda #MNE_STZ
+        sta _dasm_midx
+        lda #MODE_ABS           ; STZ ABS (not ABX)
+        sta _dasm_mode
+        jmp finish
+:       cmp #1
+        bne @fam_abx_unk
+        lda #MNE_SYA
+        sta _dasm_midx
+        ; keep ABX mode
+        jmp finish
+@fam_abx_unk:
+        jmp @unk                ; CPY/CPX have no ABX
+
 @famgo: jmp finish
 
 @bbb0_low:
@@ -856,10 +956,8 @@ _dasm_mode:     .res 1          ; mode index
         beq :+
         jmp @unk
 :
-        ; 6510: $04=IGN, $44=IGN
+        ; 6510: $04=IGN only
         cpx #0
-        beq @ign_zp
-        cpx #2
         beq @ign_zp
         jmp @unk
 
@@ -910,10 +1008,13 @@ _dasm_mode:     .res 1          ; mode index
         ; aaa=0: TOP(nmos) or TSB(cmos)
         lda al_cpu
         cmp #2
-        beq @tsb_abs
+        bne :+
+        jmp @tsb_abs
+:
         cmp #1
-        bne @unk
-        ; 6510: TOP
+        beq :+
+        jmp @unk
+:       ; 6510: TOP
         lda #MNE_TOP
         sta _dasm_midx
         lda #MODE_ABS
@@ -942,6 +1043,97 @@ _dasm_mode:     .res 1          ; mode index
         lda #MNE_TSB
         sta _dasm_midx
         lda #MODE_ABS
+        sta _dasm_mode
+        jmp finish
+
+; ── cc=00 bbb=5/7, aaa<4: CPU-specific opcodes ──────────
+@bbb57_low:
+        ; X = aaa (0-3), _dasm_mode has bbb (5 or 7)
+        lda al_cpu
+        cmp #2
+        bne :+
+        jmp @b57_cmos
+:       cmp #1
+        beq @b57_nmos
+        jmp @unk                ; 6502 legal: all ???
+
+@b57_nmos:
+        lda _dasm_mode          ; bbb
+        cmp #5
+        bne @b57n_7
+        cpx #0                  ; $14=IGN ZPX
+        beq :+
+        jmp @unk
+:       lda #MNE_IGN
+        sta _dasm_midx
+        lda #MODE_ZPX
+        sta _dasm_mode
+        jmp finish
+@b57n_7:
+        cpx #0                  ; $1C=TOP ABX
+        bne @unk
+        lda #MNE_TOP
+        sta _dasm_midx
+        lda #MODE_ABX
+        sta _dasm_mode
+        jmp finish
+
+@b57_cmos:
+        lda _dasm_mode          ; bbb
+        cmp #5
+        bne @b57c_7
+        ; bbb=5 (ZPX): aaa 0=TRB, 1=BIT, 3=STZ
+        cpx #0
+        beq @trb_zpc
+        cpx #1
+        beq @bit_zpx
+        cpx #3
+        beq @stz_zpx
+        jmp @unk
+@b57c_7:
+        ; bbb=7: aaa 0=TRB ABS, 1=BIT ABX, 3=JMP AIX
+        cpx #0
+        beq @trb_absc
+        cpx #1
+        beq @bit_abx
+        cpx #3
+        beq @jmp_aix
+        jmp @unk
+
+@trb_zpc:
+        lda #MNE_TRB
+        sta _dasm_midx
+        lda #MODE_ZP
+        sta _dasm_mode
+        jmp finish
+@bit_zpx:
+        lda #MNE_BIT
+        sta _dasm_midx
+        lda #MODE_ZPX
+        sta _dasm_mode
+        jmp finish
+@stz_zpx:
+        lda #MNE_STZ
+        sta _dasm_midx
+        lda #MODE_ZPX
+        sta _dasm_mode
+        jmp finish
+@trb_absc:
+        lda #MNE_TRB
+        sta _dasm_midx
+        lda #MODE_ABS
+        sta _dasm_mode
+        jmp finish
+@bit_abx:
+        lda #MNE_BIT
+        sta _dasm_midx
+        lda #MODE_ABX
+        sta _dasm_mode
+        jmp finish
+@jmp_aix:
+        lda #MNE_JMP
+        sta _dasm_midx
+        lda #MODE_AIX
         sta _dasm_mode
         jmp finish
 
@@ -1038,7 +1230,9 @@ _dasm_mode:     .res 1          ; mode index
         jsr print_mne           ; print "RMB " or "SMB "
         ; Back up 1 position (overwrite the space with digit)
         dec _dasm_wptr
-        lda _dasm_opc
+        ; Re-read opcode (print_mne clobbers _dasm_opc)
+        ldy #0
+        lda (_dasm_ptr),y
         lsr
         lsr
         lsr
@@ -1069,7 +1263,8 @@ _dasm_mode:     .res 1          ; mode index
         ; Append digit
         jsr print_mne
         dec _dasm_wptr
-        lda _dasm_opc
+        ldy #0
+        lda (_dasm_ptr),y       ; re-read opcode (print_mne clobbers _dasm_opc)
         lsr
         lsr
         lsr
