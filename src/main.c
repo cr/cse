@@ -147,12 +147,13 @@ void main(void)
     /* ── Splash screen ───────────────────────────────────── */
     {   uint16_t wlo = cse_end();
         uint16_t whi = 0xC7FF;
-        uint8_t  row = SCREEN_HEIGHT - 7;
+        uint8_t  row = SCREEN_HEIGHT - 8;
 
         cur_addr = (wlo + 0xFF) & 0xFF00;
 
         io_cx = 0; io_cy = row++; io_sync();
-        io_puts("cse v" VERSION);
+        io_puts("cse v" VERSION "  sys ");
+        io_putdec(SYS_ADDR);
         io_cx = 0; io_cy = row++; io_sync();
         io_puts("(c) 2025-" BUILD_YEAR " cr@23bit.net");
         row++;
