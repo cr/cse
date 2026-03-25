@@ -101,27 +101,45 @@ callback:        .res 2     ; function pointer for SEQ I/O
         bne @cp
 
 @check_suffix:
-        ; check if name already ends with ,r or ,w
+        ; Check what the name already ends with:
+        ;   ,s → append ,<mode>
+        ;   ,r or ,w → already complete, done
+        ;   other → append ,s,<mode>
         cpx #2
-        bcc @add_suffix
-        dex
+        bcc @add_full           ; too short to have suffix
+
+        dex                     ; X points to last char
         lda open_buf,x
+        dex                     ; X points to second-to-last
+        ldy open_buf,x
+        inx
+        inx                     ; restore X past last char
+
+        ; Check for ,r or ,w (complete open string)
+        cpy #','
+        bne @check_comma_s
         cmp #'r'
-        beq @has_mode
+        beq @done
         cmp #'w'
-        beq @has_mode
-        inx
-        bne @add_suffix         ; always
+        beq @done
 
-@has_mode:
-        dex
-        lda open_buf,x
+@check_comma_s:
+        ; Check for ,s (has type, needs mode)
+        cpy #','
+        bne @add_full
+        cmp #'s'
+        bne @add_full
+        ; Name ends with ,s → just append ,<mode>
+        lda #','
+        sta open_buf,x
         inx
-        inx                     ; restore X past the mode char
-        cmp #','
-        beq @done               ; already has ,r or ,w
+        lda @mode
+        sta open_buf,x
+        inx
+        jmp @done
 
-@add_suffix:
+@add_full:
+        ; No suffix → append ,s,<mode>
         lda #','
         sta open_buf,x
         inx
@@ -774,6 +792,9 @@ callback:        .res 2     ; function pointer for SEQ I/O
         jsr @do_callback
         bcs @done               ; EOF
 
+        ; Save byte for line counting
+        pha
+
         ; Write byte via CHROUT
         jsr CHROUT
 
@@ -782,10 +803,13 @@ callback:        .res 2     ; function pointer for SEQ I/O
         bne :+
         inc _disk_seq_bytes+1
 :
-        ; Check for $0D (newline)
-        ; We need the byte we just wrote... it's gone.
-        ; CHROUT doesn't preserve A. Read it from... hmm.
-        ; Let's save it before CHROUT:
+        ; Count lines (if byte == $0D)
+        pla
+        cmp #$0D
+        bne @write
+        inc _disk_seq_lines
+        bne @write
+        inc _disk_seq_lines+1
         jmp @write
 
 @done:
