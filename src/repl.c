@@ -150,8 +150,9 @@ static void emit_reg(void) {
  * Command handlers
  * ═══════════════════════════════════════════════════════════════ */
 
-static void cmd_dot(uint16_t addr, uint8_t *args)
+static void cmd_dot(uint8_t *args)
 {
+    uint16_t addr = cur_addr;
     uint8_t  bytes[3], nbytes, olen, i, changed;
     uint8_t *q = args, *mne;
 
@@ -190,8 +191,9 @@ static void cmd_dot(uint16_t addr, uint8_t *args)
     show_prompt();
 }
 
-static void cmd_disasm(uint16_t addr, uint8_t *args)
+static void cmd_disasm(uint8_t *args)
 {
+    uint16_t addr = cur_addr;
     uint16_t end;
     (void)args;
 
@@ -208,8 +210,9 @@ static void cmd_disasm(uint16_t addr, uint8_t *args)
     show_prompt();
 }
 
-static void cmd_mem(uint16_t addr, uint8_t *args)
+static void cmd_mem(uint8_t *args)
 {
+    uint16_t addr = cur_addr;
     uint8_t  *q = args;
     uint8_t  nbytes, cols;
     uint16_t remaining;
@@ -257,10 +260,9 @@ static void cmd_mem(uint16_t addr, uint8_t *args)
     show_prompt();
 }
 
-static void cmd_jmp(uint16_t addr)
+static void cmd_jmp(void)
 {
-    cur_addr = addr;
-    jsr_addr(addr);
+    jsr_addr(cur_addr);
     restore_colors();
     newline();
     emit_reg();
@@ -366,8 +368,9 @@ static void disk_done(void) {
     clear_eol(); newline(); floppy_status(); show_prompt();
 }
 
-static void cmd_load(uint16_t addr, uint8_t *args)
+static void cmd_load(uint8_t *args)
 {
+    uint16_t addr = cur_addr;
     uint8_t *q = args;
     uint8_t *name = get_filename(&q);
     if (!name) { err_prompt("?name"); return; }
@@ -390,8 +393,9 @@ static void cmd_load(uint16_t addr, uint8_t *args)
     disk_done();
 }
 
-static void cmd_write(uint16_t addr, uint8_t *args)
+static void cmd_write(uint8_t *args)
 {
+    uint16_t addr = cur_addr;
     uint8_t *q = args;
     uint8_t *name = get_filename(&q);
     uint8_t err;
@@ -520,19 +524,16 @@ static void cmd_info(void)
 void exec_line(void)
 {
     uint8_t *q = line_buf;
-    uint16_t addr;
     uint8_t  cmd;
 
     skip_sp(&q);
 
-    /* ── Parse optional AAAA: prefix ─────────────────────── */
+    /* ── Parse optional AAAA: prefix → sets cur_addr ─────── */
     if (is_hex(q[0]) && is_hex(q[1]) && is_hex(q[2]) && is_hex(q[3])
         && q[4] == ':')
     {
-        addr = parse_hex4(&q);
+        cur_addr = parse_hex4(&q);
         ++q;                              /* skip ':' */
-    } else {
-        addr = cur_addr;                  /* no prefix: use current */
     }
 
     skip_sp(&q);
@@ -558,8 +559,6 @@ void exec_line(void)
         if (*q == ' ') ++q;              /* optional space */
     }
 
-    cur_addr = addr;
-
     /* ── Save for repeat (only block commands) ───────────── */
     if (cmd == 'm' || cmd == 'd' || cmd == '.') {
         last_cmd = cmd;
@@ -571,9 +570,9 @@ void exec_line(void)
     switch (cmd) {
 
     /* block commands */
-    case '.': cmd_dot(addr, q);    break;
-    case 'd': cmd_disasm(addr, q); break;
-    case 'm': cmd_mem(addr, q);    break;
+    case '.': cmd_dot(q);    break;
+    case 'd': cmd_disasm(q); break;
+    case 'm': cmd_mem(q);    break;
 
     /* navigation */
     case 's':
@@ -583,28 +582,28 @@ void exec_line(void)
     }
     case '+':
     {   uint16_t d = parse_hex_flex(&q);
-        cur_addr = addr + (d ? d : block_size);
+        cur_addr += d ? d : block_size;
         nl_prompt(); break;
     }
     case '-':
     {   uint16_t d = parse_hex_flex(&q);
-        cur_addr = addr - (d ? d : block_size);
+        cur_addr -= d ? d : block_size;
         nl_prompt(); break;
     }
 
     /* execution */
     case 'j':
     {   uint16_t v = parse_hex_flex(&q);
-        if (v) addr = v;
-        cmd_jmp(addr); break;
+        if (v) cur_addr = v;
+        cmd_jmp(); break;
     }
 
     /* registers */
     case 'r': cmd_reg(q); break;
 
     /* file I/O */
-    case 'l': cmd_load(addr, q); break;
-    case 'w': cmd_write(addr, q); break;
+    case 'l': cmd_load(q); break;
+    case 'w': cmd_write(q); break;
 
     /* info / settings */
     case 'i': cmd_info(); break;
