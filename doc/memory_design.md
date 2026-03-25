@@ -14,9 +14,13 @@
    C stack, screen buffers — all grouped into one region that can move
    between configurations (PRG vs CRT, different RAM layouts).
 
-4. **Two screens, zero copying.** REPL and editor each have a dedicated
-   screen buffer. Mode switch is a VIC-II bank/pointer change — instant,
-   no memcpy. Both screens persist simultaneously.
+4. **One screen, memcpy save/restore.** Both REPL and editor use the
+   same screen RAM at $0400. On mode switch, the REPL screen content
+   (1000 bytes) is saved to / restored from a buffer in CSE's BSS.
+   Cost: 1000 bytes BSS, ~1ms per switch. The editor view is always
+   reconstructable from the source buffer; the REPL screen is not
+   (it contains command history and output), hence only the REPL
+   screen needs saving.
 
 5. **Source and developer code share the big region.** Source text grows
    downward, assembled output grows upward, classic C64 model (like
@@ -31,7 +35,7 @@ development. Future production builds relocate to $8000.
       $02-$7F    CSE runtime ZP (~30 bytes, cc65 + assembler)
     $0100-$01FF  6502 hardware stack
     $0200-$03FF  KERNAL/BASIC work area
-    $0400-$07E7  REPL screen (VIC bank 0, default)
+    $0400-$07E7  Screen RAM (VIC bank 0, default)
     $07E8-$07FF  Sprite pointers (unused by CSE)
     $0800-$0FFF  CSE code (current PRG load point)
       ...        (code + rodata + data + bss, ~14KB)
@@ -76,22 +80,23 @@ state lives within the $8000-$BFFF region alongside the code.
 
 ## Source Code Storage
 
-Source text lives at $7FFF growing downward. It shares the $1000-$7FFF
+Source text lives at $C7FF growing downward. It shares the $1000-$C7FF
 region with the developer's assembled output (which grows up from
 $1000). This is the classic C64 model: programs and strings growing
 toward each other.
 
     $1000  ──→  assembled output (grows up)
                   ... free gap ...
-    $7FFF  ←──  source text (grows down)
+    $C7FF  ←──  source text (grows down)
 
 The gap between them is free memory. The `i` command reports the gap
 size. The 2-pass assembler reads source from the top-down region and
 writes output to the bottom-up region. As long as they don't collide,
 everything works.
 
-For large programs where source + output exceed 28KB: save source to
-disk, assemble, then the full region is available for the binary.
+For large programs where source + output exceed the available space:
+save source to disk, assemble, then the full region is available for
+the binary.
 
 ## Screen Switching
 
@@ -119,18 +124,18 @@ screen needs saving.
 The same source builds for both targets via linker config:
 
     make              → build/cse.prg   (PRG, loads at $0801)
-    make crt          → build/cse.crt   (CRT, ROM at $8000)
 
-Linker configs:
+Linker config:
 - `src/c64_cse.cfg`     — PRG target (current)
-- `src/c64_cse_crt.cfg` — CRT target (future)
+- CRT target is a future goal using the same source with a different
+  linker config.
 
 ## Coding Guidelines for ROM Compatibility
 
 - **Use `const` for all lookup tables.** cc65 places `const` data in
   `RODATA`, which lives in ROM on the CRT target.
-- **No self-modifying code.** All assembly routines must work from ROM.
-  Use ZP or BSS for any values that change at runtime.
+- **No self-modifying code.** All assembly routines work from ROM.
+  Runtime values live in ZP or BSS, never in patched inline code.
 - **Minimize initialized data.** Prefer runtime initialization over
   static initializers. Static `= 0` is free (BSS), static `= nonzero`
   costs ROM + RAM (DATA segment gets copied to RAM at startup).

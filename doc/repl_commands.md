@@ -12,8 +12,12 @@ Commands that modify memory update their screen line in-place to reflect
 the result. Auto-advance pre-fills the next line at the continuation
 address, ready for RETURN.
 
-`;` ends parsing (inline comments). RETURN on an empty prompt repeats
-the last repeatable command at the current address.
+`;` ends parsing (inline comments). It is also recognized as a command:
+a line consisting of just `;` (or an address followed by `;`) is treated
+as a no-op, useful for adding comment lines to screen output.
+
+RETURN on an empty prompt repeats the last repeatable command at the
+current address.
 
 ## Line Formats (40 columns)
 
@@ -28,7 +32,6 @@ the last repeatable command at the current address.
 | `m` | memory   | yes       | `1000:m` dump, `1000:m A9 00...` edit | Bare = dump `b` bytes; with hex = edit   |
 | `f` | fill     | yes       | `1000:f EA`                 | Fill `b` bytes with value                    |
 | `t` | transfer | yes       | `1000:t 2000`               | Copy `b` bytes from AAAA to arg              |
-| `c` | compare  | yes       | `1000:c 2000`               | Compare `b` bytes, show diffs                |
 | `h` | hunt     | yes       | `1000:h A9 00`              | Search for byte pattern from AAAA            |
 
 ## Commands — Assembly / Disassembly
@@ -82,12 +85,14 @@ the last repeatable command at the current address.
 
 ## Commands — Info / Utility
 
-| Key   | Name  | Type | Example         | Notes                                    |
-|-------|-------|------|-----------------|------------------------------------------|
-| `i`   | info  | bare | `i`              | Show memory map (see below)              |
-| `?`   | help  | bare | `?` or `? 1000+20` | Help, or hex expression calculator   |
-| `q`   | quit  | bare | `q`              | Exit CSE                                 |
-| `clr` | clear | bare | `clr`            | Clear screen                             |
+| Key   | Name    | Type | Example            | Notes                                   |
+|-------|---------|------|--------------------|------------------------------------------|
+| `i`   | info    | bare | `i`                | Show memory map (see below)              |
+| `?`   | calc    | bare | `? 1000+20`        | Hex expression calculator                |
+| `c`   | color   | bare | `c 06` or `c 00e6` | Set text/bg/border color                 |
+| `u`   | cpu     | bare | `u 6502` or `u 65c02` | Set CPU mode for asm/disasm           |
+| `q`   | quit    | bare | `q`                | Exit CSE                                 |
+| `clr` | clear   | bare | `clr`              | Clear screen                             |
 
 ### `i` — Memory Map
 
@@ -125,6 +130,26 @@ the line shows `----`.
 Note: BASIC ROM ($A000-$BFFF) is unmapped by CSE — that RAM is part
 of the free/cstk region. The I/O area at $D000 is the hard ceiling.
 
+### `c` — Color
+
+Set the color theme. Accepts 1, 2, or 3 hex digits:
+
+    c 6          set text color to blue
+    c 06         set bg=black, text=blue
+    c 00e6       set border=black, bg=dark grey, text=blue
+
+Shows the current color scheme after setting.
+
+### `u` — CPU Mode
+
+Select the CPU instruction set for the assembler and disassembler:
+
+    u 6502       standard NMOS 6502
+    u 6510       6510 (with illegal opcodes)
+    u 65c02      WDC 65C02 (CMOS extensions)
+
+Shows the current CPU mode with an asterisk marker.
+
 ## Reserved / Free Keys
 
 Currently unassigned, available for future use:
@@ -132,7 +157,6 @@ Currently unassigned, available for future use:
     e   editor mode (source buffer)
     k   (free)
     p   print / evaluate
-    u   (free)
     v   visual mode (split screen?)
     x   (free — alt quit?)
     y   (free)
@@ -145,7 +169,7 @@ Currently unassigned, available for future use:
 ## Block Size
 
 The `b` command sets a 16-bit block size used by: `m`, `d`, `f`, `t`,
-`c`, `h`, and `+`/`-` navigation. Default: `$0010` (16 bytes = 2 hex
+`h`, and `+`/`-` navigation. Default: `$0010` (16 bytes = 2 hex
 dump lines).
 
     b 40     set to 64 bytes (8 hex lines)
@@ -176,14 +200,16 @@ instruction line below, ready for immediate editing or RETURN.
     [x] clr clear screen
     [x] +   seek forward
     [x] -   seek backward
-    [ ] i   memory map info
+    [x] i   memory map info
+    [x] ?   hex expression calculator
+    [x] c   color theme
+    [x] u   cpu mode select
     [ ] g   go / continue
     [ ] n   step next
     [ ] o   step over
     [ ] !   breakpoints
     [ ] f   fill
     [ ] t   transfer
-    [ ] c   compare
     [ ] h   hunt
     [x] l   load file from disk
     [x] w   write memory to disk
@@ -191,4 +217,3 @@ instruction line below, ready for immediate editing or RETURN.
     [ ] a   2-pass assembler
     [ ] =   labels
     [ ] /   search
-    [ ] ?   help / calculator

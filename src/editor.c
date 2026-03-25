@@ -137,7 +137,7 @@ void ed_ensure_init(void)
     if (buf_end == 0) ed_init();
 }
 
-/* ── Source I/O — via disk.c callbacks ─────────────────── */
+/* ── Source I/O — via disk.s callbacks ─────────────────── */
 
 /* Save callback: reads sequentially from the gap buffer.
  * Pre-gap first, then post-gap.  Returns -1 at end. */

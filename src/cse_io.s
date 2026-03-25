@@ -7,7 +7,7 @@
 ; INVARIANT: $CC must be 1 (KERNAL cursor disabled).  io_init
 ; enforces this.  All IRQ safety guarantees depend on it.
 ;
-; Code: ~300 bytes.  RODATA: 76 bytes.  ZP: 4 bytes.  BSS: 1 byte.
+; Code: ~330 bytes.  RODATA: 76 bytes.  ZP: 4 bytes.  BSS: 2 bytes.
 
         .export _io_init
         .export _io_putc, _io_puts

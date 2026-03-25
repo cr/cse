@@ -8,11 +8,11 @@
 ├───────────────┬──────────────────────────┤
 │    repl.c     │        editor.c          │  user-facing modes
 ├───────────────┴──┬───────────┬───────────┤
-│    asm_src.c     │  expr.c   │ symtab.c  │  source assembler pipeline
+│    asm_src.c     │  expr.s   │ symtab.c  │  source assembler pipeline
 ├──────────────────┴───────────┴───────────┤
-│  asm_line.s  │  dasm.s    │   disk.c     │  core engines
+│  asm_line.s  │  dasm.s    │   disk.s     │  core engines
 ├──────────────┴────────────┴──────────────┤
-│          screen.c    │    cse_io.s       │  output layers
+│          screen.s    │    cse_io.s       │  output layers
 └──────────────────────┴───────────────────┘
 ```
 
@@ -26,19 +26,19 @@
 
 **Depends on:** screen, repl, editor
 
-### screen.c — Screen Management
-- `scr_init()` — reset colors, clear screen
-- `scr_scroll_up(n)` — scroll screen + color RAM with SEI/CLI
-- `scr_newline()` — advance cursor, scroll if at bottom
-- `scr_print(str)` — scroll-aware string output
-- `scr_cursor_show()` / `scr_cursor_hide()` — XOR $80 at cursor
-- `scr_set_color(bg, border, text)` — set color scheme + fill color RAM
+### screen.s — Screen Management
+- `reset_screen()` — reset colors, clear screen
+- `scroll_up(n)` — scroll screen + color RAM with SEI/CLI
+- `newline()` — advance cursor, scroll if at bottom
+- `print_string(str)` — scroll-aware string output
+- `cursor_show()` / `cursor_hide()` — XOR $80 at cursor
+- `restore_colors()` — set color scheme + fill color RAM
 
 **Depends on:** cse_io
 
-**Design notes:** All functions are thin wrappers suitable for direct
-asm replacement. `scr_scroll_up` uses SEI/CLI to prevent IRQ during
-memmove. Screen save/restore for editor mode switching lives here.
+**Design notes:** All functions are pure 6502 asm. `scroll_up` uses
+SEI/CLI to prevent IRQ during memmove. Screen save/restore for editor
+mode switching lives here.
 
 ### cse_io.s — Raw Screen I/O (6502 asm)
 - `io_putc(ch)` — PETSCII char to screen RAM at cursor, advance
@@ -46,7 +46,7 @@ memmove. Screen save/restore for editor mode switching lives here.
 - `io_puthex2(v)` / `io_puthex4(v)` — hex output
 - `io_putdec(v)` — decimal output
 - `io_clear_eol()` — fill to end of row with spaces
-- `io_getc()` — blocking KERNAL GETIN, translates CR→LF
+- `io_getc()` — blocking KERNAL GETIN, returns raw PETSCII key code
 - `io_kbhit()` — non-blocking keyboard check
 - `io_sync()` — sync KERNAL cursor state via PLOT
 
@@ -56,9 +56,9 @@ memmove. Screen save/restore for editor mode switching lives here.
 in `$D3` (col) / `$D6` (row). Screen writes use `_io_scr` ZP pointer
 computed from `scr_lo`/`scr_hi` lookup tables.
 
-### disk.c — CBM File I/O
-- `disk_status(buf, len)` — read drive error channel (no init command)
-- `disk_directory(device)` — list directory to screen
+### disk.s — CBM File I/O
+- `floppy_status()` — read drive error channel, print to screen
+- `list_directory(device)` — list directory to screen
 - `disk_load_prg(name, addr)` — load PRG file to address
 - `disk_save_prg(name, addr, len)` — save memory range as PRG
 - `disk_load_seq(name, insert_fn)` — read SEQ file, call insert_fn per byte
@@ -66,7 +66,7 @@ computed from `scr_lo`/`scr_hi` lookup tables.
 
 **Depends on:** screen (for directory output, status display)
 
-**Design notes:** SEQ I/O uses callbacks so disk.c doesn't depend on
+**Design notes:** SEQ I/O uses callbacks so disk.s doesn't depend on
 editor.c. The editor passes `gb_insert` as insert_fn for loading.
 After every disk operation, the drive error channel is read
 automatically (no I command sent — just read channel 15).
@@ -79,7 +79,7 @@ automatically (no I command sent — just read channel 15).
 - `show_prompt()` — write `AAAA:` at cursor
 
 **Depends on:** asm_line (`.` command), dasm (disassembly in emit_dot),
-expr (address parsing, future), disk (l/w/$ commands), screen
+expr (address parsing), disk (l/w/$ commands), screen
 
 ### editor.c — Source Editor Mode
 - Gap buffer: `gb_insert` `gb_backspace` `gb_cursor_*` `gb_ensure_room`
@@ -108,17 +108,15 @@ lists. CMOS support guarded by `.ifdef CMOS_SUPPORT`.
 
 **Depends on:** opcode_lookup, au_mode, mn_classify, mn7/mn6 tables
 
-### expr.c — Expression Parser (stub)
+### expr.s — Expression Parser
 - `expr_eval(str, result)` — parse expression string → 16-bit value
-- Supports: `$hex`, `%binary`, decimal, labels, `+` `-` `*` `/` `<` `>` `()`
-- `expr_error()` — return last parse error
+- Supports: `$hex`, `%binary`, decimal, `+` `-` `*` `/` `<` `>` `()`
+- `expr_error_str()` — return last parse error string
 
-**Depends on:** symtab (label lookup)
+**Depends on:** nothing (standalone evaluator)
 
 **Design notes:** Recursive descent parser. All intermediate values
 16-bit. `<` = lo byte, `>` = hi byte. `*` alone = current PC.
-Future asm replacement: straightforward — recursive descent maps
-to JSR/RTS naturally on 6502.
 
 ### symtab.c — Symbol Table (stub)
 - `sym_define(name, value)` — add or update symbol
@@ -152,8 +150,8 @@ numbers.
 1. **No circular dependencies.** The graph above is a DAG.
 2. **Leaf modules have no dependencies:** cse_io, dasm, symtab.
 3. **Screen output flows one way:** module → screen → cse_io.
-4. **disk.c uses callbacks** for SEQ I/O to avoid depending on editor.
-5. **Expression parser depends only on symtab** — no screen or I/O.
+4. **disk.s uses callbacks** for SEQ I/O to avoid depending on editor.
+5. **Expression parser is standalone** — no screen or I/O.
 6. **All asm modules (.s) are self-contained** with explicit .import/.export.
 
 ## Asm Replacement Path
@@ -168,8 +166,6 @@ while the implementation moves from C to 6502 asm:
 5. Callbacks use function pointers (C) or jump vectors (asm)
 
 Priority for asm rewrite (by code size impact):
-1. repl.c (5.8KB CODE — biggest C module)
-2. editor.c (5.3KB CODE)
-3. screen.c (~1KB CODE)
-4. disk.c (~1.5KB CODE)
-5. expr.c / symtab.c / asm_src.c (TBD)
+1. repl.c (biggest C module)
+2. editor.c
+3. expr.s / symtab.c / asm_src.c (TBD)

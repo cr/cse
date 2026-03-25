@@ -90,7 +90,7 @@ _theme_fg:     .byte  5            ; green
         jmp _reset_screen
 
 @partial:
-        ; A = n rows to scroll. Two passes: screen RAM, then color RAM.
+        ; A = n rows to scroll (screen RAM only; color RAM is static).
         pha                     ; save n
 
         sei                     ; prevent VIC tearing

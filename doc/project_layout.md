@@ -7,12 +7,27 @@
     ├── .gitignore
     │
     ├── src/                    Source code
-    │   ├── main.c              Hardware init, shared utils, main loop (360 lines)
-    │   ├── repl.c              REPL command loop, emitters, handlers (517 lines)
+    │   ├── main.c              Hardware init, shared utils, main loop (262 lines)
+    │   ├── repl.c              REPL command loop, emitters, handlers (751 lines)
     │   ├── repl.h              REPL public API (exec_line, read_line, show_prompt)
-    │   ├── editor.c            Source editor: gap buffer, rendering, keys (357 lines)
+    │   ├── editor.c            Source editor: gap buffer, rendering, keys (654 lines)
     │   ├── editor.h            Editor public API (enter/leave/handle_key)
     │   ├── cse.h               Shared declarations across all C modules
+    │   ├── cse_io.h            cse_io public API + cursor/color macros
+    │   ├── screen.h            Screen management public API
+    │   ├── disk.h              Disk I/O public API
+    │   ├── expr.h              Expression parser public API
+    │   ├── symtab.h            Symbol table public API
+    │   ├── asm_src.h           Source assembler public API
+    │   │
+    │   ├── screen.s            Screen management: clear, scroll, cursor (223 lines)
+    │   ├── disk.s              CBM file I/O: load, save, directory (856 lines)
+    │   ├── expr.s              Expression parser: hex, decimal, binary, operators (192 lines)
+    │   ├── cse_io.s            Raw screen I/O: putc, puts, hex/dec output (310 lines)
+    │   │
+    │   ├── dasm.s              Disassembler, bit-slice decoder (1366 lines)
+    │   ├── dasm_tables.s       Disassembler lookup tables
+    │   ├── dasm_mne_idx.s      Disassembler mnemonic index tables
     │   │
     │   ├── asm_bridge.s        C↔asm bridge: _asm_line wrapper, _jsr_addr, ZP save
     │   ├── asm_line.s          Single-line assembler, zone dispatch A–H
@@ -32,17 +47,11 @@
     │   ├── mn_modes.s          │
     │   ├── mn_config.s         ┘
     │   │
-    │   ├── meminfo.s           Linker symbol shim for C (cse_start, cse_end)
-    │   ├── c64_cse.cfg         Custom cc65 linker config (expanded ZP)
+    │   ├── asm_src.c           Source assembler (stub, 18 lines)
+    │   ├── symtab.c            Symbol table (stub, 21 lines)
     │   │
-    │   ├── asm.c               (legacy — not linked)
-    │   ├── asm.s               (legacy — not linked)
-    │   ├── asm_utils.c         (legacy — not linked)
-    │   ├── asm_utils.s         (legacy — not linked)
-    │   ├── mnemonic.s          (legacy — not linked)
-    │   ├── oplen.c             (legacy — not linked)
-    │   ├── oplen.h             (legacy — not linked)
-    │   └── oplen.s             (legacy — not linked)
+    │   ├── meminfo.s           Linker symbol shim for C (cse_start, cse_end)
+    │   └── c64_cse.cfg         Custom cc65 linker config (expanded ZP)
     │
     ├── dev/                    Development tools and test infrastructure
     │   ├── instruction_set.py  Authoritative opcode database (OPCODES, MNEMONICS)
@@ -51,18 +60,27 @@
     │   ├── test.cfg            Linker config for py65 test binaries
     │   ├── asm_line_test_stub.s  Test stub for asm_line tests
     │   ├── au_mode_test_stub.s   Test stub for au_mode tests
+    │   ├── dasm_test_stub.s      Test stub for dasm tests
+    │   ├── expr_test_stub.s      Test stub for expr tests
+    │   ├── cse_io_test_stub.s    Test stub for cse_io tests
     │   └── search/             Hash search scripts (historical, not run regularly)
     │
-    ├── tests/                  pytest test suite (1222 tests)
+    ├── tests/                  pytest test suite (2076 tests)
     │   ├── conftest.py         Test fixtures, binary builder, py65 CPU emulator
     │   ├── test_asm_line.py    Assembler tests (all mnemonics × modes)
     │   ├── test_au_mode.py     Addressing mode parser tests
-    │   └── test_mnhash.py      Mnemonic hash/fingerprint sweep tests
+    │   ├── test_mnhash.py      Mnemonic hash/fingerprint sweep tests
+    │   ├── test_dasm.py        Disassembler tests
+    │   ├── test_expr.py        Expression parser tests
+    │   ├── test_cse_io.py      Screen I/O tests
+    │   └── test_editor.py      Editor tests
     │
     ├── doc/                    Design documentation
     │   ├── project_layout.md   This file
+    │   ├── architecture.md     Module architecture and dependency map
     │   ├── repl_commands.md    Full REPL command reference + implementation status
-    │   └── memory_design.md    Memory maps (PRG/CRT), screen switching, ROM guidelines
+    │   ├── memory_design.md    Memory maps (PRG/CRT), screen switching, ROM guidelines
+    │   └── cse_io_api.md       cse_io API specification
     │
     └── build/                  Build output (git-ignored)
         ├── cse.prg             Main C64 binary
@@ -78,11 +96,9 @@
     │          │    │          │    │          │
     │ globals  │    │ line I/O │    │ gap buf  │
     │ hw init  │    │ emitters │    │ render   │
-    │ screen   │◄──►│ cmd_*    │    │ keys     │
-    │ hex parse│    │ exec_line│    │ mode sw  │
-    │ floppy   │    │ disasm   │    │          │
-    │ main loop│    │          │    │          │
-    │ oplen tbl│    │          │    │          │
+    │ hex parse│◄──►│ cmd_*    │    │ keys     │
+    │ main loop│    │ exec_line│    │ mode sw  │
+    │          │    │ disasm   │    │          │
     └────┬─────┘    └────┬─────┘    └────┬─────┘
          │               │               │
          └───────┬───────┘               │
@@ -113,21 +129,31 @@
         │
         └──► asm_vars.s, mn_vars.s  (ZP variables)
 
+    screen.s ──► cse_io.s (scr_lo/scr_hi tables)
+    disk.s   ──► cse_io.s
+    expr.s   (standalone)
+    dasm.s ──► dasm_tables.s, dasm_mne_idx.s
     meminfo.s ──► exports linker symbols to C
 
 ### Headers
 
-| Header     | Provides                                              |
-|------------|-------------------------------------------------------|
-| `cse.h`    | State defs, SCREEN, screen utils, hex parse, asm bridge, oplen table, floppy, meminfo |
-| `repl.h`   | exec_line(), read_line(), show_prompt()                |
-| `editor.h` | enter_editor(), leave_editor(), ed_handle_key()       |
+| Header       | Provides                                              |
+|--------------|-------------------------------------------------------|
+| `cse.h`      | State defs, SCREEN, screen utils, hex parse, asm bridge, floppy, meminfo |
+| `cse_io.h`   | io_putc/puts/hex/dec, io_getc/kbhit/sync, cursor/color macros |
+| `screen.h`   | reset_screen(), scroll_up(), newline(), cursor_show/hide() |
+| `disk.h`     | floppy_status(), list_directory(), disk_load/save_prg/seq() |
+| `expr.h`     | expr_eval(), expr_error_str() |
+| `repl.h`     | exec_line(), read_line(), show_prompt()                |
+| `editor.h`   | enter_editor(), leave_editor(), ed_handle_key()       |
+| `symtab.h`   | sym_define(), sym_lookup(), sym_clear(), sym_count()   |
+| `asm_src.h`  | asm_assemble(), asm_org, asm_errors                    |
 
 ## Build System
 
     make              Build cse.prg (default)
     make tables       Regenerate mn*_tables.s from Python
-    make test         Run 1222 pytest tests
+    make test         Run pytest tests
     make test-bins    Assemble py65 test binaries only
     make run          Build + launch in VICE
     make clean        Remove build/
@@ -139,8 +165,8 @@
                                                                  ├──ld65──► cse.prg
     c64.lib ─────────────────────────────────────────────────────┘
 
-C sources: main.c, repl.c, editor.c (compiled via pattern rule).
-ASM sources: 15 .s files (assembled via pattern rule).
+C sources: main.c, repl.c, editor.c, asm_src.c, symtab.c (compiled via pattern rule).
+ASM sources: 23 .s files (assembled via pattern rule).
 Linker config: src/c64_cse.cfg (expanded ZP: $02–$7F).
 
 ### Generated files (do not edit by hand)
@@ -158,22 +184,14 @@ Regenerate: `make tables` (runs dev/mnemonic_tables.py).
 Tests use py65 (6502 CPU emulator in Python) to execute the assembled
 code in a simulated C64 environment.
 
-    tests/conftest.py     Builds test binaries, loads into py65 CPU
-    tests/test_asm_line.py  1100+ tests: every mnemonic × every valid mode
-    tests/test_au_mode.py   ~100 tests: addressing mode parsing
-    tests/test_mnhash.py    ~20 tests: hash collision and fingerprint sweeps
+    tests/conftest.py       Builds test binaries, loads into py65 CPU
+    tests/test_asm_line.py  Assembler tests (all mnemonics × every valid mode)
+    tests/test_au_mode.py   Addressing mode parser tests
+    tests/test_mnhash.py    Hash collision and fingerprint sweep tests
+    tests/test_dasm.py      Disassembler tests
+    tests/test_expr.py      Expression parser tests
+    tests/test_cse_io.py    Screen I/O tests
+    tests/test_editor.py    Editor tests
 
 Run: `/path/to/virtualenv/bin/pytest tests/ -q`
 Virtualenv: `/Users/cr/.local/share/virtualenvs/cse-rXGMsE9U`
-
-## Legacy Files
-
-The following files in src/ are from earlier development iterations
-and are NOT linked into cse.prg:
-
-    asm.c, asm.s          Earlier C-based assembler attempt
-    asm_utils.c, asm_utils.s  Opcode validation utilities
-    mnemonic.s            Earlier mnemonic lookup approach
-    oplen.c, oplen.h, oplen.s  Opcode length as separate module
-
-These can be removed once confirmed unused by any active code path.

@@ -29,7 +29,7 @@ $D6 (row).
 | $D1/$D2 | SCR_PTR | — | NOT used by cse_io; updated by io_sync via KERNAL PLOT |
 | $F3/$F4 | COL_PTR | — | NOT used by cse_io; updated by io_sync via KERNAL PLOT |
 | $C6 | KEY_COUNT | R | Keyboard buffer count (io_kbhit) |
-| $CC | CURS_FLAG | — | Set by C code, not by cse_io |
+| $CC | CURS_FLAG | — | Set to 1 by io_init at startup; not modified afterward |
 
 ## RODATA
 
@@ -224,6 +224,11 @@ void io_sync(void);
 #define io_bgcolor(c)      (*(uint8_t *)0xD021 = (c))
 ```
 
+**Note:** The `io_cursor_on`, `io_cursor_off`, `io_bordercolor`, and
+`io_bgcolor` macros are defined in the header but currently unused.
+Cursor management is handled by `cursor_show`/`cursor_hide` in
+screen.s. Color is managed by `restore_colors` in screen.s.
+
 ## IRQ Safety
 
 **With $CC=1 (KERNAL cursor disabled), cse_io is fully IRQ-safe.**
@@ -251,6 +256,5 @@ CSE keeps $CC=1 at all times and manages the cursor via cursor_show/hide.
 1. Set `$CC=1` (`io_cursor_off()`) at startup.  Never re-enable KERNAL cursor.
 2. Call `io_sync()` after changing `io_cy`.
 3. Fill screen RAM and color RAM at startup (`memset`).
-4. Manage color RAM in `scroll_up` (`memmove` + `memset`).
-5. Use `SEI`/`CLI` around screen RAM memmove in `scroll_up` (cosmetic).
-6. Manage cursor visibility via `cursor_show()`/`cursor_hide()`.
+4. Use `SEI`/`CLI` around screen RAM memmove in `scroll_up` (cosmetic).
+5. Manage cursor visibility via `cursor_show()`/`cursor_hide()`.
