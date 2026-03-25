@@ -153,7 +153,6 @@ void main(void)
          * blocking read, and $03 may be in ch.  Skip it. */
         if (nmi_pending) {
             nmi_pending = 0;
-            *(uint8_t *)0xC6 = 0;        /* flush keyboard buffer */
             if (state == ST_EDIT) leave_editor();
             state = ST_REPL;
             restore_colors();
@@ -163,6 +162,10 @@ void main(void)
             clear_eol();
             newline();
             show_prompt();
+            /* Wait for RUN/STOP release so it doesn't trigger CH_STOP */
+            do { *(uint8_t *)0xDC00 = 0x7F; }
+            while (!(*(volatile uint8_t *)0xDC01 & 0x80));
+            *(uint8_t *)0xC6 = 0;
             continue;
         }
 
