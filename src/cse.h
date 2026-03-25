@@ -28,6 +28,7 @@ extern uint8_t theme_border;     /* $D020 color */
 extern uint8_t theme_bg;         /* $D021 color */
 extern uint8_t theme_fg;         /* text/color RAM color */
 void restore_colors(void);       /* apply theme + fill color RAM */
+extern uint16_t cur_addr;        /* REPL current address */
 
 /* ── Shared screen utilities (main.c + cse_io.s) ────────── */
 #define clear_eol io_clear_eol

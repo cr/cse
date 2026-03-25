@@ -253,18 +253,33 @@ void main(void)
     reset_screen();
     *(uint8_t *)0xD018 |= 0x02;          /* lowercase/uppercase charset */
 
-    /* greeter */
+    /* splash screen */
     {   uint16_t wlo = cse_end();
         uint16_t whi = 0xC7FF;
-        io_cx = 0; io_cy = SCREEN_HEIGHT - 6; io_sync();
-        io_puts("cse v0.1");
-        io_cx = 0; io_cy = SCREEN_HEIGHT - 5; io_sync();
-        io_puts("(c) 2025 cr");
-        io_cx = 0; io_cy = SCREEN_HEIGHT - 3; io_sync();
+        uint8_t  row = SCREEN_HEIGHT - 8;
+
+        /* round cur_addr up to next $100 boundary */
+        cur_addr = (wlo + 0xFF) & 0xFF00;
+
+#ifndef VERSION
+#define VERSION "0.1"
+#endif
+#ifndef BUILD_YEAR
+#define BUILD_YEAR "2025"
+#endif
+        io_cx = 0; io_cy = row++; io_sync();
+        io_puts("cse v" VERSION);
+        io_cx = 0; io_cy = row++; io_sync();
+        io_puts("(c) 2025-" BUILD_YEAR " cr@23bit.net");
+        row++;
+        io_cx = 0; io_cy = row++; io_sync();
+        io_puts("working memory:");
+        io_cx = 0; io_cy = row++; io_sync();
+        io_puts("  zp $0039-$007f");
+        io_cx = 0; io_cy = row++; io_sync();
         io_puts("work $"); io_puthex4(wlo);
         io_puts("-$"); io_puthex4(whi);
-        io_cx = 0; io_cy = SCREEN_HEIGHT - 2; io_sync();
-        io_puts("  zp $39-$7f");
+
         io_cx = 0; io_cy = SCREEN_HEIGHT - 1; io_sync();
         show_prompt();
     }

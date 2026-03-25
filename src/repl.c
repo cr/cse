@@ -16,7 +16,7 @@
 #include "editor.h"
 
 /* ── REPL state ─────────────────────────────────────────── */
-static uint16_t cur_addr = 0x1000;
+uint16_t cur_addr = 0x1000;
 static uint8_t  last_cmd = 0;
 static uint8_t  last_args[16];
 static uint16_t block_size = 0x10;

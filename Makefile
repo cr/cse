@@ -45,13 +45,18 @@ else
   MN_SRCS    = mn7 mn7_tables
 endif
 
+# ── Version / build date ──────────────────────────────────────────────────
+VERSION  ?= 0.1
+BUILD_YEAR := $(shell date +%Y)
+
 # ── CC65 main-binary flags ───────────────────────────────────────────────
 # -O for size optimization; add -g -DDEBUG with: make DEBUG=1
+VER_DEFS = -DVERSION=\"$(VERSION)\" -DBUILD_YEAR=\"$(BUILD_YEAR)\"
 ifdef DEBUG
-  CFLAGS = -g -O -t c64 -DDEBUG -D__cc65__ $(CPU_DEFS) -I$(ROOT) -I$(BUILD)
+  CFLAGS = -g -O -t c64 -DDEBUG -D__cc65__ $(CPU_DEFS) $(VER_DEFS) -I$(ROOT) -I$(BUILD)
   AFLAGS = -g -t c64 -DDEBUG -D__cc65__ $(CPU_DEFS) -I$(ROOT) -I$(BUILD)
 else
-  CFLAGS = -O -t c64 -D__cc65__ $(CPU_DEFS) -I$(ROOT) -I$(BUILD)
+  CFLAGS = -O -t c64 -D__cc65__ $(CPU_DEFS) $(VER_DEFS) -I$(ROOT) -I$(BUILD)
   AFLAGS = -t c64 -D__cc65__ $(CPU_DEFS) -I$(ROOT) -I$(BUILD)
 endif
 LCFG   = $(SRC)/c64_cse.cfg
