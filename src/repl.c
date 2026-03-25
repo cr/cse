@@ -585,6 +585,26 @@ void exec_line(void)
         }
         case 'i': cmd_info();          break;
         case 'r': cmd_reg(q);          break;
+        case 'u':                             /* CPU mode selection */
+        {   skip_sp(&q);
+            if (is_hex(*q)) {
+                uint8_t v = parse_hex2(&q);
+                if (v <= CPU_CEIL)
+                    al_cpu = v;
+                else {
+                    newline();
+                    io_puts("?max="); io_putc('0' + CPU_CEIL);
+                    clear_eol();
+                }
+            }
+            newline();
+            io_puts("cpu=");
+            if (al_cpu == 0) io_puts("6502");
+            else if (al_cpu == 1) io_puts("6510");
+            else if (al_cpu == 2) io_puts("65c02");
+            else io_puts("?");
+            clear_eol(); nl_prompt(); break;
+        }
         case 's':
         {   uint16_t v = parse_hex_flex(&q);
             if (v) cur_addr = v;

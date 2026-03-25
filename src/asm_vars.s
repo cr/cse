@@ -13,6 +13,7 @@
 
         .exportzp al_pc, al_out, al_len
         .exportzp al_slot, al_prof, al_pidx, al_base, al_bit, al_mode, al_cpu
+        .exportzp _al_cpu := al_cpu     ; C-visible alias
         .exportzp _al_tmp, _al_tmp2
 
 .segment "ZEROPAGE"

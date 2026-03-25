@@ -52,6 +52,15 @@ void list_directory(uint8_t device);
 /* ── Opcode length table ────────────────────────────────── */
 extern const uint8_t t_opcode_len[256];
 
+/* ── CPU mode ─────────────────────────────────────────── */
+/* al_cpu: 0=6502 (legal only), 1=6510 (+illegal), 2=65C02 (+CMOS)   */
+/* CPU_CEIL: build-time maximum (passed as -DCPU_CEIL=N)              */
+extern uint8_t al_cpu;          /* ZP variable from asm_vars.s */
+#pragma zpsym("al_cpu")
+#ifndef CPU_CEIL
+#define CPU_CEIL 1              /* fallback: 6510 */
+#endif
+
 /* ── Assembler bridge ───────────────────────────────────── */
 extern uint8_t asm_line(uint16_t addr, char *text);
 extern void jsr_addr(uint16_t addr);

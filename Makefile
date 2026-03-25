@@ -34,14 +34,14 @@ C1541  ?= c1541
 CPU ?= 6510
 
 ifeq ($(CPU),6502)
-  CPU_DEFS   = -DCPU_6502 -DUSE_MN6 -DDEFAULT_CPU=0
+  CPU_DEFS   = -DCPU_6502 -DUSE_MN6 -DDEFAULT_CPU=0 -DCPU_CEIL=0
   MN_SRCS    = mn6 mn6_tables
 else ifeq ($(CPU),65c02)
-  CPU_DEFS   = -DCPU_65C02 -DCMOS_SUPPORT -DDEFAULT_CPU=2
+  CPU_DEFS   = -DCPU_65C02 -DCMOS_SUPPORT -DDEFAULT_CPU=2 -DCPU_CEIL=2
   MN_SRCS    = mn7 mn7_tables
 else
-  # 6510 (default)
-  CPU_DEFS   = -DCPU_6510 -DDEFAULT_CPU=1
+  # 6510 (default): start in clean 6502 mode, upgradeable to 6510
+  CPU_DEFS   = -DCPU_6510 -DDEFAULT_CPU=0 -DCPU_CEIL=1
   MN_SRCS    = mn7 mn7_tables
 endif
 
