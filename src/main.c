@@ -27,8 +27,7 @@ uint8_t *src_bot = 0;
 /* NMI flag — set by our NMI handler, checked in main loop */
 volatile uint8_t nmi_pending = 0;
 
-/* Saved default NMI vector for restore on quit */
-static uint16_t saved_nmi_vec;
+/* (NMI vector restored by KERNAL cold start on quit) */
 
 /* ═══════════════════════════════════════════════════════════════
  * NMI handler — intercepts RUN/STOP + RESTORE
@@ -143,7 +142,6 @@ void main(void)
     fill_free_memory();
 
     /* Install NMI handler (RUN/STOP + RESTORE → REPL) */
-    saved_nmi_vec = NMI_VEC;
     NMI_VEC = (uint16_t)nmi_handler_asm;
 
     /* ── Splash screen ───────────────────────────────────── */
@@ -278,30 +276,11 @@ void main(void)
     }
 
     /* ═══════════════════════════════════════════════════════
-     * Exit: restore BASIC and warm start
+     * Exit: KERNAL cold start ($FCE2)
+     *
+     * Full system reset — reinitializes all hardware, BASIC,
+     * KERNAL, and ZP.  No manual cleanup needed.
+     * CSE code survives in RAM — SYS 2061 restarts.
      * ═══════════════════════════════════════════════════════ */
-
-    /* Restore NMI vector */
-    NMI_VEC = saved_nmi_vec;
-
-    /* Re-enable KERNAL cursor */
-    io_cursor_on();
-
-    /* Restore key repeat default */
-    *(uint8_t *)0x028a &= 0b00111111;
-
-    /* Restore processor port: all ROMs + I/O visible */
-    MEM_CONFIG = 0x37;
-
-    /* KERNAL RESTOR: restore all I/O vectors to defaults */
-    asm("jsr $FF8A");
-    /* KERNAL IOINIT: initialize CIA, SID, VIC */
-    asm("jsr $FF84");
-    /* KERNAL CINT: initialize screen editor + keyboard */
-    asm("jsr $FF81");
-
-    /* BASIC NEW ($A642): clears program, resets all ZP pointers.
-     * CSE's code at $080D+ survives (NEW only zeroes $0801-$0802).
-     * The user types SYS 2061 to restart. */
-    asm("jmp $A642");
+    asm("jmp $FCE2");
 }
