@@ -593,17 +593,20 @@ void exec_line(void)
                 if (q[1]=='5' && q[2]=='0' && q[3]=='2') v = 0;
                 else if (q[1]=='5' && q[2]=='1' && q[3]=='0') v = 1;
                 else if (q[1]=='5' && q[2]=='c' && q[3]=='0') v = 2;
-                if (v != 0xFF && v <= CPU_CEIL)
-                    al_cpu = v;
+                /* 65C02 builds: only 0 and 2 valid (no 6510 illegals) */
+                if (v != 0xFF && v <= CPU_CEIL
+#if CPU_CEIL == 2
+                    && v != 1
+#endif
+                   ) al_cpu = v;
             }
             newline();
             io_puts("cpu mode: 6502");
             io_putc(al_cpu == 0 ? '*' : ' ');
-#if CPU_CEIL >= 1
+#if CPU_CEIL == 1
             io_puts(" 6510");
             io_putc(al_cpu == 1 ? '*' : ' ');
-#endif
-#if CPU_CEIL >= 2
+#elif CPU_CEIL == 2
             io_puts(" 65c02");
             io_putc(al_cpu == 2 ? '*' : ' ');
 #endif
