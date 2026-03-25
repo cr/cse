@@ -92,7 +92,7 @@ extern char dasm_buf[];
 static void emit_dot(uint16_t addr) {
     uint8_t olen, i;
     io_cx = 0;
-    olen = t_opcode_len[*(uint8_t *)addr];
+    olen = dasm_insn(addr);             /* disassemble first to get length */
     io_puthex4(addr); io_putc(':'); io_putc('.');
     for (i = 0; i < 3; ++i) {
         if (i < olen) {
@@ -102,7 +102,6 @@ static void emit_dot(uint16_t addr) {
         }
     }
     io_putc(' ');
-    dasm_insn(addr);
     io_puts(dasm_buf);
     clear_eol();
 }
