@@ -273,12 +273,10 @@ void main(void)
         io_puts("(c) 2025-" BUILD_YEAR " cr@23bit.net");
         row++;
         io_cx = 0; io_cy = row++; io_sync();
-        io_puts("free:");
+        io_puts("free:  0039-007f  zp");
         io_cx = 0; io_cy = row++; io_sync();
-        io_puts("  0039-007f  zp");
-        io_cx = 0; io_cy = row++; io_sync();
-        io_puts("  "); io_puthex4(wlo);
-        io_putc('-'); io_puthex4(whi);
+        io_puts("       ");
+        io_puthex4(wlo); io_putc('-'); io_puthex4(whi);
         io_puts("  work");
 
         io_cx = 0; io_cy = SCREEN_HEIGHT - 1; io_sync();
