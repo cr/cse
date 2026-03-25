@@ -16,6 +16,7 @@
 #include "disk.h"
 #include "repl.h"
 #include "editor.h"
+#include "expr.h"
 
 /* ── REPL state ─────────────────────────────────────────── */
 uint16_t cur_addr = 0x1000;
@@ -662,6 +663,55 @@ void exec_line(void)
         io_putc(al_cpu == 2 ? '*' : ' ');
 #endif
         clear_eol(); nl_prompt(); break;
+    }
+
+    /* calculator */
+    case '?':
+    {   uint16_t val;
+        if (expr_eval(&q, &val) == 0) {
+            newline();
+            if (val < 256) {
+                uint8_t b = (uint8_t)val;
+                uint8_t i;
+                /* "   ddd    $hh  %bbbbbbbb" */
+                /*  3chars right-aligned dec, 4sp, $hh, 2sp, %bin */
+                io_putc(' '); io_putc(' '); io_putc(' ');
+                /* right-aligned 3-digit decimal */
+                if (val >= 100) io_putc('0' + val / 100);
+                else io_putc(' ');
+                if (val >= 10) io_putc('0' + (val / 10) % 10);
+                else io_putc(' ');
+                io_putc('0' + val % 10);
+                io_puts("    $");
+                io_puthex2(b);
+                io_puts("  %");
+                for (i = 0; i < 8; ++i) {
+                    io_putc((b & 0x80) ? '1' : '0');
+                    b <<= 1;
+                }
+            } else {
+                /* " ddddd  $hhhh" */
+                io_putc(' ');
+                /* right-aligned 5-digit decimal */
+                if (val >= 10000) io_putc('0' + val / 10000);
+                else io_putc(' ');
+                if (val >= 1000) io_putc('0' + (val / 1000) % 10);
+                else io_putc(' ');
+                if (val >= 100) io_putc('0' + (val / 100) % 10);
+                else io_putc(' ');
+                if (val >= 10) io_putc('0' + (val / 10) % 10);
+                else io_putc(' ');
+                io_putc('0' + val % 10);
+                io_puts("  $");
+                io_puthex4(val);
+            }
+            clear_eol();
+        } else {
+            newline();
+            io_puts("?"); io_puts(expr_error_str());
+            clear_eol();
+        }
+        nl_prompt(); break;
     }
 
     /* system */
