@@ -271,12 +271,20 @@ void main(void)
     *(uint8_t *)0xD018 |= 0x02;          /* lowercase/uppercase charset */
 
     /* greeter */
-    io_cx = 0; io_cy = SCREEN_HEIGHT - 4; io_sync();
-    io_puts("cse v0.1");
-    io_cx = 0; io_cy = SCREEN_HEIGHT - 3; io_sync();
-    io_puts("(c) 2025 cr");
-    io_cx = 0; io_cy = SCREEN_HEIGHT - 1; io_sync();
-    show_prompt();
+    {   uint16_t wlo = cse_end();
+        uint16_t whi = 0xC7FF;
+        io_cx = 0; io_cy = SCREEN_HEIGHT - 6; io_sync();
+        io_puts("cse v0.1");
+        io_cx = 0; io_cy = SCREEN_HEIGHT - 5; io_sync();
+        io_puts("(c) 2025 cr");
+        io_cx = 0; io_cy = SCREEN_HEIGHT - 3; io_sync();
+        io_puts("work $"); io_puthex4(wlo);
+        io_puts("-$"); io_puthex4(whi);
+        io_cx = 0; io_cy = SCREEN_HEIGHT - 2; io_sync();
+        io_puts("  zp $39-$7f");
+        io_cx = 0; io_cy = SCREEN_HEIGHT - 1; io_sync();
+        show_prompt();
+    }
 
     /* ── main loop ──────────────────────────────────────── */
     while (state != ST_STOP) {

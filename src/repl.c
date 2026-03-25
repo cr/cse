@@ -452,7 +452,7 @@ static void free_line(uint16_t lo, uint16_t hi)
     fbuf[pos++] = 't'; fbuf[pos++] = 'e'; fbuf[pos++] = 's';
     fbuf[pos++] = ' '; fbuf[pos++] = 'f'; fbuf[pos++] = 'r';
     fbuf[pos++] = 'e'; fbuf[pos++] = 'e'; fbuf[pos] = 0;
-    info_line(1, "free", lo, hi, fbuf);
+    info_line(1, "work", lo, hi, fbuf);
 }
 
 static void cmd_info(void)
@@ -494,7 +494,7 @@ static void cmd_info(void)
                   (uint16_t)sym_top - 1, "symbols");
     if (src_bot)
         info_line(0, "src", (uint16_t)src_bot,
-                  (uint16_t)src_top - 1, "source");
+                  (uint16_t)src_top - 1, "source code");
 
     /* c stack and I/O */
     info_line(0, "cstk", cstk_lo, 0xcfff, "c stack");
