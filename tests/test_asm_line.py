@@ -173,3 +173,66 @@ def test_assemble(al_syms, source, expected):
         f"assembling {source!r}: "
         f"got {got.hex()} expected {expected.hex()}"
     )
+
+
+# ── GAP 1: NMOS rejection tests ─────────────────────────────────────────────
+# CMOS-only instructions must produce al_error when al_cpu = 0 (NMOS 6502).
+
+_CMOS_ONLY_CASES = [
+    # Pure CMOS mnemonics
+    "BRA $0002",
+    "PHX",    "PHY",    "PLX",    "PLY",
+    "TRB $42",  "TRB $1234",
+    "TSB $42",  "TSB $1234",
+    "STZ $42",  "STZ $42,X",  "STZ $1234",  "STZ $1234,X",
+    # CMOS extensions to legal mnemonics
+    "DEC A",    "INC A",
+    "BIT #$42",
+    "JMP ($1234,X)",
+    # ZPI mode (65C02 zero-page indirect)
+    "ORA ($42)", "AND ($42)", "EOR ($42)", "ADC ($42)",
+    "STA ($42)", "LDA ($42)", "CMP ($42)", "SBC ($42)",
+]
+
+# Known bug: pure CMOS mnemonics (BRA, PHX, etc.) are not gated by al_cpu
+# in the assembler. CMOS *modes* (ZPI, ACC, AIX, BIT IMM) ARE gated correctly.
+_CMOS_MNE_XFAIL = {
+    "BRA $0002", "PHX", "PHY", "PLX", "PLY",
+    "TRB $42", "TRB $1234", "TSB $42", "TSB $1234",
+    "STZ $42", "STZ $42,X", "STZ $1234", "STZ $1234,X",
+}
+
+@pytest.mark.parametrize("source", _CMOS_ONLY_CASES)
+def test_nmos_rejects_cmos(al_syms, source):
+    """CMOS-only instructions must error on NMOS 6502 (al_cpu=0)."""
+    if source in _CMOS_MNE_XFAIL:
+        pytest.xfail("assembler doesn't gate pure CMOS mnemonics yet")
+    try:
+        _run(al_syms, source, al_cpu=0)
+        pytest.fail(f"should have errored: {source!r} on NMOS")
+    except AssertionError:
+        pass  # expected: al_error was reached
+
+
+# ── GAP 5: Hex-mnemonic ambiguity tests ─────────────────────────────────────
+# Mnemonics like DEC, BCC, ADD, BED start with hex digits.
+# The assembler must recognize them as mnemonics, not hex values.
+
+_AMBIGUOUS_CASES = [
+    ("DEC $42",     bytes([0xC6, 0x42])),       # DEC zp
+    ("BCC $0002",   bytes([0x90, 0x00])),       # BCC rel (offset 0)
+    ("ADC #$42",    bytes([0x69, 0x42])),       # ADC imm (starts with A)
+    ("BCS $0002",   bytes([0xB0, 0x00])),       # BCS rel
+    ("BEQ $0002",   bytes([0xF0, 0x00])),       # BEQ rel
+    ("DEX",         bytes([0xCA])),             # DEX implied
+    ("DEY",         bytes([0x88])),             # DEY implied
+]
+
+@pytest.mark.parametrize("source,expected", _AMBIGUOUS_CASES,
+                         ids=[c[0] for c in _AMBIGUOUS_CASES])
+def test_hex_mnemonic_ambiguity(al_syms, source, expected):
+    """Mnemonics starting with hex digits must parse as mnemonics."""
+    got = _run(al_syms, source)
+    assert got == expected, (
+        f"ambiguity test {source!r}: got {got.hex()} expected {expected.hex()}"
+    )

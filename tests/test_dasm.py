@@ -190,3 +190,80 @@ def test_dasm(dasm_syms, cpu, opc, exp):
             f'${opc:02X} cpu={cpu}: length={mpu.a}, expected {MODE_LEN[mode]}'
     else:
         assert mpu.a == 1, f'${opc:02X} cpu={cpu}: unknown should be length 1'
+
+
+# ── GAP 3: Boundary operand tests ────────────────────────────────────────────
+# Test with operands $00, $FF, $80 to catch sign extension and byte-order bugs.
+
+BOUNDARY_OPERANDS = [
+    ([0x00, 0x00], 'zero'),
+    ([0xFF, 0xFF], 'all-ones'),
+    ([0x80, 0x7F], 'sign-bit'),
+]
+
+def _boundary_expected(cpu, opc, operands):
+    if opc not in CPU_MAPS[cpu]:
+        return '...'
+    mne, mode = CPU_MAPS[cpu][opc]
+    op_str = fmt_operand(mode, operands, INSN_ADDR)
+    if op_str:
+        return f'{mne} {op_str}'
+    return mne
+
+_BOUNDARY_CASES = []
+for operands, tag in BOUNDARY_OPERANDS:
+    # Test a representative set of opcodes covering all addressing modes
+    _REPR_OPCODES = [
+        0xA9,  # LDA #imm
+        0xA5,  # LDA zp
+        0xB5,  # LDA zp,x
+        0xAD,  # LDA abs
+        0xBD,  # LDA abs,x
+        0xB9,  # LDA abs,y
+        0xA1,  # LDA (zp,x)
+        0xB1,  # LDA (zp),y
+        0x6C,  # JMP (abs)
+        0x90,  # BCC rel (sign-sensitive!)
+        0x4C,  # JMP abs
+    ]
+    for opc in _REPR_OPCODES:
+        exp = _boundary_expected(CPU_6510, opc, operands)
+        _BOUNDARY_CASES.append(
+            pytest.param(opc, operands, exp, id=f'{tag}-${opc:02X}')
+        )
+
+@pytest.mark.parametrize("opc,operands,exp", _BOUNDARY_CASES)
+def test_dasm_boundary_operands(dasm_syms, opc, operands, exp):
+    """Disassemble with boundary operand values ($00, $FF, $80)."""
+    mpu = MPU()
+    mem = bytearray(0x10000)
+    dasm_syms.load_into(mem)
+
+    mem[INSN_ADDR]     = opc
+    mem[INSN_ADDR + 1] = operands[0]
+    mem[INSN_ADDR + 2] = operands[1]
+    mem[dasm_syms.al_cpu] = CPU_6510
+
+    RETURN_ADDR = 0x0F00
+    mem[RETURN_ADDR] = 0x00
+    mpu.memory = mem
+    mpu.sp = 0xFF
+    mpu.sp -= 1; mem[0x01FF] = (RETURN_ADDR - 1) >> 8
+    mpu.sp -= 1; mem[0x01FE] = (RETURN_ADDR - 1) & 0xFF
+
+    mpu.pc = dasm_syms.dasm_test_entry
+    for _ in range(10000):
+        if mpu.pc == RETURN_ADDR: break
+        mpu.step()
+    else:
+        pytest.fail(f"Timeout ${opc:02X}")
+
+    buf = dasm_syms.dasm_buf
+    result = ''
+    for i in range(24):
+        ch = mem[buf + i]
+        if ch == 0: break
+        result += chr(ch)
+
+    assert result.upper().rstrip() == exp.upper(), \
+        f'boundary ${opc:02X} ops={operands}: got {result!r}, expected {exp!r}'
