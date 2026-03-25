@@ -537,6 +537,7 @@ void exec_line(void)
                 if (*q) { io_putc(' '); io_puts((const char *)q); }
                 clear_eol();
             } else {
+                last_cmd = 0;
                 clear_eol(); nl_prompt(); return;
             }
         } else {
@@ -663,7 +664,7 @@ void exec_line(void)
 
     /* ── No AAAA: prefix — bare input ────────────────────── */
 
-    if (*q == 0) { clear_eol(); nl_prompt(); return; }
+    if (*q == 0) { last_cmd = 0; clear_eol(); nl_prompt(); return; }
 
     /* multi-char: clr/cls */
     if (q[0] == 'c' && q[1] == 'l' && (q[2] == 'r' || q[2] == 's')) {
