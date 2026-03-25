@@ -670,12 +670,12 @@ void exec_line(void)
     {   uint16_t val;
         if (expr_eval(&q, &val) == 0) {
             newline();
+            io_putc(';');
             if (val < 256) {
                 uint8_t b = (uint8_t)val;
                 uint8_t i;
-                /* "   ddd    $hh  %bbbbbbbb" */
-                /*  3chars right-aligned dec, 4sp, $hh, 2sp, %bin */
-                io_putc(' '); io_putc(' '); io_putc(' ');
+                /* ";  ddd    $hh  %bbbbbbbb" = 1+2+3+4+3+2+8 = 23 */
+                io_putc(' '); io_putc(' ');
                 /* right-aligned 3-digit decimal */
                 if (val >= 100) io_putc('0' + val / 100);
                 else io_putc(' ');
@@ -690,8 +690,7 @@ void exec_line(void)
                     b <<= 1;
                 }
             } else {
-                /* " ddddd  $hhhh" */
-                io_putc(' ');
+                /* ";ddddd  $hhhh" */
                 /* right-aligned 5-digit decimal */
                 if (val >= 10000) io_putc('0' + val / 10000);
                 else io_putc(' ');
