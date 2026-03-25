@@ -146,8 +146,8 @@ def test_dasm(dasm_syms, cpu, opc, exp):
     mem[dasm_syms.al_cpu] = cpu
 
     # Place a BRK at return address so we know when done.
-    # Must be ABOVE the code region (CODE ends at ~$07A7, BSS at ~$095E).
-    RETURN_ADDR = 0x0A00
+    # Must be ABOVE all segments (CODE+RODATA+BSS can extend past $0A00).
+    RETURN_ADDR = 0x0F00
     mem[RETURN_ADDR] = 0x00  # BRK
 
     mpu.memory = mem

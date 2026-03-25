@@ -297,14 +297,19 @@ _dasm_mode:     .res 1          ; mode index
 @rel:   ; Relative branch: compute PC + 2 + signed offset
         ldy #1
         lda (_dasm_ptr),y       ; signed offset
-        ; PC + 2
+        ; target = PC + 2 + signed_offset
+        ; sign-extend: if offset negative, pre-decrement hi byte
         ldx _dasm_ptr+1
+        tay                     ; save offset in Y
+        bpl :+                  ; positive offset: skip
+        dex                     ; negative: pre-decrement hi
+:       tya                     ; restore offset
         clc
-        adc _dasm_ptr
+        adc _dasm_ptr           ; + PC lo
         bcc :+
-        inx
+        inx                     ; carry into hi
 :       clc
-        adc #2
+        adc #2                  ; + 2
         bcc :+
         inx
 :       ; now A = target lo, X = target hi
@@ -328,10 +333,14 @@ _dasm_mode:     .res 1          ; mode index
         jsr buf_hex2
         lda #$2C                ; ','
         jsr buf_putc
-        ; Now relative branch from PC+3
+        ; Now relative branch from PC+3 (signed offset)
         ldy #2
         lda (_dasm_ptr),y       ; signed offset
         ldx _dasm_ptr+1
+        tay
+        bpl :+
+        dex                     ; negative: pre-decrement hi
+:       tya
         clc
         adc _dasm_ptr
         bcc :+
