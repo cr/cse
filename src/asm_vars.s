@@ -16,6 +16,11 @@
         .exportzp _al_cpu := al_cpu     ; C-visible alias
         .exportzp _al_tmp, _al_tmp2
         .exportzp sym_name, sym_val, sym_wide   ; symbol table I/O (symtab.s)
+        .exportzp _sym_name := sym_name         ; C-visible aliases
+        .exportzp _sym_val  := sym_val
+        .exportzp _sym_wide := sym_wide
+        .exportzp _al_pc    := al_pc
+        .exportzp _al_out   := al_out
         .exportzp expr_ptr, expr_val, expr_wide ; expression parser I/O (expr.s)
         .exportzp _expr_ptr := expr_ptr         ; C-visible aliases
         .exportzp _expr_val := expr_val

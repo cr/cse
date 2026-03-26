@@ -22,4 +22,18 @@ extern uint16_t ed_save_lines;
 /* Ensure gap buffer is initialized */
 void ed_ensure_init(void);
 
+/* ── Gap buffer sequential reader (for source assembler) ── */
+
+/* Reset read pointer to start of source text */
+void ed_read_rewind(void);
+
+/* Read next byte from source (transparently skips gap).
+ * Returns the byte, or -1 at end of buffer. */
+int ed_read_byte(void);
+
+/* Read one line into buf (up to maxlen-1 chars + NUL).
+ * Returns line length, or -1 at end of buffer.
+ * Advances read pointer past the line + CR. */
+int ed_read_line(char *buf, uint8_t maxlen);
+
 #endif

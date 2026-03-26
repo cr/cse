@@ -15,6 +15,7 @@
 #include "disk.h"
 #include "repl.h"
 #include "editor.h"
+#include "asm_src.h"
 #include "expr.h"
 
 /* ── REPL state ─────────────────────────────────────────── */
@@ -661,6 +662,26 @@ void exec_line(void)
         io_puts(" 65c02");
         io_putc(al_cpu == 2 ? '*' : ' ');
 #endif
+        clear_eol(); nl_prompt(); break;
+    }
+
+    /* assemble source */
+    case 'a':
+    {   uint16_t errs;
+        newline();
+        io_puts("assembling...");
+        newline();
+        errs = asm_assemble();
+        if (errs == 0) {
+            io_puts("; ok: ");
+            io_putdec(asm_size);
+            io_puts(" bytes at $");
+            io_puthex4(asm_org);
+        } else {
+            io_puts("; ");
+            io_putdec(errs);
+            io_puts(" error(s)");
+        }
         clear_eol(); nl_prompt(); break;
     }
 

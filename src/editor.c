@@ -652,3 +652,51 @@ reposition:
         io_cx = ed_cur_col; io_cy = scr_row; io_sync();
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+ * Gap buffer sequential reader — for source assembler
+ *
+ * Reads source text byte-by-byte, transparently skipping the gap.
+ * The read pointer is independent of the cursor/gap position.
+ * ═══════════════════════════════════════════════════════════════ */
+
+static uint8_t *read_ptr;
+
+void ed_read_rewind(void) {
+    ed_ensure_init();
+    read_ptr = buf_base;
+}
+
+int ed_read_byte(void) {
+    /* Skip over gap */
+    if (read_ptr == gap_lo)
+        read_ptr = gap_hi;
+    /* End of buffer? */
+    if (read_ptr >= buf_end)
+        return -1;
+    return *read_ptr++;
+}
+
+int ed_read_line(char *buf, uint8_t maxlen) {
+    uint8_t len = 0;
+    int ch;
+
+    for (;;) {
+        ch = ed_read_byte();
+        if (ch < 0) {
+            /* EOF — return what we have, or -1 if nothing */
+            if (len == 0) return -1;
+            break;
+        }
+        if (ch == 0x0D) {
+            /* End of line (CR) */
+            break;
+        }
+        if (len < maxlen - 1) {
+            buf[len++] = (char)ch;
+        }
+        /* else: silently truncate long lines */
+    }
+    buf[len] = 0;
+    return len;
+}
