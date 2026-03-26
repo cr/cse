@@ -290,61 +290,61 @@ static void set_cpu(char *p) {
 }
 
 /* ── Process one directive ─────────────────────────────── */
-static void process_directive(char *p) {
+/* Returns 1 if recognized as directive, 0 if not (could be local label) */
+static uint8_t process_directive(char *p) {
     /* p points past the '.' */
     if (p[0] == 'o' && p[1] == 'r' && p[2] == 'g') {
-        /* .org expr */
         expr_ptr = (uint8_t *)(p + 3);
-        if (expr_eval() >= 2) { emit_error("bad .org"); return; }
+        if (expr_eval() >= 2) { emit_error("bad .org"); return 1; }
         al_pc = expr_val;
         if (asm_pass == 0) asm_org = expr_val;
+        return 1;
     }
-    else if (p[0] == 'd' && p[1] == 'b') {
-        emit_data_bytes(p + 2, 1);
+    if (p[0] == 'd' && p[1] == 'b') {
+        emit_data_bytes(p + 2, 1); return 1;
     }
-    else if (p[0] == 'd' && p[1] == 'w') {
-        emit_data_bytes(p + 2, 2);
+    if (p[0] == 'd' && p[1] == 'w') {
+        emit_data_bytes(p + 2, 2); return 1;
     }
-    else if (p[0] == 's' && p[1] == 't' && p[2] == 'r') {
-        emit_string(p + 3, 0);
+    if (p[0] == 's' && p[1] == 't' && p[2] == 'r') {
+        emit_string(p + 3, 0); return 1;
     }
-    else if (p[0] == 's' && p[1] == 'c' && p[2] == 'r') {
-        emit_string(p + 3, 1);
+    if (p[0] == 's' && p[1] == 'c' && p[2] == 'r') {
+        emit_string(p + 3, 1); return 1;
     }
-    else if (p[0] == 'r' && p[1] == 'e' && p[2] == 's') {
-        emit_reserve(p + 3);
+    if (p[0] == 'r' && p[1] == 'e' && p[2] == 's') {
+        emit_reserve(p + 3); return 1;
     }
-    else if (p[0] == 'a' && p[1] == 'l' && p[2] == 'i'
-          && p[3] == 'g' && p[4] == 'n') {
-        emit_align(p + 5);
+    if (p[0] == 'a' && p[1] == 'l' && p[2] == 'i'
+     && p[3] == 'g' && p[4] == 'n') {
+        emit_align(p + 5); return 1;
     }
-    else if (p[0] == 'c' && p[1] == 'p' && p[2] == 'u') {
-        set_cpu(p + 3);
+    if (p[0] == 'c' && p[1] == 'p' && p[2] == 'u') {
+        set_cpu(p + 3); return 1;
     }
-    else if (p[0] == 'c' && p[1] == 'o' && p[2] == 'n'
-          && p[3] == 's' && p[4] == 't') {
-        /* .const name expr */
+    if (p[0] == 'c' && p[1] == 'o' && p[2] == 'n'
+     && p[3] == 's' && p[4] == 't') {
         char *np;
         uint8_t nlen;
         p = skipws(p + 5);
         np = p;
         nlen = parse_ident(p);
-        if (nlen == 0) { emit_error("expected name"); return; }
+        if (nlen == 0) { emit_error("expected name"); return 1; }
         p = skipws(p + nlen);
         expr_ptr = (uint8_t *)p;
-        if (expr_eval() >= 2) { emit_error("bad .const expr"); return; }
+        if (expr_eval() >= 2) { emit_error("bad .const expr"); return 1; }
         if (asm_pass == 0) {
             if (do_sym_define(np, expr_val, expr_wide)) {
                 emit_error("sym full");
             }
         }
+        return 1;
     }
-    else if (p[0] == 'b' && p[1] == 'i' && p[2] == 'n') {
-        emit_binary(p + 3);
+    if (p[0] == 'b' && p[1] == 'i' && p[2] == 'n') {
+        emit_binary(p + 3); return 1;
     }
-    else {
-        emit_error("bad directive");
-    }
+    /* Not a known directive — might be a local label (.loop:) */
+    return 0;
 }
 
 /* ── Process one source line ───────────────────────────── */
@@ -368,10 +368,11 @@ static void process_line(char *p) {
         if (*p == 0 || *p == ';') return;
     }
 
-    /* ── Directive: starts with '.' ───────────────────── */
+    /* ── Directive or local label: starts with '.' ───── */
     if (*p == '.') {
-        process_directive(p + 1);
-        return;
+        if (process_directive(p + 1))
+            return;
+        /* Not a directive — fall through to label handler (.name:) */
     }
 
     /* ── Origin shorthand: *= expr ────────────────────── */
