@@ -75,14 +75,14 @@ MAIN_S = $(BUILD)/src/main.s
 MAIN_O = $(BUILD)/src/main.o
 
 # ── C source files (besides main.c) ──────────────────────────────
-C_SRCS   = editor repl symtab asm_src
+C_SRCS   = editor repl asm_src
 C_OBJS   = $(patsubst %,$(BUILD)/src/%.o,$(C_SRCS))
 
 # ── Assembler source files linked into cse.prg ──────────────────────
 ASM_SRCS = asm_bridge asm_line asm_vars mn_vars mn_classify \
            $(MN_SRCS) mn_config \
            au_mode parse_hex mn_modes mn_asm_tables opcode_lookup \
-           meminfo cse_io screen disk expr dasm dasm_tables
+           meminfo cse_io screen disk expr symtab dasm dasm_tables
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 
 # ── CPU change detection ─────────────────────────────────────────────────

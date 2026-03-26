@@ -15,6 +15,7 @@
         .exportzp al_slot, al_prof, al_pidx, al_base, al_bit, al_mode, al_cpu
         .exportzp _al_cpu := al_cpu     ; C-visible alias
         .exportzp _al_tmp, _al_tmp2
+        .exportzp sym_name, sym_val     ; symbol table I/O (symtab.s)
 
 .segment "ZEROPAGE"
 
@@ -43,3 +44,7 @@ al_mode:        .res 1  ; addressing-mode index returned by au_parse_mode (0–1
 ; ── private scratch used by asm_line.s ───────────────────────────────────────
 _al_tmp:        .res 1  ; general scratch byte
 _al_tmp2:       .res 1  ; second scratch byte (REL offset calculation)
+
+; ── symbol table I/O (shared with symtab.s, expr.s, asm_src.s) ──────────────
+sym_name:       .res 2  ; pointer to NUL-terminated name string
+sym_val:        .res 2  ; value: input for define, output for lookup
