@@ -8,7 +8,7 @@
     │
     ├── src/                    Source code
     │   ├── main.c              Hardware init, shared utils, main loop (262 lines)
-    │   ├── repl.c              REPL command loop, emitters, handlers (751 lines)
+    │   ├── repl.c              REPL command loop, emitters, handlers (756 lines)
     │   ├── repl.h              REPL public API (exec_line, read_line, show_prompt)
     │   ├── editor.c            Source editor: gap buffer, rendering, keys (654 lines)
     │   ├── editor.h            Editor public API (enter/leave/handle_key)
@@ -22,7 +22,7 @@
     │   │
     │   ├── screen.s            Screen management: clear, scroll, cursor (223 lines)
     │   ├── disk.s              CBM file I/O: load, save, directory (856 lines)
-    │   ├── expr.s              Expression parser: hex, decimal, binary, operators (192 lines)
+    │   ├── expr.s              Expression parser: recursive descent, all operators (714 lines)
     │   ├── cse_io.s            Raw screen I/O: putc, puts, hex/dec output (310 lines)
     │   │
     │   ├── dasm.s              Disassembler, bit-slice decoder (1366 lines)
@@ -48,7 +48,7 @@
     │   ├── mn_config.s         ┘
     │   │
     │   ├── asm_src.c           Source assembler (stub, 18 lines)
-    │   ├── symtab.s            Symbol table: hash table with linear probing
+    │   ├── symtab.s            Symbol table: hash table with linear probing (325 lines)
     │   │
     │   ├── meminfo.s           Linker symbol shim for C (cse_start, cse_end)
     │   └── c64_cse.cfg         Custom cc65 linker config (expanded ZP)
