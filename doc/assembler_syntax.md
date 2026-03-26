@@ -159,19 +159,22 @@ Advances PC by N bytes. In pass 2, emits N copies of the fill byte
 Advances PC to the next multiple of the given value. The gap is
 filled with $00. If PC is already aligned, does nothing.
 
-### `.inc` — Include Binary Data
+### `.bin` — Include Binary Data
 
 ```
-.inc "sprite.bin"
-.inc "charset.bin"
+.bin "sprite.bin"
+.bin "charset.bin"
 ```
 
 Reads a raw binary file from disk and emits its contents at the
 current PC. Advances PC by the file size. Useful for embedding
 sprite data, character sets, music, etc.
 
-**Note:** This is binary inclusion (like ca65's `.incbin`), not
-source inclusion. There is no source-level `.include` directive.
+### `.inc` — Include Source File (planned)
+
+**Not yet implemented.** Will read and assemble source from a
+separate file mid-assembly. Primary use case: shared constant
+definitions and hardware address headers.
 
 ## Example Program
 
