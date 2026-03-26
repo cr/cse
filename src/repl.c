@@ -607,6 +607,14 @@ void exec_line(void)
     /* file I/O */
     case 'l': cmd_load(q); break;
     case 'w': cmd_write(q); break;
+    case 'n':
+        newline();
+        io_puts("clear source? y/n ");
+        if (io_getc() == 'y') {
+            ed_new();
+            io_puts("ok");
+        }
+        clear_eol(); nl_prompt(); break;
 
     /* info / settings */
     case 'i': cmd_info(); break;

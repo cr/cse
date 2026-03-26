@@ -22,6 +22,9 @@ extern uint16_t ed_save_lines;
 /* Ensure gap buffer is initialized */
 void ed_ensure_init(void);
 
+/* Clear editor: reset gap buffer, clear dirty flag, clear filename */
+void ed_new(void);
+
 /* ── Gap buffer sequential reader (for source assembler) ── */
 
 /* Reset read pointer to start of source text */

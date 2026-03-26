@@ -137,6 +137,14 @@ void ed_ensure_init(void)
     if (buf_end == 0) ed_init();
 }
 
+/* ── Public: clear editor (new file) ──────────────────────── */
+
+void ed_new(void)
+{
+    ed_init();
+    cur_filename[0] = 0;
+}
+
 /* ── Source I/O — via disk.s callbacks ─────────────────── */
 
 /* Save callback: reads sequentially from the gap buffer.
