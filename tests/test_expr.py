@@ -23,8 +23,8 @@ DEV   = ROOT / "dev"
 EXPR_BIN = BUILD / "expr_test.bin"
 EXPR_MAP = BUILD / "expr_test.map"
 
-_STR_BUF  = 0x0B00   # must be above BSS end (check map: sym_table is ~768B)
-_NAME_BUF = 0x0C00
+_STR_BUF  = 0x1000   # must be above BSS end (sym_table ~768B + other)
+_NAME_BUF = 0x1100
 _RETURN   = 0x0F00
 
 # Return codes (must match expr.s)
@@ -177,7 +177,7 @@ POSITIVE = [
     ("$10-2*3",         10,     RC_ZP,  False, 0x1000, "$10-(2*3) = 10"),
     # shifts same precedence as mul/div: "1<<4+1" = "(1<<4)+1" = $11 = 17
     ("1<<4+1",          17,     RC_ZP,  False, 0x1000, "(1<<4)+1 = 17"),
-    ("$100>>4+1",       0x0011, RC_ZP,  False, 0x1000, "($100>>4)+1 = $11"),
+    ("$100>>4+1",       0x0011, RC_ABS, False, 0x1000, "($100>>4)+1 = $11 (ABS from $100)"),
 
     # ── precedence: boolean binds LOOSEST ────────────────────────
     ("$ff&$0f+$10",     0x001F, RC_ZP,  False, 0x1000, "AND lower prec than +"),
@@ -189,7 +189,7 @@ POSITIVE = [
     # ── compound expressions ─────────────────────────────────────
     ("(2+3)*4",         20,     RC_ZP,  False, 0x1000, "parens override prec"),
     ("$ff&($0f+$10)",   0x001F, RC_ZP,  False, 0x1000, "AND with parens"),
-    ("!$ff&$ff",        0xFF00, RC_ABS, False, 0x1000, "NOT then AND: (!$ff)&$ff = $ff00&$ff"),
+    ("!$ff&$ff",        0x0000, RC_ABS, False, 0x1000, "NOT then AND: (!$ff)&$ff = 0 (ABS from NOT)"),
     ("!($ff&$0f)",      0xFFF0, RC_ABS, False, 0x1000, "NOT of AND: !($0f) = $fff0"),
     ("1<<(4+4)",        0x0100, RC_ABS, False, 0x1000, "shift by expression"),
     (">($100*2)",       0x0002, RC_ZP,  False, 0x1000, "hi of mul result"),

@@ -1,11 +1,17 @@
 ; expr.s — Expression parser (recursive descent)
 ;
 ; Grammar:
-;   expr   = bool_term (('&' | '|' | '^') bool_term)*
+;   expr     = bool_term (('£' | '&' | '^') bool_term)*
 ;   bool_term = add_term (('+' | '-') add_term)*
-;   add_term  = factor
-;   factor = '$' hex | '%' binary | decimal | '*' | label | '~' factor
+;   add_term  = mul_term (('*' | '/' | '<<' | '>>') mul_term)*
+;   mul_term  = factor
+;   factor = '$' hex | '%' binary | decimal | '*'(PC) | label | '!' factor
 ;          | '<' factor | '>' factor | '(' expr ')'
+;
+; Operators (C64 keyboard friendly):
+;   &  = AND       £  = OR (pound key)    ^ = XOR (↑ key)    ! = NOT
+;   +  = add       -  = subtract
+;   *  = multiply  /  = integer divide    << = shift left     >> = shift right
 ;
 ; Return code in A:
 ;   0 = success, ZP-eligible (8-bit, result ≤ $FF, no wide factors)
@@ -14,6 +20,7 @@
 ;   3 = error: overflow
 ;   4 = error: mismatched parentheses
 ;   5 = error: undefined symbol
+;   6 = error: division by zero
 ;
 ; Width rule:
 ;   - $XX (1-2 hex digits) → narrow
@@ -22,7 +29,7 @@
 ;   - label → inherits sym_wide from definition
 ;   - * → wide if PC > $FF
 ;   - < and > → always narrow (clear wide)
-;   - ~ → width from result
+;   - ! → width from result
 ;   - +, -, &, |, ^ → wide if either operand wide OR result > $FF
 
         .export _expr_eval
@@ -38,6 +45,7 @@ ERR_EXPECTED = 2
 ERR_OVERFLOW = 3
 ERR_PAREN    = 4
 ERR_UNDEFINED = 5
+ERR_DIVZERO  = 6
 
 ; ── ZP imports ─────────────────────────────────────────────
 .importzp expr_ptr, expr_val, expr_wide
@@ -116,7 +124,7 @@ last_err:    .res 1
         PEEK_CHAR
         cmp #'&'
         beq @and
-        cmp #'|'
+        cmp #$5C                ; £ = OR (pound sign)
         beq @or
         cmp #'^'
         beq @xor
@@ -216,7 +224,7 @@ last_err:    .res 1
 ; parse_add — add_term (('+' | '-') add_term)*
 ; ═══════════════════════════════════════════════════════════
 .proc parse_add
-        jsr parse_factor
+        jsr parse_mul
         bcs @done
 
 @op:    jsr skip_sp
@@ -230,14 +238,13 @@ last_err:    .res 1
 
 @add:   ADV_PTR
         jsr skip_sp
-        ; save left on hardware stack + wide flag
         lda expr_wide
         sta _ex_wide_tmp
         lda expr_val+1
         pha
         lda expr_val
         pha
-        jsr parse_factor
+        jsr parse_mul
         bcs @add_err
         ; add
         pla
@@ -272,7 +279,7 @@ last_err:    .res 1
         pha
         lda expr_val
         pha
-        jsr parse_factor
+        jsr parse_mul
         bcs @sub_err
         ; left - right
         pla
@@ -300,6 +307,267 @@ last_err:    .res 1
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
+; parse_mul — mul_term (('*' | '/' | '<<' | '>>') mul_term)*
+;   Note: '*' alone (no operator context) = PC in parse_factor.
+;   Here '*' is binary multiply (between two values).
+; ═══════════════════════════════════════════════════════════
+.proc parse_mul
+        jsr parse_factor
+        bcs @done
+
+@op:    jsr skip_sp
+        PEEK_CHAR
+        cmp #'*'
+        beq @mul
+        cmp #'/'
+        beq @div
+        cmp #'<'
+        bne @chk_shr
+        ; peek next char — << or just < (end of expr)?
+        ldy #1
+        lda (expr_ptr),y
+        cmp #'<'
+        bne @done_clc           ; single < = not our operator
+        jmp @shl
+@chk_shr:
+        cmp #'>'
+        bne @done_clc
+        ldy #1
+        lda (expr_ptr),y
+        cmp #'>'
+        bne @done_clc
+        jmp @shr
+
+@done_clc:
+        clc
+@done:  rts
+
+; ── multiply ──────────────────────────────────────────
+@mul:   ADV_PTR
+        jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
+        lda expr_val+1
+        pha
+        lda expr_val
+        pha
+        jsr parse_factor
+        bcs @mul_err
+        ; 16-bit multiply: left (stack) × right (expr_val)
+        ; Result in expr_val. Uses _ex_tmp as accumulator.
+        pla
+        sta _ex_tmp             ; left lo
+        pla
+        sta _ex_tmp+1           ; left hi
+        jsr @do_mul16
+        jsr @merge_wide
+        jmp @op
+@mul_err:
+        tax
+        pla
+        pla
+        txa
+        sec
+        rts
+
+; ── divide ────────────────────────────────────────────
+@div:   ADV_PTR
+        jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
+        lda expr_val+1
+        pha
+        lda expr_val
+        pha
+        jsr parse_factor
+        bcs @div_err
+        ; Check divisor == 0
+        lda expr_val
+        ora expr_val+1
+        beq @divzero
+        ; 16-bit divide: left (stack) / right (expr_val)
+        pla
+        sta _ex_tmp             ; left lo = dividend
+        pla
+        sta _ex_tmp+1           ; left hi
+        jsr @do_div16
+        jsr @merge_wide
+        jmp @op
+@div_err:
+        tax
+        pla
+        pla
+        txa
+        sec
+        rts
+@divzero:
+        pla
+        pla
+        lda #ERR_DIVZERO
+        sec
+        rts
+
+; ── shift left ────────────────────────────────────────
+@shl:   ADV_PTR                 ; skip first <
+        ADV_PTR                 ; skip second <
+        jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
+        lda expr_val+1
+        pha
+        lda expr_val
+        pha
+        jsr parse_factor
+        bcs @shl_err
+        ; Left shift: left << right (right = shift count in expr_val lo)
+        pla
+        sta _ex_tmp
+        pla
+        sta _ex_tmp+1
+        ldx expr_val            ; shift count
+        beq @shl_done
+@shl_loop:
+        asl _ex_tmp
+        rol _ex_tmp+1
+        dex
+        bne @shl_loop
+@shl_done:
+        lda _ex_tmp
+        sta expr_val
+        lda _ex_tmp+1
+        sta expr_val+1
+        jsr @merge_wide
+        jmp @op
+@shl_err:
+        tax
+        pla
+        pla
+        txa
+        sec
+        rts
+
+; ── shift right ───────────────────────────────────────
+@shr:   ADV_PTR
+        ADV_PTR
+        jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
+        lda expr_val+1
+        pha
+        lda expr_val
+        pha
+        jsr parse_factor
+        bcs @shr_err
+        pla
+        sta _ex_tmp
+        pla
+        sta _ex_tmp+1
+        ldx expr_val
+        beq @shr_done
+@shr_loop:
+        lsr _ex_tmp+1
+        ror _ex_tmp
+        dex
+        bne @shr_loop
+@shr_done:
+        lda _ex_tmp
+        sta expr_val
+        lda _ex_tmp+1
+        sta expr_val+1
+        jsr @merge_wide
+        jmp @op
+@shr_err:
+        tax
+        pla
+        pla
+        txa
+        sec
+        rts
+
+; ── 16-bit multiply: _ex_tmp × expr_val → expr_val ───
+; Shift-and-add: shift right operand (expr_val), add left (_ex_tmp)
+; when bit is set. Result accumulates in place.
+@do_mul16:
+        lda expr_val
+        sta @m_lo               ; right operand (shifted)
+        lda expr_val+1
+        sta @m_hi
+        lda #0
+        sta expr_val            ; accumulator = 0
+        sta expr_val+1
+        ldx #16
+@m_loop:
+        lsr @m_hi               ; shift right operand right
+        ror @m_lo
+        bcc @m_skip
+        lda expr_val            ; add left operand
+        clc
+        adc _ex_tmp
+        sta expr_val
+        lda expr_val+1
+        adc _ex_tmp+1
+        sta expr_val+1
+@m_skip:
+        asl _ex_tmp             ; shift left operand left
+        rol _ex_tmp+1
+        dex
+        bne @m_loop
+        rts
+@m_lo:  .byte 0
+@m_hi:  .byte 0
+
+; ── 16-bit divide: _ex_tmp / expr_val → expr_val ─────
+; Unsigned 16/16 → 16 quotient. Remainder discarded.
+@do_div16:
+        ; dividend in _ex_tmp, divisor in expr_val
+        ; Algorithm: shift-subtract, 16 iterations
+        lda #0
+        sta @r_lo               ; remainder = 0
+        sta @r_hi
+        ldx #16
+@d_loop:
+        ; shift dividend left, MSB into remainder
+        asl _ex_tmp
+        rol _ex_tmp+1
+        rol @r_lo
+        rol @r_hi
+        ; try subtract divisor from remainder
+        lda @r_lo
+        sec
+        sbc expr_val
+        tay
+        lda @r_hi
+        sbc expr_val+1
+        bcc @d_skip             ; remainder < divisor
+        ; fit: store remainder, set quotient bit
+        sta @r_hi
+        sty @r_lo
+        inc _ex_tmp             ; set bit 0 of quotient
+@d_skip:
+        dex
+        bne @d_loop
+        ; quotient in _ex_tmp
+        lda _ex_tmp
+        sta expr_val
+        lda _ex_tmp+1
+        sta expr_val+1
+        rts
+@r_lo:  .byte 0
+@r_hi:  .byte 0
+
+; ── merge wide flag ───────────────────────────────────
+@merge_wide:
+        lda _ex_wide_tmp
+        ora expr_wide
+        sta expr_wide
+        lda expr_val+1
+        beq :+
+        lda #1
+        sta expr_wide
+:       rts
+.endproc
+
+; ═══════════════════════════════════════════════════════════
 ; parse_factor — single value or unary operator
 ; ═══════════════════════════════════════════════════════════
 .proc parse_factor
@@ -319,7 +587,7 @@ last_err:    .res 1
         cmp #'('
         bne :+
         jmp @paren
-:       cmp #'~'
+:       cmp #'!'                ; NOT (complement)
         bne :+
         jmp @complement
 :
@@ -399,7 +667,7 @@ last_err:    .res 1
         clc
 @ret2:  rts
 
-; ── ~ (complement) ────────────────────────────────────
+; ── ! (complement / NOT) ──────────────────────────────
 @complement:
         ADV_PTR
         jsr parse_factor
@@ -686,7 +954,7 @@ last_err:    .res 1
 ; ═══════════════════════════════════════════════════════════
 .proc _expr_error_str
         ldx last_err
-        cpx #6
+        cpx #7                  ; 0-6 valid error codes
         bcc :+
         ldx #0
 :       lda err_str_lo,x
@@ -702,13 +970,16 @@ err_str_lo:
         .byte <err_none, <err_none             ; 0=ZP, 1=ABS (not errors)
         .byte <err_expected, <err_overflow
         .byte <err_paren, <err_undefined
+        .byte <err_divzero
 err_str_hi:
         .byte >err_none, >err_none
         .byte >err_expected, >err_overflow
         .byte >err_paren, >err_undefined
+        .byte >err_divzero
 
 err_none:      .byte 0
 err_expected:  .byte "expected value", 0
 err_overflow:  .byte "overflow", 0
 err_paren:     .byte "missing )", 0
 err_undefined: .byte "undefined", 0
+err_divzero:   .byte "division by zero", 0
