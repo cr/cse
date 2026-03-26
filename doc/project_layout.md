@@ -48,7 +48,7 @@
     │   ├── mn_config.s         ┘
     │   │
     │   ├── asm_src.c           Source assembler (stub, 18 lines)
-    │   ├── symtab.c            Symbol table (stub, 21 lines)
+    │   ├── symtab.s            Symbol table: hash table with linear probing
     │   │
     │   ├── meminfo.s           Linker symbol shim for C (cse_start, cse_end)
     │   └── c64_cse.cfg         Custom cc65 linker config (expanded ZP)
@@ -165,7 +165,7 @@
                                                                  ├──ld65──► cse.prg
     c64.lib ─────────────────────────────────────────────────────┘
 
-C sources: main.c, repl.c, editor.c, asm_src.c, symtab.c (compiled via pattern rule).
+C sources: main.c, repl.c, editor.c, asm_src.c (compiled via pattern rule).
 ASM sources: 23 .s files (assembled via pattern rule).
 Linker config: src/c64_cse.cfg (expanded ZP: $02–$7F).
 

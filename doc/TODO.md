@@ -75,7 +75,7 @@
 ## Features
 
 - [ ] Source assembler (asm_src.c): 2-pass assembly from gap buffer
-- [ ] Symbol table (symtab.c): hash table for labels
+- [ ] Symbol table (symtab.s): hash table for labels
 - [ ] Expression parser: extend beyond hex literals (+, -, *, /, <, >, labels, %)
 - [ ] Directives: *= (origin), .byte, .word, .text, .cpu, .include
 - [ ] Labels: name: at start of line, .local labels with . prefix
