@@ -126,12 +126,16 @@ def _place_name(mem, name, addr=None):
     if addr is None:
         addr = _name_alloc_ptr
         _name_alloc_ptr += len(name) + 1
+    SPECIAL = {'_': 0xA4, '.': 0x2E}
     for i, ch in enumerate(name):
-        c = ord(ch)
-        if ord('a') <= c <= ord('z'):
-            c = c - ord('a') + 0x41  # PETSCII lowercase
-        elif ord('A') <= c <= ord('Z'):
-            c = c - ord('A') + 0xC1  # PETSCII uppercase (shifted)
+        if ch in SPECIAL:
+            c = SPECIAL[ch]
+        elif ord('a') <= ord(ch) <= ord('z'):
+            c = ord(ch) - ord('a') + 0x41  # PETSCII lowercase
+        elif ord('A') <= ord(ch) <= ord('Z'):
+            c = ord(ch) - ord('A') + 0xC1  # PETSCII uppercase (shifted)
+        else:
+            c = ord(ch)
         mem[addr + i] = c
     mem[addr + len(name)] = 0
     return addr

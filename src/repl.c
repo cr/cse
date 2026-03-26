@@ -666,8 +666,13 @@ void exec_line(void)
 
     /* calculator */
     case '?':
-    {   uint16_t val;
-        if (expr_eval(&q, &val) == 0) {
+    {   uint8_t rc;
+        uint16_t val;
+        /* Set expr_ptr to point at the argument string */
+        *(uint16_t *)expr_ptr = (uint16_t)q;
+        rc = expr_eval();
+        val = expr_val;
+        if (rc <= 1) {
             newline();
             /* hex: right-aligned in 6 cols ("  $ff" or "$ffff") */
             io_puts("; ");

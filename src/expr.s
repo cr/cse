@@ -1,63 +1,67 @@
 ; expr.s — Expression parser (recursive descent)
 ;
 ; Grammar:
-;   expr   = term (('+' | '-') term)*
-;   term   = factor
-;   factor = '$' hex | '#' decimal | '%' binary | '*' | label
+;   expr   = bool_term (('&' | '|' | '^') bool_term)*
+;   bool_term = add_term (('+' | '-') add_term)*
+;   add_term  = factor
+;   factor = '$' hex | '%' binary | decimal | '*' | label | '~' factor
 ;          | '<' factor | '>' factor | '(' expr ')'
 ;
-; Interface (ZP-based, no C stack):
-;   expr_ptr  (2B, imported): in/out — pointer to PETSCII input
-;   expr_val  (2B, imported): out — 16-bit result
-;   asm_pc    (2B, imported): in — current PC for '*'
+; Return code in A:
+;   0 = success, ZP-eligible (8-bit, result ≤ $FF, no wide factors)
+;   1 = success, ABS (16-bit or forced wide)
+;   2 = error: expected value
+;   3 = error: overflow
+;   4 = error: mismatched parentheses
+;   5 = error: undefined symbol
 ;
-;   _expr_eval:  C=0 success, C=1 error (A = error code)
-;
-; Error codes returned in A:
-;   ERR_EXPECTED  = 1   expected value
-;   ERR_OVERFLOW  = 2   value too large
-;   ERR_PAREN     = 3   mismatched parentheses
-;   ERR_UNDEFINED = 4   undefined symbol
+; Width rule:
+;   - $XX (1-2 hex digits) → narrow
+;   - $XXX/$XXXX (3-4 hex digits) → wide
+;   - decimal, binary → width from value (>$FF = wide)
+;   - label → inherits sym_wide from definition
+;   - * → wide if PC > $FF
+;   - < and > → always narrow (clear wide)
+;   - ~ → width from result
+;   - +, -, &, |, ^ → wide if either operand wide OR result > $FF
 
         .export _expr_eval
         .export _expr_error_str
 
         .import _sym_lookup
-        .importzp sym_name, sym_val
+        .importzp sym_name, sym_val, sym_wide
 
-; ── Error codes ─────────────────────────────────────────────
-ERR_NONE      = 0
-ERR_EXPECTED  = 1
-ERR_OVERFLOW  = 2
-ERR_PAREN     = 3
-ERR_UNDEFINED = 4
+; ── Return / error codes ───────────────────────────────────
+RC_ZP        = 0
+RC_ABS       = 1
+ERR_EXPECTED = 2
+ERR_OVERFLOW = 3
+ERR_PAREN    = 4
+ERR_UNDEFINED = 5
 
-; ── ZP imports ──────────────────────────────────────────────
-; expr_ptr/expr_val: shared pipeline registers (asm_vars.s)
-; al_pc: current program counter (asm_vars.s) — used for '*'
-.importzp expr_ptr, expr_val
+; ── ZP imports ─────────────────────────────────────────────
+.importzp expr_ptr, expr_val, expr_wide
 .importzp al_pc
-asm_pc = al_pc                   ; alias for readability
+asm_pc = al_pc
 
-; ── ZP scratch ──────────────────────────────────────────────
+; ── ZP scratch ─────────────────────────────────────────────
 .segment "ZEROPAGE"
-_ex_tmp:     .res 2              ; scratch for left-side save
+_ex_tmp:     .res 2              ; scratch
 _ex_digits:  .res 1              ; digit counter
+_ex_wide_tmp: .res 1             ; saved wide flag for left operand
 
-; ── BSS ─────────────────────────────────────────────────────
+; ── BSS ────────────────────────────────────────────────────
 .segment "BSS"
-last_err:    .res 1              ; last error code
+last_err:    .res 1
 
         .segment "CODE"
 
-; ── Helper: read current char (non-destructive) ────────────
-; Returns char in A, Y=0.  Does NOT advance pointer.
+; ── Macros ─────────────────────────────────────────────────
 .macro PEEK_CHAR
         ldy #0
         lda (expr_ptr),y
 .endmacro
 
-; ── Helper: advance expr_ptr by 1 ──────────────────────────
 .macro ADV_PTR
         inc expr_ptr
         bne :+
@@ -65,7 +69,7 @@ last_err:    .res 1              ; last error code
 :
 .endmacro
 
-; ── Helper: skip spaces ────────────────────────────────────
+; ── skip_sp ────────────────────────────────────────────────
 .proc skip_sp
 @lp:    PEEK_CHAR
         cmp #' '
@@ -76,25 +80,140 @@ last_err:    .res 1              ; last error code
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; _expr_eval — top level entry
-;   Parses expr at expr_ptr, writes result to expr_val.
-;   Returns C=0 ok, C=1 error (A = error code).
+; _expr_eval — entry point
+;   Returns A = 0 (ZP), 1 (ABS), or 2+ (error)
 ; ═══════════════════════════════════════════════════════════
 .proc _expr_eval
+        lda #0
+        sta expr_wide            ; start narrow
         jsr skip_sp
         jsr parse_expr
         bcs @err
-        lda #ERR_NONE
-        clc
+        ; Success: determine return code from wide flag
+        lda expr_val+1
+        bne @abs                 ; result > $FF → ABS
+        lda expr_wide
+        bne @abs                 ; forced wide → ABS
+        lda #RC_ZP
         rts
-@err:   rts                      ; A = error code, C=1
+@abs:   lda #RC_ABS
+        rts
+@err:   ; A already has error code (2+)
+        rts
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; parse_expr — expr = term (('+' | '-') term)*
+; parse_expr — bool_term (('&' | '|' | '^') bool_term)*
 ; ═══════════════════════════════════════════════════════════
 .proc parse_expr
-        jsr parse_factor         ; first term → expr_val
+        jsr parse_add
+        bcs @done
+
+@op:    jsr skip_sp
+        PEEK_CHAR
+        cmp #'&'
+        beq @and
+        cmp #'|'
+        beq @or
+        cmp #'^'
+        beq @xor
+        clc
+@done:  rts
+
+@and:   ADV_PTR
+        jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
+        lda expr_val+1
+        pha
+        lda expr_val
+        pha
+        jsr parse_add
+        bcs @and_err
+        pla
+        and expr_val
+        sta expr_val
+        pla
+        and expr_val+1
+        sta expr_val+1
+        jsr @merge_wide
+        jmp @op
+@and_err:
+        tax
+        pla
+        pla
+        txa
+        sec
+        rts
+
+@or:    ADV_PTR
+        jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
+        lda expr_val+1
+        pha
+        lda expr_val
+        pha
+        jsr parse_add
+        bcs @or_err
+        pla
+        ora expr_val
+        sta expr_val
+        pla
+        ora expr_val+1
+        sta expr_val+1
+        jsr @merge_wide
+        jmp @op
+@or_err:
+        tax
+        pla
+        pla
+        txa
+        sec
+        rts
+
+@xor:   ADV_PTR
+        jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
+        lda expr_val+1
+        pha
+        lda expr_val
+        pha
+        jsr parse_add
+        bcs @xor_err
+        pla
+        eor expr_val
+        sta expr_val
+        pla
+        eor expr_val+1
+        sta expr_val+1
+        jsr @merge_wide
+        jmp @op
+@xor_err:
+        tax
+        pla
+        pla
+        txa
+        sec
+        rts
+
+@merge_wide:
+        lda _ex_wide_tmp
+        ora expr_wide
+        sta expr_wide
+        lda expr_val+1
+        beq :+
+        lda #1
+        sta expr_wide
+:       rts
+.endproc
+
+; ═══════════════════════════════════════════════════════════
+; parse_add — add_term (('+' | '-') add_term)*
+; ═══════════════════════════════════════════════════════════
+.proc parse_add
+        jsr parse_factor
         bcs @done
 
 @op:    jsr skip_sp
@@ -103,53 +222,71 @@ last_err:    .res 1              ; last error code
         beq @add
         cmp #'-'
         beq @sub
-        clc                      ; success — not an operator, stop
+        clc
 @done:  rts
 
 @add:   ADV_PTR
         jsr skip_sp
-        ; save left side on hardware stack
+        ; save left on hardware stack + wide flag
+        lda expr_wide
+        sta _ex_wide_tmp
         lda expr_val+1
         pha
         lda expr_val
         pha
-        ; parse right side
         jsr parse_factor
         bcs @add_err
-        ; add: left (stack) + right (expr_val)
-        pla                      ; left lo
+        ; add
+        pla
         clc
         adc expr_val
         sta expr_val
-        pla                      ; left hi
+        pla
         adc expr_val+1
         sta expr_val+1
-        jmp @op
+        ; merge wide
+        lda _ex_wide_tmp
+        ora expr_wide
+        sta expr_wide
+        lda expr_val+1
+        beq :+
+        lda #1
+        sta expr_wide
+:       jmp @op
 @add_err:
-        tax                      ; save error code
+        tax
         pla
-        pla                      ; clean stack
-        txa                      ; restore error code
+        pla
+        txa
         sec
         rts
 
 @sub:   ADV_PTR
         jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
         lda expr_val+1
         pha
         lda expr_val
         pha
         jsr parse_factor
         bcs @sub_err
-        ; subtract: left (stack) - right (expr_val)
-        pla                      ; left lo
+        ; left - right
+        pla
         sec
         sbc expr_val
         sta expr_val
-        pla                      ; left hi
+        pla
         sbc expr_val+1
         sta expr_val+1
-        jmp @op
+        lda _ex_wide_tmp
+        ora expr_wide
+        sta expr_wide
+        lda expr_val+1
+        beq :+
+        lda #1
+        sta expr_wide
+:       jmp @op
 @sub_err:
         tax
         pla
@@ -177,14 +314,20 @@ last_err:    .res 1              ; last error code
         cmp #'>'
         beq @hi_byte
         cmp #'('
-        beq @paren
+        bne :+
+        jmp @paren
+:       cmp #'~'
+        bne :+
+        jmp @complement
+:
 
-        ; Check for bare decimal digit (0-9 without prefix)
+        ; bare decimal (0-9)
         cmp #'0'
         bcc @chk_label
         cmp #'9'+1
         bcc @decimal_bare
-        ; Check for label: starts with a letter (PETSCII $41-$5A)
+
+        ; label (a-z)
 @chk_label:
         cmp #$41
         bcc @err_expected
@@ -203,111 +346,135 @@ last_err:    .res 1              ; last error code
 @to_label:
         jmp @label
 
-; ── $hex ────────────────────────────────────────────────
-@hex:   ADV_PTR                  ; skip '$'
+; ── $hex ───────────────────────────────────────────────
+@hex:   ADV_PTR
         jmp parse_hex
 
-; ── bare decimal (no prefix) ───────────────────────────
+; ── bare decimal ───────────────────────────────────────
 @decimal_bare:
-        jmp parse_decimal        ; digit still current, no skip
+        jmp parse_decimal
 
-; ── %binary ─────────────────────────────────────────────
+; ── %binary ────────────────────────────────────────────
 @binary:
-        ADV_PTR                  ; skip '%'
+        ADV_PTR
         jmp parse_binary
 
-; ── * (program counter) ────────────────────────────────
+; ── * (program counter) ───────────────────────────────
 @star:  ADV_PTR
         lda asm_pc
         sta expr_val
         lda asm_pc+1
         sta expr_val+1
+        ; wide if PC > $FF
+        lda asm_pc+1
+        beq @star_zp
+        lda #1
+        sta expr_wide
+@star_zp:
         clc
         rts
 
-; ── < (lo byte) ────────────────────────────────────────
+; ── < (lo byte) — clears wide ────────────────────────
 @lo_byte:
         ADV_PTR
-        jsr parse_factor         ; recursive
+        jsr parse_factor
         bcs @ret
         lda #0
-        sta expr_val+1           ; hi = 0, lo unchanged
+        sta expr_val+1
+        sta expr_wide            ; < always produces ZP
         clc
 @ret:   rts
 
-; ── > (hi byte) ────────────────────────────────────────
+; ── > (hi byte) — clears wide ────────────────────────
 @hi_byte:
         ADV_PTR
-        jsr parse_factor         ; recursive
+        jsr parse_factor
         bcs @ret2
         lda expr_val+1
         sta expr_val
         lda #0
         sta expr_val+1
+        sta expr_wide            ; > always produces ZP
         clc
 @ret2:  rts
 
-; ── ( expr ) ───────────────────────────────────────────
-@paren: ADV_PTR                  ; skip '('
-        jsr skip_sp
-        jsr parse_expr           ; recursive
+; ── ~ (complement) ────────────────────────────────────
+@complement:
+        ADV_PTR
+        jsr parse_factor
         bcs @ret3
+        lda expr_val
+        eor #$FF
+        sta expr_val
+        lda expr_val+1
+        eor #$FF
+        sta expr_val+1
+        ; wide if result > $FF
+        lda expr_val+1
+        beq @ret3
+        lda #1
+        sta expr_wide
+@ret3:  clc
+        rts
+
+; ── ( expr ) ──────────────────────────────────────────
+@paren: ADV_PTR
+        jsr skip_sp
+        jsr parse_expr
+        bcs @ret4
         jsr skip_sp
         PEEK_CHAR
         cmp #')'
         bne @err_paren
-        ADV_PTR                  ; skip ')'
+        ADV_PTR
         clc
-@ret3:  rts
+@ret4:  rts
 
 @err_paren:
         lda #ERR_PAREN
         sec
         rts
 
-; ── label ──────────────────────────────────────────────
+; ── label ─────────────────────────────────────────────
 @label:
-        ; expr_ptr points to start of identifier
-        ; Set sym_name = expr_ptr for sym_lookup
         lda expr_ptr
         sta sym_name
         lda expr_ptr+1
         sta sym_name+1
-        ; Scan past identifier chars (letters, digits, '_', '.')
 @lscan: ADV_PTR
         PEEK_CHAR
         cmp #$41
         bcc @lchk_dig
         cmp #$5B
-        bcc @lscan               ; a-z
+        bcc @lscan
 @lchk_dig:
         cmp #'0'
         bcc @lchk_other
         cmp #'9'+1
-        bcc @lscan               ; 0-9
+        bcc @lscan
 @lchk_other:
         cmp #'_'
         beq @lscan
         cmp #'.'
         beq @lscan
-        ; End of identifier — expr_ptr now past it
-        ; We need to NUL-terminate the name for sym_lookup.
-        ; But we can't modify the input string!
-        ; Instead, save the char at the end, write NUL, lookup, restore.
+        ; End of identifier — NUL-terminate, lookup, restore
         PEEK_CHAR
-        pha                      ; save original char
+        pha
         lda #0
-        sta (expr_ptr),y         ; temporary NUL (Y=0 from PEEK_CHAR)
+        sta (expr_ptr),y
         jsr _sym_lookup
         pla
-        ldy #0                   ; Y was clobbered by sym_lookup!
-        sta (expr_ptr),y         ; restore original char
+        ldy #0
+        sta (expr_ptr),y
         bcs @err_undef
-        ; sym_val has the value
+        ; sym_val and sym_wide set by lookup
         lda sym_val
         sta expr_val
         lda sym_val+1
         sta expr_val+1
+        lda sym_wide
+        ora expr_wide
+        sta expr_wide
         clc
         rts
 
@@ -318,7 +485,7 @@ last_err:    .res 1              ; last error code
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; parse_hex — parse 1-4 hex digits at expr_ptr
+; parse_hex — 1-4 hex digits. Sets wide if 3+ digits.
 ; ═══════════════════════════════════════════════════════════
 .proc parse_hex
         lda #0
@@ -327,9 +494,8 @@ last_err:    .res 1              ; last error code
         sta _ex_digits
 
 @loop:  PEEK_CHAR
-        jsr hex_nybble           ; A = 0-15 or C=1
+        jsr hex_nybble
         bcs @done
-        ; shift val left 4 and OR
         pha
         asl expr_val
         rol expr_val+1
@@ -347,13 +513,19 @@ last_err:    .res 1              ; last error code
         lda _ex_digits
         cmp #5
         bcc @loop
-        ; overflow — 5+ digits
         lda #ERR_OVERFLOW
         sec
         rts
 
 @done:  lda _ex_digits
         beq @no_digits
+        ; Set wide if 3+ digits
+        cmp #3
+        bcc @narrow
+        lda #1
+        ora expr_wide
+        sta expr_wide
+@narrow:
         clc
         rts
 @no_digits:
@@ -363,8 +535,7 @@ last_err:    .res 1              ; last error code
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; parse_decimal — parse decimal digits after '#'
-; Result in expr_val.  Max 65535.
+; parse_decimal — bare digits. Wide if result > $FF.
 ; ═══════════════════════════════════════════════════════════
 .proc parse_decimal
         lda #0
@@ -378,24 +549,19 @@ last_err:    .res 1              ; last error code
         cmp #'9'+1
         bcs @done
         sec
-        sbc #'0'                 ; A = digit 0-9
+        sbc #'0'
         pha
-
-        ; val = val * 10: val*8 + val*2
-        ; Save val
+        ; val = val * 10
         lda expr_val
         sta _ex_tmp
         lda expr_val+1
         sta _ex_tmp+1
-        ; val *= 2
         asl expr_val
         rol expr_val+1
         bcs @overflow
-        ; val *= 4
         asl expr_val
         rol expr_val+1
         bcs @overflow
-        ; val += saved (now val = orig*4 + orig = orig*5)
         lda expr_val
         clc
         adc _ex_tmp
@@ -403,12 +569,10 @@ last_err:    .res 1              ; last error code
         lda expr_val+1
         adc _ex_tmp+1
         bcs @overflow
-        sta expr_val+1           ; store hi AFTER overflow check
-        ; val *= 2 (now val = orig*10)
+        sta expr_val+1
         asl expr_val
         rol expr_val+1
         bcs @overflow
-
         ; val += digit
         pla
         clc
@@ -417,14 +581,14 @@ last_err:    .res 1              ; last error code
         lda expr_val+1
         adc #0
         sta expr_val+1
-        bcs @overflow2           ; digit already popped — no PLA needed
+        bcs @overflow2
 
         ADV_PTR
         inc _ex_digits
         jmp @loop
 
 @overflow:
-        pla                      ; clean stack (digit was pushed)
+        pla
 @overflow2:
         lda #ERR_OVERFLOW
         sec
@@ -432,7 +596,13 @@ last_err:    .res 1              ; last error code
 
 @done:  lda _ex_digits
         beq @no_digits
-        clc
+        ; wide if result > $FF
+        lda expr_val+1
+        beq :+
+        lda #1
+        ora expr_wide
+        sta expr_wide
+:       clc
         rts
 @no_digits:
         lda #ERR_EXPECTED
@@ -441,7 +611,7 @@ last_err:    .res 1              ; last error code
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; parse_binary — parse binary digits after '%'
+; parse_binary — after %. Wide if result > $FF.
 ; ═══════════════════════════════════════════════════════════
 .proc parse_binary
         lda #0
@@ -457,11 +627,10 @@ last_err:    .res 1              ; last error code
         jmp @done
 
 @bit:   sec
-        sbc #'0'                 ; A = 0 or 1
-        ; Shift val left and OR
+        sbc #'0'
         asl expr_val
         rol expr_val+1
-        bcs @overflow_chk        ; check if bit 16 was shifted out
+        bcs @overflow_chk
         ora expr_val
         sta expr_val
         ADV_PTR
@@ -476,7 +645,12 @@ last_err:    .res 1              ; last error code
 
 @done:  lda _ex_digits
         beq @no_digits
-        clc
+        lda expr_val+1
+        beq :+
+        lda #1
+        ora expr_wide
+        sta expr_wide
+:       clc
         rts
 @no_digits:
         lda #ERR_EXPECTED
@@ -485,8 +659,7 @@ last_err:    .res 1              ; last error code
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; hex_nybble — convert char in A to 0-15
-;   Returns value in A, C=0. If not hex, C=1.
+; hex_nybble — A = char → 0-15 (C=0) or C=1 if not hex
 ; ═══════════════════════════════════════════════════════════
 .proc hex_nybble
         cmp #'0'
@@ -514,7 +687,10 @@ last_err:    .res 1              ; last error code
 ; ═══════════════════════════════════════════════════════════
 .proc _expr_error_str
         ldx last_err
-        lda err_str_lo,x
+        cpx #6
+        bcc :+
+        ldx #0
+:       lda err_str_lo,x
         pha
         lda err_str_hi,x
         tax
@@ -522,12 +698,15 @@ last_err:    .res 1              ; last error code
         rts
 .endproc
 
-; ── Error string table ──────────────────────────────────
         .segment "RODATA"
 err_str_lo:
-        .byte <err_none, <err_expected, <err_overflow, <err_paren, <err_undefined
+        .byte <err_none, <err_none             ; 0=ZP, 1=ABS (not errors)
+        .byte <err_expected, <err_overflow
+        .byte <err_paren, <err_undefined
 err_str_hi:
-        .byte >err_none, >err_expected, >err_overflow, >err_paren, >err_undefined
+        .byte >err_none, >err_none
+        .byte >err_expected, >err_overflow
+        .byte >err_paren, >err_undefined
 
 err_none:      .byte 0
 err_expected:  .byte "expected value", 0

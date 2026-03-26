@@ -4,10 +4,10 @@
 ; separate pool (caller manages pool allocation).
 ;
 ; Interface (all via ZP):
-;   sym_define:  in: sym_name (ptr), sym_val (16-bit)
+;   sym_define:  in: sym_name (ptr), sym_val (16-bit), sym_wide (0=ZP, 1=ABS)
 ;                out: C=1 if table full
 ;   sym_lookup:  in: sym_name (ptr)
-;                out: sym_val (16-bit), C=1 if not found
+;                out: sym_val (16-bit), sym_wide (0/1), C=1 if not found
 ;   sym_clear:   (no args) — wipes all slots
 ;
 ; Hash: h = 0; for each char: h = h * 5 + char
@@ -16,12 +16,12 @@
 
         .export _sym_define, _sym_lookup, _sym_clear, _sym_count
 
-        .importzp sym_name, sym_val
+        .importzp sym_name, sym_val, sym_wide
 
 ; ── Constants ────────────────────────────────────────────
 SYM_SLOTS  = 128
 SYM_MASK   = SYM_SLOTS - 1
-ENTRY_SIZE = 5              ; hash(1) + value(2) + name_ptr(2)
+ENTRY_SIZE = 6              ; hash(1) + value(2) + name_ptr(2) + wide(1)
 
 ; ── ZP scratch ───────────────────────────────────────────
 .segment "ZEROPAGE"
@@ -33,7 +33,7 @@ _st_count:   .res 1         ; number of defined symbols
 
 ; ── BSS ──────────────────────────────────────────────────
 .segment "BSS"
-sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 5 = 640 bytes
+sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
 
 ; Name string pool: for this initial implementation, names are
 ; stored by the CALLER (in source buffer or line buffer).
@@ -52,13 +52,10 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 5 = 640 bytes
         tax
 @clr:   sta sym_table,x
         sta sym_table+$100,x
+        sta sym_table+$200,x
         inx
         bne @clr
-        ; Clear remaining bytes (640 = $280, need $80 more after 2 pages)
-        ldx #$80
-@clr2:  sta sym_table+$200,x
-        dex
-        bpl @clr2
+        ; 128 × 6 = 768 = 3 × 256 — exactly 3 pages, done
         rts
 .endproc
 
@@ -106,24 +103,30 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 5 = 640 bytes
 ; ═════════════════════════════════════════════════════════
 ; entry_ptr — compute pointer to sym_table[_st_idx]
 ;   Sets _st_ptr.  Clobbers A.
-;   entry address = sym_table + _st_idx * 5
+;   entry address = sym_table + _st_idx * 6
 ; ═════════════════════════════════════════════════════════
 .proc entry_ptr
-        ; _st_ptr = sym_table + _st_idx * 5
-        ; idx * 5 can be up to 127 * 5 = 635 = $027B (needs 16-bit)
+        ; _st_ptr = sym_table + _st_idx * 6
+        ; idx * 6 = idx * 4 + idx * 2 (max 127 * 6 = 762 = $02FA)
         lda _st_idx
-        asl
-        asl                     ; A = idx × 4 (lo), carry = hi bit
-        sta _st_ptr             ; save lo(×4)
+        asl                     ; × 2
+        sta _st_ptr             ; save lo(×2)
         lda #0
-        rol                     ; A = hi(×4) = 0 or 1
-        sta _st_ptr+1           ; save hi(×4)
+        rol                     ; hi(×2)
+        sta _st_ptr+1
+        lda _st_ptr
+        asl                     ; lo(×4)
+        sta _st_nptr            ; temp lo(×4)
+        lda _st_ptr+1
+        rol                     ; hi(×4)
+        sta _st_nptr+1          ; temp hi(×4)
+        ; ×6 = ×4 + ×2
         lda _st_ptr
         clc
-        adc _st_idx             ; lo(×5) = lo(×4) + idx
+        adc _st_nptr
         sta _st_ptr
         lda _st_ptr+1
-        adc #0                  ; hi(×5) = hi(×4) + carry
+        adc _st_nptr+1
         sta _st_ptr+1
         ; Now add sym_table base address
         lda _st_ptr
@@ -223,12 +226,15 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 5 = 640 bytes
         inc _st_count
 
 @store_val:
-        ; Write value
+        ; Write value + wide flag
         lda sym_val
         ldy #1
         sta (_st_ptr),y
         lda sym_val+1
         iny
+        sta (_st_ptr),y
+        lda sym_wide
+        ldy #5
         sta (_st_ptr),y
 
         clc                     ; success
@@ -279,13 +285,16 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 5 = 640 bytes
         jsr names_equal
         bne @next
 
-        ; Found — read value
+        ; Found — read value + wide flag
         ldy #1
         lda (_st_ptr),y
         sta sym_val
         iny
         lda (_st_ptr),y
         sta sym_val+1
+        ldy #5
+        lda (_st_ptr),y
+        sta sym_wide
         clc                     ; found
         rts
 

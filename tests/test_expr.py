@@ -1,12 +1,15 @@
 """
 test_expr.py — Expression parser tests (expr.s + symtab.s)
 
-All tests in two parametrized lists:
-  POSITIVE — (expression, expected_value, needs_symbols, pc, description)
-  NEGATIVE — (expression, expected_error, needs_symbols, description)
+Return code: 0 = valid ZP (8-bit), 1 = valid ABS (16-bit), 2+ = error.
+Width rule: 3+ hex digits force ABS. Labels inherit width from definition.
+< and > at expression start force ZP. Result > $FF forces ABS.
 
-Symbol fixture preloads: zero=$0000, one=$0001, page=$0100, screen=$0400,
-start=$0800, table=$C000, top=$FFFF, lo_val=$0042, port=$D020.
+Symbol fixture: (name, value, wide_flag)
+  zero=$0000(zp), one=$0001(zp), page=$0100(abs), screen=$0400(abs),
+  start=$0800(abs), table=$C000(abs), top=$FFFF(abs),
+  lo_val=$0042(zp), zp_addr=$0042(abs — defined as $0042 with 4 digits),
+  port=$D020(abs).
 """
 
 import subprocess, pathlib, re, pytest
@@ -20,142 +23,164 @@ DEV   = ROOT / "dev"
 EXPR_BIN = BUILD / "expr_test.bin"
 EXPR_MAP = BUILD / "expr_test.map"
 
-_STR_BUF  = 0x0A00
-_NAME_BUF = 0x0B00
+_STR_BUF  = 0x0B00   # must be above BSS end (check map: sym_table is ~768B)
+_NAME_BUF = 0x0C00
 _RETURN   = 0x0F00
 
-# Error codes (must match expr.s)
-ERR_EXPECTED  = 1
-ERR_OVERFLOW  = 2
-ERR_PAREN     = 3
-ERR_UNDEFINED = 4
+# Return codes (must match expr.s)
+RC_ZP        = 0   # valid, 8-bit / ZP-eligible
+RC_ABS       = 1   # valid, 16-bit / force ABS
+ERR_EXPECTED = 2   # expected value
+ERR_OVERFLOW = 3   # value too large
+ERR_PAREN    = 4   # mismatched parens
+ERR_UNDEFINED = 5  # undefined symbol
 
+# Symbols: (value, wide_flag)
+# lo_val is defined with 2-digit hex ($42) → ZP
+# zp_addr is defined with 4-digit hex ($0042) → ABS (same value, different width)
 SYMBOLS = {
-    "zero": 0x0000, "one": 0x0001, "page": 0x0100, "screen": 0x0400,
-    "start": 0x0800, "table": 0xC000, "top": 0xFFFF,
-    "lo_val": 0x0042, "port": 0xD020,
+    "zero":    (0x0000, 0),  # $00 → ZP
+    "one":     (0x0001, 0),  # $01 → ZP
+    "page":    (0x0100, 1),  # $0100 → ABS
+    "screen":  (0x0400, 1),  # $0400 → ABS
+    "start":   (0x0800, 1),  # $0800 → ABS
+    "table":   (0xC000, 1),  # $c000 → ABS
+    "top":     (0xFFFF, 1),  # $ffff → ABS
+    "lo_val":  (0x0042, 0),  # $42 → ZP
+    "zp_addr": (0x0042, 1),  # $0042 → ABS (forced wide by 4-digit definition)
+    "port":    (0xD020, 1),  # $d020 → ABS
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# Test data: (expr_string, expected_value, needs_symbols, pc, purpose)
+# (expression, expected_value, expected_rc, needs_symbols, pc, purpose)
+#   rc: RC_ZP=0, RC_ABS=1
 # ═══════════════════════════════════════════════════════════════════
 POSITIVE = [
-    # ── hex literals ($) ──────────────────────────────────────────
-    ("$0",              0x0000, False, 0x1000, "hex zero"),
-    ("$f",              0x000F, False, 0x1000, "hex single digit"),
-    ("$ff",             0x00FF, False, 0x1000, "hex 2 digits"),
-    ("$0100",           0x0100, False, 0x1000, "hex 4 digits"),
-    ("$abcd",           0xABCD, False, 0x1000, "hex letters"),
-    ("$ffff",           0xFFFF, False, 0x1000, "hex max"),
-    ("$0000",           0x0000, False, 0x1000, "hex explicit zero"),
-    ("  $42",           0x0042, False, 0x1000, "hex leading spaces"),
+    # ── hex: width from digit count ──────────────────────────────
+    ("$0",              0x0000, RC_ZP,  False, 0x1000, "hex 1 digit → ZP"),
+    ("$f",              0x000F, RC_ZP,  False, 0x1000, "hex 1 digit letter → ZP"),
+    ("$ff",             0x00FF, RC_ZP,  False, 0x1000, "hex 2 digits → ZP"),
+    ("$42",             0x0042, RC_ZP,  False, 0x1000, "hex 2 digits → ZP"),
+    ("$0100",           0x0100, RC_ABS, False, 0x1000, "hex 4 digits → ABS"),
+    ("$abcd",           0xABCD, RC_ABS, False, 0x1000, "hex 4 digits letters → ABS"),
+    ("$ffff",           0xFFFF, RC_ABS, False, 0x1000, "hex 4 digits max → ABS"),
+    ("$0000",           0x0000, RC_ABS, False, 0x1000, "hex 4 digits zero → ABS (forced)"),
+    ("$0042",           0x0042, RC_ABS, False, 0x1000, "hex 4 digits ≤$FF → ABS (forced)"),
+    ("$042",            0x0042, RC_ABS, False, 0x1000, "hex 3 digits → ABS (forced)"),
+    ("  $42",           0x0042, RC_ZP,  False, 0x1000, "hex leading spaces → ZP"),
 
-    # ── decimal literals (bare digits) ────────────────────────────
-    ("0",               0,      False, 0x1000, "decimal zero"),
-    ("1",               1,      False, 0x1000, "decimal one"),
-    ("10",              10,     False, 0x1000, "decimal ten"),
-    ("100",             100,    False, 0x1000, "decimal hundred"),
-    ("255",             255,    False, 0x1000, "decimal 255"),
-    ("256",             256,    False, 0x1000, "decimal 256"),
-    ("1000",            1000,   False, 0x1000, "decimal thousand"),
-    ("65535",           65535,  False, 0x1000, "decimal max u16"),
+    # ── decimal: width from value ────────────────────────────────
+    ("0",               0,      RC_ZP,  False, 0x1000, "decimal 0 → ZP"),
+    ("1",               1,      RC_ZP,  False, 0x1000, "decimal 1 → ZP"),
+    ("255",             255,    RC_ZP,  False, 0x1000, "decimal 255 → ZP"),
+    ("256",             256,    RC_ABS, False, 0x1000, "decimal 256 → ABS"),
+    ("1000",            1000,   RC_ABS, False, 0x1000, "decimal 1000 → ABS"),
+    ("65535",           65535,  RC_ABS, False, 0x1000, "decimal max → ABS"),
+    ("10",              10,     RC_ZP,  False, 0x1000, "decimal 10 → ZP"),
+    ("100",             100,    RC_ZP,  False, 0x1000, "decimal 100 → ZP"),
 
-    # ── binary literals (%) ───────────────────────────────────────
-    ("%0",              0x00,   False, 0x1000, "binary zero"),
-    ("%1",              0x01,   False, 0x1000, "binary one"),
-    ("%10101010",       0xAA,   False, 0x1000, "binary alternating"),
-    ("%11111111",       0xFF,   False, 0x1000, "binary 8-bit max"),
-    ("%100000000",      0x100,  False, 0x1000, "binary 9-bit"),
-    ("%1111111111111111", 0xFFFF, False, 0x1000, "binary 16-bit max"),
+    # ── binary: width from value ─────────────────────────────────
+    ("%0",              0x00,   RC_ZP,  False, 0x1000, "binary 0 → ZP"),
+    ("%1",              0x01,   RC_ZP,  False, 0x1000, "binary 1 → ZP"),
+    ("%10101010",       0xAA,   RC_ZP,  False, 0x1000, "binary $AA → ZP"),
+    ("%11111111",       0xFF,   RC_ZP,  False, 0x1000, "binary $FF → ZP"),
+    ("%100000000",      0x100,  RC_ABS, False, 0x1000, "binary 9-bit → ABS"),
+    ("%1111111111111111", 0xFFFF, RC_ABS, False, 0x1000, "binary 16-bit → ABS"),
 
-    # ── arithmetic (+/-) ─────────────────────────────────────────
-    ("$1000+$10",       0x1010, False, 0x1000, "hex + hex"),
-    ("$1000-$1",        0x0FFF, False, 0x1000, "hex - hex"),
-    ("$10+$20+$30",     0x0060, False, 0x1000, "triple add"),
-    ("$100-$10-$1",     0x00EF, False, 0x1000, "triple sub"),
-    ("$ff+1",           0x0100, False, 0x1000, "hex + decimal"),
-    ("0+0",             0x0000, False, 0x1000, "zero + zero"),
-    ("$ffff+1",         0x0000, False, 0x1000, "16-bit wrap"),
-    ("0-1",             0xFFFF, False, 0x1000, "underflow wraps"),
-    ("$1000+16",        0x1010, False, 0x1000, "hex + decimal mixed"),
-    ("$80+%10000000",   0x0100, False, 0x1000, "hex + binary mixed"),
-    ("$10 + $20",       0x0030, False, 0x1000, "spaces around +"),
-    ("$100-$10-$20-$30", 0x00A0, False, 0x1000, "long sub chain"),
+    # ── arithmetic: wide propagates ──────────────────────────────
+    ("$10+$20",         0x0030, RC_ZP,  False, 0x1000, "ZP + ZP → ZP"),
+    ("$1000+$10",       0x1010, RC_ABS, False, 0x1000, "ABS + ZP → ABS"),
+    ("$ff+1",           0x0100, RC_ABS, False, 0x1000, "ZP+ZP but result>$FF → ABS"),
+    ("$1000-$1",        0x0FFF, RC_ABS, False, 0x1000, "ABS - ZP → ABS"),
+    ("$10+$20+$30",     0x0060, RC_ZP,  False, 0x1000, "triple ZP add → ZP"),
+    ("$100-$10-$1",     0x00EF, RC_ABS, False, 0x1000, "ABS chain result ≤$FF → still ABS"),
+    ("0+0",             0x0000, RC_ZP,  False, 0x1000, "zero + zero → ZP"),
+    ("$ffff+1",         0x0000, RC_ABS, False, 0x1000, "16-bit wrap → ABS"),
+    ("0-1",             0xFFFF, RC_ABS, False, 0x1000, "underflow → ABS"),
+    ("$1000+16",        0x1010, RC_ABS, False, 0x1000, "ABS + decimal → ABS"),
+    ("$80+%10000000",   0x0100, RC_ABS, False, 0x1000, "result > $FF → ABS"),
+    ("$10 + $20",       0x0030, RC_ZP,  False, 0x1000, "spaces around + → ZP"),
+    ("$100-$10-$20-$30", 0x00A0, RC_ABS, False, 0x1000, "ABS chain → ABS"),
 
-    # ── lo/hi byte operators (<, >) ──────────────────────────────
-    ("<$1234",          0x0034, False, 0x1000, "lo byte"),
-    (">$1234",          0x0012, False, 0x1000, "hi byte"),
-    ("<$ff",            0x00FF, False, 0x1000, "lo of 8-bit"),
-    (">$ff",            0x0000, False, 0x1000, "hi of 8-bit"),
-    ("<$0000",          0x0000, False, 0x1000, "lo of zero"),
-    (">$0000",          0x0000, False, 0x1000, "hi of zero"),
-    ("<$ffff",          0x00FF, False, 0x1000, "lo of max"),
-    (">$ffff",          0x00FF, False, 0x1000, "hi of max"),
-    ("<($1000+$234)",   0x0034, False, 0x1000, "lo of sum"),
-    (">($1000+$234)",   0x0012, False, 0x1000, "hi of sum"),
+    # ── lo/hi: always ZP ────────────────────────────────────────
+    ("<$1234",          0x0034, RC_ZP,  False, 0x1000, "lo byte → ZP"),
+    (">$1234",          0x0012, RC_ZP,  False, 0x1000, "hi byte → ZP"),
+    ("<$ff",            0x00FF, RC_ZP,  False, 0x1000, "lo of ZP → ZP"),
+    (">$ff",            0x0000, RC_ZP,  False, 0x1000, "hi of ZP → ZP"),
+    ("<$0000",          0x0000, RC_ZP,  False, 0x1000, "lo of zero → ZP"),
+    (">$0000",          0x0000, RC_ZP,  False, 0x1000, "hi of zero → ZP"),
+    ("<$ffff",          0x00FF, RC_ZP,  False, 0x1000, "lo of max → ZP"),
+    (">$ffff",          0x00FF, RC_ZP,  False, 0x1000, "hi of max → ZP"),
+    ("<($1000+$234)",   0x0034, RC_ZP,  False, 0x1000, "lo of ABS sum → ZP"),
+    (">($1000+$234)",   0x0012, RC_ZP,  False, 0x1000, "hi of ABS sum → ZP"),
 
-    # ── parentheses ──────────────────────────────────────────────
-    ("($10)",           0x0010, False, 0x1000, "simple parens"),
-    ("($10+$20)",       0x0030, False, 0x1000, "add in parens"),
-    ("($100-$10)+$5",   0x00F5, False, 0x1000, "parens + value"),
-    ("$5+($100-$10)",   0x00F5, False, 0x1000, "value + parens"),
-    ("(($10+$20)+$30)", 0x0060, False, 0x1000, "nested parens"),
+    # ── parentheses: inherit width ───────────────────────────────
+    ("($10)",           0x0010, RC_ZP,  False, 0x1000, "parens ZP → ZP"),
+    ("($10+$20)",       0x0030, RC_ZP,  False, 0x1000, "parens ZP+ZP → ZP"),
+    ("($0100-$10)+$5",  0x00F5, RC_ABS, False, 0x1000, "parens ABS+ZP → ABS"),
+    ("$5+($100-$10)",   0x00F5, RC_ABS, False, 0x1000, "ZP+parens ABS → ABS"),
+    ("(($10+$20)+$30)", 0x0060, RC_ZP,  False, 0x1000, "nested parens ZP → ZP"),
 
-    # ── program counter (*) ──────────────────────────────────────
-    ("*",               0x1000, False, 0x1000, "star alone"),
-    ("*+3",             0x2003, False, 0x2000, "star + offset"),
-    ("*-$10",           0x2FF0, False, 0x3000, "star - offset"),
-    ("*",               0xC000, False, 0xC000, "star at $C000"),
+    # ── program counter: width from PC value ─────────────────────
+    ("*",               0x1000, RC_ABS, False, 0x1000, "star $1000 → ABS"),
+    ("*+3",             0x2003, RC_ABS, False, 0x2000, "star + offset → ABS"),
+    ("*-$10",           0x2FF0, RC_ABS, False, 0x3000, "star - offset → ABS"),
+    ("*",               0x0042, RC_ZP,  False, 0x0042, "star $42 → ZP"),
 
-    # ── labels (require symbol table) ────────────────────────────
-    ("start",           0x0800, True, 0x1000, "simple label"),
-    ("start+$10",       0x0810, True, 0x1000, "label + hex"),
-    ("table-$100",      0xBF00, True, 0x1000, "label - hex"),
-    ("<port",           0x0020, True, 0x1000, "lo of label"),
-    (">port",           0x00D0, True, 0x1000, "hi of label"),
-    ("zero",            0x0000, True, 0x1000, "label value zero"),
-    ("top",             0xFFFF, True, 0x1000, "label value ffff"),
-    ("table-start",     0xB800, True, 0x1000, "label - label"),
-    ("<(table+$42)",    0x0042, True, 0x1000, "lo of label+offset"),
+    # ── labels: inherit width from definition ────────────────────
+    ("start",           0x0800, RC_ABS, True, 0x1000, "label ABS → ABS"),
+    ("lo_val",          0x0042, RC_ZP,  True, 0x1000, "label ZP → ZP"),
+    ("zp_addr",         0x0042, RC_ABS, True, 0x1000, "label forced ABS → ABS"),
+    ("start+$10",       0x0810, RC_ABS, True, 0x1000, "ABS label + ZP → ABS"),
+    ("table-$100",      0xBF00, RC_ABS, True, 0x1000, "ABS label - ABS → ABS"),
+    ("<port",           0x0020, RC_ZP,  True, 0x1000, "lo of ABS label → ZP"),
+    (">port",           0x00D0, RC_ZP,  True, 0x1000, "hi of ABS label → ZP"),
+    ("zero",            0x0000, RC_ZP,  True, 0x1000, "ZP label value 0 → ZP"),
+    ("top",             0xFFFF, RC_ABS, True, 0x1000, "ABS label $FFFF → ABS"),
+    ("table-start",     0xB800, RC_ABS, True, 0x1000, "ABS - ABS → ABS"),
+    ("<(table+$42)",    0x0042, RC_ZP,  True, 0x1000, "lo of ABS sum → ZP"),
+
+    # ── boolean operations ───────────────────────────────────────
+    ("$ff&$0f",         0x000F, RC_ZP,  False, 0x1000, "AND ZP"),
+    ("$f0|$0f",         0x00FF, RC_ZP,  False, 0x1000, "OR ZP"),
+    ("$ff^$0f",         0x00F0, RC_ZP,  False, 0x1000, "XOR ZP"),
+    ("~$ff",            0xFF00, RC_ABS, False, 0x1000, "NOT $FF → $FF00 (16-bit complement)"),
+    ("~0",              0xFFFF, RC_ABS, False, 0x1000, "NOT 0 → $FFFF"),
+    ("$abcd&$ff00",     0xAB00, RC_ABS, False, 0x1000, "AND ABS"),
+    ("$1234|$00ff",     0x12FF, RC_ABS, False, 0x1000, "OR ABS"),
+    ("$1234^$ffff",     0xEDCB, RC_ABS, False, 0x1000, "XOR ABS"),
+    ("~$0000",          0xFFFF, RC_ABS, False, 0x1000, "NOT ABS zero → $FFFF"),
+    ("$ff&$0f+$10",     0x001F, RC_ZP,  False, 0x1000, "AND lower precedence than +"),
+    ("$0f|$10+$20",     0x003F, RC_ZP,  False, 0x1000, "OR lower precedence than +"),
 
     # ── mixed ────────────────────────────────────────────────────
-    ("$10+16+%10000",   0x0030, False, 0x1000, "hex+dec+bin"),
-    ("*+page",          0x1100, True, 0x1000, "star + label"),
-    ("<($1200+$34)",    0x0034, False, 0x1000, "lo of hex sum"),
-    (">($1200+$34)",    0x0012, False, 0x1000, "hi of hex sum"),
+    ("$10+16+%10000",   0x0030, RC_ZP,  False, 0x1000, "hex+dec+bin ZP"),
+    ("*+page",          0x1100, RC_ABS, True, 0x1000, "star + ABS label"),
+    ("<($1200+$34)",    0x0034, RC_ZP,  False, 0x1000, "lo of hex sum"),
+    (">($1200+$34)",    0x0012, RC_ZP,  False, 0x1000, "hi of hex sum"),
 ]
 
 # ═══════════════════════════════════════════════════════════════════
-# Error data: (expr_string, expected_error, needs_symbols, purpose)
+# (expression, expected_error, needs_symbols, purpose)
 # ═══════════════════════════════════════════════════════════════════
 NEGATIVE = [
-    # ── empty / missing value ────────────────────────────────────
     ("",                ERR_EXPECTED,  False, "empty string"),
     ("   ",             ERR_EXPECTED,  False, "spaces only"),
     ("$",               ERR_EXPECTED,  False, "bare $"),
     ("#",               ERR_EXPECTED,  False, "bare # (not a prefix)"),
     ("%",               ERR_EXPECTED,  False, "bare %"),
-
-    # ── overflow ─────────────────────────────────────────────────
     ("$12345",          ERR_OVERFLOW,  False, "hex 5 digits"),
     ("65536",           ERR_OVERFLOW,  False, "decimal > 65535"),
     ("%11111111111111111", ERR_OVERFLOW, False, "binary 17 bits"),
-
-    # ── parentheses ──────────────────────────────────────────────
     ("($10+$20",        ERR_PAREN,     False, "unclosed paren"),
     ("(($10)",          ERR_PAREN,     False, "double open"),
-
-    # ── undefined symbols ────────────────────────────────────────
     ("nosuch",          ERR_UNDEFINED, True,  "undefined label"),
     ("start+nosuch",    ERR_UNDEFINED, True,  "undefined in expr"),
-
-    # ── malformed ────────────────────────────────────────────────
     ("$10+",            ERR_EXPECTED,  False, "trailing +"),
     ("+$10",            ERR_EXPECTED,  False, "leading + (no anon labels)"),
     (")",               ERR_EXPECTED,  False, "bare close paren"),
 ]
 
-# Also test these produce an error but don't require a specific code:
 NEGATIVE_ANY = [
     ("$10++$20",        False, "double operator"),
     ("()",              False, "empty parens"),
@@ -166,13 +191,10 @@ NEGATIVE_ANY = [
 # ═══════════════════════════════════════════════════════════════════
 
 def _needs_rebuild():
-    if not EXPR_BIN.exists():
-        return True
+    if not EXPR_BIN.exists(): return True
     t = EXPR_BIN.stat().st_mtime
     return any(s.stat().st_mtime > t for s in [
-        SRC / "expr.s", SRC / "symtab.s", DEV / "expr_test_stub.s",
-        DEV / "test.cfg",
-    ])
+        SRC/"expr.s", SRC/"symtab.s", DEV/"expr_test_stub.s", DEV/"test.cfg"])
 
 def _build():
     BUILD.mkdir(exist_ok=True)
@@ -208,9 +230,13 @@ def _parse_stub_offset():
     return None
 
 def _petscii(s):
+    """Convert ASCII test string to PETSCII bytes.
+    Special mappings: | → $DD, ~ → $B1 (different in PETSCII vs ASCII)."""
+    SPECIAL = {'|': 0xDD, '~': 0xB1, '_': 0xA4}
     out = []
     for c in s:
-        if 'a' <= c <= 'z': out.append(ord(c) - ord('a') + 0x41)
+        if c in SPECIAL: out.append(SPECIAL[c])
+        elif 'a' <= c <= 'z': out.append(ord(c) - ord('a') + 0x41)
         elif 'A' <= c <= 'Z': out.append(ord(c) - ord('A') + 0xC1)
         else: out.append(ord(c))
     out.append(0)
@@ -230,9 +256,11 @@ class ExprFixture:
         self.clear_entry = base + 8
         self.expr_ptr = self.exports["expr_ptr"]
         self.expr_val = self.exports["expr_val"]
+        self.expr_wide = self.exports.get("expr_wide", self.exports["expr_val"] + 2)
         self.asm_pc = self.exports["al_pc"]
         self.sym_name = self.exports["sym_name"]
         self.sym_val = self.exports["sym_val"]
+        self.sym_wide = self.exports.get("sym_wide")
 
     def load_into(self, mem):
         mem[0:0x100] = self._raw[:0x100]
@@ -262,45 +290,50 @@ def _setup(fix):
     return mpu, mem
 
 def _define_symbols(fix, mpu, mem):
+    """Define all test symbols with their wide flags."""
     _call(mpu, mem, fix.clear_entry)
     addr = _NAME_BUF
-    for name, value in SYMBOLS.items():
+    for name, (value, wide) in SYMBOLS.items():
         enc = _petscii(name)
         for i, b in enumerate(enc): mem[addr+i] = b
         mem[fix.sym_name] = addr & 0xFF; mem[fix.sym_name+1] = (addr>>8) & 0xFF
         mem[fix.sym_val] = value & 0xFF; mem[fix.sym_val+1] = (value>>8) & 0xFF
+        # Set sym_wide if the ZP address is known
+        if fix.sym_wide is not None:
+            mem[fix.sym_wide] = wide
         _call(mpu, mem, fix.define_entry)
         addr += len(enc)
 
 def _eval(fix, mpu, mem, input_str, pc=0x1000):
+    """Evaluate expression. Returns (rc, value).
+    rc: 0=ZP, 1=ABS, 2+=error code."""
     ep, ev, ap = fix.expr_ptr, fix.expr_val, fix.asm_pc
     enc = _petscii(input_str)
     for i, b in enumerate(enc): mem[_STR_BUF+i] = b
     mem[ep] = _STR_BUF & 0xFF; mem[ep+1] = (_STR_BUF>>8) & 0xFF
     mem[ap] = pc & 0xFF; mem[ap+1] = (pc>>8) & 0xFF
     _call(mpu, mem, fix.eval_entry)
-    carry = mpu.p & 1
-    ok = carry == 0
+    rc = mpu.a   # 0=ZP, 1=ABS, 2+=error
     val = mem[ev] | (mem[ev+1] << 8)
-    err = mpu.a if not ok else 0
-    return ok, val, err
+    return rc, val
 
 # ═══════════════════════════════════════════════════════════════════
 # Parametrized tests
 # ═══════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize(
-    "input_str, expected, needs_sym, pc, purpose",
+    "input_str, expected, exp_rc, needs_sym, pc, purpose",
     POSITIVE,
-    ids=[t[4] for t in POSITIVE],
+    ids=[t[5] for t in POSITIVE],
 )
-def test_positive(expr, input_str, expected, needs_sym, pc, purpose):
+def test_positive(expr, input_str, expected, exp_rc, needs_sym, pc, purpose):
     mpu, mem = _setup(expr)
     if needs_sym:
         _define_symbols(expr, mpu, mem)
-    ok, val, _ = _eval(expr, mpu, mem, input_str, pc=pc)
-    assert ok, f"{purpose}: '{input_str}' should succeed"
+    rc, val = _eval(expr, mpu, mem, input_str, pc=pc)
+    assert rc <= 1, f"{purpose}: '{input_str}' should succeed, got error {rc}"
     assert val == expected, f"{purpose}: '{input_str}' expected ${expected:04X}, got ${val:04X}"
+    assert rc == exp_rc, f"{purpose}: '{input_str}' expected rc={exp_rc} ({'ZP' if exp_rc==0 else 'ABS'}), got rc={rc}"
 
 
 @pytest.mark.parametrize(
@@ -312,9 +345,9 @@ def test_negative(expr, input_str, err_code, needs_sym, purpose):
     mpu, mem = _setup(expr)
     if needs_sym:
         _define_symbols(expr, mpu, mem)
-    ok, _, err = _eval(expr, mpu, mem, input_str)
-    assert not ok, f"{purpose}: '{input_str}' should fail"
-    assert err == err_code, f"{purpose}: '{input_str}' expected err={err_code}, got err={err}"
+    rc, _ = _eval(expr, mpu, mem, input_str)
+    assert rc >= 2, f"{purpose}: '{input_str}' should fail, got rc={rc}"
+    assert rc == err_code, f"{purpose}: '{input_str}' expected err={err_code}, got err={rc}"
 
 
 @pytest.mark.parametrize(
@@ -323,9 +356,8 @@ def test_negative(expr, input_str, err_code, needs_sym, purpose):
     ids=[t[2] for t in NEGATIVE_ANY],
 )
 def test_negative_any(expr, input_str, needs_sym, purpose):
-    """Error expected, but specific code not guaranteed."""
     mpu, mem = _setup(expr)
     if needs_sym:
         _define_symbols(expr, mpu, mem)
-    ok, _, _ = _eval(expr, mpu, mem, input_str)
-    assert not ok, f"{purpose}: '{input_str}' should fail"
+    rc, _ = _eval(expr, mpu, mem, input_str)
+    assert rc >= 2, f"{purpose}: '{input_str}' should fail, got rc={rc}"
