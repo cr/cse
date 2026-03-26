@@ -109,6 +109,10 @@ void main(void)
     reset_screen();
     *(uint8_t *)0xD018 |= 0x02;          /* lowercase/uppercase charset */
 
+    /* Initialize symbol table heap (right after BSS) */
+    sym_set_heap(cse_end());
+    sym_clear();
+
     /* Fill free memory with $FF (catch uninitialized reads) */
     fill_free_memory();
 

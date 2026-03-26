@@ -1,18 +1,22 @@
 ; symtab_test_stub.s — Test harness for symtab.s
+;
+; 12 bytes each: JSR(3) + LDA(2) + BCC(2) + LDA(2) + STA_ZP(2) + RTS(1)
 
         .export test_define, test_lookup, test_clear
         .exportzp sym_name, sym_val, sym_wide
 
-        .import _sym_define, _sym_lookup, _sym_clear
+        .import _sym_define, _sym_lookup, _sym_clear, _sym_set_heap
+
+; Heap area for name storage (placed above BSS by the linker)
+HEAP_ADDR = $2000           ; safe area above CODE+BSS in test binary
 
 .segment "ZEROPAGE"
-sym_name:  .res 2      ; pointer to NUL-terminated name string
-sym_val:   .res 2      ; value (16-bit)
-sym_wide:  .res 1      ; ZP/ABS flag (0=ZP, nonzero=ABS)
+sym_name:  .res 2
+sym_val:   .res 2
+sym_wide:  .res 1
 
 .segment "CODE"
 
-; 12 bytes each: JSR(3) + LDA(2) + BCC(2) + LDA(2) + STA_ZP(2) + RTS(1)
 test_define:
         jsr _sym_define
         lda #0
@@ -30,4 +34,8 @@ test_lookup:
         rts
 
 test_clear:
+        ; Set heap base before clearing (test init)
+        lda #<HEAP_ADDR
+        ldx #>HEAP_ADDR
+        jsr _sym_set_heap
         jmp _sym_clear

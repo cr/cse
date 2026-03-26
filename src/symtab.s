@@ -1,24 +1,28 @@
-; symtab.s — Symbol table: hash table with linear probing
+; symtab.s — Symbol table: hash table with linear probing + name heap
 ;
 ; Entry: hash(1) + value(2) + name_ptr(2) + scope(1) = 6 bytes
-;   hash:      8-bit, 0 = empty slot (valid hashes forced to 1+)
+;   hash:      full 8-bit hash (all 256 values valid)
 ;   value:     16-bit symbol value
-;   name_ptr:  points to PETSCII NUL-terminated string (source or snapshot)
+;   name_ptr:  pointer to name in heap ($0000 = empty slot)
 ;   scope:     bit 7 = ZP/ABS (0=ZP, 1=ABS)
-;              bit 6 = is_local
-;              bits 5-0 = parent slot if local
+;              bit 6 = is_local (reserved, not yet implemented)
+;              bits 5-0 = parent slot if local (reserved)
 ;
-; Names compared case-insensitively (uppercase folded to lowercase).
+; Names: PETSCII NUL-terminated strings copied into a heap on define.
+; Compared case-insensitively (uppercase folded to lowercase).
+; The heap persists until sym_clear — survives editing between assemblies.
 ;
 ; Interface (all via ZP):
 ;   sym_define:  in: sym_name (ptr), sym_val (16-bit), sym_wide (0=ZP, 1=ABS)
-;                out: C=1 if table full
+;                out: C=1 if table full or heap overflow
 ;   sym_lookup:  in: sym_name (ptr)
-;                out: sym_val (16-bit), sym_wide, C=1 if not found
-;   sym_clear:   (no args) — wipes all slots
+;                out: sym_val (16-bit), sym_wide (0/1), C=1 if not found
+;   sym_clear:   (no args) — wipes all slots, resets heap
 ;   sym_count:   return count in A
+;   sym_set_heap: in: A/X = heap base address. Must be called before first define.
 
         .export _sym_define, _sym_lookup, _sym_clear, _sym_count
+        .export _sym_set_heap
 
         .importzp sym_name, sym_val, sym_wide
 
@@ -34,6 +38,8 @@ _st_idx:     .res 1         ; current probe index
 _st_ptr:     .res 2         ; pointer to current entry
 _st_nptr:    .res 2         ; pointer for name comparison
 _st_count:   .res 1         ; number of defined symbols
+_st_heap:    .res 2         ; current heap write pointer
+_st_heap_base: .res 2       ; heap base (set by sym_set_heap)
 
 ; ── BSS ──────────────────────────────────────────────────
 .segment "BSS"
@@ -42,7 +48,20 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
 .segment "CODE"
 
 ; ═════════════════════════════════════════════════════════
-; sym_clear — zero all slots, reset count
+; sym_set_heap — set heap base address
+;   In: A = lo, X = hi
+;   Must be called before first sym_define.
+; ═════════════════════════════════════════════════════════
+.proc _sym_set_heap
+        sta _st_heap_base
+        stx _st_heap_base+1
+        sta _st_heap
+        stx _st_heap+1
+        rts
+.endproc
+
+; ═════════════════════════════════════════════════════════
+; sym_clear — zero all slots, reset count, reset heap
 ; ═════════════════════════════════════════════════════════
 .proc _sym_clear
         lda #0
@@ -53,6 +72,11 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         sta sym_table+$200,x
         inx
         bne @clr
+        ; Reset heap pointer to base
+        lda _st_heap_base
+        sta _st_heap
+        lda _st_heap_base+1
+        sta _st_heap+1
         rts
 .endproc
 
@@ -67,7 +91,7 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
 
 ; ═════════════════════════════════════════════════════════
 ; compute_hash — hash the name at (sym_name), case-insensitive
-;   Result in _st_hash.  h = 0 forced to 1.
+;   Result in _st_hash. Full 8-bit range (0 is valid).
 ;   Clobbers A, Y.
 ; ═════════════════════════════════════════════════════════
 .proc compute_hash
@@ -76,9 +100,7 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         tay
 @loop:  lda (sym_name),y
         beq @done
-        ; fold uppercase to lowercase
         jsr fold_char
-        ; hash = hash * 5 + char
         pha
         lda _st_hash
         asl
@@ -92,10 +114,7 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         sta _st_hash
         iny
         bne @loop
-@done:  lda _st_hash
-        bne :+
-        inc _st_hash
-:       rts
+@done:  rts                     ; hash 0 is valid — no forcing
 .endproc
 
 ; ═════════════════════════════════════════════════════════
@@ -107,7 +126,6 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         bcc @done
         cmp #$DB
         bcs @done
-        ; $C1-$DA → $41-$5A
         sec
         sbc #$80
 @done:  rts
@@ -116,7 +134,6 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
 ; ═════════════════════════════════════════════════════════
 ; entry_ptr — compute pointer to sym_table[_st_idx]
 ;   Sets _st_ptr. Clobbers A.
-;   entry address = sym_table + _st_idx * 6
 ; ═════════════════════════════════════════════════════════
 .proc entry_ptr
         lda _st_idx
@@ -151,41 +168,79 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
 .endproc
 
 ; ═════════════════════════════════════════════════════════
+; is_empty — check if current entry is empty
+;   Returns Z=1 if name_ptr == $0000 (empty slot).
+;   Clobbers A, Y.
+; ═════════════════════════════════════════════════════════
+.proc is_empty
+        ldy #3
+        lda (_st_ptr),y
+        iny
+        ora (_st_ptr),y
+        rts                     ; Z=1 if both bytes zero
+.endproc
+
+; ═════════════════════════════════════════════════════════
 ; names_equal — compare (sym_name) with entry's name_ptr
 ;   Case-insensitive.  Returns Z=1 if equal.
 ;   Clobbers A, Y, _st_nptr.
 ; ═════════════════════════════════════════════════════════
 .proc names_equal
-        ; Load name_ptr from entry (offset 3-4)
         ldy #3
         lda (_st_ptr),y
         sta _st_nptr
         iny
         lda (_st_ptr),y
         sta _st_nptr+1
-        ; Compare strings byte by byte, case-insensitive
         ldy #0
 @loop:  lda (_st_nptr),y
         jsr fold_char
-        pha                     ; save folded entry char
+        pha
         lda (sym_name),y
         jsr fold_char
         tsx
-        cmp $0101,x             ; compare with stacked entry char
+        cmp $0101,x
         bne @diff_pop
-        ; Chars matched — pop stacked byte
         pla
-        ; If both NUL, strings are equal
         lda (sym_name),y
         beq @equal
         iny
         bne @loop
-@equal: lda #0                  ; Z=1
+@equal: lda #0
         rts
 @diff_pop:
-        pla                     ; clean stacked byte
-        lda #1                  ; Z=0
+        pla
+        lda #1
         rts
+.endproc
+
+; ═════════════════════════════════════════════════════════
+; heap_copy_name — copy string at (sym_name) into heap
+;   Returns heap address of the copy in _st_nptr.
+;   Advances _st_heap past the copied string + NUL.
+;   Clobbers A, Y.
+; ═════════════════════════════════════════════════════════
+.proc heap_copy_name
+        ; Save current heap position as the name address
+        lda _st_heap
+        sta _st_nptr
+        lda _st_heap+1
+        sta _st_nptr+1
+        ; Copy bytes
+        ldy #0
+@loop:  lda (sym_name),y
+        sta (_st_heap),y
+        beq @done               ; copied the NUL
+        iny
+        bne @loop
+@done:  ; Advance heap pointer past the NUL
+        tya
+        sec                     ; +1 for the NUL byte
+        adc _st_heap
+        sta _st_heap
+        bcc :+
+        inc _st_heap+1
+:       rts
 .endproc
 
 ; ═════════════════════════════════════════════════════════
@@ -199,21 +254,21 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         lda _st_hash
         and #SYM_MASK
         sta _st_idx
-        ldx #SYM_SLOTS          ; probe counter
+        ldx #SYM_SLOTS
 
 @probe: jsr entry_ptr
-        ; Check if slot is empty (hash byte = 0)
-        ldy #0
-        lda (_st_ptr),y
+        jsr is_empty
         beq @empty
 
-        ; Slot occupied — check if same name (redefine)
+        ; Slot occupied — check hash then name
+        ldy #0
+        lda (_st_ptr),y
         cmp _st_hash
         bne @next
         jsr names_equal
         bne @next
 
-        ; Same name — update value + scope
+        ; Same name — update value + scope (don't re-copy name)
         jmp @store_val
 
 @empty:
@@ -222,23 +277,25 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         cmp #SYM_SLOTS
         bcs @full
 
+        ; Copy name to heap
+        jsr heap_copy_name
+
         ; Store hash byte
         lda _st_hash
         ldy #0
         sta (_st_ptr),y
 
-        ; Store name_ptr
-        lda sym_name
+        ; Store name_ptr (from heap copy)
+        lda _st_nptr
         ldy #3
         sta (_st_ptr),y
-        lda sym_name+1
+        lda _st_nptr+1
         iny
         sta (_st_ptr),y
 
         inc _st_count
 
 @store_val:
-        ; Store value
         lda sym_val
         ldy #1
         sta (_st_ptr),y
@@ -246,10 +303,10 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         iny
         sta (_st_ptr),y
 
-        ; Store scope byte (bit 7 = ZP/ABS from sym_wide)
+        ; Store scope byte (bit 7 = ZP/ABS)
         lda sym_wide
         beq :+
-        lda #$80                ; ABS flag
+        lda #$80
 :       ldy #5
         sta (_st_ptr),y
 
@@ -271,7 +328,7 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
 ; ═════════════════════════════════════════════════════════
 ; _sym_lookup
 ;   In:  sym_name (ptr)
-;   Out: sym_val (16-bit), sym_wide, C=0 found, C=1 not found
+;   Out: sym_val (16-bit), sym_wide (0/1), C=0 found, C=1 not found
 ; ═════════════════════════════════════════════════════════
 .proc _sym_lookup
         jsr compute_hash
@@ -282,13 +339,16 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         ldx #SYM_SLOTS
 
 @probe: jsr entry_ptr
-        ldy #0
-        lda (_st_ptr),y
+        jsr is_empty
         beq @notfound
 
+        ; Check hash
+        ldy #0
+        lda (_st_ptr),y
         cmp _st_hash
         bne @next
 
+        ; Check name
         jsr names_equal
         bne @next
 
@@ -300,13 +360,13 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         lda (_st_ptr),y
         sta sym_val+1
 
-        ; Read scope byte → sym_wide (bit 7 → 0 or 1)
+        ; Read scope → sym_wide (bit 7 → 0 or 1)
         ldy #5
         lda (_st_ptr),y
-        asl                     ; bit 7 → carry
+        asl
         lda #0
-        rol                     ; carry → bit 0
-        sta sym_wide            ; 0=ZP, 1=ABS
+        rol
+        sta sym_wide
 
         clc
         rts

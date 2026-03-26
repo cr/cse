@@ -9,7 +9,7 @@
         .export expr_test_define
         .export expr_test_clear
         .import _expr_eval
-        .import _sym_define, _sym_lookup, _sym_clear
+        .import _sym_define, _sym_lookup, _sym_clear, _sym_set_heap
 
         .segment "ZEROPAGE"
         .exportzp expr_ptr, expr_val, expr_wide
@@ -36,6 +36,11 @@ expr_test_define:
         jsr _sym_define
         rts
 
+HEAP_ADDR = $2000
+
 expr_test_clear:
+        lda #<HEAP_ADDR
+        ldx #>HEAP_ADDR
+        jsr _sym_set_heap
         jsr _sym_clear
         rts

@@ -71,6 +71,10 @@ extern uint8_t *src_top, *src_bot;
 extern uint16_t cse_start(void);
 extern uint16_t cse_end(void);
 
+/* ── Symbol table (symtab.s) ─────────────────────────────── */
+void __fastcall__ sym_set_heap(uint16_t addr);
+void sym_clear(void);
+
 /* ── REPL current address / device ────────────────────── */
 extern uint16_t cur_addr;
 extern uint8_t  cur_device;           /* default 8 */
