@@ -95,10 +95,13 @@ last_err:    .res 1
         lda expr_wide
         bne @abs                 ; forced wide → ABS
         lda #RC_ZP
+        sta last_err
         rts
 @abs:   lda #RC_ABS
+        sta last_err
         rts
 @err:   ; A already has error code (2+)
+        sta last_err
         rts
 .endproc
 
@@ -335,8 +338,6 @@ last_err:    .res 1
         bcc @to_label
         cmp #'.'
         beq @to_label
-        cmp #'_'
-        beq @to_label
 
 @err_expected:
         lda #ERR_EXPECTED
@@ -453,8 +454,6 @@ last_err:    .res 1
         cmp #'9'+1
         bcc @lscan
 @lchk_other:
-        cmp #'_'
-        beq @lscan
         cmp #'.'
         beq @lscan
         ; End of identifier — NUL-terminate, lookup, restore

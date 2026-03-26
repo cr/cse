@@ -2,12 +2,10 @@
 
         .export test_define, test_lookup, test_clear
         .exportzp sym_name, sym_val, sym_wide
-        .exportzp sp
 
         .import _sym_define, _sym_lookup, _sym_clear
 
 .segment "ZEROPAGE"
-sp:        .res 2      ; cc65 C stack pointer (unused)
 sym_name:  .res 2      ; pointer to NUL-terminated name string
 sym_val:   .res 2      ; value (16-bit)
 sym_wide:  .res 1      ; ZP/ABS flag (0=ZP, nonzero=ABS)

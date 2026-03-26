@@ -8,7 +8,7 @@ Width rule: 3+ hex digits force ABS. Labels inherit width from definition.
 Symbol fixture: (name, value, wide_flag)
   zero=$0000(zp), one=$0001(zp), page=$0100(abs), screen=$0400(abs),
   start=$0800(abs), table=$C000(abs), top=$FFFF(abs),
-  lo_val=$0042(zp), zp_addr=$0042(abs — defined as $0042 with 4 digits),
+  loval=$0042(zp), zpaddr=$0042(abs — defined as $0042 with 4 digits),
   port=$D020(abs).
 """
 
@@ -36,8 +36,8 @@ ERR_PAREN    = 4   # mismatched parens
 ERR_UNDEFINED = 5  # undefined symbol
 
 # Symbols: (value, wide_flag)
-# lo_val is defined with 2-digit hex ($42) → ZP
-# zp_addr is defined with 4-digit hex ($0042) → ABS (same value, different width)
+# loval is defined with 2-digit hex ($42) → ZP
+# zpaddr is defined with 4-digit hex ($0042) → ABS (same value, different width)
 SYMBOLS = {
     "zero":    (0x0000, 0),  # $00 → ZP
     "one":     (0x0001, 0),  # $01 → ZP
@@ -46,8 +46,8 @@ SYMBOLS = {
     "start":   (0x0800, 1),  # $0800 → ABS
     "table":   (0xC000, 1),  # $c000 → ABS
     "top":     (0xFFFF, 1),  # $ffff → ABS
-    "lo_val":  (0x0042, 0),  # $42 → ZP
-    "zp_addr": (0x0042, 1),  # $0042 → ABS (forced wide by 4-digit definition)
+    "loval":  (0x0042, 0),  # $42 → ZP
+    "zpaddr": (0x0042, 1),  # $0042 → ABS (forced wide by 4-digit definition)
     "port":    (0xD020, 1),  # $d020 → ABS
 }
 
@@ -129,8 +129,8 @@ POSITIVE = [
 
     # ── labels: inherit width from definition ────────────────────
     ("start",           0x0800, RC_ABS, True, 0x1000, "label ABS → ABS"),
-    ("lo_val",          0x0042, RC_ZP,  True, 0x1000, "label ZP → ZP"),
-    ("zp_addr",         0x0042, RC_ABS, True, 0x1000, "label forced ABS → ABS"),
+    ("loval",          0x0042, RC_ZP,  True, 0x1000, "label ZP → ZP"),
+    ("zpaddr",         0x0042, RC_ABS, True, 0x1000, "label forced ABS → ABS"),
     ("start+$10",       0x0810, RC_ABS, True, 0x1000, "ABS label + ZP → ABS"),
     ("table-$100",      0xBF00, RC_ABS, True, 0x1000, "ABS label - ABS → ABS"),
     ("<port",           0x0020, RC_ZP,  True, 0x1000, "lo of ABS label → ZP"),
@@ -232,7 +232,7 @@ def _parse_stub_offset():
 def _petscii(s):
     """Convert ASCII test string to PETSCII bytes.
     Special mappings: | → $DD, ~ → $B1 (different in PETSCII vs ASCII)."""
-    SPECIAL = {'|': 0xDD, '~': 0xB1, '_': 0xA4}
+    SPECIAL = {'|': 0xDD, '~': 0xB1}
     out = []
     for c in s:
         if c in SPECIAL: out.append(SPECIAL[c])

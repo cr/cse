@@ -19,7 +19,6 @@
 ;   sym_count:   return count in A
 
         .export _sym_define, _sym_lookup, _sym_clear, _sym_count
-        .export _pack_name, pack_buf
 
         .importzp sym_name, sym_val, sym_wide
 
@@ -39,7 +38,6 @@ _st_count:   .res 1         ; number of defined symbols
 ; ── BSS ──────────────────────────────────────────────────
 .segment "BSS"
 sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
-pack_buf:    .res 6                         ; packed name utility (for _pack_name)
 
 .segment "CODE"
 
@@ -302,11 +300,13 @@ pack_buf:    .res 6                         ; packed name utility (for _pack_nam
         lda (_st_ptr),y
         sta sym_val+1
 
-        ; Read scope byte → sym_wide (bit 7)
+        ; Read scope byte → sym_wide (bit 7 → 0 or 1)
         ldy #5
         lda (_st_ptr),y
-        and #$80
-        sta sym_wide
+        asl                     ; bit 7 → carry
+        lda #0
+        rol                     ; carry → bit 0
+        sta sym_wide            ; 0=ZP, 1=ABS
 
         clc
         rts
@@ -322,180 +322,4 @@ pack_buf:    .res 6                         ; packed name utility (for _pack_nam
 @notfound:
         sec
         rts
-.endproc
-
-; ═════════════════════════════════════════════════════════
-; _pack_name — utility: pack string at (sym_name) into pack_buf
-;   (Kept for potential future use. See pack tests.)
-; ═════════════════════════════════════════════════════════
-.proc _pack_name
-        ; Clear pack_buf
-        lda #0
-        sta pack_buf
-        sta pack_buf+1
-        sta pack_buf+2
-        sta pack_buf+3
-        sta pack_buf+4
-        sta pack_buf+5
-
-        jmp @start_pack
-
-        ; ── encode_char subroutine ──
-@encode_char:
-        beq @ec_zero
-        cmp #$41
-        bcc @ec_other
-        cmp #$5B
-        bcs @ec_upper
-        sec
-        sbc #$40
-        rts
-@ec_upper:
-        cmp #$C1
-        bcc @ec_other
-        cmp #$DB
-        bcs @ec_zero
-        sec
-        sbc #$C0
-        rts
-@ec_other:
-        cmp #$2E
-        beq @ec_dot
-        cmp #$30
-        bcc @ec_zero
-        cmp #$3A
-        bcs @ec_zero
-        sec
-        sbc #$30
-        clc
-        adc #27
-        rts
-@ec_dot:
-        lda #37
-        rts
-@ec_zero:
-        lda #0
-        rts
-
-@start_pack:
-        ; Process char 1 (5 bits: codes 1-27 for a-z and dot)
-        ldy #0
-        lda (sym_name),y
-        jsr @encode_char
-        cmp #37
-        bne :+
-        lda #27
-:       asl
-        asl
-        sta pack_buf
-        jmp @char2
-
-@to_pad:
-        jmp @pad
-
-@char2: ; 6 bits: 2 into byte 0, 4 into byte 1
-        ldy #1
-        lda (sym_name),y
-        beq @to_pad
-        jsr @encode_char
-        pha
-        lsr
-        lsr
-        lsr
-        lsr
-        ora pack_buf
-        sta pack_buf
-        pla
-        asl
-        asl
-        asl
-        asl
-        sta pack_buf+1
-
-        ; char 3: 4 into byte 1, 2 into byte 2
-        ldy #2
-        lda (sym_name),y
-        beq @to_pad
-        jsr @encode_char
-        pha
-        lsr
-        lsr
-        ora pack_buf+1
-        sta pack_buf+1
-        pla
-        asl
-        asl
-        asl
-        asl
-        asl
-        asl
-        sta pack_buf+2
-
-        ; char 4: all 6 into byte 2
-        ldy #3
-        lda (sym_name),y
-        beq @to_pad
-        jsr @encode_char
-        ora pack_buf+2
-        sta pack_buf+2
-
-        ; char 5: 6 into byte 3 bits 7-2
-        ldy #4
-        lda (sym_name),y
-        beq @to_pad
-        jsr @encode_char
-        asl
-        asl
-        sta pack_buf+3
-
-        ; char 6: 2 into byte 3, 4 into byte 4
-        ldy #5
-        lda (sym_name),y
-        beq @to_pad
-        jsr @encode_char
-        pha
-        lsr
-        lsr
-        lsr
-        lsr
-        ora pack_buf+3
-        sta pack_buf+3
-        pla
-        asl
-        asl
-        asl
-        asl
-        sta pack_buf+4
-
-@to_pad2:
-        jmp @pad
-
-        ; char 7: 4 into byte 4, 2 into byte 5
-        ldy #6
-        lda (sym_name),y
-        beq @to_pad2
-        jsr @encode_char
-        pha
-        lsr
-        lsr
-        ora pack_buf+4
-        sta pack_buf+4
-        pla
-        asl
-        asl
-        asl
-        asl
-        asl
-        asl
-        sta pack_buf+5
-
-        ; char 8: all 6 into byte 5
-        ldy #7
-        lda (sym_name),y
-        beq @to_pad2
-        jsr @encode_char
-        ora pack_buf+5
-        sta pack_buf+5
-
-@pad:   rts
 .endproc

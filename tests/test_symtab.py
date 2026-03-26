@@ -1,19 +1,16 @@
 """
-test_symtab.py — Symbol table tests (symtab.s)
+test_symtab.py — Symbol table contract tests (symtab.s)
 
-Entry: hash(1) + value(2) + packed_name(6) = 9 bytes × 128 slots.
-Names: 8 chars × 6 bits packed inline. No string pool.
-Characters: a-z (1-26), 0-9 (27-36), . (37), 0 = end/padding.
-Case insensitive: all names folded to lowercase.
-Hash byte: 7-bit hash (bit 7 reserved for flags). 0 = empty slot.
+Entry: hash(1) + value(2) + name_ptr(2) + scope(1) = 6 bytes × 128 slots.
+Names stored as NUL-terminated PETSCII strings (pointer in entry).
+Case insensitive: names compared with uppercase folded to lowercase.
+Characters: a-z, 0-9, dot. No underscore (not on C64 keyboard).
+Hash byte: 8-bit. 0 = empty slot.
 
 Interface (ZP):
-  sym_define(sym_name, sym_val): store name→value. C=1 if full.
-  sym_lookup(sym_name):          find name→sym_val. C=1 if not found.
-  sym_clear():                   wipe all slots.
-
-sym_name points to a NUL-terminated PETSCII string.
-The symtab internally packs and case-folds the name.
+  sym_define(sym_name, sym_val, sym_wide): store. C=1 if full.
+  sym_lookup(sym_name): find → sym_val, sym_wide. C=1 if not found.
+  sym_clear(): wipe all slots.
 """
 
 import subprocess, pathlib, re, pytest
@@ -145,12 +142,15 @@ def _call(mpu, mem, entry):
         mpu.step()
     pytest.fail(f"Timeout at PC=${mpu.pc:04X}")
 
-def _define(symt, mpu, mem, name, value):
+def _define(symt, mpu, mem, name, value, wide=0):
     addr = _place_name(mem, name)
     mem[symt.sym_name] = addr & 0xFF
     mem[symt.sym_name + 1] = (addr >> 8) & 0xFF
     mem[symt.sym_val] = value & 0xFF
     mem[symt.sym_val + 1] = (value >> 8) & 0xFF
+    sw = symt.exports.get("sym_wide")
+    if sw is not None:
+        mem[sw] = wide
     _call(mpu, mem, symt.sym_define)
     return not (mpu.p & 0x01)
 
@@ -161,7 +161,9 @@ def _lookup(symt, mpu, mem, name):
     _call(mpu, mem, symt.sym_lookup)
     found = not (mpu.p & 0x01)
     value = mem[symt.sym_val] | (mem[symt.sym_val + 1] << 8)
-    return found, value
+    sw = symt.exports.get("sym_wide")
+    wide = mem[sw] if sw is not None else 0
+    return found, value, wide
 
 def _clear(symt, mpu, mem):
     _call(mpu, mem, symt.sym_clear)
@@ -174,7 +176,7 @@ class TestBasicOperations:
     def test_lookup_undefined_fails(self, symt):
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
-        found, _ = _lookup(symt, mpu, mem, "foo")
+        found, _, _ = _lookup(symt, mpu, mem, "foo")
         assert not found
 
     def test_define_then_lookup(self, symt):
@@ -182,7 +184,7 @@ class TestBasicOperations:
         _clear(symt, mpu, mem)
         ok = _define(symt, mpu, mem, "start", 0x1000)
         assert ok
-        found, val = _lookup(symt, mpu, mem, "start")
+        found, val, _ = _lookup(symt, mpu, mem, "start")
         assert found and val == 0x1000
 
     def test_define_multiple(self, symt):
@@ -191,7 +193,7 @@ class TestBasicOperations:
         _define(symt, mpu, mem, "alpha", 0x0800)
         _define(symt, mpu, mem, "beta",  0x0900)
         _define(symt, mpu, mem, "gamma", 0x0A00)
-        found, val = _lookup(symt, mpu, mem, "beta")
+        found, val, _ = _lookup(symt, mpu, mem, "beta")
         assert found and val == 0x0900
 
     def test_redefine_updates_value(self, symt):
@@ -199,7 +201,7 @@ class TestBasicOperations:
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "ptr", 0x00FB)
         _define(symt, mpu, mem, "ptr", 0x00FD)
-        found, val = _lookup(symt, mpu, mem, "ptr")
+        found, val, _ = _lookup(symt, mpu, mem, "ptr")
         assert found and val == 0x00FD
 
     def test_clear_wipes_all(self, symt):
@@ -207,7 +209,7 @@ class TestBasicOperations:
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "test", 0x1234)
         _clear(symt, mpu, mem)
-        found, _ = _lookup(symt, mpu, mem, "test")
+        found, _, _ = _lookup(symt, mpu, mem, "test")
         assert not found
 
 
@@ -219,21 +221,21 @@ class TestCaseInsensitive:
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "LOOP", 0x1000)
-        found, val = _lookup(symt, mpu, mem, "loop")
+        found, val, _ = _lookup(symt, mpu, mem, "loop")
         assert found and val == 0x1000
 
     def test_define_lower_lookup_upper(self, symt):
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "start", 0x0800)
-        found, val = _lookup(symt, mpu, mem, "START")
+        found, val, _ = _lookup(symt, mpu, mem, "START")
         assert found and val == 0x0800
 
     def test_define_mixed_lookup_lower(self, symt):
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "MyFunc", 0x2000)
-        found, val = _lookup(symt, mpu, mem, "myfunc")
+        found, val, _ = _lookup(symt, mpu, mem, "myfunc")
         assert found and val == 0x2000
 
     def test_redefine_different_case(self, symt):
@@ -242,7 +244,7 @@ class TestCaseInsensitive:
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "ptr", 0x00FB)
         _define(symt, mpu, mem, "PTR", 0x00FD)
-        found, val = _lookup(symt, mpu, mem, "ptr")
+        found, val, _ = _lookup(symt, mpu, mem, "ptr")
         assert found and val == 0x00FD
 
 
@@ -251,29 +253,29 @@ class TestNameMatching:
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "foobar", 0x1000)
-        found, _ = _lookup(symt, mpu, mem, "foo")
+        found, _, _ = _lookup(symt, mpu, mem, "foo")
         assert not found
 
     def test_no_suffix_match(self, symt):
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "foo", 0x1000)
-        found, _ = _lookup(symt, mpu, mem, "foobar")
+        found, _, _ = _lookup(symt, mpu, mem, "foobar")
         assert not found
 
     def test_single_char_name(self, symt):
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "x", 0x42)
-        found, val = _lookup(symt, mpu, mem, "x")
+        found, val, _ = _lookup(symt, mpu, mem, "x")
         assert found and val == 0x42
 
     def test_8_char_name(self, symt):
-        """Maximum packed name length: 8 characters."""
+        """8-character name — no length limit."""
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "colorram", 0xD800)
-        found, val = _lookup(symt, mpu, mem, "colorram")
+        found, val, _ = _lookup(symt, mpu, mem, "colorram")
         assert found and val == 0xD800
 
     def test_long_names_distinct(self, symt):
@@ -282,16 +284,16 @@ class TestNameMatching:
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "colorrama", 0xD800)
         _define(symt, mpu, mem, "colorramb", 0xD900)
-        found, val = _lookup(symt, mpu, mem, "colorrama")
+        found, val, _ = _lookup(symt, mpu, mem, "colorrama")
         assert found and val == 0xD800
-        found, val = _lookup(symt, mpu, mem, "colorramb")
+        found, val, _ = _lookup(symt, mpu, mem, "colorramb")
         assert found and val == 0xD900
 
     def test_name_with_digits(self, symt):
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "sprite0", 0x0380)
-        found, val = _lookup(symt, mpu, mem, "sprite0")
+        found, val, _ = _lookup(symt, mpu, mem, "sprite0")
         assert found and val == 0x0380
 
     def test_name_with_dot_prefix(self, symt):
@@ -299,7 +301,7 @@ class TestNameMatching:
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, ".loop", 0x1020)
-        found, val = _lookup(symt, mpu, mem, ".loop")
+        found, val, _ = _lookup(symt, mpu, mem, ".loop")
         assert found and val == 0x1020
 
 
@@ -316,7 +318,7 @@ class TestCollisions:
             ok = _define(symt, mpu, mem, n, 0x1000 + i)
             assert ok
         for i, n in enumerate(names):
-            found, val = _lookup(symt, mpu, mem, n)
+            found, val, _ = _lookup(symt, mpu, mem, n)
             assert found and val == 0x1000 + i
 
     def test_similar_names(self, symt):
@@ -325,7 +327,7 @@ class TestCollisions:
         _define(symt, mpu, mem, "loop1", 0x1000)
         _define(symt, mpu, mem, "loop2", 0x2000)
         _define(symt, mpu, mem, "loop3", 0x3000)
-        found, val = _lookup(symt, mpu, mem, "loop2")
+        found, val, _ = _lookup(symt, mpu, mem, "loop2")
         assert found and val == 0x2000
 
 
@@ -341,7 +343,7 @@ class TestCapacity:
         # Verify all
         for i in range(96):
             name = f"s{i:03d}"
-            found, val = _lookup(symt, mpu, mem, name)
+            found, val, _ = _lookup(symt, mpu, mem, name)
             assert found, f"lookup {name} failed"
             assert val == 0x1000 + i
 
@@ -361,7 +363,7 @@ class TestCapacity:
         _define(symt, mpu, mem, "x", 1)
         _define(symt, mpu, mem, "x", 2)
         _define(symt, mpu, mem, "x", 3)
-        found, val = _lookup(symt, mpu, mem, "x")
+        found, val, _ = _lookup(symt, mpu, mem, "x")
         assert found and val == 3
 
 
@@ -370,14 +372,14 @@ class TestEdgeCases:
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "null", 0)
-        found, val = _lookup(symt, mpu, mem, "null")
+        found, val, _ = _lookup(symt, mpu, mem, "null")
         assert found and val == 0
 
     def test_value_ffff(self, symt):
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "top", 0xFFFF)
-        found, val = _lookup(symt, mpu, mem, "top")
+        found, val, _ = _lookup(symt, mpu, mem, "top")
         assert found and val == 0xFFFF
 
     def test_define_after_clear(self, symt):
@@ -386,7 +388,44 @@ class TestEdgeCases:
         _define(symt, mpu, mem, "a", 1)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "b", 2)
-        found, _ = _lookup(symt, mpu, mem, "a")
+        found, _, _ = _lookup(symt, mpu, mem, "a")
         assert not found
-        found, val = _lookup(symt, mpu, mem, "b")
+        found, val, _ = _lookup(symt, mpu, mem, "b")
         assert found and val == 2
+
+
+class TestWidthFlag:
+    """sym_wide (ZP/ABS) stored in scope byte bit 7, returned as 0 or 1."""
+
+    def test_define_zp_lookup_zp(self, symt):
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        _define(symt, mpu, mem, "ptr", 0x00FB, wide=0)
+        found, val, wide = _lookup(symt, mpu, mem, "ptr")
+        assert found and val == 0x00FB
+        assert wide == 0, f"expected wide=0 (ZP), got {wide}"
+
+    def test_define_abs_lookup_abs(self, symt):
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        _define(symt, mpu, mem, "screen", 0x0400, wide=1)
+        found, val, wide = _lookup(symt, mpu, mem, "screen")
+        assert found and val == 0x0400
+        assert wide == 1, f"expected wide=1 (ABS), got {wide}"
+
+    def test_redefine_changes_width(self, symt):
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        _define(symt, mpu, mem, "val", 0x0042, wide=0)
+        _define(symt, mpu, mem, "val", 0x0042, wide=1)
+        found, _, wide = _lookup(symt, mpu, mem, "val")
+        assert found and wide == 1
+
+    def test_different_widths_coexist(self, symt):
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        _define(symt, mpu, mem, "zpvar", 0x00FB, wide=0)
+        _define(symt, mpu, mem, "absvar", 0x0400, wide=1)
+        _, _, w1 = _lookup(symt, mpu, mem, "zpvar")
+        _, _, w2 = _lookup(symt, mpu, mem, "absvar")
+        assert w1 == 0 and w2 == 1

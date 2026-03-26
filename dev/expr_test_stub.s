@@ -8,8 +8,6 @@
         .export expr_test_eval
         .export expr_test_define
         .export expr_test_clear
-        .export cse_popax
-
         .import _expr_eval
         .import _sym_define, _sym_lookup, _sym_clear
 
@@ -40,7 +38,4 @@ expr_test_define:
 
 expr_test_clear:
         jsr _sym_clear
-        rts
-
-cse_popax:
         rts
