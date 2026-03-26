@@ -82,15 +82,13 @@ static uint8_t  anon_idx;             /* current index (pass 2) */
 /* ── Helpers ───────────────────────────────────────────── */
 
 static void emit_error(const char *msg) {
+    if (asm_pass == 0) return;      /* silent in pass 1 */
     asm_errors++;
-    if (asm_pass == 1) {
-        /* Only report errors in pass 2 */
-        io_puts("; err ");
-        io_putdec(line_num);
-        io_puts(": ");
-        io_puts(msg);
-        newline();
-    }
+    io_puts("; err ");
+    io_putdec(line_num);
+    io_puts(": ");
+    io_puts(msg);
+    newline();
 }
 
 static uint8_t is_alpha(uint8_t c) {
@@ -392,8 +390,12 @@ static void process_line(char *p) {
                 return;
             }
 
-            /* Label: name followed by ':' or instruction */
-            if (*rest == ':') rest++;    /* optional colon */
+            /* Label: name MUST be followed by ':' */
+            if (*rest != ':') {
+                /* Not a label — treat entire line as an instruction */
+                goto instruction;
+            }
+            rest++;     /* skip ':' */
 
             if (asm_pass == 0) {
                 /* Check if it's a local (.name) stored as scope.name */
@@ -432,6 +434,7 @@ static void process_line(char *p) {
         }
     }
 
+instruction:
     /* ── Instruction: preprocess operand, then pass to asm_line ── */
     /* asm_line expects canonical hex operands: #$XX, $XX, $XXXX, ($XX),y etc.
      * We parse the mnemonic, evaluate the operand expression, and rebuild
