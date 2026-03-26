@@ -61,6 +61,8 @@ _ex_wide_tmp: .res 1             ; saved wide flag for left operand
 ; ── BSS ────────────────────────────────────────────────────
 .segment "BSS"
 last_err:    .res 1
+_mul_tmp:    .res 2              ; multiply: shifted operand copy
+_div_rem:    .res 2              ; divide: remainder
 
         .segment "CODE"
 
@@ -114,7 +116,7 @@ last_err:    .res 1
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; parse_expr — bool_term (('&' | '|' | '^') bool_term)*
+; parse_expr — bool_term (('&' | '£' | '^') bool_term)*
 ; ═══════════════════════════════════════════════════════════
 .proc parse_expr
         jsr parse_add
@@ -489,16 +491,16 @@ last_err:    .res 1
 ; when bit is set. Result accumulates in place.
 @do_mul16:
         lda expr_val
-        sta @m_lo               ; right operand (shifted)
+        sta _mul_tmp               ; right operand (shifted)
         lda expr_val+1
-        sta @m_hi
+        sta _mul_tmp+1
         lda #0
         sta expr_val            ; accumulator = 0
         sta expr_val+1
         ldx #16
 @m_loop:
-        lsr @m_hi               ; shift right operand right
-        ror @m_lo
+        lsr _mul_tmp+1               ; shift right operand right
+        ror _mul_tmp
         bcc @m_skip
         lda expr_val            ; add left operand
         clc
@@ -513,8 +515,6 @@ last_err:    .res 1
         dex
         bne @m_loop
         rts
-@m_lo:  .byte 0
-@m_hi:  .byte 0
 
 ; ── 16-bit divide: _ex_tmp / expr_val → expr_val ─────
 ; Unsigned 16/16 → 16 quotient. Remainder discarded.
@@ -522,26 +522,26 @@ last_err:    .res 1
         ; dividend in _ex_tmp, divisor in expr_val
         ; Algorithm: shift-subtract, 16 iterations
         lda #0
-        sta @r_lo               ; remainder = 0
-        sta @r_hi
+        sta _div_rem               ; remainder = 0
+        sta _div_rem+1
         ldx #16
 @d_loop:
         ; shift dividend left, MSB into remainder
         asl _ex_tmp
         rol _ex_tmp+1
-        rol @r_lo
-        rol @r_hi
+        rol _div_rem
+        rol _div_rem+1
         ; try subtract divisor from remainder
-        lda @r_lo
+        lda _div_rem
         sec
         sbc expr_val
         tay
-        lda @r_hi
+        lda _div_rem+1
         sbc expr_val+1
         bcc @d_skip             ; remainder < divisor
         ; fit: store remainder, set quotient bit
-        sta @r_hi
-        sty @r_lo
+        sta _div_rem+1
+        sty _div_rem
         inc _ex_tmp             ; set bit 0 of quotient
 @d_skip:
         dex
@@ -552,8 +552,6 @@ last_err:    .res 1
         lda _ex_tmp+1
         sta expr_val+1
         rts
-@r_lo:  .byte 0
-@r_hi:  .byte 0
 
 ; ── merge wide flag ───────────────────────────────────
 @merge_wide:

@@ -65,7 +65,7 @@
     │   ├── cse_io_test_stub.s    Test stub for cse_io tests
     │   └── search/             Hash search scripts (historical, not run regularly)
     │
-    ├── tests/                  pytest test suite (2457 tests)
+    ├── tests/                  pytest test suite (2489 tests)
     │   ├── conftest.py         Test fixtures, binary builder, py65 CPU emulator
     │   ├── test_asm_line.py    Assembler tests (all mnemonics × modes)
     │   ├── test_au_mode.py     Addressing mode parser tests

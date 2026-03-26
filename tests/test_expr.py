@@ -160,7 +160,7 @@ POSITIVE = [
     ("$80>>0",          0x0080, RC_ZP,  False, 0x1000, "$80>>0 = $80"),
     ("%10000000>>7",    1,      RC_ZP,  False, 0x1000, "bit 7 >> 7 = 1"),
 
-    # ── boolean operations (# = OR, ^ = XOR/↑, & = AND, ! = NOT) ──
+    # ── boolean operations (£ = OR, ^ = XOR/↑, & = AND, ! = NOT) ──
     ("$ff&$0f",         0x000F, RC_ZP,  False, 0x1000, "AND ZP"),
     ("$f0\\$0f",         0x00FF, RC_ZP,  False, 0x1000, "OR ZP"),
     ("$ff^$0f",         0x00F0, RC_ZP,  False, 0x1000, "XOR ZP"),
