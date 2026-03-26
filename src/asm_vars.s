@@ -16,6 +16,7 @@
         .exportzp _al_cpu := al_cpu     ; C-visible alias
         .exportzp _al_tmp, _al_tmp2
         .exportzp sym_name, sym_val     ; symbol table I/O (symtab.s)
+        .exportzp expr_ptr, expr_val   ; expression parser I/O (expr.s)
 
 .segment "ZEROPAGE"
 
@@ -48,3 +49,7 @@ _al_tmp2:       .res 1  ; second scratch byte (REL offset calculation)
 ; ── symbol table I/O (shared with symtab.s, expr.s, asm_src.s) ──────────────
 sym_name:       .res 2  ; pointer to NUL-terminated name string
 sym_val:        .res 2  ; value: input for define, output for lookup
+
+; ── expression parser I/O (shared with expr.s) ─────────────────────────────
+expr_ptr:       .res 2  ; input: pointer to PETSCII expression string (in/out)
+expr_val:       .res 2  ; output: 16-bit result
