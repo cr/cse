@@ -15,6 +15,7 @@
 ; hash byte = 0 means empty slot.
 
         .export _sym_define, _sym_lookup, _sym_clear, _sym_count
+        .export _pack_name, pack_buf
 
         .importzp sym_name, sym_val, sym_wide
 
@@ -34,12 +35,7 @@ _st_count:   .res 1         ; number of defined symbols
 ; ── BSS ──────────────────────────────────────────────────
 .segment "BSS"
 sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
-
-; Name string pool: for this initial implementation, names are
-; stored by the CALLER (in source buffer or line buffer).
-; name_ptr in each slot points to the caller's string.
-; This works for assembly (source is stable during both passes).
-; Future: copy names into a managed pool.
+pack_buf:    .res 6                         ; packed name output (6 bytes)
 
 .segment "CODE"
 
@@ -308,5 +304,230 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
 
 @notfound:
         sec
+        rts
+.endproc
+
+; ═════════════════════════════════════════════════════════
+; _pack_name — pack string at (sym_name) into 6 bytes at pack_buf
+;
+; 6-bit encoding: 0=end, 1-26=a-z, 27-36=0-9, 37=.
+; First char: 5-bit (1-27). Bit 7 of byte 0 = ZP flag (cleared here).
+; Case folds uppercase ($C1-$DA) to lowercase ($41-$5A).
+; Max 8 chars; rest ignored. Short names zero-padded.
+;
+; Layout:
+;   B0: [0  c1₄ c1₃ c1₂ c1₁ c1₀ c2₅ c2₄]  (bit7=ZP, cleared)
+;   B1: [c2₃ c2₂ c2₁ c2₀ c3₅ c3₄ c3₃ c3₂]
+;   B2: [c3₁ c3₀ c4₅ c4₄ c4₃ c4₂ c4₁ c4₀]
+;   B3: [c5₅ c5₄ c5₃ c5₂ c5₁ c5₀ c6₅ c6₄]
+;   B4: [c6₃ c6₂ c6₁ c6₀ c7₅ c7₄ c7₃ c7₂]
+;   B5: [c7₁ c7₀ c8₅ c8₄ c8₃ c8₂ c8₁ c8₀]
+;
+; Clobbers: A, X, Y, _st_nptr (ZP scratch)
+; ═════════════════════════════════════════════════════════
+.proc _pack_name
+        ; First: read up to 8 chars, encode to 6-bit codes in pack_buf
+        ; (temporarily use pack_buf as 8 code bytes, then bit-pack in place)
+
+        ; Clear pack_buf to 0
+        lda #0
+        ldx #5
+@clr:   sta pack_buf,x
+        dex
+        bpl @clr
+
+        ; Read and encode up to 8 chars into a temp area on the stack
+        ; We'll use pack_buf[0..5] as scratch, but first collect codes
+        ; in a different way: process char by char, shifting into pack_buf.
+        ;
+        ; Strategy: process pairs of 3 chars → 2 bytes, but the first
+        ; group is special (5-bit first char).
+        ;
+        jmp @start_pack
+
+        ; ── encode_char subroutine (called from pack code below) ──
+@encode_char:
+        ; Input: A = PETSCII char
+        ; Output: A = 6-bit code (0 if end/invalid)
+        beq @ec_zero            ; NUL → 0
+        ; Lowercase a-z ($41-$5A) → 1-26
+        cmp #$41
+        bcc @ec_other
+        cmp #$5B
+        bcs @ec_upper
+        sec
+        sbc #$40                ; $41→1, $5A→26
+        rts
+@ec_upper:
+        ; Uppercase A-Z ($C1-$DA) → fold to 1-26
+        cmp #$C1
+        bcc @ec_other
+        cmp #$DB
+        bcs @ec_zero
+        sec
+        sbc #$C0                ; $C1→1, $DA→26
+        rts
+@ec_other:
+        ; Period ($2E) → 37 (check BEFORE digits since $2E < $30)
+        cmp #$2E
+        beq @ec_dot
+        ; Digits 0-9 ($30-$39) → 27-36
+        cmp #$30
+        bcc @ec_zero
+        cmp #$3A
+        bcs @ec_zero
+        sec
+        sbc #$30
+        clc
+        adc #27                 ; $30→27, $39→36
+        rts
+@ec_dot:
+        lda #37
+        rts
+@ec_zero:
+        lda #0
+        rts
+
+@start_pack:
+        ; Read chars 0-7 forward, encode, pack into pack_buf
+        ; Use _st_nptr as a pointer to an 8-byte temp area.
+        ; Actually, simplest: read and encode each char, then
+        ; pack directly using shifts.
+
+        ; Clear pack_buf
+        lda #0
+        sta pack_buf
+        sta pack_buf+1
+        sta pack_buf+2
+        sta pack_buf+3
+        sta pack_buf+4
+        sta pack_buf+5
+
+        ; Process char 1 (5 bits into byte 0, bits 6-2)
+        ; First char: 1-26=a-z, 27=dot (5-bit encoding)
+        ldy #0
+        lda (sym_name),y
+        jsr @encode_char
+        cmp #37                 ; dot in 6-bit encoding?
+        bne :+
+        lda #27                 ; remap to 5-bit dot code
+:       ; c1 in A (5-bit, 0-27)
+        asl                     ; shift left 2 to position at bits 6-2
+        asl
+        sta pack_buf            ; B0 = [0 c1₄ c1₃ c1₂ c1₁ c1₀ 0 0]
+        jmp @char2              ; skip trampoline
+
+@to_pad:
+        jmp @pad
+
+        ; Process char 2
+@char2: ; 6 bits: 2 into byte 0 bits 1-0, 4 into byte 1 bits 7-4
+        ldy #1
+        lda (sym_name),y
+        beq @to_pad             ; NUL → done
+        jsr @encode_char
+        ; c2 in A (6-bit)
+        pha
+        lsr                     ; c2 >> 4 → top 2 bits
+        lsr
+        lsr
+        lsr
+        ora pack_buf            ; merge into B0 bits 1-0
+        sta pack_buf
+        pla
+        asl                     ; c2 << 4 → bottom 4 bits into B1 top
+        asl
+        asl
+        asl
+        sta pack_buf+1          ; B1 = [c2₃ c2₂ c2₁ c2₀ 0 0 0 0]
+
+        ; Process char 3 (6 bits: 4 into byte 1 bits 3-0, 2 into byte 2 bits 7-6)
+        ldy #2
+        lda (sym_name),y
+        beq @pad
+        jsr @encode_char
+        pha
+        lsr                     ; c3 >> 2 → top 4 bits
+        lsr
+        ora pack_buf+1
+        sta pack_buf+1          ; B1 = [c2₃ c2₂ c2₁ c2₀ c3₅ c3₄ c3₃ c3₂]
+        pla
+        asl                     ; c3 << 6 → bottom 2 bits into B2 top
+        asl
+        asl
+        asl
+        asl
+        asl
+        sta pack_buf+2          ; B2 = [c3₁ c3₀ 0 0 0 0 0 0]
+
+        ; Process char 4 (6 bits all into byte 2 bits 5-0)
+        ldy #3
+        lda (sym_name),y
+        beq @pad
+        jsr @encode_char
+        ora pack_buf+2
+        sta pack_buf+2          ; B2 = [c3₁ c3₀ c4₅ c4₄ c4₃ c4₂ c4₁ c4₀]
+
+        ; Chars 5-8: same pattern as chars 1-4 but into bytes 3-5
+        ; (except char 5 is 6 bits not 5, so it's like char 2 in position)
+        ; Actually: bytes 3-5 pack c5-c8 identically to how bytes 0-2 pack c2-c4
+        ; with c5 being a full 6-bit char (not 5-bit like c1).
+
+        ; Process char 5 (6 bits: all 6 into byte 3 bits 7-2)
+        ldy #4
+        lda (sym_name),y
+        beq @pad
+        jsr @encode_char
+        asl
+        asl
+        sta pack_buf+3          ; B3 = [c5₅ c5₄ c5₃ c5₂ c5₁ c5₀ 0 0]
+
+        ; Process char 6 (6 bits: 2 into byte 3 bits 1-0, 4 into byte 4 bits 7-4)
+        ldy #5
+        lda (sym_name),y
+        beq @pad
+        jsr @encode_char
+        pha
+        lsr
+        lsr
+        lsr
+        lsr
+        ora pack_buf+3
+        sta pack_buf+3
+        pla
+        asl
+        asl
+        asl
+        asl
+        sta pack_buf+4
+
+        ; Process char 7 (6 bits: 4 into byte 4 bits 3-0, 2 into byte 5 bits 7-6)
+        ldy #6
+        lda (sym_name),y
+        beq @pad
+        jsr @encode_char
+        pha
+        lsr
+        lsr
+        ora pack_buf+4
+        sta pack_buf+4
+        pla
+        asl
+        asl
+        asl
+        asl
+        asl
+        asl
+        sta pack_buf+5
+
+        ; Process char 8 (6 bits all into byte 5 bits 5-0)
+        ldy #7
+        lda (sym_name),y
+        beq @pad
+        jsr @encode_char
+        ora pack_buf+5
+        sta pack_buf+5
+
+@pad:   ; pack_buf already zero-padded from the initial clear
         rts
 .endproc
