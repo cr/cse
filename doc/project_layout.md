@@ -195,3 +195,34 @@ code in a simulated C64 environment.
 
 Run: `/path/to/virtualenv/bin/pytest tests/ -q`
 Virtualenv: `/Users/cr/.local/share/virtualenvs/cse-rXGMsE9U`
+
+### py65 Test Harness Rules
+
+**The 6502 has a flat address space with no memory protection.** Writing test
+data to the wrong address silently overwrites code. The CPU executes your
+data as instructions. Symptoms are bizarre (e.g., "carry flag wrong after
+SEC" because SEC was overwritten with EOR).
+
+**RULE 1: Never hardcode test data addresses.** Read the map file to find
+where CODE, RODATA, and BSS end. Place test data ABOVE that boundary.
+Use `$0A00` or higher as a safe default — verify against the map.
+
+**RULE 2: Use `mpu.memory` directly.** py65's `MPU()` has its own internal
+memory. Creating a separate `bytearray` and loading code into it does
+nothing unless you assign `mpu.memory = mem`. Always either use
+`mpu.memory` directly or assign after loading.
+
+**RULE 3: Check the map file when adding new test modules.** The linker
+places segments contiguously. A new .s file added to the test binary
+shifts all subsequent addresses. A data address that was safe yesterday
+may collide with code today.
+
+**RULE 4: The `_call` helper must reset SP.** Each test call should start
+with a clean stack (SP=$FF, return sentinel at $01FE/$01FF). The 6502
+stack at $0100-$01FF is shared between the test harness and the code
+under test. Unbalanced JSR/RTS corrupts the return address.
+
+**RULE 5: ca65 character literals ARE PETSCII with `-t c64`.** The
+assembler maps `'s'` to $53 (PETSCII), not $73 (ASCII). This is correct
+for C64 code. Do not "fix" character comparisons by using hex unless
+there is a genuine encoding mismatch.
