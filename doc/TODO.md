@@ -22,7 +22,8 @@
 - [ ] `repl.c` is 7KB CODE (34% of binary). Port hot functions to asm: emit_dot, emit_mem, show_prompt, exec_line dispatch.
 - [ ] `editor.c` is 4.4KB CODE (21%). Port gap buffer ops and rendering to asm.
 - [ ] Replace strncpy in repl.c with manual byte copy (~68 bytes saved).
-- [ ] Remove symtab.o/asm_src.o stubs from link until needed (~40 bytes).
+- [ ] Remove asm_src.o stub from link until needed (~16 bytes).
+  (symtab.o is no longer a stub — it's a full implementation.)
 
 ## Test Coverage
 
@@ -75,7 +76,7 @@
 ## Features
 
 - [ ] Source assembler (asm_src.c): 2-pass assembly from gap buffer
-- [ ] Symbol table (symtab.s): hash table for labels
+- [x] Symbol table (symtab.s): hash table with heap-based name storage
 - [ ] Expression parser: extend beyond hex literals (+, -, *, /, <, >, labels, %)
 - [ ] Directives: *= (origin), .byte, .word, .text, .cpu, .include
 - [ ] Labels: name: at start of line, .local labels with . prefix

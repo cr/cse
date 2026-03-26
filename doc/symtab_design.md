@@ -23,23 +23,22 @@ scope:     bit 7 = ZP/ABS (0=ZP-eligible, 1=force ABS)
 
 Initial size: 128 slots = 768 bytes. Growable by doubling (ask user).
 
-## Name Storage: Two-Phase Heap
+## Name Storage: Copy-on-Define Heap
 
-### During assembly (pass 1 + pass 2)
-
-`name_ptr` points directly into the source text (gap buffer). The source
-is stable during both passes — the editor is not active. Zero-copy: no
-string duplication during assembly.
-
-### After assembly (snapshot) — PLANNED
-
-**Status: Not yet implemented.** Currently `name_ptr` becomes invalid
-when the source is edited after assembly.
-
-Planned: A single pass copies all name strings from the gap buffer
-into a compact snapshot heap. `name_ptr` entries are updated to point
-into the snapshot. The REPL's expression parser uses the snapshot
+Names are copied into a persistent heap when `sym_define` is called.
+`name_ptr` in each entry points into the heap, never into the source
+(gap buffer). The heap persists until `sym_clear` — survives editing
 between assemblies.
+
+`sym_set_heap(addr)` sets the heap base. `sym_clear` resets the heap
+pointer to the base. The heap grows upward as symbols are defined.
+
+```
+BSS: sym_table (768B) | free | [heap grows →] ... [← gap buffer]
+```
+
+The REPL's `?` command resolves labels from the heap between assemblies.
+No snapshot pass needed — the heap IS the persistent store.
 
 ## Name Conventions
 
@@ -91,7 +90,7 @@ Slot index = `h & (N_SLOTS - 1)`. Linear probing on collision.
 1. Fold name to lowercase (during comparison)
 2. Compute hash
 3. Probe: if slot empty → store entry. If name matches → update value.
-4. Store: hash, value, name_ptr (pointing to source text), scope byte.
+4. Copy name to heap. Store: hash, value, name_ptr (heap address), scope byte.
 5. If table at capacity → return C=1.
 
 ### sym_lookup
@@ -102,16 +101,15 @@ Slot index = `h & (N_SLOTS - 1)`. Linear probing on collision.
 5. On empty slot: return C=1 (not found).
 
 ### sym_clear
-Zero all slots. Reset count.
+Zero all slots. Reset count. Reset heap pointer to base.
 
-### sym_snapshot (called after successful assembly)
-Walk all occupied slots. For each name_ptr pointing into the gap buffer
-range, copy the string to the snapshot heap and update name_ptr.
+### sym_set_heap
+Set the heap base address. Must be called before first define.
 
 ## Capacity
 
 128 slots at 75% load = 96 symbols. If full, prompt user to double
-(256 slots = 1536 bytes). The snapshot heap grows proportionally.
+(256 slots = 1536 bytes). The name heap grows proportionally.
 
 Typical C64 program: 50-100 constants + 20-50 labels + 30-60 locals
 = 100-210 symbols. May need 256 slots for larger programs.
@@ -127,5 +125,5 @@ separate read-only table in RODATA, checked before the user table.
 | Component | 128 slots | 256 slots |
 |-----------|-----------|-----------|
 | Hash table | 768 B | 1536 B |
-| Snapshot heap (typical) | ~800 B | ~1600 B |
+| Name heap (typical) | ~800 B | ~1600 B |
 | **Total** | **~1568 B** | **~3136 B** |
