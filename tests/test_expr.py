@@ -162,12 +162,12 @@ POSITIVE = [
 
     # ── boolean operations (# = OR, ^ = XOR/↑, & = AND, ! = NOT) ──
     ("$ff&$0f",         0x000F, RC_ZP,  False, 0x1000, "AND ZP"),
-    ("$f0#$0f",         0x00FF, RC_ZP,  False, 0x1000, "OR ZP"),
+    ("$f0\\$0f",         0x00FF, RC_ZP,  False, 0x1000, "OR ZP"),
     ("$ff^$0f",         0x00F0, RC_ZP,  False, 0x1000, "XOR ZP"),
     ("!$ff",            0xFF00, RC_ABS, False, 0x1000, "NOT $FF → $FF00"),
     ("!0",              0xFFFF, RC_ABS, False, 0x1000, "NOT 0 → $FFFF"),
     ("$abcd&$ff00",     0xAB00, RC_ABS, False, 0x1000, "AND ABS"),
-    ("$1234#$00ff",     0x12FF, RC_ABS, False, 0x1000, "OR ABS"),
+    ("$1234\\$00ff",     0x12FF, RC_ABS, False, 0x1000, "OR ABS"),
     ("$1234^$ffff",     0xEDCB, RC_ABS, False, 0x1000, "XOR ABS"),
     ("!$0000",          0xFFFF, RC_ABS, False, 0x1000, "NOT ABS zero → $FFFF"),
 
@@ -181,10 +181,10 @@ POSITIVE = [
 
     # ── precedence: boolean binds LOOSEST ────────────────────────
     ("$ff&$0f+$10",     0x001F, RC_ZP,  False, 0x1000, "AND lower prec than +"),
-    ("$0f#$10+$20",     0x003F, RC_ZP,  False, 0x1000, "OR lower prec than +"),
+    ("$0f\\$10+$20",     0x003F, RC_ZP,  False, 0x1000, "OR lower prec than +"),
     ("$ff^$10+$20",     0x00CF, RC_ZP,  False, 0x1000, "XOR lower prec than +"),
     ("$ff&3*4",         0x000C, RC_ZP,  False, 0x1000, "AND lower prec than *"),
-    ("$0f#1<<4",        0x001F, RC_ZP,  False, 0x1000, "OR lower prec than <<"),
+    ("$0f\\1<<4",        0x001F, RC_ZP,  False, 0x1000, "OR lower prec than <<"),
 
     # ── compound expressions ─────────────────────────────────────
     ("(2+3)*4",         20,     RC_ZP,  False, 0x1000, "parens override prec"),
@@ -193,7 +193,7 @@ POSITIVE = [
     ("!($ff&$0f)",      0xFFF0, RC_ABS, False, 0x1000, "NOT of AND: !($0f) = $fff0"),
     ("1<<(4+4)",        0x0100, RC_ABS, False, 0x1000, "shift by expression"),
     (">($100*2)",       0x0002, RC_ZP,  False, 0x1000, "hi of mul result"),
-    ("<($1234#$ff00)",  0x0034, RC_ZP,  False, 0x1000, "lo of OR result"),
+    ("<($1234\\$ff00)",  0x0034, RC_ZP,  False, 0x1000, "lo of OR result"),
     ("start+$100/2",    0x0880, RC_ABS, True,  0x1000, "label + div"),
 
     # ── mixed ────────────────────────────────────────────────────
@@ -277,7 +277,7 @@ def _petscii(s):
     """Convert ASCII test string to PETSCII bytes.
     Operators: # ($23), & ($26), ^ ($5E=↑), ! ($21) are same in ASCII/PETSCII.
     << and >> use < ($3C) and > ($3E) which are also same."""
-    SPECIAL = {}
+    SPECIAL = {'\\': 0x5C}  # backslash in test string → £ ($5C) in PETSCII
     out = []
     for c in s:
         if c in SPECIAL: out.append(SPECIAL[c])
