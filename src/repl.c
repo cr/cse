@@ -481,8 +481,8 @@ static void cmd_info(void)
 
     /* $0000-$00FF: zero page */
     info_line(0, "cpu",  0x0000, 0x0001, "i/o port");
-    info_line(0, "zp",   0x0002, 0x0038, "cse (saved on j)");
-    free_line(0x0039, 0x007f);
+    info_line(0, "zp",   0x0002, 0x005c, "cse (saved on j)");
+    free_line(0x005d, 0x007f);
     info_line(0, "zp",   0x0080, 0x00ff, "kernal");
 
     /* $0100-$07FF: stack, system, screen */
