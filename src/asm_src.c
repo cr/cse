@@ -432,14 +432,79 @@ static void process_line(char *p) {
         }
     }
 
-    /* ── Instruction ──────────────────────────────────── */
-    nbytes = asm_line((uint16_t)al_pc, p);
-    if (nbytes == 0) {
-        emit_error(p);  /* show the failing instruction text */
-        return;
+    /* ── Instruction: preprocess operand, then pass to asm_line ── */
+    /* asm_line expects canonical hex operands: #$XX, $XX, $XXXX, ($XX),y etc.
+     * We parse the mnemonic, evaluate the operand expression, and rebuild
+     * the line with hex values so asm_line's parser handles it. */
+    {
+        static char insn_buf[32];   /* rebuilt instruction for asm_line */
+        char *dst = insn_buf;
+        char *src = p;
+        uint8_t mne_len;
+        uint8_t rc;
+
+        /* Copy mnemonic (up to first space or end) */
+        mne_len = 0;
+        while (*src && *src != ' ' && mne_len < 8) {
+            *dst++ = *src++;
+            mne_len++;
+        }
+
+        /* Skip spaces between mnemonic and operand */
+        while (*src == ' ') src++;
+
+        if (*src && *src != ';') {
+            /* There's an operand.  Detect addressing mode syntax and
+             * evaluate the expression within it. */
+            uint8_t prefix = 0;     /* chars before the expression value */
+            uint8_t has_hash = 0;
+            uint8_t has_lparen = 0;
+
+            /* Scan prefix characters: #, ( */
+            if (*src == '#') { has_hash = 1; src++; while (*src == ' ') src++; }
+            if (*src == '(') { has_lparen = 1; src++; while (*src == ' ') src++; }
+
+            /* Evaluate the expression */
+            expr_ptr = (uint8_t *)src;
+            rc = expr_eval();
+            src = (char *)expr_ptr;
+            if (rc >= 2) {
+                emit_error("bad operand");
+                return;
+            }
+
+            /* Rebuild: mnemonic + space + prefix + hex value + suffix */
+            *dst++ = ' ';
+
+            if (has_hash) *dst++ = '#';
+            if (has_lparen) *dst++ = '(';
+
+            /* Write hex value: $XX or $XXXX based on width */
+            *dst++ = '$';
+            if (expr_wide || expr_val > 0xFF) {
+                *dst++ = "0123456789abcdef"[(expr_val >> 12) & 0xF];
+                *dst++ = "0123456789abcdef"[(expr_val >>  8) & 0xF];
+            }
+            *dst++ = "0123456789abcdef"[(expr_val >>  4) & 0xF];
+            *dst++ = "0123456789abcdef"[ expr_val        & 0xF];
+
+            /* Copy suffix: ),y  ),x  ,x  ,y  ) etc */
+            while (*src == ' ') src++;
+            while (*src && *src != ';' && (dst - insn_buf) < sizeof(insn_buf) - 1) {
+                *dst++ = *src++;
+            }
+        }
+
+        *dst = 0;
+
+        nbytes = asm_line((uint16_t)al_pc, insn_buf);
+        if (nbytes == 0) {
+            emit_error(insn_buf);
+            return;
+        }
+        al_pc += nbytes;
+        asm_size += nbytes;
     }
-    al_pc += nbytes;
-    asm_size += nbytes;
 }
 
 /* ── Main assembly loop ───────────────────────────────── */
