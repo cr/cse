@@ -126,8 +126,10 @@ last_err:    .res 1              ; last error code
         sta expr_val+1
         jmp @op
 @add_err:
+        tax                      ; save error code
         pla
         pla                      ; clean stack
+        txa                      ; restore error code
         sec
         rts
 
@@ -149,8 +151,10 @@ last_err:    .res 1              ; last error code
         sta expr_val+1
         jmp @op
 @sub_err:
+        tax
         pla
         pla
+        txa
         sec
         rts
 .endproc
@@ -293,9 +297,10 @@ last_err:    .res 1              ; last error code
         PEEK_CHAR
         pha                      ; save original char
         lda #0
-        sta (expr_ptr),y         ; temporary NUL
+        sta (expr_ptr),y         ; temporary NUL (Y=0 from PEEK_CHAR)
         jsr _sym_lookup
         pla
+        ldy #0                   ; Y was clobbered by sym_lookup!
         sta (expr_ptr),y         ; restore original char
         bcs @err_undef
         ; sym_val has the value
@@ -398,6 +403,7 @@ last_err:    .res 1              ; last error code
         lda expr_val+1
         adc _ex_tmp+1
         bcs @overflow
+        sta expr_val+1           ; store hi AFTER overflow check
         ; val *= 2 (now val = orig*10)
         asl expr_val
         rol expr_val+1
@@ -411,7 +417,7 @@ last_err:    .res 1              ; last error code
         lda expr_val+1
         adc #0
         sta expr_val+1
-        bcs @overflow
+        bcs @overflow2           ; digit already popped — no PLA needed
 
         ADV_PTR
         inc _ex_digits
@@ -419,6 +425,7 @@ last_err:    .res 1              ; last error code
 
 @overflow:
         pla                      ; clean stack (digit was pushed)
+@overflow2:
         lda #ERR_OVERFLOW
         sec
         rts
