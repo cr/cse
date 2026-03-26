@@ -34,6 +34,7 @@ ERR_EXPECTED = 2   # expected value
 ERR_OVERFLOW = 3   # value too large
 ERR_PAREN    = 4   # mismatched parens
 ERR_UNDEFINED = 5  # undefined symbol
+ERR_DIVZERO  = 6   # division by zero
 
 # Symbols: (value, wide_flag)
 # loval is defined with 2-digit hex ($42) → ZP
@@ -140,18 +141,60 @@ POSITIVE = [
     ("table-start",     0xB800, RC_ABS, True, 0x1000, "ABS - ABS → ABS"),
     ("<(table+$42)",    0x0042, RC_ZP,  True, 0x1000, "lo of ABS sum → ZP"),
 
-    # ── boolean operations ───────────────────────────────────────
+    # ── multiply / divide ────────────────────────────────────────
+    ("3*4",             12,     RC_ZP,  False, 0x1000, "3*4 = 12"),
+    ("$10*$10",         0x0100, RC_ABS, False, 0x1000, "$10*$10 = $100"),
+    ("$100/4",          0x0040, RC_ABS, False, 0x1000, "$100/4 = $40"),
+    ("255/2",           127,    RC_ZP,  False, 0x1000, "255/2 = 127 (integer)"),
+    ("10/3",            3,      RC_ZP,  False, 0x1000, "10/3 = 3 (truncated)"),
+    ("0/1",             0,      RC_ZP,  False, 0x1000, "0/1 = 0"),
+    ("7*0",             0,      RC_ZP,  False, 0x1000, "7*0 = 0"),
+    ("1*1",             1,      RC_ZP,  False, 0x1000, "1*1 = 1"),
+
+    # ── bit shifts ───────────────────────────────────────────────
+    ("1<<4",            0x0010, RC_ZP,  False, 0x1000, "1<<4 = $10"),
+    ("$ff<<8",          0xFF00, RC_ABS, False, 0x1000, "$ff<<8 = $ff00"),
+    ("$8000>>8",        0x0080, RC_ABS, False, 0x1000, "$8000>>8 = $80"),
+    ("$ff>>4",          0x000F, RC_ZP,  False, 0x1000, "$ff>>4 = $0f"),
+    ("1<<0",            1,      RC_ZP,  False, 0x1000, "1<<0 = 1 (no shift)"),
+    ("$80>>0",          0x0080, RC_ZP,  False, 0x1000, "$80>>0 = $80"),
+    ("%10000000>>7",    1,      RC_ZP,  False, 0x1000, "bit 7 >> 7 = 1"),
+
+    # ── boolean operations (# = OR, ^ = XOR/↑, & = AND, ! = NOT) ──
     ("$ff&$0f",         0x000F, RC_ZP,  False, 0x1000, "AND ZP"),
-    ("$f0|$0f",         0x00FF, RC_ZP,  False, 0x1000, "OR ZP"),
+    ("$f0#$0f",         0x00FF, RC_ZP,  False, 0x1000, "OR ZP"),
     ("$ff^$0f",         0x00F0, RC_ZP,  False, 0x1000, "XOR ZP"),
-    ("~$ff",            0xFF00, RC_ABS, False, 0x1000, "NOT $FF → $FF00 (16-bit complement)"),
-    ("~0",              0xFFFF, RC_ABS, False, 0x1000, "NOT 0 → $FFFF"),
+    ("!$ff",            0xFF00, RC_ABS, False, 0x1000, "NOT $FF → $FF00"),
+    ("!0",              0xFFFF, RC_ABS, False, 0x1000, "NOT 0 → $FFFF"),
     ("$abcd&$ff00",     0xAB00, RC_ABS, False, 0x1000, "AND ABS"),
-    ("$1234|$00ff",     0x12FF, RC_ABS, False, 0x1000, "OR ABS"),
+    ("$1234#$00ff",     0x12FF, RC_ABS, False, 0x1000, "OR ABS"),
     ("$1234^$ffff",     0xEDCB, RC_ABS, False, 0x1000, "XOR ABS"),
-    ("~$0000",          0xFFFF, RC_ABS, False, 0x1000, "NOT ABS zero → $FFFF"),
-    ("$ff&$0f+$10",     0x001F, RC_ZP,  False, 0x1000, "AND lower precedence than +"),
-    ("$0f|$10+$20",     0x003F, RC_ZP,  False, 0x1000, "OR lower precedence than +"),
+    ("!$0000",          0xFFFF, RC_ABS, False, 0x1000, "NOT ABS zero → $FFFF"),
+
+    # ── precedence: mul/div/shift bind tighter than +/- ──────────
+    ("2+4/2",           4,      RC_ZP,  False, 0x1000, "2+(4/2) = 4 not (2+4)/2=3"),
+    ("2+3*4",           14,     RC_ZP,  False, 0x1000, "2+(3*4) = 14 not (2+3)*4=20"),
+    ("$10-2*3",         10,     RC_ZP,  False, 0x1000, "$10-(2*3) = 10"),
+    # shifts same precedence as mul/div: "1<<4+1" = "(1<<4)+1" = $11 = 17
+    ("1<<4+1",          17,     RC_ZP,  False, 0x1000, "(1<<4)+1 = 17"),
+    ("$100>>4+1",       0x0011, RC_ZP,  False, 0x1000, "($100>>4)+1 = $11"),
+
+    # ── precedence: boolean binds LOOSEST ────────────────────────
+    ("$ff&$0f+$10",     0x001F, RC_ZP,  False, 0x1000, "AND lower prec than +"),
+    ("$0f#$10+$20",     0x003F, RC_ZP,  False, 0x1000, "OR lower prec than +"),
+    ("$ff^$10+$20",     0x00CF, RC_ZP,  False, 0x1000, "XOR lower prec than +"),
+    ("$ff&3*4",         0x000C, RC_ZP,  False, 0x1000, "AND lower prec than *"),
+    ("$0f#1<<4",        0x001F, RC_ZP,  False, 0x1000, "OR lower prec than <<"),
+
+    # ── compound expressions ─────────────────────────────────────
+    ("(2+3)*4",         20,     RC_ZP,  False, 0x1000, "parens override prec"),
+    ("$ff&($0f+$10)",   0x001F, RC_ZP,  False, 0x1000, "AND with parens"),
+    ("!$ff&$ff",        0xFF00, RC_ABS, False, 0x1000, "NOT then AND: (!$ff)&$ff = $ff00&$ff"),
+    ("!($ff&$0f)",      0xFFF0, RC_ABS, False, 0x1000, "NOT of AND: !($0f) = $fff0"),
+    ("1<<(4+4)",        0x0100, RC_ABS, False, 0x1000, "shift by expression"),
+    (">($100*2)",       0x0002, RC_ZP,  False, 0x1000, "hi of mul result"),
+    ("<($1234#$ff00)",  0x0034, RC_ZP,  False, 0x1000, "lo of OR result"),
+    ("start+$100/2",    0x0880, RC_ABS, True,  0x1000, "label + div"),
 
     # ── mixed ────────────────────────────────────────────────────
     ("$10+16+%10000",   0x0030, RC_ZP,  False, 0x1000, "hex+dec+bin ZP"),
@@ -176,6 +219,7 @@ NEGATIVE = [
     ("(($10)",          ERR_PAREN,     False, "double open"),
     ("nosuch",          ERR_UNDEFINED, True,  "undefined label"),
     ("start+nosuch",    ERR_UNDEFINED, True,  "undefined in expr"),
+    ("10/0",            ERR_DIVZERO,   False, "division by zero"),
     ("$10+",            ERR_EXPECTED,  False, "trailing +"),
     ("+$10",            ERR_EXPECTED,  False, "leading + (no anon labels)"),
     (")",               ERR_EXPECTED,  False, "bare close paren"),
@@ -231,8 +275,9 @@ def _parse_stub_offset():
 
 def _petscii(s):
     """Convert ASCII test string to PETSCII bytes.
-    Special mappings: | → $DD, ~ → $B1 (different in PETSCII vs ASCII)."""
-    SPECIAL = {'|': 0xDD, '~': 0xB1}
+    Operators: # ($23), & ($26), ^ ($5E=↑), ! ($21) are same in ASCII/PETSCII.
+    << and >> use < ($3C) and > ($3E) which are also same."""
+    SPECIAL = {}
     out = []
     for c in s:
         if c in SPECIAL: out.append(SPECIAL[c])
