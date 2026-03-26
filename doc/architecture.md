@@ -8,7 +8,7 @@
 ├───────────────┬──────────────────────────┤
 │    repl.c     │        editor.c          │  user-facing modes
 ├───────────────┴──┬───────────┬───────────┤
-│    asm_src.c     │  expr.s   │ symtab.c  │  source assembler pipeline
+│    asm_src.c     │  expr.s   │ symtab.s  │  source assembler pipeline
 ├──────────────────┴───────────┴───────────┤
 │  asm_line.s  │  dasm.s    │   disk.s     │  core engines
 ├──────────────┴────────────┴──────────────┤
@@ -108,28 +108,32 @@ lists. CMOS support guarded by `.ifdef CMOS_SUPPORT`.
 
 **Depends on:** opcode_lookup, au_mode, mn_classify, mn7/mn6 tables
 
-### expr.s — Expression Parser
-- `expr_eval(str, result)` — parse expression string → 16-bit value
-- Supports: `$hex`, `%binary`, decimal, `+` `-` `*` `/` `<` `>` `()`
-- `expr_error_str()` — return last parse error string
+### expr.s — Expression Parser (6502 asm)
+- `_expr_eval` — ZP in: expr_ptr (string pointer), al_pc (for `*`).
+  Out: expr_val (16-bit), expr_wide (0/1). Returns A = 0 (ZP), 1 (ABS), 2+ (error).
+- `_expr_error_str` — return pointer to last error's text
+- Supports: `$hex`, `%binary`, decimal, labels, `+` `-` `<` `>` `&` `|` `^` `~` `()` `*`
+- Label charset: a-z, 0-9, `.` (case insensitive, no underscore)
 
-**Depends on:** nothing (standalone evaluator)
+**Depends on:** symtab.s (`_sym_lookup` for label resolution)
 
-**Design notes:** Recursive descent parser. All intermediate values
-16-bit. `<` = lo byte, `>` = hi byte. `*` alone = current PC.
+**Design notes:** Recursive descent. Width tracking: 3+ hex digits force
+ABS, labels inherit from definition, `<`/`>` always produce ZP.
 
-### symtab.c — Symbol Table (stub)
-- `sym_define(name, value)` — add or update symbol
-- `sym_lookup(name, *value)` — find symbol, return 0 if not found
-- `sym_clear()` — delete all symbols
-- `sym_count()` — number of defined symbols
+### symtab.s — Symbol Table (6502 asm)
+- `_sym_define` — ZP in: sym_name (ptr), sym_val (16-bit), sym_wide (0/1). C=1 if full.
+- `_sym_lookup` — ZP in: sym_name (ptr). Out: sym_val, sym_wide. C=1 if not found.
+- `_sym_clear` — wipe all slots
+- `_sym_count` — return count in A
 
 **Depends on:** nothing (standalone data structure)
 
-**Design notes:** Hash table with linear probing. Strings stored in a
-separate pool (grows downward in source memory region). Fixed-size
-hash array (128 or 256 entries) in BSS. Designed for easy asm port:
-hash function is the same 7-bit hash used by mn7_classify.
+**Design:** 128-slot hash table with linear probing, 6-byte entries
+(hash + value + name_ptr + scope). Names stored as PETSCII strings
+pointed to by name_ptr (into source during assembly, snapshot heap
+after). Case-insensitive (uppercase folded to lowercase). Scope byte
+carries ZP/ABS flag (bit 7) and local label parent_id (bits 5-0).
+See `doc/symtab_design.md` for full details.
 
 ### asm_src.c — Source Assembler (stub)
 - `asm_assemble()` — 2-pass assembly of gap buffer contents
@@ -168,4 +172,4 @@ while the implementation moves from C to 6502 asm:
 Priority for asm rewrite (by code size impact):
 1. repl.c (biggest C module)
 2. editor.c
-3. expr.s / symtab.c / asm_src.c (TBD)
+3. expr.s / symtab.s / asm_src.c (TBD)

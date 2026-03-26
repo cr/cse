@@ -12,7 +12,7 @@ sym_wide:  .res 1      ; ZP/ABS flag (0=ZP, nonzero=ABS)
 
 .segment "CODE"
 
-; 7 bytes each: JSR(3) + LDA(2) + STA(2) + BCC/BCS pattern
+; 12 bytes each: JSR(3) + LDA(2) + BCC(2) + LDA(2) + STA_ZP(2) + RTS(1)
 test_define:
         jsr _sym_define
         lda #0

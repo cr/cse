@@ -31,20 +31,15 @@ Initial size: 128 slots = 768 bytes. Growable by doubling (ask user).
 is stable during both passes — the editor is not active. Zero-copy: no
 string duplication during assembly.
 
-### After assembly (snapshot)
+### After assembly (snapshot) — PLANNED
 
-A single pass copies all name strings from the gap buffer into a compact
-**snapshot heap** in the free memory region. `name_ptr` entries are updated
-to point into the snapshot. The source can then be edited freely.
+**Status: Not yet implemented.** Currently `name_ptr` becomes invalid
+when the source is edited after assembly.
 
-The snapshot heap lives between the symbol table and the gap buffer:
-
-```
-sym_table (768B) | snapshot heap (~1-2KB) | ... free ... | gap buffer
-```
-
-The snapshot is rebuilt on each successful assembly. The REPL's expression
-parser (`? label+$10`) uses the snapshot between assemblies.
+Planned: A single pass copies all name strings from the gap buffer
+into a compact snapshot heap. `name_ptr` entries are updated to point
+into the snapshot. The REPL's expression parser uses the snapshot
+between assemblies.
 
 ## Name Conventions
 
@@ -61,27 +56,23 @@ All names are folded to lowercase before hashing and comparison.
 ### Local labels
 Dot-prefixed: `.loop`, `.done`, `.skip`.
 
-Stored with the local name only (no parent prefix concatenation).
-The `scope` byte's `parent_id` (bits 5-0) identifies the enclosing
-global label by its slot index.
+**Status: PLANNED.** The scope byte infrastructure exists (bit 6 = is_local,
+bits 5-0 = parent_id) but local label scoping is not yet implemented.
+Currently `.loop` is stored as a global with the literal name `.loop`.
 
-On lookup, `.name` resolves using the current scope (ZP variable
-`current_scope` = slot index of the last global label defined).
-
-Hash for locals incorporates the parent_id:
-`hash = hash_name("loop") ^ parent_id`
-
-This ensures `.loop` under `main` and `.loop` under `draw` hash to
-different slots.
+Planned implementation:
+- Store local name only (no parent prefix concatenation)
+- `scope` byte's `parent_id` identifies the enclosing global label
+- `current_scope` ZP variable tracks the last global label defined
+- Hash for locals: `hash = hash_name("loop") ^ parent_id`
 
 ### ZP/ABS width
-Stored in bit 7 of the `scope` byte. Set during `sym_define` based on
-`expr_wide` (the expression parser's width tracking). Retrieved during
-`sym_lookup` and propagated back to `expr_wide`.
+Stored in bit 7 of the `scope` byte. Set during `sym_define` from
+`sym_wide` ZP variable. Retrieved during `sym_lookup` and returned
+as `sym_wide` (normalized to 0=ZP, 1=ABS).
 
-At the REFERENCE site, the first-letter case convention can override:
-uppercase first letter forces ABS. This is handled by the expression
-parser, not the symbol table.
+**Planned:** First-letter case convention at reference site (uppercase
+forces ABS). Not yet implemented.
 
 ## Hash Function
 
