@@ -321,6 +321,24 @@ static void process_directive(char *p) {
     else if (p[0] == 'c' && p[1] == 'p' && p[2] == 'u') {
         set_cpu(p + 3);
     }
+    else if (p[0] == 'c' && p[1] == 'o' && p[2] == 'n'
+          && p[3] == 's' && p[4] == 't') {
+        /* .const name expr */
+        char *np;
+        uint8_t nlen;
+        p = skipws(p + 5);
+        np = p;
+        nlen = parse_ident(p);
+        if (nlen == 0) { emit_error("expected name"); return; }
+        p = skipws(p + nlen);
+        expr_ptr = (uint8_t *)p;
+        if (expr_eval() >= 2) { emit_error("bad .const expr"); return; }
+        if (asm_pass == 0) {
+            if (do_sym_define(np, expr_val, expr_wide)) {
+                emit_error("sym full");
+            }
+        }
+    }
     else if (p[0] == 'b' && p[1] == 'i' && p[2] == 'n') {
         emit_binary(p + 3);
     }
@@ -365,30 +383,14 @@ static void process_line(char *p) {
         return;
     }
 
-    /* ── Label or constant definition ─────────────────── */
-    if (is_alpha(fold_char(*p))) {
+    /* ── Label definition: name followed by ':' ────────── */
+    if (is_alpha(fold_char(*p)) || *p == '.') {
         char *start = p;
         ident_len = parse_ident(p);
 
         if (ident_len > 0) {
             char *after = p + ident_len;
             char *rest = skipws(after);
-
-            /* Constant: name = expr */
-            if (*rest == '=') {
-                rest++;
-                expr_ptr = (uint8_t *)rest;
-                if (expr_eval() >= 2) {
-                    emit_error("bad const expr");
-                    return;
-                }
-                if (asm_pass == 0) {
-                    if (do_sym_define(start, expr_val, expr_wide)) {
-                        emit_error("sym full");
-                    }
-                }
-                return;
-            }
 
             /* Label: name MUST be followed by ':' */
             if (*rest != ':') {
