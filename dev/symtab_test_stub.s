@@ -1,9 +1,4 @@
 ; symtab_test_stub.s — Test harness for symtab.s
-;
-; Entry points:
-;   test_define:   JSR sym_define, capture carry → $F4
-;   test_lookup:   JSR sym_lookup, capture carry → $F4
-;   test_clear:    JSR sym_clear
 
         .export test_define, test_lookup, test_clear
         .exportzp sym_name, sym_val, sym_wide
@@ -15,10 +10,11 @@
 sp:        .res 2      ; cc65 C stack pointer (unused)
 sym_name:  .res 2      ; pointer to NUL-terminated name string
 sym_val:   .res 2      ; value (16-bit)
-sym_wide:  .res 1      ; width flag: 0=ZP, nonzero=ABS
+sym_wide:  .res 1      ; ZP/ABS flag (0=ZP, nonzero=ABS)
 
 .segment "CODE"
 
+; 7 bytes each: JSR(3) + LDA(2) + STA(2) + BCC/BCS pattern
 test_define:
         jsr _sym_define
         lda #0

@@ -30,7 +30,7 @@ MAP = BUILD / "symtab_test.map"
 _ZP_START   = 0x0000
 _CODE_START = 0x0200
 _ZP_SIZE    = 0x0100
-_NAME_BUF   = 0x0C00   # must be above CODE+RODATA+BSS
+_NAME_BUF   = 0x1000   # must be above CODE+RODATA+BSS, with room for ~200 names
 _RETURN     = 0x0F00
 
 # ── Build ────────────────────────────────────────────────────
@@ -84,9 +84,10 @@ class SymtabSyms:
         if stub_off is None:
             raise RuntimeError("Cannot find symtab_test_stub CODE offset")
         base = _CODE_START + stub_off
-        self.sym_define = base       # JSR _sym_define / capture carry / RTS
-        self.sym_lookup = base + 7   # JSR _sym_lookup / capture carry / RTS
-        self.sym_clear  = base + 14  # JMP _sym_clear
+        # Each handler: JSR(3) + LDA(2) + BCC(2) + LDA(2) + STA_ZP(2) + RTS(1) = 12 bytes
+        self.sym_define = base          # test_define
+        self.sym_lookup = base + 12     # test_lookup
+        self.sym_clear  = base + 24     # test_clear (JMP)
         self.sym_name = self.exports["sym_name"]
         self.sym_val  = self.exports["sym_val"]
 
@@ -275,13 +276,16 @@ class TestNameMatching:
         found, val = _lookup(symt, mpu, mem, "colorram")
         assert found and val == 0xD800
 
-    def test_9th_char_ignored(self, symt):
-        """Names longer than 8 chars: only first 8 matter."""
+    def test_long_names_distinct(self, symt):
+        """Names are compared in full — no truncation."""
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         _define(symt, mpu, mem, "colorrama", 0xD800)
+        _define(symt, mpu, mem, "colorramb", 0xD900)
+        found, val = _lookup(symt, mpu, mem, "colorrama")
+        assert found and val == 0xD800
         found, val = _lookup(symt, mpu, mem, "colorramb")
-        assert found and val == 0xD800  # first 8 chars match
+        assert found and val == 0xD900
 
     def test_name_with_digits(self, symt):
         mpu, mem = _setup_cpu(symt)

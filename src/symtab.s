@@ -1,18 +1,22 @@
 ; symtab.s — Symbol table: hash table with linear probing
 ;
-; Fixed 128-slot hash array in BSS.  Name strings stored in a
-; separate pool (caller manages pool allocation).
+; Entry: hash(1) + value(2) + name_ptr(2) + scope(1) = 6 bytes
+;   hash:      8-bit, 0 = empty slot (valid hashes forced to 1+)
+;   value:     16-bit symbol value
+;   name_ptr:  points to PETSCII NUL-terminated string (source or snapshot)
+;   scope:     bit 7 = ZP/ABS (0=ZP, 1=ABS)
+;              bit 6 = is_local
+;              bits 5-0 = parent slot if local
+;
+; Names compared case-insensitively (uppercase folded to lowercase).
 ;
 ; Interface (all via ZP):
 ;   sym_define:  in: sym_name (ptr), sym_val (16-bit), sym_wide (0=ZP, 1=ABS)
 ;                out: C=1 if table full
 ;   sym_lookup:  in: sym_name (ptr)
-;                out: sym_val (16-bit), sym_wide (0/1), C=1 if not found
+;                out: sym_val (16-bit), sym_wide, C=1 if not found
 ;   sym_clear:   (no args) — wipes all slots
-;
-; Hash: h = 0; for each char: h = h * 5 + char
-; Slot = h & (SYM_SLOTS - 1).  Linear probe on collision.
-; hash byte = 0 means empty slot.
+;   sym_count:   return count in A
 
         .export _sym_define, _sym_lookup, _sym_clear, _sym_count
         .export _pack_name, pack_buf
@@ -22,7 +26,7 @@
 ; ── Constants ────────────────────────────────────────────
 SYM_SLOTS  = 128
 SYM_MASK   = SYM_SLOTS - 1
-ENTRY_SIZE = 6              ; hash(1) + value(2) + name_ptr(2) + wide(1)
+ENTRY_SIZE = 6              ; hash(1) + value(2) + name_ptr(2) + scope(1)
 
 ; ── ZP scratch ───────────────────────────────────────────
 .segment "ZEROPAGE"
@@ -35,7 +39,7 @@ _st_count:   .res 1         ; number of defined symbols
 ; ── BSS ──────────────────────────────────────────────────
 .segment "BSS"
 sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
-pack_buf:    .res 6                         ; packed name output (6 bytes)
+pack_buf:    .res 6                         ; packed name utility (for _pack_name)
 
 .segment "CODE"
 
@@ -51,12 +55,11 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
         sta sym_table+$200,x
         inx
         bne @clr
-        ; 128 × 6 = 768 = 3 × 256 — exactly 3 pages, done
         rts
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; _sym_count — return count in A (for C callers)
+; _sym_count — return count in A
 ; ═════════════════════════════════════════════════════════
 .proc _sym_count
         lda _st_count
@@ -65,57 +68,71 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; compute_hash — hash the string at (sym_name)
-;   Result in _st_hash and A.  Clobbers Y.
-;   Hash = 0; for each char: hash = hash * 5 + char
-;   Final: if hash == 0, set hash = 1 (0 = empty marker)
+; compute_hash — hash the name at (sym_name), case-insensitive
+;   Result in _st_hash.  h = 0 forced to 1.
+;   Clobbers A, Y.
 ; ═════════════════════════════════════════════════════════
 .proc compute_hash
         lda #0
-        tay                     ; Y = string index
+        sta _st_hash
+        tay
 @loop:  lda (sym_name),y
-        beq @done               ; NUL terminator
-        ; tmp = hash; hash = hash*4 + hash + char = hash*5 + char
-        pha                     ; save char
+        beq @done
+        ; fold uppercase to lowercase
+        jsr fold_char
+        ; hash = hash * 5 + char
+        pha
         lda _st_hash
         asl
-        asl                     ; *4
+        asl
         clc
-        adc _st_hash            ; *5
+        adc _st_hash
         sta _st_hash
-        pla                     ; char
+        pla
         clc
         adc _st_hash
         sta _st_hash
         iny
-        bne @loop               ; always (names < 256 chars)
+        bne @loop
 @done:  lda _st_hash
         bne :+
-        inc _st_hash            ; hash 0 → 1 (0 = empty sentinel)
-:       lda _st_hash
-        rts
+        inc _st_hash
+:       rts
+.endproc
+
+; ═════════════════════════════════════════════════════════
+; fold_char — fold PETSCII uppercase ($C1-$DA) to lowercase ($41-$5A)
+;   Input/output: A. Preserves Y.
+; ═════════════════════════════════════════════════════════
+.proc fold_char
+        cmp #$C1
+        bcc @done
+        cmp #$DB
+        bcs @done
+        ; $C1-$DA → $41-$5A
+        sec
+        sbc #$80
+@done:  rts
 .endproc
 
 ; ═════════════════════════════════════════════════════════
 ; entry_ptr — compute pointer to sym_table[_st_idx]
-;   Sets _st_ptr.  Clobbers A.
+;   Sets _st_ptr. Clobbers A.
 ;   entry address = sym_table + _st_idx * 6
 ; ═════════════════════════════════════════════════════════
 .proc entry_ptr
-        ; _st_ptr = sym_table + _st_idx * 6
-        ; idx * 6 = idx * 4 + idx * 2 (max 127 * 6 = 762 = $02FA)
         lda _st_idx
         asl                     ; × 2
-        sta _st_ptr             ; save lo(×2)
+        sta _st_ptr
         lda #0
-        rol                     ; hi(×2)
+        rol
         sta _st_ptr+1
         lda _st_ptr
         asl                     ; lo(×4)
-        sta _st_nptr            ; temp lo(×4)
+        sta _st_nptr
         lda _st_ptr+1
-        rol                     ; hi(×4)
-        sta _st_nptr+1          ; temp hi(×4)
+        rol
+        sta _st_nptr+1
         ; ×6 = ×4 + ×2
         lda _st_ptr
         clc
@@ -124,7 +141,7 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
         lda _st_ptr+1
         adc _st_nptr+1
         sta _st_ptr+1
-        ; Now add sym_table base address
+        ; add sym_table base
         lda _st_ptr
         clc
         adc #<sym_table
@@ -136,10 +153,9 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; names_equal — compare string at (sym_name) with string
-;   pointed to by entry's name_ptr field.
-;   Entry: _st_ptr points to the entry.
-;   Returns Z=1 if equal, Z=0 if not.  Clobbers A, Y.
+; names_equal — compare (sym_name) with entry's name_ptr
+;   Case-insensitive.  Returns Z=1 if equal.
+;   Clobbers A, Y, _st_nptr.
 ; ═════════════════════════════════════════════════════════
 .proc names_equal
         ; Load name_ptr from entry (offset 3-4)
@@ -149,69 +165,71 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
         iny
         lda (_st_ptr),y
         sta _st_nptr+1
-
-        ; Compare char by char
+        ; Compare strings byte by byte, case-insensitive
         ldy #0
-@cmp:   lda (sym_name),y
-        cmp (_st_nptr),y
-        bne @ne                 ; mismatch
-        cmp #0
-        beq @eq                 ; both NUL → equal
+@loop:  lda (_st_nptr),y
+        jsr fold_char
+        pha                     ; save folded entry char
+        lda (sym_name),y
+        jsr fold_char
+        tsx
+        cmp $0101,x             ; compare with stacked entry char
+        bne @diff_pop
+        ; Chars matched — pop stacked byte
+        pla
+        ; If both NUL, strings are equal
+        lda (sym_name),y
+        beq @equal
         iny
-        bne @cmp                ; always (< 256 chars)
-@eq:    lda #0                  ; Z=1
+        bne @loop
+@equal: lda #0                  ; Z=1
         rts
-@ne:    lda #1                  ; Z=0
+@diff_pop:
+        pla                     ; clean stacked byte
+        lda #1                  ; Z=0
         rts
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; sym_define — define or redefine a symbol
-;   In:  sym_name (ZP ptr), sym_val (ZP 16-bit)
-;   Out: C=0 ok, C=1 table full
+; _sym_define
+;   In:  sym_name (ptr), sym_val (16-bit), sym_wide (0/1)
+;   Out: C=1 if table full
 ; ═════════════════════════════════════════════════════════
 .proc _sym_define
-        lda #0
-        sta _st_hash
-        jsr compute_hash        ; _st_hash = hash of sym_name
+        jsr compute_hash
 
-        ; Start probing at slot = hash & mask
         lda _st_hash
         and #SYM_MASK
         sta _st_idx
+        ldx #SYM_SLOTS          ; probe counter
 
-        ldx #SYM_SLOTS          ; probe counter (max = all slots)
-@probe:
-        jsr entry_ptr           ; _st_ptr → current entry
-
+@probe: jsr entry_ptr
         ; Check if slot is empty (hash byte = 0)
         ldy #0
         lda (_st_ptr),y
-        beq @empty              ; empty slot → insert here
+        beq @empty
 
-        ; Slot occupied — check if same hash
+        ; Slot occupied — check if same name (redefine)
         cmp _st_hash
-        bne @next               ; different hash → skip
-
-        ; Same hash — compare names
+        bne @next
         jsr names_equal
-        bne @next               ; different name → collision, keep probing
+        bne @next
 
-        ; Same name → redefine (update value, don't increment count)
+        ; Same name — update value + scope
         jmp @store_val
 
 @empty:
-        ; Check if table is full
+        ; Check capacity
         lda _st_count
         cmp #SYM_SLOTS
         bcs @full
 
-        ; Write hash byte
+        ; Store hash byte
         lda _st_hash
         ldy #0
         sta (_st_ptr),y
 
-        ; Write name pointer
+        ; Store name_ptr
         lda sym_name
         ldy #3
         sta (_st_ptr),y
@@ -222,22 +240,25 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
         inc _st_count
 
 @store_val:
-        ; Write value + wide flag
+        ; Store value
         lda sym_val
         ldy #1
         sta (_st_ptr),y
         lda sym_val+1
         iny
         sta (_st_ptr),y
+
+        ; Store scope byte (bit 7 = ZP/ABS from sym_wide)
         lda sym_wide
-        ldy #5
+        beq :+
+        lda #$80                ; ABS flag
+:       ldy #5
         sta (_st_ptr),y
 
-        clc                     ; success
+        clc
         rts
 
 @next:
-        ; Linear probe: next slot
         inc _st_idx
         lda _st_idx
         and #SYM_MASK
@@ -245,53 +266,49 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
         dex
         bne @probe
 
-@full:
-        sec                     ; table full
+@full:  sec
         rts
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; sym_lookup — look up a symbol by name
-;   In:  sym_name (ZP ptr)
-;   Out: sym_val (ZP 16-bit), C=0 found, C=1 not found
+; _sym_lookup
+;   In:  sym_name (ptr)
+;   Out: sym_val (16-bit), sym_wide, C=0 found, C=1 not found
 ; ═════════════════════════════════════════════════════════
 .proc _sym_lookup
-        lda #0
-        sta _st_hash
         jsr compute_hash
 
         lda _st_hash
         and #SYM_MASK
         sta _st_idx
-
         ldx #SYM_SLOTS
-@probe:
-        jsr entry_ptr
 
-        ; Empty slot → not found
+@probe: jsr entry_ptr
         ldy #0
         lda (_st_ptr),y
         beq @notfound
 
-        ; Check hash
         cmp _st_hash
         bne @next
 
-        ; Check name
         jsr names_equal
         bne @next
 
-        ; Found — read value + wide flag
+        ; Found — read value
         ldy #1
         lda (_st_ptr),y
         sta sym_val
         iny
         lda (_st_ptr),y
         sta sym_val+1
+
+        ; Read scope byte → sym_wide (bit 7)
         ldy #5
         lda (_st_ptr),y
+        and #$80
         sta sym_wide
-        clc                     ; found
+
+        clc
         rts
 
 @next:
@@ -308,92 +325,10 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; _pack_name — pack string at (sym_name) into 6 bytes at pack_buf
-;
-; 6-bit encoding: 0=end, 1-26=a-z, 27-36=0-9, 37=.
-; First char: 5-bit (1-27). Bit 7 of byte 0 = ZP flag (cleared here).
-; Case folds uppercase ($C1-$DA) to lowercase ($41-$5A).
-; Max 8 chars; rest ignored. Short names zero-padded.
-;
-; Layout:
-;   B0: [0  c1₄ c1₃ c1₂ c1₁ c1₀ c2₅ c2₄]  (bit7=ZP, cleared)
-;   B1: [c2₃ c2₂ c2₁ c2₀ c3₅ c3₄ c3₃ c3₂]
-;   B2: [c3₁ c3₀ c4₅ c4₄ c4₃ c4₂ c4₁ c4₀]
-;   B3: [c5₅ c5₄ c5₃ c5₂ c5₁ c5₀ c6₅ c6₄]
-;   B4: [c6₃ c6₂ c6₁ c6₀ c7₅ c7₄ c7₃ c7₂]
-;   B5: [c7₁ c7₀ c8₅ c8₄ c8₃ c8₂ c8₁ c8₀]
-;
-; Clobbers: A, X, Y, _st_nptr (ZP scratch)
+; _pack_name — utility: pack string at (sym_name) into pack_buf
+;   (Kept for potential future use. See pack tests.)
 ; ═════════════════════════════════════════════════════════
 .proc _pack_name
-        ; First: read up to 8 chars, encode to 6-bit codes in pack_buf
-        ; (temporarily use pack_buf as 8 code bytes, then bit-pack in place)
-
-        ; Clear pack_buf to 0
-        lda #0
-        ldx #5
-@clr:   sta pack_buf,x
-        dex
-        bpl @clr
-
-        ; Read and encode up to 8 chars into a temp area on the stack
-        ; We'll use pack_buf[0..5] as scratch, but first collect codes
-        ; in a different way: process char by char, shifting into pack_buf.
-        ;
-        ; Strategy: process pairs of 3 chars → 2 bytes, but the first
-        ; group is special (5-bit first char).
-        ;
-        jmp @start_pack
-
-        ; ── encode_char subroutine (called from pack code below) ──
-@encode_char:
-        ; Input: A = PETSCII char
-        ; Output: A = 6-bit code (0 if end/invalid)
-        beq @ec_zero            ; NUL → 0
-        ; Lowercase a-z ($41-$5A) → 1-26
-        cmp #$41
-        bcc @ec_other
-        cmp #$5B
-        bcs @ec_upper
-        sec
-        sbc #$40                ; $41→1, $5A→26
-        rts
-@ec_upper:
-        ; Uppercase A-Z ($C1-$DA) → fold to 1-26
-        cmp #$C1
-        bcc @ec_other
-        cmp #$DB
-        bcs @ec_zero
-        sec
-        sbc #$C0                ; $C1→1, $DA→26
-        rts
-@ec_other:
-        ; Period ($2E) → 37 (check BEFORE digits since $2E < $30)
-        cmp #$2E
-        beq @ec_dot
-        ; Digits 0-9 ($30-$39) → 27-36
-        cmp #$30
-        bcc @ec_zero
-        cmp #$3A
-        bcs @ec_zero
-        sec
-        sbc #$30
-        clc
-        adc #27                 ; $30→27, $39→36
-        rts
-@ec_dot:
-        lda #37
-        rts
-@ec_zero:
-        lda #0
-        rts
-
-@start_pack:
-        ; Read chars 0-7 forward, encode, pack into pack_buf
-        ; Use _st_nptr as a pointer to an 8-byte temp area.
-        ; Actually, simplest: read and encode each char, then
-        ; pack directly using shifts.
-
         ; Clear pack_buf
         lda #0
         sta pack_buf
@@ -403,89 +338,120 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
         sta pack_buf+4
         sta pack_buf+5
 
-        ; Process char 1 (5 bits into byte 0, bits 6-2)
-        ; First char: 1-26=a-z, 27=dot (5-bit encoding)
+        jmp @start_pack
+
+        ; ── encode_char subroutine ──
+@encode_char:
+        beq @ec_zero
+        cmp #$41
+        bcc @ec_other
+        cmp #$5B
+        bcs @ec_upper
+        sec
+        sbc #$40
+        rts
+@ec_upper:
+        cmp #$C1
+        bcc @ec_other
+        cmp #$DB
+        bcs @ec_zero
+        sec
+        sbc #$C0
+        rts
+@ec_other:
+        cmp #$2E
+        beq @ec_dot
+        cmp #$30
+        bcc @ec_zero
+        cmp #$3A
+        bcs @ec_zero
+        sec
+        sbc #$30
+        clc
+        adc #27
+        rts
+@ec_dot:
+        lda #37
+        rts
+@ec_zero:
+        lda #0
+        rts
+
+@start_pack:
+        ; Process char 1 (5 bits: codes 1-27 for a-z and dot)
         ldy #0
         lda (sym_name),y
         jsr @encode_char
-        cmp #37                 ; dot in 6-bit encoding?
+        cmp #37
         bne :+
-        lda #27                 ; remap to 5-bit dot code
-:       ; c1 in A (5-bit, 0-27)
-        asl                     ; shift left 2 to position at bits 6-2
+        lda #27
+:       asl
         asl
-        sta pack_buf            ; B0 = [0 c1₄ c1₃ c1₂ c1₁ c1₀ 0 0]
-        jmp @char2              ; skip trampoline
+        sta pack_buf
+        jmp @char2
 
 @to_pad:
         jmp @pad
 
-        ; Process char 2
-@char2: ; 6 bits: 2 into byte 0 bits 1-0, 4 into byte 1 bits 7-4
+@char2: ; 6 bits: 2 into byte 0, 4 into byte 1
         ldy #1
         lda (sym_name),y
-        beq @to_pad             ; NUL → done
+        beq @to_pad
         jsr @encode_char
-        ; c2 in A (6-bit)
         pha
-        lsr                     ; c2 >> 4 → top 2 bits
         lsr
         lsr
         lsr
-        ora pack_buf            ; merge into B0 bits 1-0
+        lsr
+        ora pack_buf
         sta pack_buf
         pla
-        asl                     ; c2 << 4 → bottom 4 bits into B1 top
         asl
         asl
         asl
-        sta pack_buf+1          ; B1 = [c2₃ c2₂ c2₁ c2₀ 0 0 0 0]
+        asl
+        sta pack_buf+1
 
-        ; Process char 3 (6 bits: 4 into byte 1 bits 3-0, 2 into byte 2 bits 7-6)
+        ; char 3: 4 into byte 1, 2 into byte 2
         ldy #2
         lda (sym_name),y
-        beq @pad
+        beq @to_pad
         jsr @encode_char
         pha
-        lsr                     ; c3 >> 2 → top 4 bits
+        lsr
         lsr
         ora pack_buf+1
-        sta pack_buf+1          ; B1 = [c2₃ c2₂ c2₁ c2₀ c3₅ c3₄ c3₃ c3₂]
+        sta pack_buf+1
         pla
-        asl                     ; c3 << 6 → bottom 2 bits into B2 top
         asl
         asl
         asl
         asl
         asl
-        sta pack_buf+2          ; B2 = [c3₁ c3₀ 0 0 0 0 0 0]
+        asl
+        sta pack_buf+2
 
-        ; Process char 4 (6 bits all into byte 2 bits 5-0)
+        ; char 4: all 6 into byte 2
         ldy #3
         lda (sym_name),y
-        beq @pad
+        beq @to_pad
         jsr @encode_char
         ora pack_buf+2
-        sta pack_buf+2          ; B2 = [c3₁ c3₀ c4₅ c4₄ c4₃ c4₂ c4₁ c4₀]
+        sta pack_buf+2
 
-        ; Chars 5-8: same pattern as chars 1-4 but into bytes 3-5
-        ; (except char 5 is 6 bits not 5, so it's like char 2 in position)
-        ; Actually: bytes 3-5 pack c5-c8 identically to how bytes 0-2 pack c2-c4
-        ; with c5 being a full 6-bit char (not 5-bit like c1).
-
-        ; Process char 5 (6 bits: all 6 into byte 3 bits 7-2)
+        ; char 5: 6 into byte 3 bits 7-2
         ldy #4
         lda (sym_name),y
-        beq @pad
+        beq @to_pad
         jsr @encode_char
         asl
         asl
-        sta pack_buf+3          ; B3 = [c5₅ c5₄ c5₃ c5₂ c5₁ c5₀ 0 0]
+        sta pack_buf+3
 
-        ; Process char 6 (6 bits: 2 into byte 3 bits 1-0, 4 into byte 4 bits 7-4)
+        ; char 6: 2 into byte 3, 4 into byte 4
         ldy #5
         lda (sym_name),y
-        beq @pad
+        beq @to_pad
         jsr @encode_char
         pha
         lsr
@@ -501,10 +467,13 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
         asl
         sta pack_buf+4
 
-        ; Process char 7 (6 bits: 4 into byte 4 bits 3-0, 2 into byte 5 bits 7-6)
+@to_pad2:
+        jmp @pad
+
+        ; char 7: 4 into byte 4, 2 into byte 5
         ldy #6
         lda (sym_name),y
-        beq @pad
+        beq @to_pad2
         jsr @encode_char
         pha
         lsr
@@ -520,14 +489,13 @@ pack_buf:    .res 6                         ; packed name output (6 bytes)
         asl
         sta pack_buf+5
 
-        ; Process char 8 (6 bits all into byte 5 bits 5-0)
+        ; char 8: all 6 into byte 5
         ldy #7
         lda (sym_name),y
-        beq @pad
+        beq @to_pad2
         jsr @encode_char
         ora pack_buf+5
         sta pack_buf+5
 
-@pad:   ; pack_buf already zero-padded from the initial clear
-        rts
+@pad:   rts
 .endproc
