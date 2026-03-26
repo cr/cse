@@ -27,7 +27,7 @@ MAP = BUILD / "symtab_test.map"
 _ZP_START   = 0x0000
 _CODE_START = 0x0200
 _ZP_SIZE    = 0x0100
-_NAME_BUF   = 0x0300      # where we place name strings
+_NAME_BUF   = 0x0A00      # where we place name strings (must be above CODE+RODATA+BSS)
 _RETURN     = 0x0F00       # sentinel address for RTS detection
 
 # ── Build infrastructure ─────────────────────────────────────────
@@ -118,10 +118,15 @@ def symt():
 
 # ── Helpers ──────────────────────────────────────────────────────
 
-def _place_name(mem, name, addr=_NAME_BUF):
-    """Write PETSCII name string at addr, NUL-terminated."""
+_name_alloc_ptr = _NAME_BUF
+
+def _place_name(mem, name, addr=None):
+    """Write PETSCII name string at next free address, NUL-terminated."""
+    global _name_alloc_ptr
+    if addr is None:
+        addr = _name_alloc_ptr
+        _name_alloc_ptr += len(name) + 1
     for i, ch in enumerate(name):
-        # Simple ASCII→PETSCII for lowercase letters
         c = ord(ch)
         if ord('a') <= c <= ord('z'):
             c = c - ord('a') + 0x41  # PETSCII lowercase
@@ -133,6 +138,8 @@ def _place_name(mem, name, addr=_NAME_BUF):
 
 def _setup_cpu(symt):
     """Create a fresh CPU with the test binary loaded."""
+    global _name_alloc_ptr
+    _name_alloc_ptr = _NAME_BUF  # reset name allocator
     mpu = MPU()
     mem = bytearray(0x10000)
     symt.load_into(mem)

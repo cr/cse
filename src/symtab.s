@@ -109,17 +109,29 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 5 = 640 bytes
 ;   entry address = sym_table + _st_idx * 5
 ; ═════════════════════════════════════════════════════════
 .proc entry_ptr
+        ; _st_ptr = sym_table + _st_idx * 5
+        ; idx * 5 can be up to 127 * 5 = 635 = $027B (needs 16-bit)
         lda _st_idx
-        ; × 5 = × 4 + × 1
         asl
-        asl                     ; × 4
+        asl                     ; A = idx × 4 (lo), carry = hi bit
+        sta _st_ptr             ; save lo(×4)
+        lda #0
+        rol                     ; A = hi(×4) = 0 or 1
+        sta _st_ptr+1           ; save hi(×4)
+        lda _st_ptr
         clc
-        adc _st_idx             ; × 5
+        adc _st_idx             ; lo(×5) = lo(×4) + idx
+        sta _st_ptr
+        lda _st_ptr+1
+        adc #0                  ; hi(×5) = hi(×4) + carry
+        sta _st_ptr+1
+        ; Now add sym_table base address
+        lda _st_ptr
         clc
         adc #<sym_table
         sta _st_ptr
-        lda #>sym_table
-        adc #0
+        lda _st_ptr+1
+        adc #>sym_table
         sta _st_ptr+1
         rts
 .endproc
