@@ -464,10 +464,31 @@ static void process_line(char *p) {
             if (*src == '#') { has_hash = 1; src++; while (*src == ' ') src++; }
             if (*src == '(') { has_lparen = 1; src++; while (*src == ' ') src++; }
 
-            /* Evaluate the expression */
-            expr_ptr = (uint8_t *)src;
-            rc = expr_eval();
-            src = (char *)expr_ptr;
+            /* Expand local label references: .name → scope.name */
+            {
+                static char expr_buf[48];
+                char *ep = expr_buf;
+                char *sp = src;
+                while (*sp && *sp != ';' && *sp != ' '
+                    && (ep - expr_buf) < sizeof(expr_buf) - 2) {
+                    if (*sp == '.' && is_alpha(fold_char(*(sp+1)))) {
+                        /* Local label reference — prepend scope */
+                        uint8_t si;
+                        for (si = 0; scope_name[si] && (ep - expr_buf) < sizeof(expr_buf) - 2; ++si)
+                            *ep++ = scope_name[si];
+                    }
+                    *ep++ = *sp++;
+                }
+                /* Copy remaining suffix (,x  ,y  )  etc.) */
+                while (*sp && *sp != ';' && (ep - expr_buf) < sizeof(expr_buf) - 2)
+                    *ep++ = *sp++;
+                *ep = 0;
+
+                expr_ptr = (uint8_t *)expr_buf;
+                rc = expr_eval();
+                /* Advance src past consumed chars */
+                src = sp;
+            }
             if (rc >= 2) {
                 emit_error("bad operand");
                 return;
