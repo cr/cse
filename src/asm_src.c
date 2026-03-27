@@ -73,11 +73,6 @@ static char     line_buf[80];       /* current source line */
 static char     scope_name[24];     /* last global label name */
 static char     full_label[48];     /* "scope.local" concatenation */
 
-/* Anonymous label tracking */
-#define ANON_MAX 255
-static uint16_t anon_list[ANON_MAX];   /* anonymous label PCs */
-static uint8_t  anon_count;            /* total (set in pass 1) */
-static uint8_t  anon_idx;             /* current index (pass 2) */
 
 /* ── Helpers ───────────────────────────────────────────── */
 
@@ -347,35 +342,87 @@ static uint8_t process_directive(char *p) {
     return 0;
 }
 
+/* ── Define a label (global or local) ──────────────────── */
+static void define_label(char *name, uint8_t len) {
+    char *label_name;
+    uint8_t wide;
+    uint8_t si;
+
+    if (name[0] == '.') {
+        /* Local label: store as "scope.name" */
+        build_local_path(name + 1, len - 1);
+        label_name = full_label;
+    } else {
+        label_name = name;
+        /* Update scope for future locals */
+        for (si = 0; si < len && si < sizeof(scope_name) - 1; ++si)
+            scope_name[si] = name[si];
+        scope_name[si] = 0;
+    }
+
+    wide = (al_pc > 0xFF) ? 1 : 0;
+    if (asm_pass == 0) {
+        if (do_sym_define(label_name, al_pc, wide)) {
+            emit_error("sym full");
+        }
+    }
+}
+
+/* ── Find the next word: start and end (end = one past last char) ── */
+/* Words end at space, NUL, or ';'.  Returns 0 if no word (EOL/comment). */
+static uint8_t next_word(char **pp, char **wstart, char **wend) {
+    char *p = *pp;
+    /* skip leading spaces */
+    while (*p == ' ') ++p;
+    /* EOL or comment? */
+    if (*p == 0 || *p == ';') { *pp = p; return 0; }
+    *wstart = p;
+    /* scan to end of word */
+    while (*p && *p != ' ' && *p != ';') ++p;
+    *wend = p;
+    *pp = p;
+    return 1;
+}
+
 /* ── Process one source line ───────────────────────────── */
 static void process_line(char *p) {
-    uint8_t ident_len;
+    char *ws, *we;
     uint8_t nbytes;
 
-    p = skipws(p);
+    /* Consume labels: any word ending with ':' */
+    for (;;) {
+        char *saved = p;
+        if (!next_word(&p, &ws, &we)) return;  /* EOL */
 
-    /* Empty line or comment */
+        if (*(we - 1) == ':') {
+            /* It's a label — strip the colon for the name */
+            uint8_t len = (uint8_t)(we - 1 - ws);
+            if (len > 0) {
+                char save = *(we - 1);
+                *(we - 1) = 0;           /* NUL-terminate the name */
+                parse_ident(ws);          /* fold to lowercase in-place */
+                define_label(ws, len);
+                *(we - 1) = save;         /* restore */
+            }
+            continue;                     /* check for more labels or content */
+        }
+
+        /* Not a label — put the word back and dispatch */
+        p = saved;
+        break;
+    }
+
+    /* Skip spaces to the dispatch point */
+    while (*p == ' ') ++p;
     if (*p == 0 || *p == ';') return;
 
-    /* ── Anonymous label marker: bare '+' at start ────── */
-    if (*p == '+' && (*(p+1) == 0 || *(p+1) == ' ' || *(p+1) == ';')) {
-        if (asm_pass == 0 && anon_count < ANON_MAX) {
-            anon_list[anon_count++] = al_pc;
-        }
-        if (asm_pass == 1) anon_idx++;
-        ++p;
-        p = skipws(p);
-        if (*p == 0 || *p == ';') return;
-    }
-
-    /* ── Directive or local label: starts with '.' ───── */
+    /* Directive: starts with '.' */
     if (*p == '.') {
-        if (process_directive(p + 1))
-            return;
-        /* Not a directive — fall through to label handler (.name:) */
+        process_directive(p + 1);
+        return;
     }
 
-    /* ── Origin shorthand: *= expr ────────────────────── */
+    /* Origin shorthand: *= expr */
     if (*p == '*' && *(p+1) == '=') {
         expr_ptr = (uint8_t *)(p + 2);
         if (expr_eval() >= 2) { emit_error("bad org"); return; }
@@ -384,60 +431,7 @@ static void process_line(char *p) {
         return;
     }
 
-    /* ── Label definition: name followed by ':' ────────── */
-    if (is_alpha(fold_char(*p)) || *p == '.') {
-        char *start = p;
-        ident_len = parse_ident(p);
-
-        if (ident_len > 0) {
-            char *after = p + ident_len;
-            char *rest = skipws(after);
-
-            /* Label: name MUST be followed by ':' */
-            if (*rest != ':') {
-                /* Not a label — treat entire line as an instruction */
-                goto instruction;
-            }
-            rest++;     /* skip ':' */
-
-            if (asm_pass == 0) {
-                /* Check if it's a local (.name) stored as scope.name */
-                char *label_name;
-                uint8_t si;
-                uint8_t wide;
-                if (start[0] == '.') {
-                    build_local_path(start + 1, ident_len - 1);
-                    label_name = full_label;
-                } else {
-                    label_name = start;
-                    /* Update scope for future locals */
-                    for (si = 0; si < ident_len && si < sizeof(scope_name) - 1; ++si)
-                        scope_name[si] = start[si];
-                    scope_name[si] = 0;
-                }
-                wide = (al_pc > 0xFF) ? 1 : 0;
-                if (do_sym_define(label_name, al_pc, wide)) {
-                    emit_error("sym full");
-                }
-            }
-
-            if (asm_pass == 1) {
-                /* Update scope and anon tracking for pass 2 */
-                if (start[0] != '.' && start[0] != '+') {
-                    uint8_t si2;
-                    for (si2 = 0; si2 < ident_len && si2 < sizeof(scope_name) - 1; ++si2)
-                        scope_name[si2] = start[si2];
-                    scope_name[si2] = 0;
-                }
-            }
-
-            p = skipws(rest);
-            if (*p == 0 || *p == ';') return;
-            /* Fall through to instruction */
-        }
-    }
-
-instruction:
+    /* Otherwise: instruction */
     /* ── Instruction: preprocess operand, then pass to asm_line ── */
     /* asm_line expects canonical hex operands: #$XX, $XX, $XXXX, ($XX),y etc.
      * We parse the mnemonic, evaluate the operand expression, and rebuild
@@ -532,8 +526,6 @@ uint16_t asm_assemble(void) {
 
     asm_errors = 0;
     asm_size   = 0;
-    anon_count = 0;
-    anon_idx   = 0;
     scope_name[0] = 0;
 
     /* Set up symbol table heap in free memory above BSS */
@@ -549,7 +541,6 @@ uint16_t asm_assemble(void) {
     /* Pass 2: resolve, emit */
     asm_pass = 1;
     asm_size = 0;           /* recount for pass 2 */
-    anon_idx = 0;
     scope_name[0] = 0;
     do_pass();
 
