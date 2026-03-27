@@ -70,6 +70,7 @@ extern uint8_t *src_top, *src_bot;
 /* ── Memory info (meminfo.s) ────────────────────────────── */
 extern uint16_t cse_start(void);
 extern uint16_t cse_end(void);
+extern uint8_t  cse_zp_end(void);  /* first free ZP byte */
 
 /* ── Symbol table (symtab.s) ─────────────────────────────── */
 void __fastcall__ sym_set_heap(uint16_t addr);

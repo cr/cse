@@ -410,6 +410,164 @@ def al_syms():
     return AsmLineSymbols()
 
 
+# ── asm_src test binary ───────────────────────────────────────────────────────
+#
+# Links the full two-pass assembler pipeline:
+#   asm_vars + parse_hex + opcode_lookup + asm_line + asm_bridge
+#   + au_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables
+#   + mn_classify + expr + symtab + asm_src
+#   + asm_src_test_stub  (provides sp, pushax, cse_popax, ed_read_line, etc.)
+#
+# Linked with asm_src_test.cfg (adds DATA segment for asm_src.s).
+
+_AS_BIN = BUILD / "asm_src_test.bin"
+_AS_MAP = BUILD / "asm_src_test.map"
+_AS_CFG = DEV / "asm_src_test.cfg"
+
+_AS_SOURCES = [
+    SRC / "asm_vars.s",
+    SRC / "parse_hex.s",
+    SRC / "opcode_lookup.s",
+    SRC / "asm_line.s",
+    SRC / "asm_bridge.s",
+    SRC / "au_mode.s",
+    SRC / "mn_vars.s",
+    SRC / "mn7.s",
+    SRC / "mn7_tables.s",
+    SRC / "mn_modes.s",
+    SRC / "mn_asm_tables.s",
+    SRC / "mn_classify.s",
+    SRC / "expr.s",
+    SRC / "symtab.s",
+    SRC / "asm_src.s",
+    DEV / "asm_src_test_stub.s",
+]
+
+
+def _as_needs_rebuild():
+    if not _AS_BIN.exists() or not _AS_MAP.exists():
+        return True
+    bin_mtime = _AS_BIN.stat().st_mtime
+    return any(s.stat().st_mtime > bin_mtime for s in _AS_SOURCES + [_AS_CFG])
+
+
+def _as_build():
+    BUILD.mkdir(exist_ok=True)
+    obj_files = []
+    for src in _AS_SOURCES:
+        obj = BUILD / f"{src.stem}_as.o"
+        cmd = ["ca65", "--cpu", "6502", "-t", "c64", str(src), "-o", str(obj)]
+        subprocess.run(cmd, check=True)
+        obj_files.append(str(obj))
+    subprocess.run(
+        ["ld65", "-C", str(_AS_CFG),
+         *obj_files,
+         "-o", str(_AS_BIN),
+         "-m", str(_AS_MAP)],
+        check=True,
+    )
+
+
+def _as_parse_map_exports():
+    """Return {symbol: address} for all exports in the ld65 map file."""
+    syms = {}
+    in_exports = False
+    for line in _AS_MAP.read_text().splitlines():
+        if "Exports list by name" in line:
+            in_exports = True
+            continue
+        if in_exports:
+            if line.strip() == "":
+                break
+            for name, addr in re.findall(r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line):
+                syms[name] = int(addr, 16)
+    return syms
+
+
+def _as_parse_addrs():
+    """Parse all needed absolute addresses from the asm_src test map file.
+
+    Returns (asm_src_test_entry, test_src_buf, asm_org, asm_size, asm_errors).
+
+    ld65 only includes a symbol in the "Exports list by name" if it is
+    imported by at least one other module.  asm_src_test_entry and
+    _test_src_buf are not imported by anyone, so we compute their addresses
+    from segment-start + module-offset information in the map file:
+
+      asm_src_test_entry = CODE_start + stub_CODE_offs  (first byte of stub CODE)
+      _test_src_buf      = BSS_start  + stub_BSS_offs   + 0x0101
+                           (after _c_stack[256] + _src_done[1] in stub BSS)
+
+    asm_src.s's DATA vars (_asm_org, _asm_size, _asm_errors) are also not
+    imported by anyone, so we compute them from DATA_start directly:
+      _asm_org    = DATA_start + 0
+      _asm_size   = DATA_start + 2
+      _asm_errors = DATA_start + 4
+    (asm_src_as.o is the sole DATA contributor)
+    """
+    text = _AS_MAP.read_text()
+    lines = text.splitlines()
+
+    # Segment starts (format: SEGNAME  start  end  size  align)
+    seg = {}
+    for line in lines:
+        m = re.match(r"^(CODE|DATA|BSS)\s+([0-9a-fA-F]+)", line)
+        if m:
+            seg[m.group(1)] = int(m.group(2), 16)
+
+    # Stub module offsets within CODE and BSS segments
+    stub_code_offs = stub_bss_offs = None
+    in_stub = False
+    for line in lines:
+        if 'asm_src_test_stub_as.o:' in line:
+            in_stub = True
+            continue
+        if in_stub:
+            mc = re.match(r"\s+CODE\s+Offs=([0-9a-fA-F]+)", line)
+            if mc:
+                stub_code_offs = int(mc.group(1), 16)
+            mb = re.match(r"\s+BSS\s+Offs=([0-9a-fA-F]+)", line)
+            if mb:
+                stub_bss_offs = int(mb.group(1), 16)
+            if not line.strip() and stub_code_offs is not None:
+                in_stub = False
+
+    asm_src_test_entry = seg['CODE'] + stub_code_offs
+    test_src_buf       = seg['BSS']  + stub_bss_offs + 0x0101
+    asm_org            = seg['DATA'] + 0
+    asm_size           = seg['DATA'] + 2
+    asm_errors         = seg['DATA'] + 4
+    return asm_src_test_entry, test_src_buf, asm_org, asm_size, asm_errors
+
+
+class AsmSrcSymbols:
+    """Resolved symbol addresses + binary loader for the asm_src test."""
+
+    def __init__(self):
+        if _as_needs_rebuild():
+            _as_build()
+
+        (self.asm_src_test_entry,
+         self.test_src_buf,
+         self.asm_org,
+         self.asm_size,
+         self.asm_errors) = _as_parse_addrs()
+
+        raw = _AS_BIN.read_bytes()
+        self._zp_blob   = raw[:_ZP_SIZE]
+        self._code_blob = raw[_ZP_SIZE:]
+
+    def load_into(self, memory):
+        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
+        memory[_CODE_START : _CODE_START + len(self._code_blob)]   = self._code_blob
+
+
+@pytest.fixture(scope="session")
+def as_syms():
+    """Session-scoped asm_src test binary + symbol addresses."""
+    return AsmSrcSymbols()
+
+
 # ── dasm test binary ─────────────────────────────────────────────────────────
 #
 # Links: dasm.s + dasm_tables.s + dasm_test_stub.s

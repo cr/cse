@@ -3,36 +3,41 @@
 ## Lines
 
 ```
-[label[:]]  [instruction | directive]  [; comment]
+[label:]  [instruction | directive]  [; comment]
 ```
 
-Blank lines and comment-only lines are ignored. Labels can optionally
-end with `:`. Everything after `;` is a comment.
+Blank lines and comment-only lines are ignored.  Everything after
+`;` is a comment.
 
 ## Labels
 
 ```
-main            ; label = current PC (no colon)
-main:           ; label = current PC (with colon)
-.loop           ; local label (dot prefix, scoped to last global)
-.loop:          ; local with colon
+main:           ; global label = current PC
+.loop:          ; local label (scoped to last global)
+main: lda #0   ; label and instruction on the same line
 ```
 
-Labels at the start of a line, followed by an instruction or nothing.
-Case insensitive. Characters: a-z, 0-9, dot. No underscore.
-Local labels are stored as `global.local` (full path) in the symbol table.
+Labels end with `:` (required).  A label may appear alone on a line
+or followed by an instruction.
+
+Case insensitive.  Characters: a-z, 0-9, dot.  No underscore (not
+typeable on C64 keyboard).
+
+Local labels (dot prefix) are scoped to the last preceding global
+label and stored as `global.local` in the symbol table.
 
 ## Constants
 
 ```
-screen = $0400
-cols   = 40
-mask   = %11110000
-border = vic + $20
+.const screen $0400
+.const cols   40
+.const mask   %11110000
+.const border vic + $20
 ```
 
-`name = expression` defines a constant. The expression is evaluated
-immediately. Width (ZP/ABS) is inherited from the expression.
+`.const name expression` defines a constant.  The expression is
+evaluated immediately.  Width (ZP/ABS) is inherited from the
+expression.
 
 ## Instructions
 
@@ -59,21 +64,42 @@ lda #mask & $0f     ; bitwise AND
 ```
 
 ### Numeric formats
-- `$ff` — hex (requires $ prefix)
+- `$ff` — hex (requires `$` prefix)
 - `42` — decimal (bare digits)
-- `%10101010` — binary (requires % prefix)
+- `%10101010` — binary (requires `%` prefix)
+
+Hex digit count selects ZP vs ABS encoding: `$00`–`$ff` (1–2 digits)
+→ ZP, `$000`–`$ffff` (3–4 digits) → ABS.  `$0042` forces absolute
+even though the value fits in a byte.  Width is sticky: if any term
+in an expression is ABS, the whole expression is ABS (`$00 + $0000`
+→ ABS).  See [expr.md](modules/expr.md) for full width propagation
+rules.
 
 ### Operators (by precedence, loosest first)
 - `£` `&` `^` — OR (pound key), AND, XOR (↑ key)
 - `+` `-` — add, subtract
 - `*` `/` `<<` `>>` — multiply, integer divide, shift left/right
-- `!` `<` `>` — NOT (complement), lo byte, hi byte (unary prefix)
+- `-` `!` `<` `>` — negate, NOT (complement), lo byte, hi byte (unary prefix)
 - `(` `)` — grouping
 
 ### Special
 - `*` alone (not binary operator) — current PC
 
 ## Directives
+
+### Summary
+
+| Directive | Args | Pass 0 (collect) | Pass 1 (emit) |
+|-----------|------|-------------------|---------------|
+| `.org` | expr | Set `al_pc` and `_asm_org` | Set `al_pc` only |
+| `.const` | name expr | `sym_define(name, expr_val)` | Skip |
+| `.cpu` | model | Set `al_cpu` | Set `al_cpu` |
+| `.db` | expr [, ...] | Advance `al_pc` by count | Emit bytes |
+| `.dw` | expr [, ...] | Advance `al_pc` by 2×count | Emit words (little-endian) |
+| `.str` | "text" [, ...] | Advance `al_pc` by length | Emit PETSCII bytes |
+| `.scr` | "text" | Advance `al_pc` by length | Emit screen code bytes |
+| `.res` | count [, fill] | Advance `al_pc` by count | Emit fill bytes (default $00) |
+| `.align` | boundary | Advance `al_pc` to next multiple | Emit $00 padding |
 
 ### `.org` — Set Origin
 
@@ -159,15 +185,10 @@ Advances PC by N bytes. In pass 2, emits N copies of the fill byte
 Advances PC to the next multiple of the given value. The gap is
 filled with $00. If PC is already aligned, does nothing.
 
-### `.bin` — Include Binary Data
+### `.bin` — Include Binary Data (planned)
 
-```
-.bin "sprite.bin"
-.bin "charset.bin"
-```
-
-Reads a raw binary file from disk and emits its contents at the
-current PC. Advances PC by the file size. Useful for embedding
+**Not yet implemented.** Will read a raw binary file from disk
+and emit its contents at the current PC.  Useful for embedding
 sprite data, character sets, music, etc.
 
 ### `.inc` — Include Source File (planned)
@@ -184,8 +205,8 @@ definitions and hardware address headers.
 .cpu 6502
 .org $c000
 
-border = $d020
-delay  = 4
+.const border $d020
+.const delay  4
 
 main:   ldx #0
 .loop:  stx border

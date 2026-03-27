@@ -708,3 +708,10 @@ int ed_read_line(char *buf, uint8_t maxlen) {
     buf[len] = 0;
     return len;
 }
+
+void ed_insert_string(const char *text) {
+    ed_ensure_init();
+    while (*text) {
+        gb_insert(*text++);
+    }
+}

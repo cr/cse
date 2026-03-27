@@ -31,8 +31,12 @@
 Build loads to $0801 (standard BASIC start) for easy `RUN` during
 development. Future production builds relocate to $8000.
 
-    $0000-$00FF  Zero page
-      $02-$7F    CSE runtime ZP (~30 bytes, cc65 + assembler)
+    $0000-$00FF  Zero page (see § Zero Page Layout below)
+      $00-$01    CPU I/O port
+      $02-$45    CSE modules (68 bytes)
+      $46-$5F    cc65 runtime (26 bytes: sp, sreg, regsave, ptr1-4, tmp1-3)
+      $60-$7F    Free (32 bytes, available for user programs)
+      $80-$FF    KERNAL
     $0100-$01FF  6502 hardware stack
     $0200-$03FF  KERNAL/BASIC work area
     $0400-$07E7  Screen RAM (VIC bank 0, default)
@@ -143,3 +147,52 @@ Linker config:
   used for source code or developer programs.
 - **C stack budget: 2KB max.** Avoid deep recursion or large local
   arrays. The C stack lives in RAM and must be bounded.
+
+## Zero Page Layout
+
+Authoritative ZP allocation.  Module docs reference this table.
+Addresses are assigned by the linker from $02 upward.
+
+### CSE modules ($02–$45)
+
+| Range | Size | Module | Variables |
+|-------|------|--------|-----------|
+| $02–$04 | 3 | asm_bridge | `_ab_saved_sp` (1), `_jsr_vec` (2) |
+| $05–$1C | 24 | asm_vars | `al_pc` (2), `al_out` (2), `al_cpu` (1), `al_len` (1), `al_slot` (1), `al_prof` (1), `al_pidx` (1), `al_base` (1), `al_bit` (1), `al_mode` (1), `_al_tmp` (1), `_al_tmp2` (1), `sym_name` (2), `sym_val` (2), `sym_wide` (1), `expr_ptr` (2), `expr_val` (2), `expr_wide` (1) |
+| $1D–$1F | 3 | asm_src | `_as_ptr` (2), `_as_wsize` (1) |
+| $20–$22 | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
+| $23 | 1 | mn7 | `mn7_h_tmp` (1) |
+| $24–$28 | 5 | au_mode | `au_ptr` (2), `au_opr` (2), `_au_tmp` (1) |
+| $29 | 1 | parse_hex | `_ph_tmp` (1) |
+| $2A | 1 | opcode_lookup | `_ok_tmp` (1) |
+| $2B–$2E | 4 | cse_io | `_io_tmp` (2), `_io_scr` (2) |
+| $2F–$32 | 4 | expr | `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1) |
+| $33–$3D | 11 | symtab | `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_count` (1), `_st_heap` (2), `_st_heap_base` (2) |
+| $3E–$45 | 8 | dasm | `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) |
+
+### cc65 runtime ($46–$5F)
+
+| Range | Size | Variable |
+|-------|------|----------|
+| $46–$47 | 2 | `sp` — C software stack pointer |
+| $48–$49 | 2 | `sreg` — secondary register |
+| $4A–$4D | 4 | `regsave` — register save area |
+| $4E–$4F | 2 | `ptr1` |
+| $50–$51 | 2 | `ptr2` |
+| $52–$53 | 2 | `ptr3` |
+| $54–$55 | 2 | `ptr4` |
+| $56 | 1 | `tmp1` |
+| $57 | 1 | `tmp2` |
+| $58 | 1 | `tmp3` |
+| $59–$5F | 7 | (unused cc65 slots) |
+
+### Fixed locations (not in ZEROPAGE segment)
+
+| Address | Used by | Purpose |
+|---------|---------|---------|
+| $00–$01 | CPU | I/O port (memory banking) |
+| $C6 | cse_io | `KEY_COUNT` — keyboard buffer count (read by `io_kbhit`) |
+| $CC | cse_io | `CURS_FLAG` — set to 1 at startup, never changed (disables KERNAL cursor) |
+| $D3 | cse_io | `CUR_COL` — cursor column (0–39), aliased as `io_cx` |
+| $D6 | cse_io | `CUR_ROW` — cursor row (0–24), aliased as `io_cy` |
+| $FB–$FE | screen | `src_ptr` / `dst_ptr` — scratch for `scroll_up` |

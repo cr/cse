@@ -74,13 +74,14 @@ void skip_sp(uint8_t **pp) {
  * Init: fill free memory with $FF
  *
  * Helps developers catch uninitialized memory reads.
- * Free ZP: $44–$FF.  Free work: cse_end()–$C7FF.
+ * Free ZP: cse_zp_end()–$7F.  Free work: cse_end()–$C7FF.
  * ═══════════════════════════════════════════════════════════════ */
 
 static void fill_free_memory(void) {
     uint16_t wlo = cse_end();
-    /* Free ZP: $44–$7F (KERNAL owns $80+, CSE owns $02–$43) */
-    memset((void *)0x44, 0xFF, 0x80 - 0x44);
+    uint8_t zplo = cse_zp_end();
+    /* Free ZP: zplo–$7F (KERNAL owns $80+, CSE owns $02–zplo) */
+    memset((void *)(uint16_t)zplo, 0xFF, 0x80 - zplo);
     /* Free work area */
     if (wlo < 0xC800)
         memset((void *)wlo, 0xFF, 0xC800 - wlo);
@@ -94,7 +95,7 @@ static void fill_free_memory(void) {
 #define VERSION "0.1"
 #endif
 #ifndef BUILD_YEAR
-#define BUILD_YEAR "2025"
+#define BUILD_YEAR "2026"
 #endif
 
 void main(void)
@@ -130,12 +131,14 @@ void main(void)
         cur_addr = (wlo + 0xFF) & 0xFF00;
 
         io_cx = 0; io_cy = row++; io_sync();
-        io_puts("cse v" VERSION);
-        io_cx = 0; io_cy = row++; io_sync();
-        io_puts("(c) 2025-" BUILD_YEAR " cr@23bit.net");
+        io_puts("cse v" VERSION " by cr");
         row++;
         io_cx = 0; io_cy = row++; io_sync();
-        io_puts("free:  0039-007f  zp");
+        io_puts(" doc:  github.com/cr/cse");
+        io_cx = 0; io_cy = row++; io_sync();
+        io_puts("free:  00");
+        io_puthex2(cse_zp_end());
+        io_puts("-007f  zp");
         io_cx = 0; io_cy = row++; io_sync();
         io_puts("       ");
         io_puthex4(wlo); io_putc('-'); io_puthex4(whi);
@@ -260,7 +263,6 @@ void main(void)
      *
      * Full system reset — reinitializes all hardware, BASIC,
      * KERNAL, and ZP.  No manual cleanup needed.
-     * CSE code survives in RAM — SYS 2061 restarts.
      * ═══════════════════════════════════════════════════════ */
     asm("jmp $FCE2");
 }

@@ -39,4 +39,9 @@ int ed_read_byte(void);
  * Advances read pointer past the line + CR. */
 int ed_read_line(char *buf, uint8_t maxlen);
 
+/* Insert a PETSCII string into the gap buffer at current position.
+ * Use '\r' (0x0D) for line breaks.  For testing: fill source
+ * programmatically then call asm_assemble(). */
+void ed_insert_string(const char *text);
+
 #endif

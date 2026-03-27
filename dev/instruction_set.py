@@ -1,7 +1,12 @@
 """
-dev/instruction_set.py
+dev/instruction_set.py — AUTHORITATIVE 6502/65C02 instruction set definition.
 
-6502/65C02 instruction-set definition tables for the CSE assembler.
+This file is the single source of truth for opcodes, mnemonics, operand
+profiles, and addressing modes across the entire CSE project.  Table
+generators (mnemonic_tables.py, dasm_tables.py) read from here.  Tests
+validate against here.  Do not duplicate this data elsewhere.
+
+See doc/README.md § Single source of truth.
 
 Each entry in MNEMONICS is a tuple:
     'MNE': (profile, cmos_bit, category)

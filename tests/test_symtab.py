@@ -5,7 +5,7 @@ Entry: hash(1) + value(2) + name_ptr(2) + scope(1) = 6 bytes × 128 slots.
 Names stored as NUL-terminated PETSCII strings (pointer in entry).
 Case insensitive: names compared with uppercase folded to lowercase.
 Characters: a-z, 0-9, dot. No underscore (not on C64 keyboard).
-Hash byte: 8-bit. 0 = empty slot.
+Empty slot: name_ptr == $0000 (hash 0 is valid, not a sentinel).
 
 Interface (ZP):
   sym_define(sym_name, sym_val, sym_wide): store. C=1 if full.
@@ -429,3 +429,52 @@ class TestWidthFlag:
         _, _, w1 = _lookup(symt, mpu, mem, "zpvar")
         _, _, w2 = _lookup(symt, mpu, mem, "absvar")
         assert w1 == 0 and w2 == 1
+
+
+class TestDesignGuarantees:
+    """Tests that pin down documented design decisions."""
+
+    def test_hash_zero_is_valid(self, symt):
+        """'uw' hashes to 0.  Must round-trip — hash 0 is not a sentinel."""
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        ok = _define(symt, mpu, mem, "uw", 0xBEEF)
+        assert ok
+        found, val, _ = _lookup(symt, mpu, mem, "uw")
+        assert found and val == 0xBEEF
+
+    def test_heap_isolation(self, symt):
+        """After define, overwriting the source buffer must not affect lookup."""
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        addr = _place_name(mem, "victim")
+        mem[symt.sym_name] = addr & 0xFF
+        mem[symt.sym_name + 1] = (addr >> 8) & 0xFF
+        mem[symt.sym_val] = 0x42
+        mem[symt.sym_val + 1] = 0x00
+        sw = symt.exports.get("sym_wide")
+        if sw is not None: mem[sw] = 0
+        _call(mpu, mem, symt.sym_define)
+        # Overwrite the source buffer where the name was
+        for i in range(7):
+            mem[addr + i] = 0xFF
+        # Lookup must still find it (name lives in heap, not source)
+        found, val, _ = _lookup(symt, mpu, mem, "victim")
+        assert found, "name should be in heap, not source buffer"
+        assert val == 0x42
+
+    def test_dot_in_middle(self, symt):
+        """Local label path 'main.loop' — dot in the middle, not just prefix."""
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        _define(symt, mpu, mem, "main.loop", 0xC010)
+        _define(symt, mpu, mem, "main.done", 0xC020)
+        found, val, _ = _lookup(symt, mpu, mem, "main.loop")
+        assert found and val == 0xC010
+        found, val, _ = _lookup(symt, mpu, mem, "main.done")
+        assert found and val == 0xC020
+        # Must not confuse with just "main" or ".loop"
+        found, _, _ = _lookup(symt, mpu, mem, "main")
+        assert not found
+        found, _, _ = _lookup(symt, mpu, mem, ".loop")
+        assert not found

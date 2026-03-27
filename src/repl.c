@@ -22,7 +22,6 @@
 uint16_t cur_addr = 0x1000;
 uint8_t  cur_device = 8;
 static uint8_t  last_cmd = 0;
-static uint8_t  last_args[16];
 static uint16_t block_size = 0x10;
 static uint8_t  *sym_top = 0;
 static uint8_t  *sym_bot = 0;
@@ -151,6 +150,62 @@ static void emit_reg(void) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+ * dot_assemble — assemble mnemonic+operand with expression support
+ *
+ * Evaluates the operand expression via expr_eval, formats the result
+ * as a hex literal, and passes the formatted string to asm_line.
+ * Prefix (#, () and suffix (,x ,y ),y etc.) are preserved.
+ * Returns byte count from asm_line (0 = error).
+ * ═══════════════════════════════════════════════════════════════ */
+static uint8_t dot_assemble(uint16_t addr, uint8_t *text)
+{
+    static char buf[24];     /* "mne #($xxxx,x)" + NUL */
+    uint8_t *p = text, *bp = (uint8_t *)buf;
+    uint8_t rc;
+    uint16_t val;
+
+    /* Copy mnemonic (letters until space/NUL/;) */
+    while (*p >= 'a' && *p <= 'z' && bp < (uint8_t *)buf + 8)
+        *bp++ = *p++;
+    /* Skip spaces between mnemonic and operand */
+    skip_sp(&p);
+    if (*p == 0 || *p == ';') {
+        /* No operand — implied/accumulator */
+        *bp = 0;
+        return asm_line(addr, buf);
+    }
+    *bp++ = ' ';
+
+    /* Copy prefix: # and/or ( */
+    if (*p == '#') { *bp++ = *p++; skip_sp(&p); }
+    if (*p == '(') { *bp++ = *p++; skip_sp(&p); }
+
+    /* Evaluate expression */
+    *(uint16_t *)expr_ptr = (uint16_t)p;
+    rc = expr_eval();
+    if (rc >= 2) return 0;
+    val = expr_val;
+    p = *(uint8_t **)expr_ptr;  /* advanced past expression */
+
+    /* Format as $XX or $XXXX based on width */
+    *bp++ = '$';
+    if (rc == 1) { /* ABS — 4 hex digits */
+        *bp++ = hex_val_to_char((val >> 12) & 0xF);
+        *bp++ = hex_val_to_char((val >> 8) & 0xF);
+    }
+    *bp++ = hex_val_to_char((val >> 4) & 0xF);
+    *bp++ = hex_val_to_char(val & 0xF);
+
+    /* Copy suffix: ),y  ,x  ,y  ) etc. until NUL or ; */
+    skip_sp(&p);
+    while (*p && *p != ';' && bp < (uint8_t *)buf + 22)
+        *bp++ = *p++;
+    *bp = 0;
+
+    return asm_line(addr, buf);
+}
+
+/* ═══════════════════════════════════════════════════════════════
  * Command handlers
  * ═══════════════════════════════════════════════════════════════ */
 
@@ -182,9 +237,9 @@ static void cmd_dot(uint8_t *args)
         skip_sp(&q);
         mne = q;
         if (*mne >= 'a' && *mne <= 'z') {
-            nbytes = asm_line(addr, (char *)mne);
+            nbytes = dot_assemble(addr, mne);
             if (nbytes == 0) {
-                err_prompt("?asm"); return;
+                err_prompt(";?asm"); return;
             }
         }
     }
@@ -377,16 +432,16 @@ static void cmd_load(uint8_t *args)
     uint16_t addr = cur_addr;
     uint8_t *q = args;
     uint8_t *name = get_filename(&q);
-    if (!name) { err_prompt("?name"); return; }
+    if (!name) { err_prompt(";?name"); return; }
 
     newline();
     if (is_seq_file(name)) {
         uint8_t err = ed_load_source((char *)name);
-        if (err) { io_puts("?load "); io_puts((char *)name); }
+        if (err) { io_puts(";?load "); io_puts((char *)name); }
         else print_seq_stats((char *)name);
     } else {
         uint16_t result = disk_load_prg((char *)name, addr);
-        if (result == 0) { io_puts("?load "); io_puts((char *)name); }
+        if (result == 0) { io_puts(";?load "); io_puts((char *)name); }
         else {
             io_puts("; \""); io_puts((char *)name); io_puts("\": ");
             io_putdec(result); io_puts(" bytes at ");
@@ -402,22 +457,22 @@ static void cmd_write(uint8_t *args)
     uint8_t *q = args;
     uint8_t *name = get_filename(&q);
     uint8_t err;
-    if (!name) { err_prompt("?name"); return; }
+    if (!name) { err_prompt(";?name"); return; }
 
     newline();
     if (is_seq_file(name)) {
         ed_ensure_init();
         err = ed_save_source((char *)name);
-        if (err) { io_puts("?save "); io_puts((char *)name); }
+        if (err) { io_puts(";?save "); io_puts((char *)name); }
         else print_seq_stats((char *)name);
     } else {
         uint16_t end = parse_hex_flex(&q);
         uint16_t size;
         if (!end) end = addr + block_size;
-        if (end <= addr) { err_prompt("?range"); return; }
+        if (end <= addr) { err_prompt(";?range"); return; }
         size = end - addr;
         err = disk_save_prg((char *)name, addr, size);
-        if (err) { io_puts("?save "); io_puts((char *)name); }
+        if (err) { io_puts(";?save "); io_puts((char *)name); }
         else {
             io_puts("; \""); io_puts((char *)name); io_puts("\": ");
             io_putdec(size); io_puts(" bytes ");
@@ -435,6 +490,7 @@ static void info_line(uint8_t inv, const char *tag,
     uint8_t *scr = SCREEN + io_cy * SCREEN_WIDTH;
     uint8_t col;
     io_cx = 0;
+    io_putc(';');
     io_puts(tag);
     { uint8_t pad = 4 - strlen(tag); while (pad--) io_putc(' '); }
     io_putc(' ');
@@ -481,8 +537,8 @@ static void cmd_info(void)
 
     /* $0000-$00FF: zero page */
     info_line(0, "cpu",  0x0000, 0x0001, "i/o port");
-    info_line(0, "zp",   0x0002, 0x005c, "cse (saved on j)");
-    free_line(0x005d, 0x007f);
+    info_line(0, "zp",   0x0002, cse_zp_end() - 1, "cse (saved on j)");
+    free_line(cse_zp_end(), 0x007f);
     info_line(0, "zp",   0x0080, 0x00ff, "kernal");
 
     /* $0100-$07FF: stack, system, screen */
@@ -545,12 +601,12 @@ void exec_line(void)
     /* ── Empty / semicolon ───────────────────────────────── */
     if (cmd == 0 || cmd == ';') {
         if (cmd == 0 && last_cmd) {
-            /* repeat last command */
+            /* repeat last paging command at cur_addr, no args */
             cmd = last_cmd;
-            q = last_args;
-            io_cx = 5;
+            q = (uint8_t *)"";
+            io_cx = 0;
+            io_puthex4(cur_addr); io_putc(':');
             io_putc(cmd);
-            if (*q) { io_putc(' '); io_puts((const char *)q); }
             clear_eol();
         } else {
             /* ';' or empty with nothing to repeat */
@@ -562,11 +618,9 @@ void exec_line(void)
         if (*q == ' ') ++q;              /* optional space */
     }
 
-    /* ── Save for repeat (only block commands) ───────────── */
+    /* ── Save for repeat (only paging commands) ──────────── */
     if (cmd == 'm' || cmd == 'd' || cmd == '.') {
         last_cmd = cmd;
-        strncpy(last_args, q, sizeof(last_args) - 1);
-        last_args[sizeof(last_args) - 1] = 0;
     }
 
     /* ── Dispatch ────────────────────────────────────────── */
@@ -579,8 +633,8 @@ void exec_line(void)
 
     /* navigation */
     case 's':
-    {   uint16_t v = parse_hex_flex(&q);
-        if (v) cur_addr = v;
+    {   skip_sp(&q);
+        if (is_hex(*q)) cur_addr = parse_hex_flex(&q);
         nl_prompt(); break;
     }
     case '+':
@@ -596,8 +650,8 @@ void exec_line(void)
 
     /* execution */
     case 'j':
-    {   uint16_t v = parse_hex_flex(&q);
-        if (v) cur_addr = v;
+    {   skip_sp(&q);
+        if (is_hex(*q)) cur_addr = parse_hex_flex(&q);
         cmd_jmp(); break;
     }
 
@@ -607,9 +661,9 @@ void exec_line(void)
     /* file I/O */
     case 'l': cmd_load(q); break;
     case 'w': cmd_write(q); break;
-    case 'n':
+    case 'k':
         newline();
-        io_puts("clear source? y/n ");
+        io_puts(";delete source. are you sure? y/n ");
         if (io_getc() == 'y') {
             ed_new();
             io_puts("ok");
@@ -619,10 +673,10 @@ void exec_line(void)
     /* info / settings */
     case 'i': cmd_info(); break;
     case 'b':
-    {   uint16_t v = parse_hex_flex(&q);
-        if (v) block_size = v;
+    {   skip_sp(&q);
+        if (is_hex(*q)) { uint16_t v = parse_hex_flex(&q); if (v) block_size = v; }
         newline();
-        io_puts("b="); io_puthex4(block_size);
+        io_puts(";b="); io_puthex4(block_size);
         clear_eol(); nl_prompt(); break;
     }
     case 'c':
@@ -641,7 +695,7 @@ void exec_line(void)
             restore_colors();
         }
         newline();
-        io_puts("color: ");
+        io_puts(";color: ");
         io_putc(hex_val_to_char(theme_border));
         io_putc(hex_val_to_char(theme_bg));
         io_putc(hex_val_to_char(theme_fg));
@@ -661,7 +715,7 @@ void exec_line(void)
                ) al_cpu = v;
         }
         newline();
-        io_puts("cpu mode: 6502");
+        io_puts(";cpu: 6502");
         io_putc(al_cpu == 0 ? '*' : ' ');
 #if CPU_CEIL == 1
         io_puts(" 6510");
@@ -677,7 +731,7 @@ void exec_line(void)
     case 'a':
     {   uint16_t errs;
         newline();
-        io_puts("assembling...");
+        io_puts(";assembling...");
         newline();
         errs = asm_assemble();
         if (errs == 0) {
@@ -745,7 +799,7 @@ void exec_line(void)
             clear_eol();
         } else {
             newline();
-            io_puts("; ?"); io_puts(expr_error_str());
+            io_puts(";?"); io_puts(expr_error_str());
             clear_eol();
         }
         nl_prompt(); break;
@@ -754,7 +808,7 @@ void exec_line(void)
     /* system */
     case 'q':
         newline();
-        io_puts("quit? y/n ");
+        io_puts(";quit? y/n ");
         while (io_kbhit()) io_getc();
         if (io_getc() == 'y') state = ST_STOP;
         newline();
@@ -779,7 +833,7 @@ void exec_line(void)
         if (cmd == 'c' && *q == 'l' && (*(q+1) == 'r' || *(q+1) == 's')) {
             reset_screen(); show_prompt();
         } else {
-            err_prompt("?cmd");
+            err_prompt(";?cmd");
         }
     }
 }

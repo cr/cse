@@ -1,175 +1,99 @@
 # CSE Module Architecture
 
-## Module Map
+## Layer Diagram
 
 ```
 ┌──────────────────────────────────────────┐
-│                 main.c                   │  init, mode switch, main loop
-├───────────────┬──────────────────────────┤
-│    repl.c     │        editor.c          │  user-facing modes
-├───────────────┴──┬───────────┬───────────┤
-│    asm_src.c     │  expr.s   │ symtab.s  │  source assembler pipeline
-├──────────────────┴───────────┴───────────┤
-│  asm_line.s  │  dasm.s    │   disk.s     │  core engines
+│                main.c                    │  init, mode switch, main loop
+├────────────────┬─────────────────────────┤
+│    repl.c      │       editor.c          │  user-facing modes
+├────────────────┴──┬───────────┬──────────┤
+│    asm_src.s      │  expr.s   │ symtab.s │  source assembler pipeline
+├───────────────────┴───────────┴──────────┤
+│  asm_line.s  │   dasm.s   │   disk.s     │  core engines
 ├──────────────┴────────────┴──────────────┤
-│          screen.s    │    cse_io.s       │  output layers
-└──────────────────────┴───────────────────┘
+│          screen.s     │    cse_io.s      │  output layers
+└───────────────────────┴──────────────────┘
 ```
+
+Higher layers depend on lower layers.  No upward or circular
+dependencies.  Each layer can be understood without reading the
+layers above it.
 
 ## Modules
 
-### main.c — Application Shell
-- Hardware init (IRQ, charset, memory config)
-- Main loop: read key, dispatch to REPL or editor
-- Mode switching (RUN/STOP toggles REPL ↔ editor)
-- Startup splash screen
+| Module | Purpose | Doc |
+|--------|---------|-----|
+| main.c | Hardware init, main loop, mode switch | [main.md](modules/main.md) |
+| repl.c | REPL command dispatch and emitters | [repl.md](modules/repl.md) |
+| editor.c | Gap-buffer source editor, sequential reader | [editor.md](modules/editor.md) |
+| asm_src.s | Two-pass source assembler | [asm_src.md](modules/asm_src.md) |
+| asm_line.s | Single-line instruction assembler (VICII input) | [asm_line.md](modules/asm_line.md) |
+| asm_bridge.s | C ↔ assembly bridge, PETSCII→VICII, error recovery | [asm_line.md](modules/asm_line.md) |
+| expr.s | Recursive-descent expression parser | [expr.md](modules/expr.md) |
+| symtab.s | Hash-table symbol storage with name heap | [symtab.md](modules/symtab.md) |
+| dasm.s | Bit-slice disassembler (6502/6510/65C02) | [dasm.md](modules/dasm.md) |
+| disk.s | CBM file I/O via KERNAL (PRG and SEQ, callback-based) | [disk.md](modules/disk.md) |
+| screen.s | Scroll, newline, cursor, color theme | [screen.md](modules/screen.md) |
+| cse_io.s | Raw screen I/O, keyboard, PETSCII→screencode | [cse_io.md](modules/cse_io.md) |
 
-**Depends on:** screen, repl, editor
+Support modules (internal to the assembler pipeline):
 
-### screen.s — Screen Management
-- `reset_screen()` — reset colors, clear screen
-- `scroll_up(n)` — scroll screen + color RAM with SEI/CLI
-- `newline()` — advance cursor, scroll if at bottom
-- `print_string(str)` — scroll-aware string output
-- `cursor_show()` / `cursor_hide()` — XOR $80 at cursor
-- `restore_colors()` — set color scheme + fill color RAM
+| Module | Purpose | Doc |
+|--------|---------|-----|
+| mn7.s / mn6.s | Perfect hash mnemonic classifier (mn7: 114, mn6: 56) | [mn_classify.md](modules/mn_classify.md) |
+| opcode_lookup.s | (profile, mode) → opcode byte | [opcode_lookup.md](modules/opcode_lookup.md) |
+| au_mode.s | Addressing mode operand parser | [au_mode.md](modules/au_mode.md) |
+| meminfo.s | Linker symbol shim: `_cse_start` / `_cse_end` | [meminfo.md](modules/meminfo.md) |
+| mn_classify.s | Build-time dispatcher: selects mn6 or mn7 | [mn_classify.md](modules/mn_classify.md) |
+| asm_vars.s | Shared ZP variable definitions | — |
+| mn_vars.s | Mnemonic classifier ZP variables | — |
+| parse_hex.s | Hex literal parser for au_mode | — |
 
-**Depends on:** cse_io
+Generated files (do not edit — regenerate with `make tables`):
 
-**Design notes:** All functions are pure 6502 asm. `scroll_up` uses
-SEI/CLI to prevent IRQ during memmove. Screen save/restore for editor
-mode switching lives here.
+| File | Generator |
+|------|-----------|
+| mn7_tables.s, mn_asm_tables.s, mn_modes.s, mn_config.s | mnemonic_tables.py |
+| dasm_tables.s | dasm_tables.py |
 
-### cse_io.s — Raw Screen I/O (6502 asm)
-- `io_putc(ch)` — PETSCII char to screen RAM at cursor, advance
-- `io_puts(str)` — PETSCII string at cursor
-- `io_puthex2(v)` / `io_puthex4(v)` — hex output
-- `io_putdec(v)` — decimal output
-- `io_clear_eol()` — fill to end of row with spaces
-- `io_getc()` — blocking KERNAL GETIN, returns raw PETSCII key code
-- `io_kbhit()` — non-blocking keyboard check
-- `io_sync()` — sync KERNAL cursor state via PLOT
+## Dependency Graph
 
-**Depends on:** nothing (leaf module)
-
-**Contract:** Requires $CC=1 (KERNAL cursor disabled). Cursor tracked
-in `$D3` (col) / `$D6` (row). Screen writes use `_io_scr` ZP pointer
-computed from `scr_lo`/`scr_hi` lookup tables.
-
-### disk.s — CBM File I/O
-- `floppy_status()` — read drive error channel, print to screen
-- `list_directory(device)` — list directory to screen
-- `disk_load_prg(name, addr)` — load PRG file to address
-- `disk_save_prg(name, addr, len)` — save memory range as PRG
-- `disk_load_seq(name, insert_fn)` — read SEQ file, call insert_fn per byte
-- `disk_save_seq(name, read_fn)` — write SEQ file, call read_fn for bytes
-
-**Depends on:** screen (for directory output, status display)
-
-**Design notes:** SEQ I/O uses callbacks so disk.s doesn't depend on
-editor.c. The editor passes `gb_insert` as insert_fn for loading.
-After every disk operation, the drive error channel is read
-automatically (no I command sent — just read channel 15).
-
-### repl.c — REPL Mode
-- `read_line()` — read screen row → PETSCII line_buf
-- `exec_line()` — parse AAAA:cmd, dispatch
-- Command handlers: `.` `d` `m` `j` `r` `s` `b` `c` `i` `u` `l` `w` `+` `-` `;` `$` `q`
-- Emit functions: `emit_dot` `emit_mem` `emit_reg`
-- `show_prompt()` — write `AAAA:` at cursor
-
-**Depends on:** asm_line (`.` command), dasm (disassembly in emit_dot),
-expr (address parsing), disk (l/w/$ commands), screen
-
-### editor.c — Source Editor Mode
-- Gap buffer: `gb_insert` `gb_backspace` `gb_cursor_*` `gb_ensure_room`
-- Rendering: `ed_render_line` `ed_render_range` `ed_render_status`
-- Editor loop: `ed_handle_key`
-- Mode entry/exit: `enter_editor` `leave_editor`
-
-**Depends on:** disk (load/save SEQ via callbacks), screen
-
-### dasm.s — Disassembler (6502 asm)
-- `dasm_insn(addr)` — disassemble one instruction at addr
-- Output: NUL-terminated PETSCII string in `dasm_buf` (24 bytes BSS)
-- Returns: instruction length in A
-- CPU-aware: reads `al_cpu` (0=6502, 1=6510, 2=65C02)
-
-**Depends on:** nothing (reads memory directly, writes to buffer)
-
-**Design notes:** Bit-slice decoder exploiting aaabbbcc opcode structure.
-No 256-entry tables. Group tables (8 entries each) + small exception
-lists. CMOS support guarded by `.ifdef CMOS_SUPPORT`.
-
-### asm_line.s — Single-Line Assembler (6502 asm)
-- `al_line_asm` — assemble one instruction from VICII screencode string
-- Input: `al_pc` (address), `au_ptr` (text pointer), `al_cpu` (CPU mode)
-- Output: bytes written to `[al_out]`, length in `al_len`
-
-**Depends on:** opcode_lookup, au_mode, mn_classify, mn7/mn6 tables
-
-### expr.s — Expression Parser (6502 asm)
-- `_expr_eval` — ZP in: expr_ptr (string pointer), al_pc (for `*`).
-  Out: expr_val (16-bit), expr_wide (0/1). Returns A = 0 (ZP), 1 (ABS), 2+ (error).
-- `_expr_error_str` — return pointer to last error's text
-- Supports: `$hex`, `%binary`, decimal, labels, `+` `-` `<` `>` `&` `|` `^` `~` `()` `*`
-- Label charset: a-z, 0-9, `.` (case insensitive, no underscore)
-
-**Depends on:** symtab.s (`_sym_lookup` for label resolution)
-
-**Design notes:** Recursive descent. Width tracking: 3+ hex digits force
-ABS, labels inherit from definition, `<`/`>` always produce ZP.
-
-### symtab.s — Symbol Table (6502 asm)
-- `_sym_define` — ZP in: sym_name (ptr), sym_val (16-bit), sym_wide (0/1). C=1 if full.
-- `_sym_lookup` — ZP in: sym_name (ptr). Out: sym_val, sym_wide. C=1 if not found.
-- `_sym_clear` — wipe all slots
-- `_sym_count` — return count in A
-
-**Depends on:** nothing (standalone data structure)
-
-**Design:** 128-slot hash table with linear probing, 6-byte entries
-(hash + value + name_ptr + scope). Names stored as PETSCII strings
-pointed to by name_ptr (into source during assembly, snapshot heap
-after). Case-insensitive (uppercase folded to lowercase). Scope byte
-carries ZP/ABS flag (bit 7) and local label parent_id (bits 5-0).
-See `doc/symtab_design.md` for full details.
-
-### asm_src.c — Source Assembler (stub)
-- `asm_assemble()` — 2-pass assembly of gap buffer contents
-- `asm_org` — current origin address
-- `asm_errors` — error count after assembly
-
-**Depends on:** asm_line (instruction assembly), symtab (labels),
-expr (operand expressions), editor (gap buffer read access)
-
-**Design notes:** Pass 1: scan source, record label addresses, track
-origin. Pass 2: assemble each line via asm_line, resolve forward
-references. Directives: `*=` (origin), `.byte` `.word` (data),
-`.cpu` (select CPU mode). Error reporting references source line
-numbers.
+```
+main.c
+├── repl.c
+│   ├── asm_bridge.s ── asm_line.s ── opcode_lookup.s
+│   │                       ├── au_mode.s ── parse_hex.s
+│   │                       └── mn_classify.s ── mn7.s ── mn7_tables.s
+│   ├── asm_src.s ── asm_bridge.s, expr.s, symtab.s, editor.c
+│   ├── dasm.s ── dasm_tables.s
+│   ├── expr.s ── symtab.s
+│   ├── disk.s ── screen.s ── cse_io.s
+│   └── screen.s
+└── editor.c
+    ├── disk.s
+    └── screen.s
+```
 
 ## Dependency Rules
 
-1. **No circular dependencies.** The graph above is a DAG.
-2. **Leaf modules have no dependencies:** cse_io, dasm, symtab.
+1. **No circular dependencies.**  The graph is a DAG.
+2. **Leaf modules have no dependencies:** cse_io, symtab, dasm.
 3. **Screen output flows one way:** module → screen → cse_io.
 4. **disk.s uses callbacks** for SEQ I/O to avoid depending on editor.
-5. **Expression parser is standalone** — no screen or I/O.
-6. **All asm modules (.s) are self-contained** with explicit .import/.export.
+5. **Expression parser depends only on symtab** — no I/O.
+6. **All .s modules are self-contained** with explicit `.import`/`.export`.
 
-## Asm Replacement Path
+## C / Assembly Boundary
 
-Every C module is designed so its interface (header file) stays fixed
-while the implementation moves from C to 6502 asm:
+| Language | Modules |
+|----------|---------|
+| C | main.c, repl.c, editor.c |
+| Assembly | everything else |
 
-1. Functions use `__fastcall__` where the hot path benefits
-2. Interfaces use fixed-size types (uint8_t, uint16_t)
-3. State lives in known ZP/BSS locations (not C locals)
-4. No malloc/free — all memory is statically allocated or arena-based
-5. Callbacks use function pointers (C) or jump vectors (asm)
+Assembly modules define their own calling convention via ZP variables
+and register returns — never the cc65 C ABI.  `asm_bridge.s` is the
+sole translation point between the two conventions.
 
-Priority for asm rewrite (by code size impact):
-1. repl.c (biggest C module)
-2. editor.c
-3. expr.s / symtab.s / asm_src.c (TBD)
+The boundary is shifting toward full assembly.  When a C module is
+replaced, its interface to lower layers is unchanged.

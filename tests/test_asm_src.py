@@ -1,0 +1,232 @@
+"""test_asm_src.py — Two-pass source assembler integration tests.
+
+Tests the full pipeline: source text → _test_src_buf → _asm_assemble → memory.
+
+The test binary links asm_src.s with the complete assembler core (asm_line,
+asm_bridge, expr, symtab, mn7, etc.).  asm_src_test_stub.s provides mock
+implementations of ed_read_line, io_puts, cse_end, pushax, cse_popax.
+
+Source text is written as PETSCII: ASCII uppercase = C64 uppercase PETSCII.
+Lines are NUL-separated; a double-NUL marks EOF for the mock reader.
+"""
+
+import pytest
+from py65.devices.mpu6502 import MPU
+
+
+_MAX_STEPS  = 1_000_000  # safety limit for two-pass assembly
+_ZP_START   = 0x0000
+_CODE_START = 0x0200
+_ZP_SIZE    = 0x0100
+
+
+# ── PETSCII encoding ──────────────────────────────────────────────────────────
+
+def _petscii(text: str) -> bytes:
+    """Encode Python ASCII source text to C64 PETSCII uppercase.
+
+    Lowercase a-z → uppercase $41-$5A (same as ASCII A-Z).
+    Everything else passes through unchanged.
+    Lines separated by \\n are encoded as NUL bytes; a trailing NUL marks EOF.
+    """
+    result = bytearray()
+    for ch in text:
+        if ch == '\n':
+            result.append(0x00)     # line separator for ed_read_line mock
+        elif 'a' <= ch <= 'z':
+            result.append(ord(ch) - 0x20)   # lowercase → uppercase PETSCII
+        else:
+            result.append(ord(ch))
+    result.append(0x00)     # trailing NUL = EOF
+    return bytes(result)
+
+
+# ── py65 runner ───────────────────────────────────────────────────────────────
+
+def _run(as_syms, source: str):
+    """Run the two-pass assembler over source and return (org, bytes, errors).
+
+    Returns:
+        org    — assembled origin address (uint16)
+        data   — bytes list read from memory at org
+        errors — error count (uint16)
+    """
+    cpu = MPU()
+    mem = cpu.memory
+
+    as_syms.load_into(mem)
+
+    # Write source text to _test_src_buf
+    encoded = _petscii(source)
+    for i, b in enumerate(encoded):
+        mem[as_syms.test_src_buf + i] = b
+
+    # Fake JSR: push sentinel return address $FFFE so RTS lands at $FFFF
+    cpu.sp = 0xFF
+    mem[0x01FF] = 0xFF
+    mem[0x01FE] = 0xFE
+    cpu.sp = 0xFD
+
+    cpu.pc = as_syms.asm_src_test_entry
+
+    for _ in range(_MAX_STEPS):
+        if cpu.pc == 0xFFFF:
+            break
+        cpu.step()
+    else:
+        raise TimeoutError(f"exceeded {_MAX_STEPS} steps")
+
+    org    = mem[as_syms.asm_org] | (mem[as_syms.asm_org + 1] << 8)
+    size   = mem[as_syms.asm_size] | (mem[as_syms.asm_size + 1] << 8)
+    errors = mem[as_syms.asm_errors] | (mem[as_syms.asm_errors + 1] << 8)
+    data   = list(mem[org : org + size])
+    return org, data, errors
+
+
+# ── Test cases ────────────────────────────────────────────────────────────────
+
+MANUAL_TESTS = [
+    {
+        "name": "basic instructions",
+        "source": ".org $c000\n  lda #0\n  sta $d020\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x00, 0x8D, 0x20, 0xD0, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "constants",
+        "source": ".const border $d020\n.org $c000\n  lda #0\n  sta border\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x00, 0x8D, 0x20, 0xD0, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "global labels",
+        "source": ".org $c000\nstart:\n  lda #0\n  jmp start",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x00, 0x4C, 0x00, 0xC0],
+        "expect_errors": 0,
+    },
+    {
+        "name": "forward label reference",
+        "source": ".org $c000\n  jmp done\n  nop\ndone:\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0x4C, 0x04, 0xC0, 0xEA, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "branch forward",
+        "source": ".org $c000\n  lda #0\n  beq skip\n  nop\nskip:\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x00, 0xF0, 0x01, 0xEA, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "branch backward",
+        "source": ".org $c000\nloop:\n  inc $d020\n  jmp loop",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xEE, 0x20, 0xD0, 0x4C, 0x00, 0xC0],
+        "expect_errors": 0,
+    },
+    {
+        "name": "local labels",
+        "source": ".org $c000\nmain:\n  lda #0\n.loop:\n  sta $d020\n  beq .loop\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x00, 0x8D, 0x20, 0xD0, 0xF0, 0xFB, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "label on same line as instruction",
+        "source": ".org $c000\nstart: lda #$ff\n       rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0xFF, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "decimal immediate",
+        "source": ".org $c000\n  lda #42\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x2A, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "expression in operand",
+        "source": ".const base $d000\n.org $c000\n  lda base+$20\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xAD, 0x20, 0xD0, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": ".db directive",
+        "source": ".org $c000\n.db $41, $42, $43, 0",
+        "expect_org": 0xC000,
+        "expect_bytes": [0x41, 0x42, 0x43, 0x00],
+        "expect_errors": 0,
+    },
+    {
+        "name": ".dw directive",
+        "source": ".org $c000\n.dw $1234, $5678",
+        "expect_org": 0xC000,
+        "expect_bytes": [0x34, 0x12, 0x78, 0x56],
+        "expect_errors": 0,
+    },
+    {
+        "name": ".res directive",
+        "source": ".org $c000\n.res 4, $ea\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xEA, 0xEA, 0xEA, 0xEA, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "zp vs abs from constant width",
+        "source": ".const zpvar $42\n.const absvar $0042\n.org $c000\n  lda zpvar\n  lda absvar",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA5, 0x42, 0xAD, 0x42, 0x00],
+        "expect_errors": 0,
+    },
+    {
+        "name": "comment only lines",
+        "source": "; this is a comment\n.org $c000\n  ; another comment\n  nop ; inline comment\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xEA, 0x60],
+        "expect_errors": 0,
+    },
+]
+
+ERROR_TESTS = [
+    {
+        "name": "undefined symbol",
+        "source": ".org $c000\n  lda nowhere",
+        "expect_min_errors": 1,
+    },
+    {
+        "name": "bad directive",
+        "source": ".org $c000\n.bogus",
+        "expect_min_errors": 1,
+    },
+]
+
+
+# ── Parametrised tests ────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("tc", MANUAL_TESTS, ids=lambda t: t["name"])
+def test_assemble(as_syms, tc):
+    org, data, errors = _run(as_syms, tc["source"])
+    assert errors == tc["expect_errors"], (
+        f"error count: got {errors}, expected {tc['expect_errors']}"
+    )
+    assert org == tc["expect_org"], (
+        f"org: got ${org:04X}, expected ${tc['expect_org']:04X}"
+    )
+    n = len(tc["expect_bytes"])
+    assert data[:n] == tc["expect_bytes"], (
+        f"bytes: got {bytes(data[:n]).hex()} expected {bytes(tc['expect_bytes']).hex()}"
+    )
+
+
+@pytest.mark.parametrize("tc", ERROR_TESTS, ids=lambda t: t["name"])
+def test_errors(as_syms, tc):
+    _, _, errors = _run(as_syms, tc["source"])
+    assert errors >= tc["expect_min_errors"], (
+        f"expected >= {tc['expect_min_errors']} errors, got {errors}"
+    )

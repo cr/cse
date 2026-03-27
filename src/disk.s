@@ -48,6 +48,7 @@ _disk_seq_lines: .res 2
 fl_buf:          .res 32
 open_buf:        .res 28    ; filename build buffer
 callback:        .res 2     ; function pointer for SEQ I/O
+eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         .segment "CODE"
 
@@ -635,11 +636,11 @@ callback:        .res 2     ; function pointer for SEQ I/O
         ; before the callback (which may clobber $90).
         jsr READST
         and #$40
-        sta @eof_flag
+        sta eof_flag            ; save eof flag in BSS
 
         ; Call callback(byte)
-        pla
-        pha
+        pla                     ; byte → A
+        pha                     ; keep byte on stack for $0D check
         jsr @do_callback
 
         ; Count bytes
@@ -648,7 +649,7 @@ callback:        .res 2     ; function pointer for SEQ I/O
         inc _disk_seq_bytes+1
 :
         ; Count lines (if byte == $0D)
-        pla
+        pla                     ; byte → A
         cmp #$0D
         bne @no_newline
         inc _disk_seq_lines
@@ -656,8 +657,8 @@ callback:        .res 2     ; function pointer for SEQ I/O
         inc _disk_seq_lines+1
 :
 @no_newline:
-        ; EOF check (saved before callback)
-        lda @eof_flag
+        ; EOF check
+        lda eof_flag
         bne @ok
 
         jmp @read
@@ -689,8 +690,6 @@ callback:        .res 2     ; function pointer for SEQ I/O
         lda #1
         ldx #0
         rts
-
-@eof_flag: .byte 0
 
 ; Call the callback function pointer with A as argument
 @do_callback:
@@ -788,19 +787,21 @@ callback:        .res 2     ; function pointer for SEQ I/O
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; disk_save_prg — proper implementation
+; disk_save_prg
+;   __fastcall__: size in A/X
+;   C stack: name (bottom), addr (top)
+;   Returns A=0 on success, A=1 on error
 ; ═════════════════════════════════════════════════════════
-; Redefine with simpler register management using ZP
 .proc _disk_save_prg
-        ; __fastcall__: size in A/X
-        ; C stack: name (bottom), addr (top)
-        sta @size
-        stx @size+1
+        ; Save size on 6502 stack
+        pha                     ; size lo
+        txa
+        pha                     ; size hi
 
-        ; pop addr
+        ; pop addr → _io_tmp (will be ZP pointer for SAVE)
         jsr cse_popax
-        sta @addr
-        stx @addr+1
+        sta _io_tmp
+        stx _io_tmp+1
 
         ; pop name
         jsr cse_popax
@@ -812,26 +813,22 @@ callback:        .res 2     ; function pointer for SEQ I/O
         ldy ptr+1
         jsr SETNAM
 
-        ; SETLFS 1,8,1
+        ; SETLFS 1,device,1
         lda #1
         ldx _cur_device
         tay                     ; Y = 1
         jsr SETLFS
 
-        ; SAVE: A = ZP pointer to start addr, X/Y = end addr
-        ; Store start address at a known ZP location
-        lda @addr
-        sta _io_tmp
-        lda @addr+1
-        sta _io_tmp+1
-
         ; compute end = addr + size
-        lda @addr
+        ; addr is in _io_tmp, size is on 6502 stack
+        pla                     ; size hi
+        tay                     ; save in Y
+        pla                     ; size lo
         clc
-        adc @size
+        adc _io_tmp
         tax                     ; X = end lo
-        lda @addr+1
-        adc @size+1
+        tya
+        adc _io_tmp+1
         tay                     ; Y = end hi
 
         lda #<_io_tmp           ; ZP pointer to start address
@@ -850,7 +847,4 @@ callback:        .res 2     ; function pointer for SEQ I/O
         lda #1
         ldx #0
         rts
-
-@addr:  .byte 0, 0
-@size:  .byte 0, 0
 .endproc

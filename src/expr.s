@@ -5,8 +5,9 @@
 ;   bool_term = add_term (('+' | '-') add_term)*
 ;   add_term  = mul_term (('*' | '/' | '<<' | '>>') mul_term)*
 ;   mul_term  = factor
-;   factor = '$' hex | '%' binary | decimal | '*'(PC) | label | '!' factor
-;          | '<' factor | '>' factor | '(' expr ')'
+;   factor = '$' hex | '%' binary | decimal | '*'(PC) | label
+;          | '-' factor | '!' factor | '<' factor | '>' factor
+;          | '(' expr ')'
 ;
 ; Operators (C64 keyboard friendly):
 ;   &  = AND       £  = OR (pound key)    ^ = XOR (↑ key)    ! = NOT
@@ -29,8 +30,8 @@
 ;   - label → inherits sym_wide from definition
 ;   - * → wide if PC > $FF
 ;   - < and > → always narrow (clear wide)
-;   - ! → width from result
-;   - +, -, &, |, ^ → wide if either operand wide OR result > $FF
+;   - - (negate), ! → width from result
+;   - +, -, &, £, ^ → wide if either operand wide OR result > $FF
 
         .export _expr_eval
         .export _expr_error_str
@@ -588,6 +589,9 @@ _div_rem:    .res 2              ; divide: remainder
 :       cmp #'!'                ; NOT (complement)
         bne :+
         jmp @complement
+:       cmp #'-'                ; unary minus (negate)
+        bne :+
+        jmp @negate
 :
 
         ; bare decimal (0-9)
@@ -682,6 +686,29 @@ _div_rem:    .res 2              ; divide: remainder
         lda #1
         sta expr_wide
 @ret3:  clc
+        rts
+
+; ── - (negate / unary minus) ──────────────────────────
+@negate:
+        ADV_PTR
+        jsr parse_factor
+        bcs @ret3b
+        ; two's complement: EOR $FF, then INC16
+        lda expr_val
+        eor #$FF
+        clc
+        adc #1
+        sta expr_val
+        lda expr_val+1
+        eor #$FF
+        adc #0
+        sta expr_val+1
+        ; wide if result > $FF
+        lda expr_val+1
+        beq @ret3b
+        lda #1
+        sta expr_wide
+@ret3b: clc
         rts
 
 ; ── ( expr ) ──────────────────────────────────────────

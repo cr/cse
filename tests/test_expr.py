@@ -171,6 +171,17 @@ POSITIVE = [
     ("$1234^$ffff",     0xEDCB, RC_ABS, False, 0x1000, "XOR ABS"),
     ("!$0000",          0xFFFF, RC_ABS, False, 0x1000, "NOT ABS zero → $FFFF"),
 
+    # ── unary minus (negate) ────────────────────────────────────────
+    ("-1",              0xFFFF, RC_ABS, False, 0x1000, "negate 1 → $FFFF"),
+    ("-0",              0x0000, RC_ZP,  False, 0x1000, "negate 0 → 0"),
+    ("-$ff",            0xFF01, RC_ABS, False, 0x1000, "negate $FF → $FF01"),
+    ("-$100",           0xFF00, RC_ABS, False, 0x1000, "negate $100 → $FF00"),
+    ("-$ffff",          0x0001, RC_ABS, False, 0x1000, "negate $FFFF → 1 (still ABS)"),
+    ("--1",             0x0001, RC_ABS, False, 0x1000, "double negate → 1 (ABS from intermediate)"),
+    ("-1+2",            0x0001, RC_ABS, False, 0x1000, "negate then add: -1+2=1 (ABS from negate)"),
+    ("10+-1",           0x0009, RC_ABS, False, 0x1000, "add negative: 10+(-1)=9 (ABS from -1)"),
+    ("<-$1234",         0x00CC, RC_ZP,  False, 0x1000, "lo of negated ABS → ZP"),
+
     # ── precedence: mul/div/shift bind tighter than +/- ──────────
     ("2+4/2",           4,      RC_ZP,  False, 0x1000, "2+(4/2) = 4 not (2+4)/2=3"),
     ("2+3*4",           14,     RC_ZP,  False, 0x1000, "2+(3*4) = 14 not (2+3)*4=20"),
