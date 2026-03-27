@@ -29,11 +29,24 @@ SCR_W     = 40
 SCR_H     = 25
 SCR_SIZE  = 1000          ; 25 * 40
 
-; ── Theme (BSS) ──────────────────────────────────────────
+; ── Theme (DATA — initialized defaults) ──────────────────
+; Build-time selection: -DTHEME_BOR=x -DTHEME_BG=x -DTHEME_FG=x
+; where x is a C64 color index 0-F.
+; Default: RADIOACTIVITY (cb5)
+.ifndef THEME_BOR
+  THEME_BOR = 12
+.endif
+.ifndef THEME_BG
+  THEME_BG = 11
+.endif
+.ifndef THEME_FG
+  THEME_FG = 5
+.endif
+
         .segment "DATA"
-_theme_border: .byte 12            ; medium grey
-_theme_bg:     .byte 11            ; dark grey
-_theme_fg:     .byte  5            ; green
+_theme_border: .byte THEME_BOR
+_theme_bg:     .byte THEME_BG
+_theme_fg:     .byte THEME_FG
 
         .segment "CODE"
 
@@ -91,11 +104,12 @@ _theme_fg:     .byte  5            ; green
 
 @partial:
         ; A = n rows to scroll (screen RAM only; color RAM is static).
-        pha                     ; save n
+        ; Stack usage: [n] [src_row] [dst_row] — all saved/restored via PHA/PLA.
+        pha                     ; save n on stack
 
         sei                     ; prevent VIC tearing
 
-        ; ── Pass 1: scroll screen RAM ──
+        ; ── scroll screen RAM ──
         pla
         pha                     ; keep n on stack
         tax                     ; X = src_row (starts at n)
@@ -104,15 +118,18 @@ _theme_fg:     .byte  5            ; green
         cpx #SCR_H
         bcs @scr_clear
 
-        ; src_ptr = scr[src_row], dst_ptr = scr[dst_row]
+        ; src_ptr = scr[src_row]
         lda scr_lo,x
         sta src_ptr
         lda scr_hi,x
         sta src_ptr+1
-        stx @sav_x
-        sty @sav_y
-        ; dst
-        ldx @sav_y
+        ; save src_row, dst_row on stack
+        txa
+        pha                     ; push src_row
+        tya
+        pha                     ; push dst_row
+        ; dst_ptr = scr[dst_row]
+        tax
         lda scr_lo,x
         sta dst_ptr
         lda scr_hi,x
@@ -125,8 +142,10 @@ _theme_fg:     .byte  5            ; green
         dey
         bpl @sc1
 
-        ldx @sav_x
-        ldy @sav_y
+        pla                     ; restore dst_row → Y
+        tay
+        pla                     ; restore src_row → X
+        tax
         inx
         iny
         bne @scr_copy           ; always
@@ -140,13 +159,15 @@ _theme_fg:     .byte  5            ; green
         sta dst_ptr
         lda scr_hi,y
         sta dst_ptr+1
-        sty @sav_y
+        tya
+        pha                     ; save row index
         lda #$20
         ldy #SCR_W-1
 @sc2:   sta (dst_ptr),y
         dey
         bpl @sc2
-        ldy @sav_y
+        pla                     ; restore row index → Y
+        tay
         iny
         bne @sc_clr
 @scr_done:
@@ -154,19 +175,15 @@ _theme_fg:     .byte  5            ; green
         cli                     ; screen done, VIC safe
 
         ; Adjust cursor row: io_cy = max(io_cy - n, 0)
-        pla                     ; A = n
-        sta @sav_x              ; reuse as temp
-        lda CUR_ROW
+        pla                     ; A = n (saved at entry)
+        eor #$FF
         sec
-        sbc @sav_x
+        adc CUR_ROW             ; A = io_cy - n (via two's complement add)
         bcs @set_row
         lda #0
 @set_row:
         sta CUR_ROW
         jmp _io_sync
-
-@sav_x: .byte 0
-@sav_y: .byte 0
 .endproc
 
 ; ═════════════════════════════════════════════════════════

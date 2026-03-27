@@ -45,6 +45,29 @@ else
   MN_SRCS    = mn7 mn7_tables
 endif
 
+# ── Theme selection ──────────────────────────────────────────────────────
+# make THEME=cb5  →  border=C bg=B fg=5 (RADIOACTIVITY, default)
+# Auto-rebuilds screen.o when THEME changes (stamp file).
+# Predefined names:
+#   RADIOACTIVITY GREENLAND MRSPIGGY BRUCELEE LEEBRUCE MATRIX
+#   MILKYWAY HERCULES ORANGE MUDDY CLOUDY C64 C128
+#   or a 3-digit hex code: make THEME=cb5
+THEME ?= RADIOACTIVITY
+
+# Named theme → 3-digit hex code
+_THEME_MAP = RADIOACTIVITY=cb5 GREENLAND=d50 MRSPIGGY=a21 BRUCELEE=770 \
+             LEEBRUCE=007 MATRIX=005 MILKYWAY=001 HERCULES=008 \
+             ORANGE=880 MUDDY=990 CLOUDY=cbc C64=e6e C128=dbd
+_THEME_CODE := $(patsubst $(THEME)=%,%,$(filter $(THEME)=%,$(_THEME_MAP)))
+# If no match in map, treat THEME as a raw 3-digit hex code
+ifeq ($(_THEME_CODE),)
+  _THEME_CODE := $(THEME)
+endif
+
+THEME_DEFS := $(shell printf '%s' "$(_THEME_CODE)" | sed 's/./& /g' | \
+  awk '{split("0123456789abcdef",h,""); for(i=1;i<=16;i++)m[substr("0123456789abcdef",i,1)]=i-1; \
+  printf "-DTHEME_BOR=%d -DTHEME_BG=%d -DTHEME_FG=%d", m[$$1], m[$$2], m[$$3]}')
+
 # ── Version / build date ──────────────────────────────────────────────────
 VERSION  ?= 0.1
 BUILD_YEAR := $(shell date +%Y)
@@ -54,10 +77,10 @@ BUILD_YEAR := $(shell date +%Y)
 VER_DEFS = -DVERSION=\"$(VERSION)\" -DBUILD_YEAR=\"$(BUILD_YEAR)\"
 ifdef DEBUG
   CFLAGS = -g -O -t c64 -DDEBUG -D__cc65__ $(CPU_DEFS) $(VER_DEFS) -I$(ROOT) -I$(BUILD)
-  AFLAGS = -g -t c64 -DDEBUG -D__cc65__ $(CPU_DEFS) -I$(ROOT) -I$(BUILD)
+  AFLAGS = -g -t c64 -DDEBUG -D__cc65__ $(CPU_DEFS) $(THEME_DEFS) -I$(ROOT) -I$(BUILD)
 else
   CFLAGS = -O -t c64 -D__cc65__ $(CPU_DEFS) $(VER_DEFS) -I$(ROOT) -I$(BUILD)
-  AFLAGS = -t c64 -D__cc65__ $(CPU_DEFS) -I$(ROOT) -I$(BUILD)
+  AFLAGS = -t c64 -D__cc65__ $(CPU_DEFS) $(THEME_DEFS) -I$(ROOT) -I$(BUILD)
 endif
 LCFG   = $(SRC)/c64_cse.cfg
 LFLAGS = -C $(LCFG)
@@ -75,11 +98,11 @@ MAIN_S = $(BUILD)/src/main.s
 MAIN_O = $(BUILD)/src/main.o
 
 # ── C source files (besides main.c) ──────────────────────────────
-C_SRCS   = editor repl asm_src
+C_SRCS   = editor repl
 C_OBJS   = $(patsubst %,$(BUILD)/src/%.o,$(C_SRCS))
 
 # ── Assembler source files linked into cse.prg ──────────────────────
-ASM_SRCS = asm_bridge asm_line asm_vars mn_vars mn_classify \
+ASM_SRCS = asm_bridge asm_line asm_vars asm_src mn_vars mn_classify \
            $(MN_SRCS) mn_config \
            au_mode parse_hex mn_modes mn_asm_tables opcode_lookup \
            meminfo cse_io screen disk expr symtab dasm dasm_tables
@@ -103,6 +126,14 @@ ifneq ($(_PREV_CPU),$(CPU))
   $(info CPU changed: $(_PREV_CPU) -> $(CPU))
 endif
 $(shell mkdir -p $(BUILD) && echo "$(CPU)" > $(CPU_STAMP))
+
+# If THEME changes, rebuild screen.o (the only consumer).
+THEME_STAMP = $(BUILD)/.theme_stamp
+_PREV_THEME := $(shell cat $(THEME_STAMP) 2>/dev/null)
+ifneq ($(_PREV_THEME),$(THEME))
+  $(shell rm -f $(BUILD)/src/screen.o)
+endif
+$(shell mkdir -p $(BUILD) && echo "$(THEME)" > $(THEME_STAMP))
 
 $(MAIN_S): $(SRC)/main.c | $(BUILD)/src/
 	$(CC65) $(CFLAGS) -o $@ $<
@@ -270,6 +301,23 @@ $(BUILD)/:
 # -----------------------------------------------------------------------
 # help
 # -----------------------------------------------------------------------
+.PHONY: themes
+themes:
+	@echo "Available themes (make THEME=NAME):"
+	@echo ""
+	@c="black white red cyan purple green blue yellow orange brown lt_red dk_grey grey lt_green lt_blue lt_grey"; \
+	for t in RADIOACTIVITY=cb5 GREENLAND=d50 MRSPIGGY=a21 BRUCELEE=770 \
+	         LEEBRUCE=007 MATRIX=005 MILKYWAY=001 HERCULES=008 \
+	         ORANGE=880 MUDDY=990 CLOUDY=cbc C64=e6e C128=dbd; do \
+	  name=$${t%%=*}; code=$${t##*=}; \
+	  b=$$(echo $$c | awk -v i=$$((16#$${code:0:1}+1)) '{print $$i}'); \
+	  g=$$(echo $$c | awk -v i=$$((16#$${code:1:1}+1)) '{print $$i}'); \
+	  f=$$(echo $$c | awk -v i=$$((16#$${code:2:1}+1)) '{print $$i}'); \
+	  printf "  %-15s %s  %s / %s / %s\n" "$$name" "$$code" "$$b" "$$g" "$$f"; \
+	done
+	@echo ""
+	@echo "Or use any 3-digit hex code: make THEME=f0f"
+
 .PHONY: help
 help:
 	@printf "%-15s %s\n" "all"          "Build cse.prg (default)"
@@ -281,4 +329,5 @@ help:
 	@printf "%-15s %s\n" "size"         "Exhaustive size breakdown of cse.prg"
 	@printf "%-15s %s\n" "clean"        "Remove the build/ directory"
 	@printf "%-15s %s\n" "clean-tables" "Remove generated table sources in src/"
+	@printf "%-15s %s\n" "themes"       "List available color themes"
 	@printf "%-15s %s\n" "help"         "Show this message"
