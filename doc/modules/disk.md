@@ -1,5 +1,7 @@
 # disk.s — CBM File I/O
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### floppy_status

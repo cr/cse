@@ -1,4 +1,6 @@
-# CSE Memory Design
+# Memory Design — Memory maps, ZP layout, screen switching
+
+**Template:** [subsystem](templates/subsystem.md)
 
 ## Design Principles
 

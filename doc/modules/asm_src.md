@@ -1,5 +1,7 @@
 # asm_src.s — Two-Pass Source Assembler
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### _asm_assemble

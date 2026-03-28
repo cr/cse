@@ -1,5 +1,7 @@
 # mn_classify — Mnemonic Classifier
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### mn_classify (dispatcher, mn_classify.s)

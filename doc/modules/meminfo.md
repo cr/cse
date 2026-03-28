@@ -1,5 +1,7 @@
 # meminfo.s — Linker Symbol Shim
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### _cse_start

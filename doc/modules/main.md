@@ -1,5 +1,7 @@
 # main.c — Application Shell
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 - `main()` — hardware init, main loop, mode dispatch

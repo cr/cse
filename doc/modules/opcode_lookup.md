@@ -1,5 +1,7 @@
 # opcode_lookup.s — Opcode Byte Computation
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### _al_validate_mode

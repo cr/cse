@@ -8,6 +8,8 @@ One file per module. Filename matches the source file: `module.md` for `module.s
 ```
 # module — One-Line Purpose
 
+**Template:** [module](../templates/module.md)
+
 ## Owned files
 
 | File | Role |

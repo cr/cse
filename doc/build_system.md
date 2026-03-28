@@ -1,4 +1,6 @@
-# CSE Build System
+# Build System — Toolchain, pipeline, targets, test binaries
+
+**Template:** [subsystem](templates/subsystem.md)
 
 ## Owned files
 

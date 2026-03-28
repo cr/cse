@@ -1,5 +1,7 @@
 # au_mode.s — Addressing Mode Parser
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### au_parse_mode

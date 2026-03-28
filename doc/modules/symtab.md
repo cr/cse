@@ -1,5 +1,7 @@
 # symtab.s — Symbol Table
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### _sym_define

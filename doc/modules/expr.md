@@ -1,5 +1,7 @@
 # expr.s — Expression Parser
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### _expr_eval

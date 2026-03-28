@@ -1,5 +1,7 @@
 # asm_line.s — Single-Line Instruction Assembler
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### al_line_asm

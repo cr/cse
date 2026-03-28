@@ -1,4 +1,6 @@
-# Testing
+# Testing — TDD Method and test framework conventions
+
+**Template:** [subsystem](templates/subsystem.md)
 
 ## The TDD Method
 

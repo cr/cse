@@ -1,4 +1,6 @@
-# cse_io API Specification
+# cse_io.s — Screen I/O and Cursor Management
+
+**Template:** [module](../templates/module.md)
 
 ## Overview
 

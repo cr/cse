@@ -41,10 +41,11 @@ implements the docs; tests verify the code matches the docs.
 ## The DDD Method
 
 All development work in this repository follows the DDD Method.
-There are no exceptions.  There are no shortcuts.  Skipping steps
-— even for seemingly trivial changes — is how documentation systems
-die.  Every contributor, human or AI, must follow this process for
-every change, every time.
+Judgement calls are expected — not every one-line fix needs a full
+seven-step cycle — but the bias must always be toward following the
+process.  Changes that affect design intent, interfaces, test
+coverage, or documentation require the full Method.  When in doubt,
+follow the steps.
 
 **Step 1 — Documentation first.**  Update the relevant
 documentation to describe the desired *state* — not the change, but
@@ -125,8 +126,9 @@ the DDD System entirely.
    contract or an explicit reason they don't.
 
 **Output:** a DDD Maintenance Report listing findings by category.
-Trivial findings (broken links, stale comments) are fixed inline.
-Substantive findings become TODO items and go through the DDD Method.
+Mechanical corrections (broken links, stale comments, formatting)
+that don't affect design intent may be fixed inline.  Substantive
+findings become TODO items and go through the DDD Method.
 
 ---
 

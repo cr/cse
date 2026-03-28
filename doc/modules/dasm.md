@@ -1,5 +1,7 @@
 # dasm.s — Disassembler
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### _dasm_insn

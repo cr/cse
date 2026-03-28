@@ -1,5 +1,7 @@
 # repl.c — REPL Command Interface
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 - `exec_line()` — parse current screen line, dispatch command

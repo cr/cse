@@ -1,5 +1,7 @@
 # editor.c — Gap-Buffer Source Editor
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 - `enter_editor()` — save REPL screen, switch to editor mode

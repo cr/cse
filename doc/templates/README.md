@@ -13,3 +13,4 @@ must be defined here before the second instance is written.
 | Template | Applies to | Instances |
 |----------|------------|-----------|
 | [module.md](module.md) | `doc/modules/*.md` — one doc per source module | 15 |
+| [subsystem.md](subsystem.md) | `doc/*.md` — top-level subsystem docs | 6 |

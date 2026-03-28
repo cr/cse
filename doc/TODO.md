@@ -28,8 +28,6 @@ Small, concrete, ready to do now.
   — have disk.s call io_puts directly.
 - [ ] DDD audit module docs against code: asm_line, au_mode,
   opcode_lookup, mn_classify, mn7, editor, main, meminfo.
-- [ ] Fix stale comment in asm_vars.s:35 — `al_cpu` values are
-  0=6502, 1=6510, 2=65C02 (not 0=NMOS, 1=65C02).
 
 ## Planned
 
@@ -101,7 +99,7 @@ Defined scope, needs work.
   asm_bridge.s.
 - [ ] ZP optimization: overlap scratch for non-concurrent modules.
   ~14 bytes reclaimable from cold scratch, ~8 bytes overlappable
-  (dasm vs asm_line).  See [README.md § ZP is precious](README.md#6-zp-is-precious--use-the-stack-for-scratch).
+  (dasm vs asm_line).  See [project.md § ZP is precious](project.md#1-zp-is-precious--use-the-stack-for-scratch).
 - [ ] Relocate CSE to $8000 (PRG) or cartridge ROM (CRT).
 - [ ] Dual linker configs: c64_cse.cfg (PRG) and c64_cse_crt.cfg (CRT).
 
@@ -111,17 +109,6 @@ Defined scope, needs work.
   asm: emit_dot, emit_mem, show_prompt, exec_line dispatch.
 - [ ] `editor.c` is 4.4KB CODE (21%).  Port gap buffer ops and
   rendering to asm.
-
-## DDD System
-
-- [ ] Define **DDD Maintenance** process: a periodic audit of the DDD
-  Corpus (doc/, dev/, tests/) independent of feature work.  Should
-  cover: stale entries, coverage gaps (modules with no doc or thin
-  doc), cross-reference integrity (broken links, stale links pointing
-  to renamed or removed sections, missing links where a doc references
-  a concept but fails to link its definition or owner), glossary
-  completeness, and TODO hygiene.  Define trigger (time-based? milestone-based?), scope,
-  and output format.  Add to glossary once defined.
 
 ## Ideas
 

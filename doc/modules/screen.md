@@ -1,5 +1,7 @@
 # screen.s — Screen Management
 
+**Template:** [module](../templates/module.md)
+
 ## Interface
 
 ### restore_colors

@@ -1,4 +1,6 @@
-# CSE Source Assembler Syntax
+# Assembler Syntax — Source language specification
+
+**Template:** [subsystem](templates/subsystem.md)
 
 ## Lines
 

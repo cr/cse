@@ -1,4 +1,6 @@
-# CSE Module Architecture
+# Module Architecture — Module map, dependency graph, boundary rules
+
+**Template:** [subsystem](templates/subsystem.md)
 
 ## Layer Diagram
 

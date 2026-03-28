@@ -1,4 +1,6 @@
-# CSE Project Layout
+# Project Layout — Directory structure
+
+**Template:** [subsystem](templates/subsystem.md)
 
 ## Directory Structure
 
