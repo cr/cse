@@ -123,30 +123,8 @@ view is always reconstructable from the source buffer; the REPL screen
 is not (it contains command history and output), hence only the REPL
 screen needs saving.
 
-## Build Targets
-
-The same source builds for both targets via linker config:
-
-    make              → build/cse.prg   (PRG, loads at $0801)
-
-Linker config:
-- `src/c64_cse.cfg`     — PRG target (current)
-- CRT target is a future goal using the same source with a different
-  linker config.
-
-## Coding Guidelines for ROM Compatibility
-
-- **Use `const` for all lookup tables.** cc65 places `const` data in
-  `RODATA`, which lives in ROM on the CRT target.
-- **No self-modifying code.** All assembly routines work from ROM.
-  Runtime values live in ZP or BSS, never in patched inline code.
-- **Minimize initialized data.** Prefer runtime initialization over
-  static initializers. Static `= 0` is free (BSS), static `= nonzero`
-  costs ROM + RAM (DATA segment gets copied to RAM at startup).
-- **Keep BSS small.** Every byte of BSS is a byte of RAM that can't be
-  used for source code or developer programs.
-- **C stack budget: 2KB max.** Avoid deep recursion or large local
-  arrays. The C stack lives in RAM and must be bounded.
+For build targets, linker configs, and ROM compatibility constraints,
+see [build_system.md](build_system.md).
 
 ## Zero Page Layout
 

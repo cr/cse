@@ -153,3 +153,35 @@ constants from the last assembly.  Output shows hex, decimal, and
    cleanly.  The NMI vector is intercepted for mode switching but
    the KERNAL's IRQ handler continues running (keyboard scan, jiffy
    clock).
+
+## Implementation Principles
+
+Constraints that govern how the code is written.
+
+### 1. ZP is precious — use the stack for scratch
+
+- **ZP** — pointers for indirect addressing, hot inner-loop state
+- **Stack** — scratch values (saved/restored via `pha`/`pla`)
+- **BSS** — persistent state that doesn't need fast access
+
+Modules that never run concurrently (e.g. assembler vs disassembler)
+can share ZP addresses.  See [memory_design.md § Zero Page Layout](memory_design.md#zero-page-layout).
+
+### 2. All syntax characters must be typeable on the C64 keyboard
+
+No syntax element (operator, delimiter, directive prefix) may use a
+character that the C64 keyboard cannot produce.  This is why OR is
+`£` (not `|`), XOR is `^` (the ↑ key), and labels have no underscore.
+
+### 3. CSE uses shifted PETSCII (lowercase mode)
+
+The screen operates in VICII charset 2 (shifted / "business" mode).
+In this mode, PETSCII $41–$5A are lowercase a–z and $C1–$DA are
+uppercase A–Z.  The KERNAL returns $41–$5A for unshifted keypresses
+and $C1–$DA for shifted.  `read_line` preserves this distinction.
+Screen codes follow the same convention: $01–$1A = lowercase,
+$41–$5A = uppercase.
+
+All internal text processing — command parsing, hex input, mnemonic
+matching, source text — uses these PETSCII values directly.  cc65
+character literals follow the same mapping: `'a'` = $41, `'A'` = $C1.

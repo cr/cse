@@ -112,6 +112,17 @@ Defined scope, needs work.
 - [ ] `editor.c` is 4.4KB CODE (21%).  Port gap buffer ops and
   rendering to asm.
 
+## DDD System
+
+- [ ] Define **DDD Maintenance** process: a periodic audit of the DDD
+  Corpus (doc/, dev/, tests/) independent of feature work.  Should
+  cover: stale entries, coverage gaps (modules with no doc or thin
+  doc), cross-reference integrity (broken links, stale links pointing
+  to renamed or removed sections, missing links where a doc references
+  a concept but fails to link its definition or owner), glossary
+  completeness, and TODO hygiene.  Define trigger (time-based? milestone-based?), scope,
+  and output format.  Add to glossary once defined.
+
 ## Ideas
 
 Exploratory, not yet scoped.

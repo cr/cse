@@ -63,28 +63,8 @@ cse/
     └── src/                Intermediate .s and .o files
 ```
 
-## Build Pipeline
+## Further reading
 
-```
-src/*.c  ──cc65──►  build/src/*.s  ──ca65──►  build/src/*.o ─┐
-src/*.s  ──────────────────────────ca65──►  build/src/*.o ──┤
-                                                             ├──ld65──► cse.prg
-c64.lib ─────────────────────────────────────────────────────┘
-```
-
-C sources: `main.c`, `repl.c`, `editor.c` (compiled via cc65 → ca65).
-ASM sources: all `.s` files (assembled directly by ca65).
-Linker config: `src/c64_cse.cfg` (ZP expanded to $02–$7F).
-
-Build-time options: `CPU=6502|6510|65c02`, `THEME=NAME|hex`,
-`DEBUG=1`.  See `make help` and `make themes`.
-
-## Architecture and module details
-
-See [architecture.md](architecture.md) for the module map and
-dependency graph.  Per-module specs live in `doc/modules/`.
-
-## Test infrastructure
-
-See [testing.md § The TDD Method](testing.md#the-tdd-method) for test
-principles, py65 harness architecture, and conventions.
+- [build_system.md](build_system.md) — toolchain, build pipeline, build-time options, test binaries
+- [architecture.md](architecture.md) — module map and dependency graph
+- [testing.md](testing.md) — TDD Method, test conventions

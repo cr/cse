@@ -68,9 +68,11 @@ feasibility.  If the TDD Analysis reveals implications for the
 intended code change, it must be discussed and approved before
 proceeding.  The TDD Analysis must be included in the final report.
 
-**Step 4 — Implementation.**  Code and test changes proceed as
-designed.  If implementation requires unexpected significant changes
-outside the original scope, a Scope Creep discussion is triggered:
+**Step 4 — Implementation.**  Tests are written first to match the
+documentation (they will fail — this is expected).  Code is then
+written to match both the documentation and the tests.  If
+implementation requires unexpected significant changes outside the
+original scope, a Scope Creep discussion is triggered:
 the unplanned changes are presented for discussion and approval
 before being put through the DDD Method recursively.  Recursion
 terminates at the discretion of the approver.
@@ -93,6 +95,41 @@ report.
 
 ---
 
+## DDD Maintenance
+
+The DDD Method protects the corpus during active development.  DDD
+Maintenance is the complementary recurring process that catches drift,
+gaps, and decay that no single change introduced — or that predates
+the DDD System entirely.
+
+**Trigger:** at each project milestone, before the milestone commit.
+
+**Audit scope:**
+
+1. **Template conformance** — all documents in a templated category
+   conform to their template.
+2. **Ownership completeness** — every file in the repository is claimed
+   by exactly one document.  Unclaimed files are corpus gaps.
+3. **Doc-code fidelity** — each module doc matches its source file:
+   function signatures, ZP addresses, algorithms, clobber rules.
+4. **Cross-reference integrity** — all links in the corpus resolve:
+   no broken targets, no stale links pointing to renamed or removed
+   sections, no missing links where a concept is referenced but not
+   linked to its definition or owner.
+5. **Glossary health** — all terms used across the corpus are defined;
+   no stale or orphaned entries.
+6. **TODO hygiene** — completed items checked off; stale items removed;
+   Ideas and Planned items reflect current intent.
+7. **Test contract health** — xfails reviewed: graduated to bugs or
+   confirmed still expected; all documented modules have a test
+   contract or an explicit reason they don't.
+
+**Output:** a DDD Maintenance Report listing findings by category.
+Trivial findings (broken links, stale comments) are fixed inline.
+Substantive findings become TODO items and go through the DDD Method.
+
+---
+
 ## Principles
 
 ### 1. Layered depth
@@ -111,21 +148,15 @@ from general to specific:
 
 The same kind of thing is always described the same way.
 
+Document categories that appear more than once in the corpus have a
+**template** in [`doc/templates/`](templates/README.md).  Every
+document of that category must conform to its template.  The template
+is the authoritative definition of the form — the description here is
+a summary only.
+
 **Module doc** (one file per module, `doc/modules/<module>.md`):
-
-```
-# module_name — One-Line Purpose
-
-## Interface
-- `function_name(args)` — what it does
-**Depends on:** list of imported modules
-
-## Design
-How it works internally.
-
-## Caveats
-Encoding quirks, clobber rules, etc.
-```
+full template at [`doc/templates/module.md`](templates/module.md).
+Sections: Owned files → Interface → Design → Caveats.
 
 Module docs live in `doc/modules/` and are reached through
 [architecture.md](architecture.md).  They are not listed in this
@@ -198,49 +229,44 @@ it does not duplicate their content.
 | A bug, missing feature, or cleanup task | `TODO.md` |
 | Instruction set data (opcodes, profiles, modes) | `dev/instruction_set.py` |
 | Hash parameters and table generation | `dev/hashes.py` |
-| Build-time options (CPU, theme) | `Makefile` (mechanism) + relevant module doc (spec) |
+| Build-time options, toolchain, test binaries | `build_system.md` |
 | Test method, architecture, conventions | `testing.md` |
 | Directory structure, build pipeline | `project_layout.md` |
 
 If you're unsure: ask "who needs to change when this fact changes?"
 The answer points to the owner.
 
-### 4. Natural reading order
+### 4. Explicit ownership
+
+Every file in the repository is owned by exactly one document.
+The owning document explicitly links to every file it owns and
+names the relation.  Valid relations:
+
+| Relation | Meaning |
+|----------|---------|
+| `implementation` | The file implements the behaviour this doc specifies. |
+| `test contract` | The file verifies the interface this doc defines. |
+| `generated` | The file is produced from data this doc is authoritative for. |
+| `header` | The file exposes the C interface this doc describes. |
+
+A file with no owning document is an undocumented file — a gap in
+the Corpus.  DDD Maintenance must resolve all gaps.
+
+This principle is what the **Owned files** section in module docs
+(see [templates/module.md](templates/module.md)) implements.
+Top-level documents without a template must carry an equivalent
+ownership declaration wherever appropriate.
+
+### 5. Natural reading order
 
 Documents are ordered so each one depends only on documents listed
 before it.  A reader going top-to-bottom never hits an undefined term.
 
-### 5. Test contracts, not implementation
+### 6. Regular corpus maintenance
 
-Tests verify the documented interface, not internal state.
-See [testing.md § The TDD Method](testing.md#the-tdd-method).
-
-### 6. ZP is precious — use the stack for scratch
-
-- **ZP** — pointers for indirect addressing, hot inner-loop state
-- **Stack** — scratch values (saved/restored via `pha`/`pla`)
-- **BSS** — persistent state that doesn't need fast access
-
-Modules that never run concurrently (e.g. assembler vs disassembler)
-can share ZP addresses.  See [memory_design.md § Zero Page Layout](memory_design.md#zero-page-layout).
-
-### 7. All instructive characters must be typeable on the C64 keyboard
-
-No syntax element (operator, delimiter, directive prefix) may use a
-character that the C64 keyboard cannot produce.
-
-### 8. CSE uses shifted PETSCII (lowercase mode)
-
-The screen operates in VICII charset 2 (shifted / "business" mode).
-In this mode, PETSCII $41–$5A are lowercase a–z and $C1–$DA are
-uppercase A–Z.  The KERNAL returns $41–$5A for unshifted keypresses
-and $C1–$DA for shifted.  `read_line` preserves this distinction.
-Screen codes follow the same convention: $01–$1A = lowercase,
-$41–$5A = uppercase.
-
-All internal text processing — command parsing, hex input, mnemonic
-matching, source text — uses these PETSCII values directly.  cc65
-character literals follow the same mapping: `'a'` = $41, `'A'` = $C1.
+The corpus must be audited periodically, independent of feature work,
+to catch drift and gaps that individual changes miss.
+See [DDD Maintenance](#ddd-maintenance) for the full audit scope and trigger.
 
 ---
 
@@ -258,9 +284,10 @@ character literals follow the same mapping: `'a'` = $41, `'A'` = $C1.
 |----------|-------|
 | [architecture.md](architecture.md) | Module map, dependency graph, module summaries → `modules/` |
 | [glossary.md](glossary.md) | Shared terminology (instruction, operand, label, ZP, PETSCII, ...) |
-| [project_layout.md](project_layout.md) | Directory structure, build system, test infra |
-| [memory_design.md](memory_design.md) | Memory maps (PRG/CRT), ZP layout, screen switching, ROM rules |
-| [testing.md](testing.md) | The TDD Method, test framework architecture, py65 harness |
+| [project_layout.md](project_layout.md) | Directory structure |
+| [memory_design.md](memory_design.md) | Memory maps (PRG/CRT), ZP layout, screen switching |
+| [build_system.md](build_system.md) | Toolchain, build pipeline, targets, options, test binaries |
+| [testing.md](testing.md) | The TDD Method, py65 harness conventions |
 
 ### User-facing behaviour
 
@@ -273,6 +300,7 @@ character literals follow the same mapping: `'a'` = $41, `'A'` = $C1.
 | Document | Scope |
 |----------|-------|
 | [TODO.md](TODO.md) | Outstanding work: bugs, features, cleanup, architecture |
+| [templates/README.md](templates/README.md) | Active document templates and their coverage |
 
 ### Authoritative data files (dev/)
 

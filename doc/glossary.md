@@ -49,7 +49,10 @@ and documentation.
 
 | Term | Definition |
 |------|------------|
+| **DDD System** | The totality of document-driven practices in this repository: the DDD Method, the TDD Method, the DDD Corpus, and the DDD Maintenance process.  The system's goal is that documentation is always the source of truth and never drifts from code. |
+| **DDD Corpus** | The complete body of documentation that defines the system: `doc/` files, module docs in `doc/modules/`, authoritative data files in `dev/`, and the test contracts in `tests/`.  The Corpus is the source of truth for all design intent, interfaces, and behaviour. |
 | **DDD Method** | The seven-step development process defined in [README.md § The DDD Method](README.md#the-ddd-method): doc first → DDD Analysis → TDD Analysis → implement → differential DDD → commit → report.  Mandatory for all repository changes, no exceptions. |
+| **DDD Maintenance** | A periodic audit of the DDD Corpus independent of feature work.  See [README.md § DDD Maintenance](README.md#ddd-maintenance) for the full audit scope and trigger. |
 | **DDD Analysis** | Comparison of documentation against code reality.  Covers quality, coverage, and mismatches (including source comments and docstrings).  Performed before implementation (step 2) and after (step 5, differential). |
 | **TDD Principle** | Code and interface design must be designed with testability in mind.  Not all behaviour is automatable — the principle requires conscious evaluation, not blind coverage.  See [testing.md § The TDD Method](testing.md#the-tdd-method). |
 | **TDD Analysis** | Test framework equivalent of the DDD Analysis.  Identifies test gaps, recommends framework changes, and flags when automation is impractical.  See [testing.md § The TDD Analysis](testing.md#the-tdd-analysis). |

@@ -67,48 +67,18 @@ the DDD Analysis and before implementation.  It must:
 
 The TDD Analysis is included in the final DDD Report.
 
+The output of the TDD Analysis — the list of tests to write or
+update — feeds directly into Step 4.  Within Step 4, tests are
+written first (matching the documentation), then code is written
+to pass them.  Tests are the specification in executable form;
+they must be green before Step 5 begins.
+
 ## Framework
 
-All tests use **pytest** with a **py65** 6502 CPU emulator.
-
-```
-tests/
-  conftest.py          — fixtures, build helpers, symbol resolution
-  test_mnhash.py       — mnemonic classifier (mn6/mn7)
-  test_au_mode.py      — addressing mode parser
-  test_asm_line.py     — single-line assembler
-  test_dasm.py         — disassembler
-  test_expr.py         — expression parser
-  test_symtab.py       — symbol table
-  test_asm_src.py      — two-pass source assembler
-  test_cse_io.py       — screen I/O
-  test_editor.py       — editor gap buffer
-```
-
-### conftest.py architecture
-
-Three independent test binaries, each with its own build pipeline:
-
-| Binary | Linker config | Modules | Entry point |
-|--------|--------------|---------|-------------|
-| `build/test_asm.bin` | `dev/test.cfg` | asm_line, au_mode, mn7, opcode_lookup, parse_hex, mn_asm_tables, mn7_tables, mn_modes, mn_classify, mn_config, mn_vars, asm_vars | `test_entry` |
-| `build/test_expr.bin` | `dev/expr_test.cfg` | expr, symtab, asm_vars | `expr_test_entry` |
-| `build/test_asm_src.bin` | `dev/asm_src_test.cfg` | asm_src, expr, symtab, asm_bridge, asm_line, + full assembler stack | `asm_src_test_entry` |
-
-Each binary is:
-1. Assembled with `ca65` (assembly modules) or `cc65` + `ca65` (C modules)
-2. Linked with `ld65` using a bare-metal config (no C64 KERNAL, no ROM)
-3. Loaded into py65 memory at the configured addresses
-4. Symbol addresses resolved from the ld65 `.map` file
-
-### Symbol resolution
-
-The test harness resolves function addresses from the ld65 map file,
-not from listing offsets.  Map-file resolution is reliable because
-ld65 exports are absolute addresses after linking.
-
-For symbols not in the exports list (module-internal labels), the
-harness computes: `segment_start + module_offset_in_segment`.
+All tests use **pytest** with a **py65** 6502 CPU emulator.  Tests run
+against three independent binaries built from subsets of the source
+tree.  For the build pipeline, binary layout, symbol resolution, and
+run commands, see [build_system.md § Test build pipeline](build_system.md#test-build-pipeline).
 
 ### Running a test
 
@@ -138,19 +108,3 @@ previously set up on the stack (`$FFFF`), halting the run loop.
 
 - **xfail:** Known limitations (e.g. CMOS gate bugs, missing C stack
   stubs) are marked `pytest.mark.xfail` with a reason string.
-
-## Running tests
-
-```sh
-# All tests (uses pipenv virtualenv)
-make test
-
-# Quick run (direct pytest)
-/Users/cr/.local/share/virtualenvs/cse-rXGMsE9U/bin/pytest tests/ -q
-
-# Specific module
-pytest tests/test_expr.py -q
-
-# With verbose output
-pytest tests/ -v
-```
