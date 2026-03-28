@@ -2,6 +2,14 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/au_mode.s`](../../src/au_mode.s) | implementation |
+| [`src/parse_hex.s`](../../src/parse_hex.s) | implementation — hex literal parser |
+| [`tests/test_au_mode.py`](../../tests/test_au_mode.py) | test contract |
+
 ## Interface
 
 ### au_parse_mode
@@ -12,7 +20,7 @@
 
 ### au_skip_ws
 **In:** `au_ptr`, Y = current offset
-**Out:** Y advanced past spaces and tabs
+**Out:** Y advanced past spaces ($20), tabs ($A0), and legacy ASCII tabs ($09)
 **Clobbers:** A
 
 **Depends on:** parse_hex (hex digit reading), asm_bridge (au_syntax_error)

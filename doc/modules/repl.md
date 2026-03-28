@@ -2,6 +2,13 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/repl.c`](../../src/repl.c) | implementation |
+| [`src/repl.h`](../../src/repl.h) | header |
+
 ## Interface
 
 - `exec_line()` — parse current screen line, dispatch command

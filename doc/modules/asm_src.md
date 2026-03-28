@@ -2,6 +2,14 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/asm_src.s`](../../src/asm_src.s) | implementation |
+| [`src/asm_src.h`](../../src/asm_src.h) | header |
+| [`tests/test_asm_src.py`](../../tests/test_asm_src.py) | test contract |
+
 ## Interface
 
 ### _asm_assemble

@@ -2,6 +2,14 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/editor.c`](../../src/editor.c) | implementation |
+| [`src/editor.h`](../../src/editor.h) | header |
+| [`tests/test_editor.py`](../../tests/test_editor.py) | test contract |
+
 ## Interface
 
 - `enter_editor()` — save REPL screen, switch to editor mode
@@ -15,10 +23,10 @@
 - `ed_read_line(buf, maxlen)` — read next line into buf; returns length or -1 at EOF
 - `ed_read_byte()` — read next byte from source; returns byte or -1 at EOF
 - `ed_insert_string(text)` — programmatic text insertion at cursor
-- `ed_reindent(old_tw, new_tw)` — reindent all source lines from old to new tab width
-
 **State:** `tab_width` (uint8, default 8) — tab stop interval in
-columns.  Set by the REPL's `T` command (uppercase).
+columns.  Set by the REPL's `T` command (uppercase).  Affects
+rendering of $A0 (tab) bytes only; changing it does not modify
+buffer contents.
 
 **Statistics:** `ed_save_bytes`, `ed_save_lines` — counts from last
 file operation.
@@ -118,7 +126,9 @@ anchor.
   `pos` to screen row `row`.  Advances `pos` past the CR or to
   `buf_end`.  Transparently skips the gap.  Converts PETSCII to
   screen codes: $41–$5A → $01–$1A (lowercase), $C1–$DA → $41–$5A
-  (uppercase).  Pads the rest of the row with spaces.
+  (uppercase).  Expands $A0 (tab) to spaces up to the next
+  `tab_width` column boundary.  Pads the rest of the row with
+  spaces.
 - `ed_render_range(from, to)` — render screen rows `from` to `to`
   by advancing from `ed_top_ptr`.
 - `ed_render()` — full redraw: all 22 lines + status bar.
@@ -161,38 +171,49 @@ editor cursor.
 
 | Key | Action | Redraw |
 |-----|--------|--------|
-| LEFT | `gb_cursor_left`, decrement `ed_cur_col` | status pos only |
-| RIGHT | `gb_cursor_right`, increment `ed_cur_col` (stops at CR/EOF) | status pos only |
+| C=+SPACE | Insert $A0 (tab byte), advance `ed_cur_col` to next `tab_width` boundary | current row only + status |
+| LEFT | `gb_cursor_left`, decrement `ed_cur_col`; if byte crossed is $A0, `ed_cur_col` snaps back to previous tab-stop-aligned column | status pos only |
+| RIGHT | `gb_cursor_right`, increment `ed_cur_col`; if byte crossed is $A0, `ed_cur_col` snaps forward to next tab-stop-aligned column (stops at CR/EOF) | status pos only |
 | UP | `ed_cursor_up`: home → left (past CR) → home → advance to target col | scroll down if above viewport, else status pos |
 | DOWN | `ed_cursor_down`: advance past CR → advance to target col | scroll up if below viewport, else status pos |
 | HOME | `gb_home`: slide gap left to start of current line | status pos only |
-| DEL | mid-line: `gb_backspace`, re-render from current row to bottom. At col 0: join with previous line, adjust `ed_cur_line`/`ed_top_line`, re-render | rows from cursor to bottom + status |
-| RETURN | insert $0D, advance `ed_cur_line`, scroll if needed | rows from previous line to bottom + status |
+| DEL | `gb_backspace`, re-render from current row to bottom. At col 0: join with previous line, adjust `ed_cur_line`/`ed_top_line`, re-render | rows from cursor to bottom + status |
+| RETURN | Insert $0D, advance `ed_cur_line`. Auto-indent: copy leading whitespace (spaces and $A0 tabs) from current line to new line. Scroll if needed | rows from previous line to bottom + status |
 | printable | insert char at gap, increment `ed_cur_col` (max col 38) | current row only + status |
 
 Cursor movement preserves the target column across UP/DOWN (saved
-in `target_col` before the move, restored after).
+in `target_col` before the move, restored after).  Target column is
+the *visual* column, not the byte offset.
 
-### Reindent
+### Tab character
 
-`ed_reindent(old_tw, new_tw)` adjusts leading spaces on every line
-when the tab width changes (REPL `t` command).  Single pass, O(n):
+C=+SPACE ($A0) is the tab key.  It inserts a single $A0 byte into
+the gap buffer.  On screen, $A0 renders as spaces up to the next
+`tab_width` column boundary (minimum 1 space).  In the buffer it
+remains a literal $A0 byte — one byte per tab, regardless of
+visual width.
 
-1. Rewind cursor to `buf_base`.
-2. For each line, count leading spaces in post-gap.
-3. Decompose: `levels = spaces / old_tw`, `remainder = spaces %
-   old_tw`.
-4. Compute: `new_count = levels * new_tw + remainder` (clamped to
-   38).
-5. If `new_count >= spaces`: keep old spaces (`gb_cursor_right`),
-   insert extras (`gb_insert`).
-   If `new_count < spaces`: keep `new_count` spaces, advance
-   `gap_hi` past the excess (in-place delete).
-6. Advance past rest of line + CR.
-7. Rewind cursor to start, reset editor state, set `ed_dirty`.
+`tab_width` controls the visual width of tabs.  Changing
+`tab_width` (via the REPL's `T` command) does not modify the buffer
+— it only changes how $A0 bytes are rendered.  This is the same
+model as hard tabs in modern editors.
 
-Sub-tab-stop alignment is preserved: only full indent levels are
-rescaled.
+`tab_width = 0` disables tab rendering; $A0 is displayed as a
+single space.
+
+**Visual column tracking.**  `ed_cur_col` tracks the visual
+(screen) column, not the byte offset into the line.  A single $A0
+byte advances `ed_cur_col` by 1–`tab_width` columns depending on
+the current position.  Cursor LEFT/RIGHT over a $A0 byte jumps the
+full visual width of that tab in one keystroke.
+
+**Auto-indent.**  RETURN copies leading whitespace from the current
+line to the new line.  Both $20 (space) and $A0 (tab) bytes are
+copied verbatim.
+
+**Sequential reader.**  `ed_read_line` and `ed_read_byte` pass $A0
+through as-is.  The assembler's whitespace skipper (`au_skip_ws`)
+must treat $A0 as whitespace.
 
 ### File I/O
 
@@ -239,3 +260,5 @@ assembler calls `ed_read_rewind` before each pass.
   Two ranges are handled: lowercase ($41–$5A) and uppercase ($C1–$DA).
 - Maximum column is 38 (SCREEN_WIDTH - 1).  Column 39 is reserved
   for the cursor, matching the REPL convention.
+- $A0 (tab) is one byte in the buffer but 1–`tab_width` columns on
+  screen.  Visual column and byte offset diverge on lines with tabs.

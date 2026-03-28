@@ -20,9 +20,6 @@ extern uint16_t ed_save_bytes;
 extern uint16_t ed_save_lines;
 extern uint8_t  tab_width;               /* tab stop interval, default 8 */
 
-/* Reindent all source lines from old_tw to new_tw */
-void ed_reindent(uint8_t old_tw, uint8_t new_tw);
-
 /* Ensure gap buffer is initialized */
 void ed_ensure_init(void);
 

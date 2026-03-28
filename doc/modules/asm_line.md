@@ -2,6 +2,15 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/asm_line.s`](../../src/asm_line.s) | implementation |
+| [`src/asm_bridge.s`](../../src/asm_bridge.s) | implementation — C↔asm bridge, PETSCII→VICII, error recovery |
+| [`src/asm_vars.s`](../../src/asm_vars.s) | implementation — shared ZP variable definitions |
+| [`tests/test_asm_line.py`](../../tests/test_asm_line.py) | test contract |
+
 ## Interface
 
 ### al_line_asm

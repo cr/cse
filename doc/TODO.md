@@ -64,11 +64,9 @@ Defined scope, needs work.
 
 ### Editor
 
-- [ ] Intelligent tabbing (plan in `.claude/plans/deep-shimmying-bee.md`):
-  RETURN auto-indent, SPACE on empty line → tab stop, INS → next
-  tab stop, DEL at tab stop → delete tab width spaces.  Uses
-  `tab_width` variable (already implemented, set by `T` command).
-  Doc-first update in editor.md done; code not yet implemented.
+- [x] Intelligent tabbing: gutter model with RETURN auto-indent,
+  SPACE/INS indent to tab stop, DEL unindent, cursor gutter skip.
+  `tab_width ≥ 1` enables; `tab_width = 0` disables.
 - [ ] Handle files > gap buffer capacity (show error, don't crash).
 - [ ] Warn on quit/switch if dirty flag set.
 - [ ] Page up/down with shift+cursor or F-keys.

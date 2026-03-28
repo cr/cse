@@ -228,6 +228,13 @@ static uint8_t ed_render_line(uint8_t row, uint8_t **pos)
         if (*pos >= buf_end) break;
         ch = **pos;
         if (ch == 0x0D) { ++(*pos); break; }
+        if (ch == 0xA0) {
+            /* Tab: expand to spaces up to next tab_width boundary */
+            uint8_t w = (tab_width > 0) ? (tab_width - (col % tab_width)) : 1;
+            while (w-- && col < SCREEN_WIDTH) scr[col++] = 0x20;
+            ++(*pos);
+            continue;
+        }
         sc = ch;
         if (sc >= 0x41 && sc <= 0x5A) sc -= 0x40;       /* unshifted → $01-$1A */
         else if (sc >= 0xC1 && sc <= 0xDA) sc -= 0x80; /* shifted → $41-$5A */
@@ -492,6 +499,48 @@ void leave_editor(void)
     state = ST_REPL;
 }
 
+/* ── Tab character helpers ──────────────────────────────── */
+
+/* Compute the visual column width of a single byte. */
+static uint8_t char_width(uint8_t ch, uint8_t vcol)
+{
+    if (ch == 0xA0 && tab_width > 0) {
+        /* Tab: advance to next tab_width boundary (min 1) */
+        return tab_width - (vcol % tab_width);
+    }
+    return 1;
+}
+
+/* Recompute visual column from start of current line to gap_lo. */
+static uint8_t visual_col(void)
+{
+    uint8_t *p = gap_lo;
+    uint8_t vcol = 0;
+    while (p > buf_base && *(p - 1) != 0x0D) --p;
+    while (p < gap_lo) {
+        vcol += char_width(*p, vcol);
+        ++p;
+    }
+    return vcol;
+}
+
+/* Copy leading whitespace bytes ($20/$A0) from current line into ws_buf.
+ * Returns count of bytes copied.  Used by RETURN for auto-indent. */
+static uint8_t copy_leading_ws(uint8_t *ws_buf, uint8_t max)
+{
+    uint8_t *p = gap_lo;
+    uint8_t n = 0;
+    while (p > buf_base && *(p - 1) != 0x0D) --p;
+    while (p < gap_lo && n < max && (*p == ' ' || *p == 0xA0))
+        { ws_buf[n++] = *p++; }
+    if (p == gap_lo) {
+        uint8_t *q = gap_hi;
+        while (q < buf_end && n < max && (*q == ' ' || *q == 0xA0))
+            { ws_buf[n++] = *q++; }
+    }
+    return n;
+}
+
 /* ── Editor cursor movement helpers ─────────────────────── */
 
 static void gb_home(void)
@@ -503,6 +552,18 @@ static void gb_home(void)
 }
 
 
+
+/* Advance cursor right on new line until visual column >= target.
+ * Stops at CR or buf_end. */
+static void advance_to_vcol(uint8_t target)
+{
+    while (gap_hi < buf_end && *gap_hi != 0x0D) {
+        uint8_t w = char_width(*gap_hi, ed_cur_col);
+        if (ed_cur_col + w > target) break;  /* would overshoot */
+        gb_cursor_right();
+        ed_cur_col += w;
+    }
+}
 
 static void ed_cursor_up(void)
 {
@@ -521,10 +582,7 @@ static void ed_cursor_up(void)
     gb_home();
     ed_cur_col = 0;
 
-    while (ed_cur_col < target_col && gap_hi < buf_end && *gap_hi != 0x0D) {
-        gb_cursor_right();
-        ++ed_cur_col;
-    }
+    advance_to_vcol(target_col);
 
     /* caller handles scrolling */
 }
@@ -544,13 +602,11 @@ static void ed_cursor_down(void)
         ed_cur_col = 0;
     }
 
-    while (ed_cur_col < target_col && gap_hi < buf_end && *gap_hi != 0x0D) {
-        gb_cursor_right();
-        ++ed_cur_col;
-    }
+    advance_to_vcol(target_col);
 
     /* caller handles scrolling */
 }
+
 
 /* ── Editor key handler ─────────────────────────────────── */
 
@@ -562,18 +618,17 @@ void ed_handle_key(uint8_t ch)
     switch (ch) {
 
     case CH_CURS_LEFT:
-        if (ed_cur_col > 0) {
+        if (ed_cur_col > 0 && gap_lo > buf_base) {
             gb_cursor_left();
-            --ed_cur_col;
+            ed_cur_col = visual_col();
         }
-        /* cursor-only: just update position in status bar */
         ed_status_pos();
         goto reposition;
 
     case CH_CURS_RIGHT:
         if (gap_hi < buf_end && *gap_hi != 0x0D) {
             gb_cursor_right();
-            ++ed_cur_col;
+            ed_cur_col = visual_col();
         }
         ed_status_pos();
         goto reposition;
@@ -603,17 +658,13 @@ void ed_handle_key(uint8_t ch)
     case CH_DEL:
         if (ed_cur_col > 0) {
             gb_backspace();
-            --ed_cur_col;
+            ed_cur_col = visual_col();
             scr_row = (uint8_t)(ed_cur_line - ed_top_line);
             ed_render_rows(scr_row, ED_LINES);
         } else if (ed_cur_line > 0) {
             gb_backspace();
             --ed_cur_line;
-            ed_cur_col = 0;
-            {
-                uint8_t *p = gap_lo;
-                while (p > buf_base && *(p-1) != 0x0D) { --p; ++ed_cur_col; }
-            }
+            ed_cur_col = visual_col();
             if (ed_cur_line < ed_top_line) ed_top_line = ed_cur_line;
             scr_row = (uint8_t)(ed_cur_line - ed_top_line);
             ed_render_rows(scr_row, ED_LINES);
@@ -624,9 +675,19 @@ void ed_handle_key(uint8_t ch)
         goto reposition;
 
     case CH_ENTER:
+    {
+        uint8_t ws_buf[39];
+        uint8_t ws_n = 0;
+        if (tab_width > 0)
+            ws_n = copy_leading_ws(ws_buf, sizeof ws_buf);
         gb_insert(0x0D);
         ++ed_cur_line;
         ed_cur_col = 0;
+        /* auto-indent: copy leading whitespace from previous line */
+        {   uint8_t i;
+            for (i = 0; i < ws_n; ++i) gb_insert(ws_buf[i]);
+            ed_cur_col = visual_col();
+        }
         if (ed_cur_line >= ed_top_line + ED_LINES) {
             ed_scroll_up();
         } else {
@@ -640,8 +701,27 @@ void ed_handle_key(uint8_t ch)
         ed_status_free();
         ed_status_pos();
         goto reposition;
+    }
+
+    case CH_INS:
+        goto reposition;
 
     default:
+        /* C=+SPACE ($A0): insert tab byte */
+        if (ch == 0xA0 && tab_width > 0) {
+            uint8_t new_vcol = ed_cur_col + char_width(0xA0, ed_cur_col);
+            if (new_vcol <= SCREEN_WIDTH - 1) {
+                gb_insert(0xA0);
+                ed_cur_col = new_vcol;
+                scr_row = (uint8_t)(ed_cur_line - ed_top_line);
+                ed_render_rows(scr_row, scr_row + 1);
+                if (!ed_dirty) { ed_dirty = 1; ed_status_dirty(); }
+                ed_status_free();
+                ed_status_pos();
+            }
+            goto reposition;
+        }
+        /* standard printable character */
         if (((ch >= 0x20 && ch <= 0x7E) || (ch >= 0xC1 && ch <= 0xDA))
             && ed_cur_col < SCREEN_WIDTH - 1) {
             gb_insert(ch);
@@ -670,56 +750,6 @@ reposition:
  * (levels * new_tw + remainder) spaces.  Single pass, O(n).
  * ═══════════════════════════════════════════════════════════════ */
 
-void ed_reindent(uint8_t old_tw, uint8_t new_tw)
-{
-    uint8_t spaces, levels, remainder, new_count, i;
-
-    if (buf_end == 0 || old_tw == 0 || new_tw == 0) return;
-
-    /* rewind cursor to start of buffer */
-    while (gap_lo > buf_base) gb_cursor_left();
-
-    /* process each line */
-    while (gap_hi < buf_end) {
-        /* count leading spaces in post-gap */
-        spaces = 0;
-        while (gap_hi + spaces < buf_end &&
-               *(gap_hi + spaces) == ' ' &&
-               spaces < SCREEN_WIDTH - 1)
-            ++spaces;
-
-        levels = spaces / old_tw;
-        remainder = spaces % old_tw;
-        new_count = levels * new_tw + remainder;
-        if (new_count > SCREEN_WIDTH - 1)
-            new_count = SCREEN_WIDTH - 1;
-
-        if (new_count >= spaces) {
-            /* keep all old spaces, insert extras */
-            for (i = 0; i < spaces; ++i) gb_cursor_right();
-            for (i = 0; i < new_count - spaces; ++i) gb_insert(' ');
-        } else {
-            /* keep new_count spaces, skip the rest */
-            for (i = 0; i < new_count; ++i) gb_cursor_right();
-            gap_hi += (spaces - new_count);  /* delete excess */
-        }
-
-        /* advance past rest of line */
-        while (gap_hi < buf_end && *gap_hi != 0x0D)
-            gb_cursor_right();
-        /* skip CR */
-        if (gap_hi < buf_end && *gap_hi == 0x0D)
-            gb_cursor_right();
-    }
-
-    /* rewind cursor to start */
-    while (gap_lo > buf_base) gb_cursor_left();
-    ed_cur_line = 0;
-    ed_cur_col  = 0;
-    ed_top_line = 0;
-    ed_top_ptr  = buf_base;
-    ed_dirty = 1;
-}
 
 /* ═══════════════════════════════════════════════════════════════
  * Gap buffer sequential reader — for source assembler

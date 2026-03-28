@@ -683,11 +683,13 @@ void exec_line(void)
     case 'T':
     {   skip_sp(&q);
         if (is_hex(*q)) {
-            uint8_t v = (uint8_t)parse_hex_flex(&q);
-            if (v > 0 && v <= 32 && v != tab_width) {
-                uint8_t old = tab_width;
+            uint8_t v;
+            if (is_hex(q[1]))
+                v = parse_hex2(&q);
+            else
+                v = hex_val(*q);
+            if (v <= 32 && v != tab_width) {
                 tab_width = v;
-                ed_reindent(old, v);
             }
         }
         newline();

@@ -14,6 +14,16 @@
 | [`dev/expr_test.cfg`](../dev/expr_test.cfg) | implementation — test binary linker config (expr) |
 | [`dev/asm_src_test.cfg`](../dev/asm_src_test.cfg) | implementation — test binary linker config (asm_src) |
 | [`tests/conftest.py`](../tests/conftest.py) | implementation — test build and py65 harness |
+| [`dev/instruction_set.py`](../dev/instruction_set.py) | implementation — authoritative opcode database |
+| [`dev/hashes.py`](../dev/hashes.py) | implementation — hash function definitions |
+| [`dev/size_report.py`](../dev/size_report.py) | implementation — binary size analysis |
+| [`dev/asm_line_test_stub.s`](../dev/asm_line_test_stub.s) | implementation — test entry point (asm) |
+| [`dev/au_mode_test_stub.s`](../dev/au_mode_test_stub.s) | implementation — test entry point (asm) |
+| [`dev/cse_io_test_stub.s`](../dev/cse_io_test_stub.s) | implementation — test entry point (cse_io) |
+| [`dev/dasm_test_stub.s`](../dev/dasm_test_stub.s) | implementation — test entry point (dasm) |
+| [`dev/expr_test_stub.s`](../dev/expr_test_stub.s) | implementation — test entry point (expr) |
+| [`dev/symtab_test_stub.s`](../dev/symtab_test_stub.s) | implementation — test entry point (symtab) |
+| [`dev/asm_src_test_stub.s`](../dev/asm_src_test_stub.s) | implementation — test entry point (asm_src) |
 
 ## Toolchain
 

@@ -64,6 +64,7 @@ and documentation.
 
 | Term | Definition |
 |------|------------|
+| **emitter pattern** | A reusable output template: set `io_cx = 0`, write fields with `io_put*` calls, `io_clear_eol`.  Used by REPL commands (`emit_dot`, `emit_mem`, `show_prompt`) and any code that renders a formatted screen line. |
 | **convention** | A naming or formatting pattern followed for consistency.  Example: `mn_` prefix for mnemonic table symbols.  Violating a convention looks wrong but doesn't break anything. |
 | **guideline** | A recommended practice that admits exceptions.  Example: "prefer the stack for scratch."  When a guideline is overridden, the reason should be documented. |
 | **contract** | A binding interface agreement between two modules (or between a module and its callers).  Specifies inputs, outputs, side effects, and who owns what.  Violating a contract is a bug. |

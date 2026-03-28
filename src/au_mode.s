@@ -82,7 +82,9 @@ au_skip_ws:
         lda (au_ptr),y
         cmp #$20                ; space
         beq @eat
-        cmp #$09                ; tab
+        cmp #$a0                ; tab (C=+SPACE)
+        beq @eat
+        cmp #$09                ; ASCII tab (legacy)
         bne @done
 @eat:   iny
         bne au_skip_ws          ; (Y wraps at 256 – safe for any sane line length)

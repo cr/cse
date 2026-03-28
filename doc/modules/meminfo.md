@@ -2,6 +2,12 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/meminfo.s`](../../src/meminfo.s) | implementation |
+
 ## Interface
 
 ### _cse_start

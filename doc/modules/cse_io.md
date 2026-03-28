@@ -2,27 +2,35 @@
 
 **Template:** [module](../templates/module.md)
 
-## Overview
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/cse_io.s`](../../src/cse_io.s) | implementation |
+| [`src/cse_io.h`](../../src/cse_io.h) | header |
+| [`tests/test_cse_io.py`](../../tests/test_cse_io.py) | test contract |
+
+## Interface
 
 cse_io.s provides screen output, keyboard input, and cursor management
 for CSE.  It replaces cc65's conio.h.  All output goes to screen RAM
 at $0400.  Cursor position uses KERNAL locations $D3 (column) and
 $D6 (row).
 
-## ZP Variables
+### ZP Variables
 
 | Address | Name | Size | Purpose |
 |---------|------|------|---------|
 | (alloc) | _io_tmp | 2 | Scratch: string pointer (io_puts), dividend (io_putdec) |
 | (alloc) | _io_scr | 2 | Screen row pointer (computed per write call) |
 
-## BSS Variables
+### BSS Variables
 
 | Name | Size | Purpose |
 |------|------|---------|
 | _io_color | 1 | Text color for screen clears (C: `io_color`) |
 
-## KERNAL Locations Used
+### KERNAL Locations Used
 
 | Address | Name | Read/Write | Purpose |
 |---------|------|-----------|---------|
@@ -33,7 +41,7 @@ $D6 (row).
 | $C6 | KEY_COUNT | R | Keyboard buffer count (io_kbhit) |
 | $CC | CURS_FLAG | — | Set to 1 by io_init at startup; not modified afterward |
 
-## RODATA
+### RODATA
 
 | Name | Size | Contents |
 |------|------|---------|
@@ -42,42 +50,6 @@ $D6 (row).
 | hex_tab[16] | 16 | Screen codes for hex digits: $30–$39, $01–$06 |
 | dec_lo[5] | 5 | Low bytes of 10000, 1000, 100, 10, 1 |
 | dec_hi[5] | 5 | High bytes of same |
-
----
-
-## PETSCII → Screen Code Conversion
-
-Used by `io_putc`.  Input: PETSCII byte.  Output: screen code byte.
-
-| PETSCII range | Screen code | Rule | Example |
-|---------------|-------------|------|---------|
-| $00–$1F | $00–$1F | identity | (control chars, rarely used) |
-| $20–$3F | $20–$3F | identity | space, 0–9, :, ., +, -, etc. |
-| $40–$5F | $00–$1F | A − $40 | $41→$01 (A), $4D→$0D (M), $5A→$1A (Z) |
-| $60–$7F | $40–$5F | A − $20 | $61→$41 (a), $7A→$5A (z) |
-| $80–$BF | $80–$BF | identity | (reversed chars, pass through) |
-| $C0–$DF | $40–$5F | A − $80 | $C1→$41 (shifted A), $DA→$5A |
-| $E0–$FF | $E0–$FF | identity | (rarely used) |
-
-## Screen Code → PETSCII Conversion
-
-Used by `read_line` in C.  Input: screen code byte (bit 7 masked off).
-Output: PETSCII byte.
-
-| Screen code | PETSCII | Rule |
-|-------------|---------|------|
-| $00–$1F | $40–$5F | A + $40 |
-| $20–$3F | $20–$3F | identity |
-| $40–$5F | $40–$5F | identity |
-| $60–$7F | $60–$7F | identity |
-
-Note: the `& 0x7F` in read_line strips the reverse-video bit before
-conversion.  Screen codes $40–$5F map to PETSCII $40–$5F which are
-the same as uppercase letters in cc65 ($41='a', $42='b', ...).
-
----
-
-## Functions
 
 ### io_putc(ch)
 
@@ -201,9 +173,7 @@ io_putdec, io_clear_eol) do NOT use $D1/$D2.  They compute the
 screen address directly from scr_lo/scr_hi[io_cy].  io_sync exists
 for the KERNAL's benefit (cursor blink, screen editor state).
 
----
-
-## C Interface (cse_io.h)
+### C Interface (cse_io.h)
 
 ```c
 #define io_cx  (*(volatile uint8_t *)0xD3)
@@ -226,12 +196,41 @@ void io_sync(void);
 #define io_bgcolor(c)      (*(uint8_t *)0xD021 = (c))
 ```
 
-**Note:** The `io_cursor_on`, `io_cursor_off`, `io_bordercolor`, and
-`io_bgcolor` macros are defined in the header but currently unused.
-Cursor management is handled by `cursor_show`/`cursor_hide` in
-screen.s. Color is managed by `restore_colors` in screen.s.
+**Depends on:** KERNAL (GETIN $FFE4, PLOT $FFF0)
 
-## IRQ Safety
+## Design
+
+### PETSCII → Screen Code Conversion
+
+Used by `io_putc`.  Input: PETSCII byte.  Output: screen code byte.
+
+| PETSCII range | Screen code | Rule | Example |
+|---------------|-------------|------|---------|
+| $00–$1F | $00–$1F | identity | (control chars, rarely used) |
+| $20–$3F | $20–$3F | identity | space, 0–9, :, ., +, -, etc. |
+| $40–$5F | $00–$1F | A − $40 | $41→$01 (A), $4D→$0D (M), $5A→$1A (Z) |
+| $60–$7F | $40–$5F | A − $20 | $61→$41 (a), $7A→$5A (z) |
+| $80–$BF | $80–$BF | identity | (reversed chars, pass through) |
+| $C0–$DF | $40–$5F | A − $80 | $C1→$41 (shifted A), $DA→$5A |
+| $E0–$FF | $E0–$FF | identity | (rarely used) |
+
+### Screen Code → PETSCII Conversion
+
+Used by `read_line` in C.  Input: screen code byte (bit 7 masked off).
+Output: PETSCII byte.
+
+| Screen code | PETSCII | Rule |
+|-------------|---------|------|
+| $00–$1F | $40–$5F | A + $40 |
+| $20–$3F | $20–$3F | identity |
+| $40–$5F | $40–$5F | identity |
+| $60–$7F | $60–$7F | identity |
+
+Note: the `& 0x7F` in read_line strips the reverse-video bit before
+conversion.  Screen codes $40–$5F map to PETSCII $40–$5F which are
+the same as uppercase letters in cc65 ($41='a', $42='b', ...).
+
+### IRQ Safety
 
 **With $CC=1 (KERNAL cursor disabled), cse_io is fully IRQ-safe.**
 
@@ -253,10 +252,12 @@ Therefore:
 IRQ would read/write screen RAM at $D1+$D3, conflicting with cse_io output.
 CSE keeps $CC=1 at all times and manages the cursor via cursor_show/hide.
 
-## Caller Responsibilities
+## Caveats
 
-1. Set `$CC=1` (`io_cursor_off()`) at startup.  Never re-enable KERNAL cursor.
-2. Call `io_sync()` after changing `io_cy`.
-3. Fill screen RAM and color RAM at startup (`memset`).
-4. Use `SEI`/`CLI` around screen RAM memmove in `scroll_up` (cosmetic).
-5. Manage cursor visibility via `cursor_show()`/`cursor_hide()`.
+- Set `$CC=1` (`io_cursor_off()`) at startup.  Never re-enable KERNAL cursor.
+- Call `io_sync()` after changing `io_cy`.
+- Fill screen RAM and color RAM at startup (`memset`).
+- Use `SEI`/`CLI` around screen RAM memmove in `scroll_up` (cosmetic).
+- Manage cursor visibility via `cursor_show()`/`cursor_hide()`.
+- The `io_cursor_on`, `io_cursor_off`, `io_bordercolor`, and
+  `io_bgcolor` macros in `cse_io.h` are currently unused (see TODO).

@@ -635,8 +635,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         ; Check KERNAL status IMMEDIATELY after CHRIN,
         ; before the callback (which may clobber $90).
         jsr READST
-        and #$40
-        sta eof_flag            ; save eof flag in BSS
+        sta eof_flag            ; save full READST
 
         ; Call callback(byte)
         pla                     ; byte → A
@@ -657,8 +656,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         inc _disk_seq_lines+1
 :
 @no_newline:
-        ; EOF check
+        ; EOF check (bit 6)
         lda eof_flag
+        and #$40
         bne @ok
 
         jmp @read
@@ -667,6 +667,13 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         jsr CLRCHN
         lda #2
         jsr CLOSE
+
+        ; Check for read errors (timeout/device not present).
+        ; For non-existent files the drive returns a garbage byte
+        ; with READST error bits set — catch that here.
+        lda eof_flag
+        and #$83                ; bits 0,1,7 = error indicators
+        bne @err_status
 
         ; Check if anything was read
         lda _disk_seq_bytes
@@ -677,8 +684,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         tax
         rts
 
+@err_status:
 @empty:
-        lda #1                  ; empty file = error
+        lda #1                  ; error or empty file
         ldx #0
         rts
 

@@ -2,6 +2,13 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/screen.s`](../../src/screen.s) | implementation |
+| [`src/screen.h`](../../src/screen.h) | header |
+
 ## Interface
 
 ### restore_colors
@@ -57,7 +64,7 @@ globals and calls `restore_colors`.
 | Name          | Code | Border | Bg     | Fg     |
 |---------------|------|--------|--------|--------|
 | RADIOACTIVITY | cb5  | lt grey| dk grey| green  |
-| GREENLAND     | d50  | lt grn | green  | black  |
+| GREENLAND     | d5d  | lt grn | green  | black  |
 | MRSPIGGY      | a21  | lt red | red    | white  |
 | BRUCELEE      | 770  | yellow | yellow | black  |
 | LEEBRUCE      | 007  | black  | black  | yellow |

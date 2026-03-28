@@ -2,6 +2,16 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/mn_classify.s`](../../src/mn_classify.s) | implementation — dispatcher |
+| [`src/mn7.s`](../../src/mn7.s) | implementation — 7-bit hash classifier |
+| [`src/mn6.s`](../../src/mn6.s) | implementation — 6-bit hash classifier |
+| [`src/mn_vars.s`](../../src/mn_vars.s) | implementation — ZP variable definitions |
+| [`tests/test_mnhash.py`](../../tests/test_mnhash.py) | test contract |
+
 ## Interface
 
 ### mn_classify (dispatcher, mn_classify.s)

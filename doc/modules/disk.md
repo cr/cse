@@ -2,6 +2,13 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/disk.s`](../../src/disk.s) | implementation |
+| [`src/disk.h`](../../src/disk.h) | header |
+
 ## Interface
 
 ### floppy_status

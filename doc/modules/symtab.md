@@ -2,6 +2,14 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/symtab.s`](../../src/symtab.s) | implementation |
+| [`src/symtab.h`](../../src/symtab.h) | header |
+| [`tests/test_symtab.py`](../../tests/test_symtab.py) | test contract |
+
 ## Interface
 
 ### _sym_define

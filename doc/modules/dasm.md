@@ -2,6 +2,14 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/dasm.s`](../../src/dasm.s) | implementation |
+| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | implementation — mnemonic index table |
+| [`tests/test_dasm.py`](../../tests/test_dasm.py) | test contract |
+
 ## Interface
 
 ### _dasm_insn

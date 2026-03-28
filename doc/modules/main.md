@@ -2,6 +2,13 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/main.c`](../../src/main.c) | implementation |
+| [`src/cse.h`](../../src/cse.h) | header — shared project-wide declarations |
+
 ## Interface
 
 - `main()` — hardware init, main loop, mode dispatch

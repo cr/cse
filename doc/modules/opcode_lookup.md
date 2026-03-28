@@ -2,6 +2,12 @@
 
 **Template:** [module](../templates/module.md)
 
+## Owned files
+
+| File | Role |
+|------|------|
+| [`src/opcode_lookup.s`](../../src/opcode_lookup.s) | implementation |
+
 ## Interface
 
 ### _al_validate_mode
