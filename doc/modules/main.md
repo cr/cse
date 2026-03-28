@@ -27,7 +27,6 @@ NMI which sets `nmi_pending`; main loop checks the flag and toggles
 mode.
 
 Exit (`q`): JMP $FCE2 (KERNAL cold start).  Restores BASIC.
-CSE code remains in RAM; `SYS 2061` restarts.
 
 ## Keyboard
 

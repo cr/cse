@@ -61,7 +61,7 @@ globals and calls `restore_colors`.
 | LEEBRUCE      | 007  | black  | black  | yellow |
 | MATRIX        | 005  | black  | black  | green  |
 | MILKYWAY      | 001  | black  | black  | white  |
-| HERCULES      | 008  | black  | black  | orange |
+| HERCULES      | 009  | black  | black  | brown |
 | ORANGE        | 880  | orange | orange | black  |
 | MUDDY         | 990  | brown  | brown  | black  |
 | CLOUDY        | cbc  | grey   | dk grey| grey   |
@@ -69,6 +69,8 @@ globals and calls `restore_colors`.
 | C128          | dbd  | lt grn | lt grey| lt grn |
 
 Default: RADIOACTIVITY (cb5).
+
+**Dependants:** `Makefile` (`_THEME_MAP`)
 
 ## Design
 

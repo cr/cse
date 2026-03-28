@@ -20,8 +20,9 @@ main: lda #0   ; label and instruction on the same line
 Labels end with `:` (required).  A label may appear alone on a line
 or followed by an instruction.
 
-Case insensitive.  Characters: a-z, 0-9, dot.  No underscore (not
-typeable on C64 keyboard).
+Case insensitive (input is folded to uppercase internally).
+Characters: a-z, 0-9, dot.  No underscore (not typeable on C64
+keyboard).
 
 Local labels (dot prefix) are scoped to the last preceding global
 label and stored as `global.local` in the symbol table.
@@ -64,7 +65,7 @@ lda #mask & $0f     ; bitwise AND
 ```
 
 ### Numeric formats
-- `$ff` — hex (requires `$` prefix)
+- `$ff` — hex (requires `$` prefix, digits 0-9 and a-f lowercase only)
 - `42` — decimal (bare digits)
 - `%10101010` — binary (requires `%` prefix)
 
@@ -97,7 +98,7 @@ rules.
 | `.db` | expr [, ...] | Advance `al_pc` by count | Emit bytes |
 | `.dw` | expr [, ...] | Advance `al_pc` by 2×count | Emit words (little-endian) |
 | `.str` | "text" [, ...] | Advance `al_pc` by length | Emit PETSCII bytes |
-| `.scr` | "text" | Advance `al_pc` by length | Emit screen code bytes |
+| `.scr` | "text" [, ...] | Advance `al_pc` by length | Emit screen code bytes |
 | `.res` | count [, fill] | Advance `al_pc` by count | Emit fill bytes (default $00) |
 | `.align` | boundary | Advance `al_pc` to next multiple | Emit $00 padding |
 
@@ -128,10 +129,12 @@ Limited by the build-time CPU ceiling.
 .db 0
 .db <label, >label
 .db "A"             ; single character as byte value
+.db "ABC"           ; multi-character: emits 3 bytes
 ```
 
-Emits one byte per comma-separated expression. String characters
-emit their PETSCII value.
+Emits one byte per comma-separated expression.  Quoted strings emit
+each character as its PETSCII value (multi-character strings are
+expanded inline).
 
 ### `.dw` — Define Words
 
@@ -158,9 +161,11 @@ NUL-terminate — add `, 0` if needed. Supports escape sequences:
 
 ```
 .scr "HELLO WORLD"
+.scr "SCORE: ", 0    ; trailing byte expressions supported
 ```
 
-Like `.str` but converts PETSCII to C64 screen codes.
+Like `.str` but converts PETSCII to C64 screen codes (full 6-range
+mapping: $40-$5F−$40, $60-$7F−$20, $C0-$DF−$80, others identity).
 Useful for direct screen memory writes.
 
 ### `.res` — Reserve / Fill
@@ -171,7 +176,7 @@ Useful for direct screen memory writes.
 .res $100           ; reserve a full page
 ```
 
-Advances PC by N bytes. In pass 2, emits N copies of the fill byte
+Advances PC by N bytes. In pass 1, emits N copies of the fill byte
 (default $00). Useful for BSS-style reservations and padding.
 
 ### `.align` — Align PC

@@ -29,8 +29,8 @@ char cur_filename[FILENAME_MAX_LEN + 1] = "";
 
 /* ── Common patterns factored out ──────────────────────── */
 
-/* newline + fresh prompt — used by most commands on exit */
-static void nl_prompt(void) { newline(); show_prompt(); }
+/* newline + clear — advance to prompt line and clear it for the loop */
+static void nl_prompt(void) { newline(); clear_eol(); }
 
 /* error message on next line + prompt */
 static void err_prompt(const char *msg) {
@@ -62,7 +62,9 @@ void read_line(void) {
         /* if/else instead of ternary — cc65 -O miscompiles the ternary
          * (uses wrong stack offset for the identity branch) */
         if (sc < 0x20)
-            line_buf[i] = sc + 0x40;
+            line_buf[i] = sc + 0x40;       /* lowercase screen → $41-$5A */
+        else if (sc >= 0x41 && sc <= 0x5A)
+            line_buf[i] = sc + 0x80;       /* uppercase screen → $C1-$DA */
         else
             line_buf[i] = sc;
     }
@@ -77,7 +79,6 @@ void show_prompt(void) {
     io_cx = 0;
     io_puthex4(cur_addr);
     io_putc(':');
-    clear_eol();
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -215,6 +216,7 @@ static void cmd_dot(uint8_t *args)
     uint8_t  bytes[3], nbytes, olen, i, changed;
     uint8_t *q = args, *mne;
 
+    skip_sp(&q);
     nbytes = 0;
     while (nbytes < 3 && is_hex(*q) && is_hex(*(q + 1))
            && (*(q + 2) == ' ' || *(q + 2) == 0 || *(q + 2) == ';')) {
@@ -247,7 +249,7 @@ static void cmd_dot(uint8_t *args)
     olen = emit_dot(addr);
     cur_addr = addr + olen;
     newline();
-    show_prompt();
+    if (!nbytes) clear_eol();
 }
 
 static void cmd_disasm(uint8_t *args)
@@ -266,7 +268,7 @@ static void cmd_disasm(uint8_t *args)
     }
 
     cur_addr = addr;
-    show_prompt();
+    clear_eol();
 }
 
 static void cmd_mem(uint8_t *args)
@@ -300,7 +302,6 @@ static void cmd_mem(uint8_t *args)
         cur_addr = addr + nbytes;
         if (cur_addr < addr) cur_addr = 0;
         newline();
-        show_prompt();
         return;
     }
 
@@ -316,7 +317,7 @@ static void cmd_mem(uint8_t *args)
     }
 
     cur_addr = addr;
-    show_prompt();
+    clear_eol();
 }
 
 static void cmd_jmp(void)
@@ -326,7 +327,7 @@ static void cmd_jmp(void)
     newline();
     emit_reg();
     newline();
-    show_prompt();
+    clear_eol();
 }
 
 static uint8_t parse_regval(uint8_t **pp)
@@ -424,7 +425,7 @@ static void print_seq_stats(const char *name) {
 
 /* Common disk-op footer: clear_eol, newline, drive status, prompt */
 static void disk_done(void) {
-    clear_eol(); newline(); floppy_status(); show_prompt();
+    clear_eol(); newline(); floppy_status(); nl_prompt();
 }
 
 static void cmd_load(uint8_t *args)
@@ -573,7 +574,7 @@ static void cmd_info(void)
     info_line(0, "io",   0xd000, 0xdfff, "vic/sid/cia");
     info_line(0, "kern", 0xe000, 0xffff, "kernal rom");
 
-    show_prompt();
+    clear_eol();
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -677,6 +678,20 @@ void exec_line(void)
         if (is_hex(*q)) { uint16_t v = parse_hex_flex(&q); if (v) block_size = v; }
         newline();
         io_puts(";b="); io_puthex4(block_size);
+        clear_eol(); nl_prompt(); break;
+    }
+    case 'T':
+    {   skip_sp(&q);
+        if (is_hex(*q)) {
+            uint8_t v = (uint8_t)parse_hex_flex(&q);
+            if (v > 0 && v <= 32 && v != tab_width) {
+                uint8_t old = tab_width;
+                tab_width = v;
+                ed_reindent(old, v);
+            }
+        }
+        newline();
+        io_puts(";t="); io_puthex2(tab_width);
         clear_eol(); nl_prompt(); break;
     }
     case 'c':
@@ -812,7 +827,7 @@ void exec_line(void)
         while (io_kbhit()) io_getc();
         if (io_getc() == 'y') state = ST_STOP;
         newline();
-        if (state != ST_STOP) show_prompt();
+        if (state != ST_STOP) clear_eol();
         break;
     case '$':
     {   uint8_t dev;
@@ -824,14 +839,14 @@ void exec_line(void)
             if (dev >= 4 && dev <= 30)
                 cur_device = dev;
         }
-        newline(); list_directory(cur_device); show_prompt();
+        newline(); list_directory(cur_device); nl_prompt();
         break;
     }
 
     default:
         /* multi-char: clr/cls (only reachable without prefix) */
         if (cmd == 'c' && *q == 'l' && (*(q+1) == 'r' || *(q+1) == 's')) {
-            reset_screen(); show_prompt();
+            reset_screen(); clear_eol();
         } else {
             err_prompt(";?cmd");
         }

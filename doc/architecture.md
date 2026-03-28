@@ -44,7 +44,7 @@ Support modules (internal to the assembler pipeline):
 | mn7.s / mn6.s | Perfect hash mnemonic classifier (mn7: 114, mn6: 56) | [mn_classify.md](modules/mn_classify.md) |
 | opcode_lookup.s | (profile, mode) → opcode byte | [opcode_lookup.md](modules/opcode_lookup.md) |
 | au_mode.s | Addressing mode operand parser | [au_mode.md](modules/au_mode.md) |
-| meminfo.s | Linker symbol shim: `_cse_start` / `_cse_end` | [meminfo.md](modules/meminfo.md) |
+| meminfo.s | Linker symbol shim: `_cse_start` / `_cse_end` / `_cse_zp_end` | [meminfo.md](modules/meminfo.md) |
 | mn_classify.s | Build-time dispatcher: selects mn6 or mn7 | [mn_classify.md](modules/mn_classify.md) |
 | asm_vars.s | Shared ZP variable definitions | — |
 | mn_vars.s | Mnemonic classifier ZP variables | — |

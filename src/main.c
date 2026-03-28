@@ -134,17 +134,18 @@ void main(void)
         io_puts("cse v" VERSION " by cr");
         row++;
         io_cx = 0; io_cy = row++; io_sync();
-        io_puts(" doc:  github.com/cr/cse");
+        io_puts("manual:  github.com/cr/cse");
         io_cx = 0; io_cy = row++; io_sync();
-        io_puts("free:  00");
+        io_puts("  free:  00");
         io_puthex2(cse_zp_end());
         io_puts("-007f  zp");
         io_cx = 0; io_cy = row++; io_sync();
-        io_puts("       ");
+        io_puts("         ");
         io_puthex4(wlo); io_putc('-'); io_puthex4(whi);
         io_puts("  work");
 
         io_cx = 0; io_cy = SCREEN_HEIGHT - 1; io_sync();
+        clear_eol();
         show_prompt();
     }
 
@@ -168,6 +169,7 @@ void main(void)
             io_puts("; run/stop+restore");
             clear_eol();
             newline();
+            clear_eol();
             show_prompt();
             continue;
         }
@@ -194,6 +196,7 @@ void main(void)
             read_line();
             io_cx = 0;
             exec_line();
+            show_prompt();
             break;
 
         case CH_DEL: {
@@ -243,11 +246,13 @@ void main(void)
 
         case 147:                             /* shift+HOME = CLR ($93) */
             reset_screen();
+            clear_eol();
             show_prompt();
             break;
 
         case CH_ESC:
             reset_screen();
+            clear_eol();
             show_prompt();
             break;
 

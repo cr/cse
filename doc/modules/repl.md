@@ -18,6 +18,33 @@ disk (`l`/`w`/`$`), editor, screen, cse_io
 
 ## Design
 
+### Prompting loop
+
+The main loop owns the prompt.  Command handlers never write it.
+
+1. Assume the cursor is on the line where the prompt is to appear.
+2. Write `AAAA:` at column 0, where `AAAA` is `cur_addr`.
+3. Leave the cursor at column 5 for user input.
+4. Dispatch keystrokes to the keystroke handler; wait for RETURN.
+5. `read_line` — capture the screen row into `line_buf`.
+6. If the line begins with `AAAA:`, write `AAAA` to `cur_addr` and
+   consume five characters from the line.
+7. Seek to the first non-whitespace character; mark its column as
+   *start*.  Seek to the first `;` or end-of-line; mark that column
+   as *end*.
+8. If *start* = *end* and column 6 holds `;`: advance to the next
+   line, clear it, go to 1.
+9. If *start* = *end* (empty, no `;`): dispatch command repetition
+   (`last_cmd`), go to 1.
+10. Otherwise dispatch the line from *start* to *end* to the command
+    parser.
+11. Go to 1.
+
+`show_prompt` writes `AAAA:` and positions the cursor — nothing
+else.  Whether the prompt line is cleared before `show_prompt`
+runs is the responsibility of the previous command handler
+(principle 5).
+
 ### Command handler principles
 
 1. **The screen is the command buffer.**  Every screen line is
@@ -26,7 +53,9 @@ disk (`l`/`w`/`$`), editor, screen, cse_io
 
 2. **Commands are case-sensitive single characters.**  `a`–`z` and
    `A`–`Z` are distinct command keys — 52 letter slots available.
-   Lowercase is the default; uppercase is reserved for future use.
+   Lowercase is the default; uppercase requires SHIFT.  `read_line`
+   maps lowercase screen codes ($01–$1A) to PETSCII $41–$5A and
+   uppercase screen codes ($41–$5A) to PETSCII $C1–$DA.
 
 3. **Commands own their output lines.**  Every line a handler writes
    must be `clear_eol`'d — no leftover characters from previous
@@ -36,9 +65,12 @@ disk (`l`/`w`/`$`), editor, screen, cse_io
    args, `m` with hex bytes), the handler rewrites its prompt line to
    reflect the edited state.  What's on screen is the truth.
 
-5. **Commands clear the next line** for the prompter to write `AAAA:`.
-   Exception: `.` and `m` in edit mode leave the next line intact —
-   this is the block-edit workflow (cursor up, modify, re-RETURN).
+5. **Commands own the next line's clearing.**  Before returning,
+   handlers clear the prompt line (`clear_eol`) so the loop's
+   `show_prompt` writes `AAAA:` onto a clean line.  Exception: `.`
+   and `m` in edit mode leave the next line intact — this is the
+   block-edit workflow (cursor up, modify, re-RETURN).  `show_prompt`
+   itself never clears.
 
 6. **Non-executable output starts with `;`.**  Info text, status
    lines, and error messages are prefaced with `;` so they're inert
@@ -96,25 +128,29 @@ commands.
 
 - Modify hex bytes in an `m` line, press RETURN → `m` re-executes
   with the edited bytes, rewrites the line to reflect the new memory
-  state, advances `cur_addr`, writes a fresh prompt below.
+  state, advances `cur_addr`.
 - Modify the mnemonic or operand in a `.` line, press RETURN → `.`
-  re-assembles, rewrites the line with the new disassembly, advances,
-  prompts below.
+  re-assembles, rewrites the line with the new disassembly, advances.
 
 When `.` or `m` are called **with arguments** (the user edited a
 dump line and pressed RETURN), they enter block-edit mode:
 1. Execute the edit (assemble instruction / write bytes)
 2. Rewrite their own prompt line to reflect the new state (principle 3)
-3. Do **not** clear the next line (principle 4 exception)
-4. Advance `cur_addr` to the continuation address (principle 7)
+3. Do **not** clear the next line (principle 5 exception)
+4. Advance `cur_addr` to the continuation address (principle 8)
+
+The handler returns.  The prompting loop writes `AAAA:` over the
+first five columns of the trailing line (updating the address
+prefix) without clearing the rest — the existing dump content
+from column 5 onward remains intact and editable.
 
 Without arguments, these same commands are in dump mode (`.` disassembles
-one line; `m` dumps `block_size` bytes).
+one line; `m` dumps `block_size` bytes) and clear the prompt line
+normally.
 
-The user can continue editing the next line (RETURN on the fresh
-prompt repeats the command) or cursor back to edit another line.
-This creates a fluid cycle: dump → edit → re-execute → advance, all
-without leaving the screen.
+The user can continue editing the next line or cursor back to edit
+another line.  This creates a fluid cycle: dump → edit → re-execute
+→ advance, all without leaving the screen.
 
 ### The `.` command in detail
 
@@ -241,6 +277,7 @@ The REPL's line editor operates within the 40-column screen:
 | `?`   | calc    | —         | `? 1000+20`          | Hex expression calculator             |
 | `k`   | kill    | —         | `k`                  | Clear source buffer (confirms first)  |
 | `c`   | color   | —         | `c 06` or `c 0e6`   | Set text/bg/border color              |
+| `T`   | tab     | —         | `T 4` or `T`         | Set/show tab width; reindents source (uppercase) |
 | `u`   | cpu     | —         | `u 6502` or `u 65c02` | Set CPU mode for asm/disasm        |
 | `q`   | quit    | —         | `q`                  | Exit CSE                              |
 | `clr` | clear   | —         | `clr` (or `cls`)     | Clear screen                          |
@@ -256,6 +293,22 @@ dump lines).
     b C0     set to 192 bytes (full screen of hex)
     b 0100   set to 256 bytes (4-digit)
     b        show current block size
+
+### `T` — Tab width
+
+The `T` command (uppercase) sets the editor's tab stop interval.
+Default: `8`.  Value range: 1–32 (hex).
+
+    T 4      set to 4 columns
+    T 8      set to 8 columns
+    T        show current tab width
+
+When the tab width changes, `ed_reindent` walks every line in the
+source buffer.  Leading spaces are decomposed into indent levels
+and a remainder: `levels = spaces / old_width`, `remainder = spaces
+% old_width`.  The new indent is `levels * new_width + remainder`.
+This preserves sub-tab-stop alignment while rescaling full indent
+levels.
 
 ### `i` — Memory map
 
@@ -334,6 +387,7 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
     [ ] !   breakpoints
     [ ] f   fill
     [ ] t   transfer
+    [x] T   tab width (uppercase)
     [ ] h   hunt
     [ ] @   disk command
     [ ] =   labels
@@ -342,7 +396,9 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
 ## Caveats
 
 - `read_line` reads screen RAM at the cursor row, converting screen
-  codes to PETSCII.
+  codes to PETSCII.  Lowercase screen codes ($01–$1A) map to $41–$5A;
+  uppercase screen codes ($41–$5A) map to $C1–$DA.  This preserves
+  case for command dispatch.
 - `exec_line` modifies `cur_addr` as a side effect of the `AAAA:` prefix.
 - The `?` command uses `_expr_eval` directly — labels from the last
   assembly are available.

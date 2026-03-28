@@ -56,7 +56,7 @@ THEME ?= RADIOACTIVITY
 
 # Named theme → 3-digit hex code
 _THEME_MAP = RADIOACTIVITY=cb5 GREENLAND=d50 MRSPIGGY=a21 BRUCELEE=770 \
-             LEEBRUCE=007 MATRIX=005 MILKYWAY=001 HERCULES=008 \
+             LEEBRUCE=007 MATRIX=005 MILKYWAY=001 HERCULES=009 \
              ORANGE=880 MUDDY=990 CLOUDY=cbc C64=e6e C128=dbd
 _THEME_CODE := $(patsubst $(THEME)=%,%,$(filter $(THEME)=%,$(_THEME_MAP)))
 # If no match in map, treat THEME as a raw 3-digit hex code
@@ -306,9 +306,7 @@ themes:
 	@echo "Available themes (make THEME=NAME):"
 	@echo ""
 	@c="black white red cyan purple green blue yellow orange brown lt_red dk_grey grey lt_green lt_blue lt_grey"; \
-	for t in RADIOACTIVITY=cb5 GREENLAND=d50 MRSPIGGY=a21 BRUCELEE=770 \
-	         LEEBRUCE=007 MATRIX=005 MILKYWAY=001 HERCULES=008 \
-	         ORANGE=880 MUDDY=990 CLOUDY=cbc C64=e6e C128=dbd; do \
+	for t in $(_THEME_MAP); do \
 	  name=$${t%%=*}; code=$${t##*=}; \
 	  b=$$(echo $$c | awk -v i=$$((16#$${code:0:1}+1)) '{print $$i}'); \
 	  g=$$(echo $$c | awk -v i=$$((16#$${code:1:1}+1)) '{print $$i}'); \

@@ -51,6 +51,7 @@ static uint16_t ed_total_lines;           /* total line count */
 static uint8_t  ed_dirty;                /* buffer modified flag */
 uint16_t ed_save_bytes;                   /* bytes transferred (last l/w) */
 uint16_t ed_save_lines;                   /* lines transferred (last l/w) */
+uint8_t  tab_width = 8;                  /* tab stop interval (columns) */
 
 /* Minimum address the buffer can grow to (end of CSE BSS) */
 #define BUF_FLOOR  ((uint8_t *)0x4800)    /* safe margin above CSE */
@@ -659,6 +660,65 @@ reposition:
     if (scr_row < ED_LINES) {
         io_cx = ed_cur_col; io_cy = scr_row; io_sync();
     }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * Reindent — adjust leading spaces when tab width changes
+ *
+ * Walk the buffer line by line.  For each line, count leading spaces,
+ * decompose into (levels * old_tw + remainder), rewrite as
+ * (levels * new_tw + remainder) spaces.  Single pass, O(n).
+ * ═══════════════════════════════════════════════════════════════ */
+
+void ed_reindent(uint8_t old_tw, uint8_t new_tw)
+{
+    uint8_t spaces, levels, remainder, new_count, i;
+
+    if (buf_end == 0 || old_tw == 0 || new_tw == 0) return;
+
+    /* rewind cursor to start of buffer */
+    while (gap_lo > buf_base) gb_cursor_left();
+
+    /* process each line */
+    while (gap_hi < buf_end) {
+        /* count leading spaces in post-gap */
+        spaces = 0;
+        while (gap_hi + spaces < buf_end &&
+               *(gap_hi + spaces) == ' ' &&
+               spaces < SCREEN_WIDTH - 1)
+            ++spaces;
+
+        levels = spaces / old_tw;
+        remainder = spaces % old_tw;
+        new_count = levels * new_tw + remainder;
+        if (new_count > SCREEN_WIDTH - 1)
+            new_count = SCREEN_WIDTH - 1;
+
+        if (new_count >= spaces) {
+            /* keep all old spaces, insert extras */
+            for (i = 0; i < spaces; ++i) gb_cursor_right();
+            for (i = 0; i < new_count - spaces; ++i) gb_insert(' ');
+        } else {
+            /* keep new_count spaces, skip the rest */
+            for (i = 0; i < new_count; ++i) gb_cursor_right();
+            gap_hi += (spaces - new_count);  /* delete excess */
+        }
+
+        /* advance past rest of line */
+        while (gap_hi < buf_end && *gap_hi != 0x0D)
+            gb_cursor_right();
+        /* skip CR */
+        if (gap_hi < buf_end && *gap_hi == 0x0D)
+            gb_cursor_right();
+    }
+
+    /* rewind cursor to start */
+    while (gap_lo > buf_base) gb_cursor_left();
+    ed_cur_line = 0;
+    ed_cur_col  = 0;
+    ed_top_line = 0;
+    ed_top_ptr  = buf_base;
+    ed_dirty = 1;
 }
 
 /* ═══════════════════════════════════════════════════════════════

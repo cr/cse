@@ -26,13 +26,10 @@ Small, concrete, ready to do now.
   in cmd_info).
 - [ ] Merge print_string wrapper in screen.s (trivial jmp to io_puts)
   — have disk.s call io_puts directly.
-- [ ] Write doc/testing.md: py65 harness architecture, conftest.py
-  conventions, stub patterns, "test contracts not implementation"
-  guidelines.  Migrate test harness rules from project_layout.md.
-- [ ] Update project_layout.md: stale file list, line counts, test
-  count.
-- [ ] Update assembler_syntax.md: verify directive list against
-  asm_src.s implementation.
+- [ ] DDD audit module docs against code: asm_line, au_mode,
+  opcode_lookup, mn_classify, mn7, editor, main, meminfo.
+- [ ] Fix stale comment in asm_vars.s:35 — `al_cpu` values are
+  0=6502, 1=6510, 2=65C02 (not 0=NMOS, 1=65C02).
 
 ## Planned
 
@@ -69,6 +66,11 @@ Defined scope, needs work.
 
 ### Editor
 
+- [ ] Intelligent tabbing (plan in `.claude/plans/deep-shimmying-bee.md`):
+  RETURN auto-indent, SPACE on empty line → tab stop, INS → next
+  tab stop, DEL at tab stop → delete tab width spaces.  Uses
+  `tab_width` variable (already implemented, set by `T` command).
+  Doc-first update in editor.md done; code not yet implemented.
 - [ ] Handle files > gap buffer capacity (show error, don't crash).
 - [ ] Warn on quit/switch if dirty flag set.
 - [ ] Page up/down with shift+cursor or F-keys.
@@ -99,7 +101,7 @@ Defined scope, needs work.
   asm_bridge.s.
 - [ ] ZP optimization: overlap scratch for non-concurrent modules.
   ~14 bytes reclaimable from cold scratch, ~8 bytes overlappable
-  (dasm vs asm_line).  See doc/README.md § principle 6.
+  (dasm vs asm_line).  See [README.md § ZP is precious](README.md#6-zp-is-precious--use-the-stack-for-scratch).
 - [ ] Relocate CSE to $8000 (PRG) or cartridge ROM (CRT).
 - [ ] Dual linker configs: c64_cse.cfg (PRG) and c64_cse_crt.cfg (CRT).
 

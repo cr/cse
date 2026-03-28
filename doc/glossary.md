@@ -45,13 +45,37 @@ and documentation.
 | **zone** | Dispatch category (A–H) in the line assembler.  Derived from the operand profile.  Zones A–F are fixed single-mode groups; G and H are multi-mode groups that call `au_parse_mode` + `opcode_lookup`. |
 | **mnemonic suffix** | Digit `0`–`7` after RMB/SMB/BBR/BBS: the `3` in `RMB3`.  Encodes a bit index. |
 
+## Process
+
+| Term | Definition |
+|------|------------|
+| **DDD Method** | The seven-step development process defined in [README.md § The DDD Method](README.md#the-ddd-method): doc first → DDD Analysis → TDD Analysis → implement → differential DDD → commit → report.  Mandatory for all repository changes, no exceptions. |
+| **DDD Analysis** | Comparison of documentation against code reality.  Covers quality, coverage, and mismatches (including source comments and docstrings).  Performed before implementation (step 2) and after (step 5, differential). |
+| **TDD Principle** | Code and interface design must be designed with testability in mind.  Not all behaviour is automatable — the principle requires conscious evaluation, not blind coverage.  See [testing.md § The TDD Method](testing.md#the-tdd-method). |
+| **TDD Analysis** | Test framework equivalent of the DDD Analysis.  Identifies test gaps, recommends framework changes, and flags when automation is impractical.  See [testing.md § The TDD Analysis](testing.md#the-tdd-analysis). |
+| **Scope Creep** | Unplanned significant changes discovered during implementation.  Triggers a discussion-and-approval gate before the DDD Method is applied recursively to the new scope.  Recursion terminates at the approver's discretion. |
+| **DDD Feedback Round** | The discussion triggered by scope creep or by a TDD Analysis that reveals implications for the original plan.  Must be resolved before implementation continues. |
+| **DDD Report** | The final deliverable of the DDD Method.  Summarises all changes (documentation, tests, code), highlights unplanned changes, and suggests future improvements. |
+
+## Design vocabulary
+
+| Term | Definition |
+|------|------------|
+| **convention** | A naming or formatting pattern followed for consistency.  Example: `mn_` prefix for mnemonic table symbols.  Violating a convention looks wrong but doesn't break anything. |
+| **guideline** | A recommended practice that admits exceptions.  Example: "prefer the stack for scratch."  When a guideline is overridden, the reason should be documented. |
+| **contract** | A binding interface agreement between two modules (or between a module and its callers).  Specifies inputs, outputs, side effects, and who owns what.  Violating a contract is a bug. |
+| **invariant** | A condition that must hold at every observable point during execution.  Example: "emitters always leave the cursor on the last column written."  If an invariant is temporarily broken, it must be restored before any code that depends on it runs. |
+| **guarantee** | A postcondition that a function promises to its caller.  Example: "`show_prompt` leaves the cursor at column 5."  The caller may rely on a guarantee without checking. |
+| **template** | A repeating structural form used across the codebase.  Example: the emitter pattern (`io_cx = 0`, write fields, `clear_eol`).  Templates reduce cognitive load — once you've read one instance, the rest are familiar. |
+| **design pattern** | A named, reusable solution to a recurring design problem.  Broader than a template: includes the problem context, the forces in tension, and why this shape resolves them.  Example: the block-edit workflow (dump editable lines, re-execute in place, preserve trailing content). |
+
 ## Encoding
 
 | Term | Definition |
 |------|------------|
-| **PETSCII** | C64 character encoding.  Uppercase A–Z = $41–$5A.  Used in source text, file I/O, strings. |
-| **VICII screen code** | Display encoding for screen RAM.  A=$01..Z=$1A (1-based).  Used internally by the line assembler. |
-| **shifted PETSCII** | Alternate character set: uppercase A–Z = $C1–$DA.  Folded to $41–$5A by `fold_char`. |
+| **PETSCII** | C64 character encoding.  Two modes: *unshifted* ($41–$5A = uppercase, $C1–$DA = graphics) and *shifted* ($41–$5A = lowercase, $C1–$DA = uppercase).  CSE uses shifted mode.  KERNAL returns $41–$5A for unshifted keypresses, $C1–$DA for shifted. |
+| **VICII screen code** | Display encoding for screen RAM.  In shifted mode: $01–$1A = lowercase a–z, $41–$5A = uppercase A–Z.  Used internally by the line assembler. |
+| **PETSCII folding** | Collapsing $C1–$DA to $41–$5A (uppercase → lowercase).  Done by `fold_char`.  Hex parsing accepts both ranges. |
 | **screen RAM** | $0400–$07E7.  40×25 bytes of screen codes.  The REPL reads and writes this directly. |
 | **color RAM** | $D800–$DBE7.  Per-character color nybbles.  Managed by `restore_colors`. |
 
