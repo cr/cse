@@ -92,6 +92,7 @@ buffer, NUL-terminates at the end of the identifier, calls
 
 ## Caveats
 
+- `skip_sp` skips $20 (space) and $A0 (tab) between tokens.
 - `expr_ptr` is advanced past the parsed expression on return.
   The caller can check what follows (e.g., `,` for comma-separated lists).
 - `expr_wide` is reset to 0 at the start of each `_expr_eval` call.

@@ -117,13 +117,15 @@ hex_tab:        .byte "0123456789abcdef"
 .endproc
 
 ; ── skipws_ep ──────────────────────────────────────────────────────────────
-; Advance expr_ptr past spaces.  A = first non-space char on return.
+; Advance expr_ptr past whitespace ($20/$A0).  A = first non-ws char on return.
 .proc skipws_ep
         ldy #0
 @lp:    lda (expr_ptr),y
         cmp #' '
+        beq @eat
+        cmp #$a0
         bne :+
-        inc expr_ptr
+@eat:   inc expr_ptr
         bne @lp
         inc expr_ptr+1
         jmp @lp
@@ -814,11 +816,14 @@ hex_tab:        .byte "0123456789abcdef"
 .proc process_line
 
 ; ── 1. Label loop ──────────────────────────────────────────────────────────
-@lbl:   ; Skip spaces
+@lbl:   ; Skip whitespace ($20/$A0)
         ldy #0
 @sp:    lda (_as_ptr),y
         cmp #' '
+        beq @sp_eat
+        cmp #$a0
         bne @nsp
+@sp_eat:
         inc _as_ptr
         bne @sp
         inc _as_ptr+1
@@ -830,11 +835,13 @@ hex_tab:        .byte "0123456789abcdef"
         rts                     ; comment
 :
 
-        ; Scan word (stop at space/NUL/';')
+        ; Scan word (stop at whitespace/NUL/';')
         ldy #0
 @wscan: lda (_as_ptr),y
         beq @wend
         cmp #' '
+        beq @wend
+        cmp #$a0
         beq @wend
         cmp #';'
         beq @wend
@@ -941,6 +948,8 @@ hex_tab:        .byte "0123456789abcdef"
         beq @mne_done
         cmp #' '
         beq @mne_done
+        cmp #$a0
+        beq @mne_done
         cmp #';'
         beq @mne_done
         cpx #8
@@ -959,11 +968,14 @@ hex_tab:        .byte "0123456789abcdef"
         bcc :+
         inc _as_ptr+1
 :
-        ; Skip spaces between mnemonic and operand
+        ; Skip whitespace between mnemonic and operand
         ldy #0
 @msp:   lda (_as_ptr),y
         cmp #' '
+        beq @msp_eat
+        cmp #$a0
         bne @msp_done
+@msp_eat:
         inc _as_ptr
         bne @msp
         inc _as_ptr+1
@@ -993,11 +1005,14 @@ hex_tab:        .byte "0123456789abcdef"
         inc _as_ptr
         bne :+
         inc _as_ptr+1
-:       ; skip spaces after '#'
+:       ; skip whitespace after '#'
 @hs:    ldy #0
         lda (_as_ptr),y
         cmp #' '
+        beq @hs_eat
+        cmp #$a0
         bne @noh
+@hs_eat:
         inc _as_ptr
         bne @hs
         inc _as_ptr+1
@@ -1013,11 +1028,14 @@ hex_tab:        .byte "0123456789abcdef"
         inc _as_ptr
         bne :+
         inc _as_ptr+1
-:       ; skip spaces after '('
+:       ; skip whitespace after '('
 @lps:   ldy #0
         lda (_as_ptr),y
         cmp #' '
+        beq @lps_eat
+        cmp #$a0
         bne @nolp
+@lps_eat:
         inc _as_ptr
         bne @lps
         inc _as_ptr+1

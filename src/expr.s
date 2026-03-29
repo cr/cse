@@ -81,11 +81,14 @@ _div_rem:    .res 2              ; divide: remainder
 .endmacro
 
 ; ── skip_sp ────────────────────────────────────────────────
+; Skip whitespace ($20/$A0) at expr_ptr.
 .proc skip_sp
 @lp:    PEEK_CHAR
         cmp #' '
+        beq @eat
+        cmp #$a0
         bne @done
-        ADV_PTR
+@eat:   ADV_PTR
         jmp @lp
 @done:  rts
 .endproc

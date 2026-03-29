@@ -44,6 +44,11 @@ Two passes over the editor source:
 - Undefined symbols → error.  `emit_error` increments `_asm_errors`.
 - Directives emit data directly (not via `_asm_line`).
 
+**Whitespace.**  The line parser treats both $20 (space) and $A0
+(tab) as whitespace when skipping between tokens — leading
+whitespace, mnemonic/operand separator, and spaces after `#` and
+`(` prefixes.  Word boundaries (mnemonic scan) stop at either.
+
 **Line parser:** Each line is split into words.  `;` or end-of-line
 terminates the line.
 

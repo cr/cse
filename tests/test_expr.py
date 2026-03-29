@@ -69,6 +69,9 @@ POSITIVE = [
     ("$0042",           0x0042, RC_ABS, False, 0x1000, "hex 4 digits ≤$FF → ABS (forced)"),
     ("$042",            0x0042, RC_ABS, False, 0x1000, "hex 3 digits → ABS (forced)"),
     ("  $42",           0x0042, RC_ZP,  False, 0x1000, "hex leading spaces → ZP"),
+    ("\xa0$42",          0x0042, RC_ZP,  False, 0x1000, "hex leading tab → ZP"),
+    ("\xa0 $42",         0x0042, RC_ZP,  False, 0x1000, "hex tab+space → ZP"),
+    (" \xa0$42",         0x0042, RC_ZP,  False, 0x1000, "hex space+tab → ZP"),
 
     # ── decimal: width from value ────────────────────────────────
     ("0",               0,      RC_ZP,  False, 0x1000, "decimal 0 → ZP"),
@@ -101,6 +104,8 @@ POSITIVE = [
     ("$1000+16",        0x1010, RC_ABS, False, 0x1000, "ABS + decimal → ABS"),
     ("$80+%10000000",   0x0100, RC_ABS, False, 0x1000, "result > $FF → ABS"),
     ("$10 + $20",       0x0030, RC_ZP,  False, 0x1000, "spaces around + → ZP"),
+    ("$10\xa0+\xa0$20",  0x0030, RC_ZP,  False, 0x1000, "tabs around + → ZP"),
+    ("$10\xa0+ $20",     0x0030, RC_ZP,  False, 0x1000, "tab+space around + → ZP"),
     ("$100-$10-$20-$30", 0x00A0, RC_ABS, False, 0x1000, "ABS chain → ABS"),
 
     # ── lo/hi: always ZP ────────────────────────────────────────

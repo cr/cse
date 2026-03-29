@@ -191,6 +191,63 @@ MANUAL_TESTS = [
         "expect_bytes": [0xEA, 0x60],
         "expect_errors": 0,
     },
+    # ── $A0 tab whitespace ──────────────────────────────────────────
+    {
+        "name": "tab-indented instruction",
+        "source": ".org $c000\n\xa0lda #0\n\xa0rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x00, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "tab between mnemonic and operand",
+        "source": ".org $c000\n  lda\xa0#0\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x00, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "tab after hash prefix",
+        "source": ".org $c000\n  lda #\xa0$42\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x42, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "tab after open paren",
+        "source": ".org $c000\n  lda (\xa0$42),y\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xB1, 0x42, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "tab in .const directive",
+        "source": ".const\xa0border\xa0$d020\n.org $c000\n  lda border\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xAD, 0x20, 0xD0, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "tab in expression spaces",
+        "source": ".org $c000\n  lda #$10\xa0+\xa0$20\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x30, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "tab before label definition",
+        "source": ".org $c000\n\xa0start:\n\xa0lda #0\n\xa0rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x00, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "mixed spaces and tabs",
+        "source": ".org $c000\n \xa0 lda\xa0 #0\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x00, 0x60],
+        "expect_errors": 0,
+    },
 ]
 
 ERROR_TESTS = [
