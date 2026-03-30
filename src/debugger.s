@@ -18,8 +18,12 @@
         .export _dbg_init
         .export _dbg_bp_set, _dbg_bp_del, _dbg_bp_clear
         .export _dbg_bp_count
+        .export _dbg_bp_patch, _dbg_bp_unpatch
+        .export _dbg_bp_find
         .export _bp_table
         .export _dbg_running, _dbg_reason, _brk_pc, _dbg_bp_hit
+
+        .importzp ptr1          ; cc65 scratch pointer ($4E/$4F)
 
 BP_SLOTS = 8
 BP_SIZE  = 4            ; bytes per slot
@@ -85,7 +89,8 @@ _dbg_bp_set:
         cpy #BP_SLOTS
         bne @find
 
-        ; Table full
+        ; Table full — return $FF for C callers
+        lda #$FF
         sec
         rts
 
@@ -127,7 +132,8 @@ _dbg_bp_del:
         sta _bp_table+3,x       ; flags = 0
         clc
         rts
-@bad:   sec
+@bad:   lda #$FF
+        sec
         rts
 
 ; ── _dbg_bp_clear ──────────────────────────────────────────────────────
@@ -162,4 +168,99 @@ _dbg_bp_count:
         iny
         cpy #BP_SLOTS * BP_SIZE
         bne @cnt
+        rts
+
+; ── _dbg_bp_patch ──────────────────────────────────────────────────────
+; Patch all enabled breakpoints: save original byte, write $00 (BRK).
+; Must be called before entering user code.
+; Clobbers: A, X, Y, ptr1
+;
+_dbg_bp_patch:
+        ldx #0                  ; table byte offset
+        ldy #0                  ; for indirect indexed
+@loop:  lda _bp_table,x         ; addr lo
+        ora _bp_table+1,x       ; |= addr hi
+        beq @next               ; empty slot → skip
+        lda _bp_table+3,x       ; flags
+        beq @next               ; not enabled → skip
+        ; Load target address into ptr1
+        lda _bp_table,x
+        sta ptr1
+        lda _bp_table+1,x
+        sta ptr1+1
+        ; Save original byte
+        lda (ptr1),y            ; read from target
+        sta _bp_table+2,x       ; saved byte
+        ; Write BRK
+        lda #$00
+        sta (ptr1),y
+@next:  inx
+        inx
+        inx
+        inx
+        cpx #BP_SLOTS * BP_SIZE
+        bne @loop
+        rts
+
+; ── _dbg_bp_unpatch ────────────────────────────────────────────────────
+; Restore all patched breakpoints: write saved byte back.
+; Must be called after returning from user code.
+; Clobbers: A, X, Y, ptr1
+;
+_dbg_bp_unpatch:
+        ldx #0
+        ldy #0
+@loop:  lda _bp_table,x
+        ora _bp_table+1,x
+        beq @next               ; empty slot
+        lda _bp_table+3,x
+        beq @next               ; not enabled
+        ; Load target address
+        lda _bp_table,x
+        sta ptr1
+        lda _bp_table+1,x
+        sta ptr1+1
+        ; Restore original byte
+        lda _bp_table+2,x
+        sta (ptr1),y
+@next:  inx
+        inx
+        inx
+        inx
+        cpx #BP_SLOTS * BP_SIZE
+        bne @loop
+        rts
+
+; ── _dbg_bp_find ───────────────────────────────────────────────────────
+; Find a breakpoint by address.
+; In:  A = addr lo, X = addr hi
+; Out: C=0 found, A = slot number (0–7)
+;      C=1 not found, A = $FF
+; Clobbers: A, X, Y
+;
+_dbg_bp_find:
+        sta _bps_addr_lo
+        stx _bps_addr_hi
+        ldy #0                  ; slot index
+        ldx #0                  ; table byte offset
+@loop:  lda _bp_table,x
+        cmp _bps_addr_lo
+        bne @next
+        lda _bp_table+1,x
+        cmp _bps_addr_hi
+        bne @next
+        ; Found
+        tya                     ; A = slot number
+        clc
+        rts
+@next:  inx
+        inx
+        inx
+        inx
+        iny
+        cpy #BP_SLOTS
+        bne @loop
+        ; Not found
+        lda #$FF
+        sec
         rts

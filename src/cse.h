@@ -107,4 +107,15 @@ extern uint8_t asm_line(uint16_t addr, char *text);
 extern void jsr_addr(uint16_t addr);
 extern uint8_t reg_a, reg_x, reg_y, reg_sp, reg_p;
 
+/* ── Debugger (debugger.s) ─────────────────────────────── */
+extern void dbg_init(void);
+extern uint8_t __fastcall__ dbg_bp_set(uint16_t addr);   /* slot (0-7) or $FF */
+extern uint8_t __fastcall__ dbg_bp_del(uint8_t slot);     /* 0=ok, $FF=bad */
+extern void dbg_bp_clear(void);
+extern uint8_t dbg_bp_count(void);
+extern void dbg_bp_patch(void);
+extern void dbg_bp_unpatch(void);
+extern uint8_t __fastcall__ dbg_bp_find(uint16_t addr);   /* slot or $FF */
+extern uint8_t bp_table[];                                 /* 8×4 bytes */
+
 #endif

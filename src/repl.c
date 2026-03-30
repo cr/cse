@@ -369,6 +369,82 @@ static void cmd_jmp(void)
     clear_eol();
 }
 
+/* ── x command: breakpoints ────────────────────────────── */
+static void cmd_brk(uint8_t *args)
+{
+    uint8_t *q = args;
+    uint8_t i, slot;
+
+    skip_sp(&q);
+
+    if (*q == 0) {
+        /* x — list all breakpoints */
+        newline();
+        for (i = 0; i < 8; ++i) {
+            uint16_t addr = bp_table[i*4] | ((uint16_t)bp_table[i*4+1] << 8);
+            io_puts("; bp ");
+            io_putc('1' + i);
+            io_puts(": ");
+            if (addr) {
+                io_putc('$');
+                io_puthex4(addr);
+            } else {
+                io_puts("----");
+            }
+            clear_eol();
+            newline();
+        }
+        clear_eol();
+        return;
+    }
+
+    if (*q == '*') {
+        /* x * — delete all */
+        dbg_bp_clear();
+        newline();
+        io_puts("; breakpoints cleared");
+        clear_eol(); nl_prompt();
+        return;
+    }
+
+    if (*q == '-') {
+        /* x -N — delete slot N (1-based display, 0-based internal) */
+        ++q;
+        if (*q >= '1' && *q <= '8') {
+            slot = *q - '1';
+            dbg_bp_del(slot);
+            newline();
+            io_puts("; bp ");
+            io_putc(*q);
+            io_puts(" deleted");
+        } else {
+            newline();
+            io_puts(";?slot 1-8");
+        }
+        clear_eol(); nl_prompt();
+        return;
+    }
+
+    /* x ADDR — set breakpoint */
+    if (is_hex(*q)) {
+        uint16_t addr = parse_hex_flex(&q);
+        slot = dbg_bp_set(addr);
+        newline();
+        if (slot != 0xFF) {
+            io_puts("; bp ");
+            io_putc('1' + slot);
+            io_puts(": $");
+            io_puthex4(addr);
+        } else {
+            io_puts(";?bp full");
+        }
+        clear_eol(); nl_prompt();
+        return;
+    }
+
+    err_prompt(";?x");
+}
+
 static uint8_t parse_regval(uint8_t **pp)
 {
     uint8_t *q = *pp;
@@ -691,6 +767,9 @@ void exec_line(void)
         if (is_hex(*q)) cur_addr = parse_hex_flex(&q);
         cmd_jmp(); break;
     }
+
+    /* debugger — breakpoints */
+    case 'x': cmd_brk(q); break;
 
     /* registers */
     case 'r': cmd_reg(q); break;

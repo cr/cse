@@ -123,6 +123,9 @@ void main(void)
     sym_set_heap(cse_end());
     sym_clear();
 
+    /* Initialize debugger state (breakpoint table, flags) */
+    dbg_init();
+
     /* Fill free memory with $FF (catch uninitialized reads) */
     fill_free_memory();
 

@@ -2,6 +2,7 @@
 test_debugger.py — Debugger breakpoint table contract tests (debugger.s)
 
 Phase A: bp_set, bp_del, bp_clear, bp_count, dbg_init.
+Phase B: bp_patch, bp_unpatch, bp_find.
 
 Test binary: debugger.s + debugger_test_stub.s
 Protocol: write command byte + args at $0B00, JSR dbg_test_entry.
@@ -27,7 +28,7 @@ CMD   = 0x0B00
 ARG1  = 0x0B01
 ARG2  = 0x0B02
 RFLAGS = 0x0B03
-RSLOT  = 0x0B04    # RFLAGS+1
+RVAL   = 0x0B04    # result value (slot#, count, etc.)
 
 BP_SLOTS = 8
 BP_SIZE  = 4
@@ -191,7 +192,7 @@ def cmd_bp_set(mpu, syms, addr_lo, addr_hi):
     mpu.memory[ARG2] = addr_hi
     call(mpu, syms.entry)
     flags = mpu.memory[RFLAGS]
-    slot = mpu.memory[RSLOT]
+    slot = mpu.memory[RVAL]
     return (flags == 0), slot  # (success?, slot#)
 
 def cmd_bp_del(mpu, syms, slot):
@@ -207,7 +208,7 @@ def cmd_bp_clear(mpu, syms):
 def cmd_bp_count(mpu, syms):
     mpu.memory[CMD] = 0x04
     call(mpu, syms.entry)
-    return mpu.memory[RSLOT]
+    return mpu.memory[RVAL]
 
 def read_bp_slot(mpu, syms, slot):
     """Read a breakpoint slot: (addr_lo, addr_hi, saved, flags)."""
@@ -355,3 +356,131 @@ class TestBpCount:
             cmd_bp_set(mpu, dbg_syms, i + 1, 0x10)
         cmd_bp_clear(mpu, dbg_syms)
         assert cmd_bp_count(mpu, dbg_syms) == 0
+
+
+# ── Phase B helpers ──────────────────────────────────────────
+
+def cmd_bp_patch(mpu, syms):
+    mpu.memory[CMD] = 0x05
+    call(mpu, syms.entry)
+
+def cmd_bp_unpatch(mpu, syms):
+    mpu.memory[CMD] = 0x06
+    call(mpu, syms.entry)
+
+def cmd_bp_find(mpu, syms, addr_lo, addr_hi):
+    mpu.memory[CMD] = 0x07
+    mpu.memory[ARG1] = addr_lo
+    mpu.memory[ARG2] = addr_hi
+    call(mpu, syms.entry)
+    flags = mpu.memory[RFLAGS]
+    slot = mpu.memory[RVAL]
+    return (flags == 0), slot  # (found?, slot#)
+
+
+# ── Phase B tests ────────────────────────────────────────────
+
+# Target addresses for patch/unpatch tests — use high memory area
+# that doesn't overlap CODE or BSS.  $3000+ is safe.
+TARGET1 = 0x3000
+TARGET2 = 0x3010
+TARGET3 = 0x3020
+
+
+class TestBpPatch:
+    def test_patch_writes_brk(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_init(mpu, dbg_syms)
+        # Place known opcodes at target addresses
+        mpu.memory[TARGET1] = 0xA9  # LDA #imm
+        mpu.memory[TARGET2] = 0x8D  # STA abs
+        # Set breakpoints
+        cmd_bp_set(mpu, dbg_syms, TARGET1 & 0xFF, TARGET1 >> 8)
+        cmd_bp_set(mpu, dbg_syms, TARGET2 & 0xFF, TARGET2 >> 8)
+        # Patch
+        cmd_bp_patch(mpu, dbg_syms)
+        # Targets should now be $00 (BRK)
+        assert mpu.memory[TARGET1] == 0x00
+        assert mpu.memory[TARGET2] == 0x00
+        # Saved bytes should have original opcodes
+        _, _, saved1, _ = read_bp_slot(mpu, dbg_syms, 0)
+        _, _, saved2, _ = read_bp_slot(mpu, dbg_syms, 1)
+        assert saved1 == 0xA9
+        assert saved2 == 0x8D
+
+    def test_patch_skips_empty_slots(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_init(mpu, dbg_syms)
+        mpu.memory[TARGET1] = 0xA9
+        mpu.memory[TARGET2] = 0x8D
+        # Only set one breakpoint
+        cmd_bp_set(mpu, dbg_syms, TARGET1 & 0xFF, TARGET1 >> 8)
+        cmd_bp_patch(mpu, dbg_syms)
+        assert mpu.memory[TARGET1] == 0x00  # patched
+        assert mpu.memory[TARGET2] == 0x8D  # untouched
+
+
+class TestBpUnpatch:
+    def test_unpatch_restores_originals(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_init(mpu, dbg_syms)
+        mpu.memory[TARGET1] = 0xA9
+        mpu.memory[TARGET2] = 0x8D
+        cmd_bp_set(mpu, dbg_syms, TARGET1 & 0xFF, TARGET1 >> 8)
+        cmd_bp_set(mpu, dbg_syms, TARGET2 & 0xFF, TARGET2 >> 8)
+        cmd_bp_patch(mpu, dbg_syms)
+        # Verify patched
+        assert mpu.memory[TARGET1] == 0x00
+        assert mpu.memory[TARGET2] == 0x00
+        # Unpatch
+        cmd_bp_unpatch(mpu, dbg_syms)
+        assert mpu.memory[TARGET1] == 0xA9
+        assert mpu.memory[TARGET2] == 0x8D
+
+    def test_patch_unpatch_roundtrip(self, dbg_syms):
+        """Patch + unpatch is idempotent — memory restored exactly."""
+        mpu = make_cpu(dbg_syms)
+        cmd_init(mpu, dbg_syms)
+        # Set up 3 breakpoints with different opcodes
+        targets = [TARGET1, TARGET2, TARGET3]
+        opcodes = [0xA9, 0x8D, 0x4C]
+        for addr, opc in zip(targets, opcodes):
+            mpu.memory[addr] = opc
+            cmd_bp_set(mpu, dbg_syms, addr & 0xFF, addr >> 8)
+        cmd_bp_patch(mpu, dbg_syms)
+        cmd_bp_unpatch(mpu, dbg_syms)
+        for addr, opc in zip(targets, opcodes):
+            assert mpu.memory[addr] == opc
+
+
+class TestBpFind:
+    def test_find_existing(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_init(mpu, dbg_syms)
+        cmd_bp_set(mpu, dbg_syms, 0x20, 0x10)  # $1020
+        cmd_bp_set(mpu, dbg_syms, 0x50, 0x20)  # $2050
+        found, slot = cmd_bp_find(mpu, dbg_syms, 0x50, 0x20)
+        assert found
+        assert slot == 1
+
+    def test_find_first(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_init(mpu, dbg_syms)
+        cmd_bp_set(mpu, dbg_syms, 0x20, 0x10)
+        found, slot = cmd_bp_find(mpu, dbg_syms, 0x20, 0x10)
+        assert found
+        assert slot == 0
+
+    def test_find_not_found(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_init(mpu, dbg_syms)
+        cmd_bp_set(mpu, dbg_syms, 0x20, 0x10)
+        found, slot = cmd_bp_find(mpu, dbg_syms, 0xFF, 0xFF)
+        assert not found
+        assert slot == 0xFF
+
+    def test_find_empty_table(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_init(mpu, dbg_syms)
+        found, _ = cmd_bp_find(mpu, dbg_syms, 0x20, 0x10)
+        assert not found
