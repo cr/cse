@@ -117,13 +117,27 @@ _io_init:
 ; ── NMI handler — pure asm, no C prologue ────────────────────────────
 ; The KERNAL NMI entry ($FE43) does SEI + JMP ($0318).  It does NOT
 ; push A/X/Y — only the CPU's automatic PC + SR are on the stack.
-; We save A (the only reg we touch), set the flag, restore A, RTI.
+;
+; Two-path check: if debugger is running user code (_dbg_running bit 7),
+; break into the debugger.  Otherwise, set the nmi_pending flag as before.
+;
+        .import _dbg_running
+        .import _dbg_nmi_break
+
 _nmi_handler:
+        bit _dbg_running        ; bit 7 → N flag
+        bmi @break_user         ; user code active → debugger break
+        ; Normal NMI (REPL/editor): set flag, RTI
         pha
         lda #1
         sta _nmi_pending
         pla
         rti
+
+@break_user:
+        ; A/X/Y are live user values — don't clobber them here.
+        ; The debugger handler saves them.
+        jmp _dbg_nmi_break
 
 ; ── io_sync — update screen/color line pointers from cursor position ──
 ; Call after changing $D6 (io_cy) or $D3 (io_cx).

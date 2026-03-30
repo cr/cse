@@ -1,7 +1,7 @@
 ; debugger.s — Breakpoints, tracing, and execution control
 ;
 ; Phase A: breakpoint table management (bp_set, bp_del, bp_clear, bp_count)
-; Phase B: BRK handler, context switch, NMI upgrade (planned)
+; Phase B: context switch (dbg_enter, dbg_brk_handler, dbg_nmi_break)
 ; Phase C: single-step t/n (planned)
 ;
 ; Breakpoint table: 8 slots × 4 bytes = 32 bytes BSS
@@ -20,10 +20,28 @@
         .export _dbg_bp_count
         .export _dbg_bp_patch, _dbg_bp_unpatch
         .export _dbg_bp_find
+        .export _dbg_enter
+        .export _dbg_brk_handler
+        .export _dbg_nmi_break
         .export _bp_table
         .export _dbg_running, _dbg_reason, _brk_pc, _dbg_bp_hit
 
         .importzp ptr1          ; cc65 scratch pointer ($4E/$4F)
+        .import _reg_a, _reg_x, _reg_y, _reg_sp, _reg_p
+        .import _zp_save_buf
+        .import _kernal_bank_out, _kernal_bank_in
+
+ZP_SAVE_LO  = $02              ; must match asm_bridge.s
+ZP_SAVE_HI  = $5C
+ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1     ; 91 bytes
+
+CSE_STK     = $E100            ; CSE stack snapshot (KERNAL RAM)
+USR_STK     = $E200            ; user stack snapshot (KERNAL RAM)
+
+; Reason codes
+DBG_NONE = 0
+DBG_BRK  = 1
+DBG_NMI  = 2
 
 BP_SLOTS = 8
 BP_SIZE  = 4            ; bytes per slot
@@ -37,6 +55,10 @@ _dbg_running:   .res 1          ; $80 = user code active, 0 = REPL
 _dbg_reason:    .res 1          ; why we returned (0=none, 1=BRK, 2=NMI, 3=RTS)
 _brk_pc:        .res 2          ; PC where break occurred / resume address
 _dbg_bp_hit:    .res 1          ; slot# of breakpoint that was hit ($FF = none)
+_cse_saved_sp:  .res 1          ; CSE's 6502 SP saved before entering user code
+_saved_brk_lo:  .res 1          ; original $0316 value (lo)
+_saved_brk_hi:  .res 1          ; original $0317 value (hi)
+_dbg_has_ctx:   .res 1          ; $80 = user context in $E200 is valid
 
 ; ── CODE ───────────────────────────────────────────────────────────────
 .segment "CODE"
@@ -55,6 +77,7 @@ _dbg_init:
         sta _dbg_reason
         sta _brk_pc
         sta _brk_pc+1
+        sta _dbg_has_ctx
         lda #$FF
         sta _dbg_bp_hit
         rts
@@ -263,4 +286,236 @@ _dbg_bp_find:
         ; Not found
         lda #$FF
         sec
+        rts
+
+; ═══════════════════════════════════════════════════════════════════════════
+; Context switch — enter user code / return to REPL
+; ═══════════════════════════════════════════════════════════════════════════
+
+; ── _dbg_enter ─────────────────────────────────────────────────────────
+; void dbg_enter(void);
+;
+; Saves CSE context, patches breakpoints, enters user code via RTI.
+; Does not return normally — the BRK/NMI handler restores CSE context
+; and returns to the C caller of dbg_enter (via the saved stack).
+;
+; Before calling: set _brk_pc to target address, _reg_* to desired
+; register state.  For resume: _dbg_has_ctx must be $80.
+;
+_dbg_enter:
+        ; ── 1. Save CSE ZP → _zp_save_buf ──
+        ldx #ZP_SAVE_LEN - 1
+@szp:   lda ZP_SAVE_LO,x
+        sta _zp_save_buf,x
+        dex
+        bpl @szp
+
+        ; ── 2. Save CSE SP ──
+        tsx
+        stx _cse_saved_sp
+
+        ; ── 3. Stack page snapshot ──
+        ;  Save CSE stack to $E100.
+        ;  If resuming (_dbg_has_ctx=$80), restore user stack from $E200.
+        jsr _kernal_bank_out    ; sei + bank out KERNAL
+        ldx #0
+        lda _dbg_has_ctx
+        bmi @swap_stacks        ; has valid user context → swap
+
+        ; Fresh start: only save CSE stack, don't load user stack
+@save_cse_only:
+        lda $0100,x
+        sta CSE_STK,x
+        dex
+        bne @save_cse_only
+        beq @stacks_done        ; always
+
+@swap_stacks:
+        lda $0100,x
+        sta CSE_STK,x           ; save CSE stack
+        lda USR_STK,x
+        sta $0100,x             ; restore user stack
+        dex
+        bne @swap_stacks
+
+@stacks_done:
+        jsr _kernal_bank_in     ; bank in KERNAL + cli
+
+        ; ── 4. Save current $0316, install our BRK handler ──
+        lda $0316
+        sta _saved_brk_lo
+        lda $0317
+        sta _saved_brk_hi
+        lda #<_dbg_brk_handler
+        sta $0316
+        lda #>_dbg_brk_handler
+        sta $0317
+
+        ; ── 5. Patch breakpoints ──
+        jsr _dbg_bp_patch
+
+        ; ── 6. Set running flag ──
+        lda #$80
+        sta _dbg_running
+
+        ; ── 7. Switch to user SP ──
+        ldx _reg_sp
+        txs
+
+        ; ── 8. Build RTI frame: P, PChi, PClo ──
+        ; RTI pops: PClo, PChi, then P — no wait:
+        ; RTI pops: P first, then PClo, PChi
+        ; So push order: PChi, PClo, P
+        lda _brk_pc+1
+        pha                     ; PChi
+        lda _brk_pc
+        pha                     ; PClo
+        lda _reg_p
+        pha                     ; P (status register)
+
+        ; ── 9. Load user registers ──
+        lda _reg_a
+        ldx _reg_x
+        ldy _reg_y
+
+        ; ── 10. RTI → user code ──
+        rti
+
+; ── _dbg_brk_handler ──────────────────────────────────────────────────
+; Entered from KERNAL via ($0316) when BRK fires.
+;
+; Stack at entry (SP+1 upward):
+;   Y  X  A  P(B=1)  PClo(brk+2)  PChi
+;   ─── KERNAL pushed ───  ─── CPU pushed ───
+;
+; The KERNAL's IRQ entry at $FF48 pushes A/X/Y and checks B flag.
+; BRK dispatch occurs BEFORE any IRQ servicing.
+;
+_dbg_brk_handler:
+        ; ── 1. Extract user registers from stack ──
+        tsx
+        lda $0101,x             ; Y (KERNAL pushed last)
+        sta _reg_y
+        lda $0102,x             ; X
+        sta _reg_x
+        lda $0103,x             ; A
+        sta _reg_a
+        lda $0104,x             ; P (CPU pushed, B=1)
+        sta _reg_p
+        ; PC: CPU pushed brk_addr+2 — adjust back
+        lda $0105,x             ; PClo
+        sec
+        sbc #2
+        sta _brk_pc
+        lda $0106,x             ; PChi
+        sbc #0
+        sta _brk_pc+1
+
+        ; ── 2. Compute user's pre-BRK SP ──
+        ; CPU pushed 3 (P, PClo, PChi), KERNAL pushed 3 (A, X, Y) = 6
+        txa
+        clc
+        adc #6
+        sta _reg_sp
+
+        ; ── 3. Set reason = BRK, find which bp ──
+        lda #DBG_BRK
+        sta _dbg_reason
+        lda _brk_pc
+        ldx _brk_pc+1
+        jsr _dbg_bp_find
+        sta _dbg_bp_hit         ; slot# or $FF
+
+        ; Fall through to common return
+        jmp _dbg_return_common
+
+; ── _dbg_nmi_break ────────────────────────────────────────────────────
+; Entered from cse_io.s _nmi_handler when _dbg_running bit 7 is set.
+;
+; At entry: A/X/Y have user's live values (NMI doesn't push them).
+; Stack: P  PClo  PChi  (3 bytes, CPU pushed)
+; KERNAL NMI entry ($FE43) does SEI + JMP ($0318) — no register pushes.
+;
+_dbg_nmi_break:
+        ; ── 1. Save user registers (live in CPU regs) ──
+        sta _reg_a
+        stx _reg_x
+        sty _reg_y
+
+        ; ── 2. Extract P and PC from stack ──
+        tsx
+        lda $0101,x             ; P
+        sta _reg_p
+        lda $0102,x             ; PClo (exact address, no +2)
+        sta _brk_pc
+        lda $0103,x             ; PChi
+        sta _brk_pc+1
+
+        ; ── 3. Compute user's pre-NMI SP ──
+        txa
+        clc
+        adc #3                  ; CPU pushed 3 bytes
+        sta _reg_sp
+
+        ; ── 4. Set reason = NMI, no bp hit ──
+        lda #DBG_NMI
+        sta _dbg_reason
+        lda #$FF
+        sta _dbg_bp_hit
+
+        ; Fall through to common return
+
+; ── _dbg_return_common ────────────────────────────────────────────────
+; Shared return path for BRK handler and NMI break.
+; Restores CSE context and returns to the C caller of dbg_enter.
+;
+_dbg_return_common:
+        ; ── 1. Clear running flag ──
+        lda #0
+        sta _dbg_running
+
+        ; ── 2. Unpatch breakpoints ──
+        ; Must switch to a temporary SP first — user stack may be
+        ; inconsistent and we need JSR/RTS for unpatch.
+        ; Use the top of the user stack area (SP=$FF) temporarily.
+        ldx #$FF
+        txs
+        jsr _dbg_bp_unpatch
+
+        ; ── 3. Restore $0316 ──
+        lda _saved_brk_lo
+        sta $0316
+        lda _saved_brk_hi
+        sta $0317
+
+        ; ── 4. Stack page snapshot: user → $E200, CSE ← $E100 ──
+        jsr _kernal_bank_out
+        ldx #0
+@swap:  lda $0100,x
+        sta USR_STK,x           ; save user stack
+        lda CSE_STK,x
+        sta $0100,x             ; restore CSE stack
+        dex
+        bne @swap
+        jsr _kernal_bank_in
+
+        ; ── 5. Mark user context as valid ──
+        lda #$80
+        sta _dbg_has_ctx
+
+        ; ── 6. Restore CSE SP ──
+        ldx _cse_saved_sp
+        txs
+
+        ; ── 7. Restore CSE ZP ──
+        ldx #ZP_SAVE_LEN - 1
+@rzp:   lda _zp_save_buf,x
+        sta ZP_SAVE_LO,x
+        dex
+        bpl @rzp
+
+        ; ── 8. Return to C caller of dbg_enter ──
+        ; The CSE stack now has the return address from when C called
+        ; dbg_enter.  RTS returns there.  CLI re-enables interrupts.
+        cli
         rts

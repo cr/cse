@@ -27,9 +27,20 @@
         .import _dbg_running, _dbg_reason, _brk_pc, _dbg_bp_hit
 
         .exportzp ptr1          ; provide cc65 scratch pointer for debugger.s
+        .export _reg_a, _reg_x, _reg_y, _reg_sp, _reg_p
+        .export _zp_save_buf
+        .export _kernal_bank_out, _kernal_bank_in
 
 .segment "ZEROPAGE"
 ptr1:   .res 2                  ; cc65 scratch pointer
+
+.segment "BSS"
+_reg_a:         .res 1
+_reg_x:         .res 1
+_reg_y:         .res 1
+_reg_sp:        .res 1
+_reg_p:         .res 1
+_zp_save_buf:   .res 91         ; ZP save buffer (matches asm_bridge.s)
 
 .segment "CODE"
 
@@ -39,8 +50,7 @@ ARG2    = $0B02
 RFLAGS  = $0B03
 RVAL    = $0B04
 
-.segment "CODE"
-
+; ── Entry point MUST be first in this module's CODE ──
 .proc dbg_test_entry
         lda CMD
         beq @init
@@ -116,3 +126,8 @@ RVAL    = $0B04
         sta RFLAGS
         rts
 .endproc
+
+; Stubs for KERNAL banking (no-ops in test environment)
+_kernal_bank_out:
+_kernal_bank_in:
+        rts

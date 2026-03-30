@@ -117,5 +117,11 @@ extern void dbg_bp_patch(void);
 extern void dbg_bp_unpatch(void);
 extern uint8_t __fastcall__ dbg_bp_find(uint16_t addr);   /* slot or $FF */
 extern uint8_t bp_table[];                                 /* 8×4 bytes */
+extern void dbg_enter(void);    /* enter user code; returns on BRK/NMI */
+extern uint8_t dbg_running;     /* $80 = user code active */
+extern uint8_t dbg_reason;      /* 0=none, 1=BRK, 2=NMI */
+extern uint16_t brk_pc;         /* break address / resume target */
+extern uint8_t dbg_bp_hit;      /* slot# of hit bp ($FF=none) */
+extern uint8_t dbg_has_ctx;     /* $80 = user context valid in $E200 */
 
 #endif

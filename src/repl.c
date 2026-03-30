@@ -359,14 +359,51 @@ static void cmd_mem(uint8_t *args)
     clear_eol();
 }
 
-static void cmd_jmp(void)
+/* Show break result after dbg_enter returns */
+static void show_break_result(void)
 {
-    jsr_addr(cur_addr);
     restore_colors();
     newline();
+    if (dbg_reason == 1) {
+        /* BRK */
+        io_puts("; brk");
+        if (dbg_bp_hit != 0xFF) {
+            io_putc(' ');
+            io_putc('1' + dbg_bp_hit);
+        }
+        io_puts(" at $");
+        io_puthex4(brk_pc);
+    } else if (dbg_reason == 2) {
+        /* NMI */
+        io_puts("; nmi break at $");
+        io_puthex4(brk_pc);
+    }
+    clear_eol();
+    newline();
+    io_puts("; ");
     emit_reg();
     newline();
+    cur_addr = brk_pc;
     clear_eol();
+}
+
+static void cmd_jmp(void)
+{
+    if (dbg_bp_count()) {
+        /* Debugger mode: patch breakpoints, enter via RTI */
+        brk_pc = cur_addr;
+        dbg_enter();
+        /* Returns here when BRK or NMI fires */
+        show_break_result();
+    } else {
+        /* No breakpoints: simple JSR as before */
+        jsr_addr(cur_addr);
+        restore_colors();
+        newline();
+        emit_reg();
+        newline();
+        clear_eol();
+    }
 }
 
 /* ── x command: breakpoints ────────────────────────────── */
@@ -954,13 +991,20 @@ void exec_line(void)
         break;
     }
 
-    /* debugger — continue (stub, Phase B) */
+    /* debugger — continue */
     case 'c':
         /* cls/clr detection: "c" followed by "lr" or "ls" */
         if (*q == 'l' && (*(q+1) == 'r' || *(q+1) == 's')) {
             reset_screen(); clear_eol();
+        } else if (dbg_reason == 0) {
+            err_prompt(";?no break");
         } else {
-            err_prompt(";?dbg");       /* stub: not yet implemented */
+            /* Delete the hit breakpoint before continuing */
+            if (dbg_bp_hit != 0xFF) {
+                dbg_bp_del(dbg_bp_hit);
+            }
+            dbg_enter();
+            show_break_result();
         }
         break;
 

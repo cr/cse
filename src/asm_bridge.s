@@ -25,6 +25,7 @@
         .export al_error, au_syntax_error
         .export _jsr_addr
         .export _reg_a, _reg_x, _reg_y, _reg_sp, _reg_p
+        .export _zp_save_buf
 
         .import al_line_asm
         .importzp au_ptr, al_pc, al_out, al_cpu, al_len
