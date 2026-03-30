@@ -732,7 +732,7 @@ void exec_line(void)
         io_puts(";t="); io_puthex2(tab_width);
         clear_eol(); nl_prompt(); break;
     }
-    case 'c':
+    case 'C':
     {   skip_sp(&q);
         if (is_hex(q[0])) {
             if (is_hex(q[1]) && is_hex(q[2])) {
@@ -875,12 +875,17 @@ void exec_line(void)
         break;
     }
 
-    default:
-        /* multi-char: clr/cls (only reachable without prefix) */
-        if (cmd == 'c' && *q == 'l' && (*(q+1) == 'r' || *(q+1) == 's')) {
+    /* debugger — continue (stub, Phase B) */
+    case 'c':
+        /* cls/clr detection: "c" followed by "lr" or "ls" */
+        if (*q == 'l' && (*(q+1) == 'r' || *(q+1) == 's')) {
             reset_screen(); clear_eol();
         } else {
-            err_prompt(";?cmd");
+            err_prompt(";?dbg");       /* stub: not yet implemented */
         }
+        break;
+
+    default:
+        err_prompt(";?cmd");
     }
 }
