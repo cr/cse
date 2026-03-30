@@ -23,6 +23,7 @@
 
         .export _sym_define, _sym_lookup, _sym_clear, _sym_count
         .export _sym_set_heap
+        .export _kernal_bank_out, _kernal_bank_in, _kernal_init
 
         .importzp sym_name, sym_val, sym_wide
 
@@ -41,11 +42,87 @@ _st_count:   .res 1         ; number of defined symbols
 _st_heap:    .res 2         ; current heap write pointer
 _st_heap_base: .res 2       ; heap base (set by sym_set_heap)
 
-; ── BSS ──────────────────────────────────────────────────
-.segment "BSS"
-sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
+; ── Banked RAM layout under KERNAL ROM ($E000–$FFFF) ─────
+; $E000–$F817  free (7.5 KB available for future use)
+; $F818–$FBFF  repl_screen (1000 bytes, editor.c)
+; $FC00–$FEFF  sym_table   (768 bytes)
+; $FF00–$FF09  NMI trampoline (10 bytes)
+; $FFFA–$FFFB  NMI vector → $FF00
+;
+; All accessed by banking out the KERNAL (bit 1 of $01) with
+; interrupts disabled.  Table grows downward toward $E000.
+sym_table = $FC00
+
+CPU_PORT = $01
 
 .segment "CODE"
+
+; ── Banking helpers ──────────────────────────────────────
+; _st_bank_out / _kernal_bank_out: sei + bank out KERNAL ROM
+; _st_bank_in  / _kernal_bank_in:  bank in KERNAL ROM + cli
+; C-callable aliases (_kernal_*) for use from editor.c etc.
+_kernal_bank_out:
+_st_bank_out:
+        sei
+        lda CPU_PORT
+        and #$FD                ; clear bit 1 → RAM under KERNAL
+        sta CPU_PORT
+        rts
+
+_kernal_bank_in:
+_st_bank_in:
+        lda CPU_PORT
+        ora #$02                ; set bit 1 → KERNAL ROM restored
+        sta CPU_PORT
+        cli
+        rts
+
+; ── NMI trampoline (written to RAM at $FF00 by _kernal_init) ──
+; If NMI fires while KERNAL is banked out, the CPU reads the
+; NMI vector from RAM at $FFFA/$FFFB → $FF00.  This stub
+; re-banks the KERNAL and then does what the KERNAL NMI entry
+; would have done: SEI + JMP ($0318).  $0318 is the KERNAL's
+; indirect NMI vector in RAM, which CSE sets to nmi_handler.
+NMI_TRAMP    = $FF00
+NMI_VEC_RAM  = $FFFA
+KERNAL_NMIV  = $0318            ; KERNAL indirect NMI vector (RAM)
+
+.segment "RODATA"
+_nmi_tramp_code:
+        ; 10 bytes: lda $01 / ora #$02 / sta $01 / sei / jmp ($0318)
+        .byte $A5, $01          ; LDA $01
+        .byte $09, $02          ; ORA #$02
+        .byte $85, $01          ; STA $01
+        .byte $78               ; SEI
+        .byte $6C               ; JMP (abs)
+        .byte <KERNAL_NMIV, >KERNAL_NMIV
+NMI_TRAMP_SIZE = * - _nmi_tramp_code
+
+.segment "CODE"
+
+; ═════════════════════════════════════════════════════════
+; _kernal_init — install NMI trampoline in banked RAM
+;   Must be called once at startup, before any bank-out.
+;   Clobbers A, X, Y.
+; ═════════════════════════════════════════════════════════
+.proc _kernal_init
+        jsr _st_bank_out
+
+        ; Copy trampoline code to $FF00
+        ldx #NMI_TRAMP_SIZE - 1
+@copy:  lda _nmi_tramp_code,x
+        sta NMI_TRAMP,x
+        dex
+        bpl @copy
+
+        ; Set RAM NMI vector → $FF00
+        lda #<NMI_TRAMP
+        sta NMI_VEC_RAM
+        lda #>NMI_TRAMP
+        sta NMI_VEC_RAM + 1
+
+        jmp _st_bank_in         ; tail call
+.endproc
 
 ; ═════════════════════════════════════════════════════════
 ; sym_set_heap — set heap base address
@@ -66,12 +143,15 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
 .proc _sym_clear
         lda #0
         sta _st_count
+        jsr _st_bank_out
+        lda #0
         tax
 @clr:   sta sym_table,x
         sta sym_table+$100,x
         sta sym_table+$200,x
         inx
         bne @clr
+        jsr _st_bank_in
         ; Reset heap pointer to base
         lda _st_heap_base
         sta _st_heap
@@ -256,6 +336,8 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         sta _st_idx
         ldx #SYM_SLOTS
 
+        jsr _st_bank_out
+
 @probe: jsr entry_ptr
         jsr is_empty
         beq @empty
@@ -277,7 +359,7 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         cmp #SYM_SLOTS
         bcs @full
 
-        ; Copy name to heap
+        ; Copy name to heap (heap is in main RAM — OK while KERNAL banked out)
         jsr heap_copy_name
 
         ; Store hash byte
@@ -310,6 +392,7 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
 :       ldy #5
         sta (_st_ptr),y
 
+        jsr _st_bank_in
         clc
         rts
 
@@ -321,7 +404,8 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         dex
         bne @probe
 
-@full:  sec
+@full:  jsr _st_bank_in
+        sec
         rts
 .endproc
 
@@ -337,6 +421,8 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         and #SYM_MASK
         sta _st_idx
         ldx #SYM_SLOTS
+
+        jsr _st_bank_out
 
 @probe: jsr entry_ptr
         jsr is_empty
@@ -368,6 +454,7 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         rol
         sta sym_wide
 
+        jsr _st_bank_in
         clc
         rts
 
@@ -380,6 +467,7 @@ sym_table:   .res SYM_SLOTS * ENTRY_SIZE   ; 128 × 6 = 768 bytes
         bne @probe
 
 @notfound:
+        jsr _st_bank_in
         sec
         rts
 .endproc

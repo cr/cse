@@ -113,6 +113,12 @@ void main(void)
     reset_screen();
     *(uint8_t *)0xD018 |= 0x02;          /* lowercase/uppercase charset */
 
+    /* Install NMI trampoline in RAM under KERNAL ($FF00).
+     * Must be called before any KERNAL bank-out operation. */
+    {   extern void kernal_init(void);
+        kernal_init();
+    }
+
     /* Initialize symbol table heap (right after BSS) */
     sym_set_heap(cse_end());
     sym_clear();

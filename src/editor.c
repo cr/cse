@@ -22,8 +22,13 @@
 /* row * 40 via shifts — avoids pulling in cc65 tosumula0 runtime */
 #define ROW_OFFSET(r) (((uint16_t)(r) << 5) + ((uint16_t)(r) << 3))
 
-/* ── REPL screen save buffer ────────────────────────────── */
-static uint8_t repl_screen[1000];
+/* ── REPL screen save buffer (banked RAM under KERNAL) ──── */
+/* 1000 bytes at $F818–$FBFF, just below sym_table ($FC00).
+ * Accessed via kernal_bank_out/in since the KERNAL ROM
+ * overlays this region. */
+#define REPL_SCREEN ((uint8_t *)0xF818)
+extern void __fastcall__ kernal_bank_out(void);
+extern void __fastcall__ kernal_bank_in(void);
 static uint8_t repl_cur_x, repl_cur_y;   /* saved REPL cursor position */
 
 /* ── Gap buffer ─────────────────────────────────────────── *
@@ -496,7 +501,9 @@ void enter_editor(void)
     /* save REPL state */
     repl_cur_x = io_cx;
     repl_cur_y = io_cy;
-    memcpy(repl_screen, SCREEN, 1000);
+    kernal_bank_out();
+    memcpy(REPL_SCREEN, SCREEN, 1000);
+    kernal_bank_in();
 
     if (buf_end == 0) ed_init();
 
@@ -509,9 +516,11 @@ void enter_editor(void)
         uint8_t src_row;
         if (prompt_row >= 2) src_row = prompt_row - 2;
         else src_row = 0;
+        kernal_bank_out();
         memcpy(SCREEN + ROW_OFFSET(23),
-               repl_screen + ROW_OFFSET(src_row),
+               REPL_SCREEN + ROW_OFFSET(src_row),
                ROW_OFFSET(2));
+        kernal_bank_in();
     }
 
     ed_render();
@@ -522,7 +531,9 @@ void enter_editor(void)
 
 void leave_editor(void)
 {
-    memcpy(SCREEN, repl_screen, 1000);
+    kernal_bank_out();
+    memcpy(SCREEN, REPL_SCREEN, 1000);
+    kernal_bank_in();
     io_cx = repl_cur_x; io_cy = repl_cur_y; io_sync();
     state = ST_REPL;
 }

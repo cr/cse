@@ -47,10 +47,25 @@ development. Future production builds relocate to $8000.
       ...        (code + rodata + data + bss, ~14KB)
     $????-$CFFF  Free (developer + source, see future layout)
     $D000-$DFFF  I/O (VIC/SID/CIA)
-    $E000-$FFFF  KERNAL ROM
+    $E000-$F817  KERNAL RAM (free, 6.0 KB available)
+    $F818-$FBFF  KERNAL RAM: repl_screen (1000 bytes, banked)
+    $FC00-$FEFF  KERNAL RAM: sym_table (768 bytes, banked)
+    $FF00-$FF09  NMI trampoline (10 bytes, banked)
+    $FFFA-$FFFF  HW vectors (NMI/RESET/IRQ)
 
 Note: BASIC ROM ($A000-$BFFF) is unmapped at startup. The RAM
 underneath is available.
+
+Note: $E000-$FFFF is KERNAL ROM by default.  The RAM underneath is
+accessible by clearing bit 1 of the CPU I/O port ($01).  Interrupts
+must be disabled (sei) while the KERNAL is banked out, because the
+IRQ vector and KERNAL interrupt handler are not visible when ROM is
+unmapped.  An NMI trampoline at $FF00 handles the case where NMI
+fires during a bank-out (sei does not mask NMI).  CSE uses this
+region for the symbol table (768 bytes at $FC00) and the REPL
+screen save buffer (1000 bytes at $F818).  All accesses are
+wrapped in sei / bank-out / access / bank-in / cli guard sequences.
+See [symtab.md](modules/symtab.md) for details.
 
 ## Memory Map — PRG Target (production, relocated)
 
@@ -60,7 +75,11 @@ underneath is available.
     $8000-$BFFF  CSE runtime (code+rodata+data+bss+cstk)
     $C000-$CFFF  Free for developer (popular target address)
     $D000-$DFFF  I/O
-    $E000-$FFFF  KERNAL ROM
+    $E000-$F817  KERNAL RAM (free, 6.0 KB available)
+    $F818-$FBFF  KERNAL RAM: repl_screen (1000 bytes, banked)
+    $FC00-$FEFF  KERNAL RAM: sym_table (768 bytes, banked)
+    $FF00-$FF09  NMI trampoline (10 bytes, banked)
+    $FFFA-$FFFF  HW vectors (NMI/RESET/IRQ)
 
     Developer workspace: $0800-$7FFF = 30KB (source + output)
     CSE footprint:       $8000-$BFFF = 16KB
@@ -74,7 +93,11 @@ underneath is available.
     $8000-$BFFF  CSE cartridge ROM (code + rodata, 16KB)
     $C000-$CFFF  CSE mutable state (BSS + DATA + C stack)
     $D000-$DFFF  I/O
-    $E000-$FFFF  KERNAL ROM
+    $E000-$F817  KERNAL RAM (free, 6.0 KB available)
+    $F818-$FBFF  KERNAL RAM: repl_screen (1000 bytes, banked)
+    $FC00-$FEFF  KERNAL RAM: sym_table (768 bytes, banked)
+    $FF00-$FF09  NMI trampoline (10 bytes, banked)
+    $FFFA-$FFFF  HW vectors (NMI/RESET/IRQ)
 
     Developer workspace: $0800-$7FFF = 30KB (source + output)
     CSE ROM:             $8000-$BFFF = 16KB (zero RAM cost)

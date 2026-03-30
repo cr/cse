@@ -46,7 +46,7 @@ Must be called before the first `_sym_define`.
 
 ## Design
 
-### Entry layout (6 bytes × 128 slots = 768 bytes BSS)
+### Entry layout (6 bytes × 128 slots = 768 bytes at $FC00)
 
 ```
 Offset  Size  Field
@@ -59,6 +59,53 @@ Offset  Size  Field
 
 **Empty slot detection:** `name_ptr == $0000`.  Hash value 0 is valid
 and does not indicate an empty slot.
+
+### KERNAL banking
+
+`sym_table` lives at $FC00–$FEFF in RAM underneath the KERNAL ROM.
+Placed at the top so the table (or other banked data) can grow
+downward toward $E000.  The REPL screen save buffer (1000 bytes,
+`editor.c`) lives just below at $F818–$FBFF.  An NMI trampoline
+at $FF00 ensures safe NMI handling while the KERNAL is banked
+out.  This saves 1,768 bytes of BSS.  Accessing
+the table requires banking out the KERNAL by clearing bit 1 of the
+CPU I/O port ($01).  Since the IRQ vector and KERNAL interrupt
+handler live in the banked-out region, interrupts must be disabled
+for the duration of the access.
+
+The banking guard sequence used by `_sym_define`, `_sym_lookup`, and
+`_sym_clear`:
+
+```
+sei                 ; disable interrupts
+lda $01
+and #$FD           ; clear bit 1 → KERNAL RAM visible
+sta $01
+  ... table access ...
+lda $01
+ora #$02           ; set bit 1 → KERNAL ROM restored
+sta $01
+cli                 ; re-enable interrupts
+```
+
+Functions that do not access `sym_table` directly (`_sym_count`,
+`_sym_set_heap`) do not need banking guards.  Internal subroutines
+(`compute_hash`, `fold_char`) that operate only on ZP variables and
+the name string (which is in main RAM) are called with the KERNAL
+already banked out by their caller.
+
+The name heap remains in normal BSS — only the 768-byte hash table
+is under the KERNAL.
+
+### NMI safety
+
+`sei` only masks IRQ, not NMI.  If NMI fires while the KERNAL is
+banked out, the CPU reads the NMI vector from RAM at $FFFA/$FFFB
+instead of ROM.  `_kernal_init` (called once at startup) installs
+a 10-byte trampoline at $FF00 in banked RAM and sets the RAM NMI
+vector to point to it.  The trampoline re-banks the KERNAL and
+then jumps through the KERNAL's indirect NMI vector at $0318
+(which CSE sets to its own `nmi_handler` in `cse_io.s`).
 
 ### Hash function
 
@@ -116,7 +163,13 @@ If all 128 slots probed → C=1 (full).
 - 128 fixed slots.  No dynamic resizing.  When full, `_sym_define`
   returns C=1 and the caller reports the error.
 - `_sym_clear` zeros 768 bytes (3 pages) — takes ~4ms at 1 MHz.
+  Interrupts are disabled for the duration.
 - `names_equal` uses a stack peek trick (`tsx; cmp $0101,x`) to
   compare without popping.  Works because the 6502 stack is at $0100.
 - `heap_copy_name` copies until NUL.  The caller must ensure
   `sym_name` points to a properly NUL-terminated string.
+- Banking overhead: ~20 cycles per sei/bank-out/bank-in/cli pair.
+  Negligible compared to the ~300-cycle hash + probe cost of a
+  typical lookup.  Worst case: `_sym_clear` holds interrupts off
+  for ~4ms (3-page zero loop); acceptable because the C64 IRQ
+  period is ~16ms (60 Hz).
