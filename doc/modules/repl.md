@@ -23,7 +23,7 @@
 - `block_size` (uint16) — block size for m/d/f/t/+/-, default $10
 
 **Depends on:** asm_bridge (`.`), asm_src (`a`), dasm (`d`), expr (`?`),
-disk (`l`/`w`/`$`), editor, screen, cse_io
+disk (`l`/`w`/`$`), debugger (`x`/`c`/`t`/`n`), editor, screen, cse_io
 
 ## Design
 
@@ -233,7 +233,7 @@ The REPL's line editor operates within the 40-column screen:
 |-----|----------|-----------|-----------------------------|----------------------------------------------|
 | `m` | memory   | yes       | `1000:m` dump, `1000:m A9 00...` edit | Bare = dump `b` bytes; with hex = edit   |
 | `f` | fill     | yes       | `1000:f EA`                 | Fill `b` bytes with value *(planned)*        |
-| `t` | transfer | yes       | `1000:t 2000`               | Copy `b` bytes from AAAA to arg *(planned)*  |
+| `>` | transfer | yes       | `1000:> 2000`               | Copy `#` bytes from AAAA to arg *(planned)*  |
 | `h` | hunt     | yes       | `1000:h A9 00`              | Search for byte pattern *(planned)*          |
 
 ### Commands — Assembly / Disassembly
@@ -248,17 +248,17 @@ The REPL's line editor operates within the 40-column screen:
 
 | Key | Name | Addressed | Example          | Notes                                      |
 |-----|------|-----------|------------------|--------------------------------------------|
-| `j` | JSR  | yes       | `1000:j` or `j C000` | Call address via JSR; shows registers on return. Optional address arg overrides `cur_addr`. |
-| `g` | go   | yes       | `1000:g`         | JMP (no return) *(planned)*                |
+| `j` | jump | yes       | `1000:j` or `j C000` | Start execution at address. Patches breakpoints, enters debugger loop. Shows registers on break/RTS. |
+| `c` | continue | —    | `c`              | Continue from last break (BRK/NMI). Error if no active break context. |
 
 ### Commands — Debug / Trace
 
 | Key | Name      | Addressed | Example         | Notes                                    |
 |-----|-----------|-----------|-----------------|------------------------------------------|
 | `r` | registers | —         | `r` or `r a:05...` | View / edit CPU registers             |
-| `n` | next      | —         | `n` or `n 5`    | Step 1 (or N) instructions *(planned)*   |
-| `o` | step over | —         | `o`              | Skip into JSR *(planned)*                |
-| `!` | breakpoint| yes / —   | `1000:!` toggle  | Set/list breakpoints *(planned)*         |
+| `x` | breakpoint| —         | `x 1020`, `x -1`, `x *` | Set, delete, list. See [debugger.md](debugger.md). |
+| `t` | trace     | —         | `t` or `t 5`    | Step-into N instructions (default 1). Enters subroutines. |
+| `n` | next      | —         | `n` or `n 5`    | Step-over N instructions (default 1). JSR runs to completion. |
 
 ### Commands — Navigation
 
@@ -285,7 +285,7 @@ The REPL's line editor operates within the 40-column screen:
 | `i`   | info    | —         | `i`                  | Show memory map                       |
 | `?`   | calc    | —         | `? 1000+20`          | Hex expression calculator             |
 | `k`   | kill    | —         | `k`                  | Clear source buffer (confirms first)  |
-| `c`   | color   | —         | `c 06` or `c 0e6`   | Set text/bg/border color              |
+| `C`   | color   | —         | `C 06` or `C 0e6`   | Set text/bg/border color (uppercase)  |
 | `T`   | tab     | —         | `T 4` or `T`         | Set/show tab width; reindents source (uppercase) |
 | `u`   | cpu     | —         | `u 6502` or `u 65c02` | Set CPU mode for asm/disasm        |
 | `q`   | quit    | —         | `q`                  | Exit CSE                              |
@@ -294,7 +294,7 @@ The REPL's line editor operates within the 40-column screen:
 
 ### Block size
 
-The `b` command sets a 16-bit block size used by `m`, `d`, `f`, `t`,
+The `b` command sets a 16-bit block size used by `m`, `d`, `f`, `>`,
 `h`, and `+`/`-` navigation.  Default: `$0010` (16 bytes = 2 hex
 dump lines).
 
@@ -332,13 +332,13 @@ levels.
     io   d000-dfff vic/sid/cia
     kern e000-ffff kernal rom
 
-### `c` — Color
+### `C` — Color (uppercase)
 
 Accepts 1, 2, or 3 single hex digits.  Extra characters ignored.
 
-    c 6          set text color to blue
-    c 06         set bg=black, text=blue
-    c 0e6        set border=black, bg=dark grey, text=blue
+    C 6          set text color to blue
+    C 06         set bg=black, text=blue
+    C 0e6        set border=black, bg=dark grey, text=blue
 
 ### `u` — CPU mode
 
@@ -349,9 +349,10 @@ Accepts 1, 2, or 3 single hex digits.  Extra characters ignored.
 ### Reserved keys
 
     e   editor mode (source buffer)
+    g   go / JMP to address (no return) — planned
+    o   (free)
     p   print / evaluate
     v   visual mode (split screen?)
-    x   (free)
     y   (free)
     z   (free)
 
@@ -374,7 +375,7 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
     [x] d   disassemble block
     [x] m   memory dump / edit
     [x] a   assemble source buffer
-    [x] j   JSR to address
+    [x] j   JSR / start execution
     [x] r   registers view / edit
     [x] s   seek
     [x] b   block size
@@ -385,17 +386,18 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
     [x] -   seek backward
     [x] i   memory map info
     [x] ?   hex expression calculator
-    [x] c   color theme
+    [x] C   color theme (uppercase, was `c`)
     [x] u   cpu mode select
     [ ] k   kill source (clear editor buffer)
     [x] l   load file from disk
     [x] w   write memory to disk
-    [ ] g   go / continue
-    [ ] n   step next
-    [ ] o   step over
-    [ ] !   breakpoints
+    [ ] x   breakpoints. See debugger.md
+    [ ] c   continue execution (was color). See debugger.md
+    [ ] t   trace / step-into (was transfer). See debugger.md
+    [ ] n   next / step-over. See debugger.md
+    [ ] g   go / JMP (no return)
     [ ] f   fill
-    [ ] t   transfer
+    [ ] >   transfer (was `t`)
     [x] T   tab width (uppercase)
     [ ] h   hunt
     [ ] @   disk command

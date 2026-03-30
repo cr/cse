@@ -2,14 +2,14 @@
 
 ## Bugs
 
-- [ ] 13 CMOS mnemonic gate bugs: pure CMOS mnemonics (BRA, PHX, PHY,
-  PLX, PLY, TRB, TSB, STZ) assemble on NMOS when they shouldn't.
-  CMOS *modes* (ZPI, ACC, AIX, BIT IMM) are correctly gated.
-  See `test_nmos_rejects_cmos` xfail list.
-- [ ] expr.s test harness: 12 xfails from missing cc65 C stack stubs.
-  Redesign expr.s to use ZP args or fix the test stub.
-- [ ] Stale comment in asm_vars.s:35 — `al_cpu` is 0=6502, 1=6510,
-  2=65C02 (not 0=NMOS, 1=65C02).
+- [x] ~~13 CMOS mnemonic gate bugs~~ — fixed in `2939a94`: added
+  cat=11 check in asm_line.s CMOS gate.
+- [x] ~~expr.s test harness: 12 xfails~~ — resolved, 146 tests pass.
+- [ ] al_cpu 3-valued semantics: should be 0=6502, 1=6510, 2=65C02
+  (matches dasm.s, repl.c, asm_src.s).  asm_line.s treats it as
+  boolean (0=NMOS, nonzero=CMOS) — `bne`/`beq` must become
+  `cmp #2`/`bcs`/`bcc`.  Comments in asm_line.s:18, asm_vars.s:35
+  also need updating.  Tests use al_cpu=1 for CMOS (should be 2).
 - [ ] `j` command: reset colors after user code returns (user code
   may change VIC regs).
 - [ ] RUN/STOP debounce: bounces when held.
@@ -45,13 +45,13 @@ Defined scope, needs work.
   its prompt line to include `AAAA:.`.
 - [ ] `h` command: hunt/search for byte pattern in memory.
 - [ ] `f` command: fill memory range with byte.
-- [ ] `t` command: transfer/copy memory block.
-- [ ] `k` command: implement (currently `n` in code, needs reassign).
-  Confirms before clearing.
-- [ ] Breakpoints (`!` command): BRK vector intercept, breakpoint table.
-- [ ] Single-step (`n` command): step 1 or N instructions.
-- [ ] Step-over (`o` command): skip into JSR.
-- [ ] `g` command: JMP to address (no return) / continue from BRK.
+- [ ] `>` command: transfer/copy memory block (was `t`).
+- [ ] `k` command: implement.  Confirms before clearing.
+- [ ] Debugger: `x` (breakpoints), `c` (continue), `t` (trace/step-into),
+  `n` (next/step-over).  BRK-based, full context switch with stack page
+  snapshot.  NMI as ad-hoc break.  See [debugger.md](modules/debugger.md).
+- [ ] Command reassignment: `c` color → `C` (uppercase).
+- [ ] `g` command: JMP to address (no return).
 - [ ] `=` command: define/query symbols from REPL.
 - [ ] `@` command: disk command channel.
 
@@ -75,11 +75,12 @@ Defined scope, needs work.
 
 ### Memory
 
-- [ ] Utilize RAM under KERNAL ($E000-$FFFF) and I/O ($D000-$DFFF)
-  for data structures that aren't hot all the time.  Bank in via $01,
-  use, bank out.  Example: symbol table (768B) is only hot during
-  assembly — disable interrupts and blank the screen for the duration.
-  Candidates: symbol table, name heap, assembled output staging.
+- [x] ~~Utilize RAM under KERNAL~~ — done in `440d8e3`: sym_table
+  (768B) at $FC00, repl_screen (1000B) at $F818, NMI trampoline
+  at $FF00.  Banking guards (sei/cli + $01 bit 1).  6.0 KB free
+  at $E000-$F817 for future use.
+- [ ] Move more data under KERNAL: asm error strings (~176B RODATA),
+  mnemonic/dasm tables (RODATA, needs startup copy).  Low priority.
 - [ ] C128: enable 2 MHz mode during assembly (VIC blanked anyway
   for banking).  Double assembly speed on C128 hardware.
 
@@ -119,8 +120,8 @@ Exploratory, not yet scoped.
   one, show help instead of ;?asm.
 - [ ] Color command `c`: show color preview swatches.
 - [ ] Disk I/O: timeout handling for unresponsive drives.
-- [ ] NMI: not interruptible during `j` user code — flag checked only
-  on return.
+- [ ] NMI during `j` user code: flag checked only on return.  NMI
+  trampoline ($FF00) handles KERNAL banking; separate from `j` issue.
 - [ ] REU (RAM Expansion Unit) support for large source files.
 - [ ] Bank switching for >16KB cartridge (EasyFlash).
 - [ ] Macro support: .macro/.endmacro.
