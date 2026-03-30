@@ -141,6 +141,22 @@ au_check_end:
 @err:   jmp au_syntax_error
 @ok:    rts
 
+; ─── _au_expect_rpar ──────────────────────────────────────────────────────────
+; Require A == ')'.  jmp au_syntax_error if not.
+_au_expect_rpar:
+        cmp #SC_RPAR
+        beq :+
+        jmp au_syntax_error
+:       rts
+
+; ─── _au_expect_x ────────────────────────────────────────────────────────────
+; Require A == 'X'.  jmp au_syntax_error if not.
+_au_expect_x:
+        cmp #SC_X
+        beq :+
+        jmp au_syntax_error
+:       rts
+
 ; ─── _au_rd_nib ───────────────────────────────────────────────────────────────
 ; Read one hex digit from (au_ptr),y → A (0–15), advance Y.
 ; Jumps to au_syntax_error on non-hex character.
@@ -273,10 +289,7 @@ au_parse_mode:
         lda (au_ptr),y
         cmp #SC_COMM
         beq @ind_4b_ix          ; ($nnnn,X) → AIX
-        cmp #SC_RPAR
-        beq :+
-        jmp au_syntax_error
-:
+        jsr _au_expect_rpar
         iny                     ; consume ')'
         jsr au_check_end
         lda #MODE_IND           ; ($nnnn) → IND
@@ -287,17 +300,11 @@ au_parse_mode:
         iny                     ; consume ','
         jsr au_skip_ws
         lda (au_ptr),y
-        cmp #SC_X
-        beq :+
-        jmp au_syntax_error
-:
+        jsr _au_expect_x
         iny                     ; consume 'X'
         jsr au_skip_ws
         lda (au_ptr),y
-        cmp #SC_RPAR
-        beq :+
-        jmp au_syntax_error
-:
+        jsr _au_expect_rpar
         iny                     ; consume ')'
         jsr au_check_end
         lda #MODE_AIX
@@ -313,10 +320,7 @@ au_parse_mode:
         lda (au_ptr),y
         cmp #SC_COMM
         beq @ind_1b_ix          ; ($nn,X) → INX
-        cmp #SC_RPAR
-        beq :+
-        jmp au_syntax_error
-:
+        jsr _au_expect_rpar
         iny                     ; consume ')'
         jsr au_skip_ws
         lda (au_ptr),y
@@ -349,17 +353,11 @@ au_parse_mode:
         iny                     ; consume ','
         jsr au_skip_ws
         lda (au_ptr),y
-        cmp #SC_X
-        beq :+
-        jmp au_syntax_error
-:
+        jsr _au_expect_x
         iny                     ; consume 'X'
         jsr au_skip_ws
         lda (au_ptr),y
-        cmp #SC_RPAR
-        beq :+
-        jmp au_syntax_error
-:
+        jsr _au_expect_rpar
         iny                     ; consume ')'
         jsr au_check_end
         lda #MODE_INX           ; ($nn,X) → INX

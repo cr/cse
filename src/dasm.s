@@ -382,19 +382,37 @@ _dasm_mode:     .res 1          ; mode index
         jmp buf_putc
 .endproc
 
+; ── _dasm_finish_unk — set MNE_UNK + MODE_IMP and finish ────
+_dasm_finish_unk:
+        lda #MNE_UNK
+        sta _dasm_midx
+        ; fall through
+
+; ── _dasm_finish_imp — set MODE_IMP and jump to finish ──────
+_dasm_finish_imp:
+        lda #MODE_IMP
+        sta _dasm_mode
+        jmp finish
+
+; ── _dasm_aaa — extract aaa field (bits 7-5) into X ─────────
+; Returns A = X = opcode >> 5.  Clobbers A.
+_dasm_aaa:
+        lda _dasm_opc
+        lsr
+        lsr
+        lsr
+        lsr
+        lsr
+        tax
+        rts
+
 ; ════════════════════════════════════════════════════════════
 ; GROUP DECODERS
 ; ════════════════════════════════════════════════════════════
 
 ; ── cc=01: fully regular ─────────────────────────────────
 .proc decode_cc01
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr                     ; aaa
-        tax
+        jsr _dasm_aaa
         lda g1_mne,x
         sta _dasm_midx
 
@@ -416,10 +434,7 @@ _dasm_mode:     .res 1          ; mode index
         lda #MNE_BIT
         sta _dasm_midx
         jmp finish
-@unk89: lda #MNE_UNK
-        sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
+@unk89: jmp _dasm_finish_unk
 @go:    jmp finish
 .endproc
 
@@ -485,24 +500,14 @@ _dasm_mode:     .res 1          ; mode index
         sta _dasm_mode
         jmp finish
 @to_unk:
-        lda #MNE_UNK
-        sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
+        jmp _dasm_finish_unk
 @aby7:  lda #MODE_ABY
         jmp @regular
 @abx7:  lda #MODE_ABX
 
 @regular:
         sta _dasm_mode
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr                     ; aaa
-        tax
+        jsr _dasm_aaa
         lda g2_mne,x
         sta _dasm_midx
         jmp finish
@@ -540,9 +545,7 @@ _dasm_mode:     .res 1          ; mode index
         jmp @unk
 :       lda #MNE_KIL
         sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
+        jmp _dasm_finish_imp
 
 @ldx_imm:
         lda #MNE_LDX
@@ -552,13 +555,7 @@ _dasm_mode:     .res 1          ; mode index
         jmp finish
 
 @bbb2:  ; Accumulator / implied column
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr                     ; aaa
-        tax
+        jsr _dasm_aaa
         lda g2b2_mne,x
         sta _dasm_midx
         lda g2b2_mode,x
@@ -595,18 +592,10 @@ _dasm_mode:     .res 1          ; mode index
         bne @unk
         lda #MNE_CIM
         sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
+        jmp _dasm_finish_imp
 @bbb4_cmos:
         ; aaa selects same mnemonic as cc=01 (ORA,AND,EOR,ADC,STA,LDA,CMP,SBC)
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr                     ; aaa
-        tax
+        jsr _dasm_aaa
         lda g1_mne,x            ; reuse cc=01 table!
         sta _dasm_midx
         lda #MODE_ZPI
@@ -616,13 +605,7 @@ _dasm_mode:     .res 1          ; mode index
         jmp finish
 
 @bbb6:  ; Per-CPU implied column
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr                     ; aaa
-        tax
+        jsr _dasm_aaa
         ; Check al_cpu for CMOS extras
         lda al_cpu
         cmp #2
@@ -650,19 +633,13 @@ _dasm_mode:     .res 1          ; mode index
         beq @b6_acc
         cmp #MNE_DEC
         beq @b6_acc
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
+        jmp _dasm_finish_imp
 @b6_acc:
         lda #MODE_ACC
         sta _dasm_mode
         jmp finish
 
-@unk:   lda #MNE_UNK
-        sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
+@unk:   jmp _dasm_finish_unk
 .endproc
 
 ; ── cc=00: branches + implied + memory ───────────────────
@@ -687,13 +664,7 @@ _dasm_mode:     .res 1          ; mode index
         jmp decode_cc00_mem
 
 @branch:
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr                     ; aaa
-        tax
+        jsr _dasm_aaa
         lda g0_br_mne,x
         sta _dasm_midx
         lda #MODE_REL
@@ -715,10 +686,7 @@ _dasm_mode:     .res 1          ; mode index
         jmp finish
 :
         ; 6502: ??? (not a valid branch)
-        lda #MNE_UNK
-        sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
+        jmp _dasm_finish_unk
 @brgo:  jmp finish
 
 @bra:   lda #MNE_BRA
@@ -726,32 +694,16 @@ _dasm_mode:     .res 1          ; mode index
         jmp finish
 
 @impl2:
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr                     ; aaa
-        tax
+        jsr _dasm_aaa
         lda g0_i2_mne,x
         sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
+        jmp _dasm_finish_imp
 
 @impl6:
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr                     ; aaa
-        tax
+        jsr _dasm_aaa
         lda g0_i6_mne,x
         sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
+        jmp _dasm_finish_imp
 .endproc
 
 ; ── cc=00 memory operations (bbb=0,1,3,5,7) ─────────────
@@ -1073,11 +1025,7 @@ _dasm_mode:     .res 1          ; mode index
         sta _dasm_mode
         jmp finish
 
-@unk:   lda #MNE_UNK
-        sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
+@unk:   jmp _dasm_finish_unk
 .endproc
 
 ; ── cc=11: CPU-dependent ─────────────────────────────────
@@ -1089,21 +1037,11 @@ _dasm_mode:     .res 1          ; mode index
         beq @cmos
 
         ; al_cpu=0 (6502): all ???
-        lda #MNE_UNK
-        sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
+        jmp _dasm_finish_unk
 
 @nmos:  ; 6510: illegal opcodes
         ; Regular: aaa→mne from g3_mne, bbb→mode from g1_mode
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr                     ; aaa
-        tax
+        jsr _dasm_aaa
         lda g3_mne_nmos,x
         sta _dasm_midx
 
@@ -1145,11 +1083,7 @@ _dasm_mode:     .res 1          ; mode index
         beq @bbr_bbs
 
         ; Other cc=11 on 65C02: all NOP/???
-        lda #MNE_UNK
-        sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
+        jmp _dasm_finish_unk
 
 @rmb_smb:
         ; Bit number = (opcode >> 4) & 7

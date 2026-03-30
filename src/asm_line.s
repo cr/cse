@@ -145,6 +145,13 @@ _al_rd_upper:
         and #$1F                ; map $41–$5A and $61–$7A to $01–$1A
 :       rts
 
+; ── _al_emit_base_opr — emit al_base then au_opr[0] ─────────────────────────
+_al_emit_base_opr:
+        lda al_base
+        jsr _al_emit
+        lda au_opr
+        jmp _al_emit            ; tail call
+
 ; ═════════════════════════════════════════════════════════════════════════════
 ; al_line_asm  —  main entry point
 ; ═════════════════════════════════════════════════════════════════════════════
@@ -188,9 +195,15 @@ al_line_asm:
         and #$1F
         sta al_pidx             ; raw profile index
 
-        ; ── CMOS upgrade: cat=01 + al_cpu≠0 → effective pidx += 1 ────────────
+        ; ── CMOS gate / upgrade ───────────────────────────────────────────
         lda al_prof
         and #$C0
+        cmp #$C0                ; cat=11 (pure CMOS mnemonic)?
+        bne @not_cmos_only
+        lda al_cpu
+        bne @no_upgrade         ; 65C02 → allow, no pidx upgrade needed
+        jmp al_error            ; NMOS → reject
+@not_cmos_only:
         cmp #$40                ; cat=01 (legal + CMOS extension)?
         bne @no_upgrade
         lda al_cpu
@@ -205,18 +218,23 @@ al_line_asm:
 
         ; ── zone dispatch ─────────────────────────────────────────────────────
         lda al_pidx
-        beq @zone_a
-        cmp #ZONE_B_PIDX
-        beq @zone_b
-        cmp #ZONE_C_PIDX
-        beq @zone_c
-        cmp #ZONE_D_PIDX
-        beq @zone_d
-        cmp #ZONE_E_PIDX
-        beq @zone_e
-        cmp #ZONE_F_PIDX
-        beq @zone_f
-        jmp @zone_gh
+        cmp #6
+        bcc :+
+        jmp @zone_gh            ; pidx >= 6 → multi-mode G/H
+:
+        tax
+        lda @ztbl_hi,x
+        pha
+        lda @ztbl_lo,x
+        pha
+        rts                     ; RTS trick → dispatches to (addr+1)
+
+@ztbl_lo:
+        .byte <(@zone_a-1), <(@zone_b-1), <(@zone_c-1)
+        .byte <(@zone_d-1), <(@zone_e-1), <(@zone_f-1)
+@ztbl_hi:
+        .byte >(@zone_a-1), >(@zone_b-1), >(@zone_c-1)
+        .byte >(@zone_d-1), >(@zone_e-1), >(@zone_f-1)
 
 ; ── Zone A: implied — no operand ─────────────────────────────────────────────
 @zone_a:
@@ -236,10 +254,7 @@ al_line_asm:
         beq :+
         jmp al_error            ; neither ABS nor ZP
 :       ; ZP: au_opr[0] is the raw signed offset byte
-        lda al_base
-        jsr _al_emit
-        lda au_opr
-        jsr _al_emit
+        jsr _al_emit_base_opr
         clc
         rts
 
@@ -287,10 +302,7 @@ al_line_asm:
         jsr au_parse_mode
         cmp #MODE_IMM
         bne @err_mode
-        lda al_base
-        jsr _al_emit
-        lda au_opr
-        jsr _al_emit
+        jsr _al_emit_base_opr
         clc
         rts
 
@@ -313,10 +325,7 @@ al_line_asm:
         jsr au_parse_mode
         cmp #MODE_ABS
         bne @err_mode
-        lda al_base
-        jsr _al_emit
-        lda au_opr              ; lo
-        jsr _al_emit
+        jsr _al_emit_base_opr   ; emit base + lo byte
         lda au_opr+1            ; hi
         jsr _al_emit
         clc

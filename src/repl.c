@@ -18,6 +18,9 @@
 #include "asm_src.h"
 #include "expr.h"
 
+/* row * 40 via shifts — avoids pulling in cc65 tosumula0 runtime */
+#define ROW_OFFSET(r) (((uint16_t)(r) << 5) + ((uint16_t)(r) << 3))
+
 /* ── REPL state ─────────────────────────────────────────── */
 uint16_t cur_addr = 0x1000;
 uint8_t  cur_device = 8;
@@ -27,10 +30,49 @@ static uint8_t  *sym_top = 0;
 static uint8_t  *sym_bot = 0;
 char cur_filename[FILENAME_MAX_LEN + 1] = "";
 
+/* ── Decimal digit extraction via subtraction ─────────── */
+
+static const uint16_t _dec_pow[] = { 10000, 1000, 100, 10, 1 };
+
+/* Write up to 5 decimal digits of val, space-padded on left.
+ * Suitable for right-aligned 5-digit display. */
+static void put_dec5_sp(uint16_t val)
+{
+    uint8_t i, started = 0;
+    for (i = 0; i < 5; ++i) {
+        uint8_t d = 0;
+        while (val >= _dec_pow[i]) { val -= _dec_pow[i]; ++d; }
+        if (d || started || i == 4) { io_putc('0' + d); started = 1; }
+        else io_putc(' ');
+    }
+}
+
+/* Convert uint16_t to decimal string (NUL-terminated, up to 5 digits).
+ * Returns length. */
+static uint8_t utoa_sub(uint16_t n, char *buf)
+{
+    uint8_t pos = 0, i, started = 0;
+    for (i = 0; i < 5; ++i) {
+        uint8_t d = 0;
+        while (n >= _dec_pow[i]) { n -= _dec_pow[i]; ++d; }
+        if (d || started || i == 4) { buf[pos++] = '0' + d; started = 1; }
+    }
+    buf[pos] = 0;
+    return pos;
+}
+
+static const char flag_ch[] = "nv-bdizc";
+
 /* ── Common patterns factored out ──────────────────────── */
 
 /* newline + clear — advance to prompt line and clear it for the loop */
 static void nl_prompt(void) { newline(); clear_eol(); }
+
+/* Print XXXX:C (address, colon, command char) at column 0 */
+static void io_addr_cmd(uint16_t addr, char ch) {
+    io_cx = 0;
+    io_puthex4(addr); io_putc(':'); io_putc(ch);
+}
 
 /* error message on next line + prompt */
 static void err_prompt(const char *msg) {
@@ -55,7 +97,7 @@ static uint16_t parse_hex_flex(uint8_t **q) {
 static uint8_t line_buf[42];
 
 void read_line(void) {
-    uint8_t *src = SCREEN + io_cy * SCREEN_WIDTH;
+    uint8_t *src = SCREEN + ROW_OFFSET(io_cy);
     uint8_t  i, sc;
     for (i = 0; i < SCREEN_WIDTH; ++i) {
         sc = src[i] & 0x7F;
@@ -94,9 +136,8 @@ extern char dasm_buf[];
 
 static uint8_t emit_dot(uint16_t addr) {
     uint8_t olen, i;
-    io_cx = 0;
     olen = dasm_insn(addr);             /* disassemble first to get length */
-    io_puthex4(addr); io_putc(':'); io_putc('.');
+    io_addr_cmd(addr, '.');
     io_putc(' ');                           /* 2 spaces before hex */
     for (i = 0; i < 3; ++i) {
         if (i < olen) {
@@ -116,8 +157,7 @@ static void emit_mem(uint16_t addr, uint8_t cols) {
     uint8_t  i, b;
     if (cols == 0) cols = 8;
     if (cols > 8)  cols = 8;
-    io_cx = 0;
-    io_puthex4(addr); io_putc(':'); io_putc('m');
+    io_addr_cmd(addr, 'm');
     for (i = 0; i < 8; ++i) {
         if (i < cols) {
             io_putc(' '); io_puthex2(base[i]);
@@ -134,7 +174,6 @@ static void emit_mem(uint16_t addr, uint8_t cols) {
 }
 
 static void emit_reg(void) {
-    static const char flag_ch[] = "nv-bdizc";
     uint8_t i, p;
     io_cx = 0;
     io_puts("r a:"); io_puthex2(reg_a);
@@ -343,7 +382,6 @@ static uint8_t parse_regval(uint8_t **pp)
 
 static void cmd_reg(uint8_t *args)
 {
-    static const char flag_ch[] = "nv-bdizc";
     uint8_t *q = args, i, p;
 
     skip_sp(&q);
@@ -416,12 +454,21 @@ static uint8_t *get_filename(uint8_t **q) {
     return name;
 }
 
+/* Print "; "name": " prefix for file operations */
+static void io_quoted_name(const char *name) {
+    io_puts("; \""); io_puts(name); io_puts("\": ");
+}
+
 /* Print "name: N lines, M bytes" for SEQ file result */
 static void print_seq_stats(const char *name) {
-    io_puts("; \""); io_puts(name); io_puts("\": ");
+    io_quoted_name(name);
     io_putdec(ed_save_lines); io_puts(" lines, ");
     io_putdec(ed_save_bytes); io_puts(" bytes");
 }
+
+/* Print ";?load name" or ";?save name" error */
+static void io_err_load(const char *name) { io_puts(";?load "); io_puts(name); }
+static void io_err_save(const char *name) { io_puts(";?save "); io_puts(name); }
 
 /* Common disk-op footer: clear_eol, newline, drive status, prompt */
 static void disk_done(void) {
@@ -438,13 +485,13 @@ static void cmd_load(uint8_t *args)
     newline();
     if (is_seq_file(name)) {
         uint8_t err = ed_load_source((char *)name);
-        if (err) { io_puts(";?load "); io_puts((char *)name); }
+        if (err) io_err_load((char *)name);
         else print_seq_stats((char *)name);
     } else {
         uint16_t result = disk_load_prg((char *)name, addr);
-        if (result == 0) { io_puts(";?load "); io_puts((char *)name); }
+        if (result == 0) io_err_load((char *)name);
         else {
-            io_puts("; \""); io_puts((char *)name); io_puts("\": ");
+            io_quoted_name((char *)name);
             io_putdec(result); io_puts(" bytes at ");
             io_puthex4(addr ? addr : result);
         }
@@ -464,7 +511,7 @@ static void cmd_write(uint8_t *args)
     if (is_seq_file(name)) {
         ed_ensure_init();
         err = ed_save_source((char *)name);
-        if (err) { io_puts(";?save "); io_puts((char *)name); }
+        if (err) io_err_save((char *)name);
         else print_seq_stats((char *)name);
     } else {
         uint16_t end = parse_hex_flex(&q);
@@ -473,9 +520,9 @@ static void cmd_write(uint8_t *args)
         if (end <= addr) { err_prompt(";?range"); return; }
         size = end - addr;
         err = disk_save_prg((char *)name, addr, size);
-        if (err) { io_puts(";?save "); io_puts((char *)name); }
+        if (err) io_err_save((char *)name);
         else {
-            io_puts("; \""); io_puts((char *)name); io_puts("\": ");
+            io_quoted_name((char *)name);
             io_putdec(size); io_puts(" bytes ");
             io_puthex4(addr); io_putc('-'); io_puthex4(end - 1);
         }
@@ -488,7 +535,7 @@ static void cmd_write(uint8_t *args)
 static void info_line(uint8_t inv, const char *tag,
                       uint16_t lo, uint16_t hi, const char *desc)
 {
-    uint8_t *scr = SCREEN + io_cy * SCREEN_WIDTH;
+    uint8_t *scr = SCREEN + ROW_OFFSET(io_cy);
     uint8_t col;
     io_cx = 0;
     io_putc(';');
@@ -513,18 +560,9 @@ static void info_line(uint8_t inv, const char *tag,
 static void free_line(uint16_t lo, uint16_t hi)
 {
     char fbuf[20];
-    /* manual utoa + " bytes free" — avoids sprintf */
-    uint16_t n = hi - lo + 1;
-    uint8_t pos = 0;
-    char tmp[6];
-    uint8_t tlen = 0;
-    if (n == 0) { tmp[tlen++] = '0'; }
-    else { while (n > 0) { tmp[tlen++] = '0' + (n % 10); n /= 10; } }
-    while (tlen > 0) fbuf[pos++] = tmp[--tlen];
-    fbuf[pos++] = ' '; fbuf[pos++] = 'b'; fbuf[pos++] = 'y';
-    fbuf[pos++] = 't'; fbuf[pos++] = 'e'; fbuf[pos++] = 's';
-    fbuf[pos++] = ' '; fbuf[pos++] = 'f'; fbuf[pos++] = 'r';
-    fbuf[pos++] = 'e'; fbuf[pos++] = 'e'; fbuf[pos] = 0;
+    uint8_t pos;
+    pos = utoa_sub(hi - lo + 1, fbuf);
+    memcpy(fbuf + pos, " bytes free", 12);  /* 11 chars + NUL */
     info_line(1, "work", lo, hi, fbuf);
 }
 
@@ -605,9 +643,7 @@ void exec_line(void)
             /* repeat last paging command at cur_addr, no args */
             cmd = last_cmd;
             q = (uint8_t *)"";
-            io_cx = 0;
-            io_puthex4(cur_addr); io_putc(':');
-            io_putc(cmd);
+            io_addr_cmd(cur_addr, cmd);
             clear_eol();
         } else {
             /* ';' or empty with nothing to repeat */
@@ -784,15 +820,7 @@ void exec_line(void)
 
             /* decimal: right-aligned 5 digits, 2sp gap */
             io_puts("  ");
-            if (val >= 10000) io_putc('0' + val / 10000);
-            else io_putc(' ');
-            if (val >= 1000) io_putc('0' + (val / 1000) % 10);
-            else io_putc(' ');
-            if (val >= 100) io_putc('0' + (val / 100) % 10);
-            else io_putc(' ');
-            if (val >= 10) io_putc('0' + (val / 10) % 10);
-            else io_putc(' ');
-            io_putc('0' + val % 10);
+            put_dec5_sp(val);
 
             /* 8-bit extras: binary + signed */
             if (val < 256) {
@@ -809,9 +837,11 @@ void exec_line(void)
                 av = (sb < 0) ? (uint8_t)(-sb) : (uint8_t)sb;
                 io_putc(' '); io_putc(' ');
                 io_putc(sb < 0 ? '-' : '+');
-                if (av >= 100) io_putc('0' + av / 100);
-                if (av >= 10) io_putc('0' + (av / 10) % 10);
-                io_putc('0' + av % 10);
+                {   uint8_t d;
+                    if (av >= 100) { d = 0; while (av >= 100) { av -= 100; ++d; } io_putc('0' + d); }
+                    if (av >= 10) { d = 0; while (av >= 10) { av -= 10; ++d; } io_putc('0' + d); }
+                    io_putc('0' + av);
+                }
             }
             clear_eol();
         } else {
@@ -837,7 +867,7 @@ void exec_line(void)
         if (*q >= '0' && *q <= '9') {
             dev = 0;
             while (*q >= '0' && *q <= '9')
-                dev = dev * 10 + (*q++ - '0');
+                dev = (dev << 3) + (dev << 1) + (*q++ - '0');
             if (dev >= 4 && dev <= 30)
                 cur_device = dev;
         }

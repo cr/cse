@@ -19,6 +19,9 @@
 #define ED_LINES     22                   /* visible source lines */
 #define ED_STATUS    22                   /* status bar row */
 
+/* row * 40 via shifts — avoids pulling in cc65 tosumula0 runtime */
+#define ROW_OFFSET(r) (((uint16_t)(r) << 5) + ((uint16_t)(r) << 3))
+
 /* ── REPL screen save buffer ────────────────────────────── */
 static uint8_t repl_screen[1000];
 static uint8_t repl_cur_x, repl_cur_y;   /* saved REPL cursor position */
@@ -213,13 +216,20 @@ uint8_t ed_load_source(const char *name)
     return 0;
 }
 
+/* vcol mod tab_width via subtraction — avoids cc65 umod runtime */
+static uint8_t col_mod_tw(uint8_t vcol)
+{
+    while (vcol >= tab_width) vcol -= tab_width;
+    return vcol;
+}
+
 /* ── Editor screen rendering ────────────────────────────── */
 
 /* Render one source line at screen row.  *pos advances past the
  * $0D or to buf_end.  Returns 1 if more text, 0 at EOF. */
 static uint8_t ed_render_line(uint8_t row, uint8_t **pos)
 {
-    uint8_t *scr = SCREEN + (uint16_t)row * SCREEN_WIDTH;
+    uint8_t *scr = SCREEN + ROW_OFFSET(row);
     uint8_t col = 0;
     uint8_t ch, sc;
 
@@ -230,7 +240,7 @@ static uint8_t ed_render_line(uint8_t row, uint8_t **pos)
         if (ch == 0x0D) { ++(*pos); break; }
         if (ch == 0xA0) {
             /* Tab: expand to spaces up to next tab_width boundary */
-            uint8_t w = (tab_width > 0) ? (tab_width - (col % tab_width)) : 1;
+            uint8_t w = (tab_width > 0) ? (tab_width - col_mod_tw(col)) : 1;
             while (w-- && col < SCREEN_WIDTH) scr[col++] = 0x20;
             ++(*pos);
             continue;
@@ -296,44 +306,64 @@ static const uint8_t st_hx[] = {
     0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,
     0x38,0x39,0x01,0x02,0x03,0x04,0x05,0x06 };
 
+static void st_hex4(uint8_t *dst, uint16_t val) {
+    dst[0] = st_hx[(val >> 12) & 0xF] | 0x80;
+    dst[1] = st_hx[(val >>  8) & 0xF] | 0x80;
+    dst[2] = st_hx[(val >>  4) & 0xF] | 0x80;
+    dst[3] = st_hx[ val        & 0xF] | 0x80;
+}
+
+/* Divide val by 10 via subtraction. Returns quotient; *rem = remainder. */
+static uint16_t div10(uint16_t val, uint8_t *rem)
+{
+    uint16_t q = 0;
+    while (val >= 10) { val -= 10; ++q; }
+    *rem = (uint8_t)val;
+    return q;
+}
+
 /* Update cursor position (cols 34-39). */
 static void ed_status_pos(void)
 {
-    uint8_t *s = SCREEN + ED_STATUS * SCREEN_WIDTH;
+    uint8_t *s = SCREEN + ROW_OFFSET(ED_STATUS);
     uint16_t v;
+    uint8_t d0, d1, d2;
 
-    v = ed_cur_col + 1;
-    s[39] = (0x30 + v % 10) | 0x80; v /= 10;
-    s[38] = (0x30 + v % 10) | 0x80;
+    /* Column: 2 digits (1-40) */
+    v = div10(ed_cur_col + 1, &d0);
+    d1 = (uint8_t)v;
+    s[39] = (0x30 + d0) | 0x80;
+    s[38] = (0x30 + d1) | 0x80;
     s[37] = 0x2C | 0x80;
-    v = ed_cur_line + 1;
-    s[36] = (0x30 + v % 10) | 0x80; v /= 10;
-    s[35] = v ? ((0x30 + v % 10) | 0x80) : 0xA0; v /= 10;
-    s[34] = v ? ((0x30 + v % 10) | 0x80) : 0xA0;
+
+    /* Line: 3 digits (1-999) */
+    v = div10(ed_cur_line + 1, &d0);
+    v = div10(v, &d1);
+    d2 = (uint8_t)v;
+    s[36] = (0x30 + d0) | 0x80;
+    s[35] = d2 ? ((0x30 + d1) | 0x80) : (d1 ? ((0x30 + d1) | 0x80) : 0xA0);
+    s[34] = d2 ? ((0x30 + d2) | 0x80) : 0xA0;
 }
 
 /* Update dirty flag (col 0). */
 static void ed_status_dirty(void)
 {
-    uint8_t *s = SCREEN + ED_STATUS * SCREEN_WIDTH;
+    uint8_t *s = SCREEN + ROW_OFFSET(ED_STATUS);
     s[0] = ed_dirty ? (0x2A | 0x80) : 0xA0;
 }
 
 /* Update upper free address (cols 29-32) — called when buf_base moves. */
 static void ed_status_free(void)
 {
-    uint8_t *s = SCREEN + ED_STATUS * SCREEN_WIDTH;
+    uint8_t *s = SCREEN + ROW_OFFSET(ED_STATUS);
     uint16_t hi = (uint16_t)buf_base - 1;
-    s[29] = st_hx[(hi >> 12) & 0xF] | 0x80;
-    s[30] = st_hx[(hi >>  8) & 0xF] | 0x80;
-    s[31] = st_hx[(hi >>  4) & 0xF] | 0x80;
-    s[32] = st_hx[ hi        & 0xF] | 0x80;
+    st_hex4(s + 29, hi);
 }
 
 /* Full rebuild — called on mode enter, load, save, filename change. */
 static void ed_render_status(void)
 {
-    uint8_t *s = SCREEN + ED_STATUS * SCREEN_WIDTH;
+    uint8_t *s = SCREEN + ROW_OFFSET(ED_STATUS);
     uint8_t col, j;
     uint16_t lo;
 
@@ -364,10 +394,8 @@ static void ed_render_status(void)
 
     /* lower free address (cols 24-27) — static within a session */
     lo = cse_end();
-    s[col++] = st_hx[(lo >> 12) & 0xF] | 0x80;
-    s[col++] = st_hx[(lo >>  8) & 0xF] | 0x80;
-    s[col++] = st_hx[(lo >>  4) & 0xF] | 0x80;
-    s[col++] = st_hx[ lo        & 0xF] | 0x80;
+    st_hex4(s + col, lo);
+    col += 4;
     s[col++] = 0x2D | 0x80;  /* '-' */
 
     /* upper free address + cursor pos via partial updaters */
@@ -389,7 +417,7 @@ static void ed_render_range(uint8_t from_row, uint8_t to_row)
     for (row = from_row; row < to_row && row < ED_LINES; ++row) {
         if (pos == gap_lo) pos = gap_hi;
         if (pos >= buf_end) {
-            memset(SCREEN + (uint16_t)row * SCREEN_WIDTH, 0x20,
+            memset(SCREEN + ROW_OFFSET(row), 0x20,
                    SCREEN_WIDTH);
         } else {
             ed_render_line(row, &pos);
@@ -420,7 +448,7 @@ static void ed_scroll_up(void)
 
     /* shift screen rows 1..21 → 0..20 */
     memmove(SCREEN, SCREEN + SCREEN_WIDTH,
-            (ED_LINES - 1) * SCREEN_WIDTH);
+            ROW_OFFSET(ED_LINES - 1));
 
     /* render only the new bottom line */
     {
@@ -430,7 +458,7 @@ static void ed_scroll_up(void)
             pos = skip_one_line(pos);
         if (pos == gap_lo) pos = gap_hi;
         if (pos >= buf_end)
-            memset(SCREEN + (ED_LINES - 1) * SCREEN_WIDTH, 0x20,
+            memset(SCREEN + ROW_OFFSET(ED_LINES - 1), 0x20,
                    SCREEN_WIDTH);
         else
             ed_render_line(ED_LINES - 1, &pos);
@@ -447,7 +475,7 @@ static void ed_scroll_down(void)
 
     /* shift screen rows 0..20 → 1..21 */
     memmove(SCREEN + SCREEN_WIDTH, SCREEN,
-            (ED_LINES - 1) * SCREEN_WIDTH);
+            ROW_OFFSET(ED_LINES - 1));
 
     /* render only the new top line */
     {
@@ -473,7 +501,7 @@ void enter_editor(void)
     if (buf_end == 0) ed_init();
 
     /* clear editor area (rows 0–21), keep rows 23–24 from REPL */
-    memset(SCREEN, 0x20, ED_LINES * SCREEN_WIDTH);
+    memset(SCREEN, 0x20, ROW_OFFSET(ED_LINES));
 
     /* copy last 2 REPL lines above the prompt to rows 23–24 */
     {
@@ -481,9 +509,9 @@ void enter_editor(void)
         uint8_t src_row;
         if (prompt_row >= 2) src_row = prompt_row - 2;
         else src_row = 0;
-        memcpy(SCREEN + 23 * SCREEN_WIDTH,
-               repl_screen + src_row * SCREEN_WIDTH,
-               2 * SCREEN_WIDTH);
+        memcpy(SCREEN + ROW_OFFSET(23),
+               repl_screen + ROW_OFFSET(src_row),
+               ROW_OFFSET(2));
     }
 
     ed_render();
@@ -504,10 +532,8 @@ void leave_editor(void)
 /* Compute the visual column width of a single byte. */
 static uint8_t char_width(uint8_t ch, uint8_t vcol)
 {
-    if (ch == 0xA0 && tab_width > 0) {
-        /* Tab: advance to next tab_width boundary (min 1) */
-        return tab_width - (vcol % tab_width);
-    }
+    if (ch == 0xA0 && tab_width > 0)
+        return tab_width - col_mod_tw(vcol);
     return 1;
 }
 
@@ -539,6 +565,14 @@ static uint8_t copy_leading_ws(uint8_t *ws_buf, uint8_t max)
             { ws_buf[n++] = *q++; }
     }
     return n;
+}
+
+/* Mark buffer as edited and update status bar. */
+static void ed_mark_edited(void)
+{
+    if (!ed_dirty) { ed_dirty = 1; ed_status_dirty(); }
+    ed_status_free();
+    ed_status_pos();
 }
 
 /* ── Editor cursor movement helpers ─────────────────────── */
@@ -669,9 +703,7 @@ void ed_handle_key(uint8_t ch)
             scr_row = (uint8_t)(ed_cur_line - ed_top_line);
             ed_render_rows(scr_row, ED_LINES);
         }
-        if (!ed_dirty) { ed_dirty = 1; ed_status_dirty(); }
-        ed_status_free();
-        ed_status_pos();
+        ed_mark_edited();
         goto reposition;
 
     case CH_ENTER:
@@ -697,9 +729,7 @@ void ed_handle_key(uint8_t ch)
             else
                 ed_render();
         }
-        if (!ed_dirty) { ed_dirty = 1; ed_status_dirty(); }
-        ed_status_free();
-        ed_status_pos();
+        ed_mark_edited();
         goto reposition;
     }
 
@@ -715,9 +745,7 @@ void ed_handle_key(uint8_t ch)
                 ed_cur_col = new_vcol;
                 scr_row = (uint8_t)(ed_cur_line - ed_top_line);
                 ed_render_rows(scr_row, scr_row + 1);
-                if (!ed_dirty) { ed_dirty = 1; ed_status_dirty(); }
-                ed_status_free();
-                ed_status_pos();
+                ed_mark_edited();
             }
             goto reposition;
         }
@@ -728,9 +756,7 @@ void ed_handle_key(uint8_t ch)
             ++ed_cur_col;
             scr_row = (uint8_t)(ed_cur_line - ed_top_line);
             ed_render_rows(scr_row, scr_row + 1);
-            if (!ed_dirty) { ed_dirty = 1; ed_status_dirty(); }
-            ed_status_free();
-            ed_status_pos();
+            ed_mark_edited();
         }
         goto reposition;
     }

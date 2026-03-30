@@ -196,17 +196,10 @@ _CMOS_ONLY_CASES = [
 
 # Known bug: pure CMOS mnemonics (BRA, PHX, etc.) are not gated by al_cpu
 # in the assembler. CMOS *modes* (ZPI, ACC, AIX, BIT IMM) ARE gated correctly.
-_CMOS_MNE_XFAIL = {
-    "BRA $0002", "PHX", "PHY", "PLX", "PLY",
-    "TRB $42", "TRB $1234", "TSB $42", "TSB $1234",
-    "STZ $42", "STZ $42,X", "STZ $1234", "STZ $1234,X",
-}
 
 @pytest.mark.parametrize("source", _CMOS_ONLY_CASES)
 def test_nmos_rejects_cmos(al_syms, source):
     """CMOS-only instructions must error on NMOS 6502 (al_cpu=0)."""
-    if source in _CMOS_MNE_XFAIL:
-        pytest.xfail("assembler doesn't gate pure CMOS mnemonics yet")
     try:
         _run(al_syms, source, al_cpu=0)
         pytest.fail(f"should have errored: {source!r} on NMOS")

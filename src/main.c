@@ -14,6 +14,9 @@
 #include "repl.h"
 #include "editor.h"
 
+/* row * 40 via shifts — avoids pulling in cc65 tosumula0 runtime */
+#define ROW_OFFSET(r) (((uint16_t)(r) << 5) + ((uint16_t)(r) << 3))
+
 #define MEM_CONFIG    (*(uint8_t *)0x01)
 #define NMI_VEC       (*(uint16_t *)0x0318) /* KERNAL NMI indirect vector */
 #define BASIC_WARM    0xA659                /* BASIC warm start ($A659) */
@@ -200,7 +203,7 @@ void main(void)
             break;
 
         case CH_DEL: {
-            uint8_t *row = SCREEN + io_cy * SCREEN_WIDTH;
+            uint8_t *row = SCREEN + ROW_OFFSET(io_cy);
             uint8_t mincol = 0;
             uint8_t i;
             if (row[4] == 0x3A) mincol = 5;
@@ -214,7 +217,7 @@ void main(void)
         }
 
         case CH_INS: {
-            uint8_t *row = SCREEN + io_cy * SCREEN_WIDTH;
+            uint8_t *row = SCREEN + ROW_OFFSET(io_cy);
             uint8_t i;
             for (i = SCREEN_WIDTH - 2; i > io_cx; --i)
                 row[i] = row[i - 1];

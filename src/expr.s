@@ -88,7 +88,7 @@ _div_rem:    .res 2              ; divide: remainder
         beq @eat
         cmp #$a0
         bne @done
-@eat:   ADV_PTR
+@eat:   jsr _ex_adv_ptr
         jmp @lp
 @done:  rts
 .endproc
@@ -119,6 +119,34 @@ _div_rem:    .res 2              ; divide: remainder
         rts
 .endproc
 
+; ── Shared helpers for binary-op parsers ──────────────────
+; _ex_adv_ptr: advance expr_ptr by 1
+_ex_adv_ptr:
+        inc expr_ptr
+        bne :+
+        inc expr_ptr+1
+:       rts
+
+; _ex_pop_err: discard stacked left operand, propagate error in A (C=1)
+_ex_pop_err:
+        tax
+        pla
+        pla
+        txa
+        sec
+        rts
+
+; _ex_merge_wide: merge saved wide flag + detect 16-bit result
+_ex_merge_wide:
+        lda _ex_wide_tmp
+        ora expr_wide
+        sta expr_wide
+        lda expr_val+1
+        beq :+
+        lda #1
+        sta expr_wide
+:       rts
+
 ; ═══════════════════════════════════════════════════════════
 ; parse_expr — bool_term (('&' | '£' | '^') bool_term)*
 ; ═══════════════════════════════════════════════════════════
@@ -137,7 +165,7 @@ _div_rem:    .res 2              ; divide: remainder
         clc
 @done:  rts
 
-@and:   ADV_PTR
+@and:   jsr _ex_adv_ptr
         jsr skip_sp
         lda expr_wide
         sta _ex_wide_tmp
@@ -146,7 +174,7 @@ _div_rem:    .res 2              ; divide: remainder
         lda expr_val
         pha
         jsr parse_add
-        bcs @and_err
+        bcs @bool_err
         pla
         and expr_val
         sta expr_val
@@ -155,15 +183,8 @@ _div_rem:    .res 2              ; divide: remainder
         sta expr_val+1
         jsr @merge_wide
         jmp @op
-@and_err:
-        tax
-        pla
-        pla
-        txa
-        sec
-        rts
 
-@or:    ADV_PTR
+@or:    jsr _ex_adv_ptr
         jsr skip_sp
         lda expr_wide
         sta _ex_wide_tmp
@@ -172,7 +193,7 @@ _div_rem:    .res 2              ; divide: remainder
         lda expr_val
         pha
         jsr parse_add
-        bcs @or_err
+        bcs @bool_err
         pla
         ora expr_val
         sta expr_val
@@ -181,15 +202,8 @@ _div_rem:    .res 2              ; divide: remainder
         sta expr_val+1
         jsr @merge_wide
         jmp @op
-@or_err:
-        tax
-        pla
-        pla
-        txa
-        sec
-        rts
 
-@xor:   ADV_PTR
+@xor:   jsr _ex_adv_ptr
         jsr skip_sp
         lda expr_wide
         sta _ex_wide_tmp
@@ -198,7 +212,7 @@ _div_rem:    .res 2              ; divide: remainder
         lda expr_val
         pha
         jsr parse_add
-        bcs @xor_err
+        bcs @bool_err
         pla
         eor expr_val
         sta expr_val
@@ -207,23 +221,11 @@ _div_rem:    .res 2              ; divide: remainder
         sta expr_val+1
         jsr @merge_wide
         jmp @op
-@xor_err:
-        tax
-        pla
-        pla
-        txa
-        sec
-        rts
 
+@bool_err:
+        jmp _ex_pop_err
 @merge_wide:
-        lda _ex_wide_tmp
-        ora expr_wide
-        sta expr_wide
-        lda expr_val+1
-        beq :+
-        lda #1
-        sta expr_wide
-:       rts
+        jmp _ex_merge_wide
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -242,7 +244,7 @@ _div_rem:    .res 2              ; divide: remainder
         clc
 @done:  rts
 
-@add:   ADV_PTR
+@add:   jsr _ex_adv_ptr
         jsr skip_sp
         lda expr_wide
         sta _ex_wide_tmp
@@ -260,24 +262,10 @@ _div_rem:    .res 2              ; divide: remainder
         pla
         adc expr_val+1
         sta expr_val+1
-        ; merge wide
-        lda _ex_wide_tmp
-        ora expr_wide
-        sta expr_wide
-        lda expr_val+1
-        beq :+
-        lda #1
-        sta expr_wide
-:       jmp @op
-@add_err:
-        tax
-        pla
-        pla
-        txa
-        sec
-        rts
+        jsr @merge_wide
+        jmp @op
 
-@sub:   ADV_PTR
+@sub:   jsr _ex_adv_ptr
         jsr skip_sp
         lda expr_wide
         sta _ex_wide_tmp
@@ -286,7 +274,7 @@ _div_rem:    .res 2              ; divide: remainder
         lda expr_val
         pha
         jsr parse_mul
-        bcs @sub_err
+        bcs @add_err
         ; left - right
         pla
         sec
@@ -295,21 +283,13 @@ _div_rem:    .res 2              ; divide: remainder
         pla
         sbc expr_val+1
         sta expr_val+1
-        lda _ex_wide_tmp
-        ora expr_wide
-        sta expr_wide
-        lda expr_val+1
-        beq :+
-        lda #1
-        sta expr_wide
-:       jmp @op
-@sub_err:
-        tax
-        pla
-        pla
-        txa
-        sec
-        rts
+        jsr @merge_wide
+        jmp @op
+
+@add_err:
+        jmp _ex_pop_err
+@merge_wide:
+        jmp _ex_merge_wide
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -349,7 +329,7 @@ _div_rem:    .res 2              ; divide: remainder
 @done:  rts
 
 ; ── multiply ──────────────────────────────────────────
-@mul:   ADV_PTR
+@mul:   jsr _ex_adv_ptr
         jsr skip_sp
         lda expr_wide
         sta _ex_wide_tmp
@@ -368,16 +348,9 @@ _div_rem:    .res 2              ; divide: remainder
         jsr @do_mul16
         jsr @merge_wide
         jmp @op
-@mul_err:
-        tax
-        pla
-        pla
-        txa
-        sec
-        rts
 
 ; ── divide ────────────────────────────────────────────
-@div:   ADV_PTR
+@div:   jsr _ex_adv_ptr
         jsr skip_sp
         lda expr_wide
         sta _ex_wide_tmp
@@ -386,7 +359,7 @@ _div_rem:    .res 2              ; divide: remainder
         lda expr_val
         pha
         jsr parse_factor
-        bcs @div_err
+        bcs @mul_err
         ; Check divisor == 0
         lda expr_val
         ora expr_val+1
@@ -399,13 +372,9 @@ _div_rem:    .res 2              ; divide: remainder
         jsr @do_div16
         jsr @merge_wide
         jmp @op
-@div_err:
-        tax
-        pla
-        pla
-        txa
-        sec
-        rts
+
+@mul_err:
+        jmp _ex_pop_err
 @divzero:
         pla
         pla
@@ -414,8 +383,8 @@ _div_rem:    .res 2              ; divide: remainder
         rts
 
 ; ── shift left ────────────────────────────────────────
-@shl:   ADV_PTR                 ; skip first <
-        ADV_PTR                 ; skip second <
+@shl:   jsr _ex_adv_ptr                 ; skip first <
+        jsr _ex_adv_ptr                 ; skip second <
         jsr skip_sp
         lda expr_wide
         sta _ex_wide_tmp
@@ -424,7 +393,7 @@ _div_rem:    .res 2              ; divide: remainder
         lda expr_val
         pha
         jsr parse_factor
-        bcs @shl_err
+        bcs @mul_err
         ; Left shift: left << right (right = shift count in expr_val lo)
         pla
         sta _ex_tmp
@@ -444,17 +413,10 @@ _div_rem:    .res 2              ; divide: remainder
         sta expr_val+1
         jsr @merge_wide
         jmp @op
-@shl_err:
-        tax
-        pla
-        pla
-        txa
-        sec
-        rts
 
 ; ── shift right ───────────────────────────────────────
-@shr:   ADV_PTR
-        ADV_PTR
+@shr:   jsr _ex_adv_ptr
+        jsr _ex_adv_ptr
         jsr skip_sp
         lda expr_wide
         sta _ex_wide_tmp
@@ -463,7 +425,7 @@ _div_rem:    .res 2              ; divide: remainder
         lda expr_val
         pha
         jsr parse_factor
-        bcs @shr_err
+        bcs @mul_err
         pla
         sta _ex_tmp
         pla
@@ -482,13 +444,6 @@ _div_rem:    .res 2              ; divide: remainder
         sta expr_val+1
         jsr @merge_wide
         jmp @op
-@shr_err:
-        tax
-        pla
-        pla
-        txa
-        sec
-        rts
 
 ; ── 16-bit multiply: _ex_tmp × expr_val → expr_val ───
 ; Shift-and-add: shift right operand (expr_val), add left (_ex_tmp)
@@ -557,16 +512,8 @@ _div_rem:    .res 2              ; divide: remainder
         sta expr_val+1
         rts
 
-; ── merge wide flag ───────────────────────────────────
 @merge_wide:
-        lda _ex_wide_tmp
-        ora expr_wide
-        sta expr_wide
-        lda expr_val+1
-        beq :+
-        lda #1
-        sta expr_wide
-:       rts
+        jmp _ex_merge_wide
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -621,7 +568,7 @@ _div_rem:    .res 2              ; divide: remainder
         jmp @label
 
 ; ── $hex ───────────────────────────────────────────────
-@hex:   ADV_PTR
+@hex:   jsr _ex_adv_ptr
         jmp parse_hex
 
 ; ── bare decimal ───────────────────────────────────────
@@ -630,11 +577,11 @@ _div_rem:    .res 2              ; divide: remainder
 
 ; ── %binary ────────────────────────────────────────────
 @binary:
-        ADV_PTR
+        jsr _ex_adv_ptr
         jmp parse_binary
 
 ; ── * (program counter) ───────────────────────────────
-@star:  ADV_PTR
+@star:  jsr _ex_adv_ptr
         lda asm_pc
         sta expr_val
         lda asm_pc+1
@@ -650,7 +597,7 @@ _div_rem:    .res 2              ; divide: remainder
 
 ; ── < (lo byte) — clears wide ────────────────────────
 @lo_byte:
-        ADV_PTR
+        jsr _ex_adv_ptr
         jsr parse_factor
         bcs @ret
         lda #0
@@ -661,7 +608,7 @@ _div_rem:    .res 2              ; divide: remainder
 
 ; ── > (hi byte) — clears wide ────────────────────────
 @hi_byte:
-        ADV_PTR
+        jsr _ex_adv_ptr
         jsr parse_factor
         bcs @ret2
         lda expr_val+1
@@ -674,7 +621,7 @@ _div_rem:    .res 2              ; divide: remainder
 
 ; ── ! (complement / NOT) ──────────────────────────────
 @complement:
-        ADV_PTR
+        jsr _ex_adv_ptr
         jsr parse_factor
         bcs @ret3
         lda expr_val
@@ -693,7 +640,7 @@ _div_rem:    .res 2              ; divide: remainder
 
 ; ── - (negate / unary minus) ──────────────────────────
 @negate:
-        ADV_PTR
+        jsr _ex_adv_ptr
         jsr parse_factor
         bcs @ret3b
         ; two's complement: EOR $FF, then INC16
@@ -715,7 +662,7 @@ _div_rem:    .res 2              ; divide: remainder
         rts
 
 ; ── ( expr ) ──────────────────────────────────────────
-@paren: ADV_PTR
+@paren: jsr _ex_adv_ptr
         jsr skip_sp
         jsr parse_expr
         bcs @ret4
@@ -723,7 +670,7 @@ _div_rem:    .res 2              ; divide: remainder
         PEEK_CHAR
         cmp #')'
         bne @err_paren
-        ADV_PTR
+        jsr _ex_adv_ptr
         clc
 @ret4:  rts
 
@@ -738,7 +685,7 @@ _div_rem:    .res 2              ; divide: remainder
         sta sym_name
         lda expr_ptr+1
         sta sym_name+1
-@lscan: ADV_PTR
+@lscan: jsr _ex_adv_ptr
         PEEK_CHAR
         cmp #$41
         bcc @lchk_dig
@@ -803,7 +750,7 @@ _div_rem:    .res 2              ; divide: remainder
         pla
         ora expr_val
         sta expr_val
-        ADV_PTR
+        jsr _ex_adv_ptr
         inc _ex_digits
         lda _ex_digits
         cmp #5
@@ -878,7 +825,7 @@ _div_rem:    .res 2              ; divide: remainder
         sta expr_val+1
         bcs @overflow2
 
-        ADV_PTR
+        jsr _ex_adv_ptr
         inc _ex_digits
         jmp @loop
 
@@ -928,7 +875,7 @@ _div_rem:    .res 2              ; divide: remainder
         bcs @overflow_chk
         ora expr_val
         sta expr_val
-        ADV_PTR
+        jsr _ex_adv_ptr
         inc _ex_digits
         lda _ex_digits
         cmp #17

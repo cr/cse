@@ -178,6 +178,16 @@ hex_tab:        .byte "0123456789abcdef"
 
 ; ── adv_pc_size ────────────────────────────────────────────────────────────
 ; al_pc += _as_wsize;  _asm_size += _as_wsize
+; inc_pc_size: increment al_pc and _asm_size by 1
+inc_pc_size:
+        inc al_pc
+        bne :+
+        inc al_pc+1
+:       inc _asm_size
+        bne :+
+        inc _asm_size+1
+:       rts
+
 .proc adv_pc_size
         lda _as_wsize
         clc
@@ -236,13 +246,8 @@ hex_tab:        .byte "0123456789abcdef"
         beq @qa
         lda (expr_ptr),y
         sta (al_pc),y
-@qa:    inc al_pc
-        bne :+
-        inc al_pc+1
-:       inc _asm_size
-        bne :+
-        inc _asm_size+1
-:       inc expr_ptr
+@qa:    jsr inc_pc_size
+        inc expr_ptr
         bne @ql
         inc expr_ptr+1
         jmp @ql
@@ -330,13 +335,8 @@ hex_tab:        .byte "0123456789abcdef"
         sta (al_pc),y
         pha
 @sk:    pla
-        inc al_pc
-        bne :+
-        inc al_pc+1
-:       inc _asm_size
-        bne :+
-        inc _asm_size+1
-:       inc expr_ptr
+        jsr inc_pc_size
+        inc expr_ptr
         bne @lp
         inc expr_ptr+1
         jmp @lp
@@ -392,13 +392,8 @@ hex_tab:        .byte "0123456789abcdef"
         lda _as_wsize
         ldy #0
         sta (al_pc),y
-@av:    inc al_pc
-        bne :+
-        inc al_pc+1
-:       inc _asm_size
-        bne :+
-        inc _asm_size+1
-:       lda _as_ptr
+@av:    jsr inc_pc_size
+        lda _as_ptr
         bne :+
         dec _as_ptr+1
 :       dec _as_ptr
@@ -462,13 +457,8 @@ hex_tab:        .byte "0123456789abcdef"
         lda #0
         ldy #0
         sta (al_pc),y
-@av:    inc al_pc
-        bne :+
-        inc al_pc+1
-:       inc _asm_size
-        bne :+
-        inc _asm_size+1
-:       lda _as_ptr
+@av:    jsr inc_pc_size
+        lda _as_ptr
         bne :+
         dec _as_ptr+1
 :       dec _as_ptr
