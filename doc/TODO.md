@@ -36,10 +36,11 @@ Defined scope, needs work.
 ### REPL
 
 - [ ] Expression parsing for command address arguments: `j`, `m`, `s`,
-  `l`, `w`, `+`, `-`, `b`.  Replace `parse_hex_flex` with `expr_eval`.
-  Enables `j start`, `m screen`, `s table+$100`.  Consequence: bare
-  `8000` becomes decimal; hex requires `$8000`.  The `AAAA:` prompt
-  prefix stays as 4 hex digits — no expressions.
+  `l`, `w`, `+`, `-`, `b`, `d`, `x ADDR`.  Replace `parse_hex_flex`
+  with `expr_eval`.  Enables `j start`, `m screen`, `s table+$100`.
+  Consequence: bare `8000` becomes decimal; hex requires `$8000`.  The
+  `AAAA:` prompt prefix stays as 4 hex digits — no expressions.
+  `t`/`n` counts stay as plain hex (not expressions).
 - [ ] `.` without args: behave like `d` (disassemble one instruction).
   Bare `.` (no `AAAA:` prefix) operates on `cur_addr` and rewrites
   its prompt line to include `AAAA:.`.
@@ -47,11 +48,13 @@ Defined scope, needs work.
 - [ ] `f` command: fill memory range with byte.
 - [ ] `>` command: transfer/copy memory block (was `t`).
 - [ ] `k` command: implement.  Confirms before clearing.
-- [ ] Debugger: `x` (breakpoints), `c` (continue), `t` (trace/step-into),
+- [x] Debugger: `x` (breakpoints), `c` (continue), `t` (trace/step-into),
   `n` (next/step-over).  BRK-based, full context switch with stack page
   snapshot.  NMI as ad-hoc break.  See [debugger.md](modules/debugger.md).
-- [ ] Command reassignment: `c` color → `C` (uppercase).
-- [ ] `g` command: JMP to address (no return).
+- [x] Command reassignment: `c` color → `C` (uppercase).
+- [x] `g` command: run from `main` symbol; falls back to `j cur_addr` if
+  `main` undefined.  After `a` (assemble), `cur_addr` advances to `main`
+  if it was defined.
 - [ ] `=` command: define/query symbols from REPL.
 - [ ] `@` command: disk command channel.
 

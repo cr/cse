@@ -17,6 +17,7 @@
 #include "editor.h"
 #include "asm_src.h"
 #include "expr.h"
+#include "symtab.h"
 
 /* row * 40 via shifts — avoids pulling in cc65 tosumula0 runtime */
 #define ROW_OFFSET(r) (((uint16_t)(r) << 5) + ((uint16_t)(r) << 3))
@@ -176,7 +177,8 @@ static void emit_mem(uint16_t addr, uint8_t cols) {
 static void emit_reg(void) {
     uint8_t i, p;
     io_cx = 0;
-    io_puts("r a:"); io_puthex2(reg_a);
+    io_puts("r pc:"); io_puthex4(brk_pc);
+    io_puts(" a:"); io_puthex2(reg_a);
     io_puts(" x:"); io_puthex2(reg_x);
     io_puts(" y:"); io_puthex2(reg_y);
     io_puts(" s:"); io_puthex2(reg_sp);
@@ -380,7 +382,6 @@ static void show_break_result(void)
     }
     clear_eol();
     newline();
-    io_puts("; ");
     emit_reg();
     newline();
     cur_addr = brk_pc;
@@ -397,6 +398,7 @@ static void cmd_jmp(void)
         show_break_result();
     } else {
         /* No breakpoints: simple JSR as before */
+        brk_pc = cur_addr;
         jsr_addr(cur_addr);
         restore_colors();
         newline();
@@ -404,6 +406,135 @@ static void cmd_jmp(void)
         newline();
         clear_eol();
     }
+}
+
+/* ── t/n commands: single-step / step-over ─────────────── */
+
+/* Read byte at 16-bit address */
+#define RD8(a)  (*(uint8_t *)(a))
+/* Read little-endian word at 16-bit address */
+#define RD16(a) ((uint16_t)RD8(a) | ((uint16_t)RD8((uint16_t)(a) + 1) << 8))
+
+static void cmd_step(uint8_t *args, uint8_t is_next)
+{
+    static uint16_t last_count = 1;
+    uint16_t count, i;
+    uint8_t  opc;
+    uint16_t next_lo, next_hi;
+
+    /* Cold start: no break context yet — establish one at cur_addr */
+    if (dbg_reason == 0) {
+        brk_pc = cur_addr;
+        dbg_reason = 1;
+    }
+
+    /* Parse count (hex), update last_count if given */
+    {
+        uint8_t *q = args;
+        skip_sp(&q);
+        if (is_hex(*q)) {
+            uint16_t v = parse_hex_flex(&q);
+            if (v) last_count = v;
+        }
+        count = last_count;
+    }
+
+    opc = 0;
+
+    for (i = 0; i < count; ++i) {
+        opc = RD8(brk_pc);
+        next_lo = 0;
+        next_hi = 0;
+
+        /* ── Compute next-PC(s) ── */
+        if (opc == 0x00) {
+            /* BRK: don't step into the vector */
+            break;
+        } else if (opc == 0x20) {
+            /* JSR abs */
+            if (is_next)
+                next_lo = brk_pc + 3;               /* step over */
+            else
+                next_lo = RD16(brk_pc + 1);         /* step into */
+        } else if (opc == 0x60) {
+            /* RTS: peek user stack */
+            if (dbg_has_ctx & 0x80) {
+                uint8_t lo = dbg_usr_stk_byte(reg_sp + 1);
+                uint8_t hi = dbg_usr_stk_byte(reg_sp + 2);
+                next_lo = ((uint16_t)hi << 8 | lo) + 1;
+            }
+            /* next_lo == 0 → unknown; loop will break below */
+        } else if (opc == 0x40) {
+            /* RTI: peek user stack (P at sp+1, PClo at sp+2, PChi at sp+3) */
+            if (dbg_has_ctx & 0x80) {
+                uint8_t lo = dbg_usr_stk_byte(reg_sp + 2);
+                uint8_t hi = dbg_usr_stk_byte(reg_sp + 3);
+                next_lo = (uint16_t)hi << 8 | lo;
+            }
+        } else if (opc == 0x4C) {
+            /* JMP abs */
+            next_lo = RD16(brk_pc + 1);
+        } else if (opc == 0x6C) {
+            /* JMP (ind) */
+            next_lo = RD16(RD16(brk_pc + 1));
+        } else if (opc == 0x7C && al_cpu >= 2) {
+            /* JMP (abs,x) — 65C02 only */
+            next_lo = RD16(RD16(brk_pc + 1) + reg_x);
+        } else if (opc == 0x80 && al_cpu >= 2) {
+            /* BRA — 65C02 unconditional relative */
+            int8_t rel = (int8_t)RD8(brk_pc + 1);
+            next_lo = brk_pc + 2 + rel;
+        } else if ((opc & 0x1F) == 0x10) {
+            /* Conditional branch Bxx */
+            int8_t rel = (int8_t)RD8(brk_pc + 1);
+            next_lo = brk_pc + 2 + rel;   /* taken */
+            next_hi = brk_pc + 2;         /* not taken */
+        } else {
+            /* Linear: advance by instruction length */
+            next_lo = brk_pc + dasm_insn(brk_pc);
+        }
+
+        /* Unknown target → can't step further */
+        if (next_lo == 0) break;
+
+        /* ── Arm step BRKs ── */
+        dbg_step_clear();
+        step_bp[0] = (uint8_t)next_lo;
+        step_bp[1] = (uint8_t)(next_lo >> 8);
+        /* step_bp[2] = 0 (cleared); filled by step_patch */
+        step_bp[3] = 1;  /* enabled */
+        if (next_hi) {
+            step_bp[4] = (uint8_t)next_hi;
+            step_bp[5] = (uint8_t)(next_hi >> 8);
+            /* step_bp[6] = 0 (cleared) */
+            step_bp[7] = 1;
+        }
+
+        /* ── Enter user code for one instruction ── */
+        dbg_enter();
+
+        /* ── NMI or regular breakpoint interrupted the step sequence ── */
+        if (dbg_reason == 2 || dbg_bp_hit != 0xFF) {
+            dbg_step_clear();
+            show_break_result();
+            return;
+        }
+
+        /* ── RTS/RTI: stop the step sequence ── */
+        if (opc == 0x60 || opc == 0x40) break;
+    }
+
+    /* Normal completion: one register line + one disassembly line */
+    newline();
+    emit_reg();
+    newline();
+    cur_addr = brk_pc;
+    emit_dot(brk_pc);
+    clear_eol();
+    nl_prompt();
+
+    /* RTS/RTI: clear repeat so RETURN doesn't step into garbage */
+    if (opc == 0x60 || opc == 0x40) last_cmd = 0;
 }
 
 /* ── x command: breakpoints ────────────────────────────── */
@@ -768,8 +899,8 @@ void exec_line(void)
         if (*q == ' ') ++q;              /* optional space */
     }
 
-    /* ── Save for repeat (only paging commands) ──────────── */
-    if (cmd == 'm' || cmd == 'd' || cmd == '.') {
+    /* ── Save for repeat (paging + step commands) ───────── */
+    if (cmd == 'm' || cmd == 'd' || cmd == '.' || cmd == 't' || cmd == 'n') {
         last_cmd = cmd;
     }
 
@@ -804,6 +935,15 @@ void exec_line(void)
         if (is_hex(*q)) cur_addr = parse_hex_flex(&q);
         cmd_jmp(); break;
     }
+    case 'g':
+    {   uint16_t main_addr;
+        if (sym_lookup("main", &main_addr) == 0) cur_addr = main_addr;
+        cmd_jmp(); break;
+    }
+
+    /* debugger — step */
+    case 't': cmd_step(q, 0); break;
+    case 'n': cmd_step(q, 1); break;
 
     /* debugger — breakpoints */
     case 'x': cmd_brk(q); break;
@@ -899,6 +1039,7 @@ void exec_line(void)
     /* assemble source */
     case 'a':
     {   uint16_t errs;
+        uint16_t main_addr;
         newline();
         io_puts(";assembling...");
         newline();
@@ -908,6 +1049,7 @@ void exec_line(void)
             io_putdec(asm_size);
             io_puts(" bytes at $");
             io_puthex4(asm_org);
+            if (sym_lookup("main", &main_addr) == 0) cur_addr = main_addr;
         } else {
             io_puts("; ");
             io_putdec(errs);

@@ -2,7 +2,7 @@
 ;
 ; Phase A: breakpoint table management (bp_set, bp_del, bp_clear, bp_count)
 ; Phase B: context switch (dbg_enter, dbg_brk_handler, dbg_nmi_break)
-; Phase C: single-step t/n (planned)
+; Phase C: single-step t/n (step_bp, step_clear/patch/unpatch, usr_stk_byte)
 ;
 ; Breakpoint table: 8 slots × 4 bytes = 32 bytes BSS
 ;   Offset 0: addr lo
@@ -10,6 +10,10 @@
 ;   Offset 2: saved byte (original opcode at addr)
 ;   Offset 3: flags (bit 0 = enabled)
 ;   addr=$0000 marks an empty slot.
+;
+; Step BRK table: same 4-byte format, 2 slots (lo/hi branch targets).
+; C fills addr+flags, dbg_enter patches/unpatches around user code.
+; Invariant: all BRKs always unpatched before returning to REPL.
 ;
 ; See doc/modules/debugger.md for full design.
 
@@ -24,7 +28,10 @@
         .export _dbg_brk_handler
         .export _dbg_nmi_break
         .export _bp_table
-        .export _dbg_running, _dbg_reason, _brk_pc, _dbg_bp_hit
+        .export _dbg_running, _dbg_reason, _brk_pc, _dbg_bp_hit, _dbg_has_ctx
+        .export _step_bp
+        .export _dbg_step_clear, _dbg_step_patch, _dbg_step_unpatch
+        .export _dbg_usr_stk_byte
 
         .importzp ptr1          ; cc65 scratch pointer ($4E/$4F)
         .import _reg_a, _reg_x, _reg_y, _reg_sp, _reg_p
@@ -43,22 +50,27 @@ DBG_NONE = 0
 DBG_BRK  = 1
 DBG_NMI  = 2
 
-BP_SLOTS = 8
-BP_SIZE  = 4            ; bytes per slot
+BP_SLOTS    = 8
+BP_SIZE     = 4         ; bytes per slot
+STEP_SLOTS  = 2
+STEP_SIZE   = 4         ; same 4-byte format
 
 ; ── BSS ────────────────────────────────────────────────────────────────
 .segment "BSS"
 
-_bp_table:      .res BP_SLOTS * BP_SIZE ; 32 bytes: 8 slots × 4
+_bp_table:      .res BP_SLOTS * BP_SIZE   ; 32 bytes: 8 slots × 4
 
 _dbg_running:   .res 1          ; $80 = user code active, 0 = REPL
-_dbg_reason:    .res 1          ; why we returned (0=none, 1=BRK, 2=NMI, 3=RTS)
+_dbg_reason:    .res 1          ; why we returned (0=none, 1=BRK, 2=NMI)
 _brk_pc:        .res 2          ; PC where break occurred / resume address
 _dbg_bp_hit:    .res 1          ; slot# of breakpoint that was hit ($FF = none)
 _cse_saved_sp:  .res 1          ; CSE's 6502 SP saved before entering user code
 _saved_brk_lo:  .res 1          ; original $0316 value (lo)
 _saved_brk_hi:  .res 1          ; original $0317 value (hi)
 _dbg_has_ctx:   .res 1          ; $80 = user context in $E200 is valid
+
+_step_bp:       .res STEP_SLOTS * STEP_SIZE ; 8 bytes: 2 step slots × 4
+_dbg_stk_tmp:   .res 1          ; temp for usr_stk_byte banking
 
 ; ── CODE ───────────────────────────────────────────────────────────────
 .segment "CODE"
@@ -351,8 +363,9 @@ _dbg_enter:
         lda #>_dbg_brk_handler
         sta $0317
 
-        ; ── 5. Patch breakpoints ──
+        ; ── 5. Patch breakpoints then step BRKs ──
         jsr _dbg_bp_patch
+        jsr _dbg_step_patch
 
         ; ── 6. Set running flag ──
         lda #$80
@@ -362,10 +375,9 @@ _dbg_enter:
         ldx _reg_sp
         txs
 
-        ; ── 8. Build RTI frame: P, PChi, PClo ──
-        ; RTI pops: PClo, PChi, then P — no wait:
-        ; RTI pops: P first, then PClo, PChi
-        ; So push order: PChi, PClo, P
+        ; ── 8. Build RTI frame ──
+        ; RTI pops P first, then PClo, PChi.
+        ; Push order: PChi, PClo, P
         lda _brk_pc+1
         pha                     ; PChi
         lda _brk_pc
@@ -474,12 +486,14 @@ _dbg_return_common:
         lda #0
         sta _dbg_running
 
-        ; ── 2. Unpatch breakpoints ──
-        ; Must switch to a temporary SP first — user stack may be
-        ; inconsistent and we need JSR/RTS for unpatch.
-        ; Use the top of the user stack area (SP=$FF) temporarily.
+        ; ── 2. Unpatch step BRKs, then regular breakpoints ──
+        ; Step first: if a step target coincides with a regular bp,
+        ; step_unpatch restores the BRK bp_patch left; bp_unpatch then
+        ; restores the original byte.
+        ; Switch to a temporary SP — user stack may be inconsistent.
         ldx #$FF
         txs
+        jsr _dbg_step_unpatch
         jsr _dbg_bp_unpatch
 
         ; ── 3. Restore $0316 ──
@@ -518,4 +532,92 @@ _dbg_return_common:
         ; The CSE stack now has the return address from when C called
         ; dbg_enter.  RTS returns there.  CLI re-enables interrupts.
         cli
+        rts
+
+; ═══════════════════════════════════════════════════════════════════════════
+; Phase C — Step BRK management
+; ═══════════════════════════════════════════════════════════════════════════
+
+; ── _dbg_step_clear ────────────────────────────────────────────────────
+; Zero the step BRK table (2 slots × 4 bytes).
+; C fills addr+flags before calling dbg_enter.
+; Clobbers: A, X
+;
+_dbg_step_clear:
+        lda #0
+        ldx #STEP_SLOTS * STEP_SIZE - 1
+@z:     sta _step_bp,x
+        dex
+        bpl @z
+        rts
+
+; ── _dbg_step_patch ────────────────────────────────────────────────────
+; Patch all enabled step BRKs: save original byte, write $00.
+; Called by _dbg_enter after _dbg_bp_patch.
+; Clobbers: A, X, Y, ptr1
+;
+_dbg_step_patch:
+        ldx #0
+        ldy #0
+@loop:  lda _step_bp,x
+        ora _step_bp+1,x
+        beq @next               ; empty slot (addr=$0000) → skip
+        lda _step_bp+3,x
+        beq @next               ; flags=0 → disabled → skip
+        lda _step_bp,x
+        sta ptr1
+        lda _step_bp+1,x
+        sta ptr1+1
+        lda (ptr1),y            ; read current byte (may already be BRK from bp_patch)
+        sta _step_bp+2,x        ; save it
+        lda #$00
+        sta (ptr1),y            ; write BRK
+@next:  inx
+        inx
+        inx
+        inx
+        cpx #STEP_SLOTS * STEP_SIZE
+        bne @loop
+        rts
+
+; ── _dbg_step_unpatch ──────────────────────────────────────────────────
+; Restore all patched step BRKs: write saved byte back.
+; Called by _dbg_return_common before _dbg_bp_unpatch.
+; Clobbers: A, X, Y, ptr1
+;
+_dbg_step_unpatch:
+        ldx #0
+        ldy #0
+@loop:  lda _step_bp,x
+        ora _step_bp+1,x
+        beq @next               ; empty slot → skip
+        lda _step_bp+3,x
+        beq @next               ; disabled → skip
+        lda _step_bp,x
+        sta ptr1
+        lda _step_bp+1,x
+        sta ptr1+1
+        lda _step_bp+2,x        ; saved byte
+        sta (ptr1),y            ; restore it
+@next:  inx
+        inx
+        inx
+        inx
+        cpx #STEP_SLOTS * STEP_SIZE
+        bne @loop
+        rts
+
+; ── _dbg_usr_stk_byte ──────────────────────────────────────────────────
+; Read one byte from the user stack snapshot in KERNAL RAM ($E200).
+; In:  A = stack offset (uint8_t, __fastcall__)
+; Out: A = byte at USR_STK + offset
+; Clobbers: X
+;
+_dbg_usr_stk_byte:
+        tax                     ; X = offset
+        jsr _kernal_bank_out    ; sei + bank out KERNAL
+        lda USR_STK,x
+        sta _dbg_stk_tmp
+        jsr _kernal_bank_in     ; bank in KERNAL + cli
+        lda _dbg_stk_tmp
         rts
