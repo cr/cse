@@ -431,7 +431,12 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
         uint8_t *q = args;
         skip_sp(&q);
         if (is_hex(*q)) {
-            uint16_t v = parse_hex_flex(&q);
+            /* Accept 1-4 hex digits (parse_hex_flex requires 2+) */
+            uint16_t v;
+            if (is_hex(q[1]))
+                v = parse_hex_flex(&q);
+            else
+                { v = hex_val(*q); ++q; }
             count = v ? v : block_size;
         } else {
             count = block_size;
