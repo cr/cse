@@ -455,17 +455,8 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
                 next_lo = brk_pc + 3;               /* step over */
             else
                 next_lo = RD16(brk_pc + 1);         /* step into */
-        } else if (opc == 0x60) {
-            /* RTS: peek user stack */
-            if (dbg_has_ctx & 0x80) {
-                next_lo = dbg_usr_stk_word(reg_sp + 1) + 1;
-            }
-            /* next_lo == 0 → unknown; loop will break below */
-        } else if (opc == 0x40) {
-            /* RTI: peek user stack (P at sp+1, PClo at sp+2, PChi at sp+3) */
-            if (dbg_has_ctx & 0x80) {
-                next_lo = dbg_usr_stk_word(reg_sp + 2);
-            }
+        } else if (opc == 0x60 || opc == 0x40) {
+            /* RTS/RTI: break before executing (handled below) */
         } else if (opc == 0x4C) {
             /* JMP abs */
             next_lo = RD16(brk_pc + 1);
@@ -489,7 +480,7 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
             next_lo = brk_pc + dasm_insn(brk_pc);
         }
 
-        /* Unknown target → can't step further */
+        /* Unknown target (including RTS/RTI) → stop before executing */
         if (next_lo == 0) break;
 
         /* ── Arm step BRKs ── */
@@ -514,9 +505,6 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
             show_break_result();
             return;
         }
-
-        /* ── RTS/RTI: stop the step sequence ── */
-        if (opc == 0x60 || opc == 0x40) break;
     }
 
     /* Normal completion: one register line + one disassembly line */
