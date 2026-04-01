@@ -13,6 +13,7 @@
 
 - `main()` — hardware init, main loop, mode dispatch
 - `hex_val(ch)` — hex digit → 0–15 or $FF
+- `hex_val_to_char(v)` — 0–15 → '0'–'f'
 - `is_hex(ch)` — true if hex digit
 - `parse_hex4(ptr)` / `parse_hex2(ptr)` — parse 4/2 hex digits from string
 - `skip_sp(ptr)` — advance past spaces

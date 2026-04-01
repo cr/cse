@@ -60,6 +60,13 @@ breakpoints, restores CSE context, and longjmps to the REPL.
 **Out:** A = number of non-empty breakpoint slots (0–8)
 **Clobbers:** A, X
 
+### _dbg_bp_find
+**In:** A = addr lo, X = addr hi
+**Out:** C=0 found, A = slot number (0–7).  C=1 not found, A = $FF.
+**Clobbers:** A, X, Y
+
+Used by the BRK handler to identify which breakpoint slot was hit.
+
 ### _dbg_has_ctx
 Flag byte (BSS).  `$80` = user context snapshot in $E200 is valid
 (i.e., we have broken from user code at least once).  `$00` = no

@@ -13,7 +13,8 @@
 ## Interface
 
 ### _dasm_insn
-**In:** A/X = instruction address (lo/hi)
+**In:** A/X = instruction address (lo/hi).  `al_cpu` (ZP) selects
+CPU mode: 0=6502, 1=6510, 2=65C02.
 **Out:** A = instruction length (1–3).  `_dasm_buf` filled with
 NUL-terminated PETSCII string.
 **Clobbers:** A, X, Y, all _dasm_* ZP vars

@@ -42,13 +42,12 @@ Returns A = return code.
 Recursive descent parser.  Grammar (loosest precedence first):
 
 ```
-expr      = bool_term (('£' | '&' | '^') bool_term)*
-bool_term = add_term  (('+' | '-') add_term)*
-add_term  = mul_term  (('*' | '/' | '<<' | '>>') mul_term)*
-mul_term  = factor
-factor    = '$'hex | '%'bin | decimal | '*' | label
-          | '-' factor | '!' factor | '<' factor | '>' factor
-          | '(' expr ')'
+expr       = add_term  (('£' | '&' | '^') add_term)*       [parse_expr]
+add_term   = mul_term  (('+' | '-') mul_term)*              [parse_add]
+mul_term   = factor    (('*' | '/' | '<<' | '>>') factor)* [parse_mul]
+factor     = '$'hex | '%'bin | decimal | '*' | label        [parse_factor]
+           | '-' factor | '!' factor | '<' factor | '>' factor
+           | '(' expr ')'
 ```
 
 **Width tracking:** The ZP flag `expr_wide` determines whether the

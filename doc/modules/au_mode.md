@@ -6,8 +6,7 @@
 
 | File | Role |
 |------|------|
-| [`src/au_mode.s`](../../src/au_mode.s) | implementation |
-| [`src/parse_hex.s`](../../src/parse_hex.s) | implementation — hex literal parser |
+| [`src/au_mode.s`](../../src/au_mode.s) | implementation (includes inline hex parsing) |
 | [`tests/test_au_mode.py`](../../tests/test_au_mode.py) | test contract |
 
 ## Interface
@@ -23,7 +22,7 @@
 **Out:** Y advanced past spaces ($20), tabs ($A0), and legacy ASCII tabs ($09)
 **Clobbers:** A
 
-**Depends on:** parse_hex (hex digit reading), asm_bridge (au_syntax_error)
+**Depends on:** asm_bridge (au_syntax_error)
 
 ## Design
 
@@ -55,8 +54,9 @@ ZP vs ABS determined by operand digit count: 1–2 hex digits → ZP,
 ## Caveats
 
 - VICII screen codes, not PETSCII or ASCII.  A=$01, X=$18, Y=$19.
-- Whitespace: space ($20) and tab ($09) tolerated between tokens.
-  **Warning:** VICII 'I'=$09 = ASCII TAB.  `au_skip_ws` must not
-  be called before mnemonic characters are consumed.
+- Whitespace: space ($20), shifted-space/tab ($A0), and VICII 'I'
+  ($09) tolerated between tokens.  **Warning:** VICII 'I'=$09 =
+  ASCII TAB.  `au_skip_ws` must not be called before mnemonic
+  characters are consumed.
 - End-of-expression: NUL, CR ($0D), LF ($0A), `;`, `//`.
 - On syntax error: `jmp au_syntax_error` (in asm_bridge.s).
