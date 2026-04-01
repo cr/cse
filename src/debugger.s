@@ -98,6 +98,7 @@ _dbg_init:
         sta _dbg_has_ctx
         lda #$FF
         sta _dbg_bp_hit
+        sta _reg_sp             ; sane default SP for cold t/j
         rts
 
 ; ── _dbg_bp_set ────────────────────────────────────────────────────────
