@@ -46,13 +46,13 @@ else
 endif
 
 # ── Theme selection ──────────────────────────────────────────────────────
-# make THEME=cb5  →  border=C bg=B fg=5 (RADIOACTIVITY, default)
+# make THEME=d5d  →  border=D bg=5 fg=D (GREENLAND, default)
 # Auto-rebuilds screen.o when THEME changes (stamp file).
 # Predefined names:
 #   RADIOACTIVITY GREENLAND MRSPIGGY BRUCELEE LEEBRUCE MATRIX
 #   MILKYWAY HERCULES ORANGE MUDDY CLOUDY C64 C128
 #   or a 3-digit hex code: make THEME=cb5
-THEME ?= RADIOACTIVITY
+THEME ?= GREENLAND
 
 # Named theme → 3-digit hex code
 _THEME_MAP = RADIOACTIVITY=cb5 GREENLAND=d5d MRSPIGGY=a21 BRUCELEE=770 \
