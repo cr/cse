@@ -61,6 +61,7 @@ static uint8_t utoa_sub(uint16_t n, char *buf)
 }
 
 static const char flag_ch[] = "nv-bdizc";
+static const char bp_pfx[]  = "; bp ";
 
 /* ── Common patterns factored out ──────────────────────── */
 
@@ -543,7 +544,7 @@ static void cmd_brk(uint8_t *args)
         newline();
         for (i = 0; i < 8; ++i) {
             uint16_t addr = bp_table[i*4] | ((uint16_t)bp_table[i*4+1] << 8);
-            io_puts("; bp ");
+            io_puts(bp_pfx);
             io_putc('1' + i);
             io_puts(": ");
             if (addr) {
@@ -575,7 +576,7 @@ static void cmd_brk(uint8_t *args)
             slot = *q - '1';
             dbg_bp_del(slot);
             newline();
-            io_puts("; bp ");
+            io_puts(bp_pfx);
             io_putc(*q);
             io_puts(" deleted");
         } else {
@@ -592,7 +593,7 @@ static void cmd_brk(uint8_t *args)
         slot = dbg_bp_set(addr);
         newline();
         if (slot != 0xFF) {
-            io_puts("; bp ");
+            io_puts(bp_pfx);
             io_putc('1' + slot);
             io_puts(": $");
             io_puthex4(addr);

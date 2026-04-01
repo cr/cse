@@ -104,7 +104,7 @@ C_OBJS   = $(patsubst %,$(BUILD)/src/%.o,$(C_SRCS))
 # ── Assembler source files linked into cse.prg ──────────────────────
 ASM_SRCS = asm_bridge asm_line asm_vars asm_src mn_vars mn_classify \
            $(MN_SRCS) mn_config \
-           au_mode parse_hex mn_modes mn_asm_tables opcode_lookup \
+           au_mode mn_modes mn_asm_tables opcode_lookup \
            meminfo cse_io screen disk expr symtab dasm dasm_tables \
            debugger
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
