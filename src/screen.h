@@ -15,7 +15,6 @@ void reset_screen(void);            /* clear screen + restore colors */
 /* Screen output */
 void __fastcall__ scroll_up(uint8_t n);
 void newline(void);
-void __fastcall__ print_string(const uint8_t *str);
 
 /* Cursor show/hide (XOR $80 at cursor position) */
 void cursor_show(void);

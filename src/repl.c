@@ -27,8 +27,6 @@ uint16_t cur_addr = 0x1000;
 uint8_t  cur_device = 8;
 static uint8_t  last_cmd = 0;
 static uint16_t block_size = 0x10;
-static uint8_t  *sym_top = 0;
-static uint8_t  *sym_bot = 0;
 char cur_filename[FILENAME_MAX_LEN + 1] = "";
 
 /* ── Decimal digit extraction via subtraction ─────────── */
@@ -66,8 +64,8 @@ static const char flag_ch[] = "nv-bdizc";
 
 /* ── Common patterns factored out ──────────────────────── */
 
-/* newline + clear — advance to prompt line and clear it for the loop */
-static void nl_prompt(void) { newline(); clear_eol(); }
+/* newline + clear — advance to next line and clear it for the main loop */
+static void nl_clear(void) { newline(); clear_eol(); }
 
 /* Print XXXX:C (address, colon, command char) at column 0 */
 static void io_addr_cmd(uint16_t addr, char ch) {
@@ -75,9 +73,9 @@ static void io_addr_cmd(uint16_t addr, char ch) {
     io_puthex4(addr); io_putc(':'); io_putc(ch);
 }
 
-/* error message on next line + prompt */
-static void err_prompt(const char *msg) {
-    newline(); io_puts(msg); clear_eol(); nl_prompt();
+/* error message on next line — caller handles nl_clear */
+static void err_msg(const char *msg) {
+    newline(); io_puts(msg); clear_eol();
 }
 
 /* parse 2 or 4 hex digits from *q, return value.
@@ -282,7 +280,7 @@ static void cmd_dot(uint8_t *args)
         if (*mne >= 'a' && *mne <= 'z') {
             nbytes = dot_assemble(addr, mne);
             if (nbytes == 0) {
-                err_prompt(";?asm"); return;
+                err_msg(";?asm"); nl_clear(); return;
             }
         }
     }
@@ -417,7 +415,6 @@ static void cmd_jmp(void)
 
 static void cmd_step(uint8_t *args, uint8_t is_next)
 {
-    static uint16_t last_count = 1;
     uint16_t count, i;
     uint8_t  opc;
     uint16_t next_lo, next_hi;
@@ -428,15 +425,16 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
         dbg_reason = 1;
     }
 
-    /* Parse count (hex), update last_count if given */
+    /* Parse count (hex); bare t/o defaults to block_size */
     {
         uint8_t *q = args;
         skip_sp(&q);
         if (is_hex(*q)) {
             uint16_t v = parse_hex_flex(&q);
-            if (v) last_count = v;
+            count = v ? v : block_size;
+        } else {
+            count = block_size;
         }
-        count = last_count;
     }
 
     opc = 0;
@@ -459,17 +457,13 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
         } else if (opc == 0x60) {
             /* RTS: peek user stack */
             if (dbg_has_ctx & 0x80) {
-                uint8_t lo = dbg_usr_stk_byte(reg_sp + 1);
-                uint8_t hi = dbg_usr_stk_byte(reg_sp + 2);
-                next_lo = ((uint16_t)hi << 8 | lo) + 1;
+                next_lo = dbg_usr_stk_word(reg_sp + 1) + 1;
             }
             /* next_lo == 0 → unknown; loop will break below */
         } else if (opc == 0x40) {
             /* RTI: peek user stack (P at sp+1, PClo at sp+2, PChi at sp+3) */
             if (dbg_has_ctx & 0x80) {
-                uint8_t lo = dbg_usr_stk_byte(reg_sp + 2);
-                uint8_t hi = dbg_usr_stk_byte(reg_sp + 3);
-                next_lo = (uint16_t)hi << 8 | lo;
+                next_lo = dbg_usr_stk_word(reg_sp + 2);
             }
         } else if (opc == 0x4C) {
             /* JMP abs */
@@ -530,8 +524,7 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
     newline();
     cur_addr = brk_pc;
     emit_dot(brk_pc);
-    clear_eol();
-    nl_prompt();
+    nl_clear();
 
     /* RTS/RTI: clear repeat so RETURN doesn't step into garbage */
     if (opc == 0x60 || opc == 0x40) last_cmd = 0;
@@ -571,7 +564,7 @@ static void cmd_brk(uint8_t *args)
         dbg_bp_clear();
         newline();
         io_puts("; breakpoints cleared");
-        clear_eol(); nl_prompt();
+        clear_eol(); nl_clear();
         return;
     }
 
@@ -589,7 +582,7 @@ static void cmd_brk(uint8_t *args)
             newline();
             io_puts(";?slot 1-8");
         }
-        clear_eol(); nl_prompt();
+        clear_eol(); nl_clear();
         return;
     }
 
@@ -606,11 +599,11 @@ static void cmd_brk(uint8_t *args)
         } else {
             io_puts(";?bp full");
         }
-        clear_eol(); nl_prompt();
+        clear_eol(); nl_clear();
         return;
     }
 
-    err_prompt(";?x");
+    err_msg(";?b"); nl_clear();
 }
 
 static uint8_t parse_regval(uint8_t **pp)
@@ -647,7 +640,7 @@ static void cmd_reg(uint8_t *args)
 
     newline();
     emit_reg();
-    nl_prompt();
+    nl_clear();
 }
 
 /* Check if filename ends with ",s" (SEQ file type suffix).
@@ -716,7 +709,7 @@ static void io_err_save(const char *name) { io_puts(";?save "); io_puts(name); }
 
 /* Common disk-op footer: clear_eol, newline, drive status, prompt */
 static void disk_done(void) {
-    clear_eol(); newline(); floppy_status(); nl_prompt();
+    clear_eol(); newline(); floppy_status(); nl_clear();
 }
 
 static void cmd_load(uint8_t *args)
@@ -724,7 +717,7 @@ static void cmd_load(uint8_t *args)
     uint16_t addr = cur_addr;
     uint8_t *q = args;
     uint8_t *name = get_filename(&q);
-    if (!name) { err_prompt(";?name"); return; }
+    if (!name) { err_msg(";?name"); nl_clear(); return; }
 
     newline();
     if (is_seq_file(name)) {
@@ -749,7 +742,7 @@ static void cmd_write(uint8_t *args)
     uint8_t *q = args;
     uint8_t *name = get_filename(&q);
     uint8_t err;
-    if (!name) { err_prompt(";?name"); return; }
+    if (!name) { err_msg(";?name"); nl_clear(); return; }
 
     newline();
     if (is_seq_file(name)) {
@@ -761,7 +754,7 @@ static void cmd_write(uint8_t *args)
         uint16_t end = parse_hex_flex(&q);
         uint16_t size;
         if (!end) end = addr + block_size;
-        if (end <= addr) { err_prompt(";?range"); return; }
+        if (end <= addr) { err_msg(";?range"); nl_clear(); return; }
         size = end - addr;
         err = disk_save_prg((char *)name, addr, size);
         if (err) io_err_save((char *)name);
@@ -836,17 +829,13 @@ static void cmd_info(void)
     free_lo = cse_hi;
     free_hi = cstk_lo - 1;
 
-    /* source and symbols eat into the top of the free region */
-    if (sym_bot) free_hi = (uint16_t)sym_bot - 1;
+    /* source eats into the top of the free region */
     if (src_bot) free_hi = (uint16_t)src_bot - 1;
 
     if (free_lo <= free_hi)
         free_line(free_lo, free_hi);
 
-    /* show allocations in address order (sym below src) */
-    if (sym_bot)
-        info_line(0, "sym", (uint16_t)sym_bot,
-                  (uint16_t)sym_top - 1, "symbols");
+    /* show allocations */
     if (src_bot)
         info_line(0, "src", (uint16_t)src_bot,
                   (uint16_t)src_top - 1, "source code");
@@ -892,7 +881,7 @@ void exec_line(void)
         } else {
             /* ';' or empty with nothing to repeat */
             last_cmd = 0;
-            nl_prompt(); return;
+            nl_clear(); return;
         }
     } else {
         ++q;                              /* skip command letter */
@@ -900,7 +889,7 @@ void exec_line(void)
     }
 
     /* ── Save for repeat (paging + step commands) ───────── */
-    if (cmd == 'm' || cmd == 'd' || cmd == '.' || cmd == 't' || cmd == 'n') {
+    if (cmd == 'm' || cmd == 'd' || cmd == '.' || cmd == 't' || cmd == 'o') {
         last_cmd = cmd;
     }
 
@@ -913,20 +902,20 @@ void exec_line(void)
     case 'm': cmd_mem(q);    break;
 
     /* navigation */
-    case 's':
+    case '@':
     {   skip_sp(&q);
         if (is_hex(*q)) cur_addr = parse_hex_flex(&q);
-        nl_prompt(); break;
+        nl_clear(); break;
     }
     case '+':
     {   uint16_t d = parse_hex_flex(&q);
         cur_addr += d ? d : block_size;
-        nl_prompt(); break;
+        nl_clear(); break;
     }
     case '-':
     {   uint16_t d = parse_hex_flex(&q);
         cur_addr -= d ? d : block_size;
-        nl_prompt(); break;
+        nl_clear(); break;
     }
 
     /* execution */
@@ -943,17 +932,17 @@ void exec_line(void)
 
     /* debugger — step */
     case 't': cmd_step(q, 0); break;
-    case 'n': cmd_step(q, 1); break;
+    case 'o': cmd_step(q, 1); break;
 
     /* debugger — breakpoints */
-    case 'x': cmd_brk(q); break;
+    case 'b': cmd_brk(q); break;
 
     /* registers */
     case 'r': cmd_reg(q); break;
 
     /* file I/O */
     case 'l': cmd_load(q); break;
-    case 'w': cmd_write(q); break;
+    case 's': cmd_write(q); break;
     case 'k':
         newline();
         io_puts(";delete source. are you sure? y/n ");
@@ -961,16 +950,16 @@ void exec_line(void)
             ed_new();
             io_puts("ok");
         }
-        clear_eol(); nl_prompt(); break;
+        clear_eol(); nl_clear(); break;
 
     /* info / settings */
     case 'i': cmd_info(); break;
-    case 'b':
+    case 'B':
     {   skip_sp(&q);
         if (is_hex(*q)) { uint16_t v = parse_hex_flex(&q); if (v) block_size = v; }
         newline();
-        io_puts(";b="); io_puthex4(block_size);
-        clear_eol(); nl_prompt(); break;
+        io_puts(";B="); io_puthex4(block_size);
+        clear_eol(); nl_clear(); break;
     }
     case 'T':
     {   skip_sp(&q);
@@ -986,7 +975,7 @@ void exec_line(void)
         }
         newline();
         io_puts(";t="); io_puthex2(tab_width);
-        clear_eol(); nl_prompt(); break;
+        clear_eol(); nl_clear(); break;
     }
     case 'C':
     {   skip_sp(&q);
@@ -1008,7 +997,7 @@ void exec_line(void)
         io_putc(hex_val_to_char(theme_border));
         io_putc(hex_val_to_char(theme_bg));
         io_putc(hex_val_to_char(theme_fg));
-        clear_eol(); nl_prompt(); break;
+        clear_eol(); nl_clear(); break;
     }
     case 'u':
     {   skip_sp(&q);
@@ -1033,7 +1022,7 @@ void exec_line(void)
         io_puts(" 65c02");
         io_putc(al_cpu == 2 ? '*' : ' ');
 #endif
-        clear_eol(); nl_prompt(); break;
+        clear_eol(); nl_clear(); break;
     }
 
     /* assemble source */
@@ -1055,7 +1044,7 @@ void exec_line(void)
             io_putdec(errs);
             io_puts(" error(s)");
         }
-        clear_eol(); nl_prompt(); break;
+        clear_eol(); nl_clear(); break;
     }
 
     /* calculator */
@@ -1107,7 +1096,7 @@ void exec_line(void)
             io_puts(";?"); io_puts(expr_error_str());
             clear_eol();
         }
-        nl_prompt(); break;
+        nl_clear(); break;
     }
 
     /* system */
@@ -1129,7 +1118,7 @@ void exec_line(void)
             if (dev >= 4 && dev <= 30)
                 cur_device = dev;
         }
-        newline(); list_directory(cur_device); nl_prompt();
+        newline(); list_directory(cur_device); nl_clear();
         break;
     }
 
@@ -1139,7 +1128,7 @@ void exec_line(void)
         if (*q == 'l' && (*(q+1) == 'r' || *(q+1) == 's')) {
             reset_screen(); clear_eol();
         } else if (dbg_reason == 0) {
-            err_prompt(";?no break");
+            err_msg(";?no break"); nl_clear();
         } else {
             /* Delete the hit breakpoint before continuing */
             if (dbg_bp_hit != 0xFF) {
@@ -1151,6 +1140,6 @@ void exec_line(void)
         break;
 
     default:
-        err_prompt(";?cmd");
+        err_msg(";?cmd"); nl_clear();
     }
 }

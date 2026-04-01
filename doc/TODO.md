@@ -20,12 +20,12 @@
 
 Small, concrete, ready to do now.
 
-- [ ] Remove unused cse_io.h macros: io_cursor_on/off, io_bordercolor,
-  io_bgcolor.
-- [ ] Remove sym_top/sym_bot from repl.c (always NULL, dead branches
-  in cmd_info).
-- [ ] Merge print_string wrapper in screen.s (trivial jmp to io_puts)
-  — have disk.s call io_puts directly.
+- [x] ~~Remove unused cse_io.h macros~~ — done: io_cursor_on/off,
+  io_bordercolor, io_bgcolor deleted.
+- [x] ~~Remove sym_top/sym_bot from repl.c~~ — done: always NULL,
+  dead branches in cmd_info removed.
+- [x] ~~Merge print_string wrapper in screen.s~~ — done: disk.s
+  calls io_puts directly, wrapper removed.
 - [ ] DDD audit module docs against code: asm_line, au_mode,
   opcode_lookup, mn_classify, mn7, editor, main, meminfo.
 
@@ -35,28 +35,29 @@ Defined scope, needs work.
 
 ### REPL
 
-- [ ] Expression parsing for command address arguments: `j`, `m`, `s`,
-  `l`, `w`, `+`, `-`, `b`, `d`, `x ADDR`.  Replace `parse_hex_flex`
-  with `expr_eval`.  Enables `j start`, `m screen`, `s table+$100`.
+- [ ] Expression parsing for command address arguments: `j`, `m`, `@`,
+  `l`, `s`, `+`, `-`, `B`, `d`, `b ADDR`.  Replace `parse_hex_flex`
+  with `expr_eval`.  Enables `j start`, `m screen`, `@ table+$100`.
   Consequence: bare `8000` becomes decimal; hex requires `$8000`.  The
   `AAAA:` prompt prefix stays as 4 hex digits — no expressions.
-  `t`/`n` counts stay as plain hex (not expressions).
+  `t`/`o` counts stay as plain hex (not expressions).
 - [ ] `.` without args: behave like `d` (disassemble one instruction).
   Bare `.` (no `AAAA:` prefix) operates on `cur_addr` and rewrites
   its prompt line to include `AAAA:.`.
-- [ ] `h` command: hunt/search for byte pattern in memory.
+- [ ] `/` command: search for byte pattern in memory.
 - [ ] `f` command: fill memory range with byte.
 - [ ] `>` command: transfer/copy memory block (was `t`).
 - [ ] `k` command: implement.  Confirms before clearing.
-- [x] Debugger: `x` (breakpoints), `c` (continue), `t` (trace/step-into),
-  `n` (next/step-over).  BRK-based, full context switch with stack page
+- [x] Debugger: `b` (breakpoints), `c` (continue), `t` (trace/step-into),
+  `o` (trace-over/step-over).  BRK-based, full context switch with stack page
   snapshot.  NMI as ad-hoc break.  See [debugger.md](modules/debugger.md).
-- [x] Command reassignment: `c` color → `C` (uppercase).
+- [x] Command reassignment: `c`→`C`, `b`→`B`, `s`→`@`, `w`→`s`.
 - [x] `g` command: run from `main` symbol; falls back to `j cur_addr` if
   `main` undefined.  After `a` (assemble), `cur_addr` advances to `main`
   if it was defined.
 - [ ] `=` command: define/query symbols from REPL.
-- [ ] `@` command: disk command channel.
+- [ ] Disk command channel: unified under `$` (`$ s:file`, `$9`, etc.).
+  Drive select and directory work; command send needs disk.s extension.
 
 ### Assembler
 
@@ -117,11 +118,11 @@ Defined scope, needs work.
 Exploratory, not yet scoped.
 
 - [ ] PRG load: auto-detect load address from PRG header, show in output.
-- [ ] `$` command: filter directory by filename glob.
+- [ ] `$` command: filter directory listing by filename glob.
 - [ ] `d` command: show ASCII alongside disassembly (like `m`).
 - [ ] `.` command: when no operand given for mnemonic that requires
   one, show help instead of ;?asm.
-- [ ] Color command `c`: show color preview swatches.
+- [ ] Color command `C`: show color preview swatches.
 - [ ] Disk I/O: timeout handling for unresponsive drives.
 - [ ] NMI during `j` user code: flag checked only on return.  NMI
   trampoline ($FF00) handles KERNAL banking; separate from `j` issue.

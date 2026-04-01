@@ -80,11 +80,11 @@ structure without 256-entry lookup tables.
 | Assembly | `.` `d` `a` | Single-line asm/disasm, block disassembly, full source assembly |
 | Execution | `j` | JSR to address, show registers on return |
 | Registers | `r` | View/edit A, X, Y, SP, and individual flags |
-| Navigation | `s` `+` `-` `b` | Seek, advance, retreat, set block size |
-| Files | `l` `w` `$` | Load/save PRG and SEQ files, disk directory |
-| Utility | `?` `i` `c` `u` | Expression calculator, memory map, colors, CPU mode |
-| Debug | `!` `n` `o` `g` | Breakpoints, step, step-over, go *(planned)* |
-| Block ops | `f` `t` `h` | Fill, transfer, hunt *(planned)* |
+| Navigation | `@` `+` `-` `B` | Seek, advance, retreat, set block size |
+| Files | `l` `s` `$` | Load/save PRG and SEQ files, disk directory/commands |
+| Utility | `?` `i` `C` `u` | Expression calculator, memory map, colors, CPU mode |
+| Debug | `b` `t` `o` `c` `g` | Breakpoints, trace, trace-over, continue, go |
+| Block ops | `f` `>` `/` | Fill, transfer, search *(planned)* |
 
 The screen is the command buffer.  Every line is executable.  RETURN
 on an empty line repeats the last command at the next address.

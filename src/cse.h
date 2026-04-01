@@ -113,8 +113,6 @@ extern uint8_t __fastcall__ dbg_bp_set(uint16_t addr);   /* slot (0-7) or $FF */
 extern uint8_t __fastcall__ dbg_bp_del(uint8_t slot);     /* 0=ok, $FF=bad */
 extern void dbg_bp_clear(void);
 extern uint8_t dbg_bp_count(void);
-extern void dbg_bp_patch(void);
-extern void dbg_bp_unpatch(void);
 extern uint8_t __fastcall__ dbg_bp_find(uint16_t addr);   /* slot or $FF */
 extern uint8_t bp_table[];                                 /* 8×4 bytes */
 extern void dbg_enter(void);    /* enter user code; returns on BRK/NMI */
@@ -124,11 +122,9 @@ extern uint16_t brk_pc;         /* break address / resume target */
 extern uint8_t dbg_bp_hit;      /* slot# of hit bp ($FF=none) */
 extern uint8_t dbg_has_ctx;     /* $80 = user context valid in $E200 */
 
-/* Phase C — step BRK table (2 slots × 4 bytes; same format as bp_table) */
+/* Phase C — step BRK table (2 slots × 4 bytes, contiguous after bp_table) */
 extern uint8_t step_bp[];                                  /* 2×4 bytes */
 extern void dbg_step_clear(void);   /* zero step_bp */
-extern void dbg_step_patch(void);   /* called by dbg_enter internally */
-extern void dbg_step_unpatch(void); /* called by dbg_enter internally */
-extern uint8_t __fastcall__ dbg_usr_stk_byte(uint8_t offset); /* USR_STK[offset] */
+extern uint16_t __fastcall__ dbg_usr_stk_word(uint8_t offset); /* LE word at USR_STK[offset] */
 
 #endif

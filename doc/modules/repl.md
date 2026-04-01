@@ -20,10 +20,10 @@
 - `cur_device` (uint8) — disk device number, default 8
 - `cur_filename` (char[]) — last used filename
 - `last_cmd` (char) — last command (for RETURN repeat)
-- `block_size` (uint16) — block size for m/d/f/t/+/-, default $10
+- `block_size` (uint16) — block size for m/d/f/>/+/-, default $10
 
 **Depends on:** asm_bridge (`.`), asm_src (`a`), dasm (`d`), expr (`?`),
-disk (`l`/`w`/`$`), debugger (`x`/`c`/`t`/`n`), editor, screen, cse_io
+disk (`l`/`s`/`$`), debugger (`b`/`c`/`t`/`o`), editor, screen, cse_io
 
 ## Design
 
@@ -231,10 +231,10 @@ The REPL's line editor operates within the 40-column screen:
 
 | Key | Name     | Addressed | Example                     | Notes                                      |
 |-----|----------|-----------|-----------------------------|----------------------------------------------|
-| `m` | memory   | yes       | `1000:m` dump, `1000:m A9 00...` edit | Bare = dump `b` bytes; with hex = edit   |
-| `f` | fill     | yes       | `1000:f EA`                 | Fill `b` bytes with value *(planned)*        |
-| `>` | transfer | yes       | `1000:> 2000`               | Copy `#` bytes from AAAA to arg *(planned)*  |
-| `h` | hunt     | yes       | `1000:h A9 00`              | Search for byte pattern *(planned)*          |
+| `m` | memory   | yes       | `1000:m` dump, `1000:m A9 00...` edit | Bare = dump `B` bytes; with hex = edit  |
+| `f` | fill     | yes       | `1000:f EA`                 | Fill `B` bytes with value *(planned)*        |
+| `>` | transfer | yes       | `1000:> 2000`               | Copy `B` bytes from AAAA to arg *(planned)*  |
+| `/` | search   | yes       | `1000:/ A9 00`              | Search for byte pattern *(planned)*          |
 
 ### Commands — Assembly / Disassembly
 
@@ -249,6 +249,7 @@ The REPL's line editor operates within the 40-column screen:
 | Key | Name | Addressed | Example          | Notes                                      |
 |-----|------|-----------|------------------|--------------------------------------------|
 | `j` | jump | yes       | `1000:j` or `j C000` | Start execution at address. Patches breakpoints, enters debugger loop. Shows registers on break/RTS. |
+| `g` | go   | —         | `g`              | Shorthand for `j main`. Falls back to `j cur_addr` if `main` undefined. |
 | `c` | continue | —    | `c`              | Continue from last break (BRK/NMI). Error if no active break context. |
 
 ### Commands — Debug / Trace
@@ -256,16 +257,16 @@ The REPL's line editor operates within the 40-column screen:
 | Key | Name      | Addressed | Example         | Notes                                    |
 |-----|-----------|-----------|-----------------|------------------------------------------|
 | `r` | registers | —         | `r` or `r a:05...` | View / edit CPU registers             |
-| `x` | breakpoint| —         | `x 1020`, `x -1`, `x *` | Set, delete, list. See [debugger.md](debugger.md). |
-| `t` | trace     | —         | `t` or `t 5`    | Step-into N instructions (default 1). Enters subroutines. |
-| `n` | next      | —         | `n` or `n 5`    | Step-over N instructions (default 1). JSR runs to completion. |
+| `b` | breakpoint| —         | `b 1020`, `b -1`, `b *` | Set, delete, list. See [debugger.md](debugger.md). |
+| `t` | trace     | —         | `t` or `t 5`    | Step-into N instructions (default `B`). Enters subroutines. |
+| `o` | trace over| —         | `o` or `o 5`    | Step-over N instructions (default `B`). JSR runs to completion. |
 
 ### Commands — Navigation
 
 | Key | Name    | Addressed | Example       | Notes                                    |
 |-----|---------|-----------|---------------|------------------------------------------|
-| `s` | seek    | —         | `s C000`      | Set `cur_addr` to arg; bare = no-op      |
-| `b` | block   | —         | `b 40`        | Set block size (hex bytes); bare = show  |
+| `@` | seek    | —         | `@ C000`      | Set `cur_addr` to arg; bare = no-op      |
+| `B` | block   | —         | `B 40`        | Set block size (hex bytes); bare = show (uppercase) |
 | `+` | forward | —         | `+` or `+20`  | Advance cur_addr by block_size (or arg)  |
 | `-` | back    | —         | `-` or `-20`  | Retreat cur_addr by block_size (or arg)  |
 
@@ -274,9 +275,8 @@ The REPL's line editor operates within the 40-column screen:
 | Key | Name   | Addressed | Example              | Notes                                   |
 |-----|--------|-----------|----------------------|-----------------------------------------|
 | `l` | load   | yes       | `1000:l "file"`      | Load PRG to addr; remembers filename     |
-| `w` | write  | yes       | `1000:w "file" 2000` | Save addr..EEEE-1; remembers filename    |
-| `$` | disk   | —         | `$` dir, `$ 9` drive 9 | Directory listing                     |
-| `@` | doscmd | —         | `@ s:file`           | Drive command channel *(planned)*        |
+| `s` | save   | yes       | `1000:s "file" 2000` | Save addr..EEEE-1; remembers filename    |
+| `$` | disk   | —         | `$`, `$9`, `$ s:file` | Directory, drive select, drive command *(cmd planned)*. See below. |
 
 ### Commands — Info / Utility
 
@@ -285,6 +285,7 @@ The REPL's line editor operates within the 40-column screen:
 | `i`   | info    | —         | `i`                  | Show memory map                       |
 | `?`   | calc    | —         | `? 1000+20`          | Hex expression calculator             |
 | `k`   | kill    | —         | `k`                  | Clear source buffer (confirms first)  |
+| `B`   | block   | —         | `B 40` or `B`       | Set/show block size (uppercase)        |
 | `C`   | color   | —         | `C 06` or `C 0e6`   | Set text/bg/border color (uppercase)  |
 | `T`   | tab     | —         | `T 4` or `T`         | Set/show tab width; reindents source (uppercase) |
 | `u`   | cpu     | —         | `u 6502` or `u 65c02` | Set CPU mode for asm/disasm        |
@@ -292,16 +293,32 @@ The REPL's line editor operates within the 40-column screen:
 | `clr` | clear   | —         | `clr` (or `cls`)     | Clear screen                          |
 | `;`   | comment | —         | `; note`             | No-op (inline comment)                |
 
-### Block size
+### `B` — Block size (uppercase)
 
-The `b` command sets a 16-bit block size used by `m`, `d`, `f`, `>`,
-`h`, and `+`/`-` navigation.  Default: `$0010` (16 bytes = 2 hex
-dump lines).
+The `B` command sets a 16-bit block size used by `m`, `d`, `f`, `>`,
+`/`, `t`, `o`, and `+`/`-` navigation.  Default: `$0010` (16 bytes
+= 2 hex dump lines).
 
-    b 40     set to 64 bytes (8 hex lines)
-    b C0     set to 192 bytes (full screen of hex)
-    b 0100   set to 256 bytes (4-digit)
-    b        show current block size
+    B 40     set to 64 bytes (8 hex lines)
+    B C0     set to 192 bytes (full screen of hex)
+    B 0100   set to 256 bytes (4-digit)
+    B        show current block size
+
+### `$` — Disk
+
+The `$` command is a unified interface for disk directory, drive
+selection, and drive commands.  Parsing is prefix-based:
+
+    $              directory listing (current drive)
+    $9             select drive 9 as current, show directory
+    $ s:file       send drive command (scratch file)
+    $ i            send drive command (initialize)
+    $9 s:file      select drive 9, send command
+
+A single digit after `$` (8 or 9) sets `cur_device` permanently.
+Any other argument is sent to the drive command channel (#15)
+*(planned — requires disk.s extension)*.
+Bare `$` lists the directory.
 
 ### `T` — Tab width
 
@@ -346,15 +363,17 @@ Accepts 1, 2, or 3 single hex digits.  Extra characters ignored.
     u 6510       6510 (with illegal opcodes)
     u 65c02      WDC 65C02 (CMOS extensions)
 
-### Reserved keys
+### Free / reserved keys
 
-    e   editor mode (source buffer)
-    g   go / JMP to address (no return) — planned
-    o   (free)
-    p   print / evaluate
-    v   visual mode (split screen?)
-    y   (free)
-    z   (free)
+    e   reserved — editor mode (source buffer)
+    h   free (was hunt, now `/`)
+    n   free (was next/step-over, now `o`)
+    p   reserved — print / evaluate
+    v   reserved — visual mode (split screen?)
+    w   free (was write/save, now `s`)
+    x   free (was breakpoints, now `b`)
+    y   free
+    z   free
 
 ### Emitters
 
@@ -377,32 +396,30 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
     [x] a   assemble source buffer
     [x] j   JSR / start execution
     [x] r   registers view / edit
-    [x] s   seek
-    [x] b   block size
-    [x] $   directory listing
+    [x] @   seek (was s)
+    [x] $   directory listing (+ drive select, + drive command)
     [x] q   quit
     [x] clr clear screen
     [x] +   seek forward
     [x] -   seek backward
     [x] i   memory map info
     [x] ?   hex expression calculator
+    [x] B   block size (uppercase, was `b`)
     [x] C   color theme (uppercase, was `c`)
+    [x] T   tab width (uppercase)
     [x] u   cpu mode select
     [ ] k   kill source (clear editor buffer)
     [x] l   load file from disk
-    [x] w   write memory to disk
-    [ ] x   breakpoints. See debugger.md
-    [ ] c   continue execution (was color). See debugger.md
-    [ ] t   trace / step-into (was transfer). See debugger.md
-    [ ] n   next / step-over. See debugger.md
-    [ ] g   go / JMP (no return)
+    [x] s   save memory to disk (was `w`)
+    [x] b   breakpoints (was `x`). See debugger.md
+    [x] c   continue execution (was color). See debugger.md
+    [x] t   trace / step-into. See debugger.md
+    [x] o   trace over / step-over (was `n`). See debugger.md
+    [x] g   go — shorthand for j main (falls back to j cur_addr)
     [ ] f   fill
-    [ ] >   transfer (was `t`)
-    [x] T   tab width (uppercase)
-    [ ] h   hunt
-    [ ] @   disk command
+    [ ] >   transfer
+    [ ] /   search (was `h`)
     [ ] =   labels
-    [ ] /   search
 
 ## Caveats
 

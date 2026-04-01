@@ -107,19 +107,19 @@ def _parse_map():
 
 # BSS layout of debugger.o (order matches .segment "BSS" in debugger.s):
 #   _bp_table:     32 bytes (8 slots × 4)
+#   _step_bp:       8 bytes (2 step slots × 4, contiguous with bp_table)
 #   _dbg_running:   1 byte
 #   _dbg_reason:    1 byte
 #   _brk_pc:        2 bytes
 #   _dbg_bp_hit:    1 byte
-#   _bps_addr_lo:   1 byte
-#   _bps_addr_hi:   1 byte
 
 _BSS_OFFSETS = {
     '_bp_table':    0,
-    '_dbg_running': 32,
-    '_dbg_reason':  33,
-    '_brk_pc':      34,
-    '_dbg_bp_hit':  36,
+    '_step_bp':     32,
+    '_dbg_running': 40,
+    '_dbg_reason':  41,
+    '_brk_pc':      42,
+    '_dbg_bp_hit':  44,
 }
 
 

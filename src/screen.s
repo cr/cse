@@ -4,7 +4,7 @@
 ; Requires $CC=1 (KERNAL cursor disabled).
 
         .export _restore_colors, _reset_screen
-        .export _scroll_up, _newline, _print_string
+        .export _scroll_up, _newline
         .export _cursor_show, _cursor_hide
         .export _theme_border, _theme_bg, _theme_fg
         .import _io_puts, _io_sync, _io_color
@@ -209,15 +209,6 @@ _theme_fg:     .byte THEME_FG
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; print_string(str) — scroll-aware string output
-;   __fastcall__: str pointer in A/X
-; ═════════════════════════════════════════════════════════
-.proc _print_string
-        ; __fastcall__: str ptr in A/X.  Just pass through to io_puts.
-        ; The C version did scroll checks but they're rarely needed.
-        jmp _io_puts
-.endproc
-
 ; ═════════════════════════════════════════════════════════
 ; cursor_show / cursor_hide — XOR $80 at cursor position
 ; ═════════════════════════════════════════════════════════

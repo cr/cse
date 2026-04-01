@@ -33,10 +33,4 @@ uint8_t io_getc(void);
 uint8_t io_kbhit(void);
 void io_sync(void);       /* update $D1/$D2/$F3/$F4 from io_cy */
 
-/* ── Inline macros (no function call, no library pull) ─── */
-#define io_cursor_on()     (*(uint8_t *)0xCC = 0)
-#define io_cursor_off()    (*(uint8_t *)0xCC = 1)
-#define io_bordercolor(c)  (*(uint8_t *)0xD020 = (c))
-#define io_bgcolor(c)      (*(uint8_t *)0xD021 = (c))
-
 #endif

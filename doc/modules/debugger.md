@@ -55,12 +55,22 @@ breakpoints, restores CSE context, and longjmps to the REPL.
 **Out:** all breakpoint slots cleared
 **Clobbers:** A, X
 
+### _dbg_bp_count
+**In:** none
+**Out:** A = number of non-empty breakpoint slots (0–8)
+**Clobbers:** A, X
+
+### _dbg_has_ctx
+Flag byte (BSS).  `$80` = user context snapshot in $E200 is valid
+(i.e., we have broken from user code at least once).  `$00` = no
+user context exists yet.  Checked by `cmd_step` before peeking
+the user stack for RTS/RTI target resolution.
+
 ### C (repl.c command handlers)
 
-- `cmd_brk(args)` — `x` command: set, list, or delete breakpoints
-- `cmd_continue()` — `c` command: continue execution from break
-- `cmd_trace(args)` — `t` command: step-into N instructions
-- `cmd_next(args)` — `n` command: step-over N instructions
+- `cmd_brk(args)` — `b` command: set, list, or delete breakpoints
+- `c` handling (inline in `exec_line`) — continue execution from break
+- `cmd_step(args, is_next)` — `t`/`o` commands: `is_next=0` for step-into, `is_next=1` for step-over
 
 **State:**
 - `_bp_table` — 8 breakpoint slots (see § Breakpoint table)
@@ -68,7 +78,7 @@ breakpoints, restores CSE context, and longjmps to the REPL.
 - `_dbg_reason` — why we returned (BRK, NMI, RTS, step)
 - `_brk_pc` — PC where the break occurred / execution will resume
 - `_dbg_bp_hit` — slot number of the breakpoint that was hit ($FF = none)
-- `_step_count` — remaining step count for `t`/`n`
+- `_step_count` — remaining step count for `t`/`o`
 - `_step_bp` — temporary breakpoint(s) for single-step (2 slots)
 
 **Depends on:** asm_bridge (register state, ZP save), dasm (instruction
@@ -76,26 +86,29 @@ length for step), cse_io (NMI handler upgrade), symtab (KERNAL banking)
 
 ## Command Reassignment
 
-The debugger commands `c`, `t` conflict with existing REPL
-commands.  Reassignment:
+The debugger needs `b`, `c`, `t`, `o`.  Displaced commands move
+to uppercase or symbol keys:
 
 | Key | Old function | New key | Rationale |
 |-----|-------------|---------|-----------|
-| `c` | color | `C` (uppercase) | Color is an infrequent settings command; uppercase is appropriate |
-| `t` | transfer (planned) | `>` | `>` suggests "move to"; matches common shell/editor metaphor |
+| `b` | block size | `B` (uppercase) | Infrequent settings command; uppercase is appropriate |
+| `c` | color | `C` (uppercase) | Same reasoning |
+| `s` | seek | `@` | `@` = "at address"; seek is infrequent |
+| `w` | save/write | `s` | `s` for save (matches SMON/Action Replay tradition) |
 
 After reassignment:
 
 | Key | Function | Status |
 |-----|----------|--------|
-| `x` | breakpoints | new |
+| `b` | breakpoints | new (was block size, now `B`) |
 | `c` | continue execution | new (was color, now `C`) |
-| `t` | trace (step-into) | new (was transfer, now `>`) |
-| `n` | next (step-over) | new |
-| `b` | block size | unchanged |
-| `C` | color | moved from `c` |
-| `T` | tab width | unchanged |
-| `>` | transfer/copy | moved from `t` (planned) |
+| `t` | trace (step-into) | new |
+| `o` | trace over (step-over) | new |
+| `s` | save | moved from `w` |
+| `B` | block size | moved from `b` (uppercase) |
+| `C` | color | moved from `c` (uppercase) |
+| `@` | seek | moved from `s` |
+| `>` | transfer/copy | planned |
 
 ## Design
 
@@ -115,7 +128,7 @@ when the breakpoint is patched and restored when unpatched.
 
 ### Step breakpoints
 
-2 additional slots (same layout, 8 bytes) used by `t` and `n` for
+2 additional slots (same layout, 8 bytes) used by `t` and `o` for
 temporary breakpoints.  Cleaned up automatically after each step.
 Two slots are needed because a branch instruction has two possible
 next addresses (taken / not taken).
@@ -299,7 +312,7 @@ user's last instruction and the debugger gaining control.
 7. Report to REPL
 ```
 
-### Single-step: `n` (next / step over)
+### Single-step: `o` (trace over / step over)
 
 Identical to `t` except for JSR handling:
 
@@ -321,13 +334,13 @@ the 6502 skips the BRK signature byte).
 
 ## Commands
 
-### `x` — Breakpoints
+### `b` — Breakpoints
 
 ```
-x               list all breakpoints
-x ADDR          set breakpoint at ADDR (next free slot)
-x -N            delete breakpoint in slot N (1–8)
-x *             delete all breakpoints
+b               list all breakpoints
+b ADDR          set breakpoint at ADDR (next free slot)
+b -N            delete breakpoint in slot N (1–8)
+b *             delete all breakpoints
 ```
 
 List output:
@@ -345,7 +358,7 @@ c               continue execution from _brk_pc
 ```
 
 If the break was caused by a user breakpoint, `c` **deletes that
-breakpoint** before continuing.  The user must re-set it with `x`
+breakpoint** before continuing.  The user must re-set it with `b`
 if they want to break there again.  This eliminates the re-entry
 problem (breakpoint at current PC would immediately re-trigger).
 
@@ -357,37 +370,50 @@ Error if no active break context.
 ### `t` — Trace (step-into)
 
 ```
-t               step 1 instruction
+t               step block_size instructions
 t N             step N instructions (N in hex)
 ```
 
-Each step shows the disassembled instruction and register state:
+`t N` is a loop of N × `t 1`.  Each iteration computes the next-PC,
+arms a temporary step BRK, and enters user code for one instruction.
+On completion (or early exit), one register line and one disassembly
+line are printed showing the final state:
 
 ```
 > t 3
- 1000  lda #$00         a:00 x:03 y:00 sp:f5 nvdizc
- 1002  sta $d020        a:00 x:03 y:00 sp:f5 nvdizc
- 1005  sta $d021        a:00 x:03 y:00 sp:f5 nvdizc
+r a:00 x:03 y:00 sp:f5 nvdizc
+ 1005  sta $d021
 1008:
 ```
 
+Bare `t` uses `block_size` as the count (default $10 = 16 steps).
+`t N` overrides for this invocation only — does not change
+`block_size`.
+
 JSR: steps into the subroutine.
 
-### `n` — Next (step-over)
+The loop exits early if:
+- A BRK opcode is encountered (user BRK, not a debugger breakpoint)
+- An NMI fires or a regular breakpoint is hit mid-sequence
+- RTS or RTI is executed (prevents stepping into garbage)
+- The next-PC cannot be determined (RTS/RTI without valid context)
+
+### `o` — Trace over (step-over)
 
 ```
-n               step 1 instruction (over subroutines)
-n N             step N instructions (over subroutines)
+o               step block_size instructions (over subroutines)
+o N             step N instructions (over subroutines)
 ```
 
-Same display as `t`.  JSR: the subroutine runs to completion,
-breakpoint placed at the return address (PC+3).
+Same semantics as `t` (loop of N × `o 1`, bare `o` uses
+`block_size`).  JSR: the subroutine runs to completion, temporary
+breakpoint placed at PC+3.
 
 ### `j` — Jump (start execution)
 
 Upgraded from current behavior.  When breakpoints exist, `j`
 patches them and enters the debugger execution loop.  When no
-breakpoints exist and no `t`/`n` is pending, `j` behaves as
+breakpoints exist and no `t`/`o` is pending, `j` behaves as
 before (JSR + capture regs on RTS).
 
 ```
@@ -412,7 +438,7 @@ r               display registers
 r a:XX x:XX y:XX s:XX NvBdizc    set registers
 ```
 
-Register modifications via `r` between a break and `c`/`t`/`n`
+Register modifications via `r` between a break and `c`/`t`/`o`
 are applied when execution resumes.
 
 ## Workflow Examples
@@ -420,7 +446,7 @@ are applied when execution resumes.
 ### Set breakpoint, run, inspect, continue
 
 ```
-1000: x 1020
+1000: b 1020
 ; bp 1: $1020
 1000: j
 ; brk 1 at $1020
@@ -429,7 +455,7 @@ are applied when execution resumes.
   ...
 1020: c
 ; brk 1 at $1020
-1020: x *
+1020: b *
 ; breakpoints cleared
 1020: c
 ; (runs to RTS)
@@ -441,19 +467,19 @@ are applied when execution resumes.
 
 ```
 1000: t 5
- 1000  lda #$00         a:00 x:03 y:00 sp:f5 nvdizc
- 1002  sta $d020        a:00 x:03 y:00 sp:f5 nvdizc
- 1005  sta $d021        a:00 x:03 y:00 sp:f5 nvdizc
- 1008  jsr $1040        a:00 x:03 y:00 sp:f5 nvdizc
- 1040  ldx #$ff         a:00 x:ff y:00 sp:f3 Nvdizc
-1042:
+r a:00 x:ff y:00 sp:f3 Nvdizc
+ 1042  stx $d020
+1044:
 ```
+
+Output shows final state after 5 steps.
 
 ### Step over subroutine
 
 ```
-1008: n
- 1008  jsr $1040        a:00 x:00 y:00 sp:f5 nvdizc
+1008: o
+r a:00 x:00 y:00 sp:f5 nvdizc
+ 100b  ldx #$00
 100b:
 ```
 
@@ -502,7 +528,7 @@ $FFFA–$FFFB  NMI vector → $FF00
 | Context switch (stack copy, ZP save) | ~80 | CODE |
 | Breakpoint patch/unpatch | ~60 | CODE |
 | Step: instruction length + target resolution | ~100 | CODE |
-| REPL commands: b, c, t, n | ~400 | CODE |
+| REPL commands: b, c, t, o | ~400 | CODE |
 | Breakpoint table (8 × 4) | 32 | BSS |
 | Step-break temp slots (2 × 4) | 8 | BSS |
 | Flags, saved vectors, state | ~12 | BSS |
@@ -513,7 +539,7 @@ $FFFA–$FFFB  NMI vector → $FF00
 
 - Breakpoints only work in RAM.  Cannot set a breakpoint in ROM
   or I/O space (the BRK byte must be writable).
-- `n` (step-over) on JSR places BRK at PC+3.  If the subroutine
+- `o` (step-over) on JSR places BRK at PC+3.  If the subroutine
   never returns (e.g., JMP to a loop), the BRK is never hit.  Use
   NMI (RUN/STOP+RESTORE) to break out.
 - Self-modifying code may overwrite a patched BRK byte between the

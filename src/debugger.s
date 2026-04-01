@@ -2,7 +2,7 @@
 ;
 ; Phase A: breakpoint table management (bp_set, bp_del, bp_clear, bp_count)
 ; Phase B: context switch (dbg_enter, dbg_brk_handler, dbg_nmi_break)
-; Phase C: single-step t/n (step_bp, step_clear/patch/unpatch, usr_stk_byte)
+; Phase C: single-step t/o (step_bp, step_clear, usr_stk_word)
 ;
 ; Breakpoint table: 8 slots × 4 bytes = 32 bytes BSS
 ;   Offset 0: addr lo
@@ -12,6 +12,8 @@
 ;   addr=$0000 marks an empty slot.
 ;
 ; Step BRK table: same 4-byte format, 2 slots (lo/hi branch targets).
+; Placed contiguously after bp_table so combined patch/unpatch can
+; iterate all 10 slots in one loop.
 ; C fills addr+flags, dbg_enter patches/unpatches around user code.
 ; Invariant: all BRKs always unpatched before returning to REPL.
 ;
@@ -22,7 +24,6 @@
         .export _dbg_init
         .export _dbg_bp_set, _dbg_bp_del, _dbg_bp_clear
         .export _dbg_bp_count
-        .export _dbg_bp_patch, _dbg_bp_unpatch
         .export _dbg_bp_find
         .export _dbg_enter
         .export _dbg_brk_handler
@@ -30,8 +31,10 @@
         .export _bp_table
         .export _dbg_running, _dbg_reason, _brk_pc, _dbg_bp_hit, _dbg_has_ctx
         .export _step_bp
-        .export _dbg_step_clear, _dbg_step_patch, _dbg_step_unpatch
-        .export _dbg_usr_stk_byte
+        .export _dbg_step_clear
+        .export _dbg_bp_patch  := patch_all     ; test harness entry
+        .export _dbg_bp_unpatch := unpatch_all  ; test harness entry
+        .export _dbg_usr_stk_word
 
         .importzp ptr1          ; cc65 scratch pointer ($4E/$4F)
         .import _reg_a, _reg_x, _reg_y, _reg_sp, _reg_p
@@ -51,14 +54,17 @@ DBG_BRK  = 1
 DBG_NMI  = 2
 
 BP_SLOTS    = 8
-BP_SIZE     = 4         ; bytes per slot
 STEP_SLOTS  = 2
-STEP_SIZE   = 4         ; same 4-byte format
+SLOT_SIZE   = 4         ; bytes per slot
+TOTAL_SLOTS = BP_SLOTS + STEP_SLOTS     ; 10
 
 ; ── BSS ────────────────────────────────────────────────────────────────
 .segment "BSS"
 
-_bp_table:      .res BP_SLOTS * BP_SIZE   ; 32 bytes: 8 slots × 4
+; bp_table and step_bp MUST be contiguous — combined patch/unpatch
+; iterates offsets 0..(TOTAL_SLOTS*SLOT_SIZE-1) from _bp_table.
+_bp_table:      .res BP_SLOTS * SLOT_SIZE     ; 32 bytes: 8 slots × 4
+_step_bp:       .res STEP_SLOTS * SLOT_SIZE   ; 8 bytes: 2 step slots × 4
 
 _dbg_running:   .res 1          ; $80 = user code active, 0 = REPL
 _dbg_reason:    .res 1          ; why we returned (0=none, 1=BRK, 2=NMI)
@@ -68,23 +74,23 @@ _cse_saved_sp:  .res 1          ; CSE's 6502 SP saved before entering user code
 _saved_brk_lo:  .res 1          ; original $0316 value (lo)
 _saved_brk_hi:  .res 1          ; original $0317 value (hi)
 _dbg_has_ctx:   .res 1          ; $80 = user context in $E200 is valid
-
-_step_bp:       .res STEP_SLOTS * STEP_SIZE ; 8 bytes: 2 step slots × 4
-_dbg_stk_tmp:   .res 1          ; temp for usr_stk_byte banking
+_dbg_stk_tmp:   .res 1          ; temp for usr_stk_word banking
 
 ; ── CODE ───────────────────────────────────────────────────────────────
 .segment "CODE"
 
 ; ── _dbg_init ──────────────────────────────────────────────────────────
-; Zero the breakpoint table and all debugger state.
+; Zero breakpoint + step tables and all debugger state.
 ; Clobbers: A, X
 ;
 _dbg_init:
+        ; Clear both tables (bp + step = 40 bytes contiguous)
         lda #0
-        ldx #BP_SLOTS * BP_SIZE - 1
+        ldx #TOTAL_SLOTS * SLOT_SIZE - 1
 @clr:   sta _bp_table,x
         dex
         bpl @clr
+        ; Clear remaining state
         sta _dbg_running
         sta _dbg_reason
         sta _brk_pc
@@ -106,9 +112,9 @@ _dbg_init:
 ; desired.
 ;
 _dbg_bp_set:
-        ; Save target address temporarily
-        sta _bps_addr_lo
-        stx _bps_addr_hi
+        ; Stash target address in ptr1 (ZP scratch, not used by loop)
+        sta ptr1
+        stx ptr1+1
 
         ; Find first empty slot (addr lo | addr hi == 0)
         ldy #0                  ; slot index
@@ -129,9 +135,9 @@ _dbg_bp_set:
         sec
         rts
 
-@found: lda _bps_addr_lo
+@found: lda ptr1
         sta _bp_table,x         ; addr lo
-        lda _bps_addr_hi
+        lda ptr1+1
         sta _bp_table+1,x       ; addr hi
         lda #0
         sta _bp_table+2,x       ; saved = 0 (not yet patched)
@@ -140,12 +146,6 @@ _dbg_bp_set:
         tya                     ; A = slot number
         clc
         rts
-
-; ── _dbg_bp_set temporaries (BSS, ROM-safe) ──
-.segment "BSS"
-_bps_addr_lo: .res 1
-_bps_addr_hi: .res 1
-.segment "CODE"
 
 ; ── _dbg_bp_del ────────────────────────────────────────────────────────
 ; Delete a breakpoint by slot number.
@@ -172,12 +172,12 @@ _dbg_bp_del:
         rts
 
 ; ── _dbg_bp_clear ──────────────────────────────────────────────────────
-; Delete all breakpoints.
+; Delete all breakpoints (bp_table only, not step slots).
 ; Clobbers: A, X
 ;
 _dbg_bp_clear:
         lda #0
-        ldx #BP_SLOTS * BP_SIZE - 1
+        ldx #BP_SLOTS * SLOT_SIZE - 1
 @z:     sta _bp_table,x
         dex
         bpl @z
@@ -201,18 +201,54 @@ _dbg_bp_count:
         iny
         iny
         iny
-        cpy #BP_SLOTS * BP_SIZE
+        cpy #BP_SLOTS * SLOT_SIZE
         bne @cnt
         rts
 
-; ── _dbg_bp_patch ──────────────────────────────────────────────────────
-; Patch all enabled breakpoints: save original byte, write $00 (BRK).
-; Must be called before entering user code.
+; ── _dbg_bp_find ───────────────────────────────────────────────────────
+; Find a breakpoint by address.
+; In:  A = addr lo, X = addr hi
+; Out: C=0 found, A = slot number (0–7)
+;      C=1 not found, A = $FF
+; Clobbers: A, X, Y
+;
+_dbg_bp_find:
+        sta ptr1                ; stash target in ZP scratch
+        stx ptr1+1
+        ldy #0                  ; slot index
+        ldx #0                  ; table byte offset
+@loop:  lda _bp_table,x
+        cmp ptr1
+        bne @next
+        lda _bp_table+1,x
+        cmp ptr1+1
+        bne @next
+        ; Found
+        tya                     ; A = slot number
+        clc
+        rts
+@next:  inx
+        inx
+        inx
+        inx
+        iny
+        cpy #BP_SLOTS
+        bne @loop
+        ; Not found
+        lda #$FF
+        sec
+        rts
+
+; ── patch_all ──────────────────────────────────────────────────────────
+; Patch all enabled slots (bp_table + step_bp): save original byte,
+; write $00 (BRK).  Forward order: bp slots first, then step slots.
+; Step may overwrite a BRK that bp_patch left — step_patch saves that
+; BRK so unpatch_all can restore it in reverse order.
 ; Clobbers: A, X, Y, ptr1
 ;
-_dbg_bp_patch:
-        ldx #0                  ; table byte offset
-        ldy #0                  ; for indirect indexed
+patch_all:
+        ldx #0
+        ldy #0                  ; for (ptr1),y indirect indexed
 @loop:  lda _bp_table,x         ; addr lo
         ora _bp_table+1,x       ; |= addr hi
         beq @next               ; empty slot → skip
@@ -233,17 +269,19 @@ _dbg_bp_patch:
         inx
         inx
         inx
-        cpx #BP_SLOTS * BP_SIZE
+        cpx #TOTAL_SLOTS * SLOT_SIZE
         bne @loop
         rts
 
-; ── _dbg_bp_unpatch ────────────────────────────────────────────────────
-; Restore all patched breakpoints: write saved byte back.
-; Must be called after returning from user code.
+; ── unpatch_all ────────────────────────────────────────────────────────
+; Restore all patched slots: write saved byte back.
+; Reverse order: step slots first (offsets 36,32), then bp slots
+; (28,24,...,0).  This ensures step unpatches the BRK that bp_patch
+; wrote, then bp_unpatch restores the original byte.
 ; Clobbers: A, X, Y, ptr1
 ;
-_dbg_bp_unpatch:
-        ldx #0
+unpatch_all:
+        ldx #(TOTAL_SLOTS - 1) * SLOT_SIZE      ; 36 = last slot offset
         ldy #0
 @loop:  lda _bp_table,x
         ora _bp_table+1,x
@@ -258,46 +296,24 @@ _dbg_bp_unpatch:
         ; Restore original byte
         lda _bp_table+2,x
         sta (ptr1),y
-@next:  inx
-        inx
-        inx
-        inx
-        cpx #BP_SLOTS * BP_SIZE
-        bne @loop
+@next:  dex
+        dex
+        dex
+        dex
+        bpl @loop               ; X=$FC (negative) after offset 0 → exits
         rts
 
-; ── _dbg_bp_find ───────────────────────────────────────────────────────
-; Find a breakpoint by address.
-; In:  A = addr lo, X = addr hi
-; Out: C=0 found, A = slot number (0–7)
-;      C=1 not found, A = $FF
-; Clobbers: A, X, Y
+; ── _dbg_step_clear ────────────────────────────────────────────────────
+; Zero the step BRK table (2 slots × 4 bytes).
+; C fills addr+flags before calling dbg_enter.
+; Clobbers: A, X
 ;
-_dbg_bp_find:
-        sta _bps_addr_lo
-        stx _bps_addr_hi
-        ldy #0                  ; slot index
-        ldx #0                  ; table byte offset
-@loop:  lda _bp_table,x
-        cmp _bps_addr_lo
-        bne @next
-        lda _bp_table+1,x
-        cmp _bps_addr_hi
-        bne @next
-        ; Found
-        tya                     ; A = slot number
-        clc
-        rts
-@next:  inx
-        inx
-        inx
-        inx
-        iny
-        cpy #BP_SLOTS
-        bne @loop
-        ; Not found
-        lda #$FF
-        sec
+_dbg_step_clear:
+        lda #0
+        ldx #STEP_SLOTS * SLOT_SIZE - 1
+@z:     sta _step_bp,x
+        dex
+        bpl @z
         rts
 
 ; ═══════════════════════════════════════════════════════════════════════════
@@ -363,9 +379,8 @@ _dbg_enter:
         lda #>_dbg_brk_handler
         sta $0317
 
-        ; ── 5. Patch breakpoints then step BRKs ──
-        jsr _dbg_bp_patch
-        jsr _dbg_step_patch
+        ; ── 5. Patch all breakpoints + step BRKs ──
+        jsr patch_all
 
         ; ── 6. Set running flag ──
         lda #$80
@@ -486,15 +501,11 @@ _dbg_return_common:
         lda #0
         sta _dbg_running
 
-        ; ── 2. Unpatch step BRKs, then regular breakpoints ──
-        ; Step first: if a step target coincides with a regular bp,
-        ; step_unpatch restores the BRK bp_patch left; bp_unpatch then
-        ; restores the original byte.
+        ; ── 2. Unpatch all breakpoints (reverse order: step then bp) ──
         ; Switch to a temporary SP — user stack may be inconsistent.
         ldx #$FF
         txs
-        jsr _dbg_step_unpatch
-        jsr _dbg_bp_unpatch
+        jsr unpatch_all
 
         ; ── 3. Restore $0316 ──
         lda _saved_brk_lo
@@ -535,89 +546,24 @@ _dbg_return_common:
         rts
 
 ; ═══════════════════════════════════════════════════════════════════════════
-; Phase C — Step BRK management
+; Phase C — Step BRK management + user stack access
 ; ═══════════════════════════════════════════════════════════════════════════
 
-; ── _dbg_step_clear ────────────────────────────────────────────────────
-; Zero the step BRK table (2 slots × 4 bytes).
-; C fills addr+flags before calling dbg_enter.
-; Clobbers: A, X
+; ── _dbg_usr_stk_word ──────────────────────────────────────────────────
+; Read a 16-bit LE word from the user stack snapshot in KERNAL RAM.
+; In:  A = offset of low byte (uint8_t, __fastcall__)
+; Out: A/X = word (lo/hi — cc65 uint16_t return convention)
+; Clobbers: Y
 ;
-_dbg_step_clear:
-        lda #0
-        ldx #STEP_SLOTS * STEP_SIZE - 1
-@z:     sta _step_bp,x
-        dex
-        bpl @z
-        rts
-
-; ── _dbg_step_patch ────────────────────────────────────────────────────
-; Patch all enabled step BRKs: save original byte, write $00.
-; Called by _dbg_enter after _dbg_bp_patch.
-; Clobbers: A, X, Y, ptr1
-;
-_dbg_step_patch:
-        ldx #0
-        ldy #0
-@loop:  lda _step_bp,x
-        ora _step_bp+1,x
-        beq @next               ; empty slot (addr=$0000) → skip
-        lda _step_bp+3,x
-        beq @next               ; flags=0 → disabled → skip
-        lda _step_bp,x
-        sta ptr1
-        lda _step_bp+1,x
-        sta ptr1+1
-        lda (ptr1),y            ; read current byte (may already be BRK from bp_patch)
-        sta _step_bp+2,x        ; save it
-        lda #$00
-        sta (ptr1),y            ; write BRK
-@next:  inx
-        inx
-        inx
-        inx
-        cpx #STEP_SLOTS * STEP_SIZE
-        bne @loop
-        rts
-
-; ── _dbg_step_unpatch ──────────────────────────────────────────────────
-; Restore all patched step BRKs: write saved byte back.
-; Called by _dbg_return_common before _dbg_bp_unpatch.
-; Clobbers: A, X, Y, ptr1
-;
-_dbg_step_unpatch:
-        ldx #0
-        ldy #0
-@loop:  lda _step_bp,x
-        ora _step_bp+1,x
-        beq @next               ; empty slot → skip
-        lda _step_bp+3,x
-        beq @next               ; disabled → skip
-        lda _step_bp,x
-        sta ptr1
-        lda _step_bp+1,x
-        sta ptr1+1
-        lda _step_bp+2,x        ; saved byte
-        sta (ptr1),y            ; restore it
-@next:  inx
-        inx
-        inx
-        inx
-        cpx #STEP_SLOTS * STEP_SIZE
-        bne @loop
-        rts
-
-; ── _dbg_usr_stk_byte ──────────────────────────────────────────────────
-; Read one byte from the user stack snapshot in KERNAL RAM ($E200).
-; In:  A = stack offset (uint8_t, __fastcall__)
-; Out: A = byte at USR_STK + offset
-; Clobbers: X
-;
-_dbg_usr_stk_byte:
+_dbg_usr_stk_word:
         tax                     ; X = offset
         jsr _kernal_bank_out    ; sei + bank out KERNAL
-        lda USR_STK,x
+        lda USR_STK,x           ; lo byte
         sta _dbg_stk_tmp
+        lda USR_STK+1,x         ; hi byte
+        pha                     ; save hi on stack (stack is always RAM)
         jsr _kernal_bank_in     ; bank in KERNAL + cli
-        lda _dbg_stk_tmp
+        pla                     ; hi byte
+        tax                     ; X = hi
+        lda _dbg_stk_tmp        ; A = lo
         rts

@@ -12,7 +12,7 @@
         .import _io_puts, _io_putc, _io_putdec, _io_puthex2, _io_puthex4
         .import _io_getc, _io_kbhit, _io_clear_eol
         .import _io_color
-        .import _newline, _print_string
+        .import _newline, _io_puts
         .import _cur_device
         .import scr_lo, scr_hi
         .import cse_popax, cse_popa
@@ -221,7 +221,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         jsr _io_puts
         lda #<fl_buf
         ldx #>fl_buf
-        jsr _print_string
+        jsr _io_puts
         jmp _newline
 
 @err:   rts
