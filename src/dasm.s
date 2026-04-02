@@ -394,6 +394,12 @@ _dasm_finish_imp:
         sta _dasm_mode
         jmp finish
 
+; ── _dasm_set_finish — A=mnemonic, X=mode → set both, finish ──
+_dasm_set_finish:
+        sta _dasm_midx
+        stx _dasm_mode
+        jmp finish
+
 ; ── _dasm_aaa — extract aaa field (bits 7-5) into X ─────────
 ; Returns A = X = opcode >> 5.  Clobbers A.
 _dasm_aaa:
@@ -491,20 +497,16 @@ _dasm_aaa:
         bne :+
         ; 6510: SXA ABY
         lda #MNE_SXA
-        sta _dasm_midx
-        lda #MODE_ABY
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ABY
+        jmp _dasm_set_finish
 :
 .ifdef CMOS_SUPPORT
         cmp #2
         bne @to_unk             ; 6502: ???
         ; 65C02: STZ ABX
         lda #MNE_STZ
-        sta _dasm_midx
-        lda #MODE_ABX
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ABX
+        jmp _dasm_set_finish
 .endif ; CMOS_SUPPORT
 .endif ; !CPU_6502
 @to_unk:
@@ -559,10 +561,8 @@ _dasm_aaa:
 
 @ldx_imm:
         lda #MNE_LDX
-        sta _dasm_midx
-        lda #MODE_IMM
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_IMM
+        jmp _dasm_set_finish
 
 @bbb2:  ; Accumulator / implied column
         jsr _dasm_aaa
@@ -642,11 +642,7 @@ _dasm_aaa:
         lda al_cpu
         bne @b6go               ; 6510: all entries valid
 .endif
-        ; 6502: check if ??? (illegal NOP variants)
-        lda _dasm_midx
-        cmp #MNE_UNK
-        bne @b6go
-        jmp finish
+        ; 6502: UNK entries in g2b6_mne_nmos print as "???" via finish
 @b6go:  jmp finish
 
 .ifdef CMOS_SUPPORT
@@ -709,10 +705,8 @@ _dasm_aaa:
         bne @br_unk
         ; 6510: $80 = SKB #imm
         lda #MNE_SKB
-        sta _dasm_midx
-        lda #MODE_IMM
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_IMM
+        jmp _dasm_set_finish
 @br_unk:
 .endif
         ; 6502: ??? (not a valid branch)
@@ -805,10 +799,8 @@ _dasm_aaa:
         cmp #2
         bne @not_bra80
         lda #MNE_BRA
-        sta _dasm_midx
-        lda #MODE_REL
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_REL
+        jmp _dasm_set_finish
 @not_bra80:
 .endif
         cmp #1
@@ -845,10 +837,8 @@ _dasm_aaa:
         cmp #2
         bne @not_stz9c
         lda #MNE_STZ
-        sta _dasm_midx
-        lda #MODE_ABS           ; STZ ABS (not ABX)
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ABS           ; STZ ABS (not ABX)
+        jmp _dasm_set_finish
 @not_stz9c:
 .endif
         cmp #1
@@ -908,28 +898,20 @@ _dasm_aaa:
 
 @bit_zp:
         lda #MNE_BIT
-        sta _dasm_midx
-        lda #MODE_ZP
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ZP
+        jmp _dasm_set_finish
 @ign_zp:
         lda #MNE_IGN
-        sta _dasm_midx
-        lda #MODE_ZP
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ZP
+        jmp _dasm_set_finish
 @tsb_zp:
         lda #MNE_TSB
-        sta _dasm_midx
-        lda #MODE_ZP
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ZP
+        jmp _dasm_set_finish
 @stz_zp:
         lda #MNE_STZ
-        sta _dasm_midx
-        lda #MODE_ZP
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ZP
+        jmp _dasm_set_finish
 
 @bbb3_low:
         ; aaa 0-1: TOP/TSB ABS, BIT ABS
@@ -954,38 +936,28 @@ _dasm_aaa:
         bne @b3_unk
         ; 6510: TOP
         lda #MNE_TOP
-        sta _dasm_midx
-        lda #MODE_ABS
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ABS
+        jmp _dasm_set_finish
 @b3_unk:
 .endif
         jmp @unk
 
 @jmp_abs:
         lda #MNE_JMP
-        sta _dasm_midx
-        lda #MODE_ABS
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ABS
+        jmp _dasm_set_finish
 @jmp_ind:
         lda #MNE_JMP
-        sta _dasm_midx
-        lda #MODE_IND
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_IND
+        jmp _dasm_set_finish
 @bit_abs:
         lda #MNE_BIT
-        sta _dasm_midx
-        lda #MODE_ABS
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ABS
+        jmp _dasm_set_finish
 @tsb_abs:
         lda #MNE_TSB
-        sta _dasm_midx
-        lda #MODE_ABS
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ABS
+        jmp _dasm_set_finish
 
 ; ── cc=00 bbb=5/7, aaa<4: CPU-specific opcodes ──────────
 @bbb57_low:
@@ -1012,18 +984,14 @@ _dasm_aaa:
         beq :+
         jmp @unk
 :       lda #MNE_IGN
-        sta _dasm_midx
-        lda #MODE_ZPX
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ZPX
+        jmp _dasm_set_finish
 @b57n_7:
         cpx #0                  ; $1C=TOP ABX
         bne @unk
         lda #MNE_TOP
-        sta _dasm_midx
-        lda #MODE_ABX
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ABX
+        jmp _dasm_set_finish
 .endif
 
 .ifdef CMOS_SUPPORT
@@ -1051,40 +1019,28 @@ _dasm_aaa:
 
 @trb_zpc:
         lda #MNE_TRB
-        sta _dasm_midx
-        lda #MODE_ZP
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ZP
+        jmp _dasm_set_finish
 @bit_zpx:
         lda #MNE_BIT
-        sta _dasm_midx
-        lda #MODE_ZPX
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ZPX
+        jmp _dasm_set_finish
 @stz_zpx:
         lda #MNE_STZ
-        sta _dasm_midx
-        lda #MODE_ZPX
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ZPX
+        jmp _dasm_set_finish
 @trb_absc:
         lda #MNE_TRB
-        sta _dasm_midx
-        lda #MODE_ABS
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ABS
+        jmp _dasm_set_finish
 @bit_abx:
         lda #MNE_BIT
-        sta _dasm_midx
-        lda #MODE_ABX
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_ABX
+        jmp _dasm_set_finish
 @jmp_aix:
         lda #MNE_JMP
-        sta _dasm_midx
-        lda #MODE_AIX
-        sta _dasm_mode
-        jmp finish
+        ldx #MODE_AIX
+        jmp _dasm_set_finish
 .endif
 
 @unk:   jmp _dasm_finish_unk

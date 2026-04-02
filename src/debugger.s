@@ -77,11 +77,8 @@ _saved_brk_hi:  .res 1          ; original $0317 value (hi)
 ;
 _dbg_init:
         ; Clear both tables (bp + step = 40 bytes contiguous)
-        lda #0
         ldx #TOTAL_SLOTS * SLOT_SIZE - 1
-@clr:   sta _bp_table,x
-        dex
-        bpl @clr
+        jsr clear_bp_x
         ; Clear remaining state
         sta _dbg_running
         sta _dbg_reason
@@ -170,8 +167,12 @@ _dbg_bp_del:
 ; Clobbers: A, X
 ;
 _dbg_bp_clear:
-        lda #0
         ldx #BP_SLOTS * SLOT_SIZE - 1
+        ; fall through
+
+; ── clear_bp_x — zero _bp_table[0..X] ─────────────────────
+clear_bp_x:
+        lda #0
 @z:     sta _bp_table,x
         dex
         bpl @z

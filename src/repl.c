@@ -152,18 +152,22 @@ extern char dasm_buf[];
  * Line emitters
  * ═══════════════════════════════════════════════════════════════ */
 
+/* Print `max` hex byte columns; show first `count` values from `src`,
+ * pad the rest.  Each column is " XX" or "   ". */
+static void emit_hex_cols(const uint8_t *src, uint8_t count, uint8_t max) {
+    uint8_t i;
+    for (i = 0; i < max; ++i) {
+        if (i < count) { io_putc(' '); io_puthex2(src[i]); }
+        else           { io_puts("   "); }
+    }
+}
+
 static uint8_t emit_dot(uint16_t addr) {
-    uint8_t olen, i;
+    uint8_t olen;
     olen = dasm_insn(addr);             /* disassemble first to get length */
     io_addr_cmd(addr, '.');
     io_putc(' ');                           /* 2 spaces before hex */
-    for (i = 0; i < 3; ++i) {
-        if (i < olen) {
-            io_putc(' '); io_puthex2(((uint8_t *)addr)[i]);
-        } else {
-            io_puts("   ");
-        }
-    }
+    emit_hex_cols((const uint8_t *)addr, olen, 3);
     io_puts("  ");                          /* 2 spaces before mnemonic */
     io_puts(dasm_buf);
     clear_eol();
@@ -176,13 +180,7 @@ static void emit_mem(uint16_t addr, uint8_t cols) {
     if (cols == 0) cols = 8;
     if (cols > 8)  cols = 8;
     io_addr_cmd(addr, 'm');
-    for (i = 0; i < 8; ++i) {
-        if (i < cols) {
-            io_putc(' '); io_puthex2(base[i]);
-        } else {
-            io_puts("   ");
-        }
-    }
+    emit_hex_cols(base, cols, 8);
     io_putc(' ');
     for (i = 0; i < cols; ++i) {
         b = base[i];
@@ -772,7 +770,10 @@ static void cmd_write(uint8_t *args)
     } else {
         uint16_t end = 0;
         uint16_t size;
-        try_expr(&q, &end);
+        uint8_t has_arg;
+        skip_sp(&q);
+        has_arg = *q && *q != ';';
+        if (has_arg && !try_expr(&q, &end)) { nl_clear(); return; }
         if (!end) end = addr + block_size;
         if (end <= addr) { err_msg(";?range"); nl_clear(); return; }
         size = end - addr;
