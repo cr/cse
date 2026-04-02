@@ -120,11 +120,9 @@ extern uint8_t dbg_running;     /* $80 = user code active */
 extern uint8_t dbg_reason;      /* 0=none, 1=BRK, 2=NMI */
 extern uint16_t brk_pc;         /* break address / resume target */
 extern uint8_t dbg_bp_hit;      /* slot# of hit bp ($FF=none) */
-extern uint8_t dbg_has_ctx;     /* $80 = user context valid in $E200 */
 
-/* Phase C — step BRK table (2 slots × 4 bytes, contiguous after bp_table) */
+/* Step BRK table (2 slots × 4 bytes, contiguous after bp_table) */
 extern uint8_t step_bp[];                                  /* 2×4 bytes */
 extern void dbg_step_clear(void);   /* zero step_bp */
-extern uint16_t __fastcall__ dbg_usr_stk_word(uint8_t offset); /* LE word at USR_STK[offset] */
 
 #endif

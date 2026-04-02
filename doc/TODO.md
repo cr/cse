@@ -14,7 +14,10 @@
   may change VIC regs).
 - [ ] RUN/STOP debounce: bounces when held.
 - [ ] read_line: cc65 -O ternary miscompilation documented but not
-  guarded — add regression test.
+  guarded — add regression test.  (CC65 -O BUG #1)
+- [ ] cmd_step: cc65 -O uint8_t return zero-extension bug — dasm_insn
+  return not promoted before tosaddax.  Workaround in place.
+  (CC65 -O BUG #2)
 
 ## Next
 

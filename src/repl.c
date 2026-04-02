@@ -101,8 +101,10 @@ void read_line(void) {
     uint8_t  i, sc;
     for (i = 0; i < SCREEN_WIDTH; ++i) {
         sc = src[i] & 0x7F;
-        /* if/else instead of ternary — cc65 -O miscompiles the ternary
-         * (uses wrong stack offset for the identity branch) */
+        /* CC65 -O BUG #1: if/else instead of ternary.  cc65 -O
+         * miscompiles the ternary (uses wrong stack offset for the
+         * identity branch).  NOT an asm-port concern.  See also
+         * CC65 -O BUG #2 in cmd_step. */
         if (sc < 0x20)
             line_buf[i] = sc + 0x40;       /* lowercase screen → $41-$5A */
         else if (sc >= 0x41 && sc <= 0x5A)
@@ -481,8 +483,17 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
             next_lo = brk_pc + 2 + rel;   /* taken */
             next_hi = brk_pc + 2;         /* not taken */
         } else {
-            /* Linear: advance by instruction length */
-            next_lo = brk_pc + dasm_insn(brk_pc);
+            /* Linear: advance by instruction length.
+             * CC65 -O BUG #2: cc65 -O fails to zero-extend the
+             * uint8_t return of dasm_insn before 16-bit addition
+             * (X register has garbage from dasm_insn internals,
+             * tosaddax uses it as the high byte → wrong address).
+             * Workaround: store to uint8_t local first, then add.
+             * NOT an asm-port concern.  See also CC65 -O BUG #1
+             * in read_line. */
+            {   uint8_t len = dasm_insn(brk_pc);
+                next_lo = brk_pc + len;
+            }
         }
 
         /* Unknown target (including RTS/RTI) → stop before executing */
