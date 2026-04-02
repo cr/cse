@@ -99,6 +99,8 @@ _dbg_init:
         lda #$FF
         sta _dbg_bp_hit
         sta _reg_sp             ; sane default SP for cold t/j
+        lda #$20                ; bit 5 always set, I=0, all flags clear
+        sta _reg_p
         rts
 
 ; ── _dbg_bp_set ────────────────────────────────────────────────────────
@@ -369,6 +371,7 @@ _dbg_enter:
 
 @stacks_done:
         jsr _kernal_bank_in     ; bank in KERNAL + cli
+        sei                     ; re-disable IRQ until RTI
 
         ; ── 4. Save current $0316, install our BRK handler ──
         lda $0316
@@ -524,6 +527,7 @@ _dbg_return_common:
         dex
         bne @swap
         jsr _kernal_bank_in
+        sei                     ; keep IRQ disabled until fully restored
 
         ; ── 5. Mark user context as valid ──
         lda #$80
@@ -541,8 +545,7 @@ _dbg_return_common:
         bpl @rzp
 
         ; ── 8. Return to C caller of dbg_enter ──
-        ; The CSE stack now has the return address from when C called
-        ; dbg_enter.  RTS returns there.  CLI re-enables interrupts.
+        ; CSE stack and ZP fully restored.  CLI re-enables interrupts.
         cli
         rts
 
