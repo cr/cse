@@ -329,7 +329,7 @@ def _al_build():
     obj_files = []
     for src in _AL_SOURCES:
         obj = BUILD / f"{src.stem}_al.o"
-        cmd = ["ca65", "--cpu", "6502", str(src), "-o", str(obj)]
+        cmd = ["ca65", "--cpu", "6502", "-DCMOS_SUPPORT", str(src), "-o", str(obj)]
         if src.name == "asm_line.s":
             cmd += ["--listing", str(_AL_LST)]
         subprocess.run(cmd, check=True)

@@ -470,6 +470,7 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
         } else if (opc == 0x6C) {
             /* JMP (ind) */
             next_lo = RD16(RD16(brk_pc + 1));
+#ifdef CMOS_SUPPORT
         } else if (opc == 0x7C && al_cpu >= 2) {
             /* JMP (abs,x) — 65C02 only */
             next_lo = RD16(RD16(brk_pc + 1) + reg_x);
@@ -477,6 +478,7 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
             /* BRA — 65C02 unconditional relative */
             int8_t rel = (int8_t)RD8(brk_pc + 1);
             next_lo = brk_pc + 2 + rel;
+#endif
         } else if ((opc & 0x1F) == 0x10) {
             /* Conditional branch Bxx */
             int8_t rel = (int8_t)RD8(brk_pc + 1);

@@ -196,6 +196,10 @@ al_line_asm:
         sta al_pidx             ; raw profile index
 
         ; ── CMOS gate / upgrade ───────────────────────────────────────────
+        ; On non-CMOS builds (mn6), cat=11 and cat=01 mnemonics are not
+        ; in the hash table, so this code is never reached.  The ifdef
+        ; excludes it from the binary to save bytes.
+.ifdef CMOS_SUPPORT
         lda al_prof
         and #$C0
         cmp #$C0                ; cat=11 (pure CMOS mnemonic)?
@@ -209,6 +213,7 @@ al_line_asm:
         lda al_cpu
         beq @no_upgrade
         inc al_pidx             ; use the CMOS profile for mode validation
+.endif ; CMOS_SUPPORT
 @no_upgrade:
 
         ; ── reset Y=0 before zone dispatch ────────────────────────────────────
