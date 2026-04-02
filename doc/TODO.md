@@ -124,15 +124,21 @@ Prerequisite for universal binary and cartridge ROM.
 
 ### R3 — Universal C64/C128 binary
 
-Single PRG runs on both machines.  The relocating startup (R2)
-detects the platform at boot:
+Single PRG runs on both machines.  Identical code layout at $8000+
+— no runtime address patching.  Machine differences isolated to
+three leaf functions that branch on a detection flag.
 
 1. **Machine detection** (~10 B): check $D030 or MMU register.
 2. **Banking abstraction** (~30 B): `kernal_bank_out/in` branches
-   on machine flag — `$01` on C64, `$FF00` on C128.
-3. **2 MHz mode** (~5 B): enable 8502 fast mode during assembly
+   on machine flag — `$01` on C64, `$FF00` MMU on C128.
+3. **NMI trampoline relocation**: $FF00 is MMU on C128 (not RAM).
+   Trampoline needs a different address or uses MMU common-RAM.
+4. **KERNAL RAM access** ($E000+): C128 uses MMU bank switch
+   instead of $01 bit manipulation.  Same accessor functions,
+   different banking inside.
+5. **2 MHz mode** (~5 B): enable 8502 fast mode during assembly
    and memory search (VIC blanked during banking anyway).
-4. **C128 keyboard**: map ESC, TAB, HELP, numeric keypad.
+6. **C128 keyboard**: map ESC, TAB, HELP, numeric keypad.
 
 Same 40-column VIC-II screen on both machines.  No VDC code
 shipped to C64.  Zero RAM overhead on C64.
