@@ -21,24 +21,29 @@
 Called once at startup.  Saves the default $0316 value.
 
 ### _dbg_enter
-**In:** `_reg_a`, `_reg_x`, `_reg_y`, `_reg_sp`, `_reg_p` — user
-register state.  `_brk_pc` — target address.
-**Out:** does not return normally.  Returns to REPL via longjmp
-when a BRK or NMI break occurs.
-**Clobbers:** everything (context switch)
+**In:** `_reg_a`, `_reg_x`, `_reg_y`, `_reg_p` — user register
+state.  `_brk_pc` — target address.  `_step_bp` — armed step
+breakpoints (if any).
+**Out:** returns normally after BRK or NMI fires.  `_brk_pc`,
+`_reg_*`, `_dbg_reason`, `_dbg_bp_hit` updated.
+**Clobbers:** A, X, Y, ptr1
 
-Saves CSE context (ZP, stack page, SP), patches breakpoints,
-loads user registers, and RTIs to the target address.  Returns
-to the REPL when a BRK fires, an NMI break occurs, or user
-code hits RTS (if no breakpoints are set).
+Saves CSE ZP, installs BRK handler, patches breakpoints, restores
+user flags via PHA/PLP, then `JSR @tramp → JMP (_brk_pc)` to enter
+user code.  User code shares the CSE 6502 stack.  When a BRK or
+NMI fires, the handler strips its frame and RTS returns here.
+Then unpatches breakpoints, restores $0316, restores CSE ZP, RTS.
 
 ### _dbg_brk_handler
 **In:** called from KERNAL via ($0316) on BRK
-**Out:** returns to REPL with `_dbg_reason = DBG_BRK`
-**Clobbers:** everything (context switch)
+**Out:** RTS to `_dbg_enter` (strips 6-byte BRK+KERNAL frame)
+**Clobbers:** A, X
 
-Extracts user registers from the KERNAL stack frame, unpatches
-breakpoints, restores CSE context, and longjmps to the REPL.
+Extracts user registers from the KERNAL stack frame (Y, X, A, P,
+PChi, PClo at fixed offsets from SP).  Computes `_brk_pc` =
+pushed PC − 2.  Calls `_dbg_bp_find` to identify which breakpoint
+was hit.  Strips the 6-byte frame (3 CPU + 3 KERNAL) via
+`tsx; adc #6; txs` and RTS back to `_dbg_enter`.
 
 ### _dbg_bp_set
 **In:** A/X = address (lo/hi)
@@ -67,12 +72,6 @@ breakpoints, restores CSE context, and longjmps to the REPL.
 
 Used by the BRK handler to identify which breakpoint slot was hit.
 
-### _dbg_has_ctx
-Flag byte (BSS).  `$80` = user context snapshot in $E200 is valid
-(i.e., we have broken from user code at least once).  `$00` = no
-user context exists yet.  Checked by `cmd_step` before peeking
-the user stack for RTS/RTI target resolution.
-
 ### C (repl.c command handlers)
 
 - `cmd_brk(args)` — `b` command: set, list, or delete breakpoints
@@ -82,14 +81,13 @@ the user stack for RTS/RTI target resolution.
 **State:**
 - `_bp_table` — 8 breakpoint slots (see § Breakpoint table)
 - `_dbg_running` — $80 while user code is active, 0 in REPL
-- `_dbg_reason` — why we returned (BRK, NMI, RTS, step)
+- `_dbg_reason` — why we returned (0=none, 1=BRK, 2=NMI)
 - `_brk_pc` — PC where the break occurred / execution will resume
 - `_dbg_bp_hit` — slot number of the breakpoint that was hit ($FF = none)
-- `_step_count` — remaining step count for `t`/`o`
 - `_step_bp` — temporary breakpoint(s) for single-step (2 slots)
 
 **Depends on:** asm_bridge (register state, ZP save), dasm (instruction
-length for step), cse_io (NMI handler upgrade), symtab (KERNAL banking)
+length for step), cse_io (NMI handler upgrade)
 
 ## Command Reassignment
 
@@ -210,7 +208,7 @@ _nmi_handler:
         stx _reg_x
         sty _reg_y
         ; ... extract PC and P from stack ...
-        ; ... context switch back to REPL (same as BRK handler) ...
+        ; ... strip 3-byte NMI frame, RTS to dbg_enter ...
 ```
 
 **Key difference from BRK:**
@@ -220,103 +218,76 @@ _nmi_handler:
 
 ### Context switch
 
-The debugger maintains two execution contexts — CSE (REPL) and
-user code — with full isolation.
+User code shares the CSE 6502 stack — no stack page swap, no
+KERNAL banking.  The same approach as `jsr_addr` in asm_bridge.s.
 
-**Saved state per context:**
+**Saved state:**
 
 | Component | Size | Location | Notes |
 |-----------|------|----------|-------|
-| ZP $02–$5C | 91 B | `_zp_save_buf` (BSS) | existing, from asm_bridge |
-| Stack page $0100–$01FF | 256 B | $E100 / $E200 (KERNAL RAM) | CSE snapshot / user snapshot |
-| SP | 1 B | `_cse_saved_sp` / `_reg_sp` | |
-| Registers (A,X,Y,P) | 4 B | `_reg_a..p` (BSS) | existing, from asm_bridge |
+| ZP $02–$5E | 93 B | `_zp_save_buf` (BSS) | cc65 runtime: sp, sreg, regsave, ptr1–4, tmp1–4, regbank |
+| Registers (A,X,Y,P) | 5 B | `_reg_a..p` (BSS) | existing, from asm_bridge |
 | PC | 2 B | `_brk_pc` (BSS) | |
 
 **Enter user code** (`j` / `c` / `t` step):
 
 ```
-1.  Save CSE ZP → _zp_save_buf
-2.  Save CSE SP → _cse_saved_sp
-3.  Bank out KERNAL:
-      memcpy($0100 → $E100, 256)     ; CSE stack snapshot
-      memcpy($E200 → $0100, 256)     ; restore user stack (skip for fresh j)
-    Bank in KERNAL
-4.  Save user's $0316 → _user_brk_vec
-5.  Install _dbg_brk_handler at $0316
-6.  Patch all enabled breakpoints (write $00)
-7.  Set _dbg_running = $80
-8.  Set SP = _reg_sp
-9.  Build stack frame:
-      For fresh j:  push _reg_p, push (_brk_pc − 1) hi/lo
-      For c/t:      user stack already has BRK/NMI frame (adjust as needed)
-10. Load A/X/Y from _reg_*
-11. RTI → user code resumes
+1.  Save CSE ZP ($02–$5E) → _zp_save_buf
+2.  Save $0316/$0317, install _dbg_brk_handler
+3.  patch_all: write $00 at all enabled bp + step slots
+4.  Set _dbg_running = $80
+5.  PHA _reg_p, load A/X/Y from _reg_*, PLP
+6.  JSR @tramp → JMP (_brk_pc) → user code
+    ... user code runs, BRK fires ...
+    ... handler extracts regs, strips frame, RTS back here ...
+7.  unpatch_all: restore original bytes
+8.  Restore $0316/$0317
+9.  Restore CSE ZP from _zp_save_buf
+10. RTS to C caller
 ```
 
-**Return to REPL** (BRK or NMI fires):
+`dbg_enter` is a **normal function call** — it returns after the
+BRK/NMI handler strips its stack frame and RTS back to step 7.
+
+**BRK handler** (entered from KERNAL via $0316):
 
 ```
-1.  Extract user regs → _reg_* (from stack for BRK, from regs for NMI)
-2.  Compute break address → _brk_pc
-3.  Compute user's pre-break SP → _reg_sp
-4.  Set _dbg_running = 0
-5.  Unpatch all breakpoints (restore original bytes)
-6.  Restore user's $0316 from _user_brk_vec
-7.  Bank out KERNAL:
-      memcpy($0100 → $E200, 256)     ; user stack snapshot
-      memcpy($E100 → $0100, 256)     ; restore CSE stack
-    Bank in KERNAL
-8.  Restore CSE ZP from _zp_save_buf
-9.  Restore CSE SP from _cse_saved_sp
-10. CLI                               ; re-enable interrupts
-11. Return to REPL with status in _dbg_reason
+1.  Extract Y, X, A, P, PClo, PChi from stack (fixed offsets)
+2.  _brk_pc = PChi:PClo − 2
+3.  _reg_sp = SP + 6 (strip BRK+KERNAL frame from user's view)
+4.  _dbg_bp_find(_brk_pc) → _dbg_bp_hit
+5.  _dbg_running = 0
+6.  Strip 6-byte frame (tsx; adc #6; txs)
+7.  RTS → dbg_enter step 7
 ```
 
-**User's IRQ handlers continue firing** after step 10.  The CLI
-re-enables interrupts, so any raster IRQ, music player, or
-timer-driven code the user set up keeps running during the
-debugger prompt.  The KERNAL's keyboard/cursor IRQ also resumes.
+**NMI handler** (entered from cse_io.s when `_dbg_running` bit 7 set):
 
-### KERNAL interaction preservation
+Same pattern but saves A/X/Y from live regs (NMI doesn't push them)
+and strips 3 bytes (CPU frame only, no KERNAL regs).
 
-The debugger does not touch:
-
-| Resource | Why it's safe |
-|----------|--------------|
-| $0314 (IRQ vector) | User's IRQ chain untouched |
-| $0316 (BRK vector) | Saved/restored around execution |
-| CIA timers ($DC04–$DD0B) | Never modified |
-| KERNAL I/O state ($0200–$03FF) | Not in CSE's ZP save range |
-| KERNAL ZP ($80–$FF) | CSE saves $02–$5C only |
-| Open files/channels | KERNAL file table untouched |
-| Screen/color RAM | Debugger uses CSE's I/O (direct screen writes) |
-
-User code that interacts with the KERNAL (OPEN, CLOSE, CHROUT,
-CHRIN, LOAD, SAVE, etc.) works identically whether breakpoints
-are set or not.  The BRK dispatch occurs before the KERNAL's
-IRQ processing, so no KERNAL state is modified between the
-user's last instruction and the debugger gaining control.
+**Trade-off:** user code shares the CSE stack.  Deep CSE call chains
++ deep user subroutines could overflow.  For single-step, user code
+runs one instruction at a time — minimal stack usage.
 
 ### Single-step: `t` (trace into)
 
 ```
-1. Disassemble instruction at _brk_pc → length, type
+1. Read opcode at _brk_pc
 2. Determine next-PC(s):
-     Linear insn:   next = PC + length
-     Branch (Bxx):  next₁ = PC + length (not taken)
-                    next₂ = PC + 2 + signed_offset (taken)
+     Linear insn:   next = PC + length (via dasm_insn)
+     Branch (Bxx):  next₁ = PC + 2 + signed_offset (taken)
+                    next₂ = PC + 2 (not taken)
      JMP abs:       next = operand
      JMP (ind):     next = peek16(operand)
      JSR abs:       next = operand                    ← step INTO
-     RTS:           next = peek16(SP+1) + 1
-     RTI:           next = peek16(SP+2)               (SP+1 = P)
-     BRK:           next = peek16($0316) or peek16($FFFE)
+     RTS/RTI:       stop (break before executing)
+     BRK:           stop (don't step into vector)
 3. Place temp BRK(s) at next-PC(s) in _step_bp slots
-4. Execute via context switch (same path as c)
-5. BRK fires at next instruction → clean up _step_bp
-6. Decrement _step_count; if > 0, repeat from 1
-7. Report to REPL
+4. dbg_enter: patch, execute one instruction, BRK, return
+5. If NMI or regular bp interrupted → show_break_result, stop
+6. Increment loop counter; if < count, repeat from 1
+7. Display register line + disassembly at final _brk_pc
 ```
 
 ### Single-step: `o` (trace over / step over)
@@ -402,8 +373,8 @@ JSR: steps into the subroutine.
 The loop exits early if:
 - A BRK opcode is encountered (user BRK, not a debugger breakpoint)
 - An NMI fires or a regular breakpoint is hit mid-sequence
-- RTS or RTI is executed (prevents stepping into garbage)
-- The next-PC cannot be determined (RTS/RTI without valid context)
+- RTS or RTI is reached (stops before executing — prevents
+  following a garbage return address)
 
 ### `o` — Trace over (step-over)
 
@@ -517,51 +488,46 @@ Existing behavior — clear screen, fresh prompt.
 ## Memory Layout Under KERNAL (updated)
 
 ```
-$E000–$E0FF  free (256 B)
-$E100–$E1FF  CSE stack snapshot (256 B)
-$E200–$E2FF  User stack snapshot (256 B)
-$E300–$F817  free (5.4 KB)
+$E000–$F817  free (6.0 KB)
 $F818–$FBFF  repl_screen (1000 B)
 $FC00–$FEFF  sym_table (768 B)
 $FF00–$FF09  NMI trampoline (10 B)
 $FFFA–$FFFB  NMI vector → $FF00
 ```
 
+The debugger no longer uses KERNAL RAM for stack snapshots.
+User code shares the CSE 6502 stack.
+
 ## Cost Estimate
 
 | Component | Bytes | Segment |
 |-----------|-------|---------|
-| BRK handler + NMI upgrade | ~120 | CODE |
-| Context switch (stack copy, ZP save) | ~80 | CODE |
-| Breakpoint patch/unpatch | ~60 | CODE |
-| Step: instruction length + target resolution | ~100 | CODE |
+| BRK handler + NMI handler | ~80 | CODE |
+| dbg_enter (ZP save, patch, tramp, unpatch, restore) | ~60 | CODE |
+| Breakpoint patch/unpatch (combined loop) | ~50 | CODE |
+| Breakpoint table management | ~100 | CODE |
 | REPL commands: b, c, t, o | ~400 | CODE |
 | Breakpoint table (8 × 4) | 32 | BSS |
 | Step-break temp slots (2 × 4) | 8 | BSS |
-| Flags, saved vectors, state | ~12 | BSS |
-| Stack snapshots (2 × 256) | 512 | KERNAL RAM |
-| **Total** | **~760 CODE, ~52 BSS, 512 KERNAL** | |
+| Flags, saved vectors, state | ~8 | BSS |
+| **Total** | **~690 CODE, ~48 BSS** | |
 
 ## Caveats
 
+- **Shared stack:** user code shares the CSE 6502 stack.  Deep
+  CSE call chains (~30 bytes) + deep user subroutines could
+  overflow.  For single-step this is not a concern (one
+  instruction at a time).  For `j` with breakpoints, deeply
+  recursive user code may need a future stack-swap implementation.
 - Breakpoints only work in RAM.  Cannot set a breakpoint in ROM
   or I/O space (the BRK byte must be writable).
 - `o` (step-over) on JSR places BRK at PC+3.  If the subroutine
   never returns (e.g., JMP to a loop), the BRK is never hit.  Use
   NMI (RUN/STOP+RESTORE) to break out.
+- `t`/`o` stop BEFORE executing RTS or RTI.  The debugger does not
+  follow return addresses — the user must `c` or `j` to continue.
 - Self-modifying code may overwrite a patched BRK byte between the
   patch and the hit, causing the breakpoint to be silently lost.
-- If user code replaces the hardware IRQ vector at $FFFE in RAM
-  (by banking out KERNAL) with a handler that doesn't check the
-  B flag, BRK will be treated as an IRQ and the debugger will not
-  gain control.  This is rare in practice.
-- `t` stepping through an instruction that enables interrupts (CLI)
-  will allow pending IRQs to fire as a side effect.  The IRQ handler
-  runs to completion before the step-break triggers.  This is
-  correct 6502 behavior.
-- The 256-byte stack page copy costs ~1 ms per context switch.
-  Imperceptible to the user but adds latency to each `t` step
-  when stepping rapidly (e.g., `t 100`).
 - User's $0316 (BRK vector) is saved/restored.  If user code sets
   $0316 between breakpoint patches, the user's handler will not fire
   until the debugger is inactive.
