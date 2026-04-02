@@ -290,16 +290,24 @@ runs one instruction at a time — minimal stack usage.
 7. Display register line + disassembly at final _brk_pc
 ```
 
+**Branch handling:** conditional branches (BCC, BEQ, BNE, etc.)
+have two possible next addresses.  Both get a step BRK — the
+taken target (`PC + 2 + signed_offset`) and the not-taken target
+(`PC + 2`).  Whichever path the CPU takes, it hits a BRK.
+`patch_all` saves both original bytes; `unpatch_all` restores both.
+
+**RTS/RTI guard:** the step loop stops BEFORE executing RTS or RTI.
+The instruction is displayed but not run.  This prevents following
+a garbage return address when no JSR context exists.
+
 ### Single-step: `o` (trace over / step over)
 
-Identical to `t` except for JSR handling:
+Identical to `t` except for JSR:
 
-```
-     JSR abs:       next = PC + 3                     ← step OVER
-```
-
-Places BRK at the instruction *after* the JSR.  The subroutine
-runs to completion at full speed, then BRK fires on return.
+- `t` (trace into): step BRK at subroutine entry (`operand`) —
+  follows the call, next step is the first instruction of the sub.
+- `o` (trace over): step BRK at `PC + 3` — the instruction after
+  the JSR.  The subroutine runs to completion at full speed.
 
 ### User BRK detection
 
