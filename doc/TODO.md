@@ -64,9 +64,7 @@ Defined scope, needs work.
 
 ### Assembler
 
-- [ ] dasm.s: wrap 65C02 decode paths and tables in `.ifdef
-  CMOS_SUPPORT`.  Currently CMOS code always present, gated at
-  runtime only.  Saves bytes for 6502/6510-only builds.
+- [ ] Compile-time CPU gating: see Roadmap R1.
 - [ ] Assembler error display: show source line number + context.
 
 ### Editor
@@ -88,13 +86,10 @@ Defined scope, needs work.
   at $E000-$F817 for future use.
 - [ ] Move more data under KERNAL: asm error strings (~176B RODATA),
   mnemonic/dasm tables (RODATA, needs startup copy).  Low priority.
-- [ ] C128: enable 2 MHz mode during assembly (VIC blanked anyway
-  for banking).  Double assembly speed on C128 hardware.
 
 ### Architecture
 
-- [ ] After full asm rewrite: relocate CSE code to end of memory
-  ($8000+), freeing $0800-$7FFF as contiguous user workspace.
+- [ ] Relocating startup: see Roadmap R2.
 - [ ] Replace au_mode hex parser with expr_eval (option C): eliminate
   parse_hex.s, remove _insn_buf round-trip from asm_src.s, switch
   line assembler from VICII to PETSCII encoding.  Saves ~400 bytes
@@ -106,15 +101,69 @@ Defined scope, needs work.
 - [ ] ZP optimization: overlap scratch for non-concurrent modules.
   ~14 bytes reclaimable from cold scratch, ~8 bytes overlappable
   (dasm vs asm_line).  See [project.md § ZP is precious](project.md#1-zp-is-precious--use-the-stack-for-scratch).
-- [ ] Relocate CSE to $8000 (PRG) or cartridge ROM (CRT).
-- [ ] Dual linker configs: c64_cse.cfg (PRG) and c64_cse_crt.cfg (CRT).
-
 ### Size Optimization
 
-- [ ] `repl.c` is 7KB CODE (34% of binary).  Port hot functions to
-  asm: emit_dot, emit_mem, show_prompt, exec_line dispatch.
-- [ ] `editor.c` is 4.4KB CODE (21%).  Port gap buffer ops and
-  rendering to asm.
+- [ ] Port C to asm: see Roadmap R6.
+
+## Roadmap
+
+Long-term milestones in dependency order.
+
+### R1 — Compile-time CPU gating
+
+Gate all CPU-specific code with `#ifdef`/`.ifdef` instead of runtime
+checks.  A 6502 build must not contain 65C02 paths.  Affects
+asm_line.s, dasm.s, repl.c (cmd_step CMOS branches).  See
+[project.md § principle 4](project.md#4-cpu-specific-code-must-be-compile-time-gated).
+
+### R2 — Relocating startup
+
+Move CSE code to $8000+, freeing $0800–$7FFF as contiguous user
+workspace.  Startup shim at $0801 copies code to final location.
+Prerequisite for universal binary and cartridge ROM.
+
+### R3 — Universal C64/C128 binary
+
+Single PRG runs on both machines.  The relocating startup (R2)
+detects the platform at boot:
+
+1. **Machine detection** (~10 B): check $D030 or MMU register.
+2. **Banking abstraction** (~30 B): `kernal_bank_out/in` branches
+   on machine flag — `$01` on C64, `$FF00` on C128.
+3. **2 MHz mode** (~5 B): enable 8502 fast mode during assembly
+   and memory search (VIC blanked during banking anyway).
+4. **C128 keyboard**: map ESC, TAB, HELP, numeric keypad.
+
+Same 40-column VIC-II screen on both machines.  No VDC code
+shipped to C64.  Zero RAM overhead on C64.
+
+### R4 — 80-column VDC mode (C128 only)
+
+Self-contained VDC display driver: same interface as VIC-II
+routines (`io_putc`, `io_puts`, `newline`, `scroll_up`,
+`clear_eol`), writing through VDC register port ($D600/$D601).
+
+The universal PRG (R3) carries both drivers.  The relocating
+startup (R2) copies the VDC driver into the final memory layout
+only on C128 detection.  C64 users pay zero RAM cost.  Startup
+offers 40/80 choice on C128.
+
+Wider line formats: 16-byte `m` dump, longer disassembly lines,
+wider editor (80×22 visible source).  Low priority.
+
+### R5 — Cartridge ROM (CRT)
+
+Dual linker configs: `c64_cse.cfg` (PRG) and `c64_cse_crt.cfg`
+(CRT).  Instant boot, no load time.  Requires R2 (relocating
+startup) since cartridge ROM is at $8000.  EasyFlash bank
+switching for >16KB.
+
+### R6 — Port C to asm
+
+`repl.c` (9KB, 35%) and `editor.c` (5.5KB, 21%) are the largest
+modules.  Port hot functions to asm: emit_dot, emit_mem,
+show_prompt, exec_line dispatch, gap buffer ops, rendering.
+Eliminates cc65 runtime overhead and the two known cc65 -O bugs.
 
 ## Ideas
 
@@ -130,7 +179,9 @@ Exploratory, not yet scoped.
 - [ ] NMI during `j` user code: flag checked only on return.  NMI
   trampoline ($FF00) handles KERNAL banking; separate from `j` issue.
 - [ ] REU (RAM Expansion Unit) support for large source files.
-- [ ] Bank switching for >16KB cartridge (EasyFlash).
+- [ ] Universal C64/C128 binary: see Roadmap R3.
+- [ ] 80-column VDC mode: see Roadmap R4.
+- [ ] Cartridge ROM: see Roadmap R5.
 - [ ] Macro support: .macro/.endmacro.
 - [ ] Conditional assembly: .if/.else/.endif.
 - [ ] Include files: .inc (read and assemble from separate file).
