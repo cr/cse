@@ -362,13 +362,23 @@ static void cmd_mem(uint8_t *args)
     clear_eol();
 }
 
-/* Show break result after dbg_enter returns */
+/* Common tail: register dump + disassembly at brk_pc */
+static void show_regs_at_pc(void)
+{
+    newline();
+    emit_reg();
+    newline();
+    cur_addr = brk_pc;
+    emit_dot(brk_pc);
+    nl_clear();
+}
+
+/* Show break info (brk/nmi line) + register dump + disassembly */
 static void show_break_result(void)
 {
     restore_colors();
     newline();
     if (dbg_reason == 1) {
-        /* BRK */
         io_puts("; brk");
         if (dbg_bp_hit != 0xFF) {
             io_putc(' ');
@@ -377,35 +387,25 @@ static void show_break_result(void)
         io_puts(" at $");
         io_puthex4(brk_pc);
     } else if (dbg_reason == 2) {
-        /* NMI */
         io_puts("; nmi break at $");
         io_puthex4(brk_pc);
     }
     clear_eol();
-    newline();
-    emit_reg();
-    newline();
-    cur_addr = brk_pc;
-    clear_eol();
+    show_regs_at_pc();
 }
 
 static void cmd_jmp(void)
 {
+    brk_pc = cur_addr;
     if (dbg_bp_count()) {
-        /* Debugger mode: patch breakpoints, enter via RTI */
-        brk_pc = cur_addr;
+        /* Breakpoints active: run via debugger, break on BRK/NMI */
         dbg_enter();
-        /* Returns here when BRK or NMI fires */
         show_break_result();
     } else {
-        /* No breakpoints: simple JSR as before */
-        brk_pc = cur_addr;
+        /* No breakpoints: simple JSR, show regs on RTS */
         jsr_addr(cur_addr);
         restore_colors();
-        newline();
-        emit_reg();
-        newline();
-        clear_eol();
+        show_regs_at_pc();
     }
 }
 
@@ -525,13 +525,8 @@ static void cmd_step(uint8_t *args, uint8_t is_next)
         }
     }
 
-    /* Normal completion: one register line + one disassembly line */
-    newline();
-    emit_reg();
-    newline();
-    cur_addr = brk_pc;
-    emit_dot(brk_pc);
-    nl_clear();
+    /* Normal completion: register dump + disassembly at brk_pc */
+    show_regs_at_pc();
 
     /* RTS/RTI: clear repeat so RETURN doesn't step into garbage */
     if (opc == 0x60 || opc == 0x40) last_cmd = 0;
