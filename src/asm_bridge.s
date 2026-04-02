@@ -44,9 +44,8 @@ _reg_sp:        .res 1          ; saved SP
 _reg_p:         .res 1          ; saved P (status flags)
 
 ZP_SAVE_LO = $02               ; first ZP byte used by CSE
-ZP_SAVE_HI = $5C               ; last ZP byte used by CSE (inclusive)
-                                ; MUST match ZEROPAGE segment end in linker map
-ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1  ; 91 bytes
+ZP_SAVE_HI = $5E               ; last ZP byte — must cover all cc65 ZP (sp..regbank)
+ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1  ; 93 bytes
 _zp_save_buf:   .res ZP_SAVE_LEN ; buffer for ZP save/restore around jsr_addr
 
 .segment "CODE"

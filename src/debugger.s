@@ -42,8 +42,8 @@
         .import _kernal_bank_out, _kernal_bank_in
 
 ZP_SAVE_LO  = $02              ; must match asm_bridge.s
-ZP_SAVE_HI  = $5C
-ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1     ; 91 bytes
+ZP_SAVE_HI  = $5E              ; must cover all cc65 ZP (sp..regbank)
+ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1     ; 93 bytes
 
 CSE_STK     = $E100            ; CSE stack snapshot (KERNAL RAM)
 USR_STK     = $E200            ; user stack snapshot (KERNAL RAM)
