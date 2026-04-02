@@ -90,6 +90,22 @@ static uint16_t parse_hex_flex(uint8_t **q) {
     return 0;
 }
 
+/* Evaluate an expression at *q.  Returns 1 on success (result in
+ * *result, *q advanced).  Returns 0 if *q is empty or on error
+ * (error message printed).  Caller can distinguish "no arg" from
+ * "error" by checking whether *q pointed at a non-empty string. */
+static uint8_t try_expr(uint8_t **q, uint16_t *result) {
+    uint8_t rc;
+    skip_sp(q);
+    if (!**q || **q == ';') return 0;
+    *(uint16_t *)expr_ptr = (uint16_t)*q;
+    rc = expr_eval();
+    *q = *(uint8_t **)expr_ptr;
+    if (rc <= 1) { *result = expr_val; return 1; }
+    newline(); io_puts(";?"); io_puts(expr_error_str()); clear_eol();
+    return 0;
+}
+
 /* ═══════════════════════════════════════════════════════════════
  * Screen line I/O
  * ═══════════════════════════════════════════════════════════════ */
@@ -589,20 +605,21 @@ static void cmd_brk(uint8_t *args)
     }
 
     /* x ADDR — set breakpoint */
-    if (is_hex(*q)) {
-        uint16_t addr = parse_hex_flex(&q);
-        slot = dbg_bp_set(addr);
-        newline();
-        if (slot != 0xFF) {
-            io_puts(bp_pfx);
-            io_putc('1' + slot);
-            io_puts(": $");
-            io_puthex4(addr);
-        } else {
-            io_puts(";?bp full");
+    {   uint16_t addr;
+        if (try_expr(&q, &addr)) {
+            slot = dbg_bp_set(addr);
+            newline();
+            if (slot != 0xFF) {
+                io_puts(bp_pfx);
+                io_putc('1' + slot);
+                io_puts(": $");
+                io_puthex4(addr);
+            } else {
+                io_puts(";?bp full");
+            }
+            clear_eol(); nl_clear();
+            return;
         }
-        clear_eol(); nl_clear();
-        return;
     }
 
     err_msg(";?b"); nl_clear();
@@ -753,8 +770,9 @@ static void cmd_write(uint8_t *args)
         if (err) io_err_save((char *)name);
         else print_seq_stats((char *)name);
     } else {
-        uint16_t end = parse_hex_flex(&q);
+        uint16_t end = 0;
         uint16_t size;
+        try_expr(&q, &end);
         if (!end) end = addr + block_size;
         if (end <= addr) { err_msg(";?range"); nl_clear(); return; }
         size = end - addr;
@@ -905,25 +923,27 @@ void exec_line(void)
 
     /* navigation */
     case '@':
-    {   skip_sp(&q);
-        if (is_hex(*q)) cur_addr = parse_hex_flex(&q);
+    {   uint16_t v;
+        if (try_expr(&q, &v)) cur_addr = v;
         nl_clear(); break;
     }
     case '+':
-    {   uint16_t d = parse_hex_flex(&q);
+    {   uint16_t d;
+        if (!try_expr(&q, &d)) d = 0;
         cur_addr += d ? d : block_size;
         nl_clear(); break;
     }
     case '-':
-    {   uint16_t d = parse_hex_flex(&q);
+    {   uint16_t d;
+        if (!try_expr(&q, &d)) d = 0;
         cur_addr -= d ? d : block_size;
         nl_clear(); break;
     }
 
     /* execution */
     case 'j':
-    {   skip_sp(&q);
-        if (is_hex(*q)) cur_addr = parse_hex_flex(&q);
+    {   uint16_t v;
+        if (try_expr(&q, &v)) cur_addr = v;
         cmd_jmp(); break;
     }
     case 'g':

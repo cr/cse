@@ -24,12 +24,12 @@ Cases are skipped when:
 REL notes
 ---------
 MODE_EXAMPLES[REL] uses 4-digit absolute targets ($0002).  The test sets
-al_pc = $0000 and al_cpu = 1 (65C02, accepts all modes).  The assembler
+al_pc = $0000 and al_cpu = 2 (65C02, accepts all modes).  The assembler
 computes the signed offset: offset = $0002 − ($0000 + 2) = $00.
 
 CMOS notes
 ----------
-All tests run with al_cpu = 1 (65C02) so that both NMOS and CMOS extension
+All tests run with al_cpu = 2 (65C02) so that both NMOS and CMOS extension
 modes are exercised.  Modes that require 65C02 (ZPI, ACC for DEC/INC, AIX for
 JMP, IMM for BIT, TRB, TSB, STZ, etc.) are included in the test set.
 """
@@ -108,7 +108,7 @@ _CASES = _build_cases()
 
 # ── CPU runner ────────────────────────────────────────────────────────────────
 
-def _run(al_syms, source: str, al_cpu: int = 1):
+def _run(al_syms, source: str, al_cpu: int = 2):
     """
     Assemble one instruction and return the output bytes.
 
@@ -194,8 +194,8 @@ _CMOS_ONLY_CASES = [
     "STA ($42)", "LDA ($42)", "CMP ($42)", "SBC ($42)",
 ]
 
-# Known bug: pure CMOS mnemonics (BRA, PHX, etc.) are not gated by al_cpu
-# in the assembler. CMOS *modes* (ZPI, ACC, AIX, BIT IMM) ARE gated correctly.
+# Pure CMOS mnemonics (cat=11) and CMOS mode extensions (cat=01) are both
+# gated by al_cpu in asm_line.s (requires al_cpu=2 for 65C02).
 
 @pytest.mark.parametrize("source", _CMOS_ONLY_CASES)
 def test_nmos_rejects_cmos(al_syms, source):

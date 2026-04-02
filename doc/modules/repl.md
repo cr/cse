@@ -248,7 +248,7 @@ The REPL's line editor operates within the 40-column screen:
 
 | Key | Name | Addressed | Example          | Notes                                      |
 |-----|------|-----------|------------------|--------------------------------------------|
-| `j` | jump | yes       | `1000:j` or `j C000` | Start execution at address. Patches breakpoints, enters debugger loop. Shows registers on break/RTS. |
+| `j` | jump | yes       | `1000:j` or `j main` | Start execution at expression. Patches breakpoints, enters debugger loop. Shows registers on break/RTS. |
 | `g` | go   | —         | `g`              | Shorthand for `j main`. Falls back to `j cur_addr` if `main` undefined. |
 | `c` | continue | —    | `c`              | Continue from last break (BRK/NMI). Error if no active break context. |
 
@@ -257,7 +257,7 @@ The REPL's line editor operates within the 40-column screen:
 | Key | Name      | Addressed | Example         | Notes                                    |
 |-----|-----------|-----------|-----------------|------------------------------------------|
 | `r` | registers | —         | `r` or `r a:05...` | View / edit CPU registers             |
-| `b` | breakpoint| —         | `b 1020`, `b -1`, `b *` | Set, delete, list. See [debugger.md](debugger.md). |
+| `b` | breakpoint| —         | `b $1020`, `b main`, `b -1`, `b *` | Set (expr), delete, list. See [debugger.md](debugger.md). |
 | `t` | trace     | —         | `t` or `t 5`    | Step-into N instructions (default `B`). Enters subroutines. |
 | `o` | trace over| —         | `o` or `o 5`    | Step-over N instructions (default `B`). JSR runs to completion. |
 
@@ -265,17 +265,17 @@ The REPL's line editor operates within the 40-column screen:
 
 | Key | Name    | Addressed | Example       | Notes                                    |
 |-----|---------|-----------|---------------|------------------------------------------|
-| `@` | seek    | —         | `@ C000`      | Set `cur_addr` to arg; bare = no-op      |
+| `@` | seek    | —         | `@ $C000` or `@ main` | Set `cur_addr` to expression; bare = no-op |
 | `B` | block   | —         | `B 40`        | Set block size (hex bytes); bare = show (uppercase) |
-| `+` | forward | —         | `+` or `+20`  | Advance cur_addr by block_size (or arg)  |
-| `-` | back    | —         | `-` or `-20`  | Retreat cur_addr by block_size (or arg)  |
+| `+` | forward | —         | `+` or `+ $20` | Advance cur_addr by block_size (or expr) |
+| `-` | back    | —         | `-` or `- $20` | Retreat cur_addr by block_size (or expr) |
 
 ### Commands — I/O
 
 | Key | Name   | Addressed | Example              | Notes                                   |
 |-----|--------|-----------|----------------------|-----------------------------------------|
 | `l` | load   | yes       | `1000:l "file"`      | Load PRG to addr; remembers filename     |
-| `s` | save   | yes       | `1000:s "file" 2000` | Save addr..EEEE-1; remembers filename    |
+| `s` | save   | yes       | `1000:s "file" $2000` | Save addr..EEEE-1 (expr); remembers filename |
 | `$` | disk   | —         | `$`, `$9`, `$ s:file` | Directory, drive select, drive command *(cmd planned)*. See below. |
 
 ### Commands — Info / Utility
@@ -430,4 +430,8 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
 - `exec_line` modifies `cur_addr` as a side effect of the `AAAA:` prefix.
 - The `?` command uses `_expr_eval` directly — labels from the last
   assembly are available.
+- **Expression arguments:** Commands `@`, `j`, `+`, `-`, `b`, `s` accept
+  full expressions (`$hex`, decimal, symbols, operators).  Bare digits
+  are decimal — hex requires `$` prefix.  The `AAAA:` prompt prefix and
+  `t`/`o` counts remain plain hex.  `B` block size is also plain hex.
 - File type (PRG vs SEQ) detected by `,s` suffix in filename.

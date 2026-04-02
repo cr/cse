@@ -58,9 +58,8 @@ restores the 6502 SP from `_ab_saved_sp` and returns 0 to the caller.
 
 - Input must be VICII screen codes (A=$01..Z=$1A), not PETSCII.
   The C wrapper in asm_bridge.s handles conversion.
-- `al_cpu` values: 0=6502, 1=6510, 2=65C02 (see repl.c, dasm.s).
-  **Note:** asm_line.s treats al_cpu as boolean (0=NMOS, nonzero=CMOS)
-  — `beq`/`bne` only.  See TODO.md for 3-valued fix.
+- `al_cpu` values: 0=6502, 1=6510, 2=65C02.  CMOS gate uses
+  `cmp #2`/`bcs`/`bcc` — only al_cpu=2 enables CMOS extensions.
 - Zone B accepts `$XXXX` absolute target for branches; computes
   signed offset internally.
 - `mn7_classify` clobbers Y (sets Y=mn_c2).  `ldy #0` is required

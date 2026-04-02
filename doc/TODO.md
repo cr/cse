@@ -5,13 +5,10 @@
 - [x] ~~13 CMOS mnemonic gate bugs~~ — fixed in `2939a94`: added
   cat=11 check in asm_line.s CMOS gate.
 - [x] ~~expr.s test harness: 12 xfails~~ — resolved, 146 tests pass.
-- [ ] al_cpu 3-valued semantics: should be 0=6502, 1=6510, 2=65C02
-  (matches dasm.s, repl.c, asm_src.s).  asm_line.s treats it as
-  boolean (0=NMOS, nonzero=CMOS) — `bne`/`beq` must become
-  `cmp #2`/`bcs`/`bcc`.  Comments in asm_line.s:18, asm_vars.s:35
-  also need updating.  Tests use al_cpu=1 for CMOS (should be 2).
-- [ ] `j` command: reset colors after user code returns (user code
-  may change VIC regs).
+- [x] ~~al_cpu 3-valued semantics~~ — fixed: asm_line.s uses
+  `cmp #2`/`bcs`/`bcc`, comments updated, tests use al_cpu=2.
+- [x] ~~`j` command: reset colors after user code returns~~ — done:
+  `restore_colors()` called in both `cmd_jmp()` paths (direct and debugger).
 - [ ] RUN/STOP debounce: bounces when held.
 - [ ] read_line: cc65 -O ternary miscompilation documented but not
   guarded — add regression test.  (CC65 -O BUG #1)
@@ -38,12 +35,10 @@ Defined scope, needs work.
 
 ### REPL
 
-- [ ] Expression parsing for command address arguments: `j`, `m`, `@`,
-  `l`, `s`, `+`, `-`, `B`, `d`, `b ADDR`.  Replace `parse_hex_flex`
-  with `expr_eval`.  Enables `j start`, `m screen`, `@ table+$100`.
-  Consequence: bare `8000` becomes decimal; hex requires `$8000`.  The
-  `AAAA:` prompt prefix stays as 4 hex digits — no expressions.
-  `t`/`o` counts stay as plain hex (not expressions).
+- [x] ~~Expression parsing for command address arguments~~ — done:
+  `@`, `j`, `+`, `-`, `b ADDR`, `s END` use `expr_eval`.  Enables
+  `j main`, `@ table+$100`, `b start`.  Bare digits are now decimal;
+  hex requires `$`.  `t`/`o` counts and `B` size stay as plain hex.
 - [ ] `.` without args: behave like `d` (disassemble one instruction).
   Bare `.` (no `AAAA:` prefix) operates on `cur_addr` and rewrites
   its prompt line to include `AAAA:.`.
@@ -64,7 +59,9 @@ Defined scope, needs work.
 
 ### Assembler
 
-- [ ] Compile-time CPU gating: see Roadmap R1.
+- [x] ~~Compile-time CPU gating~~ — done: asm_line.s, dasm.s, repl.c
+  all use `.ifdef CMOS_SUPPORT` / `.ifndef CPU_6502` / `#ifdef`.
+  See Roadmap R1.
 - [ ] Assembler error display: show source line number + context.
 
 ### Editor
@@ -109,12 +106,14 @@ Defined scope, needs work.
 
 Long-term milestones in dependency order.
 
-### R1 — Compile-time CPU gating
+### R1 — Compile-time CPU gating (done)
 
-Gate all CPU-specific code with `#ifdef`/`.ifdef` instead of runtime
-checks.  A 6502 build must not contain 65C02 paths.  Affects
-asm_line.s, dasm.s, repl.c (cmd_step CMOS branches).  See
-[project.md § principle 4](project.md#4-cpu-specific-code-must-be-compile-time-gated).
+All CPU-specific code gated with `#ifdef`/`.ifdef`/`.ifndef` instead
+of runtime checks.  A 6502 build does not contain 65C02 or 6510
+decode paths.  Guards: `.ifdef CMOS_SUPPORT` (65C02 paths),
+`.ifndef CPU_6502` (6510 illegal paths), `#ifdef CMOS_SUPPORT` (C).
+Files: asm_line.s, dasm.s (15 sites + 3 RODATA tables), repl.c.
+See [project.md § principle 4](project.md#4-cpu-specific-code-must-be-compile-time-gated).
 
 ### R2 — Relocating startup
 

@@ -598,7 +598,7 @@ def _dasm_build():
     obj_files = []
     for src in _DASM_SOURCES:
         obj = BUILD / f"{src.stem}_dasm.o"
-        cmd = ["ca65", "--cpu", "6502",
+        cmd = ["ca65", "--cpu", "6502", "-DCMOS_SUPPORT",
                "-I", str(SRC), "-I", str(BUILD),
                str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)

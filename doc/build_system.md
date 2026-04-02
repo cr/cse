@@ -74,9 +74,12 @@ Passed as `make OPTION=value`:
 | `THEME` | name or hex | default | Colour theme for the REPL |
 | `DEBUG` | `1` | off | Enables debug output |
 
-`CPU_CEIL` (0=6502 only, 1=6502+6510, 2=all three) and `CMOS_SUPPORT`
-gate which mnemonic tables and decoder paths are compiled in.  A
-`CPU=6502` build excludes all illegal and CMOS code.
+`CPU_CEIL` (0=6502 only, 1=6502+6510, 2=all three), `CMOS_SUPPORT`,
+`CPU_6502`, `CPU_6510`, and `CPU_65C02` gate which mnemonic tables
+and decoder paths are compiled in.  Assembly uses `.ifdef CMOS_SUPPORT`
+(65C02 paths) and `.ifndef CPU_6502` (6510 illegal paths); C uses
+`#ifdef CMOS_SUPPORT`.  A `CPU=6502` build excludes all illegal and
+CMOS code.
 
 ## Table generation
 

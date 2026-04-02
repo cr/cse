@@ -15,7 +15,7 @@
 ;               null-terminated)
 ;   al_pc     — current PC (lo, hi); required for REL/ZPREL offset computation
 ;   al_out    — output buffer pointer (lo, hi)
-;   al_cpu    — 0 = NMOS 6502, 1 = 65C02  (controls CMOS mode acceptance)
+;   al_cpu    — 0 = 6502, 1 = 6510, 2 = 65C02  (controls CMOS mode acceptance)
 ;   Y = 0
 ;
 ; Exit (success):
@@ -205,13 +205,15 @@ al_line_asm:
         cmp #$C0                ; cat=11 (pure CMOS mnemonic)?
         bne @not_cmos_only
         lda al_cpu
-        bne @no_upgrade         ; 65C02 → allow, no pidx upgrade needed
-        jmp al_error            ; NMOS → reject
+        cmp #2
+        bcs @no_upgrade         ; 65C02 → allow, no pidx upgrade needed
+        jmp al_error            ; 6502/6510 → reject
 @not_cmos_only:
         cmp #$40                ; cat=01 (legal + CMOS extension)?
         bne @no_upgrade
         lda al_cpu
-        beq @no_upgrade
+        cmp #2
+        bcc @no_upgrade         ; 6502/6510 → no CMOS upgrade
         inc al_pidx             ; use the CMOS profile for mode validation
 .endif ; CMOS_SUPPORT
 @no_upgrade:

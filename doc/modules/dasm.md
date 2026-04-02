@@ -45,10 +45,11 @@ Unpacked to PETSCII for output.
 **Mode formatting:** 16 mode descriptors (1 byte each) encode prefix,
 operand size, and suffix.  Instruction length derived from mode.
 
-**CMOS guard:** 65C02-specific code and tables should be wrapped in
-`.ifdef CMOS_SUPPORT` so they're excluded from 6502/6510-only builds.
-**Currently not implemented** — CMOS paths are always present, gated
-at runtime only.  See TODO.md.
+**Compile-time guards:** 65C02-specific code and tables are wrapped
+in `.ifdef CMOS_SUPPORT`; 6510 illegal opcode paths use
+`.ifndef CPU_6502`.  A 6502-only build contains neither.  Runtime
+`lda al_cpu` checks remain within guarded blocks for the 6510 vs
+65C02 distinction.
 
 ## Caveats
 

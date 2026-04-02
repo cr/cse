@@ -428,13 +428,16 @@ _dasm_aaa:
         lda _dasm_opc
         cmp #$89
         bne @go
+.ifdef CMOS_SUPPORT
         lda al_cpu
         cmp #2
         bne @unk89
         lda #MNE_BIT
         sta _dasm_midx
         jmp finish
-@unk89: jmp _dasm_finish_unk
+@unk89:
+.endif
+        jmp _dasm_finish_unk
 @go:    jmp finish
 .endproc
 
@@ -482,6 +485,7 @@ _dasm_aaa:
         lda _dasm_opc
         cmp #$9E
         bne @abx7
+.ifndef CPU_6502
         lda al_cpu
         cmp #1
         bne :+
@@ -491,7 +495,9 @@ _dasm_aaa:
         lda #MODE_ABY
         sta _dasm_mode
         jmp finish
-:       cmp #2
+:
+.ifdef CMOS_SUPPORT
+        cmp #2
         bne @to_unk             ; 6502: ???
         ; 65C02: STZ ABX
         lda #MNE_STZ
@@ -499,6 +505,8 @@ _dasm_aaa:
         lda #MODE_ABX
         sta _dasm_mode
         jmp finish
+.endif ; CMOS_SUPPORT
+.endif ; !CPU_6502
 @to_unk:
         jmp _dasm_finish_unk
 @aby7:  lda #MODE_ABY
@@ -534,18 +542,20 @@ _dasm_aaa:
         lda _dasm_opc
         cmp #$A2
         beq @ldx_imm
+.ifndef CPU_6502
         ; 6510: $02 = KIL
         lda al_cpu
         cmp #1
-        beq :+
-        jmp @unk
-:       lda _dasm_opc
+        bne @b0_unk
+        lda _dasm_opc
         cmp #$02
-        beq :+
-        jmp @unk
-:       lda #MNE_KIL
+        bne @b0_unk
+        lda #MNE_KIL
         sta _dasm_midx
         jmp _dasm_finish_imp
+@b0_unk:
+.endif
+        jmp @unk
 
 @ldx_imm:
         lda #MNE_LDX
@@ -560,6 +570,7 @@ _dasm_aaa:
         sta _dasm_midx
         lda g2b2_mode,x
         sta _dasm_mode
+.ifdef CMOS_SUPPORT
         ; 65C02 overrides: $1A=INC A, $3A=DEC A
         lda al_cpu
         cmp #2
@@ -578,21 +589,29 @@ _dasm_aaa:
         sta _dasm_midx
         lda #MODE_ACC
         sta _dasm_mode
+.endif
 @b2go:  jmp finish
 
 @bbb4:  ; 65C02: ZPI. 6510: $D2=CIM
+.ifndef CPU_6502
         lda al_cpu
+.ifdef CMOS_SUPPORT
         cmp #2
         beq @bbb4_cmos
+.endif
         ; 6510: check for $D2=CIM
         cmp #1
-        bne @unk
+        bne @b4_unk
         lda _dasm_opc
         cmp #$D2
-        bne @unk
+        bne @b4_unk
         lda #MNE_CIM
         sta _dasm_midx
         jmp _dasm_finish_imp
+@b4_unk:
+.endif
+        jmp @unk
+.ifdef CMOS_SUPPORT
 @bbb4_cmos:
         ; aaa selects same mnemonic as cc=01 (ORA,AND,EOR,ADC,STA,LDA,CMP,SBC)
         jsr _dasm_aaa
@@ -603,21 +622,26 @@ _dasm_aaa:
         ; Exception: $D2 on some 65C02s is CMP(zp), but our table
         ; has it right since g1_mne[6]=CMP
         jmp finish
+.endif
 
 @bbb6:  ; Per-CPU implied column
         jsr _dasm_aaa
+.ifdef CMOS_SUPPORT
         ; Check al_cpu for CMOS extras
         lda al_cpu
         cmp #2
         beq @b6_cmos
+.endif
         ; NMOS/6502: only TXS($9A) and TSX($BA) are legal
         lda g2b6_mne_nmos,x
         sta _dasm_midx
         lda #MODE_IMP
         sta _dasm_mode
+.ifndef CPU_6502
         ; Check if this CPU supports it
         lda al_cpu
         bne @b6go               ; 6510: all entries valid
+.endif
         ; 6502: check if ??? (illegal NOP variants)
         lda _dasm_midx
         cmp #MNE_UNK
@@ -625,6 +649,7 @@ _dasm_aaa:
         jmp finish
 @b6go:  jmp finish
 
+.ifdef CMOS_SUPPORT
 @b6_cmos:
         lda g2b6_mne_cmos,x
         sta _dasm_midx
@@ -638,6 +663,7 @@ _dasm_aaa:
         lda #MODE_ACC
         sta _dasm_mode
         jmp finish
+.endif
 
 @unk:   jmp _dasm_finish_unk
 .endproc
@@ -673,25 +699,31 @@ _dasm_aaa:
         lda _dasm_opc
         cmp #$80
         bne @brgo
+.ifndef CPU_6502
         lda al_cpu
+.ifdef CMOS_SUPPORT
         cmp #2
         beq @bra
+.endif
         cmp #1
-        bne :+
+        bne @br_unk
         ; 6510: $80 = SKB #imm
         lda #MNE_SKB
         sta _dasm_midx
         lda #MODE_IMM
         sta _dasm_mode
         jmp finish
-:
+@br_unk:
+.endif
         ; 6502: ??? (not a valid branch)
         jmp _dasm_finish_unk
 @brgo:  jmp finish
 
+.ifdef CMOS_SUPPORT
 @bra:   lda #MNE_BRA
         sta _dasm_midx
         jmp finish
+.endif
 
 @impl2:
         jsr _dasm_aaa
@@ -767,20 +799,26 @@ _dasm_aaa:
         lda _dasm_mode
         cmp #MODE_IMM
         bne @famgo
+.ifndef CPU_6502
         lda al_cpu
+.ifdef CMOS_SUPPORT
         cmp #2
-        bne :+
+        bne @not_bra80
         lda #MNE_BRA
         sta _dasm_midx
         lda #MODE_REL
         sta _dasm_mode
         jmp finish
-:       cmp #1
-        bne :+
+@not_bra80:
+.endif
+        cmp #1
+        bne @fam80_unk
         lda #MNE_SKB
         sta _dasm_midx
         jmp finish              ; keep IMM mode
-:       jmp @unk
+@fam80_unk:
+.endif
+        jmp @unk
 
 @fam_zpx:
         ; ZPX valid only for STY and LDY
@@ -801,20 +839,25 @@ _dasm_aaa:
         cmp #MNE_STY
         bne @fam_abx_unk
         ; $9C: STZ ABS on 65C02, SYA ABX on 6510
+.ifndef CPU_6502
         lda al_cpu
+.ifdef CMOS_SUPPORT
         cmp #2
-        bne :+
+        bne @not_stz9c
         lda #MNE_STZ
         sta _dasm_midx
         lda #MODE_ABS           ; STZ ABS (not ABX)
         sta _dasm_mode
         jmp finish
-:       cmp #1
+@not_stz9c:
+.endif
+        cmp #1
         bne @fam_abx_unk
         lda #MNE_SYA
         sta _dasm_midx
         ; keep ABX mode
         jmp finish
+.endif
 @fam_abx_unk:
         jmp @unk                ; CPY/CPX have no ABX
 
@@ -833,22 +876,26 @@ _dasm_aaa:
         ; NMOS: IGN($04), BIT($24), ???($44), ???($64)
         ; 6510: IGN($04), BIT($24), IGN($44), ???($64)
         ; CMOS: TSB($04), BIT($24), ???($44), STZ($64)
+.ifdef CMOS_SUPPORT
         lda al_cpu
         cmp #2
         beq @b1_cmos
+.endif
         ; NMOS/6502
         cpx #1                  ; aaa=1: BIT
         beq @bit_zp
+.ifndef CPU_6502
         lda al_cpu
         cmp #1
-        beq :+
-        jmp @unk
-:
+        bne @b1_unk
         ; 6510: $04=IGN only
         cpx #0
         beq @ign_zp
+@b1_unk:
+.endif
         jmp @unk
 
+.ifdef CMOS_SUPPORT
 @b1_cmos:
         cpx #0                  ; TSB
         beq @tsb_zp
@@ -857,6 +904,7 @@ _dasm_aaa:
         cpx #3                  ; STZ
         beq @stz_zp
         jmp @unk
+.endif
 
 @bit_zp:
         lda #MNE_BIT
@@ -894,20 +942,25 @@ _dasm_aaa:
         cpx #1
         beq @bit_abs
         ; aaa=0: TOP(nmos) or TSB(cmos)
+.ifndef CPU_6502
         lda al_cpu
+.ifdef CMOS_SUPPORT
         cmp #2
-        bne :+
+        bne @not_tsb3
         jmp @tsb_abs
-:
+@not_tsb3:
+.endif
         cmp #1
-        beq :+
-        jmp @unk
-:       ; 6510: TOP
+        bne @b3_unk
+        ; 6510: TOP
         lda #MNE_TOP
         sta _dasm_midx
         lda #MODE_ABS
         sta _dasm_mode
         jmp finish
+@b3_unk:
+.endif
+        jmp @unk
 
 @jmp_abs:
         lda #MNE_JMP
@@ -937,14 +990,20 @@ _dasm_aaa:
 ; ── cc=00 bbb=5/7, aaa<4: CPU-specific opcodes ──────────
 @bbb57_low:
         ; X = aaa (0-3), _dasm_mode has bbb (5 or 7)
+.ifndef CPU_6502
         lda al_cpu
+.ifdef CMOS_SUPPORT
         cmp #2
-        bne :+
+        bne @not_b57c
         jmp @b57_cmos
-:       cmp #1
+@not_b57c:
+.endif
+        cmp #1
         beq @b57_nmos
+.endif
         jmp @unk                ; 6502 legal: all ???
 
+.ifndef CPU_6502
 @b57_nmos:
         lda _dasm_mode          ; bbb
         cmp #5
@@ -965,7 +1024,9 @@ _dasm_aaa:
         lda #MODE_ABX
         sta _dasm_mode
         jmp finish
+.endif
 
+.ifdef CMOS_SUPPORT
 @b57_cmos:
         lda _dasm_mode          ; bbb
         cmp #5
@@ -1024,21 +1085,27 @@ _dasm_aaa:
         lda #MODE_AIX
         sta _dasm_mode
         jmp finish
+.endif
 
 @unk:   jmp _dasm_finish_unk
 .endproc
 
 ; ── cc=11: CPU-dependent ─────────────────────────────────
 .proc decode_cc11
+.ifndef CPU_6502
         lda al_cpu
         cmp #1
         beq @nmos
+.ifdef CMOS_SUPPORT
         cmp #2
         beq @cmos
+.endif
+.endif
 
-        ; al_cpu=0 (6502): all ???
+        ; al_cpu=0 (6502), or CPU_CEIL=0: all ???
         jmp _dasm_finish_unk
 
+.ifndef CPU_6502
 @nmos:  ; 6510: illegal opcodes
         ; Regular: aaa→mne from g3_mne, bbb→mode from g1_mode
         jsr _dasm_aaa
@@ -1071,7 +1138,9 @@ _dasm_aaa:
         sta _dasm_mode
 @exc_done:
         jmp finish
+.endif ; !CPU_6502
 
+.ifdef CMOS_SUPPORT
 @cmos:  ; 65C02: RMB/SMB/BBR/BBS + other CMOS additions
         ; RMB/SMB: low nybble = $7 (bbb=1, cc=11)
         ; BBR/BBS: low nybble = $F (bbb=3, cc=11)
@@ -1151,6 +1220,7 @@ _dasm_aaa:
         sta _dasm_buf,x
         lda #3                  ; ZPREL = 3 bytes
         rts
+.endif ; CMOS_SUPPORT
 .endproc
 
 ; ════════════════════════════════════════════════════════════
@@ -1216,9 +1286,11 @@ g2b2_mode:
 g2b6_mne_nmos:
         .byte MNE_UNK,MNE_UNK,MNE_UNK,MNE_UNK
         .byte MNE_TXS,MNE_TSX,MNE_UNK,MNE_UNK
+.ifdef CMOS_SUPPORT
 g2b6_mne_cmos:
         .byte MNE_INC,MNE_DEC,MNE_PHY,MNE_PLY
         .byte MNE_TXS,MNE_TSX,MNE_PHX,MNE_PLX
+.endif
 
 ; ── cc=00 branch mnemonics ───────────────────────────────
 g0_br_mne:
@@ -1256,6 +1328,7 @@ g0b0_mne:
 g0b0_mode:
         .byte MODE_IMP,MODE_ABS,MODE_IMP,MODE_IMP
 
+.ifndef CPU_6502
 ; ── cc=11 NMOS illegal mnemonic (aaa→mne) ────────────────
 g3_mne_nmos:
         .byte MNE_SLO,MNE_RLA,MNE_SRE,MNE_RRA
@@ -1280,6 +1353,7 @@ g3_exc_nmos:
         .byte $CB, MNE_SBX, MODE_IMM
         .byte $EB, MNE_USB, MODE_IMM
         .byte $00                       ; sentinel
+.endif
 
 ; Mode index constants (must match MODE_NAMES order)
 MODE_IMP   = 0

@@ -195,7 +195,9 @@ not gated at runtime.  The Makefile defines `CMOS_SUPPORT` for
 build must not contain 65C02 instruction paths, tables, or
 decode logic.  This keeps the binary small on constrained targets.
 
-**Current status:** partially implemented.  The mnemonic classifier
-uses compile-time selection (mn6 vs mn7).  The assembler, disassembler,
-and debugger step logic still use runtime gating (`al_cpu >= 2`).
-See TODO.md for the cleanup plan.
+**Current status:** implemented.  The mnemonic classifier uses
+compile-time selection (mn6 vs mn7).  The assembler (`.ifdef
+CMOS_SUPPORT`), disassembler (`.ifdef CMOS_SUPPORT` +
+`.ifndef CPU_6502`), and debugger step logic (`#ifdef CMOS_SUPPORT`)
+all use compile-time gating.  Runtime `al_cpu` checks remain within
+guarded blocks for 6510 vs 65C02 distinction.
