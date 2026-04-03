@@ -10,8 +10,13 @@ Source text is written as PETSCII: ASCII uppercase = C64 uppercase PETSCII.
 Lines are NUL-separated; a double-NUL marks EOF for the mock reader.
 """
 
+import re
+from pathlib import Path
+
 import pytest
 from py65.devices.mpu6502 import MPU
+
+BUILD = Path(__file__).resolve().parent.parent / "build"
 
 
 _MAX_STEPS  = 1_000_000  # safety limit for two-pass assembly
@@ -248,6 +253,13 @@ MANUAL_TESTS = [
         "expect_bytes": [0xA9, 0x00, 0x60],
         "expect_errors": 0,
     },
+    {
+        "name": "local label after branch",
+        "source": ".org $8000\nmain: ldx #20\n.l: dex\n  bne .l\n.b: lda #$55\n  rts",
+        "expect_org": 0x8000,
+        "expect_bytes": [0xA2, 0x14, 0xCA, 0xD0, 0xFD, 0xA9, 0x55, 0x60],
+        "expect_errors": 0,
+    },
 ]
 
 ERROR_TESTS = [
@@ -287,3 +299,120 @@ def test_errors(as_syms, tc):
     assert errors >= tc["expect_min_errors"], (
         f"expected >= {tc['expect_min_errors']} errors, got {errors}"
     )
+
+
+def _run_and_lookup(as_syms, source, sym):
+    """Run assembly, then call _sym_lookup on sym.  Returns (data, sym_val)."""
+    cpu = MPU()
+    mem = cpu.memory
+    as_syms.load_into(mem)
+    encoded = _petscii(source)
+    for i, b in enumerate(encoded):
+        mem[as_syms.test_src_buf + i] = b
+    cpu.sp = 0xFF
+    mem[0x01FF] = 0xFF
+    mem[0x01FE] = 0xFE
+    cpu.sp = 0xFD
+    cpu.pc = as_syms.asm_src_test_entry
+    for _ in range(_MAX_STEPS):
+        if cpu.pc == 0xFFFF:
+            break
+        cpu.step()
+    else:
+        raise TimeoutError("assembly exceeded step limit")
+    org = mem[as_syms.asm_org] | (mem[as_syms.asm_org + 1] << 8)
+    size = mem[as_syms.asm_size] | (mem[as_syms.asm_size + 1] << 8)
+    data = list(mem[org: org + size])
+
+    # Look up symbol addresses from map file
+    exports = {}
+    in_exports = False
+    for line in (BUILD / "asm_src_test.map").read_text().splitlines():
+        if "Exports list by name" in line:
+            in_exports = True
+            continue
+        if in_exports:
+            if line.strip() == "":
+                break
+            for name, addr in re.findall(r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line):
+                exports[name] = int(addr, 16)
+
+    sym_lookup_addr = exports["_sym_lookup"]
+    sym_name_zp = exports["sym_name"]
+    sym_val_zp = exports["sym_val"]
+
+    # Write symbol name as PETSCII NUL-terminated string at a scratch area
+    scratch = 0x0300  # safe scratch area
+    sym_pet = _petscii(sym)  # includes trailing NUL
+    for i, b in enumerate(sym_pet):
+        mem[scratch + i] = b
+
+    # Set sym_name ZP pointer
+    mem[sym_name_zp] = scratch & 0xFF
+    mem[sym_name_zp + 1] = scratch >> 8
+
+    # Call _sym_lookup: returns C=0 found (val in sym_val), C=1 not found
+    cpu.sp = 0xFF
+    mem[0x01FF] = 0xFF
+    mem[0x01FE] = 0xFE
+    cpu.sp = 0xFD
+    cpu.pc = sym_lookup_addr
+    for _ in range(_MAX_STEPS):
+        if cpu.pc == 0xFFFF:
+            break
+        cpu.step()
+    else:
+        raise TimeoutError("sym_lookup exceeded step limit")
+    found = not (cpu.p & 1)  # C flag: 0 = found
+    val = mem[sym_val_zp] | (mem[sym_val_zp + 1] << 8) if found else None
+    return data, val
+
+
+def test_local_label_value_after_branch(as_syms):
+    """Regression: main.b must be at $8005, not $8004 (off-by-one in pass 0).
+
+    Source layout:
+      $8000: A2 14    ldx #20     (main:)
+      $8002: CA       dex         (.l:)
+      $8003: D0 FD    bne .l
+      $8005: A9 55    lda #$55    (.b:)  ← must be $8005
+      $8007: 60       rts
+    """
+    source = ".org $8000\nmain: ldx #20\n.l: dex\n  bne .l\n.b: lda #$55\n  rts"
+    data, sym_val = _run_and_lookup(as_syms, source, "main.b")
+    assert data == [0xA2, 0x14, 0xCA, 0xD0, 0xFD, 0xA9, 0x55, 0x60]
+    assert sym_val == 0x8005, f"main.b should be $8005, got ${sym_val:04X}"
+
+
+def test_label_after_imm(as_syms):
+    """Check: is ldx #20 (2 bytes) causing the off-by-one?"""
+    source = ".org $8000\nmain: ldx #20\n.b: rts"
+    data, sym_val = _run_and_lookup(as_syms, source, "main.b")
+    assert data == [0xA2, 0x14, 0x60]
+    assert sym_val == 0x8002, f"main.b should be $8002, got ${sym_val:04X}"
+
+
+def test_label_after_branch(as_syms):
+    """Regression: define_label clobbered Y, corrupting line buffer.
+
+    When a label and instruction share a line (.l: dex), the ':'
+    restore after define_label wrote at the wrong Y offset on pass 0,
+    overwriting the first chars of the mnemonic.  This caused wrong
+    instruction sizes and wrong symbol values for subsequent labels.
+    """
+    source = ".org $8000\nmain: nop\n.l: dex\n  bne .l\n.b: rts"
+    # $8000: EA nop, $8001: CA dex, $8002: D0 FD bne, $8004: 60 rts
+    data, sym_val = _run_and_lookup(as_syms, source, "main.b")
+    assert data == [0xEA, 0xCA, 0xD0, 0xFD, 0x60]
+    _, sym_l = _run_and_lookup(as_syms, source, "main.l")
+    assert sym_l == 0x8001, f"main.l should be $8001, got ${sym_l:04X}"
+    assert sym_val == 0x8004, f"main.b should be $8004, got ${sym_val:04X}"
+
+
+def test_label_after_two_imms(as_syms):
+    """Check: two immediates before the label."""
+    source = ".org $8000\nmain: ldx #20\n  lda #$55\n.b: rts"
+    # $8000: A2 14, $8002: A9 55, $8004: 60
+    data, sym_val = _run_and_lookup(as_syms, source, "main.b")
+    assert data == [0xA2, 0x14, 0xA9, 0x55, 0x60]
+    assert sym_val == 0x8004, f"main.b should be $8004, got ${sym_val:04X}"

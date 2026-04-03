@@ -866,7 +866,11 @@ inc_pc_size:
         pha                     ; save it
         lda #0
         sta (_as_ptr),y
+        tya
+        pha                     ; save Y (index of ':')
         jsr define_label
+        pla                     ; restore Y (index of ':')
+        tay
         ; Restore ':'
         pla
         sta (_as_ptr),y
