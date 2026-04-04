@@ -1588,6 +1588,8 @@ st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
 @scan_fwd:
         ; ed_scr = start of current line
         ; Now scan forward to gap_lo, accumulating visual column
+        lda #0
+        sta @vcol_save          ; must initialize — static byte retains stale value
         ldx #0                  ; vcol
 @fwd:
         ; Check ed_scr == gap_lo
