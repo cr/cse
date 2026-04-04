@@ -920,23 +920,25 @@ st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
 ; Clobbers: X
 .proc div10
         ; 16-bit divide: ed_tmp / 10 → ed_tmp = quotient, A = remainder
+        ; Uses local @rem — must NOT clobber ed_scr (callers use it as screen ptr)
         lda #0
-        sta ed_scr              ; remainder
+        sta @rem
         ldx #16
 @loop:  asl ed_tmp
         rol ed_tmp+1
-        rol ed_scr
-        lda ed_scr
+        rol @rem
+        lda @rem
         sec
         sbc #10
         bcc @no_sub
-        sta ed_scr
+        sta @rem
         inc ed_tmp              ; set quotient bit
 @no_sub:
         dex
         bne @loop
-        lda ed_scr              ; remainder in A
+        lda @rem                ; remainder in A
         rts
+@rem:   .byte 0
 .endproc
 
 ; ── ed_status_pos — update cursor position (cols 34-39) ───────
@@ -1116,6 +1118,7 @@ st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
 @fn_copy:
         ldx #1                  ; screen col = 1
         ldy #0
+        sty @fn_idx             ; must initialize (static byte retains stale value)
 @fn_loop:
         cpy @fn_len
         bcs @no_name
