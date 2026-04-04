@@ -79,4 +79,4 @@ restores the 6502 SP from `_ab_saved_sp` and returns 0 to the caller.
 | `_reg_y` | 1 | Saved user Y register |
 | `_reg_sp` | 1 | Saved user stack pointer |
 | `_reg_p` | 1 | Saved user status flags |
-| `_zp_save_buf` | 93 | ZP snapshot ($02-$5A) for debugger context switch |
+| `_zp_save_buf` | 89 | ZP snapshot ($02–$5A) for debugger context switch |

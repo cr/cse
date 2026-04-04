@@ -176,27 +176,53 @@ table, usable in assembly (`.org workstart`) and REPL expressions
 | $45–$4C | 8 | dasm | decode state, output pointer |
 | $4D–$5A | 14 | editor | gap pointers, screen scratch |
 
-### Non-concurrent groups (overlap candidates)
+### Non-concurrent groups
 
-Several module groups never execute simultaneously.  Their ZP scratch
-could share addresses to reclaim bytes:
+Several module groups never execute simultaneously.  Their scratch
+variables could share addresses:
 
-| Group | Modules | ZP bytes | Active when |
-|-------|---------|----------|-------------|
-| **Assembler** | asm_src, asm_line, asm_bridge, opcode_lookup, au_mode, mn7, mn_vars | 41 | `a` command only |
-| **Editor** | editor | 14 | ST_EDIT mode only |
-| **Disassembler** | dasm | 8 | `d`/`t`/`o` commands |
-| **Always active** | main, cse_io, symtab, expr | 27 | any time |
+| Group | Modules | ZP | BSS | Active when |
+|-------|---------|-----|------|-------------|
+| **Assembler** | asm_src, asm_line, asm_bridge, opcode_lookup, au_mode, mn7, mn_vars | 41 | 253 | `a` command |
+| **Editor** | editor | 14 | 59 | ST_EDIT mode |
+| **Disassembler** | dasm | 8 | 24 | `d`/`t`/`o` |
+| **Disk I/O** | disk | — | 67 | `l`/`s`/`$` |
+| **Always active** | main, cse_io, symtab, expr, repl | 27 | 116 | any time |
 
-Assembler and editor are fully non-concurrent (you assemble from
-the REPL, never from the editor).  Assembler and disassembler are
-also non-concurrent.  Expression evaluation (`expr`) is called from
-both REPL and assembler — it cannot overlap with either.
+Assembler and editor are fully non-concurrent.  Assembler and
+disassembler are also non-concurrent.  Expression evaluation
+(`expr`) is called from both REPL and assembler — cannot overlap.
 
-**Overlap plan:** editor's 14 bytes could share addresses with
-assembler-only scratch (asm_src, au_mode, mn7, opcode_lookup) since
-these groups never run concurrently.  This would reclaim ~14 bytes
-of ZP.  Not yet implemented.
+### Optimization opportunities
+
+**ZP overlap** (not yet implemented):
+
+| Overlap | Bytes saved | Constraint |
+|---------|-------------|------------|
+| Editor scratch (`ed_tmp`/`ed_scr` 4B) ↔ assembler scratch (`_as_ptr`/`_as_wsize` 3B + `_ok_tmp` 1B) | 4 | Editor not active during assembly |
+| Dasm (8B) ↔ assembler scratch (10B) | 8 | Never concurrent |
+| **Total ZP reclaimable** | **~12 B** | |
+
+**BSS overlap** (not yet implemented):
+
+| Buffer A | Size | Buffer B | Size | Saving | Constraint |
+|----------|------|----------|------|--------|------------|
+| asm_src `_line_buf` | 80 | repl `line_buf` | 42 | 42 | Assembler doesn't run from REPL line buffer |
+| asm_src `_full_label` | 48 | editor `ws_buf` | 39 | 39 | Editor not active during assembly |
+| dasm `_dasm_buf` | 24 | repl `dot_asm_buf` | 24 | 24 | Disasm output consumed before `.` command |
+| **Total BSS reclaimable** | | | | **~105 B** | |
+
+**Immediate fix — `_zp_save_buf` oversized:**
+`asm_bridge.s` saves ZP $02–$5E (93 bytes) during debugger context
+switch, but CSE ZP ends at $5A (89 bytes).  Fix `ZP_SAVE_HI` to
+$5A → saves 4B BSS + 4 fewer bytes copied per context switch.
+
+**Parameter stack elimination** (long-term):
+`pushax`/`cse_popax` are used at 15 call sites across 5 modules.
+Switching all multi-arg interfaces to ZP-based I/O would eliminate
+the parameter stack entirely (2B ZP `sp` + ~40B CODE + overhead per
+call).  Targets: disk.s (7 sites), editor.s (3), asm_src.s (3),
+asm_bridge.s (2).
 
 ### KERNAL ZP locations (read/written directly)
 
