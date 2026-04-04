@@ -38,5 +38,5 @@ in RODATA and provides three accessor functions.  `_cse_zp_end`
 uses `__ZP_LAST__` to report the first free zero-page byte.
 
 Used by asm_src.s to place the symbol table heap above BSS, and by
-repl.c's `i` command to show the memory map. The editor also displays
+repl.s's `i` command to show the memory map.  The editor also displays
 the free working area in its status bar.

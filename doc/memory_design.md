@@ -35,7 +35,7 @@ development. Future production builds relocate to $8000.
 
     $0000-$00FF  Zero page (see § Zero Page Layout below)
       $00-$01    CPU I/O port
-      $02-$45    CSE modules (68 bytes)
+      $02-$52    CSE modules (81 bytes)
       $46-$5F    cc65 runtime (26 bytes: sp, sreg, regsave, ptr1-4, tmp1-3)
       $60-$7F    Free (32 bytes, available for user programs)
       $80-$FF    KERNAL
@@ -165,7 +165,7 @@ see [build_system.md](build_system.md).
 Authoritative ZP allocation.  Module docs reference this table.
 Addresses are assigned by the linker from $02 upward.
 
-### CSE modules ($02–$45)
+### CSE modules ($02–$52)
 
 | Range | Size | Module | Variables |
 |-------|------|--------|-----------|
@@ -180,23 +180,24 @@ Addresses are assigned by the linker from $02 upward.
 | $2B–$2E | 4 | cse_io | `_io_tmp` (2), `_io_scr` (2) |
 | $2F–$32 | 4 | expr | `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1) |
 | $33–$3D | 11 | symtab | `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_count` (1), `_st_heap` (2), `_st_heap_base` (2) |
-| $3E–$45 | 8 | dasm | `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) |
+| $3D–$44 | 8 | dasm | `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) |
+| $45–$52 | 14 | editor | `gap_lo` (2), `gap_hi` (2), `buf_base` (2), `ed_top_ptr` (2), `read_ptr`/`save_ptr` (2, overlapped), `ed_tmp` (2), `ed_scr` (2) |
 
-### cc65 runtime ($46–$5F)
+### cc65 runtime ($53–$6C)
 
 | Range | Size | Variable |
 |-------|------|----------|
-| $46–$47 | 2 | `sp` — C software stack pointer |
-| $48–$49 | 2 | `sreg` — secondary register |
-| $4A–$4D | 4 | `regsave` — register save area |
-| $4E–$4F | 2 | `ptr1` |
-| $50–$51 | 2 | `ptr2` |
-| $52–$53 | 2 | `ptr3` |
-| $54–$55 | 2 | `ptr4` |
-| $56 | 1 | `tmp1` |
-| $57 | 1 | `tmp2` |
-| $58 | 1 | `tmp3` |
-| $59–$5F | 7 | (unused cc65 slots) |
+| $53–$54 | 2 | `sp` — C software stack pointer |
+| $55–$56 | 2 | `sreg` — secondary register |
+| $57–$5A | 4 | `regsave` — register save area |
+| $5B–$5C | 2 | `ptr1` |
+| $5D–$5E | 2 | `ptr2` |
+| $5F–$60 | 2 | `ptr3` |
+| $61–$62 | 2 | `ptr4` |
+| $63 | 1 | `tmp1` |
+| $64 | 1 | `tmp2` |
+| $65 | 1 | `tmp3` |
+| $66–$6C | 7 | (unused cc65 slots) |
 
 ### Fixed locations (not in ZEROPAGE segment)
 

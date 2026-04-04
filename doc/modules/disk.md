@@ -63,13 +63,13 @@ All file I/O uses direct KERNAL calls (SETLFS, SETNAM, OPEN, CLOSE,
 CHKIN, CHKOUT, CHRIN, CHROUT, LOAD, SAVE, READST, CLRCHN).  No cc65
 cbm wrappers.
 
-**Device number** comes from `_cur_device` (imported from repl.c).
+**Device number** comes from `_cur_device` (imported from repl.s).
 
 **SEQ open strings** are built by `build_open_str`, which copies the
 filename into `open_buf` and appends `,s,r` (read) or `@:` prefix +
 `,s,w` (write, overwrite mode).
 
-**SEQ I/O uses callbacks** so disk.s never depends on editor.c.  The
+**SEQ I/O uses callbacks** so disk.s never depends on editor.s.  The
 editor passes its insert function for loading and its read function
 for saving.  Callbacks are stored in `callback` (2B BSS) and invoked
 via `jmp (callback)`.

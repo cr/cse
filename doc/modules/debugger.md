@@ -72,7 +72,7 @@ was hit.  Strips the 6-byte frame (3 CPU + 3 KERNAL) via
 
 Used by the BRK handler to identify which breakpoint slot was hit.
 
-### C (repl.c command handlers)
+### REPL (repl.s command handlers)
 
 - `cmd_brk(args)` — `b` command: set, list, or delete breakpoints
 - `c` handling (inline in `exec_line`) — continue execution from break

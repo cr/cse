@@ -336,3 +336,6 @@ assembler calls `ed_read_rewind` before each pass.
   bytes vs the C implementation.
 - `save_ptr` and `read_ptr` overlap in ZP since they are never active
   concurrently.
+- `buf_base` is exported (`.exportzp`) so asm_src.s can read it for
+  the `workend` symbol.  `update_workend` redefines `workend` in the
+  symbol table whenever `buf_base` changes (ed_init, gb_ensure_room).

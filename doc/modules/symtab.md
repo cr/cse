@@ -65,7 +65,7 @@ and does not indicate an empty slot.
 `sym_table` lives at $FC00–$FEFF in RAM underneath the KERNAL ROM.
 Placed at the top so the table (or other banked data) can grow
 downward toward $E000.  The REPL screen save buffer (1000 bytes,
-`editor.c`) lives just below at $F818–$FBFF.  An NMI trampoline
+`editor.s`) lives just below at $F818–$FBFF.  An NMI trampoline
 at $FF00 ensures safe NMI handling while the KERNAL is banked
 out.  This saves 1,768 bytes of BSS.  Accessing
 the table requires banking out the KERNAL by clearing bit 1 of the

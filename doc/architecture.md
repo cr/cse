@@ -8,7 +8,7 @@
 ┌──────────────────────────────────────────┐
 │                main.c                    │  init, mode switch, main loop
 ├────────────────┬─────────────────────────┤
-│    repl.s      │       editor.c          │  user-facing modes
+│    repl.s      │       editor.s          │  user-facing modes
 ├────────────────┴──┬───────────┬──────────┤
 │    asm_src.s      │  expr.s   │ symtab.s │  source assembler pipeline
 ├───────────────────┴───────────┴──────────┤
@@ -28,7 +28,7 @@ layers above it.
 |--------|---------|-----|
 | main.c | Hardware init, main loop, mode switch | [main.md](modules/main.md) |
 | repl.s | REPL command dispatch and emitters | [repl.md](modules/repl.md) |
-| editor.c | Gap-buffer source editor, sequential reader | [editor.md](modules/editor.md) |
+| editor.s | Gap-buffer source editor, sequential reader, workend update | [editor.md](modules/editor.md) |
 | asm_src.s | Two-pass source assembler | [asm_src.md](modules/asm_src.md) |
 | asm_line.s | Single-line instruction assembler (VICII input) | [asm_line.md](modules/asm_line.md) |
 | asm_bridge.s | C ↔ assembly bridge, PETSCII→VICII, error recovery | [asm_line.md](modules/asm_line.md) |
@@ -68,13 +68,13 @@ main.c
 │   ├── asm_bridge.s ── asm_line.s ── opcode_lookup.s
 │   │                       ├── au_mode.s ── parse_hex.s
 │   │                       └── mn_classify.s ── mn7.s ── mn7_tables.s
-│   ├── asm_src.s ── asm_bridge.s, expr.s, symtab.s, editor.c
+│   ├── asm_src.s ── asm_bridge.s, expr.s, symtab.s, editor.s
 │   ├── dasm.s ── dasm_tables.s
 │   ├── debugger.s
 │   ├── expr.s ── symtab.s
 │   ├── disk.s ── screen.s ── cse_io.s
 │   └── screen.s
-└── editor.c
+└── editor.s
     ├── disk.s
     └── screen.s
 ```
@@ -92,12 +92,9 @@ main.c
 
 | Language | Modules |
 |----------|---------|
-| C | main.c, editor.c |
-| Assembly | everything else |
+| C | main.c |
+| Assembly | everything else (including editor.s, repl.s) |
 
 Assembly modules define their own calling convention via ZP variables
-and register returns — never the cc65 C ABI.  `asm_bridge.s` is the
-sole translation point between the two conventions.
-
-The boundary is shifting toward full assembly.  When a C module is
-replaced, its interface to lower layers is unchanged.
+and register returns.  `asm_bridge.s` translates between cc65's C
+ABI (used by main.c) and the assembly convention.

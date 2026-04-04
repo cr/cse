@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/asm_src.s`](../../src/asm_src.s) | implementation |
-| [`src/asm_src.h`](../../src/asm_src.h) | header |
+| [`dev/asm_src_test_stub.s`](../../dev/asm_src_test_stub.s) | test harness |
 | [`tests/test_asm_src.py`](../../tests/test_asm_src.py) | test contract |
 
 ## Interface
@@ -22,8 +22,20 @@
 - `_asm_size` (2B) — total bytes emitted
 - `_asm_errors` (2B) — error count (pass 1 only)
 
+### _define_ws_syms
+**In:** none (reads `cse_end` and `buf_base`)
+**Out:** defines `workstart` and `workend` in the symbol table.
+**Clobbers:** A, X, Y, sym_name, sym_val, sym_wide
+
+Pre-defines two workspace labels:
+- `workstart` = `(cse_end + $FF) & $FF00` — first free page
+- `workend` = `buf_base` — exclusive upper bound (page-aligned)
+
+Called by main.c at startup and by `_asm_assemble` after `sym_clear`.
+
 **Depends on:** asm_line (via asm_bridge), expr, symtab, editor
-(ed_read_line, ed_read_rewind), cse_io (error output), meminfo (heap)
+(ed_read_line, ed_read_rewind, buf_base), cse_io (error output),
+meminfo (heap)
 
 ## Design
 

@@ -64,9 +64,14 @@ Defined scope, needs work.
 
 ### Assembler
 
-- [x] ~~Compile-time CPU gating~~ — done: asm_line.s, dasm.s, repl.c
-  all use `.ifdef CMOS_SUPPORT` / `.ifndef CPU_6502` / `#ifdef`.
+- [x] ~~Compile-time CPU gating~~ — done: asm_line.s, dasm.s, repl.s
+  all use `.ifdef CMOS_SUPPORT` / `.ifndef CPU_6502`.
   See Roadmap R1.
+- [x] Built-in workspace labels: `workstart` and `workend` are
+  pre-defined symbols.  `workstart` = first free page (cse_end
+  rounded up).  `workend` = buf_base (exclusive, updated as gap
+  buffer grows).  Available in assembler (`.org workstart`) and
+  REPL expressions (`@ workend`, `j workstart`).
 - [ ] Assembler error display: show source line number + context.
 
 ### Editor
@@ -119,7 +124,7 @@ All CPU-specific code gated with `#ifdef`/`.ifdef`/`.ifndef` instead
 of runtime checks.  A 6502 build does not contain 65C02 or 6510
 decode paths.  Guards: `.ifdef CMOS_SUPPORT` (65C02 paths),
 `.ifndef CPU_6502` (6510 illegal paths), `#ifdef CMOS_SUPPORT` (C).
-Files: asm_line.s, dasm.s (15 sites + 3 RODATA tables), repl.c.
+Files: asm_line.s, dasm.s (15 sites + 3 RODATA tables), repl.s.
 See [project.md § principle 4](project.md#4-cpu-specific-code-must-be-compile-time-gated).
 
 ### R2 — Relocating startup

@@ -10,7 +10,7 @@ cse/
 ├── src/                    Source code
 │   ├── main.c              Init, main loop, mode dispatch
 │   ├── repl.s              REPL command loop and handlers (assembly)
-│   ├── editor.c            Gap buffer editor, rendering, keys
+│   ├── editor.s            Gap buffer editor, rendering, keys (assembly)
 │   ├── asm_src.s            Two-pass source assembler
 │   ├── asm_bridge.s        C↔asm bridge for _asm_line
 │   ├── asm_line.s          Single-line assembler, zone dispatch
@@ -33,7 +33,7 @@ cse/
 │   ├── mn_config.s         │ (regenerate: make tables)
 │   ├── mn_asm_tables.s     │
 │   └── dasm_tables.s       ┘
-│   ├── *.h                 C headers (cse.h, editor.h, etc.)
+│   ├── cse.h               Shared C definitions (main.c only)
 │   └── c64_cse.cfg         Custom ld65 linker config (expanded ZP)
 │
 ├── dev/                    Development tools

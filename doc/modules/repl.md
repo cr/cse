@@ -308,7 +308,7 @@ The user must press `y` to proceed.  Any other key cancels.
 PRG loads (`l` without `,s` suffix) do not trigger the guard because
 they don't touch the source buffer.
 
-The dirty flag is maintained by editor.c: set on any insert/delete,
+The dirty flag is maintained by editor.s: set on any insert/delete,
 cleared on save (`ed_save_source`) and load (`ed_load_source`).
 Exported as `ed_dirty` for repl.s to read.
 
