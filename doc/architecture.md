@@ -6,7 +6,7 @@
 
 ```
 ┌──────────────────────────────────────────┐
-│                main.c                    │  init, mode switch, main loop
+│                main.s                    │  init, mode switch, main loop
 ├────────────────┬─────────────────────────┤
 │    repl.s      │       editor.s          │  user-facing modes
 ├────────────────┴──┬───────────┬──────────┤
@@ -14,24 +14,41 @@
 ├───────────────────┴───────────┴──────────┤
 │  asm_line.s  │   dasm.s   │   disk.s     │  core engines
 ├──────────────┴────────────┴──────────────┤
-│          screen.s     │    cse_io.s      │  output layers
-└───────────────────────┴──────────────────┘
+│  debugger.s  │  screen.s  │   cse_io.s   │  low-level services
+└──────────────┴────────────┴──────────────┘
+       │
+       │  context switch (j/g/t/o/c commands)
+       ▼
+┌──────────────────────────────────────────┐
+│             user code                    │  runs in workspace memory
+│  own registers, shared 6502 stack        │  BRK/NMI returns to CSE
+└──────────────────────────────────────────┘
 ```
 
 Higher layers depend on lower layers.  No upward or circular
 dependencies.  Each layer can be understood without reading the
 layers above it.
 
+**User code** is not a CSE module — it is assembled output living
+in workspace memory (`workstart`–`workend`).  The debugger's
+context switch (`dbg_enter`) saves CSE's ZP state, patches
+breakpoints, loads user registers, and jumps to the target address.
+User code runs with full CPU access until a BRK instruction or NMI
+returns control to CSE via the BRK/NMI handler.  The handler
+restores CSE's ZP, unpatches breakpoints, and resumes the REPL.
+User code shares the 6502 hardware stack with CSE but has its own
+register state (`reg_a`, `reg_x`, `reg_y`, `reg_sp`, `reg_p`).
+
 ## Modules
 
 | Module | Purpose | Doc |
 |--------|---------|-----|
-| main.c | Hardware init, main loop, mode switch | [main.md](modules/main.md) |
+| main.s | Hardware init, BSS/stack setup, main loop, mode switch | [main.md](modules/main.md) |
 | repl.s | REPL command dispatch and emitters | [repl.md](modules/repl.md) |
 | editor.s | Gap-buffer source editor, sequential reader, workend update | [editor.md](modules/editor.md) |
 | asm_src.s | Two-pass source assembler | [asm_src.md](modules/asm_src.md) |
 | asm_line.s | Single-line instruction assembler (VICII input) | [asm_line.md](modules/asm_line.md) |
-| asm_bridge.s | C ↔ assembly bridge, PETSCII→VICII, error recovery | [asm_line.md](modules/asm_line.md) |
+| asm_bridge.s | Calling convention bridge, PETSCII→VICII, error recovery | [asm_line.md](modules/asm_line.md) |
 | expr.s | Recursive-descent expression parser | [expr.md](modules/expr.md) |
 | symtab.s | Hash-table symbol storage with name heap | [symtab.md](modules/symtab.md) |
 | dasm.s | Bit-slice disassembler (6502/6510/65C02) | [dasm.md](modules/dasm.md) |
@@ -63,7 +80,7 @@ Generated files (do not edit — regenerate with `make tables`):
 ## Dependency Graph
 
 ```
-main.c
+main.s
 ├── repl.s
 │   ├── asm_bridge.s ── asm_line.s ── opcode_lookup.s
 │   │                       ├── au_mode.s ── parse_hex.s
@@ -88,13 +105,16 @@ main.c
 5. **Expression parser depends only on symtab** — no I/O.
 6. **All .s modules are self-contained** with explicit `.import`/`.export`.
 
-## C / Assembly Boundary
+## Calling Conventions
 
-| Language | Modules |
-|----------|---------|
-| C | main.c |
-| Assembly | everything else (including editor.s, repl.s) |
+All modules are pure 6502 assembly.  No C compiler is used.
 
-Assembly modules define their own calling convention via ZP variables
-and register returns.  `asm_bridge.s` translates between cc65's C
-ABI (used by main.c) and the assembly convention.
+- **Internal calls** use ZP variables and register returns.
+  No shared stack protocol.
+- **Cross-module calls** use `__fastcall__` convention: last
+  (or only) argument in A/X, preceding arguments pushed via
+  `pushax` onto the parameter stack (`sp` in ZP).
+- **`asm_bridge.s`** translates between the parameter-stack
+  convention and the assembler's ZP-based interface.
+- **Callbacks** (disk.s SEQ I/O) pass function addresses in
+  A/X; the callee invokes via `jmp (callback)`.
