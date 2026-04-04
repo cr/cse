@@ -89,6 +89,21 @@ Used by the BRK handler to identify which breakpoint slot was hit.
 **Depends on:** asm_bridge (register state, ZP save), dasm (instruction
 length for step), cse_io (NMI handler upgrade)
 
+### Memory
+
+**BSS (47 bytes):**
+
+| Variable | Size | Purpose |
+|----------|------|---------|
+| `_bp_table` | 32 | 8 breakpoint slots x 4 bytes |
+| `_step_bp` | 8 | 2 step breakpoint slots x 4 bytes |
+| `_dbg_running` | 1 | User code active flag ($80 = running) |
+| `_dbg_reason` | 1 | Break reason (0=none, 1=BRK, 2=NMI) |
+| `_brk_pc` | 2 | PC at break / resume address |
+| `_dbg_bp_hit` | 1 | Slot of breakpoint hit ($FF = none) |
+| `_saved_brk_lo` | 1 | Original BRK vector lo ($0316) |
+| `_saved_brk_hi` | 1 | Original BRK vector hi ($0317) |
+
 ## Command Reassignment
 
 The debugger needs `b`, `c`, `t`, `o`.  Displaced commands move

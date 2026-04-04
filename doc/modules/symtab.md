@@ -44,6 +44,13 @@ Must be called before the first `_sym_define`.
 
 **Depends on:** nothing (leaf module)
 
+### Memory
+
+**ZP (11 bytes):** `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_count` (1), `_st_heap` (2), `_st_heap_base` (2).
+
+Probe state for linear probing.  `_st_heap`/`_st_heap_base` track
+the name heap (grows up from `cse_end`).
+
 ## Design
 
 ### Entry layout (6 bytes × 128 slots = 768 bytes at $FC00)

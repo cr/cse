@@ -64,3 +64,19 @@ restores the 6502 SP from `_ab_saved_sp` and returns 0 to the caller.
   signed offset internally.
 - `mn7_classify` clobbers Y (sets Y=mn_c2).  `ldy #0` is required
   before zone dispatch.
+
+### Memory (asm_bridge.s)
+
+**ZP (3 bytes):** `_ab_saved_sp` (1), `_jsr_vec` (2).
+
+**BSS (101 bytes):**
+
+| Variable | Size | Purpose |
+|----------|------|---------|
+| `_asm_out_buf` | 3 | Output buffer for assembled bytes |
+| `_reg_a` | 1 | Saved user A register |
+| `_reg_x` | 1 | Saved user X register |
+| `_reg_y` | 1 | Saved user Y register |
+| `_reg_sp` | 1 | Saved user stack pointer |
+| `_reg_p` | 1 | Saved user status flags |
+| `_zp_save_buf` | 93 | ZP snapshot ($02-$5A) for debugger context switch |

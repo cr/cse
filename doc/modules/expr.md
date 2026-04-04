@@ -37,6 +37,12 @@ Returns A = return code.
 
 **Depends on:** symtab (_sym_lookup for label resolution)
 
+### Memory
+
+**ZP (4 bytes):** `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1).
+
+**BSS (5 bytes):** `last_err` (1), `_mul_tmp` (2), `_div_rem` (2).
+
 ## Design
 
 Recursive descent parser.  Grammar (loosest precedence first):

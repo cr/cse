@@ -31,6 +31,14 @@ classifier's tables.
 
 **Depends on:** mn_vars (mn_c1/c2/c3), mn6_tables or mn7_tables (GENERATED)
 
+### Memory
+
+**mn_vars.s ZP (3 bytes):** `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) — mnemonic character inputs.
+
+**mn7.s ZP (1 byte):** `mn7_h_tmp` (1) — holds c3>>2 during fingerprint check.
+
+**mn7.s RODATA (27 bytes):** `mn7_hash_t` — the T[c2] hash perturbation table.
+
 ## Variants
 
 |  | mn6 | mn7 |

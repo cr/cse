@@ -23,6 +23,12 @@
 **Depends on:** mn_modes (mode bitmasks), mn_asm_tables (mode_offset,
 direct_opcodes), asm_bridge (al_error)
 
+### Memory
+
+**ZP (1 byte):** `_ok_tmp` (1) — scratch, caches cat bits at entry.
+
+**RODATA (8 bytes):** `_bit_tab` (8) — bit masks for Zone D/E.
+
 ## Design
 
 Computes `opcode = al_base | mode_offset[zone*16 + al_mode]` for

@@ -50,11 +50,21 @@ The callback receives each byte in A.  Called once per byte read.
 The callback returns a byte in A (lo) and X=0.  EOF is signalled
 by returning A=$FF, X=$FF (int16 -1).
 
-**BSS:** `disk_seq_bytes` (2B), `disk_seq_lines` (2B) — transfer counts.
-Line count starts at 1: N newlines = N+1 lines.
-
 **Depends on:** screen (newline, print_string), cse_io (io_puts,
 io_putc, io_putdec, io_puthex2/4, io_getc, io_kbhit, io_clear_eol)
+
+### Memory
+
+**BSS (67 bytes):**
+
+| Variable | Size | Purpose |
+|----------|------|---------|
+| `_disk_seq_bytes` | 2 | Bytes transferred (last SEQ op) |
+| `_disk_seq_lines` | 2 | Lines transferred (last SEQ op) |
+| `fl_buf` | 32 | File listing line buffer |
+| `open_buf` | 28 | Filename build buffer for CBM open |
+| `callback` | 2 | SEQ I/O function pointer |
+| `eof_flag` | 1 | READST EOF flag for SEQ read |
 
 ## Design
 

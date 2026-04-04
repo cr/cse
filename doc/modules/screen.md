@@ -48,6 +48,10 @@ Thin wrapper — `jmp _io_puts`.  Does not interpret newline characters.
 
 **Depends on:** cse_io (io_puts, io_sync, io_color, scr_lo/scr_hi)
 
+### Memory
+
+**RODATA (3 bytes):** `_theme_border` (1), `_theme_bg` (1), `_theme_fg` (1) — compile-time color theme constants.
+
 ## Theme System
 
 Three DATA bytes control the color scheme: `theme_border`,

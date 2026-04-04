@@ -27,6 +27,30 @@ Hand-ported from C (repl.c) to 6502 assembly.  Hex parsing helpers
 **Depends on:** asm_bridge (`.`), asm_src (`a`), dasm (`d`), expr (`?`),
 disk (`l`/`s`/`$`), debugger (`b`/`c`/`t`/`o`), editor, screen, cse_io
 
+### Memory
+
+**BSS (128 bytes):**
+
+| Variable | Size | Purpose |
+|----------|------|---------|
+| `_cur_addr` | 2 | Current memory address (REPL prompt) |
+| `_cur_device` | 1 | Floppy device number (default 8) |
+| `last_cmd` | 1 | Last executed command byte |
+| `block_size` | 2 | Block size for `+`/`-` commands |
+| `_cur_filename` | 17 | Current filename (16 chars + NUL) |
+| `line_buf` | 42 | Screen line capture buffer |
+| `dot_asm_buf` | 24 | Inline assembler instruction buffer |
+| `rp_addr` | 2 | Working address (command processing) |
+| `rp_save` | 1 | General scratch byte |
+| `rp_save2` | 1 | Secondary scratch byte |
+| `rp_cnt` | 2 | 16-bit loop counter |
+| `rp_next_lo` | 2 | cmd_step: next instruction lo |
+| `rp_next_hi` | 2 | cmd_step: next instruction hi |
+| `rp_opc` | 1 | cmd_step: saved opcode |
+| `rp_dis_bp` | 1 | cmd_step: disabled breakpoint slot |
+| `rp_hexbuf` | 3 | Hex byte parse buffer |
+| `fbuf` | 20 | Decimal/free-line output buffer |
+
 ## Design
 
 ### Prompting loop

@@ -24,6 +24,10 @@
 
 **Depends on:** asm_bridge (au_syntax_error)
 
+### Memory
+
+**ZP (5 bytes):** `au_ptr` (2), `au_opr` (2), `_au_tmp` (1).
+
 ## Design
 
 Parses VICII screen code strings.  Recognizes all 6502 addressing

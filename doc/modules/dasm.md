@@ -19,9 +19,13 @@ CPU mode: 0=6502, 1=6510, 2=65C02.
 NUL-terminated PETSCII string.
 **Clobbers:** A, X, Y, all _dasm_* ZP vars
 
-**BSS:** `_dasm_buf` (24B) — output buffer, PETSCII, NUL-terminated.
-
 **Depends on:** dasm_tables (GENERATED)
+
+### Memory
+
+**ZP (8 bytes):** `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1).
+
+**BSS (24 bytes):** `_dasm_buf` (24) — output buffer for disassembled instruction text.
 
 ## Design
 

@@ -28,6 +28,8 @@ $D6 (row).
 | Name | Size | Purpose |
 |------|------|---------|
 | _io_color | 1 | Text color for screen clears (C: `io_color`) |
+| dec_start_col | 1 | Start column for io_putdec (leading-zero suppression) |
+| _nmi_pending | 1 | Set by NMI handler, checked in main loop |
 
 ### KERNAL Locations Used
 

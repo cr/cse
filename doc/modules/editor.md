@@ -75,6 +75,9 @@ Total: 14 ZP bytes.
 | `save_phase` | 1 | save callback state (0=pre-gap, 1=post-gap) |
 | `repl_cur_x` | 1 | saved REPL cursor X |
 | `repl_cur_y` | 1 | saved REPL cursor Y |
+| `ws_buf` | 39 | Auto-indent whitespace buffer |
+| `_src_top` | 2 | Buffer upper bound (for REPL `i` command) |
+| `_src_bot` | 2 | Buffer lower bound (for REPL `i` command) |
 
 ### Internal functions
 
