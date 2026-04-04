@@ -12,6 +12,7 @@
         .export _cur_addr, _cur_device, _cur_filename
         ; test harness visibility
         .export line_buf, last_cmd, block_size
+        .export pushax
 
 ; ── Imports: cse_io.s ──────────────────────────────────────
         .import _io_putc, _io_puts

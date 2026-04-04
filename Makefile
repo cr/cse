@@ -29,7 +29,6 @@ DEV   := $(ROOT)dev
 
 CA65   ?= ca65
 LD65   ?= ld65
-CC65   ?= cc65
 PYTHON ?= pipenv run python
 PYTEST ?= pipenv run pytest
 VICE   ?= x64sc
@@ -91,14 +90,11 @@ THEME_DEFS := $(shell printf '%s' "$(_THEME_CODE)" | sed 's/./& /g' | \
 VERSION  ?= 0.1
 BUILD_YEAR := $(shell date +%Y)
 
-# ── CC65 flags ───────────────────────────────────────────────────────────
-VER_DEFS = -DVERSION=\"$(VERSION)\" -DBUILD_YEAR=\"$(BUILD_YEAR)\"
+# ── Assembler flags ──────────────────────────────────────────────────────
 ifdef DEBUG
-  CFLAGS = -g -O -t c64 -DDEBUG -D__cc65__ $(CPU_DEFS) $(VER_DEFS) -I$(ROOT) -I$(BUILD)
-  AFLAGS = -g -t c64 -DDEBUG -D__cc65__ $(CPU_DEFS) $(THEME_DEFS) -I$(ROOT) -I$(BUILD)
+  AFLAGS = -g -t c64 -DDEBUG $(CPU_DEFS) $(THEME_DEFS) -I$(ROOT) -I$(BUILD)
 else
-  CFLAGS = -O -t c64 -D__cc65__ $(CPU_DEFS) $(VER_DEFS) -I$(ROOT) -I$(BUILD)
-  AFLAGS = -t c64 -D__cc65__ $(CPU_DEFS) $(THEME_DEFS) -I$(ROOT) -I$(BUILD)
+  AFLAGS = -t c64 $(CPU_DEFS) $(THEME_DEFS) -I$(ROOT) -I$(BUILD)
 endif
 LCFG   = $(SRC)/c64_cse.cfg
 LFLAGS = -C $(LCFG)
@@ -121,15 +117,10 @@ all:
 PRG    = $(BUILD)/$(PRG_NAME)
 DBG    = $(BUILD)/cse.dbg
 MAP    = $(BUILD)/cse.map
-MAIN_S = $(BUILD)/src/main.s
-MAIN_O = $(BUILD)/src/main.o
 
-# ── C source files (besides main.c) ──────────────────────────────
-C_SRCS   =
-C_OBJS   = $(patsubst %,$(BUILD)/src/%.o,$(C_SRCS))
-
-# ── Assembler source files linked into cse.prg ──────────────────────
-ASM_SRCS = asm_bridge asm_line asm_vars asm_src mn_vars mn_classify \
+# ── All assembler source files (pure asm, no C) ─────────────────────
+ASM_SRCS = main \
+           asm_bridge asm_line asm_vars asm_src mn_vars mn_classify \
            $(MN_SRCS) mn_config \
            au_mode mn_modes mn_asm_tables opcode_lookup \
            meminfo cse_io screen disk expr symtab dasm dasm_tables \
@@ -143,23 +134,12 @@ _one: $(PRG)
 $(BUILD)/src/:
 	mkdir -p $@
 
-$(MAIN_S): $(SRC)/main.c | $(BUILD)/src/
-	$(CC65) $(CFLAGS) -o $@ $<
-
-$(MAIN_O): $(MAIN_S)
-	$(CA65) $(AFLAGS) -o $@ $<
-
-# Pattern rule: compile + assemble src/*.c → build/CPU/src/*.o
-$(BUILD)/src/%.o: $(SRC)/%.c | $(BUILD)/src/
-	$(CC65) $(CFLAGS) -o $(BUILD)/src/$*.s $<
-	$(CA65) $(AFLAGS) -o $@ $(BUILD)/src/$*.s
-
 # Pattern rule: assemble src/*.s → build/CPU/src/*.o
 $(BUILD)/src/%.o: $(SRC)/%.s | $(BUILD)/src/
 	$(CA65) $(AFLAGS) -o $@ $<
 
-$(PRG): $(MAIN_O) $(C_OBJS) $(ASM_OBJS) | $(BUILD)/
-	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) -m $(MAP) $(MAIN_O) $(C_OBJS) $(ASM_OBJS) c64.lib
+$(PRG): $(ASM_OBJS) | $(BUILD)/
+	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) -m $(MAP) $(ASM_OBJS)
 
 # -----------------------------------------------------------------------
 # disk — create a D64 disk image with the selected CPU's PRG

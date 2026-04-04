@@ -73,8 +73,8 @@ dec_hi:                 ; powers of 10, hi bytes
 
 ; ═════════════════════════════════════════════════════════════════
 ; C stack helpers — drop-in replacements for cc65's popax/popa.
-; Uses cc65's `sp` ZP pointer (still shared with C runtime).
-; When all C code is gone, sp becomes ours entirely.
+; Parameter stack helpers — push/pop 16-bit values via the
+; shared `sp` ZP pointer (exported by main.s).
 ; ═════════════════════════════════════════════════════════════════
 
         .importzp sp
