@@ -29,6 +29,7 @@
         .export _io_putdec
         .export _newline
         .export _cse_end
+        .exportzp buf_base
 
         .import _asm_assemble
 
@@ -39,6 +40,7 @@ HEAP_START = $4000          ; symbol-table heap (above all code/BSS)
 sp:         .res 2          ; C stack pointer
 _src_ptr:   .res 2          ; current read position in _test_src_buf
 _buf_ptr:   .res 2          ; destination buffer for _ed_read_line (scratch)
+buf_base:   .res 2          ; mock: gap buffer base (for workend symbol)
 
 ; ── BSS ───────────────────────────────────────────────────────────────────────
 .segment "BSS"

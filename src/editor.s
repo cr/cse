@@ -13,6 +13,7 @@
         .export _ed_insert_string
         .export _ed_dirty, _ed_save_bytes, _ed_save_lines
         .export _tab_width
+        .exportzp buf_base
 
         .import _io_sync
         .import _kernal_bank_out, _kernal_bank_in
@@ -22,8 +23,10 @@
         .import _cur_filename
         .import _state, _SCREEN, _src_top, _src_bot
         .import scr_lo, scr_hi
+        .import _sym_define
         .import cse_popax, pushax
         .importzp sp
+        .importzp sym_name, sym_val, sym_wide
 
 ; ── Constants ────────────────────────────────────────────────
 SCREEN       = $0400
@@ -89,6 +92,7 @@ ws_buf:         .res 39         ; auto-indent whitespace buffer
 ; Hex digit table for status bar (screen codes, OR'd with $80 for reverse)
 st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
         .byte $38,$39,$01,$02,$03,$04,$05,$06
+s_workend:      .byte "workend", 0
 
 ; ── CODE ─────────────────────────────────────────────────────
 .segment "CODE"
@@ -121,7 +125,24 @@ st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
         sta ed_total_lines+1
         lda #1
         sta ed_total_lines
+        jsr update_workend
         rts
+.endproc
+
+; ── update_workend — redefine workend symbol from buf_base ────
+; Called after any buf_base change (ed_init, gb_ensure_room).
+.proc update_workend
+        lda buf_base
+        sta sym_val
+        lda buf_base+1
+        sta sym_val+1
+        lda #<s_workend
+        sta sym_name
+        lda #>s_workend
+        sta sym_name+1
+        lda #1
+        sta sym_wide
+        jmp _sym_define         ; tail call
 .endproc
 
 ; ── gb_ensure_room — grow buffer if gap exhausted ─────────────
@@ -241,11 +262,12 @@ st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
         adc #1
         sta gap_hi+1
 
-        ; Update src_bot
+        ; Update src_bot + workend symbol
         lda buf_base
         sta _src_bot
         lda buf_base+1
         sta _src_bot+1
+        jsr update_workend
 
 @have_room:
         sec                     ; success

@@ -90,6 +90,11 @@ void main(void)
     sym_set_heap(cse_end());
     sym_clear();
 
+    /* Define workstart/workend workspace symbols */
+    {   extern void define_ws_syms(void);
+        define_ws_syms();
+    }
+
     /* Initialize debugger state (breakpoint table, flags) */
     dbg_init();
 

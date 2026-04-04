@@ -12,6 +12,7 @@
         .setcpu         "6502"
 
         .export         _asm_assemble
+        .export         _define_ws_syms
         .export         _asm_org, _asm_size, _asm_errors
 
         .import         _asm_line               ; asm_bridge.s
@@ -22,6 +23,7 @@
         .import         _cse_end                ; meminfo.s
         .import         _ed_read_line           ; editor.s
         .import         _ed_read_rewind
+        .importzp       buf_base                ; editor.s — gap buffer low bound
         .import         pushax                  ; push A/X onto parameter stack
 
         .importzp       sp
@@ -74,6 +76,8 @@ s_bad_op:       .byte "bad operand", 0
 s_bad_org2:     .byte "bad org", 0
 s_bad_insn:     .byte "bad insn", 0
 hex_tab:        .byte "0123456789abcdef"
+s_workstart:    .byte "workstart", 0
+s_workend:      .byte "workend", 0
 
 ; ═══════════════════════════════════════════════════════════════════════════
 .segment "CODE"
@@ -1220,6 +1224,43 @@ inc_pc_size:
 @done:  rts
 .endproc
 
+; ── define_ws_syms — define workstart/workend in symbol table ──────────────
+; C-callable.  Defines both symbols with current values.
+;   workstart = (cse_end + $FF) & $FF00  (rounded up to page)
+;   workend   = buf_base                 (already page-aligned)
+.proc _define_ws_syms
+        ; ── workstart ──
+        jsr _cse_end            ; A = lo, X = hi
+        clc
+        adc #$FF                ; round up: add $FF
+        txa
+        adc #0                  ; propagate carry into hi byte
+        and #$FF                ; hi byte already page-aligned from adc
+        sta sym_val+1
+        lda #0
+        sta sym_val             ; lo = 0 (page-aligned)
+        lda #<s_workstart
+        sta sym_name
+        lda #>s_workstart
+        sta sym_name+1
+        lda #1
+        sta sym_wide            ; ABS
+        jsr _sym_define
+
+        ; ── workend ──
+        lda buf_base
+        sta sym_val
+        lda buf_base+1
+        sta sym_val+1
+        lda #<s_workend
+        sta sym_name
+        lda #>s_workend
+        sta sym_name+1
+        lda #1
+        sta sym_wide            ; ABS
+        jmp _sym_define         ; tail call
+.endproc
+
 ; ── _asm_assemble ──────────────────────────────────────────────────────────
 ; Run two-pass assembly of editor source.
 ;   Out: A/X = error count (uint16_t)
@@ -1234,6 +1275,7 @@ inc_pc_size:
         jsr _cse_end            ; A/X = heap start address
         jsr _sym_set_heap
         jsr _sym_clear
+        jsr _define_ws_syms     ; pre-define workstart/workend
         ; Pass 0: collect labels/constants
         lda #0
         sta _asm_pass
