@@ -60,8 +60,10 @@
 #define ST_EDIT 2
 extern uint8_t state;
 
-/* ── Globals ────────────────────────────────────────────── */
+/* ── Screen geometry ────────────────────────────────────── */
 extern uint8_t *const SCREEN;
+/* row * 40 via shifts — avoids pulling in cc65 tosumula0 runtime */
+#define ROW_OFFSET(r) (((uint16_t)(r) << 5) + ((uint16_t)(r) << 3))
 extern uint8_t *src_top, *src_bot;
 #ifndef COLOR_RAM
 #define COLOR_RAM ((uint8_t *)0xD800)
@@ -82,14 +84,6 @@ extern uint8_t  cur_device;           /* default 8 */
 
 /* ── Alias for io_clear_eol (used widely) ─────────────── */
 #define clear_eol io_clear_eol
-
-/* ── Shared hex parsing (main.c) ────────────────────────── */
-uint8_t __fastcall__ hex_val(uint8_t ch);
-uint8_t __fastcall__ is_hex(uint8_t ch);
-uint8_t __fastcall__ hex_val_to_char(uint8_t v);
-uint16_t parse_hex4(uint8_t **pp);
-uint8_t parse_hex2(uint8_t **pp);
-void skip_sp(uint8_t **pp);
 
 /* ── Current filename (set by l/w, shown in editor status) ── */
 #define FILENAME_MAX_LEN 16

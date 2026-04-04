@@ -1,13 +1,15 @@
-# repl.c — REPL Command Interface
+# repl.s — REPL Command Interface
 
 **Template:** [module](../templates/module.md)
+
+Hand-ported from C (repl.c) to 6502 assembly.  Hex parsing helpers
+(`_hex_val`, `_is_hex`, `_hex_val_to_char`) are local to repl.s.
 
 ## Owned files
 
 | File | Role |
 |------|------|
-| [`src/repl.c`](../../src/repl.c) | implementation |
-| [`src/repl.h`](../../src/repl.h) | header |
+| [`src/repl.s`](../../src/repl.s) | implementation (assembly) |
 
 ## Interface
 
@@ -274,7 +276,7 @@ The REPL's line editor operates within the 40-column screen:
 
 | Key | Name   | Addressed | Example              | Notes                                   |
 |-----|--------|-----------|----------------------|-----------------------------------------|
-| `l` | load   | yes       | `1000:l "file"`      | Load PRG to addr; remembers filename     |
+| `l` | load   | yes       | `1000:l "file"`      | Load PRG/SEQ; guards unsaved source      |
 | `s` | save   | yes       | `1000:s "file" $2000` | Save addr..EEEE-1 (expr); remembers filename |
 | `$` | disk   | —         | `$`, `$9`, `$ s:file` | Directory, drive select, drive command *(cmd planned)*. See below. |
 
@@ -284,14 +286,31 @@ The REPL's line editor operates within the 40-column screen:
 |-------|---------|-----------|----------------------|--------------------------------------|
 | `i`   | info    | —         | `i`                  | Show memory map                       |
 | `?`   | calc    | —         | `? 1000+20`          | Hex expression calculator             |
-| `k`   | kill    | —         | `k`                  | Clear source buffer (confirms first)  |
+| `k`   | kill    | —         | `k`                  | Clear source buffer; guards unsaved   |
 | `B`   | block   | —         | `B 40` or `B`       | Set/show block size (uppercase)        |
 | `C`   | color   | —         | `C 06` or `C 0e6`   | Set text/bg/border color (uppercase)  |
 | `T`   | tab     | —         | `T 4` or `T`         | Set/show tab width; reindents source (uppercase) |
 | `u`   | cpu     | —         | `u 6502` or `u 65c02` | Set CPU mode for asm/disasm        |
-| `q`   | quit    | —         | `q`                  | Exit CSE                              |
+| `Q`   | quit    | —         | `Q`                  | Exit CSE (uppercase; guards unsaved)  |
 | `clr` | clear   | —         | `clr` (or `cls`)     | Clear screen                          |
 | `;`   | comment | —         | `; note`             | No-op (inline comment)                |
+
+### Unsaved-changes guard
+
+The `k` (kill), `l` (load SEQ), and `Q` (quit) commands either destroy
+the current source buffer or exit the program.  If the editor's dirty
+flag is set (buffer modified since last save/load), these commands
+prompt:
+
+    ;unsaved. y/n?
+
+The user must press `y` to proceed.  Any other key cancels.
+PRG loads (`l` without `,s` suffix) do not trigger the guard because
+they don't touch the source buffer.
+
+The dirty flag is maintained by editor.c: set on any insert/delete,
+cleared on save (`ed_save_source`) and load (`ed_load_source`).
+Exported as `ed_dirty` for repl.s to read.
 
 ### `B` — Block size (uppercase)
 

@@ -24,12 +24,14 @@
 | [`dev/expr_test_stub.s`](../dev/expr_test_stub.s) | implementation — test entry point (expr) |
 | [`dev/symtab_test_stub.s`](../dev/symtab_test_stub.s) | implementation — test entry point (symtab) |
 | [`dev/asm_src_test_stub.s`](../dev/asm_src_test_stub.s) | implementation — test entry point (asm_src) |
+| [`dev/repl_test_stub.s`](../dev/repl_test_stub.s) | implementation — test entry point (repl) |
+| [`dev/repl_test.cfg`](../dev/repl_test.cfg) | implementation — test binary linker config (repl) |
 
 ## Toolchain
 
 | Tool | Role |
 |------|------|
-| `cc65` | C compiler — compiles `main.c`, `repl.c`, `editor.c` to `.s` |
+| `cc65` | C compiler — compiles `main.c`, `editor.c` to `.s` |
 | `ca65` | Assembler — assembles all `.s` files to `.o` |
 | `ld65` | Linker — links `.o` files into final binary; generates `.map` |
 | `make` | Build orchestration |

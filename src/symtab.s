@@ -21,7 +21,7 @@
 ;   sym_count:   return count in A
 ;   sym_set_heap: in: A/X = heap base address. Must be called before first define.
 
-        .export _sym_define, _sym_lookup, _sym_clear, _sym_count
+        .export _sym_define, _sym_lookup, _sym_clear
         .export _sym_set_heap
         .export _kernal_bank_out, _kernal_bank_in, _kernal_init
 

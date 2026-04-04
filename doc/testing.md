@@ -34,14 +34,13 @@ tests are written, when they are written, and what they test.
    impractical, say so and state the alternative (DDD audit, manual
    VICE testing, code review).
 
-4. **UI code is not tested in the harness.**  The REPL and editor
-   interact with screen RAM, color RAM, keyboard, and cursor state.
-   Simulating these in py65 would require a fake C64 for
-   questionable benefit.  Instead: DDD audits (doc ↔ code
-   comparison) plus manual testing in VICE.  However, internal
-   components with clean interfaces (gap buffer operations,
-   sequential reader, reindent logic) can and should be tested
-   through the harness when feasible.
+4. **UI-heavy code gets selective testing.**  The REPL command loop
+   (exec_line, read_line, show_prompt) is tested via `test_repl.py`
+   using a stub that provides screen RAM, cse_io.s, and mock
+   peripherals in py65.  The editor uses a similar approach
+   (`test_editor.py`).  Full keyboard/cursor/scroll interaction
+   remains manual (VICE).  The principle: test the command logic
+   and data paths; leave visual presentation to manual testing.
 
 5. **Don't drown in harness complexity.**  The test harness must
    remain simpler than the code it tests.  If a test requires

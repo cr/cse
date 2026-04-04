@@ -8,8 +8,8 @@
 cse/
 ├── Makefile                Build system (make help for targets)
 ├── src/                    Source code
-│   ├── main.c              Init, main loop, splash screen
-│   ├── repl.c              REPL command loop and handlers
+│   ├── main.c              Init, main loop, mode dispatch
+│   ├── repl.s              REPL command loop and handlers (assembly)
 │   ├── editor.c            Gap buffer editor, rendering, keys
 │   ├── asm_src.s            Two-pass source assembler
 │   ├── asm_bridge.s        C↔asm bridge for _asm_line
@@ -33,7 +33,7 @@ cse/
 │   ├── mn_config.s         │ (regenerate: make tables)
 │   ├── mn_asm_tables.s     │
 │   └── dasm_tables.s       ┘
-│   ├── *.h                 C headers (cse.h, repl.h, editor.h, etc.)
+│   ├── *.h                 C headers (cse.h, editor.h, etc.)
 │   └── c64_cse.cfg         Custom ld65 linker config (expanded ZP)
 │
 ├── dev/                    Development tools
@@ -52,7 +52,12 @@ cse/
 │   ├── test_mnhash.py      Mnemonic hash tests
 │   ├── test_expr.py        Expression parser tests
 │   ├── test_symtab.py      Symbol table tests
-│   └── test_asm_src.py     Source assembler tests
+│   ├── test_asm_src.py     Source assembler tests
+│   ├── test_repl.py        REPL command tests
+│   ├── test_debugger.py    Breakpoint/debugger tests
+│   ├── test_dasm.py        Disassembler tests
+│   ├── test_cse_io.py      Screen I/O tests
+│   └── test_editor.py      Editor gap-buffer tests
 │
 ├── doc/                    Documentation (see doc/README.md)
 │   ├── README.md           DDD methodology, document index

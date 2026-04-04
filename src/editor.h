@@ -19,6 +19,7 @@ uint8_t ed_load_source(const char *name);   /* 0=ok, else error */
 extern uint16_t ed_save_bytes;
 extern uint16_t ed_save_lines;
 extern uint8_t  tab_width;               /* tab stop interval, default 8 */
+extern uint8_t  ed_dirty;               /* 1 if buffer modified since last save/load */
 
 /* Ensure gap buffer is initialized */
 void ed_ensure_init(void);

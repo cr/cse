@@ -18,9 +18,9 @@
         .export _io_color
         .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
 
-        ; C stack helpers — our own impl to avoid importing cc65's popax/popa.
+        ; C stack helpers — our own impl to avoid importing cc65's popax.
         ; Still uses cc65's `sp` ZP pointer (shared with C code).
-        .export cse_popax, cse_popa
+        .export cse_popax
 
         ; NMI handler — pure asm, no C prologue.
         .export _nmi_handler
@@ -95,16 +95,6 @@ dec_hi:                 ; powers of 10, hi bytes
         inc sp+1
 :       pla                     ; restore lo → A
         rts
-.endproc
-
-; cse_popa: pop 8-bit value from C stack → A
-.proc cse_popa
-        ldy #0
-        lda (sp),y
-        inc sp
-        bne :+
-        inc sp+1
-:       rts
 .endproc
 
 ; ── io_init — must be called once at startup ──────────────────────────

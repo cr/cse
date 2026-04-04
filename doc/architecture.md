@@ -8,7 +8,7 @@
 ┌──────────────────────────────────────────┐
 │                main.c                    │  init, mode switch, main loop
 ├────────────────┬─────────────────────────┤
-│    repl.c      │       editor.c          │  user-facing modes
+│    repl.s      │       editor.c          │  user-facing modes
 ├────────────────┴──┬───────────┬──────────┤
 │    asm_src.s      │  expr.s   │ symtab.s │  source assembler pipeline
 ├───────────────────┴───────────┴──────────┤
@@ -27,7 +27,7 @@ layers above it.
 | Module | Purpose | Doc |
 |--------|---------|-----|
 | main.c | Hardware init, main loop, mode switch | [main.md](modules/main.md) |
-| repl.c | REPL command dispatch and emitters | [repl.md](modules/repl.md) |
+| repl.s | REPL command dispatch and emitters | [repl.md](modules/repl.md) |
 | editor.c | Gap-buffer source editor, sequential reader | [editor.md](modules/editor.md) |
 | asm_src.s | Two-pass source assembler | [asm_src.md](modules/asm_src.md) |
 | asm_line.s | Single-line instruction assembler (VICII input) | [asm_line.md](modules/asm_line.md) |
@@ -64,7 +64,7 @@ Generated files (do not edit — regenerate with `make tables`):
 
 ```
 main.c
-├── repl.c
+├── repl.s
 │   ├── asm_bridge.s ── asm_line.s ── opcode_lookup.s
 │   │                       ├── au_mode.s ── parse_hex.s
 │   │                       └── mn_classify.s ── mn7.s ── mn7_tables.s
@@ -92,7 +92,7 @@ main.c
 
 | Language | Modules |
 |----------|---------|
-| C | main.c, repl.c, editor.c |
+| C | main.c, editor.c |
 | Assembly | everything else |
 
 Assembly modules define their own calling convention via ZP variables

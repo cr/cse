@@ -12,11 +12,6 @@
 ## Interface
 
 - `main()` — hardware init, main loop, mode dispatch
-- `hex_val(ch)` — hex digit → 0–15 or $FF
-- `hex_val_to_char(v)` — 0–15 → '0'–'f'
-- `is_hex(ch)` — true if hex digit
-- `parse_hex4(ptr)` / `parse_hex2(ptr)` — parse 4/2 hex digits from string
-- `skip_sp(ptr)` — advance past spaces
 
 **Globals:**
 - `state` — 0=STOP, 1=REPL, 2=EDIT
@@ -69,7 +64,7 @@ Handled by `ed_handle_key()`.  See [editor.md](editor.md).
 
 ## Caveats
 
-- `hex_val` / `parse_hex*` / `skip_sp` are used by repl.c but defined
-  in main.c.  These are general-purpose helpers, not main-loop logic.
+- Hex parsing helpers (`hex_val`, `parse_hex*`, `skip_sp`) were
+  removed from main.c — they are now local to repl.s.
 - NMI handler lives in cse_io.s, not main.c.  main.c only installs
   the vector and checks the flag.

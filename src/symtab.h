@@ -19,7 +19,4 @@ uint8_t sym_lookup(const char *name, uint16_t *result);
 /* Delete all symbols. */
 void sym_clear(void);
 
-/* Number of defined symbols. */
-uint16_t sym_count(void);
-
 #endif

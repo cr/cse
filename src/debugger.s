@@ -346,9 +346,13 @@ _dbg_enter:
         ; ── 3. Patch all breakpoints + step BRKs ──
         jsr patch_all
 
-        ; ── 4. Set running flag ──
+        ; ── 4. Set running flag, clear stale break state ──
         lda #$80
         sta _dbg_running
+        lda #0
+        sta _dbg_reason         ; 0 = no break (set by handler if BRK fires)
+        lda #$FF
+        sta _dbg_bp_hit         ; $FF = no bp hit (set by handler if BRK fires)
 
         ; ── 5. Load user registers + flags, JSR to trampoline ──
         ; Use JSR+JMP(indirect) like jsr_addr: the JSR provides
@@ -380,6 +384,10 @@ _dbg_enter:
         dex
         bpl @rzp
 
+        ; ── 9. Re-enable interrupts ──
+        ; BRK/NMI handler leaves I=1 (SEI by hardware).
+        ; Must restore before returning to REPL or io_getc hangs.
+        cli
         rts
 
 @tramp: jmp (_brk_pc)

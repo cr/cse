@@ -19,9 +19,6 @@
 #define ED_LINES     22                   /* visible source lines */
 #define ED_STATUS    22                   /* status bar row */
 
-/* row * 40 via shifts — avoids pulling in cc65 tosumula0 runtime */
-#define ROW_OFFSET(r) (((uint16_t)(r) << 5) + ((uint16_t)(r) << 3))
-
 /* ── REPL screen save buffer (banked RAM under KERNAL) ──── */
 /* 1000 bytes at $F818–$FBFF, just below sym_table ($FC00).
  * Accessed via kernal_bank_out/in since the KERNAL ROM
@@ -56,7 +53,7 @@ static uint8_t  ed_cur_col;              /* cursor column (0-based) */
 static uint16_t ed_top_line;              /* line number at screen row 0 */
 static uint8_t *ed_top_ptr;              /* cached buffer pos for ed_top_line */
 static uint16_t ed_total_lines;           /* total line count */
-static uint8_t  ed_dirty;                /* buffer modified flag */
+uint8_t  ed_dirty;                       /* buffer modified flag (read by repl.s) */
 uint16_t ed_save_bytes;                   /* bytes transferred (last l/w) */
 uint16_t ed_save_lines;                   /* lines transferred (last l/w) */
 uint8_t  tab_width = 8;                  /* tab stop interval (columns) */
@@ -567,14 +564,13 @@ static uint8_t copy_leading_ws(uint8_t *ws_buf, uint8_t max)
 {
     uint8_t *p = gap_lo;
     uint8_t n = 0;
+    /* Walk back to the start of the current line */
     while (p > buf_base && *(p - 1) != 0x0D) --p;
+    /* Copy whitespace that is BEFORE the cursor (before gap_lo).
+     * If cursor is at or before the indent, we copy nothing — the new
+     * line will be unindented, which is correct for starting a label. */
     while (p < gap_lo && n < max && (*p == ' ' || *p == 0xA0))
         { ws_buf[n++] = *p++; }
-    if (p == gap_lo) {
-        uint8_t *q = gap_hi;
-        while (q < buf_end && n < max && (*q == ' ' || *q == 0xA0))
-            { ws_buf[n++] = *q++; }
-    }
     return n;
 }
 

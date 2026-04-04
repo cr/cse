@@ -11,11 +11,14 @@
 #include "cse_io.h"
 #include "screen.h"
 #include "disk.h"
-#include "repl.h"
+/* repl.s exports (was repl.h) */
+extern void exec_line(void);
+extern void read_line(void);
+extern void show_prompt(void);
+extern uint16_t cur_addr;
+extern uint8_t  cur_device;
+extern char cur_filename[];
 #include "editor.h"
-
-/* row * 40 via shifts — avoids pulling in cc65 tosumula0 runtime */
-#define ROW_OFFSET(r) (((uint16_t)(r) << 5) + ((uint16_t)(r) << 3))
 
 #define MEM_CONFIG    (*(uint8_t *)0x01)
 #define NMI_VEC       (*(uint16_t *)0x0318) /* KERNAL NMI indirect vector */
@@ -30,48 +33,8 @@ uint8_t *src_bot = 0;
 /* NMI flag — set by nmi_handler (cse_io.s), checked in main loop */
 volatile uint8_t nmi_pending = 0;
 
-/* ═══════════════════════════════════════════════════════════════
- * Shared hex parsing helpers
- * ═══════════════════════════════════════════════════════════════ */
-
-uint8_t __fastcall__ hex_val(uint8_t ch) {
-    if (ch >= '0' && ch <= '9') return ch - '0';
-    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
-    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
-    return 0xFF;
-}
-
-uint8_t __fastcall__ is_hex(uint8_t ch) { return hex_val(ch) != 0xFF; }
-
-uint8_t __fastcall__ hex_val_to_char(uint8_t v) {
-    return v < 10 ? '0' + v : 'a' + v - 10;
-}
-
-uint16_t parse_hex4(uint8_t **pp) {
-    uint8_t *q = *pp;
-    uint16_t v;
-    if (!is_hex(q[0]) || !is_hex(q[1]) || !is_hex(q[2]) || !is_hex(q[3]))
-        return 0;
-    v  = (uint16_t)hex_val(q[0]) << 12;
-    v |= (uint16_t)hex_val(q[1]) <<  8;
-    v |= (uint16_t)hex_val(q[2]) <<  4;
-    v |= (uint16_t)hex_val(q[3]);
-    *pp = q + 4;
-    return v;
-}
-
-uint8_t parse_hex2(uint8_t **pp) {
-    uint8_t *q = *pp;
-    uint8_t v;
-    if (!is_hex(q[0]) || !is_hex(q[1])) return 0;
-    v = (hex_val(q[0]) << 4) | hex_val(q[1]);
-    *pp = q + 2;
-    return v;
-}
-
-void skip_sp(uint8_t **pp) {
-    while (**pp == ' ') ++(*pp);
-}
+/* Hex parsing helpers removed — now in repl.s (asm).
+ * parse_hex4, parse_hex2, skip_sp were only used by the old repl.c. */
 
 /* ═══════════════════════════════════════════════════════════════
  * Init: fill free memory with $FF
@@ -257,11 +220,6 @@ void main(void)
             break;
 
         case 147:                             /* shift+HOME = CLR ($93) */
-            reset_screen();
-            clear_eol();
-            show_prompt();
-            break;
-
         case CH_ESC:
             reset_screen();
             clear_eol();
