@@ -754,8 +754,7 @@ _dasm_aaa:
         bcs @family
 
         ; aaa 0-3: specials per bbb
-        lda _dasm_mode          ; bbb
-        cmp #0
+        lda _dasm_mode          ; bbb (lda sets Z for beq)
         bne :+
         jmp @bbb0_low
 :

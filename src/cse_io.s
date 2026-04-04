@@ -137,8 +137,7 @@ _io_sync:
         ldx CUR_ROW
         ldy CUR_COL
         clc                     ; CLC = set position
-        jsr $FFF0               ; KERNAL PLOT: sets $D1/$D2/$D3/$D6/$F3/$F4
-        rts
+        jmp $FFF0               ; KERNAL PLOT: sets $D1/$D2/$D3/$D6/$F3/$F4
 
 ; ── io_putc — write PETSCII char at cursor, advance ─────────
 ; __fastcall__: A = PETSCII char

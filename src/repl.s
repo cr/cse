@@ -1168,7 +1168,7 @@ parse_hex4_ptr1:
         jsr _newline
         lda rp_cnt
         bne @ret                ; nbytes > 0 → don't clear
-        jsr _io_clear_eol
+        jmp _io_clear_eol
 @ret:   rts
 
 @try_asm_mne:
@@ -1505,7 +1505,6 @@ parse_hex4_ptr1:
         lda rp_opc
 
         ; BRK ($00)
-        cmp #$00
         jeq @stop
 
         ; JSR abs ($20)
@@ -2122,7 +2121,6 @@ parse_hex4_ptr1:
 ; ═══════════════════════════════════════════════════════════
 .proc get_filename
         jsr parse_filename
-        cmp #0
         bne @got_name
 
         ; no name in args — try cur_filename
@@ -2242,7 +2240,6 @@ disk_done:
         sta rp_addr+1
 
         jsr get_filename
-        cmp #0
         bne @have_name
         lda #<str_err_name
         ldx #>str_err_name
@@ -2342,7 +2339,6 @@ disk_done:
         sta rp_addr+1
 
         jsr get_filename
-        cmp #0
         bne @have_name
         lda #<str_err_name
         ldx #>str_err_name
@@ -2923,7 +2919,6 @@ free_line:
         sta rp_opc              ; save cmd char
 
         ; ── Empty / semicolon ──
-        cmp #0
         beq @empty
         cmp #';'
         beq @semicolon
@@ -3306,7 +3301,6 @@ free_line:
         sta _al_cpu
 .else
         ; CPU_CEIL=0: accept 0 only
-        cmp #0
         bne @u_show
         sta _al_cpu
 .endif
@@ -3317,7 +3311,6 @@ free_line:
         ldx #>str_cpu
         jsr _io_puts
         lda _al_cpu
-        cmp #0
         bne @u_no_star0
         lda #'*'
         jmp @u_p0

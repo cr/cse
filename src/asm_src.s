@@ -1,14 +1,8 @@
 ; asm_src.s — Two-pass source assembler
 ;
-; Replaces asm_src.c. Reads source from the editor gap buffer (ed_read_line).
+; Reads source from the editor gap buffer (ed_read_line).
 ; Pass 0: collect labels/constants, compute instruction sizes.
 ; Pass 1: resolve references, emit bytes.
-;
-; Bugs fixed vs. C version:
-;   .const : NUL-terminates name before sym_define (C read past the name)
-;   .cpu   : wrong index checks for 65c02 in C version
-;   Insn   : suffix ("),y" etc.) taken from expr_ptr after eval, not src
-;   Pass 0 : forward-referenced symbols get dummy ABS value so insn size is right
 ;
 ; Internal calling convention:
 ;   _as_ptr  — active parse pointer into current line
@@ -26,9 +20,9 @@
         .import         _sym_clear, _sym_set_heap
         .import         _io_puts, _io_putdec, _newline
         .import         _cse_end                ; meminfo.s
-        .import         _ed_read_line           ; editor.c
+        .import         _ed_read_line           ; editor.s
         .import         _ed_read_rewind
-        .import         pushax                  ; cc65 runtime: push A/X onto C stack
+        .import         pushax                  ; push A/X onto parameter stack
 
         .importzp       sp
         .importzp       al_pc, al_cpu
@@ -110,8 +104,7 @@ hex_tab:        .byte "0123456789abcdef"
         tax                     ; msg hi
         pla                     ; msg lo
         jsr _io_puts
-        jsr _newline
-        rts
+        jmp _newline            ; tail call
 @skip:  pla                     ; discard saved msg lo
         rts
 .endproc
@@ -876,25 +869,7 @@ inc_pc_size:
         sta (_as_ptr),y
         iny                     ; Y = word length (including ':')
 @adv_lbl:
-        ; Advance _as_ptr by Y+1 (Y = pos of ':', skip it and past)
-        ; Actually Y already restored to word length (includes ':')
-        ; Wait: dey made Y = name_len (pos of ':'), then iny brought it back?
-        ; Let's retrace:
-        ;   After @wend: Y = word length (index of terminator space)
-        ;   dey: Y = last char index = word_len - 1
-        ;   lda (_as_ptr),y: load last char (the ':')
-        ;   iny: Y = word_len
-        ;   cmp #':' bne @dispatch
-        ;   ; It's a label
-        ;   dey: Y = word_len - 1 = index of ':'  = name length
-        ;   cpy #0 beq @adv_lbl
-        ;   ; sym_name = _as_ptr
-        ;   ; fold_block(Y = name_len)
-        ;   ; NUL at Y (= pos of ':')
-        ;   jsr define_label
-        ;   pla/sta restore
-        ;   iny: Y = word_len (pointing past ':' in word = advancing past label+colon)
-        ; So after iny, Y = word_len which is how many bytes to advance _as_ptr
+        ; Advance _as_ptr past label+colon (Y = word length including ':')
         tya
         clc
         adc _as_ptr
@@ -924,19 +899,13 @@ inc_pc_size:
         ;  If we get here, '.' keyword was unrecognized — emit error.)
         lda #<s_bad_insn
         ldx #>s_bad_insn
-        jsr emit_error
-        rts
+        jmp emit_error          ; tail call
 
 @notdot:
 ; ── 3. Instruction ─────────────────────────────────────────────────────────
 @insn:
         ; Copy mnemonic to _insn_buf (max 8 chars, stop at space/NUL)
         ldx #0
-@mne:   lda (_as_ptr),y         ; Y is still 0 from @dispatch area, or Y=1 from *= check
-        ; Oops — Y may not be 0 here after the *= check path bne @insn.
-        ; Actually: we only reach @insn from @notdot (Y=0 path to cmp #'*') and
-        ; after the *= check (bne @insn with Y=1).  Need to reset Y.
-        ; Fix: reload at mnemonic scan start.
 @insn2: ldy #0
 @mne2:  lda (_as_ptr),y
         beq @mne_done
@@ -975,7 +944,7 @@ inc_pc_size:
         inc _as_ptr+1
         jmp @msp
 @msp_done:
-        cmp #0
+        cmp #0                  ; re-test A: flags clobbered by cmp #$a0 above
         beq @msp_nooper         ; NUL = no operand
         cmp #';'
         beq @msp_nooper         ; ';' = comment, no operand
@@ -988,7 +957,6 @@ inc_pc_size:
         lda #0
         sta _as_flags
         ; Check for '#' prefix
-        cmp _as_ptr             ; compare mem, not A — use lda
         ldy #0
         lda (_as_ptr),y
         cmp #'#'
@@ -1103,8 +1071,7 @@ inc_pc_size:
 @eval_err:
         lda #<s_bad_op
         ldx #>s_bad_op
-        jsr emit_error
-        rts
+        jmp emit_error          ; tail call
 
 @eval_ok:
         ; ── Append operand to _insn_buf ────────────────────────────────
@@ -1202,11 +1169,9 @@ inc_pc_size:
         bne @insn_ok
         lda #<s_bad_insn
         ldx #>s_bad_insn
-        jsr emit_error
-        rts
+        jmp emit_error          ; tail call
 @insn_ok:
-        ; Advance al_pc and asm_size by X (byte count)
-        txa
+        ; Advance al_pc and asm_size by A (byte count); A still valid from _asm_line
         clc
         adc al_pc
         sta al_pc
@@ -1220,10 +1185,6 @@ inc_pc_size:
         inc _asm_size+1
 :
 @done:  rts
-
-; Fix-up: @insn entry needs Y=0 — redirect via @insn2 (already done above).
-; The bne @insn from the *= check path is fine: Y=1 there but @insn2 resets Y.
-; (The intermediate label @insn just falls into @insn2.)
 
 .endproc
 

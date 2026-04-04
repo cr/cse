@@ -1194,8 +1194,7 @@ st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
 
         ; Upper free + cursor pos via partial updaters
         jsr ed_status_free
-        jsr ed_status_pos
-        rts
+        jmp ed_status_pos       ; tail call
 
 @fn_len:  .byte 0
 @fn_idx:  .byte 0
@@ -2335,8 +2334,7 @@ st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
         ; name is on C stack, read_fn in A/X
         lda #<save_read_fn
         ldx #>save_read_fn
-        jsr _disk_save_seq      ; A = error
-        cmp #0
+        jsr _disk_save_seq      ; A = error (lda sets Z)
         bne @err
 
         ; Success
