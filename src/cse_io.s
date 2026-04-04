@@ -18,8 +18,6 @@
         .export io_color
         .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
 
-        ; Parameter stack helpers
-        .export cse_popax
 
         ; NMI handler — pure asm, no C prologue.
         .export nmi_handler
@@ -69,31 +67,6 @@ dec_hi:                 ; powers of 10, hi bytes
 
 ; ── CODE ────────────────────────────────────────────────────
 .segment "CODE"
-
-; ═════════════════════════════════════════════════════════════════
-; Parameter stack helpers — push/pop 16-bit values via the
-; shared `sp` ZP pointer (exported by main.s).
-; ═════════════════════════════════════════════════════════════════
-
-        .importzp sp
-
-; cse_popax: pop 16-bit value from parameter stack → A (lo), X (hi)
-.proc cse_popax
-        ldy #1
-        lda (sp),y              ; hi byte
-        tax
-        dey
-        lda (sp),y              ; lo byte
-        pha                     ; save lo
-        clc
-        lda sp
-        adc #2
-        sta sp
-        bcc :+
-        inc sp+1
-:       pla                     ; restore lo → A
-        rts
-.endproc
 
 ; ── io_init — must be called once at startup ──────────────────────────
 ; Disables KERNAL cursor ($CC=1).  All cse_io IRQ safety depends on this.

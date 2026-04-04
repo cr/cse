@@ -25,8 +25,7 @@
         .import state
         .import scr_lo, scr_hi
         .import sym_define
-        .import cse_popax, pushax
-        .importzp sp
+        .importzp disk_ptr
         .importzp sym_name, sym_val, sym_wide
 
 ; ── Constants ────────────────────────────────────────────────
@@ -487,13 +486,13 @@ s_workend:      .byte "workend", 0
 .endproc
 
 ; ── ed_read_line — read one line into buffer ──────────────────
-; Calling convention: maxlen in A (last param), buf on parameter stack (pushax)
+; Input: A/X = buf pointer. Maxlen hardcoded to 80.
 ; Returns: A/X = length, or A=$FF/X=$FF at EOF
 .proc ed_read_line
-        sta ed_tmp+1            ; maxlen
-        jsr cse_popax           ; pop buf → A/X
         sta ed_scr              ; buf lo
         stx ed_scr+1            ; buf hi
+        lda #80
+        sta ed_tmp+1            ; maxlen
         lda #0
         sta ed_tmp              ; len = 0
 @loop:
@@ -2341,8 +2340,9 @@ s_workend:      .byte "workend", 0
 ; Input: A/X = name pointer
 ; Returns: A = 0 on success, nonzero on error
 .proc ed_save_source
-        ; Push name for disk_save_seq
-        jsr pushax
+        ; Store name for disk_save_seq
+        sta disk_ptr
+        stx disk_ptr+1
 
         ; Ensure init
         jsr ed_ensure_init
@@ -2386,8 +2386,9 @@ s_workend:      .byte "workend", 0
 ; Input: A/X = name pointer
 ; Returns: A = 0 on success, nonzero on error
 .proc ed_load_source
-        ; Push name for disk_load_seq
-        jsr pushax
+        ; Store name for disk_load_seq
+        sta disk_ptr
+        stx disk_ptr+1
 
         ; Reset buffer
         jsr ed_init

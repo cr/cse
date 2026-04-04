@@ -416,7 +416,7 @@ def al_syms():
 #   asm_vars + parse_hex + opcode_lookup + asm_line + asm_bridge
 #   + au_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables
 #   + mn_classify + expr + symtab + asm_src
-#   + asm_src_test_stub  (provides sp, pushax, cse_popax, ed_read_line, etc.)
+#   + asm_src_test_stub  (provides ed_read_line, etc.)
 #
 # Linked with asm_src_test.cfg (adds DATA segment for asm_src.s).
 
@@ -495,8 +495,8 @@ def _as_parse_addrs():
     from segment-start + module-offset information in the map file:
 
       asm_src_test_entry = CODE_start + stub_CODE_offs  (first byte of stub CODE)
-      _test_src_buf      = BSS_start  + stub_BSS_offs   + 0x0101
-                           (after _c_stack[256] + _src_done[1] in stub BSS)
+      _test_src_buf      = BSS_start  + stub_BSS_offs   + 0x0001
+                           (after _src_done[1] in stub BSS)
 
     asm_src.s's BSS vars (asm_org, asm_size, asm_errors) are not
     imported by anyone, so we compute from BSS_start + asm_src's offset:
@@ -541,7 +541,7 @@ def _as_parse_addrs():
                 asm_src_bss_offs = int(mb.group(1), 16)
 
     asm_src_test_entry = seg['CODE'] + stub_code_offs
-    test_src_buf       = seg['BSS']  + stub_bss_offs + 0x0101
+    test_src_buf       = seg['BSS']  + stub_bss_offs + 0x0001
     asm_org            = seg['BSS']  + asm_src_bss_offs + 0
     asm_size           = seg['BSS']  + asm_src_bss_offs + 2
     asm_errors         = seg['BSS']  + asm_src_bss_offs + 4

@@ -9,7 +9,7 @@
         .export state
 
 ; ── Runtime ZP ───────────────────────────────────────────────
-        .exportzp sp, rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
+        .exportzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
 
 ; ── Imports ──────────────────────────────────────────────────
         .import io_init, io_putc, io_puts, io_sync
@@ -30,7 +30,6 @@
         .import ed_handle_key, enter_editor, leave_editor
 
         .import __BSS_RUN__, __BSS_SIZE__
-        .import __HIMEM__, __STACKSIZE__
 
 ; ── Constants ────────────────────────────────────────────────
 SCREEN       = $0400
@@ -67,7 +66,6 @@ CUR_ROW      = $D6
 ; ── Zero page (runtime) ─────────────────────────────────────
 .segment "ZEROPAGE"
 
-sp:     .res 2                  ; parameter stack pointer
 rp_ptr:   .res 2                  ; scratch pointer (repl.s, debugger.s)
 rp_ptr2:   .res 2                  ; scratch pointer (repl.s)
 rp_tmp:   .res 1                  ; scratch byte (repl.s)
@@ -134,12 +132,6 @@ startup:
         dex
         bne @bss_rem
 @bss_done:
-
-        ; Init parameter stack pointer
-        lda #<(__HIMEM__ - __STACKSIZE__)
-        sta sp
-        lda #>(__HIMEM__ - __STACKSIZE__)
-        sta sp+1
 
         ; Fall through to main code (STARTUP placed before CODE in cfg)
         jmp _main

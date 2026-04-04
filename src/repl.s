@@ -12,7 +12,6 @@
         .export cur_addr, cur_device, cur_filename
         ; test harness visibility
         .export line_buf, last_cmd, block_size
-        .export pushax
 
 ; ── Imports: cse_io.s ──────────────────────────────────────
         .import io_putc, io_puts
@@ -68,7 +67,9 @@
         .importzp al_cpu
 
 ; ── Imports: runtime ZP ────────────────────────────────────
-        .importzp sp, rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
+        .importzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
+        .importzp al_pc, al_out
+        .importzp disk_ptr
 
 ; ── Constants ──────────────────────────────────────────────
 SCREEN        = $0400
@@ -226,22 +227,6 @@ INFO_TBL_TAIL_ROWS = (* - info_tbl_tail) / 8
 
 ; ── CODE ───────────────────────────────────────────────────
 .segment "CODE"
-
-; ═══════════════════════════════════════════════════════════
-; pushax — push A/X onto parameter stack
-;   Used to pass first arg to 2-arg functions
-; ═══════════════════════════════════════════════════════════
-.proc pushax
-        ldy sp
-        dey
-        dey
-        sty sp
-        sta (sp),y
-        iny
-        txa
-        sta (sp),y
-        rts
-.endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; Inline helpers
@@ -1045,10 +1030,13 @@ parse_hex4_ptr1:
         sta dot_asm_buf,y
 
 @call_asm:
-        ; asm_line(addr, buf) — push addr, buf in A/X
+        ; asm_line(buf) — caller sets al_pc/al_out, buf in A/X
         lda rp_addr
-        ldx rp_addr+1
-        jsr pushax
+        sta al_pc
+        sta al_out
+        lda rp_addr+1
+        sta al_pc+1
+        sta al_out+1
         lda #<dot_asm_buf
         ldx #>dot_asm_buf
         jmp asm_line
@@ -2284,10 +2272,11 @@ disk_done:
         jmp @done
 
 @load_prg:
-        ; PRG: disk_load_prg(name, addr) — push name, A/X=addr
+        ; PRG: disk_load_prg(name, addr) — name in disk_ptr, A/X=addr
         lda rp_next_lo
-        ldx rp_next_lo+1
-        jsr pushax              ; push name
+        sta disk_ptr
+        lda rp_next_lo+1
+        sta disk_ptr+1
         lda rp_addr
         ldx rp_addr+1
         jsr disk_load_prg      ; A/X = result (0=error, else bytes)
@@ -2440,13 +2429,15 @@ disk_done:
         sbc rp_addr+1
         sta rp_next_hi+1        ; size hi
 
-        ; disk_save_prg(name, addr, size) — push name, push addr, A/X=size
+        ; disk_save_prg(name, addr, size) — name in disk_ptr, addr in _io_tmp, A/X=size
         lda rp_next_lo
-        ldx rp_next_lo+1
-        jsr pushax              ; push name
+        sta disk_ptr
+        lda rp_next_lo+1
+        sta disk_ptr+1
         lda rp_addr
-        ldx rp_addr+1
-        jsr pushax              ; push addr
+        sta $FB                 ; _io_tmp lo
+        lda rp_addr+1
+        sta $FC                 ; _io_tmp hi
         lda rp_next_hi
         ldx rp_next_hi+1
         jsr disk_save_prg      ; A=error

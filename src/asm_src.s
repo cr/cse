@@ -24,10 +24,7 @@
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
         .importzp       buf_base                ; editor.s — gap buffer low bound
-        .import         pushax                  ; push A/X onto parameter stack
-
-        .importzp       sp
-        .importzp       al_pc, al_cpu
+        .importzp       al_pc, al_out, al_cpu
         .importzp       expr_ptr, expr_val, expr_wide
         .importzp       sym_name, sym_val, sym_wide
 
@@ -1158,11 +1155,11 @@ inc_pc_size:
         ldx _ib_idx
         lda #0
         sta _insn_buf,x         ; NUL-terminate
-        ; Call asm_line(al_pc, _insn_buf)
-        ; al_pc pushed onto parameter stack (first arg), _insn_buf in A/X (last arg)
+        ; Call asm_line(_insn_buf) — al_pc already set; set al_out = al_pc
         lda al_pc
-        ldx al_pc+1
-        jsr pushax              ; push al_pc
+        sta al_out
+        lda al_pc+1
+        sta al_out+1
         lda #<_insn_buf
         ldx #>_insn_buf
         jsr asm_line           ; A = byte count (0 = error)
@@ -1200,11 +1197,9 @@ inc_pc_size:
         sta al_pc
         lda asm_org+1
         sta al_pc+1
-@loop:  ; Call ed_read_line(_line_buf, 80)
+@loop:  ; Call ed_read_line(_line_buf)
         lda #<_line_buf
         ldx #>_line_buf
-        jsr pushax              ; push buf pointer (first arg)
-        lda #80
         jsr ed_read_line       ; A=lo, X=hi of signed int return
         ; Negative return = EOF
         txa

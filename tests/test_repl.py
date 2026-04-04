@@ -192,10 +192,7 @@ class ReplSymbols:
             return bin_data[off] | (bin_data[off + 1] << 8)
         self.kplot_stub = read_word(rodata_base + 10 * 2)
         self.newline_count = read_word(rodata_base + 9 * 2)
-        self.c_stack_top   = self.newline_count + 1 + 256
-
         # ZP
-        self.sp       = exp['sp']
         self.expr_ptr = exp['expr_ptr']
         self.expr_val = exp['expr_val']
         self.sym_name = exp['sym_name']
@@ -230,10 +227,6 @@ def make_cpu(rsyms):
     cpu.memory[KERNAL_PLOT]     = 0x4C  # JMP
     cpu.memory[KERNAL_PLOT + 1] = kplot & 0xFF
     cpu.memory[KERNAL_PLOT + 2] = (kplot >> 8) & 0xFF
-
-    # Init C stack pointer (sp ZP) — points to top of c_stack
-    cpu.memory[rsyms.sp]     = rsyms.c_stack_top & 0xFF
-    cpu.memory[rsyms.sp + 1] = (rsyms.c_stack_top >> 8) & 0xFF
 
     # Init cursor position to row 5, col 0
     cpu.memory[CUR_ROW] = 5

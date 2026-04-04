@@ -15,9 +15,7 @@
         .import newline, io_puts
         .import cur_device
         .import scr_lo, scr_hi
-        .import cse_popax, cse_popa
-
-        ; sp not imported — cse_popax handles the parameter stack
+        .exportzp disk_ptr
 
 ; ── KERNAL entry points ──────────────────────────────────
 SETLFS  = $FFBA
@@ -40,6 +38,10 @@ CH_STOP = 3
 ; ── ZP temporaries (reuse cse_io's _io_tmp) ─────────────
 _io_tmp = $FB              ; 2 bytes, shared with cse_io
 ptr     = $FD              ; 2 bytes, general pointer
+
+; ── ZEROPAGE ────────────────────────────────────────────
+.segment "ZEROPAGE"
+disk_ptr:       .res 2          ; filename pointer for all disk functions
 
 ; ── BSS ──────────────────────────────────────────────────
         .segment "BSS"
@@ -531,8 +533,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         sta _io_tmp             ; save addr lo
         stx _io_tmp+1           ; save addr hi
 
-        ; pop name pointer from parameter stack
-        jsr cse_popax               ; A/X = name
+        ; name pointer from disk_ptr (set by caller)
+        lda disk_ptr
+        ldx disk_ptr+1
         jsr str_setup           ; ptr = name, Y = length
 
         ; SETNAM
@@ -592,8 +595,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         sta callback
         stx callback+1
 
-        ; Pop name
-        jsr cse_popax
+        ; Name from disk_ptr (set by caller)
+        lda disk_ptr
+        ldx disk_ptr+1
         jsr str_setup           ; ptr = name, Y = length
 
         ; Build open string ",s,r"
@@ -716,8 +720,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         sta callback
         stx callback+1
 
-        ; Pop name
-        jsr cse_popax
+        ; Name from disk_ptr (set by caller)
+        lda disk_ptr
+        ldx disk_ptr+1
         jsr str_setup           ; ptr = name, Y = length
 
         ; Build open string with @: prefix and ",s,w"
@@ -806,13 +811,11 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         txa
         pha                     ; size hi
 
-        ; pop addr → _io_tmp (will be ZP pointer for SAVE)
-        jsr cse_popax
-        sta _io_tmp
-        stx _io_tmp+1
+        ; addr already in _io_tmp (set by caller)
 
-        ; pop name
-        jsr cse_popax
+        ; Name from disk_ptr (set by caller)
+        lda disk_ptr
+        ldx disk_ptr+1
         jsr str_setup           ; ptr = name, Y = length
 
         ; SETNAM

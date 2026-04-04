@@ -45,6 +45,7 @@
 ; ── Exports: disk stubs ───────────────────────────────────────
         .export floppy_status, list_directory
         .export disk_load_prg, disk_save_prg
+        .exportzp disk_ptr
 
 ; ── Exports: editor stubs ─────────────────────────────────────
         .export ed_save_source, ed_load_source
@@ -58,8 +59,8 @@
 ; ── Exports: global state ─────────────────────────────────────
         .export state
 
-; ── Exports: cc65 ZP / runtime ────────────────────────────────
-        .exportzp sp, rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
+; ── Exports: runtime ZP ───────────────────────────────────────
+        .exportzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
 
 ; ── Exports: NMI stubs (for cse_io.s) ─────────────────────────
         .export dbg_running, dbg_nmi_break
@@ -89,11 +90,11 @@ sym_refs:
 ; ═══════════════════════════════════════════════════════════════
 .segment "ZEROPAGE"
 
-sp:     .res 2          ; parameter stack pointer
 rp_ptr:   .res 2          ; scratch pointers
 rp_ptr2:   .res 2
 rp_tmp:   .res 1          ; scratch bytes
 rp_tmp2:   .res 1
+disk_ptr:  .res 2          ; filename pointer (stub for disk.s)
 
 ; ═══════════════════════════════════════════════════════════════
 ; BSS — test state + stubs
@@ -140,8 +141,6 @@ state:         .res 1
 ; Test instrumentation
 newline_count:  .res 1          ; count newline calls
 
-; C stack area — pushax/popax use sp ZP
-c_stack:        .res 256
 
 ; ═══════════════════════════════════════════════════════════════
 ; CODE
@@ -272,9 +271,8 @@ restore_colors:
 ; Assembler stubs
 ; ═══════════════════════════════════════════════════════════════
 
-; asm_line(addr, buf) — __fastcall__, 2 args via C stack
+; asm_line(buf) — A/X = text, caller sets al_pc/al_out
 ; Returns 0 (error) always in stub mode.
-; Real tests should link the full asm pipeline instead.
 asm_line:
         lda #0
         tax

@@ -15,8 +15,8 @@
 ; This wrapper converts the string in-place before calling al_line_asm.
 ;
 ; Calling convention:
-;   First arg (addr)  pushed onto parameter stack (sp),0 / (sp),1
-;   Last arg  (text)  in A/X  (A=lo, X=hi)  — passed in registers
+;   Caller sets al_pc and al_out before calling.
+;   A/X = text pointer (lo/hi)
 
         .setcpu "6502"
 
@@ -28,7 +28,6 @@
 
         .import al_line_asm
         .importzp au_ptr, al_pc, al_out, al_cpu, al_len
-        .import cse_popax         ; parameter stack pop (in cse_io.s)
 
 .segment "ZEROPAGE"
 _ab_saved_sp:   .res 1          ; saved 6502 SP for error recovery
@@ -62,11 +61,11 @@ au_syntax_error:
         jmp _ab_return
 
 ; ── asm_line ───────────────────────────────────────────────────────────────
-; asm_line(addr, text)
+; asm_line(text)
 ;
 ; On entry:
-;   A/X = text pointer (lo/hi)  — last argument
-;   parameter stack (sp),0/(sp),1 = addr (lo/hi)
+;   A/X = text pointer (lo/hi)
+;   Caller has already set al_pc and al_out.
 ;
 asm_line:
         ; ── save text pointer ───────────────────────────────────────────
@@ -95,12 +94,7 @@ asm_line:
         bne @cvt                ; max 255 chars
 @cvt_done:
 
-        ; ── pop addr from parameter stack ───────────────────────────────
-        jsr cse_popax           ; A = lo, X = hi
-        sta al_pc
-        sta al_out              ; output → target address (assemble in place)
-        stx al_pc+1
-        stx al_out+1
+        ; al_pc and al_out already set by caller
 
         ; ── set CPU mode from build-time default ────────────────────────
 .ifndef DEFAULT_CPU

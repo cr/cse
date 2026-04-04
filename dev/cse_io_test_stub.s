@@ -7,15 +7,11 @@
         .export kplot_stub
         .export dbg_running
         .export dbg_nmi_break
-        .exportzp sp
 
         .import io_sync
 
 ; Import the row address tables from cse_io.s
         .import scr_lo, scr_hi
-
-.segment "ZEROPAGE"
-sp:     .res 2          ; parameter stack pointer (needed by cse_popax)
 
 .segment "BSS"
 dbg_running:  .res 1   ; debugger running flag (stub)
