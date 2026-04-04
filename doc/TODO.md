@@ -10,6 +10,12 @@
 - [x] ~~`j` command: reset colors after user code returns~~ — done:
   `restore_colors()` called in both `cmd_jmp()` paths (direct and debugger).
 - [ ] RUN/STOP debounce: bounces when held.
+- [ ] `.` and `m` commands show/modify CSE's internal ZP state instead
+  of the user's ZP state from `j`/debugger context.  After `j` returns
+  (BRK/NMI), CSE restores its own ZP — so `.`/`m` on $00–$7F see CSE
+  variables, not what the user's code left there.  Fix: save/restore
+  user ZP snapshot on debug return; `.`/`m` should read from that
+  snapshot when addressing $00–$7F.
 - [x] ~~read_line: cc65 -O ternary miscompilation~~ — eliminated:
   repl.s is pure asm (Phase 6).  (CC65 -O BUG #1)
 - [x] ~~cmd_step: cc65 -O uint8_t return zero-extension bug~~ —
