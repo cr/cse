@@ -33,8 +33,7 @@ cse/
 │   ├── mn_config.s         │ (regenerate: make tables)
 │   ├── mn_asm_tables.s     │
 │   └── dasm_tables.s       ┘
-│   ├── cse.h               Shared C definitions (main.c only)
-│   └── c64_cse.cfg         Custom ld65 linker config (expanded ZP)
+│   └── c64_cse.cfg         ld65 linker config
 │
 ├── dev/                    Development tools
 │   ├── instruction_set.py  Authoritative opcode database

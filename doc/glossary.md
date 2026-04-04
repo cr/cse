@@ -90,5 +90,6 @@ and documentation.
 | **KERNAL** | C64 ROM routines ($E000–$FFFF).  CSE uses KERNAL for keyboard, disk I/O, and cursor sync. |
 | **NMI** | Non-maskable interrupt.  RUN/STOP+RESTORE triggers NMI; CSE intercepts it for mode switching. |
 | **al_cpu** | CPU mode selector: 0=6502 (legal only), 1=6510 (+illegal), 2=65C02 (+CMOS). |
-| **cc65** | C compiler for 6502.  CSE's C modules are compiled with cc65; assembly uses ca65. |
+| **ca65** | 6502 assembler (part of the cc65 toolchain).  All CSE source is pure assembly. |
+| **ld65** | 6502 linker (part of the cc65 toolchain).  Links .o files into the final PRG binary. |
 | **py65** | Python 6502 emulator used by the test suite to execute assembled test binaries. |

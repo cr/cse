@@ -31,7 +31,6 @@
 
 | Tool | Role |
 |------|------|
-| `cc65` | C compiler — compiles `main.c` to `.s` |
 | `ca65` | Assembler — assembles all `.s` files to `.o` |
 | `ld65` | Linker — links `.o` files into final binary; generates `.map` |
 | `make` | Build orchestration |

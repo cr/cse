@@ -225,7 +225,7 @@ KERNAL banking.  The same approach as `jsr_addr` in asm_bridge.s.
 
 | Component | Size | Location | Notes |
 |-----------|------|----------|-------|
-| ZP $02–$5E | 93 B | `_zp_save_buf` (BSS) | cc65 runtime: sp, sreg, regsave, ptr1–4, tmp1–4, regbank |
+| ZP $02–$5A | 89 B | `_zp_save_buf` (BSS) | All CSE ZP: sp, ptr1–2, tmp1–2, assembler, editor, etc. |
 | Registers (A,X,Y,P) | 5 B | `_reg_a..p` (BSS) | existing, from asm_bridge |
 | PC | 2 B | `_brk_pc` (BSS) | |
 

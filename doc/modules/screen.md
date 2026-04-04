@@ -7,7 +7,6 @@
 | File | Role |
 |------|------|
 | [`src/screen.s`](../../src/screen.s) | implementation |
-| [`src/screen.h`](../../src/screen.h) | header |
 
 ## Interface
 

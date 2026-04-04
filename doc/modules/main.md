@@ -6,8 +6,7 @@
 
 | File | Role |
 |------|------|
-| [`src/main.c`](../../src/main.c) | implementation |
-| [`src/cse.h`](../../src/cse.h) | header — shared project-wide declarations |
+| [`src/main.s`](../../src/main.s) | implementation (6502 assembly) |
 
 ## Interface
 

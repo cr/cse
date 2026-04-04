@@ -31,11 +31,10 @@ memory usage so the user knows where their work area is. Some of the
 addresses involved here are static, some dynamic. The dynamic ones
 must be tracked at runtime.
 
-cc65's linker defines segment boundaries as assembly-level address
-symbols (`__MAIN_START__`, `__BSS_RUN__`, `__BSS_SIZE__`).  C code
-can't reference these directly.  meminfo.s stores the computed values
-in RODATA and provides three accessor functions.  `_cse_zp_end`
-uses `__ZP_LAST__` to report the first free zero-page byte.
+The ld65 linker defines segment boundaries as assembly-level symbols
+(`__MAIN_START__`, `__BSS_RUN__`, `__BSS_SIZE__`).  meminfo.s stores
+the computed values in RODATA and provides three accessor functions.
+`_cse_zp_end` uses `__ZP_LAST__` to report the first free ZP byte.
 
 Used by asm_src.s to place the symbol table heap above BSS, and by
 repl.s's `i` command to show the memory map.  The editor also displays

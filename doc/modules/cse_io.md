@@ -7,13 +7,12 @@
 | File | Role |
 |------|------|
 | [`src/cse_io.s`](../../src/cse_io.s) | implementation |
-| [`src/cse_io.h`](../../src/cse_io.h) | header |
 | [`tests/test_cse_io.py`](../../tests/test_cse_io.py) | test contract |
 
 ## Interface
 
 cse_io.s provides screen output, keyboard input, and cursor management
-for CSE.  It replaces cc65's conio.h.  All output goes to screen RAM
+for CSE.  All output goes to screen RAM
 at $0400.  Cursor position uses KERNAL locations $D3 (column) and
 $D6 (row).
 
@@ -173,28 +172,13 @@ io_putdec, io_clear_eol) do NOT use $D1/$D2.  They compute the
 screen address directly from scr_lo/scr_hi[io_cy].  io_sync exists
 for the KERNAL's benefit (cursor blink, screen editor state).
 
-### C Interface (cse_io.h)
+### Cursor Position
 
-```c
-#define io_cx  (*(volatile uint8_t *)0xD3)
-#define io_cy  (*(volatile uint8_t *)0xD6)
-extern uint8_t io_color;
+Cursor position is read/written directly via KERNAL ZP:
+- `$D3` (CUR_COL) — column 0–39
+- `$D6` (CUR_ROW) — row 0–24
 
-void __fastcall__ io_putc(uint8_t ch);
-void __fastcall__ io_puts(const char *s);
-void __fastcall__ io_puthex4(uint16_t v);
-void __fastcall__ io_puthex2(uint8_t v);
-void __fastcall__ io_putdec(uint16_t v);
-void io_clear_eol(void);
-uint8_t io_getc(void);
-uint8_t io_kbhit(void);
-void io_sync(void);
-
-#define io_cursor_on()     (*(uint8_t *)0xCC = 0)
-#define io_cursor_off()    (*(uint8_t *)0xCC = 1)
-#define io_bordercolor(c)  (*(uint8_t *)0xD020 = (c))
-#define io_bgcolor(c)      (*(uint8_t *)0xD021 = (c))
-```
+Call `io_sync` after changing CUR_ROW to update line pointers.
 
 **Depends on:** KERNAL (GETIN $FFE4, PLOT $FFF0)
 
@@ -259,5 +243,3 @@ CSE keeps $CC=1 at all times and manages the cursor via cursor_show/hide.
 - Fill screen RAM and color RAM at startup (`memset`).
 - Use `SEI`/`CLI` around screen RAM memmove in `scroll_up` (cosmetic).
 - Manage cursor visibility via `cursor_show()`/`cursor_hide()`.
-- The `io_cursor_on`, `io_cursor_off`, `io_bordercolor`, and
-  `io_bgcolor` macros in `cse_io.h` are currently unused (see TODO).

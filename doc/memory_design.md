@@ -8,17 +8,17 @@
    model: "my program lives at $1000 and up." CSE lives high.
 
 2. **ROM-ready architecture.** All code and rodata must be separable
-   from mutable state. No self-modifying code. Minimal BSS/DATA.
-   Use `const` (cc65 `RODATA` segment) wherever possible. The same
-   source must build as both PRG (RAM at $8000) and CRT (ROM at $8000).
+   from mutable state.  No self-modifying code.  Constants in RODATA,
+   runtime state in BSS (DATA segment is empty).  The same source
+   must build as both PRG (RAM at $8000) and CRT (ROM at $8000).
 
 3. **Mutable state is small and relocatable.** CSE's runtime variables,
-   C stack, screen buffers — all grouped into one region that can move
+   parameter stack, screen buffers — all grouped into one region that can move
    between configurations (PRG vs CRT, different RAM layouts).
 
 4. **One screen, memcpy save/restore.** Both REPL and editor use the
    same screen RAM at $0400. On mode switch, the REPL screen content
-   (1000 bytes) is saved to / restored from a buffer in CSE's BSS.
+   (1000 bytes) is saved to / restored from banked RAM under KERNAL.
    Cost: 1000 bytes BSS, ~1ms per switch. The editor view is always
    reconstructable from the source buffer; the REPL screen is not
    (it contains command history and output), hence only the REPL
@@ -35,16 +35,15 @@ development. Future production builds relocate to $8000.
 
     $0000-$00FF  Zero page (see § Zero Page Layout below)
       $00-$01    CPU I/O port
-      $02-$52    CSE modules (81 bytes)
-      $46-$5F    cc65 runtime (26 bytes: sp, sreg, regsave, ptr1-4, tmp1-3)
-      $60-$7F    Free (32 bytes, available for user programs)
+      $02-$5A    CSE modules (89 bytes)
+      $5B-$7F    Free (37 bytes, available for user programs)
       $80-$FF    KERNAL
     $0100-$01FF  6502 hardware stack
     $0200-$03FF  KERNAL/BASIC work area
     $0400-$07E7  Screen RAM (VIC bank 0, default)
     $07E8-$07FF  Sprite pointers (unused by CSE)
     $0800-$0FFF  CSE code (current PRG load point)
-      ...        (code + rodata + data + bss, ~14KB)
+      ...        (code + rodata + bss, ~20KB)
     $????-$CFFF  Free (developer + source, see future layout)
     $D000-$DFFF  I/O (VIC/SID/CIA)
     $E000-$E0FF  KERNAL RAM (free, 256 B)
@@ -97,7 +96,7 @@ See [symtab.md](modules/symtab.md) for details.
     $0400-$07E7  Screen RAM (shared REPL / editor, VIC bank 0)
     $0800-$7FFF  Developer's program ↑ / source ↓  (30KB)
     $8000-$BFFF  CSE cartridge ROM (code + rodata, 16KB)
-    $C000-$CFFF  CSE mutable state (BSS + DATA + C stack)
+    $C000-$CFFF  CSE mutable state (BSS + parameter stack)
     $D000-$DFFF  I/O
     $E000-$E0FF  KERNAL RAM (free, 256 B)
     $E100-$E1FF  KERNAL RAM: CSE stack snapshot (256 B, debugger)
@@ -165,39 +164,26 @@ see [build_system.md](build_system.md).
 Authoritative ZP allocation.  Module docs reference this table.
 Addresses are assigned by the linker from $02 upward.
 
-### CSE modules ($02–$52)
+### CSE modules ($02–$5A)
+
+Addresses assigned by the linker from $02 upward.  Exact layout
+depends on link order; the table below reflects the 6510 build.
 
 | Range | Size | Module | Variables |
 |-------|------|--------|-----------|
-| $02–$04 | 3 | asm_bridge | `_ab_saved_sp` (1), `_jsr_vec` (2) |
-| $05–$1C | 24 | asm_vars | `al_pc` (2), `al_out` (2), `al_cpu` (1), `al_len` (1), `al_slot` (1), `al_prof` (1), `al_pidx` (1), `al_base` (1), `al_bit` (1), `al_mode` (1), `_al_tmp` (1), `_al_tmp2` (1), `sym_name` (2), `sym_val` (2), `sym_wide` (1), `expr_ptr` (2), `expr_val` (2), `expr_wide` (1) |
-| $1D–$1F | 3 | asm_src | `_as_ptr` (2), `_as_wsize` (1) |
-| $20–$22 | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
-| $23 | 1 | mn7 | `mn7_h_tmp` (1) |
-| $24–$28 | 5 | au_mode | `au_ptr` (2), `au_opr` (2), `_au_tmp` (1) |
-| $29 | 1 | parse_hex | `_ph_tmp` (1) |
-| $2A | 1 | opcode_lookup | `_ok_tmp` (1) |
-| $2B–$2E | 4 | cse_io | `_io_tmp` (2), `_io_scr` (2) |
-| $2F–$32 | 4 | expr | `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1) |
-| $33–$3D | 11 | symtab | `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_count` (1), `_st_heap` (2), `_st_heap_base` (2) |
-| $3D–$44 | 8 | dasm | `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) |
-| $45–$52 | 14 | editor | `gap_lo` (2), `gap_hi` (2), `buf_base` (2), `ed_top_ptr` (2), `read_ptr`/`save_ptr` (2, overlapped), `ed_tmp` (2), `ed_scr` (2) |
-
-### cc65 runtime ($53–$6C)
-
-| Range | Size | Variable |
-|-------|------|----------|
-| $53–$54 | 2 | `sp` — C software stack pointer |
-| $55–$56 | 2 | `sreg` — secondary register |
-| $57–$5A | 4 | `regsave` — register save area |
-| $5B–$5C | 2 | `ptr1` |
-| $5D–$5E | 2 | `ptr2` |
-| $5F–$60 | 2 | `ptr3` |
-| $61–$62 | 2 | `ptr4` |
-| $63 | 1 | `tmp1` |
-| $64 | 1 | `tmp2` |
-| $65 | 1 | `tmp3` |
-| $66–$6C | 7 | (unused cc65 slots) |
+| $02–$09 | 8 | main | `sp` (2), `ptr1` (2), `ptr2` (2), `tmp1` (1), `tmp2` (1) |
+| $0A–$0C | 3 | asm_bridge | `_ab_saved_sp` (1), `_jsr_vec` (2) |
+| $0D–$24 | 24 | asm_vars | `al_pc` (2), `al_out` (2), `al_cpu` (1), `al_len` (1), `al_slot` (1), `al_prof` (1), `al_pidx` (1), `al_base` (1), `al_bit` (1), `al_mode` (1), `_al_tmp` (1), `_al_tmp2` (1), `sym_name` (2), `sym_val` (2), `sym_wide` (1), `expr_ptr` (2), `expr_val` (2), `expr_wide` (1) |
+| $25–$27 | 3 | asm_src | `_as_ptr` (2), `_as_wsize` (1) |
+| $28–$2A | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
+| $2B | 1 | mn7 | `mn7_h_tmp` (1) |
+| $2C–$30 | 5 | au_mode | `au_ptr` (2), `au_opr` (2), `_au_tmp` (1) |
+| $31 | 1 | opcode_lookup | `_ok_tmp` (1) |
+| $32–$35 | 4 | cse_io | `_io_tmp` (2), `_io_scr` (2) |
+| $36–$39 | 4 | expr | `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1) |
+| $3A–$44 | 11 | symtab | `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_count` (1), `_st_heap` (2), `_st_heap_base` (2) |
+| $45–$4C | 8 | dasm | `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) |
+| $4D–$5A | 14 | editor | `gap_lo` (2), `gap_hi` (2), `buf_base` (2), `ed_top_ptr` (2), `read_ptr`/`save_ptr` (2, overlapped), `ed_tmp` (2), `ed_scr` (2) |
 
 ### Fixed locations (not in ZEROPAGE segment)
 

@@ -12,7 +12,7 @@
 ## Interface
 
 All public functions use `__fastcall__` convention (single arg in
-A or A/X; multi-arg via C stack with `pushax`).
+A or A/X; multi-arg via parameter stack with `pushax`).
 
 - `enter_editor()` — save REPL screen, switch to editor mode
 - `leave_editor()` — restore REPL screen, return to REPL
@@ -78,7 +78,7 @@ Total: 14 ZP bytes.
 
 ### Internal functions
 
-Internal functions use register/ZP arguments directly — no C stack.
+Internal functions use register/ZP arguments directly — no parameter stack.
 
 | Function | Args | Returns | Notes |
 |----------|------|---------|-------|

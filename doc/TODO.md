@@ -25,14 +25,8 @@
 
 Small, concrete, ready to do now.
 
-- [x] ~~Remove unused cse_io.h macros~~ — done: io_cursor_on/off,
-  io_bordercolor, io_bgcolor deleted.
-- [x] ~~Remove sym_top/sym_bot from repl.c~~ — done: always NULL,
-  dead branches in cmd_info removed.
-- [x] ~~Merge print_string wrapper in screen.s~~ — done: disk.s
-  calls io_puts directly, wrapper removed.
 - [ ] DDD audit module docs against code: asm_line, au_mode,
-  opcode_lookup, mn_classify, mn7, editor, main, meminfo.
+  opcode_lookup, mn_classify, mn7, main, meminfo.
 
 ## Planned
 
@@ -102,17 +96,21 @@ Defined scope, needs work.
   line assembler from VICII to PETSCII encoding.  Saves ~400 bytes
   code + 80 bytes BSS.  Requires mn_classify char conversion and
   expr error code mapping.  Touches 5 files.
-- [ ] Redesign .s function interfaces to use ZP/register args instead
-  of C stack.  Eliminates cse_popax shim.  Targets: disk.s, expr.s,
-  asm_bridge.s.
+- [ ] Redesign function interfaces to use ZP/register args instead
+  of parameter stack.  Eliminates pushax/cse_popax overhead.
+  Targets: disk.s (7 sites), editor.s (3), asm_src.s (3),
+  asm_bridge.s (2).
 - [ ] ZP optimization: overlap scratch for non-concurrent modules.
   ~14 bytes reclaimable from cold scratch, ~8 bytes overlappable
   (dasm vs asm_line).  See [project.md § ZP is precious](project.md#1-zp-is-precious--use-the-stack-for-scratch).
 ### Size Optimization
 
-- [x] ~~Port C to asm: see Roadmap R6.~~ — done: repl.c (Phase 6)
-  and editor.c (Phase 7) ported to assembly.  main.c (~244 lines)
-  remains as the only C file.
+- [x] ~~Port C to asm: see Roadmap R6.~~ — done: repl.c (Phase 6),
+  editor.c (Phase 7), and main.c (Phase 8) all ported to assembly.
+  Zero C files remain.  cc65 C compiler eliminated from toolchain.
+- [x] ~~Segment cleanup~~ — done: DATA segment eliminated (all
+  runtime state in BSS), variables moved to owning modules,
+  theme colors moved to RODATA.
 
 ## Roadmap
 
@@ -120,10 +118,10 @@ Long-term milestones in dependency order.
 
 ### R1 — Compile-time CPU gating (done)
 
-All CPU-specific code gated with `#ifdef`/`.ifdef`/`.ifndef` instead
-of runtime checks.  A 6502 build does not contain 65C02 or 6510
+All CPU-specific code gated with `.ifdef`/`.ifndef` instead of
+runtime checks.  A 6502 build does not contain 65C02 or 6510
 decode paths.  Guards: `.ifdef CMOS_SUPPORT` (65C02 paths),
-`.ifndef CPU_6502` (6510 illegal paths), `#ifdef CMOS_SUPPORT` (C).
+`.ifndef CPU_6502` (6510 illegal paths).
 Files: asm_line.s, dasm.s (15 sites + 3 RODATA tables), repl.s.
 See [project.md § principle 4](project.md#4-cpu-specific-code-must-be-compile-time-gated).
 
@@ -177,10 +175,12 @@ switching for >16KB.
 
 ### R6 — Port C to asm (done)
 
-`repl.c` (Phase 6) and `editor.c` (Phase 7) ported to assembly.
-Eliminated cc65 runtime overhead and two known cc65 -O bugs.
-Binary size: 6510=21811B (was 28345 pre-R6, 24091 post-Phase 6).
-Total savings: 6534B (23%).  `main.c` (~244 lines) remains.
+All C ported to assembly: repl.c (Phase 6), editor.c (Phase 7),
+main.c (Phase 8).  Zero C files remain.  cc65 C compiler dropped;
+toolchain is ca65 + ld65 only.  c64.lib eliminated.
+Eliminated cc65 runtime overhead (~559B) and two cc65 -O bugs.
+Binary size: 6510=20838B (was 28345 pre-R6).
+Total savings: 7507B (26.5%).
 
 ## Ideas
 
