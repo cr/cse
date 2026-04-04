@@ -11,18 +11,18 @@
 
         .setcpu         "6502"
 
-        .export         _asm_assemble
-        .export         _define_ws_syms
-        .export         _asm_org, _asm_size, _asm_errors
+        .export         asm_assemble
+        .export         define_ws_syms
+        .export         asm_org, asm_size, asm_errors
 
-        .import         _asm_line               ; asm_bridge.s
-        .import         _expr_eval              ; expr.s
-        .import         _sym_define             ; symtab.s
-        .import         _sym_clear, _sym_set_heap
-        .import         _io_puts, _io_putdec, _newline
-        .import         _cse_end                ; meminfo.s
-        .import         _ed_read_line           ; editor.s
-        .import         _ed_read_rewind
+        .import         asm_line               ; asm_bridge.s
+        .import         expr_eval              ; expr.s
+        .import         sym_define             ; symtab.s
+        .import         sym_clear, sym_set_heap
+        .import         io_puts, io_putdec, newline
+        .import         cse_end                ; meminfo.s
+        .import         ed_read_line           ; editor.s
+        .import         ed_read_rewind
         .importzp       buf_base                ; editor.s — gap buffer low bound
         .import         pushax                  ; push A/X onto parameter stack
 
@@ -36,11 +36,11 @@
 _as_ptr:        .res 2          ; active parse pointer
 _as_wsize:      .res 1          ; word size or general byte scratch
 
-; ── BSS (all reset by _asm_assemble before each run) ─────────────────────
+; ── BSS (all reset by asm_assemble before each run) ─────────────────────
 .segment "BSS"
-_asm_org:       .res 2          ; assembly origin address
-_asm_size:      .res 2          ; total bytes emitted
-_asm_errors:    .res 2          ; error count (pass 1 only)
+asm_org:       .res 2          ; assembly origin address
+asm_size:      .res 2          ; total bytes emitted
+asm_errors:    .res 2          ; error count (pass 1 only)
 _asm_pass:      .res 1          ; 0 = pass 0, 1 = pass 1
 _line_num:      .res 2
 _line_buf:      .res 80
@@ -89,23 +89,23 @@ s_workend:      .byte "workend", 0
         beq @skip
         txa
         pha                     ; save msg hi
-        inc _asm_errors
+        inc asm_errors
         bne :+
-        inc _asm_errors+1
+        inc asm_errors+1
 :       lda #<s_err_pfx
         ldx #>s_err_pfx
-        jsr _io_puts
+        jsr io_puts
         lda _line_num
         ldx _line_num+1
-        jsr _io_putdec
+        jsr io_putdec
         lda #<s_err_sep
         ldx #>s_err_sep
-        jsr _io_puts
+        jsr io_puts
         pla
         tax                     ; msg hi
         pla                     ; msg lo
-        jsr _io_puts
-        jmp _newline            ; tail call
+        jsr io_puts
+        jmp newline            ; tail call
 @skip:  pla                     ; discard saved msg lo
         rts
 .endproc
@@ -171,15 +171,15 @@ s_workend:      .byte "workend", 0
 .endproc
 
 ; ── adv_pc_size ────────────────────────────────────────────────────────────
-; al_pc += _as_wsize;  _asm_size += _as_wsize
-; inc_pc_size: increment al_pc and _asm_size by 1
+; al_pc += _as_wsize;  asm_size += _as_wsize
+; inc_pc_size: increment al_pc and asm_size by 1
 inc_pc_size:
         inc al_pc
         bne :+
         inc al_pc+1
-:       inc _asm_size
+:       inc asm_size
         bne :+
-        inc _asm_size+1
+        inc asm_size+1
 :       rts
 
 .proc adv_pc_size
@@ -189,12 +189,12 @@ inc_pc_size:
         sta al_pc
         bcc :+
         inc al_pc+1
-:       lda _asm_size
+:       lda asm_size
         clc
         adc _as_wsize
-        sta _asm_size
+        sta asm_size
         bcc :+
-        inc _asm_size+1
+        inc asm_size+1
 :       rts
 .endproc
 
@@ -249,7 +249,7 @@ inc_pc_size:
         bne @comma
         inc expr_ptr+1
         bne @comma
-@expr:  jsr _expr_eval
+@expr:  jsr expr_eval
         cmp #2
         bcc @emit
         lda #<s_bad_expr
@@ -352,7 +352,7 @@ inc_pc_size:
 ; ── emit_reserve ───────────────────────────────────────────────────────────
 ; .res count [,fill]  In: expr_ptr = operand start
 .proc emit_reserve
-        jsr _expr_eval
+        jsr expr_eval
         cmp #2
         bcc :+
         lda #<s_bad_cnt
@@ -370,7 +370,7 @@ inc_pc_size:
         inc expr_ptr
         bne :+
         inc expr_ptr+1
-:       jsr _expr_eval
+:       jsr expr_eval
         cmp #2
         bcc :+
         lda #<s_bad_fill
@@ -400,7 +400,7 @@ inc_pc_size:
 ; ── emit_align ─────────────────────────────────────────────────────────────
 ; .align boundary   In: expr_ptr = operand start
 .proc emit_align
-        jsr _expr_eval
+        jsr expr_eval
         cmp #2
         bcc :+
         lda #<s_bad_bnd
@@ -597,7 +597,7 @@ inc_pc_size:
         adc #0
         sta expr_ptr+1
         jsr skipws_ep           ; expr_ptr now at expression
-        jsr _expr_eval          ; evaluate; rc in A
+        jsr expr_eval          ; evaluate; rc in A
         sta _as_ptr             ; save rc (lo byte of _as_ptr used as scratch)
         ; Check eval result
         lda _as_ptr
@@ -620,7 +620,7 @@ inc_pc_size:
         sta sym_val+1
         lda expr_wide
         sta sym_wide
-        jsr _sym_define         ; name is still NUL-terminated here
+        jsr sym_define         ; name is still NUL-terminated here
         ; Restore displaced char
         ldy _as_wsize
         pla
@@ -674,7 +674,7 @@ inc_pc_size:
         lda #3
         jsr set_expr_off
         jsr skipws_ep
-        jsr _expr_eval
+        jsr expr_eval
         cmp #2
         bcc :+
         lda #<s_bad_org
@@ -689,9 +689,9 @@ inc_pc_size:
         lda _asm_pass
         bne @org_done
         lda expr_val
-        sta _asm_org
+        sta asm_org
         lda expr_val+1
-        sta _asm_org+1
+        sta asm_org+1
 @org_done:
         clc
         rts
@@ -786,7 +786,7 @@ inc_pc_size:
 :       sta sym_wide
         lda _asm_pass
         bne @done
-        jsr _sym_define
+        jsr sym_define
         bcc @done
         lda #<s_sym_full
         ldx #>s_sym_full
@@ -1051,7 +1051,7 @@ inc_pc_size:
         sta expr_ptr
         lda #>_expr_buf
         sta expr_ptr+1
-        jsr _expr_eval
+        jsr expr_eval
         cmp #2
         bcc @eval_ok
         ; Expression failed
@@ -1158,21 +1158,21 @@ inc_pc_size:
         ldx _ib_idx
         lda #0
         sta _insn_buf,x         ; NUL-terminate
-        ; Call _asm_line(al_pc, _insn_buf)
-        ; al_pc pushed onto C stack (first arg), _insn_buf in A/X (last arg)
+        ; Call asm_line(al_pc, _insn_buf)
+        ; al_pc pushed onto parameter stack (first arg), _insn_buf in A/X (last arg)
         lda al_pc
         ldx al_pc+1
         jsr pushax              ; push al_pc
         lda #<_insn_buf
         ldx #>_insn_buf
-        jsr _asm_line           ; A = byte count (0 = error)
+        jsr asm_line           ; A = byte count (0 = error)
         tax                     ; save count in X
         bne @insn_ok
         lda #<s_bad_insn
         ldx #>s_bad_insn
         jmp emit_error          ; tail call
 @insn_ok:
-        ; Advance al_pc and asm_size by A (byte count); A still valid from _asm_line
+        ; Advance al_pc and asm_size by A (byte count); A still valid from asm_line
         clc
         adc al_pc
         sta al_pc
@@ -1180,10 +1180,10 @@ inc_pc_size:
         inc al_pc+1
 :       txa
         clc
-        adc _asm_size
-        sta _asm_size
+        adc asm_size
+        sta asm_size
         bcc :+
-        inc _asm_size+1
+        inc asm_size+1
 :
 @done:  rts
 
@@ -1192,20 +1192,20 @@ inc_pc_size:
 ; ── do_pass ────────────────────────────────────────────────────────────────
 ; Run one assembly pass over the editor source.
 .proc do_pass
-        jsr _ed_read_rewind
+        jsr ed_read_rewind
         lda #0
         sta _line_num
         sta _line_num+1
-        lda _asm_org
+        lda asm_org
         sta al_pc
-        lda _asm_org+1
+        lda asm_org+1
         sta al_pc+1
 @loop:  ; Call ed_read_line(_line_buf, 80)
         lda #<_line_buf
         ldx #>_line_buf
         jsr pushax              ; push buf pointer (first arg)
         lda #80
-        jsr _ed_read_line       ; A=lo, X=hi of signed int return
+        jsr ed_read_line       ; A=lo, X=hi of signed int return
         ; Negative return = EOF
         txa
         bmi @done
@@ -1222,12 +1222,12 @@ inc_pc_size:
 .endproc
 
 ; ── define_ws_syms — define workstart/workend in symbol table ──────────────
-; C-callable.  Defines both symbols with current values.
+; Defines both symbols with current values.
 ;   workstart = (cse_end + $FF) & $FF00  (rounded up to page)
 ;   workend   = buf_base                 (already page-aligned)
-.proc _define_ws_syms
+.proc define_ws_syms
         ; ── workstart ──
-        jsr _cse_end            ; A = lo, X = hi
+        jsr cse_end            ; A = lo, X = hi
         clc
         adc #$FF                ; round up: add $FF
         txa
@@ -1242,7 +1242,7 @@ inc_pc_size:
         sta sym_name+1
         lda #1
         sta sym_wide            ; ABS
-        jsr _sym_define
+        jsr sym_define
 
         ; ── workend ──
         lda buf_base
@@ -1255,41 +1255,41 @@ inc_pc_size:
         sta sym_name+1
         lda #1
         sta sym_wide            ; ABS
-        jmp _sym_define         ; tail call
+        jmp sym_define         ; tail call
 .endproc
 
-; ── _asm_assemble ──────────────────────────────────────────────────────────
+; ── asm_assemble ──────────────────────────────────────────────────────────
 ; Run two-pass assembly of editor source.
 ;   Out: A/X = error count (uint16_t)
-.proc _asm_assemble
+.proc asm_assemble
         lda #0
-        sta _asm_errors
-        sta _asm_errors+1
-        sta _asm_size
-        sta _asm_size+1
+        sta asm_errors
+        sta asm_errors+1
+        sta asm_size
+        sta asm_size+1
         sta _scope_name
         ; Place symbol table heap above BSS
-        jsr _cse_end            ; A/X = heap start address
-        jsr _sym_set_heap
-        jsr _sym_clear
-        jsr _define_ws_syms     ; pre-define workstart/workend
+        jsr cse_end            ; A/X = heap start address
+        jsr sym_set_heap
+        jsr sym_clear
+        jsr define_ws_syms     ; pre-define workstart/workend
         ; Pass 0: collect labels/constants
         lda #0
         sta _asm_pass
         lda #<$0800
-        sta _asm_org
+        sta asm_org
         lda #>$0800
-        sta _asm_org+1
+        sta asm_org+1
         jsr do_pass
         ; Pass 1: emit code
         lda #1
         sta _asm_pass
         lda #0
-        sta _asm_size
-        sta _asm_size+1
+        sta asm_size
+        sta asm_size+1
         sta _scope_name
         jsr do_pass
-        lda _asm_errors
-        ldx _asm_errors+1
+        lda asm_errors
+        ldx asm_errors+1
         rts
 .endproc

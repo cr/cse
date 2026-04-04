@@ -132,32 +132,32 @@ class ReplSymbols:
         seg, mods, exp = _parse_map()
 
         # Entry points from exports
-        self.exec_line   = exp['_exec_line']
-        self.read_line   = exp['_read_line']
-        self.show_prompt = exp['_show_prompt']
+        self.exec_line   = exp['exec_line']
+        self.read_line   = exp['read_line']
+        self.show_prompt = exp['show_prompt']
 
         # BSS symbols from exports
-        self.cur_addr    = exp['_cur_addr']
-        self.cur_device  = exp['_cur_device']
-        self.cur_filename = exp['_cur_filename']
+        self.cur_addr    = exp['cur_addr']
+        self.cur_device  = exp['cur_device']
+        self.cur_filename = exp['cur_filename']
         self.line_buf    = exp['line_buf']
         self.last_cmd    = exp['last_cmd']
         self.block_size  = exp['block_size']
 
-        self.bp_table     = exp['_bp_table']
-        self.step_bp      = exp['_step_bp']
-        self.dbg_reason   = exp['_dbg_reason']
-        self.dbg_bp_hit   = exp['_dbg_bp_hit']
-        self.brk_pc       = exp['_brk_pc']
-        self.reg_a        = exp['_reg_a']
-        self.reg_x        = exp['_reg_x']
-        self.reg_y        = exp['_reg_y']
-        self.reg_sp       = exp['_reg_sp']
-        self.reg_p        = exp['_reg_p']
-        self.tab_width    = exp['_tab_width']
-        self.state        = exp['_state']
-        self.dasm_buf     = exp['_dasm_buf']
-        self.al_cpu       = exp['_al_cpu']
+        self.bp_table     = exp['bp_table']
+        self.step_bp      = exp['step_bp']
+        self.dbg_reason   = exp['dbg_reason']
+        self.dbg_bp_hit   = exp['dbg_bp_hit']
+        self.brk_pc       = exp['brk_pc']
+        self.reg_a        = exp['reg_a']
+        self.reg_x        = exp['reg_x']
+        self.reg_y        = exp['reg_y']
+        self.reg_sp       = exp['reg_sp']
+        self.reg_p        = exp['reg_p']
+        self.tab_width    = exp['tab_width']
+        self.state        = exp['state']
+        self.dasm_buf     = exp['dasm_buf']
+        self.al_cpu       = exp['al_cpu']
 
         # Stub addresses — computed from module offsets
         # kplot_stub is at a known offset within the stub's CODE section.

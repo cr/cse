@@ -5,7 +5,7 @@
         .export test_define, test_lookup, test_clear
         .exportzp sym_name, sym_val, sym_wide
 
-        .import _sym_define, _sym_lookup, _sym_clear, _sym_set_heap
+        .import sym_define, sym_lookup, sym_clear, sym_set_heap
 
 ; Heap area for name storage (placed above BSS by the linker)
 HEAP_ADDR = $2000           ; safe area above CODE+BSS in test binary
@@ -18,7 +18,7 @@ sym_wide:  .res 1
 .segment "CODE"
 
 test_define:
-        jsr _sym_define
+        jsr sym_define
         lda #0
         bcc :+
         lda #1
@@ -26,7 +26,7 @@ test_define:
         rts
 
 test_lookup:
-        jsr _sym_lookup
+        jsr sym_lookup
         lda #0
         bcc :+
         lda #1
@@ -37,5 +37,5 @@ test_clear:
         ; Set heap base before clearing (test init)
         lda #<HEAP_ADDR
         ldx #>HEAP_ADDR
-        jsr _sym_set_heap
-        jmp _sym_clear
+        jsr sym_set_heap
+        jmp sym_clear

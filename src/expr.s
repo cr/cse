@@ -33,10 +33,10 @@
 ;   - - (negate), ! → width from result
 ;   - +, -, &, £, ^ → wide if either operand wide OR result > $FF
 
-        .export _expr_eval
-        .export _expr_error_str
+        .export expr_eval
+        .export expr_error_str
 
-        .import _sym_lookup
+        .import sym_lookup
         .importzp sym_name, sym_val, sym_wide
 
 ; ── Return / error codes ───────────────────────────────────
@@ -94,10 +94,10 @@ _div_rem:    .res 2              ; divide: remainder
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; _expr_eval — entry point
+; expr_eval — entry point
 ;   Returns A = 0 (ZP), 1 (ABS), or 2+ (error)
 ; ═══════════════════════════════════════════════════════════
-.proc _expr_eval
+.proc expr_eval
         lda #0
         sta expr_wide            ; start narrow
         jsr skip_sp
@@ -704,7 +704,7 @@ _ex_merge_wide:
         pha
         lda #0
         sta (expr_ptr),y
-        jsr _sym_lookup
+        jsr sym_lookup
         pla
         ldy #0
         sta (expr_ptr),y
@@ -925,9 +925,9 @@ _ex_merge_wide:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; _expr_error_str — return pointer to error string
+; expr_error_str — return pointer to error string
 ; ═══════════════════════════════════════════════════════════
-.proc _expr_error_str
+.proc expr_error_str
         ldx last_err
         cpx #7                  ; 0-6 valid error codes
         bcc :+

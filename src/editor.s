@@ -5,26 +5,26 @@
 ;   Row 22     Status bar
 ;   Row 23-24  Last 2 lines preserved from REPL
 
-        .export _enter_editor, _leave_editor
-        .export _ed_handle_key
-        .export _ed_ensure_init, _ed_new
-        .export _ed_save_source, _ed_load_source
-        .export _ed_read_rewind, _ed_read_byte, _ed_read_line
-        .export _ed_insert_string
-        .export _ed_dirty, _ed_save_bytes, _ed_save_lines
-        .export _tab_width
-        .export _src_top, _src_bot
+        .export enter_editor, leave_editor
+        .export ed_handle_key
+        .export ed_ensure_init, ed_new
+        .export ed_save_source, ed_load_source
+        .export ed_read_rewind, ed_read_byte, ed_read_line
+        .export ed_insert_string
+        .export ed_dirty, ed_save_bytes, ed_save_lines
+        .export tab_width
+        .export src_top, src_bot
         .exportzp buf_base
 
-        .import _io_sync
-        .import _kernal_bank_out, _kernal_bank_in
-        .import _disk_save_seq, _disk_load_seq
-        .import _disk_seq_bytes, _disk_seq_lines
-        .import _cse_end
-        .import _cur_filename
-        .import _state
+        .import io_sync
+        .import kernal_bank_out, kernal_bank_in
+        .import disk_save_seq, disk_load_seq
+        .import disk_seq_bytes, disk_seq_lines
+        .import cse_end
+        .import cur_filename
+        .import state
         .import scr_lo, scr_hi
-        .import _sym_define
+        .import sym_define
         .import cse_popax, pushax
         .importzp sp
         .importzp sym_name, sym_val, sym_wide
@@ -78,16 +78,16 @@ ed_cur_line:    .res 2          ; cursor line (0-based)
 ed_cur_col:     .res 1          ; cursor visual column (0-based)
 ed_top_line:    .res 2          ; line number at screen row 0
 ed_total_lines: .res 2          ; total line count in buffer
-_ed_dirty:      .res 1          ; buffer modified flag
-_ed_save_bytes: .res 2          ; bytes from last file op
-_ed_save_lines: .res 2          ; lines from last file op
-_tab_width:     .res 1          ; tab stop interval (default 8)
+ed_dirty:      .res 1          ; buffer modified flag
+ed_save_bytes: .res 2          ; bytes from last file op
+ed_save_lines: .res 2          ; lines from last file op
+tab_width:     .res 1          ; tab stop interval (default 8)
 save_phase:     .res 1          ; 0=pre-gap, 1=post-gap
 repl_cur_x:     .res 1          ; saved REPL cursor X
 repl_cur_y:     .res 1          ; saved REPL cursor Y
 ws_buf:         .res 39         ; auto-indent whitespace buffer
-_src_top:       .res 2          ; buffer upper bound (for REPL i command)
-_src_bot:       .res 2          ; buffer lower bound (for REPL i command)
+src_top:       .res 2          ; buffer upper bound (for REPL i command)
+src_bot:       .res 2          ; buffer lower bound (for REPL i command)
 
 ; ── RODATA ───────────────────────────────────────────────────
 .segment "RODATA"
@@ -109,22 +109,22 @@ s_workend:      .byte "workend", 0
         sta gap_hi
         sta buf_base
         sta ed_top_ptr
-        sta _src_top
-        sta _src_bot
+        sta src_top
+        sta src_bot
         lda #>BUF_END
         sta gap_lo+1
         sta gap_hi+1
         sta buf_base+1
         sta ed_top_ptr+1
-        sta _src_top+1
-        sta _src_bot+1
+        sta src_top+1
+        sta src_bot+1
         lda #0
         sta ed_cur_line
         sta ed_cur_line+1
         sta ed_cur_col
         sta ed_top_line
         sta ed_top_line+1
-        sta _ed_dirty
+        sta ed_dirty
         sta ed_total_lines+1
         lda #1
         sta ed_total_lines
@@ -145,7 +145,7 @@ s_workend:      .byte "workend", 0
         sta sym_name+1
         lda #1
         sta sym_wide
-        jmp _sym_define         ; tail call
+        jmp sym_define         ; tail call
 .endproc
 
 ; ── gb_ensure_room — grow buffer if gap exhausted ─────────────
@@ -267,9 +267,9 @@ s_workend:      .byte "workend", 0
 
         ; Update src_bot + workend symbol
         lda buf_base
-        sta _src_bot
+        sta src_bot
         lda buf_base+1
-        sta _src_bot+1
+        sta src_bot+1
         jsr update_workend
 
 @have_room:
@@ -302,7 +302,7 @@ s_workend:      .byte "workend", 0
 :
 @not_cr:
         lda #1
-        sta _ed_dirty
+        sta ed_dirty
         rts
 @full:
         pla                     ; discard byte
@@ -336,7 +336,7 @@ s_workend:      .byte "workend", 0
 :       dec ed_total_lines
 @not_cr:
         lda #1
-        sta _ed_dirty
+        sta ed_dirty
 @done:  rts
 .endproc
 
@@ -395,32 +395,32 @@ s_workend:      .byte "workend", 0
 .endproc
 
 ; ── ed_ensure_init — allocate gap buffer if needed ────────────
-.proc _ed_ensure_init
+.proc ed_ensure_init
         lda ed_total_lines
         ora ed_total_lines+1
         bne @done
         jsr ed_init
         lda #8
-        sta _tab_width
+        sta tab_width
 @done:  rts
 .endproc
 
 ; ── ed_new — clear editor (new file) ─────────────────────────
-.proc _ed_new
+.proc ed_new
         jsr ed_init
         lda #8
-        sta _tab_width
+        sta tab_width
         lda #0
-        sta _cur_filename
+        sta cur_filename
         rts
 .endproc
 
 ; ── ed_insert_string — insert PETSCII string at cursor ────────
 ; Input: A/X = text pointer
-.proc _ed_insert_string
+.proc ed_insert_string
         sta save_ptr            ; reuse save_ptr as text pointer
         stx save_ptr+1
-        jsr _ed_ensure_init
+        jsr ed_ensure_init
 @loop:
         ldy #0
         lda (save_ptr),y
@@ -437,8 +437,8 @@ s_workend:      .byte "workend", 0
 ; ── Sequential reader — for source assembler ─────────────────
 
 ; ── ed_read_rewind — reset read pointer to start ──────────────
-.proc _ed_read_rewind
-        jsr _ed_ensure_init
+.proc ed_read_rewind
+        jsr ed_ensure_init
         lda buf_base
         sta read_ptr
         lda buf_base+1
@@ -448,7 +448,7 @@ s_workend:      .byte "workend", 0
 
 ; ── ed_read_byte — read next byte from source ─────────────────
 ; Returns: A/X = byte (X=0), or A=$FF/X=$FF at EOF
-.proc _ed_read_byte
+.proc ed_read_byte
         ; Skip gap
         lda read_ptr
         cmp gap_lo
@@ -487,9 +487,9 @@ s_workend:      .byte "workend", 0
 .endproc
 
 ; ── ed_read_line — read one line into buffer ──────────────────
-; Calling convention: maxlen in A (last param), buf on C stack (pushax)
+; Calling convention: maxlen in A (last param), buf on parameter stack (pushax)
 ; Returns: A/X = length, or A=$FF/X=$FF at EOF
-.proc _ed_read_line
+.proc ed_read_line
         sta ed_tmp+1            ; maxlen
         jsr cse_popax           ; pop buf → A/X
         sta ed_scr              ; buf lo
@@ -497,7 +497,7 @@ s_workend:      .byte "workend", 0
         lda #0
         sta ed_tmp              ; len = 0
 @loop:
-        jsr _ed_read_byte
+        jsr ed_read_byte
         cpx #$FF
         beq @eof_check          ; got EOF from read_byte
         ; Got a byte in A
@@ -545,10 +545,10 @@ s_workend:      .byte "workend", 0
 ; Output: A = vcol mod tab_width
 ; Clobbers: nothing else
 .proc col_mod_tw
-@loop:  cmp _tab_width
+@loop:  cmp tab_width
         bcc @done
         sec
-        sbc _tab_width
+        sbc tab_width
         jmp @loop
 @done:  rts
 .endproc
@@ -560,12 +560,12 @@ s_workend:      .byte "workend", 0
         cmp #$A0
         bne @one
         ; Tab: width = tab_width - (vcol mod tab_width)
-        ldy _tab_width
+        ldy tab_width
         beq @one                ; tab_width=0 → width=1
         txa                     ; vcol
         jsr col_mod_tw          ; A = vcol mod tw
         sta ed_tmp              ; save remainder
-        lda _tab_width
+        lda tab_width
         sec
         sbc ed_tmp              ; tab_width - remainder
         rts
@@ -686,12 +686,12 @@ s_workend:      .byte "workend", 0
 @tab:
         ; Expand tab: fill spaces up to next tab_width boundary
         ; width = tab_width > 0 ? (tab_width - col_mod_tw(col)) : 1
-        lda _tab_width
+        lda tab_width
         beq @tab_one            ; tab_width=0 → single space
         tya                     ; col
         jsr col_mod_tw          ; A = col mod tw
         sta @tw_save
-        lda _tab_width
+        lda tab_width
         sec
         sbc @tw_save            ; width = tw - (col mod tw)
         tax                     ; X = width counter
@@ -1062,7 +1062,7 @@ s_workend:      .byte "workend", 0
         sta ed_scr
         lda scr_hi,x
         sta ed_scr+1
-        lda _ed_dirty
+        lda ed_dirty
         beq @clean
         lda #($2A | $80)        ; '*' reversed
         jmp @store
@@ -1110,7 +1110,7 @@ s_workend:      .byte "workend", 0
         bpl @fill
 
         ; Dirty flag (col 0)
-        lda _ed_dirty
+        lda ed_dirty
         beq @clean
         lda #($2A | $80)        ; '*' reversed
         jmp @dirty_done
@@ -1120,11 +1120,11 @@ s_workend:      .byte "workend", 0
         sta (ed_scr),y
 
         ; Filename (cols 1-17)
-        lda _cur_filename
+        lda cur_filename
         beq @no_name
         ; Find length of cur_filename
         ldy #0
-@flen:  lda _cur_filename,y
+@flen:  lda cur_filename,y
         beq @flen_done
         iny
         cpy #FILENAME_MAX_LEN
@@ -1136,7 +1136,7 @@ s_workend:      .byte "workend", 0
         bcc @fn_copy
         dey
         dey
-        lda _cur_filename,y
+        lda cur_filename,y
         cmp #','
         bne @fn_copy
         sty @fn_len             ; stripped 2 chars
@@ -1149,7 +1149,7 @@ s_workend:      .byte "workend", 0
         bcs @no_name
         cpx #18
         bcs @no_name
-        lda _cur_filename,y
+        lda cur_filename,y
         ; PETSCII→screencode for filename
         cmp #$41
         bcc @fn_noconv
@@ -1197,7 +1197,7 @@ s_workend:      .byte "workend", 0
         pha
         lda ed_scr+1
         pha
-        jsr _cse_end            ; A/X = cse_end
+        jsr cse_end            ; A/X = cse_end
         sta ed_tmp
         stx ed_tmp+1
         pla
@@ -1803,10 +1803,10 @@ s_workend:      .byte "workend", 0
 
 ; ── ed_mark_edited — set dirty flag, update status ────────────
 .proc ed_mark_edited
-        lda _ed_dirty
+        lda ed_dirty
         bne @already
         lda #1
-        sta _ed_dirty
+        sta ed_dirty
         jsr ed_status_dirty
 @already:
         jsr ed_status_free
@@ -1815,7 +1815,7 @@ s_workend:      .byte "workend", 0
 
 ; ── ed_handle_key — main keystroke dispatcher ─────────────────
 ; Input: A = PETSCII key code
-.proc _ed_handle_key
+.proc ed_handle_key
         ; Save key
         sta @key
 
@@ -1980,7 +1980,7 @@ s_workend:      .byte "workend", 0
         bne @not_enter
         ; Auto-indent: copy leading whitespace
         ldy #0                  ; ws_n = 0
-        lda _tab_width
+        lda tab_width
         beq @enter_no_indent
         jsr copy_leading_ws     ; Y = ws_n
 @enter_no_indent:
@@ -2048,7 +2048,7 @@ s_workend:      .byte "workend", 0
         ; ── TAB ($A0) with tab_width > 0 ──────────
         cmp #$A0
         bne @not_tab
-        lda _tab_width
+        lda tab_width
         beq @not_tab            ; tab_width=0 → treat as printable
         ; Compute new_vcol = ed_cur_col + char_width($A0, ed_cur_col)
         lda #$A0
@@ -2124,7 +2124,7 @@ s_workend:      .byte "workend", 0
         sta CUR_ROW             ; io_cy
         lda ed_cur_col
         sta CUR_COL             ; io_cx
-        jsr _io_sync
+        jsr io_sync
 @repos_done:
         rts
 
@@ -2159,7 +2159,7 @@ s_workend:      .byte "workend", 0
 .endproc
 
 ; ── enter_editor — switch from REPL to editor ─────────────────
-.proc _enter_editor
+.proc enter_editor
         ; Save REPL cursor position
         lda CUR_COL
         sta repl_cur_x
@@ -2167,7 +2167,7 @@ s_workend:      .byte "workend", 0
         sta repl_cur_y
 
         ; Save REPL screen RAM to banked RAM ($F818)
-        jsr _kernal_bank_out
+        jsr kernal_bank_out
         ; Copy 1000 bytes: SCREEN → REPL_SCREEN
         lda #<SCREEN
         sta save_ptr
@@ -2178,10 +2178,10 @@ s_workend:      .byte "workend", 0
         lda #>REPL_SCREEN
         sta ed_scr+1
         jsr copy_1000
-        jsr _kernal_bank_in
+        jsr kernal_bank_in
 
         ; Init gap buffer if needed
-        jsr _ed_ensure_init
+        jsr ed_ensure_init
 
         ; Clear editor area (rows 0-21) with spaces
         lda #<SCREEN
@@ -2243,13 +2243,13 @@ s_workend:      .byte "workend", 0
         sta ed_scr+1
 
         ; Copy 80 bytes (2 rows)
-        jsr _kernal_bank_out
+        jsr kernal_bank_out
         ldy #79
 @ctx:   lda (save_ptr),y
         sta (ed_scr),y
         dey
         bpl @ctx
-        jsr _kernal_bank_in
+        jsr kernal_bank_in
 
         ; Full render
         jsr ed_render
@@ -2261,17 +2261,17 @@ s_workend:      .byte "workend", 0
         sec
         sbc ed_top_line
         sta CUR_ROW
-        jsr _io_sync
+        jsr io_sync
 
         lda #ST_EDIT
-        sta _state
+        sta state
         rts
 .endproc
 
 ; ── leave_editor — switch from editor to REPL ─────────────────
-.proc _leave_editor
+.proc leave_editor
         ; Restore REPL screen from banked RAM
-        jsr _kernal_bank_out
+        jsr kernal_bank_out
         lda #<REPL_SCREEN
         sta save_ptr
         lda #>REPL_SCREEN
@@ -2281,17 +2281,17 @@ s_workend:      .byte "workend", 0
         lda #>SCREEN
         sta ed_scr+1
         jsr copy_1000
-        jsr _kernal_bank_in
+        jsr kernal_bank_in
 
         ; Restore REPL cursor position
         lda repl_cur_x
         sta CUR_COL
         lda repl_cur_y
         sta CUR_ROW
-        jsr _io_sync
+        jsr io_sync
 
         lda #ST_REPL
-        sta _state
+        sta state
         rts
 .endproc
 
@@ -2340,12 +2340,12 @@ s_workend:      .byte "workend", 0
 ; ── ed_save_source — save source as SEQ file ──────────────────
 ; Input: A/X = name pointer
 ; Returns: A = 0 on success, nonzero on error
-.proc _ed_save_source
+.proc ed_save_source
         ; Push name for disk_save_seq
         jsr pushax
 
         ; Ensure init
-        jsr _ed_ensure_init
+        jsr ed_ensure_init
 
         ; Setup save state
         lda buf_base
@@ -2356,23 +2356,23 @@ s_workend:      .byte "workend", 0
         sta save_phase
 
         ; Call disk_save_seq(name, save_read_fn)
-        ; name is on C stack, read_fn in A/X
+        ; name is on parameter stack, read_fn in A/X
         lda #<save_read_fn
         ldx #>save_read_fn
-        jsr _disk_save_seq      ; A = error (lda sets Z)
+        jsr disk_save_seq      ; A = error (lda sets Z)
         bne @err
 
         ; Success
         lda #0
-        sta _ed_dirty
-        lda _disk_seq_bytes
-        sta _ed_save_bytes
-        lda _disk_seq_bytes+1
-        sta _ed_save_bytes+1
-        lda _disk_seq_lines
-        sta _ed_save_lines
-        lda _disk_seq_lines+1
-        sta _ed_save_lines+1
+        sta ed_dirty
+        lda disk_seq_bytes
+        sta ed_save_bytes
+        lda disk_seq_bytes+1
+        sta ed_save_bytes+1
+        lda disk_seq_lines
+        sta ed_save_lines
+        lda disk_seq_lines+1
+        sta ed_save_lines+1
         lda #0
         tax
         rts
@@ -2385,7 +2385,7 @@ s_workend:      .byte "workend", 0
 ; ── ed_load_source — load SEQ file into buffer ────────────────
 ; Input: A/X = name pointer
 ; Returns: A = 0 on success, nonzero on error
-.proc _ed_load_source
+.proc ed_load_source
         ; Push name for disk_load_seq
         jsr pushax
 
@@ -2396,14 +2396,14 @@ s_workend:      .byte "workend", 0
         ; gb_insert takes A = byte — matches callback convention
         lda #<gb_insert
         ldx #>gb_insert
-        jsr _disk_load_seq      ; A = error
+        jsr disk_load_seq      ; A = error
         pha                     ; save error
 
         ; Check for error or empty file
         pla
         bne @fail
-        lda _disk_seq_bytes
-        ora _disk_seq_bytes+1
+        lda disk_seq_bytes
+        ora disk_seq_bytes+1
         beq @empty              ; 0 bytes → empty/fail
 
         ; Move cursor to start of buffer
@@ -2425,20 +2425,20 @@ s_workend:      .byte "workend", 0
         sta ed_cur_col
         sta ed_top_line
         sta ed_top_line+1
-        sta _ed_dirty
+        sta ed_dirty
         lda buf_base
         sta ed_top_ptr
         lda buf_base+1
         sta ed_top_ptr+1
 
-        lda _disk_seq_bytes
-        sta _ed_save_bytes
-        lda _disk_seq_bytes+1
-        sta _ed_save_bytes+1
-        lda _disk_seq_lines
-        sta _ed_save_lines
-        lda _disk_seq_lines+1
-        sta _ed_save_lines+1
+        lda disk_seq_bytes
+        sta ed_save_bytes
+        lda disk_seq_bytes+1
+        sta ed_save_bytes+1
+        lda disk_seq_lines
+        sta ed_save_lines
+        lda disk_seq_lines+1
+        sta ed_save_lines+1
 
         lda #0
         tax

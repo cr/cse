@@ -1,6 +1,6 @@
 ; cse_io.s — Ultra-lean screen I/O library for CSE
 ;
-; Replaces cc65 conio.h entirely.  All functions __fastcall__.
+; Screen I/O functions.  Single arg in A or A/X.
 ; Cursor position uses KERNAL's $D3 (column) and $D6 (row).
 ; Call io_sync after changing $D6 to update screen line pointers.
 ;
@@ -9,21 +9,21 @@
 ;
 ; Code: ~330 bytes.  RODATA: 76 bytes.  ZP: 4 bytes.  BSS: 2 bytes.
 
-        .export _io_init
-        .export _io_putc, _io_puts
-        .export _io_puthex4, _io_puthex2, _io_putdec
-        .export _io_clear_eol
-        .export _io_getc, _io_kbhit
-        .export _io_sync
-        .export _io_color
+        .export io_init
+        .export io_putc, io_puts
+        .export io_puthex4, io_puthex2, io_putdec
+        .export io_clear_eol
+        .export io_getc, io_kbhit
+        .export io_sync
+        .export io_color
         .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
 
         ; Parameter stack helpers
         .export cse_popax
 
         ; NMI handler — pure asm, no C prologue.
-        .export _nmi_handler
-        .export _nmi_pending
+        .export nmi_handler
+        .export nmi_pending
 
 COLS    = 40
 ROWS    = 25
@@ -42,9 +42,9 @@ _io_scr:  .res 2        ; screen row pointer for io_putc
 
 ; ── BSS ─────────────────────────────────────────────────────
 .segment "BSS"
-_io_color: .res 1       ; text color for screen clears
+io_color: .res 1       ; text color for screen clears
 dec_start_col: .res 1   ; io_putdec: saved start column (ROM-safe)
-_nmi_pending: .res 1    ; NMI flag — set by nmi_handler, read by main loop
+nmi_pending: .res 1    ; NMI flag — set by nmi_handler, read by main loop
 
 ; ── RODATA ──────────────────────────────────────────────────
 .segment "RODATA"
@@ -71,14 +71,13 @@ dec_hi:                 ; powers of 10, hi bytes
 .segment "CODE"
 
 ; ═════════════════════════════════════════════════════════════════
-; C stack helpers — drop-in replacements for cc65's popax/popa.
 ; Parameter stack helpers — push/pop 16-bit values via the
 ; shared `sp` ZP pointer (exported by main.s).
 ; ═════════════════════════════════════════════════════════════════
 
         .importzp sp
 
-; cse_popax: pop 16-bit value from C stack → A (lo), X (hi)
+; cse_popax: pop 16-bit value from parameter stack → A (lo), X (hi)
 .proc cse_popax
         ldy #1
         lda (sp),y              ; hi byte
@@ -98,7 +97,7 @@ dec_hi:                 ; powers of 10, hi bytes
 
 ; ── io_init — must be called once at startup ──────────────────────────
 ; Disables KERNAL cursor ($CC=1).  All cse_io IRQ safety depends on this.
-_io_init:
+io_init:
         lda #1
         sta $CC                 ; KERNAL cursor off — required invariant
         rts
@@ -107,40 +106,40 @@ _io_init:
 ; The KERNAL NMI entry ($FE43) does SEI + JMP ($0318).  It does NOT
 ; push A/X/Y — only the CPU's automatic PC + SR are on the stack.
 ;
-; Two-path check: if debugger is running user code (_dbg_running bit 7),
+; Two-path check: if debugger is running user code (dbg_running bit 7),
 ; break into the debugger.  Otherwise, set the nmi_pending flag as before.
 ;
-        .import _dbg_running
-        .import _dbg_nmi_break
+        .import dbg_running
+        .import dbg_nmi_break
 
-_nmi_handler:
-        bit _dbg_running        ; bit 7 → N flag
+nmi_handler:
+        bit dbg_running        ; bit 7 → N flag
         bmi @break_user         ; user code active → debugger break
         ; Normal NMI (REPL/editor): set flag, RTI
         pha
         lda #1
-        sta _nmi_pending
+        sta nmi_pending
         pla
         rti
 
 @break_user:
         ; A/X/Y are live user values — don't clobber them here.
         ; The debugger handler saves them.
-        jmp _dbg_nmi_break
+        jmp dbg_nmi_break
 
 ; ── io_sync — update screen/color line pointers from cursor position ──
 ; Call after changing $D6 (io_cy) or $D3 (io_cx).
 ; Uses KERNAL PLOT to keep all internal state consistent,
 ; preventing the IRQ cursor blinker from corrupting pointers.
-_io_sync:
+io_sync:
         ldx CUR_ROW
         ldy CUR_COL
         clc                     ; CLC = set position
         jmp $FFF0               ; KERNAL PLOT: sets $D1/$D2/$D3/$D6/$F3/$F4
 
 ; ── io_putc — write PETSCII char at cursor, advance ─────────
-; __fastcall__: A = PETSCII char
-_io_putc:
+; A = PETSCII char
+io_putc:
         ; PETSCII → screen code conversion
         cmp #$40
         bcc @write              ; $00-$3F: identity (space, digits, punct)
@@ -176,14 +175,14 @@ _io_putc:
         rts
 
 ; ── io_puts — write NUL-terminated PETSCII string ───────────
-; __fastcall__: A/X = string pointer (A=lo, X=hi)
-_io_puts:
+; A/X = string pointer (A=lo, X=hi)
+io_puts:
         sta _io_tmp
         stx _io_tmp+1
 @loop:  ldy #0
         lda (_io_tmp),y
         beq @done
-        jsr _io_putc
+        jsr io_putc
         inc _io_tmp
         bne @loop
         inc _io_tmp+1
@@ -191,17 +190,17 @@ _io_puts:
 @done:  rts
 
 ; ── io_puthex4 — write 4 hex digits ─────────────────────────
-; __fastcall__: A=lo, X=hi (uint16_t)
-_io_puthex4:
+; A=lo, X=hi
+io_puthex4:
         pha                     ; save lo byte
         txa                     ; A = hi byte
-        jsr _io_puthex2         ; print hi byte as 2 digits
+        jsr io_puthex2         ; print hi byte as 2 digits
         pla                     ; A = lo byte
         ; fall through to puthex2
 
 ; ── io_puthex2 — write 2 hex digits ─────────────────────────
-; __fastcall__: A = byte value
-_io_puthex2:
+; A = byte value
+io_puthex2:
         pha                     ; save byte
         ; setup screen row pointer
         ldx CUR_ROW
@@ -233,9 +232,9 @@ _io_puthex2:
         rts
 
 ; ── io_putdec — write 16-bit unsigned decimal ────────────────
-; __fastcall__: A=lo, X=hi (uint16_t)
+; A=lo, X=hi
 ; Subtraction method — no division.  Suppresses leading zeros.
-_io_putdec:
+io_putdec:
         sta _io_tmp             ; dividend lo
         stx _io_tmp+1           ; dividend hi
         ; setup screen row pointer
@@ -283,7 +282,7 @@ _io_putdec:
         ; dec_start_col moved to BSS (ROM-safe)
 
 ; ── io_clear_eol — fill spaces from cursor to end of row ────
-_io_clear_eol:
+io_clear_eol:
         ldx CUR_ROW
         lda scr_lo,x
         sta _io_scr
@@ -299,14 +298,14 @@ _io_clear_eol:
 @done:  rts
 
 ; ── io_getc — blocking keyboard read ────────────────────────
-_io_getc:
+io_getc:
         jsr $FFE4               ; KERNAL GETIN
-        beq _io_getc            ; loop until key pressed
+        beq io_getc            ; loop until key pressed
         ldx #0
         rts
 
 ; ── io_kbhit — non-blocking keyboard check ──────────────────
-_io_kbhit:
+io_kbhit:
         lda $C6                 ; keyboard buffer count
         ldx #0
         rts

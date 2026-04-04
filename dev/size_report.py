@@ -6,7 +6,7 @@ Reads the ld65 map file and debug file to produce:
   1. C64 memory map (like the `i` command)
   2. Per-segment sizes
   3. Per-module breakdown within each segment
-  4. cc65 runtime vs CSE code vs assembler vs disassembler
+  4. Functional category breakdown
 """
 
 import re
@@ -14,7 +14,7 @@ import sys
 import os
 
 ROOT  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BUILD = os.path.join(ROOT, "build")
+BUILD = os.environ.get("BUILD", os.path.join(ROOT, "build", "6510"))
 MAP   = os.path.join(BUILD, "cse.map")
 DBG   = os.path.join(BUILD, "cse.dbg")
 PRG   = os.path.join(BUILD, "cse.prg")
@@ -68,26 +68,26 @@ for line in map_text.splitlines():
             modules[current_mod][seg_name] = modules[current_mod].get(seg_name, 0) + size
 
 # ── Categorize modules ───────────────────────────────────────────
-CSE_C_MODULES = {'main.o', 'editor.o', 'repl.o'}
+CORE_MODULES = {'main.o', 'repl.o', 'editor.o', 'screen.o', 'disk.o', 'debugger.o'}
 ASM_MODULES = {
-    'asm_bridge.o', 'asm_line.o', 'asm_vars.o', 'mn_vars.o',
+    'asm_bridge.o', 'asm_line.o', 'asm_vars.o', 'asm_src.o', 'mn_vars.o',
     'mn_classify.o', 'mn7.o', 'mn7_tables.o', 'mn6.o', 'mn6_tables.o',
     'mn_config.o', 'au_mode.o', 'parse_hex.o', 'mn_modes.o',
-    'mn_asm_tables.o', 'opcode_lookup.o',
+    'mn_asm_tables.o', 'opcode_lookup.o', 'expr.o', 'symtab.o',
 }
 DASM_MODULES = {'dasm.o', 'dasm_tables.o'}
 IO_MODULES = {'cse_io.o', 'meminfo.o'}
 
 def categorize(mod_name):
-    if mod_name in CSE_C_MODULES:
-        return 'cse-c'
+    if mod_name in CORE_MODULES:
+        return 'core'
     if mod_name in ASM_MODULES:
         return 'assembler'
     if mod_name in DASM_MODULES:
         return 'disassembler'
     if mod_name in IO_MODULES:
         return 'cse-io'
-    return 'cc65-runtime'
+    return 'other'
 
 # ── PRG file size ────────────────────────────────────────────────
 prg_size = os.path.getsize(PRG)
@@ -207,7 +207,7 @@ print(f"{'─'*W}")
 print(f"  {'Category':<20s} {'CODE':>6s} {'RODATA':>6s} {'Total':>6s} {'%':>5s}")
 print(f"  {'─'*20} {'─'*6} {'─'*6} {'─'*6} {'─'*5}")
 grand = total_rom
-for cat in ['cse-c', 'assembler', 'disassembler', 'cse-io', 'cc65-runtime']:
+for cat in ['core', 'assembler', 'disassembler', 'cse-io', 'other']:
     if cat not in cat_totals:
         continue
     t = cat_totals[cat]

@@ -5,20 +5,20 @@
 ; scr_lo/scr_hi tables from cse_io.s.
 
         .export kplot_stub
-        .export _dbg_running
-        .export _dbg_nmi_break
+        .export dbg_running
+        .export dbg_nmi_break
         .exportzp sp
 
-        .import _io_sync
+        .import io_sync
 
 ; Import the row address tables from cse_io.s
         .import scr_lo, scr_hi
 
 .segment "ZEROPAGE"
-sp:     .res 2          ; cc65 C stack pointer (needed by cse_popax)
+sp:     .res 2          ; parameter stack pointer (needed by cse_popax)
 
 .segment "BSS"
-_dbg_running:  .res 1   ; debugger running flag (stub)
+dbg_running:  .res 1   ; debugger running flag (stub)
 
 .segment "CODE"
 
@@ -26,7 +26,7 @@ _dbg_running:  .res 1   ; debugger running flag (stub)
 ;   CLC, X=row, Y=col → set cursor position + line pointers.
 ;   SEC → get position: X=row, Y=col.
 ; Stub: debugger NMI break (never reached in tests)
-_dbg_nmi_break:
+dbg_nmi_break:
         rti
 
 kplot_stub:

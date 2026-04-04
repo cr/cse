@@ -1,15 +1,15 @@
 ; expr_test_stub.s — Test harness for expr.s + symtab.s
 ;
 ; Three entry points:
-;   expr_test_eval:   call _expr_eval, return A = rc (0=ZP, 1=ABS, 2+=error)
-;   expr_test_define: call _sym_define (sym_name/sym_val/sym_wide set by test)
-;   expr_test_clear:  call _sym_clear
+;   expr_test_eval:   call expr_eval, return A = rc (0=ZP, 1=ABS, 2+=error)
+;   expr_test_define: call sym_define (sym_name/sym_val/sym_wide set by test)
+;   expr_test_clear:  call sym_clear
 
         .export expr_test_eval
         .export expr_test_define
         .export expr_test_clear
-        .import _expr_eval
-        .import _sym_define, _sym_lookup, _sym_clear, _sym_set_heap
+        .import expr_eval
+        .import sym_define, sym_lookup, sym_clear, sym_set_heap
 
         .segment "ZEROPAGE"
         .exportzp expr_ptr, expr_val, expr_wide
@@ -28,12 +28,12 @@ sym_wide:   .res 1       ; symbol width flag: 0=ZP, nonzero=ABS
         .segment "CODE"
 
 expr_test_eval:
-        jsr _expr_eval
+        jsr expr_eval
         ; A already has the return code (0=ZP, 1=ABS, 2+=error)
         rts
 
 expr_test_define:
-        jsr _sym_define
+        jsr sym_define
         rts
 
 HEAP_ADDR = $2000
@@ -41,6 +41,6 @@ HEAP_ADDR = $2000
 expr_test_clear:
         lda #<HEAP_ADDR
         ldx #>HEAP_ADDR
-        jsr _sym_set_heap
-        jsr _sym_clear
+        jsr sym_set_heap
+        jsr sym_clear
         rts

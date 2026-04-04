@@ -3,14 +3,14 @@
 ; Replaces screen.c with direct 6502 implementation.
 ; Requires $CC=1 (KERNAL cursor disabled).
 
-        .export _restore_colors, _reset_screen
-        .export _scroll_up, _newline
-        .export _cursor_show, _cursor_hide
-        .export _theme_border, _theme_bg, _theme_fg
-        .import _io_puts, _io_sync, _io_color
+        .export restore_colors, reset_screen
+        .export scroll_up, newline
+        .export cursor_show, cursor_hide
+        .export theme_border, theme_bg, theme_fg
+        .import io_puts, io_sync, io_color
         .import scr_lo, scr_hi
 
-; NOTE: No cc65 runtime dependencies (no sp, popax, etc.)
+; NOTE: No runtime ZP dependencies (no sp, popax, etc.)
 
 ; ── ZP pointers (reuse cse_io's area) ───────────────────
 src_ptr = $FB           ; 2 bytes
@@ -44,22 +44,22 @@ SCR_SIZE  = 1000          ; 25 * 40
 .endif
 
         .segment "RODATA"
-_theme_border: .byte THEME_BOR
-_theme_bg:     .byte THEME_BG
-_theme_fg:     .byte THEME_FG
+theme_border: .byte THEME_BOR
+theme_bg:     .byte THEME_BG
+theme_fg:     .byte THEME_FG
 
         .segment "CODE"
 
 ; ═════════════════════════════════════════════════════════
 ; restore_colors — apply theme + fill color RAM
 ; ═════════════════════════════════════════════════════════
-.proc _restore_colors
-        lda _theme_border
+.proc restore_colors
+        lda theme_border
         sta VIC_BRD
-        lda _theme_bg
+        lda theme_bg
         sta VIC_BG
-        lda _theme_fg
-        sta _io_color
+        lda theme_fg
+        sta io_color
         ; fill color RAM with io_color
         ldx #0
 @fill:  sta COLOR_RAM,x
@@ -74,8 +74,8 @@ _theme_fg:     .byte THEME_FG
 ; ═════════════════════════════════════════════════════════
 ; reset_screen — clear screen + restore colors
 ; ═════════════════════════════════════════════════════════
-.proc _reset_screen
-        jsr _restore_colors
+.proc reset_screen
+        jsr restore_colors
         ; fill screen with spaces
         lda #$20
         ldx #0
@@ -88,19 +88,19 @@ _theme_fg:     .byte THEME_FG
         lda #0
         sta CUR_COL
         sta CUR_ROW
-        jmp _io_sync
+        jmp io_sync
 .endproc
 
 ; ═════════════════════════════════════════════════════════
 ; scroll_up(n) — scroll screen RAM up by A rows
 ; Color RAM is static (initialized once, never scrolled).
-;   __fastcall__: n in A
+;   A = n
 ; ═════════════════════════════════════════════════════════
-.proc _scroll_up
+.proc scroll_up
         cmp #SCR_H
         bcc @partial
         ; full clear
-        jmp _reset_screen
+        jmp reset_screen
 
 @partial:
         ; A = n rows to scroll (screen RAM only; color RAM is static).
@@ -183,36 +183,36 @@ _theme_fg:     .byte THEME_FG
         lda #0
 @set_row:
         sta CUR_ROW
-        jmp _io_sync
+        jmp io_sync
 .endproc
 
 ; ═════════════════════════════════════════════════════════
 ; newline — advance to next row, scroll if at bottom
 ; ═════════════════════════════════════════════════════════
-.proc _newline
+.proc newline
         lda CUR_ROW
         cmp #SCR_H-1
         bcc @no_scroll
         ; at bottom row — scroll up 1
         lda #1
-        jsr _scroll_up
+        jsr scroll_up
         lda #SCR_H-1
         sta CUR_ROW
         lda #0
         sta CUR_COL
-        jmp _io_sync
+        jmp io_sync
 @no_scroll:
         inc CUR_ROW
         lda #0
         sta CUR_COL
-        jmp _io_sync
+        jmp io_sync
 .endproc
 
 ; ═════════════════════════════════════════════════════════
 ; ═════════════════════════════════════════════════════════
 ; cursor_show / cursor_hide — XOR $80 at cursor position
 ; ═════════════════════════════════════════════════════════
-.proc _cursor_show
+.proc cursor_show
         ldx CUR_ROW
         lda scr_lo,x
         sta src_ptr
@@ -226,6 +226,6 @@ _theme_fg:     .byte THEME_FG
 .endproc
 
 ; cursor_hide is identical
-_cursor_hide = _cursor_show
+cursor_hide = cursor_show
 
 ; Color RAM tables removed — color RAM is static (set once at init).

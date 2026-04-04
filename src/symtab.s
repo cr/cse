@@ -21,9 +21,9 @@
 ;   sym_count:   return count in A
 ;   sym_set_heap: in: A/X = heap base address. Must be called before first define.
 
-        .export _sym_define, _sym_lookup, _sym_clear
-        .export _sym_set_heap
-        .export _kernal_bank_out, _kernal_bank_in, _kernal_init
+        .export sym_define, sym_lookup, sym_clear
+        .export sym_set_heap
+        .export kernal_bank_out, kernal_bank_in, kernal_init
 
         .importzp sym_name, sym_val, sym_wide
 
@@ -58,10 +58,10 @@ CPU_PORT = $01
 .segment "CODE"
 
 ; ── Banking helpers ──────────────────────────────────────
-; _st_bank_out / _kernal_bank_out: sei + bank out KERNAL ROM
-; _st_bank_in  / _kernal_bank_in:  bank in KERNAL ROM + cli
-; C-callable aliases (_kernal_*) for use from editor.c etc.
-_kernal_bank_out:
+; _st_bank_out / kernal_bank_out: sei + bank out KERNAL ROM
+; _st_bank_in  / kernal_bank_in:  bank in KERNAL ROM + cli
+; Banking helpers for use from editor.s etc.
+kernal_bank_out:
 _st_bank_out:
         sei
         lda CPU_PORT
@@ -69,7 +69,7 @@ _st_bank_out:
         sta CPU_PORT
         rts
 
-_kernal_bank_in:
+kernal_bank_in:
 _st_bank_in:
         lda CPU_PORT
         ora #$02                ; set bit 1 → KERNAL ROM restored
@@ -77,7 +77,7 @@ _st_bank_in:
         cli
         rts
 
-; ── NMI trampoline (written to RAM at $FF00 by _kernal_init) ──
+; ── NMI trampoline (written to RAM at $FF00 by kernal_init) ──
 ; If NMI fires while KERNAL is banked out, the CPU reads the
 ; NMI vector from RAM at $FFFA/$FFFB → $FF00.  This stub
 ; re-banks the KERNAL and then does what the KERNAL NMI entry
@@ -101,11 +101,11 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 .segment "CODE"
 
 ; ═════════════════════════════════════════════════════════
-; _kernal_init — install NMI trampoline in banked RAM
+; kernal_init — install NMI trampoline in banked RAM
 ;   Must be called once at startup, before any bank-out.
 ;   Clobbers A, X, Y.
 ; ═════════════════════════════════════════════════════════
-.proc _kernal_init
+.proc kernal_init
         jsr _st_bank_out
 
         ; Copy trampoline code to $FF00
@@ -129,7 +129,7 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 ;   In: A = lo, X = hi
 ;   Must be called before first sym_define.
 ; ═════════════════════════════════════════════════════════
-.proc _sym_set_heap
+.proc sym_set_heap
         sta _st_heap_base
         stx _st_heap_base+1
         sta _st_heap
@@ -140,7 +140,7 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 ; ═════════════════════════════════════════════════════════
 ; sym_clear — zero all slots, reset count, reset heap
 ; ═════════════════════════════════════════════════════════
-.proc _sym_clear
+.proc sym_clear
         lda #0
         sta _st_count
         jsr _st_bank_out
@@ -324,11 +324,11 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; _sym_define
+; sym_define
 ;   In:  sym_name (ptr), sym_val (16-bit), sym_wide (0/1)
 ;   Out: C=1 if table full
 ; ═════════════════════════════════════════════════════════
-.proc _sym_define
+.proc sym_define
         jsr compute_hash
 
         lda _st_hash
@@ -410,11 +410,11 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; _sym_lookup
+; sym_lookup
 ;   In:  sym_name (ptr)
 ;   Out: sym_val (16-bit), sym_wide (0/1), C=0 found, C=1 not found
 ; ═════════════════════════════════════════════════════════
-.proc _sym_lookup
+.proc sym_lookup
         jsr compute_hash
 
         lda _st_hash

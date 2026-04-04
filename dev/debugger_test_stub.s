@@ -18,29 +18,29 @@
 
         .export dbg_test_entry
 
-        .import _dbg_init
-        .import _dbg_bp_set, _dbg_bp_del, _dbg_bp_clear
-        .import _dbg_bp_count
-        .import _dbg_bp_patch, _dbg_bp_unpatch
-        .import _dbg_bp_find
-        .import _bp_table
-        .import _dbg_running, _dbg_reason, _brk_pc, _dbg_bp_hit
+        .import dbg_init
+        .import dbg_bp_set, dbg_bp_del, dbg_bp_clear
+        .import dbg_bp_count
+        .import dbg_bp_patch, dbg_bp_unpatch
+        .import dbg_bp_find
+        .import bp_table
+        .import dbg_running, dbg_reason, brk_pc, dbg_bp_hit
 
-        .exportzp ptr1          ; provide cc65 scratch pointer for debugger.s
-        .export _reg_a, _reg_x, _reg_y, _reg_sp, _reg_p
-        .export _zp_save_buf
-        .export _kernal_bank_out, _kernal_bank_in
+        .exportzp rp_ptr          ; provide scratch pointer for debugger.s
+        .export reg_a, reg_x, reg_y, reg_sp, reg_p
+        .export zp_save_buf
+        .export kernal_bank_out, kernal_bank_in
 
 .segment "ZEROPAGE"
-ptr1:   .res 2                  ; cc65 scratch pointer
+rp_ptr:   .res 2                  ; cc65 scratch pointer
 
 .segment "BSS"
-_reg_a:         .res 1
-_reg_x:         .res 1
-_reg_y:         .res 1
-_reg_sp:        .res 1
-_reg_p:         .res 1
-_zp_save_buf:   .res 91         ; ZP save buffer (matches asm_bridge.s)
+reg_a:         .res 1
+reg_x:         .res 1
+reg_y:         .res 1
+reg_sp:        .res 1
+reg_p:         .res 1
+zp_save_buf:   .res 91         ; ZP save buffer (matches asm_bridge.s)
 
 .segment "CODE"
 
@@ -70,12 +70,12 @@ RVAL    = $0B04
         beq @find
         rts                     ; unknown command
 
-@init:  jsr _dbg_init
+@init:  jsr dbg_init
         rts
 
 @set:   lda ARG1                ; addr lo
         ldx ARG2                ; addr hi
-        jsr _dbg_bp_set
+        jsr dbg_bp_set
         bcc @set_ok
         lda #$01
         sta RFLAGS              ; C=1 → table full
@@ -87,7 +87,7 @@ RVAL    = $0B04
         rts
 
 @del:   lda ARG1                ; slot#
-        jsr _dbg_bp_del
+        jsr dbg_bp_del
         bcc @del_ok
         lda #$01
         sta RFLAGS
@@ -97,23 +97,23 @@ RVAL    = $0B04
         sta RFLAGS
         rts
 
-@clear: jsr _dbg_bp_clear
+@clear: jsr dbg_bp_clear
         rts
 
-@count: jsr _dbg_bp_count
+@count: jsr dbg_bp_count
         sta RVAL
         rts
 
-@patch: jsr _dbg_bp_patch
+@patch: jsr dbg_bp_patch
         rts
 
 @unpatch:
-        jsr _dbg_bp_unpatch
+        jsr dbg_bp_unpatch
         rts
 
 @find:  lda ARG1                ; addr lo
         ldx ARG2                ; addr hi
-        jsr _dbg_bp_find
+        jsr dbg_bp_find
         bcc @find_ok
         lda #$01
         sta RFLAGS              ; C=1 → not found
@@ -128,6 +128,6 @@ RVAL    = $0B04
 .endproc
 
 ; Stubs for KERNAL banking (no-ops in test environment)
-_kernal_bank_out:
-_kernal_bank_in:
+kernal_bank_out:
+kernal_bank_in:
         rts

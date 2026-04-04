@@ -47,7 +47,7 @@
         ; zero-page variables (asm_vars.s)
         .importzp al_pc, al_out, al_len
         .importzp al_slot, al_prof, al_pidx, al_base, al_bit, al_mode, al_cpu
-        .importzp _al_tmp, _al_tmp2
+        .importzp al_tmp, al_tmp2
 
         ; au_mode.s interface
         .importzp au_ptr, au_opr
@@ -59,7 +59,7 @@
         .import   mn_base_op, mn_profile
 
         ; opcode tables and helpers (opcode_lookup.s)
-        .import   _al_validate_mode, al_opcode_lookup
+        .import   al_validate_mode, al_opcode_lookup
 
         ; error handler — provided by caller / test stub
         .import   al_error
@@ -271,33 +271,33 @@ al_line_asm:
         sec
         lda au_opr              ; target lo
         sbc al_pc               ; − pc lo
-        sta _al_tmp
+        sta al_tmp
         lda au_opr+1            ; target hi
         sbc al_pc+1             ; − pc hi
         tax                     ; X = high byte of (target − pc)
-        lda _al_tmp
+        lda al_tmp
         sec
         sbc #2                  ; − 2 (instruction size)
         bcs :+
         dex                     ; borrow propagated to hi byte
-:       sta _al_tmp             ; _al_tmp = offset byte
+:       sta al_tmp             ; al_tmp = offset byte
         ; Validate: hi byte must be $00 (offset 0..+127) or $FF (−128..−1)
         cpx #$00
         beq @chk_pos
         cpx #$FF
         bne @err_range          ; hi neither $00 nor $FF → out of ±128 range
-        lda _al_tmp
+        lda al_tmp
         cmp #$80                ; negative offset must be ≥ $80
         bcc @err_range
         jmp @emit_rel
 @chk_pos:
-        lda _al_tmp
+        lda al_tmp
         cmp #$80                ; positive offset must be < $80
         bcs @err_range
 @emit_rel:
         lda al_base
         jsr _al_emit
-        lda _al_tmp
+        lda al_tmp
         jsr _al_emit
         clc
         rts
@@ -345,7 +345,7 @@ al_line_asm:
         sta al_mode
 
         ; Validate mode against the effective profile's mode set.
-        jsr _al_validate_mode
+        jsr al_validate_mode
         bcc @mode_ok
 @err_mode:
         jmp al_error

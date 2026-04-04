@@ -69,7 +69,7 @@ def _parse_segments():
 def _parse_listing_syms():
     offsets = {}
     for line in IO_LST.read_text().splitlines():
-        m = re.match(r"^([0-9a-fA-F]+)r\s+\d+\s.*?\b(_io_\w+):", line)
+        m = re.match(r"^([0-9a-fA-F]+)r\s+\d+\s.*?\b(_?io_\w+):", line)
         if m: offsets[m.group(2)] = int(m.group(1), 16)
     return offsets
 
@@ -80,15 +80,15 @@ class IoSymbols:
         seg = _parse_segments()
         ofs = _parse_listing_syms()
         code = seg.get("CODE", 0x0200)
-        self.io_init      = code + ofs["_io_init"]
-        self.io_sync      = code + ofs["_io_sync"]
-        self.io_putc      = code + ofs["_io_putc"]
-        self.io_puts      = code + ofs["_io_puts"]
-        self.io_puthex4   = code + ofs["_io_puthex4"]
-        self.io_puthex2   = code + ofs["_io_puthex2"]
-        self.io_putdec    = code + ofs["_io_putdec"]
-        self.io_clear_eol = code + ofs["_io_clear_eol"]
-        self.io_kbhit     = code + ofs["_io_kbhit"]
+        self.io_init      = code + ofs["io_init"]
+        self.io_sync      = code + ofs["io_sync"]
+        self.io_putc      = code + ofs["io_putc"]
+        self.io_puts      = code + ofs["io_puts"]
+        self.io_puthex4   = code + ofs["io_puthex4"]
+        self.io_puthex2   = code + ofs["io_puthex2"]
+        self.io_putdec    = code + ofs["io_putdec"]
+        self.io_clear_eol = code + ofs["io_clear_eol"]
+        self.io_kbhit     = code + ofs["io_kbhit"]
         self._io_tmp      = ofs.get("_io_tmp", 0)  # ZP address
         raw = IO_BIN.read_bytes()
         self._zp_start = seg.get("ZEROPAGE", 0)

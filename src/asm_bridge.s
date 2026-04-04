@@ -1,8 +1,7 @@
-; asm_bridge.s — C-callable wrapper for al_line_asm
+; asm_bridge.s — Calling convention bridge for al_line_asm
 ;
 ; Provides:
-;   _asm_line     C function: uint8_t asm_line(uint16_t addr, char *text)
-;                 Assembles one instruction from the PETSCII text string,
+;   asm_line      Assembles one instruction from a PETSCII text string,
 ;                 writes bytes to *addr, and returns the byte count (1–3).
 ;                 Returns 0 on error (unknown mnemonic, bad mode, etc.).
 ;
@@ -15,38 +14,38 @@
 ; VICII screen codes for hex digits ($30–$39) and A–F ($01–$06).
 ; This wrapper converts the string in-place before calling al_line_asm.
 ;
-; cc65 calling convention (__fastcall__, default):
-;   First arg (addr)  pushed onto C stack (sp),0 / (sp),1
+; Calling convention:
+;   First arg (addr)  pushed onto parameter stack (sp),0 / (sp),1
 ;   Last arg  (text)  in A/X  (A=lo, X=hi)  — passed in registers
 
         .setcpu "6502"
 
-        .export _asm_line
+        .export asm_line
         .export al_error, au_syntax_error
-        .export _jsr_addr
-        .export _reg_a, _reg_x, _reg_y, _reg_sp, _reg_p
-        .export _zp_save_buf
+        .export jsr_addr
+        .export reg_a, reg_x, reg_y, reg_sp, reg_p
+        .export zp_save_buf
 
         .import al_line_asm
         .importzp au_ptr, al_pc, al_out, al_cpu, al_len
-        .import cse_popax         ; our C stack pop (in cse_io.s)
+        .import cse_popax         ; parameter stack pop (in cse_io.s)
 
 .segment "ZEROPAGE"
 _ab_saved_sp:   .res 1          ; saved 6502 SP for error recovery
-_jsr_vec:       .res 2          ; target address for _jsr_addr
+_jsr_vec:       .res 2          ; target address for jsr_addr
 
 .segment "BSS"
 _asm_out_buf:   .res 3          ; output buffer (max 3 instruction bytes)
-_reg_a:         .res 1          ; saved A  after jsr_addr
-_reg_x:         .res 1          ; saved X
-_reg_y:         .res 1          ; saved Y
-_reg_sp:        .res 1          ; saved SP
-_reg_p:         .res 1          ; saved P (status flags)
+reg_a:         .res 1          ; saved A  after jsr_addr
+reg_x:         .res 1          ; saved X
+reg_y:         .res 1          ; saved Y
+reg_sp:        .res 1          ; saved SP
+reg_p:         .res 1          ; saved P (status flags)
 
 ZP_SAVE_LO = $02               ; first ZP byte used by CSE
 ZP_SAVE_HI = $5A               ; last ZP byte (editor ZP end, per linker map)
 ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1  ; 89 bytes
-_zp_save_buf:   .res ZP_SAVE_LEN ; buffer for ZP save/restore around jsr_addr
+zp_save_buf:   .res ZP_SAVE_LEN ; buffer for ZP save/restore around jsr_addr
 
 .segment "CODE"
 
@@ -62,14 +61,14 @@ au_syntax_error:
         tax                     ; return 0 (uint8_t, A=lo, X=hi=0)
         jmp _ab_return
 
-; ── _asm_line ───────────────────────────────────────────────────────────────
-; uint8_t __cdecl__ asm_line(uint16_t addr, char *text);
+; ── asm_line ───────────────────────────────────────────────────────────────
+; asm_line(addr, text)
 ;
-; On entry (cc65 __cdecl__):
+; On entry:
 ;   A/X = text pointer (lo/hi)  — last argument
-;   C stack (sp),0/(sp),1 = addr (lo/hi)
+;   parameter stack (sp),0/(sp),1 = addr (lo/hi)
 ;
-_asm_line:
+asm_line:
         ; ── save text pointer ───────────────────────────────────────────
         sta au_ptr
         stx au_ptr+1
@@ -96,7 +95,7 @@ _asm_line:
         bne @cvt                ; max 255 chars
 @cvt_done:
 
-        ; ── pop addr from C stack ───────────────────────────────────────
+        ; ── pop addr from parameter stack ───────────────────────────────
         jsr cse_popax           ; A = lo, X = hi
         sta al_pc
         sta al_out              ; output → target address (assemble in place)
@@ -125,43 +124,43 @@ _asm_line:
 _ab_return:
         rts
 
-; ── _jsr_addr ─────────────────────────────────────────────────────────────────
-; void jsr_addr(uint16_t addr);   /* __fastcall__: addr in A/X */
+; ── jsr_addr ─────────────────────────────────────────────────────────────────
+; jsr_addr(addr)  — A/X = addr lo/hi
 ;
 ; JSR to the given address, then capture all CPU registers (A, X, Y, SP, P)
 ; into reg_a..reg_p so the C side can display them.
 ;
-_jsr_addr:
+jsr_addr:
         sta _jsr_vec            ; store target address lo
         stx _jsr_vec+1          ; store target address hi
 
         ; ── save CSE's ZP $02-$38 so user code can use all of ZP ──
         ldx #ZP_SAVE_LEN - 1
 @save:  lda ZP_SAVE_LO,x
-        sta _zp_save_buf,x
+        sta zp_save_buf,x
         dex
         bpl @save
 
         ; ── load user's register state before calling ──
-        lda _reg_a
-        ldx _reg_x
-        ldy _reg_y
+        lda reg_a
+        ldx reg_x
+        ldy reg_y
 
         jsr @trampoline         ; JSR → user code → RTS → back here
 
         ; ── capture registers immediately after user code returns ──
-        sta _reg_a
-        stx _reg_x
-        sty _reg_y
+        sta reg_a
+        stx reg_x
+        sty reg_y
         php
         pla
-        sta _reg_p
+        sta reg_p
         tsx
-        stx _reg_sp
+        stx reg_sp
 
         ; ── restore CSE's ZP ──
         ldx #ZP_SAVE_LEN - 1
-@rest:  lda _zp_save_buf,x
+@rest:  lda zp_save_buf,x
         sta ZP_SAVE_LO,x
         dex
         bpl @rest
@@ -171,4 +170,4 @@ _jsr_addr:
 @trampoline:
         jmp (_jsr_vec)          ; indirect JMP; the JSR above provides the
                                 ; return address, so user's RTS comes back
-                                ; to the sta _reg_a above
+                                ; to the sta reg_a above

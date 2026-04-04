@@ -2,7 +2,7 @@
 ;
 ; Two entry points:
 ;
-;   _al_validate_mode
+;   al_validate_mode
 ;       Check that al_mode is legal for the current effective profile al_pidx.
 ;       Returns C=0 if valid, C=1 if invalid.  Does not call al_error.
 ;
@@ -10,7 +10,7 @@
 ;       Compute the opcode byte for the current instruction.
 ;       Returns opcode in A on success.
 ;       Jumps to al_error if the mode is structurally invalid (should not
-;       happen after _al_validate_mode passes, but guards against bugs).
+;       happen after al_validate_mode passes, but guards against bugs).
 ;
 ;       Dispatch order:
 ;         1. dir_bit=1  → direct_opcodes[al_mode]            (STZ, profile 28)
@@ -59,7 +59,7 @@ MODE_ZPREL= 15
 
         .setcpu "6502"
 
-        .export _al_validate_mode, al_opcode_lookup
+        .export al_validate_mode, al_opcode_lookup
 
         .importzp al_pidx, al_prof, al_base, al_mode
         .import   mn_modes_lo, mn_modes_hi
@@ -77,10 +77,10 @@ _bit_tab:
 
 .segment "CODE"
 
-; ── _al_validate_mode ─────────────────────────────────────────────────────────
+; ── al_validate_mode ─────────────────────────────────────────────────────────
 ; Check al_mode against mn_modes_lo/hi[al_pidx].
 ; Returns C=0 valid, C=1 invalid.  Clobbers A, X.
-_al_validate_mode:
+al_validate_mode:
         lda al_mode
         and #$07                ; bit position within the byte
         tax

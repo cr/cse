@@ -1,7 +1,7 @@
 ; dasm.s — Bit-slice 6502/6510/65C02 disassembler
 ;
 ; Interface:
-;   _dasm_insn (A/X = addr lo/hi, __fastcall__)
+;   dasm_insn (A/X = addr lo/hi)
 ;     Output: NUL-terminated PETSCII string in dasm_buf
 ;     Returns instruction length in A (1-3)
 ;
@@ -17,8 +17,8 @@
 ; Mode format byte: hi nybble=prefix+size, lo nybble=suffix
 ;   Instruction length derived from mode.
 
-        .export _dasm_insn
-        .export _dasm_buf
+        .export dasm_insn
+        .export dasm_buf
 
         .importzp al_cpu
         .import dasm_mne_str
@@ -32,17 +32,17 @@ _dasm_wptr:     .res 1          ; write index into dasm_buf
 
 ; ── BSS ──────────────────────────────────────────────────
 .segment "BSS"
-_dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
+dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
 
 ; ── CODE ─────────────────────────────────────────────────
 .segment "CODE"
 
 ; ════════════════════════════════════════════════════════════
-; Entry point: _dasm_insn
-;   A = addr lo, X = addr hi (__fastcall__)
+; Entry point: dasm_insn
+;   A = addr lo, X = addr hi
 ;   Returns length in A.  dasm_buf filled with PETSCII + NUL.
 ; ════════════════════════════════════════════════════════════
-.proc _dasm_insn
+.proc dasm_insn
         sta _dasm_ptr
         stx _dasm_ptr+1
         lda #0
@@ -88,7 +88,7 @@ _dasm_mode:     .res 1          ; mode index
         ; NUL-terminate
         ldx _dasm_wptr
         lda #0
-        sta _dasm_buf,x
+        sta dasm_buf,x
         ; Return instruction length from mode
         ldx _dasm_mode
         lda mode_len,x
@@ -359,7 +359,7 @@ _dasm_mode:     .res 1          ; mode index
 ; buf_putc: write A to dasm_buf at current position, advance
 .proc buf_putc
         ldx _dasm_wptr
-        sta _dasm_buf,x
+        sta dasm_buf,x
         inc _dasm_wptr
         rts
 .endproc
@@ -1141,7 +1141,7 @@ _dasm_aaa:
         ; NUL-terminate and return length
         ldx _dasm_wptr
         lda #0
-        sta _dasm_buf,x
+        sta dasm_buf,x
         lda #2                  ; ZP mode = 2 bytes
         rts
 
@@ -1172,7 +1172,7 @@ _dasm_aaa:
         jsr format_operand
         ldx _dasm_wptr
         lda #0
-        sta _dasm_buf,x
+        sta dasm_buf,x
         lda #3                  ; ZPREL = 3 bytes
         rts
 .endif ; CMOS_SUPPORT

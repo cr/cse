@@ -1,23 +1,23 @@
 ; disk.s — CBM file I/O via direct KERNAL calls
 ;
-; Replaces disk.c + all cc65 cbm_*.o wrappers (~2.5KB)
+; Direct KERNAL calls for CBM file I/O
 ; with direct KERNAL SETLFS/SETNAM/OPEN/CLOSE/CHKIN/CHKOUT/
 ; CHRIN/CHROUT/LOAD/SAVE/CLRCHN/READST calls.
 
-        .export _floppy_status, _list_directory
-        .export _disk_load_prg, _disk_save_prg
-        .export _disk_load_seq, _disk_save_seq
-        .export _disk_seq_bytes, _disk_seq_lines
+        .export floppy_status, list_directory
+        .export disk_load_prg, disk_save_prg
+        .export disk_load_seq, disk_save_seq
+        .export disk_seq_bytes, disk_seq_lines
 
-        .import _io_puts, _io_putc, _io_putdec, _io_puthex2, _io_puthex4
-        .import _io_getc, _io_kbhit, _io_clear_eol
-        .import _io_color
-        .import _newline, _io_puts
-        .import _cur_device
+        .import io_puts, io_putc, io_putdec, io_puthex2, io_puthex4
+        .import io_getc, io_kbhit, io_clear_eol
+        .import io_color
+        .import newline, io_puts
+        .import cur_device
         .import scr_lo, scr_hi
         .import cse_popax, cse_popa
 
-        ; sp not imported — cse_popax/cse_popa handle the C stack internally
+        ; sp not imported — cse_popax handles the parameter stack
 
 ; ── KERNAL entry points ──────────────────────────────────
 SETLFS  = $FFBA
@@ -43,8 +43,8 @@ ptr     = $FD              ; 2 bytes, general pointer
 
 ; ── BSS ──────────────────────────────────────────────────
         .segment "BSS"
-_disk_seq_bytes: .res 2
-_disk_seq_lines: .res 2
+disk_seq_bytes: .res 2
+disk_seq_lines: .res 2
 fl_buf:          .res 32
 open_buf:        .res 28    ; filename build buffer
 callback:        .res 2     ; function pointer for SEQ I/O
@@ -166,12 +166,12 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 ; ═════════════════════════════════════════════════════════
 ; floppy_status — read drive error channel, print to screen
 ; ═════════════════════════════════════════════════════════
-.proc _floppy_status
+.proc floppy_status
         ; OPEN 14,8,15,""
         lda #0
         jsr SETNAM              ; empty filename
         lda #14                 ; lfn
-        ldx _cur_device
+        ldx cur_device
         ldy #15                 ; secondary (command channel)
         jsr SETLFS
         jsr OPEN
@@ -218,11 +218,11 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         beq @err
         lda #<@prefix
         ldx #>@prefix
-        jsr _io_puts
+        jsr io_puts
         lda #<fl_buf
         ldx #>fl_buf
-        jsr _io_puts
-        jmp _newline
+        jsr io_puts
+        jmp newline
 
 @err:   rts
 @prefix: .byte "; ", 0
@@ -230,7 +230,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
 ; ═════════════════════════════════════════════════════════
 ; list_directory(device) — directory listing with executable l commands
-;   __fastcall__: device in A
+;   A = device
 ;
 ; Output format:
 ;   AAAA:; "disk name" id
@@ -238,7 +238,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 ;   AAAA:l "test,s"         ;  1
 ;   AAAA:; 520 blocks free.
 ; ═════════════════════════════════════════════════════════
-.proc _list_directory
+.proc list_directory
         sta @dev                ; save device number
 
         ; SETNAM "$"
@@ -310,9 +310,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         ; Print "; " normally, then everything from first " onward inverted.
         ; Filter $12/$92 control chars, convert $A0→$20 (shifted space).
         lda #';'
-        jsr _io_putc
+        jsr io_putc
         lda #' '
-        jsr _io_putc
+        jsr io_putc
 
         ; Scan to first " in fl_buf
         ldx #0
@@ -344,8 +344,8 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
 @hdr_done:
 
-        jsr _io_clear_eol
-        jsr _newline
+        jsr io_clear_eol
+        jsr newline
         jmp @check_stop
 
         ; ── File entry or blocks-free ─────────────────────────
@@ -363,17 +363,17 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 @no_quote:
         ; "blocks free" line → "; NNN blocks free."
         lda #';'
-        jsr _io_putc
+        jsr io_putc
         lda #' '
-        jsr _io_putc
+        jsr io_putc
         lda @blocks
         ldx @blocks+1
-        jsr _io_putdec
+        jsr io_putdec
         lda #<@free_msg
         ldx #>@free_msg
-        jsr _io_puts
-        jsr _io_clear_eol
-        jsr _newline
+        jsr io_puts
+        jsr io_clear_eol
+        jsr newline
         jmp @check_stop
 
         ; ── File entry: l "name,t"  ; NNN ─────────────────────
@@ -406,18 +406,18 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         ; Output: l "filename
         lda #'l'
-        jsr _io_putc
+        jsr io_putc
         lda #' '
-        jsr _io_putc
+        jsr io_putc
         lda #'"'
-        jsr _io_putc
+        jsr io_putc
 
         ldx @fn_start
 @fname: cpx @fn_trimmed_end
         bcs @fname_done
         lda fl_buf,x
         stx @fn_tmp
-        jsr _io_putc
+        jsr io_putc
         ldx @fn_tmp
         inx
         bne @fname
@@ -440,33 +440,33 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         ; A = first char of type (PETSCII)
         pha
         lda #','
-        jsr _io_putc
+        jsr io_putc
         pla
-        jsr _io_putc
+        jsr io_putc
 
 @close_q:
         lda #'"'
-        jsr _io_putc
+        jsr io_putc
 
         ; "; N blocks"
         lda #<@blk_pre
         ldx #>@blk_pre
-        jsr _io_puts
+        jsr io_puts
         lda @blocks
         ldx @blocks+1
-        jsr _io_putdec
+        jsr io_putdec
         lda #<@blk_suf
         ldx #>@blk_suf
-        jsr _io_puts
+        jsr io_puts
 
-        jsr _io_clear_eol
-        jsr _newline
+        jsr io_clear_eol
+        jsr newline
 
 @check_stop:
-        jsr _io_kbhit
+        jsr io_kbhit
         bne :+
         jmp @entry
-:       jsr _io_getc
+:       jsr io_getc
         cmp #CH_STOP
         beq :+
         jmp @entry
@@ -474,24 +474,24 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         lda #<@brk_msg
         ldx #>@brk_msg
-        jsr _io_puts
-        jsr _newline
+        jsr io_puts
+        jsr newline
 
 @done:
         jsr CLRCHN
         lda #1
         jsr CLOSE
-        jmp _floppy_status
+        jmp floppy_status
 
 @err:
         jsr CLRCHN
         lda #1
         jsr CLOSE
-        jmp _floppy_status
+        jmp floppy_status
 
 ; Helper: print char in A inverted (io_putc then OR $80 on screen)
 @putc_inv:
-        jsr _io_putc
+        jsr io_putc
         ; flip bit 7 on the char we just wrote (at CUR_COL - 1)
         ldx CUR_ROW
         lda scr_lo,x
@@ -523,15 +523,15 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
 ; ═════════════════════════════════════════════════════════
 ; disk_load_prg(name, addr)
-;   __fastcall__: addr in A/X, name on C stack
+;   A/X = addr, name on parameter stack
 ;   Returns end address in A/X (0 on error)
 ; ═════════════════════════════════════════════════════════
-.proc _disk_load_prg
+.proc disk_load_prg
         ; A/X = addr (last arg, fastcall)
         sta _io_tmp             ; save addr lo
         stx _io_tmp+1           ; save addr hi
 
-        ; pop name pointer from C stack
+        ; pop name pointer from parameter stack
         jsr cse_popax               ; A/X = name
         jsr str_setup           ; ptr = name, Y = length
 
@@ -547,13 +547,13 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         beq @use_header
         ; nonzero addr: secondary = 1
         lda #1
-        ldx _cur_device
+        ldx cur_device
         ldy #1
         jsr SETLFS
         jmp @do_load
 @use_header:
         lda #1
-        ldx _cur_device
+        ldx cur_device
         ldy #0
         jsr SETLFS
 
@@ -584,10 +584,10 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
 ; ═════════════════════════════════════════════════════════
 ; disk_load_seq(name, insert_fn)
-;   __fastcall__: insert_fn in A/X, name on C stack
+;   A/X = insert_fn, name on parameter stack
 ;   Returns 0 on success, nonzero on error
 ; ═════════════════════════════════════════════════════════
-.proc _disk_load_seq
+.proc disk_load_seq
         ; Save callback
         sta callback
         stx callback+1
@@ -607,7 +607,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         ; SETLFS 2,8,2
         lda #2
-        ldx _cur_device
+        ldx cur_device
         ldy #2
         jsr SETLFS
 
@@ -622,11 +622,11 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         ; Clear counters (must explicitly load 0 — A is undefined after CHKIN)
         lda #0
-        sta _disk_seq_bytes
-        sta _disk_seq_bytes+1
-        sta _disk_seq_lines+1
+        sta disk_seq_bytes
+        sta disk_seq_bytes+1
+        sta disk_seq_lines+1
         lda #1                  ; lines starts at 1 (N newlines = N+1 lines)
-        sta _disk_seq_lines
+        sta disk_seq_lines
 
 @read:
         jsr CHRIN
@@ -643,17 +643,17 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         jsr @do_callback
 
         ; Count bytes
-        inc _disk_seq_bytes
+        inc disk_seq_bytes
         bne :+
-        inc _disk_seq_bytes+1
+        inc disk_seq_bytes+1
 :
         ; Count lines (if byte == $0D)
         pla                     ; byte → A
         cmp #$0D
         bne @no_newline
-        inc _disk_seq_lines
+        inc disk_seq_lines
         bne :+
-        inc _disk_seq_lines+1
+        inc disk_seq_lines+1
 :
 @no_newline:
         ; EOF check (bit 6)
@@ -676,8 +676,8 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         bne @err_status
 
         ; Check if anything was read
-        lda _disk_seq_bytes
-        ora _disk_seq_bytes+1
+        lda disk_seq_bytes
+        ora disk_seq_bytes+1
         beq @empty
 
         lda #0                  ; success
@@ -707,11 +707,11 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
 ; ═════════════════════════════════════════════════════════
 ; disk_save_seq(name, read_fn)
-;   __fastcall__: read_fn in A/X, name on C stack
+;   A/X = read_fn, name on parameter stack
 ;   read_fn returns byte in A (0-255), or -1 (carry set) for EOF
 ;   Returns 0 on success, nonzero on error
 ; ═════════════════════════════════════════════════════════
-.proc _disk_save_seq
+.proc disk_save_seq
         ; Save callback
         sta callback
         stx callback+1
@@ -731,7 +731,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         ; SETLFS 2,8,2
         lda #2
-        ldx _cur_device
+        ldx cur_device
         ldy #2
         jsr SETLFS
 
@@ -744,11 +744,11 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         ; Clear counters (lines starts at 1: N newlines = N+1 lines)
         lda #0
-        sta _disk_seq_bytes
-        sta _disk_seq_bytes+1
-        sta _disk_seq_lines+1
+        sta disk_seq_bytes
+        sta disk_seq_bytes+1
+        sta disk_seq_lines+1
         lda #1
-        sta _disk_seq_lines
+        sta disk_seq_lines
 
 @write:
         ; Call read_fn — returns int: 0-255 = byte (A=lo, X=0),
@@ -764,17 +764,17 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         jsr CHROUT
 
         ; Count bytes
-        inc _disk_seq_bytes
+        inc disk_seq_bytes
         bne :+
-        inc _disk_seq_bytes+1
+        inc disk_seq_bytes+1
 :
         ; Count lines (if byte == $0D)
         pla
         cmp #$0D
         bne @write
-        inc _disk_seq_lines
+        inc disk_seq_lines
         bne @write
-        inc _disk_seq_lines+1
+        inc disk_seq_lines+1
         jmp @write
 
 @done:
@@ -796,11 +796,11 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
 ; ═════════════════════════════════════════════════════════
 ; disk_save_prg
-;   __fastcall__: size in A/X
-;   C stack: name (bottom), addr (top)
+;   A/X = size
+;   parameter stack: name (bottom), addr (top)
 ;   Returns A=0 on success, A=1 on error
 ; ═════════════════════════════════════════════════════════
-.proc _disk_save_prg
+.proc disk_save_prg
         ; Save size on 6502 stack
         pha                     ; size lo
         txa
@@ -823,7 +823,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         ; SETLFS 1,device,1
         lda #1
-        ldx _cur_device
+        ldx cur_device
         tay                     ; Y = 1
         jsr SETLFS
 

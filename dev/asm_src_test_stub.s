@@ -2,16 +2,16 @@
 ;
 ; Provides:
 ;   sp, pushax, cse_popax — C stack (cc65 convention)
-;   _ed_read_line, _ed_read_rewind — mock editor reading _test_src_buf
-;   _io_puts, _io_putdec, _newline — no-ops (suppress error output)
-;   _cse_end — returns HEAP_START ($4000)
+;   ed_read_line, ed_read_rewind — mock editor reading _test_src_buf
+;   io_puts, io_putdec, newline — no-ops (suppress error output)
+;   cse_end — returns HEAP_START ($4000)
 ;
 ; Source buffer layout: _test_src_buf (BSS, 2048 bytes)
 ;   Lines NUL-separated; double-NUL = EOF.
 ;   Python calls asm_src_test_entry after writing source.
 ;
 ; Entry point: asm_src_test_entry
-;   — initialises C stack and source reader, calls _asm_assemble
+;   — initialises C stack and source reader, calls asm_assemble
 ;   — returns A/X = error count
 
         .setcpu "6502"
@@ -19,19 +19,19 @@
         .export asm_src_test_entry
         .export _test_src_buf           ; Python writes source text here
 
-        .exportzp sp                    ; C stack pointer (cc65 convention)
+        .exportzp sp                    ; parameter stack pointer
         .export pushax                  ; push A/X onto C stack
         .export cse_popax               ; pop 16-bit value → A/X
 
-        .export _ed_read_line
-        .export _ed_read_rewind
-        .export _io_puts
-        .export _io_putdec
-        .export _newline
-        .export _cse_end
+        .export ed_read_line
+        .export ed_read_rewind
+        .export io_puts
+        .export io_putdec
+        .export newline
+        .export cse_end
         .exportzp buf_base
 
-        .import _asm_assemble
+        .import asm_assemble
 
 HEAP_START = $4000          ; symbol-table heap (above all code/BSS)
 
@@ -39,12 +39,12 @@ HEAP_START = $4000          ; symbol-table heap (above all code/BSS)
 .segment "ZEROPAGE"
 sp:         .res 2          ; C stack pointer
 _src_ptr:   .res 2          ; current read position in _test_src_buf
-_buf_ptr:   .res 2          ; destination buffer for _ed_read_line (scratch)
+_buf_ptr:   .res 2          ; destination buffer for ed_read_line (scratch)
 buf_base:   .res 2          ; mock: gap buffer base (for workend symbol)
 
 ; ── BSS ───────────────────────────────────────────────────────────────────────
 .segment "BSS"
-_c_stack:       .res 256    ; C stack space (grows down from _c_stack+256)
+_c_stack:       .res 256    ; parameter stack space (grows down from _c_stack+256)
 _src_done:      .res 1      ; non-zero = EOF
 _test_src_buf:  .res 2048   ; source lines NUL-separated, double-NUL = EOF
 
@@ -52,8 +52,8 @@ _test_src_buf:  .res 2048   ; source lines NUL-separated, double-NUL = EOF
 .segment "CODE"
 
 ; ── asm_src_test_entry ────────────────────────────────────────────────────────
-; Initialises C stack and source reader, calls _asm_assemble.
-; Returns A/X = error count (pass through from _asm_assemble).
+; Initialises C stack and source reader, calls asm_assemble.
+; Returns A/X = error count (pass through from asm_assemble).
 asm_src_test_entry:
         lda #<(_c_stack + 256)
         sta sp
@@ -65,11 +65,11 @@ asm_src_test_entry:
         sta _src_ptr+1
         lda #0
         sta _src_done
-        jsr _asm_assemble       ; A/X = error count
+        jsr asm_assemble       ; A/X = error count
         rts
 
 ; ── pushax ────────────────────────────────────────────────────────────────────
-; Push A/X (lo/hi) onto C stack.  sp -= 2; store lo at (sp), hi at (sp)+1.
+; Push A/X (lo/hi) onto parameter stack.  sp -= 2; store lo at (sp), hi at (sp)+1.
 ; Matches cse_popax which reads lo at (sp), hi at (sp)+1.
 pushax:
         pha                     ; save A (lo byte)
@@ -88,7 +88,7 @@ pushax:
         rts
 
 ; ── cse_popax ─────────────────────────────────────────────────────────────────
-; Pop 16-bit value from C stack → A (lo), X (hi).  sp += 2.
+; Pop 16-bit value from parameter stack → A (lo), X (hi).  sp += 2.
 cse_popax:
         ldy #0
         lda (sp),y              ; lo byte
@@ -105,8 +105,8 @@ cse_popax:
 :       pla                     ; lo → A
         rts
 
-; ── _ed_read_rewind ───────────────────────────────────────────────────────────
-_ed_read_rewind:
+; ── ed_read_rewind ───────────────────────────────────────────────────────────
+ed_read_rewind:
         lda #<_test_src_buf
         sta _src_ptr
         lda #>_test_src_buf
@@ -115,11 +115,11 @@ _ed_read_rewind:
         sta _src_done
         rts
 
-; ── _ed_read_line ─────────────────────────────────────────────────────────────
+; ── ed_read_line ─────────────────────────────────────────────────────────────
 ; int ed_read_line(char *buf, int maxlen)   [cc65 __cdecl__]
 ; On entry: A = maxlen (last arg, ignored), C stack = buf ptr (first arg).
 ; Returns: A/X = line length (≥0), or $FF/$FF = -1 on EOF.
-_ed_read_line:
+ed_read_line:
         pha                     ; save maxlen (unused)
         jsr cse_popax           ; A=buf_lo, X=buf_hi
         sta _buf_ptr
@@ -162,15 +162,15 @@ _ed_read_line:
         rts
 
 ; ── I/O no-ops ────────────────────────────────────────────────────────────────
-; _io_puts(A/X = string ptr), _io_putdec(A/X = value), _newline(): all no-ops.
-_io_puts:
-_io_putdec:
-_newline:
+; io_puts(A/X = string ptr), io_putdec(A/X = value), newline(): all no-ops.
+io_puts:
+io_putdec:
+newline:
         rts
 
-; ── _cse_end ──────────────────────────────────────────────────────────────────
-; Returns heap start address in A/X (used by _asm_assemble for sym table).
-_cse_end:
+; ── cse_end ──────────────────────────────────────────────────────────────────
+; Returns heap start address in A/X (used by asm_assemble for sym table).
+cse_end:
         lda #<HEAP_START
         ldx #>HEAP_START
         rts

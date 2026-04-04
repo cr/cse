@@ -58,7 +58,7 @@ def _parse_map():
     Returns (segments, module_offsets, exports) where:
       segments = {'CODE': start, 'BSS': start, ...}
       module_offsets = {'debugger.o': {'CODE': offs, 'BSS': offs}, ...}
-      exports = {'_dbg_init': addr, ...}
+      exports = {'dbg_init': addr, ...}
     """
     text = MAP.read_text()
     lines = text.splitlines()
@@ -114,12 +114,12 @@ def _parse_map():
 #   _dbg_bp_hit:    1 byte
 
 _BSS_OFFSETS = {
-    '_bp_table':    0,
-    '_step_bp':     32,
-    '_dbg_running': 40,
-    '_dbg_reason':  41,
-    '_brk_pc':      42,
-    '_dbg_bp_hit':  44,
+    'bp_table':    0,
+    'step_bp':     32,
+    'dbg_running': 40,
+    'dbg_reason':  41,
+    'brk_pc':      42,
+    'dbg_bp_hit':  44,
 }
 
 
@@ -135,11 +135,11 @@ class DbgSymbols:
 
         # BSS symbols: BSS start + debugger.o's BSS offset + field offset
         bss_base = segments['BSS'] + mod_offs['debugger.o']['BSS']
-        self.bp_table    = bss_base + _BSS_OFFSETS['_bp_table']
-        self.dbg_running = bss_base + _BSS_OFFSETS['_dbg_running']
-        self.dbg_reason  = bss_base + _BSS_OFFSETS['_dbg_reason']
-        self.brk_pc      = bss_base + _BSS_OFFSETS['_brk_pc']
-        self.dbg_bp_hit  = bss_base + _BSS_OFFSETS['_dbg_bp_hit']
+        self.bp_table    = bss_base + _BSS_OFFSETS['bp_table']
+        self.dbg_running = bss_base + _BSS_OFFSETS['dbg_running']
+        self.dbg_reason  = bss_base + _BSS_OFFSETS['dbg_reason']
+        self.brk_pc      = bss_base + _BSS_OFFSETS['brk_pc']
+        self.dbg_bp_hit  = bss_base + _BSS_OFFSETS['dbg_bp_hit']
 
         raw = BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]

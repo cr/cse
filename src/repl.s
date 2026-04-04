@@ -8,67 +8,67 @@
         .macpack longbranch
 
 ; ── Exports ────────────────────────────────────────────────
-        .export _exec_line, _read_line, _show_prompt
-        .export _cur_addr, _cur_device, _cur_filename
+        .export exec_line, read_line, show_prompt
+        .export cur_addr, cur_device, cur_filename
         ; test harness visibility
         .export line_buf, last_cmd, block_size
         .export pushax
 
 ; ── Imports: cse_io.s ──────────────────────────────────────
-        .import _io_putc, _io_puts
-        .import _io_puthex4, _io_puthex2, _io_putdec
-        .import _io_clear_eol
-        .import _io_getc, _io_kbhit
+        .import io_putc, io_puts
+        .import io_puthex4, io_puthex2, io_putdec
+        .import io_clear_eol
+        .import io_getc, io_kbhit
         .import scr_lo, scr_hi
 
 ; ── Imports: screen.s ──────────────────────────────────────
-        .import _newline, _restore_colors, _reset_screen
-        .import _theme_border, _theme_bg, _theme_fg
+        .import newline, restore_colors, reset_screen
+        .import theme_border, theme_bg, theme_fg
 
 ; hex_val, is_hex, hex_val_to_char are now local (below)
 
 ; ── Imports: assembler / disassembler ──────────────────────
-        .import _asm_line
-        .import _dasm_insn, _dasm_buf
-        .import _asm_assemble, _asm_org, _asm_size
+        .import asm_line
+        .import dasm_insn, dasm_buf
+        .import asm_assemble, asm_org, asm_size
 
 ; ── Imports: debugger ──────────────────────────────────────
-        .import _dbg_enter, _dbg_step_clear
-        .import _dbg_bp_set, _dbg_bp_del, _dbg_bp_clear
-        .import _dbg_bp_count
-        .import _bp_table, _step_bp
-        .import _dbg_reason, _dbg_bp_hit
-        .import _brk_pc
-        .import _reg_a, _reg_x, _reg_y, _reg_sp, _reg_p
+        .import dbg_enter, dbg_step_clear
+        .import dbg_bp_set, dbg_bp_del, dbg_bp_clear
+        .import dbg_bp_count
+        .import bp_table, step_bp
+        .import dbg_reason, dbg_bp_hit
+        .import brk_pc
+        .import reg_a, reg_x, reg_y, reg_sp, reg_p
 
 ; ── Imports: expression parser ─────────────────────────────
-        .import _expr_eval, _expr_error_str
+        .import expr_eval, expr_error_str
         .importzp expr_ptr, expr_val
 
 ; ── Imports: symbol table ──────────────────────────────────
-        .import _sym_lookup
+        .import sym_lookup
         .importzp sym_name, sym_val
 
 ;── Imports: disk I/O ──────────────────────────────────────
-        .import _floppy_status, _list_directory
-        .import _disk_load_prg, _disk_save_prg
+        .import floppy_status, list_directory
+        .import disk_load_prg, disk_save_prg
 
 ; ── Imports: editor ────────────────────────────────────────
-        .import _ed_save_source, _ed_load_source
-        .import _ed_save_bytes, _ed_save_lines
-        .import _tab_width, _ed_ensure_init, _ed_new
-        .import _ed_dirty
+        .import ed_save_source, ed_load_source
+        .import ed_save_bytes, ed_save_lines
+        .import tab_width, ed_ensure_init, ed_new
+        .import ed_dirty
 
 ; ── Imports: memory info ───────────────────────────────────
-        .import _cse_start, _cse_end, _cse_zp_end
-        .import _src_top, _src_bot
+        .import cse_start, cse_end, cse_zp_end
+        .import src_top, src_bot
 
 ; ── Imports: global state ──────────────────────────────────
-        .import _state
-        .importzp _al_cpu
+        .import state
+        .importzp al_cpu
 
-; ── Imports: cc65 ZP / runtime ─────────────────────────────
-        .importzp sp, ptr1, ptr2, tmp1, tmp2
+; ── Imports: runtime ZP ────────────────────────────────────
+        .importzp sp, rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
 
 ; ── Constants ──────────────────────────────────────────────
 SCREEN        = $0400
@@ -79,9 +79,9 @@ CUR_COL       = $D3
 CUR_ROW       = $D6
 
 ; ═══════════════════════════════════════════════════════════
-; ZP: ptr1 = q (parse pointer into line_buf or args)
-;     ptr2 = secondary pointer (output buffer, data src)
-;     tmp1, tmp2 = scratch bytes
+; ZP: rp_ptr = q (parse pointer into line_buf or args)
+;     rp_ptr2 = secondary pointer (output buffer, data src)
+;     rp_tmp, rp_tmp2 = scratch bytes
 ;
 ; BSS scratch:
 ;   rp_addr (2) — address argument (cur_addr copy for commands)
@@ -97,11 +97,11 @@ CUR_ROW       = $D6
 ; startup or by first use.  BSS is zeroed at boot.
 .segment "BSS"
 
-_cur_addr:      .res 2          ; current memory address (init by splash)
-_cur_device:    .res 1          ; floppy device number (init by main.s)
+cur_addr:      .res 2          ; current memory address (init by splash)
+cur_device:    .res 1          ; floppy device number (init by main.s)
 last_cmd:       .res 1          ; last command byte
 block_size:     .res 2          ; block size for I/O (init by main.s)
-_cur_filename:  .res FILENAME_MAX + 1  ; current filename
+cur_filename:  .res FILENAME_MAX + 1  ; current filename
 
 line_buf:       .res 42
 dot_asm_buf:    .res 24
@@ -228,8 +228,8 @@ INFO_TBL_TAIL_ROWS = (* - info_tbl_tail) / 8
 .segment "CODE"
 
 ; ═══════════════════════════════════════════════════════════
-; pushax — push A/X onto cc65 C stack
-;   Used to pass first arg to __fastcall__ 2-arg functions
+; pushax — push A/X onto parameter stack
+;   Used to pass first arg to 2-arg functions
 ; ═══════════════════════════════════════════════════════════
 .proc pushax
         ldy sp
@@ -249,8 +249,8 @@ INFO_TBL_TAIL_ROWS = (* - info_tbl_tail) / 8
 
 ; nl_clear — newline + clear_eol
 nl_clear:
-        jsr _newline
-        jmp _io_clear_eol
+        jsr newline
+        jmp io_clear_eol
 
 ; ───────────────────────────────────────────────────────────
 ; io_addr_cmd — print "XXXX:C" at column 0
@@ -262,11 +262,11 @@ io_addr_cmd:
         sta CUR_COL
         lda rp_addr
         ldx rp_addr+1
-        jsr _io_puthex4
+        jsr io_puthex4
         lda #':'
-        jsr _io_putc
+        jsr io_putc
         pla
-        jmp _io_putc
+        jmp io_putc
 
 ; ───────────────────────────────────────────────────────────
 ; err_msg — newline + print string + clear_eol
@@ -276,12 +276,12 @@ err_msg:
         pha
         txa
         pha
-        jsr _newline
+        jsr newline
         pla
         tax
         pla
-        jsr _io_puts
-        jmp _io_clear_eol
+        jsr io_puts
+        jmp io_clear_eol
 
 ; ───────────────────────────────────────────────────────────
 ; check_unsaved — if ed_dirty, prompt ";unsaved. y/n? "
@@ -289,32 +289,32 @@ err_msg:
 ;            C=0 cancel (user said no)
 ; ───────────────────────────────────────────────────────────
 check_unsaved:
-        lda _ed_dirty
+        lda ed_dirty
         beq @ok                 ; not dirty → proceed
-        jsr _newline
+        jsr newline
         lda #<str_unsaved
         ldx #>str_unsaved
-        jsr _io_puts
-        jsr _io_getc
+        jsr io_puts
+        jsr io_getc
         cmp #'y'
         beq @ok
-        jsr _io_clear_eol
+        jsr io_clear_eol
         clc                     ; cancel
         rts
 @ok:    sec                     ; proceed
         rts
 
 ; ───────────────────────────────────────────────────────────
-; skip_sp_ptr1 — skip spaces at (ptr1), advancing ptr1
+; skip_sp_ptr1 — skip spaces at (rp_ptr), advancing rp_ptr
 ; ───────────────────────────────────────────────────────────
 skip_sp_ptr1:
         ldy #0
-@lp:    lda (ptr1),y
+@lp:    lda (rp_ptr),y
         cmp #' '
         bne @done
-        inc ptr1
+        inc rp_ptr
         bne @lp
-        inc ptr1+1
+        inc rp_ptr+1
         bne @lp
 @done:  rts
 
@@ -372,87 +372,87 @@ _hex_val_to_char:
         rts
 
 ; ───────────────────────────────────────────────────────────
-; is_hex_at_ptr1 — test if byte at (ptr1)+Y is hex
+; is_hex_at_ptr1 — test if byte at (rp_ptr)+Y is hex
 ;   Returns: Z=0 if hex, Z=1 if not. Preserves Y.
 ; ───────────────────────────────────────────────────────────
 is_hex_at_ptr1:
-        lda (ptr1),y
+        lda (rp_ptr),y
         jmp _is_hex             ; tail call; Z flag set on return
 
 ; ───────────────────────────────────────────────────────────
-; hex_val_at_ptr1 — get hex value of byte at (ptr1)+Y
+; hex_val_at_ptr1 — get hex value of byte at (rp_ptr)+Y
 ;   Returns nibble in A (0-15). Preserves Y.
 ; ───────────────────────────────────────────────────────────
 hex_val_at_ptr1:
-        lda (ptr1),y
+        lda (rp_ptr),y
         jmp _hex_val
 
 ; ───────────────────────────────────────────────────────────
-; parse_hex2_ptr1 — parse 2 hex digits at ptr1, advance ptr1
+; parse_hex2_ptr1 — parse 2 hex digits at rp_ptr, advance rp_ptr
 ;   Returns byte in A.
 ; ───────────────────────────────────────────────────────────
 parse_hex2_ptr1:
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         jsr _hex_val
         asl
         asl
         asl
         asl
-        sta tmp1
+        sta rp_tmp
         ldy #1
-        lda (ptr1),y
+        lda (rp_ptr),y
         jsr _hex_val
-        ora tmp1
+        ora rp_tmp
         pha
-        lda ptr1
+        lda rp_ptr
         clc
         adc #2
-        sta ptr1
+        sta rp_ptr
         bcc :+
-        inc ptr1+1
+        inc rp_ptr+1
 :       pla
         rts
 
 ; ───────────────────────────────────────────────────────────
-; parse_hex4_ptr1 — parse 4 hex digits at ptr1, advance ptr1
+; parse_hex4_ptr1 — parse 4 hex digits at rp_ptr, advance rp_ptr
 ;   Returns value in A (lo) / X (hi).
 ; ───────────────────────────────────────────────────────────
 parse_hex4_ptr1:
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         jsr _hex_val
         asl
         asl
         asl
         asl
-        sta tmp2                ; hi nibble of high byte
+        sta rp_tmp2                ; hi nibble of high byte
         ldy #1
-        lda (ptr1),y
+        lda (rp_ptr),y
         jsr _hex_val
-        ora tmp2
-        sta tmp2                ; high byte complete
+        ora rp_tmp2
+        sta rp_tmp2                ; high byte complete
         ldy #2
-        lda (ptr1),y
+        lda (rp_ptr),y
         jsr _hex_val
         asl
         asl
         asl
         asl
-        sta tmp1
+        sta rp_tmp
         ldy #3
-        lda (ptr1),y
+        lda (rp_ptr),y
         jsr _hex_val
-        ora tmp1                ; A = lo byte
+        ora rp_tmp                ; A = lo byte
         pha
-        lda ptr1
+        lda rp_ptr
         clc
         adc #4
-        sta ptr1
+        sta rp_ptr
         bcc :+
-        inc ptr1+1
+        inc rp_ptr+1
 :       pla                     ; A = lo
-        ldx tmp2                ; X = hi
+        ldx rp_tmp2                ; X = hi
         rts
 
 ; ═══════════════════════════════════════════════════════════
@@ -481,18 +481,18 @@ parse_hex4_ptr1:
         bne @emit
         cpx #4
         beq @force
-        stx tmp1
+        stx rp_tmp
         lda #' '
-        jsr _io_putc
-        ldx tmp1
+        jsr io_putc
+        ldx rp_tmp
         inx
         bne @digit
 @force: lda #0
 @emit:  clc
         adc #'0'
-        stx tmp1
-        jsr _io_putc
-        ldx tmp1
+        stx rp_tmp
+        jsr io_putc
+        ldx rp_tmp
         lda #1
         sta rp_save2
         inx
@@ -511,7 +511,7 @@ parse_hex4_ptr1:
         sta rp_save             ; output pos
         ldx #0                  ; digit index
 @digit: lda #0
-        sta tmp1                ; d
+        sta rp_tmp                ; d
 @sub:   lda rp_addr
         sec
         sbc dec_pow_lo,x
@@ -521,15 +521,15 @@ parse_hex4_ptr1:
         bcc @chk
         sta rp_addr+1
         sty rp_addr
-        inc tmp1
+        inc rp_tmp
         bne @sub
-@chk:   lda tmp1
+@chk:   lda rp_tmp
         bne @emit
         lda rp_save2
         bne @emit
         cpx #4
         bne @next
-@emit:  lda tmp1
+@emit:  lda rp_tmp
         clc
         adc #'0'
         ldy rp_save
@@ -550,42 +550,42 @@ parse_hex4_ptr1:
 
 
 ; ═══════════════════════════════════════════════════════════
-; try_expr — evaluate expression at ptr1
-;   C=1: success (result in expr_val, ptr1 advanced)
+; try_expr — evaluate expression at rp_ptr
+;   C=1: success (result in expr_val, rp_ptr advanced)
 ;   C=0: empty or error (error printed)
 ; ═══════════════════════════════════════════════════════════
 .proc try_expr
         jsr skip_sp_ptr1
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         beq @empty
         cmp #';'
         beq @empty
-        ; set expr_ptr = ptr1
-        lda ptr1
+        ; set expr_ptr = rp_ptr
+        lda rp_ptr
         sta expr_ptr
-        lda ptr1+1
+        lda rp_ptr+1
         sta expr_ptr+1
-        jsr _expr_eval
-        ; reload ptr1
+        jsr expr_eval
+        ; reload rp_ptr
         pha
         lda expr_ptr
-        sta ptr1
+        sta rp_ptr
         lda expr_ptr+1
-        sta ptr1+1
+        sta rp_ptr+1
         pla
         cmp #2
         bcs @error
         sec
         rts
 @error:
-        jsr _newline
+        jsr newline
         lda #<str_err_expr
         ldx #>str_err_expr
-        jsr _io_puts
-        jsr _expr_error_str
-        jsr _io_puts
-        jsr _io_clear_eol
+        jsr io_puts
+        jsr expr_error_str
+        jsr io_puts
+        jsr io_clear_eol
         clc
         rts
 @empty: clc
@@ -593,17 +593,17 @@ parse_hex4_ptr1:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; _read_line — read screen row at io_cy into line_buf
+; read_line — read screen row at io_cy into line_buf
 ; ═══════════════════════════════════════════════════════════
-.proc _read_line
+.proc read_line
         ldx CUR_ROW
         lda scr_lo,x
-        sta ptr1
+        sta rp_ptr
         lda scr_hi,x
-        sta ptr1+1
+        sta rp_ptr+1
 
         ldy #0
-@loop:  lda (ptr1),y
+@loop:  lda (rp_ptr),y
         and #$7F
         cmp #$20
         bcc @lower
@@ -637,21 +637,21 @@ parse_hex4_ptr1:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; _show_prompt — print "AAAA:" at cursor
+; show_prompt — print "AAAA:" at cursor
 ; ═══════════════════════════════════════════════════════════
-.proc _show_prompt
+.proc show_prompt
         lda #0
         sta CUR_COL
-        lda _cur_addr
-        ldx _cur_addr+1
-        jsr _io_puthex4
+        lda cur_addr
+        ldx cur_addr+1
+        jsr io_puthex4
         lda #':'
-        jmp _io_putc
+        jmp io_putc
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; emit_hex_cols — print hex columns
-;   ptr2 = src, rp_save = count, rp_save2 = max
+;   rp_ptr2 = src, rp_save = count, rp_save2 = max
 ; ═══════════════════════════════════════════════════════════
 .proc emit_hex_cols
         ldy #0
@@ -660,20 +660,20 @@ parse_hex4_ptr1:
         cpy rp_save
         bcs @pad
         lda #' '
-        sty tmp1
-        jsr _io_putc
-        ldy tmp1
-        lda (ptr2),y
-        sty tmp1
-        jsr _io_puthex2
-        ldy tmp1
+        sty rp_tmp
+        jsr io_putc
+        ldy rp_tmp
+        lda (rp_ptr2),y
+        sty rp_tmp
+        jsr io_puthex2
+        ldy rp_tmp
         iny
         bne @loop
 @pad:   lda #<str_3sp
         ldx #>str_3sp
-        sty tmp1
-        jsr _io_puts
-        ldy tmp1
+        sty rp_tmp
+        jsr io_puts
+        ldy rp_tmp
         iny
         bne @loop
 @done:  rts
@@ -686,19 +686,19 @@ parse_hex4_ptr1:
 .proc emit_dot
         lda rp_addr
         ldx rp_addr+1
-        jsr _dasm_insn
+        jsr dasm_insn
         pha                     ; save olen
 
         lda #'.'
         jsr io_addr_cmd
         lda #' '
-        jsr _io_putc
+        jsr io_putc
 
         ; emit_hex_cols(addr, olen, 3)
         lda rp_addr
-        sta ptr2
+        sta rp_ptr2
         lda rp_addr+1
-        sta ptr2+1
+        sta rp_ptr2+1
         pla                     ; olen
         pha
         sta rp_save             ; count
@@ -708,11 +708,11 @@ parse_hex4_ptr1:
 
         lda #<str_2sp
         ldx #>str_2sp
-        jsr _io_puts
-        lda #<_dasm_buf
-        ldx #>_dasm_buf
-        jsr _io_puts
-        jsr _io_clear_eol
+        jsr io_puts
+        lda #<dasm_buf
+        ldx #>dasm_buf
+        jsr io_puts
+        jsr io_clear_eol
 
         pla                     ; return olen
         rts
@@ -735,9 +735,9 @@ parse_hex4_ptr1:
         jsr io_addr_cmd
 
         lda rp_addr
-        sta ptr2
+        sta rp_ptr2
         lda rp_addr+1
-        sta ptr2+1
+        sta rp_ptr2+1
         lda rp_opc
         sta rp_save
         lda #8
@@ -745,24 +745,24 @@ parse_hex4_ptr1:
         jsr emit_hex_cols
 
         lda #' '
-        jsr _io_putc
+        jsr io_putc
 
         ldy #0
 @asc:   cpy rp_opc
         bcs @adone
-        lda (ptr2),y
+        lda (rp_ptr2),y
         cmp #$20
         bcc @dot
         cmp #$7F
         bcs @dot
         bcc @aput
 @dot:   lda #'.'
-@aput:  sty tmp1
-        jsr _io_putc
-        ldy tmp1
+@aput:  sty rp_tmp
+        jsr io_putc
+        ldy rp_tmp
         iny
         bne @asc
-@adone: jmp _io_clear_eol
+@adone: jmp io_clear_eol
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -773,48 +773,48 @@ parse_hex4_ptr1:
         sta CUR_COL
         lda #<str_r_pc
         ldx #>str_r_pc
-        jsr _io_puts
-        lda _brk_pc
-        ldx _brk_pc+1
-        jsr _io_puthex4
+        jsr io_puts
+        lda brk_pc
+        ldx brk_pc+1
+        jsr io_puthex4
         lda #<str_a
         ldx #>str_a
-        jsr _io_puts
-        lda _reg_a
-        jsr _io_puthex2
+        jsr io_puts
+        lda reg_a
+        jsr io_puthex2
         lda #<str_x
         ldx #>str_x
-        jsr _io_puts
-        lda _reg_x
-        jsr _io_puthex2
+        jsr io_puts
+        lda reg_x
+        jsr io_puthex2
         lda #<str_y
         ldx #>str_y
-        jsr _io_puts
-        lda _reg_y
-        jsr _io_puthex2
+        jsr io_puts
+        lda reg_y
+        jsr io_puthex2
         lda #<str_s
         ldx #>str_s
-        jsr _io_puts
-        lda _reg_sp
-        jsr _io_puthex2
+        jsr io_puts
+        lda reg_sp
+        jsr io_puthex2
         lda #' '
-        jsr _io_putc
+        jsr io_putc
 
-        lda _reg_p
-        sta tmp2
+        lda reg_p
+        sta rp_tmp2
         ldx #0
-@fl:    asl tmp2
+@fl:    asl rp_tmp2
         bcs @set
         lda #'.'
         bne @fp
 @set:   lda flag_ch,x
-@fp:    stx tmp1
-        jsr _io_putc
-        ldx tmp1
+@fp:    stx rp_tmp
+        jsr io_putc
+        ldx rp_tmp
         inx
         cpx #8
         bcc @fl
-        jmp _io_clear_eol
+        jmp io_clear_eol
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -827,56 +827,56 @@ parse_hex4_ptr1:
 ; Always: restore_colors, register dump, disassembly at brk_pc.
 ; ═══════════════════════════════════════════════════════════
 .proc show_break_result
-        jsr _restore_colors
+        jsr restore_colors
 
-        lda _dbg_reason
+        lda dbg_reason
         cmp #1
         beq @brk
         cmp #2
         beq @nmi
         jmp @regs                ; normal completion — skip status line
 
-@brk:   jsr _newline
+@brk:   jsr newline
         lda #<str_brk
         ldx #>str_brk
-        jsr _io_puts
-        lda _dbg_bp_hit
+        jsr io_puts
+        lda dbg_bp_hit
         cmp #$FF
         beq @brk_at
         lda #' '
-        jsr _io_putc
-        lda _dbg_bp_hit
+        jsr io_putc
+        lda dbg_bp_hit
         clc
         adc #'1'
-        jsr _io_putc
+        jsr io_putc
 @brk_at:
         lda #<str_at
         ldx #>str_at
-        jsr _io_puts
-        lda _brk_pc
-        ldx _brk_pc+1
-        jsr _io_puthex4
-        jsr _io_clear_eol
+        jsr io_puts
+        lda brk_pc
+        ldx brk_pc+1
+        jsr io_puthex4
+        jsr io_clear_eol
         jmp @regs
 
-@nmi:   jsr _newline
+@nmi:   jsr newline
         lda #<str_nmi
         ldx #>str_nmi
-        jsr _io_puts
-        lda _brk_pc
-        ldx _brk_pc+1
-        jsr _io_puthex4
-        jsr _io_clear_eol
+        jsr io_puts
+        lda brk_pc
+        ldx brk_pc+1
+        jsr io_puthex4
+        jsr io_clear_eol
 
 @regs:  ; register dump + disassembly at brk_pc
-        jsr _newline
+        jsr newline
         jsr emit_reg
-        jsr _newline
-        lda _brk_pc
-        sta _cur_addr
+        jsr newline
+        lda brk_pc
+        sta cur_addr
         sta rp_addr
-        lda _brk_pc+1
-        sta _cur_addr+1
+        lda brk_pc+1
+        sta cur_addr+1
         sta rp_addr+1
         jsr emit_dot
         jmp nl_clear
@@ -884,17 +884,17 @@ parse_hex4_ptr1:
 
 ; ═══════════════════════════════════════════════════════════
 ; dot_assemble — assemble with expression support
-;   rp_addr = address, ptr1 = text. Returns nbytes in A.
+;   rp_addr = address, rp_ptr = text. Returns nbytes in A.
 ; ═══════════════════════════════════════════════════════════
 .proc dot_assemble
         lda #<dot_asm_buf
-        sta ptr2
+        sta rp_ptr2
         lda #>dot_asm_buf
-        sta ptr2+1
+        sta rp_ptr2+1
 
         ; Copy mnemonic (a-z)
         ldy #0
-@mne:   lda (ptr1),y
+@mne:   lda (rp_ptr),y
         cmp #'a'
         bcc @md
         cmp #'z'+1
@@ -906,18 +906,18 @@ parse_hex4_ptr1:
         bne @mne
 @md:    sty rp_save             ; buf write pos
 
-        ; advance ptr1 past mnemonic
+        ; advance rp_ptr past mnemonic
         tya
         clc
-        adc ptr1
-        sta ptr1
+        adc rp_ptr
+        sta rp_ptr
         bcc :+
-        inc ptr1+1
+        inc rp_ptr+1
 :
         jsr skip_sp_ptr1
 
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         jeq @implied
         cmp #';'
         jeq @implied
@@ -931,44 +931,44 @@ parse_hex4_ptr1:
 
         ; prefix: # and/or (
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #'#'
         bne @noh
         ldy rp_save
         sta dot_asm_buf,y
         iny
         sty rp_save
-        inc ptr1
+        inc rp_ptr
         bne :+
-        inc ptr1+1
+        inc rp_ptr+1
 :       jsr skip_sp_ptr1
 @noh:   ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #'('
         bne @nop
         ldy rp_save
         sta dot_asm_buf,y
         iny
         sty rp_save
-        inc ptr1
+        inc rp_ptr
         bne :+
-        inc ptr1+1
+        inc rp_ptr+1
 :       jsr skip_sp_ptr1
 @nop:
         ; evaluate expression
-        lda ptr1
+        lda rp_ptr
         sta expr_ptr
-        lda ptr1+1
+        lda rp_ptr+1
         sta expr_ptr+1
-        jsr _expr_eval
+        jsr expr_eval
         cmp #2
         jcs @err
         pha                     ; save rc (0=ZP, 1=ABS)
 
         lda expr_ptr
-        sta ptr1
+        sta rp_ptr
         lda expr_ptr+1
-        sta ptr1+1
+        sta rp_ptr+1
 
         ; append '$'
         ldy rp_save
@@ -1018,7 +1018,7 @@ parse_hex4_ptr1:
         ; copy suffix
         jsr skip_sp_ptr1
 @sfx:   ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         beq @done
         cmp #';'
         beq @done
@@ -1028,9 +1028,9 @@ parse_hex4_ptr1:
         sta dot_asm_buf,y
         iny
         sty rp_save
-        inc ptr1
+        inc rp_ptr
         bne @sfx
-        inc ptr1+1
+        inc rp_ptr+1
         bne @sfx
 
 @done:  ; NUL-terminate and call asm_line
@@ -1045,13 +1045,13 @@ parse_hex4_ptr1:
         sta dot_asm_buf,y
 
 @call_asm:
-        ; asm_line(addr, buf) — __fastcall__: push addr, buf in A/X
+        ; asm_line(addr, buf) — push addr, buf in A/X
         lda rp_addr
         ldx rp_addr+1
         jsr pushax
         lda #<dot_asm_buf
         ldx #>dot_asm_buf
-        jmp _asm_line
+        jmp asm_line
 
 @err:   lda #0
         rts
@@ -1059,12 +1059,12 @@ parse_hex4_ptr1:
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_dot — '.' command: hex edit / assemble / disassemble
-;   ptr1 = args
+;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_dot
-        lda _cur_addr
+        lda cur_addr
         sta rp_addr
-        lda _cur_addr+1
+        lda cur_addr+1
         sta rp_addr+1
 
         jsr skip_sp_ptr1
@@ -1083,9 +1083,9 @@ parse_hex4_ptr1:
         ldy #1
         jsr is_hex_at_ptr1
         beq @hex_done
-        ; check ptr1[2] is space/NUL/;
+        ; check rp_ptr[2] is space/NUL/;
         ldy #2
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #' '
         beq @parse_b
         cmp #0
@@ -1111,17 +1111,17 @@ parse_hex4_ptr1:
 @cmp:   cpy rp_cnt
         bcs @cmp_done
         ; read mem at rp_addr+Y
-        sty tmp1
+        sty rp_tmp
         tya
         clc
         adc rp_addr
-        sta ptr2
+        sta rp_ptr2
         lda #0
         adc rp_addr+1
-        sta ptr2+1
+        sta rp_ptr2+1
         ldy #0
-        lda (ptr2),y
-        ldy tmp1
+        lda (rp_ptr2),y
+        ldy rp_tmp
         cmp rp_hexbuf,y
         beq @cmatch
         lda #1
@@ -1138,20 +1138,20 @@ parse_hex4_ptr1:
         ldy #0
 @write: cpy rp_cnt
         bcs @show
-        sty tmp1
+        sty rp_tmp
         lda rp_hexbuf,y
         pha
         tya
         clc
         adc rp_addr
-        sta ptr2
+        sta rp_ptr2
         lda #0
         adc rp_addr+1
-        sta ptr2+1
+        sta rp_ptr2+1
         pla
         ldy #0
-        sta (ptr2),y
-        ldy tmp1
+        sta (rp_ptr2),y
+        ldy rp_tmp
         iny
         bne @write
 
@@ -1160,22 +1160,22 @@ parse_hex4_ptr1:
         jsr emit_dot
         clc
         adc rp_addr
-        sta _cur_addr
+        sta cur_addr
         lda #0
         adc rp_addr+1
-        sta _cur_addr+1
-        jsr _newline
+        sta cur_addr+1
+        jsr newline
         lda rp_cnt
         bne @ret                ; nbytes > 0 → don't clear
-        jmp _io_clear_eol
+        jmp io_clear_eol
 @ret:   rts
 
 @try_asm_mne:
 @try_mne:
-        ; Try mnemonic assembly if (ptr1) starts with a-z
+        ; Try mnemonic assembly if (rp_ptr) starts with a-z
         jsr skip_sp_ptr1
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #'a'
         bcc @show               ; no mnemonic → just show
         cmp #'z'+1
@@ -1191,12 +1191,12 @@ parse_hex4_ptr1:
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_disasm — 'd' command
-;   ptr1 = args (ignored)
+;   rp_ptr = args (ignored)
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_disasm
-        lda _cur_addr
+        lda cur_addr
         sta rp_addr
-        lda _cur_addr+1
+        lda cur_addr+1
         sta rp_addr+1
 
         ; end = addr + block_size
@@ -1229,27 +1229,27 @@ parse_hex4_ptr1:
         sta rp_addr
         bcc :+
         inc rp_addr+1
-:       jsr _newline
+:       jsr newline
         ; if addr wrapped to 0, break
         lda rp_addr
         ora rp_addr+1
         bne @loop
 
 @done:  lda rp_addr
-        sta _cur_addr
+        sta cur_addr
         lda rp_addr+1
-        sta _cur_addr+1
-        jmp _io_clear_eol
+        sta cur_addr+1
+        jmp io_clear_eol
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_mem — 'm' command: memory dump / edit
-;   ptr1 = args
+;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_mem
-        lda _cur_addr
+        lda cur_addr
         sta rp_addr
-        lda _cur_addr+1
+        lda cur_addr+1
         sta rp_addr+1
 
         jsr skip_sp_ptr1
@@ -1269,7 +1269,7 @@ parse_hex4_ptr1:
         beq @no_addr
         ; check q[4] is space/NUL/;
         ldy #4
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #' '
         beq @addr_ok
         cmp #0
@@ -1292,7 +1292,7 @@ parse_hex4_ptr1:
         jsr is_hex_at_ptr1
         beq @dump
         ldy #2
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #' '
         beq @edit
         cmp #0
@@ -1319,15 +1319,15 @@ parse_hex4_ptr1:
         lda rp_cnt
         clc
         adc rp_addr
-        sta ptr2
+        sta rp_ptr2
         lda #0
         adc rp_addr+1
-        sta ptr2+1
+        sta rp_ptr2+1
         pla
         ldy #0
-        cmp (ptr2),y
+        cmp (rp_ptr2),y
         beq @same
-        sta (ptr2),y
+        sta (rp_ptr2),y
 @same:  inc rp_cnt
         jsr skip_sp_ptr1
         jmp @ed_lp
@@ -1340,18 +1340,18 @@ parse_hex4_ptr1:
         lda rp_cnt
         clc
         adc rp_addr
-        sta _cur_addr
+        sta cur_addr
         lda #0
         adc rp_addr+1
-        sta _cur_addr+1
+        sta cur_addr+1
         ; check wrap
         bcs @wrap_ed
         jmp @ed_nl
 @wrap_ed:
         lda #0
-        sta _cur_addr
-        sta _cur_addr+1
-@ed_nl: jmp _newline
+        sta cur_addr
+        sta cur_addr+1
+@ed_nl: jmp newline
 
 @dump:  ; Dump block_size bytes in 8-col rows
         lda block_size
@@ -1386,7 +1386,7 @@ parse_hex4_ptr1:
         sta rp_cnt
         bcs :+
         dec rp_cnt+1
-:       jsr _newline
+:       jsr newline
         ; check addr wrap (addr < cols means wrapped)
         lda rp_addr
         cmp rp_save
@@ -1397,28 +1397,28 @@ parse_hex4_ptr1:
 
 @d_done:
         lda rp_addr
-        sta _cur_addr
+        sta cur_addr
         lda rp_addr+1
-        sta _cur_addr+1
-        jmp _io_clear_eol
+        sta cur_addr+1
+        jmp io_clear_eol
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_jmp — 'j' command helper (cur_addr already set)
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_jmp
-        lda _cur_addr
-        sta _brk_pc
-        lda _cur_addr+1
-        sta _brk_pc+1
+        lda cur_addr
+        sta brk_pc
+        lda cur_addr+1
+        sta brk_pc+1
 
         ; Always use dbg_enter — enables NMI break even without bps.
         ; When no breakpoints, patch_all/unpatch_all are no-ops.
-        jsr _dbg_enter
-        lda _dbg_reason
+        jsr dbg_enter
+        lda dbg_reason
         bne @j_broke
         ; program completed via RTS — no break context
-        jsr _restore_colors
+        jsr restore_colors
         jmp nl_clear
 @j_broke:
         jmp show_break_result
@@ -1426,20 +1426,20 @@ parse_hex4_ptr1:
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_step — 't'/'o' command
-;   ptr1 = args, A = is_next (0=step into, 1=step over)
+;   rp_ptr = args, A = is_next (0=step into, 1=step over)
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_step
         sta rp_save2            ; is_next
 
         ; Cold start check
-        lda _dbg_reason
+        lda dbg_reason
         bne @has_ctx
-        lda _cur_addr
-        sta _brk_pc
-        lda _cur_addr+1
-        sta _brk_pc+1
+        lda cur_addr
+        sta brk_pc
+        lda cur_addr+1
+        sta brk_pc+1
         lda #1
-        sta _dbg_reason
+        sta dbg_reason
 @has_ctx:
 
         ; Parse count via try_expr; empty → use block_size
@@ -1469,7 +1469,7 @@ parse_hex4_ptr1:
         ; immediately re-triggering the bp.
         lda #$FF
         sta rp_dis_bp           ; $FF = no bp disabled
-        lda _dbg_bp_hit
+        lda dbg_bp_hit
         cmp #$FF
         beq @loop               ; no bp hit → nothing to disable
         asl
@@ -1477,7 +1477,7 @@ parse_hex4_ptr1:
         tax
         stx rp_dis_bp           ; remember slot offset
         lda #0
-        sta _bp_table+3,x       ; clear enabled flag
+        sta bp_table+3,x       ; clear enabled flag
 
         ; for i = 0; i < count; i++
 @loop:  lda rp_cnt
@@ -1485,12 +1485,12 @@ parse_hex4_ptr1:
         jeq @normal_end
 
         ; opc = *(brk_pc)
-        lda _brk_pc
-        sta ptr2
-        lda _brk_pc+1
-        sta ptr2+1
+        lda brk_pc
+        sta rp_ptr2
+        lda brk_pc+1
+        sta rp_ptr2+1
         ldy #0
-        lda (ptr2),y
+        lda (rp_ptr2),y
         sta rp_opc
 
         ; next_lo = next_hi = 0
@@ -1528,24 +1528,24 @@ parse_hex4_ptr1:
         ; JMP (abs,x) ($7C) — 65C02 only
         cmp #$7C
         bne @not_7c
-        lda _al_cpu
+        lda al_cpu
         cmp #2
         bcc @not_7c
         ; next_lo = *(*(brk_pc+1) + reg_x)
         ldy #1
-        lda (ptr2),y
+        lda (rp_ptr2),y
         clc
-        adc _reg_x
-        sta ptr1
+        adc reg_x
+        sta rp_ptr
         iny
-        lda (ptr2),y
+        lda (rp_ptr2),y
         adc #0
-        sta ptr1+1
+        sta rp_ptr+1
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         sta rp_next_lo
         iny
-        lda (ptr1),y
+        lda (rp_ptr),y
         sta rp_next_lo+1
         jmp @check_next
 
@@ -1554,26 +1554,26 @@ parse_hex4_ptr1:
         lda rp_opc
         cmp #$80
         bne @not_bra
-        lda _al_cpu
+        lda al_cpu
         cmp #2
         bcc @not_bra
         ; next_lo = brk_pc + 2 + (signed)*(brk_pc+1)
         ldy #1
-        lda (ptr2),y            ; signed relative
+        lda (rp_ptr2),y            ; signed relative
         bpl @bra_pos
         ; negative offset
         clc
-        adc _brk_pc
+        adc brk_pc
         sta rp_next_lo
-        lda _brk_pc+1
+        lda brk_pc+1
         adc #$FF                ; sign extend
         sta rp_next_lo+1
         jmp @bra_add2
 @bra_pos:
         clc
-        adc _brk_pc
+        adc brk_pc
         sta rp_next_lo
-        lda _brk_pc+1
+        lda brk_pc+1
         adc #0
         sta rp_next_lo+1
 @bra_add2:
@@ -1595,20 +1595,20 @@ parse_hex4_ptr1:
 
         ; Branch: taken = brk_pc + 2 + rel, not-taken = brk_pc + 2
         ldy #1
-        lda (ptr2),y            ; signed relative
+        lda (rp_ptr2),y            ; signed relative
         bpl @br_pos
         clc
-        adc _brk_pc
+        adc brk_pc
         sta rp_next_lo
-        lda _brk_pc+1
+        lda brk_pc+1
         adc #$FF
         sta rp_next_lo+1
         jmp @br_add2
 @br_pos:
         clc
-        adc _brk_pc
+        adc brk_pc
         sta rp_next_lo
-        lda _brk_pc+1
+        lda brk_pc+1
         adc #0
         sta rp_next_lo+1
 @br_add2:
@@ -1619,25 +1619,25 @@ parse_hex4_ptr1:
         bcc :+
         inc rp_next_lo+1
 :       ; not-taken = brk_pc + 2
-        lda _brk_pc
+        lda brk_pc
         clc
         adc #2
         sta rp_next_hi
-        lda _brk_pc+1
+        lda brk_pc+1
         adc #0
         sta rp_next_hi+1
         jmp @check_next
 
 @linear:
         ; Linear: next = brk_pc + dasm_insn(brk_pc)
-        lda _brk_pc
-        ldx _brk_pc+1
-        jsr _dasm_insn          ; returns len in A
+        lda brk_pc
+        ldx brk_pc+1
+        jsr dasm_insn          ; returns len in A
         clc
-        adc _brk_pc
+        adc brk_pc
         sta rp_next_lo
         lda #0
-        adc _brk_pc+1
+        adc brk_pc+1
         sta rp_next_lo+1
         jmp @check_next
 
@@ -1645,47 +1645,47 @@ parse_hex4_ptr1:
         lda rp_save2            ; is_next
         beq @jsr_into
         ; step over: next = brk_pc + 3
-        lda _brk_pc
+        lda brk_pc
         clc
         adc #3
         sta rp_next_lo
-        lda _brk_pc+1
+        lda brk_pc+1
         adc #0
         sta rp_next_lo+1
         jmp @check_next
 @jsr_into:
         ; step into: next = *(brk_pc+1)
         ldy #1
-        lda (ptr2),y
+        lda (rp_ptr2),y
         sta rp_next_lo
         iny
-        lda (ptr2),y
+        lda (rp_ptr2),y
         sta rp_next_lo+1
         jmp @check_next
 
 @jmp_abs:
         ; JMP abs: next = *(brk_pc+1)
         ldy #1
-        lda (ptr2),y
+        lda (rp_ptr2),y
         sta rp_next_lo
         iny
-        lda (ptr2),y
+        lda (rp_ptr2),y
         sta rp_next_lo+1
         jmp @check_next
 
 @jmp_ind:
         ; JMP (ind): next = **(brk_pc+1)
         ldy #1
-        lda (ptr2),y
-        sta ptr1
+        lda (rp_ptr2),y
+        sta rp_ptr
         iny
-        lda (ptr2),y
-        sta ptr1+1
+        lda (rp_ptr2),y
+        sta rp_ptr+1
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         sta rp_next_lo
         iny
-        lda (ptr1),y
+        lda (rp_ptr),y
         sta rp_next_lo+1
         jmp @check_next
 
@@ -1699,37 +1699,37 @@ parse_hex4_ptr1:
         beq @normal_end
 
         ; Arm step BRKs
-        jsr _dbg_step_clear
+        jsr dbg_step_clear
         lda rp_next_lo
-        sta _step_bp
+        sta step_bp
         lda rp_next_lo+1
-        sta _step_bp+1
+        sta step_bp+1
         lda #0
-        sta _step_bp+2          ; saved byte (cleared)
+        sta step_bp+2          ; saved byte (cleared)
         lda #1
-        sta _step_bp+3          ; enabled
+        sta step_bp+3          ; enabled
 
         ; second target if present
         lda rp_next_hi
         ora rp_next_hi+1
         beq @enter
         lda rp_next_hi
-        sta _step_bp+4
+        sta step_bp+4
         lda rp_next_hi+1
-        sta _step_bp+5
+        sta step_bp+5
         lda #0
-        sta _step_bp+6
+        sta step_bp+6
         lda #1
-        sta _step_bp+7
+        sta step_bp+7
 
-@enter: jsr _dbg_enter
+@enter: jsr dbg_enter
 
         ; Check for NMI, breakpoint hit, or RTS completion
-        lda _dbg_reason
+        lda dbg_reason
         beq @normal_end         ; 0 = user code returned via RTS
         cmp #2
         beq @interrupted
-        lda _dbg_bp_hit
+        lda dbg_bp_hit
         cmp #$FF
         bne @interrupted
 
@@ -1743,12 +1743,12 @@ parse_hex4_ptr1:
         jmp @loop
 
 @interrupted:
-        jsr _dbg_step_clear
+        jsr dbg_step_clear
         jsr @re_enable_bp
         jmp show_break_result
 
 @normal_end:
-        jsr _dbg_step_clear
+        jsr dbg_step_clear
         jsr @re_enable_bp
         jsr show_break_result
         ; RTS/RTI: clear last_cmd so RETURN doesn't repeat
@@ -1769,80 +1769,80 @@ parse_hex4_ptr1:
         cpx #$FF
         beq @re_rts             ; nothing was disabled
         lda #1
-        sta _bp_table+3,x       ; restore enabled flag
+        sta bp_table+3,x       ; restore enabled flag
 @re_rts:
         rts
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_brk — 'b' command: breakpoints
-;   ptr1 = args
+;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_brk
         jsr skip_sp_ptr1
 
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         bne @not_empty
 
         ; b — list all breakpoints
-        jsr _newline
+        jsr newline
         ldx #0                  ; slot index
 @list:  cpx #8
         bcs @list_done
         stx rp_save
         lda #<bp_pfx
         ldx #>bp_pfx
-        jsr _io_puts
+        jsr io_puts
         ldx rp_save
         txa
         clc
         adc #'1'
-        jsr _io_putc
+        jsr io_putc
         lda #<str_colon_sp
         ldx #>str_colon_sp
-        jsr _io_puts
+        jsr io_puts
         ; bp_table[slot*4].addr
         ldx rp_save
         txa
         asl
         asl
         tay
-        lda _bp_table,y
+        lda bp_table,y
         sta rp_addr
-        lda _bp_table+1,y
+        lda bp_table+1,y
         sta rp_addr+1
         ora rp_addr
         beq @empty_slot
         lda #'$'
-        jsr _io_putc
+        jsr io_putc
         lda rp_addr
         ldx rp_addr+1
-        jsr _io_puthex4
+        jsr io_puthex4
         jmp @slot_done
 @empty_slot:
         lda #<str_dashes
         ldx #>str_dashes
-        jsr _io_puts
+        jsr io_puts
 @slot_done:
-        jsr _io_clear_eol
-        jsr _newline
+        jsr io_clear_eol
+        jsr newline
         ldx rp_save
         inx
         jmp @list
 @list_done:
-        jmp _io_clear_eol
+        jmp io_clear_eol
 
 @not_empty:
         cmp #'*'
         bne @not_star
         ; b * — delete all
-        jsr _dbg_bp_clear
-        jsr _newline
+        jsr dbg_bp_clear
+        jsr newline
         lda #<str_bp_clr
         ldx #>str_bp_clr
-        jsr _io_puts
-        jsr _io_clear_eol
+        jsr io_puts
+        jsr io_clear_eol
         jmp nl_clear
 
 @not_star:
@@ -1850,25 +1850,25 @@ parse_hex4_ptr1:
         bne @set_bp
         ; b -N — delete
         ldy #1
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #'1'
         bcc @bad_slot
         cmp #'9'
         bcs @bad_slot
         sec
         sbc #'1'
-        jsr _dbg_bp_del
-        jsr _newline
+        jsr dbg_bp_del
+        jsr newline
         lda #<bp_pfx
         ldx #>bp_pfx
-        jsr _io_puts
+        jsr io_puts
         ldy #1
-        lda (ptr1),y
-        jsr _io_putc
+        lda (rp_ptr),y
+        jsr io_putc
         lda #<str_deleted
         ldx #>str_deleted
-        jsr _io_puts
-        jsr _io_clear_eol
+        jsr io_puts
+        jsr io_clear_eol
         jmp nl_clear
 
 @bad_slot:
@@ -1884,35 +1884,35 @@ parse_hex4_ptr1:
         ; result in expr_val
         lda expr_val
         ldx expr_val+1
-        jsr _dbg_bp_set         ; returns slot in A ($FF=full)
+        jsr dbg_bp_set         ; returns slot in A ($FF=full)
         cmp #$FF
         beq @full
         ; success
         pha
-        jsr _newline
+        jsr newline
         lda #<bp_pfx
         ldx #>bp_pfx
-        jsr _io_puts
+        jsr io_puts
         pla
         clc
         adc #'1'
-        jsr _io_putc
+        jsr io_putc
         lda #<str_colon_sp
         ldx #>str_colon_sp
-        jsr _io_puts
+        jsr io_puts
         lda #'$'
-        jsr _io_putc
+        jsr io_putc
         lda expr_val
         ldx expr_val+1
-        jsr _io_puthex4
-        jsr _io_clear_eol
+        jsr io_puthex4
+        jsr io_clear_eol
         jmp nl_clear
 
-@full:  jsr _newline
+@full:  jsr newline
         lda #<str_bp_full
         ldx #>str_bp_full
-        jsr _io_puts
-        jsr _io_clear_eol
+        jsr io_puts
+        jsr io_clear_eol
         jmp nl_clear
 
 @err_b: lda #<str_err_b
@@ -1922,83 +1922,83 @@ parse_hex4_ptr1:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; parse_regval — skip 2 chars (label:), parse 2 hex at ptr1
-;   Advances ptr1 by 4. Returns byte in A.
+; parse_regval — skip 2 chars (label:), parse 2 hex at rp_ptr
+;   Advances rp_ptr by 4. Returns byte in A.
 ; ═══════════════════════════════════════════════════════════
 .proc parse_regval
-        lda ptr1
+        lda rp_ptr
         clc
         adc #2
-        sta ptr1
+        sta rp_ptr
         bcc :+
-        inc ptr1+1
+        inc rp_ptr+1
 :       jmp parse_hex2_ptr1
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_reg — 'r' command
-;   ptr1 = args
+;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_reg
         jsr skip_sp_ptr1
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         beq @show
 
         ; Parse: a:XX x:XX y:XX s:XX flags
         jsr parse_regval
-        sta _reg_a
+        sta reg_a
         jsr skip_sp_ptr1
         jsr parse_regval
-        sta _reg_x
+        sta reg_x
         jsr skip_sp_ptr1
         jsr parse_regval
-        sta _reg_y
+        sta reg_y
         jsr skip_sp_ptr1
         jsr parse_regval
-        sta _reg_sp
+        sta reg_sp
         jsr skip_sp_ptr1
 
         ; Parse flags: 8 chars, set bit if matches flag_ch[i]
         lda #0
-        sta tmp2                ; p accumulator
+        sta rp_tmp2                ; p accumulator
         ldx #0
 @pflag: cpx #8
         bcs @pflags_done
-        asl tmp2                ; shift left to make room
+        asl rp_tmp2                ; shift left to make room
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp flag_ch,x
         bne @pnot
-        lda tmp2
+        lda rp_tmp2
         ora #1
-        sta tmp2
-@pnot:  ; advance ptr1 if not NUL
+        sta rp_tmp2
+@pnot:  ; advance rp_ptr if not NUL
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         beq @pskip
-        inc ptr1
+        inc rp_ptr
         bne @pskip
-        inc ptr1+1
+        inc rp_ptr+1
 @pskip: inx
         jmp @pflag
 @pflags_done:
-        lda tmp2
-        sta _reg_p
+        lda rp_tmp2
+        sta reg_p
 
-@show:  jsr _newline
+@show:  jsr newline
         jsr emit_reg
         jmp nl_clear
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; is_seq_file — check if name ends with ",s" or ",S"
-;   ptr1 = name pointer. Returns A=1 if seq, A=0 if not.
+;   rp_ptr = name pointer. Returns A=1 if seq, A=0 if not.
 ; ═══════════════════════════════════════════════════════════
 .proc is_seq_file
         ; find length
         ldy #0
-@len:   lda (ptr1),y
+@len:   lda (rp_ptr),y
         beq @got_len
         iny
         bne @len
@@ -2007,14 +2007,14 @@ parse_hex4_ptr1:
         cpy #2
         bcc @no
         dey
-        lda (ptr1),y            ; last char
+        lda (rp_ptr),y            ; last char
         cmp #'s'
         beq @chk_comma
         cmp #$D3                ; PETSCII uppercase S
         bne @no
 @chk_comma:
         dey
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #','
         bne @no
         lda #1
@@ -2025,28 +2025,28 @@ parse_hex4_ptr1:
 
 ; ═══════════════════════════════════════════════════════════
 ; parse_filename — parse quoted or space-delimited name
-;   ptr1 = input. Returns: ptr2 = name, ptr1 advanced.
+;   rp_ptr = input. Returns: rp_ptr2 = name, rp_ptr advanced.
 ;   A=0 if no name (error). A=1 if name found.
 ; ═══════════════════════════════════════════════════════════
 .proc parse_filename
         jsr skip_sp_ptr1
 
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #$22                ; quote char
         bne @unquoted
 
         ; quoted: skip opening quote
-        inc ptr1
+        inc rp_ptr
         bne :+
-        inc ptr1+1
-:       lda ptr1
-        sta ptr2
-        lda ptr1+1
-        sta ptr2+1
+        inc rp_ptr+1
+:       lda rp_ptr
+        sta rp_ptr2
+        lda rp_ptr+1
+        sta rp_ptr2+1
         ; scan for closing quote or NUL
         ldy #0
-@qscan: lda (ptr1),y
+@qscan: lda (rp_ptr),y
         beq @qdone
         cmp #$22
         beq @qclose
@@ -2055,26 +2055,26 @@ parse_hex4_ptr1:
 @qclose:
         ; NUL-terminate in place: store 0 at closing quote
         lda #0
-        sta (ptr1),y
-        ; advance ptr1 past closing quote
+        sta (rp_ptr),y
+        ; advance rp_ptr past closing quote
         iny
         tya
         clc
-        adc ptr1
-        sta ptr1
+        adc rp_ptr
+        sta rp_ptr
         bcc @qdone
-        inc ptr1+1
+        inc rp_ptr+1
 @qdone: jsr skip_sp_ptr1
         jmp @check_empty
 
 @unquoted:
-        lda ptr1
-        sta ptr2
-        lda ptr1+1
-        sta ptr2+1
+        lda rp_ptr
+        sta rp_ptr2
+        lda rp_ptr+1
+        sta rp_ptr2+1
         ; scan for space or NUL
         ldy #0
-@uscan: lda (ptr1),y
+@uscan: lda (rp_ptr),y
         beq @udone
         cmp #' '
         beq @uclose
@@ -2083,29 +2083,29 @@ parse_hex4_ptr1:
 @uclose:
         ; NUL-terminate
         lda #0
-        sta (ptr1),y
+        sta (rp_ptr),y
         iny
         tya
         clc
-        adc ptr1
-        sta ptr1
+        adc rp_ptr
+        sta rp_ptr
         bcc :+
-        inc ptr1+1
+        inc rp_ptr+1
 :       jsr skip_sp_ptr1
         jmp @check_empty
 
-@udone: ; ptr1 already at NUL, which is fine
+@udone: ; rp_ptr already at NUL, which is fine
         tya
         clc
-        adc ptr1
-        sta ptr1
+        adc rp_ptr
+        sta rp_ptr
         bcc @check_empty
-        inc ptr1+1
+        inc rp_ptr+1
 
 @check_empty:
         ; check if name is empty
         ldy #0
-        lda (ptr2),y
+        lda (rp_ptr2),y
         beq @fail
         lda #1
         rts
@@ -2115,35 +2115,35 @@ parse_hex4_ptr1:
 
 ; ═══════════════════════════════════════════════════════════
 ; get_filename — parse and remember filename
-;   ptr1 = input. Returns: ptr2 = name, A=0 if no name.
-;   Copies to _cur_filename if new name found.
+;   rp_ptr = input. Returns: rp_ptr2 = name, A=0 if no name.
+;   Copies to cur_filename if new name found.
 ; ═══════════════════════════════════════════════════════════
 .proc get_filename
         jsr parse_filename
         bne @got_name
 
         ; no name in args — try cur_filename
-        lda _cur_filename
+        lda cur_filename
         beq @fail
-        lda #<_cur_filename
-        sta ptr2
-        lda #>_cur_filename
-        sta ptr2+1
+        lda #<cur_filename
+        sta rp_ptr2
+        lda #>cur_filename
+        sta rp_ptr2+1
         lda #1
         rts
 
 @got_name:
-        ; copy name to cur_filename (ptr2 = source)
+        ; copy name to cur_filename (rp_ptr2 = source)
         ldy #0
-@copy:  lda (ptr2),y
-        sta _cur_filename,y
+@copy:  lda (rp_ptr2),y
+        sta cur_filename,y
         beq @copy_done
         iny
         cpy #FILENAME_MAX
         bcc @copy
         ; max reached, NUL-terminate
         lda #0
-        sta _cur_filename,y
+        sta cur_filename,y
 @copy_done:
         lda #1
         rts
@@ -2154,88 +2154,88 @@ parse_hex4_ptr1:
 
 ; ═══════════════════════════════════════════════════════════
 ; io_quoted_name — print '; "name": '
-;   ptr2 = name
+;   rp_ptr2 = name
 ; ═══════════════════════════════════════════════════════════
 .proc io_quoted_name
         lda #<str_semi_q
         ldx #>str_semi_q
-        jsr _io_puts
-        lda ptr2
-        ldx ptr2+1
-        jsr _io_puts
+        jsr io_puts
+        lda rp_ptr2
+        ldx rp_ptr2+1
+        jsr io_puts
         lda #<str_qcolon
         ldx #>str_qcolon
-        jmp _io_puts
+        jmp io_puts
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; print_seq_stats — print "name: N lines, M bytes"
-;   ptr2 = name
+;   rp_ptr2 = name
 ; ═══════════════════════════════════════════════════════════
 .proc print_seq_stats
         jsr io_quoted_name
-        lda _ed_save_lines
-        ldx _ed_save_lines+1
-        jsr _io_putdec
+        lda ed_save_lines
+        ldx ed_save_lines+1
+        jsr io_putdec
         lda #<str_lines
         ldx #>str_lines
-        jsr _io_puts
-        lda _ed_save_bytes
-        ldx _ed_save_bytes+1
-        jsr _io_putdec
+        jsr io_puts
+        lda ed_save_bytes
+        ldx ed_save_bytes+1
+        jsr io_putdec
         lda #<str_bytes
         ldx #>str_bytes
-        jmp _io_puts
+        jmp io_puts
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; io_err_load / io_err_save — print error with name
-;   ptr2 = name
+;   rp_ptr2 = name
 ; ═══════════════════════════════════════════════════════════
 io_err_load:
         lda #<str_err_load
         ldx #>str_err_load
-        jsr _io_puts
-        lda ptr2
-        ldx ptr2+1
-        jmp _io_puts
+        jsr io_puts
+        lda rp_ptr2
+        ldx rp_ptr2+1
+        jmp io_puts
 
 io_err_save:
         lda #<str_err_save
         ldx #>str_err_save
-        jsr _io_puts
-        lda ptr2
-        ldx ptr2+1
-        jmp _io_puts
+        jsr io_puts
+        lda rp_ptr2
+        ldx rp_ptr2+1
+        jmp io_puts
 
 ; ───────────────────────────────────────────────────────────
-; restore_name_ptr — reload ptr2 from saved name pointer
+; restore_name_ptr — reload rp_ptr2 from saved name pointer
 ; ───────────────────────────────────────────────────────────
 restore_name_ptr:
         lda rp_next_lo
-        sta ptr2
+        sta rp_ptr2
         lda rp_next_lo+1
-        sta ptr2+1
+        sta rp_ptr2+1
         rts
 
 ; ═══════════════════════════════════════════════════════════
 ; disk_done — clear_eol, newline, floppy_status, nl_clear
 ; ═══════════════════════════════════════════════════════════
 disk_done:
-        jsr _io_clear_eol
-        jsr _newline
-        jsr _floppy_status
-        jsr _io_clear_eol
+        jsr io_clear_eol
+        jsr newline
+        jsr floppy_status
+        jsr io_clear_eol
         jmp nl_clear
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_load — 'l' command
-;   ptr1 = args
+;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_load
-        lda _cur_addr
+        lda cur_addr
         sta rp_addr
-        lda _cur_addr+1
+        lda cur_addr+1
         sta rp_addr+1
 
         jsr get_filename
@@ -2246,20 +2246,20 @@ disk_done:
         jmp nl_clear
 
 @have_name:
-        ; ptr2 = name
-        jsr _newline
+        ; rp_ptr2 = name
+        jsr newline
 
-        ; save ptr2 (name) since calls will clobber it
-        lda ptr2
+        ; save rp_ptr2 (name) since calls will clobber it
+        lda rp_ptr2
         sta rp_next_lo          ; borrow for name ptr save
-        lda ptr2+1
+        lda rp_ptr2+1
         sta rp_next_lo+1
 
         ; check seq file
-        lda ptr2
-        sta ptr1
-        lda ptr2+1
-        sta ptr1+1
+        lda rp_ptr2
+        sta rp_ptr
+        lda rp_ptr2+1
+        sta rp_ptr+1
         jsr is_seq_file
         cmp #1
         bne @load_prg
@@ -2271,7 +2271,7 @@ disk_done:
         ; SEQ: ed_load_source(name)
         lda rp_next_lo
         ldx rp_next_lo+1
-        jsr _ed_load_source     ; A=error
+        jsr ed_load_source     ; A=error
         cmp #0
         beq @seq_ok
         ; error
@@ -2290,7 +2290,7 @@ disk_done:
         jsr pushax              ; push name
         lda rp_addr
         ldx rp_addr+1
-        jsr _disk_load_prg      ; A/X = result (0=error, else bytes)
+        jsr disk_load_prg      ; A/X = result (0=error, else bytes)
         sta rp_cnt              ; save result lo
         stx rp_cnt+1            ; save result hi
         ora rp_cnt+1
@@ -2305,10 +2305,10 @@ disk_done:
         jsr io_quoted_name
         lda rp_cnt
         ldx rp_cnt+1
-        jsr _io_putdec
+        jsr io_putdec
         lda #<str_bytes_at
         ldx #>str_bytes_at
-        jsr _io_puts
+        jsr io_puts
         ; print address: if addr was 0, print result, else print addr
         lda rp_addr
         ora rp_addr+1
@@ -2320,7 +2320,7 @@ disk_done:
         lda rp_addr
         ldx rp_addr+1
 @print_addr:
-        jsr _io_puthex4
+        jsr io_puthex4
 
 @l_cancel:
         jmp nl_clear
@@ -2329,12 +2329,12 @@ disk_done:
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_write — 's' command (save/write)
-;   ptr1 = args
+;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_write
-        lda _cur_addr
+        lda cur_addr
         sta rp_addr
-        lda _cur_addr+1
+        lda cur_addr+1
         sta rp_addr+1
 
         jsr get_filename
@@ -2345,28 +2345,28 @@ disk_done:
         jmp nl_clear
 
 @have_name:
-        jsr _newline
+        jsr newline
 
         ; save name ptr
-        lda ptr2
+        lda rp_ptr2
         sta rp_next_lo
-        lda ptr2+1
+        lda rp_ptr2+1
         sta rp_next_lo+1
 
         ; check seq file
-        lda ptr2
-        sta ptr1
-        lda ptr2+1
-        sta ptr1+1
+        lda rp_ptr2
+        sta rp_ptr
+        lda rp_ptr2+1
+        sta rp_ptr+1
         jsr is_seq_file
         cmp #1
         bne @save_prg
 
         ; SEQ: ed_ensure_init, ed_save_source(name)
-        jsr _ed_ensure_init
+        jsr ed_ensure_init
         lda rp_next_lo
         ldx rp_next_lo+1
-        jsr _ed_save_source     ; A=error
+        jsr ed_save_source     ; A=error
         cmp #0
         beq @seq_ok
         jsr restore_name_ptr
@@ -2379,10 +2379,10 @@ disk_done:
 
 @save_prg:
         ; PRG: parse optional end address
-        ; ptr1 still points into line_buf after get_filename
+        ; rp_ptr still points into line_buf after get_filename
         jsr skip_sp_ptr1
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         beq @no_end_arg
         cmp #';'
         beq @no_end_arg
@@ -2449,7 +2449,7 @@ disk_done:
         jsr pushax              ; push addr
         lda rp_next_hi
         ldx rp_next_hi+1
-        jsr _disk_save_prg      ; A=error
+        jsr disk_save_prg      ; A=error
         cmp #0
         beq @prg_ok
 
@@ -2463,16 +2463,16 @@ disk_done:
         jsr io_quoted_name
         lda rp_next_hi
         ldx rp_next_hi+1
-        jsr _io_putdec
+        jsr io_putdec
         lda #<str_bytes_sp
         ldx #>str_bytes_sp
-        jsr _io_puts
+        jsr io_puts
         lda rp_addr
         ldx rp_addr+1
-        jsr _io_puthex4
+        jsr io_puthex4
         lda #'-'
-        jsr _io_putc
-        ; end - 1 → A=lo, X=hi for _io_puthex4
+        jsr io_putc
+        ; end - 1 → A=lo, X=hi for io_puthex4
         lda rp_cnt
         sec
         sbc #1
@@ -2481,7 +2481,7 @@ disk_done:
         sbc #0
         tax
         pla
-        jsr _io_puthex4
+        jsr io_puthex4
         jmp @done
 
 @range_err:
@@ -2496,8 +2496,8 @@ disk_done:
 ; ═══════════════════════════════════════════════════════════
 ; info_line — print ";tag  AAAA-BBBB description"
 ;   Stack frame: rp_save2 = inv flag
-;   ptr2 = tag string, rp_addr = lo, rp_cnt = hi
-;   ptr1 = desc string
+;   rp_ptr2 = tag string, rp_addr = lo, rp_cnt = hi
+;   rp_ptr = desc string
 ;   (Caller sets these before calling)
 ;
 ;   Actually, to simplify, pass:
@@ -2505,10 +2505,10 @@ disk_done:
 ;     Store tag addr, lo, hi, desc in BSS before calling.
 ; We use a register-based interface:
 ;   Call setup: rp_save2=inv, rp_addr=lo, rp_cnt=hi
-;               ptr2=tag, ptr1=desc
+;               rp_ptr2=tag, rp_ptr=desc
 ; ═══════════════════════════════════════════════════════════
 .proc info_line
-        ; rp_save2 = inv, ptr2 = tag, rp_addr = lo, rp_cnt = hi, ptr1 = desc
+        ; rp_save2 = inv, rp_ptr2 = tag, rp_addr = lo, rp_cnt = hi, rp_ptr = desc
         ; save io_cy screen addr into rp_next_lo for invert pass later
         ldx CUR_ROW
         lda scr_lo,x
@@ -2519,17 +2519,17 @@ disk_done:
         lda #0
         sta CUR_COL
         lda #';'
-        jsr _io_putc
+        jsr io_putc
 
         ; print tag
-        lda ptr2
-        ldx ptr2+1
-        jsr _io_puts
+        lda rp_ptr2
+        ldx rp_ptr2+1
+        jsr io_puts
 
         ; pad tag to 4 chars: compute strlen of tag
         ; (tag is always 2-4 chars, pad with spaces)
         ldy #0
-@tlen:  lda (ptr2),y
+@tlen:  lda (rp_ptr2),y
         beq @tpad
         iny
         cpy #4
@@ -2538,40 +2538,40 @@ disk_done:
         cpy #4
         bcs @tsp
         lda #' '
-        sty tmp1
-        jsr _io_putc
-        ldy tmp1
+        sty rp_tmp
+        jsr io_putc
+        ldy rp_tmp
         iny
         bne @tpad
 @tsp:   lda #' '
-        jsr _io_putc
+        jsr io_putc
 
         ; print lo-hi
         lda rp_addr
         ldx rp_addr+1
-        jsr _io_puthex4
+        jsr io_puthex4
         lda #'-'
-        jsr _io_putc
+        jsr io_putc
         lda rp_cnt
         ldx rp_cnt+1
-        jsr _io_puthex4
+        jsr io_puthex4
         lda #' '
-        jsr _io_putc
+        jsr io_putc
 
         ; print desc
-        lda ptr1
-        ldx ptr1+1
-        jsr _io_puts
+        lda rp_ptr
+        ldx rp_ptr+1
+        jsr io_puts
 
         ; save col position
         lda CUR_COL
         sta rp_save             ; col
 
-        ; copy screen pointer to ZP ptr1 for indirect access
+        ; copy screen pointer to ZP rp_ptr for indirect access
         lda rp_next_lo
-        sta ptr1
+        sta rp_ptr
         lda rp_next_lo+1
-        sta ptr1+1
+        sta rp_ptr+1
 
         ; inv or normal pad
         lda rp_save2
@@ -2582,9 +2582,9 @@ disk_done:
 @inv_lp:
         cpy rp_save
         bcs @inv_pad
-        lda (ptr1),y
+        lda (rp_ptr),y
         ora #$80
-        sta (ptr1),y
+        sta (rp_ptr),y
         iny
         bne @inv_lp
 @inv_pad:
@@ -2592,7 +2592,7 @@ disk_done:
         cpy #SCREEN_WIDTH
         bcs @done
         lda #$A0
-        sta (ptr1),y
+        sta (rp_ptr),y
         iny
         bne @inv_pad
 
@@ -2602,11 +2602,11 @@ disk_done:
 @npad:  cpy #SCREEN_WIDTH
         bcs @done
         lda #$20
-        sta (ptr1),y
+        sta (rp_ptr),y
         iny
         bne @npad
 
-@done:  jmp _newline
+@done:  jmp newline
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -2660,20 +2660,20 @@ free_line:
         lda #1
         sta rp_save2
         lda #<str_tag_work
-        sta ptr2
+        sta rp_ptr2
         lda #>str_tag_work
-        sta ptr2+1
+        sta rp_ptr2+1
         lda #<fbuf
-        sta ptr1
+        sta rp_ptr
         lda #>fbuf
-        sta ptr1+1
+        sta rp_ptr+1
         jmp info_line
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_info — 'i' command: memory map
 ; ═══════════════════════════════════════════════════════════
 ; Helper: set up and call info_line
-;   Macro-like pattern: set rp_save2, ptr2, rp_addr, rp_cnt, ptr1
+;   Macro-like pattern: set rp_save2, rp_ptr2, rp_addr, rp_cnt, rp_ptr
 ;   then jsr info_line.
 ; We define a helper that takes parameters from a "call frame" pattern.
 
@@ -2687,33 +2687,33 @@ free_line:
         stx rp_next_hi+1
         sty rp_opc              ; row counter
 @lp:    lda rp_next_hi
-        sta ptr1
+        sta rp_ptr
         lda rp_next_hi+1
-        sta ptr1+1
+        sta rp_ptr+1
         ldy #0
-        lda (ptr1),y
-        sta ptr2
+        lda (rp_ptr),y
+        sta rp_ptr2
         iny
-        lda (ptr1),y
-        sta ptr2+1
+        lda (rp_ptr),y
+        sta rp_ptr2+1
         iny
-        lda (ptr1),y
+        lda (rp_ptr),y
         sta rp_addr
         iny
-        lda (ptr1),y
+        lda (rp_ptr),y
         sta rp_addr+1
         iny
-        lda (ptr1),y
+        lda (rp_ptr),y
         sta rp_cnt
         iny
-        lda (ptr1),y
+        lda (rp_ptr),y
         sta rp_cnt+1
         iny
-        lda (ptr1),y
+        lda (rp_ptr),y
         pha
         iny
-        lda (ptr1),y
-        sta tmp2
+        lda (rp_ptr),y
+        sta rp_tmp2
         lda rp_next_hi
         clc
         adc #8
@@ -2721,9 +2721,9 @@ free_line:
         bcc :+
         inc rp_next_hi+1
 :       pla
-        sta ptr1
-        lda tmp2
-        sta ptr1+1
+        sta rp_ptr
+        lda rp_tmp2
+        sta rp_ptr+1
         lda #0
         sta rp_save2
         jsr info_line
@@ -2733,7 +2733,7 @@ free_line:
 .endproc
 
 .proc cmd_info
-        jsr _newline
+        jsr newline
 
         ; ── Head: cpu ──
         lda #<info_tbl
@@ -2745,27 +2745,27 @@ free_line:
         lda #0
         sta rp_save2
         lda #<str_tag_zp
-        sta ptr2
+        sta rp_ptr2
         lda #>str_tag_zp
-        sta ptr2+1
+        sta rp_ptr2+1
         lda #$02
         sta rp_addr
         lda #$00
         sta rp_addr+1
-        jsr _cse_zp_end
+        jsr cse_zp_end
         sec
         sbc #1
         sta rp_cnt
         lda #$00
         sta rp_cnt+1
         lda #<str_zp_saved
-        sta ptr1
+        sta rp_ptr
         lda #>str_zp_saved
-        sta ptr1+1
+        sta rp_ptr+1
         jsr info_line
 
         ; free_line(cse_zp_end, $007f)
-        jsr _cse_zp_end
+        jsr cse_zp_end
         sta rp_addr
         lda #$00
         sta rp_addr+1
@@ -2785,13 +2785,13 @@ free_line:
         lda #0
         sta rp_save2
         lda #<str_tag_cse
-        sta ptr2
+        sta rp_ptr2
         lda #>str_tag_cse
-        sta ptr2+1
-        jsr _cse_start
+        sta rp_ptr2+1
+        jsr cse_start
         sta rp_addr
         stx rp_addr+1
-        jsr _cse_end
+        jsr cse_end
         sec
         sbc #1
         sta rp_cnt
@@ -2799,27 +2799,27 @@ free_line:
         sbc #0
         sta rp_cnt+1
         lda #<str_code_data
-        sta ptr1
+        sta rp_ptr
         lda #>str_code_data
-        sta ptr1+1
+        sta rp_ptr+1
         jsr info_line
 
         ; ── Dynamic: free region ──
-        jsr _cse_end
+        jsr cse_end
         sta rp_addr
         stx rp_addr+1
         lda #$FF
         sta rp_cnt
         lda #$C7
         sta rp_cnt+1
-        lda _src_bot
-        ora _src_bot+1
+        lda src_bot
+        ora src_bot+1
         beq @no_src_adj
-        lda _src_bot
+        lda src_bot
         sec
         sbc #1
         sta rp_cnt
-        lda _src_bot+1
+        lda src_bot+1
         sbc #0
         sta rp_cnt+1
 @no_src_adj:
@@ -2836,30 +2836,30 @@ free_line:
 @skip_free:
 
         ; ── Dynamic: source ──
-        lda _src_bot
-        ora _src_bot+1
+        lda src_bot
+        ora src_bot+1
         beq @no_src
         lda #0
         sta rp_save2
         lda #<str_tag_src
-        sta ptr2
+        sta rp_ptr2
         lda #>str_tag_src
-        sta ptr2+1
-        lda _src_bot
+        sta rp_ptr2+1
+        lda src_bot
         sta rp_addr
-        lda _src_bot+1
+        lda src_bot+1
         sta rp_addr+1
-        lda _src_top
+        lda src_top
         sec
         sbc #1
         sta rp_cnt
-        lda _src_top+1
+        lda src_top+1
         sbc #0
         sta rp_cnt+1
         lda #<str_source
-        sta ptr1
+        sta rp_ptr
         lda #>str_source
-        sta ptr1+1
+        sta rp_ptr+1
         jsr info_line
 @no_src:
 
@@ -2869,17 +2869,17 @@ free_line:
         ldy #INFO_TBL_TAIL_ROWS
         jsr info_emit_rows
 
-        jmp _io_clear_eol
+        jmp io_clear_eol
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; _exec_line — parse line_buf and execute command
+; exec_line — parse line_buf and execute command
 ; ═══════════════════════════════════════════════════════════
-.proc _exec_line
+.proc exec_line
         lda #<line_buf
-        sta ptr1
+        sta rp_ptr
         lda #>line_buf
-        sta ptr1+1
+        sta rp_ptr+1
 
         jsr skip_sp_ptr1
 
@@ -2897,24 +2897,24 @@ free_line:
         jsr is_hex_at_ptr1
         beq @no_prefix
         ldy #4
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #':'
         bne @no_prefix
         ; parse 4 hex digits
         jsr parse_hex4_ptr1
-        sta _cur_addr
-        stx _cur_addr+1
+        sta cur_addr
+        stx cur_addr+1
         ; skip ':'
-        inc ptr1
+        inc rp_ptr
         bne :+
-        inc ptr1+1
+        inc rp_ptr+1
 :
 @no_prefix:
         jsr skip_sp_ptr1
 
         ; read command char
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         sta rp_opc              ; save cmd char
 
         ; ── Empty / semicolon ──
@@ -2928,15 +2928,15 @@ free_line:
         lda last_cmd
         beq @clear_last
         sta rp_opc              ; cmd = last_cmd
-        ; ptr1 = "" (empty args)
+        ; rp_ptr = "" (empty args)
         ; show "ADDR:cmd" header
-        lda _cur_addr
+        lda cur_addr
         sta rp_addr
-        lda _cur_addr+1
+        lda cur_addr+1
         sta rp_addr+1
         lda rp_opc
         jsr io_addr_cmd
-        jsr _io_clear_eol
+        jsr io_clear_eol
         jmp @dispatch
 
 @semicolon:
@@ -2947,17 +2947,17 @@ free_line:
 
 @have_cmd:
         ; skip command letter
-        inc ptr1
+        inc rp_ptr
         bne :+
-        inc ptr1+1
+        inc rp_ptr+1
 :       ; skip optional space after command
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #' '
         bne @save_repeat
-        inc ptr1
+        inc rp_ptr
         bne @save_repeat
-        inc ptr1+1
+        inc rp_ptr+1
 
 @save_repeat:
         ; save for repeat (paging + step commands)
@@ -2998,9 +2998,9 @@ free_line:
         jsr try_expr
         bcc @at_done
         lda expr_val
-        sta _cur_addr
+        sta cur_addr
         lda expr_val+1
-        sta _cur_addr+1
+        sta cur_addr+1
 @at_done:
         jmp nl_clear
 @n_at:
@@ -3018,13 +3018,13 @@ free_line:
         lda block_size+1
         sta expr_val+1
 @plus_use:
-        lda _cur_addr
+        lda cur_addr
         clc
         adc expr_val
-        sta _cur_addr
-        lda _cur_addr+1
+        sta cur_addr
+        lda cur_addr+1
         adc expr_val+1
-        sta _cur_addr+1
+        sta cur_addr+1
         jmp nl_clear
 @n_plus:
         ; - — retreat address
@@ -3041,13 +3041,13 @@ free_line:
         lda block_size+1
         sta expr_val+1
 @minus_use:
-        lda _cur_addr
+        lda cur_addr
         sec
         sbc expr_val
-        sta _cur_addr
-        lda _cur_addr+1
+        sta cur_addr
+        lda cur_addr+1
         sbc expr_val+1
-        sta _cur_addr+1
+        sta cur_addr+1
         jmp nl_clear
 @n_minus:
         ; j — jump/execute
@@ -3056,9 +3056,9 @@ free_line:
         jsr try_expr
         bcc @j_no_addr
         lda expr_val
-        sta _cur_addr
+        sta cur_addr
         lda expr_val+1
-        sta _cur_addr+1
+        sta cur_addr+1
 @j_no_addr:
         jmp cmd_jmp
 @n_j:
@@ -3070,12 +3070,12 @@ free_line:
         sta sym_name
         lda #>str_main
         sta sym_name+1
-        jsr _sym_lookup         ; C=0 found, result in sym_val
+        jsr sym_lookup         ; C=0 found, result in sym_val
         bcs @g_no_main
         lda sym_val
-        sta _cur_addr
+        sta cur_addr
         lda sym_val+1
-        sta _cur_addr+1
+        sta cur_addr+1
 @g_no_main:
         jmp cmd_jmp
 @n_g:
@@ -3116,18 +3116,18 @@ free_line:
         bne @n_k
         jsr check_unsaved
         bcc @k_cancel
-        jsr _newline
+        jsr newline
         lda #<str_del_src
         ldx #>str_del_src
-        jsr _io_puts
-        jsr _io_getc
+        jsr io_puts
+        jsr io_getc
         cmp #'y'
         bne @k_no
-        jsr _ed_new
+        jsr ed_new
         lda #<str_ok
         ldx #>str_ok
-        jsr _io_puts
-@k_no:  jsr _io_clear_eol
+        jsr io_puts
+@k_no:  jsr io_clear_eol
 @k_cancel:
         jmp nl_clear
 @n_k:
@@ -3150,14 +3150,14 @@ free_line:
         lda expr_val+1
         sta block_size+1
 @B_show:
-        jsr _newline
+        jsr newline
         lda #<str_B_eq
         ldx #>str_B_eq
-        jsr _io_puts
+        jsr io_puts
         lda block_size
         ldx block_size+1
-        jsr _io_puthex4
-        jsr _io_clear_eol
+        jsr io_puthex4
+        jsr io_clear_eol
         jmp nl_clear
 @n_B:
         ; T (PETSCII $D4) — tab width
@@ -3168,17 +3168,17 @@ free_line:
         lda expr_val
         cmp #33                 ; <= 32
         bcs @T_show
-        cmp _tab_width
+        cmp tab_width
         beq @T_show
-        sta _tab_width
+        sta tab_width
 @T_show:
-        jsr _newline
+        jsr newline
         lda #<str_T_eq
         ldx #>str_T_eq
-        jsr _io_puts
-        lda _tab_width
-        jsr _io_puthex2
-        jsr _io_clear_eol
+        jsr io_puts
+        lda tab_width
+        jsr io_puthex2
+        jsr io_clear_eol
         jmp nl_clear
 @n_T:
         ; C (PETSCII $C3) — color
@@ -3198,44 +3198,44 @@ free_line:
         ; three digits: border bg fg
         ldy #0
         jsr hex_val_at_ptr1
-        sta _theme_border
+        sta theme_border
         ldy #1
         jsr hex_val_at_ptr1
-        sta _theme_bg
+        sta theme_bg
         ldy #2
         jsr hex_val_at_ptr1
-        sta _theme_fg
-        jsr _restore_colors
+        sta theme_fg
+        jsr restore_colors
         jmp @C_show
 @C_two: ; two digits: bg fg
         ldy #0
         jsr hex_val_at_ptr1
-        sta _theme_bg
+        sta theme_bg
         ldy #1
         jsr hex_val_at_ptr1
-        sta _theme_fg
-        jsr _restore_colors
+        sta theme_fg
+        jsr restore_colors
         jmp @C_show
 @C_one: ; one digit: fg only
         ldy #0
         jsr hex_val_at_ptr1
-        sta _theme_fg
-        jsr _restore_colors
+        sta theme_fg
+        jsr restore_colors
 @C_show:
-        jsr _newline
+        jsr newline
         lda #<str_color
         ldx #>str_color
-        jsr _io_puts
-        lda _theme_border
+        jsr io_puts
+        lda theme_border
         jsr _hex_val_to_char
-        jsr _io_putc
-        lda _theme_bg
+        jsr io_putc
+        lda theme_bg
         jsr _hex_val_to_char
-        jsr _io_putc
-        lda _theme_fg
+        jsr io_putc
+        lda theme_fg
         jsr _hex_val_to_char
-        jsr _io_putc
-        jsr _io_clear_eol
+        jsr io_putc
+        jsr io_clear_eol
         jmp nl_clear
 @n_C:
         ; u — cpu mode
@@ -3243,25 +3243,25 @@ free_line:
         jne @n_u
         jsr skip_sp_ptr1
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #'6'
         bne @u_show
         ; check q[1..3] for cpu type
         ldy #1
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #'5'
         bne @u_show
         ldy #2
-        lda (ptr1),y
-        sta tmp1                ; save q[2]
+        lda (rp_ptr),y
+        sta rp_tmp                ; save q[2]
         ldy #3
-        lda (ptr1),y
-        sta tmp2                ; save q[3]
+        lda (rp_ptr),y
+        sta rp_tmp2                ; save q[3]
         ; 6502: q[2]='0', q[3]='2'
-        lda tmp1
+        lda rp_tmp
         cmp #'0'
         bne @u_chk_10
-        lda tmp2
+        lda rp_tmp2
         cmp #'2'
         bne @u_show
         ; v = 0 (6502)
@@ -3271,7 +3271,7 @@ free_line:
         ; 6510: q[2]='1', q[3]='0'
         cmp #'1'
         bne @u_chk_c02
-        lda tmp2
+        lda rp_tmp2
         cmp #'0'
         bne @u_show
         lda #1
@@ -3280,7 +3280,7 @@ free_line:
         ; 65c02: q[2]='c', q[3]='0'
         cmp #'c'
         bne @u_show
-        lda tmp2
+        lda rp_tmp2
         cmp #'0'
         bne @u_show
         lda #2
@@ -3292,68 +3292,68 @@ free_line:
         bcs @u_show
         cmp #1
         beq @u_show
-        sta _al_cpu
+        sta al_cpu
 .elseif .defined(CPU_6510)
         ; CPU_CEIL=1: accept 0 or 1
         cmp #2
         bcs @u_show
-        sta _al_cpu
+        sta al_cpu
 .else
         ; CPU_CEIL=0: accept 0 only
         bne @u_show
-        sta _al_cpu
+        sta al_cpu
 .endif
 
 @u_show:
-        jsr _newline
+        jsr newline
         lda #<str_cpu
         ldx #>str_cpu
-        jsr _io_puts
-        lda _al_cpu
+        jsr io_puts
+        lda al_cpu
         bne @u_no_star0
         lda #'*'
         jmp @u_p0
 @u_no_star0:
         lda #' '
-@u_p0:  jsr _io_putc
+@u_p0:  jsr io_putc
 .ifdef CPU_6510
         lda #<str_6510
         ldx #>str_6510
-        jsr _io_puts
-        lda _al_cpu
+        jsr io_puts
+        lda al_cpu
         cmp #1
         bne @u_no_star1
         lda #'*'
         jmp @u_p1
 @u_no_star1:
         lda #' '
-@u_p1:  jsr _io_putc
+@u_p1:  jsr io_putc
 .endif
 .ifdef CMOS_SUPPORT
         lda #<str_65c02
         ldx #>str_65c02
-        jsr _io_puts
-        lda _al_cpu
+        jsr io_puts
+        lda al_cpu
         cmp #2
         bne @u_no_star2
         lda #'*'
         jmp @u_p2
 @u_no_star2:
         lda #' '
-@u_p2:  jsr _io_putc
+@u_p2:  jsr io_putc
 .endif
-        jsr _io_clear_eol
+        jsr io_clear_eol
         jmp nl_clear
 @n_u:
         ; a — assemble source
         cmp #'a'
         bne @n_a
-        jsr _newline
+        jsr newline
         lda #<str_asm_ing
         ldx #>str_asm_ing
-        jsr _io_puts
-        jsr _newline
-        jsr _asm_assemble       ; A/X = error count
+        jsr io_puts
+        jsr newline
+        jsr asm_assemble       ; A/X = error count
         sta rp_cnt
         stx rp_cnt+1
         ora rp_cnt+1
@@ -3361,59 +3361,59 @@ free_line:
         ; success
         lda #<str_ok_colon
         ldx #>str_ok_colon
-        jsr _io_puts
-        lda _asm_size
-        ldx _asm_size+1
-        jsr _io_putdec
+        jsr io_puts
+        lda asm_size
+        ldx asm_size+1
+        jsr io_putdec
         lda #<str_bytes_at
         ldx #>str_bytes_at
-        jsr _io_puts
-        lda _asm_org
-        ldx _asm_org+1
-        jsr _io_puthex4
+        jsr io_puts
+        lda asm_org
+        ldx asm_org+1
+        jsr io_puthex4
         ; sym_lookup("main") — ZP interface
         lda #<str_main
         sta sym_name
         lda #>str_main
         sta sym_name+1
-        jsr _sym_lookup         ; C=0 found, result in sym_val
+        jsr sym_lookup         ; C=0 found, result in sym_val
         bcs @a_tail
         lda sym_val
-        sta _cur_addr
+        sta cur_addr
         lda sym_val+1
-        sta _cur_addr+1
+        sta cur_addr+1
 @a_errors:
         lda #<str_semi
         ldx #>str_semi
-        jsr _io_puts
+        jsr io_puts
         lda rp_cnt
         ldx rp_cnt+1
-        jsr _io_putdec
+        jsr io_putdec
         lda #<str_errors
         ldx #>str_errors
-        jsr _io_puts
+        jsr io_puts
 @a_tail:
-        jsr _io_clear_eol
+        jsr io_clear_eol
         jmp nl_clear
 @n_a:
         ; ? — calculator
         cmp #'?'
         jne @n_q_mark
-        ; set expr_ptr = ptr1
-        lda ptr1
+        ; set expr_ptr = rp_ptr
+        lda rp_ptr
         sta expr_ptr
-        lda ptr1+1
+        lda rp_ptr+1
         sta expr_ptr+1
-        jsr _expr_eval
+        jsr expr_eval
         sta rp_save             ; rc
         cmp #2
         jcs @calc_err
 
-        jsr _newline
+        jsr newline
         ; hex display
         lda #<str_semi
         ldx #>str_semi
-        jsr _io_puts
+        jsr io_puts
         lda expr_val+1
         bne @calc_16bit
         lda expr_val
@@ -3421,13 +3421,13 @@ free_line:
         ; Actually: if val < 256, show "  $XX"
         ; if val == 0, it's < 256 so show "  $00"
         lda #' '
-        jsr _io_putc
+        jsr io_putc
         lda #' '
-        jsr _io_putc
+        jsr io_putc
         lda #'$'
-        jsr _io_putc
+        jsr io_putc
         lda expr_val
-        jsr _io_puthex2
+        jsr io_puthex2
         jmp @calc_dec
 @calc_16bit:
         ; "$XXXX" (or $0000)
@@ -3435,26 +3435,26 @@ free_line:
         bne @calc_16bit_real
         ; val is 0, show "  $00"
         lda #' '
-        jsr _io_putc
+        jsr io_putc
         lda #' '
-        jsr _io_putc
+        jsr io_putc
         lda #'$'
-        jsr _io_putc
+        jsr io_putc
         lda expr_val
-        jsr _io_puthex2
+        jsr io_puthex2
         jmp @calc_dec
 @calc_16bit_real:
         lda #'$'
-        jsr _io_putc
+        jsr io_putc
         lda expr_val
         ldx expr_val+1
-        jsr _io_puthex4
+        jsr io_puthex4
 
 @calc_dec:
         ; decimal: "  " then 5-digit space-padded
         lda #<str_2sp
         ldx #>str_2sp
-        jsr _io_puts
+        jsr io_puts
         lda expr_val
         sta rp_addr
         lda expr_val+1
@@ -3467,33 +3467,33 @@ free_line:
         ; binary
         lda #<str_pct
         ldx #>str_pct
-        jsr _io_puts
+        jsr io_puts
         lda expr_val
-        sta tmp2
+        sta rp_tmp2
         ldx #0
 @bin_lp:
-        asl tmp2
+        asl rp_tmp2
         bcs @bin_1
         lda #'0'
         bne @bin_p
 @bin_1: lda #'1'
-@bin_p: stx tmp1
-        jsr _io_putc
-        ldx tmp1
+@bin_p: stx rp_tmp
+        jsr io_putc
+        ldx rp_tmp
         inx
         cpx #8
         bcc @bin_lp
 
         ; signed decimal: "  +/-NNN"
         lda #' '
-        jsr _io_putc
+        jsr io_putc
         lda #' '
-        jsr _io_putc
+        jsr io_putc
         lda expr_val
         bpl @sign_pos
         ; negative
         lda #'-'
-        jsr _io_putc
+        jsr io_putc
         ; negate: av = 256 - val
         lda #0
         sec
@@ -3501,65 +3501,65 @@ free_line:
         jmp @print_signed
 @sign_pos:
         lda #'+'
-        jsr _io_putc
+        jsr io_putc
         lda expr_val
 @print_signed:
         ; A = absolute value (0-128)
-        sta tmp2                ; av
+        sta rp_tmp2                ; av
         ; hundreds
-        lda tmp2
+        lda rp_tmp2
         cmp #100
         bcc @tens
         lda #0
-        sta tmp1                ; digit
+        sta rp_tmp                ; digit
 @hun_lp:
-        lda tmp2
+        lda rp_tmp2
         sec
         sbc #100
         bcc @hun_done
-        sta tmp2
-        inc tmp1
+        sta rp_tmp2
+        inc rp_tmp
         jmp @hun_lp
 @hun_done:
-        lda tmp1
+        lda rp_tmp
         clc
         adc #'0'
-        jsr _io_putc
-@tens:  lda tmp2
+        jsr io_putc
+@tens:  lda rp_tmp2
         cmp #10
         bcc @ones
         lda #0
-        sta tmp1
+        sta rp_tmp
 @ten_lp:
-        lda tmp2
+        lda rp_tmp2
         sec
         sbc #10
         bcc @ten_done
-        sta tmp2
-        inc tmp1
+        sta rp_tmp2
+        inc rp_tmp
         jmp @ten_lp
 @ten_done:
-        lda tmp1
+        lda rp_tmp
         clc
         adc #'0'
-        jsr _io_putc
-@ones:  lda tmp2
+        jsr io_putc
+@ones:  lda rp_tmp2
         clc
         adc #'0'
-        jsr _io_putc
+        jsr io_putc
 
 @calc_done:
-        jsr _io_clear_eol
+        jsr io_clear_eol
         jmp nl_clear
 
 @calc_err:
-        jsr _newline
+        jsr newline
         lda #<str_err_expr
         ldx #>str_err_expr
-        jsr _io_puts
-        jsr _expr_error_str
-        jsr _io_puts
-        jsr _io_clear_eol
+        jsr io_puts
+        jsr expr_error_str
+        jsr io_puts
+        jsr io_clear_eol
         jmp nl_clear
 @n_q_mark:
         ; Q (PETSCII $D1) — quit (guard unsaved)
@@ -3567,28 +3567,28 @@ free_line:
         bne @n_q
         jsr check_unsaved
         bcc @q_cancel
-        jsr _newline
+        jsr newline
         lda #<str_quit
         ldx #>str_quit
-        jsr _io_puts
+        jsr io_puts
         ; flush keyboard buffer
 @q_flush:
-        jsr _io_kbhit
+        jsr io_kbhit
         cmp #0
         beq @q_wait
-        jsr _io_getc
+        jsr io_getc
         jmp @q_flush
 @q_wait:
-        jsr _io_getc
+        jsr io_getc
         cmp #'y'
         bne @q_no
         lda #ST_STOP
-        sta _state
-@q_no:  jsr _newline
-        lda _state
+        sta state
+@q_no:  jsr newline
+        lda state
         cmp #ST_STOP
         beq @q_ret
-        jsr _io_clear_eol
+        jsr io_clear_eol
 @q_ret: rts
 @q_cancel:
         jmp nl_clear
@@ -3598,17 +3598,17 @@ free_line:
         bne @n_dollar
         jsr skip_sp_ptr1
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #'0'
         bcc @dir_go
         cmp #'9'+1
         bcs @dir_go
         ; parse decimal device number
         lda #0
-        sta tmp2                ; dev
+        sta rp_tmp2                ; dev
 @dev_lp:
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #'0'
         bcc @dev_done
         cmp #'9'+1
@@ -3617,34 +3617,34 @@ free_line:
         sbc #'0'
         pha
         ; dev = dev * 10 + digit
-        lda tmp2
+        lda rp_tmp2
         asl                     ; *2
-        sta tmp1
+        sta rp_tmp
         asl                     ; *4
         asl                     ; *8
         clc
-        adc tmp1                ; *10
-        sta tmp2
+        adc rp_tmp                ; *10
+        sta rp_tmp2
         pla
         clc
-        adc tmp2
-        sta tmp2
-        inc ptr1
+        adc rp_tmp2
+        sta rp_tmp2
+        inc rp_ptr
         bne @dev_lp
-        inc ptr1+1
+        inc rp_ptr+1
         jmp @dev_lp
 @dev_done:
         ; validate: 4-30
-        lda tmp2
+        lda rp_tmp2
         cmp #4
         bcc @dir_go
         cmp #31
         bcs @dir_go
-        sta _cur_device
+        sta cur_device
 @dir_go:
-        jsr _newline
-        lda _cur_device
-        jsr _list_directory
+        jsr newline
+        lda cur_device
+        jsr list_directory
         jmp nl_clear
 @n_dollar:
         ; c — continue / cls
@@ -3652,18 +3652,18 @@ free_line:
         bne @n_c
         ; check for "lr" or "ls" after c
         ldy #0
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #'l'
         bne @c_not_cls
         ldy #1
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #'r'
         beq @c_cls
         cmp #'s'
         beq @c_cls
 @c_not_cls:
         ; continue debugger
-        lda _dbg_reason
+        lda dbg_reason
         bne @c_has_ctx
         lda #<str_no_break
         ldx #>str_no_break
@@ -3671,25 +3671,25 @@ free_line:
         jmp nl_clear
 @c_has_ctx:
         ; delete hit breakpoint before continuing
-        lda _dbg_bp_hit
+        lda dbg_bp_hit
         cmp #$FF
         beq @c_enter
-        jsr _dbg_bp_del
+        jsr dbg_bp_del
 @c_enter:
-        jsr _dbg_enter
+        jsr dbg_enter
         ; If dbg_reason=0, user code returned via RTS (no BRK fired)
-        lda _dbg_reason
+        lda dbg_reason
         bne @c_broke
         ; Normal completion — clear debug context
         lda #0
         sta last_cmd            ; no repeat
-        jsr _restore_colors
+        jsr restore_colors
         jmp nl_clear
 @c_broke:
         jmp show_break_result
 
-@c_cls: jsr _reset_screen
-        jmp _io_clear_eol
+@c_cls: jsr reset_screen
+        jmp io_clear_eol
 @n_c:
         ; default: error
         lda #<str_err_cmd

@@ -498,11 +498,11 @@ def _as_parse_addrs():
       _test_src_buf      = BSS_start  + stub_BSS_offs   + 0x0101
                            (after _c_stack[256] + _src_done[1] in stub BSS)
 
-    asm_src.s's BSS vars (_asm_org, _asm_size, _asm_errors) are not
+    asm_src.s's BSS vars (asm_org, asm_size, asm_errors) are not
     imported by anyone, so we compute from BSS_start + asm_src's offset:
-      _asm_org    = BSS_start + asm_src_bss_offs + 0
-      _asm_size   = BSS_start + asm_src_bss_offs + 2
-      _asm_errors = BSS_start + asm_src_bss_offs + 4
+      asm_org     = BSS_start + asm_src_bss_offs + 0
+      asm_size    = BSS_start + asm_src_bss_offs + 2
+      asm_errors  = BSS_start + asm_src_bss_offs + 4
     """
     text = _AS_MAP.read_text()
     lines = text.splitlines()

@@ -1,8 +1,7 @@
 ; asm_vars.s — zero-page variables shared by asm_line.s and opcode_lookup.s
 ;
-; All assembler I/O passes through these ZP cells; no C ABI is used across
-; the C/asm boundary.  The boundary may shift; keeping everything in ZP
-; lets the caller language change without touching the asm modules.
+; All assembler I/O passes through these ZP cells.  Keeping everything in
+; ZP lets the calling convention change without touching the asm modules.
 ;
 ; Usage contract
 ; --------------
@@ -13,18 +12,9 @@
 
         .exportzp al_pc, al_out, al_len
         .exportzp al_slot, al_prof, al_pidx, al_base, al_bit, al_mode, al_cpu
-        .exportzp _al_cpu := al_cpu     ; C-visible alias
-        .exportzp _al_tmp, _al_tmp2
+        .exportzp al_tmp, al_tmp2
         .exportzp sym_name, sym_val, sym_wide   ; symbol table I/O (symtab.s)
-        .exportzp _sym_name := sym_name         ; C-visible aliases
-        .exportzp _sym_val  := sym_val
-        .exportzp _sym_wide := sym_wide
-        .exportzp _al_pc    := al_pc
-        .exportzp _al_out   := al_out
         .exportzp expr_ptr, expr_val, expr_wide ; expression parser I/O (expr.s)
-        .exportzp _expr_ptr := expr_ptr         ; C-visible aliases
-        .exportzp _expr_val := expr_val
-        .exportzp _expr_wide := expr_wide
 
 .segment "ZEROPAGE"
 
@@ -51,8 +41,8 @@ al_bit:         .res 1  ; bit index 0–7 for Zone D/E mnemonics (RMB,SMB,BBR,BB
 al_mode:        .res 1  ; addressing-mode index returned by au_parse_mode (0–15)
 
 ; ── private scratch used by asm_line.s ───────────────────────────────────────
-_al_tmp:        .res 1  ; general scratch byte
-_al_tmp2:       .res 1  ; second scratch byte (REL offset calculation)
+al_tmp:         .res 1  ; general scratch byte
+al_tmp2:        .res 1  ; second scratch byte (REL offset calculation)
 
 ; ── symbol table I/O (shared with symtab.s, expr.s, asm_src.s) ──────────────
 sym_name:       .res 2  ; pointer to NUL-terminated name string

@@ -302,7 +302,7 @@ def test_errors(as_syms, tc):
 
 
 def _run_and_lookup(as_syms, source, sym):
-    """Run assembly, then call _sym_lookup on sym.  Returns (data, sym_val)."""
+    """Run assembly, then call sym_lookup on sym.  Returns (data, sym_val)."""
     cpu = MPU()
     mem = cpu.memory
     as_syms.load_into(mem)
@@ -337,7 +337,7 @@ def _run_and_lookup(as_syms, source, sym):
             for name, addr in re.findall(r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line):
                 exports[name] = int(addr, 16)
 
-    sym_lookup_addr = exports["_sym_lookup"]
+    sym_lookup_addr = exports["sym_lookup"]
     sym_name_zp = exports["sym_name"]
     sym_val_zp = exports["sym_val"]
 

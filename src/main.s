@@ -6,28 +6,28 @@
         .setcpu "6502"
 
 ; ── Exports ──────────────────────────────────────────────────
-        .export _state
+        .export state
 
-; ── Runtime ZP (replaces cc65 zeropage.o) ────────────────────
-        .exportzp sp, ptr1, ptr2, tmp1, tmp2
+; ── Runtime ZP ───────────────────────────────────────────────
+        .exportzp sp, rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
 
 ; ── Imports ──────────────────────────────────────────────────
-        .import _io_init, _io_putc, _io_puts, _io_sync
-        .import _io_puthex4, _io_puthex2
-        .import _io_getc, _io_clear_eol
-        .import _reset_screen, _restore_colors, _newline
-        .import _cursor_show, _cursor_hide
+        .import io_init, io_putc, io_puts, io_sync
+        .import io_puthex4, io_puthex2
+        .import io_getc, io_clear_eol
+        .import reset_screen, restore_colors, newline
+        .import cursor_show, cursor_hide
         .import scr_lo, scr_hi
-        .import _kernal_init
-        .import _sym_set_heap, _sym_clear
-        .import _define_ws_syms
-        .import _dbg_init
-        .import _nmi_handler
-        .import _cse_end, _cse_zp_end
-        .import _exec_line, _read_line, _show_prompt
-        .import _cur_addr, _cur_device, block_size
-        .import _nmi_pending
-        .import _ed_handle_key, _enter_editor, _leave_editor
+        .import kernal_init
+        .import sym_set_heap, sym_clear
+        .import define_ws_syms
+        .import dbg_init
+        .import nmi_handler
+        .import cse_end, cse_zp_end
+        .import exec_line, read_line, show_prompt
+        .import cur_addr, cur_device, block_size
+        .import nmi_pending
+        .import ed_handle_key, enter_editor, leave_editor
 
         .import __BSS_RUN__, __BSS_SIZE__
         .import __HIMEM__, __STACKSIZE__
@@ -68,15 +68,15 @@ CUR_ROW      = $D6
 .segment "ZEROPAGE"
 
 sp:     .res 2                  ; parameter stack pointer
-ptr1:   .res 2                  ; scratch pointer (repl.s, debugger.s)
-ptr2:   .res 2                  ; scratch pointer (repl.s)
-tmp1:   .res 1                  ; scratch byte (repl.s)
-tmp2:   .res 1                  ; scratch byte (repl.s)
+rp_ptr:   .res 2                  ; scratch pointer (repl.s, debugger.s)
+rp_ptr2:   .res 2                  ; scratch pointer (repl.s)
+rp_tmp:   .res 1                  ; scratch byte (repl.s)
+rp_tmp2:   .res 1                  ; scratch byte (repl.s)
 
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
 
-_state:       .res 1              ; ST_STOP=0, ST_REPL=1, ST_EDIT=2
+state:       .res 1              ; ST_STOP=0, ST_REPL=1, ST_EDIT=2
 
 ; ── RODATA ───────────────────────────────────────────────────
 .segment "RODATA"
@@ -109,19 +109,19 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
 startup:
         ; Zero BSS segment (page loop keeps A=0 throughout)
         lda #<__BSS_RUN__
-        sta ptr1
+        sta rp_ptr
         lda #>__BSS_RUN__
-        sta ptr1+1
+        sta rp_ptr+1
         lda #0
         ldy #0
         ; Full pages
         ldx #>__BSS_SIZE__
         beq @bss_partial
 @bss_page:
-        sta (ptr1),y
+        sta (rp_ptr),y
         iny
         bne @bss_page
-        inc ptr1+1
+        inc rp_ptr+1
         dex
         bne @bss_page
 @bss_partial:
@@ -129,7 +129,7 @@ startup:
         ldx #<__BSS_SIZE__
         beq @bss_done
 @bss_rem:
-        sta (ptr1),y
+        sta (rp_ptr),y
         iny
         dex
         bne @bss_rem
@@ -150,7 +150,7 @@ startup:
 ; ── fill_free_memory — fill free ZP and work area with $FF ───
 .proc fill_free_memory
         ; Free ZP: cse_zp_end() to $7F
-        jsr _cse_zp_end         ; A = first free ZP byte
+        jsr cse_zp_end         ; A = first free ZP byte
         tax                     ; X = start
         lda #$FF
 @zp:    sta $00,x
@@ -159,16 +159,16 @@ startup:
         bcc @zp
 
         ; Free work area: cse_end() to $C7FF
-        jsr _cse_end            ; A/X = lo/hi
-        sta ptr1
-        stx ptr1+1
+        jsr cse_end            ; A/X = lo/hi
+        sta rp_ptr
+        stx rp_ptr+1
         lda #$FF
         ldy #0
-@work:  sta (ptr1),y
-        inc ptr1
+@work:  sta (rp_ptr),y
+        inc rp_ptr
         bne :+
-        inc ptr1+1
-:       ldx ptr1+1
+        inc rp_ptr+1
+:       ldx rp_ptr+1
         cpx #>BUF_END
         bcc @work
         rts
@@ -188,17 +188,17 @@ startup:
 
         ; Init global state
         lda #ST_REPL
-        sta _state
+        sta state
         lda #8
-        sta _cur_device
+        sta cur_device
         lda #$10
         sta block_size
         lda #0
         sta block_size+1
 
         ; Init I/O (disables KERNAL cursor)
-        jsr _io_init
-        jsr _reset_screen
+        jsr io_init
+        jsr reset_screen
 
         ; Lowercase/uppercase charset
         lda VIC_MEMCTL
@@ -206,137 +206,137 @@ startup:
         sta VIC_MEMCTL
 
         ; Install NMI trampoline under KERNAL
-        jsr _kernal_init
+        jsr kernal_init
 
         ; Init symbol table heap
-        jsr _cse_end            ; A/X = heap start
-        jsr _sym_set_heap
-        jsr _sym_clear
-        jsr _define_ws_syms
+        jsr cse_end            ; A/X = heap start
+        jsr sym_set_heap
+        jsr sym_clear
+        jsr define_ws_syms
 
         ; Init debugger
-        jsr _dbg_init
+        jsr dbg_init
 
         ; Fill free memory with $FF
         jsr fill_free_memory
 
         ; Install NMI handler
-        lda #<_nmi_handler
+        lda #<nmi_handler
         sta NMI_VEC
-        lda #>_nmi_handler
+        lda #>nmi_handler
         sta NMI_VEC+1
 
         ; ── Splash screen ────────────────────────────────────
         ; cur_addr = (cse_end + $FF) & $FF00
-        jsr _cse_end            ; A = lo, X = hi
+        jsr cse_end            ; A = lo, X = hi
         clc
         adc #$FF
         txa
         adc #0
-        sta _cur_addr+1
+        sta cur_addr+1
         lda #0
-        sta _cur_addr
+        sta cur_addr
 
         ; Version line (row 17)
         lda #0
         sta CUR_COL
         lda #SCREEN_HEIGHT - 8
         sta CUR_ROW
-        jsr _io_sync
+        jsr io_sync
         lda #<VERSION_STR
         ldx #>VERSION_STR
-        jsr _io_puts
+        jsr io_puts
 
         ; Manual line (row 19)
         lda #0
         sta CUR_COL
         lda #SCREEN_HEIGHT - 6
         sta CUR_ROW
-        jsr _io_sync
+        jsr io_sync
         lda #<s_manual
         ldx #>s_manual
-        jsr _io_puts
+        jsr io_puts
 
         ; Free ZP line (row 20)
         lda #0
         sta CUR_COL
         lda #SCREEN_HEIGHT - 5
         sta CUR_ROW
-        jsr _io_sync
+        jsr io_sync
         lda #<s_free_zp
         ldx #>s_free_zp
-        jsr _io_puts
-        jsr _cse_zp_end
-        jsr _io_puthex2
+        jsr io_puts
+        jsr cse_zp_end
+        jsr io_puthex2
         lda #<s_zp_end
         ldx #>s_zp_end
-        jsr _io_puts
+        jsr io_puts
 
         ; Free work line (row 21)
         lda #0
         sta CUR_COL
         lda #SCREEN_HEIGHT - 4
         sta CUR_ROW
-        jsr _io_sync
+        jsr io_sync
         lda #<s_indent
         ldx #>s_indent
-        jsr _io_puts
-        jsr _cse_end            ; A/X = lo/hi of work start
-        jsr _io_puthex4
+        jsr io_puts
+        jsr cse_end            ; A/X = lo/hi of work start
+        jsr io_puthex4
         lda #'-'
-        jsr _io_putc
+        jsr io_putc
         lda #<(BUF_END - 1)
         ldx #>(BUF_END - 1)
-        jsr _io_puthex4
+        jsr io_puthex4
         lda #<s_work
         ldx #>s_work
-        jsr _io_puts
+        jsr io_puts
 
         ; Prompt at bottom
         lda #0
         sta CUR_COL
         lda #SCREEN_HEIGHT - 1
         sta CUR_ROW
-        jsr _io_sync
-        jsr _io_clear_eol
-        jsr _show_prompt
+        jsr io_sync
+        jsr io_clear_eol
+        jsr show_prompt
 
         ; ── Main loop ────────────────────────────────────────
 @loop:
-        lda _state
+        lda state
         bne :+
         jmp @exit               ; ST_STOP → exit
 :
 
-        jsr _cursor_show
-        jsr _io_getc
+        jsr cursor_show
+        jsr io_getc
         sta @key
-        jsr _cursor_hide
+        jsr cursor_hide
 
         ; NMI check (priority over keypress)
-        lda _nmi_pending
+        lda nmi_pending
         beq @no_nmi
         lda #0
-        sta _nmi_pending
-        lda _state
+        sta nmi_pending
+        lda state
         cmp #ST_EDIT
         bne @nmi_repl
-        jsr _leave_editor
+        jsr leave_editor
 @nmi_repl:
         lda #ST_REPL
-        sta _state
-        jsr _restore_colors
+        sta state
+        jsr restore_colors
         lda VIC_MEMCTL
         ora #$02
         sta VIC_MEMCTL
-        jsr _newline
+        jsr newline
         lda #<s_nmi_msg
         ldx #>s_nmi_msg
-        jsr _io_puts
-        jsr _io_clear_eol
-        jsr _newline
-        jsr _io_clear_eol
-        jsr _show_prompt
+        jsr io_puts
+        jsr io_clear_eol
+        jsr newline
+        jsr io_clear_eol
+        jsr show_prompt
         jmp @loop
 
 @no_nmi:
@@ -344,24 +344,24 @@ startup:
         lda @key
         cmp #CH_STOP
         bne @not_stop
-        lda _state
+        lda state
         cmp #ST_REPL
         bne @stop_edit
-        jsr _enter_editor
+        jsr enter_editor
         jmp @loop
 @stop_edit:
         cmp #ST_EDIT
         bne @loop
-        jsr _leave_editor
+        jsr leave_editor
         jmp @loop
 @not_stop:
 
         ; Editor mode → ed_handle_key
-        lda _state
+        lda state
         cmp #ST_EDIT
         bne @repl_mode
         lda @key
-        jsr _ed_handle_key
+        jsr ed_handle_key
         jmp @loop
 
         ; ── REPL key dispatch ────────────────────────────────
@@ -370,11 +370,11 @@ startup:
 
         cmp #CH_ENTER
         bne @not_enter
-        jsr _read_line
+        jsr read_line
         lda #0
         sta CUR_COL
-        jsr _exec_line
-        jsr _show_prompt
+        jsr exec_line
+        jsr show_prompt
         jmp @loop
 @not_enter:
 
@@ -383,12 +383,12 @@ startup:
         ; Backspace: shift row left from cursor
         ldx CUR_ROW
         lda scr_lo,x
-        sta ptr1
+        sta rp_ptr
         lda scr_hi,x
-        sta ptr1+1
+        sta rp_ptr+1
         ; Check mincol: if row[4] == ':' ($3A screen), mincol=5
         ldy #4
-        lda (ptr1),y
+        lda (rp_ptr),y
         cmp #$3A                ; ':' screencode
         bne @del_min0
         lda CUR_COL
@@ -403,15 +403,15 @@ startup:
         ldy CUR_COL
 @del_loop:
         iny
-        lda (ptr1),y
+        lda (rp_ptr),y
         dey
-        sta (ptr1),y
+        sta (rp_ptr),y
         iny
         cpy #SCREEN_WIDTH - 1
         bcc @del_loop
         lda #$20
         ldy #SCREEN_WIDTH - 1
-        sta (ptr1),y
+        sta (rp_ptr),y
 @del_done:
         jmp @loop
 @not_del:
@@ -421,17 +421,17 @@ startup:
         ; Insert: shift row right from cursor
         ldx CUR_ROW
         lda scr_lo,x
-        sta ptr1
+        sta rp_ptr
         lda scr_hi,x
-        sta ptr1+1
+        sta rp_ptr+1
         ldy #SCREEN_WIDTH - 2
 @ins_loop:
         cpy CUR_COL
         beq @ins_done_shift
         bcc @ins_done_shift
-        lda (ptr1),y
+        lda (rp_ptr),y
         iny
-        sta (ptr1),y
+        sta (rp_ptr),y
         dey
         dey
         jmp @ins_loop
@@ -441,11 +441,11 @@ startup:
         bcs @ins_pad
         tay
         lda #$20
-        sta (ptr1),y
+        sta (rp_ptr),y
 @ins_pad:
         lda #$20
         ldy #SCREEN_WIDTH - 1
-        sta (ptr1),y
+        sta (rp_ptr),y
         jmp @loop
 @not_ins:
 
@@ -454,7 +454,7 @@ startup:
         lda CUR_ROW
         beq @k_done
         dec CUR_ROW
-        jsr _io_sync
+        jsr io_sync
 @k_done:
         jmp @loop
 @not_up:
@@ -465,7 +465,7 @@ startup:
         cmp #SCREEN_HEIGHT - 1
         bcs @k_done2
         inc CUR_ROW
-        jsr _io_sync
+        jsr io_sync
 @k_done2:
         jmp @loop
 @not_down:
@@ -501,9 +501,9 @@ startup:
         cmp #CH_ESC
         bne @default
 @do_clr:
-        jsr _reset_screen
-        jsr _io_clear_eol
-        jsr _show_prompt
+        jsr reset_screen
+        jsr io_clear_eol
+        jsr show_prompt
         jmp @loop
 
 @default:
@@ -512,7 +512,7 @@ startup:
         cmp #SCREEN_WIDTH - 1
         bcs @skip_print
         lda @key
-        jsr _io_putc
+        jsr io_putc
 @skip_print:
         jmp @loop
 

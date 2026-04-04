@@ -7,13 +7,13 @@
 ; sets cur_addr/cur_device, then JSRs to repl_test_entry.
 ;
 ; Test entry points:
-;   repl_test_exec   — calls _exec_line
-;   repl_test_read   — calls _read_line
-;   repl_test_prompt — calls _show_prompt
+;   repl_test_exec   — calls exec_line
+;   repl_test_read   — calls read_line
+;   repl_test_prompt — calls show_prompt
 ;
 ; Captures:
 ;   Screen memory at $0400 (40×25) — written by real cse_io.s
-;   newline_count — how many times _newline was called
+;   newline_count — how many times newline was called
 
         .setcpu "6502"
 
@@ -26,51 +26,51 @@
         .export _hex_val, _is_hex, _hex_val_to_char
 
 ; ── Exports: screen module ────────────────────────────────────
-        .export _newline, _restore_colors, _reset_screen
-        .export _theme_border, _theme_bg, _theme_fg
+        .export newline, restore_colors, reset_screen
+        .export theme_border, theme_bg, theme_fg
 
 ; ── Exports: assembler / execution stubs ──────────────────────
-        .export _asm_line
-        .export _asm_assemble, _asm_org, _asm_size
+        .export asm_line
+        .export asm_assemble, asm_org, asm_size
 
 ; ── Exports: debugger stubs ───────────────────────────────────
-        .export _dbg_enter, _dbg_step_clear
-        .export _dbg_bp_set, _dbg_bp_del, _dbg_bp_clear
-        .export _dbg_bp_count
-        .export _bp_table, _step_bp
-        .export _dbg_reason, _dbg_bp_hit
-        .export _brk_pc
-        .export _reg_a, _reg_x, _reg_y, _reg_sp, _reg_p
+        .export dbg_enter, dbg_step_clear
+        .export dbg_bp_set, dbg_bp_del, dbg_bp_clear
+        .export dbg_bp_count
+        .export bp_table, step_bp
+        .export dbg_reason, dbg_bp_hit
+        .export brk_pc
+        .export reg_a, reg_x, reg_y, reg_sp, reg_p
 
 ; ── Exports: disk stubs ───────────────────────────────────────
-        .export _floppy_status, _list_directory
-        .export _disk_load_prg, _disk_save_prg
+        .export floppy_status, list_directory
+        .export disk_load_prg, disk_save_prg
 
 ; ── Exports: editor stubs ─────────────────────────────────────
-        .export _ed_save_source, _ed_load_source
-        .export _ed_save_bytes, _ed_save_lines
-        .export _tab_width, _ed_ensure_init, _ed_new, _ed_dirty
+        .export ed_save_source, ed_load_source
+        .export ed_save_bytes, ed_save_lines
+        .export tab_width, ed_ensure_init, ed_new, ed_dirty
 
 ; ── Exports: meminfo stubs ────────────────────────────────────
-        .export _cse_start, _cse_end, _cse_zp_end
-        .export _src_top, _src_bot
+        .export cse_start, cse_end, cse_zp_end
+        .export src_top, src_bot
 
 ; ── Exports: global state ─────────────────────────────────────
-        .export _state
+        .export state
 
 ; ── Exports: cc65 ZP / runtime ────────────────────────────────
-        .exportzp sp, ptr1, ptr2, tmp1, tmp2
+        .exportzp sp, rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
 
 ; ── Exports: NMI stubs (for cse_io.s) ─────────────────────────
-        .export _dbg_running, _dbg_nmi_break
+        .export dbg_running, dbg_nmi_break
         .export kplot_stub
 
 ; ── Exports: test instrumentation ─────────────────────────────
         .export newline_count
 
 ; ── Import repl.s entry points ────────────────────────────────
-        .import _exec_line, _read_line, _show_prompt
-        .import _cur_addr, _cur_device, _cur_filename
+        .import exec_line, read_line, show_prompt
+        .import cur_addr, cur_device, cur_filename
         .import line_buf, last_cmd, block_size
 
 ; ── Import cse_io row tables (for KERNAL PLOT stub) ───────────
@@ -79,8 +79,8 @@
 ; ── Force linker to resolve imports (make them visible in map) ──
 .segment "RODATA"
 sym_refs:
-        .addr _exec_line, _read_line, _show_prompt
-        .addr _cur_addr, _cur_device, _cur_filename
+        .addr exec_line, read_line, show_prompt
+        .addr cur_addr, cur_device, cur_filename
         .addr line_buf, last_cmd, block_size
         .addr newline_count, kplot_stub
 
@@ -89,11 +89,11 @@ sym_refs:
 ; ═══════════════════════════════════════════════════════════════
 .segment "ZEROPAGE"
 
-sp:     .res 2          ; cc65 C stack pointer
-ptr1:   .res 2          ; scratch pointers
-ptr2:   .res 2
-tmp1:   .res 1          ; scratch bytes
-tmp2:   .res 1
+sp:     .res 2          ; parameter stack pointer
+rp_ptr:   .res 2          ; scratch pointers
+rp_ptr2:   .res 2
+rp_tmp:   .res 1          ; scratch bytes
+rp_tmp2:   .res 1
 
 ; ═══════════════════════════════════════════════════════════════
 ; BSS — test state + stubs
@@ -101,44 +101,44 @@ tmp2:   .res 1
 .segment "BSS"
 
 ; Debugger state
-_bp_table:      .res 32         ; 8 × 4
-_step_bp:       .res 8          ; 2 × 4
-_dbg_running:   .res 1
-_dbg_reason:    .res 1
-_brk_pc:        .res 2
-_dbg_bp_hit:    .res 1
+bp_table:      .res 32         ; 8 × 4
+step_bp:       .res 8          ; 2 × 4
+dbg_running:   .res 1
+dbg_reason:    .res 1
+brk_pc:        .res 2
+dbg_bp_hit:    .res 1
 
 ; Registers
-_reg_a:         .res 1
-_reg_x:         .res 1
-_reg_y:         .res 1
-_reg_sp:        .res 1
-_reg_p:         .res 1
+reg_a:         .res 1
+reg_x:         .res 1
+reg_y:         .res 1
+reg_sp:        .res 1
+reg_p:         .res 1
 
 ; Editor state
-_ed_save_bytes: .res 2
-_ed_save_lines: .res 2
-_tab_width:     .res 1
-_ed_dirty:      .res 1
+ed_save_bytes: .res 2
+ed_save_lines: .res 2
+tab_width:     .res 1
+ed_dirty:      .res 1
 
 ; Assembler state
-_asm_org:       .res 2
-_asm_size:      .res 2
+asm_org:       .res 2
+asm_size:      .res 2
 
 ; Theme
-_theme_border:  .res 1
-_theme_bg:      .res 1
-_theme_fg:      .res 1
+theme_border:  .res 1
+theme_bg:      .res 1
+theme_fg:      .res 1
 
 ; Meminfo
-_src_top:       .res 2
-_src_bot:       .res 2
+src_top:       .res 2
+src_bot:       .res 2
 
 ; Global
-_state:         .res 1
+state:         .res 1
 
 ; Test instrumentation
-newline_count:  .res 1          ; count _newline calls
+newline_count:  .res 1          ; count newline calls
 
 ; C stack area — pushax/popax use sp ZP
 c_stack:        .res 256
@@ -153,13 +153,13 @@ c_stack:        .res 256
 repl_test_exec:
         lda #0
         sta newline_count
-        jmp _exec_line
+        jmp exec_line
 
 repl_test_read:
-        jmp _read_line
+        jmp read_line
 
 repl_test_prompt:
-        jmp _show_prompt
+        jmp show_prompt
 
 ; ═══════════════════════════════════════════════════════════════
 ; hex_val / is_hex / hex_val_to_char — pure asm replacements
@@ -223,8 +223,8 @@ repl_test_prompt:
 
 COLS = 40
 
-; _newline — advance cursor row, track count
-.proc _newline
+; newline — advance cursor row, track count
+.proc newline
         inc newline_count
         inc $D6                 ; CUR_ROW
         lda $D6
@@ -248,12 +248,12 @@ COLS = 40
         rts
 .endproc
 
-; _restore_colors — no-op in tests
-_restore_colors:
+; restore_colors — no-op in tests
+restore_colors:
         rts
 
-; _reset_screen — clear screen + reset cursor
-.proc _reset_screen
+; reset_screen — clear screen + reset cursor
+.proc reset_screen
         ldx #0
         lda #$20                ; space screen code
 @clr:   sta $0400,x
@@ -272,19 +272,19 @@ _restore_colors:
 ; Assembler stubs
 ; ═══════════════════════════════════════════════════════════════
 
-; _asm_line(addr, buf) — __fastcall__, 2 args via C stack
+; asm_line(addr, buf) — __fastcall__, 2 args via C stack
 ; Returns 0 (error) always in stub mode.
 ; Real tests should link the full asm pipeline instead.
-_asm_line:
+asm_line:
         lda #0
         tax
         rts
 
-; _asm_assemble — stub: sets asm_org=$1000, asm_size=0, returns 0 errors
-.proc _asm_assemble
+; asm_assemble — stub: sets asm_org=$1000, asm_size=0, returns 0 errors
+.proc asm_assemble
         lda #0
-        sta _asm_size
-        sta _asm_size+1
+        sta asm_size
+        sta asm_size+1
         tax
         rts
 .endproc
@@ -293,26 +293,26 @@ _asm_line:
 ; Debugger stubs
 ; ═══════════════════════════════════════════════════════════════
 
-_dbg_enter:
+dbg_enter:
         rts
 
-_dbg_step_clear:
+dbg_step_clear:
         ldx #7
         lda #0
-@clr:   sta _step_bp,x
+@clr:   sta step_bp,x
         dex
         bpl @clr
         rts
 
-; _dbg_bp_set(addr) — __fastcall__: A/X = addr
+; dbg_bp_set(addr) — __fastcall__: A/X = addr
 ; Returns slot in A, C=0 ok, C=1 full
-.proc _dbg_bp_set
-        sta _brk_pc             ; reuse as scratch
-        stx _brk_pc+1
+.proc dbg_bp_set
+        sta brk_pc             ; reuse as scratch
+        stx brk_pc+1
         ; find first empty slot
         ldx #0
-@scan:  lda _bp_table,x
-        ora _bp_table+1,x
+@scan:  lda bp_table,x
+        ora bp_table+1,x
         beq @found
         txa
         clc
@@ -324,12 +324,12 @@ _dbg_step_clear:
         lda #$FF
         sec
         rts
-@found: lda _brk_pc
-        sta _bp_table,x
-        lda _brk_pc+1
-        sta _bp_table+1,x
+@found: lda brk_pc
+        sta bp_table,x
+        lda brk_pc+1
+        sta bp_table+1,x
         lda #1
-        sta _bp_table+3,x       ; enabled
+        sta bp_table+3,x       ; enabled
         txa
         lsr
         lsr                     ; slot = x/4
@@ -337,44 +337,44 @@ _dbg_step_clear:
         rts
 .endproc
 
-; _dbg_bp_del(slot) — __fastcall__: A = slot
-_dbg_bp_del:
+; dbg_bp_del(slot) — __fastcall__: A = slot
+dbg_bp_del:
         asl
         asl
         tax
         lda #0
-        sta _bp_table,x
-        sta _bp_table+1,x
-        sta _bp_table+2,x
-        sta _bp_table+3,x
+        sta bp_table,x
+        sta bp_table+1,x
+        sta bp_table+2,x
+        sta bp_table+3,x
         rts
 
-; _dbg_bp_clear
-.proc _dbg_bp_clear
+; dbg_bp_clear
+.proc dbg_bp_clear
         ldx #31
         lda #0
-@clr:   sta _bp_table,x
+@clr:   sta bp_table,x
         dex
         bpl @clr
         rts
 .endproc
 
-; _dbg_bp_count — returns count in A
-.proc _dbg_bp_count
+; dbg_bp_count — returns count in A
+.proc dbg_bp_count
         ldx #0
         lda #0
-        stx tmp1                ; count
-@lp:    lda _bp_table,x
-        ora _bp_table+1,x
+        stx rp_tmp                ; count
+@lp:    lda bp_table,x
+        ora bp_table+1,x
         beq @next
-        inc tmp1
+        inc rp_tmp
 @next:  txa
         clc
         adc #4
         tax
         cpx #32
         bcc @lp
-        lda tmp1
+        lda rp_tmp
         rts
 .endproc
 
@@ -382,20 +382,20 @@ _dbg_bp_del:
 ; Disk stubs — all no-ops, return success
 ; ═══════════════════════════════════════════════════════════════
 
-_floppy_status:
+floppy_status:
         rts
 
-_list_directory:
+list_directory:
         rts
 
 ; disk_load_prg(name, addr) — returns loaded size in A/X (0 = error)
-_disk_load_prg:
+disk_load_prg:
         lda #0
         tax
         rts
 
 ; disk_save_prg(name, addr, size) — returns 0 (ok)
-_disk_save_prg:
+disk_save_prg:
         lda #0
         rts
 
@@ -403,18 +403,18 @@ _disk_save_prg:
 ; Editor stubs
 ; ═══════════════════════════════════════════════════════════════
 
-_ed_save_source:
+ed_save_source:
         lda #0
         rts
 
-_ed_load_source:
+ed_load_source:
         lda #0
         rts
 
-_ed_ensure_init:
+ed_ensure_init:
         rts
 
-_ed_new:
+ed_new:
         rts
 
 ; ═══════════════════════════════════════════════════════════════
@@ -422,21 +422,21 @@ _ed_new:
 ; ═══════════════════════════════════════════════════════════════
 
 ; cse_start() → $0800
-.proc _cse_start
+.proc cse_start
         lda #$00
         ldx #$08
         rts
 .endproc
 
 ; cse_end() → $4000
-.proc _cse_end
+.proc cse_end
         lda #$00
         ldx #$40
         rts
 .endproc
 
 ; cse_zp_end() → $20
-.proc _cse_zp_end
+.proc cse_zp_end
         lda #$20
         rts
 .endproc
@@ -445,7 +445,7 @@ _ed_new:
 ; KERNAL PLOT stub (for io_sync)
 ; ═══════════════════════════════════════════════════════════════
 
-_dbg_nmi_break:
+dbg_nmi_break:
         rti
 
 kplot_stub:

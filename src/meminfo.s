@@ -1,12 +1,10 @@
-; meminfo.s — expose linker segment boundaries to C code
+; meminfo.s — expose linker segment boundaries as callable functions
 ;
-; The cc65 linker defines __MAIN_START__, __BSS_RUN__, __BSS_SIZE__
-; etc. as assembly-level symbols.  C sees names with an underscore
-; prefix, and treats them as addresses of variables — not the values
-; themselves.  So we store the values in RODATA and provide accessor
-; functions.
+; The linker defines __MAIN_START__, __BSS_RUN__, __BSS_SIZE__ etc.
+; as assembly-level symbols.  We store the values in RODATA and
+; provide accessor functions that return them in A/X.
 
-        .export _cse_start, _cse_end, _cse_zp_end
+        .export cse_start, cse_end, cse_zp_end
         .import __MAIN_START__
         .import __BSS_RUN__, __BSS_SIZE__
         .import __ZP_LAST__
@@ -19,19 +17,19 @@ _zp_end_val:    .byte <(__ZP_LAST__ + 1)
 .segment "CODE"
 
 ; uint16_t cse_start(void)
-_cse_start:
+cse_start:
         lda _start_val
         ldx _start_val+1
         rts
 
 ; uint16_t cse_end(void)
-_cse_end:
+cse_end:
         lda _end_val
         ldx _end_val+1
         rts
 
 ; uint8_t cse_zp_end(void) — first free ZP byte
-_cse_zp_end:
+cse_zp_end:
         lda _zp_end_val
         ldx #0
         rts
