@@ -116,33 +116,32 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
 .segment "STARTUP"
 
 startup:
-        ; Zero BSS segment
+        ; Zero BSS segment (page loop keeps A=0 throughout)
         lda #<__BSS_RUN__
         sta ptr1
         lda #>__BSS_RUN__
         sta ptr1+1
-        lda #<__BSS_SIZE__
-        sta ptr2
-        lda #>__BSS_SIZE__
-        sta ptr2+1
-        ; Size == 0? Skip
-        ora ptr2
-        beq @bss_done
         lda #0
         ldy #0
-@bss_loop:
+        ; Full pages
+        ldx #>__BSS_SIZE__
+        beq @bss_partial
+@bss_page:
         sta (ptr1),y
-        inc ptr1
-        bne :+
+        iny
+        bne @bss_page
         inc ptr1+1
-:       ; Decrement size
-        lda ptr2
-        bne :+
-        dec ptr2+1
-:       dec ptr2
-        lda ptr2
-        ora ptr2+1
-        bne @bss_loop
+        dex
+        bne @bss_page
+@bss_partial:
+        ; Remaining bytes
+        ldx #<__BSS_SIZE__
+        beq @bss_done
+@bss_rem:
+        sta (ptr1),y
+        iny
+        dex
+        bne @bss_rem
 @bss_done:
 
         ; Init parameter stack pointer
