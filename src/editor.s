@@ -1,0 +1,2572 @@
+; editor.s — gap-buffer source editor
+;
+; Screen layout:
+;   Row  0-21  Source text (22 lines)
+;   Row 22     Status bar
+;   Row 23-24  Last 2 lines preserved from REPL
+;
+; Ported from editor.c — identical behavior, pure 6502 assembly.
+
+        .export _enter_editor, _leave_editor
+        .export _ed_handle_key
+        .export _ed_ensure_init, _ed_new
+        .export _ed_save_source, _ed_load_source
+        .export _ed_read_rewind, _ed_read_byte, _ed_read_line
+        .export _ed_insert_string
+        .export _ed_dirty, _ed_save_bytes, _ed_save_lines
+        .export _tab_width
+
+        .import _io_putc, _io_puts, _io_sync
+        .import _io_clear_eol
+        .import _kernal_bank_out, _kernal_bank_in
+        .import _restore_colors, _reset_screen
+        .import _disk_save_seq, _disk_load_seq
+        .import _disk_seq_bytes, _disk_seq_lines
+        .import _cse_end
+        .import _cur_filename
+        .import _state, _SCREEN, _src_top, _src_bot
+        .import scr_lo, scr_hi
+        .import cse_popax, pushax
+        .importzp sp
+
+; ── Constants ────────────────────────────────────────────────
+SCREEN       = $0400
+SCREEN_WIDTH = 40
+ED_LINES     = 22            ; visible source lines
+ED_STATUS    = 22            ; status bar row
+BUF_END      = $C800         ; exclusive end of buffer (constant)
+BUF_FLOOR    = $4800         ; growth limit
+REPL_SCREEN  = $F818         ; banked RAM under KERNAL
+
+; KERNAL locations
+CUR_COL      = $D3           ; io_cx
+CUR_ROW      = $D6           ; io_cy
+
+; State constants
+ST_REPL      = 1
+ST_EDIT      = 2
+
+; Filename
+FILENAME_MAX_LEN = 16
+
+; Key codes
+CH_ENTER     = 13
+CH_DEL       = 20
+CH_INS       = 148
+CH_CURS_UP   = 145
+CH_CURS_DOWN = 17
+CH_CURS_LEFT = 157
+CH_CURS_RIGHT = 29
+CH_HOME      = 19
+
+; ── Zero page ────────────────────────────────────────────────
+.segment "ZEROPAGE"
+
+gap_lo:         .res 2          ; first byte of gap (insert point)
+gap_hi:         .res 2          ; first byte after gap (read point)
+buf_base:       .res 2          ; lowest address of buffer
+ed_top_ptr:     .res 2          ; cached buffer pos for first visible line
+read_ptr:                       ; sequential reader position (overlaps save_ptr)
+save_ptr:       .res 2          ; save callback position
+ed_tmp:         .res 2          ; scratch (16-bit) — must be ZP for indirect addressing
+ed_scr:         .res 2          ; screen pointer for rendering — must be ZP for indirect addressing
+
+; ── BSS ──────────────────────────────────────────────────────
+.segment "BSS"
+
+ed_cur_line:    .res 2          ; cursor line (0-based)
+ed_cur_col:     .res 1          ; cursor visual column (0-based)
+ed_top_line:    .res 2          ; line number at screen row 0
+ed_total_lines: .res 2          ; total line count in buffer
+_ed_dirty:      .res 1          ; buffer modified flag
+_ed_save_bytes: .res 2          ; bytes from last file op
+_ed_save_lines: .res 2          ; lines from last file op
+_tab_width:     .res 1          ; tab stop interval (default 8)
+save_phase:     .res 1          ; 0=pre-gap, 1=post-gap
+repl_cur_x:     .res 1          ; saved REPL cursor X
+repl_cur_y:     .res 1          ; saved REPL cursor Y
+ws_buf:         .res 39         ; auto-indent whitespace buffer
+
+; ── DATA — initialized at runtime ────────────────────────────
+.segment "DATA"
+
+tab_width_init: .byte 8         ; initial tab_width value
+
+; ── RODATA ───────────────────────────────────────────────────
+.segment "RODATA"
+
+; Hex digit table for status bar (screen codes, OR'd with $80 for reverse)
+st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
+        .byte $38,$39,$01,$02,$03,$04,$05,$06
+
+; ── CODE ─────────────────────────────────────────────────────
+.segment "CODE"
+
+; ═════════════════════════════════════════════════════════════
+; Phase A — Gap buffer core + sequential reader
+; ═════════════════════════════════════════════════════════════
+
+; ── ed_init — reset all buffer state ──────────────────────────
+.proc ed_init
+        lda #<BUF_END
+        sta gap_lo
+        sta gap_hi
+        sta buf_base
+        sta ed_top_ptr
+        sta _src_top
+        sta _src_bot
+        lda #>BUF_END
+        sta gap_lo+1
+        sta gap_hi+1
+        sta buf_base+1
+        sta ed_top_ptr+1
+        sta _src_top+1
+        sta _src_bot+1
+        lda #0
+        sta ed_cur_line
+        sta ed_cur_line+1
+        sta ed_cur_col
+        sta ed_top_line
+        sta ed_top_line+1
+        sta _ed_dirty
+        sta ed_total_lines+1
+        lda #1
+        sta ed_total_lines
+        rts
+.endproc
+
+; ── gb_ensure_room — grow buffer if gap exhausted ─────────────
+; Returns: C=1 ok, C=0 fail (out of memory)
+.proc gb_ensure_room
+        ; Check gap_hi - gap_lo > 0
+        lda gap_hi
+        sec
+        sbc gap_lo
+        sta ed_tmp
+        lda gap_hi+1
+        sbc gap_lo+1
+        ora ed_tmp
+        beq :+                  ; gap == 0, need to grow
+        jmp @have_room          ; gap > 0
+:
+        ; Check buf_base - 256 >= BUF_FLOOR
+        lda buf_base+1
+        cmp #>BUF_FLOOR + 1    ; if hi > BUF_FLOOR.hi+1 we're fine
+        bcs @can_grow
+        ; hi byte = BUF_FLOOR.hi or less — check lo
+        cmp #>BUF_FLOOR
+        bcs :+
+        jmp @no_room            ; hi byte < BUF_FLOOR.hi → no
+:
+        ; hi byte = BUF_FLOOR.hi → check buf_base.lo
+        lda buf_base
+        cmp #<BUF_FLOOR
+        bcs :+
+        jmp @no_room            ; buf_base < BUF_FLOOR → no
+:
+        bne @can_grow
+        jmp @no_room            ; buf_base = BUF_FLOOR → no (minus 256 would underflow)
+@can_grow:
+        ; pre_size = gap_lo - buf_base
+        lda gap_lo
+        sec
+        sbc buf_base
+        sta ed_tmp              ; pre_size lo
+        lda gap_lo+1
+        sbc buf_base+1
+        sta ed_tmp+1            ; pre_size hi
+
+        ; new_base = buf_base - 256 (subtract $0100)
+        ; Just decrement buf_base hi byte
+        dec buf_base+1
+
+        ; Copy pre-gap text from old_base to new_base (ascending copy)
+        ; pre_size in ed_tmp/ed_tmp+1
+        ; Source: buf_base + $0100 (the old buf_base)
+        ; Dest:   buf_base (the new buf_base)
+        lda ed_tmp
+        ora ed_tmp+1
+        beq @no_copy            ; pre_size = 0, skip copy
+
+        ; Setup copy: src = buf_base+$100 (old base), dst = buf_base (new base)
+        ; We need to copy ed_tmp bytes ascending
+        ; Use save_ptr as src, ed_scr as dst (both are scratch-safe here)
+        lda buf_base
+        sta ed_scr              ; dst lo (new_base)
+        clc
+        adc #0                  ; dst lo (same as buf_base lo)
+        lda buf_base+1
+        sta ed_scr+1            ; dst hi
+        ; src = old base = buf_base + $100
+        lda buf_base
+        sta save_ptr
+        lda buf_base+1
+        clc
+        adc #1
+        sta save_ptr+1          ; src = old buf_base
+
+        ; Copy ed_tmp bytes ascending (src → dst)
+        ; pre_size could be > 256, use page loop
+        ldx ed_tmp+1            ; full pages
+        ldy #0
+        ; Copy full pages
+        cpx #0
+        beq @partial
+@page:  lda (save_ptr),y
+        sta (ed_scr),y
+        iny
+        bne @page
+        inc save_ptr+1
+        inc ed_scr+1
+        dex
+        bne @page
+@partial:
+        ; Copy remaining ed_tmp (lo) bytes
+        ldx ed_tmp              ; remaining bytes
+        beq @copy_done
+        ldy #0
+@rem:   lda (save_ptr),y
+        sta (ed_scr),y
+        iny
+        dex
+        bne @rem
+@copy_done:
+@no_copy:
+        ; Adjust ed_top_ptr if it's in the pre-gap region
+        ; if ed_top_ptr >= old_base && ed_top_ptr <= gap_lo → shift down by $100
+        ; old_base = buf_base + $100
+        ; Compare: ed_top_ptr >= buf_base + $100
+        lda ed_top_ptr+1
+        cmp buf_base+1          ; compare with new base hi
+        bcc @no_adjust          ; ed_top_ptr.hi < new_base.hi → below buffer
+        bne @check_upper        ; ed_top_ptr.hi > new_base.hi → could be in range
+        ; hi bytes equal to new_base — check lo
+        lda ed_top_ptr
+        cmp buf_base
+        bcc @no_adjust          ; below new_base → can't be old pre-gap
+@check_upper:
+        ; Check ed_top_ptr + $100 was >= old_base: since old = new + $100,
+        ; check ed_top_ptr >= new + $100 → ed_top_ptr.hi >= new.hi + 1
+        lda ed_top_ptr+1
+        sec
+        sbc buf_base+1
+        cmp #1
+        bcc @do_adjust          ; ed_top_ptr.hi == buf_base+1.hi means it was in old region
+        ; ed_top_ptr was in old region → check <= gap_lo
+        ; Actually let me redo this: old_base = buf_base+$100
+        ; We need: ed_top_ptr >= old_base AND ed_top_ptr <= gap_lo
+        ; old_base.hi = buf_base.hi + 1
+        lda ed_top_ptr+1
+        cmp buf_base+1
+        beq @no_adjust          ; ed_top_ptr.hi == new_base.hi < old_base.hi → not in old pre-gap
+        ; ed_top_ptr.hi >= new_base.hi + 1
+        ; Check ed_top_ptr <= gap_lo  (gap_lo hasn't moved yet — it's old gap_lo)
+        ; old gap_lo = new gap_lo - $100... wait, gap_lo hasn't changed yet
+        ; Actually gap_lo is still at its old position
+@do_adjust:
+        ; Check ed_top_ptr <= old gap_lo
+        lda gap_lo+1
+        cmp ed_top_ptr+1
+        bcc @no_adjust          ; gap_lo < ed_top_ptr → not in pre-gap
+        bne @shift              ; gap_lo > ed_top_ptr → in pre-gap
+        lda gap_lo
+        cmp ed_top_ptr
+        bcc @no_adjust          ; gap_lo < ed_top_ptr
+@shift:
+        ; ed_top_ptr -= $0100
+        dec ed_top_ptr+1
+@no_adjust:
+        ; Update gap_lo = new_base + pre_size
+        lda buf_base
+        clc
+        adc ed_tmp              ; pre_size lo
+        sta gap_lo
+        lda buf_base+1
+        adc ed_tmp+1
+        sta gap_lo+1
+
+        ; gap_hi = gap_lo + 256
+        lda gap_lo
+        sta gap_hi
+        lda gap_lo+1
+        clc
+        adc #1
+        sta gap_hi+1
+
+        ; Update src_bot
+        lda buf_base
+        sta _src_bot
+        lda buf_base+1
+        sta _src_bot+1
+
+@have_room:
+        sec                     ; success
+        rts
+@no_room:
+        clc                     ; failure
+        rts
+.endproc
+
+; ── gb_insert — insert byte at gap ────────────────────────────
+; Input: A = byte to insert
+; Clobbers: A, Y
+.proc gb_insert
+        pha                     ; save byte
+        jsr gb_ensure_room
+        bcc @full               ; no room
+        pla
+        ldy #0
+        sta (gap_lo),y
+        ; bump gap_lo
+        inc gap_lo
+        bne :+
+        inc gap_lo+1
+:       cmp #$0D
+        bne @not_cr
+        inc ed_total_lines
+        bne :+
+        inc ed_total_lines+1
+:
+@not_cr:
+        lda #1
+        sta _ed_dirty
+        rts
+@full:
+        pla                     ; discard byte
+        rts
+.endproc
+
+; ── gb_backspace — delete before gap ──────────────────────────
+.proc gb_backspace
+        ; if gap_lo == buf_base → nothing
+        lda gap_lo
+        cmp buf_base
+        bne @ok
+        lda gap_lo+1
+        cmp buf_base+1
+        beq @done
+@ok:
+        ; --gap_lo
+        lda gap_lo
+        bne :+
+        dec gap_lo+1
+:       dec gap_lo
+        ; check if deleted byte is $0D
+        ldy #0
+        lda (gap_lo),y
+        cmp #$0D
+        bne @not_cr
+        ; --ed_total_lines
+        lda ed_total_lines
+        bne :+
+        dec ed_total_lines+1
+:       dec ed_total_lines
+@not_cr:
+        lda #1
+        sta _ed_dirty
+@done:  rts
+.endproc
+
+; ── gb_cursor_right — move gap right one byte ─────────────────
+; Clobbers: A, Y
+.proc gb_cursor_right
+        ; if gap_hi >= BUF_END → done
+        lda gap_hi+1
+        cmp #>BUF_END
+        bcc @ok
+        lda gap_hi
+        cmp #<BUF_END
+        bcs @done
+@ok:
+        ldy #0
+        lda (gap_hi),y          ; byte at gap_hi
+        sta (gap_lo),y          ; copy to gap_lo
+        ; ++gap_lo
+        inc gap_lo
+        bne :+
+        inc gap_lo+1
+:       ; ++gap_hi
+        inc gap_hi
+        bne :+
+        inc gap_hi+1
+:
+@done:  rts
+.endproc
+
+; ── gb_cursor_left — move gap left one byte ───────────────────
+; Clobbers: A, Y
+.proc gb_cursor_left
+        ; if gap_lo == buf_base → done
+        lda gap_lo
+        cmp buf_base
+        bne @ok
+        lda gap_lo+1
+        cmp buf_base+1
+        beq @done
+@ok:
+        ; --gap_hi
+        lda gap_hi
+        bne :+
+        dec gap_hi+1
+:       dec gap_hi
+        ; --gap_lo
+        lda gap_lo
+        bne :+
+        dec gap_lo+1
+:       dec gap_lo
+        ; copy byte from gap_lo to gap_hi
+        ldy #0
+        lda (gap_lo),y
+        sta (gap_hi),y
+@done:  rts
+.endproc
+
+; ── ed_ensure_init — allocate gap buffer if needed ────────────
+; C-callable: void ed_ensure_init(void)
+.proc _ed_ensure_init
+        lda ed_total_lines
+        ora ed_total_lines+1
+        bne @done
+        jsr ed_init
+        lda #8
+        sta _tab_width
+@done:  rts
+.endproc
+
+; ── ed_new — clear editor (new file) ─────────────────────────
+; C-callable: void ed_new(void)
+.proc _ed_new
+        jsr ed_init
+        lda #8
+        sta _tab_width
+        lda #0
+        sta _cur_filename
+        rts
+.endproc
+
+; ── ed_insert_string — insert PETSCII string at cursor ────────
+; C-callable: void ed_insert_string(const char *text)
+; __fastcall__: text in A/X
+.proc _ed_insert_string
+        sta save_ptr            ; reuse save_ptr as text pointer
+        stx save_ptr+1
+        ; Ensure buffer exists
+        lda ed_total_lines
+        ora ed_total_lines+1
+        bne @loop
+        jsr ed_init
+        lda #8
+        sta _tab_width
+@loop:
+        ldy #0
+        lda (save_ptr),y
+        beq @done               ; NUL terminator
+        jsr gb_insert
+        ; advance pointer
+        inc save_ptr
+        bne @loop
+        inc save_ptr+1
+        jmp @loop
+@done:  rts
+.endproc
+
+; ═════════════════════════════════════════════════════════════
+; Sequential reader — for source assembler
+; ═════════════════════════════════════════════════════════════
+
+; ── ed_read_rewind — reset read pointer to start ──────────────
+.proc _ed_read_rewind
+        jsr _ed_ensure_init
+        lda buf_base
+        sta read_ptr
+        lda buf_base+1
+        sta read_ptr+1
+        rts
+.endproc
+
+; ── ed_read_byte — read next byte from source ─────────────────
+; Returns: A/X = byte (X=0), or A=$FF/X=$FF at EOF
+.proc _ed_read_byte
+        ; Skip gap
+        lda read_ptr
+        cmp gap_lo
+        bne @no_gap
+        lda read_ptr+1
+        cmp gap_lo+1
+        bne @no_gap
+        ; read_ptr == gap_lo → skip to gap_hi
+        lda gap_hi
+        sta read_ptr
+        lda gap_hi+1
+        sta read_ptr+1
+@no_gap:
+        ; Check EOF: read_ptr >= BUF_END
+        lda read_ptr+1
+        cmp #>BUF_END
+        bcc @ok
+        bne @eof
+        lda read_ptr
+        cmp #<BUF_END
+        bcs @eof
+@ok:
+        ldy #0
+        lda (read_ptr),y
+        pha                     ; save byte
+        inc read_ptr
+        bne :+
+        inc read_ptr+1
+:       pla                     ; byte in A
+        ldx #0
+        rts
+@eof:
+        lda #$FF
+        tax                     ; A=$FF, X=$FF → -1
+        rts
+.endproc
+
+; ── ed_read_line — read one line into buffer ──────────────────
+; C-callable: int ed_read_line(char *buf, uint8_t maxlen)
+; Calling convention: maxlen in A (last param), buf on C stack (pushax)
+; Returns: A/X = length, or A=$FF/X=$FF at EOF
+.proc _ed_read_line
+        sta ed_tmp+1            ; maxlen
+        jsr cse_popax           ; pop buf → A/X
+        sta ed_scr              ; buf lo
+        stx ed_scr+1            ; buf hi
+        lda #0
+        sta ed_tmp              ; len = 0
+@loop:
+        jsr _ed_read_byte
+        cpx #$FF
+        beq @eof_check          ; got EOF from read_byte
+        ; Got a byte in A
+        cmp #$0D
+        beq @eol                ; end of line
+        ; Store if room: len < maxlen - 1
+        ldx ed_tmp              ; current len
+        inx                     ; len + 1
+        cpx ed_tmp+1            ; compare with maxlen
+        bcs @loop               ; len+1 >= maxlen → truncate (don't store)
+        ; Store byte
+        ldy ed_tmp
+        sta (ed_scr),y
+        inc ed_tmp              ; ++len
+        jmp @loop
+@eol:
+        ; NUL-terminate
+        ldy ed_tmp
+        lda #0
+        sta (ed_scr),y
+        lda ed_tmp              ; return len
+        ldx #0
+        rts
+@eof_check:
+        ; EOF — return what we have, or -1 if nothing
+        lda ed_tmp
+        beq @eof_empty
+        ; NUL-terminate and return len
+        ldy ed_tmp
+        lda #0
+        sta (ed_scr),y
+        lda ed_tmp
+        ldx #0
+        rts
+@eof_empty:
+        lda #$FF
+        tax                     ; -1
+        rts
+.endproc
+
+; ═════════════════════════════════════════════════════════════
+; Phase B — Rendering + status bar
+; ═════════════════════════════════════════════════════════════
+
+; ── col_mod_tw — vcol mod tab_width via subtraction ───────────
+; Input: A = vcol
+; Output: A = vcol mod tab_width
+; Clobbers: nothing else
+.proc col_mod_tw
+@loop:  cmp _tab_width
+        bcc @done
+        sec
+        sbc _tab_width
+        jmp @loop
+@done:  rts
+.endproc
+
+; ── char_width — visual width of a byte at given column ───────
+; Input: A = byte, X = vcol
+; Output: A = width (1 for normal, 1-tab_width for tab)
+.proc char_width
+        cmp #$A0
+        bne @one
+        ; Tab: width = tab_width - (vcol mod tab_width)
+        ldy _tab_width
+        beq @one                ; tab_width=0 → width=1
+        txa                     ; vcol
+        jsr col_mod_tw          ; A = vcol mod tw
+        sta ed_tmp              ; save remainder
+        lda _tab_width
+        sec
+        sbc ed_tmp              ; tab_width - remainder
+        rts
+@one:   lda #1
+        rts
+.endproc
+
+; ── skip_gap — if pointer == gap_lo, set to gap_hi ────────────
+; Uses ed_scr as the pointer (in/out)
+; Clobbers: A
+.proc skip_gap_scr
+        lda ed_scr
+        cmp gap_lo
+        bne @done
+        lda ed_scr+1
+        cmp gap_lo+1
+        bne @done
+        lda gap_hi
+        sta ed_scr
+        lda gap_hi+1
+        sta ed_scr+1
+@done:  rts
+.endproc
+
+; ── check_buf_end — check if ed_scr >= BUF_END ───────────────
+; Returns: C=1 if >= BUF_END (past end), C=0 if still in buffer
+.proc check_buf_end
+        lda ed_scr+1
+        cmp #>BUF_END
+        bcc @in                 ; hi < BUF_END.hi → in buffer
+        bne @past               ; hi > BUF_END.hi → past end
+        lda ed_scr
+        cmp #<BUF_END
+        rts                     ; C=1 if >= BUF_END, C=0 if <
+@in:    clc
+        rts
+@past:  sec
+        rts
+.endproc
+
+; ── ed_render_line — render one line to screen row ────────────
+; Input: X = screen row, ed_scr = buffer position (in/out, advances past CR)
+; Output: A = 1 if more text, 0 if EOF. ed_scr updated.
+; Clobbers: A, X, Y
+.proc ed_render_line
+        ; Setup screen pointer in ed_tmp
+        lda scr_lo,x
+        sta ed_tmp
+        lda scr_hi,x
+        sta ed_tmp+1
+        ldy #0                  ; col = 0
+
+@char_loop:
+        cpy #SCREEN_WIDTH
+        bcc :+
+        jmp @pad_done           ; col >= 40 → done
+:
+        ; Skip gap
+        jsr skip_gap_scr
+        ; Check EOF
+        jsr check_buf_end
+        bcc :+
+        jmp @pad                ; past end → pad rest
+:
+        ; Read byte
+        sty @save_col           ; save col (Y)
+        ldy #0
+        lda (ed_scr),y
+        ldy @save_col           ; restore col
+
+        ; Check CR
+        cmp #$0D
+        beq @cr
+
+        ; Check tab ($A0)
+        cmp #$A0
+        beq @tab
+
+        ; PETSCII → screencode conversion
+        ; $41-$5A → $01-$1A (lowercase)
+        cmp #$41
+        bcc @no_conv
+        cmp #$5B
+        bcc @lower
+        ; $C1-$DA → $41-$5A (uppercase)
+        cmp #$C1
+        bcc @no_conv
+        cmp #$DB
+        bcs @no_conv
+        sec
+        sbc #$80                ; $C1→$41
+        jmp @store
+@lower:
+        sec
+        sbc #$40                ; $41→$01
+        jmp @store
+@no_conv:
+@store:
+        sta (ed_tmp),y          ; scr[col] = sc
+        iny                     ; ++col
+        ; ++ed_scr
+        inc ed_scr
+        bne @char_loop
+        inc ed_scr+1
+        jmp @char_loop
+
+@tab:
+        ; Expand tab: fill spaces up to next tab_width boundary
+        ; width = tab_width > 0 ? (tab_width - col_mod_tw(col)) : 1
+        lda _tab_width
+        beq @tab_one            ; tab_width=0 → single space
+        tya                     ; col
+        jsr col_mod_tw          ; A = col mod tw
+        sta @tw_save
+        lda _tab_width
+        sec
+        sbc @tw_save            ; width = tw - (col mod tw)
+        tax                     ; X = width counter
+@tab_fill:
+        cpy #SCREEN_WIDTH
+        bcs @tab_advance
+        lda #$20
+        sta (ed_tmp),y
+        iny
+        dex
+        bne @tab_fill
+        jmp @tab_advance
+@tab_one:
+        lda #$20
+        sta (ed_tmp),y
+        iny
+@tab_advance:
+        ; ++ed_scr
+        inc ed_scr
+        bne :+
+        inc ed_scr+1
+:       jmp @char_loop
+
+@cr:
+        ; Advance past CR
+        inc ed_scr
+        bne @pad
+        inc ed_scr+1
+@pad:
+        ; Pad rest of row with spaces
+        cpy #SCREEN_WIDTH
+        bcs @pad_done
+        lda #$20
+        sta (ed_tmp),y
+        iny
+        jmp @pad
+
+@pad_done:
+        ; Skip gap at end of line
+        jsr skip_gap_scr
+        ; Return 1 if more text, 0 if EOF
+        jsr check_buf_end
+        bcs @ret_eof
+        lda #1
+        rts
+@ret_eof:
+        lda #0
+        rts
+
+@save_col: .byte 0
+@tw_save:  .byte 0
+.endproc
+
+; ── skip_one_line — advance ed_scr past one line ─────────────
+; Input/Output: ed_scr (advances to start of next line)
+; Clobbers: A, Y
+.proc skip_one_line
+@loop:
+        jsr check_buf_end
+        bcs @done
+        jsr skip_gap_scr
+        jsr check_buf_end
+        bcs @done
+        ldy #0
+        lda (ed_scr),y
+        inc ed_scr
+        bne :+
+        inc ed_scr+1
+:       cmp #$0D
+        bne @loop               ; not CR → keep going
+@done:  rts
+.endproc
+
+; ── prev_line_start — retreat ed_scr to start of previous line ─
+; Input/Output: ed_scr
+; Clobbers: A, Y
+.proc prev_line_start
+        ; If ed_scr == gap_hi → set to gap_lo
+        lda ed_scr
+        cmp gap_hi
+        bne @not_gap1
+        lda ed_scr+1
+        cmp gap_hi+1
+        bne @not_gap1
+        lda gap_lo
+        sta ed_scr
+        lda gap_lo+1
+        sta ed_scr+1
+@not_gap1:
+        ; If ed_scr <= buf_base → return buf_base
+        lda ed_scr+1
+        cmp buf_base+1
+        bcc @at_base
+        bne @step_back
+        lda ed_scr
+        cmp buf_base
+        bcc @at_base
+        beq @at_base
+@step_back:
+        ; --ed_scr (step back over $0D of current line end)
+        lda ed_scr
+        bne :+
+        dec ed_scr+1
+:       dec ed_scr
+        ; Skip gap backwards
+        lda ed_scr
+        cmp gap_hi
+        bne @scan_back
+        lda ed_scr+1
+        cmp gap_hi+1
+        bne @scan_back
+        lda gap_lo
+        sta ed_scr
+        lda gap_lo+1
+        sta ed_scr+1
+@scan_back:
+        ; Scan backwards to previous $0D or buf_base
+@bloop:
+        ; Check ed_scr > buf_base
+        lda ed_scr+1
+        cmp buf_base+1
+        bcc @at_base
+        bne @check_prev
+        lda ed_scr
+        cmp buf_base
+        bcc @at_base
+        beq @done               ; at buf_base → this is the start
+@check_prev:
+        ; Look at byte before ed_scr
+        ; prev = ed_scr - 1
+        lda ed_scr
+        sec
+        sbc #1
+        sta ed_tmp
+        lda ed_scr+1
+        sbc #0
+        sta ed_tmp+1
+        ; Skip gap for prev
+        lda ed_tmp
+        cmp gap_hi
+        bne @no_gap_prev
+        lda ed_tmp+1
+        cmp gap_hi+1
+        bne @no_gap_prev
+        lda gap_lo
+        sta ed_tmp
+        lda gap_lo+1
+        sta ed_tmp+1
+@no_gap_prev:
+        ; Check prev < buf_base
+        lda ed_tmp+1
+        cmp buf_base+1
+        bcc @done               ; prev < buf_base → stop
+        bne @check_cr
+        lda ed_tmp
+        cmp buf_base
+        bcc @done
+@check_cr:
+        ; Check if *prev == $0D
+        ldy #0
+        lda (ed_tmp),y
+        cmp #$0D
+        beq @done               ; found previous line's CR
+        ; ed_scr = prev
+        lda ed_tmp
+        sta ed_scr
+        lda ed_tmp+1
+        sta ed_scr+1
+        jmp @bloop
+
+@at_base:
+        lda buf_base
+        sta ed_scr
+        lda buf_base+1
+        sta ed_scr+1
+@done:  rts
+.endproc
+
+; ── st_hex4 — write 4 reversed hex digits to screen ──────────
+; Input: ed_scr = screen destination, ed_tmp = 16-bit value
+; Clobbers: A, X, Y
+.proc st_hex4
+        lda ed_tmp+1
+        lsr
+        lsr
+        lsr
+        lsr
+        tax
+        lda st_hx,x
+        ora #$80
+        ldy #0
+        sta (ed_scr),y
+
+        lda ed_tmp+1
+        and #$0F
+        tax
+        lda st_hx,x
+        ora #$80
+        iny
+        sta (ed_scr),y
+
+        lda ed_tmp
+        lsr
+        lsr
+        lsr
+        lsr
+        tax
+        lda st_hx,x
+        ora #$80
+        iny
+        sta (ed_scr),y
+
+        lda ed_tmp
+        and #$0F
+        tax
+        lda st_hx,x
+        ora #$80
+        iny
+        sta (ed_scr),y
+        rts
+.endproc
+
+; ── div10 — divide 16-bit value by 10 ────────────────────────
+; Input: ed_tmp = dividend (16-bit)
+; Output: ed_tmp = quotient, A = remainder
+; Clobbers: X
+.proc div10
+        ldx #0                  ; quotient lo will build in ed_tmp
+        lda #0
+        sta ed_scr              ; quotient lo
+        sta ed_scr+1            ; quotient hi
+@loop:
+        ; Check ed_tmp >= 10
+        lda ed_tmp+1
+        bne @sub                ; hi > 0 → definitely >= 10
+        lda ed_tmp
+        cmp #10
+        bcc @done               ; < 10 → done
+@sub:
+        ; ed_tmp -= 10
+        lda ed_tmp
+        sec
+        sbc #10
+        sta ed_tmp
+        lda ed_tmp+1
+        sbc #0
+        sta ed_tmp+1
+        ; ++quotient
+        inc ed_scr
+        bne @loop
+        inc ed_scr+1
+        jmp @loop
+@done:
+        lda ed_tmp              ; remainder in A
+        ; move quotient to ed_tmp
+        ldx ed_scr
+        stx ed_tmp
+        ldx ed_scr+1
+        stx ed_tmp+1
+        rts
+.endproc
+
+; ── ed_status_pos — update cursor position (cols 34-39) ───────
+.proc ed_status_pos
+        ; Screen pointer to status row
+        ldx #ED_STATUS
+        lda scr_lo,x
+        sta ed_scr
+        lda scr_hi,x
+        sta ed_scr+1
+
+        ; Column: 2 digits (1-based)
+        lda ed_cur_col
+        clc
+        adc #1
+        sta ed_tmp
+        lda #0
+        sta ed_tmp+1
+        jsr div10               ; A = ones, ed_tmp = tens
+        clc
+        adc #$30
+        ora #$80
+        ldy #39
+        sta (ed_scr),y          ; ones digit
+
+        lda ed_tmp              ; tens
+        clc
+        adc #$30
+        ora #$80
+        dey                     ; Y=38
+        sta (ed_scr),y
+
+        lda #($2C | $80)        ; comma, reversed
+        dey                     ; Y=37
+        sta (ed_scr),y
+
+        ; Line: 3 digits (1-based)
+        lda ed_cur_line
+        clc
+        adc #1
+        sta ed_tmp
+        lda ed_cur_line+1
+        adc #0
+        sta ed_tmp+1
+        jsr div10               ; A = d0 (ones), ed_tmp = rest
+        clc
+        adc #$30
+        ora #$80
+        ldy #36
+        sta (ed_scr),y          ; ones
+
+        jsr div10               ; A = d1 (tens), ed_tmp = d2 (hundreds)
+        pha                     ; save d1
+        lda ed_tmp              ; d2 (hundreds)
+        sta @d2
+
+        pla                     ; d1
+        ; d1: show if d2 or d1 nonzero, else space
+        ldx @d2
+        bne @show_d1
+        cmp #0
+        beq @blank_d1
+@show_d1:
+        clc
+        adc #$30
+        ora #$80
+        ldy #35
+        sta (ed_scr),y
+        jmp @do_d2
+@blank_d1:
+        lda #$A0                ; reversed space
+        ldy #35
+        sta (ed_scr),y
+@do_d2:
+        lda @d2
+        beq @blank_d2
+        clc
+        adc #$30
+        ora #$80
+        ldy #34
+        sta (ed_scr),y
+        rts
+@blank_d2:
+        lda #$A0
+        ldy #34
+        sta (ed_scr),y
+        rts
+
+@d2:    .byte 0
+.endproc
+
+; ── ed_status_dirty — update dirty flag (col 0) ──────────────
+.proc ed_status_dirty
+        ldx #ED_STATUS
+        lda scr_lo,x
+        sta ed_scr
+        lda scr_hi,x
+        sta ed_scr+1
+        lda _ed_dirty
+        beq @clean
+        lda #($2A | $80)        ; '*' reversed
+        jmp @store
+@clean: lda #$A0                ; space reversed
+@store: ldy #0
+        sta (ed_scr),y
+        rts
+.endproc
+
+; ── ed_status_free — update upper free address (cols 29-32) ───
+.proc ed_status_free
+        ldx #ED_STATUS
+        lda scr_lo,x
+        clc
+        adc #29
+        sta ed_scr
+        lda scr_hi,x
+        adc #0
+        sta ed_scr+1
+        ; val = buf_base - 1
+        lda buf_base
+        sec
+        sbc #1
+        sta ed_tmp
+        lda buf_base+1
+        sbc #0
+        sta ed_tmp+1
+        jmp st_hex4
+.endproc
+
+; ── ed_render_status — full status bar rebuild ────────────────
+.proc ed_render_status
+        ; Get screen pointer to status row
+        ldx #ED_STATUS
+        lda scr_lo,x
+        sta ed_scr
+        lda scr_hi,x
+        sta ed_scr+1
+
+        ; Fill with reversed spaces
+        lda #$A0
+        ldy #SCREEN_WIDTH - 1
+@fill:  sta (ed_scr),y
+        dey
+        bpl @fill
+
+        ; Dirty flag (col 0)
+        lda _ed_dirty
+        beq @clean
+        lda #($2A | $80)        ; '*' reversed
+        jmp @dirty_done
+@clean: lda #$A0
+@dirty_done:
+        ldy #0
+        sta (ed_scr),y
+
+        ; Filename (cols 1-17)
+        lda _cur_filename
+        beq @no_name
+        ; Find length of cur_filename
+        ldy #0
+@flen:  lda _cur_filename,y
+        beq @flen_done
+        iny
+        cpy #FILENAME_MAX_LEN
+        bcc @flen
+@flen_done:
+        sty @fn_len
+        ; Strip ",s" suffix if present
+        cpy #2
+        bcc @fn_copy
+        dey
+        dey
+        lda _cur_filename,y
+        cmp #','
+        bne @fn_copy
+        sty @fn_len             ; stripped 2 chars
+@fn_copy:
+        ldx #1                  ; screen col = 1
+        ldy #0
+@fn_loop:
+        cpy @fn_len
+        bcs @no_name
+        cpx #18
+        bcs @no_name
+        lda _cur_filename,y
+        ; PETSCII→screencode for filename
+        cmp #$41
+        bcc @fn_noconv
+        cmp #$5B
+        bcs @fn_noconv
+        sec
+        sbc #$40
+@fn_noconv:
+        ora #$80                ; reversed
+        pha
+        txa                     ; screen col → Y for indirect store
+        tay
+        pla
+        sta (ed_scr),y
+        tya
+        tax                     ; restore X as screen col
+        inx
+        ; restore Y as filename index
+        lda @fn_idx
+        tay
+        iny
+        sty @fn_idx
+        jmp @fn_loop
+@no_name:
+
+        ; "free:" label (cols 19-23)
+        ldy #19
+        lda #($06 | $80)        ; 'f' reversed screencode
+        sta (ed_scr),y
+        iny
+        lda #($12 | $80)        ; 'r'
+        sta (ed_scr),y
+        iny
+        lda #($05 | $80)        ; 'e'
+        sta (ed_scr),y
+        iny
+        lda #($05 | $80)        ; 'e'
+        sta (ed_scr),y
+        iny
+        lda #($3A | $80)        ; ':'
+        sta (ed_scr),y
+
+        ; Lower free address (cols 24-27)
+        lda ed_scr
+        pha
+        lda ed_scr+1
+        pha
+        jsr _cse_end            ; A/X = cse_end
+        sta ed_tmp
+        stx ed_tmp+1
+        pla
+        sta ed_scr+1
+        pla
+        clc
+        adc #24
+        sta ed_scr
+        lda ed_scr+1
+        adc #0
+        sta ed_scr+1
+        jsr st_hex4
+
+        ; '-' (col 28)
+        ; ed_scr is now at col 24, need col 28 = +4
+        lda #($2D | $80)        ; '-' reversed
+        ldy #4
+        sta (ed_scr),y
+
+        ; Upper free + cursor pos via partial updaters
+        jsr ed_status_free
+        jsr ed_status_pos
+        rts
+
+@fn_len:  .byte 0
+@fn_idx:  .byte 0
+.endproc
+
+; ── ed_render_range — render screen rows from..to ─────────────
+; Input: X = from_row, Y = to_row (exclusive)
+; Clobbers: A, X, Y
+.proc ed_render_range
+        stx @from
+        sty @to
+
+        ; Start ed_scr at ed_top_ptr
+        lda ed_top_ptr
+        sta ed_scr
+        lda ed_top_ptr+1
+        sta ed_scr+1
+
+        ; Advance to from_row by skipping lines
+        ldx #0
+@skip:  cpx @from
+        bcs @render
+        jsr skip_one_line
+        inx
+        jmp @skip
+
+@render:
+        cpx @to
+        bcs @done
+        cpx #ED_LINES
+        bcs @done
+
+        ; Skip gap
+        jsr skip_gap_scr
+        jsr check_buf_end
+        bcc @render_line
+
+        ; Past EOF — blank the row
+        stx @save_x
+        ; Fill row X with spaces
+        lda scr_lo,x
+        sta ed_tmp
+        lda scr_hi,x
+        sta ed_tmp+1
+        lda #$20
+        ldy #SCREEN_WIDTH - 1
+@blank: sta (ed_tmp),y
+        dey
+        bpl @blank
+        ldx @save_x
+        inx
+        jmp @render
+
+@render_line:
+        stx @save_x
+        ; X = row for ed_render_line
+        jsr ed_render_line
+        ldx @save_x
+        inx
+        jmp @render
+
+@done:  rts
+
+@from:   .byte 0
+@to:     .byte 0
+@save_x: .byte 0
+.endproc
+
+; ── ed_render — full redraw (22 lines + status) ──────────────
+.proc ed_render
+        ldx #0
+        ldy #ED_LINES
+        jsr ed_render_range
+        jmp ed_render_status
+.endproc
+
+; ── ed_render_rows — render range + status ────────────────────
+; Input: X = from_row, Y = to_row (exclusive)
+.proc ed_render_rows
+        jsr ed_render_range
+        jmp ed_render_status
+.endproc
+
+; ── ed_scroll_up — scroll screen up, render new bottom line ───
+.proc ed_scroll_up
+        ; Advance ed_top_ptr by one line
+        lda ed_top_ptr
+        sta ed_scr
+        lda ed_top_ptr+1
+        sta ed_scr+1
+        jsr skip_one_line
+        lda ed_scr
+        sta ed_top_ptr
+        lda ed_scr+1
+        sta ed_top_ptr+1
+        ; ++ed_top_line
+        inc ed_top_line
+        bne :+
+        inc ed_top_line+1
+:
+        ; Shift screen rows 1..21 → 0..20 (ascending copy, 21*40=840 bytes)
+        ; src = SCREEN + 40, dst = SCREEN, count = 840
+        lda #<(SCREEN + SCREEN_WIDTH)
+        sta save_ptr
+        lda #>(SCREEN + SCREEN_WIDTH)
+        sta save_ptr+1
+        lda #<SCREEN
+        sta ed_scr
+        lda #>SCREEN
+        sta ed_scr+1
+        ; Copy 840 bytes ascending (3 pages + 72 bytes)
+        ldx #3                  ; 3 full pages
+        ldy #0
+@page:  lda (save_ptr),y
+        sta (ed_scr),y
+        iny
+        bne @page
+        inc save_ptr+1
+        inc ed_scr+1
+        dex
+        bne @page
+        ; 840 - 768 = 72 remaining bytes
+        ldx #72
+@rem:   lda (save_ptr),y
+        sta (ed_scr),y
+        iny
+        dex
+        bne @rem
+
+        ; Render the new bottom line (row 21)
+        ; Find position: advance from ed_top_ptr by 21 lines
+        lda ed_top_ptr
+        sta ed_scr
+        lda ed_top_ptr+1
+        sta ed_scr+1
+        ldx #0
+@skip:  cpx #ED_LINES - 1      ; skip 21 lines
+        bcs @got_pos
+        jsr skip_one_line
+        inx
+        jmp @skip
+@got_pos:
+        jsr skip_gap_scr
+        jsr check_buf_end
+        bcc @render_bottom
+
+        ; Past EOF — blank row 21
+        ldx #ED_LINES - 1
+        lda scr_lo,x
+        sta ed_tmp
+        lda scr_hi,x
+        sta ed_tmp+1
+        lda #$20
+        ldy #SCREEN_WIDTH - 1
+@bl:    sta (ed_tmp),y
+        dey
+        bpl @bl
+        jmp ed_status_pos
+
+@render_bottom:
+        ldx #ED_LINES - 1
+        jsr ed_render_line
+        jmp ed_status_pos
+.endproc
+
+; ── ed_scroll_down — scroll screen down, render new top line ──
+.proc ed_scroll_down
+        ; Retreat ed_top_ptr by one line
+        lda ed_top_ptr
+        sta ed_scr
+        lda ed_top_ptr+1
+        sta ed_scr+1
+        jsr prev_line_start
+        lda ed_scr
+        sta ed_top_ptr
+        lda ed_scr+1
+        sta ed_top_ptr+1
+        ; --ed_top_line
+        lda ed_top_line
+        bne :+
+        dec ed_top_line+1
+:       dec ed_top_line
+
+        ; Shift screen rows 0..20 → 1..21 (descending copy, 840 bytes)
+        ; src_end = SCREEN + 21*40 - 1 = SCREEN + 839
+        ; dst_end = SCREEN + 22*40 - 1 = SCREEN + 879
+        ; Copy backwards
+        lda #<(SCREEN + 839)
+        sta save_ptr
+        lda #>(SCREEN + 839)
+        sta save_ptr+1
+        lda #<(SCREEN + 879)
+        sta ed_scr
+        lda #>(SCREEN + 879)
+        sta ed_scr+1
+        ; 840 bytes descending
+        ldx #3                  ; 3 full pages + 72 remainder
+        ldy #0                  ; start at offset 0 from pointers
+        ; Copy last 72 bytes first (high addresses)
+        ldy #72
+@rem:   dey
+        lda (save_ptr),y
+        sta (ed_scr),y
+        cpy #0
+        bne @rem
+        ; Now copy 3 pages going down
+        ; Adjust pointers: save_ptr -= 256, ed_scr -= 256 etc
+        ; Actually, let me do this differently with a clean descending copy
+        ; Easier approach: just walk backward from end
+        ; Total 840 bytes. Use pointer at high end, decrement.
+
+        ; Restart: do 840 bytes descending with a simple loop
+        ; src = SCREEN + 20*40 + 39 = SCREEN + 839  (last byte of row 20)
+        ; dst = SCREEN + 21*40 + 39 = SCREEN + 879  (last byte of row 21)
+        lda #<(SCREEN + 839)
+        sta save_ptr
+        lda #>(SCREEN + 839)
+        sta save_ptr+1
+        lda #<(SCREEN + 879)
+        sta ed_scr
+        lda #>(SCREEN + 879)
+        sta ed_scr+1
+
+        ; 840 bytes: 3 full pages (768) + 72
+        ; Go page by page from high to low
+        ; First: handle last 72 bytes (offsets 0..71 from current pointers,
+        ;        but we need to go *downward*)
+        ; Actually simplest: adjust to page-aligned and use dey loop
+
+        ; Let's use a standard descending page copy:
+        ; Start at top (save_ptr/ed_scr point to last byte)
+        ; Copy byte at Y=0 (the byte at *ptr), then decrement ptr
+        ; Repeat 840 times
+        ; But Y-indexed indirect doesn't work well going down...
+
+        ; Clean approach: use 2 loops
+        ; Outer: 4 iterations (840 = 4*210? no...)
+        ; Actually 840/256 = 3 remainder 72
+        ; Work from (save_ptr, ed_scr) counting down
+
+        ; Phase 1: copy 72 bytes from offsets (save_ptr) down
+        ldy #0
+@d_rem:
+        lda (save_ptr),y
+        sta (ed_scr),y
+        ; decrement both pointers
+        lda save_ptr
+        bne :+
+        dec save_ptr+1
+:       dec save_ptr
+        lda ed_scr
+        bne :+
+        dec ed_scr+1
+:       dec ed_scr
+        inx                     ; X was 3, use as counter... no, X is dirty
+        iny
+        cpy #72
+        bcc @d_rem
+
+        ; Phase 2: copy 3 pages (768 bytes)
+        ldx #3
+@d_page:
+        ldy #0
+@d_pg:  lda (save_ptr),y
+        sta (ed_scr),y
+        lda save_ptr
+        bne :+
+        dec save_ptr+1
+:       dec save_ptr
+        lda ed_scr
+        bne :+
+        dec ed_scr+1
+:       dec ed_scr
+        iny
+        bne @d_pg
+        dex
+        bne @d_page
+
+        ; Render the new top line (row 0)
+        lda ed_top_ptr
+        sta ed_scr
+        lda ed_top_ptr+1
+        sta ed_scr+1
+        jsr skip_gap_scr
+        jsr check_buf_end
+        bcc @render_top
+
+        ; Past EOF — blank row 0
+        lda scr_lo
+        sta ed_tmp
+        lda scr_hi
+        sta ed_tmp+1
+        lda #$20
+        ldy #SCREEN_WIDTH - 1
+@bl:    sta (ed_tmp),y
+        dey
+        bpl @bl
+        jmp ed_status_pos
+
+@render_top:
+        ldx #0
+        jsr ed_render_line
+        jmp ed_status_pos
+.endproc
+
+; ═════════════════════════════════════════════════════════════
+; Phase C — Cursor helpers + key handler + mode switch
+; ═════════════════════════════════════════════════════════════
+
+; ── visual_col — recompute visual column from line start ──────
+; Output: A = visual column
+; Clobbers: X, Y
+.proc visual_col
+        ; Walk back from gap_lo to start of line (previous $0D or buf_base)
+        lda gap_lo
+        sta ed_scr
+        lda gap_lo+1
+        sta ed_scr+1
+        ldx #0                  ; vcol = 0
+@back:
+        ; Check ed_scr > buf_base
+        lda ed_scr+1
+        cmp buf_base+1
+        bcc @scan_fwd
+        bne @check_lo
+        lda ed_scr
+        cmp buf_base
+        beq @scan_fwd
+        bcc @scan_fwd
+@check_lo:
+        ; Look at byte before ed_scr
+        lda ed_scr
+        sec
+        sbc #1
+        sta ed_tmp
+        lda ed_scr+1
+        sbc #0
+        sta ed_tmp+1
+        ldy #0
+        lda (ed_tmp),y
+        cmp #$0D
+        beq @scan_fwd           ; found CR → ed_scr is start of line
+        lda ed_tmp
+        sta ed_scr
+        lda ed_tmp+1
+        sta ed_scr+1
+        jmp @back
+@scan_fwd:
+        ; ed_scr = start of current line
+        ; Now scan forward to gap_lo, accumulating visual column
+        ldx #0                  ; vcol
+@fwd:
+        ; Check ed_scr == gap_lo
+        lda ed_scr
+        cmp gap_lo
+        bne @fwd_read
+        lda ed_scr+1
+        cmp gap_lo+1
+        beq @done               ; reached gap_lo → done
+@fwd_read:
+        ldy #0
+        lda (ed_scr),y
+        ; char_width(A, X) → A = width
+        jsr char_width          ; A = byte, X = vcol → A = width
+        ; Add width to vcol
+        clc
+        adc @vcol_save          ; use a temp since X is clobbered
+        sta @vcol_save
+        tax                     ; X = new vcol
+        ; advance ed_scr
+        inc ed_scr
+        bne @fwd
+        inc ed_scr+1
+        jmp @fwd
+@done:
+        lda @vcol_save
+        rts
+
+@vcol_save: .byte 0
+.endproc
+
+; ── copy_leading_ws — copy leading whitespace from current line ─
+; Output: Y = count of bytes copied into ws_buf
+; Clobbers: A, X
+.proc copy_leading_ws
+        ; Find start of current line (scan back from gap_lo)
+        lda gap_lo
+        sta ed_scr
+        lda gap_lo+1
+        sta ed_scr+1
+@back:
+        lda ed_scr+1
+        cmp buf_base+1
+        bcc @at_start
+        bne @check_prev
+        lda ed_scr
+        cmp buf_base
+        beq @at_start
+        bcc @at_start
+@check_prev:
+        lda ed_scr
+        sec
+        sbc #1
+        sta ed_tmp
+        lda ed_scr+1
+        sbc #0
+        sta ed_tmp+1
+        ldy #0
+        lda (ed_tmp),y
+        cmp #$0D
+        beq @at_start
+        lda ed_tmp
+        sta ed_scr
+        lda ed_tmp+1
+        sta ed_scr+1
+        jmp @back
+
+@at_start:
+        ; ed_scr = start of current line
+        ; Copy whitespace that is before gap_lo
+        ldy #0                  ; count
+@copy:
+        ; Check ed_scr < gap_lo
+        lda ed_scr
+        cmp gap_lo
+        lda ed_scr+1
+        sbc gap_lo+1
+        bcs @done               ; ed_scr >= gap_lo → done
+        cpy #39                 ; max ws_buf size
+        bcs @done
+        ; Read byte
+        sty @save_y
+        ldy #0
+        lda (ed_scr),y
+        ldy @save_y
+        cmp #$20                ; space
+        beq @ws
+        cmp #$A0                ; tab
+        beq @ws
+        jmp @done               ; non-whitespace → stop
+@ws:
+        sta ws_buf,y
+        iny
+        inc ed_scr
+        bne @copy
+        inc ed_scr+1
+        jmp @copy
+@done:  rts
+
+@save_y: .byte 0
+.endproc
+
+; ── gb_home — move gap to start of current line ──────────────
+.proc gb_home
+@loop:
+        ; Check gap_lo > buf_base
+        lda gap_lo
+        cmp buf_base
+        bne @not_base
+        lda gap_lo+1
+        cmp buf_base+1
+        beq @done               ; at buf_base → done
+@not_base:
+        ; Check byte before gap_lo: if $0D, done
+        lda gap_lo
+        sec
+        sbc #1
+        sta ed_tmp
+        lda gap_lo+1
+        sbc #0
+        sta ed_tmp+1
+        ldy #0
+        lda (ed_tmp),y
+        cmp #$0D
+        beq @done
+        jsr gb_cursor_left
+        jmp @loop
+@done:  rts
+.endproc
+
+; ── advance_to_vcol — move cursor right to target column ──────
+; Input: A = target visual column
+; Clobbers: A, X, Y
+.proc advance_to_vcol
+        sta @target
+@loop:
+        ; Check gap_hi < BUF_END
+        lda gap_hi+1
+        cmp #>BUF_END
+        bcc @in_buf
+        bne @done
+        lda gap_hi
+        cmp #<BUF_END
+        bcs @done
+@in_buf:
+        ; Check *gap_hi != $0D
+        ldy #0
+        lda (gap_hi),y
+        cmp #$0D
+        beq @done
+
+        ; w = char_width(*gap_hi, ed_cur_col)
+        ldx ed_cur_col
+        jsr char_width          ; A = width
+        ; Check if ed_cur_col + w > target
+        clc
+        adc ed_cur_col
+        cmp @target
+        beq @move               ; equal → move (adc result == target means exact)
+        bcs @done               ; would overshoot
+@move:
+        pha                     ; save new col
+        jsr gb_cursor_right
+        pla
+        sta ed_cur_col
+        jmp @loop
+@done:  rts
+
+@target: .byte 0
+.endproc
+
+; ── ed_cursor_up ──────────────────────────────────────────────
+.proc ed_cursor_up
+        ; if ed_cur_line == 0 → return
+        lda ed_cur_line
+        ora ed_cur_line+1
+        beq @done
+
+        lda ed_cur_col
+        sta @target
+
+        jsr gb_home
+        lda #0
+        sta ed_cur_col
+
+        ; if gap_lo > buf_base → cursor_left (step over CR)
+        lda gap_lo
+        cmp buf_base
+        bne @do_left
+        lda gap_lo+1
+        cmp buf_base+1
+        beq @advance
+@do_left:
+        jsr gb_cursor_left
+        ; --ed_cur_line
+        lda ed_cur_line
+        bne :+
+        dec ed_cur_line+1
+:       dec ed_cur_line
+
+        jsr gb_home
+        lda #0
+        sta ed_cur_col
+
+@advance:
+        lda @target
+        jsr advance_to_vcol
+@done:  rts
+
+@target: .byte 0
+.endproc
+
+; ── ed_cursor_down ────────────────────────────────────────────
+.proc ed_cursor_down
+        ; if ed_cur_line + 1 >= ed_total_lines → return
+        lda ed_cur_line
+        clc
+        adc #1
+        sta ed_tmp
+        lda ed_cur_line+1
+        adc #0
+        sta ed_tmp+1
+        ; Compare ed_tmp >= ed_total_lines
+        lda ed_tmp+1
+        cmp ed_total_lines+1
+        bcc @ok
+        bne @done               ; ed_tmp > total → done
+        lda ed_tmp
+        cmp ed_total_lines
+        bcs @done               ; ed_tmp >= total → done
+@ok:
+        lda ed_cur_col
+        sta @target
+
+        ; Advance past current line's CR
+@skip:  ; while gap_hi < BUF_END && *gap_hi != $0D → cursor_right
+        lda gap_hi+1
+        cmp #>BUF_END
+        bcc @in_buf
+        bne @past_cr
+        lda gap_hi
+        cmp #<BUF_END
+        bcs @past_cr
+@in_buf:
+        ldy #0
+        lda (gap_hi),y
+        cmp #$0D
+        beq @found_cr
+        jsr gb_cursor_right
+        jmp @skip
+@found_cr:
+        ; Step over CR
+        lda gap_hi+1
+        cmp #>BUF_END
+        bcc @step_cr
+        bne @past_cr
+        lda gap_hi
+        cmp #<BUF_END
+        bcs @past_cr
+@step_cr:
+        jsr gb_cursor_right
+        inc ed_cur_line
+        bne :+
+        inc ed_cur_line+1
+:       lda #0
+        sta ed_cur_col
+@past_cr:
+        lda @target
+        jsr advance_to_vcol
+@done:  rts
+
+@target: .byte 0
+.endproc
+
+; ── ed_mark_edited — set dirty flag, update status ────────────
+.proc ed_mark_edited
+        lda _ed_dirty
+        bne @already
+        lda #1
+        sta _ed_dirty
+        jsr ed_status_dirty
+@already:
+        jsr ed_status_free
+        jmp ed_status_pos
+.endproc
+
+; ── ed_handle_key — main keystroke dispatcher ─────────────────
+; C-callable: void __fastcall__ ed_handle_key(uint8_t ch)
+; Input: A = PETSCII key code
+.proc _ed_handle_key
+        ; Save key
+        sta @key
+
+        ; ── CH_CURS_LEFT ──────────────────────────
+        cmp #CH_CURS_LEFT
+        bne @not_left
+        ; if ed_cur_col > 0 && gap_lo > buf_base
+        lda ed_cur_col
+        beq @left_repos
+        lda gap_lo
+        cmp buf_base
+        bne @do_left
+        lda gap_lo+1
+        cmp buf_base+1
+        beq @left_repos
+@do_left:
+        jsr gb_cursor_left
+        jsr visual_col
+        sta ed_cur_col
+        jsr ed_status_pos
+@left_repos:
+        jmp @repos
+
+        ; ── CH_CURS_RIGHT ─────────────────────────
+@not_left:
+        cmp #CH_CURS_RIGHT
+        bne @not_right
+        ; if gap_hi < BUF_END && *gap_hi != $0D
+        lda gap_hi+1
+        cmp #>BUF_END
+        bcc @right_check
+        bne @right_repos
+        lda gap_hi
+        cmp #<BUF_END
+        bcs @right_repos
+@right_check:
+        ldy #0
+        lda (gap_hi),y
+        cmp #$0D
+        beq @right_repos
+        jsr gb_cursor_right
+        jsr visual_col
+        sta ed_cur_col
+        jsr ed_status_pos
+@right_repos:
+        jmp @repos
+
+        ; ── CH_CURS_UP ────────────────────────────
+@not_right:
+        cmp #CH_CURS_UP
+        bne @not_up
+        jsr ed_cursor_up
+        ; if ed_cur_line < ed_top_line → scroll down
+        lda ed_cur_line+1
+        cmp ed_top_line+1
+        bcc @do_scroll_down
+        bne @up_no_scroll
+        lda ed_cur_line
+        cmp ed_top_line
+        bcc @do_scroll_down
+@up_no_scroll:
+        jsr ed_status_pos
+        jmp @repos
+@do_scroll_down:
+        jsr ed_scroll_down
+        jmp @repos
+
+        ; ── CH_CURS_DOWN ──────────────────────────
+@not_up:
+        cmp #CH_CURS_DOWN
+        bne @not_down
+        jsr ed_cursor_down
+        ; if ed_cur_line >= ed_top_line + ED_LINES → scroll up
+        lda ed_cur_line
+        sec
+        sbc ed_top_line
+        sta ed_tmp
+        lda ed_cur_line+1
+        sbc ed_top_line+1
+        bne @do_scroll_up       ; hi byte nonzero → definitely >= 22
+        lda ed_tmp
+        cmp #ED_LINES
+        bcs @do_scroll_up
+        jsr ed_status_pos
+        jmp @repos
+@do_scroll_up:
+        jsr ed_scroll_up
+        jmp @repos
+
+        ; ── CH_HOME ───────────────────────────────
+@not_down:
+        cmp #CH_HOME
+        bne @not_home
+        jsr gb_home
+        lda #0
+        sta ed_cur_col
+        jsr ed_status_pos
+        jmp @repos
+
+        ; ── CH_DEL ────────────────────────────────
+@not_home:
+        cmp #CH_DEL
+        bne @not_del
+        lda ed_cur_col
+        bne @del_mid            ; col > 0 → simple backspace
+        ; col == 0 → check if we can join with previous line
+        lda ed_cur_line
+        ora ed_cur_line+1
+        beq @del_edited         ; line 0, col 0 → nothing to delete, but mark edit anyway
+        jmp @del_join
+@del_mid:
+        jsr gb_backspace
+        jsr visual_col
+        sta ed_cur_col
+        ; Re-render from current row to bottom
+        lda ed_cur_line
+        sec
+        sbc ed_top_line
+        tax                     ; from_row
+        ldy #ED_LINES
+        jsr ed_render_rows
+        jsr ed_mark_edited
+        jmp @repos
+
+@del_join:
+        ; Delete at col 0, line > 0 → join with previous line
+        jsr gb_backspace
+        ; --ed_cur_line
+        lda ed_cur_line
+        bne :+
+        dec ed_cur_line+1
+:       dec ed_cur_line
+        jsr visual_col
+        sta ed_cur_col
+        ; Adjust ed_top_line if cursor above viewport
+        lda ed_cur_line+1
+        cmp ed_top_line+1
+        bcc @adj_top
+        bne @del_render
+        lda ed_cur_line
+        cmp ed_top_line
+        bcs @del_render
+@adj_top:
+        lda ed_cur_line
+        sta ed_top_line
+        lda ed_cur_line+1
+        sta ed_top_line+1
+@del_render:
+        lda ed_cur_line
+        sec
+        sbc ed_top_line
+        tax                     ; from_row
+        ldy #ED_LINES
+        jsr ed_render_rows
+@del_edited:
+        jsr ed_mark_edited
+        jmp @repos
+
+        ; ── CH_ENTER ──────────────────────────────
+@not_del:
+        cmp #CH_ENTER
+        bne @not_enter
+        ; Auto-indent: copy leading whitespace
+        ldy #0                  ; ws_n = 0
+        lda _tab_width
+        beq @enter_no_indent
+        jsr copy_leading_ws     ; Y = ws_n
+@enter_no_indent:
+        sty @ws_n
+
+        lda #$0D
+        jsr gb_insert
+        ; ++ed_cur_line
+        inc ed_cur_line
+        bne :+
+        inc ed_cur_line+1
+:       lda #0
+        sta ed_cur_col
+
+        ; Insert whitespace for auto-indent
+        ldx #0
+@ws_loop:
+        cpx @ws_n
+        bcs @ws_done
+        lda ws_buf,x
+        stx @ws_x
+        jsr gb_insert
+        ldx @ws_x
+        inx
+        jmp @ws_loop
+@ws_done:
+        ; Recompute visual col after indent
+        jsr visual_col
+        sta ed_cur_col
+
+        ; Scroll or re-render
+        ; if ed_cur_line >= ed_top_line + ED_LINES → scroll up
+        lda ed_cur_line
+        sec
+        sbc ed_top_line
+        sta ed_tmp
+        lda ed_cur_line+1
+        sbc ed_top_line+1
+        bne @enter_scroll       ; hi nonzero → scroll
+        lda ed_tmp
+        cmp #ED_LINES
+        bcs @enter_scroll
+        ; No scroll — re-render from previous row
+        tax                     ; scr_row = ed_cur_line - ed_top_line
+        beq @enter_full         ; scr_row == 0 → full render
+        dex                     ; from scr_row - 1
+        ldy #ED_LINES
+        jsr ed_render_rows
+        jsr ed_mark_edited
+        jmp @repos
+@enter_full:
+        jsr ed_render
+        jsr ed_mark_edited
+        jmp @repos
+@enter_scroll:
+        jsr ed_scroll_up
+        jsr ed_mark_edited
+        jmp @repos
+
+        ; ── CH_INS ────────────────────────────────
+@not_enter:
+        cmp #CH_INS
+        beq @repos_jmp          ; ignore INS
+
+        ; ── TAB ($A0) with tab_width > 0 ──────────
+        cmp #$A0
+        bne @not_tab
+        lda _tab_width
+        beq @not_tab            ; tab_width=0 → treat as printable
+        ; Compute new_vcol = ed_cur_col + char_width($A0, ed_cur_col)
+        lda #$A0
+        ldx ed_cur_col
+        jsr char_width          ; A = width
+        clc
+        adc ed_cur_col          ; A = new_vcol
+        cmp #SCREEN_WIDTH       ; <= 39?
+        bcs @repos_jmp          ; would exceed max col
+        sta @new_col
+        lda #$A0
+        jsr gb_insert
+        lda @new_col
+        sta ed_cur_col
+        ; Render current row only
+        lda ed_cur_line
+        sec
+        sbc ed_top_line
+        tax
+        txa
+        clc
+        adc #1
+        tay                     ; to = from + 1
+        jsr ed_render_rows
+        jsr ed_mark_edited
+        jmp @repos
+
+        ; ── Default: printable character ──────────
+@not_tab:
+        lda @key
+        ; Check printable: $20-$7E or $C1-$DA
+        cmp #$20
+        bcc @repos_jmp          ; control char → ignore
+        cmp #$7F
+        bcc @printable          ; $20-$7E → printable
+        cmp #$C1
+        bcc @repos_jmp          ; $7F-$C0 → ignore
+        cmp #$DB
+        bcs @repos_jmp          ; $DB+ → ignore
+@printable:
+        ; Check col < 38 (SCREEN_WIDTH - 2, since we post-increment)
+        lda ed_cur_col
+        cmp #SCREEN_WIDTH - 1   ; < 39
+        bcs @repos_jmp
+        lda @key
+        jsr gb_insert
+        inc ed_cur_col
+        ; Render current row only
+        lda ed_cur_line
+        sec
+        sbc ed_top_line
+        tax
+        txa
+        clc
+        adc #1
+        tay                     ; to = from + 1
+        jsr ed_render_rows
+        jsr ed_mark_edited
+        ; fall through to repos_jmp
+
+@repos_jmp:
+        ; Local trampoline for branches that can't reach @repos directly
+        jmp @repos
+
+@repos:
+        ; Sync cursor position
+        lda ed_cur_line
+        sec
+        sbc ed_top_line
+        ; Ignore hi byte — screen row always fits in 8 bits
+        cmp #ED_LINES
+        bcs @repos_done         ; off-screen
+        sta CUR_ROW             ; io_cy
+        lda ed_cur_col
+        sta CUR_COL             ; io_cx
+        jsr _io_sync
+@repos_done:
+        rts
+
+@key:     .byte 0
+@ws_n:    .byte 0
+@ws_x:    .byte 0
+@new_col: .byte 0
+.endproc
+
+; ═════════════════════════════════════════════════════════════
+; Mode switching
+; ═════════════════════════════════════════════════════════════
+
+; ── enter_editor — switch from REPL to editor ─────────────────
+.proc _enter_editor
+        ; Save REPL cursor position
+        lda CUR_COL
+        sta repl_cur_x
+        lda CUR_ROW
+        sta repl_cur_y
+
+        ; Save REPL screen RAM to banked RAM ($F818)
+        jsr _kernal_bank_out
+        ; Copy 1000 bytes: SCREEN → REPL_SCREEN
+        lda #<SCREEN
+        sta save_ptr
+        lda #>SCREEN
+        sta save_ptr+1
+        lda #<REPL_SCREEN
+        sta ed_scr
+        lda #>REPL_SCREEN
+        sta ed_scr+1
+        ; 1000 = 3*256 + 232
+        ldx #3
+        ldy #0
+@save_pg:
+        lda (save_ptr),y
+        sta (ed_scr),y
+        iny
+        bne @save_pg
+        inc save_ptr+1
+        inc ed_scr+1
+        dex
+        bne @save_pg
+        ldx #232
+@save_rem:
+        lda (save_ptr),y
+        sta (ed_scr),y
+        iny
+        dex
+        bne @save_rem
+        jsr _kernal_bank_in
+
+        ; Init gap buffer if needed
+        lda ed_total_lines
+        ora ed_total_lines+1
+        bne @inited
+        jsr ed_init
+        lda #8
+        sta _tab_width
+@inited:
+
+        ; Clear editor area (rows 0-21) with spaces
+        lda #<SCREEN
+        sta ed_scr
+        lda #>SCREEN
+        sta ed_scr+1
+        ; 22 * 40 = 880 bytes
+        ldx #3                  ; 3 pages
+        lda #$20
+        ldy #0
+@clr_pg:
+        sta (ed_scr),y
+        iny
+        bne @clr_pg
+        inc ed_scr+1
+        dex
+        bne @clr_pg
+        ; 880 - 768 = 112 remaining
+        ldx #112
+@clr_rem:
+        sta (ed_scr),y
+        iny
+        dex
+        bne @clr_rem
+
+        ; Copy 2 REPL lines above prompt to rows 23-24
+        ; prompt_row = repl_cur_y
+        ; src_row = max(0, prompt_row - 2)
+        lda repl_cur_y
+        sec
+        sbc #2
+        bcs @have_src_row
+        lda #0                  ; clamp to 0
+@have_src_row:
+        ; A = src_row in REPL screen
+        ; Compute offset: src_row * 40
+        ; Use scr_lo/scr_hi tables but for REPL_SCREEN base
+        tax                     ; X = src_row
+        lda scr_lo,x
+        sec
+        sbc #<SCREEN
+        sta save_ptr            ; low offset from SCREEN base
+        lda scr_hi,x
+        sbc #>SCREEN
+        sta save_ptr+1          ; high offset
+        ; Add REPL_SCREEN base
+        lda save_ptr
+        clc
+        adc #<REPL_SCREEN
+        sta save_ptr
+        lda save_ptr+1
+        adc #>REPL_SCREEN
+        sta save_ptr+1
+
+        ; Dest: SCREEN + 23*40 = SCREEN + 920
+        lda #<(SCREEN + 920)
+        sta ed_scr
+        lda #>(SCREEN + 920)
+        sta ed_scr+1
+
+        ; Copy 80 bytes (2 rows)
+        jsr _kernal_bank_out
+        ldy #79
+@ctx:   lda (save_ptr),y
+        sta (ed_scr),y
+        dey
+        bpl @ctx
+        jsr _kernal_bank_in
+
+        ; Full render
+        jsr ed_render
+
+        ; Restore editor cursor position
+        lda ed_cur_col
+        sta CUR_COL
+        lda ed_cur_line
+        sec
+        sbc ed_top_line
+        sta CUR_ROW
+        jsr _io_sync
+
+        lda #ST_EDIT
+        sta _state
+        rts
+.endproc
+
+; ── leave_editor — switch from editor to REPL ─────────────────
+.proc _leave_editor
+        ; Restore REPL screen from banked RAM
+        jsr _kernal_bank_out
+        lda #<REPL_SCREEN
+        sta save_ptr
+        lda #>REPL_SCREEN
+        sta save_ptr+1
+        lda #<SCREEN
+        sta ed_scr
+        lda #>SCREEN
+        sta ed_scr+1
+        ; 1000 = 3*256 + 232
+        ldx #3
+        ldy #0
+@rest_pg:
+        lda (save_ptr),y
+        sta (ed_scr),y
+        iny
+        bne @rest_pg
+        inc save_ptr+1
+        inc ed_scr+1
+        dex
+        bne @rest_pg
+        ldx #232
+@rest_rem:
+        lda (save_ptr),y
+        sta (ed_scr),y
+        iny
+        dex
+        bne @rest_rem
+        jsr _kernal_bank_in
+
+        ; Restore REPL cursor position
+        lda repl_cur_x
+        sta CUR_COL
+        lda repl_cur_y
+        sta CUR_ROW
+        jsr _io_sync
+
+        lda #ST_REPL
+        sta _state
+        rts
+.endproc
+
+; ═════════════════════════════════════════════════════════════
+; Phase D — File I/O
+; ═════════════════════════════════════════════════════════════
+
+; ── save_read_fn — callback for disk_save_seq ─────────────────
+; Returns: A = byte, X = 0 (data) OR A = $FF, X = $FF (EOF)
+.proc save_read_fn
+        lda save_phase
+        bne @post_gap
+
+        ; Phase 0: pre-gap (save_ptr < gap_lo)
+        lda save_ptr+1
+        cmp gap_lo+1
+        bcc @read_pre
+        bne @switch_phase
+        lda save_ptr
+        cmp gap_lo
+        bcs @switch_phase
+@read_pre:
+        ldy #0
+        lda (save_ptr),y
+        pha
+        inc save_ptr
+        bne :+
+        inc save_ptr+1
+:       pla
+        ldx #0
+        rts
+
+@switch_phase:
+        lda #1
+        sta save_phase
+        lda gap_hi
+        sta save_ptr
+        lda gap_hi+1
+        sta save_ptr+1
+
+@post_gap:
+        ; Phase 1: post-gap (save_ptr < BUF_END)
+        lda save_ptr+1
+        cmp #>BUF_END
+        bcc @read_post
+        bne @eof
+        lda save_ptr
+        cmp #<BUF_END
+        bcs @eof
+@read_post:
+        ldy #0
+        lda (save_ptr),y
+        pha
+        inc save_ptr
+        bne :+
+        inc save_ptr+1
+:       pla
+        ldx #0
+        rts
+
+@eof:   lda #$FF
+        tax
+        rts
+.endproc
+
+; ── ed_save_source — save source as SEQ file ──────────────────
+; C-callable: uint8_t ed_save_source(const char *name)
+; Input: A/X = name pointer (last param, fastcall)
+; Returns: A = 0 on success, nonzero on error
+.proc _ed_save_source
+        ; Push name for disk_save_seq
+        jsr pushax
+
+        ; Ensure init
+        lda ed_total_lines
+        ora ed_total_lines+1
+        bne @inited
+        jsr ed_init
+        lda #8
+        sta _tab_width
+@inited:
+
+        ; Setup save state
+        lda buf_base
+        sta save_ptr
+        lda buf_base+1
+        sta save_ptr+1
+        lda #0
+        sta save_phase
+
+        ; Call disk_save_seq(name, save_read_fn)
+        ; name is on C stack, read_fn in A/X
+        lda #<save_read_fn
+        ldx #>save_read_fn
+        jsr _disk_save_seq      ; A = error
+        cmp #0
+        bne @err
+
+        ; Success
+        lda #0
+        sta _ed_dirty
+        lda _disk_seq_bytes
+        sta _ed_save_bytes
+        lda _disk_seq_bytes+1
+        sta _ed_save_bytes+1
+        lda _disk_seq_lines
+        sta _ed_save_lines
+        lda _disk_seq_lines+1
+        sta _ed_save_lines+1
+        lda #0
+        tax
+        rts
+@err:
+        ; Return error code
+        ldx #0
+        rts
+.endproc
+
+; ── ed_load_source — load SEQ file into buffer ────────────────
+; C-callable: uint8_t ed_load_source(const char *name)
+; Input: A/X = name pointer (last param, fastcall)
+; Returns: A = 0 on success, nonzero on error
+.proc _ed_load_source
+        ; Push name for disk_load_seq
+        jsr pushax
+
+        ; Reset buffer
+        jsr ed_init
+
+        ; Call disk_load_seq(name, gb_insert)
+        ; gb_insert takes A = byte — matches callback convention
+        lda #<gb_insert
+        ldx #>gb_insert
+        jsr _disk_load_seq      ; A = error
+        pha                     ; save error
+
+        ; Check for error or empty file
+        pla
+        bne @fail
+        lda _disk_seq_bytes
+        ora _disk_seq_bytes+1
+        beq @empty              ; 0 bytes → empty/fail
+
+        ; Move cursor to start of buffer
+@rewind:
+        lda gap_lo
+        cmp buf_base
+        bne @do_left
+        lda gap_lo+1
+        cmp buf_base+1
+        beq @at_start
+@do_left:
+        jsr gb_cursor_left
+        jmp @rewind
+
+@at_start:
+        lda #0
+        sta ed_cur_line
+        sta ed_cur_line+1
+        sta ed_cur_col
+        sta ed_top_line
+        sta ed_top_line+1
+        sta _ed_dirty
+        lda buf_base
+        sta ed_top_ptr
+        lda buf_base+1
+        sta ed_top_ptr+1
+
+        lda _disk_seq_bytes
+        sta _ed_save_bytes
+        lda _disk_seq_bytes+1
+        sta _ed_save_bytes+1
+        lda _disk_seq_lines
+        sta _ed_save_lines
+        lda _disk_seq_lines+1
+        sta _ed_save_lines+1
+
+        lda #0
+        tax
+        rts
+
+@empty:
+        jsr ed_init
+        lda #1                  ; error: empty file
+        ldx #0
+        rts
+
+@fail:
+        pha
+        jsr ed_init
+        pla                     ; error code
+        ldx #0
+        rts
+.endproc

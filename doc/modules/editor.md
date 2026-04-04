@@ -1,4 +1,4 @@
-# editor.c — Gap-Buffer Source Editor
+# editor.s — Gap-Buffer Source Editor
 
 **Template:** [module](../templates/module.md)
 
@@ -6,33 +6,95 @@
 
 | File | Role |
 |------|------|
-| [`src/editor.c`](../../src/editor.c) | implementation |
-| [`src/editor.h`](../../src/editor.h) | header |
+| [`src/editor.s`](../../src/editor.s) | implementation (6502 assembly) |
 | [`tests/test_editor.py`](../../tests/test_editor.py) | test contract |
 
 ## Interface
 
+All public functions use `__fastcall__` convention (single arg in
+A or A/X; multi-arg via C stack with `pushax`).
+
 - `enter_editor()` — save REPL screen, switch to editor mode
 - `leave_editor()` — restore REPL screen, return to REPL
-- `ed_handle_key(ch)` — process one keystroke (__fastcall__)
+- `ed_handle_key(ch)` — process one keystroke (A = PETSCII key)
 - `ed_ensure_init()` — allocate gap buffer if not yet done
 - `ed_new()` — clear source buffer (reset gap buffer, clear filename)
-- `ed_save_source(name)` — save source as SEQ file; returns 0 on success
-- `ed_load_source(name)` — load SEQ file into buffer; returns 0 on success
+- `ed_save_source(name)` — save source as SEQ file; A=0 on success
+- `ed_load_source(name)` — load SEQ file into buffer; A=0 on success
 - `ed_read_rewind()` — reset sequential reader to start of source
-- `ed_read_line(buf, maxlen)` — read next line into buf; returns length or -1 at EOF
-- `ed_read_byte()` — read next byte from source; returns byte or -1 at EOF
+- `ed_read_line(buf, maxlen)` — read next line into buf; A/X = length or $FFFF at EOF
+- `ed_read_byte()` — read next byte from source; A/X = byte or $FFFF at EOF
 - `ed_insert_string(text)` — programmatic text insertion at cursor
-**State:** `tab_width` (uint8, default 8) — tab stop interval in
-columns.  Set by the REPL's `T` command (uppercase).  Affects
+
+**State:** `tab_width` (uint8, BSS, default 8) — tab stop interval
+in columns.  Set by the REPL's `T` command (uppercase).  Affects
 rendering of $A0 (tab) bytes only; changing it does not modify
 buffer contents.
 
-**Statistics:** `ed_save_bytes`, `ed_save_lines` — counts from last
-file operation.
+**Statistics:** `ed_save_bytes`, `ed_save_lines` (uint16, BSS) —
+counts from last file operation.
 
 **Depends on:** disk (SEQ callbacks), screen, cse_io, meminfo
 (`cse_end` for status bar)
+
+### Zero-page variables
+
+All pointers are 16-bit, little-endian.
+
+| Name | Size | Role |
+|------|------|------|
+| `gap_lo` | 2 | first byte of gap (insert point) |
+| `gap_hi` | 2 | first byte after gap (read point) |
+| `buf_base` | 2 | lowest address of buffer (grows down) |
+| `ed_top_ptr` | 2 | cached buffer position for first visible line |
+| `read_ptr` | 2 | sequential reader position |
+| `save_ptr` | 2 | save callback read position (overlaps read_ptr) |
+| `ed_tmp` | 2 | scratch pointer (indirect addressing) |
+| `ed_scr` | 2 | screen pointer for rendering (indirect addressing) |
+
+`buf_end` is the constant `$C800` — not a variable.
+
+`save_ptr` and `read_ptr` are never active concurrently (save runs
+to completion before any read), so they share the same ZP location.
+`ed_tmp` and `ed_scr` must be in ZP because they are used with
+indirect-indexed addressing (`lda (ed_tmp),y`).
+Total: 14 ZP bytes.
+
+### BSS variables
+
+| Name | Size | Role |
+|------|------|------|
+| `ed_cur_line` | 2 | cursor line (0-based) |
+| `ed_cur_col` | 1 | cursor visual column (0-based) |
+| `ed_top_line` | 2 | line number at screen row 0 |
+| `ed_total_lines` | 2 | total line count in buffer |
+| `ed_dirty` | 1 | buffer modified flag |
+| `ed_save_bytes` | 2 | bytes from last file op |
+| `ed_save_lines` | 2 | lines from last file op |
+| `tab_width` | 1 | tab stop interval (default 8) |
+| `save_phase` | 1 | save callback state (0=pre-gap, 1=post-gap) |
+| `repl_cur_x` | 1 | saved REPL cursor X |
+| `repl_cur_y` | 1 | saved REPL cursor Y |
+
+### Internal functions
+
+Internal functions use register/ZP arguments directly — no C stack.
+
+| Function | Args | Returns | Notes |
+|----------|------|---------|-------|
+| `ed_init` | — | — | reset all state |
+| `gb_ensure_room` | — | C=0 fail, C=1 ok | grow buffer if gap exhausted |
+| `gb_insert` | A = byte | — | insert at gap_lo |
+| `gb_backspace` | — | — | delete before gap_lo |
+| `gb_cursor_right` | — | — | move gap right |
+| `gb_cursor_left` | — | — | move gap left |
+| `gb_home` | — | — | move to start of line |
+| `skip_one_line` | ptr in A/X | result in A/X | advance past one line |
+| `prev_line_start` | ptr in A/X | result in A/X | retreat to previous line |
+| `visual_col` | — | A = column | recompute from line start |
+| `char_width` | A = byte, X = vcol | A = width | tab-aware |
+| `advance_to_vcol` | A = target col | — | cursor right to column |
+| `copy_leading_ws` | — | A = count | auto-indent helper |
 
 ## Design
 
@@ -73,13 +135,15 @@ $0800 ─┬─ CSE code + data + BSS
        │
        ├─ buf_base (grows down as buffer needs space)
        │
-$C800 ─┴─ buf_end (exclusive, fixed)
+$C800 ─┴─ BUF_END (exclusive, fixed constant)
 ```
 
 `BUF_FLOOR` ($4800) is the lowest address the buffer can grow to.
 When the gap is exhausted, `gb_ensure_room` extends `buf_base`
-downward by 256 bytes, relocating the pre-gap text with `memmove`.
-`ed_top_ptr` is adjusted if it falls in the pre-gap region.
+downward by 256 bytes, relocating the pre-gap text with an inline
+block copy (ascending copy, since source and destination don't
+overlap destructively in the downward direction).  `ed_top_ptr` is
+adjusted if it falls in the pre-gap region.
 
 `src_bot` and `src_top` track the buffer bounds for the REPL's `i`
 command.
@@ -133,13 +197,15 @@ anchor.
   by advancing from `ed_top_ptr`.
 - `ed_render()` — full redraw: all 22 lines + status bar.
 
-Scrolling uses `memmove` on screen RAM for the 21 lines that don't
-change, then renders only the single new line:
+Scrolling uses an inline block copy on screen RAM for the 21 lines
+that don't change, then renders only the single new line:
 
-- `ed_scroll_up` — cursor moved below row 21: shift rows 1–21 up
-  to 0–20, render new bottom line, advance `ed_top_ptr`/`ed_top_line`.
-- `ed_scroll_down` — cursor moved above row 0: shift rows 0–20
-  down to 1–21, render new top line, retreat `ed_top_ptr`/`ed_top_line`.
+- `ed_scroll_up` — cursor moved below row 21: copy rows 1–21 up
+  to 0–20 (ascending copy), render new bottom line, advance
+  `ed_top_ptr`/`ed_top_line`.
+- `ed_scroll_down` — cursor moved above row 0: copy rows 0–20
+  down to 1–21 (descending copy), render new top line, retreat
+  `ed_top_ptr`/`ed_top_line`.
 
 ### Mode switching
 
@@ -220,15 +286,17 @@ must treat $A0 as whitespace.
 Save and load use disk.s SEQ callbacks, avoiding a direct dependency
 on the disk module's internals.
 
-**Save** (`ed_save_source`): a `save_read_fn` callback reads
-sequentially through the gap buffer — pre-gap first (`buf_base` to
-`gap_lo`), then post-gap (`gap_hi` to `buf_end`).  On success,
-clears `ed_dirty`.
+**Save** (`ed_save_source`): `save_read_fn` is a callback passed to
+`disk_save_seq`.  It reads sequentially through the gap buffer —
+pre-gap first (`buf_base` to `gap_lo`), then post-gap (`gap_hi` to
+BUF_END).  Returns A=byte, X=0 for data; A=$FF, X=$FF for EOF
+(matches disk.s convention: `cpx #$FF` to detect EOF).
+On success, clears `ed_dirty`.
 
 **Load** (`ed_load_source`): resets the buffer (`ed_init`), then
-`disk_load_seq` calls `load_insert_fn` which delegates to
-`gb_insert` for each byte.  After load, the gap is rewound to the
-start (`gb_cursor_left` loop) and all state is reset.  On failure,
+`disk_load_seq` calls `gb_insert` directly as the insert callback
+(A = byte).  After load, the gap is rewound to the start
+(`gb_cursor_left` loop) and all state is reset.  On failure,
 `ed_init` is called again to leave a clean empty buffer.
 
 ### Sequential reader
@@ -254,7 +322,9 @@ assembler calls `ed_read_rewind` before each pass.
   and the symbol table heap.  The `i` command shows remaining space.
 - Screen save/restore copies 1000 bytes (screen RAM only, not color
   RAM).  Color RAM is restored by `restore_colors` on REPL return.
-- `gb_ensure_room` grows by 256 bytes at a time.  The `memmove` to
+  The save/restore uses banked RAM under KERNAL ($F818–$FBFF) via
+  `kernal_bank_out`/`kernal_bank_in`.
+- `gb_ensure_room` grows by 256 bytes at a time.  The block copy to
   relocate pre-gap text is the most expensive operation.
 - `ed_render_line` does PETSCII-to-screencode conversion inline.
   Two ranges are handled: lowercase ($41–$5A) and uppercase ($C1–$DA).
@@ -262,3 +332,7 @@ assembler calls `ed_read_rewind` before each pass.
   for the cursor, matching the REPL convention.
 - $A0 (tab) is one byte in the buffer but 1–`tab_width` columns on
   screen.  Visual column and byte offset diverge on lines with tabs.
+- `buf_end` is the constant $C800, not a variable.  This saves 2 ZP
+  bytes vs the C implementation.
+- `save_ptr` and `read_ptr` overlap in ZP since they are never active
+  concurrently.

@@ -125,7 +125,7 @@ MAIN_S = $(BUILD)/src/main.s
 MAIN_O = $(BUILD)/src/main.o
 
 # ── C source files (besides main.c) ──────────────────────────────
-C_SRCS   = editor
+C_SRCS   =
 C_OBJS   = $(patsubst %,$(BUILD)/src/%.o,$(C_SRCS))
 
 # ── Assembler source files linked into cse.prg ──────────────────────
@@ -133,7 +133,7 @@ ASM_SRCS = asm_bridge asm_line asm_vars asm_src mn_vars mn_classify \
            $(MN_SRCS) mn_config \
            au_mode mn_modes mn_asm_tables opcode_lookup \
            meminfo cse_io screen disk expr symtab dasm dasm_tables \
-           debugger repl
+           debugger repl editor
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 
 .PHONY: _one

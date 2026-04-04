@@ -10,11 +10,10 @@
 - [x] ~~`j` command: reset colors after user code returns~~ — done:
   `restore_colors()` called in both `cmd_jmp()` paths (direct and debugger).
 - [ ] RUN/STOP debounce: bounces when held.
-- [ ] read_line: cc65 -O ternary miscompilation documented but not
-  guarded — add regression test.  (CC65 -O BUG #1)
-- [ ] cmd_step: cc65 -O uint8_t return zero-extension bug — dasm_insn
-  return not promoted before tosaddax.  Workaround in place.
-  (CC65 -O BUG #2)
+- [x] ~~read_line: cc65 -O ternary miscompilation~~ — eliminated:
+  repl.s is pure asm (Phase 6).  (CC65 -O BUG #1)
+- [x] ~~cmd_step: cc65 -O uint8_t return zero-extension bug~~ —
+  eliminated: repl.s is pure asm (Phase 6).  (CC65 -O BUG #2)
 
 ## Next
 
@@ -100,7 +99,9 @@ Defined scope, needs work.
   (dasm vs asm_line).  See [project.md § ZP is precious](project.md#1-zp-is-precious--use-the-stack-for-scratch).
 ### Size Optimization
 
-- [ ] Port C to asm: see Roadmap R6.
+- [x] ~~Port C to asm: see Roadmap R6.~~ — done: repl.c (Phase 6)
+  and editor.c (Phase 7) ported to assembly.  main.c (~244 lines)
+  remains as the only C file.
 
 ## Roadmap
 
@@ -163,12 +164,12 @@ Dual linker configs: `c64_cse.cfg` (PRG) and `c64_cse_crt.cfg`
 startup) since cartridge ROM is at $8000.  EasyFlash bank
 switching for >16KB.
 
-### R6 — Port C to asm
+### R6 — Port C to asm (done)
 
-`repl.c` (9KB, 35%) and `editor.c` (5.5KB, 21%) are the largest
-modules.  Port hot functions to asm: emit_dot, emit_mem,
-show_prompt, exec_line dispatch, gap buffer ops, rendering.
-Eliminates cc65 runtime overhead and the two known cc65 -O bugs.
+`repl.c` (Phase 6) and `editor.c` (Phase 7) ported to assembly.
+Eliminated cc65 runtime overhead and two known cc65 -O bugs.
+Binary size: 6510=21811B (was 28345 pre-R6, 24091 post-Phase 6).
+Total savings: 6534B (23%).  `main.c` (~244 lines) remains.
 
 ## Ideas
 

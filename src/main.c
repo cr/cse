@@ -18,7 +18,11 @@ extern void show_prompt(void);
 extern uint16_t cur_addr;
 extern uint8_t  cur_device;
 extern char cur_filename[];
-#include "editor.h"
+/* editor.s exports (was editor.h) */
+extern void __fastcall__ ed_handle_key(uint8_t ch);
+extern void enter_editor(void);
+extern void leave_editor(void);
+extern uint8_t  ed_dirty;
 
 #define MEM_CONFIG    (*(uint8_t *)0x01)
 #define NMI_VEC       (*(uint16_t *)0x0318) /* KERNAL NMI indirect vector */
