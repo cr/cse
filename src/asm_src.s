@@ -36,14 +36,11 @@
 _as_ptr:        .res 2          ; active parse pointer
 _as_wsize:      .res 1          ; word size or general byte scratch
 
-; ── DATA (initialized exports) ────────────────────────────────────────────
-.segment "DATA"
-_asm_org:       .word $0800
-_asm_size:      .word 0
-_asm_errors:    .word 0
-
-; ── BSS ───────────────────────────────────────────────────────────────────
+; ── BSS (all reset by _asm_assemble before each run) ─────────────────────
 .segment "BSS"
+_asm_org:       .res 2          ; assembly origin address
+_asm_size:      .res 2          ; total bytes emitted
+_asm_errors:    .res 2          ; error count (pass 1 only)
 _asm_pass:      .res 1          ; 0 = pass 0, 1 = pass 1
 _line_num:      .res 2
 _line_buf:      .res 80

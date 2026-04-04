@@ -43,7 +43,7 @@ SCR_SIZE  = 1000          ; 25 * 40
   THEME_FG = 5
 .endif
 
-        .segment "DATA"
+        .segment "RODATA"
 _theme_border: .byte THEME_BOR
 _theme_bg:     .byte THEME_BG
 _theme_fg:     .byte THEME_FG

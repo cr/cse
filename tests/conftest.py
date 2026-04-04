@@ -498,12 +498,11 @@ def _as_parse_addrs():
       _test_src_buf      = BSS_start  + stub_BSS_offs   + 0x0101
                            (after _c_stack[256] + _src_done[1] in stub BSS)
 
-    asm_src.s's DATA vars (_asm_org, _asm_size, _asm_errors) are also not
-    imported by anyone, so we compute them from DATA_start directly:
-      _asm_org    = DATA_start + 0
-      _asm_size   = DATA_start + 2
-      _asm_errors = DATA_start + 4
-    (asm_src_as.o is the sole DATA contributor)
+    asm_src.s's BSS vars (_asm_org, _asm_size, _asm_errors) are not
+    imported by anyone, so we compute from BSS_start + asm_src's offset:
+      _asm_org    = BSS_start + asm_src_bss_offs + 0
+      _asm_size   = BSS_start + asm_src_bss_offs + 2
+      _asm_errors = BSS_start + asm_src_bss_offs + 4
     """
     text = _AS_MAP.read_text()
     lines = text.splitlines()
@@ -515,28 +514,37 @@ def _as_parse_addrs():
         if m:
             seg[m.group(1)] = int(m.group(2), 16)
 
-    # Stub module offsets within CODE and BSS segments
+    # Module offsets within CODE and BSS segments
     stub_code_offs = stub_bss_offs = None
-    in_stub = False
+    asm_src_bss_offs = None
+    current_module = None
     for line in lines:
         if 'asm_src_test_stub_as.o:' in line:
-            in_stub = True
+            current_module = 'stub'
             continue
-        if in_stub:
+        if 'asm_src_as.o:' in line:
+            current_module = 'asm_src'
+            continue
+        if current_module and not line.strip():
+            current_module = None
+            continue
+        if current_module == 'stub':
             mc = re.match(r"\s+CODE\s+Offs=([0-9a-fA-F]+)", line)
             if mc:
                 stub_code_offs = int(mc.group(1), 16)
             mb = re.match(r"\s+BSS\s+Offs=([0-9a-fA-F]+)", line)
             if mb:
                 stub_bss_offs = int(mb.group(1), 16)
-            if not line.strip() and stub_code_offs is not None:
-                in_stub = False
+        if current_module == 'asm_src':
+            mb = re.match(r"\s+BSS\s+Offs=([0-9a-fA-F]+)", line)
+            if mb:
+                asm_src_bss_offs = int(mb.group(1), 16)
 
     asm_src_test_entry = seg['CODE'] + stub_code_offs
     test_src_buf       = seg['BSS']  + stub_bss_offs + 0x0101
-    asm_org            = seg['DATA'] + 0
-    asm_size           = seg['DATA'] + 2
-    asm_errors         = seg['DATA'] + 4
+    asm_org            = seg['BSS']  + asm_src_bss_offs + 0
+    asm_size           = seg['BSS']  + asm_src_bss_offs + 2
+    asm_errors         = seg['BSS']  + asm_src_bss_offs + 4
     return asm_src_test_entry, test_src_buf, asm_org, asm_size, asm_errors
 
 

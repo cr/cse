@@ -255,6 +255,10 @@ def make_cpu(rsyms):
     # Init CPU mode
     cpu.memory[rsyms.al_cpu] = 1  # 6510
 
+    # Init BSS defaults (formerly DATA segment init values)
+    set_word(cpu, rsyms.block_size, 0x0010)
+    cpu.memory[rsyms.cur_device] = 8
+
     return cpu
 
 

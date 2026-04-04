@@ -5,7 +5,6 @@
 ; scr_lo/scr_hi tables from cse_io.s.
 
         .export kplot_stub
-        .export _nmi_pending
         .export _dbg_running
         .export _dbg_nmi_break
         .exportzp sp
@@ -19,7 +18,6 @@
 sp:     .res 2          ; cc65 C stack pointer (needed by cse_popax)
 
 .segment "BSS"
-_nmi_pending:  .res 1   ; NMI flag (stub — not used in tests)
 _dbg_running:  .res 1   ; debugger running flag (stub)
 
 .segment "CODE"

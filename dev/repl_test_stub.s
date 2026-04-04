@@ -62,7 +62,7 @@
         .exportzp sp, ptr1, ptr2, tmp1, tmp2
 
 ; ── Exports: NMI stubs (for cse_io.s) ─────────────────────────
-        .export _nmi_pending, _dbg_running, _dbg_nmi_break
+        .export _dbg_running, _dbg_nmi_break
         .export kplot_stub
 
 ; ── Exports: test instrumentation ─────────────────────────────
@@ -136,7 +136,6 @@ _src_bot:       .res 2
 
 ; Global
 _state:         .res 1
-_nmi_pending:   .res 1
 
 ; Test instrumentation
 newline_count:  .res 1          ; count _newline calls

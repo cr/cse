@@ -5,8 +5,8 @@
 
         .setcpu "6502"
 
-; ── Exports (consumed by other modules) ──────────────────────
-        .export _state, _SCREEN, _src_top, _src_bot, _nmi_pending
+; ── Exports ──────────────────────────────────────────────────
+        .export _state
 
 ; ── Runtime ZP (replaces cc65 zeropage.o) ────────────────────
         .exportzp sp, ptr1, ptr2, tmp1, tmp2
@@ -25,7 +25,8 @@
         .import _nmi_handler
         .import _cse_end, _cse_zp_end
         .import _exec_line, _read_line, _show_prompt
-        .import _cur_addr
+        .import _cur_addr, _cur_device, block_size
+        .import _nmi_pending
         .import _ed_handle_key, _enter_editor, _leave_editor
 
         .import __BSS_RUN__, __BSS_SIZE__
@@ -72,23 +73,13 @@ ptr2:   .res 2                  ; scratch pointer (repl.s)
 tmp1:   .res 1                  ; scratch byte (repl.s)
 tmp2:   .res 1                  ; scratch byte (repl.s)
 
-; ── DATA (initialized globals) ───────────────────────────────
-.segment "DATA"
-
-_state:       .byte ST_REPL
-_nmi_pending: .byte 0
-
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
 
-_src_top:     .res 2
-_src_bot:     .res 2
+_state:       .res 1              ; ST_STOP=0, ST_REPL=1, ST_EDIT=2
 
 ; ── RODATA ───────────────────────────────────────────────────
 .segment "RODATA"
-
-; SCREEN is a constant — export as a label, not a pointer variable
-_SCREEN = SCREEN
 
 VERSION_STR:  .byte "cse v0.1 by cr", 0
 s_manual:     .byte "manual:  github.com/cr/cse", 0
@@ -194,6 +185,16 @@ startup:
         lda MEM_CONFIG
         and #$DF
         sta MEM_CONFIG
+
+        ; Init global state
+        lda #ST_REPL
+        sta _state
+        lda #8
+        sta _cur_device
+        lda #$10
+        sta block_size
+        lda #0
+        sta block_size+1
 
         ; Init I/O (disables KERNAL cursor)
         jsr _io_init

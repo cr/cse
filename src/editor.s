@@ -13,6 +13,7 @@
         .export _ed_insert_string
         .export _ed_dirty, _ed_save_bytes, _ed_save_lines
         .export _tab_width
+        .export _src_top, _src_bot
         .exportzp buf_base
 
         .import _io_sync
@@ -21,7 +22,7 @@
         .import _disk_seq_bytes, _disk_seq_lines
         .import _cse_end
         .import _cur_filename
-        .import _state, _SCREEN, _src_top, _src_bot
+        .import _state
         .import scr_lo, scr_hi
         .import _sym_define
         .import cse_popax, pushax
@@ -85,6 +86,8 @@ save_phase:     .res 1          ; 0=pre-gap, 1=post-gap
 repl_cur_x:     .res 1          ; saved REPL cursor X
 repl_cur_y:     .res 1          ; saved REPL cursor Y
 ws_buf:         .res 39         ; auto-indent whitespace buffer
+_src_top:       .res 2          ; buffer upper bound (for REPL i command)
+_src_bot:       .res 2          ; buffer lower bound (for REPL i command)
 
 ; ── RODATA ───────────────────────────────────────────────────
 .segment "RODATA"

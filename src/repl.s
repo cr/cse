@@ -92,18 +92,16 @@ CUR_ROW       = $D6
 ;   rp_next_hi(2) — cmd_step next PC high
 ; ═══════════════════════════════════════════════════════════
 
-; ── DATA ───────────────────────────────────────────────────
-.segment "DATA"
-
-_cur_addr:      .word $1000
-_cur_device:    .byte $08
-last_cmd:       .byte $00
-block_size:     .word $0010
-_cur_filename:  .byte $00
-                .res FILENAME_MAX, $00
-
 ; ── BSS ────────────────────────────────────────────────────
+; Variables formerly in DATA are now BSS; initialized by main.s
+; startup or by first use.  BSS is zeroed at boot.
 .segment "BSS"
+
+_cur_addr:      .res 2          ; current memory address (init by splash)
+_cur_device:    .res 1          ; floppy device number (init by main.s)
+last_cmd:       .res 1          ; last command byte
+block_size:     .res 2          ; block size for I/O (init by main.s)
+_cur_filename:  .res FILENAME_MAX + 1  ; current filename
 
 line_buf:       .res 42
 dot_asm_buf:    .res 24

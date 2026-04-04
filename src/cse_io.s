@@ -18,14 +18,12 @@
         .export _io_color
         .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
 
-        ; C stack helpers — our own impl to avoid importing cc65's popax.
-        ; Still uses cc65's `sp` ZP pointer (shared with C code).
+        ; Parameter stack helpers
         .export cse_popax
 
         ; NMI handler — pure asm, no C prologue.
         .export _nmi_handler
-
-        .import _nmi_pending
+        .export _nmi_pending
 
 COLS    = 40
 ROWS    = 25
@@ -46,6 +44,7 @@ _io_scr:  .res 2        ; screen row pointer for io_putc
 .segment "BSS"
 _io_color: .res 1       ; text color for screen clears
 dec_start_col: .res 1   ; io_putdec: saved start column (ROM-safe)
+_nmi_pending: .res 1    ; NMI flag — set by nmi_handler, read by main loop
 
 ; ── RODATA ──────────────────────────────────────────────────
 .segment "RODATA"
