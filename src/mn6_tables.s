@@ -15,7 +15,7 @@
         .export mn6_fp
         .export mn6_base_op, mn6_profile
 
-.segment "RODATA"
+.segment "KDATA"
 
 mn6_fp:
         .byte   $AC,$1C,$1B,$A3,$ED,$55,$3B,$A2  ; BIT  JMP  STX  CPX  AND  SEC  CLC  BPL

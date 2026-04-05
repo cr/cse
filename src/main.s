@@ -18,7 +18,7 @@
         .import reset_screen, restore_colors, newline
         .import cursor_show, cursor_hide
         .import scr_lo, scr_hi
-        .import kernal_init
+        .import kernal_init, kernal_bank_out, kernal_bank_in
         .import sym_set_heap, sym_clear
         .import define_ws_syms
         .import dbg_init
@@ -30,6 +30,7 @@
         .import ed_handle_key, enter_editor, leave_editor
 
         .import __BSS_RUN__, __BSS_SIZE__
+        .import __KDATA_LOAD__, __KDATA_RUN__, __KDATA_SIZE__
 
 ; ── Constants ────────────────────────────────────────────────
 SCREEN       = $0400
@@ -133,7 +134,41 @@ startup:
         bne @bss_rem
 @bss_done:
 
-        ; Fall through to main code (STARTUP placed before CODE in cfg)
+        ; Copy KDATA tables from load address to KERNAL RAM ($E300+)
+        ; Must bank out KERNAL to access the underlying RAM.
+        jsr kernal_bank_out
+        lda #<__KDATA_LOAD__
+        sta rp_ptr
+        lda #>__KDATA_LOAD__
+        sta rp_ptr+1
+        lda #<__KDATA_RUN__
+        sta rp_ptr2
+        lda #>__KDATA_RUN__
+        sta rp_ptr2+1
+        ldy #0
+        ldx #>__KDATA_SIZE__
+        beq @kd_partial
+@kd_page:
+        lda (rp_ptr),y
+        sta (rp_ptr2),y
+        iny
+        bne @kd_page
+        inc rp_ptr+1
+        inc rp_ptr2+1
+        dex
+        bne @kd_page
+@kd_partial:
+        ldx #<__KDATA_SIZE__
+        beq @kd_done
+@kd_rem:
+        lda (rp_ptr),y
+        sta (rp_ptr2),y
+        iny
+        dex
+        bne @kd_rem
+@kd_done:
+        jsr kernal_bank_in
+
         jmp _main
 
 ; ── CODE — main program ──────────────────────────────────────

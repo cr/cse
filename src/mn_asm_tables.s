@@ -10,7 +10,7 @@
         .export mode_offset, direct_opcodes
         .export FIRST_DIR_PROFILE
 
-.segment "RODATA"
+.segment "KDATA"
 
 mode_offset:
 ; cc=00

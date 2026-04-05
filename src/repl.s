@@ -39,6 +39,7 @@
         .import dbg_reason, dbg_bp_hit
         .import brk_pc
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
+        .import kernal_bank_out, kernal_bank_in
 
 ; ── Imports: expression parser ─────────────────────────────
         .import expr_eval, expr_error_str
@@ -671,7 +672,9 @@ parse_hex4_ptr1:
 .proc emit_dot
         lda rp_addr
         ldx rp_addr+1
+        jsr kernal_bank_out
         jsr dasm_insn
+        jsr kernal_bank_in
         pha                     ; save olen
 
         lda #'.'
@@ -1039,7 +1042,12 @@ parse_hex4_ptr1:
         sta al_out+1
         lda #<dot_asm_buf
         ldx #>dot_asm_buf
-        jmp asm_line
+        jsr kernal_bank_out     ; KDATA tables under KERNAL
+        jsr asm_line
+        pha                     ; save result
+        jsr kernal_bank_in
+        pla
+        rts
 
 @err:   lda #0
         rts
@@ -1620,7 +1628,9 @@ parse_hex4_ptr1:
         ; Linear: next = brk_pc + dasm_insn(brk_pc)
         lda brk_pc
         ldx brk_pc+1
+        jsr kernal_bank_out
         jsr dasm_insn          ; returns len in A
+        jsr kernal_bank_in
         clc
         adc brk_pc
         sta rp_next_lo

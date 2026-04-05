@@ -393,7 +393,7 @@ def write_mode_table(out_path=None):
         '',
         '        .export mn_modes_lo, mn_modes_hi',
         '',
-        '.segment "RODATA"',
+        '.segment "KDATA"',
         '',
     ]
 
@@ -464,7 +464,7 @@ def write_config_table(out_path=None):
         ';',
         f'; {len(slot_mne)}/128 slots filled',
         '',
-        '.segment "RODATA"',
+        '.segment "KDATA"',
         '',
     ]
 
@@ -540,7 +540,7 @@ def write_config_table_7bit(out_path=None):
         '        .export mn7_fp',
         '        .export mn7_base_op, mn7_profile',
         '',
-        '.segment "RODATA"',
+        '.segment "KDATA"',
         '',
     ]
 
@@ -618,7 +618,7 @@ def write_config_table_6bit(out_path=None):
         '        .export mn6_fp',
         '        .export mn6_base_op, mn6_profile',
         '',
-        '.segment "RODATA"',
+        '.segment "KDATA"',
         '',
     ]
 
@@ -755,7 +755,7 @@ def write_asm_tables(out_path=None):
         '        .export mode_offset, direct_opcodes',
         f'        .export FIRST_DIR_PROFILE',
         '',
-        '.segment "RODATA"',
+        '.segment "KDATA"',
         '',
     ]
 

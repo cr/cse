@@ -22,7 +22,7 @@
 
         .export mn_modes_lo, mn_modes_hi
 
-.segment "RODATA"
+.segment "KDATA"
 
 mn_modes_lo:
         .byte   $01,$00,$04,$08          ; 0  1  2  3

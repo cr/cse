@@ -16,7 +16,7 @@
         .export mn7_fp
         .export mn7_base_op, mn7_profile
 
-.segment "RODATA"
+.segment "KDATA"
 
 mn7_fp:
         .byte   $7B,$C0,$08,$91,$90,$6C,$7C,$00  ; ROL  TXA  AAC  SRE  TRB  CMP  ROR  ---

@@ -24,6 +24,7 @@
         .export sym_define, sym_lookup, sym_clear
         .export sym_set_heap
         .export kernal_bank_out, kernal_bank_in, kernal_init
+        .export kernal_out
 
         .importzp sym_name, sym_val, sym_wide
 
@@ -55,6 +56,9 @@ sym_table = $FC00
 
 CPU_PORT = $01
 
+.segment "BSS"
+kernal_out:     .res 1          ; nonzero = KERNAL banked out (skip bank_in)
+
 .segment "CODE"
 
 ; ── Banking helpers ──────────────────────────────────────
@@ -71,11 +75,13 @@ _st_bank_out:
 
 kernal_bank_in:
 _st_bank_in:
+        lda kernal_out
+        bne @skip               ; flag set → stay banked out (caller manages)
         lda CPU_PORT
         ora #$02                ; set bit 1 → KERNAL ROM restored
         sta CPU_PORT
         cli
-        rts
+@skip:  rts
 
 ; ── NMI trampoline (written to RAM at $FF00 by kernal_init) ──
 ; If NMI fires while KERNAL is banked out, the CPU reads the

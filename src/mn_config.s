@@ -17,7 +17,7 @@
 ;
 ; 114/128 slots filled
 
-.segment "RODATA"
+.segment "KDATA"
 
 mn_base_op:
         .byte   $22,$8A,$2B,$43,$00,$C1,$62,$00  ; ROL  TXA  AAC  SRE  TRB  CMP  ROR  ---

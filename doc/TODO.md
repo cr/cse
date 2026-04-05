@@ -85,8 +85,11 @@ Defined scope, needs work.
   (768B) at $FC00, repl_screen (1000B) at $F818, NMI trampoline
   at $FF00.  Banking guards (sei/cli + $01 bit 1).  6.0 KB free
   at $E000-$F817 for future use.
-- [ ] Move more data under KERNAL: asm error strings (~176B RODATA),
-  mnemonic/dasm tables (RODATA, needs startup copy).  Low priority.
+- [x] ~~Move data under KERNAL~~ — done: mnemonic tables (mn7/mn6),
+  config tables, dasm tables, mode tables → KDATA segment at $E300
+  (1010B).  Copied from PRG load area to KERNAL RAM at startup.
+  Assembly and disassembly run with KERNAL banked out.  `kernal_out`
+  flag prevents symtab bank_in during assembly passes.
 
 ### Architecture
 

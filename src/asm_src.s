@@ -19,6 +19,7 @@
         .import         expr_eval              ; expr.s
         .import         sym_define             ; symtab.s
         .import         sym_clear, sym_set_heap
+        .import         kernal_bank_out, kernal_bank_in, kernal_out
         .import         io_puts, io_putdec, newline
         .import         cse_end                ; meminfo.s
         .import         ed_read_line           ; editor.s
@@ -58,15 +59,15 @@ s_bad_org:      .byte "bad .org", 0
 s_bad_expr:     .byte "bad expr", 0
 s_bad_cnt:      .byte "bad count", 0
 s_bad_fill:     .byte "bad fill", 0
-s_bad_bnd:      .byte "bad boundary", 0
+s_bad_bnd:      .byte "bad bound", 0
 s_align0:       .byte "align 0", 0
 s_bad_cpu:      .byte "bad .cpu", 0
-s_exp_name:     .byte "expected name", 0
-s_bad_cst:      .byte "bad .const", 0
+s_exp_name:     .byte "exp name", 0
+s_bad_cst:      .byte "bad const", 0
 s_sym_full:     .byte "sym full", 0
-s_exp_quot:     .byte "expected ", '"', 0
-s_bin_nyi:      .byte ".bin not yet", 0
-s_bad_op:       .byte "bad operand", 0
+s_exp_quot:     .byte "exp quote", 0
+s_bin_nyi:      .byte ".bin nyi", 0
+s_bad_op:       .byte "bad oper", 0
 s_bad_org2:     .byte "bad org", 0
 s_bad_insn:     .byte "bad insn", 0
 hex_tab:        .byte "0123456789abcdef"
@@ -1268,6 +1269,14 @@ inc_pc_size:
         jsr sym_set_heap
         jsr sym_clear
         jsr define_ws_syms     ; pre-define workstart/workend
+
+        ; Bank out KERNAL for both passes — KDATA tables and sym_table
+        ; are both in RAM under KERNAL.  The kernal_out flag prevents
+        ; symtab's bank_in from re-mapping KERNAL between calls.
+        lda #1
+        sta kernal_out
+        jsr kernal_bank_out
+
         ; Pass 0: collect labels/constants
         lda #0
         sta _asm_pass
@@ -1284,6 +1293,12 @@ inc_pc_size:
         sta asm_size+1
         sta _scope_name
         jsr do_pass
+
+        ; Bank in KERNAL
+        lda #0
+        sta kernal_out
+        jsr kernal_bank_in
+
         lda asm_errors
         ldx asm_errors+1
         rts
