@@ -22,9 +22,9 @@
 
 ### Memory
 
-**ZP (8 bytes):** `sp` (2), `ptr1` (2), `ptr2` (2), `tmp1` (1), `tmp2` (1) — runtime scratch shared by repl.s, debugger.s.
+**ZP (6 bytes):** `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) — scratch pointers/bytes shared by repl.s, debugger.s.
 
-**BSS (1 byte):** `_state` (1) — run mode (ST_STOP=0, ST_REPL=1, ST_EDIT=2).
+**BSS (1 byte):** `state` (1) — run mode (ST_STOP=0, ST_REPL=1, ST_EDIT=2).
 
 ## Design
 

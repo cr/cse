@@ -55,6 +55,9 @@ io_putc, io_putdec, io_puthex2/4, io_getc, io_kbhit, io_clear_eol)
 
 ### Memory
 
+**ZP (2 bytes):** `disk_ptr` (2) — filename pointer, set by caller
+before disk_load_prg/save_prg/load_seq/save_seq.
+
 **BSS (67 bytes):**
 
 | Variable | Size | Purpose |

@@ -3591,8 +3591,7 @@ free_line:
         jsr io_puts
         ; flush keyboard buffer
 @q_flush:
-        jsr io_kbhit
-        cmp #0
+        jsr io_kbhit            ; Z set by lda $C6 inside
         beq @q_wait
         jsr io_getc
         jmp @q_flush

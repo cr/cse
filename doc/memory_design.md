@@ -70,22 +70,23 @@ Functions clobber A, X, Y unless documented otherwise.  ZP variables
 outside the function's own group are preserved.  The hardware stack
 is balanced (no net push/pop across a call).
 
-### Parameter stack
+### Multi-argument calls
 
-`pushax` pushes A/X onto a software stack at `(sp)`.  `cse_popax`
-pops.  `sp` is a ZP pointer initialized at startup.  This mechanism
-exists for the small number of 2-argument cross-module calls
-(disk I/O, ed_read_line, asm_line).  Internal module calls use
-registers and ZP directly — never the parameter stack.
+Functions with 2+ arguments use named ZP variables for the first
+arguments and A/X for the last.  Examples:
 
-Long-term goal: eliminate the parameter stack entirely by switching
-all multi-arg interfaces to ZP-based I/O.
+- `disk_load_prg`: `disk_ptr` = name, A/X = addr
+- `asm_line`: `al_pc`/`al_out` set by caller, A/X = text
+- `ed_read_line`: A/X = buf pointer (maxlen hardcoded)
+
+No software parameter stack.  All arguments pass through registers
+or ZP variables.
 
 ## Memory Map — PRG Target (development)
 
     $0000-$00FF  Zero page (see § Zero Page Layout)
       $00-$01    CPU I/O port
-      $02-$5A    CSE ZP variables (89 bytes, 13 modules)
+      $02-$5A    CSE ZP variables (89 bytes, 14 modules)
       $5B-$7F    Free (37 bytes, available for user programs)
       $80-$FF    KERNAL work area
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
@@ -163,16 +164,17 @@ table, usable in assembly (`.org workstart`) and REPL expressions
 
 | Range | Bytes | Module | Variables |
 |-------|-------|--------|-----------|
-| $02–$09 | 8 | main | `sp` (2), `ptr1` (2), `ptr2` (2), `tmp1` (1), `tmp2` (1) |
-| $0A–$0C | 3 | asm_bridge | `_ab_saved_sp` (1), `_jsr_vec` (2) |
-| $0D–$24 | 24 | asm_vars | assembler + symbol + expression I/O (see § Shared state) |
-| $25–$27 | 3 | asm_src | `_as_ptr` (2), `_as_wsize` (1) |
-| $28–$2A | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
-| $2B | 1 | mn7 | `mn7_h_tmp` (1) |
-| $2C–$30 | 5 | au_mode | `au_ptr` (2), `au_opr` (2), `_au_tmp` (1) |
-| $31 | 1 | opcode_lookup | `_ok_tmp` (1) |
-| $32–$35 | 4 | cse_io | `_io_tmp` (2), `_io_scr` (2) |
-| $36–$39 | 4 | expr | `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1) |
+| $02–$07 | 6 | main | `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) |
+| $08–$0A | 3 | asm_bridge | `ab_saved_sp` (1), `jsr_vec` (2) |
+| $0B–$22 | 24 | asm_vars | assembler + symbol + expression I/O (see § Shared state) |
+| $23–$25 | 3 | asm_src | `as_ptr` (2), `as_wsize` (1) |
+| $26–$28 | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
+| $29 | 1 | mn7 | `mn7_h_tmp` (1) |
+| $2A–$2E | 5 | au_mode | `au_ptr` (2), `au_opr` (2), `au_tmp` (1) |
+| $2F | 1 | opcode_lookup | `ok_tmp` (1) |
+| $30–$33 | 4 | cse_io | `io_tmp` (2), `io_scr` (2) |
+| $34–$35 | 2 | disk | `disk_ptr` (2) |
+| $36–$39 | 4 | expr | `ex_tmp` (2), `ex_digits` (1), `ex_wide_tmp` (1) |
 | $3A–$44 | 11 | symtab | hash/probe state, heap pointers |
 | $45–$4C | 8 | dasm | decode state, output pointer |
 | $4D–$5A | 14 | editor | gap pointers, screen scratch |
@@ -213,17 +215,13 @@ disassembler are also non-concurrent.  Expression evaluation
 | dasm `_dasm_buf` | 24 | repl `dot_asm_buf` | 24 | 24 | Disasm output consumed before `.` command |
 | **Total BSS reclaimable** | | | | **~105 B** | |
 
-**Immediate fix — `_zp_save_buf` oversized:**
-`asm_bridge.s` saves ZP $02–$5E (93 bytes) during debugger context
-switch, but CSE ZP ends at $5A (89 bytes).  Fix `ZP_SAVE_HI` to
-$5A → saves 4B BSS + 4 fewer bytes copied per context switch.
-
-**Parameter stack elimination** (long-term):
-`pushax`/`cse_popax` are used at 15 call sites across 5 modules.
-Switching all multi-arg interfaces to ZP-based I/O would eliminate
-the parameter stack entirely (2B ZP `sp` + ~40B CODE + overhead per
-call).  Targets: disk.s (7 sites), editor.s (3), asm_src.s (3),
-asm_bridge.s (2).
+**Completed optimizations:**
+- `_zp_save_buf` trimmed: $5E → $5A (4B BSS saved)
+- Parameter stack eliminated: `pushax`/`cse_popax`/`sp` removed,
+  all multi-arg calls use ZP variables (2KB workspace gained)
+- KDATA tables under KERNAL: 1010B of lookup tables at $E300+
+- Packed opcode→length table: 64B, replaces dasm_insn in cmd_step
+  (5× faster stepping)
 
 ### KERNAL ZP locations (read/written directly)
 

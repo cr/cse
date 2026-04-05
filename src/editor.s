@@ -127,8 +127,7 @@ s_workend:      .byte "workend", 0
         sta ed_total_lines+1
         lda #1
         sta ed_total_lines
-        jsr update_workend
-        rts
+        jmp update_workend      ; tail call
 .endproc
 
 ; ── update_workend — redefine workend symbol from buf_base ────
