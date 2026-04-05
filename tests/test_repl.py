@@ -42,6 +42,7 @@ _SOURCES = [
     SRC / "symtab.s",
     SRC / "dasm.s",
     SRC / "dasm_tables.s",
+    SRC / "oplen_tbl.s",
     DEV / "repl_test_stub.s",
     CFG,
 ]

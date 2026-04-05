@@ -124,7 +124,7 @@ ASM_SRCS = main \
            $(MN_SRCS) mn_config \
            au_mode mn_modes mn_asm_tables opcode_lookup \
            meminfo cse_io screen disk expr symtab dasm dasm_tables \
-           debugger repl editor
+           debugger repl editor oplen_tbl
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 
 .PHONY: _one
@@ -161,7 +161,7 @@ TABLE_GEN  = $(DEV)/mnemonic_tables.py
 TABLE_DEPS = $(DEV)/instruction_set.py $(DEV)/hashes.py
 TABLE_OUTS = $(SRC)/mn_modes.s $(SRC)/mn_config.s \
              $(SRC)/mn6_tables.s $(SRC)/mn7_tables.s \
-             $(SRC)/mn_asm_tables.s
+             $(SRC)/mn_asm_tables.s $(SRC)/oplen_tbl.s
 TABLES_STAMP = $(ROOT)build/.tables.stamp
 
 .PHONY: tables

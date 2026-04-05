@@ -40,6 +40,7 @@
         .import brk_pc
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
         .import kernal_bank_out, kernal_bank_in
+        .import oplen_tbl
 
 ; ── Imports: expression parser ─────────────────────────────
         .import expr_eval, expr_error_str
@@ -1625,12 +1626,28 @@ parse_hex4_ptr1:
         jmp @check_next
 
 @linear:
-        ; Linear: next = brk_pc + dasm_insn(brk_pc)
-        lda brk_pc
-        ldx brk_pc+1
-        jsr kernal_bank_out
-        jsr dasm_insn          ; returns len in A
-        jsr kernal_bank_in
+        ; Linear: next = brk_pc + opcode_length(rp_opc)
+        ; Packed table: 2 bits per opcode, 4 per byte.
+        ; byte = opc >> 2, position = opc & 3.
+        ; pos 0 = bits 1:0, pos 1 = 3:2, pos 2 = 5:4, pos 3 = 7:6.
+        lda rp_opc
+        lsr
+        lsr                     ; byte index = opc >> 2
+        tax
+        lda oplen_tbl,x         ; packed byte
+        sta rp_save             ; save packed byte
+        lda rp_opc
+        and #$03                ; position (0-3)
+        beq @len_done           ; pos 0: bits 1:0, no shift
+        tax
+@len_shift:
+        lsr rp_save             ; shift right 2 bits
+        lsr rp_save
+        dex
+        bne @len_shift
+@len_done:
+        lda rp_save
+        and #$03                ; length (1, 2, or 3)
         clc
         adc brk_pc
         sta rp_next_lo
