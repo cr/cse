@@ -685,12 +685,14 @@ parse_hex4_ptr1:
 ;   rp_addr = address. Returns instruction length in A.
 ; ═══════════════════════════════════════════════════════════
 .proc emit_dot
-        lda rp_addr
+        jsr kernal_bank_out     ; bank out FIRST (clobbers A)
+        lda rp_addr             ; then load addr for dasm_insn
         ldx rp_addr+1
-        jsr kernal_bank_out
         jsr dasm_insn
+        pha                     ; save olen BEFORE bank_in clobbers A
         jsr kernal_bank_in
-        pha                     ; save olen
+        pla
+        pha                     ; re-push for later use
 
         lda #'.'
         jsr io_addr_cmd
@@ -1055,9 +1057,9 @@ parse_hex4_ptr1:
         lda rp_addr+1
         sta al_pc+1
         sta al_out+1
-        lda #<dot_asm_buf
+        jsr kernal_bank_out     ; bank out FIRST (clobbers A)
+        lda #<dot_asm_buf       ; then load buf ptr for asm_line
         ldx #>dot_asm_buf
-        jsr kernal_bank_out     ; KDATA tables under KERNAL
         jsr asm_line
         pha                     ; save result
         jsr kernal_bank_in
@@ -3467,7 +3469,9 @@ free_line:
         stx rp_cnt+1
         ora rp_cnt+1
         bne @a_errors
-        ; success
+        ; success — clear stale debug context so next t/o/c cold-starts
+        lda #0
+        sta dbg_reason
         lda #<str_ok_colon
         ldx #>str_ok_colon
         jsr io_puts
