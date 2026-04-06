@@ -3072,41 +3072,50 @@ free_line:
         inc rp_ptr+1
 
 @save_repeat:
-        ; save for repeat (paging + step commands)
-        lda rp_opc
-        cmp #'m'
+        ; save for repeat (paging + step commands): m d . t o
+        ldx #4
+@sr_lp: lda @rep_chars,x
+        cmp rp_opc
         beq @set_repeat
-        cmp #'d'
-        beq @set_repeat
-        cmp #'.'
-        beq @set_repeat
-        cmp #'t'
-        beq @set_repeat
-        cmp #'o'
-        beq @set_repeat
-        jmp @dispatch
+        dex
+        bpl @sr_lp
+        bmi @dispatch           ; not in list
+@rep_chars: .byte '.', 'd', 'm', 't', 'o'
 @set_repeat:
+        lda rp_opc
         sta last_cmd
 
 @dispatch:
-        ; ── Dispatch ──
-        lda rp_opc
+        ; ── Table-driven dispatch ──
+        ldy #0
+@scan:  lda @cmd_chars,y
+        beq @unknown
+        cmp rp_opc
+        beq @found
+        iny
+        bne @scan
+@found: lda @cmd_lo,y
+        sta rp_ptr2
+        lda @cmd_hi,y
+        sta rp_ptr2+1
+        jmp (rp_ptr2)
+@unknown:
+        lda #<str_err_cmd
+        ldx #>str_err_cmd
+        jsr err_msg
+        jmp nl_clear
 
-        cmp #'.'
-        bne @n_dot
-        jmp cmd_dot
-@n_dot:
-        cmp #'d'
-        bne @n_d
-        jmp cmd_disasm
-@n_d:
-        cmp #'m'
-        bne @n_m
-        jmp cmd_mem
-@n_m:
-        ; @ — set address
-        cmp #'@'
-        bne @n_at
+; ── Handlers ──────────────────────────────────────────────
+@h_dot: jmp cmd_dot
+@h_d:   jmp cmd_disasm
+@h_m:   jmp cmd_mem
+@h_b:   jmp cmd_brk
+@h_r:   jmp cmd_reg
+@h_l:   jmp cmd_load
+@h_s:   jmp cmd_write
+@h_i:   jmp cmd_info
+
+@h_at:  ; @ — set address
         jsr try_expr
         bcc @at_done
         lda expr_val
@@ -3115,10 +3124,8 @@ free_line:
         sta cur_addr+1
 @at_done:
         jmp nl_clear
-@n_at:
-        ; + — advance address
-        cmp #'+'
-        bne @n_plus
+
+@h_plus:; + — advance address
         jsr try_expr
         bcc @plus_def
         lda expr_val
@@ -3138,10 +3145,9 @@ free_line:
         adc expr_val+1
         sta cur_addr+1
         jmp nl_clear
-@n_plus:
+
+@h_minus:
         ; - — retreat address
-        cmp #'-'
-        bne @n_minus
         jsr try_expr
         bcc @minus_def
         lda expr_val
@@ -3161,10 +3167,8 @@ free_line:
         sbc expr_val+1
         sta cur_addr+1
         jmp nl_clear
-@n_minus:
-        ; j — jump/execute
-        cmp #'j'
-        bne @n_j
+
+@h_j:   ; j — jump/execute
         jsr try_expr
         bcc @j_no_addr
         lda expr_val
@@ -3173,11 +3177,8 @@ free_line:
         sta cur_addr+1
 @j_no_addr:
         jmp cmd_jmp
-@n_j:
-        ; g — go (sym_lookup "main")
-        cmp #'g'
-        bne @n_g
-        ; sym_lookup("main") — ZP interface
+
+@h_g:   ; g — go (sym_lookup "main")
         lda #<str_main
         sta sym_name
         lda #>str_main
@@ -3190,42 +3191,16 @@ free_line:
         sta cur_addr+1
 @g_no_main:
         jmp cmd_jmp
-@n_g:
-        ; t — step
-        cmp #'t'
-        bne @n_t
-        lda #0                  ; is_next = 0
+
+@h_t:   ; t — step into
+        lda #0
         jmp cmd_step
-@n_t:
-        ; o — step over
-        cmp #'o'
-        bne @n_o
-        lda #1                  ; is_next = 1
+
+@h_o:   ; o — step over
+        lda #1
         jmp cmd_step
-@n_o:
-        ; b — breakpoints
-        cmp #'b'
-        bne @n_b
-        jmp cmd_brk
-@n_b:
-        ; r — registers
-        cmp #'r'
-        bne @n_r
-        jmp cmd_reg
-@n_r:
-        ; l — load
-        cmp #'l'
-        bne @n_l
-        jmp cmd_load
-@n_l:
-        ; s — save/write
-        cmp #'s'
-        bne @n_s
-        jmp cmd_write
-@n_s:
-        ; k — delete source (guard unsaved)
-        cmp #'k'
-        bne @n_k
+
+@h_k:   ; k — delete source (guard unsaved)
         jsr check_unsaved
         bcc @k_cancel
         jsr newline
@@ -3241,18 +3216,10 @@ free_line:
 @k_no:  jsr io_clear_eol
 @k_cancel:
         jmp nl_clear
-@n_k:
-        ; i — info
-        cmp #'i'
-        bne @n_i
-        jmp cmd_info
-@n_i:
-        ; B (PETSCII $C2) — block size
-        cmp #$C2
-        bne @n_B
+
+@h_blk: ; B (PETSCII $C2) — block size
         jsr try_expr
         bcc @B_show             ; empty or error → just show
-        ; if non-zero, set block_size
         lda expr_val
         ora expr_val+1
         beq @B_show
@@ -3270,10 +3237,8 @@ free_line:
         jsr io_puthex4
         jsr io_clear_eol
         jmp nl_clear
-@n_B:
-        ; T (PETSCII $D4) — tab width
-        cmp #$D4
-        bne @n_T
+
+@h_tab: ; T (PETSCII $D4) — tab width
         jsr try_expr
         bcc @T_show             ; empty or error → just show
         lda expr_val
@@ -3291,10 +3256,8 @@ free_line:
         jsr io_puthex2
         jsr io_clear_eol
         jmp nl_clear
-@n_T:
-        ; C (PETSCII $C3) — color
-        cmp #$C3
-        jne @n_C
+
+@h_col: ; C (PETSCII $C3) — color
         jsr skip_sp_ptr1
         ldy #0
         jsr is_hex_at_ptr1
@@ -3348,10 +3311,7 @@ free_line:
         jsr io_putc
         jsr io_clear_eol
         jmp nl_clear
-@n_C:
-        ; u — cpu mode
-        cmp #'u'
-        jne @n_u
+@h_u:   ; u — cpu mode
         jsr skip_sp_ptr1
         ldy #0
         lda (rp_ptr),y
@@ -3455,10 +3415,7 @@ free_line:
 .endif
         jsr io_clear_eol
         jmp nl_clear
-@n_u:
-        ; a — assemble source
-        cmp #'a'
-        bne @n_a
+@h_a:   ; a — assemble source
         jsr newline
         lda #<str_asm_ing
         ldx #>str_asm_ing
@@ -3508,11 +3465,7 @@ free_line:
 @a_tail:
         jsr io_clear_eol
         jmp nl_clear
-@n_a:
-        ; ? — calculator
-        cmp #'?'
-        jne @n_q_mark
-        ; set expr_ptr = rp_ptr
+@h_calc:; ? — calculator
         lda rp_ptr
         sta expr_ptr
         lda rp_ptr+1
@@ -3674,10 +3627,7 @@ free_line:
         jsr io_puts
         jsr io_clear_eol
         jmp nl_clear
-@n_q_mark:
-        ; Q (PETSCII $D1) — quit (guard unsaved)
-        cmp #$D1
-        bne @n_q
+@h_quit:; Q (PETSCII $D1) — quit (guard unsaved)
         jsr check_unsaved
         bcc @q_cancel
         jsr newline
@@ -3703,10 +3653,7 @@ free_line:
 @q_ret: rts
 @q_cancel:
         jmp nl_clear
-@n_q:
-        ; $ — directory
-        cmp #'$'
-        bne @n_dollar
+@h_dir: ; $ — directory
         jsr skip_sp_ptr1
         ldy #0
         lda (rp_ptr),y
@@ -3757,23 +3704,11 @@ free_line:
         lda cur_device
         jsr list_directory
         jmp nl_clear
-@n_dollar:
-        ; c — continue / cls
-        cmp #'c'
-        bne @n_c
-        ; check for "lr" or "ls" after c
-        ldy #0
-        lda (rp_ptr),y
-        cmp #'l'
-        bne @c_not_cls
-        ldy #1
-        lda (rp_ptr),y
-        cmp #'r'
-        beq @c_cls
-        cmp #'s'
-        beq @c_cls
-@c_not_cls:
-        ; continue debugger
+@h_x:   ; x — clear screen
+        jsr reset_screen
+        jmp io_clear_eol
+
+@h_c:   ; c — continue debugger
         lda dbg_reason
         bne @c_has_ctx
         lda #<str_no_break
@@ -3799,12 +3734,21 @@ free_line:
 @c_broke:
         jmp show_break_result
 
-@c_cls: jsr reset_screen
-        jmp io_clear_eol
-@n_c:
-        ; default: error
-        lda #<str_err_cmd
-        ldx #>str_err_cmd
-        jsr err_msg
-        jmp nl_clear
+; ── Command dispatch table (parallel arrays) ──
+@cmd_chars:
+        .byte '.', 'd', 'm', 'b', 'r', 'l', 's', 'i'
+        .byte '@', '+', '-', 'j', 'g', 't', 'o', 'k'
+        .byte $C2, $D4, $C3, 'u', 'a', '?', $D1, '$'
+        .byte 'x', 'c'
+        .byte 0                 ; sentinel
+@cmd_lo:
+        .byte <@h_dot, <@h_d, <@h_m, <@h_b, <@h_r, <@h_l, <@h_s, <@h_i
+        .byte <@h_at, <@h_plus, <@h_minus, <@h_j, <@h_g, <@h_t, <@h_o, <@h_k
+        .byte <@h_blk, <@h_tab, <@h_col, <@h_u, <@h_a, <@h_calc, <@h_quit, <@h_dir
+        .byte <@h_x, <@h_c
+@cmd_hi:
+        .byte >@h_dot, >@h_d, >@h_m, >@h_b, >@h_r, >@h_l, >@h_s, >@h_i
+        .byte >@h_at, >@h_plus, >@h_minus, >@h_j, >@h_g, >@h_t, >@h_o, >@h_k
+        .byte >@h_blk, >@h_tab, >@h_col, >@h_u, >@h_a, >@h_calc, >@h_quit, >@h_dir
+        .byte >@h_x, >@h_c
 .endproc

@@ -316,7 +316,7 @@ The REPL's line editor operates within the 40-column screen:
 | `T`   | tab     | —         | `T 4` or `T`         | Set/show tab width; reindents source (uppercase) |
 | `u`   | cpu     | —         | `u 6502` or `u 65c02` | Set CPU mode for asm/disasm        |
 | `Q`   | quit    | —         | `Q`                  | Exit CSE (uppercase; guards unsaved)  |
-| `clr` | clear   | —         | `clr` (or `cls`)     | Clear screen                          |
+| `x`   | clear   | —         | `x`                  | Clear screen                          |
 | `;`   | comment | —         | `; note`             | No-op (inline comment)                |
 
 ### Unsaved-changes guard
