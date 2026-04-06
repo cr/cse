@@ -71,14 +71,17 @@ or a name match.  No separate count is maintained.
 The name heap follows at $E600–$EEFF (2304 bytes).  An NMI trampoline
 at $FF00 ensures safe NMI handling while the KERNAL is banked
 out.  This saves ~3.8 KB of main RAM (1536B table + 2304B heap).
-Accessing the table and heap requires banking out the KERNAL by
-clearing bit 1 of the
-CPU I/O port ($01).  Since the IRQ vector and KERNAL interrupt
-handler live in the banked-out region, interrupts must be disabled
-for the duration of the access.
 
-The banking guard sequence used by `_sym_define`, `_sym_lookup`, and
-`_sym_clear`:
+**Reads** under KERNAL ($E000–$FFFF) require the KERNAL to be
+banked out.  **Writes always pass through** to the underlying RAM
+regardless of `$01` bit 1, so pure-writer functions need no banking
+at all.
+
+`_sym_lookup` and `_sym_define` both read existing entries (probe
+scan, name compare) and therefore must bank out before access.
+`_sym_clear` is a pure writer (zeros 1536 bytes) and does not bank.
+
+The banking guard sequence used by `_sym_define` and `_sym_lookup`:
 
 ```
 sei                 ; disable interrupts
@@ -92,13 +95,20 @@ sta $01
 cli                 ; re-enable interrupts
 ```
 
+Both `kernal_bank_out` and `kernal_bank_in` honour the
+`kernal_out` flag — when set, they become no-ops.  The flag lets
+`asm_assemble` hold the KERNAL banked out across both passes
+(see `asm_src.s`); inner `sym_define`/`sym_lookup` calls inside
+the batch then short-circuit instead of issuing a redundant
+sei + `$01` write on every label reference.
+
 Internal subroutines (`compute_hash`, `fold_char`) that operate
 only on ZP variables and the name string (which is in main RAM)
 are called with the KERNAL already banked out by their caller.
 
-Both the 1536-byte hash table and the 2304-byte name heap are
-under the KERNAL.  `heap_copy_name` writes to the heap while the
-KERNAL is banked out by `sym_define`.
+`heap_copy_name` writes to the heap while the KERNAL is banked
+out by `sym_define`.  The write itself doesn't need the bank-out,
+but `sym_define`'s probing did.
 
 ### NMI safety
 
@@ -167,15 +177,16 @@ Wraparound to start index → C=1 (not found, table full).
 - 256 slots, all usable.  No dynamic resizing.  When full (or heap
   overflow), `_sym_define` returns C=1.
 - `_sym_clear` zeros 1536 bytes (6 pages) — takes ~8ms at 1 MHz.
-  Interrupts are disabled for the duration.
+  No banking is required (pure writer), so interrupts stay enabled
+  during the loop.
 - `names_equal` uses a stack peek trick (`tsx; cmp $0101,x`) to
   compare without popping.  Works because the 6502 stack is at $0100.
 - `heap_copy_name` copies until NUL.  The caller must ensure
   `sym_name` points to a properly NUL-terminated string.
 - Banking overhead: ~20 cycles per sei/bank-out/bank-in/cli pair.
   Negligible compared to the ~300-cycle hash + probe cost of a
-  typical lookup.  Worst case: `_sym_clear` holds interrupts off
-  for ~8ms (6-page zero loop); acceptable because the C64 IRQ
-  period is ~16ms (60 Hz).
+  typical lookup.  Inside an `asm_assemble` batch (kernal_out=1),
+  the inner bank helpers are no-ops, so the only banking cost
+  is the single outer pair.
 - Name heap overflow: `heap_copy_name` checks `_st_heap` against
   `SYM_HEAP_END` ($EF00) after each copy.  Returns C=1 on overflow.

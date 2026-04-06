@@ -2170,9 +2170,10 @@ s_workend:      .byte "workend", 0
         lda CUR_ROW
         sta repl_cur_y
 
-        ; Save REPL screen RAM to banked RAM ($F818)
-        jsr kernal_bank_out
-        ; Copy 1000 bytes: SCREEN → REPL_SCREEN
+        ; Save REPL screen RAM to banked RAM at REPL_SCREEN.
+        ; Pure writer to the under-KERNAL region — stores pass through
+        ; to RAM regardless of $01 bit 1, so no banking is required.
+        ; Source SCREEN ($0400) is in main RAM and is also unbanked.
         lda #<SCREEN
         sta save_ptr
         lda #>SCREEN
@@ -2182,7 +2183,6 @@ s_workend:      .byte "workend", 0
         lda #>REPL_SCREEN
         sta ed_scr+1
         jsr copy_1000
-        jsr kernal_bank_in
 
         ; Init gap buffer if needed
         jsr ed_ensure_init

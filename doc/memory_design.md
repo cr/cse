@@ -113,8 +113,17 @@ BASIC ROM ($A000-$BFFF) is unmapped at startup.  The RAM underneath
 is available for CSE code/data.
 
 KERNAL ROM ($E000-$FFFF) remains mapped.  The RAM underneath is
-accessed by clearing bit 1 of $01 (sei required; NMI trampoline at
-$FF00 handles NMI during bank-out).
+**read** by clearing bit 1 of $01 (sei required; NMI trampoline at
+$FF00 handles NMI during bank-out).  **Writes always pass through**
+to the underlying RAM regardless of $01 bit 1, so pure-writer code
+(`sym_clear`, `kernal_init`, the SCREEN→`repl_screen` save in
+`enter_editor`) does not bank — only readers do.
+
+The `kernal_out` flag in BSS lets long-running batches (e.g.
+`asm_assemble` over both passes) hold the KERNAL banked out across
+many inner calls without paying sei + `$01` write overhead per
+call: when set, `kernal_bank_out` and `kernal_bank_in` both
+short-circuit to `rts`.
 
 ## Memory Map — Relocated (production)
 

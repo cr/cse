@@ -66,16 +66,24 @@ kernal_out:     .res 1          ; nonzero = KERNAL banked out (skip bank_in)
 .segment "CODE"
 
 ; ── Banking helpers ──────────────────────────────────────
-; _st_bank_out / kernal_bank_out: sei + bank out KERNAL ROM
-; _st_bank_in  / kernal_bank_in:  bank in KERNAL ROM + cli
-; Banking helpers for use from editor.s etc.
+; kernal_bank_out: sei + clear $01 bit 1 → KERNAL ROM hidden
+; kernal_bank_in:  set $01 bit 1 → KERNAL ROM visible + cli
+;
+; Both helpers honour the kernal_out flag: when non-zero, the
+; caller is managing banking explicitly across a long batch
+; (e.g. asm_assemble holds KERNAL out for both passes), so the
+; helpers become no-ops.  This eliminates redundant sei/$01
+; writes on every inner sym_define / sym_lookup call inside the
+; batch.
 kernal_bank_out:
 _st_bank_out:
+        lda kernal_out
+        bne @skip               ; flag set → already banked out
         sei
         lda CPU_PORT
         and #$FD                ; clear bit 1 → RAM under KERNAL
         sta CPU_PORT
-        rts
+@skip:  rts
 
 kernal_bank_in:
 _st_bank_in:
@@ -112,12 +120,12 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 
 ; ═════════════════════════════════════════════════════════
 ; kernal_init — install NMI trampoline in banked RAM
-;   Must be called once at startup, before any bank-out.
-;   Clobbers A, X, Y.
+;   Must be called once at startup.
+;   Pure writer: stores under KERNAL pass through to RAM
+;   regardless of $01 bit 1, so no banking is required.
+;   Clobbers A, X.
 ; ═════════════════════════════════════════════════════════
 .proc kernal_init
-        jsr _st_bank_out
-
         ; Copy trampoline code to $FF00
         ldx #NMI_TRAMP_SIZE - 1
 @copy:  lda _nmi_tramp_code,x
@@ -130,15 +138,15 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         sta NMI_VEC_RAM
         lda #>NMI_TRAMP
         sta NMI_VEC_RAM + 1
-
-        jmp _st_bank_in         ; tail call
+        rts
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; sym_clear — zero all 256 slots (6 pages), reset count, reset heap
+; sym_clear — zero all 256 slots (6 pages), reset heap
+;   Pure writer: stores under KERNAL pass through to RAM,
+;   so no banking is required.
 ; ═════════════════════════════════════════════════════════
 .proc sym_clear
-        jsr _st_bank_out
         lda #0
         tax
 @clr:   sta sym_table,x
@@ -149,7 +157,6 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         sta sym_table+$500,x
         inx
         bne @clr
-        jsr _st_bank_in
         ; Reset heap pointer to fixed base
         lda #<SYM_HEAP
         sta _st_heap

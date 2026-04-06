@@ -328,8 +328,12 @@ assembler calls `ed_read_rewind` before each pass.
   output.  The `i` command shows remaining space.
 - Screen save/restore copies 1000 bytes (screen RAM only, not color
   RAM).  Color RAM is restored by `restore_colors` on REPL return.
-  The save/restore uses banked RAM under KERNAL ($F4F2–$F8D9) via
-  `kernal_bank_out`/`kernal_bank_in`.
+  The save/restore uses banked RAM under KERNAL ($F4F2–$F8D9).
+  `enter_editor` copies SCREEN → REPL_SCREEN: this is a pure write
+  to the under-KERNAL region, which passes through to RAM
+  regardless of `$01` bit 1, so no banking is required.
+  `leave_editor` reads REPL_SCREEN back, so it must `kernal_bank_out`
+  for the duration of the copy.
 - `gb_ensure_room` grows by 256 bytes at a time.  The block copy to
   relocate pre-gap text is the most expensive operation.
 - `ed_render_line` does PETSCII-to-screencode conversion inline.
