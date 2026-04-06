@@ -333,7 +333,7 @@ class TestCollisions:
 
 class TestCapacity:
     def test_fill_to_96(self, symt):
-        """75% load factor — 96 out of 128 slots."""
+        """37.5% load factor — 96 out of 256 slots."""
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         for i in range(96):
@@ -348,14 +348,57 @@ class TestCapacity:
             assert val == 0x1000 + i
 
     def test_full_table_returns_error(self, symt):
+        # Capacity is 256: empty marker is name_ptr=$0000, which never
+        # collides with a real heap pointer (heap lives at $E600+).
+        # Probe-wrap detection in sym_define catches the 257th insert.
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
-        for i in range(255):
+        for i in range(256):
             name = f"f{i:03d}"
             ok = _define(symt, mpu, mem, name, i)
             assert ok, f"define #{i} failed (table full too early)"
         ok = _define(symt, mpu, mem, "over", 0xFFFF)
-        assert not ok, "256th define should fail (255 max)"
+        assert not ok, "257th define should fail (256 max)"
+
+    def test_full_table_lookup_all(self, symt):
+        """All 256 entries must remain reachable after a full fill."""
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        for i in range(256):
+            name = f"f{i:03d}"
+            assert _define(symt, mpu, mem, name, i)
+        for i in range(256):
+            name = f"f{i:03d}"
+            found, val, _ = _lookup(symt, mpu, mem, name)
+            assert found, f"lookup {name} failed after full fill"
+            assert val == i
+
+    def test_full_table_redefine_succeeds(self, symt):
+        """Redefining an existing key at full capacity must succeed
+        (it does not consume a slot)."""
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        for i in range(256):
+            assert _define(symt, mpu, mem, f"f{i:03d}", i)
+        # Update an existing key — must NOT report full
+        ok = _define(symt, mpu, mem, "f000", 0xBEEF)
+        assert ok, "redefine at full capacity should succeed"
+        found, val, _ = _lookup(symt, mpu, mem, "f000")
+        assert found and val == 0xBEEF
+
+    def test_clear_releases_full_table(self, symt):
+        """After sym_clear, a previously-full table accepts 256 new entries."""
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        for i in range(256):
+            assert _define(symt, mpu, mem, f"f{i:03d}", i)
+        _clear(symt, mpu, mem)
+        for i in range(256):
+            assert _define(symt, mpu, mem, f"g{i:03d}", i + 1000), \
+                f"post-clear define #{i} failed"
+        # Old keys must be gone
+        found, _, _ = _lookup(symt, mpu, mem, "f000")
+        assert not found
 
     def test_redefine_doesnt_consume_slot(self, symt):
         mpu, mem = _setup_cpu(symt)

@@ -28,19 +28,14 @@ C=0 found, C=1 not found.
 
 ### _sym_clear
 **In:** none
-**Out:** all slots zeroed, count reset, heap pointer reset to base
+**Out:** all slots zeroed, heap pointer reset to base
 **Clobbers:** A, X
-
-### _sym_count
-**In:** none
-**Out:** A = number of defined symbols
-**Clobbers:** X (set to 0)
 
 **Depends on:** nothing (leaf module)
 
 ### Memory
 
-**ZP (11 bytes):** `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_count` (1), `_st_heap` (2), `_st_heap_base` (2).
+**ZP (10 bytes):** `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_heap` (2), `_st_heap_base` (2).
 
 Probe state for linear probing.  `_st_heap`/`_st_heap_base` track
 the name heap (fixed at $E600 under KERNAL).
@@ -58,8 +53,17 @@ Offset  Size  Field
                           bits 6-0 = reserved
 ```
 
-**Empty slot detection:** `name_ptr == $0000`.  Hash value 0 is valid
-and does not indicate an empty slot.
+**Capacity is 256 — all slots are addressable.** The empty marker
+is the *value* `name_ptr == $0000`, not a reserved slot.  Since the
+heap lives at $E600+, no real entry can have `name_ptr == 0`, so
+the value is unambiguous.
+
+Hash value 0 is valid and does not indicate an empty slot.
+
+A fully populated table is detected by **probe-wrap**: `sym_define`
+walks the linear probe chain and returns C=1 (full) if `_st_idx`
+returns to its starting hash without finding either an empty slot
+or a name match.  No separate count is maintained.
 
 ### KERNAL banking
 
@@ -88,11 +92,9 @@ sta $01
 cli                 ; re-enable interrupts
 ```
 
-Functions that do not access `sym_table` directly (`_sym_count`)
-do not need banking guards.  Internal subroutines (`compute_hash`,
-`fold_char`) that operate only on ZP variables and the name string
-(which is in main RAM) are called with the KERNAL already banked
-out by their caller.
+Internal subroutines (`compute_hash`, `fold_char`) that operate
+only on ZP variables and the name string (which is in main RAM)
+are called with the KERNAL already banked out by their caller.
 
 Both the 1536-byte hash table and the 2304-byte name heap are
 under the KERNAL.  `heap_copy_name` writes to the heap while the
@@ -153,8 +155,8 @@ The scope byte's bits 6-0 are reserved but unused.
 ### Probing
 
 `_sym_define`: compute hash, probe from `h & $FF`.  For each slot:
-if empty (name_ptr=0) → new entry (check count < 255 and heap space).
-If hash matches and name matches (case-insensitive) → update value.
+if empty (name_ptr=0) → new entry (check heap space).  If hash
+matches and name matches (case-insensitive) → update value.
 Otherwise → next slot.  If probe wraps to start → C=1 (full).
 
 `_sym_lookup`: same probe sequence.  Empty slot → C=1 (not found).
@@ -162,8 +164,8 @@ Wraparound to start index → C=1 (not found, table full).
 
 ## Caveats
 
-- 256 slots, 255 usable (8-bit count).  No dynamic resizing.  When
-  full (or heap overflow), `_sym_define` returns C=1.
+- 256 slots, all usable.  No dynamic resizing.  When full (or heap
+  overflow), `_sym_define` returns C=1.
 - `_sym_clear` zeros 1536 bytes (6 pages) — takes ~8ms at 1 MHz.
   Interrupts are disabled for the duration.
 - `names_equal` uses a stack peek trick (`tsx; cmp $0101,x`) to

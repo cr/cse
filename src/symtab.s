@@ -18,7 +18,6 @@
 ;   sym_lookup:  in: sym_name (ptr)
 ;                out: sym_val (16-bit), sym_wide (0/1), C=1 if not found
 ;   sym_clear:   (no args) — wipes all slots, resets heap
-;   sym_count:   return count in A
 
         .export sym_define, sym_lookup, sym_clear
         .export kernal_bank_out, kernal_bank_in, kernal_init
@@ -31,28 +30,30 @@ SYM_SLOTS  = 256
 SYM_MASK   = SYM_SLOTS - 1         ; $FF
 ENTRY_SIZE = 6              ; hash(1) + value(2) + name_ptr(2) + scope(1)
 
+; Capacity = 256.  All slots are real entries: the empty marker is
+; the value name_ptr=$0000 (unreachable since the heap lives at $E600+).
+; Probe-wrap detection in sym_define / sym_lookup catches a full table.
+
 ; ── ZP scratch ───────────────────────────────────────────
 .segment "ZEROPAGE"
 _st_hash:    .res 1         ; computed hash
 _st_idx:     .res 1         ; current probe index
 _st_ptr:     .res 2         ; pointer to current entry
 _st_nptr:    .res 2         ; pointer for name comparison
-_st_count:   .res 1         ; number of defined symbols
 _st_heap:    .res 2         ; current heap write pointer
 _st_heap_base: .res 2       ; heap base (fixed at SYM_HEAP)
 
 ; ── Banked RAM layout under KERNAL ROM ($E000–$FFFF) ─────
 ; $E000–$E5FF  sym_table   (256 slots × 6B = 1536 bytes)
 ; $E600–$EEFF  sym_heap    (2304 bytes, name heap)
-; $EF00–$EFFF  CSE stack snapshot (256B, debugger)
-; $F000–$F0FF  User stack snapshot (256B, debugger)
+; $EF00–$F0FF  free (512 bytes)
 ; $F100–$F4F1  KDATA tables (1010B)
 ; $F4F2–$F8D9  REPL screen save (1000B, editor.s)
 ; $F8DA–$FEFF  free (1574B)
 ; $FF00–$FF09  NMI trampoline (10 bytes)
 ; $FFFA–$FFFF  HW vectors (6B, fixed)
 ;
-; Total used: 6378 / 8192 bytes (78%).
+; Used: 5860 / 8192 bytes (71%).  Free: 2326 bytes.
 sym_table    = $E000
 SYM_HEAP     = $E600
 SYM_HEAP_END = $EF00
@@ -137,8 +138,6 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 ; sym_clear — zero all 256 slots (6 pages), reset count, reset heap
 ; ═════════════════════════════════════════════════════════
 .proc sym_clear
-        lda #0
-        sta _st_count
         jsr _st_bank_out
         lda #0
         tax
@@ -158,15 +157,6 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         lda #>SYM_HEAP
         sta _st_heap+1
         sta _st_heap_base+1
-        rts
-.endproc
-
-; ═════════════════════════════════════════════════════════
-; _sym_count — return count in A
-; ═════════════════════════════════════════════════════════
-.proc _sym_count
-        lda _st_count
-        ldx #0
         rts
 .endproc
 
@@ -353,7 +343,7 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         jsr _st_bank_out
 
         ; Probe loop: linear probe, stop on empty or name match.
-        ; Use _st_count to detect full table (capped at 255).
+        ; Probe-wrap detection (@next) catches a fully populated table.
 @probe: jsr entry_ptr
         jsr is_empty
         beq @empty
@@ -370,14 +360,9 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         jmp @store_val
 
 @empty:
-        ; Check capacity (255 max — keeps _st_count in 8 bits)
-        lda _st_count
-        cmp #255
-        bcs @full
-
-        ; Copy name to heap (heap is under KERNAL — banked out by caller)
+        ; Empty slot found — copy name to heap (heap overflow → @full)
         jsr heap_copy_name
-        bcs @full               ; heap overflow
+        bcs @full
 
         ; Store hash byte
         lda _st_hash
@@ -391,8 +376,6 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         lda _st_nptr+1
         iny
         sta (_st_ptr),y
-
-        inc _st_count
 
 @store_val:
         lda sym_val
