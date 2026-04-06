@@ -27,6 +27,7 @@
         .export zp_save_buf
 
         .import al_line_asm
+        .import kernal_bank_out, kernal_bank_in
         .importzp au_ptr, al_pc, al_out, al_cpu, al_len
 
 .segment "ZEROPAGE"
@@ -51,17 +52,28 @@ zp_save_buf:   .res ZP_SAVE_LEN ; buffer for ZP save/restore around jsr_addr
 ; ── al_error / au_syntax_error ──────────────────────────────────────────────
 ; Jumped to (not called) by asm_line.s / au_mode.s on any assembler error.
 ; Restores the 6502 stack to the level saved before al_line_asm was called,
-; then returns 0 to the C caller.
+; banks the KERNAL back in, and returns 0.
 al_error:
 au_syntax_error:
         ldx _ab_saved_sp
         txs                     ; restore SP (unwind nested JSRs)
+        jsr kernal_bank_in      ; pair the bank_out from asm_line entry
         lda #0
         tax                     ; return 0 (uint8_t, A=lo, X=hi=0)
-        jmp _ab_return
+        rts
 
 ; ── asm_line ───────────────────────────────────────────────────────────────
 ; asm_line(text)
+;
+; Single shared entry point for both call paths:
+;   - asm_src.s::process_line (inside asm_assemble's batched bank-out;
+;     the inner bank helpers below short-circuit because kernal_out=1)
+;   - repl.s::dot_assemble (single-line REPL `.` command; the inner
+;     bank helpers do the actual KERNAL bank for KDATA-table reads)
+;
+; KDATA tables (mn7/mn6, mode_offset, mn_modes, dasm_mne_str) live under
+; KERNAL ROM, so al_line_asm and its callees must run with the KERNAL
+; banked out.  asm_line owns that banking — callers don't manage it.
 ;
 ; On entry:
 ;   A/X = text pointer (lo/hi)
@@ -73,6 +85,8 @@ asm_line:
         stx au_ptr+1
 
         ; ── convert text buffer from PETSCII to VICII screen codes ──────
+        ; The buffer is in main RAM (not under KERNAL), so this loop
+        ; runs before the bank-out.
         ; Letters $41–$5A → $01–$1A (and $C1–$DA → $01–$1A)
         ; Digits $30–$39 stay as-is; space $20 stays; NUL $00 terminates.
         ldy #0
@@ -107,15 +121,18 @@ asm_line:
         tsx
         stx _ab_saved_sp
 
+        ; ── bank out KERNAL for KDATA reads (no-op inside an asm_assemble
+        ; batch — kernal_out=1 short-circuits both bank helpers)
+        jsr kernal_bank_out
+
         ; ── call assembler ──────────────────────────────────────────────
         ldy #0                  ; required by al_line_asm entry contract
         jsr al_line_asm
 
-        ; ── success: return al_len ──────────────────────────────────────
-        lda al_len
+        ; ── bank back in.  bank_in clobbers A, so reload al_len after.
+        jsr kernal_bank_in
+        lda al_len              ; success: return byte count
         ldx #0                  ; hi byte = 0 (uint8_t return)
-
-_ab_return:
         rts
 
 ; ── jsr_addr ─────────────────────────────────────────────────────────────────

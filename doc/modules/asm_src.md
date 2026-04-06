@@ -52,9 +52,18 @@ Two passes over the editor source:
 - Errors not counted in pass 0.
 
 **Pass 1:** Resolve references, emit bytes, count errors.
-- Same scan as pass 0 but `_asm_line` writes bytes to memory.
+- Same scan as pass 0 but `asm_line` writes bytes to memory.
 - Undefined symbols → error.  `emit_error` increments `_asm_errors`.
-- Directives emit data directly (not via `_asm_line`).
+- Directives emit data directly (not via `asm_line`).
+
+**KERNAL banking:** `asm_assemble` holds the KERNAL banked out
+across both passes via the `kernal_out` flag (set to 1 before pass 0,
+back to 0 after pass 1).  Inside the batch, `asm_line`'s own
+`kernal_bank_out`/`kernal_bank_in` calls short-circuit, so each
+line costs only the flag check — not a full sei + `$01` write.
+This makes `asm_line` the single shared bank-aware entry point for
+both `asm_src` and the REPL `.` command (see
+[asm_line.md](asm_line.md)).
 
 **Whitespace.**  The line parser treats both $20 (space) and $A0
 (tab) as whitespace when skipping between tokens — leading

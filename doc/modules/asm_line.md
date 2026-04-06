@@ -20,16 +20,32 @@
 C = 0 (clear) on success
 **Clobbers:** A, X, Y, all al_* ZP vars
 
-### _asm_line (C wrapper, in asm_bridge.s)
-**In:** A/X = text pointer (PETSCII), C stack = address (uint16)
-**Out:** A = byte count (0 = error)
+### asm_line (entry point in asm_bridge.s)
+**In:** A/X = text pointer (PETSCII), `al_pc`/`al_out` set by caller
+**Out:** A = byte count (0 = error), X = 0
 **Clobbers:** all
 
-The C wrapper converts the text buffer from PETSCII to VICII screen
-codes in-place before calling `al_line_asm`.
+`asm_line` is the **single shared entry point** for both the
+source-pass and the line-asm REPL command:
+
+| Caller | Path |
+|--------|------|
+| `asm_src.s::process_line` | inside `asm_assemble`'s batched bank-out (`kernal_out=1`) — `asm_line`'s inner bank helpers short-circuit, so the per-call cost is just the flag check |
+| `repl.s::dot_assemble` | single-line REPL `.` command — `asm_line`'s inner bank helpers do the actual KERNAL bank-out for KDATA-table reads |
+
+`asm_line` owns its own KERNAL banking (bracket of
+`kernal_bank_out`/`kernal_bank_in` around the `al_line_asm` call).
+Callers do not — and must not — bank the KERNAL themselves.  The
+`al_error` / `au_syntax_error` recovery path also banks the
+KERNAL back in before returning 0, so success and error exits are
+symmetric.
+
+The wrapper converts the text buffer from PETSCII to VICII screen
+codes in-place (in main RAM, before the bank-out) and then calls
+`al_line_asm`.
 
 **Depends on:** opcode_lookup, au_mode, mn_classify (mn_base_op,
-mn_profile), mn7 tables
+mn_profile), mn7 tables, kernal_bank_out/kernal_bank_in (symtab.s)
 
 ## Design
 

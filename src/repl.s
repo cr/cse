@@ -1050,21 +1050,17 @@ parse_hex4_ptr1:
         sta dot_asm_buf,y
 
 @call_asm:
-        ; asm_line(buf) — caller sets al_pc/al_out, buf in A/X
+        ; asm_line(buf) — caller sets al_pc/al_out, buf in A/X.
+        ; asm_line owns its own KERNAL banking; we just call it.
         lda rp_addr
         sta al_pc
         sta al_out
         lda rp_addr+1
         sta al_pc+1
         sta al_out+1
-        jsr kernal_bank_out     ; bank out FIRST (clobbers A)
-        lda #<dot_asm_buf       ; then load buf ptr for asm_line
+        lda #<dot_asm_buf
         ldx #>dot_asm_buf
-        jsr asm_line
-        pha                     ; save result
-        jsr kernal_bank_in
-        pla
-        rts
+        jmp asm_line            ; tail call
 
 @err:   lda #0
         rts
