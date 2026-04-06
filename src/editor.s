@@ -12,6 +12,7 @@
         .export ed_read_rewind, ed_read_byte, ed_read_line
         .export ed_insert_string
         .export ed_dirty, ed_save_bytes, ed_save_lines
+        .export ed_total_lines
         .export tab_width
         .export src_top, src_bot
         .exportzp buf_base
@@ -33,9 +34,9 @@ SCREEN       = $0400
 SCREEN_WIDTH = 40
 ED_LINES     = 22            ; visible source lines
 ED_STATUS    = 22            ; status bar row
-BUF_END      = $C800         ; exclusive end of buffer (constant)
+BUF_END      = $D000         ; exclusive end of buffer (constant)
 BUF_FLOOR    = $4800         ; growth limit
-REPL_SCREEN  = $F818         ; banked RAM under KERNAL
+REPL_SCREEN  = $F4F2         ; banked RAM under KERNAL
 
 ; KERNAL locations
 CUR_COL      = $D3           ; io_cx
@@ -125,6 +126,8 @@ s_workend:      .byte "workend", 0
         sta ed_top_line+1
         sta ed_dirty
         sta ed_total_lines+1
+        lda #8
+        sta tab_width
         lda #1
         sta ed_total_lines
         jmp update_workend      ; tail call
@@ -134,8 +137,11 @@ s_workend:      .byte "workend", 0
 ; Called after any buf_base change (ed_init, gb_ensure_room).
 .proc update_workend
         lda buf_base
+        sec
+        sbc #1
         sta sym_val
         lda buf_base+1
+        sbc #0
         sta sym_val+1
         lda #<s_workend
         sta sym_name

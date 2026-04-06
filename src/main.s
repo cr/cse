@@ -13,13 +13,13 @@
 
 ; ── Imports ──────────────────────────────────────────────────
         .import io_init, io_putc, io_puts, io_sync
-        .import io_puthex4, io_puthex2
+        .import io_puthex4, io_puthex2, io_putdec
         .import io_getc, io_clear_eol
         .import reset_screen, restore_colors, newline
         .import cursor_show, cursor_hide
         .import scr_lo, scr_hi
         .import kernal_init, kernal_bank_out, kernal_bank_in
-        .import sym_set_heap, sym_clear
+        .import sym_clear
         .import define_ws_syms
         .import dbg_init
         .import nmi_handler
@@ -28,6 +28,7 @@
         .import cur_addr, cur_device, block_size
         .import nmi_pending
         .import ed_handle_key, enter_editor, leave_editor
+        .import ed_ensure_init
 
         .import __BSS_RUN__, __BSS_SIZE__
         .import __KDATA_LOAD__, __KDATA_RUN__, __KDATA_SIZE__
@@ -40,7 +41,7 @@ MEM_CONFIG   = $01
 NMI_VEC      = $0318          ; KERNAL NMI indirect vector
 KEY_REPEAT   = $028A
 VIC_MEMCTL   = $D018
-BUF_END      = $C800
+BUF_END      = $D000
 
 ; Run states
 ST_STOP      = 0
@@ -81,11 +82,12 @@ state:       .res 1              ; ST_STOP=0, ST_REPL=1, ST_EDIT=2
 .segment "RODATA"
 
 VERSION_STR:  .byte "cse v0.1 by cr", 0
-s_manual:     .byte "manual:  github.com/cr/cse", 0
-s_free_zp:    .byte "  free:  00", 0
-s_zp_end:     .byte "-007f  zp", 0
-s_indent:     .byte "         ", 0
-s_work:       .byte "  work", 0
+s_manual:     .byte "manual: github.com/cr/cse", 0
+s_zp_tag:     .byte "  zp ", 0
+s_sys_tag:    .byte " sys ", 0
+s_work_tag:   .byte "work ", 0
+s_dash:       .byte "-", 0
+s_free:       .byte " free", 0
 s_nmi_msg:    .byte "; run/stop+restore", 0
 
 ; ── PRG load address ─────────────────────────────────────────
@@ -185,7 +187,7 @@ startup:
         cpx #$80
         bcc @zp
 
-        ; Free work area: cse_end() to $C7FF
+        ; Free work area: cse_end() to $CFFF
         jsr cse_end            ; A/X = lo/hi
         sta rp_ptr
         stx rp_ptr+1
@@ -235,9 +237,10 @@ startup:
         ; Install NMI trampoline under KERNAL
         jsr kernal_init
 
-        ; Init symbol table heap
-        jsr cse_end            ; A/X = heap start
-        jsr sym_set_heap
+        ; Init editor buffer (sets buf_base = BUF_END for workend)
+        jsr ed_ensure_init
+
+        ; Init symbol table (heap at fixed $E600 under KERNAL)
         jsr sym_clear
         jsr define_ws_syms
 
@@ -264,59 +267,119 @@ startup:
         lda #0
         sta cur_addr
 
-        ; Version line (row 17)
+        ; Version line (row 16)
         lda #0
         sta CUR_COL
-        lda #SCREEN_HEIGHT - 8
+        lda #SCREEN_HEIGHT - 9
         sta CUR_ROW
         jsr io_sync
         lda #<VERSION_STR
         ldx #>VERSION_STR
         jsr io_puts
 
-        ; Manual line (row 19)
+        ; ZP free line (row 18): "  zp 0002-007f      126 free"
+        lda #0
+        sta CUR_COL
+        lda #SCREEN_HEIGHT - 7
+        sta CUR_ROW
+        jsr io_sync
+        lda #<s_zp_tag
+        ldx #>s_zp_tag
+        jsr io_puts
+        lda #<$0002
+        ldx #>$0002
+        jsr io_puthex4
+        lda #<s_dash
+        ldx #>s_dash
+        jsr io_puts
+        lda #<$007F
+        ldx #>$007F
+        jsr io_puthex4
+        lda #' '
+        jsr io_putc
+        jsr io_putc
+        jsr io_putc
+        jsr io_putc
+        lda #<($7F - $02 + 1)
+        ldx #>($7F - $02 + 1)
+        jsr io_putdec
+        lda #<s_free
+        ldx #>s_free
+        jsr io_puts
+
+        ; sys free line (row 19): " sys 0200-03ff      512 free"
         lda #0
         sta CUR_COL
         lda #SCREEN_HEIGHT - 6
         sta CUR_ROW
         jsr io_sync
-        lda #<s_manual
-        ldx #>s_manual
+        lda #<s_sys_tag
+        ldx #>s_sys_tag
+        jsr io_puts
+        lda #<$0200
+        ldx #>$0200
+        jsr io_puthex4
+        lda #<s_dash
+        ldx #>s_dash
+        jsr io_puts
+        lda #<$03FF
+        ldx #>$03FF
+        jsr io_puthex4
+        lda #' '
+        jsr io_putc
+        jsr io_putc
+        jsr io_putc
+        jsr io_putc
+        lda #<($03FF - $0200 + 1)
+        ldx #>($03FF - $0200 + 1)
+        jsr io_putdec
+        lda #<s_free
+        ldx #>s_free
         jsr io_puts
 
-        ; Free ZP line (row 20)
+        ; work free line (row 20): "work XXXX-YYYY  NNNNN free"
         lda #0
         sta CUR_COL
         lda #SCREEN_HEIGHT - 5
         sta CUR_ROW
         jsr io_sync
-        lda #<s_free_zp
-        ldx #>s_free_zp
+        lda #<s_work_tag
+        ldx #>s_work_tag
         jsr io_puts
-        jsr cse_zp_end
-        jsr io_puthex2
-        lda #<s_zp_end
-        ldx #>s_zp_end
-        jsr io_puts
-
-        ; Free work line (row 21)
-        lda #0
-        sta CUR_COL
-        lda #SCREEN_HEIGHT - 4
-        sta CUR_ROW
-        jsr io_sync
-        lda #<s_indent
-        ldx #>s_indent
-        jsr io_puts
-        jsr cse_end            ; A/X = lo/hi of work start
+        lda cur_addr
+        ldx cur_addr+1
         jsr io_puthex4
-        lda #'-'
-        jsr io_putc
+        lda #<s_dash
+        ldx #>s_dash
+        jsr io_puts
         lda #<(BUF_END - 1)
         ldx #>(BUF_END - 1)
         jsr io_puthex4
-        lda #<s_work
-        ldx #>s_work
+        lda #' '
+        jsr io_putc
+        jsr io_putc
+        ; byte count = BUF_END - workstart
+        lda #<BUF_END
+        sec
+        sbc cur_addr
+        pha
+        lda #>BUF_END
+        sbc cur_addr+1
+        tax
+        pla
+        jsr io_putdec
+        lda #<s_free
+        ldx #>s_free
+        jsr io_puts
+
+        ; Manual line (row 22)
+        lda #0
+        sta CUR_COL
+        lda #SCREEN_HEIGHT - 3
+        sta CUR_ROW
+        jsr io_sync
+        lda #<s_manual
+        ldx #>s_manual
         jsr io_puts
 
         ; Prompt at bottom

@@ -19,18 +19,16 @@
 ;                out: sym_val (16-bit), sym_wide (0/1), C=1 if not found
 ;   sym_clear:   (no args) — wipes all slots, resets heap
 ;   sym_count:   return count in A
-;   sym_set_heap: in: A/X = heap base address. Must be called before first define.
 
         .export sym_define, sym_lookup, sym_clear
-        .export sym_set_heap
         .export kernal_bank_out, kernal_bank_in, kernal_init
         .export kernal_out
 
         .importzp sym_name, sym_val, sym_wide
 
 ; ── Constants ────────────────────────────────────────────
-SYM_SLOTS  = 128
-SYM_MASK   = SYM_SLOTS - 1
+SYM_SLOTS  = 256
+SYM_MASK   = SYM_SLOTS - 1         ; $FF
 ENTRY_SIZE = 6              ; hash(1) + value(2) + name_ptr(2) + scope(1)
 
 ; ── ZP scratch ───────────────────────────────────────────
@@ -41,18 +39,23 @@ _st_ptr:     .res 2         ; pointer to current entry
 _st_nptr:    .res 2         ; pointer for name comparison
 _st_count:   .res 1         ; number of defined symbols
 _st_heap:    .res 2         ; current heap write pointer
-_st_heap_base: .res 2       ; heap base (set by sym_set_heap)
+_st_heap_base: .res 2       ; heap base (fixed at SYM_HEAP)
 
 ; ── Banked RAM layout under KERNAL ROM ($E000–$FFFF) ─────
-; $E000–$F817  free (7.5 KB available for future use)
-; $F818–$FBFF  repl_screen (1000 bytes, editor.c)
-; $FC00–$FEFF  sym_table   (768 bytes)
+; $E000–$E5FF  sym_table   (256 slots × 6B = 1536 bytes)
+; $E600–$EEFF  sym_heap    (2304 bytes, name heap)
+; $EF00–$EFFF  CSE stack snapshot (256B, debugger)
+; $F000–$F0FF  User stack snapshot (256B, debugger)
+; $F100–$F4F1  KDATA tables (1010B)
+; $F4F2–$F8D9  REPL screen save (1000B, editor.s)
+; $F8DA–$FEFF  free (1574B)
 ; $FF00–$FF09  NMI trampoline (10 bytes)
-; $FFFA–$FFFB  NMI vector → $FF00
+; $FFFA–$FFFF  HW vectors (6B, fixed)
 ;
-; All accessed by banking out the KERNAL (bit 1 of $01) with
-; interrupts disabled.  Table grows downward toward $E000.
-sym_table = $FC00
+; Total used: 6378 / 8192 bytes (78%).
+sym_table    = $E000
+SYM_HEAP     = $E600
+SYM_HEAP_END = $EF00
 
 CPU_PORT = $01
 
@@ -131,20 +134,7 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; sym_set_heap — set heap base address
-;   In: A = lo, X = hi
-;   Must be called before first sym_define.
-; ═════════════════════════════════════════════════════════
-.proc sym_set_heap
-        sta _st_heap_base
-        stx _st_heap_base+1
-        sta _st_heap
-        stx _st_heap+1
-        rts
-.endproc
-
-; ═════════════════════════════════════════════════════════
-; sym_clear — zero all slots, reset count, reset heap
+; sym_clear — zero all 256 slots (6 pages), reset count, reset heap
 ; ═════════════════════════════════════════════════════════
 .proc sym_clear
         lda #0
@@ -155,14 +145,19 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 @clr:   sta sym_table,x
         sta sym_table+$100,x
         sta sym_table+$200,x
+        sta sym_table+$300,x
+        sta sym_table+$400,x
+        sta sym_table+$500,x
         inx
         bne @clr
         jsr _st_bank_in
-        ; Reset heap pointer to base
-        lda _st_heap_base
+        ; Reset heap pointer to fixed base
+        lda #<SYM_HEAP
         sta _st_heap
-        lda _st_heap_base+1
+        sta _st_heap_base
+        lda #>SYM_HEAP
         sta _st_heap+1
+        sta _st_heap_base+1
         rts
 .endproc
 
@@ -304,6 +299,8 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 ; heap_copy_name — copy string at (sym_name) into heap
 ;   Returns heap address of the copy in _st_nptr.
 ;   Advances _st_heap past the copied string + NUL.
+;   Returns C=1 if heap would overflow SYM_HEAP_END.
+;   Heap is under KERNAL — caller must have it banked out.
 ;   Clobbers A, Y.
 ; ═════════════════════════════════════════════════════════
 .proc heap_copy_name
@@ -326,7 +323,19 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         sta _st_heap
         bcc :+
         inc _st_heap+1
-:       rts
+:       ; Check heap overflow
+        lda _st_heap+1
+        cmp #>SYM_HEAP_END
+        bcc @ok                 ; hi < limit → safe
+        bne @overflow           ; hi > limit → overflow
+        lda _st_heap
+        cmp #<SYM_HEAP_END
+        bcc @ok                 ; lo < limit → safe
+@overflow:
+        sec
+        rts
+@ok:    clc
+        rts
 .endproc
 
 ; ═════════════════════════════════════════════════════════
@@ -340,10 +349,11 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         lda _st_hash
         and #SYM_MASK
         sta _st_idx
-        ldx #SYM_SLOTS
 
         jsr _st_bank_out
 
+        ; Probe loop: linear probe, stop on empty or name match.
+        ; Use _st_count to detect full table (capped at 255).
 @probe: jsr entry_ptr
         jsr is_empty
         beq @empty
@@ -360,13 +370,14 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         jmp @store_val
 
 @empty:
-        ; Check capacity
+        ; Check capacity (255 max — keeps _st_count in 8 bits)
         lda _st_count
-        cmp #SYM_SLOTS
+        cmp #255
         bcs @full
 
-        ; Copy name to heap (heap is in main RAM — OK while KERNAL banked out)
+        ; Copy name to heap (heap is under KERNAL — banked out by caller)
         jsr heap_copy_name
+        bcs @full               ; heap overflow
 
         ; Store hash byte
         lda _st_hash
@@ -407,8 +418,9 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         lda _st_idx
         and #SYM_MASK
         sta _st_idx
-        dex
-        bne @probe
+        ; Check if we've wrapped around to the start
+        cmp _st_hash
+        bne @probe              ; haven't wrapped → keep probing
 
 @full:  jsr _st_bank_in
         sec
@@ -426,7 +438,6 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         lda _st_hash
         and #SYM_MASK
         sta _st_idx
-        ldx #SYM_SLOTS
 
         jsr _st_bank_out
 
@@ -469,8 +480,9 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         lda _st_idx
         and #SYM_MASK
         sta _st_idx
-        dex
-        bne @probe
+        ; Check if we've wrapped around to the start
+        cmp _st_hash
+        bne @probe              ; haven't wrapped → keep probing
 
 @notfound:
         jsr _st_bank_in

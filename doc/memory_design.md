@@ -18,12 +18,12 @@
 
 4. **One screen, save/restore.** Both REPL and editor use screen RAM
    at $0400.  On mode switch, the REPL screen (1000 bytes) is saved
-   to / restored from banked RAM under KERNAL ($F818).  The editor
+   to / restored from banked RAM under KERNAL ($F4F2).  The editor
    view is always reconstructable from the gap buffer; only the REPL
    screen needs saving.
 
 5. **Source and output share the workspace.** Source text grows down
-   from $C800, assembled output grows up from `workstart`.  The `i`
+   from $D000, assembled output grows up from `workstart`.  The `i`
    command shows the gap between them.
 
 ## Calling Convention
@@ -37,8 +37,7 @@ All modules are pure 6502 assembly.  One consistent convention:
 | 0 | — |
 | 1 (8-bit) | A |
 | 1 (16-bit) | A/X (lo/hi) |
-| 2 | First arg pushed via `pushax`; second (last) in A/X |
-| 3+ | Earlier args pushed right-to-left; last in A/X |
+| 2+ | Earlier args in named ZP variables; last in A/X |
 
 ### Return values
 
@@ -86,7 +85,7 @@ or ZP variables.
 
     $0000-$00FF  Zero page (see § Zero Page Layout)
       $00-$01    CPU I/O port
-      $02-$5A    CSE ZP variables (89 bytes, 14 modules)
+      $02-$5A    CSE ZP variables (89 bytes, 13 modules)
       $5B-$7F    Free (37 bytes, available for user programs)
       $80-$FF    KERNAL work area
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
@@ -99,16 +98,15 @@ or ZP variables.
       ...        Assembled output ↑ (grows up)
       ...        Free workspace
       ...        Source text ↓ (grows down)
-    $C800        buf_end — exclusive top of gap buffer (fixed)
-    $C800-$CFFF  Parameter stack (2KB, grows down from $D000)
+    $D000        buf_end — exclusive top of gap buffer (fixed)
     $D000-$DFFF  I/O (VIC-II, SID, CIA1, CIA2)
-    $E000-$E0FF  Free under KERNAL (256 B)
-    $E100-$E1FF  CSE stack snapshot (debugger context switch)
-    $E200-$E2FF  User stack snapshot (debugger context switch)
-    $E300-$E6F1  KDATA tables (1010 B, copied from PRG at startup)
-    $E6F2-$F817  Free under KERNAL (4.3 KB)
-    $F818-$FBFF  REPL screen save buffer (1000 B, banked)
-    $FC00-$FEFF  Symbol table (768 B, 128 slots, banked)
+    $E000-$E5FF  Symbol table (1536 B, 256 slots × 6B, banked)
+    $E600-$EEFF  Symbol name heap (2304 B, banked)
+    $EF00-$EFFF  CSE stack snapshot (256 B, debugger, reserved)
+    $F000-$F0FF  User stack snapshot (256 B, debugger, reserved)
+    $F100-$F4F1  KDATA tables (1010 B, copied from PRG at startup)
+    $F4F2-$F8D9  REPL screen save buffer (1000 B, banked)
+    $F8DA-$FEFF  Free under KERNAL (1574 B)
     $FF00-$FF09  NMI trampoline (10 B, banked)
     $FFFA-$FFFF  Hardware vectors (NMI/RESET/IRQ)
 
@@ -125,7 +123,7 @@ $FF00 handles NMI during bank-out).
     $0400-$07E7  Screen RAM
     $0800-$7FFF  Workspace (30 KB: output ↑ / source ↓)
     $8000-$BFFF  CSE binary (16 KB)
-    $C000-$CFFF  CSE BSS + parameter stack (4 KB)
+    $C000-$CFFF  CSE BSS (4 KB)
     $D000-$DFFF  I/O
     $E000-$FFFF  KERNAL ROM + banked data (as above)
 
@@ -135,19 +133,19 @@ $FF00 handles NMI during bank-out).
     $0400-$07E7  Screen RAM
     $0800-$7FFF  Workspace (30 KB)
     $8000-$BFFF  CSE ROM (code + rodata, 16 KB, zero RAM cost)
-    $C000-$CFFF  CSE RAM (BSS + parameter stack, 4 KB)
+    $C000-$CFFF  CSE RAM (BSS, 4 KB)
     $D000-$DFFF  I/O
     $E000-$FFFF  KERNAL ROM + banked data (as above)
 
 ## Source Code Storage
 
 Source text lives in a gap buffer at the top of the workspace,
-growing downward from $C800:
+growing downward from $D000:
 
     workstart ──→  assembled output (grows up)
                      ... free gap ...
     buf_base  ←──  source text (grows down toward workstart)
-    $C800          buf_end (exclusive, fixed)
+    $D000          buf_end (exclusive, fixed)
 
 The `workstart` and `workend` symbols are pre-defined in the symbol
 table, usable in assembly (`.org workstart`) and REPL expressions
@@ -218,8 +216,11 @@ disassembler are also non-concurrent.  Expression evaluation
 **Completed optimizations:**
 - `_zp_save_buf` trimmed: $5E → $5A (4B BSS saved)
 - Parameter stack eliminated: `pushax`/`cse_popax`/`sp` removed,
-  all multi-arg calls use ZP variables (2KB workspace gained)
-- KDATA tables under KERNAL: 1010B of lookup tables at $E300+
+  all multi-arg calls use ZP variables
+- Symbol table doubled: 128 → 256 slots, moved to $E000 under KERNAL
+- Name heap moved under KERNAL at $E600 (2304B), frees main RAM
+- BUF_END raised: $C800 → $D000 (+2KB workspace)
+- KDATA tables under KERNAL: 1010B of lookup tables at $F100+
 - Packed opcode→length table: 64B, replaces dasm_insn in cmd_step
   (5× faster stepping)
 

@@ -36,6 +36,6 @@ The ld65 linker defines segment boundaries as assembly-level symbols
 the computed values in RODATA and provides three accessor functions.
 `_cse_zp_end` uses `__ZP_LAST__` to report the first free ZP byte.
 
-Used by asm_src.s to place the symbol table heap above BSS, and by
-repl.s's `i` command to show the memory map.  The editor also displays
-the free working area in its status bar.
+Used by asm_src.s for `workstart` computation, and by repl.s's `i`
+command to show the memory map.  The editor also displays the free
+working area in its status bar.

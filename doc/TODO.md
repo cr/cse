@@ -63,7 +63,7 @@ Defined scope, needs work.
   See Roadmap R1.
 - [x] Built-in workspace labels: `workstart` and `workend` are
   pre-defined symbols.  `workstart` = first free page (cse_end
-  rounded up).  `workend` = buf_base (exclusive, updated as gap
+  rounded up).  `workend` = buf_base - 1 (inclusive, updated as gap
   buffer grows).  Available in assembler (`.org workstart`) and
   REPL expressions (`@ workend`, `j workstart`).
 - [ ] Assembler error display: show source line number + context.
@@ -81,12 +81,12 @@ Defined scope, needs work.
 
 ### Memory
 
-- [x] ~~Utilize RAM under KERNAL~~ — done in `440d8e3`: sym_table
-  (768B) at $FC00, repl_screen (1000B) at $F818, NMI trampoline
-  at $FF00.  Banking guards (sei/cli + $01 bit 1).  6.0 KB free
-  at $E000-$F817 for future use.
+- [x] ~~Utilize RAM under KERNAL~~ — sym_table (256 slots, 1536B)
+  at $E000, name heap (2304B) at $E600, KDATA tables (1010B) at
+  $F100, repl_screen (1000B) at $F4F2, NMI trampoline at $FF00.
+  Banking guards (sei/cli + $01 bit 1).  1.6 KB free at $F8DA–$FEFF.
 - [x] ~~Move data under KERNAL~~ — done: mnemonic tables (mn7/mn6),
-  config tables, dasm tables, mode tables → KDATA segment at $E300
+  config tables, dasm tables, mode tables → KDATA segment at $F100
   (1010B).  Copied from PRG load area to KERNAL RAM at startup.
   Assembly and disassembly run with KERNAL banked out.  `kernal_out`
   flag prevents symtab bank_in during assembly passes.
@@ -99,10 +99,8 @@ Defined scope, needs work.
   line assembler from VICII to PETSCII encoding.  Saves ~400 bytes
   code + 80 bytes BSS.  Requires mn_classify char conversion and
   expr error code mapping.  Touches 5 files.
-- [ ] Redesign function interfaces to use ZP/register args instead
-  of parameter stack.  Eliminates pushax/cse_popax overhead.
-  Targets: disk.s (7 sites), editor.s (3), asm_src.s (3),
-  asm_bridge.s (2).
+- [x] ~~Redesign function interfaces~~ — done: all calls use
+  ZP/register args.  Parameter stack (pushax/cse_popax/sp) eliminated.
 - [ ] ZP optimization: overlap scratch for non-concurrent modules.
   ~14 bytes reclaimable from cold scratch, ~8 bytes overlappable
   (dasm vs asm_line).  See [project.md § ZP is precious](project.md#1-zp-is-precious--use-the-stack-for-scratch).
@@ -182,8 +180,8 @@ All C ported to assembly: repl.c (Phase 6), editor.c (Phase 7),
 main.c (Phase 8).  Zero C files remain.  cc65 C compiler dropped;
 toolchain is ca65 + ld65 only.  c64.lib eliminated.
 Eliminated cc65 runtime overhead (~559B) and two cc65 -O bugs.
-Binary size: 6510=20838B (was 28345 pre-R6).
-Total savings: 7507B (26.5%).
+Binary size: 6510=21165B (was 28345 pre-R6).
+Total savings: 7180B (25.3%).
 
 ## Ideas
 

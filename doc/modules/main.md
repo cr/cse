@@ -1,4 +1,4 @@
-# main.c — Application Shell
+# main.s — Application Shell
 
 **Template:** [module](../templates/module.md)
 
@@ -15,8 +15,6 @@
 **Globals:**
 - `state` — 0=STOP, 1=REPL, 2=EDIT
 - `SCREEN` — $0400
-- `nmi_pending` — set by NMI handler, checked in main loop
-- `src_top` / `src_bot` — source region boundaries
 
 **Depends on:** repl, editor, screen, cse_io
 
@@ -69,7 +67,10 @@ Handled by `ed_handle_key()`.  See [editor.md](editor.md).
 
 ## Caveats
 
-- Hex parsing helpers (`hex_val`, `parse_hex*`, `skip_sp`) were
-  removed from main.c — they are now local to repl.s.
-- NMI handler lives in cse_io.s, not main.c.  main.c only installs
-  the vector and checks the flag.
+- Hex parsing helpers (`hex_val`, `parse_hex*`, `skip_sp`) are
+  local to repl.s.
+- NMI handler lives in cse_io.s.  main.s installs the vector
+  and checks the `nmi_pending` flag (owned by cse_io.s).
+- `src_top`/`src_bot` are owned by editor.s.
+- `ed_ensure_init` is called at startup to initialize the gap
+  buffer before `define_ws_syms` (workend needs `buf_base`).

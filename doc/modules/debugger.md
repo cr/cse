@@ -247,7 +247,7 @@ KERNAL banking.  The same approach as `jsr_addr` in asm_bridge.s.
 **Enter user code** (`j` / `c` / `t` step):
 
 ```
-1.  Save CSE ZP ($02–$5E) → _zp_save_buf
+1.  Save CSE ZP ($02–$5A) → _zp_save_buf
 2.  Save $0316/$0317, install _dbg_brk_handler
 3.  patch_all: write $00 at all enabled bp + step slots
 4.  Set _dbg_running = $80
@@ -299,7 +299,7 @@ runs one instruction at a time — minimal stack usage.
      RTS/RTI:       stop (break before executing)
      BRK:           stop (don't step into vector)
 3. Place temp BRK(s) at next-PC(s) in _step_bp slots
-4. dbg_enter: patch, execute one instruction, BRK, return
+4. run_user: save cursor, dbg_enter, restore cursor/VIC/io_sync
 5. If NMI or regular bp interrupted → show_break_result, stop
 6. Increment loop counter; if < count, repeat from 1
 7. Display register line + disassembly at final _brk_pc
@@ -511,9 +511,13 @@ Existing behavior — clear screen, fresh prompt.
 ## Memory Layout Under KERNAL (updated)
 
 ```
-$E000–$F817  free (6.0 KB)
-$F818–$FBFF  repl_screen (1000 B)
-$FC00–$FEFF  sym_table (768 B)
+$E000–$E5FF  sym_table (1536 B, 256 slots)
+$E600–$EEFF  sym_heap (2304 B)
+$EF00–$EFFF  CSE stack snapshot (256 B, reserved)
+$F000–$F0FF  user stack snapshot (256 B, reserved)
+$F100–$F4F1  KDATA tables (1010 B)
+$F4F2–$F8D9  repl_screen (1000 B)
+$F8DA–$FEFF  free (1574 B)
 $FF00–$FF09  NMI trampoline (10 B)
 $FFFA–$FFFB  NMI vector → $FF00
 ```

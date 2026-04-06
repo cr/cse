@@ -7,7 +7,6 @@
 | File | Role |
 |------|------|
 | [`src/symtab.s`](../../src/symtab.s) | implementation |
-| [`src/symtab.h`](../../src/symtab.h) | header |
 | [`tests/test_symtab.py`](../../tests/test_symtab.py) | test contract |
 
 ## Interface
@@ -37,11 +36,6 @@ C=0 found, C=1 not found.
 **Out:** A = number of defined symbols
 **Clobbers:** X (set to 0)
 
-### _sym_set_heap
-**In:** A/X = heap base address (lo/hi)
-**Out:** heap base and current pointer set
-Must be called before the first `_sym_define`.
-
 **Depends on:** nothing (leaf module)
 
 ### Memory
@@ -49,11 +43,11 @@ Must be called before the first `_sym_define`.
 **ZP (11 bytes):** `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_count` (1), `_st_heap` (2), `_st_heap_base` (2).
 
 Probe state for linear probing.  `_st_heap`/`_st_heap_base` track
-the name heap (grows up from `cse_end`).
+the name heap (fixed at $E600 under KERNAL).
 
 ## Design
 
-### Entry layout (6 bytes × 128 slots = 768 bytes at $FC00)
+### Entry layout (6 bytes × 256 slots = 1536 bytes at $E000)
 
 ```
 Offset  Size  Field
@@ -69,13 +63,12 @@ and does not indicate an empty slot.
 
 ### KERNAL banking
 
-`sym_table` lives at $FC00–$FEFF in RAM underneath the KERNAL ROM.
-Placed at the top so the table (or other banked data) can grow
-downward toward $E000.  The REPL screen save buffer (1000 bytes,
-`editor.s`) lives just below at $F818–$FBFF.  An NMI trampoline
+`sym_table` lives at $E000–$E5FF in RAM underneath the KERNAL ROM.
+The name heap follows at $E600–$EEFF (2304 bytes).  An NMI trampoline
 at $FF00 ensures safe NMI handling while the KERNAL is banked
-out.  This saves 1,768 bytes of BSS.  Accessing
-the table requires banking out the KERNAL by clearing bit 1 of the
+out.  This saves ~3.8 KB of main RAM (1536B table + 2304B heap).
+Accessing the table and heap requires banking out the KERNAL by
+clearing bit 1 of the
 CPU I/O port ($01).  Since the IRQ vector and KERNAL interrupt
 handler live in the banked-out region, interrupts must be disabled
 for the duration of the access.
@@ -95,14 +88,15 @@ sta $01
 cli                 ; re-enable interrupts
 ```
 
-Functions that do not access `sym_table` directly (`_sym_count`,
-`_sym_set_heap`) do not need banking guards.  Internal subroutines
-(`compute_hash`, `fold_char`) that operate only on ZP variables and
-the name string (which is in main RAM) are called with the KERNAL
-already banked out by their caller.
+Functions that do not access `sym_table` directly (`_sym_count`)
+do not need banking guards.  Internal subroutines (`compute_hash`,
+`fold_char`) that operate only on ZP variables and the name string
+(which is in main RAM) are called with the KERNAL already banked
+out by their caller.
 
-The name heap remains in normal BSS — only the 768-byte hash table
-is under the KERNAL.
+Both the 1536-byte hash table and the 2304-byte name heap are
+under the KERNAL.  `heap_copy_name` writes to the heap while the
+KERNAL is banked out by `sym_define`.
 
 ### NMI safety
 
@@ -123,8 +117,8 @@ for each char in name:
     h = h * 5 + char       (8-bit, wraps naturally)
 ```
 
-Hash 0 is valid — no forcing to 1.  Slot index = `h & $7F`.
-Linear probing on collision (up to 128 probes).
+Hash 0 is valid — no forcing to 1.  Slot index = `h & $FF`.
+Linear probing on collision (up to 256 probes, wraparound detection).
 
 ### Case folding
 
@@ -141,8 +135,8 @@ normal mode ($41..) resolve to the same symbol.
 Names are copied to a persistent heap on every `_sym_define` call.
 `name_ptr` always points into the heap, never into source buffers.
 
-`_sym_set_heap` sets the base address.  The heap grows upward.
-`_sym_clear` resets the heap pointer to the base.
+The heap starts at fixed address $E600.  `_sym_clear` resets the
+heap pointer to the base.
 
 The heap persists between assemblies — the REPL's `?` command can
 resolve labels without re-assembling.
@@ -158,18 +152,19 @@ The scope byte's bits 6-0 are reserved but unused.
 
 ### Probing
 
-`_sym_define`: compute hash, probe from `h & $7F`.  For each slot:
-if empty (name_ptr=0) → new entry.  If hash matches and name matches
-(case-insensitive) → update value.  Otherwise → next slot (wrapping).
-If all 128 slots probed → C=1 (full).
+`_sym_define`: compute hash, probe from `h & $FF`.  For each slot:
+if empty (name_ptr=0) → new entry (check count < 255 and heap space).
+If hash matches and name matches (case-insensitive) → update value.
+Otherwise → next slot.  If probe wraps to start → C=1 (full).
 
 `_sym_lookup`: same probe sequence.  Empty slot → C=1 (not found).
+Wraparound to start index → C=1 (not found, table full).
 
 ## Caveats
 
-- 128 fixed slots.  No dynamic resizing.  When full, `_sym_define`
-  returns C=1 and the caller reports the error.
-- `_sym_clear` zeros 768 bytes (3 pages) — takes ~4ms at 1 MHz.
+- 256 slots, 255 usable (8-bit count).  No dynamic resizing.  When
+  full (or heap overflow), `_sym_define` returns C=1.
+- `_sym_clear` zeros 1536 bytes (6 pages) — takes ~8ms at 1 MHz.
   Interrupts are disabled for the duration.
 - `names_equal` uses a stack peek trick (`tsx; cmp $0101,x`) to
   compare without popping.  Works because the 6502 stack is at $0100.
@@ -178,5 +173,7 @@ If all 128 slots probed → C=1 (full).
 - Banking overhead: ~20 cycles per sei/bank-out/bank-in/cli pair.
   Negligible compared to the ~300-cycle hash + probe cost of a
   typical lookup.  Worst case: `_sym_clear` holds interrupts off
-  for ~4ms (3-page zero loop); acceptable because the C64 IRQ
+  for ~8ms (6-page zero loop); acceptable because the C64 IRQ
   period is ~16ms (60 Hz).
+- Name heap overflow: `heap_copy_name` checks `_st_heap` against
+  `SYM_HEAP_END` ($EF00) after each copy.  Returns C=1 on overflow.

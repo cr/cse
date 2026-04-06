@@ -27,6 +27,7 @@
 
 ; ── Exports: screen module ────────────────────────────────────
         .export newline, restore_colors, reset_screen
+        .export cursor_show, cursor_hide
         .export theme_border, theme_bg, theme_fg
 
 ; ── Exports: assembler / execution stubs ──────────────────────
@@ -49,7 +50,7 @@
 
 ; ── Exports: editor stubs ─────────────────────────────────────
         .export ed_save_source, ed_load_source
-        .export ed_save_bytes, ed_save_lines
+        .export ed_save_bytes, ed_save_lines, ed_total_lines
         .export tab_width, ed_ensure_init, ed_new, ed_dirty
 
 ; ── Exports: meminfo stubs ────────────────────────────────────
@@ -119,6 +120,7 @@ reg_p:         .res 1
 ; Editor state
 ed_save_bytes: .res 2
 ed_save_lines: .res 2
+ed_total_lines: .res 2
 tab_width:     .res 1
 ed_dirty:      .res 1
 
@@ -249,6 +251,11 @@ COLS = 40
 
 ; restore_colors — no-op in tests
 restore_colors:
+        rts
+
+; cursor_show / cursor_hide — no-op in tests
+cursor_show:
+cursor_hide:
         rts
 
 ; reset_screen — clear screen + reset cursor

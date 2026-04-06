@@ -18,7 +18,7 @@
         .import         asm_line               ; asm_bridge.s
         .import         expr_eval              ; expr.s
         .import         sym_define             ; symtab.s
-        .import         sym_clear, sym_set_heap
+        .import         sym_clear
         .import         kernal_bank_out, kernal_bank_in, kernal_out
         .import         io_puts, io_putdec, newline
         .import         cse_end                ; meminfo.s
@@ -1240,10 +1240,13 @@ inc_pc_size:
         sta sym_wide            ; ABS
         jsr sym_define
 
-        ; ── workend ──
+        ; ── workend (inclusive: buf_base - 1) ──
         lda buf_base
+        sec
+        sbc #1
         sta sym_val
         lda buf_base+1
+        sbc #0
         sta sym_val+1
         lda #<s_workend
         sta sym_name
@@ -1264,9 +1267,7 @@ inc_pc_size:
         sta asm_size
         sta asm_size+1
         sta _scope_name
-        ; Place symbol table heap above BSS
-        jsr cse_end            ; A/X = heap start address
-        jsr sym_set_heap
+        ; Clear symbol table (heap at fixed $E600 under KERNAL)
         jsr sym_clear
         jsr define_ws_syms     ; pre-define workstart/workend
 

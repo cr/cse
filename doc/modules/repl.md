@@ -336,6 +336,34 @@ The dirty flag is maintained by editor.s: set on any insert/delete,
 cleared on save (`ed_save_source`) and load (`ed_load_source`).
 Exported as `ed_dirty` for repl.s to read.
 
+### Internal helpers
+
+**`confirm_yn`** — shows the cursor (`cursor_show`), waits for a
+keypress (`io_getc`), hides the cursor (`cursor_hide`).  Returns
+Z=1 if the key was `y`.  Used by `check_unsaved`, `k` (kill), and
+`Q` (quit) prompts.
+
+**`run_user`** — wraps `dbg_enter` for all commands that execute
+user code (`j`, `g`, `t`, `o`, `c`).  Saves `CUR_ROW`/`CUR_COL`
+on the stack before entry and restores them after return.  Also
+restores the VIC charset register (`$D018 |= $02`) and calls
+`io_sync` to resync KERNAL screen line pointers.  Prevents screen
+corruption caused by user code modifying cursor state or VIC
+registers.
+
+### Splash screen
+
+Displayed at startup by main.s.  Three memory summary lines show
+hex address ranges and decimal free byte counts:
+
+      zp 0002-007f      126 free
+     sys 0200-03ff      512 free
+    work XXXX-cfff    NNNNN free
+
+All values are computed from linker symbols (`cse_end`) and the
+`BUF_END` constant.  The work line's start address and byte count
+update automatically as the binary grows.
+
 ### `B` — Block size (uppercase)
 
 The `B` command sets a 16-bit block size used by `m`, `d`, `f`, `>`,
@@ -381,16 +409,25 @@ levels.
 
 ### `i` — Memory map
 
-    zp   0002-007f cse runtime
-    stk  0100-01ff 6502 stack
-    scr  0400-07e7 screen
-    cse  0801-2a4f code+data+bss
-    free 2a50-c7ff 40880 bytes
-    cstk c800-cfff c stack
-    src  ----      (not allocated)
-    sym  ----      (not allocated)
-    io   d000-dfff vic/sid/cia
-    kern e000-ffff kernal rom
+Shows the full C64 memory layout.  Free regions are highlighted
+(inverse address range).  All addresses are computed at build time
+or runtime — nothing hardcoded.
+
+     cpu 0000-0001      2  i/o port
+      zp 0002-007f    126  free            ← highlighted
+     sys 0080-00ff    128  kernal zp
+     stk 0100-01ff    256  6502 stack
+     sys 0200-03ff    512  free            ← highlighted
+     scr 0400-07ff   1024  screen + sprites
+     cse 0800-XXXX  NNNNN  cse runtime    (from linker)
+    work XXXX-XXXX  NNNNN  free           ← highlighted
+     src XXXX-cfff    NNN  N lines        (if source loaded)
+      io d000-dfff   4096  vic/sid/cia
+     rom e000-ffff   8192  kernal rom
+
+The work row's end address tracks `BUF_END - 1` ($CFFF).  When
+source is loaded, the free region shrinks and the src row appears.
+The src line count comes from `ed_total_lines`.
 
 ### `C` — Color (uppercase)
 

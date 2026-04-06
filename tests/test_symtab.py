@@ -350,12 +350,12 @@ class TestCapacity:
     def test_full_table_returns_error(self, symt):
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
-        for i in range(128):
+        for i in range(255):
             name = f"f{i:03d}"
             ok = _define(symt, mpu, mem, name, i)
             assert ok, f"define #{i} failed (table full too early)"
         ok = _define(symt, mpu, mem, "over", 0xFFFF)
-        assert not ok, "129th define should fail"
+        assert not ok, "256th define should fail (255 max)"
 
     def test_redefine_doesnt_consume_slot(self, symt):
         mpu, mem = _setup_cpu(symt)

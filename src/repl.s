@@ -17,7 +17,8 @@
         .import io_putc, io_puts
         .import io_puthex4, io_puthex2, io_putdec
         .import io_clear_eol
-        .import io_getc, io_kbhit
+        .import io_getc, io_kbhit, io_sync
+        .import cursor_show, cursor_hide
         .import scr_lo, scr_hi
 
 ; ── Imports: screen.s ──────────────────────────────────────
@@ -58,7 +59,7 @@
         .import ed_save_source, ed_load_source
         .import ed_save_bytes, ed_save_lines
         .import tab_width, ed_ensure_init, ed_new
-        .import ed_dirty
+        .import ed_dirty, ed_total_lines
 
 ; ── Imports: memory info ───────────────────────────────────
         .import cse_start, cse_end, cse_zp_end
@@ -76,6 +77,7 @@
 ; ── Constants ──────────────────────────────────────────────
 SCREEN        = $0400
 SCREEN_WIDTH  = 40
+BUF_END       = $D000
 FILENAME_MAX  = 16
 ST_STOP       = 0
 CUR_COL       = $D3
@@ -179,17 +181,15 @@ str_colon_sp:   .byte ": ", 0
 str_pct:        .byte "  %", 0
 ; info strings
 str_ioport:     .byte "i/o port", 0
-str_zp_saved:   .byte "cse (saved on j)", 0
-str_kernal:     .byte "kernal", 0
 str_stack:      .byte "6502 stack", 0
-str_kern_work:  .byte "kernal work", 0
-str_screen:     .byte "screen+sprites", 0
-str_code_data:  .byte "code+data+bss", 0
+str_kernal_zp:  .byte "kernal zp", 0
+str_screen:     .byte "screen + sprites", 0
+str_cse_rt:     .byte "cse runtime", 0
 str_bytes_free: .byte " bytes free", 0
-str_source:     .byte "source code", 0
-str_c_stack:    .byte "c stack", 0
 str_vic:        .byte "vic/sid/cia", 0
 str_kern_rom:   .byte "kernal rom", 0
+str_i_free:     .byte "free", 0
+str_i_lines:    .byte " lines", 0
 str_main:       .byte "main", 0
 
 ; info_line tag strings
@@ -200,28 +200,30 @@ str_tag_sys:    .byte "sys", 0
 str_tag_scr:    .byte "scr", 0
 str_tag_cse:    .byte "cse", 0
 str_tag_work:   .byte "work", 0
+str_free_suf:   .byte "  free", 0
 str_tag_src:    .byte "src", 0
-str_tag_cstk:   .byte "cstk", 0
 str_tag_io:     .byte "io", 0
 str_tag_kern:   .byte "kern", 0
 
 ; ── info tables: 8 bytes per row: tag(2) lo(2) hi(2) desc(2) ──
-; Head: cpu only (before dynamic zp section)
-info_tbl:
-        .addr str_tag_cpu,  $0000, $0001, str_ioport        ; cpu  0000-0001
-INFO_TBL_ROWS = (* - info_tbl) / 8
+; Head row 1: cpu only
+info_tbl_h1:
+        .addr str_tag_cpu,  $0000, $0001, str_ioport         ; cpu  0000-0001
+INFO_TBL_H1_ROWS = (* - info_tbl_h1) / 8
 
-; Mid: static rows between zp-dynamic and cse-dynamic
-info_tbl_mid:
-        .addr str_tag_zp,   $0080, $00FF, str_kernal        ; zp   0080-00ff
-        .addr str_tag_stk,  $0100, $01FF, str_stack          ; stk  0100-01ff
-        .addr str_tag_sys,  $0200, $03FF, str_kern_work      ; sys  0200-03ff
-        .addr str_tag_scr,  $0400, $07FF, str_screen         ; scr  0400-07ff
-INFO_TBL_MID_ROWS = (* - info_tbl_mid) / 8
+; Head rows 3-4: between zp-free and sys-free
+info_tbl_h2:
+        .addr str_tag_sys,  $0080, $00FF, str_kernal_zp       ; sys  0080-00ff  kernal zp
+        .addr str_tag_stk,  $0100, $01FF, str_stack           ; stk  0100-01ff  6502 stack
+INFO_TBL_H2_ROWS = (* - info_tbl_h2) / 8
+
+; Head row 6: between sys-free and cse
+info_tbl_h3:
+        .addr str_tag_scr,  $0400, $07FF, str_screen          ; scr  0400-07ff  screen+sprites
+INFO_TBL_H3_ROWS = (* - info_tbl_h3) / 8
 
 ; Tail: after dynamic cse/free/src
 info_tbl_tail:
-        .addr str_tag_cstk, $C800, $CFFF, str_c_stack       ; cstk c800-cfff
         .addr str_tag_io,   $D000, $DFFF, str_vic            ; io   d000-dfff
         .addr str_tag_kern, $E000, $FFFF, str_kern_rom       ; kern e000-ffff
 INFO_TBL_TAIL_ROWS = (* - info_tbl_tail) / 8
@@ -271,6 +273,19 @@ err_msg:
         jmp io_clear_eol
 
 ; ───────────────────────────────────────────────────────────
+; confirm_yn — show cursor, wait for key, return Z=1 if 'y'
+;   Clobbers A.  Preserves X, Y.
+; ───────────────────────────────────────────────────────────
+confirm_yn:
+        jsr cursor_show
+        jsr io_getc
+        pha
+        jsr cursor_hide
+        pla
+        cmp #'y'
+        rts
+
+; ───────────────────────────────────────────────────────────
 ; check_unsaved — if ed_dirty, prompt ";unsaved. y/n? "
 ;   Returns: C=1 proceed (not dirty or user said y)
 ;            C=0 cancel (user said no)
@@ -282,8 +297,7 @@ check_unsaved:
         lda #<str_unsaved
         ldx #>str_unsaved
         jsr io_puts
-        jsr io_getc
-        cmp #'y'
+        jsr confirm_yn
         beq @ok
         jsr io_clear_eol
         clc                     ; cancel
@@ -1401,6 +1415,32 @@ parse_hex4_ptr1:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
+; run_user — call dbg_enter, then restore screen state
+;   Saves/restores CUR_ROW/CUR_COL across user code execution.
+;   Restores VIC charset and KERNAL screen line pointers.
+;   Must be used instead of bare dbg_enter from g/j/t/o.
+; ═══════════════════════════════════════════════════════════
+VIC_MEMCTL = $D018
+
+.proc run_user
+        lda CUR_ROW
+        pha
+        lda CUR_COL
+        pha
+        jsr dbg_enter
+        pla
+        sta CUR_COL
+        pla
+        sta CUR_ROW
+        ; Restore VIC charset (lowercase/uppercase)
+        lda VIC_MEMCTL
+        ora #$02
+        sta VIC_MEMCTL
+        ; Resync KERNAL screen line pointers
+        jmp io_sync
+.endproc
+
+; ═══════════════════════════════════════════════════════════
 ; cmd_jmp — 'j' command helper (cur_addr already set)
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_jmp
@@ -1409,9 +1449,9 @@ parse_hex4_ptr1:
         lda cur_addr+1
         sta brk_pc+1
 
-        ; Always use dbg_enter — enables NMI break even without bps.
+        ; Always use run_user — enables NMI break even without bps.
         ; When no breakpoints, patch_all/unpatch_all are no-ops.
-        jsr dbg_enter
+        jsr run_user
         lda dbg_reason
         bne @j_broke
         ; program completed via RTS — no break context
@@ -1737,7 +1777,7 @@ parse_hex4_ptr1:
         lda #1
         sta step_bp+7
 
-@enter: jsr dbg_enter
+@enter: jsr run_user
 
         ; Check for NMI, breakpoint hit, or RTS completion
         lda dbg_reason
@@ -2595,24 +2635,17 @@ disk_done:
         lda rp_save2
         beq @normal_pad
 
-        ; inv: set bit 7 on all chars from 0..col-1
-        ldy #0
+        ; inv: set bit 7 on AAAA-BBBB only (cols 6-14)
+        ldy #6                  ; col 6 = start of address
 @inv_lp:
-        cpy rp_save
-        bcs @inv_pad
+        cpy #15                 ; col 15 = past end of BBBB
+        bcs @inv_done
         lda (rp_ptr),y
         ora #$80
         sta (rp_ptr),y
         iny
         bne @inv_lp
-@inv_pad:
-        ; fill rest with $A0 (reverse space)
-        cpy #SCREEN_WIDTH
-        bcs @done
-        lda #$A0
-        sta (rp_ptr),y
-        iny
-        bne @inv_pad
+@inv_done:
 
 @normal_pad:
         ; fill rest with $20 (space)
@@ -2657,10 +2690,10 @@ free_line:
 
         jsr utoa_sub            ; decimal to fbuf, returns len in A
 
-        ; Append " bytes free" to fbuf
+        ; Append "  free" to fbuf
         tax
         ldy #0
-@cpfree:lda str_bytes_free,y
+@cpfree:lda str_free_suf,y
         sta fbuf,x
         beq @cpf_done
         inx
@@ -2753,14 +2786,14 @@ free_line:
 .proc cmd_info
         jsr newline
 
-        ; ── Head: cpu ──
-        lda #<info_tbl
-        ldx #>info_tbl
-        ldy #INFO_TBL_ROWS
+        ; ── cpu ──
+        lda #<info_tbl_h1
+        ldx #>info_tbl_h1
+        ldy #INFO_TBL_H1_ROWS
         jsr info_emit_rows
 
-        ; ── Dynamic: zp 0002-XX cse (saved on j) ──
-        lda #0
+        ; ── zp 0002-007f  free (highlighted) ──
+        lda #1
         sta rp_save2
         lda #<str_tag_zp
         sta rp_ptr2
@@ -2770,36 +2803,50 @@ free_line:
         sta rp_addr
         lda #$00
         sta rp_addr+1
-        jsr cse_zp_end
-        sec
-        sbc #1
-        sta rp_cnt
-        lda #$00
-        sta rp_cnt+1
-        lda #<str_zp_saved
-        sta rp_ptr
-        lda #>str_zp_saved
-        sta rp_ptr+1
-        jsr info_line
-
-        ; free_line(cse_zp_end, $007f)
-        jsr cse_zp_end
-        sta rp_addr
-        lda #$00
-        sta rp_addr+1
         lda #$7F
         sta rp_cnt
         lda #$00
         sta rp_cnt+1
-        jsr free_line
+        lda #<str_i_free
+        sta rp_ptr
+        lda #>str_i_free
+        sta rp_ptr+1
+        jsr info_line
 
-        ; ── Mid: zp(kernal), stk, sys, scr ──
-        lda #<info_tbl_mid
-        ldx #>info_tbl_mid
-        ldy #INFO_TBL_MID_ROWS
+        ; ── sys(kernal zp), stk ──
+        lda #<info_tbl_h2
+        ldx #>info_tbl_h2
+        ldy #INFO_TBL_H2_ROWS
         jsr info_emit_rows
 
-        ; ── Dynamic: cse code+data+bss ──
+        ; ── sys 0200-03ff  free (highlighted) ──
+        lda #1
+        sta rp_save2
+        lda #<str_tag_sys
+        sta rp_ptr2
+        lda #>str_tag_sys
+        sta rp_ptr2+1
+        lda #<$0200
+        sta rp_addr
+        lda #>$0200
+        sta rp_addr+1
+        lda #<$03FF
+        sta rp_cnt
+        lda #>$03FF
+        sta rp_cnt+1
+        lda #<str_i_free
+        sta rp_ptr
+        lda #>str_i_free
+        sta rp_ptr+1
+        jsr info_line
+
+        ; ── scr ──
+        lda #<info_tbl_h3
+        ldx #>info_tbl_h3
+        ldy #INFO_TBL_H3_ROWS
+        jsr info_emit_rows
+
+        ; ── Dynamic: cse 0800-XXXX  cse runtime ──
         lda #0
         sta rp_save2
         lda #<str_tag_cse
@@ -2816,19 +2863,20 @@ free_line:
         txa
         sbc #0
         sta rp_cnt+1
-        lda #<str_code_data
+        lda #<str_cse_rt
         sta rp_ptr
-        lda #>str_code_data
+        lda #>str_cse_rt
         sta rp_ptr+1
         jsr info_line
 
         ; ── Dynamic: free region ──
+        ; free = cse_end to (src_bot-1 or BUF_END-1 if no source)
         jsr cse_end
         sta rp_addr
         stx rp_addr+1
-        lda #$FF
+        lda #<(BUF_END - 1)
         sta rp_cnt
-        lda #$C7
+        lda #>(BUF_END - 1)
         sta rp_cnt+1
         lda src_bot
         ora src_bot+1
@@ -2841,22 +2889,28 @@ free_line:
         sbc #0
         sta rp_cnt+1
 @no_src_adj:
+        ; Skip free line if start > end
         lda rp_addr+1
         cmp rp_cnt+1
         bcc @show_free
         bne @skip_free
         lda rp_addr
         cmp rp_cnt
+        bcc @show_free
         beq @show_free
         bcs @skip_free
 @show_free:
         jsr free_line
 @skip_free:
 
-        ; ── Dynamic: source ──
+        ; ── Dynamic: source (skip if empty: src_bot == src_top) ──
         lda src_bot
-        ora src_bot+1
+        cmp src_top
+        bne @has_src
+        lda src_bot+1
+        cmp src_top+1
         beq @no_src
+@has_src:
         lda #0
         sta rp_save2
         lda #<str_tag_src
@@ -2874,14 +2928,52 @@ free_line:
         lda src_top+1
         sbc #0
         sta rp_cnt+1
-        lda #<str_source
+        ; Build desc: "N lines" in fbuf
+        lda ed_total_lines
+        ldx ed_total_lines+1
+        sta rp_addr+1           ; temp save
+        stx rp_save             ; temp save
+        ; Save src range
+        lda rp_addr
+        pha
+        lda rp_cnt
+        pha
+        lda rp_cnt+1
+        pha
+        ; Convert line count to decimal
+        lda rp_addr+1           ; restore lo
+        ldx rp_save             ; restore hi
+        sta rp_addr
+        stx rp_addr+1
+        jsr utoa_sub            ; returns len in A
+        ; Append " lines"
+        tax
+        ldy #0
+@cp_ln: lda str_i_lines,y
+        sta fbuf,x
+        beq @cp_done
+        inx
+        iny
+        bne @cp_ln
+@cp_done:
+        ; Restore src range
+        pla
+        sta rp_cnt+1
+        pla
+        sta rp_cnt
+        pla
+        sta rp_addr
+        lda src_bot+1
+        sta rp_addr+1
+        ; Print with fbuf as desc
+        lda #<fbuf
         sta rp_ptr
-        lda #>str_source
+        lda #>fbuf
         sta rp_ptr+1
         jsr info_line
 @no_src:
 
-        ; ── Tail: cstk, io, kern ──
+        ; ── Tail: io, kern ──
         lda #<info_tbl_tail
         ldx #>info_tbl_tail
         ldy #INFO_TBL_TAIL_ROWS
@@ -3138,8 +3230,7 @@ free_line:
         lda #<str_del_src
         ldx #>str_del_src
         jsr io_puts
-        jsr io_getc
-        cmp #'y'
+        jsr confirm_yn
         bne @k_no
         jsr ed_new
         lda #<str_ok
@@ -3596,8 +3687,7 @@ free_line:
         jsr io_getc
         jmp @q_flush
 @q_wait:
-        jsr io_getc
-        cmp #'y'
+        jsr confirm_yn
         bne @q_no
         lda #ST_STOP
         sta state
@@ -3693,7 +3783,7 @@ free_line:
         beq @c_enter
         jsr dbg_bp_del
 @c_enter:
-        jsr dbg_enter
+        jsr run_user
         ; If dbg_reason=0, user code returned via RTS (no BRK fired)
         lda dbg_reason
         bne @c_broke

@@ -107,5 +107,5 @@ previously set up on the stack (`$FFFF`), halting the run loop.
   rebuilds the test binary only when sources change.  The binary
   is cached in `build/`.
 
-- **xfail:** Known limitations (e.g. CMOS gate bugs, missing C stack
-  stubs) are marked `pytest.mark.xfail` with a reason string.
+- **xfail:** Known limitations (e.g. CMOS gate bugs) are marked
+  `pytest.mark.xfail` with a reason string.

@@ -11,8 +11,8 @@
 
 ## Interface
 
-All public functions use `__fastcall__` convention (single arg in
-A or A/X; multi-arg via parameter stack with `pushax`).
+All public functions use register/ZP calling convention (single arg
+in A or A/X; multi-arg via named ZP variables).
 
 - `enter_editor()` — save REPL screen, switch to editor mode
 - `leave_editor()` — restore REPL screen, return to REPL
@@ -27,12 +27,14 @@ A or A/X; multi-arg via parameter stack with `pushax`).
 - `ed_insert_string(text)` — programmatic text insertion at cursor
 
 **State:** `tab_width` (uint8, BSS, default 8) — tab stop interval
-in columns.  Set by the REPL's `T` command (uppercase).  Affects
+in columns.  Initialized to 8 by `ed_init`, changeable via the
+REPL's `T` command (uppercase).  Affects
 rendering of $A0 (tab) bytes only; changing it does not modify
 buffer contents.
 
 **Statistics:** `ed_save_bytes`, `ed_save_lines` (uint16, BSS) —
-counts from last file operation.
+counts from last file operation.  `ed_total_lines` (uint16, BSS,
+exported) — current line count, used by the REPL's `i` command.
 
 **Depends on:** disk (SEQ callbacks), screen, cse_io, meminfo
 (`cse_end` for status bar)
@@ -52,7 +54,7 @@ All pointers are 16-bit, little-endian.
 | `ed_tmp` | 2 | scratch pointer (indirect addressing) |
 | `ed_scr` | 2 | screen pointer for rendering (indirect addressing) |
 
-`buf_end` is the constant `$C800` — not a variable.
+`buf_end` is the constant `$D000` — not a variable.
 
 `save_ptr` and `read_ptr` are never active concurrently (save runs
 to completion before any read), so they share the same ZP location.
@@ -85,7 +87,7 @@ Internal functions use register/ZP arguments directly — no parameter stack.
 
 | Function | Args | Returns | Notes |
 |----------|------|---------|-------|
-| `ed_init` | — | — | reset all state |
+| `ed_init` | — | — | reset all state, set `tab_width=8` |
 | `gb_ensure_room` | — | C=0 fail, C=1 ok | grow buffer if gap exhausted |
 | `gb_insert` | A = byte | — | insert at gap_lo |
 | `gb_backspace` | — | — | delete before gap_lo |
@@ -132,14 +134,15 @@ $0800 ─┬─ CSE code + data + BSS
        │
        ├─ assembled output (grows up from .org)
        │
-       ├─ symbol table heap (grows up from cse_end)
-       │
        ├─ ··· free ···
        │
        ├─ buf_base (grows down as buffer needs space)
        │
-$C800 ─┴─ BUF_END (exclusive, fixed constant)
+$D000 ─┴─ BUF_END (exclusive, fixed constant)
 ```
+
+The symbol table and name heap live under the KERNAL ROM
+($E000–$EEFF), not in the workspace.
 
 `BUF_FLOOR` ($4800) is the lowest address the buffer can grow to.
 When the gap is exhausted, `gb_ensure_room` extends `buf_base`
@@ -321,11 +324,11 @@ assembler calls `ed_read_rewind` before each pass.
 
 - Lines are separated by $0D (CR) internally; CR is stripped by
   `ed_read_line`.
-- The gap buffer shares the $0800–$C7FF region with assembled output
-  and the symbol table heap.  The `i` command shows remaining space.
+- The gap buffer shares the workspace ($0800–$CFFF) with assembled
+  output.  The `i` command shows remaining space.
 - Screen save/restore copies 1000 bytes (screen RAM only, not color
   RAM).  Color RAM is restored by `restore_colors` on REPL return.
-  The save/restore uses banked RAM under KERNAL ($F818–$FBFF) via
+  The save/restore uses banked RAM under KERNAL ($F4F2–$F8D9) via
   `kernal_bank_out`/`kernal_bank_in`.
 - `gb_ensure_room` grows by 256 bytes at a time.  The block copy to
   relocate pre-gap text is the most expensive operation.
@@ -335,7 +338,7 @@ assembler calls `ed_read_rewind` before each pass.
   for the cursor, matching the REPL convention.
 - $A0 (tab) is one byte in the buffer but 1–`tab_width` columns on
   screen.  Visual column and byte offset diverge on lines with tabs.
-- `buf_end` is the constant $C800, not a variable.  This saves 2 ZP
+- `buf_end` is the constant $D000, not a variable.  This saves 2 ZP
   bytes vs the C implementation.
 - `save_ptr` and `read_ptr` overlap in ZP since they are never active
   concurrently.

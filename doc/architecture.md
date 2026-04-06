@@ -109,12 +109,11 @@ main.s
 
 All modules are pure 6502 assembly.  No C compiler is used.
 
-- **Internal calls** use ZP variables and register returns.
-  No shared stack protocol.
-- **Cross-module calls** use `__fastcall__` convention: last
-  (or only) argument in A/X, preceding arguments pushed via
-  `pushax` onto the parameter stack (`sp` in ZP).
-- **`asm_bridge.s`** translates between the parameter-stack
-  convention and the assembler's ZP-based interface.
+- **All calls** use register/ZP convention: last (or only)
+  argument in A/X, preceding arguments in named ZP variables.
+  No software parameter stack.  See memory_design.md § Calling
+  Convention.
+- **`asm_bridge.s`** translates between the register convention
+  and the assembler's ZP-based interface.
 - **Callbacks** (disk.s SEQ I/O) pass function addresses in
   A/X; the callee invokes via `jmp (callback)`.

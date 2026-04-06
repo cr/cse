@@ -29,13 +29,13 @@
 
 Pre-defines two workspace labels:
 - `workstart` = `(cse_end + $FF) & $FF00` — first free page
-- `workend` = `buf_base` — exclusive upper bound (page-aligned)
+- `workend` = `buf_base - 1` — inclusive upper bound
 
-Called by main.c at startup and by `_asm_assemble` after `sym_clear`.
+Called by main.s at startup and by `asm_assemble` after `sym_clear`.
 
 **Depends on:** asm_line (via asm_bridge), expr, symtab, editor
 (ed_read_line, ed_read_rewind, buf_base), cse_io (error output),
-meminfo (heap)
+meminfo (workstart)
 
 ## Design
 
