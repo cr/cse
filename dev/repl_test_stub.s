@@ -41,6 +41,7 @@
         .export bp_table, step_bp
         .export dbg_reason, dbg_bp_hit
         .export brk_pc
+        .export step_witness
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
 
 ; ── Exports: disk stubs ───────────────────────────────────────
@@ -109,6 +110,10 @@ dbg_running:   .res 1
 dbg_reason:    .res 1
 brk_pc:        .res 2
 dbg_bp_hit:    .res 1
+step_witness:  .res 4          ; snapshot of step_bp[0..3] at dbg_enter
+                                 ; entry — lets tests inspect what
+                                 ; cmd_step armed before the cleanup
+                                 ; path zero'd it
 
 ; Registers
 reg_a:         .res 1
@@ -299,6 +304,22 @@ asm_line:
 ; ═══════════════════════════════════════════════════════════════
 
 dbg_enter:
+        ; Snapshot step_bp[0..3] for tests, then return immediately.
+        lda step_bp
+        sta step_witness
+        lda step_bp+1
+        sta step_witness+1
+        lda step_bp+2
+        sta step_witness+2
+        lda step_bp+3
+        sta step_witness+3
+        ; Pretend the step completed normally so cmd_step takes
+        ; the @normal_end → show_break_result path: clear reason
+        ; and bp_hit so the loop drops out cleanly.
+        lda #0
+        sta dbg_reason
+        lda #$FF
+        sta dbg_bp_hit
         rts
 
 dbg_step_clear:

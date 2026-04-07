@@ -329,6 +329,8 @@ runs one instruction at a time — minimal stack usage.
      JMP abs:       next = operand
      JMP (ind):     next = peek16(operand)
      JSR abs:       next = operand                    ← step INTO
+                    EXCEPT if operand >= $E000:
+                    next = PC + 3 (step OVER, KERNAL ROM is unpatchable)
      RTS/RTI:       stop (break before executing)
      BRK:           stop (don't step into vector)
 3. Place temp BRK(s) at next-PC(s) in _step_bp slots
@@ -356,6 +358,30 @@ Identical to `t` except for JSR:
   follows the call, next step is the first instruction of the sub.
 - `o` (trace over): step BRK at `PC + 3` — the instruction after
   the JSR.  The subroutine runs to completion at full speed.
+
+### KERNAL ROM JSR fallback
+
+`t` (trace into) on a `JSR $XXXX` where `$XXXX >= $E000` cannot
+work as written.  CSE patches a BRK at the target so the step
+fires when execution reaches it, but writes to ROM addresses pass
+through to the underlying RAM while the CPU still fetches the
+original ROM byte — the BRK is never seen, the user code runs
+into the KERNAL routine, and on return there is no step BRK to
+catch it.  Symptom: stepping into `JSR $FFD2` (CHROUT) "hangs",
+typically with screen output corruption from the runaway execution.
+
+`cmd_step` detects this and silently falls back to step-over for
+KERNAL targets.  The user steps PAST the JSR instead of into it.
+
+`$A000–$BFFF` is **NOT** a fallback case: CSE unmaps BASIC ROM at
+startup (clearing `$01` bit 0), so that range is RAM workspace and
+JSR into the user's own code there steps in normally.
+
+(BASIC unmap was originally a long-standing latent bug — the
+startup code did `and #$DF` which clears the cassette motor bit
+instead of LORAM.  Until a user attempted to read the workspace at
+$A000–$BFFF, nothing tripped it.  Fixed in main.s as part of the
+KERNAL JSR fallback work.)
 
 ### User BRK detection
 

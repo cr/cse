@@ -149,6 +149,12 @@ class ReplSymbols:
         self.step_bp      = exp['step_bp']
         self.dbg_reason   = exp['dbg_reason']
         self.dbg_bp_hit   = exp['dbg_bp_hit']
+        # step_witness is exported by the stub but unimported by
+        # anyone, so ld65 omits it from the exports list.  Compute
+        # it from the stub's BSS layout: it follows dbg_bp_hit.
+        # Layout: bp_table(32) step_bp(8) dbg_running(1) dbg_reason(1)
+        #         brk_pc(2) dbg_bp_hit(1) → step_witness at +45 from bp_table.
+        self.step_witness = self.bp_table + 45
         self.brk_pc       = exp['brk_pc']
         self.reg_a        = exp['reg_a']
         self.reg_x        = exp['reg_x']
@@ -834,3 +840,101 @@ class TestDotHexEdit:
         run_at(cpu, rsyms.exec_line)
         assert cpu.memory[addr] == 0xA9
         assert cpu.memory[addr + 1] == 0x42
+
+
+# ── Q. Step into JSR — ROM target falls back to step-over ───────
+#
+# Stepping into a JSR whose target is in KERNAL ROM ($E000-$FFFF)
+# cannot work: CSE patches a BRK at the target, but writes to the
+# ROM region go through to the underlying RAM while the CPU still
+# fetches the original ROM byte — so the BRK never fires, the user
+# code runs into the ROM routine, and on return the runaway is
+# unbounded (no step BRK was set).  The user observed "t1 over
+# jsr $FFD2 hangs and trashes screen output".
+#
+# Fix in cmd_step::@jsr: when is_next=0 and the JSR target hi is
+# in $E0..$FF, treat the step as step-over.
+#
+# (Note: $A000-$BFFF is RAM workspace — CSE properly unmaps BASIC
+# ROM at startup, so JSR into the user's $A000-$BFFF code works
+# fine.)
+#
+# These tests drive `t1` through exec_line (the dbg_enter stub in
+# the repl test binary returns immediately, so cmd_step's loop
+# arms the step BRK and "completes").  After the call, the test
+# inspects step_bp to see which target was armed.
+
+class TestStepIntoJSR_ROMFallback:
+    """JSR step-into to ROM falls back to step-over."""
+
+    def _setup_jsr(self, rsyms, target_lo, target_hi):
+        cpu = make_cpu(rsyms)
+        addr = 0x3000
+        set_cur_addr(cpu, rsyms, addr)
+        # User code at $3000: JSR <target>
+        cpu.memory[addr]     = 0x20         # JSR opcode
+        cpu.memory[addr + 1] = target_lo
+        cpu.memory[addr + 2] = target_hi
+        # Pre-set dbg_reason = 1 so cmd_step skips the cold-start
+        # and uses cur_addr → brk_pc as the live PC.
+        cpu.memory[rsyms.brk_pc]     = addr & 0xFF
+        cpu.memory[rsyms.brk_pc + 1] = (addr >> 8) & 0xFF
+        cpu.memory[rsyms.dbg_reason] = 1
+        cpu.memory[rsyms.dbg_bp_hit] = 0xFF
+        # Clear step_bp and the witness so we can read them back
+        for i in range(8):
+            cpu.memory[rsyms.step_bp + i] = 0x00
+        for i in range(4):
+            cpu.memory[rsyms.step_witness + i] = 0x00
+        set_line_buf(cpu, rsyms, "t1")
+        run_at(cpu, rsyms.exec_line)
+        return cpu
+
+    def _step_target(self, cpu, rsyms):
+        """Read the address that cmd_step armed in step_bp[0..1]
+        — captured by the dbg_enter stub at entry."""
+        return (cpu.memory[rsyms.step_witness]
+                | (cpu.memory[rsyms.step_witness + 1] << 8))
+
+    def test_jsr_into_ram_steps_into(self, rsyms):
+        """Sanity: JSR $3010 (RAM target) steps into the target."""
+        cpu = self._setup_jsr(rsyms, 0x10, 0x30)
+        assert self._step_target(cpu, rsyms) == 0x3010, \
+            "RAM JSR target should be the step-into address"
+
+    def test_jsr_into_kernal_steps_over(self, rsyms):
+        """Regression: JSR $FFD2 (CHROUT, KERNAL ROM) must step OVER."""
+        cpu = self._setup_jsr(rsyms, 0xD2, 0xFF)
+        assert self._step_target(cpu, rsyms) == 0x3003, \
+            "KERNAL JSR target should fall back to step-over (cur_addr+3)"
+
+    def test_jsr_into_e000_boundary_steps_over(self, rsyms):
+        """JSR $E000 (first KERNAL byte) must step OVER."""
+        cpu = self._setup_jsr(rsyms, 0x00, 0xE0)
+        assert self._step_target(cpu, rsyms) == 0x3003
+
+    def test_jsr_into_ffff_boundary_steps_over(self, rsyms):
+        """JSR $FFFF (last KERNAL byte) must step OVER."""
+        cpu = self._setup_jsr(rsyms, 0xFF, 0xFF)
+        assert self._step_target(cpu, rsyms) == 0x3003
+
+    def test_jsr_into_a000_steps_into(self, rsyms):
+        """JSR $A000 (workspace, BASIC unmapped) steps INTO."""
+        cpu = self._setup_jsr(rsyms, 0x00, 0xA0)
+        assert self._step_target(cpu, rsyms) == 0xA000
+
+    def test_jsr_into_bfff_steps_into(self, rsyms):
+        """JSR $BFFF (top of workspace under BASIC region) steps INTO."""
+        cpu = self._setup_jsr(rsyms, 0xFF, 0xBF)
+        assert self._step_target(cpu, rsyms) == 0xBFFF
+
+    def test_jsr_into_c000_steps_into(self, rsyms):
+        """JSR $C000 (RAM above BASIC region) steps INTO."""
+        cpu = self._setup_jsr(rsyms, 0x00, 0xC0)
+        assert self._step_target(cpu, rsyms) == 0xC000
+
+    def test_jsr_into_dfff_steps_into(self, rsyms):
+        """JSR $DFFF (top of I/O area) — for the purposes of step
+        BRK patching, underlying RAM is still writable.  Treat as RAM."""
+        cpu = self._setup_jsr(rsyms, 0xFF, 0xDF)
+        assert self._step_target(cpu, rsyms) == 0xDFFF

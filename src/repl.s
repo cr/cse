@@ -1693,7 +1693,21 @@ VIC_MEMCTL = $D018
 
 @jsr:   ; JSR abs
         lda rp_save2            ; is_next
-        beq @jsr_into
+        bne @jsr_over
+        ; ── Step into, but only if the target is RAM-writable.
+        ; CSE unmaps BASIC ROM at startup, so $A000–$BFFF is the
+        ; user workspace (RAM).  KERNAL ROM remains mapped at
+        ; $E000–$FFFF — patching a BRK there writes to the RAM
+        ; underneath but the CPU fetches from ROM and never sees
+        ; the BRK.  The step-into would run forever in ROM (e.g.
+        ; JSR $FFD2 → CHROUT → garbage after returning).  Treat
+        ; KERNAL JSR targets as step-over instead.
+        ldy #2
+        lda (rp_ptr2),y         ; target hi
+        cmp #$E0
+        bcc @jsr_into            ; <$E000 → RAM/IO/workspace
+                                  ; $E000–$FFFF → KERNAL ROM, step-over
+@jsr_over:
         ; step over: next = brk_pc + 3
         lda brk_pc
         clc

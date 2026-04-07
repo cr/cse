@@ -210,9 +210,19 @@ startup:
         ora #$80
         sta KEY_REPEAT
 
-        ; Unmap BASIC ROM
+        ; Unmap BASIC ROM — clear bit 0 (LORAM) of $01.
+        ; Default after KERNAL init is $37 ($00110111: LORAM, HIRAM,
+        ; CHAREN, cassette motor, datasette).  Clear LORAM (bit 0)
+        ; to expose RAM at $A000–$BFFF as user workspace.  Result:
+        ; $36 ($00110110).  KERNAL ($E000–$FFFF) and I/O ($D000–$DFFF)
+        ; remain mapped.
+        ;
+        ; (Long-standing bug fix: the previous code did `and #$DF`
+        ; which clears bit 5 — the cassette motor — and left BASIC
+        ; mapped.  No reads from $A000–$BFFF tripped this until a
+        ; user attempted to step a JSR there.)
         lda MEM_CONFIG
-        and #$DF
+        and #$FE
         sta MEM_CONFIG
 
         ; Init global state
