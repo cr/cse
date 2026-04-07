@@ -7,7 +7,8 @@ asm_bridge, expr, symtab, mn7, etc.).  asm_src_test_stub.s provides mock
 implementations of ed_read_line, io_puts, cse_end, pushax, cse_popax.
 
 Source text is written as PETSCII: ASCII uppercase = C64 uppercase PETSCII.
-Lines are NUL-separated; a double-NUL marks EOF for the mock reader.
+Lines are NUL-terminated; a $FF sentinel marks EOF for the mock reader.
+Blank lines (lone NUL) are preserved correctly.
 """
 
 import re
@@ -32,7 +33,10 @@ def _petscii(text: str) -> bytes:
 
     Lowercase a-z → uppercase $41-$5A (same as ASCII A-Z).
     Everything else passes through unchanged.
-    Lines separated by \\n are encoded as NUL bytes; a trailing NUL marks EOF.
+    Line separator: NUL ($00).  Blank lines are a lone NUL.
+    EOF marker: $FF (cannot appear in legitimate assembly source —
+    it's a C64 graphic glyph, not a syntax character).  See
+    asm_src_test_stub.s::ed_read_line for the matching decoder.
     """
     result = bytearray()
     for ch in text:
@@ -42,7 +46,8 @@ def _petscii(text: str) -> bytes:
             result.append(ord(ch) - 0x20)   # lowercase → uppercase PETSCII
         else:
             result.append(ord(ch))
-    result.append(0x00)     # trailing NUL = EOF
+    result.append(0x00)     # terminate the final line
+    result.append(0xFF)     # EOF sentinel
     return bytes(result)
 
 
@@ -258,6 +263,71 @@ MANUAL_TESTS = [
         "source": ".org $8000\nmain: ldx #20\n.l: dex\n  bne .l\n.b: lda #$55\n  rts",
         "expect_org": 0x8000,
         "expect_bytes": [0xA2, 0x14, 0xCA, 0xD0, 0xFD, 0xA9, 0x55, 0x60],
+        "expect_errors": 0,
+    },
+    # ── Blank lines (regression: old stub treated \n\n as EOF) ──
+    {
+        "name": "single blank line between sections",
+        "source": ".org $c000\n  lda #$42\n\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x42, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "multiple consecutive blank lines",
+        "source": ".org $c000\n  lda #$42\n\n\n\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x42, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "blank line before .org",
+        "source": "\n.org $c000\n  rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "blank lines around label block",
+        "source": ".org $c000\n\nmain:\n\n  lda #$42\n\n  rts\n\nend:",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x42, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "hello-world style (blank between sections)",
+        "source": (
+            ".cpu 6510\n"
+            ".const chrout $ffd2\n"
+            ".org $6000\n"
+            "\n"
+            "main:\n"
+            "  ldx #0\n"
+            ".lp:\n"
+            "  lda msg,x\n"
+            "  beq .done\n"
+            "  jsr chrout\n"
+            "  inx\n"
+            "  bne .lp\n"
+            ".done:\n"
+            "  rts\n"
+            "\n"
+            "msg:\n"
+            '  .str "hello"\n'
+            "  .db $00"
+        ),
+        "expect_org": 0x6000,
+        "expect_bytes": [
+            0xA2, 0x00,             # ldx #0
+            0xBD, 0x0E, 0x60,       # lda msg,x
+            0xF0, 0x06,             # beq .done
+            0x20, 0xD2, 0xFF,       # jsr chrout
+            0xE8,                   # inx
+            0xD0, 0xF5,             # bne .lp
+            0x60,                   # rts
+            0x48, 0x45, 0x4C, 0x4C, 0x4F,  # "hello"
+            0x00,                   # NUL terminator
+        ],
         "expect_errors": 0,
     },
 ]

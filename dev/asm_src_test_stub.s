@@ -6,7 +6,8 @@
 ;   cse_end — returns HEAP_START ($4000)
 ;
 ; Source buffer layout: _test_src_buf (BSS, 2048 bytes)
-;   Lines NUL-separated; double-NUL = EOF.
+;   Lines NUL-terminated; EOF marker is a $FF sentinel byte.
+;   Blank lines are a lone NUL ($00) and work correctly.
 ;   Python calls asm_src_test_entry after writing source.
 ;
 ; Entry point: asm_src_test_entry
@@ -43,7 +44,7 @@ buf_base:   .res 2          ; mock: gap buffer base (for workend symbol)
 ; ── BSS ───────────────────────────────────────────────────────────────────────
 .segment "BSS"
 _src_done:      .res 1      ; non-zero = EOF
-_test_src_buf:  .res 2048   ; source lines NUL-separated, double-NUL = EOF
+_test_src_buf:  .res 2048   ; source: NUL-terminated lines, $FF = EOF
 _bank_witness:  .res 1      ; OR of $01 at every ed_read_line call
                             ; (placed last so test_src_buf offset is unchanged)
 
@@ -78,6 +79,16 @@ ed_read_rewind:
 ; Input: A/X = buf pointer. Maxlen hardcoded to 80.
 ; Returns: A/X = line length (≥0), or $FF/$FF = -1 on EOF.
 ;
+; Source encoding (written by the Python test harness):
+;   - lines are NUL-terminated
+;   - blank lines are represented as a lone NUL
+;   - EOF is a single $FF sentinel byte
+;   - $FF cannot appear in legitimate assembly source
+;     (it's a C64 graphic glyph, not typeable as syntax)
+; Using $FF as EOF — instead of the old "double-NUL = EOF" rule —
+; means source text with blank lines works correctly.  The old
+; encoding conflated "empty line" with "no more lines".
+;
 ; Side effect: OR's the live $01 register into _bank_witness.  After
 ; assembly, the test inspects _bank_witness to verify that during the
 ; passes the KERNAL was actually banked OUT (bit 1 = 0).  If asm_assemble
@@ -92,8 +103,13 @@ ed_read_line:
         sta _bank_witness
         lda _src_done
         bne @eof
-        ; Copy up to 79 chars from _src_ptr to _buf_ptr
+        ; Check for $FF EOF sentinel at the current read position
         ldy #0
+        lda (_src_ptr),y
+        cmp #$FF
+        beq @hit_eof
+        ; Copy up to 79 chars from _src_ptr to _buf_ptr
+        ; (Y already 0 from the sentinel check.)
 @cp:    lda (_src_ptr),y
         beq @eol                ; NUL = end of line
         sta (_buf_ptr),y
@@ -113,15 +129,12 @@ ed_read_line:
 :       inc _src_ptr            ; skip the NUL separator
         bne :+
         inc _src_ptr+1
-:       ; Check if next char is NUL (double-NUL = EOF)
-        ldy #0
-        lda (_src_ptr),y
-        bne :+
-        lda #1
-        sta _src_done           ; mark EOF for next call
 :       tya                     ; A = line length
         ldx #0
         rts
+@hit_eof:
+        lda #1
+        sta _src_done           ; mark EOF for next call
 @eof:   lda #$FF
         tax                     ; A=$FF, X=$FF → -1 signed
         rts

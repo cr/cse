@@ -48,14 +48,13 @@
   `cmd_step` now `newline + clear_eol` once before `run_user`,
   so user code output starts on a fresh row.  See
   [debugger.md § User code output and the prompt row](modules/debugger.md#user-code-output-and-the-prompt-row).
-- [ ] asm_src test stub: blank lines in source truncate assembly.
-  The stub uses NUL-separated lines and treats double-NUL as EOF,
-  so a `\n\n` in source text ends the read.  Real CSE on hardware
-  uses the editor gap buffer and handles blank lines correctly.
-  Test artifact only — but it means test programs in
-  `dev/gen_asm_tests.py` must avoid blank lines if they go through
-  the asm_src test path.  Fix: change the stub to a different
-  separator or use a length-prefixed format.
+- [x] ~~asm_src test stub: blank lines in source truncate assembly.~~
+  Fixed: the stub now uses `$FF` as an EOF sentinel (cannot appear
+  in legitimate assembly source) instead of double-NUL.  Blank
+  lines are a lone NUL and work correctly.  Regression tests in
+  `test_asm_src.py::MANUAL_TESTS` cover single blanks, multiple
+  consecutive blanks, leading blanks, and the full hello-world
+  pattern.
 
 ## Next
 
