@@ -43,6 +43,19 @@
   repl.s is pure asm (Phase 6).  (CC65 -O BUG #1)
 - [x] ~~cmd_step: cc65 -O uint8_t return zero-extension bug~~ —
   eliminated: repl.s is pure asm (Phase 6).  (CC65 -O BUG #2)
+- [x] ~~`g`/`j`/`t`/`o`: user CHROUT output overwrites the typed
+  command at col 0 of the prompt row.~~  Fixed: `cmd_jmp` and
+  `cmd_step` now `newline + clear_eol` once before `run_user`,
+  so user code output starts on a fresh row.  See
+  [debugger.md § User code output and the prompt row](modules/debugger.md#user-code-output-and-the-prompt-row).
+- [ ] asm_src test stub: blank lines in source truncate assembly.
+  The stub uses NUL-separated lines and treats double-NUL as EOF,
+  so a `\n\n` in source text ends the read.  Real CSE on hardware
+  uses the editor gap buffer and handles blank lines correctly.
+  Test artifact only — but it means test programs in
+  `dev/gen_asm_tests.py` must avoid blank lines if they go through
+  the asm_src test path.  Fix: change the stub to a different
+  separator or use a length-prefixed format.
 
 ## Next
 

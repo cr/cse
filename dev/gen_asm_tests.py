@@ -471,6 +471,41 @@ def gen_selfcheck():
     return lines
 
 
+def gen_hello():
+    """Generate t-hello: classic 'hello world' via KERNAL CHROUT.
+
+    Prints 'hello world' followed by CR, then RTS.  Used as a
+    minimal user-code test for the debugger's `g` and `j` commands:
+    after running, the screen should show 'hello world' on a fresh
+    row below the typed command, with the next prompt below that.
+    No prompt corruption, no register dump (clean RTS).
+    """
+    lines = [
+        '; t-hello: print "hello world" via KERNAL CHROUT',
+        '; load with: l "t-hello,s"',
+        '; assemble:  a',
+        '; run:       g  (or j main)',
+        '.cpu 6510',
+        '.const chrout $ffd2',
+        '.org $6000',
+        'main:',
+        '  ldx #0',
+        '.lp:',
+        '  lda msg,x',
+        '  beq .done',
+        '  jsr chrout',
+        '  inx',
+        '  bne .lp',
+        '.done:',
+        '  rts',
+        'msg:',
+        '  .str "hello world"',
+        '  .db $0d',
+        '  .db $00',
+    ]
+    return lines
+
+
 # ── Main ──
 
 def main():
@@ -485,6 +520,7 @@ def main():
     files['t-dir.seq']     = write_seq('t-dir.seq',     gen_directives())
     files['t-expr.seq']    = write_seq('t-expr.seq',    gen_expressions())
     files['t-chk.seq']     = write_seq('t-chk.seq',     gen_selfcheck())
+    files['t-hello.seq']   = write_seq('t-hello.seq',   gen_hello())
 
     if do_disk:
         c1541 = shutil.which('c1541')

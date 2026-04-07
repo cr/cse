@@ -1411,22 +1411,25 @@ parse_hex4_ptr1:
 
 ; ═══════════════════════════════════════════════════════════
 ; run_user — call dbg_enter, then restore screen state
-;   Saves/restores CUR_ROW/CUR_COL across user code execution.
-;   Restores VIC charset and KERNAL screen line pointers.
+;   Does NOT save/restore cursor: user code's CHROUT writes
+;   visible output, and subsequent CSE output (show_break_result,
+;   the next prompt) flows from wherever user code left the
+;   cursor.  Restores VIC charset (in case user code touched
+;   $D018) and resyncs KERNAL screen line pointers via PLOT.
+;
+;   The CALLER (cmd_jmp / cmd_step) is responsible for moving
+;   the cursor to a fresh row BEFORE the first run_user call,
+;   so user output never overwrites the typed command at col 0
+;   of the prompt row.  cmd_step does this once before its
+;   step loop so the per-iteration cost is zero newlines —
+;   multi-step commands like `t10` don't bloat the display.
+;
 ;   Must be used instead of bare dbg_enter from g/j/t/o.
 ; ═══════════════════════════════════════════════════════════
 VIC_MEMCTL = $D018
 
 .proc run_user
-        lda CUR_ROW
-        pha
-        lda CUR_COL
-        pha
         jsr dbg_enter
-        pla
-        sta CUR_COL
-        pla
-        sta CUR_ROW
         ; Restore VIC charset (lowercase/uppercase)
         lda VIC_MEMCTL
         ora #$02
@@ -1443,6 +1446,12 @@ VIC_MEMCTL = $D018
         sta brk_pc
         lda cur_addr+1
         sta brk_pc+1
+
+        ; Newline + clreol BEFORE running user code so user
+        ; CHROUT output starts on a fresh row instead of
+        ; overwriting the typed command at col 0 of the prompt.
+        jsr newline
+        jsr io_clear_eol
 
         ; Always use run_user — enables NMI break even without bps.
         ; When no breakpoints, patch_all/unpatch_all are no-ops.
@@ -1503,13 +1512,22 @@ VIC_MEMCTL = $D018
         sta rp_dis_bp           ; $FF = no bp disabled
         lda dbg_bp_hit
         cmp #$FF
-        beq @loop               ; no bp hit → nothing to disable
+        beq @newline_first      ; no bp hit → nothing to disable
         asl
         asl                     ; slot * 4
         tax
         stx rp_dis_bp           ; remember slot offset
         lda #0
         sta bp_table+3,x       ; clear enabled flag
+
+@newline_first:
+        ; Newline + clreol ONCE before the step loop so user
+        ; CHROUT output starts on a fresh row instead of
+        ; overwriting the typed command at col 0 of the prompt.
+        ; Per-iteration newlines would bloat multi-step commands
+        ; like `t10`, so we only do this once at the start.
+        jsr newline
+        jsr io_clear_eol
 
         ; for i = 0; i < count; i++
 @loop:  lda rp_cnt
