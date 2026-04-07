@@ -16,6 +16,31 @@
   variables, not what the user's code left there.  Fix: save/restore
   user ZP snapshot on debug return; `.`/`m` should read from that
   snapshot when addressing $00–$7F.
+- [ ] Debugger: stepping into a subroutine then `c` (continue) cannot
+  return through the original JSR's pushed return address.  The
+  sp_baseline rts trick (commit `c753fc8`) abandons user-pushed
+  bytes on every BRK return.  For interactive single-stepping this
+  is acceptable, but `c`-from-inside-stepped-subroutine ends the
+  run early because the subroutine's RTS pops the @tramp return
+  instead of the original caller.  Proper fix: snapshot the user's
+  stack page contents on BRK and restore them on the next dbg_enter.
+- [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+) now
+  silently falls back to step-over (commit `3cc5e42`).  This is the
+  right behaviour, but consider showing a one-line note (e.g. `;
+  rom step → over`) so the user understands why the next prompt is
+  past the JSR instead of inside it.  Low priority — probably file
+  under "ideas".
+- [ ] Debugger: NMI break trapped during user code that has pushed
+  bytes via JSR/PHA/PHP suffers the same sp_baseline trade-off as
+  BRK.  Acceptable for now; see the BRK item above for the proper
+  fix.
+- [ ] Debugger: `dbg_enter` saves CSE ZP $02..$5E into `zp_save_buf`,
+  but the buffer in asm_bridge.s is sized for $02..$5A (89 bytes,
+  not 93).  The 4-byte overflow currently lands in adjacent BSS
+  bytes that happen to be unused, so the bug is invisible — but it
+  is a real out-of-bounds write.  Fix: align the bounds, or grow
+  `zp_save_buf` to 93 bytes, or shrink debugger.s's `ZP_SAVE_HI`
+  to `$5A`.  Low risk, high cleanup value.
 - [x] ~~read_line: cc65 -O ternary miscompilation~~ — eliminated:
   repl.s is pure asm (Phase 6).  (CC65 -O BUG #1)
 - [x] ~~cmd_step: cc65 -O uint8_t return zero-extension bug~~ —
