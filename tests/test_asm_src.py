@@ -529,3 +529,83 @@ class TestAsmLineDirect:
         assert (p & 0x04) == 0, \
             f"I flag still set after al_error: ${p:02X}"
         assert kout == 0
+
+
+# ── asm_assemble bank-state regression test ────────────────────────────────
+#
+# Regression: a previous attempt at asm_assemble's bank-out batch did
+#
+#     lda #1
+#     sta kernal_out
+#     jsr kernal_bank_out      ; ← short-circuited because kernal_out=1
+#
+# After kernal_bank_out was made symmetric (honours kernal_out like
+# kernal_bank_in does), the call became a no-op when the flag was set
+# first.  KERNAL stayed banked IN for both passes, every KDATA read
+# returned ROM bytes, and source assembly produced "bad insn" for
+# every line.  py65 didn't catch it because banking has no semantic
+# effect there — KDATA tables sit at the same RAM addresses regardless
+# of $01 bit 1.
+#
+# The witness: the test stub's ed_read_line OR's the live $01 into
+# _bank_witness on every entry.  In a correct run, KERNAL is banked
+# out for the duration of both passes, so every ed_read_line call
+# sees $01 bit 1 = 0 and the witness retains 0 in bit 1.  If the
+# bug regresses, every call sees $01 bit 1 = 1 and the witness OR's
+# it in.
+
+class TestAsmAssembleBankState:
+    """Verify asm_assemble actually banks KERNAL out for the source passes."""
+
+    def test_passes_run_banked_out(self, as_syms):
+        cpu = MPU()
+        mem = cpu.memory
+        as_syms.load_into(mem)
+
+        # Pre-set $01 to KERNAL-mapped state ($35 = the C64 default with
+        # KERNAL+BASIC+IO).  asm_assemble must clear bit 1 before do_pass
+        # runs; ed_read_line then witnesses bit 1 = 0 on every call.
+        mem[0x01] = 0x35
+
+        # Tiny source — three instructions are enough to call ed_read_line
+        # several times across both passes.
+        encoded = _petscii(".org $c000\n  lda #$42\n  sta $d020\n  rts")
+        for i, b in enumerate(encoded):
+            mem[as_syms.test_src_buf + i] = b
+
+        cpu.sp = 0xFF
+        mem[0x01FF] = 0xFF
+        mem[0x01FE] = 0xFE
+        cpu.sp = 0xFD
+        cpu.pc = as_syms.asm_src_test_entry
+
+        for _ in range(_MAX_STEPS):
+            if cpu.pc == 0xFFFF:
+                break
+            cpu.step()
+        else:
+            raise TimeoutError("asm_assemble exceeded step limit")
+
+        # Sanity: assembly succeeded.
+        errors = mem[as_syms.asm_errors] | (mem[as_syms.asm_errors + 1] << 8)
+        assert errors == 0, f"asm_assemble reported {errors} errors"
+
+        # Bank witness: $01 at every ed_read_line call OR'd together.
+        # If asm_assemble banked out correctly, bit 1 was 0 on every call,
+        # so the witness has bit 1 = 0.  If it forgot to bank out, the
+        # witness has bit 1 = 1.
+        witness = mem[as_syms.bank_witness]
+        assert (witness & 0x02) == 0, (
+            f"asm_assemble did not bank KERNAL out during passes: "
+            f"witness=${witness:02X} (bit 1 should be 0)"
+        )
+
+        # And after asm_assemble returns, $01 bit 1 must be set again.
+        assert (mem[0x01] & 0x02) == 0x02, (
+            f"asm_assemble did not bank KERNAL back in: "
+            f"$01=${mem[0x01]:02X}"
+        )
+
+        # And kernal_out flag must be cleared on exit.
+        assert mem[as_syms.kernal_out] == 0, \
+            f"kernal_out flag not cleared on exit: {mem[as_syms.kernal_out]}"

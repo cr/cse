@@ -17,6 +17,8 @@
 
         .export asm_src_test_entry
         .export _test_src_buf           ; Python writes source text here
+        .export _bank_witness           ; OR-accumulator of $01 values seen
+                                        ; by ed_read_line during assembly
 
 
         .export ed_read_line
@@ -30,6 +32,7 @@
         .import asm_assemble
 
 HEAP_START = $4000          ; symbol-table heap (above all code/BSS)
+CPU_PORT   = $01
 
 ; ── Zero page ─────────────────────────────────────────────────────────────────
 .segment "ZEROPAGE"
@@ -41,12 +44,14 @@ buf_base:   .res 2          ; mock: gap buffer base (for workend symbol)
 .segment "BSS"
 _src_done:      .res 1      ; non-zero = EOF
 _test_src_buf:  .res 2048   ; source lines NUL-separated, double-NUL = EOF
+_bank_witness:  .res 1      ; OR of $01 at every ed_read_line call
+                            ; (placed last so test_src_buf offset is unchanged)
 
 ; ── CODE ──────────────────────────────────────────────────────────────────────
 .segment "CODE"
 
 ; ── asm_src_test_entry ────────────────────────────────────────────────────────
-; Initialises C stack and source reader, calls asm_assemble.
+; Initialises source reader and bank witness, calls asm_assemble.
 ; Returns A/X = error count (pass through from asm_assemble).
 asm_src_test_entry:
         lda #<_test_src_buf
@@ -55,7 +60,8 @@ asm_src_test_entry:
         sta _src_ptr+1
         lda #0
         sta _src_done
-        jsr asm_assemble       ; A/X = error count
+        sta _bank_witness       ; reset witness to 0
+        jsr asm_assemble        ; A/X = error count
         rts
 
 ; ── ed_read_rewind ───────────────────────────────────────────────────────────
@@ -71,9 +77,19 @@ ed_read_rewind:
 ; ── ed_read_line ─────────────────────────────────────────────────────────────
 ; Input: A/X = buf pointer. Maxlen hardcoded to 80.
 ; Returns: A/X = line length (≥0), or $FF/$FF = -1 on EOF.
+;
+; Side effect: OR's the live $01 register into _bank_witness.  After
+; assembly, the test inspects _bank_witness to verify that during the
+; passes the KERNAL was actually banked OUT (bit 1 = 0).  If asm_assemble
+; ever forgets to bank out, every call here will see bit 1 = 1 and the
+; witness will retain it.  In a correct run, every ed_read_line call
+; happens with KERNAL banked out, so witness bit 1 stays 0.
 ed_read_line:
         sta _buf_ptr
         stx _buf_ptr+1
+        lda CPU_PORT
+        ora _bank_witness
+        sta _bank_witness
         lda _src_done
         bne @eof
         ; Copy up to 79 chars from _src_ptr to _buf_ptr

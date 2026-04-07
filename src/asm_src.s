@@ -1272,11 +1272,16 @@ inc_pc_size:
         jsr define_ws_syms     ; pre-define workstart/workend
 
         ; Bank out KERNAL for both passes — KDATA tables and sym_table
-        ; are both in RAM under KERNAL.  The kernal_out flag prevents
-        ; symtab's bank_in from re-mapping KERNAL between calls.
+        ; are both in RAM under KERNAL.  Order matters: do the actual
+        ; bank_out FIRST, THEN set kernal_out=1.  Setting the flag
+        ; first would make the bank_out call short-circuit (it now
+        ; honours the flag like bank_in does), leaving KERNAL mapped
+        ; in and the assembly passes reading garbage from ROM.
+        ; With the flag set after, the inner sym_define / sym_lookup /
+        ; asm_line bank helpers all become no-ops for the duration.
+        jsr kernal_bank_out
         lda #1
         sta kernal_out
-        jsr kernal_bank_out
 
         ; Pass 0: collect labels/constants
         lda #0
@@ -1295,7 +1300,7 @@ inc_pc_size:
         sta _scope_name
         jsr do_pass
 
-        ; Bank in KERNAL
+        ; Bank in KERNAL — clear flag FIRST so the bank_in actually fires.
         lda #0
         sta kernal_out
         jsr kernal_bank_in

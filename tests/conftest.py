@@ -487,16 +487,20 @@ def _as_parse_map_exports():
 def _as_parse_addrs():
     """Parse all needed absolute addresses from the asm_src test map file.
 
-    Returns (asm_src_test_entry, test_src_buf, asm_org, asm_size, asm_errors).
+    Returns (asm_src_test_entry, test_src_buf, asm_org, asm_size, asm_errors,
+             bank_witness).
 
     ld65 only includes a symbol in the "Exports list by name" if it is
-    imported by at least one other module.  asm_src_test_entry and
-    _test_src_buf are not imported by anyone, so we compute their addresses
-    from segment-start + module-offset information in the map file:
+    imported by at least one other module.  asm_src_test_entry,
+    _test_src_buf, and _bank_witness are not imported by anyone, so we
+    compute their addresses from segment-start + module-offset information
+    in the map file:
 
       asm_src_test_entry = CODE_start + stub_CODE_offs  (first byte of stub CODE)
       _test_src_buf      = BSS_start  + stub_BSS_offs   + 0x0001
                            (after _src_done[1] in stub BSS)
+      _bank_witness      = BSS_start  + stub_BSS_offs   + 0x0801
+                           (after _src_done[1] + _test_src_buf[2048])
 
     asm_src.s's BSS vars (asm_org, asm_size, asm_errors) are not
     imported by anyone, so we compute from BSS_start + asm_src's offset:
@@ -542,10 +546,12 @@ def _as_parse_addrs():
 
     asm_src_test_entry = seg['CODE'] + stub_code_offs
     test_src_buf       = seg['BSS']  + stub_bss_offs + 0x0001
+    bank_witness       = seg['BSS']  + stub_bss_offs + 0x0801
     asm_org            = seg['BSS']  + asm_src_bss_offs + 0
     asm_size           = seg['BSS']  + asm_src_bss_offs + 2
     asm_errors         = seg['BSS']  + asm_src_bss_offs + 4
-    return asm_src_test_entry, test_src_buf, asm_org, asm_size, asm_errors
+    return (asm_src_test_entry, test_src_buf, asm_org, asm_size,
+            asm_errors, bank_witness)
 
 
 class AsmSrcSymbols:
@@ -559,7 +565,8 @@ class AsmSrcSymbols:
          self.test_src_buf,
          self.asm_org,
          self.asm_size,
-         self.asm_errors) = _as_parse_addrs()
+         self.asm_errors,
+         self.bank_witness) = _as_parse_addrs()
 
         # Pull additional exports from the map (asm_line entry +
         # ZP locations needed for direct asm_line tests).

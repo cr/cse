@@ -57,13 +57,33 @@ Two passes over the editor source:
 - Directives emit data directly (not via `asm_line`).
 
 **KERNAL banking:** `asm_assemble` holds the KERNAL banked out
-across both passes via the `kernal_out` flag (set to 1 before pass 0,
-back to 0 after pass 1).  Inside the batch, `asm_line`'s own
+across both passes.  Inside the batch, `asm_line`'s own
 `kernal_bank_out`/`kernal_bank_in` calls short-circuit, so each
-line costs only the flag check — not a full sei + `$01` write.
-This makes `asm_line` the single shared bank-aware entry point for
-both `asm_src` and the REPL `.` command (see
+line costs only a flag check — not a full sei + `$01` write.
+This makes `asm_line` the single shared bank-aware entry point
+for both `asm_src` and the REPL `.` command (see
 [asm_line.md](asm_line.md)).
+
+**Ordering matters.** Both `kernal_bank_out` and `kernal_bank_in`
+honour the `kernal_out` flag and become no-ops when it is set.  The
+batch must therefore do the *real* bank operation BEFORE setting the
+flag (and clear the flag BEFORE the real bank-in), or the very call
+that's supposed to bank will short-circuit and KERNAL stays mapped:
+
+```
+jsr kernal_bank_out      ; real bank-out (flag=0, fires)
+lda #1
+sta kernal_out           ; flag set: inner calls become no-ops
+... do_pass 0 / do_pass 1 ...
+lda #0
+sta kernal_out           ; clear flag first
+jsr kernal_bank_in       ; real bank-in (flag=0, fires)
+```
+
+The test contract pins this with a bank-witness in the asm_src
+test stub: `ed_read_line` OR's the live `$01` into `_bank_witness`
+on every call, so a regression that leaves KERNAL mapped during
+the passes is caught immediately.
 
 **Whitespace.**  The line parser treats both $20 (space) and $A0
 (tab) as whitespace when skipping between tokens — leading

@@ -102,6 +102,12 @@ Both `kernal_bank_out` and `kernal_bank_in` honour the
 the batch then short-circuit instead of issuing a redundant
 sei + `$01` write on every label reference.
 
+**Ordering rule for outer batches:** the real `kernal_bank_out`
+must run BEFORE `kernal_out := 1`, and `kernal_out := 0` must
+run BEFORE the real `kernal_bank_in`.  Otherwise the very call
+that is supposed to do the bank operation short-circuits because
+the flag is already set.  See `asm_src.s::asm_assemble`.
+
 Internal subroutines (`compute_hash`, `fold_char`) that operate
 only on ZP variables and the name string (which is in main RAM)
 are called with the KERNAL already banked out by their caller.
