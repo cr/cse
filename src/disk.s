@@ -524,12 +524,11 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; disk_load_prg(name, addr)
-;   A/X = addr, name on parameter stack
+; disk_load_prg
+;   A/X = addr, disk_ptr = name (ZP, set by caller)
 ;   Returns end address in A/X (0 on error)
 ; ═════════════════════════════════════════════════════════
 .proc disk_load_prg
-        ; A/X = addr (last arg, fastcall)
         sta _io_tmp             ; save addr lo
         stx _io_tmp+1           ; save addr hi
 
@@ -802,7 +801,8 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 ; ═════════════════════════════════════════════════════════
 ; disk_save_prg
 ;   A/X = size
-;   parameter stack: name (bottom), addr (top)
+;   disk_ptr = filename ptr (ZP, set by caller)
+;   _io_tmp  = start address (ZP, set by caller)
 ;   Returns A=0 on success, A=1 on error
 ; ═════════════════════════════════════════════════════════
 .proc disk_save_prg

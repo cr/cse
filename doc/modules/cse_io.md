@@ -27,7 +27,7 @@ $D6 (row).
 
 | Name | Size | Purpose |
 |------|------|---------|
-| _io_color | 1 | Text color for screen clears (C: `io_color`) |
+| _io_color | 1 | Text color for screen clears |
 | dec_start_col | 1 | Start column for io_putdec (leading-zero suppression) |
 | _nmi_pending | 1 | Set by NMI handler, checked in main loop |
 
@@ -35,8 +35,8 @@ $D6 (row).
 
 | Address | Name | Read/Write | Purpose |
 |---------|------|-----------|---------|
-| $D3 | CUR_COL | R/W | Cursor column (0–39). C: `io_cx` |
-| $D6 | CUR_ROW | R/W | Cursor row (0–24). C: `io_cy` |
+| $D3 | CUR_COL | R/W | Cursor column (0–39).  Aliased as `io_cx` in code. |
+| $D6 | CUR_ROW | R/W | Cursor row (0–24).  Aliased as `io_cy` in code. |
 | $D1/$D2 | SCR_PTR | — | NOT used by cse_io; updated by io_sync via KERNAL PLOT |
 | $F3/$F4 | COL_PTR | — | NOT used by cse_io; updated by io_sync via KERNAL PLOT |
 | $C6 | KEY_COUNT | R | Keyboard buffer count (io_kbhit) |
@@ -52,9 +52,8 @@ $D6 (row).
 | dec_lo[5] | 5 | Low bytes of 10000, 1000, 100, 10, 1 |
 | dec_hi[5] | 5 | High bytes of same |
 
-### io_putc(ch)
+### io_putc
 
-**Signature:** `void __fastcall__ io_putc(uint8_t ch)`
 **Input:** A = PETSCII character
 **Precondition:** io_cy and io_cx are valid (0–24, 0–39)
 
@@ -77,9 +76,8 @@ $D6 (row).
 - Modify io_cy
 - Scroll the screen
 
-### io_puts(s)
+### io_puts
 
-**Signature:** `void __fastcall__ io_puts(const char *s)`
 **Input:** A/X = pointer to NUL-terminated PETSCII string
 **Precondition:** io_cy and io_cx are valid
 
@@ -92,9 +90,8 @@ For each byte in `s` until NUL: call io_putc(byte).
 - io_cy unchanged
 - _io_tmp clobbered (used for string pointer)
 
-### io_puthex2(v)
+### io_puthex2
 
-**Signature:** `void __fastcall__ io_puthex2(uint8_t v)`
 **Input:** A = byte value
 
 **Behavior:**
@@ -105,17 +102,15 @@ For each byte in `s` until NUL: call io_putc(byte).
 
 **Output screen codes:** hex_tab values: $30–$39 for 0–9, $01–$06 for A–F
 
-### io_puthex4(v)
+### io_puthex4
 
-**Signature:** `void __fastcall__ io_puthex4(uint16_t v)`
 **Input:** A = lo byte, X = hi byte
 
 **Behavior:** Call io_puthex2(hi), then io_puthex2(lo).
 Writes 4 hex digits, advances io_cx by 4.
 
-### io_putdec(v)
+### io_putdec
 
-**Signature:** `void __fastcall__ io_putdec(uint16_t v)`
 **Input:** A = lo byte, X = hi byte
 
 **Behavior:**
@@ -128,9 +123,8 @@ Writes 4 hex digits, advances io_cx by 4.
 **Output:** 1–5 screen code bytes.  io_cx advances by the number of
 digits written.
 
-### io_clear_eol()
+### io_clear_eol
 
-**Signature:** `void io_clear_eol(void)`
 **Precondition:** io_cy and io_cx are valid
 
 **Behavior:**
@@ -142,25 +136,23 @@ digits written.
 - io_cx unchanged
 - io_cy unchanged
 
-### io_getc()
+### io_getc
 
-**Signature:** `uint8_t io_getc(void)`
+**Output:** A = PETSCII key code (nonzero)
 
 **Behavior:** Call KERNAL GETIN ($FFE4) in a loop until nonzero.
 Return the PETSCII key code.
 
 **Note:** Returns raw KERNAL codes.  RETURN = $0D.
 
-### io_kbhit()
+### io_kbhit
 
-**Signature:** `uint8_t io_kbhit(void)`
+**Output:** A = $C6 (keyboard buffer count)
 
-**Behavior:** Return the value of $C6 (keyboard buffer count).
-0 = no key pending, nonzero = keys waiting.
+**Behavior:** Return the value of $C6.  0 = no key pending,
+nonzero = keys waiting.
 
-### io_sync()
-
-**Signature:** `void io_sync(void)`
+### io_sync
 
 **Behavior:** Call KERNAL PLOT ($FFF0) with CLC, X=io_cy, Y=io_cx.
 This updates $D1/$D2 (screen line pointer) and $F3/$F4 (color
@@ -202,7 +194,7 @@ Used by `io_putc`.  Input: PETSCII byte.  Output: screen code byte.
 
 ### Screen Code → PETSCII Conversion
 
-Used by `read_line` in C.  Input: screen code byte (bit 7 masked off).
+Used by `read_line`.  Input: screen code byte (bit 7 masked off).
 Output: PETSCII byte.
 
 | Screen code | PETSCII | Rule |
@@ -212,9 +204,10 @@ Output: PETSCII byte.
 | $40–$5F | $40–$5F | identity |
 | $60–$7F | $60–$7F | identity |
 
-Note: the `& 0x7F` in read_line strips the reverse-video bit before
+Note: the `and #$7F` in read_line strips the reverse-video bit before
 conversion.  Screen codes $40–$5F map to PETSCII $40–$5F which are
-the same as uppercase letters in cc65 ($41='a', $42='b', ...).
+the uppercase-letter range in CSE's PETSCII convention ($41='a',
+$42='b', ...; see `project.md` § PETSCII conventions).
 
 ### IRQ Safety
 

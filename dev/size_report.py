@@ -72,7 +72,7 @@ CORE_MODULES = {'main.o', 'repl.o', 'editor.o', 'screen.o', 'disk.o', 'debugger.
 ASM_MODULES = {
     'asm_bridge.o', 'asm_line.o', 'asm_vars.o', 'asm_src.o', 'mn_vars.o',
     'mn_classify.o', 'mn7.o', 'mn7_tables.o', 'mn6.o', 'mn6_tables.o',
-    'mn_config.o', 'au_mode.o', 'parse_hex.o', 'mn_modes.o',
+    'mn_config.o', 'au_mode.o', 'mn_modes.o',
     'mn_asm_tables.o', 'opcode_lookup.o', 'expr.o', 'symtab.o',
 }
 DASM_MODULES = {'dasm.o', 'dasm_tables.o'}

@@ -289,7 +289,7 @@ def mn7_syms():
 # ── asm_line test binary ───────────────────────────────────────────────────────
 #
 # Links the full single-line assembler pipeline:
-#   asm_vars + parse_hex + opcode_lookup + asm_line
+#   asm_vars + opcode_lookup + asm_line
 #   + au_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables + mn_classify
 #   + asm_line_test_stub  (provides al_error and au_syntax_error)
 #
@@ -303,7 +303,6 @@ _AL_LST = BUILD / "asm_line_test.lst"
 
 _AL_SOURCES = [
     SRC / "asm_vars.s",
-    SRC / "parse_hex.s",
     SRC / "opcode_lookup.s",
     SRC / "asm_line.s",
     SRC / "au_mode.s",
@@ -413,7 +412,7 @@ def al_syms():
 # ── asm_src test binary ───────────────────────────────────────────────────────
 #
 # Links the full two-pass assembler pipeline:
-#   asm_vars + parse_hex + opcode_lookup + asm_line + asm_bridge
+#   asm_vars + opcode_lookup + asm_line + asm_bridge
 #   + au_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables
 #   + mn_classify + expr + symtab + asm_src
 #   + asm_src_test_stub  (provides ed_read_line, etc.)
@@ -426,7 +425,6 @@ _AS_CFG = DEV / "asm_src_test.cfg"
 
 _AS_SOURCES = [
     SRC / "asm_vars.s",
-    SRC / "parse_hex.s",
     SRC / "opcode_lookup.s",
     SRC / "asm_line.s",
     SRC / "asm_bridge.s",

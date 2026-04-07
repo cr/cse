@@ -1,5 +1,41 @@
 # CSE — TODO
 
+## Top 10 — stabilization phase
+
+The current focus is consolidation, simplification, bugfixes,
+optimization, and cleanup — *not* new features.  Items 1–4 of
+the original Top 10 have been resolved; the remaining list is:
+
+1. **DDD audit module docs against code** — asm_line, au_mode,
+   opcode_lookup, mn_classify, mn7, main, meminfo.  See
+   [Next](#next).
+2. **Warn on quit/switch if dirty flag set** — small UX safety
+   net, prevents losing work.  See [Editor](#editor).
+3. **Handle files > gap buffer capacity** (show error, don't
+   crash) — load-time safety hole.  See [Editor](#editor).
+4. **ZP optimization: overlap scratch for non-concurrent
+   modules** — ~14 B reclaimable from cold scratch, ~8 B
+   overlappable (dasm vs asm_line).  See
+   [Architecture](#architecture).
+5. **RUN/STOP debounce** — bounces when held; small input-layer
+   bug.  See [Bugs](#bugs).
+6. **Audible reject blip** — single shared SID-voice-3 ping
+   from every input-refusal site (line cap, left-wall backspace,
+   refused commands).  See [Next](#next).
+7. **Move `theme_*` from RODATA to BSS** — required for the CRT
+   target so the `c BFS` runtime command keeps working.  See
+   [Bugs](#bugs).
+
+Resolved this round (commit forthcoming):
+
+- ~~Fix `print_load_split_warning` leading-comma bug~~
+- ~~Doc cleanup: purge stale C/cc65 cruft~~
+- ~~Delete `src/parse_hex.s` orphan~~
+- ~~Delete dead `jsr_addr` / `_jsr_vec` / `@trampoline`~~
+
+Anything else in this file is feature work or longer-horizon and
+should wait until the stabilization phase wraps up.
+
 ## Bugs
 
 - [x] ~~13 CMOS mnemonic gate bugs~~ — fixed in `2939a94`: added
@@ -9,7 +45,18 @@
   `cmp #2`/`bcs`/`bcc`, comments updated, tests use al_cpu=2.
 - [x] ~~`j` command: reset colors after user code returns~~ — done:
   `restore_colors()` called in both `cmd_jmp()` paths (direct and debugger).
+- [x] ~~`print_load_split_warning` leading-comma bug~~ — fixed: the
+  first-iteration guard now reads `lda @idx` / `beq @no_sep` so the
+  comma+space is suppressed on iteration 0.
 - [ ] RUN/STOP debounce: bounces when held.
+- [ ] `theme_border` / `theme_bg` / `theme_fg` are declared in the
+  RODATA segment of `screen.s` but written to at runtime by the
+  `c BFS` REPL command (`sta theme_*` in repl.s).  This works on
+  the PRG target because RODATA lives in RAM, but the eventual
+  CRT target (R5) puts RODATA in ROM — the `c` command will
+  silently no-op there.  Move the three bytes to BSS, leaving the
+  build-time defaults `THEME_BOR`/`THEME_BG`/`THEME_FG` as inits
+  copied at startup.
 - [ ] `.` and `m` commands show/modify CSE's internal ZP state instead
   of the user's ZP state from `j`/debugger context.  After `j` returns
   (BRK/NMI), CSE restores its own ZP — so `.`/`m` on $00–$7F see CSE
@@ -62,6 +109,25 @@ Small, concrete, ready to do now.
 
 - [ ] DDD audit module docs against code: asm_line, au_mode,
   opcode_lookup, mn_classify, mn7, main, meminfo.
+- [x] ~~Doc cleanup — remove stale C/cc65 cruft~~ — done:
+  `__fastcall__` annotations and "parameter stack" notes purged
+  from `cse_io.md`, `disk.md`, `screen.md`; `build_system.md`
+  pipeline diagram and ROM-compatibility section rewritten for
+  pure-asm; `README.md` describes ca65/ld65 explicitly; stale
+  fastcall comments in `disk.s` source itself also fixed.
+- [x] ~~Delete `src/parse_hex.s`~~ — done: file removed,
+  `tests/conftest.py` and `dev/size_report.py` updated.
+- [x] ~~Delete dead `jsr_addr`/`_jsr_vec`/`@trampoline` from
+  `asm_bridge.s`~~ — done: ~50 B code + 2 ZP bytes removed; the
+  `reg_a..reg_p` BSS bytes are kept (still used by debugger.s
+  for register save/restore and repl.s for register display).
+- [ ] Audible reject blip: emit a short tone when keyboard input
+  is rejected (line cap, backspace into the left wall, refused
+  printable/tab, etc.).  Single shared "reject" routine called
+  from each refusal site in `editor.s` (and potentially the REPL
+  for refused commands).  SID voice 3 with a quick triangle
+  envelope is the C64-traditional way; ~30 B of code + a tiny
+  shutoff hook so the blip self-cancels.
 
 ## Planned
 

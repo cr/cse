@@ -21,7 +21,7 @@
 **Clobbers:** A, X, Y
 
 ### scroll_up
-**In:** A = number of rows to scroll (__fastcall__)
+**In:** A = number of rows to scroll
 **Out:** screen RAM scrolled up, bottom rows cleared with spaces,
 io_cy adjusted (clamped to 0).  If A ≥ 25: full screen clear.
 **Clobbers:** A, X, Y
@@ -33,11 +33,11 @@ scrolls up 1 instead of incrementing.  Calls `io_sync`.
 **Clobbers:** A, X, Y
 
 ### print_string
-**In:** A/X = pointer to NUL-terminated PETSCII string (__fastcall__)
+**In:** A/X = pointer to NUL-terminated PETSCII string
 **Out:** string printed at cursor via `io_puts`
 **Clobbers:** A, X, Y
 
-Thin wrapper — `jmp _io_puts`.  Does not interpret newline characters.
+Thin wrapper — `jmp io_puts`.  Does not interpret newline characters.
 
 ### cursor_show / cursor_hide
 **In:** none (uses io_cy, io_cx)
@@ -50,19 +50,24 @@ Thin wrapper — `jmp _io_puts`.  Does not interpret newline characters.
 
 ### Memory
 
-**RODATA (3 bytes):** `_theme_border` (1), `_theme_bg` (1), `_theme_fg` (1) — compile-time color theme constants.
+**RODATA (3 bytes):** `theme_border` (1), `theme_bg` (1),
+`theme_fg` (1) — compile-time color defaults.  Initialized from
+`THEME_BOR`/`THEME_BG`/`THEME_FG` at build time, but the `c` REPL
+command can rewrite them at runtime (so on the CRT target these
+will need to migrate to BSS — see TODO).
 
 ## Theme System
 
-Three DATA bytes control the color scheme: `theme_border`,
-`theme_bg`, `theme_fg`.  Values are C64 color indices 0–F.
+Three RODATA bytes control the color scheme: `_theme_border`,
+`_theme_bg`, `_theme_fg`.  Values are C64 color indices 0–F.
 
 **Build-time selection:** `make THEME=BFS` where B, F, S are hex
 nybbles for border, background, and foreground.  Decoded by the
 Makefile into `-DTHEME_BOR=N -DTHEME_BG=N -DTHEME_FG=N`.
 
-**Runtime:** the `c BFS` REPL command writes to the same three
-globals and calls `restore_colors`.
+**Runtime:** the `c [B][G]F` REPL command updates the same three
+globals (1, 2, or 3 hex digits for fg / bg+fg / border+bg+fg) and
+calls `restore_colors`.
 
 | Name          | Code | Border | Bg     | Fg     |
 |---------------|------|--------|--------|--------|
@@ -86,7 +91,7 @@ Default: RADIOACTIVITY (cb5).
 
 ## Design
 
-Pure 6502 assembly.  No cc65 runtime dependencies.
+Pure 6502 assembly.
 
 **Color RAM is static.**  `restore_colors` fills all 1000 nybbles
 once; `scroll_up` only scrolls screen RAM.  This avoids the cost of

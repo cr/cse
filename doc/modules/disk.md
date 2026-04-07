@@ -16,25 +16,25 @@
 **Clobbers:** A, X, Y
 
 ### list_directory
-**In:** A = device number (__fastcall__)
+**In:** A = device number
 **Out:** prints directory listing to screen
 **Clobbers:** A, X, Y
 
 ### disk_load_prg
-**In:** A/X = load address (__fastcall__), parameter stack = filename ptr
+**In:** A/X = load address; `disk_ptr` (ZP) = filename ptr
 **Out:** A/X = end address (nonzero on success, 0 on error)
 **Clobbers:** A, X, Y
 
 If load address is 0, uses the PRG header address (secondary = 0).
 
 ### disk_save_prg
-**In:** A/X = size (__fastcall__), parameter stack = filename ptr (bottom),
-start address (top)
+**In:** A/X = size; `disk_ptr` (ZP) = filename ptr;
+`_io_tmp` (ZP) = start address
 **Out:** A = 0 on success, nonzero on error
 **Clobbers:** A, X, Y
 
 ### disk_load_seq
-**In:** A/X = insert callback (__fastcall__), parameter stack = filename ptr
+**In:** A/X = insert callback; `disk_ptr` (ZP) = filename ptr
 **Out:** A = 0 on success, nonzero on error (includes empty file).
 `disk_seq_bytes`, `disk_seq_lines` set.
 **Clobbers:** A, X, Y
@@ -42,7 +42,7 @@ start address (top)
 The callback receives each byte in A.  Called once per byte read.
 
 ### disk_save_seq
-**In:** A/X = read callback (__fastcall__), parameter stack = filename ptr
+**In:** A/X = read callback; `disk_ptr` (ZP) = filename ptr
 **Out:** A = 0 on success, nonzero on error.
 `disk_seq_bytes`, `disk_seq_lines` set.
 **Clobbers:** A, X, Y
@@ -72,8 +72,7 @@ before disk_load_prg/save_prg/load_seq/save_seq.
 ## Design
 
 All file I/O uses direct KERNAL calls (SETLFS, SETNAM, OPEN, CLOSE,
-CHKIN, CHKOUT, CHRIN, CHROUT, LOAD, SAVE, READST, CLRCHN).  No cc65
-cbm wrappers.
+CHKIN, CHKOUT, CHRIN, CHROUT, LOAD, SAVE, READST, CLRCHN).
 
 **Device number** comes from `_cur_device` (imported from repl.s).
 

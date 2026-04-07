@@ -2315,6 +2315,7 @@ VIC_MEMCTL = $D018
         cmp @count
         bcs @nums_done
         ; Separator (comma + space) if not first
+        lda @idx
         beq @no_sep
         lda #','
         jsr io_putc

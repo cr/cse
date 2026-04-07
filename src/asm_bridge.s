@@ -6,7 +6,7 @@
 ;                 Returns 0 on error (unknown mnemonic, bad mode, etc.).
 ;
 ;   al_error      Error landing used by asm_line.s — restores the stack
-;   au_syntax_error  Error landing used by au_mode.s / parse_hex.s
+;   au_syntax_error  Error landing used by au_mode.s
 ;
 ; The text string must be PETSCII (uppercase $41–$5A, digits $30–$39,
 ; punctuation as-is).  _al_rd_upper in asm_line.s handles the PETSCII→VICII
@@ -22,7 +22,6 @@
 
         .export asm_line
         .export al_error, au_syntax_error
-        .export jsr_addr
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
         .export zp_save_buf
 
@@ -32,11 +31,13 @@
 
 .segment "ZEROPAGE"
 _ab_saved_sp:   .res 1          ; saved 6502 SP for error recovery
-_jsr_vec:       .res 2          ; target address for jsr_addr
 
 .segment "BSS"
 _asm_out_buf:   .res 3          ; output buffer (max 3 instruction bytes)
-reg_a:         .res 1          ; saved A  after jsr_addr
+; Saved user-code register state — populated by debugger.s on BRK/NMI
+; entry, displayed by repl.s::show_regs, and reloaded into the CPU by
+; debugger.s before continuing.
+reg_a:         .res 1          ; saved A
 reg_x:         .res 1          ; saved X
 reg_y:         .res 1          ; saved Y
 reg_sp:        .res 1          ; saved SP
@@ -142,51 +143,3 @@ asm_line:
         lda al_len              ; success: return byte count
         ldx #0                  ; hi byte = 0 (uint8_t return)
         rts
-
-; ── jsr_addr ─────────────────────────────────────────────────────────────────
-; jsr_addr(addr)  — A/X = addr lo/hi
-;
-; JSR to the given address, then capture all CPU registers (A, X, Y, SP, P)
-; into reg_a..reg_p so the C side can display them.
-;
-jsr_addr:
-        sta _jsr_vec            ; store target address lo
-        stx _jsr_vec+1          ; store target address hi
-
-        ; ── save CSE's ZP $02-$38 so user code can use all of ZP ──
-        ldx #ZP_SAVE_LEN - 1
-@save:  lda ZP_SAVE_LO,x
-        sta zp_save_buf,x
-        dex
-        bpl @save
-
-        ; ── load user's register state before calling ──
-        lda reg_a
-        ldx reg_x
-        ldy reg_y
-
-        jsr @trampoline         ; JSR → user code → RTS → back here
-
-        ; ── capture registers immediately after user code returns ──
-        sta reg_a
-        stx reg_x
-        sty reg_y
-        php
-        pla
-        sta reg_p
-        tsx
-        stx reg_sp
-
-        ; ── restore CSE's ZP ──
-        ldx #ZP_SAVE_LEN - 1
-@rest:  lda zp_save_buf,x
-        sta ZP_SAVE_LO,x
-        dex
-        bpl @rest
-
-        rts
-
-@trampoline:
-        jmp (_jsr_vec)          ; indirect JMP; the JSR above provides the
-                                ; return address, so user's RTS comes back
-                                ; to the sta reg_a above

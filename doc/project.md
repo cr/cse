@@ -183,14 +183,13 @@ Screen codes follow the same convention: $01–$1A = lowercase,
 $41–$5A = uppercase.
 
 All internal text processing — command parsing, hex input, mnemonic
-matching, source text — uses these PETSCII values directly.  cc65
+matching, source text — uses these PETSCII values directly.  ca65
 character literals follow the same mapping: `'a'` = $41, `'A'` = $C1.
 
 ### 4. CPU-specific code must be compile-time gated
 
 Code that is specific to a CPU target (6502, 6510, 65C02) must be
-excluded at compile time via `#ifdef` (C) or `.ifdef` (asm) —
-not gated at runtime.  The Makefile defines `CMOS_SUPPORT` for
+excluded at compile time via `.ifdef` — not gated at runtime.  The Makefile defines `CMOS_SUPPORT` for
 65C02 builds and `CPU_CEIL` (0/1/2) for all targets.  A 6502
 build must not contain 65C02 instruction paths, tables, or
 decode logic.  This keeps the binary small on constrained targets.
