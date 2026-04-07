@@ -645,3 +645,72 @@ class TestDbgEnterStepIntoJSR:
         brk_pc = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
         assert brk_pc == 0x2000
         assert mem[dbg_syms.dbg_running] == 0
+
+    def test_repeated_dbg_enter_into_jsr(self, dbg_syms):
+        """Mirror the user's `t1 t1 t1 ...` sequence over a JSR.
+
+        Each iteration: arm a step BP at the *next* user PC, call
+        dbg_enter, verify it returned cleanly with brk_pc updated.
+        Iteration 2 is the JSR step — the one that used to hang.
+        """
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+        _install_kernal_brk_stub(mem)
+
+        # User program:
+        #   $2000: NOP             (step 1 advances past this)
+        #   $2001: JSR $2010       (step 2 — the JSR step)
+        #   $2004: NOP             (we should land here after step 3)
+        #   $2005: BRK             (catch-all if runaway happens)
+        #
+        #   $2010: NOP             (subroutine first instruction;
+        #                            patched to BRK by step 2's patch_all)
+        #   $2011: RTS
+        mem[0x2000] = 0xEA                                              # NOP
+        mem[0x2001] = 0x20; mem[0x2002] = 0x10; mem[0x2003] = 0x20      # JSR $2010
+        mem[0x2004] = 0xEA                                              # NOP
+        mem[0x2005] = 0x00                                              # BRK
+        mem[0x2010] = 0xEA                                              # subroutine first
+        mem[0x2011] = 0x60                                              # RTS
+
+        mem[dbg_syms.reg_p] = 0x20
+        mem[0x0316] = 0; mem[0x0317] = 0
+
+        # ── Step 1: brk_pc=$2000 (NOP), next=$2001 ──
+        mem[dbg_syms.brk_pc + 0] = 0x00
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        mem[dbg_syms.step_bp + 0] = 0x01
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 2] = 0
+        mem[dbg_syms.step_bp + 3] = 1
+        cmd_dbg_enter(mpu, dbg_syms)
+        assert mem[dbg_syms.dbg_reason] == 1, "step 1: BRK"
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+        assert bp == 0x2001, f"step 1: brk_pc=${bp:04X} (want $2001)"
+
+        # ── Step 2: brk_pc=$2001 (JSR $2010), next=$2010 (step into) ──
+        mem[dbg_syms.brk_pc + 0] = 0x01
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        mem[dbg_syms.step_bp + 0] = 0x10
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 2] = 0
+        mem[dbg_syms.step_bp + 3] = 1
+        cmd_dbg_enter(mpu, dbg_syms)
+        assert mem[dbg_syms.dbg_reason] == 1, "step 2: BRK after JSR"
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+        assert bp == 0x2010, f"step 2: brk_pc=${bp:04X} (want $2010, JSR target)"
+
+        # ── Step 3: brk_pc=$2010 (NOP in subroutine), next=$2011 (RTS) ──
+        # If the bug somehow made us think the user code "completed" at
+        # the wrong time, this step would either re-fire at $2010 or
+        # land somewhere outside the user program.
+        mem[dbg_syms.brk_pc + 0] = 0x10
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        mem[dbg_syms.step_bp + 0] = 0x11
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 2] = 0
+        mem[dbg_syms.step_bp + 3] = 1
+        cmd_dbg_enter(mpu, dbg_syms)
+        assert mem[dbg_syms.dbg_reason] == 1, "step 3: BRK at subroutine NOP+1"
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+        assert bp == 0x2011, f"step 3: brk_pc=${bp:04X} (want $2011, RTS)"
