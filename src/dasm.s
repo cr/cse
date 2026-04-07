@@ -22,6 +22,7 @@
 
         .importzp al_cpu
         .import dasm_mne_str
+        .import kernal_bank_out, kernal_bank_in
 
 ; ── ZP usage ─────────────────────────────────────────────
 .segment "ZEROPAGE"
@@ -41,10 +42,33 @@ dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
 ; Entry point: dasm_insn
 ;   A = addr lo, X = addr hi
 ;   Returns length in A.  dasm_buf filled with PETSCII + NUL.
+;
+; dasm_insn owns its own KERNAL banking — callers don't manage
+; it.  KDATA tables (mn_modes, mode_offset, dasm_mne_str) live
+; under KERNAL ROM, so the inner decoder must run with KERNAL
+; banked out.  Inside an asm_assemble batch (kernal_out=1) the
+; bank helpers short-circuit, so this wrapper costs only the
+; flag check on each call from inside the batch.
+;
+; All exit paths (finish, the RMB/SMB / BBR/BBS handlers in
+; decode_cc11) rts back here, where bank_in pairs with the
+; entry bank_out before returning the length to the caller.
 ; ════════════════════════════════════════════════════════════
 .proc dasm_insn
         sta _dasm_ptr
         stx _dasm_ptr+1
+        jsr kernal_bank_out
+        jsr dasm_decode         ; A = length on return
+        pha                     ; save length before bank_in clobbers A
+        jsr kernal_bank_in
+        pla
+        rts
+.endproc
+
+; ── dasm_decode — actual decoder, runs with KERNAL banked out ──
+; Caller (dasm_insn) has already set _dasm_ptr from A/X.
+; Returns length in A via finish / RMB-SMB / BBR-BBS exits.
+.proc dasm_decode
         lda #0
         sta _dasm_wptr          ; reset buffer write position
 

@@ -267,3 +267,161 @@ def test_dasm_boundary_operands(dasm_syms, opc, operands, exp):
 
     assert result.upper().rstrip() == exp.upper(), \
         f'boundary ${opc:02X} ops={operands}: got {result!r}, expected {exp!r}'
+
+
+# ── dasm_insn bank-state contract ───────────────────────────────────────────
+#
+# dasm_insn owns its KERNAL banking — callers (currently emit_dot in
+# repl.s::cmd_disasm and cmd_dot::@call_asm) just call it.  These tests
+# pin the contract:
+#
+#   - dasm_insn returns the correct length and writes the expected
+#     mnemonic to dasm_buf
+#   - $01 bit 1 is set on return (KERNAL banked back in)
+#   - I flag is clear on return (interrupts re-enabled)
+#
+# In the test environment the dasm test stub provides the bank helpers
+# (no real KERNAL ROM, but they still toggle $01 bit 1 / sei / cli so
+# the witness is meaningful).  These tests would catch a regression in
+# either the dasm_insn entry/exit pairing or the test stub itself.
+
+class TestDasmBankContract:
+    """dasm_insn must restore $01 bit 1 = 1 and clear I after every call."""
+
+    def _run(self, dasm_syms, opc, operands=(0x00, 0x00)):
+        mpu = MPU()
+        mem = bytearray(0x10000)
+        dasm_syms.load_into(mem)
+
+        mem[INSN_ADDR]     = opc
+        mem[INSN_ADDR + 1] = operands[0]
+        mem[INSN_ADDR + 2] = operands[1]
+        mem[dasm_syms.al_cpu] = CPU_6510
+
+        # Pre-condition: $01 bit 1 = 1 (KERNAL mapped), I = 0 (interrupts on).
+        mem[0x01] = 0x37
+        mpu.memory = mem
+        mpu.p &= ~0x04                  # clear I
+
+        RETURN_ADDR = 0x0F00
+        mem[RETURN_ADDR] = 0x00         # BRK as halt
+        mpu.sp = 0xFF
+        mpu.sp -= 1; mem[0x01FF] = (RETURN_ADDR - 1) >> 8
+        mpu.sp -= 1; mem[0x01FE] = (RETURN_ADDR - 1) & 0xFF
+
+        mpu.pc = dasm_syms.dasm_test_entry
+        for _ in range(10000):
+            if mpu.pc == RETURN_ADDR:
+                break
+            mpu.step()
+        else:
+            pytest.fail(f"Timeout ${opc:02X}")
+
+        return mpu, mem
+
+    def test_legal_lda_imm(self, dasm_syms):
+        """LDA #$00 — 2-byte instruction, finish path."""
+        mpu, mem = self._run(dasm_syms, 0xA9)
+        assert mpu.a == 2, f"length {mpu.a}, expected 2"
+        assert (mem[0x01] & 0x02) == 0x02, \
+            f"$01 bit 1 not set after dasm_insn: ${mem[0x01]:02X}"
+        assert (mpu.p & 0x04) == 0, \
+            f"I flag still set after dasm_insn: ${mpu.p:02X}"
+
+    def test_legal_implied(self, dasm_syms):
+        """RTS — 1-byte implied instruction, finish path."""
+        mpu, mem = self._run(dasm_syms, 0x60)
+        assert mpu.a == 1
+        assert (mem[0x01] & 0x02) == 0x02
+        assert (mpu.p & 0x04) == 0
+
+    def test_legal_absolute(self, dasm_syms):
+        """JMP $0000 — 3-byte absolute, finish path."""
+        mpu, mem = self._run(dasm_syms, 0x4C)
+        assert mpu.a == 3
+        assert (mem[0x01] & 0x02) == 0x02
+        assert (mpu.p & 0x04) == 0
+
+    def test_unknown_opcode(self, dasm_syms):
+        """6502 illegal $02 — unknown path through _dasm_finish_unk
+        → _dasm_finish_imp → finish.  Must still pair bank_in."""
+        mpu = MPU()
+        mem = bytearray(0x10000)
+        dasm_syms.load_into(mem)
+        mem[INSN_ADDR] = 0x02
+        mem[dasm_syms.al_cpu] = CPU_6502
+        mem[0x01] = 0x37
+        mpu.memory = mem
+        mpu.p &= ~0x04
+        RETURN_ADDR = 0x0F00
+        mem[RETURN_ADDR] = 0x00
+        mpu.sp = 0xFF
+        mpu.sp -= 1; mem[0x01FF] = (RETURN_ADDR - 1) >> 8
+        mpu.sp -= 1; mem[0x01FE] = (RETURN_ADDR - 1) & 0xFF
+        mpu.pc = dasm_syms.dasm_test_entry
+        for _ in range(10000):
+            if mpu.pc == RETURN_ADDR:
+                break
+            mpu.step()
+        assert mpu.a == 1, f"unknown should be length 1, got {mpu.a}"
+        assert (mem[0x01] & 0x02) == 0x02, \
+            f"$01 bit 1 not set after unknown opcode: ${mem[0x01]:02X}"
+        assert (mpu.p & 0x04) == 0, \
+            f"I flag still set after unknown opcode: ${mpu.p:02X}"
+
+    def test_cmos_rmb(self, dasm_syms):
+        """RMB0 $00 — cc=11 path that bypasses finish (its own rts).
+        Must still pair bank_in even though it doesn't go through finish."""
+        mpu = MPU()
+        mem = bytearray(0x10000)
+        dasm_syms.load_into(mem)
+        mem[INSN_ADDR]     = 0x07          # RMB0 zp
+        mem[INSN_ADDR + 1] = 0x00
+        mem[dasm_syms.al_cpu] = CPU_65C02
+        mem[0x01] = 0x37
+        mpu.memory = mem
+        mpu.p &= ~0x04
+        RETURN_ADDR = 0x0F00
+        mem[RETURN_ADDR] = 0x00
+        mpu.sp = 0xFF
+        mpu.sp -= 1; mem[0x01FF] = (RETURN_ADDR - 1) >> 8
+        mpu.sp -= 1; mem[0x01FE] = (RETURN_ADDR - 1) & 0xFF
+        mpu.pc = dasm_syms.dasm_test_entry
+        for _ in range(10000):
+            if mpu.pc == RETURN_ADDR:
+                break
+            mpu.step()
+        assert mpu.a == 2, f"RMB0 should be length 2, got {mpu.a}"
+        assert (mem[0x01] & 0x02) == 0x02, \
+            f"$01 bit 1 not set after RMB0: ${mem[0x01]:02X}"
+        assert (mpu.p & 0x04) == 0, \
+            f"I flag still set after RMB0: ${mpu.p:02X}"
+
+    def test_cmos_bbr(self, dasm_syms):
+        """BBR0 $00,$0300 — cc=11 ZPREL path with its own rts.
+        Three-byte instruction, must still pair bank_in."""
+        mpu = MPU()
+        mem = bytearray(0x10000)
+        dasm_syms.load_into(mem)
+        mem[INSN_ADDR]     = 0x0F          # BBR0 zp,rel
+        mem[INSN_ADDR + 1] = 0x00
+        mem[INSN_ADDR + 2] = 0x00
+        mem[dasm_syms.al_cpu] = CPU_65C02
+        mem[0x01] = 0x37
+        mpu.memory = mem
+        mpu.p &= ~0x04
+        RETURN_ADDR = 0x0F00
+        mem[RETURN_ADDR] = 0x00
+        mpu.sp = 0xFF
+        mpu.sp -= 1; mem[0x01FF] = (RETURN_ADDR - 1) >> 8
+        mpu.sp -= 1; mem[0x01FE] = (RETURN_ADDR - 1) & 0xFF
+        mpu.pc = dasm_syms.dasm_test_entry
+        for _ in range(10000):
+            if mpu.pc == RETURN_ADDR:
+                break
+            mpu.step()
+        assert mpu.a == 3, f"BBR0 should be length 3, got {mpu.a}"
+        assert (mem[0x01] & 0x02) == 0x02, \
+            f"$01 bit 1 not set after BBR0: ${mem[0x01]:02X}"
+        assert (mpu.p & 0x04) == 0, \
+            f"I flag still set after BBR0: ${mpu.p:02X}"

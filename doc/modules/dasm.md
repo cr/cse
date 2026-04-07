@@ -12,14 +12,31 @@
 
 ## Interface
 
-### _dasm_insn
+### dasm_insn
 **In:** A/X = instruction address (lo/hi).  `al_cpu` (ZP) selects
 CPU mode: 0=6502, 1=6510, 2=65C02.
-**Out:** A = instruction length (1–3).  `_dasm_buf` filled with
+**Out:** A = instruction length (1–3).  `dasm_buf` filled with
 NUL-terminated PETSCII string.
 **Clobbers:** A, X, Y, all _dasm_* ZP vars
 
-**Depends on:** dasm_tables (GENERATED)
+`dasm_insn` owns its own KERNAL banking: it banks out at entry,
+calls the inner `dasm_decode` (which reads `dasm_mne_str` and
+the mode/operand tables under KERNAL), and banks back in at
+every exit.  Callers — currently `repl.s::emit_dot` (used by
+both the `d` block-disassemble command and the `.` single-line
+command) — just call `dasm_insn` and don't manage banking.
+
+The wrapper structure is the same as `asm_line` in
+`asm_bridge.s`: a thin entry that brackets the decoder with
+`kernal_bank_out` / `kernal_bank_in`.  Because the wrapper
+guards the call with `pha` / `jsr kernal_bank_in` / `pla`, the
+length result returned by any of `dasm_decode`'s exits (the
+common `finish` path, the cc=11 RMB/SMB inline `rts`, and the
+cc=11 BBR/BBS inline `rts`) all pair correctly with the entry
+`bank_out`.  No exit can leave the KERNAL mapped out by accident.
+
+**Depends on:** dasm_tables (GENERATED), kernal_bank_out /
+kernal_bank_in (symtab.s)
 
 ### Memory
 

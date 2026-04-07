@@ -685,14 +685,11 @@ parse_hex4_ptr1:
 ;   rp_addr = address. Returns instruction length in A.
 ; ═══════════════════════════════════════════════════════════
 .proc emit_dot
-        jsr kernal_bank_out     ; bank out FIRST (clobbers A)
-        lda rp_addr             ; then load addr for dasm_insn
+        ; dasm_insn owns its KERNAL banking — we just call it.
+        lda rp_addr
         ldx rp_addr+1
         jsr dasm_insn
-        pha                     ; save olen BEFORE bank_in clobbers A
-        jsr kernal_bank_in
-        pla
-        pha                     ; re-push for later use
+        pha                     ; save olen for later use
 
         lda #'.'
         jsr io_addr_cmd
