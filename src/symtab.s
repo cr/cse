@@ -73,8 +73,29 @@ kernal_out:     .res 1          ; nonzero = KERNAL banked out (skip bank_in)
 ; caller is managing banking explicitly across a long batch
 ; (e.g. asm_assemble holds KERNAL out for both passes), so the
 ; helpers become no-ops.  This eliminates redundant sei/$01
-; writes on every inner sym_define / sym_lookup call inside the
-; batch.
+; writes on every inner sym_define / sym_lookup / asm_line /
+; dasm_insn call inside the batch.
+;
+; ── ORDERING RULE FOR BATCH CALLERS ──
+; Because BOTH helpers short-circuit on kernal_out, a batch caller
+; must do the real bank operation BEFORE setting/clearing the flag:
+;
+;     ; ENTER batch                  ; LEAVE batch
+;     jsr kernal_bank_out             lda #0
+;     lda #1                          sta kernal_out
+;     sta kernal_out                  jsr kernal_bank_in
+;
+; Setting kernal_out=1 BEFORE bank_out makes bank_out a no-op
+; (because the flag is already set), so KERNAL stays mapped IN
+; for the duration of the "batch" — every KDATA read returns ROM
+; bytes instead of the real tables.  This was the asm_assemble
+; bug fixed in commit a4cbd5d.  The bank-witness test in
+; tests/test_asm_src.py::TestAsmAssembleBankState pins this rule.
+;
+; Pure writers under KERNAL ($E000–$FFFF) do NOT need either
+; helper: stores pass through to the underlying RAM regardless of
+; $01 bit 1.  See sym_clear, kernal_init, the KDATA-copy in
+; main::startup, and enter_editor's screen save side.
 kernal_bank_out:
 _st_bank_out:
         lda kernal_out

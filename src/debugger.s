@@ -39,9 +39,15 @@
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
         .import zp_save_buf
 
-ZP_SAVE_LO  = $02              ; must match asm_bridge.s
-ZP_SAVE_HI  = $5E              ; must cover all CSE ZP
-ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1     ; 93 bytes
+; ── ZP save range — MUST match asm_bridge.s ──
+; The buffer `zp_save_buf` is allocated by asm_bridge.s.  If these
+; constants drift away from the asm_bridge.s definitions, dbg_enter
+; will either overflow the buffer (HI too high) or fail to save the
+; full CSE ZP (HI too low, corrupting CSE state on debug return).
+; Last byte $59 = end of editor.o ZP allocation, per the linker map.
+ZP_SAVE_LO  = $02
+ZP_SAVE_HI  = $59
+ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1     ; 88 bytes
 
 ; Reason codes
 DBG_NONE = 0

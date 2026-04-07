@@ -34,13 +34,11 @@
   bytes via JSR/PHA/PHP suffers the same sp_baseline trade-off as
   BRK.  Acceptable for now; see the BRK item above for the proper
   fix.
-- [ ] Debugger: `dbg_enter` saves CSE ZP $02..$5E into `zp_save_buf`,
+- [x] ~~Debugger: `dbg_enter` saves CSE ZP $02..$5E into `zp_save_buf`,
   but the buffer in asm_bridge.s is sized for $02..$5A (89 bytes,
-  not 93).  The 4-byte overflow currently lands in adjacent BSS
-  bytes that happen to be unused, so the bug is invisible — but it
-  is a real out-of-bounds write.  Fix: align the bounds, or grow
-  `zp_save_buf` to 93 bytes, or shrink debugger.s's `ZP_SAVE_HI`
-  to `$5A`.  Low risk, high cleanup value.
+  not 93).~~  Fixed: both files now share `ZP_SAVE_HI = $59` (the
+  actual end of editor.o's ZP allocation per the linker map).
+  Buffer is 88 bytes, save loops cover the same range exactly.
 - [x] ~~read_line: cc65 -O ternary miscompilation~~ — eliminated:
   repl.s is pure asm (Phase 6).  (CC65 -O BUG #1)
 - [x] ~~cmd_step: cc65 -O uint8_t return zero-extension bug~~ —

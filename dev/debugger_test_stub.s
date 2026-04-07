@@ -42,7 +42,8 @@ reg_x:         .res 1
 reg_y:         .res 1
 reg_sp:        .res 1
 reg_p:         .res 1
-zp_save_buf:   .res 93         ; ZP save buffer ($02..$5E inclusive)
+zp_save_buf:   .res 88         ; ZP save buffer ($02..$59 inclusive,
+                                 ;  matches debugger.s::ZP_SAVE_LEN)
 
 .segment "CODE"
 

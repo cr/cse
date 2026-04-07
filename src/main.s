@@ -18,7 +18,7 @@
         .import reset_screen, restore_colors, newline
         .import cursor_show, cursor_hide
         .import scr_lo, scr_hi
-        .import kernal_init, kernal_bank_out, kernal_bank_in
+        .import kernal_init
         .import sym_clear
         .import define_ws_syms
         .import dbg_init
@@ -136,9 +136,11 @@ startup:
         bne @bss_rem
 @bss_done:
 
-        ; Copy KDATA tables from load address to KERNAL RAM ($E300+)
-        ; Must bank out KERNAL to access the underlying RAM.
-        jsr kernal_bank_out
+        ; Copy KDATA tables from load address to RAM at $F100+.
+        ; Pure writer to the under-KERNAL region: stores pass through
+        ; to the underlying RAM regardless of $01 bit 1, so no banking
+        ; is required.  Source __KDATA_LOAD__ is in main RAM (not under
+        ; KERNAL) and is also unbanked.
         lda #<__KDATA_LOAD__
         sta rp_ptr
         lda #>__KDATA_LOAD__
@@ -169,7 +171,6 @@ startup:
         dex
         bne @kd_rem
 @kd_done:
-        jsr kernal_bank_in
 
         jmp _main
 
