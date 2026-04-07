@@ -28,22 +28,52 @@ breakpoints (if any).
 `_reg_*`, `_dbg_reason`, `_dbg_bp_hit` updated.
 **Clobbers:** A, X, Y, ptr1
 
-Saves CSE ZP, installs BRK handler, patches breakpoints, restores
-user flags via PHA/PLP, then `JSR @tramp → JMP (_brk_pc)` to enter
-user code.  User code shares the CSE 6502 stack.  When a BRK or
-NMI fires, the handler strips its frame and RTS returns here.
-Then unpatches breakpoints, restores $0316, restores CSE ZP, RTS.
+Saves CSE ZP, installs BRK handler, patches breakpoints, then
+`jsr @tramp` to enter user code.  `@tramp` captures `sp_baseline`
+(SP just after the jsr push), sets `dbg_running`, restores user
+A/X/Y/P, and `jmp (brk_pc)`.  User code shares the CSE 6502 stack.
+When a BRK or NMI fires, the handler restores SP from `sp_baseline`
+and RTS returns to dbg_enter — see below for why.  After @tramp
+returns, dbg_enter unpatches breakpoints, restores $0316, restores
+CSE ZP, and RTS.
 
 ### _dbg_brk_handler
 **In:** called from KERNAL via ($0316) on BRK
-**Out:** RTS to `_dbg_enter` (strips 6-byte BRK+KERNAL frame)
+**Out:** RTS to `_dbg_enter` via `sp_baseline`
 **Clobbers:** A, X
 
 Extracts user registers from the KERNAL stack frame (Y, X, A, P,
 PChi, PClo at fixed offsets from SP).  Computes `_brk_pc` =
 pushed PC − 2.  Calls `_dbg_bp_find` to identify which breakpoint
-was hit.  Strips the 6-byte frame (3 CPU + 3 KERNAL) via
-`tsx; adc #6; txs` and RTS back to `_dbg_enter`.
+was hit.  Then restores `SP = sp_baseline` and RTS — this pops
+the @tramp return address and lands at "after jsr @tramp" in
+dbg_enter.
+
+**Why `sp_baseline` and not strip+rts?** The earlier strip-and-rts
+approach (`tsx; adc #6; txs; rts`, removing the 6-byte BRK+KERNAL
+frame) only worked when user code did NOT push anything before BRK
+fired.  Stepping into a JSR is a counterexample: the JSR pushes its
+own 2-byte return address before the BRK at the JSR target fires.
+The strip+rts then uncovered those 2 user-pushed bytes and rts'd
+through them as the next PC, jumping to "instruction after JSR" in
+user code instead of returning to dbg_enter — the "t1 hangs on
+JSR" bug.
+
+The fix: `@tramp` captures `tsx → sp_baseline` immediately after
+`jsr @tramp` pushes its return address.  The handler ignores the
+strip count entirely and just sets `SP = sp_baseline` before its
+RTS.  This pops the @tramp return address regardless of how many
+bytes user code pushed.  The user-pushed bytes are abandoned in
+stack memory (they sit below the new SP and will be overwritten
+by CSE's stack use during cleanup).
+
+Caveat: the user's stack contents between the BRK and the next
+dbg_enter call are NOT preserved, so a `c` (continue) from inside
+a stepped-into subroutine cannot pop the original JSR return
+address — the subroutine's RTS will pop the @tramp return instead,
+ending the run early.  For interactive single-stepping, this is
+acceptable.  Test contract: `test_debugger.py::TestDbgEnterStepIntoJSR`
+pins the no-runaway behaviour.
 
 ### _dbg_bp_set
 **In:** A/X = address (lo/hi)
@@ -91,7 +121,7 @@ length for step), cse_io (NMI handler upgrade)
 
 ### Memory
 
-**BSS (47 bytes):**
+**BSS (48 bytes):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
@@ -101,6 +131,7 @@ length for step), cse_io (NMI handler upgrade)
 | `_dbg_reason` | 1 | Break reason (0=none, 1=BRK, 2=NMI) |
 | `_brk_pc` | 2 | PC at break / resume address |
 | `_dbg_bp_hit` | 1 | Slot of breakpoint hit ($FF = none) |
+| `_sp_baseline` | 1 | SP at @tramp entry — handler restores SP to this on BRK/NMI |
 | `_saved_brk_lo` | 1 | Original BRK vector lo ($0316) |
 | `_saved_brk_hi` | 1 | Original BRK vector hi ($0317) |
 
@@ -223,13 +254,15 @@ _nmi_handler:
         stx _reg_x
         sty _reg_y
         ; ... extract PC and P from stack ...
-        ; ... strip 3-byte NMI frame, RTS to dbg_enter ...
+        ; ... restore SP = sp_baseline, RTS to dbg_enter ...
 ```
 
 **Key difference from BRK:**
 - NMI stacks exact PC (not PC+2).  No adjustment needed on resume.
 - KERNAL NMI entry does NOT push A/X/Y.  Handler saves from regs.
-- Stack frame is 3 bytes, not 6.
+- The CPU NMI frame is 3 bytes (not 6 like BRK+KERNAL), but the
+  handler still uses the same `sp_baseline` trick to return — see
+  `_dbg_brk_handler` for the rationale.
 
 ### Context switch
 

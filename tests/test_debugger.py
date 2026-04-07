@@ -114,12 +114,13 @@ def _parse_map():
 #   _dbg_bp_hit:    1 byte
 
 _BSS_OFFSETS = {
-    'bp_table':    0,
-    'step_bp':     32,
-    'dbg_running': 40,
-    'dbg_reason':  41,
-    'brk_pc':      42,
-    'dbg_bp_hit':  44,
+    'bp_table':     0,
+    'step_bp':      32,
+    'dbg_running':  40,
+    'dbg_reason':   41,
+    'brk_pc':       42,
+    'dbg_bp_hit':   44,
+    'sp_baseline':  45,
 }
 
 
@@ -136,10 +137,19 @@ class DbgSymbols:
         # BSS symbols: BSS start + debugger.o's BSS offset + field offset
         bss_base = segments['BSS'] + mod_offs['debugger.o']['BSS']
         self.bp_table    = bss_base + _BSS_OFFSETS['bp_table']
+        self.step_bp     = bss_base + _BSS_OFFSETS['step_bp']
         self.dbg_running = bss_base + _BSS_OFFSETS['dbg_running']
         self.dbg_reason  = bss_base + _BSS_OFFSETS['dbg_reason']
         self.brk_pc      = bss_base + _BSS_OFFSETS['brk_pc']
         self.dbg_bp_hit  = bss_base + _BSS_OFFSETS['dbg_bp_hit']
+        self.sp_baseline = bss_base + _BSS_OFFSETS['sp_baseline']
+
+        # reg_a/x/y/sp/p are exported by the test stub itself.
+        self.reg_a = exports.get('reg_a')
+        self.reg_x = exports.get('reg_x')
+        self.reg_y = exports.get('reg_y')
+        self.reg_sp = exports.get('reg_sp')
+        self.reg_p = exports.get('reg_p')
 
         raw = BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
@@ -484,3 +494,154 @@ class TestBpFind:
         cmd_init(mpu, dbg_syms)
         found, _ = cmd_bp_find(mpu, dbg_syms, 0x20, 0x10)
         assert not found
+
+
+# ── dbg_enter integration tests ─────────────────────────────────
+#
+# These exercise the full dbg_enter / dbg_brk_handler round-trip with
+# a real py65-executed user program.  py65 has no C64 KERNAL, so we
+# install a tiny "KERNAL IRQ entry" stub at $FFE0 that mimics what
+# the real KERNAL does on BRK: pushes A/X/Y, then jumps through
+# $0316.  The CPU IRQ vector at $FFFE is set to point at this stub.
+
+def cmd_dbg_enter(mpu, syms):
+    """Drive command $08 (dbg_enter) through the test stub."""
+    mpu.memory[CMD] = 0x08
+    call(mpu, syms.entry)
+
+
+def _install_kernal_brk_stub(mem):
+    """Install a minimal KERNAL IRQ entry at $FFE0 and point the
+    CPU IRQ vector at it.  The real C64 $FF48 KERNAL entry pushes
+    A, X, Y and then dispatches to ($0316) for BRK; we mimic the
+    push behaviour and unconditionally jump through $0316 (we only
+    use this for BRK in tests, never IRQ)."""
+    # PHA / TXA / PHA / TYA / PHA / JMP ($0316)
+    for off, b in enumerate([0x48, 0x8A, 0x48, 0x98, 0x48, 0x6C, 0x16, 0x03]):
+        mem[0xFFE0 + off] = b
+    mem[0xFFFE] = 0xE0
+    mem[0xFFFF] = 0xFF
+
+
+class TestDbgEnterStepIntoJSR:
+    """Regression: stepping into a JSR via dbg_enter must NOT execute
+    the instruction after the JSR.
+
+    The bug was: dbg_brk_handler did `tsx; txa; clc; adc #6; tax; txs;
+    rts` to strip the BRK+KERNAL frame.  But if the user code pushed
+    bytes BEFORE the BRK fired (e.g. a JSR pushing its return address),
+    those bytes sat below the BRK frame and the rts after strip popped
+    them as PC instead of the @tramp return address.
+
+    For a step-into JSR, this meant the rts jumped to "JSR call site
+    + 3" — i.e. the instruction after the JSR in user code — instead
+    of returning to dbg_enter.  Symptom: t1 over a JSR "hangs" in user
+    code, with screen corruption from whatever the runaway code wrote.
+
+    Fix: dbg_brk_handler restores SP from sp_baseline (captured by
+    @tramp right after the jsr @tramp's push), so the rts always pops
+    the @tramp ret addr regardless of user pushes.
+    """
+
+    def test_step_into_jsr_does_not_run_past(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+
+        _install_kernal_brk_stub(mem)
+
+        # ── User code ────────────────────────────────────────────────
+        # $2000: JSR $2010    ─ JSR pushes 2 bytes
+        # $2003: LDA #$AA     ─ runaway sentinel: must NOT execute
+        # $2005: STA $0BFE    ─ runaway sentinel: must NOT write
+        # $2008: BRK          ─ catch-all if runaway happens
+        mem[0x2000] = 0x20; mem[0x2001] = 0x10; mem[0x2002] = 0x20
+        mem[0x2003] = 0xA9; mem[0x2004] = 0xAA
+        mem[0x2005] = 0x8D; mem[0x2006] = 0xFE; mem[0x2007] = 0x0B
+        mem[0x2008] = 0x00
+
+        # Subroutine target — patch_all overwrites with BRK on entry
+        mem[0x2010] = 0xEA          # NOP placeholder
+
+        # Sentinel must start clear
+        mem[0x0BFE] = 0x00
+
+        # Arm step BP at $2010
+        mem[dbg_syms.step_bp + 0] = 0x10
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 2] = 0
+        mem[dbg_syms.step_bp + 3] = 1     # enabled
+
+        # brk_pc = $2000 (where dbg_enter will jmp first)
+        mem[dbg_syms.brk_pc + 0] = 0x00
+        mem[dbg_syms.brk_pc + 1] = 0x20
+
+        # Default user flags (bit 5 always set on real 6502)
+        mem[dbg_syms.reg_p] = 0x20
+
+        # $0316/$0317 placeholder (dbg_enter saves+restores)
+        mem[0x0316] = 0; mem[0x0317] = 0
+
+        # Drive dbg_enter via the stub.  If the bug is present, this
+        # call will appear to "succeed" (returns) but the runaway
+        # sentinel byte will be set, indicating the BRK handler rts'd
+        # through the JSR's pushed return address.
+        cmd_dbg_enter(mpu, dbg_syms)
+
+        # 1. Sanity: dbg_enter actually returned.  (call() raises
+        #    TimeoutError if we never reach _RETURN.)
+        # 2. dbg_reason should be DBG_BRK = 1 (the step BP fired).
+        assert mem[dbg_syms.dbg_reason] == 1, \
+            f"dbg_reason should be 1 (BRK), got {mem[dbg_syms.dbg_reason]}"
+
+        # 3. brk_pc should be $2010 (the step BP target, where BRK
+        #    actually fired).  In the buggy code, brk_pc would still
+        #    be $2010 too (the BRK handler captured it correctly), so
+        #    this alone doesn't catch the bug.
+        brk_pc = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+        assert brk_pc == 0x2010, f"brk_pc should be $2010, got ${brk_pc:04X}"
+
+        # 4. The KEY assertion: the runaway sentinel must remain 0.
+        #    With the bug, the BRK handler's strip+rts would pop the
+        #    JSR's pushed return address ($2002), rts'ing to $2003,
+        #    where LDA #$AA / STA $0BFE would execute and clobber
+        #    the sentinel.  With the fix, the BRK handler restores
+        #    SP from sp_baseline, so its rts pops the @tramp ret
+        #    addr instead, returning directly to dbg_enter and never
+        #    touching $0BFE.
+        assert mem[0x0BFE] == 0x00, (
+            f"BRK handler returned to user code after JSR — sentinel "
+            f"$0BFE = ${mem[0x0BFE]:02X} (should be $00).  This is "
+            f"the t1-hangs-on-JSR bug."
+        )
+
+        # 5. dbg_running should be cleared on return.
+        assert mem[dbg_syms.dbg_running] == 0, \
+            f"dbg_running not cleared: ${mem[dbg_syms.dbg_running]:02X}"
+
+    def test_dbg_enter_no_user_pushes(self, dbg_syms):
+        """Sanity: a simple BRK at brk_pc with no user JSR also works.
+        Verifies the fix didn't break the no-user-pushes path."""
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+
+        _install_kernal_brk_stub(mem)
+
+        # User code: just BRK at $2000.  No JSR, no user pushes.
+        mem[0x2000] = 0xEA          # NOP placeholder, will be patched
+
+        mem[dbg_syms.step_bp + 0] = 0x00
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 2] = 0
+        mem[dbg_syms.step_bp + 3] = 1
+
+        mem[dbg_syms.brk_pc + 0] = 0x00
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        mem[dbg_syms.reg_p] = 0x20
+        mem[0x0316] = 0; mem[0x0317] = 0
+
+        cmd_dbg_enter(mpu, dbg_syms)
+
+        assert mem[dbg_syms.dbg_reason] == 1
+        brk_pc = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+        assert brk_pc == 0x2000
+        assert mem[dbg_syms.dbg_running] == 0

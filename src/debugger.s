@@ -65,6 +65,15 @@ dbg_running:   .res 1          ; $80 = user code active, 0 = REPL
 dbg_reason:    .res 1          ; why we returned (0=none, 1=BRK, 2=NMI)
 brk_pc:        .res 2          ; PC where break occurred / resume address
 dbg_bp_hit:    .res 1          ; slot# of breakpoint that was hit ($FF = none)
+sp_baseline:   .res 1          ; SP at @tramp entry (just after jsr @tramp's
+                                ; push).  The BRK/NMI handlers restore SP to
+                                ; this value before rts so that rts pops the
+                                ; @tramp return address — bypassing any bytes
+                                ; the user pushed (e.g. JSR return) since the
+                                ; jmp(brk_pc).  Without this, a BRK fired after
+                                ; the user did a JSR would rts through the
+                                ; user-pushed return address and never reach
+                                ; dbg_enter.
 _saved_brk_lo:  .res 1          ; original $0316 value (lo)
 _saved_brk_hi:  .res 1          ; original $0317 value (hi)
 
@@ -346,27 +355,21 @@ dbg_enter:
         ; ── 3. Patch all breakpoints + step BRKs ──
         jsr patch_all
 
-        ; ── 4. Set running flag, clear stale break state ──
-        lda #$80
-        sta dbg_running
+        ; ── 4. Clear stale break state ──
+        ; (dbg_running is set inside @tramp, after sp_baseline is captured —
+        ; so there's no window in which the NMI handler could see
+        ; dbg_running set but sp_baseline stale.)
         lda #0
         sta dbg_reason         ; 0 = no break (set by handler if BRK fires)
         lda #$FF
         sta dbg_bp_hit         ; $FF = no bp hit (set by handler if BRK fires)
 
-        ; ── 5. Load user registers + flags, JSR to trampoline ──
-        ; Use JSR+JMP(indirect) like jsr_addr: the JSR provides
-        ; a return address so user's BRK→handler→RTS comes back here.
-        ; PHA/PLP restores the processor flags (N,V,Z,C etc.) so
-        ; conditional branches in user code see the correct state.
-        lda reg_p
-        pha                     ; push saved P
-        lda reg_a
-        ldx reg_x
-        ldy reg_y
-        plp                     ; restore flags (A/X/Y unaffected)
+        ; ── 5. Enter user code via the trampoline ──
+        ; jsr @tramp: pushes the return address so the BRK/NMI handler
+        ; can rts back here.  @tramp captures sp_baseline, sets the
+        ; running flag, loads user A/X/Y/P, and jmps to brk_pc.
         jsr @tramp
-        ; ── we arrive here after BRK handler does RTS ──
+        ; ── we arrive here after BRK handler does RTS or user RTS ──
 
         ; ── 6. Unpatch all breakpoints ──
         jsr unpatch_all
@@ -390,7 +393,31 @@ dbg_enter:
         cli
         rts
 
-@tramp: jmp (brk_pc)
+; ── @tramp ─────────────────────────────────────────────────────────
+; Reached via `jsr @tramp` from dbg_enter step 5.
+;
+;   1. tsx; stx sp_baseline — capture SP just after jsr @tramp's push.
+;      This is the SP value the BRK/NMI handlers must restore to so
+;      that their `rts` pops the @tramp return address and lands at
+;      "after jsr @tramp" in dbg_enter.
+;   2. set dbg_running — gates the NMI handler.  Order matters:
+;      sp_baseline must be valid before dbg_running is set, otherwise
+;      an NMI fired in this window would call dbg_nmi_break with a
+;      stale sp_baseline.
+;   3. Load user A/X/Y/P from reg_*.  PHA/PLP restores the flags.
+;   4. jmp (brk_pc) — user code starts.
+@tramp:
+        tsx
+        stx sp_baseline
+        lda #$80
+        sta dbg_running
+        lda reg_p
+        pha
+        lda reg_a
+        ldx reg_x
+        ldy reg_y
+        plp                     ; restore flags (A/X/Y unaffected)
+        jmp (brk_pc)
 
 ; ── dbg_brk_handler ──────────────────────────────────────────────────
 ; Entered from KERNAL via ($0316) when BRK fires.
@@ -441,16 +468,18 @@ dbg_brk_handler:
         lda #0
         sta dbg_running
 
-        ; ── 5. Strip BRK+KERNAL frame and return to dbg_enter ──
-        ; Stack has (bottom→top): [jsr @tramp ret addr] [P PClo PChi] [A X Y]
-        ; The KERNAL pushed A/X/Y (3 bytes), CPU pushed P/PClo/PChi (3 bytes)
-        ; = 6 bytes above the @tramp return address.
-        ; Strip them so RTS pops the @tramp return address → dbg_enter step 7.
-        tsx
-        txa
-        clc
-        adc #6
-        tax
+        ; ── 5. Restore SP to sp_baseline and rts back to dbg_enter ──
+        ; sp_baseline was captured by @tramp right after `jsr @tramp` pushed
+        ; its return address.  Setting SP = sp_baseline puts the @tramp ret
+        ; addr at SP+1/SP+2, so the rts pops it and lands at "after jsr
+        ; @tramp" in dbg_enter — REGARDLESS of how many bytes the user
+        ; pushed (e.g. via JSR) before BRK fired.  The previous strip+adc#6
+        ; approach uncovered the user-pushed bytes and rts'd through them,
+        ; which produced the "t1 hangs on JSR" bug: stepping into a JSR
+        ; popped the JSR's return address as the BRK handler's rts target,
+        ; jumping to "instruction after JSR" in user code instead of back
+        ; to dbg_enter.
+        ldx sp_baseline
         txs
         rts
 
@@ -488,15 +517,13 @@ dbg_nmi_break:
         lda #$FF
         sta dbg_bp_hit
 
-        ; ── 5. Clear running flag, strip NMI frame, return to dbg_enter ──
+        ; ── 5. Clear running flag, restore SP to sp_baseline, return ──
+        ; Same trick as dbg_brk_handler: SP = sp_baseline puts the @tramp
+        ; ret addr at SP+1/SP+2, so rts pops it and lands at "after jsr
+        ; @tramp" in dbg_enter — bypassing any user-pushed bytes.
         lda #0
         sta dbg_running
-        ; NMI frame: CPU pushed P/PClo/PChi (3 bytes, no KERNAL regs)
-        tsx
-        txa
-        clc
-        adc #3
-        tax
+        ldx sp_baseline
         txs
         rts
 

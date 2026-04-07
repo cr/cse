@@ -12,6 +12,7 @@
 ;   $05 = bp_patch
 ;   $06 = bp_unpatch
 ;   $07 = bp_find:  addr at $0B01/$0B02 (lo/hi)
+;   $08 = dbg_enter (caller pre-loads brk_pc, reg_*, step_bp, etc.)
 ;
 ; Result: A on return; $0B03 = flags (bit 0 = carry)
 ;         $0B04 = result value (slot#, count, etc.)
@@ -23,7 +24,8 @@
         .import dbg_bp_count
         .import dbg_bp_patch, dbg_bp_unpatch
         .import dbg_bp_find
-        .import bp_table
+        .import dbg_enter
+        .import bp_table, step_bp
         .import dbg_running, dbg_reason, brk_pc, dbg_bp_hit
 
         .exportzp rp_ptr          ; provide scratch pointer for debugger.s
@@ -40,7 +42,7 @@ reg_x:         .res 1
 reg_y:         .res 1
 reg_sp:        .res 1
 reg_p:         .res 1
-zp_save_buf:   .res 91         ; ZP save buffer (matches asm_bridge.s)
+zp_save_buf:   .res 93         ; ZP save buffer ($02..$5E inclusive)
 
 .segment "CODE"
 
@@ -68,6 +70,8 @@ RVAL    = $0B04
         beq @unpatch
         cmp #$07
         beq @find
+        cmp #$08
+        beq @enter
         rts                     ; unknown command
 
 @init:  jsr dbg_init
@@ -124,6 +128,9 @@ RVAL    = $0B04
         sta RVAL                ; slot#
         lda #$00
         sta RFLAGS
+        rts
+
+@enter: jsr dbg_enter
         rts
 .endproc
 
