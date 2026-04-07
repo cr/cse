@@ -81,6 +81,35 @@ should wait until the stabilization phase wraps up.
   bytes via JSR/PHA/PHP suffers the same sp_baseline trade-off as
   BRK.  Acceptable for now; see the BRK item above for the proper
   fix.
+- [ ] Stack-snapshot revisit under KERNAL.  `debugger.md` used to
+  reserve `$EF00–$EFFF` (CSE stack snapshot) + `$F000–$F0FF` (user
+  stack snapshot) = 512 B under KERNAL ROM for a planned
+  "swap-stacks-on-debug-entry" scheme, but the implementation was
+  abandoned when Phase 6 replaced it with the `sp_baseline` trick.
+  The space is now labelled "free" in `symtab.s` and
+  `memory_design.md`.  Two things to investigate and decide:
+    1. **Is the sp_baseline trick still the right call?**  The two
+       BRK/NMI TODO items above document its failure modes (user
+       pushes via JSR/PHA/PHP between patches get abandoned; `c`
+       from inside a stepped subroutine can't return through the
+       original caller's pushed address).  A genuine stack-page
+       snapshot in the $EF00 region would fix both — page 1 copies
+       out on debug entry, page 1 restores on exit.  Measure how
+       deep the CSE call chain actually runs during typical debug
+       flows (`t1`, `o`, `c`, assembly pass).  Old memory_design
+       notes guessed ~30 B; verify.
+    2. **Same for the user side.**  For interactive stepping we
+       execute one instruction at a time, so deep user chains only
+       matter across `c`/`j`.  If the answer to (1) is "snapshot",
+       a symmetric user-stack snapshot in the $F000 region makes
+       `c`-from-subroutine work even when CSE's own stack usage
+       has clobbered the user's pushed bytes.
+  Possible outcomes: (a) implement the 512 B snapshot scheme and
+  close both debugger TODOs above; (b) confirm sp_baseline is fine
+  and reclaim the 512 B for something else (e.g. a larger
+  `repl_screen` on 80-column mode, or a breakpoint history ring);
+  (c) keep it reserved but document *why* (leaving bytes on the
+  table "in case" is the worst option — decide either way).
 - [x] ~~Debugger: `dbg_enter` saves CSE ZP $02..$5E into `zp_save_buf`,
   but the buffer in asm_bridge.s is sized for $02..$5A (89 bytes,
   not 93).~~  Fixed: both files now share `ZP_SAVE_HI = $59` (the

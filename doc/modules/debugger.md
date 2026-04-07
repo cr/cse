@@ -618,8 +618,7 @@ Existing behavior — clear screen, fresh prompt.
 ```
 $E000–$E5FF  sym_table (1536 B, 256 slots)
 $E600–$EEFF  sym_heap (2304 B)
-$EF00–$EFFF  CSE stack snapshot (256 B, reserved)
-$F000–$F0FF  user stack snapshot (256 B, reserved)
+$EF00–$F0FF  free (512 B)
 $F100–$F4F1  KDATA tables (1010 B)
 $F4F2–$F8D9  repl_screen (1000 B)
 $F8DA–$FEFF  free (1574 B)
@@ -628,7 +627,9 @@ $FFFA–$FFFB  NMI vector → $FF00
 ```
 
 The debugger no longer uses KERNAL RAM for stack snapshots.
-User code shares the CSE 6502 stack.
+User code shares the CSE 6502 stack.  See the TODO item
+"stack-snapshot revisit" for whether that's still the right
+choice now that the KERNAL-RAM region is mature.
 
 ## Cost Estimate
 
