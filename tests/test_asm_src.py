@@ -416,3 +416,116 @@ def test_label_after_two_imms(as_syms):
     data, sym_val = _run_and_lookup(as_syms, source, "main.b")
     assert data == [0xA2, 0x14, 0xA9, 0x55, 0x60]
     assert sym_val == 0x8004, f"main.b should be $8004, got ${sym_val:04X}"
+
+
+# ── Direct asm_line calls (single-line REPL `.` command path) ───────────────
+#
+# asm_line owns its own KERNAL banking.  asm_assemble holds the KERNAL
+# banked out across the source-pass batch (kernal_out=1), in which case
+# asm_line's inner bank helpers short-circuit; the cases above all
+# exercise that path.  These tests drive asm_line *directly* with
+# kernal_out=0, exercising the bracketed bank path used by the REPL `.`
+# command (repl.s::dot_assemble).
+#
+# Verifies the asm_line bridge's invariants:
+#   - returns the correct byte count
+#   - writes the correct bytes to *al_out
+#   - leaves $01 bit 1 = 1 (KERNAL banked back in)
+#   - leaves I flag clear (interrupts re-enabled)
+#   - leaves kernal_out untouched (still 0)
+
+
+_AL_TEXT_BUF = 0x2400       # PETSCII text buffer (above test BSS, below heap)
+_AL_OUT_BUF  = 0x3000       # output bytes land here
+_AL_PC       = 0xC000       # pretend assembled PC
+
+
+def _direct_asm_line(as_syms, text: str):
+    """Call asm_line(text) directly.  Returns (n_bytes, output_bytes, p_after, port01_after, kernal_out_after)."""
+    cpu = MPU()
+    mem = cpu.memory
+    as_syms.load_into(mem)
+
+    # Write PETSCII text into a buffer in main RAM (asm_line converts in-place to VICII).
+    encoded = _petscii(text).rstrip(b'\x00') + b'\x00'  # NUL-terminated, no extras
+    for i, b in enumerate(encoded):
+        mem[_AL_TEXT_BUF + i] = b
+
+    # Set ZP: al_pc, al_out
+    mem[as_syms.al_pc]     = _AL_PC & 0xFF
+    mem[as_syms.al_pc + 1] = (_AL_PC >> 8) & 0xFF
+    mem[as_syms.al_out]    = _AL_OUT_BUF & 0xFF
+    mem[as_syms.al_out + 1] = (_AL_OUT_BUF >> 8) & 0xFF
+
+    # Pre-condition: kernal_out flag = 0 (single-line path, NOT a batch)
+    mem[as_syms.kernal_out] = 0
+
+    # Pre-condition: $01 bit 1 = 1 (KERNAL banked in), I flag = 0 (interrupts on)
+    mem[0x01] = 0x37        # default 6510 port: KERNAL+BASIC+IO mapped
+    cpu.p &= ~0x04          # clear I flag
+
+    # Fake JSR: push sentinel return address
+    cpu.sp = 0xFF
+    mem[0x01FF] = 0xFF
+    mem[0x01FE] = 0xFE
+    cpu.sp = 0xFD
+
+    # Set A/X = text pointer, then call asm_line
+    cpu.a = _AL_TEXT_BUF & 0xFF
+    cpu.x = (_AL_TEXT_BUF >> 8) & 0xFF
+    cpu.pc = as_syms.asm_line
+
+    for _ in range(_MAX_STEPS):
+        if cpu.pc == 0xFFFF:
+            break
+        cpu.step()
+    else:
+        raise TimeoutError(f"asm_line direct call exceeded {_MAX_STEPS} steps")
+
+    n = mem[as_syms.al_len]
+    out = bytes(mem[_AL_OUT_BUF : _AL_OUT_BUF + n])
+    return n, out, cpu.p, mem[0x01], mem[as_syms.kernal_out]
+
+
+class TestAsmLineDirect:
+    """Drive asm_line directly with kernal_out=0 — REPL `.` command path."""
+
+    def test_direct_lda_imm(self, as_syms):
+        n, out, p, port01, kout = _direct_asm_line(as_syms, "lda #$42")
+        assert n == 2
+        assert out == bytes([0xA9, 0x42])
+        # Bank state restored
+        assert (port01 & 0x02) == 0x02, \
+            f"$01 bit 1 not set after asm_line: ${port01:02X}"
+        # Interrupts re-enabled
+        assert (p & 0x04) == 0, \
+            f"I flag still set after asm_line: ${p:02X}"
+        # kernal_out flag untouched
+        assert kout == 0, f"kernal_out clobbered: {kout}"
+
+    def test_direct_sta_abs(self, as_syms):
+        n, out, p, port01, kout = _direct_asm_line(as_syms, "sta $d020")
+        assert n == 3
+        assert out == bytes([0x8D, 0x20, 0xD0])
+        assert (port01 & 0x02) == 0x02
+        assert (p & 0x04) == 0
+        assert kout == 0
+
+    def test_direct_implied(self, as_syms):
+        n, out, p, port01, kout = _direct_asm_line(as_syms, "rts")
+        assert n == 1
+        assert out == bytes([0x60])
+        assert (port01 & 0x02) == 0x02
+        assert (p & 0x04) == 0
+        assert kout == 0
+
+    def test_direct_error_restores_bank(self, as_syms):
+        # Garbage mnemonic — asm_line should jmp al_error, which must
+        # also bank the KERNAL back in and re-enable interrupts.
+        n, _out, p, port01, kout = _direct_asm_line(as_syms, "xyz")
+        assert n == 0, "garbage mnemonic should error"
+        assert (port01 & 0x02) == 0x02, \
+            f"$01 bit 1 not set after al_error: ${port01:02X}"
+        assert (p & 0x04) == 0, \
+            f"I flag still set after al_error: ${p:02X}"
+        assert kout == 0

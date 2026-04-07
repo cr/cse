@@ -561,6 +561,16 @@ class AsmSrcSymbols:
          self.asm_size,
          self.asm_errors) = _as_parse_addrs()
 
+        # Pull additional exports from the map (asm_line entry +
+        # ZP locations needed for direct asm_line tests).
+        exports = _as_parse_map_exports()
+        self.asm_line   = exports['asm_line']
+        self.au_ptr     = exports['au_ptr']
+        self.al_pc      = exports['al_pc']
+        self.al_out     = exports['al_out']
+        self.al_len     = exports['al_len']
+        self.kernal_out = exports['kernal_out']
+
         raw = _AS_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]
