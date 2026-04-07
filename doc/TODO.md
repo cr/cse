@@ -113,6 +113,23 @@ Defined scope, needs work.
 - [ ] Page up/down with shift+cursor or F-keys.
 - [ ] Search (ctrl+f equivalent via F-key).
 - [ ] Goto line number.
+- [ ] Consider switching internal tab representation from `$A0`
+  (shifted space / C=+SPACE) to the PETSCII tab character (`$09`).
+  Rationale: `$09` is semantically "tab" across platforms, would
+  interoperate cleanly with cross-dev tools and with any future
+  CSE-aware terminal/editor, and would free `$A0` for its original
+  meaning (shifted space, a typeable character).  Caveat: on the
+  C64 PETSCII `$09` is "disable CBM+SHIFT case switch", not a
+  visual tab — so adopting it means treating it as meta-only and
+  relying on the editor (and printing code) to recognise it.
+  Requires a status-quo analysis of what other C64 assemblers
+  and editors (Turbo Assembler, MasterSeka, Relaunch64, etc.)
+  use for an in-source tab byte, to see whether `$09` is already
+  a de-facto convention or whether `$A0` is.  Touches `editor.s`
+  (key handler, rendering, cursor skip), `asm_src.s` (au_mode's
+  whitespace skip), `disk.s` (SEQ I/O conversion), and the
+  assembler_syntax doc.  Low priority — deferred until a cross-dev
+  interop need actually arises.
 
 ### Memory
 
