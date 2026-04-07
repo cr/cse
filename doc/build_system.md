@@ -73,6 +73,7 @@ Passed as `make OPTION=value`:
 |--------|--------|---------|--------|
 | `CPU` | `6502` `6510` `65c02` | `6510` | Sets `CPU_CEIL` and `CMOS_SUPPORT` defines |
 | `THEME` | name or hex | default | Colour theme for the REPL |
+| `TAB_WIDTH` | 1..32 | `8` | Editor tab stop interval.  Must be a power of two for `col mod TAB_WIDTH` to collapse to a single `and` — non-power-of-two values compile but pay a 10-cycle modulo loop per tab render.  8 matches every C64-era toolchain convention. |
 | `DEBUG` | `1` | off | Enables debug output |
 
 `CPU_CEIL` (0=6502 only, 1=6502+6510, 2=all three), `CMOS_SUPPORT`,

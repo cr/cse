@@ -107,7 +107,20 @@ Defined scope, needs work.
 
 - [x] Intelligent tabbing: gutter model with RETURN auto-indent,
   SPACE/INS indent to tab stop, DEL unindent, cursor gutter skip.
-  `tab_width ≥ 1` enables; `tab_width = 0` disables.
+  `TAB_WIDTH` is a build-time constant (default 8); there is no
+  runtime `tab_width = 0` disable — the feature is always on.
+- [x] ~~Runtime `T` tab-width command~~ — removed.  `TAB_WIDTH` is
+  now a build-time constant (see `build_system.md`).  Runtime
+  tab-width changes interacted badly with the 39-col hard line cap
+  (changing the width could turn previously-valid lines into
+  "too long" errors, and required recomputing `ed_cur_col` + full
+  re-render).  Baking it in at build time eliminates the whole
+  class of edge cases.
+- [x] ~~39-col hard line cap enforced~~ — done.  The editor
+  guarantees every line ≤ 38 visual cols.  Enforced on:
+  printable insert, tab insert, auto-indent, backspace-join
+  (forced newline at last safe col), and load from SEQ file
+  (forced newline + warning listing affected editor line numbers).
 - [ ] Handle files > gap buffer capacity (show error, don't crash).
 - [ ] Warn on quit/switch if dirty flag set.
 - [ ] Page up/down with shift+cursor or F-keys.
@@ -126,10 +139,12 @@ Defined scope, needs work.
   and editors (Turbo Assembler, MasterSeka, Relaunch64, etc.)
   use for an in-source tab byte, to see whether `$09` is already
   a de-facto convention or whether `$A0` is.  Touches `editor.s`
-  (key handler, rendering, cursor skip), `asm_src.s` (au_mode's
-  whitespace skip), `disk.s` (SEQ I/O conversion), and the
-  assembler_syntax doc.  Low priority — deferred until a cross-dev
-  interop need actually arises.
+  (key handler, rendering, cursor skip — tab expansion is now
+  fixed to `TAB_WIDTH` so the constant is the same, only the
+  byte representation changes), `asm_src.s` (au_mode's whitespace
+  skip), `disk.s` (SEQ I/O conversion), and the assembler_syntax
+  doc.  Low priority — deferred until a cross-dev interop need
+  actually arises.
 
 ### Memory
 

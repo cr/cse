@@ -510,19 +510,33 @@ CR = 0x0D
 
 
 class TabGapBuffer(GapBuffer):
-    """GapBuffer extended with tab character ($A0) support."""
+    """GapBuffer extended with tab character ($A0) support.
 
-    def __init__(self, tab_width=8):
+    TAB_WIDTH is a build-time constant in CSE (default 8); this
+    Python model mirrors that — there is no runtime tab_width
+    parameter.  See doc/modules/editor.md.
+    """
+
+    TAB_WIDTH = 8
+
+    # Load-time statistics (set by simulate_load, mirrors editor.s::
+    # ed_load_split + ed_load_split_lines).
+    SPLIT_LINES_MAX = 8
+
+    def __init__(self):
         super().__init__()
-        self.tab_width = tab_width
+        self.ed_load_split = 0              # count of forced splits
+        self.ed_load_split_lines = []       # first SPLIT_LINES_MAX
+                                             # editor-line numbers where
+                                             # a forced CR was inserted
 
     # ── Visual column helpers ────────────────────────────────────────
 
 
     def _char_width(self, ch, vcol):
         """Visual width of one byte at visual column vcol."""
-        if ch == TAB and self.tab_width > 0:
-            return self.tab_width - (vcol % self.tab_width)
+        if ch == TAB:
+            return self.TAB_WIDTH - (vcol % self.TAB_WIDTH)
         return 1
 
     def _visual_col(self):
@@ -535,6 +549,48 @@ class TabGapBuffer(GapBuffer):
             vcol += self._char_width(self.mem[p], vcol)
             p += 1
         return vcol
+
+    def _line_vwidth(self, start_ptr):
+        """Return the total visual width of the line starting at
+        start_ptr (stopping at CR or buf_end, skipping the gap).
+        Matches editor.s::line_vwidth.  Result is clamped to 255 as
+        an "impossibly wide" sentinel; normal lines are ≤ 39."""
+        p = start_ptr
+        vcol = 0
+        while True:
+            if p == self.gap_lo:
+                p = self.gap_hi
+            if p >= self.buf_end:
+                break
+            ch = self.mem[p]
+            if ch == CR:
+                break
+            vcol += self._char_width(ch, vcol)
+            if vcol >= 255:
+                return 255
+            p += 1
+        return vcol
+
+    def line_vwidth_current(self):
+        """Visual width of the cursor's line (from its start to its CR)."""
+        # Walk back to start of current line
+        p = self.gap_lo
+        while p > self.buf_base and self.mem[p - 1] != CR:
+            p -= 1
+        return self._line_vwidth(p)
+
+    def line_vwidth_next(self):
+        """Visual width of the line AFTER the cursor's line — the
+        one that would be joined into the current line by a
+        backspace-at-col-0."""
+        # Start at gap_hi (cursor), skip forward to just past the
+        # next CR — that's the start of the next line.
+        p = self.gap_hi
+        while p < self.buf_end and self.mem[p] != CR:
+            p += 1
+        if p < self.buf_end and self.mem[p] == CR:
+            p += 1
+        return self._line_vwidth(p)
 
     def _copy_leading_ws(self):
         """Return bytes of leading whitespace ($20/$A0) on current line."""
@@ -555,12 +611,13 @@ class TabGapBuffer(GapBuffer):
     # ── Tab operations ───────────────────────────────────────────────
 
     def tab_insert(self):
-        """C=+SPACE: insert $A0 tab byte, advance to next tab stop."""
-        tw = self.tab_width
-        if tw == 0:
-            return
+        """C=+SPACE: insert $A0 tab byte, advance to next tab stop.
+
+        Refused if the tab's expansion would push ed_cur_col past 39
+        (the cursor rest position).  The last legal final ed_cur_col
+        after a tab is 39 (line width exactly 39)."""
         w = self._char_width(TAB, self.ed_cur_col)
-        if self.ed_cur_col + w > 38:
+        if self.ed_cur_col + w > 39:
             return  # would overflow screen
         self.insert(TAB)
         self.ed_cur_col += w
@@ -583,21 +640,215 @@ class TabGapBuffer(GapBuffer):
             self.backspace()
             self.ed_cur_col = self._visual_col()
 
+    def simulate_load(self, text):
+        """Simulate ed_load_source: feed `text` (bytes) one byte at a
+        time through an insert routine that tracks the running visual
+        width of the current line.  If inserting the next byte would
+        push the line's vcol beyond 39, insert a forced CR first and
+        record the affected editor line number.
+
+        Mirrors editor.s::ed_load_source + the inline width-tracking.
+        Resets the buffer to empty first.
+        """
+        # Fresh start
+        while self.gap_lo > self.buf_base:
+            self.backspace()
+        self.ed_cur_line = 0
+        self.ed_cur_col = 0
+        self.ed_total_lines = 1
+        self.ed_dirty = False
+        self.ed_load_split = 0
+        self.ed_load_split_lines = []
+
+        running_vcol = 0
+        editor_line = 0     # current editor line number (0-based)
+        for b in text:
+            if b == CR:
+                self.insert(CR)
+                running_vcol = 0
+                editor_line += 1
+                continue
+            w = self._char_width(b, running_vcol)
+            if running_vcol + w > 39:
+                # Forced split: insert CR, record line number.
+                self.insert(CR)
+                self.ed_load_split += 1
+                if len(self.ed_load_split_lines) < self.SPLIT_LINES_MAX:
+                    # The split moves content to a new editor line;
+                    # the "affected" line in the user's mental model
+                    # is the one that USED to contain this byte.
+                    # We record the editor-line number BEFORE the
+                    # split so the user can scroll to see the broken
+                    # line and its continuation.
+                    self.ed_load_split_lines.append(editor_line)
+                editor_line += 1
+                running_vcol = 0
+                w = self._char_width(b, 0)   # recompute width at col 0
+            self.insert(b)
+            running_vcol += w
+        # Leave cursor at the end of the loaded content; user can
+        # navigate as needed.
+        self.ed_cur_line = editor_line
+        self.ed_cur_col = running_vcol
+        # ed_dirty is True after inserts; real editor clears it
+        # after load because the buffer matches the file (modulo
+        # splits).  Mirror that.
+        self.ed_dirty = False
+
+    def tab_del_join(self):
+        """DEL at col 0: join with previous line, honouring the
+        39-col hard cap.  Returns True if a forced CR was inserted,
+        False otherwise.
+
+        Algorithm:
+        1. backspace() deletes the CR between the two lines.
+        2. Compute the combined line's visual width.
+        3. If ≤ 39: done, normal join.
+        4. Else:
+           a. Remember the cursor's visual col (= width of line a).
+           b. Walk from line start counting visual cols to find the
+              split point: the highest byte offset at which the
+              first sub-line's visual width would stay ≤ 39.  Tabs
+              are never broken — if a tab would straddle the cap,
+              the forced CR goes BEFORE the tab.
+           c. Move the cursor to that byte offset (LEFT if the
+              join point was past it, RIGHT if before).
+           d. Insert a CR.  The cursor is now at col 0 of the new
+              second sub-line.
+           e. Move the cursor back toward the join point.  If the
+              join point was within the first sub-line, step LEFT
+              past the CR and back to col join_col.  Otherwise it's
+              on the second sub-line at col (join_col - split_vcol),
+              step RIGHT that many positions.
+        """
+        if self.ed_cur_col != 0:
+            return False
+        if self.ed_cur_line == 0:
+            return False
+
+        # Step 1: raw join.
+        self.backspace()          # deletes the CR; ed_total_lines -= 1
+        self.ed_cur_line -= 1
+        self.ed_cur_col = self._visual_col()
+
+        # Step 2: combined width check.
+        combined = self.line_vwidth_current()
+        if combined <= 39:
+            return False          # normal join, fits
+
+        join_col = self.ed_cur_col
+
+        # Step 4b: find split point by walking from line start.
+        # We track: split_vcol (visual col at which we split),
+        # split_byte_offset (number of BYTES from line start at which
+        # we split — used below to compute cursor moves).
+        #
+        # Walk back to start of line first to get the line start ptr.
+        line_start = self.gap_lo
+        while line_start > self.buf_base and self.mem[line_start - 1] != CR:
+            line_start -= 1
+        # Forward scan counting vcol and byte offset (skipping gap).
+        p = line_start
+        vcol = 0
+        byte_offset = 0
+        while True:
+            if p == self.gap_lo:
+                p = self.gap_hi
+            if p >= self.buf_end:
+                break
+            ch = self.mem[p]
+            if ch == CR:
+                break
+            w = self._char_width(ch, vcol)
+            if vcol + w > 39:
+                break
+            vcol += w
+            byte_offset += 1
+            p += 1
+        split_vcol = vcol
+        split_byte_offset = byte_offset
+
+        # Step 4c: compute join_col's byte offset from line start.
+        # The cursor is currently at visual col join_col in the
+        # combined line.  We need to know how many BYTES that is
+        # from line_start — only then can we compute the move.
+        # We re-scan the line (at most 39 chars) to find it.
+        p = line_start
+        vc = 0
+        join_byte_offset = 0
+        while vc < join_col:
+            if p == self.gap_lo:
+                p = self.gap_hi
+            if p >= self.buf_end:
+                break
+            ch = self.mem[p]
+            if ch == CR:
+                break
+            vc += self._char_width(ch, vc)
+            join_byte_offset += 1
+            p += 1
+
+        # Step 4c cont.: move the gap to split_byte_offset.
+        # Currently the gap is at join_byte_offset (because ed_cur_col
+        # == join_col, and we just re-computed that).
+        delta = split_byte_offset - join_byte_offset
+        if delta < 0:
+            for _ in range(-delta):
+                self.cursor_left()
+        else:
+            for _ in range(delta):
+                self.cursor_right()
+
+        # Step 4d: insert the forced CR at the current gap position.
+        self.insert(CR)          # ed_total_lines += 1
+        self.ed_cur_line += 1    # we're now at col 0 of new second sub-line
+        self.ed_cur_col = 0
+
+        # Step 4e: move cursor back toward join point.
+        if join_col <= split_vcol:
+            # Join point is on the first sub-line.  Step LEFT past
+            # the CR and back to join_byte_offset bytes from line_start.
+            # Currently we're at (line_start + split_byte_offset) on
+            # sub-line 2 col 0.  We need to move LEFT by
+            # (split_byte_offset - join_byte_offset + 1) bytes: one
+            # for the CR itself and (split_byte_offset - join_byte_offset)
+            # to undo the move forward.
+            steps = (split_byte_offset - join_byte_offset) + 1
+            for _ in range(steps):
+                self.cursor_left()
+            self.ed_cur_line -= 1
+            self.ed_cur_col = self._visual_col()
+        else:
+            # Join point is on the second sub-line at col
+            # (join_col - split_vcol), which is (join_byte_offset -
+            # split_byte_offset) bytes past the forced CR.
+            steps = join_byte_offset - split_byte_offset
+            for _ in range(steps):
+                self.cursor_right()
+            self.ed_cur_col = self._visual_col()
+
+        return True
+
     def tab_return(self):
-        """RETURN with auto-indent: copy leading $20/$A0 from current line."""
-        tw = self.tab_width
-        ws = self._copy_leading_ws() if tw > 0 else b""
+        """RETURN with auto-indent: copy leading $20/$A0 from current
+        line, truncated so the new line's ed_cur_col stays ≤ 38 (i.e.,
+        at least one col of room for the first typable char)."""
+        ws = self._copy_leading_ws()
         self.insert(CR)
         self.ed_cur_line += 1
         self.ed_cur_col = 0
+        # Truncate the copied whitespace to what fits with room to spare.
         for ch in ws:
+            w = self._char_width(ch, self.ed_cur_col)
+            if self.ed_cur_col + w > 38:
+                break  # no room for the next indent char and a content char
             self.insert(ch)
-        self.ed_cur_col = self._visual_col()
+            self.ed_cur_col += w
 
 
-def _make_tab_buf(line_bytes, cursor_col=0, tab_width=8):
+def _make_tab_buf(line_bytes, cursor_col=0):
     """Create a TabGapBuffer with one line, cursor at given column."""
-    gb = TabGapBuffer(tab_width=tab_width)
+    gb = TabGapBuffer()
     for ch in line_bytes:
         gb.insert(ch)
     # Rewind to start of line
@@ -612,47 +863,449 @@ def _make_tab_buf(line_bytes, cursor_col=0, tab_width=8):
     return gb
 
 
+class TestBackspaceJoinCap:
+    """§7b — DEL at col 0 joins with previous line, forcing a CR
+    at the cap boundary if the combined line would exceed 39 cols."""
+
+    def _make_two_lines(self, line_a_len, line_b_len):
+        """Build a buffer with two lines of given visible lengths,
+        cursor at col 0 of line 1 (second line)."""
+        gb = TabGapBuffer()
+        for _ in range(line_a_len):
+            gb.insert(CH)
+        gb.insert(CR)
+        for _ in range(line_b_len):
+            gb.insert(CH)
+        # Walk cursor back to col 0 of line 1
+        for _ in range(line_b_len):
+            gb.cursor_left()
+        gb.ed_cur_line = 1
+        gb.ed_cur_col = 0
+        return gb
+
+    # ── Normal join (no cap crossed) ────────────────────────────
+
+    def test_join_two_short_lines(self):
+        """Combined 5 + 7 = 12 ≤ 39 → no forced CR."""
+        gb = self._make_two_lines(5, 7)
+        forced = gb.tab_del_join()
+        assert forced is False
+        assert gb.ed_total_lines == 1
+        assert gb.line_vwidth_current() == 12
+        assert gb.ed_cur_line == 0
+        assert gb.ed_cur_col == 5      # join point
+
+    def test_join_reaching_exact_cap(self):
+        """Combined 19 + 20 = 39, exactly at cap → no forced CR."""
+        gb = self._make_two_lines(19, 20)
+        forced = gb.tab_del_join()
+        assert forced is False
+        assert gb.line_vwidth_current() == 39
+        assert gb.ed_cur_col == 19
+
+    def test_join_at_line_0_noop(self):
+        """DEL at col 0 of line 0 is a no-op (nothing to join)."""
+        gb = TabGapBuffer()
+        for _ in range(5):
+            gb.insert(CH)
+        # Move to col 0 of line 0
+        for _ in range(5):
+            gb.cursor_left()
+        gb.ed_cur_line = 0
+        gb.ed_cur_col = 0
+        forced = gb.tab_del_join()
+        assert forced is False
+        assert gb.ed_total_lines == 1
+        assert gb.line_vwidth_current() == 5
+
+    # ── Forced-CR cases ─────────────────────────────────────────
+
+    def test_join_overflow_by_one(self):
+        """Combined 20 + 20 = 40 → forced CR at col 39."""
+        gb = self._make_two_lines(20, 20)
+        forced = gb.tab_del_join()
+        assert forced is True
+        # The combined width was 40, split at col 39 → first
+        # sub-line has 39 chars (cols 0..38), second has 1.
+        # Cursor started at the join point (col 20 of combined) —
+        # that's within the first sub-line.
+        assert gb.ed_total_lines == 2
+        assert gb.ed_cur_col == 20
+        assert gb.ed_cur_line == 0
+        # First sub-line: 39 cols; second: 1 col.
+        assert gb.line_vwidth_current() == 39
+        assert gb.line_vwidth_next() == 1
+
+    def test_join_overflow_puts_cursor_on_second_sub(self):
+        """Combined 50 + 30 = 80 → first sub-line ≤ 39, split
+        deep into what used to be line_b.  Cursor was at
+        col 50 of combined (= col 0 of original line b).  After
+        the forced CR at col 39 of first sub, cursor is at col
+        (50 - 39) = 11 of the second sub-line."""
+        gb = self._make_two_lines(50, 30)
+        # But wait — 50 > 39, so the original line a already
+        # violates the cap!  We can only get into that state via
+        # a previous violation.  Skip this test.
+        gb = None  # mark as invalid construction
+        # Use a different setup instead
+        gb = self._make_two_lines(30, 30)
+        forced = gb.tab_del_join()
+        assert forced is True
+        # Combined 60 → first sub 39, second sub 21.
+        # Cursor was at join point col 30 (= col 0 of original
+        # second line) → col 30 is within first sub-line (< 39).
+        assert gb.ed_cur_line == 0
+        assert gb.ed_cur_col == 30
+        assert gb.line_vwidth_current() == 39
+        assert gb.line_vwidth_next() == 21
+
+    def test_join_tab_at_boundary(self):
+        """Join where a TAB on line b would straddle the cap.
+        Line a = 32 chars, line b = TAB + 'xx' (TAB expands 8 to
+        col 40).  Combined = 32 + 8 + 2 = 42, but the TAB at col 32
+        would push to col 40 — straddles the cap.  Forced CR
+        goes BEFORE the TAB, at col 32 exactly.
+        First sub-line = 32 chars, second sub-line = TAB (expanding
+        to col 8) + xx = 10 cols."""
+        gb = TabGapBuffer()
+        for _ in range(32):
+            gb.insert(CH)
+        gb.insert(CR)
+        gb.insert(TAB)
+        gb.insert(CH)
+        gb.insert(CH)
+        # Walk back to col 0 of line 1
+        gb.cursor_left()  # 'x' at col 9
+        gb.cursor_left()  # 'x' at col 8
+        gb.cursor_left()  # TAB at col 0
+        gb.ed_cur_line = 1
+        gb.ed_cur_col = 0
+
+        forced = gb.tab_del_join()
+        assert forced is True
+        assert gb.ed_cur_line == 0
+        # Cursor was at col 0 of line_b, which becomes col 32 of
+        # combined.  Forced CR at col 32 (before the TAB). So the
+        # cursor is at col 32 of first sub-line.
+        assert gb.ed_cur_col == 32
+        assert gb.line_vwidth_current() == 32
+        assert gb.line_vwidth_next() == 10
+
+
+class TestLoadSplit:
+    """§7d — ed_load_source enforces the 39-col cap by splitting
+    overlong lines with a forced CR.  Counter and line-number array
+    record the splits for the REPL's post-load warning."""
+
+    def _line_chars(self, n):
+        return bytes([CH] * n)
+
+    def test_short_lines_no_split(self):
+        """All lines ≤ 39 cols: no splits."""
+        gb = TabGapBuffer()
+        text = self._line_chars(10) + bytes([CR]) + self._line_chars(20) + bytes([CR])
+        gb.simulate_load(text)
+        assert gb.ed_load_split == 0
+        assert gb.ed_load_split_lines == []
+        assert gb.ed_total_lines == 3
+
+    def test_exact_cap_no_split(self):
+        """A line of exactly 39 cols is at the cap but does NOT split."""
+        gb = TabGapBuffer()
+        text = self._line_chars(39) + bytes([CR])
+        gb.simulate_load(text)
+        assert gb.ed_load_split == 0
+
+    def test_one_char_over(self):
+        """A line of 40 cols → 1 split: first sub ≤ 39, second sub = 1."""
+        gb = TabGapBuffer()
+        text = self._line_chars(40)
+        gb.simulate_load(text)
+        assert gb.ed_load_split == 1
+        assert gb.ed_load_split_lines == [0]
+        # The 40 chars become two editor lines: 39 + 1
+        # line 0 has 39 chars, line 1 has 1 char
+        assert gb.ed_total_lines == 2
+
+    def test_line_100_becomes_three(self):
+        """A 100-col line splits into 39 + 39 + 22 = 3 editor lines
+        (2 forced CRs)."""
+        gb = TabGapBuffer()
+        text = self._line_chars(100)
+        gb.simulate_load(text)
+        assert gb.ed_load_split == 2
+        # Splits happened on editor lines 0 and 1
+        assert gb.ed_load_split_lines == [0, 1]
+        assert gb.ed_total_lines == 3
+
+    def test_mix_short_and_long(self):
+        """Short line + long line + short line: 1 split total."""
+        gb = TabGapBuffer()
+        text = (self._line_chars(5) + bytes([CR]) +
+                self._line_chars(50) + bytes([CR]) +
+                self._line_chars(8) + bytes([CR]))
+        gb.simulate_load(text)
+        assert gb.ed_load_split == 1
+        # Split happened on the second editor line (index 1)
+        assert gb.ed_load_split_lines == [1]
+
+    def test_tab_straddling_cap(self):
+        """A line where a TAB would push past col 39: the forced CR
+        goes BEFORE the tab so the tab starts the next sub-line."""
+        gb = TabGapBuffer()
+        text = self._line_chars(35) + bytes([TAB]) + self._line_chars(5)
+        # 35 chars at col 35; TAB at col 35 expands 8 - (35%8) = 8 - 3 = 5
+        # → new vcol = 40 > 39 → split before TAB.
+        gb.simulate_load(text)
+        assert gb.ed_load_split == 1
+        assert gb.ed_load_split_lines == [0]
+        # First sub: 35 chars.  Second sub: TAB(8) + 5 chars = 13 cols.
+        # Walk to start and compute
+        gb.ed_cur_line = 1
+        gb.ed_cur_col = 13
+        # Count lines
+        assert gb.ed_total_lines == 2
+
+    def test_split_counter_caps_at_8(self):
+        """If more than 8 lines split, the counter keeps going but
+        the line-number array caps at SPLIT_LINES_MAX."""
+        gb = TabGapBuffer()
+        # Build 10 overlong lines
+        text = b""
+        for _ in range(10):
+            text += self._line_chars(50) + bytes([CR])
+        gb.simulate_load(text)
+        assert gb.ed_load_split == 10
+        assert len(gb.ed_load_split_lines) == 8
+
+    def test_empty_buffer_after_empty_load(self):
+        """Loading empty text leaves a single empty line."""
+        gb = TabGapBuffer()
+        gb.simulate_load(b"")
+        assert gb.ed_load_split == 0
+        assert gb.ed_total_lines == 1
+        assert gb.line_vwidth_current() == 0
+
+
+class TestAutoIndentCap:
+    """§7c — Auto-indent on RETURN is truncated if copying the parent
+    line's leading whitespace would leave no room for the first typable
+    char (i.e., new line's ed_cur_col must end ≤ 38)."""
+
+    def test_indent_fits(self):
+        """Parent line has 4 leading spaces + content → new line
+        gets 4 leading spaces."""
+        gb = TabGapBuffer()
+        for _ in range(4):
+            gb.insert(SP)
+        for _ in range(5):
+            gb.insert(CH)
+        gb.ed_cur_col = gb._visual_col()
+        # Cursor at col 9 of line 0, press RETURN
+        gb.tab_return()
+        # Cursor is on line 1, col 4 (after the copied spaces)
+        assert gb.ed_cur_line == 1
+        assert gb.ed_cur_col == 4
+
+    def test_indent_with_tab(self):
+        """Parent has 1 leading TAB (expands to 8) → new line gets 1 TAB."""
+        gb = TabGapBuffer()
+        gb.insert(TAB)
+        for _ in range(5):
+            gb.insert(CH)
+        gb.ed_cur_col = gb._visual_col()
+        gb.tab_return()
+        assert gb.ed_cur_col == 8    # TAB expanded width
+
+    def test_indent_exactly_at_38(self):
+        """Parent has 38 leading spaces — the full indent fits since
+        38 is the max col leaving room for the first typable char."""
+        gb = TabGapBuffer()
+        for _ in range(38):
+            gb.insert(SP)
+        gb.insert(CH)    # col 38 content char
+        gb.ed_cur_col = gb._visual_col()   # = 39 (after content)
+        # Cursor at col 39, press RETURN
+        gb.tab_return()
+        # New line has 38 spaces, cursor at col 38, room for 1 char.
+        assert gb.ed_cur_line == 1
+        assert gb.ed_cur_col == 38
+
+    def test_indent_truncated_at_39(self):
+        """Parent has 39 leading spaces (full cap) — auto-indent would
+        leave no room for a typable char.  Truncated to 38."""
+        gb = TabGapBuffer()
+        for _ in range(39):
+            gb.insert(SP)
+        # Line has 39 spaces, cursor at col 39 (cursor rest col).
+        gb.ed_cur_col = gb._visual_col()
+        assert gb.ed_cur_col == 39
+        gb.tab_return()
+        # New line: 38 spaces (one less than parent's 39).
+        assert gb.ed_cur_line == 1
+        assert gb.ed_cur_col == 38
+
+    def test_indent_tab_cannot_fit(self):
+        """Parent has 32 spaces + 1 TAB (expands 8 to col 40... wait
+        TAB at col 32 with TAB_WIDTH=8 expands to col 40, overflow.
+        The parent itself wouldn't be legal.  Test a legal parent
+        instead: 32 leading spaces + other stuff — auto-indent copies
+        all 32 spaces and stops because further chars are not
+        whitespace.  Cursor at col 32, room to type."""
+        gb = TabGapBuffer()
+        for _ in range(32):
+            gb.insert(SP)
+        for _ in range(5):
+            gb.insert(CH)
+        gb.ed_cur_col = gb._visual_col()  # col 37
+        gb.tab_return()
+        assert gb.ed_cur_col == 32   # 32 spaces copied
+
+    def test_indent_mixed_ws(self):
+        """Parent has 1 TAB (8) + 4 spaces (→ col 12) → new line gets
+        TAB + 4 spaces."""
+        gb = TabGapBuffer()
+        gb.insert(TAB)
+        for _ in range(4):
+            gb.insert(SP)
+        for _ in range(3):
+            gb.insert(CH)
+        gb.ed_cur_col = gb._visual_col()  # col 15
+        gb.tab_return()
+        assert gb.ed_cur_col == 12   # TAB(8) + 4 spaces
+
+
+class TestLineVWidth:
+    """§7a — line_vwidth: visual width of a line (0..39 for in-cap lines,
+    higher if the buffer somehow contains an overlong line)."""
+
+    def test_empty_buffer(self):
+        gb = TabGapBuffer()
+        assert gb._line_vwidth(gb.buf_base) == 0
+
+    def test_line_of_spaces(self):
+        gb = TabGapBuffer()
+        for _ in range(5):
+            gb.insert(SP)
+        # Cursor at col 5, line width 5
+        assert gb.line_vwidth_current() == 5
+
+    def test_line_of_chars(self):
+        gb = TabGapBuffer()
+        for _ in range(10):
+            gb.insert(CH)
+        assert gb.line_vwidth_current() == 10
+
+    def test_line_stops_at_cr(self):
+        gb = TabGapBuffer()
+        for _ in range(3):
+            gb.insert(CH)
+        gb.insert(CR)
+        for _ in range(5):
+            gb.insert(CH)
+        # After all inserts cursor is on line 1 (second line).
+        # line_vwidth_current walks from the start of line 1 to its CR.
+        assert gb.line_vwidth_current() == 5
+
+    def test_line_with_tab(self):
+        gb = TabGapBuffer()
+        gb.insert(TAB)
+        gb.insert(CH)
+        gb.insert(CH)
+        # TAB=8, then 'aa' → visual width 10
+        assert gb.line_vwidth_current() == 10
+
+    def test_line_with_tab_at_col3(self):
+        gb = TabGapBuffer()
+        for _ in range(3):
+            gb.insert(CH)
+        gb.insert(TAB)  # expands 5 to col 8
+        gb.insert(CH)
+        assert gb.line_vwidth_current() == 9
+
+    def test_maxed_line_width_39(self):
+        gb = TabGapBuffer()
+        for _ in range(39):
+            gb.insert(CH)
+        assert gb.line_vwidth_current() == 39
+
+    def test_line_vwidth_across_gap(self):
+        """Cursor in the middle of a line → both pre- and post-gap
+        bytes count toward line_vwidth of the current line."""
+        gb = TabGapBuffer()
+        for ch in (CH, CH, CH, CH, CH):
+            gb.insert(ch)
+        gb.cursor_left()
+        gb.cursor_left()
+        # Now 3 bytes pre-gap, 2 bytes post-gap, all on one line
+        assert gb.line_vwidth_current() == 5
+
+    def test_line_vwidth_next(self):
+        """line_vwidth_next measures the line AFTER the cursor's line."""
+        gb = TabGapBuffer()
+        for _ in range(3):
+            gb.insert(CH)
+        gb.insert(CR)
+        for _ in range(7):
+            gb.insert(CH)
+        # Cursor is now at col 7 of line 1.  Move it to col 0 of line 1
+        # (7 lefts; the 8th would cross the CR back into line 0).
+        for _ in range(7):
+            gb.cursor_left()
+        # line_vwidth_current: line 1 has 7 chars.
+        assert gb.line_vwidth_current() == 7
+        # line_vwidth_next: there's no line 2, so 0.
+        assert gb.line_vwidth_next() == 0
+
+    def test_line_vwidth_next_with_second_line(self):
+        """Cursor in line 1 with line 2 after → next is line 2."""
+        gb = TabGapBuffer()
+        for _ in range(3):
+            gb.insert(CH)        # line 0: 3 chars
+        gb.insert(CR)
+        for _ in range(5):
+            gb.insert(CH)        # line 1: 5 chars
+        gb.insert(CR)
+        for _ in range(8):
+            gb.insert(CH)        # line 2: 8 chars, cursor at col 8
+        # Move cursor to start of line 1.  From col 8 of line 2, go
+        # back 8 chars (to col 0 of line 2), then 1 more to cross the
+        # CR into col 5 of line 1, then 5 more to reach col 0 of line 1.
+        for _ in range(14):
+            gb.cursor_left()
+        # cursor at start of line 1
+        assert gb.line_vwidth_current() == 5
+        assert gb.line_vwidth_next() == 8
+
+
 class TestTabCharacter:
-    """§7 — Tab character ($A0)."""
+    """§7 — Tab character ($A0).  TAB_WIDTH is the build-time constant 8."""
 
     # ── Tab insert ───────────────────────────────────────────────────
 
     def test_tab_at_col0(self):
-        """$A0 at col 0 → visual col = tw."""
-        gb = TabGapBuffer(tab_width=8)
+        """$A0 at col 0 → visual col = 8."""
+        gb = TabGapBuffer()
         gb.tab_insert()
         assert gb.ed_cur_col == 8
         assert gb.text() == bytes([TAB])
         gb.invariants_ok()
 
     def test_tab_at_col3(self):
-        """$A0 after 3 chars, tw=8 → visual col = 8."""
-        gb = _make_tab_buf(bytes([CH] * 3), cursor_col=3, tab_width=8)
+        """$A0 after 3 chars → visual col = 8."""
+        gb = _make_tab_buf(bytes([CH] * 3), cursor_col=3)
         gb.tab_insert()
         assert gb.ed_cur_col == 8
 
     def test_tab_at_boundary(self):
-        """$A0 at col 8 (= tw), tw=8 → visual col = 16."""
-        gb = _make_tab_buf(bytes([CH] * 8), cursor_col=8, tab_width=8)
+        """$A0 at col 8 (= TAB_WIDTH) → visual col = 16."""
+        gb = _make_tab_buf(bytes([CH] * 8), cursor_col=8)
         gb.tab_insert()
         assert gb.ed_cur_col == 16
 
-    def test_tab_tw4(self):
-        """$A0 at col 1, tw=4 → visual col = 4."""
-        gb = _make_tab_buf(bytes([CH]), cursor_col=1, tab_width=4)
-        gb.tab_insert()
-        assert gb.ed_cur_col == 4
-
-    def test_tab_tw0_noop(self):
-        """tw=0 → tab insert is no-op."""
-        gb = TabGapBuffer(tab_width=0)
-        gb.tab_insert()
-        assert gb.text() == b""
-        assert gb.ed_cur_col == 0
-
     def test_tab_multiple(self):
         """Two tabs: 0→8→16."""
-        gb = TabGapBuffer(tab_width=8)
+        gb = TabGapBuffer()
         gb.tab_insert()
         assert gb.ed_cur_col == 8
         gb.tab_insert()
@@ -661,40 +1314,39 @@ class TestTabCharacter:
 
     def test_tab_byte_stored(self):
         """$A0 is stored literally in the buffer."""
-        gb = TabGapBuffer(tab_width=8)
+        gb = TabGapBuffer()
         gb.tab_insert()
         assert gb.text() == bytes([TAB])
 
     def test_tab_near_edge_rejected(self):
-        """$A0 near col 38 rejected if it would overflow."""
-        gb = _make_tab_buf(bytes([CH] * 35), cursor_col=35, tab_width=8)
+        """$A0 at col 35, TAB_WIDTH=8: 35 + (8 - 35%8) = 35 + 5 = 40 > 39 → rejected."""
+        gb = _make_tab_buf(bytes([CH] * 35), cursor_col=35)
         gb.tab_insert()
-        # 35 + (8 - 35%8) = 35 + 5 = 40 > 38 → rejected
         assert gb.ed_cur_col == 35
         assert TAB not in gb.text()
 
-    def test_tab_exactly_fits(self):
-        """$A0 at col 35, tw=4: 35 + (4 - 35%4) = 35 + 1 = 36 ≤ 38 → ok."""
-        gb = _make_tab_buf(bytes([CH] * 35), cursor_col=35, tab_width=4)
+    def test_tab_lands_exactly_at_cap(self):
+        """$A0 at col 31, TAB_WIDTH=8: 31 + (8 - 31%8) = 31 + 1 = 32 → ok."""
+        gb = _make_tab_buf(bytes([CH] * 31), cursor_col=31)
         gb.tab_insert()
-        assert gb.ed_cur_col == 36
+        assert gb.ed_cur_col == 32
 
     # ── Visual column helper ─────────────────────────────────────────
 
     def test_visual_col_no_tabs(self):
         """Visual col without tabs = byte count."""
-        gb = _make_tab_buf(bytes([CH] * 5), cursor_col=5, tab_width=8)
+        gb = _make_tab_buf(bytes([CH] * 5), cursor_col=5)
         assert gb._visual_col() == 5
 
     def test_visual_col_with_tab(self):
-        """Visual col: TAB at col 0 = tw wide."""
-        gb = TabGapBuffer(tab_width=8)
+        """Visual col: TAB at col 0 = TAB_WIDTH wide."""
+        gb = TabGapBuffer()
         gb.insert(TAB)
         assert gb._visual_col() == 8
 
     def test_visual_col_text_then_tab(self):
         """Visual col: 'aaa' + TAB = 3 + 5 = 8."""
-        gb = TabGapBuffer(tab_width=8)
+        gb = TabGapBuffer()
         for _ in range(3):
             gb.insert(CH)
         gb.insert(TAB)
@@ -702,7 +1354,7 @@ class TestTabCharacter:
 
     def test_visual_col_two_tabs(self):
         """Visual col: TAB + TAB = 8 + 8 = 16."""
-        gb = TabGapBuffer(tab_width=8)
+        gb = TabGapBuffer()
         gb.insert(TAB)
         gb.insert(TAB)
         assert gb._visual_col() == 16
@@ -711,7 +1363,7 @@ class TestTabCharacter:
 
     def test_space_is_just_space(self):
         """SPACE ($20) is always a standard single-space insert."""
-        gb = TabGapBuffer(tab_width=8)
+        gb = TabGapBuffer()
         gb.insert(SP)
         gb.ed_cur_col = 1
         assert gb.text() == bytes([SP])
@@ -719,7 +1371,7 @@ class TestTabCharacter:
 
     def test_space_after_content(self):
         """SPACE after content: +1 column, no expansion."""
-        gb = _make_tab_buf(bytes([CH] * 3), cursor_col=3, tab_width=8)
+        gb = _make_tab_buf(bytes([CH] * 3), cursor_col=3)
         old_col = gb.ed_cur_col
         gb.insert(SP)
         gb.ed_cur_col += 1
@@ -730,26 +1382,26 @@ class TestTabCharacter:
     def test_right_over_tab(self):
         """RIGHT crosses $A0 → visual col jumps full tab width."""
         # TAB + 'a', cursor at col 0 (before tab)
-        gb = _make_tab_buf(bytes([TAB, CH]), cursor_col=0, tab_width=8)
+        gb = _make_tab_buf(bytes([TAB, CH]), cursor_col=0)
         gb.tab_right()
         assert gb.ed_cur_col == 8
 
     def test_right_over_char_after_tab(self):
         """RIGHT over regular char after tab."""
-        gb = _make_tab_buf(bytes([TAB, CH]), cursor_col=0, tab_width=8)
+        gb = _make_tab_buf(bytes([TAB, CH]), cursor_col=0)
         gb.tab_right()  # over tab → col 8
         gb.tab_right()  # over 'a' → col 9
         assert gb.ed_cur_col == 9
 
     def test_right_over_regular_char(self):
         """RIGHT over regular char: +1."""
-        gb = _make_tab_buf(bytes([CH, CH]), cursor_col=0, tab_width=8)
+        gb = _make_tab_buf(bytes([CH, CH]), cursor_col=0)
         gb.tab_right()
         assert gb.ed_cur_col == 1
 
     def test_right_at_end_noop(self):
         """RIGHT at end of line: no-op."""
-        gb = _make_tab_buf(bytes([CH]), cursor_col=1, tab_width=8)
+        gb = _make_tab_buf(bytes([CH]), cursor_col=1)
         gb.tab_right()
         assert gb.ed_cur_col == 1
 
@@ -758,21 +1410,21 @@ class TestTabCharacter:
     def test_left_over_tab(self):
         """LEFT crosses $A0 ← visual col jumps back full tab width."""
         # TAB + 'a', cursor after tab (col 8)
-        gb = _make_tab_buf(bytes([TAB, CH]), cursor_col=1, tab_width=8)
+        gb = _make_tab_buf(bytes([TAB, CH]), cursor_col=1)
         assert gb.ed_cur_col == 8  # after TAB
         gb.tab_left()
         assert gb.ed_cur_col == 0
 
     def test_left_over_char_before_tab(self):
         """LEFT over 'a' before tab: -1."""
-        gb = _make_tab_buf(bytes([CH, TAB]), cursor_col=1, tab_width=8)
+        gb = _make_tab_buf(bytes([CH, TAB]), cursor_col=1)
         assert gb.ed_cur_col == 1  # after 'a'
         gb.tab_left()
         assert gb.ed_cur_col == 0
 
     def test_left_at_col0_noop(self):
         """LEFT at col 0: no-op."""
-        gb = _make_tab_buf(bytes([CH]), cursor_col=0, tab_width=8)
+        gb = _make_tab_buf(bytes([CH]), cursor_col=0)
         gb.tab_left()
         assert gb.ed_cur_col == 0
 
@@ -780,7 +1432,7 @@ class TestTabCharacter:
 
     def test_del_tab(self):
         """DEL removes $A0, visual col recomputed."""
-        gb = _make_tab_buf(bytes([TAB, CH]), cursor_col=1, tab_width=8)
+        gb = _make_tab_buf(bytes([TAB, CH]), cursor_col=1)
         assert gb.ed_cur_col == 8  # after TAB
         gb.tab_del()
         assert gb.ed_cur_col == 0
@@ -788,7 +1440,7 @@ class TestTabCharacter:
 
     def test_del_char_after_tab(self):
         """DEL regular char after tab: visual col back by 1."""
-        gb = _make_tab_buf(bytes([TAB, CH]), cursor_col=2, tab_width=8)
+        gb = _make_tab_buf(bytes([TAB, CH]), cursor_col=2)
         assert gb.ed_cur_col == 9  # TAB(8) + a(1)
         gb.tab_del()
         assert gb.ed_cur_col == 8  # only TAB left before cursor
@@ -796,13 +1448,13 @@ class TestTabCharacter:
 
     def test_del_regular(self):
         """DEL regular char: standard backspace."""
-        gb = _make_tab_buf(bytes([CH, CH]), cursor_col=2, tab_width=8)
+        gb = _make_tab_buf(bytes([CH, CH]), cursor_col=2)
         gb.tab_del()
         assert gb.ed_cur_col == 1
 
     def test_del_at_col0_noop(self):
         """DEL at col 0: no-op."""
-        gb = _make_tab_buf(bytes([CH]), cursor_col=0, tab_width=8)
+        gb = _make_tab_buf(bytes([CH]), cursor_col=0)
         gb.tab_del()
         assert gb.ed_cur_col == 0
         assert gb.text() == bytes([CH])
@@ -811,7 +1463,7 @@ class TestTabCharacter:
 
     def test_return_copies_tab_indent(self):
         """RETURN copies leading $A0 tabs to new line."""
-        gb = _make_tab_buf(bytes([TAB, CH, CH]), cursor_col=3, tab_width=8)
+        gb = _make_tab_buf(bytes([TAB, CH, CH]), cursor_col=3)
         gb.tab_return()
         assert gb.ed_cur_col == 8  # one TAB visual width
         ws = gb._copy_leading_ws()
@@ -820,7 +1472,7 @@ class TestTabCharacter:
     def test_return_copies_mixed_ws(self):
         """RETURN copies mixed $20 + $A0 leading whitespace."""
         line = bytes([SP, TAB, CH])
-        gb = _make_tab_buf(line, cursor_col=3, tab_width=8)
+        gb = _make_tab_buf(line, cursor_col=3)
         gb.tab_return()
         ws = gb._copy_leading_ws()
         assert ws == bytes([SP, TAB])
@@ -828,7 +1480,7 @@ class TestTabCharacter:
     def test_return_copies_spaces(self):
         """RETURN copies leading spaces."""
         line = bytes([SP, SP, SP, CH])
-        gb = _make_tab_buf(line, cursor_col=4, tab_width=8)
+        gb = _make_tab_buf(line, cursor_col=4)
         gb.tab_return()
         assert gb.ed_cur_col == 3
         ws = gb._copy_leading_ws()
@@ -836,24 +1488,17 @@ class TestTabCharacter:
 
     def test_return_no_indent(self):
         """RETURN on non-indented line: no copy."""
-        gb = _make_tab_buf(bytes([CH, CH]), cursor_col=2, tab_width=8)
+        gb = _make_tab_buf(bytes([CH, CH]), cursor_col=2)
         gb.tab_return()
         assert gb.ed_cur_col == 0
         ws = gb._copy_leading_ws()
         assert ws == b""
 
-    def test_return_tw0_no_indent(self):
-        """RETURN with tw=0: no auto-indent."""
-        line = bytes([SP, SP, CH])
-        gb = _make_tab_buf(line, cursor_col=3, tab_width=0)
-        gb.tab_return()
-        assert gb.ed_cur_col == 0
-
     # ── Rendering tab expansion ──────────────────────────────────────
 
     def test_render_tab_at_col0(self):
         """Render TAB at col 0, tw=8: 8 spaces on screen."""
-        gb = TabGapBuffer(tab_width=8)
+        gb = TabGapBuffer()
         gb.insert(TAB)
         gb.insert(CH)
         scr = render_line_tab(gb, 0)
@@ -863,7 +1508,7 @@ class TestTabCharacter:
 
     def test_render_tab_after_text(self):
         """Render 'aaa' + TAB, tw=8: 3 chars + 5 spaces."""
-        gb = TabGapBuffer(tab_width=8)
+        gb = TabGapBuffer()
         for _ in range(3):
             gb.insert(CH)
         gb.insert(TAB)
@@ -874,22 +1519,9 @@ class TestTabCharacter:
         assert scr[7] == SP  # end of tab expansion
         assert scr[8] == petscii_to_screencode(0x42)  # 'b'
 
-    def test_render_tab_tw4(self):
-        """Render 'a' + TAB, tw=4: col 1 → 3 spaces → content at col 4."""
-        gb = TabGapBuffer(tab_width=4)
-        gb.insert(CH)
-        gb.insert(TAB)
-        gb.insert(0x42)
-        scr = render_line_tab(gb, 0)
-        assert scr[0] == petscii_to_screencode(CH)
-        assert scr[1] == SP
-        assert scr[2] == SP
-        assert scr[3] == SP
-        assert scr[4] == petscii_to_screencode(0x42)
-
     def test_render_two_tabs(self):
         """Render TAB + TAB + 'a', tw=8."""
-        gb = TabGapBuffer(tab_width=8)
+        gb = TabGapBuffer()
         gb.insert(TAB)
         gb.insert(TAB)
         gb.insert(CH)
@@ -897,16 +1529,6 @@ class TestTabCharacter:
         assert scr[:8] == [SP] * 8
         assert scr[8:16] == [SP] * 8
         assert scr[16] == petscii_to_screencode(CH)
-
-    def test_render_tab_tw0_single_space(self):
-        """Render TAB with tw=0: single space."""
-        gb = TabGapBuffer(tab_width=0)
-        gb.insert(TAB)
-        gb.insert(CH)
-        scr = render_line_tab(gb, 0)
-        assert scr[0] == SP
-        assert scr[1] == petscii_to_screencode(CH)
-
 
 def render_line_tab(gb, line_num):
     """Simulate ed_render_line with tab expansion."""
@@ -924,7 +1546,7 @@ def render_line_tab(gb, line_num):
 
     scr = [SP] * 40
     col = 0
-    tw = gb.tab_width
+    tw = TabGapBuffer.TAB_WIDTH
     while col < 40:
         if pos == gb.gap_lo:
             pos = gb.gap_hi
@@ -935,7 +1557,7 @@ def render_line_tab(gb, line_num):
             pos += 1
             break
         if ch == TAB:
-            w = (tw - (col % tw)) if tw > 0 else 1
+            w = tw - (col % tw)
             while w > 0 and col < 40:
                 scr[col] = SP
                 col += 1

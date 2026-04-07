@@ -57,8 +57,9 @@
 
 ; ── Imports: editor ────────────────────────────────────────
         .import ed_save_source, ed_load_source
+        .import ed_load_split, ed_load_split_lines
         .import ed_save_bytes, ed_save_lines
-        .import tab_width, ed_ensure_init, ed_new
+        .import ed_ensure_init, ed_new
         .import ed_dirty, ed_total_lines
 
 ; ── Imports: memory info ───────────────────────────────────
@@ -157,11 +158,13 @@ str_lines:      .byte " lines, ", 0
 str_bytes:      .byte " bytes", 0
 str_bytes_at:   .byte " bytes at $", 0
 str_bytes_sp:   .byte " bytes ", 0
+str_split_pfx:  .byte ";   ! ", 0
+str_split_sfx:  .byte " lines split: ", 0
+str_split_more: .byte "...", 0
 str_del_src:    .byte ";delete source. are you sure? y/n ", 0
 str_unsaved:    .byte ";unsaved. y/n? ", 0
 str_ok:         .byte "ok", 0
 str_B_eq:       .byte ";B=", 0             ; note: PETSCII uppercase B
-str_T_eq:       .byte ";t=", 0
 str_color:      .byte ";color: ", 0
 str_cpu:        .byte ";cpu: 6502", 0
 .ifdef CPU_6510
@@ -2271,6 +2274,85 @@ VIC_MEMCTL = $D018
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
+; print_load_split_warning — print split warning if any lines
+; were split during the last ed_load_source.
+;
+; Output format (when ed_load_split > 0):
+;   ;   ! 3 lines split: 15, 23, 40
+; or if more than 8 splits:
+;   ;   ! 12 lines split: 15, 23, 40, 51, 64, 72, 85, 97...
+;
+; Line numbers are 1-based (editor lines are 0-based internally).
+; Only the first min(8, ed_load_split) numbers are printed; if
+; ed_load_split > 8, the list is followed by "..." to indicate
+; more.
+; ═══════════════════════════════════════════════════════════
+.proc print_load_split_warning
+        lda ed_load_split
+        beq @done               ; no splits → nothing to print
+        jsr newline
+        lda #<str_split_pfx
+        ldx #>str_split_pfx
+        jsr io_puts
+        lda ed_load_split
+        ldx #0
+        jsr io_putdec
+        lda #<str_split_sfx
+        ldx #>str_split_sfx
+        jsr io_puts
+
+        ; Print up to 8 line numbers (1-based, comma-separated)
+        lda ed_load_split
+        cmp #9
+        bcc @count_ok
+        lda #8
+@count_ok:
+        sta @count              ; count of numbers to print
+        ldx #0
+        stx @idx
+@num_loop:
+        lda @idx
+        cmp @count
+        bcs @nums_done
+        ; Separator (comma + space) if not first
+        beq @no_sep
+        lda #','
+        jsr io_putc
+        lda #' '
+        jsr io_putc
+@no_sep:
+        ; Load the 16-bit line number from ed_load_split_lines[idx*2]
+        lda @idx
+        asl                     ; idx*2
+        tax
+        lda ed_load_split_lines,x
+        clc
+        adc #1                  ; 1-based
+        sta rp_tmp              ; lo
+        lda ed_load_split_lines+1,x
+        adc #0
+        tax                     ; hi
+        lda rp_tmp              ; lo
+        jsr io_putdec
+        inc @idx
+        jmp @num_loop
+@nums_done:
+        ; If more than 8 splits, append "..."
+        lda ed_load_split
+        cmp #9
+        bcc @clear_eol
+        lda #<str_split_more
+        ldx #>str_split_more
+        jsr io_puts
+@clear_eol:
+        jsr io_clear_eol
+@done:  rts
+
+@count:  .byte 0
+@idx:    .byte 0
+.endproc
+
+; ═══════════════════════════════════════════════════════════
 ; io_err_load / io_err_save — print error with name
 ;   rp_ptr2 = name
 ; ═══════════════════════════════════════════════════════════
@@ -2363,6 +2445,7 @@ disk_done:
 @seq_ok:
         jsr restore_name_ptr
         jsr print_seq_stats
+        jsr print_load_split_warning
         jmp @done
 
 @load_prg:
@@ -3263,25 +3346,6 @@ free_line:
         jsr io_clear_eol
         jmp nl_clear
 
-@h_tab: ; T (PETSCII $D4) — tab width
-        jsr try_expr
-        bcc @T_show             ; empty or error → just show
-        lda expr_val
-        cmp #33                 ; <= 32
-        bcs @T_show
-        cmp tab_width
-        beq @T_show
-        sta tab_width
-@T_show:
-        jsr newline
-        lda #<str_T_eq
-        ldx #>str_T_eq
-        jsr io_puts
-        lda tab_width
-        jsr io_puthex2
-        jsr io_clear_eol
-        jmp nl_clear
-
 @h_col: ; C (PETSCII $C3) — color
         jsr skip_sp_ptr1
         ldy #0
@@ -3763,17 +3827,17 @@ free_line:
 @cmd_chars:
         .byte '.', 'd', 'm', 'b', 'r', 'l', 's', 'i'
         .byte '@', '+', '-', 'j', 'g', 't', 'o', 'k'
-        .byte $C2, $D4, $C3, 'u', 'a', '?', $D1, '$'
-        .byte 'x', 'c'
+        .byte $C2, $C3, 'u', 'a', '?', $D1, '$', 'x'
+        .byte 'c'
         .byte 0                 ; sentinel
 @cmd_lo:
         .byte <@h_dot, <@h_d, <@h_m, <@h_b, <@h_r, <@h_l, <@h_s, <@h_i
         .byte <@h_at, <@h_plus, <@h_minus, <@h_j, <@h_g, <@h_t, <@h_o, <@h_k
-        .byte <@h_blk, <@h_tab, <@h_col, <@h_u, <@h_a, <@h_calc, <@h_quit, <@h_dir
-        .byte <@h_x, <@h_c
+        .byte <@h_blk, <@h_col, <@h_u, <@h_a, <@h_calc, <@h_quit, <@h_dir, <@h_x
+        .byte <@h_c
 @cmd_hi:
         .byte >@h_dot, >@h_d, >@h_m, >@h_b, >@h_r, >@h_l, >@h_s, >@h_i
         .byte >@h_at, >@h_plus, >@h_minus, >@h_j, >@h_g, >@h_t, >@h_o, >@h_k
-        .byte >@h_blk, >@h_tab, >@h_col, >@h_u, >@h_a, >@h_calc, >@h_quit, >@h_dir
-        .byte >@h_x, >@h_c
+        .byte >@h_blk, >@h_col, >@h_u, >@h_a, >@h_calc, >@h_quit, >@h_dir, >@h_x
+        .byte >@h_c
 .endproc

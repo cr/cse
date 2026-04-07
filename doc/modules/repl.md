@@ -313,7 +313,6 @@ The REPL's line editor operates within the 40-column screen:
 | `k`   | kill    | —         | `k`                  | Clear source buffer; guards unsaved   |
 | `B`   | block   | —         | `B 40` or `B`       | Set/show block size (uppercase)        |
 | `C`   | color   | —         | `C 06` or `C 0e6`   | Set text/bg/border color (uppercase)  |
-| `T`   | tab     | —         | `T 4` or `T`         | Set/show tab width; reindents source (uppercase) |
 | `u`   | cpu     | —         | `u 6502` or `u 65c02` | Set CPU mode for asm/disasm        |
 | `Q`   | quit    | —         | `Q`                  | Exit CSE (uppercase; guards unsaved)  |
 | `x`   | clear   | —         | `x`                  | Clear screen                          |
@@ -391,21 +390,43 @@ Any other argument is sent to the drive command channel (#15)
 *(planned — requires disk.s extension)*.
 Bare `$` lists the directory.
 
-### `T` — Tab width
+### Tab width (build-time constant)
 
-The `T` command (uppercase) sets the editor's tab stop interval.
-Default: `8`.  Value range: 1–32 (hex).
+CSE's tab width is a **build-time constant** (`-DTAB_WIDTH=N`,
+default 8).  It is not runtime-mutable — there is no `T` command.
 
-    T 4      set to 4 columns
-    T 8      set to 8 columns
-    T        show current tab width
+Rationale: tab width interacts with the editor's 39-column hard
+line cap.  Changing it at runtime would invalidate every line's
+visual width and could turn previously-valid lines into "too
+long" errors.  Baking it in eliminates a whole class of edge
+cases and matches the C64-era convention (Turbo Assembler,
+MasterSeka, Relaunch64 all default to 8).
 
-When the tab width changes, `ed_reindent` walks every line in the
-source buffer.  Leading spaces are decomposed into indent levels
-and a remainder: `levels = spaces / old_width`, `remainder = spaces
-% old_width`.  The new indent is `levels * new_width + remainder`.
-This preserves sub-tab-stop alignment while rescaling full indent
-levels.
+The "4-space" convention from modern high-level languages
+doesn't fit 6502 assembly on a 40-column screen anyway — use 8.
+If you really need a different value, rebuild with
+`make TAB_WIDTH=N`.
+
+### Loading files with long lines
+
+`ed_load_source` enforces the editor's 39-column cap during load
+by **splitting** any line that would exceed the cap.  A forced
+CR is inserted at the last safe column; the remainder becomes a
+new editor line.  The load always succeeds.
+
+After a load, if any splits happened, the REPL prints a warning:
+
+    ; loaded "file,s" — 312 bytes, 47 lines
+    ;   ! 3 lines split on load at editor lines 14, 22, 39
+
+The user can scroll to each flagged line number and see the
+forced CR.  Saving back writes the split version — the original
+file structure is **not** preserved across load→save.  For
+lossless long-line source, pre-format in a cross-dev tool before
+loading into CSE.
+
+See [editor.md § Load from SEQ file](editor.md#load-from-seq-file)
+for the exact split mechanics.
 
 ### `i` — Memory map
 
@@ -486,7 +507,6 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
     [x] ?   hex expression calculator
     [x] B   block size (uppercase, was `b`)
     [x] C   color theme (uppercase, was `c`)
-    [x] T   tab width (uppercase)
     [x] u   cpu mode select
     [x] k   kill source (clear editor buffer, confirms first)
     [x] l   load file from disk

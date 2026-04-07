@@ -52,7 +52,8 @@
 ; ── Exports: editor stubs ─────────────────────────────────────
         .export ed_save_source, ed_load_source
         .export ed_save_bytes, ed_save_lines, ed_total_lines
-        .export tab_width, ed_ensure_init, ed_new, ed_dirty
+        .export ed_ensure_init, ed_new, ed_dirty
+        .export ed_load_split, ed_load_split_lines
 
 ; ── Exports: meminfo stubs ────────────────────────────────────
         .export cse_start, cse_end, cse_zp_end
@@ -126,8 +127,9 @@ reg_p:         .res 1
 ed_save_bytes: .res 2
 ed_save_lines: .res 2
 ed_total_lines: .res 2
-tab_width:     .res 1
 ed_dirty:      .res 1
+ed_load_split: .res 1
+ed_load_split_lines: .res 16
 
 ; Assembler state
 asm_org:       .res 2

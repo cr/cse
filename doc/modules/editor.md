@@ -26,11 +26,20 @@ in A or A/X; multi-arg via named ZP variables).
 - `ed_read_byte()` — read next byte from source; A/X = byte or $FFFF at EOF
 - `ed_insert_string(text)` — programmatic text insertion at cursor
 
-**State:** `tab_width` (uint8, BSS, default 8) — tab stop interval
-in columns.  Initialized to 8 by `ed_init`, changeable via the
-REPL's `T` command (uppercase).  Affects
-rendering of $A0 (tab) bytes only; changing it does not modify
-buffer contents.
+**Tab width:** `TAB_WIDTH` is a **build-time constant**
+(`-DTAB_WIDTH=N`, default 8).  It is not runtime-mutable; there is
+no `T` REPL command, no `tab_width` BSS variable.  `TAB_WIDTH`
+must be a value in 1..32 at build time.  The default of 8 matches
+every C64-era assembler toolchain (Turbo Assembler, MasterSeka,
+Relaunch64, ca65 `.lst` output) and makes `col mod TAB_WIDTH`
+collapse to `and #$07` on the 6502.
+
+Rationale: `TAB_WIDTH` interacts with the 39-col hard line cap
+(below) — changing it at runtime would invalidate every line's
+visual width, force a full re-render, and may turn
+previously-valid lines into "too long" errors.  Baking it in
+eliminates a whole class of bugs at the cost of ~30 bytes saved
+(dropped `col_mod_tw` loop + dropped `T` command).
 
 **Statistics:** `ed_save_bytes`, `ed_save_lines` (uint16, BSS) —
 counts from last file operation.  `ed_total_lines` (uint16, BSS,
@@ -73,7 +82,10 @@ Total: 14 ZP bytes.
 | `ed_dirty` | 1 | buffer modified flag |
 | `ed_save_bytes` | 2 | bytes from last file op |
 | `ed_save_lines` | 2 | lines from last file op |
-| `tab_width` | 1 | tab stop interval (default 8) |
+| `ed_load_split` | 1 | count of lines split on last load (0 if none) |
+| `ed_load_split_lines` | 16 | first 8 affected editor line numbers as 16-bit values (`lo, hi, lo, hi, ...`); valid entries = `min(ed_load_split, 8)` |
+| `_load_vcol` | 1 | running visual col of the current line during `ed_load_source` — read only by the load_insert callback |
+| `_load_line` | 2 | current editor line number during `ed_load_source` — read only by the load_insert callback |
 | `save_phase` | 1 | save callback state (0=pre-gap, 1=post-gap) |
 | `repl_cur_x` | 1 | saved REPL cursor X |
 | `repl_cur_y` | 1 | saved REPL cursor Y |
@@ -87,19 +99,21 @@ Internal functions use register/ZP arguments directly — no parameter stack.
 
 | Function | Args | Returns | Notes |
 |----------|------|---------|-------|
-| `ed_init` | — | — | reset all state, set `tab_width=8` |
+| `ed_init` | — | — | reset all state |
 | `gb_ensure_room` | — | C=0 fail, C=1 ok | grow buffer if gap exhausted |
-| `gb_insert` | A = byte | — | insert at gap_lo |
+| `gb_insert` | A = byte | — | insert at gap_lo (no cap check; callers at the five text-entry points apply the 39-col cap inline) |
 | `gb_backspace` | — | — | delete before gap_lo |
 | `gb_cursor_right` | — | — | move gap right |
 | `gb_cursor_left` | — | — | move gap left |
 | `gb_home` | — | — | move to start of line |
 | `skip_one_line` | ptr in A/X | result in A/X | advance past one line |
 | `prev_line_start` | ptr in A/X | result in A/X | retreat to previous line |
-| `visual_col` | — | A = column | recompute from line start |
-| `char_width` | A = byte, X = vcol | A = width | tab-aware |
-| `advance_to_vcol` | A = target col | — | cursor right to column |
-| `copy_leading_ws` | — | A = count | auto-indent helper |
+| `visual_col` | — | A = column | recompute cursor column (0..39) |
+| `line_vwidth` | ed_scr = line-start ptr | A = width | total visual width of the line starting at ed_scr, stopping at CR/EOF; returns 0..254 normal or `$FF` overflow sentinel.  Used by backspace-join overflow detection. |
+| `char_width` | A = byte, X = vcol | A = width | tab-aware; uses `TAB_WIDTH` |
+| `advance_to_vcol` | A = target col | — | cursor right toward target column, stopping at EOL or when next char would overshoot |
+| `copy_leading_ws` | — | Y = count | auto-indent helper; copies leading $20/$A0 bytes into `ws_buf` |
+| `load_insert` | A = byte | — | ed_load_source callback: inserts with 39-col cap tracking, forces CR on overflow, records splits in `ed_load_split`/`ed_load_split_lines` |
 
 ## Design
 
@@ -197,7 +211,7 @@ anchor.
   `buf_end`.  Transparently skips the gap.  Converts PETSCII to
   screen codes: $41–$5A → $01–$1A (lowercase), $C1–$DA → $41–$5A
   (uppercase).  Expands $A0 (tab) to spaces up to the next
-  `tab_width` column boundary.  Pads the rest of the row with
+  `TAB_WIDTH` column boundary.  Pads the rest of the row with
   spaces.
 - `ed_render_range(from, to)` — render screen rows `from` to `to`
   by advancing from `ed_top_ptr`.
@@ -243,15 +257,15 @@ editor cursor.
 
 | Key | Action | Redraw |
 |-----|--------|--------|
-| C=+SPACE | Insert $A0 (tab byte), advance `ed_cur_col` to next `tab_width` boundary | current row only + status |
+| C=+SPACE | Insert $A0 (tab byte), advance `ed_cur_col` to next `TAB_WIDTH` boundary.  Refused if the new `ed_cur_col` would exceed 39 (i.e., the tab's expansion crosses the cursor-rest col). | current row only + status |
 | LEFT | `gb_cursor_left`, decrement `ed_cur_col`; if byte crossed is $A0, `ed_cur_col` snaps back to previous tab-stop-aligned column | status pos only |
 | RIGHT | `gb_cursor_right`, increment `ed_cur_col`; if byte crossed is $A0, `ed_cur_col` snaps forward to next tab-stop-aligned column (stops at CR/EOF) | status pos only |
 | UP | `ed_cursor_up`: home → left (past CR) → home → advance to target col | scroll down if above viewport, else status pos |
 | DOWN | `ed_cursor_down`: advance past CR → advance to target col | scroll up if below viewport, else status pos |
 | HOME | `gb_home`: slide gap left to start of current line | status pos only |
-| DEL | `gb_backspace`, re-render from current row to bottom. At col 0: join with previous line, adjust `ed_cur_line`/`ed_top_line`, re-render | rows from cursor to bottom + status |
-| RETURN | Insert $0D, advance `ed_cur_line`. Auto-indent: copy leading whitespace (spaces and $A0 tabs) from current line to new line. Scroll if needed | rows from previous line to bottom + status |
-| printable | insert char at gap, increment `ed_cur_col` (max col 38) | current row only + status |
+| DEL | `gb_backspace`, re-render from current row to bottom. At col 0: **conditional join** with previous line — see "Backspace-join and the 39-col cap" below | rows from cursor to bottom + status |
+| RETURN | Insert $0D, advance `ed_cur_line`. Auto-indent: copy leading whitespace (spaces and $A0 tabs) from current line to new line.  Auto-indent is truncated if it would exceed 38 cols (leaving at least one col for the first typable char). | rows from previous line to bottom + status |
+| printable | insert char at gap, increment `ed_cur_col`.  Refused if `ed_cur_col == 39` (cursor already at the rest col — the line is full). | current row only + status |
 
 Cursor movement preserves the target column across UP/DOWN (saved
 in `target_col` before the move, restored after).  Target column is
@@ -261,31 +275,157 @@ the *visual* column, not the byte offset.
 
 C=+SPACE ($A0) is the tab key.  It inserts a single $A0 byte into
 the gap buffer.  On screen, $A0 renders as spaces up to the next
-`tab_width` column boundary (minimum 1 space).  In the buffer it
+`TAB_WIDTH` column boundary (minimum 1 space).  In the buffer it
 remains a literal $A0 byte — one byte per tab, regardless of
 visual width.
 
-`tab_width` controls the visual width of tabs.  Changing
-`tab_width` (via the REPL's `T` command) does not modify the buffer
-— it only changes how $A0 bytes are rendered.  This is the same
-model as hard tabs in modern editors.
-
-`tab_width = 0` disables tab rendering; $A0 is displayed as a
-single space.
+`TAB_WIDTH` is a **build-time constant** (default 8, settable via
+`make TAB_WIDTH=N`).  It is not runtime-mutable.  Once chosen at
+build time, every tab on every line renders at that width, and
+the 39-col hard cap (below) is calculated against it.
 
 **Visual column tracking.**  `ed_cur_col` tracks the visual
 (screen) column, not the byte offset into the line.  A single $A0
-byte advances `ed_cur_col` by 1–`tab_width` columns depending on
+byte advances `ed_cur_col` by 1–`TAB_WIDTH` columns depending on
 the current position.  Cursor LEFT/RIGHT over a $A0 byte jumps the
 full visual width of that tab in one keystroke.
 
 **Auto-indent.**  RETURN copies leading whitespace from the current
 line to the new line.  Both $20 (space) and $A0 (tab) bytes are
-copied verbatim.
+copied verbatim.  The copy is **truncated** if continuing it would
+leave the new line with no room for the first typable char:
+auto-indent stops at the longest prefix of the parent line's
+leading whitespace that leaves the new `ed_cur_col` ≤ 38.  (Cap is
+39 content cols; auto-indent leaves at least one col for the user.)
 
 **Sequential reader.**  `ed_read_line` and `ed_read_byte` pass $A0
 through as-is.  The assembler's whitespace skipper (`au_skip_ws`)
 must treat $A0 as whitespace.
+
+### The 39-column hard cap
+
+**Terminology.**  Screen columns are 0-indexed.  Content may fill
+visual cols **0..38** inclusive → a line holds up to **39 chars**
+of content.  Col **39** is the "cursor rest" position where the
+cursor sits after a full line; no content goes there.  The
+`ed_cur_col` BSS variable is this 0-indexed column; its valid
+range is **0..39**.
+
+Every line in the buffer is guaranteed to fit in ≤ 39 content
+chars (equivalently, `ed_cur_col` at end-of-line ≤ 39).  This is
+a **hard invariant**: rendering, cursor motion, status-bar position
+display, and all scroll/row math assume it.  The editor enforces
+the cap at every point where text can enter the buffer:
+
+1. **Printable character insert** — refused if `ed_cur_col == 39`
+   (cursor already at the rest position; inserting would place
+   content beyond col 38).
+2. **Tab insert** — refused if the tab expansion would push the
+   new `ed_cur_col` past 39 (i.e., new value ≥ 40).
+3. **Auto-indent on RETURN** — the copied leading whitespace is
+   **truncated** to a prefix that leaves the new line's
+   `ed_cur_col` ≤ 38, so the user can immediately type at least
+   one char.
+4. **Backspace-join** at col 0 — see below.
+5. **Load from SEQ file** — see below.
+
+These are the **only** entry points for text.  Once enforced at
+entry, the invariant is maintained forever without further checks.
+
+### Backspace-join and the 39-col cap
+
+DEL at col 0 normally joins the current line with the previous
+line: delete the CR at end of line N-1, concatenating the two.
+If `line_vwidth(N-1) + line_vwidth(N) > 39`, the join would
+violate the cap.
+
+**Policy: forced newline.**  The join proceeds (the original CR
+disappears where the user pressed DEL), but the editor
+immediately re-inserts a CR at the last safe byte position on the
+combined line.  "Last safe" = the highest byte position at which
+the first sub-line's visual width stays ≤ 39 *and* the split does
+not fall inside a tab's expansion (tabs are never broken — if a
+tab would straddle the cap, the CR goes before the tab).
+
+Net effect:
+
+- The user sees their backspace "worked" (one CR disappeared
+  where they pressed DEL) but a **different** CR appeared at a
+  col such that the first sub-line's width ≤ 39, splitting the
+  combined text differently.  Two lines remain, but the split
+  point has moved.
+- No data is lost.  Every character from both original lines is
+  still in the buffer, in order.
+- The cursor ends up at the byte where the original line 2
+  started — this is now part of the first sub-line (if it fits
+  within col 39) or of the new second sub-line (if the forced CR
+  landed before it).  Either way, the byte the cursor logically
+  points to is preserved.
+
+The effect is equivalent to "join, then split at the cap".  The
+user can't accidentally create an invalid line with backspace —
+the cap is enforced mechanically.
+
+### Load from SEQ file
+
+`ed_load_source` reads bytes from the SEQ file one at a time via
+`disk_load_seq`, feeding them through `gb_insert` directly.  The
+file format (CR-terminated text lines) is unchanged.
+
+**Line-width enforcement.**  A small inline check in the load
+callback tracks the running visual width of the current line
+(`ed_cur_col`).  Before each insert, it calls a character-width
+computation (`char_width` for tabs, else 1) to determine the
+expansion of the incoming byte.  If inserting the next byte
+would push the visual width to 40 or beyond (i.e., beyond the
+cursor-rest col 39), the loader **forces a CR at the cap
+boundary**, then inserts the byte as the first char of the next
+line.  The user's logical line N in the file becomes two editor
+lines N and N+1, each with visual width ≤ 39.  Tabs are never
+split — if a tab would straddle the cap, the forced CR goes
+*before* the tab and the tab becomes the first char of the new
+line.
+
+**Warning on split.**  Each forced split increments a counter.
+When the load finishes, if any splits happened, the REPL prints
+a warning identifying the affected editor line numbers:
+
+    ; loaded "file,s" — 312 bytes, 47 lines
+    ;   ! 3 lines split on load at editor lines 14, 22, 39
+
+The user can scroll to each flagged line, see the forced CR, and
+manually re-format (usually by joining with RETURN-to-indent or
+by rearranging tokens).  The load itself always succeeds — the
+file is preserved in the buffer, just reshaped.
+
+**Edge cases:**
+
+- A single byte wider than 39 cols at col 0 (impossible for a
+  printable char, but a tab at col 0 with `TAB_WIDTH > 39` would
+  hit it).  Not reachable under the documented `TAB_WIDTH` range
+  1..32.
+- A line of exactly 39 cols followed by a CR: no split, no
+  warning (fits the cap exactly; cursor at col 39 at end of line).
+- A line of 40+ cols: exactly one split per overflow; a 120-col
+  line becomes 4 editor lines (roughly 39 + 39 + 39 + 3) and
+  produces one warning for the logical file line.
+- Trailing $A0 tabs at the end of a line: counted toward the
+  visual width normally; if the tab's expansion would push past
+  col 39, the split CR goes before the tab.
+
+**`ed_load_split` BSS counter** (1 byte) holds the number of
+splits from the last load.  **`ed_load_split_lines`** (16 bytes)
+holds the first 8 affected editor line numbers as 16-bit values
+(`lo, hi, lo, hi, ...`); only the first `min(ed_load_split, 8)`
+entries are valid.  The REPL's `cmd_load` / `print_load_split_warning`
+read both after `ed_load_source` returns and print the warning.
+Both counters are reset at the start of each load.
+
+Implementation: the running load state lives in two BSS-local
+variables — `_load_vcol` (1 byte, running visual col of the
+current line) and `_load_line` (2 bytes, current editor line
+number) — read only by the `load_insert` callback.  They are
+zeroed by `ed_load_source` before calling `disk_load_seq`.
 
 ### File I/O
 
@@ -299,11 +439,15 @@ BUF_END).  Returns A=byte, X=0 for data; A=$FF, X=$FF for EOF
 (matches disk.s convention: `cpx #$FF` to detect EOF).
 On success, clears `ed_dirty`.
 
-**Load** (`ed_load_source`): resets the buffer (`ed_init`), then
-`disk_load_seq` calls `gb_insert` directly as the insert callback
-(A = byte).  After load, the gap is rewound to the start
-(`gb_cursor_left` loop) and all state is reset.  On failure,
-`ed_init` is called again to leave a clean empty buffer.
+**Load** (`ed_load_source`): resets the buffer (`ed_init`) and the
+load-split state (`ed_load_split`, `_load_vcol`, `_load_line`), then
+`disk_load_seq` calls `load_insert` as the insert callback (A = byte).
+`load_insert` is a cap-aware wrapper over `gb_insert`: it tracks the
+running visual width of the current line and forces a CR on overflow
+(see "The 39-column hard cap" and "Load from SEQ file" above).
+After load, the gap is rewound to the start (`gb_cursor_left` loop)
+and all cursor state is reset.  On failure, `ed_init` is called again
+to leave a clean empty buffer.
 
 ### Sequential reader
 
@@ -338,10 +482,22 @@ assembler calls `ed_read_rewind` before each pass.
   relocate pre-gap text is the most expensive operation.
 - `ed_render_line` does PETSCII-to-screencode conversion inline.
   Two ranges are handled: lowercase ($41–$5A) and uppercase ($C1–$DA).
-- Maximum column is 38 (SCREEN_WIDTH - 1).  Column 39 is reserved
-  for the cursor, matching the REPL convention.
-- $A0 (tab) is one byte in the buffer but 1–`tab_width` columns on
-  screen.  Visual column and byte offset diverge on lines with tabs.
+- **39-content-column hard cap.**  Content may fill visual cols
+  0..38 inclusive (39 chars max); col 39 is the cursor-rest
+  position, matching the REPL convention.  `ed_cur_col` ranges
+  0..39.  Enforced at every text-entry point (insert, tab,
+  auto-indent, backspace-join, load).  The renderer, cursor
+  math, and status bar all assume it.
+- $A0 (tab) is one byte in the buffer but 1–`TAB_WIDTH` columns on
+  screen.  Visual column and byte offset diverge on lines with
+  tabs.  `TAB_WIDTH` is a build-time constant (default 8).
+- Long lines in a loaded SEQ file are **split** at the cap
+  boundary.  The load always succeeds; the REPL prints a warning
+  with the affected editor line numbers so the user can fix them
+  manually.  Saving back writes the split version — the original
+  file structure is **not** preserved across load→save.  Users
+  wanting lossless round-trip for long-line source should
+  pre-format in their cross-dev tool.
 - `buf_end` is the constant $D000, not a variable.  This saves 2 ZP
   bytes vs the C implementation.
 - `save_ptr` and `read_ptr` overlap in ZP since they are never active

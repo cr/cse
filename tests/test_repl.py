@@ -161,7 +161,6 @@ class ReplSymbols:
         self.reg_y        = exp['reg_y']
         self.reg_sp       = exp['reg_sp']
         self.reg_p        = exp['reg_p']
-        self.tab_width    = exp['tab_width']
         self.state        = exp['state']
         self.dasm_buf     = exp['dasm_buf']
         self.al_cpu       = exp['al_cpu']
@@ -778,25 +777,11 @@ class TestUnknownCommand:
         assert get_cur_addr(cpu, rsyms) == 0x1000
 
 
-# ── O. Settings: tab width (T), color (C), cpu (u) ──────────
+# ── O. Settings: color (C), cpu (u) ──────────
 
-class TestTabWidth:
-    """T command sets tab_width."""
-
-    CASES = [
-        ("T4",    4),
-        ("T8",    8),
-        ("T$10", 16),
-        ("T1",    1),   # single digit now works via try_expr
-    ]
-
-    @pytest.mark.parametrize("cmd,expected", CASES,
-                             ids=[c[0] for c in CASES])
-    def test_tab(self, rsyms, cmd, expected):
-        cpu = make_cpu(rsyms)
-        set_line_buf(cpu, rsyms, cmd)
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.tab_width] == expected
+# Note: tab width is now a build-time constant (TAB_WIDTH, default 8);
+# the `T` command no longer exists.  See doc/modules/repl.md and
+# doc/modules/editor.md.
 
 
 class TestCpuSelect:

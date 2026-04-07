@@ -44,17 +44,22 @@ CPU ?= 6510
 # ── Per-CPU configuration ────────────────────────────────────────────────
 # _cpu_defs, _mn_srcs, _build_dir, _prg_name for each variant.
 
-_6510_DEFS    = -DCPU_6510 -DDEFAULT_CPU=0 -DCPU_CEIL=1
+# TAB_WIDTH is a build-time constant for the editor's tab stop interval.
+# Power-of-two values get a fast `and #TAB_MASK` modulo; other values
+# assemble but pay a runtime loop.  See doc/modules/editor.md.
+TAB_WIDTH ?= 8
+
+_6510_DEFS    = -DCPU_6510 -DDEFAULT_CPU=0 -DCPU_CEIL=1 -DTAB_WIDTH=$(TAB_WIDTH)
 _6510_MN      = mn7 mn7_tables
 _6510_DIR     = $(ROOT)build/6510
 _6510_PRG     = cse.prg
 
-_6502_DEFS    = -DCPU_6502 -DUSE_MN6 -DDEFAULT_CPU=0 -DCPU_CEIL=0
+_6502_DEFS    = -DCPU_6502 -DUSE_MN6 -DDEFAULT_CPU=0 -DCPU_CEIL=0 -DTAB_WIDTH=$(TAB_WIDTH)
 _6502_MN      = mn6 mn6_tables
 _6502_DIR     = $(ROOT)build/6502
 _6502_PRG     = cse-6502.prg
 
-_65c02_DEFS   = -DCPU_65C02 -DCMOS_SUPPORT -DDEFAULT_CPU=2 -DCPU_CEIL=2
+_65c02_DEFS   = -DCPU_65C02 -DCMOS_SUPPORT -DDEFAULT_CPU=2 -DCPU_CEIL=2 -DTAB_WIDTH=$(TAB_WIDTH)
 _65c02_MN     = mn7 mn7_tables
 _65c02_DIR    = $(ROOT)build/cmos
 _65c02_PRG    = cse-cmos.prg
@@ -118,6 +123,20 @@ PRG    = $(BUILD)/$(PRG_NAME)
 DBG    = $(BUILD)/cse.dbg
 MAP    = $(BUILD)/cse.map
 
+# ── Build-flags stamp ───────────────────────────────────────────────────
+# Object files don't depend on $(AFLAGS) naturally.  If the user changes
+# THEME, TAB_WIDTH, DEBUG, etc. without touching any .s file, make
+# thinks the .o files are up to date and re-uses them with the wrong
+# flags.  Workaround: write a stamp file containing all build-affecting
+# flag values; if its contents differ, touch it so its mtime updates;
+# every object rule depends on the stamp.
+BUILD_FLAGS := CPU=$(CPU) THEME=$(THEME) TAB_WIDTH=$(TAB_WIDTH) DEBUG=$(DEBUG) VERSION=$(VERSION)
+FLAGS_STAMP := $(BUILD)/.build_flags
+_PREV_FLAGS := $(shell cat $(FLAGS_STAMP) 2>/dev/null)
+ifneq ($(_PREV_FLAGS),$(BUILD_FLAGS))
+  $(shell mkdir -p $(BUILD) && printf '%s' '$(BUILD_FLAGS)' > $(FLAGS_STAMP))
+endif
+
 # ── All assembler source files (pure asm, no C) ─────────────────────
 ASM_SRCS = main \
            asm_bridge asm_line asm_vars asm_src mn_vars mn_classify \
@@ -135,8 +154,17 @@ $(BUILD)/src/:
 	mkdir -p $@
 
 # Pattern rule: assemble src/*.s → build/CPU/src/*.o
-$(BUILD)/src/%.o: $(SRC)/%.s | $(BUILD)/src/
+# Every object also depends on $(FLAGS_STAMP) so that a change to
+# THEME / TAB_WIDTH / CPU / DEBUG triggers rebuilds even when the
+# .s source itself is unchanged.
+$(BUILD)/src/%.o: $(SRC)/%.s $(FLAGS_STAMP) | $(BUILD)/src/
 	$(CA65) $(AFLAGS) -o $@ $<
+
+# The stamp file itself: a rule so make knows it exists, but the
+# actual content writing happens at parse time above.  The rule is
+# a no-op target that just makes the file present for the dep check.
+$(FLAGS_STAMP): | $(BUILD)/
+	@printf '%s' '$(BUILD_FLAGS)' > $@
 
 $(PRG): $(ASM_OBJS) | $(BUILD)/
 	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) -m $(MAP) $(ASM_OBJS)
