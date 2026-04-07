@@ -110,6 +110,7 @@ Internal functions use register/ZP arguments directly — no parameter stack.
 | `prev_line_start` | ptr in A/X | result in A/X | retreat to previous line |
 | `visual_col` | — | A = column | recompute cursor column (0..39) |
 | `line_vwidth` | ed_scr = line-start ptr | A = width | total visual width of the line starting at ed_scr, stopping at CR/EOF; returns 0..254 normal or `$FF` overflow sentinel.  Used by backspace-join overflow detection. |
+| `cursor_line_vwidth` | — | A = width | walks back from `gap_lo` to the start of the cursor's line (without moving the gap), then calls `line_vwidth` from there.  Used by the printable/tab insert paths to enforce the 39-col cap against the line's total width, not just `ed_cur_col`. |
 | `char_width` | A = byte, X = vcol | A = width | tab-aware; uses `TAB_WIDTH` |
 | `advance_to_vcol` | A = target col | — | cursor right toward target column, stopping at EOL or when next char would overshoot |
 | `copy_leading_ws` | — | Y = count | auto-indent helper; copies leading $20/$A0 bytes into `ws_buf` |
@@ -257,7 +258,7 @@ editor cursor.
 
 | Key | Action | Redraw |
 |-----|--------|--------|
-| C=+SPACE | Insert $A0 (tab byte), advance `ed_cur_col` to next `TAB_WIDTH` boundary.  Refused if the new `ed_cur_col` would exceed 39 (i.e., the tab's expansion crosses the cursor-rest col). | current row only + status |
+| C=+SPACE | Insert $A0 (tab byte), advance `ed_cur_col` to next `TAB_WIDTH` boundary.  Refused if the line's total visual width plus the tab's width at end-of-line would exceed 39 (`cursor_line_vwidth() + char_width($A0, line_vwidth) > 39`). | current row only + status |
 | LEFT | `gb_cursor_left`, decrement `ed_cur_col`; if byte crossed is $A0, `ed_cur_col` snaps back to previous tab-stop-aligned column | status pos only |
 | RIGHT | `gb_cursor_right`, increment `ed_cur_col`; if byte crossed is $A0, `ed_cur_col` snaps forward to next tab-stop-aligned column (stops at CR/EOF) | status pos only |
 | UP | `ed_cursor_up`: home → left (past CR) → home → advance to target col | scroll down if above viewport, else status pos |
@@ -265,7 +266,7 @@ editor cursor.
 | HOME | `gb_home`: slide gap left to start of current line | status pos only |
 | DEL | `gb_backspace`, re-render from current row to bottom. At col 0: **conditional join** with previous line — see "Backspace-join and the 39-col cap" below | rows from cursor to bottom + status |
 | RETURN | Insert $0D, advance `ed_cur_line`. Auto-indent: copy leading whitespace (spaces and $A0 tabs) from current line to new line.  Auto-indent is truncated if it would exceed 38 cols (leaving at least one col for the first typable char). | rows from previous line to bottom + status |
-| printable | insert char at gap, increment `ed_cur_col`.  Refused if `ed_cur_col == 39` (cursor already at the rest col — the line is full). | current row only + status |
+| printable | insert char at gap, increment `ed_cur_col`.  Refused if the cursor's line is at the cap (`cursor_line_vwidth() ≥ 39`) — checks the line's total visual width, not just `ed_cur_col`, so an insert in the middle of a full line is also refused. | current row only + status |
 
 Cursor movement preserves the target column across UP/DOWN (saved
 in `target_col` before the move, restored after).  Target column is
@@ -317,11 +318,20 @@ a **hard invariant**: rendering, cursor motion, status-bar position
 display, and all scroll/row math assume it.  The editor enforces
 the cap at every point where text can enter the buffer:
 
-1. **Printable character insert** — refused if `ed_cur_col == 39`
-   (cursor already at the rest position; inserting would place
-   content beyond col 38).
-2. **Tab insert** — refused if the tab expansion would push the
-   new `ed_cur_col` past 39 (i.e., new value ≥ 40).
+1. **Printable character insert** — refused if the **cursor's
+   line** is already at the cap (`cursor_line_vwidth() ≥ 39`).
+   The check uses the line's *total* visual width, not just
+   `ed_cur_col`, so an insert in the middle of a full line is
+   refused even though the cursor is not yet at col 39.
+2. **Tab insert** — refused if the line's total visual width
+   plus the tab's width *at end of line* would exceed 39, i.e.
+   `line_vwidth + char_width($A0, line_vwidth) > 39`.  This is a
+   conservative check: it treats the tab as if appended at line
+   end (worst case), and may *under-refuse* tab inserts in the
+   middle of a tab-mixed line where realignment of trailing tabs
+   could push the line over the cap.  We accept that edge case
+   as the simplicity trade-off — `TAB_WIDTH=8` makes it rare in
+   practice.
 3. **Auto-indent on RETURN** — the copied leading whitespace is
    **truncated** to a prefix that leaves the new line's
    `ed_cur_col` ≤ 38, so the user can immediately type at least

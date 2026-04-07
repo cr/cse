@@ -613,14 +613,27 @@ class TabGapBuffer(GapBuffer):
     def tab_insert(self):
         """C=+SPACE: insert $A0 tab byte, advance to next tab stop.
 
-        Refused if the tab's expansion would push ed_cur_col past 39
-        (the cursor rest position).  The last legal final ed_cur_col
-        after a tab is 39 (line width exactly 39)."""
+        Refused if the line's visual width would exceed 39 after the
+        insert.  Conservative rule: compute the tab's width as if it
+        were appended at the end of the current line (worst case for
+        end-of-line; under-refuses for tab in the middle of a line
+        with mixed tabs but mirrors what asm checks)."""
+        line_w = self.line_vwidth_current()
+        tab_w = self._char_width(TAB, line_w)
+        if line_w + tab_w > 39:
+            return  # would push line past 39 cols
         w = self._char_width(TAB, self.ed_cur_col)
-        if self.ed_cur_col + w > 39:
-            return  # would overflow screen
         self.insert(TAB)
         self.ed_cur_col += w
+
+    def printable_insert(self, ch):
+        """Insert a printable byte at the cursor.  Refused if the
+        line's visual width is already at the 39-col cap (any
+        printable adds exactly one column)."""
+        if self.line_vwidth_current() >= 39:
+            return  # would push line past 39 cols
+        self.insert(ch)
+        self.ed_cur_col += 1
 
     def tab_left(self):
         """LEFT: move one byte left, recompute visual column."""
@@ -1330,6 +1343,55 @@ class TestTabCharacter:
         gb = _make_tab_buf(bytes([CH] * 31), cursor_col=31)
         gb.tab_insert()
         assert gb.ed_cur_col == 32
+
+    # ── Insert-in-middle cap (line_vwidth, not just ed_cur_col) ──────
+
+    def test_printable_in_middle_of_full_line_rejected(self):
+        """Cursor in the middle of a 39-char line: a printable insert
+        must be refused.  ed_cur_col alone is not sufficient — the
+        check must use the line's total visual width."""
+        gb = _make_tab_buf(bytes([CH] * 39), cursor_col=10)
+        before = gb.text()
+        gb.printable_insert(CH)
+        assert gb.text() == before
+        assert gb.ed_cur_col == 10
+
+    def test_printable_in_middle_of_38_char_line_allowed(self):
+        """Cursor in the middle of a 38-char line: a printable insert
+        is allowed (new line width = 39, exactly at cap)."""
+        gb = _make_tab_buf(bytes([CH] * 38), cursor_col=5)
+        gb.printable_insert(CH)
+        assert len(gb.text()) == 39
+        assert gb.ed_cur_col == 6
+        assert gb.line_vwidth_current() == 39
+
+    def test_printable_at_end_of_full_line_rejected(self):
+        """Cursor at col 39 of a 39-char line: insert refused (existing
+        bound, still required)."""
+        gb = _make_tab_buf(bytes([CH] * 39), cursor_col=39)
+        before = gb.text()
+        gb.printable_insert(CH)
+        assert gb.text() == before
+        assert gb.ed_cur_col == 39
+
+    def test_tab_in_middle_of_full_line_rejected(self):
+        """Cursor in the middle of a line whose total width leaves no
+        room for the smallest tab: tab_insert must be refused.  Line
+        is 36 chars wide; tab at end would advance to 40 → refuse."""
+        gb = _make_tab_buf(bytes([CH] * 36), cursor_col=10)
+        before = gb.text()
+        gb.tab_insert()
+        assert gb.text() == before
+        assert gb.ed_cur_col == 10
+
+    def test_tab_in_middle_of_short_line_allowed(self):
+        """Tab inserted in the middle of a short line where there's
+        room at end-of-line for the tab to land: allowed."""
+        gb = _make_tab_buf(bytes([CH] * 10), cursor_col=3)
+        gb.tab_insert()
+        # Tab at col 3 expands to col 8 → ed_cur_col = 8
+        assert gb.ed_cur_col == 8
+        assert TAB in gb.text()
 
     # ── Visual column helper ─────────────────────────────────────────
 

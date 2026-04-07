@@ -1625,6 +1625,51 @@ s_workend:      .byte "workend", 0
 @w_save: .byte 0
 .endproc
 
+; ── cursor_line_vwidth — visual width of the cursor's line ──────
+; Walks back from gap_lo to the line start (preceding $0D or
+; buf_base), then calls line_vwidth from there.  The gap is NOT
+; moved, so this can be used as a pre-check before any insert.
+; Output: A = visual width (0..254) or $FF on overflow
+; Clobbers: A, X, Y, ed_scr, ed_tmp
+.proc cursor_line_vwidth
+        ; ed_scr = gap_lo
+        lda gap_lo
+        sta ed_scr
+        lda gap_lo+1
+        sta ed_scr+1
+@back:
+        ; Stop if ed_scr <= buf_base
+        lda ed_scr+1
+        cmp buf_base+1
+        bcc @scan
+        bne @check_lo
+        lda ed_scr
+        cmp buf_base
+        beq @scan
+        bcc @scan
+@check_lo:
+        ; Look at byte before ed_scr
+        lda ed_scr
+        sec
+        sbc #1
+        sta ed_tmp
+        lda ed_scr+1
+        sbc #0
+        sta ed_tmp+1
+        ldy #0
+        lda (ed_tmp),y
+        cmp #$0D
+        beq @scan               ; CR found → ed_scr is line start
+        lda ed_tmp
+        sta ed_scr
+        lda ed_tmp+1
+        sta ed_scr+1
+        jmp @back
+@scan:
+        ; ed_scr now points to start of cursor's line; measure it.
+        jmp line_vwidth
+.endproc
+
 ; ── copy_leading_ws — copy leading whitespace from current line ─
 ; Output: Y = count of bytes copied into ws_buf
 ; Clobbers: A, X
@@ -2171,19 +2216,35 @@ s_workend:      .byte "workend", 0
         ; ── CH_INS ────────────────────────────────
 @not_enter:
         cmp #CH_INS
-        beq @repos_jmp          ; ignore INS
+        bne :+
+        jmp @repos_jmp          ; ignore INS
+:
 
         ; ── TAB ($A0) — always enabled under TAB_WIDTH ──
         cmp #$A0
         bne @not_tab
-        ; Compute new_vcol = ed_cur_col + char_width($A0, ed_cur_col)
+        ; Cap check: refuse if line_vwidth + char_width(TAB, line_vwidth)
+        ; would exceed 39.  This treats the tab as if appended at the
+        ; line's end (worst case for end-of-line; under-refuses for tab
+        ; mid-line in a tab-mixed line, accepted as a simplicity
+        ; trade-off — see doc/modules/editor.md § The 39-column cap).
+        jsr cursor_line_vwidth  ; A = current line visual width
+        tax                     ; X = vcol
+        lda #$A0
+        jsr char_width          ; A = width(TAB, line_vwidth)
+        sta @new_col            ; reuse as scratch
+        txa
+        clc
+        adc @new_col            ; A = line_vwidth + tab width at end
+        cmp #SCREEN_WIDTH       ; > 39 → refuse (=40 boundary)
+        bcs @repos_jmp
+        ; Accepted.  Compute the actual new ed_cur_col after the
+        ; insert: ed_cur_col + char_width(TAB, ed_cur_col).
         lda #$A0
         ldx ed_cur_col
-        jsr char_width          ; A = width
+        jsr char_width
         clc
-        adc ed_cur_col          ; A = new_vcol
-        cmp #SCREEN_WIDTH       ; new_vcol <= 39 ?
-        bcs @repos_jmp          ; refused: new_vcol >= 40 overflows cap
+        adc ed_cur_col
         sta @new_col
         lda #$A0
         jsr gb_insert
@@ -2215,11 +2276,15 @@ s_workend:      .byte "workend", 0
         cmp #$DB
         bcs @repos_jmp          ; $DB+ → ignore
 @printable:
-        ; Refuse if cursor is at the rest col 39 (SCREEN_WIDTH - 1).
-        ; Post-increment would push ed_cur_col to 40, over the cap.
-        ; Content cols are 0..38; col 39 is the cursor rest position.
-        lda ed_cur_col
-        cmp #SCREEN_WIDTH - 1   ; < 39 → allow (final ed_cur_col = 39)
+        ; Refuse if the line is already at the 39-col cap.  Each
+        ; printable adds exactly one column, so any insert into a
+        ; full line would overflow regardless of cursor position.
+        ; (The cursor-at-col-39 case is also covered, since the line
+        ; must be ≥ 39 wide for the cursor to sit there.)
+        jsr cursor_line_vwidth
+        cmp #SCREEN_WIDTH       ; < 40 ?  i.e. line_vwidth ≤ 39
+        bcs @repos_jmp          ; line_vwidth ≥ 40 → never (sentinel)
+        cmp #SCREEN_WIDTH - 1   ; line_vwidth ≥ 39 → refuse
         bcs @repos_jmp
         lda @key
         jsr gb_insert
