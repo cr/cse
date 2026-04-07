@@ -12,12 +12,27 @@
 
 ## Interface
 
-### _expr_eval
+### expr_eval
 **In:** `expr_ptr` (ZP, pointer to PETSCII expression string),
 `al_pc` (ZP, current PC for `*` operator)
 **Out:** `expr_val` (ZP, 16-bit result), `expr_wide` (ZP, 0=ZP 1=ABS).
 Returns A = return code.
 **Clobbers:** A, X, Y, `_ex_tmp`, `_ex_digits`, `_ex_wide_tmp`
+
+`expr_eval` owns its own KERNAL banking — callers don't manage it.
+The expression evaluator calls `sym_lookup` to resolve labels;
+`sym_lookup` reads `sym_table` and `sym_heap` under KERNAL ROM.
+By bracketing the whole evaluation with one bank pair here, the
+inner `sym_lookup` calls short-circuit (when called inside an
+`asm_assemble` batch, `kernal_out=1` is already set; in REPL
+contexts, this wrapper IS the bank pair).  Either way, callers
+of `expr_eval` never need to think about KERNAL banking.
+
+Same wrapper structure as `asm_line` (`asm_bridge.s`) and
+`dasm_insn` (`dasm.s`).  Test contract:
+`tests/test_expr.py::TestExprEvalBankContract` pins that every
+exit path (success ZP, success ABS, error, sym_lookup hit,
+undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 
 **Return codes:**
 
@@ -35,7 +50,8 @@ Returns A = return code.
 **In:** none (uses last error state)
 **Out:** A/X = pointer to NUL-terminated error message
 
-**Depends on:** symtab (_sym_lookup for label resolution)
+**Depends on:** symtab (`sym_lookup` for label resolution),
+symtab (`kernal_bank_out` / `kernal_bank_in` for the wrapper)
 
 ### Memory
 

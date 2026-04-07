@@ -422,3 +422,102 @@ def test_negative_any(expr, input_str, needs_sym, purpose):
         _define_symbols(expr, mpu, mem)
     rc, _ = _eval(expr, mpu, mem, input_str)
     assert rc >= 2, f"{purpose}: '{input_str}' should fail, got rc={rc}"
+
+
+# ── expr_eval bank-state contract ───────────────────────────────────────────
+#
+# expr_eval owns its KERNAL banking — same wrapper structure as
+# asm_line and dasm_insn.  These tests pin the contract:
+#
+#   - $01 bit 1 set (KERNAL banked back in) on every exit path
+#   - I flag clear on every exit path
+#
+# Exit paths covered:
+#   - success ZP (rc=0)
+#   - success ABS (rc=1)
+#   - error (rc>=2)
+#   - symbol lookup (touches sym_table/sym_heap under KERNAL)
+#
+# In the expr test environment, sym_table lives in regular RAM
+# (not under $E000), so banking has no semantic effect on the
+# data — but $01 bit 1 toggling is observable.
+
+def _eval_with_bank_witness(expr, mpu, mem, input_str, pc=0x1000):
+    """Like _eval, but also captures $01 and the I flag at exit."""
+    ep, ev, ap = expr.expr_ptr, expr.expr_val, expr.asm_pc
+    enc = _petscii(input_str)
+    for i, b in enumerate(enc):
+        mem[_STR_BUF + i] = b
+    mem[ep] = _STR_BUF & 0xFF
+    mem[ep + 1] = (_STR_BUF >> 8) & 0xFF
+    mem[ap] = pc & 0xFF
+    mem[ap + 1] = (pc >> 8) & 0xFF
+    # Pre-condition: $01 bit 1 = 1, I = 0
+    mem[0x01] = 0x37
+    mpu.p &= ~0x04
+    _call(mpu, mem, expr.eval_entry)
+    rc = mpu.a
+    val = mem[ev] | (mem[ev + 1] << 8)
+    return rc, val, mem[0x01], mpu.p
+
+
+class TestExprEvalBankContract:
+    """expr_eval must restore $01 bit 1 = 1 and clear I after every call."""
+
+    def test_bank_restored_simple_zp(self, expr):
+        mpu, mem = _setup(expr)
+        rc, val, port01, p = _eval_with_bank_witness(expr, mpu, mem, "$10")
+        assert rc == 0 and val == 0x10
+        assert (port01 & 0x02) == 0x02, \
+            f"$01 bit 1 not set after expr_eval: ${port01:02X}"
+        assert (p & 0x04) == 0, \
+            f"I flag still set after expr_eval: ${p:02X}"
+
+    def test_bank_restored_abs(self, expr):
+        mpu, mem = _setup(expr)
+        rc, val, port01, p = _eval_with_bank_witness(expr, mpu, mem, "$1234")
+        assert rc == 1 and val == 0x1234
+        assert (port01 & 0x02) == 0x02
+        assert (p & 0x04) == 0
+
+    def test_bank_restored_error(self, expr):
+        mpu, mem = _setup(expr)
+        rc, _, port01, p = _eval_with_bank_witness(expr, mpu, mem, ")")
+        assert rc >= 2
+        assert (port01 & 0x02) == 0x02, \
+            f"$01 bit 1 not set after expr_eval error: ${port01:02X}"
+        assert (p & 0x04) == 0
+
+    def test_bank_restored_after_sym_lookup(self, expr):
+        """The interesting case: expr_eval calls sym_lookup, which
+        does its own banking internally.  expr_eval must still leave
+        the bank state correct on return."""
+        mpu, mem = _setup(expr)
+        _define_symbols(expr, mpu, mem)
+        rc, val, port01, p = _eval_with_bank_witness(expr, mpu, mem, "screen")
+        assert rc < 2, f"sym lookup failed: rc={rc}"
+        assert val == 0x0400
+        assert (port01 & 0x02) == 0x02
+        assert (p & 0x04) == 0
+
+    def test_bank_restored_after_complex_expr(self, expr):
+        """Multi-symbol expression — exercises sym_lookup multiple times."""
+        mpu, mem = _setup(expr)
+        _define_symbols(expr, mpu, mem)
+        rc, val, port01, p = _eval_with_bank_witness(
+            expr, mpu, mem, "screen+page-one")
+        assert rc < 2, f"complex expr failed: rc={rc}"
+        assert val == 0x0400 + 0x0100 - 1
+        assert (port01 & 0x02) == 0x02
+        assert (p & 0x04) == 0
+
+    def test_bank_restored_after_undefined_sym(self, expr):
+        """sym_lookup miss — expr_eval returns ERR_UNDEFINED via the
+        same exit path that handles other errors."""
+        mpu, mem = _setup(expr)
+        _define_symbols(expr, mpu, mem)
+        rc, _, port01, p = _eval_with_bank_witness(
+            expr, mpu, mem, "no_such_label_xyz")
+        assert rc >= 2
+        assert (port01 & 0x02) == 0x02
+        assert (p & 0x04) == 0

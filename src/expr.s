@@ -37,6 +37,7 @@
         .export expr_error_str
 
         .import sym_lookup
+        .import kernal_bank_out, kernal_bank_in
         .importzp sym_name, sym_val, sym_wide
 
 ; ── Return / error codes ───────────────────────────────────
@@ -96,8 +97,31 @@ _div_rem:    .res 2              ; divide: remainder
 ; ═══════════════════════════════════════════════════════════
 ; expr_eval — entry point
 ;   Returns A = 0 (ZP), 1 (ABS), or 2+ (error)
+;
+; expr_eval owns its own KERNAL banking — callers don't manage
+; it.  Symbol lookups inside the expression go through sym_lookup,
+; which reads sym_table / sym_heap under KERNAL.  By bracketing
+; the whole evaluation with one bank pair here, the inner
+; sym_lookup calls short-circuit (when run inside an asm_assemble
+; batch, kernal_out=1 is already set; in REPL contexts, this
+; wrapper IS the bank pair).  Either way, callers of expr_eval
+; never need to think about KERNAL banking.
+;
+; Same wrapper structure as asm_line and dasm_insn.
 ; ═══════════════════════════════════════════════════════════
 .proc expr_eval
+        jsr kernal_bank_out      ; (no-op inside an asm batch)
+        jsr _expr_eval_inner
+        pha                      ; save A across bank_in
+        jsr kernal_bank_in
+        pla
+        rts
+.endproc
+
+; ── _expr_eval_inner — the actual evaluator ──
+; Runs with KERNAL banked out (or pre-banked by an outer batch).
+; Returns A = 0 (ZP), 1 (ABS), or 2+ (error).
+.proc _expr_eval_inner
         lda #0
         sta expr_wide            ; start narrow
         jsr skip_sp
