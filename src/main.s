@@ -440,12 +440,27 @@ startup:
         cmp #ST_REPL
         bne @stop_edit
         jsr enter_editor
-        jmp @loop
+        jmp @stop_debounce
 @stop_edit:
         cmp #ST_EDIT
         bne @loop
         jsr leave_editor
-        jmp @loop
+@stop_debounce:
+        ; Debounce: CSE enables key-repeat for all keys at startup
+        ; (KEY_REPEAT |= $80), so holding RUN/STOP would otherwise
+        ; queue several CH_STOPs and toggle the mode multiple times.
+        ; Wait for the physical key release ($91 = $7F means STOP
+        ; is currently held), then drain any repeats the KERNAL
+        ; queued into the kbd buffer ($C6).
+@deb_wait:
+        lda $91
+        cmp #$7F
+        beq @deb_wait
+@deb_drain:
+        lda $C6                 ; kbd buffer count
+        beq @loop               ; nothing queued → done
+        jsr io_getc             ; consume one
+        jmp @deb_drain
 @not_stop:
 
         ; Editor mode → ed_handle_key
