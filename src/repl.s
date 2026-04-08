@@ -137,6 +137,7 @@ str_2sp:        .byte "  ", 0
 str_brk:        .byte "; brk", 0
 str_at:         .byte " at $", 0
 str_nmi:        .byte "; nmi break at $", 0
+str_ok_at:      .byte "; ok at $", 0
 str_bp_clr:     .byte "; breakpoints cleared", 0
 str_deleted:    .byte " deleted", 0
 str_slot18:     .byte ";?slot 1-8", 0
@@ -899,7 +900,17 @@ parse_hex4_ptr1:
         beq @brk
         cmp #2
         beq @nmi
-        jmp @regs                ; normal completion — skip status line
+        ; dbg_reason = 0: clean RTS from user code.  Print
+        ; "; ok at $XXXX" so the user sees the program returned
+        ; (and at which entry point), then fall through to the
+        ; register dump.
+        jsr newline
+        puts str_ok_at
+        lda brk_pc
+        ldx brk_pc+1
+        jsr io_puthex4
+        jsr io_clear_eol
+        jmp @regs
 
 @brk:   jsr newline
         puts str_brk
@@ -1483,12 +1494,10 @@ VIC_MEMCTL = $D018
         ; Always use run_user — enables NMI break even without bps.
         ; When no breakpoints, patch_all/unpatch_all are no-ops.
         jsr run_user
-        lda dbg_reason
-        bne @j_broke
-        ; program completed via RTS — no break context
-        jsr restore_colors
-        jmp nl_clear
-@j_broke:
+        ; show_break_result handles all three cases:
+        ;   dbg_reason = 1 → "; brk at $XXXX" + regs + dasm
+        ;   dbg_reason = 2 → "; nmi break at $XXXX" + regs + dasm
+        ;   dbg_reason = 0 → "; ok at $XXXX" + regs + dasm  (clean RTS)
         jmp show_break_result
 .endproc
 

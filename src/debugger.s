@@ -376,6 +376,29 @@ dbg_enter:
         ; running flag, loads user A/X/Y/P, and jmps to brk_pc.
         jsr @tramp
         ; ── we arrive here after BRK handler does RTS or user RTS ──
+        ;
+        ; Capture user registers on the clean-RTS path.  BRK/NMI
+        ; handlers already populate reg_* from their stack frames
+        ; (see dbg_brk_handler / dbg_nmi_break), so dbg_reason != 0
+        ; means we don't touch reg_*.  But on a plain user RTS the
+        ; registers are LIVE in the CPU at this exact instant —
+        ; the next jsr unpatch_all would otherwise destroy them.
+        pha
+        lda dbg_reason
+        bne @skip_reg_cap
+        pla
+        sta reg_a
+        stx reg_x
+        sty reg_y
+        php
+        pla
+        sta reg_p
+        tsx
+        stx reg_sp
+        jmp @reg_cap_done
+@skip_reg_cap:
+        pla                     ; discard saved A
+@reg_cap_done:
 
         ; ── 6. Unpatch all breakpoints ──
         jsr unpatch_all
