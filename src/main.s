@@ -4,6 +4,7 @@
 ; BASIC SYS stub, BSS zeroing, and parameter stack init.
 
         .setcpu "6502"
+        .macpack longbranch
         .include "macros.inc"
 
 ; ── Exports ──────────────────────────────────────────────────
@@ -14,7 +15,7 @@
 
 ; ── Imports ──────────────────────────────────────────────────
         .import puts_imm
-        .import io_init, io_putc, io_puts, io_sync
+        .import io_init, io_putc, io_puts, io_sync, io_blip
         .import io_puthex4, io_puthex2, io_putdec
         .import io_getc, io_clear_eol
         .import reset_screen, restore_colors, newline, theme_init
@@ -396,6 +397,11 @@ startup:
         jsr show_prompt
 
         ; ── Main loop ────────────────────────────────────────
+@reject:
+        ; Audible feedback for refused REPL keys: cursor moves off
+        ; the screen, backspace before the AAAA: prompt, printable
+        ; at col 39, etc.  Falls through to @loop.
+        jsr io_blip
 @loop:
         lda state
         bne :+
@@ -500,11 +506,11 @@ startup:
         bne @del_min0
         lda CUR_COL
         cmp #6                  ; > 5?
-        bcc @del_done           ; at or before prompt → no delete
+        jcc @reject             ; at or before prompt → reject
         jmp @del_shift
 @del_min0:
         lda CUR_COL
-        beq @del_done           ; col 0 → nothing
+        jeq @reject             ; col 0 → reject
 @del_shift:
         dec CUR_COL
         ldy CUR_COL
@@ -519,7 +525,6 @@ startup:
         lda #$20
         ldy #SCREEN_WIDTH - 1
         sta (rp_ptr),y
-@del_done:
         jmp @loop
 @not_del:
 
@@ -559,10 +564,9 @@ startup:
         cmp #CH_CURS_UP
         bne @not_up
         lda CUR_ROW
-        beq @k_done
+        jeq @reject             ; row 0 → top of screen
         dec CUR_ROW
         jsr io_sync
-@k_done:
         jmp @loop
 @not_up:
 
@@ -570,19 +574,17 @@ startup:
         bne @not_down
         lda CUR_ROW
         cmp #SCREEN_HEIGHT - 1
-        bcs @k_done2
+        jcs @reject             ; last row → bottom of screen
         inc CUR_ROW
         jsr io_sync
-@k_done2:
         jmp @loop
 @not_down:
 
         cmp #CH_CURS_LEFT
         bne @not_left
         lda CUR_COL
-        beq @k_done3
+        jeq @reject             ; col 0 → left wall
         dec CUR_COL
-@k_done3:
         jmp @loop
 @not_left:
 
@@ -590,9 +592,8 @@ startup:
         bne @not_right
         lda CUR_COL
         cmp #SCREEN_WIDTH - 1
-        bcs @k_done4
+        jcs @reject             ; col 39 → right wall
         inc CUR_COL
-@k_done4:
         jmp @loop
 @not_right:
 
@@ -617,10 +618,9 @@ startup:
         ; Printable character
         lda CUR_COL
         cmp #SCREEN_WIDTH - 1
-        bcs @skip_print
+        jcs @reject             ; at col 39 → right wall
         lda @key
         jsr io_putc
-@skip_print:
         jmp @loop
 
 @exit:
