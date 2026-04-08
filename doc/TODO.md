@@ -214,35 +214,49 @@ Small, concrete, ready to do now.
     `_jsr_vec` ZP byte (both deleted in last round); BSS table
     now reflects actual export names (no underscores) and
     correct sizes (88 B `zp_save_buf`, 96 B total).
-- [ ] Audit "don't get in the KERNAL's way" (project.md
-  Principle 5).  Walk every KERNAL variable / vector CSE
-  touches and verify the user-code contract.  Items to check
-  individually:
-  * `$CC` (KERNAL cursor flag) — CSE sets it to 1 at startup.
-    Does user code that calls `JSR $E544` (KERNAL clear-screen)
-    or expects the blinking KERNAL cursor see the right state?
-    Should `dbg_enter`/`run_user` save+restore $CC around the
-    user-code window?
-  * `$0277+` (keyboard buffer) and `$C6` (count) — does CSE
-    leave queued repeats here when control transfers to user
-    code?  RUN/STOP debounce drains them on mode switch but
-    not on `j`/`g`/`t`/`o`.
-  * `$D1/$D2`, `$F3/$F4` (KERNAL line pointers), `$D3`/`$D6`
-    (cursor) — `io_sync` keeps these in sync after mode
-    switches; verify it runs before every user-code entry.
-  * `$0314/$0316/$0318` (IRQ/BRK/NMI vectors) — debugger
-    saves+restores $0316 around `dbg_enter`.  Are the others
-    ever clobbered?
-  * Hardware stack residue — `startup` resets SP, but does a
-    user program that returns via RTS see a clean enough page
-    1?  And does CSE see a coherent stack after the return?
-  * Charset mode ($D018) — CSE forces lowercase via VIC_MEMCTL
-    bit 1 at startup.  If user code switches to uppercase,
-    CSE's screen output (which assumes lowercase) breaks.
-    Document the override or restore on user-code return.
-  Outcome of the audit: each touched KERNAL location either
-  gets a save+restore around `run_user` or gets documented
-  as a deliberate user-code-contract override.
+- [x] ~~Audit "don't get in the KERNAL's way"~~ — done
+  2026-04-08.  Walked every KERNAL variable / vector CSE
+  touches and verified the user-code contract:
+  * **`$CC`** — CSE sets to 1 at startup.  User code that sets
+    it to 0 (e.g. for cursor blink during a CHRIN) would leave
+    the KERNAL IRQ blinking a cursor on top of CSE's screen
+    output after return.  **Fixed:** `run_user` now restores
+    `$CC = 1` after `dbg_enter` returns.  $CC is treated as a
+    CSE-domain byte; user code may write it but CSE owns the
+    post-return state.
+  * **`$0277+` / `$C6` (keyboard buffer)** — user keystrokes
+    typed while issuing the `j`/`g`/`t`/`o` command would
+    otherwise leak into user code's first `GETIN`/`CHRIN`.
+    **Fixed:** `run_user` now zeroes `$C6` before
+    `jsr dbg_enter`, draining any queued bytes.
+  * **`$D1/$D2`, `$F3/$F4` (line pointers), `$D3/$D6`
+    (cursor)** — already correct.  `cmd_jmp` and `cmd_step`
+    both call `newline` before `run_user`, and `newline`
+    invokes `io_sync` (KERNAL `PLOT`) which updates the line
+    pointers from the current row.  Nothing to do.
+  * **`$0314` (IRQ)** — never touched by CSE.  Stays at the
+    stock KERNAL IRQ (`$EA31`).  ✓
+  * **`$0316` (BRK)** — patched and restored by `dbg_enter`
+    around the `@tramp` call.  Stock KERNAL BRK is exposed
+    to user code only outside the patched window, which is
+    fine (user code that BRKs *during* a CSE debug session
+    is the whole point of the debugger).  ✓
+  * **`$0318` (NMI)** — points permanently at the trampoline
+    at `$FF00`, which routes NMI to the stock KERNAL `$FE43`
+    when CSE is not running user code (`dbg_running` clear)
+    and to `dbg_nmi_break` otherwise.  ✓
+  * **Hardware stack** — `startup` resets SP to `$FF`.  User
+    code sees ≥ 239 B free.  Clean RTS through `@tramp` works.
+    `c`-from-stepped-subroutine remains the documented limit
+    (covered by the BRK TODO with the $EF00 snapshot fix).  ✓
+  * **`$D018` (charset mode)** — already restored to lowercase
+    by `run_user` after `dbg_enter` returns.  ✓
+  * **`$0286` (CHRCOLOR)** — fixed in commit 3948e4a (separate
+    bug report).  `restore_colors` now writes `theme_fg` to
+    `$0286` so KERNAL CHROUT paints in the configured theme
+    colour from the very first character of user output.  ✓
+  Net code change: +8 B in `run_user` (zero `$C6`, restore
+  `$CC`).  All 2729 tests pass.
 - [x] ~~Doc cleanup — remove stale C/cc65 cruft~~ — done:
   `__fastcall__` annotations and "parameter stack" notes purged
   from `cse_io.md`, `disk.md`, `screen.md`; `build_system.md`

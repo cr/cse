@@ -1467,8 +1467,20 @@ parse_hex4_ptr1:
 VIC_MEMCTL = $D018
 
 .proc run_user
+        ; ── KERNAL hygiene (project.md Principle 5) ──
+        ; Drain any keystrokes the user typed ahead while issuing
+        ; the j/g/t/o command — they'd otherwise leak into user
+        ; code's first GETIN/CHRIN call.
+        lda #0
+        sta $C6                 ; KERNAL kbd buffer count = 0
         jsr dbg_enter
-        ; Restore VIC charset (lowercase/uppercase)
+        ; ── KERNAL hygiene on the way back ──
+        ; Restore $CC = 1 in case user code re-enabled the KERNAL
+        ; cursor (cse_io.s's IRQ-safety invariant requires it off).
+        lda #1
+        sta $CC
+        ; Restore VIC charset to lowercase (user code may have
+        ; switched to uppercase via VIC_MEMCTL bit 1).
         lda VIC_MEMCTL
         ora #$02
         sta VIC_MEMCTL

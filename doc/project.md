@@ -241,13 +241,32 @@ KERNAL cursor so CSE can manage its own) it must either
 restore the KERNAL value before the user gains control, or
 document the override as part of the user-code contract.
 
-**Current status:** mostly implemented.  Known working:
-theme colour via `$0286` and VIC registers (all refreshed
-by `restore_colors` before any user-code entry point and
-after every return), startup SP reset, BRK/NMI vector
-save+restore around `dbg_enter`, `io_sync` after mode
-switches.  Known gaps to audit: does user code see $CC in
-its expected default (CSE sets it to 1 to disable the
-KERNAL cursor)?  Does the KERNAL keyboard buffer ($0277+)
-get drained around mode switches?  These sit as an open
-DDD audit item in TODO.md.
+**Current status:** fully audited 2026-04-08.  Every KERNAL
+location CSE touches has been walked and verified:
+
+- Theme colour via `$0286` (CHRCOLOR) and VIC registers —
+  refreshed by `restore_colors` before any user-code entry
+  and after every return.
+- Startup SP reset.
+- `$0316` BRK vector — saved/restored by `dbg_enter` around
+  the user-code window.
+- `$0314` IRQ and `$0318` NMI — never touched directly; NMI
+  routes through the `$FF00` trampoline which delegates to
+  the stock KERNAL when `dbg_running` is clear.
+- `$D018` charset mode — restored to lowercase by
+  `run_user` after `dbg_enter` returns.
+- `$D1/$D2`, `$F3/$F4`, `$D3/$D6` (KERNAL screen-editor
+  state) — `io_sync` keeps them in lockstep with CSE's
+  cursor; `cmd_jmp` / `cmd_step` both call `newline` before
+  `run_user` which calls `io_sync`.
+- `$CC` cursor flag — `run_user` restores it to 1 after
+  `dbg_enter` returns, in case user code re-enabled the
+  KERNAL cursor.
+- `$C6` keyboard buffer count — `run_user` zeroes it before
+  `dbg_enter` so user code's first `GETIN`/`CHRIN` sees an
+  empty queue, not user keystrokes typed ahead while
+  issuing the command.
+- Hardware stack — user code sees ≥ 239 B free.  See
+  [memory_design.md § Stack budget](memory_design.md#stack-budget).
+  The `c`-from-stepped-subroutine corner case is the
+  documented limit (open BRK TODO).
