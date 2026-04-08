@@ -37,7 +37,7 @@
 
         .importzp rp_ptr          ; scratch pointer (main.s)
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
-        .import zp_save_buf
+        .import zp_save_buf, user_zp_buf
 
 ; ── ZP save range — MUST match asm_bridge.s ──
 ; The buffer `zp_save_buf` is allocated by asm_bridge.s.  If these
@@ -377,15 +377,16 @@ dbg_enter:
         jsr @tramp
         ; ── we arrive here after BRK handler does RTS or user RTS ──
         ;
-        ; Capture user registers on the clean-RTS path.  BRK/NMI
-        ; handlers already populate reg_* from their stack frames
-        ; (see dbg_brk_handler / dbg_nmi_break), so dbg_reason != 0
-        ; means we don't touch reg_*.  But on a plain user RTS the
-        ; registers are LIVE in the CPU at this exact instant —
-        ; the next jsr unpatch_all would otherwise destroy them.
+        ; Capture user registers AND user ZP on the clean-RTS path.
+        ; BRK/NMI handlers already populate reg_* and call
+        ; snap_user_zp themselves on entry, so dbg_reason != 0
+        ; means we don't touch them here.  On a plain user RTS the
+        ; registers are LIVE in the CPU and the live ZP is still
+        ; the user's — the next jsr unpatch_all would destroy
+        ; both.
         pha
         lda dbg_reason
-        bne @skip_reg_cap
+        bne @skip_user_cap
         pla
         sta reg_a
         stx reg_x
@@ -395,10 +396,11 @@ dbg_enter:
         sta reg_p
         tsx
         stx reg_sp
-        jmp @reg_cap_done
-@skip_reg_cap:
+        jsr snap_user_zp
+        jmp @user_cap_done
+@skip_user_cap:
         pla                     ; discard saved A
-@reg_cap_done:
+@user_cap_done:
 
         ; ── 6. Unpatch all breakpoints ──
         jsr unpatch_all
@@ -448,6 +450,30 @@ dbg_enter:
         plp                     ; restore flags (A/X/Y unaffected)
         jmp (brk_pc)
 
+; ── snap_user_zp ─────────────────────────────────────────────────────
+; Copy live ZP $02..$59 → user_zp_buf.  Called at the very start
+; of dbg_brk_handler / dbg_nmi_break (where the live ZP is still
+; the user's working state) and from dbg_enter step 6 on the
+; clean-RTS path (same — user RTSed back, ZP not yet clobbered).
+;
+; Critical: this proc must NOT use any ZP scratch byte itself
+; (those bytes ARE the user state we're snapshotting).  Uses X
+; only.  Preserves A/Y.
+.proc snap_user_zp
+        pha
+        txa
+        pha
+        ldx #ZP_SAVE_LEN - 1
+@l:     lda ZP_SAVE_LO,x
+        sta user_zp_buf,x
+        dex
+        bpl @l
+        pla
+        tax
+        pla
+        rts
+.endproc
+
 ; ── dbg_brk_handler ──────────────────────────────────────────────────
 ; Entered from KERNAL via ($0316) when BRK fires.
 ;
@@ -459,6 +485,11 @@ dbg_enter:
 ; BRK dispatch occurs BEFORE any IRQ servicing.
 ;
 dbg_brk_handler:
+        ; ── 0. Snapshot user ZP before doing anything else.
+        ; The handler about to follow uses ZP scratch (e.g.
+        ; dbg_bp_find), so the live user ZP must be captured
+        ; first or it's gone.
+        jsr snap_user_zp
         ; ── 1. Extract user registers from stack ──
         tsx
         lda $0101,x             ; Y (KERNAL pushed last)
@@ -520,6 +551,8 @@ dbg_brk_handler:
 ; KERNAL NMI entry ($FE43) does SEI + JMP ($0318) — no register pushes.
 ;
 dbg_nmi_break:
+        ; ── 0. Snapshot user ZP before any handler code.
+        jsr snap_user_zp
         ; ── 1. Save user registers (live in CPU regs) ──
         sta reg_a
         stx reg_x

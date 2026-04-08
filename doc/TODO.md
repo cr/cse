@@ -77,19 +77,24 @@ should wait until the stabilization phase wraps up.
   feature).  Load each file in CSE, check for split-line warnings
   from the load path, hand-fix any files that still carry overly
   long lines so the canonical sample-set is clean.
-- [ ] Review all user-facing strings — error messages, warnings,
-  confirmations.  Some are weirdly doubled (the same condition
-  reported twice on different lines), and the wording is
-  inconsistent between commands: some use `;?name` style, some
-  use `; error: ...`, some are bare English, some mix.  Walk
-  the RODATA `str_*` table in `repl.s` plus any inline strings
-  in `editor.s` and `disk.s`, collect them into one catalog,
-  then decide a single style and rewrite.  Rough rules to
-  consider: `;?tag` for short error tags (matches the existing
-  BASIC-style convention), `; ! ...` for warnings, `;? ... y/n`
-  for confirmations.  Check every site for duplicates while
-  you're at it — the doubled ones are the symptom that caught
-  this TODO.
+- [x] ~~Review all user-facing strings~~ — done 2026-04-08.
+  Codified the convention as a comment block in `repl.s`
+  above the `str_*` table:
+  ```
+  "; ..."        normal status / info  (space after ';')
+  "; ! ..."      warning
+  ";?tag"        terse error tag, BASIC-style  (no space)
+  ";?word ..."   long error explanation
+  "; ...? y/n "  yes/no confirmation prompt
+  ```
+  Always lowercase, single space after `;` for status lines.
+  `;?` is the one exception, reserved for error tags so the
+  user can scan for `?` at col 1 to find trouble.  Eight
+  strings rewritten to match (mostly missing the space after
+  `;`).  Doubled-message bug found and fixed: `floppy_status`
+  was emitting `00, ok,00,00` from the drive's error channel
+  on every successful disk operation.  Now suppresses the
+  print when fl_buf starts with "00".  +16 B total.
 - [ ] Line-break warnings on file load are incomplete, redundant,
   and out of order.  `print_load_split_warning` (repl.s) prints
   line numbers recorded during `ed_load_source`, but the current
@@ -109,12 +114,32 @@ should wait until the stabilization phase wraps up.
   `theme_init` proc called at startup that copies the build-time
   `THEME_BOR`/`THEME_BG`/`THEME_FG` defaults into the BSS slots.
   Costs +16 B on PRG but unblocks the CRT target.
-- [ ] `.` and `m` commands show/modify CSE's internal ZP state instead
-  of the user's ZP state from `j`/debugger context.  After `j` returns
-  (BRK/NMI), CSE restores its own ZP — so `.`/`m` on $00–$7F see CSE
-  variables, not what the user's code left there.  Fix: save/restore
-  user ZP snapshot on debug return; `.`/`m` should read from that
-  snapshot when addressing $00–$7F.
+- [x] ~~`.` and `m` show CSE ZP instead of user ZP after j/debugger
+  context~~ — **partially done** 2026-04-08 (`m` only, `.` is
+  still broken):
+  * New 88 B BSS buffer `user_zp_buf` in `asm_bridge.s`, holds
+    the user's ZP $02..$59 snapshot.  Captured by
+    `snap_user_zp` at the very top of `dbg_brk_handler` /
+    `dbg_nmi_break` (before any CSE code touches ZP) and on
+    the clean-RTS path in `dbg_enter` step 6 alongside the
+    register capture.
+  * `emit_mem` now checks `dbg_reason` and stages up to 8
+    bytes into a new 8 B BSS view (`dbg_zp_view`) — for each
+    byte in the dump row, addresses in $02..$59 read from
+    `user_zp_buf`, others read from live memory.  Then
+    `rp_ptr2` is re-pointed at the staged view and
+    `emit_hex_cols` + the ASCII column both see the user's
+    ZP values.
+  * `.` (cmd_dot disassembly) was **intentionally left out**.
+    It would require redirecting `dasm.s`'s own `_dasm_ptr`
+    reads, which is a deeper change.  Users rarely disassemble
+    at ZP addresses (it's a data inspection use case, covered
+    by `m`).  Open follow-up if someone actually needs it.
+  * Addresses $00-$01 still read live (the CPU I/O port —
+    snapshotting them doesn't make sense).  $5A+ reads live
+    too because CSE doesn't touch that range, so user values
+    survive across the debug boundary without a snapshot.
+  * Cost: 96 B BSS (88 + 8) + ~130 B code.
 - [ ] Debugger: stepping into a subroutine then `c` (continue) cannot
   return through the original JSR's pushed return address.  The
   `sp_baseline` RTS trick (commit `c753fc8`) unwinds the stack to

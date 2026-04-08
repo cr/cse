@@ -24,6 +24,7 @@
         .export al_error, au_syntax_error
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
         .export zp_save_buf
+        .export user_zp_buf
 
         .import al_line_asm
         .import kernal_bank_out, kernal_bank_in
@@ -55,6 +56,20 @@ ZP_SAVE_LO = $02
 ZP_SAVE_HI = $59
 ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1  ; 88 bytes
 zp_save_buf:   .res ZP_SAVE_LEN ; buffer for ZP save/restore
+
+; ── User ZP snapshot ──
+; When a user program is interrupted (BRK / NMI) or RTSes back
+; to the REPL, the live ZP is the user's working state — but
+; dbg_enter step 8 immediately restores CSE's ZP from
+; zp_save_buf, overwriting it.  Without a snapshot, the user
+; can't inspect their ZP via the m or . commands afterward
+; (they'd see CSE's variables, not what their code wrote).
+;
+; user_zp_buf holds a copy of the user's ZP $02..$59 captured
+; AT THE MOMENT user code is interrupted, before any CSE code
+; clobbers it.  cmd_mem reads from user_zp_buf for addresses
+; in $02..$59 when dbg_reason != 0.
+user_zp_buf:   .res ZP_SAVE_LEN ; user ZP snapshot ($02..$59)
 
 .segment "CODE"
 

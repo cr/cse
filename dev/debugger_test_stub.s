@@ -30,7 +30,7 @@
 
         .exportzp rp_ptr          ; provide scratch pointer for debugger.s
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
-        .export zp_save_buf
+        .export zp_save_buf, user_zp_buf
         .export kernal_bank_out, kernal_bank_in
 
 .segment "ZEROPAGE"
@@ -44,6 +44,7 @@ reg_sp:        .res 1
 reg_p:         .res 1
 zp_save_buf:   .res 88         ; ZP save buffer ($02..$59 inclusive,
                                  ;  matches debugger.s::ZP_SAVE_LEN)
+user_zp_buf:   .res 88         ; user ZP snapshot (same size)
 
 .segment "CODE"
 

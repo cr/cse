@@ -42,6 +42,7 @@
         .import dbg_reason, dbg_bp_hit
         .import brk_pc
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
+        .import user_zp_buf
         .import kernal_bank_out, kernal_bank_in
         .import oplen_tbl
 
@@ -123,6 +124,8 @@ rp_opc:         .res 1          ; cmd_step saved opcode
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
 rp_hexbuf:      .res 3          ; cmd_dot hex byte parse
 fbuf:           .res 20         ; free_line / utoa buffer
+dbg_zp_view:    .res 8          ; emit_mem staging buffer for the
+                                ; user-ZP redirect (see emit_mem)
 
 ; ── RODATA ─────────────────────────────────────────────────
 .segment "RODATA"
@@ -832,6 +835,49 @@ parse_hex4_ptr1:
         sta rp_ptr2
         lda rp_addr+1
         sta rp_ptr2+1
+
+        ; ── User-ZP redirect ─────────────────────────────────
+        ; If a debug context exists (dbg_reason != 0), the user
+        ; expects `m` to show what their code wrote to ZP, not
+        ; CSE's restored variables.  Stage 8 bytes into
+        ; dbg_zp_view from user_zp_buf for in-range addresses
+        ; ($02..$59) and from real memory for the rest, then
+        ; re-point rp_ptr2 at the staged view.  rp_ptr2's
+        ; current value (== rp_addr) is used to read real mem
+        ; in the @use_mem branch.
+        lda dbg_reason
+        beq @no_redirect
+        ldy #0
+@redir_loop:
+        tya
+        clc
+        adc rp_addr
+        sta rp_tmp              ; addr lo (scratch)
+        lda rp_addr+1
+        adc #0
+        bne @use_mem            ; hi != 0 → not page 0
+        lda rp_tmp
+        cmp #$02
+        bcc @use_mem            ; addr < $02 ($00/$01 = I/O)
+        cmp #$5A
+        bcs @use_mem            ; addr ≥ $5A → not in CSE ZP
+        sec
+        sbc #$02
+        tax
+        lda user_zp_buf,x
+        jmp @stage
+@use_mem:
+        lda (rp_ptr2),y         ; rp_ptr2 still == rp_addr
+@stage: sta dbg_zp_view,y
+        iny
+        cpy #8
+        bcc @redir_loop
+        lda #<dbg_zp_view
+        sta rp_ptr2
+        lda #>dbg_zp_view
+        sta rp_ptr2+1
+@no_redirect:
+
         lda rp_opc
         sta rp_save
         lda #8
