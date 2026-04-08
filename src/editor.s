@@ -2000,57 +2000,35 @@ s_workend:      .byte "workend", 0
 
 @del_join:
         ; Delete at col 0, line > 0 → join with previous line.
-        ; Must honour the 39-col cap: if the combined line's visual
-        ; width would exceed 39, insert a forced CR at the split
-        ; point (last col ≤ 39, never mid-tab).  See
-        ; doc/modules/editor.md § Backspace-join and the 39-col cap.
+        ;
+        ; Predictive cap check: compute (line A width + line B
+        ; width) *without touching the buffer*.  If the joined
+        ; line would exceed the 39-col cap, refuse flatly with
+        ; the reject blip — no forced-newline rearrangement.
+        ; The cursor is currently at col 0 of line B.
+        ;
+        ; See doc/modules/editor.md § Backspace-join and the cap.
+        jsr cursor_line_vwidth  ; A = line B width
+        sta @join_b_w
+        jsr gb_cursor_left      ; cross A's CR; cursor now at end of A
+        jsr cursor_line_vwidth  ; A = line A width
+        pha
+        jsr gb_cursor_right     ; restore cursor to col 0 of line B
+        pla
+        clc
+        adc @join_b_w           ; combined visual width
+        cmp #40
+        jcs @reject             ; combined ≥ 40 → flat refusal + blip
+
+        ; Combined fits.  Perform the join.
         jsr gb_backspace
         ; --ed_cur_line
         lda ed_cur_line
         bne :+
         dec ed_cur_line+1
 :       dec ed_cur_line
-        jsr visual_col
+        jsr visual_col          ; returns width of line A = new cur_col
         sta ed_cur_col
-        sta @join_col           ; save for the no-split restore path
-
-        ; ── Check for cap overflow ──
-        ; Walk cursor to col 0 of combined line so we can measure
-        ; and (if needed) find the split point from the start.
-        jsr gb_home
-        lda #0
-        sta ed_cur_col
-        ; ed_scr = gap_lo (now at line start); line_vwidth walks the
-        ; whole line, transparently crossing the gap.
-        lda gap_lo
-        sta ed_scr
-        lda gap_lo+1
-        sta ed_scr+1
-        jsr line_vwidth         ; A = combined visual width
-        cmp #40
-        bcs @del_join_split     ; ≥ 40 → split required
-
-        ; Normal join: restore cursor to the join point (join_col).
-        lda @join_col
-        jsr advance_to_vcol
-        jmp @del_join_after
-
-@del_join_split:
-        ; Overflow: advance cursor to the largest col ≤ 39 without
-        ; breaking a tab; insert a forced CR there.  advance_to_vcol
-        ; does exactly this — it stops when adding the next char's
-        ; width would push col > target.  After the advance, the
-        ; cursor is at the split position (end of first sub-line).
-        lda #39
-        jsr advance_to_vcol
-        lda #$0D
-        jsr gb_insert           ; insert forced CR; gb_insert bumps
-                                ; ed_total_lines
-        inc ed_cur_line
-        bne :+
-        inc ed_cur_line+1
-:       lda #0
-        sta ed_cur_col          ; cursor at col 0 of new second sub-line
 
 @del_join_after:
         ; Adjust ed_top_line if cursor above viewport
@@ -2248,12 +2226,12 @@ s_workend:      .byte "workend", 0
 @repos_done:
         rts
 
-@key:     .byte 0
-@ws_n:    .byte 0
-@ws_x:    .byte 0
-@ws_vcol: .byte 0
-@new_col: .byte 0
-@join_col: .byte 0
+@key:      .byte 0
+@ws_n:     .byte 0
+@ws_x:     .byte 0
+@ws_vcol:  .byte 0
+@new_col:  .byte 0
+@join_b_w: .byte 0      ; line B width during del_join predictive check
 .endproc
 
 ; ── Mode switching ───────────────────────────────────────────
