@@ -92,6 +92,19 @@ should wait until the stabilization phase wraps up.
   feature).  Load each file in CSE, check for split-line warnings
   from the load path, hand-fix any files that still carry overly
   long lines so the canonical sample-set is clean.
+- [ ] Review all user-facing strings — error messages, warnings,
+  confirmations.  Some are weirdly doubled (the same condition
+  reported twice on different lines), and the wording is
+  inconsistent between commands: some use `;?name` style, some
+  use `; error: ...`, some are bare English, some mix.  Walk
+  the RODATA `str_*` table in `repl.s` plus any inline strings
+  in `editor.s` and `disk.s`, collect them into one catalog,
+  then decide a single style and rewrite.  Rough rules to
+  consider: `;?tag` for short error tags (matches the existing
+  BASIC-style convention), `; ! ...` for warnings, `;? ... y/n`
+  for confirmations.  Check every site for duplicates while
+  you're at it — the doubled ones are the symptom that caught
+  this TODO.
 - [ ] Line-break warnings on file load are incomplete, redundant,
   and out of order.  `print_load_split_warning` (repl.s) prints
   line numbers recorded during `ed_load_source`, but the current
