@@ -114,9 +114,45 @@ should wait until the stabilization phase wraps up.
   `theme_init` proc called at startup that copies the build-time
   `THEME_BOR`/`THEME_BG`/`THEME_FG` defaults into the BSS slots.
   Costs +16 B on PRG but unblocks the CRT target.
+- [ ] `.` (disassembly) shows CSE ZP instead of user ZP after
+  j/debugger context.  Companion to the `m` fix landed in
+  commit `ac1a31f` (see item below).  `m` now redirects
+  reads in $02..$59 through `user_zp_buf` when `dbg_reason
+  != 0`, but `.` still reads live memory.  Harder because
+  the read is inside `dasm.s` using its own `_dasm_ptr` —
+  the redirect point is not the REPL's `emit_dot` but deep
+  in the operand-byte fetch path.  Two possible fixes:
+
+    1. Stage 3 bytes (max instruction length) into
+       `dbg_zp_view` before calling `dasm_insn`, and point
+       `_dasm_ptr` at the view.  Mirror of what `emit_mem`
+       already does.  Localized change, keeps `dasm.s` clean,
+       but touches 4 read sites in `dasm.s` that use
+       `(_dasm_ptr),y` with `y = 1..2`.  Actually the view
+       can just be 3 B so all three operand bytes are
+       contiguous starting at offset 0 — `emit_dot` already
+       knows the instruction length up front from `dasm_insn`'s
+       return value, but `_dasm_ptr` needs staging BEFORE
+       that call.  Needs a length pre-fetch (read just the
+       opcode byte first, look up its length in `oplen_tbl`,
+       then stage that many bytes) or just unconditionally
+       stage 3.
+
+    2. Export a `dasm_read_byte` hook from `dasm.s` that all
+       operand-byte reads go through, and override it in
+       `repl.s::emit_dot`.  Cleaner layering but bigger
+       surface: every `(_dasm_ptr),y` in `dasm.s` becomes a
+       JSR.  Worth maybe +30 B of code and some extra cycles
+       per instruction.
+
+  Option 1 is the cheaper fix, ~15 B of code reusing the
+  existing `dbg_zp_view` + a small pre-stage loop in
+  `emit_dot`.  Low priority: users rarely disassemble at ZP
+  (it's a data inspection use case, already covered by `m`),
+  but someone will hit it eventually and be confused.
 - [x] ~~`.` and `m` show CSE ZP instead of user ZP after j/debugger
   context~~ — **partially done** 2026-04-08 (`m` only, `.` is
-  still broken):
+  split out as a separate open TODO above):
   * New 88 B BSS buffer `user_zp_buf` in `asm_bridge.s`, holds
     the user's ZP $02..$59 snapshot.  Captured by
     `snap_user_zp` at the very top of `dbg_brk_handler` /
