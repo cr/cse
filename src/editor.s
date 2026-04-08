@@ -2547,9 +2547,24 @@ s_workend:      .byte "workend", 0
         rts
 
 @force_split:
-        ; Record the split (current _load_line) if room in the array
+        ; Insert forced CR first.  After the increment, _load_line
+        ; identifies the new line we're about to start filling —
+        ; that's the line the user wants reported (the editor line
+        ; AS IT IS after all prior splits).
+        lda #$0D
+        jsr gb_insert
+        bcc @overflow_pop
+        inc _load_line
+        bne :+
+        inc _load_line+1
+:
+        ; Record the split if there's room in the 8-entry array.
+        ; ed_load_split is the total split count (incremented every
+        ; time, even after the array is full); the print code uses
+        ; min(ed_load_split, 8) entries and appends "and N more"
+        ; when ed_load_split > 8.
         lda ed_load_split
-        cmp #8                  ; array full?
+        cmp #8
         bcs @skip_record
         asl                     ; idx × 2 (16-bit entries)
         tax
@@ -2559,15 +2574,6 @@ s_workend:      .byte "workend", 0
         sta ed_load_split_lines+1,x
 @skip_record:
         inc ed_load_split
-        ; Insert forced CR via normal gb_insert (bumps ed_total_lines)
-        lda #$0D
-        jsr gb_insert
-        bcc @overflow_pop
-        ; Advance line counter
-        inc _load_line
-        bne :+
-        inc _load_line+1
-:
         ; Now insert the original byte at col 0 of the new line.
         ; Compute its width at col 0 (normally 1; for TAB at col 0
         ; it's TAB_WIDTH).

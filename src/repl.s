@@ -161,9 +161,10 @@ str_lines:      .byte " lines, ", 0
 str_bytes:      .byte " bytes", 0
 str_bytes_at:   .byte " bytes at $", 0
 str_bytes_sp:   .byte " bytes ", 0
-str_split_pfx:  .byte ";   ! ", 0
+str_split_pfx:  .byte "; ! ", 0
 str_split_sfx:  .byte " lines split: ", 0
-str_split_more: .byte "...", 0
+str_split_and:  .byte " and ", 0
+str_split_more: .byte " more", 0
 str_del_src:    .byte ";delete source. are you sure? y/n ", 0
 str_unsaved:    .byte ";unsaved. y/n? ", 0
 str_ok:         .byte "ok", 0
@@ -2267,15 +2268,18 @@ VIC_MEMCTL = $D018
 ; print_load_split_warning — print split warning if any lines
 ; were split during the last ed_load_source.
 ;
-; Output format (when ed_load_split > 0):
-;   ;   ! 3 lines split: 15, 23, 40
-; or if more than 8 splits:
-;   ;   ! 12 lines split: 15, 23, 40, 51, 64, 72, 85, 97...
+; Output format:
+;   ; ! 3 lines split: 15, 23, 40
+; If ed_load_split > 8, the trailing "and N more" reports the
+; overflow:
+;   ; ! 12 lines split: 4, 5, 19, 20, 21, 32, 33, 47 and 4 more
 ;
-; Line numbers are 1-based (editor lines are 0-based internally).
-; Only the first min(8, ed_load_split) numbers are printed; if
-; ed_load_split > 8, the list is followed by "..." to indicate
-; more.
+; ed_load_split is the count of forced CRs inserted during the
+; load.  Each entry is the editor line number (1-based on output)
+; AS IT EXISTS AFTER all prior splits — i.e., the new line
+; created by inserting that forced CR.  No dedupe: a single
+; original source line wrapping twice produces two consecutive
+; entries (e.g. lines 4 and 5).
 ; ═══════════════════════════════════════════════════════════
 .proc print_load_split_warning
         lda ed_load_split
@@ -2324,10 +2328,16 @@ VIC_MEMCTL = $D018
         inc @idx
         jmp @num_loop
 @nums_done:
-        ; If more than 8 splits, append "..."
+        ; If more than 8 splits, append " and (N - 8) more"
         lda ed_load_split
         cmp #9
         bcc @clear_eol
+        puts str_split_and
+        lda ed_load_split
+        sec
+        sbc #8                  ; A = ed_load_split - 8
+        ldx #0
+        jsr io_putdec
         puts str_split_more
 @clear_eol:
         jmp io_clear_eol
