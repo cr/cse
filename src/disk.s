@@ -4,11 +4,14 @@
 ; with direct KERNAL SETLFS/SETNAM/OPEN/CLOSE/CHKIN/CHKOUT/
 ; CHRIN/CHROUT/LOAD/SAVE/CLRCHN/READST calls.
 
+        .include "macros.inc"
+
         .export floppy_status, list_directory
         .export disk_load_prg, disk_save_prg
         .export disk_load_seq, disk_save_seq
         .export disk_seq_bytes, disk_seq_lines
 
+        .import puts_imm
         .import io_puts, io_putc, io_putdec, io_puthex2, io_puthex4
         .import io_getc, io_kbhit, io_clear_eol
         .import io_color
@@ -218,12 +221,8 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         ; print if we got anything
         cpy #0
         beq @err
-        lda #<@prefix
-        ldx #>@prefix
-        jsr io_puts
-        lda #<fl_buf
-        ldx #>fl_buf
-        jsr io_puts
+        puts @prefix
+        puts fl_buf
         jmp newline
 
 @err:   rts
@@ -371,9 +370,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         lda @blocks
         ldx @blocks+1
         jsr io_putdec
-        lda #<@free_msg
-        ldx #>@free_msg
-        jsr io_puts
+        puts @free_msg
         jsr io_clear_eol
         jsr newline
         jmp @check_stop
@@ -451,15 +448,11 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         jsr io_putc
 
         ; "; N blocks"
-        lda #<@blk_pre
-        ldx #>@blk_pre
-        jsr io_puts
+        puts @blk_pre
         lda @blocks
         ldx @blocks+1
         jsr io_putdec
-        lda #<@blk_suf
-        ldx #>@blk_suf
-        jsr io_puts
+        puts @blk_suf
 
         jsr io_clear_eol
         jsr newline
@@ -474,9 +467,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         jmp @entry
 :
 
-        lda #<@brk_msg
-        ldx #>@brk_msg
-        jsr io_puts
+        puts @brk_msg
         jsr newline
 
 @done:

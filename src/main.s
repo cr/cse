@@ -4,6 +4,7 @@
 ; BASIC SYS stub, BSS zeroing, and parameter stack init.
 
         .setcpu "6502"
+        .include "macros.inc"
 
 ; ── Exports ──────────────────────────────────────────────────
         .export state
@@ -12,6 +13,7 @@
         .exportzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
 
 ; ── Imports ──────────────────────────────────────────────────
+        .import puts_imm
         .import io_init, io_putc, io_puts, io_sync
         .import io_puthex4, io_puthex2, io_putdec
         .import io_getc, io_clear_eol
@@ -284,9 +286,7 @@ startup:
         lda #SCREEN_HEIGHT - 9
         sta CUR_ROW
         jsr io_sync
-        lda #<VERSION_STR
-        ldx #>VERSION_STR
-        jsr io_puts
+        puts VERSION_STR
 
         ; ZP free line (row 18): "  zp 0002-007f      126 free"
         lda #0
@@ -294,15 +294,11 @@ startup:
         lda #SCREEN_HEIGHT - 7
         sta CUR_ROW
         jsr io_sync
-        lda #<s_zp_tag
-        ldx #>s_zp_tag
-        jsr io_puts
+        puts s_zp_tag
         lda #<$0002
         ldx #>$0002
         jsr io_puthex4
-        lda #<s_dash
-        ldx #>s_dash
-        jsr io_puts
+        puts s_dash
         lda #<$007F
         ldx #>$007F
         jsr io_puthex4
@@ -314,9 +310,7 @@ startup:
         lda #<($7F - $02 + 1)
         ldx #>($7F - $02 + 1)
         jsr io_putdec
-        lda #<s_free
-        ldx #>s_free
-        jsr io_puts
+        puts s_free
 
         ; sys free line (row 19): " sys 0200-03ff      512 free"
         lda #0
@@ -324,15 +318,11 @@ startup:
         lda #SCREEN_HEIGHT - 6
         sta CUR_ROW
         jsr io_sync
-        lda #<s_sys_tag
-        ldx #>s_sys_tag
-        jsr io_puts
+        puts s_sys_tag
         lda #<$0200
         ldx #>$0200
         jsr io_puthex4
-        lda #<s_dash
-        ldx #>s_dash
-        jsr io_puts
+        puts s_dash
         lda #<$03FF
         ldx #>$03FF
         jsr io_puthex4
@@ -344,9 +334,7 @@ startup:
         lda #<($03FF - $0200 + 1)
         ldx #>($03FF - $0200 + 1)
         jsr io_putdec
-        lda #<s_free
-        ldx #>s_free
-        jsr io_puts
+        puts s_free
 
         ; work free line (row 20): "work XXXX-YYYY  NNNNN free"
         lda #0
@@ -354,15 +342,11 @@ startup:
         lda #SCREEN_HEIGHT - 5
         sta CUR_ROW
         jsr io_sync
-        lda #<s_work_tag
-        ldx #>s_work_tag
-        jsr io_puts
+        puts s_work_tag
         lda cur_addr
         ldx cur_addr+1
         jsr io_puthex4
-        lda #<s_dash
-        ldx #>s_dash
-        jsr io_puts
+        puts s_dash
         lda #<(BUF_END - 1)
         ldx #>(BUF_END - 1)
         jsr io_puthex4
@@ -379,9 +363,7 @@ startup:
         tax
         pla
         jsr io_putdec
-        lda #<s_free
-        ldx #>s_free
-        jsr io_puts
+        puts s_free
 
         ; Manual line (row 22)
         lda #0
@@ -389,9 +371,7 @@ startup:
         lda #SCREEN_HEIGHT - 3
         sta CUR_ROW
         jsr io_sync
-        lda #<s_manual
-        ldx #>s_manual
-        jsr io_puts
+        puts s_manual
 
         ; Prompt at bottom
         lda #0
@@ -431,9 +411,7 @@ startup:
         ora #$02
         sta VIC_MEMCTL
         jsr newline
-        lda #<s_nmi_msg
-        ldx #>s_nmi_msg
-        jsr io_puts
+        puts s_nmi_msg
         jsr io_clear_eol
         jsr newline
         jsr io_clear_eol

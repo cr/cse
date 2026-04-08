@@ -6,9 +6,11 @@
 
         .setcpu "6502"
         .macpack longbranch
+        .include "macros.inc"
 
 ; ── Exports ────────────────────────────────────────────────
         .export exec_line, read_line, show_prompt
+        .export puts_imm
         .export cur_addr, cur_device, cur_filename
         ; test harness visibility
         .export line_buf, last_cmd, block_size
@@ -245,6 +247,48 @@ nl_clear:
         jmp io_clear_eol
 
 ; ───────────────────────────────────────────────────────────
+; puts_imm — print an inline RODATA string pointer.
+;
+; Called by the `puts str` macro (see top of file):
+;     jsr puts_imm
+;     .word str_label
+;
+; Reads the str pointer from the two bytes immediately after
+; the jsr, advances the stacked return address past them, and
+; tail-calls io_puts.  All stack-trickery is contained here.
+;
+; Clobbers: A, X, Y, rp_tmp/rp_tmp+1 (same as io_puts).
+; ───────────────────────────────────────────────────────────
+puts_imm:
+        pla
+        sta rp_tmp              ; rp_tmp = call_site + 2 (lo)
+        pla
+        sta rp_tmp+1            ;        = addr of the .word's LSB - 1
+        ; Advance rp_tmp by 2 so that rts+1 = the next real insn.
+        clc
+        lda rp_tmp
+        adc #2
+        sta rp_tmp
+        bcc :+
+        inc rp_tmp+1
+:       ; Push the adjusted return addr back (hi first).
+        lda rp_tmp+1
+        pha
+        lda rp_tmp
+        pha
+        ; rp_tmp now points at str_hi (call_site + 4).
+        ldy #0
+        lda (rp_tmp),y          ; A = str_hi
+        tax                     ; X = str_hi
+        ; Step rp_tmp back by 1 to read str_lo.
+        lda rp_tmp
+        bne :+
+        dec rp_tmp+1
+:       dec rp_tmp
+        lda (rp_tmp),y          ; A = str_lo
+        jmp io_puts             ; tail call; rts returns to caller+5
+
+; ───────────────────────────────────────────────────────────
 ; io_addr_cmd — print "XXXX:C" at column 0
 ;   rp_addr = address, A = command char
 ; ───────────────────────────────────────────────────────────
@@ -297,9 +341,7 @@ check_unsaved:
         lda ed_dirty
         beq @ok                 ; not dirty → proceed
         jsr newline
-        lda #<str_unsaved
-        ldx #>str_unsaved
-        jsr io_puts
+        puts str_unsaved
         jsr confirm_yn
         beq @ok
         jsr io_clear_eol
@@ -614,9 +656,7 @@ parse_hex4_ptr1:
         rts
 @error:
         jsr newline
-        lda #<str_err_expr
-        ldx #>str_err_expr
-        jsr io_puts
+        puts str_err_expr
         jsr expr_error_str
         jsr io_puts
         jsr io_clear_eol
@@ -741,9 +781,7 @@ parse_hex4_ptr1:
         sta rp_save2            ; max
         jsr emit_hex_cols
 
-        lda #<str_2sp
-        ldx #>str_2sp
-        jsr io_puts
+        puts str_2sp
         lda #<dasm_buf
         ldx #>dasm_buf
         jsr io_puts
@@ -806,30 +844,20 @@ parse_hex4_ptr1:
 .proc emit_reg
         lda #0
         sta CUR_COL
-        lda #<str_r_pc
-        ldx #>str_r_pc
-        jsr io_puts
+        puts str_r_pc
         lda brk_pc
         ldx brk_pc+1
         jsr io_puthex4
-        lda #<str_a
-        ldx #>str_a
-        jsr io_puts
+        puts str_a
         lda reg_a
         jsr io_puthex2
-        lda #<str_x
-        ldx #>str_x
-        jsr io_puts
+        puts str_x
         lda reg_x
         jsr io_puthex2
-        lda #<str_y
-        ldx #>str_y
-        jsr io_puts
+        puts str_y
         lda reg_y
         jsr io_puthex2
-        lda #<str_s
-        ldx #>str_s
-        jsr io_puts
+        puts str_s
         lda reg_sp
         jsr io_puthex2
         lda #' '
@@ -872,9 +900,7 @@ parse_hex4_ptr1:
         jmp @regs                ; normal completion — skip status line
 
 @brk:   jsr newline
-        lda #<str_brk
-        ldx #>str_brk
-        jsr io_puts
+        puts str_brk
         lda dbg_bp_hit
         cmp #$FF
         beq @brk_at
@@ -885,9 +911,7 @@ parse_hex4_ptr1:
         adc #'1'
         jsr io_putc
 @brk_at:
-        lda #<str_at
-        ldx #>str_at
-        jsr io_puts
+        puts str_at
         lda brk_pc
         ldx brk_pc+1
         jsr io_puthex4
@@ -895,9 +919,7 @@ parse_hex4_ptr1:
         jmp @regs
 
 @nmi:   jsr newline
-        lda #<str_nmi
-        ldx #>str_nmi
-        jsr io_puts
+        puts str_nmi
         lda brk_pc
         ldx brk_pc+1
         jsr io_puthex4
@@ -1887,9 +1909,7 @@ VIC_MEMCTL = $D018
         clc
         adc #'1'
         jsr io_putc
-        lda #<str_colon_sp
-        ldx #>str_colon_sp
-        jsr io_puts
+        puts str_colon_sp
         ; bp_table[slot*4].addr
         ldx rp_save
         txa
@@ -1909,9 +1929,7 @@ VIC_MEMCTL = $D018
         jsr io_puthex4
         jmp @slot_done
 @empty_slot:
-        lda #<str_dashes
-        ldx #>str_dashes
-        jsr io_puts
+        puts str_dashes
 @slot_done:
         jsr io_clear_eol
         jsr newline
@@ -1927,9 +1945,7 @@ VIC_MEMCTL = $D018
         ; b * — delete all
         jsr dbg_bp_clear
         jsr newline
-        lda #<str_bp_clr
-        ldx #>str_bp_clr
-        jsr io_puts
+        puts str_bp_clr
         jsr io_clear_eol
         jmp nl_clear
 
@@ -1953,9 +1969,7 @@ VIC_MEMCTL = $D018
         ldy #1
         lda (rp_ptr),y
         jsr io_putc
-        lda #<str_deleted
-        ldx #>str_deleted
-        jsr io_puts
+        puts str_deleted
         jsr io_clear_eol
         jmp nl_clear
 
@@ -1985,9 +1999,7 @@ VIC_MEMCTL = $D018
         clc
         adc #'1'
         jsr io_putc
-        lda #<str_colon_sp
-        ldx #>str_colon_sp
-        jsr io_puts
+        puts str_colon_sp
         lda #'$'
         jsr io_putc
         lda expr_val
@@ -1997,9 +2009,7 @@ VIC_MEMCTL = $D018
         jmp nl_clear
 
 @full:  jsr newline
-        lda #<str_bp_full
-        ldx #>str_bp_full
-        jsr io_puts
+        puts str_bp_full
         jsr io_clear_eol
         jmp nl_clear
 
@@ -2245,9 +2255,7 @@ VIC_MEMCTL = $D018
 ;   rp_ptr2 = name
 ; ═══════════════════════════════════════════════════════════
 .proc io_quoted_name
-        lda #<str_semi_q
-        ldx #>str_semi_q
-        jsr io_puts
+        puts str_semi_q
         lda rp_ptr2
         ldx rp_ptr2+1
         jsr io_puts
@@ -2265,9 +2273,7 @@ VIC_MEMCTL = $D018
         lda ed_save_lines
         ldx ed_save_lines+1
         jsr io_putdec
-        lda #<str_lines
-        ldx #>str_lines
-        jsr io_puts
+        puts str_lines
         lda ed_save_bytes
         ldx ed_save_bytes+1
         jsr io_putdec
@@ -2294,15 +2300,11 @@ VIC_MEMCTL = $D018
         lda ed_load_split
         beq @done               ; no splits → nothing to print
         jsr newline
-        lda #<str_split_pfx
-        ldx #>str_split_pfx
-        jsr io_puts
+        puts str_split_pfx
         lda ed_load_split
         ldx #0
         jsr io_putdec
-        lda #<str_split_sfx
-        ldx #>str_split_sfx
-        jsr io_puts
+        puts str_split_sfx
 
         ; Print up to 8 line numbers (1-based, comma-separated)
         lda ed_load_split
@@ -2345,9 +2347,7 @@ VIC_MEMCTL = $D018
         lda ed_load_split
         cmp #9
         bcc @clear_eol
-        lda #<str_split_more
-        ldx #>str_split_more
-        jsr io_puts
+        puts str_split_more
 @clear_eol:
         jsr io_clear_eol
 @done:  rts
@@ -2361,17 +2361,13 @@ VIC_MEMCTL = $D018
 ;   rp_ptr2 = name
 ; ═══════════════════════════════════════════════════════════
 io_err_load:
-        lda #<str_err_load
-        ldx #>str_err_load
-        jsr io_puts
+        puts str_err_load
         lda rp_ptr2
         ldx rp_ptr2+1
         jmp io_puts
 
 io_err_save:
-        lda #<str_err_save
-        ldx #>str_err_save
-        jsr io_puts
+        puts str_err_save
         lda rp_ptr2
         ldx rp_ptr2+1
         jmp io_puts
@@ -2476,9 +2472,7 @@ disk_done:
         lda rp_cnt
         ldx rp_cnt+1
         jsr io_putdec
-        lda #<str_bytes_at
-        ldx #>str_bytes_at
-        jsr io_puts
+        puts str_bytes_at
         ; print address: if addr was 0, print result, else print addr
         lda rp_addr
         ora rp_addr+1
@@ -2636,9 +2630,7 @@ disk_done:
         lda rp_next_hi
         ldx rp_next_hi+1
         jsr io_putdec
-        lda #<str_bytes_sp
-        ldx #>str_bytes_sp
-        jsr io_puts
+        puts str_bytes_sp
         lda rp_addr
         ldx rp_addr+1
         jsr io_puthex4
@@ -3306,15 +3298,11 @@ free_line:
         jsr check_unsaved
         bcc @k_cancel
         jsr newline
-        lda #<str_del_src
-        ldx #>str_del_src
-        jsr io_puts
+        puts str_del_src
         jsr confirm_yn
         bne @k_no
         jsr ed_new
-        lda #<str_ok
-        ldx #>str_ok
-        jsr io_puts
+        puts str_ok
 @k_no:  jsr io_clear_eol
 @k_cancel:
         jmp nl_clear
@@ -3331,9 +3319,7 @@ free_line:
         sta block_size+1
 @B_show:
         jsr newline
-        lda #<str_B_eq
-        ldx #>str_B_eq
-        jsr io_puts
+        puts str_B_eq
         lda block_size
         ldx block_size+1
         jsr io_puthex4
@@ -3380,9 +3366,7 @@ free_line:
         jsr restore_colors
 @C_show:
         jsr newline
-        lda #<str_color
-        ldx #>str_color
-        jsr io_puts
+        puts str_color
         lda theme_border
         jsr _hex_val_to_char
         jsr io_putc
@@ -3460,9 +3444,7 @@ free_line:
 
 @u_show:
         jsr newline
-        lda #<str_cpu
-        ldx #>str_cpu
-        jsr io_puts
+        puts str_cpu
         lda al_cpu
         bne @u_no_star0
         lda #'*'
@@ -3471,9 +3453,7 @@ free_line:
         lda #' '
 @u_p0:  jsr io_putc
 .ifdef CPU_6510
-        lda #<str_6510
-        ldx #>str_6510
-        jsr io_puts
+        puts str_6510
         lda al_cpu
         cmp #1
         bne @u_no_star1
@@ -3484,9 +3464,7 @@ free_line:
 @u_p1:  jsr io_putc
 .endif
 .ifdef CMOS_SUPPORT
-        lda #<str_65c02
-        ldx #>str_65c02
-        jsr io_puts
+        puts str_65c02
         lda al_cpu
         cmp #2
         bne @u_no_star2
@@ -3500,9 +3478,7 @@ free_line:
         jmp nl_clear
 @h_a:   ; a — assemble source
         jsr newline
-        lda #<str_asm_ing
-        ldx #>str_asm_ing
-        jsr io_puts
+        puts str_asm_ing
         jsr newline
         jsr asm_assemble       ; A/X = error count
         sta rp_cnt
@@ -3512,15 +3488,11 @@ free_line:
         ; success — clear stale debug context so next t/o/c cold-starts
         lda #0
         sta dbg_reason
-        lda #<str_ok_colon
-        ldx #>str_ok_colon
-        jsr io_puts
+        puts str_ok_colon
         lda asm_size
         ldx asm_size+1
         jsr io_putdec
-        lda #<str_bytes_at
-        ldx #>str_bytes_at
-        jsr io_puts
+        puts str_bytes_at
         lda asm_org
         ldx asm_org+1
         jsr io_puthex4
@@ -3536,15 +3508,11 @@ free_line:
         lda sym_val+1
         sta cur_addr+1
 @a_errors:
-        lda #<str_semi
-        ldx #>str_semi
-        jsr io_puts
+        puts str_semi
         lda rp_cnt
         ldx rp_cnt+1
         jsr io_putdec
-        lda #<str_errors
-        ldx #>str_errors
-        jsr io_puts
+        puts str_errors
 @a_tail:
         jsr io_clear_eol
         jmp nl_clear
@@ -3560,9 +3528,7 @@ free_line:
 
         jsr newline
         ; hex display
-        lda #<str_semi
-        ldx #>str_semi
-        jsr io_puts
+        puts str_semi
         lda expr_val+1
         bne @calc_16bit
         lda expr_val
@@ -3601,9 +3567,7 @@ free_line:
 
 @calc_dec:
         ; decimal: "  " then 5-digit space-padded
-        lda #<str_2sp
-        ldx #>str_2sp
-        jsr io_puts
+        puts str_2sp
         lda expr_val
         sta rp_addr
         lda expr_val+1
@@ -3614,9 +3578,7 @@ free_line:
         lda expr_val+1
         jne @calc_done
         ; binary
-        lda #<str_pct
-        ldx #>str_pct
-        jsr io_puts
+        puts str_pct
         lda expr_val
         sta rp_tmp2
         ldx #0
@@ -3703,9 +3665,7 @@ free_line:
 
 @calc_err:
         jsr newline
-        lda #<str_err_expr
-        ldx #>str_err_expr
-        jsr io_puts
+        puts str_err_expr
         jsr expr_error_str
         jsr io_puts
         jsr io_clear_eol
@@ -3714,9 +3674,7 @@ free_line:
         jsr check_unsaved
         bcc @q_cancel
         jsr newline
-        lda #<str_quit
-        ldx #>str_quit
-        jsr io_puts
+        puts str_quit
         ; flush keyboard buffer
 @q_flush:
         jsr io_kbhit            ; Z set by lda $C6 inside
