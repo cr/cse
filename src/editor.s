@@ -2221,7 +2221,7 @@ s_workend:      .byte "workend", 0
         jsr gb_insert
         inc ed_cur_col
         jsr render_current_row
-        ; fall through to repos_jmp
+        jmp @repos              ; skip over @reject — no blip on success
 
 @reject:
         ; Audible feedback for refused input (line cap, left-wall
