@@ -415,6 +415,30 @@ Defined scope, needs work.
   ~400 bytes code + 80 bytes BSS.  Requires mn_classify char
   conversion and expr error code mapping.  Touches ~4 files.
   (Note: `parse_hex.s` was an earlier orphan already deleted.)
+
+  **Scope note (2026-04-08):** looked at this during a
+  stabilization round and deferred.  This is phase-level
+  work, not stabilization-sized.  Full blast radius:
+
+    * `asm_src.s` — rewrite ~12 `_insn_buf` insertion sites
+      (mnemonic copy, operand emit for each addressing mode)
+      to either emit elsewhere or parse source directly.
+    * `au_mode.s` — replace every `SC_*` VICII constant with
+      the PETSCII equivalent; rewrite the hex-digit detection
+      ladder; change `_au_rd_nib` / `_au_rd_byte` / `_au_is_hex`.
+    * `mn_classify.s` — add a PETSCII→VICII conversion at the
+      entry, since the hash table is VICII-indexed.
+    * `asm_line.s` — calling convention comment + any
+      encoding assertions.
+    * `test_au_mode.py`, `test_asm_line.py`, `test_asm_src.py`
+      — rewrite the `sc()` encoder functions and every test
+      case that hard-codes VICII bytes.
+    * `conftest.py` scaffolding as needed.
+
+  It's a full day of careful migration with the assembler
+  test suite re-verified at each step.  The 400 B win is
+  real but the risk/reward is wrong for a stabilization
+  round — this belongs in its own dedicated phase.
 - [x] ~~Redesign function interfaces~~ — done: all calls use
   ZP/register args.  Parameter stack (pushax/cse_popax/sp) eliminated.
 - [x] ~~ZP optimization: overlap scratch for non-concurrent
