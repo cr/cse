@@ -200,3 +200,54 @@ CMOS_SUPPORT`), disassembler (`.ifdef CMOS_SUPPORT` +
 `.ifndef CPU_6502`), and debugger step logic (`#ifdef CMOS_SUPPORT`)
 all use compile-time gating.  Runtime `al_cpu` checks remain within
 guarded blocks for 6510 vs 65C02 distinction.
+
+### 5. Don't get in the KERNAL's way — user code sees a working C64
+
+User programs launched from the REPL (via `j`, `g`, `t`, `o`)
+are expected to use the C64 KERNAL as their I/O layer, much as
+a modern program uses its host terminal.  A user program's
+`JSR $FFD2` is the equivalent of `write(1, …)` on Unix: it
+must land on the REPL screen at the current cursor position,
+with the current CSE theme colour, and it must work from the
+very first character without the user having to re-initialize
+anything first.
+
+Concretely, CSE must ensure that at every moment user code
+could start running:
+
+- **KERNAL vectors are the real KERNAL.**  $0314/$0316/$0318
+  (IRQ/BRK/NMI) are either the stock KERNAL addresses or
+  CSE-installed handlers that *delegate to the KERNAL path*
+  for anything they don't themselves use.  The debugger patches
+  $0316 for BRK capture, and restores it on exit.
+- **Screen state is coherent.**  VIC border / background /
+  $D018 charset mode / `$0286` (CHRCOLOR) all reflect the
+  current theme.  The KERNAL's screen editor invariants
+  ($D1/$D2 line pointer, $F3/$F4 color pointer, cursor
+  position at $D3/$D6) are kept in sync via `io_sync` so
+  the KERNAL can resume where CSE left off.
+- **No inherited junk.**  Values that BASIC's `SYS` or a
+  previous user-code run might have left in well-known
+  locations (hardware stack residue, $0286 stale colour,
+  $0277 keyboard buffer crud) are reset before user code
+  can observe them.
+
+The rule-of-thumb statement: **user code that does not
+explicitly configure colour, cursor, or screen mode must see
+whatever the current CSE theme is — not BASIC defaults, not
+garbage from a previous run.**  Anywhere CSE overrides a
+KERNAL variable for its own use (e.g. $CC=1 to disable the
+KERNAL cursor so CSE can manage its own) it must either
+restore the KERNAL value before the user gains control, or
+document the override as part of the user-code contract.
+
+**Current status:** mostly implemented.  Known working:
+theme colour via `$0286` and VIC registers (all refreshed
+by `restore_colors` before any user-code entry point and
+after every return), startup SP reset, BRK/NMI vector
+save+restore around `dbg_enter`, `io_sync` after mode
+switches.  Known gaps to audit: does user code see $CC in
+its expected default (CSE sets it to 1 to disable the
+KERNAL cursor)?  Does the KERNAL keyboard buffer ($0277+)
+get drained around mode switches?  These sit as an open
+DDD audit item in TODO.md.

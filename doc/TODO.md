@@ -214,6 +214,35 @@ Small, concrete, ready to do now.
     `_jsr_vec` ZP byte (both deleted in last round); BSS table
     now reflects actual export names (no underscores) and
     correct sizes (88 B `zp_save_buf`, 96 B total).
+- [ ] Audit "don't get in the KERNAL's way" (project.md
+  Principle 5).  Walk every KERNAL variable / vector CSE
+  touches and verify the user-code contract.  Items to check
+  individually:
+  * `$CC` (KERNAL cursor flag) — CSE sets it to 1 at startup.
+    Does user code that calls `JSR $E544` (KERNAL clear-screen)
+    or expects the blinking KERNAL cursor see the right state?
+    Should `dbg_enter`/`run_user` save+restore $CC around the
+    user-code window?
+  * `$0277+` (keyboard buffer) and `$C6` (count) — does CSE
+    leave queued repeats here when control transfers to user
+    code?  RUN/STOP debounce drains them on mode switch but
+    not on `j`/`g`/`t`/`o`.
+  * `$D1/$D2`, `$F3/$F4` (KERNAL line pointers), `$D3`/`$D6`
+    (cursor) — `io_sync` keeps these in sync after mode
+    switches; verify it runs before every user-code entry.
+  * `$0314/$0316/$0318` (IRQ/BRK/NMI vectors) — debugger
+    saves+restores $0316 around `dbg_enter`.  Are the others
+    ever clobbered?
+  * Hardware stack residue — `startup` resets SP, but does a
+    user program that returns via RTS see a clean enough page
+    1?  And does CSE see a coherent stack after the return?
+  * Charset mode ($D018) — CSE forces lowercase via VIC_MEMCTL
+    bit 1 at startup.  If user code switches to uppercase,
+    CSE's screen output (which assumes lowercase) breaks.
+    Document the override or restore on user-code return.
+  Outcome of the audit: each touched KERNAL location either
+  gets a save+restore around `run_user` or gets documented
+  as a deliberate user-code-contract override.
 - [x] ~~Doc cleanup — remove stale C/cc65 cruft~~ — done:
   `__fastcall__` annotations and "parameter stack" notes purged
   from `cse_io.md`, `disk.md`, `screen.md`; `build_system.md`
