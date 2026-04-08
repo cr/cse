@@ -102,7 +102,8 @@ or ZP variables.
     $D000-$DFFF  I/O (VIC-II, SID, CIA1, CIA2)
     $E000-$E5FF  Symbol table (1536 B, 256 slots × 6B, banked)
     $E600-$EEFF  Symbol name heap (2304 B, banked)
-    $EF00-$F0FF  Free under KERNAL (512 B)
+    $EF00-$EFFF  Earmarked: user stack snapshot (256 B, see § Stack budget)
+    $F000-$F0FF  Free under KERNAL (256 B)
     $F100-$F4F1  KDATA tables (1010 B, copied from PRG at startup)
     $F4F2-$F8D9  REPL screen save buffer (1000 B, banked)
     $F8DA-$FEFF  Free under KERNAL (1574 B)
@@ -124,6 +125,51 @@ The `kernal_out` flag in BSS lets long-running batches (e.g.
 many inner calls without paying sei + `$01` write overhead per
 call: when set, `kernal_bank_out` and `kernal_bank_in` both
 short-circuit to `rts`.
+
+## Stack budget
+
+CSE and user code share the single 256-byte 6502 hardware stack at
+`$0100–$01FF`.  This section documents how much of that page is
+available to user code when they run it via `j`, `g`, `t`, or `o`.
+
+**Startup resets SP.**  `main.s::startup` begins with `ldx #$FF /
+txs`, wiping whatever BASIC's `SYS` command left on the stack.
+This is safe because CSE never returns to BASIC — the main loop
+is `jmp @loop` and `@exit` halts via its own infinite loop.  Every
+subsequent `jsr` therefore layers onto a cleanly empty stack.
+
+**Stack depth at user-code entry.**  Traced from the main loop
+through to the `jmp (brk_pc)` inside `debugger.s::@tramp`:
+
+    @loop:         (jmp-loop, no push)
+      jsr exec_line                     → 2 B on stack
+        jmp (rp_ptr2)  ← command dispatch, no frame
+          jmp cmd_{jmp,step,…}  ← tail call, no frame
+            jsr run_user                → 4 B
+              jsr dbg_enter             → 6 B
+                jsr @tramp              → 8 B
+                  tsx; stx sp_baseline  ← SP captured here
+                  jmp (brk_pc)          ← user code enters
+
+User code therefore starts with **8 bytes** of CSE call-chain on
+the stack.  The hardware stack is 256 bytes, minus SP underflow
+guard room — in practice the C64 convention is to leave the very
+top `$01F6`+ available for IRQ pushes (PC lo/hi + P = 3 bytes),
+so CSE effectively has `$0100..$01F6 = 247 bytes` usable.  After
+CSE's 8-byte frame, **user code has ≥ 239 bytes** of the hardware
+stack free, comfortably above the 230-byte threshold we consider
+"sufficient" for any realistic C64 user program.
+
+**Stack-snapshot reservation.**  `$EF00–$EFFF` is earmarked (not
+allocated) for a future user-stack snapshot used by the debugger's
+`c`-from-subroutine fix — see the BRK TODO in `doc/TODO.md`.  If
+and when that snapshot is implemented, `debugger.s` will
+`memcpy(page_1 → $EF00)` on debug entry and reverse on exit,
+preserving any bytes user code pushed below `sp_baseline`.  CSE
+itself is shallow enough (8 B frame) that no CSE-side snapshot is
+needed; the original 512 B reservation at `$EF00–$F0FF` has been
+halved, with the second 256 B at `$F000` now unreserved free
+space.
 
 ## Memory Map — Relocated (production)
 

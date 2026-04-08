@@ -110,6 +110,16 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
 .segment "STARTUP"
 
 startup:
+        ; ── Reset the 6502 hardware stack ────────────────────
+        ; BASIC's SYS command leaves a few bytes on the stack
+        ; (the return address through BASIC's SYS dispatch).
+        ; CSE never returns to BASIC — the main loop is a
+        ; jmp-loop and @exit halts — so we can reset SP to the
+        ; top of page 1 and give user code the maximum possible
+        ; stack budget.  See memory_design.md § Stack budget.
+        ldx #$FF
+        txs
+
         ; Zero BSS segment (page loop keeps A=0 throughout)
         lda #<__BSS_RUN__
         sta rp_ptr

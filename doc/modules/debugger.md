@@ -618,7 +618,8 @@ Existing behavior — clear screen, fresh prompt.
 ```
 $E000–$E5FF  sym_table (1536 B, 256 slots)
 $E600–$EEFF  sym_heap (2304 B)
-$EF00–$F0FF  free (512 B)
+$EF00–$EFFF  earmarked: user stack snapshot (256 B, unallocated)
+$F000–$F0FF  free (256 B)
 $F100–$F4F1  KDATA tables (1010 B)
 $F4F2–$F8D9  repl_screen (1000 B)
 $F8DA–$FEFF  free (1574 B)
@@ -626,10 +627,16 @@ $FF00–$FF09  NMI trampoline (10 B)
 $FFFA–$FFFB  NMI vector → $FF00
 ```
 
-The debugger no longer uses KERNAL RAM for stack snapshots.
-User code shares the CSE 6502 stack.  See the TODO item
-"stack-snapshot revisit" for whether that's still the right
-choice now that the KERNAL-RAM region is mature.
+User code shares the CSE 6502 hardware stack at `$0100–$01FF`.
+`main.s::startup` resets SP to `$FF` on entry (CSE never returns
+to BASIC), so user code sees 239+ bytes of free stack after CSE's
+8-byte call-chain frame at `jmp (brk_pc)`.  See
+[`memory_design.md` § Stack budget](../memory_design.md#stack-budget)
+for the full stack walkthrough.
+
+The `$EF00–$EFFF` region is earmarked but not yet allocated — it
+will hold a 256-byte user-stack snapshot when the `c`-from-
+stepped-subroutine TODO is implemented.
 
 ## Cost Estimate
 
@@ -647,11 +654,14 @@ choice now that the KERNAL-RAM region is mature.
 
 ## Caveats
 
-- **Shared stack:** user code shares the CSE 6502 stack.  Deep
-  CSE call chains (~30 bytes) + deep user subroutines could
-  overflow.  For single-step this is not a concern (one
-  instruction at a time).  For `j` with breakpoints, deeply
-  recursive user code may need a future stack-swap implementation.
+- **Shared stack:** user code shares the CSE 6502 stack, but
+  `main.s::startup` resets SP to `$FF` and CSE's deepest call
+  chain at user-code entry is only **8 bytes** (four nested
+  JSRs: `exec_line → cmd_* → run_user → dbg_enter → @tramp`),
+  so user code has **≥ 239 bytes** free.  Deeply recursive user
+  code can still overflow the page; the fix for `c`-from-stepped-
+  subroutine stack loss is a 256 B user-stack snapshot at
+  `$EF00` (see TODO).
 - Breakpoints only work in RAM.  Cannot set a breakpoint in ROM
   or I/O space (the BRK byte must be writable).
 - `o` (step-over) on JSR places BRK at PC+3.  If the subroutine

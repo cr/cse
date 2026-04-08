@@ -46,14 +46,15 @@ _st_heap_base: .res 2       ; heap base (fixed at SYM_HEAP)
 ; ── Banked RAM layout under KERNAL ROM ($E000–$FFFF) ─────
 ; $E000–$E5FF  sym_table   (256 slots × 6B = 1536 bytes)
 ; $E600–$EEFF  sym_heap    (2304 bytes, name heap)
-; $EF00–$F0FF  free (512 bytes)
+; $EF00–$EFFF  earmarked for user stack snapshot (256B, unallocated)
+; $F000–$F0FF  free (256B)
 ; $F100–$F4F1  KDATA tables (1010B)
 ; $F4F2–$F8D9  REPL screen save (1000B, editor.s)
 ; $F8DA–$FEFF  free (1574B)
 ; $FF00–$FF09  NMI trampoline (10 bytes)
 ; $FFFA–$FFFF  HW vectors (6B, fixed)
 ;
-; Used: 5860 / 8192 bytes (71%).  Free: 2326 bytes.
+; Used: 5860 / 8192 bytes (71%).  Free: 2070 bytes (earmarked: 256).
 sym_table    = $E000
 SYM_HEAP     = $E600
 SYM_HEAP_END = $EF00

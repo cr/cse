@@ -119,51 +119,57 @@ should wait until the stabilization phase wraps up.
   snapshot when addressing $00–$7F.
 - [ ] Debugger: stepping into a subroutine then `c` (continue) cannot
   return through the original JSR's pushed return address.  The
-  sp_baseline rts trick (commit `c753fc8`) abandons user-pushed
-  bytes on every BRK return.  For interactive single-stepping this
-  is acceptable, but `c`-from-inside-stepped-subroutine ends the
-  run early because the subroutine's RTS pops the @tramp return
-  instead of the original caller.  Proper fix: snapshot the user's
-  stack page contents on BRK and restore them on the next dbg_enter.
+  `sp_baseline` RTS trick (commit `c753fc8`) unwinds the stack to
+  the point where `@tramp` called into user code, so any bytes
+  user code pushed (including JSR return addresses) are abandoned
+  on debug return.  Interactive single-stepping is fine, but
+  `c`-from-inside-a-stepped-subroutine ends the run early because
+  the subroutine's RTS pops the @tramp return instead of the
+  original caller.  Acceptable trade-off for now — the user can
+  work around it by setting a breakpoint on the caller and using
+  `c` from the outer scope.  If we ever revisit this, the fix is
+  a 256-byte user-stack snapshot at `$EF00` under KERNAL:
+  copy page 1 → $EF00 on debug entry, copy $EF00 → page 1 on
+  debug exit.  CSE's own stack is only 8 bytes deep at user-code
+  entry (see `memory_design.md` § Stack budget), so we do *not*
+  need a second CSE-side snapshot.  Would also fix the NMI-deep-
+  stack failure mode.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+) now
   silently falls back to step-over (commit `3cc5e42`).  This is the
   right behaviour, but consider showing a one-line note (e.g. `;
   rom step → over`) so the user understands why the next prompt is
   past the JSR instead of inside it.  Low priority — probably file
   under "ideas".
-- [ ] Debugger: NMI break trapped during user code that has pushed
-  bytes via JSR/PHA/PHP suffers the same sp_baseline trade-off as
-  BRK.  Acceptable for now; see the BRK item above for the proper
-  fix.
-- [ ] Stack-snapshot revisit under KERNAL.  `debugger.md` used to
-  reserve `$EF00–$EFFF` (CSE stack snapshot) + `$F000–$F0FF` (user
-  stack snapshot) = 512 B under KERNAL ROM for a planned
-  "swap-stacks-on-debug-entry" scheme, but the implementation was
-  abandoned when Phase 6 replaced it with the `sp_baseline` trick.
-  The space is now labelled "free" in `symtab.s` and
-  `memory_design.md`.  Two things to investigate and decide:
-    1. **Is the sp_baseline trick still the right call?**  The two
-       BRK/NMI TODO items above document its failure modes (user
-       pushes via JSR/PHA/PHP between patches get abandoned; `c`
-       from inside a stepped subroutine can't return through the
-       original caller's pushed address).  A genuine stack-page
-       snapshot in the $EF00 region would fix both — page 1 copies
-       out on debug entry, page 1 restores on exit.  Measure how
-       deep the CSE call chain actually runs during typical debug
-       flows (`t1`, `o`, `c`, assembly pass).  Old memory_design
-       notes guessed ~30 B; verify.
-    2. **Same for the user side.**  For interactive stepping we
-       execute one instruction at a time, so deep user chains only
-       matter across `c`/`j`.  If the answer to (1) is "snapshot",
-       a symmetric user-stack snapshot in the $F000 region makes
-       `c`-from-subroutine work even when CSE's own stack usage
-       has clobbered the user's pushed bytes.
-  Possible outcomes: (a) implement the 512 B snapshot scheme and
-  close both debugger TODOs above; (b) confirm sp_baseline is fine
-  and reclaim the 512 B for something else (e.g. a larger
-  `repl_screen` on 80-column mode, or a breakpoint history ring);
-  (c) keep it reserved but document *why* (leaving bytes on the
-  table "in case" is the worst option — decide either way).
+- [x] ~~Stack-snapshot revisit under KERNAL.~~  Resolved
+  2026-04-08:
+  * `sp_baseline` is the right call for single-step.  The `c`-from-
+    subroutine failure mode is captured in the BRK TODO above with
+    the concrete 256 B `$EF00` snapshot fix described in-place.
+  * Verified CSE's own call depth at `jmp (brk_pc)`: **8 bytes**
+    (four nested `jsr` frames — exec_line → cmd_step → run_user →
+    dbg_enter → @tramp).  Plus ~2-4 B of BASIC SYS residue until
+    startup resets SP (see below).
+  * User code therefore gets **≥ 230 bytes** of the 256-byte
+    hardware stack, which is ample for any realistic C64 program.
+  * The full 512 B reservation at `$EF00–$F0FF` is not needed:
+    - `$EF00–$EFFF` (256 B) stays earmarked for the future user-
+      stack snapshot described in the BRK TODO.  Not allocated
+      until that TODO is implemented.
+    - `$F000–$F0FF` (256 B) is now **unreserved free space** —
+      available for any future feature that needs a page-aligned
+      256-byte region under KERNAL.
+  * Documented in `memory_design.md` § Stack budget.  Stale
+    "stack snapshot" labels purged from all module docs.
+- [x] ~~BASIC SYS residue on the hardware stack~~ — fixed:
+  `main.s::startup` now does `ldx #$FF / txs` as its first
+  instruction, resetting SP to `$01FF` before any CSE code runs.
+  This wipes the ~2-4 B BASIC SYS left behind.  Safe because
+  CSE never returns to BASIC (the main loop is `jmp @loop` and
+  `@exit` halts).  The BRK/NMI `sp_baseline` path still works —
+  it captures its own baseline at `@tramp` entry, independent
+  of the startup SP.  User code therefore always sees a clean
+  `sp = $01F6` (or deeper once dbg_enter frames are pushed),
+  regardless of how BASIC was launched.
 - [x] ~~Debugger: `dbg_enter` saves CSE ZP $02..$5E into `zp_save_buf`,
   but the buffer in asm_bridge.s is sized for $02..$5A (89 bytes,
   not 93).~~  Fixed: both files now share `ZP_SAVE_HI = $59` (the
