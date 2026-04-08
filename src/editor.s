@@ -19,7 +19,7 @@
         .export src_top, src_bot
         .exportzp buf_base
 
-        .import io_sync
+        .import io_sync, io_blip
         .import kernal_bank_out, kernal_bank_in
         .import disk_save_seq, disk_load_seq
         .import disk_seq_bytes, disk_seq_lines
@@ -1728,11 +1728,12 @@ s_workend:      .byte "workend", 0
 .endproc
 
 ; ── ed_cursor_up ──────────────────────────────────────────────
+; Output: C=1 if cursor moved, C=0 if no-op (already at line 0).
 .proc ed_cursor_up
-        ; if ed_cur_line == 0 → return
+        ; if ed_cur_line == 0 → return refused
         lda ed_cur_line
         ora ed_cur_line+1
-        beq @done
+        beq @noop
 
         lda ed_cur_col
         sta @target
@@ -1763,14 +1764,18 @@ s_workend:      .byte "workend", 0
 @advance:
         lda @target
         jsr advance_to_vcol
-@done:  rts
+        sec                     ; moved
+        rts
+@noop:  clc                     ; refused
+        rts
 
 @target: .byte 0
 .endproc
 
 ; ── ed_cursor_down ────────────────────────────────────────────
+; Output: C=1 if cursor moved, C=0 if no-op (already on last line).
 .proc ed_cursor_down
-        ; if ed_cur_line + 1 >= ed_total_lines → return
+        ; if ed_cur_line + 1 >= ed_total_lines → return refused
         lda ed_cur_line
         clc
         adc #1
@@ -1782,10 +1787,10 @@ s_workend:      .byte "workend", 0
         lda ed_tmp+1
         cmp ed_total_lines+1
         bcc @ok
-        bne @done               ; ed_tmp > total → done
+        bne @noop               ; ed_tmp > total → refused
         lda ed_tmp
         cmp ed_total_lines
-        bcs @done               ; ed_tmp >= total → done
+        bcs @noop               ; ed_tmp >= total → refused
 @ok:
         lda ed_cur_col
         sta @target
@@ -1825,7 +1830,10 @@ s_workend:      .byte "workend", 0
 @past_cr:
         lda @target
         jsr advance_to_vcol
-@done:  rts
+        sec                     ; moved
+        rts
+@noop:  clc                     ; refused
+        rts
 
 @target: .byte 0
 .endproc
@@ -1872,19 +1880,18 @@ s_workend:      .byte "workend", 0
         bne @not_left
         ; if ed_cur_col > 0 && gap_lo > buf_base
         lda ed_cur_col
-        beq @left_repos
+        jeq @reject             ; col 0 → left wall
         lda gap_lo
         cmp buf_base
         bne @do_left
         lda gap_lo+1
         cmp buf_base+1
-        beq @left_repos
+        jeq @reject             ; at buf_base → start of buffer
 @do_left:
         jsr gb_cursor_left
         jsr visual_col
         sta ed_cur_col
         jsr ed_status_pos
-@left_repos:
         jmp @repos
 
         ; ── CH_CURS_RIGHT ─────────────────────────
@@ -1895,20 +1902,19 @@ s_workend:      .byte "workend", 0
         lda gap_hi+1
         cmp #>BUF_END
         bcc @right_check
-        bne @right_repos
+        jne @reject             ; past EOF
         lda gap_hi
         cmp #<BUF_END
-        bcs @right_repos
+        jcs @reject             ; past EOF
 @right_check:
         ldy #0
         lda (gap_hi),y
         cmp #$0D
-        beq @right_repos
+        jeq @reject             ; end of line
         jsr gb_cursor_right
         jsr visual_col
         sta ed_cur_col
         jsr ed_status_pos
-@right_repos:
         jmp @repos
 
         ; ── CH_CURS_UP ────────────────────────────
@@ -1916,6 +1922,7 @@ s_workend:      .byte "workend", 0
         cmp #CH_CURS_UP
         bne @not_up
         jsr ed_cursor_up
+        jcc @reject             ; no-op → top of buffer
         ; if ed_cur_line < ed_top_line → scroll down
         lda ed_cur_line+1
         cmp ed_top_line+1
@@ -1936,6 +1943,7 @@ s_workend:      .byte "workend", 0
         cmp #CH_CURS_DOWN
         bne @not_down
         jsr ed_cursor_down
+        jcc @reject             ; no-op → bottom of buffer
         ; if ed_cur_line >= ed_top_line + ED_LINES → scroll up
         lda ed_cur_line
         sec
@@ -1974,7 +1982,8 @@ s_workend:      .byte "workend", 0
         lda ed_cur_line
         ora ed_cur_line+1
         bne @del_join
-        jmp @del_edited         ; line 0, col 0 → nothing to delete, but mark edit anyway
+        jmp @reject             ; line 0, col 0 → left wall, blip + ignore
+                                ; (do NOT mark dirty: nothing changed)
 @del_mid:
         jsr gb_backspace
         jsr visual_col
@@ -2169,7 +2178,7 @@ s_workend:      .byte "workend", 0
         clc
         adc @new_col            ; A = line_vwidth + tab width at end
         cmp #SCREEN_WIDTH       ; > 39 → refuse (=40 boundary)
-        bcs @repos_jmp
+        bcs @reject
         ; Accepted.  Compute the actual new ed_cur_col after the
         ; insert: ed_cur_col + char_width(TAB, ed_cur_col).
         lda #$A0
@@ -2204,16 +2213,21 @@ s_workend:      .byte "workend", 0
         ; (The cursor-at-col-39 case is also covered, since the line
         ; must be ≥ 39 wide for the cursor to sit there.)
         jsr cursor_line_vwidth
-        cmp #SCREEN_WIDTH       ; < 40 ?  i.e. line_vwidth ≤ 39
-        bcs @repos_jmp          ; line_vwidth ≥ 40 → never (sentinel)
+        cmp #SCREEN_WIDTH       ; line_vwidth ≥ 40 → never (sentinel)
+        bcs @reject
         cmp #SCREEN_WIDTH - 1   ; line_vwidth ≥ 39 → refuse
-        bcs @repos_jmp
+        bcs @reject
         lda @key
         jsr gb_insert
         inc ed_cur_col
         jsr render_current_row
         ; fall through to repos_jmp
 
+@reject:
+        ; Audible feedback for refused input (line cap, left-wall
+        ; backspace, etc.).  Falls through to @repos so the cursor
+        ; still gets re-synced after the rejection.
+        jsr io_blip
 @repos_jmp:
         ; Trampoline for branches that can't reach @repos directly.
         ; Falling through to @repos is equivalent to `jmp @repos`

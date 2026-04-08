@@ -16,6 +16,7 @@
         .export io_getc, io_kbhit
         .export io_sync
         .export io_color
+        .export io_blip
         .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
 
 
@@ -32,6 +33,12 @@ CUR_COL = $D3           ; cursor column
 CUR_ROW = $D6           ; cursor row
 SCR_PTR = $D1           ; screen line pointer (lo/hi)
 COL_PTR = $F3           ; color RAM line pointer (lo/hi)
+
+; SID registers (only for io_blip)
+SID_V1_FREQ_LO = $D400
+SID_V1_FREQ_HI = $D401
+SID_V1_CTRL    = $D404
+SID_VOL        = $D418
 
 ; ── ZP scratch ──────────────────────────────────────────────
 .segment "ZEROPAGE"
@@ -282,3 +289,35 @@ io_kbhit:
         lda $C6                 ; keyboard buffer count
         ldx #0
         rts
+
+; ── io_blip — short audible reject blip ────────────────────
+;
+; Plays a brief triangle pulse on SID voice 1 as audible
+; feedback for refused input (line cap, backspace into the
+; left wall, refused commands).  Originally implemented as
+; click_sound() in the project's very first commit (28fb2dd),
+; where it fired on backspace at column 0.
+;
+; The volume register stays set to 10 after the first call
+; (the SID's amp/filter byte at $D418).  This is intentional:
+; later blips skip the re-init cost.  User code that wants
+; its own SID setup will reinitialize.
+;
+; Clobbers: A, X.  Preserves Y.
+.proc io_blip
+        lda #$00
+        sta SID_V1_FREQ_LO
+        lda #$80                ; freq hi → ~2200 Hz
+        sta SID_V1_FREQ_HI
+        lda #10
+        sta SID_VOL
+        lda #$11                ; gate=1, triangle=1
+        sta SID_V1_CTRL
+        ; Brief busy-wait (~200 cycles ≈ 0.2 ms)
+        ldx #200
+@wait:  dex
+        bne @wait
+        lda #$00                ; gate=0
+        sta SID_V1_CTRL
+        rts
+.endproc
