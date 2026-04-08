@@ -1222,9 +1222,8 @@ parse_hex4_ptr1:
         sta cur_addr+1
         jsr newline
         lda rp_cnt
-        bne @ret                ; nbytes > 0 → don't clear
-        jmp io_clear_eol
-@ret:   rts
+        jeq io_clear_eol        ; nbytes == 0 → clear; else skip
+        rts
 
 @try_asm_mne:
 @try_mne:
@@ -1379,9 +1378,7 @@ parse_hex4_ptr1:
         adc rp_addr+1
         sta cur_addr+1
         ; check wrap
-        bcs @wrap_ed
-        jmp @ed_nl
-@wrap_ed:
+        jcc @ed_nl
         lda #0
         sta cur_addr
         sta cur_addr+1
@@ -2332,7 +2329,7 @@ VIC_MEMCTL = $D018
         bcc @clear_eol
         puts str_split_more
 @clear_eol:
-        jsr io_clear_eol
+        jmp io_clear_eol
 @done:  rts
 
 @count:  .byte 0

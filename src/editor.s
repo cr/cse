@@ -5,6 +5,8 @@
 ;   Row 22     Status bar
 ;   Row 23-24  Last 2 lines preserved from REPL
 
+        .macpack longbranch
+
         .export enter_editor, leave_editor
         .export ed_handle_key
         .export ed_ensure_init, ed_new
@@ -187,8 +189,7 @@ s_workend:      .byte "workend", 0
         ; BUF_FLOOR=$4800 (lo=0), so buf_base.hi >= $49 is sufficient
         lda buf_base+1
         cmp #>(BUF_FLOOR) + 1   ; #$49
-        bcs @can_grow
-        jmp @no_room
+        jcc @no_room
 @can_grow:
         ; pre_size = gap_lo - buf_base
         lda gap_lo
@@ -1668,8 +1669,7 @@ s_workend:      .byte "workend", 0
         cmp #$20                ; space
         beq @ws
         cmp #$A0                ; tab
-        beq @ws
-        jmp @done               ; non-whitespace → stop
+        jne @done               ; non-whitespace → stop
 @ws:
         sta ws_buf,y
         iny
@@ -1866,6 +1866,25 @@ s_workend:      .byte "workend", 0
         jmp ed_status_pos
 .endproc
 
+; ── render_current_row — render cursor row, mark edited ──────
+; Common tail used by the @printable and @tab insert paths in
+; ed_handle_key.  Computes scr_row = cur_line - top_line and
+; calls ed_render_rows with from=row, to=row+1, then falls
+; through to ed_mark_edited.
+; Clobbers: A, X, Y.
+.proc render_current_row
+        lda ed_cur_line
+        sec
+        sbc ed_top_line
+        tax                     ; from_row
+        inx                     ; to = from + 1
+        txa
+        tay
+        dex                     ; restore from
+        jsr ed_render_rows
+        jmp ed_mark_edited
+.endproc
+
 ; ── ed_handle_key — main keystroke dispatcher ─────────────────
 ; Input: A = PETSCII key code
 .proc ed_handle_key
@@ -1971,8 +1990,7 @@ s_workend:      .byte "workend", 0
         ; ── CH_DEL ────────────────────────────────
 @not_home:
         cmp #CH_DEL
-        beq @is_del
-        jmp @not_del
+        jne @not_del
 @is_del:
         lda ed_cur_col
         bne @del_mid            ; col > 0 → simple backspace
@@ -2077,8 +2095,7 @@ s_workend:      .byte "workend", 0
         ; ── CH_ENTER ──────────────────────────────
 @not_del:
         cmp #CH_ENTER
-        beq @is_enter
-        jmp @not_enter
+        jne @not_enter
 @is_enter:
         ; Auto-indent: copy leading whitespace (always enabled;
         ; TAB_WIDTH is build-time constant, not runtime-disableable)
@@ -2157,9 +2174,7 @@ s_workend:      .byte "workend", 0
         ; ── CH_INS ────────────────────────────────
 @not_enter:
         cmp #CH_INS
-        bne :+
-        jmp @repos_jmp          ; ignore INS
-:
+        jeq @repos_jmp          ; ignore INS
 
         ; ── TAB ($A0) — always enabled under TAB_WIDTH ──
         cmp #$A0
@@ -2191,17 +2206,7 @@ s_workend:      .byte "workend", 0
         jsr gb_insert
         lda @new_col
         sta ed_cur_col
-        ; Render current row only
-        lda ed_cur_line
-        sec
-        sbc ed_top_line
-        tax
-        inx                     ; to = from + 1
-        txa
-        tay
-        dex                     ; restore from
-        jsr ed_render_rows
-        jsr ed_mark_edited
+        jsr render_current_row
         jmp @repos
 
         ; ── Default: printable character ──────────
@@ -2230,23 +2235,14 @@ s_workend:      .byte "workend", 0
         lda @key
         jsr gb_insert
         inc ed_cur_col
-        ; Render current row only
-        lda ed_cur_line
-        sec
-        sbc ed_top_line
-        tax
-        inx                     ; to = from + 1
-        txa
-        tay
-        dex                     ; restore from
-        jsr ed_render_rows
-        jsr ed_mark_edited
+        jsr render_current_row
         ; fall through to repos_jmp
 
 @repos_jmp:
-        ; Local trampoline for branches that can't reach @repos directly
-        jmp @repos
-
+        ; Trampoline for branches that can't reach @repos directly.
+        ; Falling through to @repos is equivalent to `jmp @repos`
+        ; and saves 3 B.  Branches keep targeting @repos_jmp — the
+        ; label is an alias for the first byte of @repos.
 @repos:
         ; Sync cursor position
         lda ed_cur_line

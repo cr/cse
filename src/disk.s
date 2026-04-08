@@ -4,6 +4,7 @@
 ; with direct KERNAL SETLFS/SETNAM/OPEN/CLOSE/CHKIN/CHKOUT/
 ; CHRIN/CHROUT/LOAD/SAVE/CLRCHN/READST calls.
 
+        .macpack longbranch
         .include "macros.inc"
 
         .export floppy_status, list_directory
@@ -255,8 +256,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         jsr SETLFS
 
         jsr OPEN
-        bcc @opened
-        jmp @err
+        jcs @err
 @opened:
         ldx #1
         jsr CHKIN
