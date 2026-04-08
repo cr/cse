@@ -264,7 +264,7 @@ editor cursor.
 | UP | `ed_cursor_up`: home → left (past CR) → home → advance to target col | scroll down if above viewport, else status pos |
 | DOWN | `ed_cursor_down`: advance past CR → advance to target col | scroll up if below viewport, else status pos |
 | HOME | `gb_home`: slide gap left to start of current line | status pos only |
-| DEL | `gb_backspace`, re-render from current row to bottom.  At col 0 of line > 0: join with previous line — refused (blip) if the combined width would exceed 39 (see "Backspace-join and the 39-col cap" below).  At col 0 of line 0: refused (blip, left wall). | rows from cursor to bottom + status |
+| DEL | `gb_backspace`, re-render from current row to bottom.  At col 0 of line > 0: join with previous line — if the combined width would exceed 39 a forced CR is inserted at the last safe col (no blip, operation succeeds; see "Backspace-join and the 39-col cap" below).  At col 0 of line 0: refused (blip, left wall). | rows from cursor to bottom + status |
 | RETURN | Insert $0D, advance `ed_cur_line`. Auto-indent: copy leading whitespace (spaces and $A0 tabs) from current line to new line.  Auto-indent is truncated if it would exceed 38 cols (leaving at least one col for the first typable char). | rows from previous line to bottom + status |
 | printable | insert char at gap, increment `ed_cur_col`.  Refused if the cursor's line is at the cap (`cursor_line_vwidth() ≥ 39`) — checks the line's total visual width, not just `ed_cur_col`, so an insert in the middle of a full line is also refused. | current row only + status |
 
@@ -344,32 +344,42 @@ entry, the invariant is maintained forever without further checks.
 
 ### Backspace-join and the 39-col cap
 
-DEL at col 0 of line N > 0 normally joins line N with line N-1:
-delete the CR at end of line N-1, concatenating the two.  If
-`line_vwidth(N-1) + line_vwidth(N) > 39`, the join would violate
-the cap.
+DEL at col 0 of line N > 0 joins line N with line N-1: delete
+the CR at end of line N-1, concatenating the two.  If
+`line_vwidth(N-1) + line_vwidth(N) > 39`, the join would
+otherwise violate the cap.
 
-**Policy: flat refusal.**  The handler performs a *predictive*
-width check before touching the buffer.  If the combined width
-would exceed 39, the DEL is refused: the reject blip fires, the
-buffer is untouched, and the cursor stays at col 0 of line N.
-No forced-newline rearrangement.
+**Policy: forced newline.**  The join always proceeds — the
+cursor does not hear the reject blip, because this is not a
+refused edit, it's a successful one that ends up in an
+unexpected shape:
 
-The predictive check uses `cursor_line_vwidth` twice with a
-single `gb_cursor_left` / `gb_cursor_right` pair between to
-move the cursor temporarily into line N-1 for measurement.
-Net gap movement is zero.
+1. `gb_backspace` deletes the CR between N-1 and N.
+2. The handler measures the combined visual width.
+3. If ≤ 39, the result is a single line; the cursor is
+   restored to the join point.
+4. If ≥ 40, the handler advances the cursor to the largest
+   col ≤ 39 on the combined line *without breaking a tab*
+   (a tab whose expansion would straddle the boundary is
+   left on the post-CR side), then inserts a forced CR
+   there.  Two lines remain but the split point has moved.
+   No data is lost.
 
-Rationale: earlier versions of CSE used a "forced newline"
-policy that joined the two lines and then re-inserted a CR at
-the last safe col, so data was never lost but the split moved.
-This was cosmetically confusing — the user saw their DEL not
-"work as pressed" and had to scroll to find where the text
-ended up.  After the audible reject blip was introduced for
-other refused edits, flat refusal is consistent with the rest
-of the editor's input-rejection feedback.  The file-load path
-still uses forced-newline (see below), because losing data
-there is worse than a mis-split.
+Net effect: the user sees their backspace "work" (one CR
+disappeared where they pressed DEL) but a **different** CR
+may have appeared at a col such that the first sub-line's
+width stays ≤ 39.  The cursor lands at col 0 of whatever
+sub-line now contains the first byte of the original line N.
+No blip — the operation is not a refusal.
+
+Rationale: flat refusal was tried briefly and rejected.  It
+felt wrong in practice: the user issued a valid edit (the
+combined text is perfectly legal, just doesn't fit on one
+line) and the editor doing nothing is surprising.  Forced
+newline preserves every byte in order, which is the principle
+that matters.  The split boundary is a cosmetic inconvenience;
+data loss would be worse.  The file-load path (see below) uses
+the same policy for the same reason.
 
 ### Load from SEQ file
 
