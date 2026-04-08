@@ -462,9 +462,12 @@ def gen_selfcheck():
     lines.append('; --- expected bytes ---')
     lines.append('expect:')
 
-    # Emit expected bytes in rows of 8
-    for i in range(0, total, 8):
-        chunk = all_expected[i:i+8]
+    # Emit expected bytes in rows of 6.  6 bytes/row keeps each
+    # line at "<TAB>.db $xx,$xx,$xx,$xx,$xx,$xx" = 8 + 4 + 23 = 35
+    # visual cols, comfortably under the editor's 39-col cap.
+    # (8 bytes/row was 43 cols and tripped the cap on load.)
+    for i in range(0, total, 6):
+        chunk = all_expected[i:i+6]
         hex_strs = ','.join(f'${b:02x}' for b in chunk)
         lines.append(f'  .db {hex_strs}')
 
@@ -480,46 +483,50 @@ def gen_hello():
     row below the typed command, with the next prompt below that.
     No prompt corruption, no register dump (clean RTS).
     """
+    # All lines fit within the editor's 39-col hard cap.
+    # The leading 2-space indent becomes a TAB ($A0) on disk
+    # via write_seq, expanding to 8 visual cols.
     lines = [
-        '; ============================================================',
-        ";  t-hello  -  the classic 'hello world'",
+        '; ====================================',
+        ";  t-hello - 'hello world'",
         ';',
-        ';  prints "hello world" via kernal chrout, then returns',
-        ';  cleanly to cse. used as the canonical smoke test for',
-        ";  the debugger's g / j commands and for the repl's prompt",
-        ';  row handling around user code output.',
+        ';  prints "hello world" via chrout,',
+        ';  then returns cleanly to cse.',
+        ';  smoke test for the debugger g / j',
+        ";  commands and the repl's prompt-row",
+        ';  handling around user code output.',
         ';',
-        ';  load:      l "t-hello,s"',
-        ';  assemble:  a',
-        ';  run:       g              (or: j main)',
+        ';  load:     l "t-hello,s"',
+        ';  assemble: a',
+        ';  run:      g       (or: j main)',
         ';',
-        ';  expected display after g:',
+        ';  after g, the screen shows:',
         ';      6000:g',
         ';      hello world',
         ';      6000:',
-        '; ============================================================',
+        '; ====================================',
         '',
         '.cpu 6510',
-        '.const chrout $ffd2        ; kernal chrout',
+        '.const chrout $ffd2  ; kernal chrout',
         '.org $6000',
         '',
-        '; ---- entry point -------------------------------------------',
+        '; ---- entry point -------------',
         'main:',
-        '  ldx #0                   ; x = read index into msg',
+        '  ldx #0            ; x = index',
         '.lp:',
-        '  lda msg,x                ; next char',
-        '  beq .done                ; nul terminator?  -> done',
-        '  jsr chrout               ; print the char',
-        '  inx                      ; advance',
-        '  bne .lp                  ; loop (msg short, x never wraps)',
+        '  lda msg,x         ; next char',
+        '  beq .done         ; nul -> end',
+        '  jsr chrout        ; print it',
+        '  inx               ; advance',
+        '  bne .lp           ; loop',
         '.done:',
-        '  rts                      ; back to cse',
+        '  rts               ; back to cse',
         '',
-        '; ---- message table -----------------------------------------',
+        '; ---- message table -----------',
         'msg:',
-        '  .str "hello world"       ; 11 bytes',
-        '  .db $0d                  ; carriage return',
-        '  .db $00                  ; nul terminator (end of msg)',
+        '  .str "hello world"; 11 bytes',
+        '  .db $0d           ; cr',
+        '  .db $00           ; nul = eom',
     ]
     return lines
 
