@@ -72,6 +72,38 @@ should wait until the stabilization phase wraps up.
   would close the gap.  Scope creep warning: the stub has to
   fake `disk_load_seq`, KERNAL PLOT, the render tables, and a
   bunch of other pieces — budget accordingly.
+- [ ] Revise the TDD framework (`doc/testing.md` + existing test
+  patterns) to *not* encourage Python-mirror tests like
+  `test_editor.py::TestScrollMemmove`.  The problem: a mirror test
+  double-implements the logic in Python and asserts that the
+  mirror matches itself — which catches contract-level confusion
+  in the author's head but proves nothing about the actual ASM,
+  and the maintenance burden doubles because every ASM change
+  must be reflected in the mirror or the tests silently diverge
+  into "tests for a Python toy".  The render_line mirror in
+  test_editor.py has the same smell.  Goal: simpler TDD that
+  runs the *actual* ASM (py65 binaries via conftest.py is the
+  pattern) or, for pure gap-buffer algorithmic properties,
+  invariants that don't require a parallel implementation.
+  Reduce complexity: tests that nobody will re-read, re-derive,
+  or re-verify when the code changes.
+- [ ] Clean up `dev/test.d64` — it contains test programs with
+  lines that exceed the 39-col hard cap (they predate the cap
+  feature).  Load each file in CSE, check for split-line warnings
+  from the load path, hand-fix any files that still carry overly
+  long lines so the canonical sample-set is clean.
+- [ ] Line-break warnings on file load are incomplete, redundant,
+  and out of order.  `print_load_split_warning` (repl.s) prints
+  line numbers recorded during `ed_load_source`, but the current
+  ordering/dedup logic doesn't match the user's mental model:
+  lines are reported in the order they were split, not sorted;
+  the same affected line can appear multiple times if more than
+  one forced CR falls inside it; and the `SPLIT_LINES_MAX = 8`
+  cap silently drops later splits without a summary "…and N
+  more".  Audit the recording path in editor.s::load_insert
+  (`ed_load_split_lines` fill) and the print path in repl.s
+  together.  Fix: sort + dedupe at record time, report
+  `"N lines split, showing first 8: …"` when truncated.
 - [ ] RUN/STOP debounce: bounces when held.
 - [x] ~~`theme_border` / `theme_bg` / `theme_fg` in RODATA but
   written at runtime by the `c BFS` REPL command — would silently
