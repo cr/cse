@@ -48,6 +48,30 @@ should wait until the stabilization phase wraps up.
 - [x] ~~`print_load_split_warning` leading-comma bug~~ — fixed: the
   first-iteration guard now reads `lda @idx` / `beq @no_sep` so the
   comma+space is suppressed on iteration 0.
+- [x] ~~`ed_scroll_down` memmove broken: scrolling up in the editor
+  only updated row 0~~ — fixed: rewrote `ed_scroll_up` /
+  `ed_scroll_down` as row-by-row copies using the `scr_lo/scr_hi`
+  tables (21 rows × 40 bytes).  The old code had both pointer-dec
+  and Y-inc per iter, cancelling out so every byte read/write
+  landed on the same address.  Cleanly also saved 45 B and made
+  the procs symmetric.  Shipped with the original Phase 7 hand-
+  port (`915e84c`) — the commit message comments ("let me do this
+  differently", "But Y-indexed indirect doesn't work well going
+  down...") betray the author mid-rework.
+- [ ] Editor ASM-level regression tests via py65.  `test_editor.py`
+  is a pure-Python gap-buffer mirror with no screen-RAM model —
+  that's how the broken `ed_scroll_down` memmove slipped through
+  for months.  The new `TestScrollMemmove` tests mirror the
+  scroll byte-movement contract in Python, but a true ASM-level
+  test would need a py65 test binary that links `editor.s` and
+  runs `ed_scroll_up` / `ed_scroll_down` against a real
+  `$0400`-backed memory region.  Pattern to follow:
+  `tests/test_repl.py` already runs compiled REPL code through
+  py65 via the `dev/repl_test_stub.s` scaffolding.  An
+  `editor_test_stub.s` + `dev/editor_test.cfg` + `test_editor_asm.py`
+  would close the gap.  Scope creep warning: the stub has to
+  fake `disk_load_seq`, KERNAL PLOT, the render tables, and a
+  bunch of other pieces — budget accordingly.
 - [ ] RUN/STOP debounce: bounces when held.
 - [x] ~~`theme_border` / `theme_bg` / `theme_fg` in RODATA but
   written at runtime by the `c BFS` REPL command — would silently

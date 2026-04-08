@@ -1320,34 +1320,27 @@ s_workend:      .byte "workend", 0
         bne :+
         inc ed_top_line+1
 :
-        ; Shift screen rows 1..21 → 0..20 (ascending copy, 21*40=840 bytes)
-        ; src = SCREEN + 40, dst = SCREEN, count = 840
-        lda #<(SCREEN + SCREEN_WIDTH)
-        sta save_ptr
-        lda #>(SCREEN + SCREEN_WIDTH)
-        sta save_ptr+1
-        lda #<SCREEN
+        ; Shift screen rows 1..21 → 0..20 (21 rows × 40 bytes = 840 B).
+        ; Row-by-row ascending copy: at iter k, dst = row k, src = row k+1.
+        ; Safe because src row and dst row never overlap.
+        ldx #0                  ; X = dst row; src row = X + 1
+@row:
+        lda scr_lo,x
         sta ed_scr
-        lda #>SCREEN
+        lda scr_hi,x
         sta ed_scr+1
-        ; Copy 840 bytes ascending (3 pages + 72 bytes)
-        ldx #3                  ; 3 full pages
-        ldy #0
-@page:  lda (save_ptr),y
+        inx                     ; X = src row
+        lda scr_lo,x
+        sta save_ptr
+        lda scr_hi,x
+        sta save_ptr+1
+        ldy #SCREEN_WIDTH - 1
+@byte:  lda (save_ptr),y
         sta (ed_scr),y
-        iny
-        bne @page
-        inc save_ptr+1
-        inc ed_scr+1
-        dex
-        bne @page
-        ; 840 - 768 = 72 remaining bytes
-        ldx #72
-@rem:   lda (save_ptr),y
-        sta (ed_scr),y
-        iny
-        dex
-        bne @rem
+        dey
+        bpl @byte
+        cpx #ED_LINES - 1       ; just copied from row 21? → done
+        bne @row
 
         ; Render the new bottom line (row 21)
         ; Find position: advance from ed_top_ptr by 21 lines
@@ -1403,51 +1396,27 @@ s_workend:      .byte "workend", 0
         dec ed_top_line+1
 :       dec ed_top_line
 
-        ; Shift screen rows 0..20 → 1..21 (descending copy, 840 bytes)
-        ; Copy from high addresses to low to avoid overlap corruption
-        ; src_end = SCREEN+839, dst_end = SCREEN+879
-        lda #<(SCREEN + 839)
-        sta save_ptr
-        lda #>(SCREEN + 839)
-        sta save_ptr+1
-        lda #<(SCREEN + 879)
+        ; Shift screen rows 0..20 → 1..21 (21 rows × 40 bytes = 840 B).
+        ; Row-by-row descending copy so each src row is read before it
+        ; gets overwritten by the row being shifted into it.
+        ldx #ED_LINES - 1       ; X = dst row (21); src row = X - 1
+@row:
+        lda scr_lo,x
         sta ed_scr
-        lda #>(SCREEN + 879)
+        lda scr_hi,x
         sta ed_scr+1
-        ; 840 = 72 remainder + 3 full pages
-        ; Phase 1: copy 72 bytes (high end)
-        ldy #0
-@d_rem: lda (save_ptr),y
+        dex                     ; X = src row
+        lda scr_lo,x
+        sta save_ptr
+        lda scr_hi,x
+        sta save_ptr+1
+        ldy #SCREEN_WIDTH - 1
+@byte:  lda (save_ptr),y
         sta (ed_scr),y
-        lda save_ptr
-        bne :+
-        dec save_ptr+1
-:       dec save_ptr
-        lda ed_scr
-        bne :+
-        dec ed_scr+1
-:       dec ed_scr
-        iny
-        cpy #72
-        bcc @d_rem
-        ; Phase 2: copy 3 pages (768 bytes)
-        ldx #3
-@d_page:
-        ldy #0
-@d_pg:  lda (save_ptr),y
-        sta (ed_scr),y
-        lda save_ptr
-        bne :+
-        dec save_ptr+1
-:       dec save_ptr
-        lda ed_scr
-        bne :+
-        dec ed_scr+1
-:       dec ed_scr
-        iny
-        bne @d_pg
-        dex
-        bne @d_page
+        dey
+        bpl @byte
+        cpx #0                  ; just copied from row 0? → done
+        bne @row
 
         ; Render the new top line (row 0)
         lda ed_top_ptr

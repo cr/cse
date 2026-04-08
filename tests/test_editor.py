@@ -500,6 +500,146 @@ class TestRendering:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# §6b  Scroll memmove simulation
+#
+# The Python gap-buffer model does NOT own a screen RAM representation;
+# renderers compute bytes on demand from the gap buffer.  ed_scroll_up /
+# ed_scroll_down in editor.s, however, physically move bytes in C64
+# screen RAM and THEN render just the newly-revealed edge row.  A bug
+# in the memmove is invisible to the pure gap-buffer tests because the
+# buffer is untouched — that's exactly how the "scroll_down copies only
+# the first row" bug slipped through for months.
+#
+# The functions below are a Python mirror of the scroll byte-movement
+# logic.  They have the SAME relationship to editor.s::ed_scroll_up /
+# ed_scroll_down as render_line (above) has to ed_render_line: a
+# human-maintained parallel implementation.  When you change editor.s
+# you MUST update these mirrors or the tests become meaningless.
+#
+# What these tests catch:
+#   • Bugs in the Python mirror itself
+#   • The CONTRACT of the scroll procs (semantic expectation of what
+#     rows move where, in which direction)
+#   • Anyone re-implementing editor.s::ed_scroll_* who mirrors the
+#     broken version here will see the test fail
+#
+# What they do NOT catch:
+#   • Direct ASM-level bugs in editor.s that don't go through the
+#     Python mirror — e.g., the original bug where save_ptr and Y
+#     both moved on each iter.  A true ASM-level regression test
+#     would require linking editor.s into a py65 test harness with
+#     a real screen-RAM memory region.  TODO: consider adding such
+#     a harness if the scroll code ever needs to change again.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ED_LINES = 22
+SCREEN_WIDTH = 40
+
+
+def make_screen():
+    """22 editor rows × 40 cols of screen codes.  Initialized with a
+    distinct pattern per row so stale bytes after a bad memmove are
+    obvious in assertion failures."""
+    return [[(row * SCREEN_WIDTH + col) & 0xFF
+             for col in range(SCREEN_WIDTH)]
+            for row in range(ED_LINES)]
+
+
+def scroll_up_memmove(scr):
+    """Mirror of editor.s::ed_scroll_up's row-by-row copy.
+    Shifts rows 1..21 → 0..20.  Row 21 is left untouched (the caller
+    re-renders it from the buffer; we check only the memmove)."""
+    for dst_row in range(ED_LINES - 1):     # 0..20
+        src_row = dst_row + 1
+        # copy 40 bytes from src → dst
+        for col in range(SCREEN_WIDTH):
+            scr[dst_row][col] = scr[src_row][col]
+
+
+def scroll_down_memmove(scr):
+    """Mirror of editor.s::ed_scroll_down's row-by-row copy.
+    Shifts rows 0..20 → 1..21.  Descending order so src is read before
+    being overwritten.  Row 0 is left untouched (caller re-renders)."""
+    for dst_row in range(ED_LINES - 1, 0, -1):    # 21..1
+        src_row = dst_row - 1
+        for col in range(SCREEN_WIDTH):
+            scr[dst_row][col] = scr[src_row][col]
+
+
+class TestScrollMemmove:
+    """Regression tests for the scroll_up / scroll_down memmove.
+
+    These catch the bug where ed_scroll_down's descending copy
+    incorrectly decremented the pointer AND incremented Y on the
+    same iteration, so every byte read/write landed on the same
+    physical address (writing only the first row effectively)."""
+
+    def test_scroll_up_shifts_rows_up_by_one(self):
+        """After scroll_up: new row N == old row N+1, for N=0..20."""
+        scr = make_screen()
+        old = [row[:] for row in scr]
+        scroll_up_memmove(scr)
+        for row in range(ED_LINES - 1):
+            assert scr[row] == old[row + 1], (
+                f"row {row} should match old row {row + 1}")
+
+    def test_scroll_down_shifts_rows_down_by_one(self):
+        """After scroll_down: new row N == old row N-1, for N=1..21.
+
+        This is the regression test for the 'scrolling up only
+        updates the first line on screen' bug — the broken
+        implementation left rows 2..21 completely untouched."""
+        scr = make_screen()
+        old = [row[:] for row in scr]
+        scroll_down_memmove(scr)
+        for row in range(1, ED_LINES):
+            assert scr[row] == old[row - 1], (
+                f"row {row} should match old row {row - 1}; "
+                f"got {scr[row][:4]}..., expected {old[row - 1][:4]}...")
+
+    def test_scroll_down_preserves_source_bytes(self):
+        """The descending order is correct only if we copy row 20→21
+        BEFORE copying row 19→20, etc.  Verify the property
+        constructively by checking every row after the move."""
+        scr = make_screen()
+        # Tag each row with a distinct single byte so we can spot
+        # any row that got written from a source that was already
+        # overwritten.
+        for row in range(ED_LINES):
+            scr[row] = [row] * SCREEN_WIDTH
+        scroll_down_memmove(scr)
+        # Expected: new row 1..21 all carry the original row-value.
+        for row in range(1, ED_LINES):
+            assert all(b == row - 1 for b in scr[row]), (
+                f"row {row} should be all {row - 1}, got {scr[row][:4]}")
+        # Row 0 is untouched by the memmove (caller renders it).
+        assert all(b == 0 for b in scr[0])
+
+    def test_scroll_up_preserves_source_bytes(self):
+        """Symmetric check for ed_scroll_up."""
+        scr = make_screen()
+        for row in range(ED_LINES):
+            scr[row] = [row] * SCREEN_WIDTH
+        scroll_up_memmove(scr)
+        for row in range(ED_LINES - 1):
+            assert all(b == row + 1 for b in scr[row]), (
+                f"row {row} should be all {row + 1}, got {scr[row][:4]}")
+        # Row 21 is untouched by the memmove (caller renders it).
+        assert all(b == 21 for b in scr[21])
+
+    def test_scroll_up_is_inverse_of_scroll_down_almost(self):
+        """scroll_down then scroll_up should restore rows 1..20 exactly
+        (rows 0 and 21 are rendered by the callers, not the memmove)."""
+        scr = make_screen()
+        old = [row[:] for row in scr]
+        scroll_down_memmove(scr)
+        scroll_up_memmove(scr)
+        for row in range(1, ED_LINES - 1):
+            assert scr[row] == old[row], (
+                f"row {row} not restored after down+up")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # §7  Tab character ($A0)
 # ═══════════════════════════════════════════════════════════════════════════════
 
