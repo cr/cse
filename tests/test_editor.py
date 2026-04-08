@@ -424,6 +424,14 @@ def render_line(gb, line_num):
 
 
 class TestRendering:
+    """ANTI-PATTERN: mirror test.  See doc/testing.md § Anti-patterns.
+    These tests verify the Python `render_line` function above, NOT
+    the actual `editor.s::ed_render_line` ASM.  Kept for now because
+    they catch contract-level confusion in the gap-buffer model, but
+    do NOT add more tests in this style — when you next touch
+    rendering, port these to a real py65 editor test binary.
+    Tracked in TODO.md (Editor ASM-level regression tests via py65)."""
+
     def test_empty_buffer(self):
         gb = GapBuffer()
         scr = render_line(gb, 0)
@@ -567,12 +575,18 @@ def scroll_down_memmove(scr):
 
 
 class TestScrollMemmove:
-    """Regression tests for the scroll_up / scroll_down memmove.
+    """ANTI-PATTERN: mirror test.  See doc/testing.md § Anti-patterns.
 
-    These catch the bug where ed_scroll_down's descending copy
-    incorrectly decremented the pointer AND incremented Y on the
-    same iteration, so every byte read/write landed on the same
-    physical address (writing only the first row effectively)."""
+    These tests pin down the *contract* of the scroll byte-movement
+    (rows shift in the right direction, descending copy preserves
+    source bytes) but they exercise the Python `scroll_*_memmove`
+    functions above, NOT the real `editor.s::ed_scroll_up` /
+    `ed_scroll_down`.  They cannot detect the original bug class
+    that triggered them — that requires a py65 editor test binary
+    with a real $0400 screen-RAM region.  Tracked in TODO.md
+    (Editor ASM-level regression tests via py65).
+
+    Kept as a contract spec until the real ASM-level tests exist."""
 
     def test_scroll_up_shifts_rows_up_by_one(self):
         """After scroll_up: new row N == old row N+1, for N=0..20."""

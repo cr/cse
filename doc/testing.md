@@ -49,6 +49,69 @@ tests are written, when they are written, and what they test.
    or to rely on manual verification.  Some testing is better left
    to the user feedback cycle.
 
+6. **Test the actual ASM, not a Python copy of it.**  When you
+   need to verify low-level behaviour, link the real `.s` source
+   into a py65 test binary (the pattern in `tests/test_repl.py` /
+   `dev/repl_test_stub.s`) and exercise it.  Do **not** write a
+   Python function that re-implements the algorithm and assert
+   that the Python and the Python agree — that is a tautology
+   dressed as a test.  See the [Anti-patterns](#anti-patterns)
+   section below for the cautionary examples currently in the
+   tree.
+
+## Anti-patterns
+
+These exist in the current test tree.  Don't add more of them;
+when you touch one of them, consider whether to retire it.
+
+### Mirror tests
+
+A "mirror test" is a Python function that re-implements an
+algorithm under test, plus assertions that compare the mirror's
+output against expected values.  The trap: the test verifies
+the *mirror*, not the ASM.  When the ASM diverges from the
+mirror, the test still passes because the mirror is what's
+running.
+
+Examples currently in `tests/test_editor.py`:
+
+- **`render_line`** mirrors `editor.s::ed_render_line` in pure
+  Python, including the PETSCII→screen-code conversion table.
+  `TestRendering` verifies the mirror.  If `ed_render_line`
+  changes its conversion rule (or stops handling the gap, or
+  reads from the wrong pointer), this test will not catch it.
+- **`TestScrollMemmove`** mirrors `editor.s::ed_scroll_up` /
+  `ed_scroll_down` as `scroll_up_memmove` / `scroll_down_memmove`
+  in Python.  This was added as a regression test for the
+  ed_scroll_down byte-level memmove bug that lived undetected
+  for months — but the regression test it added cannot
+  detect the same class of bug because the actual ASM never
+  runs.
+
+The right fix for both: add a py65 test binary that links
+`editor.s` against an `editor_test_stub.s` (mirroring the
+existing `dev/repl_test_stub.s` pattern) and exercise the
+real ASM with a real screen RAM region at `$0400`.  This is
+captured as a TODO under the *Bugs* section.
+
+### Implementation-detail tests
+
+A test that asserts on internal state — a particular ZP byte,
+loop counter, intermediate buffer — locks the implementation
+to its current shape and prevents legitimate refactoring.
+
+Test contracts.  A contract is what the documented interface
+promises: inputs, outputs, side effects on documented state,
+return flags, error codes.  Anything else is implementation
+detail and the test must not depend on it.
+
+The exception: if the test exists *because* a previous bug was
+caused by an internal state slip-up (e.g. a stale accumulator,
+a clobbered Y register), and the test is documented as a
+regression test for that specific bug, then asserting on the
+internal state is fine — but flag it explicitly in the test
+docstring so future maintainers know why it looks unusual.
+
 ### The TDD Analysis
 
 The TDD Analysis is performed as step 3 of the DDD Method, after

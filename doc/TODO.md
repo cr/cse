@@ -65,21 +65,13 @@ should wait until the stabilization phase wraps up.
   would close the gap.  Scope creep warning: the stub has to
   fake `disk_load_seq`, KERNAL PLOT, the render tables, and a
   bunch of other pieces — budget accordingly.
-- [ ] Revise the TDD framework (`doc/testing.md` + existing test
-  patterns) to *not* encourage Python-mirror tests like
-  `test_editor.py::TestScrollMemmove`.  The problem: a mirror test
-  double-implements the logic in Python and asserts that the
-  mirror matches itself — which catches contract-level confusion
-  in the author's head but proves nothing about the actual ASM,
-  and the maintenance burden doubles because every ASM change
-  must be reflected in the mirror or the tests silently diverge
-  into "tests for a Python toy".  The render_line mirror in
-  test_editor.py has the same smell.  Goal: simpler TDD that
-  runs the *actual* ASM (py65 binaries via conftest.py is the
-  pattern) or, for pure gap-buffer algorithmic properties,
-  invariants that don't require a parallel implementation.
-  Reduce complexity: tests that nobody will re-read, re-derive,
-  or re-verify when the code changes.
+- [x] ~~Revise the TDD framework~~ — done: `doc/testing.md` now
+  has Principle 6 ("Test the actual ASM, not a Python copy of
+  it") and an Anti-patterns section that calls out mirror tests
+  by name.  `test_editor.py::TestRendering` and `TestScrollMemmove`
+  carry warning docstrings flagging them as the cautionary
+  examples.  No new mirror tests should be added; existing ones
+  retire when the py65 editor test binary lands.
 - [ ] Clean up `dev/test.d64` — it contains test programs with
   lines that exceed the 39-col hard cap (they predate the cap
   feature).  Load each file in CSE, check for split-line warnings
