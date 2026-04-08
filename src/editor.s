@@ -2066,7 +2066,16 @@ s_workend:      .byte "workend", 0
         ; one byte to the right of the gap.
 
 @del_join_after:
-        ; Adjust ed_top_line if cursor above viewport
+        ; Adjust the viewport if the cursor moved above it.  For
+        ; a single DEL at col 0 this can only happen when the
+        ; user was on the topmost visible line (ed_cur_line was
+        ; == ed_top_line before the DEL); after dec ed_cur_line
+        ; it's exactly one line above the top.  We must pull
+        ; ed_top_line down AND recompute ed_top_ptr — the old
+        ; cached pointer is either stale (inside the gap) or
+        ; points into the middle of what is now the joined
+        ; line.  find_line_start walks back from gap_lo to the
+        ; start of the cursor's line without moving the gap.
         lda ed_cur_line+1
         cmp ed_top_line+1
         bcc @adj_top
@@ -2075,6 +2084,11 @@ s_workend:      .byte "workend", 0
         cmp ed_top_line
         bcs @del_render
 @adj_top:
+        jsr find_line_start     ; ed_scr = start of cursor's line
+        lda ed_scr
+        sta ed_top_ptr
+        lda ed_scr+1
+        sta ed_top_ptr+1
         lda ed_cur_line
         sta ed_top_line
         lda ed_cur_line+1
