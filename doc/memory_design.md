@@ -250,13 +250,17 @@ disassembler are also non-concurrent.  Expression evaluation
 
 ### Optimization opportunities
 
-**ZP overlap** (not yet implemented):
+**ZP overlap** — investigated 2026-04-08, both candidates
+unsafe, dropped:
 
-| Overlap | Bytes saved | Constraint |
-|---------|-------------|------------|
-| Editor scratch (`ed_tmp`/`ed_scr` 4B) ↔ assembler scratch (`_as_ptr`/`_as_wsize` 3B + `_ok_tmp` 1B) | 4 | Editor not active during assembly |
-| Dasm (8B) ↔ assembler scratch (10B) | 8 | Never concurrent |
-| **Total ZP reclaimable** | **~12 B** | |
+| Overlap | Why unsafe |
+|---------|------------|
+| Editor scratch ↔ assembler scratch | `asm_src.s` calls `ed_read_line` (`asm_src.s:1204`), which uses `ed_scr`/`ed_tmp` from the editor's ZP block.  Editor ZP is therefore live during the `a` command. |
+| Dasm ↔ assembler scratch | `repl.s::cmd_dot` calls `dasm_insn` (`repl.s:765`) inside the `.` command path that *also* runs `asm_line` for verification.  Both modules' ZP are concurrently live. |
+
+The earlier estimate of ~12 B savings was a paper analysis
+that didn't trace the actual call graph.  Both overlaps are
+blocked by cross-module calls.  No code change.
 
 **BSS overlap** (not yet implemented):
 

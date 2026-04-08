@@ -339,9 +339,13 @@ Defined scope, needs work.
   (Note: `parse_hex.s` was an earlier orphan already deleted.)
 - [x] ~~Redesign function interfaces~~ — done: all calls use
   ZP/register args.  Parameter stack (pushax/cse_popax/sp) eliminated.
-- [ ] ZP optimization: overlap scratch for non-concurrent modules.
-  ~14 bytes reclaimable from cold scratch, ~8 bytes overlappable
-  (dasm vs asm_line).  See [project.md § ZP is precious](project.md#1-zp-is-precious--use-the-stack-for-scratch).
+- [x] ~~ZP optimization: overlap scratch for non-concurrent
+  modules.~~  Investigated 2026-04-08: both candidate overlaps
+  blocked by cross-module calls.  asm_src calls `ed_read_line`
+  (uses editor ZP), and `cmd_dot` runs `dasm_insn` and
+  `asm_line` inside the same command (both touch the proposed
+  shared ZP).  See `memory_design.md` § ZP overlap.  No
+  code change.
 - [ ] BSS optimization: overlap `_load_line` (2 B) + `_load_vcol`
   (1 B) with `ws_buf` (39 B).  `_load_*` live only during
   `editor.s::ed_load_source` → `load_insert`, while `ws_buf` is
