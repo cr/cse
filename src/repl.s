@@ -166,24 +166,42 @@ str_split_pfx:  .byte "; ! ", 0
 str_split_sfx:  .byte " lines split: ", 0
 str_split_and:  .byte " and ", 0
 str_split_more: .byte " more", 0
-str_del_src:    .byte ";delete source. are you sure? y/n ", 0
-str_unsaved:    .byte ";unsaved. y/n? ", 0
+; ── User-facing string style convention ──
+;
+; All user-visible strings emitted by CSE follow these rules:
+;
+;   "; ..."        normal status / info  (note the space after ';')
+;   "; ! ..."      warning (load split, dirty buffer, etc.)
+;   ";?tag"        terse error tag, BASIC-style  (no space after ';?')
+;   ";?word ..."   long error explanation
+;   "; ...? y/n "  yes/no confirmation prompt (trailing space for cursor)
+;
+; Always lowercase.  Always a single space after ';' for status
+; lines (the BASIC-error style ';?' is the one exception, and is
+; reserved exclusively for short error tags so the user can scan
+; for "did anything go wrong?" by looking for "?" at col 1).
+;
+; If you add a new string, pick the prefix that matches its
+; semantic role.  Don't invent a new style.
+
+str_del_src:    .byte "; delete source? y/n ", 0
+str_unsaved:    .byte "; unsaved. continue? y/n ", 0
 str_ok:         .byte "ok", 0
-str_B_eq:       .byte ";B=", 0             ; note: PETSCII uppercase B
-str_color:      .byte ";color: ", 0
-str_cpu:        .byte ";cpu: 6502", 0
+str_B_eq:       .byte "; B=", 0             ; note: PETSCII uppercase B
+str_color:      .byte "; color: ", 0
+str_cpu:        .byte "; cpu: 6502", 0
 .ifdef CPU_6510
 str_6510:       .byte " 6510", 0
 .endif
 .ifdef CMOS_SUPPORT
 str_65c02:      .byte " 65c02", 0
 .endif
-str_asm_ing:    .byte ";assembling...", 0
+str_asm_ing:    .byte "; assembling...", 0
 str_ok_colon:   .byte "; ok: ", 0
 str_semi:       .byte "; ", 0
 str_errors:     .byte " error(s)", 0
 str_no_break:   .byte ";?no break", 0
-str_quit:       .byte ";quit? y/n ", 0
+str_quit:       .byte "; quit? y/n ", 0
 str_dashes:     .byte "----", 0
 str_colon_sp:   .byte ": ", 0
 str_pct:        .byte "  %", 0

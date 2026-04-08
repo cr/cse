@@ -219,9 +219,21 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         lda #14
         jsr CLOSE
 
-        ; print if we got anything
+        ; Print only on actual error.  CBM DOS error channel
+        ; format is "EC,DESCRIPTION,TR,SE" where EC is a 2-digit
+        ; ASCII error code; "00" means "no error" and is pure
+        ; noise after every successful operation.  Suppress it
+        ; so the user only sees floppy_status output when
+        ; something is actually wrong.
         cpy #0
         beq @err
+        lda fl_buf
+        cmp #'0'
+        bne @do_print
+        lda fl_buf+1
+        cmp #'0'
+        beq @err                ; "00,ok,..." → suppress
+@do_print:
         puts @prefix
         puts fl_buf
         jmp newline
