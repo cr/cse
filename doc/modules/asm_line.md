@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/asm_line.s`](../../src/asm_line.s) | implementation |
-| [`src/asm_bridge.s`](../../src/asm_bridge.s) | implementation — C↔asm bridge, PETSCII→VICII, error recovery, `_jsr_addr` user-code runner, register capture |
+| [`src/asm_bridge.s`](../../src/asm_bridge.s) | implementation — calling-convention bridge, PETSCII→VICII conversion, error-recovery landing |
 | [`src/asm_vars.s`](../../src/asm_vars.s) | implementation — shared ZP variable definitions |
 | [`tests/test_asm_line.py`](../../tests/test_asm_line.py) | test contract |
 
@@ -83,16 +83,17 @@ restores the 6502 SP from `_ab_saved_sp` and returns 0 to the caller.
 
 ### Memory (asm_bridge.s)
 
-**ZP (3 bytes):** `_ab_saved_sp` (1), `_jsr_vec` (2).
+**ZP (1 byte):** `_ab_saved_sp` (1) — saved 6502 SP for the
+`al_error` / `au_syntax_error` recovery path.
 
-**BSS (101 bytes):**
+**BSS (96 bytes):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
 | `_asm_out_buf` | 3 | Output buffer for assembled bytes |
-| `_reg_a` | 1 | Saved user A register |
-| `_reg_x` | 1 | Saved user X register |
-| `_reg_y` | 1 | Saved user Y register |
-| `_reg_sp` | 1 | Saved user stack pointer |
-| `_reg_p` | 1 | Saved user status flags |
-| `_zp_save_buf` | 89 | ZP snapshot ($02–$5A) for debugger context switch |
+| `reg_a` | 1 | Saved user A register (read by debugger.s + repl.s) |
+| `reg_x` | 1 | Saved user X register |
+| `reg_y` | 1 | Saved user Y register |
+| `reg_sp` | 1 | Saved user stack pointer |
+| `reg_p` | 1 | Saved user status flags |
+| `zp_save_buf` | 88 | CSE ZP snapshot ($02–$59) for debugger context switch (see asm_bridge.s::ZP_SAVE_LO/HI) |

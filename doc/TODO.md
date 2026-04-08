@@ -194,8 +194,26 @@ should wait until the stabilization phase wraps up.
 
 Small, concrete, ready to do now.
 
-- [ ] DDD audit module docs against code: asm_line, au_mode,
-  opcode_lookup, mn_classify, mn7, main, meminfo.
+- [x] ~~DDD audit module docs against code: asm_line, au_mode,
+  opcode_lookup, mn_classify, mn7, main, meminfo.~~  Done
+  2026-04-08:
+  * `main.md`: rewritten Design section with the actual startup
+    sequence (SP reset → BSS zero → KDATA copy → _main); fixed
+    the RUN/STOP description (it's an inline main-loop key, not
+    NMI; NMI is RUN/STOP+RESTORE); REPL key table now lists
+    refusal cases for the audible blip.
+  * `meminfo.md`: dropped stale `_cse_*` underscores; added
+    Memory section + caller list.
+  * `mn_classify.md`: clean — covers mn7.s + mn6.s + mn_vars.s
+    correctly, no stale entries.  (mn7.s does not need its own
+    doc — mn_classify.md is the umbrella.)
+  * `opcode_lookup.md`: dropped stale `_al_validate_mode`
+    underscore.
+  * `au_mode.md`: clean — exports + ZP + mode table all match.
+  * `asm_line.md`: removed stale `_jsr_addr` reference and
+    `_jsr_vec` ZP byte (both deleted in last round); BSS table
+    now reflects actual export names (no underscores) and
+    correct sizes (88 B `zp_save_buf`, 96 B total).
 - [x] ~~Doc cleanup — remove stale C/cc65 cruft~~ — done:
   `__fastcall__` annotations and "parameter stack" notes purged
   from `cse_io.md`, `disk.md`, `screen.md`; `build_system.md`

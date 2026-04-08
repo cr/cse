@@ -10,7 +10,7 @@
 
 ## Interface
 
-### _al_validate_mode
+### al_validate_mode
 **In:** `al_pidx` (ZP), `al_mode` (ZP)
 **Out:** C=0 if mode is valid for this profile, C=1 if invalid
 **Clobbers:** A, Y
