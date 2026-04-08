@@ -79,14 +79,15 @@ theme_fg:     .res 1
         sta VIC_BG
         lda theme_fg
         sta io_color
-        ; Also update the KERNAL's text-colour variable at $0286
-        ; (CHRCOLOR).  KERNAL CHROUT ($FFD2) uses this byte as
-        ; the colour it writes into colour RAM alongside each
-        ; screen-code.  Without this, user code that calls
-        ; $FFD2 (e.g. t-hello's 'jsr chrout') paints its output
-        ; in whatever colour BASIC left behind, and the wrong
-        ; colour persists until CSE next calls restore_colors
-        ; after the user code returns.
+        ; Also update the KERNAL's text-colour variable at
+        ; $0286 (CHRCOLOR — page-2 RAM, part of the KERNAL
+        ; work area, NOT zero page).  KERNAL CHROUT ($FFD2)
+        ; uses this byte as the colour it writes into colour
+        ; RAM alongside each screen-code.  Without this, user
+        ; code that calls $FFD2 (e.g. t-hello's 'jsr chrout')
+        ; paints its output in whatever colour BASIC left
+        ; behind, and the wrong colour persists until CSE next
+        ; calls restore_colors after the user code returns.
         sta $0286
         ; fill color RAM with io_color
         ldx #0
