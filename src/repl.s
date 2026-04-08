@@ -1494,6 +1494,37 @@ VIC_MEMCTL = $D018
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
+; compute_rel_target — rp_next_lo = brk_pc + 2 + signrel
+;
+; Reads the signed 8-bit relative offset at (rp_ptr2),1,
+; sign-extends it, adds to brk_pc + 2, and stores the result
+; in rp_next_lo.  Shared by cmd_step's BRA and conditional-
+; branch code paths (both compute the same target).
+; Clobbers: A, Y.
+; ═══════════════════════════════════════════════════════════
+.proc compute_rel_target
+        ldy #1
+        lda (rp_ptr2),y         ; signed relative offset
+        ldy #0                  ; sign-extend hi = 0 (positive)
+        bpl :+
+        ldy #$FF                ; negative → sign-extend = $FF
+:       clc
+        adc brk_pc
+        sta rp_next_lo
+        tya
+        adc brk_pc+1
+        sta rp_next_lo+1
+        ; + 2 for the branch instruction length
+        lda rp_next_lo
+        clc
+        adc #2
+        sta rp_next_lo
+        bcc :+
+        inc rp_next_lo+1
+:       rts
+.endproc
+
+; ═══════════════════════════════════════════════════════════
 ; cmd_step — 't'/'o' command
 ;   rp_ptr = args, A = is_next (0=step into, 1=step over)
 ; ═══════════════════════════════════════════════════════════
@@ -1635,33 +1666,8 @@ VIC_MEMCTL = $D018
         lda al_cpu
         cmp #2
         bcc @not_bra
-        ; next_lo = brk_pc + 2 + (signed)*(brk_pc+1)
-        ldy #1
-        lda (rp_ptr2),y            ; signed relative
-        bpl @bra_pos
-        ; negative offset
-        clc
-        adc brk_pc
-        sta rp_next_lo
-        lda brk_pc+1
-        adc #$FF                ; sign extend
-        sta rp_next_lo+1
-        jmp @bra_add2
-@bra_pos:
-        clc
-        adc brk_pc
-        sta rp_next_lo
-        lda brk_pc+1
-        adc #0
-        sta rp_next_lo+1
-@bra_add2:
-        lda rp_next_lo
-        clc
-        adc #2
-        sta rp_next_lo
-        bcc :+
-        inc rp_next_lo+1
-:       jmp @check_next
+        jsr compute_rel_target
+        jmp @check_next
 
 @not_bra:
 .endif
@@ -1672,31 +1678,8 @@ VIC_MEMCTL = $D018
         bne @linear
 
         ; Branch: taken = brk_pc + 2 + rel, not-taken = brk_pc + 2
-        ldy #1
-        lda (rp_ptr2),y            ; signed relative
-        bpl @br_pos
-        clc
-        adc brk_pc
-        sta rp_next_lo
-        lda brk_pc+1
-        adc #$FF
-        sta rp_next_lo+1
-        jmp @br_add2
-@br_pos:
-        clc
-        adc brk_pc
-        sta rp_next_lo
-        lda brk_pc+1
-        adc #0
-        sta rp_next_lo+1
-@br_add2:
-        lda rp_next_lo
-        clc
-        adc #2
-        sta rp_next_lo
-        bcc :+
-        inc rp_next_lo+1
-:       ; not-taken = brk_pc + 2
+        jsr compute_rel_target
+        ; not-taken = brk_pc + 2
         lda brk_pc
         clc
         adc #2
