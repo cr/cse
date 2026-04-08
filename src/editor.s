@@ -1481,43 +1481,10 @@ s_workend:      .byte "workend", 0
 ; Output: A = visual column
 ; Clobbers: X, Y
 .proc visual_col
-        ; Walk back from gap_lo to start of line (previous $0D or buf_base)
-        lda gap_lo
-        sta ed_scr
-        lda gap_lo+1
-        sta ed_scr+1
-        ldx #0                  ; vcol = 0
-@back:
-        ; Check ed_scr > buf_base
-        lda ed_scr+1
-        cmp buf_base+1
-        bcc @scan_fwd
-        bne @check_lo
-        lda ed_scr
-        cmp buf_base
-        beq @scan_fwd
-        bcc @scan_fwd
-@check_lo:
-        ; Look at byte before ed_scr
-        lda ed_scr
-        sec
-        sbc #1
-        sta ed_tmp
-        lda ed_scr+1
-        sbc #0
-        sta ed_tmp+1
-        ldy #0
-        lda (ed_tmp),y
-        cmp #$0D
-        beq @scan_fwd           ; found CR → ed_scr is start of line
-        lda ed_tmp
-        sta ed_scr
-        lda ed_tmp+1
-        sta ed_scr+1
-        jmp @back
-@scan_fwd:
-        ; ed_scr = start of current line
-        ; Now scan forward to gap_lo, accumulating visual column
+        ; Walk back from gap_lo to start of line.
+        jsr find_line_start
+        ; ed_scr = start of current line.
+        ; Now scan forward to gap_lo, accumulating visual column.
         lda #0
         sta @vcol_save          ; must initialize — static byte retains stale value
         ldx #0                  ; vcol
@@ -1625,28 +1592,26 @@ s_workend:      .byte "workend", 0
 @w_save: .byte 0
 .endproc
 
-; ── cursor_line_vwidth — visual width of the cursor's line ──────
-; Walks back from gap_lo to the line start (preceding $0D or
-; buf_base), then calls line_vwidth from there.  The gap is NOT
-; moved, so this can be used as a pre-check before any insert.
-; Output: A = visual width (0..254) or $FF on overflow
-; Clobbers: A, X, Y, ed_scr, ed_tmp
-.proc cursor_line_vwidth
-        ; ed_scr = gap_lo
+; ── find_line_start — walk gap_lo back to the line start ──────
+; Sets ed_scr to the start of the cursor's line (just past the
+; preceding $0D, or buf_base at the top of the buffer).  Does
+; NOT move the gap.  Shared by visual_col, cursor_line_vwidth,
+; and copy_leading_ws.
+; Clobbers: A, Y, ed_tmp.  Preserves X.
+.proc find_line_start
         lda gap_lo
         sta ed_scr
         lda gap_lo+1
         sta ed_scr+1
 @back:
-        ; Stop if ed_scr <= buf_base
         lda ed_scr+1
         cmp buf_base+1
-        bcc @scan
+        bcc @done
         bne @check_lo
         lda ed_scr
         cmp buf_base
-        beq @scan
-        bcc @scan
+        bcc @done
+        beq @done
 @check_lo:
         ; Look at byte before ed_scr
         lda ed_scr
@@ -1659,14 +1624,22 @@ s_workend:      .byte "workend", 0
         ldy #0
         lda (ed_tmp),y
         cmp #$0D
-        beq @scan               ; CR found → ed_scr is line start
+        beq @done               ; CR found → ed_scr is line start
         lda ed_tmp
         sta ed_scr
         lda ed_tmp+1
         sta ed_scr+1
         jmp @back
-@scan:
-        ; ed_scr now points to start of cursor's line; measure it.
+@done:  rts
+.endproc
+
+; ── cursor_line_vwidth — visual width of the cursor's line ──────
+; Walks back to the line start (without moving the gap), then
+; calls line_vwidth from there.  Used by insert/tab cap checks.
+; Output: A = visual width (0..254) or $FF on overflow
+; Clobbers: A, X, Y, ed_scr, ed_tmp
+.proc cursor_line_vwidth
+        jsr find_line_start
         jmp line_vwidth
 .endproc
 
@@ -1674,39 +1647,7 @@ s_workend:      .byte "workend", 0
 ; Output: Y = count of bytes copied into ws_buf
 ; Clobbers: A, X
 .proc copy_leading_ws
-        ; Find start of current line (scan back from gap_lo)
-        lda gap_lo
-        sta ed_scr
-        lda gap_lo+1
-        sta ed_scr+1
-@back:
-        lda ed_scr+1
-        cmp buf_base+1
-        bcc @at_start
-        bne @check_prev
-        lda ed_scr
-        cmp buf_base
-        beq @at_start
-        bcc @at_start
-@check_prev:
-        lda ed_scr
-        sec
-        sbc #1
-        sta ed_tmp
-        lda ed_scr+1
-        sbc #0
-        sta ed_tmp+1
-        ldy #0
-        lda (ed_tmp),y
-        cmp #$0D
-        beq @at_start
-        lda ed_tmp
-        sta ed_scr
-        lda ed_tmp+1
-        sta ed_scr+1
-        jmp @back
-
-@at_start:
+        jsr find_line_start
         ; ed_scr = start of current line
         ; Copy whitespace that is before gap_lo
         ldy #0                  ; count
