@@ -147,6 +147,7 @@ str_err_asm:    .byte ";?asm", 0
 str_err_name:   .byte ";?name", 0
 str_err_range:  .byte ";?range", 0
 str_err_load:   .byte ";?load ", 0
+str_err_too_large: .byte ";?file too large", 0
 str_err_save:   .byte ";?save ", 0
 str_err_expr:   .byte ";?", 0
 str_r_pc:       .byte "r pc:", 0
@@ -2410,17 +2411,24 @@ disk_done:
 
         ; SEQ: guard unsaved before overwriting source
         jsr check_unsaved
-        bcc @l_cancel
+        jcc @l_cancel
 
         ; SEQ: ed_load_source(name)
         lda rp_next_lo
         ldx rp_next_lo+1
-        jsr ed_load_source     ; A=error
+        jsr ed_load_source     ; A=error: 0=ok, 1=disk/empty, 2=too large
         cmp #0
         beq @seq_ok
-        ; error
+        cmp #2
+        beq @seq_too_large
+        ; generic disk/empty error
         jsr restore_name_ptr
         jsr io_err_load
+        jmp @done
+@seq_too_large:
+        jsr restore_name_ptr
+        jsr newline
+        puts str_err_too_large
         jmp @done
 @seq_ok:
         jsr restore_name_ptr

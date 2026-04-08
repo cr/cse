@@ -285,7 +285,14 @@ Defined scope, needs work.
   (forced newline at last safe col), and load from SEQ file
   (forced newline + warning listing affected editor line numbers).
 - [ ] Handle files > gap buffer capacity (show error, don't crash).
-- [ ] Warn on quit/switch if dirty flag set.
+- [x] ~~Warn on quit/switch if dirty flag set.~~  Verified
+  2026-04-08: all destructive paths already guard.  `cmd_quit`
+  (`q`), `cmd_load` (`l`, on the SEQ branch), and `@h_k`
+  (delete source) all call `check_unsaved` which prompts
+  `;unsaved. y/n?` and aborts on no.  RUN/STOP switch
+  REPL↔editor is non-destructive (the buffer survives), so no
+  prompt is needed there.  TODO entry was a leftover from
+  before those guards were added.
 - [ ] Page up/down with shift+cursor or F-keys.
 - [ ] Search (ctrl+f equivalent via F-key).
 - [ ] Goto line number.

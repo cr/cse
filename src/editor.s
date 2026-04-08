@@ -103,6 +103,10 @@ ed_load_split_lines: .res 16   ; first 8 affected editor line numbers
                                 ; = min(ed_load_split, 8)
 _load_vcol:    .res 1          ; running vcol inside load callback
 _load_line:    .res 2          ; current editor line number during load
+_load_overflow: .res 1         ; sticky: set if any insert during load
+                                ; failed because the gap buffer is full
+                                ; (file > workspace).  Read by
+                                ; ed_load_source after the disk loop.
 save_phase:     .res 1          ; 0=pre-gap, 1=post-gap
 repl_cur_x:     .res 1          ; saved REPL cursor X
 repl_cur_y:     .res 1          ; saved REPL cursor Y
@@ -304,6 +308,7 @@ s_workend:      .byte "workend", 0
 
 ; ── gb_insert — insert byte at gap ────────────────────────────
 ; Input: A = byte to insert
+; Output: C=1 success, C=0 failure (buffer full, byte discarded)
 ; Clobbers: A, Y
 .proc gb_insert
         pha                     ; save byte
@@ -325,9 +330,11 @@ s_workend:      .byte "workend", 0
 @not_cr:
         lda #1
         sta ed_dirty
+        sec                     ; success
         rts
 @full:
         pla                     ; discard byte
+        clc                     ; failure
         rts
 .endproc
 
@@ -2500,6 +2507,13 @@ s_workend:      .byte "workend", 0
 ;   ed_load_split — count of forced splits
 ;   ed_load_split_lines — first 8 affected editor line numbers
 .proc load_insert
+        ; Once overflow has been seen, become a no-op so the rest of
+        ; the file is silently dropped.  ed_load_source checks the
+        ; flag after the disk loop and reports the truncation.
+        ; Caller passes the byte in A (not on the stack), so no
+        ; cleanup needed — just return.
+        ldx _load_overflow
+        bne @noop
         pha                     ; save byte
         cmp #$0D
         beq @is_cr
@@ -2516,7 +2530,9 @@ s_workend:      .byte "workend", 0
         ; Fits: update running vcol and insert the byte
         sta _load_vcol
         pla
-        jmp gb_insert           ; tail call
+        jsr gb_insert
+        bcc @overflow
+        rts
 
 @is_cr:
         ; CR: reset running vcol, advance line counter
@@ -2526,7 +2542,9 @@ s_workend:      .byte "workend", 0
         bne :+
         inc _load_line+1
 :       pla
-        jmp gb_insert           ; tail call
+        jsr gb_insert
+        bcc @overflow
+        rts
 
 @force_split:
         ; Record the split (current _load_line) if room in the array
@@ -2544,6 +2562,7 @@ s_workend:      .byte "workend", 0
         ; Insert forced CR via normal gb_insert (bumps ed_total_lines)
         lda #$0D
         jsr gb_insert
+        bcc @overflow_pop
         ; Advance line counter
         inc _load_line
         bne :+
@@ -2558,7 +2577,16 @@ s_workend:      .byte "workend", 0
         jsr char_width          ; A = width at col 0
         sta _load_vcol
         pla
-        jmp gb_insert           ; tail call
+        jsr gb_insert
+        bcc @overflow
+        rts
+
+@overflow_pop:
+        pla                     ; discard the byte still on the stack
+@overflow:
+        lda #1
+        sta _load_overflow
+@noop:  rts
 .endproc
 
 ; ── ed_load_source — load SEQ file into buffer ────────────────
@@ -2583,12 +2611,25 @@ s_workend:      .byte "workend", 0
         sta _load_vcol
         sta _load_line
         sta _load_line+1
+        sta _load_overflow
 
         ; Call disk_load_seq(name, load_insert) — cap-aware
         lda #<load_insert
         ldx #>load_insert
         jsr disk_load_seq      ; A = error
         pha                     ; save error
+
+        ; Check for buffer overflow first — if the file ran out of
+        ; gap-buffer room mid-load, we have a partial buffer that's
+        ; useless to the user.  Wipe it and report a distinct error.
+        lda _load_overflow
+        beq @no_overflow
+        pla                     ; discard disk error
+        jsr ed_init             ; reset buffer
+        lda #2                  ; error: file too large
+        ldx #0
+        rts
+@no_overflow:
 
         ; Check for error or empty file
         pla
