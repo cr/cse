@@ -2039,22 +2039,31 @@ s_workend:      .byte "workend", 0
 
 @del_join_split:
         ; Combined exceeds the cap.  Advance to the largest col
-        ; ≤ 39 without breaking a tab, insert a forced CR there.
-        ; advance_to_vcol stops when adding the next char's
-        ; width would push col > target, so a tab that would
-        ; straddle the cap boundary is left on the post-CR side.
-        ; After the advance, the cursor is at the split
-        ; position (end of first sub-line).
+        ; ≤ 39 without breaking a tab, then insert a forced CR
+        ; there.  advance_to_vcol stops when adding the next
+        ; char's width would push col > target, so a tab whose
+        ; expansion would straddle the cap boundary stays on
+        ; the post-CR side.
+        ;
+        ; After the forced CR, step the gap back across it so
+        ; the cursor lands at the END of line A (the line the
+        ; user was deleting onto) and ed_cur_line stays at N-1.
+        ; @del_render then renders from line A down, so line A
+        ; (which just gained content up to the split col) is
+        ; redrawn.
         lda #39
         jsr advance_to_vcol
+        lda ed_cur_col
+        sta @join_col           ; actual stop col (≤ 39)
         lda #$0D
-        jsr gb_insert           ; insert forced CR; gb_insert
-                                ; bumps ed_total_lines
-        inc ed_cur_line
-        bne :+
-        inc ed_cur_line+1
-:       lda #0
-        sta ed_cur_col          ; col 0 of new second sub-line
+        jsr gb_insert           ; forced CR; bumps ed_total_lines
+        jsr gb_cursor_left      ; step back across the CR
+        lda @join_col
+        sta ed_cur_col          ; restore — gb_cursor_left doesn't
+                                ; touch our visual-col tracker
+        ; ed_cur_line unchanged: still N-1 (= line A), so the
+        ; cursor is at the end of line A with the forced CR
+        ; one byte to the right of the gap.
 
 @del_join_after:
         ; Adjust ed_top_line if cursor above viewport
