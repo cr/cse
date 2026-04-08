@@ -17,7 +17,7 @@
         .import io_init, io_putc, io_puts, io_sync
         .import io_puthex4, io_puthex2, io_putdec
         .import io_getc, io_clear_eol
-        .import reset_screen, restore_colors, newline
+        .import reset_screen, restore_colors, newline, theme_init
         .import cursor_show, cursor_hide
         .import scr_lo, scr_hi
         .import kernal_init
@@ -240,6 +240,9 @@ startup:
 
         ; Init I/O (disables KERNAL cursor)
         jsr io_init
+        ; Apply build-time theme defaults to BSS before the first
+        ; reset_screen call (which reads them via restore_colors).
+        jsr theme_init
         jsr reset_screen
 
         ; Lowercase/uppercase charset

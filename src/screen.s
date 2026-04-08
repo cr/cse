@@ -7,6 +7,7 @@
         .export scroll_up, newline
         .export cursor_show, cursor_hide
         .export theme_border, theme_bg, theme_fg
+        .export theme_init
         .import io_puts, io_sync, io_color
         .import scr_lo, scr_hi
 
@@ -29,10 +30,14 @@ SCR_W     = 40
 SCR_H     = 25
 SCR_SIZE  = 1000          ; 25 * 40
 
-; ── Theme (DATA — initialized defaults) ──────────────────
+; ── Theme (BSS — defaults applied by theme_init at startup) ─
 ; Build-time selection: -DTHEME_BOR=x -DTHEME_BG=x -DTHEME_FG=x
 ; where x is a C64 color index 0-F.
 ; Default: RADIOACTIVITY (cb5)
+;
+; BSS (not RODATA) because the `c BFS` REPL command rewrites
+; these at runtime — on the planned CRT target RODATA lives in
+; ROM.
 .ifndef THEME_BOR
   THEME_BOR = 12
 .endif
@@ -43,12 +48,26 @@ SCR_SIZE  = 1000          ; 25 * 40
   THEME_FG = 5
 .endif
 
-        .segment "RODATA"
-theme_border: .byte THEME_BOR
-theme_bg:     .byte THEME_BG
-theme_fg:     .byte THEME_FG
+        .segment "BSS"
+theme_border: .res 1
+theme_bg:     .res 1
+theme_fg:     .res 1
 
         .segment "CODE"
+
+; ═════════════════════════════════════════════════════════
+; theme_init — apply build-time theme defaults to BSS
+; Called once from main.s startup, before restore_colors.
+; ═════════════════════════════════════════════════════════
+.proc theme_init
+        lda #THEME_BOR
+        sta theme_border
+        lda #THEME_BG
+        sta theme_bg
+        lda #THEME_FG
+        sta theme_fg
+        rts
+.endproc
 
 ; ═════════════════════════════════════════════════════════
 ; restore_colors — apply theme + fill color RAM

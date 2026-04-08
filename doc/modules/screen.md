@@ -50,11 +50,13 @@ Thin wrapper — `jmp io_puts`.  Does not interpret newline characters.
 
 ### Memory
 
-**RODATA (3 bytes):** `theme_border` (1), `theme_bg` (1),
-`theme_fg` (1) — compile-time color defaults.  Initialized from
-`THEME_BOR`/`THEME_BG`/`THEME_FG` at build time, but the `c` REPL
-command can rewrite them at runtime (so on the CRT target these
-will need to migrate to BSS — see TODO).
+**BSS (3 bytes):** `theme_border` (1), `theme_bg` (1),
+`theme_fg` (1) — runtime color theme.  Initialized from the
+build-time constants `THEME_BOR` / `THEME_BG` / `THEME_FG` by
+`theme_init` (called from `main.s` startup before the first
+`reset_screen`).  The `c BFS` REPL command rewrites them at
+runtime.  BSS, not RODATA, so this works on the planned CRT
+target where RODATA lives in ROM.
 
 ## Theme System
 

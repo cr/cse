@@ -49,14 +49,12 @@ should wait until the stabilization phase wraps up.
   first-iteration guard now reads `lda @idx` / `beq @no_sep` so the
   comma+space is suppressed on iteration 0.
 - [ ] RUN/STOP debounce: bounces when held.
-- [ ] `theme_border` / `theme_bg` / `theme_fg` are declared in the
-  RODATA segment of `screen.s` but written to at runtime by the
-  `c BFS` REPL command (`sta theme_*` in repl.s).  This works on
-  the PRG target because RODATA lives in RAM, but the eventual
-  CRT target (R5) puts RODATA in ROM — the `c` command will
-  silently no-op there.  Move the three bytes to BSS, leaving the
-  build-time defaults `THEME_BOR`/`THEME_BG`/`THEME_FG` as inits
-  copied at startup.
+- [x] ~~`theme_border` / `theme_bg` / `theme_fg` in RODATA but
+  written at runtime by the `c BFS` REPL command — would silently
+  no-op on the CRT target.~~  Fixed: moved to BSS with a new
+  `theme_init` proc called at startup that copies the build-time
+  `THEME_BOR`/`THEME_BG`/`THEME_FG` defaults into the BSS slots.
+  Costs +16 B on PRG but unblocks the CRT target.
 - [ ] `.` and `m` commands show/modify CSE's internal ZP state instead
   of the user's ZP state from `j`/debugger context.  After `j` returns
   (BRK/NMI), CSE restores its own ZP — so `.`/`m` on $00–$7F see CSE
