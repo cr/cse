@@ -326,6 +326,32 @@ Defined scope, needs work.
 - [ ] ZP optimization: overlap scratch for non-concurrent modules.
   ~14 bytes reclaimable from cold scratch, ~8 bytes overlappable
   (dasm vs asm_line).  See [project.md § ZP is precious](project.md#1-zp-is-precious--use-the-stack-for-scratch).
+- [ ] BSS optimization: overlap `_load_line` (2 B) + `_load_vcol`
+  (1 B) with `ws_buf` (39 B).  `_load_*` live only during
+  `editor.s::ed_load_source` → `load_insert`, while `ws_buf` is
+  only touched inside the `CH_ENTER` auto-indent handler.  The
+  two code paths are mutually exclusive (the load completes
+  before the user can press a key), so the three bytes can be
+  aliased to the first three bytes of `ws_buf`.  Saves 3 B BSS.
+  Needs a comment at both declaration sites so nobody reuses
+  `ws_buf` during a load.
+- [ ] BSS optimization: collapse `disk_seq_bytes` / `disk_seq_lines`
+  (disk.s, 4 B) and `ed_save_bytes` / `ed_save_lines` (editor.s,
+  4 B) into a single shared `last_io_stats` struct.  Both track
+  the exact same thing — bytes/lines moved by the last file I/O
+  — and the REPL reads one pair *or* the other depending on
+  which operation just finished.  The two pairs never live
+  simultaneously.  Owning module: disk.s (it writes both loads
+  and saves).  Saves 4 B BSS.  Touches load/save emit paths in
+  repl.s that print the count.
+- [ ] BSS optimization: overlap `rp_next_lo` / `rp_next_hi` (4 B,
+  used only by `cmd_step`) with `rp_hexbuf` (3 B, used only by
+  `cmd_dot`) and the `@new_col` proc-local (1 B, used only by
+  the editor insert path).  All three are scoped to their
+  owning command and never run concurrently.  Saves 3-4 B BSS.
+  Straightforward once the non-concurrency is asserted in
+  comments at each declaration.
+
 ### Size Optimization
 
 - [x] ~~Port C to asm: see Roadmap R6.~~ — done: repl.c (Phase 6),
