@@ -1,37 +1,30 @@
 # CSE — TODO
 
-## Top 10 — stabilization phase
+## Top 10 — stabilization phase (current round)
 
 The current focus is consolidation, simplification, bugfixes,
-optimization, and cleanup — *not* new features.  Items 1–4 of
-the original Top 10 have been resolved; the remaining list is:
+optimization, and cleanup — *not* new features.  Ordered
+roughly by do-first.
 
-1. **DDD audit module docs against code** — asm_line, au_mode,
-   opcode_lookup, mn_classify, mn7, main, meminfo.  See
-   [Next](#next).
-2. **Warn on quit/switch if dirty flag set** — small UX safety
-   net, prevents losing work.  See [Editor](#editor).
-3. **Handle files > gap buffer capacity** (show error, don't
-   crash) — load-time safety hole.  See [Editor](#editor).
-4. **ZP optimization: overlap scratch for non-concurrent
-   modules** — ~14 B reclaimable from cold scratch, ~8 B
-   overlappable (dasm vs asm_line).  See
+1. **Mark stale TODO entries done** — `k` command, `parse_hex.s`
+   parenthetical, this stale Top 10 stub.  Hygiene, 15 min.
+2. **Warn on quit/switch if dirty flag set** — see
+   [Editor](#editor).
+3. **Handle files > gap buffer capacity** — see
+   [Editor](#editor).
+4. **Line-break warnings: sort + dedupe + "…and N more"
+   summary** — see [Bugs](#bugs).
+5. **Clean up `dev/test.d64`** — remove/fix test programs
+   with lines > 39 cols.  See [Bugs](#bugs).
+6. **RUN/STOP debounce** — see [Bugs](#bugs).
+7. **ZP optimization: overlap scratch** — see
    [Architecture](#architecture).
-5. **RUN/STOP debounce** — bounces when held; small input-layer
-   bug.  See [Bugs](#bugs).
-6. **Audible reject blip** — single shared SID-voice-3 ping
-   from every input-refusal site (line cap, left-wall backspace,
-   refused commands).  See [Next](#next).
-7. **Move `theme_*` from RODATA to BSS** — required for the CRT
-   target so the `c BFS` runtime command keeps working.  See
+8. **Audible reject blip** — see [Next](#next).
+9. **Revise TDD framework** — deter Python-mirror tests; see
    [Bugs](#bugs).
-
-Resolved this round (commit forthcoming):
-
-- ~~Fix `print_load_split_warning` leading-comma bug~~
-- ~~Doc cleanup: purge stale C/cc65 cruft~~
-- ~~Delete `src/parse_hex.s` orphan~~
-- ~~Delete dead `jsr_addr` / `_jsr_vec` / `@trampoline`~~
+10. **DDD audit of 7 module docs** — asm_line, au_mode,
+    opcode_lookup, mn_classify, mn7, main, meminfo.  See
+    [Next](#next).
 
 Anything else in this file is feature work or longer-horizon and
 should wait until the stabilization phase wraps up.
@@ -247,7 +240,9 @@ Defined scope, needs work.
 - [ ] `/` command: search for byte pattern in memory.
 - [ ] `f` command: fill memory range with byte.
 - [ ] `>` command: transfer/copy memory block (was `t`).
-- [ ] `k` command: implement.  Confirms before clearing.
+- [x] ~~`k` command: implement.  Confirms before clearing.~~
+  Done: `@h_k` in repl.s calls `check_unsaved`, prompts
+  `;delete source. are you sure? y/n`, and invokes `ed_new`.
 - [x] Debugger: `b` (breakpoints), `c` (continue), `t` (trace/step-into),
   `o` (trace-over/step-over).  BRK-based, full context switch with stack page
   snapshot.  NMI as ad-hoc break.  See [debugger.md](modules/debugger.md).
@@ -329,11 +324,12 @@ Defined scope, needs work.
 ### Architecture
 
 - [ ] Relocating startup: see Roadmap R2.
-- [ ] Replace au_mode hex parser with expr_eval (option C): eliminate
-  parse_hex.s, remove _insn_buf round-trip from asm_src.s, switch
-  line assembler from VICII to PETSCII encoding.  Saves ~400 bytes
-  code + 80 bytes BSS.  Requires mn_classify char conversion and
-  expr error code mapping.  Touches 5 files.
+- [ ] Replace au_mode hex parser with expr_eval (option C):
+  remove the `_insn_buf` round-trip from asm_src.s and switch
+  the line assembler from VICII to PETSCII encoding.  Saves
+  ~400 bytes code + 80 bytes BSS.  Requires mn_classify char
+  conversion and expr error code mapping.  Touches ~4 files.
+  (Note: `parse_hex.s` was an earlier orphan already deleted.)
 - [x] ~~Redesign function interfaces~~ — done: all calls use
   ZP/register args.  Parameter stack (pushax/cse_popax/sp) eliminated.
 - [ ] ZP optimization: overlap scratch for non-concurrent modules.
