@@ -323,6 +323,20 @@ skip_sp_ptr1:
 @done:  rts
 
 ; ───────────────────────────────────────────────────────────
+; is_eow_at_ptr1_y — is the byte at (rp_ptr),y an end-of-word?
+;   EOW = space ($20), NUL ($00), or ';' (comment start).
+;   Returns Z=1 on match, Z=0 otherwise.  Preserves X, Y.
+;   Clobbers A.
+; ───────────────────────────────────────────────────────────
+is_eow_at_ptr1_y:
+        lda (rp_ptr),y
+        beq @r                  ; NUL → Z set
+        cmp #' '
+        beq @r                  ; SPC → Z set
+        cmp #';'                ; ; → Z set; anything else → Z clear
+@r:     rts
+
+; ───────────────────────────────────────────────────────────
 ; _hex_val — PETSCII char in A → nibble (0-15), or $FF if not hex
 ;   Preserves Y.
 ; ───────────────────────────────────────────────────────────
@@ -382,6 +396,22 @@ _hex_val_to_char:
 is_hex_at_ptr1:
         lda (rp_ptr),y
         jmp _is_hex             ; tail call; Z flag set on return
+
+; ───────────────────────────────────────────────────────────
+; is_hex4_at_ptr1 — are rp_ptr[0..3] all hex digits?
+;   Returns: Z=0 if all four are hex, Z=1 if any isn't.
+;   On failure Y holds the first non-hex position (3..0).
+;   On success Y=$FF, A=$01.  Callers that need Y afterwards
+;   must set it themselves.
+; ───────────────────────────────────────────────────────────
+is_hex4_at_ptr1:
+        ldy #3
+@l:     jsr is_hex_at_ptr1
+        beq @r                  ; Z=1 → fail, return Z=1
+        dey
+        bpl @l
+        lda #1                  ; success: force Z=0
+@r:     rts
 
 ; ───────────────────────────────────────────────────────────
 ; hex_val_at_ptr1 — get hex value of byte at (rp_ptr)+Y
@@ -1092,14 +1122,9 @@ parse_hex4_ptr1:
         ldy #1
         jsr is_hex_at_ptr1
         beq @hex_done
-        ; check rp_ptr[2] is space/NUL/;
+        ; check rp_ptr[2] is end-of-word (space/NUL/;)
         ldy #2
-        lda (rp_ptr),y
-        cmp #' '
-        beq @parse_b
-        cmp #0
-        beq @parse_b
-        cmp #';'
+        jsr is_eow_at_ptr1_y
         bne @hex_done
 @parse_b:
         jsr parse_hex2_ptr1
@@ -1264,28 +1289,12 @@ parse_hex4_ptr1:
         jsr skip_sp_ptr1
 
         ; Check for 4-digit hex address override
-        ldy #0
-        jsr is_hex_at_ptr1
+        jsr is_hex4_at_ptr1
         beq @no_addr
-        ldy #1
-        jsr is_hex_at_ptr1
-        beq @no_addr
-        ldy #2
-        jsr is_hex_at_ptr1
-        beq @no_addr
-        ldy #3
-        jsr is_hex_at_ptr1
-        beq @no_addr
-        ; check q[4] is space/NUL/;
+        ; check q[4] is end-of-word (space/NUL/;)
         ldy #4
-        lda (rp_ptr),y
-        cmp #' '
-        beq @addr_ok
-        cmp #0
-        beq @addr_ok
-        cmp #';'
-        beq @addr_ok
-        jmp @no_addr
+        jsr is_eow_at_ptr1_y
+        jne @no_addr
 @addr_ok:
         jsr parse_hex4_ptr1
         sta rp_addr
@@ -1301,14 +1310,8 @@ parse_hex4_ptr1:
         jsr is_hex_at_ptr1
         beq @dump
         ldy #2
-        lda (rp_ptr),y
-        cmp #' '
-        beq @edit
-        cmp #0
-        beq @edit
-        cmp #';'
-        beq @edit
-        jmp @dump
+        jsr is_eow_at_ptr1_y
+        jne @dump
 
 @edit:  ; Parse and write edit bytes
         lda #0
@@ -3105,17 +3108,7 @@ free_line:
         jsr skip_sp_ptr1
 
         ; ── Parse optional AAAA: prefix → sets cur_addr ──
-        ldy #0
-        jsr is_hex_at_ptr1
-        beq @no_prefix
-        ldy #1
-        jsr is_hex_at_ptr1
-        beq @no_prefix
-        ldy #2
-        jsr is_hex_at_ptr1
-        beq @no_prefix
-        ldy #3
-        jsr is_hex_at_ptr1
+        jsr is_hex4_at_ptr1
         beq @no_prefix
         ldy #4
         lda (rp_ptr),y
