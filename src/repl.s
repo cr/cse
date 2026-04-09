@@ -143,17 +143,28 @@ str_nmi:        .byte "; nmi break at $", 0
 str_ok_at:      .byte "; ok at $", 0
 str_bp_clr:     .byte "; breakpoints cleared", 0
 str_deleted:    .byte " deleted", 0
-str_slot18:     .byte ";?slot 1-8", 0
-str_bp_full:    .byte ";?bp full", 0
-str_err_b:      .byte ";?b", 0
-str_err_cmd:    .byte ";?cmd", 0
-str_err_asm:    .byte ";?asm", 0
-str_err_name:   .byte ";?name", 0
-str_err_range:  .byte ";?range", 0
-str_err_load:   .byte ";?load ", 0
-str_err_too_large: .byte ";?file too large", 0
-str_err_save:   .byte ";?save ", 0
-str_err_expr:   .byte ";?", 0
+; Error content strings (prefix-free — out_log prepends ";?")
+str_syntax:     .byte "syntax", 0        ; shared: asm + b + au_mode
+str_slot18:     .byte "1-8", 0
+str_full:       .byte "full", 0
+str_cmd:        .byte "cmd", 0
+str_no_name:    .byte "no name", 0
+str_range:      .byte "range", 0
+str_fail:       .byte "fail", 0          ; shared: load + save
+str_too_big:    .byte "too big", 0
+str_expr:       .byte "expr ", 0         ; prefix for expr_error_str text
+str_no_break:   .byte "no break", 0
+; Aliases for call sites that reference the old names
+str_err_asm = str_syntax
+str_err_b   = str_syntax
+str_err_cmd = str_cmd
+str_err_name = str_no_name
+str_err_range = str_range
+str_err_load = str_fail
+str_err_save = str_fail
+str_err_too_large = str_too_big
+str_err_expr = str_expr
+str_bp_full = str_full
 str_r_pc:       .byte "r pc:", 0
 str_a:          .byte " a:", 0
 str_x:          .byte " x:", 0
@@ -203,7 +214,6 @@ str_asm_ing:    .byte "; assembling...", 0
 str_ok_colon:   .byte "; ok: ", 0
 str_semi:       .byte "; ", 0
 str_errors:     .byte " error(s)", 0
-str_no_break:   .byte ";?no break", 0
 str_quit:       .byte "; quit? y/n ", 0
 str_dashes:     .byte "----", 0
 str_colon_sp:   .byte ": ", 0
@@ -329,8 +339,8 @@ io_addr_cmd:
         jmp io_putc
 
 ; ───────────────────────────────────────────────────────────
-; err_msg — newline + print string + clear_eol
-;   A/X = string ptr
+; err_msg — LEGACY, use out_log instead. Kept as alias
+;   during migration.  A/X = full string (prefix baked in).
 ; ───────────────────────────────────────────────────────────
 err_msg:
         pha
@@ -342,6 +352,97 @@ err_msg:
         pla
         jsr io_puts
         jmp io_clear_eol
+
+; ═══════════════════════════════════════════════════════════
+; Output helpers — the standardised logging API.
+;
+; Three log levels:
+;   LOG_ERR  = '?'   →  ";?"   error
+;   LOG_WARN = '!'   →  ";!"   warning
+;   LOG_INFO = ' '   →  "; "   info
+;
+; Four public functions:
+;
+;   out_log(Y=level, A/X=content)
+;       Complete line: newline + ";" + Y + content + clear_eol
+;
+;   out_log_open(Y=level)
+;       Open a line: newline + ";" + Y
+;       Caller appends content via io_puts / io_putdec / etc.,
+;       then calls out_close.
+;
+;   out_log_at_open(Y=level)
+;       Open a line with AAAA: prefix (using rp_addr):
+;       newline + "AAAA:;" + Y
+;       Caller appends content, then calls out_close.
+;       The AAAA: prefix makes the line re-enterable
+;       (pressing RETURN re-runs "; content" as a comment).
+;
+;   out_close()
+;       Close an open line: clear_eol.
+;
+; Address context goes in the AAAA: prefix (caller's job).
+; Line references go at the tail of the content (LNNN).
+; ═══════════════════════════════════════════════════════════
+
+LOG_ERR  = '?'
+LOG_WARN = '!'
+LOG_INFO = ' '
+
+; ── out_log — complete log line ───────────────────────────
+; Y = level char, A/X = content string ptr
+; Clobbers: A, X, Y
+.proc out_log
+        sta rp_tmp
+        stx rp_tmp+1
+        jsr out_log_open
+        lda rp_tmp
+        ldx rp_tmp+1
+        jsr io_puts
+        jmp io_clear_eol
+.endproc
+
+; ── out_log_open — open a log line (no content, no close) ─
+; Y = level char
+; Clobbers: A
+.proc out_log_open
+        sty @lv
+        jsr newline
+        lda #';'
+        jsr io_putc
+        lda @lv
+        jmp io_putc
+@lv:    .byte 0
+.endproc
+
+; ── out_log_at_open — open with AAAA:; prefix ────────────
+; Y = level char, rp_addr = address for the prompt
+; Clobbers: A, X, Y
+.proc out_log_at_open
+        sty @lv
+        jsr newline
+        lda #';'
+        jsr io_addr_cmd         ; prints "AAAA:;"
+        lda @lv
+        jmp io_putc
+@lv:    .byte 0
+.endproc
+
+; ── out_close — close an open log line ───────────────────
+out_close:
+        jmp io_clear_eol
+
+; ── Convenience entry points ─────────────────────────────
+; Avoid `ldy #LOG_*` at every call site.  A/X = content ptr.
+out_err:
+        ldy #LOG_ERR
+        jmp out_log
+out_warn:
+        ldy #LOG_WARN
+        jmp out_log
+out_info:
+        ldy #LOG_INFO
+        jmp out_log
 
 ; ───────────────────────────────────────────────────────────
 ; confirm_yn — show cursor, wait for key, return Z=1 if 'y'
@@ -679,11 +780,14 @@ parse_hex4_ptr1:
         sec
         rts
 @error:
-        jsr newline
-        puts str_err_expr
+        ldy #LOG_ERR
+        jsr out_log_open        ; ";?"
+        lda #<str_expr
+        ldx #>str_expr
+        jsr io_puts             ; "expr "
         jsr expr_error_str
-        jsr io_puts
-        jsr io_clear_eol
+        jsr io_puts             ; "undef main" etc.
+        jsr out_close
         clc
         rts
 @empty: clc
@@ -1317,7 +1421,7 @@ parse_hex4_ptr1:
         bne @show               ; success → show result
         lda #<str_err_asm
         ldx #>str_err_asm
-        jsr err_msg
+        jsr out_err
         jmp nl_clear
 .endproc
 
@@ -2043,7 +2147,7 @@ VIC_MEMCTL = $D018
 @bad_slot:
         lda #<str_slot18
         ldx #>str_slot18
-        jsr err_msg
+        jsr out_err
         jmp nl_clear
 
 @set_bp:
@@ -2075,14 +2179,14 @@ VIC_MEMCTL = $D018
         jsr io_clear_eol
         jmp nl_clear
 
-@full:  jsr newline
-        puts str_bp_full
-        jsr io_clear_eol
+@full:  lda #<str_full
+        ldx #>str_full
+        jsr out_err
         jmp nl_clear
 
 @err_b: lda #<str_err_b
         ldx #>str_err_b
-        jsr err_msg
+        jsr out_err
         jmp nl_clear
 .endproc
 
@@ -2433,20 +2537,15 @@ VIC_MEMCTL = $D018
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; io_err_load / io_err_save — print error with name
-;   rp_ptr2 = name
+; io_err_load / io_err_save — emit ";?fail"
+; No filename needed — the l/s command line above provides
+; context.
 ; ═══════════════════════════════════════════════════════════
 io_err_load:
-        puts str_err_load
-        lda rp_ptr2
-        ldx rp_ptr2+1
-        jmp io_puts
-
 io_err_save:
-        puts str_err_save
-        lda rp_ptr2
-        ldx rp_ptr2+1
-        jmp io_puts
+        lda #<str_fail
+        ldx #>str_fail
+        jmp out_err
 
 ; ───────────────────────────────────────────────────────────
 ; restore_name_ptr — reload rp_ptr2 from saved name pointer
@@ -2482,7 +2581,7 @@ disk_done:
         bne @have_name
         lda #<str_err_name
         ldx #>str_err_name
-        jsr err_msg
+        jsr out_err
         jmp nl_clear
 
 @have_name:
@@ -2522,8 +2621,9 @@ disk_done:
         jmp @done
 @seq_too_large:
         jsr restore_name_ptr
-        jsr newline
-        puts str_err_too_large
+        lda #<str_too_big
+        ldx #>str_too_big
+        jsr out_err
         jmp @done
 @seq_ok:
         jsr restore_name_ptr
@@ -2588,7 +2688,7 @@ disk_done:
         bne @have_name
         lda #<str_err_name
         ldx #>str_err_name
-        jsr err_msg
+        jsr out_err
         jmp nl_clear
 
 @have_name:
@@ -2734,7 +2834,7 @@ disk_done:
 @range_err:
         lda #<str_err_range
         ldx #>str_err_range
-        jsr err_msg
+        jsr out_err
         jmp nl_clear
 
 @done:  jmp disk_done
@@ -3279,7 +3379,7 @@ free_line:
 @unknown:
         lda #<str_err_cmd
         ldx #>str_err_cmd
-        jsr err_msg
+        jsr out_err
         jmp nl_clear
 
 ; ── Handlers ──────────────────────────────────────────────
@@ -3747,11 +3847,14 @@ free_line:
         jmp nl_clear
 
 @calc_err:
-        jsr newline
-        puts str_err_expr
+        ldy #LOG_ERR
+        jsr out_log_open
+        lda #<str_expr
+        ldx #>str_expr
+        jsr io_puts
         jsr expr_error_str
         jsr io_puts
-        jsr io_clear_eol
+        jsr out_close
         jmp nl_clear
 @h_quit:; Q (PETSCII $D1) — quit (guard unsaved)
         jsr check_unsaved
@@ -3837,7 +3940,7 @@ free_line:
         bne @c_has_ctx
         lda #<str_no_break
         ldx #>str_no_break
-        jsr err_msg
+        jsr out_err
         jmp nl_clear
 @c_has_ctx:
         ; delete hit breakpoint before continuing
