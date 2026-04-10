@@ -32,7 +32,7 @@ every line is executable.  From here the user can:
 - **Calculate** — full expression evaluator with hex, decimal, binary,
   bitwise operators, lo/hi byte extraction
 - **Debug** — breakpoints (`b`), step-into (`t`), step-over (`o`),
-  continue (`c`), NMI break, register inspect.  *(watchpoints planned)*
+  continue (`c`), NMI break, register inspect.
 
 Commands are terse single-character keys.  Block-size-aware operations
 (`m`, `d`, `f`, `t`) work on configurable ranges.  Auto-advance and
@@ -84,7 +84,6 @@ structure without 256-entry lookup tables.
 | Files | `l` `s` `$` | Load/save PRG and SEQ files, disk directory/commands |
 | Utility | `?` `i` `C` `u` | Expression calculator, memory map, colors, CPU mode |
 | Debug | `b` `t` `o` `c` `g` | Breakpoints, trace, trace-over, continue, go |
-| Block ops | `f` `>` `/` | Fill, transfer, search *(planned)* |
 
 The screen is the command buffer.  Every line is executable.  RETURN
 on an empty line repeats the last command at the next address.

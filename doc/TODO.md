@@ -139,9 +139,36 @@ Defined scope, needs work.
 - [ ] `m` address argument: accept expression (`m screen+40`).
   Currently plain 4-digit hex only.
 - [ ] Disk command channel: unified under `$` (`$ s:file`, `$9`, etc.).
+- [ ] `e` command: open editor at decimal line number (`e 42`).
+  Centers the target line on screen as much as possible.  Ties
+  into assembler error line numbers — assemble, see error at
+  line 42, type `e 42` to jump straight there.
+
+### Help
+
+- [ ] In-app help system.  Help text lives in KDATA (under
+  KERNAL ROM, $F100 area), not RODATA — must not bloat the
+  relocatable runtime.  Minimal CODE overhead: a small dispatcher
+  that pages through KDATA strings.  Candidates: one-screen
+  REPL command cheat sheet, editor key summary, assembler
+  syntax quick ref.  Paging output (see below) would pair
+  naturally.
+
+### Output
+
+- [ ] Paging for commands that produce more than ~23 lines of
+  output (`d`, `m`, `$`, assembler messages).  Pause with
+  "more" prompt, any key continues, RUN/STOP aborts.  The
+  `out_log` output wrappers already funnel all command output
+  through a single path — hooking a line counter there should
+  be straightforward.
 
 ### Assembler
 
+- [ ] `.bas` directive: emit a BASIC SYS stub that calls `main`.
+  Optional string argument becomes a REM comment on the same line
+  (`.bas "MY PROGRAM"` → `10 SYS 49152 REM MY PROGRAM`).  Makes
+  assembled PRGs auto-runnable via `RUN` after `LOAD "FILE",8,1`.
 - [ ] Assembler error display: show source line number + context.
 - [ ] Per-segment assembly summary (one line per `.org` block).
 
@@ -204,15 +231,52 @@ Self-contained VDC display driver, same interface as VIC-II routines.
 
 ### R5 — Cartridge ROM (CRT)
 
-Dual linker configs.  Instant boot.  R2 (relocating startup) done.
+Build target for at least one CRT layout.  Candidates: Ocean Type 1
+(simple banked ROM, wide emulator support) or EasyFlash (2×64 banks,
+writable, real-hardware friendly).  Dual linker configs — one for
+PRG, one for CRT.  Instant boot, no loader needed.  R2 (relocating
+startup) provides the foundation: CODE+RODATA already position-
+independent relative to their link address.
 
 ### R6 — Port C to asm (done)
 
 All C ported to assembly.  cc65 C compiler eliminated.
 
+### R7 — MEGA65 native support (stretch goal)
+
+Native MEGA65 platform target, separate from C64-compatible mode.
+The MEGA65 is a much more capable machine (32-bit address space,
+relocated ZP internals in native mode, VIC-IV) requiring bigger
+adaptations than a compatibility shim.  Alongside C128 native
+(R3/R4), this would be a distinct platform target with its own
+screen driver and memory model.  Far-future — depends on R3.
+
 ## Ideas
 
 Exploratory, not yet scoped.
+
+### Keyboard & input
+
+- [ ] KERNAL keyboard CTRL combos: explore what key combinations
+  the default KERNAL keyboard I/O delivers.  CTRL+key produces
+  PETSCII control codes ($01–$1F) — identify which are usable
+  without conflicting with KERNAL screen editor behaviour.
+- [ ] SHIFT+CLR/HOME in REPL: clear screen.  C=+CLR/HOME: clear
+  from cursor to end of screen.  Both use KERNAL screen editor
+  codes (SHIFT+CLR = $93, CLR/HOME = $13).
+- [ ] F-key bindings: assign useful functions to F1–F8 in both
+  REPL and editor.  REPL candidates: help, repeat last command,
+  toggle hex/dec, disassemble at PC.  Editor candidates: save,
+  assemble, goto line, search.
+- [ ] Revise RUN/STOP+RESTORE and NMI handling.  Nothing must
+  ever crash out of CSE — even a CSE crash should land in the
+  REPL.  RUN/STOP+RESTORE triggers NMI which currently toggles
+  REPL/editor; could double as a cheap "reset screen state"
+  function without needing a dedicated command.  Investigate
+  making the NMI handler unconditionally safe (re-entrant stack
+  cleanup, screen state restore).
+
+### Features
 
 - [ ] PRG load: auto-detect load address from PRG header.
 - [ ] `$` command: filter directory listing by filename glob.
@@ -226,9 +290,21 @@ Exploratory, not yet scoped.
 - [ ] Conditional assembly: .if/.else/.endif.
 - [ ] Include files: .inc.
 - [ ] Detect PAL/NTSC at startup.
-- [ ] MEGA65 Open-KERNAL compatibility: verify CSE runs on both
-  stock C64 KERNAL and MEGA65 Open-KERNAL.  Identify differing
-  entry points, ZP locations, or banking assumptions.
+- [ ] MEGA65 Open-KERNAL compatibility (C64-compatible mode):
+  verify CSE runs on the Open-ROMs C64-compatible build.  Use
+  `make run ROMSET=mega` to test.  Known issues (Session 11):
+  (a) `$` — fixed (Session 11).  Rewrote `list_directory` to
+  use KERNAL LOAD into workspace at $0801 instead of
+  OPEN+CHKIN+CHRIN.  Works on both KERNALs.  Floppy status
+  after `$` returns empty on Open-KERNAL (their error
+  channel response differs — cosmetic, not a CSE bug).
+  (b) Floppy status after `$` returns empty — Open-KERNAL's
+  channel-based serial I/O (OPEN+CHKIN+CHRIN) is broken;
+  CHKIN doesn't send TALK/TKSA.  Only LOAD works (it manages
+  its own channel).  No workaround — floppy_status suppresses
+  the empty line.  Affects all channel reads, not just `$`.
+  Loader, editor, assembler, disassembler, load, save all work.
+  MEGA65 native mode is a separate roadmap item (R7).
 - [ ] DDD back-reference tracking: link source files to their
   documentation via a machine-readable index.  DDD Maintenance
   verifies code changes trigger doc updates for all covering

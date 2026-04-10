@@ -266,9 +266,6 @@ The REPL's line editor operates within the 40-column screen:
 | Key | Name     | Addressed | Example                     | Notes                                      |
 |-----|----------|-----------|-----------------------------|----------------------------------------------|
 | `m` | memory   | yes       | `1000:m` dump, `1000:m A9 00...` edit | Bare = dump `B` bytes; with hex = edit  |
-| `f` | fill     | yes       | `1000:f EA`                 | Fill `B` bytes with value *(planned)*        |
-| `>` | transfer | yes       | `1000:> 2000`               | Copy `B` bytes from AAAA to arg *(planned)*  |
-| `/` | search   | yes       | `1000:/ A9 00`              | Search for byte pattern *(planned)*          |
 
 ### Commands — Assembly / Disassembly
 
@@ -310,7 +307,7 @@ The REPL's line editor operates within the 40-column screen:
 |-----|--------|-----------|----------------------|-----------------------------------------|
 | `l` | load   | yes       | `1000:l "file"`      | Load PRG/SEQ; guards unsaved source      |
 | `s` | save   | yes       | `1000:s "file" $2000` | Save addr..EEEE-1 (expr); remembers filename |
-| `$` | disk   | —         | `$`, `$9`, `$ s:file` | Directory, drive select, drive command *(cmd planned)*. See below. |
+| `$` | disk   | —         | `$`, `$9`             | Directory listing, drive select. See below. |
 
 ### Commands — Info / Utility
 
@@ -389,13 +386,8 @@ selection, and drive commands.  Parsing is prefix-based:
 
     $              directory listing (current drive)
     $9             select drive 9 as current, show directory
-    $ s:file       send drive command (scratch file)
-    $ i            send drive command (initialize)
-    $9 s:file      select drive 9, send command
 
 A single digit after `$` (8 or 9) sets `cur_device` permanently.
-Any other argument is sent to the drive command channel (#15)
-*(planned — requires disk.s extension)*.
 Bare `$` lists the directory.
 
 ### Tab width (build-time constant)
@@ -524,10 +516,6 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
     [x] t   trace / step-into. See debugger.md
     [x] o   trace over / step-over (was `n`). See debugger.md
     [x] g   go — shorthand for j main (falls back to j cur_addr)
-    [ ] f   fill
-    [ ] >   transfer
-    [ ] /   search (was `h`)
-    [ ] =   labels
 
 ## Caveats
 

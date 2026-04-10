@@ -49,7 +49,8 @@ cse/
 │   └── search/             Hash search scripts (historical)
 │
 ├── tests/                  pytest test suite
-│   ├── conftest.py         Fixtures, build helpers, py65 emulator
+│   ├── c64emu.py           C64 emulator class (py65 + KERNAL ROM)
+│   ├── conftest.py         Fixtures, build helpers
 │   ├── test_asm_line.py    Assembler tests
 │   ├── test_au_mode.py     Addressing mode parser tests
 │   ├── test_mnhash.py      Mnemonic hash tests
@@ -61,6 +62,10 @@ cse/
 │   ├── test_dasm.py        Disassembler tests
 │   ├── test_cse_io.py      Screen I/O tests
 │   └── test_editor.py      Editor gap-buffer tests
+│
+├── rom/                    KERNAL/BASIC/CHARGEN ROM images
+│   ├── *_cbm.bin           Stock Commodore ROMs (git-ignored)
+│   └── *_mega.bin          MEGA65 Open-ROMs (committed)
 │
 ├── doc/                    Documentation (see doc/README.md)
 │   ├── README.md           DDD methodology, document index

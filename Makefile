@@ -42,6 +42,21 @@ EXOMIZER  ?= exomizer
 # make CPU=65c02  → MN7 assembler + CMOS, disassembler in 65C02 mode
 CPU ?= 6510
 
+# ── ROM set selection ────────────────────────────────────────────────────
+# ROMSET= selects KERNAL/BASIC/CHARGEN for 'make run'.
+#   cbm   — rom/kernal_cbm.bin, basic_cbm.bin, chargen_cbm.bin (stock Commodore)
+#   mega  — rom/kernal_mega.bin, basic_mega.bin, chargen_mega.bin
+#           (MEGA65 Open-ROMs, C64-compatible build)
+ROMSET ?= cbm
+
+# Non-stock KERNALs need True Drive Emulation — VICE's virtual
+# drive traps only recognise the stock KERNAL's serial routines.
+ifeq ($(ROMSET),cbm)
+  VICE_ROMFLAGS :=
+else
+  VICE_ROMFLAGS := -drive8truedrive
+endif
+
 # ── Per-CPU configuration ────────────────────────────────────────────────
 # _cpu_defs, _mn_srcs, _build_dir, _prg_name for each variant.
 
@@ -305,23 +320,29 @@ test-bins: $(AU_BIN) $(MN6_BIN) $(MN7_BIN)
 # run — build disk image and launch in VICE
 # -----------------------------------------------------------------------
 .PHONY: run
-run: $(PRG)
-	$(VICE) -autostart $(PRG) -8 $(D64)
+run: all
+	$(VICE) -kernal $(KERNAL_IMG) -basic $(BASIC_IMG) -chargen $(CHARGEN_IMG) \
+	  $(VICE_ROMFLAGS) -autostart $(PRG) -8 $(DIST_D64)
 
 # -----------------------------------------------------------------------
 # test — run pytest (conftest.py rebuilds test binaries if needed)
 # -----------------------------------------------------------------------
 .PHONY: test check-roms
 ROM_DIR := $(ROOT)rom
-KERNAL_ROM := $(ROM_DIR)/kernal.bin
+
+KERNAL_IMG  := $(ROM_DIR)/kernal_$(ROMSET).bin
+BASIC_IMG   := $(ROM_DIR)/basic_$(ROMSET).bin
+CHARGEN_IMG := $(ROM_DIR)/chargen_$(ROMSET).bin
+
+KERNAL_ROM := $(ROM_DIR)/kernal_cbm.bin
 
 check-roms:
 	@if [ ! -f "$(KERNAL_ROM)" ]; then \
-	  printf "\n  *** C64 KERNAL ROM not found at rom/kernal.bin ***\n\n"; \
+	  printf "\n  *** C64 KERNAL ROM not found at rom/kernal_cbm.bin ***\n\n"; \
 	  printf "  Copy the C64 ROMs from your VICE installation into rom/:\n\n"; \
-	  printf "    cp <VICE>/C64/kernal-901227-03.bin rom/kernal.bin\n"; \
-	  printf "    cp <VICE>/C64/basic-901226-01.bin  rom/basic.bin\n"; \
-	  printf "    cp <VICE>/C64/chargen-901225-01.bin rom/chargen.bin\n\n"; \
+	  printf "    cp <VICE>/C64/kernal-901227-03.bin rom/kernal_cbm.bin\n"; \
+	  printf "    cp <VICE>/C64/basic-901226-01.bin  rom/basic_cbm.bin\n"; \
+	  printf "    cp <VICE>/C64/chargen-901225-01.bin rom/chargen_cbm.bin\n\n"; \
 	  printf "  Common <VICE> locations:\n"; \
 	  printf "    macOS (Homebrew): /opt/homebrew/share/vice\n"; \
 	  printf "    Linux:            /usr/share/vice\n\n"; \
@@ -381,7 +402,7 @@ help:
 	@printf "%-15s %s\n" "all"          "Build all three CPU targets (default)"
 	@printf "%-15s %s\n" ""             "  build/6510/cse.prg  build/6502/cse-6502.prg  build/cmos/cse-cmos.prg"
 	@printf "%-15s %s\n" "disk"         "Create D64 with compressed PRG (CPU=6510|6502|65c02)"
-	@printf "%-15s %s\n" "run"          "Build + launch uncompressed in VICE (CPU=)"
+	@printf "%-15s %s\n" "run"          "Build + launch in VICE (CPU=, ROMSET=cbm|mega)"
 	@printf "%-15s %s\n" "tables"       "Regenerate src/mn*_tables.s via mnemonic_tables.py"
 	@printf "%-15s %s\n" "test"         "Run all pytest tests"
 	@printf "%-15s %s\n" "test-bins"    "Assemble au_mode / mn6 / mn7 test binaries"

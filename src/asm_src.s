@@ -58,7 +58,6 @@ s_bad_val:      .byte "bad val", 0
 s_exp_name:     .byte "exp name", 0
 s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp quote", 0
-s_bin_nyi:      .byte ".bin nyi", 0
 s_bad_insn:     .byte "bad insn", 0
 hex_tab:        .byte "0123456789abcdef"
 
@@ -532,15 +531,7 @@ inc_pc_size:
         jsr emit_align
         clc
         rts
-@nb:    cmp #'b'
-        bne @nc
-        ; .bin — not yet implemented
-        lda #<s_bin_nyi
-        ldx #>s_bin_nyi
-        jsr emit_error
-        clc
-        rts
-@nc:    cmp #'c'
+@nb:    cmp #'c'
         beq :+
         jmp @nd
 :

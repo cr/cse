@@ -25,7 +25,12 @@ Calls `floppy_read_status` then `out_info(fl_buf)`.
 ### list_directory
 **In:** A = device number
 **Out:** prints directory listing to screen
-**Clobbers:** A, X, Y
+**Clobbers:** A, X, Y, workspace at $0800+
+
+Uses KERNAL LOAD to read the directory into workspace at $0800,
+then walks the in-memory buffer to display entries.  Workspace
+contents are overwritten.  This approach (vs OPEN+CHKIN+CHRIN)
+is compatible with both stock CBM KERNAL and MEGA65 Open-KERNAL.
 
 Caller is responsible for reading drive status after return
 (e.g. via `floppy_status` or `floppy_read_status`).

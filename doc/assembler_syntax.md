@@ -192,18 +192,6 @@ Advances PC by N bytes. In pass 1, emits N copies of the fill byte
 Advances PC to the next multiple of the given value. The gap is
 filled with $00. If PC is already aligned, does nothing.
 
-### `.bin` — Include Binary Data (planned)
-
-**Not yet implemented.** Will read a raw binary file from disk
-and emit its contents at the current PC.  Useful for embedding
-sprite data, character sets, music, etc.
-
-### `.inc` — Include Source File (planned)
-
-**Not yet implemented.** Will read and assemble source from a
-separate file mid-assembly. Primary use case: shared constant
-definitions and hardware address headers.
-
 ## Example Program
 
 ```

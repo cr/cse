@@ -14,7 +14,12 @@
 | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | implementation — disassembler table generator |
 | [`tests/conftest.py`](../tests/conftest.py) | implementation — test fixtures and auto-rebuild |
 | [`tests/c64emu.py`](../tests/c64emu.py) | implementation — C64 emulator class (C64Emu) |
-| `rom/kernal.bin` | dependency — C64 KERNAL ROM (not committed; see `.gitignore`) |
+| `rom/kernal_cbm.bin` | dependency — stock C64 KERNAL ROM (not committed; see `.gitignore`) |
+| `rom/basic_cbm.bin` | dependency — stock C64 BASIC ROM (not committed) |
+| `rom/chargen_cbm.bin` | dependency — stock C64 character ROM (not committed) |
+| [`rom/kernal_mega.bin`](../rom/kernal_mega.bin) | dependency — MEGA65 Open-ROMs KERNAL (committed) |
+| [`rom/basic_mega.bin`](../rom/basic_mega.bin) | dependency — MEGA65 Open-ROMs BASIC (committed) |
+| [`rom/chargen_mega.bin`](../rom/chargen_mega.bin) | dependency — MEGA65 Open-ROMs character ROM (committed) |
 | [`dev/instruction_set.py`](../dev/instruction_set.py) | implementation — authoritative opcode database |
 | [`dev/hashes.py`](../dev/hashes.py) | implementation — hash function definitions |
 | [`dev/size_report.py`](../dev/size_report.py) | implementation — binary size analysis |
@@ -140,6 +145,7 @@ Passed as `make OPTION=value`:
 | Option | Values | Default | Effect |
 |--------|--------|---------|--------|
 | `CPU` | `6502` `6510` `65c02` | `6510` | Sets `CPU_CEIL` and `CMOS_SUPPORT` defines |
+| `ROMSET` | `cbm` `mega` | `cbm` | ROM set for `make run` (see below) |
 | `THEME` | name or hex | default | Colour theme for the REPL |
 | `TAB_WIDTH` | 1..32 | `8` | Editor tab stop interval.  Must be a power of two for `col mod TAB_WIDTH` to collapse to a single `and` — non-power-of-two values compile but pay a 10-cycle modulo loop per tab render.  8 matches every C64-era toolchain convention. |
 | `DEBUG` | `1` | off | Enables debug output |
@@ -178,6 +184,37 @@ These apply to all code and apply regardless of build target:
 - **Keep BSS small.**  Every byte of BSS is a byte unavailable to
   the developer's workspace.
 
+## ROM sets
+
+`ROMSET=` selects which KERNAL, BASIC, and CHARGEN ROMs VICE uses
+for `make run`.  All ROM files live in `rom/` and are listed in
+`.gitignore` (not committed).
+
+| `ROMSET` | KERNAL | BASIC | CHARGEN | Source |
+|----------|--------|-------|---------|--------|
+| `cbm` (default) | `kernal_cbm.bin` | `basic_cbm.bin` | `chargen_cbm.bin` | Stock Commodore C64 ROMs (from VICE) |
+| `mega` | `kernal_mega.bin` | `basic_mega.bin` | `chargen_mega.bin` | MEGA65 Open-ROMs, C64-compatible build |
+
+ROM filenames follow the pattern `{type}_{romset}.bin`.  Adding a
+new ROM set (e.g. `ROMSET=jiffy`) only requires dropping three
+files with matching names — no Makefile changes needed.
+
+Usage:
+
+    make run                # stock CBM ROMs (default)
+    make run ROMSET=mega    # MEGA65 Open-ROMs
+
+The `mega` set is useful for testing CSE against the open-source
+KERNAL replacement to identify compatibility issues (particularly
+around cursor positioning and screen editor internals).
+
+Non-stock ROM sets automatically enable True Drive Emulation
+(`-drive8truedrive`).  VICE's default virtual drive mode intercepts
+specific addresses in the stock KERNAL's serial bus routines —
+with a different KERNAL those traps don't match, and serial I/O
+hangs.  TDE emulates the real 1541 CPU and DOS ROM, so the serial
+protocol works regardless of which KERNAL is loaded.
+
 ## Test build pipeline
 
 Tests run against the real production binary (`build/cse.prg`),
@@ -215,7 +252,7 @@ computes: `segment_start + module_offset_in_segment`.
 
 ### KERNAL ROM
 
-The original C64 KERNAL ROM (`rom/kernal.bin`, 8192 bytes) is copied
+The original C64 KERNAL ROM (`rom/kernal_cbm.bin`, 8192 bytes) is copied
 from a local VICE installation and listed in `.gitignore` (not
 committed).  `C64Emu` loads it as a ROM overlay at $E000–$FFFF,
 providing real KERNAL routines (PLOT, GETIN, CHROUT, etc.) instead

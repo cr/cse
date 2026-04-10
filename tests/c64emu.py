@@ -18,7 +18,7 @@ Usage:
 import pathlib
 from py65.devices.mpu6502 import MPU
 
-_ROM_PATH = pathlib.Path(__file__).parent.parent / "rom" / "kernal.bin"
+_ROM_PATH = pathlib.Path(__file__).parent.parent / "rom" / "kernal_cbm.bin"
 
 # C64 memory layout constants
 SCREEN     = 0x0400

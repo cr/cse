@@ -12,6 +12,10 @@ src/*.o
 src/*.lst
 
 # Copyrighted C64 ROMs (not distributable)
-rom/kernal.bin
-rom/basic.bin
-rom/chargen.bin
+rom/kernal_cbm.bin
+rom/basic_cbm.bin
+rom/chargen_cbm.bin
+
+# Local ROM testing artifacts
+rom/*_patched.bin
+rom/*_upatched.bin

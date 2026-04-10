@@ -159,7 +159,6 @@ After reassignment:
 | `B` | block size | moved from `b` (uppercase) |
 | `C` | color | moved from `c` (uppercase) |
 | `@` | seek | moved from `s` |
-| `>` | transfer/copy | planned |
 
 ## Design
 

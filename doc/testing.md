@@ -162,7 +162,7 @@ emu = C64Emu()          # default: KERNAL loaded, screen cleared
 On construction:
 
 - 64 KB RAM zeroed.
-- Original C64 KERNAL ROM (`rom/kernal.bin`) loaded as a ROM
+- Original C64 KERNAL ROM (`rom/kernal_cbm.bin`) loaded as a ROM
   overlay at $E000–$FFFF.
 - Processor port ($01) set to $37 (KERNAL + BASIC + I/O mapped).
 - Bank-switch emulation: writes to $01 toggle the KERNAL ROM
@@ -290,6 +290,6 @@ address pushed by `jsr()`, halting the emulation loop.
   `pytest.mark.xfail` with a reason string.
 
 - **KERNAL ROM:** Tests require the original C64 KERNAL ROM at
-  `rom/kernal.bin` (copied from a local VICE installation; not
+  `rom/kernal_cbm.bin` (copied from a local VICE installation; not
   committed to the repository — see `.gitignore`).  Run `make test`
   for instructions if the ROM is missing.

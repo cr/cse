@@ -6,7 +6,7 @@
  * Forward declaration rule: constants (name = expr) must be defined
  * before use.  Labels (code addresses) may be forward-referenced.
  *
- * Directives: .org .db .dw .str .scr .res .align .cpu .bin */
+ * Directives: .org .db .dw .str .scr .res .align .cpu */
 #ifndef ASM_SRC_H
 #define ASM_SRC_H
 
