@@ -295,14 +295,18 @@ Exploratory, not yet scoped.
   `make run ROMSET=mega` to test.  Known issues (Session 11):
   (a) `$` — fixed (Session 11).  Rewrote `list_directory` to
   use KERNAL LOAD into workspace at $0801 instead of
-  OPEN+CHKIN+CHRIN.  Works on both KERNALs.  Floppy status
-  after `$` returns empty on Open-KERNAL (their error
-  channel response differs — cosmetic, not a CSE bug).
-  (b) Floppy status after `$` returns empty — Open-KERNAL's
-  channel-based serial I/O (OPEN+CHKIN+CHRIN) is broken;
-  CHKIN doesn't send TALK/TKSA.  Only LOAD works (it manages
-  its own channel).  No workaround — floppy_status suppresses
-  the empty line.  Affects all channel reads, not just `$`.
+  OPEN+CHKIN+CHRIN.  Clobbers workspace (~5 KB max).
+  Open-KERNAL has three IEC channel-I/O bugs that break
+  the traditional approach: MEGA65/open-roms#116 (TKSA
+  `ora #$90` corrupts secondary address + `open_iec` skips
+  bus communication for empty filenames) and
+  MEGA65/open-roms#117 (EOI on last filename byte during
+  OPEN).  Channel-based code preserved in `1348247` for
+  when upstream fixes land.
+  (b) Floppy status empty on Open-KERNAL — channel-based
+  reads via CHRIN don't work (#116).  `floppy_status`
+  suppresses the empty line.  Will work once upstream
+  fixes land (validated via binary-patched ROM).
   Loader, editor, assembler, disassembler, load, save all work.
   MEGA65 native mode is a separate roadmap item (R7).
 - [ ] DDD back-reference tracking: link source files to their

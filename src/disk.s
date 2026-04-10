@@ -226,13 +226,25 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 ; ═════════════════════════════════════════════════════════
 floppy_status:
         jsr floppy_read_status
+        lda fl_buf
+        beq :+                  ; empty response → skip (Open-KERNAL)
         lda #<fl_buf
         ldx #>fl_buf
         jmp out_info
+:       rts
 
 ; ═════════════════════════════════════════════════════════
-; list_directory(device) — directory listing with executable l commands
+; list_directory(device) — LOAD-based directory listing
 ;   A = device
+;
+; Uses KERNAL LOAD to read the directory into workspace at
+; $0801, then walks the in-memory buffer to display entries.
+; This works on both stock CBM KERNAL and MEGA65 Open-KERNAL
+; (Open-KERNAL has multiple IEC channel-I/O bugs that break
+; the traditional OPEN+CHKIN+CHRIN approach; see
+; MEGA65/open-roms#116, #117).
+;
+; Clobbers workspace at $0801+ (up to ~5 KB for a full disk).
 ;
 ; Output format:
 ;   AAAA:; "disk name" id
@@ -249,59 +261,74 @@ floppy_status:
         ldy #>@dname
         jsr SETNAM
 
-        ; SETLFS 1,device,0
-        lda #1
+        ; SETLFS 0,device,0  (SA=0 → load to given address)
+        lda #0
         ldx @dev
         ldy #0
         jsr SETLFS
 
-        jsr OPEN
-        jcs @err
-@opened:
-        ldx #1
-        jsr CHKIN
+        ; LOAD directory to workspace at $0801 (same as BASIC)
+        lda #0                  ; 0 = LOAD (not VERIFY)
+        ldx #<$0801
+        ldy #>$0801
+        jsr LOAD
+        jcs @err                ; carry set = error
 
-        ; Skip 2-byte load address
-        jsr CHRIN
-        jsr CHRIN
+        ; X/Y = end address after LOAD; save as limit
+        stx @end_lo
+        sty @end_hi
+
+        ; disk_ptr = walk pointer into loaded data ($0801)
+        ; (Using disk_ptr because ptr/$FD is clobbered by screen scroll)
+        lda #<$0801
+        sta disk_ptr
+        lda #>$0801
+        sta disk_ptr+1
+
+        ; First 2 bytes are the link pointer of the first line
+        ldy #0
+        lda (disk_ptr),y        ; link lo
+        iny
+        ora (disk_ptr),y        ; link hi — if both 0, empty dir
+        jeq @done
+
+        ; Advance past link to block count
+        lda #2
+        jsr @advance_dp
 
         lda #0
         sta @is_first           ; first entry = header
 
 @entry:
-        ; Read 2-byte link pointer
-        jsr CHRIN
+        ; Read 2-byte block count (line number)
+        ldy #0
+        lda (disk_ptr),y
         sta @blocks
-        jsr READST
-        beq :+
-        jmp @done
-:       jsr CHRIN
+        iny
+        lda (disk_ptr),y
         sta @blocks+1
-        ; link = 0 → end
-        ora @blocks
-        bne :+
-        jmp @done
-:
-
-        ; Read 2-byte line number (block count)
-        jsr CHRIN
-        sta @blocks
-        jsr CHRIN
-        sta @blocks+1
+        lda #2
+        jsr @advance_dp
 
         ; Read line text into fl_buf (terminated by $00)
         ldy #0
-@rdtxt: jsr CHRIN
+@rdtxt: lda (disk_ptr),y
         beq @got_line           ; $00 = line end
         cpy #30
-        bcs @rdtxt              ; truncate: keep reading but don't store
+        bcs @skip_char          ; truncate: skip but keep scanning
         sta fl_buf,y
+@skip_char:
         iny
-        bne @rdtxt              ; always (Y < 30)
+        bne @rdtxt              ; always
 @got_line:
         lda #0
         sta fl_buf,y            ; NUL-terminate
         sty @textlen
+
+        ; Advance disk_ptr past text + NUL byte
+        iny                     ; include the $00 terminator
+        tya
+        jsr @advance_dp
 
         ; ── Header (first entry) ──────────────────────────────
         lda @is_first
@@ -362,7 +389,7 @@ floppy_status:
         bne @find_q
 
 @no_quote:
-        ; "blocks free" line → "; NNN blocks free."
+        ; "blocks free" line — always last entry
         lda #';'
         jsr io_putc
         lda #' '
@@ -373,7 +400,7 @@ floppy_status:
         puts @free_msg
         jsr io_clear_eol
         jsr newline
-        jmp @check_stop
+        jmp @done
 
         ; ── File entry: l "name,t"  ; NNN ─────────────────────
 @found_q:
@@ -459,22 +486,62 @@ floppy_status:
 
 @check_stop:
         jsr io_kbhit
-        bne :+
-        jmp @entry
-:       jsr io_getc
+        bne @user_key
+        jsr @check_next
+        jne @entry
+        jmp @done
+@user_key:
+        jsr io_getc
         cmp #CH_STOP
-        beq :+
-        jmp @entry
-:
+        beq @user_stop
+        jsr @check_next
+        jne @entry
+        jmp @done
+@user_stop:
 
         puts @brk_msg
         jsr newline
 
 @done:
 @err:
-        jsr CLRCHN
-        lda #1
-        jmp CLOSE
+        rts
+
+; Helper: check if next directory entry exists.
+; Returns Z=1 if end (no more entries), Z=0 if entry follows.
+; If entry follows, disk_ptr is advanced past the link pointer.
+@check_next:
+        ; Bounds check: disk_ptr >= end → done
+        lda disk_ptr+1
+        cmp @end_hi
+        bcc @cn_ok              ; hi < end_hi → safe
+        bne @cn_end             ; hi > end_hi → past end
+        lda disk_ptr
+        cmp @end_lo
+        bcs @cn_end             ; lo >= end_lo → at/past end
+@cn_ok:
+        ; Read link pointer
+        ldy #0
+        lda (disk_ptr),y        ; link lo
+        iny
+        ora (disk_ptr),y        ; link hi
+        beq @cn_end             ; link = 0 → end of directory
+        ; Valid entry follows — advance past link
+        lda #2
+        jsr @advance_dp
+        lda #1                  ; Z=0 (not done)
+        rts
+@cn_end:
+        lda #0                  ; Z=1 (done)
+        rts
+
+; Helper: advance disk_ptr by A bytes
+@advance_dp:
+        clc
+        adc disk_ptr
+        sta disk_ptr
+        bcc :+
+        inc disk_ptr+1
+:       rts
 
 ; Helper: print char in A inverted (io_putc then OR $80 on screen)
 @putc_inv:
@@ -495,6 +562,8 @@ floppy_status:
 @is_first:       .byte 0
 @blocks:         .byte 0, 0
 @textlen:        .byte 0
+@end_lo:         .byte 0
+@end_hi:         .byte 0
 @dev:            .byte 0
 @fn_start:       .byte 0
 @fn_close:       .byte 0
