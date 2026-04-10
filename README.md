@@ -6,6 +6,16 @@ heavily inspired by MasterSeka, radare2, and SMON. Sketch and iterate
 ideas fast, edit, assemble, run, debug in one place, all natively on
 the C64 itself, pure and simple.
 
+## Contents
+
+- [Quick start](#quick-start)
+- [REPL commands](#repl-commands)
+- [Editor](#editor)
+- [Assembler syntax](#assembler-syntax)
+- [Memory layout](#memory-layout)
+- [Built-in symbols](#built-in-symbols)
+- [Development](#development)
+
 ## Quick start
 
     LOAD "CSE",8,1
