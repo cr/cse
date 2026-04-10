@@ -1663,11 +1663,15 @@ VIC_MEMCTL = $D018
         ; Always use run_user — enables NMI break even without bps.
         ; When no breakpoints, patch_all/unpatch_all are no-ops.
         jsr run_user
-        ; show_break_result handles all three cases:
-        ;   dbg_reason = 1 → "; brk at $XXXX" + regs + dasm
-        ;   dbg_reason = 2 → "; nmi break at $XXXX" + regs + dasm
-        ;   dbg_reason = 0 → "; ok at $XXXX" + regs + dasm  (clean RTS)
-        jmp show_break_result
+        ; BRK/NMI: show status + regs + dasm (useful for debugging).
+        ; Clean RTS: just restore colors and return silently —
+        ; no "ok at", no regs, no disassembly (j/g is "run program",
+        ; not "step and inspect").
+        lda dbg_reason
+        bne @debug
+        jsr restore_colors
+        jmp nl_clear
+@debug: jmp show_break_result
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
