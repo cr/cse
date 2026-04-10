@@ -292,15 +292,15 @@ The REPL's line editor operates within the 40-column screen:
 |-----|-----------|-----------|-----------------|------------------------------------------|
 | `r` | registers | —         | `r` or `r a:05...` | View / edit CPU registers             |
 | `b` | breakpoint| —         | `b $1020`, `b main`, `b -1`, `b *` | Set (expr), delete, list. See [debugger.md](debugger.md). |
-| `t` | trace     | —         | `t` or `t 5`    | Step-into N instructions (default `B`). Enters subroutines. |
-| `o` | trace over| —         | `o` or `o 5`    | Step-over N instructions (default `B`). JSR runs to completion. |
+| `t` | trace     | —         | `t` or `t 5`    | Step-into EXPR instructions (default `B`). Enters subroutines. |
+| `o` | trace over| —         | `o` or `o 5`    | Step-over EXPR instructions (default `B`). JSR runs to completion. |
 
 ### Commands — Navigation
 
 | Key | Name    | Addressed | Example       | Notes                                    |
 |-----|---------|-----------|---------------|------------------------------------------|
 | `@` | seek    | —         | `@ $C000` or `@ main` | Set `cur_addr` to expression; bare = no-op |
-| `B` | block   | —         | `B 40`        | Set block size (hex bytes); bare = show (uppercase) |
+| `B` | block   | —         | `B $40`       | Set block size (expression); bare = show (uppercase) |
 | `+` | forward | —         | `+` or `+ $20` | Advance cur_addr by block_size (or expr) |
 | `-` | back    | —         | `-` or `- $20` | Retreat cur_addr by block_size (or expr) |
 
@@ -538,8 +538,8 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
 - `exec_line` modifies `cur_addr` as a side effect of the `AAAA:` prefix.
 - The `?` command uses `_expr_eval` directly — labels from the last
   assembly are available.
-- **Expression arguments:** Commands `@`, `j`, `+`, `-`, `b`, `s` accept
-  full expressions (`$hex`, decimal, symbols, operators).  Bare digits
-  are decimal — hex requires `$` prefix.  The `AAAA:` prompt prefix and
-  `t`/`o` counts remain plain hex.  `B` block size is also plain hex.
+- **Expression arguments:** Commands `@`, `j`, `+`, `-`, `b`, `s`,
+  `t`, `o`, `B` accept full expressions (`$hex`, decimal, symbols,
+  operators).  Bare digits are decimal — hex requires `$` prefix.
+  The `AAAA:` prompt prefix remains plain hex.
 - File type (PRG vs SEQ) detected by `,s` suffix in filename.

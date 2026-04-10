@@ -56,8 +56,7 @@ if one was defined.
 
 Commands like `d` (disassemble) and `m` (memory dump) operate on
 a chunk of *block size* bytes.  Default is $10 (16).  Change it
-with `B SIZE` (hex).  `+` and `-` also advance/retreat by the
-block size.
+with `B EXPR`.  `+` and `-` also advance/retreat by the block size.
 
 ### Screen editing
 
@@ -100,7 +99,7 @@ Press RUN/STOP to toggle between the REPL and the source editor.
 | `@` | `@ EXPR` | Set current address |
 | `+` | `+ [EXPR]` | Advance by EXPR (default: block size) |
 | `-` | `- [EXPR]` | Retreat by EXPR (default: block size) |
-| `B` | `B [SIZE]` | Show or set block size (hex, default $10) |
+| `B` | `B [EXPR]` | Show or set block size (default $10) |
 
 ### Inspect and edit memory
 
@@ -130,8 +129,8 @@ If the source defines a `main:` label, `g` will jump there.
 |---------|--------|-------------|
 | `j` | `j [ADDR]` | Execute code at address (default: current) |
 | `g` | `g` | Execute at label `main` |
-| `t` | `t [N]` | Step into (N instructions, default 1) |
-| `o` | `o [N]` | Step over (N instructions, default 1) |
+| `t` | `t [EXPR]` | Step into (N instructions, default 1) |
+| `o` | `o [EXPR]` | Step over (N instructions, default 1) |
 | `c` | `c` | Continue from breakpoint |
 | `b` | `b` | List breakpoints |
 | `b` | `b ADDR` | Set breakpoint (8 slots) |
