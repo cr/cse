@@ -6,6 +6,9 @@
 #
 # DO NOT EDIT — regenerated on every build.
 
+SYMBOLS {
+    __BUF_FLOOR__: type = export, value = @@BUF_FLOOR@@;
+}
 MEMORY {
     ZP:       file = "",  define = yes, start = $0002,            size = $007E;
     LOADADDR: file = %O,               start = $0801 - 2,        size = $0002;

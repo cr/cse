@@ -78,14 +78,29 @@ def main():
 
     bss_start = runtime_start + code_size + rodata_size + data_size
 
+    # BUF_FLOOR: optimal source/output split point.
+    #
+    # Workspace ($0800–runtime_start) is shared between assembled
+    # output (grows up) and source text (grows down).  For N lines:
+    #   output ≈ N × 1.5 bytes  (avg instruction mix + non-code lines)
+    #   source ≈ N × 12  bytes  (indent + mnemonic + operand + CR)
+    # Ratio source:output = 8:1.  Output occupies 1/9 of workspace.
+    #
+    # BUF_FLOOR = WORKSTART + workspace/9, page-aligned down.
+    # At full capacity both regions meet at BUF_FLOOR simultaneously.
+    workspace = runtime_start - 0x0800
+    buf_floor = (0x0800 + workspace // 9) & 0xFF00  # page-align down
+
     output = template.replace("@@RUNTIME_START@@", f"${runtime_start:04X}")
     output = output.replace("@@BSS_START@@", f"${bss_start:04X}")
+    output = output.replace("@@BUF_FLOOR@@", f"${buf_floor:04X}")
     sys.stdout.write(output)
 
     # Summary to stderr
-    print(f"  layout: CODE={code_size} RODATA={rodata_size} "
-          f"BSS={bss_size} → RUNTIME=${runtime_start:04X} "
-          f"BSS=${bss_start:04X} workspace={runtime_start - 0x0800}",
+    max_lines = workspace // (12 + 1)  # approx: 12B src + 1.5B out ≈ 13
+    print(f"  layout: RUNTIME=${runtime_start:04X} BSS=${bss_start:04X} "
+          f"FLOOR=${buf_floor:04X} workspace={workspace} "
+          f"(~{max_lines} lines)",
           file=sys.stderr)
 
 

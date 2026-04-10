@@ -37,8 +37,9 @@ SCREEN_WIDTH = 40
 ED_LINES     = 22            ; visible source lines
 ED_STATUS    = 22            ; status bar row
 .import __CODE_RUN__
-.define BUF_END __CODE_RUN__ ; exclusive end of buffer (= runtime start)
-BUF_FLOOR    = $4800         ; growth limit
+.import __BUF_FLOOR__
+.define BUF_END __CODE_RUN__   ; exclusive end of buffer (= runtime start)
+.define BUF_FLOOR __BUF_FLOOR__ ; source growth limit (compute_layout.py)
 REPL_SCREEN  = $F4F2         ; banked RAM under KERNAL
 
 ; ── Tab width (build-time constant) ──────────────────────────
@@ -191,7 +192,7 @@ s_workend:      .byte "workend", 0
         jmp @have_room          ; gap > 0
 :
         ; Check buf_base - 256 >= BUF_FLOOR
-        ; BUF_FLOOR=$4800 (lo=0), so buf_base.hi >= $49 is sufficient
+        ; BUF_FLOOR is page-aligned, so hi-byte check is sufficient
         lda buf_base+1
         cmp #>(BUF_FLOOR) + 1   ; #$49
         jcc @no_room

@@ -335,19 +335,19 @@ $0800.  `workend` adjusts when the editor resizes the gap buffer
 | Range | Bytes | Module | Variables |
 |-------|-------|--------|-----------|
 | $02–$07 | 6 | main | `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) |
-| $08–$0A | 3 | asm_bridge | `ab_saved_sp` (1), `jsr_vec` (2) |
-| $0B–$22 | 24 | asm_vars | assembler + symbol + expression I/O (see § Shared state) |
-| $23–$25 | 3 | asm_src | `as_ptr` (2), `as_wsize` (1) |
-| $26–$28 | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
-| $29 | 1 | mn7 | `mn7_h_tmp` (1) |
-| $2A–$2E | 5 | au_mode | `au_ptr` (2), `au_opr` (2), `au_tmp` (1) |
-| $2F | 1 | opcode_lookup | `ok_tmp` (1) |
-| $30–$33 | 4 | cse_io | `io_tmp` (2), `io_scr` (2) |
-| $34–$35 | 2 | disk | `disk_ptr` (2) |
-| $36–$39 | 4 | expr | `ex_tmp` (2), `ex_digits` (1), `ex_wide_tmp` (1) |
-| $3A–$44 | 11 | symtab | hash/probe state, heap pointers |
-| $45–$4C | 8 | dasm | decode state, output pointer |
-| $4D–$5A | 14 | editor | gap pointers, screen scratch |
+| $08 | 1 | asm_bridge | `ab_saved_sp` (1) |
+| $09–$20 | 24 | asm_vars | assembler + symbol + expression I/O (see § Shared state) |
+| $21–$23 | 3 | asm_src | `as_ptr` (2), `as_wsize` (1) |
+| $24–$26 | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
+| $27 | 1 | mn7 | `mn7_h_tmp` (1) |
+| $28–$2C | 5 | au_mode | `au_ptr` (2), `au_opr` (2), `au_tmp` (1) |
+| $2D | 1 | opcode_lookup | `ok_tmp` (1) |
+| $2E–$31 | 4 | cse_io | `io_tmp` (2), `io_scr` (2) |
+| $32–$33 | 2 | disk | `disk_ptr` (2) |
+| $34–$37 | 4 | expr | `ex_tmp` (2), `ex_digits` (1), `ex_wide_tmp` (1) |
+| $38–$41 | 10 | symtab | hash/probe state, heap pointers |
+| $42–$49 | 8 | dasm | decode state, output pointer |
+| $4A–$57 | 14 | editor | gap pointers, screen scratch |
 
 ### Non-concurrent groups
 
