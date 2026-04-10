@@ -13,7 +13,7 @@
 ## Interface
 
 ### _asm_assemble
-**In:** none (reads source via ed_read_line)
+**In:** A/X = default origin (used when source has no `.org`)
 **Out:** A/X = error count (uint16).  `_asm_org`, `_asm_size`, `_asm_errors` updated.
 **Clobbers:** all
 
@@ -34,8 +34,8 @@ Pre-defines two workspace labels:
 Called by main.s at startup and by `asm_assemble` after `sym_clear`.
 
 **Depends on:** asm_line (via asm_bridge), expr, symtab, editor
-(ed_read_line, ed_read_rewind, buf_base), cse_io (error output),
-meminfo (workstart)
+(ed_read_line, ed_read_rewind, buf_base), repl (out_log_open,
+out_close for error output), meminfo (workstart)
 
 ## Design
 
@@ -79,6 +79,11 @@ lda #0
 sta kernal_out           ; clear flag first
 jsr kernal_bank_in       ; real bank-in (flag=0, fires)
 ```
+
+**Error output during assembly:** `emit_error` temporarily banks
+KERNAL in (direct `$01` manipulation) to print error lines via
+the logging API, then banks out again.  This is necessary because
+screen output calls `io_sync` → KERNAL PLOT at `$FFF0`.
 
 The test contract pins this with a bank-witness in the asm_src
 test stub: `ed_read_line` OR's the live `$01` into `_bank_witness`

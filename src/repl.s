@@ -1,4 +1,4 @@
-; repl.s — REPL command line interface (hand-ported from repl.c)
+; repl.s — REPL command line interface
 ;
 ; The screen IS the command buffer.  Press RETURN on any line
 ; to execute it.  AAAA:cmd [args] for addressed commands,
@@ -2500,11 +2500,11 @@ restore_name_ptr:
         rts
 
 ; ═══════════════════════════════════════════════════════════
-; disk_done — close open line, floppy_status, prompt
+; disk_done — shared exit for l/s: clear line, drive status, prompt
 ; ═══════════════════════════════════════════════════════════
 disk_done:
-        jsr out_close           ; clear_eol on the output line
-        jsr floppy_status       ; "; 00, ok,00,00" on next line
+        jsr out_close
+        jsr floppy_status
         jmp nl_clear
 
 ; ═══════════════════════════════════════════════════════════
@@ -3207,9 +3207,7 @@ free_line:
         bne @skip_free
         lda rp_addr
         cmp rp_cnt
-        bcc @show_free
-        beq @show_free
-        bcs @skip_free
+        bcs @skip_free          ; start >= end → skip
 @show_free:
         jsr free_line
 @skip_free:
@@ -3963,8 +3961,7 @@ free_line:
         jsr newline
         lda cur_device
         jsr list_directory
-        ; list_directory leaves cursor on a blank line (after
-        ; the last entry's newline).  Print status there.
+        ; Print drive status on the trailing blank line
         jsr floppy_read_status
         lda #';'
         jsr io_putc

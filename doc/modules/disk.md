@@ -10,15 +10,25 @@
 
 ## Interface
 
+### floppy_read_status
+**In:** none
+**Out:** drive error channel read into `fl_buf` (NUL-terminated)
+**Clobbers:** A, X, Y
+
 ### floppy_status
 **In:** none
-**Out:** prints drive status to screen
+**Out:** reads drive status and prints it as an info line
 **Clobbers:** A, X, Y
+
+Calls `floppy_read_status` then `out_info(fl_buf)`.
 
 ### list_directory
 **In:** A = device number
 **Out:** prints directory listing to screen
 **Clobbers:** A, X, Y
+
+Caller is responsible for reading drive status after return
+(e.g. via `floppy_status` or `floppy_read_status`).
 
 ### disk_load_prg
 **In:** A/X = load address; `disk_ptr` (ZP) = filename ptr
@@ -50,7 +60,7 @@ The callback receives each byte in A.  Called once per byte read.
 The callback returns a byte in A (lo) and X=0.  EOF is signalled
 by returning A=$FF, X=$FF (int16 -1).
 
-**Depends on:** screen (newline, print_string), cse_io (io_puts,
+**Depends on:** repl (out_info), screen (newline), cse_io (io_puts,
 io_putc, io_putdec, io_puthex2/4, io_getc, io_kbhit, io_clear_eol)
 
 ### Memory

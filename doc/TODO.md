@@ -6,25 +6,17 @@ The current focus is consolidation, simplification, bugfixes,
 optimization, and cleanup — *not* new features.  Ordered
 roughly by do-first.
 
-1. **Mark stale TODO entries done** — `k` command, `parse_hex.s`
-   parenthetical, this stale Top 10 stub.  Hygiene, 15 min.
-2. **Warn on quit/switch if dirty flag set** — see
-   [Editor](#editor).
+1. ~~**Mark stale TODO entries done**~~ — done.
+2. ~~**Warn on quit/switch if dirty flag set**~~ — done.
 3. **Handle files > gap buffer capacity** — see
    [Editor](#editor).
-4. **Line-break warnings: sort + dedupe + "…and N more"
-   summary** — see [Bugs](#bugs).
-5. **Clean up `dev/test.d64`** — remove/fix test programs
-   with lines > 39 cols.  See [Bugs](#bugs).
+4. ~~**Line-break warnings**~~ — done (one per line).
+5. ~~**Clean up `dev/test.d64`**~~ — done.
 6. **RUN/STOP debounce** — see [Bugs](#bugs).
-7. **ZP optimization: overlap scratch** — see
-   [Architecture](#architecture).
-8. **Audible reject blip** — see [Next](#next).
-9. **Revise TDD framework** — deter Python-mirror tests; see
-   [Bugs](#bugs).
-10. **DDD audit of 7 module docs** — asm_line, au_mode,
-    opcode_lookup, mn_classify, mn7, main, meminfo.  See
-    [Next](#next).
+7. ~~**ZP optimization: overlap scratch**~~ — investigated, blocked.
+8. ~~**Audible reject blip**~~ — done.
+9. ~~**Revise TDD framework**~~ — done.
+10. ~~**DDD audit of 7 module docs**~~ — done.
 
 Anything else in this file is feature work or longer-horizon and
 should wait until the stabilization phase wraps up.
@@ -77,36 +69,22 @@ should wait until the stabilization phase wraps up.
   feature).  Load each file in CSE, check for split-line warnings
   from the load path, hand-fix any files that still carry overly
   long lines so the canonical sample-set is clean.
-- [x] ~~Review all user-facing strings~~ — done 2026-04-08.
-  Codified the convention as a comment block in `repl.s`
-  above the `str_*` table:
+- [x] ~~Review all user-facing strings~~ — done 2026-04-08,
+  updated 2026-04-10.  Convention in `repl.s` `str_*` table:
   ```
-  "; ..."        normal status / info  (space after ';')
-  "; ! ..."      warning
-  ";?tag"        terse error tag, BASIC-style  (no space)
-  ";?word ..."   long error explanation
-  "; ...? y/n "  yes/no confirmation prompt
+  "; ..."        normal status / info
+  ";!..."        warning
+  ";?tag"        terse error tag
+  "; ...? y/n "  confirmation prompt
   ```
-  Always lowercase, single space after `;` for status lines.
-  `;?` is the one exception, reserved for error tags so the
-  user can scan for `?` at col 1 to find trouble.  Eight
-  strings rewritten to match (mostly missing the space after
-  `;`).  Doubled-message bug found and fixed: `floppy_status`
-  was emitting `00, ok,00,00` from the drive's error channel
-  on every successful disk operation.  Now suppresses the
-  print when fl_buf starts with "00".  +16 B total.
-- [ ] Line-break warnings on file load are incomplete, redundant,
-  and out of order.  `print_load_split_warning` (repl.s) prints
-  line numbers recorded during `ed_load_source`, but the current
-  ordering/dedup logic doesn't match the user's mental model:
-  lines are reported in the order they were split, not sorted;
-  the same affected line can appear multiple times if more than
-  one forced CR falls inside it; and the `SPLIT_LINES_MAX = 8`
-  cap silently drops later splits without a summary "…and N
-  more".  Audit the recording path in editor.s::load_insert
-  (`ed_load_split_lines` fill) and the print path in repl.s
-  together.  Fix: sort + dedupe at record time, report
-  `"N lines split, showing first 8: …"` when truncated.
+  All output goes through the logging API (`out_log`/`out_err`/
+  `out_warn`/`out_info`).  Strings are terse: `b` for bytes,
+  `l` for lines, short error tags (`bad val`, `ovfl`, `undef`,
+  `div0`).  `floppy_status` always shown (no suppression).
+- [x] ~~Line-break warnings on file load~~ — rewritten 2026-04-10.
+  Now one `";!split LN"` line per split (up to 8), replacing the
+  old comma-separated list.  Sort + dedupe at record time deferred
+  (would need changes in editor.s::load_insert).
 - [ ] RUN/STOP debounce: bounces when held.
 - [x] ~~`theme_border` / `theme_bg` / `theme_fg` in RODATA but
   written at runtime by the `c BFS` REPL command — would silently

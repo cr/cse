@@ -2,7 +2,7 @@
 
 **Template:** [module](../templates/module.md)
 
-Hand-ported from C (repl.c) to 6502 assembly.  Hex parsing helpers
+REPL command interpreter and screen output.  Hex parsing helpers
 (`_hex_val`, `_is_hex`, `_hex_val_to_char`) are local to repl.s.
 
 ## Owned files
@@ -23,6 +23,14 @@ Hand-ported from C (repl.c) to 6502 assembly.  Hex parsing helpers
 - `cur_filename` (char[]) — last used filename
 - `last_cmd` (char) — last command (for RETURN repeat)
 - `block_size` (uint16) — block size for m/d/f/>/+/-, default $10
+
+**Logging API** (used by other modules for consistent output):
+- `out_log(Y=level, A/X=content)` — complete log line
+- `out_log_open(Y=level)` / `out_close()` — open/close for multi-part output
+- `out_err(A/X)` / `out_warn(A/X)` / `out_info(A/X)` — level shortcuts
+
+Three levels: `LOG_ERR='?'` → `";?"`, `LOG_WARN='!'` → `";!"`,
+`LOG_INFO=' '` → `"; "`.
 
 **Depends on:** asm_bridge (`.`), asm_src (`a`), dasm (`d`), expr (`?`),
 disk (`l`/`s`/`$`), debugger (`b`/`c`/`t`/`o`), editor, screen, cse_io
