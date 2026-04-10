@@ -122,6 +122,7 @@ all:
 PRG    = $(BUILD)/$(PRG_NAME)
 DBG    = $(BUILD)/cse.dbg
 MAP    = $(BUILD)/cse.map
+LBL    = $(BUILD)/cse.lbl
 
 # ── Build-flags stamp ───────────────────────────────────────────────────
 # Object files don't depend on $(AFLAGS) naturally.  If the user changes
@@ -167,7 +168,7 @@ $(FLAGS_STAMP): | $(BUILD)/
 	@printf '%s' '$(BUILD_FLAGS)' > $@
 
 $(PRG): $(ASM_OBJS) | $(BUILD)/
-	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) -m $(MAP) $(ASM_OBJS)
+	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) -m $(MAP) -Ln $(LBL) $(ASM_OBJS)
 
 # -----------------------------------------------------------------------
 # disk — create a D64 disk image with the selected CPU's PRG
@@ -274,8 +275,24 @@ run: disk
 # -----------------------------------------------------------------------
 # test — run pytest (conftest.py rebuilds test binaries if needed)
 # -----------------------------------------------------------------------
-.PHONY: test
-test:
+.PHONY: test check-roms
+ROM_DIR := $(ROOT)rom
+KERNAL_ROM := $(ROM_DIR)/kernal.bin
+
+check-roms:
+	@if [ ! -f "$(KERNAL_ROM)" ]; then \
+	  printf "\n  *** C64 KERNAL ROM not found at rom/kernal.bin ***\n\n"; \
+	  printf "  Copy the C64 ROMs from your VICE installation into rom/:\n\n"; \
+	  printf "    cp <VICE>/C64/kernal-901227-03.bin rom/kernal.bin\n"; \
+	  printf "    cp <VICE>/C64/basic-901226-01.bin  rom/basic.bin\n"; \
+	  printf "    cp <VICE>/C64/chargen-901225-01.bin rom/chargen.bin\n\n"; \
+	  printf "  Common <VICE> locations:\n"; \
+	  printf "    macOS (Homebrew): /opt/homebrew/share/vice\n"; \
+	  printf "    Linux:            /usr/share/vice\n\n"; \
+	  exit 1; \
+	fi
+
+test: check-roms
 	$(PYTEST) tests/ -v
 
 # -----------------------------------------------------------------------

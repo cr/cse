@@ -46,29 +46,24 @@ should wait until the stabilization phase wraps up.
 - [ ] Editor ASM-level regression tests via py65.  `test_editor.py`
   is a pure-Python gap-buffer mirror with no screen-RAM model —
   that's how the broken `ed_scroll_down` memmove slipped through
-  for months.  The new `TestScrollMemmove` tests mirror the
-  scroll byte-movement contract in Python, but a true ASM-level
-  test would need a py65 test binary that links `editor.s` and
-  runs `ed_scroll_up` / `ed_scroll_down` against a real
-  `$0400`-backed memory region.  Pattern to follow:
-  `tests/test_repl.py` already runs compiled REPL code through
-  py65 via the `dev/repl_test_stub.s` scaffolding.  An
-  `editor_test_stub.s` + `dev/editor_test.cfg` + `test_editor_asm.py`
-  would close the gap.  Scope creep warning: the stub has to
-  fake `disk_load_seq`, KERNAL PLOT, the render tables, and a
-  bunch of other pieces — budget accordingly.
+  for months.  The Phase 9 `C64Emu` class loads the production
+  PRG with a real KERNAL (PLOT, screen RAM, banking) — no stubs
+  needed.  Load `build/cse.prg`, call `ed_scroll_up` /
+  `ed_scroll_down` / `ed_render_line` directly, assert on screen
+  RAM at $0400.  Part of the Phase 9 test harness rewrite.
 - [x] ~~Revise the TDD framework~~ — done: `doc/testing.md` now
   has Principle 6 ("Test the actual ASM, not a Python copy of
   it") and an Anti-patterns section that calls out mirror tests
   by name.  `test_editor.py::TestRendering` and `TestScrollMemmove`
   carry warning docstrings flagging them as the cautionary
   examples.  No new mirror tests should be added; existing ones
-  retire when the py65 editor test binary lands.
-- [ ] Clean up `dev/test.d64` — it contains test programs with
-  lines that exceed the 39-col hard cap (they predate the cap
-  feature).  Load each file in CSE, check for split-line warnings
-  from the load path, hand-fix any files that still carry overly
-  long lines so the canonical sample-set is clean.
+  retire when the Phase 9 `C64Emu` test harness rewrite lands.
+- [ ] 8 xfailed tests in `TestStepIntoJSR_ROMFallback` — the tests
+  are correct but break on any code size change because they
+  compute `step_witness` from a BSS layout offset.  Phase 9
+  migration to C64Emu + `emu.sym()` eliminates the layout
+  sensitivity; remove xfail after migration.
+- [x] ~~Clean up `dev/test.d64`~~ — done (see top-10 item 5).
 - [x] ~~Review all user-facing strings~~ — done 2026-04-08,
   updated 2026-04-10.  Convention in `repl.s` `str_*` table:
   ```
@@ -308,13 +303,7 @@ Small, concrete, ready to do now.
   `asm_bridge.s`~~ — done: ~50 B code + 2 ZP bytes removed; the
   `reg_a..reg_p` BSS bytes are kept (still used by debugger.s
   for register save/restore and repl.s for register display).
-- [ ] Audible reject blip: emit a short tone when keyboard input
-  is rejected (line cap, backspace into the left wall, refused
-  printable/tab, etc.).  Single shared "reject" routine called
-  from each refusal site in `editor.s` (and potentially the REPL
-  for refused commands).  SID voice 3 with a quick triangle
-  envelope is the C64-traditional way; ~30 B of code + a tiny
-  shutoff hook so the blip self-cancels.
+- [x] ~~Audible reject blip~~ — done (see top-10 item 8).
 
 ## Planned
 
@@ -343,6 +332,10 @@ Defined scope, needs work.
   `main` undefined.  After `a` (assemble), `cur_addr` advances to `main`
   if it was defined.
 - [ ] `=` command: define/query symbols from REPL.
+- [ ] `r` command: use uppercase for set flags, lowercase/dot for
+  unset.  Currently `nv-bdizc` with dots for clear bits — hard to
+  scan visually.  Uppercase set flags (`NV-BDIZC` vs `nv-bdizc`)
+  make the active flags pop.
 - [ ] Disk command channel: unified under `$` (`$ s:file`, `$9`, etc.).
   Drive select and directory work; command send needs disk.s extension.
 

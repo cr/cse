@@ -10,3 +10,8 @@ __pycache__/
 # Stale build artifacts in src/ (use build/ directory)
 src/*.o
 src/*.lst
+
+# Copyrighted C64 ROMs (not distributable)
+rom/kernal.bin
+rom/basic.bin
+rom/chargen.bin

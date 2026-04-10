@@ -36,28 +36,26 @@ tests are written, when they are written, and what they test.
 
 4. **UI-heavy code gets selective testing.**  The REPL command loop
    (exec_line, read_line, show_prompt) is tested via `test_repl.py`
-   using a stub that provides screen RAM, cse_io.s, and mock
-   peripherals in py65.  The editor uses a similar approach
-   (`test_editor.py`).  Full keyboard/cursor/scroll interaction
-   remains manual (VICE).  The principle: test the command logic
-   and data paths; leave visual presentation to manual testing.
+   by calling real functions in the production binary through
+   `C64Emu`.  The editor is tested the same way.  Full
+   keyboard/cursor/scroll interaction remains manual (VICE).  The
+   principle: test the command logic and data paths; leave visual
+   presentation to manual testing.
 
 5. **Don't drown in harness complexity.**  The test harness must
-   remain simpler than the code it tests.  If a test requires
-   elaborate scaffolding (fake KERNAL, screen RAM simulation,
-   interrupt mocking), that is a signal to test at a different level
-   or to rely on manual verification.  Some testing is better left
-   to the user feedback cycle.
+   remain simpler than the code it tests.  `C64Emu` + the real PRG
+   binary eliminates per-test build systems, ASM stubs, and KERNAL
+   mocking.  If a test still requires elaborate scaffolding beyond
+   what `C64Emu` provides, that is a signal to test at a different
+   level or to rely on manual verification.
 
-6. **Test the actual ASM, not a Python copy of it.**  When you
-   need to verify low-level behaviour, link the real `.s` source
-   into a py65 test binary (the pattern in `tests/test_repl.py` /
-   `dev/repl_test_stub.s`) and exercise it.  Do **not** write a
-   Python function that re-implements the algorithm and assert
-   that the Python and the Python agree — that is a tautology
-   dressed as a test.  See the [Anti-patterns](#anti-patterns)
-   section below for the cautionary examples currently in the
-   tree.
+6. **Test the actual ASM, not a Python copy of it.**  Load the
+   production binary into `C64Emu` and exercise the real code.
+   Do **not** write a Python function that re-implements the
+   algorithm and assert that the Python and the Python agree —
+   that is a tautology dressed as a test.  See the
+   [Anti-patterns](#anti-patterns) section below for the
+   cautionary examples currently in the tree.
 
 ## Anti-patterns
 
@@ -88,11 +86,11 @@ Examples currently in `tests/test_editor.py`:
   detect the same class of bug because the actual ASM never
   runs.
 
-The right fix for both: add a py65 test binary that links
-`editor.s` against an `editor_test_stub.s` (mirroring the
-existing `dev/repl_test_stub.s` pattern) and exercise the
-real ASM with a real screen RAM region at `$0400`.  This is
-captured as a TODO under the *Bugs* section.
+The right fix for both: load the production PRG into `C64Emu`
+and exercise the real `ed_render_line` / `ed_scroll_up` /
+`ed_scroll_down` against real screen RAM at `$0400`.  `C64Emu`
+provides the KERNAL, screen RAM, and banking — no ASM stubs
+needed.
 
 ### Implementation-detail tests
 
@@ -139,25 +137,144 @@ they must be green before Step 5 begins.
 
 ## Framework
 
-All tests use **pytest** with a **py65** 6502 CPU emulator.  Tests run
-against three independent binaries built from subsets of the source
-tree.  For the build pipeline, binary layout, symbol resolution, and
-run commands, see [build_system.md § Test build pipeline](build_system.md#test-build-pipeline).
+All tests use **pytest** with a `C64Emu` emulator class
+([`tests/c64emu.py`](../tests/c64emu.py)) that wraps **py65** and
+provides a minimal but authentic C64 execution environment.  Tests
+load the real production binary (`build/cse.prg`) and call into
+any function by its map-file address — no separate test binaries,
+no ASM stubs, no test-specific linker configs.  For build details
+see [build_system.md § Test build pipeline](build_system.md#test-build-pipeline).
+
+### C64Emu — emulator class
+
+`C64Emu` is a single class used by every test fixture.  It provides
+a 6502 CPU, 64 KB RAM, the original C64 KERNAL ROM at $E000–$FFFF,
+and just enough C64 hardware modelling to run CSE code under py65.
+
+#### Construction
+
+```python
+from c64emu import C64Emu
+
+emu = C64Emu()          # default: KERNAL loaded, screen cleared
+```
+
+On construction:
+
+- 64 KB RAM zeroed.
+- Original C64 KERNAL ROM (`rom/kernal.bin`) loaded as a ROM
+  overlay at $E000–$FFFF.
+- Processor port ($01) set to $37 (KERNAL + BASIC + I/O mapped).
+- Bank-switch emulation: writes to $01 toggle the KERNAL ROM
+  overlay — clearing bit 1 exposes the underlying RAM at
+  $E000–$FFFF (used by `symtab.s::kernal_bank_out`); setting it
+  restores the ROM image.
+- Screen RAM ($0400–$07E7) filled with $20 (space).
+- Color RAM ($D800–$DBE7) filled with $01 (white).
+- KERNAL ZP state initialised: cursor at row 0 col 0, screen line
+  pointers ($D1/$D2, $F3/$F4) set for row 0, cursor disabled
+  ($CC = 1), text colour ($0286) = $01, keyboard buffer empty
+  ($C6 = 0).
+- CPU stack pointer at $FF.
+
+The KERNAL is **not** initialised via the reset vector — ZP state
+is set up directly.  This avoids the KERNAL init routine's
+hardware probing (VIC-II, CIA) which has no effect in py65.
+
+#### Execution
+
+```python
+cycles = emu.jsr(addr, a=0, x=0, y=0, max_cycles=500_000)
+```
+
+`jsr(addr)` simulates a JSR to `addr`:
+
+1. Pushes a sentinel return address onto the stack.
+2. Sets A/X/Y from keyword arguments, sets PC = `addr`.
+3. Steps the CPU until PC reaches the sentinel address.
+4. Returns the cycle count.
+5. Raises `TimeoutError` if `max_cycles` is exceeded (reports
+   the stuck PC).
+
+After `jsr()` returns, the CPU registers and memory are
+available for assertions:
+
+```python
+assert emu.a == 0x42
+assert emu.memory[result_addr] == expected
+assert emu.carry                # carry flag
+```
+
+#### Register accessors
+
+`emu.a`, `emu.x`, `emu.y`, `emu.sp`, `emu.p` — read/write CPU
+registers.  `emu.carry`, `emu.zero`, `emu.negative`,
+`emu.overflow` — read/write individual status flags.
+`emu.pc` — program counter.  `emu.memory` — the 64 KB
+address space (with bank-switching applied transparently).
+
+#### Keyboard injection
+
+```python
+emu.inject_key(petscii_byte)    # enqueue one byte at $0277+
+emu.inject_keys(b"HELLO\r")    # enqueue a string
+```
+
+Writes to the KERNAL keyboard buffer ($0277–$0280) and
+increments $C6.  Used by tests that exercise `GETIN`-based
+input (cse_io.s `io_kbhit`, REPL `read_line`).
+
+#### PRG loading
+
+```python
+emu = C64Emu()              # KERNAL + screen ready
+emu.load_prg("build/cse.prg")   # load production binary
+```
+
+`load_prg(path)` reads a `.prg` file (2-byte load-address header
++ payload), writes the payload at the load address, and parses
+the companion `.map` file for symbol resolution.  All exported
+symbols become attributes on the emulator instance:
+
+```python
+addr = emu.sym("al_line_asm")   # look up any exported symbol
+```
+
+Since the full production binary is loaded, every module's real
+code satisfies every import — no ASM stubs are needed for
+inter-module dependencies.  The emulator + real KERNAL provide
+the hardware environment (PLOT, GETIN, screen RAM, banking).
+
+Application-level test setup (writing input buffers, pre-loading
+symbols, preparing gap-buffer content) is done from Python by
+writing directly to memory at the symbol's address.
+
+### conftest.py — fixtures and auto-rebuild
+
+`conftest.py` provides a single session-scoped fixture that:
+
+1. Calls `make` to rebuild `build/cse.prg` if sources changed.
+2. Parses `build/cse.map` for all exported symbols.
+3. Provides symbol addresses to test functions.
+
+Each test function creates a fresh `C64Emu`, loads the PRG, and
+calls into the function under test.  No per-test build systems,
+no per-test linker configs, no per-test stub files.
 
 ### Running a test
 
 ```python
-def run(cpu, addr, *, input_a=0, input_x=0):
-    cpu.memory[0xFFFF] = 0  # sentinel
-    cpu.r.pc = addr
-    cpu.r.a = input_a
-    cpu.r.x = input_x
-    while cpu.r.pc != 0xFFFF:
-        cpu.step()
+def test_something(cse):
+    emu = C64Emu()
+    cse.load_into(emu)
+    emu.memory[emu.sym("au_ptr")]     = lo
+    emu.memory[emu.sym("au_ptr") + 1] = hi
+    emu.jsr(emu.sym("al_line_asm"))
+    assert emu.a == expected
 ```
 
-Functions under test end with `rts` which returns to an address
-previously set up on the stack (`$FFFF`), halting the run loop.
+Functions under test end with `rts` which returns to the sentinel
+address pushed by `jsr()`, halting the emulation loop.
 
 ### Conventions
 
@@ -166,9 +283,13 @@ previously set up on the stack (`$FFFF`), halting the run loop.
   uppercase).  The ca65 `-t c64` flag ensures character literals
   in assembly match.
 
-- **Auto-rebuild:** `conftest.py` checks source timestamps and
-  rebuilds the test binary only when sources change.  The binary
-  is cached in `build/`.
+- **Auto-rebuild:** `conftest.py` invokes `make` which handles
+  dependency tracking.  The PRG is cached in `build/`.
 
 - **xfail:** Known limitations (e.g. CMOS gate bugs) are marked
   `pytest.mark.xfail` with a reason string.
+
+- **KERNAL ROM:** Tests require the original C64 KERNAL ROM at
+  `rom/kernal.bin` (copied from a local VICE installation; not
+  committed to the repository — see `.gitignore`).  Run `make test`
+  for instructions if the ROM is missing.

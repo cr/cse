@@ -10,22 +10,12 @@
 | [`src/c64_cse.cfg`](../src/c64_cse.cfg) | implementation — main linker config |
 | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | implementation — mnemonic table generator |
 | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | implementation — disassembler table generator |
-| [`dev/test.cfg`](../dev/test.cfg) | implementation — test binary linker config (asm) |
-| [`dev/expr_test.cfg`](../dev/expr_test.cfg) | implementation — test binary linker config (expr) |
-| [`dev/asm_src_test.cfg`](../dev/asm_src_test.cfg) | implementation — test binary linker config (asm_src) |
-| [`tests/conftest.py`](../tests/conftest.py) | implementation — test build and py65 harness |
+| [`tests/conftest.py`](../tests/conftest.py) | implementation — test fixtures and auto-rebuild |
+| [`tests/c64emu.py`](../tests/c64emu.py) | implementation — C64 emulator class (C64Emu) |
+| `rom/kernal.bin` | dependency — C64 KERNAL ROM (not committed; see `.gitignore`) |
 | [`dev/instruction_set.py`](../dev/instruction_set.py) | implementation — authoritative opcode database |
 | [`dev/hashes.py`](../dev/hashes.py) | implementation — hash function definitions |
 | [`dev/size_report.py`](../dev/size_report.py) | implementation — binary size analysis |
-| [`dev/asm_line_test_stub.s`](../dev/asm_line_test_stub.s) | implementation — test entry point (asm) |
-| [`dev/au_mode_test_stub.s`](../dev/au_mode_test_stub.s) | implementation — test entry point (asm) |
-| [`dev/cse_io_test_stub.s`](../dev/cse_io_test_stub.s) | implementation — test entry point (cse_io) |
-| [`dev/dasm_test_stub.s`](../dev/dasm_test_stub.s) | implementation — test entry point (dasm) |
-| [`dev/expr_test_stub.s`](../dev/expr_test_stub.s) | implementation — test entry point (expr) |
-| [`dev/symtab_test_stub.s`](../dev/symtab_test_stub.s) | implementation — test entry point (symtab) |
-| [`dev/asm_src_test_stub.s`](../dev/asm_src_test_stub.s) | implementation — test entry point (asm_src) |
-| [`dev/repl_test_stub.s`](../dev/repl_test_stub.s) | implementation — test entry point (repl) |
-| [`dev/repl_test.cfg`](../dev/repl_test.cfg) | implementation — test binary linker config (repl) |
 
 ## Toolchain
 
@@ -36,7 +26,7 @@
 | `make` | Build orchestration |
 | `python3` | Table generation (`dev/mnemonic_tables.py`, `dev/dasm_tables.py`) |
 | `pytest` | Test runner (via pipenv virtualenv) |
-| `py65` | Python 6502 emulator used by the test harness |
+| `py65` | Python 6502 CPU emulator, used by `C64Emu` |
 
 ## Main build pipeline
 
@@ -111,46 +101,54 @@ These apply to all code and apply regardless of build target:
 
 ## Test build pipeline
 
-Tests run against three independent binaries, each assembled and linked
-from a subset of the source tree without a C64 KERNAL or ROM:
+Tests run against the real production binary (`build/cse.prg`),
+loaded into a `C64Emu` emulator instance that provides a C64
+execution environment with the original C64 KERNAL ROM.  No
+separate test binaries, no ASM stub files, no test-specific linker
+configs.  Every module's real code satisfies every import; the
+emulator + real KERNAL provides the hardware environment.
 
-| Binary | Linker config | Entry point | Covers |
-|--------|--------------|-------------|--------|
-| `build/test_asm.bin` | `dev/test.cfg` | `test_entry` | asm_line, au_mode, mn7, opcode_lookup, mn_asm_tables, mn7_tables, mn_modes, mn_classify, mn_config, mn_vars, asm_vars |
-| `build/test_expr.bin` | `dev/expr_test.cfg` | `expr_test_entry` | expr, symtab, asm_vars |
-| `build/test_asm_src.bin` | `dev/asm_src_test.cfg` | `asm_src_test_entry` | asm_src, expr, symtab, asm_bridge, asm_line, + full assembler stack |
+### How it works
 
-Each binary is built by `conftest.py` on first use and cached in
-`build/`.  `conftest.py` checks source timestamps and rebuilds only
-when sources change.
+1. `conftest.py` invokes `make` to rebuild `build/cse.prg` (if
+   sources changed — `make` handles dependency tracking).
+2. `conftest.py` parses `build/cse.map` for all exported symbols
+   (absolute addresses) and segment starts.
+3. Each test creates a fresh `C64Emu`, loads the PRG, looks up
+   function addresses by name, and calls them via `emu.jsr()`.
 
-Build steps per binary:
-1. Assemble each module: `ca65`
-2. Link: `ld65` with bare-metal config → binary + `.map` file
+No per-test build, no per-test linker config, no per-test stubs.
 
 ### Symbol resolution
 
-Function addresses are resolved from the ld65 `.map` file, not from
-listing offsets.  Map-file resolution is reliable because ld65 exports
-are absolute addresses after linking.
+Function addresses are resolved from the ld65 `.map` file.
+Map-file resolution is reliable because ld65 exports are absolute
+addresses after linking.
 
 For module-internal labels (not in the exports list), the harness
 computes: `segment_start + module_offset_in_segment`.
 
+### KERNAL ROM
+
+The original C64 KERNAL ROM (`rom/kernal.bin`, 8192 bytes) is copied
+from a local VICE installation and listed in `.gitignore` (not
+committed).  `C64Emu` loads it as a ROM overlay at $E000–$FFFF,
+providing real KERNAL routines (PLOT, GETIN, CHROUT, etc.) instead
+of hand-crafted ASM or Python stubs.  Bank-switching via $01 toggles
+between ROM and RAM at $E000–$FFFF.  Run `make test` for setup
+instructions if the ROM is missing.
+
 ## Running tests
 
 ```sh
-# All tests (via pipenv virtualenv)
+# All tests (checks for KERNAL ROM, rebuilds PRG, runs pytest)
 make test
 
-# Quick run (direct pytest)
-/Users/cr/.local/share/virtualenvs/cse-rXGMsE9U/bin/pytest tests/ -q
+# Quick run (direct, via pipenv)
+pipenv run pytest tests/ -q
 
 # Specific module
-pytest tests/test_expr.py -q
-
-# Verbose
-pytest tests/ -v
+pipenv run pytest tests/test_expr.py -q
 ```
 
 See [testing.md](testing.md) for test methodology, conventions, and
