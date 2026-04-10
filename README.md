@@ -1,4 +1,4 @@
-# CSE -- THE ULTIMATE C64 ASM ENV
+# CSE - THE ULTIMATE C64 ASM ENV
 
 CSE is the native, integrated assembler environment for the C64 that
 you did not know you were missing. Its functionality and workflows are
@@ -117,7 +117,7 @@ Press RUN/STOP to enter the editor from the REPL and back.
 | DEL | Backspace |
 | Cursor keys | Navigate |
 | HOME | Start of line |
-| C=+SPACE | Tab (to next tab stop) |
+| SHIFT+SPACE | Tab (to next tab stop) |
 | RUN/STOP | Return to REPL |
 
 The editor uses a gap buffer that grows downward from $D000.
