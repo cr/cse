@@ -118,7 +118,7 @@ all:
 	@$(MAKE) --no-print-directory CPU=6510  _one TARGET="6510  cse.prg"
 	@$(MAKE) --no-print-directory CPU=6502  _one TARGET="6502  cse-6502.prg"
 	@$(MAKE) --no-print-directory CPU=65c02 _one TARGET="65c02 cse-cmos.prg"
-	@$(MAKE) --no-print-directory CPU=6510  disk
+	@$(MAKE) --no-print-directory _dist
 
 # -----------------------------------------------------------------------
 # _one — build a single CPU target (called by 'all' or directly)
@@ -191,17 +191,28 @@ $(PRG_EXO): $(PRG)
 	$(EXOMIZER) sfx sys -n -q -o $@ $<
 
 # -----------------------------------------------------------------------
-# disk — create a D64 disk image with the compressed PRG
+# _dist — D64 distribution image with all three compressed variants
+# -----------------------------------------------------------------------
+DIST_D64 = $(ROOT)build/cse.d64
+
+.PHONY: _dist
+_dist:
+	@rm -f $(DIST_D64)
+	$(C1541) -format "cse,01" d64 $(DIST_D64) \
+	  -write $(_6510_DIR)/cse-exo.prg cse \
+	  -write $(_6502_DIR)/cse-6502-exo.prg cse-6502 \
+	  -write $(_65c02_DIR)/cse-cmos-exo.prg cse-cmos
+	@echo "  disk  $$(c1541 -attach $(DIST_D64) -list 2>/dev/null | grep -c prg) files on cse.d64"
+
+# -----------------------------------------------------------------------
+# disk — single-CPU D64 (for quick iteration with make CPU=... disk)
 # -----------------------------------------------------------------------
 D64 = $(BUILD)/cse.d64
 
 .PHONY: disk
 disk: $(PRG_EXO)
-	@if [ -f $(D64) ]; then \
-		$(C1541) -attach $(D64) -delete cse -write $(PRG_EXO) cse; \
-	else \
-		$(C1541) -format "cse,01" d64 $(D64) -write $(PRG_EXO) cse; \
-	fi
+	@rm -f $(D64)
+	$(C1541) -format "cse,01" d64 $(D64) -write $(PRG_EXO) cse
 
 # -----------------------------------------------------------------------
 # tables — regenerate generated .s table files from Python
