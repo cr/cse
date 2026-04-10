@@ -167,7 +167,7 @@ On construction:
 - Processor port ($01) set to $37 (KERNAL + BASIC + I/O mapped).
 - Bank-switch emulation: writes to $01 toggle the KERNAL ROM
   overlay — clearing bit 1 exposes the underlying RAM at
-  $E000–$FFFF (used by `symtab.s::kernal_bank_out`); setting it
+  $E000–$FFFF (used by `mem.s::kernal_bank_out`); setting it
   restores the ROM image.
 - Screen RAM ($0400–$07E7) filled with $20 (space).
 - Color RAM ($D800–$DBE7) filled with $01 (white).

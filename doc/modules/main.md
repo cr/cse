@@ -10,13 +10,12 @@
 
 ## Interface
 
-- `startup` — entry point from the BASIC SYS stub
-- `_main` — initialization + main loop (reached via `jmp _main`
-  from `startup` after BSS zero + KDATA copy)
+- `_main` — initialization + main loop (jumped to by `loader.s`
+  after relocation, BSS zero, KDATA copy)
 - `state` — exported BSS byte: 0=STOP, 1=REPL, 2=EDIT
 
 **Depends on:** repl, editor, screen, cse_io, debugger, symtab,
-disk, meminfo
+disk, mem
 
 ### Memory
 

@@ -23,6 +23,10 @@ DEV   = ROOT / "dev"
 EXPR_BIN = BUILD / "expr_test.bin"
 EXPR_MAP = BUILD / "expr_test.map"
 
+_ZP_START   = 0x0000
+_CODE_START = 0x4000
+_ZP_SIZE    = 0x0100
+
 _STR_BUF  = 0x1000   # must be above BSS end (sym_table ~768B + other)
 _NAME_BUF = 0x1100
 _RETURN   = 0x0F00
@@ -254,16 +258,19 @@ def _needs_rebuild():
     if not EXPR_BIN.exists(): return True
     t = EXPR_BIN.stat().st_mtime
     return any(s.stat().st_mtime > t for s in [
-        SRC/"expr.s", SRC/"symtab.s", DEV/"expr_test_stub.s", DEV/"test.cfg"])
+        SRC/"expr.s", SRC/"symtab.s", SRC/"mem.s",
+        DEV/"expr_test_stub.s", DEV/"test.cfg"])
 
 def _build():
     BUILD.mkdir(exist_ok=True)
     for name, src in [("expr", SRC/"expr.s"), ("symtab", SRC/"symtab.s"),
+                      ("mem", SRC/"mem.s"),
                       ("expr_test_stub", DEV/"expr_test_stub.s")]:
         subprocess.run(["ca65", "--cpu", "6502", "-t", "c64", str(src),
                         "-o", str(BUILD/f"{name}.o")], check=True)
     subprocess.run(["ld65", "-C", str(DEV/"test.cfg"),
                     str(BUILD/"expr.o"), str(BUILD/"symtab.o"),
+                    str(BUILD/"mem.o"),
                     str(BUILD/"expr_test_stub.o"),
                     "-o", str(EXPR_BIN), "-m", str(EXPR_MAP)], check=True)
 
@@ -311,7 +318,7 @@ class ExprFixture:
         stub_off = _parse_stub_offset()
         if stub_off is None:
             raise RuntimeError("Cannot find expr_test_stub CODE offset")
-        base = 0x0200 + stub_off
+        base = _CODE_START + stub_off
         self.eval_entry = base
         self.define_entry = base + 4
         self.clear_entry = base + 8
@@ -324,9 +331,9 @@ class ExprFixture:
         self.sym_wide = self.exports.get("sym_wide")
 
     def load_into(self, mem):
-        mem[0:0x100] = self._raw[:0x100]
-        code = self._raw[0x100:]
-        mem[0x200:0x200+len(code)] = code
+        mem[0:_ZP_SIZE] = self._raw[:_ZP_SIZE]
+        code = self._raw[_ZP_SIZE:]
+        mem[_CODE_START:_CODE_START+len(code)] = code
 
 @pytest.fixture(scope="session")
 def expr():

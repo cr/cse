@@ -95,6 +95,10 @@ sta $01
 cli                 ; re-enable interrupts
 ```
 
+The KERNAL banking functions (`kernal_bank_out`, `kernal_bank_in`,
+`kernal_init`, `kernal_out`) live in `mem.s`.  symtab.s imports
+them.
+
 Both `kernal_bank_out` and `kernal_bank_in` honour the
 `kernal_out` flag — when set, they become no-ops.  The flag lets
 `asm_assemble` hold the KERNAL banked out across both passes

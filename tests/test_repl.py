@@ -30,7 +30,7 @@ KERNAL_PLOT = 0xFFF0
 _ZP_START   = 0x0000
 _SCRN_START = 0x0200
 _SCRN_SIZE  = 0x0600
-_CODE_START = 0x0800
+_CODE_START = 0x4000
 _ZP_SIZE    = 0x0100
 _RETURN     = 0x0300          # in SCRN gap, unused — RTS sentinel
 
@@ -40,6 +40,7 @@ _SOURCES = [
     SRC / "asm_vars.s",
     SRC / "expr.s",
     SRC / "symtab.s",
+    SRC / "mem.s",
     SRC / "dasm.s",
     SRC / "dasm_tables.s",
     SRC / "oplen_tbl.s",
@@ -565,7 +566,7 @@ class TestMemoryDisplay:
     def test_m_shows_hex_bytes(self, rsyms):
         """m command outputs hex dump on screen."""
         cpu = make_cpu(rsyms)
-        addr = 0x3000
+        addr = 0x1000          # within workspace, below code at $4000
         set_cur_addr(cpu, rsyms, addr)
         # Write known pattern to target memory
         for i in range(8):
@@ -596,10 +597,10 @@ class TestMemoryEdit:
     """'m' with hex args writes bytes to memory."""
 
     CASES = [
-        # (addr, args, expected_bytes)
-        (0x3000, "m 41 42 43", [0x41, 0x42, 0x43]),
-        (0x3000, "m ff",       [0xFF]),
-        (0x3000, "m 00 01 02 03 04 05 06 07", [0, 1, 2, 3, 4, 5, 6, 7]),
+        # (addr, args, expected_bytes) — addr must be outside code region
+        (0x1000, "m 41 42 43", [0x41, 0x42, 0x43]),
+        (0x1000, "m ff",       [0xFF]),
+        (0x1000, "m 00 01 02 03 04 05 06 07", [0, 1, 2, 3, 4, 5, 6, 7]),
     ]
 
     @pytest.mark.parametrize("addr,cmd,expected", CASES,

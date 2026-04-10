@@ -79,7 +79,7 @@ _MAX_STEPS  = 50_000    # safety limit for the emulated CPU
 
 # Region layout from dev/test.cfg
 _ZP_START   = 0x0000
-_CODE_START = 0x0200
+_CODE_START = 0x4000
 _ZP_SIZE    = 0x0100
 
 

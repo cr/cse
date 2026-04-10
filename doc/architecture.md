@@ -15,7 +15,9 @@
 │  asm_line.s  │   dasm.s   │   disk.s     │  core engines
 ├──────────────┴────────────┴──────────────┤
 │  debugger.s  │  screen.s  │   cse_io.s   │  low-level services
-└──────────────┴────────────┴──────────────┘
+├──────────────┴────────────┴──────────────┤
+│                 mem.s                    │  memory manager, banking
+└──────────────────────────────────────────┘
        │
        │  context switch (j/g/t/o/c commands)
        ▼
@@ -43,14 +45,15 @@ register state (`reg_a`, `reg_x`, `reg_y`, `reg_sp`, `reg_p`).
 
 | Module | Purpose | Doc |
 |--------|---------|-----|
-| main.s | Hardware init, BSS/stack setup, main loop, mode switch | [main.md](modules/main.md) |
+| main.s | Hardware init, main loop, mode switch | [main.md](modules/main.md) |
+| mem.s | Memory manager: banking, copy/fill, segment queries, init | [memory_design.md](memory_design.md) |
 | repl.s | REPL command dispatch and emitters | [repl.md](modules/repl.md) |
 | editor.s | Gap-buffer source editor, sequential reader, workend update | [editor.md](modules/editor.md) |
 | asm_src.s | Two-pass source assembler | [asm_src.md](modules/asm_src.md) |
 | asm_line.s | Single-line instruction assembler (VICII input) | [asm_line.md](modules/asm_line.md) |
 | asm_bridge.s | Calling convention bridge, PETSCII→VICII, error recovery | [asm_line.md](modules/asm_line.md) |
 | expr.s | Recursive-descent expression parser | [expr.md](modules/expr.md) |
-| symtab.s | Hash-table symbol storage with name heap | [symtab.md](modules/symtab.md) |
+| symtab.s | Hash-table symbol storage with name heap (banking via mem.s) | [symtab.md](modules/symtab.md) |
 | dasm.s | Bit-slice disassembler (6502/6510/65C02) | [dasm.md](modules/dasm.md) |
 | debugger.s | BRK-based breakpoints, single-step, context switch | [debugger.md](modules/debugger.md) |
 | disk.s | CBM file I/O via KERNAL (PRG and SEQ, callback-based) | [disk.md](modules/disk.md) |
@@ -64,7 +67,6 @@ Support modules (internal to the assembler pipeline):
 | mn7.s / mn6.s | Perfect hash mnemonic classifier (mn7: 114, mn6: 56) | [mn_classify.md](modules/mn_classify.md) |
 | opcode_lookup.s | (profile, mode) → opcode byte | [opcode_lookup.md](modules/opcode_lookup.md) |
 | au_mode.s | Addressing mode operand parser | [au_mode.md](modules/au_mode.md) |
-| meminfo.s | Linker symbol shim: `_cse_start` / `_cse_end` / `_cse_zp_end` | [meminfo.md](modules/meminfo.md) |
 | mn_classify.s | Build-time dispatcher: selects mn6 or mn7 | [mn_classify.md](modules/mn_classify.md) |
 | asm_vars.s | Shared ZP variable definitions | — |
 | mn_vars.s | Mnemonic classifier ZP variables | — |
@@ -81,25 +83,27 @@ Generated files (do not edit — regenerate with `make tables`):
 
 ```
 main.s
+├── mem.s (init, banking, segment queries)
 ├── repl.s
 │   ├── asm_bridge.s ── asm_line.s ── opcode_lookup.s
 │   │                       ├── au_mode.s ── parse_hex.s
 │   │                       └── mn_classify.s ── mn7.s ── mn7_tables.s
-│   ├── asm_src.s ── asm_bridge.s, expr.s, symtab.s, editor.s
+│   ├── asm_src.s ── asm_bridge.s, expr.s, symtab.s, editor.s, mem.s
 │   ├── dasm.s ── dasm_tables.s
 │   ├── debugger.s
 │   ├── expr.s ── symtab.s
 │   ├── disk.s ── screen.s ── cse_io.s
 │   └── screen.s
-└── editor.s
-    ├── disk.s
-    └── screen.s
+├── editor.s ── mem.s
+│   ├── disk.s
+│   └── screen.s
+└── symtab.s ── mem.s
 ```
 
 ## Dependency Rules
 
 1. **No circular dependencies.**  The graph is a DAG.
-2. **Leaf modules have no dependencies:** cse_io, symtab, dasm, debugger.
+2. **Leaf modules have no dependencies:** cse_io, mem, dasm, debugger.
 3. **Screen output flows one way:** module → screen → cse_io.
 4. **disk.s uses callbacks** for SEQ I/O to avoid depending on editor.
 5. **Expression parser depends only on symtab** — no I/O.

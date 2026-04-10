@@ -81,7 +81,17 @@ arguments and A/X for the last.  Examples:
 No software parameter stack.  All arguments pass through registers
 or ZP variables.
 
-## Memory Map — PRG Target (development)
+## Glossary
+
+| Term | Meaning |
+|------|---------|
+| **CODE** | Executable code in main RAM (XXXX–$CFFF) |
+| **RODATA** | Read-only constants in main RAM (follows CODE) |
+| **BSS** | Uninitialized runtime state in main RAM (follows RODATA, zeroed at startup, no PRG space) |
+| **KDATA** | Read-only tables under KERNAL ROM ($E000–$FFFF), copied from PRG payload at startup |
+| **KBSS** | Uninitialized structures under KERNAL ROM, zeroed at startup (no PRG space) |
+
+## Memory Map — Runtime (all targets)
 
     $0000-$00FF  Zero page (see § Zero Page Layout)
       $00-$01    CPU I/O port
@@ -92,26 +102,30 @@ or ZP variables.
     $0200-$03FF  KERNAL work area
     $0400-$07E7  Screen RAM (40×25, VIC bank 0)
     $07E8-$07FF  Sprite pointers (unused by CSE)
-    $0800        CSE binary (BASIC stub + startup + code + rodata)
-      ...        (~20KB code + rodata, BSS follows)
-    workstart    First free page after BSS (rounded up to $100)
+    $0800        workstart — first free workspace byte
       ...        Assembled output ↑ (grows up)
       ...        Free workspace
       ...        Source text ↓ (grows down)
-    $D000        buf_end — exclusive top of gap buffer (fixed)
+    XXXX-1       workend — last free workspace byte
+    XXXX         CSE CODE (position determined by build size)
+      ...        CSE RODATA
+      ...        CSE BSS
+    $CFFF        CSE runtime end (contiguous, no gaps)
     $D000-$DFFF  I/O (VIC-II, SID, CIA1, CIA2)
-    $E000-$E5FF  Symbol table (1536 B, 256 slots × 6B, banked)
-    $E600-$EEFF  Symbol name heap (2304 B, banked)
-    $EF00-$EFFF  Earmarked: user stack snapshot (256 B, see § Stack budget)
-    $F000-$F0FF  Free under KERNAL (256 B)
-    $F100-$F4F1  KDATA tables (1010 B, copied from PRG at startup)
-    $F4F2-$F8D9  REPL screen save buffer (1000 B, banked)
-    $F8DA-$FEFF  Free under KERNAL (1574 B)
-    $FF00-$FF09  NMI trampoline (10 B, banked)
-    $FFFA-$FFFF  Hardware vectors (NMI/RESET/IRQ)
+    $E000-$FFFF  Banked data under KERNAL ROM (see § Banked layout)
+
+The runtime start address XXXX is not fixed — it floats based on
+the combined size of CODE + RODATA + BSS:
+
+    XXXX = $D000 - sizeof(CODE + RODATA + BSS)
+
+This maximizes the workspace automatically.  With the current 6510
+build (~20 KB code + rodata, ~800 B BSS), XXXX ≈ $80CF, giving
+~31 KB of workspace ($0800–$80CE).  As the codebase grows or
+shrinks, workend adjusts and the user sees it via `i`.
 
 BASIC ROM ($A000-$BFFF) is unmapped at startup.  The RAM underneath
-is available for CSE code/data.
+is part of the CSE runtime (code spans across $A000 freely).
 
 KERNAL ROM ($E000-$FFFF) remains mapped.  The RAM underneath is
 **read** by clearing bit 1 of $01 (sei required; NMI trampoline at
@@ -125,6 +139,26 @@ The `kernal_out` flag in BSS lets long-running batches (e.g.
 many inner calls without paying sei + `$01` write overhead per
 call: when set, `kernal_bank_out` and `kernal_bank_in` both
 short-circuit to `rts`.
+
+### Banked layout ($E000–$FFFF)
+
+All data under the KERNAL ROM is initialized by the loader at
+startup.  KDATA regions are copied from the PRG payload; KBSS
+regions are zeroed (no PRG space required).
+
+    $E000-$E5FF  KBSS: symbol table (1536 B, 256 slots × 6B)
+    $E600-$EEFF  KBSS: symbol name heap (2304 B)
+    $EF00-$EFFF  Earmarked: user stack snapshot (256 B, see § Stack budget)
+    $F000-$F0FF  Free (256 B)
+    $F100-$F4F1  KDATA: asm/dasm lookup tables (1010 B)
+    $F4F2-$F8D9  KBSS: REPL screen save buffer (1000 B)
+    $F8DA-$FEFF  Free (1574 B)
+    $FF00-$FF09  KDATA: NMI trampoline (10 B)
+    $FFFA-$FFFF  Hardware vectors (NMI/RESET/IRQ)
+
+    KDATA total:  1020 B (in PRG payload)
+    KBSS total:   4840 B (zeroed, no PRG space)
+    Free:         2070 B (+ 256 earmarked)
 
 ## Stack budget
 
@@ -171,39 +205,124 @@ needed; the original 512 B reservation at `$EF00–$F0FF` has been
 halved, with the second 256 B at `$F000` now unreserved free
 space.
 
-## Memory Map — Relocated (production)
+## Memory Map — PRG Load Image
 
-    $0000-$03FF  System
-    $0400-$07E7  Screen RAM
-    $0800-$7FFF  Workspace (30 KB: output ↑ / source ↓)
-    $8000-$BFFF  CSE binary (16 KB)
-    $C000-$CFFF  CSE BSS (4 KB)
-    $D000-$DFFF  I/O
-    $E000-$FFFF  KERNAL ROM + banked data (as above)
+The PRG file loads at $0801 via `LOAD "CSE",8,1 : RUN`.  At load
+time, the file is a flat image:
+
+    $07FF-$0800  PRG load address (2 bytes, file header)
+    $0801-$080C  BASIC stub "SYS 2061"
+    $080D        Loader code (discardable bootstrap)
+      ...        CODE + RODATA payload (raw or compressed)
+      ...        KDATA payload (copied to $F100+ and $FF00
+                   under KERNAL; KBSS regions are not in file)
+    end of file
+
+The loader is the first code to run.  It relocates the payload to
+its final position (see § Loader module), then becomes part of the
+workspace.  The PRG contains no filler — the file is exactly as
+large as the loader + payload.
+
+For release/D64 builds, the payload may be exomizer-compressed.
+The loader then contains the decompressor instead of a raw copy
+loop.  For development (`make run`), the payload is uncompressed
+to keep the build-test cycle fast.
 
 ## Memory Map — Cartridge (CRT)
 
     $0000-$03FF  System
     $0400-$07E7  Screen RAM
-    $0800-$7FFF  Workspace (30 KB)
-    $8000-$BFFF  CSE ROM (code + rodata, 16 KB, zero RAM cost)
-    $C000-$CFFF  CSE RAM (BSS, 4 KB)
+    $0800-XXXX   Workspace (output ↑ / source ↓)
+    XXXX-$BFFF   CSE ROM (code + rodata, zero RAM cost)
+    $C000-$CFFF  CSE RAM (BSS, 4 KB max)
     $D000-$DFFF  I/O
     $E000-$FFFF  KERNAL ROM + banked data (as above)
+
+The CRT build has no loader — CODE + RODATA live in ROM at their
+final address.  Only BSS zeroing, KDATA copy, and KBSS zeroing
+are needed at startup.  The CRT init vector jumps directly to the
+permanent entry point in mem.s.
+
+## Loader Module (loader.s)
+
+The loader is a **discardable bootstrap** linked into the PRG
+build only.  It runs once at startup, then its memory is
+reclaimed as workspace.  Analogous to an ELF loader that maps
+segments and jumps to the entry point.
+
+**Responsibilities:**
+1. Reset the 6502 hardware stack (`ldx #$FF / txs`)
+2. Copy CODE + RODATA from the load position to the runtime
+   position (XXXX–XXXX+sizeof(CODE+RODATA)-1)
+3. Zero BSS (XXXX+sizeof(CODE+RODATA) through $CFFF)
+4. Initialize banked region under KERNAL (pure writer, no
+   banking needed): copy KDATA to $F100+ and $FF00,
+   zero KBSS areas (sym_table, heap, screen save)
+5. Jump to `mem_init` in the permanent memory manager
+
+The loader lives in the LOADER segment, placed at $080D (right
+after the BASIC stub).  After step 5, nothing references the
+loader — the entire $0800–XXXX range becomes workspace.
+
+For compressed builds, the copy in step 2 is replaced by an
+exomizer decrunch call.  The decompressor itself is part of the
+loader and equally discardable.
+
+**CRT builds** do not link the loader.  The CRT init code
+performs only steps 1, 3–5 (stack reset, BSS zero, banked init,
+jump to `mem_init`), since CODE + RODATA are already in ROM.
+
+**C128 consideration:** The loader architecture does not assume
+a specific memory banking model.  A future C128-native loader
+could copy code to a different bank or address range without
+changing the permanent runtime.
+
+## Memory Manager Module (mem.s)
+
+The memory manager is a **permanent module** that consolidates
+all runtime memory services.  It consolidates memory management
+code formerly scattered across main.s (fill_free_memory),
+symtab.s (kernal banking), meminfo.s (segment queries), and
+asm_src.s (workspace symbols).
+
+**Exports:**
+
+| Function | Purpose |
+|----------|---------|
+| `mem_init` | One-time init: unmap BASIC ROM, install NMI trampoline, define workstart/workend symbols, fill free memory |
+| `kernal_bank_out` | SEI + clear $01 bit 1 (honours `kernal_out` flag) |
+| `kernal_bank_in` | Set $01 bit 1 + CLI (honours `kernal_out` flag) |
+| `kernal_init` | Install NMI trampoline at $FF00 |
+| `kernal_out` | BSS flag: nonzero = KERNAL held banked out |
+| `cse_start` | Returns runtime start address (XXXX) in A/X |
+| `cse_end` | Returns first byte past runtime ($D000) in A/X |
+| `cse_zp_end` | Returns first free ZP byte in A |
+
+`mem_init` is the entry point after the loader (or CRT init)
+completes.  It performs all one-time setup that the permanent
+runtime needs before entering the main loop.
+
+The KERNAL banking functions move from symtab.s to mem.s.
+symtab.s imports them like any other module.  The ordering rule
+for batch callers (bank before flag, flag before unbank) is
+unchanged — see the inline documentation.
 
 ## Source Code Storage
 
 Source text lives in a gap buffer at the top of the workspace,
-growing downward from $D000:
+growing downward from the CSE runtime start:
 
-    workstart ──→  assembled output (grows up)
+    $0800          workstart (fixed)
+      ...          assembled output (grows up)
                      ... free gap ...
-    buf_base  ←──  source text (grows down toward workstart)
-    $D000          buf_end (exclusive, fixed)
+    buf_base  ←──  source text (grows down toward $0800)
+    XXXX           workend + 1 = CSE runtime start
 
 The `workstart` and `workend` symbols are pre-defined in the symbol
-table, usable in assembly (`.org workstart`) and REPL expressions
-(`@ workend`, `j workstart`).
+table by `mem_init`, usable in assembly (`.org workstart`) and REPL
+expressions (`@ workend`, `j workstart`).  `workstart` is always
+$0800.  `workend` adjusts when the editor resizes the gap buffer
+(`update_workend` in editor.s).
 
 ## Zero Page Layout
 

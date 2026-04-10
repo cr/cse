@@ -27,19 +27,22 @@ cse/
 │   ├── screen.s            Screen management, scroll, cursor
 │   ├── cse_io.s            Raw screen I/O (putc, puts, hex/dec)
 │   ├── disk.s              CBM file I/O (load, save, directory)
-│   ├── meminfo.s           Linker symbol shim (cse_start/end/zp_end)
+│   ├── loader.s            Discardable bootstrap (PRG → runtime relocation)
+│   ├── mem.s               Memory manager (banking, segment queries, workspace)
 │   ├── mn*_tables.s        ┐
 │   ├── mn_modes.s          │ GENERATED — do not edit
 │   ├── mn_config.s         │ (regenerate: make tables)
 │   ├── mn_asm_tables.s     │
 │   └── dasm_tables.s       ┘
-│   └── c64_cse.cfg         ld65 linker config
+│   ├── c64_trial.cfg       ld65 trial linker config (size measurement)
+│   └── c64_cse.cfg.in      ld65 production linker config template
 │
 ├── dev/                    Development tools
 │   ├── instruction_set.py  Authoritative opcode database
 │   ├── mnemonic_tables.py  Table generator → src/mn*_tables.s
 │   ├── hashes.py           Hash function definitions
 │   ├── dasm_tables.py      Disassembler table generator
+│   ├── compute_layout.py   Two-pass link: trial map → production config
 │   ├── *_test_stub.s       Test entry point stubs
 │   ├── *_test.cfg          Test linker configs
 │   └── search/             Hash search scripts (historical)

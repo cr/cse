@@ -12,7 +12,6 @@
         .setcpu         "6502"
 
         .export         asm_assemble
-        .export         define_ws_syms
         .export         asm_org, asm_size, asm_errors
 
         .import         asm_line               ; asm_bridge.s
@@ -22,7 +21,7 @@
         .import         kernal_bank_out, kernal_bank_in, kernal_out
         .import         io_puts, io_putdec, newline
         .import         out_log_open, out_close
-        .import         cse_end                ; meminfo.s
+        .import         define_ws_syms         ; mem.s
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
         .importzp       buf_base                ; editor.s — gap buffer low bound
@@ -62,8 +61,6 @@ s_exp_quot:     .byte "exp quote", 0
 s_bin_nyi:      .byte ".bin nyi", 0
 s_bad_insn:     .byte "bad insn", 0
 hex_tab:        .byte "0123456789abcdef"
-s_workstart:    .byte "workstart", 0
-s_workend:      .byte "workend", 0
 
 ; ═══════════════════════════════════════════════════════════════════════════
 .segment "CODE"
@@ -1220,46 +1217,6 @@ inc_pc_size:
         jsr process_line
         jmp @loop
 @done:  rts
-.endproc
-
-; ── define_ws_syms — define workstart/workend in symbol table ──────────────
-; Defines both symbols with current values.
-;   workstart = (cse_end + $FF) & $FF00  (rounded up to page)
-;   workend   = buf_base                 (already page-aligned)
-.proc define_ws_syms
-        ; ── workstart ──
-        jsr cse_end            ; A = lo, X = hi
-        clc
-        adc #$FF                ; round up: add $FF
-        txa
-        adc #0                  ; propagate carry into hi byte
-        and #$FF                ; hi byte already page-aligned from adc
-        sta sym_val+1
-        lda #0
-        sta sym_val             ; lo = 0 (page-aligned)
-        lda #<s_workstart
-        sta sym_name
-        lda #>s_workstart
-        sta sym_name+1
-        lda #1
-        sta sym_wide            ; ABS
-        jsr sym_define
-
-        ; ── workend (inclusive: buf_base - 1) ──
-        lda buf_base
-        sec
-        sbc #1
-        sta sym_val
-        lda buf_base+1
-        sbc #0
-        sta sym_val+1
-        lda #<s_workend
-        sta sym_name
-        lda #>s_workend
-        sta sym_name+1
-        lda #1
-        sta sym_wide            ; ABS
-        jmp sym_define         ; tail call
 .endproc
 
 ; ── asm_assemble ──────────────────────────────────────────────────────────

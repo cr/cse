@@ -101,8 +101,10 @@ ifdef DEBUG
 else
   AFLAGS = -t c64 $(CPU_DEFS) $(THEME_DEFS) -I$(ROOT) -I$(BUILD)
 endif
-LCFG   = $(SRC)/c64_cse.cfg
-LFLAGS = -C $(LCFG)
+TRIAL_CFG = $(SRC)/c64_trial.cfg
+CFG_TMPL  = $(SRC)/c64_cse.cfg.in
+LCFG      = $(BUILD)/c64_cse.cfg
+LFLAGS    = -C $(LCFG)
 
 # ── Test-binary flags (bare 6502, no C64 platform defs) ─────────────────
 T65 = $(CA65) --cpu 6502
@@ -139,11 +141,11 @@ ifneq ($(_PREV_FLAGS),$(BUILD_FLAGS))
 endif
 
 # ── All assembler source files (pure asm, no C) ─────────────────────
-ASM_SRCS = main \
+ASM_SRCS = loader main \
            asm_bridge asm_line asm_vars asm_src mn_vars mn_classify \
            $(MN_SRCS) mn_config \
            au_mode mn_modes mn_asm_tables opcode_lookup \
-           meminfo cse_io screen disk expr symtab dasm dasm_tables \
+           mem cse_io screen disk expr symtab dasm dasm_tables \
            debugger repl editor oplen_tbl
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 
@@ -167,7 +169,16 @@ $(BUILD)/src/%.o: $(SRC)/%.s $(FLAGS_STAMP) | $(BUILD)/src/
 $(FLAGS_STAMP): | $(BUILD)/
 	@printf '%s' '$(BUILD_FLAGS)' > $@
 
-$(PRG): $(ASM_OBJS) | $(BUILD)/
+# Two-pass link: trial measures sizes, compute_layout.py generates config
+TRIAL_MAP = $(BUILD)/trial.map
+
+$(TRIAL_MAP): $(ASM_OBJS) $(TRIAL_CFG) | $(BUILD)/
+	$(LD65) -C $(TRIAL_CFG) -o $(BUILD)/trial.prg -m $@ $(ASM_OBJS)
+
+$(LCFG): $(TRIAL_MAP) $(CFG_TMPL)
+	$(PYTHON) $(DEV)/compute_layout.py $(TRIAL_MAP) $(CFG_TMPL) > $@
+
+$(PRG): $(ASM_OBJS) $(LCFG) | $(BUILD)/
 	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) -m $(MAP) -Ln $(LBL) $(ASM_OBJS)
 
 # -----------------------------------------------------------------------

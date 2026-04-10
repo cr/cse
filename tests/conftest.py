@@ -181,9 +181,9 @@ _MN_BIN = {v: BUILD / f"{v}_test.bin" for v in ('mn6', 'mn7')}
 _MN_MAP = {v: BUILD / f"{v}_test.map" for v in ('mn6', 'mn7')}
 _MN_LST = {v: BUILD / f"{v}_classify.lst" for v in ('mn6', 'mn7')}
 
-# test.cfg constants (fixed layout, no need to parse)
+# test.cfg constants (must match dev/test.cfg)
 _ZP_START   = 0x0000
-_CODE_START = 0x0200
+_CODE_START = 0x4000
 _ZP_SIZE    = 0x0100
 
 
@@ -437,6 +437,7 @@ _AS_SOURCES = [
     SRC / "mn_classify.s",
     SRC / "expr.s",
     SRC / "symtab.s",
+    SRC / "mem.s",
     SRC / "asm_src.s",
     DEV / "asm_src_test_stub.s",
 ]

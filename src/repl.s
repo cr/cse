@@ -84,7 +84,6 @@
 ; ── Constants ──────────────────────────────────────────────
 SCREEN        = $0400
 SCREEN_WIDTH  = 40
-BUF_END       = $D000
 FILENAME_MAX  = 16
 ST_STOP       = 0
 CUR_COL       = $D3
@@ -2417,11 +2416,60 @@ VIC_MEMCTL = $D018
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; print_seq_stats — print "name: N lines, M bytes"
-;   rp_ptr2 = name
+; stats_to_fbuf — format "Nl Nb" into fbuf
+;   Uses ed_save_lines and ed_save_bytes.
+;   Clobbers: A, X, Y, rp_addr
+; ═══════════════════════════════════════════════════════════
+.proc stats_to_fbuf
+        ; Lines → decimal at fbuf[0..]
+        lda ed_save_lines
+        sta rp_addr
+        lda ed_save_lines+1
+        sta rp_addr+1
+        jsr utoa_sub            ; A = len
+        tax                     ; X = write pos
+        ldy #0
+@cp_l:  lda str_lines,y         ; "l "
+        sta fbuf,x
+        beq @bytes
+        inx
+        iny
+        bne @cp_l
+@bytes: ; Bytes → decimal at fbuf[0..] (overwrites line digits)
+        stx @bpos               ; save write pos past "l "
+        lda ed_save_bytes
+        sta rp_addr
+        lda ed_save_bytes+1
+        sta rp_addr+1
+        jsr utoa_sub            ; A = len of byte digits
+        ; Shift byte digits from fbuf[0..A-1] to fbuf[@bpos..]
+        tay                     ; Y = count
+        ldx @bpos
+        sty @dlen
+        ldy #0
+@cp_d:  cpy @dlen
+        beq @cp_b
+        lda fbuf,y
+        sta fbuf,x
+        inx
+        iny
+        bne @cp_d
+@cp_b:  ldy #0
+@cp_s:  lda str_bytes,y         ; "b"
+        sta fbuf,x
+        beq @done
+        inx
+        iny
+        bne @cp_s
+@done:  rts
+@bpos:  .byte 0
+@dlen:  .byte 0
+.endproc
+
 ; ═══════════════════════════════════════════════════════════
 ; print_seq_stats — print "N lines, M bytes"
 ; Caller opens the line via out_log_open first.
+; ═══════════════════════════════════════════════════════════
 .proc print_seq_stats
         lda ed_save_lines
         ldx ed_save_lines+1
@@ -3161,7 +3209,89 @@ free_line:
         ldy #INFO_TBL_H3_ROWS
         jsr info_emit_rows
 
-        ; ── Dynamic: cse 0800-XXXX  cse runtime ──
+        ; ── Dynamic: free workspace ──
+        ; Total workspace = $0800 to cse_start-1 (always shown)
+        lda #<$0800
+        sta rp_addr
+        lda #>$0800
+        sta rp_addr+1
+        jsr cse_start
+        sec
+        sbc #1
+        sta rp_cnt
+        txa
+        sbc #0
+        sta rp_cnt+1
+        jsr free_line
+
+        ; ── Dynamic: source (skip if empty: src_bot == src_top) ──
+        lda src_bot
+        cmp src_top
+        bne @has_src
+        lda src_bot+1
+        cmp src_top+1
+        jeq @no_src
+@has_src:
+        lda #0
+        sta rp_save2
+        lda #<str_tag_src
+        sta rp_ptr2
+        lda #>str_tag_src
+        sta rp_ptr2+1
+        lda src_bot
+        sta rp_addr
+        lda src_bot+1
+        sta rp_addr+1
+        lda src_top
+        sec
+        sbc #1
+        sta rp_cnt
+        lda src_top+1
+        sbc #0
+        sta rp_cnt+1
+        ; Build desc: "Nl Nb" using print_seq_stats path
+        ; Set ed_save_lines = ed_total_lines
+        lda ed_total_lines
+        sta ed_save_lines
+        lda ed_total_lines+1
+        sta ed_save_lines+1
+        ; Set ed_save_bytes = src_top - src_bot
+        lda src_top
+        sec
+        sbc src_bot
+        sta ed_save_bytes
+        lda src_top+1
+        sbc src_bot+1
+        sta ed_save_bytes+1
+        ; Save src range on stack
+        lda rp_addr
+        pha
+        lda rp_addr+1
+        pha
+        lda rp_cnt
+        pha
+        lda rp_cnt+1
+        pha
+        ; Format "Nl Nb" into fbuf via shared helper
+        jsr stats_to_fbuf
+        ; Restore src range
+        pla
+        sta rp_cnt+1
+        pla
+        sta rp_cnt
+        pla
+        sta rp_addr+1
+        pla
+        sta rp_addr
+        ; Print with fbuf as desc
+        lda #<fbuf
+        sta rp_ptr
+        lda #>fbuf
+        sta rp_ptr+1
+        jsr info_line
+@no_src:
+
+        ; ── Dynamic: cse XXXX-CFFF  cse runtime ──
         lda #0
         sta rp_save2
         lda #<str_tag_cse
@@ -3183,108 +3313,6 @@ free_line:
         lda #>str_cse_rt
         sta rp_ptr+1
         jsr info_line
-
-        ; ── Dynamic: free region ──
-        ; free = cse_end to (src_bot-1 or BUF_END-1 if no source)
-        jsr cse_end
-        sta rp_addr
-        stx rp_addr+1
-        lda #<(BUF_END - 1)
-        sta rp_cnt
-        lda #>(BUF_END - 1)
-        sta rp_cnt+1
-        lda src_bot
-        ora src_bot+1
-        beq @no_src_adj
-        lda src_bot
-        sec
-        sbc #1
-        sta rp_cnt
-        lda src_bot+1
-        sbc #0
-        sta rp_cnt+1
-@no_src_adj:
-        ; Skip free line if start > end
-        lda rp_addr+1
-        cmp rp_cnt+1
-        bcc @show_free
-        bne @skip_free
-        lda rp_addr
-        cmp rp_cnt
-        bcs @skip_free          ; start >= end → skip
-@show_free:
-        jsr free_line
-@skip_free:
-
-        ; ── Dynamic: source (skip if empty: src_bot == src_top) ──
-        lda src_bot
-        cmp src_top
-        bne @has_src
-        lda src_bot+1
-        cmp src_top+1
-        beq @no_src
-@has_src:
-        lda #0
-        sta rp_save2
-        lda #<str_tag_src
-        sta rp_ptr2
-        lda #>str_tag_src
-        sta rp_ptr2+1
-        lda src_bot
-        sta rp_addr
-        lda src_bot+1
-        sta rp_addr+1
-        lda src_top
-        sec
-        sbc #1
-        sta rp_cnt
-        lda src_top+1
-        sbc #0
-        sta rp_cnt+1
-        ; Build desc: "N lines" in fbuf
-        lda ed_total_lines
-        ldx ed_total_lines+1
-        sta rp_addr+1           ; temp save
-        stx rp_save             ; temp save
-        ; Save src range
-        lda rp_addr
-        pha
-        lda rp_cnt
-        pha
-        lda rp_cnt+1
-        pha
-        ; Convert line count to decimal
-        lda rp_addr+1           ; restore lo
-        ldx rp_save             ; restore hi
-        sta rp_addr
-        stx rp_addr+1
-        jsr utoa_sub            ; returns len in A
-        ; Append " lines"
-        tax
-        ldy #0
-@cp_ln: lda str_i_lines,y
-        sta fbuf,x
-        beq @cp_done
-        inx
-        iny
-        bne @cp_ln
-@cp_done:
-        ; Restore src range
-        pla
-        sta rp_cnt+1
-        pla
-        sta rp_cnt
-        pla
-        sta rp_addr
-        lda src_bot+1
-        sta rp_addr+1
-        ; Print with fbuf as desc
-        lda #<fbuf
-        sta rp_ptr
-        lda #>fbuf
-        sta rp_ptr+1
-        jsr info_line
-@no_src:
 
         ; ── Tail: io, kern ──
         lda #<info_tbl_tail

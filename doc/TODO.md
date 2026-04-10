@@ -44,6 +44,19 @@ Open bugs, roughly ordered by priority.
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
 
+- [ ] Gap buffer doesn't shrink: deleting source lines or killing
+  the entire source (`n` command) does not release memory back.
+  `buf_base` only ever moves down (via `gb_ensure_room`), never up.
+  Investigate: should `ed_init`/`n` reset `buf_base` to BUF_END?
+  Should line deletion call a compaction pass?  Consider the
+  trade-off: compaction is O(n) and the user may undo immediately.
+- [ ] Investigate MEGA65 Open-KERNAL compatibility: verify CSE runs
+  on both the stock C64 KERNAL and the MEGA65 Open-KERNAL.
+  Identify any KERNAL entry points, ZP locations, or banking
+  assumptions that differ.  Goal: single PRG runs on both.
+- [x] `dev/test.d64` T-COUNT: renamed from COUNTDOWN, loads and
+  displays correctly after page-alignment fix.
+
 ### Fixed bugs (reference)
 
 <details>

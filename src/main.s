@@ -8,6 +8,7 @@
         .include "macros.inc"
 
 ; ── Exports ──────────────────────────────────────────────────
+        .export _main
         .export state
 
 ; ── Runtime ZP ───────────────────────────────────────────────
@@ -21,20 +22,17 @@
         .import reset_screen, restore_colors, newline, theme_init
         .import cursor_show, cursor_hide
         .import scr_lo, scr_hi
-        .import kernal_init
+        .import kernal_init, define_ws_syms
+        .import cse_end, cse_zp_end, cse_start
         .import sym_clear
-        .import define_ws_syms
         .import dbg_init
         .import nmi_handler
-        .import cse_end, cse_zp_end
+        .import ed_ensure_init
         .import exec_line, read_line, show_prompt
         .import cur_addr, cur_device, block_size
         .import nmi_pending
         .import ed_handle_key, enter_editor, leave_editor
-        .import ed_ensure_init
 
-        .import __BSS_RUN__, __BSS_SIZE__
-        .import __KDATA_LOAD__, __KDATA_RUN__, __KDATA_SIZE__
 
 ; ── Constants ────────────────────────────────────────────────
 SCREEN       = $0400
@@ -44,7 +42,6 @@ MEM_CONFIG   = $01
 NMI_VEC      = $0318          ; KERNAL NMI indirect vector
 KEY_REPEAT   = $028A
 VIC_MEMCTL   = $D018
-BUF_END      = $D000
 
 ; Run states
 ST_STOP      = 0
@@ -107,115 +104,9 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
         .byte "2061", 0         ; SYS address (decimal, $080D)
 @next:  .word 0                 ; end of BASIC program
 
-; ── STARTUP — BSS zeroing + stack init ───────────────────────
-.segment "STARTUP"
-
-startup:
-        ; ── Reset the 6502 hardware stack ────────────────────
-        ; BASIC's SYS command leaves a few bytes on the stack
-        ; (the return address through BASIC's SYS dispatch).
-        ; CSE never returns to BASIC — the main loop is a
-        ; jmp-loop and @exit halts — so we can reset SP to the
-        ; top of page 1 and give user code the maximum possible
-        ; stack budget.  See memory_design.md § Stack budget.
-        ldx #$FF
-        txs
-
-        ; Zero BSS segment (page loop keeps A=0 throughout)
-        lda #<__BSS_RUN__
-        sta rp_ptr
-        lda #>__BSS_RUN__
-        sta rp_ptr+1
-        lda #0
-        ldy #0
-        ; Full pages
-        ldx #>__BSS_SIZE__
-        beq @bss_partial
-@bss_page:
-        sta (rp_ptr),y
-        iny
-        bne @bss_page
-        inc rp_ptr+1
-        dex
-        bne @bss_page
-@bss_partial:
-        ; Remaining bytes
-        ldx #<__BSS_SIZE__
-        beq @bss_done
-@bss_rem:
-        sta (rp_ptr),y
-        iny
-        dex
-        bne @bss_rem
-@bss_done:
-
-        ; Copy KDATA tables from load address to RAM at $F100+.
-        ; Pure writer to the under-KERNAL region: stores pass through
-        ; to the underlying RAM regardless of $01 bit 1, so no banking
-        ; is required.  Source __KDATA_LOAD__ is in main RAM (not under
-        ; KERNAL) and is also unbanked.
-        lda #<__KDATA_LOAD__
-        sta rp_ptr
-        lda #>__KDATA_LOAD__
-        sta rp_ptr+1
-        lda #<__KDATA_RUN__
-        sta rp_ptr2
-        lda #>__KDATA_RUN__
-        sta rp_ptr2+1
-        ldy #0
-        ldx #>__KDATA_SIZE__
-        beq @kd_partial
-@kd_page:
-        lda (rp_ptr),y
-        sta (rp_ptr2),y
-        iny
-        bne @kd_page
-        inc rp_ptr+1
-        inc rp_ptr2+1
-        dex
-        bne @kd_page
-@kd_partial:
-        ldx #<__KDATA_SIZE__
-        beq @kd_done
-@kd_rem:
-        lda (rp_ptr),y
-        sta (rp_ptr2),y
-        iny
-        dex
-        bne @kd_rem
-@kd_done:
-
-        jmp _main
-
 ; ── CODE — main program ──────────────────────────────────────
+; Entry: jumped to by loader.s after relocation + BSS zero.
 .segment "CODE"
-
-; ── fill_free_memory — fill free ZP and work area with $FF ───
-.proc fill_free_memory
-        ; Free ZP: cse_zp_end() to $7F
-        jsr cse_zp_end         ; A = first free ZP byte
-        tax                     ; X = start
-        lda #$FF
-@zp:    sta $00,x
-        inx
-        cpx #$80
-        bcc @zp
-
-        ; Free work area: cse_end() to $CFFF
-        jsr cse_end            ; A/X = lo/hi
-        sta rp_ptr
-        stx rp_ptr+1
-        lda #$FF
-        ldy #0
-@work:  sta (rp_ptr),y
-        inc rp_ptr
-        bne :+
-        inc rp_ptr+1
-:       ldx rp_ptr+1
-        cpx #>BUF_END
-        bcc @work
-        rts
-.endproc
 
 ; ── _main — entry point ──────────────────────────────────────
 .proc _main
@@ -224,20 +115,54 @@ startup:
         ora #$80
         sta KEY_REPEAT
 
-        ; Unmap BASIC ROM — clear bit 0 (LORAM) of $01.
-        ; Default after KERNAL init is $37 ($00110111: LORAM, HIRAM,
-        ; CHAREN, cassette motor, datasette).  Clear LORAM (bit 0)
-        ; to expose RAM at $A000–$BFFF as user workspace.  Result:
-        ; $36 ($00110110).  KERNAL ($E000–$FFFF) and I/O ($D000–$DFFF)
-        ; remain mapped.
-        ;
-        ; (Long-standing bug fix: the previous code did `and #$DF`
-        ; which clears bit 5 — the cassette motor — and left BASIC
-        ; mapped.  No reads from $A000–$BFFF tripped this until a
-        ; user attempted to step a JSR there.)
+        ; ── Memory / subsystem init (mem.s functions) ────────
+        ; Unmap BASIC ROM ($37 → $36: RAM at $A000–$BFFF)
         lda MEM_CONFIG
         and #$FE
         sta MEM_CONFIG
+
+        ; Install NMI trampoline under KERNAL
+        jsr kernal_init
+
+        ; Init editor buffer (sets buf_base for workend)
+        jsr ed_ensure_init
+
+        ; Init symbol table
+        jsr sym_clear
+        jsr define_ws_syms
+
+        ; Init debugger
+        jsr dbg_init
+
+        ; Fill free ZP with $FF
+        jsr cse_zp_end         ; A = first free ZP byte
+        tax
+        lda #$FF
+@zp:    sta $00,x
+        inx
+        cpx #$80
+        bcc @zp
+
+        ; Fill free work area ($0800 to cse_start-1) with $FF
+        lda #<$0800
+        sta rp_ptr
+        lda #>$0800
+        sta rp_ptr+1
+        jsr cse_start          ; A/X = runtime start hi in X
+        lda #$FF
+        ldy #0
+@work:  sta (rp_ptr),y
+        inc rp_ptr
+        bne :+
+        inc rp_ptr+1
+:       cpx rp_ptr+1            ; done when hi byte reaches cse_start hi
+        bne @work
+
+        ; Install NMI handler vector
+        lda #<nmi_handler
+        sta NMI_VEC
+        lda #>nmi_handler
+        sta NMI_VEC+1
 
         ; Init global state
         lda #ST_REPL
@@ -261,38 +186,12 @@ startup:
         ora #$02
         sta VIC_MEMCTL
 
-        ; Install NMI trampoline under KERNAL
-        jsr kernal_init
-
-        ; Init editor buffer (sets buf_base = BUF_END for workend)
-        jsr ed_ensure_init
-
-        ; Init symbol table (heap at fixed $E600 under KERNAL)
-        jsr sym_clear
-        jsr define_ws_syms
-
-        ; Init debugger
-        jsr dbg_init
-
-        ; Fill free memory with $FF
-        jsr fill_free_memory
-
-        ; Install NMI handler
-        lda #<nmi_handler
-        sta NMI_VEC
-        lda #>nmi_handler
-        sta NMI_VEC+1
-
         ; ── Splash screen ────────────────────────────────────
-        ; cur_addr = (cse_end + $FF) & $FF00
-        jsr cse_end            ; A = lo, X = hi
-        clc
-        adc #$FF
-        txa
-        adc #0
-        sta cur_addr+1
-        lda #0
+        ; cur_addr = $0800 (workstart)
+        lda #$00
         sta cur_addr
+        lda #$08
+        sta cur_addr+1
 
         ; Version line (row 16)
         lda #0
@@ -350,30 +249,36 @@ startup:
         jsr io_putdec
         puts s_free
 
-        ; work free line (row 20): "work XXXX-YYYY  NNNNN free"
+        ; work free line (row 20): "work 0800-XXXX  NNNNN free"
         lda #0
         sta CUR_COL
         lda #SCREEN_HEIGHT - 5
         sta CUR_ROW
         jsr io_sync
         puts s_work_tag
-        lda cur_addr
-        ldx cur_addr+1
+        lda #<$0800
+        ldx #>$0800
         jsr io_puthex4
         puts s_dash
-        lda #<(BUF_END - 1)
-        ldx #>(BUF_END - 1)
+        jsr cse_start          ; A/X = runtime start
+        sec
+        sbc #1
+        pha                     ; save lo of cse_start-1
+        txa
+        sbc #0
+        tax                     ; X = hi of cse_start-1
+        pla                     ; A = lo of cse_start-1
         jsr io_puthex4
         lda #' '
         jsr io_putc
         jsr io_putc
-        ; byte count = BUF_END - workstart
-        lda #<BUF_END
+        ; byte count = cse_start - $0800
+        jsr cse_start
         sec
-        sbc cur_addr
+        sbc #<$0800
         pha
-        lda #>BUF_END
-        sbc cur_addr+1
+        txa
+        sbc #>$0800
         tax
         pla
         jsr io_putdec

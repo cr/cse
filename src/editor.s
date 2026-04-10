@@ -23,7 +23,7 @@
         .import kernal_bank_out, kernal_bank_in
         .import disk_save_seq, disk_load_seq
         .import disk_seq_bytes, disk_seq_lines
-        .import cse_end
+        .import cse_start
         .import cur_filename
         .import state
         .import scr_lo, scr_hi
@@ -36,7 +36,8 @@ SCREEN       = $0400
 SCREEN_WIDTH = 40
 ED_LINES     = 22            ; visible source lines
 ED_STATUS    = 22            ; status bar row
-BUF_END      = $D000         ; exclusive end of buffer (constant)
+.import __CODE_RUN__
+.define BUF_END __CODE_RUN__ ; exclusive end of buffer (= runtime start)
 BUF_FLOOR    = $4800         ; growth limit
 REPL_SCREEN  = $F4F2         ; banked RAM under KERNAL
 
@@ -649,7 +650,7 @@ s_workend:      .byte "workend", 0
         lda gap_hi+1
         sta ed_scr+1
 @no_gap:
-        ; inline buf_end check (BUF_END=$C800, lo=0 → hi >= $C8 is sufficient)
+        ; inline buf_end check (BUF_END = __CODE_RUN__, lo=0 → hi-only is sufficient)
         lda ed_scr+1
         cmp #>BUF_END
         bcc :+
@@ -1204,7 +1205,8 @@ s_workend:      .byte "workend", 0
         pha
         lda ed_scr+1
         pha
-        jsr cse_end            ; A/X = cse_end
+        lda #<$0800             ; workstart (lower free bound)
+        ldx #>$0800
         sta ed_tmp
         stx ed_tmp+1
         pla
@@ -1527,7 +1529,7 @@ s_workend:      .byte "workend", 0
         lda gap_hi+1
         sta ed_scr+1
 @check_end:
-        ; Check buf_end (BUF_END = $D000, lo byte = 0)
+        ; Check buf_end (BUF_END = __CODE_RUN__)
         lda ed_scr+1
         cmp #>BUF_END
         bcs @done

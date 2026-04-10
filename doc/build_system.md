@@ -7,7 +7,9 @@
 | File | Role |
 |------|------|
 | [`Makefile`](../Makefile) | implementation |
-| [`src/c64_cse.cfg`](../src/c64_cse.cfg) | implementation — main linker config |
+| [`src/c64_trial.cfg`](../src/c64_trial.cfg) | implementation — trial linker config (size measurement) |
+| [`src/c64_cse.cfg.in`](../src/c64_cse.cfg.in) | implementation — production linker config template |
+| [`dev/compute_layout.py`](../dev/compute_layout.py) | implementation — computes runtime start, generates production config |
 | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | implementation — mnemonic table generator |
 | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | implementation — disassembler table generator |
 | [`tests/conftest.py`](../tests/conftest.py) | implementation — test fixtures and auto-rebuild |
@@ -31,20 +33,68 @@
 ## Main build pipeline
 
 ```
-src/*.s  ──ca65──►  build/src/*.o ──ld65──► build/cse.prg
+src/*.s ──ca65──► build/src/*.o ──┐
+                                  ├─ld65 (trial)──► trial.map
+                                  │                     │
+                                  │          compute_layout.py
+                                  │                     │
+                                  │                     ▼
+                                  ├─ld65 (production)──► cse.prg
+                                  └────────────────────────────
 ```
 
-Linker config: `src/c64_cse.cfg` — custom ZP layout ($02–$7F),
-custom segment placement for the KERNAL-RAM KDATA region.  Produces
-`build/cse.prg` (PRG, loads at $0801), `build/cse.map` (symbol map),
-and `build/cse.dbg` (debug info).  No C compiler, no `c64.lib` —
-the entire codebase is hand-written 6502 assembly.
+**Two-pass link.**  The 6502 has no MMU — code must be linked for
+the address where it will actually run.  CSE packs its runtime
+(CODE+RODATA+BSS) at the end of main RAM, ending at $CFFF, to
+maximize workspace.  The exact start address depends on the total
+size of these segments, which is only known after linking.
+
+Pass 1 (trial): `ld65 -C c64_trial.cfg` links everything into a
+flat image at $0800 — the addresses are wrong, but the segment
+**sizes** in `trial.map` are correct.
+
+`compute_layout.py` reads the sizes from `trial.map`, computes
+`RUNTIME_START = $D000 - (CODE + RODATA + BSS)`, and stamps that
+value into `c64_cse.cfg.in` to produce `build/c64_cse.cfg`.
+
+Pass 2 (production): `ld65 -C build/c64_cse.cfg` links with the
+correct runtime addresses.  CODE and RODATA use ld65's `load`/`run`
+address split — they are placed in the file after the loader
+(load address ≈ $0870) but all symbol references resolve to the
+runtime address (≈ $7D00+).  The loader copies them at boot.
+
+### The ld65 load/run split
+
+ld65 natively supports placing a segment at one address in the
+output file while resolving all its symbols for a different
+(runtime) address.  This is configured per segment:
+
+```
+CODE: load = LOADIMG, run = RUNTIME, type = ro, define = yes;
+```
+
+- `load = LOADIMG` — the segment's bytes go into the LOADIMG
+  memory region in the output file (after the loader).
+- `run = RUNTIME` — all labels and references within CODE resolve
+  to addresses in the RUNTIME memory region (high memory).
+- `define = yes` — the linker generates `__CODE_LOAD__`,
+  `__CODE_RUN__`, and `__CODE_SIZE__` symbols.  The loader
+  imports these to know where to copy from and to.
+
+The loader (`loader.s`, in the LOADER segment) runs at its load
+address ($080D).  It copies CODE+RODATA from their LOADIMG
+position to their RUNTIME position, zeros BSS, copies KDATA
+under the KERNAL, then `jmp _main`.  After the jump, the loader's
+memory ($0800–LOADER_END) becomes part of the workspace.
+
+No C compiler, no `c64.lib` — the entire codebase is hand-written
+6502 assembly.
 
 ## Build targets
 
 | Target | Command | Output |
 |--------|---------|--------|
-| Default PRG | `make` | `build/cse.prg` — loads at $0801 |
+| Default PRG | `make` | `build/cse.prg` — loads at $0801, relocates to high memory |
 | Tables | `make tables` | `src/mn*_tables.s`, `src/dasm_tables.s` |
 | Tests | `make test` | runs pytest suite |
 | Themes list | `make themes` | lists available colour themes |
@@ -116,6 +166,12 @@ emulator + real KERNAL provides the hardware environment.
    (absolute addresses) and segment starts.
 3. Each test creates a fresh `C64Emu`, loads the PRG, looks up
    function addresses by name, and calls them via `emu.jsr()`.
+
+`C64Emu.load_prg()` automatically handles the load/run address
+split: after loading the PRG at its file address, it checks for
+segments where `__SEG_LOAD__` ≠ `__SEG_RUN__` and copies them to
+their runtime positions (mirroring what `loader.s` does on real
+hardware).  Test code always references runtime addresses.
 
 No per-test build, no per-test linker config, no per-test stubs.
 

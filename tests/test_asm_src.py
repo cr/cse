@@ -22,7 +22,7 @@ BUILD = Path(__file__).resolve().parent.parent / "build"
 
 _MAX_STEPS  = 1_000_000  # safety limit for two-pass assembly
 _ZP_START   = 0x0000
-_CODE_START = 0x0200
+_CODE_START = 0x4000
 _ZP_SIZE    = 0x0100
 
 

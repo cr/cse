@@ -20,8 +20,9 @@
 ;   sym_clear:   (no args) — wipes all slots, resets heap
 
         .export sym_define, sym_lookup, sym_clear
-        .export kernal_bank_out, kernal_bank_in, kernal_init
-        .export kernal_out
+
+        .import kernal_bank_out, kernal_bank_in
+        .import kernal_out
 
         .importzp sym_name, sym_val, sym_wide
 
@@ -59,109 +60,7 @@ sym_table    = $E000
 SYM_HEAP     = $E600
 SYM_HEAP_END = $EF00
 
-CPU_PORT = $01
-
-.segment "BSS"
-kernal_out:     .res 1          ; nonzero = KERNAL banked out (skip bank_in)
-
 .segment "CODE"
-
-; ── Banking helpers ──────────────────────────────────────
-; kernal_bank_out: sei + clear $01 bit 1 → KERNAL ROM hidden
-; kernal_bank_in:  set $01 bit 1 → KERNAL ROM visible + cli
-;
-; Both helpers honour the kernal_out flag: when non-zero, the
-; caller is managing banking explicitly across a long batch
-; (e.g. asm_assemble holds KERNAL out for both passes), so the
-; helpers become no-ops.  This eliminates redundant sei/$01
-; writes on every inner sym_define / sym_lookup / asm_line /
-; dasm_insn call inside the batch.
-;
-; ── ORDERING RULE FOR BATCH CALLERS ──
-; Because BOTH helpers short-circuit on kernal_out, a batch caller
-; must do the real bank operation BEFORE setting/clearing the flag:
-;
-;     ; ENTER batch                  ; LEAVE batch
-;     jsr kernal_bank_out             lda #0
-;     lda #1                          sta kernal_out
-;     sta kernal_out                  jsr kernal_bank_in
-;
-; Setting kernal_out=1 BEFORE bank_out makes bank_out a no-op
-; (because the flag is already set), so KERNAL stays mapped IN
-; for the duration of the "batch" — every KDATA read returns ROM
-; bytes instead of the real tables.  This was the asm_assemble
-; bug fixed in commit a4cbd5d.  The bank-witness test in
-; tests/test_asm_src.py::TestAsmAssembleBankState pins this rule.
-;
-; Pure writers under KERNAL ($E000–$FFFF) do NOT need either
-; helper: stores pass through to the underlying RAM regardless of
-; $01 bit 1.  See sym_clear, kernal_init, the KDATA-copy in
-; main::startup, and enter_editor's screen save side.
-kernal_bank_out:
-_st_bank_out:
-        lda kernal_out
-        bne @skip               ; flag set → already banked out
-        sei
-        lda CPU_PORT
-        and #$FD                ; clear bit 1 → RAM under KERNAL
-        sta CPU_PORT
-@skip:  rts
-
-kernal_bank_in:
-_st_bank_in:
-        lda kernal_out
-        bne @skip               ; flag set → stay banked out (caller manages)
-        lda CPU_PORT
-        ora #$02                ; set bit 1 → KERNAL ROM restored
-        sta CPU_PORT
-        cli
-@skip:  rts
-
-; ── NMI trampoline (written to RAM at $FF00 by kernal_init) ──
-; If NMI fires while KERNAL is banked out, the CPU reads the
-; NMI vector from RAM at $FFFA/$FFFB → $FF00.  This stub
-; re-banks the KERNAL and then does what the KERNAL NMI entry
-; would have done: SEI + JMP ($0318).  $0318 is the KERNAL's
-; indirect NMI vector in RAM, which CSE sets to nmi_handler.
-NMI_TRAMP    = $FF00
-NMI_VEC_RAM  = $FFFA
-KERNAL_NMIV  = $0318            ; KERNAL indirect NMI vector (RAM)
-
-.segment "RODATA"
-_nmi_tramp_code:
-        ; 10 bytes: lda $01 / ora #$02 / sta $01 / sei / jmp ($0318)
-        .byte $A5, $01          ; LDA $01
-        .byte $09, $02          ; ORA #$02
-        .byte $85, $01          ; STA $01
-        .byte $78               ; SEI
-        .byte $6C               ; JMP (abs)
-        .byte <KERNAL_NMIV, >KERNAL_NMIV
-NMI_TRAMP_SIZE = * - _nmi_tramp_code
-
-.segment "CODE"
-
-; ═════════════════════════════════════════════════════════
-; kernal_init — install NMI trampoline in banked RAM
-;   Must be called once at startup.
-;   Pure writer: stores under KERNAL pass through to RAM
-;   regardless of $01 bit 1, so no banking is required.
-;   Clobbers A, X.
-; ═════════════════════════════════════════════════════════
-.proc kernal_init
-        ; Copy trampoline code to $FF00
-        ldx #NMI_TRAMP_SIZE - 1
-@copy:  lda _nmi_tramp_code,x
-        sta NMI_TRAMP,x
-        dex
-        bpl @copy
-
-        ; Set RAM NMI vector → $FF00
-        lda #<NMI_TRAMP
-        sta NMI_VEC_RAM
-        lda #>NMI_TRAMP
-        sta NMI_VEC_RAM + 1
-        rts
-.endproc
 
 ; ═════════════════════════════════════════════════════════
 ; sym_clear — zero all 256 slots (6 pages), reset heap
@@ -369,7 +268,7 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         and #SYM_MASK
         sta _st_idx
 
-        jsr _st_bank_out
+        jsr kernal_bank_out
 
         ; Probe loop: linear probe, stop on empty or name match.
         ; Probe-wrap detection (@next) catches a fully populated table.
@@ -421,7 +320,7 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 :       ldy #5
         sta (_st_ptr),y
 
-        jsr _st_bank_in
+        jsr kernal_bank_in
         clc
         rts
 
@@ -434,7 +333,7 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         cmp _st_hash
         bne @probe              ; haven't wrapped → keep probing
 
-@full:  jsr _st_bank_in
+@full:  jsr kernal_bank_in
         sec
         rts
 .endproc
@@ -451,7 +350,7 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         and #SYM_MASK
         sta _st_idx
 
-        jsr _st_bank_out
+        jsr kernal_bank_out
 
 @probe: jsr entry_ptr
         jsr is_empty
@@ -483,7 +382,7 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         rol
         sta sym_wide
 
-        jsr _st_bank_in
+        jsr kernal_bank_in
         clc
         rts
 
@@ -497,7 +396,7 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
         bne @probe              ; haven't wrapped → keep probing
 
 @notfound:
-        jsr _st_bank_in
+        jsr kernal_bank_in
         sec
         rts
 .endproc

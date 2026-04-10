@@ -79,7 +79,7 @@ class IoSymbols:
         if _needs_rebuild(): _build()
         seg = _parse_segments()
         ofs = _parse_listing_syms()
-        code = seg.get("CODE", 0x0200)
+        code = seg.get("CODE", 0x4000)
         self.io_init      = code + ofs["io_init"]
         self.io_sync      = code + ofs["io_sync"]
         self.io_putc      = code + ofs["io_putc"]

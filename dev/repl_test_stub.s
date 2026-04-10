@@ -57,15 +57,17 @@
         .export ed_ensure_init, ed_new, ed_dirty
         .export ed_load_split, ed_load_split_lines
 
-; ── Exports: meminfo stubs ────────────────────────────────────
-        .export cse_start, cse_end, cse_zp_end
+; ── Exports: meminfo stubs (cse_start/end/zp_end now in mem.s) ──
         .export src_top, src_bot
+        .export __CODE_RUN__    : absolute = $4000
+        .export __ZP_LAST__    : absolute = $0020
 
 ; ── Exports: global state ─────────────────────────────────────
         .export state
 
 ; ── Exports: runtime ZP ───────────────────────────────────────
         .exportzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
+        .exportzp buf_base
 
 ; ── Exports: NMI stubs (for cse_io.s) ─────────────────────────
         .export dbg_running, dbg_nmi_break
@@ -100,6 +102,7 @@ rp_ptr2:   .res 2
 rp_tmp:   .res 1          ; scratch bytes
 rp_tmp2:   .res 1
 disk_ptr:  .res 2          ; filename pointer (stub for disk.s)
+buf_base:  .res 2          ; mem.s (define_ws_syms)
 
 ; ═══════════════════════════════════════════════════════════════
 ; BSS — test state + stubs
@@ -454,29 +457,7 @@ ed_ensure_init:
 ed_new:
         rts
 
-; ═══════════════════════════════════════════════════════════════
-; Meminfo stubs — return fixed addresses
-; ═══════════════════════════════════════════════════════════════
-
-; cse_start() → $0800
-.proc cse_start
-        lda #$00
-        ldx #$08
-        rts
-.endproc
-
-; cse_end() → $4000
-.proc cse_end
-        lda #$00
-        ldx #$40
-        rts
-.endproc
-
-; cse_zp_end() → $20
-.proc cse_zp_end
-        lda #$20
-        rts
-.endproc
+; (cse_start/cse_end/cse_zp_end now provided by mem.s)
 
 ; ═══════════════════════════════════════════════════════════════
 ; KERNAL PLOT stub (for io_sync)

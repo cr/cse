@@ -20,7 +20,7 @@ BIN = BUILD / "debugger_test.bin"
 MAP = BUILD / "debugger_test.map"
 
 _ZP_START   = 0x0000
-_CODE_START = 0x0200
+_CODE_START = 0x4000
 _ZP_SIZE    = 0x0100
 _RETURN     = 0x0F00
 
