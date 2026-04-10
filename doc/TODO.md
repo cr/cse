@@ -157,7 +157,7 @@ Defined scope, needs work.
 
 ### Architecture
 
-- [ ] Relocating startup: see Roadmap R2.
+- [x] Relocating startup: done (Roadmap R2, Session 10).
 - [ ] Replace au_mode hex parser with expr_eval (option C):
   remove `_insn_buf` round-trip, switch line assembler from VICII
   to PETSCII encoding.  Saves ~400 B code + 80 B BSS.  Phase-level
@@ -178,10 +178,12 @@ Long-term milestones in dependency order.
 All CPU-specific code gated with `.ifdef`/`.ifndef` instead of
 runtime checks.
 
-### R2 — Relocating startup
+### R2 — Relocating startup (done)
 
-Move CSE code to $8000+, freeing $0800–$7FFF as contiguous user
-workspace.  Startup shim at $0801 copies code to final location.
+CSE runtime relocated to high memory (floating start, page-aligned,
+ending at $CFFF).  Discardable loader at $080D copies CODE+RODATA
+at boot.  Two-pass link auto-computes runtime start address.
+Workspace at $0800, ~30 KB free.
 
 ### R3 — Universal C64/C128 binary
 
@@ -200,6 +202,16 @@ Dual linker configs.  Instant boot.  Requires R2.
 
 All C ported to assembly.  cc65 C compiler eliminated.
 Binary size: 6510=21077B (was 28345 pre-R6), savings 25.6%.
+
+### DDD Improvement
+
+- [ ] Back-reference tracking: link source files to their
+  documentation via a machine-readable index (e.g., a comment
+  header or a central map file).  DDD Maintenance can then
+  verify that code changes trigger doc updates for all covering
+  documents.  Goal: exhaustive doc coverage enforcement — no
+  code change lands without updating every doc that references
+  the changed module/interface.
 
 ## Ideas
 

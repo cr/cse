@@ -26,13 +26,15 @@ cse/
 │   ├── screen.s            Screen management, scroll, cursor
 │   ├── cse_io.s            Raw screen I/O (putc, puts, hex/dec)
 │   ├── disk.s              CBM file I/O (load, save, directory)
+│   ├── debugger.s          Breakpoint handler, step, register display
 │   ├── loader.s            Discardable bootstrap (PRG → runtime relocation)
 │   ├── mem.s               Memory manager (banking, segment queries, workspace)
 │   ├── mn*_tables.s        ┐
-│   ├── mn_modes.s          │ GENERATED — do not edit
-│   ├── mn_config.s         │ (regenerate: make tables)
-│   ├── mn_asm_tables.s     │
-│   └── dasm_tables.s       ┘
+│   ├── mn_modes.s          │
+│   ├── mn_config.s         │ GENERATED — do not edit
+│   ├── mn_asm_tables.s     │ (regenerate: make tables)
+│   ├── dasm_tables.s       │
+│   └── oplen_tbl.s         ┘
 │   ├── c64_trial.cfg       ld65 trial linker config (size measurement)
 │   └── c64_cse.cfg.in      ld65 production linker config template
 │

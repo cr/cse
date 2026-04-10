@@ -2421,49 +2421,51 @@ VIC_MEMCTL = $D018
 ;   Clobbers: A, X, Y, rp_addr
 ; ═══════════════════════════════════════════════════════════
 .proc stats_to_fbuf
-        ; Lines → decimal at fbuf[0..]
+        ; Byte count → decimal at fbuf[0..] (done first, then moved)
+        lda ed_save_bytes
+        sta rp_addr
+        lda ed_save_bytes+1
+        sta rp_addr+1
+        jsr utoa_sub            ; A = len of byte digits
+        ; Save byte digits to fbuf[10..] (no overlap with line part)
+        tay
+        dey
+@save:  lda fbuf,y
+        sta fbuf+10,y
+        dey
+        bpl @save
+        ; Lines → decimal at fbuf[0..] (overwrites byte digits, safe)
         lda ed_save_lines
         sta rp_addr
         lda ed_save_lines+1
         sta rp_addr+1
         jsr utoa_sub            ; A = len
         tax                     ; X = write pos
+        ; Append "l "
         ldy #0
-@cp_l:  lda str_lines,y         ; "l "
+@cp_l:  lda str_lines,y
         sta fbuf,x
         beq @bytes
         inx
         iny
         bne @cp_l
-@bytes: ; Bytes → decimal at fbuf[0..] (overwrites line digits)
-        stx @bpos               ; save write pos past "l "
-        lda ed_save_bytes
-        sta rp_addr
-        lda ed_save_bytes+1
-        sta rp_addr+1
-        jsr utoa_sub            ; A = len of byte digits
-        ; Shift byte digits from fbuf[0..A-1] to fbuf[@bpos..]
-        tay                     ; Y = count
-        ldx @bpos
-        sty @dlen
-        ldy #0
-@cp_d:  cpy @dlen
+        ; Append saved byte digits from fbuf[10..]
+@bytes: ldy #0
+@cp_d:  lda fbuf+10,y
         beq @cp_b
-        lda fbuf,y
         sta fbuf,x
         inx
         iny
         bne @cp_d
+        ; Append "b"
 @cp_b:  ldy #0
-@cp_s:  lda str_bytes,y         ; "b"
+@cp_s:  lda str_bytes,y
         sta fbuf,x
         beq @done
         inx
         iny
         bne @cp_s
 @done:  rts
-@bpos:  .byte 0
-@dlen:  .byte 0
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -3232,8 +3234,6 @@ free_line:
         cmp src_top+1
         jeq @no_src
 @has_src:
-        lda #0
-        sta rp_save2
         lda #<str_tag_src
         sta rp_ptr2
         lda #>str_tag_src
@@ -3283,7 +3283,9 @@ free_line:
         sta rp_addr+1
         pla
         sta rp_addr
-        ; Print with fbuf as desc
+        ; Print with fbuf as desc (not highlighted)
+        lda #0
+        sta rp_save2
         lda #<fbuf
         sta rp_ptr
         lda #>fbuf

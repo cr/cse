@@ -95,8 +95,8 @@ or ZP variables.
 
     $0000-$00FF  Zero page (see § Zero Page Layout)
       $00-$01    CPU I/O port
-      $02-$5A    CSE ZP variables (89 bytes, 13 modules)
-      $5B-$7F    Free (37 bytes, available for user programs)
+      $02-$57    CSE ZP variables (86 bytes, 13 modules)
+      $58-$7F    Free (40 bytes, available for user programs)
       $80-$FF    KERNAL work area
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
     $0200-$03FF  KERNAL work area
@@ -327,8 +327,8 @@ $0800.  `workend` adjusts when the editor resizes the gap buffer
 
 ### Overview
 
-89 bytes across 13 modules, linker-assigned from $02 upward.
-37 bytes free ($5B–$7F) for user programs.
+86 bytes across 13 modules, linker-assigned from $02 upward.
+40 bytes free ($58–$7F) for user programs.
 
 ### Module allocation (6510 build)
 

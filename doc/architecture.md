@@ -70,7 +70,6 @@ Support modules (internal to the assembler pipeline):
 | mn_classify.s | Build-time dispatcher: selects mn6 or mn7 | [mn_classify.md](modules/mn_classify.md) |
 | asm_vars.s | Shared ZP variable definitions | — |
 | mn_vars.s | Mnemonic classifier ZP variables | — |
-| parse_hex.s | Hex literal parser for au_mode | — |
 
 Generated files (do not edit — regenerate with `make tables`):
 
@@ -86,7 +85,7 @@ main.s
 ├── mem.s (init, banking, segment queries)
 ├── repl.s
 │   ├── asm_bridge.s ── asm_line.s ── opcode_lookup.s
-│   │                       ├── au_mode.s ── parse_hex.s
+│   │                       ├── au_mode.s
 │   │                       └── mn_classify.s ── mn7.s ── mn7_tables.s
 │   ├── asm_src.s ── asm_bridge.s, expr.s, symtab.s, editor.s, mem.s
 │   ├── dasm.s ── dasm_tables.s
