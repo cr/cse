@@ -21,6 +21,7 @@
         .import         sym_clear
         .import         kernal_bank_out, kernal_bank_in, kernal_out
         .import         io_puts, io_putdec, newline
+        .import         out_log_open, out_close
         .import         cse_end                ; meminfo.s
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
@@ -53,22 +54,12 @@ _ib_idx:        .res 1          ; write index into _insn_buf
 
 ; ── RODATA ────────────────────────────────────────────────────────────────
 .segment "RODATA"
-s_err_pfx:      .byte ";?", 0
 s_err_sep:      .byte ": ", 0
-s_bad_org:      .byte "bad .org", 0
-s_bad_expr:     .byte "bad expr", 0
-s_bad_cnt:      .byte "bad count", 0
-s_bad_fill:     .byte "bad fill", 0
-s_bad_bnd:      .byte "bad bound", 0
-s_align0:       .byte "align 0", 0
-s_bad_cpu:      .byte "bad .cpu", 0
+s_bad_val:      .byte "bad val", 0
 s_exp_name:     .byte "exp name", 0
-s_bad_cst:      .byte "bad const", 0
 s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp quote", 0
 s_bin_nyi:      .byte ".bin nyi", 0
-s_bad_op:       .byte "bad oper", 0
-s_bad_org2:     .byte "bad org", 0
 s_bad_insn:     .byte "bad insn", 0
 hex_tab:        .byte "0123456789abcdef"
 s_workstart:    .byte "workstart", 0
@@ -81,6 +72,8 @@ s_workend:      .byte "workend", 0
 ; ── emit_error ─────────────────────────────────────────────────────────────
 ; Print error on pass 1 and increment error count.
 ;   In: A/X = PETSCII message pointer
+LOG_ERR = '?'
+
 .proc emit_error
         pha                     ; save msg lo BEFORE pass check
         lda _asm_pass
@@ -90,20 +83,32 @@ s_workend:      .byte "workend", 0
         inc asm_errors
         bne :+
         inc asm_errors+1
-:       lda #<s_err_pfx
-        ldx #>s_err_pfx
-        jsr io_puts
+        ; Bank KERNAL in for screen output (newline → io_sync
+        ; needs KERNAL PLOT at $FFF0).  Direct $01 manipulation
+        ; because kernal_out flag makes bank_in a no-op.
+:       lda $01
+        ora #$02
+        sta $01
+        cli
+        ldy #LOG_ERR
+        jsr out_log_open        ; ";?"
         lda _line_num
         ldx _line_num+1
         jsr io_putdec
         lda #<s_err_sep
         ldx #>s_err_sep
-        jsr io_puts
+        jsr io_puts             ; ": "
         pla
         tax                     ; msg hi
         pla                     ; msg lo
-        jsr io_puts
-        jmp newline            ; tail call
+        jsr io_puts             ; error message
+        jsr out_close           ; clear_eol
+        ; Bank KERNAL back out for the rest of the pass
+        sei
+        lda $01
+        and #$FD
+        sta $01
+        rts
 @skip:  pla                     ; discard saved msg lo
         rts
 .endproc
@@ -250,8 +255,8 @@ inc_pc_size:
 @expr:  jsr expr_eval
         cmp #2
         bcc @emit
-        lda #<s_bad_expr
-        ldx #>s_bad_expr
+        lda #<s_bad_val
+        ldx #>s_bad_val
         jmp emit_error          ; tail-call; emit_error returns to our caller
 @emit:  lda _asm_pass
         beq @adv
@@ -353,8 +358,8 @@ inc_pc_size:
         jsr expr_eval
         cmp #2
         bcc :+
-        lda #<s_bad_cnt
-        ldx #>s_bad_cnt
+        lda #<s_bad_val
+        ldx #>s_bad_val
         jmp emit_error
 :       lda expr_val
         sta _as_ptr             ; count lo
@@ -371,8 +376,8 @@ inc_pc_size:
 :       jsr expr_eval
         cmp #2
         bcc :+
-        lda #<s_bad_fill
-        ldx #>s_bad_fill
+        lda #<s_bad_val
+        ldx #>s_bad_val
         jmp emit_error
 :       lda expr_val
         sta _as_wsize           ; fill byte
@@ -401,14 +406,14 @@ inc_pc_size:
         jsr expr_eval
         cmp #2
         bcc :+
-        lda #<s_bad_bnd
-        ldx #>s_bad_bnd
+        lda #<s_bad_val
+        ldx #>s_bad_val
         jmp emit_error
 :       lda expr_val
         ora expr_val+1
         bne :+
-        lda #<s_align0
-        ldx #>s_align0
+        lda #<s_bad_val
+        ldx #>s_bad_val
         jmp emit_error
 :       ; remainder = al_pc % boundary (repeated subtraction; boundary in expr_val)
         lda al_pc
@@ -505,8 +510,8 @@ inc_pc_size:
         lda #2
         sta al_cpu              ; 65c02
         rts
-@bad:   lda #<s_bad_cpu
-        ldx #>s_bad_cpu
+@bad:   lda #<s_bad_val
+        ldx #>s_bad_val
         jmp emit_error
 .endproc
 
@@ -605,8 +610,8 @@ inc_pc_size:
         ldy _as_wsize
         pla
         sta (sym_name),y
-        lda #<s_bad_cst
-        ldx #>s_bad_cst
+        lda #<s_bad_val
+        ldx #>s_bad_val
         jsr emit_error
         clc
         rts
@@ -675,8 +680,8 @@ inc_pc_size:
         jsr expr_eval
         cmp #2
         bcc :+
-        lda #<s_bad_org
-        ldx #>s_bad_org
+        lda #<s_bad_val
+        ldx #>s_bad_val
         jsr emit_error
         clc
         rts
@@ -1068,8 +1073,8 @@ inc_pc_size:
         sta expr_wide           ; force ABS (4-hex-digit operand)
         jmp @eval_ok
 @eval_err:
-        lda #<s_bad_op
-        ldx #>s_bad_op
+        lda #<s_bad_val
+        ldx #>s_bad_val
         jmp emit_error          ; tail call
 
 @eval_ok:
@@ -1259,8 +1264,11 @@ inc_pc_size:
 
 ; ── asm_assemble ──────────────────────────────────────────────────────────
 ; Run two-pass assembly of editor source.
+;   In:  A/X = default origin (used if source has no .org)
 ;   Out: A/X = error count (uint16_t)
 .proc asm_assemble
+        sta asm_org
+        stx asm_org+1
         lda #0
         sta asm_errors
         sta asm_errors+1
@@ -1286,10 +1294,6 @@ inc_pc_size:
         ; Pass 0: collect labels/constants
         lda #0
         sta _asm_pass
-        lda #<$0800
-        sta asm_org
-        lda #>$0800
-        sta asm_org+1
         jsr do_pass
         ; Pass 1: emit code
         lda #1

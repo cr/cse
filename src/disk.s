@@ -7,7 +7,8 @@
         .macpack longbranch
         .include "macros.inc"
 
-        .export floppy_status, list_directory
+        .export floppy_status, floppy_read_status, fl_buf
+        .export list_directory
         .export disk_load_prg, disk_save_prg
         .export disk_load_seq, disk_save_seq
         .export disk_seq_bytes, disk_seq_lines
@@ -16,7 +17,7 @@
         .import io_puts, io_putc, io_putdec, io_puthex2, io_puthex4
         .import io_getc, io_kbhit, io_clear_eol
         .import io_color
-        .import newline, io_puts
+        .import newline, io_puts, out_info
         .import cur_device
         .import scr_lo, scr_hi
         .exportzp disk_ptr
@@ -170,9 +171,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; floppy_status — read drive error channel, print to screen
+; floppy_read_status — read drive error channel into fl_buf
 ; ═════════════════════════════════════════════════════════
-.proc floppy_status
+.proc floppy_read_status
         ; OPEN 14,8,15,""
         lda #0
         jsr SETNAM              ; empty filename
@@ -181,7 +182,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         ldy #15                 ; secondary (command channel)
         jsr SETLFS
         jsr OPEN
-        bcs @err
+        bcs @done
 
         ; CHKIN 14
         ldx #14
@@ -217,30 +218,17 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         jsr CLRCHN
         lda #14
-        jsr CLOSE
-
-        ; Print only on actual error.  CBM DOS error channel
-        ; format is "EC,DESCRIPTION,TR,SE" where EC is a 2-digit
-        ; ASCII error code; "00" means "no error" and is pure
-        ; noise after every successful operation.  Suppress it
-        ; so the user only sees floppy_status output when
-        ; something is actually wrong.
-        cpy #0
-        beq @err
-        lda fl_buf
-        cmp #'0'
-        bne @do_print
-        lda fl_buf+1
-        cmp #'0'
-        beq @err                ; "00,ok,..." → suppress
-@do_print:
-        puts @prefix
-        puts fl_buf
-        jmp newline
-
-@err:   rts
-@prefix: .byte "; ", 0
+        jmp CLOSE
+@done:  rts
 .endproc
+
+; floppy_status — read + print on new line via out_info
+; ═════════════════════════════════════════════════════════
+floppy_status:
+        jsr floppy_read_status
+        lda #<fl_buf
+        ldx #>fl_buf
+        jmp out_info
 
 ; ═════════════════════════════════════════════════════════
 ; list_directory(device) — directory listing with executable l commands
@@ -483,16 +471,10 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         jsr newline
 
 @done:
-        jsr CLRCHN
-        lda #1
-        jsr CLOSE
-        jmp floppy_status
-
 @err:
         jsr CLRCHN
         lda #1
-        jsr CLOSE
-        jmp floppy_status
+        jmp CLOSE
 
 ; Helper: print char in A inverted (io_putc then OR $80 on screen)
 @putc_inv:

@@ -46,7 +46,8 @@
         .export user_zp_buf
 
 ; ── Exports: disk stubs ───────────────────────────────────────
-        .export floppy_status, list_directory
+        .export floppy_status, floppy_read_status, fl_buf
+        .export list_directory
         .export disk_load_prg, disk_save_prg
         .exportzp disk_ptr
 
@@ -138,6 +139,7 @@ ed_load_split_lines: .res 16
 ; Assembler state
 asm_org:       .res 2
 asm_size:      .res 2
+fl_buf:        .res 32
 
 ; Theme
 theme_border:  .res 1
@@ -296,8 +298,10 @@ asm_line:
         tax
         rts
 
-; asm_assemble — stub: sets asm_org=$1000, asm_size=0, returns 0 errors
+; asm_assemble — stub: stores A/X as asm_org, returns 0 errors
 .proc asm_assemble
+        sta asm_org
+        stx asm_org+1
         lda #0
         sta asm_size
         sta asm_size+1
@@ -415,6 +419,7 @@ dbg_bp_del:
 ; ═══════════════════════════════════════════════════════════════
 
 floppy_status:
+floppy_read_status:
         rts
 
 list_directory:

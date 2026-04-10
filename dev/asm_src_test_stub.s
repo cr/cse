@@ -27,6 +27,8 @@
         .export io_puts
         .export io_putdec
         .export newline
+        .export out_log_open
+        .export out_close
         .export cse_end
         .exportzp buf_base
 
@@ -62,6 +64,8 @@ asm_src_test_entry:
         lda #0
         sta _src_done
         sta _bank_witness       ; reset witness to 0
+        lda #<$0800             ; default origin
+        ldx #>$0800
         jsr asm_assemble        ; A/X = error count
         rts
 
@@ -144,6 +148,8 @@ ed_read_line:
 io_puts:
 io_putdec:
 newline:
+out_log_open:
+out_close:
         rts
 
 ; ── cse_end ──────────────────────────────────────────────────────────────────

@@ -379,6 +379,21 @@ Defined scope, needs work.
   buffer grows).  Available in assembler (`.org workstart`) and
   REPL expressions (`@ workend`, `j workstart`).
 - [ ] Assembler error display: show source line number + context.
+- [ ] Per-segment assembly summary.  Currently the `a` command
+  prints `; asm... ok: N bytes at $XXXX` using the first `.org`
+  and cumulative size.  With multiple `.org` blocks the output
+  should list one `AAAA-BBBB  nnn bytes` line per segment, plus
+  a save-command hint using the lowest and highest addresses.
+  Design: asm_src.s calls a repl.s callback (`asm_on_org`) at
+  each `.org` directive during pass 1.  repl.s closes the
+  previous segment line and opens the next, handling KERNAL
+  banking internally.  After `asm_assemble` returns, repl.s
+  closes the final segment and prints the summary.  State in
+  repl.s: `_seg_start` (2B), `_seg_snap` (2B), `_seg_open`
+  (1B) = 5B BSS.  Estimated ~80B code in repl.s, ~10B in
+  asm_src.s.  Edge cases: unorged code (implicit org at
+  `cur_addr`), `.res` vs emitted bytes, empty segments.  Not
+  stabilization-sized — defer to a feature phase.
 
 ### Editor
 

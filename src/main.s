@@ -90,7 +90,7 @@ s_zp_tag:     .byte "  zp ", 0
 s_sys_tag:    .byte " sys ", 0
 s_work_tag:   .byte "work ", 0
 s_dash:       .byte "-", 0
-s_free:       .byte " free", 0
+s_free:       .byte "b free", 0
 s_nmi_msg:    .byte "; run/stop+restore", 0
 
 ; ── PRG load address ─────────────────────────────────────────

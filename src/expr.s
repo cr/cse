@@ -977,8 +977,8 @@ err_str_hi:
         .byte >err_divzero
 
 err_none:      .byte 0
-err_expected:  .byte "expected value", 0
-err_overflow:  .byte "overflow", 0
-err_paren:     .byte "missing )", 0
-err_undefined: .byte "undefined", 0
-err_divzero:   .byte "division by zero", 0
+err_expected:  .byte "exp val", 0
+err_overflow:  .byte "ovfl", 0
+err_paren:     .byte "exp )", 0
+err_undefined: .byte "undef", 0
+err_divzero:   .byte "div0", 0
