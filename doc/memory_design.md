@@ -213,7 +213,7 @@ time, the file is a flat image:
     $07FF-$0800  PRG load address (2 bytes, file header)
     $0801-$080C  BASIC stub "SYS 2061"
     $080D        Loader code (discardable bootstrap)
-      ...        CODE + RODATA payload (raw or compressed)
+      ...        CODE + RODATA payload
       ...        KDATA payload (copied to $F100+ and $FF00
                    under KERNAL; KBSS regions are not in file)
     end of file
@@ -223,10 +223,10 @@ its final position (see § Loader module), then becomes part of the
 workspace.  The PRG contains no filler — the file is exactly as
 large as the loader + payload.
 
-For release/D64 builds, the payload may be exomizer-compressed.
-The loader then contains the decompressor instead of a raw copy
-loop.  For development (`make run`), the payload is uncompressed
-to keep the build-test cycle fast.
+For D64 distribution, the entire PRG is wrapped with exomizer SFX
+compression (~38% smaller, faster disk load).  The SFX stub
+decompresses to $0801, then the BASIC stub and loader run normally.
+`make run` uses the uncompressed PRG (no decrunch delay).
 
 ## Memory Map — Cartridge (CRT)
 
@@ -264,9 +264,9 @@ The loader lives in the LOADER segment, placed at $080D (right
 after the BASIC stub).  After step 5, nothing references the
 loader — the entire $0800–XXXX range becomes workspace.
 
-For compressed builds, the copy in step 2 is replaced by an
-exomizer decrunch call.  The decompressor itself is part of the
-loader and equally discardable.
+Compression uses exomizer SFX wrapping (the entire PRG is wrapped
+as a self-extracting binary).  The loader itself is always
+uncompressed — the SFX decompresses to $0801 before the loader runs.
 
 **CRT builds** do not link the loader.  The CRT init code
 performs only steps 1, 3–5 (stack reset, BSS zero, banked init,

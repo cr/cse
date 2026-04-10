@@ -68,9 +68,14 @@ cse/
 │   └── *.md                System-level docs
 │
 └── build/                  Build output (git-ignored)
-    ├── cse.prg             Main C64 binary
-    ├── cse.dbg / cse.map   Debug symbols / linker map
-    └── src/                Intermediate .s and .o files
+    ├── cse.d64             Distribution D64 (all CPU variants, compressed)
+    ├── 6510/               6510 build
+    │   ├── cse.prg         Raw PRG (for make run / debugging)
+    │   ├── cse-exo.prg     Exomizer SFX compressed PRG
+    │   ├── cse.dbg/.map    Debug symbols / linker map
+    │   └── src/            Intermediate .o files
+    ├── 6502/               6502 build (same structure)
+    └── cmos/               65C02 build (same structure)
 ```
 
 ## Further reading

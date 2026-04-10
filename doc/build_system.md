@@ -106,11 +106,28 @@ loader run normally.  ~38% smaller than the raw PRG.
 
 | Target | Command | Output |
 |--------|---------|--------|
-| Default PRG | `make` | `build/cse.prg` + `cse-exo.prg` (raw + compressed) |
-| Tables | `make tables` | `src/mn*_tables.s`, `src/dasm_tables.s` |
-| Tests | `make test` | runs pytest suite |
-| Themes list | `make themes` | lists available colour themes |
-| Help | `make help` | lists all targets and options |
+| All (default) | `make` | All three CPU variants (raw + compressed) + distribution D64 |
+| Disk (single) | `make disk` | Per-CPU D64 in build dir (for quick iteration) |
+| Run | `make run` | Launch uncompressed PRG in VICE (no decrunch delay) |
+| Tables | `make tables` | Regenerate `src/mn*_tables.s` via `mnemonic_tables.py` |
+| Tests | `make test` | Run all pytest tests |
+| Size | `make size` | Size breakdown of selected PRG (`CPU=`) |
+| Clean | `make clean` | Remove `build/` directory |
+| Themes | `make themes` | List available colour themes |
+| Help | `make help` | List all targets and options |
+
+`make` builds all three CPU targets (6510, 6502, 65C02), each
+producing both a raw PRG and a compressed PRG (`*-exo.prg`), then
+creates `build/cse.d64` with all three compressed variants:
+
+    build/cse.d64           distribution D64 (all three CPU targets)
+      cse                   6510 compressed (53 blocks, default)
+      cse-6502              6502 compressed
+      cse-cmos              65C02 compressed
+    build/6510/cse.prg      6510 raw (for make run / debugging)
+    build/6510/cse-exo.prg  6510 compressed
+    build/6502/...           6502 variants
+    build/cmos/...           65C02 variants
 
 CRT target (cartridge) is a planned future target using the same source
 with a different linker config.  See [memory_design.md](memory_design.md)
