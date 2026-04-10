@@ -61,12 +61,11 @@ block size.
 
 ### Screen editing
 
-`d` and `m` output multiple lines to the screen — one per
-instruction or memory row.  Each output line is a valid command.
-Move the cursor to any line, edit the values directly on screen,
-and press RETURN to re-enter the modified line as a command.
-This is the C64 screen-editor workflow: the screen *is* your
-input buffer.
+`m`, `d`, and `$` output multiple lines to the screen.  For `m`
+and `d`, each output line is a valid `.` command.  Move the
+cursor to any line, edit the values directly on screen, and
+press RETURN to re-enter the modified line.  This is the C64
+screen-editor workflow: the screen *is* your input buffer.
 
 For example, `d` might show:
 
