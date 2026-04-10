@@ -155,27 +155,14 @@ class C64Emu:
         self._mem.ram[COLOR_HI] = (col >> 8) & 0xFF
 
     def _init_kernal_vectors(self, rom_data):
-        """Initialise page-3 I/O vectors by running RESTOR ($FF8A)
-        in a temporary CPU.  RESTOR copies the default vector table
-        to $0314–$0333; this is a pure memory copy with no hardware access.
-        """
-        self._find_and_copy_vector_table(rom_data)
-
-    def _find_and_copy_vector_table(self, rom_data):
-        """Scan the ROM for the RESTOR vector default table and copy it.
-
-        The table is 32 bytes ($0314–$0333) of 16-bit little-endian
-        addresses.  RESTOR copies it to page 3.
-        """
-        # Method: run the RESTOR routine in a temporary CPU to
-        # populate page-3 vectors safely.
+        """Populate page-3 I/O vectors ($0314–$0333) by running
+        KERNAL RESTOR ($FF8A) in a temporary CPU.  RESTOR is a pure
+        memory copy — no hardware access."""
         tmp = MPU()
         tmp.memory = [0] * 65536
-        # Load ROM into flat memory
         tmp.memory[0xE000:0x10000] = list(rom_data)
-        # JSR $FF8A (RESTOR) — set up return to sentinel
-        sentinel = 0xDFF0
-        tmp.memory[sentinel] = 0x00  # BRK (stop)
+        sentinel = self.SENTINEL
+        tmp.memory[sentinel] = 0x00
         tmp.sp = 0xFF
         tmp.memory[0x01FF] = ((sentinel - 1) >> 8) & 0xFF
         tmp.memory[0x01FE] = (sentinel - 1) & 0xFF
@@ -185,15 +172,10 @@ class C64Emu:
             if tmp.pc == sentinel:
                 break
             tmp.step()
-
-        # Copy vectors from tmp's page 3 to our memory
         for addr in range(0x0314, 0x0334):
             val = tmp.memory[addr]
-            if val != 0:  # only copy if RESTOR actually wrote something
+            if val != 0:
                 self._mem.ram[addr] = val
-
-        # If RESTOR didn't populate (all zeros), fall back won't hurt —
-        # the JMP(indirect) will jump to $0000 which is harmless (BRK).
 
     # ── Register accessors ──────────────────────────────────────
 
@@ -424,3 +406,25 @@ class C64Emu:
             else:
                 chars.append('?')
         return ''.join(chars).rstrip()
+
+    def set_cursor(self, row, col):
+        """Set cursor position via KERNAL PLOT (CLC path)."""
+        # CLC; LDX #row; LDY #col; JSR $FFF0; RTS
+        stub = 0xDF80  # small stub area in I/O gap
+        code = [0x18, 0xA2, row & 0xFF, 0xA0, col & 0xFF,
+                0x20, 0xF0, 0xFF, 0x60]
+        for i, b in enumerate(code):
+            self._mem.ram[stub + i] = b
+        self.jsr(stub)
+
+    def init_cse(self, *, editor=False):
+        """Run CSE init routines.  Call after load_prg().
+
+        Runs theme_init + restore_colors + kernal_init.
+        If editor=True, also runs ed_ensure_init.
+        """
+        self.jsr(self.sym("theme_init"))
+        self.jsr(self.sym("restore_colors"))
+        self.jsr(self.sym("kernal_init"))
+        if editor:
+            self.jsr(self.sym("ed_ensure_init"))

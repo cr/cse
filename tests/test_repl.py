@@ -149,12 +149,6 @@ class ReplSymbols:
         self.step_bp      = exp['step_bp']
         self.dbg_reason   = exp['dbg_reason']
         self.dbg_bp_hit   = exp['dbg_bp_hit']
-        # step_witness is exported by the stub but unimported by
-        # anyone, so ld65 omits it from the exports list.  Compute
-        # it from the stub's BSS layout: it follows dbg_bp_hit.
-        # Layout: bp_table(32) step_bp(8) dbg_running(1) dbg_reason(1)
-        #         brk_pc(2) dbg_bp_hit(1) → step_witness at +45 from bp_table.
-        self.step_witness = self.bp_table + 45
         self.brk_pc       = exp['brk_pc']
         self.reg_a        = exp['reg_a']
         self.reg_x        = exp['reg_x']

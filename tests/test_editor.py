@@ -1,28 +1,29 @@
 """
-test_editor.py — gap buffer and editor logic tests.
+test_editor.py — gap buffer algorithm tests (pure Python mirror).
 
-Tests the gap buffer algorithm as implemented in editor.c.
-Uses a Python simulation of the gap buffer that mirrors the C code's
-exact logic, then verifies invariants and expected content.
+ANTI-PATTERN: These tests use a Python simulation of the gap buffer
+instead of exercising the real editor.s ASM.  See doc/testing.md
+§ Anti-patterns.  ASM-level editor tests are in test_editor_asm.py.
 
-This catches design bugs (like the ed_top_ptr stale pointer issue)
-independently of the cc65 compiler.
+These remain because they cover growth/relocation logic and cursor
+movement that the ASM tests don't yet exercise.  Retire as coverage
+moves to test_editor_asm.py.
 """
 
 import pytest
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Gap buffer simulation — mirrors editor.c's logic exactly
+# Gap buffer simulation — mirrors editor.s logic
 # ═══════════════════════════════════════════════════════════════════════════════
 
-BUF_CEILING = 0xC800   # exclusive end (matches editor.c)
+BUF_CEILING = 0xC800   # exclusive end (matches editor.s)
 BUF_FLOOR   = 0x4800   # growth limit
 GROW_SIZE   = 256      # bytes allocated per growth
 
 
 class GapBuffer:
-    """Python mirror of editor.c's gap buffer."""
+    """Python mirror of editor.s's gap buffer."""
 
     def __init__(self):
         # Simulated memory — only the region we use
@@ -39,7 +40,7 @@ class GapBuffer:
         self.ed_dirty = False
 
     def _ensure_room(self):
-        """Mirror of gb_ensure_room in editor.c."""
+        """Mirror of gb_ensure_room in editor.s."""
         gap_size = self.gap_hi - self.gap_lo
         if gap_size > 0:
             return True

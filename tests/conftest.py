@@ -707,3 +707,29 @@ class DasmSymbols:
 def dasm_syms():
     """Session-scoped dasm test binary + symbol addresses."""
     return DasmSymbols()
+
+
+# ── C64Emu-based fixtures (Phase 9) ──────────────────────────────────────────
+#
+# These fixtures load the CMOS production PRG into C64Emu and provide
+# symbol resolution via the .lbl file.  Used by test_editor_asm.py,
+# test_screen_asm.py, test_step_rom.py, and future C64Emu-based tests.
+
+import subprocess
+
+_CMOS_PRG = ROOT / "build" / "cmos" / "cse-cmos.prg"
+_CMOS_MAP = ROOT / "build" / "cmos" / "cse.map"
+
+
+def _ensure_cmos_built():
+    """Build the CMOS PRG if not present."""
+    if not _CMOS_PRG.exists() or not _CMOS_MAP.exists():
+        subprocess.run(["make", "CPU=65c02"], cwd=ROOT, check=True,
+                       capture_output=True)
+
+
+@pytest.fixture(scope="session")
+def cse_prg():
+    """Session-scoped: CMOS PRG path + map path, auto-built."""
+    _ensure_cmos_built()
+    return _CMOS_PRG, _CMOS_MAP
