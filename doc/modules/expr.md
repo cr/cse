@@ -109,7 +109,7 @@ wrote a 4-digit literal, signalling absolute intent.
 
 **Label resolution:** Sets `sym_name` to point into the expression
 buffer, NUL-terminates at the end of the identifier, calls
-`_sym_lookup`, restores the original char.
+`sym_lookup`, restores the original char.
 
 ## Caveats
 

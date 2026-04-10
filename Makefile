@@ -188,6 +188,11 @@ $(PRG): $(ASM_OBJS) $(LCFG) | $(BUILD)/
 
 # Exomizer SFX: self-extracting compressed PRG (for disk distribution)
 $(PRG_EXO): $(PRG)
+	@command -v $(EXOMIZER) >/dev/null 2>&1 || { \
+	  printf "\n  *** exomizer not found ***\n\n"; \
+	  printf "  Install via Homebrew:  brew install exomizer\n"; \
+	  printf "  Or from source:       https://bitbucket.org/magli143/exomizer\n\n"; \
+	  exit 1; }
 	$(EXOMIZER) sfx sys -n -q -o $@ $<
 
 # -----------------------------------------------------------------------
