@@ -40,6 +40,14 @@ Open bugs, roughly ordered by priority.
   caller.  Fix: 256 B user-stack snapshot at `$EF00` under
   KERNAL (copy page 1 on debug entry/exit).  Acceptable
   trade-off for now.
+- [ ] Debugger: `t1` traces over conditional branches (BNE etc.)
+  instead of tracing into them.  The BRK-based step logic computes
+  both branch target and fall-through, arms BRK at both, but the
+  branch is not taken at runtime.  Likely cause: `reg_p` flags not
+  correctly captured/restored across BRK, or the BRK at the branch
+  target clobbers the instruction before it can execute.  Needs a
+  test case: step through a tight DEX/BNE loop and verify PC follows
+  the branch.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.

@@ -67,6 +67,7 @@
         .import ed_save_bytes, ed_save_lines
         .import ed_ensure_init, ed_new
         .import ed_dirty, ed_total_lines
+        .importzp buf_base
 
 ; ── Imports: memory info ───────────────────────────────────
         .import cse_start, cse_end, cse_zp_end
@@ -3212,16 +3213,16 @@ free_line:
         jsr info_emit_rows
 
         ; ── Dynamic: free workspace ──
-        ; Total workspace = $0800 to cse_start-1 (always shown)
+        ; Free = $0800 to buf_base-1 (gap between output and source)
         lda #<$0800
         sta rp_addr
         lda #>$0800
         sta rp_addr+1
-        jsr cse_start
+        lda buf_base
         sec
         sbc #1
         sta rp_cnt
-        txa
+        lda buf_base+1
         sbc #0
         sta rp_cnt+1
         jsr free_line
