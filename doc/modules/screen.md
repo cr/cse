@@ -32,13 +32,6 @@ io_cy adjusted (clamped to 0).  If A ≥ 25: full screen clear.
 scrolls up 1 instead of incrementing.  Calls `io_sync`.
 **Clobbers:** A, X, Y
 
-### print_string
-**In:** A/X = pointer to NUL-terminated PETSCII string
-**Out:** string printed at cursor via `io_puts`
-**Clobbers:** A, X, Y
-
-Thin wrapper — `jmp io_puts`.  Does not interpret newline characters.
-
 ### cursor_show / cursor_hide
 **In:** none (uses io_cy, io_cx)
 **Out:** screen byte at cursor XOR'd with $80 (toggles reverse)

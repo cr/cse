@@ -166,6 +166,12 @@ io_putdec, io_clear_eol) do NOT use $D1/$D2.  They compute the
 screen address directly from scr_lo/scr_hi[io_cy].  io_sync exists
 for the KERNAL's benefit (cursor blink, screen editor state).
 
+### io_blip
+
+**Behavior:** Short audible reject blip via SID voice 1 (triangle).
+Called by editor and REPL on refused input (line cap, backspace
+into left wall, unknown command).
+
 ### Cursor Position
 
 Cursor position is read/written directly via KERNAL ZP:

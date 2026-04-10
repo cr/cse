@@ -31,8 +31,8 @@ every line is executable.  From here the user can:
   browse disk directories
 - **Calculate** — full expression evaluator with hex, decimal, binary,
   bitwise operators, lo/hi byte extraction
-- **Debug** — call subroutines with `j`, inspect registers on return
-  *(breakpoints, stepping, and watchpoints are planned)*
+- **Debug** — breakpoints (`b`), step-into (`t`), step-over (`o`),
+  continue (`c`), NMI break, register inspect.  *(watchpoints planned)*
 
 Commands are terse single-character keys.  Block-size-aware operations
 (`m`, `d`, `f`, `t`) work on configurable ranges.  Auto-advance and
