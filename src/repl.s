@@ -1670,7 +1670,7 @@ VIC_MEMCTL = $D018
         lda dbg_reason
         bne @debug
         jsr restore_colors
-        jmp nl_clear
+        jmp jmp_return
 @debug: jmp show_break_result
 .endproc
 
@@ -4024,3 +4024,14 @@ free_line:
         .byte >@h_blk, >@h_col, >@h_u, >@h_a, >@h_calc, >@h_quit, >@h_dir, >@h_x
         .byte >@h_c
 .endproc
+
+; ═══════════════════════════════════════════════════════════
+; jmp_return — clean-RTS handler for j/g: regs only, no dasm
+;   Placed at end of file to avoid shifting code above.
+; ═══════════════════════════════════════════════════════════
+jmp_return:
+        lda CUR_COL
+        beq :+
+        jsr newline
+:       jsr emit_reg
+        jmp nl_clear
