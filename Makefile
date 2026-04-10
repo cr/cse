@@ -27,12 +27,13 @@ ROOT  := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 SRC   := $(ROOT)src
 DEV   := $(ROOT)dev
 
-CA65   ?= ca65
-LD65   ?= ld65
-PYTHON ?= pipenv run python
-PYTEST ?= pipenv run pytest
-VICE   ?= x64sc
-C1541  ?= c1541
+CA65      ?= ca65
+LD65      ?= ld65
+PYTHON    ?= pipenv run python
+PYTEST    ?= pipenv run pytest
+VICE      ?= x64sc
+C1541     ?= c1541
+EXOMIZER  ?= exomizer
 
 # ── CPU target selection ──────────────────────────────────────────────────
 # CPU= selects target for run/disk/size.  'all' builds all three.
@@ -121,10 +122,11 @@ all:
 # -----------------------------------------------------------------------
 # _one — build a single CPU target (called by 'all' or directly)
 # -----------------------------------------------------------------------
-PRG    = $(BUILD)/$(PRG_NAME)
-DBG    = $(BUILD)/cse.dbg
-MAP    = $(BUILD)/cse.map
-LBL    = $(BUILD)/cse.lbl
+PRG      = $(BUILD)/$(PRG_NAME)
+PRG_EXO  = $(BUILD)/$(basename $(PRG_NAME))-exo.prg
+DBG      = $(BUILD)/cse.dbg
+MAP      = $(BUILD)/cse.map
+LBL      = $(BUILD)/cse.lbl
 
 # ── Build-flags stamp ───────────────────────────────────────────────────
 # Object files don't depend on $(AFLAGS) naturally.  If the user changes
@@ -150,8 +152,10 @@ ASM_SRCS = loader main \
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 
 .PHONY: _one
-_one: $(PRG)
-	@echo "  $(TARGET)  $(shell wc -c < $(PRG)) bytes"
+_one: $(PRG) $(PRG_EXO)
+	@printf "  %s  %s bytes  exo %s bytes\n" \
+	  "$(TARGET)" "$$(wc -c < $(PRG) | tr -d ' ')" \
+	  "$$(wc -c < $(PRG_EXO) | tr -d ' ')"
 
 $(BUILD)/src/:
 	mkdir -p $@
@@ -181,17 +185,21 @@ $(LCFG): $(TRIAL_MAP) $(CFG_TMPL)
 $(PRG): $(ASM_OBJS) $(LCFG) | $(BUILD)/
 	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) -m $(MAP) -Ln $(LBL) $(ASM_OBJS)
 
+# Exomizer SFX: self-extracting compressed PRG (for disk distribution)
+$(PRG_EXO): $(PRG)
+	$(EXOMIZER) sfx sys -n -q -o $@ $<
+
 # -----------------------------------------------------------------------
-# disk — create a D64 disk image with the selected CPU's PRG
+# disk — create a D64 disk image with the compressed PRG
 # -----------------------------------------------------------------------
 D64 = $(BUILD)/cse.d64
 
 .PHONY: disk
-disk: $(PRG)
+disk: $(PRG_EXO)
 	@if [ -f $(D64) ]; then \
-		$(C1541) -attach $(D64) -delete cse -write $(PRG) cse; \
+		$(C1541) -attach $(D64) -delete cse -write $(PRG_EXO) cse; \
 	else \
-		$(C1541) -format "cse,01" d64 $(D64) -write $(PRG) cse; \
+		$(C1541) -format "cse,01" d64 $(D64) -write $(PRG_EXO) cse; \
 	fi
 
 # -----------------------------------------------------------------------
@@ -280,7 +288,7 @@ test-bins: $(AU_BIN) $(MN6_BIN) $(MN7_BIN)
 # run — build disk image and launch in VICE
 # -----------------------------------------------------------------------
 .PHONY: run
-run: disk
+run: $(PRG)
 	$(VICE) -autostart $(PRG) -8 $(D64)
 
 # -----------------------------------------------------------------------
@@ -355,8 +363,8 @@ themes:
 help:
 	@printf "%-15s %s\n" "all"          "Build all three CPU targets (default)"
 	@printf "%-15s %s\n" ""             "  build/6510/cse.prg  build/6502/cse-6502.prg  build/cmos/cse-cmos.prg"
-	@printf "%-15s %s\n" "disk"         "Create D64 disk image (CPU=6510|6502|65c02)"
-	@printf "%-15s %s\n" "run"          "Build + launch in VICE (CPU=6510|6502|65c02)"
+	@printf "%-15s %s\n" "disk"         "Create D64 with compressed PRG (CPU=6510|6502|65c02)"
+	@printf "%-15s %s\n" "run"          "Build + launch uncompressed in VICE (CPU=)"
 	@printf "%-15s %s\n" "tables"       "Regenerate src/mn*_tables.s via mnemonic_tables.py"
 	@printf "%-15s %s\n" "test"         "Run all pytest tests"
 	@printf "%-15s %s\n" "test-bins"    "Assemble au_mode / mn6 / mn7 test binaries"

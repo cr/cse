@@ -27,6 +27,7 @@
 | `ld65` | Linker — links `.o` files into final binary; generates `.map` |
 | `make` | Build orchestration |
 | `python3` | Table generation (`dev/mnemonic_tables.py`, `dev/dasm_tables.py`) |
+| `exomizer` | SFX compressor — produces self-extracting PRG for disk |
 | `pytest` | Test runner (via pipenv virtualenv) |
 | `py65` | Python 6502 CPU emulator, used by `C64Emu` |
 
@@ -90,11 +91,22 @@ memory ($0800–LOADER_END) becomes part of the workspace.
 No C compiler, no `c64.lib` — the entire codebase is hand-written
 6502 assembly.
 
+### Exomizer compression
+
+Each build also produces an exomizer SFX-compressed PRG
+(`cse-exo.prg`) alongside the uncompressed one.  The SFX is a
+self-extracting binary: on `RUN`, exomizer's decrunch stub
+decompresses the payload in-place, then the BASIC SYS stub and
+loader run normally.  ~38% smaller than the raw PRG.
+
+`make disk` writes the compressed PRG to the D64.
+`make run` launches the uncompressed PRG (no decrunch delay).
+
 ## Build targets
 
 | Target | Command | Output |
 |--------|---------|--------|
-| Default PRG | `make` | `build/cse.prg` — loads at $0801, relocates to high memory |
+| Default PRG | `make` | `build/cse.prg` + `cse-exo.prg` (raw + compressed) |
 | Tables | `make tables` | `src/mn*_tables.s`, `src/dasm_tables.s` |
 | Tests | `make test` | runs pytest suite |
 | Themes list | `make themes` | lists available colour themes |

@@ -176,6 +176,11 @@ Defined scope, needs work.
   with `ed_save_bytes`/`ed_save_lines` (saves 4 B).
 - [ ] BSS optimization: overlap `rp_next_lo`/`rp_next_hi` with
   `rp_hexbuf` + `@new_col` (saves 3-4 B).
+- [ ] Global release version: single `VERSION` definition (currently
+  Makefile `VERSION ?= 0.1`) that flows to D64 disk name, PRG
+  filenames, splash screen string, and documentation.  Current
+  version: v0.1a.  The D64 disk label, `$` listing, and any
+  release artifacts must show the version.
 
 ## Roadmap
 
