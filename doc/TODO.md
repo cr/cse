@@ -1,10 +1,9 @@
 # CSE — TODO
 
-## Top 10 — stabilization phase (current round)
+## Top 10 — stabilization phase (nearly complete)
 
 The current focus is consolidation, simplification, bugfixes,
-optimization, and cleanup — *not* new features.  Ordered
-roughly by do-first.
+optimization, and cleanup — *not* new features.
 
 1. ~~**Mark stale TODO entries done**~~ — done.
 2. ~~**Warn on quit/switch if dirty flag set**~~ — done.
@@ -18,8 +17,8 @@ roughly by do-first.
 9. ~~**Revise TDD framework**~~ — done.
 10. ~~**DDD audit of 7 module docs**~~ — done.
 
-Anything else in this file is feature work or longer-horizon and
-should wait until the stabilization phase wraps up.
+Two items remain (#3 gap overflow, #6 debounce).  Everything else
+is feature work or longer-horizon.
 
 ## Bugs
 
@@ -52,19 +51,6 @@ Open bugs, roughly ordered by priority.
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
 
-- [ ] Gap buffer doesn't shrink: deleting source lines or killing
-  the entire source (`n` command) does not release memory back.
-  `buf_base` only ever moves down (via `gb_ensure_room`), never up.
-  Investigate: should `ed_init`/`n` reset `buf_base` to BUF_END?
-  Should line deletion call a compaction pass?  Consider the
-  trade-off: compaction is O(n) and the user may undo immediately.
-- [ ] Investigate MEGA65 Open-KERNAL compatibility: verify CSE runs
-  on both the stock C64 KERNAL and the MEGA65 Open-KERNAL.
-  Identify any KERNAL entry points, ZP locations, or banking
-  assumptions that differ.  Goal: single PRG runs on both.
-- [x] `dev/test.d64` T-COUNT: renamed from COUNTDOWN, loads and
-  displays correctly after page-alignment fix.
-
 ### Fixed bugs (reference)
 
 <details>
@@ -91,6 +77,8 @@ Open bugs, roughly ordered by priority.
 - [x] cc65 -O zero-extension bug — eliminated (pure asm).
 - [x] User CHROUT overwrites prompt row — newline before run_user.
 - [x] asm_src test stub blank line truncation — $FF EOF sentinel.
+- [x] `dev/test.d64` T-COUNT: renamed from COUNTDOWN, loads and
+  displays correctly after page-alignment fix.
 
 </details>
 
@@ -113,6 +101,8 @@ systems, ASM stubs, and test-specific linker configs.
 - [x] Makefile: `-Ln` label file, `check-roms` gate, `cse_prg` fixture.
 - [x] KERNAL ROM setup: screen line link table ($D9-$F1), HIBASE,
   page-3 vectors via RESTOR.
+- [x] `c64emu.py` load/run segment relocation: auto-copies segments
+  with load ≠ run addresses (mirrors loader.s).
 
 ### Open
 
@@ -121,7 +111,7 @@ systems, ASM stubs, and test-specific linker configs.
   test_debugger, test_au_mode, test_mnhash, test_asm_line,
   test_dasm, test_asm_src) has its own build system, map parser,
   and run loop.  Migration removes ~1200 lines of harness code,
-  9 ASM stub files, and 4 linker configs.
+  9 ASM stub files, and 3 linker configs.
 - [ ] Editor scroll/render screen-RAM tests.  `ed_scroll_down` and
   `ed_render_line` are `.proc`-scoped (not in .lbl); test path is
   through `ed_handle_key` with cursor keys, which needs full editor
@@ -158,6 +148,10 @@ Defined scope, needs work.
 ### Editor
 
 - [ ] Handle files > gap buffer capacity (show error, don't crash).
+- [ ] Gap buffer compaction: `buf_base` only grows down (via
+  `gb_ensure_room`), never shrinks.  `ed_init`/`n` should reset
+  `buf_base` to BUF_END.  Line deletion could trigger compaction
+  but consider the trade-off (O(n) vs immediate undo).
 - [ ] Page up/down with shift+cursor or F-keys.
 - [ ] Search (ctrl+f equivalent via F-key).
 - [ ] Goto line number.
@@ -196,7 +190,8 @@ runtime checks.
 CSE runtime relocated to high memory (floating start, page-aligned,
 ending at $CFFF).  Discardable loader at $080D copies CODE+RODATA
 at boot.  Two-pass link auto-computes runtime start address.
-Workspace at $0800, ~30 KB free.
+Workspace at $0800, ~30 KB free.  Exomizer SFX compression for
+D64 distribution (~38% smaller).
 
 ### R3 — Universal C64/C128 binary
 
@@ -209,22 +204,11 @@ Self-contained VDC display driver, same interface as VIC-II routines.
 
 ### R5 — Cartridge ROM (CRT)
 
-Dual linker configs.  Instant boot.  Requires R2.
+Dual linker configs.  Instant boot.  R2 (relocating startup) done.
 
 ### R6 — Port C to asm (done)
 
 All C ported to assembly.  cc65 C compiler eliminated.
-Binary size: 6510=21077B (was 28345 pre-R6), savings 25.6%.
-
-### DDD Improvement
-
-- [ ] Back-reference tracking: link source files to their
-  documentation via a machine-readable index (e.g., a comment
-  header or a central map file).  DDD Maintenance can then
-  verify that code changes trigger doc updates for all covering
-  documents.  Goal: exhaustive doc coverage enforcement — no
-  code change lands without updating every doc that references
-  the changed module/interface.
 
 ## Ideas
 
@@ -242,3 +226,10 @@ Exploratory, not yet scoped.
 - [ ] Conditional assembly: .if/.else/.endif.
 - [ ] Include files: .inc.
 - [ ] Detect PAL/NTSC at startup.
+- [ ] MEGA65 Open-KERNAL compatibility: verify CSE runs on both
+  stock C64 KERNAL and MEGA65 Open-KERNAL.  Identify differing
+  entry points, ZP locations, or banking assumptions.
+- [ ] DDD back-reference tracking: link source files to their
+  documentation via a machine-readable index.  DDD Maintenance
+  verifies code changes trigger doc updates for all covering
+  documents.
