@@ -43,14 +43,16 @@ should wait until the stabilization phase wraps up.
   port (`915e84c`) — the commit message comments ("let me do this
   differently", "But Y-indexed indirect doesn't work well going
   down...") betray the author mid-rework.
-- [ ] Editor ASM-level regression tests via py65.  `test_editor.py`
-  is a pure-Python gap-buffer mirror with no screen-RAM model —
-  that's how the broken `ed_scroll_down` memmove slipped through
-  for months.  The Phase 9 `C64Emu` class loads the production
-  PRG with a real KERNAL (PLOT, screen RAM, banking) — no stubs
-  needed.  Load `build/cse.prg`, call `ed_scroll_up` /
-  `ed_scroll_down` / `ed_render_line` directly, assert on screen
-  RAM at $0400.  Part of the Phase 9 test harness rewrite.
+- [ ] Editor ASM-level regression tests via py65.  **Partially
+  done** (Phase 9): `test_editor_asm.py` covers gap buffer
+  insert/readback, ed_new, dirty flag, line count, and
+  ed_read_line via C64Emu + production PRG.  Still open:
+  `ed_scroll_down` / `ed_render_line` screen-RAM tests.  These
+  are `.proc`-scoped (not in .lbl), so the test path is through
+  `ed_handle_key` with cursor-up/down keys — requires full
+  editor state (screen rendering, top_line, cursor position).
+  Deferred until the Phase 9 migration enables running the
+  editor loop via `enter_editor`.
 - [x] ~~Revise the TDD framework~~ — done: `doc/testing.md` now
   has Principle 6 ("Test the actual ASM, not a Python copy of
   it") and an Anti-patterns section that calls out mirror tests
