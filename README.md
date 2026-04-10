@@ -59,6 +59,24 @@ a chunk of *block size* bytes.  Default is $10 (16).  Change it
 with `B SIZE` (hex).  `+` and `-` also advance/retreat by the
 block size.
 
+### Screen editing
+
+`d` and `m` output multiple lines to the screen — one per
+instruction or memory row.  Each output line is a valid command.
+Move the cursor to any line, edit the values directly on screen,
+and press RETURN to re-enter the modified line as a command.
+This is the C64 screen-editor workflow: the screen *is* your
+input buffer.
+
+For example, `d` might show:
+
+    C000:. A9 42     LDA #$42
+    C002:. 8D 20 D0  STA $D020
+    C005:. 60        RTS
+
+Cursor up to the first line, change `42` to `07`, press RETURN —
+the byte at $C000 is now patched.
+
 ### Expressions
 
 Anywhere CSE expects a number — command arguments, assembler
