@@ -8,6 +8,7 @@ the C64 itself, pure and simple.
 
 ## Contents
 
+- [Concepts](#concepts)
 - [Quick start](#quick-start)
 - [REPL commands](#repl-commands)
 - [Editor](#editor)
@@ -15,6 +16,55 @@ the C64 itself, pure and simple.
 - [Memory layout](#memory-layout)
 - [Built-in symbols](#built-in-symbols)
 - [Development](#development)
+
+## Concepts
+
+CSE has two modes: the **REPL** and the **editor**.  Press RUN/STOP
+to switch between them.
+
+The **REPL** is a command prompt for inspecting memory, assembling,
+running, and debugging code.  Every command operates on the
+*current address* shown in the `AAAA:` prompt.  Navigate with `@`,
+`+`, `-`.
+
+The **editor** is a full-screen text editor for writing assembly
+source.  The `a` command in the REPL assembles the editor's content
+into memory at the current address.
+
+### The edit-assemble-run cycle
+
+1. Write source in the editor (RUN/STOP to enter).
+2. Switch back to the REPL (RUN/STOP).
+3. Set the origin: `@ $C000` (or use `.org` in source).
+4. Assemble: `a`
+5. Run: `g` (jumps to `main:` label).
+6. Inspect: `d` to disassemble, `m` to hex-dump, `r` for registers.
+7. Debug: `b $C010` to set a breakpoint, `g` to run, `t` to step.
+
+Repeat.  The source stays in the editor buffer between runs.
+Save to disk with `s "NAME"` (SEQ file).
+
+### Current address
+
+The REPL prompt shows `AAAA:` — this is the *current address*.
+It determines where `d`, `m`, `.`, `a`, `j` operate.  Set it
+explicitly with `@ EXPR` or navigate with `+`/`-`.  After
+assembly, the current address advances to the `main:` label
+if one was defined.
+
+### Block size
+
+Commands like `d` (disassemble) and `m` (memory dump) operate on
+a chunk of *block size* bytes.  Default is $10 (16).  Change it
+with `B SIZE` (hex).  `+` and `-` also advance/retreat by the
+block size.
+
+### Expressions
+
+Anywhere CSE expects a number — command arguments, assembler
+operands, directive values — you can use a full expression with
+arithmetic, labels, and lo/hi byte operators.  See
+[Assembler syntax](#expressions-1) for details.
 
 ## Quick start
 
@@ -25,9 +75,6 @@ CSE boots into the REPL. Type commands at the `AAAA:` prompt.
 Press RUN/STOP to toggle between the REPL and the source editor.
 
 ## REPL commands
-
-Every command operates on the *current address* shown in the prompt.
-Set it with `@`, advance with `+`, retreat with `-`.
 
 ### Navigation
 
