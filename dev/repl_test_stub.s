@@ -22,9 +22,6 @@
         .export repl_test_read
         .export repl_test_prompt
 
-; ── Exports: satisfy repl.s imports from main.c ──────────────
-        .export _hex_val, _is_hex, _hex_val_to_char
-
 ; ── Exports: screen module ────────────────────────────────────
         .export newline, restore_colors, reset_screen
         .export cursor_show, cursor_hide
@@ -179,61 +176,6 @@ repl_test_prompt:
         jmp show_prompt
 
 ; ═══════════════════════════════════════════════════════════════
-; hex_val / is_hex / hex_val_to_char — pure asm replacements
-; These replace the C versions in main.c. __fastcall__: arg in A.
-; ═══════════════════════════════════════════════════════════════
-
-; hex_val(ch): A → digit value (0-15) or $FF
-.proc _hex_val
-        cmp #'0'
-        bcc @bad
-        cmp #'9'+1
-        bcc @digit
-        cmp #'a'
-        bcc @upper
-        cmp #'f'+1
-        bcc @lower
-        ; fall through to @upper check
-@upper: cmp #'A'
-        bcc @bad
-        cmp #'F'+1
-        bcs @bad
-        sec
-        sbc #'A'-10
-        rts
-@digit: sec
-        sbc #'0'
-        rts
-@lower: sec
-        sbc #'a'-10
-        rts
-@bad:   lda #$FF
-        rts
-.endproc
-
-; is_hex(ch): A → 1 if hex, 0 if not
-.proc _is_hex
-        jsr _hex_val
-        cmp #$FF
-        beq @no
-        lda #1
-        rts
-@no:    lda #0
-        rts
-.endproc
-
-; hex_val_to_char(v): A (0-15) → ASCII char
-.proc _hex_val_to_char
-        cmp #10
-        bcs @alpha
-        clc
-        adc #'0'
-        rts
-@alpha: clc
-        adc #'a'-10
-        rts
-.endproc
-
 ; ═══════════════════════════════════════════════════════════════
 ; Screen stubs
 ; ═══════════════════════════════════════════════════════════════

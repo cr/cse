@@ -8,16 +8,15 @@
 cse/
 ├── Makefile                Build system (make help for targets)
 ├── src/                    Source code
-│   ├── main.c              Init, main loop, mode dispatch
-│   ├── repl.s              REPL command loop and handlers (assembly)
-│   ├── editor.s            Gap buffer editor, rendering, keys (assembly)
+│   ├── main.s              Init, main loop, mode dispatch
+│   ├── repl.s              REPL command loop and handlers
+│   ├── editor.s            Gap buffer editor, rendering, keys
 │   ├── asm_src.s            Two-pass source assembler
-│   ├── asm_bridge.s        C↔asm bridge for _asm_line
+│   ├── asm_bridge.s        PETSCII→VICII bridge, error recovery
 │   ├── asm_line.s          Single-line assembler, zone dispatch
 │   ├── asm_vars.s          Assembler ZP variables
 │   ├── opcode_lookup.s     (profile, mode) → opcode byte
 │   ├── au_mode.s           Addressing mode parser
-│   ├── parse_hex.s         Hex operand parser
 │   ├── mn_classify.s       Mnemonic classifier dispatcher
 │   ├── mn7.s / mn6.s       Hash-based mnemonic lookup
 │   ├── mn_vars.s           Mnemonic classifier ZP variables

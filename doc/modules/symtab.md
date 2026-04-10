@@ -11,7 +11,7 @@
 
 ## Interface
 
-### _sym_define
+### sym_define
 **In:** `sym_name` (ZP, pointer to NUL-terminated name),
 `sym_val` (ZP, 16-bit value), `sym_wide` (ZP, 0=ZP 1=ABS)
 **Out:** C=0 success, C=1 table full
@@ -20,13 +20,13 @@
 If the name already exists, updates the value and width.
 If new, copies the name to the heap and creates a new entry.
 
-### _sym_lookup
+### sym_lookup
 **In:** `sym_name` (ZP, pointer to NUL-terminated name)
 **Out:** `sym_val` (ZP, 16-bit), `sym_wide` (ZP, 0=ZP 1=ABS).
 C=0 found, C=1 not found.
 **Clobbers:** A, X, Y, all _st_* ZP vars
 
-### _sym_clear
+### sym_clear
 **In:** none
 **Out:** all slots zeroed, heap pointer reset to base
 **Clobbers:** A, X
@@ -77,11 +77,11 @@ banked out.  **Writes always pass through** to the underlying RAM
 regardless of `$01` bit 1, so pure-writer functions need no banking
 at all.
 
-`_sym_lookup` and `_sym_define` both read existing entries (probe
+`sym_lookup` and `sym_define` both read existing entries (probe
 scan, name compare) and therefore must bank out before access.
-`_sym_clear` is a pure writer (zeros 1536 bytes) and does not bank.
+`sym_clear` is a pure writer (zeros 1536 bytes) and does not bank.
 
-The banking guard sequence used by `_sym_define` and `_sym_lookup`:
+The banking guard sequence used by `sym_define` and `sym_lookup`:
 
 ```
 sei                 ; disable interrupts
@@ -124,7 +124,7 @@ but `sym_define`'s probing did.
 
 `sei` only masks IRQ, not NMI.  If NMI fires while the KERNAL is
 banked out, the CPU reads the NMI vector from RAM at $FFFA/$FFFB
-instead of ROM.  `_kernal_init` (called once at startup) installs
+instead of ROM.  `kernal_init` (called once at startup) installs
 a 10-byte trampoline at $FF00 in banked RAM and sets the RAM NMI
 vector to point to it.  The trampoline re-banks the KERNAL and
 then jumps through the KERNAL's indirect NMI vector at $0318
@@ -154,10 +154,10 @@ normal mode ($41..) resolve to the same symbol.
 
 ### Name heap
 
-Names are copied to a persistent heap on every `_sym_define` call.
+Names are copied to a persistent heap on every `sym_define` call.
 `name_ptr` always points into the heap, never into source buffers.
 
-The heap starts at fixed address $E600.  `_sym_clear` resets the
+The heap starts at fixed address $E600.  `sym_clear` resets the
 heap pointer to the base.
 
 The heap persists between assemblies — the REPL's `?` command can
@@ -174,19 +174,19 @@ The scope byte's bits 6-0 are reserved but unused.
 
 ### Probing
 
-`_sym_define`: compute hash, probe from `h & $FF`.  For each slot:
+`sym_define`: compute hash, probe from `h & $FF`.  For each slot:
 if empty (name_ptr=0) → new entry (check heap space).  If hash
 matches and name matches (case-insensitive) → update value.
 Otherwise → next slot.  If probe wraps to start → C=1 (full).
 
-`_sym_lookup`: same probe sequence.  Empty slot → C=1 (not found).
+`sym_lookup`: same probe sequence.  Empty slot → C=1 (not found).
 Wraparound to start index → C=1 (not found, table full).
 
 ## Caveats
 
 - 256 slots, all usable.  No dynamic resizing.  When full (or heap
-  overflow), `_sym_define` returns C=1.
-- `_sym_clear` zeros 1536 bytes (6 pages) — takes ~8ms at 1 MHz.
+  overflow), `sym_define` returns C=1.
+- `sym_clear` zeros 1536 bytes (6 pages) — takes ~8ms at 1 MHz.
   No banking is required (pure writer), so interrupts stay enabled
   during the loop.
 - `names_equal` uses a stack peek trick (`tsx; cmp $0101,x`) to

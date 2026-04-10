@@ -166,8 +166,8 @@ CSE and user code share the single 256-byte 6502 hardware stack at
 `$0100–$01FF`.  This section documents how much of that page is
 available to user code when they run it via `j`, `g`, `t`, or `o`.
 
-**Startup resets SP.**  `main.s::startup` begins with `ldx #$FF /
-txs`, wiping whatever BASIC's `SYS` command left on the stack.
+**Startup resets SP.**  `loader.s::loader_entry` begins with
+`ldx #$FF / txs`, wiping whatever BASIC's `SYS` command left.
 This is safe because CSE never returns to BASIC — the main loop
 is `jmp @loop` and `@exit` halts via its own infinite loop.  Every
 subsequent `jsr` therefore layers onto a cleanly empty stack.
@@ -240,8 +240,8 @@ to keep the build-test cycle fast.
 
 The CRT build has no loader — CODE + RODATA live in ROM at their
 final address.  Only BSS zeroing, KDATA copy, and KBSS zeroing
-are needed at startup.  The CRT init vector jumps directly to the
-permanent entry point in mem.s.
+are needed at startup.  The CRT init code performs these steps
+then jumps to `_main`.
 
 ## Loader Module (loader.s)
 
@@ -258,7 +258,7 @@ segments and jumps to the entry point.
 4. Initialize banked region under KERNAL (pure writer, no
    banking needed): copy KDATA to $F100+ and $FF00,
    zero KBSS areas (sym_table, heap, screen save)
-5. Jump to `mem_init` in the permanent memory manager
+5. Jump to `_main` (now at its runtime address)
 
 The loader lives in the LOADER segment, placed at $080D (right
 after the BASIC stub).  After step 5, nothing references the
@@ -270,7 +270,7 @@ loader and equally discardable.
 
 **CRT builds** do not link the loader.  The CRT init code
 performs only steps 1, 3–5 (stack reset, BSS zero, banked init,
-jump to `mem_init`), since CODE + RODATA are already in ROM.
+jump to `_main`), since CODE + RODATA are already in ROM.
 
 **C128 consideration:** The loader architecture does not assume
 a specific memory banking model.  A future C128-native loader
@@ -289,7 +289,6 @@ asm_src.s (workspace symbols).
 
 | Function | Purpose |
 |----------|---------|
-| `mem_init` | One-time init: unmap BASIC ROM, install NMI trampoline, define workstart/workend symbols, fill free memory |
 | `kernal_bank_out` | SEI + clear $01 bit 1 (honours `kernal_out` flag) |
 | `kernal_bank_in` | Set $01 bit 1 + CLI (honours `kernal_out` flag) |
 | `kernal_init` | Install NMI trampoline at $FF00 |
@@ -298,9 +297,9 @@ asm_src.s (workspace symbols).
 | `cse_end` | Returns first byte past runtime ($D000) in A/X |
 | `cse_zp_end` | Returns first free ZP byte in A |
 
-`mem_init` is the entry point after the loader (or CRT init)
-completes.  It performs all one-time setup that the permanent
-runtime needs before entering the main loop.
+After the loader (or CRT init) jumps to `_main`, the main loop
+calls mem.s functions for one-time setup (BASIC unmap, NMI
+trampoline, workspace symbols, free memory fill).
 
 The KERNAL banking functions move from symtab.s to mem.s.
 symtab.s imports them like any other module.  The ordering rule
@@ -319,7 +318,7 @@ growing downward from the CSE runtime start:
     XXXX           workend + 1 = CSE runtime start
 
 The `workstart` and `workend` symbols are pre-defined in the symbol
-table by `mem_init`, usable in assembly (`.org workstart`) and REPL
+table by `_main` (via `define_ws_syms`), usable in assembly (`.org workstart`) and REPL
 expressions (`@ workend`, `j workstart`).  `workstart` is always
 $0800.  `workend` adjusts when the editor resizes the gap buffer
 (`update_workend` in editor.s).

@@ -28,15 +28,10 @@ ST_EDIT=2).
 
 ## Design
 
-Startup (`startup` segment):
-1. Reset SP to `$FF` so BASIC's SYS residue is wiped.  CSE
-   never returns to BASIC; the main loop is `jmp`-based and
-   `@exit` halts.  See [memory_design.md § Stack budget](../memory_design.md#stack-budget).
-2. Zero BSS.
-3. Copy the KDATA segment (mnemonic / dasm tables) from the
-   PRG load area to RAM under KERNAL at `$F100`.  Pure-writer
-   path — no banking required.
-4. `jmp _main`.
+Startup is handled by `loader.s` (PRG) — see
+[memory_design.md § Loader Module](../memory_design.md).
+The loader resets SP, relocates CODE+RODATA to high memory,
+zeros BSS, copies KDATA, then `jmp _main`.
 
 Main init (`_main`):
 1. Enable key repeat for all keys (`KEY_REPEAT |= $80`).

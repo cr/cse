@@ -1,7 +1,7 @@
 ; main.s — hardware init, NMI intercept, mode switch, main loop
 ;
-; This is the entry point for CSE.  No C runtime — provides its own
-; BASIC SYS stub, BSS zeroing, and parameter stack init.
+; Jumped to by loader.s after relocation and BSS zeroing.
+; Provides the BASIC SYS stub (EXEHDR) and the main event loop.
 
         .setcpu "6502"
         .macpack longbranch

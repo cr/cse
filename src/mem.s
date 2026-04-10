@@ -1,11 +1,8 @@
-; mem.s — Memory manager: banking, copy/fill, segment queries
+; mem.s — Memory manager: banking, segment queries, workspace symbols
 ;
 ; Permanent module that consolidates all runtime memory services.
-; The loader (loader.s) or CRT init jumps to mem_init after
-; relocating the payload and initializing BSS/KDATA/KBSS.
 ;
 ; Exports:
-;   mem_init         one-time setup (BASIC unmap, NMI, workstart/workend)
 ;   kernal_bank_out  SEI + clear $01 bit 1 (honours kernal_out)
 ;   kernal_bank_in   set $01 bit 1 + CLI (honours kernal_out)
 ;   kernal_init      install NMI trampoline at $FF00
@@ -24,7 +21,6 @@
         .export define_ws_syms
 
 ; ── Imports ──────────────────────────────────────────────────
-        .importzp rp_ptr, rp_ptr2, rp_tmp
         .importzp buf_base
         .importzp sym_name, sym_val, sym_wide
         .import sym_define
@@ -32,11 +28,9 @@
 
 ; ── Constants ────────────────────────────────────────────────
 CPU_PORT     = $01
-MEM_CONFIG   = $01
-NMI_VEC      = $0318          ; KERNAL NMI indirect vector
 NMI_TRAMP    = $FF00
 NMI_VEC_RAM  = $FFFA
-KERNAL_NMIV  = $0318
+KERNAL_NMIV  = $0318          ; KERNAL indirect NMI vector (RAM)
 WORKSTART    = $0800
 HIMEM        = $D000
 
