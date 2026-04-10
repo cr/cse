@@ -1,24 +1,257 @@
-# CSE — C64 Screen Editor
+# CSE -- THE ULTIMATE C64 ASM ENV
 
-An integrated assembler development environment for the Commodore 64.
-MasterSeka's workflow meets radare2's power — sketch ideas fast,
-assemble, run, debug, iterate.  All on the C64 itself.
+CSE is the native, integrated assembler environment for the C64 that
+you did not know you were missing. Its functionality and workflows are
+heavily inspired by MasterSeka, radare2, and SMON. Sketch and iterate
+ideas fast, edit, assemble, run, debug in one place, all natively on
+the C64 itself, pure and simple.
 
-## Quick Start
+## Quick start
+
+    LOAD "CSE",8,1
+    RUN
+
+CSE boots into the REPL. Type commands at the `AAAA:` prompt.
+Press RUN/STOP to toggle between the REPL and the source editor.
+
+## REPL commands
+
+Every command operates on the *current address* shown in the prompt.
+Set it with `@`, advance with `+`, retreat with `-`.
+
+### Navigation
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `@` | `@ EXPR` | Set current address |
+| `+` | `+ [EXPR]` | Advance by EXPR (default: block size) |
+| `-` | `- [EXPR]` | Retreat by EXPR (default: block size) |
+| `B` | `B [SIZE]` | Show or set block size (hex, default $10) |
+
+### Inspect and edit memory
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `.` | `.` | Disassemble one instruction at current address |
+| `.` | `. HH [HH] [HH]` | Poke 1--3 hex bytes at current address |
+| `.` | `. MNEM [OPERAND]` | Assemble one instruction at current address |
+| `d` | `d` | Disassemble block-size bytes |
+| `m` | `m` | Hex+ASCII dump of block-size bytes |
+| `m` | `m [HH] [HH] ...` | Edit up to 8 bytes at current address |
+| `i` | `i` | Show full memory map |
+
+### Assembler
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `a` | `a` | Assemble source from editor at current address |
+| `u` | `u [MODE]` | Show or set CPU mode: `6502`, `6510`, `65c02` (available modes depend on build) |
+
+After `a`, the current address advances past the assembled code.
+If the source defines a `main:` label, `g` will jump there.
+
+### Run and debug
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `j` | `j [ADDR]` | Execute code at address (default: current) |
+| `g` | `g` | Execute at label `main` |
+| `t` | `t [N]` | Step into (N instructions, default 1) |
+| `o` | `o [N]` | Step over (N instructions, default 1) |
+| `c` | `c` | Continue from breakpoint |
+| `b` | `b` | List breakpoints |
+| `b` | `b ADDR` | Set breakpoint (8 slots) |
+| `b` | `b -N` | Delete breakpoint N |
+| `b` | `b *` | Clear all breakpoints |
+| `r` | `r` | Show registers (A, X, Y, SP, flags) |
+| `r` | `r A:XX X:XX ...` | Set registers |
+
+RUN/STOP+RESTORE triggers an NMI break into the debugger.
+
+Stepping into a JSR whose target is in KERNAL ROM ($E000--$FFFF)
+automatically falls back to step-over.
+
+### Files
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `l` | `l "NAME"` | Load file from disk (SEQ->editor, PRG->memory) |
+| `s` | `s "NAME" [END]` | Save (SEQ from editor, PRG from memory range) |
+| `$` | `$ [DEVICE]` | Directory listing (default device 8) |
+
+SEQ files are source code (loaded into the editor).
+PRG files are binary (loaded/saved at the current address).
+
+### Utility
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `?` | `? EXPR` | Calculator -- shows hex, decimal, binary, signed |
+| `C` | `C [B] [G] [F]` | Show or set colors (border, background, foreground) |
+| `k` | `k` | Delete source (with confirmation) |
+| `x` | `x` | Clear screen |
+| `Q` | `Q` | Quit CSE (with unsaved guard) |
+
+Color values are single hex digits 0--F (C64 palette).
+`C F` sets foreground only; `C B F` sets border+foreground;
+`C B G F` sets all three.
+
+## Editor
+
+Press RUN/STOP to enter the editor from the REPL and back.
+
+| Key | Action |
+|-----|--------|
+| Printable | Insert character (39-column visual limit) |
+| RETURN | Newline with auto-indent |
+| DEL | Backspace |
+| Cursor keys | Navigate |
+| HOME | Start of line |
+| C=+SPACE | Tab (to next tab stop) |
+| RUN/STOP | Return to REPL |
+
+The editor uses a gap buffer that grows downward from $D000.
+The status bar shows the cursor position, line count, dirty flag,
+and free bytes.
+
+## Assembler syntax
+
+Full syntax spec: [doc/assembler_syntax.md](doc/assembler_syntax.md)
+
+### Source lines
+
+    [label:]  [instruction | directive]  [; comment]
+
+### Labels
+
+    main:           ; global
+    .loop:          ; local (scoped to last global)
+
+Case-insensitive. Characters: a--z, 0--9, dot.
+
+### Addressing modes
+
+    LDA #$42        ; immediate
+    LDA $42         ; zero page
+    LDA $42,X       ; zero page,X
+    LDA $1000       ; absolute
+    LDA $1000,X     ; absolute,X
+    LDA $1000,Y     ; absolute,Y
+    LDA ($42,X)     ; (indirect,X)
+    LDA ($42),Y     ; (indirect),Y
+    JMP ($1000)     ; indirect
+    LDA ($42)       ; zero page indirect (65C02 build only)
+    JMP ($1000,X)   ; absolute indirect,X (65C02 build only)
+    ROL A           ; accumulator
+    BEQ .loop       ; relative (assembler computes offset)
+
+### Directives
+
+    .org $C000              ; set origin
+    .const NAME EXPR        ; define constant
+    .cpu 6502               ; set CPU mode
+    .db $41, $42, 0         ; emit bytes
+    .dw $1234, label        ; emit words (little-endian)
+    .str "hello", 0         ; emit PETSCII string
+    .scr "HELLO"            ; emit screen codes
+    .res 256, $EA           ; reserve and fill
+    .align 256              ; align to boundary
+
+### Expressions
+
+Anywhere a value is expected:
+
+    LDA #<screen            ; lo byte
+    STA table+40            ; arithmetic
+    LDX #cols-1             ; constant
+    LDA #mask & $0F         ; bitwise
+
+Number formats: `$FF` hex, `42` decimal, `%10101010` binary, `*` PC.
+
+Operators (loosest to tightest):
+
+    \pounds & ^             ; OR AND XOR
+    + -                     ; add subtract
+    * / << >>               ; multiply divide shift
+    - ! < >                 ; negate NOT lo-byte hi-byte (unary)
+    ( )                     ; grouping
+
+Width rule: `$XX` (1--2 hex digits) is zero-page; `$0XX`+ (3--4
+digits) forces absolute.  Width is sticky across operators.
+
+### Example
+
+    .cpu 6502
+    .org $C000
+
+    .const border $D020
+
+    main:   ldx #0
+    .loop:  stx border
+            ldy #4
+    .wait:  dey
+            bne .wait
+            inx
+            bne .loop
+            rts
+
+Assemble and run:
+
+    C000:a          ; assemble
+    g               ; run (jumps to main:)
+
+## Memory layout
+
+At startup CSE shows the free memory available:
+
+      zp 0002-007F      126b free
+     sys 0200-03FF      512b free
+    work XXXX-CFFF    NNNNNb free
+
+| Region | Address | Use |
+|--------|---------|-----|
+| User ZP | $0002--$007F | Your zero-page variables |
+| System | $0200--$03FF | Usable RAM (below screen) |
+| Screen | $0400--$07FF | VIC-II screen RAM |
+| CSE | $0800--cse_end | CSE code and data |
+| Workspace | cse_end--$CFFF | Your programs and data |
+| I/O | $D000--$DFFF | VIC-II, SID, CIA |
+| KERNAL | $E000--$FFFF | KERNAL ROM (CSE uses RAM underneath for symbol table) |
+
+CSE unmaps BASIC ROM, so the full $0800--$CFFF range is available
+as contiguous workspace.
+
+## Built-in symbols
+
+| Symbol | Value | Description |
+|--------|-------|-------------|
+| `workstart` | first free byte after CSE | Start of workspace |
+| `workend` | $CFFF (adjusts with editor) | End of workspace |
+
+Use in assembler: `.org workstart`
+
+Use in REPL: `@ workstart`, `j workstart`
+
+## Development
+
+### Quick start
 
     make            # build cse.prg (requires ca65/ld65)
     make run        # build + launch in VICE
     make test       # run pytest test suite (requires py65)
 
-## Documentation
+### Documentation
 
-All design docs, module specs, and project goals live in [`doc/`](doc/README.md).
+All design docs, module specs, and project goals live in
+[`doc/`](doc/README.md).
 
-Start there.
+### Build requirements
 
-## Build Requirements
-
-- [cc65](https://cc65.github.io/) — provides `ca65` (assembler) and `ld65` (linker).  CSE is pure 6502 assembly; the cc65 *C compiler* is not used.
-- [VICE](https://vice-emu.sourceforge.io/) — C64 emulator (for `make run`)
-- Python 3 + [py65](https://pypi.org/project/py65/) — test harness
+- [cc65](https://cc65.github.io/) -- provides `ca65` (assembler)
+  and `ld65` (linker).  CSE is pure 6502 assembly; the cc65
+  C compiler is not used.
+- [VICE](https://vice-emu.sourceforge.io/) -- C64 emulator
+  (for `make run`)
+- Python 3 + [py65](https://pypi.org/project/py65/) -- test harness
 - pipenv or virtualenv for the test environment
+- C64 KERNAL ROM for testing (copied from VICE; see `make test`)

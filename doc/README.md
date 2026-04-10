@@ -124,6 +124,14 @@ the DDD System entirely.
 7. **Test contract health** — xfails reviewed: graduated to bugs or
    confirmed still expected; all documented modules have a test
    contract or an explicit reason they don't.
+8. **User manual fidelity** — the root `README.md` is the user
+   reference manual linked from the splash screen.  It is not a
+   corpus document (it owns no code), but it derives from corpus
+   documents: `assembler_syntax.md`, `modules/repl.md`,
+   `modules/editor.md`, `modules/debugger.md`, `modules/expr.md`,
+   `memory_design.md`.  Verify that every command, directive,
+   addressing mode, and key binding listed in the README matches
+   the current code as documented in those source documents.
 
 **Output:** a DDD Maintenance Report listing findings by category.
 Mechanical corrections (broken links, stale comments, formatting)
@@ -295,6 +303,7 @@ See [DDD Maintenance](#ddd-maintenance) for the full audit scope and trigger.
 
 | Document | Scope |
 |----------|-------|
+| [README.md](../README.md) | User reference manual (REPL commands, editor, assembler, debugger, memory map).  Not a corpus document — maintained via DDD Maintenance item 8. |
 | [assembler_syntax.md](assembler_syntax.md) | Source language: labels, instructions, directives, expressions |
 
 ### Project management

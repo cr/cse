@@ -58,11 +58,15 @@ should wait until the stabilization phase wraps up.
   carry warning docstrings flagging them as the cautionary
   examples.  No new mirror tests should be added; existing ones
   retire when the Phase 9 `C64Emu` test harness rewrite lands.
-- [ ] 8 xfailed tests in `TestStepIntoJSR_ROMFallback` — the tests
-  are correct but break on any code size change because they
-  compute `step_witness` from a BSS layout offset.  Phase 9
-  migration to C64Emu + `emu.sym()` eliminates the layout
-  sensitivity; remove xfail after migration.
+- [x] ~~8 xfailed tests in `TestStepIntoJSR_ROMFallback`~~ — fixed:
+  ported to `test_step_rom.py` using C64Emu + production PRG.
+  Patches `dbg_enter` to snapshot `step_bp` and return.  All 8
+  pass, 0 xfails remain.
+- [ ] README cross-reference tests (Phase 9 stretch): parse the
+  command tables in `README.md` and verify each command key has a
+  matching handler symbol in the `.lbl` file.  Catches renamed or
+  removed commands without a README update.  Low cost, runs every
+  `make test`.  See DDD Maintenance item 8.
 - [x] ~~Clean up `dev/test.d64`~~ — done (see top-10 item 5).
 - [x] ~~Review all user-facing strings~~ — done 2026-04-08,
   updated 2026-04-10.  Convention in `repl.s` `str_*` table:
