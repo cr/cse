@@ -118,6 +118,7 @@ all:
 	@$(MAKE) --no-print-directory CPU=6510  _one TARGET="6510  cse.prg"
 	@$(MAKE) --no-print-directory CPU=6502  _one TARGET="6502  cse-6502.prg"
 	@$(MAKE) --no-print-directory CPU=65c02 _one TARGET="65c02 cse-cmos.prg"
+	@$(MAKE) --no-print-directory CPU=6510  disk
 
 # -----------------------------------------------------------------------
 # _one — build a single CPU target (called by 'all' or directly)
