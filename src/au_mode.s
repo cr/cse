@@ -433,4 +433,4 @@ mode_parse:
         rts
 
 ; asm_syntax_error is imported – provided by the assembler's error handler
-; (or by dev/au_mode_test_stub.s for host-side testing)
+; (or by dev/asm_core_test_stub.s for host-side testing)

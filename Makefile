@@ -257,21 +257,7 @@ $(TABLE_OUTS): $(TABLES_STAMP)
 # test-bins — assemble the three py65 unit-test binaries
 # -----------------------------------------------------------------------
 
-# au_mode ----------------------------------------------------------------
-AU_BIN = $(ROOT)build/au_mode_test.bin
-AU_MAP = $(ROOT)build/au_mode_test.map
-AU_LST = $(ROOT)build/au_mode_test.lst
-AU_O1  = $(ROOT)build/au_mode.o
-AU_O2  = $(ROOT)build/au_mode_test_stub.o
-
-$(AU_O1): $(SRC)/au_mode.s | $(ROOT)build/
-	$(T65) --listing $(AU_LST) $< -o $@
-
-$(AU_O2): $(DEV)/au_mode_test_stub.s | $(ROOT)build/
-	$(T65) $< -o $@
-
-$(AU_BIN): $(AU_O1) $(AU_O2) $(DEV)/test.cfg
-	$(LD65) -C $(DEV)/test.cfg $(AU_O1) $(AU_O2) -o $@ -m $(AU_MAP)
+# (au_mode test binary removed — now part of asm_core bundle built by conftest.py)
 
 # mn6 --------------------------------------------------------------------
 MN6_BIN = $(ROOT)build/mn6_test.bin
@@ -314,7 +300,7 @@ $(MN7_BIN): $(MN7_O1) $(MN7_O2) $(MN7_O3) $(DEV)/test.cfg
 	$(LD65) -C $(DEV)/test.cfg $(MN7_O1) $(MN7_O2) $(MN7_O3) -o $@ -m $(MN7_MAP)
 
 .PHONY: test-bins
-test-bins: $(AU_BIN) $(MN6_BIN) $(MN7_BIN)
+test-bins: $(MN6_BIN) $(MN7_BIN)
 
 # -----------------------------------------------------------------------
 # run — build disk image and launch in VICE
