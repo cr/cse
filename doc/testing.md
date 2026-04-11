@@ -261,7 +261,7 @@ get their own small binary.  Current layout:
 
 | Bundle | Modules | Stub | Tests |
 |--------|---------|------|-------|
-| `asm_core` | asm_vars, opcode_lookup, asm_line, au_mode, expr, symtab, mem, mn7, mn_classify, mn_modes, mn_asm_tables | `asm_core_test_stub.s` (BRK error + linker symbols) | test_au_mode, test_asm_line |
+| `asm_core` | zp, opcode_lookup, asm_line, au_mode, expr, symtab, mem, mn7, mn_classify, mn_modes, mn_asm_tables | `asm_core_test_stub.s` (linker symbols) | test_au_mode, test_asm_line |
 | `mn6` / `mn7` | mn_vars + mn6/mn7 + tables | (none — pure leaf) | test_mnhash |
 | `asm_src` | asm_core + asm_src | `asm_src_test_stub.s` (ed_read_line mock) | test_asm_src |
 

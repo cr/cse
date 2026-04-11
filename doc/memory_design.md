@@ -55,9 +55,9 @@ registers.  This is preferred for multi-field I/O:
 
 | ZP group | Owner | Fields | Used by |
 |----------|-------|--------|---------|
-| Assembler I/O | asm_vars | `asm_pc`, `asm_out`, `asm_cpu`, `asm_len`, `asm_mode` | asm_line, asm_src |
-| Symbol I/O | asm_vars | `sym_name` (ptr), `sym_val`, `sym_wide` | symtab, asm_src, expr, repl |
-| Expression I/O | asm_vars | `expr_ptr` (ptr), `expr_val`, `expr_wide` | expr, asm_src, repl |
+| Assembler I/O | zp | `asm_pc`, `asm_out`, `asm_cpu`, `asm_len`, `asm_mode` | asm_line, asm_src |
+| Symbol I/O | zp | `sym_name` (ptr), `sym_val`, `sym_wide` | symtab, asm_src, expr, repl |
+| Expression I/O | zp | `expr_ptr` (ptr), `expr_val`, `expr_wide` | expr, asm_src, repl |
 | Mnemonic chars | mn_vars | `mn_c1`, `mn_c2`, `mn_c3` | mn_classify, mn7/mn6, asm_line |
 
 Callers set the input fields, call the function, read the output
@@ -327,27 +327,27 @@ $0800.  `workend` adjusts when the editor resizes the gap buffer
 
 ### Overview
 
-86 bytes across 13 modules, linker-assigned from $02 upward.
-40 bytes free ($58–$7F) for user programs.
+85 bytes ($02–$56), all defined in `src/zp.s` (single source of truth).
+41 bytes free ($57–$7F) for user programs.
 
 ### Module allocation (6510 build)
 
-| Range | Bytes | Module | Variables |
-|-------|-------|--------|-----------|
+| Range | Bytes | Consumer | Variables |
+|-------|-------|----------|-----------|
 | $02–$07 | 6 | main | `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) |
 | $08 | 1 | asm_line | `_asm_saved_sp` (1) |
-| $09–$20 | 24 | asm_vars | assembler + symbol + expression I/O (see § Shared state) |
-| $21–$23 | 3 | asm_src | `as_ptr` (2), `as_wsize` (1) |
+| $09–$20 | 24 | assembler | `asm_pc`..`expr_wide` (see § Shared state) |
+| $21–$23 | 3 | asm_src | `_as_ptr` (2), `_as_wsize` (1) |
 | $24–$26 | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
-| $27 | 1 | mn7 | `mn7_h_tmp` (1) |
+| $27 | 1 | mn7/mn6 | `mn7_h_tmp` / `mn6_h_tmp` (1, aliased) |
 | $28–$2B | 4 | au_mode | `asm_ptr` (2), `asm_opr` (2) |
 | $2C | 1 | opcode_lookup | `_asm_ok_tmp` (1) |
-| $2E–$31 | 4 | cse_io | `io_tmp` (2), `io_scr` (2) |
-| $32–$33 | 2 | disk | `disk_ptr` (2) |
-| $34–$37 | 4 | expr | `ex_tmp` (2), `ex_digits` (1), `ex_wide_tmp` (1) |
-| $38–$41 | 10 | symtab | hash/probe state, heap pointers |
-| $42–$49 | 8 | dasm | decode state, output pointer |
-| $4A–$57 | 14 | editor | gap pointers, screen scratch |
+| $2D–$30 | 4 | cse_io | `_io_tmp` (2), `_io_scr` (2) |
+| $31–$32 | 2 | disk | `disk_ptr` (2) |
+| $33–$36 | 4 | expr | `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1) |
+| $37–$40 | 10 | symtab | hash/probe state, heap pointers |
+| $41–$48 | 8 | dasm | decode state, output pointer |
+| $49–$56 | 14 | editor | gap pointers, screen scratch |
 
 ### Non-concurrent groups
 

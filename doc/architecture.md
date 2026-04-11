@@ -67,8 +67,8 @@ Support modules (internal to the assembler pipeline):
 | opcode_lookup.s | (profile, mode) → opcode byte | [opcode_lookup.md](modules/opcode_lookup.md) |
 | au_mode.s | Addressing mode operand parser | [au_mode.md](modules/au_mode.md) |
 | mn_classify.s | Build-time dispatcher: selects mn6 or mn7 | [mn_classify.md](modules/mn_classify.md) |
-| asm_vars.s | Shared ZP variable definitions | — |
-| mn_vars.s | Mnemonic classifier ZP variables | — |
+| zp.s | Central zero-page layout (all 85 bytes) | — |
+| mn_vars.s | Mnemonic classifier inputs (mn_c1/c2/c3) | — |
 
 Generated files (do not edit — regenerate with `make tables`):
 

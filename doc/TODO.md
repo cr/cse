@@ -197,7 +197,7 @@ Defined scope, needs work.
 
 - [x] Relocating startup: done (Roadmap R2, Session 10).
 
-- [ ] **PETSCII pipeline unification + expr_eval in line assembler.**
+- [x] **PETSCII pipeline unification + expr_eval in line assembler.**
   Phase-level work (~2-3 sessions).  Estimated savings: ~474 B
   CODE + 80 B BSS.  Eliminates the VICII/PETSCII encoding split,
   the `_insn_buf` round-trip, and the duplicate hex parser.  Gives
@@ -250,7 +250,7 @@ Defined scope, needs work.
   pattern or C64Emu integration tests.  Eliminates per-module stubs.
   See testing.md § Test bundle architecture.
 - [x] Central `zp.s` owning the entire zero-page layout.  (Phase 12, done)
-  All 84 ZP bytes defined in `src/zp.s` with `.exportzp`.  13 modules
+  All 85 ZP bytes defined in `src/zp.s` with `.exportzp`.  13 modules
   migrated from local `.segment "ZEROPAGE"` to `.importzp`.  `asm_vars.s`
   deleted (role absorbed by zp.s).  All test stubs and configs updated
   to link zp.s.  Pure refactor: 0 bytes size change, 2797 tests pass.

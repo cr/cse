@@ -115,7 +115,6 @@ for the full list, parameters, and per-pass behaviour.
 **BSS:** `_asm_pass` (1B), `_line_num` (2B), `_line_buf` (80B),
 `_scope_name` (24B), `_full_label` (48B), `_insn_buf` (32B),
 `_expr_buf` (48B), `_as_conv` (1B, screen code conversion flag),
-`_as_flags` (1B, operand prefix bits: bit 0=#, bit 1=paren),
 `_eb_idx` (1B, write index into _expr_buf),
 `_ib_idx` (1B, write index into _insn_buf)
 

@@ -13,7 +13,7 @@ cse/
 │   ├── editor.s            Gap buffer editor, rendering, keys
 │   ├── asm_src.s            Two-pass source assembler
 │   ├── asm_line.s          Single-line assembler, zone dispatch
-│   ├── asm_vars.s          Assembler ZP variables
+│   ├── zp.s                Central zero-page layout (all modules)
 │   ├── opcode_lookup.s     (profile, mode) → opcode byte
 │   ├── au_mode.s           Addressing mode parser
 │   ├── mn_classify.s       Mnemonic classifier dispatcher

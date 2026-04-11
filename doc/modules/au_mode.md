@@ -27,7 +27,7 @@
 ### Memory
 
 **ZP (4 bytes):** `asm_ptr` (2), `asm_opr` (2).
-Also uses `expr_ptr`, `expr_val`, `expr_wide` (owned by asm_vars.s).
+Also uses `expr_ptr`, `expr_val`, `expr_wide` (defined in zp.s).
 
 ## Design
 
