@@ -247,6 +247,16 @@ Defined scope, needs work.
 - [ ] Test framework: migrate dasm, expr, repl test binaries to bundle
   pattern or C64Emu integration tests.  Eliminates per-module stubs.
   See testing.md § Test bundle architecture.
+- [ ] Central `zp.s` owning the entire zero-page layout.  Currently
+  each module defines its own ZP segment entries (asm_vars.s, au_mode.s,
+  opcode_lookup.s, mn_vars.s, mn7.s, expr.s, etc.).  The linker
+  concatenates them in link order, making the layout implicit and
+  fragile — reordering objects or adding a byte shifts everything
+  downstream.  A single `zp.s` would `.exportzp` all symbols with
+  explicit addresses (`.org` or `.res` with known offsets), giving
+  one authoritative map that matches `doc/memory_design.md`.  Modules
+  `.importzp` what they need.  Benefits: deterministic layout, no
+  doc drift, safer test stubs, easier overlap optimizations.
 - [ ] Global release version: single `VERSION` definition (currently
   Makefile `VERSION ?= 0.1`) that flows to D64 disk name, PRG
   filenames, splash screen string, and documentation.  Current
