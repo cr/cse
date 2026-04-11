@@ -35,7 +35,7 @@ BP_SIZE  = 4
 
 # ── Build ────────────────────────────────────────────────────
 
-_SOURCES = [SRC / "debugger.s", DEV / "debugger_test_stub.s", DEV / "test.cfg"]
+_SOURCES = [SRC / "zp.s", SRC / "debugger.s", DEV / "debugger_test_stub.s", DEV / "test.cfg"]
 
 def _needs_rebuild():
     if not BIN.exists(): return True
@@ -44,11 +44,13 @@ def _needs_rebuild():
 
 def _build():
     BUILD.mkdir(exist_ok=True)
-    for name, src in [("debugger", SRC / "debugger.s"),
+    for name, src in [("zp_dbg", SRC / "zp.s"),
+                      ("debugger", SRC / "debugger.s"),
                       ("debugger_test_stub", DEV / "debugger_test_stub.s")]:
         subprocess.run(["ca65", "--cpu", "6502", str(src),
                         "-o", str(BUILD / f"{name}.o")], check=True)
     subprocess.run(["ld65", "-C", str(DEV / "test.cfg"),
+                    str(BUILD / "zp_dbg.o"),
                     str(BUILD / "debugger.o"), str(BUILD / "debugger_test_stub.o"),
                     "-o", str(BIN), "-m", str(MAP)], check=True)
 

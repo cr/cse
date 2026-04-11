@@ -2,7 +2,7 @@
 ;
 ; Memory layout:
 ;   $0300-$030F: instruction bytes (placed by Python)
-;   $F0:         asm_cpu value (set by Python before call)
+;   asm_cpu:     CPU mode (set by Python before call, from zp.s)
 ;
 ; Entry: JSR dasm_test_entry
 ;   Calls dasm_insn with addr=$0300
@@ -14,12 +14,7 @@
 
         .import dasm_insn
 
-        .exportzp asm_cpu
-
-.segment "ZEROPAGE"
-asm_cpu:         .res 1          ; CPU mode: 0=6502 1=6510 2=65C02
-
-.segment "CODE"
+        .segment "CODE"
 
 .proc dasm_test_entry
         ; Call dasm_insn with addr = $0B00 (__fastcall__: A=lo, X=hi)
@@ -30,11 +25,9 @@ asm_cpu:         .res 1          ; CPU mode: 0=6502 1=6510 2=65C02
         rts
 .endproc
 
-; ── Bank helpers — mirror the symtab.s versions ──
+; ── Bank helpers ──
 ; In py65 there is no actual KERNAL ROM gating, but we still
-; toggle $01 bit 1 so tests can witness the bank state after
-; dasm_insn returns.  No kernal_out flag here — the dasm path
-; never participates in a batch.
+; toggle $01 bit 1 so tests can witness the bank state.
 kernal_bank_out:
         sei
         lda $01

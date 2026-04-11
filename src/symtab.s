@@ -36,13 +36,7 @@ ENTRY_SIZE = 6              ; hash(1) + value(2) + name_ptr(2) + scope(1)
 ; Probe-wrap detection in sym_define / sym_lookup catches a full table.
 
 ; ── ZP scratch ───────────────────────────────────────────
-.segment "ZEROPAGE"
-_st_hash:    .res 1         ; computed hash
-_st_idx:     .res 1         ; current probe index
-_st_ptr:     .res 2         ; pointer to current entry
-_st_nptr:    .res 2         ; pointer for name comparison
-_st_heap:    .res 2         ; current heap write pointer
-_st_heap_base: .res 2       ; heap base (fixed at SYM_HEAP)
+.importzp _st_hash, _st_idx, _st_ptr, _st_nptr, _st_heap, _st_heap_base
 
 ; ── Banked RAM layout under KERNAL ROM ($E000–$FFFF) ─────
 ; $E000–$E5FF  sym_table   (256 slots × 6B = 1536 bytes)

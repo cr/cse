@@ -25,11 +25,7 @@
         .import kernal_bank_out, kernal_bank_in
 
 ; ── ZP usage ─────────────────────────────────────────────
-.segment "ZEROPAGE"
-_dasm_ptr:      .res 2          ; instruction address
-_dasm_opc:      .res 1          ; saved opcode byte
-_dasm_mne:      .res 2          ; packed mnemonic (2 bytes)
-_dasm_wptr:     .res 1          ; write index into dasm_buf
+.importzp _dasm_ptr, _dasm_opc, _dasm_mne, _dasm_wptr, _dasm_midx, _dasm_mode
 
 ; ── BSS ──────────────────────────────────────────────────
 .segment "BSS"
@@ -93,10 +89,6 @@ dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
 
 ; Top-level decode stores mne_idx and mode_idx in ZP,
 ; then calls print_mne, then format_operand.
-
-.segment "ZEROPAGE"
-_dasm_midx:     .res 1          ; mnemonic index
-_dasm_mode:     .res 1          ; mode index
 
 .segment "CODE"
 

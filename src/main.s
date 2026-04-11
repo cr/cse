@@ -12,7 +12,7 @@
         .export state
 
 ; ── Runtime ZP ───────────────────────────────────────────────
-        .exportzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
+        .importzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
 
 ; ── Imports ──────────────────────────────────────────────────
         .import puts_imm
@@ -65,14 +65,6 @@ CH_ESC       = $1B
 ; KERNAL ZP
 CUR_COL      = $D3
 CUR_ROW      = $D6
-
-; ── Zero page (runtime) ─────────────────────────────────────
-.segment "ZEROPAGE"
-
-rp_ptr:   .res 2                  ; scratch pointer (repl.s, debugger.s)
-rp_ptr2:   .res 2                  ; scratch pointer (repl.s)
-rp_tmp:   .res 1                  ; scratch byte (repl.s)
-rp_tmp2:   .res 1                  ; scratch byte (repl.s)
 
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"

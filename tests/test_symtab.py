@@ -33,7 +33,7 @@ _RETURN     = 0x0F00
 # ── Build ────────────────────────────────────────────────────
 
 def _sources():
-    return [SRC / "symtab.s", SRC / "mem.s",
+    return [SRC / "zp.s", SRC / "symtab.s", SRC / "mem.s",
             DEV / "symtab_test_stub.s", DEV / "test.cfg"]
 
 def _needs_rebuild():
@@ -43,12 +43,14 @@ def _needs_rebuild():
 
 def _build():
     BUILD.mkdir(exist_ok=True)
-    for name, src in [("symtab", SRC / "symtab.s"),
+    for name, src in [("zp_st", SRC / "zp.s"),
+                      ("symtab", SRC / "symtab.s"),
                       ("mem", SRC / "mem.s"),
                       ("symtab_test_stub", DEV / "symtab_test_stub.s")]:
         subprocess.run(["ca65", "--cpu", "6502", "-t", "c64", str(src),
                         "-o", str(BUILD / f"{name}.o")], check=True)
     subprocess.run(["ld65", "-C", str(DEV / "test.cfg"),
+                    str(BUILD / "zp_st.o"),
                     str(BUILD / "symtab.o"), str(BUILD / "mem.o"),
                     str(BUILD / "symtab_test_stub.o"),
                     "-o", str(BIN), "-m", str(MAP)], check=True)

@@ -31,12 +31,12 @@
 
         .export mode_parse              ; main entry point
         .export asm_skip_ws             ; used by asm_line.s
-        .export asm_ptr, asm_opr        ; ZP i/o variables
         .import asm_syntax_error        ; provided by caller / test stub
         .import expr_eval_nb            ; no-banking expr evaluator (expr.s)
         .import asm_pass                ; 0=pass 0 (sizing), 1=pass 1 (emit)
         .importzp expr_ptr, expr_val, expr_wide
         .importzp asm_pc                ; for forward-ref dummy value
+        .importzp asm_ptr, asm_opr
 
 ; ── PETSCII character constants ──────────────────────────────────────────────
 SC_LF   = $0A   ; line feed
@@ -69,12 +69,6 @@ MODE_REL  = 12  ; relative  NOTE: syntactically = ZP; Zone B assembler path
 MODE_ZPI  = 13  ; (zero page)  [65C02]          ($nn)
 MODE_AIX  = 14  ; (absolute, X)  [65C02 JMP]    ($nnnn,X)
 MODE_ZPREL= 15  ; zero page + relative  [65C02]  $nn,$rr
-
-; ── Zero page ─────────────────────────────────────────────────────────────────
-        .segment "ZEROPAGE"
-
-asm_ptr:        .res 2  ; pointer to argument string
-asm_opr:        .res 2  ; output operand bytes (lo, hi)
 
 ; ── Code ──────────────────────────────────────────────────────────────────────
         .segment "CODE"

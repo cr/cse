@@ -69,15 +69,8 @@
 ; ============================================================
 
         .export mn6_classify
-        .importzp mn_c1, mn_c2, mn_c3
+        .importzp mn_c1, mn_c2, mn_c3, mn6_h_tmp
         .import mn6_fp
-
-; ------------------------------------------------------------
-; Zero-page scratch
-; ------------------------------------------------------------
-.segment "ZEROPAGE"
-
-mn6_h_tmp:  .res 1          ; holds c1*8 during hash computation
 
 ; ------------------------------------------------------------
 ; T6 lookup table  (generated constant; see dev/mnemonic_tables.py)

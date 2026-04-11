@@ -258,17 +258,19 @@ def _needs_rebuild():
     if not EXPR_BIN.exists(): return True
     t = EXPR_BIN.stat().st_mtime
     return any(s.stat().st_mtime > t for s in [
-        SRC/"expr.s", SRC/"symtab.s", SRC/"mem.s",
+        SRC/"zp.s", SRC/"expr.s", SRC/"symtab.s", SRC/"mem.s",
         DEV/"expr_test_stub.s", DEV/"test.cfg"])
 
 def _build():
     BUILD.mkdir(exist_ok=True)
-    for name, src in [("expr", SRC/"expr.s"), ("symtab", SRC/"symtab.s"),
+    for name, src in [("zp_expr", SRC/"zp.s"),
+                      ("expr", SRC/"expr.s"), ("symtab", SRC/"symtab.s"),
                       ("mem", SRC/"mem.s"),
                       ("expr_test_stub", DEV/"expr_test_stub.s")]:
         subprocess.run(["ca65", "--cpu", "6502", "-t", "c64", str(src),
                         "-o", str(BUILD/f"{name}.o")], check=True)
     subprocess.run(["ld65", "-C", str(DEV/"test.cfg"),
+                    str(BUILD/"zp_expr.o"),
                     str(BUILD/"expr.o"), str(BUILD/"symtab.o"),
                     str(BUILD/"mem.o"),
                     str(BUILD/"expr_test_stub.o"),

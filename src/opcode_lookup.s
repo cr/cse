@@ -66,8 +66,7 @@ MODE_ZPREL= 15
         .import   mode_offset, direct_opcodes, FIRST_DIR_PROFILE
         .import   asm_error
 
-.segment "ZEROPAGE"
-_asm_ok_tmp:        .res 1          ; scratch for opcode_lookup
+        .importzp _asm_ok_tmp
 
 .segment "RODATA"
 

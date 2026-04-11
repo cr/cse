@@ -20,7 +20,7 @@
         .import newline, io_puts, out_info
         .import cur_device
         .import scr_lo, scr_hi
-        .exportzp disk_ptr
+        .importzp disk_ptr
 
 ; ── KERNAL entry points ──────────────────────────────────
 SETLFS  = $FFBA
@@ -43,10 +43,6 @@ CH_STOP = 3
 ; ── ZP temporaries (reuse cse_io's _io_tmp) ─────────────
 _io_tmp = $FB              ; 2 bytes, shared with cse_io
 ptr     = $FD              ; 2 bytes, general pointer
-
-; ── ZEROPAGE ────────────────────────────────────────────
-.segment "ZEROPAGE"
-disk_ptr:       .res 2          ; filename pointer for all disk functions
 
 ; ── BSS ──────────────────────────────────────────────────
         .segment "BSS"

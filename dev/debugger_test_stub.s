@@ -28,13 +28,9 @@
         .import bp_table, step_bp
         .import dbg_running, dbg_reason, brk_pc, dbg_bp_hit
 
-        .exportzp rp_ptr          ; provide scratch pointer for debugger.s
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
         .export zp_save_buf, user_zp_buf
         .export kernal_bank_out, kernal_bank_in
-
-.segment "ZEROPAGE"
-rp_ptr:   .res 2                  ; cc65 scratch pointer
 
 .segment "BSS"
 reg_a:         .res 1

@@ -63,12 +63,7 @@
         .importzp mn_c1, mn_c2, mn_c3
         .import mn7_fp
 
-; ------------------------------------------------------------
-; Zero-page scratch
-; ------------------------------------------------------------
-.segment "ZEROPAGE"
-
-mn7_h_tmp:  .res 1          ; holds c3>>2 during fingerprint check
+        .importzp mn7_h_tmp
 
 ; ------------------------------------------------------------
 ; T7 lookup table  (generated constant; see dev/mnemonic_tables.py)

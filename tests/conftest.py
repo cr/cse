@@ -46,7 +46,7 @@ _AC_BIN = BUILD / "asm_core_test.bin"
 _AC_MAP = BUILD / "asm_core_test.map"
 
 _AC_SOURCES = [
-    SRC / "asm_vars.s",
+    SRC / "zp.s",
     SRC / "opcode_lookup.s",
     SRC / "asm_line.s",
     SRC / "au_mode.s",
@@ -169,8 +169,8 @@ def asm_syms():
 # in the "Exports list by name" section of the ld65 map file.
 
 _MN_SOURCES = {
-    'mn6': [SRC / "mn_vars.s", SRC / "mn6.s", SRC / "mn6_tables.s"],
-    'mn7': [SRC / "mn_vars.s", SRC / "mn7.s", SRC / "mn7_tables.s"],
+    'mn6': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn6.s", SRC / "mn6_tables.s"],
+    'mn7': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn7.s", SRC / "mn7_tables.s"],
 }
 # Which source file contains the classify entry point label
 _MN_CLASSIFY_SRC = {'mn6': SRC / "mn6.s", 'mn7': SRC / "mn7.s"}
@@ -281,7 +281,7 @@ def mn7_syms():
 # ── asm_src test binary ───────────────────────────────────────────────────────
 #
 # Links the full two-pass assembler pipeline:
-#   asm_vars + opcode_lookup + asm_line
+#   zp + opcode_lookup + asm_line
 #   + au_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables
 #   + mn_classify + expr + symtab + asm_src
 #   + asm_src_test_stub  (provides ed_read_line, etc.)
@@ -293,7 +293,7 @@ _AS_MAP = BUILD / "asm_src_test.map"
 _AS_CFG = DEV / "asm_src_test.cfg"
 
 _AS_SOURCES = [
-    SRC / "asm_vars.s",
+    SRC / "zp.s",
     SRC / "opcode_lookup.s",
     SRC / "asm_line.s",
     SRC / "au_mode.s",
@@ -463,12 +463,13 @@ def as_syms():
 # ── dasm test binary ─────────────────────────────────────────────────────────
 #
 # Links: dasm.s + dasm_tables.s + dasm_test_stub.s
-# The stub provides asm_cpu (ZP) and exports dasm_test_entry.
+# The stub provides banking helpers; ZP comes from zp.s.
 
 _DASM_BIN = BUILD / "dasm_test.bin"
 _DASM_MAP = BUILD / "dasm_test.map"
 
 _DASM_SOURCES = [
+    SRC / "zp.s",
     SRC / "dasm.s",
     SRC / "dasm_tables.s",
     DEV / "dasm_test_stub.s",

@@ -46,7 +46,7 @@
         .export floppy_status, floppy_read_status, fl_buf
         .export list_directory
         .export disk_load_prg, disk_save_prg
-        .exportzp disk_ptr
+        .importzp disk_ptr, rp_tmp, buf_base
 
 ; ── Exports: editor stubs ─────────────────────────────────────
         .export ed_save_source, ed_load_source
@@ -57,14 +57,9 @@
 ; ── Exports: meminfo stubs (cse_start/end/zp_end now in mem.s) ──
         .export src_top, src_bot
         .export __CODE_RUN__    : absolute = $4000
-        .export __ZP_LAST__    : absolute = $0020
 
 ; ── Exports: global state ─────────────────────────────────────
         .export state
-
-; ── Exports: runtime ZP ───────────────────────────────────────
-        .exportzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
-        .exportzp buf_base
 
 ; ── Exports: NMI stubs (for cse_io.s) ─────────────────────────
         .export dbg_running, dbg_nmi_break
@@ -90,19 +85,7 @@ sym_refs:
         .addr newline_count, kplot_stub
 
 ; ═══════════════════════════════════════════════════════════════
-; ZEROPAGE
-; ═══════════════════════════════════════════════════════════════
-.segment "ZEROPAGE"
-
-rp_ptr:   .res 2          ; scratch pointers
-rp_ptr2:   .res 2
-rp_tmp:   .res 1          ; scratch bytes
-rp_tmp2:   .res 1
-disk_ptr:  .res 2          ; filename pointer (stub for disk.s)
-buf_base:  .res 2          ; mem.s (define_ws_syms)
-
-; ═══════════════════════════════════════════════════════════════
-; BSS — test state + stubs
+; BSS — test state + stubs (ZP provided by zp.s)
 ; ═══════════════════════════════════════════════════════════════
 .segment "BSS"
 

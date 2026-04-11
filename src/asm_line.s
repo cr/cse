@@ -75,10 +75,7 @@ ZONE_D_PIDX = 3         ; ZP  bit-op
 ZONE_E_PIDX = 4         ; ZPREL bit-op
 ZONE_F_PIDX = 5         ; ABS  (JSR)
 
-; ── Zero page ─────────────────────────────────────────────────────────────────
-.segment "ZEROPAGE"
-.export _asm_saved_sp
-_asm_saved_sp:  .res 1          ; saved 6502 SP for error recovery
+        .importzp _asm_saved_sp
 
 ; ── BSS ───────────────────────────────────────────────────────────────────────
 .segment "BSS"

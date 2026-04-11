@@ -30,23 +30,17 @@
         .export out_log_open
         .export out_close
         .export __CODE_RUN__    : absolute = $4000
-        .export __ZP_LAST__    : absolute = $0020
-        .exportzp buf_base
-        .exportzp rp_ptr, rp_ptr2, rp_tmp
 
         .import asm_assemble
+        .importzp buf_base, rp_ptr, rp_ptr2, rp_tmp
 
 HEAP_START = $4000          ; symbol-table heap (above all code/BSS)
 CPU_PORT   = $01
 
-; ── Zero page ─────────────────────────────────────────────────────────────────
+; ── Zero page (stub-private only; shared vars from zp.s) ─────────────────────
 .segment "ZEROPAGE"
 _src_ptr:   .res 2          ; current read position in _test_src_buf
 _buf_ptr:   .res 2          ; destination buffer for ed_read_line (scratch)
-buf_base:   .res 2          ; mock: gap buffer base (for workend symbol)
-rp_ptr:     .res 2          ; mem.s scratch
-rp_ptr2:    .res 2          ; mem.s scratch
-rp_tmp:     .res 1          ; mem.s scratch
 
 ; ── BSS ───────────────────────────────────────────────────────────────────────
 .segment "BSS"

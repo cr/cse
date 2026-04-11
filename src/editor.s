@@ -17,7 +17,6 @@
         .export ed_total_lines
         .export ed_load_split, ed_load_split_lines
         .export src_top, src_bot
-        .exportzp buf_base
 
         .import io_sync, io_blip
         .import kernal_bank_out, kernal_bank_in
@@ -78,16 +77,8 @@ CH_CURS_RIGHT = 29
 CH_HOME      = 19
 
 ; ── Zero page ────────────────────────────────────────────────
-.segment "ZEROPAGE"
-
-gap_lo:         .res 2          ; first byte of gap (insert point)
-gap_hi:         .res 2          ; first byte after gap (read point)
-buf_base:       .res 2          ; lowest address of buffer
-ed_top_ptr:     .res 2          ; cached buffer pos for first visible line
-read_ptr:                       ; sequential reader position (overlaps save_ptr)
-save_ptr:       .res 2          ; save callback position
-ed_tmp:         .res 2          ; scratch (16-bit) — must be ZP for indirect addressing
-ed_scr:         .res 2          ; screen pointer for rendering — must be ZP for indirect addressing
+.importzp gap_lo, gap_hi, buf_base, ed_top_ptr, read_ptr, ed_tmp, ed_scr
+save_ptr = read_ptr
 
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"

@@ -55,10 +55,7 @@ ERR_DIVZERO  = 6
 .importzp asm_pc
 
 ; ── ZP scratch ─────────────────────────────────────────────
-.segment "ZEROPAGE"
-_ex_tmp:     .res 2              ; scratch
-_ex_digits:  .res 1              ; digit counter
-_ex_wide_tmp: .res 1             ; saved wide flag for left operand
+.importzp _ex_tmp, _ex_digits, _ex_wide_tmp
 
 ; ── BSS ────────────────────────────────────────────────────
 .segment "BSS"

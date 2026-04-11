@@ -30,10 +30,7 @@
         .importzp       expr_ptr, expr_val, expr_wide
         .importzp       sym_name, sym_val, sym_wide
 
-; ── ZP scratch ────────────────────────────────────────────────────────────
-.segment "ZEROPAGE"
-_as_ptr:        .res 2          ; active parse pointer
-_as_wsize:      .res 1          ; word size or general byte scratch
+        .importzp _as_ptr, _as_wsize
 
 ; ── BSS (all reset by asm_assemble before each run) ─────────────────────
 .segment "BSS"

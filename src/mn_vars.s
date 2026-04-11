@@ -9,10 +9,4 @@
 ;
 ; VICII screencodes: A=$01 .. Z=$1A  (1-based; 0 = unused guard)
 
-        .exportzp mn_c1, mn_c2, mn_c3
-
-.segment "ZEROPAGE"
-
-mn_c1:  .res 1          ; first  letter VICII screencode  (1=A .. 26=Z)
-mn_c2:  .res 1          ; middle letter VICII screencode
-mn_c3:  .res 1          ; last   letter VICII screencode
+        .importzp mn_c1, mn_c2, mn_c3

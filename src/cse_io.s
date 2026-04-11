@@ -40,10 +40,7 @@ SID_V1_FREQ_HI = $D401
 SID_V1_CTRL    = $D404
 SID_VOL        = $D418
 
-; ── ZP scratch ──────────────────────────────────────────────
-.segment "ZEROPAGE"
-_io_tmp:  .res 2        ; scratch: string pointer / putdec dividend
-_io_scr:  .res 2        ; screen row pointer for io_putc
+        .importzp _io_tmp, _io_scr
 
 ; ── BSS ─────────────────────────────────────────────────────
 .segment "BSS"

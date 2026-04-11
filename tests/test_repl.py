@@ -35,9 +35,9 @@ _ZP_SIZE    = 0x0100
 _RETURN     = 0x0300          # in SCRN gap, unused — RTS sentinel
 
 _SOURCES = [
+    SRC / "zp.s",
     SRC / "repl.s",
     SRC / "cse_io.s",
-    SRC / "asm_vars.s",
     SRC / "expr.s",
     SRC / "symtab.s",
     SRC / "mem.s",

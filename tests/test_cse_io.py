@@ -39,17 +39,20 @@ def _needs_rebuild():
     if not IO_BIN.exists() or not IO_MAP.exists():
         return True
     mtime = IO_BIN.stat().st_mtime
-    sources = [SRC / "cse_io.s", DEV / "cse_io_test_stub.s", DEV / "test.cfg"]
+    sources = [SRC / "zp.s", SRC / "cse_io.s", DEV / "cse_io_test_stub.s", DEV / "test.cfg"]
     return any(s.stat().st_mtime > mtime for s in sources)
 
 
 def _build():
     BUILD.mkdir(exist_ok=True)
+    subprocess.run(["ca65", "--cpu", "6502",
+                    str(SRC / "zp.s"), "-o", str(BUILD / "zp_io.o")], check=True)
     subprocess.run(["ca65", "--cpu", "6502", "--listing", str(IO_LST),
                     str(SRC / "cse_io.s"), "-o", str(BUILD / "cse_io.o")], check=True)
     subprocess.run(["ca65", "--cpu", "6502", "--listing", str(BUILD / "cse_io_test_stub.lst"),
                     str(DEV / "cse_io_test_stub.s"), "-o", str(BUILD / "cse_io_test_stub.o")], check=True)
     subprocess.run(["ld65", "-C", str(DEV / "test.cfg"),
+                    str(BUILD / "zp_io.o"),
                     str(BUILD / "cse_io.o"), str(BUILD / "cse_io_test_stub.o"),
                     "-o", str(IO_BIN), "-m", str(IO_MAP)], check=True)
 
