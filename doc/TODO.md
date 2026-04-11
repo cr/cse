@@ -150,31 +150,98 @@ Defined scope, needs work.
 ### Assembler
 
 - [ ] `.bas` directive: emit a BASIC SYS stub that calls `main`.
-  Optional string argument becomes a REM comment on the same line
-  (`.bas "MY PROGRAM"` → `10 SYS 49152 REM MY PROGRAM`).  Makes
+  Optional string argument becomes a REM comment on the line above
+  (`.bas "MY PROGRAM"` → `0 REM MY PROGRAM / 1 SYS 49152`).  Makes
   assembled PRGs auto-runnable via `RUN` after `LOAD "FILE",8,1`.
 - [ ] Assembler error display: show source line number + context.
 - [ ] Per-segment assembly summary (one line per `.org` block).
+  The last output line is the save command that saves the prg from
+  first to last byte written. 
 
 ### Editor
 
 - [ ] Handle files > gap buffer capacity (show error, don't crash).
+- [ ] Gap buffer floor above directory load area: if `list_directory`
+  stays LOAD-based (loads to $0801, max ~5.1 KB), set gap buffer
+  bottom to $0801+$1400=$1C01 so `$` can never clobber source.
+  Currently BUF_FLOOR is computed dynamically by `compute_layout.py`
+  — would need a minimum floor of $1C01.
 - [ ] Gap buffer compaction: `buf_base` only grows down (via
   `gb_ensure_room`), never shrinks.  `ed_init`/`n` should reset
   `buf_base` to BUF_END.  Line deletion could trigger compaction
   but consider the trade-off (O(n) vs immediate undo).
 - [ ] Page up/down with shift+cursor or F-keys.
 - [ ] Search (ctrl+f equivalent via F-key).
-- [ ] Goto line number.
+- [ ] Goto line number (see `e` command)
 - [ ] Consider switching tab representation from `$A0` to `$09`.
+
+### Size optimization
+
+- [ ] Table-drive `cmd_info`: replace procedural line-by-line
+  memory map display with a data table + loop (~50-80 B saving).
+- [ ] PRG/SEQ save dedup: `cmd_write` and `cmd_load` have shared
+  patterns in filename parsing and stats display (~30-50 B).
+- [ ] `exec_line` handler code sharing: inline `@h_*` handlers
+  share common tail code (out_close, nl_clear, error paths).
+  Factor into shared exit points.
+- [ ] Disassembler `format_operand`: investigate table-driven
+  formatting (packed format byte per mode, like Woz's Apple II
+  disassembler) instead of procedural per-mode branches.
+  Currently 220 B, could save ~80-100 B.
+- [ ] Disassembler opcode table: investigate replacing the
+  `aaabbbcc` bit-slice decoder with a compact 256-byte opcode
+  lookup table.  Trades CODE (~350 B decode_cc00_mem alone)
+  for RODATA (256 B).  Changes the architecture fundamentally.
 
 ### Architecture
 
 - [x] Relocating startup: done (Roadmap R2, Session 10).
-- [ ] Replace au_mode hex parser with expr_eval (option C):
-  remove `_insn_buf` round-trip, switch line assembler from VICII
-  to PETSCII encoding.  Saves ~400 B code + 80 B BSS.  Phase-level
-  work — see scope note below.
+
+- [ ] **PETSCII pipeline unification + expr_eval in line assembler.**
+  Phase-level work (~2-3 sessions).  Estimated savings: ~474 B
+  CODE + 80 B BSS.  Eliminates the VICII/PETSCII encoding split,
+  the `_insn_buf` round-trip, and the duplicate hex parser.  Gives
+  the `.` command full expression support (labels, arithmetic) for
+  free.  Four steps:
+
+  **Step 1 — Recalculate mn6/mn7 hash for PETSCII encoding.**
+  Currently the hash uses VICII screencodes (A=$01..Z=$1A).
+  PETSCII lowercase is a=$41..z=$5A.  Regenerate HASH_T via
+  `dev/hashes.py` with PETSCII character values.  Update
+  `dev/mnemonic_tables.py` to emit PETSCII-based tables.
+  Regenerate `src/mn7_tables.s`, `src/mn6_tables.s`.  The hash
+  formula may need a `sec; sbc #$40` normalization (~6 B) or
+  the search may find a direct PETSCII hash with no normalization.
+  Validate: all 2788 tests pass after regeneration.
+
+  **Step 2 — Switch assembler pipeline to PETSCII.**
+  Remove asm_bridge.s PETSCII→VICII conversion (~140 B).
+  al_line_asm, au_parse_mode, au_skip_ws now operate on PETSCII
+  directly.  Update letter constants in al_line_asm (register
+  checks for A/X/Y, hex digit detection).  The $09 caveat
+  (VICII 'I' = TAB) disappears.  `_al_skip_sp` and `au_skip_ws`
+  can merge.  Validate: all tests pass, `.` command works.
+
+  **Step 3 — Replace au_mode hex parser with expr_eval.**
+  Remove `_au_rd_nib`, `_au_rd_byte`, `_au_is_hex` (~155 B).
+  au_parse_mode detects mode syntax (#, (, ,X, ,Y, )) as before,
+  then calls expr_eval for the operand value instead of the
+  internal hex parser.  No encoding mismatch — both now PETSCII.
+  Add pass flag (1 B BSS) for forward-reference handling: if
+  pass 0 and expr_eval returns undefined symbol, assume 2-byte
+  operand with dummy value.  Validate: `.` command accepts
+  expressions (`LDA #cols-1`), all tests pass.
+
+  **Step 4 — Unify source assembler with line assembler.**
+  asm_src.s calls al_line_asm for instruction lines instead of
+  parsing operands, evaluating expressions, and reconstructing
+  hex in `_insn_buf`.  Remove `_insn_buf` (32 B BSS), hex
+  reconstruction loop (~100 B CODE), operand extraction (~60 B),
+  expression formatting (~80 B).  asm_src.s becomes a loop over
+  lines: directive dispatch + label/constant definition + pass
+  management; instructions go through al_line_asm.  Validate:
+  `a` command assembles all existing test programs, forward
+  references resolve, all tests pass.
 - [ ] BSS optimization: overlap `_load_line`/`_load_vcol` with
   `ws_buf` (saves 3 B).
 - [ ] BSS optimization: collapse `disk_seq_bytes`/`disk_seq_lines`
