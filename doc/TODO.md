@@ -149,10 +149,10 @@ Defined scope, needs work.
 
 ### Assembler
 
-- [ ] `.bas` directive: emit a BASIC SYS stub that calls `main`.
-  Optional string argument becomes a REM comment on the line above
-  (`.bas "MY PROGRAM"` → `0 REM MY PROGRAM / 1 SYS 49152`).  Makes
-  assembled PRGs auto-runnable via `RUN` after `LOAD "FILE",8,1`.
+- [x] `.bas` directive: emit a BASIC SYS stub.  (Phase 12, done)
+  `.bas` → `1 SYS <addr>`.  `.bas "TEXT"` → `0 REM TEXT / 1 SYS <addr>`.
+  SYS address computed automatically (first byte after BASIC end marker).
+  Two-pass: pass 0 sizes, pass 1 emits.  2799 tests.
 - [ ] Assembler error display: show source line number + context.
 - [ ] Per-segment assembly summary (one line per `.org` block).
   The last output line is the save command that saves the prg from

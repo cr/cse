@@ -26,7 +26,7 @@
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
         .importzp       buf_base                ; editor.s — gap buffer low bound
-        .importzp       asm_pc, asm_out, asm_cpu
+        .importzp       asm_pc, asm_out, asm_cpu, asm_tmp, asm_tmp2
         .importzp       expr_ptr, expr_val, expr_wide
         .importzp       sym_name, sym_val, sym_wide
 
@@ -56,6 +56,10 @@ s_exp_name:     .byte "exp name", 0
 s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp quote", 0
 s_bad_insn:     .byte "bad insn", 0
+
+; Decimal power tables for 16-bit → ASCII conversion (_emit_decimal)
+_dec_pow_lo:    .byte <10000, <1000, <100, <10, <1
+_dec_pow_hi:    .byte >10000, >1000, >100, >10, >1
 
 ; ═══════════════════════════════════════════════════════════════════════════
 .segment "CODE"
@@ -176,6 +180,26 @@ inc_pc_size:
         bne :+
         inc asm_size+1
 :       rts
+
+; ── _emit_byte ────────────────────────────────────────────────────────────
+; Emit byte in A to (asm_pc) on pass 1; advance asm_pc+asm_size always.
+_emit_byte:
+        pha
+        lda _asm_pass
+        beq @skip
+        pla
+        ldy #0
+        sta (asm_pc),y
+        jmp inc_pc_size
+@skip:  pla
+        jmp inc_pc_size
+
+; ── _emit_word ────────────────────────────────────────────────────────────
+; Emit 16-bit little-endian word from A (lo) / X (hi).
+_emit_word:
+        jsr _emit_byte          ; emit lo byte (A)
+        txa
+        jmp _emit_byte          ; emit hi byte
 
 .proc adv_pc_size
         lda _as_wsize
@@ -507,6 +531,259 @@ inc_pc_size:
         jmp emit_error
 .endproc
 
+; ── _emit_decimal ─────────────────────────────────────────────────────────
+; Emit 16-bit value in expr_val as decimal ASCII digits.
+; Leading zeros suppressed.  Returns digit count in A.
+; Uses _as_wsize as scratch (digit counter).
+.proc _emit_decimal
+        lda #0
+        sta _as_wsize           ; digit count
+        ldx #0                  ; power index (0=10000 .. 4=1)
+@pow:   lda #0
+        sta asm_tmp             ; current digit
+@sub:   lda expr_val
+        sec
+        sbc _dec_pow_lo,x
+        tay
+        lda expr_val+1
+        sbc _dec_pow_hi,x
+        bcc @done_sub           ; underflow → digit complete
+        sta expr_val+1
+        sty expr_val
+        inc asm_tmp
+        bne @sub                ; (always taken)
+@done_sub:
+        lda asm_tmp
+        bne @emit               ; non-zero digit → emit
+        lda _as_wsize
+        bne @emit               ; already started → emit zero
+        cpx #4
+        bne @next               ; suppress leading zeros (except last digit)
+@emit:  lda asm_tmp
+        clc
+        adc #$30                ; → ASCII '0'..'9'
+        jsr _emit_byte
+        inc _as_wsize
+@next:  inx
+        cpx #5
+        bcc @pow
+        lda _as_wsize           ; return digit count
+        rts
+.endproc
+
+; ── emit_bas ──────────────────────────────────────────────────────────────
+; Emit a BASIC SYS stub (and optional REM line) at asm_pc.
+; _as_ptr points past ".bas" keyword.
+; Optional: ".bas "TEXT"" → REM line 0 + SYS line 1.
+; Without string: SYS line 1 only.
+;
+; Uses _as_wsize, asm_tmp, expr_val as scratch.
+; _eb_idx = string length (0 if no REM).
+BASIC_SYS = $9E
+BASIC_REM = $8F
+
+.proc emit_bas
+        ; ── Parse optional string argument ─────────────────────────────
+        lda #3
+        jsr set_expr_off        ; expr_ptr = _as_ptr + 3 (skip "bas")
+        jsr skipws_ep
+        lda #0
+        sta _eb_idx             ; string length = 0 (no REM)
+        ldy #0
+        lda (expr_ptr),y
+        cmp #'"'
+        bne @no_str
+        ; Count string length (between quotes)
+        iny
+@slen:  lda (expr_ptr),y
+        beq @slen_done          ; NUL before closing quote → accept
+        cmp #'"'
+        beq @slen_done
+        iny
+        bne @slen
+@slen_done:
+        dey                     ; Y = length (excluding quotes)
+        sty _eb_idx
+        inc expr_ptr            ; skip opening quote
+        bne :+
+        inc expr_ptr+1
+:
+@no_str:
+        ; ── Compute SYS address ────────────────────────────────────────
+        ; base = 8 (SYS-only) or 14 + string_len (REM + SYS)
+        ; Assume D=5 (max digits), compute addr, recompute if fewer.
+        lda _eb_idx
+        beq @sys_only
+        clc
+        adc #14                 ; A = 14 + string_len
+        jmp @calc_addr
+@sys_only:
+        lda #8
+@calc_addr:
+        clc
+        adc #5                  ; + D (assume 5)
+        adc asm_pc
+        sta expr_val
+        lda asm_pc+1
+        adc #0
+        sta expr_val+1
+        ; Count actual digits
+        jsr _count_digits       ; A = digit count
+        cmp #5
+        beq @addr_ok
+        ; Recompute with actual D
+        sta asm_tmp             ; save D
+        lda _eb_idx
+        beq :+
+        clc
+        adc #14
+        jmp @recomp
+:       lda #8
+@recomp:
+        clc
+        adc asm_tmp             ; base + D
+        adc asm_pc
+        sta expr_val
+        lda asm_pc+1
+        adc #0
+        sta expr_val+1
+@addr_ok:
+        ; Save SYS address in asm_tmp:asm_tmp2
+        lda expr_val
+        sta asm_tmp
+        lda expr_val+1
+        sta asm_tmp2
+
+        ; ── Emit REM line (if string present) ──────────────────────────
+        lda _eb_idx
+        beq @emit_sys
+
+        ; Link pointer → line 1 start = asm_pc + 6 + _eb_idx
+        ; (Must compute BEFORE emitting, since _emit_word advances asm_pc)
+        lda asm_pc
+        clc
+        adc _eb_idx
+        pha                     ; partial lo
+        lda asm_pc+1
+        adc #0
+        tax                     ; partial hi
+        pla
+        clc
+        adc #6                  ; link lo
+        bcc :+
+        inx                     ; propagate carry to hi
+:       jsr _emit_word          ; emit link pointer (A=lo, X=hi)
+
+        ; Line number 0
+        lda #0
+        ldx #0
+        jsr _emit_word
+
+        ; REM token
+        lda #BASIC_REM
+        jsr _emit_byte
+
+        ; String bytes (use _ib_idx as loop counter to avoid phy/ply)
+        lda #0
+        sta _ib_idx
+@rem_lp:
+        lda _ib_idx
+        cmp _eb_idx
+        beq @rem_done
+        tay
+        lda (expr_ptr),y
+        jsr _emit_byte
+        inc _ib_idx
+        bne @rem_lp             ; (always taken for len < 256)
+@rem_done:
+
+        ; Line terminator
+        lda #0
+        jsr _emit_byte
+
+@emit_sys:
+        ; ── Emit SYS line ─────────────────────────────────────────────
+
+        ; Link → end marker = SYS_addr - 2
+        lda asm_tmp
+        sec
+        sbc #2
+        pha                     ; link lo
+        lda asm_tmp2
+        sbc #0
+        tax                     ; link hi
+        pla                     ; link lo
+        jsr _emit_word
+
+        ; Line number 1
+        lda #1
+        ldx #0
+        jsr _emit_word
+
+        ; SYS token
+        lda #BASIC_SYS
+        jsr _emit_byte
+
+        ; Decimal ASCII digits of SYS address
+        lda asm_tmp
+        sta expr_val
+        lda asm_tmp2
+        sta expr_val+1
+        jsr _emit_decimal
+
+        ; Line terminator
+        lda #0
+        jsr _emit_byte
+
+        ; End of BASIC program ($0000)
+        lda #0
+        ldx #0
+        jsr _emit_word
+
+        rts
+.endproc
+
+; ── _count_digits ─────────────────────────────────────────────────────────
+; Count decimal digits in expr_val (non-destructive).
+; Returns count in A (1–5).  Preserves expr_val.
+.proc _count_digits
+        lda expr_val+1
+        bne @ge256
+        lda expr_val
+        cmp #10
+        bcc @1
+        cmp #100
+        bcc @2
+        lda #3
+        rts
+@ge256: lda expr_val+1
+        cmp #>1000
+        bcc @3
+        beq :+
+        jmp @chk10k
+:       lda expr_val
+        cmp #<1000
+        bcc @3
+@chk10k:
+        lda expr_val+1
+        cmp #>10000
+        bcc @4
+        bne @5
+        lda expr_val
+        cmp #<10000
+        bcc @4
+@5:     lda #5
+        rts
+@4:     lda #4
+        rts
+@3:     lda #3
+        rts
+@2:     lda #2
+        rts
+@1:     lda #1
+        rts
+.endproc
+
 ; ── process_directive ──────────────────────────────────────────────────────
 ; _as_ptr = first char of keyword (after '.').
 ; Out: C=0 recognized; C=1 unknown (caller treats as local label).
@@ -527,7 +804,22 @@ inc_pc_size:
         jsr emit_align
         clc
         rts
-@nb:    cmp #'c'
+@nb:    cmp #'b'
+        bne @nc
+        ; .bas — check [1]='a', [2]='s'
+        ldy #1
+        lda (_as_ptr),y
+        cmp #'a'
+        bne @nb_unk
+        iny
+        lda (_as_ptr),y
+        cmp #'s'
+        bne @nb_unk
+        jsr emit_bas
+        clc
+        rts
+@nb_unk: jmp @unk
+@nc:    cmp #'c'
         beq :+
         jmp @nd
 :

@@ -103,6 +103,7 @@ rules.
 | `.scr` | "text" [, ...] | Advance `asm_pc` by length | Emit screen code bytes |
 | `.res` | count [, fill] | Advance `asm_pc` by count | Emit fill bytes (default $00) |
 | `.align` | boundary | Advance `asm_pc` to next multiple | Emit $00 padding |
+| `.bas` | ["text"] | Advance `asm_pc` past stub | Emit BASIC SYS stub |
 
 ### `.org` — Set Origin
 
@@ -191,6 +192,42 @@ Advances PC by N bytes. In pass 1, emits N copies of the fill byte
 
 Advances PC to the next multiple of the given value. The gap is
 filled with $00. If PC is already aligned, does nothing.
+
+### `.bas` — Emit BASIC SYS Stub
+
+```
+.org $0801
+.bas                ; emit "1 SYS <addr>" — addr computed automatically
+```
+
+```
+.org $0801
+.bas "MY PROGRAM"   ; emit "0 REM MY PROGRAM" + "1 SYS <addr>"
+```
+
+Emits a complete BASIC program that calls the code immediately
+following the stub via `SYS`.  Makes the assembled PRG auto-runnable:
+`LOAD "FILE",8,1` then `RUN`.
+
+The SYS address is the first byte after the BASIC end marker — i.e.
+where `asm_pc` points after `.bas` completes.  Typically `.bas` is the
+first directive after `.org $0801` and user code follows immediately.
+
+With a string argument, a `0 REM` line is prepended.  The REM text
+appears in the `LIST` output, serving as a program title or credit.
+
+Byte layout (no REM):
+
+| Offset | Bytes | Content |
+|--------|-------|---------|
+| +0 | 2 | Link pointer → end marker |
+| +2 | 2 | Line number 1 |
+| +4 | 1 | SYS token ($9E) |
+| +5 | D | Decimal ASCII digits of SYS address |
+| +5+D | 1 | Null terminator |
+| +6+D | 2 | $0000 end of BASIC program |
+
+Total: 8 + D bytes (D = number of decimal digits, typically 4–5).
 
 ## Example Program
 
