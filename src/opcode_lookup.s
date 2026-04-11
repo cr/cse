@@ -27,7 +27,7 @@
 ;         that bypasses the inline check will trigger asm_error instead of
 ;         silently producing a wrong opcode.
 ;
-; Inputs (from asm_vars.s):
+; Inputs (from zp.s):
 ;   asm_pidx    effective profile index (after CMOS upgrade if applicable)
 ;   asm_prof    raw packed profile byte (bits 7:6 = cat, bit 5 = dir_bit)
 ;   asm_base    base opcode from mn7_base_op[asm_slot]

@@ -39,7 +39,7 @@
         .export zp_save_buf
         .export user_zp_buf
 
-        ; zero-page variables (asm_vars.s)
+        ; zero-page variables (zp.s)
         .importzp asm_pc, asm_out, asm_len
         .importzp asm_slot, asm_prof, asm_pidx, asm_base, asm_bit, asm_mode, asm_cpu
         .importzp asm_tmp, asm_tmp2
@@ -79,7 +79,6 @@ ZONE_F_PIDX = 5         ; ABS  (JSR)
 
 ; ── BSS ───────────────────────────────────────────────────────────────────────
 .segment "BSS"
-_asm_out_buf:   .res 3          ; output buffer (max 3 instruction bytes)
 ; Saved user-code register state — populated by debugger.s on BRK/NMI
 ; entry, displayed by repl.s::show_regs, and reloaded into the CPU by
 ; debugger.s before continuing.

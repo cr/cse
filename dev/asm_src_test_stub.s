@@ -37,7 +37,7 @@
 HEAP_START = $4000          ; symbol-table heap (above all code/BSS)
 CPU_PORT   = $01
 
-; ── Zero page (stub-private only; shared vars from zp.s) ─────────────────────
+; ── Zero page (stub-private; must be ZP for indirect addressing) ─────────────
 .segment "ZEROPAGE"
 _src_ptr:   .res 2          ; current read position in _test_src_buf
 _buf_ptr:   .res 2          ; destination buffer for ed_read_line (scratch)
