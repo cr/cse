@@ -1,30 +1,11 @@
 # CSE — TODO
 
-## Top 10 — stabilization phase (nearly complete)
-
-The current focus is consolidation, simplification, bugfixes,
-optimization, and cleanup — *not* new features.
-
-1. ~~**Mark stale TODO entries done**~~ — done.
-2. ~~**Warn on quit/switch if dirty flag set**~~ — done.
-3. **Handle files > gap buffer capacity** — see
-   [Editor](#editor).
-4. ~~**Line-break warnings**~~ — done (one per line).
-5. ~~**Clean up `dev/test.d64`**~~ — done.
-6. **RUN/STOP debounce** — see [Bugs](#bugs).
-7. ~~**ZP optimization: overlap scratch**~~ — investigated, blocked.
-8. ~~**Audible reject blip**~~ — done.
-9. ~~**Revise TDD framework**~~ — done.
-10. ~~**DDD audit of 7 module docs**~~ — done.
-
-Two items remain (#3 gap overflow, #6 debounce).  Everything else
-is feature work or longer-horizon.
-
 ## Bugs
 
 Open bugs, roughly ordered by priority.
 
-- [ ] RUN/STOP debounce: bounces when held.
+- [ ] RUN/STOP debounce: bounces when held.  Primary mode-switch
+  key feels broken.
 - [ ] `.` (disassembly) shows CSE ZP instead of user ZP after
   j/debugger context.  Companion to the `m` fix in `ac1a31f`.
   `m` redirects reads in $02..$59 through `user_zp_buf` when
@@ -139,6 +120,9 @@ Defined scope, needs work.
 - [ ] `m` address argument: accept expression (`m screen+40`).
   Currently plain 4-digit hex only.
 - [ ] Disk command channel: unified under `$` (`$ s:file`, `$9`, etc.).
+- [ ] Floppy status consistency: `$` prints status inline (always
+  shows), `l`/`s` use `floppy_status` via `disk_done`.  Verify
+  both paths produce identical output on stock KERNAL.
 - [ ] `e` command: open editor at decimal line number (`e 42`).
   Centers the target line on screen as much as possible.  Ties
   into assembler error line numbers — assemble, see error at
@@ -291,23 +275,11 @@ Exploratory, not yet scoped.
 - [ ] Include files: .inc.
 - [ ] Detect PAL/NTSC at startup.
 - [ ] MEGA65 Open-KERNAL compatibility (C64-compatible mode):
-  verify CSE runs on the Open-ROMs C64-compatible build.  Use
-  `make run ROMSET=mega` to test.  Known issues (Session 11):
-  (a) `$` — fixed (Session 11).  Rewrote `list_directory` to
-  use KERNAL LOAD into workspace at $0801 instead of
-  OPEN+CHKIN+CHRIN.  Clobbers workspace (~5 KB max).
-  Open-KERNAL has three IEC channel-I/O bugs that break
-  the traditional approach: MEGA65/open-roms#116 (TKSA
-  `ora #$90` corrupts secondary address + `open_iec` skips
-  bus communication for empty filenames) and
-  MEGA65/open-roms#117 (EOI on last filename byte during
-  OPEN).  Channel-based code preserved in `1348247` for
-  when upstream fixes land.
-  (b) Floppy status empty on Open-KERNAL — channel-based
-  reads via CHRIN don't work (#116, #117).  Shows `; `
-  with empty content.  Will work once upstream fixes land.
-  Loader, editor, assembler, disassembler, load, save all work.
-  MEGA65 native mode is a separate roadmap item (R7).
+  `$` works (LOAD-based).  Floppy status empty (shows `; `)
+  — blocked on upstream IEC channel-I/O fixes
+  (MEGA65/open-roms#116, #117).  Channel-based dir code
+  preserved in `1348247` for when fixes land.  All other
+  features work.  Native mode is roadmap R7.
 - [ ] DDD back-reference tracking: link source files to their
   documentation via a machine-readable index.  DDD Maintenance
   verifies code changes trigger doc updates for all covering
