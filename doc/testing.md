@@ -237,7 +237,7 @@ the companion `.map` file for symbol resolution.  All exported
 symbols become attributes on the emulator instance:
 
 ```python
-addr = emu.sym("line_asm")      # look up any exported symbol
+addr = emu.sym("_asm_line_core")      # look up any exported symbol
 ```
 
 Since the full production binary is loaded, every module's real
@@ -281,7 +281,7 @@ def test_something(cse):
     cse.load_into(emu)
     emu.memory[emu.sym("asm_ptr")]     = lo
     emu.memory[emu.sym("asm_ptr") + 1] = hi
-    emu.jsr(emu.sym("line_asm"))
+    emu.jsr(emu.sym("_asm_line_core"))
     assert emu.a == expected
 ```
 

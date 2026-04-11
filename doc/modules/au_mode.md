@@ -70,4 +70,4 @@ $=$24, (=$28, )=$29, ,=$2C.
 - End-of-expression: NUL, CR ($0D), LF ($0A), `;`, `//`.
 - On syntax error: `jmp asm_syntax_error` (in asm_line.s).
 - `expr_eval_nb` runs without KERNAL banking — mode_parse is called
-  from within line_asm where KERNAL is already banked out.
+  from within _asm_line_core where KERNAL is already banked out.

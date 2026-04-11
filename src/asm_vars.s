@@ -5,9 +5,9 @@
 ;
 ; Usage contract
 ; --------------
-;   Caller sets:   asm_pc, asm_out, asm_cpu   before calling line_asm.
+;   Caller sets:   asm_pc, asm_out, asm_cpu   before calling _asm_line_core.
 ;   asm_line sets: asm_slot, asm_prof, asm_pidx, asm_base, asm_mode, asm_bit.
-;   line_asm returns: asm_len = number of bytes written; C=0 on success.
+;   _asm_line_core returns: asm_len = number of bytes written; C=0 on success.
 ;   On error: jmp asm_error (imported by asm_line.s, not defined here).
 
         .exportzp asm_pc, asm_out, asm_len
@@ -25,9 +25,9 @@ asm_out:        .res 2  ; output buffer pointer (lo, hi)
 asm_cpu:        .res 1  ; CPU target: 0 = 6502, 1 = 6510, 2 = 65C02
                         ;   controls CMOS mode upgrade and CMOS mode validation
 
-; ── asm_line internal state (set during line_asm execution) ─────────────────
+; ── asm_line internal state (set during _asm_line_core execution) ─────────────────
 
-asm_len:        .res 1  ; bytes written to [asm_out] by line_asm (0 if error)
+asm_len:        .res 1  ; bytes written to [asm_out] by _asm_line_core (0 if error)
 asm_slot:       .res 1  ; hash slot returned by mn_classify
 asm_prof:       .res 1  ; raw packed profile byte from mn7_profile[asm_slot]
                         ;   bits 7:6 = cat  (00=legal-NMOS  01=legal+CMOS

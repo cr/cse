@@ -29,7 +29,7 @@
         .export asm_pass
 
         ; Force symbols into ld65 exports list (consumed by conftest.py)
-        .import line_asm
+        .import _asm_line_core
         .importzp _asm_saved_sp
         .import mode_parse
         .import asm_skip_ws
@@ -45,7 +45,7 @@ asm_pass:       .res 1          ; 0 = pass 0 (default for unit tests)
         .segment "CODE"
 
         ; Unreachable data — forces symbols into the map's Exports list
-        .addr   line_asm
+        .addr   _asm_line_core
         .addr   _asm_saved_sp
         .addr   mode_parse
         .addr   asm_skip_ws

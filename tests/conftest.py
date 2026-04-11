@@ -38,7 +38,7 @@ _ZP_SIZE    = 0x0100
 # ── asm_core bundle ──────────────────────────────────────────────────────────
 #
 # Links the full single-line assembler pipeline as one test binary.
-# Shared by test_au_mode.py (mode_parse) and test_asm_line.py (line_asm).
+# Shared by test_au_mode.py (mode_parse) and test_asm_line.py (_asm_line_core).
 # The stub is minimal: BRK error handler + linker symbols for mem.s.
 # No per-module mocking — every import is satisfied by real code.
 
@@ -108,7 +108,7 @@ class AsmCoreSymbols:
     """Resolved symbol addresses + binary loader for the asm_core bundle.
 
     Provides addresses for both au_mode tests (mode_parse, asm_ptr, asm_opr)
-    and asm_line tests (line_asm, asm_pc, asm_out, asm_cpu, etc.).
+    and asm_line tests (_asm_line_core, asm_pc, asm_out, asm_cpu, etc.).
     """
 
     def __init__(self):
@@ -123,7 +123,7 @@ class AsmCoreSymbols:
         self.asm_syntax_error = exports["asm_syntax_error"]
 
         # asm_line entry points
-        self.line_asm         = exports["line_asm"]
+        self._asm_line_core         = exports["_asm_line_core"]
         self.asm_error        = exports["asm_error"]
 
         # ZP variable addresses

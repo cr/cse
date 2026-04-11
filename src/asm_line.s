@@ -13,9 +13,9 @@
 ;
 ; Public entry point: asm_line (A/X = PETSCII text pointer)
 ;   Manages KERNAL banking, error recovery, SP save/restore.
-;   Calls line_asm internally.
+;   Calls _asm_line_core internally.
 ;
-; Internal entry point: line_asm
+; Internal entry point: _asm_line_core
 ;   asm_ptr   — ZP word pointing to the instruction string (PETSCII, null-terminated)
 ;   asm_pc    — current PC (lo, hi); required for REL/ZPREL offset computation
 ;   asm_out   — output buffer pointer (lo, hi)
@@ -33,7 +33,7 @@
         .setcpu "6502"
 
         .export asm_line
-        .export line_asm
+        .export _asm_line_core
         .export asm_error, asm_syntax_error
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
         .export zp_save_buf
@@ -124,8 +124,8 @@ _asm_oplen:
 .segment "CODE"
 
 ; ── asm_error / asm_syntax_error ─────────────────────────────────────────────
-; Jumped to (not called) by line_asm / mode_parse on any assembler error.
-; Restores the 6502 stack to the level saved before line_asm was called,
+; Jumped to (not called) by _asm_line_core / mode_parse on any assembler error.
+; Restores the 6502 stack to the level saved before _asm_line_core was called,
 ; banks the KERNAL back in, and returns 0.
 asm_error:
 asm_syntax_error:
@@ -166,8 +166,8 @@ asm_line:
         jsr kernal_bank_out
 
         ; ── call assembler ──────────────────────────────────────────────
-        ldy #0                  ; required by line_asm entry contract
-        jsr line_asm
+        ldy #0                  ; required by _asm_line_core entry contract
+        jsr _asm_line_core
 
         ; ── bank back in.  bank_in clobbers A, so reload asm_len after.
         jsr kernal_bank_in
@@ -238,9 +238,9 @@ _asm_emit_base_opr:
         jmp _asm_emit           ; tail call
 
 ; ═════════════════════════════════════════════════════════════════════════════
-; line_asm  —  assembler core
+; _asm_line_core  —  assembler core
 ; ═════════════════════════════════════════════════════════════════════════════
-line_asm:
+_asm_line_core:
         lda #0
         sta asm_len             ; initialise byte counter
 

@@ -148,7 +148,7 @@ def _run(asm_syms, source: str, asm_cpu: int = 2):
     # which will return to $FFFF just like a normal return.
     mem[asm_syms._asm_saved_sp] = 0xFD
 
-    cpu.pc = asm_syms.line_asm
+    cpu.pc = asm_syms._asm_line_core
     cpu.y  = 0
 
     for _ in range(_MAX_STEPS):

@@ -121,7 +121,7 @@ _div_rem:    .res 2              ; divide: remainder
 ; ── _expr_eval_inner / expr_eval_nb — the actual evaluator ──
 ; Runs with KERNAL banked out (or pre-banked by an outer batch).
 ; expr_eval_nb is the public alias for callers already banked out
-; (e.g. mode_parse inside line_asm).
+; (e.g. mode_parse inside _asm_line_core).
 ; Returns A = 0 (ZP), 1 (ABS), or 2+ (error).
 expr_eval_nb:
 .proc _expr_eval_inner

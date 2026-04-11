@@ -12,7 +12,7 @@
 
 ## Interface
 
-### line_asm
+### _asm_line_core
 **In:** `asm_ptr` (ZP, text pointer, PETSCII), `asm_pc` (ZP, address),
 `asm_out` (ZP, output pointer), `asm_cpu` (ZP, CPU mode), Y=0
 **Out:** bytes written to `[asm_out]`, `asm_len` = byte count (1–3),
@@ -33,7 +33,7 @@ source-pass and the line-asm REPL command:
 | `repl.s::dot_assemble` | single-line REPL `.` command — `asm_line`'s inner bank helpers do the actual KERNAL bank-out for KDATA-table reads |
 
 `asm_line` owns its own KERNAL banking (bracket of
-`kernal_bank_out`/`kernal_bank_in` around the `line_asm` call).
+`kernal_bank_out`/`kernal_bank_in` around the `_asm_line_core` call).
 Callers do not — and must not — bank the KERNAL themselves.  The
 `asm_error` / `asm_syntax_error` recovery path also banks the
 KERNAL back in before returning 0, so success and error exits are
