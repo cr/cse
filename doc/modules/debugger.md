@@ -116,7 +116,7 @@ Used by the BRK handler to identify which breakpoint slot was hit.
 - `_dbg_bp_hit` — slot number of the breakpoint that was hit ($FF = none)
 - `_step_bp` — temporary breakpoint(s) for single-step (2 slots)
 
-**Depends on:** asm_bridge (register state, ZP save), dasm (instruction
+**Depends on:** asm_line (register state, ZP save), dasm (instruction
 length for step), cse_io (NMI handler upgrade)
 
 ### Memory
@@ -266,14 +266,14 @@ _nmi_handler:
 ### Context switch
 
 User code shares the CSE 6502 stack — no stack page swap, no
-KERNAL banking.  The same approach as `jsr_addr` in asm_bridge.s.
+KERNAL banking.  The same approach as `jsr_addr` in asm_line.s.
 
 **Saved state:**
 
 | Component | Size | Location | Notes |
 |-----------|------|----------|-------|
 | ZP $02–$5A | 89 B | `_zp_save_buf` (BSS) | All CSE ZP: sp, ptr1–2, tmp1–2, assembler, editor, etc. |
-| Registers (A,X,Y,P) | 5 B | `_reg_a..p` (BSS) | existing, from asm_bridge |
+| Registers (A,X,Y,P) | 5 B | `_reg_a..p` (BSS) | existing, from asm_line |
 | PC | 2 B | `_brk_pc` (BSS) | |
 
 **Enter user code** (`j` / `c` / `t` step):

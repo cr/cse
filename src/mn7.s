@@ -11,17 +11,18 @@
 ;   hash slot:   h7 = (c1*4 + c3 + mn7_hash_t[c2]) & $7F
 ;   fingerprint: fp = (c2<<3) | (c3>>2)
 ;
-; where c1/c2/c3 are the VICII screencodes of the first, middle,
-; and last letters of the three-character mnemonic.
+; where c1/c2/c3 are the normalized letter values (AND #$1F) of the
+; first, middle, and last letters of the three-character mnemonic.
 ;
 ; Character encoding
 ; ------------------
-; VICII screencodes:  A=$01 .. Z=$1A  (1-based)
-; mn7_hash_t[0] = $FF guards the unused '@' slot.
+; Normalized values:  A=1 .. Z=26  (AND #$1F maps PETSCII upper/lower
+; and VICII screencodes identically; see mn_classify.md)
+; mn7_hash_t[0] = $FF guards the unused index-0 slot.
 ;
 ; Calling convention
 ; ------------------
-; 1. Store the three VICII screencodes in mn_c1 / mn_c2 / mn_c3.
+; 1. Store the three normalized letter values in mn_c1 / mn_c2 / mn_c3.
 ; 2. JSR mn7_classify.
 ; 3. On return:
 ;      C = 0  →  recognised mnemonic;  A = hash slot (0..$7D)

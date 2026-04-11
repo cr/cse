@@ -21,7 +21,7 @@ disk, mem
 
 **ZP (6 bytes):** `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1),
 `rp_tmp2` (1) — scratch pointers/bytes shared by repl.s,
-debugger.s, asm_bridge.s.
+debugger.s, asm_line.s.
 
 **BSS (1 byte):** `state` (1) — run mode (ST_STOP=0, ST_REPL=1,
 ST_EDIT=2).

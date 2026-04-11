@@ -158,7 +158,7 @@ class ReplSymbols:
         self.reg_p        = exp['reg_p']
         self.state        = exp['state']
         self.dasm_buf     = exp['dasm_buf']
-        self.al_cpu       = exp['al_cpu']
+        self.asm_cpu       = exp['asm_cpu']
 
         # Stub addresses — computed from module offsets
         # kplot_stub is at a known offset within the stub's CODE section.
@@ -247,7 +247,7 @@ def make_cpu(rsyms):
         cpu.memory[SCREEN + i] = 0x20  # space screen code
 
     # Init CPU mode
-    cpu.memory[rsyms.al_cpu] = 1  # 6510
+    cpu.memory[rsyms.asm_cpu] = 1  # 6510
 
     # Init BSS defaults (formerly DATA segment init values)
     set_word(cpu, rsyms.block_size, 0x0010)
@@ -780,7 +780,7 @@ class TestUnknownCommand:
 
 
 class TestCpuSelect:
-    """'u' command sets al_cpu."""
+    """'u' command sets asm_cpu."""
 
     CASES = [
         ("u6502",  0),
@@ -793,7 +793,7 @@ class TestCpuSelect:
         cpu = make_cpu(rsyms)
         set_line_buf(cpu, rsyms, cmd)
         run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.al_cpu] == expected
+        assert cpu.memory[rsyms.asm_cpu] == expected
 
 
 # ── P. Dot command (. with hex edit) ─────────────────────────

@@ -39,7 +39,7 @@ Open bugs, roughly ordered by priority.
 
 - [x] 13 CMOS mnemonic gate bugs — fixed in `2939a94`.
 - [x] expr.s test harness: 12 xfails — resolved, 146 tests pass.
-- [x] al_cpu 3-valued semantics — fixed.
+- [x] asm_cpu 3-valued semantics — fixed.
 - [x] `j` command: reset colors after user code returns.
 - [x] `print_load_split_warning` leading-comma bug.
 - [x] `ed_scroll_down` memmove broken — rewrote as row-by-row copies.
@@ -204,27 +204,23 @@ Defined scope, needs work.
   the `.` command full expression support (labels, arithmetic) for
   free.  Four steps:
 
-  **Step 1 — Recalculate mn6/mn7 hash for PETSCII encoding.**
-  Currently the hash uses VICII screencodes (A=$01..Z=$1A).
-  PETSCII lowercase is a=$41..z=$5A.  Regenerate HASH_T via
-  `dev/hashes.py` with PETSCII character values.  Update
-  `dev/mnemonic_tables.py` to emit PETSCII-based tables.
-  Regenerate `src/mn7_tables.s`, `src/mn6_tables.s`.  The hash
-  formula may need a `sec; sbc #$40` normalization (~6 B) or
-  the search may find a direct PETSCII hash with no normalization.
-  Validate: all 2788 tests pass after regeneration.
+  **Step 1 — Hash encoding: resolved, no work needed.** (Phase 12)
+  AND #$1F normalization in `_asm_rd_upper` maps PETSCII
+  uppercase ($41–$5A), PETSCII lowercase ($61–$7A), and VICII
+  screen codes ($01–$1A) identically to 1–26.  All hash tables,
+  fingerprint tables, and T arrays are encoding-agnostic.
 
-  **Step 2 — Switch assembler pipeline to PETSCII.**
-  Remove asm_bridge.s PETSCII→VICII conversion (~140 B).
-  al_line_asm, au_parse_mode, au_skip_ws now operate on PETSCII
-  directly.  Update letter constants in al_line_asm (register
-  checks for A/X/Y, hex digit detection).  The $09 caveat
-  (VICII 'I' = TAB) disappears.  `_al_skip_sp` and `au_skip_ws`
-  can merge.  Validate: all tests pass, `.` command works.
+  **Step 2 — Switch assembler pipeline to PETSCII + rename.** (Phase 12, done)
+  Merged asm_bridge.s into asm_line.s (KERNAL banking, error
+  recovery, SP save/restore).  Deleted PETSCII→VICII conversion
+  loop.  au_mode.s operates on PETSCII: SC_* constants updated
+  (A=$41, X=$58, Y=$59), hex ranges ($41–$46 for A–F).
+  Renamed: `al_` → `asm_`, `au_` → `asm_`/`mode_` across all
+  source, test, stub, and doc files.  2788 tests pass.
 
-  **Step 3 — Replace au_mode hex parser with expr_eval.**
+  **Step 3 — Replace mode_parse hex parser with expr_eval.**
   Remove `_au_rd_nib`, `_au_rd_byte`, `_au_is_hex` (~155 B).
-  au_parse_mode detects mode syntax (#, (, ,X, ,Y, )) as before,
+  mode_parse detects mode syntax (#, (, ,X, ,Y, )) as before,
   then calls expr_eval for the operand value instead of the
   internal hex parser.  No encoding mismatch — both now PETSCII.
   Add pass flag (1 B BSS) for forward-reference handling: if
@@ -233,13 +229,13 @@ Defined scope, needs work.
   expressions (`LDA #cols-1`), all tests pass.
 
   **Step 4 — Unify source assembler with line assembler.**
-  asm_src.s calls al_line_asm for instruction lines instead of
+  asm_src.s calls asm_line for instruction lines instead of
   parsing operands, evaluating expressions, and reconstructing
   hex in `_insn_buf`.  Remove `_insn_buf` (32 B BSS), hex
   reconstruction loop (~100 B CODE), operand extraction (~60 B),
   expression formatting (~80 B).  asm_src.s becomes a loop over
   lines: directive dispatch + label/constant definition + pass
-  management; instructions go through al_line_asm.  Validate:
+  management; instructions go through asm_line.  Validate:
   `a` command assembles all existing test programs, forward
   references resolve, all tests pass.
 - [ ] BSS optimization: overlap `_load_line`/`_load_vcol` with

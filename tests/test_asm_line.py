@@ -7,7 +7,7 @@ from dev/instruction_set.py.
 
 Test generation
 ---------------
-The main parametrised test is built from MODE_EXAMPLES × MNEMONICS exactly
+The main parametrised test is built from MODE_EXAMPLES x MNEMONICS exactly
 as described in the MODE_EXAMPLES docstring comment in instruction_set.py:
 
     for mne, (profile, cmos_bit, _) in MNEMONICS.items():
@@ -18,18 +18,18 @@ as described in the MODE_EXAMPLES docstring comment in instruction_set.py:
 
 Cases are skipped when:
   - OPCODES[mne][mode] is None  (Zone D/E: RMB/SMB/BBR/BBS digit-encoded ops)
-  - The operand string contains lowercase ASCII letters that au_parse_mode does
+  - The operand string contains lowercase ASCII letters that mode_parse does
     not yet accept (e.g. '$00,x', '$00,y', 'a' for ACC)
 
 REL notes
 ---------
 MODE_EXAMPLES[REL] uses 4-digit absolute targets ($0002).  The test sets
-al_pc = $0000 and al_cpu = 2 (65C02, accepts all modes).  The assembler
-computes the signed offset: offset = $0002 − ($0000 + 2) = $00.
+asm_pc = $0000 and asm_cpu = 2 (65C02, accepts all modes).  The assembler
+computes the signed offset: offset = $0002 - ($0000 + 2) = $00.
 
 CMOS notes
 ----------
-All tests run with al_cpu = 2 (65C02) so that both NMOS and CMOS extension
+All tests run with asm_cpu = 2 (65C02) so that both NMOS and CMOS extension
 modes are exercised.  Modes that require 65C02 (ZPI, ACC for DEC/INC, AIX for
 JMP, IMM for BIT, TRB, TSB, STZ, etc.) are included in the test set.
 """
@@ -47,27 +47,23 @@ from instruction_set import (
     ALL_MODES, mne_modes,
 )
 
-# ── VICII screen-code encoder ─────────────────────────────────────────────────
-_SC_UPPER = {c: (ord(c) - ord('A') + 1) for c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'}
+# ── PETSCII encoder ──────────────────────────────────────────────────────────
 
 def _sc(s: str) -> bytes:
-    """Encode ASCII string to VICII screen codes + NUL terminator.
-    Uppercase A–Z → $01–$1A; everything else (digits, punctuation) stays as-is.
-    Lowercase letters ($61–$7A in ASCII) are passed through unchanged; au_mode.s
-    does not accept them and these cases are filtered out below.
+    """Encode ASCII string to PETSCII + NUL terminator.
+    Uppercase A-Z = $41-$5A (same as ASCII); digits/punctuation unchanged.
+    Lowercase letters ($61-$7A) are passed through; mode_parse does not
+    accept them and these cases are filtered out below.
     """
     out = []
     for c in s:
-        if c in _SC_UPPER:
-            out.append(_SC_UPPER[c])
-        else:
-            out.append(ord(c))
+        out.append(ord(c))
     out.append(0x00)
     return bytes(out)
 
 
 def _has_lowercase_letter(s: str) -> bool:
-    """Return True if the string contains any ASCII lowercase letter a–z."""
+    """Return True if the string contains any ASCII lowercase letter a-z."""
     return any('a' <= c <= 'z' for c in s)
 
 
@@ -95,7 +91,7 @@ def _build_cases():
             for operand_src, operand_bytes in examples:
                 source = f"{mne} {operand_src}".strip()
                 # Skip variants with lowercase operand letters (x, y, a)
-                # that au_parse_mode does not accept.
+                # that mode_parse does not accept.
                 if _has_lowercase_letter(operand_src):
                     continue
                 expected = bytes([opcode] + operand_bytes)
@@ -108,38 +104,38 @@ _CASES = _build_cases()
 
 # ── CPU runner ────────────────────────────────────────────────────────────────
 
-def _run(al_syms, source: str, al_cpu: int = 2):
+def _run(asm_syms, source: str, asm_cpu: int = 2):
     """
     Assemble one instruction and return the output bytes.
 
     Returns the bytes written to the output buffer on success, or raises
-    AssertionError if al_error is reached, or TimeoutError on runaway.
+    AssertionError if asm_error is reached, or TimeoutError on runaway.
     """
     cpu = MPU()
     mem = cpu.memory
 
     # Load the test binary
-    al_syms.load_into(mem)
+    asm_syms.load_into(mem)
 
-    # Write the VICII-encoded source string
+    # Write the PETSCII-encoded source string
     encoded = _sc(source)
     for i, b in enumerate(encoded):
         mem[_IN_BUF + i] = b
 
-    # Set au_ptr → input buffer
-    mem[al_syms.au_ptr]     = _IN_BUF & 0xFF
-    mem[al_syms.au_ptr + 1] = (_IN_BUF >> 8) & 0xFF
+    # Set asm_ptr -> input buffer
+    mem[asm_syms.asm_ptr]     = _IN_BUF & 0xFF
+    mem[asm_syms.asm_ptr + 1] = (_IN_BUF >> 8) & 0xFF
 
-    # Set al_pc = _TEST_PC
-    mem[al_syms.al_pc]     = _TEST_PC & 0xFF
-    mem[al_syms.al_pc + 1] = (_TEST_PC >> 8) & 0xFF
+    # Set asm_pc = _TEST_PC
+    mem[asm_syms.asm_pc]     = _TEST_PC & 0xFF
+    mem[asm_syms.asm_pc + 1] = (_TEST_PC >> 8) & 0xFF
 
-    # Set al_out → output buffer
-    mem[al_syms.al_out]     = _OUT_BUF & 0xFF
-    mem[al_syms.al_out + 1] = (_OUT_BUF >> 8) & 0xFF
+    # Set asm_out -> output buffer
+    mem[asm_syms.asm_out]     = _OUT_BUF & 0xFF
+    mem[asm_syms.asm_out + 1] = (_OUT_BUF >> 8) & 0xFF
 
-    # al_cpu
-    mem[al_syms.al_cpu] = al_cpu
+    # asm_cpu
+    mem[asm_syms.asm_cpu] = asm_cpu
 
     # Fake JSR: push $FFFE so RTS lands at $FFFF (sentinel)
     cpu.sp = 0xFF
@@ -147,17 +143,22 @@ def _run(al_syms, source: str, al_cpu: int = 2):
     mem[0x01FE] = 0xFE
     cpu.sp = 0xFD
 
-    cpu.pc = al_syms.al_line_asm
+    # Pre-set _asm_saved_sp so asm_error can restore SP on error.
+    # The fake JSR left SP at 0xFD; asm_error does ldx _asm_saved_sp; txs; rts
+    # which will return to $FFFF just like a normal return.
+    mem[asm_syms._asm_saved_sp] = 0xFD
+
+    cpu.pc = asm_syms.line_asm
     cpu.y  = 0
 
     for _ in range(_MAX_STEPS):
         if cpu.pc == 0xFFFF:
-            # Normal return
-            n = mem[al_syms.al_len]
+            # Normal return or error return (asm_error restores SP and RTS)
+            n = mem[asm_syms.asm_len]
+            if n == 0:
+                raise AssertionError(
+                    f"asm_error reached while assembling {source!r}")
             return bytes(mem[_OUT_BUF : _OUT_BUF + n])
-        if cpu.pc == al_syms.al_error:
-            raise AssertionError(
-                f"al_error reached while assembling {source!r}")
         cpu.step()
 
     raise TimeoutError(f"exceeded {_MAX_STEPS} steps for {source!r}")
@@ -167,8 +168,8 @@ def _run(al_syms, source: str, al_cpu: int = 2):
 
 @pytest.mark.parametrize("source,expected", _CASES,
                          ids=[c[0] for c in _CASES])
-def test_assemble(al_syms, source, expected):
-    got = _run(al_syms, source)
+def test_assemble(asm_syms, source, expected):
+    got = _run(asm_syms, source)
     assert got == expected, (
         f"assembling {source!r}: "
         f"got {got.hex()} expected {expected.hex()}"
@@ -176,7 +177,7 @@ def test_assemble(al_syms, source, expected):
 
 
 # ── GAP 1: NMOS rejection tests ─────────────────────────────────────────────
-# CMOS-only instructions must produce al_error when al_cpu = 0 (NMOS 6502).
+# CMOS-only instructions must produce asm_error when asm_cpu = 0 (NMOS 6502).
 
 _CMOS_ONLY_CASES = [
     # Pure CMOS mnemonics
@@ -195,16 +196,16 @@ _CMOS_ONLY_CASES = [
 ]
 
 # Pure CMOS mnemonics (cat=11) and CMOS mode extensions (cat=01) are both
-# gated by al_cpu in asm_line.s (requires al_cpu=2 for 65C02).
+# gated by asm_cpu in asm_line.s (requires asm_cpu=2 for 65C02).
 
 @pytest.mark.parametrize("source", _CMOS_ONLY_CASES)
-def test_nmos_rejects_cmos(al_syms, source):
-    """CMOS-only instructions must error on NMOS 6502 (al_cpu=0)."""
+def test_nmos_rejects_cmos(asm_syms, source):
+    """CMOS-only instructions must error on NMOS 6502 (asm_cpu=0)."""
     try:
-        _run(al_syms, source, al_cpu=0)
+        _run(asm_syms, source, asm_cpu=0)
         pytest.fail(f"should have errored: {source!r} on NMOS")
     except AssertionError:
-        pass  # expected: al_error was reached
+        pass  # expected: asm_error was reached
 
 
 # ── GAP 5: Hex-mnemonic ambiguity tests ─────────────────────────────────────
@@ -223,9 +224,9 @@ _AMBIGUOUS_CASES = [
 
 @pytest.mark.parametrize("source,expected", _AMBIGUOUS_CASES,
                          ids=[c[0] for c in _AMBIGUOUS_CASES])
-def test_hex_mnemonic_ambiguity(al_syms, source, expected):
+def test_hex_mnemonic_ambiguity(asm_syms, source, expected):
     """Mnemonics starting with hex digits must parse as mnemonics."""
-    got = _run(al_syms, source)
+    got = _run(asm_syms, source)
     assert got == expected, (
         f"ambiguity test {source!r}: got {got.hex()} expected {expected.hex()}"
     )

@@ -125,7 +125,7 @@ reg_y:         .res 1
 reg_sp:        .res 1
 reg_p:         .res 1
 
-; User ZP snapshot (mirrors asm_bridge.s::user_zp_buf)
+; User ZP snapshot (mirrors asm_line.s::user_zp_buf)
 user_zp_buf:   .res 88
 
 ; Editor state
@@ -236,7 +236,7 @@ cursor_hide:
 ; Assembler stubs
 ; ═══════════════════════════════════════════════════════════════
 
-; asm_line(buf) — A/X = text, caller sets al_pc/al_out
+; asm_line(buf) — A/X = text, caller sets asm_pc/asm_out
 ; Returns 0 (error) always in stub mode.
 asm_line:
         lda #0

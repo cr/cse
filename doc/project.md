@@ -197,7 +197,7 @@ decode logic.  This keeps the binary small on constrained targets.
 compile-time selection (mn6 vs mn7).  The assembler (`.ifdef
 CMOS_SUPPORT`), disassembler (`.ifdef CMOS_SUPPORT` +
 `.ifndef CPU_6502`), and debugger step logic (`#ifdef CMOS_SUPPORT`)
-all use compile-time gating.  Runtime `al_cpu` checks remain within
+all use compile-time gating.  Runtime `asm_cpu` checks remain within
 guarded blocks for 6510 vs 65C02 distinction.
 
 ### 5. Don't get in the KERNAL's way — user code sees a working C64

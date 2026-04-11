@@ -11,7 +11,7 @@ Wraps py65 with:
 Usage:
     emu = C64Emu()
     emu.load_prg("build/cse.prg")
-    emu.jsr(emu.sym("al_line_asm"), a=0x42)
+    emu.jsr(emu.sym("line_asm"), a=0x42)
     assert emu.a == expected
 """
 

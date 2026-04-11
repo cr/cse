@@ -3,7 +3,7 @@
 Tests the full pipeline: source text → _test_src_buf → _asm_assemble → memory.
 
 The test binary links asm_src.s with the complete assembler core (asm_line,
-asm_bridge, expr, symtab, mn7, etc.).  asm_src_test_stub.s provides mock
+expr, symtab, mn7, etc.).  asm_src_test_stub.s provides mock
 implementations of ed_read_line, io_puts, cse_end, pushax, cse_popax.
 
 Source text is written as PETSCII: ASCII uppercase = C64 uppercase PETSCII.
@@ -499,7 +499,7 @@ def test_label_after_two_imms(as_syms):
 #
 # Verifies the asm_line bridge's invariants:
 #   - returns the correct byte count
-#   - writes the correct bytes to *al_out
+#   - writes the correct bytes to *asm_out
 #   - leaves $01 bit 1 = 1 (KERNAL banked back in)
 #   - leaves I flag clear (interrupts re-enabled)
 #   - leaves kernal_out untouched (still 0)
@@ -516,16 +516,16 @@ def _direct_asm_line(as_syms, text: str):
     mem = cpu.memory
     as_syms.load_into(mem)
 
-    # Write PETSCII text into a buffer in main RAM (asm_line converts in-place to VICII).
+    # Write PETSCII text into a buffer in main RAM.
     encoded = _petscii(text).rstrip(b'\x00') + b'\x00'  # NUL-terminated, no extras
     for i, b in enumerate(encoded):
         mem[_AL_TEXT_BUF + i] = b
 
-    # Set ZP: al_pc, al_out
-    mem[as_syms.al_pc]     = _AL_PC & 0xFF
-    mem[as_syms.al_pc + 1] = (_AL_PC >> 8) & 0xFF
-    mem[as_syms.al_out]    = _AL_OUT_BUF & 0xFF
-    mem[as_syms.al_out + 1] = (_AL_OUT_BUF >> 8) & 0xFF
+    # Set ZP: asm_pc, asm_out
+    mem[as_syms.asm_pc]     = _AL_PC & 0xFF
+    mem[as_syms.asm_pc + 1] = (_AL_PC >> 8) & 0xFF
+    mem[as_syms.asm_out]    = _AL_OUT_BUF & 0xFF
+    mem[as_syms.asm_out + 1] = (_AL_OUT_BUF >> 8) & 0xFF
 
     # Pre-condition: kernal_out flag = 0 (single-line path, NOT a batch)
     mem[as_syms.kernal_out] = 0
@@ -552,7 +552,7 @@ def _direct_asm_line(as_syms, text: str):
     else:
         raise TimeoutError(f"asm_line direct call exceeded {_MAX_STEPS} steps")
 
-    n = mem[as_syms.al_len]
+    n = mem[as_syms.asm_len]
     out = bytes(mem[_AL_OUT_BUF : _AL_OUT_BUF + n])
     return n, out, cpu.p, mem[0x01], mem[as_syms.kernal_out]
 
@@ -590,14 +590,14 @@ class TestAsmLineDirect:
         assert kout == 0
 
     def test_direct_error_restores_bank(self, as_syms):
-        # Garbage mnemonic — asm_line should jmp al_error, which must
+        # Garbage mnemonic — asm_line should jmp asm_error, which must
         # also bank the KERNAL back in and re-enable interrupts.
         n, _out, p, port01, kout = _direct_asm_line(as_syms, "xyz")
         assert n == 0, "garbage mnemonic should error"
         assert (port01 & 0x02) == 0x02, \
-            f"$01 bit 1 not set after al_error: ${port01:02X}"
+            f"$01 bit 1 not set after asm_error: ${port01:02X}"
         assert (p & 0x04) == 0, \
-            f"I flag still set after al_error: ${p:02X}"
+            f"I flag still set after asm_error: ${p:02X}"
         assert kout == 0
 
 

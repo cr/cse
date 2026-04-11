@@ -42,7 +42,7 @@ and documentation.
 | **base opcode** | Opcode byte with the mode field (`bbb`) zeroed.  Final opcode = `base | (bbb << 2)`. |
 | **mode index** | Integer 0–15 encoding an addressing mode.  Used by `au_mode.s` and `opcode_lookup.s`.  The mapping: 0=IMP, 1=ACC, 2=IMM, 3=ZP, 4=ZPX, 5=ZPY, 6=ABS, 7=ABX, 8=ABY, 9=IND, 10=INX, 11=INY, 12=REL, 13=ZPI, 14=AIX, 15=ZPREL. |
 | **operand profile** | Index (0–29) describing which mode indices a mnemonic accepts.  Encoded as a 16-bit bitmask in `mn_modes`.  Example: profile 16 (LDA) = {IMM, ZP, ZPX, ABS, ABX, ABY, INX, INY}. |
-| **zone** | Dispatch category (A–H) in the line assembler.  Derived from the operand profile.  Zones A–F are fixed single-mode groups; G and H are multi-mode groups that call `au_parse_mode` + `opcode_lookup`. |
+| **zone** | Dispatch category (A–H) in the line assembler.  Derived from the operand profile.  Zones A–F are fixed single-mode groups; G and H are multi-mode groups that call `mode_parse` + `asm_opcode_lookup`. |
 | **mnemonic suffix** | Digit `0`–`7` after RMB/SMB/BBR/BBS: the `3` in `RMB3`.  Encodes a bit index. |
 
 ## Process
@@ -78,7 +78,7 @@ and documentation.
 | Term | Definition |
 |------|------------|
 | **PETSCII** | C64 character encoding.  Two modes: *unshifted* ($41–$5A = uppercase, $C1–$DA = graphics) and *shifted* ($41–$5A = lowercase, $C1–$DA = uppercase).  CSE uses shifted mode.  KERNAL returns $41–$5A for unshifted keypresses, $C1–$DA for shifted. |
-| **VICII screen code** | Display encoding for screen RAM.  In shifted mode: $01–$1A = lowercase a–z, $41–$5A = uppercase A–Z.  Used internally by the line assembler. |
+| **VICII screen code** | Display encoding for screen RAM.  In shifted mode: $01–$1A = lowercase a–z, $41–$5A = uppercase A–Z.  The mnemonic hash uses normalized values 1–26 (same as VICII lowercase screen codes) but derives them via AND #$1F, which works identically on PETSCII and VICII input. |
 | **PETSCII folding** | Collapsing $C1–$DA to $41–$5A (uppercase → lowercase).  Done by `fold_char`.  Hex parsing accepts both ranges. |
 | **screen RAM** | $0400–$07E7.  40×25 bytes of screen codes.  The REPL reads and writes this directly. |
 | **color RAM** | $D800–$DBE7.  Per-character color nybbles.  Managed by `restore_colors`. |
@@ -89,7 +89,7 @@ and documentation.
 |------|------------|
 | **KERNAL** | C64 ROM routines ($E000–$FFFF).  CSE uses KERNAL for keyboard, disk I/O, and cursor sync. |
 | **NMI** | Non-maskable interrupt.  RUN/STOP+RESTORE triggers NMI; CSE intercepts it for mode switching. |
-| **al_cpu** | CPU mode selector: 0=6502 (legal only), 1=6510 (+illegal), 2=65C02 (+CMOS). |
+| **asm_cpu** | CPU mode selector: 0=6502 (legal only), 1=6510 (+illegal), 2=65C02 (+CMOS). |
 | **ca65** | 6502 assembler (part of the cc65 toolchain).  All CSE source is pure assembly. |
 | **ld65** | 6502 linker (part of the cc65 toolchain).  Links .o files into the final PRG binary. |
 | **py65** | Python 6502 emulator used by the test suite to execute assembled test binaries. |

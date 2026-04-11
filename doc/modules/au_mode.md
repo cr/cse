@@ -11,26 +11,26 @@
 
 ## Interface
 
-### au_parse_mode
-**In:** `au_ptr` (ZP, pointer to operand string in VICII screen codes), Y=0
+### mode_parse
+**In:** `asm_ptr` (ZP, pointer to operand string in PETSCII), Y=0
 **Out:** A = mode index (0–15), X = operand byte count (0–2),
-`au_opr[0..1]` = operand bytes (little-endian)
+`asm_opr[0..1]` = operand bytes (little-endian)
 **Clobbers:** A, X, Y
 
-### au_skip_ws
-**In:** `au_ptr`, Y = current offset
-**Out:** Y advanced past spaces ($20), tabs ($A0), and legacy ASCII tabs ($09)
+### asm_skip_ws
+**In:** `asm_ptr`, Y = current offset
+**Out:** Y advanced past spaces ($20) and tabs ($A0)
 **Clobbers:** A
 
-**Depends on:** asm_bridge (au_syntax_error)
+**Depends on:** asm_line (asm_syntax_error)
 
 ### Memory
 
-**ZP (5 bytes):** `au_ptr` (2), `au_opr` (2), `_au_tmp` (1).
+**ZP (5 bytes):** `asm_ptr` (2), `asm_opr` (2), `_asm_au_tmp` (1).
 
 ## Design
 
-Parses VICII screen code strings.  Recognizes all 6502 addressing
+Parses PETSCII operand strings.  Recognizes all 6502 addressing
 mode syntaxes:
 
 | Syntax | Mode | Index |
@@ -55,12 +55,13 @@ mode syntaxes:
 ZP vs ABS determined by operand digit count: 1–2 hex digits → ZP,
 3–4 digits → ABS.  All operands require `$` prefix.
 
+Character constants for PETSCII: A=$41, X=$58, Y=$59, #=$23,
+$=$24, (=$28, )=$29, ,=$2C.
+
 ## Caveats
 
-- VICII screen codes, not PETSCII or ASCII.  A=$01, X=$18, Y=$19.
-- Whitespace: space ($20), shifted-space/tab ($A0), and VICII 'I'
-  ($09) tolerated between tokens.  **Warning:** VICII 'I'=$09 =
-  ASCII TAB.  `au_skip_ws` must not be called before mnemonic
-  characters are consumed.
+- Input is PETSCII.  Register letters are A=$41, X=$58, Y=$59.
+  Hex digits: 0–9=$30–$39, A–F=$41–$46 (uppercase).
+- Whitespace: space ($20) and tab ($A0).
 - End-of-expression: NUL, CR ($0D), LF ($0A), `;`, `//`.
-- On syntax error: `jmp au_syntax_error` (in asm_bridge.s).
+- On syntax error: `jmp asm_syntax_error` (in asm_line.s).

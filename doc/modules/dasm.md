@@ -13,7 +13,7 @@
 ## Interface
 
 ### dasm_insn
-**In:** A/X = instruction address (lo/hi).  `al_cpu` (ZP) selects
+**In:** A/X = instruction address (lo/hi).  `asm_cpu` (ZP) selects
 CPU mode: 0=6502, 1=6510, 2=65C02.
 **Out:** A = instruction length (1–3).  `dasm_buf` filled with
 NUL-terminated PETSCII string.
@@ -27,7 +27,7 @@ both the `d` block-disassemble command and the `.` single-line
 command) — just call `dasm_insn` and don't manage banking.
 
 The wrapper structure is the same as `asm_line` in
-`asm_bridge.s`: a thin entry that brackets the decoder with
+`asm_line.s`: a thin entry that brackets the decoder with
 `kernal_bank_out` / `kernal_bank_in`.  Because the wrapper
 guards the call with `pha` / `jsr kernal_bank_in` / `pla`, the
 length result returned by any of `dasm_decode`'s exits (the
@@ -56,7 +56,7 @@ Dispatches on `cc = opcode & 3`:
 | 00 | Group 0 | Sub-dispatch: branches, implied (bbb=2,6), memory ops. |
 | 11 | Group 3 | CPU-dependent: 6502→`???`, 6510→illegal table, 65C02→RMB/SMB/BBR/BBS. |
 
-**CPU mode** (`al_cpu`): 0=6502 (legal only, illegals→`...`),
+**CPU mode** (`asm_cpu`): 0=6502 (legal only, illegals→`...`),
 1=6510 (legal+illegal), 2=65C02 (legal+CMOS).
 
 **Mnemonic packing:** 3 chars packed into 2 bytes (5 bits per char,
@@ -69,7 +69,7 @@ operand size, and suffix.  Instruction length derived from mode.
 **Compile-time guards:** 65C02-specific code and tables are wrapped
 in `.ifdef CMOS_SUPPORT`; 6510 illegal opcode paths use
 `.ifndef CPU_6502`.  A 6502-only build contains neither.  Runtime
-`lda al_cpu` checks remain within guarded blocks for the 6510 vs
+`lda asm_cpu` checks remain within guarded blocks for the 6510 vs
 65C02 distinction.
 
 ## Caveats

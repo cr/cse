@@ -15,7 +15,7 @@
 
         .segment "ZEROPAGE"
         .exportzp expr_ptr, expr_val, expr_wide
-        .exportzp al_pc
+        .exportzp asm_pc
         .exportzp sym_name, sym_val, sym_wide
         .exportzp rp_ptr, rp_ptr2, rp_tmp
         .exportzp buf_base
@@ -23,8 +23,8 @@
 expr_ptr:   .res 2       ; expression input pointer (in/out)
 expr_val:   .res 2       ; result value (out)
 expr_wide:  .res 1       ; width: 0=ZP, 1=ABS (out)
-al_pc:      .res 2       ; current PC for '*'
-al_cpu:     .res 1       ; CPU mode (unused by expr)
+asm_pc:      .res 2       ; current PC for '*'
+asm_cpu:     .res 1       ; CPU mode (unused by expr)
 sym_name:   .res 2       ; symbol name pointer
 sym_val:    .res 2       ; symbol value
 sym_wide:   .res 1       ; symbol width flag: 0=ZP, nonzero=ABS

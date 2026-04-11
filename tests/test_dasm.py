@@ -143,7 +143,7 @@ def test_dasm(dasm_syms, cpu, opc, exp):
     mem[INSN_ADDR + 2] = TEST_OPERANDS[1]
 
     # Set CPU mode
-    mem[dasm_syms.al_cpu] = cpu
+    mem[dasm_syms.asm_cpu] = cpu
 
     # Place a BRK at return address so we know when done.
     # Must be ABOVE all segments (CODE+RODATA+BSS can extend past $0A00).
@@ -242,7 +242,7 @@ def test_dasm_boundary_operands(dasm_syms, opc, operands, exp):
     mem[INSN_ADDR]     = opc
     mem[INSN_ADDR + 1] = operands[0]
     mem[INSN_ADDR + 2] = operands[1]
-    mem[dasm_syms.al_cpu] = CPU_6510
+    mem[dasm_syms.asm_cpu] = CPU_6510
 
     RETURN_ADDR = 0x0F00
     mem[RETURN_ADDR] = 0x00
@@ -296,7 +296,7 @@ class TestDasmBankContract:
         mem[INSN_ADDR]     = opc
         mem[INSN_ADDR + 1] = operands[0]
         mem[INSN_ADDR + 2] = operands[1]
-        mem[dasm_syms.al_cpu] = CPU_6510
+        mem[dasm_syms.asm_cpu] = CPU_6510
 
         # Pre-condition: $01 bit 1 = 1 (KERNAL mapped), I = 0 (interrupts on).
         mem[0x01] = 0x37
@@ -349,7 +349,7 @@ class TestDasmBankContract:
         mem = bytearray(0x10000)
         dasm_syms.load_into(mem)
         mem[INSN_ADDR] = 0x02
-        mem[dasm_syms.al_cpu] = CPU_6502
+        mem[dasm_syms.asm_cpu] = CPU_6502
         mem[0x01] = 0x37
         mpu.memory = mem
         mpu.p &= ~0x04
@@ -377,7 +377,7 @@ class TestDasmBankContract:
         dasm_syms.load_into(mem)
         mem[INSN_ADDR]     = 0x07          # RMB0 zp
         mem[INSN_ADDR + 1] = 0x00
-        mem[dasm_syms.al_cpu] = CPU_65C02
+        mem[dasm_syms.asm_cpu] = CPU_65C02
         mem[0x01] = 0x37
         mpu.memory = mem
         mpu.p &= ~0x04
@@ -406,7 +406,7 @@ class TestDasmBankContract:
         mem[INSN_ADDR]     = 0x0F          # BBR0 zp,rel
         mem[INSN_ADDR + 1] = 0x00
         mem[INSN_ADDR + 2] = 0x00
-        mem[dasm_syms.al_cpu] = CPU_65C02
+        mem[dasm_syms.asm_cpu] = CPU_65C02
         mem[0x01] = 0x37
         mpu.memory = mem
         mpu.p &= ~0x04

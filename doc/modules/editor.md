@@ -300,7 +300,7 @@ leading whitespace that leaves the new `ed_cur_col` ≤ 38.  (Cap is
 39 content cols; auto-indent leaves at least one col for the user.)
 
 **Sequential reader.**  `ed_read_line` and `ed_read_byte` pass $A0
-through as-is.  The assembler's whitespace skipper (`au_skip_ws`)
+through as-is.  The assembler's whitespace skipper (`asm_skip_ws`)
 must treat $A0 as whitespace.
 
 ### The 39-column hard cap

@@ -32,7 +32,7 @@ REPL command interpreter and screen output.  Hex parsing helpers
 Three levels: `LOG_ERR='?'` → `";?"`, `LOG_WARN='!'` → `";!"`,
 `LOG_INFO=' '` → `"; "`.
 
-**Depends on:** asm_bridge (`.`), asm_src (`a`), dasm (`d`), expr (`?`),
+**Depends on:** asm_line (`.`), asm_src (`a`), dasm (`d`), expr (`?`),
 disk (`l`/`s`/`$`), debugger (`b`/`c`/`t`/`o`), editor, screen, cse_io
 
 ### Memory

@@ -12,7 +12,6 @@ cse/
 │   ├── repl.s              REPL command loop and handlers
 │   ├── editor.s            Gap buffer editor, rendering, keys
 │   ├── asm_src.s            Two-pass source assembler
-│   ├── asm_bridge.s        PETSCII→VICII bridge, error recovery
 │   ├── asm_line.s          Single-line assembler, zone dispatch
 │   ├── asm_vars.s          Assembler ZP variables
 │   ├── opcode_lookup.s     (profile, mode) → opcode byte

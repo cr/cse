@@ -55,7 +55,7 @@ registers.  This is preferred for multi-field I/O:
 
 | ZP group | Owner | Fields | Used by |
 |----------|-------|--------|---------|
-| Assembler I/O | asm_vars | `al_pc`, `al_out`, `al_cpu`, `al_len`, `al_mode` | asm_line, asm_src, asm_bridge |
+| Assembler I/O | asm_vars | `asm_pc`, `asm_out`, `asm_cpu`, `asm_len`, `asm_mode` | asm_line, asm_src |
 | Symbol I/O | asm_vars | `sym_name` (ptr), `sym_val`, `sym_wide` | symtab, asm_src, expr, repl |
 | Expression I/O | asm_vars | `expr_ptr` (ptr), `expr_val`, `expr_wide` | expr, asm_src, repl |
 | Mnemonic chars | mn_vars | `mn_c1`, `mn_c2`, `mn_c3` | mn_classify, mn7/mn6, asm_line |
@@ -75,7 +75,7 @@ Functions with 2+ arguments use named ZP variables for the first
 arguments and A/X for the last.  Examples:
 
 - `disk_load_prg`: `disk_ptr` = name, A/X = addr
-- `asm_line`: `al_pc`/`al_out` set by caller, A/X = text
+- `asm_line`: `asm_pc`/`asm_out` set by caller, A/X = text
 - `ed_read_line`: A/X = buf pointer (maxlen hardcoded)
 
 No software parameter stack.  All arguments pass through registers
@@ -335,13 +335,13 @@ $0800.  `workend` adjusts when the editor resizes the gap buffer
 | Range | Bytes | Module | Variables |
 |-------|-------|--------|-----------|
 | $02–$07 | 6 | main | `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) |
-| $08 | 1 | asm_bridge | `ab_saved_sp` (1) |
+| $08 | 1 | asm_line | `_asm_saved_sp` (1) |
 | $09–$20 | 24 | asm_vars | assembler + symbol + expression I/O (see § Shared state) |
 | $21–$23 | 3 | asm_src | `as_ptr` (2), `as_wsize` (1) |
 | $24–$26 | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
 | $27 | 1 | mn7 | `mn7_h_tmp` (1) |
-| $28–$2C | 5 | au_mode | `au_ptr` (2), `au_opr` (2), `au_tmp` (1) |
-| $2D | 1 | opcode_lookup | `ok_tmp` (1) |
+| $28–$2C | 5 | au_mode | `asm_ptr` (2), `asm_opr` (2), `_asm_au_tmp` (1) |
+| $2D | 1 | opcode_lookup | `_asm_ok_tmp` (1) |
 | $2E–$31 | 4 | cse_io | `io_tmp` (2), `io_scr` (2) |
 | $32–$33 | 2 | disk | `disk_ptr` (2) |
 | $34–$37 | 4 | expr | `ex_tmp` (2), `ex_digits` (1), `ex_wide_tmp` (1) |
@@ -356,7 +356,7 @@ variables could share addresses:
 
 | Group | Modules | ZP | BSS | Active when |
 |-------|---------|-----|------|-------------|
-| **Assembler** | asm_src, asm_line, asm_bridge, opcode_lookup, au_mode, mn7, mn_vars | 41 | 253 | `a` command |
+| **Assembler** | asm_src, asm_line, opcode_lookup, au_mode, mn7, mn_vars | 41 | 253 | `a` command |
 | **Editor** | editor | 14 | 59 | ST_EDIT mode |
 | **Disassembler** | dasm | 8 | 24 | `d`/`t`/`o` |
 | **Disk I/O** | disk | — | 67 | `l`/`s`/`$` |

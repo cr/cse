@@ -94,15 +94,15 @@ rules.
 
 | Directive | Args | Pass 0 (collect) | Pass 1 (emit) |
 |-----------|------|-------------------|---------------|
-| `.org` | expr | Set `al_pc` and `_asm_org` | Set `al_pc` only |
+| `.org` | expr | Set `asm_pc` and `_asm_org` | Set `asm_pc` only |
 | `.const` | name expr | `sym_define(name, expr_val)` | Skip |
-| `.cpu` | model | Set `al_cpu` | Set `al_cpu` |
-| `.db` | expr [, ...] | Advance `al_pc` by count | Emit bytes |
-| `.dw` | expr [, ...] | Advance `al_pc` by 2×count | Emit words (little-endian) |
-| `.str` | "text" [, ...] | Advance `al_pc` by length | Emit PETSCII bytes |
-| `.scr` | "text" [, ...] | Advance `al_pc` by length | Emit screen code bytes |
-| `.res` | count [, fill] | Advance `al_pc` by count | Emit fill bytes (default $00) |
-| `.align` | boundary | Advance `al_pc` to next multiple | Emit $00 padding |
+| `.cpu` | model | Set `asm_cpu` | Set `asm_cpu` |
+| `.db` | expr [, ...] | Advance `asm_pc` by count | Emit bytes |
+| `.dw` | expr [, ...] | Advance `asm_pc` by 2×count | Emit words (little-endian) |
+| `.str` | "text" [, ...] | Advance `asm_pc` by length | Emit PETSCII bytes |
+| `.scr` | "text" [, ...] | Advance `asm_pc` by length | Emit screen code bytes |
+| `.res` | count [, fill] | Advance `asm_pc` by count | Emit fill bytes (default $00) |
+| `.align` | boundary | Advance `asm_pc` to next multiple | Emit $00 padding |
 
 ### `.org` — Set Origin
 

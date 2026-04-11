@@ -325,7 +325,7 @@ class ExprFixture:
         self.expr_ptr = self.exports["expr_ptr"]
         self.expr_val = self.exports["expr_val"]
         self.expr_wide = self.exports.get("expr_wide", self.exports["expr_val"] + 2)
-        self.asm_pc = self.exports["al_pc"]
+        self.asm_pc = self.exports["asm_pc"]
         self.sym_name = self.exports["sym_name"]
         self.sym_val = self.exports["sym_val"]
         self.sym_wide = self.exports.get("sym_wide")

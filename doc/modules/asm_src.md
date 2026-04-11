@@ -33,7 +33,7 @@ Pre-defines two workspace labels:
 
 Called by main.s at startup and by `asm_assemble` after `sym_clear`.
 
-**Depends on:** asm_line (via asm_bridge), expr, symtab, editor
+**Depends on:** asm_line, expr, symtab, editor
 (ed_read_line, ed_read_rewind, buf_base), repl (out_log_open,
 out_close for error output), meminfo (workstart)
 
@@ -42,12 +42,12 @@ out_close for error output), meminfo (workstart)
 Two passes over the editor source:
 
 **Pass 0:** Collect labels and constants, compute instruction sizes.
-- Labels: `name:` → sym_define(name, al_pc).  Colon required.
+- Labels: `name:` → sym_define(name, asm_pc).  Colon required.
 - Local labels: `.name:` → stored as `scope.name` in symbol table.
 - Constants: `.const name expr` → sym_define(name, expr_val).
 - Instructions: rebuilt as PETSCII in `_insn_buf`, passed to
-  `_asm_line` to determine size.  al_pc advanced by returned length.
-- Forward references: dummy target `al_pc+2` used so branches
+  `_asm_line` to determine size.  asm_pc advanced by returned length.
+- Forward references: dummy target `asm_pc+2` used so branches
   assemble in-range (offset=0) and return correct size.
 - Errors not counted in pass 0.
 
@@ -121,15 +121,14 @@ for the full list, parameters, and per-pass behaviour.
 
 ## Caveats
 
-- `_insn_buf` is rebuilt as PETSCII each pass.  `_asm_line` converts
-  PETSCII→VICII in-place, but the buffer is rewritten from source
-  each time so the in-place conversion is harmless.
+- `_insn_buf` is rebuilt as PETSCII each pass.  `asm_line` operates
+  on PETSCII directly — no encoding conversion.
 - `fold_block` folds PETSCII shifted uppercase ($C1–$DA) to plain
   uppercase ($41–$5A).  Plain uppercase passes through unchanged.
 - The `.const` handler NUL-terminates the name in the source buffer,
   then advances `expr_ptr` by name_len+1 to skip past the NUL before
   evaluating the value expression.
-- Forward-reference dummy uses `al_pc+2` (not $0000) so branch
+- Forward-reference dummy uses `asm_pc+2` (not $0000) so branch
   instructions get correct 2-byte size in pass 0.
 - Error messages are only printed in pass 1 (`emit_error` checks
   `_asm_pass`).  Format: `;?N: message` where N is the source

@@ -10,16 +10,17 @@
 ;   hash slot:   h6 = (c1*8 + c3*15 + mn6_hash_t[c2]) & $3F
 ;   fingerprint: mn6_fp[h6] == (c1 + c2*218) & $FF
 ;
-; where c1/c2/c3 are the VICII screencodes of the first, middle,
-; and last letters of the three-character mnemonic.
+; where c1/c2/c3 are the normalized letter values (AND #$1F) of the
+; first, middle, and last letters of the three-character mnemonic.
 ;
 ; Character encoding
 ; ------------------
-; VICII screencodes:  A=$01 .. Z=$1A  (1..26)
+; Normalized values:  A=1 .. Z=26  (AND #$1F maps PETSCII upper/lower
+; and VICII screencodes identically; see mn_classify.md)
 ;
 ; Calling convention
 ; ------------------
-; 1. Store the three VICII screencodes in mn_c1 / mn_c2 / mn_c3.
+; 1. Store the three normalized letter values in mn_c1 / mn_c2 / mn_c3.
 ; 2. JSR mn6_classify.
 ; 3. On return:
 ;      C = 0  →  recognised legal NMOS mnemonic;  A = hash slot (0..$3F)

@@ -14,7 +14,7 @@
 
 ### expr_eval
 **In:** `expr_ptr` (ZP, pointer to PETSCII expression string),
-`al_pc` (ZP, current PC for `*` operator)
+`asm_pc` (ZP, current PC for `*` operator)
 **Out:** `expr_val` (ZP, 16-bit result), `expr_wide` (ZP, 0=ZP 1=ABS).
 Returns A = return code.
 **Clobbers:** A, X, Y, `_ex_tmp`, `_ex_digits`, `_ex_wide_tmp`
@@ -28,7 +28,7 @@ inner `sym_lookup` calls short-circuit (when called inside an
 contexts, this wrapper IS the bank pair).  Either way, callers
 of `expr_eval` never need to think about KERNAL banking.
 
-Same wrapper structure as `asm_line` (`asm_bridge.s`) and
+Same wrapper structure as `asm_line` (`asm_line.s`) and
 `dasm_insn` (`dasm.s`).  Test contract:
 `tests/test_expr.py::TestExprEvalBankContract` pins that every
 exit path (success ZP, success ABS, error, sym_lookup hit,
@@ -85,7 +85,7 @@ Width sources (leaves):
 | Decimal literal | value ≤ $FF | value > $FF |
 | `%` binary literal | value ≤ $FF | value > $FF |
 | Label | `sym_wide` = 0 at definition | `sym_wide` = 1 at definition |
-| `*` (PC) | `al_pc` ≤ $FF | `al_pc` > $FF |
+| `*` (PC) | `asm_pc` ≤ $FF | `asm_pc` > $FF |
 
 Width propagation (operators):
 

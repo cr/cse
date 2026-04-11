@@ -9,7 +9,7 @@ Fixtures provided
 syms        — au_mode test binary symbols (for test_au_mode.py)
 mn6_syms    — mn6 hash test binary  (for test_mnhash.py)
 mn7_syms    — mn7 hash test binary  (for test_mnhash.py)
-al_syms     — asm_line test binary symbols (for test_asm_line.py)
+asm_syms    — asm_line test binary symbols (for test_asm_line.py)
 """
 
 import re
@@ -85,7 +85,7 @@ def _parse_sym_offsets():
     """
     Return dict of label -> offset-within-segment, parsed from the ca65
     listing.  Listing lines look like:
-        000099r 1               au_parse_mode:
+        000099r 1               mode_parse:
     The hex prefix is the offset; 'r' = relocatable (segment-relative).
     """
     offsets = {}
@@ -130,10 +130,10 @@ class Symbols:
         zp   = seg["ZEROPAGE"]
         code = seg["CODE"]
 
-        self.au_parse_mode   = code + ofs["au_parse_mode"]
-        self.au_ptr          = zp   + ofs["au_ptr"]
-        self.au_opr          = zp   + ofs["au_opr"]
-        self.au_syntax_error = exp["au_syntax_error"]
+        self.mode_parse      = code + ofs["mode_parse"]
+        self.asm_ptr         = zp   + ofs["asm_ptr"]
+        self.asm_opr         = zp   + ofs["asm_opr"]
+        self.asm_syntax_error = exp["asm_syntax_error"]
 
         # The flat binary maps two non-contiguous memory regions:
         #   file[0 .. ZP_SIZE-1]         → mem[ZP_START .. ZP_START+ZP_SIZE-1]
@@ -291,11 +291,11 @@ def mn7_syms():
 # Links the full single-line assembler pipeline:
 #   asm_vars + opcode_lookup + asm_line
 #   + au_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables + mn_classify
-#   + asm_line_test_stub  (provides al_error and au_syntax_error)
+#   + asm_line_test_stub  (provides asm_error and asm_syntax_error)
 #
-# The listing of asm_line.s is used to resolve al_line_asm.
-# All ZP exports (au_ptr, al_pc, al_out, al_len, al_cpu, al_error) are read
-# from the ld65 map file.
+# The listing of asm_line.s is used to resolve line_asm.
+# All ZP exports (asm_ptr, asm_pc, asm_out, asm_len, asm_cpu, asm_error) are
+# read from the ld65 map file.
 
 _AL_BIN = BUILD / "asm_line_test.bin"
 _AL_MAP = BUILD / "asm_line_test.map"
@@ -361,7 +361,7 @@ def _al_parse_map_exports():
 def _al_parse_map_entry(label):
     """Return the absolute address of a CODE label from the ld65 map file.
 
-    asm_line.s exports al_line_asm, and the test stub imports it so that
+    asm_line.s exports line_asm, and the test stub imports it so that
     ld65 includes it in the 'Exports list by name' section.  This is more
     reliable than adding the listing offset to _CODE_START because several
     other object files contribute CODE before asm_line.s.
@@ -382,16 +382,21 @@ class AsmLineSymbols:
         exports = _al_parse_map_exports()
 
         # ZP variable addresses (from exports)
-        self.au_ptr      = exports["au_ptr"]
-        self.al_pc       = exports["al_pc"]
-        self.al_out      = exports["al_out"]
-        self.al_len      = exports["al_len"]
-        self.al_cpu      = exports["al_cpu"]
-        self.al_error    = exports["al_error"]
+        self.asm_ptr     = exports["asm_ptr"]
+        self.asm_pc      = exports["asm_pc"]
+        self.asm_out     = exports["asm_out"]
+        self.asm_len     = exports["asm_len"]
+        self.asm_cpu     = exports["asm_cpu"]
+        self.asm_error   = exports["asm_error"]
 
-        # Code entry point (from map exports — stub imports al_line_asm to
-        # force ld65 to include it in the Exports list by name section)
-        self.al_line_asm = _al_parse_map_entry("al_line_asm")
+        # Code entry point
+        self.line_asm    = exports["line_asm"]
+
+        # Error handler address (for test detection)
+        self.asm_error   = exports["asm_error"]
+
+        # SP save location — tests must pre-set before calling line_asm
+        self._asm_saved_sp = exports["_asm_saved_sp"]
 
         raw = _AL_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
@@ -404,7 +409,7 @@ class AsmLineSymbols:
 
 
 @pytest.fixture(scope="session")
-def al_syms():
+def asm_syms():
     """Session-scoped asm_line test binary + symbol addresses."""
     return AsmLineSymbols()
 
@@ -412,7 +417,7 @@ def al_syms():
 # ── asm_src test binary ───────────────────────────────────────────────────────
 #
 # Links the full two-pass assembler pipeline:
-#   asm_vars + opcode_lookup + asm_line + asm_bridge
+#   asm_vars + opcode_lookup + asm_line
 #   + au_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables
 #   + mn_classify + expr + symtab + asm_src
 #   + asm_src_test_stub  (provides ed_read_line, etc.)
@@ -427,7 +432,6 @@ _AS_SOURCES = [
     SRC / "asm_vars.s",
     SRC / "opcode_lookup.s",
     SRC / "asm_line.s",
-    SRC / "asm_bridge.s",
     SRC / "au_mode.s",
     SRC / "mn_vars.s",
     SRC / "mn7.s",
@@ -571,10 +575,10 @@ class AsmSrcSymbols:
         # ZP locations needed for direct asm_line tests).
         exports = _as_parse_map_exports()
         self.asm_line   = exports['asm_line']
-        self.au_ptr     = exports['au_ptr']
-        self.al_pc      = exports['al_pc']
-        self.al_out     = exports['al_out']
-        self.al_len     = exports['al_len']
+        self.asm_ptr    = exports['asm_ptr']
+        self.asm_pc     = exports['asm_pc']
+        self.asm_out    = exports['asm_out']
+        self.asm_len    = exports['asm_len']
         self.kernal_out = exports['kernal_out']
 
         raw = _AS_BIN.read_bytes()
@@ -595,7 +599,7 @@ def as_syms():
 # ── dasm test binary ─────────────────────────────────────────────────────────
 #
 # Links: dasm.s + dasm_tables.s + dasm_test_stub.s
-# The stub provides al_cpu (ZP) and exports dasm_test_entry.
+# The stub provides asm_cpu (ZP) and exports dasm_test_entry.
 
 _DASM_BIN = BUILD / "dasm_test.bin"
 _DASM_MAP = BUILD / "dasm_test.map"
@@ -684,7 +688,7 @@ class DasmSymbols:
                     stub_offs = int(m.group(1), 16)
             self.dasm_test_entry = seg_info['start'] + stub_offs
 
-        self.al_cpu   = exports["al_cpu"]
+        self.asm_cpu  = exports["asm_cpu"]
         # _dasm_buf is in BSS — first BSS symbol, not imported so not in exports.
         # Parse BSS segment start from the map.
         for line in _DASM_MAP.read_text().splitlines():

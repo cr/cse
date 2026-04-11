@@ -10,37 +10,37 @@
 
 ## Interface
 
-### al_validate_mode
-**In:** `al_pidx` (ZP), `al_mode` (ZP)
+### asm_validate_mode
+**In:** `asm_pidx` (ZP), `asm_mode` (ZP)
 **Out:** C=0 if mode is valid for this profile, C=1 if invalid
 **Clobbers:** A, Y
 
-### al_opcode_lookup
-**In:** `al_pidx`, `al_prof`, `al_base`, `al_mode` (all ZP)
-**Out:** A = final opcode byte.  On invalid mode: `jmp al_error`.
+### asm_opcode_lookup
+**In:** `asm_pidx`, `asm_prof`, `asm_base`, `asm_mode` (all ZP)
+**Out:** A = final opcode byte.  On invalid mode: `jmp asm_error`.
 **Clobbers:** A, X, Y
 
 **Depends on:** mn_modes (mode bitmasks), mn_asm_tables (mode_offset,
-direct_opcodes), asm_bridge (al_error)
+direct_opcodes), asm_line (asm_error)
 
 ### Memory
 
-**ZP (1 byte):** `_ok_tmp` (1) — scratch, caches cat bits at entry.
+**ZP (1 byte):** `_asm_ok_tmp` (1) — scratch, caches cat bits at entry.
 
 **RODATA (8 bytes):** `_bit_tab` (8) — bit masks for Zone D/E.
 
 ## Design
 
-Computes `opcode = al_base | mode_offset[zone*16 + al_mode]` for
+Computes `opcode = asm_base | mode_offset[zone*16 + asm_mode]` for
 regular instructions.  Five dispatch steps handle exceptions:
 
-1. `dir_bit=1` → `direct_opcodes[al_mode]` (STZ, profile 28)
+1. `dir_bit=1` → `direct_opcodes[asm_mode]` (STZ, profile 28)
 2. `cat=11` → profile 29 special (TRB/TSB: ZP→base, ABS→base|$08)
 3. `cat=01` → CMOS exception check (ZPI, ACC, IND, AIX, BIT IMM=$89)
 4. `zone=3 + ABY` → inline bbb dispatch (bbb=6 vs 7 conflict)
 5. Fall-through → formula
 
-**Packed profile byte (`al_prof`):**
+**Packed profile byte (`asm_prof`):**
 - bits 7:6 = cat (00=legal-NMOS, 01=CMOS-extended, 10=illegal, 11=special)
 - bit 5 = dir_bit (1=direct opcode table)
 - bits 4:0 = pidx (profile index 0–29)

@@ -1,32 +1,28 @@
 """
 test_au_mode.py – pytest tests for src/au_mode.s
 
-Each test calls au_parse_mode with a VICII-encoded argument string and checks:
+Each test calls mode_parse with a PETSCII-encoded argument string and checks:
   A  = mode index (0=IMP .. 15=ZPREL)
   X  = operand byte count (0, 1, or 2)
-  au_opr[0]  = first / lo operand byte
-  au_opr[1]  = second / hi operand byte  (ABS hi, or ZPREL relative offset)
+  asm_opr[0]  = first / lo operand byte
+  asm_opr[1]  = second / hi operand byte  (ABS hi, or ZPREL relative offset)
 """
 
 import pytest
 from py65.devices.mpu6502 import MPU
 
-# ── VICII screen-code encoder ─────────────────────────────────────────────────
-# Digits 0–9 and punctuation: same as ASCII.
-# A–Z: $01–$1A (1-based, uppercase only).
-_SC = {c: (ord(c) - ord('A') + 1) for c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'}
+# ── PETSCII encoder ──────────────────────────────────────────────────────────
+# PETSCII uppercase A-Z = $41-$5A (same as ASCII uppercase).
+# Digits 0-9 = $30-$39, punctuation: same as ASCII.
 
 def sc(s: str) -> bytes:
-    """Encode an ASCII argument string to VICII screen codes + NUL terminator."""
+    """Encode an ASCII argument string to PETSCII + NUL terminator.
+
+    Uppercase ASCII maps directly to PETSCII uppercase ($41-$5A).
+    """
     out = []
-    i = 0
-    while i < len(s):
-        c = s[i]
-        if c in _SC:
-            out.append(_SC[c])
-        else:
-            out.append(ord(c))   # digits, punctuation: same as ASCII
-        i += 1
+    for c in s:
+        out.append(ord(c))   # ASCII uppercase = PETSCII uppercase
     out.append(0x00)
     return bytes(out)
 
@@ -52,7 +48,7 @@ ZPREL = 15
 
 # ── Test vectors ──────────────────────────────────────────────────────────────
 # Format: (arg_string, mode, x, opr0, opr1)
-# arg_string uses ASCII; sc() converts to VICII before the call.
+# arg_string uses ASCII; sc() converts to PETSCII before the call.
 CASES = [
     # ── IMP ──────────────────────────────────────────────────────────────────
     ("",               IMP,   0, 0x00, 0x00),  # empty
@@ -60,9 +56,8 @@ CASES = [
     ("; comment",      IMP,   0, 0x00, 0x00),  # semicolon comment
     ("// comment",     IMP,   0, 0x00, 0x00),  # double-slash comment
     ("#",              IMP,   0, 0x00, 0x00),  # bare '#' → IMP (not IMM)
-    ("# $FF",          IMP,   0, 0x00, 0x00),  # '# ' without '$' at position → actually '#' followed by space followed by '$FF' → IMM?
-    # wait – actually "# $FF" has '#' then space then '$FF': au_skip_ws after '#'
-    # brings us to '$FF', so this IS IMM.  Corrected below.
+    # "# $FF" has '#' then space then '$FF': asm_skip_ws after '#'
+    # brings us to '$FF', so this IS IMM — tested below.
 
     # ── ACC ──────────────────────────────────────────────────────────────────
     ("A",              ACC,   0, 0x00, 0x00),
@@ -132,10 +127,6 @@ CASES = [
     ("$FF,$80",        ZPREL, 2, 0xFF, 0x80),
 ]
 
-# Fix the "# $A0" case above – remove the IMP row that was wrong
-# (the comment in the source was incorrect; "# $FF" with space IS IMM)
-CASES = [c for c in CASES if c[0] != "# $FF"]  # remove duplicate placeholder
-
 
 # ── Syntax-error vectors ──────────────────────────────────────────────────────
 ERROR_CASES = [
@@ -157,8 +148,8 @@ _MAX_STEPS = 20_000  # safety limit
 
 def _run(syms, arg: str):
     """
-    Set up a fresh CPU, write the encoded argument to RAM, point au_ptr at it,
-    call au_parse_mode, and return (mode, x, opr0, opr1) on success or raise
+    Set up a fresh CPU, write the encoded argument to RAM, point asm_ptr at it,
+    call mode_parse, and return (mode, x, opr0, opr1) on success or raise
     on syntax error.
     """
     cpu = MPU()
@@ -172,9 +163,9 @@ def _run(syms, arg: str):
     for i, b in enumerate(encoded):
         mem[_TEST_BUF + i] = b
 
-    # Set au_ptr
-    mem[syms.au_ptr]     = _TEST_BUF & 0xFF
-    mem[syms.au_ptr + 1] = (_TEST_BUF >> 8) & 0xFF
+    # Set asm_ptr
+    mem[syms.asm_ptr]     = _TEST_BUF & 0xFF
+    mem[syms.asm_ptr + 1] = (_TEST_BUF >> 8) & 0xFF
 
     # Fake JSR: push return-minus-one ($FFFE) so RTS lands at $FFFF
     cpu.sp = 0xFF
@@ -182,15 +173,15 @@ def _run(syms, arg: str):
     mem[0x01FE] = 0xFE   # lo byte  → RTS increments to $FFFF
     cpu.sp = 0xFD
 
-    cpu.pc = syms.au_parse_mode
+    cpu.pc = syms.mode_parse
     cpu.y  = 0
 
     for _ in range(_MAX_STEPS):
         if cpu.pc == 0xFFFF:
             # clean return
-            return (cpu.a, cpu.x, mem[syms.au_opr], mem[syms.au_opr + 1])
-        if cpu.pc == syms.au_syntax_error:
-            raise SyntaxError(f"au_syntax_error reached for {arg!r}")
+            return (cpu.a, cpu.x, mem[syms.asm_opr], mem[syms.asm_opr + 1])
+        if cpu.pc == syms.asm_syntax_error:
+            raise SyntaxError(f"asm_syntax_error reached for {arg!r}")
         cpu.step()
 
     raise TimeoutError(f"exceeded {_MAX_STEPS} steps for {arg!r}")

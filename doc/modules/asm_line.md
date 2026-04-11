@@ -6,22 +6,21 @@
 
 | File | Role |
 |------|------|
-| [`src/asm_line.s`](../../src/asm_line.s) | implementation |
-| [`src/asm_bridge.s`](../../src/asm_bridge.s) | implementation — calling-convention bridge, PETSCII→VICII conversion, error-recovery landing |
+| [`src/asm_line.s`](../../src/asm_line.s) | implementation — line assembler core, KERNAL banking, error recovery |
 | [`src/asm_vars.s`](../../src/asm_vars.s) | implementation — shared ZP variable definitions |
 | [`tests/test_asm_line.py`](../../tests/test_asm_line.py) | test contract |
 
 ## Interface
 
-### al_line_asm
-**In:** `au_ptr` (ZP, text pointer, VICII screencodes), `al_pc` (ZP, address),
-`al_out` (ZP, output pointer), `al_cpu` (ZP, CPU mode), Y=0
-**Out:** bytes written to `[al_out]`, `al_len` = byte count (1–3),
+### line_asm
+**In:** `asm_ptr` (ZP, text pointer, PETSCII), `asm_pc` (ZP, address),
+`asm_out` (ZP, output pointer), `asm_cpu` (ZP, CPU mode), Y=0
+**Out:** bytes written to `[asm_out]`, `asm_len` = byte count (1–3),
 C = 0 (clear) on success
-**Clobbers:** A, X, Y, all al_* ZP vars
+**Clobbers:** A, X, Y, all asm_* ZP vars
 
-### asm_line (entry point in asm_bridge.s)
-**In:** A/X = text pointer (PETSCII), `al_pc`/`al_out` set by caller
+### asm_line (public entry point)
+**In:** A/X = text pointer (PETSCII), `asm_pc`/`asm_out` set by caller
 **Out:** A = byte count (0 = error), X = 0
 **Clobbers:** all
 
@@ -34,17 +33,17 @@ source-pass and the line-asm REPL command:
 | `repl.s::dot_assemble` | single-line REPL `.` command — `asm_line`'s inner bank helpers do the actual KERNAL bank-out for KDATA-table reads |
 
 `asm_line` owns its own KERNAL banking (bracket of
-`kernal_bank_out`/`kernal_bank_in` around the `al_line_asm` call).
+`kernal_bank_out`/`kernal_bank_in` around the `line_asm` call).
 Callers do not — and must not — bank the KERNAL themselves.  The
-`al_error` / `au_syntax_error` recovery path also banks the
+`asm_error` / `asm_syntax_error` recovery path also banks the
 KERNAL back in before returning 0, so success and error exits are
 symmetric.
 
-The wrapper converts the text buffer from PETSCII to VICII screen
-codes in-place (in main RAM, before the bank-out) and then calls
-`al_line_asm`.
+Input is PETSCII.  Mnemonic characters are normalized to 1–26 via
+AND #$1F (handles uppercase, lowercase, and legacy VICII screen
+codes identically — see [mn_classify.md](mn_classify.md)).
 
-**Depends on:** opcode_lookup, au_mode, mn_classify (mn_base_op,
+**Depends on:** opcode_lookup, mode_parse, mn_classify (mn_base_op,
 mn_profile), mn7 tables, kernal_bank_out/kernal_bank_in (symtab.s)
 
 ## Design
@@ -64,27 +63,28 @@ determines which zone handles assembly.  30 profiles mapped to 8 zones:
 | H | 16–29 | Multi-mode (3–8 modes) | LDA, STA, ADC, AND, ORA, JMP, ... |
 
 Zones A–F handle fixed single-mode instructions inline.  Zones G and H
-call `au_parse_mode` to determine the addressing mode, then
-`al_opcode_lookup` to compute the opcode byte.
+call `mode_parse` to determine the addressing mode, then
+`asm_opcode_lookup` to compute the opcode byte.
 
-**Error handling:** On any error, `jmp al_error` (in asm_bridge.s)
-restores the 6502 SP from `_ab_saved_sp` and returns 0 to the caller.
+**Error handling:** On any error, `jmp asm_error` restores the 6502
+SP from `_asm_saved_sp` and returns 0 to the caller.
 
 ## Caveats
 
-- Input must be VICII screen codes (A=$01..Z=$1A), not PETSCII.
-  The C wrapper in asm_bridge.s handles conversion.
-- `al_cpu` values: 0=6502, 1=6510, 2=65C02.  CMOS gate uses
-  `cmp #2`/`bcs`/`bcc` — only al_cpu=2 enables CMOS extensions.
+- Input is PETSCII (uppercase $41–$5A or lowercase $61–$7A).
+  AND #$1F normalization in `_asm_rd_upper` handles both cases
+  and is also backward-compatible with raw VICII screen codes.
+- `asm_cpu` values: 0=6502, 1=6510, 2=65C02.  CMOS gate uses
+  `cmp #2`/`bcs`/`bcc` — only asm_cpu=2 enables CMOS extensions.
 - Zone B accepts `$XXXX` absolute target for branches; computes
   signed offset internally.
 - `mn7_classify` clobbers Y (sets Y=mn_c2).  `ldy #0` is required
   before zone dispatch.
 
-### Memory (asm_bridge.s)
+### Memory (asm_line.s)
 
-**ZP (1 byte):** `_ab_saved_sp` (1) — saved 6502 SP for the
-`al_error` / `au_syntax_error` recovery path.
+**ZP (1 byte):** `_asm_saved_sp` (1) — saved 6502 SP for the
+`asm_error` / `asm_syntax_error` recovery path.
 
 **BSS (96 bytes):**
 
@@ -96,4 +96,4 @@ restores the 6502 SP from `_ab_saved_sp` and returns 0 to the caller.
 | `reg_y` | 1 | Saved user Y register |
 | `reg_sp` | 1 | Saved user stack pointer |
 | `reg_p` | 1 | Saved user status flags |
-| `zp_save_buf` | 88 | CSE ZP snapshot ($02–$59) for debugger context switch (see asm_bridge.s::ZP_SAVE_LO/HI) |
+| `zp_save_buf` | 88 | CSE ZP snapshot ($02–$59) for debugger context switch |

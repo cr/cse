@@ -5,7 +5,7 @@
 ;     Output: NUL-terminated PETSCII string in dasm_buf
 ;     Returns instruction length in A (1-3)
 ;
-; CPU mode: al_cpu  0=6502(legal only)  1=6510(+illegal)  2=65C02(+cmos)
+; CPU mode: asm_cpu  0=6502(legal only)  1=6510(+illegal)  2=65C02(+cmos)
 ;
 ; Design: aaabbbcc bit-slice decode.  No 256-entry tables.
 ;   cc=01: fully regular (8-entry mne + 8-entry mode)
@@ -20,7 +20,7 @@
         .export dasm_insn
         .export dasm_buf
 
-        .importzp al_cpu
+        .importzp asm_cpu
         .import dasm_mne_str
         .import kernal_bank_out, kernal_bank_in
 
@@ -459,7 +459,7 @@ _dasm_aaa:
         cmp #$89
         bne @go
 .ifdef CMOS_SUPPORT
-        lda al_cpu
+        lda asm_cpu
         cmp #2
         bne @unk89
         lda #MNE_BIT
@@ -516,7 +516,7 @@ _dasm_aaa:
         cmp #$9E
         bne @abx7
 .ifndef CPU_6502
-        lda al_cpu
+        lda asm_cpu
         cmp #1
         bne :+
         ; 6510: SXA ABY
@@ -570,7 +570,7 @@ _dasm_aaa:
         beq @ldx_imm
 .ifndef CPU_6502
         ; 6510: $02 = KIL
-        lda al_cpu
+        lda asm_cpu
         cmp #1
         bne @b0_unk
         lda _dasm_opc
@@ -596,7 +596,7 @@ _dasm_aaa:
         sta _dasm_mode
 .ifdef CMOS_SUPPORT
         ; 65C02 overrides: $1A=INC A, $3A=DEC A
-        lda al_cpu
+        lda asm_cpu
         cmp #2
         bne @b2go
         lda _dasm_opc
@@ -618,7 +618,7 @@ _dasm_aaa:
 
 @bbb4:  ; 65C02: ZPI. 6510: $D2=CIM
 .ifndef CPU_6502
-        lda al_cpu
+        lda asm_cpu
 .ifdef CMOS_SUPPORT
         cmp #2
         beq @bbb4_cmos
@@ -651,8 +651,8 @@ _dasm_aaa:
 @bbb6:  ; Per-CPU implied column
         jsr _dasm_aaa
 .ifdef CMOS_SUPPORT
-        ; Check al_cpu for CMOS extras
-        lda al_cpu
+        ; Check asm_cpu for CMOS extras
+        lda asm_cpu
         cmp #2
         beq @b6_cmos
 .endif
@@ -663,7 +663,7 @@ _dasm_aaa:
         sta _dasm_mode
 .ifndef CPU_6502
         ; Check if this CPU supports it
-        lda al_cpu
+        lda asm_cpu
         bne @b6go               ; 6510: all entries valid
 .endif
         ; 6502: UNK entries in g2b6_mne_nmos print as "???" via finish
@@ -720,7 +720,7 @@ _dasm_aaa:
         cmp #$80
         bne @brgo
 .ifndef CPU_6502
-        lda al_cpu
+        lda asm_cpu
 .ifdef CMOS_SUPPORT
         cmp #2
         beq @bra
@@ -817,7 +817,7 @@ _dasm_aaa:
         cmp #MODE_IMM
         bne @famgo
 .ifndef CPU_6502
-        lda al_cpu
+        lda asm_cpu
 .ifdef CMOS_SUPPORT
         cmp #2
         bne @not_bra80
@@ -855,7 +855,7 @@ _dasm_aaa:
         bne @fam_abx_unk
         ; $9C: STZ ABS on 65C02, SYA ABX on 6510
 .ifndef CPU_6502
-        lda al_cpu
+        lda asm_cpu
 .ifdef CMOS_SUPPORT
         cmp #2
         bne @not_stz9c
@@ -890,7 +890,7 @@ _dasm_aaa:
         ; 6510: IGN($04), BIT($24), IGN($44), ???($64)
         ; CMOS: TSB($04), BIT($24), ???($44), STZ($64)
 .ifdef CMOS_SUPPORT
-        lda al_cpu
+        lda asm_cpu
         cmp #2
         beq @b1_cmos
 .endif
@@ -898,7 +898,7 @@ _dasm_aaa:
         cpx #1                  ; aaa=1: BIT
         beq @bit_zp
 .ifndef CPU_6502
-        lda al_cpu
+        lda asm_cpu
         cmp #1
         bne @b1_unk
         ; 6510: $04=IGN only
@@ -948,7 +948,7 @@ _dasm_aaa:
         beq @bit_abs
         ; aaa=0: TOP(nmos) or TSB(cmos)
 .ifndef CPU_6502
-        lda al_cpu
+        lda asm_cpu
 .ifdef CMOS_SUPPORT
         cmp #2
         bne @not_tsb3
@@ -986,7 +986,7 @@ _dasm_aaa:
 @bbb57_low:
         ; X = aaa (0-3), _dasm_mode has bbb (5 or 7)
 .ifndef CPU_6502
-        lda al_cpu
+        lda asm_cpu
 .ifdef CMOS_SUPPORT
         cmp #2
         bne @not_b57c
@@ -1072,7 +1072,7 @@ _dasm_aaa:
 ; ── cc=11: CPU-dependent ─────────────────────────────────
 .proc decode_cc11
 .ifndef CPU_6502
-        lda al_cpu
+        lda asm_cpu
         cmp #1
         beq @nmos
 .ifdef CMOS_SUPPORT
@@ -1081,7 +1081,7 @@ _dasm_aaa:
 .endif
 .endif
 
-        ; al_cpu=0 (6502), or CPU_CEIL=0: all ???
+        ; asm_cpu=0 (6502), or CPU_CEIL=0: all ???
         jmp _dasm_finish_unk
 
 .ifndef CPU_6502

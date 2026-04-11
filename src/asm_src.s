@@ -14,7 +14,7 @@
         .export         asm_assemble
         .export         asm_org, asm_size, asm_errors
 
-        .import         asm_line               ; asm_bridge.s
+        .import         asm_line               ; asm_line.s
         .import         expr_eval              ; expr.s
         .import         sym_define             ; symtab.s
         .import         sym_clear
@@ -25,7 +25,7 @@
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
         .importzp       buf_base                ; editor.s — gap buffer low bound
-        .importzp       al_pc, al_out, al_cpu
+        .importzp       asm_pc, asm_out, asm_cpu
         .importzp       expr_ptr, expr_val, expr_wide
         .importzp       sym_name, sym_val, sym_wide
 
@@ -170,12 +170,12 @@ LOG_ERR = '?'
 .endproc
 
 ; ── adv_pc_size ────────────────────────────────────────────────────────────
-; al_pc += _as_wsize;  asm_size += _as_wsize
-; inc_pc_size: increment al_pc and asm_size by 1
+; asm_pc += _as_wsize;  asm_size += _as_wsize
+; inc_pc_size: increment asm_pc and asm_size by 1
 inc_pc_size:
-        inc al_pc
+        inc asm_pc
         bne :+
-        inc al_pc+1
+        inc asm_pc+1
 :       inc asm_size
         bne :+
         inc asm_size+1
@@ -184,10 +184,10 @@ inc_pc_size:
 .proc adv_pc_size
         lda _as_wsize
         clc
-        adc al_pc
-        sta al_pc
+        adc asm_pc
+        sta asm_pc
         bcc :+
-        inc al_pc+1
+        inc asm_pc+1
 :       lda asm_size
         clc
         adc _as_wsize
@@ -238,7 +238,7 @@ inc_pc_size:
         lda _asm_pass
         beq @qa
         lda (expr_ptr),y
-        sta (al_pc),y
+        sta (asm_pc),y
 @qa:    jsr inc_pc_size
         inc expr_ptr
         bne @ql
@@ -258,13 +258,13 @@ inc_pc_size:
         beq @adv
         lda expr_val
         ldy #0
-        sta (al_pc),y
+        sta (asm_pc),y
         lda _as_wsize
         cmp #2
         bne @adv
         lda expr_val+1
         ldy #1
-        sta (al_pc),y
+        sta (asm_pc),y
 @adv:   jsr adv_pc_size
 @comma: jsr skipws_ep
         cmp #','
@@ -325,7 +325,7 @@ inc_pc_size:
         beq @sk
         ldy #0
         pla
-        sta (al_pc),y
+        sta (asm_pc),y
         pha
 @sk:    pla
         jsr inc_pc_size
@@ -384,7 +384,7 @@ inc_pc_size:
         beq @av
         lda _as_wsize
         ldy #0
-        sta (al_pc),y
+        sta (asm_pc),y
 @av:    jsr inc_pc_size
         lda _as_ptr
         bne :+
@@ -411,10 +411,10 @@ inc_pc_size:
         lda #<s_bad_val
         ldx #>s_bad_val
         jmp emit_error
-:       ; remainder = al_pc % boundary (repeated subtraction; boundary in expr_val)
-        lda al_pc
+:       ; remainder = asm_pc % boundary (repeated subtraction; boundary in expr_val)
+        lda asm_pc
         sta _as_ptr
-        lda al_pc+1
+        lda asm_pc+1
         sta _as_ptr+1
 @mod:   lda _as_ptr+1
         cmp expr_val+1
@@ -449,7 +449,7 @@ inc_pc_size:
         beq @av
         lda #0
         ldy #0
-        sta (al_pc),y
+        sta (asm_pc),y
 @av:    jsr inc_pc_size
         lda _as_ptr
         bne :+
@@ -480,7 +480,7 @@ inc_pc_size:
         cmp #'2'
         bne @bad
         lda #0
-        sta al_cpu              ; 6502
+        sta asm_cpu              ; 6502
         rts
 @no6502:
         cmp #'1'
@@ -490,7 +490,7 @@ inc_pc_size:
         cmp #'0'
         bne @bad
         lda #1
-        sta al_cpu              ; 6510
+        sta asm_cpu              ; 6510
         rts
 @no6510:
         cmp #'c'                ; "65c02"
@@ -504,7 +504,7 @@ inc_pc_size:
         cmp #'2'
         bne @bad
         lda #2
-        sta al_cpu              ; 65c02
+        sta asm_cpu              ; 65c02
         rts
 @bad:   lda #<s_bad_val
         ldx #>s_bad_val
@@ -674,9 +674,9 @@ inc_pc_size:
         clc
         rts
 :       lda expr_val
-        sta al_pc
+        sta asm_pc
         lda expr_val+1
-        sta al_pc+1
+        sta asm_pc+1
         lda _asm_pass
         bne @org_done
         lda expr_val
@@ -766,12 +766,12 @@ inc_pc_size:
         iny
         bne @gs
 @set_val:
-        lda al_pc
+        lda asm_pc
         sta sym_val
-        lda al_pc+1
+        lda asm_pc+1
         sta sym_val+1
         lda #0
-        ldx al_pc+1
+        ldx asm_pc+1
         beq :+
         lda #1
 :       sta sym_wide
@@ -1049,12 +1049,12 @@ inc_pc_size:
         lda _asm_pass
         bne @eval_err           ; pass 1: real error
         ; Pass 0: substitute dummy value (size computation must continue).
-        ; Use al_pc+2 as target so branches assemble in-range (offset=0).
-        lda al_pc
+        ; Use asm_pc+2 as target so branches assemble in-range (offset=0).
+        lda asm_pc
         clc
         adc #2
         sta expr_val
-        lda al_pc+1
+        lda asm_pc+1
         adc #0
         sta expr_val+1
         lda #1
@@ -1149,11 +1149,11 @@ inc_pc_size:
         ldx _ib_idx
         lda #0
         sta _insn_buf,x         ; NUL-terminate
-        ; Call asm_line(_insn_buf) — al_pc already set; set al_out = al_pc
-        lda al_pc
-        sta al_out
-        lda al_pc+1
-        sta al_out+1
+        ; Call asm_line(_insn_buf) — asm_pc already set; set asm_out = asm_pc
+        lda asm_pc
+        sta asm_out
+        lda asm_pc+1
+        sta asm_out+1
         lda #<_insn_buf
         ldx #>_insn_buf
         jsr asm_line           ; A = byte count (0 = error)
@@ -1163,12 +1163,12 @@ inc_pc_size:
         ldx #>s_bad_insn
         jmp emit_error          ; tail call
 @insn_ok:
-        ; Advance al_pc and asm_size by A (byte count); A still valid from asm_line
+        ; Advance asm_pc and asm_size by A (byte count); A still valid from asm_line
         clc
-        adc al_pc
-        sta al_pc
+        adc asm_pc
+        sta asm_pc
         bcc :+
-        inc al_pc+1
+        inc asm_pc+1
 :       txa
         clc
         adc asm_size
@@ -1188,9 +1188,9 @@ inc_pc_size:
         sta _line_num
         sta _line_num+1
         lda asm_org
-        sta al_pc
+        sta asm_pc
         lda asm_org+1
-        sta al_pc+1
+        sta asm_pc+1
 @loop:  ; Call ed_read_line(_line_buf)
         lda #<_line_buf
         ldx #>_line_buf

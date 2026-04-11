@@ -19,7 +19,7 @@ Forwards to `mn6_classify` or `mn7_classify` depending on build-time
 `USE_MN6` define.  Default: mn7.
 
 ### mn6_classify / mn7_classify
-**In:** `mn_c1`, `mn_c2`, `mn_c3` (ZP, VICII screen codes: A=$01..Z=$1A)
+**In:** `mn_c1`, `mn_c2`, `mn_c3` (ZP, normalized 1–26: A=1..Z=26)
 **Out:** C=0 → recognized, A = hash slot.  C=1 → unrecognized.
 **Clobbers:** A, X, Y, mn*_h_tmp
 
@@ -59,7 +59,7 @@ RODATA (index 0 = guard, 1–26 = A–Z).
 
 ## Design
 
-1. Compute hash from the three screen-code characters
+1. Compute hash from the three normalized character values (1–26)
 2. Index the fingerprint table at the hash slot
 3. Compare computed fingerprint against stored fingerprint
 4. Match → C=0, return slot in A.  Mismatch → C=1.
@@ -68,11 +68,18 @@ The fingerprint check eliminates false positives (mn7 has zero;
 mn6 has 16, all requiring two simultaneous typos from any legal
 mnemonic).
 
+**Encoding normalization:** The classifier input (mn_c1/c2/c3)
+uses values 1–26 (A=1..Z=26), not raw character codes.  The
+caller normalizes with AND #$1F, which maps PETSCII uppercase
+($41–$5A), PETSCII lowercase ($61–$7A), and VICII screen codes
+($01–$1A) identically to 1–26.  The classifiers themselves are
+encoding-agnostic.
+
 ## Caveats
 
 - Both classifiers clobber Y.  Caller must `ldy #0` after the call
   if Y is needed.
-- VICII screen codes are 1-based (A=1..Z=26).  Index 0 in T[] is
+- Input values are 1-based (A=1..Z=26).  Index 0 in T[] is
   a guard value ($FF).
 - mn6 does not recognize CMOS or illegal mnemonics.  Use mn7 for
   6510 illegal opcode support or 65C02 CMOS support.

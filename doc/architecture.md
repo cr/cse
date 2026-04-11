@@ -50,8 +50,7 @@ register state (`reg_a`, `reg_x`, `reg_y`, `reg_sp`, `reg_p`).
 | repl.s | REPL command dispatch and emitters | [repl.md](modules/repl.md) |
 | editor.s | Gap-buffer source editor, sequential reader, workend update | [editor.md](modules/editor.md) |
 | asm_src.s | Two-pass source assembler | [asm_src.md](modules/asm_src.md) |
-| asm_line.s | Single-line instruction assembler (VICII input) | [asm_line.md](modules/asm_line.md) |
-| asm_bridge.s | Calling convention bridge, PETSCII→VICII, error recovery | [asm_line.md](modules/asm_line.md) |
+| asm_line.s | Single-line instruction assembler (PETSCII input), KERNAL banking, error recovery | [asm_line.md](modules/asm_line.md) |
 | expr.s | Recursive-descent expression parser | [expr.md](modules/expr.md) |
 | symtab.s | Hash-table symbol storage with name heap (banking via mem.s) | [symtab.md](modules/symtab.md) |
 | dasm.s | Bit-slice disassembler (6502/6510/65C02) | [dasm.md](modules/dasm.md) |
@@ -84,10 +83,10 @@ Generated files (do not edit — regenerate with `make tables`):
 main.s
 ├── mem.s (init, banking, segment queries)
 ├── repl.s
-│   ├── asm_bridge.s ── asm_line.s ── opcode_lookup.s
-│   │                       ├── au_mode.s
-│   │                       └── mn_classify.s ── mn7.s ── mn7_tables.s
-│   ├── asm_src.s ── asm_bridge.s, expr.s, symtab.s, editor.s, mem.s
+│   ├── asm_line.s ── opcode_lookup.s
+│   │       ├── au_mode.s
+│   │       └── mn_classify.s ── mn7.s ── mn7_tables.s
+│   ├── asm_src.s ── asm_line.s, expr.s, symtab.s, editor.s, mem.s
 │   ├── dasm.s ── dasm_tables.s
 │   ├── debugger.s
 │   ├── expr.s ── symtab.s
@@ -116,7 +115,5 @@ All modules are pure 6502 assembly.  No C compiler is used.
   argument in A/X, preceding arguments in named ZP variables.
   No software parameter stack.  See memory_design.md § Calling
   Convention.
-- **`asm_bridge.s`** translates between the register convention
-  and the assembler's ZP-based interface.
 - **Callbacks** (disk.s SEQ I/O) pass function addresses in
   A/X; the callee invokes via `jmp (callback)`.

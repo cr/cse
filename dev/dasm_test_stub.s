@@ -2,7 +2,7 @@
 ;
 ; Memory layout:
 ;   $0300-$030F: instruction bytes (placed by Python)
-;   $F0:         al_cpu value (set by Python before call)
+;   $F0:         asm_cpu value (set by Python before call)
 ;
 ; Entry: JSR dasm_test_entry
 ;   Calls dasm_insn with addr=$0300
@@ -14,10 +14,10 @@
 
         .import dasm_insn
 
-        .exportzp al_cpu
+        .exportzp asm_cpu
 
 .segment "ZEROPAGE"
-al_cpu:         .res 1          ; CPU mode: 0=6502 1=6510 2=65C02
+asm_cpu:         .res 1          ; CPU mode: 0=6502 1=6510 2=65C02
 
 .segment "CODE"
 

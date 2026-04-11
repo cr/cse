@@ -51,8 +51,7 @@ ERR_DIVZERO  = 6
 
 ; ── ZP imports ─────────────────────────────────────────────
 .importzp expr_ptr, expr_val, expr_wide
-.importzp al_pc
-asm_pc = al_pc
+.importzp asm_pc
 
 ; ── ZP scratch ─────────────────────────────────────────────
 .segment "ZEROPAGE"

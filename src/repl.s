@@ -75,11 +75,11 @@
 
 ; ── Imports: global state ──────────────────────────────────
         .import state
-        .importzp al_cpu
+        .importzp asm_cpu
 
 ; ── Imports: runtime ZP ────────────────────────────────────
         .importzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
-        .importzp al_pc, al_out
+        .importzp asm_pc, asm_out
         .importzp disk_ptr
 
 ; ── Constants ──────────────────────────────────────────────
@@ -1272,14 +1272,14 @@ parse_hex4_ptr1:
         sta dot_asm_buf,y
 
 @call_asm:
-        ; asm_line(buf) — caller sets al_pc/al_out, buf in A/X.
+        ; asm_line(buf) — caller sets asm_pc/asm_out, buf in A/X.
         ; asm_line owns its own KERNAL banking; we just call it.
         lda rp_addr
-        sta al_pc
-        sta al_out
+        sta asm_pc
+        sta asm_out
         lda rp_addr+1
-        sta al_pc+1
-        sta al_out+1
+        sta asm_pc+1
+        sta asm_out+1
         lda #<dot_asm_buf
         ldx #>dot_asm_buf
         jmp asm_line            ; tail call
@@ -1818,7 +1818,7 @@ VIC_MEMCTL = $D018
         ; JMP (abs,x) ($7C) — 65C02 only
         cmp #$7C
         bne @not_7c
-        lda al_cpu
+        lda asm_cpu
         cmp #2
         bcc @not_7c
         ; next_lo = *(*(brk_pc+1) + reg_x)
@@ -1844,7 +1844,7 @@ VIC_MEMCTL = $D018
         lda rp_opc
         cmp #$80
         bne @not_bra
-        lda al_cpu
+        lda asm_cpu
         cmp #2
         bcc @not_bra
         jsr compute_rel_target
@@ -3671,23 +3671,23 @@ free_line:
         bcs @u_show
         cmp #1
         beq @u_show
-        sta al_cpu
+        sta asm_cpu
 .elseif .defined(CPU_6510)
         ; CPU_CEIL=1: accept 0 or 1
         cmp #2
         bcs @u_show
-        sta al_cpu
+        sta asm_cpu
 .else
         ; CPU_CEIL=0: accept 0 only
         bne @u_show
-        sta al_cpu
+        sta asm_cpu
 .endif
 
 @u_show:
         ldy #LOG_INFO
         jsr out_log_open
         puts str_cpu
-        lda al_cpu
+        lda asm_cpu
         bne @u_no_star0
         lda #'*'
         jmp @u_p0
@@ -3696,7 +3696,7 @@ free_line:
 @u_p0:  jsr io_putc
 .ifdef CPU_6510
         puts str_6510
-        lda al_cpu
+        lda asm_cpu
         cmp #1
         bne @u_no_star1
         lda #'*'
@@ -3707,7 +3707,7 @@ free_line:
 .endif
 .ifdef CMOS_SUPPORT
         puts str_65c02
-        lda al_cpu
+        lda asm_cpu
         cmp #2
         bne @u_no_star2
         lda #'*'

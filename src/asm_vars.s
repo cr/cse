@@ -5,14 +5,14 @@
 ;
 ; Usage contract
 ; --------------
-;   Caller sets:   al_pc, al_out, al_cpu   before calling al_line_asm.
-;   asm_line sets: al_slot, al_prof, al_pidx, al_base, al_mode, al_bit.
-;   al_line_asm returns: al_len = number of bytes written; C=0 on success.
-;   On error: jmp al_error (imported by asm_line.s, not defined here).
+;   Caller sets:   asm_pc, asm_out, asm_cpu   before calling line_asm.
+;   asm_line sets: asm_slot, asm_prof, asm_pidx, asm_base, asm_mode, asm_bit.
+;   line_asm returns: asm_len = number of bytes written; C=0 on success.
+;   On error: jmp asm_error (imported by asm_line.s, not defined here).
 
-        .exportzp al_pc, al_out, al_len
-        .exportzp al_slot, al_prof, al_pidx, al_base, al_bit, al_mode, al_cpu
-        .exportzp al_tmp, al_tmp2
+        .exportzp asm_pc, asm_out, asm_len
+        .exportzp asm_slot, asm_prof, asm_pidx, asm_base, asm_bit, asm_mode, asm_cpu
+        .exportzp asm_tmp, asm_tmp2
         .exportzp sym_name, sym_val, sym_wide   ; symbol table I/O (symtab.s)
         .exportzp expr_ptr, expr_val, expr_wide ; expression parser I/O (expr.s)
 
@@ -20,29 +20,29 @@
 
 ; ── caller-set inputs ─────────────────────────────────────────────────────────
 
-al_pc:          .res 2  ; current PC (lo, hi) – used to compute REL/ZPREL offsets
-al_out:         .res 2  ; output buffer pointer (lo, hi)
-al_cpu:         .res 1  ; CPU target: 0 = 6502, 1 = 6510, 2 = 65C02
+asm_pc:         .res 2  ; current PC (lo, hi) – used to compute REL/ZPREL offsets
+asm_out:        .res 2  ; output buffer pointer (lo, hi)
+asm_cpu:        .res 1  ; CPU target: 0 = 6502, 1 = 6510, 2 = 65C02
                         ;   controls CMOS mode upgrade and CMOS mode validation
 
-; ── asm_line internal state (set during al_line_asm execution) ────────────────
+; ── asm_line internal state (set during line_asm execution) ─────────────────
 
-al_len:         .res 1  ; bytes written to [al_out] by al_line_asm (0 if error)
-al_slot:        .res 1  ; hash slot returned by mn_classify
-al_prof:        .res 1  ; raw packed profile byte from mn7_profile[al_slot]
+asm_len:        .res 1  ; bytes written to [asm_out] by line_asm (0 if error)
+asm_slot:       .res 1  ; hash slot returned by mn_classify
+asm_prof:       .res 1  ; raw packed profile byte from mn7_profile[asm_slot]
                         ;   bits 7:6 = cat  (00=legal-NMOS  01=legal+CMOS
                         ;                    10=illegal      11=CMOS-only)
                         ;   bit  5   = dir_bit (1 → direct_opcodes lookup)
                         ;   bits 4:0 = profile index (0–29)
-al_pidx:        .res 1  ; effective profile index – profile after CMOS upgrade
-                        ;   (= (al_prof&$1F)+1 if cat=01 and al_cpu=2, else al_prof&$1F)
-al_base:        .res 1  ; base opcode from mn7_base_op[al_slot]
-al_bit:         .res 1  ; bit index 0–7 for Zone D/E mnemonics (RMB,SMB,BBR,BBS)
-al_mode:        .res 1  ; addressing-mode index returned by au_parse_mode (0–15)
+asm_pidx:       .res 1  ; effective profile index – profile after CMOS upgrade
+                        ;   (= (asm_prof&$1F)+1 if cat=01 and asm_cpu=2, else asm_prof&$1F)
+asm_base:       .res 1  ; base opcode from mn7_base_op[asm_slot]
+asm_bit:        .res 1  ; bit index 0–7 for Zone D/E mnemonics (RMB,SMB,BBR,BBS)
+asm_mode:       .res 1  ; addressing-mode index returned by mode_parse (0–15)
 
 ; ── private scratch used by asm_line.s ───────────────────────────────────────
-al_tmp:         .res 1  ; general scratch byte
-al_tmp2:        .res 1  ; second scratch byte (REL offset calculation)
+asm_tmp:        .res 1  ; general scratch byte
+asm_tmp2:       .res 1  ; second scratch byte (REL offset calculation)
 
 ; ── symbol table I/O (shared with symtab.s, expr.s, asm_src.s) ──────────────
 sym_name:       .res 2  ; pointer to NUL-terminated name string
