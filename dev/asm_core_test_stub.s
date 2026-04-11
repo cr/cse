@@ -25,6 +25,9 @@
         ; ZP exports consumed by mem.s
         .exportzp buf_base
 
+        ; asm_pass flag (au_mode.s forward-ref handling)
+        .export asm_pass
+
         ; Force symbols into ld65 exports list (consumed by conftest.py)
         .import line_asm
         .importzp _asm_saved_sp
@@ -34,6 +37,10 @@
         .segment "ZEROPAGE"
 
 buf_base:       .res 2          ; editor gap buffer base (consumed by mem.s)
+
+        .segment "BSS"
+
+asm_pass:       .res 1          ; 0 = pass 0 (default for unit tests)
 
         .segment "CODE"
 

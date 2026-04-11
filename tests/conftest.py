@@ -134,6 +134,7 @@ class AsmCoreSymbols:
         self.asm_len          = exports["asm_len"]
         self.asm_cpu          = exports["asm_cpu"]
         self._asm_saved_sp    = exports["_asm_saved_sp"]
+        self.asm_pass         = exports["asm_pass"]
 
         raw = _AC_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]

@@ -34,7 +34,9 @@
         .export asm_ptr, asm_opr        ; ZP i/o variables
         .import asm_syntax_error        ; provided by caller / test stub
         .import expr_eval_nb            ; no-banking expr evaluator (expr.s)
+        .import asm_pass                ; 0=pass 0 (sizing), 1=pass 1 (emit)
         .importzp expr_ptr, expr_val, expr_wide
+        .importzp asm_pc                ; for forward-ref dummy value
 
 ; ── PETSCII character constants ──────────────────────────────────────────────
 SC_LF   = $0A   ; line feed
@@ -184,8 +186,25 @@ _au_read_val:
 
         ; Check for error (A >= 2)
         cmp #2
-        bcs @err
+        bcc @val_ok
 
+        ; Error — check for forward reference on pass 0
+        cmp #5                  ; ERR_UNDEFINED?
+        bne @err
+        lda asm_pass
+        bne @err                ; pass 1: real error
+        ; Pass 0: substitute dummy value (asm_pc+2) for sizing
+        lda asm_pc
+        clc
+        adc #2
+        sta expr_val
+        lda asm_pc+1
+        adc #0
+        sta expr_val+1
+        lda #1
+        sta expr_wide           ; force ABS (conservative sizing)
+
+@val_ok:
         ; Save width result
         pha
 
@@ -221,11 +240,32 @@ mode_parse:
         ; Reload: _au_is_end may have clobbered A (// lookahead).
         lda (asm_ptr),y
 
-        ; ── ACC: bare 'A' ────────────────────────────────────────────────────
+        ; ── ACC: bare 'A' (only if followed by end/whitespace, not ident) ─
         cmp #SC_A
         bne @not_acc
+        ; Peek at char after 'A' — if it's a letter/digit, 'A' starts a label
+        iny
+        lda (asm_ptr),y
+        dey                     ; restore Y=0
+        ; Space, tab, NUL, ';', '#' → ACC;  letter/digit → label
+        cmp #' '
+        beq @is_acc
+        cmp #$A0
+        beq @is_acc
+        cmp #0
+        beq @is_acc
+        cmp #SC_SEMI
+        beq @is_acc
+        cmp #SC_HASH
+        beq @is_acc
+        cmp #SC_SLASH           ; could be '//' comment
+        beq @is_acc
+        ; Anything else (letter, digit) → not ACC, fall through
+        lda #SC_A
+        jmp @not_acc
+@is_acc:
         iny                     ; consume 'A'
-        jsr _au_check_end
+        jsr _au_check_end       ; validate end (handles // correctly)
         lda #MODE_ACC
         ldx #0
         rts

@@ -178,6 +178,9 @@ def _run(syms, arg: str):
     mem[syms.asm_ptr]     = _TEST_BUF & 0xFF
     mem[syms.asm_ptr + 1] = (_TEST_BUF >> 8) & 0xFF
 
+    # Set asm_pass = 1 so undefined symbols are errors (not forward refs)
+    mem[syms.asm_pass] = 1
+
     # Fake JSR: push return-minus-one ($FFFE) so RTS lands at $FFFF
     cpu.sp = 0xFF
     mem[0x01FF] = 0xFF   # hi byte of return address

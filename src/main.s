@@ -29,6 +29,7 @@
         .import nmi_handler
         .import ed_ensure_init
         .import exec_line, read_line, show_prompt
+        .importzp asm_cpu
         .import cur_addr, cur_device, block_size
         .import nmi_pending
         .import ed_handle_key, enter_editor, leave_editor
@@ -130,6 +131,13 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
         ; Init symbol table
         jsr sym_clear
         jsr define_ws_syms
+
+        ; Init CPU mode for assembler/disassembler
+.ifndef DEFAULT_CPU
+  DEFAULT_CPU = 1               ; fallback: 6510
+.endif
+        lda #DEFAULT_CPU
+        sta asm_cpu
 
         ; Init debugger
         jsr dbg_init

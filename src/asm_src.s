@@ -13,6 +13,7 @@
 
         .export         asm_assemble
         .export         asm_org, asm_size, asm_errors
+        .export         asm_pass := _asm_pass   ; pass flag for au_mode.s fwd refs
 
         .import         asm_line               ; asm_line.s
         .import         expr_eval              ; expr.s
@@ -47,7 +48,6 @@ _full_label:    .res 48         ; scratch: "scope.local"
 _insn_buf:      .res 32         ; rebuilt instruction text for asm_line
 _expr_buf:      .res 48         ; operand with local labels expanded
 _as_conv:       .res 1          ; emit_string convert-to-screen-code flag
-_as_flags:      .res 1          ; bits: 0=has_hash, 1=has_lparen
 _eb_idx:        .res 1          ; write index into _expr_buf
 _ib_idx:        .res 1          ; write index into _insn_buf
 
@@ -59,7 +59,6 @@ s_exp_name:     .byte "exp name", 0
 s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp quote", 0
 s_bad_insn:     .byte "bad insn", 0
-hex_tab:        .byte "0123456789abcdef"
 
 ; ═══════════════════════════════════════════════════════════════════════════
 .segment "CODE"
@@ -944,58 +943,9 @@ inc_pc_size:
 @msp_nooper:
         jmp @asm_insn
 
-        ; ── Operand preprocessing ──────────────────────────────────────
+        ; ── Expand operand with local label resolution, pass to asm_line ──
 @msp_hasoper:
-        lda #0
-        sta _as_flags
-        ; Check for '#' prefix
-        ldy #0
-        lda (_as_ptr),y
-        cmp #'#'
-        bne @noh
-        lda _as_flags
-        ora #1
-        sta _as_flags
-        inc _as_ptr
-        bne :+
-        inc _as_ptr+1
-:       ; skip whitespace after '#'
-@hs:    ldy #0
-        lda (_as_ptr),y
-        cmp #' '
-        beq @hs_eat
-        cmp #$a0
-        bne @noh
-@hs_eat:
-        inc _as_ptr
-        bne @hs
-        inc _as_ptr+1
-        jmp @hs
-@noh:   ; Check for '(' prefix
-        ldy #0
-        lda (_as_ptr),y
-        cmp #'('
-        bne @nolp
-        lda _as_flags
-        ora #2
-        sta _as_flags
-        inc _as_ptr
-        bne :+
-        inc _as_ptr+1
-:       ; skip whitespace after '('
-@lps:   ldy #0
-        lda (_as_ptr),y
-        cmp #' '
-        beq @lps_eat
-        cmp #$a0
-        bne @nolp
-@lps_eat:
-        inc _as_ptr
-        bne @lps
-        inc _as_ptr+1
-        jmp @lps
-@nolp:
-        ; ── Expand operand into _expr_buf with local label expansion ──
+        ; Expand operand into _expr_buf (resolves .local → scope.local)
         lda #0
         sta _eb_idx
 @exp:   ldy #0
@@ -1008,7 +958,7 @@ inc_pc_size:
         bne @ecp
         ldy #1
         lda (_as_ptr),y
-        jsr is_ident            ; folds internally
+        jsr is_ident
         bcs @ecp                ; not ident: just copy the '.'
         ; Prepend scope name
         ldx _eb_idx
@@ -1021,7 +971,6 @@ inc_pc_size:
         bne @sc2
 @sc2_done:
         stx _eb_idx
-        ; Fall through to copy the '.' and rest of token
 @ecp:   ldy #0
         lda (_as_ptr),y
         ldx _eb_idx
@@ -1032,116 +981,23 @@ inc_pc_size:
         inc _as_ptr+1
         jmp @exp
 @exp_done:
-        ; NUL-terminate _expr_buf
         ldx _eb_idx
         lda #0
-        sta _expr_buf,x
+        sta _expr_buf,x         ; NUL-terminate
 
-        ; Evaluate the expression
-        lda #<_expr_buf
-        sta expr_ptr
-        lda #>_expr_buf
-        sta expr_ptr+1
-        jsr expr_eval
-        cmp #2
-        bcc @eval_ok
-        ; Expression failed
-        lda _asm_pass
-        bne @eval_err           ; pass 1: real error
-        ; Pass 0: substitute dummy value (size computation must continue).
-        ; Use asm_pc+2 as target so branches assemble in-range (offset=0).
-        lda asm_pc
-        clc
-        adc #2
-        sta expr_val
-        lda asm_pc+1
-        adc #0
-        sta expr_val+1
-        lda #1
-        sta expr_wide           ; force ABS (4-hex-digit operand)
-        jmp @eval_ok
-@eval_err:
-        lda #<s_bad_val
-        ldx #>s_bad_val
-        jmp emit_error          ; tail call
-
-@eval_ok:
-        ; ── Append operand to _insn_buf ────────────────────────────────
-        ; ' '
+        ; Append space + expanded operand to _insn_buf
         ldx _ib_idx
         lda #' '
         sta _insn_buf,x
         inx
-        ; '#' if has_hash
-        lda _as_flags
-        lsr
-        bcc @nohc
-        lda #'#'
-        sta _insn_buf,x
-        inx
-@nohc:  ; '(' if has_lparen
-        lda _as_flags
-        and #2
-        beq @nolpc
-        lda #'('
-        sta _insn_buf,x
-        inx
-@nolpc: ; '$' prefix
-        lda #'$'
-        sta _insn_buf,x
-        inx
-        ; Decide 2 vs 4 hex digits
-        lda expr_wide
-        bne @hex4
-        lda expr_val+1
-        beq @hex2
-@hex4:  ; 4 digits: high byte first
-        lda expr_val+1
-        lsr
-        lsr
-        lsr
-        lsr
-        tay
-        lda hex_tab,y
-        sta _insn_buf,x
-        inx
-        lda expr_val+1
-        and #$0F
-        tay
-        lda hex_tab,y
-        sta _insn_buf,x
-        inx
-@hex2:  ; low byte (2 digits)
-        lda expr_val
-        lsr
-        lsr
-        lsr
-        lsr
-        tay
-        lda hex_tab,y
-        sta _insn_buf,x
-        inx
-        lda expr_val
-        and #$0F
-        tay
-        lda hex_tab,y
-        sta _insn_buf,x
-        inx
-        ; Copy suffix from expr_ptr (remaining chars in _expr_buf after expression)
-@sfx:   lda (expr_ptr),y        ; Y may not be 0 — reset it
-        ; Reset Y=0 for reading expr_ptr
         ldy #0
-@sfx2:  lda (expr_ptr),y
-        beq @sfx_done
-        cmp #';'
-        beq @sfx_done
+@cpy:   lda _expr_buf,y
+        beq @cpy_done
         sta _insn_buf,x
         inx
-        inc expr_ptr
-        bne @sfx2
-        inc expr_ptr+1
-        jmp @sfx2
-@sfx_done:
+        iny
+        bne @cpy
+@cpy_done:
         stx _ib_idx
 
 ; ── 4. Assemble instruction ─────────────────────────────────────────────────

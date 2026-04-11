@@ -228,16 +228,18 @@ Defined scope, needs work.
   Test framework: asm_core bundle replaces per-module test binaries.
   Pass flag deferred to Step 4.  2797 tests pass.
 
-  **Step 4 — Unify source assembler with line assembler.**
-  asm_src.s calls asm_line for instruction lines instead of
-  parsing operands, evaluating expressions, and reconstructing
-  hex in `_insn_buf`.  Remove `_insn_buf` (32 B BSS), hex
-  reconstruction loop (~100 B CODE), operand extraction (~60 B),
-  expression formatting (~80 B).  asm_src.s becomes a loop over
-  lines: directive dispatch + label/constant definition + pass
-  management; instructions go through asm_line.  Validate:
-  `a` command assembles all existing test programs, forward
-  references resolve, all tests pass.
+  **Step 4 — Unify source assembler with line assembler.** (Phase 12, done)
+  asm_src.s passes expanded source text directly to asm_line instead
+  of pre-evaluating expressions and reconstructing hex.  Removed:
+  hex_tab (16 B RODATA), mode detection (#/( flags), expression
+  evaluation, hex formatting, suffix copying (~197 B total).
+  Local label expansion (.name → scope.name) stays in asm_src.
+  Forward-reference handling: pass flag (asm_pass) in _au_read_val
+  substitutes asm_pc+2 on pass 0 when symbols are undefined.
+  DEFAULT_CPU moved from asm_line.s to main.s init.
+  ACC detection in mode_parse hardened: bare 'A' only if followed
+  by end/whitespace (not identifier chars like label names).
+  2797 tests pass.
 - [ ] BSS optimization: overlap `_load_line`/`_load_vcol` with
   `ws_buf` (saves 3 B).
 - [ ] BSS optimization: collapse `disk_seq_bytes`/`disk_seq_lines`

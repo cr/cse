@@ -156,14 +156,8 @@ asm_line:
         sta asm_ptr
         stx asm_ptr+1
 
-        ; ── set CPU mode from build-time default ────────────────────────
-.ifndef DEFAULT_CPU
-  DEFAULT_CPU = 1               ; fallback: 6510
-.endif
-        lda #DEFAULT_CPU
-        sta asm_cpu
-
         ; ── save 6502 SP for error recovery ─────────────────────────────
+        ; asm_cpu is set by the caller (main.s init, repl.s `u`, asm_src.s `.cpu`)
         tsx
         stx _asm_saved_sp
 
