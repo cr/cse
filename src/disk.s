@@ -226,12 +226,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 ; ═════════════════════════════════════════════════════════
 floppy_status:
         jsr floppy_read_status
-        lda fl_buf
-        beq :+                  ; empty response → skip (Open-KERNAL)
         lda #<fl_buf
         ldx #>fl_buf
         jmp out_info
-:       rts
 
 ; ═════════════════════════════════════════════════════════
 ; list_directory(device) — LOAD-based directory listing

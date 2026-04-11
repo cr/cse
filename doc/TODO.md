@@ -304,9 +304,8 @@ Exploratory, not yet scoped.
   OPEN).  Channel-based code preserved in `1348247` for
   when upstream fixes land.
   (b) Floppy status empty on Open-KERNAL — channel-based
-  reads via CHRIN don't work (#116).  `floppy_status`
-  suppresses the empty line.  Will work once upstream
-  fixes land (validated via binary-patched ROM).
+  reads via CHRIN don't work (#116, #117).  Shows `; `
+  with empty content.  Will work once upstream fixes land.
   Loader, editor, assembler, disassembler, load, save all work.
   MEGA65 native mode is a separate roadmap item (R7).
 - [ ] DDD back-reference tracking: link source files to their
