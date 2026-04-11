@@ -6,7 +6,7 @@
 
 | File | Role |
 |------|------|
-| [`src/au_mode.s`](../../src/au_mode.s) | implementation (includes inline hex parsing) |
+| [`src/au_mode.s`](../../src/au_mode.s) | implementation (operand values via expr_eval) |
 | [`tests/test_au_mode.py`](../../tests/test_au_mode.py) | test contract |
 
 ## Interface
@@ -22,11 +22,12 @@
 **Out:** Y advanced past spaces ($20) and tabs ($A0)
 **Clobbers:** A
 
-**Depends on:** asm_line (asm_syntax_error)
+**Depends on:** asm_line (asm_syntax_error), expr (expr_eval_nb)
 
 ### Memory
 
-**ZP (5 bytes):** `asm_ptr` (2), `asm_opr` (2), `_asm_au_tmp` (1).
+**ZP (4 bytes):** `asm_ptr` (2), `asm_opr` (2).
+Also uses `expr_ptr`, `expr_val`, `expr_wide` (owned by asm_vars.s).
 
 ## Design
 
@@ -37,23 +38,25 @@ mode syntaxes:
 |--------|------|-------|
 | (none) | IMP | 0 |
 | `A` | ACC | 1 |
-| `#$XX` | IMM | 2 |
-| `$XX` | ZP | 3 |
-| `$XX,X` | ZPX | 4 |
-| `$XX,Y` | ZPY | 5 |
-| `$XXXX` | ABS | 6 |
-| `$XXXX,X` | ABX | 7 |
-| `$XXXX,Y` | ABY | 8 |
-| `($XXXX)` | IND | 9 |
-| `($XX,X)` | INX | 10 |
-| `($XX),Y` | INY | 11 |
-| `$XXXX` (branch context) | REL | 12 |
-| `($XX)` | ZPI | 13 |
-| `($XXXX,X)` | AIX | 14 |
-| `$XX,$XXXX` | ZPREL | 15 |
+| `#expr` | IMM | 2 |
+| `expr` (narrow) | ZP | 3 |
+| `expr,X` (narrow) | ZPX | 4 |
+| `expr,Y` (narrow) | ZPY | 5 |
+| `expr` (wide) | ABS | 6 |
+| `expr,X` (wide) | ABX | 7 |
+| `expr,Y` (wide) | ABY | 8 |
+| `(expr)` (wide) | IND | 9 |
+| `(expr,X)` (narrow) | INX | 10 |
+| `(expr),Y` (narrow) | INY | 11 |
+| `expr` (branch context) | REL | 12 |
+| `(expr)` (narrow) | ZPI | 13 |
+| `(expr,X)` (wide) | AIX | 14 |
+| `expr,expr` | ZPREL | 15 |
 
-ZP vs ABS determined by operand digit count: 1–2 hex digits → ZP,
-3–4 digits → ABS.  All operands require `$` prefix.
+Operand values parsed by `expr_eval_nb` (no-banking variant of
+`expr_eval`).  Accepts `$hex`, `%binary`, decimal, labels, `*` (PC),
+and arithmetic expressions.  ZP vs ABS determined by `expr_wide`:
+narrow (0) → ZP modes, wide (1) → ABS modes.
 
 Character constants for PETSCII: A=$41, X=$58, Y=$59, #=$23,
 $=$24, (=$28, )=$29, ,=$2C.
@@ -61,7 +64,10 @@ $=$24, (=$28, )=$29, ,=$2C.
 ## Caveats
 
 - Input is PETSCII.  Register letters are A=$41, X=$58, Y=$59.
-  Hex digits: 0–9=$30–$39, A–F=$41–$46 (uppercase).
+- Operand values delegated to `expr_eval_nb` (expr.s), which handles
+  `$hex`, `%binary`, decimal, labels, `*`, and operators.
 - Whitespace: space ($20) and tab ($A0).
 - End-of-expression: NUL, CR ($0D), LF ($0A), `;`, `//`.
 - On syntax error: `jmp asm_syntax_error` (in asm_line.s).
+- `expr_eval_nb` runs without KERNAL banking — mode_parse is called
+  from within line_asm where KERNAL is already banked out.

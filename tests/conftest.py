@@ -6,10 +6,17 @@ automatically whenever their source files are newer than the cached binary.
 
 Fixtures provided
 -----------------
-syms        — au_mode test binary symbols (for test_au_mode.py)
+syms        — asm_core test binary symbols (for test_au_mode.py)
+asm_syms    — asm_core test binary symbols (for test_asm_line.py)
 mn6_syms    — mn6 hash test binary  (for test_mnhash.py)
 mn7_syms    — mn7 hash test binary  (for test_mnhash.py)
-asm_syms    — asm_line test binary symbols (for test_asm_line.py)
+
+Test bundle architecture
+------------------------
+Interdependent modules are linked into a single "bundle" test binary
+rather than per-module binaries with expanding stubs.  The asm_core
+bundle links the full assembler pipeline; the mn6/mn7 binaries are
+true leaf modules with zero cross-module imports.
 """
 
 import re
@@ -22,142 +29,132 @@ BUILD = ROOT / "build"
 SRC   = ROOT / "src"
 DEV   = ROOT / "dev"
 
-BIN   = BUILD / "au_mode_test.bin"
-MAP   = BUILD / "au_mode_test.map"
-LST   = BUILD / "au_mode_test.lst"
+# test.cfg constants (must match dev/test.cfg)
+_ZP_START   = 0x0000
+_CODE_START = 0x4000
+_ZP_SIZE    = 0x0100
 
 
-# ── build helpers ─────────────────────────────────────────────────────────────
+# ── asm_core bundle ──────────────────────────────────────────────────────────
+#
+# Links the full single-line assembler pipeline as one test binary.
+# Shared by test_au_mode.py (mode_parse) and test_asm_line.py (line_asm).
+# The stub is minimal: BRK error handler + linker symbols for mem.s.
+# No per-module mocking — every import is satisfied by real code.
 
-def _needs_rebuild():
-    if not BIN.exists() or not LST.exists() or not MAP.exists():
+_AC_BIN = BUILD / "asm_core_test.bin"
+_AC_MAP = BUILD / "asm_core_test.map"
+
+_AC_SOURCES = [
+    SRC / "asm_vars.s",
+    SRC / "opcode_lookup.s",
+    SRC / "asm_line.s",
+    SRC / "au_mode.s",
+    SRC / "expr.s",
+    SRC / "symtab.s",
+    SRC / "mem.s",
+    SRC / "mn_vars.s",
+    SRC / "mn7.s",
+    SRC / "mn7_tables.s",
+    SRC / "mn_modes.s",
+    SRC / "mn_asm_tables.s",
+    SRC / "mn_classify.s",
+    DEV / "asm_core_test_stub.s",
+]
+
+
+def _ac_needs_rebuild():
+    if not _AC_BIN.exists() or not _AC_MAP.exists():
         return True
-    bin_mtime = BIN.stat().st_mtime
-    sources = [
-        SRC / "au_mode.s",
-        DEV / "au_mode_test_stub.s",
-        DEV / "test.cfg",
-    ]
-    return any(s.stat().st_mtime > bin_mtime for s in sources)
+    bin_mtime = _AC_BIN.stat().st_mtime
+    return any(s.stat().st_mtime > bin_mtime
+               for s in _AC_SOURCES + [DEV / "test.cfg"])
 
 
-def _build():
+def _ac_build():
     BUILD.mkdir(exist_ok=True)
-    subprocess.run(
-        ["ca65", "--cpu", "6502",
-         "--listing", str(LST),
-         str(SRC / "au_mode.s"),
-         "-o", str(BUILD / "au_mode.o")],
-        check=True,
-    )
-    subprocess.run(
-        ["ca65", "--cpu", "6502",
-         str(DEV / "au_mode_test_stub.s"),
-         "-o", str(BUILD / "au_mode_test_stub.o")],
-        check=True,
-    )
+    obj_files = []
+    for src in _AC_SOURCES:
+        obj = BUILD / f"{src.stem}_ac.o"
+        cmd = ["ca65", "--cpu", "6502", "-DCMOS_SUPPORT", str(src), "-o", str(obj)]
+        subprocess.run(cmd, check=True)
+        obj_files.append(str(obj))
     subprocess.run(
         ["ld65", "-C", str(DEV / "test.cfg"),
-         str(BUILD / "au_mode.o"),
-         str(BUILD / "au_mode_test_stub.o"),
-         "-o", str(BIN),
-         "-m", str(MAP)],
+         *obj_files,
+         "-o", str(_AC_BIN),
+         "-m", str(_AC_MAP)],
         check=True,
     )
 
 
-def _parse_segment_starts():
-    """Return dict of segment_name -> start_address from the ld65 map file."""
-    starts = {}
-    in_seg = False
-    for line in MAP.read_text().splitlines():
-        if line.startswith("Segment list"):
-            in_seg = True
-            continue
-        if in_seg:
-            m = re.match(r"(\w+)\s+([0-9a-fA-F]+)\s+", line)
-            if m:
-                starts[m.group(1)] = int(m.group(2), 16)
-    return starts
-
-
-def _parse_sym_offsets():
-    """
-    Return dict of label -> offset-within-segment, parsed from the ca65
-    listing.  Listing lines look like:
-        000099r 1               mode_parse:
-    The hex prefix is the offset; 'r' = relocatable (segment-relative).
-    """
-    offsets = {}
-    for line in LST.read_text().splitlines():
-        m = re.match(r"^([0-9a-fA-F]+)r\s+\d+\s.*?\b(\w+):", line)
-        if m:
-            offsets[m.group(2)] = int(m.group(1), 16)
-    return offsets
-
-
-def _parse_exported_syms():
-    """
-    Return dict of name -> absolute_address from the 'Exports list by name'
-    section of the ld65 map file (covers stub-provided symbols).
-    """
+def _ac_parse_map_exports():
+    """Return {symbol: address} for all exports in the asm_core map file."""
     syms = {}
     in_exports = False
-    for line in MAP.read_text().splitlines():
+    for line in _AC_MAP.read_text().splitlines():
         if "Exports list by name" in line:
             in_exports = True
             continue
         if in_exports:
-            m = re.match(r"(\w+)\s+([0-9a-fA-F]+)", line)
-            if m:
-                syms[m.group(1)] = int(m.group(2), 16)
-            elif line.strip() == "":
+            if line.strip() == "":
                 break
+            for name, addr in re.findall(r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line):
+                syms[name] = int(addr, 16)
     return syms
 
 
-class Symbols:
-    """Absolute addresses of the key symbols in the test binary."""
+class AsmCoreSymbols:
+    """Resolved symbol addresses + binary loader for the asm_core bundle.
+
+    Provides addresses for both au_mode tests (mode_parse, asm_ptr, asm_opr)
+    and asm_line tests (line_asm, asm_pc, asm_out, asm_cpu, etc.).
+    """
 
     def __init__(self):
-        if _needs_rebuild():
-            _build()
+        if _ac_needs_rebuild():
+            _ac_build()
 
-        seg  = _parse_segment_starts()
-        ofs  = _parse_sym_offsets()
-        exp  = _parse_exported_syms()
+        exports = _ac_parse_map_exports()
 
-        zp   = seg["ZEROPAGE"]
-        code = seg["CODE"]
+        # au_mode entry points
+        self.mode_parse       = exports["mode_parse"]
+        self.asm_skip_ws      = exports["asm_skip_ws"]
+        self.asm_syntax_error = exports["asm_syntax_error"]
 
-        self.mode_parse      = code + ofs["mode_parse"]
-        self.asm_ptr         = zp   + ofs["asm_ptr"]
-        self.asm_opr         = zp   + ofs["asm_opr"]
-        self.asm_syntax_error = exp["asm_syntax_error"]
+        # asm_line entry points
+        self.line_asm         = exports["line_asm"]
+        self.asm_error        = exports["asm_error"]
 
-        # The flat binary maps two non-contiguous memory regions:
-        #   file[0 .. ZP_SIZE-1]         → mem[ZP_START .. ZP_START+ZP_SIZE-1]
-        #   file[ZP_SIZE .. end]          → mem[CODE_REGION_START .. ...]
-        zp_size       = seg.get("ZP_SIZE", 0x100)   # always $100 per test.cfg
-        self._zp_start    = zp
-        self._code_start  = code
-        self._zp_size     = zp_size
-        self._raw         = BIN.read_bytes()
+        # ZP variable addresses
+        self.asm_ptr          = exports["asm_ptr"]
+        self.asm_opr          = exports["asm_opr"]
+        self.asm_pc           = exports["asm_pc"]
+        self.asm_out          = exports["asm_out"]
+        self.asm_len          = exports["asm_len"]
+        self.asm_cpu          = exports["asm_cpu"]
+        self._asm_saved_sp    = exports["_asm_saved_sp"]
+
+        raw = _AC_BIN.read_bytes()
+        self._zp_blob   = raw[:_ZP_SIZE]
+        self._code_blob = raw[_ZP_SIZE:]
 
     def load_into(self, memory):
         """Write the test binary into a 64 KB memory bytearray."""
-        # ZP region: first zp_size bytes of the flat binary
-        memory[self._zp_start : self._zp_start + self._zp_size] = \
-            self._raw[: self._zp_size]
-        # CODE region: remainder of the flat binary
-        code_blob = self._raw[self._zp_size :]
-        memory[self._code_start : self._code_start + len(code_blob)] = code_blob
+        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
+        memory[_CODE_START : _CODE_START + len(self._code_blob)]   = self._code_blob
 
 
 @pytest.fixture(scope="session")
 def syms():
-    """Session-scoped symbol table + binary loader."""
-    return Symbols()
+    """Session-scoped asm_core binary — used by test_au_mode.py."""
+    return AsmCoreSymbols()
+
+
+@pytest.fixture(scope="session")
+def asm_syms():
+    """Session-scoped asm_core binary — used by test_asm_line.py."""
+    return AsmCoreSymbols()
 
 
 # ── mn6 / mn7 hash test binaries ──────────────────────────────────────────────
@@ -180,12 +177,6 @@ _MN_CLASSIFY_SRC = {'mn6': SRC / "mn6.s", 'mn7': SRC / "mn7.s"}
 _MN_BIN = {v: BUILD / f"{v}_test.bin" for v in ('mn6', 'mn7')}
 _MN_MAP = {v: BUILD / f"{v}_test.map" for v in ('mn6', 'mn7')}
 _MN_LST = {v: BUILD / f"{v}_classify.lst" for v in ('mn6', 'mn7')}
-
-# test.cfg constants (must match dev/test.cfg)
-_ZP_START   = 0x0000
-_CODE_START = 0x4000
-_ZP_SIZE    = 0x0100
-
 
 def _mn_needs_rebuild(variant):
     bin_path = _MN_BIN[variant]
@@ -284,134 +275,6 @@ def mn6_syms():
 def mn7_syms():
     """Session-scoped mn7 hash binary + symbol addresses."""
     return MnHashBinary('mn7')
-
-
-# ── asm_line test binary ───────────────────────────────────────────────────────
-#
-# Links the full single-line assembler pipeline:
-#   asm_vars + opcode_lookup + asm_line
-#   + au_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables + mn_classify
-#   + asm_line_test_stub  (provides asm_error and asm_syntax_error)
-#
-# The listing of asm_line.s is used to resolve line_asm.
-# All ZP exports (asm_ptr, asm_pc, asm_out, asm_len, asm_cpu, asm_error) are
-# read from the ld65 map file.
-
-_AL_BIN = BUILD / "asm_line_test.bin"
-_AL_MAP = BUILD / "asm_line_test.map"
-_AL_LST = BUILD / "asm_line_test.lst"
-
-_AL_SOURCES = [
-    SRC / "asm_vars.s",
-    SRC / "opcode_lookup.s",
-    SRC / "asm_line.s",
-    SRC / "au_mode.s",
-    SRC / "mn_vars.s",
-    SRC / "mn7.s",
-    SRC / "mn7_tables.s",
-    SRC / "mn_modes.s",
-    SRC / "mn_asm_tables.s",
-    SRC / "mn_classify.s",
-    DEV / "asm_line_test_stub.s",
-]
-
-
-def _al_needs_rebuild():
-    if not _AL_BIN.exists() or not _AL_MAP.exists() or not _AL_LST.exists():
-        return True
-    bin_mtime = _AL_BIN.stat().st_mtime
-    return any(s.stat().st_mtime > bin_mtime for s in _AL_SOURCES)
-
-
-def _al_build():
-    BUILD.mkdir(exist_ok=True)
-    obj_files = []
-    for src in _AL_SOURCES:
-        obj = BUILD / f"{src.stem}_al.o"
-        cmd = ["ca65", "--cpu", "6502", "-DCMOS_SUPPORT", str(src), "-o", str(obj)]
-        if src.name == "asm_line.s":
-            cmd += ["--listing", str(_AL_LST)]
-        subprocess.run(cmd, check=True)
-        obj_files.append(str(obj))
-    subprocess.run(
-        ["ld65", "-C", str(DEV / "test.cfg"),
-         *obj_files,
-         "-o", str(_AL_BIN),
-         "-m", str(_AL_MAP)],
-        check=True,
-    )
-
-
-def _al_parse_map_exports():
-    """Return {symbol: address} for all exports in the ld65 map file."""
-    syms = {}
-    in_exports = False
-    for line in _AL_MAP.read_text().splitlines():
-        if "Exports list by name" in line:
-            in_exports = True
-            continue
-        if in_exports:
-            if line.strip() == "":
-                break
-            for name, addr in re.findall(r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line):
-                syms[name] = int(addr, 16)
-    return syms
-
-
-def _al_parse_map_entry(label):
-    """Return the absolute address of a CODE label from the ld65 map file.
-
-    asm_line.s exports line_asm, and the test stub imports it so that
-    ld65 includes it in the 'Exports list by name' section.  This is more
-    reliable than adding the listing offset to _CODE_START because several
-    other object files contribute CODE before asm_line.s.
-    """
-    exports = _al_parse_map_exports()
-    if label in exports:
-        return exports[label]
-    raise KeyError(f"{label!r} not found in map exports {_AL_MAP}")
-
-
-class AsmLineSymbols:
-    """Resolved symbol addresses + binary loader for the asm_line test."""
-
-    def __init__(self):
-        if _al_needs_rebuild():
-            _al_build()
-
-        exports = _al_parse_map_exports()
-
-        # ZP variable addresses (from exports)
-        self.asm_ptr     = exports["asm_ptr"]
-        self.asm_pc      = exports["asm_pc"]
-        self.asm_out     = exports["asm_out"]
-        self.asm_len     = exports["asm_len"]
-        self.asm_cpu     = exports["asm_cpu"]
-        self.asm_error   = exports["asm_error"]
-
-        # Code entry point
-        self.line_asm    = exports["line_asm"]
-
-        # Error handler address (for test detection)
-        self.asm_error   = exports["asm_error"]
-
-        # SP save location — tests must pre-set before calling line_asm
-        self._asm_saved_sp = exports["_asm_saved_sp"]
-
-        raw = _AL_BIN.read_bytes()
-        self._zp_blob   = raw[:_ZP_SIZE]
-        self._code_blob = raw[_ZP_SIZE:]
-
-    def load_into(self, memory):
-        """Write the test binary into a 64 KB memory bytearray."""
-        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
-        memory[_CODE_START : _CODE_START + len(self._code_blob)]   = self._code_blob
-
-
-@pytest.fixture(scope="session")
-def asm_syms():
-    """Session-scoped asm_line test binary + symbol addresses."""
-    return AsmLineSymbols()
 
 
 # ── asm_src test binary ───────────────────────────────────────────────────────

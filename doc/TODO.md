@@ -218,15 +218,15 @@ Defined scope, needs work.
   Renamed: `al_` → `asm_`, `au_` → `asm_`/`mode_` across all
   source, test, stub, and doc files.  2788 tests pass.
 
-  **Step 3 — Replace mode_parse hex parser with expr_eval.**
-  Remove `_au_rd_nib`, `_au_rd_byte`, `_au_is_hex` (~155 B).
-  mode_parse detects mode syntax (#, (, ,X, ,Y, )) as before,
-  then calls expr_eval for the operand value instead of the
-  internal hex parser.  No encoding mismatch — both now PETSCII.
-  Add pass flag (1 B BSS) for forward-reference handling: if
-  pass 0 and expr_eval returns undefined symbol, assume 2-byte
-  operand with dummy value.  Validate: `.` command accepts
-  expressions (`LDA #cols-1`), all tests pass.
+  **Step 3 — Replace mode_parse hex parser with expr_eval.** (Phase 12, done)
+  Removed `_au_rd_nib`, `_au_rd_byte`, `_au_is_hex` (-73 B).
+  mode_parse calls `_au_read_val` → `expr_eval_nb` (no-banking
+  variant).  Operands now accept `$hex`, `%binary`, decimal,
+  labels, `*`, and arithmetic.  Fixed `hex_nybble` in expr.s
+  to accept uppercase A-F (`ora #$20` case fold; numeric constants
+  for portability across ca65 `-t c64` and plain `--cpu 6502`).
+  Test framework: asm_core bundle replaces per-module test binaries.
+  Pass flag deferred to Step 4.  2797 tests pass.
 
   **Step 4 — Unify source assembler with line assembler.**
   asm_src.s calls asm_line for instruction lines instead of
@@ -244,6 +244,9 @@ Defined scope, needs work.
   with `ed_save_bytes`/`ed_save_lines` (saves 4 B).
 - [ ] BSS optimization: overlap `rp_next_lo`/`rp_next_hi` with
   `rp_hexbuf` + `@new_col` (saves 3-4 B).
+- [ ] Test framework: migrate dasm, expr, repl test binaries to bundle
+  pattern or C64Emu integration tests.  Eliminates per-module stubs.
+  See testing.md § Test bundle architecture.
 - [ ] Global release version: single `VERSION` definition (currently
   Makefile `VERSION ?= 0.1`) that flows to D64 disk name, PRG
   filenames, splash screen string, and documentation.  Current

@@ -34,6 +34,7 @@
 ;   - +, -, &, £, ^ → wide if either operand wide OR result > $FF
 
         .export expr_eval
+        .export expr_eval_nb            ; no-banking variant for callers already banked out
         .export expr_error_str
 
         .import sym_lookup
@@ -117,9 +118,12 @@ _div_rem:    .res 2              ; divide: remainder
         rts
 .endproc
 
-; ── _expr_eval_inner — the actual evaluator ──
+; ── _expr_eval_inner / expr_eval_nb — the actual evaluator ──
 ; Runs with KERNAL banked out (or pre-banked by an outer batch).
+; expr_eval_nb is the public alias for callers already banked out
+; (e.g. mode_parse inside line_asm).
 ; Returns A = 0 (ZP), 1 (ABS), or 2+ (error).
+expr_eval_nb:
 .proc _expr_eval_inner
         lda #0
         sta expr_wide            ; start narrow
@@ -927,20 +931,21 @@ _ex_merge_wide:
 ; hex_nybble — A = char → 0-15 (C=0) or C=1 if not hex
 ; ═══════════════════════════════════════════════════════════
 .proc hex_nybble
-        cmp #'0'
+        cmp #$30                ; '0'
         bcc @bad
-        cmp #'9'+1
+        cmp #$3A                ; '9'+1
         bcc @digit
-        cmp #'a'
+        ora #$20                ; fold uppercase $41-$46 → $61-$66
+        cmp #$61                ; 'a'
         bcc @bad
-        cmp #'f'+1
+        cmp #$67                ; 'f'+1
         bcs @bad
         sec
-        sbc #'a'-10
+        sbc #$61-10             ; 'a'-10
         clc
         rts
 @digit: sec
-        sbc #'0'
+        sbc #$30                ; '0'
         clc
         rts
 @bad:   sec

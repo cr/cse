@@ -125,19 +125,30 @@ CASES = [
     ("$42,$10",        ZPREL, 2, 0x42, 0x10),
     ("$00,$00",        ZPREL, 2, 0x00, 0x00),
     ("$FF,$80",        ZPREL, 2, 0xFF, 0x80),
+
+    # ── Expression operands (expr_eval integration) ──────────────────────
+    ("#42",            IMM,   1, 0x2A, 0x00),  # bare decimal
+    ("#%11111111",     IMM,   1, 0xFF, 0x00),  # binary
+    ("#$40+2",         IMM,   1, 0x42, 0x00),  # arithmetic
+    ("$40+2",          ZP,    1, 0x42, 0x00),  # ZP via expression
+    ("$40+2,X",        ZPX,   1, 0x42, 0x00),  # ZPX via expression
+    ("$C000+$20",      ABS,   2, 0x20, 0xC0),  # ABS via expression
+    ("$C000+$20,X",    ABX,   2, 0x20, 0xC0),  # ABX via expression
+    ("($40+2,X)",      INX,   1, 0x42, 0x00),  # INX via expression
+    ("($40+2),Y",      INY,   1, 0x42, 0x00),  # INY via expression
+    ("($C000+$34)",    IND,   2, 0x34, 0xC0),  # IND via expression
 ]
 
 
 # ── Syntax-error vectors ──────────────────────────────────────────────────────
 ERROR_CASES = [
-    "(",           # '(' not followed by '$'
+    "(",           # '(' not followed by a valid expression
     "($42,Z)",     # unknown register
     "($42)Z",      # garbage after ZPI
     "($1234)Y",    # missing comma before Y in indirect
     "$42,Z",       # unknown register
     "$1234,Z",     # unknown register
     "$GG",         # bad hex digit
-    "!",           # unrecognised prefix
 ]
 
 

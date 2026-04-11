@@ -251,15 +251,27 @@ writing directly to memory at the symbol's address.
 
 ### conftest.py — fixtures and auto-rebuild
 
-`conftest.py` provides a single session-scoped fixture that:
+`conftest.py` provides session-scoped fixtures that auto-build
+test binaries when sources change.
 
-1. Calls `make` to rebuild `build/cse.prg` if sources changed.
-2. Parses `build/cse.map` for all exported symbols.
-3. Provides symbol addresses to test functions.
+**Test bundle architecture.**  Interdependent modules are linked
+into a single "bundle" test binary rather than per-module binaries
+with expanding mock stubs.  True leaf modules (zero or few imports)
+get their own small binary.  Current layout:
 
-Each test function creates a fresh `C64Emu`, loads the PRG, and
-calls into the function under test.  No per-test build systems,
-no per-test linker configs, no per-test stub files.
+| Bundle | Modules | Stub | Tests |
+|--------|---------|------|-------|
+| `asm_core` | asm_vars, opcode_lookup, asm_line, au_mode, expr, symtab, mem, mn7, mn_classify, mn_modes, mn_asm_tables | `asm_core_test_stub.s` (BRK error + linker symbols) | test_au_mode, test_asm_line |
+| `mn6` / `mn7` | mn_vars + mn6/mn7 + tables | (none — pure leaf) | test_mnhash |
+| `asm_src` | asm_core + asm_src | `asm_src_test_stub.s` (ed_read_line mock) | test_asm_src |
+
+The bundle principle: when adding a cross-module dependency, add
+the module to the existing bundle rather than creating new mocks.
+Only create a new bundle when the dependency graph forks into a
+genuinely separate subsystem.
+
+**TODO:** migrate dasm, expr, repl test binaries to the bundle
+pattern (or C64Emu integration tests) to eliminate their stubs.
 
 ### Running a test
 
@@ -280,8 +292,13 @@ address pushed by `jsr()`, halting the emulation loop.
 
 - **PETSCII encoding:** Test inputs use a `_petscii()` helper that
   converts Python strings to C64 PETSCII (lowercase → $41-$5A
-  uppercase).  The ca65 `-t c64` flag ensures character literals
-  in assembly match.
+  uppercase).
+
+- **ca65 character literals:** With `-t c64`, ca65 maps character
+  literals to PETSCII (`'a'` = $41, not $61).  Without `-t c64`,
+  literals use ASCII (`'a'` = $61).  **Use numeric constants**
+  (`$41`, `$61`) for PETSCII values in code shared across both
+  build modes.  The asm_core bundle builds without `-t c64`.
 
 - **Auto-rebuild:** `conftest.py` invokes `make` which handles
   dependency tracking.  The PRG is cached in `build/`.

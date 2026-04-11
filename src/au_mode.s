@@ -2,7 +2,8 @@
 ; au_mode.s  –  addressing-mode argument parser
 ;
 ; Parses a null-terminated PETSCII argument string.
-; All numbers are $-prefixed hex: $nn (1 byte) or $nnnn (2 bytes).
+; Operand values parsed by expr_eval_nb: $hex, %binary, decimal,
+; labels, * (PC), and arithmetic expressions.
 ;
 ; Whitespace (space $20, tab $A0) is tolerated between tokens.
 ; End-of-expression: null ($00), CR ($0D), LF ($0A), ';', '//'.
@@ -32,6 +33,8 @@
         .export asm_skip_ws             ; used by asm_line.s
         .export asm_ptr, asm_opr        ; ZP i/o variables
         .import asm_syntax_error        ; provided by caller / test stub
+        .import expr_eval_nb            ; no-banking expr evaluator (expr.s)
+        .importzp expr_ptr, expr_val, expr_wide
 
 ; ── PETSCII character constants ──────────────────────────────────────────────
 SC_LF   = $0A   ; line feed
@@ -40,7 +43,6 @@ SC_A    = $41   ; 'A'  (accumulator)
 SC_X    = $58   ; 'X'
 SC_Y    = $59   ; 'Y'
 SC_HASH = $23   ; '#'  (IMM prefix / trailing comment start)
-SC_DOLL = $24   ; '$'
 SC_LPAR = $28   ; '('
 SC_RPAR = $29   ; ')'
 SC_COMM = $2C   ; ','
@@ -71,7 +73,6 @@ MODE_ZPREL= 15  ; zero page + relative  [65C02]  $nn,$rr
 
 asm_ptr:        .res 2  ; pointer to argument string
 asm_opr:        .res 2  ; output operand bytes (lo, hi)
-_asm_au_tmp:    .res 1  ; scratch
 
 ; ── Code ──────────────────────────────────────────────────────────────────────
         .segment "CODE"
@@ -156,63 +157,55 @@ _au_expect_x:
         jmp asm_syntax_error
 :       rts
 
-; ─── _au_rd_nib ──────────────────────────────────────────────────────────────
-; Read one hex digit from (asm_ptr),y → A (0–15), advance Y.
-; PETSCII hex: digits $30–$39, letters A–F $41–$46.
-; Jumps to asm_syntax_error on non-hex character.
-_au_rd_nib:
-        lda (asm_ptr),y
-        iny
-        cmp #$30                ; $30–$39 → digits 0–9
-        bcc @bad
-        cmp #$3A
-        bcc @digit
-        cmp #$41                ; $41–$46 → A–F
-        bcc @bad
-        cmp #$47
-        bcs @bad
-        sec
-        sbc #$37                ; $41→10 … $46→15  ($41 - $37 = $0A)
-        rts
-@digit: sec
-        sbc #$30
-        rts
-@bad:   jmp asm_syntax_error
-
-; ─── _au_rd_byte ─────────────────────────────────────────────────────────────
-; Read exactly two hex digits from (asm_ptr),y → A, advance Y by 2.
-_au_rd_byte:
-        jsr _au_rd_nib          ; high nibble
-        asl
-        asl
-        asl
-        asl
-        sta _asm_au_tmp
-        jsr _au_rd_nib          ; low nibble
-        ora _asm_au_tmp
-        rts
-
-; ─── _au_is_hex ──────────────────────────────────────────────────────────────
-; Peek (asm_ptr),y without consuming.  C=1 if hex digit, C=0 if not.
-; PETSCII hex: $30–$39, $41–$46.
-; Preserves A and Y.
-_au_is_hex:
-        pha
-        lda (asm_ptr),y
-        cmp #$30
-        bcc @no
-        cmp #$3A
-        bcc @yes
-        cmp #$41
-        bcc @no
-        cmp #$47
-        bcc @yes
-@no:    pla
+; ─── _au_read_val ────────────────────────────────────────────────────────────
+; Parse an operand value via expr_eval_nb.  Advances asm_ptr by Y first,
+; syncs to expr_ptr, calls expr_eval_nb, stores result in asm_opr.
+;
+; Out:  A = 0 (ZP/narrow) or 1 (ABS/wide)
+;       asm_opr[0..1] = little-endian value from expr_val
+;       asm_ptr updated past consumed expression; Y = 0
+; Error (bad expression): jmp asm_syntax_error
+_au_read_val:
+        ; Advance asm_ptr by Y (commit chars consumed so far)
+        tya
         clc
+        adc asm_ptr
+        sta asm_ptr
+        bcc :+
+        inc asm_ptr+1
+:
+        ; Sync asm_ptr → expr_ptr
+        lda asm_ptr
+        sta expr_ptr
+        lda asm_ptr+1
+        sta expr_ptr+1
+
+        jsr expr_eval_nb
+
+        ; Check for error (A >= 2)
+        cmp #2
+        bcs @err
+
+        ; Save width result
+        pha
+
+        ; Copy expr_val → asm_opr
+        lda expr_val
+        sta asm_opr
+        lda expr_val+1
+        sta asm_opr+1
+
+        ; Sync expr_ptr → asm_ptr (expr_eval advanced past expression)
+        lda expr_ptr
+        sta asm_ptr
+        lda expr_ptr+1
+        sta asm_ptr+1
+
+        ldy #0
+        pla                     ; A = 0 (ZP) or 1 (ABS)
         rts
-@yes:   pla
-        sec
-        rts
+
+@err:   jmp asm_syntax_error
 
 ; ─────────────────────────────────────────────────────────────────────────────
 ; mode_parse  –  main entry point
@@ -243,14 +236,11 @@ mode_parse:
         bne @not_hash
         iny                     ; consume '#'
         jsr asm_skip_ws         ; tolerate space: '# $nn' same as '#$nn'
+        ; Check if something parseable follows (not end-of-expr → try value)
         lda (asm_ptr),y
-        cmp #SC_DOLL
-        bne @ret_imp            ; '#' not followed by '$' → treat as comment → IMP
-        iny                     ; consume '$'
-        jsr _au_rd_byte
-        sta asm_opr
-        lda #0
-        sta asm_opr+1
+        jsr _au_is_end
+        bcs @ret_imp            ; '#' at end → treat as comment → IMP
+        jsr _au_read_val        ; parse value expression
         jsr _au_check_end
         lda #MODE_IMM
         ldx #1
@@ -269,23 +259,12 @@ mode_parse:
 :
         iny                     ; consume '('
         jsr asm_skip_ws
-        lda (asm_ptr),y
-        cmp #SC_DOLL
-        beq :+
-        jmp asm_syntax_error    ; '(' must be followed by '$'
-:
-        iny                     ; consume '$'
+        jsr _au_read_val        ; parse expression → asm_opr, A=0(ZP)/1(ABS)
+        bne @ind_abs            ; wide → 4-byte indirect
+        jmp @ind_1b             ; narrow → 1-byte indirect
 
-        jsr _au_rd_byte         ; first 2 digits → A (hi byte of addr if 4-digit)
-        jsr _au_is_hex          ; peek: is there a 2nd byte?
-        bcc @ind_1b             ; no → 1-byte ZP address
-
-        ; 4-digit: ($nnnn) or ($nnnn,X)
-        pha                     ; save hi byte
-        jsr _au_rd_byte         ; next 2 digits → A = lo byte
-        sta asm_opr             ; asm_opr[0] = lo
-        pla
-        sta asm_opr+1           ; asm_opr[1] = hi
+@ind_abs:
+        ; 2-byte: ($nnnn) or ($nnnn,X)
         jsr asm_skip_ws
         lda (asm_ptr),y
         cmp #SC_COMM
@@ -313,10 +292,7 @@ mode_parse:
         rts
 
 @ind_1b:
-        ; 1-byte indirect: ZPI / INX / INY
-        sta asm_opr             ; asm_opr[0] = ZP address
-        lda #0
-        sta asm_opr+1
+        ; 1-byte indirect: ZPI / INX / INY  (asm_opr already set by _au_read_val)
         jsr asm_skip_ws
         lda (asm_ptr),y
         cmp #SC_COMM
@@ -366,23 +342,13 @@ mode_parse:
         rts
 
 @not_lpar:
-        ; ── Direct: '$' ──────────────────────────────────────────────────────
-        cmp #SC_DOLL
-        beq :+
-        jmp asm_syntax_error    ; no recognisable prefix → error
-:
-        iny                     ; consume '$'
+        ; ── Direct addressing: value expression ──────────────────────────────
+        jsr _au_read_val        ; parse expression → asm_opr, A=0(ZP)/1(ABS)
+        bne @direct_abs         ; wide → ABS / ABX / ABY
+        jmp @direct_1b          ; narrow → ZP / ZPX / ZPY / ZPREL
 
-        jsr _au_rd_byte         ; first 2 digits → A (hi byte if 4-digit)
-        jsr _au_is_hex          ; peek: second byte?
-        bcc @direct_1b          ; no → 1-byte ZP/ZPX/ZPY/ZPREL
-
-        ; 4-digit: ABS / ABX / ABY
-        pha                     ; save hi byte
-        jsr _au_rd_byte         ; → A = lo byte
-        sta asm_opr             ; asm_opr[0] = lo
-        pla
-        sta asm_opr+1           ; asm_opr[1] = hi
+@direct_abs:
+        ; 2-byte: ABS / ABX / ABY  (asm_opr already set)
         jsr asm_skip_ws
         lda (asm_ptr),y
         jsr _au_is_end
@@ -419,10 +385,7 @@ mode_parse:
         rts
 
 @direct_1b:
-        ; 1-byte: ZP / ZPX / ZPY / ZPREL
-        sta asm_opr             ; asm_opr[0] = ZP address (or relative offset)
-        lda #0
-        sta asm_opr+1
+        ; 1-byte: ZP / ZPX / ZPY / ZPREL  (asm_opr already set by _au_read_val)
         jsr asm_skip_ws
         lda (asm_ptr),y
         jsr _au_is_end
@@ -439,9 +402,18 @@ mode_parse:
         beq @zpx
         cmp #SC_Y
         beq @zpy
-        cmp #SC_DOLL
-        beq @zprel              ; $nn,$rr → ZPREL
-        jmp asm_syntax_error
+        ; Not X or Y → ZPREL: expr,expr
+        lda asm_opr             ; save first operand (ZP address)
+        pha
+        jsr _au_read_val        ; parse second operand → asm_opr[0]
+        lda asm_opr             ; grab second operand lo byte
+        sta asm_opr+1           ; store as relative offset
+        pla
+        sta asm_opr             ; restore first operand (ZP address)
+        jsr _au_check_end
+        lda #MODE_ZPREL
+        ldx #2
+        rts
 
 @zpx:   iny                     ; consume 'X'
         jsr _au_check_end
@@ -453,15 +425,6 @@ mode_parse:
         jsr _au_check_end
         lda #MODE_ZPY
         ldx #1
-        rts
-
-@zprel:                         ; $nn,$rr → ZPREL
-        iny                     ; consume '$'
-        jsr _au_rd_byte         ; → A = relative byte
-        sta asm_opr+1           ; asm_opr[1] = relative offset
-        jsr _au_check_end
-        lda #MODE_ZPREL
-        ldx #2
         rts
 
 @ret_zp:
