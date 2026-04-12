@@ -535,6 +535,94 @@ def test_label_after_two_imms(as_syms):
     assert sym_val == 0x8004, f"main.b should be $8004, got ${sym_val:04X}"
 
 
+# ── Segment tracking tests ────────────────────────────────────────────────────
+#
+# Verify _seg_table, _seg_count, _global_lo, _global_hi after assembly.
+
+SEG_SIZE = 5  # bytes per entry: type(1) + lo(2) + hi(2)
+
+def _read_seg_table(mem, as_syms):
+    """Read segment tracking state from memory.
+
+    Returns (segments, global_lo, global_hi) where segments is a list
+    of (type, lo, hi) tuples.
+    """
+    count = mem[as_syms._seg_count]
+    segs = []
+    for i in range(count):
+        base = as_syms._seg_table + i * SEG_SIZE
+        stype = mem[base]
+        lo = mem[base + 1] | (mem[base + 2] << 8)
+        hi = mem[base + 3] | (mem[base + 4] << 8)
+        segs.append((stype, lo, hi))
+    glo = mem[as_syms._global_lo] | (mem[as_syms._global_lo + 1] << 8)
+    ghi = mem[as_syms._global_hi] | (mem[as_syms._global_hi + 1] << 8)
+    return segs, glo, ghi
+
+
+def _run_raw(as_syms, source: str):
+    """Like _run but returns (mem, errors) for post-mortem inspection."""
+    cpu = MPU()
+    mem = cpu.memory
+    as_syms.load_into(mem)
+    encoded = _petscii(source)
+    for i, b in enumerate(encoded):
+        mem[as_syms.test_src_buf + i] = b
+    cpu.sp = 0xFF
+    mem[0x01FF] = 0xFF
+    mem[0x01FE] = 0xFE
+    cpu.sp = 0xFD
+    cpu.pc = as_syms.asm_src_test_entry
+    for _ in range(_MAX_STEPS):
+        if cpu.pc == 0xFFFF:
+            break
+        cpu.step()
+    else:
+        raise TimeoutError(f"exceeded {_MAX_STEPS} steps")
+    errors = mem[as_syms.asm_errors] | (mem[as_syms.asm_errors + 1] << 8)
+    return mem, errors
+
+
+def test_seg_single_org(as_syms):
+    """Single .org segment: 1 entry, correct low/high."""
+    mem, errors = _run_raw(as_syms, ".org $c000\n  lda #0\n  sta $d020\n  rts")
+    assert errors == 0
+    segs, glo, ghi = _read_seg_table(mem, as_syms)
+    assert len(segs) == 1
+    assert segs[0] == (0, 0xC000, 0xC005)  # type=org, 6 bytes: C000..C005
+    assert glo == 0xC000
+    assert ghi == 0xC005
+
+
+def test_seg_bas_then_org(as_syms):
+    """.bas + .org = 2 segments.  .bas implies .org $0801."""
+    source = ".org $0801\n.bas\n.org $c000\n  nop\n  rts"
+    mem, errors = _run_raw(as_syms, source)
+    assert errors == 0
+    segs, glo, ghi = _read_seg_table(mem, as_syms)
+    assert len(segs) == 2
+    # Segment 0: .bas at $0801, SYS stub = 12 bytes → $0801..$080C
+    assert segs[0][0] == 1  # type = bas
+    assert segs[0][1] == 0x0801  # low
+    assert segs[0][2] == 0x080C  # high (12 bytes: 0801..080C)
+    # Segment 1: .org $C000, nop + rts = 2 bytes → $C000..$C001
+    assert segs[1] == (0, 0xC000, 0xC001), f"seg[1] = {segs[1]}"
+    # Global range
+    assert glo == 0x0801
+    assert ghi == 0xC001
+
+
+def test_seg_res_captured(as_syms):
+    """.res advances high watermark without emitting bytes."""
+    mem, errors = _run_raw(as_syms, ".org $c000\n  nop\n  .res 16\n  rts")
+    assert errors == 0
+    segs, glo, ghi = _read_seg_table(mem, as_syms)
+    assert len(segs) == 1
+    # nop(1) + .res 16 + rts(1) = 18 bytes → $C000..$C011
+    assert segs[0] == (0, 0xC000, 0xC011)
+    assert ghi == 0xC011
+
+
 # ── Direct asm_line calls (single-line REPL `.` command path) ───────────────
 #
 # asm_line owns its own KERNAL banking.  asm_assemble holds the KERNAL

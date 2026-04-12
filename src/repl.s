@@ -34,7 +34,7 @@
 ; ── Imports: assembler / disassembler ──────────────────────
         .import asm_line
         .import dasm_insn, dasm_buf
-        .import asm_assemble, asm_org, asm_size
+        .import asm_assemble
 
 ; ── Imports: debugger ──────────────────────────────────────
         .import dbg_enter, dbg_step_clear
@@ -164,7 +164,6 @@ str_y:          .byte " y:", 0
 str_s:          .byte " s:", 0
 str_lines:      .byte "l ", 0
 str_bytes:      .byte "b", 0
-str_bytes_at:   .byte "b at $", 0
 str_bytes_sp:   .byte "b ", 0
 str_split:      .byte "split L", 0
 ; ── User-facing string style convention ──
@@ -201,7 +200,6 @@ str_asm_ing:    .byte "asm...", 0          ; no trailing space: "asm...ok:"
 str_load_pfx:   .byte "load ", 0
 str_save_pfx:   .byte "save ", 0
 str_dots:       .byte "...", 0
-str_ok_colon:   .byte "ok: ", 0
 str_errors:     .byte " err", 0
 str_quit:       .byte "quit? y/n ", 0
 str_dashes:     .byte "$----", 0
@@ -3730,17 +3728,10 @@ free_line:
         stx rp_cnt+1
         ora rp_cnt+1
         bne @a_errors
-        ; success — append on same line: "; asm... ok: N bytes at $XXXX"
+        ; success — asm_src already printed per-segment summary
         lda #0
         sta dbg_reason
-        puts str_ok_colon
-        lda asm_size
-        ldx asm_size+1
-        jsr io_putdec
-        puts str_bytes_at
-        lda asm_org
-        ldx asm_org+1
-        jsr io_puthex4
+        puts str_ok
         jsr out_close
         ; sym_lookup("main") — ZP interface
         lda #<str_main
