@@ -273,3 +273,211 @@ _as_wsize:  .res 1   ; word size in emit_data_bytes
 
 Used in: `_as_wsize` (word size, digit counter, general scratch),
 `asm_tmp`/`asm_tmp2` (instruction scratch, SYS address, close address).
+
+## 16. Extract operator preamble across precedence levels
+
+When a recursive-descent parser has N binary operators at K
+precedence levels, and each operator handler starts with the same
+setup sequence (advance pointer, skip whitespace, save state, push
+left operand), extract that preamble into a shared subroutine.
+
+```asm
+; before: 16 bytes inline × 9 operators = 144 bytes
+@add:   jsr _ex_adv_ptr
+        jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
+        ...push expr_val...
+        jsr parse_mul
+
+; after: 13-byte subroutine + 9 × 9-byte call site = 94 bytes
+_ex_op_setup:
+        jsr _ex_adv_ptr
+        jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
+        rts
+
+@add:   jsr _ex_op_setup
+        ...push expr_val...
+        jsr parse_mul
+```
+
+**Caveat:** Values pushed onto the hardware stack inside a
+subroutine end up *under* the return address.  Either keep the
+pushes at the call site (as shown), or use a trampoline that
+swaps the return address around the pushed values.
+
+A secondary entry point (`_ex_op_setup_2adv`) handles two-character
+operators like `<<` and `>>` that need two `_ex_adv_ptr` calls.
+
+Used in: `expr.s` — 9 operators (`& | ^ + - * / << >>`) across
+3 precedence levels (`parse_expr`, `parse_add`, `parse_mul`).
+
+## 17. Extract repeated ZP-to-ZP pointer copies as helpers
+
+When the same `lda src / sta dst / lda src+1 / sta dst+1` copy
+appears 4+ times within a module, extract it as a local subroutine.
+Each call site shrinks from 8 bytes (ZP) or 12 bytes (absolute) to
+3 bytes (`jsr`).
+
+Break-even for ZP→ZP copies (8 B inline):
+  subroutine = 9 B; each `jsr` = 3 B; saves 5 B per site.
+  Break-even at 2 sites (9 + 2×3 = 15 < 2×8 = 16).
+
+Break-even for absolute-indexed copies (e.g. `lda tbl,x / sta zp`):
+  subroutine = 11 B; saves 7 B per site.
+  Break-even at 2 sites.
+
+```asm
+; before: 8 bytes × 5 sites = 40 bytes
+        lda gap_hi
+        sta ed_scr
+        lda gap_hi+1
+        sta ed_scr+1
+
+; after: 9-byte subroutine + 5 × 3 = 24 bytes
+_ed_scr_ghi:
+        lda gap_hi
+        sta ed_scr
+        lda gap_hi+1
+        sta ed_scr+1
+        rts
+```
+
+Used in: `editor.s` — 5 helpers (`_ed_scr_row`, `_ed_scr_top`,
+`_ed_scr_ghi`, `_ed_scr_glo`, `_ed_cur_row`) covering 26 call sites.
+
+## 18. Audit feasibility before applying loop/branch transforms
+
+Not every textbook optimization applies on the 6502.  Before
+investing time in a transform, check the constraints:
+
+**Downward loops** (`dex; bpl` replacing `inx; cpx; bne`):
+only profitable when the register is a pure counter, not an array
+index.  If the loop body uses `lda tbl,x` or `sta buf,y`, reversing
+the iteration order changes which elements are accessed first.
+Most real loops use the register as an index — the transform
+rarely applies in practice.
+
+**Branch inversion** (`bXX+jmp` → `b_inv`): only possible when the
+inverted branch can reach the target (±127 bytes).  Cross-module
+labels and distant `.proc` entries are usually out of range.
+Verify each candidate individually.
+
+Used in: Phase 13 audit — 5 of 8 branch-inversion candidates were
+feasible; 0 of 16 downward-loop candidates were profitable
+(all used registers as array indices).
+
+## 19. Y=$FF indexed-indirect for adjacent byte read
+
+When reading the byte immediately before a pointer's target,
+use `dey` (with Y=0) to get Y=$FF.  `(ptr),y` with Y=$FF reads
+the byte at `ptr - 1` (wrapping within the 256-byte page).
+Replaces a 16-bit pointer decrement (5-7 bytes) with 1 byte.
+
+```asm
+; before (7 bytes): manual 16-bit decrement
+        lda rp_tmp
+        bne :+
+        dec rp_tmp+1
+:       dec rp_tmp
+        lda (rp_tmp),y
+
+; after (2 bytes): Y=$FF wrap-around
+        dey                     ; Y = $FF
+        lda (rp_tmp),y
+```
+
+Only valid when the data is contiguous and the previous byte is
+within the same page (or the page-cross is acceptable).
+
+Used in: `puts_imm` — reading the inline string address that
+precedes the return address.
+
+## 20. Stack replaces BSS for cross-call temporaries
+
+When a value must survive one `jsr` call, `pha`/`pla` replaces
+a BSS byte.  Saves the `.byte 0` allocation (1 byte) and often
+trades `sty`+`lda` (4 bytes) for `tya`/`pha`+`pla` (3 bytes).
+
+```asm
+; before (5 bytes + 1 BSS)          ; after (3 bytes)
+        sty @lv                             tya
+        jsr some_func                       pha
+        lda @lv                             jsr some_func
+@lv:    .byte 0                             pla
+```
+
+Saves 3 bytes per site (2 code + 1 BSS).  The `pha`/`pla` pair
+is also faster (3+4=7 cycles vs 4+4=8 cycles for `sty abs`/
+`lda abs`).
+
+Used in: `out_log_open`, `out_log_at_open` — saving the level
+character across a `jsr newline`.
+
+## 21. Branchless boolean via ADC/EOR
+
+Convert a carry or compare result into a 0/1 boolean without
+branching.  `cmp #threshold / lda #0 / adc #0` produces A=1
+if carry was set (>= threshold), A=0 otherwise.  Follow with
+`eor #1` to invert.
+
+```asm
+; before (7 bytes)                   ; after (5 bytes)
+        cmp #$FF                            cmp #$10
+        beq @no                             lda #0
+        lda #1                              adc #0
+        rts                                 eor #1
+@no:    lda #0                              rts
+        rts
+```
+
+Saves 2 bytes and eliminates the branch penalty.
+
+Used in: `_is_hex` — converting `_hex_val` result ($00-$0F valid,
+$FF invalid) to a Z-flag boolean.
+
+## 22. Extract semantic helpers (compound operations)
+
+Beyond extracting identical instruction sequences (strategy 2),
+extract *semantic operations* — named helpers that encapsulate a
+meaningful action, even if there are only 1-2 call sites.  The
+inline expansion may be 15-30 bytes; the helper body + single
+`jsr` is often half that.
+
+Criteria: if the inline code has a clear *what it does* name
+(not just *what instructions it runs*), it's a helper candidate.
+
+```
+expr_set_curaddr — try_expr + copy result to cur_addr  (3 sites)
+expr_or_blocksize — try_expr with block_size default   (2 sites)
+bp_open_slot     — format ";bp N" log prefix           (4 sites)
+sym_set_curaddr  — sym_lookup + copy to cur_addr       (2 sites)
+```
+
+Each helper is 10-15 bytes; each call site shrinks to 3 bytes.
+Even at 2 sites the savings are significant because the inline
+code is verbose (conditional branches, pointer copies, formatting).
+
+Used in: `repl.s` — 7 semantic helpers extracted.
+
+## 23. Table-driven dispatch replaces cascaded comparisons
+
+When dispatching on N multi-byte keys (e.g. "02","10","c0"),
+a scan loop over a packed table beats N×(cmp/bne) chains.
+Saves code proportional to N and scales without new branches.
+
+```asm
+; before (~60 bytes): nested cmp/beq for 3 alternatives
+; after (~30 bytes): 9-byte table + 3-byte mask + scan loop
+
+cpu_pair_tbl:  .byte '0','2',0, '1','0',1, 'c','0',2
+cpu_mask_bits: .byte 1,2,4
+```
+
+The table encodes (key1, key2, result_id) triples; the loop
+scans linearly.  A companion bitmask table validates the result
+against the compile-time CPU configuration.
+
+Used in: `repl.s` — CPU mode command (`u 6502`/`u 6510`/`u 65c02`).

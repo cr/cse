@@ -217,6 +217,10 @@ str_i_free:     .byte "free", 0
 str_i_lines:    .byte "l", 0
 str_main:       .byte "main", 0
 
+; cpu parse helpers: pair chars after "65" -> cpu id
+cpu_pair_tbl:    .byte '0','2',0,  '1','0',1,  'c','0',2
+cpu_mask_bits:   .byte 1,2,4
+
 ; info_line tag strings
 str_tag_cpu:    .byte "cpu", 0
 str_tag_zp:     .byte "zp", 0
@@ -300,11 +304,7 @@ puts_imm:
         ldy #0
         lda (rp_tmp),y          ; A = str_hi
         tax                     ; X = str_hi
-        ; Step rp_tmp back by 1 to read str_lo.
-        lda rp_tmp
-        bne :+
-        dec rp_tmp+1
-:       dec rp_tmp
+        dey                     ; Y=$FF → read previous byte via indexed-indirect
         lda (rp_tmp),y          ; A = str_lo
         jmp io_puts             ; tail call; rts returns to caller+5
 
@@ -377,26 +377,26 @@ LOG_INFO = ' '
 ; Y = level char
 ; Clobbers: A
 .proc out_log_open
-        sty @lv
+        tya
+        pha
         jsr newline
         lda #';'
         jsr io_putc
-        lda @lv
+        pla
         jmp io_putc
-@lv:    .byte 0
 .endproc
 
 ; ── out_log_at_open — open with AAAA:; prefix ────────────
 ; Y = level char, rp_addr = address for the prompt
 ; Clobbers: A, X, Y
 .proc out_log_at_open
-        sty @lv
+        tya
+        pha
         jsr newline
         lda #';'
         jsr io_addr_cmd         ; prints "AAAA:;"
-        lda @lv
+        pla
         jmp io_putc
-@lv:    .byte 0
 .endproc
 
 ; ── out_close — close an open log line ───────────────────
@@ -509,11 +509,10 @@ _hex_val:
 ; ───────────────────────────────────────────────────────────
 _is_hex:
         jsr _hex_val
-        cmp #$FF
-        beq @no
-        lda #1                  ; Z=0
-        rts
-@no:    lda #0                  ; Z=1
+        cmp #$10                ; valid nibbles are 0..15, invalid is $FF
+        lda #0
+        adc #0                  ; A=1 if invalid, A=0 if valid
+        eor #1                  ; A=1 if valid, A=0 if invalid; Z follows A
         rts
 
 ; ───────────────────────────────────────────────────────────
@@ -754,9 +753,7 @@ parse_hex4_ptr1:
 @error:
         ldy #LOG_ERR
         jsr out_log_open        ; ";?"
-        lda #<str_expr
-        ldx #>str_expr
-        jsr io_puts             ; "expr "
+        puts str_expr
         jsr expr_error_str
         jsr io_puts             ; "undef main" etc.
         jsr out_close
@@ -764,6 +761,108 @@ parse_hex4_ptr1:
         rts
 @empty: clc
         rts
+.endproc
+
+; ───────────────────────────────────────────────────────────
+; expr_set_curaddr — try_expr, and on success copy expr_val to cur_addr
+;   Returns C=1 on success, C=0 on empty/error.
+; ───────────────────────────────────────────────────────────
+.proc expr_set_curaddr
+        jsr try_expr
+        bcc @r
+        lda expr_val
+        sta cur_addr
+        lda expr_val+1
+        sta cur_addr+1
+@r:     rts
+.endproc
+
+; ───────────────────────────────────────────────────────────
+; expr_or_blocksize — expr_val := expression or block_size if empty/zero
+;   Returns with expr_val populated.
+; ───────────────────────────────────────────────────────────
+.proc expr_or_blocksize
+        jsr try_expr
+        bcc @blk
+        lda expr_val
+        ora expr_val+1
+        bne @r
+@blk:   lda block_size
+        sta expr_val
+        lda block_size+1
+        sta expr_val+1
+@r:     rts
+.endproc
+
+; ───────────────────────────────────────────────────────────
+; show_block_size — emit current B=XXXX setting
+; ───────────────────────────────────────────────────────────
+.proc show_block_size
+        ldy #LOG_INFO
+        jsr out_log_open
+        puts str_B_eq
+        lda block_size
+        ldx block_size+1
+        jsr io_puthex4
+        jmp out_close
+.endproc
+
+; ───────────────────────────────────────────────────────────
+; bp_open_slot — open "; bp N" log prefix for slot A (0-based)
+; ───────────────────────────────────────────────────────────
+.proc bp_open_slot
+        clc
+        adc #'1'
+        pha
+        ldy #LOG_INFO
+        jsr out_log_open
+        puts bp_pfx
+        pla
+        jmp io_putc
+.endproc
+
+; ───────────────────────────────────────────────────────────
+; sym_set_curaddr — sym_lookup(sym_name), copy sym_val to cur_addr on hit
+;   Returns C=0 if symbol found and cur_addr updated, C=1 otherwise.
+; ───────────────────────────────────────────────────────────
+.proc sym_set_curaddr
+        jsr sym_lookup
+        bcs @r
+        lda sym_val
+        sta cur_addr
+        lda sym_val+1
+        sta cur_addr+1
+@r:     rts
+.endproc
+
+; ───────────────────────────────────────────────────────────
+; show_theme_colors — emit current border/bg/fg color triplet
+; ───────────────────────────────────────────────────────────
+.proc show_theme_colors
+        ldy #LOG_INFO
+        jsr out_log_open
+        puts str_color
+        lda theme_border
+        jsr _hex_val_to_char
+        jsr io_putc
+        lda theme_bg
+        jsr _hex_val_to_char
+        jsr io_putc
+        lda theme_fg
+        jsr _hex_val_to_char
+        jsr io_putc
+        jmp out_close
+.endproc
+
+; ───────────────────────────────────────────────────────────
+; calc_put_u8_hex — print small-value form "  $XX" from expr_val
+; ───────────────────────────────────────────────────────────
+.proc calc_put_u8_hex
+        puts str_2sp
+        lda #'$'
+        jsr io_putc
+        lda expr_val
+        jmp io_puthex2
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -1591,7 +1690,8 @@ parse_hex4_ptr1:
         cmp rp_save
         lda rp_addr+1
         sbc #0
-        bcs @d_lp
+        bcc @d_done
+        jmp @d_lp
 
 @d_done:
         lda rp_addr
@@ -2054,25 +2154,49 @@ VIC_MEMCTL = $D018
 
         ldy #0
         lda (rp_ptr),y
-        bne @not_empty
+        bne :+
+        jmp @list_all
+:       cmp #'*'
+        bne :+
+        jmp @clear_all
+:       cmp #'-'
+        bne :+
+        jmp @delete_one
+:
 
-        ; b — list all breakpoints
-        ldx #0                  ; slot index
-@list:  cpx #8
-        bcs @list_done
-        stx rp_save
-        ldy #LOG_INFO
-        jsr out_log_open
-        lda #<bp_pfx
-        ldx #>bp_pfx
-        jsr io_puts
-        ldx rp_save
-        txa
-        clc
-        adc #'1'
-        jsr io_putc
+        ; b ADDR — set breakpoint
+        jsr try_expr
+        bcs :+
+        jmp @err_b
+:
+        lda expr_val
+        ldx expr_val+1
+        jsr dbg_bp_set         ; returns slot in A ($FF=full)
+        cmp #$FF
+        bne :+
+        jmp @full
+:
+        jsr bp_open_slot
         puts str_colon_sp
-        ; bp_table[slot*4].addr
+        lda #'$'
+        jsr io_putc
+        lda expr_val
+        ldx expr_val+1
+        jsr io_puthex4
+        jsr out_close
+        jmp nl_clear
+
+@list_all:
+        ldx #0                  ; slot index
+@list:
+        cpx #8
+        bcc :+
+        jmp @done
+:
+        stx rp_save
+        txa
+        jsr bp_open_slot
+        puts str_colon_sp
         ldx rp_save
         txa
         asl
@@ -2096,25 +2220,17 @@ VIC_MEMCTL = $D018
         jsr out_close
         ldx rp_save
         inx
-        jmp @list
-@list_done:
-        jmp nl_clear
+        bne @list
 
-@not_empty:
-        cmp #'*'
-        bne @not_star
-        ; b * — delete all
+@clear_all:
         jsr dbg_bp_clear
         lda #<str_bp_clr
         ldx #>str_bp_clr
         jsr out_info
         jmp nl_clear
 
-@not_star:
-        cmp #'-'
-        bne @set_bp
-        ; b -N — delete
-        ldy #1
+@delete_one:
+        iny
         lda (rp_ptr),y
         cmp #'1'
         bcc @bad_slot
@@ -2122,15 +2238,10 @@ VIC_MEMCTL = $D018
         bcs @bad_slot
         sec
         sbc #'1'
+        pha
         jsr dbg_bp_del
-        ldy #LOG_INFO
-        jsr out_log_open
-        lda #<bp_pfx
-        ldx #>bp_pfx
-        jsr io_puts
-        ldy #1
-        lda (rp_ptr),y
-        jsr io_putc
+        pla
+        jsr bp_open_slot
         puts str_deleted
         jsr out_close
         jmp nl_clear
@@ -2141,36 +2252,6 @@ VIC_MEMCTL = $D018
         jsr out_err
         jmp nl_clear
 
-@set_bp:
-        ; b ADDR — set breakpoint
-        jsr try_expr
-        bcc @err_b
-        ; result in expr_val
-        lda expr_val
-        ldx expr_val+1
-        jsr dbg_bp_set         ; returns slot in A ($FF=full)
-        cmp #$FF
-        beq @full
-        ; success
-        pha
-        ldy #LOG_INFO
-        jsr out_log_open
-        lda #<bp_pfx
-        ldx #>bp_pfx
-        jsr io_puts
-        pla
-        clc
-        adc #'1'
-        jsr io_putc
-        puts str_colon_sp
-        lda #'$'
-        jsr io_putc
-        lda expr_val
-        ldx expr_val+1
-        jsr io_puthex4
-        jsr out_close
-        jmp nl_clear
-
 @full:  lda #<str_full
         ldx #>str_full
         jsr out_err
@@ -2179,7 +2260,7 @@ VIC_MEMCTL = $D018
 @err_b: lda #<str_syntax
         ldx #>str_syntax
         jsr out_err
-        jmp nl_clear
+@done:  jmp nl_clear
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -3445,27 +3526,11 @@ free_line:
 @h_i:   jmp cmd_info
 
 @h_at:  ; @ — set address
-        jsr try_expr
-        bcc @at_done
-        lda expr_val
-        sta cur_addr
-        lda expr_val+1
-        sta cur_addr+1
-@at_done:
+        jsr expr_set_curaddr
         jmp nl_clear
 
 @h_plus:; + — advance address
-        jsr try_expr
-        bcc @plus_def
-        lda expr_val
-        ora expr_val+1
-        bne @plus_use
-@plus_def:
-        lda block_size
-        sta expr_val
-        lda block_size+1
-        sta expr_val+1
-@plus_use:
+        jsr expr_or_blocksize
         lda cur_addr
         clc
         adc expr_val
@@ -3477,17 +3542,7 @@ free_line:
 
 @h_minus:
         ; - — retreat address
-        jsr try_expr
-        bcc @minus_def
-        lda expr_val
-        ora expr_val+1
-        bne @minus_use
-@minus_def:
-        lda block_size
-        sta expr_val
-        lda block_size+1
-        sta expr_val+1
-@minus_use:
+        jsr expr_or_blocksize
         lda cur_addr
         sec
         sbc expr_val
@@ -3498,13 +3553,7 @@ free_line:
         jmp nl_clear
 
 @h_j:   ; j — jump/execute
-        jsr try_expr
-        bcc @j_no_addr
-        lda expr_val
-        sta cur_addr
-        lda expr_val+1
-        sta cur_addr+1
-@j_no_addr:
+        jsr expr_set_curaddr
         jmp cmd_jmp
 
 @h_g:   ; g — go (sym_lookup "main")
@@ -3512,13 +3561,7 @@ free_line:
         sta sym_name
         lda #>str_main
         sta sym_name+1
-        jsr sym_lookup         ; C=0 found, result in sym_val
-        bcs @g_no_main
-        lda sym_val
-        sta cur_addr
-        lda sym_val+1
-        sta cur_addr+1
-@g_no_main:
+        jsr sym_set_curaddr
         jmp cmd_jmp
 
 @h_t:   ; t — step into
@@ -3545,7 +3588,7 @@ free_line:
 
 @h_blk: ; B (PETSCII $C2) — block size
         jsr try_expr
-        bcc @B_show             ; empty or error → just show
+        bcc @B_show
         lda expr_val
         ora expr_val+1
         beq @B_show
@@ -3554,131 +3597,102 @@ free_line:
         lda expr_val+1
         sta block_size+1
 @B_show:
-        ldy #LOG_INFO
-        jsr out_log_open
-        puts str_B_eq
-        lda block_size
-        ldx block_size+1
-        jsr io_puthex4
-        jsr out_close
+        jsr show_block_size
         jmp nl_clear
 
 @h_col: ; C (PETSCII $C3) — color
         jsr skip_sp_ptr1
-        ldy #0
+        ldx #0
+@C_count:
+        txa
+        tay
         jsr is_hex_at_ptr1
-        beq @C_show
-        ; check how many hex digits
-        ldy #1
-        jsr is_hex_at_ptr1
+        beq @C_apply
+        inx
+        cpx #3
+        bcc @C_count
+@C_apply:
+        cpx #1
         beq @C_one
-        ldy #2
-        jsr is_hex_at_ptr1
+        cpx #2
         beq @C_two
+        cpx #3
+        bne @C_show
         ; three digits: border bg fg
         ldy #0
         jsr hex_val_at_ptr1
         sta theme_border
-        ldy #1
+        iny
         jsr hex_val_at_ptr1
         sta theme_bg
-        ldy #2
+        iny
         jsr hex_val_at_ptr1
         sta theme_fg
         jsr restore_colors
         jmp @C_show
-@C_two: ; two digits: bg fg
+@C_two:
         ldy #0
         jsr hex_val_at_ptr1
         sta theme_bg
-        ldy #1
+        iny
         jsr hex_val_at_ptr1
         sta theme_fg
         jsr restore_colors
         jmp @C_show
-@C_one: ; one digit: fg only
+@C_one:
         ldy #0
         jsr hex_val_at_ptr1
         sta theme_fg
         jsr restore_colors
 @C_show:
-        ldy #LOG_INFO
-        jsr out_log_open
-        puts str_color
-        lda theme_border
-        jsr _hex_val_to_char
-        jsr io_putc
-        lda theme_bg
-        jsr _hex_val_to_char
-        jsr io_putc
-        lda theme_fg
-        jsr _hex_val_to_char
-        jsr io_putc
-        jsr out_close
+        jsr show_theme_colors
         jmp nl_clear
+
 @h_u:   ; u — cpu mode
         jsr skip_sp_ptr1
         ldy #0
         lda (rp_ptr),y
         cmp #'6'
         bne @u_show
-        ; check q[1..3] for cpu type
-        ldy #1
+        iny
         lda (rp_ptr),y
         cmp #'5'
         bne @u_show
-        ldy #2
+        iny
         lda (rp_ptr),y
-        sta rp_tmp                ; save q[2]
-        ldy #3
+        sta rp_tmp
+        iny
         lda (rp_ptr),y
-        sta rp_tmp2                ; save q[3]
-        ; 6502: q[2]='0', q[3]='2'
-        lda rp_tmp
-        cmp #'0'
-        bne @u_chk_10
-        lda rp_tmp2
-        cmp #'2'
-        bne @u_show
-        ; v = 0 (6502)
-        lda #0
-        jmp @u_try_set
-@u_chk_10:
-        ; 6510: q[2]='1', q[3]='0'
-        cmp #'1'
-        bne @u_chk_c02
-        lda rp_tmp2
-        cmp #'0'
-        bne @u_show
-        lda #1
-        jmp @u_try_set
-@u_chk_c02:
-        ; 65c02: q[2]='c', q[3]='0'
-        cmp #'c'
-        bne @u_show
-        lda rp_tmp2
-        cmp #'0'
-        bne @u_show
-        lda #2
-@u_try_set:
-        ; A = v; check v <= CPU_CEIL
+        sta rp_tmp2
+        ldx #0
+@u_scan:
+        lda cpu_pair_tbl,x
+        cmp rp_tmp
+        bne @u_next
+        lda cpu_pair_tbl+1,x
+        cmp rp_tmp2
+        bne @u_next
+        lda cpu_pair_tbl+2,x
+        tay
+        lda cpu_mask_bits,y
 .ifdef CMOS_SUPPORT
-        ; CPU_CEIL=2: accept 0 or 2 only
-        cmp #3
-        bcs @u_show
-        cmp #1
-        beq @u_show
-        sta asm_cpu
+        and #5
 .elseif .defined(CPU_6510)
-        ; CPU_CEIL=1: accept 0 or 1
-        cmp #2
-        bcs @u_show
-        sta asm_cpu
+        and #3
 .else
-        ; CPU_CEIL=0: accept 0 only
-        bne @u_show
-        sta asm_cpu
+        and #1
 .endif
+        beq @u_show
+        tya
+        sta asm_cpu
+        jmp @u_show
+@u_next:
+        txa
+        clc
+        adc #3
+        tax
+        cpx #9
+        bcc @u_scan
 
 @u_show:
         ldy #LOG_INFO
@@ -3737,12 +3751,7 @@ free_line:
         sta sym_name
         lda #>str_main
         sta sym_name+1
-        jsr sym_lookup         ; C=0 found, result in sym_val
-        bcs @a_tail
-        lda sym_val
-        sta cur_addr
-        lda sym_val+1
-        sta cur_addr+1
+        jsr sym_set_curaddr
         jmp @a_tail
 @a_errors:
         ldy #LOG_INFO
@@ -3769,32 +3778,12 @@ free_line:
         jsr out_log_open
         lda expr_val+1
         bne @calc_16bit
-        lda expr_val
-        beq @calc_16bit         ; show 0 as 16-bit style? No, 0 < 256.
-        ; Actually: if val < 256, show "  $XX"
-        ; if val == 0, it's < 256 so show "  $00"
-        lda #' '
-        jsr io_putc
-        lda #' '
-        jsr io_putc
-        lda #'$'
-        jsr io_putc
-        lda expr_val
-        jsr io_puthex2
+        jsr calc_put_u8_hex
         jmp @calc_dec
 @calc_16bit:
-        ; "$XXXX" (or $0000)
-        lda expr_val+1
-        bne @calc_16bit_real
-        ; val is 0, show "  $00"
-        lda #' '
-        jsr io_putc
-        lda #' '
-        jsr io_putc
-        lda #'$'
-        jsr io_putc
         lda expr_val
-        jsr io_puthex2
+        bne @calc_16bit_real
+        jsr calc_put_u8_hex
         jmp @calc_dec
 @calc_16bit_real:
         lda #'$'
@@ -3904,9 +3893,7 @@ free_line:
 @calc_err:
         ldy #LOG_ERR
         jsr out_log_open
-        lda #<str_expr
-        ldx #>str_expr
-        jsr io_puts
+        puts str_expr
         jsr expr_error_str
         jsr io_puts
         jsr out_close
