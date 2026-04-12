@@ -304,7 +304,11 @@ puts_imm:
         ldy #0
         lda (rp_tmp),y          ; A = str_hi
         tax                     ; X = str_hi
-        dey                     ; Y=$FF → read previous byte via indexed-indirect
+        ; Step rp_tmp back by 1 to read str_lo.
+        lda rp_tmp
+        bne :+
+        dec rp_tmp+1
+:       dec rp_tmp
         lda (rp_tmp),y          ; A = str_lo
         jmp io_puts             ; tail call; rts returns to caller+5
 
