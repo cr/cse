@@ -334,18 +334,17 @@ MANUAL_TESTS = [
         "name": ".bas SYS only",
         "source": ".org $0801\n.bas\n  nop",
         "expect_org": 0x0801,
-        # Layout: link(2) + linenum 1(2) + SYS($9E) + "2062"(4) + NUL + $0000(2)
-        # = 12 bytes.  SYS address = $0801 + 12 = $080D = 2061... let's compute:
-        # base=8, addr=$0801+8+D.  D=4 → addr=$080D=2061 (4 digits, consistent).
-        # link → $080D - 2 = $080B
+        # Always 5 decimal digits.  Stub = 13 bytes (8 + 5).
+        # SYS address = $0801 + 13 = $080E = 2062.
+        # link → $080E - 2 = $080C.
         "expect_bytes": [
-            0x0B, 0x08,             # link pointer → $080B
+            0x0C, 0x08,             # link pointer → $080C
             0x01, 0x00,             # line number 1
             0x9E,                   # SYS token
-            0x32, 0x30, 0x36, 0x31, # "2061"
+            0x30, 0x32, 0x30, 0x36, 0x32,  # "02062" (5 digits)
             0x00,                   # line terminator
             0x00, 0x00,             # end of BASIC
-            0xEA,                   # nop (user code starts here at $080D)
+            0xEA,                   # nop (user code starts at $080E)
         ],
         "expect_errors": 0,
     },
@@ -353,27 +352,23 @@ MANUAL_TESTS = [
         "name": ".bas with REM",
         "source": '.org $0801\n.bas "HI"\n  nop',
         "expect_org": 0x0801,
-        # REM line: link(2) + linenum 0(2) + REM($8F) + "HI"(2) + NUL = 8 bytes
-        # SYS line: link(2) + linenum 1(2) + SYS($9E) + digits + NUL = 6+D
-        # end: $0000 = 2 bytes
-        # total = 8 + 6 + D + 2 = 16 + D
-        # base=14+2=16, addr=$0801+16+D.  D=4 → addr=$0815=2069 (4 digits, ok)
-        # Wait: 14+len+D = 14+2+4 = 20.  addr = $0801+20 = $0815 = 2069.
-        # REM link → line 1 = $0801 + 6 + 2 = $0809
-        # SYS link → end marker = $0815 - 2 = $0813
+        # Always 5 digits.  Stub = 19 + 2 (len "HI") = 21 bytes.
+        # SYS address = $0801 + 21 = $0816 = 2070.
+        # REM link → line 1 = $0801 + 8 = $0809.
+        # SYS link → end marker = $0816 - 2 = $0814.
         "expect_bytes": [
             0x09, 0x08,             # REM link → $0809
             0x00, 0x00,             # line number 0
             0x8F,                   # REM token
             0x48, 0x49,             # "HI" (PETSCII uppercase H=$48, I=$49)
             0x00,                   # line terminator
-            0x13, 0x08,             # SYS link → $0813
+            0x14, 0x08,             # SYS link → $0814
             0x01, 0x00,             # line number 1
             0x9E,                   # SYS token
-            0x32, 0x30, 0x36, 0x39, # "2069"
+            0x30, 0x32, 0x30, 0x37, 0x30,  # "02070" (5 digits)
             0x00,                   # line terminator
             0x00, 0x00,             # end of BASIC
-            0xEA,                   # nop (user code starts at $0815)
+            0xEA,                   # nop (user code starts at $0816)
         ],
         "expect_errors": 0,
     },

@@ -552,44 +552,31 @@ _emit_word:
 .endproc
 
 ; ── _emit_decimal ─────────────────────────────────────────────────────────
-; Emit 16-bit value in expr_val as decimal ASCII digits.
-; Leading zeros suppressed.  Returns digit count in A.
-; Uses _as_wsize as scratch (digit counter).
-.proc _emit_decimal
-        lda #0
-        sta _as_wsize           ; digit count
-        ldx #0                  ; power index (0=10000 .. 4=1)
-@pow:   lda #0
-        sta asm_tmp             ; current digit
+; Emit 16-bit value in expr_val as 5-digit decimal ASCII via _emit_byte.
+; Always 5 digits (leading zeros OK for BASIC SYS).  Destroys expr_val.
+_emit_decimal:
+        ldx #0
+@dgt:   lda #0
+        sta asm_tmp             ; digit counter
 @sub:   lda expr_val
         sec
         sbc _dec_pow_lo,x
-        tay
+        tay                     ; tentative lo
         lda expr_val+1
         sbc _dec_pow_hi,x
-        bcc @done_sub           ; underflow → digit complete
-        sta expr_val+1
-        sty expr_val
+        bcc @done               ; underflow → digit complete
+        sta expr_val+1          ; commit hi
+        sty expr_val            ; commit lo
         inc asm_tmp
-        bne @sub                ; (always taken)
-@done_sub:
-        lda asm_tmp
-        bne @emit               ; non-zero digit → emit
-        lda _as_wsize
-        bne @emit               ; already started → emit zero
-        cpx #4
-        bne @next               ; suppress leading zeros (except last digit)
-@emit:  lda asm_tmp
+        bne @sub                ; always taken (digit < 10)
+@done:  lda asm_tmp
         clc
-        adc #$30                ; → ASCII '0'..'9'
+        adc #$30                ; → PETSCII '0'..'9'
         jsr _emit_byte
-        inc _as_wsize
-@next:  inx
+        inx
         cpx #5
-        bcc @pow
-        lda _as_wsize           ; return digit count
+        bne @dgt
         rts
-.endproc
 
 ; ── Segment logging (inline, streaming) ───────────────────────────────────
 ; Print segment info during pass 1 as .org directives are encountered.
@@ -783,44 +770,23 @@ BASIC_REM = $8F
 :
 @no_str:
         ; ── Compute SYS address ────────────────────────────────────────
-        ; base = 8 (SYS-only) or 14 + string_len (REM + SYS)
-        ; Assume D=5 (max digits), compute addr, recompute if fewer.
+        ; Always 5 decimal digits (BASIC SYS ignores leading zeros).
+        ; SYS-only: stub = 13 bytes (8 + 5 digits).
+        ; REM+SYS:  stub = 19 + string_len bytes (14 + len + 5).
         lda _eb_idx
         beq @sys_only
         clc
-        adc #14                 ; A = 14 + string_len
+        adc #19                 ; A = 19 + string_len
         jmp @calc_addr
 @sys_only:
-        lda #8
+        lda #13
 @calc_addr:
         clc
-        adc #5                  ; + D (assume 5)
         adc asm_pc
         sta expr_val
         lda asm_pc+1
         adc #0
         sta expr_val+1
-        ; Count actual digits
-        jsr _count_digits       ; A = digit count
-        cmp #5
-        beq @addr_ok
-        ; Recompute with actual D
-        sta asm_tmp             ; save D
-        lda _eb_idx
-        beq :+
-        clc
-        adc #14
-        jmp @recomp
-:       lda #8
-@recomp:
-        clc
-        adc asm_tmp             ; base + D
-        adc asm_pc
-        sta expr_val
-        lda asm_pc+1
-        adc #0
-        sta expr_val+1
-@addr_ok:
         ; Save SYS address in asm_tmp:asm_tmp2
         lda expr_val
         sta asm_tmp
@@ -916,46 +882,6 @@ BASIC_REM = $8F
         rts
 .endproc
 
-; ── _count_digits ─────────────────────────────────────────────────────────
-; Count decimal digits in expr_val (non-destructive).
-; Returns count in A (1–5).  Preserves expr_val.
-.proc _count_digits
-        lda expr_val+1
-        bne @ge256
-        lda expr_val
-        cmp #10
-        bcc @1
-        cmp #100
-        bcc @2
-        lda #3
-        rts
-@ge256: lda expr_val+1
-        cmp #>1000
-        bcc @3
-        beq :+
-        jmp @chk10k
-:       lda expr_val
-        cmp #<1000
-        bcc @3
-@chk10k:
-        lda expr_val+1
-        cmp #>10000
-        bcc @4
-        bne @5
-        lda expr_val
-        cmp #<10000
-        bcc @4
-@5:     lda #5
-        rts
-@4:     lda #4
-        rts
-@3:     lda #3
-        rts
-@2:     lda #2
-        rts
-@1:     lda #1
-        rts
-.endproc
 
 ; ── process_directive ──────────────────────────────────────────────────────
 ; _as_ptr = first char of keyword (after '.').
