@@ -191,7 +191,27 @@ a module the `jsr` is the only cost.
 Used in: `skipws_as` extracted from two inline whitespace-skip loops
 in `process_line` (label scan + mnemonic/operand separator).
 
-## 12. Reuse ZP scratch across non-overlapping phases
+## 12. Design helpers for maximum reuse
+
+When creating a helper, invest time to make its interface generic
+enough to serve all current AND future callers.  A slightly more
+general calling convention (e.g. value in A instead of a fixed
+BSS location) may cost 1-2 extra bytes in the helper but save
+many more across call sites.
+
+Example: `_emit_byte` takes the byte in A, checks `_asm_pass`
+internally, and calls `inc_pc_size`.  This interface is generic
+enough for `.db`, `.dw`, `.str`, `.scr`, `.res`, `.align`, `.bas`,
+and `_emit_decimal` — 8 consumers from one 7-byte helper.
+
+Counter-example: a helper that reads from `expr_val` directly
+would only serve expression-emitting call sites, forcing the
+others to set up `expr_val` first or use inline code.
+
+The investment pays compound returns: each new directive or
+feature that emits bytes gets the pass-check for free.
+
+## 13. Reuse ZP scratch across non-overlapping phases
 
 When two code paths never execute simultaneously, their ZP scratch
 bytes can share the same address.  The 6502's limited ZP is a
