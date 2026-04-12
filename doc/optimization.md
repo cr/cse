@@ -133,7 +133,65 @@ the REM-vs-SYS-only case.
 
 Used in: `.bas` directive (single-line `:REM`).
 
-## 8. Reuse ZP scratch across non-overlapping phases
+## 8. Register loop counter instead of BSS variable
+
+When a loop counter's lifetime is confined to one subroutine and
+the register is free, use X or Y directly instead of a BSS byte.
+Saves the `lda`/`sta` memory round-trips (2 bytes each access).
+
+```asm
+; before (BSS counter)            ; after (X register)
+        lda #0                            ldx #0
+        sta _ib_idx               @lp:    cpx _eb_idx
+@lp:    lda _ib_idx                       beq @done
+        cmp _eb_idx                       txa
+        beq @done                         tay
+        tay                               lda (expr_ptr),y
+        lda (expr_ptr),y                  jsr _emit_byte
+        jsr _emit_byte                    inx
+        inc _ib_idx                       bne @lp
+        bne @lp
+```
+
+Used in: `.bas` string copy loop.
+
+## 9. Invert branch sense to eliminate jmp
+
+When a conditional branch goes to a nearby label but the
+fall-through path needs a `jmp` to a distant label, flip the
+branch condition so the common path falls through.
+
+```asm
+; before (5 bytes)                ; after (2 bytes)
+        cmp #';'                          cmp #';'
+        beq @no_operand                   bne @has_operand
+        jmp @has_operand          @no_operand:
+@no_operand:
+```
+
+Used in: `process_line` operand detection.
+
+## 10. Apply helpers retroactively to old code
+
+When a new helper is created (e.g. `_emit_byte`), audit ALL existing
+code for inline patterns that the helper replaces.  Old code written
+before the helper exists will still have the inline version.
+
+Used in: `emit_data_bytes`, `emit_string`, `emit_reserve`, `emit_align`
+all had inline emit+pass-check patterns that were replaced with
+`jsr _emit_byte` after `_emit_byte` was introduced for `.bas`.
+
+## 11. DRY within a module
+
+When the same inline sequence appears twice in one module, extract
+it into a local subroutine — even if it's only 2 call sites.  Unlike
+cross-module extraction (which adds export/import overhead), within
+a module the `jsr` is the only cost.
+
+Used in: `skipws_as` extracted from two inline whitespace-skip loops
+in `process_line` (label scan + mnemonic/operand separator).
+
+## 12. Reuse ZP scratch across non-overlapping phases
 
 When two code paths never execute simultaneously, their ZP scratch
 bytes can share the same address.  The 6502's limited ZP is a

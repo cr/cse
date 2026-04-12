@@ -145,6 +145,23 @@ _bank_out_tmp:
 :       rts
 .endproc
 
+
+; ── skipws_as ──────────────────────────────────────────────────────────────
+; Advance _as_ptr past whitespace ($20/$A0). A = first non-ws char on return.
+.proc skipws_as
+        ldy #0
+@lp:    lda (_as_ptr),y
+        cmp #' '
+        beq @eat
+        cmp #$a0
+        bne :+
+@eat:   inc _as_ptr
+        bne @lp
+        inc _as_ptr+1
+        jmp @lp
+:       rts
+.endproc
+
 ; ── fold_char_a ────────────────────────────────────────────────────────────
 ; Fold PETSCII shifted uppercase $C1-$DA to plain uppercase $41-$5A.  In/out: A.
 .proc fold_char_a
@@ -204,15 +221,11 @@ inc_pc_size:
 ; ── _emit_byte ────────────────────────────────────────────────────────────
 ; Emit byte in A to (asm_pc) on pass 1; advance asm_pc+asm_size always.
 _emit_byte:
-        pha
-        lda _asm_pass
+        ldy _asm_pass
         beq @skip
-        pla
         ldy #0
         sta (asm_pc),y
-        jmp inc_pc_size
-@skip:  pla
-        jmp inc_pc_size
+@skip:  jmp inc_pc_size
 
 ; ── _emit_word ────────────────────────────────────────────────────────────
 ; Emit 16-bit little-endian word from A (lo) / X (hi).
@@ -275,11 +288,7 @@ _emit_word:
         beq @done
         cmp #'"'
         beq @qc
-        lda _asm_pass
-        beq @qa
-        lda (expr_ptr),y
-        sta (asm_pc),y
-@qa:    jsr inc_pc_size
+        jsr _emit_byte
         inc expr_ptr
         bne @ql
         inc expr_ptr+1
@@ -294,18 +303,15 @@ _emit_word:
         lda #<s_bad_val
         ldx #>s_bad_val
         jmp emit_error          ; tail-call; emit_error returns to our caller
-@emit:  lda _asm_pass
-        beq @adv
-        lda expr_val
-        ldy #0
-        sta (asm_pc),y
-        lda _as_wsize
+@emit:  lda _as_wsize
         cmp #2
-        bne @adv
-        lda expr_val+1
-        ldy #1
-        sta (asm_pc),y
-@adv:   jsr adv_pc_size
+        beq @word
+        lda expr_val
+        jsr _emit_byte
+        jmp @comma
+@word:  lda expr_val
+        ldx expr_val+1
+        jsr _emit_word
 @comma: jsr skipws_ep
         cmp #','
         bne @done
@@ -360,15 +366,7 @@ _emit_word:
         bne @ec                 ; always (result $40-$5F)
 @raw:   lda (expr_ptr),y
 @raw_c:
-@ec:    pha
-        lda _asm_pass
-        beq @sk
-        ldy #0
-        pla
-        sta (asm_pc),y
-        pha
-@sk:    pla
-        jsr inc_pc_size
+@ec:    jsr _emit_byte
         inc expr_ptr
         bne @lp
         inc expr_ptr+1
@@ -420,12 +418,8 @@ _emit_word:
 @go:    lda _as_ptr
         ora _as_ptr+1
         beq @done
-@lp:    lda _asm_pass
-        beq @av
-        lda _as_wsize
-        ldy #0
-        sta (asm_pc),y
-@av:    jsr inc_pc_size
+@lp:    lda _as_wsize
+        jsr _emit_byte
         lda _as_ptr
         bne :+
         dec _as_ptr+1
@@ -485,12 +479,8 @@ _emit_word:
 @lp:    lda _as_ptr
         ora _as_ptr+1
         beq @done
-        lda _asm_pass
-        beq @av
         lda #0
-        ldy #0
-        sta (asm_pc),y
-@av:    jsr inc_pc_size
+        jsr _emit_byte
         lda _as_ptr
         bne :+
         dec _as_ptr+1
@@ -821,15 +811,14 @@ BASIC_REM = $8F
         lda #BASIC_REM
         jsr _emit_byte
         ; Copy string bytes
-        lda #0
-        sta _ib_idx
-@str:   lda _ib_idx
-        cmp _eb_idx
+        ldx #0
+@str:   cpx _eb_idx
         beq @no_tail
+        txa
         tay
         lda (expr_ptr),y
         jsr _emit_byte
-        inc _ib_idx
+        inx
         bne @str                ; always (len < 256)
 @no_tail:
 
@@ -1152,19 +1141,8 @@ BASIC_REM = $8F
 .proc process_line
 
 ; ── 1. Label loop ──────────────────────────────────────────────────────────
-@lbl:   ; Skip whitespace ($20/$A0)
-        ldy #0
-@sp:    lda (_as_ptr),y
-        cmp #' '
-        beq @sp_eat
-        cmp #$a0
-        bne @nsp
-@sp_eat:
-        inc _as_ptr
-        bne @sp
-        inc _as_ptr+1
-        jmp @sp
-@nsp:   bne :+
+@lbl:   jsr skipws_as
+        bne :+
         rts                     ; NUL = blank line
 :       cmp #';'
         bne :+
@@ -1285,23 +1263,10 @@ BASIC_REM = $8F
         inc _as_ptr+1
 :
         ; Skip whitespace between mnemonic and operand
-        ldy #0
-@msp:   lda (_as_ptr),y
-        cmp #' '
-        beq @msp_eat
-        cmp #$a0
-        bne @msp_done
-@msp_eat:
-        inc _as_ptr
-        bne @msp
-        inc _as_ptr+1
-        jmp @msp
-@msp_done:
-        cmp #0                  ; re-test A: flags clobbered by cmp #$a0 above
+        jsr skipws_as
         beq @msp_nooper         ; NUL = no operand
         cmp #';'
-        beq @msp_nooper         ; ';' = comment, no operand
-        jmp @msp_hasoper
+        bne @msp_hasoper
 @msp_nooper:
         jmp @asm_insn
 
