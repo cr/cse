@@ -120,7 +120,7 @@ for the full list, parameters, and per-pass behaviour.
 
 **ZP locals:** `_as_ptr` (2B, parse pointer), `_as_wsize` (1B, scratch)
 
-**BSS:** `_asm_pass` (1B), `_line_num` (2B), `_line_buf` (80B),
+**BSS:** `_asm_pass` (1B), `_line_num` (2B), `_line_buf` (40B),
 `_scope_name` (24B), `_full_label` (48B), `_insn_buf` (32B),
 `_expr_buf` (48B), `_as_conv` (1B, screen code conversion flag),
 `_eb_idx` (1B, write index into _expr_buf),
@@ -128,6 +128,10 @@ for the full list, parameters, and per-pass behaviour.
 
 ## Caveats
 
+- `ed_read_line` truncates at 40 raw bytes.  If truncation occurs
+  (returned length == 39), the assembler emits a line warning.
+  This is not a fatal error — assembly continues with the
+  truncated line.  In practice only trailing comments are lost.
 - `_insn_buf` is rebuilt as PETSCII each pass.  `asm_line` operates
   on PETSCII directly — no encoding conversion.
 - `fold_block` folds PETSCII shifted uppercase ($C1–$DA) to plain

@@ -15,7 +15,6 @@
         .export ed_insert_string
         .export ed_dirty, ed_save_bytes, ed_save_lines
         .export ed_total_lines
-        .export ed_load_split, ed_load_split_lines
         .export src_top, src_bot
 
         .import io_sync, io_blip
@@ -90,12 +89,6 @@ ed_total_lines: .res 2          ; total line count in buffer
 ed_dirty:      .res 1          ; buffer modified flag
 ed_save_bytes: .res 2          ; bytes from last file op
 ed_save_lines: .res 2          ; lines from last file op
-ed_load_split: .res 1          ; count of forced splits in last load
-ed_load_split_lines: .res 16   ; first 8 affected editor line numbers
-                                ; (8 × 16-bit, lo/hi); valid entries
-                                ; = min(ed_load_split, 8)
-_load_vcol:    .res 1          ; running vcol inside load callback
-_load_line:    .res 2          ; current editor line number during load
 _load_overflow: .res 1         ; sticky: set if any insert during load
                                 ; failed because the gap buffer is full
                                 ; (file > workspace).  Read by
@@ -548,12 +541,12 @@ _ed_cur_row:
 .endproc
 
 ; ── ed_read_line — read one line into buffer ──────────────────
-; Input: A/X = buf pointer. Maxlen hardcoded to 80.
+; Input: A/X = buf pointer. Maxlen hardcoded to 40.
 ; Returns: A/X = length, or A=$FF/X=$FF at EOF
 .proc ed_read_line
         sta ed_scr              ; buf lo
         stx ed_scr+1            ; buf hi
-        lda #80
+        lda #40
         sta ed_tmp+1            ; maxlen
         lda #0
         sta ed_tmp              ; len = 0
@@ -697,7 +690,12 @@ _ed_cur_row:
 @char_loop:
         cpy #SCREEN_WIDTH
         bcc :+
-        jmp @pad_done           ; col >= 40 → done
+        ; Line overflows screen — show > indicator in col 39.
+        ; Skip remaining content until CR or EOF.
+        lda #$3E | $80          ; '>' reversed
+        ldy #SCREEN_WIDTH - 1
+        sta (ed_tmp),y
+        jmp @skip_rest
 :
         jsr skip_gap_scr
         jsr check_buf_end
@@ -783,6 +781,18 @@ _ed_cur_row:
         iny
         bne @pad                ; Y never wraps to 0 within 40 iterations
 
+@skip_rest:
+        ; Advance ed_scr past remaining content until CR or EOF.
+        jsr skip_gap_scr
+        jsr check_buf_end
+        bcs @pad_done
+        ldy #0
+        lda (ed_scr),y
+        inc ed_scr
+        bne :+
+        inc ed_scr+1
+:       cmp #$0D
+        bne @skip_rest
 @pad_done:
         jsr skip_gap_scr
         jsr check_buf_end
@@ -1449,8 +1459,7 @@ _ed_cur_row:
 ;
 ; Walks forward from ed_scr, summing char_width for each byte
 ; until CR, EOF, or 8-bit overflow.  Transparent over the gap.
-; Used by backspace-join and load-split to determine whether a
-; join or insert would exceed the 39-col cap.
+; Used by the renderer to detect lines wider than 39 columns.
 .proc line_vwidth
         ldx #0                  ; X = accumulating vcol
 @loop:
@@ -1491,8 +1500,7 @@ _ed_cur_row:
 ; ── find_line_start — walk gap_lo back to the line start ──────
 ; Sets ed_scr to the start of the cursor's line (just past the
 ; preceding $0D, or buf_base at the top of the buffer).  Does
-; NOT move the gap.  Shared by visual_col, cursor_line_vwidth,
-; and copy_leading_ws.
+; NOT move the gap.  Shared by visual_col and copy_leading_ws.
 ; Clobbers: A, Y, ed_tmp.  Preserves X.
 .proc find_line_start
         jsr _ed_scr_glo
@@ -1524,16 +1532,6 @@ _ed_cur_row:
         sta ed_scr+1
         jmp @back
 @done:  rts
-.endproc
-
-; ── cursor_line_vwidth — visual width of the cursor's line ──────
-; Walks back to the line start (without moving the gap), then
-; calls line_vwidth from there.  Used by insert/tab cap checks.
-; Output: A = visual width (0..254) or $FF on overflow
-; Clobbers: A, X, Y, ed_scr, ed_tmp
-.proc cursor_line_vwidth
-        jsr find_line_start
-        jmp line_vwidth
 .endproc
 
 ; ── copy_leading_ws — copy leading whitespace from current line ─
@@ -1907,13 +1905,6 @@ _ed_cur_row:
 
 @del_join:
         ; Delete at col 0, line > 0 → join with previous line.
-        ; Honours the 39-col cap: if the combined line's visual
-        ; width would exceed 39, insert a forced CR at the last
-        ; safe col ≤ 39 (never splitting mid-tab).  See
-        ; doc/modules/editor.md § Backspace-join and the 39-col
-        ; cap.  The join ALWAYS proceeds — the forced CR just
-        ; moves the split point.  The user doesn't hear the
-        ; reject blip.
         jsr gb_backspace
         ; --ed_cur_line
         lda ed_cur_line
@@ -1922,54 +1913,14 @@ _ed_cur_row:
 :       dec ed_cur_line
         jsr visual_col
         sta ed_cur_col
-        sta @join_col           ; save for the no-split restore path
+        sta @join_col
 
-        ; Measure the combined line.  Walk the cursor to col 0
-        ; of line A (the line we just joined onto) so we can
-        ; call line_vwidth from the line start without moving
-        ; the gap afterwards.
+        ; Restore the cursor to the join point.
         jsr gb_home
         lda #0
         sta ed_cur_col
-        jsr _ed_scr_glo
-        jsr line_vwidth         ; A = combined visual width
-        cmp #40
-        bcs @del_join_split     ; ≥ 40 → split required
-
-        ; Combined fits.  Restore the cursor to the join point.
         lda @join_col
         jsr advance_to_vcol
-        jmp @del_join_after
-
-@del_join_split:
-        ; Combined exceeds the cap.  Advance to the largest col
-        ; ≤ 39 without breaking a tab, then insert a forced CR
-        ; there.  advance_to_vcol stops when adding the next
-        ; char's width would push col > target, so a tab whose
-        ; expansion would straddle the cap boundary stays on
-        ; the post-CR side.
-        ;
-        ; After the forced CR, step the gap back across it so
-        ; the cursor lands at the END of line A (the line the
-        ; user was deleting onto) and ed_cur_line stays at N-1.
-        ; @del_render then renders from line A down, so line A
-        ; (which just gained content up to the split col) is
-        ; redrawn.
-        lda #39
-        jsr advance_to_vcol
-        lda ed_cur_col
-        sta @join_col           ; actual stop col (≤ 39)
-        lda #$0D
-        jsr gb_insert           ; forced CR; bumps ed_total_lines
-        jsr gb_cursor_left      ; step back across the CR
-        lda @join_col
-        sta ed_cur_col          ; restore — gb_cursor_left doesn't
-                                ; touch our visual-col tracker
-        ; ed_cur_line unchanged: still N-1 (= line A), so the
-        ; cursor is at the end of line A with the forced CR
-        ; one byte to the right of the gap.
-
-@del_join_after:
         ; Adjust the viewport if the cursor moved above it.  For
         ; a single DEL at col 0 this can only happen when the
         ; user was on the topmost visible line (ed_cur_line was
@@ -2025,9 +1976,6 @@ _ed_cur_row:
         sta ed_cur_col
 
         ; Insert whitespace for auto-indent, tracking running vcol.
-        ; Truncate: stop before inserting a byte that would leave
-        ; the new line's vcol > 38 (must leave one col of room for
-        ; the first typable char).
         ldx #0                  ; ws_buf index
         ldy #0                  ; running vcol
 @ws_loop:
@@ -2041,8 +1989,6 @@ _ed_cur_row:
         jsr char_width          ; A = width
         clc
         adc @ws_vcol            ; A = new vcol after insert
-        cmp #39                 ; new vcol ≤ 38 ?
-        bcs @ws_done            ; would leave no room → truncate
         sta @ws_vcol
         ldx @ws_x
         lda ws_buf,x
@@ -2087,23 +2033,7 @@ _ed_cur_row:
         ; ── TAB ($A0) — always enabled under TAB_WIDTH ──
         cmp #$A0
         bne @not_tab
-        ; Cap check: refuse if line_vwidth + char_width(TAB, line_vwidth)
-        ; would exceed 39.  This treats the tab as if appended at the
-        ; line's end (worst case for end-of-line; under-refuses for tab
-        ; mid-line in a tab-mixed line, accepted as a simplicity
-        ; trade-off — see doc/modules/editor.md § The 39-column cap).
-        jsr cursor_line_vwidth  ; A = current line visual width
-        tax                     ; X = vcol
-        lda #$A0
-        jsr char_width          ; A = width(TAB, line_vwidth)
-        sta @new_col            ; reuse as scratch
-        txa
-        clc
-        adc @new_col            ; A = line_vwidth + tab width at end
-        cmp #SCREEN_WIDTH       ; > 39 → refuse (=40 boundary)
-        bcs @reject
-        ; Accepted.  Compute the actual new ed_cur_col after the
-        ; insert: ed_cur_col + char_width(TAB, ed_cur_col).
+        ; Compute the new ed_cur_col: ed_cur_col + char_width(TAB, ed_cur_col).
         lda #$A0
         ldx ed_cur_col
         jsr char_width
@@ -2130,16 +2060,6 @@ _ed_cur_row:
         cmp #$DB
         bcs @repos_jmp          ; $DB+ → ignore
 @printable:
-        ; Refuse if the line is already at the 39-col cap.  Each
-        ; printable adds exactly one column, so any insert into a
-        ; full line would overflow regardless of cursor position.
-        ; (The cursor-at-col-39 case is also covered, since the line
-        ; must be ≥ 39 wide for the cursor to sit there.)
-        jsr cursor_line_vwidth
-        cmp #SCREEN_WIDTH       ; line_vwidth ≥ 40 → never (sentinel)
-        bcs @reject
-        cmp #SCREEN_WIDTH - 1   ; line_vwidth ≥ 39 → refuse
-        bcs @reject
         lda @key
         jsr gb_insert
         inc ed_cur_col
@@ -2155,7 +2075,7 @@ _ed_cur_row:
         jmp @repos
 
 @reject:
-        ; Audible feedback for refused input (line cap, left-wall
+        ; Audible feedback for refused input (left-wall
         ; backspace, etc.).  Falls through to @repos so the cursor
         ; still gets re-synced after the rejection.
         jsr io_blip
@@ -2418,105 +2338,16 @@ _ed_cur_row:
         rts
 .endproc
 
-; ── load_insert — cap-aware insert callback for ed_load_source ─
+; ── load_insert — insert callback for ed_load_source ─────────
 ; Called by disk_load_seq once per byte read from the SEQ file.
-; Tracks the running visual width of the current line.  If the
-; incoming byte would push vcol past 39 (i.e., ≥ 40), inserts a
-; forced CR first and records the split.  See editor.md §
-; "Load from SEQ file".
-;
+; No width enforcement — bytes are stored as-is.
 ; Input: A = byte from SEQ file
-; Clobbers: A, X, Y, ed_tmp (via char_width)
-;
-; State variables (all in BSS):
-;   _load_vcol — running vcol of the current line (0..39)
-;   _load_line — current editor line number (16-bit)
-;   ed_load_split — count of forced splits
-;   ed_load_split_lines — first 8 affected editor line numbers
+; Clobbers: A, X
 .proc load_insert
-        ; Once overflow has been seen, become a no-op so the rest of
-        ; the file is silently dropped.  ed_load_source checks the
-        ; flag after the disk loop and reports the truncation.
-        ; Caller passes the byte in A (not on the stack), so no
-        ; cleanup needed — just return.
         ldx _load_overflow
         bne @noop
-        pha                     ; save byte
-        cmp #$0D
-        beq @is_cr
-
-        ; Compute char_width at current vcol
-        ldx _load_vcol
-        jsr char_width          ; A = width (1 for non-tab, else TAB_WIDTH
-                                ; at boundary, down to 1)
-        clc
-        adc _load_vcol
-        cmp #40
-        bcs @force_split        ; new vcol ≥ 40 → overflow
-
-        ; Fits: update running vcol and insert the byte
-        sta _load_vcol
-        pla
         jsr gb_insert
-        bcc @overflow
-        rts
-
-@is_cr:
-        ; CR: reset running vcol, advance line counter
-        lda #0
-        sta _load_vcol
-        inc _load_line
-        bne :+
-        inc _load_line+1
-:       pla
-        jsr gb_insert
-        bcc @overflow
-        rts
-
-@force_split:
-        ; Insert forced CR first.  After the increment, _load_line
-        ; identifies the new line we're about to start filling —
-        ; that's the line the user wants reported (the editor line
-        ; AS IT IS after all prior splits).
-        lda #$0D
-        jsr gb_insert
-        bcc @overflow_pop
-        inc _load_line
-        bne :+
-        inc _load_line+1
-:
-        ; Record the split if there's room in the 8-entry array.
-        ; ed_load_split is the total split count (incremented every
-        ; time, even after the array is full); the print code uses
-        ; min(ed_load_split, 8) entries and appends "and N more"
-        ; when ed_load_split > 8.
-        lda ed_load_split
-        cmp #8
-        bcs @skip_record
-        asl                     ; idx × 2 (16-bit entries)
-        tax
-        lda _load_line
-        sta ed_load_split_lines,x
-        lda _load_line+1
-        sta ed_load_split_lines+1,x
-@skip_record:
-        inc ed_load_split
-        ; Now insert the original byte at col 0 of the new line.
-        ; Compute its width at col 0 (normally 1; for TAB at col 0
-        ; it's TAB_WIDTH).
-        pla                     ; restore byte
-        pha                     ; keep on stack for gb_insert call
-        ldx #0
-        jsr char_width          ; A = width at col 0
-        sta _load_vcol
-        pla
-        jsr gb_insert
-        bcc @overflow
-        rts
-
-@overflow_pop:
-        pla                     ; discard the byte still on the stack
-@overflow:
+        bcs @noop               ; C=1 → success
         lda #1
         sta _load_overflow
 @noop:  rts
@@ -2526,10 +2357,7 @@ _ed_cur_row:
 ; Input: A/X = name pointer
 ; Returns: A = 0 on success, nonzero on error
 ;
-; Enforces the 39-col hard cap via load_insert callback.  Long
-; lines are split with a forced CR; ed_load_split / ed_load_split_lines
-; record the counts and affected editor line numbers for the
-; REPL's post-load warning (see doc/modules/editor.md).
+; No line-width enforcement — lines are stored as-is.
 .proc ed_load_source
         ; Store name for disk_load_seq
         sta disk_ptr
@@ -2538,15 +2366,8 @@ _ed_cur_row:
         ; Reset buffer
         jsr ed_init
 
-        ; Reset load-split state
         lda #0
-        sta ed_load_split
-        sta _load_vcol
-        sta _load_line
-        sta _load_line+1
         sta _load_overflow
-
-        ; Call disk_load_seq(name, load_insert) — cap-aware
         lda #<load_insert
         ldx #>load_insert
         jsr disk_load_seq      ; A = error

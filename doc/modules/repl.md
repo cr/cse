@@ -401,12 +401,10 @@ Bare `$` lists the directory.
 CSE's tab width is a **build-time constant** (`-DTAB_WIDTH=N`,
 default 8).  It is not runtime-mutable — there is no `T` command.
 
-Rationale: tab width interacts with the editor's 39-column hard
-line cap.  Changing it at runtime would invalidate every line's
-visual width and could turn previously-valid lines into "too
-long" errors.  Baking it in eliminates a whole class of edge
-cases and matches the C64-era convention (Turbo Assembler,
-MasterSeka, Relaunch64 all default to 8).
+Rationale: baking it in saves ~30 bytes (eliminates the runtime
+`col_mod_tw` loop and the `T` command) and matches the C64-era
+convention (Turbo Assembler, MasterSeka, Relaunch64 all default
+to 8).
 
 The "4-space" convention from modern high-level languages
 doesn't fit 6502 assembly on a 40-column screen anyway — use 8.
@@ -415,24 +413,11 @@ If you really need a different value, rebuild with
 
 ### Loading files with long lines
 
-`ed_load_source` enforces the editor's 39-column cap during load
-by **splitting** any line that would exceed the cap.  A forced
-CR is inserted at the last safe column; the remainder becomes a
-new editor line.  The load always succeeds.
-
-After a load, if any splits happened, the REPL prints a warning:
-
-    ; loaded "file,s" — 312 bytes, 47 lines
-    ;   ! 3 lines split on load at editor lines 14, 22, 39
-
-The user can scroll to each flagged line number and see the
-forced CR.  Saving back writes the split version — the original
-file structure is **not** preserved across load→save.  For
-lossless long-line source, pre-format in a cross-dev tool before
-loading into CSE.
-
-See [editor.md § Load from SEQ file](editor.md#load-from-seq-file)
-for the exact split mechanics.
+`ed_load_source` loads file content verbatim — no line splitting
+or width enforcement.  Lines wider than 39 visual columns show
+`>` in col 39 in the editor.  The user can scroll to them and
+manually shorten.  Save writes the buffer verbatim, preserving
+the original file structure.
 
 ### `i` — Memory map
 

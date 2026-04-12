@@ -41,7 +41,7 @@ asm_size:      .res 2          ; total bytes emitted
 asm_errors:    .res 2          ; error count (pass 1 only)
 _asm_pass:      .res 1          ; 0 = pass 0, 1 = pass 1
 _line_num:      .res 2
-_line_buf:      .res 80
+_line_buf:      .res 40
 _scope_name:    .res 24         ; last global label (for .local expansion)
 _full_label:    .res 48         ; scratch: "scope.local"
 _insn_buf:      .res 32         ; rebuilt instruction text for asm_line
@@ -69,6 +69,7 @@ s_seg_dash:     .byte "-$", 0
 s_seg_b:        .byte "b", 0
 s_save_pfx:     .byte "s ", $22, "f", $22, ",08,$", 0
 s_save_mid:     .byte ",$", 0
+s_trunc:        .byte ": line truncated", 0
 
 ; Decimal power tables for 16-bit → ASCII conversion (_emit_decimal)
 _dec_pow_lo:    .byte <1, <10, <100, <1000, <10000
@@ -1340,10 +1341,29 @@ BASIC_REM = $8F
         ; Negative return = EOF
         txa
         bmi @done
+        pha                     ; save length for truncation check
         inc _line_num
         bne :+
         inc _line_num+1
-:       lda #<_line_buf
+        ; Check for truncation (returned length == maxlen-1 == 39)
+:       pla
+        cmp #39
+        bne @no_trunc
+        lda _asm_pass
+        beq @no_trunc
+        jsr _bank_in_tmp
+        ldy #'!'                ; LOG_WARN
+        jsr out_log_open
+        lda _line_num
+        ldx _line_num+1
+        jsr io_putdec
+        lda #<s_trunc
+        ldx #>s_trunc
+        jsr io_puts
+        jsr out_close
+        jsr _bank_out_tmp
+@no_trunc:
+        lda #<_line_buf
         sta _as_ptr
         lda #>_line_buf
         sta _as_ptr+1

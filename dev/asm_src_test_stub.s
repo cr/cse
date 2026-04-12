@@ -82,7 +82,7 @@ ed_read_rewind:
         rts
 
 ; ── ed_read_line ─────────────────────────────────────────────────────────────
-; Input: A/X = buf pointer. Maxlen hardcoded to 80.
+; Input: A/X = buf pointer. Maxlen hardcoded to 40.
 ; Returns: A/X = line length (≥0), or $FF/$FF = -1 on EOF.
 ;
 ; Source encoding (written by the Python test harness):
@@ -114,13 +114,13 @@ ed_read_line:
         lda (_src_ptr),y
         cmp #$FF
         beq @hit_eof
-        ; Copy up to 79 chars from _src_ptr to _buf_ptr
+        ; Copy up to 39 chars from _src_ptr to _buf_ptr
         ; (Y already 0 from the sentinel check.)
 @cp:    lda (_src_ptr),y
         beq @eol                ; NUL = end of line
         sta (_buf_ptr),y
         iny
-        cpy #79
+        cpy #39
         bcc @cp
 @eol:   ; NUL-terminate dest buf
         lda #0

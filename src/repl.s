@@ -63,7 +63,6 @@
 
 ; ── Imports: editor ────────────────────────────────────────
         .import ed_save_source, ed_load_source
-        .import ed_load_split, ed_load_split_lines
         .import ed_save_bytes, ed_save_lines
         .import ed_ensure_init, ed_new
         .import ed_dirty, ed_total_lines
@@ -165,13 +164,12 @@ str_s:          .byte " s:", 0
 str_lines:      .byte "l ", 0
 str_bytes:      .byte "b", 0
 str_bytes_sp:   .byte "b ", 0
-str_split:      .byte "split L", 0
 ; ── User-facing string style convention ──
 ;
 ; All user-visible strings emitted by CSE follow these rules:
 ;
 ;   "; ..."        normal status / info  (note the space after ';')
-;   ";!..."        warning (load split, dirty buffer, etc.)
+;   ";!..."        warning (dirty buffer, etc.)
 ;   ";?tag"        terse error tag, BASIC-style  (no space after ';?')
 ;   ";?word ..."   long error explanation
 ;   "; ...? y/n "  yes/no confirmation prompt (trailing space for cursor)
@@ -2566,52 +2564,6 @@ VIC_MEMCTL = $D018
         jmp io_puts
 .endproc
 
-; ═══════════════════════════════════════════════════════════
-; print_load_split_warning — one warning line per split
-;
-; Output: one line per recorded split, up to SPLIT_LINES_MAX:
-;   ;!split L15
-;   ;!split L23
-;
-; ed_load_split_lines holds 0-based editor line numbers.
-; ═══════════════════════════════════════════════════════════
-.proc print_load_split_warning
-        lda ed_load_split
-        beq @done               ; no splits → nothing to print
-        cmp #9
-        bcc @count_ok
-        lda #8                  ; cap at SPLIT_LINES_MAX
-@count_ok:
-        sta @count
-        lda #0
-        sta @idx
-@loop:  lda @idx
-        cmp @count
-        bcs @done
-        ldy #LOG_WARN
-        jsr out_log_open
-        puts str_split
-        ; 16-bit line number from ed_load_split_lines[idx*2], 1-based
-        lda @idx
-        asl
-        tax
-        lda ed_load_split_lines,x
-        clc
-        adc #1
-        sta rp_tmp
-        lda ed_load_split_lines+1,x
-        adc #0
-        tax                     ; hi
-        lda rp_tmp              ; lo
-        jsr io_putdec
-        jsr out_close
-        inc @idx
-        jmp @loop
-@done:  rts
-
-@count: .byte 0
-@idx:   .byte 0
-.endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; io_err_load / io_err_save — emit ";?fail"
@@ -2714,7 +2666,6 @@ disk_done:
         jsr out_log_open
         jsr print_seq_stats
         jsr out_close
-        jsr print_load_split_warning
         jmp @done
 
 @load_prg:
