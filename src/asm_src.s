@@ -14,14 +14,13 @@
         .export         asm_assemble
         .export         asm_org, asm_size, asm_errors
         .export         asm_pass := _asm_pass   ; pass flag for au_mode.s fwd refs
-        .export         _seg_table, _seg_count, _global_lo, _global_hi
 
         .import         asm_line               ; asm_line.s
         .import         expr_eval              ; expr.s
         .import         sym_define             ; symtab.s
         .import         sym_clear
         .import         kernal_bank_out, kernal_bank_in, kernal_out
-        .import         io_puts, io_putdec, io_puthex4, newline
+        .import         io_puts, io_putdec, newline
         .import         out_log_open, out_close
         .import         define_ws_syms         ; mem.s
         .import         ed_read_line           ; editor.s
@@ -49,31 +48,10 @@ _as_conv:       .res 1          ; emit_string convert-to-screen-code flag
 _eb_idx:        .res 1          ; write index into _expr_buf
 _ib_idx:        .res 1          ; write index into _insn_buf
 
-; ── Segment tracking ─────────────────────────────────────────────────────
-; Per-segment: type (1B), low (2B), high (2B) = 5 bytes each.
-; Type: 0 = .org, 1 = .bas
-MAX_SEGS = 8
-SEG_TYPE = 0
-SEG_LO   = 1
-SEG_HI   = 3
-SEG_SIZE = 5
-_seg_table:     .res MAX_SEGS * SEG_SIZE
-_seg_count:     .res 1          ; number of closed segments
-_seg_open_f:    .res 1          ; non-zero if a segment is currently open
-_global_lo:     .res 2          ; lowest byte across all segments
-_global_hi:     .res 2          ; highest byte across all segments
-
 ; ── RODATA ────────────────────────────────────────────────────────────────
 .segment "RODATA"
 s_err_sep:      .byte ": ", 0
 s_bad_val:      .byte "bad val", 0
-s_seg_org:      .byte ".org  $", 0
-s_seg_bas:      .byte ".bas  $", 0
-s_seg_dot:      .byte "..$", 0
-s_seg_sp:       .byte "   ", 0
-s_bytes:        .byte " bytes", 0
-s_save_pre:     .byte "s ", $22, "file", $22, ",08,$", 0   ; s "file",08,$
-s_save_mid:     .byte ",$", 0
 s_exp_name:     .byte "exp name", 0
 s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp quote", 0
@@ -593,308 +571,6 @@ _emit_word:
         rts
 .endproc
 
-; ── Segment tracking ──────────────────────────────────────────────────────
-; _seg_open — close previous segment (if any), open a new one.
-;   A = type (0=org, 1=bas).  asm_pc = start of new segment.
-;   On pass 0 only: records into _seg_table.
-_seg_open:
-        pha                     ; save type
-        lda _asm_pass
-        bne @skip               ; skip tracking on pass 1
-
-        ; Close previous segment (if open and non-empty)
-        lda _seg_open_f
-        beq @no_prev
-        ; Check if segment is empty (asm_pc == seg_low → nothing emitted)
-        lda _seg_count
-        asl
-        asl
-        adc _seg_count          ; *5
-        tay
-        lda asm_pc
-        cmp _seg_table+SEG_LO,y
-        bne @close_prev
-        lda asm_pc+1
-        cmp _seg_table+SEG_LO+1,y
-        bne @close_prev
-        ; Empty segment — just overwrite it (don't increment count)
-        lda #0
-        sta _seg_open_f
-        jmp @no_prev
-@close_prev:
-        jsr _seg_close_cur
-@no_prev:
-        ; Open new segment
-        lda _seg_count
-        cmp #MAX_SEGS
-        bcs @full               ; table full — silently drop
-
-        ; Compute table offset: _seg_count * 5
-        ; (n*5 = n*4 + n; n < 8 so fits in a byte)
-        asl                     ; *2
-        asl                     ; *4
-        adc _seg_count          ; *5 (carry clear since max = 7*5=35)
-        tax
-
-        ; Store type
-        pla                     ; restore type
-        pha                     ; keep for later
-        sta _seg_table+SEG_TYPE,x
-
-        ; Store low = asm_pc
-        lda asm_pc
-        sta _seg_table+SEG_LO,x
-        lda asm_pc+1
-        sta _seg_table+SEG_LO+1,x
-
-        ; High will be stored at close time
-        lda #1
-        sta _seg_open_f
-        pla                     ; balance stack
-        rts
-
-@full:  pla                     ; balance stack
-        rts
-@skip:  pla
-        rts
-
-; _seg_close_cur — close the current segment.
-;   High watermark = asm_pc - 1 (last byte written/reserved).
-;   Updates global low/high.  Increments _seg_count.
-_seg_close_cur:
-        ; Compute table offset
-        lda _seg_count
-        asl
-        asl
-        adc _seg_count
-        tax
-
-        ; Store high = asm_pc - 1 (inline, no scratch needed)
-        lda asm_pc
-        sec
-        sbc #1
-        sta _seg_table+SEG_HI,x
-        lda asm_pc+1
-        sbc #0
-        sta _seg_table+SEG_HI+1,x
-
-        ; Update global low (min of all segment lows)
-        lda _seg_table+SEG_LO+1,x
-        cmp _global_lo+1
-        bcc @new_lo
-        bne @chk_hi
-        lda _seg_table+SEG_LO,x
-        cmp _global_lo
-        bcs @chk_hi
-@new_lo:
-        lda _seg_table+SEG_LO,x
-        sta _global_lo
-        lda _seg_table+SEG_LO+1,x
-        sta _global_lo+1
-
-@chk_hi:
-        ; Update global high (max of all segment highs)
-        lda _seg_table+SEG_HI+1,x
-        cmp _global_hi+1
-        bcc @done
-        bne @new_hi
-        lda _seg_table+SEG_HI,x
-        cmp _global_hi
-        bcc @done
-@new_hi:
-        lda _seg_table+SEG_HI,x
-        sta _global_hi
-        lda _seg_table+SEG_HI+1,x
-        sta _global_hi+1
-
-@done:  inc _seg_count
-        lda #0
-        sta _seg_open_f
-        rts
-
-; _seg_close_if_open — close current segment if open and non-empty.
-;   Preserves A.
-_seg_close_if_open:
-        pha
-        lda _asm_pass
-        bne @skip               ; only track on pass 0
-        lda _seg_open_f
-        beq @skip
-        ; Check if non-empty (asm_pc != seg_low)
-        lda _seg_count
-        asl
-        asl
-        adc _seg_count
-        tay
-        lda asm_pc
-        cmp _seg_table+SEG_LO,y
-        bne @do_close
-        lda asm_pc+1
-        cmp _seg_table+SEG_LO+1,y
-        beq @skip               ; empty → discard
-@do_close:
-        jsr _seg_close_cur
-@skip:  pla
-        rts
-
-; _seg_init — reset segment tracking state.
-;   Called at start of asm_assemble.
-_seg_init:
-        lda #0
-        sta _seg_count
-        sta _seg_open_f
-        sta _global_hi
-        sta _global_hi+1
-        lda #$FF
-        sta _global_lo          ; init to $FFFF so first segment wins
-        sta _global_lo+1
-        rts
-
-; ── _seg_print_summary ────────────────────────────────────────────────────
-; Print one line per segment + save command.  Called after pass 1 on
-; success.  KERNAL must be banked in for screen I/O.
-LOG_INFO = ' '
-_seg_print_summary:
-        lda _seg_count
-        bne :+
-        rts                     ; no segments → nothing to print
-:
-
-        ; Iterate segments
-        ldx #0                  ; table offset
-        lda #0
-        sta _ib_idx             ; reuse as loop counter
-@lp:
-        lda _ib_idx
-        cmp _seg_count
-        bne :+
-        jmp @save
-:
-
-        ; Open log line: "; "
-        ldy #LOG_INFO
-        jsr out_log_open
-
-        ; Print type prefix
-        lda _seg_table+SEG_TYPE,x
-        beq @t_org
-        lda #<s_seg_bas
-        ldx #>s_seg_bas
-        jmp @t_put
-@t_org: lda #<s_seg_org
-        ldx #>s_seg_org
-@t_put: jsr io_puts
-
-        ; Reload X = table offset (io_puts clobbered it)
-        lda _ib_idx
-        asl
-        asl
-        adc _ib_idx             ; *5
-        tax
-
-        ; Print low address
-        lda _seg_table+SEG_LO,x
-        pha                     ; save lo
-        lda _seg_table+SEG_LO+1,x
-        tax                     ; hi in X for io_puthex4
-        pla                     ; lo in A
-        jsr io_puthex4
-
-        ; "..$"
-        lda #<s_seg_dot
-        ldx #>s_seg_dot
-        jsr io_puts
-
-        ; Reload X = table offset
-        lda _ib_idx
-        asl
-        asl
-        adc _ib_idx
-        tax
-
-        ; Print high address
-        lda _seg_table+SEG_HI,x
-        pha
-        lda _seg_table+SEG_HI+1,x
-        tax
-        pla
-        jsr io_puthex4
-
-        ; "   "
-        lda #<s_seg_sp
-        ldx #>s_seg_sp
-        jsr io_puts
-
-        ; Compute and print byte count = high - low + 1
-        ; Reload table offset
-        lda _ib_idx
-        asl
-        asl
-        adc _ib_idx
-        tax
-        lda _seg_table+SEG_HI,x
-        sec
-        sbc _seg_table+SEG_LO,x
-        pha                     ; lo
-        lda _seg_table+SEG_HI+1,x
-        sbc _seg_table+SEG_LO+1,x
-        tax                     ; hi
-        pla
-        clc
-        adc #1                  ; +1 for inclusive range
-        bcc :+
-        inx
-:       jsr io_putdec
-
-        ; " bytes"
-        lda #<s_bytes
-        ldx #>s_bytes
-        jsr io_puts
-
-        jsr out_close
-
-        ; Advance to next segment
-        inc _ib_idx
-        ; Recompute X for next iteration
-        lda _ib_idx
-        asl
-        asl
-        adc _ib_idx
-        tax
-        jmp @lp
-
-@save:
-        ; Print save command: s "file",08,$XXXX,$XXXX
-        ldy #LOG_INFO
-        jsr out_log_open
-
-        lda #<s_save_pre
-        ldx #>s_save_pre
-        jsr io_puts
-
-        ; Global low
-        lda _global_lo
-        ldx _global_lo+1
-        jsr io_puthex4
-
-        lda #<s_save_mid
-        ldx #>s_save_mid
-        jsr io_puts
-
-        ; Global high + 1 (half-open)
-        lda _global_hi
-        clc
-        adc #1
-        pha
-        lda _global_hi+1
-        adc #0
-        tax
-        pla
-        jsr io_puthex4
-
-        jsr out_close
-@ret:   rts
-
 ; ── emit_bas ──────────────────────────────────────────────────────────────
 ; Emit a BASIC SYS stub (and optional REM line) at asm_pc.
 ; _as_ptr points past ".bas" keyword.
@@ -1139,8 +815,6 @@ BASIC_REM = $8F
         lda (_as_ptr),y
         cmp #'s'
         bne @nb_unk
-        lda #1                  ; type = bas
-        jsr _seg_open           ; open segment before emitting
         jsr emit_bas
         clc
         rts
@@ -1264,9 +938,7 @@ BASIC_REM = $8F
         clc
         rts
 @dw:    cmp #'w'
-        beq :+
-        jmp @unk
-:
+        bne @unk
         ; .dw
         lda #2
         sta _as_wsize
@@ -1289,10 +961,7 @@ BASIC_REM = $8F
         jsr emit_error
         clc
         rts
-:       ; Close previous segment BEFORE updating asm_pc (uses old asm_pc-1 as high)
-        jsr _seg_close_if_open
-        ; Set asm_pc to the new origin
-        lda expr_val
+:       lda expr_val
         sta asm_pc
         lda expr_val+1
         sta asm_pc+1
@@ -1303,9 +972,6 @@ BASIC_REM = $8F
         lda expr_val+1
         sta asm_org+1
 @org_done:
-        ; Open new segment at new asm_pc
-        lda #0                  ; type = org
-        jsr _seg_open
         clc
         rts
 @nr:    cmp #'r'
@@ -1702,7 +1368,6 @@ BASIC_REM = $8F
         sta asm_size
         sta asm_size+1
         sta _scope_name
-        jsr _seg_init           ; reset segment tracking
         ; Clear symbol table (heap at fixed $E600 under KERNAL)
         jsr sym_clear
         jsr define_ws_syms     ; pre-define workstart/workend
@@ -1719,14 +1384,10 @@ BASIC_REM = $8F
         lda #1
         sta kernal_out
 
-        ; Pass 0: collect labels/constants + segment tracking
+        ; Pass 0: collect labels/constants
         lda #0
         sta _asm_pass
         jsr do_pass
-        ; Close final segment from pass 0
-        lda #0
-        sta _asm_pass           ; ensure pass=0 for close check
-        jsr _seg_close_if_open
         ; Pass 1: emit code
         lda #1
         sta _asm_pass
@@ -1740,13 +1401,6 @@ BASIC_REM = $8F
         lda #0
         sta kernal_out
         jsr kernal_bank_in
-
-        ; Print segment summary (on success)
-        lda asm_errors
-        ora asm_errors+1
-        bne @no_log
-        jsr _seg_print_summary
-@no_log:
 
         lda asm_errors
         ldx asm_errors+1

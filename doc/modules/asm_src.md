@@ -12,40 +12,15 @@
 
 ## Interface
 
-### asm_assemble
+### _asm_assemble
 **In:** A/X = default origin (used when source has no `.org`)
-**Out:** A/X = error count (uint16).  Exported state updated.
+**Out:** A/X = error count (uint16).  `_asm_org`, `_asm_size`, `_asm_errors` updated.
 **Clobbers:** all
 
-**Exported state (BSS):**
-- `asm_org` (2B) — origin address of first segment
-- `asm_size` (2B) — total bytes emitted across all segments
-- `asm_errors` (2B) — error count (pass 1 only)
-
-**Assembly log (pass 1):**  On success, prints one info line per
-segment showing type (`.bas`/`.org`), address range (low..high),
-and byte count.  The final line is a ready-to-use `s` (save)
-command covering the global low..high range across all segments.
-
-Example output for a program with a BASIC stub and a code block:
-```
-; .bas  $0801..$080C   12 bytes
-; .org  $080D..$0812    6 bytes
-; s "file",08,$0801,$0813
-```
-
-Segments are opened by `.bas` (implicit `.org $0801`) and `.org`.
-Each segment tracks its own low/high watermarks.  The global
-watermarks span all segments.
-
-**Logging ownership:** asm_src.s owns the segment tracking state
-and emits the summary lines itself via the repl logging API
-(`out_log_open`, `io_puthex4`, `io_putdec`, `out_close` — already
-imported for error output).  The repl's `a` command handler just
-calls `asm_assemble` and handles the error/success branch; the
-per-segment detail is asm_src's responsibility.  This keeps screen
-I/O ownership in the repl layer while giving the assembler control
-over what it reports.
+**Exported state (DATA):**
+- `_asm_org` (2B) — origin address after assembly
+- `_asm_size` (2B) — total bytes emitted
+- `_asm_errors` (2B) — error count (pass 1 only)
 
 ### _define_ws_syms
 **In:** none (reads `cse_end` and `buf_base`)

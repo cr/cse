@@ -445,12 +445,6 @@ class AsmSrcSymbols:
         self.asm_len    = exports['asm_len']
         self.kernal_out = exports['kernal_out']
 
-        # Segment tracking (exported by asm_src.s)
-        self._seg_table  = exports['_seg_table']
-        self._seg_count  = exports['_seg_count']
-        self._global_lo  = exports['_global_lo']
-        self._global_hi  = exports['_global_hi']
-
         raw = _AS_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]

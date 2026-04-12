@@ -253,20 +253,3 @@ main:   ldx #0
 colors: .db 0, 6, 14, 3, 1
         .db 0
 ```
-
-## Assembly Output
-
-On success, the assembler prints a per-segment summary and a save
-command.  Each `.bas` or `.org` directive opens a new segment.  The
-segment line shows the type, address range (lowest..highest byte
-written or reserved), and byte count.  The final line is a ready-to-use
-`s` command:
-
-```
-; .bas  $0801..$080C   12 bytes
-; .org  $C000..$C01A   27 bytes
-; s "file",08,$0801,$C01B
-```
-
-The `s` range covers the global lowest to one past the global highest
-byte, matching the save command's half-open convention.

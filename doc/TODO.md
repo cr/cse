@@ -154,7 +154,7 @@ Defined scope, needs work.
   SYS address computed automatically (first byte after BASIC end marker).
   Two-pass: pass 0 sizes, pass 1 emits.  2799 tests.
 - [ ] Assembler error display: show source line number + context.
-- [x] Per-segment assembly summary (one line per `.org`/`.bas` block).
+- [ ] Per-segment assembly summary (one line per `.org`/`.bas` block).
   After assembly, print one line per segment: type (`.org`/`.bas`),
   address range (lowest..highest byte written or reserved), byte
   count.  `.bas` is an implicit `.org $0801` and opens the first

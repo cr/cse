@@ -26,10 +26,6 @@
         .export ed_read_rewind
         .export io_puts
         .export io_putdec
-        .export io_puthex4
-
-        ; Force segment tracking symbols into ld65 exports (for conftest.py)
-        .import _seg_table, _seg_count, _global_lo, _global_hi
         .export newline
         .export out_log_open
         .export out_close
@@ -150,12 +146,8 @@ ed_read_line:
 ; io_puts(A/X = string ptr), io_putdec(A/X = value), newline(): all no-ops.
 io_puts:
 io_putdec:
-io_puthex4:
 newline:
 out_log_open:
 out_close:
         rts
-
-        ; Force segment tracking symbols into linker exports
-        .addr _seg_table, _seg_count, _global_lo, _global_hi
 
