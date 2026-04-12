@@ -25,7 +25,7 @@
         .import cse_start
         .import cur_filename
         .import state
-        .import scr_lo, scr_hi
+        .import scr_lo, scr_hi, hex_tab
         .import sym_define
         .importzp disk_ptr
         .importzp sym_name, sym_val, sym_wide
@@ -110,9 +110,6 @@ src_bot:       .res 2          ; buffer lower bound (for REPL i command)
 ; ── RODATA ───────────────────────────────────────────────────
 .segment "RODATA"
 
-; Hex digit table for status bar (screen codes, OR'd with $80 for reverse)
-st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
-        .byte $38,$39,$01,$02,$03,$04,$05,$06
 s_workend:      .byte "workend", 0
 
 ; ── CODE ─────────────────────────────────────────────────────
@@ -923,7 +920,7 @@ _ed_cur_row:
         lsr
         lsr
         tax
-        lda st_hx,x
+        lda hex_tab,x
         ora #$80
         ldy #0
         sta (ed_scr),y
@@ -931,7 +928,7 @@ _ed_cur_row:
         lda ed_tmp+1
         and #$0F
         tax
-        lda st_hx,x
+        lda hex_tab,x
         ora #$80
         iny
         sta (ed_scr),y
@@ -942,7 +939,7 @@ _ed_cur_row:
         lsr
         lsr
         tax
-        lda st_hx,x
+        lda hex_tab,x
         ora #$80
         iny
         sta (ed_scr),y
@@ -950,7 +947,7 @@ _ed_cur_row:
         lda ed_tmp
         and #$0F
         tax
-        lda st_hx,x
+        lda hex_tab,x
         ora #$80
         iny
         sta (ed_scr),y
