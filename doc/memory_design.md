@@ -120,8 +120,8 @@ the combined size of CODE + RODATA + BSS:
     XXXX = $D000 - sizeof(CODE + RODATA + BSS)
 
 This maximizes the workspace automatically.  With the current 6510
-build (~20 KB code + rodata, ~800 B BSS), XXXX ≈ $80CF, giving
-~31 KB of workspace ($0800–$80CE).  As the codebase grows or
+build (~21 KB code + rodata, ~800 B BSS), XXXX ≈ $7D00, giving
+~29 KB of workspace ($0800–$7CFF).  As the codebase grows or
 shrinks, workend adjusts and the user sees it via `i`.
 
 BASIC ROM ($A000-$BFFF) is unmapped at startup.  The RAM underneath

@@ -48,7 +48,7 @@ $D6 (row).
 |------|------|---------|
 | scr_lo[25] | 25 | Low bytes of $0400 + row×40 for rows 0–24 |
 | scr_hi[25] | 25 | High bytes of same |
-| hex_tab[16] | 16 | Screen codes for hex digits: $30–$39, $01–$06 |
+| hex_tab[16] | 16 | Screen codes for hex digits: $30–$39, $01–$06. **Exported** — shared with editor.s |
 | dec_lo[5] | 5 | Low bytes of 10000, 1000, 100, 10, 1 |
 | dec_hi[5] | 5 | High bytes of same |
 

@@ -43,7 +43,7 @@ Called by main.s at startup and by `asm_assemble` after `sym_clear`.
 
 **Depends on:** asm_line, expr, symtab, editor
 (ed_read_line, ed_read_rewind, buf_base), repl (out_log_open,
-out_close for error output), meminfo (workstart)
+out_close, puts_imm for error/summary output), mem (define_ws_syms)
 
 ## Design
 

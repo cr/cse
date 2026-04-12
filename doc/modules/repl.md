@@ -355,6 +355,28 @@ restores the VIC charset register (`$D018 |= $02`) and calls
 corruption caused by user code modifying cursor state or VIC
 registers.
 
+**Pointer / skip helpers:**
+
+- `load_curaddr` — copy `cur_addr` → `rp_addr` (6 call sites)
+- `skip_peek_ptr1` — `skip_sp_ptr1` + load first non-space char (6 sites)
+
+**Semantic helpers** (compound operations extracted for size):
+
+- `expr_set_curaddr` — `try_expr`, copy `expr_val` → `cur_addr` (3 sites)
+- `expr_or_blocksize` — `try_expr` with `block_size` fallback (2 sites)
+- `show_block_size` — format/print current `B=$XXXX` setting
+- `bp_open_slot` — format `; bp N` log prefix (4 sites)
+- `sym_set_curaddr` — `sym_lookup`, copy `sym_val` → `cur_addr` (2 sites)
+- `show_theme_colors` — display current border/bg/fg triplet
+- `calc_put_u8_hex` — print `  $XX` format for 8-bit values (2 sites)
+
+### RODATA tables
+
+| Name | Size | Purpose |
+|------|------|---------|
+| cpu_pair_tbl | 9 | Table-driven CPU parse: (char3, char4, id) triples for `u` command |
+| cpu_mask_bits | 3 | Per-CPU-id bitmask for compile-time validation |
+
 ### Splash screen
 
 Displayed at startup by main.s.  Three memory summary lines show
