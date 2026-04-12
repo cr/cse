@@ -317,9 +317,10 @@ line-width enforcement is applied during loading — lines are
 stored as-is regardless of visual width.
 
 The load always succeeds and the file content is preserved
-verbatim.  Lines wider than 39 visual columns show the `>`
-overflow indicator in the editor; the user can scroll through
-the source and manually shorten them.
+verbatim.  After loading, the REPL scans the buffer and prints
+one `;!long LNN` warning per line exceeding 39 visual columns.
+The same scan runs after save.  Lines show the `>` overflow
+indicator in the editor.
 
 ### File I/O
 

@@ -414,10 +414,11 @@ If you really need a different value, rebuild with
 ### Loading files with long lines
 
 `ed_load_source` loads file content verbatim — no line splitting
-or width enforcement.  Lines wider than 39 visual columns show
-`>` in col 39 in the editor.  The user can scroll to them and
-manually shorten.  Save writes the buffer verbatim, preserving
-the original file structure.
+or width enforcement.  After load (and after save), the REPL
+scans the buffer and prints one `;!long LNN` warning per line
+exceeding 39 visual columns.  Lines show `>` in col 39 in the
+editor.  Save writes the buffer verbatim, preserving the
+original file structure.
 
 ### `i` — Memory map
 

@@ -52,7 +52,7 @@
         .export ed_save_source, ed_load_source
         .export ed_save_bytes, ed_save_lines, ed_total_lines
         .export ed_ensure_init, ed_new, ed_dirty
-        .export ed_load_split, ed_load_split_lines
+        .export ed_read_rewind, ed_read_byte
 
 ; ── Exports: meminfo stubs (cse_start/end/zp_end now in mem.s) ──
         .export src_top, src_bot
@@ -116,8 +116,6 @@ ed_save_bytes: .res 2
 ed_save_lines: .res 2
 ed_total_lines: .res 2
 ed_dirty:      .res 1
-ed_load_split: .res 1
-ed_load_split_lines: .res 16
 
 ; Assembler state
 asm_org:       .res 2
@@ -380,6 +378,16 @@ ed_ensure_init:
         rts
 
 ed_new:
+        rts
+
+; ed_read_rewind — no-op (no buffer in REPL test)
+ed_read_rewind:
+        rts
+
+; ed_read_byte — return EOF ($FF/$FF)
+ed_read_byte:
+        lda #$FF
+        tax
         rts
 
 ; (cse_start/cse_end/cse_zp_end now provided by mem.s)

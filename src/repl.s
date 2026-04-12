@@ -66,6 +66,7 @@
         .import ed_save_bytes, ed_save_lines
         .import ed_ensure_init, ed_new
         .import ed_dirty, ed_total_lines
+        .import ed_read_rewind, ed_read_byte
         .importzp buf_base
 
 ; ── Imports: memory info ───────────────────────────────────
@@ -164,6 +165,7 @@ str_s:          .byte " s:", 0
 str_lines:      .byte "l ", 0
 str_bytes:      .byte "b", 0
 str_bytes_sp:   .byte "b ", 0
+str_long:       .byte "long L", 0
 ; ── User-facing string style convention ──
 ;
 ; All user-visible strings emitted by CSE follow these rules:
@@ -2564,6 +2566,92 @@ VIC_MEMCTL = $D018
         jmp io_puts
 .endproc
 
+; ═══════════════════════════════════════════════════════════
+.ifndef TAB_WIDTH
+TAB_WIDTH = 8
+.endif
+TAB_MASK_WL = TAB_WIDTH - 1
+
+; warn_long_lines — print ";!long LNN" for each line > 39 vcols
+;
+; Walks the buffer via ed_read_byte, computing visual width per
+; line.  Prints one warning per overflowing line.  TAB_WIDTH is
+; hardcoded to match the build-time constant (default 8).
+; ═══════════════════════════════════════════════════════════
+.proc warn_long_lines
+        jsr ed_read_rewind
+        lda #0
+        sta @vcol
+        sta @line
+        sta @line+1
+
+@byte:  jsr ed_read_byte
+        cpx #$FF
+        beq @check_last         ; EOF
+
+        cmp #$0D
+        beq @eol
+
+        ; Compute visual width of byte
+        cmp #$A0                ; tab?
+        beq @tab
+        ; Non-tab: width = 1
+        inc @vcol
+        jmp @byte
+
+@tab:   ; width = TAB_WIDTH - (vcol & TAB_MASK)
+        lda @vcol
+        and #TAB_MASK_WL
+        sta @tw
+        lda #TAB_WIDTH
+        sec
+        sbc @tw                 ; A = tab expansion width
+        clc
+        adc @vcol
+        sta @vcol
+        jmp @byte
+
+@eol:   ; End of line — check if vcol > 39
+        jsr @check_vcol
+        ; Advance line counter, reset vcol
+        inc @line
+        bne :+
+        inc @line+1
+:       lda #0
+        sta @vcol
+        jmp @byte
+
+@check_last:
+        ; EOF — check the last line if it had any content
+        lda @vcol
+        beq @done
+        jsr @check_vcol
+@done:  rts
+
+@check_vcol:
+        lda @vcol
+        cmp #40                 ; > 39 ?
+        bcc @ok
+        ; Print ";!long LNN" (1-based line number)
+        ldy #LOG_WARN
+        jsr out_log_open
+        puts str_long
+        lda @line
+        clc
+        adc #1
+        sta rp_tmp
+        lda @line+1
+        adc #0
+        tax
+        lda rp_tmp
+        jsr io_putdec
+        jsr out_close
+@ok:    rts
+
+@vcol:  .byte 0
+@line:  .res 2
+@tw:    .byte 0
+.endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; io_err_load / io_err_save — emit ";?fail"
@@ -2666,6 +2754,7 @@ disk_done:
         jsr out_log_open
         jsr print_seq_stats
         jsr out_close
+        jsr warn_long_lines
         jmp @done
 
 @load_prg:
@@ -2806,6 +2895,7 @@ disk_done:
         jsr out_log_open
         jsr print_seq_stats
         jsr out_close
+        jsr warn_long_lines
         jmp @done
 
 @save_prg:
