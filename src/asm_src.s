@@ -732,13 +732,17 @@ _seg_print_save:
 @ret:   rts
 
 ; ── emit_bas ──────────────────────────────────────────────────────────────
-; Emit a BASIC SYS stub (and optional REM line) at asm_pc.
+; Emit a single-line BASIC SYS stub at asm_pc.
 ; _as_ptr points past ".bas" keyword.
-; Optional: ".bas "TEXT"" → REM line 0 + SYS line 1.
-; Without string: SYS line 1 only.
 ;
-; Uses _as_wsize, asm_tmp, expr_val as scratch.
-; _eb_idx = string length (0 if no REM).
+; Without string: `0 SYS NNNNN`
+; With string:    `0 SYS NNNNN:REM TEXT`
+;
+; Layout: link(2) + linenum 0(2) + SYS(1) + 5 digits
+;         + [':' + REM + string(len)] + NUL(1) + end(2)
+; Total:  13 bytes (no string) or 15 + len (with string).
+;
+; Uses asm_tmp/asm_tmp2 for SYS address, _eb_idx for string length.
 BASIC_SYS = $9E
 BASIC_REM = $8F
 
@@ -753,16 +757,15 @@ BASIC_REM = $8F
         lda (expr_ptr),y
         cmp #'"'
         bne @no_str
-        ; Count string length (between quotes)
         iny
 @slen:  lda (expr_ptr),y
-        beq @slen_done          ; NUL before closing quote → accept
+        beq @slen_done
         cmp #'"'
         beq @slen_done
         iny
         bne @slen
 @slen_done:
-        dey                     ; Y = length (excluding quotes)
+        dey
         sty _eb_idx
         inc expr_ptr            ; skip opening quote
         bne :+
@@ -770,115 +773,73 @@ BASIC_REM = $8F
 :
 @no_str:
         ; ── Compute SYS address ────────────────────────────────────────
-        ; Always 5 decimal digits (BASIC SYS ignores leading zeros).
-        ; SYS-only: stub = 13 bytes (8 + 5 digits).
-        ; REM+SYS:  stub = 19 + string_len bytes (14 + len + 5).
+        ; Always 5 digits.  No string: 13 bytes.  With string: 15 + len.
         lda _eb_idx
-        beq @sys_only
+        beq @no_rem
         clc
-        adc #19                 ; A = 19 + string_len
-        jmp @calc_addr
-@sys_only:
+        adc #15
+        bne @calc               ; always taken
+@no_rem:
         lda #13
-@calc_addr:
-        clc
+@calc:  clc
         adc asm_pc
-        sta expr_val
+        sta asm_tmp             ; SYS addr lo
         lda asm_pc+1
         adc #0
-        sta expr_val+1
-        ; Save SYS address in asm_tmp:asm_tmp2
-        lda expr_val
-        sta asm_tmp
-        lda expr_val+1
-        sta asm_tmp2
+        sta asm_tmp2            ; SYS addr hi
 
-        ; ── Emit REM line (if string present) ──────────────────────────
-        lda _eb_idx
-        beq @emit_sys
-
-        ; Link pointer → line 1 start = asm_pc + 6 + _eb_idx
-        ; (Must compute BEFORE emitting, since _emit_word advances asm_pc)
-        lda asm_pc
-        clc
-        adc _eb_idx
-        pha                     ; partial lo
-        lda asm_pc+1
-        adc #0
-        tax                     ; partial hi
-        pla
-        clc
-        adc #6                  ; link lo
-        bcc :+
-        inx                     ; propagate carry to hi
-:       jsr _emit_word          ; emit link pointer (A=lo, X=hi)
-
-        ; Line number 0
-        lda #0
-        ldx #0
-        jsr _emit_word
-
-        ; REM token
-        lda #BASIC_REM
-        jsr _emit_byte
-
-        ; String bytes (use _ib_idx as loop counter to avoid phy/ply)
-        lda #0
-        sta _ib_idx
-@rem_lp:
-        lda _ib_idx
-        cmp _eb_idx
-        beq @rem_done
-        tay
-        lda (expr_ptr),y
-        jsr _emit_byte
-        inc _ib_idx
-        bne @rem_lp             ; (always taken for len < 256)
-@rem_done:
-
-        ; Line terminator
-        lda #0
-        jsr _emit_byte
-
-@emit_sys:
-        ; ── Emit SYS line ─────────────────────────────────────────────
-
+        ; ── Emit single BASIC line ────────────────────────────────────
         ; Link → end marker = SYS_addr - 2
         lda asm_tmp
         sec
         sbc #2
-        pha                     ; link lo
+        pha
         lda asm_tmp2
         sbc #0
-        tax                     ; link hi
-        pla                     ; link lo
-        jsr _emit_word
+        tax
+        pla
+        jsr _emit_word          ; link pointer
 
-        ; Line number 1
-        lda #1
+        lda #0
         ldx #0
-        jsr _emit_word
+        jsr _emit_word          ; line number 0
 
-        ; SYS token
         lda #BASIC_SYS
-        jsr _emit_byte
+        jsr _emit_byte          ; SYS token
 
-        ; Decimal ASCII digits of SYS address
+        ; 5-digit decimal SYS address
         lda asm_tmp
         sta expr_val
         lda asm_tmp2
         sta expr_val+1
         jsr _emit_decimal
 
-        ; Line terminator
-        lda #0
+        ; Optional :REM string
+        lda _eb_idx
+        beq @no_tail
+        lda #':'
         jsr _emit_byte
+        lda #BASIC_REM
+        jsr _emit_byte
+        ; Copy string bytes
+        lda #0
+        sta _ib_idx
+@str:   lda _ib_idx
+        cmp _eb_idx
+        beq @no_tail
+        tay
+        lda (expr_ptr),y
+        jsr _emit_byte
+        inc _ib_idx
+        bne @str                ; always (len < 256)
+@no_tail:
 
-        ; End of BASIC program ($0000)
+        lda #0
+        jsr _emit_byte          ; NUL terminator
+
         lda #0
         ldx #0
-        jsr _emit_word
-
+        jsr _emit_word          ; end of BASIC ($0000)
         rts
 .endproc
 

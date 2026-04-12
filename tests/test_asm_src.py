@@ -339,10 +339,10 @@ MANUAL_TESTS = [
         # link → $080E - 2 = $080C.
         "expect_bytes": [
             0x0C, 0x08,             # link pointer → $080C
-            0x01, 0x00,             # line number 1
+            0x00, 0x00,             # line number 0
             0x9E,                   # SYS token
             0x30, 0x32, 0x30, 0x36, 0x32,  # "02062" (5 digits)
-            0x00,                   # line terminator
+            0x00,                   # NUL terminator
             0x00, 0x00,             # end of BASIC
             0xEA,                   # nop (user code starts at $080E)
         ],
@@ -352,23 +352,21 @@ MANUAL_TESTS = [
         "name": ".bas with REM",
         "source": '.org $0801\n.bas "HI"\n  nop',
         "expect_org": 0x0801,
-        # Always 5 digits.  Stub = 19 + 2 (len "HI") = 21 bytes.
-        # SYS address = $0801 + 21 = $0816 = 2070.
-        # REM link → line 1 = $0801 + 8 = $0809.
-        # SYS link → end marker = $0816 - 2 = $0814.
+        # Single-line: `0 SYS NNNNN:REM HI`
+        # Stub = 15 + 2 (len "HI") = 17 bytes.
+        # SYS address = $0801 + 17 = $0812 = 2066.
+        # Link → end marker = $0812 - 2 = $0810.
         "expect_bytes": [
-            0x09, 0x08,             # REM link → $0809
+            0x10, 0x08,             # link → $0810
             0x00, 0x00,             # line number 0
-            0x8F,                   # REM token
-            0x48, 0x49,             # "HI" (PETSCII uppercase H=$48, I=$49)
-            0x00,                   # line terminator
-            0x14, 0x08,             # SYS link → $0814
-            0x01, 0x00,             # line number 1
             0x9E,                   # SYS token
-            0x30, 0x32, 0x30, 0x37, 0x30,  # "02070" (5 digits)
-            0x00,                   # line terminator
+            0x30, 0x32, 0x30, 0x36, 0x36,  # "02066" (5 digits)
+            0x3A,                   # ':'
+            0x8F,                   # REM token
+            0x48, 0x49,             # "HI" (PETSCII H=$48, I=$49)
+            0x00,                   # NUL terminator
             0x00, 0x00,             # end of BASIC
-            0xEA,                   # nop (user code starts at $0816)
+            0xEA,                   # nop (user code starts at $0812)
         ],
         "expect_errors": 0,
     },
