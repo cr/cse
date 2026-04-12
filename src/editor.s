@@ -1478,10 +1478,10 @@ _ed_cur_row:
         beq @overflow           ; X wrapped 255→0
         jmp @advance
 @tab:
-        stx ed_tmp              ; save vcol
+        stx @vw_save            ; save vcol (NOT ed_tmp — char_width clobbers it)
         jsr char_width          ; A = tab width at current col
         clc
-        adc ed_tmp              ; A = new vcol
+        adc @vw_save            ; A = new vcol
         bcs @overflow
         tax                     ; X = new vcol
 @advance:
@@ -1495,6 +1495,7 @@ _ed_cur_row:
         txa
         rts
 
+@vw_save: .byte 0
 .endproc
 
 ; ── find_line_start — walk gap_lo back to the line start ──────
