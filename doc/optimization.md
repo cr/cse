@@ -1,0 +1,148 @@
+# Size Optimization Strategies
+
+Catalog of code-size reduction techniques applied in CSE.  Each entry
+shows the pattern, the saving, and an example from the codebase.
+
+## 1. Tail-call elimination
+
+Replace `jsr SUB; rts` with `jmp SUB`.  Saves 1 byte (the `rts`).
+
+```asm
+; before (4 bytes)                ; after (3 bytes)
+        jsr _bank_out_tmp                 jmp _bank_out_tmp
+        rts
+```
+
+Used in: `emit_error` → `_bank_out_tmp`, `_emit_word` → `_emit_byte`,
+`_emit_byte` → `inc_pc_size`.
+
+## 2. Extract shared inline sequences
+
+When the same instruction sequence appears 3+ times, extract it into
+a subroutine.  Break-even is 3 call sites (the `jsr` overhead = 3 bytes
+per site; the subroutine body + `rts` = original_size + 1).
+
+```asm
+; before: 8 bytes inline × 3 sites = 24 bytes
+        sei
+        lda $01
+        ora #$02
+        sta $01
+        cli
+
+; after: 14 bytes (subroutine) + 3 × 3 bytes (jsr) = 23 bytes
+_bank_in_tmp:
+        sei
+        lda $01
+        ora #$02
+        sta $01
+        cli
+        rts
+```
+
+Used in: `_bank_in_tmp`/`_bank_out_tmp` (3 call sites each).
+
+## 3. Downward loop with `dex; bpl`
+
+A loop counting from N-1 down to 0 costs 2 bytes (`dex; bpl @loop`).
+An upward loop costs 4 bytes (`inx; cpx #N; bne @loop`).  Saves 2
+bytes when the iteration order doesn't matter, or when the data table
+can be reversed.
+
+```asm
+; before (4 bytes)                ; after (2 bytes)
+        inx                               dex
+        cpx #5                            bpl @dgt
+        bne @dgt
+```
+
+Used in: `_emit_decimal` (power tables reversed to match downward index).
+
+## 4. Fixed-format output to avoid sizing logic
+
+When the consumer tolerates padding (leading zeros, fixed-width fields),
+emit a fixed number of bytes instead of computing the variable length.
+Eliminates the length-computation code entirely.
+
+```asm
+; before: _count_digits (30 B) + iteration loop (50 B) = 80 B
+; after: always emit 5 digits, stub size = constant.  0 B overhead.
+```
+
+BASIC `SYS 02062` works identically to `SYS 2062`.  By always emitting
+5 decimal digits, the SYS address becomes `asm_pc + constant` — no
+digit-count iteration, no `_count_digits` routine.
+
+Used in: `.bas` directive (`_emit_decimal` always 5 digits).
+
+## 5. Merge pass-check into existing register load
+
+When a function needs to check `_asm_pass` and also set up a register,
+combine them if the check result can serve double duty.
+
+```asm
+; before (5 bytes)                ; after (4 bytes)
+        pha                               ldy _asm_pass
+        lda _asm_pass                     beq @skip
+        beq @skip                         ldy #0
+        pla                               sta (asm_pc),y
+        ldy #0                    @skip:  jmp inc_pc_size
+        sta (asm_pc),y
+        jmp inc_pc_size
+@skip:  pla
+        jmp inc_pc_size
+```
+
+The `ldy _asm_pass` loads Y with the pass number.  If pass 0, Y is
+already 0 — but we branch past the store anyway.  If pass 1, we
+reload Y=0 for the indirect store.  Saves the `pha/pla` pair.
+
+Used in: `_emit_byte`.
+
+## 6. Streaming output instead of collect-then-print
+
+Print results inline as they are computed, instead of collecting into
+a table and iterating the table afterward.  Eliminates the table BSS,
+the iteration loop, and the index arithmetic.
+
+```
+; before: 40 B BSS table + 230 B print loop + 46 B state = 316 B
+; after:  7 B BSS state + ~150 B inline print at event sites = 157 B
+```
+
+Each `.org` prints its segment line immediately during pass 1.  No
+post-hoc table scan needed.
+
+Used in: per-segment assembly summary.
+
+## 7. Collapse multi-structure output into single structure
+
+When the output format allows combining distinct structures into one,
+do so to eliminate the overhead of structure headers and link pointers.
+
+```
+; before: 2 BASIC lines (REM + SYS) = 2 link pointers, 2 line numbers
+;         separate REM emission branch + SYS emission branch
+; after:  1 BASIC line (SYS:REM) = 1 link pointer, 1 line number
+;         straight-line emission with optional :REM tail
+```
+
+`0 SYS addr:REM text` is one BASIC line.  Eliminates the second link
+pointer computation, second line number, and the if/else branch for
+the REM-vs-SYS-only case.
+
+Used in: `.bas` directive (single-line `:REM`).
+
+## 8. Reuse ZP scratch across non-overlapping phases
+
+When two code paths never execute simultaneously, their ZP scratch
+bytes can share the same address.  The 6502's limited ZP is a
+scarce resource; overlapping non-concurrent uses maximizes it.
+
+```asm
+_as_wsize:  .res 1   ; word size in emit_data_bytes
+                      ; reused as scratch in .const, emit_align, etc.
+```
+
+Used in: `_as_wsize` (word size, digit counter, general scratch),
+`asm_tmp`/`asm_tmp2` (instruction scratch, SYS address, close address).
