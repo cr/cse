@@ -546,22 +546,20 @@ _emit_word:
 ; Always 5 digits (leading zeros OK for BASIC SYS).  Destroys expr_val.
 _emit_decimal:
         ldx #4
-@dgt:   lda #0
-        sta asm_tmp             ; digit counter
+@dgt:   ldy #$30                ; PETSCII '0'
 @sub:   lda expr_val
         sec
         sbc _dec_pow_lo,x
-        tay                     ; tentative lo
+        sta asm_tmp             ; tentative lo
         lda expr_val+1
         sbc _dec_pow_hi,x
         bcc @done               ; underflow → digit complete
         sta expr_val+1          ; commit hi
-        sty expr_val            ; commit lo
-        inc asm_tmp
-        bne @sub                ; always taken (digit < 10)
-@done:  lda asm_tmp
-        clc
-        adc #$30                ; → PETSCII '0'..'9'
+        lda asm_tmp
+        sta expr_val            ; commit lo
+        iny
+        bne @sub                ; always taken (digit <= 9)
+@done:  tya
         jsr _emit_byte
         dex
         bpl @dgt

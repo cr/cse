@@ -211,7 +211,28 @@ others to set up `expr_val` first or use inline code.
 The investment pays compound returns: each new directive or
 feature that emits bytes gets the pass-check for free.
 
-## 13. Reuse ZP scratch across non-overlapping phases
+## 13. Register as direct character accumulator
+
+When a loop produces a character from a counter (e.g. digit count
+→ `adc #$30` → PETSCII), use a register initialized to the base
+character code and increment it directly.  Eliminates the separate
+counter variable and the post-loop conversion.
+
+```asm
+; before (7 bytes init+convert)   ; after (2 bytes init, 0 convert)
+        lda #0                            ldy #$30       ; PETSCII '0'
+        sta asm_tmp               @sub:   ...subtract...
+@sub:   ...subtract...                    iny            ; Y = '0','1',...'9'
+        inc asm_tmp                       bne @sub
+        bne @sub                  @done:  tya            ; ready to emit
+@done:  lda asm_tmp
+        clc
+        adc #$30
+```
+
+Used in: `_emit_decimal` — Y counts from '0' through '9' directly.
+
+## 14. Reuse ZP scratch across non-overlapping phases
 
 When two code paths never execute simultaneously, their ZP scratch
 bytes can share the same address.  The 6502's limited ZP is a
