@@ -1534,6 +1534,16 @@ _ed_cur_row:
 @done:  rts
 .endproc
 
+; ── cursor_line_vwidth — visual width of the cursor's line ──────
+; Walks back to the line start (without moving the gap), then
+; calls line_vwidth from there.  Used by insert/tab cap checks.
+; Output: A = visual width (0..254) or $FF on overflow
+; Clobbers: A, X, Y, ed_scr, ed_tmp
+.proc cursor_line_vwidth
+        jsr find_line_start
+        jmp line_vwidth
+.endproc
+
 ; ── copy_leading_ws — copy leading whitespace from current line ─
 ; Output: Y = count of bytes copied into ws_buf
 ; Clobbers: A, X
@@ -1820,6 +1830,10 @@ _ed_cur_row:
         cmp #<BUF_END
         jcs @reject             ; past EOF
 @right_check:
+        ; Refuse if cursor is already at col 39 (screen edge)
+        lda ed_cur_col
+        cmp #SCREEN_WIDTH - 1
+        jcs @reject
         ldy #0
         lda (gap_hi),y
         cmp #$0D
@@ -1976,6 +1990,8 @@ _ed_cur_row:
         sta ed_cur_col
 
         ; Insert whitespace for auto-indent, tracking running vcol.
+        ; Truncate: stop before inserting a byte that would push
+        ; the new line's vcol past 38 (leave room for first char).
         ldx #0                  ; ws_buf index
         ldy #0                  ; running vcol
 @ws_loop:
@@ -1989,6 +2005,8 @@ _ed_cur_row:
         jsr char_width          ; A = width
         clc
         adc @ws_vcol            ; A = new vcol after insert
+        cmp #39                 ; would leave no room → truncate
+        bcs @ws_done
         sta @ws_vcol
         ldx @ws_x
         lda ws_buf,x
@@ -2033,6 +2051,17 @@ _ed_cur_row:
         ; ── TAB ($A0) — always enabled under TAB_WIDTH ──
         cmp #$A0
         bne @not_tab
+        ; Cap check: refuse if line_vwidth + char_width(TAB, line_vwidth) > 39.
+        jsr cursor_line_vwidth
+        tax
+        lda #$A0
+        jsr char_width
+        sta @new_col
+        txa
+        clc
+        adc @new_col
+        cmp #SCREEN_WIDTH       ; > 39 → refuse
+        bcs @reject
         ; Compute the new ed_cur_col: ed_cur_col + char_width(TAB, ed_cur_col).
         lda #$A0
         ldx ed_cur_col
@@ -2060,6 +2089,10 @@ _ed_cur_row:
         cmp #$DB
         bcs @repos_jmp          ; $DB+ → ignore
 @printable:
+        ; Refuse if the line is already at the 39-col cap.
+        jsr cursor_line_vwidth
+        cmp #SCREEN_WIDTH - 1   ; line_vwidth ≥ 39 → refuse
+        bcs @reject
         lda @key
         jsr gb_insert
         inc ed_cur_col

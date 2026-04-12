@@ -293,9 +293,11 @@ must treat $A0 as whitespace.
 
 ### Long lines and the overflow indicator
 
-Lines in the buffer may exceed 39 visual columns.  There is no
-hard cap on line width — the editor does not reject input, split
-lines, or truncate auto-indent based on visual width.
+Lines in the buffer may exceed 39 visual columns (e.g. from
+loaded files or backspace-join).  Interactive input (printable
+characters, tabs) is refused when it would push a line past 39
+visual columns.  Auto-indent on RETURN is truncated to keep room
+for the first typable character.  Cursor-right stops at col 39.
 
 **Rendering.**  The renderer clips at the screen edge (col 39).
 If a line has content beyond col 38, the renderer writes `>`

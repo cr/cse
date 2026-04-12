@@ -759,14 +759,20 @@ class TabGapBuffer(GapBuffer):
 
     def tab_insert(self):
         """C=+SPACE: insert $A0 tab byte, advance to next tab stop.
-        No width cap — lines may exceed 39 visual columns."""
+        Refused if the line's visual width would exceed 39."""
+        line_w = self.line_vwidth_current()
+        tab_w = self._char_width(TAB, line_w)
+        if line_w + tab_w > 39:
+            return  # would push line past 39 cols
         w = self._char_width(TAB, self.ed_cur_col)
         self.insert(TAB)
         self.ed_cur_col += w
 
     def printable_insert(self, ch):
         """Insert a printable byte at the cursor.
-        No width cap — lines may exceed 39 visual columns."""
+        Refused if the line is already at the 39-col cap."""
+        if self.line_vwidth_current() >= 39:
+            return  # would push line past 39 cols
         self.insert(ch)
         self.ed_cur_col += 1
 
@@ -829,13 +835,15 @@ class TabGapBuffer(GapBuffer):
 
     def tab_return(self):
         """RETURN with auto-indent: copy leading $20/$A0 from current
-        line.  No truncation — all leading whitespace is copied."""
+        line, truncated so the new line's ed_cur_col stays ≤ 38."""
         ws = self._copy_leading_ws()
         self.insert(CR)
         self.ed_cur_line += 1
         self.ed_cur_col = 0
         for ch in ws:
             w = self._char_width(ch, self.ed_cur_col)
+            if self.ed_cur_col + w > 38:
+                break
             self.insert(ch)
             self.ed_cur_col += w
 
@@ -1007,8 +1015,8 @@ class TestAutoIndent:
         assert gb.ed_cur_line == 1
         assert gb.ed_cur_col == 38
 
-    def test_indent_39_spaces_all_copied(self):
-        """Parent has 39 leading spaces — all 39 are copied (no truncation)."""
+    def test_indent_truncated_at_39(self):
+        """Parent has 39 leading spaces — truncated to 38 (leave room for a char)."""
         gb = TabGapBuffer()
         for _ in range(39):
             gb.insert(SP)
@@ -1016,7 +1024,7 @@ class TestAutoIndent:
         assert gb.ed_cur_col == 39
         gb.tab_return()
         assert gb.ed_cur_line == 1
-        assert gb.ed_cur_col == 39
+        assert gb.ed_cur_col == 38
 
     def test_indent_tab_cannot_fit(self):
         """Parent has 32 spaces + 1 TAB (expands 8 to col 40... wait
@@ -1191,12 +1199,12 @@ class TestTabCharacter:
         gb.tab_insert()
         assert gb.text() == bytes([TAB])
 
-    def test_tab_near_edge_allowed(self):
-        """$A0 at col 35, TAB_WIDTH=8: 35 + 5 = 40 — no cap, insert succeeds."""
+    def test_tab_near_edge_rejected(self):
+        """$A0 at col 35, TAB_WIDTH=8: 35 + 5 = 40 > 39 → rejected."""
         gb = _make_tab_buf(bytes([CH] * 35), cursor_col=35)
         gb.tab_insert()
-        assert gb.ed_cur_col == 40
-        assert TAB in gb.text()
+        assert gb.ed_cur_col == 35
+        assert TAB not in gb.text()
 
     def test_tab_lands_exactly_at_cap(self):
         """$A0 at col 31, TAB_WIDTH=8: 31 + (8 - 31%8) = 31 + 1 = 32 → ok."""
@@ -1206,13 +1214,13 @@ class TestTabCharacter:
 
     # ── Insert-in-middle cap (line_vwidth, not just ed_cur_col) ──────
 
-    def test_printable_in_middle_of_39_char_line_allowed(self):
-        """Cursor in the middle of a 39-char line: insert succeeds
-        (no cap enforcement, line becomes 40 chars)."""
+    def test_printable_in_middle_of_full_line_rejected(self):
+        """Cursor in the middle of a 39-char line: refused."""
         gb = _make_tab_buf(bytes([CH] * 39), cursor_col=10)
+        before = gb.text()
         gb.printable_insert(CH)
-        assert len(gb.text()) == 40
-        assert gb.ed_cur_col == 11
+        assert gb.text() == before
+        assert gb.ed_cur_col == 10
 
     def test_printable_in_middle_of_38_char_line_allowed(self):
         """Cursor in the middle of a 38-char line: insert succeeds."""
@@ -1222,19 +1230,20 @@ class TestTabCharacter:
         assert gb.ed_cur_col == 6
         assert gb.line_vwidth_current() == 39
 
-    def test_printable_at_end_of_39_char_line_allowed(self):
-        """Cursor at col 39 of a 39-char line: insert succeeds."""
+    def test_printable_at_end_of_full_line_rejected(self):
+        """Cursor at col 39 of a 39-char line: refused."""
         gb = _make_tab_buf(bytes([CH] * 39), cursor_col=39)
+        before = gb.text()
         gb.printable_insert(CH)
-        assert len(gb.text()) == 40
-        assert gb.ed_cur_col == 40
+        assert gb.text() == before
+        assert gb.ed_cur_col == 39
 
-    def test_tab_in_middle_of_36_char_line_allowed(self):
-        """Tab insert in middle of a 36-char line: succeeds (no cap)."""
+    def test_tab_in_middle_of_full_line_rejected(self):
+        """Tab in middle of 36-char line: line + tab width at end = 40 → refused."""
         gb = _make_tab_buf(bytes([CH] * 36), cursor_col=10)
+        before = gb.text()
         gb.tab_insert()
-        assert TAB in gb.text()
-        assert gb.ed_cur_col == 16  # 10 → next 8-boundary = 16
+        assert gb.text() == before
 
     def test_tab_in_middle_of_short_line_allowed(self):
         """Tab inserted in the middle of a short line where there's
