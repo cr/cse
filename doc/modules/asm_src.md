@@ -12,15 +12,23 @@
 
 ## Interface
 
-### _asm_assemble
+### asm_assemble
 **In:** A/X = default origin (used when source has no `.org`)
-**Out:** A/X = error count (uint16).  `_asm_org`, `_asm_size`, `_asm_errors` updated.
+**Out:** A/X = error count (uint16).  Exported state updated.
 **Clobbers:** all
 
-**Exported state (DATA):**
-- `_asm_org` (2B) — origin address after assembly
-- `_asm_size` (2B) — total bytes emitted
-- `_asm_errors` (2B) — error count (pass 1 only)
+**Exported state (BSS):**
+- `asm_org` (2B) — origin address of first segment
+- `asm_size` (2B) — total bytes emitted across all segments
+- `asm_errors` (2B) — error count (pass 1 only)
+
+**Assembly log (pass 1):** Prints segment lines inline during pass 1.
+Each `.org`/`.bas` closes the previous segment and opens a new line.
+On success, the final line is a ready-to-use `s` (save) command.
+
+Logging uses the repl logging API (`out_log_open`, `io_puthex4`,
+`io_putdec`, `out_close`) — asm_src prints directly, repl just
+calls `asm_assemble` and handles the error/success branch.
 
 ### _define_ws_syms
 **In:** none (reads `cse_end` and `buf_base`)

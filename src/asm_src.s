@@ -20,7 +20,7 @@
         .import         sym_define             ; symtab.s
         .import         sym_clear
         .import         kernal_bank_out, kernal_bank_in, kernal_out
-        .import         io_puts, io_putdec, newline
+        .import         io_puts, io_putc, io_putdec, io_puthex4, newline
         .import         out_log_open, out_close
         .import         define_ws_syms         ; mem.s
         .import         ed_read_line           ; editor.s
@@ -48,6 +48,12 @@ _as_conv:       .res 1          ; emit_string convert-to-screen-code flag
 _eb_idx:        .res 1          ; write index into _expr_buf
 _ib_idx:        .res 1          ; write index into _insn_buf
 
+; ── Segment logging state (7 bytes) ──────────────────────────────────────
+_seg_pc:        .res 2          ; start address of current segment
+_min_pc:        .res 2          ; global lowest origin
+_max_pc:        .res 2          ; global highest byte (inclusive)
+_seg_open:      .res 1          ; non-zero if a segment line is open
+
 ; ── RODATA ────────────────────────────────────────────────────────────────
 .segment "RODATA"
 s_err_sep:      .byte ": ", 0
@@ -56,6 +62,11 @@ s_exp_name:     .byte "exp name", 0
 s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp quote", 0
 s_bad_insn:     .byte "bad insn", 0
+s_seg_pfx:      .byte "seg  $", 0
+s_seg_dash:     .byte "-$", 0
+s_seg_b:        .byte "b", 0
+s_save_pfx:     .byte "s ", $22, "f", $22, ",08,$", 0
+s_save_mid:     .byte ",$", 0
 
 ; Decimal power tables for 16-bit → ASCII conversion (_emit_decimal)
 _dec_pow_lo:    .byte <10000, <1000, <100, <10, <1
@@ -82,10 +93,7 @@ LOG_ERR = '?'
         ; Bank KERNAL in for screen output (newline → io_sync
         ; needs KERNAL PLOT at $FFF0).  Direct $01 manipulation
         ; because kernal_out flag makes bank_in a no-op.
-:       lda $01
-        ora #$02
-        sta $01
-        cli
+:       jsr _bank_in_tmp
         ldy #LOG_ERR
         jsr out_log_open        ; ";?"
         lda _line_num
@@ -99,15 +107,27 @@ LOG_ERR = '?'
         pla                     ; msg lo
         jsr io_puts             ; error message
         jsr out_close           ; clear_eol
-        ; Bank KERNAL back out for the rest of the pass
+        jmp _bank_out_tmp       ; tail call (bank out + rts)
+@skip:  pla                     ; discard saved msg lo
+        rts
+.endproc
+
+; ── _bank_in_tmp / _bank_out_tmp ───────────────────────────────────────────
+; Temporarily bank KERNAL in (for screen I/O during an assembly pass)
+; or back out.  Used by emit_error and segment logging.
+_bank_in_tmp:
+        sei
+        lda $01
+        ora #$02
+        sta $01
+        cli
+        rts
+_bank_out_tmp:
         sei
         lda $01
         and #$FD
         sta $01
         rts
-@skip:  pla                     ; discard saved msg lo
-        rts
-.endproc
 
 ; ── skipws_ep ──────────────────────────────────────────────────────────────
 ; Advance expr_ptr past whitespace ($20/$A0).  A = first non-ws char on return.
@@ -571,6 +591,159 @@ _emit_word:
         rts
 .endproc
 
+; ── Segment logging (inline, streaming) ───────────────────────────────────
+; Print segment info during pass 1 as .org directives are encountered.
+; Temporarily banks KERNAL in for screen output (same pattern as emit_error).
+;
+; _seg_log_close — close current segment: print "-$AAAA  NNNb", update _max_pc.
+;   Suppresses output if segment is empty (0 bytes).
+_seg_log_close:
+        ; Skip if no open segment
+        lda _seg_open
+        beq @ret
+        ; Compute close addr = asm_pc - 1
+        lda asm_pc
+        sec
+        sbc #1
+        sta asm_tmp             ; close_lo
+        lda asm_pc+1
+        sbc #0
+        sta asm_tmp2            ; close_hi
+        ; Check empty: close < start → 0 bytes, suppress
+        lda asm_tmp2
+        cmp _seg_pc+1
+        bcc @empty
+        bne @print
+        lda asm_tmp
+        cmp _seg_pc
+        bcc @empty
+@print:
+        ; Update _max_pc
+        lda asm_tmp2
+        cmp _max_pc+1
+        bcc @no_max
+        bne @set_max
+        lda asm_tmp
+        cmp _max_pc
+        bcc @no_max
+@set_max:
+        lda asm_tmp
+        sta _max_pc
+        lda asm_tmp2
+        sta _max_pc+1
+@no_max:
+        jsr _bank_in_tmp
+        ; Print "-$AAAA"
+        lda #<s_seg_dash
+        ldx #>s_seg_dash
+        jsr io_puts
+        lda asm_tmp
+        ldx asm_tmp2
+        jsr io_puthex4
+        ; Print "  NNNb" — compute size = asm_pc - _seg_pc
+        lda #' '
+        jsr io_putc
+        lda #' '
+        jsr io_putc
+        lda asm_pc
+        sec
+        sbc _seg_pc
+        pha
+        lda asm_pc+1
+        sbc _seg_pc+1
+        tax
+        pla
+        jsr io_putdec
+        lda #<s_seg_b
+        ldx #>s_seg_b
+        jsr io_puts
+        jsr out_close
+        jsr _bank_out_tmp
+@empty:
+        lda #0
+        sta _seg_open
+@ret:   rts
+
+; _seg_log_open — open a new segment: print "; seg  $AAAA" prefix.
+;   asm_pc must already be set to the new origin.
+;   Updates _min_pc.  Pass 1 only.
+_seg_log_open:
+        lda _asm_pass
+        beq @p0
+        jsr _bank_in_tmp
+        ; Print "; seg  $AAAA"
+        ldy #' '                ; LOG_INFO
+        jsr out_log_open
+        lda #<s_seg_pfx
+        ldx #>s_seg_pfx
+        jsr io_puts
+        lda asm_pc
+        ldx asm_pc+1
+        jsr io_puthex4
+        jsr _bank_out_tmp
+@p0:
+        ; Track state (both passes)
+        lda asm_pc
+        sta _seg_pc
+        lda asm_pc+1
+        sta _seg_pc+1
+        ; Update _min_pc
+        lda asm_pc+1
+        cmp _min_pc+1
+        bcc @new_min
+        bne @done
+        lda asm_pc
+        cmp _min_pc
+        bcs @done
+@new_min:
+        lda asm_pc
+        sta _min_pc
+        lda asm_pc+1
+        sta _min_pc+1
+@done:  lda #1
+        sta _seg_open
+        rts
+
+; _seg_init — reset segment logging state.
+_seg_init:
+        lda #0
+        sta _seg_open
+        sta _max_pc
+        sta _max_pc+1
+        lda #$FF
+        sta _min_pc
+        sta _min_pc+1
+        rts
+
+; _seg_print_save — print save command: "; s "f",08,$AAAA,$BBBB"
+;   Uses _min_pc and _max_pc+1.
+_seg_print_save:
+        lda _seg_open
+        bne @ret                ; shouldn't happen, but safety
+        ldy #' '
+        jsr out_log_open
+        lda #<s_save_pfx
+        ldx #>s_save_pfx
+        jsr io_puts
+        lda _min_pc
+        ldx _min_pc+1
+        jsr io_puthex4
+        lda #<s_save_mid
+        ldx #>s_save_mid
+        jsr io_puts
+        ; _max_pc + 1 (half-open)
+        lda _max_pc
+        clc
+        adc #1
+        pha
+        lda _max_pc+1
+        adc #0
+        tax
+        pla
+        jsr io_puthex4
+        jsr out_close
+@ret:   rts
+
 ; ── emit_bas ──────────────────────────────────────────────────────────────
 ; Emit a BASIC SYS stub (and optional REM line) at asm_pc.
 ; _as_ptr points past ".bas" keyword.
@@ -815,6 +988,13 @@ BASIC_REM = $8F
         lda (_as_ptr),y
         cmp #'s'
         bne @nb_unk
+        ; .bas is an implicit .org $0801
+        jsr _seg_log_close      ; close previous segment
+        lda #$01
+        sta asm_pc
+        lda #$08
+        sta asm_pc+1
+        jsr _seg_log_open       ; open .bas segment at $0801
         jsr emit_bas
         clc
         rts
@@ -938,7 +1118,9 @@ BASIC_REM = $8F
         clc
         rts
 @dw:    cmp #'w'
-        bne @unk
+        beq :+
+        jmp @unk
+:
         ; .dw
         lda #2
         sta _as_wsize
@@ -961,7 +1143,10 @@ BASIC_REM = $8F
         jsr emit_error
         clc
         rts
-:       lda expr_val
+:       ; Close previous segment (uses old asm_pc)
+        jsr _seg_log_close
+        ; Set new origin
+        lda expr_val
         sta asm_pc
         lda expr_val+1
         sta asm_pc+1
@@ -972,6 +1157,8 @@ BASIC_REM = $8F
         lda expr_val+1
         sta asm_org+1
 @org_done:
+        ; Open new segment (uses new asm_pc)
+        jsr _seg_log_open
         clc
         rts
 @nr:    cmp #'r'
@@ -1368,6 +1555,7 @@ BASIC_REM = $8F
         sta asm_size
         sta asm_size+1
         sta _scope_name
+        jsr _seg_init           ; reset segment logging state
         ; Clear symbol table (heap at fixed $E600 under KERNAL)
         jsr sym_clear
         jsr define_ws_syms     ; pre-define workstart/workend
@@ -1387,6 +1575,7 @@ BASIC_REM = $8F
         ; Pass 0: collect labels/constants
         lda #0
         sta _asm_pass
+        jsr _seg_log_open       ; open default segment at asm_pc
         jsr do_pass
         ; Pass 1: emit code
         lda #1
@@ -1395,13 +1584,22 @@ BASIC_REM = $8F
         sta asm_size
         sta asm_size+1
         sta _scope_name
+        jsr _seg_log_open       ; re-open default segment for pass 1 logging
         jsr do_pass
+        ; Close final segment
+        jsr _seg_log_close
 
         ; Bank in KERNAL — clear flag FIRST so the bank_in actually fires.
         lda #0
         sta kernal_out
         jsr kernal_bank_in
 
+        ; Print save command on success
+        lda asm_errors
+        ora asm_errors+1
+        bne @no_save
+        jsr _seg_print_save
+@no_save:
         lda asm_errors
         ldx asm_errors+1
         rts
