@@ -384,7 +384,7 @@ blocked by cross-module calls.  No code change.
 
 | Buffer A | Size | Buffer B | Size | Saving | Constraint |
 |----------|------|----------|------|--------|------------|
-| asm_src `_line_buf` | 80 | repl `line_buf` | 42 | 42 | Assembler doesn't run from REPL line buffer |
+| asm_src `_line_buf` | 40 | repl `line_buf` | 42 | 40 | Assembler doesn't run from REPL line buffer |
 | asm_src `_full_label` | 48 | editor `ws_buf` | 39 | 39 | Editor not active during assembly |
 | dasm `_dasm_buf` | 24 | repl `dot_asm_buf` | 24 | 24 | Disasm output consumed before `.` command |
 | **Total BSS reclaimable** | | | | **~105 B** | |

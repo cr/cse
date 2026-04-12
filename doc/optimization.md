@@ -535,7 +535,7 @@ avoids conflicts.
 Used in: `editor.s` — `ed_status` filename loop (eliminated
 `@fn_idx` BSS byte, `pha`/`pla` pair, and `jmp` → `bne`);
 `visual_col` (X as vcol counter, eliminated `@vcol_save`);
-`copy_ws_prefix` (X as counter, eliminated `@save_y`);
+`copy_leading_ws` (X as counter, eliminated `@save_y`);
 `line_vwidth` (reuse `char_width` helper, eliminated `@w_save`).
 
 ## 26. Consolidate exit trampolines within a proc

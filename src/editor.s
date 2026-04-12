@@ -597,10 +597,10 @@ _ed_cur_row:
 ; ── char_width — visual width of a byte at given column ───────
 ; Input: A = byte, X = vcol
 ; Output: A = width (1 for normal, 1..TAB_WIDTH for tab)
+; Clobbers: A, ed_tmp (tab case uses ed_tmp as scratch)
 ;
-; For power-of-two TAB_WIDTH (including the default 8), this is
-; branch-free after the $A0 check.  col_mod_tw no longer exists —
-; modulo collapses to `txa; and #TAB_MASK`.
+; CAVEAT: callers must NOT save state in ed_tmp before calling
+; char_width — the tab path clobbers it.
 .proc char_width
         cmp #$A0
         bne @one

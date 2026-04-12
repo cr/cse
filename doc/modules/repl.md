@@ -355,6 +355,11 @@ restores the VIC charset register (`$D018 |= $02`) and calls
 corruption caused by user code modifying cursor state or VIC
 registers.
 
+**`warn_long_lines`** — scans the buffer via `ed_read_byte`,
+computing visual width per line (including tab expansion).
+Prints `;!long LNN` for each line exceeding 39 visual columns.
+Called after successful SEQ load and after successful SEQ save.
+
 Several local helpers factor out repeated compound operations
 (expression evaluation with address copy, block-size defaults,
 breakpoint log formatting, color display).  The `u` (cpu) command

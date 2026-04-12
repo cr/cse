@@ -22,7 +22,7 @@ in A or A/X; multi-arg via named ZP variables).
 - `ed_save_source(name)` — save source as SEQ file; A=0 on success
 - `ed_load_source(name)` — load SEQ file into buffer; A=0 on success
 - `ed_read_rewind()` — reset sequential reader to start of source
-- `ed_read_line(buf, maxlen)` — read next line into buf; A/X = length or $FFFF at EOF
+- `ed_read_line(buf)` — read next line into buf (maxlen=40 hardcoded); A/X = length or $FFFF at EOF
 - `ed_read_byte()` — read next byte from source; A/X = byte or $FFFF at EOF
 - `ed_insert_string(text)` — programmatic text insertion at cursor
 
@@ -94,19 +94,20 @@ Internal functions use register/ZP arguments directly — no parameter stack.
 |----------|------|---------|-------|
 | `ed_init` | — | — | reset all state |
 | `gb_ensure_room` | — | C=0 fail, C=1 ok | grow buffer if gap exhausted |
-| `gb_insert` | A = byte | — | insert at gap_lo |
+| `gb_insert` | A = byte | C=1 ok, C=0 full | insert at gap_lo |
 | `gb_backspace` | — | — | delete before gap_lo |
 | `gb_cursor_right` | — | — | move gap right |
 | `gb_cursor_left` | — | — | move gap left |
 | `gb_home` | — | — | move to start of line |
-| `skip_one_line` | ptr in A/X | result in A/X | advance past one line |
-| `prev_line_start` | ptr in A/X | result in A/X | retreat to previous line |
+| `skip_one_line` | ed_scr | ed_scr (advanced) | advance ed_scr past one line |
+| `prev_line_start` | ed_scr | ed_scr (retreated) | retreat ed_scr to previous line start |
 | `visual_col` | — | A = column | recompute cursor column (0..254) |
 | `line_vwidth` | ed_scr = line-start ptr | A = width | total visual width of the line starting at ed_scr, stopping at CR/EOF; returns 0..254 normal or `$FF` overflow sentinel.  Used by the renderer to detect lines wider than 39 columns (for the `>` overflow indicator). |
-| `char_width` | A = byte, X = vcol | A = width | tab-aware; uses `TAB_WIDTH` |
+| `cursor_line_vwidth` | — | A = width | walks back to line start, calls `line_vwidth`; used by insert/tab cap checks |
+| `char_width` | A = byte, X = vcol | A = width | tab-aware; uses `TAB_WIDTH`. **Clobbers `ed_tmp`** |
 | `advance_to_vcol` | A = target col | — | cursor right toward target column, stopping at EOL or when next char would overshoot |
 | `copy_leading_ws` | — | Y = count | auto-indent helper; copies leading $20/$A0 bytes into `ws_buf` |
-| `load_insert` | A = byte | — | ed_load_source callback: inserts byte into gap buffer via `gb_insert`; tracks line count; no width enforcement |
+| `load_insert` | A = byte | — | ed_load_source callback: inserts byte via `gb_insert`; no width enforcement |
 
 ## Design
 
