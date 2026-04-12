@@ -1435,10 +1435,10 @@ _ed_cur_row:
         inx
         jmp @fwd_advance
 @fwd_tab:
-        stx ed_tmp              ; save vcol
+        stx @vc_save            ; save vcol (NOT ed_tmp — char_width clobbers it)
         jsr char_width          ; A = width for tab
         clc
-        adc ed_tmp
+        adc @vc_save
         tax
 @fwd_advance:
         inc ed_scr
@@ -1448,6 +1448,8 @@ _ed_cur_row:
 @done:
         txa
         rts
+
+@vc_save: .byte 0
 .endproc
 
 ; ── line_vwidth — visual width of a line ───────────────────────
