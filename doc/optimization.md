@@ -369,31 +369,16 @@ Used in: Phase 13 audit — 5 of 8 branch-inversion candidates were
 feasible; 0 of 16 downward-loop candidates were profitable
 (all used registers as array indices).
 
-## 19. Y=$FF indexed-indirect for adjacent byte read
+## 19. ~~Y=$FF indexed-indirect for adjacent byte read~~ INVALID
 
-When reading the byte immediately before a pointer's target,
-use `dey` (with Y=0) to get Y=$FF.  `(ptr),y` with Y=$FF reads
-the byte at `ptr - 1` (wrapping within the 256-byte page).
-Replaces a 16-bit pointer decrement (5-7 bytes) with 1 byte.
+**This strategy is wrong.**  `(zp),Y` adds Y as an **unsigned**
+offset to the full 16-bit address at `zp`.  With Y=$FF, the
+effective address is `ptr + 255`, not `ptr - 1`.  There is no
+way to use `(zp),Y` to read backward.
 
-```asm
-; before (7 bytes): manual 16-bit decrement
-        lda rp_tmp
-        bne :+
-        dec rp_tmp+1
-:       dec rp_tmp
-        lda (rp_tmp),y
-
-; after (2 bytes): Y=$FF wrap-around
-        dey                     ; Y = $FF
-        lda (rp_tmp),y
-```
-
-Only valid when the data is contiguous and the previous byte is
-within the same page (or the page-cross is acceptable).
-
-Used in: `puts_imm` — reading the inline string address that
-precedes the return address.
+This was applied to `puts_imm` and caused the splash screen
+(and all `puts` macro calls) to read garbage for the string
+low byte.  Reverted to an explicit 16-bit decrement.
 
 ## 20. Stack replaces BSS for cross-call temporaries
 
