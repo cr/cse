@@ -202,10 +202,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         dey
         lda fl_buf,y
         cmp #$0D
-        bne @no_strip
-        ; Y already decremented past the CR
-        jmp @term
-@no_strip:
+        beq @term
         iny                     ; undo the dey
 @term:
         ; NUL-terminate
@@ -709,9 +706,7 @@ floppy_status:
         ; EOF check (bit 6)
         lda eof_flag
         and #$40
-        bne @ok
-
-        jmp @read
+        beq @read
 
 @ok:
         jsr CLRCHN

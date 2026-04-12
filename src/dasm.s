@@ -943,9 +943,7 @@ _dasm_aaa:
         lda asm_cpu
 .ifdef CMOS_SUPPORT
         cmp #2
-        bne @not_tsb3
-        jmp @tsb_abs
-@not_tsb3:
+        beq @tsb_abs
 .endif
         cmp #1
         bne @b3_unk
@@ -981,9 +979,7 @@ _dasm_aaa:
         lda asm_cpu
 .ifdef CMOS_SUPPORT
         cmp #2
-        bne @not_b57c
-        jmp @b57_cmos
-@not_b57c:
+        beq @b57_cmos
 .endif
         cmp #1
         beq @b57_nmos
