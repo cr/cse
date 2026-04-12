@@ -171,6 +171,20 @@ _ex_merge_wide:
         sta expr_wide
 :       rts
 
+; _ex_op_setup — common binary operator preamble
+;   Advances past operator char(s), skips whitespace, saves wide flag.
+;   Caller must still push expr_val (pha/pha) after return.
+;   Call sites: jsr _ex_op_setup  (single-char operator)
+;              jsr _ex_op_setup_2adv  (two-char operator like << >>)
+_ex_op_setup_2adv:
+        jsr _ex_adv_ptr
+_ex_op_setup:
+        jsr _ex_adv_ptr
+        jsr skip_sp
+        lda expr_wide
+        sta _ex_wide_tmp
+        rts
+
 ; ═══════════════════════════════════════════════════════════
 ; parse_expr — bool_term (('&' | '£' | '^') bool_term)*
 ; ═══════════════════════════════════════════════════════════
@@ -189,10 +203,7 @@ _ex_merge_wide:
         clc
 @done:  rts
 
-@and:   jsr _ex_adv_ptr
-        jsr skip_sp
-        lda expr_wide
-        sta _ex_wide_tmp
+@and:   jsr _ex_op_setup
         lda expr_val+1
         pha
         lda expr_val
@@ -208,10 +219,7 @@ _ex_merge_wide:
         jsr @merge_wide
         jmp @op
 
-@or:    jsr _ex_adv_ptr
-        jsr skip_sp
-        lda expr_wide
-        sta _ex_wide_tmp
+@or:    jsr _ex_op_setup
         lda expr_val+1
         pha
         lda expr_val
@@ -227,10 +235,7 @@ _ex_merge_wide:
         jsr @merge_wide
         jmp @op
 
-@xor:   jsr _ex_adv_ptr
-        jsr skip_sp
-        lda expr_wide
-        sta _ex_wide_tmp
+@xor:   jsr _ex_op_setup
         lda expr_val+1
         pha
         lda expr_val
@@ -268,10 +273,7 @@ _ex_merge_wide:
         clc
 @done:  rts
 
-@add:   jsr _ex_adv_ptr
-        jsr skip_sp
-        lda expr_wide
-        sta _ex_wide_tmp
+@add:   jsr _ex_op_setup
         lda expr_val+1
         pha
         lda expr_val
@@ -289,10 +291,7 @@ _ex_merge_wide:
         jsr @merge_wide
         jmp @op
 
-@sub:   jsr _ex_adv_ptr
-        jsr skip_sp
-        lda expr_wide
-        sta _ex_wide_tmp
+@sub:   jsr _ex_op_setup
         lda expr_val+1
         pha
         lda expr_val
@@ -353,10 +352,7 @@ _ex_merge_wide:
 @done:  rts
 
 ; ── multiply ──────────────────────────────────────────
-@mul:   jsr _ex_adv_ptr
-        jsr skip_sp
-        lda expr_wide
-        sta _ex_wide_tmp
+@mul:   jsr _ex_op_setup
         lda expr_val+1
         pha
         lda expr_val
@@ -374,10 +370,7 @@ _ex_merge_wide:
         jmp @op
 
 ; ── divide ────────────────────────────────────────────
-@div:   jsr _ex_adv_ptr
-        jsr skip_sp
-        lda expr_wide
-        sta _ex_wide_tmp
+@div:   jsr _ex_op_setup
         lda expr_val+1
         pha
         lda expr_val
@@ -407,11 +400,7 @@ _ex_merge_wide:
         rts
 
 ; ── shift left ────────────────────────────────────────
-@shl:   jsr _ex_adv_ptr                 ; skip first <
-        jsr _ex_adv_ptr                 ; skip second <
-        jsr skip_sp
-        lda expr_wide
-        sta _ex_wide_tmp
+@shl:   jsr _ex_op_setup_2adv           ; skip << + save
         lda expr_val+1
         pha
         lda expr_val
@@ -439,11 +428,7 @@ _ex_merge_wide:
         jmp @op
 
 ; ── shift right ───────────────────────────────────────
-@shr:   jsr _ex_adv_ptr
-        jsr _ex_adv_ptr
-        jsr skip_sp
-        lda expr_wide
-        sta _ex_wide_tmp
+@shr:   jsr _ex_op_setup_2adv           ; skip >> + save
         lda expr_val+1
         pha
         lda expr_val
