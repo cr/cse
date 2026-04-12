@@ -118,6 +118,42 @@ s_workend:      .byte "workend", 0
 ; ── CODE ─────────────────────────────────────────────────────
 .segment "CODE"
 
+; ── Shared internal helpers ──────────────────────────────────
+
+; _ed_scr_row — set ed_scr = screen address for row X
+_ed_scr_row:
+        lda scr_lo,x
+        sta ed_scr
+        lda scr_hi,x
+        sta ed_scr+1
+        rts
+
+; _ed_scr_top — set ed_scr = ed_top_ptr
+_ed_scr_top:
+        jsr _ed_scr_top
+        rts
+
+; _ed_scr_ghi — set ed_scr = gap_hi
+_ed_scr_ghi:
+        lda gap_hi
+        sta ed_scr
+        lda gap_hi+1
+        sta ed_scr+1
+        rts
+
+; _ed_scr_glo — set ed_scr = gap_lo
+_ed_scr_glo:
+        lda gap_lo
+        sta ed_scr
+        lda gap_lo+1
+        sta ed_scr+1
+        rts
+
+; _ed_cur_row — A = ed_cur_line - ed_top_line (screen row)
+_ed_cur_row:
+        jsr _ed_cur_row
+        rts
+
 ; ── Gap buffer core + sequential reader ──────────────────────
 
 ; ── ed_init — reset all buffer state ──────────────────────────
@@ -590,10 +626,7 @@ s_workend:      .byte "workend", 0
         lda ed_scr+1
         cmp gap_lo+1
         bne @done
-        lda gap_hi
-        sta ed_scr
-        lda gap_hi+1
-        sta ed_scr+1
+        jsr _ed_scr_ghi
 @done:  rts
 .endproc
 
@@ -637,10 +670,7 @@ s_workend:      .byte "workend", 0
         lda ed_scr+1
         cmp gap_lo+1
         bne @no_gap
-        lda gap_hi
-        sta ed_scr
-        lda gap_hi+1
-        sta ed_scr+1
+        jsr _ed_scr_ghi
 @no_gap:
         ; inline buf_end check (BUF_END = __CODE_RUN__, lo=0 → hi-only is sufficient)
         lda ed_scr+1
@@ -737,10 +767,7 @@ s_workend:      .byte "workend", 0
         lda ed_scr+1
         cmp gap_lo+1
         bne @no_gap2
-        lda gap_hi
-        sta ed_scr
-        lda gap_hi+1
-        sta ed_scr+1
+        jsr _ed_scr_ghi
 @no_gap2:
         ; inline buf_end check — return 1 if more text, 0 if EOF
         lda ed_scr+1
@@ -772,10 +799,7 @@ s_workend:      .byte "workend", 0
         lda ed_scr+1
         cmp gap_lo+1
         bne @read
-        lda gap_hi
-        sta ed_scr
-        lda gap_hi+1
-        sta ed_scr+1
+        jsr _ed_scr_ghi
         ; re-check after gap skip
         lda ed_scr+1
         cmp #>BUF_END
@@ -801,10 +825,7 @@ s_workend:      .byte "workend", 0
         lda ed_scr+1
         cmp gap_hi+1
         bne @not_gap1
-        lda gap_lo
-        sta ed_scr
-        lda gap_lo+1
-        sta ed_scr+1
+        jsr _ed_scr_glo
 @not_gap1:
         ; If ed_scr <= buf_base → return buf_base
         lda ed_scr+1
@@ -828,10 +849,7 @@ s_workend:      .byte "workend", 0
         lda ed_scr+1
         cmp gap_hi+1
         bne @scan_back
-        lda gap_lo
-        sta ed_scr
-        lda gap_lo+1
-        sta ed_scr+1
+        jsr _ed_scr_glo
 @scan_back:
         ; Scan backwards to previous $0D or buf_base
 @bloop:
@@ -970,10 +988,7 @@ s_workend:      .byte "workend", 0
 .proc ed_status_pos
         ; Screen pointer to status row
         ldx #ED_STATUS
-        lda scr_lo,x
-        sta ed_scr
-        lda scr_hi,x
-        sta ed_scr+1
+        jsr _ed_scr_row
 
         ; Column: 2 digits (1-based)
         lda ed_cur_col
@@ -1058,10 +1073,7 @@ s_workend:      .byte "workend", 0
 ; ── ed_status_dirty — update dirty flag (col 0) ──────────────
 .proc ed_status_dirty
         ldx #ED_STATUS
-        lda scr_lo,x
-        sta ed_scr
-        lda scr_hi,x
-        sta ed_scr+1
+        jsr _ed_scr_row
         lda ed_dirty
         beq @clean
         lda #($2A | $80)        ; '*' reversed
@@ -1097,10 +1109,7 @@ s_workend:      .byte "workend", 0
 .proc ed_render_status
         ; Get screen pointer to status row
         ldx #ED_STATUS
-        lda scr_lo,x
-        sta ed_scr
-        lda scr_hi,x
-        sta ed_scr+1
+        jsr _ed_scr_row
 
         ; Fill with reversed spaces
         lda #$A0
@@ -1234,10 +1243,7 @@ s_workend:      .byte "workend", 0
         sty @to
 
         ; Start ed_scr at ed_top_ptr
-        lda ed_top_ptr
-        sta ed_scr
-        lda ed_top_ptr+1
-        sta ed_scr+1
+        jsr _ed_scr_top
 
         ; Advance to from_row by skipping lines
         ldx #0
@@ -1307,10 +1313,7 @@ s_workend:      .byte "workend", 0
 ; ── ed_scroll_up — scroll screen up, render new bottom line ───
 .proc ed_scroll_up
         ; Advance ed_top_ptr by one line
-        lda ed_top_ptr
-        sta ed_scr
-        lda ed_top_ptr+1
-        sta ed_scr+1
+        jsr _ed_scr_top
         jsr skip_one_line
         lda ed_scr
         sta ed_top_ptr
@@ -1325,11 +1328,7 @@ s_workend:      .byte "workend", 0
         ; Row-by-row ascending copy: at iter k, dst = row k, src = row k+1.
         ; Safe because src row and dst row never overlap.
         ldx #0                  ; X = dst row; src row = X + 1
-@row:
-        lda scr_lo,x
-        sta ed_scr
-        lda scr_hi,x
-        sta ed_scr+1
+@row:   jsr _ed_scr_row
         inx                     ; X = src row
         lda scr_lo,x
         sta save_ptr
@@ -1345,10 +1344,7 @@ s_workend:      .byte "workend", 0
 
         ; Render the new bottom line (row 21)
         ; Find position: advance from ed_top_ptr by 21 lines
-        lda ed_top_ptr
-        sta ed_scr
-        lda ed_top_ptr+1
-        sta ed_scr+1
+        jsr _ed_scr_top
         ldx #0
 @skip:  cpx #ED_LINES - 1      ; skip 21 lines
         bcs @got_pos
@@ -1382,10 +1378,7 @@ s_workend:      .byte "workend", 0
 ; ── ed_scroll_down — scroll screen down, render new top line ──
 .proc ed_scroll_down
         ; Retreat ed_top_ptr by one line
-        lda ed_top_ptr
-        sta ed_scr
-        lda ed_top_ptr+1
-        sta ed_scr+1
+        jsr _ed_scr_top
         jsr prev_line_start
         lda ed_scr
         sta ed_top_ptr
@@ -1401,11 +1394,7 @@ s_workend:      .byte "workend", 0
         ; Row-by-row descending copy so each src row is read before it
         ; gets overwritten by the row being shifted into it.
         ldx #ED_LINES - 1       ; X = dst row (21); src row = X - 1
-@row:
-        lda scr_lo,x
-        sta ed_scr
-        lda scr_hi,x
-        sta ed_scr+1
+@row:   jsr _ed_scr_row
         dex                     ; X = src row
         lda scr_lo,x
         sta save_ptr
@@ -1420,10 +1409,7 @@ s_workend:      .byte "workend", 0
         bne @row
 
         ; Render the new top line (row 0)
-        lda ed_top_ptr
-        sta ed_scr
-        lda ed_top_ptr+1
-        sta ed_scr+1
+        jsr _ed_scr_top
         jsr skip_gap_scr
         jsr check_buf_end
         bcc @render_top
@@ -1516,10 +1502,7 @@ s_workend:      .byte "workend", 0
         lda ed_scr+1
         cmp gap_lo+1
         bne @check_end
-        lda gap_hi
-        sta ed_scr
-        lda gap_hi+1
-        sta ed_scr+1
+        jsr _ed_scr_ghi
 @check_end:
         ; Check buf_end (BUF_END = __CODE_RUN__)
         lda ed_scr+1
@@ -1570,10 +1553,7 @@ s_workend:      .byte "workend", 0
 ; and copy_leading_ws.
 ; Clobbers: A, Y, ed_tmp.  Preserves X.
 .proc find_line_start
-        lda gap_lo
-        sta ed_scr
-        lda gap_lo+1
-        sta ed_scr+1
+        jsr _ed_scr_glo
 @back:
         lda ed_scr+1
         cmp buf_base+1
@@ -1851,9 +1831,7 @@ s_workend:      .byte "workend", 0
 ; through to ed_mark_edited.
 ; Clobbers: A, X, Y.
 .proc render_current_row
-        lda ed_cur_line
-        sec
-        sbc ed_top_line
+        jsr _ed_cur_row
         tax                     ; from_row
         inx                     ; to = from + 1
         txa
@@ -1939,9 +1917,7 @@ s_workend:      .byte "workend", 0
         jsr ed_cursor_down
         jcc @reject             ; no-op → bottom of buffer
         ; if ed_cur_line >= ed_top_line + ED_LINES → scroll up
-        lda ed_cur_line
-        sec
-        sbc ed_top_line
+        jsr _ed_cur_row
         sta ed_tmp
         lda ed_cur_line+1
         sbc ed_top_line+1
@@ -1983,9 +1959,7 @@ s_workend:      .byte "workend", 0
         jsr visual_col
         sta ed_cur_col
         ; Re-render from current row to bottom
-        lda ed_cur_line
-        sec
-        sbc ed_top_line
+        jsr _ed_cur_row
         tax                     ; from_row
         ldy #ED_LINES
         jsr ed_render_rows
@@ -2018,10 +1992,7 @@ s_workend:      .byte "workend", 0
         jsr gb_home
         lda #0
         sta ed_cur_col
-        lda gap_lo
-        sta ed_scr
-        lda gap_lo+1
-        sta ed_scr+1
+        jsr _ed_scr_glo
         jsr line_vwidth         ; A = combined visual width
         cmp #40
         bcs @del_join_split     ; ≥ 40 → split required
@@ -2088,9 +2059,7 @@ s_workend:      .byte "workend", 0
         lda ed_cur_line+1
         sta ed_top_line+1
 @del_render:
-        lda ed_cur_line
-        sec
-        sbc ed_top_line
+        jsr _ed_cur_row
         tax                     ; from_row
         ldy #ED_LINES
         jsr ed_render_rows
@@ -2150,9 +2119,7 @@ s_workend:      .byte "workend", 0
 
         ; Scroll or re-render
         ; if ed_cur_line >= ed_top_line + ED_LINES → scroll up
-        lda ed_cur_line
-        sec
-        sbc ed_top_line
+        jsr _ed_cur_row
         sta ed_tmp
         lda ed_cur_line+1
         sbc ed_top_line+1
@@ -2256,9 +2223,7 @@ s_workend:      .byte "workend", 0
         ; label is an alias for the first byte of @repos.
 @repos:
         ; Sync cursor position
-        lda ed_cur_line
-        sec
-        sbc ed_top_line
+        jsr _ed_cur_row
         ; Ignore hi byte — screen row always fits in 8 bits
         cmp #ED_LINES
         bcs @repos_done         ; off-screen
@@ -2400,9 +2365,7 @@ s_workend:      .byte "workend", 0
         ; Restore editor cursor position
         lda ed_cur_col
         sta CUR_COL
-        lda ed_cur_line
-        sec
-        sbc ed_top_line
+        jsr _ed_cur_row
         sta CUR_ROW
         jsr io_sync
 
