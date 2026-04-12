@@ -197,37 +197,37 @@ filled with $00. If PC is already aligned, does nothing.
 
 ```
 .org $0801
-.bas                ; emit "1 SYS <addr>" — addr computed automatically
+.bas                ; emit "0 SYS <addr>"
 ```
 
 ```
 .org $0801
-.bas "MY PROGRAM"   ; emit "0 REM MY PROGRAM" + "1 SYS <addr>"
+.bas "MY PROGRAM"   ; emit "0 SYS <addr>:REM MY PROGRAM"
 ```
 
-Emits a complete BASIC program that calls the code immediately
+Emits a single-line BASIC program that calls the code immediately
 following the stub via `SYS`.  Makes the assembled PRG auto-runnable:
 `LOAD "FILE",8,1` then `RUN`.
 
-The SYS address is the first byte after the BASIC end marker — i.e.
-where `asm_pc` points after `.bas` completes.  Typically `.bas` is the
-first directive after `.org $0801` and user code follows immediately.
+The SYS address (always 5 decimal digits) is the first byte after
+the BASIC end marker — where `asm_pc` points after `.bas` completes.
 
-With a string argument, a `0 REM` line is prepended.  The REM text
-appears in the `LIST` output, serving as a program title or credit.
+With a string argument, `:REM text` is appended on the same BASIC
+line.  The REM text appears in `LIST` output as a program title.
 
-Byte layout (no REM):
+Byte layout:
 
 | Offset | Bytes | Content |
 |--------|-------|---------|
 | +0 | 2 | Link pointer → end marker |
-| +2 | 2 | Line number 1 |
+| +2 | 2 | Line number 0 |
 | +4 | 1 | SYS token ($9E) |
-| +5 | D | Decimal ASCII digits of SYS address |
-| +5+D | 1 | Null terminator |
-| +6+D | 2 | $0000 end of BASIC program |
+| +5 | 5 | 5-digit decimal SYS address |
+| +10 | 0 or 2+len | `:` + REM token + string (if present) |
+| | 1 | Null terminator |
+| | 2 | $0000 end of BASIC program |
 
-Total: 8 + D bytes (D = number of decimal digits, typically 4–5).
+Total: 13 bytes (no string) or 15 + len (with string).
 
 ## Example Program
 

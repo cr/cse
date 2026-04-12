@@ -150,9 +150,9 @@ Defined scope, needs work.
 ### Assembler
 
 - [x] `.bas` directive: emit a BASIC SYS stub.  (Phase 12, done)
-  `.bas` → `1 SYS <addr>`.  `.bas "TEXT"` → `0 REM TEXT / 1 SYS <addr>`.
-  SYS address computed automatically (first byte after BASIC end marker).
-  Two-pass: pass 0 sizes, pass 1 emits.  2799 tests.
+  Single BASIC line: `.bas` → `0 SYS NNNNN`.
+  `.bas "TEXT"` → `0 SYS NNNNN:REM TEXT`.
+  Always 5 decimal digits (260 B).  2799 tests.
 - [ ] Assembler error display: show source line number + context.
 - [x] Per-segment assembly summary (one line per `.org`/`.bas` block).
   Streaming design: `.org` and `.bas` print segment lines inline
