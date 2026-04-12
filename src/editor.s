@@ -692,7 +692,7 @@ _ed_cur_row:
         bcc :+
         ; Line overflows screen — show > indicator in col 39.
         ; Skip remaining content until CR or EOF.
-        lda #$3E | $80          ; '>' reversed
+        lda #$3E                ; '>' (normal, not reversed)
         ldy #SCREEN_WIDTH - 1
         sta (ed_tmp),y
         jmp @skip_rest
