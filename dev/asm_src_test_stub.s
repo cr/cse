@@ -31,6 +31,7 @@
         .export newline
         .export out_log_open
         .export out_close
+        .export puts_imm
         .export __CODE_RUN__    : absolute = $4000
 
         .import asm_assemble
@@ -153,5 +154,20 @@ io_puthex4:
 newline:
 out_log_open:
 out_close:
+        rts
+
+; puts_imm — stub: skip the inline .word argument and return
+;   The puts macro does: jsr puts_imm / .word str
+;   We need to advance the return address by 2 to skip the .word.
+puts_imm:
+        pla
+        clc
+        adc #2
+        tay
+        pla
+        adc #0
+        pha
+        tya
+        pha
         rts
 

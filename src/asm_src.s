@@ -10,6 +10,7 @@
 ;   All emit_* helpers read from expr_ptr; set expr_ptr before calling them.
 
         .setcpu         "6502"
+        .include "macros.inc"
 
         .export         asm_assemble
         .export         asm_org, asm_size, asm_errors
@@ -22,6 +23,7 @@
         .import         kernal_bank_out, kernal_bank_in, kernal_out
         .import         io_puts, io_putc, io_putdec, io_puthex4, newline
         .import         out_log_open, out_close
+        .import         puts_imm               ; repl.s — for puts macro
         .import         define_ws_syms         ; mem.s
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
@@ -99,9 +101,7 @@ LOG_ERR = '?'
         lda _line_num
         ldx _line_num+1
         jsr io_putdec
-        lda #<s_err_sep
-        ldx #>s_err_sep
-        jsr io_puts             ; ": "
+        puts s_err_sep          ; ": "
         pla
         tax                     ; msg hi
         pla                     ; msg lo
@@ -608,9 +608,7 @@ _seg_log_close:
 @no_max:
         jsr _bank_in_tmp
         ; Print "-$AAAA"
-        lda #<s_seg_dash
-        ldx #>s_seg_dash
-        jsr io_puts
+        puts s_seg_dash
         lda asm_tmp
         ldx asm_tmp2
         jsr io_puthex4
@@ -628,9 +626,7 @@ _seg_log_close:
         tax
         pla
         jsr io_putdec
-        lda #<s_seg_b
-        ldx #>s_seg_b
-        jsr io_puts
+        puts s_seg_b
         jsr out_close
         jsr _bank_out_tmp
 @empty:
@@ -648,9 +644,7 @@ _seg_log_open:
         ; Print "; seg  $AAAA"
         ldy #' '                ; LOG_INFO
         jsr out_log_open
-        lda #<s_seg_pfx
-        ldx #>s_seg_pfx
-        jsr io_puts
+        puts s_seg_pfx
         lda asm_pc
         ldx asm_pc+1
         jsr io_puthex4
@@ -696,15 +690,11 @@ _seg_print_save:
         bne @ret                ; shouldn't happen, but safety
         ldy #' '
         jsr out_log_open
-        lda #<s_save_pfx
-        ldx #>s_save_pfx
-        jsr io_puts
+        puts s_save_pfx
         lda _min_pc
         ldx _min_pc+1
         jsr io_puthex4
-        lda #<s_save_mid
-        ldx #>s_save_mid
-        jsr io_puts
+        puts s_save_mid
         ; _max_pc + 1 (half-open)
         lda _max_pc
         clc

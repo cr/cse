@@ -999,9 +999,7 @@ parse_hex4_ptr1:
         jsr emit_hex_cols
 
         puts str_2sp
-        lda #<dasm_buf
-        ldx #>dasm_buf
-        jsr io_puts
+        puts dasm_buf
         jsr io_clear_eol
 
         pla                     ; return olen
@@ -3968,9 +3966,7 @@ free_line:
         jsr io_putc
         lda #' '
         jsr io_putc
-        lda #<fl_buf
-        ldx #>fl_buf
-        jsr io_puts
+        puts fl_buf
         jsr io_clear_eol
         jmp nl_clear
 @h_x:   ; x — clear screen
