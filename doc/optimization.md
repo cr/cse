@@ -238,7 +238,29 @@ digits are emitted (fixed-width), use `$30` ('0') so digit=0 emits
 
 Used in: `_emit_decimal` — Y counts from '0' through '9' directly.
 
-## 14. Reuse ZP scratch across non-overlapping phases
+## 14. Consolidate exit points into shared `@done: rts`
+
+When a proc has multiple early-exit `rts` instructions, replace
+them with `jmp @done` (or `beq @done`) to a single shared `rts`.
+Combine with a shared `@bad` error handler at the proc tail.
+
+Saves 1 byte per eliminated `rts` minus the `jmp` cost (2 net per
+converted site when using conditional branch, 0 net with `jmp`).
+The real win is when the shared tail also holds error handling
+code that was previously duplicated.
+
+**Caveat on flag-based elimination of `cpy #0` / `cpx #0`:**
+Only safe when the Z flag comes from an instruction that operates
+on the register being tested.  Safe after: `dey`, `dex`, `iny`,
+`inx`, `ldy`, `ldx`, `tay`, `tax`.  UNSAFE after: `cmp`, `beq`/`bne`
+fall-through, `adc`, `sbc` — Z reflects the comparison or
+arithmetic result, not the register value.
+
+Used in: `process_line` — shared `@done: rts` and `@bad` error tail.
+`cpy #0` removed after `dey` (safe); kept after `@wscan` loop exit
+(Z from `cmp`, not Y).
+
+## 15. Reuse ZP scratch across non-overlapping phases
 
 When two code paths never execute simultaneously, their ZP scratch
 bytes can share the same address.  The 6502's limited ZP is a

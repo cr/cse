@@ -844,7 +844,8 @@ BASIC_REM = $8F
         cmp #'n'
         beq :+
         jmp @unk
-:       lda #5
+:
+        lda #5
         jsr set_expr_off
         jsr skipws_ep
         jsr emit_align
@@ -1141,10 +1142,11 @@ BASIC_REM = $8F
 ; ── 1. Label loop ──────────────────────────────────────────────────────────
 @lbl:   jsr skipws_as
         bne :+
-        rts                     ; NUL = blank line
-:       cmp #';'
+        jmp @done               ; NUL = blank line
+:
+        cmp #';'
         bne :+
-        rts                     ; comment
+        jmp @done               ; comment
 :
 
         ; Scan word (stop at whitespace/NUL/';')
@@ -1159,10 +1161,10 @@ BASIC_REM = $8F
         beq @wend
         iny
         bne @wscan
-@wend:  ; Y = word length
+@wend:  ; Y = word length (Z flag from cmp, NOT from Y — must test Y explicitly)
         cpy #0
         bne :+
-        rts                     ; empty word (should not happen after skip)
+        jmp @done               ; empty word (should not happen after skip)
 :
 
         ; Check last char for ':'
@@ -1174,31 +1176,25 @@ BASIC_REM = $8F
 
         ; It's a label.  Define without the ':'.
         dey                     ; Y = name length (index of ':')
-        cpy #0
         beq @adv_lbl            ; zero-length: skip
-        ; sym_name = _as_ptr (name pointer)
         lda _as_ptr
         sta sym_name
         lda _as_ptr+1
         sta sym_name+1
-        ; Fold name in-place
-        jsr fold_block          ; fold [0..Y-1]; Y preserved
-        ; NUL-terminate (replace ':' at offset Y)
-        lda (_as_ptr),y         ; char at Y (the ':')
-        pha                     ; save it
+        jsr fold_block
+        lda (_as_ptr),y
+        pha
         lda #0
         sta (_as_ptr),y
         tya
-        pha                     ; save Y (index of ':')
+        pha
         jsr define_label
-        pla                     ; restore Y (index of ':')
+        pla
         tay
-        ; Restore ':'
         pla
         sta (_as_ptr),y
-        iny                     ; Y = word length (including ':')
+        iny
 @adv_lbl:
-        ; Advance _as_ptr past label+colon (Y = word length including ':')
         tya
         clc
         adc _as_ptr
@@ -1209,31 +1205,21 @@ BASIC_REM = $8F
 
 ; ── 2. Dispatch ────────────────────────────────────────────────────────────
 @dispatch:
-        ; _as_ptr = start of first non-label word
         ldy #0
         lda (_as_ptr),y
-
         cmp #'.'
-        bne @notdot
-        ; Directive: _as_ptr+1 is keyword start
+        bne @insn
         inc _as_ptr
         bne :+
         inc _as_ptr+1
 :       jsr process_directive
-        bcs @handle_local
-        rts                     ; recognized directive: done
-@handle_local:
-        ; Not a known directive — assume local label by itself on a line
-        ; (e.g. ".loop:" — but wait: we already consumed labels above.
-        ;  If we get here, '.' keyword was unrecognized — emit error.)
-        lda #<s_bad_insn
-        ldx #>s_bad_insn
-        jmp emit_error          ; tail call
+        bcc :+
+        jmp @bad
+:
+        rts
 
-@notdot:
 ; ── 3. Instruction ─────────────────────────────────────────────────────────
 @insn:
-        ; Copy mnemonic to _insn_buf (max 8 chars, stop at space/NUL)
         ldx #0
 @insn2: ldy #0
 @mne2:  lda (_as_ptr),y
@@ -1251,8 +1237,7 @@ BASIC_REM = $8F
         iny
         bne @mne2
 @mne_done:
-        stx _ib_idx             ; save mnemonic end index
-        ; Advance _as_ptr by mnemonic length (Y)
+        stx _ib_idx
         tya
         clc
         adc _as_ptr
@@ -1260,17 +1245,11 @@ BASIC_REM = $8F
         bcc :+
         inc _as_ptr+1
 :
-        ; Skip whitespace between mnemonic and operand
         jsr skipws_as
-        beq @msp_nooper         ; NUL = no operand
+        beq @asm_insn
         cmp #';'
-        bne @msp_hasoper
-@msp_nooper:
-        jmp @asm_insn
+        beq @asm_insn
 
-        ; ── Expand operand with local label resolution, pass to asm_line ──
-@msp_hasoper:
-        ; Expand operand into _expr_buf (resolves .local → scope.local)
         lda #0
         sta _eb_idx
 @exp:   ldy #0
@@ -1278,14 +1257,12 @@ BASIC_REM = $8F
         beq @exp_done
         cmp #';'
         beq @exp_done
-        ; Local label expansion: '.' followed by ident char
         cmp #'.'
         bne @ecp
         ldy #1
         lda (_as_ptr),y
         jsr is_ident
-        bcs @ecp                ; not ident: just copy the '.'
-        ; Prepend scope name
+        bcs @ecp
         ldx _eb_idx
         ldy #0
 @sc2:   lda _scope_name,y
@@ -1308,9 +1285,8 @@ BASIC_REM = $8F
 @exp_done:
         ldx _eb_idx
         lda #0
-        sta _expr_buf,x         ; NUL-terminate
+        sta _expr_buf,x
 
-        ; Append space + expanded operand to _insn_buf
         ldx _ib_idx
         lda #' '
         sta _insn_buf,x
@@ -1329,22 +1305,16 @@ BASIC_REM = $8F
 @asm_insn:
         ldx _ib_idx
         lda #0
-        sta _insn_buf,x         ; NUL-terminate
-        ; Call asm_line(_insn_buf) — asm_pc already set; set asm_out = asm_pc
+        sta _insn_buf,x
         lda asm_pc
         sta asm_out
         lda asm_pc+1
         sta asm_out+1
         lda #<_insn_buf
         ldx #>_insn_buf
-        jsr asm_line           ; A = byte count (0 = error)
-        tax                     ; save count in X
-        bne @insn_ok
-        lda #<s_bad_insn
-        ldx #>s_bad_insn
-        jmp emit_error          ; tail call
-@insn_ok:
-        ; Advance asm_pc and asm_size by A (byte count); A still valid from asm_line
+        jsr asm_line
+        tax
+        beq @bad
         clc
         adc asm_pc
         sta asm_pc
@@ -1354,11 +1324,12 @@ BASIC_REM = $8F
         clc
         adc asm_size
         sta asm_size
-        bcc :+
+        bcc @done
         inc asm_size+1
-:
 @done:  rts
-
+@bad:   lda #<s_bad_insn
+        ldx #>s_bad_insn
+        jmp emit_error
 .endproc
 
 ; ── do_pass ────────────────────────────────────────────────────────────────
