@@ -69,8 +69,8 @@ s_save_pfx:     .byte "s ", $22, "f", $22, ",08,$", 0
 s_save_mid:     .byte ",$", 0
 
 ; Decimal power tables for 16-bit → ASCII conversion (_emit_decimal)
-_dec_pow_lo:    .byte <10000, <1000, <100, <10, <1
-_dec_pow_hi:    .byte >10000, >1000, >100, >10, >1
+_dec_pow_lo:    .byte <1, <10, <100, <1000, <10000
+_dec_pow_hi:    .byte >1, >10, >100, >1000, >10000
 
 ; ═══════════════════════════════════════════════════════════════════════════
 .segment "CODE"
@@ -555,7 +555,7 @@ _emit_word:
 ; Emit 16-bit value in expr_val as 5-digit decimal ASCII via _emit_byte.
 ; Always 5 digits (leading zeros OK for BASIC SYS).  Destroys expr_val.
 _emit_decimal:
-        ldx #0
+        ldx #4
 @dgt:   lda #0
         sta asm_tmp             ; digit counter
 @sub:   lda expr_val
@@ -573,9 +573,8 @@ _emit_decimal:
         clc
         adc #$30                ; → PETSCII '0'..'9'
         jsr _emit_byte
-        inx
-        cpx #5
-        bne @dgt
+        dex
+        bpl @dgt
         rts
 
 ; ── Segment logging (inline, streaming) ───────────────────────────────────
