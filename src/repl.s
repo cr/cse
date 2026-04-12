@@ -462,6 +462,26 @@ skip_sp_ptr1:
 @done:  rts
 
 ; ───────────────────────────────────────────────────────────
+; skip_peek_ptr1 — skip spaces then load first non-space char
+;   Returns: A = first non-space byte at (rp_ptr), Y = 0.
+; ───────────────────────────────────────────────────────────
+skip_peek_ptr1:
+        jsr skip_sp_ptr1
+        ldy #0
+        lda (rp_ptr),y
+        rts
+
+; ───────────────────────────────────────────────────────────
+; load_curaddr — copy cur_addr to rp_addr
+; ───────────────────────────────────────────────────────────
+load_curaddr:
+        lda cur_addr
+        sta rp_addr
+        lda cur_addr+1
+        sta rp_addr+1
+        rts
+
+; ───────────────────────────────────────────────────────────
 ; is_eow_at_ptr1_y — is the byte at (rp_ptr),y an end-of-word?
 ;   EOW = space ($20), NUL ($00), or ';' (comment start).
 ;   Returns Z=1 on match, Z=0 otherwise.  Preserves X, Y.
@@ -727,9 +747,7 @@ parse_hex4_ptr1:
 ;   C=0: empty or error (error printed)
 ; ═══════════════════════════════════════════════════════════
 .proc try_expr
-        jsr skip_sp_ptr1
-        ldy #0
-        lda (rp_ptr),y
+        jsr skip_peek_ptr1
         beq @empty
         cmp #';'
         beq @empty
@@ -1390,10 +1408,7 @@ parse_hex4_ptr1:
 ;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_dot
-        lda cur_addr
-        sta rp_addr
-        lda cur_addr+1
-        sta rp_addr+1
+        jsr load_curaddr
 
         jsr skip_sp_ptr1
 
@@ -1495,9 +1510,7 @@ parse_hex4_ptr1:
 @try_asm_mne:
 @try_mne:
         ; Try mnemonic assembly if (rp_ptr) starts with a-z
-        jsr skip_sp_ptr1
-        ldy #0
-        lda (rp_ptr),y
+        jsr skip_peek_ptr1
         cmp #'a'
         bcc @show               ; no mnemonic → just show
         cmp #'z'+1
@@ -1516,10 +1529,7 @@ parse_hex4_ptr1:
 ;   rp_ptr = args (ignored)
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_disasm
-        lda cur_addr
-        sta rp_addr
-        lda cur_addr+1
-        sta rp_addr+1
+        jsr load_curaddr
 
         ; end = addr + block_size
         lda rp_addr
@@ -1569,10 +1579,7 @@ parse_hex4_ptr1:
 ;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_mem
-        lda cur_addr
-        sta rp_addr
-        lda cur_addr+1
-        sta rp_addr+1
+        jsr load_curaddr
 
         jsr skip_sp_ptr1
 
@@ -2281,9 +2288,7 @@ VIC_MEMCTL = $D018
 ;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_reg
-        jsr skip_sp_ptr1
-        ldy #0
-        lda (rp_ptr),y
+        jsr skip_peek_ptr1
         beq @show
 
         ; Parse: a:XX x:XX y:XX s:XX flags
@@ -2644,10 +2649,7 @@ disk_done:
 ;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_load
-        lda cur_addr
-        sta rp_addr
-        lda cur_addr+1
-        sta rp_addr+1
+        jsr load_curaddr
 
         jsr get_filename
         bne @have_name
@@ -2800,10 +2802,7 @@ disk_done:
 ;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_write
-        lda cur_addr
-        sta rp_addr
-        lda cur_addr+1
-        sta rp_addr+1
+        jsr load_curaddr
 
         jsr get_filename
         bne @have_name
@@ -2863,9 +2862,7 @@ disk_done:
 @save_prg:
         ; PRG: parse optional end address
         ; rp_ptr still points into line_buf after get_filename
-        jsr skip_sp_ptr1
-        ldy #0
-        lda (rp_ptr),y
+        jsr skip_peek_ptr1
         beq @no_end_arg
         cmp #';'
         beq @no_end_arg
@@ -3451,10 +3448,7 @@ free_line:
         sta rp_opc              ; cmd = last_cmd
         ; rp_ptr = "" (empty args)
         ; show "ADDR:cmd" header
-        lda cur_addr
-        sta rp_addr
-        lda cur_addr+1
-        sta rp_addr+1
+        jsr load_curaddr
         lda rp_opc
         jsr io_addr_cmd
         jsr io_clear_eol
@@ -3648,9 +3642,7 @@ free_line:
         jmp nl_clear
 
 @h_u:   ; u — cpu mode
-        jsr skip_sp_ptr1
-        ldy #0
-        lda (rp_ptr),y
+        jsr skip_peek_ptr1
         cmp #'6'
         bne @u_show
         iny
@@ -3923,9 +3915,7 @@ free_line:
 @q_cancel:
         jmp nl_clear
 @h_dir: ; $ — directory
-        jsr skip_sp_ptr1
-        ldy #0
-        lda (rp_ptr),y
+        jsr skip_peek_ptr1
         cmp #'0'
         bcc @dir_go
         cmp #'9'+1
