@@ -45,7 +45,7 @@ eliminates a whole class of bugs at the cost of ~30 bytes saved
 counts from last file operation.  `ed_total_lines` (uint16, BSS,
 exported) — current line count, used by the REPL's `i` command.
 
-**Depends on:** disk (SEQ callbacks), screen, cse_io (hex_tab),
+**Depends on:** disk (SEQ callbacks), screen, cse_io,
 mem (cse_start), sym (sym_define)
 
 ### Zero-page variables

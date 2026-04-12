@@ -481,3 +481,100 @@ scans linearly.  A companion bitmask table validates the result
 against the compile-time CPU configuration.
 
 Used in: `repl.s` — CPU mode command (`u 6502`/`u 6510`/`u 65c02`).
+
+## 24. Extract behavioral units, not byte patterns
+
+When looking for extraction candidates, identify *what the code
+does* (a semantic operation), not *which instructions repeat*
+(a byte pattern).  A gap-buffer traversal always does: skip the
+gap if the pointer is at it, then check for end-of-buffer.  That
+two-phase operation is the extractable unit — not the individual
+pointer assignment embedded inside it.
+
+```asm
+; before: 13 bytes inline × 5 sites = 65 bytes
+        lda ed_scr
+        cmp gap_lo
+        bne @no_gap
+        lda ed_scr+1
+        cmp gap_lo+1
+        bne @no_gap
+        <assign gap_hi to ed_scr>
+@no_gap:
+        lda ed_scr+1
+        cmp #>BUF_END
+        ...
+
+; after: two helpers (skip_gap_scr + check_buf_end) called together
+        jsr skip_gap_scr
+        jsr check_buf_end
+        bcs @eof
+```
+
+The two helpers compose into a single logical operation.  Each
+call site drops from 13+ bytes to 6+branch.
+
+Used in: `editor.s` — `ed_render_line`, `skip_one_line`,
+`line_vwidth` (5 call sites of the gap-skip + EOF-check pair).
+
+## 25. Swap register roles to eliminate BSS and shuffling
+
+When a loop uses Y for indirect addressing (`lda (ptr),y`) AND as
+a counter, the counter must be saved to BSS before each indirect
+load and restored after.  If another register (X) is free, swap
+their roles: X = counter/index, Y = indirect.  This eliminates
+the BSS byte and the save/restore sequence.
+
+```asm
+; before (9 bytes per iteration + 1 BSS)
+        lda cur_filename,y      ; Y = filename index
+        pha
+        txa                     ; X = screen col → Y
+        tay
+        pla
+        sta (ed_scr),y
+        tya / tax               ; restore X
+        ... inc @fn_idx / ldy @fn_idx
+
+; after (3 bytes per iteration, 0 BSS)
+        lda cur_filename,x      ; X = filename index
+        sta (ed_scr),y          ; Y = screen col
+        inx
+        iny
+```
+
+The key insight: `lda abs,x` and `sta (zp),y` can use different
+registers simultaneously.  Choose the register assignment that
+avoids conflicts.
+
+Used in: `editor.s` — `ed_status` filename loop (eliminated
+`@fn_idx` BSS byte, `pha`/`pla` pair, and `jmp` → `bne`);
+`visual_col` (X as vcol counter, eliminated `@vcol_save`);
+`copy_ws_prefix` (X as counter, eliminated `@save_y`);
+`line_vwidth` (reuse `char_width` helper, eliminated `@w_save`).
+
+## 26. Consolidate exit trampolines within a proc
+
+When a large dispatch proc has N handlers that all end with
+`jsr X / jmp @common_exit`, extract the pair into a shared
+trampoline label within the proc.  Saves 3 bytes per site
+(eliminates the `jsr`, replacing `jsr X / jmp @exit` with
+`jmp @X_exit`).
+
+```asm
+; before: 5 sites × 6 bytes = 30 bytes
+@left:  ...
+        jsr ed_status_pos
+        jmp @repos
+
+; after: 6-byte trampoline + 5 × 3 bytes = 21 bytes
+@left:  ...
+        jmp @status_repos
+
+@status_repos:
+        jsr ed_status_pos
+        jmp @repos
+```
+
+Used in: `editor.s` — `ed_handle_key` has `@status_repos`
+(5 call sites) and `@edited_repos` (4 call sites).

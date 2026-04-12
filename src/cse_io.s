@@ -18,8 +18,6 @@
         .export io_color
         .export io_blip
         .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
-        .export hex_tab         ; shared hex digit screen codes (used by editor.s)
-
 
         ; NMI handler — pure asm, no C prologue.
         .export nmi_handler
