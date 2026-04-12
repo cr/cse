@@ -230,6 +230,12 @@ counter variable and the post-loop conversion.
         adc #$30
 ```
 
+**Caveat:** The base value depends on whether leading zeros are emitted
+or stripped.  If a post-loop strip phase removes zero-digits, use
+`$2F` (one below '0') so stripped positions hold a sentinel.  If all
+digits are emitted (fixed-width), use `$30` ('0') so digit=0 emits
+'0' correctly.  Getting this wrong produces '/' ($2F) in the output.
+
 Used in: `_emit_decimal` — Y counts from '0' through '9' directly.
 
 ## 14. Reuse ZP scratch across non-overlapping phases
