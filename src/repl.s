@@ -1690,8 +1690,7 @@ parse_hex4_ptr1:
         cmp rp_save
         lda rp_addr+1
         sbc #0
-        bcc @d_done
-        jmp @d_lp
+        bcs @d_lp
 
 @d_done:
         lda rp_addr
