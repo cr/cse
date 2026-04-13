@@ -94,8 +94,7 @@ asm_validate_mode:
         rts
 @hi:    and mn_modes_hi,x       ; modes 8–15: check hi byte
         bne @ok
-        sec
-        rts
+        rts                     ; C=1 preserved from bcs @hi (AND doesn't affect C)
 @ok:    clc
         rts
 
@@ -205,9 +204,7 @@ asm_opcode_lookup:
         asl
         asl
         asl                     ; zone * 16
-        sta _asm_ok_tmp             ; zone*16  (repurposes _asm_ok_tmp; cat cache no longer needed)
-        lda asm_mode
-        ora _asm_ok_tmp             ; zone*16 + mode_idx
+        ora asm_mode            ; + mode_idx
         tax
         lda mode_offset,x
         cmp #$FF
