@@ -34,7 +34,7 @@
 ; ── Imports: assembler / disassembler ──────────────────────
         .import asm_line
         .import dasm_insn, dasm_buf
-        .import asm_assemble, seg_print_summary
+        .import asm_assemble, seg_print_save
 
 ; ── Imports: debugger ──────────────────────────────────────
         .import dbg_enter, dbg_step_clear
@@ -3775,12 +3775,17 @@ free_line:
         stx rp_cnt+1
         ora rp_cnt+1
         bne @a_errors
-        ; success — print "ok", then segment summary + save command
+        ; success — segments already printed during pass 1
         lda #0
         sta dbg_reason
+        ; Print "; ok" on its own line
+        ldy #' '                ; LOG_INFO
+        jsr out_log_open
         puts str_ok
         jsr out_close
-        jsr seg_print_summary  ; per-segment lines + executable save cmd
+        ; Print executable save command on next line
+        jsr newline
+        jsr seg_print_save
         ; sym_lookup("main") — ZP interface
         lda #<str_main
         sta sym_name

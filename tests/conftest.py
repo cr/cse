@@ -447,11 +447,6 @@ class AsmSrcSymbols:
         # Segment tracking
         self.min_pc       = exports['_min_pc']
         self.max_pc       = exports['_max_pc']
-        self.seg_count    = exports['_seg_count']
-        self.seg_start_lo = exports['_seg_start_lo']
-        self.seg_start_hi = exports['_seg_start_hi']
-        self.seg_end_lo   = exports['_seg_end_lo']
-        self.seg_end_hi   = exports['_seg_end_hi']
 
         raw = _AS_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
