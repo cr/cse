@@ -2659,15 +2659,26 @@ parse_ls_args:
         jsr load_curaddr
         jsr get_filename
         beq @ret                ; Z=1: no name
+        ; Save name ptr + args ptr (is_seq_file needs rp_ptr)
+        lda rp_ptr
+        pha
+        lda rp_ptr+1
+        pha
         lda rp_ptr2
         sta rp_next_lo
-        lda rp_ptr2+1
-        sta rp_next_lo+1
-        lda rp_ptr2
         sta rp_ptr
         lda rp_ptr2+1
+        sta rp_next_lo+1
         sta rp_ptr+1
-        jsr is_seq_file         ; A=1 SEQ, A=0 PRG; Z=0 always
+        jsr is_seq_file         ; A=1 SEQ, A=0 PRG
+        clc
+        adc #1                  ; A=2 SEQ, A=1 PRG (Z=0 always)
+        tax                     ; save result
+        pla
+        sta rp_ptr+1            ; restore args ptr
+        pla
+        sta rp_ptr
+        txa                     ; restore result (Z=0)
 @ret:   rts
 
 ; ═══════════════════════════════════════════════════════════
@@ -2737,7 +2748,7 @@ print_prg_range:
         ldx #>str_no_name
         jmp out_err_nl
 @have_name:
-        cmp #1
+        cmp #2                  ; 2=SEQ, 1=PRG (from parse_ls_args)
         bne @load_prg
 
         ; SEQ: guard unsaved before overwriting source
@@ -2838,7 +2849,7 @@ print_prg_range:
         ldx #>str_no_name
         jmp out_err_nl
 @have_name:
-        cmp #1
+        cmp #2                  ; 2=SEQ, 1=PRG
         bne @save_prg
 
         ; ── SEQ save ──
