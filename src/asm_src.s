@@ -70,11 +70,10 @@ s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp quote", 0
 s_bad_insn:     .byte "bad insn", 0
 s_seg_pfx:      .byte "org  ", 0
-s_seg_dash:     .byte "-", 0
-s_seg_b:        .byte "b", 0
+; s_seg_dash and s_seg_b eliminated — single-char io_putc instead
 s_save_s:       .byte "s ", $22, 0
 s_save_q_sp:    .byte $22, " $", 0
-s_save_default: .byte "out", 0
+s_save_default: .byte "out,p", 0
 s_trunc:        .byte ": line truncated", 0
 
 ; Decimal power tables for 16-bit → ASCII conversion (_emit_decimal)
@@ -640,15 +639,15 @@ _seg_log_close:
         lda _seg_pc
         ldx _seg_pc+1
         jsr io_puthex4
-        puts s_seg_dash         ; "-"
+        lda #'-'
+        jsr io_putc
         lda asm_tmp
         ldx asm_tmp2
         jsr io_puthex4
         ; Print "  NNb" — size = asm_pc - _seg_pc
         lda #' '
         jsr io_putc
-        lda #' '
-        jsr io_putc
+        jsr io_putc             ; A still ' '
         lda asm_pc
         sec
         sbc _seg_pc
@@ -658,7 +657,8 @@ _seg_log_close:
         tax
         pla
         jsr io_putdec
-        puts s_seg_b            ; "b"
+        lda #'b'
+        jsr io_putc
         jsr out_close
         jsr _bank_out_tmp
 @clear: lda #0
@@ -675,6 +675,20 @@ _seg_log_open:
         lda #1
         sta _seg_open
         rts
+
+; _set_first_org — set asm_org from asm_pc on pass 0, first time only.
+;   Called by .org and .bas handlers after setting asm_pc.
+_set_first_org:
+        lda _asm_pass
+        bne @ret
+        lda _org_set
+        bne @ret
+        inc _org_set
+        lda asm_pc
+        sta asm_org
+        lda asm_pc+1
+        sta asm_org+1
+@ret:   rts
 
 ; _seg_init — reset segment logging state.
 _seg_init:
@@ -804,7 +818,7 @@ BASIC_REM = $8F
         jsr _emit_word          ; link pointer
 
         lda #0
-        ldx #0
+        tax
         jsr _emit_word          ; line number 0
 
         lda #BASIC_SYS
@@ -838,9 +852,8 @@ BASIC_REM = $8F
 
         lda #0
         jsr _emit_byte          ; NUL terminator
-
         lda #0
-        ldx #0
+        tax
         jmp _emit_word          ; end of BASIC ($0000), tail call
 .endproc
 
@@ -883,17 +896,8 @@ BASIC_REM = $8F
         sta asm_pc
         lda #$08
         sta asm_pc+1
-        ; Update asm_org on pass 0 if first origin
-        lda _asm_pass
-        bne :+
-        lda _org_set
-        bne :+
-        inc _org_set
-        lda asm_pc
-        sta asm_org
-        lda asm_pc+1
-        sta asm_org+1
-:       jsr _seg_log_open           ; open .bas segment at $0801
+        jsr _set_first_org
+        jsr _seg_log_open           ; open .bas segment at $0801
         jsr emit_bas
         clc
         rts
@@ -1054,17 +1058,7 @@ BASIC_REM = $8F
         sta asm_pc
         pla
         sta asm_pc+1
-        ; Update asm_org on pass 0, first .org only
-        lda _asm_pass
-        bne @org_done
-        lda _org_set
-        bne @org_done           ; already set by earlier .org
-        inc _org_set
-        lda asm_pc
-        sta asm_org
-        lda asm_pc+1
-        sta asm_org+1
-@org_done:
+        jsr _set_first_org
         ; Open new segment (uses new asm_pc)
         jsr _seg_log_open
         clc
