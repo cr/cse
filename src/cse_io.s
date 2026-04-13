@@ -103,6 +103,16 @@ nmi_handler:
         ; The debugger handler saves them.
         jmp dbg_nmi_break
 
+; ── _io_scr_setup — set _io_scr to screen line address for CUR_ROW ───
+; Clobbers A, X.
+_io_scr_setup:
+        ldx CUR_ROW
+        lda scr_lo,x
+        sta _io_scr
+        lda scr_hi,x
+        sta _io_scr+1
+        rts
+
 ; ── io_sync — update screen/color line pointers from cursor position ──
 ; Call after changing $D6 (io_cy) or $D3 (io_cx).
 ; Uses KERNAL PLOT to keep all internal state consistent,
@@ -135,15 +145,15 @@ io_putc:
         ; Write directly to SCREEN + row*40 + col using the row table.
         ; Uses _io_scr (not _io_tmp which io_puts needs for the string ptr).
         pha                     ; save screen code
-        ldx CUR_ROW
-        lda scr_lo,x
-        sta _io_scr
-        lda scr_hi,x
-        sta _io_scr+1
+        jsr _io_scr_setup
         pla
         ldy CUR_COL
         sta (_io_scr),y
         iny
+        ; fall through to _col_clamp
+
+; ── _col_clamp — clamp Y to COLS-1 and store to CUR_COL ─────────────
+_col_clamp:
         cpy #COLS
         bcc :+
         ldy #COLS-1
@@ -178,12 +188,7 @@ io_puthex4:
 ; A = byte value
 io_puthex2:
         pha                     ; save byte
-        ; setup screen row pointer
-        ldx CUR_ROW
-        lda scr_lo,x
-        sta _io_scr
-        lda scr_hi,x
-        sta _io_scr+1
+        jsr _io_scr_setup
         pla
         pha                     ; save byte again
         lsr                     ; shift hi nibble down
@@ -201,11 +206,7 @@ io_puthex2:
         lda hex_tab,x           ; screen code for lo nibble
         sta (_io_scr),y
         iny
-        cpy #COLS
-        bcc :+
-        ldy #COLS-1
-:       sty CUR_COL
-        rts
+        jmp _col_clamp
 
 ; ── io_putdec — write 16-bit unsigned decimal ────────────────
 ; A=lo, X=hi
@@ -213,12 +214,7 @@ io_puthex2:
 io_putdec:
         sta _io_tmp             ; dividend lo
         stx _io_tmp+1           ; dividend hi
-        ; setup screen row pointer
-        ldy CUR_ROW
-        lda scr_lo,y
-        sta _io_scr
-        lda scr_hi,y
-        sta _io_scr+1
+        jsr _io_scr_setup
         lda CUR_COL
         sta dec_start_col          ; remember starting column for leading-zero check
         ldx #0                  ; power-of-10 index (0..4)
@@ -259,11 +255,7 @@ io_putdec:
 
 ; ── io_clear_eol — fill spaces from cursor to end of row ────
 io_clear_eol:
-        ldx CUR_ROW
-        lda scr_lo,x
-        sta _io_scr
-        lda scr_hi,x
-        sta _io_scr+1
+        jsr _io_scr_setup
         ldy CUR_COL
 @loop:  cpy #COLS
         bcs @done
