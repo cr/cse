@@ -130,32 +130,25 @@ SYM_HEAP_END = $EF00
 ; ═════════════════════════════════════════════════════════
 .proc entry_ptr
         lda _st_idx
-        asl                     ; × 2
-        sta _st_ptr
+        asl                     ; A = lo(×2)
+        tax                     ; X = lo(×2)
         lda #0
-        rol
+        rol                     ; A = hi(×2)
         sta _st_ptr+1
-        lda _st_ptr
-        asl                     ; lo(×4)
+        txa                     ; A = lo(×2)
+        asl                     ; A = lo(×4), C = carry
         sta _st_nptr
-        lda _st_ptr+1
-        rol
+        lda _st_ptr+1           ; A = hi(×2)
+        rol                     ; A = hi(×4)
         sta _st_nptr+1
-        ; ×6 = ×4 + ×2
-        lda _st_ptr
+        ; ×6 = ×2 + ×4 + sym_table base (lo base = $00)
         clc
-        adc _st_nptr
+        txa                     ; A = lo(×2)
+        adc _st_nptr            ; A = lo(×6)
         sta _st_ptr
-        lda _st_ptr+1
-        adc _st_nptr+1
-        sta _st_ptr+1
-        ; add sym_table base
-        lda _st_ptr
-        clc
-        adc #<sym_table
-        sta _st_ptr
-        lda _st_ptr+1
-        adc #>sym_table
+        lda _st_ptr+1           ; A = hi(×2)
+        adc _st_nptr+1          ; + hi(×4) + carry
+        adc #>sym_table         ; + base hi
         sta _st_ptr+1
         rts
 .endproc
@@ -259,8 +252,7 @@ SYM_HEAP_END = $EF00
         jsr compute_hash
 
         lda _st_hash
-        and #SYM_MASK
-        sta _st_idx
+        sta _st_idx             ; SYM_MASK=$FF: no masking needed for 8-bit ZP
 
         jsr kernal_bank_out
 
@@ -319,11 +311,8 @@ SYM_HEAP_END = $EF00
         rts
 
 @next:
-        inc _st_idx
+        inc _st_idx             ; wraps 255→0 naturally (8-bit ZP)
         lda _st_idx
-        and #SYM_MASK
-        sta _st_idx
-        ; Check if we've wrapped around to the start
         cmp _st_hash
         bne @probe              ; haven't wrapped → keep probing
 
@@ -341,8 +330,7 @@ SYM_HEAP_END = $EF00
         jsr compute_hash
 
         lda _st_hash
-        and #SYM_MASK
-        sta _st_idx
+        sta _st_idx             ; SYM_MASK=$FF: no masking needed for 8-bit ZP
 
         jsr kernal_bank_out
 
@@ -381,11 +369,8 @@ SYM_HEAP_END = $EF00
         rts
 
 @next:
-        inc _st_idx
+        inc _st_idx             ; wraps 255→0 naturally (8-bit ZP)
         lda _st_idx
-        and #SYM_MASK
-        sta _st_idx
-        ; Check if we've wrapped around to the start
         cmp _st_hash
         bne @probe              ; haven't wrapped → keep probing
 
