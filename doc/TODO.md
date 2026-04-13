@@ -4,6 +4,10 @@
 
 Open bugs, roughly ordered by priority.
 
+- [ ] `l` command hang: loading a non-existing file may hang.
+  Not yet reproducible.  Suspect: `disk_load_prg` or
+  `ed_load_source` not handling KERNAL file-not-found error,
+  or floppy status channel read blocking.
 - [ ] RUN/STOP debounce: bounces when held.  Primary mode-switch
   key feels broken.
 - [ ] `.` (disassembly) shows CSE ZP instead of user ZP after
