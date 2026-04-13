@@ -156,6 +156,9 @@ cse_zp_end:
 ;   workend   = buf_base - 1 (inclusive)
 ; ═════════════════════════════════════════════════════════════
 .proc define_ws_syms
+        lda #1
+        sta sym_wide            ; ABS — set once (sym_define preserves it)
+
         ; ── workstart ($0800, fixed) ──
         lda #<WORKSTART
         sta sym_val
@@ -165,8 +168,6 @@ cse_zp_end:
         sta sym_name
         lda #>s_workstart
         sta sym_name+1
-        lda #1
-        sta sym_wide            ; ABS
         jsr sym_define
 
         ; ── workend (inclusive: buf_base - 1) ──
@@ -181,8 +182,6 @@ cse_zp_end:
         sta sym_name
         lda #>s_workend
         sta sym_name+1
-        lda #1
-        sta sym_wide            ; ABS
         jmp sym_define         ; tail call
 .endproc
 
