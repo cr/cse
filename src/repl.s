@@ -2692,42 +2692,38 @@ disk_done:
         jmp nl_clear
 
 ; ═══════════════════════════════════════════════════════════
-; cmd_load — 'l' command
-;   rp_ptr = args
+; parse_ls_args — shared l/s entry: parse filename, detect SEQ/PRG.
+;   Out: Z=1 → no name (caller prints error).
+;         Z=0, A=1 → SEQ.  Z=0, A=0 → PRG.
+;   Side: rp_addr=cur_addr, rp_next_lo=name ptr, rp_ptr advanced.
 ; ═══════════════════════════════════════════════════════════
-.proc cmd_load
+parse_ls_args:
         jsr load_curaddr
-
         jsr get_filename
-        bne @have_name
-        lda #<str_no_name
-        ldx #>str_no_name
-        jmp out_err_nl
-
-@have_name:
-        ; save rp_ptr2 (name) since calls will clobber it
+        beq @ret                ; Z=1: no name
         lda rp_ptr2
-        sta rp_next_lo          ; borrow for name ptr save
+        sta rp_next_lo
         lda rp_ptr2+1
         sta rp_next_lo+1
-
-        ; check seq file
         lda rp_ptr2
         sta rp_ptr
         lda rp_ptr2+1
         sta rp_ptr+1
-        jsr is_seq_file
-        cmp #1
-        bne @load_prg
+        jsr is_seq_file         ; A=1 SEQ, A=0 PRG; Z=0 always
+@ret:   rts
 
-        ; SEQ: guard unsaved before overwriting source
-        jsr check_unsaved
-        jcc @l_cancel
-
-        ; '; load "name"...' — line stays open
+; ═══════════════════════════════════════════════════════════
+; print_op_name — print "; verb "name"..." log line (stays open).
+;   In: A/X = verb string ptr.  Uses rp_next_lo for name.
+; ═══════════════════════════════════════════════════════════
+print_op_name:
+        sta rp_tmp
+        stx rp_tmp+1
         ldy #LOG_INFO
         jsr out_log_open
-        puts str_load_pfx
+        lda rp_tmp
+        ldx rp_tmp+1
+        jsr io_puts
         lda #$22
         jsr io_putc
         lda rp_next_lo
@@ -2736,7 +2732,63 @@ disk_done:
         lda #$22
         jsr io_putc
         puts str_dots
-        jsr io_clear_eol
+        jmp io_clear_eol
+
+; ═══════════════════════════════════════════════════════════
+; print_prg_range — print "; NNN bytes AAAA-BBBB" on new log line.
+;   In: rp_addr=start, rp_cnt=end (exclusive).
+; ═══════════════════════════════════════════════════════════
+print_prg_range:
+        ldy #LOG_INFO
+        jsr out_log_open
+        ; size = end - start
+        lda rp_cnt
+        sec
+        sbc rp_addr
+        pha
+        lda rp_cnt+1
+        sbc rp_addr+1
+        tax
+        pla
+        jsr io_putdec
+        puts str_bytes_sp
+        lda rp_addr
+        ldx rp_addr+1
+        jsr io_puthex4
+        lda #'-'
+        jsr io_putc
+        ; inclusive end = rp_cnt - 1
+        lda rp_cnt
+        sec
+        sbc #1
+        pha
+        lda rp_cnt+1
+        sbc #0
+        tax
+        pla
+        jmp io_puthex4
+
+; ═══════════════════════════════════════════════════════════
+; cmd_load — 'l' command
+;   rp_ptr = args
+; ═══════════════════════════════════════════════════════════
+.proc cmd_load
+        jsr parse_ls_args
+        bne @have_name
+        lda #<str_no_name
+        ldx #>str_no_name
+        jmp out_err_nl
+@have_name:
+        cmp #1
+        bne @load_prg
+
+        ; SEQ: guard unsaved before overwriting source
+        jsr check_unsaved
+        jcc @l_cancel
+
+        lda #<str_load_pfx
+        ldx #>str_load_pfx
+        jsr print_op_name
 
         ; SEQ: ed_load_source(name)
         lda rp_next_lo
@@ -2766,19 +2818,21 @@ disk_done:
         jmp @done
 
 @load_prg:
-        ; '; load "name"...' — line stays open
-        ldy #LOG_INFO
-        jsr out_log_open
-        puts str_load_pfx
-        lda #$22
-        jsr io_putc
-        lda rp_next_lo
-        ldx rp_next_lo+1
-        jsr io_puts
-        lda #$22
-        jsr io_putc
-        puts str_dots
-        jsr io_clear_eol
+        ; Optional address arg: l "file" $c000
+        jsr skip_peek_ptr1
+        beq @l_addr_ok
+        cmp #';'
+        beq @l_addr_ok
+        jsr try_expr
+        bcc @l_err
+        lda expr_val
+        sta rp_addr
+        lda expr_val+1
+        sta rp_addr+1
+@l_addr_ok:
+        lda #<str_load_pfx
+        ldx #>str_load_pfx
+        jsr print_op_name
 
         ; PRG: disk_load_prg(name, addr) — name in disk_ptr, A/X=addr
         lda rp_next_lo
@@ -2788,56 +2842,28 @@ disk_done:
         lda rp_addr
         ldx rp_addr+1
         jsr disk_load_prg      ; A/X = result (0=error, else bytes)
-        sta rp_cnt              ; save result lo
-        stx rp_cnt+1            ; save result hi
-        ora rp_cnt+1
+        pha
+        ora #0                  ; check A
         bne @prg_ok
-        ; error
+        cpx #0
+        bne @prg_ok
+        pla
         jsr restore_name_ptr
         jsr io_err_load
         jmp @done
-
 @prg_ok:
-        ; "; NNN bytes AAAA-BBBB" on new line
-        ; start addr = rp_addr (or rp_cnt if rp_addr was 0)
-        lda rp_addr
-        ora rp_addr+1
-        bne @have_start
-        lda rp_cnt
-        sta rp_addr
-        lda rp_cnt+1
-        sta rp_addr+1
-@have_start:
-        ; end = start + size - 1
-        lda rp_addr
+        ; rp_cnt = end (exclusive) = start + bytes_loaded
+        pla                     ; size lo
         clc
-        adc rp_cnt
-        sta rp_next_hi          ; end+1 lo
-        lda rp_addr+1
-        adc rp_cnt+1
-        sta rp_next_hi+1        ; end+1 hi
-        ldy #LOG_INFO
-        jsr out_log_open
-        lda rp_cnt
-        ldx rp_cnt+1
-        jsr io_putdec
-        puts str_bytes_sp
-        lda rp_addr
-        ldx rp_addr+1
-        jsr io_puthex4
-        lda #'-'
-        jsr io_putc
-        lda rp_next_hi
-        sec
-        sbc #1
-        pha
-        lda rp_next_hi+1
-        sbc #0
-        tax
-        pla
-        jsr io_puthex4
+        adc rp_addr
+        sta rp_cnt
+        txa                     ; size hi
+        adc rp_addr+1
+        sta rp_cnt+1
+        jsr print_prg_range
         jmp @done
 
+@l_err:
 @l_cancel:
         jmp nl_clear
 @done:  jmp disk_done
@@ -2848,45 +2874,19 @@ disk_done:
 ;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_write
-        jsr load_curaddr
-
-        jsr get_filename
+        jsr parse_ls_args
         bne @have_name
         lda #<str_no_name
         ldx #>str_no_name
         jmp out_err_nl
-
 @have_name:
-        ; save name ptr
-        lda rp_ptr2
-        sta rp_next_lo
-        lda rp_ptr2+1
-        sta rp_next_lo+1
-
-        ; check seq file
-        lda rp_ptr2
-        sta rp_ptr
-        lda rp_ptr2+1
-        sta rp_ptr+1
-        jsr is_seq_file
         cmp #1
         bne @save_prg
 
-        ; '; save "name"...' — line stays open
-        ldy #LOG_INFO
-        jsr out_log_open
-        puts str_save_pfx
-        lda #$22
-        jsr io_putc
-        lda rp_next_lo
-        ldx rp_next_lo+1
-        jsr io_puts
-        lda #$22
-        jsr io_putc
-        puts str_dots
-        jsr io_clear_eol
-
-        ; SEQ: ed_ensure_init, ed_save_source(name)
+        ; ── SEQ save ──
+        lda #<str_save_pfx
+        ldx #>str_save_pfx
+        jsr print_op_name
         jsr ed_ensure_init
         lda rp_next_lo
         ldx rp_next_lo+1
@@ -2897,7 +2897,6 @@ disk_done:
         jsr io_err_save
         jmp @done
 @seq_ok:
-        ; "; N lines, M bytes" on new line
         ldy #LOG_INFO
         jsr out_log_open
         jsr print_seq_stats
@@ -2906,11 +2905,10 @@ disk_done:
         jmp @done
 
 @save_prg:
-        ; PRG: parse address args via expr parser
-        ;   no args        → start=cur_addr, end=start+block_size
-        ;   one arg        → start=cur_addr, end=arg1
-        ;   two args       → start=arg1, end=arg2
-        ;                    if end<start: end=end+start-1 (relative)
+        ; ── PRG: parse address args ──
+        ;   no args  → end=start+block_size
+        ;   one arg  → end=arg1
+        ;   two args → start=arg1, end=arg2 (end<start: relative)
         jsr skip_peek_ptr1
         beq @no_args
         cmp #';'
@@ -2938,7 +2936,6 @@ disk_done:
         beq @have_end
         cmp #';'
         beq @have_end
-        ; Two args: arg1→start, parse arg2→end
         lda rp_cnt
         sta rp_addr
         lda rp_cnt+1
@@ -2949,7 +2946,7 @@ disk_done:
         sta rp_cnt
         lda expr_val+1
         sta rp_cnt+1
-        ; if end >= start: absolute, done
+        ; if end < start: end = end + start - 1
         lda rp_cnt+1
         cmp rp_addr+1
         bcc @rel
@@ -2957,7 +2954,6 @@ disk_done:
         lda rp_cnt
         cmp rp_addr
         bcs @have_end
-        ; end < start: end = end + start - 1
 @rel:   lda rp_cnt
         clc
         adc rp_addr
@@ -2970,7 +2966,7 @@ disk_done:
         dec rp_cnt+1
 :       dec rp_cnt
 @have_end:
-        ; if end <= addr, error
+        ; Validate: end > start
         lda rp_cnt+1
         cmp rp_addr+1
         jcc @range_err
@@ -2980,30 +2976,20 @@ disk_done:
         jeq @range_err
         jcc @range_err
 @end_ok:
-        ; size = end - addr
+        lda #<str_save_pfx
+        ldx #>str_save_pfx
+        jsr print_op_name
+
+        ; size = end - start
         lda rp_cnt
         sec
         sbc rp_addr
-        sta rp_next_hi          ; size lo (borrow rp_next_hi)
+        sta rp_next_hi
         lda rp_cnt+1
         sbc rp_addr+1
-        sta rp_next_hi+1        ; size hi
+        sta rp_next_hi+1
 
-        ; '; save "name"...' — line stays open
-        ldy #LOG_INFO
-        jsr out_log_open
-        puts str_save_pfx
-        lda #$22
-        jsr io_putc
-        lda rp_next_lo
-        ldx rp_next_lo+1
-        jsr io_puts
-        lda #$22
-        jsr io_putc
-        puts str_dots
-        jsr io_clear_eol
-
-        ; disk_save_prg(name, addr, size) — name in disk_ptr, addr in _io_tmp, A/X=size
+        ; disk_save_prg(name, addr, size)
         lda rp_next_lo
         sta disk_ptr
         lda rp_next_lo+1
@@ -3017,35 +3003,11 @@ disk_done:
         jsr disk_save_prg      ; A=error
         cmp #0
         beq @prg_ok
-
-        ; error
         jsr restore_name_ptr
         jsr io_err_save
         jmp @done
-
 @prg_ok:
-        ; "; NNN bytes AAAA-BBBB" on new line
-        ldy #LOG_INFO
-        jsr out_log_open
-        lda rp_next_hi
-        ldx rp_next_hi+1
-        jsr io_putdec
-        puts str_bytes_sp
-        lda rp_addr
-        ldx rp_addr+1
-        jsr io_puthex4
-        lda #'-'
-        jsr io_putc
-        ; end - 1 → A=lo, X=hi for io_puthex4
-        lda rp_cnt
-        sec
-        sbc #1
-        pha
-        lda rp_cnt+1
-        sbc #0
-        tax
-        pla
-        jsr io_puthex4
+        jsr print_prg_range
         jmp @done
 
 @range_err:
