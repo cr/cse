@@ -325,9 +325,8 @@ _asm_line_core:
 ; ── Zone A: implied — no operand ─────────────────────────────────────────────
 @zone_a:
         lda asm_base
-        jsr _asm_emit
         clc
-        rts
+        jmp _asm_emit           ; tail-call; _asm_emit preserves C
 
 ; ── Zone B: REL — branch target (absolute or raw offset) ─────────────────────
 @zone_b:
@@ -340,9 +339,8 @@ _asm_line_core:
         beq :+
         jmp asm_error           ; neither ABS nor ZP
 :       ; ZP: asm_opr[0] is the raw signed offset byte
-        jsr _asm_emit_base_opr
         clc
-        rts
+        jmp _asm_emit_base_opr  ; tail-call; _asm_emit preserves C
 
 @rel_abs:
         ; Compute signed offset = target − (asm_pc + 2)
@@ -368,7 +366,7 @@ _asm_line_core:
         lda asm_tmp
         cmp #$80                ; negative offset must be ≥ $80
         bcc @err_range
-        jmp @emit_rel
+        bcs @emit_rel           ; always taken (C=1 from cmp)
 @chk_pos:
         lda asm_tmp
         cmp #$80                ; positive offset must be < $80
@@ -377,9 +375,8 @@ _asm_line_core:
         lda asm_base
         jsr _asm_emit
         lda asm_tmp
-        jsr _asm_emit
         clc
-        rts
+        jmp _asm_emit           ; tail-call; _asm_emit preserves C
 @err_range:
         jmp asm_error
 
@@ -388,15 +385,11 @@ _asm_line_core:
         jsr mode_parse
         cmp #MODE_IMM
         bne @err_mode
-        jsr _asm_emit_base_opr
         clc
-        rts
+        jmp _asm_emit_base_opr  ; tail-call; _asm_emit preserves C
 
-; ── Zone D: ZP bit-op (RMB, SMB) — not yet tested; OPCODES entry is None ─────
+; ── Zone D/E: bit-ops (RMB, SMB, BBR, BBS) — not yet tested ──────────────────
 @zone_d:
-        jmp asm_error
-
-; ── Zone E: ZPREL bit-op (BBR, BBS) — not yet tested; OPCODES entry is None ──
 @zone_e:
         jmp asm_error
 
@@ -407,9 +400,8 @@ _asm_line_core:
         bne @err_mode
         jsr _asm_emit_base_opr  ; emit base + lo byte
         lda asm_opr+1           ; hi
-        jsr _asm_emit
         clc
-        rts
+        jmp _asm_emit           ; tail-call; _asm_emit preserves C
 
 ; ── Zone G/H: multi-mode (profiles 6–29) ─────────────────────────────────────
 @zone_gh:
@@ -432,18 +424,19 @@ _asm_line_core:
         ldx asm_mode
         lda _asm_oplen,x        ; operand byte count for this mode
         beq @gh_done            ; 0 bytes → done
+        tax                     ; X = oplen (1 or 2)
 
         ; Emit asm_opr[0]  (always present for 1- and 2-byte operands)
         lda asm_opr
-        jsr _asm_emit           ; clobbers A, Y — X (= asm_mode) preserved
+        jsr _asm_emit           ; clobbers A, Y — X preserved
 
-        lda _asm_oplen,x        ; reload count using still-valid X
-        cmp #2
-        bne @gh_done
+        dex
+        beq @gh_done            ; oplen was 1 → done
 
         ; Emit asm_opr[1]  (hi byte for 2-byte operands)
         lda asm_opr+1
-        jsr _asm_emit
+        clc
+        jmp _asm_emit           ; tail-call; _asm_emit preserves C
 
 @gh_done:
         clc
