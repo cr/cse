@@ -19,3 +19,5 @@ rom/chargen_cbm.bin
 # Local ROM testing artifacts
 rom/*_patched.bin
 rom/*_upatched.bin
+
+.claude/

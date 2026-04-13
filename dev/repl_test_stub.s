@@ -29,7 +29,7 @@
 
 ; ── Exports: assembler / execution stubs ──────────────────────
         .export asm_line
-        .export asm_assemble, asm_org, asm_size
+        .export asm_assemble, asm_org, asm_size, seg_print_summary
 
 ; ── Exports: debugger stubs ───────────────────────────────────
         .export dbg_enter, dbg_step_clear
@@ -234,6 +234,10 @@ asm_line:
         tax
         rts
 .endproc
+
+; seg_print_summary — stub: no-op
+seg_print_summary:
+        rts
 
 ; ═══════════════════════════════════════════════════════════════
 ; Debugger stubs

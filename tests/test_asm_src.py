@@ -719,3 +719,117 @@ class TestAsmAssembleBankState:
         # And kernal_out flag must be cleared on exit.
         assert mem[as_syms.kernal_out] == 0, \
             f"kernal_out flag not cleared on exit: {mem[as_syms.kernal_out]}"
+
+
+# ── Segment tracking tests ───────────────────────────────────────────────────
+
+def _run_segs(as_syms, source: str):
+    """Run assembly and return (org, data, errors, seg_info).
+
+    seg_info is a dict with min_pc, max_pc, count, and segments list.
+    Each segment is (start, end) where end is exclusive.
+    """
+    cpu = MPU()
+    mem = cpu.memory
+    as_syms.load_into(mem)
+
+    encoded = _petscii(source)
+    for i, b in enumerate(encoded):
+        mem[as_syms.test_src_buf + i] = b
+
+    cpu.sp = 0xFF
+    mem[0x01FF] = 0xFF
+    mem[0x01FE] = 0xFE
+    cpu.sp = 0xFD
+    cpu.pc = as_syms.asm_src_test_entry
+
+    for _ in range(_MAX_STEPS):
+        if cpu.pc == 0xFFFF:
+            break
+        cpu.step()
+    else:
+        raise TimeoutError(f"exceeded {_MAX_STEPS} steps")
+
+    org    = mem[as_syms.asm_org] | (mem[as_syms.asm_org + 1] << 8)
+    size   = mem[as_syms.asm_size] | (mem[as_syms.asm_size + 1] << 8)
+    errors = mem[as_syms.asm_errors] | (mem[as_syms.asm_errors + 1] << 8)
+    data   = list(mem[org : org + size])
+
+    min_pc = mem[as_syms.min_pc] | (mem[as_syms.min_pc + 1] << 8)
+    max_pc = mem[as_syms.max_pc] | (mem[as_syms.max_pc + 1] << 8)
+    count  = mem[as_syms.seg_count]
+    segments = []
+    for i in range(count):
+        s = mem[as_syms.seg_start_lo + i] | (mem[as_syms.seg_start_hi + i] << 8)
+        e = mem[as_syms.seg_end_lo + i] | (mem[as_syms.seg_end_hi + i] << 8)
+        segments.append((s, e))
+
+    seg_info = {"min_pc": min_pc, "max_pc": max_pc, "count": count,
+                "segments": segments}
+    return org, data, errors, seg_info
+
+
+class TestSegmentTracking:
+    """Verify segment table, min_pc, max_pc after assembly."""
+
+    def test_single_org(self, as_syms):
+        """Single .org block produces one segment."""
+        _, _, errors, seg = _run_segs(as_syms, ".org $c000\n  nop\n  rts")
+        assert errors == 0
+        assert seg["count"] == 1
+        assert seg["segments"][0] == (0xC000, 0xC002)
+        assert seg["min_pc"] == 0xC000
+        assert seg["max_pc"] == 0xC002
+
+    def test_two_orgs(self, as_syms):
+        """Two .org blocks produce two segments."""
+        source = ".org $c000\n  nop\n.org $d000\n  lda #$42\n  rts"
+        _, _, errors, seg = _run_segs(as_syms, source)
+        assert errors == 0
+        assert seg["count"] == 2
+        assert seg["segments"][0] == (0xC000, 0xC001)  # nop = 1 byte
+        assert seg["segments"][1] == (0xD000, 0xD003)  # lda+rts = 3 bytes
+        assert seg["min_pc"] == 0xC000
+        assert seg["max_pc"] == 0xD003
+
+    def test_asm_org_not_clobbered(self, as_syms):
+        """asm_org reflects the first .org, not the last."""
+        source = ".org $c000\n  nop\n.org $d000\n  rts"
+        org, _, errors, seg = _run_segs(as_syms, source)
+        assert errors == 0
+        assert org == 0xC000, f"asm_org should be $C000, got ${org:04X}"
+
+    def test_bas_implicit_org(self, as_syms):
+        """'.bas' opens a segment at $0801."""
+        source = ".bas\n  nop"
+        _, _, errors, seg = _run_segs(as_syms, source)
+        assert errors == 0
+        assert seg["count"] == 1
+        # .bas emits 13 bytes (SYS stub) + 1 byte (nop) = 14
+        assert seg["segments"][0][0] == 0x0801
+        assert seg["min_pc"] == 0x0801
+
+    def test_t_org_scenario(self, as_syms):
+        """.bas + two .org blocks — the t-org,s test case."""
+        source = '.bas "hello"\n.org $1000\nmain:\n  lda #$55\n  rts\n.org $2000\ndata:\n  .db 1,2,3,4'
+        org, _, errors, seg = _run_segs(as_syms, source)
+        assert errors == 0
+        assert seg["count"] == 3
+        # .bas segment at $0801
+        assert seg["segments"][0][0] == 0x0801
+        # .org $1000 segment
+        assert seg["segments"][1][0] == 0x1000
+        assert seg["segments"][1][1] == 0x1003  # lda#$55 + rts = 3 bytes
+        # .org $2000 segment
+        assert seg["segments"][2][0] == 0x2000
+        assert seg["segments"][2][1] == 0x2004  # 4 bytes
+        assert seg["min_pc"] == 0x0801
+        assert seg["max_pc"] == 0x2004
+
+    def test_empty_org_suppressed(self, as_syms):
+        """Consecutive .org with no code in between — empty segment dropped."""
+        source = ".org $c000\n.org $d000\n  nop"
+        _, _, errors, seg = _run_segs(as_syms, source)
+        assert errors == 0
+        assert seg["count"] == 1
+        assert seg["segments"][0] == (0xD000, 0xD001)

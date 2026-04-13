@@ -154,13 +154,11 @@ Defined scope, needs work.
   `.bas "TEXT"` → `0 SYS NNNNN:REM TEXT`.
   Always 5 decimal digits (260 B).  2799 tests.
 - [ ] Assembler error display: show source line number + context.
-- [x] Per-segment assembly summary (one line per `.org`/`.bas` block).
-  Streaming design: `.org` and `.bas` print segment lines inline
-  during pass 1.  Each `.org` closes the previous segment (prints
-  `-$AAAA  NNNb`), then opens a new line (`seg  $AAAA`).  `.bas`
-  calls the `.org $0801` handler internally.  7 bytes BSS state:
-  `_seg_pc`(2), `_min_pc`(2), `_max_pc`(2), `_seg_open`(1).
-  Save command printed at end of error-free assembly.  +324 B.
+- [x] Per-segment assembly summary — bug fixes + design changes.
+  Fixed 4 bugs (pass-0 output, stale asm_pc, asm_org clobber,
+  expr_val clobber).  Replaced streaming design with collect-then-print.
+  Output: `; org AAAA-BBBB NNb` per segment + executable save command
+  with `cur_filename`.  +93 B, 6 new tests (2800 total).
 
 ### Editor
 
@@ -177,7 +175,8 @@ Defined scope, needs work.
 - [ ] Page up/down with shift+cursor or F-keys.
 - [ ] Search (ctrl+f equivalent via F-key).
 - [ ] Goto line number (see `e` command)
-- [ ] Consider switching tab representation from `$A0` to `$09`.
+- [ ] `$A0` and `$09` should be both be interpreted as TAB, both from
+  keyboard input, and when handled in source code.
 
 ### Size optimization
 

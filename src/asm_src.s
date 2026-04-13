@@ -15,6 +15,11 @@
         .export         asm_assemble
         .export         asm_org, asm_size, asm_errors
         .export         asm_pass := _asm_pass   ; pass flag for au_mode.s fwd refs
+        .export         seg_print_summary
+        ; Test-visible segment tracking exports
+        .export         _min_pc, _max_pc, _seg_count
+        .export         _seg_start_lo, _seg_start_hi
+        .export         _seg_end_lo, _seg_end_hi
 
         .import         asm_line               ; asm_line.s
         .import         expr_eval              ; expr.s
@@ -27,6 +32,7 @@
         .import         define_ws_syms         ; mem.s
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
+        .import         cur_filename           ; repl.s — last loaded/saved filename
         .importzp       buf_base                ; editor.s — gap buffer low bound
         .importzp       asm_pc, asm_out, asm_cpu, asm_tmp, asm_tmp2
         .importzp       expr_ptr, expr_val, expr_wide
@@ -50,11 +56,17 @@ _as_conv:       .res 1          ; emit_string convert-to-screen-code flag
 _eb_idx:        .res 1          ; write index into _expr_buf
 _ib_idx:        .res 1          ; write index into _insn_buf
 
-; ── Segment logging state (7 bytes) ──────────────────────────────────────
-_seg_pc:        .res 2          ; start address of current segment
+; ── Segment tracking (collect during passes, print after) ────────────────
+MAX_SEGS = 8
+_seg_pc:        .res 2          ; start address of current segment (open)
 _min_pc:        .res 2          ; global lowest origin
-_max_pc:        .res 2          ; global highest byte (inclusive)
-_seg_open:      .res 1          ; non-zero if a segment line is open
+_max_pc:        .res 2          ; global highest byte (exclusive)
+_seg_count:     .res 1          ; number of closed segments in table
+_org_set:       .res 1          ; non-zero after first .org on pass 0
+_seg_start_lo:  .res MAX_SEGS
+_seg_start_hi:  .res MAX_SEGS
+_seg_end_lo:    .res MAX_SEGS   ; end = asm_pc at close (exclusive)
+_seg_end_hi:    .res MAX_SEGS
 
 ; ── RODATA ────────────────────────────────────────────────────────────────
 .segment "RODATA"
@@ -64,11 +76,12 @@ s_exp_name:     .byte "exp name", 0
 s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp quote", 0
 s_bad_insn:     .byte "bad insn", 0
-s_seg_pfx:      .byte "seg  $", 0
-s_seg_dash:     .byte "-$", 0
+s_seg_pfx:      .byte "org  ", 0
+s_seg_dash:     .byte "-", 0
 s_seg_b:        .byte "b", 0
-s_save_pfx:     .byte "s ", $22, "f", $22, ",08,$", 0
-s_save_mid:     .byte ",$", 0
+s_save_s:       .byte "s ", $22, 0
+s_save_q_sp:    .byte $22, " $", 0
+s_save_default: .byte "out", 0
 s_trunc:        .byte ": line truncated", 0
 
 ; Decimal power tables for 16-bit → ASCII conversion (_emit_decimal)
@@ -566,92 +579,52 @@ _emit_decimal:
         bpl @dgt
         rts
 
-; ── Segment logging (inline, streaming) ───────────────────────────────────
-; Print segment info during pass 1 as .org directives are encountered.
-; Temporarily banks KERNAL in for screen output (same pattern as emit_error).
+; ── Segment tracking (collect during passes, print after) ────────────────
+; No screen I/O during assembly passes.  Data collected into _seg_tbl,
+; printed by seg_print_summary after asm_assemble returns.
 ;
-; _seg_log_close — close current segment: print "-$AAAA  NNNb", update _max_pc.
-;   Suppresses output if segment is empty (0 bytes).
-_seg_log_close:
-        ; Skip if no open segment
-        lda _seg_open
-        beq @ret
-        ; Compute close addr = asm_pc - 1
+; _seg_close — close current segment, record in table.
+;   Suppresses empty segments (asm_pc == _seg_pc).
+_seg_close:
+        ; Empty check: asm_pc == _seg_pc → skip
         lda asm_pc
-        sec
-        sbc #1
-        sta asm_tmp             ; close_lo
-        lda asm_pc+1
-        sbc #0
-        sta asm_tmp2            ; close_hi
-        ; Check empty: close < start → 0 bytes, suppress
-        lda asm_tmp2
-        cmp _seg_pc+1
-        bcc @empty
-        bne @print
-        lda asm_tmp
         cmp _seg_pc
-        bcc @empty
-@print:
-        ; Update _max_pc
-        lda asm_tmp2
-        cmp _max_pc+1
-        bcc @no_max
-        bne @set_max
-        lda asm_tmp
-        cmp _max_pc
-        bcc @no_max
-@set_max:
-        lda asm_tmp
-        sta _max_pc
-        lda asm_tmp2
-        sta _max_pc+1
-@no_max:
-        jsr _bank_in_tmp
-        ; Print "-$AAAA"
-        puts s_seg_dash
-        lda asm_tmp
-        ldx asm_tmp2
-        jsr io_puthex4
-        ; Print "  NNNb" — compute size = asm_pc - _seg_pc
-        lda #' '
-        jsr io_putc
-        lda #' '
-        jsr io_putc
-        lda asm_pc
-        sec
-        sbc _seg_pc
-        pha
+        bne @record
         lda asm_pc+1
-        sbc _seg_pc+1
-        tax
-        pla
-        jsr io_putdec
-        puts s_seg_b
-        jsr out_close
-        jsr _bank_out_tmp
-@empty:
-        lda #0
-        sta _seg_open
+        cmp _seg_pc+1
+        beq @ret
+@record:
+        ldx _seg_count
+        cpx #MAX_SEGS
+        bcs @ret                ; table full, silently drop
+        lda _seg_pc
+        sta _seg_start_lo,x
+        lda _seg_pc+1
+        sta _seg_start_hi,x
+        lda asm_pc
+        sta _seg_end_lo,x
+        lda asm_pc+1
+        sta _seg_end_hi,x
+        inc _seg_count
+        ; Update _max_pc (exclusive end = asm_pc)
+        lda asm_pc+1
+        cmp _max_pc+1
+        bcc @ret
+        bne @set_max
+        lda asm_pc
+        cmp _max_pc
+        bcc @ret
+        beq @ret
+@set_max:
+        lda asm_pc
+        sta _max_pc
+        lda asm_pc+1
+        sta _max_pc+1
 @ret:   rts
 
-; _seg_log_open — open a new segment: print "; seg  $AAAA" prefix.
-;   asm_pc must already be set to the new origin.
-;   Updates _min_pc.  Pass 1 only.
-_seg_log_open:
-        lda _asm_pass
-        beq @p0
-        jsr _bank_in_tmp
-        ; Print "; seg  $AAAA"
-        ldy #' '                ; LOG_INFO
-        jsr out_log_open
-        puts s_seg_pfx
-        lda asm_pc
-        ldx asm_pc+1
-        jsr io_puthex4
-        jsr _bank_out_tmp
-@p0:
-        ; Track state (both passes)
+; _seg_open — open a new segment at current asm_pc.
+;   Updates _min_pc.
+_seg_open:
         lda asm_pc
         sta _seg_pc
         lda asm_pc+1
@@ -669,14 +642,13 @@ _seg_log_open:
         sta _min_pc
         lda asm_pc+1
         sta _min_pc+1
-@done:  lda #1
-        sta _seg_open
-        rts
+@done:  rts
 
-; _seg_init — reset segment logging state.
+; _seg_init — reset segment tracking state.
 _seg_init:
         lda #0
-        sta _seg_open
+        sta _seg_count
+        sta _org_set
         sta _max_pc
         sta _max_pc+1
         lda #$FF
@@ -684,30 +656,79 @@ _seg_init:
         sta _min_pc+1
         rts
 
-; _seg_print_save — print save command: "; s "f",08,$AAAA,$BBBB"
-;   Uses _min_pc and _max_pc+1.
-_seg_print_save:
-        lda _seg_open
-        bne @ret                ; shouldn't happen, but safety
-        ldy #' '
+; seg_print_summary — print segment list + save command.
+;   Called by repl @h_a after successful assembly (KERNAL banked in).
+;   Format:
+;     ; org  AAAA-BBBB  NNb     (one per segment)
+;     AAAA:s "name" $BBBB       (executable save command)
+seg_print_summary:
+        lda #0
+        sta asm_tmp             ; loop index
+@loop:  ldy asm_tmp
+        cpy _seg_count
+        beq @save
+        ; Print "; org  AAAA-BBBB  NNb"
+        sty asm_tmp             ; preserve across calls
+        ldy #' '                ; LOG_INFO
         jsr out_log_open
-        puts s_save_pfx
+        puts s_seg_pfx          ; "org  "
+        ldy asm_tmp
+        lda _seg_start_lo,y
+        ldx _seg_start_hi,y
+        jsr io_puthex4
+        puts s_seg_dash         ; "-"
+        ldy asm_tmp
+        lda _seg_end_lo,y
+        sec
+        sbc #1                  ; inclusive end = exclusive - 1
+        sta asm_tmp2
+        lda _seg_end_hi,y
+        sbc #0
+        tax
+        lda asm_tmp2
+        jsr io_puthex4
+        ; Print "  NNb" — size = end - start
+        lda #' '
+        jsr io_putc
+        lda #' '
+        jsr io_putc
+        ldy asm_tmp
+        lda _seg_end_lo,y
+        sec
+        sbc _seg_start_lo,y
+        pha
+        lda _seg_end_hi,y
+        sbc _seg_start_hi,y
+        tax
+        pla
+        jsr io_putdec
+        puts s_seg_b            ; "b"
+        jsr out_close
+        inc asm_tmp
+        jmp @loop
+@save:
+        ; Print "AAAA:s "name" $BBBB" — executable save command
         lda _min_pc
         ldx _min_pc+1
         jsr io_puthex4
-        puts s_save_mid
-        ; _max_pc + 1 (half-open)
+        lda #':'
+        jsr io_putc
+        puts s_save_s           ; "s ""
+        ; Filename: cur_filename if non-empty, else "out"
+        lda cur_filename
+        bne @have_name
+        puts s_save_default     ; "out"
+        jmp @name_done
+@have_name:
+        lda #<cur_filename
+        ldx #>cur_filename
+        jsr io_puts
+@name_done:
+        puts s_save_q_sp        ; "" $"
         lda _max_pc
-        clc
-        adc #1
-        pha
-        lda _max_pc+1
-        adc #0
-        tax
-        pla
+        ldx _max_pc+1
         jsr io_puthex4
-        jsr out_close
-@ret:   rts
+        jmp newline
 
 ; ── emit_bas ──────────────────────────────────────────────────────────────
 ; Emit a single-line BASIC SYS stub at asm_pc.
@@ -853,12 +874,22 @@ BASIC_REM = $8F
         cmp #'s'
         bne @nb_unk
         ; .bas is an implicit .org $0801
-        jsr _seg_log_close      ; close previous segment
+        jsr _seg_close          ; close previous segment
         lda #$01
         sta asm_pc
         lda #$08
         sta asm_pc+1
-        jsr _seg_log_open       ; open .bas segment at $0801
+        ; Update asm_org on pass 0 if first origin
+        lda _asm_pass
+        bne :+
+        lda _org_set
+        bne :+
+        inc _org_set
+        lda asm_pc
+        sta asm_org
+        lda asm_pc+1
+        sta asm_org+1
+:       jsr _seg_open           ; open .bas segment at $0801
         jsr emit_bas
         clc
         rts
@@ -1007,22 +1038,32 @@ BASIC_REM = $8F
         jsr emit_error
         clc
         rts
-:       ; Close previous segment (uses old asm_pc)
-        jsr _seg_log_close
-        ; Set new origin
+:       ; Save new origin before closing (close doesn't clobber expr_val
+        ; anymore, but keeping the pattern explicit is defensive)
         lda expr_val
-        sta asm_pc
+        sta asm_tmp
         lda expr_val+1
+        sta asm_tmp2
+        ; Close previous segment (uses old asm_pc)
+        jsr _seg_close
+        ; Set new origin
+        lda asm_tmp
+        sta asm_pc
+        lda asm_tmp2
         sta asm_pc+1
+        ; Update asm_org on pass 0, first .org only
         lda _asm_pass
         bne @org_done
-        lda expr_val
+        lda _org_set
+        bne @org_done           ; already set by earlier .org
+        inc _org_set
+        lda asm_tmp
         sta asm_org
-        lda expr_val+1
+        lda asm_tmp2
         sta asm_org+1
 @org_done:
         ; Open new segment (uses new asm_pc)
-        jsr _seg_log_open
+        jsr _seg_open
         clc
         rts
 @nr:    cmp #'r'
@@ -1402,31 +1443,38 @@ BASIC_REM = $8F
         ; Pass 0: collect labels/constants
         lda #0
         sta _asm_pass
-        jsr _seg_log_open       ; open default segment at asm_pc
+        ; asm_pc already = asm_org from init above
+        jsr _seg_open           ; open default segment at asm_pc
         jsr do_pass
-        ; Pass 1: emit code
+        jsr _seg_close          ; close final segment from pass 0
+
+        ; Pass 1: emit code — reset seg table so pass 1 re-records
         lda #1
         sta _asm_pass
         lda #0
         sta asm_size
         sta asm_size+1
         sta _scope_name
-        jsr _seg_log_open       ; re-open default segment for pass 1 logging
+        sta _seg_count          ; reset table for pass 1
+        sta _max_pc
+        sta _max_pc+1
+        lda #$FF
+        sta _min_pc
+        sta _min_pc+1
+        ; Reset asm_pc from asm_org before opening default segment
+        lda asm_org
+        sta asm_pc
+        lda asm_org+1
+        sta asm_pc+1
+        jsr _seg_open           ; open default segment for pass 1
         jsr do_pass
-        ; Close final segment
-        jsr _seg_log_close
+        jsr _seg_close          ; close final segment from pass 1
 
         ; Bank in KERNAL — clear flag FIRST so the bank_in actually fires.
         lda #0
         sta kernal_out
         jsr kernal_bank_in
 
-        ; Print save command on success
-        lda asm_errors
-        ora asm_errors+1
-        bne @no_save
-        jsr _seg_print_save
-@no_save:
         lda asm_errors
         ldx asm_errors+1
         rts

@@ -22,13 +22,32 @@
 - `asm_size` (2B) — total bytes emitted across all segments
 - `asm_errors` (2B) — error count (pass 1 only)
 
-**Assembly log (pass 1):** Prints segment lines inline during pass 1.
-Each `.org`/`.bas` closes the previous segment and opens a new line.
-On success, the final line is a ready-to-use `s` (save) command.
+**Assembly log:** Segment tracking runs silently during both passes
+(no screen I/O mid-pass).  After `asm_assemble` returns, the repl
+`@h_a` handler calls `seg_print_summary` to print the segment list
+and save command.  Output format:
 
-Logging uses the repl logging API (`out_log_open`, `io_puthex4`,
-`io_putdec`, `out_close`) — asm_src prints directly, repl just
-calls `asm_assemble` and handles the error/success branch.
+```
+; asm...ok
+; org  0801-0814  20b
+; org  1000-1002  3b
+; org  2000-2003  4b
+0801:s "t-org" $2004
+```
+
+Segment lines are informational comments (`;` prefix, no `$` on
+addresses).  The save command is an executable REPL line — placed
+last so cursor-up+return saves the PRG.  The filename comes from
+`cur_filename` (set by the last `l` or `s` command); if empty,
+defaults to `"out"`.
+
+**Exported segment API:**
+- `seg_print_summary` — prints segment list + save command.
+  Called by repl `@h_a` after successful assembly.
+  Uses repl logging API (`out_log_open`, `io_puthex4`, `io_putdec`,
+  `out_close`).
+- `_min_pc` (2B) — global lowest origin
+- `_max_pc` (2B) — global highest byte (exclusive, ready for save)
 
 ### _define_ws_syms
 **In:** none (reads `cse_end` and `buf_base`)
@@ -124,7 +143,11 @@ for the full list, parameters, and per-pass behaviour.
 `_scope_name` (24B), `_full_label` (48B), `_insn_buf` (32B),
 `_expr_buf` (48B), `_as_conv` (1B, screen code conversion flag),
 `_eb_idx` (1B, write index into _expr_buf),
-`_ib_idx` (1B, write index into _insn_buf)
+`_ib_idx` (1B, write index into _insn_buf),
+`_seg_pc` (2B, current segment start),
+`_seg_start_lo/hi` + `_seg_end_lo/hi` (4×8 = 32B, segment table),
+`_seg_count` (1B), `_org_set` (1B),
+`_min_pc` (2B), `_max_pc` (2B)
 
 ## Caveats
 
