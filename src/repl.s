@@ -2906,39 +2906,16 @@ disk_done:
         jmp @done
 
 @save_prg:
-        ; PRG: parse optional end address
-        ; rp_ptr still points into line_buf after get_filename
+        ; PRG: parse address args via expr parser
+        ;   no args        → start=cur_addr, end=start+block_size
+        ;   one arg        → start=cur_addr, end=arg1
+        ;   two args       → start=arg1, end=arg2
+        ;                    if end<start: end=end+start-1 (relative)
         jsr skip_peek_ptr1
-        beq @no_end_arg
+        beq @no_args
         cmp #';'
-        beq @no_end_arg
-
-        ; has_arg = true, parse end via try_expr
-        lda #1
-        sta rp_save             ; has_arg flag
-        jsr try_expr
-        bcs @got_end
-        ; error from try_expr already printed
-        jmp nl_clear
-@got_end:
-        lda expr_val
-        sta rp_cnt              ; end lo
-        lda expr_val+1
-        sta rp_cnt+1            ; end hi
-        jmp @check_end
-
-@no_end_arg:
-        lda #0
-        sta rp_save             ; has_arg = false
-        ; end = 0 initially
-        sta rp_cnt
-        sta rp_cnt+1
-
-@check_end:
-        ; if end == 0, end = addr + block_size
-        lda rp_cnt
-        ora rp_cnt+1
-        bne @have_end
+        bne @parse_args
+@no_args:
         lda rp_addr
         clc
         adc block_size
@@ -2946,6 +2923,52 @@ disk_done:
         lda rp_addr+1
         adc block_size+1
         sta rp_cnt+1
+        jmp @have_end
+@arg_err:
+        jmp nl_clear
+@parse_args:
+        jsr try_expr
+        bcc @arg_err
+        lda expr_val
+        sta rp_cnt
+        lda expr_val+1
+        sta rp_cnt+1
+        ; Second arg?
+        jsr skip_peek_ptr1
+        beq @have_end
+        cmp #';'
+        beq @have_end
+        ; Two args: arg1→start, parse arg2→end
+        lda rp_cnt
+        sta rp_addr
+        lda rp_cnt+1
+        sta rp_addr+1
+        jsr try_expr
+        bcc @arg_err
+        lda expr_val
+        sta rp_cnt
+        lda expr_val+1
+        sta rp_cnt+1
+        ; if end >= start: absolute, done
+        lda rp_cnt+1
+        cmp rp_addr+1
+        bcc @rel
+        bne @have_end
+        lda rp_cnt
+        cmp rp_addr
+        bcs @have_end
+        ; end < start: end = end + start - 1
+@rel:   lda rp_cnt
+        clc
+        adc rp_addr
+        sta rp_cnt
+        lda rp_cnt+1
+        adc rp_addr+1
+        sta rp_cnt+1
+        lda rp_cnt
+        bne :+
+        dec rp_cnt+1
+:       dec rp_cnt
 @have_end:
         ; if end <= addr, error
         lda rp_cnt+1
