@@ -616,7 +616,7 @@ _ed_cur_row:
         rts
 .endproc
 
-; ── skip_gap — if pointer == gap_lo, set to gap_hi ────────────
+; ── skip_gap_scr — if ed_scr == gap_lo, set ed_scr = gap_hi ───
 ; Uses ed_scr as the pointer (in/out)
 ; Clobbers: A
 .proc skip_gap_scr
