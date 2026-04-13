@@ -26,7 +26,7 @@
         .export ed_read_rewind
         .export io_puts
         .export io_putdec
-        .export io_putc
+        .export io_putc, io_clear_eol
         .export io_puthex4
         .export newline
         .export out_log_open
@@ -156,6 +156,7 @@ io_puts:
 io_putdec:
 io_putc:
 io_puthex4:
+io_clear_eol:
 newline:
 out_log_open:
 out_close:

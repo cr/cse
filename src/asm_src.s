@@ -26,7 +26,7 @@
         .import         sym_define             ; symtab.s
         .import         sym_clear
         .import         kernal_bank_out, kernal_bank_in, kernal_out
-        .import         io_puts, io_putc, io_putdec, io_puthex4, newline
+        .import         io_puts, io_putc, io_putdec, io_puthex4, newline, io_clear_eol
         .import         out_log_open, out_close
         .import         puts_imm               ; repl.s — for puts macro
         .import         define_ws_syms         ; mem.s
@@ -728,7 +728,7 @@ seg_print_summary:
         lda _max_pc
         ldx _max_pc+1
         jsr io_puthex4
-        jmp newline
+        jmp io_clear_eol        ; clear rest of line; caller does newline
 
 ; ── emit_bas ──────────────────────────────────────────────────────────────
 ; Emit a single-line BASIC SYS stub at asm_pc.
