@@ -563,3 +563,126 @@ trampoline label within the proc.  Saves 3 bytes per site
 
 Used in: `editor.s` — `ed_handle_key` has `@status_repos`
 (5 call sites) and `@edited_repos` (4 call sites).
+
+## 27. Carry-preserving tail-call
+
+When a subroutine does not modify carry (e.g. `INC`, `LDA`, `STA`,
+`LDY` — none affect C on 6502), pre-clear carry before the tail-call
+`jmp` so the caller receives C=0.  Replaces `jsr SUB; clc; rts` (5B)
+with `clc; jmp SUB` (4B).  Saves 1 byte per site.
+
+```asm
+; before (5 bytes)                  ; after (4 bytes)
+        jsr _asm_emit                       clc
+        clc                                 jmp _asm_emit
+        rts
+```
+
+Key insight: on 6502, `INC` does NOT affect carry.  Verify the entire
+subroutine body preserves C before applying.
+
+Used in: `asm_line.s` — 5 zone exits use `clc; jmp _asm_emit` instead
+of `jsr _asm_emit; clc; rts`.
+
+## 28. Remove no-op mask instructions
+
+When a value is naturally bounded (e.g. 8-bit ZP variable),
+`AND #$FF` is a no-op that can be deleted.  Similarly, `AND #SYM_MASK`
+where SYM_MASK = $FF.  2 bytes per instance.
+
+```asm
+; before (4 bytes)                  ; after (2 bytes)
+        lda _st_hash                        lda _st_hash
+        and #SYM_MASK                       sta _st_idx
+        sta _st_idx
+```
+
+Used in: `symtab.s` — 4 instances of `and #$FF` removed (-8 B).
+
+## 29. Dedup through caller-preserving subroutine
+
+When a subroutine is proven not to modify a ZP variable, callers can
+set that variable once before a loop of calls instead of re-setting
+it each iteration.
+
+```asm
+; before: set sym_wide before EACH sym_define call
+        lda #1                          ; repeated setup
+        sta sym_wide
+        jsr sym_define
+        ...
+        lda #1                          ; redundant
+        sta sym_wide
+        jsr sym_define
+
+; after: set once, sym_define preserves sym_wide
+        lda #1
+        sta sym_wide
+        jsr sym_define
+        ...
+        jsr sym_define                  ; sym_wide still valid
+```
+
+Prerequisite: trace the called subroutine to confirm it reads but does
+not write the variable.
+
+Used in: `mem.s` — `define_ws_syms` sets `sym_wide` once for two
+`sym_define` calls (-4 B).
+
+## 30. Cross-module helper sharing
+
+Export a helper from the module that already computes a value, and
+import it in other modules that repeat the same computation.  The
+`jsr` (3B) replaces the inline sequence (often 12+ bytes).  No
+runtime cost beyond the subroutine call overhead.
+
+```asm
+; cse_io.s exports _io_scr_setup (13B body, used internally 4×)
+; screen.s imports and calls it for cursor_show (saves 9B inline)
+```
+
+Apply when: the helper's contract (inputs, outputs, clobbers) is
+simple, and the modules are already coupled via other imports.
+
+Used in: `screen.s` — `cursor_show` uses `_io_scr_setup` from
+`cse_io.s` (-9 B).  `_col_clamp` shared between `io_putc` and
+`io_puthex2` (-6 B).
+
+## 31. Preserve A in predicate subroutines
+
+When a predicate (returns C=1/C=0) only clobbers A on certain
+code paths, add a 1-byte register save/restore (`tax`/`txa`) on
+those paths so callers skip the `lda (ptr),y` reload after the
+predicate returns C=0.
+
+```asm
+; _au_is_end: only clobbers A in the '//' lookahead path
+; Add tax before lookahead, txa on fall-through (+2 bytes in helper)
+; Removes lda (asm_ptr),y reload at 4 call sites (-8 bytes)
+; Net: -6 bytes
+```
+
+Used in: `au_mode.s` — `_au_is_end` preserves A when returning C=0,
+eliminating 4 reload instructions.
+
+## 32. Chain 16-bit adds to skip intermediate store
+
+When computing `a + b + c` (all 16-bit), chain the low-byte adds
+with a single `clc` instead of storing intermediate results and
+reloading.  Exploit known-zero bytes (e.g. base address lo = $00)
+to skip one add entirely.
+
+```asm
+; entry_ptr: idx×6 + sym_table (where sym_table lo = $00)
+        clc
+        txa                     ; A = lo(×2), X cached it
+        adc _st_nptr            ; + lo(×4) → lo(×6)
+        sta _st_ptr
+        lda _st_ptr+1           ; hi(×2)
+        adc _st_nptr+1          ; + hi(×4) + carry
+        adc #>sym_table         ; + base hi (lo was $00, skip)
+        sta _st_ptr+1
+```
+
+Used in: `symtab.s` — `entry_ptr` ×6+base with register caching
+and chained add (-13 B).
