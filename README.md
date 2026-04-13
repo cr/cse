@@ -149,11 +149,14 @@ automatically falls back to step-over.
 | Command | Syntax | Description |
 |---------|--------|-------------|
 | `l` | `l "NAME"` | Load file from disk (SEQ->editor, PRG->memory) |
-| `s` | `s "NAME" [END]` | Save (SEQ from editor, PRG from memory range) |
+| `s` | `s "NAME" [END]` or `s "NAME" START END` | Save (SEQ from editor, PRG from memory range) |
 | `$` | `$ [DEVICE]` | Directory listing (default device 8) |
 
 SEQ files are source code (loaded into the editor).
 PRG files are binary (loaded/saved at the current address).
+PRG address args are expressions: `s "file" $2000` saves cur_addr..$2000,
+`s "file" $1000 $2000` saves $1000..$2000.  If end < start, end is
+treated as relative length (end = start + end - 1).
 
 ### Utility
 

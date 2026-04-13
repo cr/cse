@@ -306,7 +306,7 @@ The REPL's line editor operates within the 40-column screen:
 | Key | Name   | Addressed | Example              | Notes                                   |
 |-----|--------|-----------|----------------------|-----------------------------------------|
 | `l` | load   | yes       | `1000:l "file"`      | Load PRG/SEQ; guards unsaved source      |
-| `s` | save   | yes       | `1000:s "file" $2000` | Save addr..EEEE-1 (expr); remembers filename |
+| `s` | save   | yes       | `1000:s "file" $2000` | PRG: 1 arg=end, 2 args=start end (expr); remembers filename |
 | `$` | disk   | —         | `$`, `$9`             | Directory listing, drive select. See below. |
 
 ### Commands — Info / Utility
