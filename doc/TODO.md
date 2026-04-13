@@ -132,6 +132,9 @@ Defined scope, needs work.
 - [ ] Floppy status consistency: `$` prints status inline (always
   shows), `l`/`s` use `floppy_status` via `disk_done`.  Verify
   both paths produce identical output on stock KERNAL.
+- [ ] `l` command PRG mode: report actual load address in stats
+  line.  Currently shows `cur_addr` which may be wrong when the
+  PRG loads at its own header address (addr=0 path).
 - [ ] `e` command: open editor at decimal line number (`e 42`).
   Centers the target line on screen as much as possible.  Ties
   into assembler error line numbers — assemble, see error at
