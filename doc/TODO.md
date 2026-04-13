@@ -91,6 +91,11 @@ systems, ASM stubs, and test-specific linker configs.
 
 ### Open
 
+- [ ] Review l/s command tests (TestSaveCommand, TestLoadCommand):
+  simplify the framework.  The stub BSS offset computation
+  (hardcoded `+185`/`+187`/`+189`) is fragile — consider
+  exporting witnesses via a cross-module import trick or
+  reading from the RODATA sym_refs table like kplot_stub.
 - [ ] Migrate remaining test files to C64Emu + full PRG.  Each old
   test file (test_repl, test_cse_io, test_expr, test_symtab,
   test_debugger, test_au_mode, test_mnhash, test_asm_line,
