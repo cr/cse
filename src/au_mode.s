@@ -86,11 +86,19 @@ asm_skip_ws:
         bne asm_skip_ws         ; (Y wraps at 256 – safe for any sane line length)
         rts
 
+; ─── _au_ws_load ─────────────────────────────────────────────────────────────
+; Skip whitespace, then load next char into A.
+; Out:  A = (asm_ptr),y  (the first non-whitespace char)
+_au_ws_load:
+        jsr asm_skip_ws
+        lda (asm_ptr),y
+        rts
+
 ; ─── _au_is_end ──────────────────────────────────────────────────────────────
 ; Test A for end-of-expression: null, LF, CR, ';', '//'.
 ; NOTE: '#' is NOT tested here; it is handled separately in _au_check_end and
 ;       at the start of mode_parse (where it is the IMM prefix).
-; Returns: C=1 if end/comment, C=0 otherwise.  May clobber A.
+; Returns: C=1 if end/comment, C=0 otherwise.  Preserves A when C=0.
 _au_is_end:
         beq @yes                ; $00 (null)
         cmp #SC_LF
@@ -101,11 +109,13 @@ _au_is_end:
         beq @yes
         cmp #SC_SLASH           ; '/' – check for '//'
         bne @no
+        tax                     ; save '/' in X
         iny                     ; peek next byte
         lda (asm_ptr),y
         dey
         cmp #SC_SLASH
         beq @yes
+        txa                     ; restore '/' in A
 @no:    clc
         rts
 @yes:   sec
@@ -116,25 +126,12 @@ _au_is_end:
 ; Jumps to asm_syntax_error if any other (non-comment) character follows.
 ; Used after every successfully-parsed operand token.
 _au_check_end:
-        jsr asm_skip_ws
-        lda (asm_ptr),y
-        beq @ok                 ; null
-        cmp #SC_LF
-        beq @ok
-        cmp #SC_CR
-        beq @ok
-        cmp #SC_SEMI            ; ';'
-        beq @ok
+        jsr _au_ws_load
+        jsr _au_is_end
+        bcs @ok
         cmp #SC_HASH            ; '#'  (trailing comment, post-operand)
         beq @ok
-        cmp #SC_SLASH           ; '//' ?
-        bne @err
-        iny
-        lda (asm_ptr),y
-        dey
-        cmp #SC_SLASH
-        beq @ok
-@err:   jmp asm_syntax_error
+        jmp asm_syntax_error
 @ok:    rts
 
 ; ─── _au_expect_rpar ─────────────────────────────────────────────────────────
@@ -224,15 +221,13 @@ _au_read_val:
 ; mode_parse  –  main entry point
 ; ─────────────────────────────────────────────────────────────────────────────
 mode_parse:
-        jsr asm_skip_ws
+        jsr _au_ws_load
 
         ; ── IMP: empty / end-of-expression ───────────────────────────────────
-        lda (asm_ptr),y
         jsr _au_is_end
         bcs @ret_imp
 
-        ; Reload: _au_is_end may have clobbered A (// lookahead).
-        lda (asm_ptr),y
+        ; _au_is_end preserves A when C=0.
 
         ; ── ACC: bare 'A' (only if followed by end/whitespace, not ident) ─
         cmp #SC_A
@@ -269,9 +264,7 @@ mode_parse:
         cmp #SC_HASH
         bne @not_hash
         iny                     ; consume '#'
-        jsr asm_skip_ws         ; tolerate space: '# $nn' same as '#$nn'
-        ; Check if something parseable follows (not end-of-expr → try value)
-        lda (asm_ptr),y
+        jsr _au_ws_load         ; tolerate space: '# $nn' same as '#$nn'
         jsr _au_is_end
         bcs @ret_imp            ; '#' at end → treat as comment → IMP
         jsr _au_read_val        ; parse value expression
@@ -299,8 +292,7 @@ mode_parse:
 
 @ind_abs:
         ; 2-byte: ($nnnn) or ($nnnn,X)
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         cmp #SC_COMM
         beq @ind_4b_ix          ; ($nnnn,X) → AIX
         jsr _au_expect_rpar
@@ -312,12 +304,10 @@ mode_parse:
 
 @ind_4b_ix:                     ; ($nnnn,X) → AIX
         iny                     ; consume ','
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         jsr _au_expect_x
         iny                     ; consume 'X'
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         jsr _au_expect_rpar
         iny                     ; consume ')'
         jsr _au_check_end
@@ -327,24 +317,20 @@ mode_parse:
 
 @ind_1b:
         ; 1-byte indirect: ZPI / INX / INY  (asm_opr already set by _au_read_val)
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         cmp #SC_COMM
         beq @ind_1b_ix          ; ($nn,X) → INX
         jsr _au_expect_rpar
         iny                     ; consume ')'
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         jsr _au_is_end
         bcs @ret_zpi            ; ($nn) end → ZPI
-        lda (asm_ptr),y         ; reload (_au_is_end may clobber)
-        cmp #SC_COMM
+        cmp #SC_COMM            ; A preserved by _au_is_end
         beq :+
         jmp asm_syntax_error
 :
         iny                     ; consume ','
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         cmp #SC_Y
         beq :+
         jmp asm_syntax_error
@@ -362,12 +348,10 @@ mode_parse:
 
 @ind_1b_ix:                     ; ($nn,X) → INX
         iny                     ; consume ','
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         jsr _au_expect_x
         iny                     ; consume 'X'
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         jsr _au_expect_rpar
         iny                     ; consume ')'
         jsr _au_check_end
@@ -383,18 +367,15 @@ mode_parse:
 
 @direct_abs:
         ; 2-byte: ABS / ABX / ABY  (asm_opr already set)
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         jsr _au_is_end
         bcs @ret_abs            ; → ABS
-        lda (asm_ptr),y         ; reload
-        cmp #SC_COMM
+        cmp #SC_COMM            ; A preserved by _au_is_end
         beq :+
         jmp asm_syntax_error
 :
         iny                     ; consume ','
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         cmp #SC_X
         beq @abx
         cmp #SC_Y
@@ -420,18 +401,15 @@ mode_parse:
 
 @direct_1b:
         ; 1-byte: ZP / ZPX / ZPY / ZPREL  (asm_opr already set by _au_read_val)
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         jsr _au_is_end
         bcs @ret_zp             ; → ZP (Zone B remaps to REL)
-        lda (asm_ptr),y         ; reload
-        cmp #SC_COMM
+        cmp #SC_COMM            ; A preserved by _au_is_end
         beq :+
         jmp asm_syntax_error
 :
         iny                     ; consume ','
-        jsr asm_skip_ws
-        lda (asm_ptr),y
+        jsr _au_ws_load
         cmp #SC_X
         beq @zpx
         cmp #SC_Y
