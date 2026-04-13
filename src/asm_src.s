@@ -704,9 +704,22 @@ seg_print_save:
         puts s_save_default     ; "out"
         jmp @name_done
 @have_name:
+        ; Name always ends ",s\0" — poke 's'→'p', print, restore
+        ldy #0
+@fl:    lda cur_filename,y
+        beq @fp
+        iny
+        bne @fl
+@fp:    dey                     ; Y → 's'
+        lda #'p'
+        sta cur_filename,y
+        sty asm_tmp
         lda #<cur_filename
         ldx #>cur_filename
         jsr io_puts
+        ldy asm_tmp
+        lda #'s'
+        sta cur_filename,y
 @name_done:
         puts s_save_q_sp        ; "" $"
         lda _max_pc

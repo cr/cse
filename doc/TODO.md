@@ -154,11 +154,12 @@ Defined scope, needs work.
   `.bas "TEXT"` → `0 SYS NNNNN:REM TEXT`.
   Always 5 decimal digits (260 B).  2799 tests.
 - [ ] Assembler error display: show source line number + context.
-- [x] Per-segment assembly summary — bug fixes + design changes.
-  Fixed 4 bugs (pass-0 output, stale asm_pc, asm_org clobber,
-  expr_val clobber).  Replaced streaming design with collect-then-print.
-  Output: `; org AAAA-BBBB NNb` per segment + executable save command
-  with `cur_filename`.  +93 B, 6 new tests (2800 total).
+- [x] Per-segment assembly summary — bug fixes + streaming design.
+  Fixed bugs (pass-0 output, stale asm_pc, asm_org clobber,
+  expr_val clobber, filename `,s`→`,p`).  Streaming segment lines
+  during pass 1, `; ok` + save command after.  +70 B, 6 tests.
+- [ ] Assembly `; ok` line: show symbol count (`; ok  NNN syms`).
+  Needs `sym_count` (2B BSS) in symtab.s, incremented by `sym_define`.
 
 ### Editor
 
