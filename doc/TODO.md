@@ -135,6 +135,10 @@ Defined scope, needs work.
 - [ ] `l` command PRG mode: report actual load address in stats
   line.  Currently shows `cur_addr` which may be wrong when the
   PRG loads at its own header address (addr=0 path).
+- [ ] PRG range display: unify format to `AAAA-EEEE  NNNb` (range
+  first, size second).  Currently `l` PRG stats prints `NNNb AAAA-EEEE`
+  (size first).  Shared `print_prg_range` should use the same
+  order as the assembler `; org` lines and the splash screen.
 - [ ] `e` command: open editor at decimal line number (`e 42`).
   Centers the target line on screen as much as possible.  Ties
   into assembler error line numbers — assemble, see error at
