@@ -250,15 +250,12 @@ _ed_cur_row:
         ; Use save_ptr as src, ed_scr as dst (both are scratch-safe here)
         lda buf_base
         sta ed_scr              ; dst lo (new_base)
+        sta save_ptr            ; src lo = same base
         lda buf_base+1
         sta ed_scr+1            ; dst hi
-        ; src = old base = buf_base + $100
-        lda buf_base
-        sta save_ptr
-        lda buf_base+1
         clc
         adc #1
-        sta save_ptr+1          ; src = old buf_base
+        sta save_ptr+1          ; src hi = buf_base+1 + 1
 
         ; Copy ed_tmp bytes ascending (src → dst)
         ; pre_size could be > 256, use page loop
