@@ -2383,13 +2383,11 @@ VIC_MEMCTL = $D018
 ; ═══════════════════════════════════════════════════════════
 .proc parse_filename
         jsr skip_sp_ptr1
-
         ldy #0
         lda (rp_ptr),y
         cmp #$22                ; quote char
-        bne @unquoted
-
-        ; quoted: skip opening quote
+        bne @fail               ; no quote → no filename
+        ; skip opening quote
         inc rp_ptr
         bne :+
         inc rp_ptr+1
@@ -2399,42 +2397,13 @@ VIC_MEMCTL = $D018
         sta rp_ptr2+1
         ; scan for closing quote or NUL
         ldy #0
-@qscan: lda (rp_ptr),y
-        beq @qdone
+@scan:  lda (rp_ptr),y
+        beq @done
         cmp #$22
-        beq @qclose
+        beq @close
         iny
-        bne @qscan
-@qclose:
-        ; NUL-terminate in place: store 0 at closing quote
-        lda #0
-        sta (rp_ptr),y
-        ; advance rp_ptr past closing quote
-        iny
-        tya
-        clc
-        adc rp_ptr
-        sta rp_ptr
-        bcc @qdone
-        inc rp_ptr+1
-@qdone: jsr skip_sp_ptr1
-        jmp @check_empty
-
-@unquoted:
-        lda rp_ptr
-        sta rp_ptr2
-        lda rp_ptr+1
-        sta rp_ptr2+1
-        ; scan for space or NUL
-        ldy #0
-@uscan: lda (rp_ptr),y
-        beq @udone
-        cmp #' '
-        beq @uclose
-        iny
-        bne @uscan
-@uclose:
-        ; NUL-terminate
+        bne @scan
+@close: ; NUL-terminate at closing quote, advance past it
         lda #0
         sta (rp_ptr),y
         iny
@@ -2442,27 +2411,16 @@ VIC_MEMCTL = $D018
         clc
         adc rp_ptr
         sta rp_ptr
-        bcc :+
+        bcc @done
         inc rp_ptr+1
-:       jsr skip_sp_ptr1
-        jmp @check_empty
-
-@udone: ; rp_ptr already at NUL, which is fine
-        tya
-        clc
-        adc rp_ptr
-        sta rp_ptr
-        bcc @check_empty
-        inc rp_ptr+1
-
-@check_empty:
-        ; check if name is empty
+@done:  jsr skip_sp_ptr1
+        ; check if name is empty (e.g. "")
         ldy #0
         lda (rp_ptr2),y
         beq @fail
-        lda #1
+        lda #1                  ; A=1, Z=0: name found
         rts
-@fail:  lda #0
+@fail:  lda #0                  ; A=0, Z=1: no name
         rts
 .endproc
 
