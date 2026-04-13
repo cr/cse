@@ -234,25 +234,29 @@ Total: 13 bytes (no string) or 15 + len (with string).
 On successful assembly, the `a` command prints:
 
 ```
-; asm...ok
+; asm...
 ; org  0801-0814  20b
 ; org  1000-1002  3b
 ; org  2000-2003  4b
-0801:s "t-org" $2004
+; ok
+0801:s "t-org,p" $2004
 ```
 
-- **Header:** `; asm...ok` — the repl header with success status.
+- **Header:** `; asm...` — the repl header (stays open during pass 1).
 - **Segment lines:** One `; org  AAAA-BBBB  NNb` line per `.org`
-  or `.bas` block.  Addresses are plain hex (no `$` prefix).
-  Empty segments (0 bytes) are suppressed.
+  or `.bas` block.  Printed inline during pass 1.  Addresses are
+  plain hex (no `$` prefix).  Empty segments (0 bytes) are suppressed.
+- **OK line:** `; ok` — printed after successful pass 1.
 - **Save command:** Executable REPL line placed last so
   cursor-up+return saves the assembled PRG.  Format:
-  `AAAA:s "name" $EEEE` where AAAA is the lowest origin,
+  `AAAA:s "name,p" $EEEE` where AAAA is the lowest origin,
   EEEE is one past the highest byte, and name is the loaded
-  filename (or `"out"` if none).
+  filename with `,s` → `,p` suffix (or `"out,p"` if none).
+  Suppressed when no bytes were emitted.
 
-On error, the segment summary and save command are suppressed.
-Only the error count is shown: `; asm...N errors`.
+On error, the segment lines still appear (they print during pass 1)
+but the ok and save lines are suppressed.  The error count is shown:
+`; N errors`.
 
 ## Example Program
 

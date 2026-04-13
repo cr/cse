@@ -70,7 +70,6 @@ s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp quote", 0
 s_bad_insn:     .byte "bad insn", 0
 s_seg_pfx:      .byte "org  ", 0
-; s_seg_dash and s_seg_b eliminated — single-char io_putc instead
 s_save_s:       .byte "s ", $22, 0
 s_save_q_sp:    .byte $22, " $", 0
 s_save_default: .byte "out,p", 0

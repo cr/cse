@@ -22,31 +22,32 @@
 - `asm_size` (2B) — total bytes emitted across all segments
 - `asm_errors` (2B) — error count (pass 1 only)
 
-**Assembly log:** Segment tracking runs silently during both passes
-(no screen I/O mid-pass).  After `asm_assemble` returns, the repl
-`@h_a` handler calls `seg_print_summary` to print the segment list
-and save command.  Output format:
+**Assembly log:** Segment lines print inline during pass 1 via
+`_seg_log_close` (banks KERNAL in temporarily, same as `emit_error`).
+Each `.org`/`.bas` closes the previous segment and opens the next.
+The complete `; org  AAAA-BBBB  NNb` line prints at close time
+(empty segments are suppressed).  After assembly, the repl `@h_a`
+handler prints `; ok` and calls `seg_print_save` for the save command.
 
 ```
-; asm...ok
+; asm...
 ; org  0801-0814  20b
 ; org  1000-1002  3b
 ; org  2000-2003  4b
-0801:s "t-org" $2004
+; ok
+0801:s "t-org,p" $2004
 ```
 
-Segment lines are informational comments (`;` prefix, no `$` on
-addresses).  The save command is an executable REPL line — placed
-last so cursor-up+return saves the PRG.  The filename comes from
-`cur_filename` (set by the last `l` or `s` command); if empty,
-defaults to `"out"`.
+Segment lines are comments (`;` prefix, no `$` on addresses).
+The save command is an executable REPL line — placed last so
+cursor-up+return saves the PRG.  The filename comes from
+`cur_filename` with `,s` → `,p` suffix swap; defaults to `"out,p"`.
+Suppressed when no segments were emitted (`_min_pc` == $FFFF).
 
 **Exported segment API:**
-- `seg_print_summary` — prints segment list + save command.
-  Called by repl `@h_a` after successful assembly.
-  Uses repl logging API (`out_log_open`, `io_puthex4`, `io_putdec`,
-  `out_close`).
-- `_min_pc` (2B) — global lowest origin
+- `seg_print_save` — prints executable save command.
+  Called by repl `@h_a` after successful assembly (KERNAL banked in).
+- `_min_pc` (2B) — global lowest origin ($FFFF = no segments)
 - `_max_pc` (2B) — global highest byte (exclusive, ready for save)
 
 ### _define_ws_syms
@@ -144,10 +145,8 @@ for the full list, parameters, and per-pass behaviour.
 `_expr_buf` (48B), `_as_conv` (1B, screen code conversion flag),
 `_eb_idx` (1B, write index into _expr_buf),
 `_ib_idx` (1B, write index into _insn_buf),
-`_seg_pc` (2B, current segment start),
-`_seg_start_lo/hi` + `_seg_end_lo/hi` (4×8 = 32B, segment table),
-`_seg_count` (1B), `_org_set` (1B),
-`_min_pc` (2B), `_max_pc` (2B)
+`_seg_pc` (2B, current segment start), `_min_pc` (2B),
+`_max_pc` (2B), `_seg_open` (1B), `_org_set` (1B)
 
 ## Caveats
 
