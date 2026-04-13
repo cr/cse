@@ -816,8 +816,7 @@ BASIC_REM = $8F
 
         lda #0
         ldx #0
-        jsr _emit_word          ; end of BASIC ($0000)
-        rts
+        jmp _emit_word          ; end of BASIC ($0000), tail call
 .endproc
 
 
@@ -1357,9 +1356,7 @@ BASIC_REM = $8F
         lda _line_num
         ldx _line_num+1
         jsr io_putdec
-        lda #<s_trunc
-        ldx #>s_trunc
-        jsr io_puts
+        puts s_trunc
         jsr out_close
         jsr _bank_out_tmp
 @no_trunc:
