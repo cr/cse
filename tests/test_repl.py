@@ -193,6 +193,13 @@ class ReplSymbols:
             return bin_data[off] | (bin_data[off + 1] << 8)
         self.kplot_stub = read_word(rodata_base + 10 * 2)
         self.newline_count = read_word(rodata_base + 9 * 2)
+
+        # Disk I/O witnesses (stub-local BSS, offset from stub_bss_offs)
+        stub_bss = seg['BSS'] + stub_bss_offs
+        self.save_addr   = stub_bss + 185
+        self.save_size   = stub_bss + 187
+        self.load_result = stub_bss + 189
+
         # ZP
         self.expr_ptr = exp['expr_ptr']
         self.expr_val = exp['expr_val']
@@ -820,6 +827,131 @@ class TestDotHexEdit:
         run_at(cpu, rsyms.exec_line)
         assert cpu.memory[addr] == 0xA9
         assert cpu.memory[addr + 1] == 0x42
+
+
+# ── R. Load/Save command tests ─────────────────────────────────────
+
+def get_cur_filename(cpu, rsyms):
+    """Read cur_filename as a Python string."""
+    chars = []
+    for i in range(17):
+        b = cpu.memory[rsyms.cur_filename + i]
+        if b == 0:
+            break
+        chars.append(chr(b) if 0x20 <= b < 0x80 else '?')
+    return ''.join(chars)
+
+
+class TestSaveCommand:
+    """PRG save via 's' command — argument parsing + disk stub witness."""
+
+    def test_save_quoted_name_prg(self, rsyms):
+        """s "foo" saves as PRG with default block_size."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x0800)
+        set_line_buf(cpu, rsyms, 's "foo"')
+        run_at(cpu, rsyms.exec_line)
+        assert get_cur_filename(cpu, rsyms) == "FOO"
+        assert get_word(cpu, rsyms.save_addr) == 0x0800
+        assert get_word(cpu, rsyms.save_size) == 0x0010  # block_size default
+
+    def test_save_with_end_addr(self, rsyms):
+        """0800:s "out,p" $0900 — end addr from expression."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x0800)
+        set_line_buf(cpu, rsyms, 's "out,p" $0900')
+        run_at(cpu, rsyms.exec_line)
+        assert get_word(cpu, rsyms.save_addr) == 0x0800
+        assert get_word(cpu, rsyms.save_size) == 0x0100  # $0900 - $0800
+
+    def test_save_two_args(self, rsyms):
+        """s "out,p" $1000 $2000 — explicit start and end."""
+        cpu = make_cpu(rsyms)
+        set_line_buf(cpu, rsyms, 's "out,p" $1000 $2000')
+        run_at(cpu, rsyms.exec_line)
+        assert get_word(cpu, rsyms.save_addr) == 0x1000
+        assert get_word(cpu, rsyms.save_size) == 0x1000  # $2000 - $1000
+
+    def test_save_two_args_relative(self, rsyms):
+        """s "out,p" $1000 $100 — end < start → relative."""
+        cpu = make_cpu(rsyms)
+        set_line_buf(cpu, rsyms, 's "out,p" $1000 $100')
+        run_at(cpu, rsyms.exec_line)
+        assert get_word(cpu, rsyms.save_addr) == 0x1000
+        # end = $100 + $1000 - 1 = $10FF, size = $10FF - $1000 = $0FF
+        assert get_word(cpu, rsyms.save_size) == 0x00FF
+
+    def test_save_no_name_no_prev(self, rsyms):
+        """s with no name and no prior filename → error, no save."""
+        cpu = make_cpu(rsyms)
+        # Ensure cur_filename is empty
+        cpu.memory[rsyms.cur_filename] = 0
+        set_cur_addr(cpu, rsyms, 0x0800)
+        set_line_buf(cpu, rsyms, "s")
+        # Clear save witness
+        set_word(cpu, rsyms.save_size, 0xFFFF)
+        run_at(cpu, rsyms.exec_line)
+        # save_size should be untouched (stub not called)
+        assert get_word(cpu, rsyms.save_size) == 0xFFFF
+
+    def test_save_reuse_prev_name(self, rsyms):
+        """s "foo" then s (no name) reuses "foo"."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x0800)
+        # First save establishes the name
+        set_line_buf(cpu, rsyms, 's "foo"')
+        run_at(cpu, rsyms.exec_line)
+        assert get_cur_filename(cpu, rsyms) == "FOO"
+        # Second save with no name
+        set_line_buf(cpu, rsyms, "s")
+        set_word(cpu, rsyms.save_size, 0)
+        run_at(cpu, rsyms.exec_line)
+        assert get_word(cpu, rsyms.save_addr) == 0x0800
+        assert get_word(cpu, rsyms.save_size) == 0x0010
+
+    def test_save_unquoted_is_expr(self, rsyms):
+        """s $0900 — unquoted arg is end addr, not filename."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x0800)
+        # Pre-set cur_filename so the save has a name
+        for i, b in enumerate(b"prev\x00"):
+            cpu.memory[rsyms.cur_filename + i] = b
+        set_line_buf(cpu, rsyms, "s $0900")
+        run_at(cpu, rsyms.exec_line)
+        assert get_word(cpu, rsyms.save_addr) == 0x0800
+        assert get_word(cpu, rsyms.save_size) == 0x0100
+
+    def test_save_addr_prefix(self, rsyms):
+        """0801:s "test,p" $2004 — assembler save command format."""
+        cpu = make_cpu(rsyms)
+        set_line_buf(cpu, rsyms, '0801:s "test,p" $2004')
+        run_at(cpu, rsyms.exec_line)
+        assert get_word(cpu, rsyms.save_addr) == 0x0801
+        assert get_word(cpu, rsyms.save_size) == 0x2004 - 0x0801
+
+
+class TestLoadCommand:
+    """PRG load via 'l' command — argument parsing."""
+
+    def test_load_quoted_name(self, rsyms):
+        """l "test" loads at cur_addr."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0xC000)
+        # Pre-set load result to simulate 16 bytes loaded
+        set_word(cpu, rsyms.load_result, 0x0010)
+        set_line_buf(cpu, rsyms, 'l "test"')
+        run_at(cpu, rsyms.exec_line)
+        assert get_cur_filename(cpu, rsyms) == "TEST"
+
+    def test_load_with_addr(self, rsyms):
+        """l "test" $d000 — explicit load address."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0xC000)
+        set_word(cpu, rsyms.load_result, 0x0010)
+        set_line_buf(cpu, rsyms, 'l "test" $d000')
+        run_at(cpu, rsyms.exec_line)
+        # cur_addr stays $C000 (the AAAA: prefix sets it, not the arg)
+        assert get_cur_filename(cpu, rsyms) == "TEST"
 
 
 # ── Q. Step into JSR — ROM target falls back to step-over ───────

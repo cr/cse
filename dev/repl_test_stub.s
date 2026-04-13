@@ -46,6 +46,7 @@
         .export floppy_status, floppy_read_status, fl_buf
         .export list_directory
         .export disk_load_prg, disk_save_prg
+        .export _save_addr, _save_size, _load_result
         .importzp disk_ptr, rp_tmp, buf_base
 
 ; ── Exports: editor stubs ─────────────────────────────────────
@@ -83,6 +84,7 @@ sym_refs:
         .addr cur_addr, cur_device, cur_filename
         .addr line_buf, last_cmd, block_size
         .addr newline_count, kplot_stub
+        .addr _save_addr, _save_size, _load_result
 
 ; ═══════════════════════════════════════════════════════════════
 ; BSS — test state + stubs (ZP provided by zp.s)
@@ -121,6 +123,11 @@ ed_dirty:      .res 1
 asm_org:       .res 2
 asm_size:      .res 2
 fl_buf:        .res 32
+
+; Disk I/O witnesses (test instrumentation)
+_save_addr:    .res 2          ; addr passed to disk_save_prg
+_save_size:    .res 2          ; size passed to disk_save_prg
+_load_result:  .res 2          ; size returned by disk_load_prg
 
 ; Theme
 theme_border:  .res 1
@@ -355,14 +362,20 @@ floppy_read_status:
 list_directory:
         rts
 
-; disk_load_prg(name, addr) — returns loaded size in A/X (0 = error)
+; disk_load_prg(name, addr) — returns size from _load_result
 disk_load_prg:
-        lda #0
-        tax
+        lda _load_result
+        ldx _load_result+1
         rts
 
-; disk_save_prg(name, addr, size) — returns 0 (ok)
+; disk_save_prg(name, addr, size) — capture params, return 0
 disk_save_prg:
+        sta _save_size
+        stx _save_size+1
+        lda $FB
+        sta _save_addr
+        lda $FC
+        sta _save_addr+1
         lda #0
         rts
 
