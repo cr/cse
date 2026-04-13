@@ -127,6 +127,19 @@ Defined scope, needs work.
   Centers the target line on screen as much as possible.  Ties
   into assembler error line numbers — assemble, see error at
   line 42, type `e 42` to jump straight there.
+- [ ] `l`/`s` log line: always show actual file type suffix (`,s`
+  or `,p`) in the `; load/save "name"...` output, even when the
+  user omitted it.  The user should see what CBM DOS mode is used.
+- [ ] Refactor internal default filename to a global project name
+  without file type extension (e.g. `"test"`).  Actual filenames
+  `"test,s"` and `"test,p"` are derived on demand.  The project
+  name is set by source loads and saves only.  `l`/`s` without a
+  string argument derive from the project name; error if none set.
+  Replaces `cur_filename` (which stores the raw name with suffix).
+- [ ] Investigate more shared logic for `l`/`s` argument parsing
+  and filename handling.  `parse_ls_args`, `print_op_name`, and
+  `print_prg_range` are a start — look for further dedup in the
+  SEQ/PRG branches, error paths, and stats display.
 
 ### Help
 
@@ -159,7 +172,8 @@ Defined scope, needs work.
   expr_val clobber, filename `,s`→`,p`).  Streaming segment lines
   during pass 1, `; ok` + save command after.  +70 B, 6 tests.
 - [ ] Assembly `; ok` line: show symbol count (`; ok  NNN syms`).
-  Needs `sym_count` (2B BSS) in symtab.s, incremented by `sym_define`.
+  Needs `sym_count` (2B BSS) in symtab.s, incremented by `sym_define`,
+  but only if the sysmbol didn't exist before.
 
 ### Editor
 
