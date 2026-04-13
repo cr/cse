@@ -10,6 +10,8 @@
         .export theme_init
         .import io_puts, io_sync, io_color
         .import scr_lo, scr_hi
+        .import _io_scr_setup
+        .importzp _io_scr
 
 ; NOTE: No runtime ZP dependencies (no sp, popax, etc.)
 
@@ -227,12 +229,10 @@ theme_fg:     .res 1
         jsr scroll_up
         lda #SCR_H-1
         sta CUR_ROW
-        lda #0
-        sta CUR_COL
-        jmp io_sync
+        bne @col0               ; always taken (SCR_H-1 = 24 ≠ 0)
 @no_scroll:
         inc CUR_ROW
-        lda #0
+@col0:  lda #0
         sta CUR_COL
         jmp io_sync
 .endproc
@@ -242,15 +242,11 @@ theme_fg:     .res 1
 ; cursor_show / cursor_hide — XOR $80 at cursor position
 ; ═════════════════════════════════════════════════════════
 .proc cursor_show
-        ldx CUR_ROW
-        lda scr_lo,x
-        sta src_ptr
-        lda scr_hi,x
-        sta src_ptr+1
+        jsr _io_scr_setup       ; _io_scr ← screen row for CUR_ROW
         ldy CUR_COL
-        lda (src_ptr),y
+        lda (_io_scr),y
         eor #$80
-        sta (src_ptr),y
+        sta (_io_scr),y
         rts
 .endproc
 

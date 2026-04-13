@@ -18,6 +18,7 @@
         .export io_color
         .export io_blip
         .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
+        .export _io_scr_setup   ; shared row pointer setup (used by screen.s)
 
         ; NMI handler — pure asm, no C prologue.
         .export nmi_handler
