@@ -692,6 +692,12 @@ _seg_init:
 ;   Called by repl @h_a after successful assembly (KERNAL banked in).
 ;   Format: AAAA:s "name" $BBBB
 seg_print_save:
+        ; Skip if no segments (_min_pc still $FFFF sentinel)
+        lda _min_pc
+        and _min_pc+1
+        cmp #$FF
+        beq @ret
+        jsr newline
         lda _min_pc
         ldx _min_pc+1
         jsr io_puthex4
@@ -726,6 +732,7 @@ seg_print_save:
         ldx _max_pc+1
         jsr io_puthex4
         jmp io_clear_eol        ; clear rest of line; caller does newline
+@ret:   rts
 
 ; ── emit_bas ──────────────────────────────────────────────────────────────
 ; Emit a single-line BASIC SYS stub at asm_pc.

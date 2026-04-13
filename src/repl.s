@@ -3783,8 +3783,7 @@ free_line:
         jsr out_log_open
         puts str_ok
         jsr out_close
-        ; Print executable save command on next line
-        jsr newline
+        ; Print executable save command (handles its own newline)
         jsr seg_print_save
         ; sym_lookup("main") — ZP interface
         lda #<str_main
