@@ -270,6 +270,16 @@ nl_clear:
         jsr newline
         jmp io_clear_eol
 
+; out_err_nl — print error + nl_clear (9 call sites)
+out_err_nl:
+        jsr out_err
+        jmp nl_clear
+
+; out_close_nl — close log + nl_clear (5 call sites)
+out_close_nl:
+        jsr out_close
+        jmp nl_clear
+
 ; ───────────────────────────────────────────────────────────
 ; puts_imm — print an inline RODATA string pointer.
 ;
@@ -1522,8 +1532,7 @@ parse_hex4_ptr1:
         bne @show               ; success → show result
         lda #<str_syntax
         ldx #>str_syntax
-        jsr out_err
-        jmp nl_clear
+        jmp out_err_nl
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -2191,8 +2200,7 @@ VIC_MEMCTL = $D018
         lda expr_val
         ldx expr_val+1
         jsr io_puthex4
-        jsr out_close
-        jmp nl_clear
+        jmp out_close_nl
 
 @list_all:
         ldx #0                  ; slot index
@@ -2251,23 +2259,20 @@ VIC_MEMCTL = $D018
         pla
         jsr bp_open_slot
         puts str_deleted
-        jsr out_close
-        jmp nl_clear
+        jmp out_close_nl
 
 @bad_slot:
         lda #<str_bad_val
         ldx #>str_bad_val
-        jsr out_err
-        jmp nl_clear
+        jmp out_err_nl
 
 @full:  lda #<str_full
         ldx #>str_full
-        jsr out_err
-        jmp nl_clear
+        jmp out_err_nl
 
 @err_b: lda #<str_syntax
         ldx #>str_syntax
-        jsr out_err
+        jmp out_err_nl
 @done:  jmp nl_clear
 .endproc
 
@@ -2697,8 +2702,7 @@ disk_done:
         bne @have_name
         lda #<str_no_name
         ldx #>str_no_name
-        jsr out_err
-        jmp nl_clear
+        jmp out_err_nl
 
 @have_name:
         ; save rp_ptr2 (name) since calls will clobber it
@@ -2850,8 +2854,7 @@ disk_done:
         bne @have_name
         lda #<str_no_name
         ldx #>str_no_name
-        jsr out_err
-        jmp nl_clear
+        jmp out_err_nl
 
 @have_name:
         ; save name ptr
@@ -3025,8 +3028,7 @@ disk_done:
 @range_err:
         lda #<str_range
         ldx #>str_range
-        jsr out_err
-        jmp nl_clear
+        jmp out_err_nl
 
 @done:  jmp disk_done
 .endproc
@@ -3548,8 +3550,7 @@ free_line:
 @unknown:
         lda #<str_cmd
         ldx #>str_cmd
-        jsr out_err
-        jmp nl_clear
+        jmp out_err_nl
 
 ; ── Handlers ──────────────────────────────────────────────
 @h_dot: jmp cmd_dot
@@ -3761,8 +3762,7 @@ free_line:
         lda #' '
 @u_p2:  jsr io_putc
 .endif
-        jsr out_close
-        jmp nl_clear
+        jmp out_close_nl
 @h_a:   ; a — assemble source
         ldy #LOG_INFO
         jsr out_log_open        ; "; " — line stays open
@@ -3921,8 +3921,7 @@ free_line:
         jsr io_putc
 
 @calc_done:
-        jsr out_close
-        jmp nl_clear
+        jmp out_close_nl
 
 @calc_err:
         ldy #LOG_ERR
@@ -3930,8 +3929,7 @@ free_line:
         puts str_expr
         jsr expr_error_str
         jsr io_puts
-        jsr out_close
-        jmp nl_clear
+        jmp out_close_nl
 @h_quit:; Q (PETSCII $D1) — quit (guard unsaved)
         jsr check_unsaved
         bcc @q_cancel
@@ -4023,8 +4021,7 @@ free_line:
         bne @c_has_ctx
         lda #<str_no_break
         ldx #>str_no_break
-        jsr out_err
-        jmp nl_clear
+        jmp out_err_nl
 @c_has_ctx:
         ; delete hit breakpoint before continuing
         lda dbg_bp_hit
