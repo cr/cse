@@ -14,8 +14,13 @@
 ; Invariant: all BRKs always unpatched before returning to REPL.
 ;
 ; Context switch: dbg_enter uses JSR+JMP(indirect) — user code shares
-; the CSE 6502 stack.  The BRK handler strips the BRK+KERNAL frame
-; (6 bytes) and RTS returns to dbg_enter.  No stack page swap.
+; the CSE 6502 stack.  The BRK handler restores SP from sp_baseline
+; and RTS returns to dbg_enter.  No stack page swap.
+;
+; The debugger is a consumer of the CSE BRK vector, not the owner.
+; main.s installs cse_brk_handler permanently at $0316; it dispatches
+; to dbg_brk_core when dbg_running != 0.  dbg_enter does NOT touch
+; $0316/$0317.
 ;
 ; See doc/modules/debugger.md for full design.
 
@@ -26,7 +31,7 @@
         .export dbg_bp_count
         .export dbg_bp_find
         .export dbg_enter
-        .export dbg_brk_handler
+        .export dbg_brk_core
         .export dbg_nmi_break
         .export bp_table
         .export dbg_running, dbg_reason, brk_pc, dbg_bp_hit
@@ -80,8 +85,6 @@ sp_baseline:   .res 1          ; SP at @tramp entry (just after jsr @tramp's
                                 ; the user did a JSR would rts through the
                                 ; user-pushed return address and never reach
                                 ; dbg_enter.
-_saved_brk_lo:  .res 1          ; original $0316 value (lo)
-_saved_brk_hi:  .res 1          ; original $0317 value (hi)
 
 ; ── CODE ───────────────────────────────────────────────────────────────
 .segment "CODE"
@@ -348,20 +351,10 @@ dbg_enter:
         dex
         bpl @szp
 
-        ; ── 2. Install our BRK handler ──
-        lda $0316
-        sta _saved_brk_lo
-        lda $0317
-        sta _saved_brk_hi
-        lda #<dbg_brk_handler
-        sta $0316
-        lda #>dbg_brk_handler
-        sta $0317
-
-        ; ── 3. Patch all breakpoints + step BRKs ──
+        ; ── 2. Patch all breakpoints + step BRKs ──
         jsr patch_all
 
-        ; ── 4. Clear stale break state ──
+        ; ── 3. Clear stale break state ──
         ; (dbg_running is set inside @tramp, after sp_baseline is captured —
         ; so there's no window in which the NMI handler could see
         ; dbg_running set but sp_baseline stale.)
@@ -370,7 +363,7 @@ dbg_enter:
         lda #$FF
         sta dbg_bp_hit         ; $FF = no bp hit (set by handler if BRK fires)
 
-        ; ── 5. Enter user code via the trampoline ──
+        ; ── 4. Enter user code via the trampoline ──
         ; jsr @tramp: pushes the return address so the BRK/NMI handler
         ; can rts back here.  @tramp captures sp_baseline, sets the
         ; running flag, loads user A/X/Y/P, and jmps to brk_pc.
@@ -402,30 +395,24 @@ dbg_enter:
         pla                     ; discard saved A
 @user_cap_done:
 
-        ; ── 6. Unpatch all breakpoints ──
+        ; ── 5. Unpatch all breakpoints ──
         jsr unpatch_all
 
-        ; ── 7. Restore $0316 ──
-        lda _saved_brk_lo
-        sta $0316
-        lda _saved_brk_hi
-        sta $0317
-
-        ; ── 8. Restore CSE ZP ──
+        ; ── 6. Restore CSE ZP ──
         ldx #ZP_SAVE_LEN - 1
 @rzp:   lda zp_save_buf,x
         sta ZP_SAVE_LO,x
         dex
         bpl @rzp
 
-        ; ── 9. Re-enable interrupts ──
+        ; ── 7. Re-enable interrupts ──
         ; BRK/NMI handler leaves I=1 (SEI by hardware).
         ; Must restore before returning to REPL or io_getc hangs.
         cli
         rts
 
 ; ── @tramp ─────────────────────────────────────────────────────────
-; Reached via `jsr @tramp` from dbg_enter step 5.
+; Reached via `jsr @tramp` from dbg_enter step 4.
 ;
 ;   1. tsx; stx sp_baseline — capture SP just after jsr @tramp's push.
 ;      This is the SP value the BRK/NMI handlers must restore to so
@@ -452,7 +439,7 @@ dbg_enter:
 
 ; ── snap_user_zp ─────────────────────────────────────────────────────
 ; Copy live ZP $02..$59 → user_zp_buf.  Called at the very start
-; of dbg_brk_handler / dbg_nmi_break (where the live ZP is still
+; of dbg_brk_core / dbg_nmi_break (where the live ZP is still
 ; the user's working state) and from dbg_enter step 6 on the
 ; clean-RTS path (same — user RTSed back, ZP not yet clobbered).
 ;
@@ -474,8 +461,9 @@ dbg_enter:
         rts
 .endproc
 
-; ── dbg_brk_handler ──────────────────────────────────────────────────
-; Entered from KERNAL via ($0316) when BRK fires.
+; ── dbg_brk_core ─────────────────────────────────────────────────────
+; Called from cse_brk_handler (main.s) when user BRK fires
+; (dbg_running != 0).
 ;
 ; Stack at entry (SP+1 upward):
 ;   Y  X  A  P(B=1)  PClo(brk+2)  PChi
@@ -484,7 +472,7 @@ dbg_enter:
 ; The KERNAL's IRQ entry at $FF48 pushes A/X/Y and checks B flag.
 ; BRK dispatch occurs BEFORE any IRQ servicing.
 ;
-dbg_brk_handler:
+dbg_brk_core:
         ; ── 0. Snapshot user ZP before doing anything else.
         ; The handler about to follow uses ZP scratch (e.g.
         ; dbg_bp_find), so the live user ZP must be captured
@@ -580,7 +568,7 @@ dbg_nmi_break:
         sta dbg_bp_hit
 
         ; ── 5. Clear running flag, restore SP to sp_baseline, return ──
-        ; Same trick as dbg_brk_handler: SP = sp_baseline puts the @tramp
+        ; Same trick as dbg_brk_core: SP = sp_baseline puts the @tramp
         ; ret addr at SP+1/SP+2, so rts pops it and lands at "after jsr
         ; @tramp" in dbg_enter — bypassing any user-pushed bytes.
         lda #0

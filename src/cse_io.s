@@ -20,8 +20,6 @@
         .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
         .export _io_scr_setup   ; shared row pointer setup (used by screen.s)
 
-        ; NMI handler — pure asm, no C prologue.
-        .export nmi_handler
         .export nmi_pending
 
 COLS    = 40
@@ -79,30 +77,8 @@ io_init:
         sta $CC                 ; KERNAL cursor off — required invariant
         rts
 
-; ── NMI handler — pure asm, no C prologue ────────────────────────────
-; The KERNAL NMI entry ($FE43) does SEI + JMP ($0318).  It does NOT
-; push A/X/Y — only the CPU's automatic PC + SR are on the stack.
-;
-; Two-path check: if debugger is running user code (dbg_running bit 7),
-; break into the debugger.  Otherwise, set the nmi_pending flag as before.
-;
-        .import dbg_running
-        .import dbg_nmi_break
-
-nmi_handler:
-        bit dbg_running        ; bit 7 → N flag
-        bmi @break_user         ; user code active → debugger break
-        ; Normal NMI (REPL/editor): set flag, RTI
-        pha
-        lda #1
-        sta nmi_pending
-        pla
-        rti
-
-@break_user:
-        ; A/X/Y are live user values — don't clobber them here.
-        ; The debugger handler saves them.
-        jmp dbg_nmi_break
+; NMI handler has moved to main.s (cse_nmi_handler).
+; nmi_pending BSS flag remains here — main.s imports it.
 
 ; ── _io_scr_setup — set _io_scr to screen line address for CUR_ROW ───
 ; Clobbers A, X.

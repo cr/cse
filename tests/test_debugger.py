@@ -153,6 +153,10 @@ class DbgSymbols:
         self.reg_sp = exports.get('reg_sp')
         self.reg_p = exports.get('reg_p')
 
+        # dbg_brk_core is exported by debugger.s — needed for test
+        # setup since dbg_enter no longer installs the BRK vector.
+        self.dbg_brk_core = exports.get('dbg_brk_core')
+
         raw = BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]
@@ -581,7 +585,8 @@ class TestDbgEnterStepIntoJSR:
         mem[dbg_syms.reg_p] = 0x20
 
         # $0316/$0317 placeholder (dbg_enter saves+restores)
-        mem[0x0316] = 0; mem[0x0317] = 0
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
 
         # Drive dbg_enter via the stub.  If the bug is present, this
         # call will appear to "succeed" (returns) but the runaway
@@ -639,7 +644,8 @@ class TestDbgEnterStepIntoJSR:
         mem[dbg_syms.brk_pc + 0] = 0x00
         mem[dbg_syms.brk_pc + 1] = 0x20
         mem[dbg_syms.reg_p] = 0x20
-        mem[0x0316] = 0; mem[0x0317] = 0
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
 
         cmd_dbg_enter(mpu, dbg_syms)
 
@@ -676,7 +682,8 @@ class TestDbgEnterStepIntoJSR:
         mem[0x2011] = 0x60                                              # RTS
 
         mem[dbg_syms.reg_p] = 0x20
-        mem[0x0316] = 0; mem[0x0317] = 0
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
 
         # ── Step 1: brk_pc=$2000 (NOP), next=$2001 ──
         mem[dbg_syms.brk_pc + 0] = 0x00

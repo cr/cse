@@ -1744,12 +1744,20 @@ VIC_MEMCTL = $D018
         ; code's first GETIN/CHRIN call.
         lda #0
         sta $C6                 ; KERNAL kbd buffer count = 0
+        ; Save $01 — user code may change banking config
+        lda $01
+        pha
         jsr dbg_enter
         ; ── KERNAL hygiene on the way back ──
+        ; Restore $01 (memory config) before anything else
+        pla
+        sta $01
         ; Restore $CC = 1 in case user code re-enabled the KERNAL
         ; cursor (cse_io.s's IRQ-safety invariant requires it off).
         lda #1
         sta $CC
+        ; Restore colors (user code may have changed border/bg/fg)
+        jsr restore_colors
         ; Restore VIC charset to lowercase (user code may have
         ; switched to uppercase via VIC_MEMCTL bit 1).
         lda VIC_MEMCTL

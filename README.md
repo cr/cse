@@ -281,21 +281,47 @@ Assemble and run:
 At startup CSE shows the free memory available:
 
       zp 0002-007F      126b free
-     sys 0200-03FF      512b free
-    work XXXX-CFFF    NNNNNb free
+    lo02 02A7-02FF       89b free
+    lo03 0334-03FF      204b free
+    work 0800-XXXX    NNNNNb free
 
 | Region | Address | Use |
 |--------|---------|-----|
-| User ZP | $0002--$007F | Your zero-page variables |
-| System | $0200--$03FF | Usable RAM (below screen) |
+| User ZP | $0002--$007F | Your zero-page variables (saved/restored across run) |
+| Low page 2 | $02A7--$02FF | Free RAM (89 bytes) |
+| Low page 3 | $0334--$03FF | Free RAM (204 bytes, includes tape buffer) |
 | Screen | $0400--$07FF | VIC-II screen RAM |
-| CSE | $0800--cse_end | CSE code and data |
-| Workspace | cse_end--$CFFF | Your programs and data |
+| Workspace | $0800--workend | Your programs and data |
+| CSE | XXXX--$CFFF | CSE code and data |
 | I/O | $D000--$DFFF | VIC-II, SID, CIA |
 | KERNAL | $E000--$FFFF | KERNAL ROM (CSE uses RAM underneath for symbol table) |
 
 CSE unmaps BASIC ROM, so the full $0800--$CFFF range is available
 as contiguous workspace.
+
+### What your code can use
+
+When you run code with `j`, `g`, `t`, or `o`, your program may
+freely use:
+
+- **$02--$7F** — CSE saves and restores these across your run.
+- **$02A7--$02FF** — 89 bytes of free low RAM.
+- **$0334--$03FF** — 204 bytes (tape buffer at $033C--$03FB is
+  included; restore it if you need tape I/O).
+- **$0800--workend** — your workspace.
+
+Your code **must preserve:**
+
+- **$80--$FF** — KERNAL zero page.
+- **$0100--$01FF** — hardware stack (use normally, but balance
+  pushes and pops).
+- **$0200--$02A6** — KERNAL editor state.
+- **$0300--$0333** — KERNAL/CSE vectors.
+
+Your code may use KERNAL I/O (CHROUT, GETIN, etc.) normally.
+CSE restores screen colors, charset, and cursor state on return.
+If your code clears or repaints the screen, press ESC or
+SHIFT+HOME in the REPL to restore the display.
 
 ## Built-in symbols
 

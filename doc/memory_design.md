@@ -91,6 +91,79 @@ or ZP variables.
 | **KDATA** | Read-only tables under KERNAL ROM ($E000–$FFFF), copied from PRG payload at startup |
 | **KBSS** | Uninitialized structures under KERNAL ROM, zeroed at startup (no PRG space) |
 
+## Target Compatibility
+
+CSE targets:
+- Stock C64 KERNAL ROM
+- Stock C128 KERNAL ROM (C64 mode)
+- OpenROMs on C64/C128 hardware (excluding MEMORY_MODEL_60K)
+
+The 60K exclusion means $02A7-$02FF remains usable (the 60K model
+repurposes this range).  Low memory ($0000-$03FF) is assumed to be
+"C64-shaped" across all targets.
+
+## CSE ↔ KERNAL Contract
+
+CSE is a KERNAL-compatible application that replaces BASIC
+interaction while active.
+
+**CSE preserves:**
+- $80-$FF (KERNAL zero page)
+- $0100-$01FF (hardware stack — shared, balanced)
+- Live KERNAL/editor low-memory state ($0200-$02A6, $0300-$0333)
+
+**CSE owns (modifies on init, restores on exit):**
+- $01 (CPU I/O port — unmaps BASIC ROM)
+- $02-$7F (CSE zero page — saved on cold init, restored on exit)
+- $0302/$0303 (IMAIN — BASIC warm-start hook)
+- $0316/$0317 (IBRK — BRK dispatch)
+- $0318/$0319 (INMIV — NMI dispatch)
+
+**Exit obligation:** `cse_exit_to_basic` restores all modified
+vectors, restores $01-$7F from cold-init snapshot, and jumps to
+BASIC warm start via the restored $0302 vector.
+
+**Cold-init snapshots** are stored in KBSS under KERNAL ROM (pure
+writes, no banking needed on save):
+- `_cold_zp` (127 B) — $01-$7F at cold-init entry
+- `_cold_vectors` (6 B) — $0302/$0303, $0316/$0317, $0318/$0319
+
+## User Code Contract
+
+User code is any program executed via `j`, `g`, `t`, `o`, or `c`.
+It runs in CSE's execution context via `dbg_enter`, sharing the
+6502 hardware stack and the KERNAL environment.
+
+**User code may clobber:**
+- $02-$7F (CSE saves/restores across user execution)
+- $02A7-$02FF (89 bytes, free on all supported targets)
+- $0334-$03FF (204 bytes, includes tape buffer at $033C-$03FB)
+- $0800-workend (workspace — user's own assembled output)
+
+**User code must preserve:**
+- $80-$FF (KERNAL zero page)
+- $0100-$01FF (hardware stack — balanced, no net push/pop)
+- $0200-$02A6 (KERNAL editor state, input buffer)
+- $0300-$0333 (KERNAL vectors — CSE hooks are installed here)
+- CSE runtime (XXXX-$CFFF — overwriting CSE code/data is fatal)
+
+**Tape buffer caveat:** $033C-$03FB is the KERNAL tape I/O buffer.
+User code may freely use these 192 bytes, but must restore them
+if the user's own program needs tape or serial I/O through KERNAL
+routines that use this buffer.
+
+**Screen and I/O:** User code may use KERNAL CHROUT ($FFD2) for
+screen output.  CSE does not save/restore screen RAM across user
+execution.  On return, CSE restores VIC charset, $01 memory
+config, and KERNAL cursor state ($CC=1).  If user code clears or
+repaints the screen, ESC or CLR from the REPL restores the CSE
+display.  Colors changed by user code are restored on return.
+
+**Memory config ($01):** CSE saves $01 before entering user code
+and restores it on return.  User code may freely change $01 (e.g.
+to bank in BASIC ROM or access I/O directly), but must ensure
+KERNAL is bankable-in for BRK/NMI handling.
+
 ## Memory Map — Runtime (all targets)
 
     $0000-$00FF  Zero page (see § Zero Page Layout)
@@ -99,7 +172,10 @@ or ZP variables.
       $58-$7F    Free (40 bytes, available for user programs)
       $80-$FF    KERNAL work area
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
-    $0200-$03FF  KERNAL work area
+    $0200-$02A6  KERNAL editor state, input buffer (reserved)
+    $02A7-$02FF  Free (89 bytes, user code may use)
+    $0300-$0333  KERNAL vectors (CSE hooks at $0302, $0316, $0318)
+    $0334-$03FF  Free (204 bytes, user code may use)
     $0400-$07E7  Screen RAM (40×25, VIC bank 0)
     $07E8-$07FF  Sprite pointers (unused by CSE)
     $0800        workstart — first free workspace byte
@@ -152,13 +228,15 @@ regions are zeroed (no PRG space required).
     $F000-$F0FF  Free (256 B)
     $F100-$F4F1  KDATA: asm/dasm lookup tables (1010 B)
     $F4F2-$F8D9  KBSS: REPL screen save buffer (1000 B)
-    $F8DA-$FEFF  Free (1574 B)
+    $F8DA-$F958  KBSS: cold-init ZP snapshot (127 B, $01-$7F)
+    $F959-$F95E  KBSS: cold-init vector snapshot (6 B)
+    $F95F-$FEFF  Free (1440 B)
     $FF00-$FF09  KDATA: NMI trampoline (10 B)
     $FFFA-$FFFF  Hardware vectors (NMI/RESET/IRQ)
 
     KDATA total:  1020 B (in PRG payload)
-    KBSS total:   4840 B (zeroed, no PRG space)
-    Free:         2070 B (+ 256 earmarked)
+    KBSS total:   4973 B (zeroed, no PRG space)
+    Free:         1696 B (+ 256 earmarked)
 
 ## Stack budget
 
@@ -168,8 +246,9 @@ available to user code when they run it via `j`, `g`, `t`, or `o`.
 
 **Startup resets SP.**  `loader.s::loader_entry` begins with
 `ldx #$FF / txs`, wiping whatever BASIC's `SYS` command left.
-This is safe because CSE never returns to BASIC — the main loop
-is `jmp @loop` and `@exit` halts via its own infinite loop.  Every
+The BASIC `SYS` return frame is intentionally discarded — CSE
+exits via `cse_exit_to_basic` (vector/ZP restore + BASIC warm
+start) rather than returning through the `SYS` call chain.  Every
 subsequent `jsr` therefore layers onto a cleanly empty stack.
 
 **Stack depth at user-code entry.**  Traced from the main loop

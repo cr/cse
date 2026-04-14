@@ -8,6 +8,18 @@ Open bugs, roughly ordered by priority.
   Not yet reproducible.  Suspect: `disk_load_prg` or
   `ed_load_source` not handling KERNAL file-not-found error,
   or floppy status channel read blocking.
+- [ ] INS in REPL: overwrites char under cursor with space and
+  replaces char to the right with the adjacent character.
+  Should shift row right and insert a space at cursor.
+- [ ] `?` (calculator) wrong decimal output for values >= $2000.
+  `? 2000` shows `2111` instead of `8192`.  `? 1999` is correct.
+  Needs test coverage for io_putdec across the full 16-bit range.
+- [ ] `a` save line writes filename "oup" — truncates the base
+  name and overwrites its last char.  Should append `,p` to the
+  full filename, not overwrite.
+- [ ] `l "out,p" $2000` doesn't load to $2000.  PRG load with
+  explicit address should honour the address argument, including
+  the 2-byte load-address header.
 - [ ] RUN/STOP debounce: bounces when held.  Primary mode-switch
   key feels broken.
 - [ ] `.` (disassembly) shows CSE ZP instead of user ZP after
@@ -96,6 +108,11 @@ systems, ASM stubs, and test-specific linker configs.
   (hardcoded `+185`/`+187`/`+189`) is fragile — consider
   exporting witnesses via a cross-module import trick or
   reading from the RODATA sym_refs table like kplot_stub.
+- [ ] Use debug builds and `od65 --dump-all foo.o` for extracting
+  all symbols (exported and unexported) from object files for
+  testing.  Use stripped production builds only for superficial
+  end-to-end integration tests.  This eliminates fragile BSS
+  offset computation and map-file parsing in test harnesses.
 - [ ] Migrate remaining test files to C64Emu + full PRG.  Each old
   test file (test_repl, test_cse_io, test_expr, test_symtab,
   test_debugger, test_au_mode, test_mnhash, test_asm_line,

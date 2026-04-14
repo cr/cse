@@ -25,6 +25,7 @@
         .import dbg_bp_patch, dbg_bp_unpatch
         .import dbg_bp_find
         .import dbg_enter
+        .import dbg_brk_core
         .import bp_table, step_bp
         .import dbg_running, dbg_reason, brk_pc, dbg_bp_hit
 
@@ -73,6 +74,13 @@ RVAL    = $0B04
         rts                     ; unknown command
 
 @init:  jsr dbg_init
+        ; Install BRK handler at $0316 — dbg_enter no longer does this.
+        ; CSE production code has cse_brk_handler (main.s) permanently
+        ; installed; in tests we point directly to dbg_brk_core.
+        lda #<dbg_brk_core
+        sta $0316
+        lda #>dbg_brk_core
+        sta $0317
         rts
 
 @set:   lda ARG1                ; addr lo

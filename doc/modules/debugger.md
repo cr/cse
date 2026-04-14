@@ -15,10 +15,10 @@
 
 ### _dbg_init
 **In:** none
-**Out:** breakpoint table zeroed, BRK vector saved, flags cleared
+**Out:** breakpoint table zeroed, flags cleared
 **Clobbers:** A, X
 
-Called once at startup.  Saves the default $0316 value.
+Called at startup and on warm-start recovery.
 
 ### _dbg_enter
 **In:** `_reg_a`, `_reg_x`, `_reg_y`, `_reg_p` — user register
@@ -28,17 +28,18 @@ breakpoints (if any).
 `_reg_*`, `_dbg_reason`, `_dbg_bp_hit` updated.
 **Clobbers:** A, X, Y, ptr1
 
-Saves CSE ZP, installs BRK handler, patches breakpoints, then
-`jsr @tramp` to enter user code.  `@tramp` captures `sp_baseline`
+Saves CSE ZP, patches breakpoints, then `jsr @tramp` to enter
+user code.  `@tramp` captures `sp_baseline`
 (SP just after the jsr push), sets `dbg_running`, restores user
 A/X/Y/P, and `jmp (brk_pc)`.  User code shares the CSE 6502 stack.
 When a BRK or NMI fires, the handler restores SP from `sp_baseline`
 and RTS returns to dbg_enter — see below for why.  After @tramp
-returns, dbg_enter unpatches breakpoints, restores $0316, restores
-CSE ZP, and RTS.
+returns, dbg_enter unpatches breakpoints, restores CSE ZP,
+and RTS.  The debugger does NOT install or restore BRK/NMI
+vectors — CSE owns them permanently (see [main.md](main.md)).
 
-### _dbg_brk_handler
-**In:** called from KERNAL via ($0316) on BRK
+### _dbg_brk_core
+**In:** called from `cse_brk_handler` (main.s) when user BRK fires
 **Out:** RTS to `_dbg_enter` via `sp_baseline`
 **Clobbers:** A, X
 
@@ -132,8 +133,6 @@ length for step), cse_io (NMI handler upgrade)
 | `_brk_pc` | 2 | PC at break / resume address |
 | `_dbg_bp_hit` | 1 | Slot of breakpoint hit ($FF = none) |
 | `_sp_baseline` | 1 | SP at @tramp entry — handler restores SP to this on BRK/NMI |
-| `_saved_brk_lo` | 1 | Original BRK vector lo ($0316) |
-| `_saved_brk_hi` | 1 | Original BRK vector hi ($0317) |
 
 ## Command Reassignment
 
@@ -234,10 +233,13 @@ Stack at handler entry (SP = user_SP − 3):
   — A, X, Y are live (NOT on stack) —
 ```
 
-The NMI handler is upgraded with a two-path check:
+The NMI dispatcher lives in main.s (`cse_nmi_handler`).  When
+`dbg_running` bit 7 is set, it dispatches to `dbg_nmi_break` in
+debugger.s.  Otherwise it sets `nmi_pending` and RTI.
 
 ```asm
-_nmi_handler:
+; in main.s:
+cse_nmi_handler:
         bit _dbg_running        ; bit 7 → N flag
         bmi @break_user         ; user code active → break
         ; Normal NMI (REPL/editor): set flag, RTI
@@ -261,7 +263,7 @@ _nmi_handler:
 - KERNAL NMI entry does NOT push A/X/Y.  Handler saves from regs.
 - The CPU NMI frame is 3 bytes (not 6 like BRK+KERNAL), but the
   handler still uses the same `sp_baseline` trick to return — see
-  `_dbg_brk_handler` for the rationale.
+  `dbg_brk_core` for the rationale.
 
 ### Context switch
 
@@ -280,38 +282,38 @@ KERNAL banking.  The same approach as `jsr_addr` in asm_line.s.
 
 ```
 1.  Save CSE ZP ($02–$5A) → _zp_save_buf
-2.  Save $0316/$0317, install _dbg_brk_handler
-3.  patch_all: write $00 at all enabled bp + step slots
-4.  Set _dbg_running = $80
-5.  PHA _reg_p, load A/X/Y from _reg_*, PLP
-6.  JSR @tramp → JMP (_brk_pc) → user code
+2.  patch_all: write $00 at all enabled bp + step slots
+3.  Set _dbg_running = $80
+4.  PHA _reg_p, load A/X/Y from _reg_*, PLP
+5.  JSR @tramp → JMP (_brk_pc) → user code
     ... user code runs, BRK fires ...
-    ... handler extracts regs, strips frame, RTS back here ...
-7.  unpatch_all: restore original bytes
-8.  Restore $0316/$0317
-9.  Restore CSE ZP from _zp_save_buf
-10. RTS to C caller
+    ... cse_brk_handler dispatches to dbg_brk_core ...
+    ... handler restores SP, RTS back here ...
+6.  unpatch_all: restore original bytes
+7.  Restore CSE ZP from _zp_save_buf
+8.  CLI + RTS
 ```
 
 `dbg_enter` is a **normal function call** — it returns after the
-BRK/NMI handler strips its stack frame and RTS back to step 7.
+BRK/NMI handler restores SP to `sp_baseline` and RTS pops the
+@tramp return address.
 
-**BRK handler** (entered from KERNAL via $0316):
+**BRK handler** (`dbg_brk_core`, called from `cse_brk_handler`):
 
 ```
-1.  Extract Y, X, A, P, PClo, PChi from stack (fixed offsets)
-2.  _brk_pc = PChi:PClo − 2
-3.  _reg_sp = SP + 6 (strip BRK+KERNAL frame from user's view)
-4.  _dbg_bp_find(_brk_pc) → _dbg_bp_hit
-5.  _dbg_running = 0
-6.  Strip 6-byte frame (tsx; adc #6; txs)
-7.  RTS → dbg_enter step 7
+1.  Snapshot user ZP → user_zp_buf
+2.  Extract Y, X, A, P, PClo, PChi from stack (fixed offsets)
+3.  _brk_pc = PChi:PClo − 2
+4.  _reg_sp = SP + 6 (user's pre-BRK SP)
+5.  _dbg_bp_find(_brk_pc) → _dbg_bp_hit
+6.  _dbg_running = 0
+7.  SP = sp_baseline; RTS → dbg_enter step 6
 ```
 
-**NMI handler** (entered from cse_io.s when `_dbg_running` bit 7 set):
+**NMI handler** (`dbg_nmi_break`, called from `cse_nmi_handler`):
 
 Same pattern but saves A/X/Y from live regs (NMI doesn't push them)
-and strips 3 bytes (CPU frame only, no KERNAL regs).
+and computes `_reg_sp = SP + 3` (CPU frame only, no KERNAL regs).
 
 **Trade-off:** user code shares the CSE stack.  Deep CSE call chains
 + deep user subroutines could overflow.  For single-step, user code
@@ -670,6 +672,7 @@ stepped-subroutine TODO is implemented.
   follow return addresses — the user must `c` or `j` to continue.
 - Self-modifying code may overwrite a patched BRK byte between the
   patch and the hit, causing the breakpoint to be silently lost.
-- User's $0316 (BRK vector) is saved/restored.  If user code sets
-  $0316 between breakpoint patches, the user's handler will not fire
-  until the debugger is inactive.
+- $0316 (BRK vector) is permanently owned by CSE.  If user code
+  overwrites $0316, the debugger's BRK dispatch is bypassed.
+  User code must preserve KERNAL vectors per the user code
+  contract (see [memory_design.md](../memory_design.md)).

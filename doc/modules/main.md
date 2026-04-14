@@ -10,9 +10,15 @@
 
 ## Interface
 
-- `_main` — initialization + main loop (jumped to by `loader.s`
-  after relocation, BSS zero, KDATA copy)
+- `_main` — entry point (jumped to by `loader.s` after
+  relocation, BSS zero, KDATA copy).  Contains three layers:
+  `cse_cold_init`, `cse_warm_start`, and `main_loop`.
 - `state` — exported BSS byte: 0=STOP, 1=REPL, 2=EDIT
+
+**Interrupt handlers (owned by main.s):**
+- `cse_brk_handler` — permanent BRK dispatcher at $0316/$0317
+- `cse_nmi_handler` — permanent NMI dispatcher at $0318/$0319
+- `cse_basic_warm_hook` — BASIC warm-start intercept at $0302/$0303
 
 **Depends on:** repl, editor, screen, cse_io, debugger, symtab,
 disk, mem
@@ -26,46 +32,63 @@ debugger.s, asm_line.s.
 **BSS (1 byte):** `state` (1) — run mode (ST_STOP=0, ST_REPL=1,
 ST_EDIT=2).
 
+**KBSS (cold-init snapshots, under KERNAL ROM):**
+- `_cold_zp` (127 B) — snapshot of $01-$7F at cold-init entry
+- `_cold_vectors` (6 B) — snapshot of $0302-$0303, $0316-$0317,
+  $0318-$0319 at cold-init entry
+
 ## Design
 
-Startup is handled by `loader.s` (PRG) — see
-[memory_design.md § Loader Module](../memory_design.md).
-The loader resets SP, relocates CODE+RODATA to high memory,
-zeros BSS, copies KDATA, then `jmp _main`.
+### Three-layer architecture
 
-Main init (`_main`):
-1. Enable key repeat for all keys (`KEY_REPEAT |= $80`).
-2. Disable BASIC ROM (clear bit 0 of `$01`).
-3. Init `state`, `cur_device`, `block_size`.
-4. `io_init` (disables KERNAL cursor, IRQ-safety invariant).
-5. `theme_init` (copy build-time theme defaults to BSS — see
-   [screen.md](screen.md)).
-6. `reset_screen`, set lowercase charset, `kernal_init`
-   (NMI trampoline + KDATA banking flag).
-7. `ed_ensure_init` (initialize the gap buffer; required
-   *before* `define_ws_syms` because `workend` reads
-   `buf_base`).
-8. `sym_clear`, `define_ws_syms`, `dbg_init`.
-9. Splash, prompt, enter the main loop.
+#### Layer 1: `cse_cold_init` (one-time setup)
 
-Main loop:
-1. `io_getc` → into `@key`.
-2. NMI check first (priority over keypress): if `nmi_pending`,
-   leave any active editor session, switch to REPL, print the
-   `; nmi break` banner, show prompt, loop.
-3. RUN/STOP key (`CH_STOP=$03`) toggles REPL ↔ editor by
-   calling `enter_editor` / `leave_editor`, then debounces
-   the key (waits for release at `$91` and drains queued
-   repeats from `$C6`).
-4. In editor mode, dispatches the key to `ed_handle_key`.
-5. In REPL mode, handles RETURN, DEL, INS, cursor keys, HOME,
-   CLR/ESC, and printable characters directly.  Refused keys
-   (cursor off-screen, DEL before the AAAA: prompt, etc.)
-   route through `@reject` which calls `io_blip` then loops.
+Runs once after `loader.s` jumps to `_main`.  Saves $01-$7F
+and vectors to KBSS, unmaps BASIC ROM, inits all subsystems,
+fills free memory, installs permanent hooks, draws splash,
+then jumps directly to `main_loop`.
 
-Exit (`q` or `state == ST_STOP`): `jmp $FCE2` (KERNAL cold
-start).  This re-initializes the C64 to BASIC; CSE memory is
-overwritten.
+#### Layer 2: `cse_warm_start` (idempotent recovery)
+
+Reachable from `cse_brk_handler` (internal fault) and
+`cse_basic_warm_hook`.  Must NOT depend on previous state.
+Resets SP, restores $01=$36, reinstalls hooks, calls `dbg_init`,
+resets globals, reinits I/O/theme/colors/charset, falls through
+to `cse_warm_screen`.
+
+`cse_warm_screen` — secondary entry point (screen recovery):
+clears screen, draws prompt, falls through to `main_loop`.
+Used by ESC/CLR key, NMI-in-REPL, and warm-start tail.
+
+Cold init draws the splash then jumps directly to `main_loop`,
+bypassing `cse_warm_screen` (which would clear the splash).
+
+| Entry point | Used by | Severity |
+|-------------|---------|----------|
+| `cse_warm_start` | `cse_brk_handler` (CSE fault), `cse_basic_warm_hook` | Hard recovery |
+| `cse_warm_screen` | ESC/CLR key, NMI-in-REPL, warm-start tail | Screen recovery |
+
+#### Layer 3: `main_loop` (event loop)
+
+Reads keys via `io_getc`, dispatches based on mode (NMI check,
+RUN/STOP toggle, editor keys, REPL keys).
+
+### Permanent hooks
+
+| Vector | Address | Hook | Purpose |
+|--------|---------|------|---------|
+| IMAIN | $0302/$0303 | `cse_basic_warm_hook` | Intercept BASIC warm start |
+| IBRK | $0316/$0317 | `cse_brk_handler` | Unified BRK dispatch |
+| INMIV | $0318/$0319 | `cse_nmi_handler` | Unified NMI dispatch |
+
+### Exit path
+
+`cse_exit_to_basic` restores vectors and $01-$7F from KBSS
+snapshots, then `jmp ($0302)` (BASIC warm start).
+
+### Splash screen
+
+Shows zp, lo02, lo03, and work free ranges at startup.
 
 ## Keyboard
 
@@ -100,8 +123,10 @@ Handled by `ed_handle_key()`.  See [editor.md](editor.md).
 
 - Hex parsing helpers (`hex_val`, `parse_hex*`, `skip_sp`) are
   local to repl.s.
-- NMI handler lives in cse_io.s.  main.s installs the vector
-  and checks the `nmi_pending` flag (owned by cse_io.s).
+- NMI and BRK handlers live in main.s.  `nmi_pending` BSS flag
+  remains in cse_io.s (main.s imports it).
 - `src_top`/`src_bot` are owned by editor.s.
 - `ed_ensure_init` is called at startup to initialize the gap
   buffer before `define_ws_syms` (workend needs `buf_base`).
+- `cse_warm_start` must not call `leave_editor` — editor state
+  may be corrupt.
