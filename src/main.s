@@ -94,6 +94,7 @@ COLD_VEC     = $F959          ; 6 bytes: $0302-$0303, $0316-$0317, $0318-$0319
 .segment "BSS"
 
 state:       .res 1              ; ST_STOP=0, ST_REPL=1, ST_EDIT=2
+warm_guard:  .res 1              ; nonzero = warm start in progress
 
 ; ── RODATA ───────────────────────────────────────────────────
 .segment "RODATA"
@@ -604,6 +605,12 @@ splash_row:
 
 ; ═════════════════════════════════════════════════════════════
 ; cse_brk_handler — permanent BRK dispatcher ($0316)
+;
+; No register save needed here:
+;   User path: KERNAL $FF48 already pushed A/X/Y to the stack
+;     before JMP ($0316).  dbg_brk_core reads them at fixed
+;     stack offsets.  Our `lda` clobbers A but not the stack copy.
+;   Warm-start path: resets SP to $FF — all state discarded.
 ; ═════════════════════════════════════════════════════════════
 cse_brk_handler:
         lda dbg_running
@@ -636,6 +643,12 @@ cse_basic_warm_hook:
 ; Layer 2: cse_warm_start — idempotent recovery
 ; ═════════════════════════════════════════════════════════════
 cse_warm_start:
+        ; Re-entry guard: if warm start itself BRKs, don't loop —
+        ; fall through to KERNAL cold start as last resort.
+        lda warm_guard
+        bne @hard_fail
+        inc warm_guard
+
         ldx #$FF
         txs
         lda #$36
@@ -647,7 +660,14 @@ cse_warm_start:
         jsr theme_init
         jsr restore_colors
         jsr set_charset
+
+        lda #0
+        sta warm_guard
         ; Fall through to cse_warm_screen
+        jmp cse_warm_screen
+
+@hard_fail:
+        jmp $FCE2               ; KERNAL cold start — last resort
 
 ; ═════════════════════════════════════════════════════════════
 ; cse_warm_screen — screen recovery tail
@@ -660,6 +680,11 @@ cse_warm_screen:
 
 ; ═════════════════════════════════════════════════════════════
 ; cse_exit_to_basic — clean exit to BASIC warm start
+;
+; Order: sei → bank out KERNAL (to read KBSS) → restore vectors →
+; restore $02-$7F → restore $01 (re-banks KERNAL+BASIC) → cli →
+; jmp ($0302).  $01 must be restored LAST because it controls
+; banking: we need KERNAL banked out while reading KBSS snapshots.
 ; ═════════════════════════════════════════════════════════════
 cse_exit_to_basic:
         sei
