@@ -82,6 +82,9 @@ CH_ESC       = $1B
 CUR_COL      = $D3
 CUR_ROW      = $D6
 
+TXTTAB       = $0801          ; BASIC program text start (stock C64)
+WORKSTART    = TXTTAB - 1    ; first workspace byte ($0800)
+
 ; Cold-init snapshot location (KBSS, under KERNAL ROM).
 ; Reserved exclusively for main.s — see memory_design.md § Banked layout.
 ; Pure writes pass through to RAM regardless of $01 bit 1.
@@ -185,9 +188,9 @@ s_free:       .byte "b free", 0
         ; (link pointer $0000 = end of program).
         ; Hi-byte-only termination is safe: cse_start (__CODE_RUN__)
         ; is page-aligned by compute_layout.py (& $FF00).
-        lda #<$0800
+        lda #<WORKSTART
         sta rp_ptr
-        lda #>$0800
+        lda #>WORKSTART
         sta rp_ptr+1
         jsr cse_start          ; A/X = runtime start hi in X
         ldy #0
@@ -285,8 +288,8 @@ s_free:       .byte "b free", 0
         lda #SCREEN_HEIGHT - 5
         jsr splash_row
         puts s_work_tag
-        lda #<$0800
-        ldx #>$0800
+        lda #<WORKSTART
+        ldx #>WORKSTART
         jsr io_puthex4
         puts s_dash
         jsr cse_start          ; A/X = runtime start
@@ -301,13 +304,13 @@ s_free:       .byte "b free", 0
         lda #' '
         jsr io_putc
         jsr io_putc
-        ; byte count = cse_start - $0800
+        ; byte count = cse_start - WORKSTART
         jsr cse_start
         sec
-        sbc #<$0800
+        sbc #<WORKSTART
         pha
         txa
-        sbc #>$0800
+        sbc #>WORKSTART
         tax
         pla
         jsr io_putdec
@@ -704,6 +707,9 @@ cse_exit_to_basic:
         lda COLD_ZP
         sta MEM_CONFIG
         cli
+        ; TXTTAB-1 must be $00 for BASIC's LINKPRG.
+        lda #0
+        sta TXTTAB - 1
         ; Reinit screen I/O (clear screen, default colors, uppercase)
         jsr $FF81               ; KERNAL CINT
         ; BASIC warm start — READY prompt + input loop

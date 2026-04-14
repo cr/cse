@@ -86,8 +86,10 @@ for fault recovery.
 ### Exit path
 
 `cse_exit_to_basic`: RESTOR ($FF8A) restores $0314-$0333
-defaults, $01-$7F restored from KBSS snapshot, CINT ($FF81)
-reinits screen, `jmp ($A002)` enters BASIC warm start.
+defaults, $01-$7F restored from KBSS snapshot, writes $00 to
+`($2B)-1` (byte before TXTTAB) so BASIC's program link chain
+is clean, CINT ($FF81) reinits screen, `jmp ($A002)` enters
+BASIC warm start.
 
 ### Splash screen
 

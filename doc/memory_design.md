@@ -120,8 +120,10 @@ interaction while active.
 
 **Exit obligation:** `cse_exit_to_basic` calls KERNAL RESTOR
 ($FF8A) to restore $0314-$0333 to defaults, restores $01-$7F
-from cold-init snapshot, calls CINT ($FF81) to reinit screen,
-and enters BASIC warm start via `JMP ($A002)`.
+from cold-init snapshot, writes $00 to `($2B)-1` (byte before
+TXTTAB, stabilises BASIC's program link chain), calls CINT
+($FF81) to reinit screen, and enters BASIC warm start via
+`JMP ($A002)`.
 
 **Hook installation** uses KERNAL VECTOR ($FF8D) to read-modify-
 write the $0314-$0333 table atomically.
