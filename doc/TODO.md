@@ -49,14 +49,17 @@ Open bugs, roughly ordered by priority.
   caller.  Fix: 256 B user-stack snapshot at `$EF00` under
   KERNAL (copy page 1 on debug entry/exit).  Acceptable
   trade-off for now.
-- [ ] Debugger: `t1` traces over taken branches.  Confirmed
-  reproducible.  `dbg_enter` layer is correct (test
-  `TestDbgEnterBranchStep` passes — reg_p flags correctly
-  saved/restored, branch follows target).  Bug is in `cmd_step`
-  (repl.s), not `dbg_enter` (debugger.s).  Investigate how
-  `cmd_step` arms step BRKs for conditional branches — the
-  `compute_rel_target` + `rp_next_hi` logic, or the reg_p
-  state between iterations of the step loop.
+- [ ] Debugger: `t1` runs entire loop instead of single-stepping
+  a taken branch.  Reproduction: LDX #5 / DEX / BNE loop,
+  step to BNE, `t1` → X=0 (loop ran to completion), brk_pc
+  at fall-through (RTS), not at taken target (DEX).  The BRK
+  at the taken target was either never patched or invisible
+  to the CPU.  `dbg_enter` layer is correct (3 py65 tests
+  pass: `TestDbgEnterBranchStep`).  Bug is between `cmd_step`
+  arming `step_bp` and `patch_all` writing the BRK — something
+  clears or overwrites step_bp, or `patch_all` skips the slot.
+- [ ] Assembler: `bne <nonexisting symbol>` reports "bad insn",
+  should report an expression/symbol error instead.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
@@ -185,6 +188,13 @@ Defined scope, needs work.
   and filename handling.  `parse_ls_args`, `print_op_name`, and
   `print_prg_range` are a start — look for further dedup in the
   SEQ/PRG branches, error paths, and stats display.
+
+### Debugger
+
+- [ ] Single-RETURN single-step workflow: bare `t` (repeated via
+  RETURN) should default to 1 step when there's an active debug
+  context (`dbg_reason != 0`), not `block_size`.  Enables rapid
+  `t1, RETURN, RETURN, RETURN...` stepping.
 
 ### Help
 

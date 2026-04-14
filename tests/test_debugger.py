@@ -806,3 +806,75 @@ class TestDbgEnterBranchStep:
             f"step 3: BNE should be TAKEN (Z=0), brk_pc=${bp:04X} "
             f"(want $2002, got fall-through $2005 if Z wrong)"
         )
+
+    def test_branch_step_mimics_cmd_step(self, dbg_syms):
+        """Mimic the exact cmd_step flow: three separate dbg_enter
+        calls with step_bp re-arm between them.  Each call is
+        independent (ZP saved/restored, patches applied/removed).
+
+        User program at $2000:
+          LDX #$05     ; 2 bytes
+          DEX          ; 1 byte
+          BNE $2002    ; 2 bytes (offset $FD = -3)
+          RTS          ; 1 byte
+
+        Step 1: brk_pc=$2000, step at $2002 → LDX, brk at $2002
+        Step 2: brk_pc=$2002, step at $2003 → DEX (X:5→4), brk at $2003
+        Step 3: brk_pc=$2003, step at $2002+$2005 → BNE, should brk at $2002
+        """
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+        _install_kernal_brk_stub(mem)
+
+        mem[0x2000] = 0xA2; mem[0x2001] = 0x05  # LDX #$05
+        mem[0x2002] = 0xCA                        # DEX
+        mem[0x2003] = 0xD0; mem[0x2004] = 0xFD   # BNE $2002
+        mem[0x2005] = 0x60                        # RTS
+
+        mem[dbg_syms.reg_a] = 0
+        mem[dbg_syms.reg_x] = 0
+        mem[dbg_syms.reg_y] = 0
+        mem[dbg_syms.reg_p] = 0x20
+        mem[dbg_syms.reg_sp] = 0xFF
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
+
+        # ── Step 1: LDX #$05 ──
+        mem[dbg_syms.brk_pc] = 0x00; mem[dbg_syms.brk_pc+1] = 0x20
+        # Clear and arm step_bp
+        for i in range(8): mem[dbg_syms.step_bp + i] = 0
+        mem[dbg_syms.step_bp + 0] = 0x02  # target $2002
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 3] = 1     # enabled
+        cmd_dbg_enter(mpu, dbg_syms)
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc+1] << 8)
+        assert bp == 0x2002, f"step 1: ${bp:04X}"
+        assert mem[dbg_syms.reg_x] == 5
+
+        # ── Step 2: DEX ──
+        for i in range(8): mem[dbg_syms.step_bp + i] = 0
+        mem[dbg_syms.step_bp + 0] = 0x03
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 3] = 1
+        cmd_dbg_enter(mpu, dbg_syms)
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc+1] << 8)
+        assert bp == 0x2003, f"step 2: ${bp:04X}"
+        assert mem[dbg_syms.reg_x] == 4
+        p = mem[dbg_syms.reg_p]
+        assert (p & 0x02) == 0, f"Z should be 0, reg_p=${p:02X}"
+
+        # ── Step 3: BNE — should take branch to $2002 ──
+        for i in range(8): mem[dbg_syms.step_bp + i] = 0
+        mem[dbg_syms.step_bp + 0] = 0x02  # taken
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 3] = 1
+        mem[dbg_syms.step_bp + 4] = 0x05  # fall-through
+        mem[dbg_syms.step_bp + 5] = 0x20
+        mem[dbg_syms.step_bp + 7] = 1
+        cmd_dbg_enter(mpu, dbg_syms)
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc+1] << 8)
+        x_val = mem[dbg_syms.reg_x]
+        assert bp == 0x2002, (
+            f"step 3: BNE should stop at $2002 (taken), got ${bp:04X}. "
+            f"X={x_val} (4=one BNE, 0=loop ran to completion)"
+        )
