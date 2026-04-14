@@ -4,9 +4,10 @@
 
 Open bugs, roughly ordered by priority.
 
-- [ ] Disable C64 SHIFT+C= mode switch on CSE init: write `$80` to
-  `$0291` (MODE).  Restore `$00` on exit.  Currently SHIFT+C= in
-  the REPL toggles the character set, corrupting the display.
+- [x] ~~Disable C64 SHIFT+C= mode switch on CSE init~~ (fixed: main.s)
+- [ ] `i` command output shows stale memory map.  The workspace
+  range, symbol table, heap, and stack addresses need updating to
+  match the current KERNAL RAM layout (Phase 8/14 reorg).
 - [ ] `.const FOO 1234` then `sta FOO` doesn't find the symbol.
   `sta foo` works.  Uppercase `.const` names not found by
   uppercase lookup, only by lowercase.  Assembler normalises
@@ -48,6 +49,9 @@ Open bugs, roughly ordered by priority.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
+- [ ] Debugger: refuse to write breakpoints outside workspace memory
+  (`$0800`–`__CODE_RUN__`).  Writing BRK to KERNAL, I/O, or CSE
+  code corrupts the system.  `bp_set` and `bp_patch` must range-check.
 
 ### Fixed bugs (reference)
 

@@ -134,10 +134,12 @@ s_free:       .byte "b free", 0
 ; ═════════════════════════════════════════════════════════════
 .proc _main                     ; entry point label for loader.s
 
-        ; ── 1. All keys repeat ──
+        ; ── 1. All keys repeat, disable SHIFT+C= charset switch ──
         lda KEY_REPEAT
         ora #$80
         sta KEY_REPEAT
+        lda #$80
+        sta $0291               ; MODE: $80 = disable SHIFT+C=
 
         ; ── 2. Save $01-$7F to KBSS cold snapshot ──
         ; Pure write: stores under KERNAL pass through to RAM.
@@ -690,6 +692,9 @@ cse_warm_screen:
 ; ═════════════════════════════════════════════════════════════
 cse_exit_to_basic:
         sei
+        ; Re-enable SHIFT+C= charset switch
+        lda #$00
+        sta $0291
         ; Restore $0314-$0333 to KERNAL defaults (one call)
         jsr KERNAL_RESTOR
         ; Bank out KERNAL to read KBSS ZP snapshot
