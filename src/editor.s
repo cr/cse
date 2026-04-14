@@ -2122,7 +2122,7 @@ _ed_cur_row:
         clc
         adc @new_col
         cmp #SCREEN_WIDTH       ; > 39 → refuse
-        bcs @reject
+        jcs @reject
         ; Compute the new ed_cur_col: ed_cur_col + char_width(TAB, ed_cur_col).
         lda #$A0
         ldx ed_cur_col
@@ -2175,6 +2175,25 @@ _ed_cur_row:
         cmp #$0D
         bne @print_done
 @do_smart_colon:
+        ; Skip if line contains ';' (comment — colon is not a label)
+        jsr find_line_start     ; ed_scr = line start
+@sc_scan:
+        lda ed_scr
+        cmp gap_lo
+        bne @sc_peek
+        lda ed_scr+1
+        cmp gap_lo+1
+        beq @sc_ok              ; reached cursor → no semicolon found
+@sc_peek:
+        ldy #0
+        lda (ed_scr),y
+        cmp #';'
+        beq @print_done         ; semicolon found → skip strip
+        inc ed_scr
+        bne @sc_scan
+        inc ed_scr+1
+        jmp @sc_scan
+@sc_ok:
         jsr _strip_leading_tab
 @print_done:       jsr render_current_row
         jmp @repos              ; skip over @reject — no blip on success

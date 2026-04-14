@@ -155,6 +155,14 @@ class TestSmartIndent:
         type_keys(emu, b"LOOP:")
         assert read_back(emu) == b"LOOP:"
 
+    def test_colon_in_comment_no_strip(self, cse_prg):
+        """Typing ':' at EOL after ';' does NOT strip gutter."""
+        emu = make_emu(cse_prg)
+        type_keys(emu, [0xA0])
+        type_keys(emu, b"; NOTE:")
+        # Semicolon in line → colon is in a comment, gutter stays
+        assert read_back(emu)[:1] == b"\xa0"
+
     def test_colon_mid_line_no_strip(self, cse_prg):
         """Typing ':' mid-line does NOT strip gutter."""
         emu = make_emu(cse_prg)
