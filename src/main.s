@@ -85,6 +85,7 @@ CUR_COL      = $D3
 CUR_ROW      = $D6
 
 ; Cold-init snapshot locations (KBSS, under KERNAL ROM).
+; Reserved exclusively for main.s — see memory_design.md § Banked layout.
 ; Pure writes pass through to RAM regardless of $01 bit 1.
 COLD_ZP      = $F8DA          ; 127 bytes: snapshot of $01-$7F
 COLD_VEC     = $F959          ; 6 bytes: $0302-$0303, $0316-$0317, $0318-$0319
@@ -180,6 +181,8 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
         bcc @zp
 
         ; ── 10. Fill free work area ($0800 to cse_start-1) with $FF ──
+        ; Hi-byte-only termination is safe: cse_start (__CODE_RUN__)
+        ; is page-aligned by compute_layout.py (& $FF00).
         lda #<$0800
         sta rp_ptr
         lda #>$0800
