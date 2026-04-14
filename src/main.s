@@ -549,6 +549,9 @@ main_loop:
 ; install_hooks — write all three permanent vectors
 ; ═════════════════════════════════════════════════════════════
 install_hooks:
+        ; SEI around vector writes — an NMI between writing the lo/hi
+        ; bytes of $0318 would read a half-written vector and JAM.
+        sei
         lda #<cse_basic_warm_hook
         sta VEC_IMAIN
         lda #>cse_basic_warm_hook
@@ -561,6 +564,7 @@ install_hooks:
         sta VEC_INMIV
         lda #>cse_nmi_handler
         sta VEC_INMIV+1
+        cli
         rts
 
 ; ── reset_globals — init state, device, block size, cur_addr ──
@@ -667,6 +671,10 @@ cse_warm_start:
 ; ═════════════════════════════════════════════════════════════
 cse_warm_screen:
         jsr reset_screen
+        ; Cursor to last row for prompt
+        lda #SCREEN_HEIGHT - 1
+        sta CUR_ROW
+        jsr io_sync
         jsr io_clear_eol
         jsr show_prompt
         jmp main_loop
@@ -709,4 +717,8 @@ cse_exit_to_basic:
         lda COLD_ZP
         sta MEM_CONFIG
         cli
+        ; Reinit screen I/O: clear screen, default colors, uppercase
+        ; charset.  Without this, BASIC inherits CSE's green theme
+        ; and lowercase charset.
+        jsr $FF81               ; KERNAL CINT
         jmp (VEC_IMAIN)

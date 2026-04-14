@@ -141,10 +141,9 @@ Defined scope, needs work.
 - [ ] `>` command: transfer/copy memory block.
 - [ ] `=` command: define/query symbols from REPL.
 - [ ] `r` command: uppercase set flags (`NV-BDIZC` vs `nv-bdizc`).
-- [ ] `r` command: accept expressions for register values
-  (`r a:cols-1`).  Currently plain hex only (`r a:FF`).
 - [ ] `m` address argument: accept expression (`m screen+40`).
   Currently plain 4-digit hex only.
+- [ ] New `S` command for scratching files. Requires confirmation.
 - [ ] Disk command channel: unified under `$` (`$ s:file`, `$9`, etc.).
 - [ ] Floppy status consistency: `$` prints status inline (always
   shows), `l`/`s` use `floppy_status` via `disk_done`.  Verify
