@@ -4,15 +4,6 @@
 
 Open bugs, roughly ordered by priority.
 
-- [x] NMI trampoline corrupted $01 by banking KERNAL in without
-  restore.  Fixed: trampoline no longer modifies $01 (the NMI
-  handler chain runs entirely in main RAM, no KERNAL ROM needed).
-  Added defensive IRQ/BRK trampoline at $FF04 for the case where
-  BRK fires with KERNAL unmapped.
-- [x] IRQ/BRK trampoline at $FF04 verified safe.  IRQs cannot
-  fire during kernal_bank_out (SEI).  User BRK while unmapped:
-  trampoline banks KERNAL in, but `run_user` restores $01 from
-  the stack on return to CSE — no permanent corruption.
 - [ ] `.const FOO 1234` then `sta FOO` doesn't find the symbol.
   `sta foo` works.  Uppercase `.const` names not found by
   uppercase lookup, only by lowercase.  Assembler normalises
@@ -49,13 +40,6 @@ Open bugs, roughly ordered by priority.
   caller.  Fix: 256 B user-stack snapshot at `$EF00` under
   KERNAL (copy page 1 on debug entry/exit).  Acceptable
   trade-off for now.
-- [x] Debugger: `t1` ran entire loop instead of single-stepping
-  a taken branch.  Root cause: `compute_rel_target` did
-  `ldy #0` before `bpl`, clobbering the N flag from the
-  loaded branch offset.  Negative offsets were treated as
-  positive (+253 instead of -3), placing the step BRK at
-  the wrong address ($0902 instead of $0802).  Fixed by
-  testing N before the LDY.
 - [ ] Assembler: `bne <nonexisting symbol>` reports "bad insn",
   should report an expression/symbol error instead.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
@@ -90,6 +74,14 @@ Open bugs, roughly ordered by priority.
 - [x] asm_src test stub blank line truncation — $FF EOF sentinel.
 - [x] `dev/test.d64` T-COUNT: renamed from COUNTDOWN, loads and
   displays correctly after page-alignment fix.
+- [x] NMI trampoline corrupted $01 — trampoline no longer modifies
+  $01; handler chain runs in main RAM.  Added IRQ/BRK trampoline
+  at $FF04 (defensive).  Phase 14.
+- [x] IRQ/BRK trampoline verified safe — IRQs blocked by SEI,
+  user BRK path returns through `run_user` which restores $01.
+- [x] `t1` step over taken branches — `compute_rel_target` clobbered
+  N flag with `ldy #0` before `bpl`.  Negative offsets treated as
+  positive.  Fixed with BIT-abs skip trick.  Phase 14.
 
 </details>
 
