@@ -14,11 +14,11 @@ Tests the guarantees defined in doc/cse_io_api.md:
 - _io_tmp preservation across io_putc (safe for io_puts)
 """
 
-import re
 import subprocess
 import pathlib
 import pytest
 from py65.devices.mpu6502 import MPU
+from conftest import SymbolTable
 
 ROOT  = pathlib.Path(__file__).parent.parent
 BUILD = ROOT / "build"
@@ -27,82 +27,60 @@ DEV   = ROOT / "dev"
 
 IO_BIN = BUILD / "cse_io_test.bin"
 IO_MAP = BUILD / "cse_io_test.map"
-IO_LST = BUILD / "cse_io.lst"
+IO_LBL = BUILD / "cse_io_test.lbl"
 
 SCREEN = 0x0400
 COLS   = 40
 ROWS   = 25
 
+_ZP_SIZE    = 0x100
+_CODE_START = 0x4000
+
 # ── Build ────────────────────────────────────────────────────────────────────
 
+_SOURCES = [SRC / "zp.s", SRC / "cse_io.s", DEV / "cse_io_test_stub.s"]
+
 def _needs_rebuild():
-    if not IO_BIN.exists() or not IO_MAP.exists():
+    if not IO_BIN.exists() or not IO_LBL.exists():
         return True
     mtime = IO_BIN.stat().st_mtime
-    sources = [SRC / "zp.s", SRC / "cse_io.s", DEV / "cse_io_test_stub.s", DEV / "test.cfg"]
-    return any(s.stat().st_mtime > mtime for s in sources)
+    return any(s.stat().st_mtime > mtime for s in _SOURCES + [DEV / "test.cfg"])
 
 
 def _build():
     BUILD.mkdir(exist_ok=True)
-    subprocess.run(["ca65", "--cpu", "6502",
-                    str(SRC / "zp.s"), "-o", str(BUILD / "zp_io.o")], check=True)
-    subprocess.run(["ca65", "--cpu", "6502", "--listing", str(IO_LST),
-                    str(SRC / "cse_io.s"), "-o", str(BUILD / "cse_io.o")], check=True)
-    subprocess.run(["ca65", "--cpu", "6502", "--listing", str(BUILD / "cse_io_test_stub.lst"),
-                    str(DEV / "cse_io_test_stub.s"), "-o", str(BUILD / "cse_io_test_stub.o")], check=True)
+    objs = []
+    for src in _SOURCES:
+        obj = BUILD / f"{src.stem}_io.o"
+        subprocess.run(["ca65", "-g", "--cpu", "6502",
+                        str(src), "-o", str(obj)], check=True)
+        objs.append(str(obj))
     subprocess.run(["ld65", "-C", str(DEV / "test.cfg"),
-                    str(BUILD / "zp_io.o"),
-                    str(BUILD / "cse_io.o"), str(BUILD / "cse_io_test_stub.o"),
-                    "-o", str(IO_BIN), "-m", str(IO_MAP)], check=True)
-
-
-def _parse_segments():
-    seg = {}
-    in_seg = False
-    for line in IO_MAP.read_text().splitlines():
-        if line.startswith("Segment list"):
-            in_seg = True; continue
-        if in_seg:
-            m = re.match(r"(\w+)\s+([0-9a-fA-F]+)\s+", line)
-            if m: seg[m.group(1)] = int(m.group(2), 16)
-    return seg
-
-
-def _parse_listing_syms():
-    offsets = {}
-    for line in IO_LST.read_text().splitlines():
-        m = re.match(r"^([0-9a-fA-F]+)r\s+\d+\s.*?\b(_?io_\w+):", line)
-        if m: offsets[m.group(2)] = int(m.group(1), 16)
-    return offsets
+                    *objs,
+                    "-o", str(IO_BIN), "-m", str(IO_MAP),
+                    "-Ln", str(IO_LBL)], check=True)
 
 
 class IoSymbols:
     def __init__(self):
         if _needs_rebuild(): _build()
-        seg = _parse_segments()
-        ofs = _parse_listing_syms()
-        code = seg.get("CODE", 0x4000)
-        self.io_init      = code + ofs["io_init"]
-        self.io_sync      = code + ofs["io_sync"]
-        self.io_putc      = code + ofs["io_putc"]
-        self.io_puts      = code + ofs["io_puts"]
-        self.io_puthex4   = code + ofs["io_puthex4"]
-        self.io_puthex2   = code + ofs["io_puthex2"]
-        self.io_putdec    = code + ofs["io_putdec"]
-        self.io_clear_eol = code + ofs["io_clear_eol"]
-        self.io_kbhit     = code + ofs["io_kbhit"]
-        self._io_tmp      = ofs.get("_io_tmp", 0)  # ZP address
-        raw = IO_BIN.read_bytes()
-        self._zp_start = seg.get("ZEROPAGE", 0)
-        self._code_start = code
-        self._zp_size = 0x100
-        self._raw = raw
+        s = SymbolTable(IO_LBL)
+        self.io_init      = s["io_init"]
+        self.io_sync      = s["io_sync"]
+        self.io_putc      = s["io_putc"]
+        self.io_puts      = s["io_puts"]
+        self.io_puthex4   = s["io_puthex4"]
+        self.io_puthex2   = s["io_puthex2"]
+        self.io_putdec    = s["io_putdec"]
+        self.io_clear_eol = s["io_clear_eol"]
+        self.io_kbhit     = s["io_kbhit"]
+        self._io_tmp      = s.get("_io_tmp", 0)
+        self._raw = IO_BIN.read_bytes()
 
     def load_into(self, memory):
-        memory[self._zp_start:self._zp_start + self._zp_size] = self._raw[:self._zp_size]
-        code_blob = self._raw[self._zp_size:]
-        memory[self._code_start:self._code_start + len(code_blob)] = code_blob
+        memory[0:_ZP_SIZE] = self._raw[:_ZP_SIZE]
+        code_blob = self._raw[_ZP_SIZE:]
+        memory[_CODE_START:_CODE_START + len(code_blob)] = code_blob
 
 
 @pytest.fixture(scope="session")

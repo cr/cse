@@ -5,7 +5,7 @@ Binaries are built once per session (cached in build/) and rebuilt
 automatically whenever their source files are newer than the cached binary.
 All test binaries are assembled with -g (debug symbols) and linked with
 -Ln (VICE label file) so that ALL symbols — exported, internal, and
-@local — are available at absolute addresses via parse_lbl().
+@local — are available at absolute addresses via SymbolTable.
 
 Fixtures provided
 -----------------
@@ -38,24 +38,55 @@ _CODE_START = 0x4000
 _ZP_SIZE    = 0x0100
 
 
-# ── Shared symbol parser ────────────────────────────────────────────────────
+# ── Symbol resolution ───────────────────────────────────────────────────────
 #
 # All test bundles are assembled with ca65 -g and linked with ld65 -Ln.
 # The .lbl file (VICE label format) contains every label — exported,
 # module-internal, and @local — at its absolute address.
+#
+# SymbolTable encapsulates the file format so test code never touches
+# paths, regexes, or file formats directly.
 
-def parse_lbl(lbl_path):
-    """Parse a VICE label file → {name: address}.
+class SymbolTable:
+    """Resolved symbol addresses from a debug-built .lbl file.
 
-    Format: ``al HEXADDR .NAME`` (one per line).
-    Returns a dict mapping symbol names to integer addresses.
+    Test code accesses symbols by name; the file format and location
+    are encapsulated.  Usage::
+
+        syms = SymbolTable(lbl_path)
+        addr = syms["mode_parse"]    # __getitem__
+        addr = syms.get("foo", 0)    # .get() with default
+        "bar" in syms                # __contains__
     """
-    syms = {}
-    for line in pathlib.Path(lbl_path).read_text().splitlines():
-        m = re.match(r"al\s+([0-9a-fA-F]+)\s+\.(\S+)", line)
-        if m:
-            syms[m.group(2)] = int(m.group(1), 16)
-    return syms
+
+    def __init__(self, lbl_path):
+        self._syms = {}
+        for line in pathlib.Path(lbl_path).read_text().splitlines():
+            m = re.match(r"al\s+([0-9a-fA-F]+)\s+\.(\S+)", line)
+            if m:
+                self._syms[m.group(2)] = int(m.group(1), 16)
+
+    def __getitem__(self, name):
+        try:
+            return self._syms[name]
+        except KeyError:
+            avail = ", ".join(sorted(self._syms)[:20])
+            raise KeyError(
+                f"Symbol {name!r} not found. "
+                f"Available: {avail}..."
+            ) from None
+
+    def __contains__(self, name):
+        return name in self._syms
+
+    def get(self, name, default=None):
+        return self._syms.get(name, default)
+
+    def __len__(self):
+        return len(self._syms)
+
+    def keys(self):
+        return self._syms.keys()
 
 
 # ── asm_core bundle ──────────────────────────────────────────────────────────
@@ -126,7 +157,7 @@ class AsmCoreSymbols:
         if _ac_needs_rebuild():
             _ac_build()
 
-        s = parse_lbl(_AC_LBL)
+        s = SymbolTable(_AC_LBL)
 
         # au_mode entry points
         self.mode_parse       = s["mode_parse"]
@@ -221,7 +252,7 @@ class MnHashBinary:
         if _mn_needs_rebuild(variant):
             _mn_build(variant)
 
-        s = parse_lbl(_MN_LBL[variant])
+        s = SymbolTable(_MN_LBL[variant])
 
         self.mn_c1    = s['mn_c1']
         self.mn_c2    = s['mn_c2']
@@ -321,7 +352,7 @@ class AsmSrcSymbols:
         if _as_needs_rebuild():
             _as_build()
 
-        s = parse_lbl(_AS_LBL)
+        s = SymbolTable(_AS_LBL)
 
         # Stub entry points and BSS vars (previously required fragile
         # segment-offset computation from the map file)
@@ -416,7 +447,7 @@ class DasmSymbols:
         if _dasm_needs_rebuild():
             _dasm_build()
 
-        s = parse_lbl(_DASM_LBL)
+        s = SymbolTable(_DASM_LBL)
 
         self.dasm_test_entry = s["dasm_test_entry"]
         self.asm_cpu         = s["asm_cpu"]

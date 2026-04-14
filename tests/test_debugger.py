@@ -8,8 +8,9 @@ Test binary: debugger.s + debugger_test_stub.s
 Protocol: write command byte + args at $0B00, JSR dbg_test_entry.
 """
 
-import subprocess, pathlib, re, pytest
+import subprocess, pathlib, pytest
 from py65.devices.mpu6502 import MPU
+from conftest import SymbolTable
 
 ROOT  = pathlib.Path(__file__).parent.parent
 BUILD = ROOT / "build"
@@ -18,6 +19,7 @@ DEV   = ROOT / "dev"
 
 BIN = BUILD / "debugger_test.bin"
 MAP = BUILD / "debugger_test.map"
+LBL = BUILD / "debugger_test.lbl"
 
 _ZP_START   = 0x0000
 _CODE_START = 0x4000
@@ -35,127 +37,53 @@ BP_SIZE  = 4
 
 # ── Build ────────────────────────────────────────────────────
 
-_SOURCES = [SRC / "zp.s", SRC / "debugger.s", DEV / "debugger_test_stub.s", DEV / "test.cfg"]
+_SOURCES = [SRC / "zp.s", SRC / "debugger.s", DEV / "debugger_test_stub.s"]
 
 def _needs_rebuild():
-    if not BIN.exists(): return True
+    if not BIN.exists() or not LBL.exists(): return True
     t = BIN.stat().st_mtime
-    return any(s.stat().st_mtime > t for s in _SOURCES)
+    return any(s.stat().st_mtime > t for s in _SOURCES + [DEV / "test.cfg"])
 
 def _build():
     BUILD.mkdir(exist_ok=True)
-    for name, src in [("zp_dbg", SRC / "zp.s"),
-                      ("debugger", SRC / "debugger.s"),
-                      ("debugger_test_stub", DEV / "debugger_test_stub.s")]:
-        subprocess.run(["ca65", "--cpu", "6502", str(src),
-                        "-o", str(BUILD / f"{name}.o")], check=True)
+    objs = []
+    for src in _SOURCES:
+        obj = BUILD / f"{src.stem}_dbg.o"
+        subprocess.run(["ca65", "-g", "--cpu", "6502",
+                        str(src), "-o", str(obj)], check=True)
+        objs.append(str(obj))
     subprocess.run(["ld65", "-C", str(DEV / "test.cfg"),
-                    str(BUILD / "zp_dbg.o"),
-                    str(BUILD / "debugger.o"), str(BUILD / "debugger_test_stub.o"),
-                    "-o", str(BIN), "-m", str(MAP)], check=True)
-
-def _parse_map():
-    """Parse segment starts, module offsets, and exports from the ld65 map file.
-
-    Returns (segments, module_offsets, exports) where:
-      segments = {'CODE': start, 'BSS': start, ...}
-      module_offsets = {'debugger.o': {'CODE': offs, 'BSS': offs}, ...}
-      exports = {'dbg_init': addr, ...}
-    """
-    text = MAP.read_text()
-    lines = text.splitlines()
-
-    segments = {}
-    module_offsets = {}
-    exports = {}
-    current_module = None
-
-    # Parse segments from "Segment list" section
-    for line in lines:
-        m = re.match(r'^(CODE|BSS|RODATA|ZEROPAGE)\s+([0-9a-fA-F]+)\s+', line)
-        if m:
-            segments[m.group(1)] = int(m.group(2), 16)
-
-    # Parse module offsets from "Modules list" section
-    for line in lines:
-        m = re.match(r'^(\w+\.o):', line)
-        if m:
-            current_module = m.group(1)
-            module_offsets[current_module] = {}
-            continue
-        if current_module:
-            m = re.match(r'\s+(CODE|BSS|RODATA)\s+Offs=([0-9a-fA-F]+)', line)
-            if m:
-                module_offsets[current_module][m.group(1)] = int(m.group(2), 16)
-            elif not line.startswith(' ') and line.strip():
-                current_module = None
-
-    # Parse exports
-    in_exp = False
-    for line in lines:
-        if "Exports list by name" in line:
-            in_exp = True
-            continue
-        if in_exp:
-            for m in re.finditer(r'(\w+)\s+([0-9a-fA-F]{6})\s+\w+', line):
-                exports[m.group(1)] = int(m.group(2), 16)
-            if line.strip() == "":
-                break
-
-    return segments, module_offsets, exports
+                    *objs,
+                    "-o", str(BIN), "-m", str(MAP),
+                    "-Ln", str(LBL)], check=True)
 
 
 # ── Fixture ──────────────────────────────────────────────────
-
-# BSS layout of debugger.o (order matches .segment "BSS" in debugger.s):
-#   _bp_table:     32 bytes (8 slots × 4)
-#   _step_bp:       8 bytes (2 step slots × 4, contiguous with bp_table)
-#   _dbg_running:   1 byte
-#   _dbg_reason:    1 byte
-#   _brk_pc:        2 bytes
-#   _dbg_bp_hit:    1 byte
-
-_BSS_OFFSETS = {
-    'bp_table':     0,
-    'step_bp':      32,
-    'dbg_running':  40,
-    'dbg_reason':   41,
-    'brk_pc':       42,
-    'dbg_bp_hit':   44,
-    'sp_baseline':  45,
-}
-
 
 class DbgSymbols:
     def __init__(self):
         if _needs_rebuild():
             _build()
-        segments, mod_offs, exports = _parse_map()
+        s = SymbolTable(LBL)
 
-        # Entry point: CODE start + stub's CODE offset
-        stub_code_offs = mod_offs['debugger_test_stub.o']['CODE']
-        self.entry = segments['CODE'] + stub_code_offs
+        self.entry       = s["dbg_test_entry"]
 
-        # BSS symbols: BSS start + debugger.o's BSS offset + field offset
-        bss_base = segments['BSS'] + mod_offs['debugger.o']['BSS']
-        self.bp_table    = bss_base + _BSS_OFFSETS['bp_table']
-        self.step_bp     = bss_base + _BSS_OFFSETS['step_bp']
-        self.dbg_running = bss_base + _BSS_OFFSETS['dbg_running']
-        self.dbg_reason  = bss_base + _BSS_OFFSETS['dbg_reason']
-        self.brk_pc      = bss_base + _BSS_OFFSETS['brk_pc']
-        self.dbg_bp_hit  = bss_base + _BSS_OFFSETS['dbg_bp_hit']
-        self.sp_baseline = bss_base + _BSS_OFFSETS['sp_baseline']
+        # BSS symbols — previously required hardcoded offset dict
+        self.bp_table    = s["bp_table"]
+        self.step_bp     = s["step_bp"]
+        self.dbg_running = s["dbg_running"]
+        self.dbg_reason  = s["dbg_reason"]
+        self.brk_pc      = s["brk_pc"]
+        self.dbg_bp_hit  = s["dbg_bp_hit"]
+        self.sp_baseline = s["sp_baseline"]
 
-        # reg_a/x/y/sp/p are exported by the test stub itself.
-        self.reg_a = exports.get('reg_a')
-        self.reg_x = exports.get('reg_x')
-        self.reg_y = exports.get('reg_y')
-        self.reg_sp = exports.get('reg_sp')
-        self.reg_p = exports.get('reg_p')
+        self.reg_a  = s.get("reg_a")
+        self.reg_x  = s.get("reg_x")
+        self.reg_y  = s.get("reg_y")
+        self.reg_sp = s.get("reg_sp")
+        self.reg_p  = s.get("reg_p")
 
-        # dbg_brk_core is exported by debugger.s — needed for test
-        # setup since dbg_enter no longer installs the BRK vector.
-        self.dbg_brk_core = exports.get('dbg_brk_core')
+        self.dbg_brk_core = s.get("dbg_brk_core")
 
         raw = BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]

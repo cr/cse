@@ -13,8 +13,9 @@ Interface (ZP):
   sym_clear(): wipe all slots.
 """
 
-import subprocess, pathlib, re, pytest
+import subprocess, pathlib, pytest
 from py65.devices.mpu6502 import MPU
+from conftest import SymbolTable
 
 ROOT  = pathlib.Path(__file__).parent.parent
 BUILD = ROOT / "build"
@@ -23,6 +24,7 @@ DEV   = ROOT / "dev"
 
 BIN = BUILD / "symtab_test.bin"
 MAP = BUILD / "symtab_test.map"
+LBL = BUILD / "symtab_test.lbl"
 
 _ZP_START   = 0x0000
 _CODE_START = 0x4000
@@ -32,66 +34,39 @@ _RETURN     = 0x0F00
 
 # ── Build ────────────────────────────────────────────────────
 
-def _sources():
-    return [SRC / "zp.s", SRC / "symtab.s", SRC / "mem.s",
-            DEV / "symtab_test_stub.s", DEV / "test.cfg"]
+_SOURCES = [SRC / "zp.s", SRC / "symtab.s", SRC / "mem.s",
+            DEV / "symtab_test_stub.s"]
 
 def _needs_rebuild():
-    if not BIN.exists(): return True
+    if not BIN.exists() or not LBL.exists(): return True
     t = BIN.stat().st_mtime
-    return any(s.stat().st_mtime > t for s in _sources())
+    return any(s.stat().st_mtime > t for s in _SOURCES + [DEV / "test.cfg"])
 
 def _build():
     BUILD.mkdir(exist_ok=True)
-    for name, src in [("zp_st", SRC / "zp.s"),
-                      ("symtab", SRC / "symtab.s"),
-                      ("mem", SRC / "mem.s"),
-                      ("symtab_test_stub", DEV / "symtab_test_stub.s")]:
-        subprocess.run(["ca65", "--cpu", "6502", "-t", "c64", str(src),
-                        "-o", str(BUILD / f"{name}.o")], check=True)
+    objs = []
+    for src in _SOURCES:
+        obj = BUILD / f"{src.stem}_st.o"
+        subprocess.run(["ca65", "-g", "--cpu", "6502", "-t", "c64",
+                        str(src), "-o", str(obj)], check=True)
+        objs.append(str(obj))
     subprocess.run(["ld65", "-C", str(DEV / "test.cfg"),
-                    str(BUILD / "zp_st.o"),
-                    str(BUILD / "symtab.o"), str(BUILD / "mem.o"),
-                    str(BUILD / "symtab_test_stub.o"),
-                    "-o", str(BIN), "-m", str(MAP)], check=True)
-
-def _parse_exports():
-    syms = {}
-    in_exp = False
-    for line in MAP.read_text().splitlines():
-        if "Exports list by name" in line: in_exp = True; continue
-        if in_exp:
-            for m in re.finditer(r'(\w+)\s+([0-9a-fA-F]{6})\s+RL', line):
-                syms[m.group(1)] = int(m.group(2), 16)
-            if line.strip() == "": break
-    return syms
-
-def _parse_stub_offset():
-    in_stub = False
-    for line in MAP.read_text().splitlines():
-        if 'symtab_test_stub.o:' in line: in_stub = True; continue
-        if in_stub and 'CODE' in line:
-            m = re.search(r'Offs=([0-9a-fA-F]+)', line)
-            if m: return int(m.group(1), 16)
-            break
-        if in_stub and not line.startswith(' '): break
-    return None
+                    *objs,
+                    "-o", str(BIN), "-m", str(MAP),
+                    "-Ln", str(LBL)], check=True)
 
 class SymtabSyms:
     def __init__(self):
         if _needs_rebuild(): _build()
-        self.exports = _parse_exports()
+        s = SymbolTable(LBL)
         self._raw = BIN.read_bytes()
-        stub_off = _parse_stub_offset()
-        if stub_off is None:
-            raise RuntimeError("Cannot find symtab_test_stub CODE offset")
-        base = _CODE_START + stub_off
-        # Each handler: JSR(3) + LDA(2) + BCC(2) + LDA(2) + STA_ZP(2) + RTS(1) = 12 bytes
-        self.sym_define = base          # test_define
-        self.sym_lookup = base + 12     # test_lookup
-        self.sym_clear  = base + 24     # test_clear (JMP)
-        self.sym_name = self.exports["sym_name"]
-        self.sym_val  = self.exports["sym_val"]
+        # Entry points — previously required hardcoded base+12/base+24
+        self.sym_define = s["test_define"]
+        self.sym_lookup = s["test_lookup"]
+        self.sym_clear  = s["test_clear"]
+        self.sym_name   = s["sym_name"]
+        self.sym_val    = s["sym_val"]
+        self.sym_wide   = s.get("sym_wide")
 
     def load_into(self, mem):
         mem[_ZP_START:_ZP_START + _ZP_SIZE] = self._raw[:_ZP_SIZE]
@@ -153,7 +128,7 @@ def _define(symt, mpu, mem, name, value, wide=0):
     mem[symt.sym_name + 1] = (addr >> 8) & 0xFF
     mem[symt.sym_val] = value & 0xFF
     mem[symt.sym_val + 1] = (value >> 8) & 0xFF
-    sw = symt.exports.get("sym_wide")
+    sw = symt.sym_wide
     if sw is not None:
         mem[sw] = wide
     _call(mpu, mem, symt.sym_define)
@@ -166,7 +141,7 @@ def _lookup(symt, mpu, mem, name):
     _call(mpu, mem, symt.sym_lookup)
     found = not (mpu.p & 0x01)
     value = mem[symt.sym_val] | (mem[symt.sym_val + 1] << 8)
-    sw = symt.exports.get("sym_wide")
+    sw = symt.sym_wide
     wide = mem[sw] if sw is not None else 0
     return found, value, wide
 
@@ -500,7 +475,7 @@ class TestDesignGuarantees:
         mem[symt.sym_name + 1] = (addr >> 8) & 0xFF
         mem[symt.sym_val] = 0x42
         mem[symt.sym_val + 1] = 0x00
-        sw = symt.exports.get("sym_wide")
+        sw = symt.sym_wide
         if sw is not None: mem[sw] = 0
         _call(mpu, mem, symt.sym_define)
         # Overwrite the source buffer where the name was

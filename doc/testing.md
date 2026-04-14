@@ -251,6 +251,28 @@ Application-level test setup (writing input buffers, pre-loading
 symbols, preparing gap-buffer content) is done from Python by
 writing directly to memory at the symbol's address.
 
+### SymbolTable — encapsulated symbol resolution
+
+All symbol lookups — in conftest bundles, leaf module tests, and
+C64Emu integration tests — go through the `SymbolTable` class in
+`conftest.py`.  Test code accesses symbols by name and never
+touches file formats, paths, or parsing logic:
+
+```python
+from conftest import SymbolTable
+
+s = SymbolTable(lbl_path)
+addr = s["mode_parse"]       # KeyError with helpful message if missing
+addr = s.get("sym_wide")     # None if missing
+"bar" in s                   # membership test
+```
+
+`SymbolTable` parses ld65 `.lbl` files (VICE label format).  All
+test binaries are assembled with `ca65 -g` and linked with
+`ld65 -Ln`, so the `.lbl` file contains every label — exported,
+module-internal, and `@local` — at absolute addresses.  No
+map-file regex, no listing-file segment offsets, no BSS arithmetic.
+
 ### conftest.py — fixtures and auto-rebuild
 
 `conftest.py` provides session-scoped fixtures that auto-build
@@ -259,7 +281,9 @@ test binaries when sources change.
 **Test bundle architecture.**  Interdependent modules are linked
 into a single "bundle" test binary rather than per-module binaries
 with expanding mock stubs.  True leaf modules (zero or few imports)
-get their own small binary.  Current layout:
+get their own small binary.
+
+#### conftest bundles
 
 | Bundle | Modules | Stub | Tests |
 |--------|---------|------|-------|
@@ -268,19 +292,35 @@ get their own small binary.  Current layout:
 | `asm_src` | asm_core + asm_src | `asm_src_test_stub.s` (ed_read_line mock) | test_asm_src |
 | `dasm` | zp, dasm, dasm_tables | `dasm_test_stub.s` (banking helpers) | test_dasm |
 
-All test bundles are assembled with `ca65 -g` and linked with
-`ld65 -Ln`, producing `.lbl` files with complete symbol coverage.
-Symbol addresses are resolved via the shared `parse_lbl()` function
-in `conftest.py` — no map-file regex parsing, no listing-file
-segment-offset computation, no BSS-offset arithmetic.
-
 The bundle principle: when adding a cross-module dependency, add
 the module to the existing bundle rather than creating new mocks.
 Only create a new bundle when the dependency graph forks into a
 genuinely separate subsystem.
 
-**TODO:** migrate expr, repl test binaries to the bundle pattern
-(or C64Emu integration tests) to eliminate their stubs.
+#### Leaf module tests
+
+Well-encapsulated leaf modules — those with zero or near-zero
+cross-module dependencies — build their own test binaries inline.
+The stub provides only linker-required scaffolding (banking
+helpers, BSS buffers), not reimplementations of other modules.
+
+| Test file | Module | Stub | Why leaf |
+|-----------|--------|------|----------|
+| `test_cse_io.py` | cse_io.s | `cse_io_test_stub.s` | Zero imports |
+| `test_symtab.py` | symtab.s | `symtab_test_stub.s` | Only banking helpers |
+| `test_debugger.py` | debugger.s | `debugger_test_stub.s` | Only register BSS buffers |
+
+Leaf tests build with `ca65 -g` + `ld65 -Ln` and use `SymbolTable`
+for all symbol lookups — the same encapsulation as conftest bundles.
+
+Complex modules with substantive production dependencies should NOT
+build standalone test binaries.  They belong in a conftest bundle
+(if they share an import graph with existing bundles) or in C64Emu
+integration tests (if they depend on most of the codebase).
+
+**TODO:** migrate test_expr.py to the asm_core bundle (expr.s is
+already linked there) and test_repl.py to C64Emu integration
+(repl.s is the central hub with 8+ subsystem dependencies).
 
 ### Running a test
 

@@ -307,16 +307,16 @@ class TestPrgLoading:
         assert emu.a == 0x42
 
     def test_load_prg_with_map(self, tmp_path):
-        """load_prg parses companion .map for symbols."""
+        """load_prg parses companion .lbl for symbols."""
         prg = tmp_path / "test.prg"
         prg.write_bytes(bytes([0x00, 0x20, 0x60]))  # RTS at $2000
-        # Write a fake map file
+        # Write a fake map file (load_prg needs it as argument)
         map_file = tmp_path / "test.map"
-        map_file.write_text(
-            "Exports list by name\n"
-            "my_func  002000  RLA\n"
-            "\n"
-        )
+        map_file.write_text("")
+        # Write a .lbl file (VICE label format) — this is what
+        # _parse_map actually reads for symbol resolution.
+        lbl_file = tmp_path / "test.lbl"
+        lbl_file.write_text("al 002000 .my_func\n")
         emu = C64Emu()
         emu.load_prg(prg, map_file)
         assert emu.sym("my_func") == 0x2000

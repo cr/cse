@@ -278,10 +278,12 @@ test bundles are assembled with `ca65 -g` and linked with
 `ld65 -Ln`, so the `.lbl` file contains **every** label —
 exported, module-internal, and `@local` — at absolute addresses.
 
-A shared `parse_lbl()` function in `conftest.py` parses the `.lbl`
-file into a `{name: address}` dict.  This replaces the previous
-approach of map-file regex parsing, listing-file segment-offset
-computation, and BSS-offset arithmetic.
+The `SymbolTable` class in `conftest.py` encapsulates all symbol
+resolution.  Test code accesses symbols by name (`s["label"]`,
+`s.get("label")`) and never touches file formats, paths, or
+parsing logic.  Both conftest bundle fixtures and leaf module
+tests use `SymbolTable` as their sole symbol resolution mechanism.
+`C64Emu._parse_map()` also delegates to `SymbolTable` internally.
 
 For pre-link symbol inspection, `dev/od65_syms.py` extracts
 exports and debug symbols from `.o` files via `od65`.

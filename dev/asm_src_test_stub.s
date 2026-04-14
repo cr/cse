@@ -175,9 +175,6 @@ puts_imm:
         pha
         rts
 
-; ── Force linker to export segment tracking symbols ─────────────────────────
-; (ld65 only lists exported symbols that are referenced; these .addr entries
-; ensure the symbols appear in the map file for test address resolution.)
-.segment "RODATA"
-        .addr _min_pc, _max_pc
+; Symbol resolution uses .lbl files (debug build with -g), so no
+; .addr forcing is needed to make symbols visible.
 

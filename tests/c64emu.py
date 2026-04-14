@@ -368,42 +368,22 @@ class C64Emu:
                         self._mem.ram[run + i] = self._mem.ram[load + i]
 
     def _parse_map(self, map_path):
-        """Parse ld65 map file for exported symbols, and the companion
-        .lbl file (VICE label format) for all labels including
-        module-internal ones."""
-        import re
-        # -- map file: exported symbols --
-        in_exports = False
-        for line in map_path.read_text().splitlines():
-            if "Exports list by name" in line:
-                in_exports = True
-                continue
-            if in_exports:
-                if line.strip() == "" or "Exports list by value" in line:
-                    break
-                for name, addr in re.findall(
-                    r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line
-                ):
-                    self._syms[name] = int(addr, 16)
-        # -- label file: all symbols (VICE format: "al XXXX .name") --
+        """Load symbols from the .lbl file (VICE label format) companion
+        to the ld65 map file.  Uses conftest.SymbolTable for parsing."""
+        from conftest import SymbolTable
         lbl_path = map_path.with_suffix('.lbl')
         if lbl_path.exists():
-            for line in lbl_path.read_text().splitlines():
-                m = re.match(r"al\s+([0-9a-fA-F]+)\s+\.(\w+)", line)
-                if m:
-                    name = m.group(2)
-                    addr = int(m.group(1), 16)
-                    # lbl names may shadow map exports — map wins
-                    if name not in self._syms:
-                        self._syms[name] = addr
+            st = SymbolTable(lbl_path)
+            for name in st.keys():
+                self._syms[name] = st[name]
 
     def sym(self, name):
-        """Look up an exported symbol address by name."""
+        """Look up a symbol address by name."""
         try:
             return self._syms[name]
         except KeyError:
             raise KeyError(
-                f"Symbol {name!r} not found in map. "
+                f"Symbol {name!r} not found. "
                 f"Available: {', '.join(sorted(self._syms)[:20])}..."
             ) from None
 

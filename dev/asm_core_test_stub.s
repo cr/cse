@@ -9,9 +9,11 @@
 ; (toggles $01 bit 1, harmless in py65).  zp.s defines all ZP variables.
 ;
 ; This stub provides:
-;   - __CODE_RUN__ / __ZP_LAST__ linker symbols for mem.s
+;   - __CODE_RUN__ linker symbol for mem.s
 ;   - asm_pass flag for au_mode.s forward-ref handling
-;   - .addr words to force key symbols into ld65 exports list
+;
+; Symbol resolution uses .lbl files (debug build with -g), so no
+; .addr forcing is needed to make symbols visible.
 ;
 ; Shared by: test_au_mode.py, test_asm_line.py
 
@@ -23,20 +25,6 @@
         ; asm_pass flag (au_mode.s forward-ref handling)
         .export asm_pass
 
-        ; Force symbols into ld65 exports list (consumed by conftest.py)
-        .import _asm_line_core
-        .importzp _asm_saved_sp
-        .import mode_parse
-        .import asm_skip_ws
-
         .segment "BSS"
 
 asm_pass:       .res 1          ; 0 = pass 0 (default for unit tests)
-
-        .segment "CODE"
-
-        ; Unreachable data — forces symbols into the map's Exports list
-        .addr   _asm_line_core
-        .addr   _asm_saved_sp
-        .addr   mode_parse
-        .addr   asm_skip_ws
