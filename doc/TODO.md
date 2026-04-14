@@ -191,6 +191,13 @@ Defined scope, needs work.
 
 ### Debugger
 
+- [ ] BRK tracer rewrite: use BRK's signature byte ($00 XX) to
+  encode breakpoint metadata.  The 6502 skips the byte after BRK
+  but the handler can read it at pushed_PC-1.  Encoding candidates:
+  slot number (0-7), type (trace/watch/assert), step mode
+  (into/over), managed vs unmanaged BRK.  Eliminates the
+  `dbg_bp_find` address search — the handler reads the signature
+  byte directly.  Simplifies step BRK vs user BP distinction.
 - [ ] Single-RETURN single-step workflow: bare `t` (repeated via
   RETURN) should default to 1 step when there's an active debug
   context (`dbg_reason != 0`), not `block_size`.  Enables rapid
