@@ -1979,8 +1979,10 @@ _ed_cur_row:
         jne @not_enter
 @is_enter:
         ; Smart indent rule 1:
-        ;   Insert CR.  If new line is empty (gap_hi is EOF or $0D),
-        ;   also insert $A0 tab.  Otherwise leave existing content.
+        ;   Insert CR.  Then check:
+        ;   (a) If old line is now whitespace-only, strip it and
+        ;       donate the tab to the new line (unless gap_hi=$A0).
+        ;   (b) Else if new line is empty (gap_hi EOF/$0D), insert tab.
         lda #$0D
         jsr gb_insert
         inc ed_cur_line
@@ -1988,7 +1990,65 @@ _ed_cur_row:
         inc ed_cur_line+1
 :       lda #0
         sta ed_cur_col
-        ; Peek gap_hi: if $0D or past buffer end → empty new line
+
+        ; (a) Check if old line is now whitespace-only.
+        ; After gb_insert($0D): gap_lo-1 = CR, gap_lo-2 = last byte of old line.
+        ; Old line is a lone $A0 if: gap_lo-2 is $A0, AND (gap_lo-3 is CR or
+        ; gap_lo-2 == buf_base).
+        ;
+        ; Use ed_scr as scratch pointer for gap_lo-2.
+        lda gap_lo
+        sec
+        sbc #2
+        sta ed_scr
+        lda gap_lo+1
+        sbc #0
+        sta ed_scr+1
+        ; Is gap_lo-2 == buf_base? (first byte in buffer)
+        lda ed_scr
+        cmp buf_base
+        bne @check_prev_cr
+        lda ed_scr+1
+        cmp buf_base+1
+        beq @check_a0           ; at buf_base → this is line start
+@check_prev_cr:
+        ; Is byte at gap_lo-3 a CR? (previous line's end)
+        lda ed_scr
+        sec
+        sbc #1
+        sta ed_tmp
+        lda ed_scr+1
+        sbc #0
+        sta ed_tmp+1
+        ldy #0
+        lda (ed_tmp),y
+        cmp #$0D
+        bne @no_strip           ; not at line start → old line has more content
+@check_a0:
+        ; ed_scr points at sole byte of old line. Is it $A0?
+        ldy #0
+        lda (ed_scr),y
+        cmp #$A0
+        bne @no_strip
+        ; Old line is just $A0 — strip it by overwriting with the CR.
+        lda #$0D
+        sta (ed_scr),y          ; write CR where $A0 was
+        ; Shrink: gap_lo now starts after this CR
+        lda ed_scr
+        clc
+        adc #1
+        sta gap_lo
+        lda ed_scr+1
+        adc #0
+        sta gap_lo+1
+        ; Donate: insert tab on new line if gap_hi isn't already $A0
+        lda (gap_hi),y          ; Y still 0
+        cmp #$A0
+        beq @no_tab             ; already tabbed → skip
+        jmp @do_tab
+
+@no_strip:
+        ; (b) If new line is empty (gap_hi EOF/$0D), insert tab.
         lda gap_hi+1
         cmp #>BUF_END
         bcc @peek_gap_hi
@@ -2001,7 +2061,9 @@ _ed_cur_row:
         lda (gap_hi),y
         cmp #$0D
         beq @do_tab             ; next byte is CR → empty line
-        bne @no_tab             ; content present → skip tab
+        cmp #$A0
+        beq @no_tab             ; already has tab → skip
+        bne @no_tab             ; other content → skip
 @do_tab:
         lda #$A0
         jsr gb_insert

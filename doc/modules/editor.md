@@ -284,10 +284,13 @@ full visual width of that tab in one keystroke.
 
 **Smart indent — two rules, no edge cases.**
 
-1. **RETURN** inserts $0D.  If the new line is empty (`gap_hi`
-   is EOF or $0D), also insert one $A0 tab.  If the new line
-   already has content (e.g. splitting a line), the existing
-   content keeps its own formatting.
+1. **RETURN** inserts $0D, then:
+   - If the old line is now whitespace-only (the byte before the
+     CR is $A0 at line start), strip it.  If `gap_hi` is not
+     already $A0, donate the stripped tab to the new line (insert
+     $A0).  This handles splitting `\xa0|rts` → `\r\xa0rts`.
+   - Otherwise, if `gap_hi` is EOF or $0D (new line is empty),
+     insert one $A0 tab.
 2. **Typing `:`** strips the leading $A0 from the current line
    (if present).  The label slides to column 0 in real time.
 

@@ -128,6 +128,29 @@ class TestSmartIndent:
         type_keys(emu, b"\r")   # RETURN at col 0, before "MAIN:"
         assert read_back(emu) == b"\rMAIN:"
 
+    # ── Rule 1b: Split donates tab from whitespace-only old line ──
+
+    def test_split_donates_tab(self, cse_prg):
+        """Split after gutter on tabbed line → tab moves to new line."""
+        emu = make_emu(cse_prg)
+        # Build "\xa0rts": insert tab + rts raw
+        insert_text(emu, b"\xa0RTS")
+        # Position cursor between \xa0 and R (HOME → RIGHT over tab)
+        type_keys(emu, [0x13])  # HOME
+        type_keys(emu, [0x1D])  # RIGHT (over $A0 tab)
+        type_keys(emu, b"\r")   # RETURN: split here
+        # Old line was just \xa0 → stripped. Tab donated to new line.
+        assert read_back(emu) == b"\r\xa0RTS"
+
+    def test_split_no_double_tab(self, cse_prg):
+        """Split before content that already has $A0 → no extra tab."""
+        emu = make_emu(cse_prg)
+        insert_text(emu, b"\xa0RTS")
+        type_keys(emu, [0x13])  # HOME — cursor at col 0, before \xa0
+        type_keys(emu, b"\r")   # RETURN: gap_hi is $A0
+        # No donation needed — content already has tab
+        assert read_back(emu) == b"\r\xa0RTS"
+
     # ── Rule 2: Typing ':' strips leading $A0 (real-time) ────
 
     def test_colon_strips_gutter(self, cse_prg):
