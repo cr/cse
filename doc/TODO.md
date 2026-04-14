@@ -8,10 +8,9 @@ Open bugs, roughly ordered by priority.
 - [ ] `i` command output shows stale memory map.  The workspace
   range, symbol table, heap, and stack addresses need updating to
   match the current KERNAL RAM layout (Phase 8/14 reorg).
-- [ ] `.const FOO 1234` then `sta FOO` doesn't find the symbol.
-  `sta foo` works.  Uppercase `.const` names not found by
-  uppercase lookup, only by lowercase.  Assembler normalises
-  to lowercase internally; symbol lookup should match.
+- [x] ~~`.const FOO` then `sta FOO` not found~~ (fixed: expr.s label
+  scanner now folds $C1-$DA → $41-$5A in-place; shifted uppercase
+  letters from the lowercase/uppercase charset are accepted)
 - [ ] `l` command hang: loading a non-existing file may hang.
   Not yet reproducible.  Suspect: `disk_load_prg` or
   `ed_load_source` not handling KERNAL file-not-found error,
@@ -21,7 +20,9 @@ Open bugs, roughly ordered by priority.
   Should shift row right and insert a space at cursor.
 - [ ] `?` (calculator) wrong decimal output for values >= $2000.
   `? 2000` shows `2111` instead of `8192`.  `? 1999` is correct.
-  Needs test coverage for io_putdec across the full 16-bit range.
+  io_putdec verified correct in isolation (C64Emu test: $2000→8192,
+  $FFFF→65535).  Bug is likely in `?` command expr_eval or hex parsing.
+  Retest on hardware/VICE.
 - [ ] `a` save line writes filename "oup" — truncates the base
   name and overwrites its last char.  Should append `,p` to the
   full filename, not overwrite.

@@ -696,6 +696,16 @@ _ex_op_setup:
         sta sym_name+1
 @lscan: jsr _ex_adv_ptr
         PEEK_CHAR
+        ; Fold shifted uppercase $C1-$DA → $41-$5A in-place
+        cmp #$C1
+        bcc @lnoshift
+        cmp #$DB
+        bcs @lnoshift
+        sec
+        sbc #$80
+        ldy #0
+        sta (expr_ptr),y        ; fold in-place
+@lnoshift:
         cmp #$41
         bcc @lchk_dig
         cmp #$5B
