@@ -181,7 +181,9 @@ s_free:       .byte "b free", 0
         cpx #$80
         bcc @zp
 
-        ; ── 10. Fill free work area ($0800 to cse_start-1) with $FF ──
+        ; ── 10. Fill free work area ($0800 to cse_start-1) with $00 ──
+        ; $00 so BASIC sees an empty program at $0801 after exit
+        ; (link pointer $0000 = end of program).
         ; Hi-byte-only termination is safe: cse_start (__CODE_RUN__)
         ; is page-aligned by compute_layout.py (& $FF00).
         lda #<$0800
@@ -189,7 +191,7 @@ s_free:       .byte "b free", 0
         lda #>$0800
         sta rp_ptr+1
         jsr cse_start          ; A/X = runtime start hi in X
-        lda #$FF
+        lda #$00
         ldy #0
 @work:  sta (rp_ptr),y
         inc rp_ptr
