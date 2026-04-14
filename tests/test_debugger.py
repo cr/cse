@@ -723,3 +723,86 @@ class TestDbgEnterStepIntoJSR:
         assert mem[dbg_syms.dbg_reason] == 1, "step 3: BRK at subroutine NOP+1"
         bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
         assert bp == 0x2011, f"step 3: brk_pc=${bp:04X} (want $2011, RTS)"
+
+
+class TestDbgEnterBranchStep:
+    """Verify that stepping over a taken branch follows the branch.
+
+    User code:
+      $2000: LDX #$03         ; X=3, Z=0
+      $2002: DEX               ; X=2, Z=0
+      $2003: BNE $2002         ; taken → back to DEX
+
+    Step sequence:
+      1. brk_pc=$2000, step BP at $2002 (LDX is 2 bytes)
+         → BRK at $2002, brk_pc=$2002
+      2. brk_pc=$2002, step BP at $2003 (DEX is 1 byte)
+         → BRK at $2003, brk_pc=$2003
+      3. brk_pc=$2003, step BPs at $2002 (taken) and $2005 (fall-through)
+         → BNE should be taken (Z=0 from DEX), brk_pc=$2002
+
+    The bug: brk_pc ends up at $2005 (fall-through) instead of $2002.
+    """
+
+    def test_taken_branch_follows_target(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+        _install_kernal_brk_stub(mem)
+
+        # User code
+        mem[0x2000] = 0xA2; mem[0x2001] = 0x03  # LDX #$03
+        mem[0x2002] = 0xCA                        # DEX
+        mem[0x2003] = 0xD0; mem[0x2004] = 0xFD   # BNE $2002
+        mem[0x2005] = 0x00                        # BRK (fall-through sentinel)
+
+        mem[dbg_syms.reg_p] = 0x20
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
+
+        # ── Step 1: LDX #$03 → advance to $2002 ──
+        mem[dbg_syms.brk_pc + 0] = 0x00
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        mem[dbg_syms.step_bp + 0] = 0x02  # target: $2002
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 2] = 0
+        mem[dbg_syms.step_bp + 3] = 1
+        cmd_dbg_enter(mpu, dbg_syms)
+        assert mem[dbg_syms.dbg_reason] == 1
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+        assert bp == 0x2002, f"step 1: brk_pc=${bp:04X} (want $2002)"
+
+        # ── Step 2: DEX → advance to $2003 ──
+        mem[dbg_syms.step_bp + 0] = 0x03
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 2] = 0
+        mem[dbg_syms.step_bp + 3] = 1
+        # Clear second step slot
+        mem[dbg_syms.step_bp + 4] = 0
+        mem[dbg_syms.step_bp + 5] = 0
+        mem[dbg_syms.step_bp + 6] = 0
+        mem[dbg_syms.step_bp + 7] = 0
+        cmd_dbg_enter(mpu, dbg_syms)
+        assert mem[dbg_syms.dbg_reason] == 1
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+        assert bp == 0x2003, f"step 2: brk_pc=${bp:04X} (want $2003)"
+        # reg_p should have Z=0 (X went from 3 to 2, not zero)
+        p = mem[dbg_syms.reg_p]
+        assert (p & 0x02) == 0, f"step 2: Z should be 0 (X=2), reg_p=${p:02X}"
+
+        # ── Step 3: BNE $2002 — should take the branch (Z=0) ──
+        # Arm both targets: taken=$2002, fall-through=$2005
+        mem[dbg_syms.step_bp + 0] = 0x02  # taken target
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 2] = 0
+        mem[dbg_syms.step_bp + 3] = 1
+        mem[dbg_syms.step_bp + 4] = 0x05  # fall-through
+        mem[dbg_syms.step_bp + 5] = 0x20
+        mem[dbg_syms.step_bp + 6] = 0
+        mem[dbg_syms.step_bp + 7] = 1
+        cmd_dbg_enter(mpu, dbg_syms)
+        assert mem[dbg_syms.dbg_reason] == 1
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+        assert bp == 0x2002, (
+            f"step 3: BNE should be TAKEN (Z=0), brk_pc=${bp:04X} "
+            f"(want $2002, got fall-through $2005 if Z wrong)"
+        )
