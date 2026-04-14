@@ -9,7 +9,6 @@
 ; Interrupt handlers (permanent, never swapped):
 ;   cse_brk_handler  — $0316/$0317: BRK dispatch on dbg_running
 ;   cse_nmi_handler  — $0318/$0319: NMI dispatch on dbg_running
-;   cse_basic_warm_hook — $0302/$0303: BASIC warm-start intercept
 ;
 ; Exit: cse_exit_to_basic restores vectors, ZP, $01, jumps to BASIC.
 ;
@@ -57,8 +56,7 @@ MEM_CONFIG   = $01
 KEY_REPEAT   = $028A
 VIC_MEMCTL   = $D018
 
-; KERNAL page-3 vectors
-VEC_IMAIN    = $0302          ; BASIC warm-start / main loop
+; KERNAL vectors and API
 VEC_TABLE    = $0314          ; start of KERNAL vector table (32 bytes)
 KERNAL_VECTOR = $FF8D         ; KERNAL VECTOR: C=1 read, C=0 write
 KERNAL_RESTOR = $FF8A         ; KERNAL RESTOR: restore default vectors
@@ -538,12 +536,8 @@ main_loop:
 ; ═════════════════════════════════════════════════════════════
 install_hooks:
         sei
-        ; ── $0302/$0303: not in VECTOR range, write directly ──
-        lda #<cse_basic_warm_hook
-        sta VEC_IMAIN
-        lda #>cse_basic_warm_hook
-        sta VEC_IMAIN+1
-        ; ── $0314-$0333: read via VECTOR, modify, write back ──
+        ; Read-modify-write $0314-$0333 via KERNAL VECTOR.
+        ; Only BRK ($0316) and NMI ($0318) are modified.
         ; Allocate 32-byte stack frame
         tsx
         stx rp_tmp              ; save SP
@@ -642,13 +636,6 @@ cse_nmi_handler:
         jmp dbg_nmi_break
 
 ; ═════════════════════════════════════════════════════════════
-; cse_basic_warm_hook — BASIC warm-start intercept ($0302)
-; Falls through to cse_warm_start.
-; ═════════════════════════════════════════════════════════════
-cse_basic_warm_hook:
-        ; fall through
-
-; ═════════════════════════════════════════════════════════════
 ; Layer 2: cse_warm_start — idempotent recovery
 ; ═════════════════════════════════════════════════════════════
 cse_warm_start:
@@ -718,8 +705,7 @@ cse_exit_to_basic:
         lda COLD_ZP
         sta MEM_CONFIG
         cli
-        ; BASIC cold start via ROM vector at ($A000).
-        ; Reinits workspace ($2B-$38), clears program, prints
-        ; banner + READY, enters main loop.  Also calls CINT
-        ; internally (clears screen, default colors, uppercase).
-        jmp ($A000)
+        ; Reinit screen I/O (clear screen, default colors, uppercase)
+        jsr $FF81               ; KERNAL CINT
+        ; BASIC warm start — READY prompt + input loop
+        jmp ($A002)
