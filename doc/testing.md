@@ -140,10 +140,12 @@ they must be green before Step 5 begins.
 All tests use **pytest** with a `C64Emu` emulator class
 ([`tests/c64emu.py`](../tests/c64emu.py)) that wraps **py65** and
 provides a minimal but authentic C64 execution environment.  Tests
-load the real production binary (`build/cse.prg`) and call into
-any function by its map-file address — no separate test binaries,
-no ASM stubs, no test-specific linker configs.  For build details
-see [build_system.md § Test build pipeline](build_system.md#test-build-pipeline).
+load the debug CMOS PRG (`build/debug/cmos/cse-cmos.prg`) and call
+into any function by its `.lbl`-file address — no separate test
+binaries, no ASM stubs, no test-specific linker configs.  Debug
+builds include `-g` symbols, so the `.lbl` file contains all
+labels (~1800 symbols) rather than just exports (~230).  For build
+details see [build_system.md § Test build pipeline](build_system.md#test-build-pipeline).
 
 ### C64Emu — emulator class
 
@@ -264,14 +266,21 @@ get their own small binary.  Current layout:
 | `asm_core` | zp, opcode_lookup, asm_line, au_mode, expr, symtab, mem, mn7, mn_classify, mn_modes, mn_asm_tables | `asm_core_test_stub.s` (linker symbols) | test_au_mode, test_asm_line |
 | `mn6` / `mn7` | mn_vars + mn6/mn7 + tables | (none — pure leaf) | test_mnhash |
 | `asm_src` | asm_core + asm_src | `asm_src_test_stub.s` (ed_read_line mock) | test_asm_src |
+| `dasm` | zp, dasm, dasm_tables | `dasm_test_stub.s` (banking helpers) | test_dasm |
+
+All test bundles are assembled with `ca65 -g` and linked with
+`ld65 -Ln`, producing `.lbl` files with complete symbol coverage.
+Symbol addresses are resolved via the shared `parse_lbl()` function
+in `conftest.py` — no map-file regex parsing, no listing-file
+segment-offset computation, no BSS-offset arithmetic.
 
 The bundle principle: when adding a cross-module dependency, add
 the module to the existing bundle rather than creating new mocks.
 Only create a new bundle when the dependency graph forks into a
 genuinely separate subsystem.
 
-**TODO:** migrate dasm, expr, repl test binaries to the bundle
-pattern (or C64Emu integration tests) to eliminate their stubs.
+**TODO:** migrate expr, repl test binaries to the bundle pattern
+(or C64Emu integration tests) to eliminate their stubs.
 
 ### Running a test
 
@@ -300,8 +309,9 @@ address pushed by `jsr()`, halting the emulation loop.
   (`$41`, `$61`) for PETSCII values in code shared across both
   build modes.  The asm_core bundle builds without `-t c64`.
 
-- **Auto-rebuild:** `conftest.py` invokes `make` which handles
-  dependency tracking.  The PRG is cached in `build/`.
+- **Auto-rebuild:** `conftest.py` invokes `make debug` (or
+  `make release`) which handles dependency tracking.  PRGs are
+  cached in `build/debug/` and `build/release/`.
 
 - **xfail:** Known limitations (e.g. CMOS gate bugs) are marked
   `pytest.mark.xfail` with a reason string.

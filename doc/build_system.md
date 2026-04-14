@@ -23,6 +23,7 @@
 | [`dev/instruction_set.py`](../dev/instruction_set.py) | implementation — authoritative opcode database |
 | [`dev/hashes.py`](../dev/hashes.py) | implementation — hash function definitions |
 | [`dev/size_report.py`](../dev/size_report.py) | implementation — binary size analysis |
+| [`dev/od65_syms.py`](../dev/od65_syms.py) | implementation — od65-based symbol extraction from .o files |
 
 ## Toolchain
 
@@ -111,28 +112,53 @@ loader run normally.  ~38% smaller than the raw PRG.
 
 | Target | Command | Output |
 |--------|---------|--------|
-| All (default) | `make` | All three CPU variants (raw + compressed) + distribution D64 |
+| All (default) | `make` | Same as `release` |
+| Release | `make release` | All three CPU variants, optimized + exomizer + D64 |
+| Debug | `make debug` | All three CPU variants with `-g` (full symbols in `.lbl`) |
 | Disk (single) | `make disk` | Per-CPU D64 in build dir (for quick iteration) |
-| Run | `make run` | Launch uncompressed PRG in VICE (no decrunch delay) |
+| Run | `make run` | Build release + launch in VICE |
 | Tables | `make tables` | Regenerate `src/mn*_tables.s` via `mnemonic_tables.py` |
-| Tests | `make test` | Run all pytest tests |
-| Size | `make size` | Size breakdown of selected PRG (`CPU=`) |
+| Tests | `make test` | Build both debug + release, then run all pytest tests |
+| Size | `make size` | Size breakdown of selected release PRG (`CPU=`) |
 | Clean | `make clean` | Remove `build/` directory |
 | Themes | `make themes` | List available colour themes |
 | Help | `make help` | List all targets and options |
 
-`make` builds all three CPU targets (6510, 6502, 65C02), each
-producing both a raw PRG and a compressed PRG (`*-exo.prg`), then
-creates `build/cse.d64` with all three compressed variants:
+### Build profiles
 
-    build/cse.d64           distribution D64 (all three CPU targets)
-      cse                   6510 compressed (53 blocks, default)
-      cse-6502              6502 compressed
-      cse-cmos              65C02 compressed
-    build/6510/cse.prg      6510 raw (for make run / debugging)
-    build/6510/cse-exo.prg  6510 compressed
-    build/6502/...           6502 variants
-    build/cmos/...           65C02 variants
+Two build profiles share the same `_one` sub-target in the Makefile.
+Only the output directory and assembler flags differ:
+
+| Profile | Flags | Exomizer | Symbols in `.lbl` |
+|---------|-------|----------|-------------------|
+| `release` | `-t c64` | yes | ~230 (exports only) |
+| `debug` | `-g -t c64 -DDEBUG` | no | ~1800 (all labels) |
+
+The `-g` flag tells ca65 to embed debug symbols in `.o` files.
+When linked with `ld65 -Ln`, the resulting `.lbl` file contains
+every label — exported, module-internal, and `@local` — at its
+absolute address.
+
+### Directory layout
+
+    build/
+      release/
+        6510/   cse.prg  cse-exo.prg  cse.map  cse.lbl  cse.dbg  src/*.o
+        6502/   cse-6502.prg  cse-6502-exo.prg  ...
+        cmos/   cse-cmos.prg  cse-cmos-exo.prg  ...
+      debug/
+        6510/   cse.prg  cse.map  cse.lbl  cse.dbg  src/*.o
+        6502/   cse-6502.prg  ...
+        cmos/   cse-cmos.prg  ...
+      cse.d64             distribution D64 (from release, all three CPUs)
+      asm_core_test.*     conftest.py test bundles (built with -g)
+      mn6_test.*          ...
+      mn7_test.*          ...
+      asm_src_test.*      ...
+      dasm_test.*         ...
+
+PRG names are the same in both profiles — the `release/` vs `debug/`
+directory disambiguates.
 
 CRT target (cartridge) is a planned future target using the same source
 with a different linker config.  See [memory_design.md](memory_design.md)
@@ -148,7 +174,6 @@ Passed as `make OPTION=value`:
 | `ROMSET` | `cbm` `mega` | `cbm` | ROM set for `make run` (see below) |
 | `THEME` | name or hex | default | Colour theme for the REPL |
 | `TAB_WIDTH` | 1..32 | `8` | Editor tab stop interval.  Must be a power of two for `col mod TAB_WIDTH` to collapse to a single `and` — non-power-of-two values compile but pay a 10-cycle modulo loop per tab render.  8 matches every C64-era toolchain convention. |
-| `DEBUG` | `1` | off | Enables debug output |
 
 `CPU_CEIL` (0=6502 only, 1=6502+6510, 2=all three), `CMOS_SUPPORT`,
 `CPU_6502`, `CPU_6510`, and `CPU_65C02` gate which mnemonic tables
@@ -217,19 +242,23 @@ protocol works regardless of which KERNAL is loaded.
 
 ## Test build pipeline
 
-Tests run against the real production binary (`build/cse.prg`),
-loaded into a `C64Emu` emulator instance that provides a C64
-execution environment with the original C64 KERNAL ROM.  No
-separate test binaries, no ASM stub files, no test-specific linker
-configs.  Every module's real code satisfies every import; the
-emulator + real KERNAL provides the hardware environment.
+`make test` requires both the **debug** and **release** builds.
+Most tests (including C64Emu-based tests) run against the debug
+CMOS PRG (`build/debug/cmos/cse-cmos.prg`), which has full symbol
+coverage via its `.lbl` file (~1800 symbols).  A `cse_release_prg`
+fixture is available for E2E integration tests that verify the
+actual shipping binary.
+
+Test bundles (asm_core, mn6, mn7, asm_src, dasm) are built by
+`conftest.py` with `ca65 -g` and `ld65 -Ln`, producing their
+own `.lbl` files with complete symbol coverage.
 
 ### How it works
 
-1. `conftest.py` invokes `make` to rebuild `build/cse.prg` (if
-   sources changed — `make` handles dependency tracking).
-2. `conftest.py` parses `build/cse.map` for all exported symbols
-   (absolute addresses) and segment starts.
+1. `conftest.py` invokes `make debug` (or `make release`) to
+   rebuild the CMOS PRG if sources changed.
+2. `conftest.py` parses the `.lbl` file (VICE label format) for
+   all symbols at absolute addresses.
 3. Each test creates a fresh `C64Emu`, loads the PRG, looks up
    function addresses by name, and calls them via `emu.jsr()`.
 
@@ -243,12 +272,19 @@ No per-test build, no per-test linker config, no per-test stubs.
 
 ### Symbol resolution
 
-Function addresses are resolved from the ld65 `.map` file.
-Map-file resolution is reliable because ld65 exports are absolute
-addresses after linking.
+All symbol addresses are resolved from ld65 `.lbl` files (VICE
+label format: `al HEXADDR .NAME`).  Both the full PRG and the
+test bundles are assembled with `ca65 -g` and linked with
+`ld65 -Ln`, so the `.lbl` file contains **every** label —
+exported, module-internal, and `@local` — at absolute addresses.
 
-For module-internal labels (not in the exports list), the harness
-computes: `segment_start + module_offset_in_segment`.
+A shared `parse_lbl()` function in `conftest.py` parses the `.lbl`
+file into a `{name: address}` dict.  This replaces the previous
+approach of map-file regex parsing, listing-file segment-offset
+computation, and BSS-offset arithmetic.
+
+For pre-link symbol inspection, `dev/od65_syms.py` extracts
+exports and debug symbols from `.o` files via `od65`.
 
 ### KERNAL ROM
 
@@ -263,10 +299,10 @@ instructions if the ROM is missing.
 ## Running tests
 
 ```sh
-# All tests (checks for KERNAL ROM, rebuilds PRG, runs pytest)
+# All tests (builds both debug + release, checks for KERNAL ROM, runs pytest)
 make test
 
-# Quick run (direct, via pipenv)
+# Quick run (direct, via pipenv — assumes builds exist)
 pipenv run pytest tests/ -q
 
 # Specific module

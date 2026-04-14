@@ -3,6 +3,9 @@ conftest.py – build test binaries and provide session-scoped fixtures.
 
 Binaries are built once per session (cached in build/) and rebuilt
 automatically whenever their source files are newer than the cached binary.
+All test binaries are assembled with -g (debug symbols) and linked with
+-Ln (VICE label file) so that ALL symbols — exported, internal, and
+@local — are available at absolute addresses via parse_lbl().
 
 Fixtures provided
 -----------------
@@ -35,6 +38,26 @@ _CODE_START = 0x4000
 _ZP_SIZE    = 0x0100
 
 
+# ── Shared symbol parser ────────────────────────────────────────────────────
+#
+# All test bundles are assembled with ca65 -g and linked with ld65 -Ln.
+# The .lbl file (VICE label format) contains every label — exported,
+# module-internal, and @local — at its absolute address.
+
+def parse_lbl(lbl_path):
+    """Parse a VICE label file → {name: address}.
+
+    Format: ``al HEXADDR .NAME`` (one per line).
+    Returns a dict mapping symbol names to integer addresses.
+    """
+    syms = {}
+    for line in pathlib.Path(lbl_path).read_text().splitlines():
+        m = re.match(r"al\s+([0-9a-fA-F]+)\s+\.(\S+)", line)
+        if m:
+            syms[m.group(2)] = int(m.group(1), 16)
+    return syms
+
+
 # ── asm_core bundle ──────────────────────────────────────────────────────────
 #
 # Links the full single-line assembler pipeline as one test binary.
@@ -44,6 +67,7 @@ _ZP_SIZE    = 0x0100
 
 _AC_BIN = BUILD / "asm_core_test.bin"
 _AC_MAP = BUILD / "asm_core_test.map"
+_AC_LBL = BUILD / "asm_core_test.lbl"
 
 _AC_SOURCES = [
     SRC / "zp.s",
@@ -64,7 +88,7 @@ _AC_SOURCES = [
 
 
 def _ac_needs_rebuild():
-    if not _AC_BIN.exists() or not _AC_MAP.exists():
+    if not _AC_BIN.exists() or not _AC_LBL.exists():
         return True
     bin_mtime = _AC_BIN.stat().st_mtime
     return any(s.stat().st_mtime > bin_mtime
@@ -76,32 +100,18 @@ def _ac_build():
     obj_files = []
     for src in _AC_SOURCES:
         obj = BUILD / f"{src.stem}_ac.o"
-        cmd = ["ca65", "--cpu", "6502", "-DCMOS_SUPPORT", str(src), "-o", str(obj)]
+        cmd = ["ca65", "-g", "--cpu", "6502", "-DCMOS_SUPPORT",
+               str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)
         obj_files.append(str(obj))
     subprocess.run(
         ["ld65", "-C", str(DEV / "test.cfg"),
          *obj_files,
          "-o", str(_AC_BIN),
-         "-m", str(_AC_MAP)],
+         "-m", str(_AC_MAP),
+         "-Ln", str(_AC_LBL)],
         check=True,
     )
-
-
-def _ac_parse_map_exports():
-    """Return {symbol: address} for all exports in the asm_core map file."""
-    syms = {}
-    in_exports = False
-    for line in _AC_MAP.read_text().splitlines():
-        if "Exports list by name" in line:
-            in_exports = True
-            continue
-        if in_exports:
-            if line.strip() == "":
-                break
-            for name, addr in re.findall(r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line):
-                syms[name] = int(addr, 16)
-    return syms
 
 
 class AsmCoreSymbols:
@@ -109,32 +119,33 @@ class AsmCoreSymbols:
 
     Provides addresses for both au_mode tests (mode_parse, asm_ptr, asm_opr)
     and asm_line tests (_asm_line_core, asm_pc, asm_out, asm_cpu, etc.).
+    All symbols resolved from .lbl file (debug build).
     """
 
     def __init__(self):
         if _ac_needs_rebuild():
             _ac_build()
 
-        exports = _ac_parse_map_exports()
+        s = parse_lbl(_AC_LBL)
 
         # au_mode entry points
-        self.mode_parse       = exports["mode_parse"]
-        self.asm_skip_ws      = exports["asm_skip_ws"]
-        self.asm_syntax_error = exports["asm_syntax_error"]
+        self.mode_parse       = s["mode_parse"]
+        self.asm_skip_ws      = s["asm_skip_ws"]
+        self.asm_syntax_error = s["asm_syntax_error"]
 
         # asm_line entry points
-        self._asm_line_core         = exports["_asm_line_core"]
-        self.asm_error        = exports["asm_error"]
+        self._asm_line_core   = s["_asm_line_core"]
+        self.asm_error        = s["asm_error"]
 
         # ZP variable addresses
-        self.asm_ptr          = exports["asm_ptr"]
-        self.asm_opr          = exports["asm_opr"]
-        self.asm_pc           = exports["asm_pc"]
-        self.asm_out          = exports["asm_out"]
-        self.asm_len          = exports["asm_len"]
-        self.asm_cpu          = exports["asm_cpu"]
-        self._asm_saved_sp    = exports["_asm_saved_sp"]
-        self.asm_pass         = exports["asm_pass"]
+        self.asm_ptr          = s["asm_ptr"]
+        self.asm_opr          = s["asm_opr"]
+        self.asm_pc           = s["asm_pc"]
+        self.asm_out          = s["asm_out"]
+        self.asm_len          = s["asm_len"]
+        self.asm_cpu          = s["asm_cpu"]
+        self._asm_saved_sp    = s["_asm_saved_sp"]
+        self.asm_pass         = s["asm_pass"]
 
         raw = _AC_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
@@ -172,16 +183,14 @@ _MN_SOURCES = {
     'mn6': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn6.s", SRC / "mn6_tables.s"],
     'mn7': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn7.s", SRC / "mn7_tables.s"],
 }
-# Which source file contains the classify entry point label
-_MN_CLASSIFY_SRC = {'mn6': SRC / "mn6.s", 'mn7': SRC / "mn7.s"}
 
 _MN_BIN = {v: BUILD / f"{v}_test.bin" for v in ('mn6', 'mn7')}
 _MN_MAP = {v: BUILD / f"{v}_test.map" for v in ('mn6', 'mn7')}
-_MN_LST = {v: BUILD / f"{v}_classify.lst" for v in ('mn6', 'mn7')}
+_MN_LBL = {v: BUILD / f"{v}_test.lbl" for v in ('mn6', 'mn7')}
 
 def _mn_needs_rebuild(variant):
     bin_path = _MN_BIN[variant]
-    if not bin_path.exists():
+    if not bin_path.exists() or not _MN_LBL[variant].exists():
         return True
     bin_mtime = bin_path.stat().st_mtime
     return any(s.stat().st_mtime > bin_mtime for s in _MN_SOURCES[variant])
@@ -192,54 +201,17 @@ def _mn_build(variant):
     obj_files = []
     for src in _MN_SOURCES[variant]:
         obj = BUILD / (src.stem + f"_{variant}.o")
-        cmd = ["ca65", "--cpu", "6502", str(src), "-o", str(obj)]
-        # Generate listing for the classify source so we can find the label
-        if src == _MN_CLASSIFY_SRC[variant]:
-            cmd += ["--listing", str(_MN_LST[variant])]
+        cmd = ["ca65", "-g", "--cpu", "6502", str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)
         obj_files.append(str(obj))
     subprocess.run(
         ["ld65", "-C", str(DEV / "test.cfg"),
          *obj_files,
          "-o", str(_MN_BIN[variant]),
-         "-m", str(_MN_MAP[variant])],
+         "-m", str(_MN_MAP[variant]),
+         "-Ln", str(_MN_LBL[variant])],
         check=True,
     )
-
-
-def _mn_parse_map_exports(variant):
-    """
-    Return {symbol: address} for all exported ZP symbols in the map file.
-
-    ld65 packs two entries per line in the exports section; use findall
-    to capture both.  Only symbols with a 6-digit hex address are matched.
-    """
-    syms = {}
-    in_exports = False
-    for line in _MN_MAP[variant].read_text().splitlines():
-        if "Exports list by name" in line:
-            in_exports = True
-            continue
-        if in_exports:
-            if line.strip() == "":
-                break
-            for name, addr in re.findall(r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line):
-                syms[name] = int(addr, 16)
-    return syms
-
-
-def _mn_parse_classify_addr(variant):
-    """
-    Return the absolute address of mnN_classify by parsing the ca65 listing.
-
-    The listing encodes segment-relative offsets; add the CODE segment start.
-    """
-    label = f"{variant}_classify"
-    for line in _MN_LST[variant].read_text().splitlines():
-        m = re.match(r"^([0-9a-fA-F]+)r\s+\d+\s.*?\b" + re.escape(label) + r":", line)
-        if m:
-            return _CODE_START + int(m.group(1), 16)
-    raise KeyError(f"{label} not found in listing {_MN_LST[variant]}")
 
 
 class MnHashBinary:
@@ -249,12 +221,12 @@ class MnHashBinary:
         if _mn_needs_rebuild(variant):
             _mn_build(variant)
 
-        exports = _mn_parse_map_exports(variant)
+        s = parse_lbl(_MN_LBL[variant])
 
-        self.mn_c1    = exports['mn_c1']
-        self.mn_c2    = exports['mn_c2']
-        self.mn_c3    = exports['mn_c3']
-        self.classify = _mn_parse_classify_addr(variant)
+        self.mn_c1    = s['mn_c1']
+        self.mn_c2    = s['mn_c2']
+        self.mn_c3    = s['mn_c3']
+        self.classify = s[f'{variant}_classify']
 
         raw = _MN_BIN[variant].read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
@@ -290,6 +262,7 @@ def mn7_syms():
 
 _AS_BIN = BUILD / "asm_src_test.bin"
 _AS_MAP = BUILD / "asm_src_test.map"
+_AS_LBL = BUILD / "asm_src_test.lbl"
 _AS_CFG = DEV / "asm_src_test.cfg"
 
 _AS_SOURCES = [
@@ -312,7 +285,7 @@ _AS_SOURCES = [
 
 
 def _as_needs_rebuild():
-    if not _AS_BIN.exists() or not _AS_MAP.exists():
+    if not _AS_BIN.exists() or not _AS_LBL.exists():
         return True
     bin_mtime = _AS_BIN.stat().st_mtime
     return any(s.stat().st_mtime > bin_mtime for s in _AS_SOURCES + [_AS_CFG])
@@ -323,130 +296,53 @@ def _as_build():
     obj_files = []
     for src in _AS_SOURCES:
         obj = BUILD / f"{src.stem}_as.o"
-        cmd = ["ca65", "--cpu", "6502", "-t", "c64", str(src), "-o", str(obj)]
+        cmd = ["ca65", "-g", "--cpu", "6502", "-t", "c64",
+               str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)
         obj_files.append(str(obj))
     subprocess.run(
         ["ld65", "-C", str(_AS_CFG),
          *obj_files,
          "-o", str(_AS_BIN),
-         "-m", str(_AS_MAP)],
+         "-m", str(_AS_MAP),
+         "-Ln", str(_AS_LBL)],
         check=True,
     )
 
 
-def _as_parse_map_exports():
-    """Return {symbol: address} for all exports in the ld65 map file."""
-    syms = {}
-    in_exports = False
-    for line in _AS_MAP.read_text().splitlines():
-        if "Exports list by name" in line:
-            in_exports = True
-            continue
-        if in_exports:
-            if line.strip() == "":
-                break
-            for name, addr in re.findall(r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line):
-                syms[name] = int(addr, 16)
-    return syms
-
-
-def _as_parse_addrs():
-    """Parse all needed absolute addresses from the asm_src test map file.
-
-    Returns (asm_src_test_entry, test_src_buf, asm_org, asm_size, asm_errors,
-             bank_witness).
-
-    ld65 only includes a symbol in the "Exports list by name" if it is
-    imported by at least one other module.  asm_src_test_entry,
-    _test_src_buf, and _bank_witness are not imported by anyone, so we
-    compute their addresses from segment-start + module-offset information
-    in the map file:
-
-      asm_src_test_entry = CODE_start + stub_CODE_offs  (first byte of stub CODE)
-      _test_src_buf      = BSS_start  + stub_BSS_offs   + 0x0001
-                           (after _src_done[1] in stub BSS)
-      _bank_witness      = BSS_start  + stub_BSS_offs   + 0x0801
-                           (after _src_done[1] + _test_src_buf[2048])
-
-    asm_src.s's BSS vars (asm_org, asm_size, asm_errors) are not
-    imported by anyone, so we compute from BSS_start + asm_src's offset:
-      asm_org     = BSS_start + asm_src_bss_offs + 0
-      asm_size    = BSS_start + asm_src_bss_offs + 2
-      asm_errors  = BSS_start + asm_src_bss_offs + 4
-    """
-    text = _AS_MAP.read_text()
-    lines = text.splitlines()
-
-    # Segment starts (format: SEGNAME  start  end  size  align)
-    seg = {}
-    for line in lines:
-        m = re.match(r"^(CODE|DATA|BSS)\s+([0-9a-fA-F]+)", line)
-        if m:
-            seg[m.group(1)] = int(m.group(2), 16)
-
-    # Module offsets within CODE and BSS segments
-    stub_code_offs = stub_bss_offs = None
-    asm_src_bss_offs = None
-    current_module = None
-    for line in lines:
-        if 'asm_src_test_stub_as.o:' in line:
-            current_module = 'stub'
-            continue
-        if 'asm_src_as.o:' in line:
-            current_module = 'asm_src'
-            continue
-        if current_module and not line.strip():
-            current_module = None
-            continue
-        if current_module == 'stub':
-            mc = re.match(r"\s+CODE\s+Offs=([0-9a-fA-F]+)", line)
-            if mc:
-                stub_code_offs = int(mc.group(1), 16)
-            mb = re.match(r"\s+BSS\s+Offs=([0-9a-fA-F]+)", line)
-            if mb:
-                stub_bss_offs = int(mb.group(1), 16)
-        if current_module == 'asm_src':
-            mb = re.match(r"\s+BSS\s+Offs=([0-9a-fA-F]+)", line)
-            if mb:
-                asm_src_bss_offs = int(mb.group(1), 16)
-
-    asm_src_test_entry = seg['CODE'] + stub_code_offs
-    test_src_buf       = seg['BSS']  + stub_bss_offs + 0x0001
-    bank_witness       = seg['BSS']  + stub_bss_offs + 0x0801
-    asm_org            = seg['BSS']  + asm_src_bss_offs + 0
-    asm_size           = seg['BSS']  + asm_src_bss_offs + 2
-    asm_errors         = seg['BSS']  + asm_src_bss_offs + 4
-    return (asm_src_test_entry, test_src_buf, asm_org, asm_size,
-            asm_errors, bank_witness)
-
-
 class AsmSrcSymbols:
-    """Resolved symbol addresses + binary loader for the asm_src test."""
+    """Resolved symbol addresses + binary loader for the asm_src test.
+
+    All symbols resolved from .lbl file (debug build) — no more BSS
+    offset arithmetic or module-offset parsing from the map file.
+    """
 
     def __init__(self):
         if _as_needs_rebuild():
             _as_build()
 
-        (self.asm_src_test_entry,
-         self.test_src_buf,
-         self.asm_org,
-         self.asm_size,
-         self.asm_errors,
-         self.bank_witness) = _as_parse_addrs()
+        s = parse_lbl(_AS_LBL)
 
-        # Pull additional exports from the map (asm_line entry +
-        # ZP locations needed for direct asm_line tests).
-        exports = _as_parse_map_exports()
-        self.asm_line   = exports['asm_line']
-        self.asm_ptr    = exports['asm_ptr']
-        self.asm_pc     = exports['asm_pc']
-        self.asm_out    = exports['asm_out']
-        self.asm_len    = exports['asm_len']
-        self.kernal_out = exports['kernal_out']
-        # Segment tracking
-        self.min_pc       = exports['_min_pc']
-        self.max_pc       = exports['_max_pc']
+        # Stub entry points and BSS vars (previously required fragile
+        # segment-offset computation from the map file)
+        self.asm_src_test_entry = s['asm_src_test_entry']
+        self.test_src_buf       = s['_test_src_buf']
+        self.bank_witness       = s['_bank_witness']
+
+        # asm_src BSS vars (previously required BSS offset calculation)
+        self.asm_org    = s['asm_org']
+        self.asm_size   = s['asm_size']
+        self.asm_errors = s['asm_errors']
+
+        # Exported symbols (previously from map exports)
+        self.asm_line   = s['asm_line']
+        self.asm_ptr    = s['asm_ptr']
+        self.asm_pc     = s['asm_pc']
+        self.asm_out    = s['asm_out']
+        self.asm_len    = s['asm_len']
+        self.kernal_out = s['kernal_out']
+        self.min_pc     = s['_min_pc']
+        self.max_pc     = s['_max_pc']
 
         raw = _AS_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
@@ -470,6 +366,7 @@ def as_syms():
 
 _DASM_BIN = BUILD / "dasm_test.bin"
 _DASM_MAP = BUILD / "dasm_test.map"
+_DASM_LBL = BUILD / "dasm_test.lbl"
 
 _DASM_SOURCES = [
     SRC / "zp.s",
@@ -480,10 +377,9 @@ _DASM_SOURCES = [
 
 
 def _dasm_needs_rebuild():
-    if not _DASM_BIN.exists():
+    if not _DASM_BIN.exists() or not _DASM_LBL.exists():
         return True
     bin_mtime = _DASM_BIN.stat().st_mtime
-    # Also check the include file
     extra = [SRC / "dasm_mne_idx.s"]
     return any(s.stat().st_mtime > bin_mtime
                for s in _DASM_SOURCES + extra if s.exists())
@@ -494,7 +390,7 @@ def _dasm_build():
     obj_files = []
     for src in _DASM_SOURCES:
         obj = BUILD / f"{src.stem}_dasm.o"
-        cmd = ["ca65", "--cpu", "6502", "-DCMOS_SUPPORT",
+        cmd = ["ca65", "-g", "--cpu", "6502", "-DCMOS_SUPPORT",
                "-I", str(SRC), "-I", str(BUILD),
                str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)
@@ -503,69 +399,28 @@ def _dasm_build():
         ["ld65", "-C", str(DEV / "test.cfg"),
          *obj_files,
          "-o", str(_DASM_BIN),
-         "-m", str(_DASM_MAP)],
+         "-m", str(_DASM_MAP),
+         "-Ln", str(_DASM_LBL)],
         check=True,
     )
 
 
-def _dasm_parse_map_exports():
-    """Parse ALL exports — ld65 packs 2 per line."""
-    syms = {}
-    in_exports = False
-    for line in _DASM_MAP.read_text().splitlines():
-        if "Exports list by name" in line:
-            in_exports = True
-            continue
-        if in_exports:
-            if line.strip() == "" or line.startswith("---"):
-                continue
-            if line.startswith("Exports list by value") or line.startswith("Imports"):
-                break
-            for name, addr in re.findall(r"(\w+)\s+([0-9a-fA-F]{6})\s+\w+", line):
-                syms[name] = int(addr, 16)
-    return syms
-
-
 class DasmSymbols:
-    """Resolved symbol addresses + binary loader for the dasm test."""
+    """Resolved symbol addresses + binary loader for the dasm test.
+
+    All symbols resolved from .lbl file (debug build) — no more BSS
+    segment parsing or stub-offset fallback logic.
+    """
 
     def __init__(self):
         if _dasm_needs_rebuild():
             _dasm_build()
 
-        exports = _dasm_parse_map_exports()
+        s = parse_lbl(_DASM_LBL)
 
-        # dasm_test_entry might not be in exports (not imported by anyone).
-        # Use _dasm_insn as fallback and compute stub entry from segment info.
-        if "dasm_test_entry" in exports:
-            self.dasm_test_entry = exports["dasm_test_entry"]
-        else:
-            # The stub is the last CODE contributor; its entry is at a known
-            # offset from the segment end.  Parse from the map file.
-            seg_info = {}
-            for line in _DASM_MAP.read_text().splitlines():
-                m = re.match(r"(\w+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)", line)
-                if m and m.group(1) == 'CODE':
-                    seg_info['start'] = int(m.group(2), 16)
-                    seg_info['end']   = int(m.group(3), 16)
-                    seg_info['size']  = int(m.group(4), 16)
-            # Find stub offset from module list
-            for line in _DASM_MAP.read_text().splitlines():
-                m = re.match(r"\s+CODE\s+Offs=([0-9a-fA-F]+)\s+Size=", line)
-                if m:
-                    stub_offs = int(m.group(1), 16)
-            self.dasm_test_entry = seg_info['start'] + stub_offs
-
-        self.asm_cpu  = exports["asm_cpu"]
-        # _dasm_buf is in BSS — first BSS symbol, not imported so not in exports.
-        # Parse BSS segment start from the map.
-        for line in _DASM_MAP.read_text().splitlines():
-            m = re.match(r"BSS\s+([0-9a-fA-F]+)\s+", line)
-            if m:
-                self.dasm_buf = int(m.group(1), 16)
-                break
-        else:
-            raise KeyError("BSS segment not found in map")
+        self.dasm_test_entry = s["dasm_test_entry"]
+        self.asm_cpu         = s["asm_cpu"]
+        self.dasm_buf        = s["dasm_buf"]
 
         raw = _DASM_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
@@ -584,25 +439,49 @@ def dasm_syms():
 
 # ── C64Emu-based fixtures (Phase 9) ──────────────────────────────────────────
 #
-# These fixtures load the CMOS production PRG into C64Emu and provide
-# symbol resolution via the .lbl file.  Used by test_editor_asm.py,
-# test_screen_asm.py, test_step_rom.py, and future C64Emu-based tests.
+# These fixtures load the CMOS PRG into C64Emu and provide symbol
+# resolution via the .map/.lbl file.  Two profiles are available:
+#
+#   cse_prg         — debug build (full .lbl with all symbols)
+#   cse_release_prg — release build (for E2E integration tests)
+#
+# Most tests should use cse_prg (debug).  The richer symbol table
+# (~1800 symbols vs ~230) makes debugging test failures much easier.
 
 import subprocess
 
-_CMOS_PRG = ROOT / "build" / "cmos" / "cse-cmos.prg"
-_CMOS_MAP = ROOT / "build" / "cmos" / "cse.map"
+# Debug CMOS PRG (default for most tests)
+_CMOS_DBG_PRG = ROOT / "build" / "debug" / "cmos" / "cse-cmos.prg"
+_CMOS_DBG_MAP = ROOT / "build" / "debug" / "cmos" / "cse.map"
+
+# Release CMOS PRG (for E2E integration tests)
+_CMOS_REL_PRG = ROOT / "build" / "release" / "cmos" / "cse-cmos.prg"
+_CMOS_REL_MAP = ROOT / "build" / "release" / "cmos" / "cse.map"
 
 
-def _ensure_cmos_built():
-    """Build the CMOS PRG if not present."""
-    if not _CMOS_PRG.exists() or not _CMOS_MAP.exists():
-        subprocess.run(["make", "CPU=65c02"], cwd=ROOT, check=True,
+def _ensure_debug_built():
+    """Build the debug CMOS PRG if not present."""
+    if not _CMOS_DBG_PRG.exists() or not _CMOS_DBG_MAP.exists():
+        subprocess.run(["make", "debug"], cwd=ROOT, check=True,
+                       capture_output=True)
+
+
+def _ensure_release_built():
+    """Build the release CMOS PRG if not present."""
+    if not _CMOS_REL_PRG.exists() or not _CMOS_REL_MAP.exists():
+        subprocess.run(["make", "release"], cwd=ROOT, check=True,
                        capture_output=True)
 
 
 @pytest.fixture(scope="session")
 def cse_prg():
-    """Session-scoped: CMOS PRG path + map path, auto-built."""
-    _ensure_cmos_built()
-    return _CMOS_PRG, _CMOS_MAP
+    """Session-scoped: debug CMOS PRG — used by most C64Emu tests."""
+    _ensure_debug_built()
+    return _CMOS_DBG_PRG, _CMOS_DBG_MAP
+
+
+@pytest.fixture(scope="session")
+def cse_release_prg():
+    """Session-scoped: release CMOS PRG — for E2E integration tests."""
+    _ensure_release_built()
+    return _CMOS_REL_PRG, _CMOS_REL_MAP
