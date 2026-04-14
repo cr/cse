@@ -9,6 +9,13 @@ Open bugs, roughly ordered by priority.
   handler chain runs entirely in main RAM, no KERNAL ROM needed).
   Added defensive IRQ/BRK trampoline at $FF04 for the case where
   BRK fires with KERNAL unmapped.
+- [ ] IRQ/BRK trampoline at $FF04 banks KERNAL in but does not
+  restore $01 after the handler returns.  IRQs are safe (SEI
+  during kernal_bank_out), but a user-code BRK while KERNAL is
+  unmapped would permanently set $01 bit 1.  Verify this cannot
+  happen in practice (user code contract requires KERNAL
+  bankable-in for BRK), or add $01 save/restore to the
+  trampoline.
 - [ ] `.const FOO 1234` then `sta FOO` doesn't find the symbol.
   `sta foo` works.  Uppercase `.const` names not found by
   uppercase lookup, only by lowercase.  Assembler normalises
@@ -45,14 +52,13 @@ Open bugs, roughly ordered by priority.
   caller.  Fix: 256 B user-stack snapshot at `$EF00` under
   KERNAL (copy page 1 on debug entry/exit).  Acceptable
   trade-off for now.
-- [ ] Debugger: `t1` traces over conditional branches (BNE etc.)
-  instead of tracing into them.  The BRK-based step logic computes
-  both branch target and fall-through, arms BRK at both, but the
-  branch is not taken at runtime.  Likely cause: `reg_p` flags not
-  correctly captured/restored across BRK, or the BRK at the branch
-  target clobbers the instruction before it can execute.  Needs a
-  test case: step through a tight DEX/BNE loop and verify PC follows
-  the branch.
+- [ ] Debugger: `t1` traces over taken branches.  Confirmed
+  reproducible.  BRK-based step arms both branch target and
+  fall-through, but execution always follows the fall-through.
+  Likely cause: `reg_p` flags not correctly captured/restored
+  across BRK, or the BRK at the branch target clobbers the
+  instruction before it can execute.  Needs test case: step
+  through a tight DEX/BNE loop and verify PC follows the branch.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
