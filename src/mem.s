@@ -129,7 +129,7 @@ kernal_bank_in:
 @skip:  rts
 
 ; ═════════════════════════════════════════════════════════════
-; kernal_init — install NMI trampoline in banked RAM
+; kernal_init — install NMI + IRQ/BRK trampolines in banked RAM
 ;   Must be called once at startup.
 ;   Pure writer: stores under KERNAL pass through to RAM
 ;   regardless of $01 bit 1, so no banking is required.

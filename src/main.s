@@ -2,7 +2,7 @@
 ;
 ; Three-layer architecture:
 ;   cse_cold_init   — one-time setup (jumped to by loader.s)
-;   cse_warm_start  — idempotent recovery (hard fault, BASIC hook)
+;   cse_warm_start  — idempotent recovery (internal BRK fault)
 ;   cse_warm_screen — screen recovery tail (ESC/CLR, NMI-in-REPL)
 ;   main_loop       — event loop
 ;
@@ -190,8 +190,8 @@ s_free:       .byte "b free", 0
         lda #>$0800
         sta rp_ptr+1
         jsr cse_start          ; A/X = runtime start hi in X
-        lda #$00
         ldy #0
+        tya                     ; A = 0 (1 byte vs lda #$00 = 2)
 @work:  sta (rp_ptr),y
         inc rp_ptr
         bne :+
@@ -533,7 +533,7 @@ main_loop:
 @key:   .byte 0
 
 ; ═════════════════════════════════════════════════════════════
-; install_hooks — write all three permanent vectors
+; install_hooks — install BRK + NMI vectors via KERNAL VECTOR
 ; ═════════════════════════════════════════════════════════════
 install_hooks:
         sei
