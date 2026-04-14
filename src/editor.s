@@ -2157,12 +2157,26 @@ _ed_cur_row:
         lda @key
         jsr gb_insert
         inc ed_cur_col
-        ; Smart colon: typing ':' strips leading $A0 (label slides to col 0)
+        ; Smart colon: typing ':' at EOL strips leading $A0
         lda @key
         cmp #':'
-        bne :+
+        bne @print_done
+        ; Only at EOL (gap_hi is EOF or $0D)
+        lda gap_hi+1
+        cmp #>BUF_END
+        bcc @peek_eol
+        bne @do_smart_colon
+        lda gap_hi
+        cmp #<BUF_END
+        bcs @do_smart_colon
+@peek_eol:
+        ldy #0
+        lda (gap_hi),y
+        cmp #$0D
+        bne @print_done
+@do_smart_colon:
         jsr _strip_leading_tab
-:       jsr render_current_row
+@print_done:       jsr render_current_row
         jmp @repos              ; skip over @reject — no blip on success
 
 @status_repos:

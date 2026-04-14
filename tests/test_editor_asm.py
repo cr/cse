@@ -155,6 +155,25 @@ class TestSmartIndent:
         type_keys(emu, b"LOOP:")
         assert read_back(emu) == b"LOOP:"
 
+    def test_colon_mid_line_no_strip(self, cse_prg):
+        """Typing ':' mid-line does NOT strip gutter."""
+        emu = make_emu(cse_prg)
+        # Insert "\xa0LDA :" raw with cursor mid-line (content after colon)
+        insert_text(emu, b"\xa0LDA ")
+        # Cursor col not tracked by insert_text, so type via keystroke
+        # to get correct col tracking. Use a fresh emu instead:
+        emu = make_emu(cse_prg)
+        type_keys(emu, [0xA0])       # tab
+        type_keys(emu, b"LDA #")
+        # Now insert content AFTER cursor position via raw insert
+        insert_text(emu, b"00")
+        # Move left to be before "00"
+        type_keys(emu, [0x9D, 0x9D])  # LEFT LEFT
+        # Type colon here (mid-line, not EOL)
+        type_keys(emu, b":")
+        # Gutter should still be there — colon is not at EOL
+        assert read_back(emu)[:1] == b"\xa0"
+
     def test_colon_at_return(self, cse_prg):
         """RETURN after colon: label at col 0, new line gets tab."""
         emu = make_emu(cse_prg)
