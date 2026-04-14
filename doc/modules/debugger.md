@@ -122,12 +122,12 @@ length for step), main (BRK/NMI dispatch)
 
 ### Memory
 
-**BSS (46 bytes):**
+**BSS (56 bytes):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
-| `_bp_table` | 32 | 8 breakpoint slots x 4 bytes |
-| `_step_bp` | 8 | 2 step breakpoint slots x 4 bytes |
+| `_bp_table` | 40 | 8 breakpoint slots x 5 bytes |
+| `_step_bp` | 10 | 2 step breakpoint slots x 5 bytes |
 | `_dbg_running` | 1 | User code active flag ($80 = running) |
 | `_dbg_reason` | 1 | Break reason (0=none, 1=BRK, 2=NMI) |
 | `_brk_pc` | 2 | PC at break / resume address |
@@ -164,23 +164,63 @@ After reassignment:
 ### Breakpoint table
 
 ```
-8 slots × 4 bytes = 32 bytes BSS
+8 slots × 5 bytes = 40 bytes BSS
 
 Offset  Size  Field
   0       2   addr       breakpoint address ($0000 = unused slot)
-  2       1   saved      original byte at addr
-  3       1   flags      bit 0 = enabled
+  2       1   saved0     original byte at addr
+  3       1   saved1     original byte at addr+1
+  4       1   flags      bit 0 = enabled
 ```
 
-Slot 0–7.  Address $0000 = empty.  The `saved` byte is captured
-when the breakpoint is patched and restored when unpatched.
+Slot 0–7.  Address $0000 = empty.  Both `saved0` and `saved1`
+are captured when the breakpoint is patched and restored when
+unpatched.
+
+### BRK signature byte
+
+The 6502 BRK instruction is 2 bytes: `$00 XX`.  The CPU pushes
+PC+2 (skipping the signature byte XX) but does not otherwise use
+it.  The BRK handler can read it at `*(pushed_PC - 1)` to
+identify which breakpoint fired without searching the table.
+
+```
+Signature encoding:
+  $00       unmanaged BRK (user code, not ours)
+  $01-$08   user breakpoint slot 0-7 (signature = slot + 1)
+  $F1       step primary target (not written — adjacency risk)
+  $F2       step secondary / fall-through (not written)
+```
+
+**User breakpoints:** `patch_all` writes `$00` (BRK) at `addr`
+and the signature byte at `addr+1`.  `unpatch_all` restores both
+bytes from `saved0`/`saved1`.
+
+**All managed BRKs** (user BPs + step BRKs) write 2 bytes:
+`$00` (BRK) at `addr` and the signature at `addr+1`.
+Both original bytes are saved in `saved0`/`saved1` and
+restored by `unpatch_all`.
+
+**Adjacency guard:** `patch_all` skips the signature write
+when `addr+1 == brk_pc` (the instruction being stepped).
+This prevents clobbering the opcode at `brk_pc`.  The handler
+falls back to address comparison when the signature at
+`pushed_PC - 1` is not a recognised value.
+
+**Handler logic** (`dbg_brk_core`):
+1. Read `*(pushed_PC - 1)` as signature.
+2. If `$01-$08` → user BP, `dbg_bp_hit = signature - 1`.
+3. If `$F1-$F2` → step BRK, `dbg_bp_hit = $FF`.
+4. Else (unrecognised or skipped) → compare `brk_pc` against
+   `step_bp[0..1].addr`.  If matched → step BRK.
+5. Else → unmanaged BRK (`dbg_bp_hit = $FF`).
 
 ### Step breakpoints
 
-2 additional slots (same layout, 8 bytes) used by `t` and `o` for
-temporary breakpoints.  Cleaned up automatically after each step.
-Two slots are needed because a branch instruction has two possible
-next addresses (taken / not taken).
+2 additional slots (same 5-byte layout, 10 bytes) used by `t`
+and `o` for temporary breakpoints.  Cleaned up automatically
+after each step.  Two slots are needed because a branch
+instruction has two possible next addresses (taken / not taken).
 
 ### BRK mechanism (C64 hardware flow)
 
@@ -652,7 +692,7 @@ stepped-subroutine TODO is implemented.
 | Breakpoint table (8 × 4) | 32 | BSS |
 | Step-break temp slots (2 × 4) | 8 | BSS |
 | Flags and state | ~6 | BSS |
-| **Total** | **~690 CODE, ~46 BSS** | |
+| **Total** | **~690 CODE, ~56 BSS** | |
 
 ## Caveats
 

@@ -198,6 +198,13 @@ Defined scope, needs work.
   (into/over), managed vs unmanaged BRK.  Eliminates the
   `dbg_bp_find` address search — the handler reads the signature
   byte directly.  Simplifies step BRK vs user BP distinction.
+- [ ] `.brk` assembler directive: emit a BRK with a specific
+  signature byte, producing a "fixed" breakpoint in assembled
+  code.  The BRK handler recognises the signature and treats it
+  as a managed breakpoint (pause, show state) rather than an
+  unmanaged fault.  Variants: `.brk` (plain break), `.brk N`
+  (numbered), `.assert EXPR` (break if condition false).
+  Depends on the BRK signature byte scheme above.
 - [ ] Single-RETURN single-step workflow: bare `t` (repeated via
   RETURN) should default to 1 step when there's an active debug
   context (`dbg_reason != 0`), not `block_size`.  Enables rapid
