@@ -401,13 +401,12 @@ Exploratory, not yet scoped.
   REPL and editor.  REPL candidates: help, repeat last command,
   toggle hex/dec, disassemble at PC.  Editor candidates: save,
   assemble, goto line, search.
-- [ ] Revise RUN/STOP+RESTORE and NMI handling.  Nothing must
-  ever crash out of CSE — even a CSE crash should land in the
-  REPL.  RUN/STOP+RESTORE triggers NMI which currently toggles
-  REPL/editor; could double as a cheap "reset screen state"
-  function without needing a dedicated command.  Investigate
-  making the NMI handler unconditionally safe (re-entrant stack
-  cleanup, screen state restore).
+- [x] Revise RUN/STOP+RESTORE and NMI handling.  (Phase 14, done)
+  Permanent NMI dispatcher (`cse_nmi_handler`) at $0318.
+  NMI-in-REPL → `cse_warm_screen` (clean screen recovery).
+  Internal BRK → `cse_warm_start` (idempotent hard recovery).
+  Warm-start re-entry guard prevents infinite BRK loops.
+  NMI trampoline no longer corrupts $01.
 
 ### Features
 
@@ -417,7 +416,9 @@ Exploratory, not yet scoped.
 - [ ] `.` command: show help when mnemonic given without operand.
 - [ ] Color command `C`: show color preview swatches.
 - [ ] Disk I/O: timeout handling for unresponsive drives.
-- [ ] NMI during `j` user code: flag checked only on return.
+- [x] NMI during `j` user code.  (Phase 14, done)
+  `cse_nmi_handler` dispatches on `dbg_running` — user-code
+  NMI breaks into debugger immediately via `dbg_nmi_break`.
 - [ ] REU support for large source files.
 - [ ] Macro support: .macro/.endmacro.
 - [ ] Conditional assembly: .if/.else/.endif.
