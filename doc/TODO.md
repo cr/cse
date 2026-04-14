@@ -313,6 +313,23 @@ Defined scope, needs work.
   migrated from local `.segment "ZEROPAGE"` to `.importzp`.  `asm_vars.s`
   deleted (role absorbed by zp.s).  All test stubs and configs updated
   to link zp.s.  Pure refactor: 0 bytes size change, 2797 tests pass.
+- [ ] DDD template drift: 10 of 16 module docs have `**Depends on:**`
+  before a `### Memory` subsection inside Interface, violating the
+  template rule that it must be last.  Move Memory subsections to
+  Design or restructure Interface.
+- [ ] Missing module docs: `src/mem.s` and `src/loader.s` have no
+  `doc/modules/*.md`.  `meminfo.md` is a tombstone, not a mem.s doc.
+- [ ] debugger.md: all symbol names use `_` prefix (`_bp_table`,
+  `_dbg_running`, etc.) but actual exports have no prefix.  Rename
+  throughout the document.
+- [ ] README: missing `.bas` directive in assembler syntax table
+  (added in Phase 12).
+- [ ] README: `a` command description says "advances past assembled
+  code" — incorrect, sets cur_addr to `main` label if defined.
+- [ ] README + editor.md: "gap buffer grows down from $D000" — stale,
+  should be `__CODE_RUN__` (CSE runtime start, ~$7D00).
+- [ ] memory_design.md Design Principle 5: "source text grows down
+  from $D000" — stale, should say "from the CSE runtime start."
 - [ ] Global release version: single `VERSION` definition (currently
   Makefile `VERSION ?= 0.1`) that flows to D64 disk name, PRG
   filenames, splash screen string, and documentation.  Current
