@@ -98,7 +98,6 @@ VEC_TBL_SIZE = 32
 
 state:       .res 1              ; ST_STOP=0, ST_REPL=1, ST_EDIT=2
 warm_guard:  .res 1              ; nonzero = warm start in progress
-saved_imain: .res 2              ; original $0302/$0303 (BASIC warm-start vector)
 
 ; ── RODATA ───────────────────────────────────────────────────
 .segment "RODATA"
@@ -201,13 +200,7 @@ s_free:       .byte "b free", 0
 :       cpx rp_ptr+1            ; done when hi byte reaches cse_start hi
         bne @work
 
-        ; ── 11. Save $0302/$0303 (IMAIN, not in VECTOR range) ──
-        lda VEC_IMAIN
-        sta saved_imain
-        lda VEC_IMAIN+1
-        sta saved_imain+1
-
-        ; ── 12. Install permanent hooks via KERNAL VECTOR ──
+        ; ── 11. Install permanent hooks via KERNAL VECTOR ──
         jsr install_hooks
 
         ; ── 13. I/O and screen for splash ──
@@ -710,11 +703,6 @@ cse_exit_to_basic:
         sei
         ; Restore $0314-$0333 to KERNAL defaults (one call)
         jsr KERNAL_RESTOR
-        ; Restore $0302/$0303 (not covered by RESTOR)
-        lda saved_imain
-        sta VEC_IMAIN
-        lda saved_imain+1
-        sta VEC_IMAIN+1
         ; Bank out KERNAL to read KBSS ZP snapshot
         lda MEM_CONFIG
         and #$FD
@@ -730,8 +718,8 @@ cse_exit_to_basic:
         lda COLD_ZP
         sta MEM_CONFIG
         cli
-        ; Reinit screen I/O: clear screen, default colors, uppercase
-        ; charset.  Without this, BASIC inherits CSE's green theme
-        ; and lowercase charset.
-        jsr $FF81               ; KERNAL CINT
-        jmp (VEC_IMAIN)
+        ; BASIC cold start via ROM vector at ($A000).
+        ; Reinits workspace ($2B-$38), clears program, prints
+        ; banner + READY, enters main loop.  Also calls CINT
+        ; internally (clears screen, default colors, uppercase).
+        jmp ($A000)
