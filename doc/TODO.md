@@ -4,6 +4,9 @@
 
 Open bugs, roughly ordered by priority.
 
+- [ ] Disable C64 SHIFT+C= mode switch on CSE init: write `$80` to
+  `$0291` (MODE).  Restore `$00` on exit.  Currently SHIFT+C= in
+  the REPL toggles the character set, corrupting the display.
 - [ ] `.const FOO 1234` then `sta FOO` doesn't find the symbol.
   `sta foo` works.  Uppercase `.const` names not found by
   uppercase lookup, only by lowercase.  Assembler normalises
