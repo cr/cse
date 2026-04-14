@@ -107,7 +107,6 @@ s_lo03_tag:   .byte "lo03 ", 0
 s_work_tag:   .byte "work ", 0
 s_dash:       .byte "-", 0
 s_free:       .byte "b free", 0
-s_nmi_msg:    .byte "; run/stop+restore", 0
 
 ; ── PRG load address ─────────────────────────────────────────
 .segment "LOADADDR"
@@ -226,13 +225,13 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
         jsr reset_globals
 
         ; ── 15. Splash screen ────────────────────────────────
-        ; Version line (row 16)
-        lda #SCREEN_HEIGHT - 9
+        ; Version line (row 15)
+        lda #SCREEN_HEIGHT - 10
         jsr splash_row
         puts VERSION_STR
 
-        ; ZP free line (row 18): "  zp 0002-007f      126b free"
-        lda #SCREEN_HEIGHT - 7
+        ; ZP free line (row 17): "  zp 0002-007f      126b free"
+        lda #SCREEN_HEIGHT - 8
         jsr splash_row
         puts s_zp_tag
         lda #<$0002
@@ -252,8 +251,8 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
         jsr io_putdec
         puts s_free
 
-        ; lo02 free line (row 19): "lo02 02a7-02ff       89b free"
-        lda #SCREEN_HEIGHT - 6
+        ; lo02 free line (row 18): "lo02 02a7-02ff       89b free"
+        lda #SCREEN_HEIGHT - 7
         jsr splash_row
         puts s_lo02_tag
         lda #<$02A7
@@ -274,8 +273,8 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
         jsr io_putdec
         puts s_free
 
-        ; lo03 free line (row 20): "lo03 0334-03ff      204b free"
-        lda #SCREEN_HEIGHT - 5
+        ; lo03 free line (row 19): "lo03 0334-03ff      204b free"
+        lda #SCREEN_HEIGHT - 6
         jsr splash_row
         puts s_lo03_tag
         lda #<$0334
@@ -295,8 +294,8 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
         jsr io_putdec
         puts s_free
 
-        ; work free line (row 21): "work 0800-XXXX  NNNNNb free"
-        lda #SCREEN_HEIGHT - 4
+        ; work free line (row 20): "work 0800-XXXX  NNNNNb free"
+        lda #SCREEN_HEIGHT - 5
         jsr splash_row
         puts s_work_tag
         lda #<$0800
@@ -327,8 +326,8 @@ s_nmi_msg:    .byte "; run/stop+restore", 0
         jsr io_putdec
         puts s_free
 
-        ; Manual line (row 23)
-        lda #SCREEN_HEIGHT - 2
+        ; Manual line (row 22)
+        lda #SCREEN_HEIGHT - 3
         jsr splash_row
         puts s_manual
 
@@ -369,13 +368,7 @@ main_loop:
         sta state
         jsr restore_colors
         jsr set_charset
-        jsr newline
-        puts s_nmi_msg
-        jsr io_clear_eol
-        jsr newline
-        jsr io_clear_eol
-        jsr show_prompt
-        jmp main_loop
+        jmp cse_warm_screen
 
 @no_nmi:
         lda @key
@@ -676,7 +669,7 @@ cse_warm_screen:
         jsr reset_screen
         jsr io_clear_eol
         jsr show_prompt
-        ; Fall through to main_loop
+        jmp main_loop
 
 ; ═════════════════════════════════════════════════════════════
 ; cse_exit_to_basic — clean exit to BASIC warm start
