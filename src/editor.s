@@ -1544,6 +1544,30 @@ _ed_cur_row:
         jmp line_vwidth
 .endproc
 
+; ── _strip_label_tab — strip leading $A0 if line is a label ────
+; Scans the line for ';'.  If found (comment), skips the strip.
+; Otherwise calls _strip_leading_tab.
+; Clobbers: A, Y, ed_scr
+.proc _strip_label_tab
+        jsr find_line_start     ; ed_scr = line start
+@scan:  lda ed_scr
+        cmp gap_lo
+        bne @peek
+        lda ed_scr+1
+        cmp gap_lo+1
+        beq @ok                 ; reached cursor → no semicolon
+@peek:  ldy #0
+        lda (ed_scr),y
+        cmp #';'
+        beq @skip               ; comment → don't strip
+        inc ed_scr
+        bne @scan
+        inc ed_scr+1
+        jmp @scan
+@ok:    jsr _strip_leading_tab
+@skip:  rts
+.endproc
+
 ; ── _strip_leading_tab — remove first $A0 from current line ────
 ; If the current line starts with $A0, delete it by shifting
 ; content left and shrinking gap_lo.  Adjusts ed_cur_col.
@@ -2053,8 +2077,8 @@ _ed_cur_row:
         inc gap_lo+1
 :       cmp #':'
         bne @step4
-        ; Colon found — strip leading $A0 from current line
-        jsr _strip_leading_tab
+        ; Colon found — strip leading $A0 unless line has ';'
+        jsr _strip_label_tab
 
         ; Step 4: insert CR + $A0
 @step4:
@@ -2175,26 +2199,7 @@ _ed_cur_row:
         cmp #$0D
         bne @print_done
 @do_smart_colon:
-        ; Skip if line contains ';' (comment — colon is not a label)
-        jsr find_line_start     ; ed_scr = line start
-@sc_scan:
-        lda ed_scr
-        cmp gap_lo
-        bne @sc_peek
-        lda ed_scr+1
-        cmp gap_lo+1
-        beq @sc_ok              ; reached cursor → no semicolon found
-@sc_peek:
-        ldy #0
-        lda (ed_scr),y
-        cmp #';'
-        beq @print_done         ; semicolon found → skip strip
-        inc ed_scr
-        bne @sc_scan
-        inc ed_scr+1
-        jmp @sc_scan
-@sc_ok:
-        jsr _strip_leading_tab
+        jsr _strip_label_tab
 @print_done:       jsr render_current_row
         jmp @repos              ; skip over @reject — no blip on success
 
