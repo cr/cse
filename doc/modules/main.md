@@ -18,7 +18,6 @@
 **Interrupt handlers (owned by main.s):**
 - `cse_brk_handler` — permanent BRK dispatcher at $0316/$0317
 - `cse_nmi_handler` — permanent NMI dispatcher at $0318/$0319
-- `cse_basic_warm_hook` — BASIC warm-start intercept at $0302/$0303
 
 **Depends on:** repl, editor, screen, cse_io, debugger, symtab,
 disk, mem
@@ -29,13 +28,10 @@ disk, mem
 `rp_tmp2` (1) — scratch pointers/bytes shared by repl.s,
 debugger.s, asm_line.s.
 
-**BSS (1 byte):** `state` (1) — run mode (ST_STOP=0, ST_REPL=1,
-ST_EDIT=2).
+**BSS (2 bytes):** `state` (1), `warm_guard` (1).
 
-**KBSS (cold-init snapshots, under KERNAL ROM):**
+**KBSS (cold-init snapshot, under KERNAL ROM):**
 - `_cold_zp` (127 B) — snapshot of $01-$7F at cold-init entry
-- `_cold_vectors` (6 B) — snapshot of $0302-$0303, $0316-$0317,
-  $0318-$0319 at cold-init entry
 
 ## Design
 
@@ -44,14 +40,16 @@ ST_EDIT=2).
 #### Layer 1: `cse_cold_init` (one-time setup)
 
 Runs once after `loader.s` jumps to `_main`.  Saves $01-$7F
-and vectors to KBSS, unmaps BASIC ROM, inits all subsystems,
-fills free memory, installs permanent hooks, draws splash,
-then jumps directly to `main_loop`.
+to KBSS, unmaps BASIC ROM, inits all subsystems, fills free
+memory with $00, installs permanent hooks via KERNAL VECTOR
+($FF8D), draws splash, then jumps directly to `main_loop`.
 
 #### Layer 2: `cse_warm_start` (idempotent recovery)
 
-Reachable from `cse_brk_handler` (internal fault) and
-`cse_basic_warm_hook`.  Must NOT depend on previous state.
+Reachable from `cse_brk_handler` (internal fault).
+Must NOT depend on previous state.  Re-entry guard
+(`warm_guard`) prevents infinite BRK→warm-start loops;
+falls through to KERNAL cold start ($FCE2) as last resort.
 Resets SP, restores $01=$36, reinstalls hooks, calls `dbg_init`,
 resets globals, reinits I/O/theme/colors/charset, falls through
 to `cse_warm_screen`.
@@ -65,7 +63,7 @@ bypassing `cse_warm_screen` (which would clear the splash).
 
 | Entry point | Used by | Severity |
 |-------------|---------|----------|
-| `cse_warm_start` | `cse_brk_handler` (CSE fault), `cse_basic_warm_hook` | Hard recovery |
+| `cse_warm_start` | `cse_brk_handler` (CSE fault) | Hard recovery |
 | `cse_warm_screen` | ESC/CLR key, NMI-in-REPL, warm-start tail | Screen recovery |
 
 #### Layer 3: `main_loop` (event loop)
@@ -75,16 +73,21 @@ RUN/STOP toggle, editor keys, REPL keys).
 
 ### Permanent hooks
 
+Installed via KERNAL VECTOR ($FF8D) read-modify-write.
+
 | Vector | Address | Hook | Purpose |
 |--------|---------|------|---------|
-| IMAIN | $0302/$0303 | `cse_basic_warm_hook` | Intercept BASIC warm start |
 | IBRK | $0316/$0317 | `cse_brk_handler` | Unified BRK dispatch |
 | INMIV | $0318/$0319 | `cse_nmi_handler` | Unified NMI dispatch |
 
+$0302 (IMAIN) is not hooked — the BRK handler is sufficient
+for fault recovery.
+
 ### Exit path
 
-`cse_exit_to_basic` restores vectors and $01-$7F from KBSS
-snapshots, then `jmp ($0302)` (BASIC warm start).
+`cse_exit_to_basic`: RESTOR ($FF8A) restores $0314-$0333
+defaults, $01-$7F restored from KBSS snapshot, CINT ($FF81)
+reinits screen, `jmp ($A002)` enters BASIC warm start.
 
 ### Splash screen
 

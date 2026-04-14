@@ -115,19 +115,16 @@ interaction while active.
 **CSE owns (modifies on init, restores on exit):**
 - $01 (CPU I/O port — unmaps BASIC ROM)
 - $02-$7F (CSE zero page — saved on cold init, restored on exit)
-- $0302/$0303 (IMAIN — BASIC warm-start hook)
 - $0316/$0317 (IBRK — BRK dispatch)
 - $0318/$0319 (INMIV — NMI dispatch)
 
 **Exit obligation:** `cse_exit_to_basic` calls KERNAL RESTOR
-($FF8A) to restore $0314-$0333 to defaults, restores $0302/$0303
-from BSS, restores $01-$7F from cold-init snapshot, calls CINT
-($FF81) to reinit screen, and jumps to BASIC warm start via the
-restored $0302 vector.
+($FF8A) to restore $0314-$0333 to defaults, restores $01-$7F
+from cold-init snapshot, calls CINT ($FF81) to reinit screen,
+and enters BASIC warm start via `JMP ($A002)`.
 
 **Hook installation** uses KERNAL VECTOR ($FF8D) to read-modify-
-write the $0314-$0333 table atomically.  $0302/$0303 is outside
-the VECTOR range and is written directly.
+write the $0314-$0333 table atomically.
 
 **Cold-init snapshot** stored in KBSS under KERNAL ROM (pure
 write, no banking needed on save):
@@ -179,7 +176,7 @@ KERNAL is bankable-in for BRK/NMI handling.
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
     $0200-$02A6  KERNAL editor state, input buffer (reserved)
     $02A7-$02FF  Free (89 bytes, user code may use)
-    $0300-$0333  KERNAL vectors (CSE hooks at $0302, $0316, $0318)
+    $0300-$0333  KERNAL vectors (CSE hooks at $0316, $0318)
     $0334-$03FF  Free (204 bytes, user code may use)
     $0400-$07E7  Screen RAM (40×25, VIC bank 0)
     $07E8-$07FF  Sprite pointers (unused by CSE)

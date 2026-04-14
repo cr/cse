@@ -28,14 +28,14 @@
 
 ; ── Imports ──────────────────────────────────────────────────
         .import puts_imm
-        .import io_init, io_putc, io_puts, io_sync, io_blip
-        .import io_puthex4, io_puthex2, io_putdec
+        .import io_init, io_putc, io_sync, io_blip
+        .import io_puthex4, io_putdec
         .import io_getc, io_clear_eol
         .import reset_screen, restore_colors, newline, theme_init
         .import cursor_show, cursor_hide
         .import scr_lo, scr_hi
         .import kernal_init, define_ws_syms
-        .import cse_end, cse_zp_end, cse_start
+        .import cse_zp_end, cse_start
         .import sym_clear
         .import dbg_init
         .import dbg_brk_core, dbg_nmi_break
@@ -49,7 +49,6 @@
 
 
 ; ── Constants ────────────────────────────────────────────────
-SCREEN       = $0400
 SCREEN_WIDTH = 40
 SCREEN_HEIGHT = 25
 MEM_CONFIG   = $01
@@ -203,16 +202,16 @@ s_free:       .byte "b free", 0
         ; ── 11. Install permanent hooks via KERNAL VECTOR ──
         jsr install_hooks
 
-        ; ── 13. I/O and screen for splash ──
+        ; ── 12. I/O and screen for splash ──
         jsr io_init
         jsr theme_init
         jsr reset_screen
         jsr set_charset
 
-        ; ── 14. Init global state ──
+        ; ── 13. Init global state ──
         jsr reset_globals
 
-        ; ── 15. Splash screen ────────────────────────────────
+        ; ── 14. Splash screen ─────────────────────────────────
         ; Version line (row 15)
         lda #SCREEN_HEIGHT - 10
         jsr splash_row
@@ -672,10 +671,8 @@ cse_warm_start:
 ; ═════════════════════════════════════════════════════════════
 cse_warm_screen:
         jsr reset_screen
-        ; Cursor to last row for prompt
         lda #SCREEN_HEIGHT - 1
-        sta CUR_ROW
-        jsr io_sync
+        jsr splash_row
         jsr io_clear_eol
         jsr show_prompt
         jmp main_loop
@@ -683,10 +680,10 @@ cse_warm_screen:
 ; ═════════════════════════════════════════════════════════════
 ; cse_exit_to_basic — clean exit to BASIC warm start
 ;
-; Order: sei → bank out KERNAL (to read KBSS) → restore vectors →
+; Order: sei → RESTOR → bank out KERNAL (to read KBSS) →
 ; restore $02-$7F → restore $01 (re-banks KERNAL+BASIC) → cli →
-; jmp ($0302).  $01 must be restored LAST because it controls
-; banking: we need KERNAL banked out while reading KBSS snapshots.
+; CINT → jmp ($A002).  $01 must be restored LAST because it
+; controls banking: KERNAL must stay out while reading KBSS.
 ; ═════════════════════════════════════════════════════════════
 cse_exit_to_basic:
         sei
