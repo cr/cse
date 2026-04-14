@@ -179,12 +179,20 @@ Press RUN/STOP to enter the editor from the REPL and back.
 | Key | Action |
 |-----|--------|
 | Printable | Insert character (39-column visual limit) |
-| RETURN | Newline with auto-indent |
+| RETURN | Newline with auto-indent (see below) |
 | DEL | Backspace |
 | Cursor keys | Navigate |
 | HOME | Start of line |
 | SHIFT+SPACE | Tab (to next tab stop) |
 | RUN/STOP | Return to REPL |
+
+**Smart indent.**  New lines start with a tab (SHIFT+SPACE).
+Typing `:` slides the current line to column 0 — labels are
+recognised by the colon and move to the left edge automatically.
+RETURN after a colon also strips the gutter from the label line.
+
+*Known quirk:* a colon in a comment (`; note:`) will also strip
+the line's leading tab.  Re-add it with SHIFT+SPACE if needed.
 
 The editor uses a gap buffer that grows downward from $D000.
 The status bar shows the cursor position, line count, dirty flag,
