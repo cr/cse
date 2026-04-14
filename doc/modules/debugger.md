@@ -357,12 +357,28 @@ a garbage return address when no JSR context exists.
 
 ### Single-step: `o` (trace over / step over)
 
-Identical to `t` except for JSR:
+Identical to `t` except for JSR and conditional branches:
 
+**JSR:**
 - `t` (trace into): step BRK at subroutine entry (`operand`) —
   follows the call, next step is the first instruction of the sub.
 - `o` (trace over): step BRK at `PC + 3` — the instruction after
   the JSR.  The subroutine runs to completion at full speed.
+
+**Conditional branches (BCC, BCS, BEQ, BNE, BPL, BMI, BVC, BVS):**
+- `t` (trace into): step BRKs at BOTH the taken target and the
+  fall-through.  Whichever path the CPU takes, the next step
+  fires.
+- `o` (trace over): step BRK at the fall-through ONLY.  If the
+  branch is taken, the code runs at full speed until it naturally
+  reaches the fall-through address (e.g., a loop runs to
+  completion).
+
+**Caveat:** `o` on a branch assumes the fall-through will
+eventually be reached.  If the loop body contains a JMP or JSR
+that exits sideways without passing through the fall-through
+address, execution escapes and only NMI (RUN/STOP+RESTORE) can
+break out — same as `o` on a JSR to a routine that never returns.
 
 ### KERNAL ROM JSR fallback
 

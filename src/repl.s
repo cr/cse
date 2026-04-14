@@ -1808,10 +1808,13 @@ VIC_MEMCTL = $D018
 .proc compute_rel_target
         ldy #1
         lda (rp_ptr2),y         ; signed relative offset
-        ldy #0                  ; sign-extend hi = 0 (positive)
-        bpl :+
+        ; Sign-extend: N flag from LDA tells us the sign.
+        ; Must test BEFORE ldy clobbers N.
+        bpl @pos
         ldy #$FF                ; negative → sign-extend = $FF
-:       clc
+        .byte $2C               ; BIT abs — skip next 2 bytes
+@pos:   ldy #0                  ; positive → sign-extend = $00
+        clc
         adc brk_pc
         sta rp_next_lo
         tya
@@ -1980,9 +1983,13 @@ VIC_MEMCTL = $D018
         cmp #$10
         bne @linear
 
-        ; Branch: taken = brk_pc + 2 + rel, not-taken = brk_pc + 2
+        ; Branch: step-into arms both targets, step-over arms
+        ; only the fall-through (loop runs to completion).
+        lda rp_save2            ; is_next (0=into, 1=over)
+        bne @branch_over
+        ; step-into: taken target in rp_next_lo
         jsr compute_rel_target
-        ; not-taken = brk_pc + 2
+        ; fall-through in rp_next_hi (second BRK)
         lda brk_pc
         clc
         adc #2
@@ -1990,6 +1997,16 @@ VIC_MEMCTL = $D018
         lda brk_pc+1
         adc #0
         sta rp_next_hi+1
+        jmp @check_next
+@branch_over:
+        ; step-over: fall-through only in rp_next_lo
+        lda brk_pc
+        clc
+        adc #2
+        sta rp_next_lo
+        lda brk_pc+1
+        adc #0
+        sta rp_next_lo+1
         jmp @check_next
 
 @linear:

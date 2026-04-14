@@ -49,15 +49,13 @@ Open bugs, roughly ordered by priority.
   caller.  Fix: 256 B user-stack snapshot at `$EF00` under
   KERNAL (copy page 1 on debug entry/exit).  Acceptable
   trade-off for now.
-- [ ] Debugger: `t1` runs entire loop instead of single-stepping
-  a taken branch.  Reproduction: LDX #5 / DEX / BNE loop,
-  step to BNE, `t1` → X=0 (loop ran to completion), brk_pc
-  at fall-through (RTS), not at taken target (DEX).  The BRK
-  at the taken target was either never patched or invisible
-  to the CPU.  `dbg_enter` layer is correct (3 py65 tests
-  pass: `TestDbgEnterBranchStep`).  Bug is between `cmd_step`
-  arming `step_bp` and `patch_all` writing the BRK — something
-  clears or overwrites step_bp, or `patch_all` skips the slot.
+- [x] Debugger: `t1` ran entire loop instead of single-stepping
+  a taken branch.  Root cause: `compute_rel_target` did
+  `ldy #0` before `bpl`, clobbering the N flag from the
+  loaded branch offset.  Negative offsets were treated as
+  positive (+253 instead of -3), placing the step BRK at
+  the wrong address ($0902 instead of $0802).  Fixed by
+  testing N before the LDY.
 - [ ] Assembler: `bne <nonexisting symbol>` reports "bad insn",
   should report an expression/symbol error instead.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
