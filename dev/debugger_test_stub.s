@@ -22,7 +22,7 @@
         .import dbg_init
         .import dbg_bp_set, dbg_bp_del, dbg_bp_clear
         .import dbg_bp_count
-        .import dbg_bp_patch, dbg_bp_unpatch
+        .import patch_all, unpatch_all
         .import dbg_bp_find
         .import dbg_enter
         .import dbg_brk_core
@@ -114,11 +114,11 @@ RVAL    = $0B04
         sta RVAL
         rts
 
-@patch: jsr dbg_bp_patch
+@patch: jsr patch_all
         rts
 
 @unpatch:
-        jsr dbg_bp_unpatch
+        jsr unpatch_all
         rts
 
 @find:  lda ARG1                ; addr lo

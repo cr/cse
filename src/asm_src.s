@@ -16,8 +16,6 @@
         .export         asm_org, asm_size, asm_errors
         .export         asm_pass := _asm_pass   ; pass flag for au_mode.s fwd refs
         .export         seg_print_save
-        ; Test-visible segment tracking exports
-        .export         _min_pc, _max_pc
 
         .import         asm_line               ; asm_line.s
         .import         expr_eval              ; expr.s

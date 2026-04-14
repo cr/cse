@@ -33,12 +33,10 @@
         .export dbg_enter
         .export dbg_brk_core
         .export dbg_nmi_break
-        .export bp_table
+        .export bp_table, step_bp
         .export dbg_running, dbg_reason, brk_pc, dbg_bp_hit
-        .export step_bp
         .export dbg_step_clear
-        .export dbg_bp_patch  := patch_all     ; test harness entry
-        .export dbg_bp_unpatch := unpatch_all  ; test harness entry
+        .export patch_all, unpatch_all
 
         .importzp rp_ptr          ; scratch pointer (main.s)
         .import reg_a, reg_x, reg_y, reg_sp, reg_p

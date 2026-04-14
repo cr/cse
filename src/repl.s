@@ -14,8 +14,8 @@
         .export out_log, out_log_open, out_log_at_open, out_close
         .export out_err, out_warn, out_info
         .export cur_addr, cur_device, cur_filename
-        ; test harness visibility
-        .export line_buf, last_cmd, block_size
+        .export block_size
+        .export line_buf, last_cmd          ; TODO: remove after test_repl → C64Emu migration
 
 ; ── Imports: cse_io.s ──────────────────────────────────────
         .import io_putc, io_puts
@@ -1173,14 +1173,8 @@ parse_hex4_ptr1:
         ; "; ok at $XXXX" so the user sees the program returned
         ; (and at which entry point), then fall through to the
         ; register dump.
-        ; NOTE: manual newline + "; " here instead of out_log_open
-        ; because the test harness KERNAL PLOT stub is sensitive
-        ; to io_putc calls before run_user has fully returned.
-        jsr newline
-        lda #';'
-        jsr io_putc
-        lda #' '
-        jsr io_putc
+        ldy #' '
+        jsr out_log_open
         puts str_ok_at
         lda brk_pc
         ldx brk_pc+1
