@@ -1978,11 +1978,99 @@ _ed_cur_row:
         cmp #CH_ENTER
         jne @not_enter
 @is_enter:
-        ; Smart indent rule 1:
-        ;   Insert CR.  Then check:
-        ;   (a) If old line is now whitespace-only, strip it and
-        ;       donate the tab to the new line (unless gap_hi=$A0).
-        ;   (b) Else if new line is empty (gap_hi EOF/$0D), insert tab.
+        ; Smart indent:
+        ;   1. If at BOL (col 0): insert CR, done.
+        ;   2. Strip all $A0 tabs left and right of cursor.
+        ;   3. If byte left of cursor is ':', strip leading $A0 from line.
+        ;   4. Insert CR + $A0 tab.
+
+        ; Step 1: BOL early-out
+        lda ed_cur_col
+        jeq @bol_cr
+
+        ; Step 2: strip $A0 tabs left of cursor
+@strip_left:
+        ; Peek gap_lo - 1
+        lda gap_lo
+        cmp buf_base
+        bne @peek_l
+        lda gap_lo+1
+        cmp buf_base+1
+        beq @strip_right        ; at buf_base → nothing left
+@peek_l:
+        lda gap_lo
+        bne :+
+        dec gap_lo+1
+:       dec gap_lo
+        ldy #0
+        lda (gap_lo),y
+        cmp #$A0
+        beq @strip_left         ; $A0 → absorbed into gap, loop
+        ; Not $A0 — restore gap_lo (undo the dec)
+        inc gap_lo
+        bne @strip_right
+        inc gap_lo+1
+
+        ; Step 2b: strip $A0 tabs right of cursor
+@strip_right:
+        lda gap_hi+1
+        cmp #>BUF_END
+        bcc @peek_r
+        bne @step3              ; past EOF
+        lda gap_hi
+        cmp #<BUF_END
+        bcs @step3              ; at EOF
+@peek_r:
+        ldy #0
+        lda (gap_hi),y
+        cmp #$A0
+        bne @step3
+        ; $A0 → advance gap_hi (absorb into gap)
+        inc gap_hi
+        bne @strip_right
+        inc gap_hi+1
+        jmp @strip_right
+
+        ; Step 3: if byte left of cursor is ':', strip leading $A0
+@step3:
+        ; Peek byte left of cursor (gap_lo - 1)
+        lda gap_lo
+        cmp buf_base
+        bne @peek_colon
+        lda gap_lo+1
+        cmp buf_base+1
+        beq @step4              ; at buf_base → no byte to check
+@peek_colon:
+        lda gap_lo
+        bne :+
+        dec gap_lo+1
+:       dec gap_lo
+        ldy #0
+        lda (gap_lo),y
+        ; restore gap_lo
+        inc gap_lo
+        bne :+
+        inc gap_lo+1
+:       cmp #':'
+        bne @step4
+        ; Colon found — strip leading $A0 from current line
+        jsr _strip_leading_tab
+
+        ; Step 4: insert CR + $A0
+@step4:
+        lda #$0D
+        jsr gb_insert
+        inc ed_cur_line
+        bne :+
+        inc ed_cur_line+1
+:       lda #$A0
+        jsr gb_insert
+        lda #TAB_WIDTH
+        sta ed_cur_col
+        jmp @enter_render
+
+        ; Step 1 (BOL path): just insert CR
+@bol_cr:
         lda #$0D
         jsr gb_insert
         inc ed_cur_line
@@ -1990,86 +2078,7 @@ _ed_cur_row:
         inc ed_cur_line+1
 :       lda #0
         sta ed_cur_col
-
-        ; (a) Check if old line is now whitespace-only.
-        ; After gb_insert($0D): gap_lo-1 = CR, gap_lo-2 = last byte of old line.
-        ; Old line is a lone $A0 if: gap_lo-2 is $A0, AND (gap_lo-3 is CR or
-        ; gap_lo-2 == buf_base).
-        ;
-        ; Use ed_scr as scratch pointer for gap_lo-2.
-        lda gap_lo
-        sec
-        sbc #2
-        sta ed_scr
-        lda gap_lo+1
-        sbc #0
-        sta ed_scr+1
-        ; Is gap_lo-2 == buf_base? (first byte in buffer)
-        lda ed_scr
-        cmp buf_base
-        bne @check_prev_cr
-        lda ed_scr+1
-        cmp buf_base+1
-        beq @check_a0           ; at buf_base → this is line start
-@check_prev_cr:
-        ; Is byte at gap_lo-3 a CR? (previous line's end)
-        lda ed_scr
-        sec
-        sbc #1
-        sta ed_tmp
-        lda ed_scr+1
-        sbc #0
-        sta ed_tmp+1
-        ldy #0
-        lda (ed_tmp),y
-        cmp #$0D
-        bne @no_strip           ; not at line start → old line has more content
-@check_a0:
-        ; ed_scr points at sole byte of old line. Is it $A0?
-        ldy #0
-        lda (ed_scr),y
-        cmp #$A0
-        bne @no_strip
-        ; Old line is just $A0 — strip it by overwriting with the CR.
-        lda #$0D
-        sta (ed_scr),y          ; write CR where $A0 was
-        ; Shrink: gap_lo now starts after this CR
-        lda ed_scr
-        clc
-        adc #1
-        sta gap_lo
-        lda ed_scr+1
-        adc #0
-        sta gap_lo+1
-        ; Donate: insert tab on new line if gap_hi isn't already $A0
-        lda (gap_hi),y          ; Y still 0
-        cmp #$A0
-        beq @no_tab             ; already tabbed → skip
-        jmp @do_tab
-
-@no_strip:
-        ; (b) If new line is empty (gap_hi EOF/$0D), insert tab.
-        lda gap_hi+1
-        cmp #>BUF_END
-        bcc @peek_gap_hi
-        bne @do_tab             ; gap_hi > BUF_END → EOF
-        lda gap_hi
-        cmp #<BUF_END
-        bcs @do_tab             ; gap_hi >= BUF_END → EOF
-@peek_gap_hi:
-        ldy #0
-        lda (gap_hi),y
-        cmp #$0D
-        beq @do_tab             ; next byte is CR → empty line
-        cmp #$A0
-        beq @no_tab             ; already has tab → skip
-        bne @no_tab             ; other content → skip
-@do_tab:
-        lda #$A0
-        jsr gb_insert
-        lda #TAB_WIDTH
-        sta ed_cur_col
-@no_tab:
+@enter_render:
 
         ; Scroll or re-render
         ; if ed_cur_line >= ed_top_line + ED_LINES → scroll up
@@ -2148,12 +2157,6 @@ _ed_cur_row:
         lda @key
         jsr gb_insert
         inc ed_cur_col
-        ; Smart indent rule 2: typing ':' strips leading $A0
-        lda @key
-        cmp #':'
-        bne @print_done
-        jsr _strip_leading_tab
-@print_done:
         jsr render_current_row
         jmp @repos              ; skip over @reject — no blip on success
 

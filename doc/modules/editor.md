@@ -257,8 +257,8 @@ editor cursor.
 | DOWN | `ed_cursor_down`: advance past CR → advance to target col | scroll up if below viewport, else status pos |
 | HOME | `gb_home`: slide gap left to start of current line | status pos only |
 | DEL | `gb_backspace`, re-render from current row to bottom.  At col 0 of line > 0: join with previous line.  At col 0 of line 0: refused (blip, left wall). | rows from cursor to bottom + status |
-| RETURN | Insert $0D, advance `ed_cur_line`. If new line is empty (gap_hi is EOF or $0D), insert $A0 tab. | rows from previous line to bottom + status |
-| printable | insert char at gap, increment `ed_cur_col`.  **Special: typing `:` also strips the leading $A0 from the current line** (label slides to column 0). | current row only + status |
+| RETURN | Smart indent (see below). | rows from previous line to bottom + status |
+| printable | insert char at gap, increment `ed_cur_col`. | current row only + status |
 
 Cursor movement preserves the target column across UP/DOWN (saved
 in `target_col` before the move, restored after).  Target column is
@@ -282,17 +282,19 @@ byte advances `ed_cur_col` by 1–`TAB_WIDTH` columns depending on
 the current position.  Cursor LEFT/RIGHT over a $A0 byte jumps the
 full visual width of that tab in one keystroke.
 
-**Smart indent — two rules, no edge cases.**
+**Smart indent.**  RETURN applies these steps in order:
 
-1. **RETURN** inserts $0D, then:
-   - If the old line is now whitespace-only (the byte before the
-     CR is $A0 at line start), strip it.  If `gap_hi` is not
-     already $A0, donate the stripped tab to the new line (insert
-     $A0).  This handles splitting `\xa0|rts` → `\r\xa0rts`.
-   - Otherwise, if `gap_hi` is EOF or $0D (new line is empty),
-     insert one $A0 tab.
-2. **Typing `:`** strips the leading $A0 from the current line
-   (if present).  The label slides to column 0 in real time.
+1. If cursor is at column 0 (beginning of line): insert $0D, done.
+   This preserves labels and unindented content below the split.
+2. Strip all $A0 tabs adjacent to the cursor (left and right).
+3. If the byte now left of the cursor is `:`, strip all leading
+   $A0 tabs from the current line (label slides to column 0).
+4. Insert $0D + $A0 tab.
+
+Every new line gets a gutter tab (step 4).  Labels lose their
+gutter when RETURN follows a colon (step 3).  Splitting a line
+in mid-gutter removes the tabs around the split point (step 2)
+so neither side gets a double tab.
 
 `enter_editor` seeds one $A0 tab when the buffer is empty so the
 first line is ready for an instruction.

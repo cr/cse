@@ -93,82 +93,82 @@ def type_keys(emu, keys):
 
 
 class TestSmartIndent:
-    """Two-rule smart indent: RETURN tabs empty new lines, colon strips gutter."""
+    """Smart indent: BOL early-out, strip tabs around cursor, colon strips line."""
 
-    # ── Rule 1: RETURN inserts tab only on empty new lines ────
+    # ── Normal RETURN (end of line) ──
 
-    def test_return_tabs_empty_new_line(self, cse_prg):
-        """RETURN at end of line → new line gets $A0 tab."""
+    def test_return_eol(self, cse_prg):
+        """RETURN at end of instruction line → CR + tab."""
         emu = make_emu(cse_prg)
         type_keys(emu, b"LDA #1")
         type_keys(emu, b"\r")
         assert read_back(emu) == b"LDA #1\r\xa0"
 
-    def test_return_on_empty_line(self, cse_prg):
-        """RETURN on empty line → new line gets tab."""
-        emu = make_emu(cse_prg)
-        type_keys(emu, b"\r")
-        assert read_back(emu) == b"\r\xa0"
-
     def test_return_multiple(self, cse_prg):
-        """Each RETURN adds one tab to the new empty line."""
+        """Each RETURN adds tab on new line."""
         emu = make_emu(cse_prg)
-        type_keys(emu, b"A")
-        type_keys(emu, b"\r")
-        type_keys(emu, b"B")
-        type_keys(emu, b"\r")
+        type_keys(emu, b"A\rB\r")
         assert read_back(emu) == b"A\r\xa0B\r\xa0"
 
-    def test_return_before_content_no_tab(self, cse_prg):
-        """RETURN before existing content → no tab inserted (content keeps its formatting)."""
+    # ── BOL early-out: just CR, no tab ──
+
+    def test_return_bol_before_label(self, cse_prg):
+        """RETURN at col 0 before label → just CR, label stays put."""
         emu = make_emu(cse_prg)
-        # Insert "MAIN:" raw, then position cursor at col 0 via HOME
         insert_text(emu, b"MAIN:")
-        type_keys(emu, [0x13])  # HOME key
-        type_keys(emu, b"\r")   # RETURN at col 0, before "MAIN:"
+        type_keys(emu, [0x13])  # HOME
+        type_keys(emu, b"\r")
         assert read_back(emu) == b"\rMAIN:"
 
-    # ── Rule 1b: Split donates tab from whitespace-only old line ──
-
-    def test_split_donates_tab(self, cse_prg):
-        """Split after gutter on tabbed line → tab moves to new line."""
+    def test_return_bol_before_tabbed(self, cse_prg):
+        """RETURN at col 0 before tabbed content → just CR."""
         emu = make_emu(cse_prg)
-        # Build "\xa0rts": insert tab + rts raw
         insert_text(emu, b"\xa0RTS")
-        # Position cursor between \xa0 and R (HOME → RIGHT over tab)
         type_keys(emu, [0x13])  # HOME
-        type_keys(emu, [0x1D])  # RIGHT (over $A0 tab)
-        type_keys(emu, b"\r")   # RETURN: split here
-        # Old line was just \xa0 → stripped. Tab donated to new line.
+        type_keys(emu, b"\r")
         assert read_back(emu) == b"\r\xa0RTS"
 
-    def test_split_no_double_tab(self, cse_prg):
-        """Split before content that already has $A0 → no extra tab."""
+    def test_return_bol_empty(self, cse_prg):
+        """RETURN on empty line at col 0 → just CR."""
+        emu = make_emu(cse_prg)
+        type_keys(emu, b"\r")
+        assert read_back(emu) == b"\r"
+
+    # ── Strip tabs around cursor on split ──
+
+    def test_split_strips_left_tab(self, cse_prg):
+        """Split after gutter: left tab stripped, new line gets tab."""
         emu = make_emu(cse_prg)
         insert_text(emu, b"\xa0RTS")
-        type_keys(emu, [0x13])  # HOME — cursor at col 0, before \xa0
-        type_keys(emu, b"\r")   # RETURN: gap_hi is $A0
-        # No donation needed — content already has tab
+        type_keys(emu, [0x13])  # HOME
+        type_keys(emu, [0x1D])  # RIGHT over tab
+        type_keys(emu, b"\r")
         assert read_back(emu) == b"\r\xa0RTS"
 
-    # ── Rule 2: Typing ':' strips leading $A0 (real-time) ────
+    # ── Colon strips leading tabs ──
 
-    def test_colon_strips_gutter(self, cse_prg):
-        """Typing ':' removes leading $A0 — label slides to column 0."""
+    def test_colon_at_return(self, cse_prg):
+        """RETURN after colon: leading tab stripped, label at col 0."""
         emu = make_emu(cse_prg)
-        # Seed a tab (simulates what enter_editor does on empty buffer)
+        # Seed tab then type label — must use type_keys so ed_cur_col tracks
         insert_text(emu, b"\xa0")
-        # Now type a label — the colon should strip the leading tab
-        type_keys(emu, b"LOOP:")
-        assert read_back(emu) == b"LOOP:"
-
-    def test_colon_then_return(self, cse_prg):
-        """Label then RETURN: label at col 0, new line gets tab."""
-        emu = make_emu(cse_prg)
-        insert_text(emu, b"\xa0")  # seed tab
         type_keys(emu, b"MAIN:")
         type_keys(emu, b"\r")
         assert read_back(emu) == b"MAIN:\r\xa0"
+
+    def test_split_label_tab_rts(self, cse_prg):
+        """Split label:\\xa0rts: label loses gutter, rts gets tab."""
+        emu = make_emu(cse_prg)
+        # Type label + tab + instruction via keystrokes
+        type_keys(emu, b"LOOP:")
+        type_keys(emu, [0xA0])  # C=+SPACE (tab)
+        type_keys(emu, b"RTS")
+        # Move cursor to between : and tab
+        type_keys(emu, [0x13])  # HOME
+        for _ in range(6):      # RIGHT over L O O P : = 5 chars at col 0
+            type_keys(emu, [0x1D])
+        type_keys(emu, b"\r")
+        assert read_back(emu) == b"LOOP:\r\xa0RTS"
 
 
 # ── ed_new — reset buffer ──────────────────────────────────────────────────
