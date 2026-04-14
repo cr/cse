@@ -145,13 +145,20 @@ class TestSmartIndent:
         type_keys(emu, b"\r")
         assert read_back(emu) == b"\r\xa0RTS"
 
-    # ── Colon strips leading tabs ──
+    # ── Smart colon: strips leading tab on keystroke ──
+
+    def test_colon_strips_gutter(self, cse_prg):
+        """Typing ':' removes leading $A0 in real time."""
+        emu = make_emu(cse_prg)
+        # Seed tab with correct ed_cur_col via C=+SPACE keystroke
+        type_keys(emu, [0xA0])
+        type_keys(emu, b"LOOP:")
+        assert read_back(emu) == b"LOOP:"
 
     def test_colon_at_return(self, cse_prg):
-        """RETURN after colon: leading tab stripped, label at col 0."""
+        """RETURN after colon: label at col 0, new line gets tab."""
         emu = make_emu(cse_prg)
-        # Seed tab then type label — must use type_keys so ed_cur_col tracks
-        insert_text(emu, b"\xa0")
+        type_keys(emu, [0xA0])  # tab (sets ed_cur_col = TAB_WIDTH)
         type_keys(emu, b"MAIN:")
         type_keys(emu, b"\r")
         assert read_back(emu) == b"MAIN:\r\xa0"

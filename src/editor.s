@@ -2157,7 +2157,12 @@ _ed_cur_row:
         lda @key
         jsr gb_insert
         inc ed_cur_col
-        jsr render_current_row
+        ; Smart colon: typing ':' strips leading $A0 (label slides to col 0)
+        lda @key
+        cmp #':'
+        bne :+
+        jsr _strip_leading_tab
+:       jsr render_current_row
         jmp @repos              ; skip over @reject — no blip on success
 
 @status_repos:

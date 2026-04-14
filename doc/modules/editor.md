@@ -258,7 +258,7 @@ editor cursor.
 | HOME | `gb_home`: slide gap left to start of current line | status pos only |
 | DEL | `gb_backspace`, re-render from current row to bottom.  At col 0 of line > 0: join with previous line.  At col 0 of line 0: refused (blip, left wall). | rows from cursor to bottom + status |
 | RETURN | Smart indent (see below). | rows from previous line to bottom + status |
-| printable | insert char at gap, increment `ed_cur_col`. | current row only + status |
+| printable | insert char at gap, increment `ed_cur_col`.  Typing `:` also strips the leading $A0 (label slides to column 0 in real time). | current row only + status |
 
 Cursor movement preserves the target column across UP/DOWN (saved
 in `target_col` before the move, restored after).  Target column is
