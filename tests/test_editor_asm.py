@@ -65,6 +65,7 @@ class TestGapBufferInsert:
         assert read_back(emu) == b"HELLO WORLD"
 
     def test_insert_with_newline(self, cse_prg):
+        """ed_insert_string inserts CR raw (no auto-indent)."""
         emu = make_emu(cse_prg)
         insert_text(emu, b"LINE1\rLINE2")
         assert read_back(emu) == b"LINE1\rLINE2"
@@ -80,6 +81,65 @@ class TestGapBufferInsert:
         assert emu.memory[emu.sym("ed_dirty")] == 0
         insert_text(emu, b"X")
         assert emu.memory[emu.sym("ed_dirty")] != 0
+
+
+# ── Smart indent (ed_handle_key RETURN) ───────────────────────────────────
+
+def type_keys(emu, keys):
+    """Feed keystrokes through ed_handle_key one at a time."""
+    for ch in keys:
+        code = ch if isinstance(ch, int) else ord(ch)
+        emu.jsr(emu.sym("ed_handle_key"), a=code)
+
+
+class TestSmartIndent:
+    """RETURN inserts one $A0 tab unless previous char was colon."""
+
+    def test_return_inserts_tab(self, cse_prg):
+        """RETURN after normal text → new line starts with $A0 tab."""
+        emu = make_emu(cse_prg)
+        type_keys(emu, b"LDA #1")
+        type_keys(emu, b"\r")  # RETURN
+        content = read_back(emu)
+        assert content == b"LDA #1\r\xa0"
+
+    def test_return_after_colon_strips_gutter(self, cse_prg):
+        """RETURN after colon → strip leading tab from label line, new line gets tab."""
+        emu = make_emu(cse_prg)
+        # Type into the initial gutter (tab is there from smart indent default)
+        type_keys(emu, b"LOOP:")
+        type_keys(emu, b"\r")  # RETURN
+        content = read_back(emu)
+        # Label line lost its leading tab; new line has a tab
+        assert content == b"LOOP:\r\xa0"
+
+    def test_return_on_empty_line(self, cse_prg):
+        """RETURN on truly empty line (col 0) → new line gets tab."""
+        emu = make_emu(cse_prg)
+        type_keys(emu, b"\r")  # RETURN on empty first line
+        content = read_back(emu)
+        assert content == b"\r\xa0"
+
+    def test_return_on_tab_only_line(self, cse_prg):
+        """RETURN on tab-only line → strip tab, new line gets tab."""
+        emu = make_emu(cse_prg)
+        type_keys(emu, b"A")
+        type_keys(emu, b"\r")   # new line with tab
+        # Now on line 2 with just a tab — press RETURN again
+        type_keys(emu, b"\r")
+        content = read_back(emu)
+        # Line 1: "A", line 2: empty (tab stripped), line 3: tab
+        assert content == b"A\r\r\xa0"
+
+    def test_multiple_returns(self, cse_prg):
+        """Each RETURN inserts exactly one tab (not accumulating)."""
+        emu = make_emu(cse_prg)
+        type_keys(emu, b"A")
+        type_keys(emu, b"\r")
+        type_keys(emu, b"B")
+        type_keys(emu, b"\r")
+        content = read_back(emu)
+        assert content == b"A\r\xa0B\r\xa0"
 
 
 # ── ed_new — reset buffer ──────────────────────────────────────────────────

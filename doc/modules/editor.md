@@ -82,7 +82,6 @@ Total: 14 ZP bytes.
 | `save_phase` | 1 | save callback state (0=pre-gap, 1=post-gap) |
 | `repl_cur_x` | 1 | saved REPL cursor X |
 | `repl_cur_y` | 1 | saved REPL cursor Y |
-| `ws_buf` | 39 | Auto-indent whitespace buffer |
 | `src_top` | 2 | Buffer upper bound (for REPL `i` command) |
 | `src_bot` | 2 | Buffer lower bound (for REPL `i` command) |
 
@@ -106,7 +105,6 @@ Internal functions use register/ZP arguments directly — no parameter stack.
 | `cursor_line_vwidth` | — | A = width | walks back to line start, calls `line_vwidth`; used by insert/tab cap checks |
 | `char_width` | A = byte, X = vcol | A = width | tab-aware; uses `TAB_WIDTH`. **Clobbers `ed_tmp`** |
 | `advance_to_vcol` | A = target col | — | cursor right toward target column, stopping at EOL or when next char would overshoot |
-| `copy_leading_ws` | — | Y = count | auto-indent helper; copies leading $20/$A0 bytes into `ws_buf` |
 | `load_insert` | A = byte | — | ed_load_source callback: inserts byte via `gb_insert`; no width enforcement |
 
 ## Design
@@ -259,7 +257,7 @@ editor cursor.
 | DOWN | `ed_cursor_down`: advance past CR → advance to target col | scroll up if below viewport, else status pos |
 | HOME | `gb_home`: slide gap left to start of current line | status pos only |
 | DEL | `gb_backspace`, re-render from current row to bottom.  At col 0 of line > 0: join with previous line.  At col 0 of line 0: refused (blip, left wall). | rows from cursor to bottom + status |
-| RETURN | Insert $0D, advance `ed_cur_line`. Auto-indent: copy leading whitespace (spaces and $A0 tabs) from current line to new line. | rows from previous line to bottom + status |
+| RETURN | Insert $0D, advance `ed_cur_line`. Smart indent: always insert one $A0 tab on the new line. If the byte before the cursor was `:` or $A0 (tab), also strip the leading $A0 from the current line. | rows from previous line to bottom + status |
 | printable | insert char at gap, increment `ed_cur_col`. | current row only + status |
 
 Cursor movement preserves the target column across UP/DOWN (saved
@@ -284,9 +282,14 @@ byte advances `ed_cur_col` by 1–`TAB_WIDTH` columns depending on
 the current position.  Cursor LEFT/RIGHT over a $A0 byte jumps the
 full visual width of that tab in one keystroke.
 
-**Auto-indent.**  RETURN copies leading whitespace from the current
-line to the new line.  Both $20 (space) and $A0 (tab) bytes are
-copied verbatim (up to `ws_buf` capacity of 39 bytes).
+**Smart indent.**  RETURN always inserts one $A0 tab on the new
+line (placing the cursor at column `TAB_WIDTH`).  If the byte
+immediately before the cursor was `:` (label) or `$A0` (tab),
+the leading $A0 tab is also stripped from the current line.  For
+colons this moves the label to column 0; for tabs it clears the
+gutter from empty/whitespace-only lines.  This replaces the
+previous copy-leading-whitespace approach, eliminating the
+39-byte `ws_buf` buffer and the `copy_leading_ws` function.
 
 **Sequential reader.**  `ed_read_line` and `ed_read_byte` pass $A0
 through as-is.  The assembler's whitespace skipper (`asm_skip_ws`)
@@ -297,8 +300,7 @@ must treat $A0 as whitespace.
 Lines in the buffer may exceed 39 visual columns (e.g. from
 loaded files or backspace-join).  Interactive input (printable
 characters, tabs) is refused when it would push a line past 39
-visual columns.  Auto-indent on RETURN is truncated to keep room
-for the first typable character.  Cursor-right stops at col 39.
+visual columns.  Cursor-right stops at col 39.
 
 **Rendering.**  The renderer clips at the screen edge (col 39).
 If a line has content beyond col 38, the renderer writes `>`
