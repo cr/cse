@@ -257,8 +257,8 @@ editor cursor.
 | DOWN | `ed_cursor_down`: advance past CR → advance to target col | scroll up if below viewport, else status pos |
 | HOME | `gb_home`: slide gap left to start of current line | status pos only |
 | DEL | `gb_backspace`, re-render from current row to bottom.  At col 0 of line > 0: join with previous line.  At col 0 of line 0: refused (blip, left wall). | rows from cursor to bottom + status |
-| RETURN | Insert $0D, advance `ed_cur_line`. Smart indent: always insert one $A0 tab on the new line. If the byte before the cursor was `:` or $A0 (tab), also strip the leading $A0 from the current line. | rows from previous line to bottom + status |
-| printable | insert char at gap, increment `ed_cur_col`. | current row only + status |
+| RETURN | Insert $0D, advance `ed_cur_line`. If new line is empty (gap_hi is EOF or $0D), insert $A0 tab. | rows from previous line to bottom + status |
+| printable | insert char at gap, increment `ed_cur_col`.  **Special: typing `:` also strips the leading $A0 from the current line** (label slides to column 0). | current row only + status |
 
 Cursor movement preserves the target column across UP/DOWN (saved
 in `target_col` before the move, restored after).  Target column is
@@ -282,14 +282,17 @@ byte advances `ed_cur_col` by 1–`TAB_WIDTH` columns depending on
 the current position.  Cursor LEFT/RIGHT over a $A0 byte jumps the
 full visual width of that tab in one keystroke.
 
-**Smart indent.**  RETURN always inserts one $A0 tab on the new
-line (placing the cursor at column `TAB_WIDTH`).  If the byte
-immediately before the cursor was `:` (label) or `$A0` (tab),
-the leading $A0 tab is also stripped from the current line.  For
-colons this moves the label to column 0; for tabs it clears the
-gutter from empty/whitespace-only lines.  This replaces the
-previous copy-leading-whitespace approach, eliminating the
-39-byte `ws_buf` buffer and the `copy_leading_ws` function.
+**Smart indent — two rules, no edge cases.**
+
+1. **RETURN** inserts $0D.  If the new line is empty (`gap_hi`
+   is EOF or $0D), also insert one $A0 tab.  If the new line
+   already has content (e.g. splitting a line), the existing
+   content keeps its own formatting.
+2. **Typing `:`** strips the leading $A0 from the current line
+   (if present).  The label slides to column 0 in real time.
+
+`enter_editor` seeds one $A0 tab when the buffer is empty so the
+first line is ready for an instruction.
 
 **Sequential reader.**  `ed_read_line` and `ed_read_byte` pass $A0
 through as-is.  The assembler's whitespace skipper (`asm_skip_ws`)

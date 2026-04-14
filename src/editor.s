@@ -1544,7 +1544,48 @@ _ed_cur_row:
         jmp line_vwidth
 .endproc
 
-; (copy_leading_ws removed — replaced by smart indent in ed_handle_key)
+; ── _strip_leading_tab — remove first $A0 from current line ────
+; If the current line starts with $A0, delete it by shifting
+; content left and shrinking gap_lo.  Adjusts ed_cur_col.
+; Clobbers: A, Y, ed_scr
+.proc _strip_leading_tab
+        jsr find_line_start     ; ed_scr = start of current line
+        ldy #0
+        lda (ed_scr),y
+        cmp #$A0
+        bne @done               ; no leading tab → nothing to do
+        ; Shift content left by 1, overwriting the $A0
+        lda gap_lo
+        bne :+
+        dec gap_lo+1
+:       dec gap_lo              ; expand gap by 1
+        ; while ed_scr < gap_lo: [ed_scr] = [ed_scr+1]; ed_scr++
+@shift:
+        lda ed_scr
+        cmp gap_lo
+        bne @do_shift
+        lda ed_scr+1
+        cmp gap_lo+1
+        beq @shifted
+@do_shift:
+        ldy #1
+        lda (ed_scr),y
+        dey
+        sta (ed_scr),y
+        inc ed_scr
+        bne @shift
+        inc ed_scr+1
+        jmp @shift
+@shifted:
+        ; Adjust visual column (lost TAB_WIDTH columns)
+        lda ed_cur_col
+        sec
+        sbc #TAB_WIDTH
+        bcs :+
+        lda #0                  ; clamp to 0
+:       sta ed_cur_col
+@done:  rts
+.endproc
 
 ; ── gb_home — move gap to start of current line ──────────────
 .proc gb_home
@@ -1937,94 +1978,36 @@ _ed_cur_row:
         cmp #CH_ENTER
         jne @not_enter
 @is_enter:
-        ; Smart indent:
-        ;   1. If byte before cursor is ':' or $A0 (tab), remove
-        ;      leading $A0 from current line (dedent).
-        ;   2. Insert CR.
-        ;   3. Always insert $A0 tab on the new line.
-
-        ; Step 1: check byte before cursor for colon or tab
-        lda gap_lo
-        cmp buf_base
-        bne @peek_prev
-        lda gap_lo+1
-        cmp buf_base+1
-        beq @do_cr              ; empty line → skip check
-@peek_prev:
-        ; peek byte at gap_lo - 1
-        lda gap_lo
-        bne :+
-        dec gap_lo+1
-:       dec gap_lo
-        ldy #0
-        lda (gap_lo),y
-        ; restore gap_lo
-        inc gap_lo
-        bne :+
-        inc gap_lo+1
-:       cmp #':'                ; colon → label, strip gutter
-        beq @strip_gutter
-        cmp #$A0                ; tab → empty/whitespace line, strip gutter
-        bne @do_cr
-@strip_gutter:
-        ; Remove leading $A0 from current line.
-        ; Walk back to line start (or buf_base) and check first byte.
-        jsr find_line_start     ; ed_scr = start of current line
-        ldy #0
-        lda (ed_scr),y
-        cmp #$A0
-        bne @do_cr              ; no leading tab → nothing to remove
-        ; Delete leading $A0: slide all bytes before gap_lo left by 1.
-        ; Equivalent to: home, gb_backspace-like delete, then
-        ; restore cursor.  Simplest: decrement gap_lo by 1 and
-        ; copy bytes [ed_scr+1 .. old_gap_lo-1] down by 1.
-        ; Since gap is right of content, we can just move the
-        ; line-start pointer into the gap (expand gap leftward).
-        ;
-        ; ed_scr points at the $A0 to delete.  Content after it
-        ; (ed_scr+1 .. gap_lo-1) must shift down by 1.  Then
-        ; decrement gap_lo by 1.
-        ;
-        ; But gap_lo is the cursor position — we need it to stay
-        ; at the same logical position (end of line content).
-        ; So: decrement gap_lo, then shift bytes [ed_scr..gap_lo-1]
-        ; left by 1 to overwrite the $A0.
-        lda gap_lo
-        bne :+
-        dec gap_lo+1
-:       dec gap_lo              ; expand gap by 1 (absorb the $A0 byte)
-        ; Shift bytes left by 1 to overwrite the $A0.
-        ; Loop: while ed_scr < gap_lo, copy [ed_scr+1] → [ed_scr]
-@shift:
-        lda ed_scr
-        cmp gap_lo
-        bne @do_shift
-        lda ed_scr+1
-        cmp gap_lo+1
-        beq @do_cr              ; ed_scr == gap_lo → done shifting
-@do_shift:
-        ldy #1
-        lda (ed_scr),y
-        dey
-        sta (ed_scr),y
-        inc ed_scr
-        bne @shift
-        inc ed_scr+1
-        jmp @shift
-
-@do_cr:
-        ; Step 2: insert CR
+        ; Smart indent rule 1:
+        ;   Insert CR.  If new line is empty (gap_hi is EOF or $0D),
+        ;   also insert $A0 tab.  Otherwise leave existing content.
         lda #$0D
         jsr gb_insert
-        ; ++ed_cur_line
         inc ed_cur_line
         bne :+
         inc ed_cur_line+1
-:       ; Step 3: always insert $A0 tab on new line
+:       lda #0
+        sta ed_cur_col
+        ; Peek gap_hi: if $0D or past buffer end → empty new line
+        lda gap_hi+1
+        cmp #>BUF_END
+        bcc @peek_gap_hi
+        bne @do_tab             ; gap_hi > BUF_END → EOF
+        lda gap_hi
+        cmp #<BUF_END
+        bcs @do_tab             ; gap_hi >= BUF_END → EOF
+@peek_gap_hi:
+        ldy #0
+        lda (gap_hi),y
+        cmp #$0D
+        beq @do_tab             ; next byte is CR → empty line
+        bne @no_tab             ; content present → skip tab
+@do_tab:
         lda #$A0
         jsr gb_insert
         lda #TAB_WIDTH
         sta ed_cur_col
+@no_tab:
 
         ; Scroll or re-render
         ; if ed_cur_line >= ed_top_line + ED_LINES → scroll up
@@ -2103,6 +2086,12 @@ _ed_cur_row:
         lda @key
         jsr gb_insert
         inc ed_cur_col
+        ; Smart indent rule 2: typing ':' strips leading $A0
+        lda @key
+        cmp #':'
+        bne @print_done
+        jsr _strip_leading_tab
+@print_done:
         jsr render_current_row
         jmp @repos              ; skip over @reject — no blip on success
 

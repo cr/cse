@@ -93,53 +93,59 @@ def type_keys(emu, keys):
 
 
 class TestSmartIndent:
-    """RETURN inserts one $A0 tab unless previous char was colon."""
+    """Two-rule smart indent: RETURN tabs empty new lines, colon strips gutter."""
 
-    def test_return_inserts_tab(self, cse_prg):
-        """RETURN after normal text → new line starts with $A0 tab."""
+    # ── Rule 1: RETURN inserts tab only on empty new lines ────
+
+    def test_return_tabs_empty_new_line(self, cse_prg):
+        """RETURN at end of line → new line gets $A0 tab."""
         emu = make_emu(cse_prg)
         type_keys(emu, b"LDA #1")
-        type_keys(emu, b"\r")  # RETURN
-        content = read_back(emu)
-        assert content == b"LDA #1\r\xa0"
-
-    def test_return_after_colon_strips_gutter(self, cse_prg):
-        """RETURN after colon → strip leading tab from label line, new line gets tab."""
-        emu = make_emu(cse_prg)
-        # Type into the initial gutter (tab is there from smart indent default)
-        type_keys(emu, b"LOOP:")
-        type_keys(emu, b"\r")  # RETURN
-        content = read_back(emu)
-        # Label line lost its leading tab; new line has a tab
-        assert content == b"LOOP:\r\xa0"
+        type_keys(emu, b"\r")
+        assert read_back(emu) == b"LDA #1\r\xa0"
 
     def test_return_on_empty_line(self, cse_prg):
-        """RETURN on truly empty line (col 0) → new line gets tab."""
+        """RETURN on empty line → new line gets tab."""
         emu = make_emu(cse_prg)
-        type_keys(emu, b"\r")  # RETURN on empty first line
-        content = read_back(emu)
-        assert content == b"\r\xa0"
-
-    def test_return_on_tab_only_line(self, cse_prg):
-        """RETURN on tab-only line → strip tab, new line gets tab."""
-        emu = make_emu(cse_prg)
-        type_keys(emu, b"A")
-        type_keys(emu, b"\r")   # new line with tab
-        # Now on line 2 with just a tab — press RETURN again
         type_keys(emu, b"\r")
-        content = read_back(emu)
-        # Line 1: "A", line 2: empty (tab stripped), line 3: tab
-        assert content == b"A\r\r\xa0"
+        assert read_back(emu) == b"\r\xa0"
 
-    def test_multiple_returns(self, cse_prg):
-        """Each RETURN inserts exactly one tab (not accumulating)."""
+    def test_return_multiple(self, cse_prg):
+        """Each RETURN adds one tab to the new empty line."""
         emu = make_emu(cse_prg)
         type_keys(emu, b"A")
         type_keys(emu, b"\r")
         type_keys(emu, b"B")
         type_keys(emu, b"\r")
-        content = read_back(emu)
-        assert content == b"A\r\xa0B\r\xa0"
+        assert read_back(emu) == b"A\r\xa0B\r\xa0"
+
+    def test_return_before_content_no_tab(self, cse_prg):
+        """RETURN before existing content → no tab inserted (content keeps its formatting)."""
+        emu = make_emu(cse_prg)
+        # Insert "MAIN:" raw, then position cursor at col 0 via HOME
+        insert_text(emu, b"MAIN:")
+        type_keys(emu, [0x13])  # HOME key
+        type_keys(emu, b"\r")   # RETURN at col 0, before "MAIN:"
+        assert read_back(emu) == b"\rMAIN:"
+
+    # ── Rule 2: Typing ':' strips leading $A0 (real-time) ────
+
+    def test_colon_strips_gutter(self, cse_prg):
+        """Typing ':' removes leading $A0 — label slides to column 0."""
+        emu = make_emu(cse_prg)
+        # Seed a tab (simulates what enter_editor does on empty buffer)
+        insert_text(emu, b"\xa0")
+        # Now type a label — the colon should strip the leading tab
+        type_keys(emu, b"LOOP:")
+        assert read_back(emu) == b"LOOP:"
+
+    def test_colon_then_return(self, cse_prg):
+        """Label then RETURN: label at col 0, new line gets tab."""
+        emu = make_emu(cse_prg)
+        insert_text(emu, b"\xa0")  # seed tab
+        type_keys(emu, b"MAIN:")
+        type_keys(emu, b"\r")
+        assert read_back(emu) == b"MAIN:\r\xa0"
 
 
 # ── ed_new — reset buffer ──────────────────────────────────────────────────
