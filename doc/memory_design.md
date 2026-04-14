@@ -170,8 +170,8 @@ KERNAL is bankable-in for BRK/NMI handling.
 
     $0000-$00FF  Zero page (see § Zero Page Layout)
       $00-$01    CPU I/O port
-      $02-$57    CSE ZP variables (86 bytes, 13 modules)
-      $58-$7F    Free (40 bytes, available for user programs)
+      $02-$56    CSE ZP variables (85 bytes, 13 modules)
+      $57-$7F    Free (41 bytes, available for user programs)
       $80-$FF    KERNAL work area
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
     $0200-$02A6  KERNAL editor state, input buffer (reserved)

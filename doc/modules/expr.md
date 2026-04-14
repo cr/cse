@@ -7,7 +7,6 @@
 | File | Role |
 |------|------|
 | [`src/expr.s`](../../src/expr.s) | implementation |
-| [`src/expr.h`](../../src/expr.h) | header |
 | [`tests/test_expr.py`](../../tests/test_expr.py) | test contract |
 
 ## Interface

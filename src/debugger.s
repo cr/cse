@@ -532,7 +532,7 @@ dbg_brk_core:
         rts
 
 ; ── dbg_nmi_break ────────────────────────────────────────────────────
-; Entered from cse_io.s nmi_handler when dbg_running bit 7 is set.
+; Entered from main.s cse_nmi_handler when dbg_running bit 7 is set.
 ;
 ; At entry: A/X/Y have user's live values (NMI doesn't push them).
 ; Stack: P  PClo  PChi  (3 bytes, CPU pushed)

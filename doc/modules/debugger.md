@@ -118,11 +118,11 @@ Used by the BRK handler to identify which breakpoint slot was hit.
 - `_step_bp` — temporary breakpoint(s) for single-step (2 slots)
 
 **Depends on:** asm_line (register state, ZP save), dasm (instruction
-length for step), cse_io (NMI handler upgrade)
+length for step), main (BRK/NMI dispatch)
 
 ### Memory
 
-**BSS (48 bytes):**
+**BSS (46 bytes):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
@@ -623,7 +623,8 @@ $EF00–$EFFF  earmarked: user stack snapshot (256 B, unallocated)
 $F000–$F0FF  free (256 B)
 $F100–$F4F1  KDATA tables (1010 B)
 $F4F2–$F8D9  repl_screen (1000 B)
-$F8DA–$FEFF  free (1574 B)
+$F8DA–$F958  cold-init ZP snapshot (127 B, main.s)
+$F959–$FEFF  free (1446 B)
 $FF00–$FF09  NMI trampoline (10 B)
 $FFFA–$FFFB  NMI vector → $FF00
 ```
@@ -650,8 +651,8 @@ stepped-subroutine TODO is implemented.
 | REPL commands: b, c, t, o | ~400 | CODE |
 | Breakpoint table (8 × 4) | 32 | BSS |
 | Step-break temp slots (2 × 4) | 8 | BSS |
-| Flags, saved vectors, state | ~8 | BSS |
-| **Total** | **~690 CODE, ~48 BSS** | |
+| Flags and state | ~6 | BSS |
+| **Total** | **~690 CODE, ~46 BSS** | |
 
 ## Caveats
 
