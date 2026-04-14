@@ -119,14 +119,19 @@ interaction while active.
 - $0316/$0317 (IBRK — BRK dispatch)
 - $0318/$0319 (INMIV — NMI dispatch)
 
-**Exit obligation:** `cse_exit_to_basic` restores all modified
-vectors, restores $01-$7F from cold-init snapshot, and jumps to
-BASIC warm start via the restored $0302 vector.
+**Exit obligation:** `cse_exit_to_basic` calls KERNAL RESTOR
+($FF8A) to restore $0314-$0333 to defaults, restores $0302/$0303
+from BSS, restores $01-$7F from cold-init snapshot, calls CINT
+($FF81) to reinit screen, and jumps to BASIC warm start via the
+restored $0302 vector.
 
-**Cold-init snapshots** are stored in KBSS under KERNAL ROM (pure
-writes, no banking needed on save):
+**Hook installation** uses KERNAL VECTOR ($FF8D) to read-modify-
+write the $0314-$0333 table atomically.  $0302/$0303 is outside
+the VECTOR range and is written directly.
+
+**Cold-init snapshot** stored in KBSS under KERNAL ROM (pure
+write, no banking needed on save):
 - `_cold_zp` (127 B) — $01-$7F at cold-init entry
-- `_cold_vectors` (6 B) — $0302/$0303, $0316/$0317, $0318/$0319
 
 ## User Code Contract
 
@@ -204,8 +209,10 @@ BASIC ROM ($A000-$BFFF) is unmapped at startup.  The RAM underneath
 is part of the CSE runtime (code spans across $A000 freely).
 
 KERNAL ROM ($E000-$FFFF) remains mapped.  The RAM underneath is
-**read** by clearing bit 1 of $01 (sei required; NMI trampoline at
-$FF00 handles NMI during bank-out).  **Writes always pass through**
+**read** by clearing bit 1 of $01 (sei required).  NMI trampoline
+at $FF00 handles NMI during bank-out (SEI + JMP ($0318) — no
+banking, handler runs in main RAM).  Defensive IRQ/BRK trampoline
+at $FF04 banks KERNAL in if a BRK fires while unmapped.  **Writes always pass through**
 to the underlying RAM regardless of $01 bit 1, so pure-writer code
 (`sym_clear`, `kernal_init`, the SCREEN→`repl_screen` save in
 `enter_editor`) does not bank — only readers do.
@@ -229,14 +236,14 @@ regions are zeroed (no PRG space required).
     $F100-$F4F1  KDATA: asm/dasm lookup tables (1010 B)
     $F4F2-$F8D9  KBSS: REPL screen save buffer (1000 B)
     $F8DA-$F958  KBSS: cold-init ZP snapshot (127 B, $01-$7F)
-    $F959-$F95E  KBSS: cold-init vector snapshot (6 B)
-    $F95F-$FEFF  Free (1440 B)
-    $FF00-$FF09  KDATA: NMI trampoline (10 B)
-    $FFFA-$FFFF  Hardware vectors (NMI/RESET/IRQ)
+    $F959-$FEFF  Free (1446 B)
+    $FF00-$FF03  KDATA: NMI trampoline (4 B, SEI + JMP ($0318))
+    $FF04-$FF0D  KDATA: IRQ/BRK trampoline (10 B, defensive)
+    $FFFA-$FFFF  Hardware vectors: NMI→$FF00, IRQ→$FF04
 
     KDATA total:  1020 B (in PRG payload)
-    KBSS total:   4973 B (zeroed, no PRG space)
-    Free:         1696 B (+ 256 earmarked)
+    KBSS total:   4967 B (zeroed, no PRG space)
+    Free:         1702 B (+ 256 earmarked)
 
 ## Stack budget
 

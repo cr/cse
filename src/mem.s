@@ -29,8 +29,11 @@
 ; ── Constants ────────────────────────────────────────────────
 CPU_PORT     = $01
 NMI_TRAMP    = $FF00
+IRQ_TRAMP    = $FF04
 NMI_VEC_RAM  = $FFFA
+IRQ_VEC_RAM  = $FFFE
 KERNAL_NMIV  = $0318          ; KERNAL indirect NMI vector (RAM)
+KERNAL_IRQ   = $FF48          ; KERNAL IRQ entry (ROM)
 WORKSTART    = $0800
 HIMEM        = $D000
 
@@ -42,16 +45,39 @@ kernal_out:     .res 1          ; nonzero = KERNAL banked out (skip bank_in)
 ; ── RODATA ───────────────────────────────────────────────────
 .segment "RODATA"
 
-; NMI trampoline code (10 bytes, copied to $FF00 by kernal_init)
+; NMI trampoline (4 bytes, copied to $FF00 by kernal_init)
+;
+; When KERNAL is banked out, ($FFFA) reads from RAM → $FF00.
+; The handler chain (cse_nmi_handler → dbg_nmi_break) runs
+; entirely in main-RAM CODE — no KERNAL ROM access needed.
+; So the trampoline just does SEI + JMP ($0318), matching
+; what the KERNAL's own $FE43 entry does when KERNAL is mapped.
+;
+; Previous design banked KERNAL in (ORA #$02 / STA $01) which
+; permanently corrupted $01 — after RTI the caller's banking
+; state was wrong, causing reads of KERNAL ROM instead of RAM.
 _nmi_tramp_code:
-        ; lda $01 / ora #$02 / sta $01 / sei / jmp ($0318)
-        .byte $A5, $01          ; LDA $01
-        .byte $09, $02          ; ORA #$02
-        .byte $85, $01          ; STA $01
         .byte $78               ; SEI
         .byte $6C               ; JMP (abs)
         .byte <KERNAL_NMIV, >KERNAL_NMIV
 NMI_TRAMP_SIZE = * - _nmi_tramp_code
+
+; IRQ/BRK trampoline (10 bytes, copied to $FF04 by kernal_init)
+;
+; Defensive: if a BRK fires while KERNAL is banked out (user code
+; contract violation, or CSE internal fault), ($FFFE) reads from
+; RAM → $FF04.  Banks KERNAL in so $FF48 can run its IRQ entry.
+; Saves/restores A around the banking so the KERNAL's PHA at $FF48
+; captures the correct user A.
+_irq_tramp_code:
+        .byte $48               ; PHA         — save user A
+        .byte $A5, $01          ; LDA $01
+        .byte $09, $02          ; ORA #$02    — bank KERNAL in
+        .byte $85, $01          ; STA $01
+        .byte $68               ; PLA         — restore user A
+        .byte $4C               ; JMP abs
+        .byte <KERNAL_IRQ, >KERNAL_IRQ
+IRQ_TRAMP_SIZE = * - _irq_tramp_code
 
 .import __CODE_RUN__
 
@@ -110,18 +136,29 @@ kernal_bank_in:
 ;   Clobbers A, X.
 ; ═════════════════════════════════════════════════════════════
 .proc kernal_init
-        ; Copy trampoline code to $FF00
+        ; Copy NMI trampoline to $FF00 (4 bytes)
         ldx #NMI_TRAMP_SIZE - 1
-@copy:  lda _nmi_tramp_code,x
+@nmi:   lda _nmi_tramp_code,x
         sta NMI_TRAMP,x
         dex
-        bpl @copy
+        bpl @nmi
 
-        ; Set RAM NMI vector → $FF00
+        ; Copy IRQ/BRK trampoline to $FF04 (10 bytes)
+        ldx #IRQ_TRAMP_SIZE - 1
+@irq:   lda _irq_tramp_code,x
+        sta IRQ_TRAMP,x
+        dex
+        bpl @irq
+
+        ; Set RAM vectors (pure write, no banking needed)
         lda #<NMI_TRAMP
         sta NMI_VEC_RAM
         lda #>NMI_TRAMP
         sta NMI_VEC_RAM + 1
+        lda #<IRQ_TRAMP
+        sta IRQ_VEC_RAM
+        lda #>IRQ_TRAMP
+        sta IRQ_VEC_RAM + 1
         rts
 .endproc
 

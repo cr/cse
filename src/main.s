@@ -59,8 +59,9 @@ VIC_MEMCTL   = $D018
 
 ; KERNAL page-3 vectors
 VEC_IMAIN    = $0302          ; BASIC warm-start / main loop
-VEC_IBRK     = $0316          ; BRK dispatch
-VEC_INMIV    = $0318          ; NMI dispatch
+VEC_TABLE    = $0314          ; start of KERNAL vector table (32 bytes)
+KERNAL_VECTOR = $FF8D         ; KERNAL VECTOR: C=1 read, C=0 write
+KERNAL_RESTOR = $FF8A         ; KERNAL RESTOR: restore default vectors
 
 ; Run states
 ST_STOP      = 0
@@ -84,17 +85,20 @@ CH_ESC       = $1B
 CUR_COL      = $D3
 CUR_ROW      = $D6
 
-; Cold-init snapshot locations (KBSS, under KERNAL ROM).
+; Cold-init snapshot location (KBSS, under KERNAL ROM).
 ; Reserved exclusively for main.s — see memory_design.md § Banked layout.
 ; Pure writes pass through to RAM regardless of $01 bit 1.
 COLD_ZP      = $F8DA          ; 127 bytes: snapshot of $01-$7F
-COLD_VEC     = $F959          ; 6 bytes: $0302-$0303, $0316-$0317, $0318-$0319
+
+; VECTOR table size ($0314-$0333 = 32 bytes)
+VEC_TBL_SIZE = 32
 
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
 
 state:       .res 1              ; ST_STOP=0, ST_REPL=1, ST_EDIT=2
 warm_guard:  .res 1              ; nonzero = warm start in progress
+saved_imain: .res 2              ; original $0302/$0303 (BASIC warm-start vector)
 
 ; ── RODATA ───────────────────────────────────────────────────
 .segment "RODATA"
@@ -197,22 +201,13 @@ s_free:       .byte "b free", 0
 :       cpx rp_ptr+1            ; done when hi byte reaches cse_start hi
         bne @work
 
-        ; ── 11. Save original vectors to KBSS ──
-        ; Pure write: stores under KERNAL pass through.
+        ; ── 11. Save $0302/$0303 (IMAIN, not in VECTOR range) ──
         lda VEC_IMAIN
-        sta COLD_VEC
+        sta saved_imain
         lda VEC_IMAIN+1
-        sta COLD_VEC+1
-        lda VEC_IBRK
-        sta COLD_VEC+2
-        lda VEC_IBRK+1
-        sta COLD_VEC+3
-        lda VEC_INMIV
-        sta COLD_VEC+4
-        lda VEC_INMIV+1
-        sta COLD_VEC+5
+        sta saved_imain+1
 
-        ; ── 12. Install permanent hooks ──
+        ; ── 12. Install permanent hooks via KERNAL VECTOR ──
         jsr install_hooks
 
         ; ── 13. I/O and screen for splash ──
@@ -549,21 +544,45 @@ main_loop:
 ; install_hooks — write all three permanent vectors
 ; ═════════════════════════════════════════════════════════════
 install_hooks:
-        ; SEI around vector writes — an NMI between writing the lo/hi
-        ; bytes of $0318 would read a half-written vector and JAM.
         sei
+        ; ── $0302/$0303: not in VECTOR range, write directly ──
         lda #<cse_basic_warm_hook
         sta VEC_IMAIN
         lda #>cse_basic_warm_hook
         sta VEC_IMAIN+1
+        ; ── $0314-$0333: read via VECTOR, modify, write back ──
+        ; Allocate 32-byte stack frame
+        tsx
+        stx rp_tmp              ; save SP
+        txa
+        sec
+        sbc #VEC_TBL_SIZE
+        tax
+        txs
+        ; Read current vector table → stack frame
+        tsx
+        inx                     ; X = buffer lo (SP+1)
+        ldy #$01                ; Y = buffer hi ($01xx)
+        sec                     ; C=1 → read $0314-$0333 → buffer
+        jsr KERNAL_VECTOR
+        ; Modify BRK (offset 2,3) and NMI (offset 4,5)
+        tsx
         lda #<cse_brk_handler
-        sta VEC_IBRK
+        sta $0103,x             ; buffer[2] = BRK lo
         lda #>cse_brk_handler
-        sta VEC_IBRK+1
+        sta $0104,x             ; buffer[3] = BRK hi
         lda #<cse_nmi_handler
-        sta VEC_INMIV
+        sta $0105,x             ; buffer[4] = NMI lo
         lda #>cse_nmi_handler
-        sta VEC_INMIV+1
+        sta $0106,x             ; buffer[5] = NMI hi
+        ; Write modified table back — atomic, all vectors at once
+        inx
+        ldy #$01
+        clc                     ; C=0 → buffer → $0314-$0333
+        jsr KERNAL_VECTOR
+        ; Deallocate stack frame
+        ldx rp_tmp
+        txs
         cli
         rts
 
@@ -689,23 +708,17 @@ cse_warm_screen:
 ; ═════════════════════════════════════════════════════════════
 cse_exit_to_basic:
         sei
-        ; Bank out KERNAL to read KBSS snapshots
+        ; Restore $0314-$0333 to KERNAL defaults (one call)
+        jsr KERNAL_RESTOR
+        ; Restore $0302/$0303 (not covered by RESTOR)
+        lda saved_imain
+        sta VEC_IMAIN
+        lda saved_imain+1
+        sta VEC_IMAIN+1
+        ; Bank out KERNAL to read KBSS ZP snapshot
         lda MEM_CONFIG
         and #$FD
         sta MEM_CONFIG
-        ; Restore vectors
-        lda COLD_VEC
-        sta VEC_IMAIN
-        lda COLD_VEC+1
-        sta VEC_IMAIN+1
-        lda COLD_VEC+2
-        sta VEC_IBRK
-        lda COLD_VEC+3
-        sta VEC_IBRK+1
-        lda COLD_VEC+4
-        sta VEC_INMIV
-        lda COLD_VEC+5
-        sta VEC_INMIV+1
         ; Restore $02-$7F (skip $01 — it controls banking)
         ldx #1                  ; offset 1 = $02
 @rzp:   lda COLD_ZP,x

@@ -4,17 +4,15 @@
 
 Open bugs, roughly ordered by priority.
 
-- [ ] NMI trampoline does not restore $01 after banking KERNAL in.
-  When NMI fires while KERNAL is banked out (e.g. during
-  enter_editor/leave_editor screen save), the trampoline at $FF00
-  sets $01 bit 1 permanently.  After RTI, the caller reads KERNAL
-  ROM instead of RAM underneath.  Symptom: JAM at $FF09 or screen
-  corruption when rapidly pressing RUN/STOP+RESTORE.  Fix: expand
-  trampoline to save/restore $01 (~4 extra bytes).  Pre-existing
-  issue, not introduced by Phase 14.
+- [x] NMI trampoline corrupted $01 by banking KERNAL in without
+  restore.  Fixed: trampoline no longer modifies $01 (the NMI
+  handler chain runs entirely in main RAM, no KERNAL ROM needed).
+  Added defensive IRQ/BRK trampoline at $FF04 for the case where
+  BRK fires with KERNAL unmapped.
 - [ ] `.const FOO 1234` then `sta FOO` doesn't find the symbol.
-  `sta foo` works.  Symbol lookup is case-sensitive but should
-  be case-insensitive (assembler normalises to lowercase).
+  `sta foo` works.  Uppercase `.const` names not found by
+  uppercase lookup, only by lowercase.  Assembler normalises
+  to lowercase internally; symbol lookup should match.
 - [ ] `l` command hang: loading a non-existing file may hang.
   Not yet reproducible.  Suspect: `disk_load_prg` or
   `ed_load_source` not handling KERNAL file-not-found error,
