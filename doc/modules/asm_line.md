@@ -69,10 +69,13 @@ call `mode_parse` to determine the addressing mode, then
 **Error handling:** On any error, `jmp asm_error` restores the 6502
 SP from `_asm_saved_sp` and returns 0 to the caller.  `asm_expr_err`
 (BSS byte) is cleared to 0.  Expression evaluation errors use the
-separate `asm_expr_error` entry point, which sets `asm_expr_err=1`
-before returning 0.  Callers check `asm_expr_err` after a zero
-return to distinguish syntax errors from expression errors and can
-call `expr_error_str` for the specific message (e.g. "undef").
+`asm_expr_error` entry point, which loads A=1 then merges into
+`asm_error`'s shared tail via a BIT-abs skip (the `lda #0` at
+`asm_error` is consumed as a BIT operand, preserving A=1).  Both
+paths store A into `asm_expr_err` and share the SP restore, bank-in,
+and return.  Callers check `asm_expr_err` after a zero return to
+distinguish syntax errors from expression errors and can call
+`expr_error_str` for the specific message (e.g. "undef").
 
 ## Caveats
 

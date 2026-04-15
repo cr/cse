@@ -124,27 +124,21 @@ _asm_oplen:
 ; Jumped to (not called) by _asm_line_core / mode_parse on any assembler error.
 ; Restores the 6502 stack to the level saved before _asm_line_core was called,
 ; banks the KERNAL back in, and returns 0.
+; ── asm_expr_error — expression-specific error path ──────────────────────────
+; Called by _au_read_val when expr_eval returns an error.
+; Sets asm_expr_err=1, then falls into asm_error's shared tail.
+asm_expr_error:
+        lda #1
+        .byte $2C               ; BIT abs — skip the next lda #0
 asm_error:
 asm_syntax_error:
+        lda #0
+        sta asm_expr_err
         ldx _asm_saved_sp
         txs                     ; restore SP (unwind nested JSRs)
         jsr kernal_bank_in      ; pair the bank_out from asm_line entry
         lda #0
-        sta asm_expr_err        ; default: not an expr error
         tax                     ; return 0 (A=lo, X=hi=0)
-        rts
-
-; ── asm_expr_error — expression-specific error path ──────────────────────────
-; Called by _au_read_val when expr_eval returns an error.
-; Sets asm_expr_err=1 so callers can print the expr error string.
-asm_expr_error:
-        lda #1
-        sta asm_expr_err
-        ldx _asm_saved_sp
-        txs
-        jsr kernal_bank_in
-        lda #0
-        tax
         rts
 
 ; ── asm_line ─────────────────────────────────────────────────────────────────
