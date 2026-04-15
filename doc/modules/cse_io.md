@@ -227,11 +227,29 @@ assembler/expression parser work in PETSCII.
 |---------|---------|----------|
 | $20–$3F | space, digits, punctuation | unshifted |
 | $41–$5A | **lowercase** a–z | unshifted letter keys |
-| $C1–$DA | **uppercase** A–Z (shifted range) | shifted letter keys |
+| $61–$7A | **uppercase** A–Z (preferred range) | — |
+| $A0–$BF | shifted graphics / special chars (preferred range) | shifted |
+| $C1–$DA | **uppercase** A–Z (keyboard alias) | shifted letter keys |
+| $E0–$FF | shifted graphics / special chars (redundant mirror of $A0–$BF) | — |
 
 **The $41–$5A = lowercase convention is the opposite of ASCII.**
 PETSCII $41 is lowercase `a`, not uppercase `A`.  This is the
 single most common source of confusion.
+
+#### Duplicate ranges and preferred usage
+
+PETSCII has redundant ranges that map to the same screen codes.
+CSE picks one canonical range for each and avoids the other:
+
+| Screen code | Preferred PETSCII | Avoid | Why |
+|-------------|-------------------|-------|-----|
+| $41–$5A (uppercase A–Z) | **$61–$7A** | $C1–$DA | $61 maps cleanly (A−$20), $C1 collides with shifted/control zone |
+| $60–$7F (graphics/specials) | **$A0–$BF** | $E0–$FF | $A0 maps cleanly (A−$40), $E0 is a redundant Commodore wiring quirk |
+
+**Rule:** string constants and generated output must use the
+preferred ranges.  The avoided ranges exist only in keyboard input
+and must be folded at the input boundary (see "Where shifted
+PETSCII appears" below).
 
 #### Screen codes (what VIC reads from $0400)
 
@@ -249,19 +267,21 @@ In the lower/upper charset:
 
 #### PETSCII → Screen Code (io_putc)
 
-| PETSCII range | Screen code | Rule | Example |
-|---------------|-------------|------|---------|
-| $00–$1F | $80–$9F | ORA #$80 | $01→$81 (reverse `a`) |
-| $20–$3F | $20–$3F | identity | $30→$30 (`0`) |
-| $41–$5A | $01–$1A | A − $40 | $41→$01 (lowercase `a`) |
-| $61–$7A | $41–$5A | A − $20 | $61→$41 (uppercase `A`) |
-| $80–$9F | $80–$9F | identity | (reverse video) |
-| $A0–$BF | $60–$7F | A − $40 | $A0→$60 (shifted space) |
-| $C1–$DA | $41–$5A | A − $80 | $C1→$41 (uppercase `A`) |
+| PETSCII range | Screen code | Rule | Notes |
+|---------------|-------------|------|-------|
+| $00–$1F | $80–$9F | ORA #$80 | reverse-video control chars |
+| $20–$3F | $20–$3F | identity | space, digits, punctuation |
+| $40–$5F | $00–$1F | A − $40 | **lowercase** a–z ($41→$01) |
+| $60–$7F | $40–$5F | A − $20 | **uppercase** A–Z ($61→$41) ← preferred |
+| $80–$9F | $80–$9F | identity | reverse video |
+| $A0–$BF | $60–$7F | A − $40 | graphics/specials ($A0→$60) ← preferred |
+| $C0–$FF | $40–$7F | A − $80 | **uppercase** + graphics ($C1→$41, $E0→$60) ← avoid |
 
-Note: PETSCII $61–$7A and $C1–$DA both map to screencodes
-$41–$5A.  The round-trip through screen RAM is **lossy** — the
-shifted distinction ($C1 vs $61) is lost.
+The last row covers both $C1–$DA (uppercase alias) and $E0–$FF
+(graphics alias).  Both map to the same screencodes as the
+preferred ranges $61–$7A and $A0–$BF respectively.  The
+round-trip through screen RAM is **lossy** — the distinction
+between preferred and alias ranges is destroyed.
 
 #### Screen Code → PETSCII (read_line)
 
