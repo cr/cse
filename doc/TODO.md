@@ -119,11 +119,9 @@ systems, ASM stubs, and test-specific linker configs.
 
 ### Open
 
-- [ ] Review l/s command tests (TestSaveCommand, TestLoadCommand):
-  simplify the framework.  The stub BSS offset computation
-  (hardcoded `+185`/`+187`/`+189`) is fragile — consider
-  exporting witnesses via a cross-module import trick or
-  reading from the RODATA sym_refs table like kplot_stub.
+- [x] ~~Review l/s command tests~~ (fixed: test_repl.py now resolves
+  `save_addr`/`save_size`/`load_result` via RODATA `sym_refs` table
+  slots 11–13, replacing fragile hardcoded BSS offsets)
 - [ ] Use debug builds and `od65 --dump-all foo.o` for extracting
   all symbols (exported and unexported) from object files for
   testing.  Use stripped production builds only for superficial
@@ -324,8 +322,8 @@ Defined scope, needs work.
   ACC detection in mode_parse hardened: bare 'A' only if followed
   by end/whitespace (not identifier chars like label names).
   2797 tests pass.
-- [ ] BSS optimization: overlap `_load_line`/`_load_vcol` with
-  `ws_buf` (saves 3 B).
+- [x] ~~BSS optimization: overlap with `ws_buf`~~ (moot: `ws_buf`
+  removed in smart indent rewrite, Phase 15)
 - [ ] BSS optimization: collapse `disk_seq_bytes`/`disk_seq_lines`
   with `ed_save_bytes`/`ed_save_lines` (saves 4 B).
 - [ ] BSS optimization: overlap `rp_next_lo`/`rp_next_hi` with
@@ -338,21 +336,20 @@ Defined scope, needs work.
   migrated from local `.segment "ZEROPAGE"` to `.importzp`.  `asm_vars.s`
   deleted (role absorbed by zp.s).  All test stubs and configs updated
   to link zp.s.  Pure refactor: 0 bytes size change, 2797 tests pass.
-- [ ] DDD template drift: 10 of 16 module docs have `**Depends on:**`
-  before a `### Memory` subsection inside Interface, violating the
-  template rule that it must be last.  Move Memory subsections to
-  Design or restructure Interface.
-- [ ] Missing module docs: `src/mem.s` and `src/loader.s` have no
-  `doc/modules/*.md`.  `meminfo.md` is a tombstone, not a mem.s doc.
+- [x] ~~DDD template drift~~ (fixed: moved `### Memory` before
+  `**Depends on:**` in 11 module docs; Phase 15 audit remediation)
+- [x] ~~Missing module doc: `src/mem.s`~~ (fixed: `doc/modules/mem.md`
+  created; Phase 15 audit remediation)
+- [ ] Missing module doc: `src/loader.s` has no `doc/modules/*.md`.
 - [ ] debugger.md: all symbol names use `_` prefix (`_bp_table`,
   `_dbg_running`, etc.) but actual exports have no prefix.  Rename
   throughout the document.
-- [ ] README: missing `.bas` directive in assembler syntax table
-  (added in Phase 12).
+- [x] ~~README: missing `.bas` directive~~ (fixed: Phase 15 audit)
 - [ ] README: `a` command description says "advances past assembled
   code" — incorrect, sets cur_addr to `main` label if defined.
-- [ ] README + editor.md: "gap buffer grows down from $D000" — stale,
-  should be `__CODE_RUN__` (CSE runtime start, ~$7D00).
+- [x] ~~README: "gap buffer grows down from $D000"~~ (fixed: Phase 15)
+- [ ] editor.md + memory_design.md: `BUF_END` / gap buffer described
+  as `$D000` — stale, should be `__CODE_RUN__` (CSE runtime start).
 - [ ] memory_design.md Design Principle 5: "source text grows down
   from $D000" — stale, should say "from the CSE runtime start."
 - [ ] Global release version: single `VERSION` definition (currently
