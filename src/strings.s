@@ -59,9 +59,6 @@
         ; ── disk strings ──
         .export str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf
 
-        ; ── shared RODATA tables ──
-        .export dec_pow_lo, dec_pow_hi
-
         ; ── expr strings + dispatch tables ──
         .export err_none, err_expected, err_overflow
         .export err_paren, err_undefined, err_divzero
@@ -199,12 +196,6 @@ s_save_s:       .byte "s ", $22, 0
 s_save_q_sp:    .byte $22, " $", 0
 s_save_default: .byte "out,p", 0
 s_trunc:        .byte ": truncated", 0
-
-; ── shared tables ───────────────────────────────────────────
-
-; Powers of 10 (low→high): all decimal routines index 4→0 via dex/bpl
-dec_pow_lo:     .byte <1, <10, <100, <1000, <10000
-dec_pow_hi:     .byte >1, >10, >100, >1000, >10000
 
 ; ── expr error strings + dispatch tables ────────────────────
 

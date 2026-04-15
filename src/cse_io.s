@@ -11,6 +11,7 @@
 
         .export io_init
         .export io_putc, io_repc, io_puts
+        .export pet_to_scr, scr_to_pet
         .export io_puthex4, io_puthex2, io_putdec, io_putdec_pd
         .export io_utoa, dec_buf
         .export io_clear_eol
@@ -23,7 +24,7 @@
 
         .export nmi_pending
 
-        .import dec_pow_lo, dec_pow_hi
+        .export dec_pow_lo, dec_pow_hi
 
 COLS    = 40
 ROWS    = 25
@@ -65,6 +66,9 @@ hex_tab:                ; screen codes for hex digits 0-9, a-f
         .byte $30,$31,$32,$33,$34,$35,$36,$37
         .byte $38,$39,$01,$02,$03,$04,$05,$06
 
+; Powers of 10 (low→high): io_utoa indexes 4→0 via dex/bpl
+dec_pow_lo:     .byte <1, <10, <100, <1000, <10000
+dec_pow_hi:     .byte >1, >10, >100, >1000, >10000
 
 ; ── CODE ────────────────────────────────────────────────────
 .segment "CODE"
@@ -99,18 +103,20 @@ io_sync:
         clc                     ; CLC = set position
         jmp $FFF0               ; KERNAL PLOT: sets $D1/$D2/$D3/$D6/$F3/$F4
 
-; ── io_putc — write PETSCII char at cursor, advance ─────────
-; A = PETSCII char
+; ── pet_to_scr — PETSCII → screen code (pure function) ──────
+; In:  A = PETSCII byte
+; Out: A = screen code
+; Clobbers: flags only
 ;
-; CSE display mapping (lower/upper charset):
-;   $00-$1F -> $80-$9F
-;   $20-$3F -> $20-$3F
-;   $40-$5F -> $00-$1F
-;   $60-$7F -> $40-$5F
-;   $80-$9F -> $80-$9F
-;   $A0-$BF -> $60-$7F
-;   $C0-$FF -> $40-$7F
-io_putc:
+; CSE display mapping (lower/upper charset), 32-byte chunks:
+;   $00-$1F -> $80-$9F    (ORA #$80)
+;   $20-$3F -> $20-$3F    (identity)
+;   $40-$5F -> $00-$1F    (A - $40)
+;   $60-$7F -> $40-$5F    (A - $20)
+;   $80-$9F -> $80-$9F    (identity)
+;   $A0-$BF -> $60-$7F    (A - $40)
+;   $C0-$FF -> $40-$7F    (A - $80)
+pet_to_scr:
         cmp #$80
         bcs @ge80
         cmp #$40
@@ -118,34 +124,51 @@ io_putc:
         cmp #$20
         bcc @or80              ; $00-$1F -> $80-$9F
                                ; $20-$3F unchanged
-        bcs @write             ; always (cmp #$20 was >=)
+        rts
 
 @or80:  ora #$80
-        bne @write             ; always
+        rts
 
 @ge40:  cmp #$60
         bcc @sub40c            ; $40-$5F -> $00-$1F, C=0
         sbc #$20               ; $60-$7F -> $40-$5F, C=1
-        bcs @write             ; always
+        rts
 
 @sub40c:
         sbc #$3F               ; C=0 => A-$40
-        bcs @write             ; always
+        rts
 
 @ge80:  cmp #$A0
-        bcc @write             ; $80-$9F unchanged
+        bcc @done              ; $80-$9F unchanged
         cmp #$C0
         bcc @sub40s            ; $A0-$BF -> $60-$7F
         sbc #$80               ; $C0-$FF -> $40-$7F, C=1
-        bcs @write             ; always
+        rts
 
 @sub40s:
         sbc #$3F               ; C=0 => A-$3F-1 = A-$40
-        ; fall through
+@done:  rts
 
-@write:
+; ── scr_to_pet — screen code → PETSCII (pure function) ──────
+; In:  A = screen code (bit 7 must be stripped by caller)
+; Out: A = PETSCII byte
+; Clobbers: flags only
+;
+; Mapping (32-byte chunks):
+;   $00-$1F -> $40-$5F    (A + $40)
+;   $20-$7F -> $20-$7F    (identity)
+scr_to_pet:
+        cmp #$20
+        bcs :+
+        ora #$40               ; $00-$1F -> $40-$5F
+:       rts
+
+; ── io_putc — write PETSCII char at cursor, advance ─────────
+; A = PETSCII char
+io_putc:
+        jsr pet_to_scr         ; A = screen code
         tay
-        jsr _io_scr_setup      ; must preserve Y
+        jsr _io_scr_setup      ; preserves Y
         tya
         ldy CUR_COL
         sta (_io_scr),y

@@ -68,6 +68,8 @@ class IoSymbols:
         self.io_init      = s["io_init"]
         self.io_sync      = s["io_sync"]
         self.io_putc      = s["io_putc"]
+        self.pet_to_scr   = s["pet_to_scr"]
+        self.scr_to_pet   = s["scr_to_pet"]
         self.io_puts      = s["io_puts"]
         self.io_puthex4   = s["io_puthex4"]
         self.io_puthex2   = s["io_puthex2"]
@@ -164,85 +166,78 @@ def read_line_py(cpu, row):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# §1  PETSCII → Screen Code Conversion (io_putc)
+# §1  PETSCII ↔ Screen Code Codec (pet_to_scr, scr_to_pet)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestPetsciiToScreencode:
-    """Verify io_putc produces the correct screen code for each PETSCII range."""
+# Reference tables — the 32-byte-chunk mapping from cse_io.md.
+# One entry per byte value; generated from the documented rules.
 
-    # $20-$3F: identity (space, digits, punctuation)
-    @pytest.mark.parametrize("petscii", list(range(0x20, 0x40)))
-    def test_identity_range(self, io, petscii):
+def _build_pet_to_scr():
+    """Build 256-byte PETSCII → screencode reference table."""
+    t = bytearray(256)
+    for p in range(256):
+        if   p < 0x20: t[p] = p | 0x80        # $00-$1F → $80-$9F
+        elif p < 0x40: t[p] = p                # $20-$3F → identity
+        elif p < 0x60: t[p] = p - 0x40         # $40-$5F → $00-$1F
+        elif p < 0x80: t[p] = p - 0x20         # $60-$7F → $40-$5F
+        elif p < 0xA0: t[p] = p                # $80-$9F → identity
+        elif p < 0xC0: t[p] = p - 0x40         # $A0-$BF → $60-$7F
+        else:          t[p] = p - 0x80         # $C0-$FF → $40-$7F
+    return bytes(t)
+
+def _build_scr_to_pet():
+    """Build 128-byte screencode → PETSCII reference table."""
+    t = bytearray(128)
+    for sc in range(128):
+        if sc < 0x20: t[sc] = sc + 0x40       # $00-$1F → $40-$5F
+        else:         t[sc] = sc               # $20-$7F → identity
+    return bytes(t)
+
+PET_TO_SCR = _build_pet_to_scr()
+SCR_TO_PET = _build_scr_to_pet()
+
+
+class TestPetToScr:
+    """Verify pet_to_scr against the reference table for all 256 values."""
+
+    def test_full_range(self, io):
         cpu = make_cpu(io)
-        jsr(cpu, io.io_putc, a=petscii)
-        assert cpu.memory[SCREEN] == petscii
-
-    # $40-$5F: subtract $40 (uppercase letters, @, [, etc.)
-    @pytest.mark.parametrize("petscii", list(range(0x40, 0x60)))
-    def test_uppercase_range(self, io, petscii):
-        cpu = make_cpu(io)
-        jsr(cpu, io.io_putc, a=petscii)
-        assert cpu.memory[SCREEN] == petscii - 0x40
-
-    # $60-$7F: subtract $20 (lowercase letters)
-    @pytest.mark.parametrize("petscii", list(range(0x60, 0x80)))
-    def test_lowercase_range(self, io, petscii):
-        cpu = make_cpu(io)
-        jsr(cpu, io.io_putc, a=petscii)
-        assert cpu.memory[SCREEN] == petscii - 0x20
-
-    # $C0-$DF: subtract $80 (shifted letters)
-    @pytest.mark.parametrize("petscii", list(range(0xC0, 0xE0)))
-    def test_shifted_range(self, io, petscii):
-        cpu = make_cpu(io)
-        jsr(cpu, io.io_putc, a=petscii)
-        assert cpu.memory[SCREEN] == petscii - 0x80
+        errors = []
+        for val in range(256):
+            cpu2 = make_cpu(io)
+            jsr(cpu2, io.pet_to_scr, a=val)
+            if cpu2.a != PET_TO_SCR[val]:
+                errors.append(f"${val:02X}: got ${cpu2.a:02X}, expected ${PET_TO_SCR[val]:02X}")
+        assert not errors, f"pet_to_scr failures:\n" + "\n".join(errors)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# §2  Screen Code → PETSCII Round-trip
-# ═══════════════════════════════════════════════════════════════════════════════
+class TestScrToPet:
+    """Verify scr_to_pet against the reference table for all 128 values."""
 
-class TestRoundTrip:
-    """io_putc(petscii) → screen RAM → read_line_py → expected PETSCII."""
+    def test_full_range(self, io):
+        errors = []
+        for val in range(128):
+            cpu = make_cpu(io)
+            jsr(cpu, io.scr_to_pet, a=val)
+            if cpu.a != SCR_TO_PET[val]:
+                errors.append(f"${val:02X}: got ${cpu.a:02X}, expected ${SCR_TO_PET[val]:02X}")
+        assert not errors, f"scr_to_pet failures:\n" + "\n".join(errors)
 
-    # Characters that must round-trip exactly (the CSE-critical set)
-    @pytest.mark.parametrize("petscii", [
-        # digits
-        0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
-        # punctuation used by REPL
-        0x21, 0x22, 0x23, 0x24, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D,
-        0x2E, 0x2F, 0x3A, 0x3B, 0x3D, 0x3F,
-        # letters ($41-$5A in cc65 = unshifted = what keyboard produces)
-        0x41, 0x42, 0x43, 0x44, 0x45, 0x46,  # a-f (hex)
-        0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D,  # g-m
-        0x4E, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54,  # n-t
-        0x55, 0x56, 0x57, 0x58, 0x59, 0x5A,  # u-z
-        # @
-        0x40,
-    ])
-    def test_exact_roundtrip(self, io, petscii):
-        cpu = make_cpu(io)
-        jsr(cpu, io.io_putc, a=petscii)
-        result = read_line_py(cpu, 0)
-        assert len(result) >= 1
-        assert result[0] == petscii, \
-            f"${petscii:02X} → scr ${cpu.memory[SCREEN]:02X} → readback ${result[0]:02X}"
 
-    # Lowercase/shifted letters round-trip to their uppercase equivalent
-    @pytest.mark.parametrize("petscii,expected", [
-        (0x61, 0x41),  # lowercase a → uppercase a
-        (0x6D, 0x4D),  # lowercase m → uppercase m
-        (0x7A, 0x5A),  # lowercase z → uppercase z
-        (0xC1, 0x41),  # shifted A → uppercase a
-        (0xCD, 0x4D),  # shifted M → uppercase m
-        (0xDA, 0x5A),  # shifted Z → uppercase z
-    ])
-    def test_case_folding_roundtrip(self, io, petscii, expected):
-        cpu = make_cpu(io)
-        jsr(cpu, io.io_putc, a=petscii)
-        result = read_line_py(cpu, 0)
-        assert result[0] == expected
+class TestCodecRoundTrip:
+    """Verify lossy round-trip: pet_to_scr → strip bit 7 → scr_to_pet."""
+
+    def test_full_range(self, io):
+        errors = []
+        for val in range(256):
+            cpu = make_cpu(io)
+            jsr(cpu, io.pet_to_scr, a=val)
+            sc = cpu.a & 0x7F
+            jsr(cpu, io.scr_to_pet, a=sc)
+            expected = SCR_TO_PET[PET_TO_SCR[val] & 0x7F]
+            if cpu.a != expected:
+                errors.append(f"${val:02X}: scr=${sc:02X}, got ${cpu.a:02X}, expected ${expected:02X}")
+        assert not errors, f"round-trip failures:\n" + "\n".join(errors)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -18,7 +18,7 @@
         .export line_buf, last_cmd          ; TODO: remove after test_repl → C64Emu migration
 
 ; ── Imports: cse_io.s ──────────────────────────────────────
-        .import io_putc, io_repc, io_puts
+        .import io_putc, io_repc, io_puts, scr_to_pet
         .import io_puthex4, io_puthex2, io_putdec, io_putdec_pd
         .import io_utoa, dec_buf
         .import io_clear_eol
@@ -773,11 +773,8 @@ parse_hex4_ptr1:
         ldy #0
 @loop:  lda (rp_ptr),y
         and #$7F                ; strip reverse-video bit
-        cmp #$20
-        bcs @store              ; $20-$7F unchanged
-        ora #$40                ; $00-$1F -> $40-$5F
-
-@store: sta line_buf,y
+        jsr scr_to_pet          ; screen code → PETSCII
+        sta line_buf,y
         iny
         cpy #SCREEN_WIDTH
         bcc @loop

@@ -49,7 +49,26 @@ $D6 (row).
 | scr_lo[25] | 25 | Low bytes of $0400 + row×40 for rows 0–24 |
 | scr_hi[25] | 25 | High bytes of same |
 | hex_tab[16] | 16 | Screen codes for hex digits: $30–$39, $01–$06 |
-| *(dec_pow_lo/hi moved to strings.s)* | | |
+| dec_pow_lo[5] | 5 | Powers of 10: <1, <10, <100, <1000, <10000 |
+| dec_pow_hi[5] | 5 | Powers of 10: >1, >10, >100, >1000, >10000 |
+
+### pet_to_scr
+
+**Input:** A = PETSCII byte
+**Output:** A = screen code
+**Clobbers:** flags only
+
+Pure conversion function.  See § Character Encoding Reference for
+the full 8-row mapping.  Extracted from io_putc for testability.
+
+### scr_to_pet
+
+**Input:** A = screen code (bit 7 must be stripped by caller)
+**Output:** A = PETSCII byte
+**Clobbers:** flags only
+
+Pure conversion function.  $00–$1F → $40–$5F (A + $40),
+$20–$7F → identity.  Extracted from read_line for testability.
 
 ### io_putc
 
@@ -205,8 +224,7 @@ Cursor position is read/written directly via KERNAL ZP:
 
 Call `io_sync` after changing CUR_ROW to update line pointers.
 
-**Depends on:** KERNAL (GETIN $FFE4, PLOT $FFF0),
-strings (dec_pow_lo/hi for io_putdec)
+**Depends on:** KERNAL (GETIN $FFE4, PLOT $FFF0)
 
 ## Design
 

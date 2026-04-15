@@ -162,7 +162,11 @@ out_close:
         rts
 
         .importzp _io_tmp
-        .import dec_pow_lo, dec_pow_hi
+; dec_pow tables (normally in cse_io.s, inlined here for test bundle)
+.segment "RODATA"
+dec_pow_lo:     .byte <1, <10, <100, <1000, <10000
+dec_pow_hi:     .byte >1, >10, >100, >1000, >10000
+.segment "CODE"
 
 ; Minimal io_utoa stub: fills dec_buf with 5-digit PETSCII + NUL.
 ; SEC/CLC wrapper behaviour not needed for test — just produce digits.
