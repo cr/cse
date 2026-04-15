@@ -181,6 +181,7 @@ Press RUN/STOP to enter the editor from the REPL and back.
 | Printable | Insert character (39-column visual limit) |
 | RETURN | Newline with auto-indent (see below) |
 | DEL | Backspace |
+| INS | Insert space at cursor (cursor stays) |
 | Cursor keys | Navigate |
 | HOME | Start of line |
 | SHIFT+SPACE | Tab (to next tab stop) |
@@ -194,7 +195,8 @@ RETURN after a colon also strips the gutter from the label line.
 *Known quirk:* a colon in a comment (`; note:`) will also strip
 the line's leading tab.  Re-add it with SHIFT+SPACE if needed.
 
-The editor uses a gap buffer that grows downward from $D000.
+The editor uses a gap buffer that grows downward from the CSE
+runtime start address (determined at link time, typically ~$7B00).
 The status bar shows the cursor position, line count, dirty flag,
 and free bytes.
 
@@ -240,6 +242,8 @@ Case-insensitive. Characters: a--z, 0--9, dot.
     .scr "HELLO"            ; emit screen codes
     .res 256, $EA           ; reserve and fill
     .align 256              ; align to boundary
+    .bas                    ; emit BASIC SYS stub
+    .bas "title"            ; emit BASIC SYS stub with REM
 
 ### Expressions
 
@@ -288,7 +292,7 @@ Assemble and run:
 
 At startup CSE shows the free memory available:
 
-      zp 0002-007F      126b free
+      zp 0002-007F       37b free
     lo02 02A7-02FF       89b free
     lo03 0334-03FF      204b free
     work 0800-XXXX    NNNNNb free
@@ -300,12 +304,16 @@ At startup CSE shows the free memory available:
 | Low page 3 | $0334--$03FF | Free RAM (204 bytes, includes tape buffer) |
 | Screen | $0400--$07FF | VIC-II screen RAM |
 | Workspace | $0800--workend | Your programs and data |
-| CSE | XXXX--$CFFF | CSE code and data |
+| CSE | XXXX--$CFFF | CSE runtime code and data |
 | I/O | $D000--$DFFF | VIC-II, SID, CIA |
-| KERNAL | $E000--$FFFF | KERNAL ROM (CSE uses RAM underneath for symbol table) |
+| Symbols | $E000--$EEFF | Symbol table + name heap (under KERNAL ROM) |
+| CSE banked | $EF00--$F8D9 | Stack snapshots, KDATA tables, REPL screen (under KERNAL ROM) |
+| KERNAL | $F8DA--$FFFF | KERNAL ROM |
 
 CSE unmaps BASIC ROM, so the full $0800--$CFFF range is available
-as contiguous workspace.
+as contiguous workspace.  The $E000--$F8D9 region under KERNAL ROM
+holds CSE data (symbol table, lookup tables, screen save); CSE
+banks the KERNAL out temporarily when accessing it.
 
 ### What your code can use
 
@@ -328,15 +336,15 @@ Your code **must preserve:**
 
 Your code may use KERNAL I/O (CHROUT, GETIN, etc.) normally.
 CSE restores screen colors, charset, and cursor state on return.
-If your code clears or repaints the screen, press ESC or
-SHIFT+HOME in the REPL to restore the display.
+If your code clears or repaints the screen, type `x` in the
+REPL to restore the display.
 
 ## Built-in symbols
 
 | Symbol | Value | Description |
 |--------|-------|-------------|
 | `workstart` | first free byte after CSE | Start of workspace |
-| `workend` | $CFFF (adjusts with editor) | End of workspace |
+| `workend` | CSE runtime start - 1 (adjusts with editor) | End of workspace |
 
 Use in assembler: `.org workstart`
 

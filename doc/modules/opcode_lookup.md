@@ -20,14 +20,14 @@
 **Out:** A = final opcode byte.  On invalid mode: `jmp asm_error`.
 **Clobbers:** A, X, Y
 
-**Depends on:** mn_modes (mode bitmasks), mn_asm_tables (mode_offset,
-direct_opcodes), asm_line (asm_error)
-
 ### Memory
 
 **ZP (1 byte):** `_asm_ok_tmp` (1) — scratch, caches cat bits at entry.
 
 **RODATA (8 bytes):** `_bit_tab` (8) — bit masks for Zone D/E.
+
+**Depends on:** mn_modes (mode bitmasks), mn_asm_tables (mode_offset,
+direct_opcodes), asm_line (asm_error)
 
 ## Design
 

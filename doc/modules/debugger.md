@@ -117,9 +117,6 @@ Used by the BRK handler to identify which breakpoint slot was hit.
 - `_dbg_bp_hit` — slot number of the breakpoint that was hit ($FF = none)
 - `_step_bp` — temporary breakpoint(s) for single-step (2 slots)
 
-**Depends on:** asm_line (register state, ZP save), dasm (instruction
-length for step), main (BRK/NMI dispatch)
-
 ### Memory
 
 **BSS (46 bytes):**
@@ -133,6 +130,9 @@ length for step), main (BRK/NMI dispatch)
 | `_brk_pc` | 2 | PC at break / resume address |
 | `_dbg_bp_hit` | 1 | Slot of breakpoint hit ($FF = none) |
 | `_sp_baseline` | 1 | SP at @tramp entry — handler restores SP to this on BRK/NMI |
+
+**Depends on:** asm_line (register state, ZP save), dasm (instruction
+length for step), main (BRK/NMI dispatch)
 
 ## Command Reassignment
 

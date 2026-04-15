@@ -68,9 +68,6 @@ The callback receives each byte in A.  Called once per byte read.
 The callback returns a byte in A (lo) and X=0.  EOF is signalled
 by returning A=$FF, X=$FF (int16 -1).
 
-**Depends on:** repl (out_info), screen (newline), cse_io (io_puts,
-io_putc, io_putdec, io_puthex2/4, io_getc, io_kbhit, io_clear_eol)
-
 ### Memory
 
 **ZP (2 bytes):** `disk_ptr` (2) — filename pointer, set by caller
@@ -86,6 +83,9 @@ before disk_load_prg/save_prg/load_seq/save_seq.
 | `open_buf` | 28 | Filename build buffer for CBM open |
 | `callback` | 2 | SEQ I/O function pointer |
 | `eof_flag` | 1 | READST EOF flag for SEQ read |
+
+**Depends on:** repl (out_info), screen (newline), cse_io (io_puts,
+io_putc, io_putdec, io_puthex2/4, io_getc, io_kbhit, io_clear_eol)
 
 ## Design
 

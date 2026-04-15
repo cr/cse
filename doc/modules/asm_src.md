@@ -53,17 +53,6 @@ Suppressed when no segments were emitted (`_min_pc` == $FFFF).
 - `_min_pc` (2B) — global lowest origin ($FFFF = no segments)
 - `_max_pc` (2B) — global highest byte (exclusive, ready for save)
 
-### _define_ws_syms
-**In:** none (reads `cse_end` and `buf_base`)
-**Out:** defines `workstart` and `workend` in the symbol table.
-**Clobbers:** A, X, Y, sym_name, sym_val, sym_wide
-
-Pre-defines two workspace labels:
-- `workstart` = `(cse_end + $FF) & $FF00` — first free page
-- `workend` = `buf_base - 1` — inclusive upper bound
-
-Called by main.s at startup and by `asm_assemble` after `sym_clear`.
-
 **Depends on:** asm_line, expr, symtab, editor
 (ed_read_line, ed_read_rewind, buf_base), repl (out_log_open,
 out_close, puts_imm for error/summary output), mem (define_ws_syms)

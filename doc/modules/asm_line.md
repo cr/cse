@@ -43,6 +43,24 @@ Input is PETSCII.  Mnemonic characters are normalized to 1–26 via
 AND #$1F (handles uppercase, lowercase, and legacy VICII screen
 codes identically — see [mn_classify.md](mn_classify.md)).
 
+### Memory (asm_line.s)
+
+**ZP (imported):** `_asm_saved_sp` (1, defined in zp.s) — saved
+6502 SP for the `asm_error` recovery path.
+
+**BSS (183 bytes):**
+
+| Variable | Size | Purpose |
+|----------|------|---------|
+| `asm_expr_err` | 1 | Nonzero if last `asm_error` was an expression error |
+| `reg_a` | 1 | Saved user A register (read by debugger.s + repl.s) |
+| `reg_x` | 1 | Saved user X register |
+| `reg_y` | 1 | Saved user Y register |
+| `reg_sp` | 1 | Saved user stack pointer |
+| `reg_p` | 1 | Saved user status flags |
+| `zp_save_buf` | 88 | CSE ZP snapshot ($02–$59) for debugger context switch |
+| `user_zp_buf` | 88 | User ZP snapshot (captured on BRK/NMI for `m`/`.` inspection) |
+
 **Depends on:** opcode_lookup, mode_parse, mn_classify (mn_base_op,
 mn_profile), mn7 tables, kernal_bank_out/kernal_bank_in (symtab.s)
 
@@ -88,20 +106,3 @@ distinguish syntax errors from expression errors and can call
   signed offset internally.
 - `mn7_classify` clobbers Y (sets Y=mn_c2).  `ldy #0` is required
   before zone dispatch.
-
-### Memory (asm_line.s)
-
-**ZP (1 byte):** `_asm_saved_sp` (1) — saved 6502 SP for the
-`asm_error` / `asm_syntax_error` recovery path.
-
-**BSS (96 bytes):**
-
-| Variable | Size | Purpose |
-|----------|------|---------|
-| `_asm_out_buf` | 3 | Output buffer for assembled bytes |
-| `reg_a` | 1 | Saved user A register (read by debugger.s + repl.s) |
-| `reg_x` | 1 | Saved user X register |
-| `reg_y` | 1 | Saved user Y register |
-| `reg_sp` | 1 | Saved user stack pointer |
-| `reg_p` | 1 | Saved user status flags |
-| `zp_save_buf` | 88 | CSE ZP snapshot ($02–$59) for debugger context switch |

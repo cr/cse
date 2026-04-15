@@ -39,8 +39,6 @@ scrolls up 1 instead of incrementing.  Calls `io_sync`.
 
 `cursor_hide` is aliased to `cursor_show` — same toggle operation.
 
-**Depends on:** cse_io (io_puts, io_sync, io_color, scr_lo/scr_hi)
-
 ### Memory
 
 **BSS (3 bytes):** `theme_border` (1), `theme_bg` (1),
@@ -50,6 +48,8 @@ build-time constants `THEME_BOR` / `THEME_BG` / `THEME_FG` by
 `reset_screen`).  The `c BFS` REPL command rewrites them at
 runtime.  BSS, not RODATA, so this works on the planned CRT
 target where RODATA lives in ROM.
+
+**Depends on:** cse_io (io_puts, io_sync, io_color, scr_lo/scr_hi)
 
 ## Theme System
 

@@ -52,18 +52,15 @@ Open bugs, roughly ordered by priority.
   (`$0800`–`__CODE_RUN__`).  Writing BRK to KERNAL, I/O, or CSE
   code corrupts the system.  `bp_set` and `bp_patch` must range-check.
 
-- [x] ~~`s` command PRG save address stale ZP ref~~ (fixed: repl.s
-  `cmd_write` wrote start address to hardcoded `$FB/$FC` instead of
-  `_io_tmp` ($002D); stale from pre-Phase-12 ZP layout)
-- [x] ~~Editor ignores INS key~~ (fixed: editor.s INS handler now
-  inserts a space via `gb_insert` + `gb_cursor_left` so cursor stays
-  on the opened space; refused at 39-col line cap)
-
 ### Fixed bugs (reference)
 
 <details>
 <summary>Click to expand</summary>
 
+- [x] `s` command PRG save address stale ZP ref — repl.s wrote to
+  hardcoded `$FB/$FC` instead of `_io_tmp`; stale from Phase 12.
+- [x] Editor INS key ignored — inserts space via `gb_insert` +
+  `gb_cursor_left`; refused at 39-col cap.
 - [x] 13 CMOS mnemonic gate bugs — fixed in `2939a94`.
 - [x] expr.s test harness: 12 xfails — resolved, 146 tests pass.
 - [x] asm_cpu 3-valued semantics — fixed.
@@ -77,7 +74,7 @@ Open bugs, roughly ordered by priority.
 - [x] Review all user-facing strings — terse convention established.
 - [x] Line-break warnings on file load — one per split.
 - [x] `theme_border`/`theme_bg`/`theme_fg` in RODATA — moved to BSS.
-- [x] `.` and `m` show CSE ZP — partially done (`m` fixed, `.` open above).
+- [ ] `.` and `m` show CSE ZP — `m` fixed in `ac1a31f`, `.` still open (see above).
 - [x] Stack-snapshot revisit under KERNAL — resolved.
 - [x] BASIC SYS residue on hardware stack — SP reset at startup.
 - [x] `dbg_enter` ZP save buffer sizing — fixed.
@@ -242,7 +239,7 @@ Defined scope, needs work.
   during pass 1, `; ok` + save command after.  +70 B, 6 tests.
 - [ ] Assembly `; ok` line: show symbol count (`; ok  NNN syms`).
   Needs `sym_count` (2B BSS) in symtab.s, incremented by `sym_define`,
-  but only if the sysmbol didn't exist before.
+  but only if the symbol didn't exist before.
 
 ### Editor
 

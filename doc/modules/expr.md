@@ -49,14 +49,14 @@ undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 **In:** none (uses last error state)
 **Out:** A/X = pointer to NUL-terminated error message
 
-**Depends on:** symtab (`sym_lookup` for label resolution),
-symtab (`kernal_bank_out` / `kernal_bank_in` for the wrapper)
-
 ### Memory
 
 **ZP (4 bytes):** `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1).
 
 **BSS (5 bytes):** `last_err` (1), `_mul_tmp` (2), `_div_rem` (2).
+
+**Depends on:** symtab (`sym_lookup` for label resolution),
+symtab (`kernal_bank_out` / `kernal_bank_in` for the wrapper)
 
 ## Design
 

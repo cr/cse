@@ -19,9 +19,6 @@
 - `cse_brk_handler` — permanent BRK dispatcher at $0316/$0317
 - `cse_nmi_handler` — permanent NMI dispatcher at $0318/$0319
 
-**Depends on:** repl, editor, screen, cse_io, debugger, symtab,
-disk, mem
-
 ### Memory
 
 **ZP (6 bytes):** `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1),
@@ -32,6 +29,9 @@ debugger.s, asm_line.s.
 
 **KBSS (cold-init snapshot, under KERNAL ROM):**
 - `_cold_zp` (127 B) — snapshot of $01-$7F at cold-init entry
+
+**Depends on:** repl, editor, screen, cse_io, debugger, symtab,
+disk, mem
 
 ## Design
 

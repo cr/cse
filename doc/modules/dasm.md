@@ -35,14 +35,14 @@ common `finish` path, the cc=11 RMB/SMB inline `rts`, and the
 cc=11 BBR/BBS inline `rts`) all pair correctly with the entry
 `bank_out`.  No exit can leave the KERNAL mapped out by accident.
 
-**Depends on:** dasm_tables (GENERATED), kernal_bank_out /
-kernal_bank_in (symtab.s)
-
 ### Memory
 
 **ZP (8 bytes):** `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1).
 
 **BSS (24 bytes):** `_dasm_buf` (24) — output buffer for disassembled instruction text.
+
+**Depends on:** dasm_tables (GENERATED), kernal_bank_out /
+kernal_bank_in (symtab.s)
 
 ## Design
 

@@ -36,8 +36,17 @@ and documentation.
 | **LC (location counter)** | The assembler's current output address.  Set by `.org`; advanced by every emitted byte. |
 | **pass 0** | First scan: collect labels/constants, compute instruction sizes.  Errors not counted. |
 | **pass 1** | Second scan: all symbols resolved; emit bytes, count errors. |
-| **ZP** | Zero-page: address $00–$FF.  Selects 2-byte instruction encoding. |
+| **ZP** | Zero-page: address $00–$FF.  Selects 2-byte instruction encoding.  Also: the `.segment "ZEROPAGE"` allocation in the linker. |
 | **ABS** | Absolute: address $0000–$FFFF.  Selects 3-byte instruction encoding. |
+| **BSS** | Uninitialized runtime state segment.  Zeroed at boot by main.s.  All mutable module variables live here. |
+| **RODATA** | Read-only data segment.  Constants, string literals, lookup tables.  Linked into the runtime image alongside CODE. |
+| **KDATA** | Data segment that lives under KERNAL ROM ($F100–$F4F1).  Copied from the PRG load image to banked RAM by loader.s at startup.  Contains lookup tables (mn_modes, mode_offset, dasm strings). |
+| **workspace** | The $0800–workend memory region shared by user programs and source text.  The gap buffer grows downward from `__CODE_RUN__`; user output grows upward from $0800. |
+| **gap buffer** | The editor's text storage: a contiguous buffer with a movable gap at the cursor.  Insertions fill the gap (O(1)); the gap slides on cursor movement.  `buf_base` is the buffer floor, `BUF_END = __CODE_RUN__` is the ceiling. |
+| **symbol table** | Hash table at $E000–$E5FF (256 slots × 6 bytes) under KERNAL ROM.  Stores assembler labels and constants.  Name strings live in the adjacent heap. |
+| **heap** | Symbol-name storage at $E600–$EEFF under KERNAL ROM.  Grows upward; cleared by `sym_clear`. |
+| **fingerprint** | Mnemonic disambiguation byte: `fp = (c2<<3) | (c3>>2)`.  After the h7 hash selects a slot, the fingerprint confirms the exact mnemonic with zero false positives. |
+| **mnemonic hash** | `h7 = (c1×4 + c3 + HASH_T[c2]) & $7F`.  Maps a 3-letter mnemonic to a 7-bit slot index (0–127).  Uses VICII-normalized letter values (A=1..Z=26). |
 | **wide** | `expr_wide = 1`: expression forced to ABS.  Sticky — once wide, stays wide. |
 | **base opcode** | Opcode byte with the mode field (`bbb`) zeroed.  Final opcode = `base | (bbb << 2)`. |
 | **mode index** | Integer 0–15 encoding an addressing mode.  Used by `au_mode.s` and `opcode_lookup.s`.  The mapping: 0=IMP, 1=ACC, 2=IMM, 3=ZP, 4=ZPX, 5=ZPY, 6=ABS, 7=ABX, 8=ABY, 9=IND, 10=INX, 11=INY, 12=REL, 13=ZPI, 14=AIX, 15=ZPREL. |
@@ -88,6 +97,8 @@ and documentation.
 | Term | Definition |
 |------|------------|
 | **KERNAL** | C64 ROM routines ($E000–$FFFF).  CSE uses KERNAL for keyboard, disk I/O, and cursor sync. |
+| **banking** | Switching $01 bit 1 to hide KERNAL ROM and expose the underlying RAM ($E000–$FFFF).  CSE stores its symbol table, heap, KDATA tables, and screen save in this region.  `kernal_bank_out`/`kernal_bank_in` (mem.s) manage the switch. |
+| **BRK** | 6502 software interrupt instruction.  Used by the debugger for breakpoints: the original byte is replaced with $00 (BRK); execution traps to the BRK handler which enters the debugger. |
 | **NMI** | Non-maskable interrupt.  RUN/STOP+RESTORE triggers NMI; CSE intercepts it for mode switching. |
 | **asm_cpu** | CPU mode selector: 0=6502 (legal only), 1=6510 (+illegal), 2=65C02 (+CMOS). |
 | **ca65** | 6502 assembler (part of the cc65 toolchain).  All CSE source is pure assembly. |

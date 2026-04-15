@@ -22,12 +22,12 @@
 **Out:** Y advanced past spaces ($20) and tabs ($A0)
 **Clobbers:** A
 
-**Depends on:** asm_line (asm_syntax_error, asm_expr_error), expr (expr_eval_nb)
-
 ### Memory
 
 **ZP (4 bytes):** `asm_ptr` (2), `asm_opr` (2).
 Also uses `expr_ptr`, `expr_val`, `expr_wide` (defined in zp.s).
+
+**Depends on:** asm_line (asm_syntax_error, asm_expr_error), expr (expr_eval_nb)
 
 ## Design
 

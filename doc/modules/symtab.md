@@ -31,14 +31,14 @@ C=0 found, C=1 not found.
 **Out:** all slots zeroed, heap pointer reset to base
 **Clobbers:** A, X
 
-**Depends on:** nothing (leaf module)
-
 ### Memory
 
 **ZP (10 bytes):** `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_heap` (2), `_st_heap_base` (2).
 
 Probe state for linear probing.  `_st_heap`/`_st_heap_base` track
 the name heap (fixed at $E600 under KERNAL).
+
+**Depends on:** nothing (leaf module)
 
 ## Design
 
