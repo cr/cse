@@ -22,6 +22,8 @@
 
         .export nmi_pending
 
+        .import dec_pow_lo, dec_pow_hi
+
 COLS    = 40
 ROWS    = 25
 SCREEN  = $0400
@@ -62,10 +64,6 @@ hex_tab:                ; screen codes for hex digits 0-9, a-f
         .byte $30,$31,$32,$33,$34,$35,$36,$37
         .byte $38,$39,$01,$02,$03,$04,$05,$06
 
-dec_lo:                 ; powers of 10, lo bytes
-        .byte <10000, <1000, <100, <10, <1
-dec_hi:                 ; powers of 10, hi bytes
-        .byte >10000, >1000, >100, >10, >1
 
 ; ── CODE ────────────────────────────────────────────────────
 .segment "CODE"
@@ -194,14 +192,14 @@ io_putdec:
         jsr _io_scr_setup
         lda CUR_COL
         sta dec_start_col          ; remember starting column for leading-zero check
-        ldx #0                  ; power-of-10 index (0..4)
+        ldx #4                  ; power-of-10 index (4=10000..0=1)
 @pow:   ldy #0                  ; digit counter
 @sub:   lda _io_tmp
         sec
-        sbc dec_lo,x
+        sbc dec_pow_lo,x
         pha                     ; tentative lo
         lda _io_tmp+1
-        sbc dec_hi,x
+        sbc dec_pow_hi,x
         bcc @done_digit         ; borrow: went too far
         sta _io_tmp+1           ; commit hi
         pla
@@ -212,7 +210,7 @@ io_putdec:
         pla                     ; discard tentative lo
         tya                     ; A = digit (0..9)
         bne @print              ; nonzero: print
-        cpx #4                  ; ones place?
+        txa                     ; ones place? (X=0)
         beq @force              ; always print ones digit
         lda CUR_COL             ; check if we've printed anything
         cmp dec_start_col
@@ -224,9 +222,8 @@ io_putdec:
         sta (_io_scr),y
         iny
         sty CUR_COL
-@next:  inx
-        cpx #5
-        bne @pow
+@next:  dex
+        bpl @pow
         rts
         ; dec_start_col moved to BSS (ROM-safe)
 

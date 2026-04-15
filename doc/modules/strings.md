@@ -69,6 +69,12 @@ or suffix/prefix substrings:
 | `str_full` | `s_sym_full + 4` | suffix — `"full"` within `"sym full"` |
 | `str_dname` | `str_dashes` | prefix — `"$"` within `"$----"` |
 
+### Shared tables
+
+`dec_pow_lo` / `dec_pow_hi` — powers of 10 (10000,1000,100,10,1).
+Used by `io_putdec` (cse_io.s), `utoa_sub` (repl.s), and
+`_emit_decimal` (asm_src.s).
+
 **Depends on:** nothing (pure RODATA leaf)
 
 ## Design

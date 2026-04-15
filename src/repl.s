@@ -96,6 +96,7 @@
         .import str_tag_scr, str_tag_cse, str_tag_work, str_free_suf
         .import str_tag_src, str_tag_lo02, str_tag_io
         .import str_tag_rom, str_banked
+        .import dec_pow_lo, dec_pow_hi
 .ifdef CPU_6510
         .import str_6510
 .endif
@@ -158,9 +159,6 @@ dbg_zp_view:    .res 8          ; emit_mem staging buffer for the
 
 ; ── RODATA ─────────────────────────────────────────────────
 .segment "RODATA"
-
-dec_pow_lo:     .byte <10000, <1000, <100, <10, <1
-dec_pow_hi:     .byte >10000, >1000, >100, >10, >1
 
 ; cpu parse helpers: pair chars after "65" -> cpu id
 cpu_pair_tbl:    .byte '0','2',0,  '1','0',1,  'c','0',2
@@ -647,7 +645,7 @@ parse_hex4_ptr1:
         lda #0
         sta rp_save2            ; started flag (0 = no digit yet)
         sta rp_save             ; output pos
-        ldx #0                  ; power-of-10 index
+        ldx #4                  ; power-of-10 index (4=10000..0=1)
 @pow:   ldy #0                  ; digit counter
 @sub:   lda rp_addr
         sec
@@ -667,7 +665,7 @@ parse_hex4_ptr1:
         bne @emit               ; nonzero → print
         lda rp_save2
         bne @emit_zero          ; already started → print zero
-        cpx #4                  ; ones place?
+        txa                     ; ones place? (X=0)
         bne @next               ; skip leading zero
 @emit_zero:
         tya                     ; A = 0
@@ -679,9 +677,8 @@ parse_hex4_ptr1:
         sty rp_save
         lda #1
         sta rp_save2
-@next:  inx
-        cpx #5
-        bcc @pow
+@next:  dex
+        bpl @pow
         ldy rp_save
         lda #0
         sta fbuf,y              ; NUL

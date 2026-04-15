@@ -41,6 +41,7 @@
         .import s_err_sep, s_bad_val, s_exp_name, s_sym_full
         .import s_exp_quot, s_bad_insn, s_seg_pfx
         .import s_save_s, s_save_q_sp, s_save_default, s_trunc
+        .import dec_pow_lo, dec_pow_hi
 
 ; ── BSS (all reset by asm_assemble before each run) ─────────────────────
 .segment "BSS"
@@ -68,9 +69,6 @@ _org_set:       .res 1          ; non-zero after first .org on pass 0
 ; ── RODATA ────────────────────────────────────────────────────────────────
 .segment "RODATA"
 
-; Decimal power tables for 16-bit → ASCII conversion (_emit_decimal)
-_dec_pow_lo:    .byte <1, <10, <100, <1000, <10000
-_dec_pow_hi:    .byte >1, >10, >100, >1000, >10000
 
 ; ═══════════════════════════════════════════════════════════════════════════
 .segment "CODE"
@@ -547,10 +545,10 @@ _emit_decimal:
 @dgt:   ldy #$30                ; PETSCII '0'
 @sub:   lda expr_val
         sec
-        sbc _dec_pow_lo,x
+        sbc dec_pow_lo,x
         sta asm_tmp             ; tentative lo
         lda expr_val+1
-        sbc _dec_pow_hi,x
+        sbc dec_pow_hi,x
         bcc @done               ; underflow → digit complete
         sta expr_val+1          ; commit hi
         lda asm_tmp

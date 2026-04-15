@@ -38,7 +38,7 @@ _CODE_START = 0x4000
 
 # ── Build ────────────────────────────────────────────────────────────────────
 
-_SOURCES = [SRC / "zp.s", SRC / "cse_io.s", DEV / "cse_io_test_stub.s"]
+_SOURCES = [SRC / "zp.s", SRC / "strings.s", SRC / "cse_io.s", DEV / "cse_io_test_stub.s"]
 
 def _needs_rebuild():
     if not IO_BIN.exists() or not IO_LBL.exists():

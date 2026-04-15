@@ -180,7 +180,8 @@ Cursor position is read/written directly via KERNAL ZP:
 
 Call `io_sync` after changing CUR_ROW to update line pointers.
 
-**Depends on:** KERNAL (GETIN $FFE4, PLOT $FFF0)
+**Depends on:** KERNAL (GETIN $FFE4, PLOT $FFF0),
+strings (dec_pow_lo/hi for io_putdec)
 
 ## Design
 
