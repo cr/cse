@@ -58,7 +58,8 @@ Three levels: `LOG_ERR='?'` → `";?"`, `LOG_WARN='!'` → `";!"`,
 | `dbg_zp_view` | 8 | User-ZP staging buffer for `m`/`.` commands |
 
 **Depends on:** asm_line (`.`), asm_src (`a`), dasm (`d`), expr (`?`),
-disk (`l`/`s`/`$`), debugger (`b`/`c`/`t`/`o`), editor, screen, cse_io
+disk (`l`/`s`/`$`), debugger (`b`/`c`/`t`/`o`), editor, screen, cse_io,
+strings
 
 ## Design
 

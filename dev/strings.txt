@@ -1,0 +1,161 @@
+# CSE String Constants Catalog
+# Phase 16 feasibility study: Shortest Common Superstring (SCS)
+#
+# Format: ID | seg | bytes | source:line | content
+# Bytes = string chars + null terminator (where present)
+# seg: R=RODATA, C=CODE (inline in .proc)
+#
+# ── mem.s (RODATA) ───────────────────────────────────────────────────────
+mem_workstart       | R | 10 | mem.s:86       | "workstart\0"
+mem_workend         | R |  8 | mem.s:87       | "workend\0"
+
+# ── repl.s (RODATA) ─────────────────────────────────────────────────────
+rpl_flag_ch         | R |  8 | repl.s:139     | "nv-bdizc"                [no NUL]
+rpl_bp_pfx          | R |  4 | repl.s:140     | "bp \0"
+rpl_3sp             | R |  4 | repl.s:141     | "   \0"
+rpl_2sp             | R |  3 | repl.s:142     | "  \0"
+rpl_brk             | R |  4 | repl.s:143     | "brk\0"
+rpl_at              | R |  6 | repl.s:144     | " at $\0"
+rpl_nmi             | R |  9 | repl.s:145     | "nmi at $\0"
+rpl_ok_at           | R |  8 | repl.s:146     | "ok at $\0"
+rpl_bp_clr          | R |  7 | repl.s:147     | "bp clr\0"
+rpl_deleted         | R |  5 | repl.s:148     | " del\0"
+rpl_syntax          | R |  7 | repl.s:150     | "syntax\0"
+rpl_bad_val         | R |  8 | repl.s:151     | "bad val\0"
+rpl_full            | R |  5 | repl.s:152     | "full\0"
+rpl_cmd             | R |  4 | repl.s:153     | "cmd\0"
+rpl_no_name         | R |  8 | repl.s:154     | "no name\0"
+rpl_range           | R |  6 | repl.s:155     | "range\0"
+rpl_fail            | R |  5 | repl.s:156     | "fail\0"
+rpl_too_big         | R |  8 | repl.s:157     | "too big\0"
+rpl_expr            | R |  6 | repl.s:158     | "expr \0"
+rpl_no_break        | R |  7 | repl.s:159     | "no ctx\0"
+rpl_r_pc            | R |  6 | repl.s:160     | "r pc:\0"
+rpl_a               | R |  4 | repl.s:161     | " a:\0"
+rpl_x               | R |  4 | repl.s:162     | " x:\0"
+rpl_y               | R |  4 | repl.s:163     | " y:\0"
+rpl_s               | R |  4 | repl.s:164     | " s:\0"
+rpl_lines           | R |  3 | repl.s:165     | "l \0"
+rpl_bytes           | R |  2 | repl.s:166     | "b\0"
+rpl_bytes_sp        | R |  3 | repl.s:167     | "b \0"
+rpl_long            | R |  7 | repl.s:168     | "long L\0"
+rpl_del_src         | R | 20 | repl.s:187     | "delete source? y/n \0"
+rpl_unsaved         | R | 24 | repl.s:188     | "unsaved. continue? y/n \0"
+rpl_ok              | R |  3 | repl.s:189     | "ok\0"
+rpl_B_eq            | R |  3 | repl.s:190     | "B=\0"
+rpl_color           | R |  8 | repl.s:191     | "color: \0"
+rpl_cpu             | R | 10 | repl.s:192     | "cpu: 6502\0"
+rpl_6510            | R |  6 | repl.s:194     | " 6510\0"
+rpl_65c02           | R |  7 | repl.s:197     | " 65c02\0"
+rpl_asm_ing         | R |  7 | repl.s:199     | "asm...\0"
+rpl_load_pfx        | R |  6 | repl.s:200     | "load \0"
+rpl_save_pfx        | R |  6 | repl.s:201     | "save \0"
+rpl_dots            | R |  4 | repl.s:202     | "...\0"
+rpl_errors          | R |  5 | repl.s:203     | " err\0"
+rpl_quit            | R | 11 | repl.s:204     | "quit? y/n \0"
+rpl_dashes          | R |  6 | repl.s:205     | "$----\0"
+rpl_colon_sp        | R |  3 | repl.s:206     | ": \0"
+rpl_pct             | R |  4 | repl.s:207     | "  %\0"
+rpl_ioport          | R |  5 | repl.s:209     | "port\0"
+rpl_stack           | R |  6 | repl.s:210     | "stack\0"
+rpl_kernal          | R |  7 | repl.s:211     | "kernal\0"
+rpl_screen          | R |  4 | repl.s:212     | "scr\0"
+rpl_cse_rt          | R |  4 | repl.s:213     | "cse\0"
+rpl_bytes_free      | R |  7 | repl.s:214     | "b free\0"
+rpl_vic             | R |  3 | repl.s:215     | "io\0"
+rpl_i_free          | R |  5 | repl.s:216     | "free\0"
+rpl_i_lines         | R |  2 | repl.s:217     | "l\0"
+rpl_main            | R |  5 | repl.s:218     | "main\0"
+rpl_tag_cpu         | R |  4 | repl.s:225     | "cpu\0"
+rpl_tag_zp          | R |  3 | repl.s:226     | "zp\0"
+rpl_tag_stk         | R |  4 | repl.s:227     | "stk\0"
+rpl_tag_sys         | R |  4 | repl.s:228     | "sys\0"
+rpl_tag_scr         | R |  4 | repl.s:229     | "scr\0"
+rpl_tag_cse         | R |  4 | repl.s:230     | "cse\0"
+rpl_tag_work        | R |  5 | repl.s:231     | "work\0"
+rpl_free_suf        | R |  7 | repl.s:232     | "b free\0"
+rpl_tag_src         | R |  4 | repl.s:233     | "src\0"
+rpl_tag_lo02        | R |  5 | repl.s:234     | "lo02\0"
+rpl_tag_lo03        | R |  5 | repl.s:235     | "lo03\0"
+rpl_tag_io          | R |  3 | repl.s:236     | "io\0"
+rpl_tag_sym         | R |  4 | repl.s:237     | "sym\0"
+rpl_tag_rom         | R |  4 | repl.s:238     | "rom\0"
+rpl_symbols         | R |  8 | repl.s:239     | "symbols\0"
+rpl_banked          | R |  7 | repl.s:240     | "banked\0"
+
+# ── editor.s (RODATA) ───────────────────────────────────────────────────
+edt_workend         | R |  8 | editor.s:109   | "workend\0"
+
+# ── disk.s (CODE — inline in .proc) ─────────────────────────────────────
+dsk_dname           | C |  1 | disk.s:563     | "$"                       [no NUL]
+dsk_brk_msg         | C |  6 | disk.s:564     | "break\0"
+dsk_free_msg        | C | 14 | disk.s:565     | " blocks free.\0"
+dsk_blk_pre         | C |  3 | disk.s:566     | "; \0"
+dsk_blk_suf         | C |  8 | disk.s:567     | " blocks\0"
+
+# ── expr.s (RODATA) ─────────────────────────────────────────────────────
+exp_expected        | R |  8 | expr.s:976     | "exp val\0"
+exp_overflow        | R |  5 | expr.s:977     | "ovfl\0"
+exp_paren           | R |  6 | expr.s:978     | "exp )\0"
+exp_undefined       | R |  6 | expr.s:979     | "undef\0"
+exp_divzero         | R |  5 | expr.s:980     | "div0\0"
+
+# ── main.s (RODATA) ─────────────────────────────────────────────────────
+mai_version         | R | 15 | main.s:105     | "cse v0.1 by cr\0"
+mai_manual          | R | 26 | main.s:106     | "manual: github.com/cr/cse\0"
+mai_zp_tag          | R |  6 | main.s:107     | "  zp \0"
+mai_lo02_tag        | R |  6 | main.s:108     | "lo02 \0"
+mai_lo03_tag        | R |  6 | main.s:109     | "lo03 \0"
+mai_work_tag        | R |  6 | main.s:110     | "work \0"
+mai_dash            | R |  2 | main.s:111     | "-\0"
+mai_free            | R |  7 | main.s:112     | "b free\0"
+mai_sys_addr        | R |  5 | main.s:125     | "2061\0"
+
+# ── asm_src.s (RODATA) ──────────────────────────────────────────────────
+src_err_sep         | R |  3 | asm_src.s:65   | ": \0"
+src_bad_val         | R |  8 | asm_src.s:66   | "bad val\0"
+src_exp_name        | R |  9 | asm_src.s:67   | "exp name\0"
+src_sym_full        | R |  9 | asm_src.s:68   | "sym full\0"
+src_exp_quot        | R | 10 | asm_src.s:69   | "exp quote\0"
+src_bad_insn        | R |  9 | asm_src.s:70   | "bad insn\0"
+src_seg_pfx         | R |  6 | asm_src.s:71   | "org  \0"
+src_save_s          | R |  4 | asm_src.s:72   | "s \x22\0"                [has $22 quote byte]
+src_save_q_sp       | R |  4 | asm_src.s:73   | "\x22 $\0"               [has $22 quote byte]
+src_save_default    | R |  6 | asm_src.s:74   | "out,p\0"
+src_trunc           | R | 17 | asm_src.s:75   | ": line truncated\0"
+
+# ══════════════════════════════════════════════════════════════════════════
+# SUMMARY
+# ══════════════════════════════════════════════════════════════════════════
+#
+# RODATA strings:   100    635 bytes
+# CODE strings:       5     32 bytes
+# ─────────────────────────────────
+# Total:            105    667 bytes
+#
+# ── EXACT DUPLICATES (same content, separate storage) ────────────────────
+#
+# "workend\0"  (8B) x3: mem_workend, edt_workend + inside mem_workstart
+# "bad val\0"  (8B) x2: rpl_bad_val, src_bad_val
+# ": \0"       (3B) x2: rpl_colon_sp, src_err_sep
+# "b free\0"   (7B) x3: rpl_bytes_free, rpl_free_suf, mai_free
+# "scr\0"      (4B) x2: rpl_screen, rpl_tag_scr
+# "cse\0"      (4B) x2: rpl_cse_rt, rpl_tag_cse
+# "io\0"       (3B) x2: rpl_vic, rpl_tag_io
+#
+# ── SUBSTRING OVERLAPS (selected) ───────────────────────────────────────
+#
+# " at $" is suffix of "nmi at $" and "ok at $"
+# "..." is suffix of "asm..."
+# "b " is prefix of "b free"
+# "l" is prefix of "l "
+# "ok" is prefix of "ok at $"
+# "brk" ~ "break" share prefix
+# "exp " is prefix of "exp val", "exp )", "exp name", "exp quote"
+# " blocks" is prefix of " blocks free."
+# "free" is suffix of "b free"
+# "cpu" is prefix of "cpu: 6502"
+# "lo02" is prefix of "lo02 "
+# "lo03" is prefix of "lo03 "
+# "work" is prefix of "workstart", "workend", "work "
+# ": " is prefix of ": line truncated"

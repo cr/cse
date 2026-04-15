@@ -58,6 +58,7 @@ register state (`reg_a`, `reg_x`, `reg_y`, `reg_sp`, `reg_p`).
 | disk.s | CBM file I/O via KERNAL (PRG and SEQ, callback-based) | [disk.md](modules/disk.md) |
 | screen.s | Scroll, newline, cursor, color theme | [screen.md](modules/screen.md) |
 | cse_io.s | Raw screen I/O, keyboard, PETSCII→screencode | [cse_io.md](modules/cse_io.md) |
+| strings.s | Centralised user-facing string constants (RODATA) | [strings.md](modules/strings.md) |
 
 Support modules (internal to the assembler pipeline):
 
@@ -80,19 +81,19 @@ Generated files (do not edit — regenerate with `make tables`):
 ## Dependency Graph
 
 ```
-main.s
-├── mem.s (init, banking, segment queries)
-├── repl.s
+main.s ── strings.s
+├── mem.s (init, banking, segment queries) ── strings.s
+├── repl.s ── strings.s
 │   ├── asm_line.s ── opcode_lookup.s
 │   │       ├── au_mode.s
 │   │       └── mn_classify.s ── mn7.s ── mn7_tables.s
-│   ├── asm_src.s ── asm_line.s, expr.s, symtab.s, editor.s, mem.s
+│   ├── asm_src.s ── asm_line.s, expr.s, symtab.s, editor.s, mem.s, strings.s
 │   ├── dasm.s ── dasm_tables.s
 │   ├── debugger.s
-│   ├── expr.s ── symtab.s
-│   ├── disk.s ── screen.s ── cse_io.s
+│   ├── expr.s ── symtab.s, strings.s
+│   ├── disk.s ── screen.s ── cse_io.s, strings.s
 │   └── screen.s
-├── editor.s ── mem.s
+├── editor.s ── mem.s, strings.s
 │   ├── disk.s
 │   └── screen.s
 └── symtab.s ── mem.s
@@ -101,7 +102,7 @@ main.s
 ## Dependency Rules
 
 1. **No circular dependencies.**  The graph is a DAG.
-2. **Leaf modules have no dependencies:** cse_io, mem, dasm, debugger.
+2. **Leaf modules have no dependencies:** cse_io, strings, dasm, debugger.
 3. **Screen output flows one way:** module → screen → cse_io.
 4. **disk.s uses callbacks** for SEQ I/O to avoid depending on editor.
 5. **Expression parser depends only on symtab** — no I/O.

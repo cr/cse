@@ -36,6 +36,7 @@ _RETURN     = 0x0300          # in SCRN gap, unused — RTS sentinel
 
 _SOURCES = [
     SRC / "zp.s",
+    SRC / "strings.s",
     SRC / "repl.s",
     SRC / "cse_io.s",
     SRC / "expr.s",

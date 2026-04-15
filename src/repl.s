@@ -77,6 +77,32 @@
         .import state
         .importzp asm_cpu
 
+; ── Imports: strings.s ────────────────────────────────────
+        .import str_flag_ch, str_bp_pfx, str_3sp, str_2sp, str_brk
+        .import str_at, str_nmi, str_ok_at, str_bp_clr, str_deleted
+        .import str_syntax, str_bad_val, str_full, str_cmd
+        .import str_no_name, str_range, str_fail, str_too_big
+        .import str_expr, str_no_ctx
+        .import str_r_pc, str_a, str_x, str_y, str_s
+        .import str_lines, str_bytes, str_bytes_sp, str_long
+        .import str_del_src, str_unsaved, str_ok, str_blk_eq
+        .import str_color, str_cpu
+        .import str_asm_ing, str_load_pfx, str_save_pfx, str_dots
+        .import str_errors, str_quit, str_dashes, str_colon_sp, str_pct
+        .import str_ioport, str_stack, str_kernal, str_screen
+        .import str_cse_rt, str_bytes_free, str_io
+        .import str_free, str_l, str_main
+        .import str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
+        .import str_tag_scr, str_tag_cse, str_tag_work, str_free_suf
+        .import str_tag_src, str_tag_lo02, str_tag_io
+        .import str_tag_rom, str_banked
+.ifdef CPU_6510
+        .import str_6510
+.endif
+.ifdef CMOS_SUPPORT
+        .import str_65c02
+.endif
+
 ; ── Imports: runtime ZP ────────────────────────────────────
         .importzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
         .importzp asm_pc, asm_out
@@ -136,122 +162,23 @@ dbg_zp_view:    .res 8          ; emit_mem staging buffer for the
 dec_pow_lo:     .byte <10000, <1000, <100, <10, <1
 dec_pow_hi:     .byte >10000, >1000, >100, >10, >1
 
-flag_ch:        .byte "nv-bdizc"
-bp_pfx:         .byte "bp ", 0
-str_3sp:        .byte "   ", 0
-str_2sp:        .byte "  ", 0
-str_brk:        .byte "brk", 0
-str_at:         .byte " at $", 0
-str_nmi:        .byte "nmi at $", 0
-str_ok_at:      .byte "ok at $", 0
-str_bp_clr:     .byte "bp clr", 0
-str_deleted:    .byte " del", 0
-; Error content strings (prefix-free — out_log prepends ";?")
-str_syntax:     .byte "syntax", 0        ; shared: asm + b + au_mode
-str_bad_val:    .byte "bad val", 0
-str_full:       .byte "full", 0
-str_cmd:        .byte "cmd", 0
-str_no_name:    .byte "no name", 0
-str_range:      .byte "range", 0
-str_fail:       .byte "fail", 0          ; shared: load + save
-str_too_big:    .byte "too big", 0
-str_expr:       .byte "expr ", 0         ; prefix for expr_error_str text
-str_no_break:   .byte "no ctx", 0
-str_r_pc:       .byte "r pc:", 0
-str_a:          .byte " a:", 0
-str_x:          .byte " x:", 0
-str_y:          .byte " y:", 0
-str_s:          .byte " s:", 0
-str_lines:      .byte "l ", 0
-str_bytes:      .byte "b", 0
-str_bytes_sp:   .byte "b ", 0
-str_long:       .byte "long L", 0
-; ── User-facing string style convention ──
-;
-; All user-visible strings emitted by CSE follow these rules:
-;
-;   "; ..."        normal status / info  (note the space after ';')
-;   ";!..."        warning (dirty buffer, etc.)
-;   ";?tag"        terse error tag, BASIC-style  (no space after ';?')
-;   ";?word ..."   long error explanation
-;   "; ...? y/n "  yes/no confirmation prompt (trailing space for cursor)
-;
-; Always lowercase.  Always a single space after ';' for status
-; lines (the BASIC-error style ';?' is the one exception, and is
-; reserved exclusively for short error tags so the user can scan
-; for "did anything go wrong?" by looking for "?" at col 1).
-;
-; If you add a new string, pick the prefix that matches its
-; semantic role.  Don't invent a new style.
-
-str_del_src:    .byte "delete source? y/n ", 0
-str_unsaved:    .byte "unsaved. continue? y/n ", 0
-str_ok:         .byte "ok", 0
-str_B_eq:       .byte "B=", 0               ; note: PETSCII uppercase B
-str_color:      .byte "color: ", 0
-str_cpu:        .byte "cpu: 6502", 0
-.ifdef CPU_6510
-str_6510:       .byte " 6510", 0
-.endif
-.ifdef CMOS_SUPPORT
-str_65c02:      .byte " 65c02", 0
-.endif
-str_asm_ing:    .byte "asm...", 0          ; no trailing space: "asm...ok:"
-str_load_pfx:   .byte "load ", 0
-str_save_pfx:   .byte "save ", 0
-str_dots:       .byte "...", 0
-str_errors:     .byte " err", 0
-str_quit:       .byte "quit? y/n ", 0
-str_dashes:     .byte "$----", 0
-str_colon_sp:   .byte ": ", 0
-str_pct:        .byte "  %", 0
-; info strings
-str_ioport:     .byte "port", 0
-str_stack:      .byte "stack", 0
-str_kernal:     .byte "kernal", 0
-str_screen:     .byte "scr", 0
-str_cse_rt:     .byte "cse", 0
-str_bytes_free: .byte "b free", 0
-str_vic:        .byte "io", 0
-str_i_free:     .byte "free", 0
-str_i_lines:    .byte "l", 0
-str_main:       .byte "main", 0
-
 ; cpu parse helpers: pair chars after "65" -> cpu id
 cpu_pair_tbl:    .byte '0','2',0,  '1','0',1,  'c','0',2
 cpu_mask_bits:   .byte 1,2,4
 
-; info_line tag strings
-str_tag_cpu:    .byte "cpu", 0
-str_tag_zp:     .byte "zp", 0
-str_tag_stk:    .byte "stk", 0
-str_tag_sys:    .byte "sys", 0
-str_tag_scr:    .byte "scr", 0
-str_tag_cse:    .byte "cse", 0
-str_tag_work:   .byte "work", 0
-str_free_suf:   .byte "b free", 0
-str_tag_src:    .byte "src", 0
-str_tag_lo02:   .byte "lo02", 0
-str_tag_lo03:   .byte "lo03", 0
-str_tag_io:     .byte "io", 0
-str_tag_sym:    .byte "sym", 0
-str_tag_rom:    .byte "rom", 0
-str_symbols:    .byte "symbols", 0
-str_banked:     .byte "banked", 0
-
 ; ── info tables: 8 bytes per row: tag(2) lo(2) hi(2) desc(2) ──
-; Head row 1: cpu only
+; These stay in repl.s because INFO_TBL_*_ROWS are compile-time
+; constants computed from segment arithmetic (can't be imported).
+
 info_tbl_h1:
         .addr str_tag_cpu,  $0000, $0001, str_ioport         ; cpu  0000-0001
 INFO_TBL_H1_ROWS = (* - info_tbl_h1) / 8
 
-; Head rows 3-4: between zp-free and sys-free
 info_tbl_h2:
         .addr str_tag_sys,  $0080, $00FF, str_kernal       ; sys  0080-00ff  kernal zp
         .addr str_tag_stk,  $0100, $01FF, str_stack           ; stk  0100-01ff  6502 stack
 INFO_TBL_H2_ROWS = (* - info_tbl_h2) / 8
 
-; Low-page sys/free split: $0200-$03FF
 info_tbl_lo:
         .addr str_tag_sys,  $0200, $02A6, str_kernal         ; sys  0200-02a6  kernal
 INFO_TBL_LO_ROWS = (* - info_tbl_lo) / 8
@@ -260,19 +187,15 @@ info_tbl_lo2:
         .addr str_tag_sys,  $0300, $0333, str_kernal         ; sys  0300-0333  kernal
 INFO_TBL_LO2_ROWS = (* - info_tbl_lo2) / 8
 
-; Screen row
 info_tbl_h3:
         .addr str_tag_scr,  $0400, $07FF, str_screen          ; scr  0400-07ff  screen+sprites
 INFO_TBL_H3_ROWS = (* - info_tbl_h3) / 8
 
-; Tail: after dynamic cse/free/src
 info_tbl_tail:
-        .addr str_tag_io,   $D000, $DFFF, str_vic            ; io   d000-dfff  io
-        .addr str_tag_sym,  $E000, $EEFF, str_symbols        ; sym  e000-eeff  symbols
-        .addr str_tag_cse,  $EF00, $F8D9, str_banked         ; cse  ef00-f8d9  banked
+        .addr str_tag_io,   $D000, $DFFF, str_io            ; io   d000-dfff  io
+        .addr str_tag_cse,  $E000, $F8D9, str_banked         ; cse  e000-f8d9  banked
         .addr str_tag_rom,  $F8DA, $FFFF, str_kernal         ; rom  f8da-ffff  kernal
 INFO_TBL_TAIL_ROWS = (* - info_tbl_tail) / 8
-
 
 ; ── CODE ───────────────────────────────────────────────────
 .segment "CODE"
@@ -844,7 +767,7 @@ parse_hex4_ptr1:
 .proc show_block_size
         ldy #LOG_INFO
         jsr out_log_open
-        puts str_B_eq
+        puts str_blk_eq
         lda block_size
         ldx block_size+1
         jsr io_puthex4
@@ -860,7 +783,7 @@ parse_hex4_ptr1:
         pha
         ldy #LOG_INFO
         jsr out_log_open
-        puts bp_pfx
+        puts str_bp_pfx
         pla
         jmp io_putc
 .endproc
@@ -1154,7 +1077,7 @@ parse_hex4_ptr1:
         bcs @set
         lda #'.'
         bne @fp
-@set:   lda flag_ch,x
+@set:   lda str_flag_ch,x
 @fp:    stx rp_tmp
         jsr io_putc
         ldx rp_tmp
@@ -2357,7 +2280,7 @@ VIC_MEMCTL = $D018
         sta reg_sp
         jsr skip_sp_ptr1
 
-        ; Parse flags: 8 chars, set bit if matches flag_ch[i]
+        ; Parse flags: 8 chars, set bit if matches str_flag_ch[i]
         lda #0
         sta rp_tmp2                ; p accumulator
         ldx #0
@@ -2366,7 +2289,7 @@ VIC_MEMCTL = $D018
         asl rp_tmp2                ; shift left to make room
         ldy #0
         lda (rp_ptr),y
-        cmp flag_ch,x
+        cmp str_flag_ch,x
         bne @pnot
         lda rp_tmp2
         ora #1
@@ -3291,9 +3214,9 @@ free_line:
         sta rp_cnt
         lda #$00
         sta rp_cnt+1
-        lda #<str_i_free
+        lda #<str_free
         sta rp_ptr
-        lda #>str_i_free
+        lda #>str_free
         sta rp_ptr+1
         jsr info_line
 
@@ -3324,9 +3247,9 @@ free_line:
         sta rp_cnt
         lda #>$02FF
         sta rp_cnt+1
-        lda #<str_i_free
+        lda #<str_free
         sta rp_ptr
-        lda #>str_i_free
+        lda #>str_free
         sta rp_ptr+1
         jsr info_line
 
@@ -3339,9 +3262,9 @@ free_line:
         ; ── lo03 0334-03ff  free (highlighted) ──
         lda #1
         sta rp_save2
-        lda #<str_tag_lo03
+        lda #<str_tag_lo02
         sta rp_ptr2
-        lda #>str_tag_lo03
+        lda #>str_tag_lo02
         sta rp_ptr2+1
         lda #<$0334
         sta rp_addr
@@ -3351,9 +3274,9 @@ free_line:
         sta rp_cnt
         lda #>$03FF
         sta rp_cnt+1
-        lda #<str_i_free
+        lda #<str_free
         sta rp_ptr
-        lda #>str_i_free
+        lda #>str_free
         sta rp_ptr+1
         jsr info_line
 
@@ -4056,8 +3979,8 @@ free_line:
 @h_c:   ; c — continue debugger
         lda dbg_reason
         bne @c_has_ctx
-        lda #<str_no_break
-        ldx #>str_no_break
+        lda #<str_no_ctx
+        ldx #>str_no_ctx
         jmp out_err_nl
 @c_has_ctx:
         ; delete hit breakpoint before continuing

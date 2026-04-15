@@ -28,6 +28,7 @@
         .import sym_define
         .importzp disk_ptr
         .importzp sym_name, sym_val, sym_wide
+        .import s_workend
 
 ; ── Constants ────────────────────────────────────────────────
 SCREEN       = $0400
@@ -106,7 +107,6 @@ src_bot:       .res 2          ; buffer lower bound (for REPL i command)
 ; Hex digit table for status bar (screen codes, OR'd with $80 for reverse)
 st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
         .byte $38,$39,$01,$02,$03,$04,$05,$06
-s_workend:      .byte "workend", 0
 
 ; ── CODE ─────────────────────────────────────────────────────
 .segment "CODE"

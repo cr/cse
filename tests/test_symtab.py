@@ -34,7 +34,7 @@ _RETURN     = 0x0F00
 
 # ── Build ────────────────────────────────────────────────────
 
-_SOURCES = [SRC / "zp.s", SRC / "symtab.s", SRC / "mem.s",
+_SOURCES = [SRC / "zp.s", SRC / "strings.s", SRC / "symtab.s", SRC / "mem.s",
             DEV / "symtab_test_stub.s"]
 
 def _needs_rebuild():

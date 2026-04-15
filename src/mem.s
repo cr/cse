@@ -25,6 +25,7 @@
         .importzp sym_name, sym_val, sym_wide
         .import sym_define
         .import __ZP_LAST__
+        .import s_workstart, s_workend
 
 ; ── Constants ────────────────────────────────────────────────
 CPU_PORT     = $01
@@ -83,8 +84,6 @@ IRQ_TRAMP_SIZE = * - _irq_tramp_code
 
 _zp_end_val:    .byte <(__ZP_LAST__ + 1)
 
-s_workstart:    .byte "workstart", 0
-s_workend:      .byte "workend", 0
 
 ; ── CODE ─────────────────────────────────────────────────────
 .segment "CODE"

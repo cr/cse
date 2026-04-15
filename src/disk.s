@@ -21,6 +21,7 @@
         .import cur_device
         .import scr_lo, scr_hi
         .importzp disk_ptr
+        .import str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf
 
 ; ── KERNAL entry points ──────────────────────────────────
 SETLFS  = $FFBA
@@ -247,8 +248,8 @@ floppy_status:
 
         ; SETNAM "$"
         lda #1
-        ldx #<@dname
-        ldy #>@dname
+        ldx #<str_dname
+        ldy #>str_dname
         jsr SETNAM
 
         ; SETLFS 0,device,0  (SA=0 → load to given address)
@@ -387,7 +388,7 @@ floppy_status:
         lda @blocks
         ldx @blocks+1
         jsr io_putdec
-        puts @free_msg
+        puts str_blk_free
         jsr io_clear_eol
         jsr newline
         jmp @done
@@ -465,11 +466,11 @@ floppy_status:
         jsr io_putc
 
         ; "; N blocks"
-        puts @blk_pre
+        puts str_blk_pre
         lda @blocks
         ldx @blocks+1
         jsr io_putdec
-        puts @blk_suf
+        puts str_blk_suf
 
         jsr io_clear_eol
         jsr newline
@@ -489,7 +490,7 @@ floppy_status:
         jmp @done
 @user_stop:
 
-        puts @brk_msg
+        puts str_dir_brk
         jsr newline
 
 @done:
@@ -560,11 +561,6 @@ floppy_status:
 @fn_trimmed_end: .byte 0
 @fn_tmp:         .byte 0
 
-@dname:    .byte "$"
-@brk_msg:  .byte "break", 0
-@free_msg: .byte " blocks free.", 0
-@blk_pre:  .byte "; ", 0
-@blk_suf:  .byte " blocks", 0
 .endproc
 
 ; ═════════════════════════════════════════════════════════

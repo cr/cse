@@ -47,6 +47,10 @@
         .import nmi_pending
         .import ed_handle_key, enter_editor, leave_editor
 
+; ── Imports: strings.s ──────────────────────────────────────
+        .import VERSION_STR, s_manual
+        .import s_zp_tag, s_lo02_tag, s_work_tag
+        .import s_free
 
 ; ── Constants ────────────────────────────────────────────────
 SCREEN_WIDTH = 40
@@ -98,18 +102,6 @@ VEC_TBL_SIZE = 32
 
 state:       .res 1              ; ST_STOP=0, ST_REPL=1, ST_EDIT=2
 warm_guard:  .res 1              ; nonzero = warm start in progress
-
-; ── RODATA ───────────────────────────────────────────────────
-.segment "RODATA"
-
-VERSION_STR:  .byte "cse v0.1 by cr", 0
-s_manual:     .byte "manual: github.com/cr/cse", 0
-s_zp_tag:     .byte "  zp ", 0
-s_lo02_tag:   .byte "lo02 ", 0
-s_lo03_tag:   .byte "lo03 ", 0
-s_work_tag:   .byte "work ", 0
-s_dash:       .byte "-", 0
-s_free:       .byte "b free", 0
 
 ; ── PRG load address ─────────────────────────────────────────
 .segment "LOADADDR"
@@ -229,7 +221,8 @@ s_free:       .byte "b free", 0
         lda #<$0002
         ldx #>$0002
         jsr io_puthex4
-        puts s_dash
+        lda #'-'
+        jsr io_putc
         lda #<$007F
         ldx #>$007F
         jsr io_puthex4
@@ -250,7 +243,8 @@ s_free:       .byte "b free", 0
         lda #<$02A7
         ldx #>$02A7
         jsr io_puthex4
-        puts s_dash
+        lda #'-'
+        jsr io_putc
         lda #<$02FF
         ldx #>$02FF
         jsr io_puthex4
@@ -265,14 +259,20 @@ s_free:       .byte "b free", 0
         jsr io_putdec
         puts s_free
 
-        ; lo03 free line (row 19): "lo03 0334-03ff      204b free"
+        ; lo03 free line (row 19): "     0334-03ff      204b free"
         lda #SCREEN_HEIGHT - 6
         jsr splash_row
-        puts s_lo03_tag
+        lda #' '
+        jsr io_putc
+        jsr io_putc
+        jsr io_putc
+        jsr io_putc
+        jsr io_putc
         lda #<$0334
         ldx #>$0334
         jsr io_puthex4
-        puts s_dash
+        lda #'-'
+        jsr io_putc
         lda #<$03FF
         ldx #>$03FF
         jsr io_puthex4
@@ -293,7 +293,8 @@ s_free:       .byte "b free", 0
         lda #<WORKSTART
         ldx #>WORKSTART
         jsr io_puthex4
-        puts s_dash
+        lda #'-'
+        jsr io_putc
         jsr cse_start          ; A/X = runtime start
         sec
         sbc #1

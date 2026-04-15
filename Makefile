@@ -186,7 +186,7 @@ ifneq ($(_PREV_FLAGS),$(BUILD_FLAGS))
 endif
 
 # ── All assembler source files (pure asm, no C) ─────────────────────
-ASM_SRCS = zp loader main \
+ASM_SRCS = zp loader main strings \
            asm_line asm_src mn_vars mn_classify \
            $(MN_SRCS) mn_config \
            au_mode mn_modes mn_asm_tables opcode_lookup \

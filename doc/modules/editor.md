@@ -42,7 +42,7 @@ counts from last file operation.  `ed_total_lines` (uint16, BSS,
 exported) — current line count, used by the REPL's `i` command.
 
 **Depends on:** disk (SEQ callbacks), screen, cse_io,
-mem (cse_start), sym (sym_define)
+mem (cse_start), sym (sym_define), strings (s_workend)
 
 ### Zero-page variables
 

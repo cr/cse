@@ -55,7 +55,8 @@ Suppressed when no segments were emitted (`_min_pc` == $FFFF).
 
 **Depends on:** asm_line, expr, symtab, editor
 (ed_read_line, ed_read_rewind, buf_base), repl (out_log_open,
-out_close, puts_imm for error/summary output), mem (define_ws_syms)
+out_close, puts_imm for error/summary output), mem (define_ws_syms),
+strings
 
 ## Design
 

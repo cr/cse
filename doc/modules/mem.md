@@ -57,7 +57,8 @@ in the symbol table via `sym_define`
 |----------|------|---------|---------|
 | `kernal_out` | 1 | BSS | Nonzero = KERNAL held banked out (batch mode) |
 
-**Depends on:** zp (buf_base), symtab (sym_define, sym_name, sym_val, sym_wide)
+**Depends on:** zp (buf_base), symtab (sym_define, sym_name, sym_val, sym_wide),
+strings (s_workstart, s_workend)
 
 ## Design
 

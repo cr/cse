@@ -41,6 +41,11 @@
         .import kernal_bank_out, kernal_bank_in
         .importzp sym_name, sym_val, sym_wide
 
+; ── Imports: strings.s ──────────────────────────────────────
+        .import err_str_lo, err_str_hi
+        .import err_none, err_expected, err_overflow
+        .import err_paren, err_undefined, err_divzero
+
 ; ── Return / error codes ───────────────────────────────────
 RC_ZP        = 0
 RC_ABS       = 1
@@ -960,21 +965,3 @@ _ex_op_setup:
         rts
 .endproc
 
-        .segment "RODATA"
-err_str_lo:
-        .byte <err_none, <err_none             ; 0=ZP, 1=ABS (not errors)
-        .byte <err_expected, <err_overflow
-        .byte <err_paren, <err_undefined
-        .byte <err_divzero
-err_str_hi:
-        .byte >err_none, >err_none
-        .byte >err_expected, >err_overflow
-        .byte >err_paren, >err_undefined
-        .byte >err_divzero
-
-err_none:      .byte 0
-err_expected:  .byte "exp val", 0
-err_overflow:  .byte "ovfl", 0
-err_paren:     .byte "exp )", 0
-err_undefined: .byte "undef", 0
-err_divzero:   .byte "div0", 0

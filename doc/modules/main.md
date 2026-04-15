@@ -31,7 +31,7 @@ debugger.s, asm_line.s.
 - `_cold_zp` (127 B) — snapshot of $01-$7F at cold-init entry
 
 **Depends on:** repl, editor, screen, cse_io, debugger, symtab,
-disk, mem
+disk, mem, strings
 
 ## Design
 

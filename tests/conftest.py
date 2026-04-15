@@ -102,6 +102,7 @@ _AC_LBL = BUILD / "asm_core_test.lbl"
 
 _AC_SOURCES = [
     SRC / "zp.s",
+    SRC / "strings.s",
     SRC / "opcode_lookup.s",
     SRC / "asm_line.s",
     SRC / "au_mode.s",
@@ -299,6 +300,7 @@ _AS_CFG = DEV / "asm_src_test.cfg"
 
 _AS_SOURCES = [
     SRC / "zp.s",
+    SRC / "strings.s",
     SRC / "opcode_lookup.s",
     SRC / "asm_line.s",
     SRC / "au_mode.s",

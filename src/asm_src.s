@@ -37,6 +37,11 @@
 
         .importzp _as_ptr, _as_wsize
 
+; ── Imports: strings.s ──────────────────────────────────────
+        .import s_err_sep, s_bad_val, s_exp_name, s_sym_full
+        .import s_exp_quot, s_bad_insn, s_seg_pfx
+        .import s_save_s, s_save_q_sp, s_save_default, s_trunc
+
 ; ── BSS (all reset by asm_assemble before each run) ─────────────────────
 .segment "BSS"
 asm_org:       .res 2          ; assembly origin address
@@ -62,17 +67,6 @@ _org_set:       .res 1          ; non-zero after first .org on pass 0
 
 ; ── RODATA ────────────────────────────────────────────────────────────────
 .segment "RODATA"
-s_err_sep:      .byte ": ", 0
-s_bad_val:      .byte "bad val", 0
-s_exp_name:     .byte "exp name", 0
-s_sym_full:     .byte "sym full", 0
-s_exp_quot:     .byte "exp quote", 0
-s_bad_insn:     .byte "bad insn", 0
-s_seg_pfx:      .byte "org  ", 0
-s_save_s:       .byte "s ", $22, 0
-s_save_q_sp:    .byte $22, " $", 0
-s_save_default: .byte "out,p", 0
-s_trunc:        .byte ": line truncated", 0
 
 ; Decimal power tables for 16-bit → ASCII conversion (_emit_decimal)
 _dec_pow_lo:    .byte <1, <10, <100, <1000, <10000

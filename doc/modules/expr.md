@@ -56,7 +56,8 @@ undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 **BSS (5 bytes):** `last_err` (1), `_mul_tmp` (2), `_div_rem` (2).
 
 **Depends on:** symtab (`sym_lookup` for label resolution),
-symtab (`kernal_bank_out` / `kernal_bank_in` for the wrapper)
+mem (`kernal_bank_out` / `kernal_bank_in` for the wrapper),
+strings (err_str_lo/hi, error string labels)
 
 ## Design
 
