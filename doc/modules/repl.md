@@ -261,7 +261,7 @@ The REPL's line editor operates within the 40-column screen:
 
     AAAA:. HH HH HH  MNEMONIC OPERAND     asm / disasm
     AAAA:m HH HH HH HH HH HH HH HH cccc hex dump / edit
-    r pc:XXXX a:XX x:XX y:XX s:XX nv-bdizc CPU registers
+    r pc:XXXX a:XX x:XX y:XX s:XX Nv-bDizc CPU registers (UC=set)
 
 ### Commands — Memory
 
@@ -494,8 +494,8 @@ paths:
 - `emit_dot(addr)` — writes `AAAA:. HH HH HH  MNE OPR`, returns
   instruction length.  Two spaces between hex bytes and mnemonic.
 - `emit_mem(addr, cols)` — writes `AAAA:m HH HH HH HH HH HH HH HH cccc`
-- `emit_reg()` — writes `r pc:xxxx a:xx x:xx y:xx s:xx nv-bdizc`
-  (lowercase, active flags shown as letter, inactive as `.`)
+- `emit_reg()` — writes `r pc:xxxx a:xx x:xx y:xx s:xx Nv-bDizc`
+  (set flags uppercase, clear flags lowercase; AND #$DF on PETSCII)
 
 Each emitter starts at column 0 and calls `clear_eol` at the end.
 

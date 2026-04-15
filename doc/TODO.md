@@ -154,7 +154,7 @@ Defined scope, needs work.
 - [ ] `f` command: fill memory range with byte.
 - [ ] `>` command: transfer/copy memory block.
 - [ ] `=` command: define/query symbols from REPL.
-- [ ] `r` command: uppercase set flags (`NV-BDIZC` vs `nv-bdizc`).
+- [x] `r` command: uppercase set flags (`Nv-bDizc` vs `nv-bdizc`). (Phase 16)
 - [ ] `m` address argument: accept expression (`m screen+40`).
   Currently plain 4-digit hex only.
 - [ ] New `S` command for scratching files. Requires confirmation.

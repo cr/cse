@@ -1070,11 +1070,10 @@ parse_hex4_ptr1:
         lda reg_p
         sta rp_tmp2
         ldx #0
-@fl:    asl rp_tmp2
-        bcs @set
-        lda #'.'
-        bne @fp
-@set:   lda str_flag_ch,x
+@fl:    lda str_flag_ch,x       ; lowercase PETSCII
+        asl rp_tmp2
+        bcc @fp
+        and #$DF                ; bit=1 → uppercase
 @fp:    stx rp_tmp
         jsr io_putc
         ldx rp_tmp
