@@ -210,36 +210,94 @@ strings (dec_pow_lo/hi for io_putdec)
 
 ## Design
 
-### PETSCII → Screen Code Conversion
+### Character Encoding Reference
 
-Used by `io_putc`.  Input: PETSCII byte.  Output: screen code byte.
+CSE uses the C64 **lower/upper charset** (VIC $D018 bit 1 = 1).
+Three encodings interact: PETSCII (software), screen codes (VIC
+chip), and keyboard input (KERNAL GETIN).  Getting these wrong
+causes silent case-flipping bugs.  This section is the single
+source of truth.
+
+#### PETSCII (how software stores text)
+
+KERNAL GETIN returns PETSCII.  All CSE strings, buffers, and the
+assembler/expression parser work in PETSCII.
+
+| PETSCII | Meaning | Keyboard |
+|---------|---------|----------|
+| $20–$3F | space, digits, punctuation | unshifted |
+| $41–$5A | **lowercase** a–z | unshifted letter keys |
+| $C1–$DA | **uppercase** A–Z (shifted range) | shifted letter keys |
+
+**The $41–$5A = lowercase convention is the opposite of ASCII.**
+PETSCII $41 is lowercase `a`, not uppercase `A`.  This is the
+single most common source of confusion.
+
+#### Screen codes (what VIC reads from $0400)
+
+In the lower/upper charset:
+
+| Screen code | Displays as |
+|-------------|-------------|
+| $01–$1A | a–z (lowercase) |
+| $20–$3F | space, digits, punctuation |
+| $41–$5A | A–Z (uppercase) |
+| $00 | `@` |
+| $1B–$1F | `[`, `£`, `]`, `↑`, `←` |
+| $60–$7F | graphics/special characters |
+| $80–$FF | reverse-video versions of $00–$7F |
+
+#### PETSCII → Screen Code (io_putc)
 
 | PETSCII range | Screen code | Rule | Example |
 |---------------|-------------|------|---------|
-| $00–$1F | $00–$1F | identity | (control chars, rarely used) |
-| $20–$3F | $20–$3F | identity | space, 0–9, :, ., +, -, etc. |
-| $40–$5F | $00–$1F | A − $40 | $41→$01 (A), $4D→$0D (M), $5A→$1A (Z) |
-| $60–$7F | $40–$5F | A − $20 | $61→$41 (a), $7A→$5A (z) |
-| $80–$BF | $80–$BF | identity | (reversed chars, pass through) |
-| $C0–$DF | $40–$5F | A − $80 | $C1→$41 (shifted A), $DA→$5A |
-| $E0–$FF | $E0–$FF | identity | (rarely used) |
+| $00–$1F | $80–$9F | ORA #$80 | $01→$81 (reverse `a`) |
+| $20–$3F | $20–$3F | identity | $30→$30 (`0`) |
+| $41–$5A | $01–$1A | A − $40 | $41→$01 (lowercase `a`) |
+| $61–$7A | $41–$5A | A − $20 | $61→$41 (uppercase `A`) |
+| $80–$9F | $80–$9F | identity | (reverse video) |
+| $A0–$BF | $60–$7F | A − $40 | $A0→$60 (shifted space) |
+| $C1–$DA | $41–$5A | A − $80 | $C1→$41 (uppercase `A`) |
 
-### Screen Code → PETSCII Conversion
+Note: PETSCII $61–$7A and $C1–$DA both map to screencodes
+$41–$5A.  The round-trip through screen RAM is **lossy** — the
+shifted distinction ($C1 vs $61) is lost.
 
-Used by `read_line`.  Input: screen code byte (bit 7 masked off).
-Output: PETSCII byte.
+#### Screen Code → PETSCII (read_line)
 
-| Screen code | PETSCII | Rule |
-|-------------|---------|------|
+`read_line` strips bit 7 (`AND #$7F`) to remove reverse video,
+then converts:
+
+| Screen code (after AND #$7F) | PETSCII | Rule |
+|------------------------------|---------|------|
 | $00–$1F | $40–$5F | A + $40 |
-| $20–$3F | $20–$3F | identity |
-| $40–$5F | $40–$5F | identity |
-| $60–$7F | $60–$7F | identity |
+| $20–$7F | $20–$7F | identity |
 
-Note: the `and #$7F` in read_line strips the reverse-video bit before
-conversion.  Screen codes $40–$5F map to PETSCII $40–$5F which are
-the uppercase-letter range in CSE's PETSCII convention ($41='a',
-$42='b', ...; see `project.md` § PETSCII conventions).
+**Critical consequence:** screencodes $01–$1A (lowercase a–z on
+screen) map to PETSCII $41–$5A.  Screencodes $41–$5A (uppercase
+A–Z on screen) map to PETSCII $41–$5A.  **Both cases produce the
+same PETSCII range.**  `read_line` is inherently case-insensitive —
+text round-tripped through screen RAM loses the uppercase/lowercase
+distinction.  This is by design: the REPL and assembler are
+case-insensitive.
+
+#### Where shifted PETSCII ($C1–$DA) appears
+
+Shifted PETSCII only comes from **KERNAL GETIN** (keyboard input).
+It never appears in text that went through `read_line`, because the
+screen round-trip collapses it to $41–$5A.
+
+Code that receives raw keyboard input (not screen-read text) must
+handle $C1–$DA explicitly.  Currently:
+
+- `editor.s` — key handler folds $C1–$DA → screencodes for display
+- `_hex_val` in `repl.s` — accepts $C1–$C6 for hex A–F
+- `fold_char` in `symtab.s` — folds $C1–$DA → $41–$5A
+- Label scanner in `expr.s` — folds $C1–$DA in-place
+- Assembler in `asm_src.s` — folds $C1–$DA for mnemonics
+
+Modules that only process screen-read text (via `read_line`) do
+NOT need $C1–$DA handling — they will never see it.
 
 ### IRQ Safety
 

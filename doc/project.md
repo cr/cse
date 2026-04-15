@@ -172,18 +172,41 @@ No syntax element (operator, delimiter, directive prefix) may use a
 character that the C64 keyboard cannot produce.  This is why OR is
 `£` (not `|`), XOR is `^` (the ↑ key), and labels have no underscore.
 
-### 3. CSE uses shifted PETSCII (lowercase mode)
+### 3. CSE uses the lower/upper charset (lowercase mode)
 
-The screen operates in VICII charset 2 (shifted / "business" mode).
-In this mode, PETSCII $41–$5A are lowercase a–z and $C1–$DA are
-uppercase A–Z.  The KERNAL returns $41–$5A for unshifted keypresses
-and $C1–$DA for shifted.  `read_line` preserves this distinction.
-Screen codes follow the same convention: $01–$1A = lowercase,
-$41–$5A = uppercase.
+The screen operates in VICII charset 2 (lower/upper mode, VIC $D018
+bit 1 = 1).  PETSCII encoding:
+
+- $41–$5A = **lowercase** a–z (unshifted keys, KERNAL GETIN)
+- $C1–$DA = **uppercase** A–Z (shifted keys, KERNAL GETIN)
+- $61–$7A = **also uppercase** A–Z (alternative range)
+
+**$41 is lowercase `a`, not uppercase `A`** — the opposite of ASCII.
+
+Screen codes: $01–$1A = lowercase a–z, $41–$5A = uppercase A–Z.
+
+Both PETSCII $61–$7A and $C1–$DA map to the same screencodes
+$41–$5A (uppercase).  The round-trip through screen RAM is lossy:
+`read_line` maps all letters back to $41–$5A, collapsing the
+case distinction.  The REPL and assembler are case-insensitive
+by design — this is intentional.
+
+For the two uppercase PETSCII ranges ($61–$7A vs $C1–$DA): prefer
+**$61–$7A**.  It is the primary range for uppercase in the lower/upper
+charset, maps cleanly via `io_putc` (A − $20 → screencode), and
+does not conflict with control codes.  The $C1–$DA shifted range
+exists only for keyboard input compatibility.
+
+ca65 character literals with `-t c64`: `'a'` = $41 (lowercase),
+`'A'` = $C1 (shifted uppercase).  For uppercase constants in code,
+use numeric values ($61) rather than ca65 shifted literals.
+See [feedback: ca65 char literals](../feedback_ca65_charlit.md).
 
 All internal text processing — command parsing, hex input, mnemonic
-matching, source text — uses these PETSCII values directly.  ca65
-character literals follow the same mapping: `'a'` = $41, `'A'` = $C1.
+matching, source text — uses PETSCII $41–$5A (lowercase).  Modules
+that receive raw keyboard input must fold $C1–$DA to $41–$5A.
+See [cse_io.md § Character Encoding Reference](cse_io.md#character-encoding-reference)
+for the full mapping tables.
 
 ### 4. CPU-specific code must be compile-time gated
 

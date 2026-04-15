@@ -101,34 +101,58 @@ io_sync:
 
 ; ── io_putc — write PETSCII char at cursor, advance ─────────
 ; A = PETSCII char
+;
+; CSE display mapping (lower/upper charset):
+;   $00-$1F -> $80-$9F
+;   $20-$3F -> $20-$3F
+;   $40-$5F -> $00-$1F
+;   $60-$7F -> $40-$5F
+;   $80-$9F -> $80-$9F
+;   $A0-$BF -> $60-$7F
+;   $C0-$FF -> $40-$7F
 io_putc:
-        ; PETSCII → screen code conversion
-        cmp #$40
-        bcc @write              ; $00-$3F: identity (space, digits, punct)
-        cmp #$60
-        bcc @sub40              ; $40-$5F: uppercase letters → $00-$1F
         cmp #$80
-        bcc @sub20              ; $60-$7F: lowercase letters → $40-$5F
+        bcs @ge80
+        cmp #$40
+        bcs @ge40
+        cmp #$20
+        bcc @or80              ; $00-$1F -> $80-$9F
+                               ; $20-$3F unchanged
+        bcs @write             ; always (cmp #$20 was >=)
+
+@or80:  ora #$80
+        bne @write             ; always
+
+@ge40:  cmp #$60
+        bcc @sub40c            ; $40-$5F -> $00-$1F, C=0
+        sbc #$20               ; $60-$7F -> $40-$5F, C=1
+        bcs @write             ; always
+
+@sub40c:
+        sbc #$3F               ; C=0 => A-$40
+        bcs @write             ; always
+
+@ge80:  cmp #$A0
+        bcc @write             ; $80-$9F unchanged
         cmp #$C0
-        bcc @write              ; $80-$BF: pass through
-        ; $C0-$FF: shifted → subtract $80
-        sbc #$80                ; C=1 from cmp: exact
-        bne @write              ; always taken
-@sub40: sbc #$3F                ; C=0 from cmp #$60: A - $3F - 1 = A - $40
-        bpl @write              ; always taken
-@sub20: sbc #$1F                ; C=0 from cmp #$80: A - $1F - 1 = A - $20
+        bcc @sub40s            ; $A0-$BF -> $60-$7F
+        sbc #$80               ; $C0-$FF -> $40-$7F, C=1
+        bcs @write             ; always
+
+@sub40s:
+        sbc #$3F               ; C=0 => A-$3F-1 = A-$40
+        ; fall through
+
 @write:
-        ; Write directly to SCREEN + row*40 + col using the row table.
-        ; Uses _io_scr (not _io_tmp which io_puts needs for the string ptr).
-        pha                     ; save screen code
-        jsr _io_scr_setup
-        pla
+        tay
+        jsr _io_scr_setup      ; must preserve Y
+        tya
         ldy CUR_COL
         sta (_io_scr),y
         iny
         ; fall through to _col_clamp
 
-; ── _col_clamp — clamp Y to COLS-1 and store to CUR_COL ─────────────
+; ── _col_clamp — clamp Y to COLS-1 and store to CUR_COL ─────
 _col_clamp:
         cpy #COLS
         bcc :+

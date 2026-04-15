@@ -744,7 +744,24 @@ parse_hex4_ptr1:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; read_line — read screen row at io_cy into line_buf
+; read_line — read current screen row into line_buf
+;
+; In:
+;   CUR_ROW   = screen row to read
+;
+; Out:
+;   line_buf  = NUL-terminated text, trailing spaces trimmed
+;
+; Notes:
+; - Reverse-video bit is stripped.
+; - CSE uses the lower/upper character set:
+;     $00-$1F = lowercase/symbol block
+;     $20-$3F = space, digits, punctuation
+;     $40-$5F = uppercase/symbol block
+;     $60-$7F = special-character / graphics block
+; - For line-buffer text we normalize only the first block:
+;     screen $00-$1F -> text $40-$5F
+;   Everything else is kept as-is after stripping bit 7.
 ; ═══════════════════════════════════════════════════════════
 .proc read_line
         ldx CUR_ROW
@@ -755,33 +772,24 @@ parse_hex4_ptr1:
 
         ldy #0
 @loop:  lda (rp_ptr),y
-        and #$7F
+        and #$7F                ; strip reverse-video bit
         cmp #$20
-        bcc @lower
-        cmp #$41
-        bcc @store
-        cmp #$5B
-        bcs @store
-        ; $41..$5A → +$80
-        clc
-        adc #$80
-        bne @store              ; always
-@lower: ; $00..$1F → +$40
-        clc
-        adc #$40
+        bcs @store              ; $20-$7F unchanged
+        ora #$40                ; $00-$1F -> $40-$5F
+
 @store: sta line_buf,y
         iny
         cpy #SCREEN_WIDTH
         bcc @loop
 
-        ; trim trailing spaces
+        ; trim trailing spaces, then NUL-terminate
         ldy #SCREEN_WIDTH
 @trim:  dey
-        bmi @zero
+        bmi @zero               ; line was all spaces
         lda line_buf,y
         cmp #' '
         beq @trim
-        iny
+        iny                     ; point past last non-space
 @zero:  lda #0
         sta line_buf,y
         rts
