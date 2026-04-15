@@ -12,6 +12,7 @@
         .export io_init
         .export io_putc, io_puts
         .export io_puthex4, io_puthex2, io_putdec
+        .export io_utoa, dec_buf
         .export io_clear_eol
         .export io_getc, io_kbhit
         .export io_sync
@@ -45,7 +46,7 @@ SID_VOL        = $D418
 ; ── BSS ─────────────────────────────────────────────────────
 .segment "BSS"
 io_color: .res 1       ; text color for screen clears
-dec_start_col: .res 1   ; io_putdec: saved start column (ROM-safe)
+dec_buf:  .res 6       ; io_utoa: 5-digit PETSCII decimal + NUL
 nmi_pending: .res 1    ; NMI flag — set by nmi_handler, read by main loop
 
 ; ── RODATA ──────────────────────────────────────────────────
@@ -183,49 +184,86 @@ io_puthex2:
         iny
         jmp _col_clamp
 
-; ── io_putdec — write 16-bit unsigned decimal ────────────────
-; A=lo, X=hi
-; Subtraction method — no division.  Suppresses leading zeros.
+; ── io_utoa — 16-bit unsigned to PETSCII decimal in dec_buf ──
+;
+; In:  A=lo, X=hi.  Call with:
+;        CLC → skip leading zeros, return offset in A
+;        SEC → pad leading zeros with spaces, return 0 in A
+;
+; Out: dec_buf = NUL-terminated PETSCII string
+;      A = offset into dec_buf (0..4)
+;
+; Clobbers: X,Y,flags
+
 io_putdec:
-        sta _io_tmp             ; dividend lo
-        stx _io_tmp+1           ; dividend hi
-        jsr _io_scr_setup
-        lda CUR_COL
-        sta dec_start_col          ; remember starting column for leading-zero check
-        ldx #4                  ; power-of-10 index (4=10000..0=1)
-@pow:   ldy #0                  ; digit counter
+        clc
+        jsr io_utoa            ; A = offset
+        clc
+        adc #<dec_buf
+        pha
+        lda #>dec_buf
+        adc #0
+        tax
+        pla
+        jmp io_puts
+
+io_utoa:
+        php                    ; save C flag for wrapper
+        sta _io_tmp            ; dividend lo
+        stx _io_tmp+1          ; dividend hi
+
+        ; ── core: 5-digit conversion into dec_buf[0..4] ──
+        ; Outer: X counts buf position 0..4
+        ; Inner: Y counts digit value for each power of 10
+        ; Power index = 4-X (X=0→10000, X=4→1)
+        ldx #4                 ; power-of-10 index (4=10000..0=1)
+        ldy #0                 ; buf position
+@pow:   sty dec_buf+5          ; save buf pos (reuse NUL slot as temp)
+        ldy #0                 ; digit counter
 @sub:   lda _io_tmp
         sec
         sbc dec_pow_lo,x
-        pha                     ; tentative lo
+        pha                    ; tentative lo
         lda _io_tmp+1
         sbc dec_pow_hi,x
-        bcc @done_digit         ; borrow: went too far
-        sta _io_tmp+1           ; commit hi
+        bcc @done_digit        ; borrow → digit complete
+        sta _io_tmp+1          ; commit hi
         pla
-        sta _io_tmp             ; commit lo
-        iny                     ; digit++
-        bne @sub                ; always (digit <= 9)
+        sta _io_tmp            ; commit lo
+        iny                    ; digit++
+        bne @sub               ; always (digit ≤ 9)
+
 @done_digit:
-        pla                     ; discard tentative lo
-        tya                     ; A = digit (0..9)
-        bne @print              ; nonzero: print
-        txa                     ; ones place? (X=0)
-        beq @force              ; always print ones digit
-        lda CUR_COL             ; check if we've printed anything
-        cmp dec_start_col
-        beq @next               ; no digits printed yet: skip leading zero
-@force: tya                     ; A = digit (might be 0)
-@print: tay
-        lda hex_tab,y           ; screen code for digit
-        ldy CUR_COL
-        sta (_io_scr),y
-        iny
-        sty CUR_COL
-@next:  dex
+        pla                    ; discard tentative lo
+        tya
+        ora #'0'               ; A = PETSCII digit
+        ldy dec_buf+5          ; Y = buf position
+        sta dec_buf,y          ; store digit
+        iny                    ; next buf pos
+        dex                    ; next power
         bpl @pow
+
+        lda #0
+        sta dec_buf,y          ; NUL terminator at [5]
+
+        ; ── shared post-pass: replace leading '0' with ' ' ──
+        ; X ends as first significant offset (or 4 for zero)
+        ldx #$ff
+@scan:  inx
+        lda dec_buf,x
+        cmp #'0'
+        bne @found
+        cpx #4
+        beq @found
+        lda #' '
+        sta dec_buf,x
+        bne @scan              ; always
+
+@found: plp
+        bcc @retx              ; CLC: return offset
+        ldx #0                 ; SEC: padded → offset 0
+@retx:  txa
         rts
-        ; dec_start_col moved to BSS (ROM-safe)
 
 ; ── io_clear_eol — fill spaces from cursor to end of row ────
 io_clear_eol:

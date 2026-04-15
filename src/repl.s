@@ -20,6 +20,7 @@
 ; ── Imports: cse_io.s ──────────────────────────────────────
         .import io_putc, io_puts
         .import io_puthex4, io_puthex2, io_putdec
+        .import io_utoa, dec_buf
         .import io_clear_eol
         .import io_getc, io_kbhit, io_sync
         .import cursor_show, cursor_hide
@@ -598,93 +599,6 @@ parse_hex4_ptr1:
         ldx rp_tmp2                ; X = hi
         rts
 
-; ═══════════════════════════════════════════════════════════
-; put_dec5_sp — print rp_addr as up to 5 decimal digits, space-padded
-;   Delegates to io_putdec for correct conversion;
-;   pre-pads with spaces to right-align in a 5-char field.
-; ═══════════════════════════════════════════════════════════
-.proc put_dec5_sp
-        ; Determine number of digits (1-5) from value magnitude
-        lda rp_addr+1
-        bne @ge256
-        ; < 256: check < 10, < 100
-        lda rp_addr
-        cmp #10
-        bcc @pad4               ; 1 digit
-        cmp #100
-        bcc @pad3               ; 2 digits
-        bcs @pad2               ; 3 digits (always)
-@ge256: ; >= 256: check < 10000
-        cmp #>10000
-        bcc @pad1               ; 4 digits
-        bne @pad0               ; > 255 in hi → 5 digits
-        lda rp_addr
-        cmp #<10000
-        bcc @pad1               ; 4 digits
-@pad0:  ldy #0
-        beq @emit
-@pad4:  lda #' '
-        jsr io_putc
-@pad3:  lda #' '
-        jsr io_putc
-@pad2:  lda #' '
-        jsr io_putc
-@pad1:  lda #' '
-        jsr io_putc
-@emit:  lda rp_addr
-        ldx rp_addr+1
-        jmp io_putdec
-.endproc
-
-; ═══════════════════════════════════════════════════════════
-; utoa_sub — convert rp_addr to decimal at fbuf
-;   Returns length in A. NUL-terminated.
-;   Uses io_putdec's proven pha/pla subtraction pattern.
-; ═══════════════════════════════════════════════════════════
-.proc utoa_sub
-        lda #0
-        sta rp_save2            ; started flag (0 = no digit yet)
-        sta rp_save             ; output pos
-        ldx #4                  ; power-of-10 index (4=10000..0=1)
-@pow:   ldy #0                  ; digit counter
-@sub:   lda rp_addr
-        sec
-        sbc dec_pow_lo,x
-        pha                     ; tentative lo
-        lda rp_addr+1
-        sbc dec_pow_hi,x
-        bcc @done_digit         ; borrow: too far
-        sta rp_addr+1           ; commit hi
-        pla
-        sta rp_addr             ; commit lo
-        iny                     ; digit++
-        bne @sub                ; always (digit ≤ 9)
-@done_digit:
-        pla                     ; discard tentative lo
-        tya                     ; A = digit (0..9)
-        bne @emit               ; nonzero → print
-        lda rp_save2
-        bne @emit_zero          ; already started → print zero
-        txa                     ; ones place? (X=0)
-        bne @next               ; skip leading zero
-@emit_zero:
-        tya                     ; A = 0
-@emit:  clc
-        adc #'0'
-        ldy rp_save
-        sta fbuf,y
-        iny
-        sty rp_save
-        lda #1
-        sta rp_save2
-@next:  dex
-        bpl @pow
-        ldy rp_save
-        lda #0
-        sta fbuf,y              ; NUL
-        tya                     ; return length
-        rts
-.endproc
 
 
 ; ═══════════════════════════════════════════════════════════
@@ -2433,50 +2347,49 @@ VIC_MEMCTL = $D018
 ;   Clobbers: A, X, Y, rp_addr
 ; ═══════════════════════════════════════════════════════════
 .proc stats_to_fbuf
-        ; Byte count → decimal at fbuf[0..] (done first, then moved)
-        lda ed_save_bytes
-        sta rp_addr
-        lda ed_save_bytes+1
-        sta rp_addr+1
-        jsr utoa_sub            ; A = len of byte digits
-        ; Save byte digits to fbuf[10..] (no overlap with line part)
-        tay
-        dey
-@save:  lda fbuf,y
-        sta fbuf+10,y
-        dey
-        bpl @save
-        ; Lines → decimal at fbuf[0..] (overwrites byte digits, safe)
+        ; Lines → dec_buf, copy to fbuf
         lda ed_save_lines
-        sta rp_addr
-        lda ed_save_lines+1
-        sta rp_addr+1
-        jsr utoa_sub            ; A = len
-        tax                     ; X = write pos
-        ; Append "l "
-        ldy #0
-@cp_l:  lda str_lines,y
-        sta fbuf,x
-        beq @bytes
+        ldx ed_save_lines+1
+        clc
+        jsr io_utoa             ; A = offset
+        tax                     ; X = src index
+        ldy #0                  ; Y = fbuf write pos
+@cp_l:  lda dec_buf,x
+        beq @l_suf
+        sta fbuf,y
         inx
         iny
         bne @cp_l
-        ; Append saved byte digits from fbuf[10..]
-@bytes: ldy #0
-@cp_d:  lda fbuf+10,y
-        beq @cp_b
-        sta fbuf,x
+        ; Append "l "
+@l_suf: ldx #0
+@ls:    lda str_lines,x
+        sta fbuf,y
+        beq @bytes
         inx
         iny
-        bne @cp_d
+        bne @ls
+        ; Bytes → dec_buf, copy to fbuf (Y continues)
+@bytes: sty rp_save             ; save write pos
+        lda ed_save_bytes
+        ldx ed_save_bytes+1
+        clc
+        jsr io_utoa             ; A = offset
+        tax
+        ldy rp_save             ; restore write pos
+@cp_b:  lda dec_buf,x
+        beq @b_suf
+        sta fbuf,y
+        inx
+        iny
+        bne @cp_b
         ; Append "b"
-@cp_b:  ldy #0
-@cp_s:  lda str_bytes,y
-        sta fbuf,x
+@b_suf: ldx #0
+@bs:    lda str_bytes,x
+        sta fbuf,y
         beq @done
         inx
         iny
-        bne @cp_s
+        bne @bs
 @done:  rts
 .endproc
 
@@ -3069,46 +2982,40 @@ print_prg_range:
 ;   rp_addr = lo, rp_cnt = hi (address range)
 ; ===============================================================
 free_line:
-        ; Compute size = hi - lo + 1 into rp_opc/rp_save (tmp)
+        ; Compute size = hi - lo + 1
         lda rp_cnt
         sec
         sbc rp_addr
-        sta rp_opc
+        pha                     ; save lo
         lda rp_cnt+1
         sbc rp_addr+1
-        sta rp_save
-        inc rp_opc
-        bne :+
-        inc rp_save
+        tax                     ; X = size hi
+        pla                     ; A = size lo
+        clc
+        adc #1                  ; +1 (size is inclusive)
+        bcc :+
+        inx
 :
-        ; Save lo/hi, set rp_addr = size for utoa_sub
-        lda rp_addr
-        pha
-        lda rp_addr+1
-        pha
-        lda rp_opc
-        sta rp_addr
-        lda rp_save
-        sta rp_addr+1
-
-        jsr utoa_sub            ; decimal to fbuf, returns len in A
-
-        ; Append "  free" to fbuf
-        tax
+        ; Convert to decimal in dec_buf, copy to fbuf
+        clc                     ; skip leading zeros
+        jsr io_utoa             ; A = offset into dec_buf
+        tax                     ; X = source index
         ldy #0
-@cpfree:lda str_free_suf,y
-        sta fbuf,x
+@cpd:   lda dec_buf,x
+        beq @suf
+        sta fbuf,y
+        inx
+        iny
+        bne @cpd
+        ; Append "b free" suffix
+@suf:   ldx #0
+@cpf:   lda str_free_suf,x
+        sta fbuf,y
         beq @cpf_done
         inx
         iny
-        bne @cpfree
+        bne @cpf
 @cpf_done:
-
-        ; Restore lo into rp_addr (hi stays in rp_cnt)
-        pla
-        sta rp_addr+1
-        pla
-        sta rp_addr
 
         ; info_line: inv=1, tag="work", desc=fbuf
         lda #1
@@ -3786,10 +3693,9 @@ free_line:
         ; decimal: "  " then 5-digit space-padded
         puts str_2sp
         lda expr_val
-        sta rp_addr
-        lda expr_val+1
-        sta rp_addr+1
-        jsr put_dec5_sp
+        ldx expr_val+1
+        sec                     ; padded
+        jsr io_putdec
 
         ; 8-bit extras if val < 256
         lda expr_val+1
@@ -3822,59 +3728,17 @@ free_line:
         ; negative
         lda #'-'
         jsr io_putc
-        ; negate: av = 256 - val
         lda #0
         sec
         sbc expr_val
-        jmp @print_signed
+        jmp @do_signed
 @sign_pos:
         lda #'+'
         jsr io_putc
         lda expr_val
-@print_signed:
-        ; A = absolute value (0-128)
-        sta rp_tmp2                ; av
-        ; hundreds
-        lda rp_tmp2
-        cmp #100
-        bcc @tens
-        lda #0
-        sta rp_tmp                ; digit
-@hun_lp:
-        lda rp_tmp2
-        sec
-        sbc #100
-        bcc @hun_done
-        sta rp_tmp2
-        inc rp_tmp
-        jmp @hun_lp
-@hun_done:
-        lda rp_tmp
-        clc
-        adc #'0'
-        jsr io_putc
-@tens:  lda rp_tmp2
-        cmp #10
-        bcc @ones
-        lda #0
-        sta rp_tmp
-@ten_lp:
-        lda rp_tmp2
-        sec
-        sbc #10
-        bcc @ten_done
-        sta rp_tmp2
-        inc rp_tmp
-        jmp @ten_lp
-@ten_done:
-        lda rp_tmp
-        clc
-        adc #'0'
-        jsr io_putc
-@ones:  lda rp_tmp2
-        clc
-        adc #'0'
-        jsr io_putc
+@do_signed:
+        ldx #0                  ; hi = 0 (8-bit value)
+        jsr io_putdec
 
 @calc_done:
         jmp out_close_nl

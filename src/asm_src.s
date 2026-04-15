@@ -24,6 +24,7 @@
         .import         sym_clear
         .import         kernal_bank_out, kernal_bank_in, kernal_out
         .import         io_puts, io_putc, io_putdec, io_puthex4, newline, io_clear_eol
+        .import         io_utoa, dec_buf
         .import         out_log_open, out_close
         .import         puts_imm               ; repl.s — for puts macro
         .import         define_ws_syms         ; mem.s
@@ -537,29 +538,6 @@ _emit_word:
         jmp emit_error
 .endproc
 
-; ── _emit_decimal ─────────────────────────────────────────────────────────
-; Emit 16-bit value in expr_val as 5-digit decimal ASCII via _emit_byte.
-; Always 5 digits (leading zeros OK for BASIC SYS).  Destroys expr_val.
-_emit_decimal:
-        ldx #4
-@dgt:   ldy #$30                ; PETSCII '0'
-@sub:   lda expr_val
-        sec
-        sbc dec_pow_lo,x
-        sta asm_tmp             ; tentative lo
-        lda expr_val+1
-        sbc dec_pow_hi,x
-        bcc @done               ; underflow → digit complete
-        sta expr_val+1          ; commit hi
-        lda asm_tmp
-        sta expr_val            ; commit lo
-        iny
-        bne @sub                ; always taken (digit <= 9)
-@done:  tya
-        jsr _emit_byte
-        dex
-        bpl @dgt
-        rts
 
 ; ── Segment logging (streaming during pass 1) ───────────────────────────
 ; Print segment info during pass 1 as .org/.bas directives are encountered.
@@ -835,12 +813,17 @@ BASIC_REM = $8F
         lda #BASIC_SYS
         jsr _emit_byte          ; SYS token
 
-        ; 5-digit decimal SYS address
+        ; 5-digit decimal SYS address (space-padded)
         lda asm_tmp
-        sta expr_val
-        lda asm_tmp2
-        sta expr_val+1
-        jsr _emit_decimal
+        ldx asm_tmp2
+        sec                     ; padded — leading spaces OK for BASIC
+        jsr io_utoa
+        ldx #0
+@sys:   lda dec_buf,x
+        jsr _emit_byte
+        inx
+        cpx #5
+        bne @sys
 
         ; Optional :REM string
         lda _eb_idx

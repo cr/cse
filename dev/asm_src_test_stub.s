@@ -26,6 +26,7 @@
         .export ed_read_rewind
         .export io_puts
         .export io_putdec
+        .export io_utoa, dec_buf
         .export io_putc, io_clear_eol
         .export io_puthex4
         .export newline
@@ -159,6 +160,46 @@ newline:
 out_log_open:
 out_close:
         rts
+
+        .importzp _io_tmp
+        .import dec_pow_lo, dec_pow_hi
+
+; Minimal io_utoa stub: fills dec_buf with 5-digit PETSCII + NUL.
+; SEC/CLC wrapper behaviour not needed for test — just produce digits.
+io_utoa:
+        sta _io_tmp
+        stx _io_tmp+1
+        ldx #4                 ; power index
+        ldy #0                 ; buf pos
+@pow:   sty dec_buf+5          ; save buf pos
+        ldy #0                 ; digit
+@sub:   lda _io_tmp
+        sec
+        sbc dec_pow_lo,x
+        pha
+        lda _io_tmp+1
+        sbc dec_pow_hi,x
+        bcc @dd
+        sta _io_tmp+1
+        pla
+        sta _io_tmp
+        iny
+        bne @sub
+@dd:    pla
+        tya
+        ora #'0'
+        ldy dec_buf+5
+        sta dec_buf,y
+        iny
+        dex
+        bpl @pow
+        lda #0
+        sta dec_buf,y
+        rts
+
+.segment "BSS"
+dec_buf: .res 6
+.segment "CODE"
 
 ; puts_imm — stub: skip the inline .word argument and return
 ;   The puts macro does: jsr puts_imm / .word str
