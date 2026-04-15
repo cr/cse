@@ -109,7 +109,7 @@ str_long:       .byte "long L", 0
 str_del_src:    .byte "del src? y/n ", 0
 str_unsaved:    .byte "unsaved ok? y/n ", 0
 str_ok:         .byte "ok", 0
-str_blk_eq:       .byte "blk=", 0               ; note: PETSCII uppercase B
+str_blk_eq:       .byte "blk=", 0
 str_color:      .byte "color: ", 0
 str_cpu:        .byte "cpu: 6502", 0
 .ifdef CPU_6510
