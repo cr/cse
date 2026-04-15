@@ -196,6 +196,8 @@ def _run(syms, arg: str):
             return (cpu.a, cpu.x, mem[syms.asm_opr], mem[syms.asm_opr + 1])
         if cpu.pc == syms.asm_syntax_error:
             raise SyntaxError(f"asm_syntax_error reached for {arg!r}")
+        if cpu.pc == syms.asm_expr_error:
+            raise SyntaxError(f"asm_expr_error reached for {arg!r}")
         cpu.step()
 
     raise TimeoutError(f"exceeded {_MAX_STEPS} steps for {arg!r}")

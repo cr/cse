@@ -322,6 +322,14 @@ integration tests (if they depend on most of the codebase).
 already linked there) and test_repl.py to C64Emu integration
 (repl.s is the central hub with 8+ subsystem dependencies).
 
+**test_repl.py witness resolution:** Disk I/O witness addresses
+(`save_addr`, `save_size`, `load_result`) are resolved from the
+stub's RODATA `sym_refs` table (slots 11–13), not from hardcoded
+BSS offsets.  The old `stub_bss + 185` pattern broke whenever BSS
+layout changed.  All stub-local addresses should be resolved via
+the `sym_refs` table or via `SymbolTable` when the test migrates
+to C64Emu.
+
 ### Running a test
 
 ```python

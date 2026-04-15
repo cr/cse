@@ -41,7 +41,9 @@ Caller is responsible for reading drive status after return
 **Out:** A/X = end address (nonzero on success, 0 on error)
 **Clobbers:** A, X, Y
 
-If load address is 0, uses the PRG header address (secondary = 0).
+KERNAL SETLFS secondary address selects the load mode:
+- addr ≠ 0 → SA=0: KERNAL loads to the address in X/Y (caller's addr).
+- addr = 0 → SA=1: KERNAL loads to the PRG file's 2-byte header address.
 
 ### disk_save_prg
 **In:** A/X = size; `disk_ptr` (ZP) = filename ptr;

@@ -163,6 +163,7 @@ class AsmCoreSymbols:
         self.mode_parse       = s["mode_parse"]
         self.asm_skip_ws      = s["asm_skip_ws"]
         self.asm_syntax_error = s["asm_syntax_error"]
+        self.asm_expr_error   = s["asm_expr_error"]
 
         # asm_line entry points
         self._asm_line_core   = s["_asm_line_core"]

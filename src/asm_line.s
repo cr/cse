@@ -34,7 +34,7 @@
 
         .export asm_line
         .export _asm_line_core
-        .export asm_error, asm_syntax_error
+        .export asm_error, asm_syntax_error, asm_expr_error, asm_expr_err
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
         .export zp_save_buf
         .export user_zp_buf
@@ -82,6 +82,7 @@ ZONE_F_PIDX = 5         ; ABS  (JSR)
 ; Saved user-code register state — populated by debugger.s on BRK/NMI
 ; entry, displayed by repl.s::show_regs, and reloaded into the CPU by
 ; debugger.s before continuing.
+asm_expr_err:  .res 1          ; nonzero if last asm_error was expr eval
 reg_a:         .res 1          ; saved A
 reg_x:         .res 1          ; saved X
 reg_y:         .res 1          ; saved Y
@@ -129,7 +130,21 @@ asm_syntax_error:
         txs                     ; restore SP (unwind nested JSRs)
         jsr kernal_bank_in      ; pair the bank_out from asm_line entry
         lda #0
+        sta asm_expr_err        ; default: not an expr error
         tax                     ; return 0 (A=lo, X=hi=0)
+        rts
+
+; ── asm_expr_error — expression-specific error path ──────────────────────────
+; Called by _au_read_val when expr_eval returns an error.
+; Sets asm_expr_err=1 so callers can print the expr error string.
+asm_expr_error:
+        lda #1
+        sta asm_expr_err
+        ldx _asm_saved_sp
+        txs
+        jsr kernal_bank_in
+        lda #0
+        tax
         rts
 
 ; ── asm_line ─────────────────────────────────────────────────────────────────

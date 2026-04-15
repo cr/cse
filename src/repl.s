@@ -32,7 +32,7 @@
 ; hex_val, is_hex, hex_val_to_char are now local (below)
 
 ; ── Imports: assembler / disassembler ──────────────────────
-        .import asm_line
+        .import asm_line, asm_expr_err
         .import dasm_insn, dasm_buf
         .import asm_assemble, seg_print_save
 
@@ -80,7 +80,7 @@
 ; ── Imports: runtime ZP ────────────────────────────────────
         .importzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
         .importzp asm_pc, asm_out
-        .importzp disk_ptr
+        .importzp disk_ptr, _io_tmp
 
 ; ── Constants ──────────────────────────────────────────────
 SCREEN        = $0400
@@ -231,8 +231,13 @@ str_tag_cse:    .byte "cse", 0
 str_tag_work:   .byte "work", 0
 str_free_suf:   .byte "b free", 0
 str_tag_src:    .byte "src", 0
+str_tag_lo02:   .byte "lo02", 0
+str_tag_lo03:   .byte "lo03", 0
 str_tag_io:     .byte "io", 0
+str_tag_sym:    .byte "sym", 0
 str_tag_rom:    .byte "rom", 0
+str_symbols:    .byte "symbols", 0
+str_banked:     .byte "banked", 0
 
 ; ── info tables: 8 bytes per row: tag(2) lo(2) hi(2) desc(2) ──
 ; Head row 1: cpu only
@@ -246,15 +251,26 @@ info_tbl_h2:
         .addr str_tag_stk,  $0100, $01FF, str_stack           ; stk  0100-01ff  6502 stack
 INFO_TBL_H2_ROWS = (* - info_tbl_h2) / 8
 
-; Head row 6: between sys-free and cse
+; Low-page sys/free split: $0200-$03FF
+info_tbl_lo:
+        .addr str_tag_sys,  $0200, $02A6, str_kernal         ; sys  0200-02a6  kernal
+INFO_TBL_LO_ROWS = (* - info_tbl_lo) / 8
+
+info_tbl_lo2:
+        .addr str_tag_sys,  $0300, $0333, str_kernal         ; sys  0300-0333  kernal
+INFO_TBL_LO2_ROWS = (* - info_tbl_lo2) / 8
+
+; Screen row
 info_tbl_h3:
         .addr str_tag_scr,  $0400, $07FF, str_screen          ; scr  0400-07ff  screen+sprites
 INFO_TBL_H3_ROWS = (* - info_tbl_h3) / 8
 
 ; Tail: after dynamic cse/free/src
 info_tbl_tail:
-        .addr str_tag_io,   $D000, $DFFF, str_vic            ; io   d000-dfff
-        .addr str_tag_rom,  $E000, $FFFF, str_kernal       ; rom  e000-ffff  kernal
+        .addr str_tag_io,   $D000, $DFFF, str_vic            ; io   d000-dfff  io
+        .addr str_tag_sym,  $E000, $EEFF, str_symbols        ; sym  e000-eeff  symbols
+        .addr str_tag_cse,  $EF00, $F8D9, str_banked         ; cse  ef00-f8d9  banked
+        .addr str_tag_rom,  $F8DA, $FFFF, str_kernal         ; rom  f8da-ffff  kernal
 INFO_TBL_TAIL_ROWS = (* - info_tbl_tail) / 8
 
 
@@ -663,80 +679,76 @@ parse_hex4_ptr1:
 
 ; ═══════════════════════════════════════════════════════════
 ; put_dec5_sp — print rp_addr as up to 5 decimal digits, space-padded
+;   Delegates to io_putdec for correct conversion;
+;   pre-pads with spaces to right-align in a 5-char field.
 ; ═══════════════════════════════════════════════════════════
 .proc put_dec5_sp
-        ldx #0                  ; digit index
-        stx rp_save2            ; started flag
-@digit: lda #0
-        sta rp_save             ; d count
-@sub:   lda rp_addr
-        sec
-        sbc dec_pow_lo,x
-        tay
+        ; Determine number of digits (1-5) from value magnitude
         lda rp_addr+1
-        sbc dec_pow_hi,x
-        bcc @emit_chk
-        sta rp_addr+1
-        sty rp_addr
-        inc rp_save
-        bne @sub
-@emit_chk:
-        lda rp_save
-        bne @emit
-        lda rp_save2
-        bne @emit
-        cpx #4
-        beq @force
-        stx rp_tmp
-        lda #' '
+        bne @ge256
+        ; < 256: check < 10, < 100
+        lda rp_addr
+        cmp #10
+        bcc @pad4               ; 1 digit
+        cmp #100
+        bcc @pad3               ; 2 digits
+        bcs @pad2               ; 3 digits (always)
+@ge256: ; >= 256: check < 10000
+        cmp #>10000
+        bcc @pad1               ; 4 digits
+        bne @pad0               ; > 255 in hi → 5 digits
+        lda rp_addr
+        cmp #<10000
+        bcc @pad1               ; 4 digits
+@pad0:  ldy #0
+        beq @emit
+@pad4:  lda #' '
         jsr io_putc
-        ldx rp_tmp
-        inx
-        bne @digit
-@force: lda #0
-@emit:  clc
-        adc #'0'
-        stx rp_tmp
+@pad3:  lda #' '
         jsr io_putc
-        ldx rp_tmp
-        lda #1
-        sta rp_save2
-        inx
-        cpx #5
-        bcc @digit
-        rts
+@pad2:  lda #' '
+        jsr io_putc
+@pad1:  lda #' '
+        jsr io_putc
+@emit:  lda rp_addr
+        ldx rp_addr+1
+        jmp io_putdec
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; utoa_sub — convert rp_addr to decimal at fbuf
 ;   Returns length in A. NUL-terminated.
+;   Uses io_putdec's proven pha/pla subtraction pattern.
 ; ═══════════════════════════════════════════════════════════
 .proc utoa_sub
         lda #0
-        sta rp_save2            ; started flag
+        sta rp_save2            ; started flag (0 = no digit yet)
         sta rp_save             ; output pos
-        ldx #0                  ; digit index
-@digit: lda #0
-        sta rp_tmp                ; d
+        ldx #0                  ; power-of-10 index
+@pow:   ldy #0                  ; digit counter
 @sub:   lda rp_addr
         sec
         sbc dec_pow_lo,x
-        tay
+        pha                     ; tentative lo
         lda rp_addr+1
         sbc dec_pow_hi,x
-        bcc @chk
-        sta rp_addr+1
-        sty rp_addr
-        inc rp_tmp
-        bne @sub
-@chk:   lda rp_tmp
-        bne @emit
+        bcc @done_digit         ; borrow: too far
+        sta rp_addr+1           ; commit hi
+        pla
+        sta rp_addr             ; commit lo
+        iny                     ; digit++
+        bne @sub                ; always (digit ≤ 9)
+@done_digit:
+        pla                     ; discard tentative lo
+        tya                     ; A = digit (0..9)
+        bne @emit               ; nonzero → print
         lda rp_save2
-        bne @emit
-        cpx #4
-        bne @next
-@emit:  lda rp_tmp
-        clc
+        bne @emit_zero          ; already started → print zero
+        cpx #4                  ; ones place?
+        bne @next               ; skip leading zero
+@emit_zero:
+        tya                     ; A = 0
+@emit:  clc
         adc #'0'
         ldy rp_save
         sta fbuf,y
@@ -746,7 +758,7 @@ parse_hex4_ptr1:
         sta rp_save2
 @next:  inx
         cpx #5
-        bcc @digit
+        bcc @pow
         ldy rp_save
         lda #0
         sta fbuf,y              ; NUL
@@ -1524,6 +1536,20 @@ parse_hex4_ptr1:
         jsr dot_assemble
         cmp #0
         bne @show               ; success → show result
+        ; Check if expr error → print "expr <detail>"
+        lda asm_expr_err
+        beq @syn_err
+        jsr expr_error_str      ; A/X = error string
+        sta rp_tmp
+        stx rp_tmp+1
+        lda #<str_expr
+        ldx #>str_expr
+        jsr out_err
+        lda rp_tmp
+        ldx rp_tmp+1
+        jsr io_puts
+        jmp nl_clear
+@syn_err:
         lda #<str_syntax
         ldx #>str_syntax
         jmp out_err_nl
@@ -2983,9 +3009,9 @@ print_prg_range:
         lda rp_next_lo+1
         sta disk_ptr+1
         lda rp_addr
-        sta $FB                 ; _io_tmp lo
+        sta _io_tmp             ; start addr lo
         lda rp_addr+1
-        sta $FC                 ; _io_tmp hi
+        sta _io_tmp+1           ; start addr hi
         lda rp_next_hi
         ldx rp_next_hi+1
         jsr disk_save_prg      ; A=error
@@ -3277,16 +3303,49 @@ free_line:
         ldy #INFO_TBL_H2_ROWS
         jsr info_emit_rows
 
-        ; ── sys 0200-03ff  free (highlighted) ──
+        ; ── sys 0200-02a6  kernal ──
+        lda #<info_tbl_lo
+        ldx #>info_tbl_lo
+        ldy #INFO_TBL_LO_ROWS
+        jsr info_emit_rows
+
+        ; ── lo02 02a7-02ff  free (highlighted) ──
         lda #1
         sta rp_save2
-        lda #<str_tag_sys
+        lda #<str_tag_lo02
         sta rp_ptr2
-        lda #>str_tag_sys
+        lda #>str_tag_lo02
         sta rp_ptr2+1
-        lda #<$0200
+        lda #<$02A7
         sta rp_addr
-        lda #>$0200
+        lda #>$02A7
+        sta rp_addr+1
+        lda #<$02FF
+        sta rp_cnt
+        lda #>$02FF
+        sta rp_cnt+1
+        lda #<str_i_free
+        sta rp_ptr
+        lda #>str_i_free
+        sta rp_ptr+1
+        jsr info_line
+
+        ; ── sys 0300-0333  kernal ──
+        lda #<info_tbl_lo2
+        ldx #>info_tbl_lo2
+        ldy #INFO_TBL_LO2_ROWS
+        jsr info_emit_rows
+
+        ; ── lo03 0334-03ff  free (highlighted) ──
+        lda #1
+        sta rp_save2
+        lda #<str_tag_lo03
+        sta rp_ptr2
+        lda #>str_tag_lo03
+        sta rp_ptr2+1
+        lda #<$0334
+        sta rp_addr
+        lda #>$0334
         sta rp_addr+1
         lda #<$03FF
         sta rp_cnt

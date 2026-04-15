@@ -67,7 +67,12 @@ call `mode_parse` to determine the addressing mode, then
 `asm_opcode_lookup` to compute the opcode byte.
 
 **Error handling:** On any error, `jmp asm_error` restores the 6502
-SP from `_asm_saved_sp` and returns 0 to the caller.
+SP from `_asm_saved_sp` and returns 0 to the caller.  `asm_expr_err`
+(BSS byte) is cleared to 0.  Expression evaluation errors use the
+separate `asm_expr_error` entry point, which sets `asm_expr_err=1`
+before returning 0.  Callers check `asm_expr_err` after a zero
+return to distinguish syntax errors from expression errors and can
+call `expr_error_str` for the specific message (e.g. "undef").
 
 ## Caveats
 

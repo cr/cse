@@ -28,7 +28,7 @@
         .export theme_border, theme_bg, theme_fg
 
 ; ── Exports: assembler / execution stubs ──────────────────────
-        .export asm_line
+        .export asm_line, asm_expr_err
         .export asm_assemble, asm_org, asm_size, seg_print_save
 
 ; ── Exports: debugger stubs ───────────────────────────────────
@@ -47,7 +47,7 @@
         .export list_directory
         .export disk_load_prg, disk_save_prg
         .export _save_addr, _save_size, _load_result
-        .importzp disk_ptr, rp_tmp, buf_base
+        .importzp disk_ptr, rp_tmp, buf_base, _io_tmp
 
 ; ── Exports: editor stubs ─────────────────────────────────────
         .export ed_save_source, ed_load_source
@@ -122,6 +122,7 @@ ed_dirty:      .res 1
 ; Assembler state
 asm_org:       .res 2
 asm_size:      .res 2
+asm_expr_err:  .res 1
 fl_buf:        .res 32
 
 ; Disk I/O witnesses (test instrumentation)
@@ -372,9 +373,9 @@ disk_load_prg:
 disk_save_prg:
         sta _save_size
         stx _save_size+1
-        lda $FB
+        lda _io_tmp
         sta _save_addr
-        lda $FC
+        lda _io_tmp+1
         sta _save_addr+1
         lda #0
         rts

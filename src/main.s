@@ -452,7 +452,6 @@ main_loop:
         ldy #SCREEN_WIDTH - 2
 @ins_loop:
         cpy CUR_COL
-        beq @ins_done_shift
         bcc @ins_done_shift
         lda (rp_ptr),y
         iny

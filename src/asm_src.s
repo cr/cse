@@ -17,7 +17,8 @@
         .export         asm_pass := _asm_pass   ; pass flag for au_mode.s fwd refs
         .export         seg_print_save
 
-        .import         asm_line               ; asm_line.s
+        .import         asm_line, asm_expr_err ; asm_line.s
+        .import         expr_error_str         ; expr.s
         .import         expr_eval              ; expr.s
         .import         sym_define             ; symtab.s
         .import         sym_clear
@@ -721,13 +722,24 @@ seg_print_save:
         puts s_save_default     ; "out"
         jmp @name_done
 @have_name:
-        ; Name always ends ",s\0" — poke 's'→'p', print, restore
+        ; Find end of string, check for ",s" suffix
         ldy #0
 @fl:    lda cur_filename,y
-        beq @fp
+        beq @found_end
         iny
         bne @fl
-@fp:    dey                     ; Y → 's'
+@found_end:
+        ; Y = index of NUL.  Check last 2 chars for ",s"
+        cpy #2
+        bcc @no_suffix          ; too short for suffix
+        lda cur_filename-1,y    ; last char
+        cmp #'s'
+        bne @no_suffix
+        lda cur_filename-2,y    ; second-to-last
+        cmp #','
+        bne @no_suffix
+        ; Has ",s" — poke 'p' over 's', print, restore
+        dey
         lda #'p'
         sta cur_filename,y
         sty asm_tmp
@@ -737,6 +749,16 @@ seg_print_save:
         ldy asm_tmp
         lda #'s'
         sta cur_filename,y
+        jmp @name_done
+@no_suffix:
+        ; No ",s" — print name as-is then append ",p"
+        lda #<cur_filename
+        ldx #>cur_filename
+        jsr io_puts
+        lda #','
+        jsr io_putc
+        lda #'p'
+        jsr io_putc
 @name_done:
         puts s_save_q_sp        ; "" $"
         lda _max_pc
@@ -1352,7 +1374,12 @@ BASIC_REM = $8F
         bcc @done
         inc asm_size+1
 @done:  rts
-@bad:   lda #<s_bad_insn
+@bad:   lda asm_expr_err
+        beq @bad_syn
+        jsr expr_error_str      ; A/X = expr error string
+        jmp emit_error
+@bad_syn:
+        lda #<s_bad_insn
         ldx #>s_bad_insn
         jmp emit_error
 .endproc

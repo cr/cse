@@ -41,7 +41,10 @@ handler prints `; ok` and calls `seg_print_save` for the save command.
 Segment lines are comments (`;` prefix, no `$` on addresses).
 The save command is an executable REPL line — placed last so
 cursor-up+return saves the PRG.  The filename comes from
-`cur_filename` with `,s` → `,p` suffix swap; defaults to `"out,p"`.
+`cur_filename` with `,p` suffix; defaults to `"out,p"`.
+If `cur_filename` ends with `,s`, the `s` is temporarily replaced
+with `p` for display (then restored).  If no `,s` suffix is present,
+the name is printed as-is and `,p` is appended.
 Suppressed when no segments were emitted (`_min_pc` == $FFFF).
 
 **Exported segment API:**

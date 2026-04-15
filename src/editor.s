@@ -2128,10 +2128,19 @@ _ed_cur_row:
         jsr ed_scroll_up
         jmp @edited_repos
 
-        ; ── CH_INS ────────────────────────────────
+        ; ── CH_INS — insert space at cursor, cursor stays ──
 @not_enter:
         cmp #CH_INS
-        jeq @repos_jmp          ; ignore INS
+        bne @not_ins
+        jsr cursor_line_vwidth
+        cmp #SCREEN_WIDTH - 1   ; line full → refuse
+        jcs @reject
+        lda #$20
+        jsr gb_insert
+        jsr gb_cursor_left      ; cursor back onto the space
+        jsr render_current_row
+        jmp @edited_repos
+@not_ins:
 
         ; ── TAB ($A0) — always enabled under TAB_WIDTH ──
         cmp #$A0

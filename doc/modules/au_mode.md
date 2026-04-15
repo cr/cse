@@ -22,7 +22,7 @@
 **Out:** Y advanced past spaces ($20) and tabs ($A0)
 **Clobbers:** A
 
-**Depends on:** asm_line (asm_syntax_error), expr (expr_eval_nb)
+**Depends on:** asm_line (asm_syntax_error, asm_expr_error), expr (expr_eval_nb)
 
 ### Memory
 
@@ -69,5 +69,7 @@ $=$24, (=$28, )=$29, ,=$2C.
 - Whitespace: space ($20) and tab ($A0).
 - End-of-expression: NUL, CR ($0D), LF ($0A), `;`, `//`.
 - On syntax error: `jmp asm_syntax_error` (in asm_line.s).
+- On expression error: `jmp asm_expr_error` (in asm_line.s) — sets
+  `asm_expr_err=1` so callers can print the expr-specific message.
 - `expr_eval_nb` runs without KERNAL banking — mode_parse is called
   from within _asm_line_core where KERNAL is already banked out.

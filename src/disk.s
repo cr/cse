@@ -587,20 +587,21 @@ floppy_status:
         ldy ptr+1
         jsr SETNAM
 
-        ; SETLFS 1,8,0 (0=use header addr) or 1,8,1 (1=use given addr)
+        ; SETLFS 1,dev,SA — SA=0: load to X/Y addr; SA=1: use PRG header
         lda _io_tmp
         ora _io_tmp+1
         beq @use_header
-        ; nonzero addr: secondary = 1
-        lda #1
-        ldx cur_device
-        ldy #1
-        jsr SETLFS
-        jmp @do_load
-@use_header:
+        ; nonzero addr: SA=0 → KERNAL loads to X/Y
         lda #1
         ldx cur_device
         ldy #0
+        jsr SETLFS
+        jmp @do_load
+@use_header:
+        ; no addr: SA=1 → KERNAL loads to PRG header address
+        lda #1
+        ldx cur_device
+        ldy #1
         jsr SETLFS
 
 @do_load:

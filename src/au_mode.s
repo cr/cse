@@ -32,6 +32,7 @@
         .export mode_parse              ; main entry point
         .export asm_skip_ws             ; used by asm_line.s
         .import asm_syntax_error        ; provided by caller / test stub
+        .import asm_expr_error          ; expr-specific error (sets asm_expr_err)
         .import expr_eval_nb            ; no-banking expr evaluator (expr.s)
         .import asm_pass                ; 0=pass 0 (sizing), 1=pass 1 (emit)
         .importzp expr_ptr, expr_val, expr_wide
@@ -215,7 +216,7 @@ _au_read_val:
         pla                     ; A = 0 (ZP) or 1 (ABS)
         rts
 
-@err:   jmp asm_syntax_error
+@err:   jmp asm_expr_error
 
 ; ─────────────────────────────────────────────────────────────────────────────
 ; mode_parse  –  main entry point

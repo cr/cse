@@ -176,11 +176,12 @@ class ReplSymbols:
         # This is fragile. Instead, read the RODATA sym_refs table!
         rodata_offs = mods[stub_mod].get('RODATA', 0)
         rodata_base = seg['RODATA'] + rodata_offs
-        # sym_refs table: 11 × 2-byte addresses at rodata_base
+        # sym_refs table: 14 × 2-byte addresses at rodata_base
         # [0]=exec_line, [1]=read_line, [2]=show_prompt,
         # [3]=cur_addr, [4]=cur_device, [5]=cur_filename,
         # [6]=line_buf, [7]=last_cmd, [8]=block_size,
-        # [9]=newline_count, [10]=kplot_stub
+        # [9]=newline_count, [10]=kplot_stub,
+        # [11]=_save_addr, [12]=_save_size, [13]=_load_result
         bin_data = BIN.read_bytes()
         def read_word(addr):
             """Read a 16-bit word from the binary file at the given memory address."""
@@ -191,14 +192,11 @@ class ReplSymbols:
             else:
                 off = addr
             return bin_data[off] | (bin_data[off + 1] << 8)
-        self.kplot_stub = read_word(rodata_base + 10 * 2)
+        self.kplot_stub    = read_word(rodata_base + 10 * 2)
         self.newline_count = read_word(rodata_base + 9 * 2)
-
-        # Disk I/O witnesses (stub-local BSS, offset from stub_bss_offs)
-        stub_bss = seg['BSS'] + stub_bss_offs
-        self.save_addr   = stub_bss + 185
-        self.save_size   = stub_bss + 187
-        self.load_result = stub_bss + 189
+        self.save_addr     = read_word(rodata_base + 11 * 2)
+        self.save_size     = read_word(rodata_base + 12 * 2)
+        self.load_result   = read_word(rodata_base + 13 * 2)
 
         # ZP
         self.expr_ptr = exp['expr_ptr']

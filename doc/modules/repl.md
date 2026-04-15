@@ -435,17 +435,28 @@ or runtime — nothing hardcoded.
       zp 0002-007f    126  free            ← highlighted
      sys 0080-00ff    128  kernal zp
      stk 0100-01ff    256  6502 stack
-     sys 0200-03ff    512  free            ← highlighted
+     sys 0200-02a6    167  kernal
+    lo02 02a7-02ff     89  free            ← highlighted
+     sys 0300-0333     52  kernal
+    lo03 0334-03ff    204  free            ← highlighted
      scr 0400-07ff   1024  screen + sprites
-     cse 0800-XXXX  NNNNN  cse runtime    (from linker)
-    work XXXX-XXXX  NNNNN  free           ← highlighted
-     src XXXX-cfff    NNN  N lines        (if source loaded)
+    work 0800-XXXX  NNNNN  free            ← highlighted
+     src XXXX-XXXX    NNN  N lines         (if source loaded)
+     cse XXXX-CFFF  NNNNN  cse runtime     (from linker)
       io d000-dfff   4096  vic/sid/cia
-     rom e000-ffff   8192  kernal rom
+     sym e000-eeff   3840  symbols
+     cse ef00-f8d9   2522  banked
+     rom f8da-ffff   1830  kernal rom
 
-The work row's end address tracks `BUF_END - 1` ($CFFF).  When
-source is loaded, the free region shrinks and the src row appears.
-The src line count comes from `ed_total_lines`.
+The lo02/lo03 rows match the splash screen layout — these are
+the usable fragments in pages 2 and 3 between KERNAL work areas
+and page-3 vectors.  The work row spans $0800 to `buf_base - 1`.
+When source is loaded, the free region shrinks and the src row
+appears.  The src line count comes from `ed_total_lines`.  The
+KERNAL RAM region ($E000–$FFFF) is broken into three rows: `sym`
+for the symbol table and heap, `cse` for banked data (stack
+snapshots, KDATA tables, REPL screen save), and `rom` for actual
+KERNAL ROM.
 
 ### `C` — Color (uppercase)
 
@@ -521,8 +532,9 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
   uppercase screen codes ($41–$5A) map to $C1–$DA.  This preserves
   case for command dispatch.
 - `exec_line` modifies `cur_addr` as a side effect of the `AAAA:` prefix.
-- The `?` command uses `_expr_eval` directly — labels from the last
-  assembly are available.
+- The `?` command uses `expr_eval` directly — labels from the last
+  assembly are available.  Decimal output delegates to `io_putdec`
+  (cse_io.s) with space-padding for right-aligned 5-digit display.
 - **Expression arguments:** Commands `@`, `j`, `+`, `-`, `b`, `s`,
   `t`, `o`, `B` accept full expressions (`$hex`, decimal, symbols,
   operators).  Bare digits are decimal — hex requires `$` prefix.

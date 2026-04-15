@@ -5,9 +5,9 @@
 Open bugs, roughly ordered by priority.
 
 - [x] ~~Disable C64 SHIFT+C= mode switch on CSE init~~ (fixed: main.s)
-- [ ] `i` command output shows stale memory map.  The workspace
-  range, symbol table, heap, and stack addresses need updating to
-  match the current KERNAL RAM layout (Phase 8/14 reorg).
+- [x] ~~`i` command output shows stale memory map~~ (fixed: repl.s
+  tail table now shows sym $E000-$EEFF, cse $EF00-$F8D9 banked,
+  rom $F8DA-$FFFF instead of single rom $E000-$FFFF)
 - [x] ~~`.const FOO` then `sta FOO` not found~~ (fixed: expr.s label
   scanner now folds $C1-$DA → $41-$5A in-place; shifted uppercase
   letters from the lowercase/uppercase charset are accepted)
@@ -15,29 +15,26 @@ Open bugs, roughly ordered by priority.
   Not yet reproducible.  Suspect: `disk_load_prg` or
   `ed_load_source` not handling KERNAL file-not-found error,
   or floppy status channel read blocking.
-- [ ] INS in REPL: overwrites char under cursor with space and
-  replaces char to the right with the adjacent character.
-  Should shift row right and insert a space at cursor.
-- [ ] `?` (calculator) wrong decimal output for values >= $2000.
-  `? 2000` shows `2111` instead of `8192`.  `? 1999` is correct.
-  io_putdec verified correct in isolation (C64Emu test: $2000→8192,
-  $FFFF→65535).  Bug is likely in `?` command expr_eval or hex parsing.
-  Retest on hardware/VICE.
-- [ ] `a` save line writes filename "oup" — truncates the base
-  name and overwrites its last char.  Should append `,p` to the
-  full filename, not overwrite.
-- [ ] `l "out,p" $2000` doesn't load to $2000.  PRG load with
-  explicit address should honour the address argument, including
-  the 2-byte load-address header.
-- [ ] RUN/STOP debounce: bounces when held.  Primary mode-switch
-  key feels broken.
-- [ ] `.` (disassembly) shows CSE ZP instead of user ZP after
-  j/debugger context.  Companion to the `m` fix in `ac1a31f`.
-  `m` redirects reads in $02..$59 through `user_zp_buf` when
-  `dbg_reason != 0`, but `.` still reads live memory.  Cheaper
-  fix: unconditionally stage 3 bytes from `user_zp_buf` into
-  `dbg_zp_view` before calling `dasm_insn` (~15 B code).  Low
-  priority — users rarely disassemble at ZP.
+- [x] ~~INS in REPL: overwrites char under cursor~~ (fixed: main.s
+  INS shift loop had off-by-one — `beq` exited before copying the
+  char at cursor position; removed the early exit)
+- [x] ~~`?` calculator wrong decimal for >= $2000~~ (fixed: repl.s
+  `put_dec5_sp` replaced with `io_putdec` delegation; `utoa_sub`
+  rewritten with pha/pla pattern from io_putdec)
+- [x] ~~`a` save line writes filename "oup"~~ (fixed: asm_src.s
+  seg_print_save now checks for `,s` suffix before poking; if no
+  suffix, appends `,p` instead of overwriting last char)
+- [x] ~~`l "out,p" $2000` doesn't load to $2000~~ (fixed: disk.s
+  SETLFS secondary address was inverted — SA=0 means use X/Y addr,
+  SA=1 means use PRG header addr; code had them backwards)
+- [x] ~~RUN/STOP debounce~~ (already debounced: `@deb_wait` polls
+  $91 until key released, then drains keyboard buffer)
+- [ ] `.` and `m` show CSE ZP instead of user ZP after j/debugger
+  context.  `m` was partially fixed in `ac1a31f` (redirects $02..$59
+  through `user_zp_buf` when `dbg_reason != 0`), but `.` still reads
+  live memory.  Both commands need consistent treatment.  Cheaper fix:
+  stage bytes from `user_zp_buf` into a view buffer before calling
+  `dasm_insn` or `emit_hex_cols` (~15 B code).  Low priority.
 - [ ] Debugger: stepping into a subroutine then `c` (continue)
   cannot return through the original JSR's pushed return address.
   The `sp_baseline` RTS trick unwinds the stack, so the
@@ -45,14 +42,22 @@ Open bugs, roughly ordered by priority.
   caller.  Fix: 256 B user-stack snapshot at `$EF00` under
   KERNAL (copy page 1 on debug entry/exit).  Acceptable
   trade-off for now.
-- [ ] Assembler: `bne <nonexisting symbol>` reports "bad insn",
-  should report an expression/symbol error instead.
+- [x] ~~Assembler: `bne <nonexisting>` reports "bad insn"~~ (fixed:
+  `asm_expr_error` entry point sets `asm_expr_err=1`; `.` command
+  and source assembler now print `expr_error_str` detail e.g. "undef")
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
 - [ ] Debugger: refuse to write breakpoints outside workspace memory
   (`$0800`–`__CODE_RUN__`).  Writing BRK to KERNAL, I/O, or CSE
   code corrupts the system.  `bp_set` and `bp_patch` must range-check.
+
+- [x] ~~`s` command PRG save address stale ZP ref~~ (fixed: repl.s
+  `cmd_write` wrote start address to hardcoded `$FB/$FC` instead of
+  `_io_tmp` ($002D); stale from pre-Phase-12 ZP layout)
+- [x] ~~Editor ignores INS key~~ (fixed: editor.s INS handler now
+  inserts a space via `gb_insert` + `gb_cursor_left` so cursor stays
+  on the opened space; refused at 39-col line cap)
 
 ### Fixed bugs (reference)
 
@@ -182,6 +187,10 @@ Defined scope, needs work.
   name is set by source loads and saves only.  `l`/`s` without a
   string argument derive from the project name; error if none set.
   Replaces `cur_filename` (which stores the raw name with suffix).
+  **Note:** `"foo,s"` and `"foo,p"` cannot co-exist on a D64 —
+  CBM DOS ignores the type suffix for name uniqueness.  The
+  derivation scheme needs a different naming convention (e.g.
+  `"foo"` for source, `"foo.prg"` for binary, or user-specified).
 - [ ] Investigate more shared logic for `l`/`s` argument parsing
   and filename handling.  `parse_ls_args`, `print_op_name`, and
   `print_prg_range` are a start — look for further dedup in the

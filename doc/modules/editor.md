@@ -257,6 +257,7 @@ editor cursor.
 | DOWN | `ed_cursor_down`: advance past CR → advance to target col | scroll up if below viewport, else status pos |
 | HOME | `gb_home`: slide gap left to start of current line | status pos only |
 | DEL | `gb_backspace`, re-render from current row to bottom.  At col 0 of line > 0: join with previous line.  At col 0 of line 0: refused (blip, left wall). | rows from cursor to bottom + status |
+| INS | `gb_insert($20)` then `gb_cursor_left`: opens a space at cursor, cursor stays put.  Refused if line is at 39-col cap. | current row only + status |
 | RETURN | Smart indent (see below). | rows from previous line to bottom + status |
 | printable | insert char at gap, increment `ed_cur_col`.  Typing `:` at end of line strips the leading $A0 (label slides to column 0) unless the line contains `;` (comment). | current row only + status |
 
