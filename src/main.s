@@ -28,8 +28,8 @@
 
 ; ── Imports ──────────────────────────────────────────────────
         .import puts_imm
-        .import io_init, io_putc, io_sync, io_blip
-        .import io_puthex4, io_putdec
+        .import io_init, io_putc, io_repc, io_sync, io_blip
+        .import io_puthex4, io_putdec, io_putdec_pd
         .import io_getc, io_clear_eol
         .import reset_screen, restore_colors, newline, theme_init
         .import cursor_show, cursor_hide
@@ -49,7 +49,7 @@
 
 ; ── Imports: strings.s ──────────────────────────────────────
         .import VERSION_STR, s_manual
-        .import s_zp_tag, s_lo02_tag, s_work_tag
+        .import s_zp_tag, s_low_tag, s_work_tag
         .import s_free
 
 ; ── Constants ────────────────────────────────────────────────
@@ -227,19 +227,18 @@ warm_guard:  .res 1              ; nonzero = warm start in progress
         ldx #>$007F
         jsr io_puthex4
         lda #' '
-        jsr io_putc
-        jsr io_putc
-        jsr io_putc
-        jsr io_putc
+        ldx #2
+        jsr io_repc
         lda #<($7F - $02 + 1)
         ldx #>($7F - $02 + 1)
-        jsr io_putdec
+        sec
+        jsr io_putdec_pd
         puts s_free
 
-        ; lo02 free line (row 18): "lo02 02a7-02ff       89b free"
+        ; low free line (row 18): " low 02a7-02ff       89b free"
         lda #SCREEN_HEIGHT - 7
         jsr splash_row
-        puts s_lo02_tag
+        puts s_low_tag
         lda #<$02A7
         ldx #>$02A7
         jsr io_puthex4
@@ -249,25 +248,20 @@ warm_guard:  .res 1              ; nonzero = warm start in progress
         ldx #>$02FF
         jsr io_puthex4
         lda #' '
-        jsr io_putc
-        jsr io_putc
-        jsr io_putc
-        jsr io_putc
-        jsr io_putc
+        ldx #2
+        jsr io_repc
         lda #<($02FF - $02A7 + 1)
         ldx #>($02FF - $02A7 + 1)
-        jsr io_putdec
+        sec
+        jsr io_putdec_pd
         puts s_free
 
-        ; lo03 free line (row 19): "     0334-03ff      204b free"
+        ; low free line (row 19): "     0334-03ff      204b free"
         lda #SCREEN_HEIGHT - 6
         jsr splash_row
         lda #' '
-        jsr io_putc
-        jsr io_putc
-        jsr io_putc
-        jsr io_putc
-        jsr io_putc
+        ldx #5
+        jsr io_repc
         lda #<$0334
         ldx #>$0334
         jsr io_puthex4
@@ -277,13 +271,12 @@ warm_guard:  .res 1              ; nonzero = warm start in progress
         ldx #>$03FF
         jsr io_puthex4
         lda #' '
-        jsr io_putc
-        jsr io_putc
-        jsr io_putc
-        jsr io_putc
+        ldx #2
+        jsr io_repc
         lda #<($03FF - $0334 + 1)
         ldx #>($03FF - $0334 + 1)
-        jsr io_putdec
+        sec
+        jsr io_putdec_pd
         puts s_free
 
         ; work free line (row 20): "work 0800-XXXX  NNNNNb free"
@@ -305,8 +298,8 @@ warm_guard:  .res 1              ; nonzero = warm start in progress
         pla                     ; A = lo of cse_start-1
         jsr io_puthex4
         lda #' '
-        jsr io_putc
-        jsr io_putc
+        ldx #2
+        jsr io_repc
         ; byte count = cse_start - WORKSTART
         jsr cse_start
         sec
@@ -316,7 +309,8 @@ warm_guard:  .res 1              ; nonzero = warm start in progress
         sbc #>WORKSTART
         tax
         pla
-        jsr io_putdec
+        sec
+        jsr io_putdec_pd
         puts s_free
 
         ; Manual line (row 22)

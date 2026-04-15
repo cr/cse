@@ -32,7 +32,7 @@
         .export str_bytes_free, str_free, str_l, str_main
         .export str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
         .export str_tag_work, str_tag_src
-        .export str_tag_lo02
+        .export str_tag_low
         .export str_tag_rom
         .export str_banked
 
@@ -48,7 +48,7 @@
 
         ; ── main strings ──
         .export VERSION_STR, s_manual
-        .export s_zp_tag, s_lo02_tag, s_work_tag
+        .export s_zp_tag, s_low_tag, s_work_tag
         .export s_free
 
         ; ── asm_src strings ──
@@ -145,7 +145,7 @@ str_tag_stk:    .byte "stk", 0
 str_tag_sys:    .byte "sys", 0
 str_tag_work:   .byte "work", 0
 str_tag_src:    .byte "src", 0
-str_tag_lo02:   .byte "low", 0
+str_tag_low:    .byte "low", 0
 str_tag_rom:    .byte "rom", 0
 str_banked:     .byte "banked", 0
 
@@ -183,7 +183,7 @@ s_workend:      .byte "workend", 0
 VERSION_STR:    .byte "cse v0.1 by cr", 0
 s_manual:       .byte "man: github.com/cr/cse", 0
 s_zp_tag:       .byte "  zp ", 0
-s_lo02_tag:     .byte "low  ", 0
+s_low_tag:      .byte " low ", 0
 s_work_tag:     .byte "work ", 0
 
 ; ── asm_src strings ─────────────────────────────────────────

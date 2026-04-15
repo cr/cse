@@ -27,9 +27,9 @@ $D6 (row).
 
 | Name | Size | Purpose |
 |------|------|---------|
-| _io_color | 1 | Text color for screen clears |
-| dec_start_col | 1 | Start column for io_putdec (leading-zero suppression) |
-| _nmi_pending | 1 | Set by NMI handler, checked in main loop |
+| io_color | 1 | Text color for screen clears |
+| dec_buf | 6 | io_utoa output: 5-digit PETSCII + permanent NUL at [5] |
+| nmi_pending | 1 | Set by NMI handler, checked in main loop |
 
 ### KERNAL Locations Used
 
@@ -49,8 +49,7 @@ $D6 (row).
 | scr_lo[25] | 25 | Low bytes of $0400 + row×40 for rows 0–24 |
 | scr_hi[25] | 25 | High bytes of same |
 | hex_tab[16] | 16 | Screen codes for hex digits: $30–$39, $01–$06 |
-| dec_lo[5] | 5 | Low bytes of 10000, 1000, 100, 10, 1 |
-| dec_hi[5] | 5 | High bytes of same |
+| *(dec_pow_lo/hi moved to strings.s)* | | |
 
 ### io_putc
 
@@ -109,19 +108,45 @@ For each byte in `s` until NUL: call io_putc(byte).
 **Behavior:** Call io_puthex2(hi), then io_puthex2(lo).
 Writes 4 hex digits, advances io_cx by 4.
 
+### io_repc
+
+**Input:** A = PETSCII character, X = repeat count (0 = no-op)
+
+**Behavior:** Call io_putc(A) X times.  If X=0, returns immediately.
+
+**Clobbers:** X, Y, _io_tmp
+
+### io_utoa
+
+**Input:** A = lo byte, X = hi byte.  Carry flag selects mode:
+- CLC → skip leading zeros, return offset to first significant digit
+- SEC → replace leading zeros with spaces, return 0
+
+**Behavior:**
+1. Convert A/X to 5 PETSCII digits in dec_buf[0..4]
+2. Scan leading '0's: replace with ' ' (space)
+3. Return offset in A (CLC: 0–4, SEC: always 0)
+
+dec_buf[5] is a permanent NUL (BSS-zeroed, never written by io_utoa).
+io_utoa only writes positions 0–4.
+
+**Clobbers:** X, Y, _io_tmp, flags
+
 ### io_putdec
 
 **Input:** A = lo byte, X = hi byte
 
-**Behavior:**
-1. Compute screen address from scr_lo/scr_hi[io_cy]
-2. For each power of 10 (10000, 1000, 100, 10, 1):
-   subtract repeatedly, count digits
-3. Suppress leading zeros (except: always print at least "0")
-4. Write each digit as hex_tab[digit] ($30–$39)
+**Behavior:** CLC + io_utoa + io_puts.  Prints decimal at cursor,
+leading zeros suppressed ("0"–"65535").
 
-**Output:** 1–5 screen code bytes.  io_cx advances by the number of
-digits written.
+### io_putdec_pd
+
+**Input:** A = lo byte, X = hi byte.  Caller sets C flag:
+- CLC → zero-suppressed (same as io_putdec)
+- SEC → space-padded 5-digit field ("    0"–"65535")
+
+**Behavior:** io_utoa + io_puts.  Entry point between CLC and
+jsr io_utoa in io_putdec — caller's carry passes through.
 
 ### io_clear_eol
 
@@ -228,7 +253,7 @@ The KERNAL IRQ at $EA31 with $CC=1 only does:
 It does NOT touch: screen RAM, color RAM, $D1/$D2/$D3/$D6/$F3/$F4.
 
 Therefore:
-- io_putc, io_puts, io_puthex2/4, io_putdec, io_clear_eol: **no SEI needed**
+- io_putc, io_repc, io_puts, io_puthex2/4, io_putdec, io_clear_eol: **no SEI needed**
 - io_sync (KERNAL PLOT): **no SEI needed** (PLOT is reentrant)
 - cursor_show/cursor_hide: **no SEI needed** (IRQ doesn't touch screen RAM)
 - scroll_up (memmove screen RAM): **SEI optional** — prevents VIC-II from

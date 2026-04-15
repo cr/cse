@@ -18,8 +18,8 @@
         .export line_buf, last_cmd          ; TODO: remove after test_repl → C64Emu migration
 
 ; ── Imports: cse_io.s ──────────────────────────────────────
-        .import io_putc, io_puts
-        .import io_puthex4, io_puthex2, io_putdec
+        .import io_putc, io_repc, io_puts
+        .import io_puthex4, io_puthex2, io_putdec, io_putdec_pd
         .import io_utoa, dec_buf
         .import io_clear_eol
         .import io_getc, io_kbhit, io_sync
@@ -95,7 +95,7 @@
         .import str_free, str_l, str_main
         .import str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
         .import str_tag_scr, str_tag_cse, str_tag_work, str_free_suf
-        .import str_tag_src, str_tag_lo02, str_tag_io
+        .import str_tag_src, str_tag_low, str_tag_io
         .import str_tag_rom, str_banked
         .import dec_pow_lo, dec_pow_hi
 .ifdef CPU_6510
@@ -2929,8 +2929,8 @@ print_prg_range:
         ldx rp_cnt+1
         jsr io_puthex4
         lda #' '
-        jsr io_putc
-        jsr io_putc
+        ldx #2
+        jsr io_repc
 
         ; print desc
         lda rp_ptr
@@ -3135,12 +3135,12 @@ free_line:
         ldy #INFO_TBL_LO_ROWS
         jsr info_emit_rows
 
-        ; ── lo02 02a7-02ff  free (highlighted) ──
+        ; ── low 02a7-02ff  free (highlighted) ──
         lda #1
         sta rp_save2
-        lda #<str_tag_lo02
+        lda #<str_tag_low
         sta rp_ptr2
-        lda #>str_tag_lo02
+        lda #>str_tag_low
         sta rp_ptr2+1
         lda #<$02A7
         sta rp_addr
@@ -3165,9 +3165,9 @@ free_line:
         ; ── lo03 0334-03ff  free (highlighted) ──
         lda #1
         sta rp_save2
-        lda #<str_tag_lo02
+        lda #<str_tag_low
         sta rp_ptr2
-        lda #>str_tag_lo02
+        lda #>str_tag_low
         sta rp_ptr2+1
         lda #<$0334
         sta rp_addr
@@ -3695,7 +3695,7 @@ free_line:
         lda expr_val
         ldx expr_val+1
         sec                     ; padded
-        jsr io_putdec
+        jsr io_putdec_pd
 
         ; 8-bit extras if val < 256
         lda expr_val+1
@@ -3720,9 +3720,8 @@ free_line:
 
         ; signed decimal: "  +/-NNN"
         lda #' '
-        jsr io_putc
-        lda #' '
-        jsr io_putc
+        ldx #2
+        jsr io_repc
         lda expr_val
         bpl @sign_pos
         ; negative

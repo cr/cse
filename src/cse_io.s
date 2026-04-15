@@ -10,8 +10,8 @@
 ; Code: ~330 bytes.  RODATA: 76 bytes.  ZP: 4 bytes.  BSS: 2 bytes.
 
         .export io_init
-        .export io_putc, io_puts
-        .export io_puthex4, io_puthex2, io_putdec
+        .export io_putc, io_repc, io_puts
+        .export io_puthex4, io_puthex2, io_putdec, io_putdec_pd
         .export io_utoa, dec_buf
         .export io_clear_eol
         .export io_getc, io_kbhit
@@ -136,6 +136,20 @@ _col_clamp:
 :       sty CUR_COL
         rts
 
+; ── io_repc — repeat PETSCII char at cursor, advance  ─────────
+; A = PETSCII char, X = number of repetitions
+; clobbers X, Y, _io_tmp
+io_repc:
+        cpx #0
+        beq :+
+        stx _io_tmp
+@lp:    pha
+        jsr io_putc
+        pla
+        dec _io_tmp
+        bne @lp
+:       rts
+
 ; ── io_puts — write NUL-terminated PETSCII string ───────────
 ; A/X = string pointer (A=lo, X=hi)
 io_puts:
@@ -197,6 +211,7 @@ io_puthex2:
 
 io_putdec:
         clc
+io_putdec_pd:
         jsr io_utoa            ; A = offset
         clc
         adc #<dec_buf
