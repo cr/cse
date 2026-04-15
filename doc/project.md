@@ -175,38 +175,38 @@ character that the C64 keyboard cannot produce.  This is why OR is
 ### 3. CSE uses the lower/upper charset (lowercase mode)
 
 The screen operates in VICII charset 2 (lower/upper mode, VIC $D018
-bit 1 = 1).  PETSCII encoding:
+bit 1 = 1).  All encoding work uses **32-byte chunks** — never
+sub-ranges.
 
-- $41–$5A = **lowercase** a–z (unshifted keys, KERNAL GETIN)
-- $C1–$DA = **uppercase** A–Z (shifted keys, KERNAL GETIN)
-- $61–$7A = **also uppercase** A–Z (alternative range)
+| PETSCII | Contents | Screen code |
+|---------|----------|-------------|
+| $40–$5F | **lowercase** (a–z + symbols) | $00–$1F |
+| $60–$7F | **uppercase** (A–Z + symbols) ← preferred | $40–$5F |
+| $C0–$DF | uppercase (duplicate of $60–$7F) ← avoid | $40–$5F |
 
-**$41 is lowercase `a`, not uppercase `A`** — the opposite of ASCII.
+**$40–$5F = lowercase — the opposite of ASCII.**  PETSCII $41 is
+lowercase `a`, not uppercase `A`.
 
-Screen codes: $01–$1A = lowercase a–z, $41–$5A = uppercase A–Z.
+$60–$7F and $C0–$DF produce identical screencodes.  The round-trip
+through screen RAM is lossy: `read_line` maps both back to $40–$5F,
+collapsing the case distinction.  The REPL and assembler are
+case-insensitive by design.
 
-Both PETSCII $61–$7A and $C1–$DA map to the same screencodes
-$41–$5A (uppercase).  The round-trip through screen RAM is lossy:
-`read_line` maps all letters back to $41–$5A, collapsing the
-case distinction.  The REPL and assembler are case-insensitive
-by design — this is intentional.
-
-For the two uppercase PETSCII ranges ($61–$7A vs $C1–$DA): prefer
-**$61–$7A**.  It is the primary range for uppercase in the lower/upper
-charset, maps cleanly via `io_putc` (A − $20 → screencode), and
-does not conflict with control codes.  The $C1–$DA shifted range
-exists only for keyboard input compatibility.
+**Prefer $60–$7F for uppercase.**  It maps cleanly (A − $20), does
+not collide with the KERNAL shifted range, and is the canonical
+form for string constants.  $C0–$DF appears only in raw keyboard
+input (KERNAL GETIN) and must be folded to $40–$5F at the input
+boundary.
 
 ca65 character literals with `-t c64`: `'a'` = $41 (lowercase),
-`'A'` = $C1 (shifted uppercase).  For uppercase constants in code,
-use numeric values ($61) rather than ca65 shifted literals.
+`'A'` = $C1 (shifted — in the avoided $C0–$DF range).  For
+uppercase constants in code, use numeric values ($61) rather than
+ca65 shifted literals.
 See [feedback: ca65 char literals](../feedback_ca65_charlit.md).
 
-All internal text processing — command parsing, hex input, mnemonic
-matching, source text — uses PETSCII $41–$5A (lowercase).  Modules
-that receive raw keyboard input must fold $C1–$DA to $41–$5A.
-See [cse_io.md § Character Encoding Reference](cse_io.md#character-encoding-reference)
-for the full mapping tables.
+The full mapping tables and rules live in
+[cse_io.md § Character Encoding Reference](cse_io.md#character-encoding-reference)
+— that is the single source of truth.
 
 ### 4. CPU-specific code must be compile-time gated
 

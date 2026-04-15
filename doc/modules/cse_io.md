@@ -221,34 +221,39 @@ source of truth.
 #### PETSCII (how software stores text)
 
 KERNAL GETIN returns PETSCII.  All CSE strings, buffers, and the
-assembler/expression parser work in PETSCII.
+assembler/expression parser work in PETSCII.  Think in 32-byte
+chunks — never sub-ranges.
 
-| PETSCII | Meaning | Keyboard |
-|---------|---------|----------|
-| $20–$3F | space, digits, punctuation | unshifted |
-| $41–$5A | **lowercase** a–z | unshifted letter keys |
-| $61–$7A | **uppercase** A–Z (preferred range) | — |
-| $A0–$BF | shifted graphics / special chars (preferred range) | shifted |
-| $C1–$DA | **uppercase** A–Z (keyboard alias) | shifted letter keys |
-| $E0–$FF | shifted graphics / special chars (redundant mirror of $A0–$BF) | — |
+| PETSCII | Contents |
+|---------|----------|
+| $00–$1F | control codes |
+| $20–$3F | space, digits, punctuation |
+| $40–$5F | **lowercase** (letters a–z at $41–$5A, plus @[]↑← ) |
+| $60–$7F | **uppercase** (letters A–Z at $61–$7A, plus graphics) ← preferred |
+| $80–$9F | (control codes, shifted) |
+| $A0–$BF | shifted graphics / special chars ← preferred |
+| $C0–$DF | **uppercase** (duplicate of $60–$7F) ← avoid |
+| $E0–$FF | shifted graphics (duplicate of $A0–$BF) ← avoid |
 
-**The $41–$5A = lowercase convention is the opposite of ASCII.**
+**The $40–$5F = lowercase convention is the opposite of ASCII.**
 PETSCII $41 is lowercase `a`, not uppercase `A`.  This is the
 single most common source of confusion.
 
 #### Duplicate ranges and preferred usage
 
-PETSCII has redundant ranges that map to the same screen codes.
-CSE picks one canonical range for each and avoids the other:
+$60–$7F and $C0–$DF produce identical screencodes ($40–$5F).
+$A0–$BF and $E0–$FF produce identical screencodes ($60–$7F).
 
-| Screen code | Preferred PETSCII | Avoid | Why |
+CSE uses the preferred range and avoids the duplicate:
+
+| Screencodes | Preferred PETSCII | Avoid | Why |
 |-------------|-------------------|-------|-----|
-| $41–$5A (uppercase A–Z) | **$61–$7A** | $C1–$DA | $61 maps cleanly (A−$20), $C1 collides with shifted/control zone |
-| $60–$7F (graphics/specials) | **$A0–$BF** | $E0–$FF | $A0 maps cleanly (A−$40), $E0 is a redundant Commodore wiring quirk |
+| $40–$5F | **$60–$7F** | $C0–$DF | $60 maps cleanly (A−$20); $C0 is KERNAL keyboard shifted range |
+| $60–$7F | **$A0–$BF** | $E0–$FF | $A0 maps cleanly (A−$40); $E0 is a redundant Commodore wiring quirk |
 
 **Rule:** string constants and generated output must use the
-preferred ranges.  The avoided ranges exist only in keyboard input
-and must be folded at the input boundary (see "Where shifted
+preferred ranges.  The avoided ranges appear only in raw keyboard
+input and must be folded at the input boundary (see "Where shifted
 PETSCII appears" below).
 
 #### Screen codes (what VIC reads from $0400)
@@ -257,12 +262,10 @@ In the lower/upper charset:
 
 | Screen code | Displays as |
 |-------------|-------------|
-| $01–$1A | a–z (lowercase) |
+| $00–$1F | a–z (lowercase) |
 | $20–$3F | space, digits, punctuation |
-| $41–$5A | A–Z (uppercase) |
-| $00 | `@` |
-| $1B–$1F | `[`, `£`, `]`, `↑`, `←` |
-| $60–$7F | graphics/special characters |
+| $40–$5F | A–Z (uppercase) |
+| $60–$7F | graphics |
 | $80–$FF | reverse-video versions of $00–$7F |
 
 #### PETSCII → Screen Code (io_putc)
@@ -277,11 +280,10 @@ In the lower/upper charset:
 | $A0–$BF | $60–$7F | A − $40 | graphics/specials ($A0→$60) ← preferred |
 | $C0–$FF | $40–$7F | A − $80 | **uppercase** + graphics ($C1→$41, $E0→$60) ← avoid |
 
-The last row covers both $C1–$DA (uppercase alias) and $E0–$FF
-(graphics alias).  Both map to the same screencodes as the
-preferred ranges $61–$7A and $A0–$BF respectively.  The
-round-trip through screen RAM is **lossy** — the distinction
-between preferred and alias ranges is destroyed.
+The $C0–$FF row is the avoided-range counterpart of $60–$7F and
+$A0–$BF combined.  A single operation (A − $80) covers both
+duplications.  The round-trip through screen RAM is **lossy** —
+preferred and avoided PETSCII ranges become indistinguishable.
 
 #### Screen Code → PETSCII (read_line)
 
@@ -293,31 +295,30 @@ then converts:
 | $00–$1F | $40–$5F | A + $40 |
 | $20–$7F | $20–$7F | identity |
 
-**Critical consequence:** screencodes $01–$1A (lowercase a–z on
-screen) map to PETSCII $41–$5A.  Screencodes $41–$5A (uppercase
-A–Z on screen) map to PETSCII $41–$5A.  **Both cases produce the
-same PETSCII range.**  `read_line` is inherently case-insensitive —
-text round-tripped through screen RAM loses the uppercase/lowercase
-distinction.  This is by design: the REPL and assembler are
-case-insensitive.
+**Critical consequence:** screencodes $00–$1F (lowercase on screen)
+and $40–$5F (uppercase on screen) both map to PETSCII $40–$5F.
+**`read_line` is inherently case-insensitive** — text round-tripped
+through screen RAM loses the uppercase/lowercase distinction.
+This is by design: the REPL and assembler are case-insensitive.
 
-#### Where shifted PETSCII ($C1–$DA) appears
+#### Where $C0–$DF (avoided uppercase range) appears
 
-Shifted PETSCII only comes from **KERNAL GETIN** (keyboard input).
-It never appears in text that went through `read_line`, because the
-screen round-trip collapses it to $41–$5A.
+$C0–$DF only comes from **KERNAL GETIN** (raw keyboard input).
+It never appears in text that went through `read_line`, because
+the screen round-trip collapses both $40–$5F and $C0–$DF to
+PETSCII $40–$5F.
 
-Code that receives raw keyboard input (not screen-read text) must
-handle $C1–$DA explicitly.  Currently:
+Code that receives raw keyboard input must fold $C0–$DF → $40–$5F
+at the input boundary.  Currently:
 
-- `editor.s` — key handler folds $C1–$DA → screencodes for display
-- `_hex_val` in `repl.s` — accepts $C1–$C6 for hex A–F
-- `fold_char` in `symtab.s` — folds $C1–$DA → $41–$5A
-- Label scanner in `expr.s` — folds $C1–$DA in-place
-- Assembler in `asm_src.s` — folds $C1–$DA for mnemonics
+- `editor.s` — key handler folds $C0–$DF → screencodes for display
+- `_hex_val` in `repl.s` — accepts $C0–$DF for hex A–F
+- `fold_char` in `symtab.s` — folds $C0–$DF → $40–$5F
+- Label scanner in `expr.s` — folds $C0–$DF in-place
+- Assembler in `asm_src.s` — folds $C0–$DF for mnemonics
 
 Modules that only process screen-read text (via `read_line`) do
-NOT need $C1–$DA handling — they will never see it.
+NOT need $C0–$DF handling — they will never see it.
 
 ### IRQ Safety
 
