@@ -47,6 +47,8 @@
         .export list_directory
         .export disk_load_prg, disk_save_prg
         .export _save_addr, _save_size, _load_result
+        .export _save_name, _load_name
+        .export _op_witness
         .importzp disk_ptr, rp_tmp, buf_base, _io_tmp
 
 ; ── Exports: editor stubs ─────────────────────────────────────
@@ -71,7 +73,7 @@
 
 ; ── Import repl.s entry points ────────────────────────────────
         .import exec_line, read_line, show_prompt
-        .import cur_addr, cur_device, cur_filename
+        .import cur_addr, cur_device, cur_project_name
         .import line_buf, last_cmd, block_size
 
 ; ── Import cse_io row tables (for KERNAL PLOT stub) ───────────
@@ -81,10 +83,11 @@
 .segment "RODATA"
 sym_refs:
         .addr exec_line, read_line, show_prompt
-        .addr cur_addr, cur_device, cur_filename
+        .addr cur_addr, cur_device, cur_project_name
         .addr line_buf, last_cmd, block_size
         .addr newline_count, kplot_stub
         .addr _save_addr, _save_size, _load_result
+        .addr _save_name, _load_name, _op_witness
 
 ; ═══════════════════════════════════════════════════════════════
 ; BSS — test state + stubs (ZP provided by zp.s)
@@ -129,6 +132,10 @@ fl_buf:        .res 32
 _save_addr:    .res 2          ; addr passed to disk_save_prg
 _save_size:    .res 2          ; size passed to disk_save_prg
 _load_result:  .res 2          ; size returned by disk_load_prg
+_save_name:    .res 17         ; name passed to disk_save_prg/ed_save_source
+_load_name:    .res 17         ; name passed to disk_load_prg/ed_load_source
+_op_witness:   .res 1          ; 0=no op, 1=PRG save, 2=SEQ save,
+                                 ; 3=PRG load, 4=SEQ load
 
 ; Theme
 theme_border:  .res 1
@@ -363,13 +370,32 @@ floppy_read_status:
 list_directory:
         rts
 
-; disk_load_prg(name, addr) — returns size from _load_result
+; disk_load_prg(name, addr) — A/X = addr arg; name at disk_ptr.
+; Captures name into _load_name and sets _op_witness = 3 (PRG load).
+; Returns end address from _load_result (0/0 = error).
 disk_load_prg:
+        pha
+        lda #3
+        sta _op_witness
+        ; copy name (via disk_ptr) to _load_name
+        ldy #0
+@cp:    lda (disk_ptr),y
+        sta _load_name,y
+        beq @end
+        iny
+        cpy #16
+        bcc @cp
+        lda #0
+        sta _load_name,y
+@end:   pla
         lda _load_result
         ldx _load_result+1
         rts
 
-; disk_save_prg(name, addr, size) — capture params, return 0
+; disk_save_prg(name, addr, size) — A/X = size; addr in _io_tmp;
+; name at disk_ptr.
+; Captures name into _save_name and sets _op_witness = 1 (PRG save).
+; Returns 0 (success).
 disk_save_prg:
         sta _save_size
         stx _save_size+1
@@ -377,19 +403,61 @@ disk_save_prg:
         sta _save_addr
         lda _io_tmp+1
         sta _save_addr+1
+        lda #1
+        sta _op_witness
+        ; copy name (via disk_ptr) to _save_name
+        ldy #0
+@cp:    lda (disk_ptr),y
+        sta _save_name,y
+        beq @end
+        iny
+        cpy #16
+        bcc @cp
         lda #0
+        sta _save_name,y
+@end:   lda #0
         rts
 
 ; ═══════════════════════════════════════════════════════════════
 ; Editor stubs
 ; ═══════════════════════════════════════════════════════════════
 
+; ed_save_source(name) — A/X = name ptr.  Captures into _save_name
+; and sets _op_witness = 2 (SEQ save).  Returns 0 (success).
 ed_save_source:
+        sta rp_tmp
+        stx rp_tmp+1
+        lda #2
+        sta _op_witness
+        ldy #0
+@cp:    lda (rp_tmp),y
+        sta _save_name,y
+        beq @end
+        iny
+        cpy #16
+        bcc @cp
         lda #0
+        sta _save_name,y
+@end:   lda #0
         rts
 
+; ed_load_source(name) — A/X = name ptr.  Captures into _load_name
+; and sets _op_witness = 4 (SEQ load).  Returns 0 (success).
 ed_load_source:
+        sta rp_tmp
+        stx rp_tmp+1
+        lda #4
+        sta _op_witness
+        ldy #0
+@cp:    lda (rp_tmp),y
+        sta _load_name,y
+        beq @end
+        iny
+        cpy #16
+        bcc @cp
         lda #0
+        sta _load_name,y
+@end:   lda #0
         rts
 
 ed_ensure_init:

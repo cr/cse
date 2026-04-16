@@ -31,20 +31,19 @@ handler prints `; ok` and calls `seg_print_save` for the save command.
 
 ```
 ; asm...
-; org  0801-0814  20b
-; org  1000-1002  3b
-; org  2000-2003  4b
+; org  0801-0814    20b
+; org  1000-1002     3b
+; org  2000-2003     4b
 ; ok
-0801:s "t-org,p" $2004
+0801:s "t-org" $2004
 ```
 
 Segment lines are comments (`;` prefix, no `$` on addresses).
 The save command is an executable REPL line — placed last so
-cursor-up+return saves the PRG.  The filename comes from
-`cur_filename` with `,p` suffix; defaults to `"out,p"`.
-If `cur_filename` ends with `,s`, the `s` is temporarily replaced
-with `p` for display (then restored).  If no `,s` suffix is present,
-the name is printed as-is and `,p` is appended.
+cursor-up+return saves the PRG.  The filename is `cur_project_name`
+(or `"out"` if empty).  The address argument forces PRG mode, so
+the save writes to the derived disk filename `project.` (trailing
+dot).  See `repl.md` § Project-name and filename semantics.
 Suppressed when no segments were emitted (`_min_pc` == $FFFF).
 
 **Exported segment API:**

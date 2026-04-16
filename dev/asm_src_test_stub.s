@@ -35,7 +35,7 @@
         .export seg_line
         .export rp_addr, rp_cnt, rp_save2
         .export puts_imm
-        .export cur_filename
+        .export cur_project_name
         .export __CODE_RUN__    : absolute = $4000
 
         .import asm_assemble
@@ -56,7 +56,7 @@ _src_done:      .res 1      ; non-zero = EOF
 _test_src_buf:  .res 2048   ; source: NUL-terminated lines, $FF = EOF
 _bank_witness:  .res 1      ; OR of $01 at every ed_read_line call
                             ; (placed last so test_src_buf offset is unchanged)
-cur_filename:   .res 17     ; mock current filename (16 + NUL)
+cur_project_name:   .res 17     ; mock current filename (16 + NUL)
 
 ; ── CODE ──────────────────────────────────────────────────────────────────────
 .segment "CODE"

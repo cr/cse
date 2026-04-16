@@ -43,7 +43,10 @@ into memory at the current address.
    `c` to continue.
 
 Repeat.  The source stays in the editor buffer between runs.
-Save to disk with `s "NAME"` (SEQ file).
+Save the source with `s "PROJ"` — it stores the source as a SEQ file
+with the project name.  Save the assembled binary with any PRG-mode
+form (e.g. `s "PROJ" $end`) — it stores as `PROJ.` (trailing dot) so
+source and binary never collide.
 
 ### Current address
 
@@ -150,15 +153,26 @@ automatically falls back to step-over.
 
 | Command | Syntax | Description |
 |---------|--------|-------------|
-| `l` | `l "NAME"` | Load file from disk (SEQ->editor, PRG->memory) |
-| `s` | `s "NAME" [END]` or `s "NAME" START END` | Save (SEQ from editor, PRG from memory range) |
+| `l` | `l "PROJ"` / `l "PROJ" 0` / `l "PROJ" $addr` / `l "PROJ,p"` | Load source (SEQ) or binary (PRG); `0` uses PRG header addr |
+| `s` | `s "PROJ"` / `s "PROJ" $end` / `s "PROJ" $start $end` | Save source (SEQ) or binary (PRG) |
 | `$` | `$ [DEVICE]` | Directory listing (default device 8) |
 
-SEQ files are source code (loaded into the editor).
-PRG files are binary (loaded/saved at the current address).
-PRG address args are expressions: `s "file" $2000` saves cur_addr..$2000,
-`s "file" $1000 $2000` saves $1000..$2000.  If end < start, end is
-treated as relative length (end = start + end - 1).
+CSE is source-centric: a **project name** is a stem like `demo` that
+stands for both the source and the binary.  Disk filenames are derived:
+source is `demo` (SEQ), binary is `demo.` (trailing dot, PRG).  They
+can't collide in the CBM DOS directory.
+
+- Bare `l "demo"` / `s "demo"` loads/saves the **source**.
+- Any address argument forces **PRG** mode: `s "demo" $2000` saves the
+  binary as `demo.`; `l "demo" $c000` loads the binary to `$c000`,
+  `l "demo" 0` loads at the PRG header address.
+- Explicit `,s` or `,p` suffix bypasses derivation: `s "foo,p"` saves
+  as literal `foo` PRG; `l "foo,s"` loads literal `foo` SEQ.
+- Bare `s` or `l` (no string) reuses the last project name (default `out`).
+
+PRG save addresses: one arg is end (start = cur_addr); two args are
+start and end.  If end ≤ start, end is treated as length
+(end := start + end).  End = 0 means default to `start + block_size`.
 
 ### Utility
 

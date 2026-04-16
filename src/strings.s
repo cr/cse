@@ -188,7 +188,7 @@ s_exp_quot:     .byte "exp ", $22, 0
 s_bad_insn:     .byte "bad insn", 0
 s_save_s:       .byte "s ", $22, 0
 s_save_q_sp:    .byte $22, " $", 0
-s_save_default: .byte "out,p", 0
+s_save_default: .byte "out", 0
 s_trunc:        .byte ": truncated", 0
 
 ; ── expr error strings + dispatch tables ────────────────────

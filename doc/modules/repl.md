@@ -20,7 +20,9 @@ REPL command interpreter and screen output.  Hex parsing helpers
 **State:**
 - `cur_addr` (uint16) — current address, default $1000
 - `cur_device` (uint8) — disk device number, default 8
-- `cur_filename` (char[]) — last used filename
+- `cur_project_name` (char[]) — stem of the current project (without
+  trailing type marker or dot); used to derive disk filenames for
+  `l` and `s`.  Default `"out"` when empty.
 - `last_cmd` (char) — last command (for RETURN repeat)
 - `block_size` (uint16) — block size for m/d/f/>/+/-, default $10
 
@@ -55,7 +57,7 @@ Three levels: `LOG_ERR='?'` → `";?"`, `LOG_WARN='!'` → `";!"`,
 | `cur_device` | 1 | Floppy device number (default 8) |
 | `last_cmd` | 1 | Last executed command byte |
 | `block_size` | 2 | Block size for `+`/`-` commands |
-| `cur_filename` | 17 | Current filename (16 chars + NUL) |
+| `cur_project_name` | 17 | Project name stem (16 chars + NUL) |
 | `line_buf` | 42 | Screen line capture buffer |
 | `dot_asm_buf` | 24 | Inline assembler instruction buffer |
 | `rp_addr` | 2 | Working address (command processing) |
@@ -320,9 +322,98 @@ The REPL's line editor operates within the 40-column screen:
 
 | Key | Name   | Addressed | Example              | Notes                                   |
 |-----|--------|-----------|----------------------|-----------------------------------------|
-| `l` | load   | yes       | `1000:l "file"`      | Load PRG/SEQ; guards unsaved source      |
-| `s` | save   | yes       | `1000:s "file" $2000` | PRG: 1 arg=end, 2 args=start end (expr); remembers filename |
+| `l` | load   | yes       | `l "proj"`  / `l "proj" $c000` | Load SEQ by default; PRG when args present |
+| `s` | save   | yes       | `s "proj"`  / `s "proj" $2000` | Save SEQ by default; PRG when args present |
 | `$` | disk   | —         | `$`, `$9`             | Directory listing, drive select. See below. |
+
+### Project-name and filename semantics (`l` and `s`)
+
+The user interacts with projects by **stem name**, not disk filename.
+Disk filenames are derived from the project stem + mode.  For each project
+"proj":
+
+- **Source (SEQ)** lives on disk as the bare stem `proj`.
+- **Binary (PRG)** lives on disk as `proj.` (trailing dot).
+
+Two files with the same stem cannot coexist on a CBM DOS disk (the type
+byte in the directory doesn't disambiguate the filename lookup), so the
+trailing dot is how CSE distinguishes the two artefacts of one project.
+
+**Project name storage** (`cur_project_name`):
+The stem of the last-used project, updated whenever the user supplies a
+quoted name.  Default `"out"` when empty.  On store:
+1. Strip a trailing `,s` or `,p` suffix (if present).
+2. Strip any trailing dot(s) from the remaining string.
+3. Copy the result to `cur_project_name`.
+
+This prevents dot or suffix accumulation across consecutive saves.
+
+**Argument parsing** (shared between `l` and `s`, strictly positional):
+
+1. Optional `"quoted name"`.  Quotes required.
+2. Numeric args via the expression parser, up to two.  Stops at first
+   failed expression, `;`, or end of input.
+
+Count of numeric args → slots:
+
+| Args | start    | end   |
+|------|----------|-------|
+| 0    | cur_addr | 0     |
+| 1    | cur_addr | arg1  |
+| 2    | arg1     | arg2  |
+
+**Mode classification** (shared):
+
+- Name ends with `,s`/`,S` (comma at second-to-last position):
+  **SEQ (verbatim)** — use the bare name (suffix stripped).
+- Name ends with `,p`/`,P`: **PRG (verbatim)** — use the bare name.
+- Any other 2-char suffix starting with `,` is not recognised and
+  treated as part of the name (no verbatim classification, no strip).
+- Else if numeric args > 0: **PRG (derived)**.
+- Else: **SEQ (derived)**.
+
+**Disk filename**:
+
+- Verbatim: the bare typed name (suffix stripped, **trailing dot kept**).
+- SEQ (derived): `cur_project_name`.
+- PRG (derived): `cur_project_name` + `.`.
+
+**Save PRG end-address fallback** (save only, after start/end resolution):
+
+- `end == 0` → `end = start + block_size`.
+- Else if `end <= start` → `end = start + end` (length fallback).
+
+**Load semantics**:
+
+- SEQ: start and end are unused; load into editor via
+  `ed_load_source(name)`.
+- PRG: `end` is the target address.  `end == 0` → use the PRG header's
+  load address (SETLFS SA=1 path).  Otherwise load to `end` (SA=0 path).
+
+**Examples**:
+
+| Command | Mode | Disk name | Addresses |
+|---------|------|-----------|-----------|
+| `s "demo"`                  | SEQ derived | `demo`  | — (source) |
+| `s "demo" $1000`            | PRG derived | `demo.` | start=cur_addr end=$1000 |
+| `s "demo" $1000 $2000`      | PRG derived | `demo.` | start=$1000 end=$2000 |
+| `s "demo" $1000 $100`       | PRG derived | `demo.` | start=$1000 end=$1100 (fallback) |
+| `s "demo,p"`                | PRG verbatim | `demo` | start=cur_addr end=cur_addr+blocksize |
+| `s "demo,s"`                | SEQ verbatim | `demo` | — |
+| `s "demo.,p"`               | PRG verbatim | `demo.` | (dot preserved) |
+| `s`                         | reuse project | derived | — (SEQ if no args) |
+| `s $1000`                   | PRG, reuse project | `proj.` | start=cur_addr end=$1000 |
+| `l "demo"`                  | SEQ derived | `demo`  | load into editor |
+| `l "demo" 0`                | PRG derived | `demo.` | load at PRG header address |
+| `l "demo" $c000`            | PRG derived | `demo.` | load to $c000 |
+| `l "demo,p"`                | PRG verbatim | `demo` | load at PRG header |
+
+**Auto-generated save line (from `a`)**: after successful assembly
+`seg_print_save` emits `AAAA:s "project" $EEEE` where AAAA is the lowest
+origin and EEEE is one past the highest byte.  The address argument
+forces PRG mode; disk name becomes `project.`.  Pressing RETURN on this
+line saves the binary.  (Previously this line embedded `,p` in the
+filename; the derivation rule removes that need.)
 
 ### Commands — Info / Utility
 
@@ -340,16 +431,20 @@ The REPL's line editor operates within the 40-column screen:
 
 ### Unsaved-changes guard
 
-The `k` (kill), `l` (load SEQ), and `Q` (quit) commands either destroy
-the current source buffer or exit the program.  If the editor's dirty
-flag is set (buffer modified since last save/load), these commands
-prompt:
+The `k` (kill) and `Q` (quit) commands destroy the current source
+buffer or exit the program.  They use the shared `confirm_action`
+helper which prints:
 
-    ;unsaved. y/n?
+    ; del src? y/n     (clean)        or  ;!unsaved. del src? y/n   (dirty)
+    ; quit? y/n        (clean)        or  ;!unsaved. quit? y/n      (dirty)
 
-The user must press `y` to proceed.  Any other key cancels.
-PRG loads (`l` without `,s` suffix) do not trigger the guard because
-they don't touch the source buffer.
+LOG_INFO level when clean, LOG_WARN when dirty.  Any key other than
+`y` cancels.  `l` (SEQ load) uses `check_unsaved` which only prompts
+when dirty (no "load? y/n" confirmation when source is clean —
+loading fresh source is non-destructive in that case).
+
+PRG loads (`l` with numeric arg or `,p` suffix) do not trigger the
+guard because they don't touch the source buffer.
 
 The dirty flag is maintained by editor.s: set on any insert/delete,
 cleared on save (`ed_save_source`) and load (`ed_load_source`).
@@ -359,8 +454,15 @@ Exported as `ed_dirty` for repl.s to read.
 
 **`confirm_yn`** — shows the cursor (`cursor_show`), waits for a
 keypress (`io_getc`), hides the cursor (`cursor_hide`).  Returns
-Z=1 if the key was `y`.  Used by `check_unsaved`, `k` (kill), and
-`Q` (quit) prompts.
+Z=1 if the key was `y`.  Used by `confirm_action` and `check_unsaved`.
+
+**`confirm_action(A/X = action prompt str)`** — destructive-action
+prompt.  Prints `; <action>` when clean, `;!unsaved. <action>` when
+dirty, then reads y/n.  C=1 user accepted, C=0 cancelled.
+
+**`check_unsaved`** — SEQ-load-specific: prompts only when dirty (with
+`load? y/n`), silently proceeds when clean.  Thin wrapper that calls
+`confirm_action` only if `ed_dirty`.
 
 **`run_user`** — wraps `dbg_enter` for all commands that execute
 user code (`j`, `g`, `t`, `o`, `c`).  Saves `CUR_ROW`/`CUR_COL`
@@ -554,4 +656,6 @@ Each emitter starts at column 0 and calls `clear_eol` at the end.
   `t`, `o`, `B` accept full expressions (`$hex`, decimal, symbols,
   operators).  Bare digits are decimal — hex requires `$` prefix.
   The `AAAA:` prompt prefix remains plain hex.
-- File type (PRG vs SEQ) detected by `,s` suffix in filename.
+- File type (PRG vs SEQ) determined by: verbatim `,s`/`,p` suffix first;
+  otherwise plain names default to SEQ (no address args) or PRG (any
+  numeric args).  See § Project-name and filename semantics.

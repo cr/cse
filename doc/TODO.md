@@ -45,11 +45,12 @@ Open bugs, roughly ordered by priority.
 - [x] ~~One too many newline before floppy status~~ (fixed:
   disk_done's `log_close` was redundant — callers (prg_line,
   log_err) already close their line with a newline.  Phase 17.)
-- [x] ~~l/s accumulates `,p,p,p...` in cur_filename~~ (fixed:
-  asm_src's `seg_print_save` now recognises an existing `,p`
-  suffix and prints the name as-is instead of appending another.
-  `,s` suffix is still swapped to `,p` for the save command.
-  Phase 17.)
+- [x] ~~l/s accumulates `,p,p,p...` in cur_filename~~ (fixed
+  twice in Phase 17.  First pass: `seg_print_save` recognised an
+  existing `,p` suffix.  Final fix: the project-name refactor —
+  `cur_project_name` stores a clean stem (no suffix, no trailing
+  dot), so accumulation is impossible at the source.  See the
+  "Refactor internal default filename" item below.)
 - [x] ~~`r` command flags decode: the dash becomes a strange char~~
   (fixed: added `cmp #'a'; bcc @fp` before the `and #$DF` so
   non-alphabetic chars like `-` pass through unchanged.  The
@@ -224,23 +225,19 @@ Defined scope, needs work.
   Centers the target line on screen as much as possible.  Ties
   into assembler error line numbers — assemble, see error at
   line 42, type `e 42` to jump straight there.
-- [ ] `l`/`s` log line: always show actual file type suffix (`,s`
-  or `,p`) in the `; load/save "name"...` output, even when the
-  user omitted it.  The user should see what CBM DOS mode is used.
-- [ ] Refactor internal default filename to a global project name
-  without file type extension (e.g. `"test"`).  Actual filenames
-  `"test,s"` and `"test,p"` are derived on demand.  The project
-  name is set by source loads and saves only.  `l`/`s` without a
-  string argument derive from the project name; error if none set.
-  Replaces `cur_filename` (which stores the raw name with suffix).
-  **Note:** `"foo,s"` and `"foo,p"` cannot co-exist on a D64 —
-  CBM DOS ignores the type suffix for name uniqueness.  The
-  derivation scheme needs a different naming convention (e.g.
-  `"foo"` for source, `"foo.prg"` for binary, or user-specified).
-- [ ] Investigate more shared logic for `l`/`s` argument parsing
-  and filename handling.  `parse_ls_args`, `print_op_name`, and
-  `print_prg_range` are a start — look for further dedup in the
-  SEQ/PRG branches, error paths, and stats display.
+- [ ] `l`/`s` log line: always show the effective CBM DOS type
+  (SEQ vs PRG) in the `; load/save "name"...` output.  Under the
+  project-name refactor the on-disk name is derived (`stem` vs
+  `stem.`) and the user should still see which classification path
+  was taken when derivation was automatic.
+- [x] ~~Refactor internal default filename to a project name~~
+  (Phase 17.  `cur_filename` → `cur_project_name`, stem only
+  (no `,s`/`,p` suffix, no trailing dot).  Derivation: SEQ = stem,
+  PRG = stem + `.`.  Shared argument parsing between `l` and `s`
+  via `parse_ls_args` — positional, expression parser, 0-2 numeric
+  args.  Verbatim names (`,s`/`,p` suffix at tail) bypass
+  derivation.  See `doc/modules/repl.md` § Project-name and
+  filename semantics.)
 
 ### Debugger
 

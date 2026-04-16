@@ -142,7 +142,7 @@ class ReplSymbols:
         # BSS symbols from exports
         self.cur_addr    = exp['cur_addr']
         self.cur_device  = exp['cur_device']
-        self.cur_filename = exp['cur_filename']
+        self.cur_project_name = exp['cur_project_name']
         self.line_buf    = exp['line_buf']
         self.last_cmd    = exp['last_cmd']
         self.block_size  = exp['block_size']
@@ -177,12 +177,13 @@ class ReplSymbols:
         # This is fragile. Instead, read the RODATA sym_refs table!
         rodata_offs = mods[stub_mod].get('RODATA', 0)
         rodata_base = seg['RODATA'] + rodata_offs
-        # sym_refs table: 14 × 2-byte addresses at rodata_base
+        # sym_refs table: 17 × 2-byte addresses at rodata_base
         # [0]=exec_line, [1]=read_line, [2]=show_prompt,
-        # [3]=cur_addr, [4]=cur_device, [5]=cur_filename,
+        # [3]=cur_addr, [4]=cur_device, [5]=cur_project_name,
         # [6]=line_buf, [7]=last_cmd, [8]=block_size,
         # [9]=newline_count, [10]=kplot_stub,
-        # [11]=_save_addr, [12]=_save_size, [13]=_load_result
+        # [11]=_save_addr, [12]=_save_size, [13]=_load_result,
+        # [14]=_save_name, [15]=_load_name, [16]=_op_witness
         bin_data = BIN.read_bytes()
         def read_word(addr):
             """Read a 16-bit word from the binary file at the given memory address."""
@@ -198,6 +199,9 @@ class ReplSymbols:
         self.save_addr     = read_word(rodata_base + 11 * 2)
         self.save_size     = read_word(rodata_base + 12 * 2)
         self.load_result   = read_word(rodata_base + 13 * 2)
+        self.save_name     = read_word(rodata_base + 14 * 2)
+        self.load_name     = read_word(rodata_base + 15 * 2)
+        self.op_witness    = read_word(rodata_base + 16 * 2)
 
         # ZP
         self.expr_ptr = exp['expr_ptr']
@@ -830,128 +834,310 @@ class TestDotHexEdit:
 
 # ── R. Load/Save command tests ─────────────────────────────────────
 
-def get_cur_filename(cpu, rsyms):
-    """Read cur_filename as a Python string."""
+def get_cur_project_name(cpu, rsyms):
+    """Read cur_project_name as a Python string."""
     chars = []
     for i in range(17):
-        b = cpu.memory[rsyms.cur_filename + i]
+        b = cpu.memory[rsyms.cur_project_name + i]
         if b == 0:
             break
         chars.append(chr(b) if 0x20 <= b < 0x80 else '?')
     return ''.join(chars)
 
 
+# Operation witness codes (mirrors dev/repl_test_stub.s _op_witness)
+OP_NONE     = 0
+OP_PRG_SAVE = 1
+OP_SEQ_SAVE = 2
+OP_PRG_LOAD = 3
+OP_SEQ_LOAD = 4
+
+
+def get_name(cpu, base, maxlen=17):
+    """Read a NUL-terminated PETSCII name at `base` as a Python string."""
+    chars = []
+    for i in range(maxlen):
+        b = cpu.memory[base + i]
+        if b == 0:
+            break
+        chars.append(chr(b) if 0x20 <= b < 0x80 else '?')
+    return ''.join(chars)
+
+
+def clear_witness(cpu, rsyms):
+    """Reset disk/editor witnesses to detect stub invocation."""
+    cpu.memory[rsyms.op_witness] = OP_NONE
+    set_word(cpu, rsyms.save_addr, 0xFFFF)
+    set_word(cpu, rsyms.save_size, 0xFFFF)
+    # wipe name buffers
+    for i in range(17):
+        cpu.memory[rsyms.save_name + i] = 0
+        cpu.memory[rsyms.load_name + i] = 0
+
+
 class TestSaveCommand:
-    """PRG save via 's' command — argument parsing + disk stub witness."""
+    """Save via 's' command — argument parsing + disk stub witness.
 
-    def test_save_quoted_name_prg(self, rsyms):
-        """s "foo,p" saves as PRG with default block_size."""
+    New semantics (project-name-centric):
+      bare `s "name"`           → SEQ save, disk name = "name"
+      `s "name" $end`           → PRG save, disk name = "name."
+      `s "name,s"`              → verbatim SEQ, disk name = "name"
+      `s "name,p"`              → verbatim PRG, disk name = "name"
+      cur_project_name stores the stripped stem (no suffix, no trailing dot)
+    """
+
+    # ── Derivation (bare name → SEQ) ──────────────────────────────────
+
+    def test_save_seq_bare(self, rsyms):
+        """s "foo" → SEQ save; disk name = "foo"; project = "foo"."""
+        cpu = make_cpu(rsyms)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 's "foo"')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+        assert get_name(cpu, rsyms.save_name) == "FOO"
+
+    def test_save_prg_derived(self, rsyms):
+        """s "foo" $0900 → PRG save; disk name = "foo."; project = "foo"."""
         cpu = make_cpu(rsyms)
         set_cur_addr(cpu, rsyms, 0x0800)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 's "foo" $0900')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+        assert get_name(cpu, rsyms.save_name) == "FOO."
+        assert get_word(cpu, rsyms.save_addr) == 0x0800
+        assert get_word(cpu, rsyms.save_size) == 0x0100
+
+    def test_save_strip_trailing_dot(self, rsyms):
+        """s "foo." → project_name = "foo" (trailing dot stripped)."""
+        cpu = make_cpu(rsyms)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 's "foo."')
+        run_at(cpu, rsyms.exec_line)
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+
+    # ── Verbatim forms (,s/,p suffix disables derivation) ─────────────
+
+    def test_save_verbatim_seq(self, rsyms):
+        """s "foo,s" → verbatim SEQ; disk name = "foo"; project = "foo"."""
+        cpu = make_cpu(rsyms)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 's "foo,s"')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+        assert get_name(cpu, rsyms.save_name) == "FOO"
+
+    def test_save_verbatim_prg(self, rsyms):
+        """s "foo,p" → verbatim PRG; disk name = "foo" (no dot appended)."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x0800)
+        clear_witness(cpu, rsyms)
         set_line_buf(cpu, rsyms, 's "foo,p"')
         run_at(cpu, rsyms.exec_line)
-        assert get_cur_filename(cpu, rsyms) == "FOO,P"
-        assert get_word(cpu, rsyms.save_addr) == 0x0800
-        assert get_word(cpu, rsyms.save_size) == 0x0010  # block_size default
+        assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+        assert get_name(cpu, rsyms.save_name) == "FOO"
 
-    def test_save_with_end_addr(self, rsyms):
-        """0800:s "out,p" $0900 — end addr from expression."""
+    def test_save_verbatim_prg_with_dot(self, rsyms):
+        """s "foo.,p" → verbatim PRG keeps user's dot; project = "foo"."""
         cpu = make_cpu(rsyms)
         set_cur_addr(cpu, rsyms, 0x0800)
-        set_line_buf(cpu, rsyms, 's "out,p" $0900')
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 's "foo.,p"')
         run_at(cpu, rsyms.exec_line)
-        assert get_word(cpu, rsyms.save_addr) == 0x0800
-        assert get_word(cpu, rsyms.save_size) == 0x0100  # $0900 - $0800
+        assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+        assert get_name(cpu, rsyms.save_name) == "FOO."
 
-    def test_save_two_args(self, rsyms):
-        """s "out,p" $1000 $2000 — explicit start and end."""
-        cpu = make_cpu(rsyms)
-        set_line_buf(cpu, rsyms, 's "out,p" $1000 $2000')
-        run_at(cpu, rsyms.exec_line)
-        assert get_word(cpu, rsyms.save_addr) == 0x1000
-        assert get_word(cpu, rsyms.save_size) == 0x1000  # $2000 - $1000
+    # ── End-address table (save PRG) ──────────────────────────────────
 
-    def test_save_two_args_relative(self, rsyms):
-        """s "out,p" $1000 $100 — end < start → relative."""
-        cpu = make_cpu(rsyms)
-        set_line_buf(cpu, rsyms, 's "out,p" $1000 $100')
-        run_at(cpu, rsyms.exec_line)
-        assert get_word(cpu, rsyms.save_addr) == 0x1000
-        # end = $100 + $1000 - 1 = $10FF, size = $10FF - $1000 = $0FF
-        assert get_word(cpu, rsyms.save_size) == 0x00FF
-
-    def test_save_no_name_no_prev(self, rsyms):
-        """s with no name and no prior filename → error, no save."""
-        cpu = make_cpu(rsyms)
-        # Ensure cur_filename is empty
-        cpu.memory[rsyms.cur_filename] = 0
-        set_cur_addr(cpu, rsyms, 0x0800)
-        set_line_buf(cpu, rsyms, "s")
-        # Clear save witness
-        set_word(cpu, rsyms.save_size, 0xFFFF)
-        run_at(cpu, rsyms.exec_line)
-        # save_size should be untouched (stub not called)
-        assert get_word(cpu, rsyms.save_size) == 0xFFFF
-
-    def test_save_reuse_prev_name(self, rsyms):
-        """s "foo,p" then s (no name) reuses "foo,p"."""
+    def test_save_end_blocksize_fallback(self, rsyms):
+        """End=0 (no arg) → end = start + block_size."""
         cpu = make_cpu(rsyms)
         set_cur_addr(cpu, rsyms, 0x0800)
-        # First save establishes the name
-        set_line_buf(cpu, rsyms, 's "foo,p"')
-        run_at(cpu, rsyms.exec_line)
-        assert get_cur_filename(cpu, rsyms) == "FOO,P"
-        # Second save with no name
-        set_line_buf(cpu, rsyms, "s")
-        set_word(cpu, rsyms.save_size, 0)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 's "foo,p"')      # verbatim PRG, 0 args
         run_at(cpu, rsyms.exec_line)
         assert get_word(cpu, rsyms.save_addr) == 0x0800
-        assert get_word(cpu, rsyms.save_size) == 0x0010
+        assert get_word(cpu, rsyms.save_size) == 0x0010   # block_size
 
-    def test_save_unquoted_is_expr(self, rsyms):
-        """s $0900 — unquoted arg is end addr, not filename."""
+    def test_save_end_from_arg(self, rsyms):
+        """1 arg → start = cur_addr, end = arg."""
         cpu = make_cpu(rsyms)
         set_cur_addr(cpu, rsyms, 0x0800)
-        # Pre-set cur_filename in PETSCII (,p suffix → PRG path)
-        for i, ch in enumerate(b"prev,p"):
-            cpu.memory[rsyms.cur_filename + i] = ascii_to_petscii(ch)
-        cpu.memory[rsyms.cur_filename + 6] = 0
-        set_line_buf(cpu, rsyms, "s $0900")
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 's "foo" $0900')
         run_at(cpu, rsyms.exec_line)
         assert get_word(cpu, rsyms.save_addr) == 0x0800
         assert get_word(cpu, rsyms.save_size) == 0x0100
 
-    def test_save_addr_prefix(self, rsyms):
-        """0801:s "test,p" $2004 — assembler save command format."""
+    def test_save_two_args(self, rsyms):
+        """2 args → start = arg1, end = arg2."""
         cpu = make_cpu(rsyms)
-        set_line_buf(cpu, rsyms, '0801:s "test,p" $2004')
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 's "foo" $1000 $2000')
         run_at(cpu, rsyms.exec_line)
+        assert get_word(cpu, rsyms.save_addr) == 0x1000
+        assert get_word(cpu, rsyms.save_size) == 0x1000
+
+    def test_save_end_length_fallback(self, rsyms):
+        """2 args, end <= start → end = start + end (length fallback)."""
+        cpu = make_cpu(rsyms)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 's "foo" $1000 $100')
+        run_at(cpu, rsyms.exec_line)
+        assert get_word(cpu, rsyms.save_addr) == 0x1000
+        assert get_word(cpu, rsyms.save_size) == 0x0100   # arg2 as length
+
+    # ── Project-name reuse ────────────────────────────────────────────
+
+    def test_save_no_name_defaults_to_out(self, rsyms):
+        """Empty cur_project_name + bare `s` → defaults to "out"."""
+        cpu = make_cpu(rsyms)
+        cpu.memory[rsyms.cur_project_name] = 0
+        set_cur_addr(cpu, rsyms, 0x0800)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, "s")
+        run_at(cpu, rsyms.exec_line)
+        # "out" derives SEQ (no address args)
+        assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
+        assert get_name(cpu, rsyms.save_name) == "OUT"
+
+    def test_save_reuse_prev_name(self, rsyms):
+        """s "foo" then bare s → reuses "foo"."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x0800)
+        set_line_buf(cpu, rsyms, 's "foo"')
+        run_at(cpu, rsyms.exec_line)
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+        # Second invocation: no name → reuse
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, "s")
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
+        assert get_name(cpu, rsyms.save_name) == "FOO"
+
+    def test_save_unquoted_is_expr(self, rsyms):
+        """s $0900 — unquoted arg is end addr (args force PRG)."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x0800)
+        # pre-seed project name
+        for i, ch in enumerate(b"prev"):
+            cpu.memory[rsyms.cur_project_name + i] = ascii_to_petscii(ch)
+        cpu.memory[rsyms.cur_project_name + 4] = 0
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, "s $0900")
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
+        assert get_name(cpu, rsyms.save_name) == "PREV."
+        assert get_word(cpu, rsyms.save_addr) == 0x0800
+        assert get_word(cpu, rsyms.save_size) == 0x0100
+
+    def test_save_addr_prefix(self, rsyms):
+        """0801:s "test" $2004 — AAAA: prefix sets cur_addr (start)."""
+        cpu = make_cpu(rsyms)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, '0801:s "test" $2004')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
+        assert get_name(cpu, rsyms.save_name) == "TEST."
         assert get_word(cpu, rsyms.save_addr) == 0x0801
         assert get_word(cpu, rsyms.save_size) == 0x2004 - 0x0801
 
 
 class TestLoadCommand:
-    """PRG load via 'l' command — argument parsing."""
+    """Load via 'l' command — argument parsing + disk stub witness.
 
-    def test_load_quoted_name(self, rsyms):
-        """l "test" loads at cur_addr."""
-        cpu = make_cpu(rsyms)
-        set_cur_addr(cpu, rsyms, 0xC000)
-        # Pre-set load result to simulate 16 bytes loaded
-        set_word(cpu, rsyms.load_result, 0x0010)
-        set_line_buf(cpu, rsyms, 'l "test"')
-        run_at(cpu, rsyms.exec_line)
-        assert get_cur_filename(cpu, rsyms) == "TEST"
+    New semantics:
+      bare `l "name"`           → SEQ load (ed_load_source)
+      `l "name" $addr`          → PRG load, target = $addr
+      `l "name" 0`              → PRG load, target = PRG header addr
+      `l "name,s"`              → verbatim SEQ
+      `l "name,p"`              → verbatim PRG (no args needed)
+    """
 
-    def test_load_with_addr(self, rsyms):
-        """l "test" $d000 — explicit load address."""
+    # ── SEQ loads ─────────────────────────────────────────────────────
+
+    def test_load_seq_bare(self, rsyms):
+        """l "foo" → SEQ load; project = "foo"."""
         cpu = make_cpu(rsyms)
-        set_cur_addr(cpu, rsyms, 0xC000)
-        set_word(cpu, rsyms.load_result, 0x0010)
-        set_line_buf(cpu, rsyms, 'l "test" $d000')
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 'l "foo"')
         run_at(cpu, rsyms.exec_line)
-        # cur_addr stays $C000 (the AAAA: prefix sets it, not the arg)
-        assert get_cur_filename(cpu, rsyms) == "TEST"
+        assert cpu.memory[rsyms.op_witness] == OP_SEQ_LOAD
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+        assert get_name(cpu, rsyms.load_name) == "FOO"
+
+    def test_load_verbatim_seq(self, rsyms):
+        """l "foo,s" → verbatim SEQ."""
+        cpu = make_cpu(rsyms)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 'l "foo,s"')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_SEQ_LOAD
+        assert get_name(cpu, rsyms.load_name) == "FOO"
+
+    # ── PRG loads ─────────────────────────────────────────────────────
+
+    def test_load_prg_header_addr(self, rsyms):
+        """l "foo" 0 → PRG load at header address (end=0 triggers SA=1)."""
+        cpu = make_cpu(rsyms)
+        set_word(cpu, rsyms.load_result, 0x0900)  # simulated end addr
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 'l "foo" 0')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_PRG_LOAD
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+        assert get_name(cpu, rsyms.load_name) == "FOO."
+
+    def test_load_prg_with_addr(self, rsyms):
+        """l "foo" $c000 → PRG load to $c000."""
+        cpu = make_cpu(rsyms)
+        set_word(cpu, rsyms.load_result, 0xC010)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 'l "foo" $c000')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_PRG_LOAD
+        assert get_name(cpu, rsyms.load_name) == "FOO."
+
+    def test_load_verbatim_prg(self, rsyms):
+        """l "foo,p" → verbatim PRG load, disk name = "foo" (no dot)."""
+        cpu = make_cpu(rsyms)
+        set_word(cpu, rsyms.load_result, 0x0900)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 'l "foo,p"')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_PRG_LOAD
+        assert get_name(cpu, rsyms.load_name) == "FOO"
+
+    def test_load_verbatim_prg_with_dot(self, rsyms):
+        """l "foo.,p" → verbatim PRG, disk name keeps dot."""
+        cpu = make_cpu(rsyms)
+        set_word(cpu, rsyms.load_result, 0x0900)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 'l "foo.,p"')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_PRG_LOAD
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+        assert get_name(cpu, rsyms.load_name) == "FOO."
+
+    # ── Symmetry: round-trip project name ─────────────────────────────
+
+    def test_load_save_symmetry(self, rsyms):
+        """l "foo" then s (bare) saves as SEQ "foo"."""
+        cpu = make_cpu(rsyms)
+        set_line_buf(cpu, rsyms, 'l "foo"')
+        run_at(cpu, rsyms.exec_line)
+        assert get_cur_project_name(cpu, rsyms) == "FOO"
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, "s")
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
+        assert get_name(cpu, rsyms.save_name) == "FOO"
 
 
 # ── Q. Step into JSR — ROM target falls back to step-over ───────

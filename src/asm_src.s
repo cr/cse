@@ -33,7 +33,7 @@
         .import         define_ws_syms         ; mem.s
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
-        .import         cur_filename           ; repl.s — last loaded/saved filename
+        .import         cur_project_name           ; repl.s — last loaded/saved filename
         .importzp       buf_base                ; editor.s — gap buffer low bound
         .importzp       rp_ptr2                 ; zp.s — scratch pointer (repl/info_line)
         .importzp       asm_pc, asm_out, asm_cpu, asm_tmp, asm_tmp2
@@ -664,7 +664,12 @@ _seg_init:
 
 ; seg_print_save — print executable save command.
 ;   Called by repl @h_a after successful assembly (KERNAL banked in).
-;   Format: AAAA:s "name" $BBBB
+;   Format: AAAA:s "project" $BBBB
+;
+;   Project name is a clean stem (no `,s`/`,p` suffix, no trailing
+;   dot — parse_ls_args normalises before storing).  The presence of
+;   the `$BBBB` address argument alone tells the `s` command to save
+;   as PRG (derived name = stem + ".").
 seg_print_save:
         ; Skip if no segments (_min_pc still $FFFF sentinel)
         lda _min_pc
@@ -677,51 +682,15 @@ seg_print_save:
         lda #':'
         jsr io_putc
         puts s_save_s           ; "s ""
-        ; Filename: cur_filename if non-empty, else "out"
-        lda cur_filename
+        ; Filename: cur_project_name if non-empty, else "out"
+        lda cur_project_name
         bne @have_name
         puts s_save_default     ; "out"
         jmp @name_done
 @have_name:
-        ; Find end of string, check last 2 chars for ",s" or ",p"
-        ldy #0
-@fl:    lda cur_filename,y
-        beq @found_end
-        iny
-        bne @fl
-@found_end:
-        sty asm_tmp             ; save NUL index
-        cpy #2
-        bcc @do_add             ; too short for suffix → append ,p
-        lda cur_filename-2,y
-        cmp #','
-        bne @do_add
-        lda cur_filename-1,y
-        cmp #'p'
-        beq @do_print           ; already ",p" — print as-is
-        cmp #'s'
-        bne @do_add             ; unknown suffix → append ,p
-        ; ",s" suffix: swap 's' for 'p', print, restore
-        dey
-        lda #'p'
-        sta cur_filename,y
-        jsr @do_print
-        ldy asm_tmp
-        dey
-        lda #'s'
-        sta cur_filename,y
-        jmp @name_done
-@do_add:
-        jsr @do_print
-        lda #','
-        jsr io_putc
-        lda #'p'
-        jsr io_putc
-        jmp @name_done
-@do_print:
-        lda #<cur_filename
-        ldx #>cur_filename
-        jmp io_puts
+        lda #<cur_project_name
+        ldx #>cur_project_name
+        jsr io_puts
 @name_done:
         puts s_save_q_sp        ; "" $"
         lda _max_pc

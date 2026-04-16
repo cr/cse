@@ -12,6 +12,9 @@ and documentation.
 | **block size** | Number of bytes operated on by `m`, `d`, `f`, `t`, `h`, `+`, `-`.  Set by `b`. |
 | **block edit** | Workflow: dump a block (`d`/`m`), cursor to a line, edit in-place, RETURN. |
 | **cur_addr** | The REPL's current address.  Set by `AAAA:` prefix; advanced by commands. |
+| **project name** | User-facing identifier for a source+binary pair.  Stored in `cur_project_name` as a bare stem (no type suffix, no trailing dot).  The disk filename is derived: SEQ = stem, PRG = stem + `.`.  Default `"out"` when unset. |
+| **verbatim name** | A quoted filename with a `,s` or `,p` type suffix at the tail (`foo,s` / `foo,p`).  Tells `l`/`s` to use the bare name (suffix stripped) on disk with no derivation.  Lets the user bypass the project-name convention for ad-hoc files. |
+| **derived name** | Disk filename computed from `cur_project_name`: SEQ = stem, PRG = stem + `.`.  Used when the user supplies a plain quoted name (no `,m` suffix) or no quoted name at all. |
 
 ## Source language
 

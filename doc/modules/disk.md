@@ -51,6 +51,13 @@ KERNAL SETLFS secondary address selects the load mode:
 **Out:** A = 0 on success, nonzero on error
 **Clobbers:** A, X, Y
 
+Uses OPEN + CHKOUT + CHROUT + CLOSE (same flow as `disk_save_seq`),
+with a `,p,w` CBM DOS qualifier and `@:` save-with-replace prefix.
+Writes the 2-byte load-address header (little-endian) to the DOS
+data channel, then the payload bytes.  No `SAVE` KERNAL call — the
+caller already supplies the filename, `@:` overwrite is applied
+via `build_open_str` at type='p'.
+
 ### disk_load_seq
 **In:** A/X = insert callback; `disk_ptr` (ZP) = filename ptr
 **Out:** A = 0 on success, nonzero on error (includes empty file).
@@ -95,9 +102,13 @@ CHKIN, CHKOUT, CHRIN, CHROUT, LOAD, SAVE, READST, CLRCHN).
 
 **Device number** comes from `_cur_device` (imported from repl.s).
 
-**SEQ open strings** are built by `build_open_str`, which copies the
-filename into `open_buf` and appends `,s,r` (read) or `@:` prefix +
-`,s,w` (write, overwrite mode).
+**CBM DOS open strings** are built by `build_open_str`, which takes
+mode (`r`/`w` in A) and file type (`s` for SEQ, `p` for PRG in X).
+It copies the filename into `open_buf`, appends `,<type>,<mode>` if
+no existing type suffix is present, and prepends `@:` for write
+(save-with-replace).  Shared by SEQ and PRG save paths.
+`write_name_at` extracts just the `@:`-prefix logic for callers that
+don't need the `,type,mode` tail.
 
 **SEQ I/O uses callbacks** so disk.s never depends on editor.s.  The
 editor passes its insert function for loading and its read function

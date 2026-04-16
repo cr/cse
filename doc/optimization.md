@@ -512,7 +512,7 @@ the BSS byte and the save/restore sequence.
 
 ```asm
 ; before (9 bytes per iteration + 1 BSS)
-        lda cur_filename,y      ; Y = filename index
+        lda cur_project_name,y      ; Y = filename index
         pha
         txa                     ; X = screen col → Y
         tay
@@ -522,7 +522,7 @@ the BSS byte and the save/restore sequence.
         ... inc @fn_idx / ldy @fn_idx
 
 ; after (3 bytes per iteration, 0 BSS)
-        lda cur_filename,x      ; X = filename index
+        lda cur_project_name,x      ; X = filename index
         sta (ed_scr),y          ; Y = screen col
         inx
         iny

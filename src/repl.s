@@ -14,7 +14,7 @@
         .export log_line, log_open, log_close
         .export log_err, log_warn, log_info
         .export rp_addr, rp_cnt, rp_save2
-        .export cur_addr, cur_device, cur_filename
+        .export cur_addr, cur_device, cur_project_name
         .export block_size
         .export line_buf, last_cmd          ; TODO: remove after test_repl → C64Emu migration
 
@@ -143,7 +143,10 @@ cur_addr:      .res 2          ; current memory address (init by splash)
 cur_device:    .res 1          ; floppy device number (init by main.s)
 last_cmd:       .res 1          ; last command byte
 block_size:     .res 2          ; block size for I/O (init by main.s)
-cur_filename:  .res FILENAME_MAX + 1  ; current filename
+cur_project_name:  .res FILENAME_MAX + 1  ; stem (no ,m or trailing dot)
+disk_name_buf:     .res FILENAME_MAX + 2   ; composed disk name (stem + optional ".")
+_verbatim_type:    .res 1          ; 0 / 's' / 'p' from strip_and_classify
+_arg_count:        .res 1          ; 0, 1, or 2 — numeric args in last parse
 
 line_buf:       .res 42
 dot_asm_buf:    .res 24
@@ -2275,35 +2278,86 @@ VIC_MEMCTL = $D018
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; is_seq_file — classify filename by suffix.
-;   Default = SEQ; explicit ",p"/",P" = PRG.  Explicit ",s"/",S"
-;   also classifies as SEQ (redundant but accepted).
-;   rp_ptr = name pointer. Returns A=1 if SEQ, A=0 if PRG.
 ; ═══════════════════════════════════════════════════════════
-.proc is_seq_file
+; strip_and_classify — detect trailing ",m" type suffix on a
+;   NUL-terminated name at rp_ptr2 and optionally truncate.
+;
+;   In:  rp_ptr2 = name pointer (typically rp_ptr2 from parse_filename).
+;   Out: A = 0 (no suffix), 's' (verbatim SEQ), 'p' (verbatim PRG).
+;        If a suffix is detected, the comma is overwritten with NUL
+;        in place so the name pointer now points at the bare stem.
+;        Case-folded: ',S'/',s' → 's'; ',P'/',p' → 'p'.
+;   Clobbers: A, X, Y
+; ═══════════════════════════════════════════════════════════
+.proc strip_and_classify
         ldy #0
-@len:   lda (rp_ptr),y
+@len:   lda (rp_ptr2),y
         beq @got_len
         iny
         bne @len
 @got_len:
         cpy #2
-        bcc @seq                ; too short for suffix → default SEQ
+        bcc @none               ; too short for ",m" suffix
         dey
-        lda (rp_ptr),y          ; last char
+        lda (rp_ptr2),y         ; last char
+        ; Accept both 'p'/'s' ($50/$53, our default lowercase) and
+        ; 'P'/'S' ($D0/$D3, canonical uppercase).  Fold uppercase
+        ; → lowercase by clearing bit 7.
+        and #$7F
         cmp #'p'
-        beq @chk_comma_p
-        cmp #$D0                ; PETSCII uppercase P
-        bne @seq                ; anything else → SEQ
-@chk_comma_p:
+        beq @is_p
+        cmp #'s'
+        bne @none
+        lda #'s'
+        bne @found              ; always
+@is_p:  lda #'p'
+@found:
+        ; save classified char; check comma before it
+        pha
         dey
-        lda (rp_ptr),y
+        lda (rp_ptr2),y
         cmp #','
-        bne @seq
-        lda #0                  ; ",p" → PRG
+        beq @ok
+        pla                     ; comma wasn't there → no suffix
+        bne @none               ; always (A = 's' or 'p', both nonzero)
+@ok:    ; truncate at the comma: write NUL there
+        lda #0
+        sta (rp_ptr2),y
+        pla                     ; restore classified char
         rts
-@seq:   lda #1                  ; default SEQ
+@none:  lda #0
         rts
+.endproc
+
+; ═══════════════════════════════════════════════════════════
+; copy_stem_to_project — copy NUL-terminated name from rp_ptr2
+;   to cur_project_name, with trailing-dot stripping.
+;   Dots at the END of the name are not stored (prevents dot
+;   accumulation when the user re-types the PRG-derived name).
+;   Internal dots (e.g. "foo.bar") are preserved.
+;   Empty source overwrites project name with empty string.
+;   Clobbers: A, X, Y
+; ═══════════════════════════════════════════════════════════
+.proc copy_stem_to_project
+        ldy #0
+@cp:    lda (rp_ptr2),y
+        sta cur_project_name,y
+        beq @strip              ; copy hit NUL → start trailing-dot strip
+        iny
+        cpy #FILENAME_MAX
+        bcc @cp
+        lda #0
+        sta cur_project_name,y  ; force NUL at max
+@strip: ; back up over any trailing dots, replacing with NUL
+@sl:    dey
+        bmi @done               ; string was entirely dots (or empty)
+        lda cur_project_name,y
+        cmp #'.'
+        bne @done
+        lda #0
+        sta cur_project_name,y
+        jmp @sl
+@done:  rts
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -2355,41 +2409,64 @@ VIC_MEMCTL = $D018
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; get_filename — parse and remember filename
-;   rp_ptr = input. Returns: rp_ptr2 = name, A=0 if no name.
-;   Copies to cur_filename if new name found.
+; get_filename — parse quoted name and store into project name.
+;
+;   In:  rp_ptr = input line ptr.
+;   Out: rp_ptr2 = pointer to stripped name (in line_buf for quoted
+;           input, or cur_project_name for reuse).
+;        _verbatim_type = 0 / 's' / 'p' from strip_and_classify.
+;        cur_project_name updated (stripped stem, trailing dots removed)
+;           if a quoted name was supplied.
+;        A = 0 / Z=1 if no name at all (neither typed nor remembered
+;          nor default-able — only happens if default "out" logic
+;          is disabled, which currently it isn't; so always A=1 here).
+;   Uses: parse_filename, strip_and_classify, copy_stem_to_project.
 ; ═══════════════════════════════════════════════════════════
 .proc get_filename
+        lda #0
+        sta _verbatim_type
         jsr parse_filename
-        bne @got_name
+        beq @reuse
 
-        ; no name in args — try cur_filename
-        lda cur_filename
-        beq @fail
-        lda #<cur_filename
+        ; quoted name present; rp_ptr2 → typed name in line_buf
+        jsr strip_and_classify   ; returns A = 0/'s'/'p'; truncates suffix
+        sta _verbatim_type
+        beq @from_typed         ; non-verbatim → derive from stem below
+        ; verbatim: rp_ptr2 is the typed name (already truncated at
+        ; the ",m" by strip_and_classify).  Trailing dot is kept.
+        ; Still update cur_project_name so bare reuse works next time.
+        jsr copy_stem_to_project
+        lda #1
+        rts
+@from_typed:
+        ; non-verbatim: store stem, then return rp_ptr2 = cur_project_name
+        jsr copy_stem_to_project
+        lda #<cur_project_name
         sta rp_ptr2
-        lda #>cur_filename
+        lda #>cur_project_name
         sta rp_ptr2+1
         lda #1
         rts
 
-@got_name:
-        ; copy name to cur_filename (rp_ptr2 = source)
-        ldy #0
-@copy:  lda (rp_ptr2),y
-        sta cur_filename,y
-        beq @copy_done
-        iny
-        cpy #FILENAME_MAX
-        bcc @copy
-        ; max reached, NUL-terminate
+@reuse:
+        ; no quoted name — reuse cur_project_name (or "out" if empty)
+        lda cur_project_name
+        bne @ok
+        ; default to "out"
+        lda #'o'
+        sta cur_project_name+0
+        lda #'u'
+        sta cur_project_name+1
+        lda #'t'
+        sta cur_project_name+2
         lda #0
-        sta cur_filename,y
-@copy_done:
+        sta cur_project_name+3
+@ok:
+        lda #<cur_project_name
+        sta rp_ptr2
+        lda #>cur_project_name
+        sta rp_ptr2+1
         lda #1
-        rts
-
-@fail:  lda #0
         rts
 .endproc
 
@@ -2530,36 +2607,159 @@ disk_done:
         jmp io_clear_eol
 
 ; ═══════════════════════════════════════════════════════════
-; parse_ls_args — shared l/s entry: parse filename, detect SEQ/PRG.
-;   Out: Z=1 → no name (caller prints error).
-;         Z=0, A=1 → SEQ.  Z=0, A=0 → PRG.
-;   Side: rp_addr=cur_addr, rp_next_lo=name ptr, rp_ptr advanced.
+; parse_ls_args — shared l/s entry point.
+;
+;   Parses (in order):
+;     1. Optional "quoted name" — see get_filename.
+;     2. Up to two numeric args via try_expr (stops at first failure,
+;        ';' or end of input).
+;
+;   Resolves:
+;     rp_addr, rp_cnt (16-bit each):
+;       args=0 → start=cur_addr, end=0
+;       args=1 → start=cur_addr, end=arg1
+;       args=2 → start=arg1, end=arg2
+;     rp_next_lo = ptr to the "name for DOS" (verbatim typed name or
+;       cur_project_name stem, per get_filename).
+;     _arg_count = 0, 1, or 2.
+;     _verbatim_type = 0 / 's' / 'p' (set by get_filename).
+;
+;   Classifies the operation mode:
+;     _verbatim_type='s'/'S' → SEQ (verbatim)
+;     _verbatim_type='p'/'P' → PRG (verbatim)
+;     else if _arg_count > 0 → PRG (derived)
+;     else                   → SEQ (derived)
+;
+;   Out: A = 2 SEQ / 1 PRG (Z always 0 — "no name" no longer fails
+;        because we default-fill project name to "out" on empty).
 ; ═══════════════════════════════════════════════════════════
 parse_ls_args:
-        jsr load_curaddr
-        jsr get_filename
-        beq @ret                ; Z=1: no name
-        ; Save name ptr + args ptr (is_seq_file needs rp_ptr)
-        lda rp_ptr
-        pha
-        lda rp_ptr+1
-        pha
+        jsr load_curaddr         ; rp_addr = cur_addr (tentative start)
+        jsr get_filename         ; sets _verbatim_type, rp_ptr2 = name ptr
+
+        ; publish the DOS-facing name pointer for now (may get re-pointed
+        ; at the composed disk name later)
         lda rp_ptr2
         sta rp_next_lo
-        sta rp_ptr
         lda rp_ptr2+1
         sta rp_next_lo+1
-        sta rp_ptr+1
-        jsr is_seq_file         ; A=1 SEQ, A=0 PRG
-        clc
-        adc #1                  ; A=2 SEQ, A=1 PRG (Z=0 always)
-        tax                     ; save result
-        pla
-        sta rp_ptr+1            ; restore args ptr
-        pla
-        sta rp_ptr
-        txa                     ; restore result (Z=0)
-@ret:   rts
+
+        ; parse up to two numeric args
+        lda #0
+        sta _arg_count
+        lda #0                   ; default end = 0 (sentinel)
+        sta rp_cnt
+        sta rp_cnt+1
+
+        jsr @peek_args
+        beq @classify            ; no first arg
+
+        jsr try_expr
+        bcc @classify            ; expression failed → treat as 0 args
+        inc _arg_count
+        ; first arg lands in rp_cnt (as tentative end).  If a second
+        ; arg follows, we'll promote it to start and use arg2 as end.
+        lda expr_val
+        sta rp_cnt
+        lda expr_val+1
+        sta rp_cnt+1
+
+        jsr @peek_args
+        beq @classify
+        ; second arg: first arg becomes start, second is end
+        lda rp_cnt
+        sta rp_addr
+        lda rp_cnt+1
+        sta rp_addr+1
+        jsr try_expr
+        bcc @classify
+        inc _arg_count
+        lda expr_val
+        sta rp_cnt
+        lda expr_val+1
+        sta rp_cnt+1
+
+@classify:
+        ; Mode: verbatim wins; else args>0 → PRG; else SEQ.
+        ; _verbatim_type is 'p' / 's' / 0 (set by strip_and_classify).
+        lda _verbatim_type
+        beq @no_verb
+        cmp #'p'
+        beq @prg
+        bne @seq
+@no_verb:
+        lda _arg_count
+        bne @prg
+@seq:   lda #2                  ; SEQ code for cmd_load/cmd_write
+        rts
+@prg:   lda #1                  ; PRG code
+        rts
+
+        ; @peek_args: check if another numeric arg follows.
+        ; Returns Z=1 if nothing (NUL / ';'), Z=0 otherwise.
+@peek_args:
+        jsr skip_sp_ptr1
+        ldy #0
+        lda (rp_ptr),y
+        beq :+
+        cmp #';'
+        beq :+
+        lda #1                  ; anything non-terminator
+        rts
+:       lda #0                  ; terminator
+        rts
+
+; ═══════════════════════════════════════════════════════════
+; compose_disk_name — build the CBM DOS filename into disk_name_buf.
+;
+;   In:  A = mode (1 PRG, 2 SEQ — as returned by parse_ls_args).
+;        _verbatim_type: 0 (derive) or $50/$53 (verbatim, no derive).
+;        rp_next_lo = ptr to source name (either the typed verbatim
+;          name in line_buf, or cur_project_name for derived paths).
+;   Out: disk_name_buf filled with NUL-terminated name.  For PRG
+;        derived, a `.` is appended.  Otherwise the source name is
+;        copied verbatim.
+;        rp_next_lo is updated to point at disk_name_buf.
+;   Clobbers: A, X, Y
+; ═══════════════════════════════════════════════════════════
+.proc compose_disk_name
+        pha                     ; save mode for later
+        ; move source pointer (rp_next_lo is BSS) into ZP rp_ptr2
+        lda rp_next_lo
+        sta rp_ptr2
+        lda rp_next_lo+1
+        sta rp_ptr2+1
+        ; copy source (up to FILENAME_MAX) into disk_name_buf
+        ldy #0
+@cp:    lda (rp_ptr2),y
+        sta disk_name_buf,y
+        beq @end
+        iny
+        cpy #FILENAME_MAX
+        bcc @cp
+        lda #0
+        sta disk_name_buf,y
+@end:   ; Y = NUL index
+        pla                     ; A = mode (1 PRG, 2 SEQ)
+        cmp #1
+        bne @finish             ; not PRG → done
+        ; PRG: if non-verbatim, append '.'
+        lda _verbatim_type
+        bne @finish
+        ; append '.' and NUL
+        lda #'.'
+        sta disk_name_buf,y
+        iny
+        lda #0
+        sta disk_name_buf,y
+@finish:
+        ; re-point rp_next_lo at the composed buffer
+        lda #<disk_name_buf
+        sta rp_next_lo
+        lda #>disk_name_buf
+        sta rp_next_lo+1
+        rts
+.endproc
 
 ; ═══════════════════════════════════════════════════════════
 ; print_op_name — print "; verb "name"..." log line (stays open).
@@ -2587,18 +2787,31 @@ print_op_name:
 ; ═══════════════════════════════════════════════════════════
 ; cmd_load — 'l' command
 ;   rp_ptr = args
+;
+;   parse_ls_args has already set:
+;     rp_addr, rp_cnt per the 0/1/2-arg table:
+;       0 args → start=cur_addr, end=0
+;       1 arg  → start=cur_addr, end=arg1
+;       2 args → start=arg1,     end=arg2
+;     rp_next_lo = name ptr (either verbatim line_buf or
+;                  cur_project_name, depending on _verbatim_type).
+;     A on return = 2 SEQ / 1 PRG.
+;
+;   Load interpretation:
+;     SEQ: addr/end ignored — ed_load_source(name).
+;     PRG: end == 0 → load to PRG header address (SA=1 path).
+;          end != 0 → load to `end` (SA=0 path).  `start` is unused.
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_load
-        jsr parse_ls_args
-        bne @have_name
-        lda #<str_no_name
-        ldx #>str_no_name
-        jmp log_err_eol
-@have_name:
-        cmp #2                  ; 2=SEQ, 1=PRG (from parse_ls_args)
+        jsr parse_ls_args       ; A = 2 SEQ / 1 PRG
+        pha                     ; save mode
+        jsr compose_disk_name_from_a
+        pla                     ; restore mode
+        cmp #2
         bne @load_prg
 
-        ; SEQ: guard unsaved before overwriting source
+        ; ── SEQ load ──
+        ; guard unsaved before overwriting source
         jsr check_unsaved
         jcc @l_cancel
 
@@ -2606,7 +2819,6 @@ print_op_name:
         ldx #>str_load_pfx
         jsr print_op_name
 
-        ; SEQ: ed_load_source(name)
         lda rp_next_lo
         ldx rp_next_lo+1
         jsr ed_load_source     ; A=error: 0=ok, 1=disk/empty, 2=too large
@@ -2614,7 +2826,6 @@ print_op_name:
         beq @seq_ok
         cmp #2
         beq @seq_too_large
-        ; generic disk/empty error
         jsr restore_name_ptr
         jsr io_err_load
         jmp @done
@@ -2636,30 +2847,19 @@ print_op_name:
         jmp @done
 
 @load_prg:
-        ; Optional address arg: l "file" $c000
-        jsr skip_peek_ptr1
-        beq @l_addr_ok
-        cmp #';'
-        beq @l_addr_ok
-        jsr try_expr
-        bcc @l_err
-        lda expr_val
-        sta rp_addr
-        lda expr_val+1
-        sta rp_addr+1
-@l_addr_ok:
         lda #<str_load_pfx
         ldx #>str_load_pfx
         jsr print_op_name
 
-        ; PRG: disk_load_prg(name, addr) — name in disk_ptr, A/X=addr
+        ; PRG: target address = rp_cnt (end slot from parse_ls_args).
+        ; rp_cnt==0 → let disk_load_prg use the PRG header address.
         lda rp_next_lo
         sta disk_ptr
         lda rp_next_lo+1
         sta disk_ptr+1
-        lda rp_addr
-        ldx rp_addr+1
-        jsr disk_load_prg      ; A/X = end addr (0/0 on error)
+        lda rp_cnt
+        ldx rp_cnt+1
+        jsr disk_load_prg       ; A/X = end addr (0/0 on error)
         sta rp_cnt              ; end lo
         stx rp_cnt+1            ; end hi
         ora rp_cnt+1
@@ -2672,24 +2872,39 @@ print_op_name:
         jsr prg_line
         jmp @done
 
-@l_err:
 @l_cancel:
         jmp nl_clear
 @done:  jmp disk_done
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
+; compose_disk_name_from_a — wrapper that preserves A before
+;   invoking compose_disk_name (which clobbers A).
+;   compose_disk_name re-points rp_next_lo at disk_name_buf.
+; ═══════════════════════════════════════════════════════════
+compose_disk_name_from_a:
+        pha
+        jsr compose_disk_name
+        pla
+        rts
+
+; ═══════════════════════════════════════════════════════════
 ; cmd_write — 's' command (save/write)
 ;   rp_ptr = args
+;
+;   parse_ls_args already produced rp_addr/rp_cnt per the table
+;   (see cmd_load) and classified mode (A = 2 SEQ / 1 PRG).
+;
+;   Save-only end-address fallback (PRG):
+;     end == 0    → end = start + block_size
+;     end <= start → end = start + end      (length fallback)
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_write
-        jsr parse_ls_args
-        bne @have_name
-        lda #<str_no_name
-        ldx #>str_no_name
-        jmp log_err_eol
-@have_name:
-        cmp #2                  ; 2=SEQ, 1=PRG
+        jsr parse_ls_args       ; A = 2 SEQ / 1 PRG
+        pha
+        jsr compose_disk_name_from_a
+        pla
+        cmp #2
         bne @save_prg
 
         ; ── SEQ save ──
@@ -2715,15 +2930,11 @@ print_op_name:
         jmp @done
 
 @save_prg:
-        ; ── PRG: parse address args ──
-        ;   no args  → end=start+block_size
-        ;   one arg  → end=arg1
-        ;   two args → start=arg1, end=arg2 (end<start: relative)
-        jsr skip_peek_ptr1
-        beq @no_args
-        cmp #';'
-        bne @parse_args
-@no_args:
+        ; ── end fallback ──
+        ; end == 0 → start + block_size
+        lda rp_cnt
+        ora rp_cnt+1
+        bne @not_zero
         lda rp_addr
         clc
         adc block_size
@@ -2731,52 +2942,29 @@ print_op_name:
         lda rp_addr+1
         adc block_size+1
         sta rp_cnt+1
-        jmp @have_end
-@arg_err:
-        jmp nl_clear
-@parse_args:
-        jsr try_expr
-        bcc @arg_err
-        lda expr_val
-        sta rp_cnt
-        lda expr_val+1
-        sta rp_cnt+1
-        ; Second arg?
-        jsr skip_peek_ptr1
-        beq @have_end
-        cmp #';'
-        beq @have_end
-        lda rp_cnt
-        sta rp_addr
-        lda rp_cnt+1
-        sta rp_addr+1
-        jsr try_expr
-        bcc @arg_err
-        lda expr_val
-        sta rp_cnt
-        lda expr_val+1
-        sta rp_cnt+1
-        ; if end < start: end = end + start - 1
+        jmp @validate
+@not_zero:
+        ; end <= start → end = start + end (length fallback)
         lda rp_cnt+1
         cmp rp_addr+1
-        bcc @rel
-        bne @have_end
+        bcc @add_len
+        bne @validate
         lda rp_cnt
         cmp rp_addr
-        bcs @have_end
-@rel:   lda rp_cnt
+        bcc @add_len
+        beq @add_len
+        bne @validate
+@add_len:
+        lda rp_cnt
         clc
         adc rp_addr
         sta rp_cnt
         lda rp_cnt+1
         adc rp_addr+1
         sta rp_cnt+1
-        lda rp_cnt
-        bne :+
-        dec rp_cnt+1
-:       dec rp_cnt
-@have_end:
-        ; Validate: end > start
+
+@validate:
+        ; end must be > start
         lda rp_cnt+1
         cmp rp_addr+1
         jcc @range_err
@@ -2810,7 +2998,7 @@ print_op_name:
         sta _io_tmp+1           ; start addr hi
         lda rp_next_hi
         ldx rp_next_hi+1
-        jsr disk_save_prg      ; A=error
+        jsr disk_save_prg       ; A=error
         cmp #0
         beq @prg_ok
         jsr restore_name_ptr

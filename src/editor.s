@@ -22,7 +22,7 @@
         .import disk_save_seq, disk_load_seq
         .import disk_seq_bytes, disk_seq_lines
         .import cse_start
-        .import cur_filename
+        .import cur_project_name
         .import state
         .import scr_lo, scr_hi
         .import sym_define
@@ -462,7 +462,7 @@ _ed_cur_row:
 .proc ed_new
         jsr ed_init
         lda #0
-        sta cur_filename
+        sta cur_project_name
         rts
 .endproc
 
@@ -1137,11 +1137,11 @@ _ed_cur_row:
         sta (ed_scr),y
 
         ; Filename (cols 1-17)
-        lda cur_filename
+        lda cur_project_name
         beq @no_name
-        ; Find length of cur_filename
+        ; Find length of cur_project_name
         ldy #0
-@flen:  lda cur_filename,y
+@flen:  lda cur_project_name,y
         beq @flen_done
         iny
         cpy #FILENAME_MAX_LEN
@@ -1153,7 +1153,7 @@ _ed_cur_row:
         bcc @fn_copy
         dey
         dey
-        lda cur_filename,y
+        lda cur_project_name,y
         cmp #','
         bne @fn_copy
         sty @fn_len             ; stripped 2 chars
@@ -1165,7 +1165,7 @@ _ed_cur_row:
         bcs @no_name
         cpy #18
         bcs @no_name
-        lda cur_filename,x
+        lda cur_project_name,x
         ; PETSCII→screencode for filename
         cmp #$41
         bcc @fn_noconv
