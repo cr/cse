@@ -358,9 +358,13 @@ dbg_step_clear:
 ; ── dbg_enter ─────────────────────────────────────────────────────────
 ; void dbg_enter(void);
 ;
-; Saves CSE ZP, patches breakpoints, enters user code via JSR+JMP.
-; User code shares the CSE 6502 stack.  Returns normally after the
-; BRK/NMI handler strips its frame and RTS back here.
+; Saves CSE ZP, patches breakpoints, then jsr @tramp to enter user
+; code.  @tramp swaps the hardware stack page with user_stack_buf
+; (KBSS), loads user A/X/Y/P from reg_*, and jmp (brk_pc).  One of
+; three exit paths (BRK, NMI, or clean_rts_trampoline) captures
+; user state then jmp swap_back, which memcpys CSE's image back
+; into the stack page and rts'es to the "after jsr @tramp" point
+; below — where we then unpatch BPs, restore CSE ZP, and return.
 ;
 ; Before calling: set brk_pc to target address, _reg_* to desired
 ; register state, step_bp slots for step targets.
@@ -441,7 +445,7 @@ dbg_enter:
         sta dbg_running
 
         ; ── Save CSE's stack image → cse_stack_buf ─────────
-        ; Pure writes to KBSS; bank-agnostic.
+        ; Pure writes to KBSS; bank-agnostic.  Loop exits with X=0.
         ldx #0
 @s_cse: lda $0100,x
         sta cse_stack_buf,x
@@ -449,10 +453,10 @@ dbg_enter:
         bne @s_cse
 
         ; ── Load user's stack image → hardware stack page ──
-        ; Read from KBSS requires KERNAL banked out.
+        ; Read from KBSS requires KERNAL banked out.  X = 0 from
+        ; the save loop above.
         lda #MEM_CFG_KERNAL_OUT
         sta $01
-        ldx #0
 @l_usr: lda user_stack_buf,x
         sta $0100,x
         inx
@@ -489,6 +493,7 @@ dbg_enter:
 ;        Clobbers A and X.
 swap_back:
         ; Save user's stack image → user_stack_buf (pure writes).
+        ; Loop exits with X=0, reused below.
         ldx #0
 @s_usr: lda $0100,x
         sta user_stack_buf,x
@@ -498,7 +503,6 @@ swap_back:
         ; Load CSE's stack image back → hardware page (KBSS read).
         lda #MEM_CFG_KERNAL_OUT
         sta $01
-        ldx #0
 @l_cse: lda cse_stack_buf,x
         sta $0100,x
         inx
