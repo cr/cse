@@ -285,19 +285,32 @@ RTS chain pops exactly what it expects.
 
 ```
 1. tsx; stx cse_sp                        ; remember where CSE was
-2. memcpy $0100..$01FF → cse_stack_buf    ; stash CSE's image
-3. bank KERNAL out                        ; needed for step 4
-4. memcpy user_stack_buf → $0100..$01FF   ; load user's image
-5. bank KERNAL in ($01 = $36)
-6. ldx reg_sp; txs                        ; switch to user SP
-7. lda reg_p; pha; lda reg_a; ldx reg_x;
-   ldy reg_y; plp                         ; install user regs
-8. jmp (brk_pc)                           ; user code runs
+2. sei                                    ; ── IRQ-safety (see below)
+3. memcpy $0100..$01FF → cse_stack_buf    ; stash CSE's image
+4. bank KERNAL out                        ; needed for step 5
+5. memcpy user_stack_buf → $0100..$01FF   ; load user's image
+6. bank KERNAL in ($01 = $36)
+7. ldx reg_sp; txs                        ; switch to user SP
+8. lda reg_p; pha; lda reg_a; ldx reg_x;
+   ldy reg_y; plp                         ; install user regs (P via pha/plp;
+                                          ; plp also restores user's I state)
+9. jmp (brk_pc)                           ; user code runs
 ```
 
-Step 2 is a pure-write copy — KBSS accepts writes regardless of
-banking, so no bank toggle.  Step 4 is a read from KBSS and needs
-KERNAL banked out, hence steps 3 / 5.
+Step 3 is a pure-write copy — KBSS accepts writes regardless of
+banking, so no bank toggle.  Step 5 is a read from KBSS and needs
+KERNAL banked out, hence steps 4 / 6.
+
+**IRQ-safety invariant.**  Step 2's SEI is load-bearing.  CSE
+enters `@tramp` with `I=0` (REPL state).  While KERNAL is banked
+out (steps 4–6), the `$FFFE` vector points at RAM — our `$FF04`
+trampoline, which banks KERNAL back in before jumping to the
+KERNAL IRQ routine.  If a CIA timer IRQ fired during that window
+without masking, the trampoline's RTI would leave `$01 = $36` and
+our step-5 memcpy would then read user_stack_buf from KERNAL ROM
+instead of RAM — half the user stack image would load as ROM
+bytes.  The SEI keeps the IRQ pending until step 8's PLP restores
+the user's I state.
 
 ### Exit (user → CSE): BRK / NMI / clean RTS
 
@@ -332,6 +345,15 @@ Step C is a KBSS read → bank toggle required; steps A and C's
 framing instructions (`lda #$34 / sta $01` out, `lda #$36 / sta
 $01` in) never touch the stack so they're safe during the window
 between old-SP and new-SP.
+
+**IRQ-safety on the exit side** is inherited from the caller:
+`dbg_brk_core` arrives with `I=1` from the BRK hardware dispatch;
+`dbg_nmi_break` via KERNAL `$FE43`'s SEI before `JMP ($0318)`;
+`clean_rts_trampoline` SEIs as its very first instruction.  All
+three satisfy the same "I=1 across the bank-toggle window"
+invariant that `@tramp` enforces on entry.  `dbg_enter` step 7
+(`cli`) re-enables IRQs once the CSE stack is live and the
+ZP-restore is done.
 
 ### Cold-start sentinel
 

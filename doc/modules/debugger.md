@@ -308,16 +308,26 @@ dbg_enter:
 
 @tramp:
   a.  tsx / stx cse_sp                       ; remember our SP
-  b.  Set dbg_running = $80
-  c.  memcpy $0100..$01FF → cse_stack_buf    ; pure writes
-  d.  lda #$34 / sta $01                     ; bank KERNAL out
-  e.  memcpy user_stack_buf → $0100..$01FF   ; KBSS read
-  f.  lda #$36 / sta $01                     ; bank KERNAL in
-  g.  ldx reg_sp / txs                       ; switch to user SP
-  h.  lda reg_p / pha / lda reg_a /
+  b.  sei                                    ; mask IRQ across bank-toggle
+  c.  Set dbg_running = $80
+  d.  memcpy $0100..$01FF → cse_stack_buf    ; pure writes
+  e.  lda #$34 / sta $01                     ; bank KERNAL out
+  f.  memcpy user_stack_buf → $0100..$01FF   ; KBSS read
+  g.  lda #$36 / sta $01                     ; bank KERNAL in
+  h.  ldx reg_sp / txs                       ; switch to user SP
+  i.  lda reg_p / pha / lda reg_a /
       ldx reg_x / ldy reg_y / plp            ; install user regs
-  i.  jmp (brk_pc)                           ; user code runs
+                                             ;   (plp also restores user I)
+  j.  jmp (brk_pc)                           ; user code runs
 ```
+
+Step (b)'s SEI is load-bearing: during (e)–(g) the IRQ vector at
+`$FFFE` points into RAM, where the `$FF04` trampoline sits.  A
+CIA-timer IRQ inside that window would have the trampoline bank
+KERNAL back in behind our back, and step (f)'s memcpy would then
+read `user_stack_buf` from KERNAL ROM instead of RAM — half the
+user stack image would load as ROM bytes.  The final PLP in (i)
+restores the user's own I state.
 
 `dbg_enter` is a normal function call; it returns after one of the
 three exit paths performs the reverse swap and RTSes back through

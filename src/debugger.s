@@ -423,38 +423,31 @@ dbg_enter:
 ; ── @tramp ─────────────────────────────────────────────────────────
 ; Context switch CSE → user.  Full two-image stack swap: saves CSE's
 ; current stack page to cse_stack_buf, loads user_stack_buf into the
-; hardware stack page, switches SP to reg_sp.  Then installs user
-; A/X/Y/P and jumps to brk_pc.  See memory_design.md § Stack
-; contract and debugger.md § Context switch for the design.
+; hardware stack page, switches SP to reg_sp, installs user A/X/Y/P,
+; jmps to brk_pc.  See memory_design.md § Stack contract.
 ;
 ; ─── Invariants ─────────────────────────────────────────────────────
-;   * The swap-out sequence (save CSE image; bank-out; load user image;
-;     bank-in; txs reg_sp) is LINEAR and NEVER JSRs out — a JSR would
-;     push a return address onto the stack mid-transition, corrupting
-;     either the image we're saving or the one we've just loaded.
-;   * Between `txs reg_sp` and `jmp (brk_pc)` we do a PHA/PLP dance to
-;     install P.  The temporary PHA writes at (reg_sp) and the PLP
-;     immediately pulls it, so user's net SP is unchanged and user's
-;     live data (at slots above reg_sp) is untouched.
-;   * PLP must be the LAST flag-touching instruction before JMP.  JMP
+;   * SEI first.  CSE enters @tramp with I=0; the IRQ vector at
+;     $FFFE reads RAM → our $FF04 trampoline when KERNAL is out.
+;     A timer IRQ during the bank-out window would have the
+;     trampoline bank KERNAL back in, RTI, and leave $01 = $36 —
+;     our memcpy's subsequent reads would then hit KERNAL ROM
+;     instead of user_stack_buf.  PLP below restores user's I.
+;   * Linear swap-out — no JSR between here and txs reg_sp.  A
+;     JSR's push would land in whichever stack image is mounted at
+;     that moment and corrupt it.
+;   * Between txs reg_sp and jmp (brk_pc), a PHA/PLP dance installs
+;     user P.  The PHA writes at slot (reg_sp); PLP immediately
+;     pulls it.  Net SP unchanged; user's live data (slots above
+;     reg_sp) untouched.
+;   * PLP is the last flag-touching instruction before JMP.  JMP
 ;     (abs) never sets flags, so PLP → JMP is safe.
 @tramp:
         tsx
         stx cse_sp              ; stash CSE's SP for the swap-back
+        sei                     ; mask IRQ across the bank-toggle window
         lda #$80
         sta dbg_running
-
-        ; ── IRQ-safety — mask interrupts across the bank-toggle
-        ; window.  If an IRQ fires while KERNAL is banked out, the
-        ; $FF04 trampoline banks KERNAL back in before entering the
-        ; KERNAL IRQ routine; after RTI, $01 is $36, not the $34 we
-        ; set, so our memcpy would start reading user_stack_buf at
-        ; $EF00+X from KERNAL ROM rather than RAM.  Half the user
-        ; stack image loads as ROM bytes → user-code crashes at a
-        ; random PC once SP points into that corrupted region.
-        ; CSE enters @tramp with I=0 (normal REPL state), so we
-        ; must SEI explicitly.  PLP below restores user's I state.
-        sei
 
         ; ── Save CSE's stack image → cse_stack_buf ─────────
         ; Pure writes to KBSS; bank-agnostic.  Loop exits with X=0.
@@ -465,8 +458,7 @@ dbg_enter:
         bne @s_cse
 
         ; ── Load user's stack image → hardware stack page ──
-        ; Read from KBSS requires KERNAL banked out.  X = 0 from
-        ; the save loop above.
+        ; KBSS read requires KERNAL banked out.  X = 0 from above.
         lda #MEM_CFG_KERNAL_OUT
         sta $01
 @l_usr: lda user_stack_buf,x
@@ -476,17 +468,15 @@ dbg_enter:
         lda #MEM_CFG_KERNAL_IN
         sta $01
 
-        ; ── Switch to user's SP ────────────────────────────
+        ; ── Switch to user SP, install user regs, hand off ──
         ldx reg_sp
         txs
-
-        ; ── Install user regs; hand control to user code ──
         lda reg_p
         pha
         lda reg_a
         ldx reg_x
         ldy reg_y
-        plp                     ; ← must be last flag-touching insn before jmp
+        plp                     ; ← last flag-touching insn before jmp
         jmp (brk_pc)
 
 ; ── swap_back ───────────────────────────────────────────────────────
@@ -495,14 +485,18 @@ dbg_enter:
 ; cse_stack_buf back into the hardware stack page, and switches SP
 ; to cse_sp.  Caller then rts's to land in dbg_enter's continuation.
 ;
-; INVARIANT: like @tramp's swap-out, this sequence is LINEAR — no
-; JSR out of it.  Between `txs cse_sp` and the caller's RTS, stack
-; operations are valid (CSE's image is restored) but we don't do
-; any — the rts is a single instruction.
+; INVARIANTS
+;   * I=1 on entry — protects the bank-toggle window the same way
+;     @tramp's leading SEI does.  All three callers satisfy this:
+;       - dbg_brk_core   : BRK hardware set I=1.
+;       - dbg_nmi_break  : KERNAL $FE43 did SEI before JMP ($0318).
+;       - clean_rts_trampoline : SEI as its first instruction.
+;     dbg_enter's subsequent CLI re-enables IRQs at the right time.
+;   * Linear sequence — no JSR between entry and the final rts.
 ;
-; Entry: assumes caller has already captured A/X/Y/P/PC/SP and any
-;        derived fields (reg_*, brk_pc, dbg_reason, dbg_bp_hit).
-;        Clobbers A and X.
+; Entry: caller has already captured A/X/Y/P/PC/SP and any derived
+;        fields (reg_*, brk_pc, dbg_reason, dbg_bp_hit).
+; Clobbers: A, X.
 swap_back:
         ; Save user's stack image → user_stack_buf (pure writes).
         ; Loop exits with X=0, reused below.
