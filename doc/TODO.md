@@ -41,13 +41,12 @@ Open bugs, roughly ordered by priority.
   live memory.  Both commands need consistent treatment.  Cheaper fix:
   stage bytes from `user_zp_buf` into a view buffer before calling
   `dasm_insn` or `emit_hex_cols` (~15 B code).  Low priority.
-- [ ] **CRITICAL**: save writes wrong memory region.  Saving a PRG
-  reported as `0801-0817` (a .bas header) writes garbage that
-  loads back at `0840-1096`.  Suspect: `prg_line` decrements
-  `rp_cnt` to convert exclusive→inclusive end BEFORE the actual
-  save routine runs, so the save sees a shifted/corrupted range.
-  Likely: prg_line should be called AFTER the save, or the
-  save callers need to preserve original rp_cnt before printing.
+- [x] ~~**CRITICAL**: save writes wrong memory region~~ (fixed:
+  disk.s had a local `_io_tmp = $FB` shadowing the canonical
+  symbol in zp.s at `$2D`.  Commit `278a2f6` changed repl.s's
+  `sta $FB` → `sta _io_tmp` which resolved to `$2D`, but
+  disk.s still read from `$FB`.  Fix: removed the local
+  define; disk.s now imports `_io_tmp` from zp.s.  Phase 17.)
 - [ ] One too many newline before floppy status in save command.
   Same issue likely affects load too.  Cursor lands on a blank
   row between the "; Nb AAAA-BBBB" line and the drive status.

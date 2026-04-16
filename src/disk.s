@@ -41,9 +41,9 @@ CUR_COL = $D3
 CUR_ROW = $D6
 CH_STOP = 3
 
-; ── ZP temporaries (reuse cse_io's _io_tmp) ─────────────
-_io_tmp = $FB              ; 2 bytes, shared with cse_io
-ptr     = $FD              ; 2 bytes, general pointer
+; ── ZP temporaries ──────────────────────────────────────
+        .importzp _io_tmp       ; shared with cse_io (zp.s)
+ptr     = $FD                   ; 2 bytes, local pointer
 
 ; ── BSS ──────────────────────────────────────────────────
         .segment "BSS"
