@@ -1003,15 +1003,7 @@ parse_hex4_ptr1:
         lda #' '
         jsr io_putc
 
-        ; Mask off the phantom B bit (P bit 4).  On 6502 hardware B
-        ; isn't a real status flag — PHP always pushes it as 1, BRK
-        ; does too, IRQ/NMI push it as 0, and PLP ignores it.  Every
-        ; clean-RTS capture via PHP thus leaves B=1 in reg_p, which
-        ; would display as uppercase 'B' even though the user's code
-        ; never set anything.  dbg_reason already distinguishes BRK
-        ; vs NMI vs clean RTS, so B in the display carries no info.
         lda reg_p
-        and #$EF                ; clear P.B for display
         sta rp_tmp2
         ldx #0
 @fl:    lda str_flag_ch,x       ; lowercase PETSCII ("nv-bdizc")
