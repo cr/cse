@@ -1003,7 +1003,16 @@ parse_hex4_ptr1:
         lda #' '
         jsr io_putc
 
+        ; Mask P bit 4 (B) for display.  B is never part of the
+        ; user's observable flag state on real hardware: RTI and PLP
+        ; both discard bit 4 when restoring, and BRK/PHP force it
+        ; to 1 only as a transport artefact of how the byte reaches
+        ; the stack.  Whatever path wrote reg_p, the value the user
+        ; "owns" is the one they'd see after an RTI — bit 4 clear.
+        ; dbg_reason already distinguishes BRK vs NMI vs clean RTS,
+        ; so no information is lost by masking here.
         lda reg_p
+        and #$EF
         sta rp_tmp2
         ldx #0
 @fl:    lda str_flag_ch,x       ; lowercase PETSCII ("nv-bdizc")

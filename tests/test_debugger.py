@@ -833,7 +833,7 @@ class TestDbgEnterCleanRtsFlags:
     """
 
     def test_lda_zero_rts_captures_Z_set(self, dbg_syms):
-        """User code `LDA #$00 / RTS` must leave reg_p with Z=1, B=0."""
+        """User code `LDA #$00 / RTS` must leave reg_p with Z=1."""
         mpu = make_cpu(dbg_syms)
         mem = mpu.memory
         _install_kernal_brk_stub(mem)
@@ -843,9 +843,9 @@ class TestDbgEnterCleanRtsFlags:
         mem[0x2002] = 0x60                         # RTS
 
         # Initial P with a DIFFERENT Z value so we can detect capture
-        # vs "left alone".  Start reg_p with Z=0, B=1 (to also verify
-        # the clean-RTS mask strips phantom B).
-        mem[dbg_syms.reg_p]  = 0x30              # bit 5 + B set, Z=0
+        # vs "left alone".  Start reg_p with Z=0; if capture works,
+        # reg_p should end up with Z=1 (from the LDA #$00).
+        mem[dbg_syms.reg_p]  = 0x20              # bit 5 set, Z=0
         mem[dbg_syms.reg_a]  = 0xFF              # non-zero sentinel
         mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
         mem[0x0317] = dbg_syms.dbg_brk_core >> 8
@@ -866,9 +866,6 @@ class TestDbgEnterCleanRtsFlags:
         p = mem[dbg_syms.reg_p]
         assert (p & 0x02) == 0x02, \
             f"reg_p=${p:02X}: Z bit should be 1 after LDA #0"
-        # B flag (P bit 4) must be 0 — no BRK happened
-        assert (p & 0x10) == 0x00, \
-            f"reg_p=${p:02X}: B bit should be 0 on clean RTS (phantom stripped)"
 
     def test_lda_one_rts_captures_Z_clear(self, dbg_syms):
         """User code `LDA #$01 / RTS` must leave reg_p with Z=0."""
@@ -895,40 +892,16 @@ class TestDbgEnterCleanRtsFlags:
         assert (p & 0x02) == 0x00, \
             f"reg_p=${p:02X}: Z bit should be 0 after LDA #1"
 
-    def test_brk_path_preserves_B_bit(self, dbg_syms):
-        """BRK capture (hardware push) must keep B=1 in reg_p.
-
-        The B bit in a BRK-captured reg_p is real user-visible state
-        — it's the hardware signal that the current stop is a BRK
-        event (as opposed to NMI or clean RTS).  The clean-RTS mask
-        in dbg_enter must NOT also strip it here."""
-        mpu = make_cpu(dbg_syms)
-        mem = mpu.memory
-        _install_kernal_brk_stub(mem)
-
-        # One-shot user code: step BP at $2001 forces a BRK.
-        mem[0x2000] = 0xEA                         # NOP
-        mem[0x2001] = 0xEA                         # NOP (patched → BRK)
-
-        mem[dbg_syms.reg_p]  = 0x20              # B=0 before
-        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
-        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
-
-        for i in range(8): mem[dbg_syms.step_bp + i] = 0
-        mem[dbg_syms.step_bp + 0] = 0x01         # step BP at $2001
-        mem[dbg_syms.step_bp + 1] = 0x20
-        mem[dbg_syms.step_bp + 3] = 1
-
-        mem[dbg_syms.brk_pc + 0] = 0x00
-        mem[dbg_syms.brk_pc + 1] = 0x20
-        cmd_dbg_enter(mpu, dbg_syms)
-
-        assert mem[dbg_syms.dbg_reason] == 1, "step BRK fired"
-        p = mem[dbg_syms.reg_p]
-        # Hardware BRK dispatch always pushes P with B=1.
-        assert (p & 0x10) == 0x10, \
-            f"reg_p=${p:02X}: B bit must be 1 after BRK (phantom-mask " \
-            f"in clean-RTS path leaked into BRK capture)"
+    # Note on the B flag in reg_p:
+    #   BRK hardware push sets bit 4 of the stacked P byte (=1).
+    #   dbg_brk_core / dbg_nmi_break copy that byte verbatim, so reg_p
+    #   may carry bit 4=1 after a BRK.  That's OK — it's an artefact
+    #   of the transport, never part of the user's observable state
+    #   (RTI and PLP both discard bit 4 on restore).  emit_reg masks
+    #   bit 4 before rendering, so the display always shows lowercase
+    #   'b' regardless of capture path.  No test here asserts the raw
+    #   stored value of bit 4, because the contract is "display masks
+    #   it", not "capture masks it".
 
     def test_carry_set_preserved_through_rts(self, dbg_syms):
         """`SEC / LDA #$00 / RTS` must leave reg_p with Z=1 and C=1.

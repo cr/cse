@@ -390,15 +390,7 @@ dbg_enter:
         pla                     ; pop A
         sta reg_a
         pla                     ; pop P
-        ; PHP sets P bit 4 (B) unconditionally — hardware definition
-        ; of the software push.  In the clean-RTS path there was no
-        ; BRK, so that phantom B must be stripped before it reaches
-        ; the userland state backup.  BRK and NMI handlers capture
-        ; P directly from the hardware-pushed stack frame and keep
-        ; the real B bit (1 for BRK, 0 for NMI) intact — that's
-        ; actual user-visible state.
-        and #$EF
-        sta reg_p
+        sta reg_p               ; B bit masked at display (emit_reg)
         stx reg_x
         sty reg_y
         tsx
