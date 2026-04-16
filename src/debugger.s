@@ -105,8 +105,11 @@ dbg_init:
         lda #$FF
         sta dbg_bp_hit
         sta reg_sp             ; sane default SP for cold t/j
-        lda #$20                ; bit 5 always set, I=0, all flags clear
-        sta reg_p
+        ; reg_p must start with bit 5 = 0 — emit_reg assumes the
+        ; "bit 5 = 0" invariant upheld by every capture path, and
+        ; no longer has the '-'-guard that used to rescue this
+        ; cold-boot case.  All other flag bits default 0.
+        sta reg_p               ; A = $00 from the cleared-state block above
         rts
 
 ; ── dbg_bp_set ────────────────────────────────────────────────────────
