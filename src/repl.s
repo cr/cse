@@ -922,14 +922,12 @@ parse_hex4_ptr1:
         beq @no_redirect
         ldy #0
 @redir_loop:
+        lda rp_addr+1           ; check hi first — if non-zero we're
+        bne @use_mem            ; past page 0, raw mem
         tya
         clc
-        adc rp_addr
-        sta rp_tmp              ; addr lo (scratch)
-        lda rp_addr+1
-        adc #0
-        bne @use_mem            ; hi != 0 → not page 0
-        lda rp_tmp
+        adc rp_addr             ; A = effective.lo; C=1 if wrapped
+        bcs @use_mem            ; wrapped into page 1 → raw mem
         cmp #$80
         bcs @use_mem            ; addr ≥ $80 → KERNAL half, not ours
         tax                     ; addr < $80 → index directly
@@ -2251,10 +2249,10 @@ VIC_MEMCTL = $D018
         ; Parse flags: 8 chars, bit=1 if typed char is uppercase form
         ; of str_flag_ch[x] (PETSCII $C0-$DF, i.e. lowercase + $80).
         ; Lowercase, '-', or anything else → bit=0.
+        ; rp_tmp2 accumulates from the right; the 8 asl's below shift
+        ; any initial garbage entirely out, so no zero-init needed.
         ldy #0                  ; input offset
         ldx #0                  ; flag slot
-        lda #0
-        sta rp_tmp2             ; P accumulator (shifts in from the right)
 @pflag: asl rp_tmp2             ; make room; low bit defaults 0
         lda (rp_ptr),y
         beq @pdone              ; end of input → remaining bits stay 0
@@ -2276,14 +2274,10 @@ VIC_MEMCTL = $D018
         inx
         bne @ppad
 @pstore:
-        ; Advance rp_ptr past the consumed input
-        tya
-        clc
-        adc rp_ptr
-        sta rp_ptr
-        bcc :+
-        inc rp_ptr+1
-:       lda rp_tmp2
+        ; rp_ptr advance past consumed flag chars used to be here but
+        ; nothing reads rp_ptr after cmd_reg returns (@show just
+        ; emit_reg + nl_clear) — dead code, removed.
+        lda rp_tmp2
         and #%11011111          ; keep bit 5 = 0 invariant (matches
                                 ; the capture-time mask in debugger.s);
                                 ; lets emit_reg skip its '-' guard.

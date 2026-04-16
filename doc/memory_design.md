@@ -140,7 +140,9 @@ It runs in CSE's execution context via `dbg_enter`, sharing the
 6502 hardware stack and the KERNAL environment.
 
 **User code may clobber:**
-- $02-$7F (CSE saves/restores across user execution)
+- $00-$7F (CSE saves/restores across user execution; includes the
+  CPU port byte at $01 — CSE re-installs its banking configuration
+  on return)
 - $02A7-$02FF (89 bytes, free on all supported targets)
 - $0334-$03FF (204 bytes, includes tape buffer at $033C-$03FB)
 - $0800-workend (workspace — user's own assembled output)
@@ -164,10 +166,12 @@ config, and KERNAL cursor state ($CC=1).  If user code clears or
 repaints the screen, ESC or CLR from the REPL restores the CSE
 display.  Colors changed by user code are restored on return.
 
-**Memory config ($01):** CSE saves $01 before entering user code
-and restores it on return.  User code may freely change $01 (e.g.
-to bank in BASIC ROM or access I/O directly), but must ensure
-KERNAL is bankable-in for BRK/NMI handling.
+**Memory config ($01):** $01 is part of the ZP save range ($00–$7F),
+so it round-trips via `zp_save_buf` across every user-code run.
+User code may freely change $01 (e.g. to bank in BASIC ROM or
+access I/O directly), but must ensure KERNAL is bankable-in for
+BRK/NMI handling — the handlers themselves read KERNAL-saved state
+at `$0101..$0106`.
 
 ## Memory Map — Runtime (all targets)
 

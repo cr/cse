@@ -312,8 +312,14 @@ BRK/NMI handler restores SP to `sp_baseline` and RTS pops the
 
 **NMI handler** (`dbg_nmi_break`, called from `cse_nmi_handler`):
 
-Same pattern but saves A/X/Y from live regs (NMI doesn't push them)
-and computes `reg_sp = SP + 3` (CPU frame only, no KERNAL regs).
+Same pattern, reordered: A/X/Y come from live registers first
+(NMI doesn't push them, and writing to `reg_*` is abs/BSS so
+doesn't touch ZP) — then `snap_user_zp`, then the P/PC stack
+reads.  `reg_sp = SP + 3` (CPU frame only, no KERNAL regs).
+
+Doing the reg saves before the ZP snapshot lets `snap_user_zp`
+skip its own register-preservation code (no `pha/txa/pha` dance),
+since no other caller needs A/X/Y to survive the call either.
 
 **Trade-off:** user code shares the CSE stack.  Deep CSE call chains
 + deep user subroutines could overflow.  For single-step, user code

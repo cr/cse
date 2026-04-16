@@ -464,26 +464,28 @@ dbg_enter:
         jmp (brk_pc)
 
 ; ── snap_user_zp ─────────────────────────────────────────────────────
-; Copy live ZP $00..$7F → user_zp_buf.  Called at the very start
-; of dbg_brk_core / dbg_nmi_break (where the live ZP is still
-; the user's working state) and from dbg_enter step 6 on the
-; clean-RTS path (same — user RTSed back, ZP not yet clobbered).
+; Copy live ZP $00..$7F → user_zp_buf.  Runs while the live ZP
+; is still the user's working state — before any handler code
+; that uses ZP scratch clobbers it.
+;
+; Callers:
+;   dbg_brk_core       — first thing (KERNAL push + handler code
+;                        don't touch ZP until the later dbg_bp_find,
+;                        but snap-early is simplest).
+;   dbg_nmi_break      — after the reg_a/x/y stores (abs writes
+;                        don't touch ZP), before the stack-frame
+;                        reads.
+;   dbg_enter step 4   — on the clean-RTS branch, before unpatch_all.
 ;
 ; Critical: this proc must NOT use any ZP scratch byte itself
-; (those bytes ARE the user state we're snapshotting).  Uses X
-; only.  Preserves A/Y.
+; (those bytes ARE the user state we're snapshotting).
+; Clobbers A, X.  Y is untouched by the loop.
 .proc snap_user_zp
-        pha
-        txa
-        pha
         ldx #ZP_SAVE_LEN - 1
 @l:     lda ZP_SAVE_LO,x
         sta user_zp_buf,x
         dex
         bpl @l
-        pla
-        tax
-        pla
         rts
 .endproc
 
@@ -571,12 +573,16 @@ dbg_brk_core:
 ; KERNAL NMI entry ($FE43) does SEI + JMP ($0318) — no register pushes.
 ;
 dbg_nmi_break:
-        ; ── 0. Snapshot user ZP before any handler code.
-        jsr snap_user_zp
-        ; ── 1. Save user registers (live in CPU regs) ──
+        ; ── 1. Save user registers (live in CPU regs, NMI didn't
+        ;        push them).  Must happen BEFORE snap_user_zp so
+        ;        we don't need snap to preserve A/X/Y.
         sta reg_a
         stx reg_x
         sty reg_y
+        ; ── 0. Snapshot user ZP now — nothing above touched ZP
+        ;        (reg_* are abs/BSS), so the user's live ZP is still
+        ;        intact.  Must run before any ZP-using handler work.
+        jsr snap_user_zp
 
         ; ── 2. Extract P and PC from stack ──
         tsx
