@@ -81,17 +81,14 @@ Open bugs, roughly ordered by priority.
   semantics.  PRG payload writes a 2-byte load-address header
   then the bytes.  `build_open_str` generalised to take type
   ('s' or 'p') in X in addition to mode in A.  Phase 17.)
-- [ ] Debugger: stepping into a subroutine then `c` (continue)
-  cannot return through the original JSR's pushed return address.
-  The `sp_baseline` RTS trick unwinds the stack, so the
-  subroutine's RTS pops garbage from below sp_baseline instead
-  of the original caller.  **Deferred** — medium priority.
-  Fix: 256 B user-stack snapshot at `$EF00` under KERNAL
-  (copy page 1 on debug entry/exit).  Requires coordinated
-  changes to dbg_enter/dbg_brk_core/dbg_nmi_break, the BRK
-  handler must also refuse writes to BP addresses outside
-  workmem (already done via cmd_brk range check; dbg_bp_patch
-  could duplicate the check defensively).
+- [x] ~~Debugger: stepping into a subroutine then `c` (continue)
+  cannot return through the original JSR's pushed return address.~~
+  (being fixed: two-image stack swap — user_stack_buf at $EF00,
+  cse_stack_buf at $F000, swap at every debug-entry / debug-exit
+  boundary.  `sp_baseline` retired in favour of `cse_sp`.  See
+  `memory_design.md` § Stack contract and `debugger.md` § Context
+  switch for the full design.  dbg_bp_patch defensive range check
+  is still open as a minor hygiene item.)
 - [x] ~~Assembler: `bne <nonexisting>` reports "bad insn"~~ (fixed:
   `asm_expr_error` entry point sets `asm_expr_err=1`; `.` command
   and source assembler now print `expr_error_str` detail e.g. "undef")

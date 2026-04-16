@@ -143,16 +143,23 @@ It runs in CSE's execution context via `dbg_enter`, sharing the
 - $00-$7F (CSE saves/restores across user execution; includes the
   CPU port byte at $01 — CSE re-installs its banking configuration
   on return)
+- $0100-$01FF (user owns the full stack page — see § Stack contract)
 - $02A7-$02FF (89 bytes, free on all supported targets)
 - $0334-$03FF (204 bytes, includes tape buffer at $033C-$03FB)
 - $0800-workend (workspace — user's own assembled output)
 
 **User code must preserve:**
 - $80-$FF (KERNAL zero page)
-- $0100-$01FF (hardware stack — balanced, no net push/pop)
 - $0200-$02A6 (KERNAL editor state, input buffer)
 - $0300-$0333 (KERNAL vectors — CSE hooks are installed here)
 - CSE runtime (XXXX-$CFFF — overwriting CSE code/data is fatal)
+
+The old shared-stack constraint ("$0100-$01FF balanced, no net
+push/pop") is gone — user code can reset SP, push arbitrarily
+deep frames, and pop them in whatever order without affecting
+CSE, because CSE's stack image is entirely elsewhere while user
+is running.  The only remaining stack-side contract is the
+cold-start sentinel at $01FE/$01FF (see § Stack contract).
 
 **Tape buffer caveat:** $033C-$03FB is the KERNAL tape I/O buffer.
 User code may freely use these 192 bytes, but must restore them
@@ -235,8 +242,8 @@ regions are zeroed (no PRG space required).
 
     $E000-$E5FF  KBSS: symbol table (1536 B, 256 slots × 6B)
     $E600-$EEFF  KBSS: symbol name heap (2304 B)
-    $EF00-$EFFF  Earmarked: user stack snapshot (256 B, see § Stack budget)
-    $F000-$F0FF  Free (256 B)
+    $EF00-$EFFF  KBSS: user_stack_buf (256 B, see § Stack contract)
+    $F000-$F0FF  KBSS: cse_stack_buf  (256 B, see § Stack contract)
     $F100-$F4F1  KDATA: asm/dasm lookup tables (1010 B)
     $F4F2-$F8D9  KBSS: REPL screen save buffer (1000 B)
     $F8DA-$F958  KBSS: cold-init ZP snapshot (127 B, $01-$7F)
@@ -246,54 +253,136 @@ regions are zeroed (no PRG space required).
     $FFFA-$FFFF  Hardware vectors: NMI→$FF00, IRQ→$FF04
 
     KDATA total:  1020 B (in PRG payload)
-    KBSS total:   4967 B (zeroed, no PRG space)
-    Free:         1702 B (+ 256 earmarked)
+    KBSS total:   5223 B (zeroed, no PRG space)
+    Free:         1446 B
 
-## Stack budget
+## Stack contract
 
-CSE and user code share the single 256-byte 6502 hardware stack at
-`$0100–$01FF`.  This section documents how much of that page is
-available to user code when they run it via `j`, `g`, `t`, or `o`.
+CSE and user code each own **their own private 256-byte image** of
+the hardware stack page `$0100–$01FF`.  The hardware page is
+multiplexed by memcpy at every debug-entry / debug-exit boundary;
+at any moment it holds either CSE's image or user's, never both.
 
-**Startup resets SP.**  `loader.s::loader_entry` begins with
-`ldx #$FF / txs`, wiping whatever BASIC's `SYS` command left.
-The BASIC `SYS` return frame is intentionally discarded — CSE
-exits via `cse_exit_to_basic` (vector/ZP restore + BASIC warm
-start) rather than returning through the `SYS` call chain.  Every
-subsequent `jsr` therefore layers onto a cleanly empty stack.
+    Active view         Inactive image stashed in
+    ───────────────     ─────────────────────────
+    CSE running         user_stack_buf  ($EF00, KBSS, 256 B)
+    User code running   cse_stack_buf   ($F000, KBSS, 256 B)
 
-**Stack depth at user-code entry.**  Traced from the main loop
-through to the `jmp (brk_pc)` inside `debugger.s::@tramp`:
+`cse_sp` (1 B, BSS) stashes SP at the moment we swap out of CSE,
+so we can restore it on the return swap.  `reg_sp` (1 B, shared
+with the rest of the userland register image) stashes user's SP.
 
-    @loop:         (jmp-loop, no push)
-      jsr exec_line                     → 2 B on stack
-        jmp (rp_ptr2)  ← command dispatch, no frame
-          jmp cmd_{jmp,step,…}  ← tail call, no frame
-            jsr run_user                → 4 B
-              jsr dbg_enter             → 6 B
-                jsr @tramp              → 8 B
-                  tsx; stx sp_baseline  ← SP captured here
-                  jmp (brk_pc)          ← user code enters
+### Why two images
 
-User code therefore starts with **8 bytes** of CSE call-chain on
-the stack.  The hardware stack is 256 bytes, minus SP underflow
-guard room — in practice the C64 convention is to leave the very
-top `$01F6`+ available for IRQ pushes (PC lo/hi + P = 3 bytes),
-so CSE effectively has `$0100..$01F6 = 247 bytes` usable.  After
-CSE's 8-byte frame, **user code has ≥ 239 bytes** of the hardware
-stack free, comfortably above the 230-byte threshold we consider
-"sufficient" for any realistic C64 user program.
+A single shared stack collapses the `c`-after-step-into-JSR case:
+any byte the user had pushed before the BRK — notably the return
+address of the enclosing JSR — gets overwritten by CSE's subsequent
+call chain between the BRK and the `c`.  With independent images,
+user code's stack bytes persist across the boundary and the user's
+RTS chain pops exactly what it expects.
 
-**Stack-snapshot reservation.**  `$EF00–$EFFF` is earmarked (not
-allocated) for a future user-stack snapshot used by the debugger's
-`c`-from-subroutine fix — see the BRK TODO in `doc/TODO.md`.  If
-and when that snapshot is implemented, `debugger.s` will
-`memcpy(page_1 → $EF00)` on debug entry and reverse on exit,
-preserving any bytes user code pushed below `sp_baseline`.  CSE
-itself is shallow enough (8 B frame) that no CSE-side snapshot is
-needed; the original 512 B reservation at `$EF00–$F0FF` has been
-halved, with the second 256 B at `$F000` now unreserved free
-space.
+### Entry (CSE → user): `@tramp`
+
+```
+1. tsx; stx cse_sp                        ; remember where CSE was
+2. memcpy $0100..$01FF → cse_stack_buf    ; stash CSE's image
+3. bank KERNAL out                        ; needed for step 4
+4. memcpy user_stack_buf → $0100..$01FF   ; load user's image
+5. bank KERNAL in ($01 = $36)
+6. ldx reg_sp; txs                        ; switch to user SP
+7. lda reg_p; pha; lda reg_a; ldx reg_x;
+   ldy reg_y; plp                         ; install user regs
+8. jmp (brk_pc)                           ; user code runs
+```
+
+Step 2 is a pure-write copy — KBSS accepts writes regardless of
+banking, so no bank toggle.  Step 4 is a read from KBSS and needs
+KERNAL banked out, hence steps 3 / 5.
+
+### Exit (user → CSE): BRK / NMI / clean RTS
+
+Three distinct wake-up paths, but the tail is the same:
+
+```
+… extract user state (A/X/Y/P/PC/SP) from live regs or stack …
+A. memcpy $0100..$01FF → user_stack_buf   ; stash user's image
+B. bank KERNAL out
+C. memcpy cse_stack_buf → $0100..$01FF    ; restore CSE's image
+D. bank KERNAL in
+E. ldx cse_sp; txs                        ; switch back to CSE SP
+F. rts                                    ; → dbg_enter continuation
+```
+
+Which path fires:
+
+- **BRK** (`dbg_brk_core`): hardware + KERNAL have pushed 6 bytes
+  onto user's stack.  Handler extracts A/X/Y/P/PC from `$0101,X
+  … $0106,X`, computes `reg_sp = X+6`, masks P with `#%11011111`
+  (clear bit 5, preserve B=1), then runs A–F.
+- **NMI** (`dbg_nmi_break`): hardware pushed 3 bytes (P/PClo/PChi);
+  A/X/Y are still live in CPU regs.  Handler stores live regs,
+  reads P/PC from `$0101,X … $0103,X`, computes `reg_sp = X+3`,
+  masks P with `#%11001111` (clear bits 5 and 4), then runs A–F.
+- **Clean user RTS** (`clean_rts_trampoline`): user's top-level
+  RTS pops the cold-start sentinel (see below) and lands here.
+  Trampoline stores live A/X/Y, snapshots P via `php/pla` + mask,
+  sets `dbg_reason = 0`, then runs A–F.
+
+Step C is a KBSS read → bank toggle required; steps A and C's
+framing instructions (`lda #$34 / sta $01` out, `lda #$36 / sta
+$01` in) never touch the stack so they're safe during the window
+between old-SP and new-SP.
+
+### Cold-start sentinel
+
+On dbg_init, `user_stack_buf` is initialised with a return-address
+sentinel at offsets $FE / $FF pointing to `clean_rts_trampoline -
+1` (RTS off-by-one convention).  `reg_sp` is initialised to $FD.
+The very first `j`/`t`/`g` therefore hands user code a stack that
+looks like:
+
+    $01FE   clean_rts_trampoline lo   ← user's RTS lands here
+    $01FF   clean_rts_trampoline hi
+    (SP starts at $FD, next push writes $01FD)
+
+User code's top-level RTS pops this sentinel and jumps to the
+trampoline, which performs the exit-swap (A–F) exactly as if a
+BRK or NMI had occurred — except `dbg_reason = 0` marks it clean.
+
+If user code ever pushes more than 253 bytes at once, the sentinel
+is overwritten and subsequent top-level RTS is undefined — same
+failure mode as a stack overflow on real hardware.
+
+### CSE's own stack
+
+CSE runs on its usual 6502 stack (`$0100–$01FF` when active).  No
+special conventions.  `main_loop` dispatches commands; command
+handlers may JSR freely; the only boundary that ever touches
+stack-swap machinery is the debugger one.  Maximum CSE stack
+depth during normal operation (assembler, editor, etc.) is on the
+order of 30–50 bytes — plenty of room in `cse_stack_buf`'s 256 B
+image.
+
+### User's stack budget
+
+With the two-image design, user code sees the full 256-byte page
+as its own.  Practical usable range is `$0100..$01FD` (254 B),
+with $01FE/$01FF reserved for the cold-start sentinel (an RTS
+address).  Once the program has run once and rebooted its own
+stack to `$FF`, the sentinel becomes dead bytes; if the program
+RTSes without having rewritten those slots, the sentinel still
+catches them.  User code that resets its own SP to `$FF` and
+pushes its own top-level return address can safely overwrite the
+sentinel — the contract is only "if you RTS with SP at `$FF`,
+you'd better have put something sensible there yourself."
+
+### Cost
+
+Per user-entry:    2 × 256 B memcpy  ≈  9000 cycles  ≈  9 ms
+Per user-exit:     2 × 256 B memcpy  ≈  9000 cycles  ≈  9 ms
+
+Round-trip overhead ≈ 18 ms at 1 MHz.  Negligible for interactive
+debug; single-step iteration stays well under human perception.
 
 ## Memory Map — PRG Load Image
 
