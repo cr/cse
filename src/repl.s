@@ -914,10 +914,10 @@ parse_hex4_ptr1:
         ; expects `m` to show what their code wrote to ZP, not
         ; CSE's restored variables.  Stage 8 bytes into
         ; dbg_zp_view from user_zp_buf for in-range addresses
-        ; ($02..$59) and from real memory for the rest, then
-        ; re-point rp_ptr2 at the staged view.  rp_ptr2's
-        ; current value (== rp_addr) is used to read real mem
-        ; in the @use_mem branch.
+        ; ($00..$7F — the full user-accessible half) and from real
+        ; memory for the rest, then re-point rp_ptr2 at the staged
+        ; view.  rp_ptr2's current value (== rp_addr) is used to
+        ; read real mem in the @use_mem branch.
         lda dbg_reason
         beq @no_redirect
         ldy #0
@@ -930,13 +930,9 @@ parse_hex4_ptr1:
         adc #0
         bne @use_mem            ; hi != 0 → not page 0
         lda rp_tmp
-        cmp #$02
-        bcc @use_mem            ; addr < $02 ($00/$01 = I/O)
-        cmp #$5A
-        bcs @use_mem            ; addr ≥ $5A → not in CSE ZP
-        sec
-        sbc #$02
-        tax
+        cmp #$80
+        bcs @use_mem            ; addr ≥ $80 → KERNAL half, not ours
+        tax                     ; addr < $80 → index directly
         lda user_zp_buf,x
         jmp @stage
 @use_mem:
@@ -1623,14 +1619,12 @@ VIC_MEMCTL = $D018
         ; code's first GETIN/CHRIN call.
         lda #0
         sta $C6                 ; KERNAL kbd buffer count = 0
-        ; Save $01 — user code may change banking config
-        lda $01
-        pha
+        ; $01 banking is covered by dbg_enter's ZP save/restore
+        ; (zp_save_buf spans $00..$7F — extended from $02..$59 in
+        ; the Phase-17 ZP-range upgrade), so we don't need a
+        ; separate pha/sta pair here any more.
         jsr dbg_enter
         ; ── KERNAL hygiene on the way back ──
-        ; Restore $01 (memory config) before anything else
-        pla
-        sta $01
         ; Restore $CC = 1 in case user code re-enabled the KERNAL
         ; cursor (cse_io.s's IRQ-safety invariant requires it off).
         lda #1

@@ -252,20 +252,14 @@ Defined scope, needs work.
   RETURN) should default to 1 step when there's an active debug
   context (`dbg_reason != 0`), not `block_size`.  Enables rapid
   `t1, RETURN, RETURN, RETURN...` stepping.
-- [ ] Extend userland ZP backup to $00–$7F (was $02–$59, 88 B → 128 B).
-  Currently `zp_save_buf` and `user_zp_buf` cover only the bytes CSE
-  actually allocates ($02–$59 per `asm_line.s` + `debugger.s`), so
-  the `m` and `.` commands reading user ZP only see a partial view:
-  bytes $5A–$7F (KERNAL-reserved in normal use but free real estate
-  for user code) are live CPU ZP at display time — whatever CSE
-  happened to leave behind — not the user's last state.  Extending
-  the range to the full user-available ZP ($00–$7F, since $80–$FF
-  is KERNAL-owned and must stay as-is across `dbg_enter`) makes
-  `m`/`.` uniformly reflect userland ZP without per-address
-  conditionals.  Cost: +80 B BSS total (+40 B each buffer), one-
-  byte constants change in `asm_line.s` and `debugger.s`.  Also
-  revisits the `dbg_zp_view` discussion under the `.`/`m` bug
-  (partially fixed in `ac1a31f`).
+- [x] ~~Extend userland ZP backup to $00–$7F~~  (done: Phase 17.
+  ZP_SAVE_LO/HI widened to $00/$7F (128 B), covering the full
+  user-accessible half.  `m`/`.` now read a uniform user-ZP view —
+  the redirect's range check in repl.s simplified from the $02/$5A
+  double bounds + subtract to a single `cmp #$80`.  run_user's
+  external `lda $01/pha` pair dropped (banking now round-trips via
+  zp_save_buf since $01 is inside the saved range).  +80 B BSS,
+  −7 B CODE in repl.s, −4 B CODE from the removed $01 dance.)
 
 ### Help
 

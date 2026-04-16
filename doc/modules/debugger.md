@@ -274,14 +274,14 @@ KERNAL banking.  The same approach as `jsr_addr` in asm_line.s.
 
 | Component | Size | Location | Notes |
 |-----------|------|----------|-------|
-| ZP $02–$5A | 89 B | `zp_save_buf` (BSS) | All CSE ZP: sp, ptr1–2, tmp1–2, assembler, editor, etc. |
+| ZP $00–$7F | 128 B | `zp_save_buf` (BSS) | Full user-accessible half: $00/$01 (CPU port + DDR), CSE's $02–$59, and KERNAL's $5A–$7F. |
 | Registers (A,X,Y,P) | 5 B | `reg_a..p` (BSS) | existing, from asm_line |
 | PC | 2 B | `brk_pc` (BSS) | |
 
 **Enter user code** (`j` / `c` / `t` step):
 
 ```
-1.  Save CSE ZP ($02–$5A) → zp_save_buf
+1.  Save CSE ZP ($00–$7F) → zp_save_buf
 2.  patch_all: write $00 at all enabled bp + step slots
 3.  Set dbg_running = $80
 4.  PHA reg_p, load A/X/Y from reg_*, PLP

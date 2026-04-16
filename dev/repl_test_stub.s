@@ -113,8 +113,8 @@ reg_y:         .res 1
 reg_sp:        .res 1
 reg_p:         .res 1
 
-; User ZP snapshot (mirrors asm_line.s::user_zp_buf)
-user_zp_buf:   .res 88
+; User ZP snapshot (mirrors asm_line.s::user_zp_buf — $00..$7F)
+user_zp_buf:   .res 128
 
 ; Editor state
 ed_save_bytes: .res 2

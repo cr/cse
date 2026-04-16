@@ -58,8 +58,8 @@ codes identically — see [mn_classify.md](mn_classify.md)).
 | `reg_y` | 1 | Saved user Y register |
 | `reg_sp` | 1 | Saved user stack pointer |
 | `reg_p` | 1 | Saved user status flags |
-| `zp_save_buf` | 88 | CSE ZP snapshot ($02–$59) for debugger context switch |
-| `user_zp_buf` | 88 | User ZP snapshot (captured on BRK/NMI for `m`/`.` inspection) |
+| `zp_save_buf` | 128 | CSE ZP snapshot ($00–$7F) for debugger context switch |
+| `user_zp_buf` | 128 | User ZP snapshot (captured on BRK/NMI for `m`/`.` inspection) |
 
 **Depends on:** opcode_lookup, mode_parse, mn_classify (mn_base_op,
 mn_profile), mn7 tables, kernal_bank_out/kernal_bank_in (symtab.s)

@@ -90,14 +90,22 @@ reg_sp:        .res 1          ; saved SP
 reg_p:         .res 1          ; saved P (status flags)
 
 ; ── ZP save range ──
-; CSE uses ZP $02..$59 (editor.o is the last allocation per the
-; linker map).  $02 is the first byte; $59 is the last.  Both
-; bounds must agree across all callers (asm_line.s and
-; debugger.s) — see debugger.s::ZP_SAVE_LO/HI which mirror these
-; constants exactly.
-ZP_SAVE_LO = $02
-ZP_SAVE_HI = $59
-ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1  ; 88 bytes
+; ZP save/restore covers the full user-accessible page-zero range
+; $00..$7F.  CSE only allocates $02..$59 for its own use, but we
+; snapshot the whole lower half so that:
+;   1. The m and . commands can render a uniform user-ZP view
+;      across the entire range (previously partial: $5A..$7F read
+;      live CPU ZP — whatever CSE had left there — and $00/$01
+;      were outright inaccessible).
+;   2. The $01 banking byte round-trips via zp_save_buf, so
+;      run_user no longer needs its own pha/sta pair.
+; Bounds must agree between asm_line.s (buffer definitions) and
+; debugger.s (consumer loops) — debugger.s::ZP_SAVE_LO/HI mirror
+; these constants.  Upper half $80..$FF stays KERNAL-owned and
+; is never touched.
+ZP_SAVE_LO = $00
+ZP_SAVE_HI = $7F
+ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1  ; 128 bytes
 zp_save_buf:   .res ZP_SAVE_LEN ; buffer for ZP save/restore
 
 ; ── User ZP snapshot ──
@@ -107,7 +115,7 @@ zp_save_buf:   .res ZP_SAVE_LEN ; buffer for ZP save/restore
 ; zp_save_buf, overwriting it.  Without a snapshot, the user
 ; can't inspect their ZP via the m or . commands afterward
 ; (they'd see CSE's variables, not what their code wrote).
-user_zp_buf:   .res ZP_SAVE_LEN ; user ZP snapshot ($02..$59)
+user_zp_buf:   .res ZP_SAVE_LEN ; user ZP snapshot ($00..$7F)
 
 ; ── RODATA ────────────────────────────────────────────────────────────────────
 .segment "RODATA"

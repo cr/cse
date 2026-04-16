@@ -39,9 +39,9 @@ reg_x:         .res 1
 reg_y:         .res 1
 reg_sp:        .res 1
 reg_p:         .res 1
-zp_save_buf:   .res 88         ; ZP save buffer ($02..$59 inclusive,
+zp_save_buf:   .res 128        ; ZP save buffer ($00..$7F inclusive,
                                  ;  matches debugger.s::ZP_SAVE_LEN)
-user_zp_buf:   .res 88         ; user ZP snapshot (same size)
+user_zp_buf:   .res 128        ; user ZP snapshot (same size)
 
 .segment "CODE"
 

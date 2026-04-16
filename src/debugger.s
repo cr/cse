@@ -47,10 +47,12 @@
 ; constants drift away from the asm_line.s definitions, dbg_enter
 ; will either overflow the buffer (HI too high) or fail to save the
 ; full CSE ZP (HI too low, corrupting CSE state on debug return).
-; Last byte $59 = end of editor.o ZP allocation, per the linker map.
-ZP_SAVE_LO  = $02
-ZP_SAVE_HI  = $59
-ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1     ; 88 bytes
+; Covers the full user-accessible half ($00..$7F) — see the rationale
+; in asm_line.s for why the range is the whole half, not just CSE's
+; actually-used $02..$59.
+ZP_SAVE_LO  = $00
+ZP_SAVE_HI  = $7F
+ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1     ; 128 bytes
 
 ; Reason codes
 DBG_NONE = 0
@@ -460,7 +462,7 @@ dbg_enter:
         jmp (brk_pc)
 
 ; ── snap_user_zp ─────────────────────────────────────────────────────
-; Copy live ZP $02..$59 → user_zp_buf.  Called at the very start
+; Copy live ZP $00..$7F → user_zp_buf.  Called at the very start
 ; of dbg_brk_core / dbg_nmi_break (where the live ZP is still
 ; the user's working state) and from dbg_enter step 6 on the
 ; clean-RTS path (same — user RTSed back, ZP not yet clobbered).
