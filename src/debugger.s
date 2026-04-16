@@ -13,9 +13,13 @@
 ; Caller fills addr+flags, dbg_enter patches/unpatches around user code.
 ; Invariant: all BRKs always unpatched before returning to REPL.
 ;
-; Context switch: dbg_enter uses JSR+JMP(indirect) — user code shares
-; the CSE 6502 stack.  The BRK handler restores SP from sp_baseline
-; and RTS returns to dbg_enter.  No stack page swap.
+; Context switch: two-image stack swap.  dbg_enter jsr @tramp, which
+; memcpy's CSE's stack page to cse_stack_buf (KBSS at $F000) and
+; user_stack_buf (KBSS at $EF00) into the hardware stack page, then
+; jmps to brk_pc.  Exit paths (BRK, NMI, clean-RTS trampoline) each
+; capture user state then jmp swap_back to reverse the memcpy and
+; rts back into dbg_enter.  See doc/modules/debugger.md § Context
+; switch and doc/memory_design.md § Stack contract.
 ;
 ; The debugger is a consumer of the CSE BRK vector, not the owner.
 ; main.s installs cse_brk_handler permanently at $0316; it dispatches
@@ -76,15 +80,19 @@ dbg_running:   .res 1          ; $80 = user code active, 0 = REPL
 dbg_reason:    .res 1          ; why we returned (0=none, 1=BRK, 2=NMI)
 brk_pc:        .res 2          ; PC where break occurred / resume address
 dbg_bp_hit:    .res 1          ; slot# of breakpoint that was hit ($FF = none)
-sp_baseline:   .res 1          ; SP at @tramp entry (just after jsr @tramp's
-                                ; push).  The BRK/NMI handlers restore SP to
-                                ; this value before rts so that rts pops the
-                                ; @tramp return address — bypassing any bytes
-                                ; the user pushed (e.g. JSR return) since the
-                                ; jmp(brk_pc).  Without this, a BRK fired after
-                                ; the user did a JSR would rts through the
-                                ; user-pushed return address and never reach
-                                ; dbg_enter.
+cse_sp:        .res 1          ; CSE's SP at @tramp entry, recorded just
+                                ; after `jsr @tramp` pushed its return addr.
+                                ; Swap-back sequences `txs` this value to
+                                ; restore CSE's stack pointer before rts.
+
+; ── KBSS: stack-page images (under KERNAL ROM, see memory_design.md) ──
+; Writes always pass through to RAM; reads require KERNAL banked out.
+user_stack_buf = $EF00          ; user's stack image while CSE runs
+cse_stack_buf  = $F000          ; CSE's  stack image while user runs
+
+; MEM_CONFIG values.
+MEM_CFG_KERNAL_IN  = $36        ; bit 1 set  → KERNAL ROM visible
+MEM_CFG_KERNAL_OUT = $34        ; bit 1 clear → RAM under KERNAL
 
 ; ── CODE ───────────────────────────────────────────────────────────────
 .segment "CODE"
@@ -105,10 +113,22 @@ dbg_init:
         sta dbg_reason
         sta brk_pc
         sta brk_pc+1
-        sta reg_p              ; must happen BEFORE the lda #$FF below
+        sta reg_p
+
+        ; ── User stack image: initial sentinel ──────────────
+        ; Plant `clean_rts_trampoline - 1` at user_stack_buf[$FE/$FF]
+        ; so the very first user program's top-level RTS lands cleanly
+        ; in the trampoline.  RTS increments SP then reads PC, so the
+        ; stored bytes are target-address − 1.  reg_sp = $FD means the
+        ; user starts with SP just below the sentinel slot.
+        lda #<(clean_rts_trampoline - 1)
+        sta user_stack_buf + $FE
+        lda #>(clean_rts_trampoline - 1)
+        sta user_stack_buf + $FF
+        lda #$FD
+        sta reg_sp
         lda #$FF
         sta dbg_bp_hit
-        sta reg_sp             ; sane default SP for cold t/j
         rts
 
 ; ── dbg_bp_set ────────────────────────────────────────────────────────
@@ -357,61 +377,28 @@ dbg_enter:
         jsr patch_all
 
         ; ── 3. Clear stale break state ──
-        ; (dbg_running is set inside @tramp, after sp_baseline is captured —
+        ; (dbg_running is set inside @tramp, after cse_sp is captured —
         ; so there's no window in which the NMI handler could see
-        ; dbg_running set but sp_baseline stale.)
+        ; dbg_running set but cse_sp stale.)
         lda #0
         sta dbg_reason         ; 0 = no break (set by handler if BRK fires)
         lda #$FF
         sta dbg_bp_hit         ; $FF = no bp hit (set by handler if BRK fires)
 
         ; ── 4. Enter user code via the trampoline ──
-        ; jsr @tramp: pushes the return address so the BRK/NMI handler
-        ; can rts back here.  @tramp captures sp_baseline, sets the
-        ; running flag, loads user A/X/Y/P, and jmps to brk_pc.
+        ; jsr @tramp pushes the dbg_enter continuation return addr
+        ; onto CSE's stack.  @tramp stashes cse_sp, swaps stacks
+        ; (CSE's stack → cse_stack_buf, user_stack_buf → page 1),
+        ; loads user regs, and jmps to brk_pc.
+        ;
+        ; We arrive here after one of the three exit paths has
+        ; captured user state (reg_*, brk_pc, dbg_reason, ...) and
+        ; run the shared swap-back tail (swap_back) — which rts's
+        ; off CSE's restored stack, landing exactly here.  ALL three
+        ; paths — dbg_brk_core, dbg_nmi_break, clean_rts_trampoline —
+        ; already did the capture, so dbg_enter does no register
+        ; capture of its own.
         jsr @tramp
-        ; ── we arrive here after BRK handler does RTS or user RTS ──
-        ;
-        ; Capture user registers AND user ZP on the clean-RTS path.
-        ; BRK/NMI handlers already populate reg_* and call
-        ; snap_user_zp themselves on entry, so dbg_reason != 0
-        ; means we don't touch them here.  On a plain user RTS the
-        ; registers are LIVE in the CPU and the live ZP is still
-        ; the user's — the next jsr unpatch_all would destroy
-        ; both.
-        ;
-        ; ─── Invariant ────────────────────────────────────────
-        ;   PHP is the VERY FIRST instruction after entering CSE
-        ;   from userland — no instruction between the user's RTS
-        ;   and the PHP below may touch N/V/Z/C/I/D.  PHP and PHA
-        ;   themselves never modify flags, so PHP → PHA is safe.
-        ;   Adding anything else here would silently corrupt the
-        ;   captured P.
-        php                     ; save user P  ← must be first
-        pha                     ; save user A  (pha doesn't touch flags)
-        lda dbg_reason
-        bne @skip_user_cap
-        pla                     ; pop A
-        sta reg_a
-        pla                     ; pop P
-        ; Clean-RTS: strip the two hardware-transport bits that PHP
-        ; unconditionally sets (bit 5 "unused" and bit 4 "B").  No
-        ; BRK happened, so reg_p must not claim one, and bit 5 is a
-        ; never-meaningful artefact of how any P byte reaches a
-        ; stack slot.  PLP on re-entry ignores both bits anyway, so
-        ; this is purely to make reg_p a faithful status-flag view.
-        and #%11001111          ; clear bits 5, 4
-        sta reg_p
-        stx reg_x
-        sty reg_y
-        tsx
-        stx reg_sp
-        jsr snap_user_zp
-        jmp @user_cap_done
-@skip_user_cap:
-        pla                     ; discard saved A
-        pla                     ; discard saved P
-@user_cap_done:
 
         ; ── 5. Unpatch all breakpoints ──
         jsr unpatch_all
@@ -430,31 +417,54 @@ dbg_enter:
         rts
 
 ; ── @tramp ─────────────────────────────────────────────────────────
-; Reached via `jsr @tramp` from dbg_enter step 4.
+; Context switch CSE → user.  Full two-image stack swap: saves CSE's
+; current stack page to cse_stack_buf, loads user_stack_buf into the
+; hardware stack page, switches SP to reg_sp.  Then installs user
+; A/X/Y/P and jumps to brk_pc.  See memory_design.md § Stack
+; contract and debugger.md § Context switch for the design.
 ;
-;   1. tsx; stx sp_baseline — capture SP just after jsr @tramp's push.
-;      This is the SP value the BRK/NMI handlers must restore to so
-;      that their `rts` pops the @tramp return address and lands at
-;      "after jsr @tramp" in dbg_enter.
-;   2. set dbg_running — gates the NMI handler.  Order matters:
-;      sp_baseline must be valid before dbg_running is set, otherwise
-;      an NMI fired in this window would call dbg_nmi_break with a
-;      stale sp_baseline.
-;   3. Load user A/X/Y/P from reg_*.  PHA/PLP restores the flags.
-;   4. jmp (brk_pc) — user code starts.
-;
-; ─── Invariant ──────────────────────────────────────────────────────
-;   PLP is the VERY LAST instruction before control transfers to
-;   userland.  No instruction between PLP and JMP (BRK_PC) may touch
-;   N/V/Z/C/I/D.  JMP (abs) never modifies flags, so PLP → JMP is
-;   safe.  This is the mirror of dbg_enter's "PHP first" invariant
-;   on the return path — together they guarantee the user's flag
-;   state flows intact into and out of every debugger entry/exit.
+; ─── Invariants ─────────────────────────────────────────────────────
+;   * The swap-out sequence (save CSE image; bank-out; load user image;
+;     bank-in; txs reg_sp) is LINEAR and NEVER JSRs out — a JSR would
+;     push a return address onto the stack mid-transition, corrupting
+;     either the image we're saving or the one we've just loaded.
+;   * Between `txs reg_sp` and `jmp (brk_pc)` we do a PHA/PLP dance to
+;     install P.  The temporary PHA writes at (reg_sp) and the PLP
+;     immediately pulls it, so user's net SP is unchanged and user's
+;     live data (at slots above reg_sp) is untouched.
+;   * PLP must be the LAST flag-touching instruction before JMP.  JMP
+;     (abs) never sets flags, so PLP → JMP is safe.
 @tramp:
         tsx
-        stx sp_baseline
+        stx cse_sp              ; stash CSE's SP for the swap-back
         lda #$80
         sta dbg_running
+
+        ; ── Save CSE's stack image → cse_stack_buf ─────────
+        ; Pure writes to KBSS; bank-agnostic.
+        ldx #0
+@s_cse: lda $0100,x
+        sta cse_stack_buf,x
+        inx
+        bne @s_cse
+
+        ; ── Load user's stack image → hardware stack page ──
+        ; Read from KBSS requires KERNAL banked out.
+        lda #MEM_CFG_KERNAL_OUT
+        sta $01
+        ldx #0
+@l_usr: lda user_stack_buf,x
+        sta $0100,x
+        inx
+        bne @l_usr
+        lda #MEM_CFG_KERNAL_IN
+        sta $01
+
+        ; ── Switch to user's SP ────────────────────────────
+        ldx reg_sp
+        txs
+
+        ; ── Install user regs; hand control to user code ──
         lda reg_p
         pha
         lda reg_a
@@ -462,6 +472,73 @@ dbg_enter:
         ldy reg_y
         plp                     ; ← must be last flag-touching insn before jmp
         jmp (brk_pc)
+
+; ── swap_back ───────────────────────────────────────────────────────
+; Shared tail for dbg_brk_core / dbg_nmi_break / clean_rts_trampoline.
+; Saves the current (user) stack image to user_stack_buf, loads
+; cse_stack_buf back into the hardware stack page, and switches SP
+; to cse_sp.  Caller then rts's to land in dbg_enter's continuation.
+;
+; INVARIANT: like @tramp's swap-out, this sequence is LINEAR — no
+; JSR out of it.  Between `txs cse_sp` and the caller's RTS, stack
+; operations are valid (CSE's image is restored) but we don't do
+; any — the rts is a single instruction.
+;
+; Entry: assumes caller has already captured A/X/Y/P/PC/SP and any
+;        derived fields (reg_*, brk_pc, dbg_reason, dbg_bp_hit).
+;        Clobbers A and X.
+swap_back:
+        ; Save user's stack image → user_stack_buf (pure writes).
+        ldx #0
+@s_usr: lda $0100,x
+        sta user_stack_buf,x
+        inx
+        bne @s_usr
+
+        ; Load CSE's stack image back → hardware page (KBSS read).
+        lda #MEM_CFG_KERNAL_OUT
+        sta $01
+        ldx #0
+@l_cse: lda cse_stack_buf,x
+        sta $0100,x
+        inx
+        bne @l_cse
+        lda #MEM_CFG_KERNAL_IN
+        sta $01
+
+        ; Switch to CSE's SP and return to caller (which rts's to
+        ; dbg_enter's post-@tramp continuation).
+        ldx cse_sp
+        txs
+        rts
+
+; ── clean_rts_trampoline ────────────────────────────────────────────
+; Reached when user code's top-level RTS pops the sentinel planted at
+; user_stack_buf[$FE/$FF] by dbg_init — i.e., the user has cleanly
+; RTSed out of all their frames.
+;
+; Runs on user's stack with user's banking (which may or may not have
+; KERNAL banked in).  A/X/Y are user's live values; P is user's live
+; state.  We snapshot them, then run the swap-back tail.
+clean_rts_trampoline:
+        sei                     ; match BRK/NMI invariant: I=1 during swap
+        sta reg_a
+        stx reg_x
+        sty reg_y
+        php
+        pla
+        and #%11001111          ; clear bits 5,4 (PHP forces them; no BRK)
+        sta reg_p
+        lda #DBG_NONE
+        sta dbg_reason
+        sta dbg_running
+        jsr snap_user_zp
+        ; reg_sp: user's SP just after popping the sentinel (= $FF).
+        ; Stash it so the next user entry resets cleanly.
+        tsx
+        stx reg_sp
+        jmp swap_back           ; tail-jump; swap_back's rts returns to
+                                ; dbg_enter continuation on CSE's stack
 
 ; ── snap_user_zp ─────────────────────────────────────────────────────
 ; Copy live ZP $00..$7F → user_zp_buf.  Runs while the live ZP
@@ -550,20 +627,9 @@ dbg_brk_core:
         lda #0
         sta dbg_running
 
-        ; ── 5. Restore SP to sp_baseline and rts back to dbg_enter ──
-        ; sp_baseline was captured by @tramp right after `jsr @tramp` pushed
-        ; its return address.  Setting SP = sp_baseline puts the @tramp ret
-        ; addr at SP+1/SP+2, so the rts pops it and lands at "after jsr
-        ; @tramp" in dbg_enter — REGARDLESS of how many bytes the user
-        ; pushed (e.g. via JSR) before BRK fired.  The previous strip+adc#6
-        ; approach uncovered the user-pushed bytes and rts'd through them,
-        ; which produced the "t1 hangs on JSR" bug: stepping into a JSR
-        ; popped the JSR's return address as the BRK handler's rts target,
-        ; jumping to "instruction after JSR" in user code instead of back
-        ; to dbg_enter.
-        ldx sp_baseline
-        txs
-        rts
+        ; ── 5. Swap user stack → user_stack_buf, CSE stack back in,
+        ;       then rts to dbg_enter continuation.
+        jmp swap_back
 
 ; ── dbg_nmi_break ────────────────────────────────────────────────────
 ; Entered from main.s cse_nmi_handler when dbg_running bit 7 is set.
@@ -609,13 +675,8 @@ dbg_nmi_break:
         lda #$FF
         sta dbg_bp_hit
 
-        ; ── 5. Clear running flag, restore SP to sp_baseline, return ──
-        ; Same trick as dbg_brk_core: SP = sp_baseline puts the @tramp
-        ; ret addr at SP+1/SP+2, so rts pops it and lands at "after jsr
-        ; @tramp" in dbg_enter — bypassing any user-pushed bytes.
+        ; ── 5. Clear running flag, swap stacks back, return ──
         lda #0
         sta dbg_running
-        ldx sp_baseline
-        txs
-        rts
+        jmp swap_back
 

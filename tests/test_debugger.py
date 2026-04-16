@@ -75,7 +75,7 @@ class DbgSymbols:
         self.dbg_reason  = s["dbg_reason"]
         self.brk_pc      = s["brk_pc"]
         self.dbg_bp_hit  = s["dbg_bp_hit"]
-        self.sp_baseline = s["sp_baseline"]
+        self.cse_sp      = s["cse_sp"]
 
         self.reg_a  = s.get("reg_a")
         self.reg_x  = s.get("reg_x")
@@ -108,6 +108,11 @@ def make_cpu(dbg_syms):
     # Place RTS at return address
     mem[_RETURN] = 0x60
     mpu.memory = mem
+    # Run dbg_init so the debugger state is in the post-cold-boot
+    # shape production code assumes (reg_sp = $FD, sentinel at
+    # user_stack_buf[$FE/$FF], etc.).  Tests that want dirtied state
+    # can freely overwrite after this.
+    cmd_init(mpu, dbg_syms)
     return mpu
 
 def call(mpu, addr):
@@ -651,6 +656,64 @@ class TestDbgEnterStepIntoJSR:
         assert mem[dbg_syms.dbg_reason] == 1, "step 3: BRK at subroutine NOP+1"
         bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
         assert bp == 0x2011, f"step 3: brk_pc=${bp:04X} (want $2011, RTS)"
+
+
+class TestContinueAfterStepIntoJSR:
+    """Regression: step into a JSR, then continue — the subroutine's
+    RTS must pop the user's own JSR-pushed return address and resume
+    at `JSR + 3`, not garbage from CSE's own stack activity.
+
+    This is the canonical bug that the two-image stack swap
+    (user_stack_buf / cse_stack_buf) fixes.  Before the swap, the
+    txs sp_baseline / rts exit from dbg_brk_core erased the user's
+    $1002 pushed return address as it collapsed the KERNAL/hw
+    frame; continuing meant the sub's RTS popped unrelated bytes.
+    With the swap, user's stack page is saved on every exit and
+    restored on every entry, so the JSR return slot survives.
+    """
+
+    def test_continue_resumes_at_jsr_return(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+        _install_kernal_brk_stub(mem)
+
+        # User program:
+        #   $2000: JSR $2100   ; user pushes $2002 onto user's stack
+        #   $2003: BRK         ; ← where sub's RTS should land us
+        #   $2100: NOP         ; ← step_bp planted here
+        #   $2101: NOP
+        #   $2102: RTS         ; pops user's $2002, resumes at $2003
+        mem[0x2000] = 0x20; mem[0x2001] = 0x00; mem[0x2002] = 0x21
+        mem[0x2003] = 0x00
+        mem[0x2100] = 0xEA
+        mem[0x2101] = 0xEA
+        mem[0x2102] = 0x60
+
+        mem[dbg_syms.reg_p] = 0x20
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
+
+        # ── Step 1: step into the JSR → breaks at $2100 ──
+        mem[dbg_syms.brk_pc + 0] = 0x00
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        mem[dbg_syms.step_bp + 0] = 0x00   # step BP at $2100 (sub entry)
+        mem[dbg_syms.step_bp + 1] = 0x21
+        mem[dbg_syms.step_bp + 3] = 1
+        cmd_dbg_enter(mpu, dbg_syms)
+        assert mem[dbg_syms.dbg_reason] == 1, "step 1: BRK expected"
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+        assert bp == 0x2100, f"step 1: brk_pc=${bp:04X} (want $2100)"
+
+        # ── Step 2: continue, no step_bp — sub must RTS to $2003 ──
+        for i in range(8): mem[dbg_syms.step_bp + i] = 0
+        cmd_dbg_enter(mpu, dbg_syms)
+        assert mem[dbg_syms.dbg_reason] == 1, "continue: BRK expected"
+        bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+        assert bp == 0x2003, (
+            f"continue: brk_pc=${bp:04X} (want $2003). "
+            f"Sub's RTS didn't land at JSR+3 — the user-stack "
+            f"preservation across the swap boundary has regressed."
+        )
 
 
 class TestDbgEnterBranchStep:
