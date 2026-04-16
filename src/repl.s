@@ -9,7 +9,7 @@
         .include "macros.inc"
 
 ; ── Exports ────────────────────────────────────────────────
-        .export exec_line, read_line, show_prompt, cmd_info, seg_line
+        .export exec_line, read_line, show_prompt, cmd_info, seg_line, prg_line
         .export puts_imm
         .export log_line, log_open, log_close
         .export log_err, log_warn, log_info
@@ -86,16 +86,15 @@
         .import str_no_name, str_range, str_fail, str_too_big
         .import str_expr, str_no_ctx
         .import str_r_pc, str_a, str_x, str_y, str_s
-        .import str_lines, str_bytes, str_bytes_sp, str_long
+        .import str_lines, str_bytes, str_long
         .import str_del_src, str_unsaved, str_ok, str_blk_eq
         .import str_color, str_cpu
         .import str_asm_ing, str_load_pfx, str_save_pfx, str_dots
         .import str_errors, str_quit, str_dashes, str_colon_sp, str_pct
         .import str_ioport, str_stack, str_kernal, str_screen
-        .import str_cse_rt, str_bytes_free, str_io
-        .import str_free, str_l, str_main
+        .import str_cse_rt, str_io, str_main
         .import str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
-        .import str_tag_scr, str_tag_cse, str_tag_work, str_free_suf
+        .import str_tag_scr, str_tag_cse, str_tag_work, str_free_suf, str_tag_prg
         .import str_tag_src, str_tag_low, str_tag_io
         .import str_tag_rom, str_banked
         .import dec_pow_lo, dec_pow_hi
@@ -2529,41 +2528,6 @@ print_op_name:
         jmp io_clear_eol
 
 ; ═══════════════════════════════════════════════════════════
-; print_prg_range — print "; NNN bytes AAAA-BBBB" on new log line.
-;   In: rp_addr=start, rp_cnt=end (exclusive).
-; ═══════════════════════════════════════════════════════════
-print_prg_range:
-        jsr newline
-        ldy #LOG_INFO
-        jsr log_open
-        ; size = end - start
-        lda rp_cnt
-        sec
-        sbc rp_addr
-        pha
-        lda rp_cnt+1
-        sbc rp_addr+1
-        tax
-        pla
-        jsr io_putdec
-        puts str_bytes_sp
-        lda rp_addr
-        ldx rp_addr+1
-        jsr io_puthex4
-        lda #'-'
-        jsr io_putc
-        ; inclusive end = rp_cnt - 1
-        lda rp_cnt
-        sec
-        sbc #1
-        pha
-        lda rp_cnt+1
-        sbc #0
-        tax
-        pla
-        jmp io_puthex4
-
-; ═══════════════════════════════════════════════════════════
 ; cmd_load — 'l' command
 ;   rp_ptr = args
 ; ═══════════════════════════════════════════════════════════
@@ -2657,7 +2621,8 @@ print_prg_range:
         txa                     ; size hi
         adc rp_addr+1
         sta rp_cnt+1
-        jsr print_prg_range
+        jsr newline
+        jsr prg_line
         jmp @done
 
 @l_err:
@@ -2805,7 +2770,8 @@ print_prg_range:
         jsr io_err_save
         jmp @done
 @prg_ok:
-        jsr print_prg_range
+        jsr newline
+        jsr prg_line
         jmp @done
 
 @range_err:
@@ -2889,6 +2855,46 @@ info_line_head:
         lda #' '
         jmp io_putc
 
+; ═══════════════════════════════════════════════════════════
+; Range info line family — streaming range+size display
+;
+;   prg_line  — "; prg  AAAA-BBBB NNNNNb"      (l/s PRG)
+;               rp_addr = start, rp_cnt = end EXCLUSIVE
+;   seg_line  — "; TAG  AAAA-BBBB NNNNNb"      (asm_src)
+;               rp_ptr2 = tag, rp_addr = lo, rp_cnt = hi INCLUSIVE
+;   free_line — "; TAG  AAAA-BBBB NNNNNb free" (cmd_info)
+;               rp_ptr2 = tag, rp_save2 = highlight,
+;               rp_addr = lo, rp_cnt = hi INCLUSIVE
+; ===============================================================
+
+free_line:
+        ; compute rp_save2 from _info_mode (0=highlight, 1=no highlight)
+        lda _info_mode
+        eor #1
+        sta rp_save2
+        jsr _range_core         ; head + "NNNNNb"
+        puts str_free_suf       ; " free"
+        jmp info_line_tail
+
+; prg_line — PRG load/save range (exclusive end convention)
+prg_line:
+        lda #<str_tag_prg
+        sta rp_ptr2
+        lda #>str_tag_prg
+        sta rp_ptr2+1
+        lda #0
+        sta rp_save2
+        ; convert exclusive end → inclusive
+        lda rp_cnt
+        bne :+
+        dec rp_cnt+1
+:       dec rp_cnt
+        ; fall through to seg_line
+
+seg_line:
+        jsr _range_core
+        ; fall through to info_line_tail
+
 ; ── info_line_tail — highlight + pad + newline ───────────
 ;   rp_save2 = highlight flag.  Uses rp_next_lo saved by head.
 info_line_tail:
@@ -2930,23 +2936,6 @@ info_line_tail:
 
 @done:  jmp newline
 
-; ═══════════════════════════════════════════════════════════
-; free_line / seg_line — streaming range+size info lines
-;
-;   free_line — "; TAG  AAAA-BBBB NNNNNb free" (cmd_info)
-;   seg_line  — "; TAG  AAAA-BBBB NNNNNb"      (asm_src)
-;
-; In:  rp_ptr2 = tag, rp_save2 = highlight, rp_addr = lo, rp_cnt = hi
-; ===============================================================
-free_line:
-        jsr _range_core         ; head + "NNNNNb"
-        puts str_free_suf       ; " free"
-        jmp info_line_tail
-
-seg_line:
-        jsr _range_core
-        jmp info_line_tail
-
 ; ── _range_core — info_line_head + right-aligned size + 'b' ──
 _range_core:
         jsr info_line_head
@@ -2972,11 +2961,14 @@ _range_core:
 ; info_emit_rows — emit N rows from info table
 ;   A/X = table ptr, Y = row count
 ;   Each row: tag(2), lo(2), hi(2), desc(2) = 8 bytes
+;   No-op when _info_mode != 0 (splash mode skips all tables).
 ; ───────────────────────────────────────────────────────────
 .proc info_emit_rows
         sta rp_next_hi
         stx rp_next_hi+1
         sty rp_opc              ; row counter
+        lda _info_mode
+        bne @exit               ; splash mode: skip
 @lp:    lda rp_next_hi
         sta rp_ptr
         lda rp_next_hi+1
@@ -3001,10 +2993,10 @@ _range_core:
         sta rp_cnt+1
         iny
         lda (rp_ptr),y
-        pha
+        pha                     ; desc lo
         iny
         lda (rp_ptr),y
-        sta rp_tmp2
+        pha                     ; desc hi
         lda rp_next_hi
         clc
         adc #8
@@ -3012,15 +3004,15 @@ _range_core:
         bcc :+
         inc rp_next_hi+1
 :       pla
-        sta rp_ptr
-        lda rp_tmp2
-        sta rp_ptr+1
+        sta rp_ptr+1            ; desc hi
+        pla
+        sta rp_ptr              ; desc lo
         lda #0
         sta rp_save2
         jsr info_line
         dec rp_opc
         bne @lp
-        rts
+@exit:  rts
 .endproc
 
 ; ── cmd_info — memory map display ─────────────────────────
@@ -3028,19 +3020,17 @@ _range_core:
 ; Splash mode: only free sections, no highlight, no newline
 ; Full mode:   all sections, highlighted free, caller does newline
 .proc cmd_info
-        ; capture carry → rp_tmp2 (0=full, 1=splash)
+        ; capture carry → _info_mode (0=full, 1=splash)
+        ; Can't use rp_tmp/rp_tmp2 — puts_imm clobbers both.
         lda #0
         adc #0
-        sta rp_tmp2
+        sta _info_mode
 
         ; ── cpu ──
-        lda rp_tmp2
-        bne @skip_h1
         lda #<info_tbl_h1
         ldx #>info_tbl_h1
         ldy #INFO_TBL_H1_ROWS
         jsr info_emit_rows
-@skip_h1:
 
         ; ── zp 0002-007f  free ──
         lda #<str_tag_zp
@@ -3054,26 +3044,19 @@ _range_core:
         sta rp_addr
         lda #$7F
         sta rp_cnt
-        jsr @set_inv
         jsr free_line
 
         ; ── sys(kernal zp), stk ──
-        lda rp_tmp2
-        bne @skip_h2
         lda #<info_tbl_h2
         ldx #>info_tbl_h2
         ldy #INFO_TBL_H2_ROWS
         jsr info_emit_rows
-@skip_h2:
 
         ; ── sys 0200-02a6  kernal ──
-        lda rp_tmp2
-        bne @skip_lo
         lda #<info_tbl_lo
         ldx #>info_tbl_lo
         ldy #INFO_TBL_LO_ROWS
         jsr info_emit_rows
-@skip_lo:
 
         ; ── low 02a7-02ff  free ──
         lda #<str_tag_low
@@ -3088,17 +3071,13 @@ _range_core:
         sta rp_cnt
         lda #>$02FF
         sta rp_cnt+1
-        jsr @set_inv
         jsr free_line
 
         ; ── sys 0300-0333  kernal ──
-        lda rp_tmp2
-        bne @skip_lo2
         lda #<info_tbl_lo2
         ldx #>info_tbl_lo2
         ldy #INFO_TBL_LO2_ROWS
         jsr info_emit_rows
-@skip_lo2:
 
         ; ── low 0334-03ff  free ──
         lda #<str_tag_low
@@ -3113,17 +3092,13 @@ _range_core:
         sta rp_cnt
         lda #>$03FF
         sta rp_cnt+1
-        jsr @set_inv
         jsr free_line
 
         ; ── scr ──
-        lda rp_tmp2
-        bne @skip_h3
         lda #<info_tbl_h3
         ldx #>info_tbl_h3
         ldy #INFO_TBL_H3_ROWS
         jsr info_emit_rows
-@skip_h3:
 
         ; ── Dynamic: free workspace ──
         ; Free = $0800 to buf_base-1 (gap between output and source)
@@ -3142,11 +3117,10 @@ _range_core:
         lda buf_base+1
         sbc #0
         sta rp_cnt+1
-        jsr @set_inv
         jsr free_line
 
         ; ── sections below are full-mode only ──
-        lda rp_tmp2
+        lda _info_mode
         jne @done
 
         ; ── Dynamic: source (skip if empty: src_bot == src_top) ──
@@ -3221,14 +3195,11 @@ _range_core:
         jsr info_emit_rows
 
 @done:  jmp io_clear_eol
-
-        ; helper: set rp_save2 = 1 (highlight) in full mode, 0 in splash
-@set_inv:
-        lda rp_tmp2
-        eor #1                  ; 0→1 (highlight), 1→0 (no highlight)
-        sta rp_save2
-        rts
 .endproc
+
+.segment "BSS"
+_info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
+.segment "CODE"
 
 ; ═══════════════════════════════════════════════════════════
 ; exec_line — parse line_buf and execute command

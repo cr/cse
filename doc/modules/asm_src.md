@@ -54,8 +54,8 @@ Suppressed when no segments were emitted (`_min_pc` == $FFFF).
 - `_max_pc` (2B) — global highest byte (exclusive, ready for save)
 
 **Depends on:** asm_line, expr, symtab, editor
-(ed_read_line, ed_read_rewind, buf_base), repl (out_log_open,
-out_close, puts_imm for error/summary output), mem (define_ws_syms),
+(ed_read_line, ed_read_rewind, buf_base), repl (log_open,
+log_close, seg_line, puts_imm for error/summary output), mem (define_ws_syms),
 strings
 
 ## Design

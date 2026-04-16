@@ -102,7 +102,7 @@ call sites).  Label names should match string content — e.g.
 ### String style convention
 
 All user-visible strings follow these prefixing rules (enforced by the
-log output helpers `out_log_open`, `out_err`, etc.):
+log output helpers `log_open`, `log_err`, etc.):
 
 | Pattern | Meaning |
 |---------|---------|

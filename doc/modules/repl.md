@@ -24,13 +24,26 @@ REPL command interpreter and screen output.  Hex parsing helpers
 - `last_cmd` (char) — last command (for RETURN repeat)
 - `block_size` (uint16) — block size for m/d/f/>/+/-, default $10
 
-**Logging API** (used by other modules for consistent output):
-- `out_log(Y=level, A/X=content)` — complete log line
-- `out_log_open(Y=level)` / `out_close()` — open/close for multi-part output
-- `out_err(A/X)` / `out_warn(A/X)` / `out_info(A/X)` — level shortcuts
+**Logging API** (used by other modules for consistent output).
+Log functions print at the current cursor position; callers own
+cursor positioning (typically `jsr newline` at handler entry).
+`log_close` does `io_clear_eol + newline` so output flows line by
+line without callers adding explicit newlines between.
+
+- `log_open(Y=level)` — print `";" + Y` at cursor
+- `log_close()` — clear rest of line, then newline
+- `log_line(Y, A/X=content)` — log_open + io_puts + log_close
+- `log_err(A/X)` / `log_warn(A/X)` / `log_info(A/X)` — level shortcuts
+- `log_err_eol(A/X)` — newline + log_err + clear (error-only exits)
+- `log_close_eol()` — log_close + clear (multi-part exits)
 
 Three levels: `LOG_ERR='?'` → `";?"`, `LOG_WARN='!'` → `";!"`,
 `LOG_INFO=' '` → `"; "`.
+
+**Range/info line family** (used for address ranges with byte counts):
+- `seg_line` — "; TAG  AAAA-BBBB NNNNNb" (asm_src segments, inclusive end)
+- `prg_line` — "; prg  AAAA-BBBB NNNNNb" (l/s PRG, exclusive end)
+- `free_line` — "; TAG  AAAA-BBBB NNNNNb free" (cmd_info free sections)
 
 ### Memory
 

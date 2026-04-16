@@ -23,13 +23,13 @@
         .export str_no_name, str_range, str_fail, str_too_big
         .export str_expr, str_no_ctx
         .export str_r_pc, str_a, str_x, str_y, str_s
-        .export str_lines, str_bytes, str_bytes_sp, str_long
+        .export str_lines, str_bytes, str_long
         .export str_del_src, str_unsaved, str_ok, str_blk_eq
         .export str_color, str_cpu
         .export str_asm_ing, str_load_pfx, str_save_pfx, str_dots
         .export str_errors, str_quit, str_dashes, str_colon_sp, str_pct
         .export str_ioport, str_stack, str_kernal, str_screen
-        .export str_bytes_free, str_free, str_l, str_main
+        .export str_main
         .export str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
         .export str_tag_work, str_tag_src
         .export str_tag_low
@@ -48,8 +48,6 @@
 
         ; ── main strings ──
         .export VERSION_STR, s_manual
-        .export s_zp_tag, s_low_tag, s_work_tag
-        .export s_free
 
         ; ── asm_src strings ──
         .export s_err_sep, s_bad_val, s_exp_name, s_sym_full
@@ -100,7 +98,6 @@ str_y:          .byte " y:", 0
 str_s:          .byte " s:", 0
 str_lines:      .byte "l ", 0
 str_bytes:      .byte "b", 0
-str_bytes_sp:   .byte "b ", 0
 str_long:       .byte "long L", 0
 
 str_del_src:    .byte "del src? y/n ", 0
@@ -130,9 +127,7 @@ str_ioport:     .byte "port", 0
 str_stack:      .byte "stack", 0
 str_kernal:     .byte "kernal", 0
 str_screen:     .byte "scr", 0
-str_bytes_free: .byte "b free", 0
-str_free:     .byte "free", 0
-str_l:    .byte "l", 0
+str_bytes_free: .byte " free", 0
 str_main:       .byte "main", 0
 
 ; info_line tag strings
@@ -153,15 +148,15 @@ str_tag_scr     = str_screen            ; both "scr"
 str_tag_cse:    .byte "cse", 0          ; canonical copy
 str_tag_io      = str_io               ; both "io"
 str_io:        .byte "io", 0           ; canonical copy
-str_free_suf    = str_bytes_free        ; both "b free"
-s_free          = str_bytes_free        ; main.s alias
+str_free_suf    = str_bytes_free        ; " free" suffix for free_line
 s_bad_val       = str_bad_val           ; asm_src.s alias
 s_err_sep       = str_colon_sp          ; asm_src.s alias, both ": "
 
 str_tag_org:    .byte "org", 0
+str_tag_prg:    .byte "prg", 0
         .export str_cse_rt, str_tag_scr, str_tag_cse
         .export str_tag_io, str_io
-        .export str_free_suf, str_tag_org
+        .export str_free_suf, str_tag_org, str_tag_prg
 
 ; ── disk strings ────────────────────────────────────────────
 
@@ -180,9 +175,6 @@ s_workend:      .byte "workend", 0
 
 VERSION_STR:    .byte "cse v0.1 by cr", 0
 s_manual:       .byte "man: github.com/cr/cse", 0
-s_zp_tag:       .byte "  zp ", 0
-s_low_tag:      .byte " low ", 0
-s_work_tag:     .byte "work ", 0
 
 ; ── asm_src strings ─────────────────────────────────────────
 ; s_err_sep = str_colon_sp (alias, above)
@@ -192,7 +184,6 @@ s_exp_name:     .byte "exp id", 0
 s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp ", $22, 0
 s_bad_insn:     .byte "bad insn", 0
-; s_seg_pfx removed — replaced by str_tag_org + info_line padding
 s_save_s:       .byte "s ", $22, 0
 s_save_q_sp:    .byte $22, " $", 0
 s_save_default: .byte "out,p", 0

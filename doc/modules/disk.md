@@ -20,7 +20,7 @@
 **Out:** reads drive status and prints it as an info line
 **Clobbers:** A, X, Y
 
-Calls `floppy_read_status` then `out_info(fl_buf)`.
+Calls `floppy_read_status` then `log_info(fl_buf)`.
 
 ### list_directory
 **In:** A = device number
@@ -84,7 +84,7 @@ before disk_load_prg/save_prg/load_seq/save_seq.
 | `callback` | 2 | SEQ I/O function pointer |
 | `eof_flag` | 1 | READST EOF flag for SEQ read |
 
-**Depends on:** repl (out_info), screen (newline), cse_io (io_puts,
+**Depends on:** repl (log_info), screen (newline), cse_io (io_puts,
 io_putc, io_putdec, io_puthex2/4, io_getc, io_kbhit, io_clear_eol),
 strings (str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf)
 

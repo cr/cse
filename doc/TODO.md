@@ -41,6 +41,25 @@ Open bugs, roughly ordered by priority.
   live memory.  Both commands need consistent treatment.  Cheaper fix:
   stage bytes from `user_zp_buf` into a view buffer before calling
   `dasm_insn` or `emit_hex_cols` (~15 B code).  Low priority.
+- [ ] **CRITICAL**: save writes wrong memory region.  Saving a PRG
+  reported as `0801-0817` (a .bas header) writes garbage that
+  loads back at `0840-1096`.  Suspect: `prg_line` decrements
+  `rp_cnt` to convert exclusive→inclusive end BEFORE the actual
+  save routine runs, so the save sees a shifted/corrupted range.
+  Likely: prg_line should be called AFTER the save, or the
+  save callers need to preserve original rp_cnt before printing.
+- [ ] One too many newline before floppy status in save command.
+  Same issue likely affects load too.  Cursor lands on a blank
+  row between the "; Nb AAAA-BBBB" line and the drive status.
+- [ ] l/s stores the full filename (with ,p suffix) as project
+  name, so repeated saves accumulate ",p,p,p..." in cur_filename.
+  Should store the stripped project name; derive filenames on
+  demand with the appropriate CBM DOS suffix.
+- [ ] `r` command flags decode: the dash in the flag string (e.g.
+  the `-` between `b` and `D` in `nv-bdizc`) becomes an uppercased
+  strange char on screen.  Screen RAM has no dash equivalent at
+  the uppercase position.  Replace with a neutral placeholder that
+  survives the case-flip (e.g. `.` or keep lowercase always).
 - [ ] Debugger: stepping into a subroutine then `c` (continue)
   cannot return through the original JSR's pushed return address.
   The `sp_baseline` RTS trick unwinds the stack, so the
@@ -228,7 +247,7 @@ Defined scope, needs work.
 - [ ] Paging for commands that produce more than ~23 lines of
   output (`d`, `m`, `$`, assembler messages).  Pause with
   "more" prompt, any key continues, RUN/STOP aborts.  The
-  `out_log` output wrappers already funnel all command output
+  `log_line` output wrappers already funnel all command output
   through a single path — hooking a line counter there should
   be straightforward.
 
@@ -272,7 +291,7 @@ Defined scope, needs work.
 - [ ] PRG/SEQ save dedup: `cmd_write` and `cmd_load` have shared
   patterns in filename parsing and stats display (~30-50 B).
 - [ ] `exec_line` handler code sharing: inline `@h_*` handlers
-  share common tail code (out_close, nl_clear, error paths).
+  share common tail code (log_close, nl_clear, error paths).
   Factor into shared exit points.
 - [ ] Disassembler `format_operand`: investigate table-driven
   formatting (packed format byte per mode, like Woz's Apple II

@@ -398,8 +398,8 @@ Saves 3 bytes per site (2 code + 1 BSS).  The `pha`/`pla` pair
 is also faster (3+4=7 cycles vs 4+4=8 cycles for `sty abs`/
 `lda abs`).
 
-Used in: `out_log_open`, `out_log_at_open` — saving the level
-character across a `jsr newline`.
+Used in: `log_open` — saving the level character across a `jsr io_putc`
+call that clobbers Y.
 
 ## 21. Branchless boolean via ADC/EOR
 

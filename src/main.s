@@ -28,8 +28,7 @@
 
 ; ── Imports ──────────────────────────────────────────────────
         .import puts_imm
-        .import io_init, io_putc, io_repc, io_sync, io_blip
-        .import io_puthex4, io_putdec, io_putdec_pd
+        .import io_init, io_putc, io_sync, io_blip
         .import io_getc, io_clear_eol
         .import reset_screen, restore_colors, newline, theme_init
         .import cursor_show, cursor_hide
