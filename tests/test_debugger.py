@@ -658,6 +658,58 @@ class TestDbgEnterStepIntoJSR:
         assert bp == 0x2011, f"step 3: brk_pc=${bp:04X} (want $2011, RTS)"
 
 
+class TestMultiStepInfiniteLoop:
+    """Regression: user reports `t1` works repeatedly but `t` (multi-step
+    with block_size = 16) ends with a BRK at a seemingly random address.
+    Reproduces the exact scenario they described:
+
+        $080e: inc $d020
+        $0811: inc $d021
+        $0814: jmp $080e
+    """
+
+    def test_t16_over_inc_inc_jmp_loop(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+        _install_kernal_brk_stub(mem)
+
+        # User's infinite-loop program
+        mem[0x080e] = 0xEE; mem[0x080f] = 0x20; mem[0x0810] = 0xD0  # inc $d020
+        mem[0x0811] = 0xEE; mem[0x0812] = 0x21; mem[0x0813] = 0xD0  # inc $d021
+        mem[0x0814] = 0x4C; mem[0x0815] = 0x0e; mem[0x0816] = 0x08  # jmp $080e
+
+        mem[dbg_syms.reg_p] = 0x00
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
+
+        # Arm step-into sequence: first BRK at $0811 (next-PC after $080e's
+        # 3-byte INC).  This mimics cmd_step iteration 1.
+        mem[dbg_syms.brk_pc + 0] = 0x0e
+        mem[dbg_syms.brk_pc + 1] = 0x08
+        mem[dbg_syms.step_bp + 0] = 0x11
+        mem[dbg_syms.step_bp + 1] = 0x08
+        mem[dbg_syms.step_bp + 3] = 1
+
+        # Perform 16 iterations of { arm next-PC, cmd_dbg_enter, check brk_pc }
+        expected_cycle = [0x0811, 0x0814, 0x080e]  # post-step PCs
+        targets = [0x0811, 0x0814, 0x080e]          # next-PC for each iter
+        for i in range(16):
+            cmd_dbg_enter(mpu, dbg_syms)
+            assert mem[dbg_syms.dbg_reason] == 1, \
+                f"iter {i+1}: dbg_reason should be 1 (BRK), got {mem[dbg_syms.dbg_reason]}"
+            bp = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
+            expected_pc = expected_cycle[i % 3]
+            assert bp == expected_pc, \
+                f"iter {i+1}: brk_pc=${bp:04X} (want ${expected_pc:04X}). " \
+                f"Multi-step round-trip is corrupting state."
+            # Arm next iter's step_bp (cmd_step does this before each run)
+            for j in range(8): mem[dbg_syms.step_bp + j] = 0
+            next_target = targets[(i + 1) % 3]
+            mem[dbg_syms.step_bp + 0] = next_target & 0xFF
+            mem[dbg_syms.step_bp + 1] = next_target >> 8
+            mem[dbg_syms.step_bp + 3] = 1
+
+
 class TestContinueAfterStepIntoJSR:
     """Regression: step into a JSR, then continue — the subroutine's
     RTS must pop the user's own JSR-pushed return address and resume

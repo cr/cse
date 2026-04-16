@@ -444,6 +444,18 @@ dbg_enter:
         lda #$80
         sta dbg_running
 
+        ; ── IRQ-safety — mask interrupts across the bank-toggle
+        ; window.  If an IRQ fires while KERNAL is banked out, the
+        ; $FF04 trampoline banks KERNAL back in before entering the
+        ; KERNAL IRQ routine; after RTI, $01 is $36, not the $34 we
+        ; set, so our memcpy would start reading user_stack_buf at
+        ; $EF00+X from KERNAL ROM rather than RAM.  Half the user
+        ; stack image loads as ROM bytes → user-code crashes at a
+        ; random PC once SP points into that corrupted region.
+        ; CSE enters @tramp with I=0 (normal REPL state), so we
+        ; must SEI explicitly.  PLP below restores user's I state.
+        sei
+
         ; ── Save CSE's stack image → cse_stack_buf ─────────
         ; Pure writes to KBSS; bank-agnostic.  Loop exits with X=0.
         ldx #0
