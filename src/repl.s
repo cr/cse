@@ -2273,7 +2273,10 @@ VIC_MEMCTL = $D018
 :       lda rp_tmp2
         sta reg_p
 
-@show:  jsr newline
+@show:  ; emit_reg already sets CUR_COL=0, so it overwrites the
+        ; current row — the edited `r …` line is replaced in place
+        ; with the authoritative formatted register state.  nl_clear
+        ; then advances to a fresh row for the next prompt.
         jsr emit_reg
         jmp nl_clear
 .endproc
