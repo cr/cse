@@ -375,22 +375,31 @@ dbg_enter:
         ; registers are LIVE in the CPU and the live ZP is still
         ; the user's — the next jsr unpatch_all would destroy
         ; both.
-        pha
+        ;
+        ; ─── Invariant ────────────────────────────────────────
+        ;   PHP is the VERY FIRST instruction after entering CSE
+        ;   from userland — no instruction between the user's RTS
+        ;   and the PHP below may touch N/V/Z/C/I/D.  PHP and PHA
+        ;   themselves never modify flags, so PHP → PHA is safe.
+        ;   Adding anything else here would silently corrupt the
+        ;   captured P.
+        php                     ; save user P  ← must be first
+        pha                     ; save user A  (pha doesn't touch flags)
         lda dbg_reason
         bne @skip_user_cap
-        pla
+        pla                     ; pop A
         sta reg_a
+        pla                     ; pop P
+        sta reg_p
         stx reg_x
         sty reg_y
-        php
-        pla
-        sta reg_p
         tsx
         stx reg_sp
         jsr snap_user_zp
         jmp @user_cap_done
 @skip_user_cap:
         pla                     ; discard saved A
+        pla                     ; discard saved P
 @user_cap_done:
 
         ; ── 5. Unpatch all breakpoints ──
@@ -422,6 +431,14 @@ dbg_enter:
 ;      stale sp_baseline.
 ;   3. Load user A/X/Y/P from reg_*.  PHA/PLP restores the flags.
 ;   4. jmp (brk_pc) — user code starts.
+;
+; ─── Invariant ──────────────────────────────────────────────────────
+;   PLP is the VERY LAST instruction before control transfers to
+;   userland.  No instruction between PLP and JMP (BRK_PC) may touch
+;   N/V/Z/C/I/D.  JMP (abs) never modifies flags, so PLP → JMP is
+;   safe.  This is the mirror of dbg_enter's "PHP first" invariant
+;   on the return path — together they guarantee the user's flag
+;   state flows intact into and out of every debugger entry/exit.
 @tramp:
         tsx
         stx sp_baseline
@@ -432,7 +449,7 @@ dbg_enter:
         lda reg_a
         ldx reg_x
         ldy reg_y
-        plp                     ; restore flags (A/X/Y unaffected)
+        plp                     ; ← must be last flag-touching insn before jmp
         jmp (brk_pc)
 
 ; ── snap_user_zp ─────────────────────────────────────────────────────

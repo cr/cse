@@ -806,3 +806,112 @@ class TestDbgEnterBranchStep:
             f"step 3: BNE should stop at $2002 (taken), got ${bp:04X}. "
             f"X={x_val} (4=one BNE, 0=loop ran to completion)"
         )
+
+
+class TestDbgEnterCleanRtsFlags:
+    """Regression: on the clean-RTS return path, dbg_enter must capture
+    the user's P flags exactly as they were at RTS time — not flags
+    clobbered by dbg_enter's own bookkeeping (e.g. `lda dbg_reason`).
+
+    The original bug: dbg_enter's post-@tramp capture block did
+    `pha / lda dbg_reason / bne … / pla / sta reg_a / stx reg_x /
+     sty reg_y / php / pla / sta reg_p`.  The `lda dbg_reason`
+    and `pla` instructions set N/Z from their operands, so the
+    `php` many instructions later captured whatever the last flag-
+    touching insn had left — never the user's actual flags.
+
+    The fix: PHP must be the VERY FIRST instruction after control
+    returns from userland, before anything else can disturb N/V/Z/C.
+    """
+
+    def test_lda_zero_rts_captures_Z_set(self, dbg_syms):
+        """User code `LDA #$00 / RTS` must leave reg_p with Z=1."""
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+        _install_kernal_brk_stub(mem)
+
+        # User code — no step BP, no regular BP → clean RTS path.
+        mem[0x2000] = 0xA9; mem[0x2001] = 0x00   # LDA #$00
+        mem[0x2002] = 0x60                         # RTS
+
+        # Initial P with a DIFFERENT Z value so we can detect capture
+        # vs "left alone".  Start reg_p with Z=0; if capture works,
+        # reg_p should end up with Z=1 (from the LDA #$00).
+        mem[dbg_syms.reg_p]  = 0x20              # bit 5 set, Z=0
+        mem[dbg_syms.reg_a]  = 0xFF              # non-zero sentinel
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
+
+        # No step_bp armed → clean RTS path (dbg_reason stays 0)
+        for i in range(8): mem[dbg_syms.step_bp + i] = 0
+
+        mem[dbg_syms.brk_pc + 0] = 0x00
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        cmd_dbg_enter(mpu, dbg_syms)
+
+        # Clean RTS — dbg_reason must stay 0
+        assert mem[dbg_syms.dbg_reason] == 0, "clean-RTS: dbg_reason should be 0"
+        # A must be captured as 0
+        assert mem[dbg_syms.reg_a] == 0x00, \
+            f"reg_a=${mem[dbg_syms.reg_a]:02X} (want $00)"
+        # Z flag (P bit 1) must be 1
+        p = mem[dbg_syms.reg_p]
+        assert (p & 0x02) == 0x02, \
+            f"reg_p=${p:02X}: Z bit should be 1 after LDA #0"
+
+    def test_lda_one_rts_captures_Z_clear(self, dbg_syms):
+        """User code `LDA #$01 / RTS` must leave reg_p with Z=0."""
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+        _install_kernal_brk_stub(mem)
+
+        mem[0x2000] = 0xA9; mem[0x2001] = 0x01   # LDA #$01
+        mem[0x2002] = 0x60                         # RTS
+
+        # Start with reg_p Z=1 so we'd detect mis-capture.
+        mem[dbg_syms.reg_p]  = 0x22              # bit 5 + Z set
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
+
+        for i in range(8): mem[dbg_syms.step_bp + i] = 0
+        mem[dbg_syms.brk_pc + 0] = 0x00
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        cmd_dbg_enter(mpu, dbg_syms)
+
+        assert mem[dbg_syms.dbg_reason] == 0
+        assert mem[dbg_syms.reg_a] == 0x01
+        p = mem[dbg_syms.reg_p]
+        assert (p & 0x02) == 0x00, \
+            f"reg_p=${p:02X}: Z bit should be 0 after LDA #1"
+
+    def test_carry_set_preserved_through_rts(self, dbg_syms):
+        """`SEC / LDA #$00 / RTS` must leave reg_p with Z=1 and C=1.
+
+        This is the subtle case where N/Z are determined by the A value
+        but C is determined by an EARLIER instruction.  A flag capture
+        that relies on PLA-setting-Z (as the buggy code accidentally
+        did for the `lda #0` case) would get Z right but drop C,
+        because the intervening PHA/LDA/PLA sequence clobbers C as
+        part of its side-effects.
+        """
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+        _install_kernal_brk_stub(mem)
+
+        mem[0x2000] = 0x38                         # SEC
+        mem[0x2001] = 0xA9; mem[0x2002] = 0x00    # LDA #$00
+        mem[0x2003] = 0x60                         # RTS
+
+        mem[dbg_syms.reg_p]  = 0x20              # C=0, Z=0
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
+
+        for i in range(8): mem[dbg_syms.step_bp + i] = 0
+        mem[dbg_syms.brk_pc + 0] = 0x00
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        cmd_dbg_enter(mpu, dbg_syms)
+
+        assert mem[dbg_syms.dbg_reason] == 0
+        p = mem[dbg_syms.reg_p]
+        assert (p & 0x02) == 0x02, f"reg_p=${p:02X}: Z should be 1"
+        assert (p & 0x01) == 0x01, f"reg_p=${p:02X}: C should be 1"
