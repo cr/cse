@@ -376,8 +376,15 @@ confirm_yn:
 ;   Clean state uses LOG_INFO level with just the action prompt.
 ; ───────────────────────────────────────────────────────────
 confirm_action:
-        sta rp_tmp
-        stx rp_tmp+1
+        ; Stash the caller's prompt-string pointer in rp_tmp2.
+        ; rp_tmp would be clobbered by `puts str_unsaved` below
+        ; (puts_imm uses rp_tmp as scratch for the inline .word
+        ; return-address trick), which caused the "unsaved."
+        ; prefix to be followed by garbage bytes from puts_imm's
+        ; scratch.  rp_tmp2 is untouched by puts_imm / log_open /
+        ; newline / io_puts.
+        sta rp_tmp2
+        stx rp_tmp2+1
         jsr newline
         lda ed_dirty
         beq @clean
@@ -388,8 +395,8 @@ confirm_action:
 @clean: ldy #LOG_INFO
         jsr log_open
 @prompt:
-        lda rp_tmp
-        ldx rp_tmp+1
+        lda rp_tmp2
+        ldx rp_tmp2+1
         jsr io_puts
         jsr confirm_yn
         beq @yes
