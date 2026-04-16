@@ -97,19 +97,18 @@ dbg_init:
         ; Clear both tables (bp + step = 40 bytes contiguous)
         ldx #TOTAL_SLOTS * SLOT_SIZE - 1
         jsr clear_bp_x
-        ; Clear remaining state
+        ; Clear remaining state (A = $00 from clear_bp_x above).
+        ; reg_p is stored while A is still 0 so bit 5 is clear —
+        ; emit_reg relies on the "reg_p bit 5 = 0" invariant and
+        ; no longer has a '-'-guard to rescue a dirty cold state.
         sta dbg_running
         sta dbg_reason
         sta brk_pc
         sta brk_pc+1
+        sta reg_p              ; must happen BEFORE the lda #$FF below
         lda #$FF
         sta dbg_bp_hit
         sta reg_sp             ; sane default SP for cold t/j
-        ; reg_p must start with bit 5 = 0 — emit_reg assumes the
-        ; "bit 5 = 0" invariant upheld by every capture path, and
-        ; no longer has the '-'-guard that used to rescue this
-        ; cold-boot case.  All other flag bits default 0.
-        sta reg_p               ; A = $00 from the cleared-state block above
         rts
 
 ; ── dbg_bp_set ────────────────────────────────────────────────────────
