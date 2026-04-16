@@ -17,7 +17,7 @@
         .import io_puts, io_putc, io_putdec, io_puthex2, io_puthex4
         .import io_getc, io_kbhit, io_clear_eol
         .import io_color
-        .import newline, io_puts, out_info
+        .import newline, io_puts, log_info
         .import cur_device
         .import scr_lo, scr_hi
         .importzp disk_ptr
@@ -216,13 +216,13 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 @done:  rts
 .endproc
 
-; floppy_status — read + print on new line via out_info
+; floppy_status — read + print on new line via log_info
 ; ═════════════════════════════════════════════════════════
 floppy_status:
         jsr floppy_read_status
         lda #<fl_buf
         ldx #>fl_buf
-        jmp out_info
+        jmp log_info
 
 ; ═════════════════════════════════════════════════════════
 ; list_directory(device) — LOAD-based directory listing

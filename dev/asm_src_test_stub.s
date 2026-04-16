@@ -30,8 +30,10 @@
         .export io_putc, io_clear_eol
         .export io_puthex4
         .export newline
-        .export out_log_open
-        .export out_close
+        .export log_open
+        .export log_close
+        .export seg_line
+        .export rp_addr, rp_cnt, rp_save2
         .export puts_imm
         .export cur_filename
         .export __CODE_RUN__    : absolute = $4000
@@ -157,9 +159,15 @@ io_putc:
 io_puthex4:
 io_clear_eol:
 newline:
-out_log_open:
-out_close:
+log_open:
+log_close:
+seg_line:
         rts
+
+.segment "BSS"
+rp_addr:        .res 2
+rp_cnt:         .res 2
+rp_save2:       .res 1
 
         .importzp _io_tmp
 ; dec_pow tables (normally in cse_io.s, inlined here for test bundle)

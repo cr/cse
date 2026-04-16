@@ -13,19 +13,19 @@
 
 ### Assembly (debugger.s)
 
-### _dbg_init
+### dbg_init
 **In:** none
 **Out:** breakpoint table zeroed, flags cleared
 **Clobbers:** A, X
 
 Called at startup and on warm-start recovery.
 
-### _dbg_enter
-**In:** `_reg_a`, `_reg_x`, `_reg_y`, `_reg_p` — user register
-state.  `_brk_pc` — target address.  `_step_bp` — armed step
+### dbg_enter
+**In:** `reg_a`, `reg_x`, `reg_y`, `reg_p` — user register
+state.  `brk_pc` — target address.  `step_bp` — armed step
 breakpoints (if any).
-**Out:** returns normally after BRK or NMI fires.  `_brk_pc`,
-`_reg_*`, `_dbg_reason`, `_dbg_bp_hit` updated.
+**Out:** returns normally after BRK or NMI fires.  `brk_pc`,
+`reg_*`, `dbg_reason`, `dbg_bp_hit` updated.
 **Clobbers:** A, X, Y, ptr1
 
 Saves CSE ZP, patches breakpoints, then `jsr @tramp` to enter
@@ -38,14 +38,14 @@ returns, dbg_enter unpatches breakpoints, restores CSE ZP,
 and RTS.  The debugger does NOT install or restore BRK/NMI
 vectors — CSE owns them permanently (see [main.md](main.md)).
 
-### _dbg_brk_core
+### dbg_brk_core
 **In:** called from `cse_brk_handler` (main.s) when user BRK fires
-**Out:** RTS to `_dbg_enter` via `sp_baseline`
+**Out:** RTS to `dbg_enter` via `sp_baseline`
 **Clobbers:** A, X
 
 Extracts user registers from the KERNAL stack frame (Y, X, A, P,
-PChi, PClo at fixed offsets from SP).  Computes `_brk_pc` =
-pushed PC − 2.  Calls `_dbg_bp_find` to identify which breakpoint
+PChi, PClo at fixed offsets from SP).  Computes `brk_pc` =
+pushed PC − 2.  Calls `dbg_bp_find` to identify which breakpoint
 was hit.  Then restores `SP = sp_baseline` and RTS — this pops
 the @tramp return address and lands at "after jsr @tramp" in
 dbg_enter.
@@ -76,27 +76,27 @@ ending the run early.  For interactive single-stepping, this is
 acceptable.  Test contract: `test_debugger.py::TestDbgEnterStepIntoJSR`
 pins the no-runaway behaviour.
 
-### _dbg_bp_set
+### dbg_bp_set
 **In:** A/X = address (lo/hi)
 **Out:** C=0 success (A = slot number), C=1 table full
 **Clobbers:** A, X, Y
 
-### _dbg_bp_del
+### dbg_bp_del
 **In:** A = slot number (0-based)
 **Out:** C=0 success, C=1 invalid slot
 **Clobbers:** A, X
 
-### _dbg_bp_clear
+### dbg_bp_clear
 **In:** none
 **Out:** all breakpoint slots cleared
 **Clobbers:** A, X
 
-### _dbg_bp_count
+### dbg_bp_count
 **In:** none
 **Out:** A = number of non-empty breakpoint slots (0–8)
 **Clobbers:** A, X
 
-### _dbg_bp_find
+### dbg_bp_find
 **In:** A = addr lo, X = addr hi
 **Out:** C=0 found, A = slot number (0–7).  C=1 not found, A = $FF.
 **Clobbers:** A, X, Y
@@ -110,12 +110,12 @@ Used by the BRK handler to identify which breakpoint slot was hit.
 - `cmd_step(args, is_next)` — `t`/`o` commands: `is_next=0` for step-into, `is_next=1` for step-over
 
 **State:**
-- `_bp_table` — 8 breakpoint slots (see § Breakpoint table)
-- `_dbg_running` — $80 while user code is active, 0 in REPL
-- `_dbg_reason` — why we returned (0=none, 1=BRK, 2=NMI)
-- `_brk_pc` — PC where the break occurred / execution will resume
-- `_dbg_bp_hit` — slot number of the breakpoint that was hit ($FF = none)
-- `_step_bp` — temporary breakpoint(s) for single-step (2 slots)
+- `bp_table` — 8 breakpoint slots (see § Breakpoint table)
+- `dbg_running` — $80 while user code is active, 0 in REPL
+- `dbg_reason` — why we returned (0=none, 1=BRK, 2=NMI)
+- `brk_pc` — PC where the break occurred / execution will resume
+- `dbg_bp_hit` — slot number of the breakpoint that was hit ($FF = none)
+- `step_bp` — temporary breakpoint(s) for single-step (2 slots)
 
 ### Memory
 
@@ -123,13 +123,13 @@ Used by the BRK handler to identify which breakpoint slot was hit.
 
 | Variable | Size | Purpose |
 |----------|------|---------|
-| `_bp_table` | 32 | 8 breakpoint slots x 4 bytes |
-| `_step_bp` | 8 | 2 step breakpoint slots x 4 bytes |
-| `_dbg_running` | 1 | User code active flag ($80 = running) |
-| `_dbg_reason` | 1 | Break reason (0=none, 1=BRK, 2=NMI) |
-| `_brk_pc` | 2 | PC at break / resume address |
-| `_dbg_bp_hit` | 1 | Slot of breakpoint hit ($FF = none) |
-| `_sp_baseline` | 1 | SP at @tramp entry — handler restores SP to this on BRK/NMI |
+| `bp_table` | 32 | 8 breakpoint slots x 4 bytes |
+| `step_bp` | 8 | 2 step breakpoint slots x 4 bytes |
+| `dbg_running` | 1 | User code active flag ($80 = running) |
+| `dbg_reason` | 1 | Break reason (0=none, 1=BRK, 2=NMI) |
+| `brk_pc` | 2 | PC at break / resume address |
+| `dbg_bp_hit` | 1 | Slot of breakpoint hit ($FF = none) |
+| `sp_baseline` | 1 | SP at @tramp entry — handler restores SP to this on BRK/NMI |
 
 **Depends on:** asm_line (register state, ZP save), dasm (instruction
 length for step), main (BRK/NMI dispatch)
@@ -220,11 +220,11 @@ NMI fires during user code:
 
 If KERNAL is banked in: ($FFFA) → $FE43 (KERNAL ROM)
   3. KERNAL: SEI; JMP ($0318)
-  4. ($0318) → _nmi_handler (CSE, in cse_io.s)
+  4. ($0318) → cse_nmi_handler (CSE, in main.s)
 
 If KERNAL is banked out: ($FFFA) → $FF00 (RAM, our trampoline)
   3. Trampoline re-banks KERNAL, then JMP ($0318)
-  4. ($0318) → _nmi_handler
+  4. ($0318) → cse_nmi_handler
 
 Stack at handler entry (SP = user_SP − 3):
   SP+1: P    (CPU)
@@ -240,20 +240,20 @@ debugger.s.  Otherwise it sets `nmi_pending` and RTI.
 ```asm
 ; in main.s:
 cse_nmi_handler:
-        bit _dbg_running        ; bit 7 → N flag
+        bit dbg_running         ; bit 7 → N flag
         bmi @break_user         ; user code active → break
         ; Normal NMI (REPL/editor): set flag, RTI
         pha
         lda #1
-        sta _nmi_pending
+        sta nmi_pending
         pla
         rti
 
 @break_user:
         ; Save A/X/Y (not on stack for NMI)
-        sta _reg_a
-        stx _reg_x
-        sty _reg_y
+        sta reg_a
+        stx reg_x
+        sty reg_y
         ; ... extract PC and P from stack ...
         ; ... restore SP = sp_baseline, RTS to dbg_enter ...
 ```
@@ -274,23 +274,23 @@ KERNAL banking.  The same approach as `jsr_addr` in asm_line.s.
 
 | Component | Size | Location | Notes |
 |-----------|------|----------|-------|
-| ZP $02–$5A | 89 B | `_zp_save_buf` (BSS) | All CSE ZP: sp, ptr1–2, tmp1–2, assembler, editor, etc. |
-| Registers (A,X,Y,P) | 5 B | `_reg_a..p` (BSS) | existing, from asm_line |
-| PC | 2 B | `_brk_pc` (BSS) | |
+| ZP $02–$5A | 89 B | `zp_save_buf` (BSS) | All CSE ZP: sp, ptr1–2, tmp1–2, assembler, editor, etc. |
+| Registers (A,X,Y,P) | 5 B | `reg_a..p` (BSS) | existing, from asm_line |
+| PC | 2 B | `brk_pc` (BSS) | |
 
 **Enter user code** (`j` / `c` / `t` step):
 
 ```
-1.  Save CSE ZP ($02–$5A) → _zp_save_buf
+1.  Save CSE ZP ($02–$5A) → zp_save_buf
 2.  patch_all: write $00 at all enabled bp + step slots
-3.  Set _dbg_running = $80
-4.  PHA _reg_p, load A/X/Y from _reg_*, PLP
-5.  JSR @tramp → JMP (_brk_pc) → user code
+3.  Set dbg_running = $80
+4.  PHA reg_p, load A/X/Y from reg_*, PLP
+5.  JSR @tramp → JMP (brk_pc) → user code
     ... user code runs, BRK fires ...
     ... cse_brk_handler dispatches to dbg_brk_core ...
     ... handler restores SP, RTS back here ...
 6.  unpatch_all: restore original bytes
-7.  Restore CSE ZP from _zp_save_buf
+7.  Restore CSE ZP from zp_save_buf
 8.  CLI + RTS
 ```
 
@@ -303,17 +303,17 @@ BRK/NMI handler restores SP to `sp_baseline` and RTS pops the
 ```
 1.  Snapshot user ZP → user_zp_buf
 2.  Extract Y, X, A, P, PClo, PChi from stack (fixed offsets)
-3.  _brk_pc = PChi:PClo − 2
-4.  _reg_sp = SP + 6 (user's pre-BRK SP)
-5.  _dbg_bp_find(_brk_pc) → _dbg_bp_hit
-6.  _dbg_running = 0
+3.  brk_pc = PChi:PClo − 2
+4.  reg_sp = SP + 6 (user's pre-BRK SP)
+5.  dbg_bp_find(brk_pc) → dbg_bp_hit
+6.  dbg_running = 0
 7.  SP = sp_baseline; RTS → dbg_enter step 6
 ```
 
 **NMI handler** (`dbg_nmi_break`, called from `cse_nmi_handler`):
 
 Same pattern but saves A/X/Y from live regs (NMI doesn't push them)
-and computes `_reg_sp = SP + 3` (CPU frame only, no KERNAL regs).
+and computes `reg_sp = SP + 3` (CPU frame only, no KERNAL regs).
 
 **Trade-off:** user code shares the CSE stack.  Deep CSE call chains
 + deep user subroutines could overflow.  For single-step, user code
@@ -322,7 +322,7 @@ runs one instruction at a time — minimal stack usage.
 ### Single-step: `t` (trace into)
 
 ```
-1. Read opcode at _brk_pc
+1. Read opcode at brk_pc
 2. Determine next-PC(s):
      Linear insn:   next = PC + length (via dasm_insn)
      Branch (Bxx):  next₁ = PC + 2 + signed_offset (taken)
@@ -334,7 +334,7 @@ runs one instruction at a time — minimal stack usage.
                     next = PC + 3 (step OVER, KERNAL ROM is unpatchable)
      RTS/RTI:       stop (break before executing)
      BRK:           stop (don't step into vector)
-3. Place temp BRK(s) at next-PC(s) in _step_bp slots
+3. Place temp BRK(s) at next-PC(s) in step_bp slots
 4. run_user: dbg_enter, restore VIC charset, io_sync.
    (run_user does NOT save/restore the cursor — see "User code
    output and the prompt row" below.  cmd_step does newline +
@@ -342,7 +342,7 @@ runs one instruction at a time — minimal stack usage.
    a fresh row, not on top of the typed command.)
 5. If NMI or regular bp interrupted → show_break_result, stop
 6. Increment loop counter; if < count, repeat from 1
-7. Display register line + disassembly at final _brk_pc
+7. Display register line + disassembly at final brk_pc
 ```
 
 **Branch handling:** conditional branches (BCC, BEQ, BNE, etc.)
@@ -451,7 +451,7 @@ hello world
 If a BRK fires at an address that is NOT one of our breakpoint
 slots and NOT a step breakpoint, it's a BRK in the user's own
 code.  The debugger reports it as a user BRK (not a breakpoint hit)
-and sets `_brk_pc` to the BRK instruction's address.  The user can
+and sets `brk_pc` to the BRK instruction's address.  The user can
 inspect state and `c` to continue past it (PC advances by 2, as
 the 6502 skips the BRK signature byte).
 
@@ -477,7 +477,7 @@ List output:
 ### `c` — Continue
 
 ```
-c               continue execution from _brk_pc
+c               continue execution from brk_pc
 ```
 
 If the break was caused by a user breakpoint, `c` **deletes that

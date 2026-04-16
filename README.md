@@ -39,7 +39,8 @@ into memory at the current address.
 4. Assemble: `a`
 5. Run: `g` (jumps to `main:` label).
 6. Inspect: `d` to disassemble, `m` to hex-dump, `r` for registers.
-7. Debug: `b $C010` to set a breakpoint, `g` to run, `t` to step.
+7. Debug: `b $C010` to set a breakpoint, `g` to run, `t` or `o` to step,
+   `c` to continue.
 
 Repeat.  The source stays in the editor buffer between runs.
 Save to disk with `s "NAME"` (SEQ file).
@@ -57,13 +58,14 @@ if one was defined.
 Commands like `d` (disassemble) and `m` (memory dump) operate on
 a chunk of *block size* bytes.  Default is $10 (16).  Change it
 with `B EXPR`.  `+` and `-` also advance/retreat by the block size.
+`t` and `o` use it as "number of trace steps".
 
 ### Screen editing
 
 `m`, `d`, and `$` output multiple lines to the screen.  For `m`
 and `d`, each output line is a valid `.` command.  Move the
 cursor to any line, edit the values directly on screen, and
-press RETURN to re-enter the modified line.  This is the C64
+press RETURN to execute the modified line.  This is the C64
 screen-editor workflow: the screen *is* your input buffer.
 
 For example, `d` might show:

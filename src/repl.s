@@ -9,10 +9,11 @@
         .include "macros.inc"
 
 ; ── Exports ────────────────────────────────────────────────
-        .export exec_line, read_line, show_prompt
+        .export exec_line, read_line, show_prompt, cmd_info, seg_line
         .export puts_imm
-        .export out_log, out_log_open, out_log_at_open, out_close
-        .export out_err, out_warn, out_info
+        .export log_line, log_open, log_close
+        .export log_err, log_warn, log_info
+        .export rp_addr, rp_cnt, rp_save2
         .export cur_addr, cur_device, cur_filename
         .export block_size
         .export line_buf, last_cmd          ; TODO: remove after test_repl → C64Emu migration
@@ -94,7 +95,7 @@
         .import str_cse_rt, str_bytes_free, str_io
         .import str_free, str_l, str_main
         .import str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
-        .import str_tag_scr, str_tag_cse, str_tag_work, str_free_suf
+        .import str_tag_scr, str_tag_cse, str_tag_work, str_free_suf, str_seg_suf
         .import str_tag_src, str_tag_low, str_tag_io
         .import str_tag_rom, str_banked
         .import dec_pow_lo, dec_pow_hi
@@ -208,15 +209,17 @@ nl_clear:
         jsr newline
         jmp io_clear_eol
 
-; out_err_nl — print error + nl_clear (9 call sites)
-out_err_nl:
-        jsr out_err
-        jmp nl_clear
+; log_err_eol — newline + error line + clear prompt row
+; Used for error-only exits from command handlers.
+log_err_eol:
+        jsr newline
+        jsr log_err
+        jmp io_clear_eol
 
-; out_close_nl — close log + nl_clear (5 call sites)
-out_close_nl:
-        jsr out_close
-        jmp nl_clear
+; log_close_eol — close log line + clear prompt row
+log_close_eol:
+        jsr log_close
+        jmp io_clear_eol
 
 ; ───────────────────────────────────────────────────────────
 ; puts_imm — print an inline RODATA string pointer.
@@ -284,25 +287,19 @@ io_addr_cmd:
 ;   LOG_WARN = '!'   →  ";!"   warning
 ;   LOG_INFO = ' '   →  "; "   info
 ;
-; Four public functions:
+; Contract: log functions print wherever the cursor is.  The
+; caller owns cursor positioning — typically `jsr newline` at
+; handler entry to leave the prompt line.
 ;
-;   out_log(Y=level, A/X=content)
-;       Complete line: newline + ";" + Y + content + clear_eol
+;   log_open(Y=level)
+;       Print ";" + Y at current cursor.  Caller appends content
+;       via io_puts / io_putdec / etc., then calls log_close.
 ;
-;   out_log_open(Y=level)
-;       Open a line: newline + ";" + Y
-;       Caller appends content via io_puts / io_putdec / etc.,
-;       then calls out_close.
+;   log_close()
+;       Close an open line: io_clear_eol + newline.
 ;
-;   out_log_at_open(Y=level)
-;       Open a line with AAAA: prefix (using rp_addr):
-;       newline + "AAAA:;" + Y
-;       Caller appends content, then calls out_close.
-;       The AAAA: prefix makes the line re-enterable
-;       (pressing RETURN re-runs "; content" as a comment).
-;
-;   out_close()
-;       Close an open line: clear_eol.
+;   log_line(Y=level, A/X=content)
+;       Complete line: log_open + content + log_close.
 ;
 ; Address context goes in the AAAA: prefix (caller's job).
 ; Line references go at the tail of the content (LNNN).
@@ -312,60 +309,47 @@ LOG_ERR  = '?'
 LOG_WARN = '!'
 LOG_INFO = ' '
 
-; ── out_log — complete log line ───────────────────────────
+; ── log_line — complete log line ─────────────────────────
 ; Y = level char, A/X = content string ptr
 ; Clobbers: A, X, Y
-.proc out_log
+.proc log_line
         sta rp_tmp
         stx rp_tmp+1
-        jsr out_log_open
+        jsr log_open
         lda rp_tmp
         ldx rp_tmp+1
         jsr io_puts
-        jmp io_clear_eol
+        jmp log_close
 .endproc
 
-; ── out_log_open — open a log line (no content, no close) ─
+; ── log_open — open a log line at current cursor ─────────
 ; Y = level char
 ; Clobbers: A
-.proc out_log_open
+log_open:
         tya
         pha
-        jsr newline
         lda #';'
         jsr io_putc
         pla
         jmp io_putc
-.endproc
 
-; ── out_log_at_open — open with AAAA:; prefix ────────────
-; Y = level char, rp_addr = address for the prompt
-; Clobbers: A, X, Y
-.proc out_log_at_open
-        tya
-        pha
-        jsr newline
-        lda #';'
-        jsr io_addr_cmd         ; prints "AAAA:;"
-        pla
-        jmp io_putc
-.endproc
-
-; ── out_close — close an open log line ───────────────────
-out_close:
-        jmp io_clear_eol
+; ── log_close — close an open log line ───────────────────
+; Clears to end of line, then advances to next row.
+log_close:
+        jsr io_clear_eol
+        jmp newline
 
 ; ── Convenience entry points ─────────────────────────────
 ; Avoid `ldy #LOG_*` at every call site.  A/X = content ptr.
-out_err:
+log_err:
         ldy #LOG_ERR
-        jmp out_log
-out_warn:
+        jmp log_line
+log_warn:
         ldy #LOG_WARN
-        jmp out_log
-out_info:
+        jmp log_line
+log_info:
         ldy #LOG_INFO
-        jmp out_log
+        jmp log_line
 
 ; ───────────────────────────────────────────────────────────
 ; confirm_yn — show cursor, wait for key, return Z=1 if 'y'
@@ -388,8 +372,9 @@ confirm_yn:
 check_unsaved:
         lda ed_dirty
         beq @ok                 ; not dirty → proceed
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         puts str_unsaved
         jsr confirm_yn
         beq @ok
@@ -629,12 +614,13 @@ parse_hex4_ptr1:
         sec
         rts
 @error:
+        jsr newline
         ldy #LOG_ERR
-        jsr out_log_open        ; ";?"
+        jsr log_open        ; ";?"
         puts str_expr
         jsr expr_error_str
         jsr io_puts             ; "undef main" etc.
-        jsr out_close
+        jsr log_close
         clc
         rts
 @empty: clc
@@ -676,13 +662,14 @@ parse_hex4_ptr1:
 ; show_block_size — emit current B=XXXX setting
 ; ───────────────────────────────────────────────────────────
 .proc show_block_size
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         puts str_blk_eq
         lda block_size
         ldx block_size+1
         jsr io_puthex4
-        jmp out_close
+        jmp log_close
 .endproc
 
 ; ───────────────────────────────────────────────────────────
@@ -692,8 +679,9 @@ parse_hex4_ptr1:
         clc
         adc #'1'
         pha
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         puts str_bp_pfx
         pla
         jmp io_putc
@@ -717,8 +705,9 @@ parse_hex4_ptr1:
 ; show_theme_colors — emit current border/bg/fg color triplet
 ; ───────────────────────────────────────────────────────────
 .proc show_theme_colors
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         puts str_color
         lda theme_border
         jsr _hex_val_to_char
@@ -729,7 +718,7 @@ parse_hex4_ptr1:
         lda theme_fg
         jsr _hex_val_to_char
         jsr io_putc
-        jmp out_close
+        jmp log_close
 .endproc
 
 ; ───────────────────────────────────────────────────────────
@@ -1013,6 +1002,7 @@ parse_hex4_ptr1:
 ; ═══════════════════════════════════════════════════════════
 .proc show_break_result
         jsr restore_colors
+        jsr newline
 
         lda dbg_reason
         cmp #1
@@ -1024,7 +1014,7 @@ parse_hex4_ptr1:
         ; (and at which entry point), then fall through to the
         ; register dump.
         ldy #' '
-        jsr out_log_open
+        jsr log_open
         puts str_ok_at
         lda brk_pc
         ldx brk_pc+1
@@ -1380,17 +1370,18 @@ parse_hex4_ptr1:
         jsr expr_error_str      ; A/X = error string
         sta rp_tmp
         stx rp_tmp+1
-        lda #<str_expr
-        ldx #>str_expr
-        jsr out_err
+        jsr newline
+        ldy #LOG_ERR
+        jsr log_open
+        puts str_expr
         lda rp_tmp
         ldx rp_tmp+1
         jsr io_puts
-        jmp nl_clear
+        jmp log_close_eol
 @syn_err:
         lda #<str_syntax
         ldx #>str_syntax
-        jmp out_err_nl
+        jmp log_err_eol
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -2083,7 +2074,7 @@ VIC_MEMCTL = $D018
         lda expr_val
         ldx expr_val+1
         jsr io_puthex4
-        jmp out_close_nl
+        jmp log_close_eol
 
 @list_all:
         ldx #0                  ; slot index
@@ -2116,17 +2107,18 @@ VIC_MEMCTL = $D018
 @empty_slot:
         puts str_dashes
 @slot_done:
-        jsr out_close
+        jsr log_close
         ldx rp_save
         inx
         bne @list
 
 @clear_all:
         jsr dbg_bp_clear
+        jsr newline
         lda #<str_bp_clr
         ldx #>str_bp_clr
-        jsr out_info
-        jmp nl_clear
+        jsr log_info
+        jmp io_clear_eol
 
 @delete_one:
         iny
@@ -2142,21 +2134,21 @@ VIC_MEMCTL = $D018
         pla
         jsr bp_open_slot
         puts str_deleted
-        jmp out_close_nl
+        jmp log_close_eol
 
 @bad_slot:
         lda #<str_bad_val
         ldx #>str_bad_val
-        jmp out_err_nl
+        jmp log_err_eol
 
 @full:  lda #<str_full
         ldx #>str_full
-        jmp out_err_nl
+        jmp log_err_eol
 
 @err_b: lda #<str_syntax
         ldx #>str_syntax
-        jmp out_err_nl
-@done:  jmp nl_clear
+        jmp log_err_eol
+@done:  jmp io_clear_eol
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -2400,7 +2392,7 @@ VIC_MEMCTL = $D018
 
 ; ═══════════════════════════════════════════════════════════
 ; print_seq_stats — print "N lines, M bytes"
-; Caller opens the line via out_log_open first.
+; Caller opens the line via log_open first.
 ; ═══════════════════════════════════════════════════════════
 .proc print_seq_stats
         lda ed_save_lines
@@ -2482,8 +2474,9 @@ TAB_MASK_WL = TAB_WIDTH - 1
         cmp #40                 ; > 39 ?
         bcc @ok
         ; Print ";!long LNN" (1-based line number)
+        jsr newline
         ldy #LOG_WARN
-        jsr out_log_open
+        jsr log_open
         puts str_long
         lda @line
         clc
@@ -2494,7 +2487,7 @@ TAB_MASK_WL = TAB_WIDTH - 1
         tax
         lda rp_tmp
         jsr io_putdec
-        jsr out_close
+        jsr log_close
 @ok:    rts
 
 @vcol:  .byte 0
@@ -2509,9 +2502,10 @@ TAB_MASK_WL = TAB_WIDTH - 1
 ; ═══════════════════════════════════════════════════════════
 io_err_load:
 io_err_save:
+        jsr newline
         lda #<str_fail
         ldx #>str_fail
-        jmp out_err
+        jmp log_err
 
 ; ───────────────────────────────────────────────────────────
 ; restore_name_ptr — reload rp_ptr2 from saved name pointer
@@ -2527,9 +2521,9 @@ restore_name_ptr:
 ; disk_done — shared exit for l/s: clear line, drive status, prompt
 ; ═══════════════════════════════════════════════════════════
 disk_done:
-        jsr out_close
+        jsr log_close
         jsr floppy_status
-        jmp nl_clear
+        jmp io_clear_eol
 
 ; ═══════════════════════════════════════════════════════════
 ; parse_ls_args — shared l/s entry: parse filename, detect SEQ/PRG.
@@ -2570,8 +2564,9 @@ parse_ls_args:
 print_op_name:
         sta rp_tmp
         stx rp_tmp+1
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         lda rp_tmp
         ldx rp_tmp+1
         jsr io_puts
@@ -2590,8 +2585,9 @@ print_op_name:
 ;   In: rp_addr=start, rp_cnt=end (exclusive).
 ; ═══════════════════════════════════════════════════════════
 print_prg_range:
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         ; size = end - start
         lda rp_cnt
         sec
@@ -2628,7 +2624,7 @@ print_prg_range:
         bne @have_name
         lda #<str_no_name
         ldx #>str_no_name
-        jmp out_err_nl
+        jmp log_err_eol
 @have_name:
         cmp #2                  ; 2=SEQ, 1=PRG (from parse_ls_args)
         bne @load_prg
@@ -2655,16 +2651,18 @@ print_prg_range:
         jmp @done
 @seq_too_large:
         jsr restore_name_ptr
+        jsr newline
         lda #<str_too_big
         ldx #>str_too_big
-        jsr out_err
+        jsr log_err
         jmp @done
 @seq_ok:
         ; "; N lines, M bytes" on new line
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         jsr print_seq_stats
-        jsr out_close
+        jsr log_close
         jsr warn_long_lines
         jmp @done
 
@@ -2729,7 +2727,7 @@ print_prg_range:
         bne @have_name
         lda #<str_no_name
         ldx #>str_no_name
-        jmp out_err_nl
+        jmp log_err_eol
 @have_name:
         cmp #2                  ; 2=SEQ, 1=PRG
         bne @save_prg
@@ -2748,10 +2746,11 @@ print_prg_range:
         jsr io_err_save
         jmp @done
 @seq_ok:
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         jsr print_seq_stats
-        jsr out_close
+        jsr log_close
         jsr warn_long_lines
         jmp @done
 
@@ -2864,13 +2863,13 @@ print_prg_range:
 @range_err:
         lda #<str_range
         ldx #>str_range
-        jmp out_err_nl
+        jmp log_err_eol
 
 @done:  jmp disk_done
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; info_line — print ";tag  AAAA-BBBB description"
+; info_line — print "; tag AAAA-BBBB description"
 ;   Stack frame: rp_save2 = inv flag
 ;   rp_ptr2 = tag string, rp_addr = lo, rp_cnt = hi
 ;   rp_ptr = desc string
@@ -2934,8 +2933,7 @@ print_prg_range:
         ldx rp_cnt+1
         jsr io_puthex4
         lda #' '
-        ldx #2
-        jsr io_repc
+        jsr io_putc
 
         ; print desc
         lda rp_ptr
@@ -2982,11 +2980,26 @@ print_prg_range:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; ===============================================================
-; free_line -- print "N bytes free" info line with inv=1
-;   rp_addr = lo, rp_cnt = hi (address range)
+; range_line — shared formatter for address-range info lines
+;
+; Two entry points:
+;   free_line — suffix = "b free" (cmd_info free sections)
+;   seg_line  — suffix = "b"      (asm_src segment lines)
+;
+; In:  rp_ptr2 = tag, rp_save2 = highlight, rp_addr = lo, rp_cnt = hi
+; Out: prints "; TAG  AAAA-BBBB NNNNNb[suffix]" via info_line
 ; ===============================================================
 free_line:
+        lda #<str_free_suf
+        ldx #>str_free_suf
+        bne range_line          ; always taken
+seg_line:
+        lda #<str_seg_suf
+        ldx #>str_seg_suf
+range_line:
+        sta rp_tmp              ; suffix ptr lo
+        stx rp_tmp+1            ; suffix ptr hi
+
         ; Compute size = hi - lo + 1
         lda rp_cnt
         sec
@@ -3001,10 +3014,11 @@ free_line:
         bcc :+
         inx
 :
-        ; Convert to decimal in dec_buf, copy to fbuf
-        clc                     ; skip leading zeros
-        jsr io_utoa             ; A = offset into dec_buf
-        tax                     ; X = source index
+        ; Convert to right-aligned decimal in dec_buf
+        sec                     ; SEC = pad leading zeros with spaces
+        jsr io_utoa             ; dec_buf = "NNNNNb" (right-aligned)
+        ; Copy dec_buf to fbuf
+        ldx #0
         ldy #0
 @cpd:   lda dec_buf,x
         beq @suf
@@ -3012,23 +3026,22 @@ free_line:
         inx
         iny
         bne @cpd
-        ; Append "b free" suffix
-@suf:   ldx #0
-@cpf:   lda str_free_suf,x
-        sta fbuf,y
-        beq @cpf_done
-        inx
+        ; Append suffix from rp_tmp ("b free\0" or "b\0")
+@suf:   sty rp_save             ; save fbuf write offset
+        lda rp_tmp
+        sta rp_ptr
+        lda rp_tmp+1
+        sta rp_ptr+1
+        ldy #0
+@cpf:   lda (rp_ptr),y
+        ldx rp_save
+        sta fbuf,x
+        beq @done
+        inc rp_save
         iny
         bne @cpf
-@cpf_done:
-
-        ; info_line: inv=1, tag="work", desc=fbuf
-        lda #1
-        sta rp_save2
-        lda #<str_tag_work
-        sta rp_ptr2
-        lda #>str_tag_work
-        sta rp_ptr2+1
+@done:
+        ; info_line: tag and highlight set by caller
         lda #<fbuf
         sta rp_ptr
         lda #>fbuf
@@ -3098,18 +3111,26 @@ free_line:
         rts
 .endproc
 
+; ── cmd_info — memory map display ─────────────────────────
+; In:  C=0 full mode (i command), C=1 splash mode (free only)
+; Splash mode: only free sections, no highlight, no newline
+; Full mode:   all sections, highlighted free, caller does newline
 .proc cmd_info
-        jsr newline
+        ; capture carry → rp_tmp2 (0=full, 1=splash)
+        lda #0
+        adc #0
+        sta rp_tmp2
 
         ; ── cpu ──
+        lda rp_tmp2
+        bne @skip_h1
         lda #<info_tbl_h1
         ldx #>info_tbl_h1
         ldy #INFO_TBL_H1_ROWS
         jsr info_emit_rows
+@skip_h1:
 
-        ; ── zp 0002-007f  free (highlighted) ──
-        lda #1
-        sta rp_save2
+        ; ── zp 0002-007f  free ──
         lda #<str_tag_zp
         sta rp_ptr2
         lda #>str_tag_zp
@@ -3122,27 +3143,28 @@ free_line:
         sta rp_cnt
         lda #$00
         sta rp_cnt+1
-        lda #<str_free
-        sta rp_ptr
-        lda #>str_free
-        sta rp_ptr+1
-        jsr info_line
+        jsr @set_inv
+        jsr free_line
 
         ; ── sys(kernal zp), stk ──
+        lda rp_tmp2
+        bne @skip_h2
         lda #<info_tbl_h2
         ldx #>info_tbl_h2
         ldy #INFO_TBL_H2_ROWS
         jsr info_emit_rows
+@skip_h2:
 
         ; ── sys 0200-02a6  kernal ──
+        lda rp_tmp2
+        bne @skip_lo
         lda #<info_tbl_lo
         ldx #>info_tbl_lo
         ldy #INFO_TBL_LO_ROWS
         jsr info_emit_rows
+@skip_lo:
 
-        ; ── low 02a7-02ff  free (highlighted) ──
-        lda #1
-        sta rp_save2
+        ; ── low 02a7-02ff  free ──
         lda #<str_tag_low
         sta rp_ptr2
         lda #>str_tag_low
@@ -3155,21 +3177,19 @@ free_line:
         sta rp_cnt
         lda #>$02FF
         sta rp_cnt+1
-        lda #<str_free
-        sta rp_ptr
-        lda #>str_free
-        sta rp_ptr+1
-        jsr info_line
+        jsr @set_inv
+        jsr free_line
 
         ; ── sys 0300-0333  kernal ──
+        lda rp_tmp2
+        bne @skip_lo2
         lda #<info_tbl_lo2
         ldx #>info_tbl_lo2
         ldy #INFO_TBL_LO2_ROWS
         jsr info_emit_rows
+@skip_lo2:
 
-        ; ── lo03 0334-03ff  free (highlighted) ──
-        lda #1
-        sta rp_save2
+        ; ── low 0334-03ff  free ──
         lda #<str_tag_low
         sta rp_ptr2
         lda #>str_tag_low
@@ -3182,20 +3202,24 @@ free_line:
         sta rp_cnt
         lda #>$03FF
         sta rp_cnt+1
-        lda #<str_free
-        sta rp_ptr
-        lda #>str_free
-        sta rp_ptr+1
-        jsr info_line
+        jsr @set_inv
+        jsr free_line
 
         ; ── scr ──
+        lda rp_tmp2
+        bne @skip_h3
         lda #<info_tbl_h3
         ldx #>info_tbl_h3
         ldy #INFO_TBL_H3_ROWS
         jsr info_emit_rows
+@skip_h3:
 
         ; ── Dynamic: free workspace ──
         ; Free = $0800 to buf_base-1 (gap between output and source)
+        lda #<str_tag_work
+        sta rp_ptr2
+        lda #>str_tag_work
+        sta rp_ptr2+1
         lda #<$0800
         sta rp_addr
         lda #>$0800
@@ -3207,7 +3231,12 @@ free_line:
         lda buf_base+1
         sbc #0
         sta rp_cnt+1
+        jsr @set_inv
         jsr free_line
+
+        ; ── sections below are full-mode only ──
+        lda rp_tmp2
+        jne @done
 
         ; ── Dynamic: source (skip if empty: src_bot == src_top) ──
         lda src_bot
@@ -3215,7 +3244,7 @@ free_line:
         bne @has_src
         lda src_bot+1
         cmp src_top+1
-        jeq @no_src
+        beq @no_src
 @has_src:
         lda #<str_tag_src
         sta rp_ptr2
@@ -3233,12 +3262,10 @@ free_line:
         sbc #0
         sta rp_cnt+1
         ; Build desc: "Nl Nb" using print_seq_stats path
-        ; Set ed_save_lines = ed_total_lines
         lda ed_total_lines
         sta ed_save_lines
         lda ed_total_lines+1
         sta ed_save_lines+1
-        ; Set ed_save_bytes = src_top - src_bot
         lda src_top
         sec
         sbc src_bot
@@ -3255,9 +3282,7 @@ free_line:
         pha
         lda rp_cnt+1
         pha
-        ; Format "Nl Nb" into fbuf via shared helper
         jsr stats_to_fbuf
-        ; Restore src range
         pla
         sta rp_cnt+1
         pla
@@ -3266,7 +3291,6 @@ free_line:
         sta rp_addr+1
         pla
         sta rp_addr
-        ; Print with fbuf as desc (not highlighted)
         lda #0
         sta rp_save2
         lda #<fbuf
@@ -3305,7 +3329,14 @@ free_line:
         ldy #INFO_TBL_TAIL_ROWS
         jsr info_emit_rows
 
-        jmp io_clear_eol
+@done:  jmp io_clear_eol
+
+        ; helper: set rp_save2 = 1 (highlight) in full mode, 0 in splash
+@set_inv:
+        lda rp_tmp2
+        eor #1                  ; 0→1 (highlight), 1→0 (no highlight)
+        sta rp_save2
+        rts
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -3413,7 +3444,7 @@ free_line:
 @unknown:
         lda #<str_cmd
         ldx #>str_cmd
-        jmp out_err_nl
+        jmp log_err_eol
 
 ; ── Handlers ──────────────────────────────────────────────
 @h_dot: jmp cmd_dot
@@ -3423,7 +3454,9 @@ free_line:
 @h_r:   jmp cmd_reg
 @h_l:   jmp cmd_load
 @h_s:   jmp cmd_write
-@h_i:   jmp cmd_info
+@h_i:   jsr newline
+        clc                     ; C=0 = full mode
+        jmp cmd_info
 
 @h_at:  ; @ — set address
         jsr expr_set_curaddr
@@ -3475,8 +3508,9 @@ free_line:
 @h_k:   ; k — delete source (guard unsaved)
         jsr check_unsaved
         bcc @k_cancel
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         puts str_del_src
         jsr confirm_yn
         bne @k_no
@@ -3498,7 +3532,7 @@ free_line:
         sta block_size+1
 @B_show:
         jsr show_block_size
-        jmp nl_clear
+        jmp io_clear_eol
 
 @h_col: ; C (PETSCII $C3) — color
         jsr skip_sp_ptr1
@@ -3546,7 +3580,7 @@ free_line:
         jsr restore_colors
 @C_show:
         jsr show_theme_colors
-        jmp nl_clear
+        jmp io_clear_eol
 
 @h_u:   ; u — cpu mode
         jsr skip_peek_ptr1
@@ -3593,8 +3627,9 @@ free_line:
         bcc @u_scan
 
 @u_show:
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         puts str_cpu
         lda asm_cpu
         bne @u_no_star0
@@ -3625,12 +3660,13 @@ free_line:
         lda #' '
 @u_p2:  jsr io_putc
 .endif
-        jmp out_close_nl
+        jmp log_close_eol
 @h_a:   ; a — assemble source
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open        ; "; " — line stays open
+        jsr log_open        ; "; "
         puts str_asm_ing        ; "asm..."
-        jsr io_clear_eol        ; clean rest of line in case errors follow
+        jsr log_close           ; close line, advance to next row
         lda cur_addr
         ldx cur_addr+1
         jsr asm_assemble       ; A/X = error count
@@ -3643,9 +3679,9 @@ free_line:
         sta dbg_reason
         ; Print "; ok" on its own line
         ldy #' '                ; LOG_INFO
-        jsr out_log_open
+        jsr log_open
         puts str_ok
-        jsr out_close
+        jsr log_close
         ; Print executable save command (handles its own newline)
         jsr seg_print_save
         ; sym_lookup("main") — ZP interface
@@ -3657,14 +3693,14 @@ free_line:
         jmp @a_tail
 @a_errors:
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         lda rp_cnt
         ldx rp_cnt+1
         jsr io_putdec
         puts str_errors
-        jsr out_close
+        jsr log_close
 @a_tail:
-        jmp nl_clear
+        jmp io_clear_eol
 @h_calc:; ? — calculator
         lda rp_ptr
         sta expr_ptr
@@ -3676,8 +3712,9 @@ free_line:
         jcs @calc_err
 
         ; hex display
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         lda expr_val+1
         bne @calc_16bit
         jsr calc_put_u8_hex
@@ -3745,20 +3782,22 @@ free_line:
         jsr io_putdec
 
 @calc_done:
-        jmp out_close_nl
+        jmp log_close_eol
 
 @calc_err:
+        jsr newline
         ldy #LOG_ERR
-        jsr out_log_open
+        jsr log_open
         puts str_expr
         jsr expr_error_str
         jsr io_puts
-        jmp out_close_nl
+        jmp log_close_eol
 @h_quit:; Q (PETSCII $D1) — quit (guard unsaved)
         jsr check_unsaved
         bcc @q_cancel
+        jsr newline
         ldy #LOG_INFO
-        jsr out_log_open
+        jsr log_open
         puts str_quit
         ; flush keyboard buffer
 @q_flush:
@@ -3845,7 +3884,7 @@ free_line:
         bne @c_has_ctx
         lda #<str_no_ctx
         ldx #>str_no_ctx
-        jmp out_err_nl
+        jmp log_err_eol
 @c_has_ctx:
         ; delete hit breakpoint before continuing
         lda dbg_bp_hit

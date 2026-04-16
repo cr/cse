@@ -303,40 +303,43 @@ $A0–$BF combined.  A single operation (A − $80) covers both
 duplications.  The round-trip through screen RAM is **lossy** —
 preferred and avoided PETSCII ranges become indistinguishable.
 
-#### Screen Code → PETSCII (read_line)
+#### Screen Code → PETSCII (scr_to_pet, used by read_line)
 
 `read_line` strips bit 7 (`AND #$7F`) to remove reverse video,
-then converts:
+then calls `scr_to_pet`:
 
 | Screen code (after AND #$7F) | PETSCII | Rule |
 |------------------------------|---------|------|
-| $00–$1F | $40–$5F | A + $40 |
-| $20–$7F | $20–$7F | identity |
+| $00–$1F | $40–$5F | ORA #$40 (lowercase a–z) |
+| $20–$3F | $20–$3F | identity (digits, punctuation) |
+| $40–$5F | $C0–$DF | ORA #$80 (uppercase A–Z) |
+| $60–$7F | $60–$7F | identity (graphics) |
 
-**Critical consequence:** screencodes $00–$1F (lowercase on screen)
-and $40–$5F (uppercase on screen) both map to PETSCII $40–$5F.
-**`read_line` is inherently case-insensitive** — text round-tripped
-through screen RAM loses the uppercase/lowercase distinction.
-This is by design: the REPL and assembler are case-insensitive.
+Uppercase screen codes ($40–$5F) map to the $C0–$DF PETSCII range.
+This matches both the KERNAL keyboard input encoding (GETIN returns
+$C1–$DA for shifted letters) and ca65 `-t c64` character literals
+(`'B'` = $C2).  The round-trip through screen RAM **preserves case**:
+lowercase `b` (screen $02) → PETSCII $42, uppercase `B` (screen
+$42) → PETSCII $C2.
 
-#### Where $C0–$DF (avoided uppercase range) appears
+#### Where $C0–$DF uppercase PETSCII appears
 
-$C0–$DF only comes from **KERNAL GETIN** (raw keyboard input).
-It never appears in text that went through `read_line`, because
-the screen round-trip collapses both $40–$5F and $C0–$DF to
-PETSCII $40–$5F.
+$C0–$DF is the canonical uppercase range in CSE.  It appears from
+two sources:
 
-Code that receives raw keyboard input must fold $C0–$DF → $40–$5F
-at the input boundary.  Currently:
+- **KERNAL GETIN** — raw keyboard input returns $C1–$DA for
+  shifted letters.
+- **`scr_to_pet`** — screen code $40–$5F (uppercase on screen)
+  maps to $C0–$DF via ORA #$80.
 
-- `editor.s` — key handler folds $C0–$DF → screencodes for display
-- `_hex_val` in `repl.s` — accepts $C0–$DF for hex A–F
+Code that needs case-insensitive comparison (assembler, expression
+parser, symbol table) must fold $C0–$DF → $40–$5F:
+
 - `fold_char` in `symtab.s` — folds $C0–$DF → $40–$5F
 - Label scanner in `expr.s` — folds $C0–$DF in-place
 - Assembler in `asm_src.s` — folds $C0–$DF for mnemonics
-
-Modules that only process screen-read text (via `read_line`) do
-NOT need $C0–$DF handling — they will never see it.
+- `_hex_val` in `repl.s` — accepts $C0–$DF for hex A–F
+- `editor.s` — key handler folds $C0–$DF → screencodes for display
 
 ### IRQ Safety
 

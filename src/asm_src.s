@@ -23,15 +23,18 @@
         .import         sym_define             ; symtab.s
         .import         sym_clear
         .import         kernal_bank_out, kernal_bank_in, kernal_out
-        .import         io_puts, io_putc, io_putdec, io_puthex4, newline, io_clear_eol
+        .import         io_puts, io_putc, io_putdec, io_puthex4, io_clear_eol, newline
         .import         io_utoa, dec_buf
-        .import         out_log_open, out_close
+        .import         log_open, log_close
+        .import         seg_line, rp_addr, rp_cnt, rp_save2
+        .import         str_tag_org
         .import         puts_imm               ; repl.s — for puts macro
         .import         define_ws_syms         ; mem.s
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
         .import         cur_filename           ; repl.s — last loaded/saved filename
         .importzp       buf_base                ; editor.s — gap buffer low bound
+        .importzp       rp_ptr2                 ; zp.s — scratch pointer (repl/info_line)
         .importzp       asm_pc, asm_out, asm_cpu, asm_tmp, asm_tmp2
         .importzp       expr_ptr, expr_val, expr_wide
         .importzp       sym_name, sym_val, sym_wide
@@ -40,7 +43,7 @@
 
 ; ── Imports: strings.s ──────────────────────────────────────
         .import s_err_sep, s_bad_val, s_exp_name, s_sym_full
-        .import s_exp_quot, s_bad_insn, s_seg_pfx
+        .import s_exp_quot, s_bad_insn
         .import s_save_s, s_save_q_sp, s_save_default, s_trunc
         .import dec_pow_lo, dec_pow_hi
 
@@ -94,7 +97,7 @@ LOG_ERR = '?'
         ; because kernal_out flag makes bank_in a no-op.
 :       jsr _bank_in_tmp
         ldy #LOG_ERR
-        jsr out_log_open        ; ";?"
+        jsr log_open        ; ";?"
         lda _line_num
         ldx _line_num+1
         jsr io_putdec
@@ -103,7 +106,7 @@ LOG_ERR = '?'
         tax                     ; msg hi
         pla                     ; msg lo
         jsr io_puts             ; error message
-        jsr out_close           ; clear_eol
+        jsr log_close           ; clear_eol
         jmp _bank_out_tmp       ; tail call (bank out + rts)
 @skip:  pla                     ; discard saved msg lo
         rts
@@ -600,34 +603,22 @@ _seg_log_close:
         sbc #0
         sta asm_tmp2            ; end_hi
         jsr _bank_in_tmp
-        ; Print complete line: "; org  AAAA-BBBB  NNb"
-        ldy #' '                ; LOG_INFO
-        jsr out_log_open
-        puts s_seg_pfx          ; "org  "
+        ; Print "; org  AAAA-BBBB NNNNNb" via shared formatter
+        lda #0
+        sta rp_save2            ; no highlight
+        lda #<str_tag_org
+        sta rp_ptr2
+        lda #>str_tag_org
+        sta rp_ptr2+1
         lda _seg_pc
-        ldx _seg_pc+1
-        jsr io_puthex4
-        lda #'-'
-        jsr io_putc
-        lda asm_tmp
-        ldx asm_tmp2
-        jsr io_puthex4
-        ; Print "  NNb" — size = asm_pc - _seg_pc
-        lda #' '
-        jsr io_putc
-        jsr io_putc             ; A still ' '
-        lda asm_pc
-        sec
-        sbc _seg_pc
-        pha
-        lda asm_pc+1
-        sbc _seg_pc+1
-        tax
-        pla
-        jsr io_putdec
-        lda #'b'
-        jsr io_putc
-        jsr out_close
+        sta rp_addr
+        lda _seg_pc+1
+        sta rp_addr+1
+        lda asm_tmp             ; end_lo (asm_pc-1)
+        sta rp_cnt
+        lda asm_tmp2            ; end_hi
+        sta rp_cnt+1
+        jsr seg_line
         jsr _bank_out_tmp
 @clear: lda #0
         sta _seg_open
@@ -679,7 +670,6 @@ seg_print_save:
         and _min_pc+1
         cmp #$FF
         beq @ret
-        jsr newline
         lda _min_pc
         ldx _min_pc+1
         jsr io_puthex4
@@ -734,7 +724,8 @@ seg_print_save:
         lda _max_pc
         ldx _max_pc+1
         jsr io_puthex4
-        jmp io_clear_eol        ; clear rest of line; caller does newline
+        jsr io_clear_eol
+        jmp newline             ; advance so prompt goes on next row
 @ret:   rts
 
 ; ── emit_bas ──────────────────────────────────────────────────────────────
@@ -1389,12 +1380,12 @@ BASIC_REM = $8F
         beq @no_trunc
         jsr _bank_in_tmp
         ldy #'!'                ; LOG_WARN
-        jsr out_log_open
+        jsr log_open
         lda _line_num
         ldx _line_num+1
         jsr io_putdec
         puts s_trunc
-        jsr out_close
+        jsr log_close
         jsr _bank_out_tmp
 @no_trunc:
         lda #<_line_buf

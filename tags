@@ -1,8 +1,0 @@
-Mmain	src/main.c	/^void main(void) {$/
-draw_cursor	src/main.c	/^void draw_cursor(void) {$/
-erase_cursor	src/main.c	/^void erase_cursor(void) {$/
-parse_command	src/main.c	/^void parse_command(unsigned char *start, unsigned /
-print_char	src/main.c	/^void print_char(char c) {$/
-print_string	src/main.c	/^void print_string(const char *str) {$/
-reset_screen	src/main.c	/^void reset_screen(void) {$/
-scroll_screen	src/main.c	/^void scroll_screen(void) {$/

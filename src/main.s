@@ -41,7 +41,8 @@
         .import dbg_brk_core, dbg_nmi_break
         .import dbg_running
         .import ed_ensure_init
-        .import exec_line, read_line, show_prompt
+        .import exec_line, read_line, show_prompt, cmd_info
+        .import log_line
         .importzp asm_cpu
         .import cur_addr, cur_device, block_size
         .import nmi_pending
@@ -49,12 +50,11 @@
 
 ; ── Imports: strings.s ──────────────────────────────────────
         .import VERSION_STR, s_manual
-        .import s_zp_tag, s_low_tag, s_work_tag
-        .import s_free
 
 ; ── Constants ────────────────────────────────────────────────
 SCREEN_WIDTH = 40
 SCREEN_HEIGHT = 25
+LOG_INFO     = ' '
 MEM_CONFIG   = $01
 KEY_REPEAT   = $028A
 VIC_MEMCTL   = $D018
@@ -209,114 +209,32 @@ warm_guard:  .res 1              ; nonzero = warm start in progress
         jsr reset_globals
 
         ; ── 14. Splash screen ─────────────────────────────────
-        ; Version line (row 15)
+        ; Position cursor for splash output (log_line prints at
+        ; cursor position, then advances via log_close)
         lda #SCREEN_HEIGHT - 10
         jsr splash_row
-        puts VERSION_STR
 
-        ; ZP free line (row 17): "  zp 0002-007f      126b free"
-        lda #SCREEN_HEIGHT - 8
-        jsr splash_row
-        puts s_zp_tag
-        lda #<$0002
-        ldx #>$0002
-        jsr io_puthex4
-        lda #'-'
-        jsr io_putc
-        lda #<$007F
-        ldx #>$007F
-        jsr io_puthex4
-        lda #' '
-        ldx #2
-        jsr io_repc
-        lda #<($7F - $02 + 1)
-        ldx #>($7F - $02 + 1)
-        sec
-        jsr io_putdec_pd
-        puts s_free
+        ; Version line
+        ldy #LOG_INFO
+        lda #<VERSION_STR
+        ldx #>VERSION_STR
+        jsr log_line
 
-        ; low free line (row 18): " low 02a7-02ff       89b free"
-        lda #SCREEN_HEIGHT - 7
-        jsr splash_row
-        puts s_low_tag
-        lda #<$02A7
-        ldx #>$02A7
-        jsr io_puthex4
-        lda #'-'
-        jsr io_putc
-        lda #<$02FF
-        ldx #>$02FF
-        jsr io_puthex4
-        lda #' '
-        ldx #2
-        jsr io_repc
-        lda #<($02FF - $02A7 + 1)
-        ldx #>($02FF - $02A7 + 1)
-        sec
-        jsr io_putdec_pd
-        puts s_free
+        ; Blank line between version and memory info
+        jsr newline
 
-        ; low free line (row 19): "     0334-03ff      204b free"
-        lda #SCREEN_HEIGHT - 6
-        jsr splash_row
-        lda #' '
-        ldx #5
-        jsr io_repc
-        lda #<$0334
-        ldx #>$0334
-        jsr io_puthex4
-        lda #'-'
-        jsr io_putc
-        lda #<$03FF
-        ldx #>$03FF
-        jsr io_puthex4
-        lda #' '
-        ldx #2
-        jsr io_repc
-        lda #<($03FF - $0334 + 1)
-        ldx #>($03FF - $0334 + 1)
-        sec
-        jsr io_putdec_pd
-        puts s_free
+        ; Free memory lines (splash mode: free only, no highlight)
+        sec                     ; C=1 = splash mode
+        jsr cmd_info
 
-        ; work free line (row 20): "work 0800-XXXX  NNNNNb free"
-        lda #SCREEN_HEIGHT - 5
-        jsr splash_row
-        puts s_work_tag
-        lda #<WORKSTART
-        ldx #>WORKSTART
-        jsr io_puthex4
-        lda #'-'
-        jsr io_putc
-        jsr cse_start          ; A/X = runtime start
-        sec
-        sbc #1
-        pha                     ; save lo of cse_start-1
-        txa
-        sbc #0
-        tax                     ; X = hi of cse_start-1
-        pla                     ; A = lo of cse_start-1
-        jsr io_puthex4
-        lda #' '
-        ldx #2
-        jsr io_repc
-        ; byte count = cse_start - WORKSTART
-        jsr cse_start
-        sec
-        sbc #<WORKSTART
-        pha
-        txa
-        sbc #>WORKSTART
-        tax
-        pla
-        sec
-        jsr io_putdec_pd
-        puts s_free
+        ; Blank line between version and memory info
+        jsr newline
 
-        ; Manual line (row 22)
-        lda #SCREEN_HEIGHT - 3
-        jsr splash_row
-        puts s_manual
+        ; Manual line
+        ldy #LOG_INFO
+        lda #<s_manual
+        ldx #>s_manual
+        jsr log_line
 
         ; Prompt at bottom
         lda #SCREEN_HEIGHT - 1

@@ -59,7 +59,8 @@ All pointers are 16-bit, little-endian.
 | `ed_tmp` | 2 | scratch pointer (indirect addressing) |
 | `ed_scr` | 2 | screen pointer for rendering (indirect addressing) |
 
-`buf_end` is the constant `$D000` — not a variable.
+`BUF_END` is the constant `__CODE_RUN__` (CSE runtime start,
+floating) — not a variable.
 
 `save_ptr` and `read_ptr` are never active concurrently (save runs
 to completion before any read), so they share the same ZP location.
@@ -144,7 +145,7 @@ $0800 ─┬─ CSE code + data + BSS
        │
        ├─ buf_base (grows down as buffer needs space)
        │
-$D000 ─┴─ BUF_END (exclusive, fixed constant)
+XXXX ─┴─ BUF_END = __CODE_RUN__ (exclusive, floating)
 ```
 
 The symbol table and name heap live under the KERNAL ROM
@@ -401,8 +402,8 @@ assembler calls `ed_read_rewind` before each pass.
   emits a line warning when truncation occurs.  Long lines in
   loaded SEQ files are preserved verbatim (no splitting); the
   REPL warns about the count of lines exceeding 39 visual cols.
-- `buf_end` is the constant $D000, not a variable.  This saves 2 ZP
-  bytes vs the C implementation.
+- `BUF_END` is the constant `__CODE_RUN__` (floating), not a variable.
+  This saves 2 ZP bytes vs the C implementation.
 - `save_ptr` and `read_ptr` overlap in ZP since they are never active
   concurrently.
 - `buf_base` is exported (`.exportzp`) so asm_src.s can read it for

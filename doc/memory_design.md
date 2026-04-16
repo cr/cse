@@ -23,8 +23,9 @@
    screen needs saving.
 
 5. **Source and output share the workspace.** Source text grows down
-   from $D000, assembled output grows up from `workstart`.  The `i`
-   command shows the gap between them.
+   from the CSE runtime start (`__CODE_RUN__`), assembled output
+   grows up from `workstart`.  The `i` command shows the gap
+   between them.
 
 ## Calling Convention
 

@@ -102,7 +102,9 @@ main.s ── strings.s
 ## Dependency Rules
 
 1. **No circular dependencies.**  The graph is a DAG.
-2. **Leaf modules have no dependencies:** cse_io, strings, dasm, debugger.
+2. **Near-leaf modules have minimal dependencies:** cse_io and strings
+   have zero imports.  dasm and debugger import only ZP symbols and
+   banking helpers from mem.s.
 3. **Screen output flows one way:** module → screen → cse_io.
 4. **disk.s uses callbacks** for SEQ I/O to avoid depending on editor.
 5. **Expression parser depends only on symtab** — no I/O.

@@ -53,7 +53,7 @@
 
         ; ── asm_src strings ──
         .export s_err_sep, s_bad_val, s_exp_name, s_sym_full
-        .export s_exp_quot, s_bad_insn, s_seg_pfx
+        .export s_exp_quot, s_bad_insn
         .export s_save_s, s_save_q_sp, s_save_default, s_trunc
 
         ; ── disk strings ──
@@ -81,7 +81,7 @@ str_ok_at:      .byte "ok at $", 0
 str_bp_clr:     .byte "bp clr", 0
 str_deleted:    .byte " del", 0
 
-; Error content strings (prefix-free — out_log prepends ";?")
+; Error content strings (prefix-free — log_line prepends ";?")
 str_syntax:     .byte "syntax", 0        ; shared: asm + b + au_mode
 str_bad_val:    .byte "bad val", 0
 str_full        = s_sym_full + 4         ; "full" is suffix of "sym full"
@@ -158,9 +158,12 @@ s_free          = str_bytes_free        ; main.s alias
 s_bad_val       = str_bad_val           ; asm_src.s alias
 s_err_sep       = str_colon_sp          ; asm_src.s alias, both ": "
 
+str_tag_org:    .byte "org", 0
+str_seg_suf:    .byte "b", 0
+
         .export str_cse_rt, str_tag_scr, str_tag_cse
         .export str_tag_io, str_io
-        .export str_free_suf
+        .export str_free_suf, str_tag_org, str_seg_suf
 
 ; ── disk strings ────────────────────────────────────────────
 
@@ -191,7 +194,7 @@ s_exp_name:     .byte "exp id", 0
 s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp ", $22, 0
 s_bad_insn:     .byte "bad insn", 0
-s_seg_pfx:      .byte "org  ", 0
+; s_seg_pfx removed — replaced by str_tag_org + info_line padding
 s_save_s:       .byte "s ", $22, 0
 s_save_q_sp:    .byte $22, " $", 0
 s_save_default: .byte "out,p", 0

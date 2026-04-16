@@ -155,13 +155,21 @@ pet_to_scr:
 ; Clobbers: flags only
 ;
 ; Mapping (32-byte chunks):
-;   $00-$1F -> $40-$5F    (A + $40)
-;   $20-$7F -> $20-$7F    (identity)
+;   $00-$1F -> $40-$5F    (ORA #$40, lowercase a-z)
+;   $20-$3F -> $20-$3F    (identity, digits/punctuation)
+;   $40-$5F -> $C0-$DF    (ORA #$80, uppercase A-Z)
+;   $60-$7F -> $60-$7F    (identity, graphics)
 scr_to_pet:
+        cmp #$40
+        bcs @ge40
         cmp #$20
-        bcs :+
+        bcs @done              ; $20-$3F identity
         ora #$40               ; $00-$1F -> $40-$5F
-:       rts
+@done:  rts
+@ge40:  cmp #$60
+        bcs @done              ; $60-$7F identity
+        ora #$80               ; $40-$5F -> $C0-$DF
+        rts
 
 ; ── io_putc — write PETSCII char at cursor, advance ─────────
 ; A = PETSCII char

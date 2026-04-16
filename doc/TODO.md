@@ -11,6 +11,12 @@ Open bugs, roughly ordered by priority.
 - [x] ~~`.const FOO` then `sta FOO` not found~~ (fixed: expr.s label
   scanner now folds $C1-$DA → $41-$5A in-place; shifted uppercase
   letters from the lowercase/uppercase charset are accepted)
+- [x] ~~Uppercase REPL commands parsed as lowercase.~~  (fixed:
+  `scr_to_pet` now maps screen code $40–$5F → PETSCII $C0–$DF.
+  Latent bug from Phase 6 — `read_line`'s screen→PETSCII
+  conversion always collapsed uppercase into the lowercase
+  range.  Dispatch table entries $C2/$C3/$D1 were unreachable.
+  Phase 17)
 - [ ] `l` command hang: loading a non-existing file may hang.
   Not yet reproducible.  Suspect: `disk_load_prg` or
   `ed_load_source` not handling KERNAL file-not-found error,
@@ -155,6 +161,8 @@ Defined scope, needs work.
 - [ ] `>` command: transfer/copy memory block.
 - [ ] `=` command: define/query symbols from REPL.
 - [x] `r` command: uppercase set flags (`Nv-bDizc` vs `nv-bdizc`). (Phase 16)
+- [ ] `?` command: for values < 256, show PETSCII and screen code
+  character interpretation alongside the hex/decimal/binary output.
 - [ ] `m` address argument: accept expression (`m screen+40`).
   Currently plain 4-digit hex only.
 - [ ] New `S` command for scratching files. Requires confirmation.
@@ -341,17 +349,29 @@ Defined scope, needs work.
 - [x] ~~Missing module doc: `src/mem.s`~~ (fixed: `doc/modules/mem.md`
   created; Phase 15 audit remediation)
 - [ ] Missing module doc: `src/loader.s` has no `doc/modules/*.md`.
-- [ ] debugger.md: all symbol names use `_` prefix (`_bp_table`,
-  `_dbg_running`, etc.) but actual exports have no prefix.  Rename
-  throughout the document.
+- [x] ~~debugger.md: all symbol names use `_` prefix~~ (fixed:
+  stripped `_` prefix from all symbol names throughout the document
+  to match actual exports; Phase 17 DDD Maintenance)
 - [x] ~~README: missing `.bas` directive~~ (fixed: Phase 15 audit)
-- [ ] README: `a` command description says "advances past assembled
-  code" — incorrect, sets cur_addr to `main` label if defined.
+- [x] ~~README: `a` command description says "advances past assembled
+  code"~~ (fixed: README now reads "Assemble source from editor
+  at current address")
 - [x] ~~README: "gap buffer grows down from $D000"~~ (fixed: Phase 15)
-- [ ] editor.md + memory_design.md: `BUF_END` / gap buffer described
-  as `$D000` — stale, should be `__CODE_RUN__` (CSE runtime start).
-- [ ] memory_design.md Design Principle 5: "source text grows down
-  from $D000" — stale, should say "from the CSE runtime start."
+- [x] ~~editor.md + memory_design.md: `BUF_END` / gap buffer described
+  as `$D000`~~ (fixed: updated to `__CODE_RUN__` in editor.md ×3
+  and memory_design.md Design Principle 5; Phase 17 DDD Maintenance)
+- [ ] Export `LOG_INFO`, `LOG_WARN`, `LOG_ERR` from repl.s so
+  consumers (main.s, asm_src.s, disk.s) can import them instead
+  of redefining locally.
+- [x] ~~Dedup asm_src segment formatter with cmd_info free-line~~
+  (fixed: shared `range_line` with two entry points `free_line`
+  (suffix "b free") and `seg_line` (suffix "b").  Right-aligned
+  5-digit decimal, 1-space gutter.  `s_seg_pfx` removed.  Phase 17)
+- [x] ~~Rework `asm_src.s` newline handling~~ (fixed: removed 4
+  redundant `jsr newline` calls; `log_close` provides trailing
+  newline.  "asm..." line now uses `log_close` instead of bare
+  `io_clear_eol`.  `seg_print_save` no longer needs its own
+  newline.  Phase 17)
 - [ ] Global release version: single `VERSION` definition (currently
   Makefile `VERSION ?= 0.1`) that flows to D64 disk name, PRG
   filenames, splash screen string, and documentation.  Current

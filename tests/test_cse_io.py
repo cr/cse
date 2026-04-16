@@ -189,8 +189,10 @@ def _build_scr_to_pet():
     """Build 128-byte screencode → PETSCII reference table."""
     t = bytearray(128)
     for sc in range(128):
-        if sc < 0x20: t[sc] = sc + 0x40       # $00-$1F → $40-$5F
-        else:         t[sc] = sc               # $20-$7F → identity
+        if   sc < 0x20: t[sc] = sc + 0x40     # $00-$1F → $40-$5F (lowercase)
+        elif sc < 0x40: t[sc] = sc             # $20-$3F → identity (digits/punct)
+        elif sc < 0x60: t[sc] = sc | 0x80      # $40-$5F → $C0-$DF (uppercase)
+        else:           t[sc] = sc             # $60-$7F → identity (graphics)
     return bytes(t)
 
 PET_TO_SCR = _build_pet_to_scr()
