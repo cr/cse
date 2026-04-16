@@ -2602,25 +2602,15 @@ print_op_name:
         sta disk_ptr+1
         lda rp_addr
         ldx rp_addr+1
-        jsr disk_load_prg      ; A/X = result (0=error, else bytes)
-        pha
-        ora #0                  ; check A
+        jsr disk_load_prg      ; A/X = end addr (0/0 on error)
+        sta rp_cnt              ; end lo
+        stx rp_cnt+1            ; end hi
+        ora rp_cnt+1
         bne @prg_ok
-        cpx #0
-        bne @prg_ok
-        pla
         jsr restore_name_ptr
         jsr io_err_load
         jmp @done
 @prg_ok:
-        ; rp_cnt = end (exclusive) = start + bytes_loaded
-        pla                     ; size lo
-        clc
-        adc rp_addr
-        sta rp_cnt
-        txa                     ; size hi
-        adc rp_addr+1
-        sta rp_cnt+1
         jsr newline
         jsr prg_line
         jmp @done
