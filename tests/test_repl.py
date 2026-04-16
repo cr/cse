@@ -710,6 +710,15 @@ class TestRegisterSet:
         assert cpu.memory[rsyms.reg_y]  == ey
         assert cpu.memory[rsyms.reg_sp] == es
 
+    def test_reg_set_pc(self, rsyms):
+        """`r pc:XXXX a:.. x:.. y:.. s:.. flags` also edits brk_pc."""
+        cpu = make_cpu(rsyms)
+        set_word(cpu, rsyms.brk_pc, 0x0000)
+        set_line_buf(cpu, rsyms, "r pc:c010 a:42 x:00 y:00 s:ff ........")
+        run_at(cpu, rsyms.exec_line)
+        assert get_word(cpu, rsyms.brk_pc) == 0xC010
+        assert cpu.memory[rsyms.reg_a] == 0x42
+
 
 # ── K. Block size (B command) ────────────────────────────────
 

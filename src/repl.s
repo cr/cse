@@ -2220,6 +2220,24 @@ VIC_MEMCTL = $D018
         jsr skip_peek_ptr1
         beq @show
 
+        ; Optional "pc:XXXX" — matches emit_reg's display, so the
+        ; user can cursor-up onto the echoed register line, edit any
+        ; field (including PC), and have it committed on RETURN.
+        cmp #'p'
+        bne @no_pc
+        ; skip "pc:" (3 chars), parse 4 hex → brk_pc
+        lda rp_ptr
+        clc
+        adc #3
+        sta rp_ptr
+        bcc :+
+        inc rp_ptr+1
+:       jsr parse_hex4_ptr1     ; A = lo, X = hi
+        sta brk_pc
+        stx brk_pc+1
+        jsr skip_sp_ptr1
+@no_pc:
+
         ; Parse: a:XX x:XX y:XX s:XX flags
         jsr parse_regval
         sta reg_a
