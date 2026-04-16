@@ -1005,9 +1005,12 @@ parse_hex4_ptr1:
 @fl:    lda str_flag_ch,x       ; lowercase PETSCII ("nv-bdizc")
         asl rp_tmp2
         bcc @fp                 ; bit=0 → print as-is (lowercase)
-        cmp #'a'                ; only flip letters (skip '-')
-        bcc @fp
         ora #$80                ; bit=1 → uppercase ($C0-$DF canonical)
+                                ; No '-' guard needed: capture-time masks
+                                ; (debugger.s + dbg_enter) force reg_p
+                                ; bit 5 = 0, so slot 2's carry-in here
+                                ; is always 0 and this path is unreachable
+                                ; for the '-' slot.
 @fp:    stx rp_tmp
         jsr io_putc
         ldx rp_tmp
@@ -2281,6 +2284,9 @@ VIC_MEMCTL = $D018
         bcc :+
         inc rp_ptr+1
 :       lda rp_tmp2
+        and #%11011111          ; keep bit 5 = 0 invariant (matches
+                                ; the capture-time mask in debugger.s);
+                                ; lets emit_reg skip its '-' guard.
         sta reg_p
 
 @show:  ; emit_reg already sets CUR_COL=0, so it overwrites the
