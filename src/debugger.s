@@ -390,7 +390,15 @@ dbg_enter:
         pla                     ; pop A
         sta reg_a
         pla                     ; pop P
-        sta reg_p               ; B bit masked at display (emit_reg)
+        ; Mask the phantom B bit.  PHP always pushes P with bit 4 = 1
+        ; — a hardware artefact of the software-push path — but no
+        ; BRK happened on this clean-RTS return, so the user's flag
+        ; byte must not claim one.  The BRK/NMI handlers capture P
+        ; directly from the hardware-pushed frame; their B bit is
+        ; the real hardware signal (BRK=1, NMI=0) and is preserved
+        ; verbatim as user-visible state.
+        and #$EF
+        sta reg_p
         stx reg_x
         sty reg_y
         tsx

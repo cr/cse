@@ -833,7 +833,7 @@ class TestDbgEnterCleanRtsFlags:
     """
 
     def test_lda_zero_rts_captures_Z_set(self, dbg_syms):
-        """User code `LDA #$00 / RTS` must leave reg_p with Z=1."""
+        """User code `LDA #$00 / RTS` → reg_p has Z=1, B=0 (no BRK)."""
         mpu = make_cpu(dbg_syms)
         mem = mpu.memory
         _install_kernal_brk_stub(mem)
@@ -842,10 +842,9 @@ class TestDbgEnterCleanRtsFlags:
         mem[0x2000] = 0xA9; mem[0x2001] = 0x00   # LDA #$00
         mem[0x2002] = 0x60                         # RTS
 
-        # Initial P with a DIFFERENT Z value so we can detect capture
-        # vs "left alone".  Start reg_p with Z=0; if capture works,
-        # reg_p should end up with Z=1 (from the LDA #$00).
-        mem[dbg_syms.reg_p]  = 0x20              # bit 5 set, Z=0
+        # Pre-seed reg_p with B=1 (0x30) so we can prove the clean-RTS
+        # path STRIPS the phantom B left by PHP — no BRK happened.
+        mem[dbg_syms.reg_p]  = 0x30              # bit 5 + B, Z=0
         mem[dbg_syms.reg_a]  = 0xFF              # non-zero sentinel
         mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
         mem[0x0317] = dbg_syms.dbg_brk_core >> 8
@@ -866,6 +865,10 @@ class TestDbgEnterCleanRtsFlags:
         p = mem[dbg_syms.reg_p]
         assert (p & 0x02) == 0x02, \
             f"reg_p=${p:02X}: Z bit should be 1 after LDA #0"
+        # B flag (P bit 4) must be 0 — no BRK, so the phantom from PHP
+        # must be stripped before it reaches the userland state backup.
+        assert (p & 0x10) == 0x00, \
+            f"reg_p=${p:02X}: B bit should be 0 on clean RTS"
 
     def test_lda_one_rts_captures_Z_clear(self, dbg_syms):
         """User code `LDA #$01 / RTS` must leave reg_p with Z=0."""
@@ -892,16 +895,62 @@ class TestDbgEnterCleanRtsFlags:
         assert (p & 0x02) == 0x00, \
             f"reg_p=${p:02X}: Z bit should be 0 after LDA #1"
 
-    # Note on the B flag in reg_p:
-    #   BRK hardware push sets bit 4 of the stacked P byte (=1).
-    #   dbg_brk_core / dbg_nmi_break copy that byte verbatim, so reg_p
-    #   may carry bit 4=1 after a BRK.  That's OK — it's an artefact
-    #   of the transport, never part of the user's observable state
-    #   (RTI and PLP both discard bit 4 on restore).  emit_reg masks
-    #   bit 4 before rendering, so the display always shows lowercase
-    #   'b' regardless of capture path.  No test here asserts the raw
-    #   stored value of bit 4, because the contract is "display masks
-    #   it", not "capture masks it".
+    def test_brk_path_preserves_B_bit(self, dbg_syms):
+        """BRK hardware-pushed P has B=1; reg_p must keep it.
+
+        The B bit in reg_p is user-visible state when the stop is a
+        BRK: it's the hardware signal that this was a BRK event, not
+        a clean RTS.  The clean-RTS PHP-mask must not leak into the
+        BRK capture path."""
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+        _install_kernal_brk_stub(mem)
+
+        # Step BP at $2001 forces a BRK at that address.
+        mem[0x2000] = 0xEA                         # NOP
+        mem[0x2001] = 0xEA                         # NOP (patched → BRK)
+
+        mem[dbg_syms.reg_p]  = 0x20              # B=0 before
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
+
+        for i in range(8): mem[dbg_syms.step_bp + i] = 0
+        mem[dbg_syms.step_bp + 0] = 0x01
+        mem[dbg_syms.step_bp + 1] = 0x20
+        mem[dbg_syms.step_bp + 3] = 1
+
+        mem[dbg_syms.brk_pc + 0] = 0x00
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        cmd_dbg_enter(mpu, dbg_syms)
+
+        assert mem[dbg_syms.dbg_reason] == 1, "step BRK fired"
+        p = mem[dbg_syms.reg_p]
+        assert (p & 0x10) == 0x10, \
+            f"reg_p=${p:02X}: BRK must leave B=1 in reg_p"
+
+    def test_j_into_raw_brk_keeps_B_bit(self, dbg_syms):
+        """`j $2000` into a naked BRK opcode — the stock user-visible
+        scenario from running `0800:j` on a zeroed workspace.  The
+        user should see `nv-Bdizc` in the flag display, i.e. B=1."""
+        mpu = make_cpu(dbg_syms)
+        mem = mpu.memory
+        _install_kernal_brk_stub(mem)
+
+        mem[0x2000] = 0x00                         # raw BRK instruction
+
+        mem[dbg_syms.reg_p]  = 0x20
+        mem[0x0316] = dbg_syms.dbg_brk_core & 0xFF
+        mem[0x0317] = dbg_syms.dbg_brk_core >> 8
+
+        for i in range(8): mem[dbg_syms.step_bp + i] = 0
+        mem[dbg_syms.brk_pc + 0] = 0x00
+        mem[dbg_syms.brk_pc + 1] = 0x20
+        cmd_dbg_enter(mpu, dbg_syms)
+
+        assert mem[dbg_syms.dbg_reason] == 1
+        p = mem[dbg_syms.reg_p]
+        assert (p & 0x10) == 0x10, \
+            f"reg_p=${p:02X}: naked BRK must leave B=1 in reg_p"
 
     def test_carry_set_preserved_through_rts(self, dbg_syms):
         """`SEC / LDA #$00 / RTS` must leave reg_p with Z=1 and C=1.
