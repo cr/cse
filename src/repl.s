@@ -2238,19 +2238,18 @@ VIC_MEMCTL = $D018
         jsr skip_sp_ptr1
 @no_pc:
 
-        ; Parse: a:XX x:XX y:XX s:XX flags
-        jsr parse_regval
-        sta reg_a
+        ; Parse a:XX x:XX y:XX s:XX into reg_a..reg_sp (contiguous
+        ; in BSS — defined in that order in asm_line.s).  Each
+        ; iteration: parse_regval eats "X:YY", skip_sp_ptr1 eats
+        ; the delimiting space before the next field (or leading
+        ; space of the flags block on the last iteration).
+        ldx #0
+@rlp:   jsr parse_regval
+        sta reg_a,x
         jsr skip_sp_ptr1
-        jsr parse_regval
-        sta reg_x
-        jsr skip_sp_ptr1
-        jsr parse_regval
-        sta reg_y
-        jsr skip_sp_ptr1
-        jsr parse_regval
-        sta reg_sp
-        jsr skip_sp_ptr1
+        inx
+        cpx #4
+        bcc @rlp
 
         ; Parse flags: 8 chars, bit=1 if typed char is uppercase form
         ; of str_flag_ch[x] (PETSCII $C0-$DF, i.e. lowercase + $80).
