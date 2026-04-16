@@ -47,18 +47,46 @@ Open bugs, roughly ordered by priority.
   `sta $FB` → `sta _io_tmp` which resolved to `$2D`, but
   disk.s still read from `$FB`.  Fix: removed the local
   define; disk.s now imports `_io_tmp` from zp.s.  Phase 17.)
-- [ ] One too many newline before floppy status in save command.
-  Same issue likely affects load too.  Cursor lands on a blank
-  row between the "; Nb AAAA-BBBB" line and the drive status.
-- [ ] l/s stores the full filename (with ,p suffix) as project
-  name, so repeated saves accumulate ",p,p,p..." in cur_filename.
-  Should store the stripped project name; derive filenames on
-  demand with the appropriate CBM DOS suffix.
+- [x] ~~One too many newline before floppy status~~ (fixed:
+  disk_done's `log_close` was redundant — callers (prg_line,
+  log_err) already close their line with a newline.  Phase 17.)
+- [x] ~~l/s accumulates `,p,p,p...` in cur_filename~~ (fixed:
+  asm_src's `seg_print_save` now recognises an existing `,p`
+  suffix and prints the name as-is instead of appending another.
+  `,s` suffix is still swapped to `,p` for the save command.
+  Phase 17.)
 - [ ] `r` command flags decode: the dash in the flag string (e.g.
   the `-` between `b` and `D` in `nv-bdizc`) becomes an uppercased
   strange char on screen.  Screen RAM has no dash equivalent at
   the uppercase position.  Replace with a neutral placeholder that
   survives the case-flip (e.g. `.` or keep lowercase always).
+- [ ] `r` command flags handling is inverted/broken.  Convention
+  must be: lowercase = clear (0), uppercase = set (1).  Parser
+  currently SETS the bit when typed char matches the lowercase
+  reference — backwards.  Display uses `and #$DF` to uppercase
+  set flags, but with ca65 `-t c64` encoding lowercase PETSCII
+  already has bit 5 clear, so the AND is a no-op for letters
+  (only corrupts `-`).  Fix both sides: parser should set bit
+  when typed char is uppercase (i.e., when `cmp #lowercase` is
+  NOT equal AND the char is a valid flag letter); display should
+  `ora #$80` (switch to the $C0-$DF avoided-uppercase range) or
+  `ora #$20` (to $60-$7F preferred) to actually flip case.
+  Additionally, reading the `r` arguments on RETURN must update
+  the preserved userland register/flags state (`reg_a/x/y/sp/p`)
+  so `c`/`t`/`o` resume with the edited values.
+- [x] ~~NIT: `.bas` stub lacks a space after `REM`~~ (fixed:
+  asm_src's emit_bas now emits a space byte between the REM
+  token and the string text.  Stub length adjusted +1.  Phase 17.)
+- [x] ~~NIT: unsaved-changes prompt appears twice~~ (fixed:
+  merged `check_unsaved` and per-command prompts into a shared
+  `confirm_action` helper.  `k`, `q` show `"; del src? y/n"` /
+  `"; quit? y/n"` when clean, `";!unsaved. del src? y/n"` /
+  `";!unsaved. quit? y/n"` when dirty.  LOG_WARN level when
+  dirty, LOG_INFO when clean.  Phase 17.)
+- [ ] `s:name` overwrite doesn't work out of the box.  Investigate
+  why prepending `@:` to the filename (CBM DOS overwrite syntax)
+  isn't applied automatically by `s`, or why the user-typed
+  `s:name` or `@:name` path isn't wired up.
 - [ ] Debugger: stepping into a subroutine then `c` (continue)
   cannot return through the original JSR's pushed return address.
   The `sp_baseline` RTS trick unwinds the stack, so the
@@ -72,9 +100,9 @@ Open bugs, roughly ordered by priority.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
-- [ ] Debugger: refuse to write breakpoints outside workspace memory
-  (`$0800`–`__CODE_RUN__`).  Writing BRK to KERNAL, I/O, or CSE
-  code corrupts the system.  `bp_set` and `bp_patch` must range-check.
+- [x] ~~Debugger: refuse to write breakpoints outside workspace memory~~
+  (fixed: cmd_brk now rejects BP addresses outside [$0800, __CODE_RUN__)
+  with a "; ? range" error before calling dbg_bp_set.  Phase 17.)
 
 ### Fixed bugs (reference)
 

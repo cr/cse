@@ -24,10 +24,11 @@
         .export str_expr, str_no_ctx
         .export str_r_pc, str_a, str_x, str_y, str_s
         .export str_lines, str_bytes, str_long
-        .export str_del_src, str_unsaved, str_ok, str_blk_eq
+        .export str_unsaved, str_ok, str_blk_eq
+        .export str_del_src, str_quit, str_load
         .export str_color, str_cpu
         .export str_asm_ing, str_load_pfx, str_save_pfx, str_dots
-        .export str_errors, str_quit, str_dashes, str_colon_sp, str_pct
+        .export str_errors, str_dashes, str_colon_sp, str_pct
         .export str_ioport, str_stack, str_kernal, str_screen
         .export str_main
         .export str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
@@ -100,8 +101,10 @@ str_lines:      .byte "l ", 0
 str_bytes:      .byte "b", 0
 str_long:       .byte "long L", 0
 
+str_unsaved:    .byte "unsaved. ", 0
 str_del_src:    .byte "del src? y/n ", 0
-str_unsaved:    .byte "unsaved ok? y/n ", 0
+str_quit:       .byte "quit? y/n ", 0
+str_load:       .byte "load? y/n ", 0
 str_ok:         .byte "ok", 0
 str_blk_eq:       .byte "blk=", 0
 str_color:      .byte "color: ", 0
@@ -117,7 +120,6 @@ str_load_pfx:   .byte "load ", 0
 str_save_pfx:   .byte "save ", 0
 str_dots        = str_asm_ing + 3        ; "..." is suffix of "asm..."
 str_errors:     .byte " err", 0
-str_quit:       .byte "quit? y/n ", 0
 str_dashes:     .byte "$----", 0
 str_colon_sp:   .byte ": ", 0
 str_pct:        .byte "  %", 0

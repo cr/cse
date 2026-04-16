@@ -43,6 +43,7 @@
         .import dbg_bp_set, dbg_bp_del, dbg_bp_clear
         .import dbg_bp_count
         .import bp_table, step_bp
+        .import __CODE_RUN__
         .import dbg_reason, dbg_bp_hit
         .import brk_pc
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
@@ -87,10 +88,11 @@
         .import str_expr, str_no_ctx
         .import str_r_pc, str_a, str_x, str_y, str_s
         .import str_lines, str_bytes, str_long
-        .import str_del_src, str_unsaved, str_ok, str_blk_eq
+        .import str_unsaved, str_ok, str_blk_eq
+        .import str_del_src, str_quit, str_load
         .import str_color, str_cpu
         .import str_asm_ing, str_load_pfx, str_save_pfx, str_dots
-        .import str_errors, str_quit, str_dashes, str_colon_sp, str_pct
+        .import str_errors, str_dashes, str_colon_sp, str_pct
         .import str_ioport, str_stack, str_kernal, str_screen
         .import str_cse_rt, str_io, str_main
         .import str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
@@ -364,23 +366,48 @@ confirm_yn:
         rts
 
 ; ───────────────────────────────────────────────────────────
-; check_unsaved — if ed_dirty, prompt ";unsaved. y/n? "
+; confirm_action — prompt the user before a destructive action.
+;   In:  A/X = action prompt string (e.g. "del src? y/n ")
+;   Out: C=1 user accepted, C=0 user cancelled
+;   Dirty state prepends "unsaved. " and uses LOG_WARN level.
+;   Clean state uses LOG_INFO level with just the action prompt.
+; ───────────────────────────────────────────────────────────
+confirm_action:
+        sta rp_tmp
+        stx rp_tmp+1
+        jsr newline
+        lda ed_dirty
+        beq @clean
+        ldy #LOG_WARN
+        jsr log_open
+        puts str_unsaved
+        jmp @prompt
+@clean: ldy #LOG_INFO
+        jsr log_open
+@prompt:
+        lda rp_tmp
+        ldx rp_tmp+1
+        jsr io_puts
+        jsr confirm_yn
+        beq @yes
+        jsr io_clear_eol
+        clc
+        rts
+@yes:   sec
+        rts
+
+; ───────────────────────────────────────────────────────────
+; check_unsaved — for SEQ load: only prompt when dirty.
 ;   Returns: C=1 proceed (not dirty or user said y)
 ;            C=0 cancel (user said no)
 ; ───────────────────────────────────────────────────────────
 check_unsaved:
         lda ed_dirty
-        beq @ok                 ; not dirty → proceed
-        jsr newline
-        ldy #LOG_INFO
-        jsr log_open
-        puts str_unsaved
-        jsr confirm_yn
-        beq @ok
-        jsr io_clear_eol
-        clc                     ; cancel
-        rts
-@ok:    sec                     ; proceed
+        beq @ok                 ; not dirty → proceed silently
+        lda #<str_load
+        ldx #>str_load
+        jmp confirm_action
+@ok:    sec
         rts
 
 ; ───────────────────────────────────────────────────────────
@@ -979,6 +1006,8 @@ parse_hex4_ptr1:
         ldx #0
 @fl:    lda str_flag_ch,x       ; lowercase PETSCII
         asl rp_tmp2
+        bcc @fp
+        cmp #'a'                ; only flip alphabetic chars
         bcc @fp
         and #$DF                ; bit=1 → uppercase
 @fp:    stx rp_tmp
@@ -2059,6 +2088,18 @@ VIC_MEMCTL = $D018
         bcs :+
         jmp @err_b
 :
+        ; Range-check: bp must be in workspace [$0800, __CODE_RUN__)
+        lda expr_val+1
+        cmp #>$0800
+        jcc @bp_range
+        lda expr_val+1
+        cmp #>__CODE_RUN__
+        bcc @bp_ok
+        jne @bp_range
+        lda expr_val
+        cmp #<__CODE_RUN__
+        jcs @bp_range
+@bp_ok:
         lda expr_val
         ldx expr_val+1
         jsr dbg_bp_set         ; returns slot in A ($FF=full)
@@ -2142,6 +2183,11 @@ VIC_MEMCTL = $D018
 
 @full:  lda #<str_full
         ldx #>str_full
+        jmp log_err_eol
+
+@bp_range:
+        lda #<str_range
+        ldx #>str_range
         jmp log_err_eol
 
 @err_b: lda #<str_syntax
@@ -2465,10 +2511,11 @@ restore_name_ptr:
         rts
 
 ; ═══════════════════════════════════════════════════════════
-; disk_done — shared exit for l/s: clear line, drive status, prompt
+; disk_done — shared exit for l/s: drive status + clear prompt row.
+; Callers must leave the cursor on a fresh row (prg_line, log_err,
+; etc. all end with a newline already).
 ; ═══════════════════════════════════════════════════════════
 disk_done:
-        jsr log_close
         jsr floppy_status
         jmp io_clear_eol
 
@@ -3357,18 +3404,12 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         lda #1
         jmp cmd_step
 
-@h_k:   ; k — delete source (guard unsaved)
-        jsr check_unsaved
+@h_k:   ; k — delete source (warn + confirm)
+        lda #<str_del_src
+        ldx #>str_del_src
+        jsr confirm_action
         bcc @k_cancel
-        jsr newline
-        ldy #LOG_INFO
-        jsr log_open
-        puts str_del_src
-        jsr confirm_yn
-        bne @k_no
         jsr ed_new
-        puts str_ok
-@k_no:  jsr io_clear_eol
 @k_cancel:
         jmp nl_clear
 
@@ -3644,30 +3685,14 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         jsr expr_error_str
         jsr io_puts
         jmp log_close_eol
-@h_quit:; Q (PETSCII $D1) — quit (guard unsaved)
-        jsr check_unsaved
+@h_quit:; Q (PETSCII $D1) — quit (warn + confirm)
+        lda #<str_quit
+        ldx #>str_quit
+        jsr confirm_action
         bcc @q_cancel
-        jsr newline
-        ldy #LOG_INFO
-        jsr log_open
-        puts str_quit
-        ; flush keyboard buffer
-@q_flush:
-        jsr io_kbhit            ; Z set by lda $C6 inside
-        beq @q_wait
-        jsr io_getc
-        jmp @q_flush
-@q_wait:
-        jsr confirm_yn
-        bne @q_no
         lda #ST_STOP
         sta state
-@q_no:  jsr newline
-        lda state
-        cmp #ST_STOP
-        beq @q_ret
-        jsr io_clear_eol
-@q_ret: rts
+        rts
 @q_cancel:
         jmp nl_clear
 @h_dir: ; $ — directory

@@ -353,20 +353,21 @@ MANUAL_TESTS = [
         "source": '.org $0801\n.bas "HI"\n  nop',
         "expect_org": 0x0801,
         # Single-line: `0 SYS NNNNN:REM HI`
-        # Stub = 15 + 2 (len "HI") = 17 bytes.
-        # SYS address = $0801 + 17 = $0812 = 2066.
-        # Link → end marker = $0812 - 2 = $0810.
+        # Stub = 16 + 2 (len "HI") = 18 bytes.
+        # SYS address = $0801 + 18 = $0813 = 2067.
+        # Link → end marker = $0813 - 2 = $0811.
         "expect_bytes": [
-            0x10, 0x08,             # link → $0810
+            0x11, 0x08,             # link → $0811
             0x00, 0x00,             # line number 0
             0x9E,                   # SYS token
-            0x30, 0x32, 0x30, 0x36, 0x36,  # "02066" (5 digits)
+            0x30, 0x32, 0x30, 0x36, 0x37,  # "02067" (5 digits)
             0x3A,                   # ':'
             0x8F,                   # REM token
+            0x20,                   # ' ' (space after REM)
             0x48, 0x49,             # "HI" (PETSCII H=$48, I=$49)
             0x00,                   # NUL terminator
             0x00, 0x00,             # end of BASIC
-            0xEA,                   # nop (user code starts at $0812)
+            0xEA,                   # nop (user code starts at $0813)
         ],
         "expect_errors": 0,
     },

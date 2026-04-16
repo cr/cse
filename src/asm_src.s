@@ -10,6 +10,7 @@
 ;   All emit_* helpers read from expr_ptr; set expr_ptr before calling them.
 
         .setcpu         "6502"
+        .macpack longbranch
         .include "macros.inc"
 
         .export         asm_assemble
@@ -669,7 +670,7 @@ seg_print_save:
         lda _min_pc
         and _min_pc+1
         cmp #$FF
-        beq @ret
+        jeq @ret
         lda _min_pc
         ldx _min_pc+1
         jsr io_puthex4
@@ -682,36 +683,42 @@ seg_print_save:
         puts s_save_default     ; "out"
         jmp @name_done
 @have_name:
-        ; Find end of string, check for ",s" suffix
+        ; Find end of string, check last 2 chars for ",s" or ",p"
         ldy #0
 @fl:    lda cur_filename,y
         beq @found_end
         iny
         bne @fl
 @found_end:
-        ; Y = index of NUL.  Check last 2 chars for ",s"
+        sty asm_tmp             ; save NUL index
         cpy #2
-        bcc @no_suffix          ; too short for suffix
-        lda cur_filename-1,y    ; last char
-        cmp #'s'
-        bne @no_suffix
-        lda cur_filename-2,y    ; second-to-last
+        bcc @do_add             ; too short for suffix
+        lda cur_filename-2,y
         cmp #','
-        bne @no_suffix
-        ; Has ",s" — poke 'p' over 's', print, restore
+        bne @do_add             ; no comma → append ,p
+        lda cur_filename-1,y
+        cmp #'p'
+        beq @do_print           ; already ",p" — print as-is
+        cmp #'s'
+        bne @do_add             ; unknown → append ,p
+        ; ",s" suffix: swap 's' for 'p', print, restore
         dey
         lda #'p'
         sta cur_filename,y
-        sty asm_tmp
         lda #<cur_filename
         ldx #>cur_filename
         jsr io_puts
         ldy asm_tmp
+        dey
         lda #'s'
         sta cur_filename,y
         jmp @name_done
-@no_suffix:
-        ; No ",s" — print name as-is then append ",p"
+@do_print:
+        lda #<cur_filename
+        ldx #>cur_filename
+        jsr io_puts
+        jmp @name_done
+@do_add:
         lda #<cur_filename
         ldx #>cur_filename
         jsr io_puts
@@ -770,11 +777,12 @@ BASIC_REM = $8F
 :
 @no_str:
         ; ── Compute SYS address ────────────────────────────────────────
-        ; Always 5 digits.  No string: 13 bytes.  With string: 15 + len.
+        ; Always 5 digits.  No string: 13 bytes.  With string: 16 + len
+        ; (13 + ':' + REM_tok + ' ' + len).
         lda _eb_idx
         beq @no_rem
         clc
-        adc #15
+        adc #16
         bne @calc               ; always taken
 @no_rem:
         lda #13
@@ -822,6 +830,8 @@ BASIC_REM = $8F
         lda #':'
         jsr _emit_byte
         lda #BASIC_REM
+        jsr _emit_byte
+        lda #' '                ; space after REM for readable LIST
         jsr _emit_byte
         ; Copy string bytes
         ldx #0
