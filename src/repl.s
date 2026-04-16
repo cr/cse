@@ -1402,14 +1402,16 @@ parse_hex4_ptr1:
         lda asm_expr_err
         beq @syn_err
         jsr expr_error_str      ; A/X = error string
-        sta rp_tmp
-        stx rp_tmp+1
+        ; Same footgun as confirm_action: `puts str_expr` below
+        ; clobbers rp_tmp via puts_imm, so stash in rp_tmp2.
+        sta rp_tmp2
+        stx rp_tmp2+1
         jsr newline
         ldy #LOG_ERR
         jsr log_open
         puts str_expr
-        lda rp_tmp
-        ldx rp_tmp+1
+        lda rp_tmp2
+        ldx rp_tmp2+1
         jsr io_puts
         jmp log_close_eol
 @syn_err:
