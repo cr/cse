@@ -95,7 +95,7 @@
         .import str_cse_rt, str_bytes_free, str_io
         .import str_free, str_l, str_main
         .import str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
-        .import str_tag_scr, str_tag_cse, str_tag_work, str_free_suf, str_seg_suf
+        .import str_tag_scr, str_tag_cse, str_tag_work, str_free_suf
         .import str_tag_src, str_tag_low, str_tag_io
         .import str_tag_rom, str_banked
         .import dec_pow_lo, dec_pow_hi
@@ -155,7 +155,7 @@ rp_next_hi:     .res 2          ; cmd_step
 rp_opc:         .res 1          ; cmd_step saved opcode
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
 rp_hexbuf:      .res 3          ; cmd_dot hex byte parse
-fbuf:           .res 20         ; free_line / utoa buffer
+
 dbg_zp_view:    .res 8          ; emit_mem staging buffer for the
                                 ; user-ZP redirect (see emit_mem)
 
@@ -2339,58 +2339,6 @@ VIC_MEMCTL = $D018
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; stats_to_fbuf — format "Nl Nb" into fbuf
-;   Uses ed_save_lines and ed_save_bytes.
-;   Clobbers: A, X, Y, rp_addr
-; ═══════════════════════════════════════════════════════════
-.proc stats_to_fbuf
-        ; Lines → dec_buf, copy to fbuf
-        lda ed_save_lines
-        ldx ed_save_lines+1
-        clc
-        jsr io_utoa             ; A = offset
-        tax                     ; X = src index
-        ldy #0                  ; Y = fbuf write pos
-@cp_l:  lda dec_buf,x
-        beq @l_suf
-        sta fbuf,y
-        inx
-        iny
-        bne @cp_l
-        ; Append "l "
-@l_suf: ldx #0
-@ls:    lda str_lines,x
-        sta fbuf,y
-        beq @bytes
-        inx
-        iny
-        bne @ls
-        ; Bytes → dec_buf, copy to fbuf (Y continues)
-@bytes: sty rp_save             ; save write pos
-        lda ed_save_bytes
-        ldx ed_save_bytes+1
-        clc
-        jsr io_utoa             ; A = offset
-        tax
-        ldy rp_save             ; restore write pos
-@cp_b:  lda dec_buf,x
-        beq @b_suf
-        sta fbuf,y
-        inx
-        iny
-        bne @cp_b
-        ; Append "b"
-@b_suf: ldx #0
-@bs:    lda str_bytes,x
-        sta fbuf,y
-        beq @done
-        inx
-        iny
-        bne @bs
-@done:  rts
-.endproc
-
-; ═══════════════════════════════════════════════════════════
 ; print_seq_stats — print "N lines, M bytes"
 ; Caller opens the line via log_open first.
 ; ═══════════════════════════════════════════════════════════
@@ -2882,9 +2830,20 @@ print_prg_range:
 ;   Call setup: rp_save2=inv, rp_addr=lo, rp_cnt=hi
 ;               rp_ptr2=tag, rp_ptr=desc
 ; ═══════════════════════════════════════════════════════════
-.proc info_line
-        ; rp_save2 = inv, rp_ptr2 = tag, rp_addr = lo, rp_cnt = hi, rp_ptr = desc
-        ; save io_cy screen addr into rp_next_lo for invert pass later
+; ── info_line — print a complete info line ────────────────
+;   rp_save2 = inv, rp_ptr2 = tag, rp_addr = lo, rp_cnt = hi, rp_ptr = desc
+info_line:
+        jsr info_line_head
+        lda rp_ptr
+        ldx rp_ptr+1
+        jsr io_puts
+        jmp info_line_tail
+
+; ── info_line_head — print "; TAG  AAAA-BBBB " prefix ────
+;   rp_ptr2 = tag, rp_addr = lo, rp_cnt = hi
+;   Saves screen row pointer for info_line_tail's highlight pass.
+info_line_head:
+        ; save screen addr for invert pass later
         ldx CUR_ROW
         lda scr_lo,x
         sta rp_next_lo
@@ -2903,27 +2862,22 @@ print_prg_range:
         ldx rp_ptr2+1
         jsr io_puts
 
-        ; pad tag to 4 chars: compute strlen of tag
-        ; (tag is always 2-4 chars, pad with spaces)
+        ; pad tag to 5 cols (4 chars + 1 space separator)
         ldy #0
 @tlen:  lda (rp_ptr2),y
         beq @tpad
         iny
         cpy #4
         bcc @tlen
-@tpad:  ; pad with spaces until we've printed 4 chars total
-        cpy #4
-        bcs @tsp
+@tpad:  tya
+        eor #$FF
+        clc
+        adc #5+1                ; X = 5 - len
+        tax
         lda #' '
-        sty rp_tmp
-        jsr io_putc
-        ldy rp_tmp
-        iny
-        bne @tpad
-@tsp:   lda #' '
-        jsr io_putc
+        jsr io_repc
 
-        ; print lo-hi
+        ; print lo-hi + space
         lda rp_addr
         ldx rp_addr+1
         jsr io_puthex4
@@ -2933,16 +2887,14 @@ print_prg_range:
         ldx rp_cnt+1
         jsr io_puthex4
         lda #' '
-        jsr io_putc
+        jmp io_putc
 
-        ; print desc
-        lda rp_ptr
-        ldx rp_ptr+1
-        jsr io_puts
-
+; ── info_line_tail — highlight + pad + newline ───────────
+;   rp_save2 = highlight flag.  Uses rp_next_lo saved by head.
+info_line_tail:
         ; save col position
         lda CUR_COL
-        sta rp_save             ; col
+        sta rp_save
 
         ; copy screen pointer to ZP rp_ptr for indirect access
         lda rp_next_lo
@@ -2955,9 +2907,9 @@ print_prg_range:
         beq @normal_pad
 
         ; inv: set bit 7 on AAAA-BBBB only (cols 7-15)
-        ldy #7                  ; col 7 = start of address
+        ldy #7
 @inv_lp:
-        cpy #16                 ; col 16 = past end of BBBB
+        cpy #16
         bcs @inv_done
         lda (rp_ptr),y
         ora #$80
@@ -2977,84 +2929,44 @@ print_prg_range:
         bne @npad
 
 @done:  jmp newline
-.endproc
 
 ; ═══════════════════════════════════════════════════════════
-; range_line — shared formatter for address-range info lines
+; free_line / seg_line — streaming range+size info lines
 ;
-; Two entry points:
-;   free_line — suffix = "b free" (cmd_info free sections)
-;   seg_line  — suffix = "b"      (asm_src segment lines)
+;   free_line — "; TAG  AAAA-BBBB NNNNNb free" (cmd_info)
+;   seg_line  — "; TAG  AAAA-BBBB NNNNNb"      (asm_src)
 ;
 ; In:  rp_ptr2 = tag, rp_save2 = highlight, rp_addr = lo, rp_cnt = hi
-; Out: prints "; TAG  AAAA-BBBB NNNNNb[suffix]" via info_line
 ; ===============================================================
 free_line:
-        lda #<str_free_suf
-        ldx #>str_free_suf
-        bne range_line          ; always taken
-seg_line:
-        lda #<str_seg_suf
-        ldx #>str_seg_suf
-range_line:
-        sta rp_tmp              ; suffix ptr lo
-        stx rp_tmp+1            ; suffix ptr hi
+        jsr _range_core         ; head + "NNNNNb"
+        puts str_free_suf       ; " free"
+        jmp info_line_tail
 
-        ; Compute size = hi - lo + 1
+seg_line:
+        jsr _range_core
+        jmp info_line_tail
+
+; ── _range_core — info_line_head + right-aligned size + 'b' ──
+_range_core:
+        jsr info_line_head
+        ; size = hi - lo + 1
         lda rp_cnt
         sec
         sbc rp_addr
-        pha                     ; save lo
+        pha
         lda rp_cnt+1
         sbc rp_addr+1
-        tax                     ; X = size hi
-        pla                     ; A = size lo
+        tax
+        pla
         clc
-        adc #1                  ; +1 (size is inclusive)
+        adc #1
         bcc :+
         inx
-:
-        ; Convert to right-aligned decimal in dec_buf
-        sec                     ; SEC = pad leading zeros with spaces
-        jsr io_utoa             ; dec_buf = "NNNNNb" (right-aligned)
-        ; Copy dec_buf to fbuf
-        ldx #0
-        ldy #0
-@cpd:   lda dec_buf,x
-        beq @suf
-        sta fbuf,y
-        inx
-        iny
-        bne @cpd
-        ; Append suffix from rp_tmp ("b free\0" or "b\0")
-@suf:   sty rp_save             ; save fbuf write offset
-        lda rp_tmp
-        sta rp_ptr
-        lda rp_tmp+1
-        sta rp_ptr+1
-        ldy #0
-@cpf:   lda (rp_ptr),y
-        ldx rp_save
-        sta fbuf,x
-        beq @done
-        inc rp_save
-        iny
-        bne @cpf
-@done:
-        ; info_line: tag and highlight set by caller
-        lda #<fbuf
-        sta rp_ptr
-        lda #>fbuf
-        sta rp_ptr+1
-        jmp info_line
-
-; ═══════════════════════════════════════════════════════════
-; cmd_info — 'i' command: memory map
-; ═══════════════════════════════════════════════════════════
-; Helper: set up and call info_line
-;   Macro-like pattern: set rp_save2, rp_ptr2, rp_addr, rp_cnt, rp_ptr
-;   then jsr info_line.
-; We define a helper that takes parameters from a "call frame" pattern.
+:       sec                     ; right-aligned
+        jsr io_putdec_pd
+        lda #'b'
+        jmp io_putc
 
 ; ───────────────────────────────────────────────────────────
 ; info_emit_rows — emit N rows from info table
@@ -3135,14 +3047,13 @@ range_line:
         sta rp_ptr2
         lda #>str_tag_zp
         sta rp_ptr2+1
+        lda #0
+        sta rp_addr+1
+        sta rp_cnt+1
         lda #$02
         sta rp_addr
-        lda #$00
-        sta rp_addr+1
         lda #$7F
         sta rp_cnt
-        lda #$00
-        sta rp_cnt+1
         jsr @set_inv
         jsr free_line
 
@@ -3261,7 +3172,7 @@ range_line:
         lda src_top+1
         sbc #0
         sta rp_cnt+1
-        ; Build desc: "Nl Nb" using print_seq_stats path
+        ; Stream "; src  AAAA-BBBB Nl Nb" directly
         lda ed_total_lines
         sta ed_save_lines
         lda ed_total_lines+1
@@ -3273,31 +3184,11 @@ range_line:
         lda src_top+1
         sbc src_bot+1
         sta ed_save_bytes+1
-        ; Save src range on stack
-        lda rp_addr
-        pha
-        lda rp_addr+1
-        pha
-        lda rp_cnt
-        pha
-        lda rp_cnt+1
-        pha
-        jsr stats_to_fbuf
-        pla
-        sta rp_cnt+1
-        pla
-        sta rp_cnt
-        pla
-        sta rp_addr+1
-        pla
-        sta rp_addr
         lda #0
         sta rp_save2
-        lda #<fbuf
-        sta rp_ptr
-        lda #>fbuf
-        sta rp_ptr+1
-        jsr info_line
+        jsr info_line_head      ; "; src  AAAA-BBBB "
+        jsr print_seq_stats     ; "Nl Nb" streamed
+        jsr info_line_tail
 @no_src:
 
         ; ── Dynamic: cse XXXX-CFFF  cse runtime ──

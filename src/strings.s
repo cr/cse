@@ -159,11 +159,9 @@ s_bad_val       = str_bad_val           ; asm_src.s alias
 s_err_sep       = str_colon_sp          ; asm_src.s alias, both ": "
 
 str_tag_org:    .byte "org", 0
-str_seg_suf:    .byte "b", 0
-
         .export str_cse_rt, str_tag_scr, str_tag_cse
         .export str_tag_io, str_io
-        .export str_free_suf, str_tag_org, str_seg_suf
+        .export str_free_suf, str_tag_org
 
 ; ── disk strings ────────────────────────────────────────────
 
