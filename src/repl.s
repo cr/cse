@@ -310,9 +310,8 @@ io_addr_cmd:
 ; Line references go at the tail of the content (LNNN).
 ; ═══════════════════════════════════════════════════════════
 
-LOG_ERR  = '?'
-LOG_WARN = '!'
-LOG_INFO = ' '
+; Shared with main.s and asm_src.s via log.inc (single source of truth).
+.include "log.inc"
 
 ; ── log_line — complete log line ─────────────────────────
 ; Y = level char, A/X = content string ptr

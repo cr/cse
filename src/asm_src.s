@@ -79,11 +79,11 @@ _org_set:       .res 1          ; non-zero after first .org on pass 0
 .segment "CODE"
 ; ═══════════════════════════════════════════════════════════════════════════
 
+        .include "log.inc"      ; LOG_ERR / LOG_WARN / LOG_INFO
+
 ; ── emit_error ─────────────────────────────────────────────────────────────
 ; Print error on pass 1 and increment error count.
 ;   In: A/X = PETSCII message pointer
-LOG_ERR = '?'
-
 .proc emit_error
         pha                     ; save msg lo BEFORE pass check
         lda _asm_pass

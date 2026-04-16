@@ -51,9 +51,9 @@
         .import VERSION_STR, s_manual
 
 ; ── Constants ────────────────────────────────────────────────
+        .include "log.inc"      ; LOG_ERR / LOG_WARN / LOG_INFO
 SCREEN_WIDTH = 40
 SCREEN_HEIGHT = 25
-LOG_INFO     = ' '
 MEM_CONFIG   = $01
 KEY_REPEAT   = $028A
 VIC_MEMCTL   = $D018
