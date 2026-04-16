@@ -181,27 +181,20 @@ sub-ranges.
 | PETSCII | Contents | Screen code |
 |---------|----------|-------------|
 | $40–$5F | **lowercase** (a–z + symbols) | $00–$1F |
-| $60–$7F | **uppercase** (A–Z + symbols) ← preferred | $40–$5F |
-| $C0–$DF | uppercase (duplicate of $60–$7F) ← avoid | $40–$5F |
+| $60–$7F | uppercase (duplicate of $C0–$DF) ← avoid | $40–$5F |
+| $C0–$DF | **uppercase** (A–Z + symbols) ← canonical | $40–$5F |
 
 **$40–$5F = lowercase — the opposite of ASCII.**  PETSCII $41 is
 lowercase `a`, not uppercase `A`.
 
-$60–$7F and $C0–$DF produce identical screencodes.  The round-trip
-through screen RAM is lossy: `read_line` maps both back to $40–$5F,
-collapsing the case distinction.  The REPL and assembler are
-case-insensitive by design.
-
-**Prefer $60–$7F for uppercase.**  It maps cleanly (A − $20), does
-not collide with the KERNAL shifted range, and is the canonical
-form for string constants.  $C0–$DF appears only in raw keyboard
-input (KERNAL GETIN) and must be folded to $40–$5F at the input
-boundary.
-
-ca65 character literals with `-t c64`: `'a'` = $41 (lowercase),
-`'A'` = $C1 (shifted — in the avoided $C0–$DF range).  For
-uppercase constants in code, use numeric values ($61) rather than
-ca65 shifted literals.
+$60–$7F and $C0–$DF produce identical screencodes.  CSE uses the
+$C0–$DF range as canonical for uppercase because that's what the
+KERNAL keyboard layer (GETIN returns $C1–$DA for shifted letters)
+and ca65 `-t c64` character literals (`'A'` = $C1) produce.  The
+`scr_to_pet` codec maps uppercase screen codes $40–$5F back to
+$C0–$DF, so the round-trip through screen RAM **preserves case**.
+Case-insensitive comparators (assembler, symbol table, expression
+parser) fold $C0–$DF → $40–$5F at their own boundaries.
 See [feedback: ca65 char literals](../feedback_ca65_charlit.md).
 
 The full mapping tables and rules live in

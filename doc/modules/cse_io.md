@@ -247,32 +247,35 @@ chunks — never sub-ranges.
 | $00–$1F | control codes |
 | $20–$3F | space, digits, punctuation |
 | $40–$5F | **lowercase** (letters a–z at $41–$5A, plus @[]↑← ) |
-| $60–$7F | **uppercase** (letters A–Z at $61–$7A, plus graphics) ← preferred |
+| $60–$7F | **uppercase** (letters A–Z at $61–$7A, plus graphics) ← avoid |
 | $80–$9F | (control codes, shifted) |
-| $A0–$BF | shifted graphics / special chars ← preferred |
-| $C0–$DF | **uppercase** (duplicate of $60–$7F) ← avoid |
-| $E0–$FF | shifted graphics (duplicate of $A0–$BF) ← avoid |
+| $A0–$BF | shifted graphics / special chars ← avoid |
+| $C0–$DF | **uppercase** (duplicate of $60–$7F) ← canonical |
+| $E0–$FF | shifted graphics (duplicate of $A0–$BF) ← canonical |
 
 **The $40–$5F = lowercase convention is the opposite of ASCII.**
 PETSCII $41 is lowercase `a`, not uppercase `A`.  This is the
 single most common source of confusion.
 
-#### Duplicate ranges and preferred usage
+#### Duplicate ranges and canonical usage
 
 $60–$7F and $C0–$DF produce identical screencodes ($40–$5F).
 $A0–$BF and $E0–$FF produce identical screencodes ($60–$7F).
 
-CSE uses the preferred range and avoids the duplicate:
+CSE uses the $C0–$FF range as canonical for uppercase/shifted
+content because that's what the KERNAL keyboard input layer and
+ca65 `-t c64` character literals produce.  The $60–$BF range is
+avoided:
 
-| Screencodes | Preferred PETSCII | Avoid | Why |
+| Screencodes | Canonical PETSCII | Avoid | Why |
 |-------------|-------------------|-------|-----|
-| $40–$5F | **$60–$7F** | $C0–$DF | $60 maps cleanly (A−$20); $C0 is KERNAL keyboard shifted range |
-| $60–$7F | **$A0–$BF** | $E0–$FF | $A0 maps cleanly (A−$40); $E0 is a redundant Commodore wiring quirk |
+| $40–$5F | **$C0–$DF** | $60–$7F | KERNAL GETIN returns $C1–$DA for shifted letters; `'A'` (ca65) = $C1 |
+| $60–$7F | **$E0–$FF** | $A0–$BF | Matches the shifted-uppercase convention; $E0-$FF is what scr_to_pet produces |
 
-**Rule:** string constants and generated output must use the
-preferred ranges.  The avoided ranges appear only in raw keyboard
-input and must be folded at the input boundary (see "Where shifted
-PETSCII appears" below).
+**Rule:** uppercase letters everywhere in CSE (string constants,
+generated output, keyboard input, screen-read input) live in
+$C0–$DF.  The $60–$7F range should not appear; if it does, it's
+a bug (case-insensitive comparators should still tolerate both).
 
 #### Screen codes (what VIC reads from $0400)
 
@@ -293,15 +296,16 @@ In the lower/upper charset:
 | $00–$1F | $80–$9F | ORA #$80 | reverse-video control chars |
 | $20–$3F | $20–$3F | identity | space, digits, punctuation |
 | $40–$5F | $00–$1F | A − $40 | **lowercase** a–z ($41→$01) |
-| $60–$7F | $40–$5F | A − $20 | **uppercase** A–Z ($61→$41) ← preferred |
+| $60–$7F | $40–$5F | A − $20 | **uppercase** A–Z ($61→$41) ← avoid |
 | $80–$9F | $80–$9F | identity | reverse video |
-| $A0–$BF | $60–$7F | A − $40 | graphics/specials ($A0→$60) ← preferred |
-| $C0–$FF | $40–$7F | A − $80 | **uppercase** + graphics ($C1→$41, $E0→$60) ← avoid |
+| $A0–$BF | $60–$7F | A − $40 | graphics/specials ($A0→$60) ← avoid |
+| $C0–$FF | $40–$7F | A − $80 | **uppercase** + graphics ($C1→$41, $E0→$60) ← canonical |
 
-The $C0–$FF row is the avoided-range counterpart of $60–$7F and
-$A0–$BF combined.  A single operation (A − $80) covers both
-duplications.  The round-trip through screen RAM is **lossy** —
-preferred and avoided PETSCII ranges become indistinguishable.
+The $C0–$FF row is the canonical uppercase/shifted range.  A single
+operation (A − $80) covers both the $60–$7F (uppercase letters)
+and $A0–$BF (graphics) duplications.  The round-trip through screen
+RAM is **lossy for the avoided ranges** — any $60–$BF value that
+somehow reached the screen comes back as $C0–$FF.
 
 #### Screen Code → PETSCII (scr_to_pet, used by read_line)
 

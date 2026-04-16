@@ -845,12 +845,12 @@ class TestSaveCommand:
     """PRG save via 's' command — argument parsing + disk stub witness."""
 
     def test_save_quoted_name_prg(self, rsyms):
-        """s "foo" saves as PRG with default block_size."""
+        """s "foo,p" saves as PRG with default block_size."""
         cpu = make_cpu(rsyms)
         set_cur_addr(cpu, rsyms, 0x0800)
-        set_line_buf(cpu, rsyms, 's "foo"')
+        set_line_buf(cpu, rsyms, 's "foo,p"')
         run_at(cpu, rsyms.exec_line)
-        assert get_cur_filename(cpu, rsyms) == "FOO"
+        assert get_cur_filename(cpu, rsyms) == "FOO,P"
         assert get_word(cpu, rsyms.save_addr) == 0x0800
         assert get_word(cpu, rsyms.save_size) == 0x0010  # block_size default
 
@@ -894,13 +894,13 @@ class TestSaveCommand:
         assert get_word(cpu, rsyms.save_size) == 0xFFFF
 
     def test_save_reuse_prev_name(self, rsyms):
-        """s "foo" then s (no name) reuses "foo"."""
+        """s "foo,p" then s (no name) reuses "foo,p"."""
         cpu = make_cpu(rsyms)
         set_cur_addr(cpu, rsyms, 0x0800)
         # First save establishes the name
-        set_line_buf(cpu, rsyms, 's "foo"')
+        set_line_buf(cpu, rsyms, 's "foo,p"')
         run_at(cpu, rsyms.exec_line)
-        assert get_cur_filename(cpu, rsyms) == "FOO"
+        assert get_cur_filename(cpu, rsyms) == "FOO,P"
         # Second save with no name
         set_line_buf(cpu, rsyms, "s")
         set_word(cpu, rsyms.save_size, 0)
@@ -912,9 +912,10 @@ class TestSaveCommand:
         """s $0900 — unquoted arg is end addr, not filename."""
         cpu = make_cpu(rsyms)
         set_cur_addr(cpu, rsyms, 0x0800)
-        # Pre-set cur_filename so the save has a name
-        for i, b in enumerate(b"prev\x00"):
-            cpu.memory[rsyms.cur_filename + i] = b
+        # Pre-set cur_filename in PETSCII (,p suffix → PRG path)
+        for i, ch in enumerate(b"prev,p"):
+            cpu.memory[rsyms.cur_filename + i] = ascii_to_petscii(ch)
+        cpu.memory[rsyms.cur_filename + 6] = 0
         set_line_buf(cpu, rsyms, "s $0900")
         run_at(cpu, rsyms.exec_line)
         assert get_word(cpu, rsyms.save_addr) == 0x0800

@@ -17,10 +17,6 @@ Open bugs, roughly ordered by priority.
   conversion always collapsed uppercase into the lowercase
   range.  Dispatch table entries $C2/$C3/$D1 were unreachable.
   Phase 17)
-- [ ] `l` command hang: loading a non-existing file may hang.
-  Not yet reproducible.  Suspect: `disk_load_prg` or
-  `ed_load_source` not handling KERNAL file-not-found error,
-  or floppy status channel read blocking.
 - [x] ~~INS in REPL: overwrites char under cursor~~ (fixed: main.s
   INS shift loop had off-by-one — `beq` exited before copying the
   char at cursor position; removed the early exit)
@@ -36,11 +32,10 @@ Open bugs, roughly ordered by priority.
 - [x] ~~RUN/STOP debounce~~ (already debounced: `@deb_wait` polls
   $91 until key released, then drains keyboard buffer)
 - [ ] `.` and `m` show CSE ZP instead of user ZP after j/debugger
-  context.  `m` was partially fixed in `ac1a31f` (redirects $02..$59
-  through `user_zp_buf` when `dbg_reason != 0`), but `.` still reads
-  live memory.  Both commands need consistent treatment.  Cheaper fix:
-  stage bytes from `user_zp_buf` into a view buffer before calling
-  `dasm_insn` or `emit_hex_cols` (~15 B code).  Low priority.
+  context.  `m` was partially fixed in `ac1a31f`; `.` still reads
+  live memory.  **Deferred** — bigger project due to (k)BSS
+  changes and hot-path gating; needs a `zp_view` abstraction
+  that both commands consult consistently.
 - [x] ~~**CRITICAL**: save writes wrong memory region~~ (fixed:
   disk.s had a local `_io_tmp = $FB` shadowing the canonical
   symbol in zp.s at `$2D`.  Commit `278a2f6` changed repl.s's
@@ -55,25 +50,20 @@ Open bugs, roughly ordered by priority.
   suffix and prints the name as-is instead of appending another.
   `,s` suffix is still swapped to `,p` for the save command.
   Phase 17.)
-- [ ] `r` command flags decode: the dash in the flag string (e.g.
-  the `-` between `b` and `D` in `nv-bdizc`) becomes an uppercased
-  strange char on screen.  Screen RAM has no dash equivalent at
-  the uppercase position.  Replace with a neutral placeholder that
-  survives the case-flip (e.g. `.` or keep lowercase always).
-- [ ] `r` command flags handling is inverted/broken.  Convention
-  must be: lowercase = clear (0), uppercase = set (1).  Parser
-  currently SETS the bit when typed char matches the lowercase
-  reference — backwards.  Display uses `and #$DF` to uppercase
-  set flags, but with ca65 `-t c64` encoding lowercase PETSCII
-  already has bit 5 clear, so the AND is a no-op for letters
-  (only corrupts `-`).  Fix both sides: parser should set bit
-  when typed char is uppercase (i.e., when `cmp #lowercase` is
-  NOT equal AND the char is a valid flag letter); display should
-  `ora #$80` (switch to the $C0-$DF avoided-uppercase range) or
-  `ora #$20` (to $60-$7F preferred) to actually flip case.
-  Additionally, reading the `r` arguments on RETURN must update
-  the preserved userland register/flags state (`reg_a/x/y/sp/p`)
-  so `c`/`t`/`o` resume with the edited values.
+- [x] ~~`r` command flags decode: the dash becomes a strange char~~
+  (fixed: added `cmp #'a'; bcc @fp` before the `and #$DF` so
+  non-alphabetic chars like `-` pass through unchanged.  The
+  dash now displays as `-` regardless of P-bit state.  The
+  deeper convention/flip bug is tracked separately.  Phase 17.)
+- [x] ~~`r` command flags handling inverted/broken~~ (fixed:
+  display now `cmp #'a'; bcc; ora #$80` for alphabetic letters
+  only (lowercase → canonical uppercase $C0-$DF); parser now
+  sets bit=1 only when typed char is uppercase ($80 bit set
+  after scr_to_pet fold).  Lowercase → bit=0, dash or missing
+  → bit=0.  Input is position-based: each slot checks only its
+  own flag letter.  Userland update works automatically via
+  `@tramp` in dbg_enter which reads reg_a/x/y/p at JSR-to-
+  user-code time.  Phase 17.)
 - [x] ~~NIT: `.bas` stub lacks a space after `REM`~~ (fixed:
   asm_src's emit_bas now emits a space byte between the REM
   token and the string text.  Stub length adjusted +1.  Phase 17.)
@@ -83,17 +73,24 @@ Open bugs, roughly ordered by priority.
   `"; quit? y/n"` when clean, `";!unsaved. del src? y/n"` /
   `";!unsaved. quit? y/n"` when dirty.  LOG_WARN level when
   dirty, LOG_INFO when clean.  Phase 17.)
-- [ ] `s:name` overwrite doesn't work out of the box.  Investigate
-  why prepending `@:` to the filename (CBM DOS overwrite syntax)
-  isn't applied automatically by `s`, or why the user-typed
-  `s:name` or `@:name` path isn't wired up.
+- [x] ~~`s:name` overwrite~~ (fixed: PRG save now uses OPEN+CHKOUT+
+  CHROUT+CLOSE like SEQ save, with `"@:<name>,p,w"` constructed
+  via the shared `build_open_str` helper.  Both paths now have
+  symmetric KERNAL call structure and consistent overwrite
+  semantics.  PRG payload writes a 2-byte load-address header
+  then the bytes.  `build_open_str` generalised to take type
+  ('s' or 'p') in X in addition to mode in A.  Phase 17.)
 - [ ] Debugger: stepping into a subroutine then `c` (continue)
   cannot return through the original JSR's pushed return address.
   The `sp_baseline` RTS trick unwinds the stack, so the
-  subroutine's RTS pops the @tramp return instead of the original
-  caller.  Fix: 256 B user-stack snapshot at `$EF00` under
-  KERNAL (copy page 1 on debug entry/exit).  Acceptable
-  trade-off for now.
+  subroutine's RTS pops garbage from below sp_baseline instead
+  of the original caller.  **Deferred** — medium priority.
+  Fix: 256 B user-stack snapshot at `$EF00` under KERNAL
+  (copy page 1 on debug entry/exit).  Requires coordinated
+  changes to dbg_enter/dbg_brk_core/dbg_nmi_break, the BRK
+  handler must also refuse writes to BP addresses outside
+  workmem (already done via cmd_brk range check; dbg_bp_patch
+  could duplicate the check defensively).
 - [x] ~~Assembler: `bne <nonexisting>` reports "bad insn"~~ (fixed:
   `asm_expr_error` entry point sets `asm_expr_err=1`; `.` command
   and source assembler now print `expr_error_str` detail e.g. "undef")

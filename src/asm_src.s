@@ -692,40 +692,36 @@ seg_print_save:
 @found_end:
         sty asm_tmp             ; save NUL index
         cpy #2
-        bcc @do_add             ; too short for suffix
+        bcc @do_add             ; too short for suffix → append ,p
         lda cur_filename-2,y
         cmp #','
-        bne @do_add             ; no comma → append ,p
+        bne @do_add
         lda cur_filename-1,y
         cmp #'p'
         beq @do_print           ; already ",p" — print as-is
         cmp #'s'
-        bne @do_add             ; unknown → append ,p
+        bne @do_add             ; unknown suffix → append ,p
         ; ",s" suffix: swap 's' for 'p', print, restore
         dey
         lda #'p'
         sta cur_filename,y
-        lda #<cur_filename
-        ldx #>cur_filename
-        jsr io_puts
+        jsr @do_print
         ldy asm_tmp
         dey
         lda #'s'
         sta cur_filename,y
         jmp @name_done
-@do_print:
-        lda #<cur_filename
-        ldx #>cur_filename
-        jsr io_puts
-        jmp @name_done
 @do_add:
-        lda #<cur_filename
-        ldx #>cur_filename
-        jsr io_puts
+        jsr @do_print
         lda #','
         jsr io_putc
         lda #'p'
         jsr io_putc
+        jmp @name_done
+@do_print:
+        lda #<cur_filename
+        ldx #>cur_filename
+        jmp io_puts
 @name_done:
         puts s_save_q_sp        ; "" $"
         lda _max_pc
@@ -743,8 +739,8 @@ seg_print_save:
 ; With string:    `0 SYS NNNNN:REM TEXT`
 ;
 ; Layout: link(2) + linenum 0(2) + SYS(1) + 5 digits
-;         + [':' + REM + string(len)] + NUL(1) + end(2)
-; Total:  13 bytes (no string) or 15 + len (with string).
+;         + [':' + REM + ' ' + string(len)] + NUL(1) + end(2)
+; Total:  13 bytes (no string) or 16 + len (with string).
 ;
 ; Uses asm_tmp/asm_tmp2 for SYS address, _eb_idx for string length.
 BASIC_SYS = $9E

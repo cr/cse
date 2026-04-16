@@ -71,30 +71,53 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; Helper: build CBM open string in open_buf
-;   Input: ptr = filename, Y = filename length, A = mode ('r'/'w')
-;   For write mode, prepends "@:"
-;   Appends ",s,<mode>" if not already present
-;   Returns: A = total length, open_buf filled
+; write_name_at — prepend "@:" + filename into open_buf.
+;   Input: ptr = filename, Y = length.
+;   Output: X = open_buf write index (past the name),
+;           open_buf = "@:<name>" (no NUL, not terminated).
+;   Used for save-with-replace by both SEQ and PRG save paths.
+; ═════════════════════════════════════════════════════════
+.proc write_name_at
+        sty @nlen
+        lda #'@'
+        sta open_buf
+        lda #':'
+        sta open_buf+1
+        ldx #2
+        ldy #0
+@cp:    cpy @nlen
+        bcs @done
+        lda (ptr),y
+        sta open_buf,x
+        inx
+        iny
+        bne @cp
+@done:  rts
+@nlen:  .byte 0
+.endproc
+
+; ═════════════════════════════════════════════════════════
+; Helper: build CBM open string in open_buf.
+;   Input: ptr = filename, Y = filename length,
+;          A = mode ('r'/'w'), X = type ('s' or 'p').
+;   For write mode, prepends "@:"; for read mode no prefix.
+;   Appends ",<type>,<mode>" if the name has no existing type suffix.
+;   If the name already ends with ",<type>" (any type), only appends
+;   ",<mode>".  If it ends with ",r" or ",w", considered complete.
+;   Returns: A = total length, open_buf filled.
 ; ═════════════════════════════════════════════════════════
 .proc build_open_str
-        sta @mode       ; save mode char
-        sty @nlen       ; save name length
+        sta @mode
+        stx @type
+        sty @nlen
 
-        ldx #0          ; output index
-
-        ; prepend @: for write
-        lda @mode
         cmp #'w'
-        bne @copy_name
-        lda #'@'
-        sta open_buf,x
-        inx
-        lda #':'
-        sta open_buf,x
-        inx
+        bne @read_copy
+        jsr write_name_at       ; open_buf = "@:<name>", X = end
+        jmp @check_suffix
 
-@copy_name:
+@read_copy:
+        ldx #0
         ldy #0
 @cp:    cpy @nlen
         bcs @check_suffix
@@ -106,34 +129,32 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
 @check_suffix:
         ; Check what the name already ends with:
-        ;   ,s → append ,<mode>
+        ;   ,s or ,p → append ,<mode> (type already set)
         ;   ,r or ,w → already complete, done
-        ;   other → append ,s,<mode>
+        ;   other → append ,<type>,<mode>
         cpx #2
-        bcc @add_full           ; too short to have suffix
+        bcc @add_full
 
-        dex                     ; X points to last char
+        dex                     ; X → last char
         lda open_buf,x
-        dex                     ; X points to second-to-last
+        dex                     ; X → comma candidate
         ldy open_buf,x
         inx
         inx                     ; restore X past last char
 
-        ; Check for ,r or ,w (complete open string)
         cpy #','
-        bne @check_comma_s
+        bne @add_full           ; no comma → full suffix needed
         cmp #'r'
         beq @done
         cmp #'w'
         beq @done
-
-@check_comma_s:
-        ; Check for ,s (has type, needs mode)
-        cpy #','
-        bne @add_full
         cmp #'s'
-        bne @add_full
-        ; Name ends with ,s → just append ,<mode>
+        beq @add_mode
+        cmp #'p'
+        bne @add_full           ; unknown tail char → full suffix
+
+@add_mode:
+        ; Name ends with ,<type> → append ,<mode>
         lda #','
         sta open_buf,x
         inx
@@ -143,11 +164,11 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         jmp @done
 
 @add_full:
-        ; No suffix → append ,s,<mode>
+        ; No suffix → append ,<type>,<mode>
         lda #','
         sta open_buf,x
         inx
-        lda #'s'
+        lda @type
         sta open_buf,x
         inx
         lda #','
@@ -164,6 +185,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         rts
 
 @mode:  .byte 0
+@type:  .byte 0
 @nlen:  .byte 0
 .endproc
 
@@ -640,9 +662,10 @@ floppy_status:
         ldx disk_ptr+1
         jsr str_setup           ; ptr = name, Y = length
 
-        ; Build open string ",s,r"
+        ; Build open string "<name>,s,r"
         lda #'r'
-        jsr build_open_str      ; A = total length, open_buf filled
+        ldx #'s'
+        jsr build_open_str
 
         ; SETNAM with open_buf
         ldx #<open_buf
@@ -765,6 +788,7 @@ floppy_status:
 
         ; Build open string with @: prefix and ",s,w"
         lda #'w'
+        ldx #'s'
         jsr build_open_str
 
         ; SETNAM
@@ -843,6 +867,11 @@ floppy_status:
 ;   disk_ptr = filename ptr (ZP, set by caller)
 ;   _io_tmp  = start address (ZP, set by caller)
 ;   Returns A=0 on success, A=1 on error
+;
+;   Uses OPEN+CHKOUT+CHROUT+CLOSE like disk_save_seq, with a
+;   ",p,w" suffix so DOS creates a PRG file.  Prepends "@:" for
+;   save-with-replace.  Writes the 2-byte load address header
+;   (little-endian) manually, then the payload.
 ; ═════════════════════════════════════════════════════════
 .proc disk_save_prg
         ; Save size on 6502 stack
@@ -850,51 +879,74 @@ floppy_status:
         txa
         pha                     ; size hi
 
-        ; addr already in _io_tmp (set by caller)
-
-        ; Name from disk_ptr (set by caller)
+        ; Build "@:<name>,p,w" in open_buf
         lda disk_ptr
         ldx disk_ptr+1
         jsr str_setup           ; ptr = name, Y = length
+        lda #'w'
+        ldx #'p'
+        jsr build_open_str      ; A = total length, open_buf filled
 
         ; SETNAM
-        tya
-        ldx ptr
-        ldy ptr+1
+        ldx #<open_buf
+        ldy #>open_buf
         jsr SETNAM
 
-        ; SETLFS 1,device,1
-        lda #1
+        ; SETLFS 2,device,2 (secondary 2 = data channel for write)
+        lda #2
         ldx cur_device
-        tay                     ; Y = 1
+        ldy #2
         jsr SETLFS
 
-        ; compute end = addr + size
-        ; addr is in _io_tmp, size is on 6502 stack
+        jsr OPEN
+        bcs @err
+
+        ldx #2
+        jsr CHKOUT
+
+        ; Write 2-byte load address header
+        lda _io_tmp
+        jsr CHROUT
+        lda _io_tmp+1
+        jsr CHROUT
+
+        ; Write payload: size bytes from _io_tmp
         pla                     ; size hi
-        tay                     ; save in Y
+        sta @size_hi
         pla                     ; size lo
-        clc
-        adc _io_tmp
-        tax                     ; X = end lo
-        tya
-        adc _io_tmp+1
-        tay                     ; Y = end hi
+        sta @size_lo
+        ldy #0
+@lp:    lda @size_lo
+        ora @size_hi
+        beq @done
+        lda (_io_tmp),y
+        jsr CHROUT
+        ; advance _io_tmp
+        inc _io_tmp
+        bne :+
+        inc _io_tmp+1
+:       ; decrement size
+        lda @size_lo
+        bne :+
+        dec @size_hi
+:       dec @size_lo
+        jmp @lp
 
-        lda #<_io_tmp           ; ZP pointer to start address
-        jsr SAVE
-        bcs @error
-
-        lda #1
+@done:  jsr CLRCHN
+        lda #2
         jsr CLOSE
         lda #0
         tax
         rts
 
-@error:
+@err:   pla                     ; drop saved size from stack
+        pla
         lda #1
         jsr CLOSE
         lda #1
         ldx #0
         rts
+
+@size_lo: .byte 0
+@size_hi: .byte 0
 .endproc

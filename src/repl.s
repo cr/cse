@@ -397,16 +397,15 @@ confirm_action:
         rts
 
 ; ───────────────────────────────────────────────────────────
-; check_unsaved — for SEQ load: only prompt when dirty.
-;   Returns: C=1 proceed (not dirty or user said y)
-;            C=0 cancel (user said no)
+; check_unsaved — for SEQ load: prompt only when dirty.
+;   Returns: C=1 proceed, C=0 cancel.
 ; ───────────────────────────────────────────────────────────
 check_unsaved:
         lda ed_dirty
         beq @ok                 ; not dirty → proceed silently
         lda #<str_load
         ldx #>str_load
-        jmp confirm_action
+        jmp confirm_action      ; tail call, returns with C set
 @ok:    sec
         rts
 
@@ -1004,12 +1003,12 @@ parse_hex4_ptr1:
         lda reg_p
         sta rp_tmp2
         ldx #0
-@fl:    lda str_flag_ch,x       ; lowercase PETSCII
+@fl:    lda str_flag_ch,x       ; lowercase PETSCII ("nv-bdizc")
         asl rp_tmp2
+        bcc @fp                 ; bit=0 → print as-is (lowercase)
+        cmp #'a'                ; only flip letters (skip '-')
         bcc @fp
-        cmp #'a'                ; only flip alphabetic chars
-        bcc @fp
-        and #$DF                ; bit=1 → uppercase
+        ora #$80                ; bit=1 → uppercase ($C0-$DF canonical)
 @fp:    stx rp_tmp
         jsr io_putc
         ldx rp_tmp
@@ -2232,31 +2231,42 @@ VIC_MEMCTL = $D018
         sta reg_sp
         jsr skip_sp_ptr1
 
-        ; Parse flags: 8 chars, set bit if matches str_flag_ch[i]
+        ; Parse flags: 8 chars, bit=1 if typed char is uppercase form
+        ; of str_flag_ch[x] (PETSCII $C0-$DF, i.e. lowercase + $80).
+        ; Lowercase, '-', or anything else → bit=0.
+        ldy #0                  ; input offset
+        ldx #0                  ; flag slot
         lda #0
-        sta rp_tmp2                ; p accumulator
-        ldx #0
-@pflag: cpx #8
-        bcs @pflags_done
-        asl rp_tmp2                ; shift left to make room
-        ldy #0
+        sta rp_tmp2             ; P accumulator (shifts in from the right)
+@pflag: asl rp_tmp2             ; make room; low bit defaults 0
         lda (rp_ptr),y
-        cmp str_flag_ch,x
-        bne @pnot
-        lda rp_tmp2
-        ora #1
-        sta rp_tmp2
-@pnot:  ; advance rp_ptr if not NUL
-        ldy #0
-        lda (rp_ptr),y
-        beq @pskip
-        inc rp_ptr
-        bne @pskip
+        beq @pdone              ; end of input → remaining bits stay 0
+        cmp #';'
+        beq @pdone
+        iny                     ; consume this char
+        eor str_flag_ch,x       ; match iff typed == reference ^ $80 (uppercase)
+        cmp #$80                ; $80 means: matches reference, with bit 7 set
+        bne @pnext              ; not a "set" marker → bit=0
+        inc rp_tmp2             ; flip low bit 0→1
+@pnext: inx
+        cpx #8
+        bcc @pflag
+        beq @pstore             ; got 8 bits, store directly
+@pdone: ; pad remaining slots with 0
+@ppad:  cpx #8
+        bcs @pstore
+        asl rp_tmp2
+        inx
+        bne @ppad
+@pstore:
+        ; Advance rp_ptr past the consumed input
+        tya
+        clc
+        adc rp_ptr
+        sta rp_ptr
+        bcc :+
         inc rp_ptr+1
-@pskip: inx
-        jmp @pflag
-@pflags_done:
-        lda rp_tmp2
+:       lda rp_tmp2
         sta reg_p
 
 @show:  jsr newline
@@ -2265,34 +2275,34 @@ VIC_MEMCTL = $D018
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; is_seq_file — check if name ends with ",s" or ",S"
-;   rp_ptr = name pointer. Returns A=1 if seq, A=0 if not.
+; is_seq_file — classify filename by suffix.
+;   Default = SEQ; explicit ",p"/",P" = PRG.  Explicit ",s"/",S"
+;   also classifies as SEQ (redundant but accepted).
+;   rp_ptr = name pointer. Returns A=1 if SEQ, A=0 if PRG.
 ; ═══════════════════════════════════════════════════════════
 .proc is_seq_file
-        ; find length
         ldy #0
 @len:   lda (rp_ptr),y
         beq @got_len
         iny
         bne @len
 @got_len:
-        ; need at least 2 chars
         cpy #2
-        bcc @no
+        bcc @seq                ; too short for suffix → default SEQ
         dey
-        lda (rp_ptr),y            ; last char
-        cmp #'s'
-        beq @chk_comma
-        cmp #$D3                ; PETSCII uppercase S
-        bne @no
-@chk_comma:
+        lda (rp_ptr),y          ; last char
+        cmp #'p'
+        beq @chk_comma_p
+        cmp #$D0                ; PETSCII uppercase P
+        bne @seq                ; anything else → SEQ
+@chk_comma_p:
         dey
         lda (rp_ptr),y
         cmp #','
-        bne @no
-        lda #1
+        bne @seq
+        lda #0                  ; ",p" → PRG
         rts
-@no:    lda #0
+@seq:   lda #1                  ; default SEQ
         rts
 .endproc
 
