@@ -390,14 +390,13 @@ dbg_enter:
         pla                     ; pop A
         sta reg_a
         pla                     ; pop P
-        ; Mask the phantom B bit.  PHP always pushes P with bit 4 = 1
-        ; — a hardware artefact of the software-push path — but no
-        ; BRK happened on this clean-RTS return, so the user's flag
-        ; byte must not claim one.  The BRK/NMI handlers capture P
-        ; directly from the hardware-pushed frame; their B bit is
-        ; the real hardware signal (BRK=1, NMI=0) and is preserved
-        ; verbatim as user-visible state.
-        and #$EF
+        ; Clean-RTS: strip the two hardware-transport bits that PHP
+        ; unconditionally sets (bit 5 "unused" and bit 4 "B").  No
+        ; BRK happened, so reg_p must not claim one, and bit 5 is a
+        ; never-meaningful artefact of how any P byte reaches a
+        ; stack slot.  PLP on re-entry ignores both bits anyway, so
+        ; this is purely to make reg_p a faithful status-flag view.
+        and #%11001111          ; clear bits 5, 4
         sta reg_p
         stx reg_x
         sty reg_y
@@ -509,7 +508,13 @@ dbg_brk_core:
         sta reg_x
         lda $0103,x             ; A
         sta reg_a
-        lda $0104,x             ; P (CPU pushed, B=1)
+        ; P (CPU pushed).  Bit 5 is the hardware "unused = 1" — strip
+        ; it so reg_p cleanly represents the semantic flag state.
+        ; Bit 4 (B) is kept: hardware set it to 1 for BRK dispatch
+        ; (what we're in right now) and to 0 for plain IRQ, and we
+        ; want reg_p to reflect that distinction.
+        lda $0104,x
+        and #%11011111          ; clear bit 5 only; keep B
         sta reg_p
         ; PC: CPU pushed brk_addr+2 — adjust back
         lda $0105,x             ; PClo
@@ -571,7 +576,11 @@ dbg_nmi_break:
 
         ; ── 2. Extract P and PC from stack ──
         tsx
-        lda $0101,x             ; P
+        ; P (CPU pushed).  NMI hardware push puts bit 5=1, bit 4=0.
+        ; Strip both: bit 5 is a meaningless transport artefact, and
+        ; bit 4 cleanly stays 0 (NMI is never "a BRK").
+        lda $0101,x
+        and #%11001111          ; clear bits 5, 4
         sta reg_p
         lda $0102,x             ; PClo (exact address, no +2)
         sta brk_pc

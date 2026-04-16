@@ -865,10 +865,10 @@ class TestDbgEnterCleanRtsFlags:
         p = mem[dbg_syms.reg_p]
         assert (p & 0x02) == 0x02, \
             f"reg_p=${p:02X}: Z bit should be 1 after LDA #0"
-        # B flag (P bit 4) must be 0 — no BRK, so the phantom from PHP
-        # must be stripped before it reaches the userland state backup.
-        assert (p & 0x10) == 0x00, \
-            f"reg_p=${p:02X}: B bit should be 0 on clean RTS"
+        # Bits 5, 4 must both be 0 — clean-RTS capture strips the
+        # PHP transport artefact (bit 5 always 1, bit 4 always 1).
+        assert (p & 0x30) == 0x00, \
+            f"reg_p=${p:02X}: bits 5,4 must be 0 on clean RTS"
 
     def test_lda_one_rts_captures_Z_clear(self, dbg_syms):
         """User code `LDA #$01 / RTS` must leave reg_p with Z=0."""
@@ -927,6 +927,10 @@ class TestDbgEnterCleanRtsFlags:
         p = mem[dbg_syms.reg_p]
         assert (p & 0x10) == 0x10, \
             f"reg_p=${p:02X}: BRK must leave B=1 in reg_p"
+        # Bit 5 (hardware "unused=1") must be stripped — it's not
+        # semantic status and we store the byte as a clean flag view.
+        assert (p & 0x20) == 0x00, \
+            f"reg_p=${p:02X}: bit 5 must be 0 after BRK capture"
 
     def test_j_into_raw_brk_keeps_B_bit(self, dbg_syms):
         """`j $2000` into a naked BRK opcode — the stock user-visible
@@ -951,6 +955,8 @@ class TestDbgEnterCleanRtsFlags:
         p = mem[dbg_syms.reg_p]
         assert (p & 0x10) == 0x10, \
             f"reg_p=${p:02X}: naked BRK must leave B=1 in reg_p"
+        assert (p & 0x20) == 0x00, \
+            f"reg_p=${p:02X}: bit 5 must be 0 after BRK capture"
 
     def test_carry_set_preserved_through_rts(self, dbg_syms):
         """`SEC / LDA #$00 / RTS` must leave reg_p with Z=1 and C=1.
