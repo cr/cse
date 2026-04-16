@@ -606,20 +606,14 @@ floppy_status:
         jsr SETNAM
 
         ; SETLFS 1,dev,SA — SA=0: load to X/Y addr; SA=1: use PRG header
+        ldy #0                  ; default: SA=0 (honour X/Y addr)
         lda _io_tmp
         ora _io_tmp+1
-        beq @use_header
-        ; nonzero addr: SA=0 → KERNAL loads to X/Y
+        bne @set_lfs
+        ldy #1                  ; no addr → SA=1 (use PRG header)
+@set_lfs:
         lda #1
         ldx cur_device
-        ldy #0
-        jsr SETLFS
-        jmp @do_load
-@use_header:
-        ; no addr: SA=1 → KERNAL loads to PRG header address
-        lda #1
-        ldx cur_device
-        ldy #1
         jsr SETLFS
 
 @do_load:

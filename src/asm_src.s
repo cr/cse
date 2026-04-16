@@ -675,7 +675,7 @@ seg_print_save:
         lda _min_pc
         and _min_pc+1
         cmp #$FF
-        jeq @ret
+        beq @ret                ; @ret is a few bytes below — short branch fits
         lda _min_pc
         ldx _min_pc+1
         jsr io_puthex4
