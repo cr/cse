@@ -95,72 +95,120 @@ Open bugs, roughly ordered by priority.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
-- [ ] **NMI/IRQ trampolines + interrupt hooking: rework as one
-  unified setup routine.**  `kernal_init` (trampolines) and
-  `install_hooks` (RAM vector-table patching) today run in
-  separate cold-init steps with bank-out-capable code between
-  them.  Several latent bugs follow from that split:
-    * **NMI trampoline's `JMP ($0318)` assumes `$0318` already
-      points to a RAM handler.**  That's only true after
-      `install_hooks` has run and before `KERNAL_RESTOR` resets
-      it at exit.  Two crash windows:
-      - Cold-init: between `kernal_init` (step 4) and
-        `install_hooks` (step 11), any bank-out (e.g. inside
-        `sym_define` during `define_ws_syms`) combined with an
-        NMI routes through `JMP ($0318)` → KERNAL default
-        `$FE47` under banked-out RAM → crash.
-      - Exit: in `cse_exit_to_basic` after `KERNAL_RESTOR` but
-        before `$01` restore, `$0318` is back to `$FE47` with
-        KERNAL banked out.  NMI is non-maskable, SEI doesn't
-        help.
-    * **IRQ/BRK trampoline has two independent bugs.**  It
-      lives at `$FF04` (under KERNAL ROM) and its `STA $01` at
-      offset +5 banks KERNAL in immediately — the next
-      instruction fetch at `$FF0B` reads KERNAL ROM, not the
-      remaining trampoline bytes we wrote to RAM.  Executes
-      garbage ROM.  Also: never banks back out, so RTI leaves
-      `$01` permanently modified.  Masked in practice by
-      SEI-guarded IRQs and BRK handing off to `dbg_enter`, but
-      both paths are real corruption hazards.
-    * **Architectural inconsistency**: `install_hooks` uses
-      KERNAL VECTOR ($FF8D) to read/patch/write the
-      `$0314-$0333` table abstractly, but the trampolines then
-      hardcode `JMP ($0318)` / `JMP ($0316)` / `JMP $FF48`,
-      reaching past the very abstraction VECTOR was supposed
-      to establish.
+- [ ] **Phase 18 — CSE as a Kernel.**  Phase-scale refactor that
+  reframes CSE's runtime as an ISR-style kernel.  The full design
+  lives in [design_cse_as_kernel.md](design_cse_as_kernel.md);
+  the desired post-Phase-18 state is documented across the corpus
+  ([memory_design.md § Stack contract](memory_design.md#stack-contract),
+  [modules/main.md](modules/main.md), [modules/debugger.md](modules/debugger.md),
+  [userland_contract.md](userland_contract.md)).  The current code
+  does NOT implement this; closing the delta is the work.
 
-  **Step 1 (near-term fix): combine into one setup routine,
-  hardcoded addresses.**  Merge `kernal_init` and
-  `install_hooks` into a single `setup_interrupts` called
-  *before* any bank-out (i.e. before `sym_clear` /
-  `define_ws_syms` — move step 6 after the merged setup).
-  Use direct writes to `$0316`/`$0318` (skip VECTOR for the
-  install) — we're targeting the stock C64 KERNAL address
-  layout and know those absolute addresses.  Keep
-  `KERNAL_RESTOR` at exit since that's a single call and the
-  portable-exit path is cheaper to preserve than to replace.
-  Trampolines JMP direct to `cse_nmi_handler` /
-  `cse_brk_handler` (link-resolved) — no `($0318)`/`($0316)`
-  indirection, no KERNAL-ROM addresses in trampoline code.
-  Trampolines don't touch `$01`: handlers are `$01`-aware and
-  own banking.  Because `setup_interrupts` runs before the
-  first bank-out, the "trampoline executed with stale vector"
-  window simply can't exist.  Relocate trampolines out of
-  banked memory (`$0334-$033B` in page 3 is 8 unused bytes)
-  while we're here.
-  Closes: NMI cold-init/exit windows, IRQ/BRK self-stomping,
-  IRQ/BRK `$01` drift, trampoline/hook ordering coupling.
+  Sub-items, in dependency order:
 
-  **Step 2 (future-proofing): migrate interrupt hooking to
-  VECTOR.**  For cross-KERNAL compatibility (C128 C64-mode
-  variants, MEGA65 open-ROM, JiffyDOS, hypothetical relocated
-  vector tables), replace the direct `sta $0316`/`$0318` in
-  `setup_interrupts` with a KERNAL VECTOR read-modify-write.
-  Trampolines stay as-is (they already don't depend on any
-  KERNAL address — they JMP direct to our handlers).  Only the
-  RAM-vector-table patching becomes abstract.  Same SEI/CLI
-  bracket, one VECTOR round-trip instead of two static stores.
-  Pairs with the roadmap R3 "Universal C64/C128 binary" item.
+  - **Stack contract — drop the two-image stack swap.**  Replace
+    `dbg_enter`/`@tramp` and the per-transition memcpy of $0100..$01FF
+    with a flat shared-stack model.  User code shares the kernel's
+    stack page; kernel never reads bytes below user SP; user must
+    leave 64 bytes of headroom for kernel re-entry on break.  Net
+    delta: −512 B KBSS, −1 B BSS, ~−100 B CODE, ~−1500 cycles per
+    transition.
+
+  - **`return_to_user` helper.**  Single shared kernel→userland
+    transition primitive used by `j`, `g`, `c`, `t`, `o`.  Synthesises
+    RTI frame, pushes `brk_stub - 1` sentinel, sets `in_userland`,
+    RTIs.  Lives in debugger.s (or main.s — implementation choice).
+
+  - **`brk_stub` and clean userland exit.**  Fixed code address (a
+    BRK instruction) where user's top-level RTS lands.  Replaces the
+    old `clean_rts_trampoline` mechanism; works with shared stack.
+
+  - **Cold-init userland handoff.**  Cold init synthesises a userland
+    frame whose PC = `brk_stub`, RTIs.  The resulting BRK lands in
+    the standard handler, which classifies as clean exit and longjmps
+    into `main_loop` via a late-entry label that skips the screen
+    clear (so the splash remains visible).  Eliminates the separate
+    "first prompt" code path.
+
+  - **`in_userland` flag.**  Single source of truth for "kernel or
+    user code currently running."  Owned by main.s.  Set by
+    `return_to_user`, cleared at BRK handler entry.  Read by
+    `cse_nmi_handler` to dispatch (swallow / break-into-debugger).
+
+  - **`setup_interrupts` — unified vector setup.**  Merges
+    `kernal_init` (trampolines) and `install_hooks` (RAM vector-table
+    patching) into one routine called *before any bank-out* in cold
+    init.  Direct stores to $0316/$0318/$FFFA/$FFFE.  Step 1 uses
+    hardcoded C64 addresses; step 2 (future) migrates the page-3
+    patches to KERNAL VECTOR for cross-kernal compatibility (R3).
+
+  - **Direct vector patching — no separate trampolines.**  $FFFA
+    and $FFFE RAM shadows point directly at the early-entry labels
+    of `cse_nmi_handler` / `cse_brk_handler`.  Reaching the
+    early-entry label is itself the signal that kernal was banked
+    out at the moment of interrupt.  Eliminates the trampolines at
+    $FF00 / $FF04 and the cold-init/exit NMI crash windows.
+
+  - **IRQ early-entry bank-out mechanism.**  When an IRQ fires while
+    kernal is banked out, `cse_brk_handler`'s early-entry path
+    (B=0) must bank kernal in, delegate to the kernal's IRQ body,
+    and route the kernal's RTI through a bank-out stub so the
+    interrupted code resumes with kernal banked back out.  Stack
+    surgery design TBD; reentrance under NMI considered.
+
+  - **Kernel stack-depth measurement.**  Empirical audit needed to
+    pin down the worst-case kernel stack consumption.  Two paths
+    matter:
+    1. **BRK-return path** — handler chain from BRK entry to
+       longjmp/step-chain.  Currently ~8 B; bounded reservation
+       in the contract.
+    2. **Deepest kernel chain reachable from a non-execution
+       command** — currently dominated by `asm_src` →
+       `asm_line` → `expr_eval` recursive descent.  This is the
+       reference point for "how deep can the kernel get on user's
+       behalf"; the user's headroom contract must accommodate
+       at least this much in case future debugger features (cond
+       BPs, trace BPs that print, watchpoints) invoke comparable
+       depth from the BRK handler tail.
+
+    Forms the basis for tightening the "user code must leave at
+    least 64 bytes" contract.  The 64 B is conservative-pending-
+    measurement; once the audit lands, refine to measured-plus-margin.
+
+  - **CSE re-entry stack-headroom warning.**  Once the
+    measurement above lands, add a runtime check at every BRK
+    handler entry: read user's SP from the BRK frame; if it
+    indicates insufficient headroom (SP < budget), log
+    `;!stk N` (N = actual headroom).  Pairs with the contract
+    tightening; gives users immediate feedback when their code
+    runs too close to the stack bottom and breaks.  Add a test
+    in `test_debugger.py` exercising the deepest kernel chain
+    reachable on the BRK return path against the budget.
+
+  - **VIC sanity reset (`vic_reset`).**  Force VIC into a
+    readable text-mode state on every userland → kernel transition
+    (display on, 25 rows, text mode, sprites off, raster IRQ off,
+    standard charset, scroll cleared).  ~20 bytes of straight
+    stores.  Pairs with the "user programs depending on raster
+    effects won't resume cleanly" contract clause.
+
+  - **SID silence at boundary.**  Clear voice gates ($D404/$D40B/$D412
+    bit 0) on userland → kernel transition.  Other SID register
+    values preserved.  ~6 bytes on the BRK handler path.
+
+  - **Userland contract document — published.**  See
+    [userland_contract.md](userland_contract.md).  Three-tier state
+    model, kernal-as-terminal affordance, vector/banking hazards.
+
+  Implementation must be incremental: multiple DDD cycles, each
+  covering one or two sub-items.  Do NOT collapse into a single
+  commit or session.
+
+- [ ] **Loader reverse-direction copy** (Phase 18 supporting work
+  — see also the Architecture section's Loader item below).
+  Eliminates the `payload_end < runtime_start` build cap so CODE
+  + RODATA can grow up to `runtime_start`.  Independent of the
+  kernel refactor; pair with it because both touch boot-time code.
 - [x] ~~Debugger: refuse to write breakpoints outside workspace memory~~
   (fixed: cmd_brk now rejects BP addresses outside [$0800, __CODE_RUN__)
   with a "; ? range" error before calling dbg_bp_set.  Phase 17.)
@@ -645,3 +693,19 @@ Exploratory, not yet scoped.
   documentation via a machine-readable index.  DDD Maintenance
   verifies code changes trigger doc updates for all covering
   documents.
+- [ ] **RESTORE-only screen recovery (Roadmap idea).**  In Phase 18
+  the NMI handler swallows RUN/STOP+RESTORE when in kernel mode,
+  removing the previous "always clears the screen on RESTORE" user
+  behavior.  ESC/CLR (Shift+HOME) becomes the screen-recovery
+  binding.  If users want the old behavior back, the implementation
+  options are:
+    1. Hybrid swallow: NMI handler still sets `nmi_pending` flag in
+       kernel mode; main_loop polls and triggers `cse_warm_screen`.
+       Costs ~10 B + 1 BSS flag, restores the original feel.
+    2. Distinguish RESTORE-without-STOP from RUN/STOP+RESTORE via
+       raw CIA polling and bind the standalone-RESTORE path to a
+       screen-recovery action.  More involved; KERNAL doesn't expose
+       this distinction natively.
+  Defer until user feedback indicates the change is friction.
+  Pairs with the Phase 18 NMI swallow design.
+  Updated also in [userland_contract.md § 1](userland_contract.md#1-mode-model).

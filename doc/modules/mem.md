@@ -24,15 +24,6 @@ No-op when `kernal_out` flag is set (batch caller managing banking).
 
 No-op when `kernal_out` flag is set.
 
-### kernal_init
-**In:** none
-**Out:** NMI trampoline at $FF00, IRQ/BRK trampoline at $FF04,
-RAM vectors at $FFFA/$FFFE pointed at trampolines
-**Clobbers:** A, X
-
-Called once at startup.  Pure writer — stores pass through to
-RAM under KERNAL regardless of $01 bit 1.
-
 ### cse_start
 **In:** none
 **Out:** A/X = `__CODE_RUN__` (runtime start address)
@@ -73,16 +64,25 @@ perform the real bank operation BEFORE setting/clearing the flag:
     lda #1                 sta kernal_out
     sta kernal_out         jsr kernal_bank_in
 
-### NMI/IRQ trampolines
+### Interrupt vectors (Phase 18: trampolines retired)
 
-When KERNAL ROM is banked out, the CPU reads NMI/IRQ vectors from
-RAM at $FFFA/$FFFE.  `kernal_init` installs:
+mem.s no longer owns interrupt setup.  The `setup_interrupts`
+routine in main.s patches all four vectors directly during cold
+init:
 
-- **$FF00** (4B): NMI trampoline — `SEI; JMP ($0318)`.  The handler
-  chain (`cse_nmi_handler`) runs entirely in main-RAM CODE.
-- **$FF04** (10B): IRQ/BRK trampoline — saves A, banks KERNAL in,
-  restores A, `JMP $FF48`.  Defensive: fires only if BRK occurs
-  while KERNAL is out (contract violation).
+- $0316/$0317 (IBRK)  → `cse_brk_handler` (kernal-in entry)
+- $0318/$0319 (INMIV) → `cse_nmi_handler` (kernal-in entry)
+- $FFFA/$FFFB (NMI shadow under kernal ROM)     → `cse_nmi_handler` early-entry label
+- $FFFE/$FFFF (IRQ/BRK shadow under kernal ROM) → `cse_brk_handler` early-entry label
+
+There are no separate trampolines at $FF00 / $FF04.  The
+early-entry prologues are part of the handler bodies in main.s
+and execute only when the CPU read the vector from RAM (i.e.
+when kernal was banked out at the moment of interrupt).
+
+See [main.md](main.md) for handler details and [memory_design.md
+§ Stack contract](../memory_design.md#stack-contract) for the
+overall kernel↔userland model.
 
 ### Workspace symbols
 
@@ -95,10 +95,10 @@ Called by `main.s` at startup and by `asm_assemble` after `sym_clear`.
 
 ## Caveats
 
-- Pure writes to $E000–$FFFF always hit RAM, even with KERNAL
+- Pure writes to $E000–$FFFF always hit RAM, even with kernal
   mapped in.  Only reads require banking.
 - `kernal_bank_out` disables interrupts (SEI); `kernal_bank_in`
   re-enables them (CLI).  Batch callers that set `kernal_out` must
   ensure interrupts are managed correctly.
-- The NMI trampoline does NOT modify $01 — earlier designs that
-  did so permanently corrupted the banking state after RTI.
+- Interrupt vector ownership has moved to main.s
+  (`setup_interrupts`).  mem.s no longer installs trampolines.

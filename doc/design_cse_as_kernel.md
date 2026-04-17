@@ -1,12 +1,36 @@
 # CSE-as-Kernel — design synthesis
 
-> **Status:** Draft design, basis for a phase-scale refactor.
+> **Status:** DDD Step 1 propagated across the corpus
+> (2026-04-17).  Implementation pending.
 > **Created:** 2026-04-17.
 > **DDD delta:** This document describes a *desired* state of the
 > runtime's relationship to interrupts, stack, and userland.  The
 > current code does not implement it.  The delta between this
-> design and the code is *deliberate* and defines the scope of the
-> next phase of work.  This is DDD Step 1 for that phase.
+> design and the code is *deliberate* and defines the scope of
+> Phase 18.
+>
+> The desired state has been propagated into the rest of the
+> corpus:
+> - [doc/memory_design.md](memory_design.md) § Stack contract
+>   (rewritten: shared stack, no two-image swap)
+> - [doc/userland_contract.md](userland_contract.md) (new, formalises §7 + §8 + §4 last clause)
+> - [doc/modules/main.md](modules/main.md) (`cse_brk_handler`,
+>   `cse_nmi_handler`, `setup_interrupts`, `in_userland`)
+> - [doc/modules/debugger.md](modules/debugger.md) (`return_to_user`,
+>   `brk_stub`; two-image swap content removed)
+> - [doc/modules/mem.md](modules/mem.md) (`kernal_init` retired;
+>   trampolines retired)
+> - [doc/modules/repl.md](modules/repl.md) (REPL framed as ISR
+>   body; `run_user` simplified)
+> - [doc/architecture.md](architecture.md) (kernel/userland framing
+>   in layer diagram and module summaries)
+> - [doc/glossary.md](glossary.md) (kernel/kernal/userland/
+>   in_userland/brk_stub/return_to_user/cold entry/early entry)
+> - [doc/TODO.md](TODO.md) (Phase 18 master entry consolidates
+>   sub-items; old NMI/IRQ trampoline entry retired into it)
+>
+> The corpus now describes the desired post-Phase-18 state.  The
+> implementation work is the Phase 18 entry in `TODO.md`.
 
 ---
 
@@ -150,44 +174,92 @@ Document this as an intentional affordance, not a leak.
 
 ## 10. Known gaps / next design passes
 
-- **Kernel stack depth measurement.** Need a worst-case audit so the userland contract can state "user code must leave at least N bytes of stack headroom."
-- **Cold init → warm-start shared path detail.** Identify the exact label in the warm-start routine where the screen-clear is skipped; confirm the rest of the warm path is safe to enter at that point without preconditions cold-init doesn't satisfy.
-- **IRQ early-entry bank-out mechanism.** Stack surgery so the kernal's RTI routes through our bank-out stub. Reentrance under NMI. 2-byte BSS stash vs stack-resident save.
-- **brk_stub placement.** Must be at a fixed, non-banked address reachable from user's pushed RTS return.
-- **Shared `return_to_user` helper.** Implementation detail: one code path used by all RTI-to-user commands (`j`, `g`, `c`, `t`, `o`, ...).
-- **Userland contract document.** Formalise §7 as `doc/userland_contract.md` or a section in `doc/modules/debugger.md`, including the §4 clause on vector/banking hazards and the §8 terminal-affordance framing.
-- **Stack contract document.** Formalise §2 as a section in `doc/memory_design.md`.
+Status updated after corpus propagation (2026-04-17):
+
+- **Kernel stack depth measurement.** ⏳ Open — empirical audit
+  deferred to implementation phase.  Conservative documented
+  contract: **64 bytes** of user-side headroom (deliberately
+  generous, sized to accommodate the assembler pipeline depth as
+  a worst-case reference).  Once measured, the contract tightens
+  and CSE adds a runtime warning (`;!stk N`) on every BRK handler
+  entry where user's SP is below the budget.  Tracked in
+  [TODO.md § Phase 18](TODO.md) as "Kernel stack-depth measurement"
+  + "CSE re-entry stack-headroom warning."
+- **Cold init → warm-start shared path detail.** ✅ Resolved by
+  propagation: cold-init handoff RTIs to `brk_stub`, BRK fires,
+  handler classifies as clean exit, longjmps to
+  `main_loop_no_clear`.  See [modules/main.md](modules/main.md)
+  § Four-layer architecture.
+- **IRQ early-entry bank-out mechanism.** ✅ Resolved: stub in
+  CODE; second RTI frame synthesised before `JMP $EA31` (kernal
+  IRQ body); kernal's RTI lands at the bank-out stub which banks
+  kernal back out and RTIs the original frame.  Reentrance under
+  NMI is non-problematic because both NMI and IRQ early-entry
+  paths bank kernal back to a consistent state before exiting.
+  Full byte sequence in [modules/main.md § IRQ early-entry bank-out](modules/main.md).
+- **brk_stub placement.** ✅ Resolved: code label in main RAM at
+  link-time address.  Reachable from user RTS via the
+  pre-pushed `(brk_stub - 1)` sentinel.  See
+  [modules/debugger.md](modules/debugger.md) § brk_stub.
+- **Shared `return_to_user` helper.** ✅ Resolved: documented in
+  [modules/debugger.md](modules/debugger.md) § return_to_user.
+  Includes ZP save and patch_all (pairs with handler tail's
+  unpatch_all + ZP restore).  Implementation lives in debugger.s.
+- **`cmd_step` chaining model.** ✅ Resolved: handler-resident
+  state machine (Option B).  cmd_step seeds `step_state` /
+  `step_remaining` and tail-jumps to run_user once; the BRK
+  handler tail decides chain-or-finish.  No SP creep across
+  iterations.  See [modules/debugger.md § Single-step](modules/debugger.md).
+- **NMI in kernel mode.** ✅ Resolved: swallow.  Loses the old
+  "RUN/STOP+RESTORE clears screen" affordance (ESC/CLR replaces
+  it).  Optional restoration tracked as a Roadmap idea in
+  [TODO.md](TODO.md) § Ideas.
+- **`kernel_init_sp` longjmp target.** ✅ Resolved: 1-byte BSS
+  in main.s, captured at cold-init top, used by every BRK handler
+  longjmp.  See [modules/main.md § Longjmp SP convention](modules/main.md).
+- **Userland contract document.** ✅ Resolved:
+  [doc/userland_contract.md](userland_contract.md).
+- **Stack contract document.** ✅ Resolved: rewritten in
+  [memory_design.md § Stack contract](memory_design.md#stack-contract).
 
 ---
 
 ## How to resume this work
 
+Step 1 of the DDD Method (documentation describes the desired
+state) is complete across the corpus — see the **Status** banner
+above for the propagation index.  The Phase 18 entry in
+[doc/TODO.md](TODO.md) lists the implementation sub-items in
+dependency order.
+
 Next session should:
 
-1. **Read this document end-to-end** before touching any code.
-2. **Pick a starting point** from §10 (Known gaps).  Highest-leverage
-   candidates:
-   - Drafting the formal stack-contract section in
-     `doc/memory_design.md` (unblocks most implementation).
-   - Drafting the userland contract document (unblocks user-facing
-     promises + enables meaningful tests).
-   - Measuring kernel stack depth (empirical, forms a constraint on
-     the contract).
-3. **Do DDD Step 1 for the chosen slice** — update the relevant
-   module doc(s) to describe the desired state before writing any
-   code.  Get approval on the doc delta before proceeding to
-   Step 2 (DDD Analysis) and Step 3 (TDD Analysis).
-4. **Do NOT begin implementation** until the relevant contract
-   document is drafted, reviewed, and approved.  The design in
-   this document is comprehensive but still a sketch; module-level
-   docs need to flesh out the mechanics before code can be written
-   correctly.
+1. **Read this document end-to-end** + the propagation targets in
+   the Status banner before touching any code.
+2. **Pick the first implementation slice from the Phase 18 TODO
+   sub-items**, in dependency order.  Recommended first slices:
+   - **Kernel stack depth measurement** (empirical, refines the
+     64 B headroom contract).  Pure audit — no code change yet.
+   - **`return_to_user` + `brk_stub` + cold-init handoff** as one
+     atomic refactor: this is the load-bearing change that
+     replaces the two-image swap.  Doable in a single DDD cycle
+     because the corpus already documents the desired interfaces.
+3. **Run DDD Step 2 (DDD Analysis)** on the chosen slice: where
+   does current code diverge from the now-documented desired
+   state?  Get the analysis approved.
+4. **Run DDD Step 3 (TDD Analysis)** on the chosen slice: which
+   tests cover the affected paths today, and what new tests verify
+   the desired contract?  Pay particular attention to:
+   - Tests that depend on the two-image swap (will need rewriting).
+   - New tests for kernel↔userland transition correctness, the
+     brk_stub clean-exit path, NMI dispatch on `in_userland`.
+5. **Step 4 (Implement)** — tests first, then code.  Each slice
+   should keep all 2662+ tests green at commit time.
 
-The refactor this design enables is phase-scale.  Expect multiple
-DDD cycles, each covering one or two sections of this document.
-Do not attempt to implement §1-§8 in a single commit or even a
-single session — the scope is too large, and the interactions
-between sections require incremental verification.
+The refactor remains phase-scale.  Expect multiple DDD cycles, each
+covering one or two sub-items from the Phase 18 TODO entry.  Do
+not collapse into a single commit or session — the interactions
+between sub-items require incremental verification.
 
 ## Cross-reference
 

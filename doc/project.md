@@ -256,32 +256,42 @@ KERNAL cursor so CSE can manage its own) it must either
 restore the KERNAL value before the user gains control, or
 document the override as part of the user-code contract.
 
-**Current status:** fully audited 2026-04-08.  Every KERNAL
-location CSE touches has been walked and verified:
+**Current status:** fully audited 2026-04-08; revised for the
+Phase 18 design 2026-04-17.  Every kernal location CSE touches
+has been walked and verified.  The full state contract lives in
+[userland_contract.md](userland_contract.md); summary here:
 
 - Theme colour via `$0286` (CHRCOLOR) and VIC registers —
   refreshed by `restore_colors` before any user-code entry
-  and after every return.
-- Startup SP reset.
-- `$0316` BRK vector — saved/restored by `dbg_enter` around
-  the user-code window.
-- `$0314` IRQ and `$0318` NMI — never touched directly; NMI
-  routes through the `$FF00` trampoline which delegates to
-  the stock KERNAL when `dbg_running` is clear.
-- `$D018` charset mode — restored to lowercase by
-  `run_user` after `dbg_enter` returns.
-- `$D1/$D2`, `$F3/$F4`, `$D3/$D6` (KERNAL screen-editor
-  state) — `io_sync` keeps them in lockstep with CSE's
-  cursor; `cmd_jmp` / `cmd_step` both call `newline` before
-  `run_user` which calls `io_sync`.
-- `$CC` cursor flag — `run_user` restores it to 1 after
-  `dbg_enter` returns, in case user code re-enabled the
-  KERNAL cursor.
+  and after every return.  Phase 18 adds `vic_reset` for VIC
+  text-mode normalisation.
+- Startup SP reset to $FF (cold-init invariant).
+- `$0316` (IBRK) and `$0318` (INMIV) — permanently owned by
+  CSE, patched once by `setup_interrupts` (main.s) at cold init.
+  Restored at exit via kernal RESTOR.
+- `$FFFA`/`$FFFE` RAM shadows — also patched by
+  `setup_interrupts` to early-entry handler labels (no separate
+  trampolines).  See [main.md § setup_interrupts](modules/main.md).
+- NMI dispatch routes on `in_userland` (main.s flag): swallow
+  in kernel mode; break-into-debugger in userland.
+- `$D018` charset mode — restored to lowercase by `run_user`
+  before invoking `return_to_user`.
+- `$D1/$D2`, `$F3/$F4`, `$D3/$D6` (kernal screen-editor state)
+  — `io_sync` keeps them in lockstep with CSE's cursor;
+  `cmd_jmp` / `cmd_step` both call `newline` before `run_user`
+  which calls `io_sync`.
+- `$CC` cursor flag — `run_user` restores it to 1 before
+  invoking `return_to_user`, in case user code re-enabled the
+  kernal cursor.
 - `$C6` keyboard buffer count — `run_user` zeroes it before
-  `dbg_enter` so user code's first `GETIN`/`CHRIN` sees an
-  empty queue, not user keystrokes typed ahead while
-  issuing the command.
-- Hardware stack — user code sees ≥ 239 B free.  See
-  [memory_design.md § Stack budget](memory_design.md#stack-budget).
-  The `c`-from-stepped-subroutine corner case is the
-  documented limit (open BRK TODO).
+  invoking `return_to_user` so user code's first
+  `GETIN`/`CHRIN` sees an empty queue, not user keystrokes
+  typed ahead while issuing the command.
+- Hardware stack — user code sees ~240 B free; user must leave
+  64 B of headroom for kernel re-entry on break.  See
+  [memory_design.md § Stack contract](memory_design.md#stack-contract)
+  and [userland_contract.md § 4](userland_contract.md#4-stack-contract).
+  The two-image swap (formerly required for `c`-from-stepped-
+  subroutine correctness) is retired; the new contract guarantees
+  the stack page is preserved naturally because the kernel never
+  pushes below the user's SP.

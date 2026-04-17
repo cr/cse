@@ -295,7 +295,9 @@ See [DDD Maintenance](#ddd-maintenance) for the full audit scope and trigger.
 | [architecture.md](architecture.md) | Module map, dependency graph, module summaries → `modules/` |
 | [glossary.md](glossary.md) | Shared terminology (instruction, operand, label, ZP, PETSCII, ...) |
 | [project_layout.md](project_layout.md) | Directory structure |
-| [memory_design.md](memory_design.md) | Memory maps (PRG/CRT), ZP layout, screen switching |
+| [memory_design.md](memory_design.md) | Memory maps (PRG/CRT), ZP layout, stack contract, banking |
+| [design_cse_as_kernel.md](design_cse_as_kernel.md) | Cross-cutting design: CSE-as-kernel framing, RTI/BRK transitions, vector ownership |
+| [userland_contract.md](userland_contract.md) | What user code may rely on / must preserve: three-tier state contract, kernel-as-terminal, vector/banking hazards |
 | [build_system.md](build_system.md) | Toolchain, build pipeline, targets, options, test binaries |
 | [testing.md](testing.md) | The TDD Method, py65 harness conventions |
 

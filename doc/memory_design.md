@@ -118,67 +118,96 @@ interaction while active.
 - $02-$7F (CSE zero page — saved on cold init, restored on exit)
 - $0316/$0317 (IBRK — BRK dispatch)
 - $0318/$0319 (INMIV — NMI dispatch)
+- $FFFA/$FFFB (NMI vector RAM shadow — read by CPU when kernal banked out)
+- $FFFE/$FFFF (IRQ/BRK vector RAM shadow — read by CPU when kernal banked out)
 
-**Exit obligation:** `cse_exit_to_basic` calls KERNAL RESTOR
+**Exit obligation:** `cse_exit_to_basic` calls kernal RESTOR
 ($FF8A) to restore $0314-$0333 to defaults, restores $01-$7F
 from cold-init snapshot, writes $00 to `($2B)-1` (byte before
 TXTTAB, stabilises BASIC's program link chain), calls CINT
 ($FF81) to reinit screen, and enters BASIC warm start via
 `JMP ($A002)`.
 
-**Hook installation** uses KERNAL VECTOR ($FF8D) to read-modify-
-write the $0314-$0333 table atomically.
+**Hook installation** is performed once during cold init by
+`setup_interrupts` (main.s):
 
-**Cold-init snapshot** stored in KBSS under KERNAL ROM (pure
+- $0316/$0317 and $0318/$0319 patched via direct stores to point
+  at `cse_brk_handler` and `cse_nmi_handler` respectively.
+- $FFFA/$FFFB and $FFFE/$FFFF (RAM shadows under kernal ROM) patched
+  to point at the corresponding handler's **early-entry** label.
+  These early-entry paths execute only when the CPU read the
+  vector from RAM — i.e. when the kernal was banked out — and so
+  reaching the early-entry label is itself the signal that the
+  handler must bank the kernal back out before its final RTI.
+- `setup_interrupts` runs **before any bank-out** in cold init, so
+  the trampoline-executed-with-stale-vector window cannot exist.
+
+There are **no separate trampolines** at $FF00 / $FF04.  Handlers
+live in CODE at their link-time addresses; the early-entry
+prologues are part of the handler code, not a relocated stub
+region.
+
+**Cold-init snapshot** stored in KBSS under kernal ROM (pure
 write, no banking needed on save):
 - `_cold_zp` (127 B) — $01-$7F at cold-init entry
 
 ## User Code Contract
 
+The full contract is documented in
+[userland_contract.md](userland_contract.md).  This section
+summarises the key obligations for orientation.
+
 User code is any program executed via `j`, `g`, `t`, `o`, or `c`.
-It runs in CSE's execution context via `dbg_enter`, sharing the
-6502 hardware stack and the KERNAL environment.
+It runs in CSE's execution context via `return_to_user` (debugger.s),
+sharing the 6502 hardware stack and the kernal environment.
 
 **User code may clobber:**
 - $00-$7F (CSE saves/restores across user execution; includes the
   CPU port byte at $01 — CSE re-installs its banking configuration
   on return)
-- $0100-$01FF (user owns the full stack page — see § Stack contract)
+- $0100-$01FF (user owns the stack page within their SP budget —
+  see § Stack contract)
 - $02A7-$02FF (89 bytes, free on all supported targets)
 - $0334-$03FF (204 bytes, includes tape buffer at $033C-$03FB)
 - $0800-workend (workspace — user's own assembled output)
 
 **User code must preserve:**
-- $80-$FF (KERNAL zero page)
-- $0200-$02A6 (KERNAL editor state, input buffer)
-- $0300-$0333 (KERNAL vectors — CSE hooks are installed here)
+- $80-$FF (kernal zero page)
+- $0200-$02A6 (kernal editor state, input buffer)
+- $0300-$0333 (kernal vectors — CSE hooks are installed here)
 - CSE runtime (XXXX-$CFFF — overwriting CSE code/data is fatal)
 
-The old shared-stack constraint ("$0100-$01FF balanced, no net
-push/pop") is gone — user code can reset SP, push arbitrarily
-deep frames, and pop them in whatever order without affecting
-CSE, because CSE's stack image is entirely elsewhere while user
-is running.  The only remaining stack-side contract is the
-cold-start sentinel at $01FE/$01FF (see § Stack contract).
+User code shares the hardware stack page with CSE — there is no
+two-image swap.  User code may push freely within its 240-byte
+budget; CSE never reads bytes below the user's SP.  See § Stack
+contract.
 
-**Tape buffer caveat:** $033C-$03FB is the KERNAL tape I/O buffer.
+**Tape buffer caveat:** $033C-$03FB is the kernal tape I/O buffer.
 User code may freely use these 192 bytes, but must restore them
-if the user's own program needs tape or serial I/O through KERNAL
+if the user's own program needs tape or serial I/O through kernal
 routines that use this buffer.
 
-**Screen and I/O:** User code may use KERNAL CHROUT ($FFD2) for
-screen output.  CSE does not save/restore screen RAM across user
-execution.  On return, CSE restores VIC charset, $01 memory
-config, and KERNAL cursor state ($CC=1).  If user code clears or
-repaints the screen, ESC or CLR from the REPL restores the CSE
-display.  Colors changed by user code are restored on return.
+**Screen and I/O:** User code may use kernal CHROUT ($FFD2) for
+screen output, integrated with REPL display — see
+[userland_contract.md § 6 (KERNAL-as-terminal)](userland_contract.md#6-kernal-as-terminal-affordance).
+CSE does not save/restore screen RAM across user execution.  On
+return, CSE forces VIC into a known-good text-mode state via
+`vic_reset` (display on, charset standard, sprites off, raster
+IRQ off), restores $01 banking, kernal cursor state ($CC=1), and
+clears stuck SID voice gates.  If user code clears or repaints the
+screen, ESC or CLR from the REPL restores the CSE display.
+Colors changed by user code are restored on return.
 
 **Memory config ($01):** $01 is part of the ZP save range ($00–$7F),
 so it round-trips via `zp_save_buf` across every user-code run.
 User code may freely change $01 (e.g. to bank in BASIC ROM or
-access I/O directly), but must ensure KERNAL is bankable-in for
-BRK/NMI handling — the handlers themselves read KERNAL-saved state
-at `$0101..$0106`.
+access I/O directly), but must not combine $01 changes with
+$FFFE/$FFFA vector changes that route to non-CSE handlers — see
+[userland_contract.md § 5.3](userland_contract.md#53-rom-banking-01).
+
+**Vector changes:** User code that overwrites $0316/$0318 (or
+$FFFE/$FFFA) breaks debugger breakpoints and/or RUN/STOP+RESTORE
+recovery.  See [userland_contract.md § 5](userland_contract.md#5-interrupt-vector-and-banking-hazards).
 
 ## Memory Map — Runtime (all targets)
 
@@ -220,12 +249,17 @@ BASIC ROM ($A000-$BFFF) is unmapped at startup.  The RAM underneath
 is part of the CSE runtime (code spans across $A000 freely).
 
 KERNAL ROM ($E000-$FFFF) remains mapped.  The RAM underneath is
-**read** by clearing bit 1 of $01 (sei required).  NMI trampoline
-at $FF00 handles NMI during bank-out (SEI + JMP ($0318) — no
-banking, handler runs in main RAM).  Defensive IRQ/BRK trampoline
-at $FF04 banks KERNAL in if a BRK fires while unmapped.  **Writes always pass through**
+**read** by clearing bit 1 of $01 (sei required).  The
+$FFFA/$FFFE RAM shadows hold the **early-entry** addresses of
+`cse_nmi_handler` and `cse_brk_handler` respectively (no separate
+trampolines — the early-entry prologues are part of the handler
+code itself).  When kernal is banked out and an interrupt fires,
+the CPU reads the RAM vectors and jumps directly into the handler;
+the handler's first action is to bank the kernal back in (for IRQ:
+delegating to the kernal's IRQ body via stack surgery so its RTI
+routes through a bank-out stub).  **Writes always pass through**
 to the underlying RAM regardless of $01 bit 1, so pure-writer code
-(`sym_clear`, `kernal_init`, the SCREEN→`repl_screen` save in
+(`sym_clear`, `setup_interrupts`, the SCREEN→`repl_screen` save in
 `enter_editor`) does not bank — only readers do.
 
 The `kernal_out` flag in BSS lets long-running batches (e.g.
@@ -242,169 +276,209 @@ regions are zeroed (no PRG space required).
 
     $E000-$E5FF  KBSS: symbol table (1536 B, 256 slots × 6B)
     $E600-$EEFF  KBSS: symbol name heap (2304 B)
-    $EF00-$EFFF  KBSS: user_stack_buf (256 B, see § Stack contract)
-    $F000-$F0FF  KBSS: cse_stack_buf  (256 B, see § Stack contract)
+    $EF00-$F0FF  Free (512 B — reclaimed after Phase 18 dropped two-image stack swap)
     $F100-$F4F1  KDATA: asm/dasm lookup tables (1010 B)
     $F4F2-$F8D9  KBSS: REPL screen save buffer (1000 B)
     $F8DA-$F958  KBSS: cold-init ZP snapshot (127 B, $01-$7F)
-    $F959-$FEFF  Free (1446 B)
-    $FF00-$FF03  KDATA: NMI trampoline (4 B, SEI + JMP ($0318))
-    $FF04-$FF0D  KDATA: IRQ/BRK trampoline (10 B, defensive)
-    $FFFA-$FFFF  Hardware vectors: NMI→$FF00, IRQ→$FF04
+    $F959-$FFF9  Free (1697 B)
+    $FFFA-$FFFB  NMI vector → cse_nmi_handler early-entry label
+    $FFFC-$FFFD  Reset vector (untouched — ROM value)
+    $FFFE-$FFFF  IRQ/BRK vector → cse_brk_handler early-entry label
 
-    KDATA total:  1020 B (in PRG payload)
-    KBSS total:   5223 B (zeroed, no PRG space)
-    Free:         1446 B
+    KDATA total:  1010 B (in PRG payload — vectors only, no trampolines)
+    KBSS total:   4967 B (zeroed, no PRG space)
+    Free:         2209 B
 
 ## Stack contract
 
-CSE and user code each own **their own private 256-byte image** of
-the hardware stack page `$0100–$01FF`.  The hardware page is
-multiplexed by memcpy at every debug-entry / debug-exit boundary;
-at any moment it holds either CSE's image or user's, never both.
+CSE and user code **share** the single 6502 hardware stack page at
+`$0100–$01FF`.  Transitions between kernel and userland are flat
+RTI/RTS-driven and cost ~20 cycles each direction.
 
-    Active view         Inactive image stashed in
-    ───────────────     ─────────────────────────
-    CSE running         user_stack_buf  ($EF00, KBSS, 256 B)
-    User code running   cse_stack_buf   ($F000, KBSS, 256 B)
+The kernel is structured as an interrupt service routine
+(see [design_cse_as_kernel.md](design_cse_as_kernel.md)).  It
+inherits whatever SP the previous transition left it with, runs
+with balanced JSR/RTS discipline within that envelope, and never
+reads bytes below the current user SP.
 
-`cse_sp` (1 B, BSS) stashes SP at the moment we swap out of CSE,
-so we can restore it on the return swap.  `reg_sp` (1 B, shared
-with the rest of the userland register image) stashes user's SP.
+### Invariants
 
-### Why two images
+1. **Cold init starts at SP=$FF** and the kernel preserves the
+   "main_loop top has SP=$FF" convention through every iteration.
+2. **The kernel never pushes below the user's SP.**  All kernel
+   pushes happen above user's SP at the moment of break; bytes the
+   user had at-or-below SP are preserved.
+3. **The user must leave at least 64 bytes of stack headroom** for
+   kernel re-entry on break (BRK frame + handler chain + safety
+   margin).  See [userland_contract.md § 4](userland_contract.md#4-stack-contract).
+4. **`in_userland` flag tracks mode**, not SP layout.  The flag is
+   the single source of truth for "kernel or user code currently
+   running" and drives NMI dispatch.
 
-A single shared stack collapses the `c`-after-step-into-JSR case:
-any byte the user had pushed before the BRK — notably the return
-address of the enclosing JSR — gets overwritten by CSE's subsequent
-call chain between the BRK and the `c`.  With independent images,
-user code's stack bytes persist across the boundary and the user's
-RTS chain pops exactly what it expects.
-
-### Entry (CSE → user): `@tramp`
-
-```
-1. tsx; stx cse_sp                        ; remember where CSE was
-2. sei                                    ; ── IRQ-safety (see below)
-3. memcpy $0100..$01FF → cse_stack_buf    ; stash CSE's image
-4. bank KERNAL out                        ; needed for step 5
-5. memcpy user_stack_buf → $0100..$01FF   ; load user's image
-6. bank KERNAL in ($01 = $36)
-7. ldx reg_sp; txs                        ; switch to user SP
-8. lda reg_p; pha; lda reg_a; ldx reg_x;
-   ldy reg_y; plp                         ; install user regs (P via pha/plp;
-                                          ; plp also restores user's I state)
-9. jmp (brk_pc)                           ; user code runs
-```
-
-Step 3 is a pure-write copy — KBSS accepts writes regardless of
-banking, so no bank toggle.  Step 5 is a read from KBSS and needs
-KERNAL banked out, hence steps 4 / 6.
-
-**IRQ-safety invariant.**  Step 2's SEI is load-bearing.  CSE
-enters `@tramp` with `I=0` (REPL state).  While KERNAL is banked
-out (steps 4–6), the `$FFFE` vector points at RAM — our `$FF04`
-trampoline, which banks KERNAL back in before jumping to the
-KERNAL IRQ routine.  If a CIA timer IRQ fired during that window
-without masking, the trampoline's RTI would leave `$01 = $36` and
-our step-5 memcpy would then read user_stack_buf from KERNAL ROM
-instead of RAM — half the user stack image would load as ROM
-bytes.  The SEI keeps the IRQ pending until step 8's PLP restores
-the user's I state.
-
-### Exit (user → CSE): BRK / NMI / clean RTS
-
-Three distinct wake-up paths, but the tail is the same:
+### Entry (kernel → user): `return_to_user`
 
 ```
-… extract user state (A/X/Y/P/PC/SP) from live regs or stack …
-A. memcpy $0100..$01FF → user_stack_buf   ; stash user's image
-B. bank KERNAL out
-C. memcpy cse_stack_buf → $0100..$01FF    ; restore CSE's image
-D. bank KERNAL in
-E. ldx cse_sp; txs                        ; switch back to CSE SP
-F. rts                                    ; → dbg_enter continuation
+return_to_user:
+  1. lda reg_p            ; user's saved P
+  2. ora #$04             ; ensure I=0 from user's view? no — preserve user's I
+                          ; (in practice, kernel masks P transport bits and
+                          ; user-set bits are honoured)
+  3. ; push brk_stub-1 high/low onto stack — user's top-level RTS sentinel
+     lda #>(brk_stub - 1) ; pha
+     lda #<(brk_stub - 1) ; pha
+  4. ; build RTI frame: P, PChi, PClo (in that push order)
+     lda reg_p   ; pha
+     lda reg_pc_hi ; pha
+     lda reg_pc_lo ; pha
+  5. lda #1
+     sta in_userland       ; mark mode
+  6. ldx reg_x
+     ldy reg_y
+     lda reg_a
+  7. rti                    ; CPU pops PClo/PChi/P, jumps to user PC
 ```
 
-Which path fires:
+After step 7, user code is running.  Below SP are: PClo, PChi, P
+(consumed by the RTI), then `brk_stub-1 lo`, `brk_stub-1 hi`, then
+the kernel's pre-call state.  When user code performs its top-level
+RTS, the CPU pops `brk_stub-1` and lands at `brk_stub`, which BRKs
+immediately.
 
-- **BRK** (`dbg_brk_core`): hardware + KERNAL have pushed 6 bytes
-  onto user's stack.  Handler extracts A/X/Y/P/PC from `$0101,X
-  … $0106,X`, computes `reg_sp = X+6`, masks P with `#%11011111`
-  (clear bit 5, preserve B=1), then runs A–F.
-- **NMI** (`dbg_nmi_break`): hardware pushed 3 bytes (P/PClo/PChi);
-  A/X/Y are still live in CPU regs.  Handler stores live regs,
-  reads P/PC from `$0101,X … $0103,X`, computes `reg_sp = X+3`,
-  masks P with `#%11001111` (clear bits 5 and 4), then runs A–F.
-- **Clean user RTS** (`clean_rts_trampoline`): user's top-level
-  RTS pops the cold-start sentinel (see below) and lands here.
-  Trampoline stores live A/X/Y, snapshots P via `php/pla` + mask,
-  sets `dbg_reason = 0`, then runs A–F.
+### Exit (user → kernel): three paths into `cse_brk_handler`
 
-Step C is a KBSS read → bank toggle required; steps A and C's
-framing instructions (`lda #$34 / sta $01` out, `lda #$36 / sta
-$01` in) never touch the stack so they're safe during the window
-between old-SP and new-SP.
+All three converge on `cse_brk_handler` (main.s):
 
-**IRQ-safety on the exit side** is inherited from the caller:
-`dbg_brk_core` arrives with `I=1` from the BRK hardware dispatch;
-`dbg_nmi_break` via KERNAL `$FE43`'s SEI before `JMP ($0318)`;
-`clean_rts_trampoline` SEIs as its very first instruction.  All
-three satisfy the same "I=1 across the bank-toggle window"
-invariant that `@tramp` enforces on entry.  `dbg_enter` step 7
-(`cli`) re-enables IRQs once the CSE stack is live and the
-ZP-restore is done.
+- **BRK at debugger breakpoint** — opcode at user PC was overwritten
+  with $00.  Handler classifies via `dbg_bp_find` on (pushed_PC − 2)
+  → known slot.
+- **BRK at step-BRK slot** — temporary breakpoint placed by
+  `cmd_step` for `t`/`o` single-step.
+- **BRK at `brk_stub`** — user's top-level RTS popped the sentinel.
+  Handler classifies (PC − 2 == brk_stub address) → clean exit,
+  `dbg_reason = 0`.
+- **NMI in userland** — `cse_nmi_handler` reads `in_userland`,
+  routes to the BRK-style entry path so the same capture logic runs.
+  `dbg_reason = DBG_NMI`.
+- **Unplanned BRK** — opcode $00 in user code at an address that's
+  not a slot and not `brk_stub`.  Reported as user BRK.
+
+The handler:
+
+```
+cse_brk_handler:
+  1. ; entered with B-flag dispatch already done at $FF48
+  2. clear in_userland
+  3. ; capture user state: A/X/Y from KERNAL pushes, P/PC from CPU pushes
+  4. ; mask P transport bits (#%11011111 — clear bit 5, keep B=1)
+  5. ; classify; populate dbg_reason / dbg_bp_hit / brk_pc / reg_*
+  6. ; longjmp back to main_loop top
+     ldx kernel_init_sp ; or ldx #$FF
+     txs
+     jmp main_loop_top
+```
+
+The longjmp at step 6 discards every byte on the stack between the
+BRK frame and the kernel's main_loop entry SP.  Anything the kernel
+had pushed before `return_to_user` is *not used* on the return path:
+the BRK handler does not return to "after return_to_user" — it
+restarts the REPL loop afresh, displays the break result, and
+prompts again.
+
+This is structurally a `setjmp`/`longjmp` with the setjmp implicit
+at main_loop top and the longjmp inside the BRK handler.
+
+### IRQ-safety
+
+Bank-toggle windows (any code path that clears $01 bit 1 to read
+under-kernal RAM) must run with `I=1`.  This was already true under
+the old two-image design and remains true: any IRQ fired while
+kernal is banked out routes to `cse_brk_handler`'s **early-entry**
+label (the $FFFE RAM shadow), which detects the banked-out state by
+the very fact of being reached and banks the kernal back in via
+stack surgery before its final RTI.
+
+The early-entry path is reached only from RAM-resident vectors —
+i.e. only when kernal is banked out.  Reaching it is itself the
+signal that the kernal must be banked out before the final RTI.
 
 ### Cold-start sentinel
 
-On dbg_init, `user_stack_buf` is initialised with a return-address
-sentinel at offsets $FE / $FF pointing to `clean_rts_trampoline -
-1` (RTS off-by-one convention).  `reg_sp` is initialised to $FD.
-The very first `j`/`t`/`g` therefore hands user code a stack that
-looks like:
+Cold init synthesises the very first userland frame:
 
-    $01FE   clean_rts_trampoline lo   ← user's RTS lands here
-    $01FF   clean_rts_trampoline hi
-    (SP starts at $FD, next push writes $01FD)
+```
+cold_init_userland_handoff:
+  ldx #$FE
+  txs                       ; SP = $FE
+  lda #>(brk_stub - 1)
+  sta $01FF
+  lda #<(brk_stub - 1)
+  sta $01FE                 ; sentinel below the upcoming RTI frame
+  ldx #$FB
+  txs                       ; reserve room for RTI frame
+  lda #$00 / pha            ; PClo for RTI
+  lda #...   / pha          ; PChi for RTI
+  lda #%00100000 / pha      ; P (clean: I=0, B=0, bit 5 set as RTI restores it)
+  lda #1
+  sta in_userland
+  rti                       ; → BRK handler via brk_stub immediately
+```
 
-User code's top-level RTS pops this sentinel and jumps to the
-trampoline, which performs the exit-swap (A–F) exactly as if a
-BRK or NMI had occurred — except `dbg_reason = 0` marks it clean.
+(Details vary by implementation; the contract is "RTI to brk_stub,
+sentinel below.")  The BRK fires, classification matches "PC ==
+brk_stub", `dbg_reason = 0`, handler longjmps to the warm-start tail
+at the late-entry label that skips the screen clear (the splash is
+already drawn).  REPL runs normally.
 
-If user code ever pushes more than 253 bytes at once, the sentinel
-is overwritten and subsequent top-level RTS is undefined — same
-failure mode as a stack overflow on real hardware.
+This shares cold init's post-init code path with userland recovery
+— the same code that handles a clean `j`-then-RTS handles cold boot.
 
-### CSE's own stack
+### Kernel stack budget
 
-CSE runs on its usual 6502 stack (`$0100–$01FF` when active).  No
-special conventions.  `main_loop` dispatches commands; command
-handlers may JSR freely; the only boundary that ever touches
-stack-swap machinery is the debugger one.  Maximum CSE stack
-depth during normal operation (assembler, editor, etc.) is on the
-order of 30–50 bytes — plenty of room in `cse_stack_buf`'s 256 B
-image.
+The kernel's worst-case stack consumption is bounded by two paths:
 
-### User's stack budget
+- **Forward path** (main_loop top → return_to_user):
+  `main_loop → exec_line → cmd_X → [helper chain] → return_to_user`.
+  Currently ~10 B for execution commands.
+- **BRK-return path** (BRK hardware/KERNAL push + handler chain
+  before longjmp / step-chain): currently ~8 B above user's SP.
 
-With the two-image design, user code sees the full 256-byte page
-as its own.  Practical usable range is `$0100..$01FD` (254 B),
-with $01FE/$01FF reserved for the cold-start sentinel (an RTS
-address).  Once the program has run once and rebooted its own
-stack to `$FF`, the sentinel becomes dead bytes; if the program
-RTSes without having rewritten those slots, the sentinel still
-catches them.  User code that resets its own SP to `$FF` and
-pushes its own top-level return address can safely overwrite the
-sentinel — the contract is only "if you RTS with SP at `$FF`,
-you'd better have put something sensible there yourself."
+The deeper of the two — and the one the user must accommodate — is
+the BRK-return path, because it consumes user's stack page above
+user's pre-break SP.  The forward path runs in kernel-owned space
+($FF down) and never touches user's region.
+
+The userland contract states **64 bytes** as the required headroom,
+deliberately conservative pending empirical measurement (see
+[TODO.md § Phase 18](TODO.md)).  The 64 B reserves room for:
+
+- Current BRK + handler chain (~14 B).
+- Future debugger features (conditional BPs, trace BPs that call
+  io_puts/screen.s, watchpoints) that may invoke deeper kernel
+  paths from the handler tail — bounded by the deepest kernel
+  chain in the system, which today is the assembler pipeline
+  (`asm_src` → `asm_line` → `expr_eval` recursive descent).
+- Safety margin.
+
+**Pending implementation:** an audit measurement of `asm_src`'s
+peak depth + worst-case BRK-handler tail.  Once known, the contract
+tightens to the measured-plus-margin figure and CSE adds a runtime
+re-entry warning (`;!stk N` log when user's SP is below the budget
+at BRK-handler entry).  See [userland_contract.md § 4](userland_contract.md#4-stack-contract).
+
+### User stack budget
+
+User code sees ~240 bytes of free stack on first entry (256 −
+kernel chain at return_to_user − sentinel − RTI frame).  User code
+that resets SP to $FF and provides its own top-level return path
+gets the full 256 bytes; the brk_stub sentinel is then overwritten
+and the user's RTS must land somewhere meaningful explicitly.
 
 ### Cost
 
-Per user-entry:    2 × 256 B memcpy  ≈  9000 cycles  ≈  9 ms
-Per user-exit:     2 × 256 B memcpy  ≈  9000 cycles  ≈  9 ms
+Per user-entry:    ~20 cycles (push sentinel, push RTI frame, RTI)
+Per user-exit:     ~20 cycles (BRK hardware + KERNAL push + handler entry)
 
-Round-trip overhead ≈ 18 ms at 1 MHz.  Negligible for interactive
-debug; single-step iteration stays well under human perception.
+No memcpy, no bank toggles around stack swap.  Negligible.
 
 ## Memory Map — PRG Load Image
 
@@ -415,8 +489,8 @@ time, the file is a flat image:
     $0801-$080C  BASIC stub "SYS 2061"
     $080D        Loader code (discardable bootstrap)
       ...        CODE + RODATA payload
-      ...        KDATA payload (copied to $F100+ and $FF00
-                   under KERNAL; KBSS regions are not in file)
+      ...        KDATA payload (copied to $F100+ under kernal;
+                   KBSS regions are not in file)
     end of file
 
 The loader is the first code to run.  It relocates the payload to
@@ -456,9 +530,11 @@ segments and jumps to the entry point.
 2. Copy CODE + RODATA from the load position to the runtime
    position (XXXX–XXXX+sizeof(CODE+RODATA)-1)
 3. Zero BSS (XXXX+sizeof(CODE+RODATA) through $CFFF)
-4. Initialize banked region under KERNAL (pure writer, no
-   banking needed): copy KDATA to $F100+ and $FF00,
-   zero KBSS areas (sym_table, heap, screen save)
+4. Initialize banked region under kernal (pure writer, no
+   banking needed): copy KDATA to $F100+, zero KBSS areas
+   (sym_table, heap, screen save).  Vector setup ($FFFA/$FFFE
+   shadows) is deferred to `setup_interrupts` in main.s, which
+   runs as part of cold init.
 5. Jump to `_main` (now at its runtime address)
 
 The loader lives in the LOADER segment, placed at $080D (right
@@ -492,11 +568,13 @@ asm_src.s (workspace symbols).
 |----------|---------|
 | `kernal_bank_out` | SEI + clear $01 bit 1 (honours `kernal_out` flag) |
 | `kernal_bank_in` | Set $01 bit 1 + CLI (honours `kernal_out` flag) |
-| `kernal_init` | Install NMI trampoline at $FF00 |
-| `kernal_out` | BSS flag: nonzero = KERNAL held banked out |
+| `kernal_out` | BSS flag: nonzero = kernal held banked out |
 | `cse_start` | Returns runtime start address (XXXX) in A/X |
 | `cse_end` | Returns first byte past runtime ($D000) in A/X |
 | `cse_zp_end` | Returns first free ZP byte in A |
+
+(Interrupt vector setup moved to `setup_interrupts` in main.s as
+of Phase 18; `kernal_init` retired.)
 
 After the loader (or CRT init) jumps to `_main`, the main loop
 calls mem.s functions for one-time setup (BASIC unmap, NMI

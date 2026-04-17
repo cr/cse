@@ -67,10 +67,12 @@ or a name match.  No separate count is maintained.
 
 ### KERNAL banking
 
-`sym_table` lives at $E000–$E5FF in RAM underneath the KERNAL ROM.
-The name heap follows at $E600–$EEFF (2304 bytes).  An NMI trampoline
-at $FF00 ensures safe NMI handling while the KERNAL is banked
-out.  This saves ~3.8 KB of main RAM (1536B table + 2304B heap).
+`sym_table` lives at $E000–$E5FF in RAM underneath the kernal ROM.
+The name heap follows at $E600–$EEFF (2304 bytes).  The NMI shadow
+at $FFFA/$FFFB (installed by `setup_interrupts` in main.s) routes
+NMI to `cse_nmi_handler`'s early-entry label so NMI is safe even
+while the kernal is banked out.  This saves ~3.8 KB of main RAM
+(1536B table + 2304B heap).
 
 **Reads** under KERNAL ($E000–$FFFF) require the KERNAL to be
 banked out.  **Writes always pass through** to the underlying RAM
@@ -95,9 +97,8 @@ sta $01
 cli                 ; re-enable interrupts
 ```
 
-The KERNAL banking functions (`kernal_bank_out`, `kernal_bank_in`,
-`kernal_init`, `kernal_out`) live in `mem.s`.  symtab.s imports
-them.
+The kernal banking functions (`kernal_bank_out`, `kernal_bank_in`,
+`kernal_out`) live in `mem.s`.  symtab.s imports them.
 
 Both `kernal_bank_out` and `kernal_bank_in` honour the
 `kernal_out` flag — when set, they become no-ops.  The flag lets
@@ -122,13 +123,16 @@ but `sym_define`'s probing did.
 
 ### NMI safety
 
-`sei` only masks IRQ, not NMI.  If NMI fires while the KERNAL is
+`sei` only masks IRQ, not NMI.  If NMI fires while the kernal is
 banked out, the CPU reads the NMI vector from RAM at $FFFA/$FFFB
-instead of ROM.  `kernal_init` (called once at startup) installs
-a 10-byte trampoline at $FF00 in banked RAM and sets the RAM NMI
-vector to point to it.  The trampoline re-banks the KERNAL and
-then jumps through the KERNAL's indirect NMI vector at $0318
-(which CSE sets to its own `nmi_handler` in `cse_io.s`).
+instead of ROM.  `setup_interrupts` (in main.s, called once during
+cold init before any bank-out) writes the early-entry label of
+`cse_nmi_handler` into the $FFFA/$FFFB shadow.  The handler's
+early-entry prologue banks the kernal back in if necessary and
+runs the standard NMI dispatch.
+
+See [main.md](main.md) § cse_nmi_handler for the full handler
+contract.
 
 ### Hash function
 

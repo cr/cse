@@ -1,9 +1,18 @@
-# repl.s — REPL Command Interface
+# repl.s — REPL Command Interface (the kernel's ISR body)
 
 **Template:** [module](../templates/module.md)
 
 REPL command interpreter and screen output.  Hex parsing helpers
 (`_hex_val`, `_is_hex`, `_hex_val_to_char`) are local to repl.s.
+
+The REPL is the body of CSE's ISR-style kernel.  `main_loop` resets
+SP to a known value at the top of each iteration, calls `show_prompt`
+/ `read_line` / `exec_line`, then loops.  When `exec_line` dispatches
+an execution command (`j`, `g`, `c`, `t`, `o`), the handler eventually
+calls `return_to_user` (debugger.s) which RTIs to user code; control
+returns via `cse_brk_handler`'s longjmp back to `main_loop_top`.  See
+[design_cse_as_kernel.md](../design_cse_as_kernel.md) for the design
+framing.
 
 ## Owned files
 
@@ -464,13 +473,25 @@ dirty, then reads y/n.  C=1 user accepted, C=0 cancelled.
 `load? y/n`), silently proceeds when clean.  Thin wrapper that calls
 `confirm_action` only if `ed_dirty`.
 
-**`run_user`** — wraps `dbg_enter` for all commands that execute
-user code (`j`, `g`, `t`, `o`, `c`).  Saves `CUR_ROW`/`CUR_COL`
-on the stack before entry and restores them after return.  Also
-restores the VIC charset register (`$D018 |= $02`) and calls
-`io_sync` to resync KERNAL screen line pointers.  Prevents screen
-corruption caused by user code modifying cursor state or VIC
-registers.
+**`run_user`** — thin pre-flight wrapper used by execution commands
+(`j`, `g`, `t`, `o`, `c`) before they call `return_to_user`
+(debugger.s).  Zeroes the keyboard buffer count, then tail-jumps
+into `return_to_user`.  ZP save and breakpoint patching live
+INSIDE `return_to_user` itself (see
+[debugger.md § return_to_user](debugger.md)).
+
+`run_user` does NOT save/restore `CUR_ROW`/`CUR_COL` — see the
+debugger.md note on user code output and the prompt row.  It also
+does not return to its caller (`return_to_user` does not return);
+control comes back via the BRK handler's longjmp to `main_loop_top`.
+
+**`cmd_step` (`t` / `o`)** — does NOT loop.  Computes the first
+step's next-PC(s), arms step BRK(s), seeds the handler-resident
+step state machine (`step_state`, `step_remaining`), and tail-jumps
+into `run_user` once.  Subsequent step iterations chain inside the
+BRK handler tail (see [debugger.md § Single-step](debugger.md)).
+This keeps multi-step iteration's stack budget constant regardless
+of count — `t 100` consumes the same kernel stack as `t 1`.
 
 **`warn_long_lines`** — scans the buffer via `ed_read_byte`,
 computing visual width per line (including tab expansion).
