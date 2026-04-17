@@ -235,9 +235,13 @@ log_close_eol:
 ;
 ; Reads the str pointer from the two bytes immediately after
 ; the jsr, advances the stacked return address past them, and
-; tail-calls io_puts.  All stack-trickery is contained here.
+; tail-calls io_puts.
 ;
-; Clobbers: A, X, Y, rp_tmp/rp_tmp+1 (same as io_puts).
+; ⚠ FOOTGUN: Clobbers rp_tmp (plus A, X, Y).  Callers that
+;   need to preserve a pointer across a `puts` should park it
+;   on the 6502 stack (pha/pla), NOT in rp_tmp — and NOT in
+;   rp_tmp2, which is only 1 byte wide.  See confirm_action
+;   and the expr-error path in cmd_dot for the pattern.
 ; ───────────────────────────────────────────────────────────
 puts_imm:
         pla
@@ -376,15 +380,14 @@ confirm_yn:
 ;   Clean state uses LOG_INFO level with just the action prompt.
 ; ───────────────────────────────────────────────────────────
 confirm_action:
-        ; Stash the caller's prompt-string pointer in rp_tmp2.
-        ; rp_tmp would be clobbered by `puts str_unsaved` below
-        ; (puts_imm uses rp_tmp as scratch for the inline .word
-        ; return-address trick), which caused the "unsaved."
-        ; prefix to be followed by garbage bytes from puts_imm's
-        ; scratch.  rp_tmp2 is untouched by puts_imm / log_open /
-        ; newline / io_puts.
-        sta rp_tmp2
-        stx rp_tmp2+1
+        ; Park the caller's string pointer on the 6502 stack — any
+        ; ZP scratch would be unsafe: `puts str_unsaved` below
+        ; dispatches through puts_imm, which clobbers rp_tmp, and
+        ; rp_tmp2 is only one byte wide (rp_tmp2+1 aliases into the
+        ; next ZP slot).  The stack is the simplest pointer save.
+        pha                     ; lo
+        txa
+        pha                     ; hi
         jsr newline
         lda ed_dirty
         beq @clean
@@ -395,8 +398,9 @@ confirm_action:
 @clean: ldy #LOG_INFO
         jsr log_open
 @prompt:
-        lda rp_tmp2
-        ldx rp_tmp2+1
+        pla                     ; hi
+        tax
+        pla                     ; lo
         jsr io_puts
         jsr confirm_yn
         beq @yes
@@ -1402,16 +1406,18 @@ parse_hex4_ptr1:
         lda asm_expr_err
         beq @syn_err
         jsr expr_error_str      ; A/X = error string
-        ; Same footgun as confirm_action: `puts str_expr` below
-        ; clobbers rp_tmp via puts_imm, so stash in rp_tmp2.
-        sta rp_tmp2
-        stx rp_tmp2+1
+        ; Stack-park the pointer — puts_imm below clobbers rp_tmp,
+        ; and rp_tmp2 is only 1 byte wide (see confirm_action).
+        pha                     ; lo
+        txa
+        pha                     ; hi
         jsr newline
         ldy #LOG_ERR
         jsr log_open
         puts str_expr
-        lda rp_tmp2
-        ldx rp_tmp2+1
+        pla                     ; hi
+        tax
+        pla                     ; lo
         jsr io_puts
         jmp log_close_eol
 @syn_err:
@@ -3200,8 +3206,8 @@ _range_core:
 ; Splash mode: only free sections, no highlight, no newline
 ; Full mode:   all sections, highlighted free, caller does newline
 .proc cmd_info
-        ; capture carry → _info_mode (0=full, 1=splash)
-        ; Can't use rp_tmp/rp_tmp2 — puts_imm clobbers both.
+        ; capture carry → _info_mode (0=full, 1=splash).
+        ; Dedicated BSS byte avoids ZP entirely — many puts below.
         lda #0
         adc #0
         sta _info_mode
