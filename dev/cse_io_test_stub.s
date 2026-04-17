@@ -5,7 +5,7 @@
 ; scr_lo/scr_hi tables from cse_io.s.
 
         .export kplot_stub
-        .export dbg_running
+        .export in_userland
         .export dbg_nmi_break
 
         .import io_sync
@@ -14,7 +14,7 @@
         .import scr_lo, scr_hi
 
 .segment "BSS"
-dbg_running:  .res 1   ; debugger running flag (stub)
+in_userland:  .res 1   ; debugger running flag (stub)
 
 .segment "CODE"
 

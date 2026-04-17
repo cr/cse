@@ -23,7 +23,7 @@
 ;
 ; The debugger is a consumer of the CSE BRK vector, not the owner.
 ; main.s installs cse_brk_handler permanently at $0316; it dispatches
-; to dbg_brk_core when dbg_running != 0.  dbg_enter does NOT touch
+; to dbg_brk_core when in_userland != 0.  dbg_enter does NOT touch
 ; $0316/$0317.
 ;
 ; See doc/modules/debugger.md for full design.
@@ -38,13 +38,14 @@
         .export dbg_brk_core
         .export dbg_nmi_break
         .export bp_table, step_bp
-        .export dbg_running, dbg_reason, brk_pc, dbg_bp_hit
+        .export dbg_reason, brk_pc, dbg_bp_hit
         .export dbg_step_clear
         .export patch_all, unpatch_all
 
         .importzp rp_ptr          ; scratch pointer (main.s)
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
         .import zp_save_buf, user_zp_buf
+        .import in_userland       ; main.s (Phase-18 prep: was dbg_running)
 
 ; ── ZP save range — MUST match asm_line.s ──
 ; The buffer `zp_save_buf` is allocated by asm_line.s.  If these
@@ -76,7 +77,7 @@ TOTAL_SLOTS = BP_SLOTS + STEP_SLOTS     ; 10
 bp_table:      .res BP_SLOTS * SLOT_SIZE     ; 32 bytes: 8 slots × 4
 step_bp:       .res STEP_SLOTS * SLOT_SIZE   ; 8 bytes: 2 step slots × 4
 
-dbg_running:   .res 1          ; $80 = user code active, 0 = REPL
+; in_userland is owned by main.s as of Phase 18 prep (was dbg_running here).
 dbg_reason:    .res 1          ; why we returned (0=none, 1=BRK, 2=NMI)
 brk_pc:        .res 2          ; PC where break occurred / resume address
 dbg_bp_hit:    .res 1          ; slot# of breakpoint that was hit ($FF = none)
@@ -109,7 +110,7 @@ dbg_init:
         ; reg_p is stored while A is still 0 so bit 5 is clear —
         ; emit_reg relies on the "reg_p bit 5 = 0" invariant and
         ; no longer has a '-'-guard to rescue a dirty cold state.
-        sta dbg_running
+        sta in_userland
         sta dbg_reason
         sta brk_pc
         sta brk_pc+1
@@ -381,9 +382,9 @@ dbg_enter:
         jsr patch_all
 
         ; ── 3. Clear stale break state ──
-        ; (dbg_running is set inside @tramp, after cse_sp is captured —
+        ; (in_userland is set inside @tramp, after cse_sp is captured —
         ; so there's no window in which the NMI handler could see
-        ; dbg_running set but cse_sp stale.)
+        ; in_userland set but cse_sp stale.)
         lda #0
         sta dbg_reason         ; 0 = no break (set by handler if BRK fires)
         lda #$FF
@@ -447,7 +448,7 @@ dbg_enter:
         stx cse_sp              ; stash CSE's SP for the swap-back
         sei                     ; mask IRQ across the bank-toggle window
         lda #$80
-        sta dbg_running
+        sta in_userland
 
         ; ── Save CSE's stack image → cse_stack_buf ─────────
         ; Pure writes to KBSS; bank-agnostic.  Loop exits with X=0.
@@ -541,7 +542,7 @@ clean_rts_trampoline:
         sta reg_p
         lda #DBG_NONE
         sta dbg_reason
-        sta dbg_running
+        sta in_userland
         jsr snap_user_zp
         ; reg_sp: user's SP just after popping the sentinel (= $FF).
         ; Stash it so the next user entry resets cleanly.
@@ -578,7 +579,7 @@ clean_rts_trampoline:
 
 ; ── dbg_brk_core ─────────────────────────────────────────────────────
 ; Called from cse_brk_handler (main.s) when user BRK fires
-; (dbg_running != 0).
+; (in_userland != 0).
 ;
 ; Stack at entry (SP+1 upward):
 ;   Y  X  A  P(B=1)  PClo(brk+2)  PChi
@@ -635,14 +636,14 @@ dbg_brk_core:
 
         ; ── 4. Clear running flag ──
         lda #0
-        sta dbg_running
+        sta in_userland
 
         ; ── 5. Swap user stack → user_stack_buf, CSE stack back in,
         ;       then rts to dbg_enter continuation.
         jmp swap_back
 
 ; ── dbg_nmi_break ────────────────────────────────────────────────────
-; Entered from main.s cse_nmi_handler when dbg_running bit 7 is set.
+; Entered from main.s cse_nmi_handler when in_userland bit 7 is set.
 ;
 ; At entry: A/X/Y have user's live values (NMI doesn't push them).
 ; Stack: P  PClo  PChi  (3 bytes, CPU pushed)
@@ -687,6 +688,6 @@ dbg_nmi_break:
 
         ; ── 5. Clear running flag, swap stacks back, return ──
         lda #0
-        sta dbg_running
+        sta in_userland
         jmp swap_back
 

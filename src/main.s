@@ -7,8 +7,8 @@
 ;   main_loop       — event loop
 ;
 ; Interrupt handlers (permanent, never swapped):
-;   cse_brk_handler  — $0316/$0317: BRK dispatch on dbg_running
-;   cse_nmi_handler  — $0318/$0319: NMI dispatch on dbg_running
+;   cse_brk_handler  — $0316/$0317: BRK dispatch on in_userland
+;   cse_nmi_handler  — $0318/$0319: NMI dispatch on in_userland
 ;
 ; Exit: cse_exit_to_basic restores vectors, ZP, $01, jumps to BASIC.
 ;
@@ -20,7 +20,7 @@
 
 ; ── Exports ──────────────────────────────────────────────────
         .export _main
-        .export state
+        .export state, in_userland
         .export cse_warm_start, cse_warm_screen
 
 ; ── Runtime ZP ───────────────────────────────────────────────
@@ -38,7 +38,6 @@
         .import sym_clear
         .import dbg_init
         .import dbg_brk_core, dbg_nmi_break
-        .import dbg_running
         .import ed_ensure_init
         .import exec_line, read_line, show_prompt, cmd_info
         .import log_line
@@ -99,8 +98,15 @@ VEC_TBL_SIZE = 32
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
 
-state:       .res 1              ; ST_STOP=0, ST_REPL=1, ST_EDIT=2
-warm_guard:  .res 1              ; nonzero = warm start in progress
+state:        .res 1             ; ST_STOP=0, ST_REPL=1, ST_EDIT=2
+warm_guard:   .res 1             ; nonzero = warm start in progress
+in_userland:  .res 1             ; nonzero = user code currently running;
+                                 ; 0 = kernel mode.  Set by return_to_user
+                                 ; (Phase 18 helper) just before its RTI;
+                                 ; cleared at BRK handler entry.  Read by
+                                 ; cse_nmi_handler to decide swallow vs
+                                 ; break-into-debugger.  (Pre-Phase-18
+                                 ; name: dbg_running.)
 
 ; ── PRG load address ─────────────────────────────────────────
 .segment "LOADADDR"
@@ -533,7 +539,7 @@ splash_row:
 ;   Warm-start path: resets SP to $FF — all state discarded.
 ; ═════════════════════════════════════════════════════════════
 cse_brk_handler:
-        lda dbg_running
+        lda in_userland
         bne @user
         jmp cse_warm_start
 @user:  jmp dbg_brk_core
@@ -542,7 +548,7 @@ cse_brk_handler:
 ; cse_nmi_handler — permanent NMI dispatcher ($0318)
 ; ═════════════════════════════════════════════════════════════
 cse_nmi_handler:
-        bit dbg_running
+        bit in_userland
         bmi @break_user
         pha
         lda #1

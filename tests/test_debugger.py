@@ -71,7 +71,7 @@ class DbgSymbols:
         # BSS symbols — previously required hardcoded offset dict
         self.bp_table    = s["bp_table"]
         self.step_bp     = s["step_bp"]
-        self.dbg_running = s["dbg_running"]
+        self.in_userland = s["in_userland"]
         self.dbg_reason  = s["dbg_reason"]
         self.brk_pc      = s["brk_pc"]
         self.dbg_bp_hit  = s["dbg_bp_hit"]
@@ -174,13 +174,13 @@ class TestDbgInit:
         # Dirty the table first
         for i in range(BP_SLOTS * BP_SIZE):
             mpu.memory[dbg_syms.bp_table + i] = 0xFF
-        mpu.memory[dbg_syms.dbg_running] = 0x80
+        mpu.memory[dbg_syms.in_userland] = 0x80
         mpu.memory[dbg_syms.dbg_reason] = 0x03
         cmd_init(mpu, dbg_syms)
         # All slots zero
         for i in range(BP_SLOTS * BP_SIZE):
             assert mpu.memory[dbg_syms.bp_table + i] == 0
-        assert mpu.memory[dbg_syms.dbg_running] == 0
+        assert mpu.memory[dbg_syms.in_userland] == 0
         assert mpu.memory[dbg_syms.dbg_reason] == 0
         assert mpu.memory[dbg_syms.brk_pc] == 0
         assert mpu.memory[dbg_syms.brk_pc + 1] == 0
@@ -554,9 +554,9 @@ class TestDbgEnterStepIntoJSR:
             f"the t1-hangs-on-JSR bug."
         )
 
-        # 5. dbg_running should be cleared on return.
-        assert mem[dbg_syms.dbg_running] == 0, \
-            f"dbg_running not cleared: ${mem[dbg_syms.dbg_running]:02X}"
+        # 5. in_userland should be cleared on return.
+        assert mem[dbg_syms.in_userland] == 0, \
+            f"in_userland not cleared: ${mem[dbg_syms.in_userland]:02X}"
 
     def test_dbg_enter_no_user_pushes(self, dbg_syms):
         """Sanity: a simple BRK at brk_pc with no user JSR also works.
@@ -585,7 +585,7 @@ class TestDbgEnterStepIntoJSR:
         assert mem[dbg_syms.dbg_reason] == 1
         brk_pc = mem[dbg_syms.brk_pc] | (mem[dbg_syms.brk_pc + 1] << 8)
         assert brk_pc == 0x2000
-        assert mem[dbg_syms.dbg_running] == 0
+        assert mem[dbg_syms.in_userland] == 0
 
     def test_repeated_dbg_enter_into_jsr(self, dbg_syms):
         """Mirror the user's `t1 t1 t1 ...` sequence over a JSR.

@@ -27,11 +27,15 @@
         .import dbg_enter
         .import dbg_brk_core
         .import bp_table, step_bp
-        .import dbg_running, dbg_reason, brk_pc, dbg_bp_hit
+        .import dbg_reason, brk_pc, dbg_bp_hit
 
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
         .export zp_save_buf, user_zp_buf
         .export kernal_bank_out, kernal_bank_in
+        .export in_userland       ; Phase 18 prep: was dbg_running in debugger.s;
+                                  ; in production it lives in main.s.  This stub
+                                  ; harness doesn't link main.s, so we define it
+                                  ; here for debugger.s to import.
 
 .segment "BSS"
 reg_a:         .res 1
@@ -39,6 +43,7 @@ reg_x:         .res 1
 reg_y:         .res 1
 reg_sp:        .res 1
 reg_p:         .res 1
+in_userland:   .res 1          ; user-code-active flag
 zp_save_buf:   .res 128        ; ZP save buffer ($00..$7F inclusive,
                                  ;  matches debugger.s::ZP_SAVE_LEN)
 user_zp_buf:   .res 128        ; user ZP snapshot (same size)

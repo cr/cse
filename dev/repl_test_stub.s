@@ -65,7 +65,7 @@
         .export state
 
 ; ── Exports: NMI stubs (for cse_io.s) ─────────────────────────
-        .export dbg_running, dbg_nmi_break
+        .export in_userland, dbg_nmi_break
         .export kplot_stub
 
 ; ── Exports: test instrumentation ─────────────────────────────
@@ -97,7 +97,7 @@ sym_refs:
 ; Debugger state
 bp_table:      .res 32         ; 8 × 4
 step_bp:       .res 8          ; 2 × 4
-dbg_running:   .res 1
+in_userland:   .res 1
 dbg_reason:    .res 1
 brk_pc:        .res 2
 dbg_bp_hit:    .res 1
