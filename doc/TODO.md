@@ -95,6 +95,72 @@ Open bugs, roughly ordered by priority.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
+- [ ] **NMI/IRQ trampolines + interrupt hooking: rework as one
+  unified setup routine.**  `kernal_init` (trampolines) and
+  `install_hooks` (RAM vector-table patching) today run in
+  separate cold-init steps with bank-out-capable code between
+  them.  Several latent bugs follow from that split:
+    * **NMI trampoline's `JMP ($0318)` assumes `$0318` already
+      points to a RAM handler.**  That's only true after
+      `install_hooks` has run and before `KERNAL_RESTOR` resets
+      it at exit.  Two crash windows:
+      - Cold-init: between `kernal_init` (step 4) and
+        `install_hooks` (step 11), any bank-out (e.g. inside
+        `sym_define` during `define_ws_syms`) combined with an
+        NMI routes through `JMP ($0318)` → KERNAL default
+        `$FE47` under banked-out RAM → crash.
+      - Exit: in `cse_exit_to_basic` after `KERNAL_RESTOR` but
+        before `$01` restore, `$0318` is back to `$FE47` with
+        KERNAL banked out.  NMI is non-maskable, SEI doesn't
+        help.
+    * **IRQ/BRK trampoline has two independent bugs.**  It
+      lives at `$FF04` (under KERNAL ROM) and its `STA $01` at
+      offset +5 banks KERNAL in immediately — the next
+      instruction fetch at `$FF0B` reads KERNAL ROM, not the
+      remaining trampoline bytes we wrote to RAM.  Executes
+      garbage ROM.  Also: never banks back out, so RTI leaves
+      `$01` permanently modified.  Masked in practice by
+      SEI-guarded IRQs and BRK handing off to `dbg_enter`, but
+      both paths are real corruption hazards.
+    * **Architectural inconsistency**: `install_hooks` uses
+      KERNAL VECTOR ($FF8D) to read/patch/write the
+      `$0314-$0333` table abstractly, but the trampolines then
+      hardcode `JMP ($0318)` / `JMP ($0316)` / `JMP $FF48`,
+      reaching past the very abstraction VECTOR was supposed
+      to establish.
+
+  **Step 1 (near-term fix): combine into one setup routine,
+  hardcoded addresses.**  Merge `kernal_init` and
+  `install_hooks` into a single `setup_interrupts` called
+  *before* any bank-out (i.e. before `sym_clear` /
+  `define_ws_syms` — move step 6 after the merged setup).
+  Use direct writes to `$0316`/`$0318` (skip VECTOR for the
+  install) — we're targeting the stock C64 KERNAL address
+  layout and know those absolute addresses.  Keep
+  `KERNAL_RESTOR` at exit since that's a single call and the
+  portable-exit path is cheaper to preserve than to replace.
+  Trampolines JMP direct to `cse_nmi_handler` /
+  `cse_brk_handler` (link-resolved) — no `($0318)`/`($0316)`
+  indirection, no KERNAL-ROM addresses in trampoline code.
+  Trampolines don't touch `$01`: handlers are `$01`-aware and
+  own banking.  Because `setup_interrupts` runs before the
+  first bank-out, the "trampoline executed with stale vector"
+  window simply can't exist.  Relocate trampolines out of
+  banked memory (`$0334-$033B` in page 3 is 8 unused bytes)
+  while we're here.
+  Closes: NMI cold-init/exit windows, IRQ/BRK self-stomping,
+  IRQ/BRK `$01` drift, trampoline/hook ordering coupling.
+
+  **Step 2 (future-proofing): migrate interrupt hooking to
+  VECTOR.**  For cross-KERNAL compatibility (C128 C64-mode
+  variants, MEGA65 open-ROM, JiffyDOS, hypothetical relocated
+  vector tables), replace the direct `sta $0316`/`$0318` in
+  `setup_interrupts` with a KERNAL VECTOR read-modify-write.
+  Trampolines stay as-is (they already don't depend on any
+  KERNAL address — they JMP direct to our handlers).  Only the
+  RAM-vector-table patching becomes abstract.  Same SEI/CLI
+  bracket, one VECTOR round-trip instead of two static stores.
+  Pairs with the roadmap R3 "Universal C64/C128 binary" item.
 - [x] ~~Debugger: refuse to write breakpoints outside workspace memory~~
   (fixed: cmd_brk now rejects BP addresses outside [$0800, __CODE_RUN__)
   with a "; ? range" error before calling dbg_bp_set.  Phase 17.)
@@ -207,6 +273,49 @@ Defined scope, needs work.
 - [ ] `m` address argument: accept expression (`m screen+40`).
   Currently plain 4-digit hex only.
 - [ ] New `S` command for scratching files. Requires confirmation.
+- [ ] VIC sanity reset on kernel/userland boundary.  Today CSE
+  only fixes border/background/foreground colors and color RAM
+  on debug entry — but user code can leave VIC in states that
+  make the REPL invisible or glitched: display off
+  (`$D011` bit 4 clear), hi-res / extended color mode, multicolor
+  text, scroll offsets, charset pointer in arbitrary RAM
+  (`$D018`), raster IRQ enabled and firing, sprites on top of
+  the text layer, etc.  The REPL has to be usable regardless of
+  what the user code did.
+  Add a `vic_reset` routine called on every user→kernel
+  transition (BRK handler, NMI-userland break, warm_start,
+  splash) that forces VIC into a known-readable state:
+    * `$D011 = $1B` — display on, 25 rows, text mode, no
+      extended color, no bitmap.
+    * `$D016 = $C8` — 40 cols, no multicolor, no smooth scroll.
+    * `$D018` — standard charset + screen RAM pointers.
+    * `$D015 = 0` — sprites disabled.
+    * `$D01A = 0` — raster/collision IRQs disabled.
+    * `$D019` — ack any pending IRQ.
+    * Scroll/offset registers cleared.
+  ~20 bytes of straight stores.  User programs that depend on
+  raster effects or sprites won't resume cleanly after a debug
+  entry; that's part of the contract.
+  Pairs with the userland contract clause "VIC state is CSE's
+  to establish; user programs using custom VIC setups will
+  need to re-arm on resume."
+- [ ] SID silence: stop stuck notes when user code leaves SID running.
+  Two complementary mechanisms:
+  1. **REPL command** (probably one of the existing mnemonic-free
+     letters, or a dedicated key chord) — zeroes all SID registers
+     (`$D400-$D418`).  Useful when the user's code has SID voices
+     playing and leaves them running after a break.
+  2. **Contractually at the kernel/userland boundary** — on every
+     transition from user code back into the CSE kernel (BRK,
+     breakpoint, NMI-userland-break, brk_stub return), zero the
+     SID's gate bits (`$D404`/`$D40B`/`$D412` bit 0) to release
+     voices.  Keeps SID register values otherwise intact so the
+     user can see what was set.  ~6 bytes on the BRK handler
+     path.  Pairs with dropping `io_blip` to give the contract
+     clause "SID is yours except voice gates at debug entry."
+  The two together give the user a clean audio environment on
+  break, and a manual way to silence mid-session if a user
+  command (like `j` into a program) leaves SID noisy.
 - [ ] Disk command channel: unified under `$` (`$ s:file`, `$9`, etc.).
 - [ ] Floppy status consistency: `$` prints status inline (always
   shows), `l`/`s` use `floppy_status` via `disk_done`.  Verify
@@ -329,6 +438,21 @@ Defined scope, needs work.
   for RODATA (256 B).  Changes the architecture fundamentally.
 
 ### Architecture
+
+- [ ] Loader: reverse-direction copy.  `loader.s` currently does a
+  forward memcpy (low → high) for CODE+RODATA and KDATA.  Forward
+  copy is unsafe when `dst > src` and the ranges overlap, which is
+  why `compute_layout.py` enforces `payload_end < runtime_start` and
+  fails the build if the binary outgrows the gap.  A backward copy
+  (top → bottom, DEY/DEX loops) is safe in exactly the direction we
+  copy, so the overlap constraint disappears and CODE+RODATA can
+  grow all the way up to `runtime_start` without tripping the build
+  check.  Changes: flip both page+remainder loops in loader.s
+  (CODE+RODATA copy, KDATA copy — BSS zeroing is direction-
+  independent); drop the payload-overlap sanity check in
+  `compute_layout.py`; update `doc/memory_design.md` and the
+  loader's own comments.  Opens room for modestly larger binaries
+  without any layout-math changes elsewhere.
 
 - [x] Relocating startup: done (Roadmap R2, Session 10).
 
