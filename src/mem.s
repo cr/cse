@@ -58,9 +58,8 @@ kernal_out:     .res 1          ; nonzero = KERNAL banked out (skip bank_in)
 ; permanently corrupted $01 — after RTI the caller's banking
 ; state was wrong, causing reads of KERNAL ROM instead of RAM.
 _nmi_tramp_code:
-        .byte $78               ; SEI
-        .byte $6C               ; JMP (abs)
-        .byte <KERNAL_NMIV, >KERNAL_NMIV
+        sei
+        jmp (KERNAL_NMIV)
 NMI_TRAMP_SIZE = * - _nmi_tramp_code
 
 ; IRQ/BRK trampoline (10 bytes, copied to $FF04 by kernal_init)
@@ -71,13 +70,12 @@ NMI_TRAMP_SIZE = * - _nmi_tramp_code
 ; Saves/restores A around the banking so the KERNAL's PHA at $FF48
 ; captures the correct user A.
 _irq_tramp_code:
-        .byte $48               ; PHA         — save user A
-        .byte $A5, $01          ; LDA $01
-        .byte $09, $02          ; ORA #$02    — bank KERNAL in
-        .byte $85, $01          ; STA $01
-        .byte $68               ; PLA         — restore user A
-        .byte $4C               ; JMP abs
-        .byte <KERNAL_IRQ, >KERNAL_IRQ
+        pha                   ; save user A
+        lda $01
+        ora #$02              ; bank KERNAL in
+        sta $01
+        pla                   ;restore user A
+        jmp KERNAL_IRQ
 IRQ_TRAMP_SIZE = * - _irq_tramp_code
 
 .import __CODE_RUN__
