@@ -244,27 +244,30 @@ log_close_eol:
 ;   and the expr-error path in cmd_dot for the pattern.
 ; ───────────────────────────────────────────────────────────
 puts_imm:
+        ; Stack on entry: [ret_lo][ret_hi] where ret = (.word) - 1
+        ; (JSR pushes PC-1, and PC after `jsr puts_imm` points at .word.)
         pla
-        sta rp_tmp              ; rp_tmp = call_site + 2 (lo)
+        sta rp_tmp
         pla
-        sta rp_tmp+1            ;        = addr of the .word's LSB - 1
-        ; Advance rp_tmp by 2 so that rts+1 = the next real insn.
+        sta rp_tmp+1            ; rp_tmp = ret = (.word) - 1
+        ; Bump rp_tmp by 2 so it points at (.word) + 1 = str_hi byte.
+        ; That address, re-pushed, makes RTS return to (.word) + 2 =
+        ; the instruction after the .word argument.
         clc
         lda rp_tmp
         adc #2
         sta rp_tmp
         bcc :+
         inc rp_tmp+1
-:       ; Push the adjusted return addr back (hi first).
-        lda rp_tmp+1
-        pha
+:       lda rp_tmp+1
+        pha                     ; push adjusted ret_hi first ...
         lda rp_tmp
-        pha
-        ; rp_tmp now points at str_hi (call_site + 4).
+        pha                     ; ... then ret_lo (top of stack)
+        ; rp_tmp = (.word) + 1 — the str_hi byte.
         ldy #0
         lda (rp_tmp),y          ; A = str_hi
         tax                     ; X = str_hi
-        ; Step rp_tmp back by 1 to read str_lo.
+        ; Step rp_tmp back by 1 to reach (.word) = str_lo byte.
         lda rp_tmp
         bne :+
         dec rp_tmp+1
@@ -319,7 +322,9 @@ io_addr_cmd:
 
 ; ── log_line — complete log line ─────────────────────────
 ; Y = level char, A/X = content string ptr
-; Clobbers: A, X, Y
+; Clobbers: A, X, Y, rp_tmp/rp_tmp+1
+;   (log_open itself is rp_tmp-safe; log_line parks the
+;    content pointer there across the log_open call.)
 .proc log_line
         sta rp_tmp
         stx rp_tmp+1
@@ -1354,7 +1359,7 @@ parse_hex4_ptr1:
 
 @cmp_done:
         lda rp_save
-        beq @try_asm_mne        ; not changed → try mnemonic
+        beq @try_mne            ; not changed → try mnemonic
 
         ; Write changed bytes
         ldy #0
@@ -1391,7 +1396,6 @@ parse_hex4_ptr1:
         jeq io_clear_eol        ; nbytes == 0 → clear; else skip
         rts
 
-@try_asm_mne:
 @try_mne:
         ; Try mnemonic assembly if (rp_ptr) starts with a-z
         jsr skip_peek_ptr1
