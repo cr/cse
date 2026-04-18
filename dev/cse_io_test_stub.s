@@ -5,26 +5,17 @@
 ; scr_lo/scr_hi tables from cse_io.s.
 
         .export kplot_stub
-        .export in_userland
-        .export dbg_nmi_break
 
         .import io_sync
 
 ; Import the row address tables from cse_io.s
         .import scr_lo, scr_hi
 
-.segment "BSS"
-in_userland:  .res 1   ; debugger running flag (stub)
-
 .segment "CODE"
 
 ; KERNAL PLOT replacement.
 ;   CLC, X=row, Y=col → set cursor position + line pointers.
 ;   SEC → get position: X=row, Y=col.
-; Stub: debugger NMI break (never reached in tests)
-dbg_nmi_break:
-        rti
-
 kplot_stub:
         bcs @get
         ; SET

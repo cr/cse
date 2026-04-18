@@ -29,7 +29,6 @@ $D6 (row).
 |------|------|---------|
 | io_color | 1 | Text color for screen clears |
 | dec_buf | 6 | io_utoa output: 5-digit PETSCII + permanent NUL at [5] |
-| nmi_pending | 1 | Set by NMI handler, checked in main loop |
 
 ### KERNAL Locations Used
 

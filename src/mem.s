@@ -1,24 +1,38 @@
-; mem.s — Memory manager: banking, segment queries, workspace symbols
+; mem.s — Memory manager: banking, ZP save/restore, segment queries,
+;         workspace symbols.
 ;
-; Permanent module that consolidates all runtime memory services.
+; Permanent module that consolidates low-level state-preservation
+; primitives paired by contract:
 ;
-; Exports:
-;   kernal_bank_out  SEI + clear $01 bit 1 (honours kernal_out)
-;   kernal_bank_in   set $01 bit 1 + CLI (honours kernal_out)
-;   kernal_init      install NMI trampoline at $FF00
-;   kernal_out       BSS flag (nonzero = KERNAL held banked out)
-;   cse_start        returns runtime start (XXXX) in A/X
-;   cse_end          returns $D000 in A/X
-;   cse_zp_end       returns first free ZP byte in A
-;   define_ws_syms   define workstart/workend in symbol table
+;   KERNAL ROM banking:
+;     kernal_bank_out    SEI + clear $01 bit 1 (honours kernal_out)
+;     kernal_bank_in     set $01 bit 1 + CLI (honours kernal_out)
+;     kernal_out         BSS flag (nonzero = KERNAL held banked out)
+;
+;   CPU-port aware ZP save/restore (kernel↔userland gates):
+;     save_userland_zp   live ZP → userland_zp_buf  (DDR-stash single pass)
+;     restore_userland_zp userland_zp_buf → live ZP  (DDR=$FF + backwards)
+;     save_kernel_zp     live ZP → kernel_zp_buf (mirror of above)
+;     restore_kernel_zp  kernel_zp_buf → live ZP (mirror of above)
+;     userland_zp_buf        BSS (128 B): user's ZP snapshot
+;     kernel_zp_buf      BSS (128 B): kernel's ZP snapshot
+;
+;   Misc queries:
+;     cse_start          returns runtime start (XXXX) in A/X
+;     cse_end            returns $D000 in A/X
+;     cse_zp_end         returns first free ZP byte in A
+;     define_ws_syms     define workstart/workend in symbol table
 
         .setcpu "6502"
 
 ; ── Exports ──────────────────────────────────────────────────
-        .export kernal_bank_out, kernal_bank_in, kernal_init
+        .export kernal_bank_out, kernal_bank_in
         .export kernal_out
         .export cse_start, cse_end, cse_zp_end
         .export define_ws_syms
+        .export save_userland_zp, restore_userland_zp
+        .export save_kernel_zp, restore_kernel_zp
+        .export userland_zp_buf, kernel_zp_buf
 
 ; ── Imports ──────────────────────────────────────────────────
         .importzp buf_base
@@ -29,12 +43,6 @@
 
 ; ── Constants ────────────────────────────────────────────────
 CPU_PORT     = $01
-NMI_TRAMP    = $FF00
-IRQ_TRAMP    = $FF04
-NMI_VEC_RAM  = $FFFA
-IRQ_VEC_RAM  = $FFFE
-KERNAL_NMIV  = $0318          ; KERNAL indirect NMI vector (RAM)
-KERNAL_IRQ   = $FF48          ; KERNAL IRQ entry (ROM)
 WORKSTART    = $0800
 HIMEM        = $D000
 
@@ -43,40 +51,22 @@ HIMEM        = $D000
 
 kernal_out:     .res 1          ; nonzero = KERNAL banked out (skip bank_in)
 
+; ── ZP save/restore buffers ─────────────────────────────────
+; Cover the full user-accessible page-zero range $00..$7F.  CSE
+; only allocates $02..$59 for its own variables, but the full
+; lower half is snapshotted so:
+;   1. The `m` and `.` commands render a uniform user-ZP view
+;      across the entire range.
+;   2. The $00/$01 CPU-port pair round-trips via these buffers
+;      (see the CPU-port protocol note below the bank helpers).
+; Upper half $80..$FF stays KERNAL-owned and is never touched.
+ZP_SAVE_LEN = 128
+kernel_zp_buf:  .res ZP_SAVE_LEN  ; kernel's ZP snapshot (exit capture)
+userland_zp_buf:    .res ZP_SAVE_LEN  ; user's ZP snapshot (exit capture,
+                                   ; restored on re-entry)
+
 ; ── RODATA ───────────────────────────────────────────────────
 .segment "RODATA"
-
-; NMI trampoline (4 bytes, copied to $FF00 by kernal_init)
-;
-; When KERNAL is banked out, ($FFFA) reads from RAM → $FF00.
-; The handler chain (cse_nmi_handler → dbg_nmi_break) runs
-; entirely in main-RAM CODE — no KERNAL ROM access needed.
-; So the trampoline just does SEI + JMP ($0318), matching
-; what the KERNAL's own $FE43 entry does when KERNAL is mapped.
-;
-; Previous design banked KERNAL in (ORA #$02 / STA $01) which
-; permanently corrupted $01 — after RTI the caller's banking
-; state was wrong, causing reads of KERNAL ROM instead of RAM.
-_nmi_tramp_code:
-        sei
-        jmp (KERNAL_NMIV)
-NMI_TRAMP_SIZE = * - _nmi_tramp_code
-
-; IRQ/BRK trampoline (10 bytes, copied to $FF04 by kernal_init)
-;
-; Defensive: if a BRK fires while KERNAL is banked out (user code
-; contract violation, or CSE internal fault), ($FFFE) reads from
-; RAM → $FF04.  Banks KERNAL in so $FF48 can run its IRQ entry.
-; Saves/restores A around the banking so the KERNAL's PHA at $FF48
-; captures the correct user A.
-_irq_tramp_code:
-        pha                   ; save user A
-        lda $01
-        ora #$02              ; bank KERNAL in
-        sta $01
-        pla                   ;restore user A
-        jmp KERNAL_IRQ
-IRQ_TRAMP_SIZE = * - _irq_tramp_code
 
 .import __CODE_RUN__
 
@@ -124,40 +114,6 @@ kernal_bank_in:
         sta CPU_PORT
         cli
 @skip:  rts
-
-; ═════════════════════════════════════════════════════════════
-; kernal_init — install NMI + IRQ/BRK trampolines in banked RAM
-;   Must be called once at startup.
-;   Pure writer: stores under KERNAL pass through to RAM
-;   regardless of $01 bit 1, so no banking is required.
-;   Clobbers A, X.
-; ═════════════════════════════════════════════════════════════
-.proc kernal_init
-        ; Copy NMI trampoline to $FF00 (4 bytes)
-        ldx #NMI_TRAMP_SIZE - 1
-@nmi:   lda _nmi_tramp_code,x
-        sta NMI_TRAMP,x
-        dex
-        bpl @nmi
-
-        ; Copy IRQ/BRK trampoline to $FF04 (10 bytes)
-        ldx #IRQ_TRAMP_SIZE - 1
-@irq:   lda _irq_tramp_code,x
-        sta IRQ_TRAMP,x
-        dex
-        bpl @irq
-
-        ; Set RAM vectors (pure write, no banking needed)
-        lda #<NMI_TRAMP
-        sta NMI_VEC_RAM
-        lda #>NMI_TRAMP
-        sta NMI_VEC_RAM + 1
-        lda #<IRQ_TRAMP
-        sta IRQ_VEC_RAM
-        lda #>IRQ_TRAMP
-        sta IRQ_VEC_RAM + 1
-        rts
-.endproc
 
 ; ═════════════════════════════════════════════════════════════
 ; cse_start — return runtime start address in A/X
@@ -217,5 +173,138 @@ cse_zp_end:
         lda #>s_workend
         sta sym_name+1
         jmp sym_define         ; tail call
+.endproc
+
+; ═══════════════════════════════════════════════════════════════════════════
+; CPU-port aware ZP save/restore — kernel↔userland ZP swap primitives
+;
+; ZP addresses $00 and $01 are the 6510/8500's on-chip CPU I/O port:
+;   $00 — DDR (data direction).  Bits configured as OUTPUT (1) are
+;         CPU-driven.  Bits configured as INPUT (0) float to external
+;         state; a read returns external logic level, NOT the value
+;         the CPU last wrote.  C64 default: $2F (bits 0-5 output,
+;         6-7 input).
+;   $01 — data.  Writes always latch internally for all bits;
+;         pins driven to the bus reflect only the output bits.
+;         Bits 0-2 = LORAM/HIRAM/CHAREN (memory banking);
+;         bit 3 = cassette write; bits 4-5 = cassette sense / key;
+;         bits 6-7 = input pins (cassette).  CSE-kernel default:
+;         $36 (BASIC out, KERNAL in, I/O in).
+;
+; Failure modes the protocol defends against:
+;
+;   * Naive `sta $00,x` of a BSS-zero buffer byte sets DDR=all-input.
+;     Subsequent writes to $01 don't latch on bits configured as
+;     input; banking goes floating; the next fetch JAMs.
+;
+;   * Naive `lda $01` with the user's DDR returns a mix of latched
+;     bits (outputs) and external bits (inputs).  Saving that value
+;     and later restoring it feeds external garbage back into $01
+;     as if it were the user's intended value.
+;
+; Save protocol (single-pass DDR stash):
+;
+;     ldy $00              ; snapshot current DDR into Y
+;     lda #$FF / sta $00   ; DDR := all-output (unmask $01's input bits)
+;     ldx #$7F
+;   @loop: lda $00,x / sta buf,x / dex / bpl @loop
+;     sty buf              ; overwrite buf[$00] (transient $FF) with saved DDR
+;
+;   During the loop, the x=$01 iteration reads $01 with all bits
+;   CPU-driven (because DDR=$FF), so buf[$01] gets the fully
+;   latched byte — every bit the CPU last wrote.  The loop's
+;   x=$00 iteration captures the transient $FF into buf[$00]; the
+;   post-loop `sty` overwrites that with the snapshot of the real
+;   DDR from Y.
+;
+;   Postcondition: live $00 = $FF.  This is load-bearing for the
+;   restore functions below, which rely on it rather than re-asserting
+;   DDR=$FF themselves (a redundant write would only mask broken code
+;   if the postcondition ever regressed).
+;
+; Restore protocol (backwards copy, DDR=$FF inherited from prior save):
+;
+;     ldx #$7F
+;   @loop: lda buf,x / sta $00,x / dex / bpl @loop
+;
+;   Precondition: live $00 = $FF (postcondition of save_userland_zp
+;   or save_kernel_zp, which is the only legitimate predecessor).
+;   Backwards iteration order ($7F → $00) places:
+;     x=$01: writes buf[$01] to live $01 while DDR is still $FF,
+;            so every bit fully latches.
+;     x=$00: writes buf[$00] to live $00 LAST, re-applying the
+;            target DDR mask after data bits are already set.
+;
+; Bootstrap: dbg_init pre-seeds both userland_zp_buf and kernel_zp_buf
+; with [$00]=$2F and [$01]=$36 so the very first transition doesn't
+; restore zeros into the live CPU port.  After the first exit cycle,
+; save_userland_zp and save_kernel_zp overwrite those seeds with
+; captured live values.
+; ═══════════════════════════════════════════════════════════════════════════
+
+; Shared constants for the ZP save/restore primitives.  ZP_SAVE_LEN
+; is declared with the buffer BSS above.
+ZP_SAVE_LO  = $00
+
+; ── save_userland_zp ───────────────────────────────────────────
+; Single-pass save: live ZP ($00..$7F) → userland_zp_buf with DDR
+; stash/restore so $01 is captured fully-latched.
+; Postcondition: live $00 = $FF.  Clobbers A, X, Y.
+.proc save_userland_zp
+        ldy ZP_SAVE_LO           ; Y := current DDR
+        lda #$FF
+        sta ZP_SAVE_LO           ; $00 := $FF (unmask $01)
+        ldx #ZP_SAVE_LEN - 1
+@l:     lda ZP_SAVE_LO,x         ; x=$01 reads fully-latched $01;
+        sta userland_zp_buf,x        ; x=$00 captures transient $FF
+        dex                      ;        (overwritten below).
+        bpl @l
+        sty userland_zp_buf          ; buf[$00] := saved DDR
+        rts
+.endproc
+
+; ── restore_userland_zp ────────────────────────────────────────
+; Backwards copy: userland_zp_buf → live ZP.  Writes $01 (fully-latching,
+; while DDR=$FF) before $00 (re-applies user's DDR).
+; Precondition: live $00 = $FF (from save_kernel_zp's postcondition —
+; every kernel-flow call path enters here via save_kernel_zp).
+; Clobbers A, X.
+.proc restore_userland_zp
+        ldx #ZP_SAVE_LEN - 1
+@l:     lda userland_zp_buf,x
+        sta ZP_SAVE_LO,x         ; x=$01 latches; x=$00 re-DDRs
+        dex
+        bpl @l
+        rts
+.endproc
+
+; ── save_kernel_zp ─────────────────────────────────────────────
+; Mirror of save_userland_zp, target = kernel_zp_buf.
+; Postcondition: live $00 = $FF.  Clobbers A, X, Y.
+.proc save_kernel_zp
+        ldy ZP_SAVE_LO
+        lda #$FF
+        sta ZP_SAVE_LO
+        ldx #ZP_SAVE_LEN - 1
+@l:     lda ZP_SAVE_LO,x
+        sta kernel_zp_buf,x
+        dex
+        bpl @l
+        sty kernel_zp_buf
+        rts
+.endproc
+
+; ── restore_kernel_zp ──────────────────────────────────────────
+; Mirror of restore_userland_zp, source = kernel_zp_buf.
+; Precondition: live $00 = $FF (from save_userland_zp's postcondition —
+; every kernel-flow call path enters here via save_userland_zp).
+; Clobbers A, X.
+.proc restore_kernel_zp
+        ldx #ZP_SAVE_LEN - 1
+@l:     lda kernel_zp_buf,x
+        sta ZP_SAVE_LO,x
+        dex
+        bpl @l
+        rts
 .endproc
 

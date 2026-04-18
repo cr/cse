@@ -148,7 +148,6 @@ class ReplSymbols:
         self.block_size  = exp['block_size']
 
         self.bp_table     = exp['bp_table']
-        self.step_bp      = exp['step_bp']
         self.dbg_reason   = exp['dbg_reason']
         self.dbg_bp_hit   = exp['dbg_bp_hit']
         self.brk_pc       = exp['brk_pc']
@@ -918,7 +917,8 @@ class TestSaveCommand:
         assert get_cur_project_name(cpu, rsyms) == "FOO"
         assert get_name(cpu, rsyms.save_name) == "FOO."
         assert get_word(cpu, rsyms.save_addr) == 0x0800
-        assert get_word(cpu, rsyms.save_size) == 0x0100
+        # Inclusive end: bytes $0800..$0900 → size = $0101.
+        assert get_word(cpu, rsyms.save_size) == 0x0101
 
     def test_save_strip_trailing_dot(self, rsyms):
         """s "foo." → project_name = "foo" (trailing dot stripped)."""
@@ -975,26 +975,28 @@ class TestSaveCommand:
         assert get_word(cpu, rsyms.save_size) == 0x0010   # block_size
 
     def test_save_end_from_arg(self, rsyms):
-        """1 arg → start = cur_addr, end = arg."""
+        """1 arg → start = cur_addr, end = arg (INCLUSIVE)."""
         cpu = make_cpu(rsyms)
         set_cur_addr(cpu, rsyms, 0x0800)
         clear_witness(cpu, rsyms)
         set_line_buf(cpu, rsyms, 's "foo" $0900')
         run_at(cpu, rsyms.exec_line)
         assert get_word(cpu, rsyms.save_addr) == 0x0800
-        assert get_word(cpu, rsyms.save_size) == 0x0100
+        # Inclusive end: save bytes $0800..$0900 → size = $0101.
+        assert get_word(cpu, rsyms.save_size) == 0x0101
 
     def test_save_two_args(self, rsyms):
-        """2 args → start = arg1, end = arg2."""
+        """2 args → start = arg1, end = arg2 (INCLUSIVE)."""
         cpu = make_cpu(rsyms)
         clear_witness(cpu, rsyms)
         set_line_buf(cpu, rsyms, 's "foo" $1000 $2000')
         run_at(cpu, rsyms.exec_line)
         assert get_word(cpu, rsyms.save_addr) == 0x1000
-        assert get_word(cpu, rsyms.save_size) == 0x1000
+        # Inclusive end: save bytes $1000..$2000 → size = $1001.
+        assert get_word(cpu, rsyms.save_size) == 0x1001
 
     def test_save_end_length_fallback(self, rsyms):
-        """2 args, end <= start → end = start + end (length fallback)."""
+        """2 args, end <= start → end = length."""
         cpu = make_cpu(rsyms)
         clear_witness(cpu, rsyms)
         set_line_buf(cpu, rsyms, 's "foo" $1000 $100')
@@ -1031,7 +1033,7 @@ class TestSaveCommand:
         assert get_name(cpu, rsyms.save_name) == "FOO"
 
     def test_save_unquoted_is_expr(self, rsyms):
-        """s $0900 — unquoted arg is end addr (args force PRG)."""
+        """s $0900 — unquoted arg is inclusive end (args force PRG)."""
         cpu = make_cpu(rsyms)
         set_cur_addr(cpu, rsyms, 0x0800)
         # pre-seed project name
@@ -1044,7 +1046,8 @@ class TestSaveCommand:
         assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
         assert get_name(cpu, rsyms.save_name) == "PREV."
         assert get_word(cpu, rsyms.save_addr) == 0x0800
-        assert get_word(cpu, rsyms.save_size) == 0x0100
+        # Inclusive: bytes $0800..$0900 = $0101.
+        assert get_word(cpu, rsyms.save_size) == 0x0101
 
     def test_save_addr_prefix(self, rsyms):
         """0801:s "test" $2004 — AAAA: prefix sets cur_addr (start)."""
@@ -1055,7 +1058,8 @@ class TestSaveCommand:
         assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
         assert get_name(cpu, rsyms.save_name) == "TEST."
         assert get_word(cpu, rsyms.save_addr) == 0x0801
-        assert get_word(cpu, rsyms.save_size) == 0x2004 - 0x0801
+        # Inclusive end: $2004 - $0801 + 1.
+        assert get_word(cpu, rsyms.save_size) == 0x2004 - 0x0801 + 1
 
 
 class TestLoadCommand:

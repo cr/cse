@@ -9,7 +9,7 @@ The REPL is the body of CSE's ISR-style kernel.  `main_loop` resets
 SP to a known value at the top of each iteration, calls `show_prompt`
 / `read_line` / `exec_line`, then loops.  When `exec_line` dispatches
 an execution command (`j`, `g`, `c`, `t`, `o`), the handler eventually
-calls `return_to_user` (debugger.s) which RTIs to user code; control
+calls `return_to_userland` (debugger.s) which RTIs to user code; control
 returns via `cse_brk_handler`'s longjmp back to `main_loop_top`.  See
 [design_cse_as_kernel.md](../design_cse_as_kernel.md) for the design
 framing.
@@ -51,10 +51,17 @@ line without callers adding explicit newlines between.
 Three levels: `LOG_ERR='?'` → `";?"`, `LOG_WARN='!'` → `";!"`,
 `LOG_INFO=' '` → `"; "`.
 
-**Range/info line family** (used for address ranges with byte counts):
-- `seg_line` — "; TAG  AAAA-BBBB NNNNNb" (asm_src segments, inclusive end)
-- `prg_line` — "; prg  AAAA-BBBB NNNNNb" (l/s PRG, exclusive end)
-- `free_line` — "; TAG  AAAA-BBBB NNNNNb free" (cmd_info free sections)
+**Range/info line family** (used for address ranges with byte counts).
+All three DISPLAY the range with BBBB inclusive (the last byte — the
+user-facing convention).  They differ only in the caller's rp_cnt
+convention:
+- `seg_line` — "; TAG  AAAA-BBBB NNNNNb" — caller's rp_cnt is already
+  inclusive (asm_src segments pass `asm_pc - 1`).
+- `prg_line` — "; prg  AAAA-BBBB NNNNNb" — caller's rp_cnt is
+  exclusive (KERNAL LOAD's X/Y return, or `rp_addr + size`); `prg_line`
+  decrements internally before calling the shared display core.
+- `free_line` — "; TAG  AAAA-BBBB NNNNNb free" — inclusive rp_cnt
+  (cmd_info's free-section endpoints).
 
 ### Memory
 
@@ -387,10 +394,13 @@ Count of numeric args → slots:
 - SEQ (derived): `cur_project_name`.
 - PRG (derived): `cur_project_name` + `.`.
 
-**Save PRG end-address fallback** (save only, after start/end resolution):
+**Save PRG end-address semantics** (save only).  Inclusive end, matching
+the `AAAA-BBBB` display convention used everywhere else:
 
-- `end == 0` → `end = start + block_size`.
-- Else if `end <= start` → `end = start + end` (length fallback).
+- `end == 0` → `size = block_size` (bare `s` default).
+- `end <= start` → `size = end` (length fallback — treat the arg as a
+  byte count rather than an address).
+- `end > start` → `size = end - start + 1` (absolute inclusive end).
 
 **Load semantics**:
 
@@ -419,10 +429,9 @@ Count of numeric args → slots:
 
 **Auto-generated save line (from `a`)**: after successful assembly
 `seg_print_save` emits `AAAA:s "project" $EEEE` where AAAA is the lowest
-origin and EEEE is one past the highest byte.  The address argument
-forces PRG mode; disk name becomes `project.`.  Pressing RETURN on this
-line saves the binary.  (Previously this line embedded `,p` in the
-filename; the derivation rule removes that need.)
+origin and EEEE is the highest byte (inclusive, matching the `AAAA-BBBB`
+range convention).  The address argument forces PRG mode; disk name
+becomes `project.`.  Pressing RETURN on this line saves the binary.
 
 ### Commands — Info / Utility
 
@@ -473,25 +482,45 @@ dirty, then reads y/n.  C=1 user accepted, C=0 cancelled.
 `load? y/n`), silently proceeds when clean.  Thin wrapper that calls
 `confirm_action` only if `ed_dirty`.
 
-**`run_user`** — thin pre-flight wrapper used by execution commands
-(`j`, `g`, `t`, `o`, `c`) before they call `return_to_user`
-(debugger.s).  Zeroes the keyboard buffer count, then tail-jumps
-into `return_to_user`.  ZP save and breakpoint patching live
-INSIDE `return_to_user` itself (see
-[debugger.md § return_to_user](debugger.md)).
+**Command → userland dispatch (Phase 18 pattern).**  Execution
+commands (`j`, `g`, `t`, `o`, `c`) never RTI into userland from
+inside their own jsr frame.  Instead each command *stages* state
+and sets a mode flag, then rts normally up to `main_loop`:
 
-`run_user` does NOT save/restore `CUR_ROW`/`CUR_COL` — see the
-debugger.md note on user code output and the prompt row.  It also
-does not return to its caller (`return_to_user` does not return);
-control comes back via the BRK handler's longjmp to `main_loop_top`.
+* `run_user_pending = MODE_JUMP` — fresh start; the gate must push
+  a `brk_stub - 1` sentinel so the user's top-level RTS returns
+  cleanly to `brk_stub`.  Set by `cmd_jmp` (`j`/`g`) and by
+  `cmd_step` on its cold entry (no prior debug context).
+* `run_user_pending = MODE_RESUME` — resume from an existing break;
+  the sentinel pushed by a prior MODE_JUMP is still on the user
+  stack and must not be duplicated.  Set by `cmd_c` (continue),
+  `cmd_step` on hot entry.
+
+After `exec_line` rts's back to `main_loop` (in main.s), the loop
+reads `run_user_pending`:
+
+    MODE_JUMP   → jmp return_to_userland      (sentinel + RTI)
+    MODE_RESUME → jmp restore_userland_state  (no sentinel; RTI)
+
+Both gate primitives live in [debugger.s](debugger.md); both do
+`save_kernel_zp` / `restore_userland_zp` / `txs reg_sp` / push RTI
+frame / `sta in_userland` / `rti`.  Control returns via the BRK or
+NMI handler's longjmp to `main_loop_top`, *not* to the command.
+
+`cmd_jmp` drains `$C6` (keyboard buffer) and emits a newline before
+setting the flag so the user's first CHROUT lands on a fresh row.
+`hygiene_after_userland` ($C6 drain, $CC=1, $0291=$80, VIC reset,
+colour restore, cursor sync) runs unconditionally in
+`handler_finalize` on every return — not in any per-command wrapper.
 
 **`cmd_step` (`t` / `o`)** — does NOT loop.  Computes the first
-step's next-PC(s), arms step BRK(s), seeds the handler-resident
-step state machine (`step_state`, `step_remaining`), and tail-jumps
-into `run_user` once.  Subsequent step iterations chain inside the
-BRK handler tail (see [debugger.md § Single-step](debugger.md)).
-This keeps multi-step iteration's stack budget constant regardless
-of count — `t 100` consumes the same kernel stack as `t 1`.
+step's next-PC(s), arms step BRK(s) in `bp_table`'s step slots,
+seeds the handler-resident step state machine (`step_state`,
+`step_remaining`), sets `run_user_pending` (MODE_JUMP cold /
+MODE_RESUME hot), and rts's.  Subsequent step iterations chain
+inside the BRK handler tail (see [debugger.md § Single-step](debugger.md)).
+Multi-step iteration's stack budget is constant regardless of count
+— `t 100` consumes the same kernel stack as `t 1`.
 
 **`warn_long_lines`** — scans the buffer via `ed_read_byte`,
 computing visual width per line (including tab expansion).

@@ -70,9 +70,9 @@ or a name match.  No separate count is maintained.
 `sym_table` lives at $E000–$E5FF in RAM underneath the kernal ROM.
 The name heap follows at $E600–$EEFF (2304 bytes).  The NMI shadow
 at $FFFA/$FFFB (installed by `setup_interrupts` in main.s) routes
-NMI to `cse_nmi_handler`'s early-entry label so NMI is safe even
-while the kernal is banked out.  This saves ~3.8 KB of main RAM
-(1536B table + 2304B heap).
+NMI directly to `cse_nmi_handler` so NMI is safe even while the
+kernal is banked out.  This saves ~3.8 KB of main RAM (1536B table
++ 2304B heap).
 
 **Reads** under KERNAL ($E000–$FFFF) require the KERNAL to be
 banked out.  **Writes always pass through** to the underlying RAM

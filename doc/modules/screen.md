@@ -20,6 +20,25 @@
 **Out:** screen cleared with spaces, colors restored, cursor to 0,0
 **Clobbers:** A, X, Y
 
+### vic_reset
+**In:** none
+**Out:** VIC forced into known-readable text-mode state —
+$D011=$1B (display on, 25 rows, text, no ECM/BMM),
+$D016=$C8 (40 cols, no MCM, no scroll),
+$D018=$16 (screen=$0400, charset=$1800 = char ROM $D800 =
+lowercase/uppercase font),
+$D015=0 (sprites off), $D01A=0 (no VIC IRQs),
+$D019=$0F (ack pending IRQ latches).
+**Clobbers:** A
+
+Called on every userland → kernel transition (via
+`hygiene_after_userland` in repl.s) so user code that flipped VIC
+into bitmap/multicolor/extended-color mode, blanked the display,
+moved the screen/charset pointer, enabled sprites, or armed a
+raster IRQ doesn't leave the REPL unreadable.  Colour RAM and
+CHROUT colour are (re)applied by `restore_colors`; this routine
+only handles the mode registers.
+
 ### scroll_up
 **In:** A = number of rows to scroll
 **Out:** screen RAM scrolled up, bottom rows cleared with spaces,

@@ -274,19 +274,26 @@ has been walked and verified.  The full state contract lives in
   trampolines).  See [main.md § setup_interrupts](modules/main.md).
 - NMI dispatch routes on `in_userland` (main.s flag): swallow
   in kernel mode; break-into-debugger in userland.
-- `$D018` charset mode — restored to lowercase by `run_user`
-  before invoking `return_to_user`.
+- `$D018` charset mode — forced to $16 (lowercase/uppercase) by
+  `vic_reset` on every userland → kernel transition, called from
+  `hygiene_after_userland` in `handler_finalize` (main.s).  User
+  code is free to change it during its run; state is snapped back
+  on exit.
 - `$D1/$D2`, `$F3/$F4`, `$D3/$D6` (kernal screen-editor state)
-  — `io_sync` keeps them in lockstep with CSE's cursor;
-  `cmd_jmp` / `cmd_step` both call `newline` before `run_user`
-  which calls `io_sync`.
-- `$CC` cursor flag — `run_user` restores it to 1 before
-  invoking `return_to_user`, in case user code re-enabled the
-  kernal cursor.
-- `$C6` keyboard buffer count — `run_user` zeroes it before
-  invoking `return_to_user` so user code's first
-  `GETIN`/`CHRIN` sees an empty queue, not user keystrokes
-  typed ahead while issuing the command.
+  — `io_sync` keeps them in lockstep with CSE's cursor.
+  `cmd_jmp` emits a newline before rts'ing to `main_loop` so
+  the user's first CHROUT lands on a fresh row;
+  `hygiene_after_userland` calls `io_sync` on exit.
+- `$CC` cursor flag — re-asserted to 1 by `hygiene_after_userland`
+  on every userland → kernel transition.  Hardware kernal cursor
+  stays disabled; CSE manages its own.
+- `$C6` keyboard buffer count — zeroed by `cmd_jmp` before the
+  userland run (so user code's first `GETIN`/`CHRIN` sees an
+  empty queue) and by `hygiene_after_userland` on return (so
+  keystrokes typed during the run don't leak into the REPL).
+- `$0291` (SHIFT+C= lock) — re-asserted to $80 by
+  `hygiene_after_userland` to keep the charset-toggle key combo
+  disabled even if userland cleared it.
 - Hardware stack — user code sees ~240 B free; user must leave
   64 B of headroom for kernel re-entry on break.  See
   [memory_design.md § Stack contract](memory_design.md#stack-contract)

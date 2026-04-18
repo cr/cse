@@ -36,8 +36,6 @@
         .export _asm_line_core
         .export asm_error, asm_syntax_error, asm_expr_error, asm_expr_err
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
-        .export zp_save_buf
-        .export user_zp_buf
 
         ; zero-page variables (zp.s)
         .importzp asm_pc, asm_out, asm_len
@@ -89,33 +87,10 @@ reg_y:         .res 1          ; saved Y
 reg_sp:        .res 1          ; saved SP
 reg_p:         .res 1          ; saved P (status flags)
 
-; ── ZP save range ──
-; ZP save/restore covers the full user-accessible page-zero range
-; $00..$7F.  CSE only allocates $02..$59 for its own use, but we
-; snapshot the whole lower half so that:
-;   1. The m and . commands can render a uniform user-ZP view
-;      across the entire range (previously partial: $5A..$7F read
-;      live CPU ZP — whatever CSE had left there — and $00/$01
-;      were outright inaccessible).
-;   2. The $01 banking byte round-trips via zp_save_buf, so
-;      run_user no longer needs its own pha/sta pair.
-; Bounds must agree between asm_line.s (buffer definitions) and
-; debugger.s (consumer loops) — debugger.s::ZP_SAVE_LO/HI mirror
-; these constants.  Upper half $80..$FF stays KERNAL-owned and
-; is never touched.
-ZP_SAVE_LO = $00
-ZP_SAVE_HI = $7F
-ZP_SAVE_LEN = ZP_SAVE_HI - ZP_SAVE_LO + 1  ; 128 bytes
-zp_save_buf:   .res ZP_SAVE_LEN ; buffer for ZP save/restore
-
-; ── User ZP snapshot ──
-; When a user program is interrupted (BRK / NMI) or RTSes back
-; to the REPL, the live ZP is the user's working state — but
-; dbg_enter step 8 immediately restores CSE's ZP from
-; zp_save_buf, overwriting it.  Without a snapshot, the user
-; can't inspect their ZP via the m or . commands afterward
-; (they'd see CSE's variables, not what their code wrote).
-user_zp_buf:   .res ZP_SAVE_LEN ; user ZP snapshot ($00..$7F)
+; (kernel_zp_buf and userland_zp_buf — the ZP save/restore buffers for
+; the kernel↔userland transitions — live in mem.s alongside the
+; save_userland_zp / restore_userland_zp / save_kernel_zp /
+; restore_kernel_zp primitives that operate on them.)
 
 ; ── RODATA ────────────────────────────────────────────────────────────────────
 .segment "RODATA"

@@ -9,7 +9,7 @@ The REPL is the body of an interrupt service routine reached via
 BRK; user programs are an alternate execution mode reached via RTI
 from a synthesized frame.
 
-- **kernel → userland**: `return_to_user` (debugger.s) synthesizes
+- **kernel → userland**: `return_to_userland` (debugger.s) synthesizes
   an RTI frame, sets `in_userland`, RTIs into user code.
 - **userland → kernel**: BRK (breakpoint, step-BRK, or `brk_stub`
   on user's top-level RTS) or NMI (RUN/STOP+RESTORE).  Handled by
@@ -40,12 +40,12 @@ Contract user code may rely on / must preserve:
 │  asm_line.s  │   dasm.s   │   disk.s     │  core engines
 ├──────────────┴────────────┴──────────────┤
 │  debugger.s  │  screen.s  │   cse_io.s   │  low-level services
-│  (return_to_user, brk_stub, bp table)    │
+│  (return_to_userland, brk_stub, bp table)    │
 ├──────────────────────────────────────────┤
 │                 mem.s                    │  memory manager, banking
 └──────────────────────────────────────────┘
        │
-       │  return_to_user (RTI to synthesized frame; j/g/t/o/c)
+       │  return_to_userland (RTI to synthesized frame; j/g/t/o/c)
        ▼
 ┌──────────────────────────────────────────┐
 │             user code                    │  runs in workspace memory
@@ -58,7 +58,7 @@ dependencies.  Each layer can be understood without reading the
 layers above it.
 
 **User code** is not a CSE module — it is assembled output living
-in workspace memory (`workstart`–`workend`).  `return_to_user`
+in workspace memory (`workstart`–`workend`).  `return_to_userland`
 synthesizes an RTI frame from `reg_a`/`reg_x`/`reg_y`/`reg_p`/
 `brk_pc`, pushes `brk_stub - 1` as user's top-level RTS sentinel,
 sets `in_userland`, and RTIs.  User code runs with full CPU access
@@ -82,7 +82,7 @@ SP, and the user must leave a documented headroom for kernel re-entry
 | expr.s | Recursive-descent expression parser | [expr.md](modules/expr.md) |
 | symtab.s | Hash-table symbol storage with name heap (banking via mem.s) | [symtab.md](modules/symtab.md) |
 | dasm.s | Bit-slice disassembler (6502/6510/65C02) | [dasm.md](modules/dasm.md) |
-| debugger.s | BRK-based breakpoints, single-step, return_to_user helper, brk_stub | [debugger.md](modules/debugger.md) |
+| debugger.s | BRK-based breakpoints, single-step, return_to_userland helper, brk_stub | [debugger.md](modules/debugger.md) |
 | disk.s | CBM file I/O via kernal (PRG and SEQ, callback-based) | [disk.md](modules/disk.md) |
 | screen.s | Scroll, newline, cursor, color theme, vic_reset | [screen.md](modules/screen.md) |
 | cse_io.s | Raw screen I/O, keyboard, PETSCII→screencode | [cse_io.md](modules/cse_io.md) |

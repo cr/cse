@@ -23,7 +23,7 @@ CSE has two execution modes:
 
 Transitions:
 
-- **kernel → userland**: `return_to_user` synthesises an RTI frame
+- **kernel → userland**: `return_to_userland` synthesises an RTI frame
   from `reg_*` shadows, pushes `brk_stub - 1` onto the stack as
   user's top-level RTS sentinel, sets `in_userland = 1`, and RTIs.
 - **userland → kernel**: any of three events:
@@ -59,7 +59,7 @@ User code's view of CPU and memory state, by tier:
   mode, no extended/bitmap, sprites off, raster IRQ off, charset
   pointer = standard, scroll = 0).  See `vic_reset` in main.s.
 - **ZP `$00–$7F`** — CSE's half of zero page.  Saved at userland
-  entry to `zp_save_buf` and restored at userland exit; the live
+  entry to `kernel_zp_buf` and restored at userland exit; the live
   view between break and resume reflects the user's ZP, not CSE's.
 - **Cursor position and related kernal ZP** ($D1/$D2, $D3/$D6,
   $F3/$F4, $CC) — REPL re-syncs via `io_sync` on every kernel
@@ -114,7 +114,7 @@ RTI/RTS-driven and cost ~20 cycles.
 
 ### Layout at userland entry
 
-Just before `return_to_user`'s RTI, the stack from SP downward looks
+Just before `return_to_userland`'s RTI, the stack from SP downward looks
 like:
 
 ```
@@ -123,7 +123,7 @@ $01XX-1 PChi │ RTI frame (popped by RTI)
 $01XX-2 P    ─┘
 $01XX-3 (brk_stub - 1) lo  ─┐  user's top-level RTS sentinel
 $01XX-4 (brk_stub - 1) hi  ─┘
-... below: kernel state from the moment of return_to_user ...
+... below: kernel state from the moment of return_to_userland ...
 ```
 
 The kernel state below the sentinel is *not used after the RTI*: the
@@ -136,8 +136,8 @@ the kernel.
 
 User code starts with **~240 bytes** of free stack on first entry.
 Concretely: SP at the moment of RTI ≈ $FF − (kernel call chain) − 5
-(sentinel + RTI frame).  Worst-case kernel chain at `return_to_user`
-is small (main_loop → exec_line → cmd_X → return_to_user, ≤ 8
+(sentinel + RTI frame).  Worst-case kernel chain at `return_to_userland`
+is small (main_loop → exec_line → cmd_X → return_to_userland, ≤ 8
 bytes), so first-entry user SP is around $F2.
 
 User code may reset SP to $FF and claim the entire 256-byte page;
@@ -156,7 +156,7 @@ This number is **conservative**, pending empirical measurement (see
 
 - BRK frame: 6 B (3 hardware + 3 kernal $FF48 push sequence).
 - BRK-handler internal call chain to longjmp / chain-step: currently
-  ~8 B peak (`jsr snap_user_zp`, `jsr dbg_bp_find` — non-nested),
+  ~8 B peak (`jsr save_userland_zp`, `jsr dbg_bp_find` — non-nested),
   but reserved up to the depth of the deepest non-execution kernel
   path that could ever run on the BRK return side.
 - The deepest kernel call chain that may legitimately run from the
@@ -324,5 +324,5 @@ Beyond these, user code is free.
 - [memory_design.md](memory_design.md) § Stack contract — implementation
 - [modules/main.md](modules/main.md) — `cse_brk_handler`,
   `cse_nmi_handler`, `setup_interrupts`, `in_userland`
-- [modules/debugger.md](modules/debugger.md) — `return_to_user`,
+- [modules/debugger.md](modules/debugger.md) — `return_to_userland`,
   `brk_stub`, register save/restore

@@ -16,7 +16,7 @@
 > - [doc/userland_contract.md](userland_contract.md) (new, formalises §7 + §8 + §4 last clause)
 > - [doc/modules/main.md](modules/main.md) (`cse_brk_handler`,
 >   `cse_nmi_handler`, `setup_interrupts`, `in_userland`)
-> - [doc/modules/debugger.md](modules/debugger.md) (`return_to_user`,
+> - [doc/modules/debugger.md](modules/debugger.md) (`return_to_userland`,
 >   `brk_stub`; two-image swap content removed)
 > - [doc/modules/mem.md](modules/mem.md) (`kernal_init` retired;
 >   trampolines retired)
@@ -25,7 +25,7 @@
 > - [doc/architecture.md](architecture.md) (kernel/userland framing
 >   in layer diagram and module summaries)
 > - [doc/glossary.md](glossary.md) (kernel/kernal/userland/
->   in_userland/brk_stub/return_to_user/cold entry/early entry)
+>   in_userland/brk_stub/return_to_userland/cold entry/early entry)
 > - [doc/TODO.md](TODO.md) (Phase 18 master entry consolidates
 >   sub-items; old NMI/IRQ trampoline entry retired into it)
 >
@@ -71,7 +71,7 @@ Do not manipulate SP at transitions. The kernel inherits whatever SP the interru
 - `o` (step out) — set a one-shot breakpoint at the return address on user's stack, then RTI.
 - Any other RTI-to-user exits (future `step-into-call`, etc.) follow the same pattern.
 
-All of these collapse to one mechanical primitive: **populate `reg_*` shadows, push `brk_stub` onto user's stack, set `in_userland`, push P + PC for RTI, RTI.** A shared `return_to_user` helper is natural.
+All of these collapse to one mechanical primitive: **populate `reg_*` shadows, push `brk_stub` onto user's stack, set `in_userland`, push P + PC for RTI, RTI.** A shared `return_to_userland` helper is natural.
 
 **BRK dispatcher**, on any entry, classifies:
 - `B=0` → **real IRQ that fired while kernal was banked out**. The dispatcher banks kernal in, delegates to the kernal's IRQ handler, banks out before the RTI. Handled via stack surgery so the kernal's natural RTI routes through our bank-out stub. (This is the "early entry" case from §4.)
@@ -116,7 +116,7 @@ nmi_handler:
 ```
 
 **`in_userland` flag:**
-- **Set** just before RTI to user, in the shared `return_to_user` helper invoked by `cmd_j`, `cmd_g`, `cmd_c`, `cmd_t`, `cmd_o`, and any future RTI-to-user commands.
+- **Set** just before RTI to user, in the shared `return_to_userland` helper invoked by `cmd_j`, `cmd_g`, `cmd_c`, `cmd_t`, `cmd_o`, and any future RTI-to-user commands.
 - **Cleared** at BRK handler entry.
 - Not touched by IRQ handling (IRQ doesn't transition user↔kernel in CSE's mode-sense).
 
@@ -201,15 +201,18 @@ Status updated after corpus propagation (2026-04-17):
   link-time address.  Reachable from user RTS via the
   pre-pushed `(brk_stub - 1)` sentinel.  See
   [modules/debugger.md](modules/debugger.md) § brk_stub.
-- **Shared `return_to_user` helper.** ✅ Resolved: documented in
-  [modules/debugger.md](modules/debugger.md) § return_to_user.
+- **Shared `return_to_userland` helper.** ✅ Resolved: documented in
+  [modules/debugger.md](modules/debugger.md) § return_to_userland.
   Includes ZP save and patch_all (pairs with handler tail's
   unpatch_all + ZP restore).  Implementation lives in debugger.s.
 - **`cmd_step` chaining model.** ✅ Resolved: handler-resident
   state machine (Option B).  cmd_step seeds `step_state` /
-  `step_remaining` and tail-jumps to run_user once; the BRK
-  handler tail decides chain-or-finish.  No SP creep across
-  iterations.  See [modules/debugger.md § Single-step](modules/debugger.md).
+  `step_remaining`, sets `run_user_pending`, and rts's; the
+  main_loop dispatches through `return_to_userland` (cold) or
+  `restore_userland_state` (hot).  The BRK handler tail decides
+  chain-or-finish (step-chain path reuses `restore_userland_state`
+  directly).  No SP creep across iterations.  See
+  [modules/debugger.md § Single-step](modules/debugger.md).
 - **NMI in kernel mode.** ✅ Resolved: swallow.  Loses the old
   "RUN/STOP+RESTORE clears screen" affordance (ESC/CLR replaces
   it).  Optional restoration tracked as a Roadmap idea in
@@ -240,7 +243,7 @@ Next session should:
    sub-items**, in dependency order.  Recommended first slices:
    - **Kernel stack depth measurement** (empirical, refines the
      64 B headroom contract).  Pure audit — no code change yet.
-   - **`return_to_user` + `brk_stub` + cold-init handoff** as one
+   - **`return_to_userland` + `brk_stub` + cold-init handoff** as one
      atomic refactor: this is the load-bearing change that
      replaces the two-image swap.  Doable in a single DDD cycle
      because the corpus already documents the desired interfaces.

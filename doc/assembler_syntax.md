@@ -250,7 +250,8 @@ On successful assembly, the `a` command prints:
 - **Save command:** Executable REPL line placed last so
   cursor-up+return saves the assembled PRG.  Format:
   `AAAA:s "name,p" $EEEE` where AAAA is the lowest origin,
-  EEEE is one past the highest byte, and name is the loaded
+  EEEE is the highest byte (inclusive, matching the `AAAA-BBBB`
+  range convention used everywhere), and name is the loaded
   filename with `,s` → `,p` suffix (or `"out,p"` if none).
   Suppressed when no bytes were emitted.
 

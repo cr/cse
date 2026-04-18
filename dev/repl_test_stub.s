@@ -23,7 +23,7 @@
         .export repl_test_prompt
 
 ; ── Exports: screen module ────────────────────────────────────
-        .export newline, restore_colors, reset_screen
+        .export newline, restore_colors, reset_screen, vic_reset
         .export cursor_show, cursor_hide
         .export theme_border, theme_bg, theme_fg
 
@@ -32,7 +32,8 @@
         .export asm_assemble, asm_org, asm_size, seg_print_save
 
 ; ── Exports: debugger stubs ───────────────────────────────────
-        .export dbg_enter, dbg_step_clear
+        .export return_to_userland, dbg_step_clear
+        .export brk_stub
         .export dbg_bp_set, dbg_bp_del, dbg_bp_clear
         .export dbg_bp_count
         .export bp_table, step_bp
@@ -40,7 +41,14 @@
         .export brk_pc
         .export step_witness
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
-        .export user_zp_buf
+        ; userland_zp_buf now lives in mem.s (production), which is
+        ; linked into the repl test build.
+        .export step_state, step_remaining
+        .export step_next_lo, step_next_hi
+        .export step_next_pc, arm_step_bp
+
+; ── Exports: main.s stubs (gate dispatch flag) ────────────────
+        .export run_user_pending, stop_cooldown
 
 ; ── Exports: disk stubs ───────────────────────────────────────
         .export floppy_status, floppy_read_status, fl_buf
@@ -64,8 +72,7 @@
 ; ── Exports: global state ─────────────────────────────────────
         .export state
 
-; ── Exports: NMI stubs (for cse_io.s) ─────────────────────────
-        .export in_userland, dbg_nmi_break
+; ── Exports: KERNAL PLOT stub (io_sync) ──────────────────────
         .export kplot_stub
 
 ; ── Exports: test instrumentation ─────────────────────────────
@@ -88,23 +95,34 @@ sym_refs:
         .addr newline_count, kplot_stub
         .addr _save_addr, _save_size, _load_result
         .addr _save_name, _load_name, _op_witness
+        .addr step_bp       ; force-link (otherwise ld65 drops it
+                            ; from the map since no code references it)
 
 ; ═══════════════════════════════════════════════════════════════
 ; BSS — test state + stubs (ZP provided by zp.s)
 ; ═══════════════════════════════════════════════════════════════
 .segment "BSS"
 
-; Debugger state
+; Debugger state.  Stub layout diverges from production debugger.s
+; (which aliases step_bp = bp_table + 32) — in the repl test we
+; keep them as separate BSS labels so the map-file parser sees both
+; as exports.  test_repl.py does not patch/unpatch via this table.
 bp_table:      .res 32         ; 8 × 4
 step_bp:       .res 8          ; 2 × 4
-in_userland:   .res 1
 dbg_reason:    .res 1
 brk_pc:        .res 2
 dbg_bp_hit:    .res 1
-step_witness:  .res 4          ; snapshot of step_bp[0..3] at dbg_enter
-                                 ; entry — lets tests inspect what
-                                 ; cmd_step armed before the cleanup
-                                 ; path zero'd it
+step_state:    .res 1
+step_remaining: .res 1
+step_next_lo:  .res 2
+step_next_hi:  .res 2
+step_witness:  .res 4          ; snapshot of step_bp[0..3] at
+                                 ; return_to_userland — lets tests inspect
+                                 ; what cmd_step armed
+
+; Main-side stub: kernel→userland dispatch flag.
+run_user_pending: .res 1
+stop_cooldown:    .res 1
 
 ; Registers
 reg_a:         .res 1
@@ -113,8 +131,7 @@ reg_y:         .res 1
 reg_sp:        .res 1
 reg_p:         .res 1
 
-; User ZP snapshot (mirrors asm_line.s::user_zp_buf — $00..$7F)
-user_zp_buf:   .res 128
+; userland_zp_buf moved to mem.s; imported via the linked module.
 
 ; Editor state
 ed_save_bytes: .res 2
@@ -205,6 +222,8 @@ COLS = 40
 
 ; restore_colors — no-op in tests
 restore_colors:
+; vic_reset — no-op in tests
+vic_reset:
         rts
 
 ; cursor_show / cursor_hide — no-op in tests
@@ -258,8 +277,12 @@ seg_print_save:
 ; Debugger stubs
 ; ═══════════════════════════════════════════════════════════════
 
-dbg_enter:
-        ; Snapshot step_bp[0..3] for tests, then return immediately.
+; return_to_userland (stub): in production this RTIs into user code; in
+; repl tests, commands never actually reach this — they set
+; run_user_pending and rts up the jsr chain.  But the symbol must
+; link; provide a snapshot-and-return body in case any test path
+; exercises it.
+return_to_userland:
         lda step_bp
         sta step_witness
         lda step_bp+1
@@ -268,21 +291,30 @@ dbg_enter:
         sta step_witness+2
         lda step_bp+3
         sta step_witness+3
-        ; Pretend the step completed normally so cmd_step takes
-        ; the @normal_end → show_break_result path: clear reason
-        ; and bp_hit so the loop drops out cleanly.
         lda #0
         sta dbg_reason
         lda #$FF
         sta dbg_bp_hit
         rts
 
+; brk_stub (stub): production brk_stub is a BRK opcode at a fixed
+; address; in repl tests the symbol must link but isn't executed.
+brk_stub:
+        brk
+        .byte $42
 dbg_step_clear:
         ldx #7
         lda #0
 @clr:   sta step_bp,x
         dex
         bpl @clr
+        rts
+
+; step_next_pc / arm_step_bp (stubs) — no-ops in the repl_test build.
+; test_repl.py doesn't exercise step mechanics; test_step_rom.py
+; handles those via C64Emu + full PRG.
+step_next_pc:
+arm_step_bp:
         rts
 
 ; dbg_bp_set(addr) — __fastcall__: A/X = addr
@@ -481,9 +513,6 @@ ed_read_byte:
 ; ═══════════════════════════════════════════════════════════════
 ; KERNAL PLOT stub (for io_sync)
 ; ═══════════════════════════════════════════════════════════════
-
-dbg_nmi_break:
-        rti
 
 kplot_stub:
         bcs @get

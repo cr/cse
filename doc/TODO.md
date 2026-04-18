@@ -83,126 +83,100 @@ Open bugs, roughly ordered by priority.
   ('s' or 'p') in X in addition to mode in A.  Phase 17.)
 - [x] ~~Debugger: stepping into a subroutine then `c` (continue)
   cannot return through the original JSR's pushed return address.~~
-  (being fixed: two-image stack swap — user_stack_buf at $EF00,
-  cse_stack_buf at $F000, swap at every debug-entry / debug-exit
-  boundary.  `sp_baseline` retired in favour of `cse_sp`.  See
-  `memory_design.md` § Stack contract and `debugger.md` § Context
-  switch for the full design.  dbg_bp_patch defensive range check
-  is still open as a minor hygiene item.)
+  (fixed via the Phase 18 shared-stack model: user and kernel share
+  the hardware stack; kernel never writes below user's SP, so JSR
+  return addresses pushed during stepping stay intact across
+  break/resume cycles.  The old two-image swap design was
+  superseded before implementation.  See
+  [memory_design.md § Stack contract](memory_design.md#stack-contract).)
 - [x] ~~Assembler: `bne <nonexisting>` reports "bad insn"~~ (fixed:
   `asm_expr_error` entry point sets `asm_expr_err=1`; `.` command
   and source assembler now print `expr_error_str` detail e.g. "undef")
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
-- [ ] **Phase 18 — CSE as a Kernel.**  Phase-scale refactor that
-  reframes CSE's runtime as an ISR-style kernel.  The full design
-  lives in [design_cse_as_kernel.md](design_cse_as_kernel.md);
-  the desired post-Phase-18 state is documented across the corpus
-  ([memory_design.md § Stack contract](memory_design.md#stack-contract),
-  [modules/main.md](modules/main.md), [modules/debugger.md](modules/debugger.md),
-  [userland_contract.md](userland_contract.md)).  The current code
-  does NOT implement this; closing the delta is the work.
+- [x] ~~Userland exit does not restore screen state.~~ (fixed:
+  `vic_reset` in screen.s forces $D011=$1B, $D016=$C8, $D018=$15,
+  $D015=0, $D01A=0, $D019=$0F on every userland → kernel
+  transition.  Wired into `hygiene_after_userland`; the old
+  `ora #$02` on $D018 replaced by absolute `lda #$15 / sta`.
+  `restore_colors` still applies theme + colour RAM.  Promotes
+  the Planned `vic_reset` item below to Done.)
+- [ ] Debugger: fast turnaround in the BRK handler for long
+  trace loops.  Today every step iteration runs the full save/
+  restore_userland_zp + save/restore_kernel_zp pair — two 128-byte
+  ZP copies (one user→buf, one buf→live) per break/resume cycle.
+  For `t 100`-class stepping the ZP churn dwarfs the actual user
+  instruction cost.  Opportunity: detect "we're mid-chain, no
+  REPL code will run between break and resume, kernel ZP state
+  hasn't been consumed" and skip the ZP swap entirely — just
+  keep user ZP live across the handler's chain body (step_next_pc
+  doesn't touch user ZP, only reads abs/stack addresses).  Must
+  still handle NMI breakouts: if NMI fires during the fast-turnaround
+  chain, the handler needs to fall back to the full ZP swap and
+  longjmp so post_run_cleanup sees a consistent ZP view.  Consider
+  a flag (`step_fast_chain` or similar) that save_userland_state
+  tests to skip the ZP swap when set, and arm it in cmd_step's
+  seed + the handler's chain path.  Expected saving: ~2 * 128 =
+  256 cycles per step iteration.
+- [ ] Debugger: what do we do if we trace into an actual BRK?  A
+  user-authored `BRK` opcode in the traced code is indistinguishable
+  at the hardware level from our patched step BRK — same $00 byte,
+  same handler entry, same PC-2 stack push.  step_next_pc currently
+  treats "opcode == $00" as "stop before executing," so we break
+  one step short and report an unplanned user BRK at that address.
+  Open questions: should we *step past* a user BRK (counting it as
+  one executed instruction)?  Should `t1` onto a user BRK show a
+  distinct message (vs. arbitrary unplanned BRK elsewhere)?  Should
+  the BRK-signature-byte convention (TODO "BRK tracer rewrite") help
+  disambiguate?  Pairs with the step-into-ROM-fallback decision.
+- [x] ~~**Phase 18 — CSE as a Kernel.**~~  (done.  ISR-style kernel
+  model: shared flat stack with 64-byte kernel headroom contract,
+  direct vector patching via `setup_interrupts`, unified
+  `save_userland_state` / `restore_userland_state` / `return_to_userland`
+  gate primitives, command-loop flag-and-rts pattern, CPU-port-aware
+  ZP save/restore primitives in mem.s, `vic_reset`, single
+  `hygiene_after_userland` in `handler_finalize`.  See
+  [design_cse_as_kernel.md](design_cse_as_kernel.md),
+  [userland_contract.md](userland_contract.md),
+  [memory_design.md § Stack contract](memory_design.md#stack-contract).)
 
-  Sub-items, in dependency order:
+  Sub-item status (all resolved unless marked [ ]):
 
-  - **Stack contract — drop the two-image stack swap.**  Replace
-    `dbg_enter`/`@tramp` and the per-transition memcpy of $0100..$01FF
-    with a flat shared-stack model.  User code shares the kernel's
-    stack page; kernel never reads bytes below user SP; user must
-    leave 64 bytes of headroom for kernel re-entry on break.  Net
-    delta: −512 B KBSS, −1 B BSS, ~−100 B CODE, ~−1500 cycles per
-    transition.
-
-  - **`return_to_user` helper.**  Single shared kernel→userland
-    transition primitive used by `j`, `g`, `c`, `t`, `o`.  Synthesises
-    RTI frame, pushes `brk_stub - 1` sentinel, sets `in_userland`,
-    RTIs.  Lives in debugger.s (or main.s — implementation choice).
-
-  - **`brk_stub` and clean userland exit.**  Fixed code address (a
-    BRK instruction) where user's top-level RTS lands.  Replaces the
-    old `clean_rts_trampoline` mechanism; works with shared stack.
-
-  - **Cold-init userland handoff.**  Cold init synthesises a userland
-    frame whose PC = `brk_stub`, RTIs.  The resulting BRK lands in
-    the standard handler, which classifies as clean exit and longjmps
-    into `main_loop` via a late-entry label that skips the screen
-    clear (so the splash remains visible).  Eliminates the separate
-    "first prompt" code path.
-
-  - **`in_userland` flag.**  Single source of truth for "kernel or
-    user code currently running."  Owned by main.s.  Set by
-    `return_to_user`, cleared at BRK handler entry.  Read by
-    `cse_nmi_handler` to dispatch (swallow / break-into-debugger).
-
-  - **`setup_interrupts` — unified vector setup.**  Merges
-    `kernal_init` (trampolines) and `install_hooks` (RAM vector-table
-    patching) into one routine called *before any bank-out* in cold
-    init.  Direct stores to $0316/$0318/$FFFA/$FFFE.  Step 1 uses
-    hardcoded C64 addresses; step 2 (future) migrates the page-3
-    patches to KERNAL VECTOR for cross-kernal compatibility (R3).
-
-  - **Direct vector patching — no separate trampolines.**  $FFFA
-    and $FFFE RAM shadows point directly at the early-entry labels
-    of `cse_nmi_handler` / `cse_brk_handler`.  Reaching the
-    early-entry label is itself the signal that kernal was banked
-    out at the moment of interrupt.  Eliminates the trampolines at
-    $FF00 / $FF04 and the cold-init/exit NMI crash windows.
-
-  - **IRQ early-entry bank-out mechanism.**  When an IRQ fires while
-    kernal is banked out, `cse_brk_handler`'s early-entry path
-    (B=0) must bank kernal in, delegate to the kernal's IRQ body,
-    and route the kernal's RTI through a bank-out stub so the
-    interrupted code resumes with kernal banked back out.  Stack
-    surgery design TBD; reentrance under NMI considered.
-
-  - **Kernel stack-depth measurement.**  Empirical audit needed to
-    pin down the worst-case kernel stack consumption.  Two paths
-    matter:
-    1. **BRK-return path** — handler chain from BRK entry to
-       longjmp/step-chain.  Currently ~8 B; bounded reservation
-       in the contract.
-    2. **Deepest kernel chain reachable from a non-execution
-       command** — currently dominated by `asm_src` →
-       `asm_line` → `expr_eval` recursive descent.  This is the
-       reference point for "how deep can the kernel get on user's
-       behalf"; the user's headroom contract must accommodate
-       at least this much in case future debugger features (cond
-       BPs, trace BPs that print, watchpoints) invoke comparable
-       depth from the BRK handler tail.
-
-    Forms the basis for tightening the "user code must leave at
-    least 64 bytes" contract.  The 64 B is conservative-pending-
-    measurement; once the audit lands, refine to measured-plus-margin.
-
-  - **CSE re-entry stack-headroom warning.**  Once the
-    measurement above lands, add a runtime check at every BRK
-    handler entry: read user's SP from the BRK frame; if it
-    indicates insufficient headroom (SP < budget), log
-    `;!stk N` (N = actual headroom).  Pairs with the contract
-    tightening; gives users immediate feedback when their code
-    runs too close to the stack bottom and breaks.  Add a test
-    in `test_debugger.py` exercising the deepest kernel chain
-    reachable on the BRK return path against the budget.
-
-  - **VIC sanity reset (`vic_reset`).**  Force VIC into a
-    readable text-mode state on every userland → kernel transition
-    (display on, 25 rows, text mode, sprites off, raster IRQ off,
-    standard charset, scroll cleared).  ~20 bytes of straight
-    stores.  Pairs with the "user programs depending on raster
-    effects won't resume cleanly" contract clause.
-
-  - **SID silence at boundary.**  Clear voice gates ($D404/$D40B/$D412
-    bit 0) on userland → kernel transition.  Other SID register
-    values preserved.  ~6 bytes on the BRK handler path.
-
-  - **Userland contract document — published.**  See
+  - [x] ~~Stack contract — drop the two-image stack swap.~~  (flat
+    shared-stack; −512 B KBSS, ~−100 B CODE, ~−1500 cycles per
+    transition.)
+  - [x] ~~`return_to_userland` helper.~~  (in debugger.s; shares
+    `_rtu_body` with `restore_userland_state`.)
+  - [x] ~~`brk_stub` and clean userland exit.~~
+  - [x] ~~Cold-init userland handoff.~~  (splash stays on
+    `main_loop_no_clear` path.)
+  - [x] ~~`in_userland` flag.~~  ($80/0 convention for `bit/bmi`
+    dispatch; owned by main.s.)
+  - [x] ~~`setup_interrupts` — unified vector setup.~~  (direct
+    stores to $0316/$0318/$FFFA/$FFFE.)
+  - [x] ~~Direct vector patching — no separate trampolines.~~
+  - [x] ~~IRQ early-entry bank-out mechanism.~~  (`bank_out_stub`
+    in main.s; second-RTI-frame surgery.)
+  - [ ] Kernel stack-depth measurement.  Audit worst-case kernel
+    SP consumption on (a) BRK-return path and (b) asm_src →
+    asm_line → expr_eval chain.  Use the results to tighten the
+    64 B contract to measured-plus-margin.
+  - [ ] CSE re-entry stack-headroom warning.  Runtime check at
+    BRK handler entry: if user's SP < budget, log `;!stk N`.
+    Pairs with the measurement above.
+  - [x] ~~VIC sanity reset (`vic_reset`).~~  (in screen.s; called
+    from `hygiene_after_userland`.  $D011/$D015/$D016/$D018/$D019/
+    $D01A.)
+  - [ ] SID silence at boundary.  Clear voice gates ($D404/$D40B/
+    $D412 bit 0) in `hygiene_after_userland`.  Other SID register
+    values preserved.  ~6 bytes.
+  - [x] ~~Userland contract document — published.~~  See
     [userland_contract.md](userland_contract.md).  Three-tier state
     model, kernal-as-terminal affordance, vector/banking hazards.
 
-  Implementation must be incremental: multiple DDD cycles, each
-  covering one or two sub-items.  Do NOT collapse into a single
-  commit or session.
+  The two [ ] sub-items above (stack-depth measurement + headroom
+  warning, SID silence) are the only remaining Phase-18 tail work.
 
 - [ ] **Loader reverse-direction copy** (Phase 18 supporting work
   — see also the Architecture section's Loader item below).
@@ -321,32 +295,12 @@ Defined scope, needs work.
 - [ ] `m` address argument: accept expression (`m screen+40`).
   Currently plain 4-digit hex only.
 - [ ] New `S` command for scratching files. Requires confirmation.
-- [ ] VIC sanity reset on kernel/userland boundary.  Today CSE
-  only fixes border/background/foreground colors and color RAM
-  on debug entry — but user code can leave VIC in states that
-  make the REPL invisible or glitched: display off
-  (`$D011` bit 4 clear), hi-res / extended color mode, multicolor
-  text, scroll offsets, charset pointer in arbitrary RAM
-  (`$D018`), raster IRQ enabled and firing, sprites on top of
-  the text layer, etc.  The REPL has to be usable regardless of
-  what the user code did.
-  Add a `vic_reset` routine called on every user→kernel
-  transition (BRK handler, NMI-userland break, warm_start,
-  splash) that forces VIC into a known-readable state:
-    * `$D011 = $1B` — display on, 25 rows, text mode, no
-      extended color, no bitmap.
-    * `$D016 = $C8` — 40 cols, no multicolor, no smooth scroll.
-    * `$D018` — standard charset + screen RAM pointers.
-    * `$D015 = 0` — sprites disabled.
-    * `$D01A = 0` — raster/collision IRQs disabled.
-    * `$D019` — ack any pending IRQ.
-    * Scroll/offset registers cleared.
-  ~20 bytes of straight stores.  User programs that depend on
-  raster effects or sprites won't resume cleanly after a debug
-  entry; that's part of the contract.
-  Pairs with the userland contract clause "VIC state is CSE's
-  to establish; user programs using custom VIC setups will
-  need to re-arm on resume."
+- [x] ~~VIC sanity reset on kernel/userland boundary.~~ (done:
+  `vic_reset` in screen.s forces $D011=$1B, $D016=$C8, $D018=$15,
+  $D015=0, $D01A=0, $D019=$0F.  Called from `hygiene_after_userland`
+  on every break/resume cycle.  Future work: call from
+  `cse_warm_screen` too so ESC/CLR recovers from a kernel-resident
+  program that glitched VIC.)
 - [ ] SID silence: stop stuck notes when user code leaves SID running.
   Two complementary mechanisms:
   1. **REPL command** (probably one of the existing mnemonic-free
@@ -375,6 +329,10 @@ Defined scope, needs work.
   first, size second).  Currently `l` PRG stats prints `NNNb AAAA-EEEE`
   (size first).  Shared `print_prg_range` should use the same
   order as the assembler `; org` lines and the splash screen.
+- [ ] SHIFT+RETURN in REPL: clear the repeat buffer (so the next
+  RETURN starts empty instead of re-executing the last command) and
+  open a fresh prompt line.  Useful for breaking out of a repeated
+  `t`/`RETURN` stepping rhythm without having to type a cancel.
 - [ ] `e` command: open editor at decimal line number (`e 42`).
   Centers the target line on screen as much as possible.  Ties
   into assembler error line numbers — assemble, see error at

@@ -1,4 +1,4 @@
-# mem — Memory manager: banking, segment queries, workspace symbols
+# mem — Memory manager: banking, ZP save/restore, segment queries, workspace symbols
 
 **Template:** [module](../templates/module.md)
 
@@ -24,6 +24,27 @@ No-op when `kernal_out` flag is set (batch caller managing banking).
 
 No-op when `kernal_out` flag is set.
 
+### save_userland_zp / restore_userland_zp / save_kernel_zp / restore_kernel_zp
+**In:** none
+**Out:** matching 128-byte ZP buffer mirrors live $00..$7F (save
+variants) or vice versa (restore variants).  save variants leave
+live $00=$FF as a postcondition (documented side effect of the
+single-pass DDR-stash pattern).
+**Clobbers:** A, X (save variants also clobber Y).
+
+Four CPU-port-aware primitives that swap live ZP against
+`userland_zp_buf` / `kernel_zp_buf`.  See the CPU-port protocol
+note at the top of the save/restore procs in `mem.s` for the
+full rationale (DDR masking, single-pass save with Y-stash,
+backwards restore with DDR=$FF).
+
+Called by `debugger.s`:
+- `save_userland_state` invokes `save_userland_zp` +
+  `restore_kernel_zp` (exit: capture user ZP, restore kernel ZP).
+- `_rtu_body` (shared by `return_to_userland` and
+  `restore_userland_state`) invokes `save_kernel_zp` +
+  `restore_userland_zp` (entry: capture kernel ZP, restore user ZP).
+
 ### cse_start
 **In:** none
 **Out:** A/X = `__CODE_RUN__` (runtime start address)
@@ -47,6 +68,8 @@ in the symbol table via `sym_define`
 | Variable | Size | Segment | Purpose |
 |----------|------|---------|---------|
 | `kernal_out` | 1 | BSS | Nonzero = KERNAL held banked out (batch mode) |
+| `userland_zp_buf` | 128 | BSS | User's $00..$7F snapshot (captured on userland exit) |
+| `kernel_zp_buf` | 128 | BSS | Kernel's $00..$7F snapshot (captured on userland entry) |
 
 **Depends on:** zp (buf_base), symtab (sym_define, sym_name, sym_val, sym_wide),
 strings (s_workstart, s_workend)
@@ -72,17 +95,58 @@ init:
 
 - $0316/$0317 (IBRK)  → `cse_brk_handler` (kernal-in entry)
 - $0318/$0319 (INMIV) → `cse_nmi_handler` (kernal-in entry)
-- $FFFA/$FFFB (NMI shadow under kernal ROM)     → `cse_nmi_handler` early-entry label
-- $FFFE/$FFFF (IRQ/BRK shadow under kernal ROM) → `cse_brk_handler` early-entry label
+- $FFFA/$FFFB (NMI shadow under kernal ROM)     → `cse_nmi_handler` (direct)
+- $FFFE/$FFFF (IRQ/BRK shadow under kernal ROM) → `cse_brk_handler_early`
 
-There are no separate trampolines at $FF00 / $FF04.  The
-early-entry prologues are part of the handler bodies in main.s
-and execute only when the CPU read the vector from RAM (i.e.
-when kernal was banked out at the moment of interrupt).
+There are no separate trampolines at $FF00 / $FF04.  The BRK
+early-entry prologue is part of the handler body in main.s and
+executes only when the CPU read the vector from RAM (i.e. when
+kernal was banked out at the moment of interrupt).  NMI needs no
+early-entry shim: the 6502 sets I=1 as part of the NMI vector
+sequence, so IRQ interleaving is already prevented.
 
 See [main.md](main.md) for handler details and [memory_design.md
 § Stack contract](../memory_design.md#stack-contract) for the
 overall kernel↔userland model.
+
+### CPU-port aware ZP save/restore
+
+The `save_userland_zp` / `restore_userland_zp` / `save_kernel_zp`
+/ `restore_kernel_zp` primitives preserve/restore ZP $00..$7F
+across kernel↔userland transitions.  $00 (CPU port DDR) and
+$01 (data) need special handling because bits configured as
+input by $00 read external state, not the value the CPU wrote.
+
+**Save (single-pass DDR stash):**
+```
+ldy $00              ; snapshot current DDR
+lda #$FF / sta $00   ; DDR := all-output (unmask $01)
+ldx #$7F
+@loop: lda $00,x / sta buf,x / dex / bpl @loop
+sty buf              ; overwrite buf[$00] (transient $FF) with saved DDR
+```
+During the loop, x=$01 reads $01 with every bit CPU-driven
+(DDR=$FF), so `buf[$01]` gets the fully latched byte.  The
+loop's x=$00 iteration captures the transient $FF; the `sty`
+overwrites it with the real DDR.  Postcondition: live $00 = $FF.
+
+**Restore (backwards copy, DDR=$FF inherited from prior save):**
+```
+ldx #$7F
+@loop: lda buf,x / sta $00,x / dex / bpl @loop
+```
+Precondition: live $00 = $FF (postcondition of the paired
+`save_*_zp`, which is the only legitimate predecessor).
+Backwards iteration writes `buf[$01]` (x=$01) while DDR=$FF —
+full latch.  Then writes `buf[$00]` (x=$0, LAST) — re-applies
+the target DDR mask after data bits are set.  No redundant
+`lda #$FF / sta $00` at entry: a belt-and-suspenders write
+would only mask a regressed save postcondition.
+
+**Bootstrap seed:** `debugger.s::dbg_init` pre-seeds both
+buffers with `$00=$2F` / `$01=$36` so the first return_to_userland
+(before any userland has populated `userland_zp_buf`) doesn't
+restore zeros into the live CPU port.
 
 ### Workspace symbols
 

@@ -158,7 +158,7 @@ The full contract is documented in
 summarises the key obligations for orientation.
 
 User code is any program executed via `j`, `g`, `t`, `o`, or `c`.
-It runs in CSE's execution context via `return_to_user` (debugger.s),
+It runs in CSE's execution context via `return_to_userland` (debugger.s),
 sharing the 6502 hardware stack and the kernal environment.
 
 **User code may clobber:**
@@ -199,7 +199,7 @@ screen, ESC or CLR from the REPL restores the CSE display.
 Colors changed by user code are restored on return.
 
 **Memory config ($01):** $01 is part of the ZP save range ($00–$7F),
-so it round-trips via `zp_save_buf` across every user-code run.
+so it round-trips via `kernel_zp_buf` across every user-code run.
 User code may freely change $01 (e.g. to bank in BASIC ROM or
 access I/O directly), but must not combine $01 changes with
 $FFFE/$FFFA vector changes that route to non-CSE handlers — see
@@ -281,7 +281,9 @@ regions are zeroed (no PRG space required).
     $F4F2-$F8D9  KBSS: REPL screen save buffer (1000 B)
     $F8DA-$F958  KBSS: cold-init ZP snapshot (127 B, $01-$7F)
     $F959-$FFF9  Free (1697 B)
-    $FFFA-$FFFB  NMI vector → cse_nmi_handler early-entry label
+    $FFFA-$FFFB  NMI vector → cse_nmi_handler (direct — the 6502 sets
+                 I=1 as part of the NMI vector sequence, so no SEI
+                 shim is needed)
     $FFFC-$FFFD  Reset vector (untouched — ROM value)
     $FFFE-$FFFF  IRQ/BRK vector → cse_brk_handler early-entry label
 
@@ -315,10 +317,10 @@ reads bytes below the current user SP.
    the single source of truth for "kernel or user code currently
    running" and drives NMI dispatch.
 
-### Entry (kernel → user): `return_to_user`
+### Entry (kernel → user): `return_to_userland`
 
 ```
-return_to_user:
+return_to_userland:
   1. lda reg_p            ; user's saved P
   2. ora #$04             ; ensure I=0 from user's view? no — preserve user's I
                           ; (in practice, kernel masks P transport bits and
@@ -379,8 +381,8 @@ cse_brk_handler:
 
 The longjmp at step 6 discards every byte on the stack between the
 BRK frame and the kernel's main_loop entry SP.  Anything the kernel
-had pushed before `return_to_user` is *not used* on the return path:
-the BRK handler does not return to "after return_to_user" — it
+had pushed before `return_to_userland` is *not used* on the return path:
+the BRK handler does not return to "after return_to_userland" — it
 restarts the REPL loop afresh, displays the break result, and
 prompts again.
 
@@ -436,8 +438,8 @@ This shares cold init's post-init code path with userland recovery
 
 The kernel's worst-case stack consumption is bounded by two paths:
 
-- **Forward path** (main_loop top → return_to_user):
-  `main_loop → exec_line → cmd_X → [helper chain] → return_to_user`.
+- **Forward path** (main_loop top → return_to_userland):
+  `main_loop → exec_line → cmd_X → [helper chain] → return_to_userland`.
   Currently ~10 B for execution commands.
 - **BRK-return path** (BRK hardware/KERNAL push + handler chain
   before longjmp / step-chain): currently ~8 B above user's SP.
@@ -468,7 +470,7 @@ at BRK-handler entry).  See [userland_contract.md § 4](userland_contract.md#4-s
 ### User stack budget
 
 User code sees ~240 bytes of free stack on first entry (256 −
-kernel chain at return_to_user − sentinel − RTI frame).  User code
+kernel chain at return_to_userland − sentinel − RTI frame).  User code
 that resets SP to $FF and provides its own top-level return path
 gets the full 256 bytes; the brk_stub sentinel is then overwritten
 and the user's RTS must land somewhere meaningful explicitly.
@@ -669,7 +671,7 @@ blocked by cross-module calls.  No code change.
 | **Total BSS reclaimable** | | | | **~105 B** | |
 
 **Completed optimizations:**
-- `_zp_save_buf` trimmed: $5E → $5A (4B BSS saved)
+- `_kernel_zp_buf` trimmed: $5E → $5A (4B BSS saved)
 - Parameter stack eliminated: `pushax`/`cse_popax`/`sp` removed,
   all multi-arg calls use ZP variables
 - Symbol table doubled: 128 → 256 slots, moved to $E000 under KERNAL

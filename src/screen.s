@@ -8,6 +8,7 @@
         .export cursor_show, cursor_hide
         .export theme_border, theme_bg, theme_fg
         .export theme_init
+        .export vic_reset
         .import io_puts, io_sync, io_color
         .import scr_lo, scr_hi
         .import _io_scr_setup
@@ -23,6 +24,12 @@ dst_ptr = $FD           ; 2 bytes
 ; ── C64 hardware ─────────────────────────────────────────
 SCREEN    = $0400
 COLOR_RAM = $D800
+VIC_CR1    = $D011        ; DEN/BMM/ECM/RSEL/YSCROLL
+VIC_SP_EN  = $D015        ; sprite enable mask
+VIC_CR2    = $D016        ; RES/MCM/CSEL/XSCROLL
+VIC_MEMCTL = $D018        ; screen + charset base
+VIC_IRR    = $D019        ; interrupt latch (write to ack)
+VIC_IMR    = $D01A        ; interrupt mask
 VIC_BRD   = $D020
 VIC_BG    = $D021
 CUR_COL   = $D3
@@ -99,6 +106,35 @@ theme_fg:     .res 1
         sta COLOR_RAM+$300,x
         inx
         bne @fill
+        rts
+.endproc
+
+; ═════════════════════════════════════════════════════════
+; vic_reset — force VIC into a known-readable text-mode state.
+; Called on every userland → kernel transition so user code
+; that left VIC in bitmap/multicolor/extended-color mode, with
+; the display blanked, sprites on, the screen pointer moved,
+; or a raster IRQ firing doesn't leave the REPL unreadable.
+; Color RAM and CHROUT colour are (re)applied by restore_colors;
+; this routine only handles the mode registers.
+; Clobbers: A.
+; ═════════════════════════════════════════════════════════
+.proc vic_reset
+        lda #$1B
+        sta VIC_CR1             ; DEN=1, RSEL=25, text, no ECM/BMM, YSCROLL=3
+        lda #$C8
+        sta VIC_CR2             ; CSEL=40, no MCM, XSCROLL=0
+        lda #$16
+        sta VIC_MEMCTL          ; VM=$0400, CB=011 → charset $1800 in VIC
+                                ;   bank 0 = char ROM $D800 = lowercase/
+                                ;   uppercase font.  $14/$15 would select
+                                ;   $D000 = uppercase/graphics — not what
+                                ;   CSE wants.
+        lda #0
+        sta VIC_SP_EN           ; sprites off
+        sta VIC_IMR             ; no raster/collision IRQs
+        lda #$0F
+        sta VIC_IRR             ; ack any latched IRQ flags
         rts
 .endproc
 

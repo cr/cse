@@ -22,8 +22,6 @@
         .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
         .export _io_scr_setup   ; shared row pointer setup (used by screen.s)
 
-        .export nmi_pending
-
         .export dec_pow_lo, dec_pow_hi
 
 COLS    = 40
@@ -48,7 +46,6 @@ SID_VOL        = $D418
 .segment "BSS"
 io_color: .res 1       ; text color for screen clears
 dec_buf:  .res 6       ; io_utoa: 5-digit PETSCII decimal + NUL
-nmi_pending: .res 1    ; NMI flag — set by nmi_handler, read by main loop
 
 ; ── RODATA ──────────────────────────────────────────────────
 .segment "RODATA"
@@ -80,8 +77,9 @@ io_init:
         sta $CC                 ; KERNAL cursor off — required invariant
         rts
 
-; NMI handler has moved to main.s (cse_nmi_handler).
-; nmi_pending BSS flag remains here — main.s imports it.
+; NMI handler lives in main.s (cse_nmi_handler); the Phase-18
+; swallow-in-kernel model eliminated the nmi_pending flag that
+; formerly lived here.
 
 ; ── _io_scr_setup — set _io_scr to screen line address for CUR_ROW ───
 ; Clobbers A, X.

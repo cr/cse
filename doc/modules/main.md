@@ -16,7 +16,7 @@
   `main_loop`.
 - `state` — exported BSS byte: 0=STOP, 1=REPL, 2=EDIT
 - `in_userland` — exported BSS byte: 1 = user code is currently
-  running, 0 = kernel.  Set by `return_to_user` (debugger.s),
+  running, 0 = kernel.  Set by `return_to_userland` (debugger.s),
   cleared on BRK handler entry.  Read by `cse_nmi_handler` to
   pick its dispatch (swallow vs. break-into-debugger).
 
@@ -52,7 +52,7 @@ The unified BRK dispatcher.  Classifies the BRK source and routes:
 After classification, the handler captures user state into the
 `reg_*` shadows (debugger.s), clears `in_userland`, runs `vic_reset`
 and SID voice-gate clear, calls `unpatch_all` and restores CSE ZP
-from `zp_save_buf`, then performs the longjmp:
+from `kernel_zp_buf`, then performs the longjmp:
 
 ```
         ldx kernel_init_sp
@@ -97,21 +97,30 @@ binding.
 patched to point at handler labels
 **Clobbers:** A, X
 
-Called once during cold init, **before any bank-out**.  Replaces
-the older split between `kernal_init` (trampolines) and
-`install_hooks` (RAM vector-table patching).
+Called once during cold init, **before any bank-out**.  Also
+re-called by `cse_warm_start` for idempotent recovery.
 
 | Vector | Address | Patched to |
 |--------|---------|------------|
 | IBRK | $0316/$0317 | `cse_brk_handler` (kernal-in entry) |
 | INMIV | $0318/$0319 | `cse_nmi_handler` (kernal-in entry) |
-| NMI shadow | $FFFA/$FFFB | `cse_nmi_handler` early-entry label |
-| IRQ/BRK shadow | $FFFE/$FFFF | `cse_brk_handler` early-entry label |
+| NMI shadow | $FFFA/$FFFB | `cse_nmi_handler` (direct — see note) |
+| IRQ/BRK shadow | $FFFE/$FFFF | `cse_brk_handler_early` |
 
 Direct stores; no kernal VECTOR call (step 1 of the design — see
 `doc/design_cse_as_kernel.md` § 6).  A future step 2 may migrate
 the $0316/$0318 patches to use `KERNAL_VECTOR` ($FF8D) for
 cross-kernal compatibility (R3 universal C64/C128 binary).
+
+**No NMI early-entry shim.**  BRK's early-entry does real work
+(`bank_out_stub` insertion when $FFFE fires as IRQ with kernal
+banked out — see `cse_brk_handler_early`).  NMI has no such need:
+the 6502 hardware sets I=1 as part of the NMI vector sequence
+(push PC, push P with B=0, **set I**, fetch $FFFA), so IRQs are
+already masked when the handler runs.  Both entry paths (kernal-in
+via KERNAL's $FE43 dispatch through $0318, kernal-out via direct
+$FFFA fetch) land at the same `cse_nmi_handler` label with the
+same stack shape.
 
 ### Memory
 
@@ -152,17 +161,17 @@ Runs once after `loader.s` jumps to `_main`.  Sequence:
 6. `define_ws_syms` (workspace symbols for assembler).
 7. Fill free memory with $00.
 8. Draw splash screen.
-9. **Cold-init userland handoff** — synthesise a userland-shaped
-   RTI frame whose PC = `brk_stub`, push the brk_stub-1 sentinel
-   below it, set `in_userland = 1`, RTI.  This BRKs immediately
-   into `cse_brk_handler`, which classifies "PC == brk_stub" as
-   a clean exit and longjmps into `main_loop` via the warm-start
-   tail's late-entry label (skipping the screen clear so the
-   splash remains visible).
+9. Capture `kernel_init_sp` (fault-recovery setjmp target), then
+   `jmp main_loop_no_clear` — enter the REPL with splash still
+   visible.  Prompt is drawn by `main_loop_top`'s `show_prompt`
+   call.
 
-The cold path shares its tail with userland-recovery: cold init
-≡ "first RTS from a zero-cost user program."  No separate
-"first prompt" code path.
+A cold-init BRK-into-kernel handoff was considered (would share
+the first-prompt code path with userland clean-exit recovery)
+but not implemented: unnecessary failure surface at startup.
+`dbg_init` instead pre-seeds `userland_zp_buf` and `kernel_zp_buf`
+with the CPU-port default ($00=$2F, $01=$36) so the first user
+entry via `return_to_userland` has sane banking.
 
 #### Layer 2: `setup_interrupts`
 
@@ -214,7 +223,7 @@ main_loop_top:
 
 For non-execution commands, `exec_line` returns normally and the
 loop re-iterates.  For execution commands (`j`, `g`, `c`, `t`,
-`o`), `exec_line`'s handler eventually calls `return_to_user`
+`o`), `exec_line`'s handler eventually calls `return_to_userland`
 which RTIs into user code; control comes back via
 `cse_brk_handler`'s longjmp to `main_loop_top`.
 
@@ -400,8 +409,8 @@ Handled by `ed_handle_key()`.  See [editor.md](editor.md).
   but classification logic for BRK source delegates to
   `dbg_bp_find` (debugger.s).
 - `cse_brk_handler`'s longjmp to `main_loop_top` discards the
-  kernel's pre-`return_to_user` stack frames.  This is by design:
-  `return_to_user` is the last statement in its caller's effective
+  kernel's pre-`return_to_userland` stack frames.  This is by design:
+  `return_to_userland` is the last statement in its caller's effective
   control flow — there is nothing for the kernel to return to.
 - `src_top`/`src_bot` are owned by editor.s.
 - `ed_ensure_init` is called at startup to initialize the gap

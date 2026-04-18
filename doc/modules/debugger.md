@@ -6,11 +6,11 @@
 
 | File | Role |
 |------|------|
-| [`src/debugger.s`](../../src/debugger.s) | implementation: return_to_user, brk_stub, breakpoint table, step logic |
+| [`src/debugger.s`](../../src/debugger.s) | implementation: return_to_userland, brk_stub, breakpoint table, step logic |
 | [`tests/test_debugger.py`](../../tests/test_debugger.py) | test contract |
 
 The debugger is the kernel's **userland gateway**.  It owns the
-`return_to_user` helper (the one place that synthesizes RTI frames
+`return_to_userland` helper (the one place that synthesizes RTI frames
 into user code) and the `brk_stub` (the fixed code address user's
 top-level RTS lands at).  All BRK/NMI dispatch is owned by main.s
 and lives in `cse_brk_handler` / `cse_nmi_handler`.
@@ -21,44 +21,50 @@ and [userland_contract.md](../userland_contract.md).
 
 ## Interface
 
-### return_to_user
+### return_to_userland
 **In:** `reg_a`, `reg_x`, `reg_y`, `reg_p`, `brk_pc` populated
 with the user state to install.
 **Out:** does not return — RTIs into user code at `brk_pc`.
 **Clobbers:** all (control transfers to user)
 
-The single shared kernel→userland helper, used by `cmd_jmp`
-(`j`/`g`), `cmd_continue` (`c`), and `cmd_step` (`t`/`o`), as
-well as the BRK handler's step-chain tail (see
-§ cmd_step — handler-resident state machine).
+The single shared kernel→userland wrapper, used by `cmd_jmp`
+(`j`/`g`) and `cmd_continue` (`c`).  `return_to_userland` pushes a
+fresh `brk_stub - 1` sentinel before falling into the shared
+body (`restore_userland_state`).  The step-chain tail and `t`/`o`
+resume paths jump to `restore_userland_state` directly — no new
+sentinel (the one from the initial fresh start is still valid).
 
-Sequence:
+Sequence (via `_rtu_body`, shared between `return_to_userland` and
+`restore_userland_state`):
 
-1. **Save kernel ZP** ($00–$7F → `zp_save_buf`) — the next user
-   instruction may clobber the entire CSE half.
-2. **Patch all breakpoints** (`patch_all`) — both regular slots
-   and any armed step-BRK slots.
-3. Push `>brk_stub - 1` then `<brk_stub - 1` — user's top-level
-   RTS sentinel.
-4. Push `reg_p`, `reg_pc_hi`, `reg_pc_lo` — RTI frame.
-5. Set `in_userland = 1`.
-6. Load A/X/Y from `reg_a`/`reg_x`/`reg_y`.
-7. RTI.
+1. `patch_all` — write $00 at every armed bp/step slot.
+2. `save_kernel_zp` (mem.s) — live ZP → `kernel_zp_buf`,
+   single-pass DDR-stash (see mem.s § CPU-port aware ZP
+   save/restore).
+3. `restore_userland_zp` (mem.s) — `userland_zp_buf` → live ZP,
+   DDR=$FF-first backwards copy.
+4. `ldx reg_sp / txs` — switch SP to user's saved SP.
+5. (return_to_userland only) push sentinel (PCH then PCL of
+   `brk_stub - 1`).
+6. Push RTI frame — PCH, PCL, P (in that push order, so RTI
+   pops them back as P, PCL, PCH).
+7. `sta in_userland` = $80 (bit 7 set — the convention required
+   by `cse_nmi_handler`'s A-independent `bit / bmi` test).
+8. Load A/X/Y from `reg_a` / `reg_x` / `reg_y`.
+9. `rti` — CPU pops P/PCL/PCH, jumps to user's PC.
 
-The CPU pops the RTI frame, jumps to user's PC, and runs.
-
-ZP save and breakpoint-patch live INSIDE `return_to_user` (rather
-than in callers) so every kernel→userland transition is symmetric
-with the BRK handler's restore-and-unpatch tail.  This makes the
-transition primitives the single source of truth for the bracket
-contract.
+ZP swap and `patch_all` live INSIDE the shared body (rather than
+in callers) so every kernel→userland transition is symmetric
+with the BRK handler's `save_userland_state` / `unpatch_all`.
+This makes the transition primitives the single source of truth
+for the bracket contract.
 
 ### brk_stub
 **Address:** stable code label, exported.
 
 A 1-byte `BRK` instruction (opcode $00) followed by a 1-byte
 signature.  When user code performs its top-level RTS, it pops
-the (brk_stub-1) sentinel pre-pushed by `return_to_user`, lands at
+the (brk_stub-1) sentinel pre-pushed by `return_to_userland`, lands at
 `brk_stub`, and the BRK fires immediately.
 
 The BRK handler classifies (PC-2 == brk_stub) as a clean userland
@@ -71,37 +77,27 @@ exit and sets `dbg_reason = 0`.
 
 Called at startup and on warm-start recovery.
 
-### dbg_brk_capture (called from cse_brk_handler)
-**In:** entered from `cse_brk_handler` after B-flag dispatch and
-after `in_userland` is cleared.  Stack contains KERNAL push of
-Y/X/A and CPU push of P/PChi/PClo.
-**Out:** `reg_a/x/y/p/sp`, `brk_pc`, `dbg_reason`, `dbg_bp_hit`
-populated; `user_zp_buf` snapshot taken.  Returns to
-`cse_brk_handler` continuation, which performs **unpatch_all +
-ZP restore from `zp_save_buf` + longjmp to `main_loop_top`**.
-**Clobbers:** A, X, Y
+### save_userland_state / restore_userland_state
+The two complementary gate primitives for userland ↔ kernel
+transitions.  Both operate on stack-resident regs, the ZP
+save/restore buffers in mem.s, and `in_userland`.
 
-Extracts user registers from the KERNAL stack frame (Y, X, A, P,
-PChi, PClo at fixed offsets from SP).  Computes `brk_pc =
-pushed_PC − 2` and `reg_sp = SP + 6` (user's pre-BRK SP).  Masks
-the captured P with `#%11011111` — clearing bit 5 (hardware
-transport artefact), keeping bit 4 (B = 1 marks a BRK).  Calls
-`snap_user_zp` to save user's $00–$7F into `user_zp_buf` (so
-`m`/`.` REPL commands can read user ZP after the break).  Calls
-`dbg_bp_find` to identify which breakpoint slot was hit (or marks
-$FF for clean-exit / unplanned BRK).
+**save_userland_state** (called from `cse_brk_handler` /
+`cse_nmi_handler` after dispatch and after `in_userland` is
+cleared).  Extracts Y/X/A/P/PCL/PCH from the stacked BRK+KERNAL
+frame into `reg_*` / `brk_pc`, computes `reg_sp = SP + 8` (the
+BRK frame's 6 bytes + the 2-byte jsr return that reached
+save_userland_state), then calls `save_userland_zp` (capture user
+ZP) and `restore_kernel_zp` (both in mem.s — see the CPU-port
+protocol note there).  Raw P is stored; BRK-vs-NMI masking of P
+and the `brk_pc` −= 2 adjust (BRK only) happen in the calling
+handler, because the masks differ by source.
 
-### dbg_nmi_capture (called from cse_nmi_handler@break_user)
-**In:** A/X/Y already stashed in `reg_a/x/y` by the NMI handler;
-stack contains CPU push of P/PChi/PClo.  `in_userland` is being
-cleared.
-**Out:** `reg_p`, `brk_pc`, `reg_sp` populated; `dbg_reason =
-DBG_NMI`; `dbg_bp_hit = $FF`.  Returns to `cse_brk_handler`
-continuation tail.
-**Clobbers:** A, X, Y
-
-Reads P/PC from the NMI frame, masks P with `#%11001111` (clear
-bits 5 and 4 — PHP semantics, no actual BRK).
+**restore_userland_state** (called from main_loop's dispatch
+after a resume command, and from the BRK handler's step-chain
+body) — the shared body `_rtu_body` above.  Does the full
+kernel → userland reinstall in the sequence documented in the
+return_to_userland Sequence list.
 
 ### dbg_bp_set
 **In:** A/X = address (lo/hi)
@@ -133,12 +129,12 @@ Used by the BRK handler to identify which breakpoint slot was hit.
 ### REPL (repl.s command handlers)
 
 - `cmd_jmp(args)` — `j`/`g` commands: populate `reg_*`, call
-  `return_to_user`.
-- `cmd_continue` — `c` command: re-call `return_to_user` with
+  `return_to_userland`.
+- `cmd_continue` — `c` command: re-call `return_to_userland` with
   the saved state from the previous break.
 - `cmd_brk(args)` — `b` command: set, list, or delete breakpoints.
 - `cmd_step(args, is_next)` — `t`/`o` commands: arm step BRKs,
-  call `return_to_user`, repeat until count exhausted.
+  call `return_to_userland`, repeat until count exhausted.
 
 **State:**
 - `bp_table` — 8 breakpoint slots (see § Breakpoint table)
@@ -203,10 +199,10 @@ CSE is structured as a kernel; transitions are RTI/BRK-driven and
 flat.  See [memory_design.md § Stack contract](../memory_design.md#stack-contract)
 for the full contract.
 
-**Kernel → userland (return_to_user):**
+**Kernel → userland (return_to_userland):**
 
 ```
-return_to_user:
+return_to_userland:
         ; push user's top-level RTS sentinel
         lda #>(brk_stub - 1)
         pha
@@ -314,8 +310,8 @@ recovery — ESC/CLR is the user's binding for that.
 
 | Component | Size | Location | Notes |
 |-----------|------|----------|-------|
-| ZP $00–$7F | 128 B | `zp_save_buf` (BSS) | CSE's ZP image; restored on next return_to_user. |
-| ZP $00–$7F | 128 B | `user_zp_buf` (BSS) | User's ZP snapshot (`m`/`.` read from here). |
+| ZP $00–$7F | 128 B | `kernel_zp_buf` (BSS) | CSE's ZP image; restored on next return_to_userland. |
+| ZP $00–$7F | 128 B | `userland_zp_buf` (BSS) | User's ZP snapshot (`m`/`.` read from here). |
 | Registers (A,X,Y,P) | 4 B | `reg_a/x/y/p` (BSS) | |
 | Stack pointer | 1 B | `reg_sp` (BSS) | User's SP at break |
 | PC | 2 B | `brk_pc` (BSS) | (= `reg_pc_lo/hi`) |
@@ -361,9 +357,9 @@ breakpoint addresses.
 1. Read opcode at brk_pc; compute next-PC(s) (see below).
 2. Place temp BRK(s) in step_bp slots; arm.
 3. step_state := 1 or 2; step_remaining := N - 1.
-4. jsr return_to_user → RTI to user → user runs one instruction →
+4. jsr return_to_userland → RTI to user → user runs one instruction →
    BRK fires at next-PC.
-   (return_to_user does not return to here; control resumes via
+   (return_to_userland does not return to here; control resumes via
    the BRK handler.)
 ```
 
@@ -377,12 +373,12 @@ if dbg_bp_hit ∈ step_bp slots and step_remaining > 0
         compute next-PC(s) from current brk_pc (re-using the
           same dispatch logic as cmd_step's seed)
         place new step BRK(s)
-        ; tail call return_to_user (it pushes RTI frame and RTIs)
-        jmp return_to_user
+        ; tail call return_to_userland (it pushes RTI frame and RTIs)
+        jmp return_to_userland
 else:
         ; done — show result and longjmp to REPL
         unpatch_all
-        restore CSE ZP from zp_save_buf
+        restore CSE ZP from kernel_zp_buf
         ldx kernel_init_sp; txs
         jmp main_loop_top      ; show_break_result runs from REPL
 ```
@@ -410,10 +406,10 @@ fall-through step BRK.
 **SP discipline during chaining:**
 
 Each iteration's stack consumption is bounded by the BRK handler's
-own depth + return_to_user's pushes, NOT by accumulation across
+own depth + return_to_userland's pushes, NOT by accumulation across
 iterations.  The handler's `unpatch_all`-on-exit branch happens
 only at chain termination; during chaining, the handler tail-jumps
-to `return_to_user` while still inside its own first-call frame.
+to `return_to_userland` while still inside its own first-call frame.
 
 This means stepping `t 100` consumes the same kernel stack budget
 as `t 1` — no SP creep.
@@ -473,12 +469,12 @@ JSR into the user's own code there steps in normally.
 
 ### User code output and the prompt row
 
-`return_to_user` does NOT save/restore `CUR_ROW`/`CUR_COL` across
+`return_to_userland` does NOT save/restore `CUR_ROW`/`CUR_COL` across
 user code execution.  Instead, the CALLER is responsible for moving
 the cursor to a fresh row before invoking it:
 
 - **`cmd_jmp` (j/g):** does `newline` + `io_clear_eol` once before
-  `return_to_user`.  User CHROUT output then writes to the row below
+  `return_to_userland`.  User CHROUT output then writes to the row below
   the typed command, not on top of it.  When the user code returns,
   the cursor is wherever the user code left it; `nl_clear` advances
   one more row, and `show_prompt` writes the new prompt there.
@@ -582,7 +578,7 @@ j [ADDR]        start execution at ADDR (default: cur_addr)
 ```
 
 Populates `reg_pc` from ADDR (or `cur_addr`) and calls
-`return_to_user`.  When breakpoints exist, they are patched
+`return_to_userland`.  When breakpoints exist, they are patched
 into user memory before transfer; `cse_brk_handler` unpatches
 on return.
 
@@ -605,7 +601,7 @@ r a:XX x:XX y:XX s:XX NvBdizc    set registers
 ```
 
 Register modifications via `r` between a break and `c`/`t`/`o`
-are applied when execution resumes (next call to `return_to_user`
+are applied when execution resumes (next call to `return_to_userland`
 reads the updated `reg_*` shadows).
 
 ## Workflow Examples
@@ -678,7 +674,7 @@ if needed.
 
 | Component | Bytes | Segment |
 |-----------|-------|---------|
-| return_to_user | ~30 | CODE |
+| return_to_userland | ~30 | CODE |
 | brk_stub | 2 | CODE |
 | Breakpoint patch/unpatch (combined loop) | ~50 | CODE |
 | Breakpoint table management | ~100 | CODE |
@@ -703,10 +699,10 @@ Phase 18 net delta vs. two-image swap design:
   contract is "user must leave 64 bytes of headroom for kernel
   re-entry on break."  See
   [userland_contract.md § 4](../userland_contract.md#4-stack-contract).
-- **`return_to_user` does not return.**  Control transfers to user
+- **`return_to_userland` does not return.**  Control transfers to user
   code via RTI; the next time the kernel runs, it's via
   `cse_brk_handler`'s longjmp to `main_loop_top`.  Callers cannot
-  rely on instructions placed after `return_to_user` running on
+  rely on instructions placed after `return_to_userland` running on
   the user-bound code path.
 - **`dbg_init` runs at cold init**, before the cold-init userland
   handoff.  `reg_a/x/y/p` must be initialised to clean defaults

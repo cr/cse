@@ -693,8 +693,18 @@ seg_print_save:
         jsr io_puts
 @name_done:
         puts s_save_q_sp        ; "" $"
+        ; _max_pc is the first byte PAST the assembled range (exclusive
+        ; end).  The `s` command uses the INCLUSIVE-end convention for
+        ; its address argument, matching the `; TAG AAAA-BBBB NNNb`
+        ; segment summary lines, so print _max_pc - 1.
         lda _max_pc
-        ldx _max_pc+1
+        sec
+        sbc #1
+        pha
+        lda _max_pc+1
+        sbc #0
+        tax
+        pla
         jsr io_puthex4
         jsr io_clear_eol
         jmp newline             ; advance so prompt goes on next row

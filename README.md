@@ -171,8 +171,10 @@ can't collide in the CBM DOS directory.
 - Bare `s` or `l` (no string) reuses the last project name (default `out`).
 
 PRG save addresses: one arg is end (start = cur_addr); two args are
-start and end.  If end ≤ start, end is treated as length
-(end := start + end).  End = 0 means default to `start + block_size`.
+start and end.  **End is inclusive** — `s "proj" $1000 $2000` saves
+bytes `$1000..$2000` inclusive, i.e. `$1001` bytes.  If end ≤ start,
+the arg is treated as a length (size = end).  End = 0 defaults the
+size to `block_size`.
 
 ### Utility
 

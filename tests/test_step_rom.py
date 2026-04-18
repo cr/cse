@@ -12,41 +12,33 @@ import pytest
 from c64emu import C64Emu
 
 USER_CODE = 0x3000   # address where we place the test JSR
-SNAP_ADDR = 0x3F00   # step_bp snapshot captured by patched dbg_enter
 
 
 def _run_step(cse_prg, target_lo, target_hi):
     """Set up a JSR at USER_CODE, run 't1' via exec_line, return the
-    step_bp address that cmd_step armed before dbg_enter."""
+    step_bp[0] address that cmd_step armed.
+
+    Under the Phase-18 handler-resident model cmd_step rts's back up
+    the jsr chain after arming step_bp; main_loop would then jmp to
+    return_to_userland at top level.  In this test we stop at the exec_line
+    rts (no main_loop) and observe step_bp[0] directly.
+    """
     prg, map_path = cse_prg
     emu = C64Emu()
     emu.load_prg(prg, map_path)
     emu.init_cse()
 
-    # Patch dbg_enter: snapshot step_bp[0..1] → SNAP_ADDR, then
-    # clear dbg_reason + set dbg_bp_hit=$FF + RTS.
-    dbg_enter = emu.sym("dbg_enter")
     sb = emu.sym("step_bp")
     dr = emu.sym("dbg_reason")
     bh = emu.sym("dbg_bp_hit")
-    patch = [
-        0xAD, sb & 0xFF, sb >> 8,                       # LDA step_bp
-        0x8D, SNAP_ADDR & 0xFF, SNAP_ADDR >> 8,         # STA SNAP_ADDR
-        0xAD, (sb+1) & 0xFF, (sb+1) >> 8,               # LDA step_bp+1
-        0x8D, (SNAP_ADDR+1) & 0xFF, (SNAP_ADDR+1) >> 8, # STA SNAP_ADDR+1
-        0xA9, 0x00, 0x8D, dr & 0xFF, dr >> 8,           # LDA #0; STA dbg_reason
-        0xA9, 0xFF, 0x8D, bh & 0xFF, bh >> 8,           # LDA #$FF; STA dbg_bp_hit
-        0x60,                                             # RTS
-    ]
-    for i, b in enumerate(patch):
-        emu.memory[dbg_enter + i] = b
 
     # User code: JSR <target>
     emu.memory[USER_CODE]     = 0x20
     emu.memory[USER_CODE + 1] = target_lo
     emu.memory[USER_CODE + 2] = target_hi
 
-    # Debugger state: stopped at USER_CODE
+    # Debugger state: stopped at USER_CODE (dbg_reason!=0 so cmd_step
+    # treats brk_pc as authoritative and skips cur_addr init).
     emu.write_word(emu.sym("cur_addr"), USER_CODE)
     emu.write_word(emu.sym("brk_pc"), USER_CODE)
     emu.memory[dr] = 1
@@ -54,8 +46,6 @@ def _run_step(cse_prg, target_lo, target_hi):
     emu.write_word(emu.sym("block_size"), 0x0001)
     for i in range(8):
         emu.memory[sb + i] = 0
-    emu.memory[SNAP_ADDR] = 0
-    emu.memory[SNAP_ADDR + 1] = 0
 
     # "t1" in line_buf (PETSCII: t=$54, 1=$31)
     lb = emu.sym("line_buf")
@@ -64,7 +54,7 @@ def _run_step(cse_prg, target_lo, target_hi):
     emu.memory[lb + 2] = 0x00
 
     emu.jsr(emu.sym("exec_line"), max_cycles=200_000)
-    return emu.memory[SNAP_ADDR] | (emu.memory[SNAP_ADDR + 1] << 8)
+    return emu.memory[sb] | (emu.memory[sb + 1] << 8)
 
 
 class TestStepIntoJSR_ROMFallback:

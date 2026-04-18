@@ -387,6 +387,57 @@ class C64Emu:
                 f"Available: {', '.join(sorted(self._syms)[:20])}..."
             ) from None
 
+    def sym_opt(self, name):
+        """Look up a symbol address; return None if not present.
+
+        Useful for feature-gated tests that should skip cleanly when
+        a symbol is missing (e.g. during staged refactors).
+        """
+        return self._syms.get(name)
+
+    def run_until(self, stop_addr, *, start_at=None, max_cycles=500_000):
+        """Step CPU until PC == stop_addr (or max_cycles exceeded).
+
+        Unlike jsr(), this does not install a sentinel return — the
+        caller arranges that control reaches stop_addr some other way
+        (e.g. via a longjmp/RTI-into-user-code path).
+
+        If start_at is given, PC is set to that address first.
+        """
+        if start_at is not None:
+            self._cpu.pc = start_at
+        cycles = 0
+        while cycles < max_cycles:
+            if self._cpu.pc == stop_addr:
+                return cycles
+            self._cpu.step()
+            cycles += 1
+        raise TimeoutError(
+            f"C64Emu: run_until({stop_addr:#06X}) timeout after "
+            f"{max_cycles} cycles at PC=${self._cpu.pc:04X}"
+        )
+
+    def trigger_nmi(self, user_pc, *, user_p=0x20):
+        """Synthesise a CPU NMI frame on the stack and set PC to the
+        NMI vector's target.  Stack ordering matches what the CPU
+        pushes on an NMI: PChi, PClo, P (in that push order — pop
+        order at RTI is P, PClo, PChi).
+
+        After this, step/run to the handler; an RTI in the handler
+        will pop back to user_pc with user_p installed in P.
+
+        Typically used by tests that want to exercise cse_nmi_handler
+        without CIA timer fiddling.
+        """
+        sp = self._cpu.sp
+        self._mem.ram[0x0100 + sp] = (user_pc >> 8) & 0xFF
+        sp = (sp - 1) & 0xFF
+        self._mem.ram[0x0100 + sp] = user_pc & 0xFF
+        sp = (sp - 1) & 0xFF
+        self._mem.ram[0x0100 + sp] = user_p & 0xFF
+        sp = (sp - 1) & 0xFF
+        self._cpu.sp = sp
+
     # ── Helpers ─────────────────────────────────────────────────
 
     def read_word(self, addr):
@@ -432,11 +483,11 @@ class C64Emu:
     def init_cse(self, *, editor=False):
         """Run CSE init routines.  Call after load_prg().
 
-        Runs theme_init + restore_colors + kernal_init.
+        Runs theme_init + restore_colors + setup_interrupts.
         If editor=True, also runs ed_ensure_init.
         """
         self.jsr(self.sym("theme_init"))
         self.jsr(self.sym("restore_colors"))
-        self.jsr(self.sym("kernal_init"))
+        self.jsr(self.sym("setup_interrupts"))
         if editor:
             self.jsr(self.sym("ed_ensure_init"))

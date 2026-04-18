@@ -28,7 +28,7 @@
         .import scr_lo, scr_hi
 
 ; ── Imports: screen.s ──────────────────────────────────────
-        .import newline, restore_colors, reset_screen
+        .import newline, restore_colors, reset_screen, vic_reset
         .import theme_border, theme_bg, theme_fg
 
 ; hex_val, is_hex, hex_val_to_char are now local (below)
@@ -39,17 +39,37 @@
         .import asm_assemble, seg_print_save
 
 ; ── Imports: debugger ──────────────────────────────────────
-        .import dbg_enter, dbg_step_clear
+        .import dbg_step_clear
         .import dbg_bp_set, dbg_bp_del, dbg_bp_clear
         .import dbg_bp_count
         .import bp_table, step_bp
         .import __CODE_RUN__
         .import dbg_reason, dbg_bp_hit
-        .import brk_pc
+        .import brk_pc, brk_stub
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
-        .import user_zp_buf
+        .import userland_zp_buf
         .import kernal_bank_out, kernal_bank_in
         .import oplen_tbl
+        .import step_state, step_remaining
+        .import step_next_pc, arm_step_bp
+        .import step_next_lo, step_next_hi
+
+; ── Imports: main.s (kernel→userland dispatch) ───────────────
+        .import run_user_pending, stop_cooldown
+        ; MODE_NONE, MODE_JUMP, MODE_RESUME constants are defined in
+        ; main.s; redefine here (ca65 doesn't import equates).
+MODE_NONE   = 0
+MODE_JUMP   = 1
+MODE_RESUME = 2
+
+; ── Imports: debugger step modes (match debugger.s values) ───
+STEP_NONE = 0
+STEP_INTO = 1
+STEP_OVER = 2
+
+; ── Exports: post-run cleanup (called from main_loop_top) ────
+        .export post_run_cleanup
+        .export hygiene_after_userland
 
 ; ── Imports: expression parser ─────────────────────────────
         .import expr_eval, expr_error_str
@@ -82,7 +102,8 @@
 
 ; ── Imports: strings.s ────────────────────────────────────
         .import str_flag_ch, str_bp_pfx, str_3sp, str_2sp, str_brk
-        .import str_at, str_nmi, str_ok_at, str_bp_clr, str_deleted
+        .import str_at, str_nmi, str_bp_clr, str_deleted
+        .import str_rts
         .import str_syntax, str_bad_val, str_full, str_cmd
         .import str_no_name, str_range, str_fail, str_too_big
         .import str_expr, str_no_ctx
@@ -131,8 +152,8 @@ CUR_ROW       = $D6
 ;   rp_save (1) — saved byte (olen, cols, etc.)
 ;   rp_save2(1) — secondary scratch
 ;   rp_cnt  (2) — 16-bit counter
-;   rp_next_lo(2) — cmd_step next PC low
-;   rp_next_hi(2) — cmd_step next PC high
+;   rp_next_lo/hi (2+2) — secondary 16-bit scratch pair; save/load
+;                          use them for name pointers and addresses
 ; ═══════════════════════════════════════════════════════════
 
 ; ── BSS ────────────────────────────────────────────────────
@@ -155,9 +176,9 @@ rp_addr:        .res 2          ; working address
 rp_save:        .res 1          ; general scratch byte
 rp_save2:       .res 1          ; secondary scratch byte
 rp_cnt:         .res 2          ; loop counter (16-bit)
-rp_next_lo:     .res 2          ; cmd_step
-rp_next_hi:     .res 2          ; cmd_step
-rp_opc:         .res 1          ; cmd_step saved opcode
+rp_next_lo:     .res 2          ; 16-bit scratch (save/load name ptr etc.)
+rp_next_hi:     .res 2          ; 16-bit scratch pair
+rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
 rp_hexbuf:      .res 3          ; cmd_dot hex byte parse
 
@@ -929,7 +950,7 @@ parse_hex4_ptr1:
         ; If a debug context exists (dbg_reason != 0), the user
         ; expects `m` to show what their code wrote to ZP, not
         ; CSE's restored variables.  Stage 8 bytes into
-        ; dbg_zp_view from user_zp_buf for in-range addresses
+        ; dbg_zp_view from userland_zp_buf for in-range addresses
         ; ($00..$7F — the full user-accessible half) and from real
         ; memory for the rest, then re-point rp_ptr2 at the staged
         ; view.  rp_ptr2's current value (== rp_addr) is used to
@@ -947,7 +968,7 @@ parse_hex4_ptr1:
         cmp #$80
         bcs @use_mem            ; addr ≥ $80 → KERNAL half, not ours
         tax                     ; addr < $80 → index directly
-        lda user_zp_buf,x
+        lda userland_zp_buf,x
         jmp @stage
 @use_mem:
         lda (rp_ptr2),y         ; rp_ptr2 still == rp_addr
@@ -1020,11 +1041,12 @@ parse_hex4_ptr1:
         asl rp_tmp2
         bcc @fp                 ; bit=0 → print as-is (lowercase)
         ora #$80                ; bit=1 → uppercase ($C0-$DF canonical)
-                                ; No '-' guard needed: capture-time masks
-                                ; (debugger.s + dbg_enter) force reg_p
-                                ; bit 5 = 0, so slot 2's carry-in here
-                                ; is always 0 and this path is unreachable
-                                ; for the '-' slot.
+                                ; No '-' guard needed: cse_brk_handler's
+                                ; P mask (#$DF) and cse_nmi_handler's
+                                ; (#$CF) both clear bit 5 of reg_p, so
+                                ; slot 2's carry-in here is always 0
+                                ; and this path is unreachable for the
+                                ; '-' slot.
 @fp:    stx rp_tmp
         jsr io_putc
         ldx rp_tmp
@@ -1035,79 +1057,142 @@ parse_hex4_ptr1:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; show_break_result — restore colors, optional status msg, regs + disasm
+; show_break_result — status msg header + regs + disasm
 ;
-; Unified return-to-REPL path after running user code.
-; If dbg_reason=1 (BRK), prints "; brk [N] at $XXXX".
-; If dbg_reason=2 (NMI), prints "; nmi break at $XXXX".
-; Otherwise (normal step completion), skips the status line.
-; Always: restore_colors, register dump, disassembly at brk_pc.
+; Unified return-to-REPL path after running user code.  Prints one
+; line of the form "; TAG[ N] at $PC" followed by the register dump
+; and a disassembly at brk_pc.  TAG depends on dbg_reason and, for
+; clean exits, an opcode peek at brk_pc:
+;
+;   dbg_reason=DBG_NMI → "; nmi at $PC"
+;   dbg_reason=DBG_BRK → "; brk at $PC"          (unplanned / step end)
+;                        "; brk N at $PC"        (user bp slot N+1 hit)
+;   dbg_reason=0       → "; brk at $PC"          (opcode at PC is $00)
+;                        "; rts at $PC"          (PC == brk_stub, or
+;                                                 opcode is $60 RTS /
+;                                                 $40 RTI, or default)
+;
+; Separator newline above the header only if the cursor isn't
+; already at column 0 (user CHROUT may have left the row padded).
+;
+; Colours/VIC state are already restored by hygiene_after_userland
+; in handler_finalize (called before main_loop_top → post_run_cleanup
+; → here), so no restore_colors at entry.
 ; ═══════════════════════════════════════════════════════════
 .proc show_break_result
-        jsr restore_colors
+        ; Conditional newline above header.
+        lda CUR_COL
+        beq @col0
         jsr newline
+@col0:
 
+        ; Special case: clean RTS through our brk_stub sentinel
+        ; (dbg_reason=0 and brk_pc == brk_stub).  The break PC is
+        ; the sentinel itself — not a user-meaningful address — so
+        ; print just "; rts" and reset brk_pc to cur_addr (the
+        ; pre-j entry point, untouched during the run).  emit_reg
+        ; then shows PC at the entry, and the follow-up disasm
+        ; sits on the user's code, not on brk_stub.
         lda dbg_reason
-        cmp #1
-        beq @brk
-        cmp #2
-        beq @nmi
-        ; dbg_reason = 0: clean RTS from user code.  Print
-        ; "; ok at $XXXX" so the user sees the program returned
-        ; (and at which entry point), then fall through to the
-        ; register dump.
+        bne @tag_select
+        lda brk_pc
+        cmp #<brk_stub
+        bne @tag_select
+        lda brk_pc+1
+        cmp #>brk_stub
+        bne @tag_select
+        ; Reset brk_pc to cur_addr.
+        lda cur_addr
+        sta brk_pc
+        lda cur_addr+1
+        sta brk_pc+1
         ldy #' '
         jsr log_open
-        puts str_ok_at
-        lda brk_pc
-        ldx brk_pc+1
-        jsr io_puthex4
+        puts str_rts
         jsr io_clear_eol
-        jmp @regs
+        jmp @regs_keep_addr
 
-@brk:   jsr newline
-        lda #';'
-        jsr io_putc
-        lda #' '
-        jsr io_putc
-        puts str_brk
+@tag_select:
+        ; Decide tag string (rp_ptr2 = ptr to zero-terminated tag).
+        lda dbg_reason
+        cmp #2
+        bne @not_nmi
+        lda #<str_nmi
+        ldx #>str_nmi
+        jmp @have_tag
+@not_nmi:
+        cmp #1
+        beq @is_brk
+        ; dbg_reason = 0 (clean): classify by opcode at brk_pc.
+        ; $00 BRK → brk; otherwise ($60 RTS, $40 RTI, default) → rts.
+        lda brk_pc
+        sta rp_ptr
+        lda brk_pc+1
+        sta rp_ptr+1
+        ldy #0
+        lda (rp_ptr),y
+        cmp #$00
+        beq @is_brk
+        lda #<str_rts
+        ldx #>str_rts
+        jmp @have_tag
+@is_brk:
+        lda #<str_brk
+        ldx #>str_brk
+
+@have_tag:
+        sta rp_ptr2
+        stx rp_ptr2+1
+
+        ; "; " + tag
+        ldy #' '
+        jsr log_open
+        lda rp_ptr2
+        ldx rp_ptr2+1
+        jsr io_puts
+
+        ; Append " N" if this is a user bp-slot hit.
+        lda dbg_reason
+        cmp #1
+        bne @no_slot
         lda dbg_bp_hit
         cmp #$FF
-        beq @brk_at
+        beq @no_slot
         lda #' '
         jsr io_putc
         lda dbg_bp_hit
         clc
         adc #'1'
         jsr io_putc
-@brk_at:
+@no_slot:
+
+        ; " at $PC"
         puts str_at
         lda brk_pc
         ldx brk_pc+1
         jsr io_puthex4
         jsr io_clear_eol
-        jmp @regs
 
-@nmi:   jsr newline
-        lda #';'
-        jsr io_putc
-        lda #' '
-        jsr io_putc
-        puts str_nmi
-        lda brk_pc
-        ldx brk_pc+1
-        jsr io_puthex4
-        jsr io_clear_eol
-
-@regs:  ; register dump + disassembly at brk_pc
+        ; Regs + disasm at brk_pc (also updates cur_addr).
         jsr newline
         jsr emit_reg
         jsr newline
         lda brk_pc
         sta cur_addr
-        sta rp_addr
         lda brk_pc+1
         sta cur_addr+1
+        jmp @disasm
+
+@regs_keep_addr:
+        ; Regs + disasm at cur_addr (unchanged — user's entry PC).
+        jsr newline
+        jsr emit_reg
+        jsr newline
+
+@disasm:
+        lda cur_addr
+        sta rp_addr
+        lda cur_addr+1
         sta rp_addr+1
         jsr emit_dot
         jmp nl_clear
@@ -1614,54 +1699,57 @@ parse_hex4_ptr1:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; run_user — call dbg_enter, then restore screen state
-;   Does NOT save/restore cursor: user code's CHROUT writes
-;   visible output, and subsequent CSE output (show_break_result,
-;   the next prompt) flows from wherever user code left the
-;   cursor.  Restores VIC charset (in case user code touched
-;   $D018) and resyncs KERNAL screen line pointers via PLOT.
+; Kernel → userland command gates.
 ;
-;   The CALLER (cmd_jmp / cmd_step) is responsible for moving
-;   the cursor to a fresh row BEFORE the first run_user call,
-;   so user output never overwrites the typed command at col 0
-;   of the prompt row.  cmd_step does this once before its
-;   step loop so the per-iteration cost is zero newlines —
-;   multi-step commands like `t10` don't bloat the display.
+; j/g/c/t/o commands stage user state into reg_* / brk_pc / step_*,
+; then set `run_user_pending` and rts NORMALLY up the jsr chain.
+; `main_loop` (the only caller level without a parent jsr) checks
+; the flag after `jsr exec_line` returns and does the actual
+; `jmp return_to_userland` or `jmp restore_userland_state`.  This
+; avoids RTI-from-within-a-jsr-frame — the gate primitives run at
+; top level where the SP is naturally at kernel_init_sp-equivalent.
 ;
-;   Must be used instead of bare dbg_enter from g/j/t/o.
+; `post_run_cleanup` is the inverse: called by `main_loop_top` after
+; a break has longjmped back.  Shows break result, re-enables any
+; temporarily-disabled bp, clears step state, restores KERNAL-ZP
+; hygiene and VIC/color state.
 ; ═══════════════════════════════════════════════════════════
-VIC_MEMCTL = $D018
 
-.proc run_user
-        ; ── KERNAL hygiene (project.md Principle 5) ──
-        ; Drain any keystrokes the user typed ahead while issuing
-        ; the j/g/t/o command — they'd otherwise leak into user
-        ; code's first GETIN/CHRIN call.
-        lda #0
-        sta $C6                 ; KERNAL kbd buffer count = 0
-        ; $01 banking is covered by dbg_enter's ZP save/restore
-        ; (zp_save_buf spans $00..$7F — extended from $02..$59 in
-        ; the Phase-17 ZP-range upgrade), so we don't need a
-        ; separate pha/sta pair here any more.
-        jsr dbg_enter
-        ; ── KERNAL hygiene on the way back ──
-        ; Restore $CC = 1 in case user code re-enabled the KERNAL
-        ; cursor (cse_io.s's IRQ-safety invariant requires it off).
+; ── hygiene_after_userland — restore KERNAL/VIC state post-user-run ──
+; User code can leave the machine in any state: VIC blanked or in
+; bitmap/multicolor/extended-color mode, charset pointer moved,
+; sprites covering the text layer, raster IRQ armed, color RAM
+; painted over, stuck keys in $C6, KERNAL cursor re-enabled.
+; Clobbers: A, X, Y (via vic_reset + restore_colors + io_sync).
+hygiene_after_userland:
         lda #1
-        sta $CC
-        ; Restore colors (user code may have changed border/bg/fg)
-        jsr restore_colors
-        ; Restore VIC charset to lowercase (user code may have
-        ; switched to uppercase via VIC_MEMCTL bit 1).
-        lda VIC_MEMCTL
-        ora #$02
-        sta VIC_MEMCTL
-        ; Resync KERNAL screen line pointers
-        jmp io_sync
-.endproc
+        sta $CC                 ; KERNAL cursor off (cse_io invariant)
+        lda #$80
+        sta $0291               ; lock SHIFT+C= charset toggle (userland
+                                ;   may have cleared this to 0; KERNAL
+                                ;   honours the combo when it's 0)
+        jsr vic_reset           ; $D011/$D015/$D016/$D018/$D019/$D01A
+        jsr restore_colors      ; border/bg/fg + color RAM + CHROUT colour
+
+        ; If the break was an NMI (canonical trigger: RUN/STOP+
+        ; RESTORE), arm stop_cooldown so main_loop's edge-filter
+        ; swallows any STOPs still in flight from the held key.
+        ; The cooldown clears automatically once KERNAL STOP
+        ; ($FFE1) reports the key released.
+        lda dbg_reason
+        cmp #2                  ; DBG_NMI
+        bne @drain
+        lda #1
+        sta stop_cooldown
+@drain:
+        lda #0
+        sta $C6                 ; drain any buffered keystrokes
+        jmp io_sync             ; tail-call
 
 ; ═══════════════════════════════════════════════════════════
-; cmd_jmp — 'j' command helper (cur_addr already set)
+; cmd_jmp — 'j'/'g' command.  Stages reg_* / brk_pc (already in
+; cur_addr by caller), drains kbd buffer, requests a fresh-start
+; run (MODE_JUMP = push sentinel).
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_jmp
         lda cur_addr
@@ -1669,414 +1757,138 @@ VIC_MEMCTL = $D018
         lda cur_addr+1
         sta brk_pc+1
 
-        ; Newline + clreol BEFORE running user code so user
-        ; CHROUT output starts on a fresh row instead of
-        ; overwriting the typed command at col 0 of the prompt.
+        ; Newline + clreol so user CHROUT output starts on a fresh
+        ; row, not overwriting the typed command.
         jsr newline
         jsr io_clear_eol
 
-        ; Always use run_user — enables NMI break even without bps.
-        ; When no breakpoints, patch_all/unpatch_all are no-ops.
-        jsr run_user
-        ; BRK/NMI: show status + regs + dasm (useful for debugging).
-        ; Clean RTS: just restore colors and return silently —
-        ; no "ok at", no regs, no disassembly (j/g is "run program",
-        ; not "step and inspect").
-        lda dbg_reason
-        bne @debug
-        jsr restore_colors
-        jmp jmp_return
-@debug: jmp show_break_result
+        ; Drain KERNAL keyboard buffer before user code runs.
+        lda #0
+        sta $C6
+
+        lda #MODE_JUMP
+        sta run_user_pending
+        rts
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; compute_rel_target — rp_next_lo = brk_pc + 2 + signrel
+; cmd_step — 't' (step-into) / 'o' (step-over) command.
 ;
-; Reads the signed 8-bit relative offset at (rp_ptr2),1,
-; sign-extends it, adds to brk_pc + 2, and stores the result
-; in rp_next_lo.  Shared by cmd_step's BRA and conditional-
-; branch code paths (both compute the same target).
-; Clobbers: A, Y.
-; ═══════════════════════════════════════════════════════════
-.proc compute_rel_target
-        ldy #1
-        lda (rp_ptr2),y         ; signed relative offset
-        ; Sign-extend: N flag from LDA tells us the sign.
-        ; Must test BEFORE ldy clobbers N.
-        bpl @pos
-        ldy #$FF                ; negative → sign-extend = $FF
-        .byte $2C               ; BIT abs — skip next 2 bytes
-@pos:   ldy #0                  ; positive → sign-extend = $00
-        clc
-        adc brk_pc
-        sta rp_next_lo
-        tya
-        adc brk_pc+1
-        sta rp_next_lo+1
-        ; + 2 for the branch instruction length
-        lda rp_next_lo
-        clc
-        adc #2
-        sta rp_next_lo
-        bcc :+
-        inc rp_next_lo+1
-:       rts
-.endproc
-
-; ═══════════════════════════════════════════════════════════
-; cmd_step — 't'/'o' command
-;   rp_ptr = args, A = is_next (0=step into, 1=step over)
+; Seed-only under the Phase-18 handler-resident state machine:
+;   1. Parse count (N).
+;   2. Set step_state (STEP_INTO or STEP_OVER).
+;   3. If no prior break, initialise brk_pc from cur_addr.
+;   4. Temporarily disable any bp at brk_pc (so the first step can
+;      execute the instruction there without immediately re-hitting
+;      its own bp).
+;   5. Compute first next-PC(s) via debugger.s::step_next_pc.
+;      If both slots are zero (opcode is RTS/RTI/BRK), stop before
+;      executing: reuse post_run_cleanup for the step finish-up,
+;      clear dbg_reason, return with run_user_pending=0.
+;   6. Arm step_bp slots (arm_step_bp).
+;   7. step_remaining := N - 1 (the first iteration runs via our
+;      return; the handler chain handles iterations 2..N).
+;   8. Set run_user_pending.  MODE_JUMP if no prior break context
+;      (fresh entry — sentinel needed), MODE_RESUME otherwise
+;      (reuse existing sentinel).
+;   9. RTS up to main_loop, which dispatches to the gate.
+;
+; In: rp_ptr = args, A = is_next (0=into, 1=over)
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_step
-        sta rp_save2            ; is_next
+        sta rp_save2            ; is_next (0=into, 1=over)
 
-        ; Cold start check
+        ; Cold-start: no prior break → init brk_pc from cur_addr.
         lda dbg_reason
         bne @has_ctx
         lda cur_addr
         sta brk_pc
         lda cur_addr+1
         sta brk_pc+1
-        lda #1
-        sta dbg_reason
 @has_ctx:
 
-        ; Parse count via try_expr; empty → use block_size
+        ; Parse count: via try_expr, or default to block_size.
         jsr try_expr
         bcc @def_count
         lda expr_val
         ora expr_val+1
-        beq @def_count          ; zero → use default
+        beq @def_count          ; zero → default
         lda expr_val
         sta rp_cnt
         lda expr_val+1
         sta rp_cnt+1
         jmp @got_cnt
-
 @def_count:
         lda block_size
         sta rp_cnt
         lda block_size+1
         sta rp_cnt+1
-
 @got_cnt:
-        lda #0
-        sta rp_opc
 
-        ; If we're sitting on a user bp, temporarily disable it so the
-        ; first step can execute the instruction there instead of
-        ; immediately re-triggering the bp.
+        ; step_state = STEP_OVER if is_next else STEP_INTO.
+        lda rp_save2
+        beq @into
+        lda #STEP_OVER
+        .byte $2C               ; BIT abs — skip next 2 bytes
+@into:  lda #STEP_INTO
+        sta step_state
+
+        ; Temporarily disable any user-visible bp at brk_pc.
         lda #$FF
-        sta rp_dis_bp           ; $FF = no bp disabled
+        sta rp_dis_bp
         lda dbg_bp_hit
         cmp #$FF
-        beq @newline_first      ; no bp hit → nothing to disable
+        beq @no_disable
         asl
-        asl                     ; slot * 4
+        asl                     ; slot × 4
         tax
-        stx rp_dis_bp           ; remember slot offset
+        stx rp_dis_bp
         lda #0
-        sta bp_table+3,x       ; clear enabled flag
+        sta bp_table+3,x        ; disable flag
+@no_disable:
 
-@newline_first:
-        ; Newline + clreol ONCE before the step loop so user
-        ; CHROUT output starts on a fresh row instead of
-        ; overwriting the typed command at col 0 of the prompt.
-        ; Per-iteration newlines would bloat multi-step commands
-        ; like `t10`, so we only do this once at the start.
-        jsr newline
-        jsr io_clear_eol
+        ; Compute first next-PC.  step_next_pc reads opcode at brk_pc.
+        jsr step_next_pc
 
-        ; for i = 0; i < count; i++
-@loop:  lda rp_cnt
-        ora rp_cnt+1
-        jeq @normal_end
-
-        ; opc = *(brk_pc)
-        lda brk_pc
-        sta rp_ptr2
-        lda brk_pc+1
-        sta rp_ptr2+1
-        ldy #0
-        lda (rp_ptr2),y
-        sta rp_opc
-
-        ; next_lo = next_hi = 0
+        ; If both slots zero (opcode is RTS/RTI/BRK), stop without
+        ; entering user code.  post_run_cleanup already knows how to
+        ; finish a step (clear step_state, re-enable disabled bp,
+        ; show_break_result, clear last_cmd on RTS/RTI) — call it
+        ; with step_state still set so it takes the step branch.
+        lda step_next_lo
+        ora step_next_lo+1
+        ora step_next_hi
+        ora step_next_hi+1
+        bne @arm
+        jsr post_run_cleanup
+        ; Mark "no context" so a follow-up `c` reports cleanly.
         lda #0
-        sta rp_next_lo
-        sta rp_next_lo+1
-        sta rp_next_hi
-        sta rp_next_hi+1
+        sta dbg_reason
+        rts
 
-        ; ── Compute next-PC ──
-        lda rp_opc
+@arm:
+        jsr arm_step_bp
 
-        ; BRK ($00)
-        jeq @stop
-
-        ; JSR abs ($20)
-        cmp #$20
-        jeq @jsr
-
-        ; RTS ($60) / RTI ($40)
-        cmp #$60
-        jeq @stop
-        cmp #$40
-        jeq @stop
-
-        ; JMP abs ($4C)
-        cmp #$4C
-        jeq @jmp_abs
-
-        ; JMP (ind) ($6C)
-        cmp #$6C
-        jeq @jmp_ind
-
-.ifdef CMOS_SUPPORT
-        ; JMP (abs,x) ($7C) — 65C02 only
-        cmp #$7C
-        bne @not_7c
-        lda asm_cpu
-        cmp #2
-        bcc @not_7c
-        ; next_lo = *(*(brk_pc+1) + reg_x)
-        ldy #1
-        lda (rp_ptr2),y
-        clc
-        adc reg_x
-        sta rp_ptr
-        iny
-        lda (rp_ptr2),y
-        adc #0
-        sta rp_ptr+1
-        ldy #0
-        lda (rp_ptr),y
-        sta rp_next_lo
-        iny
-        lda (rp_ptr),y
-        sta rp_next_lo+1
-        jmp @check_next
-
-@not_7c:
-        ; BRA ($80) — 65C02 unconditional
-        lda rp_opc
-        cmp #$80
-        bne @not_bra
-        lda asm_cpu
-        cmp #2
-        bcc @not_bra
-        jsr compute_rel_target
-        jmp @check_next
-
-@not_bra:
-.endif
-        ; Conditional branch: (opc & $1F) == $10
-        lda rp_opc
-        and #$1F
-        cmp #$10
-        bne @linear
-
-        ; Branch: step-into arms both targets, step-over arms
-        ; only the fall-through (loop runs to completion).
-        lda rp_save2            ; is_next (0=into, 1=over)
-        bne @branch_over
-        ; step-into: taken target in rp_next_lo
-        jsr compute_rel_target
-        ; fall-through in rp_next_hi (second BRK)
-        lda brk_pc
-        clc
-        adc #2
-        sta rp_next_hi
-        lda brk_pc+1
-        adc #0
-        sta rp_next_hi+1
-        jmp @check_next
-@branch_over:
-        ; step-over: fall-through only in rp_next_lo
-        lda brk_pc
-        clc
-        adc #2
-        sta rp_next_lo
-        lda brk_pc+1
-        adc #0
-        sta rp_next_lo+1
-        jmp @check_next
-
-@linear:
-        ; Linear: next = brk_pc + opcode_length(rp_opc)
-        ; Packed table: 2 bits per opcode, 4 per byte.
-        ; byte = opc >> 2, position = opc & 3.
-        ; pos 0 = bits 1:0, pos 1 = 3:2, pos 2 = 5:4, pos 3 = 7:6.
-        lda rp_opc
-        lsr
-        lsr                     ; byte index = opc >> 2
-        tax
-        lda oplen_tbl,x         ; packed byte
-        sta rp_save             ; save packed byte
-        lda rp_opc
-        and #$03                ; position (0-3)
-        beq @len_done           ; pos 0: bits 1:0, no shift
-        tax
-@len_shift:
-        lsr rp_save             ; shift right 2 bits
-        lsr rp_save
-        dex
-        bne @len_shift
-@len_done:
-        lda rp_save
-        and #$03                ; length (1, 2, or 3)
-        clc
-        adc brk_pc
-        sta rp_next_lo
-        lda #0
-        adc brk_pc+1
-        sta rp_next_lo+1
-        jmp @check_next
-
-@jsr:   ; JSR abs
-        lda rp_save2            ; is_next
-        bne @jsr_over
-        ; ── Step into, but only if the target is RAM-writable.
-        ; CSE unmaps BASIC ROM at startup, so $A000–$BFFF is the
-        ; user workspace (RAM).  KERNAL ROM remains mapped at
-        ; $E000–$FFFF — patching a BRK there writes to the RAM
-        ; underneath but the CPU fetches from ROM and never sees
-        ; the BRK.  The step-into would run forever in ROM (e.g.
-        ; JSR $FFD2 → CHROUT → garbage after returning).  Treat
-        ; KERNAL JSR targets as step-over instead.
-        ldy #2
-        lda (rp_ptr2),y         ; target hi
-        cmp #$E0
-        bcc @jsr_into            ; <$E000 → RAM/IO/workspace
-                                  ; $E000–$FFFF → KERNAL ROM, step-over
-@jsr_over:
-        ; step over: next = brk_pc + 3
-        lda brk_pc
-        clc
-        adc #3
-        sta rp_next_lo
-        lda brk_pc+1
-        adc #0
-        sta rp_next_lo+1
-        jmp @check_next
-@jsr_into:
-        ; step into: next = *(brk_pc+1)
-        ldy #1
-        lda (rp_ptr2),y
-        sta rp_next_lo
-        iny
-        lda (rp_ptr2),y
-        sta rp_next_lo+1
-        jmp @check_next
-
-@jmp_abs:
-        ; JMP abs: next = *(brk_pc+1)
-        ldy #1
-        lda (rp_ptr2),y
-        sta rp_next_lo
-        iny
-        lda (rp_ptr2),y
-        sta rp_next_lo+1
-        jmp @check_next
-
-@jmp_ind:
-        ; JMP (ind): next = **(brk_pc+1)
-        ldy #1
-        lda (rp_ptr2),y
-        sta rp_ptr
-        iny
-        lda (rp_ptr2),y
-        sta rp_ptr+1
-        ldy #0
-        lda (rp_ptr),y
-        sta rp_next_lo
-        iny
-        lda (rp_ptr),y
-        sta rp_next_lo+1
-        jmp @check_next
-
-@stop:  ; BRK / RTS / RTI — stop before executing
-        jmp @normal_end
-
-@check_next:
-        ; if next_lo == 0, stop
-        lda rp_next_lo
-        ora rp_next_lo+1
-        beq @normal_end
-
-        ; Arm step BRKs
-        jsr dbg_step_clear
-        lda rp_next_lo
-        sta step_bp
-        lda rp_next_lo+1
-        sta step_bp+1
-        lda #0
-        sta step_bp+2          ; saved byte (cleared)
-        lda #1
-        sta step_bp+3          ; enabled
-
-        ; second target if present
-        lda rp_next_hi
-        ora rp_next_hi+1
-        beq @enter
-        lda rp_next_hi
-        sta step_bp+4
-        lda rp_next_hi+1
-        sta step_bp+5
-        lda #0
-        sta step_bp+6
-        lda #1
-        sta step_bp+7
-
-@enter: jsr run_user
-
-        ; Check for NMI, breakpoint hit, or RTS completion
-        lda dbg_reason
-        beq @normal_end         ; 0 = user code returned via RTS
-        cmp #2
-        beq @interrupted
-        lda dbg_bp_hit
-        cmp #$FF
-        bne @interrupted
-
-        ; Decrement count, continue
+        ; step_remaining = count - 1 (first iteration runs below via
+        ; return_to_userland / restore_userland_state; N-1 via handler chain).
         lda rp_cnt
         sec
         sbc #1
-        sta rp_cnt
-        jcs @loop
-        dec rp_cnt+1
-        jmp @loop
+        sta step_remaining
 
-@interrupted:
-        jsr dbg_step_clear
-        jsr @re_enable_bp
-        jmp show_break_result
-
-@normal_end:
-        jsr dbg_step_clear
-        jsr @re_enable_bp
-        jsr show_break_result
-        ; RTS/RTI: clear last_cmd so RETURN doesn't repeat
-        lda rp_opc
-        cmp #$60
-        beq @clr_last
-        cmp #$40
-        bne @step_rts
-@clr_last:
+        ; Pre-run screen setup (once, not per iteration).
+        jsr newline
+        jsr io_clear_eol
         lda #0
-        sta last_cmd
-@step_rts:
-        rts
+        sta $C6
 
-; Re-enable the bp that was temporarily disabled at loop start
-@re_enable_bp:
-        ldx rp_dis_bp
-        cpx #$FF
-        beq @re_rts             ; nothing was disabled
-        lda #1
-        sta bp_table+3,x       ; restore enabled flag
-@re_rts:
+        ; Mode: fresh (sentinel) if no prior break, resume otherwise.
+        lda dbg_reason
+        beq @fresh
+        lda #MODE_RESUME
+        .byte $2C
+@fresh: lda #MODE_JUMP
+        sta run_user_pending
         rts
 .endproc
 
@@ -2903,46 +2715,38 @@ prg_ok_done:
         jmp io_err_save         ; tail-jumps to disk_done
 
 @save_prg:
-        ; ── end fallback ──────────────────────────────────
-        ;   end == 0      → end = block_size (then add start below)
-        ;   end <= start  → treat end as length (add start below)
-        ;   end > start   → end is absolute, skip add
+        ; ── end argument semantics ─────────────────────────
+        ;   end == 0      → size = block_size              (bare `s`)
+        ;   end <= start  → size = end                     (length fallback)
+        ;   end > start   → size = end - start + 1         (INCLUSIVE
+        ;                   absolute end — matches the `AAAA-BBBB`
+        ;                   display in seg_line and prg_line).
+        ; Result: rp_next_hi holds the size.
         lda rp_cnt
         ora rp_cnt+1
-        bne @check_le
-        ; end = 0 → substitute block_size, then fall into add
+        bne @end_nonzero
         lda block_size
-        sta rp_cnt
+        sta rp_next_hi
         lda block_size+1
-        sta rp_cnt+1
-        jmp @add_start
-@check_le:
-        ; compute start - end; C=1 iff start >= end → length fallback
+        sta rp_next_hi+1
+        jmp @validate
+
+@end_nonzero:
         sec
         lda rp_addr
         sbc rp_cnt
         lda rp_addr+1
         sbc rp_cnt+1
-        bcc @validate           ; start < end → end is absolute
-@add_start:
-        ; end := end + start  (length fallback or blocksize form)
+        bcc @abs_end            ; start < end → absolute inclusive
+        ; start >= end — end-as-length fallback; size = end as-is
         lda rp_cnt
-        clc
-        adc rp_addr
-        sta rp_cnt
+        sta rp_next_hi
         lda rp_cnt+1
-        adc rp_addr+1
-        sta rp_cnt+1
+        sta rp_next_hi+1
+        jmp @validate
 
-@validate:
-        ; end must be > start (catches 16-bit overflow in add_start)
-        lda rp_addr
-        cmp rp_cnt
-        lda rp_addr+1
-        sbc rp_cnt+1
-        bcs @range_err          ; start >= end → error (short branch fits)
-
-        ; size = end - start
+@abs_end:
+        ; size = end - start + 1
         lda rp_cnt
         sec
         sbc rp_addr
@@ -2950,6 +2754,15 @@ prg_ok_done:
         lda rp_cnt+1
         sbc rp_addr+1
         sta rp_next_hi+1
+        inc rp_next_hi
+        bne @validate
+        inc rp_next_hi+1
+
+@validate:
+        ; size must be > 0
+        lda rp_next_hi
+        ora rp_next_hi+1
+        beq @range_err
 
         ; disk_save_prg(name, addr, size)
         lda rp_next_lo
@@ -2963,7 +2776,18 @@ prg_ok_done:
         lda rp_next_hi
         ldx rp_next_hi+1
         jsr disk_save_prg       ; A=error
-        jeq prg_ok_done
+        bne @save_err
+        ; Set rp_cnt = rp_addr + size (exclusive end) for prg_line's
+        ; display pass (it decrements to inclusive internally).
+        lda rp_addr
+        clc
+        adc rp_next_hi
+        sta rp_cnt
+        lda rp_addr+1
+        adc rp_next_hi+1
+        sta rp_cnt+1
+        jmp prg_ok_done
+@save_err:
         jmp io_err_save         ; tail-jumps to disk_done
 
 @range_err:
@@ -3922,17 +3746,13 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         beq @c_enter
         jsr dbg_bp_del
 @c_enter:
-        jsr run_user
-        ; If dbg_reason=0, user code returned via RTS (no BRK fired)
-        lda dbg_reason
-        bne @c_broke
-        ; Normal completion — clear debug context
+        ; Drain KERNAL keyboard buffer.
         lda #0
-        sta last_cmd            ; no repeat
-        jsr restore_colors
-        jmp nl_clear
-@c_broke:
-        jmp show_break_result
+        sta $C6
+        ; Resume (reuse existing sentinel from the prior fresh start).
+        lda #MODE_RESUME
+        sta run_user_pending
+        rts
 
 ; ── Command dispatch table (parallel arrays) ──
 @cmd_chars:
@@ -3954,12 +3774,58 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; jmp_return — clean-RTS handler for j/g: regs only, no dasm
-;   Placed at end of file to avoid shifting code above.
+; post_run_cleanup — called from main_loop_top after a userland
+; break has longjmped back (dbg_reason != 0, step_state != 0, or
+; run_user_pending != 0).
+;
+; Note: KERNAL/VIC hygiene (`hygiene_after_userland`) runs
+; unconditionally in `handler_finalize` on EVERY return from
+; userland, so colour/VIC state is always restored.  This routine
+; only handles break-result display and step cleanup.
+;
+; Responsibilities:
+;   * If we were stepping: clear step_state / step_remaining, zero
+;     step_bp slots, re-enable any bp cmd_step disabled, show
+;     break result.  If stopping opcode is RTS/RTI, clear last_cmd
+;     (so RETURN doesn't repeat the step).
+;   * Else show break result (dbg_reason picks the tag;
+;     show_break_result handles the rts-through-sentinel case).
 ; ═══════════════════════════════════════════════════════════
-jmp_return:
-        lda CUR_COL
+.proc post_run_cleanup
+        lda step_state
+        beq @not_step
+
+        ; Stepping just finished.
+        lda #STEP_NONE
+        sta step_state
+        sta step_remaining
+        jsr dbg_step_clear
+        ; Re-enable any bp cmd_step disabled.
+        ldx rp_dis_bp
+        cpx #$FF
         beq :+
-        jsr newline
-:       jsr emit_reg
-        jmp nl_clear
+        lda #1
+        sta bp_table+3,x
+:       lda #$FF
+        sta rp_dis_bp
+        ; Always show full break result.
+        jsr show_break_result
+        ; Clear last_cmd if stopped on RTS/RTI (prevents RETURN repeat).
+        lda brk_pc
+        sta rp_ptr
+        lda brk_pc+1
+        sta rp_ptr+1
+        ldy #0
+        lda (rp_ptr),y
+        cmp #$60
+        beq @clr_last
+        cmp #$40
+        bne @done
+@clr_last:
+        lda #0
+        sta last_cmd
+@done:  rts
+
+@not_step:
+        jmp show_break_result
+.endproc

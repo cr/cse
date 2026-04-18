@@ -3,6 +3,11 @@
 ; Protocol: Python writes a command byte + arguments to fixed addresses,
 ; then JSRs to dbg_test_entry.  The stub dispatches based on the command.
 ;
+; Scope (post-Phase-18): breakpoint-table CRUD only.  The old @enter
+; command (dbg_enter / two-image swap) is gone; kernel-transition
+; behaviour is covered by test_kernel_transition.py using C64Emu +
+; full PRG instead.
+;
 ; Commands (at $0B00):
 ;   $00 = dbg_init
 ;   $01 = bp_set:   addr at $0B01/$0B02 (lo/hi)
@@ -12,7 +17,6 @@
 ;   $05 = bp_patch
 ;   $06 = bp_unpatch
 ;   $07 = bp_find:  addr at $0B01/$0B02 (lo/hi)
-;   $08 = dbg_enter (caller pre-loads brk_pc, reg_*, step_bp, etc.)
 ;
 ; Result: A on return; $0B03 = flags (bit 0 = carry)
 ;         $0B04 = result value (slot#, count, etc.)
@@ -24,18 +28,22 @@
         .import dbg_bp_count
         .import patch_all, unpatch_all
         .import dbg_bp_find
-        .import dbg_enter
-        .import dbg_brk_core
         .import bp_table, step_bp
         .import dbg_reason, brk_pc, dbg_bp_hit
 
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
-        .export zp_save_buf, user_zp_buf
+        .export kernel_zp_buf, userland_zp_buf
         .export kernal_bank_out, kernal_bank_in
-        .export in_userland       ; Phase 18 prep: was dbg_running in debugger.s;
-                                  ; in production it lives in main.s.  This stub
-                                  ; harness doesn't link main.s, so we define it
-                                  ; here for debugger.s to import.
+        .export save_userland_zp, restore_userland_zp
+        .export save_kernel_zp, restore_kernel_zp
+        .export in_userland       ; Lives in main.s in production;
+                                  ; defined here so debugger.s links
+                                  ; without pulling main.s into the
+                                  ; stub binary.  Same for the ZP
+                                  ; buffers + save/restore helpers
+                                  ; (in mem.s in production); the
+                                  ; bp-table CRUD tests don't exercise
+                                  ; them, so stubs are no-ops.
 
 .segment "BSS"
 reg_a:         .res 1
@@ -44,9 +52,9 @@ reg_y:         .res 1
 reg_sp:        .res 1
 reg_p:         .res 1
 in_userland:   .res 1          ; user-code-active flag
-zp_save_buf:   .res 128        ; ZP save buffer ($00..$7F inclusive,
+kernel_zp_buf:   .res 128        ; ZP save buffer ($00..$7F inclusive,
                                  ;  matches debugger.s::ZP_SAVE_LEN)
-user_zp_buf:   .res 128        ; user ZP snapshot (same size)
+userland_zp_buf:   .res 128        ; user ZP snapshot (same size)
 
 .segment "CODE"
 
@@ -74,19 +82,9 @@ RVAL    = $0B04
         beq @unpatch
         cmp #$07
         beq @find
-        cmp #$08
-        beq @enter
         rts                     ; unknown command
 
-@init:  jsr dbg_init
-        ; Install BRK handler at $0316 — dbg_enter no longer does this.
-        ; CSE production code has cse_brk_handler (main.s) permanently
-        ; installed; in tests we point directly to dbg_brk_core.
-        lda #<dbg_brk_core
-        sta $0316
-        lda #>dbg_brk_core
-        sta $0317
-        rts
+@init:  jmp dbg_init
 
 @set:   lda ARG1                ; addr lo
         ldx ARG2                ; addr hi
@@ -112,19 +110,16 @@ RVAL    = $0B04
         sta RFLAGS
         rts
 
-@clear: jsr dbg_bp_clear
-        rts
+@clear: jmp dbg_bp_clear
 
 @count: jsr dbg_bp_count
         sta RVAL
         rts
 
-@patch: jsr patch_all
-        rts
+@patch: jmp patch_all
 
 @unpatch:
-        jsr unpatch_all
-        rts
+        jmp unpatch_all
 
 @find:  lda ARG1                ; addr lo
         ldx ARG2                ; addr hi
@@ -140,12 +135,17 @@ RVAL    = $0B04
         lda #$00
         sta RFLAGS
         rts
-
-@enter: jsr dbg_enter
-        rts
 .endproc
 
 ; Stubs for KERNAL banking (no-ops in test environment)
 kernal_bank_out:
 kernal_bank_in:
+        rts
+
+; Stubs for the four ZP save/restore primitives (no-ops — the
+; bp-table CRUD tests never exercise userland transitions).
+save_userland_zp:
+restore_userland_zp:
+save_kernel_zp:
+restore_kernel_zp:
         rts
