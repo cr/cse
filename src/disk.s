@@ -190,6 +190,25 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 .endproc
 
 ; ═════════════════════════════════════════════════════════
+; _disk_open_buf — SETNAM(open_buf) + SETLFS(2,cur_device,2) + OPEN.
+; Shared by disk_load_seq, disk_save_seq, disk_save_prg — all three
+; open the file built in open_buf on LFN 2 / SA 2.
+;   In:  A = name length (typically carried from build_open_str).
+;   Out: C = 1 on OPEN error (propagated from KERNAL).
+; Clobbers: A, X, Y.
+; ═════════════════════════════════════════════════════════
+.proc _disk_open_buf
+        ldx #<open_buf
+        ldy #>open_buf
+        jsr SETNAM
+        lda #2
+        ldx cur_device
+        ldy #2
+        jsr SETLFS
+        jmp OPEN                ; tail call — C propagates
+.endproc
+
+; ═════════════════════════════════════════════════════════
 ; floppy_read_status — read drive error channel into fl_buf
 ; ═════════════════════════════════════════════════════════
 .proc floppy_read_status
@@ -656,23 +675,11 @@ floppy_status:
         ldx disk_ptr+1
         jsr str_setup           ; ptr = name, Y = length
 
-        ; Build open string "<name>,s,r"
+        ; Build open string "<name>,s,r", then open on LFN 2/SA 2.
         lda #'r'
         ldx #'s'
-        jsr build_open_str
-
-        ; SETNAM with open_buf
-        ldx #<open_buf
-        ldy #>open_buf
-        jsr SETNAM
-
-        ; SETLFS 2,8,2
-        lda #2
-        ldx cur_device
-        ldy #2
-        jsr SETLFS
-
-        jsr OPEN
+        jsr build_open_str      ; A = length
+        jsr _disk_open_buf
         bcs @err
 
         ; CHKIN 2 — no drive error check here; opening channel 15
@@ -780,23 +787,11 @@ floppy_status:
         ldx disk_ptr+1
         jsr str_setup           ; ptr = name, Y = length
 
-        ; Build open string with @: prefix and ",s,w"
+        ; Build open string with @: prefix and ",s,w", then open.
         lda #'w'
         ldx #'s'
-        jsr build_open_str
-
-        ; SETNAM
-        ldx #<open_buf
-        ldy #>open_buf
-        jsr SETNAM
-
-        ; SETLFS 2,8,2
-        lda #2
-        ldx cur_device
-        ldy #2
-        jsr SETLFS
-
-        jsr OPEN
+        jsr build_open_str      ; A = length
+        jsr _disk_open_buf
         bcs @err
 
         ; CHKOUT 2
@@ -879,20 +874,8 @@ floppy_status:
         jsr str_setup           ; ptr = name, Y = length
         lda #'w'
         ldx #'p'
-        jsr build_open_str      ; A = total length, open_buf filled
-
-        ; SETNAM
-        ldx #<open_buf
-        ldy #>open_buf
-        jsr SETNAM
-
-        ; SETLFS 2,device,2 (secondary 2 = data channel for write)
-        lda #2
-        ldx cur_device
-        ldy #2
-        jsr SETLFS
-
-        jsr OPEN
+        jsr build_open_str      ; A = length, open_buf filled
+        jsr _disk_open_buf
         bcs @err
 
         ldx #2
