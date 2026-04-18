@@ -608,24 +608,44 @@ splash_row:
 ;         bank_out_stub → banks KERNAL out → RTIs original frame.
 ; ═════════════════════════════════════════════════════════════
 cse_brk_handler_early:
-        ; Entry stack (after CPU push): [P (top), PClo, PChi].
-        ; Test B flag before any further pushes so the IRQ-path
-        ; frame surgery is straightforward.  Save A across the test.
-        pha                     ; temp save A
-        tsx                     ; X = SP (now points at the A we pushed)
-        lda $0102,x             ; stacked P (one byte under A)
-        and #P_B_FLAG
-        pla                     ; restore A
-        beq @irq_path
-
-        ; B=1 (BRK): replicate $FF48's Y/X/A push prologue, then
-        ; converge with cse_brk_handler.
-        pha
+        ; $FFFE RAM-shadow entry (CPU vectored here because KERNAL was
+        ; banked out at the moment of interrupt).  Entry stack from
+        ; CPU push: [PChi, PClo, P] (top = P).  A, X, Y are user's
+        ; live values.  Classify BRK (B=1) vs IRQ (B=0) via stacked P
+        ; while preserving A/X/Y.
+        ;
+        ; Two subtleties we have to honour:
+        ;   a) `tsx` clobbers X — so we push user X BEFORE tsx to
+        ;      preserve it.
+        ;   b) `pla` resets N/Z from the pulled value — so we branch
+        ;      on the B-flag result BEFORE any pla.
+        ;
+        ; BRK path: we've already pushed A and X in the right FF48
+        ; order; pushing Y completes the FF48-style prologue and we
+        ; jump straight into cse_brk_handler.
+        ; IRQ path: unwind the A/X pushes back into registers and
+        ; jump to @irq_path, which sees the untouched [PChi, PClo, P]
+        ; stack layout it expects.
+        pha                     ; save user A
         txa
-        pha
+        pha                     ; save user X
+        tsx                     ; X = current SP (user X safely on stack)
+        lda $0103,x             ; stacked P sits 3 bytes above current SP
+        and #P_B_FLAG
+        beq @to_irq_path        ; Z=1 → B=0 → real IRQ
+
+        ; B=1 (BRK): finish the FF48-style prologue (push Y), go.
         tya
         pha
         jmp cse_brk_handler
+
+@to_irq_path:
+        ; Unwind A/X so the stack is back to CPU-push state
+        ; [PChi, PClo, P] and A/X are in registers as entry.
+        pla
+        tax
+        pla
+        jmp @irq_path
 
         ; B=0 (real IRQ during kernal-out): surgery plan
         ;
