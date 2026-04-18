@@ -199,7 +199,7 @@ screen, ESC or CLR from the REPL restores the CSE display.
 Colors changed by user code are restored on return.
 
 **Memory config ($01):** $01 is part of the ZP save range ($00–$7F),
-so it round-trips via `kernel_zp_buf` across every user-code run.
+so it round-trips via `userland_zp_buf` across every user-code run.
 User code may freely change $01 (e.g. to bank in BASIC ROM or
 access I/O directly), but must not combine $01 changes with
 $FFFE/$FFFA vector changes that route to non-CSE handlers — see
@@ -249,24 +249,23 @@ BASIC ROM ($A000-$BFFF) is unmapped at startup.  The RAM underneath
 is part of the CSE runtime (code spans across $A000 freely).
 
 KERNAL ROM ($E000-$FFFF) remains mapped.  The RAM underneath is
-**read** by clearing bit 1 of $01 (sei required).  The
-$FFFA/$FFFE RAM shadows hold the **early-entry** addresses of
-`cse_nmi_handler` and `cse_brk_handler` respectively (no separate
-trampolines — the early-entry prologues are part of the handler
-code itself).  When kernal is banked out and an interrupt fires,
-the CPU reads the RAM vectors and jumps directly into the handler;
-the handler's first action is to bank the kernal back in (for IRQ:
-delegating to the kernal's IRQ body via stack surgery so its RTI
-routes through a bank-out stub).  **Writes always pass through**
-to the underlying RAM regardless of $01 bit 1, so pure-writer code
-(`sym_clear`, `setup_interrupts`, the SCREEN→`repl_screen` save in
-`enter_editor`) does not bank — only readers do.
+**read** by clearing bit 1 of $01.  No SEI is needed around the
+toggle: the $FFFE RAM shadow holds `cse_brk_handler_early`, which
+transparently services an IRQ that fires while KERNAL is banked
+out (insert a bank_out_stub frame, bank KERNAL in, delegate to
+$EA31, let KERNAL's RTI land at bank_out_stub which banks out
+again and RTIs the original frame).  The $FFFA RAM shadow points
+directly at `cse_nmi_handler` — no shim is needed because the
+6502 sets I=1 as part of the NMI vector sequence.  **Writes
+always pass through** to the underlying RAM regardless of $01
+bit 1, so pure-writer code (`sym_clear`, `setup_interrupts`, the
+SCREEN→`repl_screen` save in `enter_editor`) does not bank —
+only readers do.
 
 The `kernal_out` flag in BSS lets long-running batches (e.g.
 `asm_assemble` over both passes) hold the KERNAL banked out across
-many inner calls without paying sei + `$01` write overhead per
-call: when set, `kernal_bank_out` and `kernal_bank_in` both
-short-circuit to `rts`.
+many inner calls without paying a `$01` write per call: when set,
+`kernal_bank_out` and `kernal_bank_in` both short-circuit to `rts`.
 
 ### Banked layout ($E000–$FFFF)
 
@@ -285,7 +284,7 @@ regions are zeroed (no PRG space required).
                  I=1 as part of the NMI vector sequence, so no SEI
                  shim is needed)
     $FFFC-$FFFD  Reset vector (untouched — ROM value)
-    $FFFE-$FFFF  IRQ/BRK vector → cse_brk_handler early-entry label
+    $FFFE-$FFFF  IRQ/BRK vector → cse_brk_handler_early
 
     KDATA total:  1010 B (in PRG payload — vectors only, no trampolines)
     KBSS total:   4967 B (zeroed, no PRG space)
@@ -568,8 +567,8 @@ asm_src.s (workspace symbols).
 
 | Function | Purpose |
 |----------|---------|
-| `kernal_bank_out` | SEI + clear $01 bit 1 (honours `kernal_out` flag) |
-| `kernal_bank_in` | Set $01 bit 1 + CLI (honours `kernal_out` flag) |
+| `kernal_bank_out` | Clear $01 bit 1 (honours `kernal_out` flag) |
+| `kernal_bank_in` | Set $01 bit 1 (honours `kernal_out` flag) |
 | `kernal_out` | BSS flag: nonzero = kernal held banked out |
 | `cse_start` | Returns runtime start address (XXXX) in A/X |
 | `cse_end` | Returns first byte past runtime ($D000) in A/X |

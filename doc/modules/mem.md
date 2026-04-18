@@ -12,14 +12,15 @@
 
 ### kernal_bank_out
 **In:** none
-**Out:** KERNAL ROM hidden (bit 1 of $01 cleared), interrupts disabled
+**Out:** KERNAL ROM hidden (bit 1 of $01 cleared).  I flag preserved
+(Phase 18 IRQ early-entry handles IRQ-during-bank-out transparently).
 **Clobbers:** A
 
 No-op when `kernal_out` flag is set (batch caller managing banking).
 
 ### kernal_bank_in
 **In:** none
-**Out:** KERNAL ROM restored (bit 1 of $01 set), interrupts enabled
+**Out:** KERNAL ROM restored (bit 1 of $01 set).  I flag preserved.
 **Clobbers:** A
 
 No-op when `kernal_out` flag is set.
@@ -161,8 +162,11 @@ Called by `main.s` at startup and by `asm_assemble` after `sym_clear`.
 
 - Pure writes to $E000–$FFFF always hit RAM, even with kernal
   mapped in.  Only reads require banking.
-- `kernal_bank_out` disables interrupts (SEI); `kernal_bank_in`
-  re-enables them (CLI).  Batch callers that set `kernal_out` must
-  ensure interrupts are managed correctly.
+- `kernal_bank_out` / `kernal_bank_in` do NOT touch the I flag.
+  Phase 18's $FFFE early-entry (`cse_brk_handler_early` +
+  `bank_out_stub`) handles an IRQ that fires while KERNAL is
+  banked out transparently, so the SEI/CLI pair that used to wrap
+  every bank toggle is redundant.  Caller's I state is preserved
+  across a bank-out/bank-in pair.
 - Interrupt vector ownership has moved to main.s
   (`setup_interrupts`).  mem.s no longer installs trampolines.

@@ -105,7 +105,7 @@ Both `kernal_bank_out` and `kernal_bank_in` honour the
 `asm_assemble` hold the KERNAL banked out across both passes
 (see `asm_src.s`); inner `sym_define`/`sym_lookup` calls inside
 the batch then short-circuit instead of issuing a redundant
-sei + `$01` write on every label reference.
+`$01` write on every label reference.
 
 **Ordering rule for outer batches:** the real `kernal_bank_out`
 must run BEFORE `kernal_out := 1`, and `kernal_out := 0` must
@@ -197,7 +197,9 @@ Wraparound to start index → C=1 (not found, table full).
   compare without popping.  Works because the 6502 stack is at $0100.
 - `heap_copy_name` copies until NUL.  The caller must ensure
   `sym_name` points to a properly NUL-terminated string.
-- Banking overhead: ~20 cycles per sei/bank-out/bank-in/cli pair.
+- Banking overhead: ~12 cycles per bank-out/bank-in pair (two
+  `lda $01 / ora-or-and / sta $01` sequences; no SEI/CLI since
+  Phase 18's IRQ early-entry handles IRQ-during-bank-out).
   Negligible compared to the ~300-cycle hash + probe cost of a
   typical lookup.  Inside an `asm_assemble` batch (kernal_out=1),
   the inner bank helpers are no-ops, so the only banking cost

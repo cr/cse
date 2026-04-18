@@ -17,7 +17,7 @@ byte-indexing (e.g. `str_flag_ch`).
 ### Exported labels
 
 **repl group:** `str_flag_ch`, `str_bp_pfx`, `str_3sp`, `str_2sp`,
-`str_brk`, `str_at`, `str_nmi`, `str_ok_at`, `str_bp_clr`, `str_deleted`,
+`str_brk`, `str_rts`, `str_at`, `str_nmi`, `str_bp_clr`, `str_deleted`,
 `str_syntax`, `str_bad_val`, `str_full`, `str_cmd`, `str_no_name`,
 `str_range`, `str_fail`, `str_too_big`, `str_expr`, `str_no_ctx`,
 `str_r_pc`, `str_a`, `str_x`, `str_y`, `str_s`,

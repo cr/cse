@@ -1,16 +1,13 @@
 # CSE-as-Kernel — design synthesis
 
-> **Status:** DDD Step 1 propagated across the corpus
-> (2026-04-17).  Implementation pending.
+> **Status:** Phase 18 landed in commit `a628e65` (2026-04-18).
+> This document is retained as the design rationale; the
+> codebase now implements it.  Post-Phase-18 commits: `7351292`
+> (housekeeping), `fc52046` (code sharing), `8e60b62` (SEI/CLI
+> drop), `778a1f4` (disk helper).
 > **Created:** 2026-04-17.
-> **DDD delta:** This document describes a *desired* state of the
-> runtime's relationship to interrupts, stack, and userland.  The
-> current code does not implement it.  The delta between this
-> design and the code is *deliberate* and defines the scope of
-> Phase 18.
 >
-> The desired state has been propagated into the rest of the
-> corpus:
+> The design state is propagated across the corpus:
 > - [doc/memory_design.md](memory_design.md) § Stack contract
 >   (rewritten: shared stack, no two-image swap)
 > - [doc/userland_contract.md](userland_contract.md) (new, formalises §7 + §8 + §4 last clause)
@@ -21,7 +18,8 @@
 > - [doc/modules/mem.md](modules/mem.md) (`kernal_init` retired;
 >   trampolines retired)
 > - [doc/modules/repl.md](modules/repl.md) (REPL framed as ISR
->   body; `run_user` simplified)
+>   body; `run_user` wrapper eliminated — commands set
+>   `run_user_pending` + rts, main_loop dispatches the gate)
 > - [doc/architecture.md](architecture.md) (kernel/userland framing
 >   in layer diagram and module summaries)
 > - [doc/glossary.md](glossary.md) (kernel/kernal/userland/
@@ -29,8 +27,7 @@
 > - [doc/TODO.md](TODO.md) (Phase 18 master entry consolidates
 >   sub-items; old NMI/IRQ trampoline entry retired into it)
 >
-> The corpus now describes the desired post-Phase-18 state.  The
-> implementation work is the Phase 18 entry in `TODO.md`.
+> The corpus describes the current (post-Phase-18) state.
 
 ---
 
@@ -227,44 +224,30 @@ Status updated after corpus propagation (2026-04-17):
 
 ---
 
-## How to resume this work
+## Phase 18 retrospective (for future work in this area)
 
-Step 1 of the DDD Method (documentation describes the desired
-state) is complete across the corpus — see the **Status** banner
-above for the propagation index.  The Phase 18 entry in
-[doc/TODO.md](TODO.md) lists the implementation sub-items in
-dependency order.
+Phase 18 was executed as one large atomic cutover (commit
+`a628e65`) after the design had been fully propagated across the
+corpus.  The cutover covered: gate primitives, handler_finalize
+universal longjmp, CPU-port-aware ZP swap, direct vector patching,
+command-loop flag-and-rts pattern, $80/0 `in_userland` convention,
+`brk_stub` sentinel.  Follow-up commits tightened the result:
+`7351292` housekeeping, `fc52046` code sharing, `8e60b62` SEI/CLI
+redundancy, `778a1f4` disk helper.
 
-Next session should:
+Remaining Phase 18 tail items (tracked in `TODO.md`):
+- Kernel stack depth audit — refine the 64 B headroom contract
+  from conservative to measured-plus-margin.
+- SID voice-gate silence at the userland → kernel boundary.
 
-1. **Read this document end-to-end** + the propagation targets in
-   the Status banner before touching any code.
-2. **Pick the first implementation slice from the Phase 18 TODO
-   sub-items**, in dependency order.  Recommended first slices:
-   - **Kernel stack depth measurement** (empirical, refines the
-     64 B headroom contract).  Pure audit — no code change yet.
-   - **`return_to_userland` + `brk_stub` + cold-init handoff** as one
-     atomic refactor: this is the load-bearing change that
-     replaces the two-image swap.  Doable in a single DDD cycle
-     because the corpus already documents the desired interfaces.
-3. **Run DDD Step 2 (DDD Analysis)** on the chosen slice: where
-   does current code diverge from the now-documented desired
-   state?  Get the analysis approved.
-4. **Run DDD Step 3 (TDD Analysis)** on the chosen slice: which
-   tests cover the affected paths today, and what new tests verify
-   the desired contract?  Pay particular attention to:
-   - Tests that depend on the two-image swap (will need rewriting).
-   - New tests for kernel↔userland transition correctness, the
-     brk_stub clean-exit path, NMI dispatch on `in_userland`.
-5. **Step 4 (Implement)** — tests first, then code.  Each slice
-   should keep all 2662+ tests green at commit time.
-
-The refactor remains phase-scale.  Expect multiple DDD cycles, each
-covering one or two sub-items from the Phase 18 TODO entry.  Do
-not collapse into a single commit or session — the interactions
-between sub-items require incremental verification.
+If a similar phase-scale refactor comes up again, the working
+pattern was: document the desired state across the corpus first
+(DDD Step 1), then implement as a single atomic cutover once all
+affected modules' docs are mutually consistent.  Tests (especially
+C64Emu-level kernel-transition tests) get written in Step 3
+alongside the design review.
 
 ## Cross-reference
 
-- Existing trampoline bug TODO in `doc/TODO.md` (NMI/IRQ trampolines: asymmetric + latent crash windows) — subsumed by §4 and §6 of this document.  Once this design lands, that TODO closes as a side effect.
-- Phase 17 two-image stack swap (committed as `8f68f28`, `c7de394`, etc.) — this design *replaces* that mechanism with a simpler one.  The swap stays in place until this refactor is executed.
+- Existing trampoline bug TODO in `doc/TODO.md` (NMI/IRQ trampolines: asymmetric + latent crash windows) — subsumed by §4 and §6 of this document.  Closed as a side effect when Phase 18 landed (`a628e65`).
+- Phase 17 two-image stack swap (`8f68f28`, `c7de394`, etc.) — replaced by this design's flat shared-stack model.  512 B KBSS and ~1500 cycles per transition reclaimed in Phase 18.

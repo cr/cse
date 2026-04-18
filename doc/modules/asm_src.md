@@ -35,7 +35,7 @@ handler prints `; ok` and calls `seg_print_save` for the save command.
 ; org  1000-1002     3b
 ; org  2000-2003     4b
 ; ok
-0801:s "t-org" $2004
+0801:s "t-org" $2003
 ```
 
 Segment lines are comments (`;` prefix, no `$` on addresses).
@@ -50,7 +50,10 @@ Suppressed when no segments were emitted (`_min_pc` == $FFFF).
 - `seg_print_save` — prints executable save command.
   Called by repl `@h_a` after successful assembly (KERNAL banked in).
 - `_min_pc` (2B) — global lowest origin ($FFFF = no segments)
-- `_max_pc` (2B) — global highest byte (exclusive, ready for save)
+- `_max_pc` (2B) — global highest byte (exclusive end — first byte
+  past the assembled region).  `seg_print_save` emits `_max_pc - 1`
+  to match the inclusive-end convention used by the `s` command
+  and by `; org AAAA-BBBB` segment lines.
 
 **Depends on:** asm_line, expr, symtab, editor
 (ed_read_line, ed_read_rewind, buf_base), repl (log_open,
@@ -79,9 +82,9 @@ Two passes over the editor source:
 **KERNAL banking:** `asm_assemble` holds the KERNAL banked out
 across both passes.  Inside the batch, `asm_line`'s own
 `kernal_bank_out`/`kernal_bank_in` calls short-circuit, so each
-line costs only a flag check — not a full sei + `$01` write.
-This makes `asm_line` the single shared bank-aware entry point
-for both `asm_src` and the REPL `.` command (see
+line costs only a flag check — not a full `$01` write.  This makes
+`asm_line` the single shared bank-aware entry point for both
+`asm_src` and the REPL `.` command (see
 [asm_line.md](asm_line.md)).
 
 **Ordering matters.** Both `kernal_bank_out` and `kernal_bank_in`

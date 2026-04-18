@@ -128,14 +128,31 @@ same stack shape.
 `rp_tmp2` (1) — scratch pointers/bytes shared by repl.s,
 debugger.s, asm_line.s.
 
-**BSS (4 bytes):** `state` (1), `warm_guard` (1), `in_userland` (1),
-`kernel_init_sp` (1).
+**BSS (6 bytes):** `state` (1), `warm_guard` (1), `in_userland` (1),
+`kernel_init_sp` (1), `run_user_pending` (1), `stop_cooldown` (1).
 
 `kernel_init_sp` is the SP value the BRK handler longjmps to when
 returning control to the REPL.  Set once during cold init, just
 before the cold-init userland handoff: `tsx; stx kernel_init_sp`.
 Read by `cse_brk_handler` tail (`ldx kernel_init_sp; txs`) and by
 `cse_warm_start` for hard recovery.
+
+`run_user_pending` is the command → main_loop handoff for userland
+execution.  Commands (`j`, `g`, `c`, `t`, `o`) stage their state
+and rts normally after setting this to `MODE_JUMP` (push sentinel →
+fresh start) or `MODE_RESUME` (reuse existing sentinel).  The
+main_loop dispatches via `jmp return_to_userland` / `jmp
+restore_userland_state` at top level — never RTI from within a jsr
+frame.  Cleared by main_loop before each `exec_line` call, and
+again after `post_run_cleanup` consumes it.
+
+`stop_cooldown` is main_loop's RUN/STOP edge-filter: set to 1 when
+a STOP press is processed (so autorepeat doesn't re-toggle) or by
+`hygiene_after_userland` on an NMI break (the STOP key was held to
+cause the break; the stale CH_STOP in $C6 must be swallowed).
+Cleared by main_loop's `@wait` poll as soon as the C64-specific
+STOP shadow $91 reports STOP released.  See `main_loop` for the
+edge-trigger discipline.
 
 **KBSS (cold-init snapshot, under kernal ROM):**
 - `_cold_zp` (127 B) — snapshot of $01-$7F at cold-init entry

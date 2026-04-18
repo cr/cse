@@ -57,7 +57,8 @@ User code's view of CPU and memory state, by tier:
 - **VIC registers** are forced to a readable text-mode state on
   every userland → kernel transition (display on, 25 rows, text
   mode, no extended/bitmap, sprites off, raster IRQ off, charset
-  pointer = standard, scroll = 0).  See `vic_reset` in main.s.
+  pointer = lowercase/uppercase, scroll = 0).  See `vic_reset` in
+  screen.s.
 - **ZP `$00–$7F`** — CSE's half of zero page.  Saved at userland
   entry to `kernel_zp_buf` and restored at userland exit; the live
   view between break and resume reflects the user's ZP, not CSE's.
