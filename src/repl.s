@@ -1765,20 +1765,23 @@ hygiene_after_userland:
         sta brk_pc
         lda cur_addr+1
         sta brk_pc+1
-
-        ; Newline + clreol so user CHROUT output starts on a fresh
-        ; row, not overwriting the typed command.
-        jsr newline
-        jsr io_clear_eol
-
-        ; Drain KERNAL keyboard buffer before user code runs.
-        lda #0
-        sta $C6
-
+        jsr pre_userland_run
         lda #MODE_JUMP
         sta run_user_pending
         rts
 .endproc
+
+; ── pre_userland_run — shared pre-flight for j/g/t/o ────────────────
+; Newline + clreol so user CHROUT starts on a fresh row, plus a
+; keyboard-buffer drain so user's first GETIN/CHRIN doesn't see
+; keys the user typed while issuing the command.
+; Clobbers: A, X, Y.
+pre_userland_run:
+        jsr newline
+        jsr io_clear_eol
+        lda #0
+        sta $C6
+        rts
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_step — 't' (step-into) / 'o' (step-over) command.
@@ -1885,11 +1888,7 @@ hygiene_after_userland:
         sbc #1
         sta step_remaining
 
-        ; Pre-run screen setup (once, not per iteration).
-        jsr newline
-        jsr io_clear_eol
-        lda #0
-        sta $C6
+        jsr pre_userland_run
 
         ; Mode: fresh (sentinel) if no prior break, resume otherwise.
         lda dbg_reason

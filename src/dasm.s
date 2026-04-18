@@ -237,72 +237,24 @@ dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
         pla                     ; discard format byte
         rts
 
-@rel:   ; Relative branch: compute PC + 2 + signed offset
+@rel:   ; Relative branch: target = PC + 2 + signed offset at op+1.
         ldy #1
-        lda (_dasm_ptr),y       ; signed offset
-        ; target = PC + 2 + signed_offset
-        ; sign-extend: if offset negative, pre-decrement hi byte
-        ldx _dasm_ptr+1
-        tay                     ; save offset in Y
-        bpl :+                  ; positive offset: skip
-        dex                     ; negative: pre-decrement hi
-:       tya                     ; restore offset
-        clc
-        adc _dasm_ptr           ; + PC lo
-        bcc :+
-        inx                     ; carry into hi
-:       clc
-        adc #2                  ; + 2
-        bcc :+
-        inx
-:       ; now A = target lo, X = target hi
-        pha                     ; save target lo
-        txa
-        pha                     ; save target hi
-        lda #$24                ; '$'
-        jsr buf_putc
-        pla                     ; target hi
-        jsr buf_hex2
-        pla                     ; target lo
-        jsr buf_hex2
-        pla                     ; discard format byte from stack
-        rts
+        jsr _compute_branch_target
+        jmp _emit_target
 
 @zprel: ; ZPREL: $XX,$XXXX (BBR/BBS)
+        ; Emit "$XX," for the ZP byte first, then the branch target
+        ; from PC+3 + signed offset at op+2.
         lda #$24                ; '$'
         jsr buf_putc
         ldy #1
-        lda (_dasm_ptr),y       ; ZP byte
+        lda (_dasm_ptr),y
         jsr buf_hex2
         lda #$2C                ; ','
         jsr buf_putc
-        ; Now relative branch from PC+3 (signed offset)
         ldy #2
-        lda (_dasm_ptr),y       ; signed offset
-        ldx _dasm_ptr+1
-        tay
-        bpl :+
-        dex                     ; negative: pre-decrement hi
-:       tya
-        clc
-        adc _dasm_ptr
-        bcc :+
-        inx
-:       clc
-        adc #3                  ; PC+3 for ZPREL
-        bcc :+
-        inx
-:       pha                     ; save target lo
-        txa
-        pha                     ; save target hi
-        lda #$24                ; '$'
-        jsr buf_putc
-        pla                     ; target hi
-        jsr buf_hex2
-        pla                     ; target lo
-        jsr buf_hex2
-        pla                     ; discard format byte
-        rts
+        jsr _compute_branch_target
+        jmp _emit_target
 
 @suffix:
         ; Lo nybble of format byte → suffix
@@ -353,9 +305,52 @@ dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
 .endproc
 
 ; ════════════════════════════════════════════════════════════
-; Relative branch helper for signed offset
-; (already handled inline in format_operand)
+; Branch-target helpers — shared between format_operand's
+; @rel and @zprel paths.  Both compute target = PC + adj +
+; signed_offset, where adj = 2 for REL (one-byte operand) or
+; 3 for ZPREL (two-byte operand).  Adjustment = Y + 1, so
+; callers just pass Y = 1 or 2.
 ; ════════════════════════════════════════════════════════════
+
+; _emit_target — print "$XXXX" and discard the stacked format byte.
+; In: A = target lo, X = target hi.
+_emit_target:
+        pha
+        txa
+        pha
+        lda #$24                ; '$'
+        jsr buf_putc
+        pla
+        jsr buf_hex2            ; hi
+        pla
+        jsr buf_hex2            ; lo
+        pla                     ; format byte pushed by caller
+        rts
+
+.proc _compute_branch_target
+        ; In: Y = offset byte index (1 for REL, 2 for ZPREL).
+        ;     Adjustment = Y + 1 (PC past this insn).
+        ; Out: A = target lo, X = target hi.
+        tya
+        clc
+        adc #1
+        sta @adj                ; stash adjustment (2 or 3)
+        lda (_dasm_ptr),y       ; signed offset
+        ldx _dasm_ptr+1
+        cmp #$80                ; sign-extend: negative → pre-dec hi
+        bcc @pos
+        dex
+@pos:   clc
+        adc _dasm_ptr
+        bcc :+
+        inx
+:       clc
+        adc @adj                ; + PC adjustment
+        bcc :+
+        inx
+:       rts
+@adj:   .byte 0
+.endproc
 
 ; ════════════════════════════════════════════════════════════
 ; Buffer write helpers
