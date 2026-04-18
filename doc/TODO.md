@@ -427,82 +427,76 @@ Defined scope, needs work.
 
 ### Size optimization
 
-**Post-Phase-18 optimization sweep (pending).**  Exhaustive three-agent
-review of all modules after the kernel refactor landed.  Findings
-grouped by phase; see the session transcript for full per-module
-line-number analysis.
+**Post-Phase-18 optimization sweep.**  Exhaustive three-agent review
+after Phase 18 landed.  Ongoing — see commits `7351292` (A),
+`fc52046` (B), `8e60b62` (SEI/CLI), `778a1f4` (disk) for progress.
+Net so far: ~−80 B across all builds.
 
-*Phase A — housekeeping (~110 B, trivial to small effort):*
+*Done:*
 
-- [ ] [repl.s:19] Remove stale `TODO: remove after test_repl → C64Emu
-  migration` export comment — migration is long done.
-- [ ] [main.s cse_exit_to_basic] Drop the `and #$FD / sta MEM_CONFIG`
-  bank-in step before the COLD_ZP restore — the ZP restore writes the
-  full MEM_CONFIG byte, making the first write redundant.  3 B.
-- [ ] [debugger.s dbg_init] Extend `clear_bp_x` backwards to zero all
-  debugger BSS state in one loop instead of per-register stores.  ~6 B.
-- [ ] [repl.s show_break_result + post_run_cleanup] Duplicate opcode
-  peek at `brk_pc`.  Factor into a helper returning the classification
-  byte (brk/rts/rti/stop-terminator), caller-chooses-what-to-do with
-  it.  ~16 B.
-- [ ] [loader.s] Three page-copy loops (CODE+RODATA, KDATA, BSS-zero)
-  → single `_copy_pages(src, dst, page_count)` helper.  ~60 B.  Pairs
-  with the reverse-direction-copy item below.
-- [ ] [debugger.s step_next_pc] Wrap the CMOS-only opcode cases
-  ($7C JMP (abs,x), $80 BRA, RMB/SMB/BBR/BBS) in `.ifdef CMOS_SUPPORT`
-  so 6502 builds don't carry them.  ~15 B on 6502-only.
+- [x] ~~Phase A: repl.s stale TODO comment removed; loader.s
+  `copy_pages` + `zero_pages` helpers; debugger.s `dbg_init` /
+  `clear_bp_x` unified sweep; repl.s `peek_brk_opcode` dedup.~~
+  (`7351292`)
+- [x] ~~Phase B: repl.s `pre_userland_run` helper; dasm.s
+  `_compute_branch_target` + `_emit_target` helpers.~~  (`fc52046`)
+- [x] ~~SEI/CLI guards dropped from mem.s `kernal_bank_in/out` and
+  asm_src.s `_bank_in_tmp` / `_bank_out_tmp` — the Phase 18 IRQ
+  early-entry + `bank_out_stub` handles IRQ-during-bank-out
+  transparently, so the I-flag management is redundant.~~
+  (`8e60b62`)
+- [x] ~~disk.s `_disk_open_buf` helper for the three SEQ/PRG OPEN
+  sites (disk_load_seq, disk_save_seq, disk_save_prg).~~  (`778a1f4`)
 
-*Phase B — code sharing (~100 B, small-medium effort):*
+*Evaluated and declined:*
 
-- [ ] [repl.s cmd_jmp / cmd_step] Shared pre-run tail: `newline /
-  io_clear_eol / sta $C6`.  ~12 B.
-- [ ] [asm_src.s, expr.s, asm_src.s emit_error] The direct `$01`
-  bank-toggle sequence (`sei / lda $01 / ora #$02 / sta $01` and its
-  clear-variant) is inlined three times.  Move to shared helpers
-  (`kernal_bank_out_local` / `kernal_bank_in_local`?) or piggyback on
-  the existing mem.s `kernal_bank_out/in` if the flag-gated design
-  fits.  ~30 B.
-- [ ] [asm_src.s skipws_ep / skipws_as] Identical loop, different ZP
-  pointer.  Macro or shared routine with ptr-selector.  ~20 B.
-- [ ] [dasm.s format_operand] `@rel` / `@zprel` both inline PC+offset
-  branch-target arithmetic.  Extract `_compute_branch_target`.  ~25 B.
-- [ ] [debugger.s patch_all / unpatch_all] Forward + reverse 10-slot
-  walk — share skeleton with a direction flag or unify into one
-  `_bp_walk` taking a patch/unpatch callback.  ~16 B, clearer intent.
+- ~~Phase A: cse_exit_to_basic `and #$FD` removal — **false
+  positive**.  That bank-out is required so the subsequent COLD_ZP
+  reads resolve to the saved RAM copy at $F8DA (under KERNAL ROM),
+  not to the ROM bytes.~~
+- ~~Phase A: step_next_pc CMOS gating — **already done**.~~
+- ~~Phase B: centralize `_bank_in_tmp` / `_bank_out_tmp` into mem.s
+  — **false positive**.  They bypass mem.s's flag-gated helpers on
+  purpose (asm_src runs inside a batch with `kernal_out = 1`).~~
+- ~~Phase B: skipws_ep / skipws_as consolidation — **no net
+  saving**.  Wrapper/macro approaches match or exceed current
+  size.~~
+- ~~Phase B: patch_all / unpatch_all shared skeleton — **load-
+  bearing by design**.  The forward/reverse order is a correctness
+  contract for overlapping user-bp / step-bp slots at the same
+  address: forward-patch saves the real byte first (later slots
+  save $00); reverse-unpatch writes the $00s first and the real
+  byte last, leaving the user's RAM correct.  Uniform direction
+  would corrupt overlapping addresses.~~
+- ~~Phase D: editor.s ed_handle_key table dispatch — **not a size
+  win**.  ~10-key cmp/bne chain is ~40 B; table + scan loop +
+  indirect-jump glue would be ~56 B.  Could be a clarity win paired
+  with handler-tail consolidation, but that's a separate refactor.~~
 
-*Phase C — stack / ZP (~20 B code, ~6 B kernel stack):*
+*Open — Phase C (stack / ZP wins, ~20 B code + ~6 B kernel stack):*
 
-- [ ] [screen.s scroll_up] Replace `pha/pla` pairs for `n` /
-  `src_row` / `dst_row` with ZP temps.  ~37 B ZP is free at $5B–$7F
-  (per zp.s).  Saves ~6 stack bytes per scroll + a few cycles per row.
-- [ ] [asm_src.s .const handling] Similar `pha/pla` dance around
-  name-folding temporary NUL.  Move to ZP scratch.  ~4 B stack, ~15 B
-  code.
-- [ ] Promote hot BSS flags to ZP (ample free: 37 B unused at $5B–$7F).
-  Candidates: `stop_cooldown`, `dbg_reason`, `run_user_pending` — each
-  read at multiple hot sites.  `in_userland` is debatable (only read
-  in interrupt dispatch, cost is marginal).  Saves ~12 B code + a few
-  cycles per check.
+- [ ] **Phase C — promote hot state out of BSS into ZP, and out of
+  the hardware stack into ZP scratch.**  Three sub-items:
+  1. [screen.s scroll_up] Replace the `pha/pla` pairs for `n` /
+     `src_row` / `dst_row` with ZP temps.  ~37 B ZP is free at
+     $5B–$7F per zp.s.  Saves ~6 stack bytes per scroll + cycles
+     per row.
+  2. [asm_src.s .const handling] Similar `pha/pla` dance around
+     name-folding.  Move to ZP scratch.  ~4 stack bytes, ~15 B code.
+  3. Promote hot BSS flags to ZP: `stop_cooldown`, `dbg_reason`,
+     `run_user_pending` — each read at multiple hot sites.  Each
+     ZP promotion saves ~1 B code per access and a cycle per read.
+     `in_userland` is debatable (only read in interrupt dispatch).
+  Total estimate: ~20 B code, ~6 B kernel stack headroom, plus
+  hot-path cycle wins in main_loop's `@wait` and scroll_up's row
+  loop.
 
-*Phase D — structural (~170 B, bigger refactors):*
-
-- [ ] [disk.s] `SETNAM / SETLFS / OPEN` triplet appears in 6+ places
-  (disk_load_prg, disk_load_seq, disk_save_seq, disk_save_prg,
-  list_directory, floppy_read_status).  Extract `_disk_open(A=LFN,
-  X=device, Y=secondary, disk_ptr=name)` helper.  ~90 B.
-- [ ] [editor.s ed_handle_key] Long cmp/bne dispatch chain for
-  cursor/function keys.  Convert to table-driven dispatch (char +
-  handler-addr pairs).  ~80 B, also clearer.
-
-*Other small wins noted during the sweep:*
+*Open — other small wins flagged during the sweep:*
 
 - [ ] [main.s setup_interrupts] Four vector-write pairs could use a
   small helper or indexed loop.  ~10 B.
 - [ ] [debugger.s _rtu_body sentinel push] Branch pattern could be
   slightly tighter.  ~2 B.
-
-Total estimated code savings across all phases: ~400 B.  Plus
-cycle wins in scroll_up and main_loop's `@wait` hot path.
 
 **CSE exit cleanup via KERNAL TIMB ($FE66).**  Instead of `cse_exit_to_basic`
 hand-rolling the ZP restore + MEM_CONFIG reset + `jsr KERNAL_CINT +
