@@ -57,6 +57,37 @@ tests are written, when they are written, and what they test.
    [Anti-patterns](#anti-patterns) section below for the
    cautionary examples currently in the tree.
 
+7. **Pre-cutover stress tests for phase-scale refactors.**  When a
+   refactor introduces a new mechanism that *claims to handle* a
+   scenario the old code prevented (by masking / locking / guarding),
+   write stress tests that force that scenario through the new
+   mechanism **before** you trust the design enough to remove the
+   old guard.  Passing the existing test suite + documenting the
+   desired state (DDD Step 1) is *not* sufficient — the old guard
+   was often masking latent bugs that the new mechanism has to
+   handle on its own.
+
+   Cautionary example: Phase 18 introduced `cse_brk_handler_early`
+   with stack surgery to handle "IRQ fires while KERNAL is banked
+   out" transparently.  The pre-existing SEI guards in
+   `kernal_bank_out/in` had been masking that scenario entirely.
+   Phase 18 landed with the new handler and all tests green
+   (`a628e65`).  A later optimisation commit dropped the "now
+   redundant" SEIs (`8e60b62`) — which *finally exposed the new
+   mechanism to the stress it was designed for*, and three latent
+   bugs in the handler surfaced in quick succession (`c347fa8`,
+   `941435d`), triggered by the user running common workflows.
+
+   The discipline: for every "new mechanism replaces old guard"
+   refactor, write a test that *forces the scenario the old guard
+   prevented* and asserts the new mechanism handles it correctly —
+   **before** removing the guard.  For IRQs, this means a test
+   that schedules an IRQ at each cycle across the critical window.
+   For stack-contract changes, tests that exercise the edge case
+   the old contract forbade.  The asymmetric C64Emu fixture
+   (`test_kernel_transition.py`) is the right shape for these —
+   expand it systematically when new mechanisms land.
+
 ## Anti-patterns
 
 These exist in the current test tree.  Don't add more of them;
