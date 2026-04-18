@@ -116,15 +116,19 @@ _org_set:       .res 1          ; non-zero after first .org on pass 0
 ; ── _bank_in_tmp / _bank_out_tmp ───────────────────────────────────────────
 ; Temporarily bank KERNAL in (for screen I/O during an assembly pass)
 ; or back out.  Used by emit_error and segment logging.
+;
+; These bypass mem.s's kernal_bank_in/out on purpose: asm_assemble
+; sets `kernal_out = 1` for the duration of the passes so that the
+; flag-gated helpers no-op — but emit_error / seg logging need real
+; banking to reach the screen.  No SEI/CLI is needed: Phase 18's
+; $FFFE early-entry transparently handles IRQs while KERNAL is
+; banked out.
 _bank_in_tmp:
-        sei
         lda $01
         ora #$02
         sta $01
-        cli
         rts
 _bank_out_tmp:
-        sei
         lda $01
         and #$FD
         sta $01

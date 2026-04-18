@@ -5,8 +5,8 @@
 ; primitives paired by contract:
 ;
 ;   KERNAL ROM banking:
-;     kernal_bank_out    SEI + clear $01 bit 1 (honours kernal_out)
-;     kernal_bank_in     set $01 bit 1 + CLI (honours kernal_out)
+;     kernal_bank_out    clear $01 bit 1 (honours kernal_out)
+;     kernal_bank_in     set   $01 bit 1 (honours kernal_out)
 ;     kernal_out         BSS flag (nonzero = KERNAL held banked out)
 ;
 ;   CPU-port aware ZP save/restore (kernel↔userland gates):
@@ -77,13 +77,19 @@ _zp_end_val:    .byte <(__ZP_LAST__ + 1)
 .segment "CODE"
 
 ; ── Banking helpers ──────────────────────────────────────────
-; kernal_bank_out: sei + clear $01 bit 1 → KERNAL ROM hidden
-; kernal_bank_in:  set $01 bit 1 → KERNAL ROM visible + cli
+; kernal_bank_out: clear $01 bit 1 → KERNAL ROM hidden
+; kernal_bank_in:  set   $01 bit 1 → KERNAL ROM restored
 ;
-; Both helpers honour the kernal_out flag: when non-zero, the
-; caller is managing banking explicitly across a long batch
-; (e.g. asm_assemble holds KERNAL out for both passes), so the
-; helpers become no-ops.
+; No SEI/CLI guards are needed here: Phase 18's $FFFE RAM-shadow
+; points at cse_brk_handler_early, which transparently handles an
+; IRQ that fires while KERNAL is banked out (insert bank_out_stub
+; frame, bank KERNAL in, delegate to $EA31, KERNAL's RTI lands at
+; bank_out_stub which banks out again and RTIs the original frame).
+; The CPU's I flag is therefore irrelevant to banking correctness.
+;
+; Both helpers honour the kernal_out flag: when non-zero, the caller
+; is managing banking across a long batch (e.g. asm_assemble holds
+; KERNAL out for both passes), so the helpers become no-ops.
 ;
 ; ── ORDERING RULE FOR BATCH CALLERS ──
 ; Because BOTH helpers short-circuit on kernal_out, a batch caller
@@ -94,13 +100,11 @@ _zp_end_val:    .byte <(__ZP_LAST__ + 1)
 ;     lda #1                          sta kernal_out
 ;     sta kernal_out                  jsr kernal_bank_in
 ;
-; Pure writers under KERNAL ($E000–$FFFF) do NOT need either
-; helper: stores pass through to the underlying RAM regardless of
-; $01 bit 1.
+; Pure writers under KERNAL ($E000–$FFFF) do NOT need either helper:
+; stores pass through to the underlying RAM regardless of $01 bit 1.
 kernal_bank_out:
         lda kernal_out
         bne @skip               ; flag set → already banked out
-        sei
         lda CPU_PORT
         and #$FD                ; clear bit 1 → RAM under KERNAL
         sta CPU_PORT
@@ -112,7 +116,6 @@ kernal_bank_in:
         lda CPU_PORT
         ora #$02                ; set bit 1 → KERNAL ROM restored
         sta CPU_PORT
-        cli
 @skip:  rts
 
 ; ═════════════════════════════════════════════════════════════
