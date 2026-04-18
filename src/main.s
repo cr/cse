@@ -148,6 +148,11 @@ kernel_init_sp:    .res 1      ; setjmp SP for cse_warm_start ONLY;
 run_user_pending:  .res 1      ; MODE_NONE / MODE_JUMP / MODE_RESUME —
                                 ; set by command handlers, read by
                                 ; main_loop after exec_line rts.
+_irq_saved_a:      .res 1      ; scratch for cse_brk_handler_early's
+                                ; @irq_path: user A is saved here
+                                ; while we clobber A with the
+                                ; bank_out_stub address bytes, then
+                                ; restored for the FF48-style push.
 stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
                                 ;   set to 1 when (a) we process a STOP
                                 ;     press (so the same hold doesn't
@@ -664,17 +669,26 @@ cse_brk_handler_early:
         ;   RTI-expected push order is PChi, PClo, P (so P ends up
         ;   on top of the 3).
 @irq_path:
+        ; User A/X/Y are still in registers (@to_irq_path restored them
+        ; from the early-classification pushes).  We need user A for the
+        ; FF48-style push below, but loading the bank_out_stub address
+        ; bytes will clobber A.  Stash user A in a dedicated BSS byte
+        ; first (rather than a shared ZP scratch — the interrupted code
+        ; may be mid-use of ZP temps).
+        sta _irq_saved_a
         lda #>bank_out_stub
         pha
         lda #<bank_out_stub
         pha
-        php                     ; clean P for bank_out's RTI target
-        ; Now replicate $FF48's Y/X/A push so $EA81's pops match.
-        pha                     ; A
+        php                     ; clean P for bank_out_stub's RTI target
+        ; Replicate $FF48's A/X/Y push so $EA81's pla/tay/pla/tax/pla
+        ; gets user's real registers.
+        lda _irq_saved_a
+        pha                     ; user A
         txa
-        pha                     ; X
+        pha                     ; user X
         tya
-        pha                     ; Y
+        pha                     ; user Y
         lda #BANK_IN
         sta MEM_CONFIG
         jmp KERNAL_IRQ_BODY
