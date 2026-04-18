@@ -427,6 +427,94 @@ Defined scope, needs work.
 
 ### Size optimization
 
+**Post-Phase-18 optimization sweep (pending).**  Exhaustive three-agent
+review of all modules after the kernel refactor landed.  Findings
+grouped by phase; see the session transcript for full per-module
+line-number analysis.
+
+*Phase A — housekeeping (~110 B, trivial to small effort):*
+
+- [ ] [repl.s:19] Remove stale `TODO: remove after test_repl → C64Emu
+  migration` export comment — migration is long done.
+- [ ] [main.s cse_exit_to_basic] Drop the `and #$FD / sta MEM_CONFIG`
+  bank-in step before the COLD_ZP restore — the ZP restore writes the
+  full MEM_CONFIG byte, making the first write redundant.  3 B.
+- [ ] [debugger.s dbg_init] Extend `clear_bp_x` backwards to zero all
+  debugger BSS state in one loop instead of per-register stores.  ~6 B.
+- [ ] [repl.s show_break_result + post_run_cleanup] Duplicate opcode
+  peek at `brk_pc`.  Factor into a helper returning the classification
+  byte (brk/rts/rti/stop-terminator), caller-chooses-what-to-do with
+  it.  ~16 B.
+- [ ] [loader.s] Three page-copy loops (CODE+RODATA, KDATA, BSS-zero)
+  → single `_copy_pages(src, dst, page_count)` helper.  ~60 B.  Pairs
+  with the reverse-direction-copy item below.
+- [ ] [debugger.s step_next_pc] Wrap the CMOS-only opcode cases
+  ($7C JMP (abs,x), $80 BRA, RMB/SMB/BBR/BBS) in `.ifdef CMOS_SUPPORT`
+  so 6502 builds don't carry them.  ~15 B on 6502-only.
+
+*Phase B — code sharing (~100 B, small-medium effort):*
+
+- [ ] [repl.s cmd_jmp / cmd_step] Shared pre-run tail: `newline /
+  io_clear_eol / sta $C6`.  ~12 B.
+- [ ] [asm_src.s, expr.s, asm_src.s emit_error] The direct `$01`
+  bank-toggle sequence (`sei / lda $01 / ora #$02 / sta $01` and its
+  clear-variant) is inlined three times.  Move to shared helpers
+  (`kernal_bank_out_local` / `kernal_bank_in_local`?) or piggyback on
+  the existing mem.s `kernal_bank_out/in` if the flag-gated design
+  fits.  ~30 B.
+- [ ] [asm_src.s skipws_ep / skipws_as] Identical loop, different ZP
+  pointer.  Macro or shared routine with ptr-selector.  ~20 B.
+- [ ] [dasm.s format_operand] `@rel` / `@zprel` both inline PC+offset
+  branch-target arithmetic.  Extract `_compute_branch_target`.  ~25 B.
+- [ ] [debugger.s patch_all / unpatch_all] Forward + reverse 10-slot
+  walk — share skeleton with a direction flag or unify into one
+  `_bp_walk` taking a patch/unpatch callback.  ~16 B, clearer intent.
+
+*Phase C — stack / ZP (~20 B code, ~6 B kernel stack):*
+
+- [ ] [screen.s scroll_up] Replace `pha/pla` pairs for `n` /
+  `src_row` / `dst_row` with ZP temps.  ~37 B ZP is free at $5B–$7F
+  (per zp.s).  Saves ~6 stack bytes per scroll + a few cycles per row.
+- [ ] [asm_src.s .const handling] Similar `pha/pla` dance around
+  name-folding temporary NUL.  Move to ZP scratch.  ~4 B stack, ~15 B
+  code.
+- [ ] Promote hot BSS flags to ZP (ample free: 37 B unused at $5B–$7F).
+  Candidates: `stop_cooldown`, `dbg_reason`, `run_user_pending` — each
+  read at multiple hot sites.  `in_userland` is debatable (only read
+  in interrupt dispatch, cost is marginal).  Saves ~12 B code + a few
+  cycles per check.
+
+*Phase D — structural (~170 B, bigger refactors):*
+
+- [ ] [disk.s] `SETNAM / SETLFS / OPEN` triplet appears in 6+ places
+  (disk_load_prg, disk_load_seq, disk_save_seq, disk_save_prg,
+  list_directory, floppy_read_status).  Extract `_disk_open(A=LFN,
+  X=device, Y=secondary, disk_ptr=name)` helper.  ~90 B.
+- [ ] [editor.s ed_handle_key] Long cmp/bne dispatch chain for
+  cursor/function keys.  Convert to table-driven dispatch (char +
+  handler-addr pairs).  ~80 B, also clearer.
+
+*Other small wins noted during the sweep:*
+
+- [ ] [main.s setup_interrupts] Four vector-write pairs could use a
+  small helper or indexed loop.  ~10 B.
+- [ ] [debugger.s _rtu_body sentinel push] Branch pattern could be
+  slightly tighter.  ~2 B.
+
+Total estimated code savings across all phases: ~400 B.  Plus
+cycle wins in scroll_up and main_loop's `@wait` hot path.
+
+**CSE exit cleanup via KERNAL TIMB ($FE66).**  Instead of `cse_exit_to_basic`
+hand-rolling the ZP restore + MEM_CONFIG reset + `jsr KERNAL_CINT +
+jmp ($A002)` sequence, do only what's ours to undo (e.g. restore the
+editor-specific ZP state we disturbed), then `jmp $FE66` (KERNAL's
+TIMB — "warm-restart" entry used by BASIC's STOP+RESTORE path).
+$FE66 reinitialises I/O, resets vectors, redraws screen, and drops
+into BASIC READY.  Eliminates our manual teardown (~30 B code plus
+the COLD_ZP KBSS area we reserve just for the restore).  Verify that
+the KERNAL routine's prerequisites (banking, stack shape) are met
+from our exit context.
+
 - [ ] Table-drive `cmd_info`: replace procedural line-by-line
   memory map display with a data table + loop (~50-80 B saving).
 - [ ] PRG/SEQ save dedup: `cmd_write` and `cmd_load` have shared

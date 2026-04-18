@@ -43,54 +43,18 @@ loader_entry:
         sta ptr2
         lda #>__CODE_RUN__
         sta ptr2+1
-        ldy #0
         ldx #>(__CODE_SIZE__ + __RODATA_SIZE__)
-        beq @cr_partial
-@cr_page:
-        lda (ptr1),y
-        sta (ptr2),y
-        iny
-        bne @cr_page
-        inc ptr1+1
-        inc ptr2+1
-        dex
-        bne @cr_page
-@cr_partial:
-        ldx #<(__CODE_SIZE__ + __RODATA_SIZE__)
-        beq @cr_done
-@cr_rem:
-        lda (ptr1),y
-        sta (ptr2),y
-        iny
-        dex
-        bne @cr_rem
-@cr_done:
+        lda #<(__CODE_SIZE__ + __RODATA_SIZE__)
+        jsr copy_pages
 
         ; ── 3. Zero BSS ─────────────────────────────────────
         lda #<__BSS_RUN__
         sta ptr1
         lda #>__BSS_RUN__
         sta ptr1+1
-        lda #0
-        ldy #0
         ldx #>__BSS_SIZE__
-        beq @bss_partial
-@bss_page:
-        sta (ptr1),y
-        iny
-        bne @bss_page
-        inc ptr1+1
-        dex
-        bne @bss_page
-@bss_partial:
-        ldx #<__BSS_SIZE__
-        beq @bss_done
-@bss_rem:
-        sta (ptr1),y
-        iny
-        dex
-        bne @bss_rem
-@bss_done:
+        lda #<__BSS_SIZE__
+        jsr zero_pages
 
         ; ── 4. Copy KDATA to $F100+ ─────────────────────────
         ; Pure writer: stores under KERNAL pass through to RAM
@@ -103,28 +67,63 @@ loader_entry:
         sta ptr2
         lda #>__KDATA_RUN__
         sta ptr2+1
-        ldy #0
         ldx #>__KDATA_SIZE__
-        beq @kd_partial
-@kd_page:
-        lda (ptr1),y
-        sta (ptr2),y
-        iny
-        bne @kd_page
-        inc ptr1+1
-        inc ptr2+1
-        dex
-        bne @kd_page
-@kd_partial:
-        ldx #<__KDATA_SIZE__
-        beq @kd_done
-@kd_rem:
-        lda (ptr1),y
-        sta (ptr2),y
-        iny
-        dex
-        bne @kd_rem
-@kd_done:
+        lda #<__KDATA_SIZE__
+        jsr copy_pages
 
         ; ── 5. Jump to _main (now at runtime address) ────────
         jmp _main
+
+; ── copy_pages — copy A + X*256 bytes from ptr1 to ptr2 ──────
+; In:  ptr1 = src, ptr2 = dst, X = page count (hi), A = remainder (lo).
+; Out: ptr1 / ptr2 advanced past the copied region, Y = 0.
+; Handles size = 0 (both components zero) as a no-op.
+copy_pages:
+        ldy #0
+        cpx #0
+        beq @rem
+        pha                     ; save remainder
+@page:  lda (ptr1),y
+        sta (ptr2),y
+        iny
+        bne @page
+        inc ptr1+1
+        inc ptr2+1
+        dex
+        bne @page
+        pla
+@rem:   cmp #0
+        beq @done
+        tax
+@rlp:   lda (ptr1),y
+        sta (ptr2),y
+        iny
+        dex
+        bne @rlp
+@done:  rts
+
+; ── zero_pages — fill A + X*256 bytes at ptr1 with $00 ───────
+; In:  ptr1 = dst, X = page count (hi), A = remainder (lo).
+; Out: ptr1 advanced past the filled region, Y = 0, A = 0.
+zero_pages:
+        pha                     ; save remainder
+        ldy #0
+        tya                     ; A = 0 — the fill value
+        cpx #0
+        beq @rem
+@page:  sta (ptr1),y
+        iny
+        bne @page
+        inc ptr1+1
+        dex
+        bne @page
+@rem:   pla
+        cmp #0
+        beq @done
+        tax
+        lda #0
+@rlp:   sta (ptr1),y
+        iny
+        dex
+        bne @rlp
+@done:  rts

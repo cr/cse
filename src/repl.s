@@ -16,7 +16,7 @@
         .export rp_addr, rp_cnt, rp_save2
         .export cur_addr, cur_device, cur_project_name
         .export block_size
-        .export line_buf, last_cmd          ; TODO: remove after test_repl → C64Emu migration
+        .export line_buf, last_cmd
 
 ; ── Imports: cse_io.s ──────────────────────────────────────
         .import io_putc, io_repc, io_puts, scr_to_pet
@@ -1079,6 +1079,20 @@ parse_hex4_ptr1:
 ; in handler_finalize (called before main_loop_top → post_run_cleanup
 ; → here), so no restore_colors at entry.
 ; ═══════════════════════════════════════════════════════════
+
+; ── peek_brk_opcode — read the opcode byte at brk_pc into A ───
+; Used by show_break_result's classification (brk vs rts) and by
+; post_run_cleanup's last_cmd-clear-on-RTS/RTI check.
+; Clobbers: A, Y, rp_ptr.
+peek_brk_opcode:
+        lda brk_pc
+        sta rp_ptr
+        lda brk_pc+1
+        sta rp_ptr+1
+        ldy #0
+        lda (rp_ptr),y
+        rts
+
 .proc show_break_result
         ; Conditional newline above header.
         lda CUR_COL
@@ -1125,12 +1139,7 @@ parse_hex4_ptr1:
         beq @is_brk
         ; dbg_reason = 0 (clean): classify by opcode at brk_pc.
         ; $00 BRK → brk; otherwise ($60 RTS, $40 RTI, default) → rts.
-        lda brk_pc
-        sta rp_ptr
-        lda brk_pc+1
-        sta rp_ptr+1
-        ldy #0
-        lda (rp_ptr),y
+        jsr peek_brk_opcode
         cmp #$00
         beq @is_brk
         lda #<str_rts
@@ -3811,12 +3820,7 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         ; Always show full break result.
         jsr show_break_result
         ; Clear last_cmd if stopped on RTS/RTI (prevents RETURN repeat).
-        lda brk_pc
-        sta rp_ptr
-        lda brk_pc+1
-        sta rp_ptr+1
-        ldy #0
-        lda (rp_ptr),y
+        jsr peek_brk_opcode
         cmp #$60
         beq @clr_last
         cmp #$40

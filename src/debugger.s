@@ -63,6 +63,11 @@ BP_SLOTS    = 8
 STEP_SLOTS  = 2
 SLOT_SIZE   = 4
 TOTAL_SLOTS = BP_SLOTS + STEP_SLOTS     ; 10
+; Size of the BSS window that dbg_init zeros in one sweep: the
+; 40-byte bp_table plus the 12 bytes of adjacent debug state
+; (dbg_reason, brk_pc, dbg_bp_hit, step_state, step_remaining,
+;  step_next_lo, step_next_hi, step_save, _rtu_need_sentinel).
+DBG_STATE_SIZE = TOTAL_SLOTS * SLOT_SIZE + 12
 
 ; Step mode (stored in step_state)
 STEP_NONE = 0
@@ -112,18 +117,19 @@ _rtu_need_sentinel: .res 1
 ; Clobbers: A, X.
 ;
 dbg_init:
-        ldx #(BP_SLOTS + STEP_SLOTS) * SLOT_SIZE - 1
+        ; Zero bp_table[0..51] in one sweep: 40 bytes of bp/step slots
+        ; plus the 12 bytes of debug state (dbg_reason, brk_pc,
+        ; dbg_bp_hit, step_state, step_remaining, step_next_lo/hi,
+        ; step_save, _rtu_need_sentinel) laid out contiguously in
+        ; BSS.  Then fix up the two bytes that need $FF and the
+        ; cross-module reg_* bytes in asm_line.s BSS.
+        ldx #DBG_STATE_SIZE - 1
         jsr clear_bp_x
-        ; A = 0 from clear_bp_x.
-        sta dbg_reason
-        sta brk_pc
-        sta brk_pc+1
-        sta reg_p
+        ; A = 0 from clear_bp_x — zero the reg_* bytes in asm_line.s BSS.
         sta reg_a
         sta reg_x
         sta reg_y
-        sta step_state
-        sta step_remaining
+        sta reg_p
         lda #$FF
         sta reg_sp              ; user's stack begins empty
         sta dbg_bp_hit
