@@ -252,9 +252,12 @@ class C64Emu:
 
         # Cycle counter (monotonic across jsr/run_until calls) +
         # pending-interrupt queue for schedule_irq / schedule_nmi.
-        # Each entry: (fire_cycle, kind) where kind is 'irq' or 'nmi'.
+        # Each entry: (fire_cycle, kind) where kind is 'irq', 'nmi',
+        # or 'jiffy' (a self-re-scheduling IRQ used for the KERNAL
+        # clock tick).
         self._cycle_total = 0
         self._pending = []
+        self._jiffy_interval = 0     # 0 = disabled
 
         # -- processor port --
         # CSE runtime default: $01 = $36 = 0011 0110 → LORAM=0
@@ -440,8 +443,38 @@ class C64Emu:
         self._pending.sort()
 
     def cancel_pending_interrupts(self):
-        """Drop all queued IRQ/NMI schedules."""
+        """Drop all queued IRQ/NMI schedules (does not disable jiffy)."""
         self._pending.clear()
+
+    # ── Jiffy clock ─────────────────────────────────────────────
+    #
+    # On real C64 hardware the KERNAL programs CIA1 Timer A to
+    # underflow every ~16400 cycles, triggering an IRQ whose handler
+    # (at $EA31) increments the jiffy counter at $A0-$A2 and scans
+    # the keyboard.  We simulate this as a repeating IRQ that
+    # re-schedules itself after each fire.
+    #
+    # Opt-in via enable_jiffy_clock() — tests that assume no IRQs
+    # are unaffected by default.
+
+    JIFFY_INTERVAL = 16421   # matches KERNAL RAM-init timer value
+
+    def enable_jiffy_clock(self, interval=None):
+        """Schedule a repeating IRQ at `interval` cycles apart
+        (default: 16421, matching KERNAL's CIA1 Timer A setup).
+        Each fire re-schedules the next tick automatically.
+
+        Pair with `init_cse()` + a cleared I flag for KERNAL's IRQ
+        handler to pick up and tick $A0-$A2."""
+        self._jiffy_interval = interval if interval is not None else self.JIFFY_INTERVAL
+        self._pending.append((self._cycle_total + self._jiffy_interval, 'jiffy'))
+        self._pending.sort()
+
+    def disable_jiffy_clock(self):
+        """Stop the repeating jiffy IRQ.  Existing pending jiffy
+        entries are dropped; other scheduled IRQs/NMIs stay."""
+        self._jiffy_interval = 0
+        self._pending = [(w, k) for w, k in self._pending if k != 'jiffy']
 
     def _fire_interrupt(self, kind):
         """Synthesise the CPU's IRQ/NMI entry: push PCH, PCL, P, set I,
@@ -463,40 +496,61 @@ class C64Emu:
 
     def _dispatch_pending(self):
         """Called after each CPU step: fire any interrupts whose
-        scheduled cycle has arrived.  NMI first (higher priority)."""
+        scheduled cycle has arrived.  NMI first (higher priority);
+        IRQ (including 'jiffy' kind) only when I flag is clear."""
         if not self._pending:
             return
-        # Separate due events.
+        # Separate due events by kind.
         due_nmi = False
-        due_irq = False
+        due_irq_count = 0
+        due_jiffy = False
         remaining = []
         for when, kind in self._pending:
             if when <= self._cycle_total:
                 if kind == 'nmi':
                     due_nmi = True
                 elif kind == 'irq':
-                    due_irq = True
+                    due_irq_count += 1
+                elif kind == 'jiffy':
+                    due_jiffy = True
             else:
                 remaining.append((when, kind))
+
         if due_nmi:
             self._fire_interrupt('nmi')
-            # NMI events are consumed regardless of I flag.
+            # Other due events stay pending for the next dispatch tick.
             self._pending = remaining + [
-                (w, k) for w, k in self._pending
-                if w <= self._cycle_total and k == 'irq'
-            ]
+                (self._cycle_total, 'irq')   for _ in range(due_irq_count)
+            ] + (
+                [(self._cycle_total, 'jiffy')] if due_jiffy else []
+            )
             return
-        if due_irq:
+
+        if due_irq_count or due_jiffy:
             if not (self._cpu.p & self._cpu.INTERRUPT):
                 self._fire_interrupt('irq')
+                # Consume one IRQ event; jiffy re-schedules.
                 self._pending = remaining
+                if due_jiffy and self._jiffy_interval:
+                    self._pending.append(
+                        (self._cycle_total + self._jiffy_interval, 'jiffy')
+                    )
+                    self._pending.sort()
+                # Any extra due IRQs roll over to the next step.
+                if due_irq_count > 1:
+                    self._pending.extend(
+                        [(self._cycle_total + 1, 'irq')] * (due_irq_count - 1)
+                    )
+                    self._pending.sort()
             else:
-                # I=1 — re-queue IRQ for next step (level-triggered poll).
-                self._pending = remaining + [
-                    (self._cycle_total + 1, 'irq')
-                    for _ in range(sum(1 for w, k in self._pending
-                                       if w <= self._cycle_total and k == 'irq'))
-                ]
+                # I=1 — requeue all due IRQ/jiffy for re-poll next step.
+                self._pending = remaining
+                self._pending.extend(
+                    [(self._cycle_total + 1, 'irq')] * due_irq_count
+                )
+                if due_jiffy:
+                    self._pending.append((self._cycle_total + 1, 'jiffy'))
+                self._pending.sort()
             return
 
     # ── Execution ───────────────────────────────────────────────
