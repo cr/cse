@@ -23,7 +23,7 @@
         .import disk_save_seq, disk_load_seq
         .import disk_seq_bytes, disk_seq_lines
         .import cse_start
-        .import cur_project_name
+        .importzp cur_project_name              ; zp.s (Phase 21.1 Move 6a)
         .importzp state, ed_dirty         ; zp.s (Phase 21 Move 4)
         .import scr_lo, scr_hi
         .import sym_define
@@ -1163,24 +1163,26 @@ _ed_cur_row:
         ; Filename (cols 1-17)
         lda cur_project_name
         beq @no_name
-        ; Find length of cur_project_name
-        ldy #0
-@flen:  lda cur_project_name,y
+        ; Find length of cur_project_name.  X indexes the filename so
+        ; ZP-promoted cur_project_name resolves to zp,X (2 B); LDA
+        ; cur_project_name,Y would force abs,Y (3 B).
+        ldx #0
+@flen:  lda cur_project_name,x
         beq @flen_done
-        iny
-        cpy #FILENAME_MAX_LEN
+        inx
+        cpx #FILENAME_MAX_LEN
         bcc @flen
 @flen_done:
-        sty @fn_len
+        stx @fn_len
         ; Strip ",s" suffix if present
-        cpy #2
+        cpx #2
         bcc @fn_copy
-        dey
-        dey
-        lda cur_project_name,y
+        dex
+        dex
+        lda cur_project_name,x
         cmp #','
         bne @fn_copy
-        sty @fn_len             ; stripped 2 chars
+        stx @fn_len             ; stripped 2 chars
 @fn_copy:
         ldx #0                  ; filename index
         ldy #1                  ; screen col = 1

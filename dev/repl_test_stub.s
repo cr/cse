@@ -83,7 +83,8 @@
 
 ; ── Import repl.s entry points ────────────────────────────────
         .import exec_line, read_line, show_prompt
-        .import cur_addr, cur_project_name
+        .import cur_addr
+        .importzp cur_project_name      ; zp.s (Phase 21.1 Move 6a)
         .importzp cur_device            ; zp.s (Phase 21 Move 4)
         .importzp dbg_reason            ; zp.s (Phase 21 Move 4)
         .import line_buf, last_cmd, block_size

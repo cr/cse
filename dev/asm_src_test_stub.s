@@ -35,7 +35,8 @@
         .export seg_line
         .export rp_addr, rp_cnt, rp_save2
         .export puts_imm
-        .export cur_project_name
+        ; cur_project_name now provided by zp.s (Phase 21.1 Move 6a);
+        ; asm_src bundle links zp.s, so no stub definition needed.
         .export define_ws_syms          ; Phase 21 Move 1: no-op stub
                                         ; (real impl lives in editor.s, which
                                         ; isn't linked into the asm_src bundle)
@@ -59,7 +60,7 @@ _src_done:      .res 1      ; non-zero = EOF
 _test_src_buf:  .res 2048   ; source: NUL-terminated lines, $FF = EOF
 _bank_witness:  .res 1      ; OR of $01 at every ed_read_line call
                             ; (placed last so test_src_buf offset is unchanged)
-cur_project_name:   .res 17     ; mock current filename (16 + NUL)
+; cur_project_name moved to zp.s (Phase 21.1 Move 6a)
 
 ; ── CODE ──────────────────────────────────────────────────────────────────────
 .segment "CODE"

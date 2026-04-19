@@ -17,8 +17,9 @@
         .import log_err, log_warn, log_info
         .import puts_imm
         .export rp_addr, rp_cnt, rp_save2
-        .export cur_addr, cur_project_name      ; cur_device → zp.s (Phase 21)
-        .importzp cur_device                    ; zp.s (Phase 21 Move 4)
+        .export cur_addr                ; cur_device, cur_project_name → zp.s
+        .importzp cur_device             ; zp.s (Phase 21 Move 4)
+        .importzp cur_project_name       ; zp.s (Phase 21.1 Move 6a)
         .export block_size
         .export line_buf, last_cmd, rp_dis_bp
 
@@ -175,7 +176,7 @@ cur_addr:      .res 2          ; current memory address (init by splash)
 ; cur_device moved to zp.s (Phase 21 Move 4)
 last_cmd:       .res 1          ; last command byte
 block_size:     .res 2          ; block size for I/O (init by main.s)
-cur_project_name:  .res FILENAME_MAX + 1  ; stem (no ,m or trailing dot)
+; cur_project_name moved to zp.s (Phase 21.1 Move 6a)
 disk_name_buf:     .res FILENAME_MAX + 2   ; composed disk name (stem + optional ".")
 _verbatim_type:    .res 1          ; 0 / 's' / 'p' from strip_and_classify
 _arg_count:        .res 1          ; 0, 1, or 2 — numeric args in last parse

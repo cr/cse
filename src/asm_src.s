@@ -42,7 +42,7 @@
         .import         define_ws_syms         ; editor.s (Phase 21 Move 1)
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
-        .import         cur_project_name           ; repl.s — last loaded/saved filename
+        .importzp       cur_project_name           ; zp.s (Phase 21.1 Move 6a)
         .importzp       buf_base                ; editor.s — gap buffer low bound
         .importzp       rp_ptr2                 ; zp.s — scratch pointer (repl/info_line)
         .importzp       asm_pc, asm_out, asm_cpu, asm_tmp, asm_tmp2
