@@ -51,6 +51,18 @@ SCREEN_WIDTH = 40
 
 .segment "CODE"
 
+; ── Convenience entry points ─────────────────────────────
+; Avoid `ldy #LOG_*` at every call site.  A/X = content ptr.
+log_err:
+        ldy #LOG_ERR
+        jmp log_line
+log_warn:
+        ldy #LOG_WARN
+        jmp log_line
+log_info:
+        ldy #LOG_INFO
+        ; fall through to log_line
+
 ; ═══════════════════════════════════════════════════════════
 ; log_line — complete log line
 ;   Y = level char, A/X = content string ptr
@@ -84,18 +96,6 @@ log_open:
 log_close:
         jsr io_clear_eol
         jmp newline
-
-; ── Convenience entry points ─────────────────────────────
-; Avoid `ldy #LOG_*` at every call site.  A/X = content ptr.
-log_err:
-        ldy #LOG_ERR
-        jmp log_line
-log_warn:
-        ldy #LOG_WARN
-        jmp log_line
-log_info:
-        ldy #LOG_INFO
-        jmp log_line
 
 ; ═══════════════════════════════════════════════════════════
 ; puts_imm — print an inline RODATA string pointer.
