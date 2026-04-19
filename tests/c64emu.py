@@ -455,16 +455,27 @@ class C64Emu:
         return [self._mem[base + c] for c in range(COLS)]
 
     def screen_text(self, row):
-        """Read one screen row as a Python string (screen code → ASCII)."""
+        """Read one screen row as a Python string (screen code → ASCII).
+
+        Decodes using the lowercase/uppercase charset (CSE's runtime
+        mode):
+          $00        → '@'
+          $01-$1A    → 'a'-'z'  (lowercase)
+          $20-$3F    → identity (space, punctuation, digits)
+          $41-$5A    → 'A'-'Z'  (uppercase)
+          everything else → '?'
+        """
         codes = self.screen_row(row)
         chars = []
         for sc in codes:
             sc &= 0x7F
-            if 0x01 <= sc <= 0x1A:       # screen A-Z → ASCII a-z
-                chars.append(chr(sc + 0x60))
-            elif sc == 0x00:
+            if sc == 0x00:
                 chars.append('@')
-            elif 0x20 <= sc <= 0x3F:      # identity range
+            elif 0x01 <= sc <= 0x1A:        # lowercase a-z
+                chars.append(chr(sc + 0x60))
+            elif 0x20 <= sc <= 0x3F:        # identity range
+                chars.append(chr(sc))
+            elif 0x41 <= sc <= 0x5A:        # uppercase A-Z
                 chars.append(chr(sc))
             else:
                 chars.append('?')

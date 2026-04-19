@@ -190,6 +190,7 @@ class AsmCoreSymbols:
         self.asm_cpu          = s["asm_cpu"]
         self._asm_saved_sp    = s["_asm_saved_sp"]
         self.asm_pass         = s["asm_pass"]
+        self.asm_expr_err     = s["asm_expr_err"]
 
         raw = _AC_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
