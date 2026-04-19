@@ -265,18 +265,12 @@ Open bugs, roughly ordered by priority.
     downward per the [layer table](architecture.md#modules).
     Permanent enforcement of the strict-DAG invariant.  ~50 LOC
     Python.  Run in CI.
-  - [ ] `tests/test_asm_err.py` — unit tests for the longjmp-style
-    unwind (`asm_syntax_error` / `asm_expr_error` / `asm_error`):
-    `_asm_saved_sp` round-trip, `asm_expr_err` flag value, and
-    paired `kernal_bank_in`.  Covered transitively by
-    `test_asm_line` / `test_asm_src` today — pin down the contract
-    so a future refactor of the unwind pattern trips something
-    specific.
-  - [ ] `tests/test_log.py` — C64Emu screen-RAM tests for
-    `log_open` / `log_close` / `log_err/warn/info` / `seg_line` /
-    `prg_line` / `free_line`.  Overlaps today with `TestGating`
-    (`warn_if_*`) but a dedicated test owns the logging contract
-    as it moves to its new module.
+  - [x] ~~`tests/unit/test_asm_err.py`~~ — landed as test-restructure
+    Tranche 2 (commit `ee01914`, 7 Tier-U tests covering the
+    longjmp unwind contract).
+  - [x] ~~`tests/integration/test_log.py`~~ — landed as Tranche 2
+    (10 Tier-I tests for log primitives + range-line family via
+    C64Emu screen-RAM assertions).
 
 - [x] ~~**Phase 20 — Warmstart restructure and debug-session lifecycle.**~~
   (done, commits `c4c1992` + `08e9756`.  Reason-named entry points
@@ -435,6 +429,85 @@ systems, ASM stubs, and test-specific linker configs.
 - [ ] README cross-reference tests: parse command tables in
   `README.md`, verify each command key has a handler symbol in the
   `.lbl` file.  See DDD Maintenance item 8.
+
+### Test restructure Tranche 4 — `test_repl.py` → C64Emu
+
+- [ ] **Migrate `tests/integration/test_repl.py` from the bare-MPU +
+  `dev/repl_test_stub.s` harness to full C64Emu + production PRG.**
+  Blocked on the C64Emu virtual-IEC-disk extension (see the
+  C64Emu extension roadmap below) because `TestSaveCommand` and
+  `TestLoadCommand` (~30 tests, ~300 lines) currently observe
+  behaviour via the stub's `_save_addr` / `_save_size` / `_save_name` /
+  `_load_result` / `_load_name` / `_op_witness` BSS instrumentation
+  that records what the commands *would have done*.  Without a
+  virtual disk, C64Emu tests for these commands have no way to
+  assert success.
+
+  Non-disk classes (17 of 20, ~50 tests covering prompt / read_line /
+  address / memory / disasm / calculator / register / block / repeat /
+  semicolon / unknown / cpu / dothex) migrate cleanly to C64Emu —
+  they already use real production code paths.  Splitting into
+  two files to migrate the non-disk half immediately is possible
+  but creates a maintenance burden until the disk half can follow.
+
+  Prerequisite: C64Emu virtual IEC disk (below).
+  Payoff: drops `dev/repl_test_stub.s` (~300 lines), `dev/repl_test.cfg`,
+  the bare-MPU `_build()` / `_parse_map()` / `ReplSymbols` scaffolding
+  in test_repl.py, and the `sym_refs` RODATA table workaround.
+  Net: -400–500 LOC of test harness, zero new test logic.
+
+### C64Emu extension roadmap
+
+Planned emulator feature additions (scoped during test-restructure
+discussion).  Each block is independent; do in any order.
+
+- [ ] **Full `$01` banking** — currently only bit 1 (KERNAL) is
+  modelled.  Add bit 0 (LORAM / BASIC at `$A000-$BFFF`) and bit 2
+  (CHAREN / character ROM vs I/O at `$D000-$DFFF`).  `rom/basic_cbm.bin`
+  and `rom/chargen_cbm.bin` are already committed.  Widens implicit
+  test coverage to "runs correctly with any banking config".  ~60 LOC
+  in `tests/c64emu.py::BankedMemory`.
+
+- [ ] **DDR-aware `$00`/`$01` model** — `mem.s::save_userland_zp`'s
+  CPU-port protocol has a postcondition (`live $00 = $FF`) that is
+  currently satisfied accidentally (passive RAM reads == writes).
+  Correct behaviour: `$01` read returns `(latched & DDR) | (external & ~DDR)`.
+  Unlocks pinning the CPU-port protocol contract as a test.  ~20 LOC.
+
+- [ ] **Scheduled interrupts** — `emu.schedule_irq(cycles_from_now)`
+  / `schedule_nmi(cycles_from_now)`.  Pending queue checked each
+  step; fires when cycle count reached; IRQ respects I-flag, NMI
+  is edge-triggered.  **Unlocks the Phase-18-class stress-test gap:**
+  schedule an IRQ at each cycle across a critical bank-out window
+  to verify the bank-out-stub path.  Also closes jiffy-clock + CIA
+  timer coverage.  ~120 LOC + run-loop integration.
+
+- [ ] **CIA1/CIA2 register shadows + keyboard matrix** — `$DC00-$DC0F`
+  and `$DD00-$DD0F` register aliasing; 8×8 keyboard matrix model;
+  `emu.press_key(ch)` / `emu.release_key(ch)` as alternative to
+  `inject_key`'s KERNAL-buffer path; `emu.press_restore()` →
+  NMI via $DD0D.  ~100 LOC + PETSCII→matrix table.
+
+- [ ] **Jiffy clock tick** — schedule a repeating IRQ at ~60 Hz so
+  KERNAL's `$EA31` increments `$A0-$A2`.  Opt-in
+  (`emu.enable_jiffy_clock()`) to avoid interfering with tests that
+  assume no IRQ.  ~15 LOC atop scheduled interrupts.
+
+- [ ] **Virtual IEC disk (D64-backed)** — intercept KERNAL IEC entry
+  points (`$FFC0` OPEN, `$FFD5` LOAD, `$FFD8` SAVE, `$FFCF` CHRIN,
+  `$FFD2` CHROUT, etc.) with a Python callback backed by a virtual
+  D64 image.  Unlocks Tranche 4 (test_repl migration) + hazard tests
+  (overwrite, file-not-found, device-not-present).  Moderate-to-high
+  effort; timing-accuracy concerns — flagged as out-of-scope at
+  extension-planning time.
+
+- [ ] **VIC raster counter auto-increment** — `$D012` derived from
+  cycle counter (~63 cycles/line).  Unlocks raster-synced user
+  programs.  Not needed for CSE itself (no raster tricks); low
+  priority.  ~30 LOC.
+
+- [ ] **REU / cartridge emulation** — out of scope until R5 (CRT
+  build target).  Placeholder for the roadmap.
 
 ## Planned
 
