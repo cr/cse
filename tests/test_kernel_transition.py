@@ -6,7 +6,7 @@ Exercises the Phase-18 ISR-kernel model:
   - return_to_userland → BRK dispatches and captures user state
   - Cold-init userland handoff lands at main_loop_no_clear
   - NMI swallow in kernel mode; capture in userland mode
-  - BRK in kernel mode routes to cse_warm_start
+  - BRK in kernel mode routes to cse_recover
   - Step chaining runs inside the BRK handler (no SP creep)
   - Shared stack: user pushes survive a break
 
@@ -221,9 +221,9 @@ class TestNmiKernelMode:
 # ── 7. BRK in kernel mode (internal fault) ──────────────────────
 
 class TestBrkKernelFault:
-    def test_brk_in_kernel_routes_to_warm_start(self, emu):
+    def test_brk_in_kernel_routes_to_recover(self, emu):
         """When in_userland==0, cse_brk_handler must jump to
-        cse_warm_start (not dispatch as a userland break)."""
+        cse_recover (not dispatch as a userland break)."""
         _cold_init_to_prompt(emu)
         emu.memory[emu.sym("in_userland")] = 0
         # Fabricate a BRK stack frame as if KERNAL $FF48 had pushed:
@@ -239,7 +239,7 @@ class TestBrkKernelFault:
         emu.memory[0x0100 + emu.sp] = BAD_PC >> 8
         emu.sp = (emu.sp - 1) & 0xFF
 
-        # warm_guard increments when cse_warm_start runs
+        # warm_guard increments when cse_recover runs
         emu.memory[emu.sym("warm_guard")] = 0
         # Run handler; expect it to reach main_loop_top (via warm start)
         emu.run_until(emu.sym("main_loop_top"),

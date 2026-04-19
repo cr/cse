@@ -2695,28 +2695,23 @@ print_op_name:
         beq @load_prg
 
         ; ── SEQ load ──
-        ; Gate: if a debug session is active, end it first and
-        ; replay the load.  Otherwise warn-if-unsaved, prompt
-        ; "load? y/n" when dirty, proceed silently when clean.
+        ; Gate: warn + prompt when either dirty or debugging.  If
+        ; debug was active on yes, replay via warm_cont + end_debug.
+        ; Otherwise (clean state or dirty-only) proceed.
         lda dbg_reason
-        beq @l_no_debug
+        ora ed_dirty
+        beq @do_load
         jsr warn_if_unsaved     ; stack order: unsaved before debug
         jsr warn_if_debug
         lda #<str_load
         ldx #>str_load
         jsr confirm_action
         jcc @l_cancel
+        lda dbg_reason
+        beq @do_load            ; clean-debug yes → load directly
         lda #1
         sta warm_cont           ; replay line_buf after end-debug
         jmp cse_end_debug
-@l_no_debug:
-        lda ed_dirty
-        beq @do_load
-        jsr warn_if_unsaved
-        lda #<str_load
-        ldx #>str_load
-        jsr confirm_action
-        jcc @l_cancel
 @do_load:
 
         lda #<str_load_pfx

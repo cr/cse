@@ -4,8 +4,9 @@
 ; Four-layer architecture:
 ;   cse_cold_init   — one-time setup (jumped to by loader.s)
 ;   setup_interrupts — vectors → CSE handlers (before any bank-out)
-;   cse_warm_start  — idempotent recovery (internal BRK fault)
-;   cse_warm_screen — screen recovery tail (ESC/CLR)
+;   cse_recover    — internal CSE fault (unexpected BRK in kernel)
+;   cse_end_debug  — user-initiated debug-session termination
+;   cse_refresh    — screen recovery (NMI-in-kernel, ESC/CLR, R cmd)
 ;   main_loop_top   — iteration top (handler longjmp target)
 ;
 ; Interrupt handlers (permanent, vectors never change):
@@ -38,7 +39,6 @@
         .export _main
         .export state, in_userland, kernel_init_sp, run_user_pending
         .export stop_cooldown, warm_cont
-        .export cse_warm_start, cse_warm_screen  ; legacy aliases
         .export cse_recover, cse_end_debug, cse_refresh
         .export hw_reinit_body, end_debug_body, refresh_body
         .export main_loop_top, main_loop_no_clear
@@ -147,8 +147,10 @@ COLD_ZP      = $F8DA          ; KBSS: 127 B snapshot of $01-$7F
 state:             .res 1
 warm_guard:        .res 1
 in_userland:       .res 1
-kernel_init_sp:    .res 1      ; setjmp SP for cse_warm_start ONLY;
-                                ; normal break/resume longjmps to reg_sp.
+kernel_init_sp:    .res 1      ; setjmp SP target for cse_recover /
+                                ; cse_end_debug / cse_refresh; also
+                                ; captured once by cold init.  Normal
+                                ; break/resume longjmps to reg_sp.
 run_user_pending:  .res 1      ; MODE_NONE / MODE_JUMP / MODE_RESUME —
                                 ; set by command handlers, read by
                                 ; main_loop after exec_line rts.
@@ -305,8 +307,9 @@ warm_cont:         .res 1      ; warmstart continuation flag.  Set by
 ;
 ; main_loop_top is the target of:
 ;   * cse_brk_handler's longjmp (handler_finalize) — SP = reg_sp.
-;   * cse_warm_screen's fall-through — SP = $FF (warm-start path).
-; Both are valid entries; main_loop's internal stack use is balanced.
+;   * Each of the three warmstart entry points (cse_recover,
+;     cse_end_debug, cse_refresh) — SP = kernel_init_sp ($FF).
+; All are valid entries; main_loop's internal stack use is balanced.
 ;
 ; main_loop_no_clear is an alias for the cold-init-handoff path
 ; (splash already drawn, no screen clear needed).  Semantically the
@@ -556,7 +559,7 @@ main_loop:
         cmp #CH_ESC
         bne @default
 @do_clr:
-        jmp cse_warm_screen
+        jmp cse_refresh
 @default:
         lda CUR_COL
         cmp #SCREEN_WIDTH - 1
@@ -737,7 +740,7 @@ cse_brk_handler:
         lda in_userland
         bne @userland_brk
         ; Kernel fault — BRK in kernel code.
-        jmp cse_warm_start
+        jmp cse_recover
 
 @userland_brk:
         lda #0
@@ -922,7 +925,6 @@ cse_nmi_handler:
 ; `ldx #$FF / txs` discards whatever kernel frames were on the
 ; stack when the fault struck.
 cse_recover:
-cse_warm_start:                         ; legacy alias (to be removed)
         lda warm_guard
         bne @hard_fail
         inc warm_guard
@@ -955,7 +957,6 @@ cse_end_debug:
 
 ; ── cse_refresh — user asked for the view back ──────────────
 cse_refresh:
-cse_warm_screen:                        ; legacy alias (to be removed)
         ldx kernel_init_sp
         txs
         jsr refresh_body
