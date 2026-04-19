@@ -33,8 +33,35 @@ Transitions:
     `in_userland`.
 
 The shared `cse_brk_handler` performs classification (bp / step /
-clean / NMI / unplanned).  The `cse_nmi_handler` swallows NMI in
-kernel mode and routes it through the BRK path in userland mode.
+clean / NMI / unplanned).  The `cse_nmi_handler` dispatches on
+`in_userland`: userland NMI routes through the BRK path (breaks
+into the debugger); kernel NMI routes to `cse_refresh` (the
+classic RUN/STOP+RESTORE screen-recovery affordance; debug context
+is preserved).
+
+### Ending a debug session
+
+User programs can't be counted on to run to completion while
+debugging.  Three gated REPL commands let the user discard an
+active break context on demand:
+
+- **`R`** (reset) — always prompts.  With an active debug session:
+  `;!debug` warn + `; end debug? y/n`; on yes, ends the session and
+  refreshes the screen.  Without one: `; init? y/n`; on yes, just
+  refreshes.
+- **`a`** (assemble from editor) — runs directly when no debug is
+  active.  With an active session: `;!debug` warn + `; asm? y/n`;
+  on yes, ends the session and replays the `a` command.
+- **`l`** (load source or binary) — similar gate when a session is
+  active and/or the editor has unsaved changes.
+
+Ending a session resets SP to `kernel_init_sp`, clears `dbg_reason`
+/ `step_state` / `run_user_pending` / `in_userland`, restores any
+breakpoint-patched opcodes via `unpatch_all`, and jumps to
+`main_loop_top`.  The editor buffer and the breakpoint table
+(`bp_table` slots themselves) are preserved across the reset.
+See [main.md § Layer 3](modules/main.md) and
+[memory_design.md § Warmstart entry points](memory_design.md#warmstart-entry-points).
 
 ## 2. Three-tier state contract
 

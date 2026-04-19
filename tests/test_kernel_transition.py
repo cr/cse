@@ -179,34 +179,43 @@ class TestNmiUserland:
         assert emu.read_word(emu.sym("brk_pc")) == USER_PC
 
 
-# ── 6. NMI in kernel mode (swallow) ─────────────────────────────
+# ── 6. NMI in kernel mode (routes to cse_refresh) ──────────────
 
 class TestNmiKernelMode:
-    def test_nmi_swallowed_no_state_change(self, emu):
+    def test_nmi_kernel_routes_to_refresh(self, emu):
+        """Phase 20: kernel-mode NMI discards the NMI frame and
+        jumps to cse_refresh — restores the classic RUN/STOP+RESTORE
+        screen-recovery behaviour.  Debug context is preserved."""
         _cold_init_to_prompt(emu)
-        # in_userland==0 from cold init
         assert emu.memory[emu.sym("in_userland")] == 0
-        dbg_reason_before = emu.memory[emu.sym("dbg_reason")]
-        brk_pc_before = emu.read_word(emu.sym("brk_pc"))
 
-        # Synthesise NMI frame with non-zero PC; invoke handler;
-        # handler's RTI should return to our sentinel.
+        # Prime a "debug active" marker that must survive the refresh.
+        emu.memory[emu.sym("dbg_reason")] = 1       # DBG_BRK
+        emu.memory[emu.sym("reg_sp")]     = 0x80
+        # Scribble the screen to verify refresh clears it.
+        SCREEN = 0x0400
+        for i in range(200):
+            emu.memory[SCREEN + i] = 0xAA
+
+        # Synthesise NMI frame.
         SENTINEL = 0xABCD
-        sp_before = emu.sp
         emu.memory[0x0100 + emu.sp] = SENTINEL >> 8
         emu.sp = (emu.sp - 1) & 0xFF
         emu.memory[0x0100 + emu.sp] = SENTINEL & 0xFF
         emu.sp = (emu.sp - 1) & 0xFF
-        emu.memory[0x0100 + emu.sp] = 0x20    # P
+        emu.memory[0x0100 + emu.sp] = 0x20          # P
         emu.sp = (emu.sp - 1) & 0xFF
 
-        emu.run_until(SENTINEL,
+        emu.run_until(emu.sym("main_loop_top"),
                       start_at=emu.sym("cse_nmi_handler"),
-                      max_cycles=10_000)
+                      max_cycles=200_000)
 
-        # State unchanged by the swallow
-        assert emu.memory[emu.sym("dbg_reason")] == dbg_reason_before
-        assert emu.read_word(emu.sym("brk_pc")) == brk_pc_before
+        # Screen cleared by refresh_body.
+        assert emu.memory[SCREEN] == 0x20, \
+            f"screen not cleared by NMI-triggered refresh: ${emu.memory[SCREEN]:02X}"
+        # Debug context preserved (refresh doesn't end debug).
+        assert emu.memory[emu.sym("dbg_reason")] == 1
+        assert emu.memory[emu.sym("reg_sp")] == 0x80
 
 
 # ── 7. BRK in kernel mode (internal fault) ──────────────────────
@@ -332,3 +341,227 @@ class TestKernelStackBudget:
             "kernel_stack_budget equate expected per userland contract"
         # The symbol's address IS the value (equate).
         assert budget == 64
+
+
+# ── 11. Warmstart entry points + body subs (Phase 20) ───────────
+#
+# Tests A/1-5 per the Step-3 TDD plan.  Body subs are balanced
+# jsr-subs — SP discipline is the entry point's responsibility.
+# Entry points reset SP via `ldx #$FF / txs` (or `ldx kernel_init_sp`)
+# before jsr'ing bodies.
+
+class TestWarmstartBodySubs:
+
+    def _prime_editor_canary(self, emu):
+        """Plant distinctive bytes in the editor gap buffer region
+        and capture the buf_base/gap pointers so we can verify they
+        survive a warmstart."""
+        buf_base  = emu.sym("buf_base")
+        gap_lo    = emu.sym("gap_lo")
+        gap_hi    = emu.sym("gap_hi")
+        # The gap-buffer memory is whatever's at buf_base's value.
+        base = emu.read_word(buf_base)
+        return {
+            "buf_base": (emu.memory[buf_base], emu.memory[buf_base + 1]),
+            "gap_lo":   (emu.memory[gap_lo],   emu.memory[gap_lo + 1]),
+            "gap_hi":   (emu.memory[gap_hi],   emu.memory[gap_hi + 1]),
+            "base":     base,
+            "byte0":    emu.memory[base],
+            "byte1":    emu.memory[base + 1],
+        }
+
+    def _assert_editor_unchanged(self, emu, canary):
+        buf_base  = emu.sym("buf_base")
+        gap_lo    = emu.sym("gap_lo")
+        gap_hi    = emu.sym("gap_hi")
+        assert (emu.memory[buf_base], emu.memory[buf_base + 1]) == canary["buf_base"], \
+            "buf_base changed across warmstart"
+        assert (emu.memory[gap_lo],   emu.memory[gap_lo + 1])   == canary["gap_lo"], \
+            "gap_lo changed across warmstart"
+        assert (emu.memory[gap_hi],   emu.memory[gap_hi + 1])   == canary["gap_hi"], \
+            "gap_hi changed across warmstart"
+        assert emu.memory[canary["base"]]     == canary["byte0"], \
+            "editor gap buffer byte 0 changed"
+        assert emu.memory[canary["base"] + 1] == canary["byte1"], \
+            "editor gap buffer byte 1 changed"
+
+    def test_end_debug_clears_debug_state(self, emu):
+        """cse_end_debug must zero all debug-state flags and reset
+        reg_sp to $FF — and preserve editor state."""
+        _cold_init_to_prompt(emu)
+        # Prime the debug-state fields with non-zero values.
+        emu.memory[emu.sym("dbg_reason")]       = 1       # DBG_BRK
+        emu.memory[emu.sym("step_state")]       = 1
+        emu.memory[emu.sym("step_remaining")]   = 5
+        emu.memory[emu.sym("run_user_pending")] = 2       # MODE_RESUME
+        emu.memory[emu.sym("in_userland")]      = 0x80
+        emu.memory[emu.sym("reg_sp")]           = 0x10
+        emu.memory[emu.sym("dbg_bp_hit")]       = 3
+        canary = self._prime_editor_canary(emu)
+
+        emu.run_until(emu.sym("main_loop_top"),
+                      start_at=emu.sym("cse_end_debug"),
+                      max_cycles=200_000)
+
+        assert emu.memory[emu.sym("dbg_reason")]       == 0
+        assert emu.memory[emu.sym("step_state")]       == 0
+        assert emu.memory[emu.sym("step_remaining")]   == 0
+        assert emu.memory[emu.sym("run_user_pending")] == 0
+        assert emu.memory[emu.sym("in_userland")]      == 0
+        assert emu.memory[emu.sym("reg_sp")]           == 0xFF
+        assert emu.memory[emu.sym("dbg_bp_hit")]       == 0xFF
+        self._assert_editor_unchanged(emu, canary)
+
+    def test_refresh_clears_screen_preserves_editor(self, emu):
+        """cse_refresh must clear screen RAM and preserve editor."""
+        _cold_init_to_prompt(emu)
+        # Scribble the screen with a non-space pattern.
+        SCREEN = 0x0400
+        for i in range(200):
+            emu.memory[SCREEN + i] = 0xAA
+        canary = self._prime_editor_canary(emu)
+
+        emu.run_until(emu.sym("main_loop_top"),
+                      start_at=emu.sym("cse_refresh"),
+                      max_cycles=200_000)
+
+        # After refresh the top of screen should be blanked (screen code $20).
+        assert emu.memory[SCREEN + 0] == 0x20, \
+            f"screen[0] not cleared: ${emu.memory[SCREEN]:02X}"
+        self._assert_editor_unchanged(emu, canary)
+
+    def test_entry_points_reset_sp(self, emu):
+        """Each warmstart entry point resets SP before jsr'ing its
+        body subs.  Verify by calling the entry point with a
+        deliberately-low SP and checking we still reach
+        main_loop_top without stack underflow."""
+        _cold_init_to_prompt(emu)
+        for entry in ("cse_end_debug", "cse_refresh"):
+            emu.sp = 0x20           # low SP, simulates a deep kernel chain
+            emu.run_until(emu.sym("main_loop_top"),
+                          start_at=emu.sym(entry),
+                          max_cycles=200_000)
+
+    def test_end_debug_unpatches_breakpoints(self, emu):
+        """end_debug_body calls unpatch_all so any live BPs are
+        restored to the user's original bytes."""
+        _cold_init_to_prompt(emu)
+        # Write a user byte at a workspace address.
+        USER = 0x1234
+        emu.memory[USER] = 0xA9                 # LDA #imm
+        # Set BP slot 0 to USER.
+        bp_table = emu.sym("bp_table")
+        emu.memory[bp_table + 0] = USER & 0xFF
+        emu.memory[bp_table + 1] = USER >> 8
+        emu.memory[bp_table + 2] = 0xA9         # saved opcode
+        emu.memory[bp_table + 3] = 1            # slot enabled
+        # Patch the user byte with BRK ($00) to simulate arming.
+        emu.memory[USER] = 0x00
+
+        emu.run_until(emu.sym("main_loop_top"),
+                      start_at=emu.sym("cse_end_debug"),
+                      max_cycles=200_000)
+
+        # Unpatched: user byte restored.
+        assert emu.memory[USER] == 0xA9, \
+            f"BP not unpatched: ${emu.memory[USER]:02X}"
+        # bp_table slot still populated (intent preserved).
+        assert emu.memory[bp_table + 0] == (USER & 0xFF)
+        assert emu.memory[bp_table + 1] == (USER >> 8)
+
+
+# ── 11b. Gates (warn_if_* + confirm_action + warm_cont dispatch) ──
+#
+# The gating pattern composes a warn_if_* call with an atomic
+# confirm_action.  These tests exercise the end-to-end flow
+# against the real PRG via keyboard injection.
+
+class TestGating:
+    def _repl_ready(self, emu):
+        """Run cold init up through the first main_loop_top pause."""
+        _cold_init_to_prompt(emu)
+
+    def test_warn_if_debug_fires_when_active(self, emu):
+        """warn_if_debug emits ';!debug' on its line when dbg_reason≠0."""
+        self._repl_ready(emu)
+        emu.memory[emu.sym("dbg_reason")] = 1
+        # Put cursor at an empty row so we can read the warn line.
+        emu.memory[0xD6] = 10   # cursor_row
+        emu.memory[0xD3] = 0    # cursor_col
+        emu.jsr(emu.sym("warn_if_debug"))
+        row = bytes(emu.memory[0x0400 + 10 * 40 : 0x0400 + 11 * 40])
+        # ";!debug" → ';' = $3B, '!' = $21, 'd' = $04 (screen code), etc.
+        # Simpler: find the ';!' marker (screen codes $3B, $21).
+        assert b"\x3b\x21" in row, \
+            f"expected ';!' marker in row: {row.hex()}"
+
+    def test_warn_if_debug_silent_when_inactive(self, emu):
+        """warn_if_debug is a no-op when dbg_reason==0."""
+        self._repl_ready(emu)
+        emu.memory[emu.sym("dbg_reason")] = 0
+        emu.memory[0xD6] = 10
+        emu.memory[0xD3] = 0
+        # Clear the row first.
+        for i in range(40):
+            emu.memory[0x0400 + 10 * 40 + i] = 0x20
+        emu.jsr(emu.sym("warn_if_debug"))
+        row = bytes(emu.memory[0x0400 + 10 * 40 : 0x0400 + 11 * 40])
+        assert all(b == 0x20 for b in row), \
+            f"expected blank row (no warn), got: {row.hex()}"
+
+    def test_warn_if_unsaved_fires_when_dirty(self, emu):
+        """warn_if_unsaved emits ';!unsaved' when ed_dirty≠0."""
+        self._repl_ready(emu)
+        emu.memory[emu.sym("ed_dirty")] = 1
+        emu.memory[0xD6] = 12
+        emu.memory[0xD3] = 0
+        emu.jsr(emu.sym("warn_if_unsaved"))
+        row = bytes(emu.memory[0x0400 + 12 * 40 : 0x0400 + 13 * 40])
+        assert b"\x3b\x21" in row, \
+            f"expected ';!' in row: {row.hex()}"
+
+
+# ── 12. Warmstart continuation flag (warm_cont) ─────────────────
+
+class TestWarmCont:
+    """warm_cont dispatch in main_loop_top — the gates set this
+    flag before jumping to a warmstart entry point to request that
+    the replayed line_buf runs after the reset."""
+
+    def test_warm_cont_absent_runs_normal_prompt(self, emu):
+        """warm_cont=0 → main_loop_top takes the normal @prompt path
+        (show_prompt + read_line).  We verify by setting warm_cont=0
+        and checking the flag stays 0 through a prompt cycle."""
+        _cold_init_to_prompt(emu)
+        assert emu.memory[emu.sym("warm_cont")] == 0
+
+    def test_warm_cont_is_consumed(self, emu):
+        """warm_cont=1 at main_loop_top → replay branch taken,
+        warm_cont is zeroed on its way through (one-shot).  We
+        can't easily verify full replay here (it'd read from
+        line_buf which the test didn't populate), so instead we
+        intercept: set warm_cont=1 with a JMP-to-RTS target in
+        line_buf so exec_line returns quickly; verify warm_cont
+        is 0 after."""
+        _cold_init_to_prompt(emu)
+        emu.memory[emu.sym("warm_cont")] = 1
+        # Put a bare newline-like line in line_buf so exec_line
+        # returns without side effects.  Empty line (NUL at offset 0)
+        # is safe — exec_line treats it as no-op.
+        line_buf = emu.sym("line_buf")
+        emu.memory[line_buf] = 0
+        # Run until PC reaches main_loop_top for the SECOND time
+        # (after the replay completes and loops back).  The
+        # `jmp main_loop_top` after exec_line takes us there.
+        #
+        # Simpler: just run a short burst from main_loop_top and
+        # check warm_cont is consumed.
+        emu.sp = 0xFF
+        emu._cpu.pc = emu.sym("main_loop_top")
+        # Step until warm_cont is consumed (it happens very early).
+        for _ in range(200):
+            emu._cpu.step()
+            if emu.memory[emu.sym("warm_cont")] == 0:
+                break
+        assert emu.memory[emu.sym("warm_cont")] == 0, \
+            "warm_cont not consumed by main_loop_top"

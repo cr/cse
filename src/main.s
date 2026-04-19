@@ -37,8 +37,10 @@
 ; ── Exports ──────────────────────────────────────────────────
         .export _main
         .export state, in_userland, kernel_init_sp, run_user_pending
-        .export stop_cooldown
-        .export cse_warm_start, cse_warm_screen
+        .export stop_cooldown, warm_cont
+        .export cse_warm_start, cse_warm_screen  ; legacy aliases
+        .export cse_recover, cse_end_debug, cse_refresh
+        .export hw_reinit_body, end_debug_body, refresh_body
         .export main_loop_top, main_loop_no_clear
         .export cse_brk_handler, cse_nmi_handler
         .export cse_brk_handler_early
@@ -69,6 +71,8 @@
         .import step_bp
         .import dbg_reason, brk_pc, dbg_bp_hit
         .import reg_p, reg_sp
+        .import rp_dis_bp, last_cmd
+        .import kernal_out
         .import ed_ensure_init
         .import exec_line, read_line, show_prompt, cmd_info
         .import post_run_cleanup, hygiene_after_userland
@@ -164,6 +168,15 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
                                 ; Cleared by main_loop's @wait poll as
                                 ; soon as KERNAL STOP ($FFE1) reports
                                 ; STOP up — so the next press is honoured.
+warm_cont:         .res 1      ; warmstart continuation flag.  Set by
+                                ; a gate before jmp cse_end_debug (or
+                                ; another warmstart entry) to request
+                                ; main_loop_top to replay line_buf
+                                ; through exec_line instead of showing
+                                ; a fresh prompt.  Consumed (zeroed)
+                                ; on each pass through main_loop_top.
+                                ;   0 = fresh prompt (default)
+                                ;   1 = replay line_buf
 
 ; ── PRG load address ─────────────────────────────────────────
 .segment "LOADADDR"
@@ -307,6 +320,18 @@ main_loop_no_clear:
         jmp cse_exit_to_basic
 
 @live:
+        ; Warmstart continuation dispatch.  A gate may have set
+        ; warm_cont before jumping to a warmstart entry point; honour
+        ; it by replaying line_buf through exec_line.  See
+        ; doc/modules/main.md § Layer 4.
+        lda warm_cont
+        beq @check_post_run
+        lda #0
+        sta warm_cont           ; consume
+        jsr exec_line           ; replay the gated command
+        jmp main_loop_top
+
+@check_post_run:
         ; Post-run cleanup if we just came back from userland.
         ; run_user_pending is non-zero iff a command (j/g/c/t/o) set
         ; it on this cycle — so it's our "just returned from userland"
@@ -845,9 +870,10 @@ handler_finalize:
 cse_nmi_handler:
         bit in_userland
         bmi @userland_nmi
-        ; Kernel mode — swallow (NMI stacked P/PClo/PChi is
-        ; exactly what RTI pops).
-        rti
+        ; Kernel mode: user wants the view back.  The NMI frame on
+        ; stack is discarded by cse_refresh's `ldx kernel_init_sp /
+        ; txs`; debug context (if any) is preserved.
+        jmp cse_refresh
 
 @userland_nmi:
         ; Normalize stack to match $FF48-BRK shape (Y/X/A/P/PClo/PChi)
@@ -877,24 +903,35 @@ cse_nmi_handler:
         jmp handler_finalize
 
 ; ═════════════════════════════════════════════════════════════
-; Layer 2: cse_warm_start — idempotent recovery (kernel fault).
+; Layer 3: Reason-named warmstart entry points.
+;
+; Three composable entry points, each named after the reason it
+; was reached.  They share three rts-returning body subroutines:
+;   hw_reinit_body  — HW + software re-init (SP, $01, vectors,
+;                     dbg state, I/O, theme, charset).
+;   end_debug_body  — discard any active debug context; unpatch_all
+;                     so the program as-written is what's in memory.
+;   refresh_body    — reset screen, draw prompt row, position cursor.
+;
+; See doc/memory_design.md § Warmstart entry points for the
+; invariants (editor and breakpoint-table survival).
 ; ═════════════════════════════════════════════════════════════
-cse_warm_start:
+
+; ── cse_recover — internal CSE fault recovery ────────────────
+; Reset SP first, then call the bodies as balanced jsr-subs.  The
+; `ldx #$FF / txs` discards whatever kernel frames were on the
+; stack when the fault struck.
+cse_recover:
+cse_warm_start:                         ; legacy alias (to be removed)
         lda warm_guard
         bne @hard_fail
         inc warm_guard
 
         ldx #$FF
         txs
-        lda #BANK_IN
-        sta MEM_CONFIG
-        jsr setup_interrupts
-        jsr dbg_init
-        jsr reset_globals
-        jsr io_init
-        jsr theme_init
-        jsr restore_colors
-        jsr set_charset
+        jsr hw_reinit_body
+        jsr end_debug_body              ; fault → context is suspect
+        jsr refresh_body
 
         lda #0
         sta warm_guard
@@ -904,20 +941,69 @@ cse_warm_start:
         tsx
         stx kernel_init_sp
 
-        jmp cse_warm_screen
+        jmp main_loop_top
 
 @hard_fail:
         jmp $FCE2               ; KERNAL cold start — last resort
 
+; ── cse_end_debug — explicit debug-session termination ──────
+cse_end_debug:
+        ldx kernel_init_sp
+        txs
+        jsr end_debug_body
+        jmp main_loop_top
+
+; ── cse_refresh — user asked for the view back ──────────────
+cse_refresh:
+cse_warm_screen:                        ; legacy alias (to be removed)
+        ldx kernel_init_sp
+        txs
+        jsr refresh_body
+        jmp main_loop_top
+
 ; ═════════════════════════════════════════════════════════════
-; cse_warm_screen — screen recovery tail
+; Body subroutines.  Balanced jsr-subs — SP discipline is the
+; caller's responsibility.  Entry points above do the SP reset
+; once before jsr'ing in.
 ; ═════════════════════════════════════════════════════════════
-cse_warm_screen:
+
+; hw_reinit_body — full HW + software re-init.  Idempotent.
+hw_reinit_body:
+        lda #BANK_IN
+        sta MEM_CONFIG
+        jsr setup_interrupts
+        jsr dbg_init
+        jsr reset_globals
+        jsr io_init
+        jsr theme_init
+        jsr restore_colors
+        jmp set_charset                 ; tail-call
+
+; end_debug_body — discard any active debug context.  Preserves
+; editor state and bp_table; unpatches live breakpoints so the
+; user's program memory reflects what they actually wrote.
+end_debug_body:
+        lda #0
+        sta dbg_reason
+        sta step_state
+        sta step_remaining
+        sta run_user_pending
+        sta in_userland
+        sta kernal_out
+        sta stop_cooldown
+        sta last_cmd
+        lda #$FF
+        sta reg_sp                      ; userland SP reset
+        sta dbg_bp_hit
+        sta rp_dis_bp
+        jmp unpatch_all                 ; tail-call
+
+; refresh_body — reset screen, draw prompt row, position cursor.
+refresh_body:
         jsr reset_screen
         lda #SCREEN_HEIGHT - 1
         jsr splash_row
-        jsr io_clear_eol
-        jmp main_loop_top
+        jmp io_clear_eol                ; tail-call
 
 ; ═════════════════════════════════════════════════════════════
 ; cse_exit_to_basic

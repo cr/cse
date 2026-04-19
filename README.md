@@ -136,7 +136,7 @@ If the source defines a `main:` label, `g` will jump there.
 | `g` | `g` | Execute at label `main` |
 | `t` | `t [EXPR]` | Step into (N instructions, default 1) |
 | `o` | `o [EXPR]` | Step over (N instructions, default 1) |
-| `c` | `c` | Continue from breakpoint |
+| `c` | `c` | Continue from breakpoint (errors with `;?no ctx` if no active debug session) |
 | `b` | `b` | List breakpoints |
 | `b` | `b ADDR` | Set breakpoint (8 slots) |
 | `b` | `b -N` | Delete breakpoint N |
@@ -144,10 +144,19 @@ If the source defines a `main:` label, `g` will jump there.
 | `r` | `r` | Show registers (A, X, Y, SP, flags) |
 | `r` | `r A:XX X:XX ...` | Set registers |
 
-RUN/STOP+RESTORE triggers an NMI break into the debugger.
+RUN/STOP+RESTORE triggers an NMI break into the debugger while
+user code is running.  Pressed at the REPL prompt, it refreshes
+the screen (classic C64 behaviour, preserves any active debug
+session).
 
 Stepping into a JSR whose target is in KERNAL ROM ($E000--$FFFF)
 automatically falls back to step-over.
+
+**Ending a debug session.**  If a break is active and you want
+to start fresh without running to completion, use `R` (reset)
+or just invoke a command that needs a clean stack (`a`, `l`) —
+CSE will prompt `; end debug? y/n` and discard the break context
+on yes.
 
 ### Files
 
@@ -184,6 +193,7 @@ size to `block_size`.
 | `C` | `C [B] [G] [F]` | Show or set colors (border, background, foreground) |
 | `k` | `k` | Delete source (with confirmation) |
 | `x` | `x` | Clear screen |
+| `R` | `R` | Warmstart -- clears screen and ends any active debug session (with confirmation) |
 | `Q` | `Q` | Quit CSE (with unsaved guard) |
 
 Color values are single hex digits 0--F (C64 palette).

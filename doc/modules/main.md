@@ -12,8 +12,8 @@
 
 - `_main` — entry point (jumped to by `loader.s` after
   relocation, BSS zero, KDATA copy).  Contains four layers:
-  `cse_cold_init`, `setup_interrupts`, `cse_warm_start`, and
-  `main_loop`.
+  `cse_cold_init`, `setup_interrupts`, the warmstart entry points
+  (`cse_recover` / `cse_end_debug` / `cse_refresh`), and `main_loop`.
 - `state` — exported BSS byte: 0=STOP, 1=REPL, 2=EDIT
 - `in_userland` — exported BSS byte: 1 = user code is currently
   running, 0 = kernel.  Set by `return_to_userland` (debugger.s),
@@ -73,9 +73,10 @@ Dispatches on `in_userland`:
 ```
 cse_nmi_handler:
         bit in_userland         ; bit 7 → N, bit 0 → Z (after BIT)
-        bne @break_user         ; in_userland != 0 → break
-        ; kernel mode: swallow (interrupted CSE code resumes)
-        rti
+        bne @break_user         ; in_userland != 0 → break into debugger
+        ; kernel mode: user wants the view back.  Discard the NMI
+        ; frame and jump to the refresh entry point.
+        jmp cse_refresh
 
 @break_user:
         ; userland mode: stash live A/X/Y, fall into BRK path
@@ -83,13 +84,16 @@ cse_nmi_handler:
         jmp cse_brk_handler_userland_entry
 ```
 
-The kernel-mode swallow accepts that interrupting CSE code may
-leave kernel state broken; the price of always-reliable RESTORE
-is bounded to "you may need to ESC/CLR or warm-start the screen".
+The two branches correspond to two distinct user intents:
 
-RESTORE-from-kernel-mode therefore does *not* trigger screen
-recovery automatically.  ESC/CLR remains the user's screen-recovery
-binding.
+- **NMI in userland** (user pressed RUN/STOP+RESTORE while their
+  code was running) → break into the debugger.  Indistinguishable
+  at the hardware level from a BRK breakpoint; the same capture
+  logic runs.
+- **NMI in kernel** (user pressed RUN/STOP+RESTORE at the REPL
+  prompt) → `cse_refresh`.  The classic C64 affordance: "my view
+  got messed up, give me a clean screen."  Debug context (if any)
+  is preserved.
 
 ### setup_interrupts
 **In:** none
@@ -98,7 +102,7 @@ patched to point at handler labels
 **Clobbers:** A, X
 
 Called once during cold init, **before any bank-out**.  Also
-re-called by `cse_warm_start` for idempotent recovery.
+re-called by `cse_recover` for idempotent fault recovery.
 
 | Vector | Address | Patched to |
 |--------|---------|------------|
@@ -128,14 +132,20 @@ same stack shape.
 `rp_tmp2` (1) — scratch pointers/bytes shared by repl.s,
 debugger.s, asm_line.s.
 
-**BSS (6 bytes):** `state` (1), `warm_guard` (1), `in_userland` (1),
-`kernel_init_sp` (1), `run_user_pending` (1), `stop_cooldown` (1).
+**BSS (7 bytes):** `state` (1), `warm_guard` (1), `in_userland` (1),
+`kernel_init_sp` (1), `run_user_pending` (1), `stop_cooldown` (1),
+`warm_cont` (1).
 
-`kernel_init_sp` is the SP value the BRK handler longjmps to when
-returning control to the REPL.  Set once during cold init, just
-before the cold-init userland handoff: `tsx; stx kernel_init_sp`.
-Read by `cse_brk_handler` tail (`ldx kernel_init_sp; txs`) and by
-`cse_warm_start` for hard recovery.
+`kernel_init_sp` is the SP value the warmstart entry points
+longjmp to when returning control to the REPL.  Set once during
+cold init, just before the cold-init userland handoff:
+`tsx; stx kernel_init_sp`.  Read by `cse_brk_handler` tail
+(`ldx kernel_init_sp; txs`) and by `cse_recover` for hard recovery.
+
+`warm_cont` (0 = fresh prompt, 1 = replay `line_buf`) is the
+continuation flag gates set before jumping to a warmstart entry
+point.  `main_loop_top` consumes it on each iteration.  See
+Layer 4 above.
 
 `run_user_pending` is the command → main_loop handoff for userland
 execution.  Commands (`j`, `g`, `c`, `t`, `o`) stage their state
@@ -195,31 +205,71 @@ entry via `return_to_userland` has sane banking.
 See Interface above.  Runs as step 4 of cold init, before any
 banking activity.
 
-#### Layer 3: `cse_warm_start` (idempotent recovery)
+#### Layer 3: Reason-named warmstart entry points
 
-Reachable from `cse_brk_handler` (internal fault) when the BRK
-fired in kernel mode at an address that is not a recognised slot
-or `brk_stub` (i.e. CSE itself executed an unexpected $00).
+Three orthogonal entry points, each named after **why** control
+arrived here (the triggering event), not what it does (which may
+shift over time).  All three jump to `main_loop_top` when finished;
+`main_loop_top` consults `warm_cont` to decide whether the next
+iteration shows a fresh prompt or replays the pre-warmstart
+command line (see Layer 4).
 
-Re-entry guard (`warm_guard`) prevents infinite BRK→warm-start
-loops; falls through to kernal cold start ($FCE2) as last resort.
+| Entry point | Reason | Used by |
+|-------------|--------|---------|
+| `cse_recover` | CSE internal fault (unexpected BRK in kernel code) | `cse_brk_handler` @not_clean_in_kernel |
+| `cse_end_debug` | user chose to end the current debug session | `a`/`l` gates; `R` command when debug active |
+| `cse_refresh` | user asked for the view back (screen recovery) | NMI-in-kernel; ESC/CLR; `R` command |
 
-Resets SP, restores $01=$36, calls `setup_interrupts` (idempotent),
-calls `dbg_init`, resets globals, reinits I/O/theme/colors/charset,
-falls through to `cse_warm_screen`.
+The three entry points compose via a trio of rts-returning "body"
+subroutines:
 
-`cse_warm_screen` — secondary entry point (screen recovery):
-clears screen, draws prompt, falls through to `main_loop`.
-Used by ESC/CLR key and by the warm-start tail.
+```
+hw_reinit_body   — SP, $01, setup_interrupts, dbg_init, reset_globals,
+                   io_init, theme_init, restore_colors, set_charset.
+                   Idempotent; may be called from any CSE state.
+
+end_debug_body   — dbg_reason/step_state/run_user_pending/in_userland
+                   to 0; reg_sp to $FF; kernal_out to 0;
+                   stop_cooldown to 0; rp_dis_bp/dbg_bp_hit reset;
+                   unpatch_all (restores user's in-memory bytes that
+                   breakpoints had overwritten with $00); last_cmd
+                   cleared.  Editor state and bp_table untouched.
+
+refresh_body     — reset_screen, splash_row, io_clear_eol.
+                   Puts the cursor on the bottom row, column 0.
+```
+
+Composition:
+
+```
+cse_recover:     jsr hw_reinit_body
+                 jsr end_debug_body
+                 jsr refresh_body
+                 jmp main_loop_top
+
+cse_end_debug:   jsr end_debug_body
+                 jmp main_loop_top
+
+cse_refresh:     jsr refresh_body
+                 jmp main_loop_top
+```
+
+`cse_recover` guards against re-entry (`warm_guard`) to prevent
+infinite BRK→recover loops; falls through to kernal cold start
+($FCE2) as last resort.
+
+**Invariants preserved by every warmstart entry point** (documented
+in [memory_design.md § Warmstart entry points](../memory_design.md#warmstart-entry-points)):
+
+1. Editor state — `buf_base`, `gap_lo`, `gap_hi`, `gap_sz`, `ed_dirty`,
+   `ed_top_ptr`, and the buffer-backed memory pages — is untouched by
+   any entry point.  User's source survives every warmstart.
+2. Breakpoint table (`bp_table`) is preserved as the user's *intent*;
+   `end_debug_body` calls `unpatch_all` to restore the in-memory
+   bytes, but the slots themselves remain.  Next `j`/`g` re-patches.
 
 `main_loop_no_clear` — late entry into `main_loop` that skips
 screen-clear; used by the cold-init handoff (splash already drawn).
-
-| Entry point | Used by | Severity |
-|-------------|---------|----------|
-| `cse_warm_start` | `cse_brk_handler` (in-kernel fault) | Hard recovery |
-| `cse_warm_screen` | ESC/CLR key, warm-start tail | Screen recovery |
-| `main_loop_no_clear` | cold-init handoff via brk_stub | First boot |
 
 #### Layer 4: `main_loop` (event loop / ISR body)
 
@@ -229,9 +279,17 @@ the BRK handler's longjmp lands on a clean stack frame.
 
 ```
 main_loop_top:
-        ldx kernel_init_sp     ; or hardcoded ldx #$FF / txs
+        ldx kernel_init_sp
         txs
-        ; (cli — re-enable IRQs if not already)
+        cli
+        lda warm_cont           ; continuation flag set by a gate?
+        beq @normal
+        lda #0
+        sta warm_cont           ; consume
+        jsr exec_line           ; replay the gated command's line_buf
+        jmp main_loop_top
+@normal:
+        ; (post_run_cleanup if returning from userland)
         jsr show_prompt
         jsr read_line
         jsr exec_line
@@ -243,6 +301,20 @@ loop re-iterates.  For execution commands (`j`, `g`, `c`, `t`,
 `o`), `exec_line`'s handler eventually calls `return_to_userland`
 which RTIs into user code; control comes back via
 `cse_brk_handler`'s longjmp to `main_loop_top`.
+
+**Continuation flag (`warm_cont`).**  BSS byte.  Set by gate code
+(see [repl.md § Gating pattern](repl.md#gating-pattern)) before
+jumping to a warmstart entry point; consumed once at the next
+`main_loop_top` pass.
+
+| Value | Meaning |
+|-------|---------|
+| 0 | No continuation — fresh prompt (default). |
+| 1 | Replay `line_buf` through `exec_line` — the gate user said "yes" to re-runs the command they typed. |
+
+`line_buf` is BSS and untouched by any warmstart body, so the
+replayed command always has the arguments the user typed.  `a`
+(no args) and `l "PROJ"` (arg in line_buf) both work identically.
 
 ### Permanent hooks
 
@@ -370,9 +442,10 @@ handler longjmp to reset SP to a known value.  This is the kernel's
 "setjmp" point; the BRK handler's `ldx kernel_init_sp; txs` is the
 "longjmp."
 
-`main_loop_top` is reached only via this longjmp (from
-`cse_brk_handler` or from `cse_warm_screen`).  Each iteration of
-`main_loop` therefore starts from a guaranteed-clean SP.
+`main_loop_top` is reached only via this longjmp — from
+`cse_brk_handler` or from any of the three warmstart entry points
+(`cse_recover`, `cse_end_debug`, `cse_refresh`).  Each iteration
+of `main_loop` therefore starts from a guaranteed-clean SP.
 
 ### Exit path
 
@@ -400,7 +473,7 @@ others are mode-specific.
 | Key | Action |
 |-----|--------|
 | RUN/STOP | Toggle REPL ↔ editor (handled inline in the main loop, with key-release debounce so holding it only toggles once) |
-| RUN/STOP+RESTORE | NMI break — handled by `cse_nmi_handler`.  In userland: breaks into the debugger (same path as BRK).  In kernel mode: swallowed (no automatic screen recovery; use ESC/CLR if needed). |
+| RUN/STOP+RESTORE | NMI break — handled by `cse_nmi_handler`.  In userland: breaks into the debugger (same path as BRK).  In kernel mode: routes to `cse_refresh` (screen recovery; debug context preserved). |
 
 ### REPL mode keys
 
@@ -432,8 +505,9 @@ Handled by `ed_handle_key()`.  See [editor.md](editor.md).
 - `src_top`/`src_bot` are owned by editor.s.
 - `ed_ensure_init` is called at startup to initialize the gap
   buffer before `define_ws_syms` (workend needs `buf_base`).
-- `cse_warm_start` must not call `leave_editor` — editor state
-  may be corrupt.
+- None of the warmstart entry points (`cse_recover`, `cse_end_debug`,
+  `cse_refresh`) call `leave_editor` or touch editor state — the
+  editor invariant says the source survives every warmstart.
 - The cold-init userland handoff uses the same code path as a
   clean `j`-then-RTS.  This sharing is the design's main lever
   for code economy; keep it.

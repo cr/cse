@@ -33,6 +33,8 @@
         .export str_lines, str_bytes, str_long
         .export str_unsaved, str_ok, str_blk_eq
         .export str_del_src, str_quit, str_load
+        .export str_init, str_end_dbg, str_asm
+        .export str_debug
         .export str_color, str_cpu, str_stk_warn
         .export str_asm_ing, str_load_pfx, str_save_pfx, str_dots
         .export str_errors, str_dashes, str_colon_sp, str_pct
@@ -108,10 +110,16 @@ str_lines:      .byte "l ", 0
 str_bytes:      .byte "b", 0
 str_long:       .byte "long L", 0
 
-str_unsaved:    .byte "unsaved. ", 0
+; Warning contents (emitted at LOG_WARN by warn_if_unsaved / warn_if_debug).
+str_unsaved:    .byte "unsaved", 0
+str_debug:      .byte "debug", 0
+; Atomic action prompts (printed by confirm_action at LOG_WARN level).
 str_del_src:    .byte "del src? y/n ", 0
 str_quit:       .byte "quit? y/n ", 0
 str_load:       .byte "load? y/n ", 0
+str_init:       .byte "init? y/n ", 0
+str_end_dbg:    .byte "end debug? y/n ", 0
+str_asm:        .byte "asm? y/n ", 0
 str_ok:         .byte "ok", 0
 str_blk_eq:       .byte "blk=", 0
 str_color:      .byte "color: ", 0

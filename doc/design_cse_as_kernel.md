@@ -102,14 +102,12 @@ NMI means: **stop whatever we're doing and give the user a REPL prompt that alwa
 ```
 nmi_handler:
     pha
-    lda in_userland
-    beq @not_userland
-    pla
-    pha / txa / pha / tya / pha     ; $FF48-equivalent register save
-    jmp cse_brk_handler             ; treat as BRK-like entry
-@not_userland:
-    pla
-    rti                             ; swallow; interrupted code resumes
+    bit in_userland
+    bne @break_user                ; $80 (bit 7 set) → break into debugger
+    jmp cse_refresh                ; kernel mode → refresh screen
+@break_user:
+    sta reg_a / stx reg_x / sty reg_y
+    jmp cse_brk_handler_userland_entry
 ```
 
 **`in_userland` flag:**
@@ -117,7 +115,11 @@ nmi_handler:
 - **Cleared** at BRK handler entry.
 - Not touched by IRQ handling (IRQ doesn't transition user↔kernel in CSE's mode-sense).
 
-Two paths, one flag, no deferred state, no `nmi_pending` quiet-point plumbing. RESTORE-at-prompt does nothing (user can bind screen-redraw to a different key if desired).
+Two paths, one flag, no deferred state.  RESTORE at the REPL
+prompt routes to `cse_refresh` (the classic C64 screen-recovery
+affordance); the debug context, if any, is preserved across the
+NMI.  See [main.md § cse_nmi_handler](modules/main.md) and
+[memory_design.md § Warmstart entry points](memory_design.md#warmstart-entry-points).
 
 ## 6. Interrupt hooking: unified setup routine
 
@@ -210,10 +212,12 @@ Status updated after corpus propagation (2026-04-17):
   chain-or-finish (step-chain path reuses `restore_userland_state`
   directly).  No SP creep across iterations.  See
   [modules/debugger.md § Single-step](modules/debugger.md).
-- **NMI in kernel mode.** ✅ Resolved: swallow.  Loses the old
-  "RUN/STOP+RESTORE clears screen" affordance (ESC/CLR replaces
-  it).  Optional restoration tracked as a Roadmap idea in
-  [TODO.md](TODO.md) § Ideas.
+- **NMI in kernel mode.** ✅ Resolved: routes to `cse_refresh`
+  (Phase 20 — warmstart restructure).  Kernel-mode NMI is the
+  classic C64 RUN/STOP+RESTORE screen-recovery affordance; the
+  debug context is preserved across the refresh.  Previously this
+  was handled by swallowing.  See
+  [main.md § cse_nmi_handler](modules/main.md).
 - **`kernel_init_sp` longjmp target.** ✅ Resolved: 1-byte BSS
   in main.s, captured at cold-init top, used by every BRK handler
   longjmp.  See [modules/main.md § Longjmp SP convention](modules/main.md).

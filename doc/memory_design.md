@@ -290,6 +290,61 @@ regions are zeroed (no PRG space required).
     KBSS total:   4967 B (zeroed, no PRG space)
     Free:         2209 B
 
+## Warmstart entry points
+
+Three labels in `main.s` provide reason-named entry paths back into
+a clean kernel state from anywhere in the program.  All three end
+at `main_loop_top`; none of them cold-boots (no BSS re-zero, no
+KDATA recopy).  The editor gap buffer and the user's source are
+preserved across every warmstart — see invariants below.
+
+| Entry point | Reason | Composes |
+|-------------|--------|----------|
+| `cse_recover` | Internal CSE fault (unexpected BRK in kernel code) | hw_reinit + end_debug + refresh |
+| `cse_end_debug` | User ended the current debug session (via an `a`/`l`/`R` gate) | end_debug |
+| `cse_refresh` | User asked for the view back (NMI-in-kernel, ESC/CLR, `R` without active debug) | refresh |
+
+Each entry point composes from rts-returning **body subroutines**
+defined in `main.s`:
+
+- `hw_reinit_body` — SP=$FF, `$01`=$36, `setup_interrupts`,
+  `dbg_init`, `reset_globals`, `io_init`, `theme_init`,
+  `restore_colors`, `set_charset`.  Idempotent.
+- `end_debug_body` — zeroes `dbg_reason`, `step_state`,
+  `run_user_pending`, `in_userland`, `kernal_out`, `stop_cooldown`,
+  `rp_dis_bp`, `dbg_bp_hit`, `last_cmd`; resets `reg_sp` to $FF;
+  calls `unpatch_all` (restores user's in-memory bytes that any
+  live breakpoints had overwritten with $00).
+- `refresh_body` — `reset_screen`, `splash_row`, `io_clear_eol`.
+  Cursor ends on the bottom row, column 0.
+
+### Continuation flag (`warm_cont`)
+
+1-byte BSS in main.s.  Set by a gate (see [repl.md § Gating
+pattern](modules/repl.md#gating-pattern)) before jumping to a
+warmstart entry point; consumed once at the next `main_loop_top`
+pass.
+
+| Value | Meaning |
+|-------|---------|
+| `0` | No continuation — fresh prompt (default). |
+| `1` | Replay `line_buf` through `exec_line` — the command the user typed before the gate is re-run with debug state cleared. |
+
+### Editor invariant
+
+No warmstart entry point touches `buf_base`, `gap_lo`, `gap_hi`,
+`gap_sz`, `ed_dirty`, `ed_top_ptr`, or the gap-buffer-backed memory
+in the workspace region.  The user's source is preserved across
+**every** warmstart, fault recovery included.
+
+### Breakpoint invariant
+
+`bp_table` is the user's persistent intent — it survives every
+warmstart.  What changes across `end_debug_body` is the in-memory
+representation: any $00-bytes a patched breakpoint left in the
+user's code get restored to the original opcodes via `unpatch_all`.
+The next `j`/`g` re-patches from `bp_table`.
+
 ## Stack contract
 
 CSE and user code **share** the single 6502 hardware stack page at

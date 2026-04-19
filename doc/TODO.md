@@ -198,6 +198,21 @@ Open bugs, roughly ordered by priority.
   (fixed: cmd_brk now rejects BP addresses outside [$0800, __CODE_RUN__)
   with a "; ? range" error before calling dbg_bp_set.  Phase 17.)
 
+- [ ] **Phase 20 — Warmstart restructure and debug-session lifecycle.**
+  Reason-named entry points (`cse_recover`/`cse_end_debug`/`cse_refresh`)
+  compose from rts-returning body subs.  Gates on `a`/`l`/`R` let the
+  user end the current debug session cleanly.  `R` command added
+  (always prompts: "end debug? y/n" when active, "init? y/n" otherwise).
+  `c` errors out without an active debug session.  NMI in kernel mode
+  routes to `cse_refresh` (restores the classic RUN/STOP+RESTORE
+  screen-recovery affordance).  Gating strings decomposed: `warn_if_unsaved`
+  / `warn_if_debug` emit `;!unsaved` / `;!debug` log lines ahead of a
+  simple "action? y/n" prompt; two warnings stack (unsaved before
+  debug).  See
+  [main.md § Layer 3](modules/main.md),
+  [memory_design.md § Warmstart entry points](memory_design.md#warmstart-entry-points),
+  [repl.md § Gating pattern](modules/repl.md#gating-pattern).
+
 ### Fixed bugs (reference)
 
 <details>
@@ -312,7 +327,7 @@ Defined scope, needs work.
   `vic_reset` in screen.s forces $D011=$1B, $D016=$C8, $D018=$15,
   $D015=0, $D01A=0, $D019=$0F.  Called from `hygiene_after_userland`
   on every break/resume cycle.  Future work: call from
-  `cse_warm_screen` too so ESC/CLR recovers from a kernel-resident
+  `cse_refresh` too so ESC/CLR recovers from a kernel-resident
   program that glitched VIC.)
 - [ ] SID silence: stop stuck notes when user code leaves SID running.
   Two complementary mechanisms:
@@ -747,19 +762,10 @@ Exploratory, not yet scoped.
   documentation via a machine-readable index.  DDD Maintenance
   verifies code changes trigger doc updates for all covering
   documents.
-- [ ] **RESTORE-only screen recovery (Roadmap idea).**  In Phase 18
-  the NMI handler swallows RUN/STOP+RESTORE when in kernel mode,
-  removing the previous "always clears the screen on RESTORE" user
-  behavior.  ESC/CLR (Shift+HOME) becomes the screen-recovery
-  binding.  If users want the old behavior back, the implementation
-  options are:
-    1. Hybrid swallow: NMI handler still sets `nmi_pending` flag in
-       kernel mode; main_loop polls and triggers `cse_warm_screen`.
-       Costs ~10 B + 1 BSS flag, restores the original feel.
-    2. Distinguish RESTORE-without-STOP from RUN/STOP+RESTORE via
-       raw CIA polling and bind the standalone-RESTORE path to a
-       screen-recovery action.  More involved; KERNAL doesn't expose
-       this distinction natively.
-  Defer until user feedback indicates the change is friction.
-  Pairs with the Phase 18 NMI swallow design.
-  Updated also in [userland_contract.md § 1](userland_contract.md#1-mode-model).
+- [x] ~~**RESTORE-only screen recovery.**~~  (Phase 20 — done
+  alongside the warmstart restructure.  NMI in kernel mode now
+  routes directly to `cse_refresh` instead of swallowing, so
+  RUN/STOP+RESTORE at the REPL gets the user their view back —
+  the classic C64 affordance.  Debug context is preserved across
+  the NMI.  See [main.md § cse_nmi_handler](modules/main.md)
+  and [memory_design.md § Warmstart entry points](memory_design.md#warmstart-entry-points).)

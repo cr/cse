@@ -16,7 +16,7 @@
         .export rp_addr, rp_cnt, rp_save2
         .export cur_addr, cur_device, cur_project_name
         .export block_size
-        .export line_buf, last_cmd
+        .export line_buf, last_cmd, rp_dis_bp
 
 ; ── Imports: cse_io.s ──────────────────────────────────────
         .import io_putc, io_repc, io_puts, scr_to_pet
@@ -56,6 +56,8 @@
 
 ; ── Imports: main.s (kernel→userland dispatch) ───────────────
         .import run_user_pending, stop_cooldown
+        .import cse_refresh, cse_end_debug
+        .import end_debug_body, warm_cont
         ; MODE_NONE, MODE_JUMP, MODE_RESUME constants are defined in
         ; main.s; redefine here (ca65 doesn't import equates).
 MODE_NONE   = 0
@@ -103,7 +105,7 @@ STEP_OVER = 2
 ; ── Imports: strings.s ────────────────────────────────────
         .import str_flag_ch, str_bp_pfx, str_3sp, str_2sp, str_brk
         .import str_at, str_nmi, str_bp_clr, str_deleted
-        .import str_rts, str_stk_warn
+        .import str_rts, str_stk_warn, str_debug
         .import str_syntax, str_bad_val, str_full, str_cmd
         .import str_no_name, str_range, str_fail, str_too_big
         .import str_expr, str_no_ctx
@@ -111,6 +113,7 @@ STEP_OVER = 2
         .import str_lines, str_bytes, str_long
         .import str_unsaved, str_ok, str_blk_eq
         .import str_del_src, str_quit, str_load
+        .import str_init, str_end_dbg, str_asm
         .import str_color, str_cpu
         .import str_asm_ing, str_load_pfx, str_save_pfx, str_dots
         .import s_save_default
@@ -404,28 +407,19 @@ confirm_yn:
 ; confirm_action — prompt the user before a destructive action.
 ;   In:  A/X = action prompt string (e.g. "del src? y/n ")
 ;   Out: C=1 user accepted, C=0 user cancelled
-;   Dirty state prepends "unsaved. " and uses LOG_WARN level.
-;   Clean state uses LOG_INFO level with just the action prompt.
+;
+; Atomic: prints "; <prompt>" at LOG_WARN, waits for y/n.  Any
+; state-based warnings (unsaved, debug) are the caller's job and
+; must be emitted BEFORE calling confirm_action (see warn_if_*
+; helpers below).
 ; ───────────────────────────────────────────────────────────
 confirm_action:
-        ; Park the caller's string pointer on the 6502 stack — any
-        ; ZP scratch would be unsafe: `puts str_unsaved` below
-        ; dispatches through puts_imm, which clobbers rp_tmp, and
-        ; rp_tmp2 is only one byte wide (rp_tmp2+1 aliases into the
-        ; next ZP slot).  The stack is the simplest pointer save.
-        pha                     ; lo
-        txa
-        pha                     ; hi
+        pha                     ; save caller's string pointer lo
+        txa                     ; across newline / log_open
+        pha                     ; (they both clobber A/X).
         jsr newline
-        lda ed_dirty
-        beq @clean
         ldy #LOG_WARN
         jsr log_open
-        puts str_unsaved
-        jmp @prompt
-@clean: ldy #LOG_INFO
-        jsr log_open
-@prompt:
         pla                     ; hi
         tax
         pla                     ; lo
@@ -439,17 +433,32 @@ confirm_action:
         rts
 
 ; ───────────────────────────────────────────────────────────
-; check_unsaved — for SEQ load: prompt only when dirty.
-;   Returns: C=1 proceed, C=0 cancel.
+; warn_if_unsaved — emit ";!unsaved" at LOG_WARN when editor has
+; uncommitted edits.  No-op when ed_dirty == 0.
+;   Clobbers A, X, Y.
 ; ───────────────────────────────────────────────────────────
-check_unsaved:
+warn_if_unsaved:
         lda ed_dirty
-        beq @ok                 ; not dirty → proceed silently
-        lda #<str_load
-        ldx #>str_load
-        jmp confirm_action      ; tail call, returns with C set
-@ok:    sec
-        rts
+        beq @done
+        ldy #LOG_WARN
+        lda #<str_unsaved
+        ldx #>str_unsaved
+        jmp log_line            ; tail-call
+@done:  rts
+
+; ───────────────────────────────────────────────────────────
+; warn_if_debug — emit ";!debug" at LOG_WARN when a debug session
+; is active.  No-op when dbg_reason == 0.
+;   Clobbers A, X, Y.
+; ───────────────────────────────────────────────────────────
+warn_if_debug:
+        lda dbg_reason
+        beq @done
+        ldy #LOG_WARN
+        lda #<str_debug
+        ldx #>str_debug
+        jmp log_line            ; tail-call
+@done:  rts
 
 ; ───────────────────────────────────────────────────────────
 ; skip_sp_ptr1 — skip spaces at (rp_ptr), advancing rp_ptr
@@ -2686,9 +2695,29 @@ print_op_name:
         beq @load_prg
 
         ; ── SEQ load ──
-        ; guard unsaved before overwriting source
-        jsr check_unsaved
+        ; Gate: if a debug session is active, end it first and
+        ; replay the load.  Otherwise warn-if-unsaved, prompt
+        ; "load? y/n" when dirty, proceed silently when clean.
+        lda dbg_reason
+        beq @l_no_debug
+        jsr warn_if_unsaved     ; stack order: unsaved before debug
+        jsr warn_if_debug
+        lda #<str_load
+        ldx #>str_load
+        jsr confirm_action
         jcc @l_cancel
+        lda #1
+        sta warm_cont           ; replay line_buf after end-debug
+        jmp cse_end_debug
+@l_no_debug:
+        lda ed_dirty
+        beq @do_load
+        jsr warn_if_unsaved
+        lda #<str_load
+        ldx #>str_load
+        jsr confirm_action
+        jcc @l_cancel
+@do_load:
 
         lda #<str_load_pfx
         ldx #>str_load_pfx
@@ -3451,6 +3480,7 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         jmp cmd_step
 
 @h_k:   ; k — delete source (warn + confirm)
+        jsr warn_if_unsaved
         lda #<str_del_src
         ldx #>str_del_src
         jsr confirm_action
@@ -3600,7 +3630,22 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
 @u_p2:  jsr io_putc
 .endif
         jmp log_close_eol
-@h_a:   ; a — assemble source
+@h_a:   ; a — assemble source.  With an active debug session this
+        ; path is stack-heavy (measured ~130 B for nested exprs); gate
+        ; by ending the debug session + replaying the command.
+        lda dbg_reason
+        beq @a_run
+        jsr warn_if_debug
+        lda #<str_asm
+        ldx #>str_asm
+        jsr confirm_action
+        bcc @a_cancel
+        lda #1
+        sta warm_cont           ; replay line_buf after end-debug
+        jmp cse_end_debug
+@a_cancel:
+        jmp nl_clear
+@a_run:
         jsr newline
         ldy #LOG_INFO
         jsr log_open        ; "; "
@@ -3732,6 +3777,7 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         jsr io_puts
         jmp log_close_eol
 @h_quit:; Q (PETSCII $D1) — quit (warn + confirm)
+        jsr warn_if_unsaved
         lda #<str_quit
         ldx #>str_quit
         jsr confirm_action
@@ -3740,6 +3786,29 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         sta state
         rts
 @q_cancel:
+        jmp nl_clear
+@h_reset:
+        ; R — warmstart (uppercase).  Always prompts.  With an
+        ; active debug session: ";!debug" + "end debug? y/n".
+        ; Without: "init? y/n".  On yes: end_debug_body (if active)
+        ; + jmp cse_refresh.  No continuation (warm_cont stays 0).
+        lda dbg_reason
+        beq @reset_init
+        ; active debug path
+        jsr warn_if_debug
+        lda #<str_end_dbg
+        ldx #>str_end_dbg
+        jsr confirm_action
+        bcc @r_cancel
+        jsr end_debug_body
+        jmp cse_refresh
+@reset_init:
+        lda #<str_init
+        ldx #>str_init
+        jsr confirm_action
+        bcc @r_cancel
+        jmp cse_refresh
+@r_cancel:
         jmp nl_clear
 @h_dir: ; $ — directory
         jsr skip_peek_ptr1
@@ -3828,18 +3897,18 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         .byte '.', 'd', 'm', 'b', 'r', 'l', 's', 'i'
         .byte '@', '+', '-', 'j', 'g', 't', 'o', 'k'
         .byte $C2, $C3, 'u', 'a', '?', $D1, '$', 'x'
-        .byte 'c'
+        .byte 'c', $D2
         .byte 0                 ; sentinel
 @cmd_lo:
         .byte <@h_dot, <@h_d, <@h_m, <@h_b, <@h_r, <@h_l, <@h_s, <@h_i
         .byte <@h_at, <@h_plus, <@h_minus, <@h_j, <@h_g, <@h_t, <@h_o, <@h_k
         .byte <@h_blk, <@h_col, <@h_u, <@h_a, <@h_calc, <@h_quit, <@h_dir, <@h_x
-        .byte <@h_c
+        .byte <@h_c, <@h_reset
 @cmd_hi:
         .byte >@h_dot, >@h_d, >@h_m, >@h_b, >@h_r, >@h_l, >@h_s, >@h_i
         .byte >@h_at, >@h_plus, >@h_minus, >@h_j, >@h_g, >@h_t, >@h_o, >@h_k
         .byte >@h_blk, >@h_col, >@h_u, >@h_a, >@h_calc, >@h_quit, >@h_dir, >@h_x
-        .byte >@h_c
+        .byte >@h_c, >@h_reset
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -3860,9 +3929,10 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
 ;   * Else show break result (dbg_reason picks the tag;
 ;     show_break_result handles the rts-through-sentinel case).
 ; ═══════════════════════════════════════════════════════════
-; Minimum user SP that satisfies the kernel re-entry budget.  User's
-; SP at break (reg_sp) below this triggers a ";!stk N" warning.  See
-; userland_contract.md § Kernel stack budget.
+; Stack headroom budget — must match main.s::kernel_stack_budget.
+; See userland_contract.md § Kernel stack budget.  Kept as a local
+; literal rather than an import so the repl-only test harness (which
+; doesn't link main.s) can build unchanged.
 KSTK_MIN = 64
 
 .proc post_run_cleanup

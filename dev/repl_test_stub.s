@@ -49,6 +49,8 @@
 
 ; ── Exports: main.s stubs (gate dispatch flag) ────────────────
         .export run_user_pending, stop_cooldown
+        .export warm_cont
+        .export cse_refresh, cse_end_debug, end_debug_body
 
 ; ── Exports: disk stubs ───────────────────────────────────────
         .export floppy_status, floppy_read_status, fl_buf
@@ -125,6 +127,7 @@ step_witness:  .res 4          ; snapshot of step_bp[0..3] at
 ; Main-side stub: kernel→userland dispatch flag.
 run_user_pending: .res 1
 stop_cooldown:    .res 1
+warm_cont:        .res 1
 
 ; Registers
 reg_a:         .res 1
@@ -533,4 +536,13 @@ kplot_stub:
 @get:
         ldx $D6
         ldy $D3
+        rts
+
+; Warmstart entry stubs — tests that exercise R/gate paths just
+; need these symbols to resolve.  Exact behaviour (longjmp to
+; main_loop_top) isn't simulated here; individual tests that need
+; real warmstart behaviour use C64Emu + the full PRG.
+cse_refresh:
+cse_end_debug:
+end_debug_body:
         rts

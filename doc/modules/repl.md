@@ -504,43 +504,84 @@ becomes `project.`.  Pressing RETURN on this line saves the binary.
 | `C`   | color   | —         | `C 06` or `C 0e6`   | Set text/bg/border color (uppercase)  |
 | `u`   | cpu     | —         | `u 6502` or `u 65c02` | Set CPU mode for asm/disasm        |
 | `Q`   | quit    | —         | `Q`                  | Exit CSE (uppercase; guards unsaved)  |
+| `R`   | reset   | —         | `R`                  | Warmstart (uppercase; ends debug if active, then refreshes screen) |
 | `x`   | clear   | —         | `x`                  | Clear screen                          |
 | `;`   | comment | —         | `; note`             | No-op (inline comment)                |
 
-### Unsaved-changes guard
+### Gating pattern
 
-The `k` (kill) and `Q` (quit) commands destroy the current source
-buffer or exit the program.  They use the shared `confirm_action`
-helper which prints:
+Several commands need the user to confirm a state-changing
+operation, sometimes after acknowledging a precondition (dirty
+editor, active debug session).  The pattern is uniform:
 
-    ; del src? y/n     (clean)        or  ;!unsaved. del src? y/n   (dirty)
-    ; quit? y/n        (clean)        or  ;!unsaved. quit? y/n      (dirty)
+1. Emit any applicable **warning lines** via `warn_if_unsaved`
+   and/or `warn_if_debug`.  Both are tail-to-`log_line` helpers
+   that print `;!unsaved` or `;!debug` at LOG_WARN level when
+   the condition holds, no-op otherwise.  Stacking order when
+   both fire: **unsaved first, debug second**.
+2. Emit the **action prompt** via `confirm_action`, which prints
+   `; <action>? y/n` at LOG_WARN and waits for a y/n key.
+3. If `confirm_action` returns C=1 (yes): proceed with the action.
+   C=0 (no) → cancel.
 
-LOG_INFO level when clean, LOG_WARN when dirty.  Any key other than
-`y` cancels.  `l` (SEQ load) uses `check_unsaved` which only prompts
-when dirty (no "load? y/n" confirmation when source is clean —
-loading fresh source is non-destructive in that case).
+This decomposes the old dirty/clean composite strings (`;!unsaved.
+quit? y/n`) into orthogonal warning + prompt lines, so any
+combination of conditions composes without per-command variant
+strings.
 
-PRG loads (`l` with numeric arg or `,p` suffix) do not trigger the
-guard because they don't touch the source buffer.
+Gate matrix (the commands that use this pattern):
 
-The dirty flag is maintained by editor.s: set on any insert/delete,
-cleared on save (`ed_save_source`) and load (`ed_load_source`).
-Exported as `ed_dirty` for repl.s to read.
+| Command | Warnings | Prompt | Yes-path |
+|---------|----------|--------|----------|
+| `k` | `warn_if_unsaved` | `; del src? y/n` | clear source |
+| `Q` | `warn_if_unsaved` | `; quit? y/n` | `cse_exit_to_basic` |
+| `R` | `warn_if_debug` | `; end debug? y/n` (if active) or `; init? y/n` | `end_debug_body` if active + `jmp cse_refresh` |
+| `a` | `warn_if_debug` (skipped when debug inactive) | `; asm? y/n` (only when debug active) | `warm_cont := 1; jmp cse_end_debug` |
+| `l` | `warn_if_unsaved` (SEQ only), `warn_if_debug` | `; load? y/n` (when any warning fires) or proceed silently | `warm_cont := 1; jmp cse_end_debug` (debug case) or load directly |
+
+When **no warning fires and the action isn't inherently
+destructive**, the prompt is skipped entirely and the action runs
+directly.  That keeps the common "clean state" case frictionless:
+`a` at a clean REPL just assembles; `l "foo"` with no edits and no
+debug just loads.
+
+The `c` (continue) command is **not gated** — it requires an
+active debug context and errors with `;?no ctx` via `log_err_eol`
+when `dbg_reason == 0`.
 
 ### Internal helpers
 
 **`confirm_yn`** — shows the cursor (`cursor_show`), waits for a
 keypress (`io_getc`), hides the cursor (`cursor_hide`).  Returns
-Z=1 if the key was `y`.  Used by `confirm_action` and `check_unsaved`.
+Z=1 if the key was `y`.  Used by `confirm_action`.
 
-**`confirm_action(A/X = action prompt str)`** — destructive-action
-prompt.  Prints `; <action>` when clean, `;!unsaved. <action>` when
-dirty, then reads y/n.  C=1 user accepted, C=0 cancelled.
+**`confirm_action(A/X = prompt str)`** — prints `; ` + prompt at
+LOG_WARN, runs `confirm_yn`, returns C=0 on yes and C=1 on no.
+Pure print-prompt-wait; no state-based variant selection.
 
-**`check_unsaved`** — SEQ-load-specific: prompts only when dirty (with
-`load? y/n`), silently proceeds when clean.  Thin wrapper that calls
-`confirm_action` only if `ed_dirty`.
+**`warn_if_unsaved`** — emits `;!unsaved` at LOG_WARN when
+`ed_dirty != 0`.  Tail-calls `log_line`; no-op when clean.
+
+**`warn_if_debug`** — emits `;!debug` at LOG_WARN when
+`dbg_reason != 0`.  Tail-calls `log_line`; no-op when no debug
+context.
+
+The dirty flag (`ed_dirty`) is maintained by editor.s: set on any
+insert/delete, cleared on save (`ed_save_source`) and load
+(`ed_load_source`).  Exported for repl.s to read.
+
+### The `R` command (reset)
+
+`R` (uppercase) is the explicit warmstart key.  Behaviour:
+
+| State | Prompt | Yes-path |
+|-------|--------|----------|
+| No active debug | `; init? y/n` | `jmp cse_refresh` |
+| Active debug | `;!debug` + `; end debug? y/n` | `jsr end_debug_body` + `jmp cse_refresh` |
+
+After a successful yes, the screen is cleared, the prompt row is
+redrawn, and main_loop starts fresh.  The editor buffer is
+preserved ([memory_design.md § Editor invariant](../memory_design.md#editor-invariant)).
 
 **Command → userland dispatch (Phase 18 pattern).**  Execution
 commands (`j`, `g`, `t`, `o`, `c`) never RTI into userland from
