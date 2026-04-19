@@ -40,15 +40,16 @@ ZP_SAVE_LEN = 128
 
 ; ── Exports ──────────────────────────────────────────────────
         .export kernal_bank_out, kernal_bank_in
-        .export kernal_out
         .export cse_start, cse_end, cse_zp_end
         .export save_userland_zp, restore_userland_zp
         .export save_kernel_zp, restore_kernel_zp
         .export userland_zp_buf, kernel_zp_buf
         .export ZP_SAVE_LO, ZP_SAVE_LEN
+        ; kernal_out → zp.s (Phase 21 Move 4)
 
 ; ── Imports ──────────────────────────────────────────────────
         .import __ZP_LAST__
+        .importzp kernal_out              ; zp.s (Phase 21 Move 4)
 
 ; ── Constants ────────────────────────────────────────────────
 CPU_PORT     = $01
@@ -57,7 +58,7 @@ HIMEM        = $D000
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
 
-kernal_out:     .res 1          ; nonzero = KERNAL banked out (skip bank_in)
+; kernal_out moved to zp.s (Phase 21 Move 4)
 
 ; ── ZP save/restore buffers ─────────────────────────────────
 ; Cover the full user-accessible page-zero range $00..$7F.  CSE

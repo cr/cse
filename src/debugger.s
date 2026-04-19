@@ -33,7 +33,7 @@
         .export dbg_bp_count
         .export dbg_bp_find
         .export bp_table, step_bp
-        .export dbg_reason, brk_pc, dbg_bp_hit
+        .export brk_pc, dbg_bp_hit      ; dbg_reason → zp.s (Phase 21 Move 4)
         .export dbg_step_clear
         .export patch_all, unpatch_all
 
@@ -50,7 +50,8 @@
         .importzp rp_ptr, rp_ptr2
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
         .import kernel_zp_buf, userland_zp_buf
-        .import in_userland       ; main.s
+        .importzp in_userland     ; zp.s (Phase 21 Move 4)
+        .importzp dbg_reason      ; zp.s (Phase 21 Move 4)
         .import oplen_tbl
         .importzp asm_cpu
         .import save_userland_zp, restore_userland_zp
@@ -64,10 +65,11 @@ STEP_SLOTS  = 2
 SLOT_SIZE   = 4
 TOTAL_SLOTS = BP_SLOTS + STEP_SLOTS     ; 10
 ; Size of the BSS window that dbg_init zeros in one sweep: the
-; 40-byte bp_table plus the 12 bytes of adjacent debug state
-; (dbg_reason, brk_pc, dbg_bp_hit, step_state, step_remaining,
+; 40-byte bp_table plus the 11 bytes of adjacent debug state
+; (brk_pc, dbg_bp_hit, step_state, step_remaining,
 ;  step_next_lo, step_next_hi, step_save, _rtu_need_sentinel).
-DBG_STATE_SIZE = TOTAL_SLOTS * SLOT_SIZE + 12
+; dbg_reason moved to zp.s (Phase 21 Move 4) — zeroed explicitly.
+DBG_STATE_SIZE = TOTAL_SLOTS * SLOT_SIZE + 11
 
 ; Step mode (stored in step_state)
 STEP_NONE = 0
@@ -91,7 +93,7 @@ bp_table:      .res (BP_SLOTS + STEP_SLOTS) * SLOT_SIZE
 ; and the handler chain logic (not by the `b` command).
 step_bp       = bp_table + BP_SLOTS * SLOT_SIZE
 
-dbg_reason:    .res 1          ; why we returned (0=clean RTS, 1=BRK, 2=NMI)
+; dbg_reason moved to zp.s (Phase 21 Move 4)
 brk_pc:        .res 2          ; PC where break occurred / resume address
 dbg_bp_hit:    .res 1          ; slot# of breakpoint hit ($FF = none)
 
@@ -117,12 +119,12 @@ _rtu_need_sentinel: .res 1
 ; Clobbers: A, X.
 ;
 dbg_init:
-        ; Zero bp_table[0..51] in one sweep: 40 bytes of bp/step slots
-        ; plus the 12 bytes of debug state (dbg_reason, brk_pc,
-        ; dbg_bp_hit, step_state, step_remaining, step_next_lo/hi,
-        ; step_save, _rtu_need_sentinel) laid out contiguously in
-        ; BSS.  Then fix up the two bytes that need $FF and the
-        ; cross-module reg_* bytes in asm_line.s BSS.
+        ; Zero bp_table[0..50] in one sweep: 40 bytes of bp/step slots
+        ; plus 11 bytes of debug state (brk_pc, dbg_bp_hit, step_state,
+        ; step_remaining, step_next_lo/hi, step_save, _rtu_need_sentinel)
+        ; laid out contiguously in BSS.  Then fix up the two bytes
+        ; that need $FF, the cross-module reg_* bytes in asm_line.s BSS,
+        ; and dbg_reason (which lives in zp.s after Phase 21 Move 4).
         ldx #DBG_STATE_SIZE - 1
         jsr clear_bp_x
         ; A = 0 from clear_bp_x — zero the reg_* bytes in asm_line.s BSS.
@@ -130,6 +132,7 @@ dbg_init:
         sta reg_x
         sta reg_y
         sta reg_p
+        sta dbg_reason          ; Phase 21: separate zero; lives in zp.s
         lda #$FF
         sta reg_sp              ; user's stack begins empty
         sta dbg_bp_hit

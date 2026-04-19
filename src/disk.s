@@ -18,7 +18,7 @@
         .import io_getc, io_kbhit, io_clear_eol
         .import io_color
         .import newline, io_puts, log_info
-        .import cur_device
+        .importzp cur_device            ; zp.s (Phase 21 Move 4)
         .import scr_lo, scr_hi
         .importzp disk_ptr
         .import str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf

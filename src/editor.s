@@ -13,7 +13,7 @@
         .export ed_save_source, ed_load_source
         .export ed_read_rewind, ed_read_byte, ed_read_line
         .export ed_insert_string
-        .export ed_dirty, ed_save_bytes, ed_save_lines
+        .export ed_save_bytes, ed_save_lines     ; ed_dirty → zp.s (Phase 21)
         .export ed_total_lines
         .export src_top, src_bot
         .export define_ws_syms          ; Phase 21 Move 1 — moved from mem.s
@@ -24,7 +24,7 @@
         .import disk_seq_bytes, disk_seq_lines
         .import cse_start
         .import cur_project_name
-        .import state
+        .importzp state, ed_dirty         ; zp.s (Phase 21 Move 4)
         .import scr_lo, scr_hi
         .import sym_define
         .importzp disk_ptr
@@ -88,7 +88,7 @@ ed_cur_line:    .res 2          ; cursor line (0-based)
 ed_cur_col:     .res 1          ; cursor visual column (0-based)
 ed_top_line:    .res 2          ; line number at screen row 0
 ed_total_lines: .res 2          ; total line count in buffer
-ed_dirty:      .res 1          ; buffer modified flag
+; ed_dirty moved to zp.s (Phase 21 Move 4)
 ed_save_bytes: .res 2          ; bytes from last file op
 ed_save_lines: .res 2          ; lines from last file op
 _load_overflow: .res 1         ; sticky: set if any insert during load

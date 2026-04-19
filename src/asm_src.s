@@ -23,7 +23,8 @@
         .import         expr_eval              ; expr.s
         .import         sym_define             ; symtab.s
         .import         sym_clear
-        .import         kernal_bank_out, kernal_bank_in, kernal_out
+        .import         kernal_bank_out, kernal_bank_in
+        .importzp       kernal_out              ; zp.s (Phase 21 Move 4)
         .import         io_puts, io_putc, io_putdec, io_puthex4, io_clear_eol, newline
         .import         io_utoa, dec_buf
         .import         log_open, log_close

@@ -14,7 +14,8 @@
         .export log_line, log_open, log_close
         .export log_err, log_warn, log_info
         .export rp_addr, rp_cnt, rp_save2
-        .export cur_addr, cur_device, cur_project_name
+        .export cur_addr, cur_project_name      ; cur_device → zp.s (Phase 21)
+        .importzp cur_device                    ; zp.s (Phase 21 Move 4)
         .export block_size
         .export line_buf, last_cmd, rp_dis_bp
 
@@ -44,7 +45,8 @@
         .import dbg_bp_count
         .import bp_table, step_bp
         .import __CODE_RUN__
-        .import dbg_reason, dbg_bp_hit
+        .importzp dbg_reason            ; Phase 21: moved to zp.s
+        .import dbg_bp_hit
         .import brk_pc, brk_stub
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
         .import userland_zp_buf, ZP_SAVE_LO, ZP_SAVE_LEN
@@ -57,7 +59,8 @@
 ; ── Imports: main.s (kernel→userland dispatch) ───────────────
         .import run_user_pending, stop_cooldown
         .import cse_refresh, cse_end_debug
-        .import end_debug_body, warm_cont
+        .import end_debug_body
+        .importzp warm_cont             ; Phase 21: moved to zp.s
         ; MODE_NONE, MODE_JUMP, MODE_RESUME constants are defined in
         ; main.s; redefine here (ca65 doesn't import equates).
 MODE_NONE   = 0
@@ -90,7 +93,8 @@ STEP_OVER = 2
         .import ed_save_source, ed_load_source
         .import ed_save_bytes, ed_save_lines
         .import ed_ensure_init, ed_new
-        .import ed_dirty, ed_total_lines
+        .importzp ed_dirty              ; Phase 21: moved to zp.s
+        .import ed_total_lines
         .import ed_read_rewind, ed_read_byte
         .importzp buf_base
 
@@ -99,7 +103,7 @@ STEP_OVER = 2
         .import src_top, src_bot
 
 ; ── Imports: global state ──────────────────────────────────
-        .import state
+        .importzp state                 ; Phase 21: moved to zp.s
         .importzp asm_cpu
 
 ; ── Imports: strings.s ────────────────────────────────────
@@ -165,7 +169,7 @@ CUR_ROW       = $D6
 .segment "BSS"
 
 cur_addr:      .res 2          ; current memory address (init by splash)
-cur_device:    .res 1          ; floppy device number (init by main.s)
+; cur_device moved to zp.s (Phase 21 Move 4)
 last_cmd:       .res 1          ; last command byte
 block_size:     .res 2          ; block size for I/O (init by main.s)
 cur_project_name:  .res FILENAME_MAX + 1  ; stem (no ,m or trailing dot)

@@ -37,8 +37,10 @@
 
 ; ── Exports ──────────────────────────────────────────────────
         .export _main
-        .export state, in_userland, kernel_init_sp, run_user_pending
-        .export stop_cooldown, warm_cont
+        .export kernel_init_sp, run_user_pending
+        .export stop_cooldown
+        ; state, in_userland, warm_cont moved to zp.s (Phase 21 Move 4)
+        .importzp state, in_userland, warm_cont
         .export cse_recover, cse_end_debug, cse_refresh
         .export hw_reinit_body, end_debug_body, refresh_body
         .export main_loop_top, main_loop_no_clear
@@ -69,16 +71,18 @@
         .import step_next_pc, arm_step_bp
         .import step_state, step_remaining
         .import step_bp
-        .import dbg_reason, brk_pc, dbg_bp_hit
+        .importzp dbg_reason            ; Phase 21: moved to zp.s
+        .import brk_pc, dbg_bp_hit
         .import reg_p, reg_sp
         .import rp_dis_bp, last_cmd
-        .import kernal_out
+        .importzp kernal_out            ; Phase 21: moved to zp.s
         .import ed_ensure_init
         .import exec_line, read_line, show_prompt, cmd_info
         .import post_run_cleanup, hygiene_after_userland
         .import log_line
         .importzp asm_cpu
-        .import cur_addr, cur_device, block_size
+        .import cur_addr, block_size
+        .importzp cur_device            ; Phase 21: moved to zp.s
         .import ed_handle_key, enter_editor, leave_editor
 
 ; ── Imports: strings.s ──────────────────────────────────────
@@ -144,9 +148,10 @@ COLD_ZP      = $F8DA          ; KBSS: 127 B snapshot of $01-$7F
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
 
-state:             .res 1
+; Cross-module flags (state, in_userland, warm_cont) moved to zp.s in
+; Phase 21 Move 4.  They are now ZP bytes shared via .exportzp.
+
 warm_guard:        .res 1
-in_userland:       .res 1
 kernel_init_sp:    .res 1      ; setjmp SP target for cse_recover /
                                 ; cse_end_debug / cse_refresh; also
                                 ; captured once by cold init.  Normal
@@ -170,15 +175,6 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
                                 ; Cleared by main_loop's @wait poll as
                                 ; soon as KERNAL STOP ($FFE1) reports
                                 ; STOP up — so the next press is honoured.
-warm_cont:         .res 1      ; warmstart continuation flag.  Set by
-                                ; a gate before jmp cse_end_debug (or
-                                ; another warmstart entry) to request
-                                ; main_loop_top to replay line_buf
-                                ; through exec_line instead of showing
-                                ; a fresh prompt.  Consumed (zeroed)
-                                ; on each pass through main_loop_top.
-                                ;   0 = fresh prompt (default)
-                                ;   1 = replay line_buf
 
 ; ── PRG load address ─────────────────────────────────────────
 .segment "LOADADDR"

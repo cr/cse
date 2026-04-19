@@ -29,21 +29,18 @@
         .import patch_all, unpatch_all
         .import dbg_bp_find
         .import bp_table, step_bp
-        .import dbg_reason, brk_pc, dbg_bp_hit
+        .import brk_pc, dbg_bp_hit
+        .importzp dbg_reason, in_userland     ; zp.s (Phase 21 Move 4)
 
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
         .export kernel_zp_buf, userland_zp_buf
         .export kernal_bank_out, kernal_bank_in
         .export save_userland_zp, restore_userland_zp
         .export save_kernel_zp, restore_kernel_zp
-        .export in_userland       ; Lives in main.s in production;
-                                  ; defined here so debugger.s links
-                                  ; without pulling main.s into the
-                                  ; stub binary.  Same for the ZP
-                                  ; buffers + save/restore helpers
-                                  ; (in mem.s in production); the
-                                  ; bp-table CRUD tests don't exercise
-                                  ; them, so stubs are no-ops.
+        ; in_userland now lives in zp.s (Phase 21 Move 4); this stub
+        ; no longer defines it.  kernel_zp_buf / userland_zp_buf /
+        ; save/restore helpers remain local stubs because mem.s is
+        ; not linked into the debugger test bundle.
 
 .segment "BSS"
 reg_a:         .res 1
@@ -51,7 +48,6 @@ reg_x:         .res 1
 reg_y:         .res 1
 reg_sp:        .res 1
 reg_p:         .res 1
-in_userland:   .res 1          ; user-code-active flag
 kernel_zp_buf:   .res 128        ; ZP save buffer ($00..$7F inclusive,
                                  ;  matches debugger.s::ZP_SAVE_LEN)
 userland_zp_buf:   .res 128        ; user ZP snapshot (same size)
