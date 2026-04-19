@@ -60,16 +60,21 @@ editor (ed_read_line, ed_read_rewind, buf_base), log (log_open,
 log_close, puts_imm, log_line, seg_line), asm_err (asm_pass,
 asm_expr_err), mem, cse_io, strings, zp
 
-Phase 21 breaks the former repl back-edge by moving every shared
-output primitive into `log.s`:
-- `log_open` / `log_close` / `log_line` / `log_err` / `log_warn` /
-  `log_info` — the logging core
-- `puts_imm` — inline-string print macro target
-- `seg_line` / `prg_line` / `free_line` — range-line formatters
-  (`"; TAG  AAAA-BBBB NNNNNb [free]"`)
+Phase 21 Move 3 moved the logging primitives (log_open / log_close /
+log_line / log_err / log_warn / log_info / puts_imm) into `log.s`.
+asm_src.s imports those from log.s now.
 
-After the move, asm_src.s imports every output primitive from `log.s`
-and has zero edges to `repl.s`.
+**Remaining back-edges (tracked in TODO.md):**
+- `asm_src → repl` via `seg_line`, `rp_addr`, `rp_cnt`, `rp_save2`
+  — the range-line formatter family couldn't hoist with the log
+  primitives because its calling convention shares the general
+  REPL scratch-BSS pool used by ~360 non-log sites in repl.s.
+  Two resolutions possible: inline segment emission into asm_src.s,
+  or hoist the scratch pool to zp.s and move seg_line family to
+  log.s.
+- `asm_src → repl` via `cur_project_name` — pre-existing; the
+  project-name stem used for save-summary display.  Not in
+  Phase-21 scope.
 
 ## Design
 

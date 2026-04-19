@@ -45,6 +45,13 @@ exported) — current line count, used by the REPL's `i` command.
 (sym_define for `update_workend`), mem (cse_start), strings
 (s_workend), zp (state, ed_dirty cross-module flags)
 
+**Pre-existing back-edge (to be addressed in a future phase):**
+editor.s imports `cur_project_name` from repl.s — the REPL-owned
+"stem of the current project" string used by save/load prompts.
+Layer-4 → Layer-5 upward edge.  A future cleanup could hoist
+`cur_project_name` to a neutral module (new `project.s` or
+zp-adjacent).  Not in Phase-21 scope.
+
 ### Zero-page variables
 
 All pointers are 16-bit, little-endian.

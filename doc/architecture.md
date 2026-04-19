@@ -141,12 +141,25 @@ strictly lower layer; no back-edges.
 
 ## Dependency Rules
 
-1. **Strict DAG, no back-edges.**  Every `.import` / `.importzp`
-   resolves to a module in a lower layer.  The rule is enforceable
-   by a mechanical scan; see `dev/check_deps.py` (build-verified).
-2. **No sibling imports.**  Modules in the same layer do not import
-   each other, with the single exception of Layer 1's `mn_classify`
-   dispatching to `mn6`/`mn7` (build-time mutually exclusive).
+1. **DAG, strictly downward cross-layer.**  Every `.import` /
+   `.importzp` that crosses a layer boundary resolves to a module
+   in a strictly lower layer.  Mechanically verifiable by scanning
+   the source tree (the deferred `dev/check_deps.py` tool will
+   enforce this in CI).
+2. **Same-layer imports are permitted when acyclic.**  Within a
+   layer, forward imports among siblings are allowed if the induced
+   subgraph is a DAG.  Current intentional intra-layer edges:
+   - L1: `mn_classify → mn6 / mn7` (build-time mutually exclusive).
+   - L2: `log → screen` (log uses newline).
+   - L3: `asm_line → addr_mode → expr` and `asm_line → opcode_lookup`
+     (the core-engines chain).
+   - L4: `asm_src → editor` (source reader), `editor → disk`
+     (SEQ callbacks).
+   - L5: **`main ↔ repl` cycle (intentional)** — the two
+     dispatchers co-operate by design.  main owns the ISR bodies
+     and warmstart entry points; repl owns the command loop.
+     Phase 18 established this coupling.  This is the only
+     permitted cycle in the corpus.
 3. **Near-leaf modules have minimal dependencies:** cse_io imports
    only zp; mem imports only zp; strings has zero imports.
 4. **Screen output flows one way:** module → log or screen → cse_io.
