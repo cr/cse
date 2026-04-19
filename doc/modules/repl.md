@@ -519,9 +519,9 @@ editor, active debug session).  The pattern is uniform:
    that print `;!unsaved` or `;!debug` at LOG_WARN level when
    the condition holds, no-op otherwise.  Stacking order when
    both fire: **unsaved first, debug second**.
-2. Emit the **action prompt** via `confirm_action`, which prints
-   `; <action>? y/n` at LOG_WARN and waits for a y/n key.
-3. If `confirm_action` returns C=1 (yes): proceed with the action.
+2. Emit the **action prompt** via `query_user`, which prints
+   `;!<stem>? y/n ` at LOG_WARN and waits for a y/n key.
+3. If `query_user` returns C=1 (yes): proceed with the action.
    C=0 (no) → cancel.
 
 This decomposes the old dirty/clean composite strings (`;!unsaved.
@@ -533,11 +533,11 @@ Gate matrix (the commands that use this pattern):
 
 | Command | Warnings | Prompt | Yes-path |
 |---------|----------|--------|----------|
-| `k` | `warn_if_unsaved` | `; del src? y/n` | clear source |
-| `Q` | `warn_if_unsaved` | `; quit? y/n` | `cse_exit_to_basic` |
-| `R` | `warn_if_debug` | `; end debug? y/n` (if active) or `; init? y/n` | `end_debug_body` if active + `jmp cse_refresh` |
-| `a` | `warn_if_debug` (skipped when debug inactive) | `; asm? y/n` (only when debug active) | `warm_cont := 1; jmp cse_end_debug` |
-| `l` | `warn_if_unsaved` (SEQ only), `warn_if_debug` | `; load? y/n` (when any warning fires) or proceed silently | `warm_cont := 1; jmp cse_end_debug` (debug case) or load directly |
+| `k` | `warn_if_unsaved` | `str_del_src` → `;!del src? y/n` | clear source |
+| `Q` | `warn_if_unsaved` | `str_quit` → `;!quit? y/n` | set `state = ST_STOP` → `cse_exit_to_basic` |
+| `R` | `warn_if_debug` (if active) | `str_end_dbg` → `;!end debug? y/n` if active, else `str_init` → `;!init? y/n` | `end_debug_body` if active + `jmp cse_refresh` |
+| `a` | `warn_if_debug` (skipped when debug inactive) | `str_asm` → `;!asm? y/n` (only when debug active) | `warm_cont := 1; jmp cse_end_debug` |
+| `l` | `warn_if_unsaved` (SEQ only), `warn_if_debug` | `str_load` → `;!load? y/n` (when any warning fires) or proceed silently | `warm_cont := 1; jmp cse_end_debug` (debug case) or load directly |
 
 When **no warning fires and the action isn't inherently
 destructive**, the prompt is skipped entirely and the action runs
@@ -553,11 +553,14 @@ when `dbg_reason == 0`.
 
 **`confirm_yn`** — shows the cursor (`cursor_show`), waits for a
 keypress (`io_getc`), hides the cursor (`cursor_hide`).  Returns
-Z=1 if the key was `y`.  Used by `confirm_action`.
+Z=1 if the key was `y`.  Used by `query_user`.
 
-**`confirm_action(A/X = prompt str)`** — prints `; ` + prompt at
-LOG_WARN, runs `confirm_yn`, returns C=0 on yes and C=1 on no.
-Pure print-prompt-wait; no state-based variant selection.
+**`query_user(A/X = action-stem str)`** — prints `;!` + stem + `? y/n `
+at LOG_WARN, runs `confirm_yn`, returns A = keypress byte and
+C=1 on yes, C=0 on cancel.  The `? y/n ` trailer is a single
+shared string (`str_qynq`) printed by the helper, so each action
+string is just the verb stem (`"del src"`, `"quit"`, etc.).  Pure
+print-prompt-wait; no state-based variant selection.
 
 **`warn_if_unsaved`** — emits `;!unsaved` at LOG_WARN when
 `ed_dirty != 0`.  Tail-calls `log_line`; no-op when clean.

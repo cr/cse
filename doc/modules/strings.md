@@ -28,10 +28,10 @@ byte-indexing (e.g. `str_flag_ch`).
 `str_errors`, `str_dashes`, `str_colon_sp`, `str_pct`,
 **Gating strings** (see [repl.md § Gating pattern](repl.md#gating-pattern)):
 `str_unsaved` (warn content, `"unsaved"`), `str_debug` (warn
-content, `"debug"`), `str_del_src` (`"del src? y/n"`),
-`str_quit` (`"quit? y/n"`), `str_load` (`"load? y/n"`),
-`str_init` (`"init? y/n"`), `str_end_dbg` (`"end debug? y/n"`),
-`str_asm` (`"asm? y/n"`),
+content, `"debug"`), `str_qynq` (shared `"? y/n"` trailer emitted
+by `query_user` after the action stem), `str_del_src` (`"del src"`),
+`str_quit` (`"quit"`), `str_load` (`"load"`), `str_init` (`"init"`),
+`str_end_dbg` (`"end debug"`), `str_asm` (`"asm"`),
 `str_ioport`, `str_stack`, `str_kernal`, `str_screen`,
 `str_cse_rt`, `str_bytes_free`, `str_io`,
 `str_free`, `str_l`, `str_main`,

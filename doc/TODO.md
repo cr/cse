@@ -250,11 +250,20 @@ Open bugs, roughly ordered by priority.
     would benefit from integration tests that inject keys via
     `C64Emu.inject_key`.  Coverage, not size.
 
-  - [ ] **String aliasing for new gating strings.**  `str_init`,
-    `str_end_dbg`, `str_asm`, `str_load` all share the `"? y/n "`
-    tail.  A single shared tail with a `print_prompt_then_qynq`
-    helper could save ~12 B.  Tradeoff: readability of the
-    action strings as self-contained literals.
+  - [x] ~~**String aliasing for new gating strings.**~~  (Done in
+    the polish pass — `confirm_action` renamed to `query_user`,
+    `"? y/n"` folded into a shared `str_qynq` trailer printed by
+    the helper, and each action string shortened to its verb stem.
+    -25 B per build.)
+
+  - [ ] **Cold init ↔ `hw_reinit_body` sharing.**  Cold init's
+    steps 4/5/11/12 (`setup_interrupts`, `dbg_init`, `io_init`,
+    `theme_init`, `set_charset`, `reset_globals`) overlap heavily
+    with `hw_reinit_body`.  Different: cold init has `reset_screen`
+    between `theme_init` and `set_charset` and lacks `restore_colors`
+    (no theme yet).  A unified pipeline with a configurable
+    middle step would save ~9-12 B.  Invasive (touches boot
+    ordering); defer.
 
 ### Fixed bugs (reference)
 

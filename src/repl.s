@@ -105,7 +105,7 @@ STEP_OVER = 2
 ; ── Imports: strings.s ────────────────────────────────────
         .import str_flag_ch, str_bp_pfx, str_3sp, str_2sp, str_brk
         .import str_at, str_nmi, str_bp_clr, str_deleted
-        .import str_rts, str_stk_warn, str_debug
+        .import str_rts, str_stk_warn, str_debug, str_qynq
         .import str_syntax, str_bad_val, str_full, str_cmd
         .import str_no_name, str_range, str_fail, str_too_big
         .import str_expr, str_no_ctx
@@ -266,7 +266,7 @@ log_close_eol:
 ; ⚠ FOOTGUN: Clobbers rp_tmp (plus A, X, Y).  Callers that
 ;   need to preserve a pointer across a `puts` should park it
 ;   on the 6502 stack (pha/pla), NOT in rp_tmp — and NOT in
-;   rp_tmp2, which is only 1 byte wide.  See confirm_action
+;   rp_tmp2, which is only 1 byte wide.  See query_user
 ;   and the expr-error path in cmd_dot for the pattern.
 ; ───────────────────────────────────────────────────────────
 puts_imm:
@@ -404,19 +404,20 @@ confirm_yn:
         rts
 
 ; ───────────────────────────────────────────────────────────
-; confirm_action — prompt the user before a destructive action.
-;   In:  A/X = action prompt string (e.g. "del src? y/n ")
-;   Out: C=1 user accepted, C=0 user cancelled
+; query_user — prompt the user before a destructive action.
+;   In:  A/X = action stem string (e.g. "del src")
+;   Out: A = keypress byte; C=1 yes, C=0 cancelled
 ;
-; Atomic: prints "; <prompt>" at LOG_WARN, waits for y/n.  Any
-; state-based warnings (unsaved, debug) are the caller's job and
-; must be emitted BEFORE calling confirm_action (see warn_if_*
-; helpers below).
+; Prints ";!<stem>? y/n " at LOG_WARN, then waits for y/n.  The
+; "? y/n " trailer is shared (str_qynq) so each action string is
+; just the verb stem.  Any state-based warnings (unsaved, debug)
+; are the caller's job and must be emitted BEFORE calling
+; query_user (see warn_if_* helpers).
 ; ───────────────────────────────────────────────────────────
-confirm_action:
-        pha                     ; save caller's string pointer lo
+query_user:
+        pha                     ; save caller's stem ptr lo
         txa                     ; across newline / log_open
-        pha                     ; (they both clobber A/X).
+        pha                     ; (both clobber A/X)
         jsr newline
         ldy #LOG_WARN
         jsr log_open
@@ -424,6 +425,7 @@ confirm_action:
         tax
         pla                     ; lo
         jsr io_puts
+        puts str_qynq           ; shared "? y/n " trailer
         jsr confirm_yn
         beq @yes
         jsr io_clear_eol
@@ -1573,7 +1575,7 @@ peek_brk_opcode:
         beq @syn_err
         jsr expr_error_str      ; A/X = error string
         ; Stack-park the pointer — puts_imm below clobbers rp_tmp,
-        ; and rp_tmp2 is only 1 byte wide (see confirm_action).
+        ; and rp_tmp2 is only 1 byte wide (see query_user).
         pha                     ; lo
         txa
         pha                     ; hi
@@ -2705,7 +2707,7 @@ print_op_name:
         jsr warn_if_debug
         lda #<str_load
         ldx #>str_load
-        jsr confirm_action
+        jsr query_user
         jcc @l_cancel
         lda dbg_reason
         beq @do_load            ; clean-debug yes → load directly
@@ -3478,7 +3480,7 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         jsr warn_if_unsaved
         lda #<str_del_src
         ldx #>str_del_src
-        jsr confirm_action
+        jsr query_user
         bcc @k_cancel
         jsr ed_new
 @k_cancel:
@@ -3633,7 +3635,7 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         jsr warn_if_debug
         lda #<str_asm
         ldx #>str_asm
-        jsr confirm_action
+        jsr query_user
         bcc @a_cancel
         lda #1
         sta warm_cont           ; replay line_buf after end-debug
@@ -3775,7 +3777,7 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         jsr warn_if_unsaved
         lda #<str_quit
         ldx #>str_quit
-        jsr confirm_action
+        jsr query_user
         bcc @q_cancel
         lda #ST_STOP
         sta state
@@ -3793,14 +3795,14 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
         jsr warn_if_debug
         lda #<str_end_dbg
         ldx #>str_end_dbg
-        jsr confirm_action
+        jsr query_user
         bcc @r_cancel
         jsr end_debug_body
         jmp cse_refresh
 @reset_init:
         lda #<str_init
         ldx #>str_init
-        jsr confirm_action
+        jsr query_user
         bcc @r_cancel
         jmp cse_refresh
 @r_cancel:

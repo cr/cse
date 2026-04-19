@@ -470,11 +470,11 @@ class TestWarmstartBodySubs:
         assert emu.memory[bp_table + 1] == (USER >> 8)
 
 
-# ── 11b. Gates (warn_if_* + confirm_action + warm_cont dispatch) ──
+# ── 11b. Gates (warn_if_* + query_user + warm_cont dispatch) ──
 #
 # The gating pattern composes a warn_if_* call with an atomic
-# confirm_action.  These tests exercise the end-to-end flow
-# against the real PRG via keyboard injection.
+# query_user.  These tests exercise the end-to-end flow against
+# the real PRG via keyboard injection.
 
 class TestGating:
     def _repl_ready(self, emu):
