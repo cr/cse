@@ -390,7 +390,7 @@ check-roms:
 	fi
 
 test: debug release check-roms
-	$(PYTEST) tests/ -v
+	$(PYTEST) -v
 
 # -----------------------------------------------------------------------
 # size — exhaustive size breakdown of selected PRG (release profile)

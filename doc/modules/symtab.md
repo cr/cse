@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/symtab.s`](../../src/symtab.s) | implementation |
-| [`tests/test_symtab.py`](../../tests/test_symtab.py) | test contract |
+| [`tests/unit/test_symtab.py`](../../tests/unit/test_symtab.py) | test contract |
 
 ## Interface
 

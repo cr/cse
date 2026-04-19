@@ -11,7 +11,7 @@ Test binary: repl.s + cse_io.s + asm_vars.s + expr.s + symtab.s
 import subprocess, pathlib, re, pytest
 from py65.devices.mpu6502 import MPU
 
-ROOT  = pathlib.Path(__file__).parent.parent
+ROOT  = pathlib.Path(__file__).parent.parent.parent
 BUILD = ROOT / "build"
 SRC   = ROOT / "src"
 DEV   = ROOT / "dev"

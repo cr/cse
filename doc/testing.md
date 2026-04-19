@@ -2,6 +2,66 @@
 
 **Template:** [subsystem](templates/subsystem.md)
 
+## Test tiers
+
+CSE tests fall into three explicit tiers that reflect the module
+architecture.  A test lives in exactly one tier; the tier is
+determined by the module's dependency profile, not by the test's
+size or shape.
+
+### Tier U — Unit (module + "linking down")
+
+A module is **unit-testable** when its transitive dependency
+closure contains only strictly lower-layer modules (plus acyclic
+forward intra-layer edges — see
+[architecture.md § Dependency Rules](architecture.md#dependency-rules)).
+Link a bundle of [module + closure] with a minimal stub for
+linker scaffolding (`__CODE_RUN__`, test entry point, BSS buffers),
+and exercise via bare `py65.MPU` — no KERNAL ROM, no BASIC header,
+no loader, no interrupt vectors.
+
+Tests live in `tests/unit/`.  One pytest file per module (or
+per bundle — the `asm_core` and `mn6`/`mn7` bundles group
+tightly-coupled neighbours).
+
+### Tier I — Integration (C64Emu + full PRG)
+
+A test graduates to Tier I when any of the following holds:
+- Crosses the Layer-5 `main ↔ repl` cycle — these cannot be
+  isolated topologically, only co-exercised.
+- Requires the runtime environment: KERNAL ROM, interrupt
+  vectors, banked memory, screen RAM at `$0400`, BASIC
+  header + loader relocation.
+- Exercises multi-module state transitions that depend on
+  cold-init wiring (flag seeds, vector patches, dbg_init seed
+  values).
+- Inspects observable behaviour (screen-RAM contents, key
+  dispatch, command prompts, disk I/O through KERNAL).
+
+Tests live in `tests/integration/`.  All go through the
+`C64Emu` harness + production/debug PRG fixture; no per-test
+build systems, no stubs beyond what the C64Emu provides (real
+KERNAL, real memory map).
+
+### Tier M — Manual (VICE / hardware)
+
+Timing-dependent, audible, visual, or real-I/O behaviour that
+py65 cannot faithfully simulate: SID audio envelopes, VIC-II
+raster effects, real 1541 drive timing, keyboard autorepeat
+rhythms, thermal quirks.  Not automated.  Verified in VICE or
+on hardware; documented in the relevant module's Caveats
+section.
+
+### The tier-boundary signal
+
+**If a test needs to manually stub out KERNAL calls, it's in the
+wrong tier.**  Either link the real KERNAL via C64Emu (Tier I),
+or write the test at a level where the KERNAL doesn't matter
+(Tier U — pure data structures, pure arithmetic, pure parsing).
+
+Per-module assignment is enumerated in the
+[per-module tier table](#per-module-tier-assignment) below.
+
 ## The TDD Method
 
 The TDD Method is the testing companion to the DDD Method (see
@@ -102,7 +162,8 @@ the *mirror*, not the ASM.  When the ASM diverges from the
 mirror, the test still passes because the mirror is what's
 running.
 
-Examples currently in `tests/test_editor.py`:
+Examples previously in `tests/test_editor.py` (retired — preserved
+for historical reference in `tests/retired/test_editor.py`):
 
 - **`render_line`** mirrors `editor.s::ed_render_line` in pure
   Python, including the PETSCII→screen-code conversion table.
@@ -166,17 +227,55 @@ written first (matching the documentation), then code is written
 to pass them.  Tests are the specification in executable form;
 they must be green before Step 5 begins.
 
+## Per-module tier assignment
+
+| Module | Layer | Tier | Harness |
+|---|---|---|---|
+| zp, strings, *_tables, mn_config, oplen_tbl, dasm_mne_idx | 0 | — | (pure data; generator tests in `dev/`) |
+| mn_vars | 1 | — | (single-byte ZP scratch; no behaviour) |
+| **cse_io** | 1 | U | standalone leaf bundle |
+| **mem** | 1 | U | standalone leaf bundle |
+| **mn6 / mn7 / mn_classify** | 1 | U | `mn6` / `mn7` bundles |
+| **screen** | 2 | U | bundle: screen + cse_io |
+| **log** | 2 | U | bundle: log + screen + cse_io |
+| **symtab** | 2 | U | bundle: symtab + mem |
+| **asm_err** | 2 | U | bundle: asm_err + mem |
+| **expr** | 3 | U | via `asm_core` bundle |
+| **opcode_lookup** | 3 | U | via `asm_core` bundle |
+| **addr_mode** | 3 | U | via `asm_core` bundle (`test_au_mode.py`) |
+| **asm_line** | 3 | U | `asm_core` bundle |
+| **dasm** | 3 | U | `dasm` bundle |
+| **debugger** | 4 | U + I | BP-table CRUD is U; step/BRK state is I |
+| **asm_src** | 4 | U | `asm_src` bundle |
+| **disk** | 4 | I | needs KERNAL LOAD/SAVE/CHKIN |
+| **editor** | 4 | I | observable behaviour goes through screen RAM + keys |
+| **repl / main** | 5 | I | Layer-5 cycle; only testable full-PRG |
+| **loader** | 6 | I | exercised implicitly by C64Emu `load_prg` |
+
 ## Framework
 
-All tests use **pytest** with a `C64Emu` emulator class
-([`tests/c64emu.py`](../tests/c64emu.py)) that wraps **py65** and
-provides a minimal but authentic C64 execution environment.  Tests
-load the debug CMOS PRG (`build/debug/cmos/cse-cmos.prg`) and call
-into any function by its `.lbl`-file address — no separate test
-binaries, no ASM stubs, no test-specific linker configs.  Debug
-builds include `-g` symbols, so the `.lbl` file contains all
-labels (~1800 symbols) rather than just exports (~230).  For build
-details see [build_system.md § Test build pipeline](build_system.md#test-build-pipeline).
+All tests use **pytest**.  The test tree is split into two directories
+reflecting the tier boundary:
+
+```
+tests/
+├── c64emu.py                    — emulator harness
+├── conftest.py                  — bundle fixtures + cse_prg fixture
+├── unit/                        — Tier U tests (bare MPU + bundles)
+└── integration/                 — Tier I tests (C64Emu + full PRG)
+```
+
+Unit-tier tests load a small bundle binary (module + its
+linking-down closure + a stub for linker scaffolding) into a bare
+`py65.MPU`.  No KERNAL, no banked memory, no interrupts — just the
+module's code + its data.
+
+Integration-tier tests load the debug CMOS PRG
+(`build/debug/cmos/cse-cmos.prg`) into `C64Emu` and call into any
+function by its `.lbl`-file address.  Debug builds include `-g`
+symbols, so the `.lbl` file contains all labels (~1800 symbols)
+rather than just exports (~230).  For build details see
+[build_system.md § Test build pipeline](build_system.md#test-build-pipeline).
 
 ### C64Emu — emulator class
 
@@ -324,7 +423,7 @@ get their own small binary.
 | `dasm` | zp, dasm, dasm_tables | `dasm_test_stub.s` (banking helpers) | test_dasm |
 
 Phase 21 renames: the module file is `src/addr_mode.s`; the test
-file retains its historical name `tests/test_au_mode.py`.  The
+file retains its historical name `tests/unit/test_au_mode.py`.  The
 `asm_core` bundle now includes the `asm_err` leaf module for
 error-state primitives that `addr_mode`, `opcode_lookup`, and
 `asm_line` share.

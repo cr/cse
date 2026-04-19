@@ -8,7 +8,7 @@
 |------|------|
 | [`src/dasm.s`](../../src/dasm.s) | implementation |
 | [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | implementation — mnemonic index table |
-| [`tests/test_dasm.py`](../../tests/test_dasm.py) | test contract |
+| [`tests/unit/test_dasm.py`](../../tests/unit/test_dasm.py) | test contract |
 
 ## Interface
 

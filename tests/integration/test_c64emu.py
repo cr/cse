@@ -355,7 +355,7 @@ class TestVersionPropagation:
 
     def _makefile_version(self):
         import pathlib, re
-        mk = pathlib.Path(__file__).parent.parent / "Makefile"
+        mk = pathlib.Path(__file__).parent.parent.parent / "Makefile"
         for line in mk.read_text().splitlines():
             m = re.match(r'\s*VERSION\s*\?=\s*(\S+)', line)
             if m:

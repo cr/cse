@@ -20,7 +20,7 @@ import pytest
 from py65.devices.mpu6502 import MPU
 
 # Make dev/ importable
-sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "dev"))
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent / "dev"))
 from hashes import mn6, mn7
 from instruction_set import sc
 

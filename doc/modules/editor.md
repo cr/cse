@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/editor.s`](../../src/editor.s) | implementation (6502 assembly) |
-| [`tests/test_editor.py`](../../tests/test_editor.py) | test contract |
+| [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py) | test contract |
 
 ## Interface
 

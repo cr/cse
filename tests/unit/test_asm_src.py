@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from py65.devices.mpu6502 import MPU
 
-BUILD = Path(__file__).resolve().parent.parent / "build"
+BUILD = Path(__file__).resolve().parent.parent.parent / "build"
 
 
 _MAX_STEPS  = 1_000_000  # safety limit for two-pass assembly

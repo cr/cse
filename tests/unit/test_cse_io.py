@@ -20,7 +20,7 @@ import pytest
 from py65.devices.mpu6502 import MPU
 from conftest import SymbolTable
 
-ROOT  = pathlib.Path(__file__).parent.parent
+ROOT  = pathlib.Path(__file__).parent.parent.parent
 BUILD = ROOT / "build"
 SRC   = ROOT / "src"
 DEV   = ROOT / "dev"

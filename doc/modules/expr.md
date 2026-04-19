@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/expr.s`](../../src/expr.s) | implementation |
-| [`tests/test_expr.py`](../../tests/test_expr.py) | test contract |
+| [`tests/unit/test_expr.py`](../../tests/unit/test_expr.py) | test contract |
 
 ## Interface
 
@@ -29,7 +29,7 @@ of `expr_eval` never need to think about KERNAL banking.
 
 Same wrapper structure as `asm_line` (`asm_line.s`) and
 `dasm_insn` (`dasm.s`).  Test contract:
-`tests/test_expr.py::TestExprEvalBankContract` pins that every
+`tests/unit/test_expr.py::TestExprEvalBankContract` pins that every
 exit path (success ZP, success ABS, error, sym_lookup hit,
 undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 

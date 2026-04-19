@@ -40,7 +40,7 @@ import pytest
 from py65.devices.mpu6502 import MPU
 
 # Add dev/ to path so we can import instruction_set directly
-sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "dev"))
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent / "dev"))
 
 from instruction_set import (
     MNEMONICS, OPCODES, MODE_EXAMPLES,

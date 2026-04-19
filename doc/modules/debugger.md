@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/debugger.s`](../../src/debugger.s) | implementation: return_to_userland, brk_stub, breakpoint table, step logic |
-| [`tests/test_debugger.py`](../../tests/test_debugger.py) | test contract |
+| [`tests/unit/test_debugger_contracts.py`](../../tests/unit/test_debugger_contracts.py) | test contract |
 
 The debugger is the kernel's **userland gateway**.  It owns the
 `return_to_userland` helper (the one place that synthesizes RTI frames

@@ -8,7 +8,7 @@
 |------|------|
 | [`src/asm_line.s`](../../src/asm_line.s) | implementation — line assembler core, KERNAL banking, error recovery |
 | [`src/zp.s`](../../src/zp.s) | ZP definitions (central, shared by all modules) |
-| [`tests/test_asm_line.py`](../../tests/test_asm_line.py) | test contract |
+| [`tests/unit/test_asm_line.py`](../../tests/unit/test_asm_line.py) | test contract |
 
 ## Interface
 

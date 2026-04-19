@@ -47,20 +47,28 @@ cse/
 │   ├── *_test.cfg          Test linker configs
 │   └── search/             Hash search scripts (historical)
 │
-├── tests/                  pytest test suite
+├── tests/                  pytest test suite (see doc/testing.md)
 │   ├── c64emu.py           C64 emulator class (py65 + KERNAL ROM)
-│   ├── conftest.py         Fixtures, build helpers
-│   ├── test_asm_line.py    Assembler tests
-│   ├── test_au_mode.py     Addressing mode parser tests
-│   ├── test_mnhash.py      Mnemonic hash tests
-│   ├── test_expr.py        Expression parser tests
-│   ├── test_symtab.py      Symbol table tests
-│   ├── test_asm_src.py     Source assembler tests
-│   ├── test_repl.py        REPL command tests
-│   ├── test_debugger.py    Breakpoint/debugger tests
-│   ├── test_dasm.py        Disassembler tests
-│   ├── test_cse_io.py      Screen I/O tests
-│   └── test_editor.py      Editor gap-buffer tests
+│   ├── conftest.py         Bundle fixtures + cse_prg fixture
+│   ├── unit/               Tier U — module bundles (bare py65 MPU)
+│   │   ├── test_asm_line.py      Line assembler (asm_core bundle)
+│   │   ├── test_asm_src.py       Source assembler bundle
+│   │   ├── test_au_mode.py       Addressing mode (asm_core)
+│   │   ├── test_cse_io.py        Screen I/O leaf
+│   │   ├── test_dasm.py          Disassembler bundle
+│   │   ├── test_debugger_contracts.py  BP-table CRUD
+│   │   ├── test_expr.py          Expression parser
+│   │   ├── test_mnhash.py        mn6 / mn7 leaf
+│   │   └── test_symtab.py        Symbol table leaf
+│   ├── integration/        Tier I — C64Emu + full PRG
+│   │   ├── test_c64emu.py        Emulator harness smoke
+│   │   ├── test_editor.py        Editor via C64Emu
+│   │   ├── test_kernel_transition.py  Phase-18 kernel↔user
+│   │   ├── test_repl.py          REPL command E2E
+│   │   ├── test_screen.py        screen.s via C64Emu
+│   │   └── test_step_rom.py      Debugger ROM-step fallback
+│   └── retired/            Anti-pattern tests, kept for reference
+│       └── test_editor.py  Python-mirror (superseded by integration)
 │
 ├── rom/                    KERNAL/BASIC/CHARGEN ROM images
 │   ├── *_cbm.bin           Stock Commodore ROMs (git-ignored)

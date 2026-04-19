@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/addr_mode.s`](../../src/addr_mode.s) | implementation (operand values via expr_eval) |
-| [`tests/test_au_mode.py`](../../tests/test_au_mode.py) | test contract |
+| [`tests/unit/test_au_mode.py`](../../tests/unit/test_au_mode.py) | test contract |
 
 ## Interface
 

@@ -8,7 +8,7 @@
 |------|------|
 | [`src/asm_src.s`](../../src/asm_src.s) | implementation |
 | [`dev/asm_src_test_stub.s`](../../dev/asm_src_test_stub.s) | test harness |
-| [`tests/test_asm_src.py`](../../tests/test_asm_src.py) | test contract |
+| [`tests/unit/test_asm_src.py`](../../tests/unit/test_asm_src.py) | test contract |
 
 ## Interface
 

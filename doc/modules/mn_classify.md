@@ -10,7 +10,7 @@
 | [`src/mn7.s`](../../src/mn7.s) | implementation — 7-bit hash classifier |
 | [`src/mn6.s`](../../src/mn6.s) | implementation — 6-bit hash classifier |
 | [`src/mn_vars.s`](../../src/mn_vars.s) | implementation — ZP variable definitions |
-| [`tests/test_mnhash.py`](../../tests/test_mnhash.py) | test contract |
+| [`tests/unit/test_mnhash.py`](../../tests/unit/test_mnhash.py) | test contract |
 
 ## Interface
 

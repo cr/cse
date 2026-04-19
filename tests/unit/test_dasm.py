@@ -11,7 +11,7 @@ import pathlib
 import pytest
 from py65.devices.mpu6502 import MPU
 
-sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "dev"))
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent / "dev"))
 from instruction_set import OPCODES, MNEMONICS
 
 # ── CPU modes ────────────────────────────────────────────────────

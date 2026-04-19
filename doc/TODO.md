@@ -161,7 +161,7 @@ Open bugs, roughly ordered by priority.
   - [x] ~~IRQ early-entry bank-out mechanism.~~  (`bank_out_stub`
     in main.s; second-RTI-frame surgery.)
   - [x] ~~Kernel stack-depth measurement.~~  (Phase 19 — done:
-    `TestKernelStackDepth` in tests/test_asm_src.py measures the
+    `TestKernelStackDepth` in tests/unit/test_asm_src.py measures the
     `asm_src → asm_line → expr_eval` chain from a fresh SP.
     Current numbers: ~30 B trivial, ~50 B realistic, ~130 B at
     8 levels of paren nesting in an operand.  The contract stays
@@ -397,12 +397,12 @@ systems, ASM stubs, and test-specific linker configs.
 
 - [x] `tests/c64emu.py` — C64Emu class: py65 + KERNAL ROM overlay,
   $01 bank switching, screen RAM, jsr(), sym(), keyboard injection.
-- [x] `tests/test_c64emu.py` — 34 smoke tests.
-- [x] `tests/test_editor_asm.py` — 10 ASM-level editor tests
+- [x] `tests/integration/test_c64emu.py` — 34 smoke tests.
+- [x] `tests/integration/test_editor.py` — 10 ASM-level editor tests
   (gap buffer, ed_new, dirty flag, ed_read_line).
-- [x] `tests/test_screen_asm.py` — 15 ASM-level screen tests
+- [x] `tests/integration/test_screen.py` — 15 ASM-level screen tests
   (scroll_up, newline, restore_colors, reset_screen, cursor toggle).
-- [x] `tests/test_step_rom.py` — 8 debugger step-into ROM tests
+- [x] `tests/integration/test_step_rom.py` — 8 debugger step-into ROM tests
   (replaced xfailed tests).
 - [x] Makefile: `-Ln` label file, `check-roms` gate, `cse_prg` fixture.
 - [x] KERNAL ROM setup: screen line link table ($D9-$F1), HIBASE,

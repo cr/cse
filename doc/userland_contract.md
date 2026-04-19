@@ -197,7 +197,7 @@ The 64 B has to cover:
 - Safety margin.
 
 **Measured characterisation** (B2, Phase 19 — see
-`tests/test_asm_src.py::TestKernelStackDepth`): from a fresh SP,
+`tests/unit/test_asm_src.py::TestKernelStackDepth`): from a fresh SP,
 the assembler pipeline itself uses ~30 B for a trivial source,
 ~50 B for a realistic short program, and up to ~130 B for
 degenerate 8-level paren nesting in an expression operand.  The

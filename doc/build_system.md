@@ -379,11 +379,19 @@ instructions if the ROM is missing.
 # All tests (builds both debug + release, checks for KERNAL ROM, runs pytest)
 make test
 
-# Quick run (direct, via pipenv — assumes builds exist)
-pipenv run pytest tests/ -q
+# Quick run (direct, via pipenv — assumes builds exist).  Uses
+# pyproject.toml testpaths config to include tests/unit + tests/integration
+# (and skip tests/retired).
+pipenv run pytest -q
 
-# Specific module
-pipenv run pytest tests/test_expr.py -q
+# Only Tier U (fast; no PRG build needed for bundles with their own)
+pipenv run pytest tests/unit -q
+
+# Only Tier I (needs debug PRG)
+pipenv run pytest tests/integration -q
+
+# Specific file
+pipenv run pytest tests/unit/test_expr.py -q
 ```
 
 See [testing.md](testing.md) for test methodology, conventions, and
