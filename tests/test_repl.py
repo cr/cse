@@ -157,6 +157,7 @@ class ReplSymbols:
         self.reg_x        = exp['reg_x']
         self.reg_y        = exp['reg_y']
         self.reg_sp       = exp['reg_sp']
+        self.post_run_cleanup = exp['post_run_cleanup']
         self.reg_p        = exp['reg_p']
         self.state        = exp['state']
         self.dasm_buf     = exp['dasm_buf']
@@ -693,6 +694,46 @@ class TestUserZpRedirect:
         row = read_screen_row(cpu, 5).strip()
         assert "50" in row.upper(), \
             f"Expected 50 (live) in dump, got: {row!r}"
+
+
+# ── F''. Stack headroom warning (B3) ─────────────────────────
+#
+# post_run_cleanup emits ";!stk N" when reg_sp at break is below the
+# 64-byte kernel re-entry budget.  See userland_contract.md §
+# Kernel stack budget.
+
+class TestStackHeadroomWarning:
+    """B3: the stack-headroom warning fires iff reg_sp < 64."""
+
+    def _run_post(self, rsyms, reg_sp_value):
+        cpu = make_cpu(rsyms)
+        cpu.memory[rsyms.reg_sp] = reg_sp_value
+        # Minimal state so post_run_cleanup's other branches are harmless:
+        # clear step_state / dbg_reason so we exit via @not_step → show_break_result.
+        # (show_break_result will print a line too, but it lands on a
+        # different row — we only scan the row where the warning goes.)
+        run_at(cpu, rsyms.post_run_cleanup)
+        return [read_screen_row(cpu, r) for r in range(5, 8)]
+
+    def test_warn_when_sp_below_budget(self, rsyms):
+        """reg_sp = $20 → 32 bytes headroom → warning fires."""
+        rows = self._run_post(rsyms, 0x20)
+        text = " ".join(rows).lower()
+        assert "stk" in text, f"expected 'stk' warning, got: {rows!r}"
+        # Decimal form: "32"
+        assert "32" in text, f"expected '32' in warning, got: {rows!r}"
+
+    def test_no_warn_at_budget(self, rsyms):
+        """reg_sp = 64 ($40) is exactly at the budget — no warning."""
+        rows = self._run_post(rsyms, 0x40)
+        text = " ".join(rows).lower()
+        assert "stk" not in text, f"unexpected 'stk' warning: {rows!r}"
+
+    def test_no_warn_when_sp_healthy(self, rsyms):
+        """reg_sp = $F0 → 240 bytes headroom → no warning."""
+        rows = self._run_post(rsyms, 0xF0)
+        text = " ".join(rows).lower()
+        assert "stk" not in text, f"unexpected 'stk' warning: {rows!r}"
 
 
 # ── G. Disassemble (d command) ───────────────────────────────

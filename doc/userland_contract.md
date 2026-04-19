@@ -150,16 +150,16 @@ program must terminate via BRK / forced jump rather than RTS).
 
 The user contract: **user code must leave at least 64 bytes of stack
 headroom when calling kernal routines or when a debugger break may
-occur.**
+occur.**  "Headroom" here means stack-page bytes below the user's
+current SP (i.e. `reg_sp` addresses $00..$(reg_sp - 1) in the stack
+page remain available for kernel pushes).
 
-This number is **conservative**, pending empirical measurement (see
-[TODO.md § Phase 18](TODO.md)).  The 64 B has to cover:
+The 64 B has to cover:
 
 - BRK frame: 6 B (3 hardware + 3 kernal $FF48 push sequence).
-- BRK-handler internal call chain to longjmp / chain-step: currently
-  ~8 B peak (`jsr save_userland_zp`, `jsr dbg_bp_find` — non-nested),
-  but reserved up to the depth of the deepest non-execution kernel
-  path that could ever run on the BRK return side.
+- BRK-handler internal call chain from entry to longjmp: ~8 B peak
+  (`jsr save_userland_state` → `jsr save_userland_zp` +
+  `jsr restore_kernel_zp` — non-nested).
 - The deepest kernel call chain that may legitimately run from the
   BRK handler tail before returning to the REPL.  **Worst case
   reference: the assembler pipeline (`asm_src` → `asm_line` →
@@ -169,12 +169,24 @@ This number is **conservative**, pending empirical measurement (see
   io_puts, watchpoints) may add comparable depth on the BRK path.
 - Safety margin.
 
-**Once empirical measurement lands**, the contract will be tightened
-and CSE will add a runtime warning: at every BRK-handler entry, if
-user's SP indicates insufficient headroom, log `;!stk N` (where N is
-the actual headroom) so the user can see the violation.  A runtime
-test in the suite will exercise the deepest kernel path against the
-chosen budget.
+**Measured characterisation** (B2, Phase 19 — see
+`tests/test_asm_src.py::TestKernelStackDepth`): from a fresh SP,
+the assembler pipeline itself uses ~30 B for a trivial source,
+~50 B for a realistic short program, and up to ~130 B for
+degenerate 8-level paren nesting in an expression operand.  The
+pipeline only runs when the user opts into `a` at the REPL, which
+happens above `main_loop`'s SP — NOT directly from a BRK handler
+tail.  The 64 B contract protects the more common paths (`m`, `.`,
+`d`, `r`, single-line disassembly, stepping).  Users typing deeply
+nested expressions during a break while reg_sp is already tight
+can still underrun; that's known and not gated.
+
+**Runtime warning** (B3, Phase 19): on every userland exit,
+`post_run_cleanup` checks `reg_sp`.  When `reg_sp < 64` the REPL
+emits `;!stk N` (where N is the decimal value of reg_sp — the
+remaining headroom from the bottom of the stack page) before
+showing the break result.  Users can then see at a glance whether
+their program is operating too close to the limit.
 
 User code that runs deep recursion to within the budgeted bytes of
 stack exhaustion and then triggers a break will overflow the page

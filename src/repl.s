@@ -103,7 +103,7 @@ STEP_OVER = 2
 ; ── Imports: strings.s ────────────────────────────────────
         .import str_flag_ch, str_bp_pfx, str_3sp, str_2sp, str_brk
         .import str_at, str_nmi, str_bp_clr, str_deleted
-        .import str_rts
+        .import str_rts, str_stk_warn
         .import str_syntax, str_bad_val, str_full, str_cmd
         .import str_no_name, str_range, str_fail, str_too_big
         .import str_expr, str_no_ctx
@@ -1790,6 +1790,14 @@ hygiene_after_userland:
         sta $0291               ; lock SHIFT+C= charset toggle (userland
                                 ;   may have cleared this to 0; KERNAL
                                 ;   honours the combo when it's 0)
+        ; SID silence: zero the voice-1/2/3 control registers to release
+        ; any gates left on by userland.  SID registers are write-only
+        ; so a read-modify-write to clear just bit 0 isn't possible;
+        ; clobbering waveform + gate is the practical silence primitive.
+        lda #0
+        sta $D404
+        sta $D40B
+        sta $D412
         jsr vic_reset           ; $D011/$D015/$D016/$D018/$D019/$D01A
         jsr restore_colors      ; border/bg/fg + color RAM + CHROUT colour
 
@@ -3852,7 +3860,26 @@ _info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
 ;   * Else show break result (dbg_reason picks the tag;
 ;     show_break_result handles the rts-through-sentinel case).
 ; ═══════════════════════════════════════════════════════════
+; Minimum user SP that satisfies the kernel re-entry budget.  User's
+; SP at break (reg_sp) below this triggers a ";!stk N" warning.  See
+; userland_contract.md § Kernel stack budget.
+KSTK_MIN = 64
+
 .proc post_run_cleanup
+        ; B3: stack headroom warning.  If user's SP at break is below
+        ; the documented kernel-reentry budget, log ";!stk N" where N
+        ; is the remaining headroom (reg_sp as decimal).
+        lda reg_sp
+        cmp #KSTK_MIN
+        bcs @stk_ok
+        ldy #LOG_WARN
+        jsr log_open
+        puts str_stk_warn
+        lda reg_sp
+        ldx #0
+        jsr io_putdec
+        jsr log_close
+@stk_ok:
         lda step_state
         beq @not_step
 

@@ -160,25 +160,34 @@ Open bugs, roughly ordered by priority.
   - [x] ~~Direct vector patching — no separate trampolines.~~
   - [x] ~~IRQ early-entry bank-out mechanism.~~  (`bank_out_stub`
     in main.s; second-RTI-frame surgery.)
-  - [ ] Kernel stack-depth measurement.  Audit worst-case kernel
-    SP consumption on (a) BRK-return path and (b) asm_src →
-    asm_line → expr_eval chain.  Use the results to tighten the
-    64 B contract to measured-plus-margin.
-  - [ ] CSE re-entry stack-headroom warning.  Runtime check at
-    BRK handler entry: if user's SP < budget, log `;!stk N`.
-    Pairs with the measurement above.
+  - [x] ~~Kernel stack-depth measurement.~~  (Phase 19 — done:
+    `TestKernelStackDepth` in tests/test_asm_src.py measures the
+    `asm_src → asm_line → expr_eval` chain from a fresh SP.
+    Current numbers: ~30 B trivial, ~50 B realistic, ~130 B at
+    8 levels of paren nesting in an operand.  The contract stays
+    at 64 B; those numbers characterise the pipeline and catch
+    regressions, not the BRK-tail re-entry path.  See
+    [userland_contract.md § Kernel stack budget](userland_contract.md#kernel-stack-budget).)
+  - [x] ~~CSE re-entry stack-headroom warning.~~  (Phase 19 — done:
+    `post_run_cleanup` (repl.s) checks `reg_sp < 64` on every
+    userland exit; emits `;!stk N` where N is the decimal
+    headroom.  Three tests in
+    `TestStackHeadroomWarning` cover the trigger, the at-budget
+    boundary, and the healthy-SP no-warn path.)
   - [x] ~~VIC sanity reset (`vic_reset`).~~  (in screen.s; called
     from `hygiene_after_userland`.  $D011/$D015/$D016/$D018/$D019/
     $D01A.)
-  - [ ] SID silence at boundary.  Clear voice gates ($D404/$D40B/
-    $D412 bit 0) in `hygiene_after_userland`.  Other SID register
-    values preserved.  ~6 bytes.
+  - [x] ~~SID silence at boundary.~~  (Phase 19 — done:
+    `hygiene_after_userland` (repl.s) writes $00 to $D404/$D40B/
+    $D412, releasing all three voice gates and clobbering the
+    waveform selection (SID is write-only so read-modify-write of
+    just bit 0 isn't possible; clobber is the practical silence
+    primitive).  +11 B.)
   - [x] ~~Userland contract document — published.~~  See
     [userland_contract.md](userland_contract.md).  Three-tier state
     model, kernal-as-terminal affordance, vector/banking hazards.
 
-  The two [ ] sub-items above (stack-depth measurement + headroom
-  warning, SID silence) are the only remaining Phase-18 tail work.
+  Phase 18 tail is complete.
 
 - [x] ~~**Loader reverse-direction copy.**~~  (Phase 19 — done:
   `copy_pages_back` in loader.s, payload-end sanity check
@@ -286,7 +295,9 @@ Defined scope, needs work.
 
 ### REPL
 
-- [ ] `.` without args: behave like `d` (disassemble one instruction).
+- [x] ~~`.` without args: behave like `d` (disassemble one instruction).~~
+  (already the behaviour: `cmd_dot` falls through to `emit_dot`
+  when no hex bytes and no mnemonic were parsed.)
 - [ ] `/` command: search for byte pattern in memory.
 - [ ] `f` command: fill memory range with byte.
 - [ ] `>` command: transfer/copy memory block.

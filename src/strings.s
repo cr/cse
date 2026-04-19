@@ -33,7 +33,7 @@
         .export str_lines, str_bytes, str_long
         .export str_unsaved, str_ok, str_blk_eq
         .export str_del_src, str_quit, str_load
-        .export str_color, str_cpu
+        .export str_color, str_cpu, str_stk_warn
         .export str_asm_ing, str_load_pfx, str_save_pfx, str_dots
         .export str_errors, str_dashes, str_colon_sp, str_pct
         .export str_ioport, str_stack, str_kernal, str_screen
@@ -116,6 +116,7 @@ str_ok:         .byte "ok", 0
 str_blk_eq:       .byte "blk=", 0
 str_color:      .byte "color: ", 0
 str_cpu:        .byte "cpu: 6502", 0
+str_stk_warn:   .byte "stk ", 0
 .ifdef CPU_6510
 str_6510:       .byte " 6510", 0
 .endif

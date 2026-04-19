@@ -809,3 +809,140 @@ class TestSegmentTracking:
         assert errors == 0
         assert seg["min_pc"] == 0xD000
         assert seg["max_pc"] == 0xD001
+
+
+# ── Kernel stack-depth measurement (B2) ────────────────────────
+#
+# The assembler pipeline (asm_src → asm_line → mode_parse →
+# expr_eval → recursive descent) is documented as the deepest
+# kernel call chain in the system; see userland_contract.md §
+# Kernel stack budget.  The user contract is 64 bytes of
+# headroom.  These tests fill the stack with a sentinel byte,
+# run the worst-case assembly paths we can construct, then
+# measure how deep the kernel actually pushed.  The watermark
+# feeds the B3 runtime warning threshold and flags any future
+# refactor that grows the chain past the contract.
+
+SENTINEL = 0xA5
+
+
+def _stack_watermark(cpu) -> int:
+    """Return lowest stack address ($0100..$01FF) with a non-sentinel byte.
+
+    The watermark represents the deepest point the stack reached
+    during the run.  Higher = more headroom used.  (Addresses
+    below watermark are untouched sentinel.)
+    """
+    for addr in range(0x0100, 0x0200):
+        if cpu.memory[addr] != SENTINEL:
+            return addr
+    return 0x0200   # whole stack untouched
+
+
+def _run_with_watermark(as_syms, source: str):
+    """Run the two-pass assembler; return (errors, kernel_depth_bytes)."""
+    cpu = MPU()
+    mem = cpu.memory
+    as_syms.load_into(mem)
+    encoded = _petscii(source)
+    for i, b in enumerate(encoded):
+        mem[as_syms.test_src_buf + i] = b
+
+    # Fresh SP = $FF; fill entire stack page with sentinel except the
+    # two bytes we're about to use for the fake return address.
+    for addr in range(0x0100, 0x0200):
+        mem[addr] = SENTINEL
+    cpu.sp = 0xFF
+    mem[0x01FF] = 0xFF
+    mem[0x01FE] = 0xFE
+    cpu.sp = 0xFD
+
+    cpu.pc = as_syms.asm_src_test_entry
+    for _ in range(_MAX_STEPS):
+        if cpu.pc == 0xFFFF:
+            break
+        cpu.step()
+    else:
+        raise TimeoutError(f"exceeded {_MAX_STEPS} steps")
+
+    errors = mem[as_syms.asm_errors] | (mem[as_syms.asm_errors + 1] << 8)
+    watermark = _stack_watermark(cpu)
+    # Initial entry frame: 2 bytes for fake return address at $01FE/$01FF.
+    # kernel_depth counts from the top of stack ($0200) down to watermark.
+    kernel_depth = 0x0200 - watermark
+    return errors, kernel_depth
+
+
+class TestKernelStackDepth:
+    """B2: characterise the assembler pipeline's stack usage and
+    guard against future depth regressions.  These numbers are the
+    stack eaten by asm_src → asm_line → mode_parse → expr_eval
+    (recursive descent) — the deepest documented kernel path — when
+    invoked from a fresh SP.  They DO NOT directly reflect the
+    reg_sp-based user contract (userland_contract.md § Kernel stack
+    budget), which measures kernel re-entry depth starting from
+    main_loop's SP, not top-of-stack.
+
+    The ceilings here are deliberately generous: the goal is to
+    catch unbounded-growth regressions, not to pin exact numbers.
+    Current worst case is ~130 B at 12 levels of paren nesting.
+    """
+
+    # Regression ceilings — tuned to current worst case + ~30 B margin.
+    CEILING_TYPICAL = 80    # simple/realistic programs
+    CEILING_DEEP    = 160   # degenerate nested expressions
+
+    def test_trivial_source(self, as_syms):
+        """Baseline: minimum-content assembly."""
+        errors, depth = _run_with_watermark(as_syms, ".org $c000\n  rts")
+        assert errors == 0
+        assert depth < self.CEILING_TYPICAL, \
+            f"trivial depth {depth} exceeds ceiling {self.CEILING_TYPICAL}"
+
+    def test_realistic_program(self, as_syms):
+        """A representative short program — typical user workload."""
+        source = (
+            ".cpu 6510\n"
+            ".const chrout $ffd2\n"
+            ".const border $d020\n"
+            ".org $c000\n"
+            "main:\n"
+            "  lda #$07\n"
+            "  sta border\n"
+            "  ldx #0\n"
+            ".lp:\n"
+            "  lda msg,x\n"
+            "  beq .done\n"
+            "  jsr chrout\n"
+            "  inx\n"
+            "  bne .lp\n"
+            ".done:\n"
+            "  rts\n"
+            "msg:\n"
+            '  .str "hello, world!", 0\n'
+        )
+        errors, depth = _run_with_watermark(as_syms, source)
+        assert errors == 0
+        assert depth < self.CEILING_TYPICAL, \
+            f"realistic depth {depth} exceeds ceiling {self.CEILING_TYPICAL}"
+
+    def test_deep_nested_parens(self, as_syms):
+        """Degenerate: plain 8-level paren nesting.  Exercises
+        parse_expr → parse_primary recursion down to the literal."""
+        expr = "(" * 8 + "42" + ")" * 8
+        src  = f".org $c000\n  lda #<{expr}\n  rts"
+        errors, depth = _run_with_watermark(as_syms, src)
+        assert errors == 0, f"unexpected errors: {errors}"
+        assert depth < self.CEILING_DEEP, \
+            f"8-paren depth {depth} exceeds ceiling {self.CEILING_DEEP}"
+
+    @pytest.mark.parametrize("levels", [1, 3, 5, 8])
+    def test_depth_scales_with_nesting(self, as_syms, levels):
+        """Characterise: deeper nesting uses proportionally more
+        stack.  Bounded by CEILING_DEEP for regression protection."""
+        expr = "(" * levels + "42" + ")" * levels
+        src  = f".org $c000\n  lda #<{expr}\n  rts"
+        errors, depth = _run_with_watermark(as_syms, src)
+        assert errors == 0
+        assert depth < self.CEILING_DEEP, \
+            f"levels={levels} depth={depth} exceeds ceiling {self.CEILING_DEEP}"

@@ -82,6 +82,7 @@
         .import exec_line, read_line, show_prompt
         .import cur_addr, cur_device, cur_project_name
         .import line_buf, last_cmd, block_size
+        .import post_run_cleanup
 
 ; ── Import cse_io row tables (for KERNAL PLOT stub) ───────────
         .import scr_lo, scr_hi
@@ -97,6 +98,7 @@ sym_refs:
         .addr _save_name, _load_name, _op_witness
         .addr step_bp       ; force-link (otherwise ld65 drops it
                             ; from the map since no code references it)
+        .addr post_run_cleanup ; force-link; test harness calls it directly
 
 ; ═══════════════════════════════════════════════════════════════
 ; BSS — test state + stubs (ZP provided by zp.s)
