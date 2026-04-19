@@ -177,6 +177,12 @@ class C64Emu:
         self._cpu.memory = self._mem
         self._syms = {}
 
+        # Cycle counter (monotonic across jsr/run_until calls) +
+        # pending-interrupt queue for schedule_irq / schedule_nmi.
+        # Each entry: (fire_cycle, kind) where kind is 'irq' or 'nmi'.
+        self._cycle_total = 0
+        self._pending = []
+
         # -- processor port --
         # CSE runtime default: $01 = $36 = 0011 0110 → LORAM=0
         # (BASIC banked OUT so $A000-$BFFF is RAM workspace),
@@ -335,6 +341,91 @@ class C64Emu:
     def memory(self):
         return self._mem
 
+    # ── Scheduled interrupts ────────────────────────────────────
+    #
+    # The run loops (jsr, run_until) consult a pending-interrupt
+    # queue every CPU step.  Each entry fires when the cycle counter
+    # reaches its scheduled target.  IRQs honour the I flag (deferred
+    # until cleared); NMIs fire unconditionally and are edge-triggered.
+    # Vector fetch respects banking ($FFFA/$FFFE read through
+    # BankedMemory, so KERNAL-out tests see the RAM-shadow vectors).
+
+    def schedule_irq(self, cycles_from_now):
+        """Enqueue an IRQ to fire `cycles_from_now` steps from now.
+
+        IRQs fire only while I=0.  Multiple IRQs at the same cycle
+        are coalesced into a single fire (matches real hardware —
+        IRQ is level-triggered)."""
+        self._pending.append((self._cycle_total + max(cycles_from_now, 0), 'irq'))
+        self._pending.sort()
+
+    def schedule_nmi(self, cycles_from_now):
+        """Enqueue an NMI to fire `cycles_from_now` steps from now.
+
+        NMIs fire unconditionally (edge-triggered — once per schedule)."""
+        self._pending.append((self._cycle_total + max(cycles_from_now, 0), 'nmi'))
+        self._pending.sort()
+
+    def cancel_pending_interrupts(self):
+        """Drop all queued IRQ/NMI schedules."""
+        self._pending.clear()
+
+    def _fire_interrupt(self, kind):
+        """Synthesise the CPU's IRQ/NMI entry: push PCH, PCL, P, set I,
+        fetch the vector through BankedMemory, jump."""
+        pc = self._cpu.pc
+        self._mem.ram[0x0100 + self._cpu.sp] = (pc >> 8) & 0xFF
+        self._cpu.sp = (self._cpu.sp - 1) & 0xFF
+        self._mem.ram[0x0100 + self._cpu.sp] = pc & 0xFF
+        self._cpu.sp = (self._cpu.sp - 1) & 0xFF
+        # Clear B in pushed P (IRQ and NMI both push P with B=0).
+        self._mem.ram[0x0100 + self._cpu.sp] = self._cpu.p & 0xEF
+        self._cpu.sp = (self._cpu.sp - 1) & 0xFF
+        # Set I to mask further IRQs.
+        self._cpu.p |= self._cpu.INTERRUPT
+        vec_addr = 0xFFFA if kind == 'nmi' else 0xFFFE
+        lo = self._mem[vec_addr]
+        hi = self._mem[vec_addr + 1]
+        self._cpu.pc = (hi << 8) | lo
+
+    def _dispatch_pending(self):
+        """Called after each CPU step: fire any interrupts whose
+        scheduled cycle has arrived.  NMI first (higher priority)."""
+        if not self._pending:
+            return
+        # Separate due events.
+        due_nmi = False
+        due_irq = False
+        remaining = []
+        for when, kind in self._pending:
+            if when <= self._cycle_total:
+                if kind == 'nmi':
+                    due_nmi = True
+                elif kind == 'irq':
+                    due_irq = True
+            else:
+                remaining.append((when, kind))
+        if due_nmi:
+            self._fire_interrupt('nmi')
+            # NMI events are consumed regardless of I flag.
+            self._pending = remaining + [
+                (w, k) for w, k in self._pending
+                if w <= self._cycle_total and k == 'irq'
+            ]
+            return
+        if due_irq:
+            if not (self._cpu.p & self._cpu.INTERRUPT):
+                self._fire_interrupt('irq')
+                self._pending = remaining
+            else:
+                # I=1 — re-queue IRQ for next step (level-triggered poll).
+                self._pending = remaining + [
+                    (self._cycle_total + 1, 'irq')
+                    for _ in range(sum(1 for w, k in self._pending
+                                       if w <= self._cycle_total and k == 'irq'))
+                ]
+            return
+
     # ── Execution ───────────────────────────────────────────────
 
     def jsr(self, addr, *, a=None, x=None, y=None, carry=None,
@@ -370,6 +461,9 @@ class C64Emu:
                 return cycles
             self._cpu.step()
             cycles += 1
+            self._cycle_total += 1
+            if self._pending:
+                self._dispatch_pending()
 
         raise TimeoutError(
             f"C64Emu: timeout after {max_cycles} cycles at "
@@ -493,6 +587,9 @@ class C64Emu:
                 return cycles
             self._cpu.step()
             cycles += 1
+            self._cycle_total += 1
+            if self._pending:
+                self._dispatch_pending()
         raise TimeoutError(
             f"C64Emu: run_until({stop_addr:#06X}) timeout after "
             f"{max_cycles} cycles at PC=${self._cpu.pc:04X}"
