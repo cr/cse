@@ -200,7 +200,7 @@ endif
 
 # ── All assembler source files (pure asm, no C) ─────────────────────
 ASM_SRCS = zp loader main strings \
-           asm_line asm_src mn_vars mn_classify \
+           asm_line asm_err asm_src mn_vars mn_classify \
            $(MN_SRCS) mn_config \
            addr_mode mn_modes mn_asm_tables opcode_lookup \
            mem cse_io screen disk expr symtab dasm dasm_tables \

@@ -34,7 +34,9 @@
 
         .export asm_line
         .export _asm_line_core
-        .export asm_error, asm_syntax_error, asm_expr_error, asm_expr_err
+        ; asm_error / asm_syntax_error / asm_expr_error / asm_expr_err
+        ; moved to asm_err.s in Phase 21 Move 2
+        .import asm_error, asm_syntax_error
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
 
         ; zero-page variables (zp.s)
@@ -80,7 +82,7 @@ ZONE_F_PIDX = 5         ; ABS  (JSR)
 ; Saved user-code register state — populated by debugger.s on BRK/NMI
 ; entry, displayed by repl.s::show_regs, and reloaded into the CPU by
 ; debugger.s before continuing.
-asm_expr_err:  .res 1          ; nonzero if last asm_error was expr eval
+; asm_expr_err moved to asm_err.s (Phase 21 Move 2)
 reg_a:         .res 1          ; saved A
 reg_x:         .res 1          ; saved X
 reg_y:         .res 1          ; saved Y
@@ -103,26 +105,9 @@ _asm_oplen:
 
 .segment "CODE"
 
-; ── asm_error / asm_syntax_error ─────────────────────────────────────────────
-; Jumped to (not called) by _asm_line_core / mode_parse on any assembler error.
-; Restores the 6502 stack to the level saved before _asm_line_core was called,
-; banks the KERNAL back in, and returns 0.
-; ── asm_expr_error — expression-specific error path ──────────────────────────
-; Called by _au_read_val when expr_eval returns an error.
-; Sets asm_expr_err=1, then falls into asm_error's shared tail.
-asm_expr_error:
-        lda #1
-        .byte $2C               ; BIT abs — skip the next lda #0
-asm_error:
-asm_syntax_error:
-        lda #0
-        sta asm_expr_err
-        ldx _asm_saved_sp
-        txs                     ; restore SP (unwind nested JSRs)
-        jsr kernal_bank_in      ; pair the bank_out from asm_line entry
-        lda #0
-        tax                     ; return 0 (A=lo, X=hi=0)
-        rts
+; ── Error handlers moved to asm_err.s (Phase 21 Move 2) ──────────────────────
+; asm_error / asm_syntax_error / asm_expr_error live there now, along
+; with the asm_expr_err flag.  They are .import'd above.
 
 ; ── asm_line ─────────────────────────────────────────────────────────────────
 ; asm_line(text)

@@ -15,10 +15,11 @@
 
         .export         asm_assemble
         .export         asm_org, asm_size, asm_errors
-        .export         asm_pass := _asm_pass   ; pass flag for addr_mode.s fwd refs
         .export         seg_print_save
+        ; asm_pass and asm_expr_err moved to asm_err.s (Phase 21 Move 2)
 
-        .import         asm_line, asm_expr_err ; asm_line.s
+        .import         asm_line                ; asm_line.s
+        .import         asm_expr_err, asm_pass  ; asm_err.s (Phase 21)
         .import         expr_error_str         ; expr.s
         .import         expr_eval              ; expr.s
         .import         sym_define             ; symtab.s
@@ -54,7 +55,7 @@
 asm_org:       .res 2          ; assembly origin address
 asm_size:      .res 2          ; total bytes emitted
 asm_errors:    .res 2          ; error count (pass 1 only)
-_asm_pass:      .res 1          ; 0 = pass 0, 1 = pass 1
+; asm_pass moved to asm_err.s (Phase 21 Move 2)
 _line_num:      .res 2
 _line_buf:      .res 40
 _scope_name:    .res 24         ; last global label (for .local expansion)
@@ -87,7 +88,7 @@ _org_set:       .res 1          ; non-zero after first .org on pass 0
 ;   In: A/X = PETSCII message pointer
 .proc emit_error
         pha                     ; save msg lo BEFORE pass check
-        lda _asm_pass
+        lda asm_pass
         beq @skip
         txa
         pha                     ; save msg hi
@@ -227,7 +228,7 @@ inc_pc_size:
 ; ── _emit_byte ────────────────────────────────────────────────────────────
 ; Emit byte in A to (asm_pc) on pass 1; advance asm_pc+asm_size always.
 _emit_byte:
-        ldy _asm_pass
+        ldy asm_pass
         beq @skip
         ldy #0
         sta (asm_pc),y
@@ -598,7 +599,7 @@ _seg_log_close:
         sta _min_pc+1
 @print:
         ; Print on pass 1 only
-        lda _asm_pass
+        lda asm_pass
         beq @clear
         ; Compute inclusive end = asm_pc - 1
         lda asm_pc
@@ -644,7 +645,7 @@ _seg_log_open:
 ; _set_first_org — set asm_org from asm_pc on pass 0, first time only.
 ;   Called by .org and .bas handlers after setting asm_pc.
 _set_first_org:
-        lda _asm_pass
+        lda asm_pass
         bne @ret
         lda _org_set
         bne @ret
@@ -949,7 +950,7 @@ BASIC_REM = $8F
         jsr emit_error
         clc
         rts
-@cok:   lda _asm_pass
+@cok:   lda asm_pass
         bne @cret_restore       ; only define in pass 0
         lda expr_val
         sta sym_val
@@ -1127,7 +1128,7 @@ BASIC_REM = $8F
         beq :+
         lda #1
 :       sta sym_wide
-        lda _asm_pass
+        lda asm_pass
         bne @done
         jsr sym_define
         bcc @done
@@ -1366,7 +1367,7 @@ BASIC_REM = $8F
 :       pla
         cmp #39
         bne @no_trunc
-        lda _asm_pass
+        lda asm_pass
         beq @no_trunc
         jsr _bank_in_tmp
         ldy #'!'                ; LOG_WARN
@@ -1419,7 +1420,7 @@ BASIC_REM = $8F
 
         ; Pass 0: collect labels/constants
         lda #0
-        sta _asm_pass
+        sta asm_pass
         ; Set asm_pc = asm_org for initial segment open
         lda asm_org
         sta asm_pc
@@ -1431,7 +1432,7 @@ BASIC_REM = $8F
 
         ; Pass 1: emit code — reset seg table so pass 1 re-records
         lda #1
-        sta _asm_pass
+        sta asm_pass
         lda #0
         sta asm_size
         sta asm_size+1
