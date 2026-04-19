@@ -461,37 +461,22 @@ systems, ASM stubs, and test-specific linker configs.
 Planned emulator feature additions (scoped during test-restructure
 discussion).  Each block is independent; do in any order.
 
-- [ ] **Full `$01` banking** — currently only bit 1 (KERNAL) is
-  modelled.  Add bit 0 (LORAM / BASIC at `$A000-$BFFF`) and bit 2
-  (CHAREN / character ROM vs I/O at `$D000-$DFFF`).  `rom/basic_cbm.bin`
-  and `rom/chargen_cbm.bin` are already committed.  Widens implicit
-  test coverage to "runs correctly with any banking config".  ~60 LOC
-  in `tests/c64emu.py::BankedMemory`.
-
-- [ ] **DDR-aware `$00`/`$01` model** — `mem.s::save_userland_zp`'s
-  CPU-port protocol has a postcondition (`live $00 = $FF`) that is
-  currently satisfied accidentally (passive RAM reads == writes).
-  Correct behaviour: `$01` read returns `(latched & DDR) | (external & ~DDR)`.
-  Unlocks pinning the CPU-port protocol contract as a test.  ~20 LOC.
-
-- [ ] **Scheduled interrupts** — `emu.schedule_irq(cycles_from_now)`
-  / `schedule_nmi(cycles_from_now)`.  Pending queue checked each
-  step; fires when cycle count reached; IRQ respects I-flag, NMI
-  is edge-triggered.  **Unlocks the Phase-18-class stress-test gap:**
-  schedule an IRQ at each cycle across a critical bank-out window
-  to verify the bank-out-stub path.  Also closes jiffy-clock + CIA
-  timer coverage.  ~120 LOC + run-loop integration.
-
-- [ ] **CIA1/CIA2 register shadows + keyboard matrix** — `$DC00-$DC0F`
-  and `$DD00-$DD0F` register aliasing; 8×8 keyboard matrix model;
-  `emu.press_key(ch)` / `emu.release_key(ch)` as alternative to
-  `inject_key`'s KERNAL-buffer path; `emu.press_restore()` →
-  NMI via $DD0D.  ~100 LOC + PETSCII→matrix table.
-
-- [ ] **Jiffy clock tick** — schedule a repeating IRQ at ~60 Hz so
-  KERNAL's `$EA31` increments `$A0-$A2`.  Opt-in
-  (`emu.enable_jiffy_clock()`) to avoid interfering with tests that
-  assume no IRQ.  ~15 LOC atop scheduled interrupts.
+- [x] ~~**Full `$01` banking**~~ — landed as C64Emu extension 1
+  (commit `77ef7a4`).  Three-bit banking (LORAM/HIRAM/CHAREN) with
+  BASIC + CHARGEN ROM overlays.  Default `$01` now `$36` (CSE
+  runtime config) instead of `$37`.
+- [x] ~~**DDR-aware `$00`/`$01` model**~~ — landed with extension 1.
+  `$01` read returns `(latched & DDR) | (external & ~DDR)`.
+- [x] ~~**Scheduled interrupts**~~ — landed as extension 2 (commit
+  `a755c9d`).  `schedule_irq` / `schedule_nmi` / `cancel_pending_interrupts`
+  + cycle-accurate pending queue honouring I flag + NMI edge.
+- [x] ~~**CIA1/CIA2 register shadows + keyboard matrix**~~ — landed
+  as extension 3 (commit `30d9dbf`).  `$DC00/$DC01` 8×8 matrix,
+  `press_key` / `release_key` / `press_stop` / `press_restore`,
+  CIA2 `$DD0D` NMI latch.
+- [x] ~~**Jiffy clock tick**~~ — landed as extension 4 (commit
+  `d426040`).  `enable_jiffy_clock` / `disable_jiffy_clock` on top
+  of the scheduled-IRQ infra; default 16421 cycles matches KERNAL.
 
 - [ ] **Virtual IEC disk (D64-backed)** — intercept KERNAL IEC entry
   points (`$FFC0` OPEN, `$FFD5` LOAD, `$FFD8` SAVE, `$FFCF` CHRIN,
