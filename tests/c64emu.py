@@ -23,6 +23,53 @@ _ROM_KERNAL  = _ROM_DIR / "kernal_cbm.bin"
 _ROM_BASIC   = _ROM_DIR / "basic_cbm.bin"
 _ROM_CHARGEN = _ROM_DIR / "chargen_cbm.bin"
 
+
+# ── Keyboard matrix (PETSCII → (row, col)) ───────────────────────
+#
+# C64 keyboard is scanned as an 8×8 matrix via CIA1 $DC00/$DC01.
+# This table covers the keys most tests care about: letters, digits,
+# common punctuation, RETURN, SPACE, STOP.  Lowercase PETSCII maps
+# to the same matrix cell as uppercase.
+_KEY_MATRIX = {
+    # Control keys
+    0x0D: (0, 1),    # RETURN
+    0x20: (7, 4),    # SPACE
+    0x03: (7, 7),    # STOP
+    # Digits (row 7 alternates 1/2, then row 1 for 3/4 etc.)
+    0x31: (7, 0), 0x32: (7, 3), 0x33: (1, 0), 0x34: (1, 3),
+    0x35: (2, 0), 0x36: (2, 3), 0x37: (3, 0), 0x38: (3, 3),
+    0x39: (4, 0), 0x30: (4, 3),
+    # Letters
+    0x41: (1, 2), 0x42: (3, 4), 0x43: (2, 4), 0x44: (2, 2),
+    0x45: (1, 6), 0x46: (2, 5), 0x47: (3, 2), 0x48: (3, 5),
+    0x49: (4, 1), 0x4A: (4, 2), 0x4B: (4, 5), 0x4C: (5, 2),
+    0x4D: (4, 4), 0x4E: (4, 7), 0x4F: (4, 6), 0x50: (5, 1),
+    0x51: (7, 6), 0x52: (2, 1), 0x53: (1, 5), 0x54: (2, 6),
+    0x55: (3, 6), 0x56: (3, 7), 0x57: (1, 1), 0x58: (2, 7),
+    0x59: (3, 1), 0x5A: (1, 4),
+    # Common punctuation
+    0x2C: (5, 7), 0x2E: (5, 4), 0x2F: (6, 7), 0x3A: (5, 5),
+    0x3B: (6, 2), 0x3D: (6, 5), 0x2B: (5, 0), 0x2D: (5, 3),
+    0x2A: (6, 1), 0x40: (5, 6),
+}
+
+
+def _petscii_to_matrix(ch):
+    """Resolve a PETSCII char (int or 1-char str) to (row, col)."""
+    if isinstance(ch, str):
+        if len(ch) != 1:
+            raise ValueError(f"press/release_key expects single char, got {ch!r}")
+        ch = ord(ch)
+    # Lowercase ($61-$7A) → uppercase ($41-$5A).
+    if 0x61 <= ch <= 0x7A:
+        ch -= 0x20
+    # Shifted uppercase ($C1-$DA) → plain uppercase.
+    if 0xC1 <= ch <= 0xDA:
+        ch -= 0x80
+    if ch not in _KEY_MATRIX:
+        raise KeyError(f"no matrix mapping for PETSCII ${ch:02X}")
+    return _KEY_MATRIX[ch]
+
 # C64 memory layout constants
 SCREEN     = 0x0400
 SCREEN_END = 0x07E8   # 1000 bytes
@@ -76,6 +123,8 @@ class BankedMemory:
         'rom_kernal', 'rom_basic', 'rom_chargen',
         'loram', 'hiram', 'charen',
         'external_01',
+        'keyboard_pressed',        # set of (row, col) currently depressed
+        'cia2_nmi_latch',          # bit 4 of $DD0D — RESTORE-key latch
     )
 
     # External pin state for input bits on $01 (bits configured as
@@ -93,6 +142,8 @@ class BankedMemory:
         self.hiram  = True
         self.charen = True
         self.external_01 = self.DEFAULT_EXTERNAL_01
+        self.keyboard_pressed = set()   # populated via C64Emu.press_key
+        self.cia2_nmi_latch = 0         # set when RESTORE triggers NMI
 
     def __len__(self):
         return 65536
@@ -113,6 +164,18 @@ class BankedMemory:
         # Character ROM overlay ($D000-$DFFF when CHAREN=0 and HIRAM=1)
         if 0xD000 <= addr <= 0xDFFF and self.hiram and not self.charen and self.rom_chargen:
             return self.rom_chargen[addr - 0xD000]
+        # CIA1 keyboard matrix read ($DC01 returns row bits for
+        # the column mask written to $DC00; pressed keys = 0 bits,
+        # unpressed = 1).  Only modelled when I/O is actually visible
+        # (HIRAM=1 and CHAREN=1).
+        if addr == 0xDC01 and self.hiram and self.charen:
+            return self._read_keyboard_rows()
+        # CIA2 ICR read — bit 4 = RESTORE-latched NMI.  Reading ICR
+        # clears all latched bits (real-hardware semantics).
+        if addr == 0xDD0D and self.hiram and self.charen:
+            val = self.cia2_nmi_latch
+            self.cia2_nmi_latch = 0
+            return val
         # DDR-gated $01 read: output bits return latched, input bits
         # return external pin state.
         if addr == 0x01:
@@ -120,6 +183,16 @@ class BankedMemory:
             latched = self.ram[0x01]
             return ((latched & ddr) | (self.external_01 & (ddr ^ 0xFF))) & 0xFF
         return self.ram[addr]
+
+    def _read_keyboard_rows(self):
+        """Return $DC01 row-bit value based on current column mask at
+        $DC00 and the set of pressed keys.  Pressed → 0, unpressed → 1."""
+        col_mask = self.ram[0xDC00]
+        rows = 0xFF
+        for r, c in self.keyboard_pressed:
+            if ((col_mask >> c) & 1) == 0:   # column selected (0)
+                rows &= ~(1 << r) & 0xFF
+        return rows
 
     def __setitem__(self, key, val):
         if isinstance(key, slice):
@@ -470,7 +543,42 @@ class C64Emu:
             f"${self._cpu.pc:04X}"
         )
 
-    # ── Keyboard injection ──────────────────────────────────────
+    # ── Keyboard matrix (CIA1 $DC00/$DC01) ──────────────────────
+
+    def press_key(self, ch):
+        """Mark a key as pressed in the CIA1 keyboard matrix.
+
+        Reads of $DC01 with the appropriate $DC00 column mask will
+        see the key's row bit cleared.  Multiple keys can be held
+        simultaneously.  Use PETSCII char (int) or single-char string.
+        """
+        row, col = _petscii_to_matrix(ch)
+        self._mem.keyboard_pressed.add((row, col))
+
+    def release_key(self, ch):
+        """Release a previously-pressed matrix key.  No-op if not held."""
+        row, col = _petscii_to_matrix(ch)
+        self._mem.keyboard_pressed.discard((row, col))
+
+    def release_all_keys(self):
+        """Clear the matrix to all-released."""
+        self._mem.keyboard_pressed.clear()
+
+    def press_stop(self):
+        """Convenience: press the STOP key (matrix row 7 col 7)."""
+        self._mem.keyboard_pressed.add((7, 7))
+
+    def release_stop(self):
+        self._mem.keyboard_pressed.discard((7, 7))
+
+    def press_restore(self):
+        """Simulate RESTORE key: latches CIA2 ICR bit 4 and schedules
+        an NMI.  The RESTORE key on C64 is hard-wired to the NMI line,
+        not the keyboard matrix."""
+        self._mem.cia2_nmi_latch |= 0x10
+        self.schedule_nmi(0)
+
+    # ── KERNAL keyboard buffer injection ────────────────────────
 
     def inject_key(self, petscii):
         """Enqueue one PETSCII byte into the KERNAL keyboard buffer."""
