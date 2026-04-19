@@ -223,7 +223,7 @@ Open bugs, roughly ordered by priority.
   green at every commit.  Every back-edge in the Step-2 DDD Analysis
   was eliminated except the residuals listed below.
 
-  Residual back-edge (to clean up after Move 3):
+  Residual back-edges (to clean up post-phase):
 
   - [ ] **asm_src.s::seg_line → log.s or inline.**  After Phase 21
     Move 3 the logging primitives (`log_open`/`log_close`/`log_line`/
@@ -232,13 +232,32 @@ Open bugs, roughly ordered by priority.
     `info_line_head`/`info_line_tail`/`_range_core`) stayed in repl.s
     because it shares ~360 call sites of `rp_addr`/`rp_cnt`/`rp_save`/
     `rp_save2` scratch with non-log REPL commands.  Result: asm_src.s
-    still imports `seg_line` + 3 BSS scratch bytes from repl.s — the
-    single remaining Phase-21 back-edge.  Two ways to fix:
+    still imports `seg_line` + 3 BSS scratch bytes from repl.s — a
+    Layer-4 → Layer-5 back-edge introduced by Move 3's partial hoist.
+    Two ways to fix:
     (a) inline the ~30 B of segment-line emission into asm_src.s
         (eliminates the import; trades size for independence);
     (b) move the shared scratch pool (`rp_addr` / `rp_cnt` /
         `rp_save` / `rp_save2`) to zp.s and hoist `seg_line` family
         to log.s as originally planned.  (b) is cleaner but bigger.
+
+  - [ ] **asm_src.s::cur_project_name hoist.**  asm_src.s imports
+    `cur_project_name` from repl.s (the 17-byte stem shown in the
+    `; asm "PROJ"...` log line and in the save-command suggestion
+    `seg_print_save` emits after assembly).  Pre-existing edge,
+    not introduced by Phase 21 but surfaced by the mechanical scan.
+    Fix: move `cur_project_name` to a neutral home — candidates:
+    (a) a new `src/project.s` Layer-2 leaf owning the project-name
+        string buffer + the derivation helpers (`parse_ls_args` and
+        filename-suffix logic could migrate too);
+    (b) stay in repl.s but accept the back-edge with documentation.
+    Small module worth doing if it eats the back-edge cleanly.
+
+  - [ ] **editor.s::cur_project_name hoist.**  Same symbol, same
+    back-edge (editor.s displays the project name in its status
+    bar and save prompts).  Solved by the same cleanup as the
+    asm_src item above — whichever way `cur_project_name` is
+    rehomed, both consumers land on the same import.
 
   Deferred Phase-21 test additions (written up in the TDD Analysis,
   scheduled for a separate commit after the phase lands):
