@@ -13,18 +13,17 @@
         .export ed_save_source, ed_load_source
         .export ed_read_rewind, ed_read_byte, ed_read_line
         .export ed_insert_string
-        .export ed_save_bytes, ed_save_lines     ; ed_dirty → zp.s (Phase 21)
+        .export ed_save_bytes, ed_save_lines
         .export ed_total_lines
         .export src_top, src_bot
-        .export define_ws_syms          ; Phase 21 Move 1 — moved from mem.s
+        .export define_ws_syms
 
         .import io_sync, io_blip
         .import kernal_bank_out, kernal_bank_in
         .import disk_save_seq, disk_load_seq
         .import disk_seq_bytes, disk_seq_lines
         .import cse_start
-        .importzp cur_project_name              ; zp.s (Phase 21.1 Move 6a)
-        .importzp state, ed_dirty         ; zp.s (Phase 21 Move 4)
+        .importzp cur_project_name, state, ed_dirty    ; zp.s
         .import scr_lo, scr_hi
         .import sym_define
         .importzp disk_ptr

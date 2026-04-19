@@ -16,29 +16,21 @@
         .export         asm_assemble
         .export         asm_org, asm_size, asm_errors
         .export         seg_print_save
-        ; asm_pass and asm_expr_err moved to asm_err.s (Phase 21 Move 2)
 
-        .import         asm_line                ; asm_line.s
-        .import         asm_expr_err, asm_pass  ; asm_err.s (Phase 21)
-        .import         expr_error_str         ; expr.s
-        .import         expr_eval              ; expr.s
-        .import         sym_define             ; symtab.s
-        .import         sym_clear
-        .import         kernal_bank_out, kernal_bank_in
-        .importzp       kernal_out              ; zp.s (Phase 21 Move 4)
+        .import         asm_line                            ; asm_line.s
+        .import         asm_expr_err, asm_pass              ; asm_err.s
+        .import         expr_error_str, expr_eval           ; expr.s
+        .import         sym_define, sym_clear               ; symtab.s
+        .import         kernal_bank_out, kernal_bank_in     ; mem.s
+        .importzp       kernal_out                          ; zp.s
         .import         io_puts, io_putc, io_putdec, io_puthex4, io_clear_eol, newline
         .import         io_utoa, dec_buf
-        .import         log_open, log_close    ; log.s (Phase 21 Move 3)
-        ; Phase 21.1 Move 3B: seg_line and the shared scratch pool
-        ; moved to their semantic homes.  Zero back-edges now.
-        .import         seg_line                        ; log.s
-        .importzp       rp_addr, rp_cnt, rp_save2        ; zp.s
+        .import         log_open, log_close, seg_line, puts_imm   ; log.s
+        .importzp       rp_addr, rp_cnt, rp_save2                 ; zp.s
         .import         str_tag_org
-        .import         puts_imm               ; log.s (Phase 21 Move 3)
-        .import         define_ws_syms         ; editor.s (Phase 21 Move 1)
-        .import         ed_read_line           ; editor.s
-        .import         ed_read_rewind
-        .importzp       cur_project_name           ; zp.s (Phase 21.1 Move 6a)
+        .import         define_ws_syms                             ; editor.s
+        .import         ed_read_line, ed_read_rewind              ; editor.s
+        .importzp       cur_project_name           ; zp.s
         .importzp       buf_base                ; editor.s — gap buffer low bound
         .importzp       rp_ptr2                 ; zp.s — scratch pointer (repl/info_line)
         .importzp       asm_pc, asm_out, asm_cpu, asm_tmp, asm_tmp2
@@ -58,7 +50,6 @@
 asm_org:       .res 2          ; assembly origin address
 asm_size:      .res 2          ; total bytes emitted
 asm_errors:    .res 2          ; error count (pass 1 only)
-; asm_pass moved to asm_err.s (Phase 21 Move 2)
 _line_num:      .res 2
 _line_buf:      .res 40
 _scope_name:    .res 24         ; last global label (for .local expansion)

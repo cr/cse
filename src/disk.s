@@ -13,13 +13,11 @@
         .export disk_load_seq, disk_save_seq
         .export disk_seq_bytes, disk_seq_lines
 
-        .import puts_imm                ; log.s (Phase 21 Move 3)
+        .import puts_imm, log_info              ; log.s
         .import io_puts, io_putc, io_putdec, io_puthex2, io_puthex4
-        .import io_getc, io_kbhit, io_clear_eol
-        .import io_color
-        .import newline, io_puts
-        .import log_info                ; log.s (Phase 21 Move 3)
-        .importzp cur_device            ; zp.s (Phase 21 Move 4)
+        .import io_getc, io_kbhit, io_clear_eol, io_color
+        .import newline
+        .importzp cur_device                    ; zp.s
         .import scr_lo, scr_hi
         .importzp disk_ptr
         .import str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf

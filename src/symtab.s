@@ -22,7 +22,7 @@
         .export sym_define, sym_lookup, sym_clear
 
         .import kernal_bank_out, kernal_bank_in
-        .importzp kernal_out            ; zp.s (Phase 21 Move 4)
+        .importzp kernal_out            ; zp.s
 
         .importzp sym_name, sym_val, sym_wide
 

@@ -1,31 +1,23 @@
 ; mem.s — Memory manager: banking, ZP save/restore, segment queries.
 ;
-; Permanent module that consolidates low-level state-preservation
-; primitives paired by contract.  After Phase 21 Move 1, mem.s is a
-; zp-only leaf: no sibling-module imports.
+; zp-only leaf — consolidates low-level state-preservation primitives:
 ;
 ;   KERNAL ROM banking:
-;     kernal_bank_out    clear $01 bit 1 (honours kernal_out)
-;     kernal_bank_in     set   $01 bit 1 (honours kernal_out)
-;     kernal_out         BSS flag (nonzero = KERNAL held banked out)
+;     kernal_bank_out    clear $01 bit 1 (honours kernal_out ZP flag)
+;     kernal_bank_in     set   $01 bit 1 (honours kernal_out ZP flag)
 ;
 ;   CPU-port aware ZP save/restore (kernel↔userland gates):
 ;     save_userland_zp   live ZP → userland_zp_buf  (DDR-stash single pass)
 ;     restore_userland_zp userland_zp_buf → live ZP  (DDR=$FF + backwards)
 ;     save_kernel_zp     live ZP → kernel_zp_buf (mirror of above)
 ;     restore_kernel_zp  kernel_zp_buf → live ZP (mirror of above)
-;     userland_zp_buf        BSS (128 B): user's ZP snapshot
+;     userland_zp_buf    BSS (128 B): user's ZP snapshot
 ;     kernel_zp_buf      BSS (128 B): kernel's ZP snapshot
 ;
 ;   Misc queries:
 ;     cse_start          returns runtime start (XXXX) in A/X
 ;     cse_end            returns $D000 in A/X
 ;     cse_zp_end         returns first free ZP byte in A
-;
-; Workspace-symbol registration (define_ws_syms) moved to editor.s
-; in Phase 21 Move 1 — the helper lives next to update_workend which
-; owns `workend`, sharing the sym_define / sym_name / sym_val / sym_wide
-; plumbing.
 
         .setcpu "6502"
 
@@ -45,11 +37,10 @@ ZP_SAVE_LEN = 128
         .export save_kernel_zp, restore_kernel_zp
         .export userland_zp_buf, kernel_zp_buf
         .export ZP_SAVE_LO, ZP_SAVE_LEN
-        ; kernal_out → zp.s (Phase 21 Move 4)
 
 ; ── Imports ──────────────────────────────────────────────────
         .import __ZP_LAST__
-        .importzp kernal_out              ; zp.s (Phase 21 Move 4)
+        .importzp kernal_out                    ; zp.s
 
 ; ── Constants ────────────────────────────────────────────────
 CPU_PORT     = $01
@@ -57,8 +48,6 @@ HIMEM        = $D000
 
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
-
-; kernal_out moved to zp.s (Phase 21 Move 4)
 
 ; ── ZP save/restore buffers ─────────────────────────────────
 ; Cover the full user-accessible page-zero range $00..$7F.  CSE
@@ -129,11 +118,6 @@ kernal_bank_in:
 ; ═════════════════════════════════════════════════════════════
 ; cse_start — return runtime start address in A/X
 ; ═════════════════════════════════════════════════════════════
-;
-; define_ws_syms — moved to editor.s alongside update_workend (Phase 21
-; Move 1).  mem.s is a zp-only leaf; the workspace-symbol logic belongs
-; with the module that owns buf_base.
-;
 cse_start:
         lda #<__CODE_RUN__
         ldx #>__CODE_RUN__

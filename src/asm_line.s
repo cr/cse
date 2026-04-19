@@ -34,9 +34,7 @@
 
         .export asm_line
         .export _asm_line_core
-        ; asm_error / asm_syntax_error / asm_expr_error / asm_expr_err
-        ; moved to asm_err.s in Phase 21 Move 2
-        .import asm_error, asm_syntax_error
+        .import asm_error, asm_syntax_error     ; asm_err.s
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
 
         ; zero-page variables (zp.s)
@@ -82,7 +80,6 @@ ZONE_F_PIDX = 5         ; ABS  (JSR)
 ; Saved user-code register state — populated by debugger.s on BRK/NMI
 ; entry, displayed by repl.s::show_regs, and reloaded into the CPU by
 ; debugger.s before continuing.
-; asm_expr_err moved to asm_err.s (Phase 21 Move 2)
 reg_a:         .res 1          ; saved A
 reg_x:         .res 1          ; saved X
 reg_y:         .res 1          ; saved Y
@@ -104,10 +101,6 @@ _asm_oplen:
         .byte  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  1,  1,  1,  1,  2,  2
 
 .segment "CODE"
-
-; ── Error handlers moved to asm_err.s (Phase 21 Move 2) ──────────────────────
-; asm_error / asm_syntax_error / asm_expr_error live there now, along
-; with the asm_expr_err flag.  They are .import'd above.
 
 ; ── asm_line ─────────────────────────────────────────────────────────────────
 ; asm_line(text)

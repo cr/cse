@@ -19,12 +19,9 @@
 ; newline` so output flows line by line without callers adding explicit
 ; newlines.
 ;
-; Moved here from repl.s in Phase 21 Move 3 so that disk.s / editor.s /
-; asm_src.s / main.s stop reaching up into repl.s for logging primitives.
-; repl.s still owns its prompt-row-specific wrappers (log_err_eol,
-; log_close_eol) and the range-line formatter family (seg_line /
-; prg_line / free_line) — those have deep coupling with REPL scratch
-; BSS.
+; All logging primitives live here.  disk.s / editor.s / asm_src.s /
+; main.s / repl.s import from this module; no module above Layer 2
+; reaches sideways for log-type output.
 ; ─────────────────────────────────────────────────────────────────────────────
 
         .setcpu "6502"

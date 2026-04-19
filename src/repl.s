@@ -10,27 +10,21 @@
 
 ; ── Exports ────────────────────────────────────────────────
         .export exec_line, read_line, show_prompt, cmd_info
-        ; seg_line, prg_line, free_line, info_line, info_line_head,
-        ; info_line_tail, log_err_eol, log_close_eol, puts_imm —
-        ; all moved to log.s in Phase 21 Move 3 / 21.1 Move 3B.
-        ; log_line / log_open / log_close / log_err / log_warn /
-        ; log_info / puts_imm moved to log.s (Phase 21 Move 3)
+        .export cur_addr, block_size
+        .export line_buf, last_cmd, rp_dis_bp
+
+; ── Imports: log.s ─────────────────────────────────────────
         .import log_line, log_open, log_close
         .import log_err, log_warn, log_info
-        .import log_err_eol, log_close_eol              ; moved Phase 21.1
-        .import seg_line, prg_line, free_line           ; moved Phase 21.1
+        .import log_err_eol, log_close_eol
+        .import seg_line, prg_line, free_line
         .import info_line, info_line_head, info_line_tail
         .import puts_imm
 
-        ; Scratch pool migrated to zp.s (Phase 21.1 Move 3B) — .exportzp
-        ; from zp.s supersedes the former BSS .exports here.
+; ── Imports: zp.s ──────────────────────────────────────────
         .importzp rp_addr, rp_cnt, rp_save, rp_save2
         .importzp rp_next_lo, _info_mode
-        .export cur_addr                ; cur_device, cur_project_name → zp.s
-        .importzp cur_device             ; zp.s (Phase 21 Move 4)
-        .importzp cur_project_name       ; zp.s (Phase 21.1 Move 6a)
-        .export block_size
-        .export line_buf, last_cmd, rp_dis_bp
+        .importzp cur_device, cur_project_name
 
 ; ── Imports: cse_io.s ──────────────────────────────────────
         .import io_putc, io_repc, io_puts, scr_to_pet
@@ -2779,10 +2773,6 @@ prg_ok_done:
         ldx #>str_range
         jmp log_err_eol
 .endproc
-
-; Range-line family (info_line / info_line_head / info_line_tail /
-; free_line / prg_line / seg_line / _range_core) moved to log.s in
-; Phase 21.1 Move 3B.  Imported above; call sites unchanged.
 
 ; ───────────────────────────────────────────────────────────
 ; info_emit_rows — emit N rows from info table
