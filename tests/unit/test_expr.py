@@ -1,6 +1,10 @@
 """
 test_expr.py — Expression parser tests (expr.s + symtab.s)
 
+Tier U test running against the `asm_core` bundle (Tranche 3 folded
+this into asm_core — expr.s, symtab.s, and mem.s are all linked
+there, so no separate binary is needed).
+
 Return code: 0 = valid ZP (8-bit), 1 = valid ABS (16-bit), 2+ = error.
 Width rule: 3+ hex digits force ABS. Labels inherit width from definition.
 < and > at expression start force ZP. Result > $FF forces ABS.
@@ -12,20 +16,8 @@ Symbol fixture: (name, value, wide_flag)
   port=$D020(abs).
 """
 
-import subprocess, pathlib, re, pytest
+import pytest
 from py65.devices.mpu6502 import MPU
-
-ROOT  = pathlib.Path(__file__).parent.parent.parent
-BUILD = ROOT / "build"
-SRC   = ROOT / "src"
-DEV   = ROOT / "dev"
-
-EXPR_BIN = BUILD / "expr_test.bin"
-EXPR_MAP = BUILD / "expr_test.map"
-
-_ZP_START   = 0x0000
-_CODE_START = 0x4000
-_ZP_SIZE    = 0x0100
 
 _STR_BUF  = 0x1000   # must be above BSS end (sym_table ~768B + other)
 _NAME_BUF = 0x1100
@@ -252,55 +244,11 @@ NEGATIVE_ANY = [
 
 # ═══════════════════════════════════════════════════════════════════
 # Infrastructure
+#
+# Tranche 3 (Phase 21.1 follow-up): expr_eval / sym_define / sym_clear
+# are now called directly through the asm_core `syms` fixture — no
+# separate binary, no per-entry trampolines, no dev/expr_test_stub.s.
 # ═══════════════════════════════════════════════════════════════════
-
-def _needs_rebuild():
-    if not EXPR_BIN.exists(): return True
-    t = EXPR_BIN.stat().st_mtime
-    return any(s.stat().st_mtime > t for s in [
-        SRC/"zp.s", SRC/"strings.s", SRC/"expr.s", SRC/"symtab.s", SRC/"mem.s",
-        DEV/"expr_test_stub.s", DEV/"test.cfg"])
-
-def _build():
-    BUILD.mkdir(exist_ok=True)
-    for name, src in [("zp_expr", SRC/"zp.s"),
-                      ("strings", SRC/"strings.s"),
-                      ("expr", SRC/"expr.s"), ("symtab", SRC/"symtab.s"),
-                      ("mem", SRC/"mem.s"),
-                      ("expr_test_stub", DEV/"expr_test_stub.s")]:
-        subprocess.run(["ca65", "--cpu", "6502", "-t", "c64",
-                        "-I", str(BUILD),
-                        str(src),
-                        "-o", str(BUILD/f"{name}.o")], check=True)
-    subprocess.run(["ld65", "-C", str(DEV/"test.cfg"),
-                    str(BUILD/"zp_expr.o"),
-                    str(BUILD/"strings.o"),
-                    str(BUILD/"expr.o"), str(BUILD/"symtab.o"),
-                    str(BUILD/"mem.o"),
-                    str(BUILD/"expr_test_stub.o"),
-                    "-o", str(EXPR_BIN), "-m", str(EXPR_MAP)], check=True)
-
-def _parse_exports():
-    syms = {}
-    in_exp = False
-    for line in EXPR_MAP.read_text().splitlines():
-        if "Exports list by name" in line: in_exp = True; continue
-        if in_exp:
-            for m in re.finditer(r'(\w+)\s+([0-9a-fA-F]{6})\s+RL', line):
-                syms[m.group(1)] = int(m.group(2), 16)
-            if line.strip() == "": break
-    return syms
-
-def _parse_stub_offset():
-    in_stub = False
-    for line in EXPR_MAP.read_text().splitlines():
-        if 'expr_test_stub.o:' in line: in_stub = True; continue
-        if in_stub and 'CODE' in line:
-            m = re.search(r'Offs=([0-9a-fA-F]+)', line)
-            if m: return int(m.group(1), 16)
-            break
-        if in_stub and not line.startswith(' '): break
-    return None
 
 def _petscii(s):
     """Convert ASCII test string to PETSCII bytes.
@@ -316,36 +264,9 @@ def _petscii(s):
     out.append(0)
     return bytes(out)
 
-class ExprFixture:
-    def __init__(self):
-        if _needs_rebuild(): _build()
-        self.exports = _parse_exports()
-        self._raw = EXPR_BIN.read_bytes()
-        stub_off = _parse_stub_offset()
-        if stub_off is None:
-            raise RuntimeError("Cannot find expr_test_stub CODE offset")
-        base = _CODE_START + stub_off
-        self.eval_entry = base
-        self.define_entry = base + 4
-        self.clear_entry = base + 8
-        self.expr_ptr = self.exports["expr_ptr"]
-        self.expr_val = self.exports["expr_val"]
-        self.expr_wide = self.exports.get("expr_wide", self.exports["expr_val"] + 2)
-        self.asm_pc = self.exports["asm_pc"]
-        self.sym_name = self.exports["sym_name"]
-        self.sym_val = self.exports["sym_val"]
-        self.sym_wide = self.exports.get("sym_wide")
-
-    def load_into(self, mem):
-        mem[0:_ZP_SIZE] = self._raw[:_ZP_SIZE]
-        code = self._raw[_ZP_SIZE:]
-        mem[_CODE_START:_CODE_START+len(code)] = code
-
-@pytest.fixture(scope="session")
-def expr():
-    return ExprFixture()
 
 def _call(mpu, mem, entry):
+    """JSR-like: push (_RETURN-1) to stack, set PC=entry, step to return."""
     mem[_RETURN] = 0x00
     mpu.sp = 0xFF
     mpu.sp -= 1; mem[0x01FF] = (_RETURN - 1) >> 8
@@ -356,39 +277,44 @@ def _call(mpu, mem, entry):
         mpu.step()
     raise RuntimeError(f"Timeout at ${mpu.pc:04X}")
 
-def _setup(fix):
+
+def _setup(syms):
+    """Fresh MPU with the asm_core bundle loaded."""
     mpu = MPU()
     mem = bytearray(0x10000)
-    fix.load_into(mem)
+    syms.load_into(mem)
     mpu.memory = mem
     return mpu, mem
 
-def _define_symbols(fix, mpu, mem):
+
+def _define_symbols(syms, mpu, mem):
     """Define all test symbols with their wide flags."""
-    _call(mpu, mem, fix.clear_entry)
+    _call(mpu, mem, syms.sym_clear)
     addr = _NAME_BUF
     for name, (value, wide) in SYMBOLS.items():
         enc = _petscii(name)
         for i, b in enumerate(enc): mem[addr+i] = b
-        mem[fix.sym_name] = addr & 0xFF; mem[fix.sym_name+1] = (addr>>8) & 0xFF
-        mem[fix.sym_val] = value & 0xFF; mem[fix.sym_val+1] = (value>>8) & 0xFF
-        # Set sym_wide if the ZP address is known
-        if fix.sym_wide is not None:
-            mem[fix.sym_wide] = wide
-        _call(mpu, mem, fix.define_entry)
+        mem[syms.sym_name]     = addr & 0xFF
+        mem[syms.sym_name + 1] = (addr >> 8) & 0xFF
+        mem[syms.sym_val]      = value & 0xFF
+        mem[syms.sym_val + 1]  = (value >> 8) & 0xFF
+        mem[syms.sym_wide]     = wide
+        _call(mpu, mem, syms.sym_define)
         addr += len(enc)
 
-def _eval(fix, mpu, mem, input_str, pc=0x1000):
+
+def _eval(syms, mpu, mem, input_str, pc=0x1000):
     """Evaluate expression. Returns (rc, value).
     rc: 0=ZP, 1=ABS, 2+=error code."""
-    ep, ev, ap = fix.expr_ptr, fix.expr_val, fix.asm_pc
     enc = _petscii(input_str)
-    for i, b in enumerate(enc): mem[_STR_BUF+i] = b
-    mem[ep] = _STR_BUF & 0xFF; mem[ep+1] = (_STR_BUF>>8) & 0xFF
-    mem[ap] = pc & 0xFF; mem[ap+1] = (pc>>8) & 0xFF
-    _call(mpu, mem, fix.eval_entry)
+    for i, b in enumerate(enc): mem[_STR_BUF + i] = b
+    mem[syms.expr_ptr]     = _STR_BUF & 0xFF
+    mem[syms.expr_ptr + 1] = (_STR_BUF >> 8) & 0xFF
+    mem[syms.asm_pc]       = pc & 0xFF
+    mem[syms.asm_pc + 1]   = (pc >> 8) & 0xFF
+    _call(mpu, mem, syms.expr_eval)
     rc = mpu.a   # 0=ZP, 1=ABS, 2+=error
-    val = mem[ev] | (mem[ev+1] << 8)
+    val = mem[syms.expr_val] | (mem[syms.expr_val + 1] << 8)
     return rc, val
 
 # ═══════════════════════════════════════════════════════════════════
@@ -400,11 +326,11 @@ def _eval(fix, mpu, mem, input_str, pc=0x1000):
     POSITIVE,
     ids=[t[5] for t in POSITIVE],
 )
-def test_positive(expr, input_str, expected, exp_rc, needs_sym, pc, purpose):
-    mpu, mem = _setup(expr)
+def test_positive(syms, input_str, expected, exp_rc, needs_sym, pc, purpose):
+    mpu, mem = _setup(syms)
     if needs_sym:
-        _define_symbols(expr, mpu, mem)
-    rc, val = _eval(expr, mpu, mem, input_str, pc=pc)
+        _define_symbols(syms, mpu, mem)
+    rc, val = _eval(syms, mpu, mem, input_str, pc=pc)
     assert rc <= 1, f"{purpose}: '{input_str}' should succeed, got error {rc}"
     assert val == expected, f"{purpose}: '{input_str}' expected ${expected:04X}, got ${val:04X}"
     assert rc == exp_rc, f"{purpose}: '{input_str}' expected rc={exp_rc} ({'ZP' if exp_rc==0 else 'ABS'}), got rc={rc}"
@@ -415,11 +341,11 @@ def test_positive(expr, input_str, expected, exp_rc, needs_sym, pc, purpose):
     NEGATIVE,
     ids=[t[3] for t in NEGATIVE],
 )
-def test_negative(expr, input_str, err_code, needs_sym, purpose):
-    mpu, mem = _setup(expr)
+def test_negative(syms, input_str, err_code, needs_sym, purpose):
+    mpu, mem = _setup(syms)
     if needs_sym:
-        _define_symbols(expr, mpu, mem)
-    rc, _ = _eval(expr, mpu, mem, input_str)
+        _define_symbols(syms, mpu, mem)
+    rc, _ = _eval(syms, mpu, mem, input_str)
     assert rc >= 2, f"{purpose}: '{input_str}' should fail, got rc={rc}"
     assert rc == err_code, f"{purpose}: '{input_str}' expected err={err_code}, got err={rc}"
 
@@ -429,11 +355,11 @@ def test_negative(expr, input_str, err_code, needs_sym, purpose):
     NEGATIVE_ANY,
     ids=[t[2] for t in NEGATIVE_ANY],
 )
-def test_negative_any(expr, input_str, needs_sym, purpose):
-    mpu, mem = _setup(expr)
+def test_negative_any(syms, input_str, needs_sym, purpose):
+    mpu, mem = _setup(syms)
     if needs_sym:
-        _define_symbols(expr, mpu, mem)
-    rc, _ = _eval(expr, mpu, mem, input_str)
+        _define_symbols(syms, mpu, mem)
+    rc, _ = _eval(syms, mpu, mem, input_str)
     assert rc >= 2, f"{purpose}: '{input_str}' should fail, got rc={rc}"
 
 
@@ -455,82 +381,81 @@ def test_negative_any(expr, input_str, needs_sym, purpose):
 # (not under $E000), so banking has no semantic effect on the
 # data — but $01 bit 1 toggling is observable.
 
-def _eval_with_bank_witness(expr, mpu, mem, input_str, pc=0x1000):
+def _eval_with_bank_witness(syms, mpu, mem, input_str, pc=0x1000):
     """Like _eval, but also captures $01 and the I flag at exit."""
-    ep, ev, ap = expr.expr_ptr, expr.expr_val, expr.asm_pc
     enc = _petscii(input_str)
     for i, b in enumerate(enc):
         mem[_STR_BUF + i] = b
-    mem[ep] = _STR_BUF & 0xFF
-    mem[ep + 1] = (_STR_BUF >> 8) & 0xFF
-    mem[ap] = pc & 0xFF
-    mem[ap + 1] = (pc >> 8) & 0xFF
+    mem[syms.expr_ptr]     = _STR_BUF & 0xFF
+    mem[syms.expr_ptr + 1] = (_STR_BUF >> 8) & 0xFF
+    mem[syms.asm_pc]       = pc & 0xFF
+    mem[syms.asm_pc + 1]   = (pc >> 8) & 0xFF
     # Pre-condition: $01 bit 1 = 1, I = 0
     mem[0x01] = 0x37
     mpu.p &= ~0x04
-    _call(mpu, mem, expr.eval_entry)
+    _call(mpu, mem, syms.expr_eval)
     rc = mpu.a
-    val = mem[ev] | (mem[ev + 1] << 8)
+    val = mem[syms.expr_val] | (mem[syms.expr_val + 1] << 8)
     return rc, val, mem[0x01], mpu.p
 
 
 class TestExprEvalBankContract:
     """expr_eval must restore $01 bit 1 = 1 and clear I after every call."""
 
-    def test_bank_restored_simple_zp(self, expr):
-        mpu, mem = _setup(expr)
-        rc, val, port01, p = _eval_with_bank_witness(expr, mpu, mem, "$10")
+    def test_bank_restored_simple_zp(self, syms):
+        mpu, mem = _setup(syms)
+        rc, val, port01, p = _eval_with_bank_witness(syms, mpu, mem, "$10")
         assert rc == 0 and val == 0x10
         assert (port01 & 0x02) == 0x02, \
             f"$01 bit 1 not set after expr_eval: ${port01:02X}"
         assert (p & 0x04) == 0, \
             f"I flag still set after expr_eval: ${p:02X}"
 
-    def test_bank_restored_abs(self, expr):
-        mpu, mem = _setup(expr)
-        rc, val, port01, p = _eval_with_bank_witness(expr, mpu, mem, "$1234")
+    def test_bank_restored_abs(self, syms):
+        mpu, mem = _setup(syms)
+        rc, val, port01, p = _eval_with_bank_witness(syms, mpu, mem, "$1234")
         assert rc == 1 and val == 0x1234
         assert (port01 & 0x02) == 0x02
         assert (p & 0x04) == 0
 
-    def test_bank_restored_error(self, expr):
-        mpu, mem = _setup(expr)
-        rc, _, port01, p = _eval_with_bank_witness(expr, mpu, mem, ")")
+    def test_bank_restored_error(self, syms):
+        mpu, mem = _setup(syms)
+        rc, _, port01, p = _eval_with_bank_witness(syms, mpu, mem, ")")
         assert rc >= 2
         assert (port01 & 0x02) == 0x02, \
             f"$01 bit 1 not set after expr_eval error: ${port01:02X}"
         assert (p & 0x04) == 0
 
-    def test_bank_restored_after_sym_lookup(self, expr):
+    def test_bank_restored_after_sym_lookup(self, syms):
         """The interesting case: expr_eval calls sym_lookup, which
         does its own banking internally.  expr_eval must still leave
         the bank state correct on return."""
-        mpu, mem = _setup(expr)
-        _define_symbols(expr, mpu, mem)
-        rc, val, port01, p = _eval_with_bank_witness(expr, mpu, mem, "screen")
+        mpu, mem = _setup(syms)
+        _define_symbols(syms, mpu, mem)
+        rc, val, port01, p = _eval_with_bank_witness(syms, mpu, mem, "screen")
         assert rc < 2, f"sym lookup failed: rc={rc}"
         assert val == 0x0400
         assert (port01 & 0x02) == 0x02
         assert (p & 0x04) == 0
 
-    def test_bank_restored_after_complex_expr(self, expr):
+    def test_bank_restored_after_complex_expr(self, syms):
         """Multi-symbol expression — exercises sym_lookup multiple times."""
-        mpu, mem = _setup(expr)
-        _define_symbols(expr, mpu, mem)
+        mpu, mem = _setup(syms)
+        _define_symbols(syms, mpu, mem)
         rc, val, port01, p = _eval_with_bank_witness(
-            expr, mpu, mem, "screen+page-one")
+            syms, mpu, mem, "screen+page-one")
         assert rc < 2, f"complex expr failed: rc={rc}"
         assert val == 0x0400 + 0x0100 - 1
         assert (port01 & 0x02) == 0x02
         assert (p & 0x04) == 0
 
-    def test_bank_restored_after_undefined_sym(self, expr):
+    def test_bank_restored_after_undefined_sym(self, syms):
         """sym_lookup miss — expr_eval returns ERR_UNDEFINED via the
         same exit path that handles other errors."""
-        mpu, mem = _setup(expr)
-        _define_symbols(expr, mpu, mem)
+        mpu, mem = _setup(syms)
+        _define_symbols(syms, mpu, mem)
         rc, _, port01, p = _eval_with_bank_witness(
-            expr, mpu, mem, "no_such_label_xyz")
+            syms, mpu, mem, "no_such_label_xyz")
         assert rc >= 2
         assert (port01 & 0x02) == 0x02
         assert (p & 0x04) == 0

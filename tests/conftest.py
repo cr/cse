@@ -192,6 +192,19 @@ class AsmCoreSymbols:
         self.asm_pass         = s["asm_pass"]
         self.asm_expr_err     = s["asm_expr_err"]
 
+        # expr.s + symtab.s entry points (linked into asm_core; used
+        # by test_expr.py after Tranche 3 folded it into this bundle).
+        self.expr_eval        = s["expr_eval"]
+        self.expr_ptr         = s["expr_ptr"]
+        self.expr_val         = s["expr_val"]
+        self.expr_wide        = s["expr_wide"]
+        self.sym_define       = s["sym_define"]
+        self.sym_lookup       = s["sym_lookup"]
+        self.sym_clear        = s["sym_clear"]
+        self.sym_name         = s["sym_name"]
+        self.sym_val          = s["sym_val"]
+        self.sym_wide         = s["sym_wide"]
+
         raw = _AC_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]
