@@ -1,10 +1,24 @@
 """
-test_debugger.py — Debugger breakpoint table contract tests (debugger.s)
+test_debugger_contracts.py — debugger.s BP-table contract tests (Tier U)
 
-Phase A: bp_set, bp_del, bp_clear, bp_count, dbg_init.
-Phase B: bp_patch, bp_unpatch, bp_find.
+Covers the pure-data-structure surface of debugger.s:
+  * dbg_init     — bp_table + debug-state zero sweep, $FF seeds
+  * bp_set       — find empty slot, install (addr, saved, flags)
+  * bp_del       — slot-number delete
+  * bp_clear     — wipe all slots
+  * bp_count     — count non-empty slots
+  * patch_all    — write $00 at every armed BP addr, save original byte
+  * unpatch_all  — restore saved bytes (reverse order for overlap safety)
+  * bp_find      — address → slot lookup
 
-Test binary: debugger.s + debugger_test_stub.s
+Tests that exercise the step/BRK/NMI state machine live in
+tests/integration/test_kernel_transition.py (kernel↔user transitions,
+step chains, warmstart gates) and tests/integration/test_step_rom.py
+(step-into-ROM fallback).  Those require real KERNAL vectors + ZP
+save/restore buffers + interrupt dispatch — Tier I via C64Emu.
+
+Test binary: debugger.s + debugger_test_stub.s (linker scaffolding
++ reg_* shadows + stubbed ZP save/restore helpers).
 Protocol: write command byte + args at $0B00, JSR dbg_test_entry.
 """
 
