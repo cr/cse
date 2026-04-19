@@ -18,7 +18,10 @@ Usage:
 import pathlib
 from py65.devices.mpu6502 import MPU
 
-_ROM_PATH = pathlib.Path(__file__).parent.parent / "rom" / "kernal_cbm.bin"
+_ROM_DIR     = pathlib.Path(__file__).parent.parent / "rom"
+_ROM_KERNAL  = _ROM_DIR / "kernal_cbm.bin"
+_ROM_BASIC   = _ROM_DIR / "basic_cbm.bin"
+_ROM_CHARGEN = _ROM_DIR / "chargen_cbm.bin"
 
 # C64 memory layout constants
 SCREEN     = 0x0400
@@ -42,19 +45,54 @@ CHR_COLOR   = 0x0286   # current text colour
 
 
 class BankedMemory:
-    """64 KB address space with ROM overlay and $01 bank switching.
+    """64 KB address space modelling the C64 6510 CPU port + ROM overlays.
 
-    When rom_mapped is True, reads from $E000–$FFFF return ROM data.
-    Writes always go to RAM (write-through).  Writing to $01 toggles
-    bit 1: set = KERNAL ROM visible, clear = RAM visible.
+    Banking (via `$01` processor port, with `$00` as DDR):
+      bit 0 (LORAM)  — BASIC ROM at $A000-$BFFF when set (also needs HIRAM)
+      bit 1 (HIRAM)  — KERNAL ROM at $E000-$FFFF when set
+      bit 2 (CHAREN) — I/O at $D000-$DFFF when set, else character ROM
+
+    CSE runtime default: $01 = $36 = 0011 0110 → LORAM=0 (BASIC
+    banked out), HIRAM=1 (KERNAL visible), CHAREN=1 (I/O visible).
+
+    Writes always latch all 8 bits of `$01` (bits 3-7 track cassette
+    and are inert for CSE).  Reads of `$01` are DDR-gated:
+      output bits (DDR[N]=1) → latched value
+      input bits  (DDR[N]=0) → external pin state (default $17 =
+                                cassette-sense-released floating)
+
+    `$00` writes latch DDR.  Reads return the latched DDR (the CPU
+    port register is always readable).
+
+    Character-ROM overlay at $D000-$DFFF is loaded from
+    `rom/chargen_cbm.bin` (4 KB × 2 = 4096 B covering just the
+    chargen region).  BASIC ROM from `rom/basic_cbm.bin`.  Both
+    are optional — if missing, those overlays stay disabled and
+    LORAM/CHAREN have no effect.
     """
 
-    __slots__ = ('ram', 'rom', 'rom_mapped')
+    __slots__ = (
+        'ram',
+        'rom_kernal', 'rom_basic', 'rom_chargen',
+        'loram', 'hiram', 'charen',
+        'external_01',
+    )
 
-    def __init__(self, rom_data):
+    # External pin state for input bits on $01 (bits configured as
+    # DDR=0).  Default: $17 = bits 0,1,2,4 set — mimics the C64's
+    # cassette-sense-no-button / datasette-disconnected state.
+    DEFAULT_EXTERNAL_01 = 0x17
+
+    def __init__(self, rom_kernal, rom_basic=None, rom_chargen=None):
         self.ram = [0] * 65536
-        self.rom = list(rom_data)      # 8192 bytes ($E000–$FFFF)
-        self.rom_mapped = True
+        self.rom_kernal  = list(rom_kernal)     # 8 KB $E000-$FFFF
+        self.rom_basic   = list(rom_basic)   if rom_basic   else None
+        self.rom_chargen = list(rom_chargen) if rom_chargen else None
+        # Boot default: $01 = $37 (LORAM=HIRAM=CHAREN=1, BASIC + KERNAL + I/O).
+        self.loram  = True
+        self.hiram  = True
+        self.charen = True
+        self.external_01 = self.DEFAULT_EXTERNAL_01
 
     def __len__(self):
         return 65536
@@ -66,8 +104,21 @@ class BankedMemory:
         return self._read(key)
 
     def _read(self, addr):
-        if self.rom_mapped and 0xE000 <= addr <= 0xFFFF:
-            return self.rom[addr - 0xE000]
+        # KERNAL ROM overlay (HIRAM)
+        if 0xE000 <= addr <= 0xFFFF and self.hiram:
+            return self.rom_kernal[addr - 0xE000]
+        # BASIC ROM overlay (LORAM + HIRAM both required)
+        if 0xA000 <= addr <= 0xBFFF and self.loram and self.hiram and self.rom_basic:
+            return self.rom_basic[addr - 0xA000]
+        # Character ROM overlay ($D000-$DFFF when CHAREN=0 and HIRAM=1)
+        if 0xD000 <= addr <= 0xDFFF and self.hiram and not self.charen and self.rom_chargen:
+            return self.rom_chargen[addr - 0xD000]
+        # DDR-gated $01 read: output bits return latched, input bits
+        # return external pin state.
+        if addr == 0x01:
+            ddr     = self.ram[0x00]
+            latched = self.ram[0x01]
+            return ((latched & ddr) | (self.external_01 & (ddr ^ 0xFF))) & 0xFF
         return self.ram[addr]
 
     def __setitem__(self, key, val):
@@ -85,7 +136,14 @@ class BankedMemory:
 
     def _write(self, addr, val):
         if addr == 0x01:
-            self.rom_mapped = bool(val & 0x02)
+            # Update banking latches from output-bit writes.  Input
+            # bits (DDR=0) still latch (the bit in the register is
+            # written) but don't drive the pin.  For simplicity we
+            # let all three banking bits reflect the latched state —
+            # CSE never configures any banking bit as input.
+            self.loram  = bool(val & 0x01)
+            self.hiram  = bool(val & 0x02)
+            self.charen = bool(val & 0x04)
         self.ram[addr] = val
 
 
@@ -97,18 +155,41 @@ class C64Emu:
     SENTINEL = 0xDFF0
 
     def __init__(self, rom_path=None):
-        rom_path = pathlib.Path(rom_path) if rom_path else _ROM_PATH
-        rom_data = rom_path.read_bytes()
-        assert len(rom_data) == 8192, f"KERNAL ROM must be 8192 bytes, got {len(rom_data)}"
+        # KERNAL is required.  BASIC and CHARGEN are optional — if
+        # missing, LORAM / CHAREN banking simply has no ROM to
+        # overlay and those regions stay RAM regardless of $01 state.
+        kernal_path = pathlib.Path(rom_path) if rom_path else _ROM_KERNAL
+        kernal_data = kernal_path.read_bytes()
+        assert len(kernal_data) == 8192, \
+            f"KERNAL ROM must be 8192 bytes, got {len(kernal_data)}"
 
-        self._mem = BankedMemory(rom_data)
+        basic_data   = _ROM_BASIC.read_bytes()   if _ROM_BASIC.exists()   else None
+        chargen_data = _ROM_CHARGEN.read_bytes() if _ROM_CHARGEN.exists() else None
+        if basic_data is not None:
+            assert len(basic_data) == 8192, \
+                f"BASIC ROM must be 8192 bytes, got {len(basic_data)}"
+        if chargen_data is not None:
+            assert len(chargen_data) == 4096, \
+                f"CHARGEN ROM must be 4096 bytes, got {len(chargen_data)}"
+
+        self._mem = BankedMemory(kernal_data, basic_data, chargen_data)
         self._cpu = MPU()
         self._cpu.memory = self._mem
         self._syms = {}
 
         # -- processor port --
-        self._mem.ram[0x00] = 0x2F       # DDR: all output
-        self._mem.ram[0x01] = 0x37       # default bank config
+        # CSE runtime default: $01 = $36 = 0011 0110 → LORAM=0
+        # (BASIC banked OUT so $A000-$BFFF is RAM workspace),
+        # HIRAM=1 (KERNAL in), CHAREN=1 (I/O in).  Matches what CSE
+        # cold-init sets; tests that jump to CSE functions without
+        # running cold-init still see the runtime banking.  Tests
+        # that need BASIC (or RAM under KERNAL) can write to $01
+        # explicitly.
+        self._mem.ram[0x00] = 0x2F       # DDR: default C64 mask
+        self._mem.ram[0x01] = 0x36       # CSE runtime default
+        self._mem.loram  = False         # BASIC out
+        self._mem.hiram  = True          # KERNAL in
+        self._mem.charen = True          # I/O visible
 
         # -- screen + color RAM --
         for i in range(SCREEN, SCREEN_END):
@@ -140,7 +221,7 @@ class C64Emu:
         # -- page-3 I/O vectors --
         # Run RESTOR ($FF8A) in a temporary CPU to populate the
         # default I/O vectors at $0314–$0333.
-        self._init_kernal_vectors(rom_data)
+        self._init_kernal_vectors(kernal_data)
 
         # -- stack --
         self._cpu.sp = 0xFF
@@ -494,11 +575,18 @@ class C64Emu:
     def init_cse(self, *, editor=False):
         """Run CSE init routines.  Call after load_prg().
 
-        Runs theme_init + restore_colors + setup_interrupts.
+        Runs the minimal cold-init sequence — theme_init +
+        restore_colors + setup_interrupts + dbg_init + sym_clear.
+        `sym_clear` is mandatory because update_workend (called
+        from editor init and asm_assemble) writes to the symbol
+        heap via sym_define; without sym_clear the heap pointer
+        is \$0000 (BSS default) and writes corrupt zero page.
         If editor=True, also runs ed_ensure_init.
         """
         self.jsr(self.sym("theme_init"))
         self.jsr(self.sym("restore_colors"))
         self.jsr(self.sym("setup_interrupts"))
+        self.jsr(self.sym("dbg_init"))
+        self.jsr(self.sym("sym_clear"))
         if editor:
             self.jsr(self.sym("ed_ensure_init"))

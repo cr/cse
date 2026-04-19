@@ -19,8 +19,12 @@ class TestConstruction:
 
     def test_processor_port(self):
         emu = C64Emu()
-        assert emu.memory[0x00] == 0x2F   # DDR
-        assert emu.memory[0x01] == 0x37   # bank config
+        assert emu.memory[0x00] == 0x2F   # DDR (stock C64 mask)
+        # $01 defaults to CSE runtime config: $36 = LORAM=0 (BASIC
+        # banked out), HIRAM=1 (KERNAL in), CHAREN=1 (I/O in).
+        # Tests that need a different starting banking state can
+        # write $01 explicitly.
+        assert emu.memory[0x01] == 0x36
 
     def test_screen_cleared(self):
         emu = C64Emu()
