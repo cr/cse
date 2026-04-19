@@ -31,12 +31,26 @@
 
         .export log_line, log_open, log_close
         .export log_err, log_warn, log_info
+        .export log_err_eol, log_close_eol
         .export puts_imm
+        .export seg_line, prg_line, free_line
+        .export info_line, info_line_head, info_line_tail
 
-        .import io_putc, io_puts, io_clear_eol, newline
-        .importzp rp_tmp
+        .import io_putc, io_puts, io_puthex4, io_putdec_pd, io_repc
+        .import io_clear_eol, newline
+        .import scr_lo, scr_hi
+        .importzp rp_tmp, rp_ptr, rp_ptr2
+        .importzp rp_addr, rp_cnt, rp_save, rp_save2
+        .importzp rp_next_lo, _info_mode
+        .import str_free_suf, str_tag_prg
 
 .include "log.inc"
+.include "macros.inc"           ; `puts` macro (calls puts_imm below)
+
+; C64 screen editor registers (matches repl.s definitions)
+CUR_COL      = $D3
+CUR_ROW      = $D6
+SCREEN_WIDTH = 40
 
 .segment "CODE"
 
@@ -133,3 +147,180 @@ puts_imm:
 :       dec rp_tmp
         lda (rp_tmp),y          ; A = str_lo
         jmp io_puts             ; tail call; rts returns to caller+5
+
+; ═══════════════════════════════════════════════════════════
+; log_err_eol — newline + error line + clear prompt row
+; Used for error-only exits from command handlers.
+; ═══════════════════════════════════════════════════════════
+log_err_eol:
+        jsr newline
+        jsr log_err
+        jmp io_clear_eol
+
+; ═══════════════════════════════════════════════════════════
+; log_close_eol — close log line + clear prompt row
+; ═══════════════════════════════════════════════════════════
+log_close_eol:
+        jsr log_close
+        jmp io_clear_eol
+
+; ═══════════════════════════════════════════════════════════
+; Range info line family — "; TAG  AAAA-BBBB NNNNNb [free]"
+;
+;   info_line       complete "; TAG  AAAA-BBBB desc" line
+;                     rp_save2=inv, rp_ptr2=tag, rp_addr=lo,
+;                     rp_cnt=hi, rp_ptr=desc
+;   info_line_head  prefix "; TAG  AAAA-BBBB " + screen-row snapshot
+;   info_line_tail  pad + optional highlight + newline
+;   free_line       "; TAG  AAAA-BBBB NNNNNb free"  (cmd_info rows,
+;                     highlight flag from _info_mode)
+;   prg_line        "; prg  AAAA-BBBB NNNNNb"       (exclusive end
+;                     convention; decrements rp_cnt then falls into
+;                     seg_line)
+;   seg_line        "; TAG  AAAA-BBBB NNNNNb"       (inclusive end;
+;                     caller pre-loads rp_ptr2=tag)
+;
+; Moved from repl.s in Phase 21.1 Move 3B alongside the scratch-pool
+; ZP promotion.  asm_src.s's single `jsr seg_line` now resolves here.
+; ═══════════════════════════════════════════════════════════
+
+info_line:
+        jsr info_line_head
+        lda rp_ptr
+        ldx rp_ptr+1
+        jsr io_puts
+        jmp info_line_tail
+
+info_line_head:
+        ; save screen addr for invert pass later
+        ldx CUR_ROW
+        lda scr_lo,x
+        sta rp_next_lo
+        lda scr_hi,x
+        sta rp_next_lo+1
+
+        lda #0
+        sta CUR_COL
+        lda #';'
+        jsr io_putc
+        lda #' '
+        jsr io_putc
+
+        ; print tag
+        lda rp_ptr2
+        ldx rp_ptr2+1
+        jsr io_puts
+
+        ; pad tag to 5 cols (4 chars + 1 space separator)
+        ldy #0
+@tlen:  lda (rp_ptr2),y
+        beq @tpad
+        iny
+        cpy #4
+        bcc @tlen
+@tpad:  tya
+        eor #$FF
+        clc
+        adc #5+1                ; X = 5 - len
+        tax
+        lda #' '
+        jsr io_repc
+
+        ; print lo-hi + space
+        lda rp_addr
+        ldx rp_addr+1
+        jsr io_puthex4
+        lda #'-'
+        jsr io_putc
+        lda rp_cnt
+        ldx rp_cnt+1
+        jsr io_puthex4
+        lda #' '
+        jmp io_putc
+
+free_line:
+        ; compute rp_save2 from _info_mode (0=highlight, 1=no highlight)
+        lda _info_mode
+        eor #1
+        sta rp_save2
+        jsr _range_core         ; head + "NNNNNb"
+        puts str_free_suf       ; " free"
+        jmp info_line_tail
+
+prg_line:
+        lda #<str_tag_prg
+        sta rp_ptr2
+        lda #>str_tag_prg
+        sta rp_ptr2+1
+        lda #0
+        sta rp_save2
+        ; convert exclusive end → inclusive
+        lda rp_cnt
+        bne :+
+        dec rp_cnt+1
+:       dec rp_cnt
+        ; fall through to seg_line
+
+seg_line:
+        jsr _range_core
+        ; fall through to info_line_tail
+
+info_line_tail:
+        ; save col position
+        lda CUR_COL
+        sta rp_save
+
+        ; copy screen pointer to ZP rp_ptr for indirect access
+        lda rp_next_lo
+        sta rp_ptr
+        lda rp_next_lo+1
+        sta rp_ptr+1
+
+        ; inv or normal pad
+        lda rp_save2
+        beq @normal_pad
+
+        ; inv: set bit 7 on AAAA-BBBB only (cols 7-15)
+        ldy #7
+@inv_lp:
+        cpy #16
+        bcs @inv_done
+        lda (rp_ptr),y
+        ora #$80
+        sta (rp_ptr),y
+        iny
+        bne @inv_lp
+@inv_done:
+
+@normal_pad:
+        ; fill rest with $20 (space)
+        ldy rp_save
+@npad:  cpy #SCREEN_WIDTH
+        bcs @done
+        lda #$20
+        sta (rp_ptr),y
+        iny
+        bne @npad
+
+@done:  jmp newline
+
+; ── _range_core — info_line_head + right-aligned size + 'b' ──
+_range_core:
+        jsr info_line_head
+        ; size = hi - lo + 1
+        lda rp_cnt
+        sec
+        sbc rp_addr
+        pha
+        lda rp_cnt+1
+        sbc rp_addr+1
+        tax
+        pla
+        clc
+        adc #1
+        bcc :+
+        inx
+:       sec                     ; right-aligned
+        jsr io_putdec_pd
+        lda #'b'
+        jmp io_putc

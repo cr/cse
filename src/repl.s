@@ -9,14 +9,23 @@
         .include "macros.inc"
 
 ; ── Exports ────────────────────────────────────────────────
-        .export exec_line, read_line, show_prompt, cmd_info, seg_line, prg_line
-        ; puts_imm moved to log.s (Phase 21 Move 3)
+        .export exec_line, read_line, show_prompt, cmd_info
+        ; seg_line, prg_line, free_line, info_line, info_line_head,
+        ; info_line_tail, log_err_eol, log_close_eol, puts_imm —
+        ; all moved to log.s in Phase 21 Move 3 / 21.1 Move 3B.
         ; log_line / log_open / log_close / log_err / log_warn /
         ; log_info / puts_imm moved to log.s (Phase 21 Move 3)
         .import log_line, log_open, log_close
         .import log_err, log_warn, log_info
+        .import log_err_eol, log_close_eol              ; moved Phase 21.1
+        .import seg_line, prg_line, free_line           ; moved Phase 21.1
+        .import info_line, info_line_head, info_line_tail
         .import puts_imm
-        .export rp_addr, rp_cnt, rp_save2
+
+        ; Scratch pool migrated to zp.s (Phase 21.1 Move 3B) — .exportzp
+        ; from zp.s supersedes the former BSS .exports here.
+        .importzp rp_addr, rp_cnt, rp_save, rp_save2
+        .importzp rp_next_lo, _info_mode
         .export cur_addr                ; cur_device, cur_project_name → zp.s
         .importzp cur_device             ; zp.s (Phase 21 Move 4)
         .importzp cur_project_name       ; zp.s (Phase 21.1 Move 6a)
@@ -183,12 +192,9 @@ _arg_count:        .res 1          ; 0, 1, or 2 — numeric args in last parse
 
 line_buf:       .res 42
 dot_asm_buf:    .res 24
-rp_addr:        .res 2          ; working address
-rp_save:        .res 1          ; general scratch byte
-rp_save2:       .res 1          ; secondary scratch byte
-rp_cnt:         .res 2          ; loop counter (16-bit)
-rp_next_lo:     .res 2          ; 16-bit scratch (save/load name ptr etc.)
-rp_next_hi:     .res 2          ; 16-bit scratch pair
+; rp_addr / rp_cnt / rp_save / rp_save2 / rp_next_lo moved to zp.s
+; (Phase 21.1 Move 3B).
+rp_next_hi:     .res 2          ; 16-bit scratch pair (rp_next_hi: BSS only)
 rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
 rp_hexbuf:      .res 3          ; cmd_dot hex byte parse
@@ -248,17 +254,7 @@ nl_clear:
         jsr newline
         jmp io_clear_eol
 
-; log_err_eol — newline + error line + clear prompt row
-; Used for error-only exits from command handlers.
-log_err_eol:
-        jsr newline
-        jsr log_err
-        jmp io_clear_eol
-
-; log_close_eol — close log line + clear prompt row
-log_close_eol:
-        jsr log_close
-        jmp io_clear_eol
+; log_err_eol / log_close_eol moved to log.s (Phase 21.1 Move 3B)
 
 ; puts_imm moved to log.s (Phase 21 Move 3).
 
@@ -2784,180 +2780,9 @@ prg_ok_done:
         jmp log_err_eol
 .endproc
 
-; ═══════════════════════════════════════════════════════════
-; info_line — print "; tag AAAA-BBBB description"
-;   Stack frame: rp_save2 = inv flag
-;   rp_ptr2 = tag string, rp_addr = lo, rp_cnt = hi
-;   rp_ptr = desc string
-;   (Caller sets these before calling)
-;
-;   Actually, to simplify, pass:
-;     A = inv flag
-;     Store tag addr, lo, hi, desc in BSS before calling.
-; We use a register-based interface:
-;   Call setup: rp_save2=inv, rp_addr=lo, rp_cnt=hi
-;               rp_ptr2=tag, rp_ptr=desc
-; ═══════════════════════════════════════════════════════════
-; ── info_line — print a complete info line ────────────────
-;   rp_save2 = inv, rp_ptr2 = tag, rp_addr = lo, rp_cnt = hi, rp_ptr = desc
-info_line:
-        jsr info_line_head
-        lda rp_ptr
-        ldx rp_ptr+1
-        jsr io_puts
-        jmp info_line_tail
-
-; ── info_line_head — print "; TAG  AAAA-BBBB " prefix ────
-;   rp_ptr2 = tag, rp_addr = lo, rp_cnt = hi
-;   Saves screen row pointer for info_line_tail's highlight pass.
-info_line_head:
-        ; save screen addr for invert pass later
-        ldx CUR_ROW
-        lda scr_lo,x
-        sta rp_next_lo
-        lda scr_hi,x
-        sta rp_next_lo+1
-
-        lda #0
-        sta CUR_COL
-        lda #';'
-        jsr io_putc
-        lda #' '
-        jsr io_putc
-
-        ; print tag
-        lda rp_ptr2
-        ldx rp_ptr2+1
-        jsr io_puts
-
-        ; pad tag to 5 cols (4 chars + 1 space separator)
-        ldy #0
-@tlen:  lda (rp_ptr2),y
-        beq @tpad
-        iny
-        cpy #4
-        bcc @tlen
-@tpad:  tya
-        eor #$FF
-        clc
-        adc #5+1                ; X = 5 - len
-        tax
-        lda #' '
-        jsr io_repc
-
-        ; print lo-hi + space
-        lda rp_addr
-        ldx rp_addr+1
-        jsr io_puthex4
-        lda #'-'
-        jsr io_putc
-        lda rp_cnt
-        ldx rp_cnt+1
-        jsr io_puthex4
-        lda #' '
-        jmp io_putc
-
-; ═══════════════════════════════════════════════════════════
-; Range info line family — streaming range+size display
-;
-;   prg_line  — "; prg  AAAA-BBBB NNNNNb"      (l/s PRG)
-;               rp_addr = start, rp_cnt = end EXCLUSIVE
-;   seg_line  — "; TAG  AAAA-BBBB NNNNNb"      (asm_src)
-;               rp_ptr2 = tag, rp_addr = lo, rp_cnt = hi INCLUSIVE
-;   free_line — "; TAG  AAAA-BBBB NNNNNb free" (cmd_info)
-;               rp_ptr2 = tag, rp_save2 = highlight,
-;               rp_addr = lo, rp_cnt = hi INCLUSIVE
-; ===============================================================
-
-free_line:
-        ; compute rp_save2 from _info_mode (0=highlight, 1=no highlight)
-        lda _info_mode
-        eor #1
-        sta rp_save2
-        jsr _range_core         ; head + "NNNNNb"
-        puts str_free_suf       ; " free"
-        jmp info_line_tail
-
-; prg_line — PRG load/save range (exclusive end convention)
-prg_line:
-        lda #<str_tag_prg
-        sta rp_ptr2
-        lda #>str_tag_prg
-        sta rp_ptr2+1
-        lda #0
-        sta rp_save2
-        ; convert exclusive end → inclusive
-        lda rp_cnt
-        bne :+
-        dec rp_cnt+1
-:       dec rp_cnt
-        ; fall through to seg_line
-
-seg_line:
-        jsr _range_core
-        ; fall through to info_line_tail
-
-; ── info_line_tail — highlight + pad + newline ───────────
-;   rp_save2 = highlight flag.  Uses rp_next_lo saved by head.
-info_line_tail:
-        ; save col position
-        lda CUR_COL
-        sta rp_save
-
-        ; copy screen pointer to ZP rp_ptr for indirect access
-        lda rp_next_lo
-        sta rp_ptr
-        lda rp_next_lo+1
-        sta rp_ptr+1
-
-        ; inv or normal pad
-        lda rp_save2
-        beq @normal_pad
-
-        ; inv: set bit 7 on AAAA-BBBB only (cols 7-15)
-        ldy #7
-@inv_lp:
-        cpy #16
-        bcs @inv_done
-        lda (rp_ptr),y
-        ora #$80
-        sta (rp_ptr),y
-        iny
-        bne @inv_lp
-@inv_done:
-
-@normal_pad:
-        ; fill rest with $20 (space)
-        ldy rp_save
-@npad:  cpy #SCREEN_WIDTH
-        bcs @done
-        lda #$20
-        sta (rp_ptr),y
-        iny
-        bne @npad
-
-@done:  jmp newline
-
-; ── _range_core — info_line_head + right-aligned size + 'b' ──
-_range_core:
-        jsr info_line_head
-        ; size = hi - lo + 1
-        lda rp_cnt
-        sec
-        sbc rp_addr
-        pha
-        lda rp_cnt+1
-        sbc rp_addr+1
-        tax
-        pla
-        clc
-        adc #1
-        bcc :+
-        inx
-:       sec                     ; right-aligned
-        jsr io_putdec_pd
-        lda #'b'
-        jmp io_putc
+; Range-line family (info_line / info_line_head / info_line_tail /
+; free_line / prg_line / seg_line / _range_core) moved to log.s in
+; Phase 21.1 Move 3B.  Imported above; call sites unchanged.
 
 ; ───────────────────────────────────────────────────────────
 ; info_emit_rows — emit N rows from info table
@@ -3200,7 +3025,7 @@ _range_core:
 .endproc
 
 .segment "BSS"
-_info_mode: .res 1              ; cmd_info mode: 0=full, 1=splash
+; _info_mode moved to zp.s (Phase 21.1 Move 3B)
 .segment "CODE"
 
 ; ═══════════════════════════════════════════════════════════

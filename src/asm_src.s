@@ -29,14 +29,10 @@
         .import         io_puts, io_putc, io_putdec, io_puthex4, io_clear_eol, newline
         .import         io_utoa, dec_buf
         .import         log_open, log_close    ; log.s (Phase 21 Move 3)
-        ; ⚠ Remaining Phase 21 back-edge: asm_src → repl for seg_line
-        ; + its BSS calling-convention (rp_addr / rp_cnt / rp_save2).
-        ; The seg_line family couldn't hoist to log.s in Move 3 because
-        ; rp_addr / rp_cnt / rp_save are general REPL scratch bytes used
-        ; by ~360 sites in repl.s.  Scheduled for cleanup: either inline
-        ; segment-line emission here, or move the scratch pool to zp.s
-        ; / a shared neutral module.  Tracked in TODO.md.
-        .import         seg_line, rp_addr, rp_cnt, rp_save2
+        ; Phase 21.1 Move 3B: seg_line and the shared scratch pool
+        ; moved to their semantic homes.  Zero back-edges now.
+        .import         seg_line                        ; log.s
+        .importzp       rp_addr, rp_cnt, rp_save2        ; zp.s
         .import         str_tag_org
         .import         puts_imm               ; log.s (Phase 21 Move 3)
         .import         define_ws_syms         ; editor.s (Phase 21 Move 1)

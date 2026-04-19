@@ -32,8 +32,8 @@
         .export newline
         .export log_open
         .export log_close
-        .export seg_line
-        .export rp_addr, rp_cnt, rp_save2
+        .export seg_line                        ; no-op stub (log.s not linked)
+        ; rp_addr, rp_cnt, rp_save2 now in zp.s (Phase 21.1 Move 3B)
         .export puts_imm
         ; cur_project_name now provided by zp.s (Phase 21.1 Move 6a);
         ; asm_src bundle links zp.s, so no stub definition needed.
@@ -170,9 +170,7 @@ define_ws_syms:
         rts
 
 .segment "BSS"
-rp_addr:        .res 2
-rp_cnt:         .res 2
-rp_save2:       .res 1
+; rp_addr, rp_cnt, rp_save2 moved to zp.s (Phase 21.1 Move 3B)
 
         .importzp _io_tmp
 ; dec_pow tables (normally in cse_io.s, inlined here for test bundle)
