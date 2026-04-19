@@ -86,7 +86,7 @@ convention:
 | `rp_dis_bp` | 1 | cmd_step: disabled breakpoint slot |
 | `rp_hexbuf` | 3 | Hex byte parse buffer |
 | `fbuf` | 20 | Decimal/free-line output buffer |
-| `dbg_zp_view` | 8 | User-ZP staging buffer for `m`/`.` commands |
+| `zp_stage_buf` | 8 | User-ZP staging buffer for `m` dump and `.` disasm (see [User-ZP view](#user-zp-view)) |
 
 **Depends on:** asm_line (`.`), asm_src (`a`), dasm (`d`), expr (`?`),
 disk (`l`/`s`/`$`), debugger (`b`/`c`/`t`/`o`), editor, screen, cse_io,
@@ -257,6 +257,66 @@ string is then passed to `_asm_line` which handles only hex operands.
 In all three cases, the handler finishes by disassembling the
 instruction at `cur_addr` and rewriting the prompt line with the
 result.  What's on screen always reflects the actual memory state.
+
+**User-ZP redirect (mode 1 and 3).**  See [User-ZP view](#user-zp-view)
+below.  When `cur_addr` is in the save range, mode 1 (hex poke)
+writes to `userland_zp_buf` and mode 3 (disasm) reads from
+`userland_zp_buf` — so the `.` line always shows the user's ZP
+image and edits survive `c` (continue).  Mode 2 (inline mnemonic
+assembly into ZP) is intentionally not redirected: it writes
+through the asm_line pipeline to live memory.  If the user wants
+to put a byte into user ZP, they use the hex-poke form.
+
+### User-ZP view
+
+ZP locations in the save range `[ZP_SAVE_LO, ZP_SAVE_LO +
+ZP_SAVE_LEN)` (today $00–$7F, exported from [mem.s](../../src/mem.s))
+have two relevant images:
+
+- **Live ZP** — CSE's own ZP (restored on userland exit via
+  `save_userland_zp` + `restore_kernel_zp`).
+- **Saved user ZP** — `userland_zp_buf` (128 B BSS, owned by
+  `mem.s`), seeded by `dbg_init` at cold boot ($00=$2F, $01=$36,
+  rest zero) and refreshed on every userland → kernel transition.
+  On `c`, the debugger restores this image back to live ZP before
+  RTI.
+
+The `m` and `.` commands **always** read from and write to the
+saved image for addresses in the save range — CSE's own live ZP
+within that range is an implementation detail and is never shown
+to or accepted from the REPL user.  Both reads and writes go
+through the redirect:
+
+| Command | Path | Redirect |
+|---------|------|----------|
+| `m` dump | read 8 bytes for display | yes — stages from `userland_zp_buf` via `zp_stage_buf` |
+| `m` edit | `sta (addr)` per edited byte | yes — writes land in `userland_zp_buf` |
+| `.` disasm (no args) | read up to 3 bytes for the disassembler | yes — stages into `zp_stage_buf`, `dasm_insn` reads from there |
+| `.` hex poke | `sta (addr)` for each parsed byte | yes — writes land in `userland_zp_buf` |
+| `.` mnemonic | asm_line emits via `asm_pc` | **no** — goes to live memory (documented; see mode 2 above) |
+
+The redirect gate: effective address in `[ZP_SAVE_LO, ZP_SAVE_LO
++ ZP_SAVE_LEN)` (currently $00–$7F).  Outside that range, reads
+and writes go to live memory — $80–$FF is KERNAL territory and
+not mirrored in `userland_zp_buf`, and addresses past page 0 are
+real workspace.
+
+Implementation: the `zp_stage_prep` helper in repl.s fills the
+8-byte `zp_stage_buf` from (rp_ptr2), mixing `userland_zp_buf`
+bytes for in-range offsets with live `(rp_ptr2),y` reads for the
+rest, and re-points rp_ptr2 at the staged buffer so downstream
+consumers (`dasm_insn`, `emit_hex_cols`, the compare loop in
+cmd_dot) read the view uniformly.  The `zp_poke` helper mirrors
+this for single-byte writes: given A=byte, rp_ptr2+Y=effective
+address, it stores into `userland_zp_buf[addr - ZP_SAVE_LO]` for
+in-range effective addresses, else to live `(rp_ptr2),y`.  Both
+live in repl.s and are used only there — other modules read live
+ZP directly through their own `(ptr),y` indirections.
+
+Range-gating assumes the save range lies entirely within page 0
+(`ZP_SAVE_LO + ZP_SAVE_LEN ≤ $100`) and `ZP_SAVE_LO = 0` (lower
+bound is trivially satisfied and elided).  If either assumption
+changes, the helpers need an explicit lower-bound check.
 
 ### Line format and address handling
 

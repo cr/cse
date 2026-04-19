@@ -31,11 +31,13 @@ Open bugs, roughly ordered by priority.
   SA=1 means use PRG header addr; code had them backwards)
 - [x] ~~RUN/STOP debounce~~ (already debounced: `@deb_wait` polls
   $91 until key released, then drains keyboard buffer)
-- [ ] `.` and `m` show CSE ZP instead of user ZP after j/debugger
-  context.  `m` was partially fixed in `ac1a31f`; `.` still reads
-  live memory.  **Deferred** — bigger project due to (k)BSS
-  changes and hot-path gating; needs a `zp_view` abstraction
-  that both commands consult consistently.
+- [x] ~~`.` and `m` show CSE ZP instead of user ZP after j/debugger
+  context.~~  (Phase 19 — fixed: unified user-ZP redirect for
+  both read and write across `m` and `.` via `zp_stage_prep` /
+  `zp_poke` helpers in repl.s.  See [repl.md § User-ZP view](modules/repl.md#user-zp-view).
+  Inline mnemonic assembly into ZP during a break remains
+  unredirected by design — the hex-poke form handles the real
+  use case.)
 - [x] ~~**CRITICAL**: save writes wrong memory region~~ (fixed:
   disk.s had a local `_io_tmp = $FB` shadowing the canonical
   symbol in zp.s at `$2D`.  Commit `278a2f6` changed repl.s's
@@ -178,11 +180,11 @@ Open bugs, roughly ordered by priority.
   The two [ ] sub-items above (stack-depth measurement + headroom
   warning, SID silence) are the only remaining Phase-18 tail work.
 
-- [ ] **Loader reverse-direction copy** (Phase 18 supporting work
-  — see also the Architecture section's Loader item below).
-  Eliminates the `payload_end < runtime_start` build cap so CODE
-  + RODATA can grow up to `runtime_start`.  Independent of the
-  kernel refactor; pair with it because both touch boot-time code.
+- [x] ~~**Loader reverse-direction copy.**~~  (Phase 19 — done:
+  `copy_pages_back` in loader.s, payload-end sanity check
+  dropped from `compute_layout.py`.  CODE + RODATA can now grow
+  up to `runtime_start`.  See [build_system.md § Copy direction](build_system.md#the-ld65-loadrun-split).
+  +11 B in the discardable LOADER segment.)
 - [x] ~~Debugger: refuse to write breakpoints outside workspace memory~~
   (fixed: cmd_brk now rejects BP addresses outside [$0800, __CODE_RUN__)
   with a "; ? range" error before calling dbg_bp_set.  Phase 17.)
@@ -629,11 +631,12 @@ from our exit context.
   newline.  "asm..." line now uses `log_close` instead of bare
   `io_clear_eol`.  `seg_print_save` no longer needs its own
   newline.  Phase 17)
-- [ ] Global release version: single `VERSION` definition (currently
-  Makefile `VERSION ?= 0.1`) that flows to D64 disk name, PRG
-  filenames, splash screen string, and documentation.  Current
-  version: v0.1a.  The D64 disk label, `$` listing, and any
-  release artifacts must show the version.
+- [x] ~~Global release version: single `VERSION` propagation.~~
+  (Phase 19 — done: Makefile generates `build/version.inc`
+  per-build; strings.s `.include`s it and composes
+  `VERSION_STR` as `"cse v" + VERSION_STRING + " by cr"`.  The
+  D64 label format became `cse $(VERSION),01`.  PRG filenames
+  stay stable.  See [build_system.md § Version propagation](build_system.md#version-propagation).)
 
 ## Roadmap
 

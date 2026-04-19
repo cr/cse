@@ -47,7 +47,7 @@
         .import dbg_reason, dbg_bp_hit
         .import brk_pc, brk_stub
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
-        .import userland_zp_buf
+        .import userland_zp_buf, ZP_SAVE_LO, ZP_SAVE_LEN
         .import kernal_bank_out, kernal_bank_in
         .import oplen_tbl
         .import step_state, step_remaining
@@ -182,8 +182,10 @@ rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
 rp_hexbuf:      .res 3          ; cmd_dot hex byte parse
 
-dbg_zp_view:    .res 8          ; emit_mem staging buffer for the
-                                ; user-ZP redirect (see emit_mem)
+zp_stage_buf:   .res 8          ; staging buffer for the user-ZP
+                                ; read redirect — `m` dump (8 B) and
+                                ; `.` disasm (3 B).  See repl.md
+                                ; § User-ZP view.
 
 ; ── RODATA ─────────────────────────────────────────────────
 .segment "RODATA"
@@ -860,6 +862,112 @@ parse_hex4_ptr1:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
+; zp_stage_prep — user-ZP read redirect for m/. displays.
+;
+; Stages 8 bytes from (rp_ptr2) into zp_stage_buf, substituting
+; userland_zp_buf[addr - ZP_SAVE_LO] for any offset whose
+; effective address (rp_ptr2 + Y) falls in [ZP_SAVE_LO,
+; ZP_SAVE_LO + ZP_SAVE_LEN).  Bytes outside that range fall
+; through to live (rp_ptr2),y reads.  On completion, rp_ptr2 is
+; repointed at zp_stage_buf so downstream consumers ((rp_ptr2),y
+; loads by emit_hex_cols, dasm_insn, the compare loop in cmd_dot)
+; see the staged image transparently.
+;
+; The redirect is unconditional — `m $10` always means "user ZP
+; $10", never CSE's live $10.  userland_zp_buf is always valid:
+; seeded by dbg_init at cold boot ($00=$2F, $01=$36, rest zero),
+; refreshed on every userland → kernel transition.  CSE's own
+; live ZP within the save range is an implementation detail that
+; must not leak through the inspection tool.
+;
+; Range gating assumes the save range lies entirely within page 0
+; (ZP_SAVE_LO + ZP_SAVE_LEN ≤ $100).  The lower-bound test is
+; omitted because ZP_SAVE_LO = 0 today; if that ever changes, add
+; a `cmp #ZP_SAVE_LO / bcc @live` before the upper-bound check.
+;
+; In:  rp_ptr2 = source base address.
+; Out: zp_stage_buf populated; rp_ptr2 := zp_stage_buf when the
+;      source was in page 0 (hi = 0).  Callers that branch on
+;      page-0-ness must inspect rp_ptr2+1 themselves.
+; Clobbers: A, X, Y.
+zp_stage_prep_addr:                     ; convenience entry: load
+        lda rp_addr                     ; rp_ptr2 from rp_addr then
+        sta rp_ptr2                     ; fall through into the
+        lda rp_addr+1                   ; main zp_stage_prep body.
+        sta rp_ptr2+1
+        ; fall through
+.proc zp_stage_prep
+.ifdef INTROSPECT
+        ; Introspection build: no redirect.  rp_ptr2 already points
+        ; at the live address; downstream consumers read live ZP.
+        rts
+.else
+        lda rp_ptr2+1                   ; hi != 0 → whole 8-byte
+        bne @done                       ; range is outside page 0
+        ldy #0
+@lp:    tya
+        clc
+        adc rp_ptr2                     ; effective.lo
+        bcs @live                       ; wrap past $FF → live
+        cmp #<(ZP_SAVE_LO + ZP_SAVE_LEN)
+        bcs @live                       ; addr ≥ save end → live
+        tax
+        lda userland_zp_buf - ZP_SAVE_LO,x
+        bcc @stg                        ; C=0 here (bcs-not-taken)
+@live:  lda (rp_ptr2),y
+@stg:   sta zp_stage_buf,y
+        iny
+        cpy #8
+        bcc @lp
+        lda #<zp_stage_buf
+        sta rp_ptr2
+        lda #>zp_stage_buf
+        sta rp_ptr2+1
+@done:  rts
+.endif
+.endproc
+
+; ═══════════════════════════════════════════════════════════
+; zp_poke — user-ZP write redirect for m/. edits.
+;
+; Writes A to the effective address (rp_ptr2 + Y), substituting
+; userland_zp_buf[addr - ZP_SAVE_LO] when the effective address
+; is in [ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN).  Otherwise stores
+; through (rp_ptr2),y as normal.  Unconditional — user-ZP edits
+; always land in userland_zp_buf so they're the image `c` restores
+; on the next userland entry.  See repl.md § User-ZP view.
+;
+; Same range assumptions as zp_stage_prep: save range in page 0,
+; ZP_SAVE_LO = 0 (lower-bound check omitted).
+;
+; In:  A = byte, rp_ptr2 = base, Y = offset.
+; Clobbers: X (A, Y, rp_ptr2 preserved).
+.proc zp_poke
+.ifdef INTROSPECT
+        ; Introspection build: no redirect.  Direct live write.
+        sta (rp_ptr2),y
+        rts
+.else
+        pha
+        lda rp_ptr2+1
+        bne @pop
+        tya
+        clc
+        adc rp_ptr2
+        bcs @pop                        ; wrap past $FF
+        cmp #<(ZP_SAVE_LO + ZP_SAVE_LEN)
+        bcs @pop                        ; addr ≥ save end → live
+        tax
+        pla
+        sta userland_zp_buf - ZP_SAVE_LO,x
+        rts
+@pop:   pla
+        sta (rp_ptr2),y
+        rts
+.endif
+.endproc
+
+; ═══════════════════════════════════════════════════════════
 ; emit_hex_cols — print hex columns
 ;   rp_ptr2 = src, rp_save = count, rp_save2 = max
 ; ═══════════════════════════════════════════════════════════
@@ -894,9 +1002,15 @@ parse_hex4_ptr1:
 ;   rp_addr = address. Returns instruction length in A.
 ; ═══════════════════════════════════════════════════════════
 .proc emit_dot
+        ; Stage bytes through the user-ZP redirect (no-op outside
+        ; a break context).  rp_ptr2 ends up pointing at either
+        ; zp_stage_buf or rp_addr — dasm_insn and emit_hex_cols
+        ; both read from rp_ptr2 uniformly.
+        jsr zp_stage_prep_addr
+
         ; dasm_insn owns its KERNAL banking — we just call it.
-        lda rp_addr
-        ldx rp_addr+1
+        lda rp_ptr2
+        ldx rp_ptr2+1
         jsr dasm_insn
         pha                     ; save olen for later use
 
@@ -905,11 +1019,7 @@ parse_hex4_ptr1:
         lda #' '
         jsr io_putc
 
-        ; emit_hex_cols(addr, olen, 3)
-        lda rp_addr
-        sta rp_ptr2
-        lda rp_addr+1
-        sta rp_ptr2+1
+        ; emit_hex_cols(rp_ptr2 already set, olen, 3)
         pla                     ; olen
         pha
         sta rp_save             ; count
@@ -941,46 +1051,7 @@ parse_hex4_ptr1:
         lda #'m'
         jsr io_addr_cmd
 
-        lda rp_addr
-        sta rp_ptr2
-        lda rp_addr+1
-        sta rp_ptr2+1
-
-        ; ── User-ZP redirect ─────────────────────────────────
-        ; If a debug context exists (dbg_reason != 0), the user
-        ; expects `m` to show what their code wrote to ZP, not
-        ; CSE's restored variables.  Stage 8 bytes into
-        ; dbg_zp_view from userland_zp_buf for in-range addresses
-        ; ($00..$7F — the full user-accessible half) and from real
-        ; memory for the rest, then re-point rp_ptr2 at the staged
-        ; view.  rp_ptr2's current value (== rp_addr) is used to
-        ; read real mem in the @use_mem branch.
-        lda dbg_reason
-        beq @no_redirect
-        ldy #0
-@redir_loop:
-        lda rp_addr+1           ; check hi first — if non-zero we're
-        bne @use_mem            ; past page 0, raw mem
-        tya
-        clc
-        adc rp_addr             ; A = effective.lo; C=1 if wrapped
-        bcs @use_mem            ; wrapped into page 1 → raw mem
-        cmp #$80
-        bcs @use_mem            ; addr ≥ $80 → KERNAL half, not ours
-        tax                     ; addr < $80 → index directly
-        lda userland_zp_buf,x
-        jmp @stage
-@use_mem:
-        lda (rp_ptr2),y         ; rp_ptr2 still == rp_addr
-@stage: sta dbg_zp_view,y
-        iny
-        cpy #8
-        bcc @redir_loop
-        lda #<dbg_zp_view
-        sta rp_ptr2
-        lda #>dbg_zp_view
-        sta rp_ptr2+1
-@no_redirect:
+        jsr zp_stage_prep_addr  ; user-ZP redirect (see repl.md)
 
         lda rp_opc
         sta rp_save
@@ -1426,23 +1497,17 @@ peek_brk_opcode:
         lda rp_cnt
         jeq @try_mne
 
-        ; Check if bytes changed vs memory
+        ; Stage bytes through the user-ZP redirect so the compare
+        ; reflects what the user would see (userland_zp_buf image
+        ; when a break is active, live memory otherwise).
+        jsr zp_stage_prep_addr
+
+        ; Check if bytes changed vs the staged image
         ldy #0
         sty rp_save             ; changed flag
 @cmp:   cpy rp_cnt
         bcs @cmp_done
-        ; read mem at rp_addr+Y
-        sty rp_tmp
-        tya
-        clc
-        adc rp_addr
-        sta rp_ptr2
-        lda #0
-        adc rp_addr+1
-        sta rp_ptr2+1
-        ldy #0
         lda (rp_ptr2),y
-        ldy rp_tmp
         cmp rp_hexbuf,y
         beq @cmatch
         lda #1
@@ -1455,24 +1520,18 @@ peek_brk_opcode:
         lda rp_save
         beq @try_mne            ; not changed → try mnemonic
 
-        ; Write changed bytes
+        ; Write changed bytes (user-ZP aware).  rp_stage_prep above
+        ; may have repointed rp_ptr2 at zp_stage_buf; reset to
+        ; rp_addr so zp_poke's redirect check sees the real address.
+        lda rp_addr
+        sta rp_ptr2
+        lda rp_addr+1
+        sta rp_ptr2+1
         ldy #0
 @write: cpy rp_cnt
         bcs @show
-        sty rp_tmp
         lda rp_hexbuf,y
-        pha
-        tya
-        clc
-        adc rp_addr
-        sta rp_ptr2
-        lda #0
-        adc rp_addr+1
-        sta rp_ptr2+1
-        pla
-        ldy #0
-        sta (rp_ptr2),y
-        ldy rp_tmp
+        jsr zp_poke             ; Y=offset, A=byte, rp_ptr2=base
         iny
         bne @write
 
@@ -1608,7 +1667,13 @@ peek_brk_opcode:
         jsr is_eow_at_ptr1_y
         jne @dump
 
-@edit:  ; Parse and write edit bytes
+@edit:  ; Parse and write edit bytes.  rp_ptr2 := rp_addr once;
+        ; zp_poke uses rp_ptr2+Y as the effective address so each
+        ; iteration only needs Y = rp_cnt.
+        lda rp_addr
+        sta rp_ptr2
+        lda rp_addr+1
+        sta rp_ptr2+1
         lda #0
         sta rp_cnt              ; nbytes
 @ed_lp: lda rp_cnt
@@ -1621,21 +1686,9 @@ peek_brk_opcode:
         jsr is_hex_at_ptr1
         beq @ed_done
         jsr parse_hex2_ptr1
-        ; write to addr+nbytes if different
-        pha
-        lda rp_cnt
-        clc
-        adc rp_addr
-        sta rp_ptr2
-        lda #0
-        adc rp_addr+1
-        sta rp_ptr2+1
-        pla
-        ldy #0
-        cmp (rp_ptr2),y
-        beq @same
-        sta (rp_ptr2),y
-@same:  inc rp_cnt
+        ldy rp_cnt
+        jsr zp_poke
+        inc rp_cnt
         jsr skip_sp_ptr1
         jmp @ed_lp
 

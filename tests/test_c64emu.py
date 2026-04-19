@@ -346,3 +346,42 @@ class TestScreenHelpers:
         for i, sc in enumerate([0x08, 0x05, 0x0C, 0x0C, 0x0F]):
             emu.memory[SCREEN + i] = sc
         assert emu.screen_text(0) == "hello"
+
+
+# ── VERSION propagation (A1) ────────────────────────────────────────────────
+
+class TestVersionPropagation:
+    """VERSION_STR in the PRG reflects the Makefile VERSION."""
+
+    def _makefile_version(self):
+        import pathlib, re
+        mk = pathlib.Path(__file__).parent.parent / "Makefile"
+        for line in mk.read_text().splitlines():
+            m = re.match(r'\s*VERSION\s*\?=\s*(\S+)', line)
+            if m:
+                return m.group(1)
+        raise AssertionError("no VERSION line in Makefile")
+
+    def test_version_str_contains_version(self, cse_prg):
+        """VERSION_STR bytes encode 'cse v<VERSION> by cr' in PETSCII.
+
+        ca65 -t c64 remaps ASCII a-z in string literals to PETSCII
+        $41-$5A, so the on-disk bytes match the ASCII *uppercase*
+        form of the source string even though the display shows
+        lowercase (charset 2).
+        """
+        prg, map_path = cse_prg
+        emu = C64Emu()
+        emu.load_prg(prg, map_path)
+        addr = emu.sym("VERSION_STR")
+        buf = []
+        for i in range(64):
+            b = emu.memory[addr + i]
+            if b == 0:
+                break
+            buf.append(b)
+        s = bytes(buf).decode('latin1')
+        version = self._makefile_version()
+        expected = f"cse v{version} by cr".upper()
+        assert s == expected, \
+            f"VERSION_STR = {s!r} (expected Makefile VERSION={version})"

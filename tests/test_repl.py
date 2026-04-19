@@ -68,6 +68,7 @@ def _build():
         obj = BUILD / f"{stem}_repl.o"
         subprocess.run(
             ["ca65", "-t", "c64", "--cpu", "6502", "-DCMOS_SUPPORT", "-DCPU_CEIL=2",
+             "-I", str(BUILD),
              str(src), "-o", str(obj)],
             check=True,
         )
@@ -149,6 +150,7 @@ class ReplSymbols:
 
         self.bp_table     = exp['bp_table']
         self.dbg_reason   = exp['dbg_reason']
+        self.userland_zp_buf = exp['userland_zp_buf']
         self.dbg_bp_hit   = exp['dbg_bp_hit']
         self.brk_pc       = exp['brk_pc']
         self.reg_a        = exp['reg_a']
@@ -622,6 +624,75 @@ class TestMemoryEdit:
         for i, val in enumerate(expected):
             assert cpu.memory[addr + i] == val, \
                 f"Byte {i}: expected ${val:02X}, got ${cpu.memory[addr + i]:02X}"
+
+
+# ── F'. User-ZP redirect (m/. on $00..$7F) ───
+#
+# `m` and `.` always read from and write to userland_zp_buf for
+# addresses $00..$7F — CSE's own live ZP is never shown to the
+# REPL user.  See doc/modules/repl.md § User-ZP view.
+
+class TestUserZpRedirect:
+    ZP_ADDR = 0x0010
+
+    def test_m_edit_writes_to_userland_buf(self, rsyms):
+        """`m 42` at $0010 updates userland_zp_buf, not live."""
+        cpu = make_cpu(rsyms)
+        cpu.memory[rsyms.userland_zp_buf + self.ZP_ADDR] = 0x00
+        cpu.memory[self.ZP_ADDR] = 0xFF
+        set_cur_addr(cpu, rsyms, self.ZP_ADDR)
+        set_line_buf(cpu, rsyms, "m 42")
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.userland_zp_buf + self.ZP_ADDR] == 0x42
+        assert cpu.memory[self.ZP_ADDR] == 0xFF   # live untouched
+
+    def test_dot_hex_poke_writes_to_userland_buf(self, rsyms):
+        """`. a9` at $0010 updates userland_zp_buf, not live."""
+        cpu = make_cpu(rsyms)
+        cpu.memory[rsyms.userland_zp_buf + self.ZP_ADDR] = 0x00
+        cpu.memory[self.ZP_ADDR] = 0xFF
+        set_cur_addr(cpu, rsyms, self.ZP_ADDR)
+        set_line_buf(cpu, rsyms, ". a9")
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.userland_zp_buf + self.ZP_ADDR] == 0xA9
+        assert cpu.memory[self.ZP_ADDR] == 0xFF   # live untouched
+
+    def test_m_edit_above_7f_hits_live(self, rsyms):
+        """Redirect gates on addr < $80.  `m 42` at $0080 writes live."""
+        cpu = make_cpu(rsyms)
+        cpu.memory[rsyms.userland_zp_buf + 0x80] = 0x55  # outside valid range
+        cpu.memory[0x0080] = 0x00
+        set_cur_addr(cpu, rsyms, 0x0080)
+        set_line_buf(cpu, rsyms, "m 42")
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[0x0080] == 0x42
+
+    def test_m_dump_shows_userland_buf(self, rsyms):
+        """`m` display shows userland_zp_buf, not live."""
+        cpu = make_cpu(rsyms)
+        # Prime userland_zp_buf with a distinctive pattern, live with zeros.
+        for i in range(16):
+            cpu.memory[rsyms.userland_zp_buf + i] = 0xA0 | i
+            cpu.memory[i] = 0x00
+        set_cur_addr(cpu, rsyms, 0x0000)
+        set_line_buf(cpu, rsyms, "m")
+        run_at(cpu, rsyms.exec_line)
+        row = read_screen_row(cpu, 5).strip()
+        assert "A0" in row.upper(), \
+            f"Expected A0 (from userland_zp_buf) in dump, got: {row!r}"
+
+    def test_m_dump_above_7f_shows_live(self, rsyms):
+        """Redirect stops at $80.  `m $0080` shows live memory."""
+        cpu = make_cpu(rsyms)
+        for i in range(16):
+            cpu.memory[rsyms.userland_zp_buf + 0x80 + i] = 0xA0 | i
+            cpu.memory[0x0080 + i] = 0x50 | i
+        set_cur_addr(cpu, rsyms, 0x0080)
+        set_line_buf(cpu, rsyms, "m")
+        run_at(cpu, rsyms.exec_line)
+        row = read_screen_row(cpu, 5).strip()
+        assert "50" in row.upper(), \
+            f"Expected 50 (live) in dump, got: {row!r}"
 
 
 # ── G. Disassemble (d command) ───────────────────────────────

@@ -59,18 +59,12 @@ def main():
               file=sys.stderr)
         sys.exit(1)
 
-    # Verify forward copy is safe: payload end < runtime start.
-    # Payload in file starts after EXEHDR ($080D) + LOADER.
-    loader_size = sizes.get("LOADER", 0)
-    payload_start = 0x080D + loader_size
-    kdata_size = sizes.get("KDATA", 0)
-    payload_end = payload_start + code_size + rodata_size + kdata_size
-    if payload_end > runtime_start:
-        print(f"ERROR: payload end ${payload_end:04X} > "
-              f"RUNTIME_START ${runtime_start:04X} — "
-              f"forward copy unsafe, binary too large",
-              file=sys.stderr)
-        sys.exit(1)
+    # The loader uses a backward memcpy (highest byte first), so
+    # any dst > src is safe regardless of payload/runtime overlap.
+    # CSE always has dst > src (payload low, runtime high; KDATA
+    # load low, KDATA run at $F100), so no payload-end check is
+    # needed.  See doc/build_system.md § Copy direction and
+    # src/loader.s header.
 
     # Generate config from template
     with open(template_path) as f:

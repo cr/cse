@@ -53,6 +53,7 @@ def _build():
     for src in _SOURCES:
         obj = BUILD / f"{src.stem}_io.o"
         subprocess.run(["ca65", "-g", "--cpu", "6502",
+                        "-I", str(BUILD),
                         str(src), "-o", str(obj)], check=True)
         objs.append(str(obj))
     subprocess.run(["ld65", "-C", str(DEV / "test.cfg"),

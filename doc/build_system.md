@@ -94,8 +94,69 @@ position to their RUNTIME position, zeros BSS, copies KDATA
 under the KERNAL, then `jmp _main`.  After the jump, the loader's
 memory ($0800–LOADER_END) becomes part of the workspace.
 
+**Copy direction: top-down.**  The loader uses a reverse-direction
+memcpy (highest byte first) for the CODE+RODATA and KDATA copies.
+Backward copy is safe whenever `dst >= src`, which is exactly the
+direction CSE uses — payload at low addresses, runtime at high.
+This means the build has no payload/runtime overlap ceiling: CODE
++ RODATA may grow all the way up to `RUNTIME_START` without
+tripping any sanity check in `compute_layout.py`.  The only
+remaining layout gate is the workspace-overlap check
+(`RUNTIME_START < $0900`).
+
 No C compiler, no `c64.lib` — the entire codebase is hand-written
 6502 assembly.
+
+### Version propagation
+
+`VERSION` is defined in the Makefile (default `0.1`).  It flows
+to the binary and to the distribution disk via two mechanisms:
+
+1. **Source string** — the Makefile writes `build/version.inc`
+   containing `.define VERSION_STRING "<value>"` on every build.
+   `strings.s` does `.include "version.inc"` (via `ca65 -I
+   $(BUILD)`) and uses the macro in the `VERSION_STR` byte
+   sequence.  Result: the splash line reads `cse v<value> by cr`.
+2. **Disk label** — the `_dist` and `disk` Makefile targets pass
+   `"cse $(VERSION),01"` to `c1541 -format`, so the D64 label
+   (visible in `$` listings) carries the version.
+
+PRG filenames (`cse.prg`, `cse-6502.prg`, `cse-cmos.prg`) are
+**not** versioned: the CPU suffix is architectural, the version
+lives in the splash and disk label.  Downstream consumers rely
+on the stable filename layout.
+
+### Introspection builds (`INTROSPECT=1`)
+
+By default, `m` and `.` redirect ZP reads and writes through
+`userland_zp_buf` for the save range (see
+[repl.md § User-ZP view](modules/repl.md#user-zp-view)) so the
+user sees their program's ZP, not CSE's internal state.
+
+When debugging CSE itself this redirect is in the way: the
+developer wants to see what CSE's own ZP (`rp_ptr`, gap buffer
+pointers, the assembler's working state) actually contains.
+Setting `INTROSPECT=1` on the Makefile command line drops the
+redirect — `m` and `.` then read and write live ZP directly:
+
+    make run INTROSPECT=1       # release + introspection
+    make debug INTROSPECT=1     # debug + introspection
+    make release INTROSPECT=1   # release + introspection
+
+Mechanism: the Makefile passes `-DINTROSPECT` to `ca65`, which
+ca65 `.ifdef`s in [repl.s](../src/repl.s) `zp_stage_prep` and
+`zp_poke`.  In the INTROSPECT build both helpers become
+pass-through stubs (`rts` / `sta (rp_ptr2),y / rts`) and the
+redirect code is not assembled.  The flag is part of
+`BUILD_FLAGS`, so toggling it triggers a full rebuild.
+
+This is a developer-only affordance — **shipping builds must
+leave INTROSPECT unset.**  It breaks the user-visible contract
+that `m` always means "user ZP" ([project.md § Design
+Priority 3](project.md#design-priorities)) and exposes
+implementation details the user should never see.  Orthogonal to
+the `debug`/`release` profile split (full .lbl symbols vs raw
+production PRG); pick each independently.
 
 ### Exomizer compression
 
@@ -138,6 +199,20 @@ The `-g` flag tells ca65 to embed debug symbols in `.o` files.
 When linked with `ld65 -Ln`, the resulting `.lbl` file contains
 every label — exported, module-internal, and `@local` — at its
 absolute address.
+
+### Command-line options
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `CPU` | `6510` | Target CPU for `run`/`disk`/`size` (`6502` / `6510` / `65c02`) |
+| `THEME` | `GREENLAND` | Named theme or 3-digit hex code (`make themes` for list) |
+| `TAB_WIDTH` | `8` | Editor tab-stop column width |
+| `VERSION` | `0.1` | Version string embedded in splash + D64 label |
+| `ROMSET` | `cbm` | KERNAL/BASIC/CHARGEN set for `run` (`cbm` / `mega`) |
+| `INTROSPECT` | unset | If `=1`, disable the user-ZP redirect in `m`/`.` (see above) |
+
+All of these are part of `BUILD_FLAGS` and trigger a full rebuild when
+changed between invocations.
 
 ### Directory layout
 

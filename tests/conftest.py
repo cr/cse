@@ -37,6 +37,15 @@ _ZP_START   = 0x0000
 _CODE_START = 0x4000
 _ZP_SIZE    = 0x0100
 
+# version.inc — strings.s does `.include "version.inc"` and
+# picks it up via `-I <build>`.  Tests build their own bundles
+# so they need a version.inc under the root build/ dir.
+BUILD.mkdir(exist_ok=True)
+_VERSION_INC = BUILD / "version.inc"
+_VERSION_INC_BODY = '.define VERSION_STRING "test"\n'
+if not _VERSION_INC.exists() or _VERSION_INC.read_text() != _VERSION_INC_BODY:
+    _VERSION_INC.write_text(_VERSION_INC_BODY)
+
 
 # ── Symbol resolution ───────────────────────────────────────────────────────
 #
@@ -133,6 +142,7 @@ def _ac_build():
     for src in _AC_SOURCES:
         obj = BUILD / f"{src.stem}_ac.o"
         cmd = ["ca65", "-g", "--cpu", "6502", "-DCMOS_SUPPORT",
+               "-I", str(BUILD),
                str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)
         obj_files.append(str(obj))
@@ -234,7 +244,9 @@ def _mn_build(variant):
     obj_files = []
     for src in _MN_SOURCES[variant]:
         obj = BUILD / (src.stem + f"_{variant}.o")
-        cmd = ["ca65", "-g", "--cpu", "6502", str(src), "-o", str(obj)]
+        cmd = ["ca65", "-g", "--cpu", "6502",
+               "-I", str(BUILD),
+               str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)
         obj_files.append(str(obj))
     subprocess.run(
@@ -331,6 +343,7 @@ def _as_build():
     for src in _AS_SOURCES:
         obj = BUILD / f"{src.stem}_as.o"
         cmd = ["ca65", "-g", "--cpu", "6502", "-t", "c64",
+               "-I", str(BUILD),
                str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)
         obj_files.append(str(obj))

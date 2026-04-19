@@ -69,8 +69,21 @@ in the symbol table via `sym_define`
 | Variable | Size | Segment | Purpose |
 |----------|------|---------|---------|
 | `kernal_out` | 1 | BSS | Nonzero = KERNAL held banked out (batch mode) |
-| `userland_zp_buf` | 128 | BSS | User's $00..$7F snapshot (captured on userland exit) |
-| `kernel_zp_buf` | 128 | BSS | Kernel's $00..$7F snapshot (captured on userland entry) |
+| `userland_zp_buf` | `ZP_SAVE_LEN` | BSS | User's `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` snapshot (captured on userland exit) |
+| `kernel_zp_buf` | `ZP_SAVE_LEN` | BSS | Kernel's snapshot over the same range (captured on userland entry) |
+
+**Exported constants:**
+
+| Symbol | Value | Purpose |
+|--------|-------|---------|
+| `ZP_SAVE_LO` | $00 | First ZP address covered by the save buffers |
+| `ZP_SAVE_LEN` | 128 | Length of the save range (so `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` = $00..$7F) |
+
+`userland_zp_buf[i]` mirrors live ZP address `ZP_SAVE_LO + i`.
+Consumers that want to read or write "user ZP" instead of "live
+ZP" (currently `repl.s::zp_stage_prep` and `repl.s::zp_poke`) must
+use these constants for their range checks and index the buffer
+as `userland_zp_buf - ZP_SAVE_LO`.
 
 **Depends on:** zp (buf_base), symtab (sym_define, sym_name, sym_val, sym_wide),
 strings (s_workstart, s_workend)

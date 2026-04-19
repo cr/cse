@@ -6,9 +6,11 @@
 ; under KERNAL, then jumps to _main (now at its runtime address).
 ; After the jump, the loader's memory is reclaimed as workspace.
 ;
-; Forward copy is safe: the payload in the load image ends well
-; below the runtime start address for any binary under ~25 KB.
-; compute_layout.py verifies this at build time.
+; Copy direction: **top-down** (backward memcpy — highest byte
+; first).  CSE always has dst > src for both copies (payload lives
+; low, runtime lives high; KDATA load is below $F100 run), so
+; backward copy is always safe and the old payload-end sanity gate
+; is gone.  See doc/build_system.md § Copy direction.
 
         .setcpu "6502"
 
@@ -45,7 +47,7 @@ loader_entry:
         sta ptr2+1
         ldx #>(__CODE_SIZE__ + __RODATA_SIZE__)
         lda #<(__CODE_SIZE__ + __RODATA_SIZE__)
-        jsr copy_pages
+        jsr copy_pages_back
 
         ; ── 3. Zero BSS ─────────────────────────────────────
         lda #<__BSS_RUN__
@@ -69,37 +71,46 @@ loader_entry:
         sta ptr2+1
         ldx #>__KDATA_SIZE__
         lda #<__KDATA_SIZE__
-        jsr copy_pages
+        jsr copy_pages_back
 
         ; ── 5. Jump to _main (now at runtime address) ────────
         jmp _main
 
-; ── copy_pages — copy A + X*256 bytes from ptr1 to ptr2 ──────
-; In:  ptr1 = src, ptr2 = dst, X = page count (hi), A = remainder (lo).
-; Out: ptr1 / ptr2 advanced past the copied region, Y = 0.
-; Handles size = 0 (both components zero) as a no-op.
-copy_pages:
-        ldy #0
-        cpx #0
-        beq @rem
-        pha                     ; save remainder
-@page:  lda (ptr1),y
+; ── copy_pages_back — backward copy A + X*256 bytes ──────────
+; Copies from (ptr1 .. ptr1+size-1) to (ptr2 .. ptr2+size-1)
+; in reverse — highest byte first.  Safe whenever dst >= src,
+; which is always true for CSE's two copies.
+; In:  ptr1 = src base, ptr2 = dst base,
+;      X = page count (hi), A = remainder (lo).
+; Handles size = 0 (A=0 and X=0) as a no-op.
+copy_pages_back:
+        tay                     ; Y = remainder (A preserved in Y)
+        txa                     ; advance ptr1/ptr2 hi by X pages
+        clc
+        adc ptr1+1
+        sta ptr1+1
+        txa
+        clc
+        adc ptr2+1
+        sta ptr2+1
+        cpy #0                  ; remainder == 0?
+        beq @pages
+@rlp:   dey
+        lda (ptr1),y
         sta (ptr2),y
-        iny
-        bne @page
-        inc ptr1+1
-        inc ptr2+1
-        dex
-        bne @page
-        pla
-@rem:   cmp #0
+        tya
+        bne @rlp                ; falls through with Y=0
+@pages: cpx #0
         beq @done
-        tax
-@rlp:   lda (ptr1),y
+@p:     dec ptr1+1              ; step back to the next page below
+        dec ptr2+1
+@pl:    dey                     ; Y=0 → $FF (top of page)
+        lda (ptr1),y
         sta (ptr2),y
-        iny
+        tya
+        bne @pl                 ; exits with Y=0, ready for next page
         dex
-        bne @rlp
+        bne @p
 @done:  rts
 
 ; ── zero_pages — fill A + X*256 bytes at ptr1 with $00 ───────

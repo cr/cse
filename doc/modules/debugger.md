@@ -311,7 +311,7 @@ recovery — ESC/CLR is the user's binding for that.
 | Component | Size | Location | Notes |
 |-----------|------|----------|-------|
 | ZP $00–$7F | 128 B | `kernel_zp_buf` (BSS) | CSE's ZP image; restored on next return_to_userland. |
-| ZP $00–$7F | 128 B | `userland_zp_buf` (BSS) | User's ZP snapshot (`m`/`.` read from here). |
+| ZP $00–$7F | 128 B | `userland_zp_buf` (BSS) | User's ZP snapshot.  `m` and `.` always read from and write to this buffer for addresses in the save range (`[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` — today $00–$7F); see [repl.md § User-ZP view](repl.md#user-zp-view). |
 | Registers (A,X,Y,P) | 4 B | `reg_a/x/y/p` (BSS) | |
 | Stack pointer | 1 B | `reg_sp` (BSS) | User's SP at break |
 | PC | 2 B | `brk_pc` (BSS) | (= `reg_pc_lo/hi`) |

@@ -94,10 +94,10 @@ _PROFILE ?= release
 
 ifeq ($(_PROFILE),debug)
   BUILD  = $(ROOT)build/debug/$(_$(CPU)_SUBDIR)
-  AFLAGS = -g -t c64 -DDEBUG $(CPU_DEFS) $(THEME_DEFS) -I$(ROOT) -I$(BUILD)
+  AFLAGS = -g -t c64 -DDEBUG $(CPU_DEFS) $(THEME_DEFS) $(INTROSPECT_DEFS) -I$(ROOT) -I$(BUILD)
 else
   BUILD  = $(ROOT)build/release/$(_$(CPU)_SUBDIR)
-  AFLAGS = -t c64 $(CPU_DEFS) $(THEME_DEFS) -I$(ROOT) -I$(BUILD)
+  AFLAGS = -t c64 $(CPU_DEFS) $(THEME_DEFS) $(INTROSPECT_DEFS) -I$(ROOT) -I$(BUILD)
 endif
 
 # ── Theme selection ──────────────────────────────────────────────────────
@@ -124,6 +124,19 @@ THEME_DEFS := $(shell printf '%s' "$(_THEME_CODE)" | sed 's/./& /g' | \
 # ── Version / build date ──────────────────────────────────────────────────
 VERSION  ?= 0.1
 BUILD_YEAR := $(shell date +%Y)
+
+# ── Introspection flag ───────────────────────────────────────────────────
+# INTROSPECT=1 drops the user-ZP redirect in `m` and `.` so those
+# commands show CSE's live ZP as-is.  For CSE developers only — breaks
+# the normal "m always means user ZP" contract (see repl.md § User-ZP
+# view).  Works with both release and debug profiles.
+#   make run INTROSPECT=1
+#   make debug INTROSPECT=1
+ifdef INTROSPECT
+  INTROSPECT_DEFS := -DINTROSPECT
+else
+  INTROSPECT_DEFS :=
+endif
 
 # ── Test-binary flags (bare 6502, no C64 platform defs) ─────────────────
 T65 = $(CA65) --cpu 6502
@@ -178,7 +191,7 @@ LBL      = $(BUILD)/cse.lbl
 # .o files are up to date and re-uses them with the wrong flags.
 # Workaround: write a stamp file containing all build-affecting flag
 # values; if its contents differ, touch it so its mtime updates.
-BUILD_FLAGS := CPU=$(CPU) THEME=$(THEME) TAB_WIDTH=$(TAB_WIDTH) PROFILE=$(_PROFILE) VERSION=$(VERSION)
+BUILD_FLAGS := CPU=$(CPU) THEME=$(THEME) TAB_WIDTH=$(TAB_WIDTH) PROFILE=$(_PROFILE) VERSION=$(VERSION) INTROSPECT=$(INTROSPECT)
 FLAGS_STAMP := $(BUILD)/.build_flags
 _PREV_FLAGS := $(shell cat $(FLAGS_STAMP) 2>/dev/null)
 ifneq ($(_PREV_FLAGS),$(BUILD_FLAGS))
@@ -211,12 +224,18 @@ $(BUILD)/src/:
 	mkdir -p $@
 
 # Pattern rule: assemble src/*.s → build/{profile}/{cpu}/src/*.o
-$(BUILD)/src/%.o: $(SRC)/%.s $(FLAGS_STAMP) | $(BUILD)/src/
+$(BUILD)/src/%.o: $(SRC)/%.s $(FLAGS_STAMP) $(BUILD)/version.inc | $(BUILD)/src/
 	$(CA65) $(AFLAGS) -o $@ $<
 
 # The stamp file itself
 $(FLAGS_STAMP): | $(BUILD)/
 	@printf '%s' '$(BUILD_FLAGS)' > $@
+
+# version.inc — ca65-includable file with VERSION_STRING macro,
+# consumed by strings.s.  Regenerates when the flags stamp changes
+# (VERSION is part of BUILD_FLAGS).
+$(BUILD)/version.inc: $(FLAGS_STAMP) | $(BUILD)/
+	@printf '.define VERSION_STRING %s\n' '"$(VERSION)"' > $@
 
 # Two-pass link: trial measures sizes, compute_layout.py generates config
 TRIAL_MAP = $(BUILD)/trial.map
@@ -248,7 +267,7 @@ DIST_D64 = $(ROOT)build/cse.d64
 .PHONY: _dist
 _dist:
 	@rm -f $(DIST_D64)
-	$(C1541) -format "cse,01" d64 $(DIST_D64) \
+	$(C1541) -format "cse $(VERSION),01" d64 $(DIST_D64) \
 	  -write $(_REL)/6510/cse-exo.prg cse \
 	  -write $(_REL)/6502/cse-6502-exo.prg cse-6502 \
 	  -write $(_REL)/cmos/cse-cmos-exo.prg cse-cmos
@@ -264,7 +283,7 @@ D64 = $(ROOT)build/release/$(_$(CPU)_SUBDIR)/cse.d64
 disk:
 	@$(MAKE) --no-print-directory _one CPU=$(CPU) _PROFILE=release TARGET="$(CPU) $(PRG_NAME)"
 	@rm -f $(D64)
-	$(C1541) -format "cse,01" d64 $(D64) \
+	$(C1541) -format "cse $(VERSION),01" d64 $(D64) \
 	  -write $(ROOT)build/release/$(_$(CPU)_SUBDIR)/$(basename $(PRG_NAME))-exo.prg cse
 
 # -----------------------------------------------------------------------
@@ -436,3 +455,10 @@ help:
 	@printf "%-15s %s\n" "clean-tables" "Remove generated table sources in src/"
 	@printf "%-15s %s\n" "themes"       "List available color themes"
 	@printf "%-15s %s\n" "help"         "Show this message"
+	@printf "\nOptions (prefix any target):\n"
+	@printf "  %-20s %s\n" "CPU=6510|6502|65c02" "target CPU (default: 6510)"
+	@printf "  %-20s %s\n" "THEME=NAME|BGF"      "colour theme (default: GREENLAND)"
+	@printf "  %-20s %s\n" "TAB_WIDTH=N"         "editor tab width (default: 8)"
+	@printf "  %-20s %s\n" "VERSION=STRING"      "version string (default: 0.1)"
+	@printf "  %-20s %s\n" "ROMSET=cbm|mega"     "KERNAL set for 'run' (default: cbm)"
+	@printf "  %-20s %s\n" "INTROSPECT=1"        "disable user-ZP redirect in m/. (CSE devs only)"

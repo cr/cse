@@ -44,6 +44,13 @@ byte-indexing (e.g. `str_flag_ch`).
 **main group:** `VERSION_STR`, `s_manual`, `s_zp_tag`, `s_lo02_tag`,
 `s_work_tag`, `s_free`
 
+`VERSION_STR` is composed at assemble time.  `strings.s` includes
+`version.inc` from the build directory (Makefile-generated, per
+build); the file expands `VERSION_STRING` to the Makefile's
+`VERSION` value (e.g. `"0.1"`).  The final bytes are
+`"cse v" + VERSION_STRING + " by cr"`.  See
+[build_system.md § Version propagation](../build_system.md#version-propagation).
+
 **asm_src group:** `s_err_sep`, `s_bad_val`, `s_exp_name`, `s_sym_full`,
 `s_exp_quot`, `s_bad_insn`, `s_seg_pfx`, `s_save_s`, `s_save_q_sp`,
 `s_save_default`, `s_trunc`

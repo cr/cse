@@ -25,6 +25,15 @@
 
         .setcpu "6502"
 
+; ── ZP save/restore range ────────────────────────────────────
+; The save buffers (kernel_zp_buf / userland_zp_buf) mirror live
+; ZP addresses [ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN).  Any code
+; that wants to read or write "user ZP" rather than "live ZP"
+; must use these constants to decide its range and index
+; `userland_zp_buf - ZP_SAVE_LO` for the offset arithmetic.
+ZP_SAVE_LO  = $00
+ZP_SAVE_LEN = 128
+
 ; ── Exports ──────────────────────────────────────────────────
         .export kernal_bank_out, kernal_bank_in
         .export kernal_out
@@ -33,6 +42,7 @@
         .export save_userland_zp, restore_userland_zp
         .export save_kernel_zp, restore_kernel_zp
         .export userland_zp_buf, kernel_zp_buf
+        .export ZP_SAVE_LO, ZP_SAVE_LEN
 
 ; ── Imports ──────────────────────────────────────────────────
         .importzp buf_base
@@ -60,7 +70,6 @@ kernal_out:     .res 1          ; nonzero = KERNAL banked out (skip bank_in)
 ;   2. The $00/$01 CPU-port pair round-trips via these buffers
 ;      (see the CPU-port protocol note below the bank helpers).
 ; Upper half $80..$FF stays KERNAL-owned and is never touched.
-ZP_SAVE_LEN = 128
 kernel_zp_buf:  .res ZP_SAVE_LEN  ; kernel's ZP snapshot (exit capture)
 userland_zp_buf:    .res ZP_SAVE_LEN  ; user's ZP snapshot (exit capture,
                                    ; restored on re-entry)
@@ -244,10 +253,6 @@ cse_zp_end:
 ; save_userland_zp and save_kernel_zp overwrite those seeds with
 ; captured live values.
 ; ═══════════════════════════════════════════════════════════════════════════
-
-; Shared constants for the ZP save/restore primitives.  ZP_SAVE_LEN
-; is declared with the buffer BSS above.
-ZP_SAVE_LO  = $00
 
 ; ── save_userland_zp ───────────────────────────────────────────
 ; Single-pass save: live ZP ($00..$7F) → userland_zp_buf with DDR

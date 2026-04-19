@@ -268,7 +268,9 @@ def _build():
                       ("expr", SRC/"expr.s"), ("symtab", SRC/"symtab.s"),
                       ("mem", SRC/"mem.s"),
                       ("expr_test_stub", DEV/"expr_test_stub.s")]:
-        subprocess.run(["ca65", "--cpu", "6502", "-t", "c64", str(src),
+        subprocess.run(["ca65", "--cpu", "6502", "-t", "c64",
+                        "-I", str(BUILD),
+                        str(src),
                         "-o", str(BUILD/f"{name}.o")], check=True)
     subprocess.run(["ld65", "-C", str(DEV/"test.cfg"),
                     str(BUILD/"zp_expr.o"),
