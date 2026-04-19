@@ -198,20 +198,63 @@ Open bugs, roughly ordered by priority.
   (fixed: cmd_brk now rejects BP addresses outside [$0800, __CODE_RUN__)
   with a "; ? range" error before calling dbg_bp_set.  Phase 17.)
 
-- [ ] **Phase 20 — Warmstart restructure and debug-session lifecycle.**
-  Reason-named entry points (`cse_recover`/`cse_end_debug`/`cse_refresh`)
-  compose from rts-returning body subs.  Gates on `a`/`l`/`R` let the
-  user end the current debug session cleanly.  `R` command added
-  (always prompts: "end debug? y/n" when active, "init? y/n" otherwise).
-  `c` errors out without an active debug session.  NMI in kernel mode
-  routes to `cse_refresh` (restores the classic RUN/STOP+RESTORE
-  screen-recovery affordance).  Gating strings decomposed: `warn_if_unsaved`
-  / `warn_if_debug` emit `;!unsaved` / `;!debug` log lines ahead of a
-  simple "action? y/n" prompt; two warnings stack (unsaved before
-  debug).  See
+- [x] ~~**Phase 20 — Warmstart restructure and debug-session lifecycle.**~~
+  (done, commits `c4c1992` + `08e9756`.  Reason-named entry points
+  `cse_recover`/`cse_end_debug`/`cse_refresh` compose from rts-returning
+  body subs.  Gates on `a`/`l`/`R` let the user end the current debug
+  session cleanly.  `R` command added.  `c` errors out without an
+  active debug session.  NMI in kernel mode routes to `cse_refresh`.
+  Gating strings decomposed: `warn_if_unsaved` / `warn_if_debug` emit
+  `;!unsaved` / `;!debug` log lines ahead of a simple "action? y/n"
+  prompt; two warnings stack (unsaved before debug).  +229 B total,
+  2681 tests green.  See
   [main.md § Layer 3](modules/main.md),
   [memory_design.md § Warmstart entry points](memory_design.md#warmstart-entry-points),
-  [repl.md § Gating pattern](modules/repl.md#gating-pattern).
+  [repl.md § Gating pattern](modules/repl.md#gating-pattern).)
+
+  Follow-ups (size + coverage) — each is isolated and post-v0.1:
+
+  - [ ] **Gate shape consolidation.**  `cmd_asm`/`cmd_load`/`cmd_reset`
+    share a near-identical skeleton (warn → prompt → on-yes:
+    either `end_debug_body + refresh/jmp` or `warm_cont := 1 + jmp
+    cse_end_debug`).  A shared `_gate_debug(prompt_str, yes_vec)`
+    helper could factor this.  Worth attempting only if the
+    per-command continuation differences can be expressed as one
+    dispatch byte rather than multiple branches; estimate ~20-30 B
+    savings if the shape works out.
+
+  - [ ] **`end_debug_body` zero-loop.**  Currently 8 × 3 B of
+    `sta abs` (zero stores) + 3 × 3 B of `sta abs` (`$FF` stores)
+    = ~33 B of straight-line stores.  Could drop to ~10 B if the
+    11 fields lived contiguously in BSS.  Requires coordinating
+    layout across `main.s`/`mem.s`/`repl.s`/`debugger.s` — invasive
+    refactor for a ~20 B saving.  Defer until the next BSS
+    reshuffle pass.
+
+  - [ ] **Warmstart fall-through from `cse_refresh` into
+    `main_loop_top`.**  Placing the three warmstart entry points
+    immediately before `main_loop_top` in the file would let
+    `cse_refresh` drop its `jmp main_loop_top` (-3 B).  Reorder
+    and verify branch ranges don't regress anywhere.
+
+  - [ ] **Shared `@*_cancel` exit in `exec_line` dispatch.**
+    Five gated commands (`k`/`Q`/`R`/`a` plus `l`'s gate in
+    `cmd_load`) each have a local `jmp nl_clear` cancel tail
+    (3 B × 5 = 15 B).  Folding to a single shared label would
+    save ~12 B but branch range inside the large `exec_line`
+    `.proc` body was the blocker.  Revisit with a linker-map check.
+
+  - [ ] **End-to-end gate tests (keypress injection).**  Current
+    `TestGating` covers only the `warn_if_*` helpers directly.
+    The full `R`/`a`/`l` flows (warn → prompt → y/n → outcome)
+    would benefit from integration tests that inject keys via
+    `C64Emu.inject_key`.  Coverage, not size.
+
+  - [ ] **String aliasing for new gating strings.**  `str_init`,
+    `str_end_dbg`, `str_asm`, `str_load` all share the `"? y/n "`
+    tail.  A single shared tail with a `print_prompt_then_qynq`
+    helper could save ~12 B.  Tradeoff: readability of the
+    action strings as self-contained literals.
 
 ### Fixed bugs (reference)
 
