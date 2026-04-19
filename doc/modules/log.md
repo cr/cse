@@ -67,16 +67,6 @@ Three variants distinguished by the `rp_cnt` convention:
 All three display the range with BBBB inclusive.  `prg_line`
 decrements internally before calling the shared display core.
 
-### log_err_eol / log_close_eol
-**In:**  A/X = content string pointer (err_eol only)
-**Out:** newline + log line + `io_clear_eol`
-**Clobbers:** same as `log_line` / `log_close`
-
-Prompt-row-specific wrappers: `log_err_eol` is used by
-command-handler error exits that need to leave the prompt row
-clean before their final `rts`; `log_close_eol` is the
-multi-step variant that only closes an already-opened line.
-
 ### info_line / info_line_head / info_line_tail
 **In:**  `rp_addr` (lo), `rp_cnt` (hi), `rp_ptr2` (tag string),
 `rp_ptr` (desc string, for info_line), `rp_save2` (highlight flag,

@@ -28,7 +28,6 @@
 
         .export log_line, log_open, log_close
         .export log_err, log_warn, log_info
-        .export log_err_eol, log_close_eol
         .export puts_imm
         .export seg_line, prg_line, free_line
         .export info_line, info_line_head, info_line_tail
@@ -144,22 +143,6 @@ puts_imm:
 :       dec rp_tmp
         lda (rp_tmp),y          ; A = str_lo
         jmp io_puts             ; tail call; rts returns to caller+5
-
-; ═══════════════════════════════════════════════════════════
-; log_err_eol — newline + error line + clear prompt row
-; Used for error-only exits from command handlers.
-; ═══════════════════════════════════════════════════════════
-log_err_eol:
-        jsr newline
-        jsr log_err
-        jmp io_clear_eol
-
-; ═══════════════════════════════════════════════════════════
-; log_close_eol — close log line + clear prompt row
-; ═══════════════════════════════════════════════════════════
-log_close_eol:
-        jsr log_close
-        jmp io_clear_eol
 
 ; ═══════════════════════════════════════════════════════════
 ; Range info line family — "; TAG  AAAA-BBBB NNNNNb [free]"

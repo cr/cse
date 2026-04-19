@@ -16,7 +16,10 @@
 ; ── Imports: log.s ─────────────────────────────────────────
         .import log_line, log_open, log_close
         .import log_err, log_warn, log_info
-        .import log_err_eol, log_close_eol
+        ; log_err_eol / log_close_eol retired: callers use log_err /
+        ; log_close directly (trailing io_clear_eol was redundant —
+        ; show_prompt overwrites the new row; leading newline in the
+        ; err variant wasted a visual row).
         .import seg_line, prg_line, free_line
         .import info_line, info_line_head, info_line_tail
         .import puts_imm
@@ -249,7 +252,6 @@ nl_clear:
         jsr newline
         jmp io_clear_eol
 
-; log_err_eol / log_close_eol moved to log.s (Phase 21.1 Move 3B)
 
 ; puts_imm moved to log.s (Phase 21 Move 3).
 
@@ -300,9 +302,14 @@ confirm_yn:
 ; ───────────────────────────────────────────────────────────
 query_user:
         pha                     ; save caller's stem ptr lo
-        txa                     ; across newline / log_open
-        pha                     ; (both clobber A/X)
-        jsr newline
+        txa                     ; across log_open (clobbers A/X)
+        pha
+        ; No leading newline: caller is responsible for cursor row.
+        ; After warn_if_*, log_close has already advanced cursor to
+        ; a fresh row; for direct calls from handler entry, the
+        ; KERNAL's RETURN-induced newline already did that.  Adding
+        ; a newline here would leave a blank row between the warning
+        ; and the query prompt.
         ldy #LOG_WARN
         jsr log_open
         pla                     ; hi
@@ -1469,11 +1476,11 @@ peek_brk_opcode:
         tax
         pla                     ; lo
         jsr io_puts
-        jmp log_close_eol
+        jmp log_close   
 @syn_err:
         lda #<str_syntax
         ldx #>str_syntax
-        jmp log_err_eol
+        jmp log_err   
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -1904,7 +1911,7 @@ pre_userland_run:
         lda expr_val
         ldx expr_val+1
         jsr io_puthex4
-        jmp log_close_eol
+        jmp log_close   
 
 @list_all:
         ldx #0                  ; slot index
@@ -1964,25 +1971,25 @@ pre_userland_run:
         pla
         jsr bp_open_slot
         puts str_deleted
-        jmp log_close_eol
+        jmp log_close   
 
 @bad_slot:
         lda #<str_bad_val
         ldx #>str_bad_val
-        jmp log_err_eol
+        jmp log_err   
 
 @full:  lda #<str_full
         ldx #>str_full
-        jmp log_err_eol
+        jmp log_err   
 
 @bp_range:
         lda #<str_range
         ldx #>str_range
-        jmp log_err_eol
+        jmp log_err   
 
 @err_b: lda #<str_syntax
         ldx #>str_syntax
-        jmp log_err_eol
+        jmp log_err   
 @done:  jmp io_clear_eol
 .endproc
 
@@ -2770,7 +2777,7 @@ prg_ok_done:
 @range_err:
         lda #<str_range
         ldx #>str_range
-        jmp log_err_eol
+        jmp log_err   
 .endproc
 
 ; ───────────────────────────────────────────────────────────
@@ -3122,7 +3129,7 @@ prg_ok_done:
 @unknown:
         lda #<str_cmd
         ldx #>str_cmd
-        jmp log_err_eol
+        jmp log_err   
 
 ; ── Handlers ──────────────────────────────────────────────
 @h_dot: jmp cmd_dot
@@ -3333,7 +3340,7 @@ prg_ok_done:
         lda #' '
 @u_p2:  jsr io_putc
 .endif
-        jmp log_close_eol
+        jmp log_close   
 @h_a:   ; a — assemble source.  With an active debug session this
         ; path is stack-heavy (measured ~130 B for nested exprs); gate
         ; by ending the debug session + replaying the command.
@@ -3470,7 +3477,7 @@ prg_ok_done:
         jsr io_putdec
 
 @calc_done:
-        jmp log_close_eol
+        jmp log_close   
 
 @calc_err:
         jsr newline
@@ -3479,7 +3486,7 @@ prg_ok_done:
         puts str_expr
         jsr expr_error_str
         jsr io_puts
-        jmp log_close_eol
+        jmp log_close   
 @h_quit:; Q (PETSCII $D1) — quit (warn + confirm)
         jsr warn_if_unsaved
         lda #<str_quit
@@ -3580,7 +3587,7 @@ prg_ok_done:
         bne @c_has_ctx
         lda #<str_no_ctx
         ldx #>str_no_ctx
-        jmp log_err_eol
+        jmp log_err   
 @c_has_ctx:
         ; delete hit breakpoint before continuing
         lda dbg_bp_hit

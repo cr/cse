@@ -6,7 +6,8 @@ debug CMOS PRG.  Asserts on screen RAM at $0400 after each log call.
 Symbols verified:
   log_open / log_close / log_line
   log_err / log_warn / log_info
-  log_err_eol / log_close_eol
+  (log_err_eol / log_close_eol retired — callers use log_err /
+   log_close directly)
   seg_line / prg_line / free_line
   puts_imm (indirectly via log_line's io_puts call path)
 
@@ -208,20 +209,7 @@ def test_prg_line_decrements_inclusive(cse_prg):
         f"$1000-$100F pattern not found; row={[hex(b) for b in row]}"
 
 
-# ── Prompt-row wrappers (log_err_eol / log_close_eol) ────────────
-
-def test_log_err_eol_advances_and_clears(cse_prg):
-    """log_err_eol: newline + log_err + io_clear_eol.
-    Should leave cursor two rows below TEST_ROW (one for the newline
-    preceding log_err, one for log_err's own close)."""
-    emu = _setup(cse_prg)
-    _write_string(emu, CONTENT_ADDR, "err")
-    emu.jsr(emu.sym("log_err_eol"),
-            a=CONTENT_ADDR & 0xFF, x=(CONTENT_ADDR >> 8) & 0xFF)
-    # After log_err_eol: newline → row+1, log_err → row+2 via log_close.
-    assert emu.memory[0xD6] == TEST_ROW + 2, \
-        f"cursor should have advanced 2 rows; got {emu.memory[0xD6]}"
-    # The ';?err' line sits at row TEST_ROW + 1.
-    row = _row_screen(emu, TEST_ROW + 1)
-    assert row[0] == SC_SEMI
-    assert row[1] == SC_QMARK
+# log_err_eol / log_close_eol were retired — their logic was
+# redundant (trailing io_clear_eol on a row show_prompt overwrites;
+# leading newline in log_err_eol wasted a visual row).  Callers now
+# use log_err / log_close directly.
