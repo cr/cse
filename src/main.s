@@ -79,7 +79,7 @@
         .import ed_ensure_init
         .import exec_line, read_line, show_prompt, cmd_info
         .import post_run_cleanup, hygiene_after_userland
-        .import log_line                                ; log.s
+        .import log_line, log_info                      ; log.s
         .importzp asm_cpu
         .import cur_addr, block_size
         .import ed_handle_key, enter_editor, leave_editor
@@ -268,18 +268,16 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         ; ── 13. Splash ──
         lda #SCREEN_HEIGHT - 10
         jsr splash_row
-        ldy #LOG_INFO
         lda #<VERSION_STR
         ldx #>VERSION_STR
-        jsr log_line
+        jsr log_info
         jsr newline
         sec                     ; splash mode
         jsr cmd_info
         jsr newline
-        ldy #LOG_INFO
         lda #<s_manual
         ldx #>s_manual
-        jsr log_line
+        jsr log_info
         ; Prompt row
         lda #SCREEN_HEIGHT - 1
         jsr splash_row

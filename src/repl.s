@@ -56,7 +56,8 @@
         .import dbg_bp_hit
         .import brk_pc, brk_stub
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
-        .import userland_zp_buf, ZP_SAVE_LO, ZP_SAVE_LEN
+        .import userland_zp_buf
+        .importzp ZP_SAVE_LO, ZP_SAVE_LEN       ; equates (zero-page range constants)
         .import kernal_bank_out, kernal_bank_in
         .import oplen_tbl
         .import step_state, step_remaining
@@ -325,10 +326,9 @@ query_user:
 warn_if_unsaved:
         lda ed_dirty
         beq @done
-        ldy #LOG_WARN
         lda #<str_unsaved
         ldx #>str_unsaved
-        jmp log_line            ; tail-call
+        jmp log_warn            ; tail-call
 @done:  rts
 
 ; ───────────────────────────────────────────────────────────
@@ -339,10 +339,9 @@ warn_if_unsaved:
 warn_if_debug:
         lda dbg_reason
         beq @done
-        ldy #LOG_WARN
         lda #<str_debug
         ldx #>str_debug
-        jmp log_line            ; tail-call
+        jmp log_warn            ; tail-call
 @done:  rts
 
 ; ───────────────────────────────────────────────────────────
