@@ -198,44 +198,30 @@ Open bugs, roughly ordered by priority.
   (fixed: cmd_brk now rejects BP addresses outside [$0800, __CODE_RUN__)
   with a "; ? range" error before calling dbg_bp_set.  Phase 17.)
 
-- [ ] **Phase 21 — Dependency-tree simplification.**
-  Five moves that eliminate every back-edge in the corpus and establish
-  a strict 7-layer DAG (see [architecture.md § Layer Diagram](architecture.md)).
-  Target state documented first (Step 1 of the DDD Method); this
-  TODO entry is the plan-of-record until the phase lands.
+- [x] ~~**Phase 21 — Dependency-tree simplification.**~~
+  (done, commits `45ab846` → `81aaa78`.  Five moves eliminated the
+  planned back-edges and established a 7-layer almost-strict DAG.
+  See [architecture.md § Layer Diagram](architecture.md).)
 
-  - **Move 1 — `mem.s` sheds symtab.** Delete `define_ws_syms` from
-    mem.s; `main.s` registers `workstart` directly; `editor.s::update_workend`
-    keeps handling `workend`; `asm_src.s::asm_assemble` calls
-    `sym_define` for both after `sym_clear`.  mem.s ends as a
-    zp-only leaf.
+  Five moves (as landed):
 
-  - **Move 2 — Extract `asm_err.s` (Layer 2).** Owns `asm_syntax_error`,
-    `asm_expr_error`, `asm_error`, `asm_expr_err`, `asm_pass`,
-    `_asm_saved_sp`.  Breaks asm_line↔addr_mode mutual recursion and
-    opcode_lookup→asm_line back-edge.
+  - [x] **Move 5 — Rename `au_mode.s` → `addr_mode.s`.** Pure rename.
+  - [x] **Move 1 — `mem.s` sheds `define_ws_syms`.** −49 B (6510/6502), −24 B (cmos).
+  - [x] **Move 4 — Cross-module flags → `zp.s`.** Seven 1-byte flags
+    (`in_userland`, `state`, `warm_cont`, `kernal_out`, `ed_dirty`,
+    `dbg_reason`, `cur_device`).  −58 B per build (BSS→ZP access
+    shortens every use).
+  - [x] **Move 2 — Extract `asm_err.s` (Layer 2).** Owns
+    `asm_syntax_error`, `asm_expr_error`, `asm_error`, `asm_expr_err`,
+    `asm_pass`.  Size-neutral (pure relocation).
+  - [x] **Move 3 — Extract `log.s` (Layer 2, partial).** Owns
+    `log_open/close/line/err/warn/info`, `puts_imm`, log.inc.  Size-
+    neutral.  Range-line formatters (`seg_line`/`prg_line`/`free_line`)
+    stayed in repl.s — see follow-up below.
 
-  - **Move 3 — Extract `log.s` (Layer 2).** Owns `log_open`, `log_close`,
-    `log_line`, `log_err/warn/info`, and the `log.inc` level
-    constants (the include file already exists; the module is new).
-    Breaks disk/editor/asm_src → repl back-edges.  `log_err_eol` /
-    `log_close_eol` (repl-specific prompt-row wrappers) stay in
-    repl.s; `seg_line` either migrates to `log.s` or inlines into
-    asm_src.s — decided at Step 4.
-
-  - **Move 4 — Cross-module flags → `zp.s`.** Seven 1-byte flags
-    migrate: `in_userland`, `state`, `warm_cont`, `kernal_out`,
-    `ed_dirty`, `dbg_reason`, `cur_device`.  Breaks debugger→main,
-    editor→main, disk→repl back-edges for state.  Expected net
-    size change: neutral to slight win (ZP access < BSS access).
-
-  - **Move 5 — Rename `au_mode.s` → `addr_mode.s`.** Legacy `au_`
-    prefix was supposed to be renamed in Phase 12 but the filename
-    stuck.  Pure rename: file, imports, module doc, conftest.  The
-    test file `tests/test_au_mode.py` keeps its historical name.
-
-  Not v0.1-blocking.  Phase-scale refactor (3–5 commits); do after
-  Phase 20 tests land.
+  **Totals:** −107 B (6510/6502), −82 B (cmos).  2681/2681 tests
+  green at every commit.  Every back-edge in the Step-2 DDD Analysis
+  was eliminated except the residuals listed below.
 
   Residual back-edge (to clean up after Move 3):
 
