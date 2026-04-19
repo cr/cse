@@ -44,6 +44,7 @@ _SOURCES = [
     SRC / "mem.s",
     SRC / "dasm.s",
     SRC / "dasm_tables.s",
+    SRC / "log.s",                      # Phase 21 Move 3
     SRC / "oplen_tbl.s",
     DEV / "repl_test_stub.s",
     CFG,

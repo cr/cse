@@ -10,9 +10,12 @@
 
 ; ── Exports ────────────────────────────────────────────────
         .export exec_line, read_line, show_prompt, cmd_info, seg_line, prg_line
-        .export puts_imm
-        .export log_line, log_open, log_close
-        .export log_err, log_warn, log_info
+        ; puts_imm moved to log.s (Phase 21 Move 3)
+        ; log_line / log_open / log_close / log_err / log_warn /
+        ; log_info / puts_imm moved to log.s (Phase 21 Move 3)
+        .import log_line, log_open, log_close
+        .import log_err, log_warn, log_info
+        .import puts_imm
         .export rp_addr, rp_cnt, rp_save2
         .export cur_addr, cur_project_name      ; cur_device → zp.s (Phase 21)
         .importzp cur_device                    ; zp.s (Phase 21 Move 4)
@@ -256,54 +259,7 @@ log_close_eol:
         jsr log_close
         jmp io_clear_eol
 
-; ───────────────────────────────────────────────────────────
-; puts_imm — print an inline RODATA string pointer.
-;
-; Called by the `puts str` macro (see top of file):
-;     jsr puts_imm
-;     .word str_label
-;
-; Reads the str pointer from the two bytes immediately after
-; the jsr, advances the stacked return address past them, and
-; tail-calls io_puts.
-;
-; ⚠ FOOTGUN: Clobbers rp_tmp (plus A, X, Y).  Callers that
-;   need to preserve a pointer across a `puts` should park it
-;   on the 6502 stack (pha/pla), NOT in rp_tmp — and NOT in
-;   rp_tmp2, which is only 1 byte wide.  See query_user
-;   and the expr-error path in cmd_dot for the pattern.
-; ───────────────────────────────────────────────────────────
-puts_imm:
-        ; Stack on entry: [ret_lo][ret_hi] where ret = (.word) - 1
-        ; (JSR pushes PC-1, and PC after `jsr puts_imm` points at .word.)
-        pla
-        sta rp_tmp
-        pla
-        sta rp_tmp+1            ; rp_tmp = ret = (.word) - 1
-        ; Bump rp_tmp by 2 so it points at (.word) + 1 = str_hi byte.
-        ; That address, re-pushed, makes RTS return to (.word) + 2 =
-        ; the instruction after the .word argument.
-        clc
-        lda rp_tmp
-        adc #2
-        sta rp_tmp
-        bcc :+
-        inc rp_tmp+1
-:       lda rp_tmp+1
-        pha                     ; push adjusted ret_hi first ...
-        lda rp_tmp
-        pha                     ; ... then ret_lo (top of stack)
-        ; rp_tmp = (.word) + 1 — the str_hi byte.
-        ldy #0
-        lda (rp_tmp),y          ; A = str_hi
-        tax                     ; X = str_hi
-        ; Step rp_tmp back by 1 to reach (.word) = str_lo byte.
-        lda rp_tmp
-        bne :+
-        dec rp_tmp+1
-:       dec rp_tmp
-        lda (rp_tmp),y          ; A = str_lo
-        jmp io_puts             ; tail call; rts returns to caller+5
+; puts_imm moved to log.s (Phase 21 Move 3).
 
 ; ───────────────────────────────────────────────────────────
 ; io_addr_cmd — print "XXXX:C" at column 0
@@ -321,78 +277,10 @@ io_addr_cmd:
         pla
         jmp io_putc
 
-; ═══════════════════════════════════════════════════════════
-; Output helpers — the standardised logging API.
-;
-; Three log levels:
-;   LOG_ERR  = '?'   →  ";?"   error
-;   LOG_WARN = '!'   →  ";!"   warning
-;   LOG_INFO = ' '   →  "; "   info
-;
-; Contract: log functions print wherever the cursor is.  The
-; caller owns cursor positioning — typically `jsr newline` at
-; handler entry to leave the prompt line.
-;
-;   log_open(Y=level)
-;       Print ";" + Y at current cursor.  Caller appends content
-;       via io_puts / io_putdec / etc., then calls log_close.
-;
-;   log_close()
-;       Close an open line: io_clear_eol + newline.
-;
-;   log_line(Y=level, A/X=content)
-;       Complete line: log_open + content + log_close.
-;
-; Address context goes in the AAAA: prefix (caller's job).
-; Line references go at the tail of the content (LNNN).
-; ═══════════════════════════════════════════════════════════
-
-; Shared with main.s and asm_src.s via log.inc (single source of truth).
+; Logging API (log_open / log_close / log_line / log_err / log_warn /
+; log_info) moved to log.s in Phase 21 Move 3.  repl.s imports them.
+; log.inc still provides the LOG_ERR/WARN/INFO level constants.
 .include "log.inc"
-
-; ── log_line — complete log line ─────────────────────────
-; Y = level char, A/X = content string ptr
-; Clobbers: A, X, Y, rp_tmp/rp_tmp+1
-;   (log_open itself is rp_tmp-safe; log_line parks the
-;    content pointer there across the log_open call.)
-.proc log_line
-        sta rp_tmp
-        stx rp_tmp+1
-        jsr log_open
-        lda rp_tmp
-        ldx rp_tmp+1
-        jsr io_puts
-        jmp log_close
-.endproc
-
-; ── log_open — open a log line at current cursor ─────────
-; Y = level char
-; Clobbers: A
-log_open:
-        tya
-        pha
-        lda #';'
-        jsr io_putc
-        pla
-        jmp io_putc
-
-; ── log_close — close an open log line ───────────────────
-; Clears to end of line, then advances to next row.
-log_close:
-        jsr io_clear_eol
-        jmp newline
-
-; ── Convenience entry points ─────────────────────────────
-; Avoid `ldy #LOG_*` at every call site.  A/X = content ptr.
-log_err:
-        ldy #LOG_ERR
-        jmp log_line
-log_warn:
-        ldy #LOG_WARN
-        jmp log_line
-log_info:
-        ldy #LOG_INFO
-        jmp log_line
 
 ; ───────────────────────────────────────────────────────────
 ; confirm_yn — show cursor, wait for key, return Z=1 if 'y'

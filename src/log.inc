@@ -1,6 +1,6 @@
 ; log.inc — shared log-level constants
 ;
-; The standardised logging API (log_open / log_close / log_line in repl.s)
+; The standardised logging API (log_open / log_close / log_line in log.s)
 ; takes a level character in Y.  Including this file in every caller
 ; keeps a single source of truth for the three levels.
 

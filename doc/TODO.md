@@ -237,6 +237,23 @@ Open bugs, roughly ordered by priority.
   Not v0.1-blocking.  Phase-scale refactor (3–5 commits); do after
   Phase 20 tests land.
 
+  Residual back-edge (to clean up after Move 3):
+
+  - [ ] **asm_src.s::seg_line → log.s or inline.**  After Phase 21
+    Move 3 the logging primitives (`log_open`/`log_close`/`log_line`/
+    `log_err/warn/info`/`puts_imm`) moved to `log.s`, but the range-
+    line formatter family (`seg_line`/`prg_line`/`free_line` +
+    `info_line_head`/`info_line_tail`/`_range_core`) stayed in repl.s
+    because it shares ~360 call sites of `rp_addr`/`rp_cnt`/`rp_save`/
+    `rp_save2` scratch with non-log REPL commands.  Result: asm_src.s
+    still imports `seg_line` + 3 BSS scratch bytes from repl.s — the
+    single remaining Phase-21 back-edge.  Two ways to fix:
+    (a) inline the ~30 B of segment-line emission into asm_src.s
+        (eliminates the import; trades size for independence);
+    (b) move the shared scratch pool (`rp_addr` / `rp_cnt` /
+        `rp_save` / `rp_save2`) to zp.s and hoist `seg_line` family
+        to log.s as originally planned.  (b) is cleaner but bigger.
+
   Deferred Phase-21 test additions (written up in the TDD Analysis,
   scheduled for a separate commit after the phase lands):
 

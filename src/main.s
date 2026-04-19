@@ -79,7 +79,7 @@
         .import ed_ensure_init
         .import exec_line, read_line, show_prompt, cmd_info
         .import post_run_cleanup, hygiene_after_userland
-        .import log_line
+        .import log_line                ; log.s (Phase 21 Move 3)
         .importzp asm_cpu
         .import cur_addr, block_size
         .importzp cur_device            ; Phase 21: moved to zp.s
