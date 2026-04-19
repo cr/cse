@@ -38,7 +38,20 @@ C=0 found, C=1 not found.
 Probe state for linear probing.  `_st_heap`/`_st_heap_base` track
 the name heap (fixed at $E600 under KERNAL).
 
-**Depends on:** nothing (leaf module)
+**Depends on:** mem (kernal_bank_out / kernal_bank_in), zp
+
+### Callers of `sym_define`
+
+`sym_define` is the generic "register a name → value" entry point.
+Direct callers in the corpus:
+
+| Caller | Name | Purpose |
+|---|---|---|
+| `main.s` cold init | `workstart` | fixed $0800, once at boot |
+| `editor.s::update_workend` | `workend` | `buf_base - 1` after every buffer move |
+| `asm_src.s::asm_assemble` | both | refresh after `sym_clear` at pass 0 |
+| `asm_src.s` label emit | user labels | per `main:` / `.loop:` in source |
+| `repl.s::cmd_define` (future) | user symbols | REPL `=` command |
 
 ## Design
 

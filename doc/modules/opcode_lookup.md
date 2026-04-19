@@ -27,7 +27,7 @@
 **RODATA (8 bytes):** `_bit_tab` (8) — bit masks for Zone D/E.
 
 **Depends on:** mn_modes (mode bitmasks), mn_asm_tables (mode_offset,
-direct_opcodes), asm_line (asm_error)
+direct_opcodes), asm_err (asm_error), zp
 
 ## Design
 

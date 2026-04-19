@@ -55,10 +55,21 @@ Suppressed when no segments were emitted (`_min_pc` == $FFFF).
   to match the inclusive-end convention used by the `s` command
   and by `; org AAAA-BBBB` segment lines.
 
-**Depends on:** asm_line, expr, symtab, editor
-(ed_read_line, ed_read_rewind, buf_base), repl (log_open,
-log_close, seg_line, puts_imm for error/summary output), mem (define_ws_syms),
-strings
+**Depends on:** asm_line, expr, symtab (sym_define, sym_clear),
+editor (ed_read_line, ed_read_rewind, buf_base), log (log_open,
+log_close, puts_imm, log_line, seg_line), asm_err (asm_pass,
+asm_expr_err), mem, cse_io, strings, zp
+
+Phase 21 breaks the former repl back-edge by moving every shared
+output primitive into `log.s`:
+- `log_open` / `log_close` / `log_line` / `log_err` / `log_warn` /
+  `log_info` — the logging core
+- `puts_imm` — inline-string print macro target
+- `seg_line` / `prg_line` / `free_line` — range-line formatters
+  (`"; TAG  AAAA-BBBB NNNNNb [free]"`)
+
+After the move, asm_src.s imports every output primitive from `log.s`
+and has zero edges to `repl.s`.
 
 ## Design
 

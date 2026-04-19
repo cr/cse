@@ -198,6 +198,67 @@ Open bugs, roughly ordered by priority.
   (fixed: cmd_brk now rejects BP addresses outside [$0800, __CODE_RUN__)
   with a "; ? range" error before calling dbg_bp_set.  Phase 17.)
 
+- [ ] **Phase 21 — Dependency-tree simplification.**
+  Five moves that eliminate every back-edge in the corpus and establish
+  a strict 7-layer DAG (see [architecture.md § Layer Diagram](architecture.md)).
+  Target state documented first (Step 1 of the DDD Method); this
+  TODO entry is the plan-of-record until the phase lands.
+
+  - **Move 1 — `mem.s` sheds symtab.** Delete `define_ws_syms` from
+    mem.s; `main.s` registers `workstart` directly; `editor.s::update_workend`
+    keeps handling `workend`; `asm_src.s::asm_assemble` calls
+    `sym_define` for both after `sym_clear`.  mem.s ends as a
+    zp-only leaf.
+
+  - **Move 2 — Extract `asm_err.s` (Layer 2).** Owns `asm_syntax_error`,
+    `asm_expr_error`, `asm_error`, `asm_expr_err`, `asm_pass`,
+    `_asm_saved_sp`.  Breaks asm_line↔addr_mode mutual recursion and
+    opcode_lookup→asm_line back-edge.
+
+  - **Move 3 — Extract `log.s` (Layer 2).** Owns `log_open`, `log_close`,
+    `log_line`, `log_err/warn/info`, and the `log.inc` level
+    constants (the include file already exists; the module is new).
+    Breaks disk/editor/asm_src → repl back-edges.  `log_err_eol` /
+    `log_close_eol` (repl-specific prompt-row wrappers) stay in
+    repl.s; `seg_line` either migrates to `log.s` or inlines into
+    asm_src.s — decided at Step 4.
+
+  - **Move 4 — Cross-module flags → `zp.s`.** Seven 1-byte flags
+    migrate: `in_userland`, `state`, `warm_cont`, `kernal_out`,
+    `ed_dirty`, `dbg_reason`, `cur_device`.  Breaks debugger→main,
+    editor→main, disk→repl back-edges for state.  Expected net
+    size change: neutral to slight win (ZP access < BSS access).
+
+  - **Move 5 — Rename `au_mode.s` → `addr_mode.s`.** Legacy `au_`
+    prefix was supposed to be renamed in Phase 12 but the filename
+    stuck.  Pure rename: file, imports, module doc, conftest.  The
+    test file `tests/test_au_mode.py` keeps its historical name.
+
+  Not v0.1-blocking.  Phase-scale refactor (3–5 commits); do after
+  Phase 20 tests land.
+
+  Deferred Phase-21 test additions (written up in the TDD Analysis,
+  scheduled for a separate commit after the phase lands):
+
+  - [ ] `dev/check_deps.py` — mechanical scanner that parses every
+    `.import` / `.importzp` in `src/*.s`, resolves each against
+    per-module `.export`s, and asserts every edge is strictly
+    downward per the [layer table](architecture.md#modules).
+    Permanent enforcement of the strict-DAG invariant.  ~50 LOC
+    Python.  Run in CI.
+  - [ ] `tests/test_asm_err.py` — unit tests for the longjmp-style
+    unwind (`asm_syntax_error` / `asm_expr_error` / `asm_error`):
+    `_asm_saved_sp` round-trip, `asm_expr_err` flag value, and
+    paired `kernal_bank_in`.  Covered transitively by
+    `test_asm_line` / `test_asm_src` today — pin down the contract
+    so a future refactor of the unwind pattern trips something
+    specific.
+  - [ ] `tests/test_log.py` — C64Emu screen-RAM tests for
+    `log_open` / `log_close` / `log_err/warn/info` / `seg_line` /
+    `prg_line` / `free_line`.  Overlaps today with `TestGating`
+    (`warn_if_*`) but a dedicated test owns the logging contract
+    as it moves to its new module.
+
 - [x] ~~**Phase 20 — Warmstart restructure and debug-session lifecycle.**~~
   (done, commits `c4c1992` + `08e9756`.  Reason-named entry points
   `cse_recover`/`cse_end_debug`/`cse_refresh` compose from rts-returning

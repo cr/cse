@@ -14,11 +14,19 @@
   relocation, BSS zero, KDATA copy).  Contains four layers:
   `cse_cold_init`, `setup_interrupts`, the warmstart entry points
   (`cse_recover` / `cse_end_debug` / `cse_refresh`), and `main_loop`.
-- `state` — exported BSS byte: 0=STOP, 1=REPL, 2=EDIT
-- `in_userland` — exported BSS byte: 1 = user code is currently
-  running, 0 = kernel.  Set by `return_to_userland` (debugger.s),
-  cleared on BRK handler entry.  Read by `cse_nmi_handler` to
-  pick its dispatch (swallow vs. break-into-debugger).
+**Cross-module flags hosted in `zp.s`** (main.s writes them;
+reader modules import them as ZP):
+
+- `state` — 0=STOP, 1=REPL, 2=EDIT
+- `in_userland` — 1 = user code is currently running, 0 = kernel.
+  Set by `return_to_userland` (debugger.s), cleared on BRK handler
+  entry.  Read by `cse_nmi_handler` to pick its dispatch (swallow
+  vs. break-into-debugger).
+- `warm_cont` — 0 = fresh prompt, 1 = replay `line_buf` at
+  `main_loop_top`
+- `stop_cooldown` — RUN/STOP edge filter
+- `dbg_reason` — active debug session flag (owned conceptually by
+  debugger, hosted in zp.s so all readers avoid a debugger import)
 
 **Interrupt handlers (owned by main.s):**
 
@@ -132,9 +140,12 @@ same stack shape.
 `rp_tmp2` (1) — scratch pointers/bytes shared by repl.s,
 debugger.s, asm_line.s.
 
-**BSS (7 bytes):** `state` (1), `warm_guard` (1), `in_userland` (1),
-`kernel_init_sp` (1), `run_user_pending` (1), `stop_cooldown` (1),
-`warm_cont` (1).
+**BSS (2 bytes):** `warm_guard` (1), `kernel_init_sp` (1),
+`run_user_pending` (1).
+
+The shared flags `state`, `in_userland`, `warm_cont`, `stop_cooldown`
+live in `zp.s` as `.exportzp` bytes — see the note at the top of
+the Interface section.
 
 `kernel_init_sp` is the SP value the warmstart entry points
 longjmp to when returning control to the REPL.  Set once during
@@ -167,8 +178,8 @@ edge-trigger discipline.
 **KBSS (cold-init snapshot, under kernal ROM):**
 - `_cold_zp` (127 B) — snapshot of $01-$7F at cold-init entry
 
-**Depends on:** repl, editor, screen, cse_io, debugger, symtab,
-disk, mem, strings
+**Depends on:** repl, editor, debugger, asm_line, screen, cse_io,
+symtab, log, mem, strings, zp
 
 ## Design
 
@@ -185,7 +196,9 @@ Runs once after `loader.s` jumps to `_main`.  Sequence:
    any bank-out so the early-entry handlers are reachable).
 5. Initialise subsystems: dbg_init, sym_clear, screen, theme,
    cse_io.
-6. `define_ws_syms` (workspace symbols for assembler).
+6. `sym_define` for `workstart` ($0800) — the fixed workspace
+   symbol.  `workend` is defined by `editor.s::update_workend` the
+   first time the editor initialises.
 7. Fill free memory with $00.
 8. Draw splash screen.
 9. Capture `kernel_init_sp` (fault-recovery setjmp target), then

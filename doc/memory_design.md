@@ -214,7 +214,10 @@ recovery.  See [userland_contract.md § 5](userland_contract.md#5-interrupt-vect
     $0000-$00FF  Zero page (see § Zero Page Layout)
       $00-$01    CPU I/O port
       $02-$56    CSE ZP variables (85 bytes, 13 modules)
-      $57-$7F    Free (41 bytes, available for user programs)
+      $57-$5D    Cross-module flags (7 bytes: in_userland, state,
+                                    warm_cont, kernal_out, ed_dirty,
+                                    dbg_reason, cur_device)
+      $5E-$7F    Free (34 bytes, available for user programs)
       $80-$FF    KERNAL work area
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
     $0200-$02A6  KERNAL editor state, input buffer (reserved)
@@ -675,7 +678,7 @@ $0800.  `workend` adjusts when the editor resizes the gap buffer
 | $21–$23 | 3 | asm_src | `_as_ptr` (2), `_as_wsize` (1) |
 | $24–$26 | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
 | $27 | 1 | mn7/mn6 | `mn7_h_tmp` / `mn6_h_tmp` (1, aliased) |
-| $28–$2B | 4 | au_mode | `asm_ptr` (2), `asm_opr` (2) |
+| $28–$2B | 4 | addr_mode | `asm_ptr` (2), `asm_opr` (2) |
 | $2C | 1 | opcode_lookup | `_asm_ok_tmp` (1) |
 | $2D–$30 | 4 | cse_io | `_io_tmp` (2), `_io_scr` (2) |
 | $31–$32 | 2 | disk | `disk_ptr` (2) |
@@ -691,7 +694,7 @@ variables could share addresses:
 
 | Group | Modules | ZP | BSS | Active when |
 |-------|---------|-----|------|-------------|
-| **Assembler** | asm_src, asm_line, opcode_lookup, au_mode, mn7, mn_vars | 41 | 253 | `a` command |
+| **Assembler** | asm_src, asm_line, opcode_lookup, addr_mode, mn7, mn_vars | 41 | 253 | `a` command |
 | **Editor** | editor | 14 | 59 | ST_EDIT mode |
 | **Disassembler** | dasm | 8 | 24 | `d`/`t`/`o` |
 | **Disk I/O** | disk | — | 67 | `l`/`s`/`$` |

@@ -154,7 +154,6 @@ Used by the BRK handler to identify which breakpoint slot was hit.
 |----------|------|---------|
 | `bp_table` | 32 | 8 breakpoint slots × 4 bytes |
 | `step_bp` | 8 | 2 step breakpoint slots × 4 bytes |
-| `dbg_reason` | 1 | Break reason (0=clean RTS, 1=BRK, 2=NMI) |
 | `brk_pc` | 2 | PC at break / resume address |
 | `dbg_bp_hit` | 1 | Slot of breakpoint hit ($FF = none) |
 | `reg_a/x/y/p/sp` | 5 | User register shadows |
@@ -166,9 +165,18 @@ Used by the BRK handler to identify which breakpoint slot was hit.
 buffers (`user_stack_buf`, `cse_stack_buf`) and the `cse_sp` BSS
 byte.  User and kernel share the single hardware stack page.
 
-**Depends on:** main (cse_brk_handler invokes capture; in_userland
-flag), asm_line (register state, ZP save), dasm (instruction
-length for step)
+**Cross-module flags (in zp.s):**
+
+| Name | Size | Role |
+|---|---|---|
+| `dbg_reason` | 1 | Break reason (0=clean RTS, 1=BRK, 2=NMI) |
+| `in_userland` | 1 | 1 = user code running, 0 = kernel |
+
+Both are `.exportzp` in zp.s.  debugger.s writes them; main.s and
+repl.s read them for dispatch decisions.
+
+**Depends on:** asm_line (register state, ZP save), dasm (instruction
+length for step), mem (ZP save/restore primitives), oplen_tbl, zp
 
 ## Design
 

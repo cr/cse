@@ -318,10 +318,16 @@ get their own small binary.
 
 | Bundle | Modules | Stub | Tests |
 |--------|---------|------|-------|
-| `asm_core` | zp, opcode_lookup, asm_line, au_mode, expr, symtab, mem, mn7, mn_classify, mn_modes, mn_asm_tables | `asm_core_test_stub.s` (linker symbols) | test_au_mode, test_asm_line |
+| `asm_core` | zp, opcode_lookup, asm_line, addr_mode, asm_err, expr, symtab, mem, mn7, mn_classify, mn_modes, mn_asm_tables | `asm_core_test_stub.s` (linker symbols) | test_au_mode, test_asm_line |
 | `mn6` / `mn7` | mn_vars + mn6/mn7 + tables | (none — pure leaf) | test_mnhash |
 | `asm_src` | asm_core + asm_src | `asm_src_test_stub.s` (ed_read_line mock) | test_asm_src |
 | `dasm` | zp, dasm, dasm_tables | `dasm_test_stub.s` (banking helpers) | test_dasm |
+
+Phase 21 renames: the module file is `src/addr_mode.s`; the test
+file retains its historical name `tests/test_au_mode.py`.  The
+`asm_core` bundle now includes the `asm_err` leaf module for
+error-state primitives that `addr_mode`, `opcode_lookup`, and
+`asm_line` share.
 
 The bundle principle: when adding a cross-module dependency, add
 the module to the existing bundle rather than creating new mocks.

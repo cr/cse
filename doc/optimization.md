@@ -662,7 +662,7 @@ predicate returns C=0.
 ; Net: -6 bytes
 ```
 
-Used in: `au_mode.s` — `_au_is_end` preserves A when returning C=0,
+Used in: `addr_mode.s` — `_au_is_end` preserves A when returning C=0,
 eliminating 4 reload instructions.
 
 ## 32. Chain 16-bit adds to skip intermediate store

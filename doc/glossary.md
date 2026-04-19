@@ -52,7 +52,7 @@ and documentation.
 | **mnemonic hash** | `h7 = (c1×4 + c3 + HASH_T[c2]) & $7F`.  Maps a 3-letter mnemonic to a 7-bit slot index (0–127).  Uses VICII-normalized letter values (A=1..Z=26). |
 | **wide** | `expr_wide = 1`: expression forced to ABS.  Sticky — once wide, stays wide. |
 | **base opcode** | Opcode byte with the mode field (`bbb`) zeroed.  Final opcode = `base | (bbb << 2)`. |
-| **mode index** | Integer 0–15 encoding an addressing mode.  Used by `au_mode.s` and `opcode_lookup.s`.  The mapping: 0=IMP, 1=ACC, 2=IMM, 3=ZP, 4=ZPX, 5=ZPY, 6=ABS, 7=ABX, 8=ABY, 9=IND, 10=INX, 11=INY, 12=REL, 13=ZPI, 14=AIX, 15=ZPREL. |
+| **mode index** | Integer 0–15 encoding an addressing mode.  Used by `addr_mode.s` and `opcode_lookup.s`.  The mapping: 0=IMP, 1=ACC, 2=IMM, 3=ZP, 4=ZPX, 5=ZPY, 6=ABS, 7=ABX, 8=ABY, 9=IND, 10=INX, 11=INY, 12=REL, 13=ZPI, 14=AIX, 15=ZPREL. |
 | **operand profile** | Index (0–29) describing which mode indices a mnemonic accepts.  Encoded as a 16-bit bitmask in `mn_modes`.  Example: profile 16 (LDA) = {IMM, ZP, ZPX, ABS, ABX, ABY, INX, INY}. |
 | **zone** | Dispatch category (A–H) in the line assembler.  Derived from the operand profile.  Zones A–F are fixed single-mode groups; G and H are multi-mode groups that call `mode_parse` + `asm_opcode_lookup`. |
 | **mnemonic suffix** | Digit `0`–`7` after RMB/SMB/BBR/BBS: the `3` in `RMB3`.  Encodes a bit index. |

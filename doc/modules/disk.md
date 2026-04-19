@@ -91,9 +91,13 @@ before disk_load_prg/save_prg/load_seq/save_seq.
 | `callback` | 2 | SEQ I/O function pointer |
 | `eof_flag` | 1 | READST EOF flag for SEQ read |
 
-**Depends on:** repl (log_info), screen (newline), cse_io (io_puts,
+**Depends on:** log (log_info), screen (newline), cse_io (io_puts,
 io_putc, io_putdec, io_puthex2/4, io_getc, io_kbhit, io_clear_eol),
-strings (str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf)
+strings (str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf),
+zp (disk_ptr, _io_tmp, cur_device)
+
+`cur_device` (formerly imported from repl.s) now lives in zp.s as a
+cross-module flag, eliminating the repl back-edge.
 
 ## Design
 

@@ -15,7 +15,7 @@ cse/
 │   ├── asm_line.s          Single-line assembler, zone dispatch
 │   ├── zp.s                Central zero-page layout (all modules)
 │   ├── opcode_lookup.s     (profile, mode) → opcode byte
-│   ├── au_mode.s           Addressing mode parser
+│   ├── addr_mode.s         Addressing mode + operand parser
 │   ├── mn_classify.s       Mnemonic classifier dispatcher
 │   ├── mn7.s / mn6.s       Hash-based mnemonic lookup
 │   ├── mn_vars.s           Mnemonic classifier ZP variables

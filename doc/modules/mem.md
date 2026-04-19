@@ -58,19 +58,16 @@ Called by `debugger.s`:
 **In:** none
 **Out:** A = first free ZP byte (`__ZP_LAST__ + 1`)
 
-### define_ws_syms
-**In:** none (reads `buf_base` from editor ZP)
-**Out:** defines `workstart` ($0800) and `workend` (`buf_base - 1`)
-in the symbol table via `sym_define`
-**Clobbers:** A, X, Y, sym_name, sym_val, sym_wide
-
 **State:**
 
 | Variable | Size | Segment | Purpose |
 |----------|------|---------|---------|
-| `kernal_out` | 1 | BSS | Nonzero = KERNAL held banked out (batch mode) |
 | `userland_zp_buf` | `ZP_SAVE_LEN` | BSS | User's `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` snapshot (captured on userland exit) |
 | `kernel_zp_buf` | `ZP_SAVE_LEN` | BSS | Kernel's snapshot over the same range (captured on userland entry) |
+
+The `kernal_out` batch-banking flag is **not** owned here; it lives
+in `zp.s` alongside the other cross-module flags so the banking
+helpers can read/write a single ZP byte.
 
 **Exported constants:**
 
@@ -85,8 +82,7 @@ ZP" (currently `repl.s::zp_stage_prep` and `repl.s::zp_poke`) must
 use these constants for their range checks and index the buffer
 as `userland_zp_buf - ZP_SAVE_LO`.
 
-**Depends on:** zp (buf_base), symtab (sym_define, sym_name, sym_val, sym_wide),
-strings (s_workstart, s_workend)
+**Depends on:** zp (kernal_out flag, buffers' size constants)
 
 ## Design
 
@@ -162,14 +158,20 @@ buffers with `$00=$2F` / `$01=$36` so the first return_to_userland
 (before any userland has populated `userland_zp_buf`) doesn't
 restore zeros into the live CPU port.
 
-### Workspace symbols
+### Workspace symbols (owned by callers)
 
-`define_ws_syms` pre-defines two labels so user programs can
-reference the workspace boundaries:
-- `workstart` = $0800 (fixed)
-- `workend` = `buf_base - 1` (shrinks as source grows)
+The workspace boundary labels `workstart` and `workend` are defined
+directly by their owning modules via `symtab.s::sym_define`.  mem.s
+does not participate:
 
-Called by `main.s` at startup and by `asm_assemble` after `sym_clear`.
+- `main.s` cold init defines `workstart` = $0800 (fixed) once at boot.
+- `editor.s::update_workend` redefines `workend` = `buf_base - 1`
+  after every `buf_base` change (gap-buffer grow, `ed_init`, file load).
+- `asm_src.s::asm_assemble` redefines both after `sym_clear` clears
+  the symbol table at the start of each build.
+
+This split keeps mem.s a zp-only leaf — the "who owns this memory
+region" logic lives with whoever *changes* the region.
 
 ## Caveats
 

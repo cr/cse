@@ -35,33 +35,20 @@ framing.
 - `last_cmd` (char) — last command (for RETURN repeat)
 - `block_size` (uint16) — block size for m/d/f/>/+/-, default $10
 
-**Logging API** (used by other modules for consistent output).
-Log functions print at the current cursor position; callers own
-cursor positioning (typically `jsr newline` at handler entry).
-`log_close` does `io_clear_eol + newline` so output flows line by
-line without callers adding explicit newlines between.
+**Logging API** — moved to [log.md](log.md) as of Phase 21.  repl.s
+still owns two local line-ending wrappers that are specific to the
+prompt-row discipline:
 
-- `log_open(Y=level)` — print `";" + Y` at cursor
-- `log_close()` — clear rest of line, then newline
-- `log_line(Y, A/X=content)` — log_open + io_puts + log_close
-- `log_err(A/X)` / `log_warn(A/X)` / `log_info(A/X)` — level shortcuts
-- `log_err_eol(A/X)` — newline + log_err + clear (error-only exits)
-- `log_close_eol()` — log_close + clear (multi-part exits)
+- `log_err_eol(A/X)` — newline + `log_err` + clear (error-only exits)
+- `log_close_eol()` — `log_close` + clear (multi-part exits)
 
-Three levels: `LOG_ERR='?'` → `";?"`, `LOG_WARN='!'` → `";!"`,
-`LOG_INFO=' '` → `"; "`.
+Both wrap the core `log_*` primitives from `log.s`.  Other modules
+(`disk.s`, `editor.s`, `asm_src.s`, `main.s`) import directly from
+`log.s` — no longer from here.
 
-**Range/info line family** (used for address ranges with byte counts).
-All three DISPLAY the range with BBBB inclusive (the last byte — the
-user-facing convention).  They differ only in the caller's rp_cnt
-convention:
-- `seg_line` — "; TAG  AAAA-BBBB NNNNNb" — caller's rp_cnt is already
-  inclusive (asm_src segments pass `asm_pc - 1`).
-- `prg_line` — "; prg  AAAA-BBBB NNNNNb" — caller's rp_cnt is
-  exclusive (KERNAL LOAD's X/Y return, or `rp_addr + size`); `prg_line`
-  decrements internally before calling the shared display core.
-- `free_line` — "; TAG  AAAA-BBBB NNNNNb free" — inclusive rp_cnt
-  (cmd_info's free-section endpoints).
+**Range/info line family** — moved to [log.md](log.md) as of Phase 21
+(`seg_line`, `prg_line`, `free_line`).  repl.s imports them for
+`cmd_info` and the PRG save/load summary lines.
 
 ### Memory
 
@@ -88,9 +75,12 @@ convention:
 | `fbuf` | 20 | Decimal/free-line output buffer |
 | `zp_stage_buf` | 8 | User-ZP staging buffer for `m` dump and `.` disasm (see [User-ZP view](#user-zp-view)) |
 
-**Depends on:** asm_line (`.`), asm_src (`a`), dasm (`d`), expr (`?`),
-disk (`l`/`s`/`$`), debugger (`b`/`c`/`t`/`o`), editor, screen, cse_io,
-strings
+**Depends on:** asm_src (`a`), editor (`n`/`l`/`s`), disk (`l`/`s`/`$`),
+debugger (`b`/`c`/`t`/`o`), asm_line (`.`), dasm (`d`), expr (`?`),
+symtab (`?` lookup), screen, log (logging primitives), asm_err
+(expr_error_str path), mem, cse_io, oplen_tbl, strings, zp (shared
+flags: `state`, `in_userland`, `warm_cont`, `dbg_reason`, `ed_dirty`,
+`stop_cooldown`)
 
 ## Design
 

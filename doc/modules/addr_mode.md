@@ -1,4 +1,4 @@
-# au_mode.s — Addressing Mode Parser
+# addr_mode — Addressing Mode and Operand Parser
 
 **Template:** [module](../templates/module.md)
 
@@ -6,7 +6,7 @@
 
 | File | Role |
 |------|------|
-| [`src/au_mode.s`](../../src/au_mode.s) | implementation (operand values via expr_eval) |
+| [`src/addr_mode.s`](../../src/addr_mode.s) | implementation (operand values via expr_eval) |
 | [`tests/test_au_mode.py`](../../tests/test_au_mode.py) | test contract |
 
 ## Interface
@@ -27,7 +27,8 @@
 **ZP (4 bytes):** `asm_ptr` (2), `asm_opr` (2).
 Also uses `expr_ptr`, `expr_val`, `expr_wide` (defined in zp.s).
 
-**Depends on:** asm_line (asm_syntax_error, asm_expr_error), expr (expr_eval_nb)
+**Depends on:** expr (expr_eval_nb), asm_err (asm_syntax_error,
+asm_expr_error, asm_pass), zp
 
 ## Design
 
@@ -61,6 +62,15 @@ narrow (0) → ZP modes, wide (1) → ABS modes.
 Character constants for PETSCII: A=$41, X=$58, Y=$59, #=$23,
 $=$24, (=$28, )=$29, ,=$2C.
 
+### Forward-reference handling
+
+During pass 0, `_au_read_val` consults `asm_pass` (in `asm_err.s`).
+When `asm_pass == 0` and the expression uses an undefined symbol,
+the routine substitutes `asm_pc + 2` rather than signalling
+`asm_expr_error`.  This lets the sizing pass proceed past forward
+references; the second pass sees the now-defined symbols and emits
+the correct bytes.
+
 ## Caveats
 
 - Input is PETSCII.  Register letters are A=$41, X=$58, Y=$59.
@@ -68,8 +78,10 @@ $=$24, (=$28, )=$29, ,=$2C.
   `$hex`, `%binary`, decimal, labels, `*`, and operators.
 - Whitespace: space ($20) and tab ($A0).
 - End-of-expression: NUL, CR ($0D), LF ($0A), `;`, `//`.
-- On syntax error: `jmp asm_syntax_error` (in asm_line.s).
-- On expression error: `jmp asm_expr_error` (in asm_line.s) — sets
+- On syntax error: `jmp asm_syntax_error` (in asm_err.s).
+- On expression error: `jmp asm_expr_error` (in asm_err.s) — sets
   `asm_expr_err=1` so callers can print the expr-specific message.
 - `expr_eval_nb` runs without KERNAL banking — mode_parse is called
-  from within _asm_line_core where KERNAL is already banked out.
+  from within `_asm_line_core` where KERNAL is already banked out.
+- Module filename is `addr_mode.s`; the test file retains its
+  historical name `test_au_mode.py`.

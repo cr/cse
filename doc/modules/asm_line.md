@@ -35,9 +35,9 @@ source-pass and the line-asm REPL command:
 `asm_line` owns its own KERNAL banking (bracket of
 `kernal_bank_out`/`kernal_bank_in` around the `_asm_line_core` call).
 Callers do not — and must not — bank the KERNAL themselves.  The
-`asm_error` / `asm_syntax_error` recovery path also banks the
-KERNAL back in before returning 0, so success and error exits are
-symmetric.
+error-unwind path (`asm_error` / `asm_syntax_error` / `asm_expr_error`,
+in [asm_err.md](asm_err.md)) also banks the KERNAL back in before
+returning 0, so success and error exits are symmetric.
 
 Input is PETSCII.  Mnemonic characters are normalized to 1–26 via
 AND #$1F (handles uppercase, lowercase, and legacy VICII screen
@@ -45,14 +45,14 @@ codes identically — see [mn_classify.md](mn_classify.md)).
 
 ### Memory (asm_line.s)
 
-**ZP (imported):** `_asm_saved_sp` (1, defined in zp.s) — saved
-6502 SP for the `asm_error` recovery path.
+**ZP:** none of its own.  The error-recovery SP snapshot
+(`_asm_saved_sp`) and the expression-error flag (`asm_expr_err`)
+both live in [asm_err.md](asm_err.md).
 
-**BSS (183 bytes):**
+**BSS (182 bytes — user register shadows):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
-| `asm_expr_err` | 1 | Nonzero if last `asm_error` was an expression error |
 | `reg_a` | 1 | Saved user A register (read by debugger.s + repl.s) |
 | `reg_x` | 1 | Saved user X register |
 | `reg_y` | 1 | Saved user Y register |
@@ -63,8 +63,10 @@ used to live here; as of Phase 18 they are owned by `mem.s`
 alongside the `save_userland_zp` / `restore_userland_zp` /
 `save_kernel_zp` / `restore_kernel_zp` primitives.)
 
-**Depends on:** opcode_lookup, mode_parse, mn_classify (mn_base_op,
-mn_profile), mn7 tables, kernal_bank_out/kernal_bank_in (symtab.s)
+**Depends on:** addr_mode (mode_parse, asm_skip_ws), opcode_lookup
+(asm_opcode_lookup), mn_classify (mn_base_op, mn_profile), asm_err
+(asm_syntax_error / asm_expr_error / asm_expr_err / _asm_saved_sp),
+mem (kernal_bank_out / kernal_bank_in), zp
 
 ## Design
 
@@ -86,15 +88,16 @@ Zones A–F handle fixed single-mode instructions inline.  Zones G and H
 call `mode_parse` to determine the addressing mode, then
 `asm_opcode_lookup` to compute the opcode byte.
 
-**Error handling:** On any error, `jmp asm_error` restores the 6502
-SP from `_asm_saved_sp` and returns 0 to the caller.  `asm_expr_err`
-(BSS byte) is cleared to 0.  Expression evaluation errors use the
-`asm_expr_error` entry point, which loads A=1 then merges into
-`asm_error`'s shared tail via a BIT-abs skip (the `lda #0` at
-`asm_error` is consumed as a BIT operand, preserving A=1).  Both
-paths store A into `asm_expr_err` and share the SP restore, bank-in,
-and return.  Callers check `asm_expr_err` after a zero return to
-distinguish syntax errors from expression errors and can call
+**Error handling:** On any error, `jmp asm_error` (in asm_err.s)
+restores the 6502 SP from `_asm_saved_sp` and returns 0 to the
+caller.  `asm_expr_err` is cleared to 0.  Expression evaluation
+errors use the `asm_expr_error` entry point, which loads A=1 then
+merges into `asm_error`'s shared tail via a BIT-abs skip (the
+`lda #0` at `asm_error` is consumed as a BIT operand, preserving
+A=1).  Both paths store A into `asm_expr_err` and share the SP
+restore, bank-in, and return.  Callers check `asm_expr_err` after
+a zero return to distinguish syntax errors from expression errors
+and can call
 `expr_error_str` for the specific message (e.g. "undef").
 
 ## Caveats

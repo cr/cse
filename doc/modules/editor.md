@@ -41,8 +41,9 @@ runtime loop and the `T` REPL command (~30 bytes saved).
 counts from last file operation.  `ed_total_lines` (uint16, BSS,
 exported) — current line count, used by the REPL's `i` command.
 
-**Depends on:** disk (SEQ callbacks), screen, cse_io,
-mem (cse_start), sym (sym_define), strings (s_workend)
+**Depends on:** disk (SEQ callbacks), screen, cse_io, log, symtab
+(sym_define for `update_workend`), mem (cse_start), strings
+(s_workend), zp (state, ed_dirty cross-module flags)
 
 ### Zero-page variables
 
@@ -68,6 +69,15 @@ to completion before any read), so they share the same ZP location.
 indirect-indexed addressing (`lda (ed_tmp),y`).
 Total: 14 ZP bytes.
 
+### Cross-module flag (in zp.s)
+
+| Name | Size | Role |
+|------|------|------|
+| `ed_dirty` | 1 | buffer modified flag |
+
+`ed_dirty` is an `.exportzp` in zp.s; editor.s writes it; repl.s
+reads it for the unsaved-changes gates (`k`, `Q`, `l`, etc.).
+
 ### BSS variables
 
 | Name | Size | Role |
@@ -76,7 +86,6 @@ Total: 14 ZP bytes.
 | `ed_cur_col` | 1 | cursor visual column (0-based) |
 | `ed_top_line` | 2 | line number at screen row 0 |
 | `ed_total_lines` | 2 | total line count in buffer |
-| `ed_dirty` | 1 | buffer modified flag |
 | `ed_save_bytes` | 2 | bytes from last file op |
 | `ed_save_lines` | 2 | lines from last file op |
 | `_load_overflow` | 1 | sticky flag: set if gap buffer overflowed during `ed_load_source` |
