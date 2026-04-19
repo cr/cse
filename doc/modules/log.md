@@ -67,8 +67,30 @@ Three variants distinguished by the `rp_cnt` convention:
 All three display the range with BBBB inclusive.  `prg_line`
 decrements internally before calling the shared display core.
 
-**Depends on:** cse_io (io_putc, io_puts, io_putdec, io_puthex4,
-io_clear_eol, newline), zp (rp_tmp, rp_addr, rp_cnt), strings
+### log_err_eol / log_close_eol
+**In:**  A/X = content string pointer (err_eol only)
+**Out:** newline + log line + `io_clear_eol`
+**Clobbers:** same as `log_line` / `log_close`
+
+Prompt-row-specific wrappers: `log_err_eol` is used by
+command-handler error exits that need to leave the prompt row
+clean before their final `rts`; `log_close_eol` is the
+multi-step variant that only closes an already-opened line.
+
+### info_line / info_line_head / info_line_tail
+**In:**  `rp_addr` (lo), `rp_cnt` (hi), `rp_ptr2` (tag string),
+`rp_ptr` (desc string, for info_line), `rp_save2` (highlight flag,
+for info_line_tail)
+**Out:** `"; TAG  AAAA-BBBB <desc>"` at cursor, optionally
+highlighted on the AAAA-BBBB bytes, padded to 40 cols + newline
+**Clobbers:** A, X, Y, `rp_save`, `rp_next_lo`, `rp_ptr`
+
+Used by `cmd_info` for multi-line memory-map displays.
+
+**Depends on:** cse_io (io_putc, io_puts, io_putdec_pd,
+io_puthex4, io_repc, io_clear_eol, newline, scr_lo, scr_hi),
+zp (rp_tmp, rp_ptr, rp_ptr2, rp_addr, rp_cnt, rp_save, rp_save2,
+rp_next_lo, _info_mode), strings (str_free_suf, str_tag_prg)
 
 ## Design
 

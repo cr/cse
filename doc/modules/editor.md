@@ -45,12 +45,10 @@ exported) — current line count, used by the REPL's `i` command.
 (sym_define for `update_workend`), mem (cse_start), strings
 (s_workend), zp (state, ed_dirty cross-module flags)
 
-**Pre-existing back-edge (to be addressed in a future phase):**
-editor.s imports `cur_project_name` from repl.s — the REPL-owned
-"stem of the current project" string used by save/load prompts.
-Layer-4 → Layer-5 upward edge.  A future cleanup could hoist
-`cur_project_name` to a neutral module (new `project.s` or
-zp-adjacent).  Not in Phase-21 scope.
+Phase 21.1 Move 6a resolved the pre-existing `cur_project_name`
+back-edge by hosting the buffer in `zp.s` as `.exportzp` (17 bytes
+at $5E-$6E).  editor.s now `.importzp`s it — no repl-bound
+dependency for state remains.
 
 ### Zero-page variables
 

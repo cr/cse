@@ -60,21 +60,18 @@ editor (ed_read_line, ed_read_rewind, buf_base), log (log_open,
 log_close, puts_imm, log_line, seg_line), asm_err (asm_pass,
 asm_expr_err), mem, cse_io, strings, zp
 
-Phase 21 Move 3 moved the logging primitives (log_open / log_close /
-log_line / log_err / log_warn / log_info / puts_imm) into `log.s`.
-asm_src.s imports those from log.s now.
+Phase 21 Move 3 + Phase 21.1 Moves 3B and 6a collapsed every
+formerly-present asm_src→repl edge:
+- log primitives (log_open/log_close/log_line/log_err/log_warn/
+  log_info/puts_imm) hoisted to `log.s` (Move 3).
+- range-line family (seg_line/prg_line/free_line/info_line_*/
+  _range_core) also hoisted to `log.s` (Move 3B).
+- shared scratch pool (rp_addr/rp_cnt/rp_save/rp_save2/rp_next_lo/
+  _info_mode) moved to `zp.s` (Move 3B) — ~209 access sites shrank
+  from 3-byte abs to 2-byte zp form.
+- project-name buffer (cur_project_name) moved to `zp.s` (Move 6a).
 
-**Remaining back-edges (tracked in TODO.md):**
-- `asm_src → repl` via `seg_line`, `rp_addr`, `rp_cnt`, `rp_save2`
-  — the range-line formatter family couldn't hoist with the log
-  primitives because its calling convention shares the general
-  REPL scratch-BSS pool used by ~360 non-log sites in repl.s.
-  Two resolutions possible: inline segment emission into asm_src.s,
-  or hoist the scratch pool to zp.s and move seg_line family to
-  log.s.
-- `asm_src → repl` via `cur_project_name` — pre-existing; the
-  project-name stem used for save-summary display.  Not in
-  Phase-21 scope.
+After these moves asm_src.s has zero imports from repl.s.
 
 ## Design
 

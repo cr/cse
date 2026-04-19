@@ -223,41 +223,38 @@ Open bugs, roughly ordered by priority.
   green at every commit.  Every back-edge in the Step-2 DDD Analysis
   was eliminated except the residuals listed below.
 
-  Residual back-edges (to clean up post-phase):
+  Residual back-edges — **all cleared in Phase 21.1** (commits
+  `1362bb6` + `647f0f2`):
 
-  - [ ] **asm_src.s::seg_line → log.s or inline.**  After Phase 21
-    Move 3 the logging primitives (`log_open`/`log_close`/`log_line`/
-    `log_err/warn/info`/`puts_imm`) moved to `log.s`, but the range-
-    line formatter family (`seg_line`/`prg_line`/`free_line` +
-    `info_line_head`/`info_line_tail`/`_range_core`) stayed in repl.s
-    because it shares ~360 call sites of `rp_addr`/`rp_cnt`/`rp_save`/
-    `rp_save2` scratch with non-log REPL commands.  Result: asm_src.s
-    still imports `seg_line` + 3 BSS scratch bytes from repl.s — a
-    Layer-4 → Layer-5 back-edge introduced by Move 3's partial hoist.
-    Two ways to fix:
-    (a) inline the ~30 B of segment-line emission into asm_src.s
-        (eliminates the import; trades size for independence);
-    (b) move the shared scratch pool (`rp_addr` / `rp_cnt` /
-        `rp_save` / `rp_save2`) to zp.s and hoist `seg_line` family
-        to log.s as originally planned.  (b) is cleaner but bigger.
+  - [x] ~~`asm_src → repl` via `seg_line` + BSS scratch.~~  Phase 21.1
+    Move 3B: shared scratch pool (`rp_addr`, `rp_cnt`, `rp_save`,
+    `rp_save2`, `rp_next_lo`, `_info_mode`) migrated to `zp.s`;
+    range-line formatter family (`seg_line`/`prg_line`/`free_line` +
+    `info_line_*` + `_range_core` + `log_err_eol` + `log_close_eol`)
+    hoisted from `repl.s` to `log.s`.  −224 to −232 B per build
+    (the scratch ZP promotion hits ~209 access sites).
+  - [x] ~~`asm_src → repl` via `cur_project_name`.~~  Phase 21.1
+    Move 6a: 17-byte filename-stem buffer moved to `zp.s` at
+    $5E-$6E.  Y→X refactor in `editor.s::ed_status` filename scan
+    recovers 2 extra bytes that would otherwise fall back to abs,Y.
+    −8 B per build; 17 ZP bytes spent.
+  - [x] ~~`editor → repl` via `cur_project_name`.~~  Same commit.
 
-  - [ ] **asm_src.s::cur_project_name hoist.**  asm_src.s imports
-    `cur_project_name` from repl.s (the 17-byte stem shown in the
-    `; asm "PROJ"...` log line and in the save-command suggestion
-    `seg_print_save` emits after assembly).  Pre-existing edge,
-    not introduced by Phase 21 but surfaced by the mechanical scan.
-    Fix: move `cur_project_name` to a neutral home — candidates:
-    (a) a new `src/project.s` Layer-2 leaf owning the project-name
-        string buffer + the derivation helpers (`parse_ls_args` and
-        filename-suffix logic could migrate too);
-    (b) stay in repl.s but accept the back-edge with documentation.
-    Small module worth doing if it eats the back-edge cleanly.
+  **Phase 21 total (including 21.1):** −339 B 6510 / −339 B 6502 /
+  −314 B cmos; zero back-edges; workspace gained 256 B (runtime
+  start shifted up one page).
 
-  - [ ] **editor.s::cur_project_name hoist.**  Same symbol, same
-    back-edge (editor.s displays the project name in its status
-    bar and save prompts).  Solved by the same cleanup as the
-    asm_src item above — whichever way `cur_project_name` is
-    rehomed, both consumers land on the same import.
+  Revisit items:
+
+  - [ ] **If ZP space gets tight, reconsider `cur_project_name` placement.**
+    The 17-byte buffer in ZP at $5E-$6E claims space that could
+    host hotter single-byte flags or 2-byte pointers.  ~40% of
+    the buffer's accesses (the `(rp_ptr2),y` loops in
+    `copy_stem_to_project`) can't benefit from zp encoding.
+    If user-ZP pressure ever exceeds the current 8-byte free
+    margin ($78-$7F), move `cur_project_name` to `disk.s` BSS
+    — cost 0 ZP, code-size penalty ~8 bytes, restores no
+    back-edge regression.
 
   Deferred Phase-21 test additions (written up in the TDD Analysis,
   scheduled for a separate commit after the phase lands):

@@ -217,7 +217,10 @@ recovery.  See [userland_contract.md § 5](userland_contract.md#5-interrupt-vect
       $57-$5D    Cross-module flags (7 bytes: in_userland, state,
                                     warm_cont, kernal_out, ed_dirty,
                                     dbg_reason, cur_device)
-      $5E-$7F    Free (34 bytes, available for user programs)
+      $5E-$6E    cur_project_name (17 bytes — filename stem)
+      $6F-$77    Output scratch (9 bytes: rp_addr, rp_cnt, rp_save,
+                                 rp_save2, rp_next_lo, _info_mode)
+      $78-$7F    Free (8 bytes, available for user programs)
       $80-$FF    KERNAL work area
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
     $0200-$02A6  KERNAL editor state, input buffer (reserved)

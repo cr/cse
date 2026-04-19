@@ -121,6 +121,13 @@ strictly lower layer; no back-edges.
 | repl | asm_src, editor, disk, debugger, asm_line, dasm, expr, symtab, screen, log, asm_err, mem, cse_io, oplen_tbl, strings, zp |
 | asm_src | editor, asm_line, expr, symtab, log, asm_err, mem, cse_io, strings, zp |
 | editor | disk, screen, symtab, log, mem, cse_io, strings, zp |
+
+All Layer-4 modules depend strictly downward after Phase 21 + 21.1.
+The `cur_project_name` buffer, the `seg_line`/`prg_line`/`free_line`
+range formatters, and the shared scratch pool (`rp_addr`/`rp_cnt`/
+`rp_save`/`rp_save2`/`rp_next_lo`/`_info_mode`) all live in their
+semantic homes (zp.s or log.s) and the dispatcher modules no longer
+export state that lower layers reach up for.
 | disk | screen, log, cse_io, strings, zp |
 | debugger | asm_line, mem, oplen_tbl, zp |
 | asm_line | addr_mode, opcode_lookup, mn_classify, asm_err, mem, zp |
