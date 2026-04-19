@@ -16,6 +16,7 @@
         .export ed_dirty, ed_save_bytes, ed_save_lines
         .export ed_total_lines
         .export src_top, src_bot
+        .export define_ws_syms          ; Phase 21 Move 1 — moved from mem.s
 
         .import io_sync, io_blip
         .import kernal_bank_out, kernal_bank_in
@@ -28,7 +29,7 @@
         .import sym_define
         .importzp disk_ptr
         .importzp sym_name, sym_val, sym_wide
-        .import s_workend
+        .import s_workstart, s_workend
 
 ; ── Constants ────────────────────────────────────────────────
 SCREEN       = $0400
@@ -185,8 +186,31 @@ _ed_cur_row:
         jmp update_workend      ; tail call
 .endproc
 
+; ── define_ws_syms — register both workspace symbols ─────────
+; workstart = $0800 (fixed), workend = buf_base - 1 (dynamic).
+; Called from main.s cold-init and asm_src.s::asm_assemble after
+; sym_clear.  Falls through into update_workend for the workend
+; half — saves bytes vs. two independent procs.  Moved from mem.s
+; in Phase 21 Move 1 so mem.s can stay a zp-only leaf.
+.proc define_ws_syms
+        ; workstart ($0800, fixed)
+        lda #<$0800
+        sta sym_val
+        lda #>$0800
+        sta sym_val+1
+        lda #<s_workstart
+        sta sym_name
+        lda #>s_workstart
+        sta sym_name+1
+        lda #1
+        sta sym_wide
+        jsr sym_define
+        ; fall through to update_workend for the dynamic half
+.endproc
+
 ; ── update_workend — redefine workend symbol from buf_base ────
-; Called after any buf_base change (ed_init, gb_ensure_room).
+; Called after any buf_base change (ed_init, gb_ensure_room) and
+; also falls-into from define_ws_syms above.
 .proc update_workend
         lda buf_base
         sec

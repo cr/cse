@@ -30,7 +30,7 @@
         .import         seg_line, rp_addr, rp_cnt, rp_save2
         .import         str_tag_org
         .import         puts_imm               ; repl.s — for puts macro
-        .import         define_ws_syms         ; mem.s
+        .import         define_ws_syms         ; editor.s (Phase 21 Move 1)
         .import         ed_read_line           ; editor.s
         .import         ed_read_rewind
         .import         cur_project_name           ; repl.s — last loaded/saved filename

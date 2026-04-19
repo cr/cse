@@ -36,6 +36,9 @@
         .export rp_addr, rp_cnt, rp_save2
         .export puts_imm
         .export cur_project_name
+        .export define_ws_syms          ; Phase 21 Move 1: no-op stub
+                                        ; (real impl lives in editor.s, which
+                                        ; isn't linked into the asm_src bundle)
         .export __CODE_RUN__    : absolute = $4000
 
         .import asm_assemble
@@ -162,6 +165,7 @@ newline:
 log_open:
 log_close:
 seg_line:
+define_ws_syms:
         rts
 
 .segment "BSS"

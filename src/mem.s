@@ -1,8 +1,8 @@
-; mem.s — Memory manager: banking, ZP save/restore, segment queries,
-;         workspace symbols.
+; mem.s — Memory manager: banking, ZP save/restore, segment queries.
 ;
 ; Permanent module that consolidates low-level state-preservation
-; primitives paired by contract:
+; primitives paired by contract.  After Phase 21 Move 1, mem.s is a
+; zp-only leaf: no sibling-module imports.
 ;
 ;   KERNAL ROM banking:
 ;     kernal_bank_out    clear $01 bit 1 (honours kernal_out)
@@ -21,7 +21,11 @@
 ;     cse_start          returns runtime start (XXXX) in A/X
 ;     cse_end            returns $D000 in A/X
 ;     cse_zp_end         returns first free ZP byte in A
-;     define_ws_syms     define workstart/workend in symbol table
+;
+; Workspace-symbol registration (define_ws_syms) moved to editor.s
+; in Phase 21 Move 1 — the helper lives next to update_workend which
+; owns `workend`, sharing the sym_define / sym_name / sym_val / sym_wide
+; plumbing.
 
         .setcpu "6502"
 
@@ -38,22 +42,16 @@ ZP_SAVE_LEN = 128
         .export kernal_bank_out, kernal_bank_in
         .export kernal_out
         .export cse_start, cse_end, cse_zp_end
-        .export define_ws_syms
         .export save_userland_zp, restore_userland_zp
         .export save_kernel_zp, restore_kernel_zp
         .export userland_zp_buf, kernel_zp_buf
         .export ZP_SAVE_LO, ZP_SAVE_LEN
 
 ; ── Imports ──────────────────────────────────────────────────
-        .importzp buf_base
-        .importzp sym_name, sym_val, sym_wide
-        .import sym_define
         .import __ZP_LAST__
-        .import s_workstart, s_workend
 
 ; ── Constants ────────────────────────────────────────────────
 CPU_PORT     = $01
-WORKSTART    = $0800
 HIMEM        = $D000
 
 ; ── BSS ──────────────────────────────────────────────────────
@@ -130,6 +128,11 @@ kernal_bank_in:
 ; ═════════════════════════════════════════════════════════════
 ; cse_start — return runtime start address in A/X
 ; ═════════════════════════════════════════════════════════════
+;
+; define_ws_syms — moved to editor.s alongside update_workend (Phase 21
+; Move 1).  mem.s is a zp-only leaf; the workspace-symbol logic belongs
+; with the module that owns buf_base.
+;
 cse_start:
         lda #<__CODE_RUN__
         ldx #>__CODE_RUN__
@@ -151,41 +154,6 @@ cse_zp_end:
         lda _zp_end_val
         ldx #0
         rts
-
-; ═════════════════════════════════════════════════════════════
-; define_ws_syms — define workstart/workend in symbol table
-;   workstart = $0800 (fixed)
-;   workend   = buf_base - 1 (inclusive)
-; ═════════════════════════════════════════════════════════════
-.proc define_ws_syms
-        lda #1
-        sta sym_wide            ; ABS — set once (sym_define preserves it)
-
-        ; ── workstart ($0800, fixed) ──
-        lda #<WORKSTART
-        sta sym_val
-        lda #>WORKSTART
-        sta sym_val+1
-        lda #<s_workstart
-        sta sym_name
-        lda #>s_workstart
-        sta sym_name+1
-        jsr sym_define
-
-        ; ── workend (inclusive: buf_base - 1) ──
-        lda buf_base
-        sec
-        sbc #1
-        sta sym_val
-        lda buf_base+1
-        sbc #0
-        sta sym_val+1
-        lda #<s_workend
-        sta sym_name
-        lda #>s_workend
-        sta sym_name+1
-        jmp sym_define         ; tail call
-.endproc
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; CPU-port aware ZP save/restore — kernel↔userland ZP swap primitives
