@@ -1,5 +1,6 @@
 """
-test_au_mode.py – pytest tests for src/au_mode.s
+test_au_mode.py – pytest tests for src/addr_mode.s
+(filename retained for historical continuity; see doc/modules/addr_mode.md)
 
 Each test calls mode_parse with a PETSCII-encoded argument string and checks:
   A  = mode index (0=IMP .. 15=ZPREL)
@@ -27,7 +28,7 @@ def sc(s: str) -> bytes:
     return bytes(out)
 
 
-# ── Mode index constants (mirror au_mode.s) ───────────────────────────────────
+# ── Mode index constants (mirror addr_mode.s) ─────────────────────────────────
 IMP   = 0
 ACC   = 1
 IMM   = 2

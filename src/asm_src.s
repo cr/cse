@@ -15,7 +15,7 @@
 
         .export         asm_assemble
         .export         asm_org, asm_size, asm_errors
-        .export         asm_pass := _asm_pass   ; pass flag for au_mode.s fwd refs
+        .export         asm_pass := _asm_pass   ; pass flag for addr_mode.s fwd refs
         .export         seg_print_save
 
         .import         asm_line, asm_expr_err ; asm_line.s

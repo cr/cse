@@ -42,7 +42,7 @@
         .importzp asm_slot, asm_prof, asm_pidx, asm_base, asm_bit, asm_mode, asm_cpu
         .importzp asm_tmp, asm_tmp2
 
-        ; au_mode.s interface
+        ; addr_mode.s interface
         .importzp asm_ptr, asm_opr
         .import   mode_parse, asm_skip_ws
 
@@ -57,7 +57,7 @@
         ; banking
         .import kernal_bank_out, kernal_bank_in
 
-; Mode index constants (mirror au_mode.s / ALL_MODES order)
+; Mode index constants (mirror addr_mode.s / ALL_MODES order)
 MODE_IMP   = 0
 MODE_ACC   = 1
 MODE_IMM   = 2

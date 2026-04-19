@@ -39,7 +39,7 @@
 ;   direct_opcodes             — per-mode opcode table for STZ (profile 28)
 ;   FIRST_DIR_PROFILE          — = 28 (from mn_asm_tables.s)
 ;
-; Mode constants (mirror au_mode.s)
+; Mode constants (mirror addr_mode.s)
 MODE_IMP  = 0
 MODE_ACC  = 1
 MODE_IMM  = 2

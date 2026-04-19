@@ -63,7 +63,7 @@ mn_c3:          .res 1          ; last letter
 mn7_h_tmp:                      ; mn7: c3>>2 during fingerprint check
 mn6_h_tmp:      .res 1          ; mn6: c1*8 during hash computation
 
-; ── au_mode.s: mode parser I/O ────────────────────────────────────────── $28
+; ── addr_mode.s: mode parser I/O ──────────────────────────────────────── $28
         .exportzp asm_ptr, asm_opr
 asm_ptr:        .res 2          ; pointer to argument string
 asm_opr:        .res 2          ; output operand bytes (lo, hi)

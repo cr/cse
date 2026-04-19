@@ -114,7 +114,7 @@ _AC_SOURCES = [
     SRC / "strings.s",
     SRC / "opcode_lookup.s",
     SRC / "asm_line.s",
-    SRC / "au_mode.s",
+    SRC / "addr_mode.s",
     SRC / "expr.s",
     SRC / "symtab.s",
     SRC / "mem.s",
@@ -159,7 +159,7 @@ def _ac_build():
 class AsmCoreSymbols:
     """Resolved symbol addresses + binary loader for the asm_core bundle.
 
-    Provides addresses for both au_mode tests (mode_parse, asm_ptr, asm_opr)
+    Provides addresses for both addr_mode tests (mode_parse, asm_ptr, asm_opr)
     and asm_line tests (_asm_line_core, asm_pc, asm_out, asm_cpu, etc.).
     All symbols resolved from .lbl file (debug build).
     """
@@ -170,7 +170,7 @@ class AsmCoreSymbols:
 
         s = SymbolTable(_AC_LBL)
 
-        # au_mode entry points
+        # addr_mode entry points
         self.mode_parse       = s["mode_parse"]
         self.asm_skip_ws      = s["asm_skip_ws"]
         self.asm_syntax_error = s["asm_syntax_error"]
@@ -299,7 +299,7 @@ def mn7_syms():
 #
 # Links the full two-pass assembler pipeline:
 #   zp + opcode_lookup + asm_line
-#   + au_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables
+#   + addr_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables
 #   + mn_classify + expr + symtab + asm_src
 #   + asm_src_test_stub  (provides ed_read_line, etc.)
 #
@@ -315,7 +315,7 @@ _AS_SOURCES = [
     SRC / "strings.s",
     SRC / "opcode_lookup.s",
     SRC / "asm_line.s",
-    SRC / "au_mode.s",
+    SRC / "addr_mode.s",
     SRC / "mn_vars.s",
     SRC / "mn7.s",
     SRC / "mn7_tables.s",

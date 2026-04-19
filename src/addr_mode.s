@@ -1,5 +1,6 @@
 ; ─────────────────────────────────────────────────────────────────────────────
-; au_mode.s  –  addressing-mode argument parser
+; addr_mode.s  –  addressing-mode and operand parser
+;   (renamed from au_mode.s in Phase 21)
 ;
 ; Parses a null-terminated PETSCII argument string.
 ; Operand values parsed by expr_eval_nb: $hex, %binary, decimal,

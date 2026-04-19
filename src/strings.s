@@ -90,7 +90,7 @@ str_bp_clr:     .byte "bp clr", 0
 str_deleted:    .byte " del", 0
 
 ; Error content strings (prefix-free — log_line prepends ";?")
-str_syntax:     .byte "syntax", 0        ; shared: asm + b + au_mode
+str_syntax:     .byte "syntax", 0        ; shared: asm + b + addr_mode
 str_bad_val:    .byte "bad val", 0
 str_full        = s_sym_full + 4         ; "full" is suffix of "sym full"
 str_cmd:        .byte "cmd", 0

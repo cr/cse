@@ -1,7 +1,7 @@
 ; asm_core_test_stub.s — minimal stub for the asm_core test bundle
 ;
 ; The asm_core bundle links the full single-line assembler pipeline:
-;   zp + opcode_lookup + asm_line + au_mode
+;   zp + opcode_lookup + asm_line + addr_mode
 ;   + expr + symtab + mem
 ;   + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables + mn_classify
 ;
@@ -10,7 +10,7 @@
 ;
 ; This stub provides:
 ;   - __CODE_RUN__ linker symbol for mem.s
-;   - asm_pass flag for au_mode.s forward-ref handling
+;   - asm_pass flag for addr_mode.s forward-ref handling
 ;
 ; Symbol resolution uses .lbl files (debug build with -g), so no
 ; .addr forcing is needed to make symbols visible.
@@ -22,7 +22,7 @@
         ; Linker symbols consumed by mem.s
         .export __CODE_RUN__    : absolute = $4000
 
-        ; asm_pass flag (au_mode.s forward-ref handling)
+        ; asm_pass flag (addr_mode.s forward-ref handling)
         .export asm_pass
 
         .segment "BSS"

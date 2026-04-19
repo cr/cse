@@ -202,7 +202,7 @@ endif
 ASM_SRCS = zp loader main strings \
            asm_line asm_src mn_vars mn_classify \
            $(MN_SRCS) mn_config \
-           au_mode mn_modes mn_asm_tables opcode_lookup \
+           addr_mode mn_modes mn_asm_tables opcode_lookup \
            mem cse_io screen disk expr symtab dasm dasm_tables \
            debugger repl editor oplen_tbl
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
