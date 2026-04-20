@@ -89,6 +89,8 @@ and documentation.
 | **guarantee** | A postcondition that a function promises to its caller.  Example: "`show_prompt` leaves the cursor at column 5."  The caller may rely on a guarantee without checking. |
 | **template** | A repeating structural form used across the codebase.  Example: the emitter pattern (`io_cx = 0`, write fields, `clear_eol`).  Templates reduce cognitive load — once you've read one instance, the rest are familiar. |
 | **design pattern** | A named, reusable solution to a recurring design problem.  Broader than a template: includes the problem context, the forces in tension, and why this shape resolves them.  Example: the block-edit workflow (dump editable lines, re-execute in place, preserve trailing content). |
+| **axiomatic module** | A module that declares only symbol exports — layout slots, RODATA literals and tables, BSS reservations, numeric constants — and contains no CODE segment.  Has no testable contract beyond "the symbols exist and link," which the linker enforces on every build.  In CSE: all of L0 plus `mn_vars`.  Axiomatic modules do not receive unit test files; correctness is enforced transitively by every bundled test that links them.  See [testing.md § Principle 12](testing.md#principle-12-axiomatic-modules-need-no-unit-tests). |
+| **behavioural module** | A module with a CODE segment and an exported contract over its runtime behaviour.  The complement of *axiomatic module*.  Every behavioural module gets a test file under `tests/unit/` or `tests/integration/`; every exported symbol is backed by a correctness test or a vocal skip (Principle 8). |
 
 ## Encoding
 

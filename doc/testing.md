@@ -364,6 +364,50 @@ tests are written, when they are written, and what they test.
     shipped broken for years before the matrix audit surfaced the
     gap.
 
+12. **Axiomatic modules need no unit tests.**  An **axiomatic module**
+    is one that declares only symbol exports — layout slots, RODATA
+    literals and tables, BSS reservations, numeric constants — and
+    contains no CODE segment.  In CSE these are all of L0 (`zp`,
+    `strings`, every `*_tables`, `mn_config`, `oplen_tbl`,
+    `dasm_mne_idx`) plus `mn_vars` at L1 (pure BSS scratch).  An
+    axiomatic module has no testable contract beyond "the symbols
+    exist and link," which the linker enforces on every build.
+
+    **Why no unit tests.**  A unit test needs something to assert.
+    Asserting `mn_modes[16] == $00F0` against the generator's own
+    output is a mirror test (see Anti-patterns § Mirror tests).
+    Asserting `strings_prompt == "cse>"` against a string literal
+    is tautology.  The only meaningful correctness check for
+    axiomatic data is "does it make consumers behave correctly" —
+    and that check lives in the consumers' bundled tests, which
+    already link the module.
+
+    **Transitive coverage is the contract.**  Every bundled test
+    that links an axiomatic module is a data-integrity test for
+    that module.  A corrupt `oplen_tbl[$A9]` fails `test_dasm`; a
+    misaligned ZP slot crashes any bundle that uses it; a wrong
+    `mn_modes` bit fails `test_addr_mode`.  Axiomatic-module bugs
+    can't hide — they manifest in every bundle that links the
+    broken data.
+
+    **Generated-table subtlety.**  Tables produced by
+    `dev/mnemonic_tables.py` (`mn_asm_tables`, `mn6/7_tables`,
+    `mn_modes`, `oplen_tbl`) have a second failure mode: a
+    generator bug that produces *consistently wrong* data could
+    hide from a consumer's test if the generator and consumer
+    share the wrong assumption.  The guard is that
+    `test_asm_line::test_assemble` and `test_dasm` both cross-
+    reference every opcode against `dev/instruction_set.py` — the
+    independent authoritative source the generator reads.  Tables
+    are tested against an oracle, not against themselves.
+
+    **TDD Maintenance rule.**  Axiomatic modules are not flagged
+    as untested.  The per-module tier table below uses `—` in the
+    Tier column with a brief note on where coverage lives.  If an
+    axiomatic module ever grows behaviour (a runtime helper, a
+    computed lookup, anything in a CODE segment), it ceases to be
+    axiomatic and gets a test file at that point.
+
 ## Anti-patterns
 
 These exist in the current test tree.  Don't add more of them;
