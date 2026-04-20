@@ -51,15 +51,18 @@ cse/
 │   ├── c64emu.py           C64 emulator class (py65 + KERNAL ROM)
 │   ├── conftest.py         Bundle fixtures + cse_prg fixture
 │   ├── unit/               Tier U — module bundles (bare py65 MPU)
-│   │   ├── test_asm_line.py      Line assembler (asm_core bundle)
-│   │   ├── test_asm_src.py       Source assembler bundle
-│   │   ├── test_au_mode.py       Addressing mode (asm_core)
-│   │   ├── test_cse_io.py        Screen I/O leaf
-│   │   ├── test_dasm.py          Disassembler bundle
+│   │   ├── test_addr_mode.py       addr_mode.s (asm_core)
+│   │   ├── test_asm_err.py         asm_err.s (asm_core)
+│   │   ├── test_asm_line.py        asm_line.s (asm_core)
+│   │   ├── test_asm_src.py         asm_src.s + asm_core
+│   │   ├── test_cse_io.py          cse_io.s leaf
+│   │   ├── test_dasm.py            dasm.s bundle
 │   │   ├── test_debugger_contracts.py  BP-table CRUD
-│   │   ├── test_expr.py          Expression parser
-│   │   ├── test_mnhash.py        mn6 / mn7 leaf
-│   │   └── test_symtab.py        Symbol table leaf
+│   │   ├── test_expr.py            expr.s (asm_core)
+│   │   ├── test_mem.py             mem.s — banking + ZP save/restore
+│   │   ├── test_mn_classify.py     mn_classify + mn6 + mn7 + mn_vars
+│   │   ├── test_opcode_lookup.py   opcode_lookup.s (asm_core)
+│   │   └── test_symtab.py          symtab.s leaf
 │   ├── integration/        Tier I — C64Emu + full PRG
 │   │   ├── test_c64emu.py        Emulator harness smoke
 │   │   ├── test_editor.py        Editor via C64Emu

@@ -1,58 +1,55 @@
-"""test_asm_line.py — Tier-U unit tests for asm_line.s + opcode_lookup.s.
+"""test_asm_line.py — Tier-U unit tests for asm_line.s.
 
-Contract sources:
-  - [doc/modules/asm_line.md](../../doc/modules/asm_line.md)
-  - [doc/modules/opcode_lookup.md](../../doc/modules/opcode_lookup.md)
+Contract source: [doc/modules/asm_line.md](../../doc/modules/asm_line.md).
 
 Coverage of the documented contract
 -----------------------------------
-Both asm_line.s and opcode_lookup.s are linked into the asm_core
-bundle and tested from this file.
+5 exported items:
 
-asm_line.s (5 exported items):
-  asm_line                  — test_assemble (~800 parametrised cases
+  asm_line                  — test_assemble (~1260 parametrised cases
                                across MNEMONICS × MODE_EXAMPLES);
                                test_hex_mnemonic_ambiguity (7 cases)
   _asm_line_core            — exercised by test_assemble
   reg_a / reg_x / reg_y /
   reg_sp / reg_p (BSS)      — TestRegShadows (addressability +
-                               distinctness + round-trip)
+                               distinctness + writability)
 
-opcode_lookup.s (2 exported items):
-  asm_opcode_lookup         — exhaustive coverage via test_assemble
-                               (every legal/CMOS mnemonic × mode opcode
-                               byte verified against dev/instruction_set.py)
-  asm_validate_mode         — TestAsmValidateMode (direct carry-flag
-                               contract, 6 cases)
+CPU-mode gate (asm_cpu × category matrix — see asm_line.md):
+  TestCpuGateCmosBundle  — -DCMOS_SUPPORT build (matches 65C02 prod)
+  TestCpuGate6510Bundle  — no-CMOS_SUPPORT build (matches 6510 prod,
+                            the config where the CMOS-accept bug lived)
+  TestAsmLine6502Bundle  — -DUSE_MN6 build (matches 6502 prod;
+                            mn6 rejects CMOS/illegals at classify tier)
 
-CPU-mode gate:
-  CMOS rejection on NMOS    — test_nmos_rejects_cmos
-
-Out-of-scope (vocal skip)
--------------------------
-  TestAsmSkipWs::test_asm_skip_ws_contract — addr_mode.s's asm_skip_ws
-  is exercised transitively through test_au_mode.py::test_parse_ok
-  (41 whitespace-handling operand forms); a direct test would exercise
-  the same byte-scan through a thinner harness without catching new
-  regressions.
+Adjacent modules in this bundle (their own test files):
+  opcode_lookup.s → tests/unit/test_opcode_lookup.py (asm_validate_mode)
+  addr_mode.s     → tests/unit/test_addr_mode.py (mode_parse, asm_skip_ws)
+  expr.s          → tests/unit/test_expr.py
+  symtab.s + mem.s→ tests/unit/{test_symtab,test_mem}.py
+asm_opcode_lookup's opcode-byte correctness is proven by the
+exhaustive test_assemble sweep below (every MNEMONICS[mne][mode]
+byte is checked), so test_opcode_lookup.py focuses on
+asm_validate_mode's standalone predicate contract.
 
 Test generation
 ---------------
-The main parametrised test is built from MODE_EXAMPLES x MNEMONICS
-as described in the MODE_EXAMPLES docstring in instruction_set.py:
+The main parametrised test is built from MODE_EXAMPLES × MNEMONICS as
+described in the MODE_EXAMPLES docstring in instruction_set.py:
 
-    for mne, (profile, cmos_bit, _) in MNEMONICS.items():
+    for mne, (profile, cmos_bit, category) in MNEMONICS.items():
         for mode in mne_modes(profile, cmos_bit):
             for operand_src, operand_bytes in MODE_EXAMPLES[mode]:
                 source   = f"{mne} {operand_src}".strip()
                 expected = [OPCODES[mne][mode]] + operand_bytes
 
-Cases are skipped when OPCODES[mne][mode] is None (Zone D/E digit-encoded
-ops) or the operand uses lowercase forms mode_parse doesn't accept.
+Cases are skipped when OPCODES[mne][mode] is None (Zone D/E
+digit-encoded ops) or the operand uses lowercase forms mode_parse
+doesn't accept.
 
-REL / CMOS notes unchanged — see earlier test revisions for details.
-All tests run with asm_cpu = 2 (65C02) so NMOS and CMOS extension modes
-are both exercised.
+asm_cpu selection: asm_cpu=1 for illegals, asm_cpu=2 for legal + CMOS.
+Post-Escape-Analysis gate change — the gate now rejects illegals on
+asm_cpu != 1 and CMOS on asm_cpu < 2, so the parametric sweep must
+pick the right asm_cpu per category.
 """
 
 import sys
@@ -136,60 +133,37 @@ def _run(asm_syms, source: str, asm_cpu: int = 2):
     """
     Assemble one instruction and return the output bytes.
 
-    Returns the bytes written to the output buffer on success, or raises
-    AssertionError if asm_error is reached, or TimeoutError on runaway.
+    Raises AssertionError if asm_error is reached, TimeoutError on runaway.
     """
-    cpu = MPU()
-    mem = cpu.memory
+    from conftest import make_cpu, push_rts_sentinel, step_until_pc
 
-    # Load the test binary
-    asm_syms.load_into(mem)
+    cpu, mem = make_cpu(asm_syms)
 
-    # Write the PETSCII-encoded source string
-    encoded = _sc(source)
-    for i, b in enumerate(encoded):
+    # PETSCII source → input buffer; point asm_ptr at it
+    for i, b in enumerate(_sc(source)):
         mem[_IN_BUF + i] = b
-
-    # Set asm_ptr -> input buffer
     mem[asm_syms.asm_ptr]     = _IN_BUF & 0xFF
     mem[asm_syms.asm_ptr + 1] = (_IN_BUF >> 8) & 0xFF
 
-    # Set asm_pc = _TEST_PC
-    mem[asm_syms.asm_pc]     = _TEST_PC & 0xFF
-    mem[asm_syms.asm_pc + 1] = (_TEST_PC >> 8) & 0xFF
-
-    # Set asm_out -> output buffer
+    mem[asm_syms.asm_pc]      = _TEST_PC & 0xFF
+    mem[asm_syms.asm_pc + 1]  = (_TEST_PC >> 8) & 0xFF
     mem[asm_syms.asm_out]     = _OUT_BUF & 0xFF
     mem[asm_syms.asm_out + 1] = (_OUT_BUF >> 8) & 0xFF
+    mem[asm_syms.asm_cpu]     = asm_cpu
 
-    # asm_cpu
-    mem[asm_syms.asm_cpu] = asm_cpu
-
-    # Fake JSR: push $FFFE so RTS lands at $FFFF (sentinel)
-    cpu.sp = 0xFF
-    mem[0x01FF] = 0xFF
-    mem[0x01FE] = 0xFE
-    cpu.sp = 0xFD
-
-    # Pre-set _asm_saved_sp so asm_error can restore SP on error.
-    # The fake JSR left SP at 0xFD; asm_error does ldx _asm_saved_sp; txs; rts
-    # which will return to $FFFF just like a normal return.
-    mem[asm_syms._asm_saved_sp] = 0xFD
+    sentinel = push_rts_sentinel(cpu, sentinel=0xFFFF)
+    # asm_line's error path does `ldx _asm_saved_sp / txs / rts`,
+    # so pre-seed _asm_saved_sp to match for symmetric success/error return.
+    mem[asm_syms._asm_saved_sp] = cpu.sp
 
     cpu.pc = asm_syms._asm_line_core
     cpu.y  = 0
+    step_until_pc(cpu, sentinel, max_steps=_MAX_STEPS, what=repr(source))
 
-    for _ in range(_MAX_STEPS):
-        if cpu.pc == 0xFFFF:
-            # Normal return or error return (asm_error restores SP and RTS)
-            n = mem[asm_syms.asm_len]
-            if n == 0:
-                raise AssertionError(
-                    f"asm_error reached while assembling {source!r}")
-            return bytes(mem[_OUT_BUF : _OUT_BUF + n])
-        cpu.step()
-
-    raise TimeoutError(f"exceeded {_MAX_STEPS} steps for {source!r}")
+    n = mem[asm_syms.asm_len]
+    if n == 0:
+        raise AssertionError(f"asm_error reached while assembling {source!r}")
+    return bytes(mem[_OUT_BUF : _OUT_BUF + n])
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -466,100 +440,8 @@ class TestRegShadows:
             assert mem[addr] == 0x10 + i
 
 
-# ─── opcode_lookup.s: asm_validate_mode direct tests ────────────────────────
-#
-# asm_validate_mode is a pure predicate: C=0 if `asm_mode` is in the
-# mode-set for `asm_pidx`, C=1 otherwise.  The asm_line parametric sweep
-# exercises it through asm_opcode_lookup indirectly, but the carry-flag
-# semantics are worth a direct assertion.
-
-# Mode constants (must match OPCODES dict in dev/instruction_set.py).
-_MODE_IMP = 0
-_MODE_ACC = 1
-_MODE_IMM = 2
-_MODE_ZP  = 3
-_MODE_ZPX = 4
-_MODE_ABS = 6
-_MODE_ABX = 7
-_MODE_ABY = 8
-_MODE_IND = 9
-_MODE_REL = 12
-_MODE_ZPI = 13
-
-
-def _run_validate_mode(asm_syms, pidx, mode):
-    """Set asm_pidx + asm_mode, JSR asm_validate_mode, return carry flag."""
-    cpu = MPU()
-    mem = bytearray(65536)
-    asm_syms.load_into(mem)
-    cpu.memory = mem
-    mem[asm_syms.asm_pidx] = pidx
-    mem[asm_syms.asm_mode] = mode
-    ret = 0x01F0
-    mem[ret] = 0x60                          # RTS sentinel (any opcode)
-    cpu.sp = 0xFF
-    mem[0x01FF] = (ret - 1) >> 8
-    mem[0x01FE] = (ret - 1) & 0xFF
-    cpu.sp = 0xFD
-    cpu.pc = asm_syms.asm_validate_mode
-    for _ in range(500):
-        if cpu.pc == ret:
-            return cpu.p & 0x01
-        cpu.step()
-    raise RuntimeError("asm_validate_mode did not return")
-
-
-class TestAsmValidateMode:
-    """asm_validate_mode: C=0 for valid (pidx, mode), C=1 for invalid."""
-
-    def test_imp_profile_accepts_imp_mode(self, asm_syms):
-        # profile 0 = Zone A (implied only); mode IMP must be valid.
-        assert _run_validate_mode(asm_syms, 0, _MODE_IMP) == 0
-
-    def test_imp_profile_rejects_abs_mode(self, asm_syms):
-        # profile 0 accepts only IMP; ABS must be rejected.
-        assert _run_validate_mode(asm_syms, 0, _MODE_ABS) == 1
-
-    def test_rel_profile_accepts_rel_mode(self, asm_syms):
-        # profile 1 = Zone B (branches, REL only).
-        assert _run_validate_mode(asm_syms, 1, _MODE_REL) == 0
-
-    def test_rel_profile_rejects_imm_mode(self, asm_syms):
-        assert _run_validate_mode(asm_syms, 1, _MODE_IMM) == 1
-
-    def test_imm_profile_accepts_imm_mode(self, asm_syms):
-        # profile 2 = Zone C (immediate only).
-        assert _run_validate_mode(asm_syms, 2, _MODE_IMM) == 0
-
-    def test_multimode_profile_accepts_all_declared_modes(self, asm_syms):
-        # profile 6 is the cc=01 group (LDA/AND/etc.): ZP, ZPX, ABS, ABX,
-        # ABY, INX, INY all valid.
-        for mode in (_MODE_ZP, _MODE_ZPX, _MODE_ABS, _MODE_ABX,
-                     _MODE_ABY, _MODE_IND, _MODE_REL):
-            c = _run_validate_mode(asm_syms, 6, mode)
-            if mode == _MODE_REL:
-                # REL is not in profile 6's set.
-                assert c == 1, f"mode {mode}: expected reject"
-
-
-# ─── addr_mode.s: asm_skip_ws vocal skip ────────────────────────────────────
-#
-# asm_skip_ws (exported by addr_mode.s) is called inline by mode_parse
-# and asm_line.s.  The whitespace-handling contract (skip $20 and $A0)
-# is verified implicitly by test_au_mode.py::test_parse_ok, which uses
-# 41 parametrised operand forms with leading/trailing/embedded
-# whitespace.  A direct test would duplicate that coverage.
-
-class TestAsmSkipWs:
-
-    @pytest.mark.skip(reason=(
-        "asm_skip_ws (addr_mode.md § asm_skip_ws): the whitespace-skip "
-        "contract ($20 = space, $A0 = shifted space / tab) is verified "
-        "transitively through test_au_mode.py::test_parse_ok (41 cases "
-        "exercising leading/trailing/embedded whitespace).  A direct "
-        "test would exercise the same bytes through a thinner harness "
-        "without catching additional regressions.  Retained as a vocal "
-        "skip per doc/testing.md § Principle 9 Pattern B (subsumed)."
-    ))
-    def test_asm_skip_ws_contract(self, asm_syms):
-        pass
+# asm_validate_mode and asm_skip_ws tests retired from this file.
+# They now live with their owning modules per the one-file-per-module
+# principle:
+#   - TestAsmValidateMode  → tests/unit/test_opcode_lookup.py
+#   - TestAsmSkipWs        → tests/unit/test_addr_mode.py

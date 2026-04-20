@@ -9,11 +9,13 @@ All test binaries are assembled with -g (debug symbols) and linked with
 
 Fixtures provided
 -----------------
-syms        — asm_core test binary symbols (for test_au_mode.py)
-asm_syms    — asm_core test binary symbols (for test_asm_line.py)
-mn6_syms    — mn6 hash test binary  (for test_mn_classify.py)
-mn7_syms    — mn7 hash test binary  (for test_mn_classify.py)
-mem_syms    — zp + mem bundle        (for test_mem.py)
+asm_syms        — asm_core bundle, -DCMOS_SUPPORT (65C02 production)
+asm_6510_syms   — asm_core bundle, no CMOS_SUPPORT (6510 production)
+asm_6502_syms   — asm_core bundle, -DUSE_MN6     (6502 production)
+mn6_syms        — mn6 hash test binary  (test_mn_classify.py)
+mn7_syms        — mn7 hash test binary  (test_mn_classify.py)
+mem_syms        — zp + mem bundle       (test_mem.py)
+dasm_syms       — dasm bundle           (test_dasm.py)
 
 Test bundle architecture
 ------------------------
@@ -27,6 +29,7 @@ import re
 import subprocess
 import pathlib
 import pytest
+from py65.devices.mpu6502 import MPU
 
 ROOT  = pathlib.Path(__file__).parent.parent
 BUILD = ROOT / "build"
@@ -46,6 +49,69 @@ _VERSION_INC = BUILD / "version.inc"
 _VERSION_INC_BODY = '.define VERSION_STRING "test"\n'
 if not _VERSION_INC.exists() or _VERSION_INC.read_text() != _VERSION_INC_BODY:
     _VERSION_INC.write_text(_VERSION_INC_BODY)
+
+
+# ── Shared harness helpers ───────────────────────────────────────────────────
+#
+# Every unit-tier test file that drives a bundle through py65 does the
+# same three things: build a fresh MPU with the bundle loaded, push a
+# fake JSR return address so the subroutine's RTS halts, and step the
+# CPU until PC reaches that sentinel.  These helpers consolidate the
+# pattern so each test file can focus on its own setup and output
+# extraction.
+
+def make_cpu(syms):
+    """Return (cpu, mem) — a fresh py65 MPU with `syms` loaded via
+    `.load_into(mem)`.  Caller is responsible for any further
+    memory pre-seeding (source strings, ZP values, operand bytes)."""
+    cpu = MPU()
+    syms.load_into(cpu.memory)
+    return cpu, cpu.memory
+
+
+def push_rts_sentinel(cpu, sentinel=0x01F0):
+    """Push `sentinel-1` to the stack as the JSR-style return address
+    and stage a NOP at `sentinel` so nothing unexpected executes if
+    the step loop races past the check.  Sets SP=$FD (matching a
+    normal post-JSR state).  Returns `sentinel` for the caller to
+    pass to `step_until_pc`."""
+    mem = cpu.memory
+    mem[sentinel] = 0xEA                        # NOP
+    cpu.sp = 0xFF
+    mem[0x01FF] = (sentinel - 1) >> 8
+    mem[0x01FE] = (sentinel - 1) & 0xFF
+    cpu.sp = 0xFD
+    return sentinel
+
+
+def step_until_pc(cpu, target_pc, *, max_steps=50_000, what="test"):
+    """Step `cpu` until `cpu.pc == target_pc` or `max_steps` is
+    exceeded.  Raises TimeoutError with the current PC on overflow."""
+    for _ in range(max_steps):
+        if cpu.pc == target_pc:
+            return
+        cpu.step()
+    raise TimeoutError(
+        f"{what}: did not reach ${target_pc:04X} after {max_steps} "
+        f"steps (PC=${cpu.pc:04X})"
+    )
+
+
+def step_until_any_pc(cpu, targets, *, max_steps=50_000, what="test"):
+    """Step `cpu` until `cpu.pc` reaches any address in `targets`
+    (an iterable).  Returns the first-matched target.  Raises
+    TimeoutError with the current PC on overflow.  Useful when a
+    test needs to distinguish success return vs. error-exit paths."""
+    target_set = set(targets)
+    for _ in range(max_steps):
+        if cpu.pc in target_set:
+            return cpu.pc
+        cpu.step()
+    raise TimeoutError(
+        f"{what}: did not reach any of " +
+        ", ".join(f"${t:04X}" for t in sorted(target_set)) +
+        f" after {max_steps} steps (PC=${cpu.pc:04X})"
+    )
 
 
 # ── Symbol resolution ───────────────────────────────────────────────────────
@@ -102,7 +168,8 @@ class SymbolTable:
 # ── asm_core bundle ──────────────────────────────────────────────────────────
 #
 # Links the full single-line assembler pipeline as one test binary.
-# Shared by test_au_mode.py (mode_parse) and test_asm_line.py (_asm_line_core).
+# Shared by test_asm_line.py, test_addr_mode.py, test_opcode_lookup.py,
+# test_expr.py, and test_asm_err.py.
 # The stub is minimal: BRK error handler + linker symbols for mem.s.
 # No per-module mocking — every import is satisfied by real code.
 
@@ -289,12 +356,6 @@ class AsmCoreSymbols:
         """Write the test binary into a 64 KB memory bytearray."""
         memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
         memory[_CODE_START : _CODE_START + len(self._code_blob)]   = self._code_blob
-
-
-@pytest.fixture(scope="session")
-def syms():
-    """Session-scoped asm_core binary — used by test_au_mode.py."""
-    return AsmCoreSymbols()
 
 
 @pytest.fixture(scope="session")
@@ -545,6 +606,7 @@ _DASM_SOURCES = [
     SRC / "zp.s",
     SRC / "dasm.s",
     SRC / "dasm_tables.s",
+    SRC / "mem.s",                 # provides real kernal_bank_out/in
     DEV / "dasm_test_stub.s",
 ]
 

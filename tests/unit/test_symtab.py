@@ -1,16 +1,34 @@
-"""
-test_symtab.py — Symbol table contract tests (symtab.s)
+"""test_symtab.py — Tier-U unit tests for symtab.s.
 
-Entry: hash(1) + value(2) + name_ptr(2) + scope(1) = 6 bytes × 128 slots.
-Names stored as NUL-terminated PETSCII strings (pointer in entry).
-Case insensitive: names compared with uppercase folded to lowercase.
-Characters: a-z, 0-9, dot. No underscore (not on C64 keyboard).
-Empty slot: name_ptr == $0000 (hash 0 is valid, not a sentinel).
+Contract source: [doc/modules/symtab.md](../../doc/modules/symtab.md).
 
-Interface (ZP):
-  sym_define(sym_name, sym_val, sym_wide): store. C=1 if full.
-  sym_lookup(sym_name): find → sym_val, sym_wide. C=1 if not found.
-  sym_clear(): wipe all slots.
+Coverage of the documented contract
+-----------------------------------
+All 3 API entry points + table layout + design guarantees:
+
+    sym_define(sym_name, sym_val, sym_wide) → C=0 ok / C=1 full
+        TestBasicOperations, TestCapacity, TestCollisions
+    sym_lookup(sym_name) → sym_val, sym_wide, C=0 found / C=1 not
+        TestBasicOperations, TestCaseInsensitive
+    sym_clear()
+        TestBasicOperations::test_clear_wipes_all + TestCapacity
+
+Plus contract invariants:
+    Case folding ($C1-$DA → $41-$5A)      — TestCaseInsensitive (4)
+    Exact name matching (no prefix/suffix) — TestNameMatching (7)
+    256-slot capacity + probe-wrap         — TestCapacity (6)
+    ZP/ABS width flag (scope byte bit 7)   — TestWidthFlag (4)
+    Hash 0 is valid (not empty sentinel)   — TestDesignGuarantees
+    Name heap isolation from source buffer — TestDesignGuarantees
+
+Out-of-scope (vocal skip — see TestHeapOverflow)
+------------------------------------------------
+Name-heap overflow detection (`heap_copy_name` vs SYM_HEAP_END) is
+documented but too fragile to drive at unit tier.  Enforcement is
+code-review + grep.  See the ⚠ MID-RISK L2 GAP preamble on that skip.
+
+Bundle: zp + strings + symtab + mem + symtab_test_stub.s
+        (mem is pulled in for kernal_bank_out/in used during probe).
 """
 
 import subprocess, pathlib, pytest
@@ -313,20 +331,9 @@ class TestCollisions:
 
 
 class TestCapacity:
-    def test_fill_to_96(self, symt):
-        """37.5% load factor — 96 out of 256 slots."""
-        mpu, mem = _setup_cpu(symt)
-        _clear(symt, mpu, mem)
-        for i in range(96):
-            name = f"s{i:03d}"
-            ok = _define(symt, mpu, mem, name, 0x1000 + i)
-            assert ok, f"define #{i} ({name}) failed"
-        # Verify all
-        for i in range(96):
-            name = f"s{i:03d}"
-            found, val, _ = _lookup(symt, mpu, mem, name)
-            assert found, f"lookup {name} failed"
-            assert val == 0x1000 + i
+    # test_fill_to_96 retired — a 37.5%-load sanity check is subsumed
+    # by test_full_table_lookup_all, which fills ALL 256 slots and
+    # verifies every one round-trips.  If 256 works, 96 trivially works.
 
     def test_full_table_returns_error(self, symt):
         # Capacity is 256: empty marker is name_ptr=$0000, which never
@@ -381,14 +388,11 @@ class TestCapacity:
         found, _, _ = _lookup(symt, mpu, mem, "f000")
         assert not found
 
-    def test_redefine_doesnt_consume_slot(self, symt):
-        mpu, mem = _setup_cpu(symt)
-        _clear(symt, mpu, mem)
-        _define(symt, mpu, mem, "x", 1)
-        _define(symt, mpu, mem, "x", 2)
-        _define(symt, mpu, mem, "x", 3)
-        found, val, _ = _lookup(symt, mpu, mem, "x")
-        assert found and val == 3
+    # test_redefine_doesnt_consume_slot retired — the name was broader
+    # than the body: asserting "three redefines yield the latest value"
+    # is covered by TestBasicOperations::test_redefine_updates_value.
+    # The stronger "no slot consumed" claim (redefine at full capacity
+    # succeeds) is in test_full_table_redefine_succeeds above.
 
 
 class TestEdgeCases:
@@ -502,3 +506,39 @@ class TestDesignGuarantees:
         assert not found
         found, _, _ = _lookup(symt, mpu, mem, ".loop")
         assert not found
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Contract clauses intentionally not automated (vocal skips)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Skip policy per doc/testing.md § Principle 9.
+
+# ⚠  MID-RISK L2 GAP (per coverage audit 2026-04-20):
+#    The name heap lives at fixed $E600–$EEFF (2304 bytes) under
+#    KERNAL ROM.  `heap_copy_name` checks `_st_heap` against
+#    `SYM_HEAP_END` after each byte copy and returns C=1 on
+#    overflow — but at unit tier, the test bundle's heap is
+#    relocated by `dev/symtab_test_stub.s` and driving it to
+#    overflow would require injecting ~2000+ long names (fragile,
+#    ZP-pointer-dependent).  The overflow branch is not exercised
+#    today.  A regression (e.g. missing boundary check, off-by-one
+#    on `SYM_HEAP_END`) would manifest only after sustained source
+#    assembly with many long labels — hard to reproduce in CI.
+
+class TestHeapOverflow:
+
+    @pytest.mark.skip(reason=(
+        "Name-heap overflow detection (symtab.md § Name heap): "
+        "`heap_copy_name` compares `_st_heap` against `SYM_HEAP_END` "
+        "($EF00) after each byte copy and returns C=1 on overflow. "
+        "Exercising this at unit tier requires a contrived ~2304-byte "
+        "sequence of long names or a manipulated `_st_heap` starting "
+        "value — both fragile and implementation-coupled.  Enforcement "
+        "today: code review of `heap_copy_name` in src/symtab.s + "
+        "grep for SYM_HEAP_END references (currently only "
+        "heap_copy_name).  A manual VICE workflow that defines labels "
+        "until overflow would confirm behaviour; not scripted."
+    ))
+    def test_sym_define_returns_carry_set_on_heap_overflow(self, symt):
+        pass

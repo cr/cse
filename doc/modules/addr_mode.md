@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/addr_mode.s`](../../src/addr_mode.s) | implementation (operand values via expr_eval) |
-| [`tests/unit/test_au_mode.py`](../../tests/unit/test_au_mode.py) | test contract |
+| [`tests/unit/test_addr_mode.py`](../../tests/unit/test_addr_mode.py) | test contract |
 
 ## Interface
 
@@ -83,5 +83,3 @@ the correct bytes.
   `asm_expr_err=1` so callers can print the expr-specific message.
 - `expr_eval_nb` runs without KERNAL banking — mode_parse is called
   from within `_asm_line_core` where KERNAL is already banked out.
-- Module filename is `addr_mode.s`; the test file retains its
-  historical name `test_au_mode.py`.

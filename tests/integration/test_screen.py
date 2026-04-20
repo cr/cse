@@ -1,8 +1,31 @@
-"""
-test_screen_asm.py — ASM-level screen module tests via C64Emu.
+"""test_screen.py — Tier-I contract tests for screen.s.
 
-Tests the real screen.s routines (newline, scroll_up, restore_colors,
-reset_screen, cursor_show/hide) against actual screen RAM.
+Contract source: [doc/modules/screen.md](../../doc/modules/screen.md).
+
+Coverage of the documented contract
+-----------------------------------
+All 8 exported entry points + 3 BSS theme bytes:
+
+    restore_colors      — TestRestoreColors (border/bg/chrcolor + color RAM)
+    reset_screen        — TestResetScreen  (clear + colors + cursor reset)
+    vic_reset           — TestVicReset     (6 VIC register writes)
+    scroll_up           — TestScrollUp     (1-row, 5-row, full, io_cy clamp)
+    newline             — TestNewline      (advance + scroll at bottom)
+    cursor_show         — TestCursorToggle (XOR $80 at cursor)
+    cursor_hide         — TestCursorToggle (alias; restores via second toggle)
+    theme_border / theme_bg / theme_fg (BSS) — TestRestoreColors
+
+Out-of-scope (vocal skips — see TestVicHardwareBehaviour)
+---------------------------------------------------------
+C64Emu treats VIC-II registers as flat RAM.  The WRITE values are
+verified (TestVicReset); the VIC's actual response (display mode,
+IRQ latch clearing, raster timing) needs VICE.  See the ⚠ MID-RISK
+L2 GAP preamble on TestVicHardwareBehaviour.
+
+Note on tier: screen.s is a Tier-U module per testing.md's per-module
+table (bundle: screen + cse_io).  Tests currently run in Tier-I
+against the full PRG — same coverage, different harness.  Bundle
+re-home is a future task.
 
 Requires: build/cmos/cse-cmos.prg (auto-built by cse_prg fixture).
 """
@@ -138,6 +161,24 @@ class TestScrollUp:
         for r in range(ROWS):
             assert row_is(emu, r, 0x20)
 
+    def test_scroll_clamps_io_cy_to_zero(self, cse_prg):
+        """scroll_up must adjust io_cy, clamping at 0 (screen.md § scroll_up
+        'io_cy adjusted (clamped to 0)')."""
+        emu = make_emu(cse_prg)
+        emu.set_cursor(3, 0)     # row 3
+        emu.jsr(emu.sym("scroll_up"), a=5)   # scroll more than cursor is from top
+        # Per contract: io_cy clamped to 0 (can't go negative).
+        assert emu.memory[0xD6] == 0, \
+            f"scroll_up didn't clamp io_cy: {emu.memory[0xD6]}"
+
+    def test_scroll_adjusts_io_cy_partial(self, cse_prg):
+        """scroll_up(n) with cursor at row r where r >= n → io_cy = r - n."""
+        emu = make_emu(cse_prg)
+        emu.set_cursor(10, 5)
+        emu.jsr(emu.sym("scroll_up"), a=3)
+        assert emu.memory[0xD6] == 7, \
+            f"io_cy should be 10-3=7, got {emu.memory[0xD6]}"
+
 
 # ── cursor_show / cursor_hide ──────────────────────────────────────────────
 
@@ -168,3 +209,114 @@ class TestCursorToggle:
         assert emu.memory[addr] == 0x84
         assert emu.memory[addr - 1] == 0x20
         assert emu.memory[addr + 1] == 0x20
+
+
+# ── vic_reset — VIC register writes ────────────────────────────────────────
+#
+# vic_reset writes six VIC-II registers to force known text-mode state.
+# The register WRITES are observable in C64Emu (memory-mapped I/O), but
+# the VIC-II chip's interpretation of those bytes (display on/off,
+# character ROM source, sprite muting) is NOT emulated — C64Emu treats
+# $D011–$D01A as flat RAM.  What we CAN test: the bytes land at the
+# correct register addresses with the correct values.  What we CAN'T
+# test: that the VIC actually reacts to them (that's a VICE check).
+
+class TestVicReset:
+    """vic_reset forces known text-mode VIC state (screen.md § vic_reset)."""
+
+    def test_sets_d011_text_mode(self, cse_prg):
+        """$D011=$1B: display on, 25 rows, text mode, no ECM/BMM, Y-scroll=3."""
+        emu = make_emu(cse_prg)
+        emu.memory[0xD011] = 0x00   # pretend user-code had blanked display
+        emu.jsr(emu.sym("vic_reset"))
+        assert emu.memory[0xD011] == 0x1B
+
+    def test_sets_d016_text_mode(self, cse_prg):
+        """$D016=$C8: 40 cols, no MCM, no X-scroll (bits 6:7 set by C64 default)."""
+        emu = make_emu(cse_prg)
+        emu.memory[0xD016] = 0x00
+        emu.jsr(emu.sym("vic_reset"))
+        assert emu.memory[0xD016] == 0xC8
+
+    def test_sets_d018_screen_and_charset(self, cse_prg):
+        """$D018=$16: screen at $0400 (bits 7:4 = 1), charset at $1800
+        (bits 3:1 = 3) — the lowercase/uppercase font in ROM."""
+        emu = make_emu(cse_prg)
+        emu.memory[0xD018] = 0x00
+        emu.jsr(emu.sym("vic_reset"))
+        assert emu.memory[0xD018] == 0x16
+
+    def test_sets_d015_sprites_off(self, cse_prg):
+        """$D015=0: all sprites disabled."""
+        emu = make_emu(cse_prg)
+        emu.memory[0xD015] = 0xFF
+        emu.jsr(emu.sym("vic_reset"))
+        assert emu.memory[0xD015] == 0x00
+
+    def test_sets_d01a_irq_enable_off(self, cse_prg):
+        """$D01A=0: all VIC IRQ sources disabled."""
+        emu = make_emu(cse_prg)
+        emu.memory[0xD01A] = 0xFF
+        emu.jsr(emu.sym("vic_reset"))
+        assert emu.memory[0xD01A] == 0x00
+
+    def test_acks_d019_latches(self, cse_prg):
+        """$D019=$0F: ack any pending IRQ latches (write-1-to-clear on real
+        hardware; flat-RAM write on C64Emu)."""
+        emu = make_emu(cse_prg)
+        emu.jsr(emu.sym("vic_reset"))
+        assert emu.memory[0xD019] == 0x0F
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Contract clauses intentionally not automated (vocal skips)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Skip policy per doc/testing.md § Principle 9.
+
+
+# ⚠  MID-RISK L2 GAP (per coverage audit 2026-04-20):
+#    C64Emu treats VIC-II registers as flat RAM.  The register-write
+#    tests above confirm the correct BYTES reach the correct registers,
+#    but don't observe the VIC's actual response (display visibility,
+#    charset source, sprite rendering).  A refactor that corrupts
+#    vic_reset's register values would be caught; a refactor that
+#    changes the register set being reset (adding / removing writes)
+#    could silently break recovery-after-userland-VIC-twiddle on real
+#    hardware.  VICE manual checklist is the only backstop.
+
+
+class TestVicHardwareBehaviour:
+
+    @pytest.mark.skip(reason=(
+        "Real VIC-II display state (screen.md § vic_reset): C64Emu does "
+        "not model the VIC-II chip — $D011/$D016/$D018/$D015/$D01A/$D019 "
+        "are flat RAM.  Register-write values ARE verified (TestVicReset). "
+        "End-to-end 'VIC renders correctly after user code flipped it to "
+        "bitmap mode / sprites on / charset swapped' is verified ONLY in "
+        "the VICE manual checklist.  See the MID-RISK comment above."
+    ))
+    def test_vic_renders_text_mode_after_reset(self, cse_prg):
+        pass
+
+    @pytest.mark.skip(reason=(
+        "VIC IRQ latch acknowledgment (screen.md § vic_reset): the "
+        "$D019=$0F write is write-1-to-clear on real hardware (acks "
+        "pending latches); on C64Emu it's a flat-RAM byte write.  The "
+        "fact that the write happens is verified (test_acks_d019_latches); "
+        "that it actually clears a pending IRQ latch requires real VIC "
+        "silicon behaviour — VICE only."
+    ))
+    def test_d019_ack_clears_pending_irq(self, cse_prg):
+        pass
+
+    @pytest.mark.skip(reason=(
+        "scroll_up VIC tear prevention (screen.md § Design): SEI/CLI "
+        "guards around the screen-RAM memmove prevent the VIC from "
+        "reading a partially-scrolled frame.  This is COSMETIC — at "
+        "most a 1-frame visual tear on real hardware; it has no "
+        "functional consequence.  Not observable on C64Emu (no VIC "
+        "raster)."
+    ))
+    def test_scroll_up_prevents_vic_tear(self, cse_prg):
+        pass

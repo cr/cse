@@ -1,293 +1,93 @@
 """
-test_repl.py — REPL command tests for repl.s
+test_repl.py — REPL command tests for repl.s.
 
-Tests the REPL command loop (exec_line), screen I/O (read_line, show_prompt),
-and all command handlers via table-driven tests on the py65 emulator.
+Tests the REPL command loop (exec_line), screen I/O (read_line,
+show_prompt), and all command handlers via table-driven tests on
+C64Emu + the production CMOS PRG.
 
-Test binary: repl.s + cse_io.s + asm_vars.s + expr.s + symtab.s
-             + dasm.s + dasm_tables.s + repl_test_stub.s
+Tranche 4 migration: previously this test file used a custom
+bare-MPU harness with dev/repl_test_stub.s.  It now uses the real
+production binary through C64Emu so the tests exercise the same
+code that runs on the C64.
+
+Disk tests (TestSaveCommand, TestLoadCommand) still live in
+test_repl_disk.py using the old stub-based harness; they migrate
+back here once virtual IEC lands in C64Emu.
 """
 
-import subprocess, pathlib, re, pytest
-from py65.devices.mpu6502 import MPU
+import pytest
+from c64emu import C64Emu
 
-ROOT  = pathlib.Path(__file__).parent.parent.parent
-BUILD = ROOT / "build"
-SRC   = ROOT / "src"
-DEV   = ROOT / "dev"
-
-BIN = BUILD / "repl_test.bin"
-MAP = BUILD / "repl_test.map"
-CFG = DEV / "repl_test.cfg"
 
 SCREEN = 0x0400
 COLS   = 40
 ROWS   = 25
 CUR_COL = 0xD3
 CUR_ROW = 0xD6
-KERNAL_PLOT = 0xFFF0
-
-_ZP_START   = 0x0000
-_SCRN_START = 0x0200
-_SCRN_SIZE  = 0x0600
-_CODE_START = 0x4000
-_ZP_SIZE    = 0x0100
-_RETURN     = 0x0300          # in SCRN gap, unused — RTS sentinel
-
-_SOURCES = [
-    SRC / "zp.s",
-    SRC / "strings.s",
-    SRC / "repl.s",
-    SRC / "cse_io.s",
-    SRC / "expr.s",
-    SRC / "symtab.s",
-    SRC / "mem.s",
-    SRC / "dasm.s",
-    SRC / "dasm_tables.s",
-    SRC / "log.s",                      # Phase 21 Move 3
-    SRC / "oplen_tbl.s",
-    DEV / "repl_test_stub.s",
-    CFG,
-]
 
 
-# ── Build ────────────────────────────────────────────────────────────────────
-
-def _needs_rebuild():
-    if not BIN.exists() or not MAP.exists():
-        return True
-    t = BIN.stat().st_mtime
-    return any(s.stat().st_mtime > t for s in _SOURCES)
-
-
-def _build():
-    BUILD.mkdir(exist_ok=True)
-    src_files = [s for s in _SOURCES if s.suffix == '.s']
-    obj_files = []
-    for src in src_files:
-        stem = src.stem
-        obj = BUILD / f"{stem}_repl.o"
-        subprocess.run(
-            ["ca65", "-t", "c64", "--cpu", "6502", "-DCMOS_SUPPORT", "-DCPU_CEIL=2",
-             "-I", str(BUILD),
-             str(src), "-o", str(obj)],
-            check=True,
-        )
-        obj_files.append(str(obj))
-    subprocess.run(
-        ["ld65", "-C", str(CFG),
-         *obj_files,
-         "-o", str(BIN), "-m", str(MAP)],
-        check=True,
-    )
-
-
-def _parse_map():
-    """Parse segments, module offsets, and exports from the ld65 map file."""
-    text = MAP.read_text()
-    lines = text.splitlines()
-
-    segments = {}
-    for line in lines:
-        m = re.match(r'^(CODE|BSS|RODATA|ZEROPAGE|DATA)\s+([0-9a-fA-F]+)\s+', line)
-        if m:
-            segments[m.group(1)] = int(m.group(2), 16)
-
-    # Module offsets
-    modules = {}
-    cur_mod = None
-    for line in lines:
-        m = re.match(r'^(\w+\.o):', line)
-        if m:
-            cur_mod = m.group(1)
-            modules[cur_mod] = {}
-            continue
-        if cur_mod:
-            m = re.match(r'\s+(CODE|BSS|RODATA|ZEROPAGE)\s+Offs=([0-9a-fA-F]+)', line)
-            if m:
-                modules[cur_mod][m.group(1)] = int(m.group(2), 16)
-            elif not line.startswith(' ') and line.strip():
-                cur_mod = None
-
-    # Exports
-    exports = {}
-    in_exp = False
-    for line in lines:
-        if "Exports list by name" in line:
-            in_exp = True
-            continue
-        if in_exp:
-            for m in re.finditer(r'(\w+)\s+([0-9a-fA-F]{6})\s+\w+', line):
-                exports[m.group(1)] = int(m.group(2), 16)
-            if line.strip() == "" or "Exports list by value" in line:
-                break
-
-    return segments, modules, exports
-
-
-# ── Fixture ──────────────────────────────────────────────────────────────────
+# ── Symbol bag + fresh-emulator fixture ──────────────────────────────────────
 
 class ReplSymbols:
-    """Resolved symbol addresses + binary loader for the repl test."""
+    """Production-PRG symbol addresses + a factory for fresh emulators.
 
-    def __init__(self):
-        if _needs_rebuild():
-            _build()
+    Backed by C64Emu + the production cse-cmos.prg.  Attribute names
+    mirror the old bare-MPU harness so test bodies need no changes
+    (rsyms.exec_line, rsyms.cur_addr, rsyms.line_buf, …).
+    """
 
-        seg, mods, exp = _parse_map()
-
-        # Entry points from exports
-        self.exec_line   = exp['exec_line']
-        self.read_line   = exp['read_line']
-        self.show_prompt = exp['show_prompt']
-
-        # BSS symbols from exports
-        self.cur_addr    = exp['cur_addr']
-        self.cur_device  = exp['cur_device']
-        self.cur_project_name = exp['cur_project_name']
-        self.line_buf    = exp['line_buf']
-        self.last_cmd    = exp['last_cmd']
-        self.block_size  = exp['block_size']
-
-        self.bp_table     = exp['bp_table']
-        self.dbg_reason   = exp['dbg_reason']
-        self.userland_zp_buf = exp['userland_zp_buf']
-        self.dbg_bp_hit   = exp['dbg_bp_hit']
-        self.brk_pc       = exp['brk_pc']
-        self.reg_a        = exp['reg_a']
-        self.reg_x        = exp['reg_x']
-        self.reg_y        = exp['reg_y']
-        self.reg_sp       = exp['reg_sp']
-        self.post_run_cleanup = exp['post_run_cleanup']
-        self.reg_p        = exp['reg_p']
-        self.state        = exp['state']
-        self.dasm_buf     = exp['dasm_buf']
-        self.asm_cpu       = exp['asm_cpu']
-
-        # Stub addresses — computed from module offsets
-        # kplot_stub is at a known offset within the stub's CODE section.
-        # Parse it from the stub module's CODE offset.
-        stub_mod = 'repl_test_stub_repl.o'
-        stub_code_offs = mods[stub_mod]['CODE']
-        stub_bss_offs  = mods[stub_mod]['BSS']
-        # kplot_stub is the last function in the stub CODE.
-        # Use _newline export to find it — kplot is after _dbg_nmi_break.
-        # Simpler: just use _nmi_pending + 2 for newline_count, and
-        # compute kplot_stub from the known CODE layout.
-        # The kplot_stub position relative to the stub code start:
-        # repl_test_exec(6) + repl_test_read(3) + repl_test_prompt(3)
-        # + _hex_val(~32) + _is_hex(~12) + _hex_val_to_char(~10) + ...
-        # This is fragile. Instead, read the RODATA sym_refs table!
-        rodata_offs = mods[stub_mod].get('RODATA', 0)
-        rodata_base = seg['RODATA'] + rodata_offs
-        # sym_refs table: 17 × 2-byte addresses at rodata_base
-        # [0]=exec_line, [1]=read_line, [2]=show_prompt,
-        # [3]=cur_addr, [4]=cur_device, [5]=cur_project_name,
-        # [6]=line_buf, [7]=last_cmd, [8]=block_size,
-        # [9]=newline_count, [10]=kplot_stub,
-        # [11]=_save_addr, [12]=_save_size, [13]=_load_result,
-        # [14]=_save_name, [15]=_load_name, [16]=_op_witness
-        bin_data = BIN.read_bytes()
-        def read_word(addr):
-            """Read a 16-bit word from the binary file at the given memory address."""
-            if addr >= _CODE_START:
-                off = _ZP_SIZE + _SCRN_SIZE + (addr - _CODE_START)
-            elif addr >= _SCRN_START:
-                off = _ZP_SIZE + (addr - _SCRN_START)
-            else:
-                off = addr
-            return bin_data[off] | (bin_data[off + 1] << 8)
-        self.kplot_stub    = read_word(rodata_base + 10 * 2)
-        self.newline_count = read_word(rodata_base + 9 * 2)
-        self.save_addr     = read_word(rodata_base + 11 * 2)
-        self.save_size     = read_word(rodata_base + 12 * 2)
-        self.load_result   = read_word(rodata_base + 13 * 2)
-        self.save_name     = read_word(rodata_base + 14 * 2)
-        self.load_name     = read_word(rodata_base + 15 * 2)
-        self.op_witness    = read_word(rodata_base + 16 * 2)
-
+    _ATTRS = [
+        # entry points
+        "exec_line", "read_line", "show_prompt", "post_run_cleanup",
+        # BSS
+        "cur_addr", "cur_device", "cur_project_name", "line_buf",
+        "last_cmd", "block_size", "bp_table", "dbg_reason",
+        "userland_zp_buf", "dbg_bp_hit", "brk_pc",
+        "reg_a", "reg_x", "reg_y", "reg_sp", "reg_p", "state",
+        "dasm_buf", "asm_cpu",
         # ZP
-        self.expr_ptr = exp['expr_ptr']
-        self.expr_val = exp['expr_val']
-        self.sym_name = exp['sym_name']
-        self.sym_val  = exp['sym_val']
+        "expr_ptr", "expr_val", "sym_name", "sym_val",
+    ]
 
-        raw = BIN.read_bytes()
-        self._zp_blob   = raw[:_ZP_SIZE]
-        self._scrn_blob = raw[_ZP_SIZE:_ZP_SIZE + _SCRN_SIZE]
-        self._code_blob = raw[_ZP_SIZE + _SCRN_SIZE:]
+    def __init__(self, cse_prg):
+        self._prg, self._map = cse_prg
+        # Resolve all symbols from one scratch emulator.
+        probe = C64Emu()
+        probe.load_prg(self._prg, self._map)
+        for name in self._ATTRS:
+            setattr(self, name, probe.sym(name))
 
-    def load_into(self, memory):
-        memory[_ZP_START   : _ZP_START   + _ZP_SIZE] = self._zp_blob
-        memory[_SCRN_START : _SCRN_START + _SCRN_SIZE] = self._scrn_blob
-        memory[_CODE_START : _CODE_START + len(self._code_blob)] = self._code_blob
+    def new_emu(self):
+        """Return a freshly-loaded emulator, CSE-initialised and with
+        REPL-state defaults set (block_size=$0010, cur_device=8,
+        cursor at row 5 col 0)."""
+        emu = C64Emu()
+        emu.load_prg(self._prg, self._map)
+        emu.init_cse()
+        emu.set_cursor(5, 0)
+        # REPL state defaults that the full cold-init path would set.
+        emu.write_word(self.block_size, 0x0010)
+        emu.memory[self.cur_device] = 8
+        emu.memory[self.asm_cpu] = 1   # 6510
+        return emu
 
 
 @pytest.fixture(scope="session")
-def rsyms():
-    """Session-scoped repl test binary + symbol addresses."""
-    return ReplSymbols()
+def rsyms(cse_prg):
+    """Session-scoped symbol table + PRG holder."""
+    return ReplSymbols(cse_prg)
 
 
 # ── CPU helper ───────────────────────────────────────────────────────────────
 
 def make_cpu(rsyms):
-    """Create a fresh MPU with the test binary loaded and hardware initialized."""
-    cpu = MPU()
-    rsyms.load_into(cpu.memory)
+    """Return a fresh C64Emu ready to exercise REPL commands."""
+    return rsyms.new_emu()
 
-    # KERNAL PLOT vector → stub
-    kplot = rsyms.kplot_stub
-    cpu.memory[KERNAL_PLOT]     = 0x4C  # JMP
-    cpu.memory[KERNAL_PLOT + 1] = kplot & 0xFF
-    cpu.memory[KERNAL_PLOT + 2] = (kplot >> 8) & 0xFF
-
-    # Init cursor position to row 5, col 0
-    cpu.memory[CUR_ROW] = 5
-    cpu.memory[CUR_COL] = 0
-
-    # Init screen line pointers for current row
-    row = 5
-    screen_addr = SCREEN + row * COLS
-    cpu.memory[0xD1] = screen_addr & 0xFF
-    cpu.memory[0xD2] = (screen_addr >> 8) & 0xFF
-    color_addr = 0xD800 + row * COLS
-    cpu.memory[0xF3] = color_addr & 0xFF
-    cpu.memory[0xF4] = (color_addr >> 8) & 0xFF
-
-    # Clear screen
-    for i in range(COLS * ROWS):
-        cpu.memory[SCREEN + i] = 0x20  # space screen code
-
-    # Init CPU mode
-    cpu.memory[rsyms.asm_cpu] = 1  # 6510
-
-    # Init BSS defaults (formerly DATA segment init values)
-    set_word(cpu, rsyms.block_size, 0x0010)
-    cpu.memory[rsyms.cur_device] = 8
-
-    return cpu
-
-
-MAX_CYCLES = 500_000
 
 def run_at(cpu, addr):
-    """JSR to addr, return when RTS pops back to sentinel."""
-    ret = _RETURN
-    # Place a NOP sentinel at the return address
-    cpu.memory[ret] = 0xEA  # NOP — we detect arrival by PC == ret
-    # Simulate JSR: push (ret-1) in hi/lo order, set PC
-    cpu.sp = 0xFD
-    cpu.memory[0x01FF] = ((ret - 1) >> 8) & 0xFF  # hi byte first (pushed first)
-    cpu.memory[0x01FE] = (ret - 1) & 0xFF          # lo byte second
-    cpu.pc = addr
-    cycles = 0
-    while cycles < MAX_CYCLES:
-        if cpu.pc == ret:
-            return cycles
-        cpu.step()
-        cycles += 1
-    raise RuntimeError(f"Timeout after {MAX_CYCLES} cycles at ${cpu.pc:04X}")
+    """JSR to addr, return when RTS pops back to the sentinel."""
+    return cpu.jsr(addr)
 
 
 # ── Screen helpers ───────────────────────────────────────────────────────────
@@ -672,10 +472,14 @@ class TestUserZpRedirect:
     def test_m_dump_shows_userland_buf(self, rsyms):
         """`m` display shows userland_zp_buf, not live."""
         cpu = make_cpu(rsyms)
-        # Prime userland_zp_buf with a distinctive pattern, live with zeros.
+        # Prime userland_zp_buf with a distinctive pattern.  Don't
+        # touch live ZP — $00/$01 are the CPU-port/DDR registers and
+        # zeroing them would unbank KERNAL and break CHROUT during
+        # the m-command output.  The redirect is unconditional
+        # (`zp_stage_prep` always substitutes userland_zp_buf for
+        # page-0 reads), so we only need the snapshot primed.
         for i in range(16):
             cpu.memory[rsyms.userland_zp_buf + i] = 0xA0 | i
-            cpu.memory[i] = 0x00
         set_cur_addr(cpu, rsyms, 0x0000)
         set_line_buf(cpu, rsyms, "m")
         run_at(cpu, rsyms.exec_line)
@@ -954,316 +758,11 @@ class TestDotHexEdit:
 
 
 # ── R. Load/Save command tests ─────────────────────────────────────
+#
+# Moved to test_repl_disk.py — those tests still need the repl_test_stub.s
+# witness variables to capture disk-op arguments.  They migrate back
+# here when the virtual IEC lands in C64Emu.
 
-def get_cur_project_name(cpu, rsyms):
-    """Read cur_project_name as a Python string."""
-    chars = []
-    for i in range(17):
-        b = cpu.memory[rsyms.cur_project_name + i]
-        if b == 0:
-            break
-        chars.append(chr(b) if 0x20 <= b < 0x80 else '?')
-    return ''.join(chars)
-
-
-# Operation witness codes (mirrors dev/repl_test_stub.s _op_witness)
-OP_NONE     = 0
-OP_PRG_SAVE = 1
-OP_SEQ_SAVE = 2
-OP_PRG_LOAD = 3
-OP_SEQ_LOAD = 4
-
-
-def get_name(cpu, base, maxlen=17):
-    """Read a NUL-terminated PETSCII name at `base` as a Python string."""
-    chars = []
-    for i in range(maxlen):
-        b = cpu.memory[base + i]
-        if b == 0:
-            break
-        chars.append(chr(b) if 0x20 <= b < 0x80 else '?')
-    return ''.join(chars)
-
-
-def clear_witness(cpu, rsyms):
-    """Reset disk/editor witnesses to detect stub invocation."""
-    cpu.memory[rsyms.op_witness] = OP_NONE
-    set_word(cpu, rsyms.save_addr, 0xFFFF)
-    set_word(cpu, rsyms.save_size, 0xFFFF)
-    # wipe name buffers
-    for i in range(17):
-        cpu.memory[rsyms.save_name + i] = 0
-        cpu.memory[rsyms.load_name + i] = 0
-
-
-class TestSaveCommand:
-    """Save via 's' command — argument parsing + disk stub witness.
-
-    New semantics (project-name-centric):
-      bare `s "name"`           → SEQ save, disk name = "name"
-      `s "name" $end`           → PRG save, disk name = "name."
-      `s "name,s"`              → verbatim SEQ, disk name = "name"
-      `s "name,p"`              → verbatim PRG, disk name = "name"
-      cur_project_name stores the stripped stem (no suffix, no trailing dot)
-    """
-
-    # ── Derivation (bare name → SEQ) ──────────────────────────────────
-
-    def test_save_seq_bare(self, rsyms):
-        """s "foo" → SEQ save; disk name = "foo"; project = "foo"."""
-        cpu = make_cpu(rsyms)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 's "foo"')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-        assert get_name(cpu, rsyms.save_name) == "FOO"
-
-    def test_save_prg_derived(self, rsyms):
-        """s "foo" $0900 → PRG save; disk name = "foo."; project = "foo"."""
-        cpu = make_cpu(rsyms)
-        set_cur_addr(cpu, rsyms, 0x0800)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 's "foo" $0900')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-        assert get_name(cpu, rsyms.save_name) == "FOO."
-        assert get_word(cpu, rsyms.save_addr) == 0x0800
-        # Inclusive end: bytes $0800..$0900 → size = $0101.
-        assert get_word(cpu, rsyms.save_size) == 0x0101
-
-    def test_save_strip_trailing_dot(self, rsyms):
-        """s "foo." → project_name = "foo" (trailing dot stripped)."""
-        cpu = make_cpu(rsyms)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 's "foo."')
-        run_at(cpu, rsyms.exec_line)
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-
-    # ── Verbatim forms (,s/,p suffix disables derivation) ─────────────
-
-    def test_save_verbatim_seq(self, rsyms):
-        """s "foo,s" → verbatim SEQ; disk name = "foo"; project = "foo"."""
-        cpu = make_cpu(rsyms)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 's "foo,s"')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-        assert get_name(cpu, rsyms.save_name) == "FOO"
-
-    def test_save_verbatim_prg(self, rsyms):
-        """s "foo,p" → verbatim PRG; disk name = "foo" (no dot appended)."""
-        cpu = make_cpu(rsyms)
-        set_cur_addr(cpu, rsyms, 0x0800)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 's "foo,p"')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-        assert get_name(cpu, rsyms.save_name) == "FOO"
-
-    def test_save_verbatim_prg_with_dot(self, rsyms):
-        """s "foo.,p" → verbatim PRG keeps user's dot; project = "foo"."""
-        cpu = make_cpu(rsyms)
-        set_cur_addr(cpu, rsyms, 0x0800)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 's "foo.,p"')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-        assert get_name(cpu, rsyms.save_name) == "FOO."
-
-    # ── End-address table (save PRG) ──────────────────────────────────
-
-    def test_save_end_blocksize_fallback(self, rsyms):
-        """End=0 (no arg) → end = start + block_size."""
-        cpu = make_cpu(rsyms)
-        set_cur_addr(cpu, rsyms, 0x0800)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 's "foo,p"')      # verbatim PRG, 0 args
-        run_at(cpu, rsyms.exec_line)
-        assert get_word(cpu, rsyms.save_addr) == 0x0800
-        assert get_word(cpu, rsyms.save_size) == 0x0010   # block_size
-
-    def test_save_end_from_arg(self, rsyms):
-        """1 arg → start = cur_addr, end = arg (INCLUSIVE)."""
-        cpu = make_cpu(rsyms)
-        set_cur_addr(cpu, rsyms, 0x0800)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 's "foo" $0900')
-        run_at(cpu, rsyms.exec_line)
-        assert get_word(cpu, rsyms.save_addr) == 0x0800
-        # Inclusive end: save bytes $0800..$0900 → size = $0101.
-        assert get_word(cpu, rsyms.save_size) == 0x0101
-
-    def test_save_two_args(self, rsyms):
-        """2 args → start = arg1, end = arg2 (INCLUSIVE)."""
-        cpu = make_cpu(rsyms)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 's "foo" $1000 $2000')
-        run_at(cpu, rsyms.exec_line)
-        assert get_word(cpu, rsyms.save_addr) == 0x1000
-        # Inclusive end: save bytes $1000..$2000 → size = $1001.
-        assert get_word(cpu, rsyms.save_size) == 0x1001
-
-    def test_save_end_length_fallback(self, rsyms):
-        """2 args, end <= start → end = length."""
-        cpu = make_cpu(rsyms)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 's "foo" $1000 $100')
-        run_at(cpu, rsyms.exec_line)
-        assert get_word(cpu, rsyms.save_addr) == 0x1000
-        assert get_word(cpu, rsyms.save_size) == 0x0100   # arg2 as length
-
-    # ── Project-name reuse ────────────────────────────────────────────
-
-    def test_save_no_name_defaults_to_out(self, rsyms):
-        """Empty cur_project_name + bare `s` → defaults to "out"."""
-        cpu = make_cpu(rsyms)
-        cpu.memory[rsyms.cur_project_name] = 0
-        set_cur_addr(cpu, rsyms, 0x0800)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, "s")
-        run_at(cpu, rsyms.exec_line)
-        # "out" derives SEQ (no address args)
-        assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
-        assert get_name(cpu, rsyms.save_name) == "OUT"
-
-    def test_save_reuse_prev_name(self, rsyms):
-        """s "foo" then bare s → reuses "foo"."""
-        cpu = make_cpu(rsyms)
-        set_cur_addr(cpu, rsyms, 0x0800)
-        set_line_buf(cpu, rsyms, 's "foo"')
-        run_at(cpu, rsyms.exec_line)
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-        # Second invocation: no name → reuse
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, "s")
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
-        assert get_name(cpu, rsyms.save_name) == "FOO"
-
-    def test_save_unquoted_is_expr(self, rsyms):
-        """s $0900 — unquoted arg is inclusive end (args force PRG)."""
-        cpu = make_cpu(rsyms)
-        set_cur_addr(cpu, rsyms, 0x0800)
-        # pre-seed project name
-        for i, ch in enumerate(b"prev"):
-            cpu.memory[rsyms.cur_project_name + i] = ascii_to_petscii(ch)
-        cpu.memory[rsyms.cur_project_name + 4] = 0
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, "s $0900")
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
-        assert get_name(cpu, rsyms.save_name) == "PREV."
-        assert get_word(cpu, rsyms.save_addr) == 0x0800
-        # Inclusive: bytes $0800..$0900 = $0101.
-        assert get_word(cpu, rsyms.save_size) == 0x0101
-
-    def test_save_addr_prefix(self, rsyms):
-        """0801:s "test" $2004 — AAAA: prefix sets cur_addr (start)."""
-        cpu = make_cpu(rsyms)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, '0801:s "test" $2004')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_PRG_SAVE
-        assert get_name(cpu, rsyms.save_name) == "TEST."
-        assert get_word(cpu, rsyms.save_addr) == 0x0801
-        # Inclusive end: $2004 - $0801 + 1.
-        assert get_word(cpu, rsyms.save_size) == 0x2004 - 0x0801 + 1
-
-
-class TestLoadCommand:
-    """Load via 'l' command — argument parsing + disk stub witness.
-
-    New semantics:
-      bare `l "name"`           → SEQ load (ed_load_source)
-      `l "name" $addr`          → PRG load, target = $addr
-      `l "name" 0`              → PRG load, target = PRG header addr
-      `l "name,s"`              → verbatim SEQ
-      `l "name,p"`              → verbatim PRG (no args needed)
-    """
-
-    # ── SEQ loads ─────────────────────────────────────────────────────
-
-    def test_load_seq_bare(self, rsyms):
-        """l "foo" → SEQ load; project = "foo"."""
-        cpu = make_cpu(rsyms)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 'l "foo"')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_SEQ_LOAD
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-        assert get_name(cpu, rsyms.load_name) == "FOO"
-
-    def test_load_verbatim_seq(self, rsyms):
-        """l "foo,s" → verbatim SEQ."""
-        cpu = make_cpu(rsyms)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 'l "foo,s"')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_SEQ_LOAD
-        assert get_name(cpu, rsyms.load_name) == "FOO"
-
-    # ── PRG loads ─────────────────────────────────────────────────────
-
-    def test_load_prg_header_addr(self, rsyms):
-        """l "foo" 0 → PRG load at header address (end=0 triggers SA=1)."""
-        cpu = make_cpu(rsyms)
-        set_word(cpu, rsyms.load_result, 0x0900)  # simulated end addr
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 'l "foo" 0')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_PRG_LOAD
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-        assert get_name(cpu, rsyms.load_name) == "FOO."
-
-    def test_load_prg_with_addr(self, rsyms):
-        """l "foo" $c000 → PRG load to $c000."""
-        cpu = make_cpu(rsyms)
-        set_word(cpu, rsyms.load_result, 0xC010)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 'l "foo" $c000')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_PRG_LOAD
-        assert get_name(cpu, rsyms.load_name) == "FOO."
-
-    def test_load_verbatim_prg(self, rsyms):
-        """l "foo,p" → verbatim PRG load, disk name = "foo" (no dot)."""
-        cpu = make_cpu(rsyms)
-        set_word(cpu, rsyms.load_result, 0x0900)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 'l "foo,p"')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_PRG_LOAD
-        assert get_name(cpu, rsyms.load_name) == "FOO"
-
-    def test_load_verbatim_prg_with_dot(self, rsyms):
-        """l "foo.,p" → verbatim PRG, disk name keeps dot."""
-        cpu = make_cpu(rsyms)
-        set_word(cpu, rsyms.load_result, 0x0900)
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, 'l "foo.,p"')
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_PRG_LOAD
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-        assert get_name(cpu, rsyms.load_name) == "FOO."
-
-    # ── Symmetry: round-trip project name ─────────────────────────────
-
-    def test_load_save_symmetry(self, rsyms):
-        """l "foo" then s (bare) saves as SEQ "foo"."""
-        cpu = make_cpu(rsyms)
-        set_line_buf(cpu, rsyms, 'l "foo"')
-        run_at(cpu, rsyms.exec_line)
-        assert get_cur_project_name(cpu, rsyms) == "FOO"
-        clear_witness(cpu, rsyms)
-        set_line_buf(cpu, rsyms, "s")
-        run_at(cpu, rsyms.exec_line)
-        assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
-        assert get_name(cpu, rsyms.save_name) == "FOO"
 
 
 # ── Q. Step into JSR — ROM target falls back to step-over ───────

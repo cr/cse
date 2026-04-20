@@ -7,6 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/mem.s`](../../src/mem.s) | implementation |
+| [`tests/unit/test_mem.py`](../../tests/unit/test_mem.py) | test contract |
 
 ## Interface
 

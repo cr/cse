@@ -1,12 +1,29 @@
-"""
-test_au_mode.py – pytest tests for src/addr_mode.s
-(filename retained for historical continuity; see doc/modules/addr_mode.md)
+"""test_addr_mode.py — Tier-U unit tests for addr_mode.s.
 
-Each test calls mode_parse with a PETSCII-encoded argument string and checks:
-  A  = mode index (0=IMP .. 15=ZPREL)
-  X  = operand byte count (0, 1, or 2)
+Contract source: [doc/modules/addr_mode.md](../../doc/modules/addr_mode.md).
+
+Coverage of the documented contract
+-----------------------------------
+2 exported entry points:
+
+  mode_parse     — test_parse_ok (41 parametrised cases across all 16
+                    addressing modes: IMP, ACC, IMM, ZP, ZPX, ZPY, ABS,
+                    ABX, ABY, IND, INX, INY, REL, ZPI, AIX, ZPREL),
+                    plus test_parse_error (7 syntax-error cases)
+  asm_skip_ws    — TestAsmSkipWs vocal skip.  Transitively exercised
+                    by test_parse_ok's whitespace operand forms per
+                    doc/testing.md § Principle 9 Pattern B (subsumed).
+
+Each test calls mode_parse with a PETSCII-encoded argument string and
+verifies:
+  A           = mode index (0=IMP .. 15=ZPREL)
+  X           = operand byte count (0, 1, or 2)
   asm_opr[0]  = first / lo operand byte
-  asm_opr[1]  = second / hi operand byte  (ABS hi, or ZPREL relative offset)
+  asm_opr[1]  = second / hi operand byte (ABS hi, or ZPREL rel offset)
+
+Bundle: asm_core (addr_mode.s + expr.s + asm_err.s + rest).  Fixture
+named `asm_syms` for historical reasons — same AsmCoreSymbols object as
+test_asm_line.py's `asm_syms`.
 """
 
 import pytest
@@ -158,58 +175,38 @@ _TEST_BUF = 0x3000   # scratch address for encoded argument strings
 _MAX_STEPS = 20_000  # safety limit
 
 
-def _run(syms, arg: str):
-    """
-    Set up a fresh CPU, write the encoded argument to RAM, point asm_ptr at it,
-    call mode_parse, and return (mode, x, opr0, opr1) on success or raise
-    on syntax error.
-    """
-    cpu = MPU()
-    mem = cpu.memory
+def _run(asm_syms, arg: str):
+    """Call mode_parse with `arg`.  Return (mode, x, opr0, opr1) on
+    clean exit; raise SyntaxError when the assembler's error path
+    fires."""
+    from conftest import make_cpu, push_rts_sentinel, step_until_any_pc
 
-    # Load the test binary
-    syms.load_into(mem)
+    cpu, mem = make_cpu(asm_syms)
 
-    # Write encoded argument string
-    encoded = sc(arg)
-    for i, b in enumerate(encoded):
+    for i, b in enumerate(sc(arg)):
         mem[_TEST_BUF + i] = b
+    mem[asm_syms.asm_ptr]     = _TEST_BUF & 0xFF
+    mem[asm_syms.asm_ptr + 1] = (_TEST_BUF >> 8) & 0xFF
+    mem[asm_syms.asm_pass]    = 1   # undefined symbols → error, not fwd ref
 
-    # Set asm_ptr
-    mem[syms.asm_ptr]     = _TEST_BUF & 0xFF
-    mem[syms.asm_ptr + 1] = (_TEST_BUF >> 8) & 0xFF
+    sentinel = push_rts_sentinel(cpu, sentinel=0xFFFF)
+    targets = (sentinel, asm_syms.asm_syntax_error, asm_syms.asm_expr_error)
 
-    # Set asm_pass = 1 so undefined symbols are errors (not forward refs)
-    mem[syms.asm_pass] = 1
-
-    # Fake JSR: push return-minus-one ($FFFE) so RTS lands at $FFFF
-    cpu.sp = 0xFF
-    mem[0x01FF] = 0xFF   # hi byte of return address
-    mem[0x01FE] = 0xFE   # lo byte  → RTS increments to $FFFF
-    cpu.sp = 0xFD
-
-    cpu.pc = syms.mode_parse
+    cpu.pc = asm_syms.mode_parse
     cpu.y  = 0
+    hit = step_until_any_pc(cpu, targets, max_steps=_MAX_STEPS, what=repr(arg))
 
-    for _ in range(_MAX_STEPS):
-        if cpu.pc == 0xFFFF:
-            # clean return
-            return (cpu.a, cpu.x, mem[syms.asm_opr], mem[syms.asm_opr + 1])
-        if cpu.pc == syms.asm_syntax_error:
-            raise SyntaxError(f"asm_syntax_error reached for {arg!r}")
-        if cpu.pc == syms.asm_expr_error:
-            raise SyntaxError(f"asm_expr_error reached for {arg!r}")
-        cpu.step()
-
-    raise TimeoutError(f"exceeded {_MAX_STEPS} steps for {arg!r}")
+    if hit == sentinel:
+        return (cpu.a, cpu.x, mem[asm_syms.asm_opr], mem[asm_syms.asm_opr + 1])
+    raise SyntaxError(f"{'asm_syntax_error' if hit == asm_syms.asm_syntax_error else 'asm_expr_error'} reached for {arg!r}")
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("arg,mode,x,opr0,opr1", CASES,
                          ids=[c[0] or "(empty)" for c in CASES])
-def test_parse_ok(syms, arg, mode, x, opr0, opr1):
-    got_mode, got_x, got_opr0, got_opr1 = _run(syms, arg)
+def test_parse_ok(asm_syms, arg, mode, x, opr0, opr1):
+    got_mode, got_x, got_opr0, got_opr1 = _run(asm_syms, arg)
     assert got_mode == mode,  f"mode: got {got_mode}, expected {mode}"
     assert got_x    == x,     f"byte count: got {got_x}, expected {x}"
     assert got_opr0 == opr0,  f"opr[0]: got ${got_opr0:02X}, expected ${opr0:02X}"
@@ -217,6 +214,30 @@ def test_parse_ok(syms, arg, mode, x, opr0, opr1):
 
 
 @pytest.mark.parametrize("arg", ERROR_CASES, ids=ERROR_CASES)
-def test_parse_error(syms, arg):
+def test_parse_error(asm_syms, arg):
     with pytest.raises(SyntaxError):
-        _run(syms, arg)
+        _run(asm_syms, arg)
+
+
+# ─── asm_skip_ws — vocal skip (subsumed by mode_parse coverage) ─────────────
+
+class TestAsmSkipWs:
+    """addr_mode.s exports `asm_skip_ws` for asm_line.s reuse.  The
+    whitespace-handling contract (skip $20 space + $A0 shifted-space /
+    tab) is verified transitively by the 41 test_parse_ok cases that
+    exercise leading/trailing/embedded whitespace in operand strings.
+    A dedicated test would re-exercise the same bytes through a thinner
+    harness without catching additional regressions.
+    """
+
+    @pytest.mark.skip(reason=(
+        "asm_skip_ws (addr_mode.md § asm_skip_ws): the whitespace-skip "
+        "contract ($20 = space, $A0 = shifted space / tab) is verified "
+        "transitively through test_parse_ok (41 cases exercising "
+        "leading/trailing/embedded whitespace).  A direct test would "
+        "exercise the same bytes through a thinner harness without "
+        "catching additional regressions.  Retained as a vocal skip "
+        "per doc/testing.md § Principle 9 Pattern B (subsumed)."
+    ))
+    def test_asm_skip_ws_contract(self, asm_syms):
+        pass

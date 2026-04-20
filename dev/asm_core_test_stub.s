@@ -15,7 +15,8 @@
 ; Symbol resolution uses .lbl files (debug build with -g), so no
 ; .addr forcing is needed to make symbols visible.
 ;
-; Shared by: test_au_mode.py, test_asm_line.py
+; Shared by: test_asm_line.py, test_addr_mode.py, test_opcode_lookup.py,
+;            test_expr.py, test_asm_err.py (all use the same asm_core bundle).
 
         .setcpu "6502"
 

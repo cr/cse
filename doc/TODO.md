@@ -445,7 +445,7 @@ systems, ASM stubs, and test-specific linker configs.
   offset computation and map-file parsing in test harnesses.
 - [ ] Migrate remaining test files to C64Emu + full PRG.  Each old
   test file (test_repl, test_cse_io, test_expr, test_symtab,
-  test_debugger, test_au_mode, test_mn_classify, test_asm_line,
+  test_debugger, test_addr_mode, test_mn_classify, test_asm_line,
   test_dasm, test_asm_src) has its own build system, map parser,
   and run loop.  Migration removes ~1200 lines of harness code,
   9 ASM stub files, and 3 linker configs.

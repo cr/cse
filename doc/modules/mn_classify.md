@@ -10,7 +10,7 @@
 | [`src/mn7.s`](../../src/mn7.s) | implementation — 7-bit hash classifier |
 | [`src/mn6.s`](../../src/mn6.s) | implementation — 6-bit hash classifier |
 | [`src/mn_vars.s`](../../src/mn_vars.s) | implementation — ZP variable definitions |
-| [`tests/unit/test_mnhash.py`](../../tests/unit/test_mnhash.py) | test contract |
+| [`tests/unit/test_mn_classify.py`](../../tests/unit/test_mn_classify.py) | test contract |
 
 ## Interface
 
@@ -27,17 +27,27 @@ On success, index `mn_base_op[slot]` and `mn_profile[slot]` for
 the base opcode and operand profile.
 
 **Re-exports:** `mn_base_op`, `mn_profile` — aliases to the selected
-classifier's tables.
+classifier's tables.  **Consumer:** `asm_line.s` reads
+`mn_base_op[slot]` and `mn_profile[slot]` immediately after a
+successful classify to recover the base opcode byte and the packed
+(category, dir_bit, profile-index) byte for the matched mnemonic.
+The packed profile byte has the format `bits 7:6 = cat`, `bit 5 =
+dir`, `bits 4:0 = profile index (0–29)` — see
+[dev/mnemonic_tables.py](../../dev/mnemonic_tables.py)
+(`_compute_cat` / `_compute_dir_bit`) for the authoritative encoding.
 
 **Depends on:** mn_vars (mn_c1/c2/c3), mn6_tables or mn7_tables (GENERATED)
 
 ### Memory
 
-**mn_vars.s ZP (3 bytes):** `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) — mnemonic character inputs.
-
-**mn7.s ZP (1 byte):** `mn7_h_tmp` (1) — holds c3>>2 during fingerprint check.
-
-**mn7.s RODATA (27 bytes):** `mn7_hash_t` — the T[c2] hash perturbation table.
+| Location | Symbol | Size | Consumers / contract status |
+|---|---|---|---|
+| mn_vars.s ZP | `mn_c1`, `mn_c2`, `mn_c3` | 1 B each | **Exported inputs.**  `asm_line.s` writes all three before every `jsr mn_classify`.  Values are 1–26 (A=1..Z=26); callers normalize PETSCII/screencode via `AND #$1F`. |
+| mn7.s ZP | `mn7_h_tmp` | 1 B | **Internal scratch.**  Holds `c3>>2` transiently during the fingerprint check.  Not exported; no external contract other than "reserved — do not alias". |
+| mn7.s RODATA | `mn7_hash_t` | 27 B | **Internal.**  T[c2] hash perturbation.  Not exported.  Byte values are an implementation detail subsumed by the classifier's observable behaviour (`test_mn7_full_sweep`). |
+| mn6.s RODATA | `mn6_hash_t` | 27 B | Same status as `mn7_hash_t`. |
+| mn7_tables.s RODATA | `mn7_fp`, `mn7_base_op`, `mn7_profile` | 128 B each | `mn7_base_op` / `mn7_profile` are **re-exported via mn_classify** (see above).  `mn7_fp` is internal — only `mn7_classify` reads it. |
+| mn6_tables.s RODATA | `mn6_fp`, `mn6_base_op`, `mn6_profile` | 64 B each | Same split: `base_op` / `profile` re-exported; `fp` internal. |
 
 ## Variants
 

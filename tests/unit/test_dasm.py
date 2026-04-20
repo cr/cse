@@ -1,9 +1,29 @@
-"""
-test_dasm.py — Exhaustive disassembler tests (buffer-based).
+"""test_dasm.py — Tier-U unit tests for dasm.s.
 
-Tests all 256 opcodes × 3 CPU modes (6502, 6510, 65C02).
-The disassembler writes to dasm_buf (NUL-terminated PETSCII).
-No screen RAM, no cursor state — reads the buffer directly.
+Contract source: [doc/modules/dasm.md](../../doc/modules/dasm.md).
+
+Coverage of the documented contract
+-----------------------------------
+2 exported items:
+
+  dasm_insn        — test_dasm (256 opcodes × 3 CPU modes = 768
+                      parametrised cases) against expected mnemonic +
+                      operand format from dev/instruction_set.py;
+                      test_dasm_boundary_operands (operand edge cases);
+                      TestDasmBankContract (banking state post-call)
+  dasm_buf (BSS)   — read directly by every test_dasm case (decoded
+                      NUL-terminated PETSCII output)
+
+The disassembler writes to dasm_buf (NUL-terminated PETSCII).  No
+screen RAM, no cursor state — tests read the buffer directly.
+
+CPU modes:
+  0 = 6502    (legal opcodes only; others → "...")
+  1 = 6510    (legal + NMOS illegals)
+  2 = 65C02   (legal + CMOS extensions)
+
+Bundle: dasm + dasm_tables + dasm_test_stub (tests/unit/test_dasm.py
+uses the `dasm_syms` conftest fixture).
 """
 
 import sys

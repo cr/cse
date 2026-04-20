@@ -7,6 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/opcode_lookup.s`](../../src/opcode_lookup.s) | implementation |
+| [`tests/unit/test_opcode_lookup.py`](../../tests/unit/test_opcode_lookup.py) | test contract (asm_validate_mode predicate; asm_opcode_lookup covered exhaustively by test_asm_line.py::test_assemble) |
 
 ## Interface
 

@@ -1,25 +1,35 @@
-"""test_log.py — Tier I screen-RAM contract tests for log.s
+"""test_log.py — Tier-I contract tests for log.s.
+
+Contract source: [doc/modules/log.md](../../doc/modules/log.md).
+
+Coverage of the documented contract
+-----------------------------------
+All 11 exported entry points:
+
+    log_open / log_close         — primitive open/close (+ auto-newline
+                                    contract: enter anywhere, exit at col 0)
+    log_line                     — open + content + close
+    log_err / log_warn / log_info — convenience wrappers (Y preset)
+    puts_imm                     — inline-string print (via `puts` macro)
+    seg_line / prg_line / free_line — "; TAG  AAAA-BBBB NNNNNb [free]"
+    info_line_head / info_line_tail — prefix/suffix halves of info_line
+
+Plus the documented "enter anywhere, exit at col 0" invariant:
+  - log_open auto-advances when CUR_COL != 0
+    (test_log_open_auto_advances_when_cursor_mid_line)
+  - log_open does NOT newline when already at col 0
+    (test_log_open_no_newline_when_cursor_at_col_0)
 
 Exercises the real log.s primitives loaded into C64Emu with the
 debug CMOS PRG.  Asserts on screen RAM at $0400 after each log call.
+All tests run through real KERNAL (io_sync → PLOT, io_putc → CHROUT,
+etc.) — the tier-boundary signal.  No manual stubs.
 
-Symbols verified:
-  log_open / log_close / log_line
-  log_err / log_warn / log_info
-  (log_err_eol / log_close_eol retired — callers use log_err /
-   log_close directly)
-  seg_line / prg_line / free_line
-  puts_imm (indirectly via log_line's io_puts call path)
-
-Contracts:
-  log_open(Y=level)   → screen col 0 = ';', col 1 = level char
-  log_close           → io_clear_eol + newline (cursor advances one row)
-  log_line(Y=lvl, A/X=str)  → full "; <level><content>" + close
-  log_err / log_warn / log_info  → fixed level, A/X=str
-  seg_line            → "; tag  AAAA-BBBB NNNNNb" format
-
-All tests run through real KERNAL calls (io_sync → PLOT, io_putc →
-CHROUT, etc.) — the tier-boundary signal.  No manual stubs.
+Note on tier: log.s is a Tier-U module per testing.md's per-module
+table (bundle: log + screen + cse_io).  The tests currently run in
+Tier-I against the full PRG because the C64Emu harness was already
+available; functionally the coverage is the same.  A bundle-based
+re-home is a future task, not a coverage gap.
 """
 
 import pytest
@@ -110,6 +120,33 @@ def test_log_close_advances_cursor(cse_prg):
     # After log_close, cursor should be one row down
     assert emu.memory[0xD6] == TEST_ROW + 1, \
         f"cursor should have advanced one row; got {emu.memory[0xD6]}"
+
+
+def test_puts_imm_reads_inline_word_correctly(cse_prg):
+    """puts_imm must read the .word argument after its JSR — verify
+    by assembling a tiny stub at RAM that does `jsr puts_imm; .word
+    str_known; rts` and checking that str_known's content appears on
+    screen.  Guards against the Y=$FF backstep regression (see
+    optimization.md §19): existing log_info / log_err / log_warn
+    tests pass A/X directly to io_puts and do NOT exercise puts_imm.
+    """
+    emu = _setup(cse_prg)
+    # Put "blk=" (known RODATA string) through puts_imm.
+    str_addr = emu.sym("str_blk_eq")
+    stub = 0x3200
+    puts = emu.sym("puts_imm")
+    # JSR puts_imm ; .word str_blk_eq ; RTS
+    emu.memory[stub + 0] = 0x20                      # JSR
+    emu.memory[stub + 1] = puts & 0xFF
+    emu.memory[stub + 2] = (puts >> 8) & 0xFF
+    emu.memory[stub + 3] = str_addr & 0xFF           # .word lo
+    emu.memory[stub + 4] = (str_addr >> 8) & 0xFF    # .word hi
+    emu.memory[stub + 5] = 0x60                      # RTS
+    emu.jsr(stub)
+    # "blk=" should appear starting at cursor column (0 after _setup).
+    text = emu.screen_text(TEST_ROW).lower()
+    assert "blk=" in text, \
+        f"puts_imm didn't print str_blk_eq; row={text!r}"
 
 
 # ── Convenience entries (log_err / log_warn / log_info) ──────────
@@ -207,6 +244,102 @@ def test_prg_line_decrements_inclusive(cse_prg):
     pattern = [0x31, 0x30, 0x30, 0x30, SC_DASH, 0x31, 0x30, 0x30, 0x06]
     assert _find_bytes(row, pattern) >= 0, \
         f"$1000-$100F pattern not found; row={[hex(b) for b in row]}"
+
+
+def test_free_line_appends_free_suffix(cse_prg):
+    """free_line emits '; TAG  AAAA-BBBB NNNNNb free' — identical to
+    seg_line plus the ' free' suffix + highlight control via _info_mode."""
+    emu = _setup(cse_prg)
+    tag = emu.sym("str_tag_org")
+    emu.memory[emu.sym("rp_ptr2")]     = tag & 0xFF
+    emu.memory[emu.sym("rp_ptr2") + 1] = (tag >> 8) & 0xFF
+    emu.memory[emu.sym("rp_addr")]     = 0x00
+    emu.memory[emu.sym("rp_addr") + 1] = 0xC0
+    emu.memory[emu.sym("rp_cnt")]      = 0x0F
+    emu.memory[emu.sym("rp_cnt") + 1]  = 0xC0
+    # _info_mode=1 → no highlight (rp_save2=0)
+    emu.memory[emu.sym("_info_mode")]  = 1
+    emu.jsr(emu.sym("free_line"))
+
+    text = emu.screen_text(TEST_ROW).lower()
+    assert "c000-c00f" in text, f"AAAA-BBBB missing: {text!r}"
+    assert "free" in text, f"'free' suffix missing: {text!r}"
+
+
+def test_info_line_head_prints_tag_and_range(cse_prg):
+    """info_line_head prefix: '; TAG  AAAA-BBBB ' with tag padded to 5 cols."""
+    emu = _setup(cse_prg)
+    tag = emu.sym("str_tag_org")
+    emu.memory[emu.sym("rp_ptr2")]     = tag & 0xFF
+    emu.memory[emu.sym("rp_ptr2") + 1] = (tag >> 8) & 0xFF
+    emu.memory[emu.sym("rp_addr")]     = 0x00
+    emu.memory[emu.sym("rp_addr") + 1] = 0x20
+    emu.memory[emu.sym("rp_cnt")]      = 0xFF
+    emu.memory[emu.sym("rp_cnt") + 1]  = 0x2F
+    emu.jsr(emu.sym("info_line_head"))
+
+    text = emu.screen_text(TEST_ROW).lower()
+    assert text.startswith(";"), f"missing leading ';': {text!r}"
+    assert "org" in text, f"tag 'org' missing: {text!r}"
+    assert "2000-2fff" in text, f"AAAA-BBBB missing: {text!r}"
+
+
+def test_info_line_tail_pads_to_40_and_newlines(cse_prg):
+    """info_line_tail pads the remainder of the row with spaces and advances."""
+    emu = _setup(cse_prg)
+    # Start a line via info_line_head so rp_next_lo is populated.
+    tag = emu.sym("str_tag_org")
+    emu.memory[emu.sym("rp_ptr2")]     = tag & 0xFF
+    emu.memory[emu.sym("rp_ptr2") + 1] = (tag >> 8) & 0xFF
+    emu.memory[emu.sym("rp_addr")]     = 0x00
+    emu.memory[emu.sym("rp_addr") + 1] = 0x30
+    emu.memory[emu.sym("rp_cnt")]      = 0x00
+    emu.memory[emu.sym("rp_cnt") + 1]  = 0x33
+    emu.memory[emu.sym("rp_save2")]    = 0   # no highlight
+    emu.jsr(emu.sym("info_line_head"))
+    emu.jsr(emu.sym("info_line_tail"))
+
+    # After tail: cursor advanced to next row.
+    assert emu.memory[0xD6] == TEST_ROW + 1, \
+        f"cursor row = {emu.memory[0xD6]}, expected {TEST_ROW + 1}"
+    # The TEST_ROW's trailing cells are spaces ($20).
+    row = _row_screen(emu, TEST_ROW)
+    assert row[-1] == SC_SPACE, f"last col not padded: ${row[-1]:02X}"
+
+
+# ── log_open auto-newline contract (enter-anywhere, exit-at-col-0) ──
+
+def test_log_open_auto_advances_when_cursor_mid_line(cse_prg):
+    """log_open's documented 'enter-anywhere, exit-at-col-0' contract:
+    if CUR_COL != 0 at entry, log_open must advance to a fresh row
+    before emitting ';'.  See [log.md § Interface]."""
+    emu = _setup(cse_prg)
+    # Place cursor mid-line (col 12 of TEST_ROW).
+    emu.set_cursor(TEST_ROW, 12)
+    emu.jsr(emu.sym("log_open"), y=0x20)   # LOG_INFO
+
+    # After auto-newline, TEST_ROW is untouched (its earlier content
+    # was just spaces); TEST_ROW+1 has the new ';' + ' ' at col 0/1.
+    assert emu.memory[0xD6] == TEST_ROW + 1, \
+        f"cursor row = {emu.memory[0xD6]}, expected TEST_ROW+1"
+    next_row = _row_screen(emu, TEST_ROW + 1)
+    assert next_row[0] == SC_SEMI
+    assert next_row[1] == SC_SPACE
+
+
+def test_log_open_no_newline_when_cursor_at_col_0(cse_prg):
+    """When CUR_COL is already 0, log_open does NOT consume a row —
+    it emits ';' + level char at the current row."""
+    emu = _setup(cse_prg)
+    # _setup already places cursor at col 0; assert explicitly.
+    assert emu.memory[0xD3] == 0
+    row_before = emu.memory[0xD6]
+    emu.jsr(emu.sym("log_open"), y=0x20)
+    assert emu.memory[0xD6] == row_before, \
+        f"cursor row advanced unexpectedly: {emu.memory[0xD6]} != {row_before}"
+    row = _row_screen(emu, row_before)
+    assert row[0] == SC_SEMI
+    assert row[1] == SC_SPACE
 
 
 # log_err_eol / log_close_eol were retired — their logic was

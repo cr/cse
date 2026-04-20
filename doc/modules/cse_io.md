@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/cse_io.s`](../../src/cse_io.s) | implementation |
-| [`tests/test_cse_io.py`](../../tests/test_cse_io.py) | test contract |
+| [`tests/unit/test_cse_io.py`](../../tests/unit/test_cse_io.py) | test contract |
 
 ## Interface
 
@@ -25,10 +25,10 @@ $D6 (row).
 
 ### BSS Variables
 
-| Name | Size | Purpose |
-|------|------|---------|
-| io_color | 1 | Text color for screen clears |
-| dec_buf | 6 | io_utoa output: 5-digit PETSCII + permanent NUL at [5] |
+| Name | Size | Purpose | Consumers |
+|------|------|---------|-----------|
+| io_color | 1 | Text color for screen clears | **Exported** — written by screen.s (theme_init) and read by screen.s/disk.s when filling color RAM.  cse_io itself neither reads nor writes it. |
+| dec_buf | 6 | io_utoa output: 5-digit PETSCII + permanent NUL at [5] | **Exported** — io_putdec / io_putdec_pd produce output here; callers may read it directly after io_utoa returns (e.g. inspecting the five-digit field before output). |
 
 ### KERNAL Locations Used
 
@@ -43,13 +43,13 @@ $D6 (row).
 
 ### RODATA
 
-| Name | Size | Contents |
-|------|------|---------|
-| scr_lo[25] | 25 | Low bytes of $0400 + row×40 for rows 0–24 |
-| scr_hi[25] | 25 | High bytes of same |
-| hex_tab[16] | 16 | Screen codes for hex digits: $30–$39, $01–$06 |
-| dec_pow_lo[5] | 5 | Powers of 10: <1, <10, <100, <1000, <10000 |
-| dec_pow_hi[5] | 5 | Powers of 10: >1, >10, >100, >1000, >10000 |
+| Name | Size | Contents | Consumers |
+|------|------|---------|-----------|
+| scr_lo[25] | 25 | Low bytes of $0400 + row×40 for rows 0–24 | **Exported** — imported by screen.s (scroll, clear) and log.s (info_line_head snapshot row pointer). |
+| scr_hi[25] | 25 | High bytes of same | **Exported** — same callers as scr_lo. |
+| hex_tab[16] | 16 | Screen codes for hex digits: $30–$39, $01–$06 | Internal — used by io_puthex2.  Not exported. |
+| dec_pow_lo[5] | 5 | Powers of 10: <1, <10, <100, <1000, <10000 | **Exported** — asm_src.s and repl.s reuse them for their own decimal-conversion paths. |
+| dec_pow_hi[5] | 5 | Powers of 10: >1, >10, >100, >1000, >10000 | **Exported** — same callers as dec_pow_lo. |
 
 ### pet_to_scr
 
@@ -214,6 +214,22 @@ for the KERNAL's benefit (cursor blink, screen editor state).
 **Behavior:** Short audible reject blip via SID voice 1 (triangle).
 Called by editor and REPL on refused input (line cap, backspace
 into left wall, unknown command).
+
+### _io_scr_setup
+
+**Input:** `CUR_ROW` ($D6)
+**Output:** `_io_scr` / `_io_scr+1` = `scr_lo[CUR_ROW] | (scr_hi[CUR_ROW] << 8)`
+**Clobbers:** A, X
+
+Populates the `_io_scr` ZP pointer with the screen-RAM address of
+the current row.  Leading underscore marks it as a shared internal
+helper rather than a user-facing API entry point — but it IS
+exported because screen.s uses it in its own scroll/clear routines
+instead of duplicating the two-byte load.
+
+Not called directly by most clients; the io_putc/io_puts/io_puthex*
+family calls this internally before writing.  Documented here
+because it crosses a module boundary to screen.s.
 
 ### Cursor Position
 
