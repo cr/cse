@@ -770,6 +770,121 @@ def mem_syms():
     return MemSymbols()
 
 
+# ── log test bundle ──────────────────────────────────────────────────────────
+#
+# Links: zp + strings + cse_io + screen + log + cse_io_test_stub.
+# The stub provides the shared `kplot_stub` symbol (KERNAL PLOT
+# replacement using cse_io's own scr_lo/scr_hi tables).  The bundle
+# is a downward slice through the L2 DAG: log (L2) uses screen (L2)
+# and cse_io (L1); cse_io's one KERNAL dependency is PLOT, which the
+# shared stub handles.  No behavioural mocks beyond PLOT.
+
+_LOG_BIN = BUILD / "log_test.bin"
+_LOG_MAP = BUILD / "log_test.map"
+_LOG_LBL = BUILD / "log_test.lbl"
+
+_LOG_SOURCES = [
+    SRC / "zp.s",
+    SRC / "strings.s",
+    SRC / "cse_io.s",
+    SRC / "screen.s",
+    SRC / "log.s",
+    DEV / "cse_io_test_stub.s",     # shared kplot_stub
+]
+
+
+def _log_needs_rebuild():
+    if not _LOG_BIN.exists() or not _LOG_LBL.exists():
+        return True
+    bin_mtime = _LOG_BIN.stat().st_mtime
+    return any(s.stat().st_mtime > bin_mtime
+               for s in _LOG_SOURCES + [DEV / "test.cfg"])
+
+
+def _log_build():
+    BUILD.mkdir(exist_ok=True)
+    obj_files = []
+    for src in _LOG_SOURCES:
+        obj = BUILD / f"{src.stem}_log.o"
+        # -t c64 enables PETSCII char-literal translation, matching
+        # the production build (Makefile AFLAGS).  Without it, ca65
+        # encodes 'b' as ASCII $62 instead of PETSCII $42, which
+        # breaks pet_to_scr's screen-code output for log.s's 'b'
+        # byte-size suffix literal.
+        cmd = ["ca65", "-g", "-t", "c64", "--cpu", "6502",
+               "-I", str(BUILD),
+               str(src), "-o", str(obj)]
+        subprocess.run(cmd, check=True)
+        obj_files.append(str(obj))
+    subprocess.run(
+        ["ld65", "-C", str(DEV / "test.cfg"),
+         *obj_files,
+         "-o", str(_LOG_BIN),
+         "-m", str(_LOG_MAP),
+         "-Ln", str(_LOG_LBL)],
+        check=True,
+    )
+
+
+class LogSymbols:
+    """Resolved symbols + binary loader for the log test bundle.
+
+    Pre-resolves the documented log.s entry points and the ZP state
+    that test cases prime before calling the range-line formatters.
+    Access to RODATA strings and sibling exports (io_sync, scr_lo/hi,
+    newline, str_*) is via `.s[name]` — the bundled SymbolTable.
+    """
+
+    def __init__(self):
+        if _log_needs_rebuild():
+            _log_build()
+
+        self.s = SymbolTable(_LOG_LBL)
+        s = self.s
+
+        # log.s entry points
+        self.log_open        = s["log_open"]
+        self.log_close       = s["log_close"]
+        self.log_line        = s["log_line"]
+        self.log_err         = s["log_err"]
+        self.log_warn        = s["log_warn"]
+        self.log_info        = s["log_info"]
+        self.puts_imm        = s["puts_imm"]
+        self.seg_line        = s["seg_line"]
+        self.prg_line        = s["prg_line"]
+        self.free_line       = s["free_line"]
+        self.info_line       = s["info_line"]
+        self.info_line_head  = s["info_line_head"]
+        self.info_line_tail  = s["info_line_tail"]
+
+        # ZP inputs consumed by range-line formatters (zp.s)
+        self.rp_ptr2         = s["rp_ptr2"]
+        self.rp_addr         = s["rp_addr"]
+        self.rp_cnt          = s["rp_cnt"]
+        self.rp_save2        = s["rp_save2"]
+        self._info_mode      = s["_info_mode"]
+
+        # Sibling hooks used by setup helpers
+        self.io_sync         = s["io_sync"]
+        self.io_init         = s["io_init"]
+        self.newline         = s["newline"]
+        self.kplot_stub      = s["kplot_stub"]
+
+        raw = _LOG_BIN.read_bytes()
+        self._zp_blob   = raw[:_ZP_SIZE]
+        self._code_blob = raw[_ZP_SIZE:]
+
+    def load_into(self, memory):
+        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
+        memory[_CODE_START : _CODE_START + len(self._code_blob)]  = self._code_blob
+
+
+@pytest.fixture(scope="session")
+def log_syms():
+    """Session-scoped log test binary + symbol addresses."""
+    return LogSymbols()
+
+
 # ── C64Emu-based fixtures (Phase 9) ──────────────────────────────────────────
 #
 # These fixtures load the CMOS PRG into C64Emu and provide symbol
