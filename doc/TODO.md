@@ -416,7 +416,7 @@ systems, ASM stubs, and test-specific linker configs.
   offset computation and map-file parsing in test harnesses.
 - [ ] Migrate remaining test files to C64Emu + full PRG.  Each old
   test file (test_repl, test_cse_io, test_expr, test_symtab,
-  test_debugger, test_au_mode, test_mnhash, test_asm_line,
+  test_debugger, test_au_mode, test_mn_classify, test_asm_line,
   test_dasm, test_asm_src) has its own build system, map parser,
   and run loop.  Migration removes ~1200 lines of harness code,
   9 ASM stub files, and 3 linker configs.
@@ -617,6 +617,20 @@ Defined scope, needs work.
   `.bas "TEXT"` → `0 SYS NNNNN:REM TEXT`.
   Always 5 decimal digits (260 B).  2799 tests.
 - [ ] Assembler error display: show source line number + context.
+- [ ] **Error-category tables are part of the contract.**  asm_err,
+  expr, and repl each have their own error code → message mapping
+  (`asm_expr_err` flag, expr's 0..6 return codes, REPL's string
+  table).  Today those tables are partly documented and partly
+  implicit.  Make each module's error category list a first-class
+  part of its doc (one table per module), and add unit tests that
+  assert every documented code maps to the expected message.
+  Companion fix: CPU-mode-gate rejection in `asm_line.s` currently
+  flows through the generic `asm_error` path and is displayed as
+  "syntax" — strictly accurate but misleading.  Introduce a
+  distinct "cpu" error category (new `asm_err` entry point, new
+  string, REPL dispatch update) as part of the same cleanup so
+  PHY-on-6502 displays as `;?cpu` rather than `;?syntax`.
+  Uncovered by the asm_cpu gate Escape Analysis (2026-04-20).
 - [x] Per-segment assembly summary — bug fixes + streaming design.
   Fixed bugs (pass-0 output, stale asm_pc, asm_org clobber,
   expr_val clobber, filename `,s`→`,p`).  Streaming segment lines

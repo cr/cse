@@ -68,6 +68,55 @@ alongside the `save_userland_zp` / `restore_userland_zp` /
 (asm_syntax_error / asm_expr_error / asm_expr_err / _asm_saved_sp),
 mem (kernal_bank_out / kernal_bank_in), zp
 
+## Build-time variants
+
+Three production builds (see Makefile `_*_DEFS`) instantiate this
+module with different `-D` flag combinations.  The classifier choice
+and the in-binary gate behaviour both depend on the flags — so the
+module effectively ships as three distinct binaries, each with its
+own contract.
+
+| Variant | `-D` flags | Classifier | CMOS reject gate | CMOS upgrade | Illegal gate | Accepts |
+|---|---|---|---|---|---|---|
+| **6502** | `USE_MN6` | mn6 (56 legal only) | — (unreachable) | — | — (unreachable) | legal NMOS |
+| **6510** | (none) | mn7 (114) | **compiled in** | — (tables absent) | **compiled in** | legal + illegals |
+| **65C02** | `CMOS_SUPPORT` | mn7 (114) | compiled in | compiled in | compiled in | legal + CMOS |
+
+On mn6 builds, unsupported mnemonics are rejected at the classifier
+tier (mn6 doesn't hash them), so the in-binary gate never sees
+them — but the gate code is linked anyway (the `cat` byte paths
+sit dormant without cost).  On mn7 builds, the classifier accepts
+all 114 mnemonics; the gate is the sole defence against the user
+asking for an instruction the current `asm_cpu` shouldn't emit.
+
+Bundle-test parity: each production variant has a matching unit-test
+bundle in [conftest.py](../../tests/conftest.py) (`AsmCoreSymbols(config=…)`)
+and a test class in [test_asm_line.py](../../tests/unit/test_asm_line.py)
+(`TestCpuGateCmosBundle`, `TestCpuGate6510Bundle`, `TestAsmLine6502Bundle`).
+See [testing.md § Principle 10](../testing.md).
+
+## asm_cpu × category gate matrix
+
+Every mnemonic's `asm_prof` byte encodes a 2-bit category in bits
+7:6.  The gate at [asm_line.s:247](../../src/asm_line.s) implements
+the table below.  Reject cells emit `jmp asm_error`; accept cells
+fall through with the appropriate profile (upgraded to the CMOS
+variant when `cat=01` and `asm_cpu>=2` under `CMOS_SUPPORT`).
+
+| | `cat=00` legal NMOS | `cat=01` legal + CMOS-ext | `cat=10` illegal NMOS | `cat=11` pure CMOS |
+|---|---|---|---|---|
+| `asm_cpu=0` (6502)  | accept | accept (NMOS profile) | **REJECT** | **REJECT** |
+| `asm_cpu=1` (6510)  | accept | accept (NMOS profile) | accept | **REJECT** |
+| `asm_cpu=2` (65C02) | accept | accept (CMOS profile, needs `CMOS_SUPPORT`) | **REJECT** | accept (needs `CMOS_SUPPORT`) |
+
+Every cell is tested per-variant-bundle in `TestCpuGateCmosBundle`
+and `TestCpuGate6510Bundle` (test_asm_line.py).  Populating this
+matrix was a direct consequence of the asm_cpu gate Escape Analysis
+(doc/README.md § Escape Analysis) — prior to it, the doc named only
+`asm_cpu` values and the CMOS gate fact-of-existence; the other 11
+cells were unspecified and the 6510 variant's gate was silently
+omitted under `.ifdef CMOS_SUPPORT`.
+
 ## Design
 
 **Zone dispatch:** The mnemonic's operand profile (from mn7_profile)

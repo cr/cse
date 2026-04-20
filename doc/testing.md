@@ -148,6 +148,214 @@ tests are written, when they are written, and what they test.
    (`test_kernel_transition.py`) is the right shape for these —
    expand it systematically when new mechanisms land.
 
+8. **Contractual coverage is exhaustive, not illustrative.**  Module
+   documentation is an API contract.  Every exported symbol is
+   load-bearing — internal callers link to it by name, and every
+   promise the doc makes is something downstream code is entitled
+   to rely on.
+
+   - **Every exported function** gets at least one correctness
+     test.  Not a smoke test — a test that would fail if the
+     function stopped meeting its documented contract.
+   - **Every exported data symbol** (RODATA table, BSS byte,
+     constant) gets at least a content/addressability test so a
+     stale value or mis-linked symbol is caught.
+   - **Edge cases** (zero-length, single-element, boundary
+     values, end-of-range clamping) are part of the contract and
+     get tested explicitly.  Parametrised tests covering the
+     full boundary-adjacent range (0, 1, N-1, N, N+1) are the
+     baseline; full sweeps (e.g. all 17 576 mn7 inputs) are the
+     ceiling.
+   - **"User-facing" vs. "implementation-detail" is not a valid
+     excuse.**  A symbol exported across module boundaries is by
+     definition not an implementation detail; other modules link
+     to it.  (This principle was added after a test-audit round
+     in which several L1 exports had been deferred as
+     "internal sibling helpers" and received no coverage.  If a
+     symbol is exported, someone depends on it; that someone is
+     what the test protects.)
+
+9. **Vocal omissions — skipped tests must state a reason in code.**
+   When a contractual test is not automated, the omission must be
+   explicit and machine-readable.  Use pytest primitives:
+
+   - `@pytest.mark.skip(reason="…")` — permanent skip for a
+     behaviour that cannot be exercised at this test tier (e.g.
+     hardware side-effect that py65 doesn't model).  The reason
+     must say what tier can exercise it (manual VICE, real C64,
+     integration-tier C64Emu).
+   - `@pytest.mark.skipif(cond, reason="…")` — conditional skip
+     when a build flag or environment dictates applicability.
+   - `@pytest.mark.xfail(reason="…", strict=…)` — known-failing
+     test pinning a pending bug; `strict=True` makes the test
+     fail if it starts unexpectedly passing.
+   - `pytest.skip(reason="…")` (function body) — runtime skip
+     when a precondition can't be established at fixture time.
+
+   Every skip/xfail reason must name the specific contract
+   clause that isn't being verified and where it *is* verified
+   (another test, another tier, or the manual-VICE checklist).
+   "TODO" and silent `pass` bodies are not acceptable
+   substitutes — the test file must be vocal about what it
+   covers AND what it deliberately doesn't.
+
+   `pytest --runxfail` re-runs xfailed tests without the mark,
+   which is useful after a pending fix has landed.  `pytest
+   --strict-markers` catches typoed marker names.
+
+   #### Skip-reason patterns
+
+   A skip reason must fit one of three categories.  Unsure which
+   one applies → the test probably shouldn't be skipped, it should
+   either be written or deleted.
+
+   **A. Out-of-tier.**  The behaviour IS testable, just not in
+   this harness.  The reason must name the tier that covers it:
+
+   ```python
+   @pytest.mark.skip(reason=(
+       "$01 reads fully-latched under DDR=$FF (mem.md § CPU-port "
+       "aware ZP save/restore): py65 has no CPU-port emulation. "
+       "Byte-level round-trip is verified here (TestSaveUserlandZp); "
+       "the fully-latched guarantee is verified on the VICE manual "
+       "checklist.  If C64Emu ever gains CPU-port modelling, convert "
+       "this skip into a real test."
+   ))
+   ```
+
+   **B. Subsumed by another test.**  Write this skip only after
+   retiring the test — leave a one-line pointer at the same source
+   location so `grep` still finds where the coverage lives:
+
+   ```python
+   # test_round_trip retired — subsumed by TestSaveRestoreEdgePatterns::
+   # test_userland_round_trip (four patterns, strictly better coverage).
+   ```
+
+   Prefer pointer-comments over skipped-test-bodies for this case:
+   `pytest.mark.skip` wastes a test slot for something that is
+   actively redundant.
+
+   **C. Cannot be enforced at any unit tier.**  System-level
+   invariants that live outside the module's control.  The reason
+   must name the enforcement mechanism that IS used (code review,
+   grep, build check).
+
+   ```python
+   @pytest.mark.skip(reason=(
+       "$CC=1 lifetime invariant (cse_io.md § IRQ Safety): the "
+       "invariant requires $CC=1 for the program lifetime.  No "
+       "unit test can verify that other modules won't later clear "
+       "$CC.  Enforcement today: code review + grep for '$CC' in "
+       "src/ (currently only io_init references it)."
+   ))
+   ```
+
+   #### Risk preamble for high-impact gaps
+
+   When a skip covers a contract clause whose regression would
+   ship silently (hardware-only, system-level), mark the gap with
+   a dated preamble comment at its source location:
+
+   ```python
+   # ⚠  TOP-RISK L1 GAP (per coverage audit 2026-04-20):
+   #    The DDR-stash protocol is the most-likely place an undetected
+   #    L1 regression could land — a "clever" refactor of save_*_zp
+   #    that byte-round-trips on py65 but breaks the fully-latched-$01
+   #    read on silicon would pass CI and ship.  The only backstop
+   #    is the VICE manual checklist.
+   ```
+
+   Risk tiers:
+   - **TOP** — silent-ship regression is plausible and impact is
+     module-wide (corruption, crash, silent data loss).  Treat
+     the VICE checklist as mandatory before merging any change to
+     the flagged code path.
+   - **HIGH** — silent-ship possible but requires specific
+     conditions; scope is bounded.  Code review is the primary
+     mitigation.
+   - **LOW** — regression requires a separate maintainer mistake
+     (e.g. copying a broken harness pattern).  A single existing
+     assertion elsewhere is already a de-facto guard — the skip
+     exists mainly to document the reasoning.
+
+   The preamble's date stamps the audit pass.  Future audits
+   either refresh the date, upgrade/downgrade the risk tier, or
+   remove the preamble if the gap is closed (e.g. a new integration
+   test covers it).
+
+   #### When to prefer `xfail` over `skip`
+
+   Use `xfail(strict=True)` for a test whose code is WRITTEN and
+   whose expected behaviour IS the contract, but which currently
+   fails against a known bug.  This makes the test fail the suite
+   the moment the bug gets fixed — a free alarm that the skip can
+   now go away.
+
+   Use `skip` for behaviour that isn't implemented at the test
+   tier at all (no code to run).
+
+   Never use `xfail(strict=False)` — it silences both failure and
+   unexpected passes, defeating the point.
+
+10. **Test bundles must mirror production build configs.**  A module
+    built by the Makefile as N distinct binaries (different `-D`
+    flag combinations, different source subsets) is effectively N
+    modules for testing purposes.  The test harness owes coverage
+    to each production variant.  One bundle per variant; one fixture
+    per bundle; one test class per fixture.
+
+    **Why this is load-bearing.**  Any code path gated by a
+    conditional-compilation flag is INVISIBLE to a test bundle
+    whose flags don't match.  If asm_line.s has `.ifdef CMOS_SUPPORT`
+    around the CMOS reject gate, and the asm_core test bundle always
+    sets `-DCMOS_SUPPORT`, then bugs in the non-CMOS_SUPPORT path
+    cannot fail a test.  They will ship undetected.
+
+    **Mechanics.**  When a module ships as N production variants,
+    [conftest.py](../tests/conftest.py) parametrises the bundle
+    config (`_AC_FLAGS[config]`, `_AC_CLASSIFIER_SOURCES[config]`,
+    etc.) and exposes N session fixtures (e.g. `asm_syms`,
+    `asm_6510_syms`, `asm_6502_syms`).  Each variant has a matching
+    test class in the module's test file.  When adding or removing
+    a production variant (Makefile `-D` changes), the bundle list
+    moves with it — same commit.
+
+    Cautionary example: the asm_cpu gate escape (doc/README.md
+    § Escape Analysis, first canonical application).  The gate bug
+    was invisible because only one bundle existed, matching only the
+    65C02 production build.  Adding 6510 and 6502 bundles made the
+    bug a failing test in one commit.
+
+11. **Contract matrices drive test matrices.**  When a doc describes
+    behaviour parametrised by N axes (e.g. asm_cpu × category,
+    build-flag × classifier, side × operation), the doc enumerates
+    each cell and the test suite covers each cell.  "Rejects CMOS
+    on NMOS" is one cell of a 12-cell matrix and tells you nothing
+    about the other 11.
+
+    **How this shows up in docs.**  Prefer tables over prose for any
+    conditional behaviour.  A contract written as "accepts X on Y;
+    rejects otherwise" hides the matrix; a two-axis table makes
+    every cell an enumerable testable commitment.  Use [asm_line.md
+    § asm_cpu × category gate matrix](modules/asm_line.md) and
+    [mn_classify.md § Variants](modules/mn_classify.md) as templates.
+
+    **How this shows up in tests.**  Parametrise the test function
+    over the matrix axes.  `@pytest.mark.parametrize` over a list
+    of `(source, asm_cpu, expected_behaviour)` tuples makes every
+    cell a named case with its own failure line.  Cells the
+    contract intentionally leaves open (e.g. "undefined behaviour
+    on asm_cpu=3") still belong in the matrix — marked with a
+    vocal skip per Principle 9.
+
+    Cautionary example: same as Principle 10.  Pre-amendment
+    asm_line.md documented "asm_cpu values 0/1/2" and "the CMOS
+    gate rejects non-CMOS" — a one-axis spec for a two-axis
+    problem.  Eleven of twelve cells were unspecified; 22 of them
+    shipped broken for years before the matrix audit surfaced the
+    gap.
+
 ## Anti-patterns
 
 These exist in the current test tree.  Don't add more of them;
@@ -418,7 +626,7 @@ get their own small binary.
 | Bundle | Modules | Stub | Tests |
 |--------|---------|------|-------|
 | `asm_core` | zp, opcode_lookup, asm_line, addr_mode, asm_err, expr, symtab, mem, mn7, mn_classify, mn_modes, mn_asm_tables | `asm_core_test_stub.s` (linker symbols) | test_au_mode, test_asm_line |
-| `mn6` / `mn7` | mn_vars + mn6/mn7 + tables | (none — pure leaf) | test_mnhash |
+| `mn6` / `mn7` | mn_classify + mn_vars + mn6/mn7 + tables | (none — pure leaf) | test_mn_classify |
 | `asm_src` | asm_core + asm_src | `asm_src_test_stub.s` (ed_read_line mock) | test_asm_src |
 | `dasm` | zp, dasm, dasm_tables | `dasm_test_stub.s` (banking helpers) | test_dasm |
 

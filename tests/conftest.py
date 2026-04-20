@@ -11,8 +11,9 @@ Fixtures provided
 -----------------
 syms        — asm_core test binary symbols (for test_au_mode.py)
 asm_syms    — asm_core test binary symbols (for test_asm_line.py)
-mn6_syms    — mn6 hash test binary  (for test_mnhash.py)
-mn7_syms    — mn7 hash test binary  (for test_mnhash.py)
+mn6_syms    — mn6 hash test binary  (for test_mn_classify.py)
+mn7_syms    — mn7 hash test binary  (for test_mn_classify.py)
+mem_syms    — zp + mem bundle        (for test_mem.py)
 
 Test bundle architecture
 ------------------------
@@ -105,11 +106,27 @@ class SymbolTable:
 # The stub is minimal: BRK error handler + linker symbols for mem.s.
 # No per-module mocking — every import is satisfied by real code.
 
-_AC_BIN = BUILD / "asm_core_test.bin"
-_AC_MAP = BUILD / "asm_core_test.map"
-_AC_LBL = BUILD / "asm_core_test.lbl"
+# Three build configs mirror the three production builds (see
+# Makefile _*_DEFS):
+#
+#   "cmos"  — -DCMOS_SUPPORT + mn7   (mirrors 65C02 production).
+#             Default for most asm_core tests.
+#   "6510"  — no -DCMOS_SUPPORT + mn7 (mirrors 6510 production).
+#             Used for asm_cpu gate tests: the 6510 build still uses
+#             mn7 (which recognizes CMOS mnemonics), but the CMOS
+#             reject gate inside asm_line.s is `.ifdef CMOS_SUPPORT`-
+#             wrapped — so only this bundle exposes regressions in the
+#             gate's compile-time path.
+#   "6502"  — -DUSE_MN6 + mn6         (mirrors 6502 production).
+#             mn6 only recognizes the 56 legal NMOS mnemonics; CMOS
+#             and illegals are rejected at the classifier tier before
+#             the gate is even reached.  Used to exercise any
+#             `.ifdef USE_MN6` code path that differs from the mn7
+#             configs.  The source list swaps mn7.s/mn7_tables.s for
+#             mn6.s/mn6_tables.s.
 
-_AC_SOURCES = [
+# Common sources across all three asm_core bundle configs.
+_AC_COMMON_SOURCES = [
     SRC / "zp.s",
     SRC / "strings.s",
     SRC / "opcode_lookup.s",
@@ -120,29 +137,61 @@ _AC_SOURCES = [
     SRC / "symtab.s",
     SRC / "mem.s",
     SRC / "mn_vars.s",
-    SRC / "mn7.s",
-    SRC / "mn7_tables.s",
     SRC / "mn_modes.s",
     SRC / "mn_asm_tables.s",
     SRC / "mn_classify.s",
     DEV / "asm_core_test_stub.s",
 ]
 
+# Per-config additions: the classifier (mn7 or mn6) + its tables.
+_AC_CLASSIFIER_SOURCES = {
+    "cmos": [SRC / "mn7.s", SRC / "mn7_tables.s"],
+    "6510": [SRC / "mn7.s", SRC / "mn7_tables.s"],
+    "6502": [SRC / "mn6.s", SRC / "mn6_tables.s"],
+}
 
-def _ac_needs_rebuild():
-    if not _AC_BIN.exists() or not _AC_LBL.exists():
+
+def _ac_sources(config):
+    return _AC_COMMON_SOURCES + _AC_CLASSIFIER_SOURCES[config]
+
+
+_AC_BIN = {
+    "cmos": BUILD / "asm_core_test.bin",
+    "6510": BUILD / "asm_core_6510_test.bin",
+    "6502": BUILD / "asm_core_6502_test.bin",
+}
+_AC_MAP = {
+    "cmos": BUILD / "asm_core_test.map",
+    "6510": BUILD / "asm_core_6510_test.map",
+    "6502": BUILD / "asm_core_6502_test.map",
+}
+_AC_LBL = {
+    "cmos": BUILD / "asm_core_test.lbl",
+    "6510": BUILD / "asm_core_6510_test.lbl",
+    "6502": BUILD / "asm_core_6502_test.lbl",
+}
+_AC_FLAGS = {
+    "cmos": ["-DCMOS_SUPPORT"],
+    "6510": [],
+    "6502": ["-DUSE_MN6"],
+}
+
+
+def _ac_needs_rebuild(config):
+    if not _AC_BIN[config].exists() or not _AC_LBL[config].exists():
         return True
-    bin_mtime = _AC_BIN.stat().st_mtime
+    bin_mtime = _AC_BIN[config].stat().st_mtime
     return any(s.stat().st_mtime > bin_mtime
-               for s in _AC_SOURCES + [DEV / "test.cfg"])
+               for s in _ac_sources(config) + [DEV / "test.cfg"])
 
 
-def _ac_build():
+def _ac_build(config):
     BUILD.mkdir(exist_ok=True)
     obj_files = []
-    for src in _AC_SOURCES:
-        obj = BUILD / f"{src.stem}_ac.o"
-        cmd = ["ca65", "-g", "--cpu", "6502", "-DCMOS_SUPPORT",
+    for src in _ac_sources(config):
+        obj = BUILD / f"{src.stem}_ac_{config}.o"
+        cmd = ["ca65", "-g", "--cpu", "6502",
+               *_AC_FLAGS[config],
                "-I", str(BUILD),
                str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)
@@ -150,9 +199,9 @@ def _ac_build():
     subprocess.run(
         ["ld65", "-C", str(DEV / "test.cfg"),
          *obj_files,
-         "-o", str(_AC_BIN),
-         "-m", str(_AC_MAP),
-         "-Ln", str(_AC_LBL)],
+         "-o", str(_AC_BIN[config]),
+         "-m", str(_AC_MAP[config]),
+         "-Ln", str(_AC_LBL[config])],
         check=True,
     )
 
@@ -163,13 +212,21 @@ class AsmCoreSymbols:
     Provides addresses for both addr_mode tests (mode_parse, asm_ptr, asm_opr)
     and asm_line tests (_asm_line_core, asm_pc, asm_out, asm_cpu, etc.).
     All symbols resolved from .lbl file (debug build).
+
+    Parameter `config`:
+      "cmos" — bundle built with -DCMOS_SUPPORT (matches 65C02 prod
+               build config).  Default for all existing tests.
+      "6510" — bundle built without -DCMOS_SUPPORT (matches 6510 prod
+               build config).  Used by asm_cpu gate tests where the
+               CMOS reject gate is ifdef-wrapped and thus config-sensitive.
     """
 
-    def __init__(self):
-        if _ac_needs_rebuild():
-            _ac_build()
+    def __init__(self, config="cmos"):
+        self.config = config
+        if _ac_needs_rebuild(config):
+            _ac_build(config)
 
-        s = SymbolTable(_AC_LBL)
+        s = SymbolTable(_AC_LBL[config])
 
         # addr_mode entry points
         self.mode_parse       = s["mode_parse"]
@@ -195,9 +252,12 @@ class AsmCoreSymbols:
         # expr.s + symtab.s entry points (linked into asm_core; used
         # by test_expr.py after Tranche 3 folded it into this bundle).
         self.expr_eval        = s["expr_eval"]
+        self.expr_eval_nb     = s["expr_eval_nb"]
+        self.expr_error_str   = s["expr_error_str"]
         self.expr_ptr         = s["expr_ptr"]
         self.expr_val         = s["expr_val"]
         self.expr_wide        = s["expr_wide"]
+        self.last_err         = s["last_err"]
         self.sym_define       = s["sym_define"]
         self.sym_lookup       = s["sym_lookup"]
         self.sym_clear        = s["sym_clear"]
@@ -205,7 +265,23 @@ class AsmCoreSymbols:
         self.sym_val          = s["sym_val"]
         self.sym_wide         = s["sym_wide"]
 
-        raw = _AC_BIN.read_bytes()
+        # asm_line.s: user-register BSS shadows (asm_line.md § Memory)
+        self.reg_a            = s["reg_a"]
+        self.reg_x            = s["reg_x"]
+        self.reg_y            = s["reg_y"]
+        self.reg_sp           = s["reg_sp"]
+        self.reg_p            = s["reg_p"]
+
+        # opcode_lookup.s entry points (linked into asm_core)
+        self.asm_validate_mode = s["asm_validate_mode"]
+        self.asm_opcode_lookup = s["asm_opcode_lookup"]
+        self.asm_mode         = s["asm_mode"]
+        self.asm_pidx         = s["asm_pidx"]
+
+        # addr_mode.s extra entry point for isolated testing
+        self.asm_skip_ws      = s["asm_skip_ws"]
+
+        raw = _AC_BIN[config].read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]
 
@@ -223,8 +299,28 @@ def syms():
 
 @pytest.fixture(scope="session")
 def asm_syms():
-    """Session-scoped asm_core binary — used by test_asm_line.py."""
+    """Session-scoped asm_core binary (config='cmos', -DCMOS_SUPPORT)."""
     return AsmCoreSymbols()
+
+
+@pytest.fixture(scope="session")
+def asm_6510_syms():
+    """Session-scoped asm_core binary built WITHOUT -DCMOS_SUPPORT,
+    mirroring the 6510 production build config.  Used by
+    test_asm_line.py's asm_cpu gate tests to catch regressions that
+    only manifest when the CMOS reject path is ifdef'd out."""
+    return AsmCoreSymbols(config="6510")
+
+
+@pytest.fixture(scope="session")
+def asm_6502_syms():
+    """Session-scoped asm_core binary built with -DUSE_MN6, mirroring
+    the 6502 production build config.  mn6 is linked instead of mn7 —
+    only 56 legal NMOS mnemonics are recognized.  CMOS and illegal
+    inputs are rejected by the classifier (the asm_line gate is never
+    reached for them).  Used to exercise code paths guarded by
+    `.ifdef USE_MN6`."""
+    return AsmCoreSymbols(config="6502")
 
 
 # ── mn6 / mn7 hash test binaries ──────────────────────────────────────────────
@@ -238,8 +334,10 @@ def asm_syms():
 # in the "Exports list by name" section of the ld65 map file.
 
 _MN_SOURCES = {
-    'mn6': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn6.s", SRC / "mn6_tables.s"],
-    'mn7': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn7.s", SRC / "mn7_tables.s"],
+    'mn6': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn6.s", SRC / "mn6_tables.s",
+            SRC / "mn_classify.s"],
+    'mn7': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn7.s", SRC / "mn7_tables.s",
+            SRC / "mn_classify.s"],
 }
 
 _MN_BIN = {v: BUILD / f"{v}_test.bin" for v in ('mn6', 'mn7')}
@@ -262,6 +360,9 @@ def _mn_build(variant):
         cmd = ["ca65", "-g", "--cpu", "6502",
                "-I", str(BUILD),
                str(src), "-o", str(obj)]
+        # mn_classify.s branches on USE_MN6 at build time.
+        if variant == 'mn6':
+            cmd += ["-D", "USE_MN6"]
         subprocess.run(cmd, check=True)
         obj_files.append(str(obj))
     subprocess.run(
@@ -283,10 +384,19 @@ class MnHashBinary:
 
         s = SymbolTable(_MN_LBL[variant])
 
+        self.variant  = variant
         self.mn_c1    = s['mn_c1']
         self.mn_c2    = s['mn_c2']
         self.mn_c3    = s['mn_c3']
-        self.classify = s[f'{variant}_classify']
+        self.classify    = s[f'{variant}_classify']
+        self.mn_classify = s['mn_classify']
+        # Table re-exports (mn_classify aliases them to the selected variant).
+        self.mn_base_op = s['mn_base_op']
+        self.mn_profile = s['mn_profile']
+        # Internal tables — documented in mn_classify.md, exposed via @local
+        # labels in the debug-build .lbl file.
+        self.fp_table   = s[f'{variant}_fp']
+        self.hash_t     = s[f'{variant}_hash_t']
 
         raw = _MN_BIN[variant].read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
@@ -500,6 +610,104 @@ def dasm_syms():
     return DasmSymbols()
 
 
+# ── mem test binary ──────────────────────────────────────────────────────────
+#
+# Links: zp.s + mem.s.  No stub needed — mem.s has no external code
+# dependencies (just the linker-provided __ZP_LAST__ and __CODE_RUN__
+# symbols plus the `kernal_out` ZP byte from zp.s).
+
+_MEM_BIN = BUILD / "mem_test.bin"
+_MEM_MAP = BUILD / "mem_test.map"
+_MEM_LBL = BUILD / "mem_test.lbl"
+
+_MEM_SOURCES = [
+    SRC / "zp.s",
+    SRC / "mem.s",
+]
+
+
+def _mem_needs_rebuild():
+    if not _MEM_BIN.exists() or not _MEM_LBL.exists():
+        return True
+    bin_mtime = _MEM_BIN.stat().st_mtime
+    return any(s.stat().st_mtime > bin_mtime
+               for s in _MEM_SOURCES + [DEV / "test.cfg"])
+
+
+def _mem_build():
+    BUILD.mkdir(exist_ok=True)
+    obj_files = []
+    for src in _MEM_SOURCES:
+        obj = BUILD / f"{src.stem}_mem.o"
+        cmd = ["ca65", "-g", "--cpu", "6502",
+               "-I", str(BUILD),
+               str(src), "-o", str(obj)]
+        subprocess.run(cmd, check=True)
+        obj_files.append(str(obj))
+    subprocess.run(
+        ["ld65", "-C", str(DEV / "test.cfg"),
+         # mem.s imports __CODE_RUN__ from the production link
+         # config; test.cfg doesn't generate it, so synthesise
+         # a placeholder for cse_start to return.
+         "-D", "__CODE_RUN__=$4000",
+         *obj_files,
+         "-o", str(_MEM_BIN),
+         "-m", str(_MEM_MAP),
+         "-Ln", str(_MEM_LBL)],
+        check=True,
+    )
+
+
+class MemSymbols:
+    """Resolved symbol addresses + binary loader for the mem.s test bundle."""
+
+    def __init__(self):
+        if _mem_needs_rebuild():
+            _mem_build()
+
+        s = SymbolTable(_MEM_LBL)
+
+        # Entry points
+        self.kernal_bank_out     = s["kernal_bank_out"]
+        self.kernal_bank_in      = s["kernal_bank_in"]
+        self.save_userland_zp    = s["save_userland_zp"]
+        self.restore_userland_zp = s["restore_userland_zp"]
+        self.save_kernel_zp      = s["save_kernel_zp"]
+        self.restore_kernel_zp   = s["restore_kernel_zp"]
+        self.cse_start           = s["cse_start"]
+        self.cse_end             = s["cse_end"]
+        self.cse_zp_end          = s["cse_zp_end"]
+
+        # BSS
+        self.userland_zp_buf = s["userland_zp_buf"]
+        self.kernel_zp_buf   = s["kernel_zp_buf"]
+
+        # ZP flag from zp.s
+        self.kernal_out = s["kernal_out"]
+
+        # Linker-defined segments (for assertions about cse_start/end)
+        self.code_run = s["__CODE_RUN__"]
+        self.zp_last  = s["__ZP_LAST__"]
+
+        # _zp_end_val is a local RODATA byte but we can read it via the
+        # lbl file (debug build exports @local labels too).
+        self._zp_end_val = s.get("_zp_end_val")
+
+        raw = _MEM_BIN.read_bytes()
+        self._zp_blob   = raw[:_ZP_SIZE]
+        self._code_blob = raw[_ZP_SIZE:]
+
+    def load_into(self, memory):
+        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
+        memory[_CODE_START : _CODE_START + len(self._code_blob)]  = self._code_blob
+
+
+@pytest.fixture(scope="session")
+def mem_syms():
+    """Session-scoped mem.s test binary + symbol addresses."""
+    return MemSymbols()
+
+
 # ── C64Emu-based fixtures (Phase 9) ──────────────────────────────────────────
 #
 # These fixtures load the CMOS PRG into C64Emu and provide symbol
@@ -548,3 +756,9 @@ def cse_release_prg():
     """Session-scoped: release CMOS PRG — for E2E integration tests."""
     _ensure_release_built()
     return _CMOS_REL_PRG, _CMOS_REL_MAP
+
+
+# (Per-CPU-build PRG fixtures were introduced for integration-tier
+# gate tests but retired once the gate tests moved to unit tier via
+# the `asm_6510_syms` bundle in the asm_core family above.  Re-add
+# here if a future integration-tier test needs the 6510/6502 PRGs.)

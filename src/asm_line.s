@@ -244,26 +244,51 @@ _asm_line_core:
         and #$1F
         sta asm_pidx            ; raw profile index
 
-        ; ── CMOS gate / upgrade ───────────────────────────────────────────
-        ; On non-CMOS builds (mn6), cat=11 and cat=01 mnemonics are not
-        ; in the hash table, so this code is never reached.  The ifdef
-        ; excludes it from the binary to save bytes.
-.ifdef CMOS_SUPPORT
+        ; ── CPU-mode gate ─────────────────────────────────────────────────
+        ;
+        ; Gate matrix (asm_prof bits 7:6 encode category):
+        ;   cat=00 (legal NMOS)    — accept on any asm_cpu
+        ;   cat=01 (legal + CMOS)  — accept; upgrade pidx on asm_cpu>=2 (CMOS_SUPPORT only)
+        ;   cat=10 (illegal NMOS)  — accept on asm_cpu=1 only (6510)
+        ;   cat=11 (pure CMOS)     — accept on asm_cpu>=2 (CMOS_SUPPORT only)
+        ;
+        ; See doc/modules/asm_line.md § asm_cpu × category matrix.
+        ;
+        ; Reject paths are compiled unconditionally — the 6510 build
+        ; (no CMOS_SUPPORT) uses mn7, which recognises CMOS and
+        ; illegal mnemonics, so the gate must filter them by asm_cpu
+        ; even though CMOS extensions aren't supported here.  Only the
+        ; CMOS accept-and-upgrade paths stay under .ifdef CMOS_SUPPORT
+        ; because they reference the CMOS profile table, which is
+        ; absent in non-CMOS builds.  On mn6 builds (6502, USE_MN6)
+        ; cat=01/10/11 are never produced by the classifier, so the
+        ; reject paths sit dormant without cost.
+
         lda asm_prof
         and #$C0
-        cmp #$C0                ; cat=11 (pure CMOS mnemonic)?
-        bne @not_cmos_only
+        beq @no_upgrade         ; cat=00 (legal NMOS) → accept
+        cmp #$C0                ; cat=11 (pure CMOS)?
+        bne @chk_illegal
+.ifdef CMOS_SUPPORT
         lda asm_cpu
         cmp #2
-        bcs @no_upgrade         ; 65C02 → allow, no pidx upgrade needed
-        jmp asm_error           ; 6502/6510 → reject
-@not_cmos_only:
-        cmp #$40                ; cat=01 (legal + CMOS extension)?
-        bne @no_upgrade
+        bcs @no_upgrade         ; 65C02 (+ CMOS_SUPPORT) → accept
+.endif
+        jmp asm_error           ; else reject
+@chk_illegal:
+        cmp #$80                ; cat=10 (illegal NMOS)?
+        bne @chk_ext
+        lda asm_cpu
+        cmp #1
+        beq @no_upgrade         ; 6510 → accept
+        jmp asm_error           ; 6502 / 65C02 → reject
+@chk_ext:
+        ; Fell through — cat=01 (legal + CMOS extension).
+.ifdef CMOS_SUPPORT
         lda asm_cpu
         cmp #2
-        bcc @no_upgrade         ; 6502/6510 → no CMOS upgrade
-        inc asm_pidx            ; use the CMOS profile for mode validation
+        bcc @no_upgrade         ; 6502/6510 → no upgrade (use NMOS profile)
+        inc asm_pidx            ; 65C02 → upgrade to CMOS profile
 .endif ; CMOS_SUPPORT
 @no_upgrade:
 
