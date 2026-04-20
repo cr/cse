@@ -387,6 +387,30 @@ knowing about the gap buffer.  Three functions provide this:
 The read pointer is independent of the cursor/gap position.  The
 assembler calls `ed_read_rewind` before each pass.
 
+**Partial-result contract** (testing.md § Principle 13).  Both
+`ed_read_line` and `ed_read_byte` are partial-result functions —
+`read_ptr` (ZP, 2 bytes, owned by editor.s) is the ancillary state.
+Each successful call advances `read_ptr` past the consumed bytes;
+callers (the two-pass source assembler, `warn_long_lines`) depend
+on this advancement to compose repeated reads into a stream walk.
+
+Stopping behaviour:
+- `ed_read_byte` — advances `read_ptr` by 1 on each non-EOF call,
+  transparently stepping over the gap when `read_ptr` lands inside
+  it.  Returns $FFFF (A=X=$FF) at EOF without further advance.
+- `ed_read_line` — advances `read_ptr` past the copied bytes plus
+  the terminating CR (if any).  Returns length; at EOF returns
+  $FFFF without advance.
+
+Position pinning: `ed_read_byte`'s per-call advancement is
+transitively witnessed by `tests/integration/test_editor.py`'s
+`read_back` helper, which walks the entire gap buffer byte by
+byte and asserts the reconstructed content — any regression that
+left `read_ptr` stuck or skipping bytes would corrupt every
+`TestGapBufferInsert` case.  `ed_read_line`'s position contract
+is not yet pinned directly; see `doc/TODO.md` for the queued
+Tier-U-bundle decision.
+
 ## Caveats
 
 - Lines are separated by $0D (CR) internally; CR is stripped by
