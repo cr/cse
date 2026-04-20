@@ -61,7 +61,7 @@ and documentation.
 
 | Term | Definition |
 |------|------------|
-| **DDD System** | The totality of document-driven practices in this repository: the DDD Method, the TDD Method, the DDD Corpus, and the DDD Maintenance process.  The system's goal is that documentation is always the source of truth and never drifts from code. |
+| **DDD System** | The totality of document-driven practices in this repository: the DDD Method, the TDD Method, the DDD Corpus, the DDD Maintenance process, and Escape Analysis.  The system's goal is that documentation is always the source of truth and never drifts from code. |
 | **DDD Corpus** | The complete body of documentation that defines the system: `doc/` files, module docs in `doc/modules/`, authoritative data files in `dev/`, and the test contracts in `tests/`.  The Corpus is the source of truth for all design intent, interfaces, and behaviour. |
 | **DDD Method** | The seven-step development process defined in [README.md § The DDD Method](README.md#the-ddd-method): doc first → DDD Analysis → TDD Analysis → implement → differential DDD → commit → report.  Mandatory for all repository changes, no exceptions. |
 | **DDD Maintenance** | A periodic audit of the DDD Corpus independent of feature work.  See [README.md § DDD Maintenance](README.md#ddd-maintenance) for the full audit scope and trigger. |
@@ -71,6 +71,7 @@ and documentation.
 | **Scope Creep** | Unplanned significant changes discovered during implementation.  Triggers a discussion-and-approval gate before the DDD Method is applied recursively to the new scope.  Recursion terminates at the approver's discretion. |
 | **DDD Feedback Round** | The discussion triggered by scope creep or by a TDD Analysis that reveals implications for the original plan.  Must be resolved before implementation continues. |
 | **DDD Report** | The final deliverable of the DDD Method.  Summarises all changes (documentation, tests, code), highlights unplanned changes, and suggests future improvements. |
+| **Escape Analysis** | Reactive DDD process invoked when a bug is found that the test suite failed to catch.  Traces the escape backward: the missing test → the contract clause that should have prompted the test → the testing.md principle that should have forced the clause.  Amendments at all three layers are committed together.  Each Escape Analysis tightens the corpus permanently — the same class of bug cannot escape twice.  See [README.md § Escape Analysis](README.md#escape-analysis). |
 
 ## Design vocabulary
 

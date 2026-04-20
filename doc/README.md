@@ -140,6 +140,85 @@ findings become TODO items and go through the DDD Method.
 
 ---
 
+## Escape Analysis
+
+The DDD Method protects the Corpus during planned change; DDD
+Maintenance catches drift at milestone boundaries.  **Escape
+Analysis** is the third entry point — reactive, invoked whenever a
+bug is discovered that the test suite failed to catch.  Every such
+bug is evidence that the Corpus was silent or ambiguous where it
+should have been prescriptive.  Fixing only the bug wastes the
+evidence; Escape Analysis turns the escape into a permanent
+tightening of the Corpus.
+
+**Trigger:** a bug found in production, by manual inspection, by
+a new contributor asking "what should this do?", or by any other
+route that exposes behaviour the test suite silently accepts but
+should have rejected.  Applies equally to functional bugs, test-
+harness bugs, and doc-code fidelity gaps.
+
+**Process:**
+
+1. **Capture the escape.**  Write a test that fails against the
+   current code.  Confirm it fails for the right reason (the bug
+   itself, not a harness quirk).  The failing test is the evidence.
+
+2. **Trace to the test miss.**  Which existing test should have
+   caught this?  Three cases:
+   - A test exists but passes incorrectly.  The harness is lying
+     about what it covers — mirror test, single-bundle coverage of
+     a matrix contract, wrong build config, implementation-coupled
+     assertion.  Fix the harness before moving on.
+   - A test exists for an adjacent case but not this one.  The
+     matrix was under-enumerated.  Extend the parametrisation.
+   - No test covers the affected clause.  Proceed to step 3.
+
+3. **Trace to the contract miss.**  Which doc clause should have
+   prompted a covering test?  Three cases:
+   - The clause exists but is ambiguous or prose-buried.  Rewrite
+     for enumerability — replace narrative with tables where the
+     contract has axes (asm_cpu × category, build-flag × mnemonic-
+     class, etc.).
+   - The clause is missing.  Add it.  The Corpus is incomplete
+     until observable behaviour is documented.
+   - The module has multiple variants (`.ifdef` or `-D` flag
+     combinations) that the doc treated as one artifact.  Add a
+     Variants table.  See `doc/modules/mn_classify.md` for the
+     canonical shape.
+
+4. **Trace to the principle miss.**  Which [testing.md](testing.md)
+   principle, if applied, would have forced step 3's amendment?
+   - If such a principle exists and was followed: the principle
+     itself has an edge case it didn't cover.  Refine the principle.
+   - If no such principle exists: add one.  This is the deepest
+     amendment and prevents the entire class of bug, not just the
+     instance.  Reference the specific escape in the new principle
+     so future readers see the evidence that produced it.
+
+5. **Commit all amendments together.**  A single commit contains:
+   the bug fix, the new test that would have caught it, the
+   contract amendment, and any testing.md principle amendment.
+   The commit message names Escape Analysis explicitly so the log
+   preserves the chain of reasoning.
+
+**Output:** a tighter Corpus.  The same class of bug cannot
+escape twice.  Patterns across escapes (noted in commit messages)
+inform future DDD Maintenance audits.
+
+**Relationship to the other processes:**
+
+| Process | Trigger | Direction |
+|---|---|---|
+| DDD Method | Planned change | Forward (docs first → implementation) |
+| DDD Maintenance | Milestone boundary | Cross-cutting (audit full Corpus) |
+| Escape Analysis | Bug discovered | Backward (bug → test → contract → principle) |
+
+Any Escape Analysis that uncovers multiple missing clauses at
+once is still one Escape Analysis, but it is evidence of a
+larger DDD Maintenance gap — log it for the next scheduled audit.
+
+---
+
 ## Principles
 
 ### 1. Layered depth
