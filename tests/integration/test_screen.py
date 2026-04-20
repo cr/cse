@@ -22,10 +22,12 @@ verified (TestVicReset); the VIC's actual response (display mode,
 IRQ latch clearing, raster timing) needs VICE.  See the ⚠ MID-RISK
 L2 GAP preamble on TestVicHardwareBehaviour.
 
-Note on tier: screen.s is a Tier-U module per testing.md's per-module
-table (bundle: screen + cse_io).  Tests currently run in Tier-I
-against the full PRG — same coverage, different harness.  Bundle
-re-home is a future task.
+Tier: screen.s is Tier I by design (per testing.md's per-module
+table).  Even though py65's emulator doesn't model VIC internals,
+C64Emu gives us real KERNAL vectors, real $01 banking, and a
+production-representative initialization path — the natural home
+for a module whose whole contract is "pokes VIC registers, scrolls
+screen RAM, syncs cursor via PLOT."
 
 Requires: build/cmos/cse-cmos.prg (auto-built by cse_prg fixture).
 """

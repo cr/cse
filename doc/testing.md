@@ -496,8 +496,8 @@ they must be green before Step 5 begins.
 | **cse_io** | 1 | U | standalone leaf bundle |
 | **mem** | 1 | U | standalone leaf bundle |
 | **mn6 / mn7 / mn_classify** | 1 | U | `mn6` / `mn7` bundles |
-| **screen** | 2 | U | bundle: screen + cse_io |
-| **log** | 2 | U | bundle: log + screen + cse_io |
+| **screen** | 2 | I | hardware-adjacent by nature (VIC registers, KERNAL cursor sync); C64Emu is the natural home even though it doesn't model VIC internals |
+| **log** | 2 | U | bundle: log + screen + cse_io (PLOT via shared `kplot_stub`) |
 | **symtab** | 2 | U | bundle: symtab + mem |
 | **asm_err** | 2 | U | bundle: asm_err + mem |
 | **expr** | 3 | U | via `asm_core` bundle |
@@ -680,7 +680,8 @@ get their own small binary.
 | `asm_core` | zp, opcode_lookup, asm_line, addr_mode, asm_err, expr, symtab, mem, mn7, mn_classify, mn_modes, mn_asm_tables | `asm_core_test_stub.s` (linker symbols) | test_addr_mode, test_asm_line, test_opcode_lookup |
 | `mn6` / `mn7` | mn_classify + mn_vars + mn6/mn7 + tables | (none — pure leaf) | test_mn_classify |
 | `asm_src` | asm_core + asm_src | `asm_src_test_stub.s` (ed_read_line mock) | test_asm_src |
-| `dasm` | zp, dasm, dasm_tables | `dasm_test_stub.s` (banking helpers) | test_dasm |
+| `dasm` | zp, dasm, dasm_tables, mem | `dasm_test_stub.s` (linker scaffolding only) | test_dasm |
+| `log` | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |
 
 The `asm_core` bundle includes the `asm_err` leaf module for
 error-state primitives that `addr_mode`, `opcode_lookup`, and
@@ -690,6 +691,33 @@ The bundle principle: when adding a cross-module dependency, add
 the module to the existing bundle rather than creating new mocks.
 Only create a new bundle when the dependency graph forks into a
 genuinely separate subsystem.
+
+#### Shared slim mocks
+
+The stubs listed in the tables above are almost all pure linker
+scaffolding (`__CODE_RUN__`, BSS buffers, test entry points) — no
+behavioural substitution for real modules.  One exception is
+sanctioned: **`cse_io_test_stub.s` exposes `kplot_stub`, a short
+functional replacement for KERNAL `$FFF0` (PLOT)** using cse_io's
+own `scr_lo` / `scr_hi` tables.  py65 has no KERNAL ROM, so every
+Tier U bundle that exercises `io_sync` (directly or transitively)
+must supply PLOT from somewhere.  Giving each bundle its own inline
+re-implementation would violate Principle 5 (mock scope) — instead
+all bundles that need PLOT link the shared `cse_io_test_stub.s`
+and patch `$FFF0 → kplot_stub` at setup time.
+
+Policy:
+- Behavioural mocks are *exceptional* and must be *shared* — one
+  implementation in `dev/`, linked into every bundle that needs it.
+- Each behavioural mock is documented here with its justification
+  (why an inline replacement is necessary, what production behaviour
+  it replicates).
+- A mock that drifts from production behaviour is a bug; the
+  `kplot_stub` tracks PLOT's CLC-set / SEC-get contract exactly,
+  using cse_io's production row-address tables so mock/prod
+  divergence is structurally impossible.
+- New mocks require explicit sign-off via DDD Method (contract
+  clause + test policy change).  Not an ad-hoc decision.
 
 #### Leaf module tests
 

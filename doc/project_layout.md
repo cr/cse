@@ -59,6 +59,7 @@ cse/
 │   │   ├── test_dasm.py            dasm.s bundle
 │   │   ├── test_debugger_contracts.py  BP-table CRUD
 │   │   ├── test_expr.py            expr.s (asm_core)
+│   │   ├── test_log.py             log.s bundle (log + screen + cse_io)
 │   │   ├── test_mem.py             mem.s — banking + ZP save/restore
 │   │   ├── test_mn_classify.py     mn_classify + mn6 + mn7 + mn_vars
 │   │   ├── test_opcode_lookup.py   opcode_lookup.s (asm_core)
@@ -68,7 +69,7 @@ cse/
 │   │   ├── test_editor.py        Editor via C64Emu
 │   │   ├── test_kernel_transition.py  Phase-18 kernel↔user
 │   │   ├── test_repl.py          REPL command E2E
-│   │   ├── test_screen.py        screen.s via C64Emu
+│   │   ├── test_screen.py        screen.s via C64Emu (hardware-adjacent)
 │   │   └── test_step_rom.py      Debugger ROM-step fallback
 │   └── retired/            Anti-pattern tests, kept for reference
 │       └── test_editor.py  Python-mirror (superseded by integration)
