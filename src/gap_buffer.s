@@ -433,6 +433,17 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 ; ══════════════════════════════════════════════════════════
 ; ── ed_insert_string — insert PETSCII string at cursor ────────
 ; Input: A/X = text pointer
+;
+; Protects the text pointer across each gb_insert call: gb_insert
+; may trigger gb_ensure_room, which uses save_ptr as scratch during
+; its pre-gap block-copy.  For inputs ≤ 256 bytes the first growth
+; has pre_size = 0 and skips the copy entirely, so save_ptr is
+; untouched — which is why this stack-save dance only matters for
+; > 256-byte strings (the editor's production smart-indent inserts
+; one byte; disk-load goes via load_insert → gb_insert directly
+; and never uses ed_insert_string).  Latent bug exposed by
+; TestGbEnsureRoom::test_growth_preserves_content at the 2026-04-20
+; L3 TDD sweep.
 .proc ed_insert_string
         sta save_ptr            ; reuse save_ptr as text pointer
         stx save_ptr+1
@@ -441,8 +452,17 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         ldy #0
         lda (save_ptr),y
         beq @done               ; NUL terminator
+        tax                     ; byte to insert → X (gb_insert takes A)
+        lda save_ptr+1
+        pha
+        lda save_ptr
+        pha                     ; stash text ptr on stack
+        txa
         jsr gb_insert
-        ; advance pointer
+        pla
+        sta save_ptr
+        pla
+        sta save_ptr+1          ; restore text ptr
         inc save_ptr
         bne @loop
         inc save_ptr+1

@@ -974,6 +974,8 @@ class GapBufferSymbols:
         self.ed_read_byte       = s["ed_read_byte"]
         self.ed_read_line       = s["ed_read_line"]
         self.check_buf_end      = s["check_buf_end"]
+        self.define_ws_syms     = s["define_ws_syms"]
+        self.update_workend     = s["update_workend"]
 
         # BSS owned by gap_buffer.s
         self.ed_total_lines     = s["ed_total_lines"]
@@ -991,6 +993,19 @@ class GapBufferSymbols:
         # Linker-provided workspace bounds
         self.BUF_END   = s["__CODE_RUN__"]
         self.BUF_FLOOR = s["__BUF_FLOOR__"]
+
+        # From symtab.s — needed to verify define_ws_syms /
+        # update_workend registered the workspace symbols correctly.
+        self.sym_lookup = s["sym_lookup"]
+        self.sym_clear  = s["sym_clear"]
+        self.sym_name   = s["sym_name"]
+        self.sym_val    = s["sym_val"]
+        self.sym_wide   = s["sym_wide"]
+
+        # From strings.s — workspace symbol-name pointers used by
+        # define_ws_syms / update_workend.
+        self.s_workstart = s["s_workstart"]
+        self.s_workend   = s["s_workend"]
 
         raw = _GB_BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]

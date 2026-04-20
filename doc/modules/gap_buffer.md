@@ -184,16 +184,36 @@ Linker-provided `__CODE_RUN__` (= BUF_END) and `__BUF_FLOOR__`.
 
 ## Test contract
 
-Currently exercised through `tests/integration/test_editor.py` (C64Emu
-+ full PRG).  `TestGapBufferInsert` and `TestEdReadLine` (including
-the Principle-13 position-pinning tests) cover the module's public
-surface — but via the heavier integration harness.
+Full Tier U coverage via `tests/unit/test_gap_buffer.py` (35 tests):
 
-A queued follow-up migrates the pure-gap-buffer tests to a dedicated
-Tier U bundle (`gap_buffer + zp + strings + symtab + mem +
-gap_buffer_test_stub`) on the same pattern as the breakpoints bundle.
-The existing integration-tier coverage is sufficient for correctness
-— the Tier U bundle is a speed/isolation win, not a coverage gap.
+| Test class | Coverage |
+|---|---|
+| `TestGapBufferInsert` (5) | `ed_insert_string`, `gb_insert`, `ed_total_lines` bump on CR, `ed_dirty` flag. |
+| `TestEdReadLine` (7) | `ed_read_rewind`, `ed_read_byte`, `ed_read_line` + 4 Principle-13 position-pinning cases (exact delta for CR-terminated, empty-line, no-CR-last-line, post-EOF idempotency). |
+| `TestGbBackspace` (5) | `gb_backspace` content shortening, gap_lo decrement (ancillary state), CR-deletion decrements `ed_total_lines`, no-op at buf_base. |
+| `TestGbCursorMove` (6) | `gb_cursor_left` / `gb_cursor_right` content preservation, round-trip, gap_lo/gap_hi co-movement, no-op at buffer ends. |
+| `TestGbHome` (3) | `gb_home` single-line → buf_base, multi-line → just past CR, already-at-start no-op. |
+| `TestGbEnsureRoom` (3) | First insert triggers growth, content preserved across multiple growth rounds, BUF_FLOOR returns C=0. |
+| `TestWorkspaceSymbols` (3) | `define_ws_syms` registers `workstart = $0800`, `workend = buf_base - 1`, and `update_workend` tracks growth. |
+| `TestBufferBoundsState` (3) | `src_top` / `src_bot` BSS state reflects buffer bounds. |
+
+The bundle links `zp + strings + mem + symtab + gap_buffer` — no
+behavioural mocks.  `sym_table` at `$E000` is writable RAM in py65
+so the real symtab code runs.  Linker-provided `__CODE_RUN__=$4000`
+and `__BUF_FLOOR__=$1500` via `ld65 -D` flags.
+
+**Caveat — `save_ptr` / `read_ptr` aliasing.**  The module's ZP
+`save_ptr` is a compile-time alias for `read_ptr`; both
+`ed_insert_string` (input text ptr) and `gb_ensure_room` (source
+pointer for the pre-gap block-copy during growth) use it.
+`ed_insert_string` protects its text ptr by pushing / popping
+around each `gb_insert` call — required for inputs >256 bytes,
+which trigger a growth whose copy clobbers `save_ptr`.
+Latent bug exposed by the `test_growth_preserves_content` test;
+fixed at the 2026-04-20 L3 TDD sweep.  The editor's production
+use of `ed_insert_string` is single-byte smart-indent so this
+path never surfaced before; disk-load goes via `load_insert` →
+`gb_insert` directly without the alias.
 
 ## Design notes
 
