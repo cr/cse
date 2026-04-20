@@ -1443,12 +1443,20 @@ peek_brk_opcode:
         rts
 
 @try_mne:
-        ; Try mnemonic assembly if (rp_ptr) starts with a-z
+        ; Input-shape gate (Escape Analysis 2026-04-20):
+        ;   empty / comment → silent redisplay (@show, valid)
+        ;   a-z letter      → dot_assemble path
+        ;   anything else   → syntax error
+        ; Pre-fix, both "empty" and "other" fell through to @show,
+        ; silently swallowing garbage like `. .`, `. ,`, `. $`.
         jsr skip_peek_ptr1
+        beq @show               ; NUL after skip — bare `.`, redisplay
+        cmp #';'
+        beq @show               ; comment — redisplay
         cmp #'a'
-        bcc @show               ; no mnemonic → just show
+        bcc @syn_err            ; non-letter garbage → syntax error
         cmp #'z'+1
-        bcs @show
+        bcs @syn_err            ; above 'z' → syntax error
         jsr dot_assemble
         cmp #0
         bne @show               ; success → show result

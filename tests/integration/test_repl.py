@@ -846,6 +846,77 @@ class TestDotHexEdit:
         assert cpu.memory[addr] == 0xA9
         assert cpu.memory[addr + 1] == 0x42
 
+    # ── Dot-command input-shape matrix (Escape Analysis 2026-04-20) ──
+    #
+    # `.` command inputs split into three valid shapes plus a
+    # garbage-reject cell:
+    #   empty / comment     → silent redisplay (no assemble, no error)
+    #   hex-pair(s)         → hex poke (test_dot_hex_poke / test_dot_multi_hex)
+    #   letter-start        → mnemonic assemble (test_dot_multi_hex and friends)
+    #   OTHER (non-letter)  → SYNTAX ERROR (was: silent fallthrough)
+    #
+    # Pre-fix bug: inputs like `. .`, `. ,`, `. $`, `. 123` were not
+    # hex (two hex digits) and not letter-start, so the @try_mne gate
+    # in cmd_dot fell through to @show (display-only refresh) without
+    # reporting an error.  User got no feedback.  Contract was silent
+    # on this cell of the input-shape matrix → Principle 11.
+
+    GARBAGE_CASES = [
+        ". .",     # dot after space
+        ". ,",     # comma
+        ". $",     # bare '$'
+        ". 123",   # digits-only (not a valid mnemonic or hex pair)
+        ". ?",     # question mark
+        ". /",     # slash
+    ]
+
+    @pytest.mark.parametrize("cmd", GARBAGE_CASES, ids=GARBAGE_CASES)
+    def test_dot_rejects_non_letter_garbage(self, rsyms, cmd):
+        """`.` must reject non-letter, non-hex input after the command
+        character as a syntax error — not silently redisplay.  Covered
+        contract: doc/modules/repl.md § `.` command input-shape matrix."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x3000)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        # Scan screen for ';?' (log_err prefix: ';' + '?' as screen
+        # codes $3B, $3F).
+        found_error = False
+        for row in range(ROWS):
+            base = SCREEN + row * COLS
+            if cpu.memory[base] == 0x3B and cpu.memory[base + 1] == 0x3F:
+                found_error = True
+                break
+        assert found_error, \
+            f"{cmd!r} silently accepted (no ';?' error row emitted)"
+
+    def test_dot_empty_is_silent_redisplay(self, rsyms):
+        """Bare `.` with nothing after it is silent redisplay (valid,
+        not an error).  Distinguishes this cell from the garbage cell
+        above — the test also pins Principle 11's 'empty' matrix cell."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x3000)
+        set_line_buf(cpu, rsyms, ".")
+        run_at(cpu, rsyms.exec_line)
+        # No ';?' error row should appear.
+        for row in range(ROWS):
+            base = SCREEN + row * COLS
+            assert not (cpu.memory[base] == 0x3B and
+                        cpu.memory[base + 1] == 0x3F), \
+                f"bare '.' produced unexpected error at row {row}"
+
+    def test_dot_comment_is_silent_redisplay(self, rsyms):
+        """`. ; note` is silent redisplay (valid — comment after dot)."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x3000)
+        set_line_buf(cpu, rsyms, ". ; note")
+        run_at(cpu, rsyms.exec_line)
+        for row in range(ROWS):
+            base = SCREEN + row * COLS
+            assert not (cpu.memory[base] == 0x3B and
+                        cpu.memory[base + 1] == 0x3F), \
+                f"'. ; note' produced unexpected error at row {row}"
+
 
 # ── R. Load/Save command tests ─────────────────────────────────────
 #

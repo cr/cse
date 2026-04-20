@@ -357,12 +357,28 @@ tests are written, when they are written, and what they test.
     on asm_cpu=3") still belong in the matrix — marked with a
     vocal skip per Principle 9.
 
-    Cautionary example: same as Principle 10.  Pre-amendment
-    asm_line.md documented "asm_cpu values 0/1/2" and "the CMOS
-    gate rejects non-CMOS" — a one-axis spec for a two-axis
-    problem.  Eleven of twelve cells were unspecified; 22 of them
-    shipped broken for years before the matrix audit surfaced the
-    gap.
+    Cautionary example (asm_cpu gate): same as Principle 10.
+    Pre-amendment asm_line.md documented "asm_cpu values 0/1/2"
+    and "the CMOS gate rejects non-CMOS" — a one-axis spec for a
+    two-axis problem.  Eleven of twelve cells were unspecified;
+    22 of them shipped broken for years before the matrix audit
+    surfaced the gap.
+
+    Cautionary example (dot-command input shapes, Escape Analysis
+    2026-04-20): the REPL `.` command accepts *four* input shapes
+    — empty, hex-pair(s), mnemonic, and an implicit "garbage"
+    fallback.  Pre-amendment repl.md listed only three (empty,
+    hex, mnemonic); the garbage cell was handled by the code's
+    default fallthrough, which silently mapped it to "silent
+    redisplay" instead of the intended "syntax error".  Inputs
+    like `. .`, `. ,`, `. $`, `. 123` produced no emit and no
+    error — the user got zero feedback.  Writing out the full
+    four-cell matrix forces the default-case cell to be a named
+    commitment ("other → SYNTAX ERROR") rather than whatever the
+    code happens to do.  Rule of thumb: every input-classification
+    gate needs an explicit rejection cell — "anything else
+    silently ignored" is never a contract, it's a bug waiting to
+    be found.
 
 12. **Axiomatic modules need no unit tests.**  An **axiomatic module**
     is one that declares only symbol exports — layout slots, RODATA

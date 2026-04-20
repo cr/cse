@@ -354,9 +354,29 @@ The REPL's line editor operates within the 40-column screen:
 
 | Key | Name       | Addressed | Example              | Notes                                        |
 |-----|------------|-----------|-----------------------|----------------------------------------------|
-| `.` | asm/disasm | yes       | `1000:. lda #$00`    | Single instruction; full expressions in operands |
+| `.` | asm/disasm | yes       | `1000:. lda #$00`    | Single instruction; full expressions in operands. See *Input-shape matrix* below. |
 | `d` | disassemble| yes       | `1000:d`              | Disassemble `b` bytes (block mode)           |
 | `a` | assemble   | —         | `a`                   | Assemble source buffer (two-pass)            |
+
+#### `.` command input-shape matrix
+
+The dot command has three valid input shapes plus an explicit
+rejection cell.  Testing matrix:
+`tests/integration/test_repl.py::TestDotHexEdit`.
+
+| After the `.` (+ whitespace) | Behaviour | Example |
+|---|---|---|
+| Nothing (`NUL`) | Silent redisplay of current line | `.` |
+| `';'` comment | Silent redisplay | `. ; note` |
+| Two hex digits + space/NUL (1–3 pairs) | Hex-byte poke at `cur_addr` | `. a9 42` |
+| Letter `a`–`z` (mnemonic start) | Mnemonic assemble via `dot_assemble` | `. lda #$00` |
+| **Anything else** | **Syntax error** (`;?syntax`) | `. .`, `. ,`, `. $`, `. 123` |
+
+Pre-fix (Escape Analysis 2026-04-20), the "anything else" cell
+silently fell through to the redisplay path — `. .` emitted nothing
+and produced no error.  The `@try_mne` gate in `cmd_dot` now
+distinguishes "nothing after `.`" (valid silent redisplay) from
+"non-letter garbage" (syntax error).
 
 ### Commands — Execution
 
