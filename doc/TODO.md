@@ -1,5 +1,61 @@
 # CSE — TODO
 
+## Corpus status at 2026-04-20 handover
+
+**Full TDD compliance across L0–L5.**  3042 tests passing, 18 vocal
+skips, 0 failures.  Every behavioural module's documented contract
+is exercised at its prescribed tier:
+
+- **L0** (zp, strings, *_tables, mn_config, oplen_tbl, mn_vars):
+  axiomatic per testing.md § Principle 12 — no unit tests, covered
+  transitively by every bundled test that links them.
+- **L1–L3** (15 modules): every export covered at Tier U.  Includes
+  the two new L3 extractions from this session: `breakpoints.s`
+  (bundle-tested at L3, was formerly debugger-internal) and
+  `gap_buffer.s` (bundle-tested at L3, was formerly editor-internal).
+- **L4** (asm_src, editor, disk, debugger): every export covered at
+  its correct tier — `asm_src` at U via the asm_core bundle, the
+  other three at I via C64Emu.
+- **L5** (main, repl): comprehensive C64Emu command-loop coverage at I.
+- **L6** (loader): implicit via every integration test's load path,
+  acceptable per testing.md's Tier I definition.
+
+**Process ratchets added this session** (DDD System amendments):
+
+- testing.md Principle 10: test bundles mirror production build configs.
+- testing.md Principle 11: contract matrices drive test matrices.
+- testing.md Principle 12: axiomatic modules need no unit tests.
+- testing.md Principle 13: partial-result contracts need position-
+  pinning tests (direct or transitive via hot-loop composition).
+- README.md § Escape Analysis step 5: two-axis sweep — class-wide
+  AND cross-module handoff — on every escape.
+- README.md § TDD Maintenance item 11: periodic audit of Principle 13
+  compliance + dead-code-sweep gotcha (grep direct calls + `.import`
+  references + test-harness lookups before retiring).
+- Glossary: solitary / sociable / bundled unit testing, axiomatic
+  module / behavioural module, partial-mode function.
+
+**Escape Analyses resolved this session** (5 total): asm_cpu gate on
+6510 build, `? 1x` trailing garbage, `. .` silent BRK, log enter-
+anywhere under-testing, prompt-row overwrite from the log contract's
+cross-module handoff regression.  Class closure applied for the `?`
+garbage-trailing pattern across `@` / `B` / `C` / `j` via the shared
+`_require_eoi_or_err` helper.  Plus a latent `ed_insert_string`
+save_ptr clobber caught by the L3 TDD sweep.
+
+**Structural refactors** (two module extractions): `breakpoints.s`
+split from debugger.s, `gap_buffer.s` split from editor.s.  Both
+were pure re-layering — zero behavioural change — to convert the
+tier boundary from a disciplined convention into a compile-time fact
+enforced by the linker.  L3 grew from 5 to 7 modules as a result.
+
+**Remaining open (not blocking):** one TDD follow-up —
+class-wide trailing-garbage closure for `+` / `-` — deferred because
+their `expr_or_blocksize` fallback creates a double-error-on-undef
+risk that needs a design pass.  See the Escape Analysis follow-up
+entry below.  Everything else in this file is feature work, not
+TDD.
+
 ## Bugs
 
 Open bugs, roughly ordered by priority.
