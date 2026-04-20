@@ -35,7 +35,7 @@ Contract user code may rely on / must preserve:
 ├─────────────────────────────────────────────────────────────────────┤
 │ L4  asm_src, editor, disk, debugger                                 │  application subsystems
 ├─────────────────────────────────────────────────────────────────────┤
-│ L3  asm_line, addr_mode, opcode_lookup, expr, dasm                  │  core engines
+│ L3  asm_line, addr_mode, opcode_lookup, expr, dasm, breakpoints     │  core engines
 ├─────────────────────────────────────────────────────────────────────┤
 │ L2  screen, symtab, log, asm_err                                    │  structured services
 ├─────────────────────────────────────────────────────────────────────┤
@@ -83,8 +83,9 @@ SP, and the user must leave a documented headroom for kernel re-entry
 | asm_src.s | 4 | Two-pass source assembler | [asm_src.md](modules/asm_src.md) |
 | editor.s | 4 | Gap-buffer source editor, sequential reader, workend update | [editor.md](modules/editor.md) |
 | disk.s | 4 | CBM file I/O via kernal (PRG and SEQ, callback-based) | [disk.md](modules/disk.md) |
-| debugger.s | 4 | BRK-based breakpoints, single-step, return_to_userland helper, brk_stub | [debugger.md](modules/debugger.md) |
+| debugger.s | 4 | Step state machine, return_to_userland helper, brk_stub, dbg_init | [debugger.md](modules/debugger.md) |
 | asm_line.s | 3 | Single-line instruction assembler (PETSCII input) | [asm_line.md](modules/asm_line.md) |
+| breakpoints.s | 3 | Breakpoint-table CRUD + patch/unpatch (bundle-testable) | [breakpoints.md](modules/breakpoints.md) |
 | addr_mode.s | 3 | Addressing-mode and operand parser | [addr_mode.md](modules/addr_mode.md) |
 | opcode_lookup.s | 3 | (profile, mode) → opcode byte | [opcode_lookup.md](modules/opcode_lookup.md) |
 | expr.s | 3 | Recursive-descent expression parser | [expr.md](modules/expr.md) |
@@ -129,8 +130,9 @@ range formatters, and the shared scratch pool (`rp_addr`/`rp_cnt`/
 semantic homes (zp.s or log.s) and the dispatcher modules no longer
 export state that lower layers reach up for.
 | disk | screen, log, cse_io, strings, zp |
-| debugger | asm_line, mem, oplen_tbl, zp |
+| debugger | breakpoints, oplen_tbl, mem, zp |
 | asm_line | addr_mode, opcode_lookup, mn_classify, asm_err, mem, zp |
+| breakpoints | zp |
 | addr_mode | expr, asm_err, zp |
 | opcode_lookup | mn_asm_tables, mn_modes, asm_err, zp |
 | expr | symtab, strings, mem, zp |

@@ -1,25 +1,26 @@
 """
-test_debugger_contracts.py — debugger.s BP-table contract tests (Tier U)
+test_breakpoints.py — breakpoints.s BP-table contract tests (Tier U)
 
-Covers the pure-data-structure surface of debugger.s:
-  * dbg_init     — bp_table + debug-state zero sweep, $FF seeds
-  * bp_set       — find empty slot, install (addr, saved, flags)
-  * bp_del       — slot-number delete
-  * bp_clear     — wipe all slots
-  * bp_count     — count non-empty slots
+Covers the pure-data-structure surface of breakpoints.s (L3):
+  * bp_init      — bp_table + dbg_bp_hit zero sweep; dbg_bp_hit = $FF
+  * dbg_bp_set   — find empty slot, install (addr, saved, flags)
+  * dbg_bp_del   — slot-number delete
+  * dbg_bp_clear — wipe all user slots (0–7)
+  * dbg_bp_count — count non-empty slots
   * patch_all    — write $00 at every armed BP addr, save original byte
   * unpatch_all  — restore saved bytes (reverse order for overlap safety)
-  * bp_find      — address → slot lookup
+  * dbg_bp_find  — address → slot lookup
+  * dbg_step_clear — zero step slots (8–9)
 
-Tests that exercise the step/BRK/NMI state machine live in
-tests/integration/test_kernel_transition.py (kernel↔user transitions,
-step chains, warmstart gates) and tests/integration/test_step_rom.py
-(step-into-ROM fallback).  Those require real KERNAL vectors + ZP
-save/restore buffers + interrupt dispatch — Tier I via C64Emu.
+Renamed from test_debugger_contracts.py at the 2026-04-20 debugger
+split: breakpoint-table CRUD moved to its own L3 module
+(breakpoints.s); this test file follows the module.  The step/BRK
+state machine still lives in debugger.s (L4) and is covered at
+integration tier by test_kernel_transition.py / test_step_rom.py.
 
-Test binary: debugger.s + debugger_test_stub.s (linker scaffolding
-+ reg_* shadows + stubbed ZP save/restore helpers).
-Protocol: write command byte + args at $0B00, JSR dbg_test_entry.
+Test binary: breakpoints.s + zp.s + breakpoints_test_stub.s (linker
+scaffolding only — no behavioural mocks).
+Protocol: write command byte + args at $0B00, JSR bp_test_entry.
 """
 
 import subprocess, pathlib, pytest
@@ -31,9 +32,9 @@ BUILD = ROOT / "build"
 SRC   = ROOT / "src"
 DEV   = ROOT / "dev"
 
-BIN = BUILD / "debugger_test.bin"
-MAP = BUILD / "debugger_test.map"
-LBL = BUILD / "debugger_test.lbl"
+BIN = BUILD / "breakpoints_test.bin"
+MAP = BUILD / "breakpoints_test.map"
+LBL = BUILD / "breakpoints_test.lbl"
 
 _ZP_START   = 0x0000
 _CODE_START = 0x4000
@@ -51,8 +52,8 @@ BP_SIZE  = 4
 
 # ── Build ────────────────────────────────────────────────────
 
-_SOURCES = [SRC / "zp.s", SRC / "debugger.s", SRC / "oplen_tbl.s",
-            DEV / "debugger_test_stub.s"]
+_SOURCES = [SRC / "zp.s", SRC / "breakpoints.s",
+            DEV / "breakpoints_test_stub.s"]
 
 def _needs_rebuild():
     if not BIN.exists() or not LBL.exists(): return True
@@ -63,7 +64,7 @@ def _build():
     BUILD.mkdir(exist_ok=True)
     objs = []
     for src in _SOURCES:
-        obj = BUILD / f"{src.stem}_dbg.o"
+        obj = BUILD / f"{src.stem}_bp.o"
         subprocess.run(["ca65", "-g", "--cpu", "6502",
                         str(src), "-o", str(obj)], check=True)
         objs.append(str(obj))
@@ -75,20 +76,17 @@ def _build():
 
 # ── Fixture ──────────────────────────────────────────────────
 
-class DbgSymbols:
+class BpSymbols:
     def __init__(self):
         if _needs_rebuild():
             _build()
         s = SymbolTable(LBL)
 
-        self.entry       = s["dbg_test_entry"]
+        self.entry       = s["bp_test_entry"]
 
-        # BSS symbols — previously required hardcoded offset dict
+        # BSS symbols
         self.bp_table    = s["bp_table"]
         self.step_bp     = s["step_bp"]
-        self.in_userland = s["in_userland"]
-        self.dbg_reason  = s["dbg_reason"]
-        self.brk_pc      = s["brk_pc"]
         self.dbg_bp_hit  = s["dbg_bp_hit"]
         raw = BIN.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
@@ -101,7 +99,7 @@ class DbgSymbols:
 
 @pytest.fixture(scope="session")
 def dbg_syms():
-    return DbgSymbols()
+    return BpSymbols()
 
 
 # ── Helpers ──────────────────────────────────────────────────
@@ -172,22 +170,29 @@ def read_bp_slot(mpu, syms, slot):
 
 # ── Tests ────────────────────────────────────────────────────
 
-class TestDbgInit:
+class TestBpInit:
+    """bp_init zeroes the bp_table (40 bytes) and sets dbg_bp_hit = $FF.
+
+    Scope narrowed after the 2026-04-20 debugger split: the larger
+    dbg_init (which also zeros the step-state block and seeds CPU-port
+    bytes in the ZP save buffers) lives in debugger.s (L4) and is
+    covered at integration tier by test_kernel_transition.py.  bp_init
+    is the L3 contract — pure table zeroing, nothing else.
+    """
+
     def test_init_clears_table(self, dbg_syms):
         mpu = make_cpu(dbg_syms)
-        # Dirty the table first
-        for i in range(BP_SLOTS * BP_SIZE):
+        # Dirty all 10 slots (including step slots 8–9).
+        for i in range(10 * BP_SIZE):
             mpu.memory[dbg_syms.bp_table + i] = 0xFF
-        mpu.memory[dbg_syms.dbg_reason] = 0x03
+        # Dirty dbg_bp_hit too so we can observe the $FF seed.
+        mpu.memory[dbg_syms.dbg_bp_hit] = 0x07
         cmd_init(mpu, dbg_syms)
-        # All slots zero
-        for i in range(BP_SLOTS * BP_SIZE):
-            assert mpu.memory[dbg_syms.bp_table + i] == 0
-        # in_userland is owned by main.s in production (Phase 18); the
-        # stub defines it for linkage but dbg_init does not touch it.
-        assert mpu.memory[dbg_syms.dbg_reason] == 0
-        assert mpu.memory[dbg_syms.brk_pc] == 0
-        assert mpu.memory[dbg_syms.brk_pc + 1] == 0
+        # All 10 slots zero.
+        for i in range(10 * BP_SIZE):
+            assert mpu.memory[dbg_syms.bp_table + i] == 0, \
+                f"bp_table[{i}] not zeroed"
+        # dbg_bp_hit = $FF (no hit yet).
         assert mpu.memory[dbg_syms.dbg_bp_hit] == 0xFF
 
 

@@ -25,7 +25,8 @@ cse/
 │   ├── screen.s            Screen management, scroll, cursor
 │   ├── cse_io.s            Raw screen I/O (putc, puts, hex/dec)
 │   ├── disk.s              CBM file I/O (load, save, directory)
-│   ├── debugger.s          Breakpoint handler, step, register display
+│   ├── breakpoints.s       BP-table CRUD + patch/unpatch (L3, bundle-testable)
+│   ├── debugger.s          Step state machine, return_to_userland, brk_stub (L4)
 │   ├── loader.s            Discardable bootstrap (PRG → runtime relocation)
 │   ├── mem.s               Memory manager (banking, segment queries, workspace)
 │   ├── mn*_tables.s        ┐
@@ -57,7 +58,7 @@ cse/
 │   │   ├── test_asm_src.py         asm_src.s + asm_core
 │   │   ├── test_cse_io.py          cse_io.s leaf
 │   │   ├── test_dasm.py            dasm.s bundle
-│   │   ├── test_debugger_contracts.py  BP-table CRUD
+│   │   ├── test_breakpoints.py     breakpoints.s BP-table CRUD (L3)
 │   │   ├── test_expr.py            expr.s (asm_core)
 │   │   ├── test_log.py             log.s bundle (log + screen + cse_io)
 │   │   ├── test_mem.py             mem.s — banking + ZP save/restore

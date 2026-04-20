@@ -1,15 +1,22 @@
-; debugger_test_stub.s — Test harness stub for debugger.s
+; breakpoints_test_stub.s — Test harness stub for breakpoints.s (L3)
 ;
 ; Protocol: Python writes a command byte + arguments to fixed addresses,
-; then JSRs to dbg_test_entry.  The stub dispatches based on the command.
+; then JSRs to bp_test_entry.  The stub dispatches based on the command.
 ;
-; Scope (post-Phase-18): breakpoint-table CRUD only.  The old @enter
-; command (dbg_enter / two-image swap) is gone; kernel-transition
-; behaviour is covered by test_kernel_transition.py using C64Emu +
-; full PRG instead.
+; Scope: breakpoint-table CRUD only.  The L3 breakpoints.s module is
+; pure data-structure manipulation — no KERNAL, no vectors, no
+; userland transitions.  Kernel-transition behaviour lives in
+; debugger.s (L4) and is covered by test_kernel_transition.py using
+; C64Emu + full PRG.
+;
+; Renamed from debugger_test_stub.s at the 2026-04-20 debugger split
+; (structural refactor that extracted breakpoint-table CRUD into its
+; own L3 module).  The bundle now links breakpoints.s + zp.s only —
+; no reg_*/kernel_zp_buf/kernal_bank_out stubs needed because
+; breakpoints.s doesn't reference those symbols.
 ;
 ; Commands (at $0B00):
-;   $00 = dbg_init
+;   $00 = bp_init
 ;   $01 = bp_set:   addr at $0B01/$0B02 (lo/hi)
 ;   $02 = bp_del:   slot# at $0B01
 ;   $03 = bp_clear
@@ -21,36 +28,15 @@
 ; Result: A on return; $0B03 = flags (bit 0 = carry)
 ;         $0B04 = result value (slot#, count, etc.)
 
-        .export dbg_test_entry
+        .export bp_test_entry
 
-        .import dbg_init
+        .import bp_init
         .import dbg_bp_set, dbg_bp_del, dbg_bp_clear
         .import dbg_bp_count
         .import patch_all, unpatch_all
         .import dbg_bp_find
         .import bp_table, step_bp
-        .import brk_pc, dbg_bp_hit
-        .importzp dbg_reason, in_userland     ; zp.s (Phase 21 Move 4)
-
-        .export reg_a, reg_x, reg_y, reg_sp, reg_p
-        .export kernel_zp_buf, userland_zp_buf
-        .export kernal_bank_out, kernal_bank_in
-        .export save_userland_zp, restore_userland_zp
-        .export save_kernel_zp, restore_kernel_zp
-        ; in_userland now lives in zp.s (Phase 21 Move 4); this stub
-        ; no longer defines it.  kernel_zp_buf / userland_zp_buf /
-        ; save/restore helpers remain local stubs because mem.s is
-        ; not linked into the debugger test bundle.
-
-.segment "BSS"
-reg_a:         .res 1
-reg_x:         .res 1
-reg_y:         .res 1
-reg_sp:        .res 1
-reg_p:         .res 1
-kernel_zp_buf:   .res 128        ; ZP save buffer ($00..$7F inclusive,
-                                 ;  matches debugger.s::ZP_SAVE_LEN)
-userland_zp_buf:   .res 128        ; user ZP snapshot (same size)
+        .import dbg_bp_hit
 
 .segment "CODE"
 
@@ -61,7 +47,7 @@ RFLAGS  = $0B03
 RVAL    = $0B04
 
 ; ── Entry point MUST be first in this module's CODE ──
-.proc dbg_test_entry
+.proc bp_test_entry
         lda CMD
         beq @init
         cmp #$01
@@ -80,7 +66,7 @@ RVAL    = $0B04
         beq @find
         rts                     ; unknown command
 
-@init:  jmp dbg_init
+@init:  jmp bp_init
 
 @set:   lda ARG1                ; addr lo
         ldx ARG2                ; addr hi
@@ -132,16 +118,3 @@ RVAL    = $0B04
         sta RFLAGS
         rts
 .endproc
-
-; Stubs for KERNAL banking (no-ops in test environment)
-kernal_bank_out:
-kernal_bank_in:
-        rts
-
-; Stubs for the four ZP save/restore primitives (no-ops — the
-; bp-table CRUD tests never exercise userland transitions).
-save_userland_zp:
-restore_userland_zp:
-save_kernel_zp:
-restore_kernel_zp:
-        rts

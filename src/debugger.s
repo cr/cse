@@ -1,11 +1,10 @@
-; debugger.s — Breakpoints, tracing, and kernel↔userland gates
+; debugger.s — Step state machine + kernel↔userland gates (L4)
 ;                (Phase 18 — ISR-kernel model)
 ;
 ; Owns:
-;   * `bp_table`: unified 10-slot breakpoint table.
-;     Slots 0–7: user-visible breakpoints (managed by `b` command).
-;     Slots 8–9: ad-hoc step BRKs (alias `step_bp`).  patch_all /
-;                unpatch_all iterate all 10 slots.
+;   * Step state machine: `step_state`, `step_remaining`, `step_next_*`,
+;     step_save, step_next_pc, arm_step_bp.
+;   * `brk_pc`: the PC where the last break occurred (resume address).
 ;   * `save_userland_state` / `restore_userland_state`: the two
 ;     complementary gate primitives for kernel↔userland transitions.
 ;   * `return_to_userland`: wrapper that pushes a fresh brk_stub sentinel
@@ -13,8 +12,16 @@
 ;     execution starts (`j`, cold-init handoff).  Resumes (`c`, `t`,
 ;     `o`, handler chain) call `restore_userland_state` directly —
 ;     the existing sentinel from the prior fresh start is still valid.
-;   * `step_next_pc` / `arm_step_bp`: step-chain helpers shared
-;     between cmd_step (seed) and cse_brk_handler (chain).
+;   * `dbg_init`: cold-init entry point.  Delegates bp-table zeroing
+;     to bp_init (breakpoints.s, L3), then zeros the step-state block
+;     here, the reg_* shadows, dbg_reason, and seeds the CPU-port
+;     bytes in the ZP save buffers.
+;
+; Breakpoint-table CRUD + patching lives in breakpoints.s (L3) — a
+; clean data-structure module that bundle-tests in isolation without
+; needing any of the BRK/NMI/userland-transition machinery here.
+; This module (L4) imports from breakpoints.s the entry points and
+; BSS symbols it actually references.
 ;
 ; BRK/NMI dispatch itself (`cse_brk_handler`, `cse_nmi_handler`)
 ; lives in main.s; those handlers call `save_userland_state` after
@@ -22,21 +29,14 @@
 ; `handler_finalize` (longjmp to main_loop_top).
 ;
 ; References: doc/design_cse_as_kernel.md, doc/userland_contract.md,
-;             doc/modules/debugger.md, doc/memory_design.md § Stack
-;             contract.
+;             doc/modules/debugger.md, doc/modules/breakpoints.md,
+;             doc/memory_design.md § Stack contract.
 
         .setcpu "6502"
         .macpack longbranch
 
         .export dbg_init
-        .export dbg_bp_set, dbg_bp_del, dbg_bp_clear
-        .export dbg_bp_count
-        .export dbg_bp_find
-        .export bp_table, step_bp
-        .export brk_pc, dbg_bp_hit
-        .export dbg_step_clear
-        .export patch_all, unpatch_all
-
+        .export brk_pc
         .export save_userland_state, restore_userland_state
         .export return_to_userland
         .export brk_stub
@@ -57,19 +57,14 @@
         .import save_userland_zp, restore_userland_zp
         .import save_kernel_zp, restore_kernel_zp
 
+        ; From breakpoints.s (L3, strictly-downward):
+        .import bp_init
+        .import patch_all
+        .import step_bp
+        .import dbg_step_clear
+
 ; Reason codes (DBG_NONE/DBG_BRK/DBG_NMI) are declared in main.s
 ; where cse_brk_handler / cse_nmi_handler actually assign dbg_reason.
-
-BP_SLOTS    = 8
-STEP_SLOTS  = 2
-SLOT_SIZE   = 4
-TOTAL_SLOTS = BP_SLOTS + STEP_SLOTS     ; 10
-; Size of the BSS window that dbg_init zeros in one sweep: the
-; 40-byte bp_table plus the 11 bytes of adjacent debug state
-; (brk_pc, dbg_bp_hit, step_state, step_remaining,
-;  step_next_lo, step_next_hi, step_save, _rtu_need_sentinel).
-; dbg_reason (in zp.s) is zeroed separately in dbg_init.
-DBG_STATE_SIZE = TOTAL_SLOTS * SLOT_SIZE + 11
 
 ; Step mode (stored in step_state)
 STEP_NONE = 0
@@ -81,20 +76,17 @@ STEP_OVER = 2
 ; tightens the contract post-audit.
 kernel_stack_budget = 64
 
+; Size of the step-state BSS window zeroed by dbg_init (10 bytes:
+; brk_pc, step_state, step_remaining, step_next_lo, step_next_hi,
+; step_save, _rtu_need_sentinel — declared contiguously below).
+STEP_STATE_SIZE = 10
+
 ; ── BSS ────────────────────────────────────────────────────────────────
 .segment "BSS"
 
-; Unified breakpoint table — 10 slots × 4 bytes = 40 bytes.
-; patch_all / unpatch_all iterate all 10 in one loop.
-; bp_set / bp_del / bp_clear / bp_count / bp_find address slots 0–7.
-bp_table:      .res (BP_SLOTS + STEP_SLOTS) * SLOT_SIZE
-
-; `step_bp` = slots 8–9 of bp_table; addressed directly by cmd_step
-; and the handler chain logic (not by the `b` command).
-step_bp       = bp_table + BP_SLOTS * SLOT_SIZE
-
+; Ten bytes, declared contiguously so dbg_init can zero them in one
+; sweep (brk_pc..._rtu_need_sentinel, total 10 bytes = STEP_STATE_SIZE).
 brk_pc:        .res 2          ; PC where break occurred / resume address
-dbg_bp_hit:    .res 1          ; slot# of breakpoint hit ($FF = none)
 
 ; Handler-resident step-chain state.
 step_state:    .res 1          ; STEP_NONE / STEP_INTO / STEP_OVER
@@ -113,16 +105,22 @@ _rtu_need_sentinel: .res 1
 .segment "CODE"
 
 ; ── dbg_init ──────────────────────────────────────────────────────────
-; Zero breakpoint + step tables and all debugger state.
+; Cold-init entry point.  Zero bp table (via bp_init in breakpoints.s),
+; zero the step-state block here, zero reg_* shadows + dbg_reason, set
+; reg_sp = $FF, seed CPU-port bytes in both ZP backup buffers.
 ; Clobbers: A, X.
 ;
 dbg_init:
-        ; Zero the 40 bp/step slots + 11 adjacent bytes of debug state
-        ; in one sweep, then fix up the $FF bytes and zero the reg_*
-        ; shadows (in asm_line.s) and dbg_reason (in zp.s).
-        ldx #DBG_STATE_SIZE - 1
-        jsr clear_bp_x
-        ; A = 0 from clear_bp_x
+        ; Zero bp_table + set dbg_bp_hit = $FF (breakpoints.s, L3).
+        jsr bp_init
+
+        ; Zero the 10-byte step-state block in one sweep.
+        ldx #STEP_STATE_SIZE - 1
+        lda #0
+@z:     sta brk_pc,x
+        dex
+        bpl @z
+        ; A = 0
         sta reg_a
         sta reg_x
         sta reg_y
@@ -130,7 +128,6 @@ dbg_init:
         sta dbg_reason
         lda #$FF
         sta reg_sp              ; user's stack begins empty
-        sta dbg_bp_hit
 
         ; Bootstrap seed for the CPU-port bytes in both ZP backup
         ; buffers.  See the "CPU-port aware ZP save/restore" note
@@ -159,198 +156,6 @@ dbg_init:
         lda #$36
         sta userland_zp_buf + $01
         sta kernel_zp_buf + $01
-        rts
-
-; ── dbg_bp_set ────────────────────────────────────────────────────────
-; Set a breakpoint at the given address (user-visible slots 0–7).
-; In:  A = addr lo, X = addr hi
-; Out: C=0 success, A = slot number (0–7); C=1 table full (A=$FF).
-; Clobbers: A, X, Y.
-;
-dbg_bp_set:
-        sta rp_ptr
-        stx rp_ptr+1
-
-        ldy #0
-        ldx #0
-@find:  lda bp_table,x
-        ora bp_table+1,x
-        beq @found
-        inx
-        inx
-        inx
-        inx
-        iny
-        cpy #BP_SLOTS
-        bne @find
-
-        lda #$FF
-        sec
-        rts
-
-@found: lda rp_ptr
-        sta bp_table,x
-        lda rp_ptr+1
-        sta bp_table+1,x
-        lda #0
-        sta bp_table+2,x
-        lda #1
-        sta bp_table+3,x
-        tya
-        clc
-        rts
-
-; ── dbg_bp_del ────────────────────────────────────────────────────────
-; Delete a breakpoint by slot number.
-; In:  A = slot number (0–7)
-; Out: C=0 success, C=1 invalid slot.
-;
-dbg_bp_del:
-        cmp #BP_SLOTS
-        bcs @bad
-        asl
-        asl
-        tax
-        lda #0
-        sta bp_table,x
-        sta bp_table+1,x
-        sta bp_table+2,x
-        sta bp_table+3,x
-        clc
-        rts
-@bad:   lda #$FF
-        sec
-        rts
-
-; ── dbg_bp_clear ──────────────────────────────────────────────────────
-; Delete all user-visible breakpoints (slots 0–7).  Step slots untouched.
-;
-dbg_bp_clear:
-        ldx #BP_SLOTS * SLOT_SIZE - 1
-        ; fall through
-
-; ── clear_bp_x — zero bp_table[0..X] ─────────────────────
-clear_bp_x:
-        lda #0
-@z:     sta bp_table,x
-        dex
-        bpl @z
-        rts
-
-; ── dbg_bp_count ──────────────────────────────────────────────────────
-; Count non-empty user-visible slots.
-; Out: A = count (0–8).
-;
-dbg_bp_count:
-        lda #0
-        ldy #0
-@cnt:   ldx bp_table,y
-        bne @hit
-        ldx bp_table+1,y
-        beq @skip
-@hit:   clc
-        adc #1
-@skip:  iny
-        iny
-        iny
-        iny
-        cpy #BP_SLOTS * SLOT_SIZE
-        bne @cnt
-        rts
-
-; ── dbg_bp_find ───────────────────────────────────────────────────────
-; Search user-visible slots 0–7 for a matching address.
-; In:  A = addr lo, X = addr hi
-; Out: C=0 found (A = slot 0–7); C=1 not found (A=$FF).
-;
-dbg_bp_find:
-        sta rp_ptr
-        stx rp_ptr+1
-        ldy #0
-        ldx #0
-@loop:  lda bp_table,x
-        cmp rp_ptr
-        bne @next
-        lda bp_table+1,x
-        cmp rp_ptr+1
-        bne @next
-        tya
-        clc
-        rts
-@next:  inx
-        inx
-        inx
-        inx
-        iny
-        cpy #BP_SLOTS
-        bne @loop
-        lda #$FF
-        sec
-        rts
-
-; ── patch_all ──────────────────────────────────────────────────────────
-; Patch every enabled slot (bp + step): save original byte, write $00.
-; Forward order: bp first, step last (so if a step slot overlaps a bp,
-; unpatch's reverse order restores correctly).
-; Clobbers: A, X, Y, rp_ptr.
-;
-patch_all:
-        ldx #0
-        ldy #0
-@loop:  lda bp_table,x
-        ora bp_table+1,x
-        beq @next               ; empty slot
-        lda bp_table+3,x
-        beq @next               ; disabled
-        lda bp_table,x
-        sta rp_ptr
-        lda bp_table+1,x
-        sta rp_ptr+1
-        lda (rp_ptr),y
-        sta bp_table+2,x
-        lda #$00
-        sta (rp_ptr),y
-@next:  inx
-        inx
-        inx
-        inx
-        cpx #(BP_SLOTS + STEP_SLOTS) * SLOT_SIZE
-        bne @loop
-        rts
-
-; ── unpatch_all ────────────────────────────────────────────────────────
-; Restore every patched slot: write saved byte back.  Reverse order.
-;
-unpatch_all:
-        ldx #(BP_SLOTS + STEP_SLOTS - 1) * SLOT_SIZE    ; last slot offset
-        ldy #0
-@loop:  lda bp_table,x
-        ora bp_table+1,x
-        beq @next
-        lda bp_table+3,x
-        beq @next
-        lda bp_table,x
-        sta rp_ptr
-        lda bp_table+1,x
-        sta rp_ptr+1
-        lda bp_table+2,x
-        sta (rp_ptr),y
-@next:  dex
-        dex
-        dex
-        dex
-        bpl @loop
-        rts
-
-; ── dbg_step_clear ────────────────────────────────────────────────────
-; Zero both step slots (last 8 bytes of bp_table).
-;
-dbg_step_clear:
-        lda #0
-        ldx #STEP_SLOTS * SLOT_SIZE - 1
-@z:     sta step_bp,x
-        dex
-        bpl @z
         rts
 
 ; ═══════════════════════════════════════════════════════════════════════

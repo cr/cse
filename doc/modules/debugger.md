@@ -1,4 +1,4 @@
-# debugger — Breakpoints, Tracing, and Execution Control
+# debugger — Step State Machine + Kernel↔Userland Gates (L4)
 
 **Template:** [module](../templates/module.md)
 
@@ -6,14 +6,26 @@
 
 | File | Role |
 |------|------|
-| [`src/debugger.s`](../../src/debugger.s) | implementation: return_to_userland, brk_stub, breakpoint table, step logic |
-| [`tests/unit/test_debugger_contracts.py`](../../tests/unit/test_debugger_contracts.py) | test contract |
+| [`src/debugger.s`](../../src/debugger.s) | implementation: step state, `dbg_init`, `save/restore_userland_state`, `return_to_userland`, `brk_stub` |
+| [`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py) | tier-I tests: kernel↔user transitions, step chains |
+| [`tests/integration/test_step_rom.py`](../../tests/integration/test_step_rom.py) | tier-I tests: step-into-ROM fallback |
 
 The debugger is the kernel's **userland gateway**.  It owns the
 `return_to_userland` helper (the one place that synthesizes RTI frames
 into user code) and the `brk_stub` (the fixed code address user's
 top-level RTS lands at).  All BRK/NMI dispatch is owned by main.s
 and lives in `cse_brk_handler` / `cse_nmi_handler`.
+
+**Split (2026-04-20 structural refactor).**  Breakpoint-table CRUD
+and patching live in [breakpoints.md](breakpoints.md) at L3 — a
+pure data-structure module that bundle-tests in isolation.  This
+module (debugger.s, L4) keeps everything that genuinely requires
+the CPU interrupt protocol + KERNAL vectors: the step state
+machine, `save/restore_userland_state` primitives, `return_to_userland`
+wrapper, `brk_stub`, and `dbg_init`.  The split makes the tier
+boundary compile-time-enforced (L4 `debugger.s` imports from L3
+`breakpoints.s`, never the reverse) rather than a disciplined
+convention.
 
 For the design framing (CSE as kernel, kernel↔user transitions via
 RTI/BRK) see [design_cse_as_kernel.md](../design_cse_as_kernel.md)
