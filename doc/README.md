@@ -219,6 +219,18 @@ principle-relevant.
     integration tier).  Expired preambles are refreshed or closed
     during the audit.
 
+11. **Partial-result contracts have position-pinning tests** —
+    per [testing.md § Principle 13](testing.md).  For every
+    module, inventory the functions whose success value depends
+    on ancillary state (input-pointer position, counters, residual
+    markers) in addition to their return code: parsers, tokenizers,
+    stream consumers, partial readers, bulk operations with
+    progress counters.  Each must have a test class (or equivalent
+    section) that parametrises representative inputs and asserts
+    the ancillary state, not just `(rc, value)`.  A partial-result
+    function with no position-pinning witness is a findings entry —
+    either add the tests inline or flag as a coverage gap.
+
 **Output:** a TDD Maintenance Report listing findings by category.
 Mechanical corrections (rename test file, retire duplicate, move
 misplaced test class to its module's file, update stale stub
@@ -292,14 +304,32 @@ harness bugs, and doc-code fidelity gaps.
      instance.  Reference the specific escape in the new principle
      so future readers see the evidence that produced it.
 
-5. **Commit all amendments together.**  A single commit contains:
+5. **Sweep the corpus for the class.**  The "same class of bug
+   cannot escape twice" guarantee is only real if the class is
+   actively hunted, not just the instance.  After the fix is
+   drafted and the principle amended, ask: *what other code in the
+   corpus fits this class?*  For a trailing-garbage bug in one
+   REPL command, probe the other commands.  For an ifdef-gated
+   reject path that was invisible, scan every `.ifdef` in the
+   module.  For a partial-result contract without position-pinning
+   tests, inventory every partial-result function.  Two outcomes:
+   - **Mechanical sibling fixes** land in the same commit as the
+     original escape.
+   - **Non-mechanical siblings** (different shapes, different
+     owners, or enough scope that they need their own DDD pass)
+     become explicit `doc/TODO.md` entries naming the class and
+     cross-referencing the principle.  Flagged, not forgotten.
+
+6. **Commit all amendments together.**  A single commit contains:
    the bug fix, the new test that would have caught it, the
-   contract amendment, and any testing.md principle amendment.
-   The commit message names Escape Analysis explicitly so the log
-   preserves the chain of reasoning.
+   contract amendment, any testing.md principle amendment, the
+   sweep findings (inline fixes or queued TODOs), and a commit
+   message naming Escape Analysis explicitly so the log preserves
+   the chain of reasoning.
 
 **Output:** a tighter Corpus.  The same class of bug cannot
-escape twice.  Patterns across escapes (noted in commit messages)
+escape twice — at the corpus level, not just at the reported
+instance.  Patterns across escapes (noted in commit messages)
 inform future DDD Maintenance audits.
 
 **Relationship to the other processes:**
