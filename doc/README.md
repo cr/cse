@@ -318,15 +318,33 @@ harness bugs, and doc-code fidelity gaps.
      instance.  Reference the specific escape in the new principle
      so future readers see the evidence that produced it.
 
-5. **Sweep the corpus for the class.**  The "same class of bug
+5. **Sweep the corpus — two axes.**  The "same class of bug
    cannot escape twice" guarantee is only real if the class is
-   actively hunted, not just the instance.  After the fix is
-   drafted and the principle amended, ask: *what other code in the
-   corpus fits this class?*  For a trailing-garbage bug in one
-   REPL command, probe the other commands.  For an ifdef-gated
-   reject path that was invisible, scan every `.ifdef` in the
-   module.  For a partial-result contract without position-pinning
-   tests, inventory every partial-result function.  Two outcomes:
+   actively hunted, not just the instance.  Sweep along both
+   axes:
+
+   **(a) Class-wide sweep.**  What other code in the corpus fits
+   this bug's shape?  For a trailing-garbage bug in one REPL
+   command, probe the other commands.  For an ifdef-gated reject
+   path that was invisible, scan every `.ifdef` in the module.
+   For a partial-result contract without position-pinning tests,
+   inventory every partial-result function.
+
+   **(b) Cross-module handoff sweep.**  When the fix introduces
+   or revises a contract that depends on *ancillary state* — a
+   ZP flag, a global variable, a register value at entry — audit
+   every upstream caller for whether that state holds as the
+   contract assumes.  A contract like "`log_open` auto-advances
+   if `CUR_COL != 0`" silently depends on whoever sets `CUR_COL`
+   before the call.  If some caller silently sets `CUR_COL = 0`
+   (as `main.s`'s RETURN path did, pre-`d65a624`), the contract
+   is defeated without any doc being wrong in isolation — the
+   bug lives in the composition, not in either side.  For each
+   piece of ancillary state the new contract reads: grep every
+   write to that state in the call chain; verify each write
+   produces a value consistent with the contract's assumption.
+
+   Both sweep axes produce the same two outcomes:
    - **Mechanical sibling fixes** land in the same commit as the
      original escape.
    - **Non-mechanical siblings** (different shapes, different
