@@ -140,6 +140,103 @@ findings become TODO items and go through the DDD Method.
 
 ---
 
+## TDD Maintenance
+
+DDD Maintenance audits prose against code.  **TDD Maintenance** is
+its counterpart for the executable half of the Corpus: a periodic
+audit of the test suite against the contracts it's supposed to
+verify.  Tests drift the same way docs do — they accrete during
+feature work, duplicate each other, couple to implementation,
+quietly cover one cell of a matrix while claiming to cover the
+whole surface.  TDD Maintenance walks the corpus module by module
+and tightens the test contracts.
+
+**Trigger:** at each project milestone (shared with DDD
+Maintenance), and reactively whenever an Escape Analysis amends
+a [testing.md](testing.md) principle — the new principle may
+reveal gaps across modules that weren't previously considered
+principle-relevant.
+
+**Audit scope:**
+
+1. **Contract-to-test mapping** — every exported symbol in every
+   module doc has a matching correctness test OR a vocal skip.
+   Walk each module's `.export` / `.exportzp` list; walk each
+   documented RODATA / BSS / ZP export; each must resolve to a
+   test name or a skip.  No silent gaps.
+
+2. **Test-file naming** — one test file per source module, name
+   mirrors the source file (`src/foo.s` → `tests/unit/test_foo.py`
+   or `tests/integration/test_foo.py`).  Historical names get
+   renamed; cross-module tests move to the module they actually
+   cover.
+
+3. **Test-bundle production parity** — every production build
+   variant (Makefile `_*_DEFS`) has a matching test bundle.  No
+   `.ifdef`-guarded code path lives behind a missing test config.
+   This is [testing.md § Principle 10](testing.md); audit
+   enforces it across the corpus.
+
+4. **Harness dependency direction** — every test stub links real
+   lower-layer modules; any mock of an L<N> symbol from an L<N>
+   (or below) test bundle is a dependency-direction violation.
+   Stubs provide only linker scaffolding (`__CODE_RUN__`, test
+   entry points) — never re-implement code that exists as a real
+   leaf module.
+
+5. **Mock scope** — stubs are minimal.  A stub that duplicates a
+   real module's behaviour (even a small one) risks mock/prod
+   divergence.  If the real module can link into the bundle, it
+   does.
+
+6. **Duplicate coverage** — two tests asserting the same contract
+   clause: keep the stronger, retire the weaker with a pointer
+   comment naming its replacement.  Pointer comments stay so
+   future greps still land on the surviving coverage.
+
+7. **Implementation coupling** — tests that assert internal
+   state (exact byte offsets between related labels, ZP scratch
+   values, internal table contents consumed only within the
+   module) are demoted to vocal skips (Pattern B) or deleted.
+   [testing.md § Principle 2](testing.md) is the authority.
+
+8. **Non-contractual retention** — tests that aren't strictly
+   contractual stay only if they catch a distinct regression
+   class the contract-direct tests don't.  Each such test carries
+   a docstring justifying its existence.  If the justification
+   can't be written, the test goes.
+
+9. **Skip hygiene** — every `@pytest.mark.skip` / `xfail` has a
+   reason string matching Pattern A (out-of-tier) / Pattern B
+   (subsumed) / Pattern C (cannot be enforced at any unit tier)
+   from [testing.md § Principle 9](testing.md).  No silent `pass`
+   bodies, no TODO skips, no unexplained `xfail(strict=False)`.
+
+10. **Risk preamble coverage** — every high-impact gap (a skip
+    whose regression could ship silently) has a dated preamble
+    `⚠ TOP/HIGH/LOW-RISK L<N> GAP (per coverage audit YYYY-MM-DD)`
+    with a named enforcement mechanism (VICE, code review,
+    integration tier).  Expired preambles are refreshed or closed
+    during the audit.
+
+**Output:** a TDD Maintenance Report listing findings by category.
+Mechanical corrections (rename test file, retire duplicate, move
+misplaced test class to its module's file, update stale stub
+comment) may be applied inline.  Substantive findings become
+either TODO items (follow through via DDD Method) or new Escape
+Analysis candidates (if a bug is suspected).
+
+**Relationship to the other processes:**
+
+TDD Maintenance is the test-corpus twin of DDD Maintenance and
+inherits the same rhythm.  Escape Analysis produces principle
+amendments; TDD Maintenance propagates them.  The DDD Method
+continues to use TDD Analysis (step 3) for per-change test
+planning — TDD Maintenance is the orthogonal periodic check that
+nothing has drifted since the last audit.
+
+---
+
 ## Escape Analysis
 
 The DDD Method protects the Corpus during planned change; DDD
@@ -207,15 +304,18 @@ inform future DDD Maintenance audits.
 
 **Relationship to the other processes:**
 
-| Process | Trigger | Direction |
-|---|---|---|
-| DDD Method | Planned change | Forward (docs first → implementation) |
-| DDD Maintenance | Milestone boundary | Cross-cutting (audit full Corpus) |
-| Escape Analysis | Bug discovered | Backward (bug → test → contract → principle) |
+| Process | Trigger | Direction | Audits |
+|---|---|---|---|
+| DDD Method | Planned change | Forward | Docs → tests → code for one change |
+| TDD Analysis | Step 3 of DDD Method | Forward | Test gaps for that one change |
+| DDD Maintenance | Milestone boundary | Cross-cutting | Doc corpus integrity |
+| TDD Maintenance | Milestone boundary or post-Escape-Analysis | Cross-cutting | Test corpus integrity |
+| Escape Analysis | Bug discovered | Backward | Bug → test → contract → principle |
 
 Any Escape Analysis that uncovers multiple missing clauses at
 once is still one Escape Analysis, but it is evidence of a
-larger DDD Maintenance gap — log it for the next scheduled audit.
+larger DDD/TDD Maintenance gap — log it for the next scheduled
+audit.
 
 ---
 
