@@ -103,12 +103,14 @@ def test_asm_error_and_syntax_error_alias(asm_syms):
     assert asm_syms.asm_error == asm_syms.asm_syntax_error
 
 
-def test_asm_expr_error_differs_from_asm_error(asm_syms):
-    """asm_expr_error is a distinct entry point — its address must
-    differ from asm_error's.  The exact byte offset between them is
-    an implementation detail (the current `lda #1 / .byte $2C` skip
-    shim is one of several valid encodings) and is NOT asserted."""
-    assert asm_syms.asm_expr_error != asm_syms.asm_error
+# test_asm_expr_error_differs_from_asm_error retired — the address
+# difference is implied by the behavioural pair
+# test_asm_error_clears_flag (asm_expr_err = 0 after asm_error) and
+# test_asm_expr_error_sets_flag (asm_expr_err = 1 after asm_expr_error).
+# Two distinct behaviours can only come from distinct code, so the
+# address-difference assertion was subsumed.  Retired 2026-04-20 per
+# doc/testing.md § Principle 9 Pattern B (subsumed by functional
+# tests above).
 
 
 def test_asm_pass_is_accessible(asm_syms):
