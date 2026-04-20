@@ -35,7 +35,8 @@ Contract user code may rely on / must preserve:
 ├─────────────────────────────────────────────────────────────────────┤
 │ L4  asm_src, editor, disk, debugger                                 │  application subsystems
 ├─────────────────────────────────────────────────────────────────────┤
-│ L3  asm_line, addr_mode, opcode_lookup, expr, dasm, breakpoints     │  core engines
+│ L3  asm_line, addr_mode, opcode_lookup, expr, dasm, breakpoints,    │  core engines
+│     gap_buffer                                                      │
 ├─────────────────────────────────────────────────────────────────────┤
 │ L2  screen, symtab, log, asm_err                                    │  structured services
 ├─────────────────────────────────────────────────────────────────────┤
@@ -81,11 +82,12 @@ SP, and the user must leave a documented headroom for kernel re-entry
 | main.s | 5 | ISR dispatch (cse_brk_handler, cse_nmi_handler), setup_interrupts, main_loop, warmstart entry points | [main.md](modules/main.md) |
 | repl.s | 5 | REPL command dispatch and emitters (the ISR body) | [repl.md](modules/repl.md) |
 | asm_src.s | 4 | Two-pass source assembler | [asm_src.md](modules/asm_src.md) |
-| editor.s | 4 | Gap-buffer source editor, sequential reader, workend update | [editor.md](modules/editor.md) |
+| editor.s | 4 | Keystroke dispatch, screen rendering, disk I/O, enter/leave_editor | [editor.md](modules/editor.md) |
 | disk.s | 4 | CBM file I/O via kernal (PRG and SEQ, callback-based) | [disk.md](modules/disk.md) |
 | debugger.s | 4 | Step state machine, return_to_userland helper, brk_stub, dbg_init | [debugger.md](modules/debugger.md) |
 | asm_line.s | 3 | Single-line instruction assembler (PETSCII input) | [asm_line.md](modules/asm_line.md) |
 | breakpoints.s | 3 | Breakpoint-table CRUD + patch/unpatch (bundle-testable) | [breakpoints.md](modules/breakpoints.md) |
+| gap_buffer.s | 3 | Gap-buffer primitives + sequential reader (bundle-testable) | [gap_buffer.md](modules/gap_buffer.md) |
 | addr_mode.s | 3 | Addressing-mode and operand parser | [addr_mode.md](modules/addr_mode.md) |
 | opcode_lookup.s | 3 | (profile, mode) → opcode byte | [opcode_lookup.md](modules/opcode_lookup.md) |
 | expr.s | 3 | Recursive-descent expression parser | [expr.md](modules/expr.md) |
@@ -121,7 +123,8 @@ strictly lower layer; no back-edges.
 | main | repl, editor, debugger, asm_line, screen, cse_io, symtab, mem, log, strings, zp |
 | repl | asm_src, editor, disk, debugger, asm_line, dasm, expr, symtab, screen, log, asm_err, mem, cse_io, oplen_tbl, strings, zp |
 | asm_src | editor, asm_line, expr, symtab, log, asm_err, mem, cse_io, strings, zp |
-| editor | disk, screen, symtab, log, mem, cse_io, strings, zp |
+| editor | gap_buffer, disk, screen, symtab, log, mem, cse_io, strings, zp |
+| gap_buffer | strings, symtab, zp |
 
 All Layer-4 modules depend strictly downward after Phase 21 + 21.1.
 The `cur_project_name` buffer, the `seg_line`/`prg_line`/`free_line`

@@ -1,4 +1,4 @@
-# editor.s — Gap-Buffer Source Editor
+# editor.s — Keystroke Dispatch + Screen Rendering + Disk I/O (L4)
 
 **Template:** [module](../templates/module.md)
 
@@ -9,22 +9,41 @@
 | [`src/editor.s`](../../src/editor.s) | implementation (6502 assembly) |
 | [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py) | test contract |
 
+**Split (2026-04-20 structural refactor).**  Gap-buffer primitives
+and the sequential reader live in [gap_buffer.md](gap_buffer.md) at
+L3 — a pure data-structure module that bundle-tests in isolation.
+This module (editor.s, L4) keeps everything that genuinely requires
+screen RAM + KERNAL + disk: keystroke dispatch, rendering pipeline,
+scroll drivers, smart indent, enter/leave_editor, disk I/O.  The
+split makes the tier boundary compile-time-enforced (L4 editor.s
+imports from L3 gap_buffer.s, never the reverse) rather than a
+disciplined convention — same pattern as the breakpoints split
+from debugger.s.
+
 ## Interface
 
 All public functions use register/ZP calling convention (single arg
 in A or A/X; multi-arg via named ZP variables).
 
+Owned by editor.s (L4):
 - `enter_editor()` — save REPL screen, switch to editor mode
 - `leave_editor()` — restore REPL screen, return to REPL
 - `ed_handle_key(ch)` — process one keystroke (A = PETSCII key)
-- `ed_ensure_init()` — allocate gap buffer if not yet done
-- `ed_new()` — clear source buffer (reset gap buffer, clear filename)
+- `ed_init()` — full reset: calls `gb_init` then zeros rendering state
+- `ed_new()` — clear source buffer (calls `ed_init` + clears filename)
 - `ed_save_source(name)` — save source as SEQ file; A=0 on success
 - `ed_load_source(name)` — load SEQ file into buffer; A=0 on success
+
+Owned by gap_buffer.s (L3), re-listed here for editor-consumer convenience:
+- `ed_ensure_init()` — allocate gap buffer if not yet done
 - `ed_read_rewind()` — reset sequential reader to start of source
 - `ed_read_line(buf)` — read next line into buf (maxlen=40 hardcoded); A/X = length or $FFFF at EOF
 - `ed_read_byte()` — read next byte from source; A/X = byte or $FFFF at EOF
 - `ed_insert_string(text)` — programmatic text insertion at cursor
+
+See [gap_buffer.md](gap_buffer.md) for the L3 module's full
+contract (insert/delete/cursor primitives, partial-result behaviour
+of the reader, buffer-growth semantics).
 
 **Tab width:** `TAB_WIDTH` is a **build-time constant**
 (`-DTAB_WIDTH=N`, default 8).  It is not runtime-mutable; there is

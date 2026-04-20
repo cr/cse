@@ -578,10 +578,11 @@ they must be green before Step 5 begins.
 | **asm_line** | 3 | U | `asm_core` bundle |
 | **dasm** | 3 | U | `dasm` bundle |
 | **breakpoints** | 3 | U | standalone `breakpoints` bundle — BP-table CRUD (extracted from debugger.s at the 2026-04-20 split) |
+| **gap_buffer** | 3 | U | standalone `gap_buffer` bundle — gap-buffer primitives + sequential reader (extracted from editor.s at the 2026-04-20 split) |
 | **debugger** | 4 | I | step/BRK state + userland-transition gates; BP-table CRUD now lives in `breakpoints` at L3 |
 | **asm_src** | 4 | U | `asm_src` bundle |
 | **disk** | 4 | I | needs KERNAL LOAD/SAVE/CHKIN |
-| **editor** | 4 | I | observable behaviour goes through screen RAM + keys |
+| **editor** | 4 | I | observable behaviour goes through screen RAM + keys; gap-buffer primitives now live in `gap_buffer` at L3 |
 | **repl / main** | 5 | I | Layer-5 cycle; only testable full-PRG |
 | **loader** | 6 | I | exercised implicitly by C64Emu `load_prg` |
 

@@ -10,7 +10,6 @@ cse/
 ├── src/                    Source code
 │   ├── main.s              Init, main loop, mode dispatch
 │   ├── repl.s              REPL command loop and handlers
-│   ├── editor.s            Gap buffer editor, rendering, keys
 │   ├── asm_src.s            Two-pass source assembler
 │   ├── asm_line.s          Single-line assembler, zone dispatch
 │   ├── zp.s                Central zero-page layout (all modules)
@@ -27,6 +26,8 @@ cse/
 │   ├── disk.s              CBM file I/O (load, save, directory)
 │   ├── breakpoints.s       BP-table CRUD + patch/unpatch (L3, bundle-testable)
 │   ├── debugger.s          Step state machine, return_to_userland, brk_stub (L4)
+│   ├── gap_buffer.s        Gap-buffer primitives + sequential reader (L3, bundle-testable)
+│   ├── editor.s            Keystroke dispatch, screen rendering, disk I/O (L4)
 │   ├── loader.s            Discardable bootstrap (PRG → runtime relocation)
 │   ├── mem.s               Memory manager (banking, segment queries, workspace)
 │   ├── mn*_tables.s        ┐
