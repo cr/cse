@@ -231,6 +231,20 @@ principle-relevant.
     function with no position-pinning witness is a findings entry —
     either add the tests inline or flag as a coverage gap.
 
+    Direct `TestStopContract`-style tests and transitive hot-loop
+    pinning (Principle 13 § Transitive pinning via hot-loop
+    composition) both count as witnesses.  When claiming transitive
+    pinning, the vocal skip must name the hot-loop caller explicitly.
+
+    **Dead-code sweep gotcha.**  When auditing whether a symbol has
+    callers, grep for all three forms: direct `jsr <symbol>` /
+    `jmp <symbol>`, the `.import <symbol>` declaration, AND the
+    symbol's appearance as a pytest harness lookup
+    (`emu.sym("<symbol>")` or `syms.<symbol>`).  A symbol can look
+    dead by direct-call search alone when test harnesses or
+    conditional code paths keep it alive.  False-negative audits
+    create retirement proposals that would break builds or tests.
+
 **Output:** a TDD Maintenance Report listing findings by category.
 Mechanical corrections (rename test file, retire duplicate, move
 misplaced test class to its module's file, update stale stub

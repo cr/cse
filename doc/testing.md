@@ -433,6 +433,24 @@ tests are written, when they are written, and what they test.
     state under-specified and invites silent-partial-success bugs
     at every caller.
 
+    **Transitive pinning via hot-loop composition** (Pattern C
+    subsumption — see Principle 9).  A partial-result function whose
+    ancillary state is *consumed in a hot loop* by a higher-level
+    test is transitively pinned: the composition can only succeed if
+    the advancement is correct on every iteration, so a regression
+    in the advancement corrupts every test that walks it.  Examples:
+    `expr.skip_sp` and `addr_mode.asm_skip_ws` are pinned by
+    `TestStopContract` / `TestModeParseStopContract`'s whitespace-
+    surrounding cases; `editor.ed_read_byte` is pinned by
+    `test_editor.py::read_back` walking the full gap buffer byte
+    by byte.  When a partial-result function is already transitively
+    pinned, a direct `TestStopContract` would re-exercise the same
+    bytes through a thinner harness without catching additional
+    regressions — a vocal skip citing Pattern B (subsumed) with an
+    explicit pointer at the hot-loop caller is the correct response.
+    The module doc still carries the partial-result clause; only the
+    direct unit test is subsumed, not the contract itself.
+
     Cautionary example (Escape Analysis 2026-04-20): `expr_eval`
     accepted `"1x"` as value `1` and left `expr_ptr` at `'x'`.  This
     is *correct partial-mode behaviour* — assembler-operand callers
