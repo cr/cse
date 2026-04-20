@@ -885,6 +885,128 @@ def log_syms():
     return LogSymbols()
 
 
+# ── gap_buffer test bundle ──────────────────────────────────────────────────
+#
+# Links: zp + strings + mem + symtab + gap_buffer.  No stub file —
+# the bundle is pure source + linker-provided __CODE_RUN__ /
+# __BUF_FLOOR__ (passed via ld65 -D).  gap_buffer.s is a pure
+# L3 data-structure module (no KERNAL calls, no screen RAM, no
+# BRK vectors); the mem + symtab modules come along because
+# gap_buffer's `define_ws_syms` / `update_workend` call
+# `sym_define`, which calls `kernal_bank_out/in` from mem.
+# sym_table at $E000 is writable RAM in the bare-py65 harness,
+# so the real symtab code runs without any mocking.
+
+_GB_BIN = BUILD / "gap_buffer_test.bin"
+_GB_MAP = BUILD / "gap_buffer_test.map"
+_GB_LBL = BUILD / "gap_buffer_test.lbl"
+
+_GB_SOURCES = [
+    SRC / "zp.s",
+    SRC / "strings.s",
+    SRC / "mem.s",
+    SRC / "symtab.s",
+    SRC / "gap_buffer.s",
+]
+
+
+def _gb_needs_rebuild():
+    if not _GB_BIN.exists() or not _GB_LBL.exists():
+        return True
+    bin_mtime = _GB_BIN.stat().st_mtime
+    return any(s.stat().st_mtime > bin_mtime
+               for s in _GB_SOURCES + [DEV / "test.cfg"])
+
+
+def _gb_build():
+    BUILD.mkdir(exist_ok=True)
+    obj_files = []
+    for src in _GB_SOURCES:
+        obj = BUILD / f"{src.stem}_gb.o"
+        cmd = ["ca65", "-g", "-t", "c64", "--cpu", "6502",
+               "-I", str(BUILD),
+               str(src), "-o", str(obj)]
+        subprocess.run(cmd, check=True)
+        obj_files.append(str(obj))
+    subprocess.run(
+        ["ld65", "-C", str(DEV / "test.cfg"),
+         # gap_buffer.s defines BUF_END := __CODE_RUN__ and
+         # BUF_FLOOR := __BUF_FLOOR__.  The test bundle picks
+         # production-representative values: CODE_RUN high in the
+         # $4000-region test code area (leaving $1500..$3FFF as
+         # workspace) and BUF_FLOOR at the same $1500 mark.
+         "-D", "__CODE_RUN__=$4000",
+         "-D", "__BUF_FLOOR__=$1500",
+         *obj_files,
+         "-o", str(_GB_BIN),
+         "-m", str(_GB_MAP),
+         "-Ln", str(_GB_LBL)],
+        check=True,
+    )
+
+
+class GapBufferSymbols:
+    """Resolved symbols + binary loader for the gap_buffer bundle.
+
+    Pre-resolves gap_buffer.s's public entry points and the BSS / ZP
+    state tests inspect (ed_total_lines, read_ptr, ed_dirty,
+    buf_base, gap_lo, gap_hi).
+    """
+
+    def __init__(self):
+        if _gb_needs_rebuild():
+            _gb_build()
+
+        self.s = SymbolTable(_GB_LBL)
+        s = self.s
+
+        # gap_buffer.s entry points
+        self.gb_init            = s["gb_init"]
+        self.ed_ensure_init     = s["ed_ensure_init"]
+        self.gb_insert          = s["gb_insert"]
+        self.gb_backspace       = s["gb_backspace"]
+        self.gb_cursor_left     = s["gb_cursor_left"]
+        self.gb_cursor_right    = s["gb_cursor_right"]
+        self.gb_home            = s["gb_home"]
+        self.gb_ensure_room     = s["gb_ensure_room"]
+        self.ed_insert_string   = s["ed_insert_string"]
+        self.ed_read_rewind     = s["ed_read_rewind"]
+        self.ed_read_byte       = s["ed_read_byte"]
+        self.ed_read_line       = s["ed_read_line"]
+        self.check_buf_end      = s["check_buf_end"]
+
+        # BSS owned by gap_buffer.s
+        self.ed_total_lines     = s["ed_total_lines"]
+        self.src_top            = s["src_top"]
+        self.src_bot            = s["src_bot"]
+
+        # ZP state tests inspect
+        self.read_ptr           = s["read_ptr"]
+        self.ed_dirty           = s["ed_dirty"]
+        self.gap_lo             = s["gap_lo"]
+        self.gap_hi             = s["gap_hi"]
+        self.buf_base           = s["buf_base"]
+        self.ed_top_ptr         = s["ed_top_ptr"]
+
+        # Linker-provided workspace bounds
+        self.BUF_END   = s["__CODE_RUN__"]
+        self.BUF_FLOOR = s["__BUF_FLOOR__"]
+
+        raw = _GB_BIN.read_bytes()
+        self._zp_blob   = raw[:_ZP_SIZE]
+        self._code_blob = raw[_ZP_SIZE:]
+
+    def load_into(self, memory):
+        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
+        memory[_CODE_START : _CODE_START + len(self._code_blob)]  = self._code_blob
+
+
+@pytest.fixture(scope="session")
+def gb_syms():
+    """Session-scoped gap_buffer test binary + symbol addresses."""
+    return GapBufferSymbols()
+
+
 # ── C64Emu-based fixtures (Phase 9) ──────────────────────────────────────────
 #
 # These fixtures load the CMOS PRG into C64Emu and provide symbol
