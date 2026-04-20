@@ -97,29 +97,17 @@ Open bugs, roughly ordered by priority.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
-- [ ] **TDD Maintenance finding** (Principle 13 sweep 2026-04-20,
-  scope narrowed after audit): `editor.ed_read_line` is a partial-
-  result function (advances `read_ptr` on each call) but has no
-  position-pinning witness — neither direct nor transitive.  Its
-  sibling `ed_read_byte` was also flagged but is transitively
-  pinned at integration tier by `test_editor.py::read_back`, which
-  walks the gap buffer byte by byte; the partial-result contract
-  for both is documented in `editor.md`.  What remains for
-  `ed_read_line` is a test that asserts the post-call `read_ptr`
-  position (not just the returned length), so a regression leaving
-  `read_ptr` mid-line would surface.  Two fixes:
-  (a) Build an editor Tier U bundle (editor + cse_io + zp + strings
-      + `kplot_stub`) and add `TestEdReadLineStopContract` — parallel
-      to `TestStopContract` in test_expr.py and
-      `TestModeParseStopContract` in test_addr_mode.py.
-  (b) Add the position assertion to the existing integration tests
-      in `test_editor.py` (read `ed_read_ptr` via the symbol table
-      and assert its value after each `ed_read_line` call).  Less
-      isolated but doesn't require a new bundle.
-  Lean toward (b) because editor's complex state machine is already
-  exercised by C64Emu tests and adding one read-ptr assert per
-  existing test is cheaper than a bundle build.  Queued rather
-  than landed inline because it's a design-call, not mechanical.
+- [x] ~~**TDD Maintenance finding** (Principle 13 sweep 2026-04-20):
+  `editor.ed_read_line` has no position-pinning witness.~~  (resolved
+  via option b: four new test methods in
+  `tests/integration/test_editor.py::TestEdReadLine` pin read_ptr
+  advancement — exact-delta for CR-terminated lines, empty-line
+  edge case, no-CR-last-line scan-to-EOF behaviour, and post-EOF
+  idempotency.  The contract in editor.md was also tightened:
+  the earlier "at EOF returns without advance" phrasing was
+  imprecise — the *first* EOF call may advance (to cross the gap
+  and reach BUF_END); what callers rely on is that subsequent EOF
+  calls are idempotent.  Closes L4 TDD parity with L0–L3.)
 - [x] ~~**BUG** (class-wide, Escape Analysis 2026-04-20): REPL commands
   that take a single expression silently accept trailing garbage.~~
   (resolved: extracted `_require_eoi_or_err` helper in repl.s and

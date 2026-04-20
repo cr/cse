@@ -229,6 +229,11 @@ class TestEdNew:
 class TestEdReadLine:
     """ed_read_line reads one line at a time for the assembler."""
 
+    def _read_ptr(self, emu):
+        """Read the 16-bit editor read_ptr (ZP)."""
+        addr = emu.sym("read_ptr")
+        return emu.memory[addr] | (emu.memory[addr + 1] << 8)
+
     def _read_one_line(self, emu):
         """Call ed_read_line(buf).  Returns (line_bytes, eof_flag)."""
         emu.jsr(emu.sym("ed_read_line"),
@@ -263,3 +268,118 @@ class TestEdReadLine:
         self._read_one_line(emu)
         _, eof = self._read_one_line(emu)
         assert eof is True
+
+    # ── Partial-result contract (Principle 13) ──
+    #
+    # ed_read_line is a partial-result function: each successful call
+    # advances read_ptr past the consumed bytes (line content + CR
+    # terminator if present), leaving read_ptr positioned to start
+    # the next line's read.  ed_read_byte (its sibling) is
+    # transitively pinned by read_back's byte-walking loop; these
+    # tests pin ed_read_line's per-call advancement directly so a
+    # regression leaving read_ptr mid-line can't hide.
+    #
+    # Added by TDD Maintenance L4 sweep 2026-04-20; closes the gap
+    # flagged in doc/TODO.md and doc/modules/editor.md § Partial-
+    # result contract.
+
+    def test_advances_read_ptr_on_success(self, cse_prg):
+        """Each CR-terminated line advances read_ptr by exactly
+        (line_length + 1) bytes.  Test data ends with a trailing CR
+        so every line is CR-terminated and the delta is clean — the
+        no-CR-last-line case is pinned separately below because its
+        scan-to-EOF semantics make the physical read_ptr delta
+        gap-size-dependent rather than content-size-dependent."""
+        emu = make_emu(cse_prg)
+        insert_text(emu, b"AAA\rBBB\rCCC\r")
+        emu.jsr(emu.sym("ed_read_rewind"))
+
+        for expected_line in (b"AAA", b"BBB", b"CCC"):
+            before = self._read_ptr(emu)
+            line, _ = self._read_one_line(emu)
+            after = self._read_ptr(emu)
+            assert line == expected_line
+            delta = after - before
+            assert delta == len(expected_line) + 1, \
+                f"{expected_line!r}: read_ptr advanced {delta}, " \
+                f"expected {len(expected_line) + 1} (content + CR)"
+
+    def test_empty_line_advances_by_one(self, cse_prg):
+        """An empty line (just CR between two CRs) advances read_ptr
+        by exactly 1 (the CR terminator).  Guards against a regression
+        where empty-line detection might skip or double-consume the CR."""
+        emu = make_emu(cse_prg)
+        insert_text(emu, b"A\r\rC\r")      # A, empty, C — all CR-terminated
+        emu.jsr(emu.sym("ed_read_rewind"))
+
+        # Line 1 "A\r" → delta 2
+        before = self._read_ptr(emu)
+        l1, _ = self._read_one_line(emu)
+        assert l1 == b"A"
+        assert self._read_ptr(emu) - before == 2
+
+        # Line 2 empty "\r" → delta 1 (the CR terminator only)
+        before = self._read_ptr(emu)
+        l2, _ = self._read_one_line(emu)
+        assert l2 == b""
+        delta = self._read_ptr(emu) - before
+        assert delta == 1, \
+            f"empty line: read_ptr advanced {delta}, expected 1 " \
+            f"(just the CR)"
+
+        # Line 3 "C\r" → delta 2
+        before = self._read_ptr(emu)
+        l3, _ = self._read_one_line(emu)
+        assert l3 == b"C"
+        assert self._read_ptr(emu) - before == 2
+
+    def test_last_line_no_cr_ends_at_buf_end(self, cse_prg):
+        """Per editor.md § ed_read_line, the scan runs until CR or EOF.
+        A last line without a trailing CR causes the scan to continue
+        past the gap to BUF_END.  The physical read_ptr delta is
+        therefore content_length + gap_size + trailing-buffer bytes —
+        implementation-dependent, not part of the contract.  What the
+        contract DOES guarantee: read_ptr advanced strictly past the
+        content, and the next call returns EOF without further advance."""
+        emu = make_emu(cse_prg)
+        insert_text(emu, b"SOLO")    # no trailing CR
+        emu.jsr(emu.sym("ed_read_rewind"))
+        before = self._read_ptr(emu)
+        line, eof = self._read_one_line(emu)
+        after = self._read_ptr(emu)
+        assert line == b"SOLO"
+        assert eof is False
+        assert after > before + len(line), \
+            f"no-CR last line: read_ptr must advance strictly past " \
+            f"content (was ${before:04X}, now ${after:04X})"
+        # Next call must report EOF without advancing.
+        eof_before = self._read_ptr(emu)
+        _, eof2 = self._read_one_line(emu)
+        eof_after = self._read_ptr(emu)
+        assert eof2 is True
+        assert eof_after == eof_before, \
+            f"EOF call advanced read_ptr from ${eof_before:04X} to " \
+            f"${eof_after:04X}; contract says no advance on EOF"
+
+    def test_eof_calls_are_idempotent(self, cse_prg):
+        """EOF calls are idempotent: once ed_read_line has returned EOF,
+        subsequent calls keep returning EOF and DO NOT advance
+        read_ptr further.  (The *first* EOF call may still advance if
+        content ended just before the gap — it then has to cross the
+        gap to reach BUF_END before reporting EOF.  That advance is
+        implementation-dependent; what matters for callers is that
+        after EOF, read_ptr is stable across further calls.)"""
+        emu = make_emu(cse_prg)
+        insert_text(emu, b"ONLY\r")
+        emu.jsr(emu.sym("ed_read_rewind"))
+        self._read_one_line(emu)           # consume "ONLY"
+        _, eof1 = self._read_one_line(emu) # first EOF call
+        assert eof1 is True
+        stable = self._read_ptr(emu)
+        # Every subsequent EOF call must leave read_ptr at `stable`.
+        for i in range(3):
+            _, eof_n = self._read_one_line(emu)
+            assert eof_n is True
+            assert self._read_ptr(emu) == stable, \
+                f"subsequent EOF call {i + 2} advanced read_ptr past " \
+                f"${stable:04X} — EOF not idempotent"

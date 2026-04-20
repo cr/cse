@@ -398,18 +398,31 @@ Stopping behaviour:
 - `ed_read_byte` — advances `read_ptr` by 1 on each non-EOF call,
   transparently stepping over the gap when `read_ptr` lands inside
   it.  Returns $FFFF (A=X=$FF) at EOF without further advance.
-- `ed_read_line` — advances `read_ptr` past the copied bytes plus
-  the terminating CR (if any).  Returns length; at EOF returns
-  $FFFF without advance.
+- `ed_read_line` — scans from `read_ptr` until CR or EOF,
+  transparently skipping the gap.  On a CR-terminated line, the
+  advance is exactly (content_length + 1).  On the final line with
+  no trailing CR, the advance may continue past the content
+  (through the gap) to BUF_END — the delta is then
+  implementation-dependent, and any subsequent call returns EOF.
+  **EOF is idempotent:** once a call has returned EOF, further
+  calls keep returning EOF and leave `read_ptr` stable.  (The
+  *first* EOF call may still advance if content ended just before
+  the gap — it has to cross the gap to reach BUF_END before
+  reporting EOF.  What callers can rely on is that `read_ptr` is
+  stable across repeat EOF calls.)
 
-Position pinning: `ed_read_byte`'s per-call advancement is
-transitively witnessed by `tests/integration/test_editor.py`'s
-`read_back` helper, which walks the entire gap buffer byte by
-byte and asserts the reconstructed content — any regression that
-left `read_ptr` stuck or skipping bytes would corrupt every
-`TestGapBufferInsert` case.  `ed_read_line`'s position contract
-is not yet pinned directly; see `doc/TODO.md` for the queued
-Tier-U-bundle decision.
+Position pinning:
+- `ed_read_byte`'s per-call advancement is transitively witnessed
+  by `tests/integration/test_editor.py`'s `read_back` helper, which
+  walks the entire gap buffer byte by byte and asserts the
+  reconstructed content — any regression that left `read_ptr` stuck
+  or skipping bytes would corrupt every `TestGapBufferInsert` case.
+- `ed_read_line`'s advancement is pinned directly by
+  `TestEdReadLine::test_advances_read_ptr_on_success` (exact delta
+  for CR-terminated lines), `test_empty_line_advances_by_one`
+  (empty-line edge case), `test_last_line_no_cr_ends_at_buf_end`
+  (no-CR last line crosses to BUF_END), and
+  `test_eof_calls_are_idempotent` (post-EOF stability).
 
 ## Caveats
 
