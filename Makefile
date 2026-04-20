@@ -204,7 +204,7 @@ ASM_SRCS = zp loader main strings \
            $(MN_SRCS) mn_config \
            addr_mode mn_modes mn_asm_tables opcode_lookup \
            mem cse_io screen disk expr symtab dasm dasm_tables \
-           breakpoints debugger repl editor log oplen_tbl
+           breakpoints debugger gap_buffer repl editor log oplen_tbl
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 
 .PHONY: _one
