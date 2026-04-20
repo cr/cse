@@ -382,7 +382,7 @@ distinguishes "nothing after `.`" (valid silent redisplay) from
 
 | Key | Name | Addressed | Example          | Notes                                      |
 |-----|------|-----------|------------------|--------------------------------------------|
-| `j` | jump | yes       | `1000:j` or `j main` | Start execution at expression. Patches breakpoints, enters debugger loop. Shows registers on break/RTS. |
+| `j` | jump | yes       | `1000:j` or `j main` | Start execution at expression. Patches breakpoints, enters debugger loop. Shows registers on break/RTS.  When an expression is provided, rejects trailing garbage (§ Single-expression command contract). |
 | `g` | go   | —         | `g`              | Shorthand for `j main`. Falls back to `j cur_addr` if `main` undefined. |
 | `c` | continue | —    | `c`              | Continue from last break (BRK/NMI). Error if no active break context. |
 
@@ -399,8 +399,8 @@ distinguishes "nothing after `.`" (valid silent redisplay) from
 
 | Key | Name    | Addressed | Example       | Notes                                    |
 |-----|---------|-----------|---------------|------------------------------------------|
-| `@` | seek    | —         | `@ $C000` or `@ main` | Set `cur_addr` to expression; bare = no-op |
-| `B` | block   | —         | `B $40`       | Set block size (expression); bare = show (uppercase) |
+| `@` | seek    | —         | `@ $C000` or `@ main` | Set `cur_addr` to expression; bare = no-op.  Rejects trailing non-whitespace / non-comment content as a syntax error (§ Single-expression command contract). |
+| `B` | block   | —         | `B $40`       | Set block size (expression); bare = show (uppercase).  Rejects trailing garbage (§ Single-expression command contract). |
 | `+` | forward | —         | `+` or `+ $20` | Advance cur_addr by block_size (or expr) |
 | `-` | back    | —         | `-` or `- $20` | Retreat cur_addr by block_size (or expr) |
 
@@ -511,7 +511,7 @@ becomes `project.`.  Pressing RETURN on this line saves the binary.
 | `?`   | calc    | —         | `? 1000+20`          | Hex expression calculator.  Takes exactly one complete expression; rejects trailing non-whitespace / non-comment content as a syntax error (§ Single-expression command contract). |
 | `k`   | kill    | —         | `k`                  | Clear source buffer; guards unsaved   |
 | `B`   | block   | —         | `B 40` or `B`       | Set/show block size (uppercase)        |
-| `C`   | color   | —         | `C 06` or `C 0e6`   | Set text/bg/border color (uppercase)  |
+| `C`   | color   | —         | `C 06` or `C 0e6`   | Set text/bg/border color (uppercase).  1–3 hex digits; rejects non-hex trailing content (§ Single-expression command contract). |
 | `u`   | cpu     | —         | `u 6502` or `u 65c02` | Set CPU mode for asm/disasm        |
 | `Q`   | quit    | —         | `Q`                  | Exit CSE (uppercase; guards unsaved)  |
 | `R`   | reset   | —         | `R`                  | Warmstart (uppercase; ends debug if active, then refreshes screen) |
@@ -521,35 +521,47 @@ becomes `project.`.  Pressing RETURN on this line saves the binary.
 ### Single-expression command contract
 
 A subset of REPL commands take **exactly one complete expression
-and nothing else**: currently `?` (calc).  Other one-argument
-commands — `@` (seek), `B` (block size), `C` (color) — share this
-intent but not yet the enforcement (see `doc/TODO.md` § Bugs —
-class-wide trailing-garbage escape from 2026-04-20).
+and nothing else**.  Currently covered: `?` (calc), `@` (seek),
+`B` (block size), `C` (color), `j` (jump).
 
 For these commands, the parser's
 [expr.md § Partial-mode contract](expr.md#partial-mode-contract)
 is a footgun: `expr_eval` returns success on `"1x"` with `expr_val = 1`
 and `expr_ptr` at `'x'`, which is correct for assembler-operand
 callers (`$10,X` is a valid prefix for INX mode) but silently wrong
-for `?`.  The caller **must** enforce end-of-input after a successful
-`expr_eval`:
+for a single-expression command.  The caller **must** enforce
+end-of-input after a successful parse:
 
-1. Skip trailing whitespace (`$20`, `$A0`) at `expr_ptr`.
+1. Skip trailing whitespace (`$20`, `$A0`) at the parse pointer.
 2. Verify the next byte is `$00` (end of `line_buf`) or `';'` (comment
    start).  Anything else is trailing garbage.
-3. On garbage: `log_err` with `str_syntax` ("syntax"), no value
-   displayed.
+3. On garbage: emit `;?syntax` as a log_err line, no value applied.
 
-Reference implementation: `@calc_eoi_lp / @calc_trail_err` inside
-`@h_calc` in `src/repl.s`.  To be extracted into a private
-`_require_eoi_or_err` helper and shared with the other three
-single-expression commands — tracked in `doc/TODO.md`.
+Implementation: the shared `_require_eoi_or_err` helper in `repl.s`
+does all three steps.  On clean EOI it returns; on garbage it pops
+the caller's return address and tail-calls `log_err` with
+`str_syntax`, so control flows back to `exec_line` and the command
+body never runs past the check.  Callers must invoke the helper
+**before** applying any state change (cur_addr, block_size, theme
+colors) — otherwise garbage input would leave state half-modified.
 
 Test contract:
-`tests/integration/test_repl.py::TestCalculator::test_calc_rejects_trailing_garbage`
-parametrises 6 garbage inputs (`?1x`, `?$10x`, `?%10abc`, `?1+2foo`,
-`?$10 xx`, `?1,2`).  The test-matrix principle demands each new
-single-expression command add its parallel row once fixed.
+`tests/integration/test_repl.py` parametrises trailing-garbage
+rejection cases for each command:
+
+- `TestCalculator::test_calc_rejects_trailing_garbage` (6 cases)
+- `TestAddressCommands::test_seek_rejects_trailing_garbage` (4 cases)
+- `TestBlockSize::test_block_rejects_trailing_garbage` (3 cases)
+- `TestColorCommand::test_color_rejects_trailing_garbage` (3 cases)
+
+Plus whitespace / comment acceptance tests where relevant to
+distinguish valid-empty-tail cases from garbage.
+
+**Not (yet) covered:** `+` and `-` share the class but are
+complicated by their `expr_or_blocksize` fallback (empty → use
+block_size).  Adding the EOI check without emitting a double
+error on `+ undefsym` needs a distinct design — tracked as a
+follow-up.
 
 ### Gating pattern
 

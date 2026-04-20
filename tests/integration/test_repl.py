@@ -348,6 +348,57 @@ class TestAddressCommands:
         assert get_cur_addr(cpu, rsyms) == expected, \
             f"Expected ${expected:04X}, got ${get_cur_addr(cpu, rsyms):04X}"
 
+    # ── Trailing-garbage rejection for `@` (Escape Analysis class-wide) ──
+    #
+    # Same bug class as `?` (fixed in 591e4a1): `@` takes exactly one
+    # complete expression and nothing else, but pre-fix silently
+    # accepted trailing content because try_expr didn't enforce EOI.
+
+    SEEK_GARBAGE = [
+        "@1x",
+        "@$2000xx",
+        "@$20+$10 foo",
+        "@$100,X",    # address-mode syntax in a seek makes no sense
+    ]
+
+    @pytest.mark.parametrize("cmd", SEEK_GARBAGE, ids=SEEK_GARBAGE)
+    def test_seek_rejects_trailing_garbage(self, rsyms, cmd):
+        """`@` must reject trailing non-whitespace/non-comment content.
+
+        Pre-fix: silently took the value prefix and set cur_addr — the
+        canonical `@1x` → cur_addr=$0001 footgun.
+        """
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x1000)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        # Expect ';?' error row somewhere.
+        found_error = False
+        for row in range(ROWS):
+            base = SCREEN + row * COLS
+            if cpu.memory[base] == 0x3B and cpu.memory[base + 1] == 0x3F:
+                found_error = True
+                break
+        assert found_error, \
+            f"{cmd!r} silently accepted (no ';?' error row)"
+        # cur_addr must be unchanged when the command errored.
+        assert get_cur_addr(cpu, rsyms) == 0x1000, \
+            f"{cmd!r} modified cur_addr despite trailing garbage"
+
+    def test_seek_accepts_trailing_whitespace_and_comment(self, rsyms):
+        """Trailing whitespace / comment is valid (matches `?` contract)."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x1000)
+        set_line_buf(cpu, rsyms, "@$2000 ; seek")
+        run_at(cpu, rsyms.exec_line)
+        assert get_cur_addr(cpu, rsyms) == 0x2000
+        # No ';?' error should have been emitted.
+        for row in range(ROWS):
+            base = SCREEN + row * COLS
+            assert not (cpu.memory[base] == 0x3B and
+                        cpu.memory[base + 1] == 0x3F), \
+                f"unexpected ';?' row {row}"
+
 
 # ── D. Address prefix parsing ────────────────────────────────
 
@@ -785,6 +836,63 @@ class TestBlockSize:
         run_at(cpu, rsyms.exec_line)
         got = get_word(cpu, rsyms.block_size)
         assert got == expected, f"Expected ${expected:04X}, got ${got:04X}"
+
+    # ── Trailing-garbage rejection for `B` (Escape Analysis class-wide) ──
+
+    BLOCK_GARBAGE = ["B1x", "B$20xx", "B$10+$10 junk"]
+
+    @pytest.mark.parametrize("cmd", BLOCK_GARBAGE, ids=BLOCK_GARBAGE)
+    def test_block_rejects_trailing_garbage(self, rsyms, cmd):
+        """`B` must reject trailing non-whitespace/non-comment content."""
+        cpu = make_cpu(rsyms)
+        # Prime block_size to a distinct value so we detect if the
+        # error path silently set it from the value-prefix parse.
+        set_word(cpu, rsyms.block_size, 0x0010)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        found_error = False
+        for row in range(ROWS):
+            base = SCREEN + row * COLS
+            if cpu.memory[base] == 0x3B and cpu.memory[base + 1] == 0x3F:
+                found_error = True
+                break
+        assert found_error, \
+            f"{cmd!r} silently accepted (no ';?' error row)"
+        assert get_word(cpu, rsyms.block_size) == 0x0010, \
+            f"{cmd!r} modified block_size despite trailing garbage"
+
+
+# ── K2. Color command trailing-garbage (Escape Analysis class-wide) ──
+
+class TestColorCommand:
+    """'C' command sets theme colors or displays when called bare.
+    Added as part of the trailing-garbage Escape Analysis sweep."""
+
+    COLOR_GARBAGE = [
+        "C0x",       # one hex digit + non-hex trailing
+        "C0e6z",     # three hex digits + non-hex trailing
+        "C 0 x",     # hex digit + whitespace + non-hex
+    ]
+
+    @pytest.mark.parametrize("cmd", COLOR_GARBAGE, ids=COLOR_GARBAGE)
+    def test_color_rejects_trailing_garbage(self, rsyms, cmd):
+        """`C` must reject non-hex content following its 1–3 hex digits."""
+        cpu = make_cpu(rsyms)
+        # Snapshot theme_fg as the canary — if `C 0x` silently applies
+        # fg=$0, theme_fg flips to 0.
+        fg_before = cpu.memory[rsyms.reg_a]  # not ideal, see below
+        # (reg_a isn't theme_fg — we'll check via the error-row marker
+        # instead, which is the more robust signal anyway.)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        found_error = False
+        for row in range(ROWS):
+            base = SCREEN + row * COLS
+            if cpu.memory[base] == 0x3B and cpu.memory[base + 1] == 0x3F:
+                found_error = True
+                break
+        assert found_error, \
+            f"{cmd!r} silently accepted (no ';?' error row)"
 
 
 # ── L. Repeat empty line ─────────────────────────────────────

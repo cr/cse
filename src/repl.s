@@ -554,6 +554,46 @@ parse_hex4_ptr1:
 
 
 ; ═══════════════════════════════════════════════════════════
+; _require_eoi_or_err — reject trailing garbage after a parse
+;
+; Checks the region starting at (rp_ptr),Y for EOI: only whitespace
+; (space $20 / shifted-space $A0), then NUL or ';' is acceptable.
+; Anything else is a trailing-garbage syntax error.
+;
+; On clean EOI: normal RTS (rp_ptr, Y unchanged on return).
+; On garbage:   POPS the caller's return address from the stack and
+;               tail-calls log_err with str_syntax — control flows
+;               back to exec_line, skipping the remainder of the
+;               caller's command handler body.
+;
+; Used by commands that take "exactly one argument and nothing else"
+; (? @ B C, and any future one-shot).  See
+; doc/modules/repl.md § Single-expression command contract.
+;
+; Stack contract: the caller must be at top of the handler's call
+; chain (jsr'd directly from exec_line's jmp (rp_ptr2) dispatch or
+; its equivalent) — the pla/pla discards ONE return address and
+; relies on log_err's RTS popping exec_line's caller.
+; ═══════════════════════════════════════════════════════════
+_require_eoi_or_err:
+@lp:    lda (rp_ptr),y
+        beq @ok
+        cmp #';'
+        beq @ok
+        cmp #' '
+        beq @adv
+        cmp #$a0                ; shifted space / tab
+        bne @err
+@adv:   iny
+        bne @lp
+@ok:    rts
+@err:   pla                     ; discard caller return lo
+        pla                     ; discard caller return hi
+        lda #<str_syntax
+        ldx #>str_syntax
+        jmp log_err
+
+; ═══════════════════════════════════════════════════════════
 ; try_expr — evaluate expression at rp_ptr
 ;   C=1: success (result in expr_val, rp_ptr advanced)
 ;   C=0: empty or error (error printed)
@@ -3135,8 +3175,20 @@ prg_ok_done:
 @h_i:   clc                     ; C=0 = full mode
         jmp cmd_info
 
-@h_at:  ; @ — set address
-        jsr expr_set_curaddr
+@h_at:  ; @ — set address.  Parse → EOI check → apply.
+        ; Can't delegate to expr_set_curaddr: it applies cur_addr
+        ; before we can check EOI.  Inline the apply after the EOI
+        ; check so garbage input leaves cur_addr untouched.
+        jsr try_expr
+        bcc @at_done            ; empty/error → skip apply and EOI
+                                ; (try_expr emits its own error)
+        ldy #0
+        jsr _require_eoi_or_err
+        lda expr_val
+        sta cur_addr
+        lda expr_val+1
+        sta cur_addr+1
+@at_done:
         jmp nl_clear
 
 @h_plus:; + — advance address
@@ -3163,7 +3215,19 @@ prg_ok_done:
         jmp nl_clear
 
 @h_j:   ; j — jump/execute
-        jsr expr_set_curaddr
+        ; Class-wide Escape Analysis fix: same pattern as @h_at — parse,
+        ; EOI check, apply.  On bare `j` or expr-error, preserve the
+        ; existing behaviour of jumping with whatever cur_addr holds
+        ; (try_expr already emitted its own error if there was one).
+        jsr try_expr
+        bcc @j_run              ; empty/error → jump with current cur_addr
+        ldy #0
+        jsr _require_eoi_or_err ; trailing garbage → abort, don't jump
+        lda expr_val
+        sta cur_addr
+        lda expr_val+1
+        sta cur_addr+1
+@j_run:
         jmp cmd_jmp
 
 @h_g:   ; g — go (sym_lookup "main")
@@ -3194,7 +3258,11 @@ prg_ok_done:
 
 @h_blk: ; B (PETSCII $C2) — block size
         jsr try_expr
-        bcc @B_show
+        bcc @B_show             ; empty or error → show current
+        ; Success path: reject trailing garbage before applying value
+        ; (Escape Analysis class-wide via shared helper).
+        ldy #0
+        jsr _require_eoi_or_err
         lda expr_val
         ora expr_val+1
         beq @B_show
@@ -3213,10 +3281,21 @@ prg_ok_done:
         txa
         tay
         jsr is_hex_at_ptr1
-        beq @C_apply
+        beq @C_eoi
         inx
         cpx #3
         bcc @C_count
+@C_eoi:
+        ; Reject trailing garbage BEFORE any color is applied (Escape
+        ; Analysis class-wide via shared helper).  X = digit count;
+        ; check the region from rp_ptr+X onward for NUL/';' (with
+        ; optional whitespace).  Non-whitespace after the digits is
+        ; a syntax error — discards the command without touching theme.
+        stx rp_save
+        txa
+        tay
+        jsr _require_eoi_or_err
+        ldx rp_save             ; restore digit count for apply dispatch
 @C_apply:
         cpx #1
         beq @C_one
@@ -3396,34 +3475,16 @@ prg_ok_done:
         cmp #2
         jcs @calc_err
 
-        ; End-of-input check: trailing non-whitespace / non-comment
-        ; content is a syntax error (Escape Analysis 2026-04-20 —
-        ; expr_eval stops at the first unparsed char and leaves it
-        ; in expr_ptr; per expr.md § Caveats the caller owns the EOI
-        ; policy, and `?` takes a single complete expression).
-@calc_eoi_lp:
+        ; Single-expression command — reject trailing garbage
+        ; (Escape Analysis class-wide, via shared helper).
+        ; expr_eval advanced expr_ptr, not rp_ptr — sync first.
+        lda expr_ptr
+        sta rp_ptr
+        lda expr_ptr+1
+        sta rp_ptr+1
         ldy #0
-        lda (expr_ptr),y
-        beq @calc_eoi_ok        ; NUL — end of line_buf
-        cmp #';'
-        beq @calc_eoi_ok        ; comment — end of evaluable input
-        cmp #' '
-        beq @calc_eoi_adv
-        cmp #$a0                ; shifted space / tab
-        bne @calc_trail_err
-@calc_eoi_adv:
-        inc expr_ptr
-        bne @calc_eoi_lp
-        inc expr_ptr+1
-        jmp @calc_eoi_lp
+        jsr _require_eoi_or_err
 
-@calc_trail_err:
-        ldy #LOG_ERR
-        jsr log_open
-        puts str_syntax
-        jmp log_close
-
-@calc_eoi_ok:
         ; hex display
         ldy #LOG_INFO
         jsr log_open

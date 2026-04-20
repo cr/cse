@@ -120,25 +120,35 @@ Open bugs, roughly ordered by priority.
   exercised by C64Emu tests and adding one read-ptr assert per
   existing test is cheaper than a bundle build.  Queued rather
   than landed inline because it's a design-call, not mechanical.
-- [ ] **BUG** (class-wide, Escape Analysis 2026-04-20): REPL commands
-  that take a single expression silently accept trailing garbage.
-  `?` was fixed (it now skips trailing whitespace and rejects any
-  non-NUL, non-`;` content), but the same class hits `@` (seek), `B`
-  (block size), `C` (color), and any other "one complete expression"
-  command that goes through `try_expr` without its own EOI check.
-  Root cause is contractual, not a parser bug: `expr_eval` is
-  partial-mode by design (assembler operand parsing needs
-  "parse prefix, leave rest" for inputs like `$10,X` or `AAAA:`), so
-  the EOI obligation lives at the caller.  Fix: extract the
-  `@calc_eoi_lp / @calc_trail_err` snippet from `@h_calc` into a
-  private `_require_eoi_or_err` helper, and call it after every
-  `try_expr` / `expr_eval` callsite in repl.s that represents a
-  "one expression argument, nothing else" command.  Test: parametrise
-  the new `TestCalculator::test_calc_rejects_trailing_garbage` pattern
-  across `@`, `B`, `C`, and any other one-shot.  Contract: add a
-  "rejects trailing content" clause to each affected row of repl.md
-  § Commands, and a `repl.md § Single-expression command contract`
-  section that cross-references the helper.
+- [x] ~~**BUG** (class-wide, Escape Analysis 2026-04-20): REPL commands
+  that take a single expression silently accept trailing garbage.~~
+  (resolved: extracted `_require_eoi_or_err` helper in repl.s and
+  applied to `@` (seek), `B` (block size), `C` (color), and `j`
+  (jump) — all now reject trailing non-whitespace/non-comment
+  content as `;?syntax`.  Tests parametrised in test_repl.py across
+  TestAddressCommands / TestBlockSize / TestColorCommand /
+  TestCalculator.  repl.md § Single-expression command contract
+  updated to list all five commands (`?` `@` `B` `C` `j`) as
+  covered.  Remaining: `+` and `-` share the class but are
+  complicated by their `expr_or_blocksize` fallback — tracked as a
+  follow-up below.)
+
+- [ ] **Escape Analysis follow-up** (Principle 11 class closure):
+  apply the `_require_eoi_or_err` pattern to `+` and `-`.  Both use
+  `expr_or_blocksize` which returns a value either from parsing or
+  from block_size fallback, so the straightforward "error on
+  trailing garbage" check would emit a double error on
+  `+ undefsym` (one from try_expr's expr-error emission, one from
+  our EOI check seeing the undefined symbol name as garbage).
+  Design: bifurcate the paths — if try_expr returned C=1 (success),
+  run EOI check before applying; if C=0 (empty or error), skip EOI
+  (the fallback / error-already-emitted path).  Mirrors the shape
+  used in `@h_at` and `@h_j`.  Landing requires adding the same
+  bifurcation to expr_or_blocksize's callers or inlining try_expr
+  directly in `@h_plus` / `@h_minus`.  Low priority — manual testing
+  shows the silent-accept is benign for `+` / `-` in practice
+  (cur_addr moves by an unintended amount but no state corruption),
+  but closing the class is worth doing for consistency.
 - [x] ~~**BUG**: `. .` is accepted as a valid dot-assemble source~~
   (fixed via Escape Analysis c8501d2: the actual symptom was
   "silent no-op" not "emits $00" — the cmd_dot @try_mne gate in
