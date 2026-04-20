@@ -148,23 +148,20 @@ Open bugs, roughly ordered by priority.
   else → @syn_err.  repl.md now documents the `.` command's input-
   shape matrix as a four-cell commitment; testing.md Principle 11
   gains this as a second cautionary example after the asm_cpu gate.)
-- [ ] **BUG**: not all log functions honour the "enter anywhere,
-  exit at col 0" contract (log.md § Contract).  `log_open` and
-  `info_line_head` auto-advance to a fresh row when CUR_COL != 0,
-  but some log family entry points bypass those wrappers and emit
-  without checking — so logging mid-line produces a glued line
-  instead of a fresh row.  Audit every export in log.s
-  (`log_open`, `log_close`, `log_line`, `log_err`, `log_warn`,
-  `log_info`, `puts_imm`, `seg_line`, `prg_line`, `free_line`,
-  `info_line`, `info_line_head`, `info_line_tail`) for the
-  invariant; add the col-check wherever it's missing.  Escape
-  Analysis candidate: the contract is documented in log.md but
-  not exhaustively tested — test_log.py covers the invariant only
-  for `log_open` (test_log_open_auto_advances_when_cursor_mid_line /
-  test_log_open_no_newline_when_cursor_at_col_0), not for the
-  other entry points.  Fix should add a parametrised test sweep:
-  for every log entry point, call it with CUR_COL=12 and assert
-  the row advanced to TEST_ROW+1 before the emission began.
+- [x] ~~**BUG**: not all log functions honour the "enter anywhere,
+  exit at col 0" contract~~ (resolved via Escape Analysis: the
+  bug turned out to be under-testing, not under-implementation —
+  a probe of all 9 line-starters at CUR_COL=12 showed every one
+  auto-advances correctly.  The invariant was transitively honoured
+  through composition (log_line/err/warn/info → log_open;
+  seg/prg/free_line → info_line_head) but only pinned at
+  log_open directly.  Fixed by TestEnterAnywhereContract in
+  test_log.py: a parametrised sweep over all 9 line-starters,
+  each asserting (a) cursor advanced past TEST_ROW, (b) TEST_ROW
+  at cols 12+ untouched.  log.md's Contract section now
+  enumerates the per-function behaviour as a table (enter-anywhere
+  × exit-at-col-0 matrix), turning the compositional guarantee
+  into a per-function commitment per Principle 8.)
 - [x] ~~Userland exit does not restore screen state.~~ (fixed:
   `vic_reset` in screen.s forces $D011=$1B, $D016=$C8, $D018=$15,
   $D015=0, $D01A=0, $D019=$0F on every userland → kernel

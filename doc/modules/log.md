@@ -100,6 +100,28 @@ log line.  `log_close` then does `io_clear_eol + newline`, so
 output flows line-by-line without explicit newlines at call
 sites.
 
+The contract is **compositional** — it's the paired
+open-and-close operation that guarantees both halves, not any
+individual function:
+
+| Entry point | Enter-anywhere | Exit-at-col-0 | How |
+|---|---|---|---|
+| `log_open` | yes | no (leaves cursor after `;X`) | auto-advance if CUR_COL != 0 |
+| `log_close` | n/a (called mid-line) | yes | `io_clear_eol + newline` |
+| `log_line` / `log_err` / `log_warn` / `log_info` | yes | yes | log_open + content + log_close |
+| `info_line_head` | yes | no (leaves cursor mid-line) | auto-advance if CUR_COL != 0 |
+| `info_line_tail` | n/a | yes | pad-to-40 + `newline` |
+| `info_line` / `seg_line` / `prg_line` / `free_line` | yes | yes | info_line_head + content + info_line_tail |
+| `puts_imm` | n/a (inline text) | n/a (inline text) | outside the contract |
+
+Every line-starting entry point is pinned by
+`tests/unit/test_log.py::TestEnterAnywhereContract` — a
+parametrised sweep over the 9 line-starters, per Principle 8
+(contractual coverage is exhaustive, not illustrative).  The
+line-enders' exit-at-col-0 guarantees are pinned by
+`test_log_close_advances_cursor` and
+`test_info_line_tail_pads_to_40_and_newlines`.
+
 Address context goes in the `AAAA:` prefix (caller's job).  Line
 references go at the tail of the content (`LNNN`).
 

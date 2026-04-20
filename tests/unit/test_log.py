@@ -344,6 +344,96 @@ def test_log_open_no_newline_when_cursor_at_col_0(log_syms):
     assert row[1] == SC_SPACE
 
 
+# ── Contract sweep: enter-anywhere for ALL line-starters ─────────────
+#
+# Escape Analysis 2026-04-20: the "enter anywhere" half of the
+# contract (log.md § Contract) was only explicitly tested for
+# log_open.  Nine other line-starters inherit the property by
+# composition (each ultimately calls log_open or info_line_head),
+# but a regression at the inherited level would only surface
+# through the right caller.  This sweep locks every line-starter
+# to the invariant directly, closing the under-testing escape.
+
+class TestEnterAnywhereContract:
+    """Contract: line-starting log functions auto-advance to col 0
+    of a fresh row when called mid-line.  Applies to every entry
+    point that opens a log line.  NOT to puts_imm (inline string,
+    no line-start semantics), log_close, or info_line_tail
+    (line-terminators, not line-starters).
+
+    Pinned per-function so a regression in any one is caught at
+    its own cell, not via a composite test of something else.
+    Related to Principle 8 (contractual coverage is exhaustive,
+    not illustrative): the contract applies to a family, so every
+    member gets a test.
+    """
+
+    def _setup_and_prime(self, log_syms, entry_name):
+        """Fresh MPU mid-line at (TEST_ROW, col=12), with the ZP
+        state every range-line formatter needs primed."""
+        cpu, mem = _setup(log_syms, row=TEST_ROW, col=12)
+        # Also clear TEST_ROW+1 so we can inspect it post-emit.
+        next_base = SCREEN_BASE + (TEST_ROW + 1) * COLS
+        for i in range(COLS):
+            mem[next_base + i] = SC_SPACE
+        # Prime range-line ZP state (safe to set even for non-range entries).
+        tag = log_syms.s["str_tag_org"]
+        mem[log_syms.rp_ptr2]     = tag & 0xFF
+        mem[log_syms.rp_ptr2 + 1] = (tag >> 8) & 0xFF
+        mem[log_syms.rp_addr]     = 0x00
+        mem[log_syms.rp_addr + 1] = 0xC0
+        mem[log_syms.rp_cnt]      = 0x0F
+        mem[log_syms.rp_cnt + 1]  = 0xC0
+        mem[log_syms.rp_save2]    = 0
+        mem[log_syms._info_mode]  = 0
+        # Prime content string for funcs that take A/X pointer.
+        _write_string(mem, CONTENT_ADDR, "hi")
+        return cpu, mem
+
+    # (entry_attr, invocation_args, note)
+    # invocation_args is a dict the test passes to _run.
+    LINE_STARTERS = [
+        ("log_open",         {"y": 0x20},                                  "log_open LOG_INFO"),
+        ("log_line",         {"y": 0x20, "a": CONTENT_ADDR & 0xFF,
+                              "x": (CONTENT_ADDR >> 8) & 0xFF},             "log_line"),
+        ("log_info",         {"a": CONTENT_ADDR & 0xFF,
+                              "x": (CONTENT_ADDR >> 8) & 0xFF},             "log_info"),
+        ("log_err",          {"a": CONTENT_ADDR & 0xFF,
+                              "x": (CONTENT_ADDR >> 8) & 0xFF},             "log_err"),
+        ("log_warn",         {"a": CONTENT_ADDR & 0xFF,
+                              "x": (CONTENT_ADDR >> 8) & 0xFF},             "log_warn"),
+        ("seg_line",         {},                                            "seg_line"),
+        ("prg_line",         {},                                            "prg_line"),
+        ("free_line",        {},                                            "free_line"),
+        ("info_line_head",   {},                                            "info_line_head"),
+    ]
+
+    @pytest.mark.parametrize("entry_attr,args,note", LINE_STARTERS,
+                             ids=[c[2] for c in LINE_STARTERS])
+    def test_auto_advances_when_mid_line(self, log_syms, entry_attr,
+                                          args, note):
+        """Entry point called mid-line (CUR_COL=12) must advance to a
+        fresh row before emitting.  TEST_ROW (the mid-line row) must
+        be untouched at the cursor column and beyond; emission
+        happens on TEST_ROW+1 or later."""
+        cpu, mem = self._setup_and_prime(log_syms, entry_attr)
+        entry = getattr(log_syms, entry_attr)
+        _run(cpu, entry, **args)
+
+        # Cursor must have advanced past TEST_ROW.
+        assert mem[0xD6] > TEST_ROW, \
+            f"{note}: cursor still on TEST_ROW (${mem[0xD6]:02X}) — " \
+            f"enter-anywhere violation"
+
+        # TEST_ROW at columns >= 12 must still be spaces (the
+        # function did not glue output onto the mid-line row).
+        same_row = _row(mem, TEST_ROW)
+        for c in range(12, COLS):
+            assert same_row[c] == SC_SPACE, \
+                f"{note}: TEST_ROW col {c} was overwritten " \
+                f"(${same_row[c]:02X}) — enter-anywhere violation"
+
+
 # log_err_eol / log_close_eol were retired pre-Tier-U move — their
 # logic was redundant (trailing io_clear_eol on a row show_prompt
 # overwrites; leading newline wasted a visual row).  Callers use
