@@ -647,6 +647,44 @@ class TestCalculator:
         assert not found_value, \
             f"{cmd!r} displayed a value despite trailing garbage"
 
+    def test_calc_preserves_prompt_row(self, rsyms):
+        """Regression: `?` must emit its output on a FRESH row below
+        the prompt, not overwrite the prompt row itself.
+
+        The earlier "enter anywhere" Escape Analysis (commit 2fec584)
+        relied on log_open's auto-advance when CUR_COL != 0.  But
+        main.s's RETURN handler was homing CUR_COL=0 before exec_line,
+        so log_open saw "already at col 0 — don't advance" and
+        overwrote the prompt line.  Fix: main.s no longer homes
+        CUR_COL; cursor remains wherever the user was when RETURN
+        fired (typically mid-line), letting log_open's auto-advance
+        actually fire.  Display emitters (`.`, `m`, `d`) still
+        overwrite via io_addr_cmd's own explicit CUR_COL=0.
+        """
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x1000)
+        # Simulate the "typed command, cursor at end of input"
+        # state that RETURN produces in practice.
+        cpu.memory[CUR_ROW] = 5
+        cpu.memory[CUR_COL] = 11     # end of "1000:? $42"
+        # Pre-populate row 5 with a distinct pattern so we can tell
+        # whether it was overwritten.  Screen code $7F is a marker.
+        base = SCREEN + 5 * COLS
+        for i in range(COLS):
+            cpu.memory[base + i] = 0x7F
+        set_line_buf(cpu, rsyms, "? $42")
+        run_at(cpu, rsyms.exec_line)
+        # Row 5 (the prompt row) must still contain its marker
+        # pattern at col 0 — not a ';' (log-line start) or value.
+        assert cpu.memory[base] == 0x7F, \
+            f"prompt row overwritten: row 5 col 0 = ${cpu.memory[base]:02X}, " \
+            f"expected $7F (marker untouched)"
+        # Row 6 (the fresh row) should contain the ';  $42...' output.
+        next_base = SCREEN + 6 * COLS
+        assert cpu.memory[next_base] == 0x3B, \
+            f"expected ';' (log-info) on row 6 col 0, got " \
+            f"${cpu.memory[next_base]:02X}"
+
     def test_calc_accepts_trailing_whitespace(self, rsyms):
         """Whitespace after the expression is fine (no trailing-garbage error)."""
         cpu = make_cpu(rsyms)

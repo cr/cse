@@ -419,8 +419,20 @@ main_loop:
         cmp #CH_ENTER
         bne @not_enter
         jsr read_line
+        ; Cursor intentionally NOT homed to col 0 here.  exec_line
+        ; receives the cursor wherever the user was when RETURN fired
+        ; — typically mid-line at the end of their typed command.
+        ; Command handlers reposition as needed:
+        ;   - Display emitters (`.`, `m`, `d`) call io_addr_cmd which
+        ;     explicitly sets CUR_COL=0 to overwrite the prompt row.
+        ;   - Log-emitting commands let log_open's auto-advance
+        ;     (CUR_COL != 0 → newline) move to a fresh row — the
+        ;     "enter anywhere" half of log.md's Contract.
+        ; Homing CUR_COL=0 here would force log_open to see a
+        ; "safe at col 0" state and skip its advance, overwriting
+        ; the user's typed command line.  See Escape Analysis for
+        ; the 2026-04-20 log contract regression.
         lda #0
-        sta CUR_COL
         sta run_user_pending    ; clear before exec_line
         jsr exec_line
         lda run_user_pending
