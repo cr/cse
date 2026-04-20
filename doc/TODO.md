@@ -139,18 +139,15 @@ Open bugs, roughly ordered by priority.
   "rejects trailing content" clause to each affected row of repl.md
   § Commands, and a `repl.md § Single-expression command contract`
   section that cross-references the helper.
-- [ ] **BUG**: `. .` is accepted as a valid dot-assemble source and
-  emits `$00` (BRK opcode).  The dot-assemble parser in repl.s
-  treats the second `.` as a mnemonic prefix, mn7 hashes three
-  consecutive PETSCII dots to some slot whose base_op happens to
-  be `$00`, and asm_line emits it.  Fix: reject non-alphabetic
-  mnemonic characters in `_asm_rd_upper` (or earlier in dot_assemble
-  before mn_classify runs).  Test: add a case to
-  TestCpuGateCmosBundle (or a new dedicated class) asserting that
-  `. .`, `. ,`, `. $`, and other pure-punctuation "mnemonics" are
-  rejected with asm_error.  This is another asm_line Escape
-  Analysis candidate — the mnemonic-input-validation contract was
-  never written down.
+- [x] ~~**BUG**: `. .` is accepted as a valid dot-assemble source~~
+  (fixed via Escape Analysis c8501d2: the actual symptom was
+  "silent no-op" not "emits $00" — the cmd_dot @try_mne gate in
+  repl.s silently fell through to the display-only @show path for
+  non-letter input.  Fixed by splitting the gate: NUL/`;` →
+  @show (valid silent redisplay), letter → dot_assemble, anything
+  else → @syn_err.  repl.md now documents the `.` command's input-
+  shape matrix as a four-cell commitment; testing.md Principle 11
+  gains this as a second cautionary example after the asm_cpu gate.)
 - [ ] **BUG**: not all log functions honour the "enter anywhere,
   exit at col 0" contract (log.md § Contract).  `log_open` and
   `info_line_head` auto-advance to a fresh row when CUR_COL != 0,
