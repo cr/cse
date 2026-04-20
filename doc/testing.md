@@ -24,6 +24,14 @@ Tests live in `tests/unit/`.  One pytest file per module (or
 per bundle — the `asm_core` and `mn6`/`mn7` bundles group
 tightly-coupled neighbours).
 
+This is **bundled unit testing** (see [glossary.md § Process](glossary.md#process)):
+a CSE-specific variant of Martin Fowler's *sociable unit testing*,
+where the SUT runs against its real transitive dependencies instead
+of mocks.  Stubs provide linker scaffolding only — never behaviour.
+The codebase's stratified shape makes this cheap: a bundle is a
+downward slice through the dependency DAG, so every test cell
+exercises real code on real code without combinatorial blow-up.
+
 ### Tier I — Integration (C64Emu + full PRG)
 
 A test graduates to Tier I when any of the following holds:
