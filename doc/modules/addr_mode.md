@@ -14,12 +14,26 @@
 ### mode_parse
 **In:** `asm_ptr` (ZP, pointer to operand string in PETSCII), Y=0
 **Out:** A = mode index (0–15), X = operand byte count (0–2),
-`asm_opr[0..1]` = operand bytes (little-endian)
+`asm_opr[0..1]` = operand bytes (little-endian).
+**Partial-result state** (per testing.md § Principle 13): the
+combined position `asm_ptr + Y` on return points at the first byte
+beyond the recognised operand — NUL (end of input), `';'` (comment
+start), or post-whitespace NUL for the IMP-empty case.  asm_line
+depends on this to recognise end-of-instruction without a separate
+EOI scan; see `tests/unit/test_addr_mode.py::TestModeParseStopContract`
+for the position-pinning witness.
 **Clobbers:** A, X, Y
 
 ### asm_skip_ws
 **In:** `asm_ptr`, Y = current offset
-**Out:** Y advanced past spaces ($20) and tabs ($A0)
+**Out:** Y advanced past spaces ($20) and tabs ($A0).
+**Partial-result state** (Principle 13): `asm_skip_ws` is itself a
+partial-result function (Y is the ancillary state), but its
+contract is transitively pinned by every `test_parse_ok` case in
+`tests/unit/test_addr_mode.py` whose operand contains leading,
+trailing, or embedded whitespace — the resulting `asm_ptr + Y`
+witness proves the skip's Y-advance is correct in situ.  A direct
+test would re-exercise the same bytes through a thinner harness.
 **Clobbers:** A
 
 ### Memory

@@ -179,6 +179,13 @@ def _run(asm_syms, arg: str):
     """Call mode_parse with `arg`.  Return (mode, x, opr0, opr1) on
     clean exit; raise SyntaxError when the assembler's error path
     fires."""
+    mode, x, opr0, opr1, _effective_off = _run_full(asm_syms, arg)
+    return (mode, x, opr0, opr1)
+
+
+def _run_full(asm_syms, arg: str):
+    """Like _run but also returns the combined (asm_ptr + Y) effective
+    stopping offset from the start of the input buffer."""
     from conftest import make_cpu, push_rts_sentinel, step_until_any_pc
 
     cpu, mem = make_cpu(asm_syms)
@@ -197,7 +204,11 @@ def _run(asm_syms, arg: str):
     hit = step_until_any_pc(cpu, targets, max_steps=_MAX_STEPS, what=repr(arg))
 
     if hit == sentinel:
-        return (cpu.a, cpu.x, mem[asm_syms.asm_opr], mem[asm_syms.asm_opr + 1])
+        final_ptr = (mem[asm_syms.asm_ptr] |
+                     (mem[asm_syms.asm_ptr + 1] << 8))
+        effective_off = (final_ptr - _TEST_BUF) + cpu.y
+        return (cpu.a, cpu.x, mem[asm_syms.asm_opr], mem[asm_syms.asm_opr + 1],
+                effective_off)
     raise SyntaxError(f"{'asm_syntax_error' if hit == asm_syms.asm_syntax_error else 'asm_expr_error'} reached for {arg!r}")
 
 
@@ -219,6 +230,61 @@ def test_parse_error(asm_syms, arg):
         _run(asm_syms, arg)
 
 
+# ─── mode_parse partial-result (stopping-position) contract ─────────────────
+
+class TestModeParseStopContract:
+    """mode_parse is a partial-result function per Principle 13: its
+    success value depends on the combined position `asm_ptr + Y` at
+    return, in addition to (mode, byte_count, operand_bytes).  This
+    class pins the stopping-position contract.
+
+    Documented in [addr_mode.md § mode_parse](../../doc/modules/addr_mode.md).
+
+    The effective stop position points at the first byte BEYOND the
+    recognised operand: NUL (end of input), ';' (comment start), or
+    post-whitespace NUL for the IMP-empty case.  asm_line uses this
+    to recognise end-of-instruction — a regression that left the
+    combined pointer mid-operand would corrupt multi-instruction
+    parsing silently.
+
+    Added by TDD Maintenance sweep 2026-04-20 following the
+    introduction of Principle 13.
+    """
+
+    # (arg, expected_mode, expected_effective_offset, note)
+    STOP_CASES = [
+        ("",               IMP,    0, "empty → stop at NUL"),
+        ("   ",            IMP,    3, "whitespace-only → past ws, at NUL"),
+        ("A",              ACC,    1, "ACC bare → past 'A' to NUL"),
+        ("$42",            ZP,     3, "ZP → past '$42' to NUL"),
+        ("$42,X",          ZPX,    5, "ZPX → past ',X' to NUL"),
+        ("$42,Y",          ZPY,    5, "ZPY → past ',Y' to NUL"),
+        ("$1234",          ABS,    5, "ABS → past hex4 to NUL"),
+        ("$1234,X",        ABX,    7, "ABX → past ',X' to NUL"),
+        ("$1234,Y",        ABY,    7, "ABY → past ',Y' to NUL"),
+        ("#$00",           IMM,    4, "IMM → past '#$00' to NUL"),
+        ("($42,X)",        INX,    7, "INX → past ')' to NUL"),
+        ("($42),Y",        INY,    7, "INY → past ',Y' to NUL"),
+        ("($1234)",        IND,    7, "IND → past ')' to NUL"),
+        ("($42)",          ZPI,    5, "ZPI → past ')' to NUL"),
+        ("$42 ; comment",  ZP,     4, "ZP + comment → stop at ';'"),
+        ("A ; cmt",        ACC,    2, "ACC + comment → stop at ';'"),
+        ("$1234,X ; note", ABX,    8, "ABX + comment → stop at ';'"),
+        ("$42,$10",        ZPREL,  7, "ZPREL → past 2nd operand to NUL"),
+    ]
+
+    @pytest.mark.parametrize("arg,mode,effective_off,note", STOP_CASES,
+                             ids=[c[3] for c in STOP_CASES])
+    def test_stop_position(self, asm_syms, arg, mode, effective_off, note):
+        """The effective stop position (asm_ptr + Y) must land on the
+        first byte beyond the operand: NUL, ';', or post-leading-ws NUL."""
+        got_mode, _x, _o0, _o1, got_off = _run_full(asm_syms, arg)
+        assert got_mode == mode, \
+            f"{note}: mode got {got_mode}, expected {mode}"
+        assert got_off == effective_off, \
+            f"{note}: effective stop offset got {got_off}, expected {effective_off}"
+
+
 # ─── asm_skip_ws — vocal skip (subsumed by mode_parse coverage) ─────────────
 
 class TestAsmSkipWs:
@@ -234,10 +300,16 @@ class TestAsmSkipWs:
         "asm_skip_ws (addr_mode.md § asm_skip_ws): the whitespace-skip "
         "contract ($20 = space, $A0 = shifted space / tab) is verified "
         "transitively through test_parse_ok (41 cases exercising "
-        "leading/trailing/embedded whitespace).  A direct test would "
-        "exercise the same bytes through a thinner harness without "
-        "catching additional regressions.  Retained as a vocal skip "
-        "per doc/testing.md § Principle 9 Pattern B (subsumed)."
+        "leading/trailing/embedded whitespace).  Vocal skip per "
+        "testing.md § Principle 9 Pattern B (subsumed).  "
+        "Principle-13 note (partial-result position pinning): "
+        "asm_skip_ws IS a partial-result function — Y is its "
+        "ancillary state — and its Y-advance contract is transitively "
+        "pinned by TestModeParseStopContract's effective-offset asserts, "
+        "which depend on asm_skip_ws having advanced Y correctly for "
+        "every leading-whitespace case.  A direct test would "
+        "re-exercise the same bytes through a thinner harness "
+        "without catching additional regressions."
     ))
     def test_asm_skip_ws_contract(self, asm_syms):
         pass

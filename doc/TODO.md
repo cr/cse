@@ -97,6 +97,26 @@ Open bugs, roughly ordered by priority.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
+- [ ] **TDD Maintenance finding** (Principle 13 sweep 2026-04-20):
+  `editor.ed_read_line` is a partial-result function (advances
+  `read_ptr` on each call) but has no unit-tier position-pinning
+  test.  Integration tests in `tests/integration/test_editor.py`
+  exercise the behaviour end-to-end (loading/reading source files
+  works), but `read_ptr`'s position after each call isn't asserted
+  in isolation.  Editor is currently Tier I by the per-module
+  table, so there's no existing unit bundle to host the test.
+  Two fixes:
+  (a) Build an editor Tier U bundle (editor + cse_io + zp + strings
+      + kplot_stub) and add `TestEdReadLineStopContract` — parallel
+      to `TestStopContract` in test_expr.py and
+      `TestModeParseStopContract` in test_addr_mode.py.
+  (b) Document the partial-result contract in `editor.md` and accept
+      integration-tier coverage as sufficient, with a vocal skip at
+      the unit tier citing Principle 9 Pattern A (out-of-tier).
+  Lean toward (a) because editor's gap-buffer state machine is
+  complex enough that isolated testing pays off.  Queued rather
+  than landed inline because it's a bundle-build decision, not
+  mechanical.
 - [ ] **BUG** (class-wide, Escape Analysis 2026-04-20): REPL commands
   that take a single expression silently accept trailing garbage.
   `?` was fixed (it now skips trailing whitespace and rejects any
