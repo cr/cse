@@ -97,6 +97,35 @@ Open bugs, roughly ordered by priority.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
+- [ ] **BUG**: `. .` is accepted as a valid dot-assemble source and
+  emits `$00` (BRK opcode).  The dot-assemble parser in repl.s
+  treats the second `.` as a mnemonic prefix, mn7 hashes three
+  consecutive PETSCII dots to some slot whose base_op happens to
+  be `$00`, and asm_line emits it.  Fix: reject non-alphabetic
+  mnemonic characters in `_asm_rd_upper` (or earlier in dot_assemble
+  before mn_classify runs).  Test: add a case to
+  TestCpuGateCmosBundle (or a new dedicated class) asserting that
+  `. .`, `. ,`, `. $`, and other pure-punctuation "mnemonics" are
+  rejected with asm_error.  This is another asm_line Escape
+  Analysis candidate — the mnemonic-input-validation contract was
+  never written down.
+- [ ] **BUG**: not all log functions honour the "enter anywhere,
+  exit at col 0" contract (log.md § Contract).  `log_open` and
+  `info_line_head` auto-advance to a fresh row when CUR_COL != 0,
+  but some log family entry points bypass those wrappers and emit
+  without checking — so logging mid-line produces a glued line
+  instead of a fresh row.  Audit every export in log.s
+  (`log_open`, `log_close`, `log_line`, `log_err`, `log_warn`,
+  `log_info`, `puts_imm`, `seg_line`, `prg_line`, `free_line`,
+  `info_line`, `info_line_head`, `info_line_tail`) for the
+  invariant; add the col-check wherever it's missing.  Escape
+  Analysis candidate: the contract is documented in log.md but
+  not exhaustively tested — test_log.py covers the invariant only
+  for `log_open` (test_log_open_auto_advances_when_cursor_mid_line /
+  test_log_open_no_newline_when_cursor_at_col_0), not for the
+  other entry points.  Fix should add a parametrised test sweep:
+  for every log entry point, call it with CUR_COL=12 and assert
+  the row advanced to TEST_ROW+1 before the emission began.
 - [x] ~~Userland exit does not restore screen state.~~ (fixed:
   `vic_reset` in screen.s forces $D011=$1B, $D016=$C8, $D018=$15,
   $D015=0, $D01A=0, $D019=$0F on every userland → kernel
