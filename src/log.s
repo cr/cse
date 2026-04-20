@@ -14,10 +14,12 @@
 ;   LOG_WARN = '!'   →  ";!"   warning
 ;   LOG_INFO = ' '   →  "; "   info
 ;
-; Caller owns cursor positioning (typically `jsr newline` at handler entry
-; to leave the prompt line intact).  `log_close` does `io_clear_eol +
-; newline` so output flows line by line without callers adding explicit
-; newlines.
+; Symmetric "enter anywhere, exit at col 0" contract: log_open (and
+; info_line_head) auto-advance to a fresh row when CUR_COL != 0, and
+; log_close does `io_clear_eol + newline`.  Callers do NOT need to
+; `jsr newline` before opening a log line — the wrappers handle both
+; the handler-entry case (already at col 0) and the mid-line case
+; (userland return, continuing progress indicator, etc.).
 ;
 ; All logging primitives live here.  disk.s / editor.s / asm_src.s /
 ; main.s / repl.s import from this module; no module above Layer 2
@@ -82,10 +84,17 @@ log_info:
 ; ── log_open — open a log line at current cursor ─────────
 ; Y = level char
 ; Clobbers: A
+; Auto-advances to a fresh row when CUR_COL != 0, so callers
+; never need a defensive `jsr newline` before log_open.  Paired
+; with log_close's clear-eol + newline, this gives the log family
+; a symmetric "enter anywhere, exit at col 0" contract.
 log_open:
-        tya
+        tya                     ; park level char across newline
         pha
-        lda #';'
+        lda CUR_COL
+        beq :+
+        jsr newline
+:       lda #';'
         jsr io_putc
         pla
         jmp io_putc
@@ -113,36 +122,30 @@ log_close:
 ;   rp_tmp2, which is only 1 byte wide.
 ; ═══════════════════════════════════════════════════════════
 puts_imm:
-        ; Stack on entry: [ret_lo][ret_hi] where ret = (.word) - 1
-        ; (JSR pushes PC-1, and PC after `jsr puts_imm` points at .word.)
         pla
-        sta rp_tmp
-        pla
-        sta rp_tmp+1            ; rp_tmp = ret = (.word) - 1
-        ; Bump rp_tmp by 2 so it points at (.word) + 1 = str_hi byte.
-        ; That address, re-pushed, makes RTS return to (.word) + 2 =
-        ; the instruction after the .word argument.
         clc
-        lda rp_tmp
-        adc #2
+        adc #1
         sta rp_tmp
-        bcc :+
-        inc rp_tmp+1
-:       lda rp_tmp+1
-        pha                     ; push adjusted ret_hi first ...
-        lda rp_tmp
-        pha                     ; ... then ret_lo (top of stack)
-        ; rp_tmp = (.word) + 1 — the str_hi byte.
-        ldy #0
-        lda (rp_tmp),y          ; A = str_hi
-        tax                     ; X = str_hi
-        ; Step rp_tmp back by 1 to reach (.word) = str_lo byte.
-        lda rp_tmp
-        bne :+
-        dec rp_tmp+1
-:       dec rp_tmp
-        lda (rp_tmp),y          ; A = str_lo
-        jmp io_puts             ; tail call; rts returns to caller+5
+        tay
+        pla
+        adc #0
+        sta rp_tmp+1
+        tax
+        tya
+        clc
+        adc #1
+        tay
+        txa
+        adc #0
+        pha
+        tya
+        pha
+        ldy #1
+        lda (rp_tmp),y
+        tax
+        dey
+        lda (rp_tmp),y
+        jmp io_puts
 
 ; ═══════════════════════════════════════════════════════════
 ; Range info line family — "; TAG  AAAA-BBBB NNNNNb [free]"
@@ -172,15 +175,17 @@ info_line:
         jmp info_line_tail
 
 info_line_head:
-        ; save screen addr for invert pass later
+        ; Auto-advance to fresh row if mid-line (mirrors log_open).
+        lda CUR_COL
+        beq :+
+        jsr newline
+:       ; save screen addr for invert pass later
         ldx CUR_ROW
         lda scr_lo,x
         sta rp_next_lo
         lda scr_hi,x
         sta rp_next_lo+1
 
-        lda #0
-        sta CUR_COL
         lda #';'
         jsr io_putc
         lda #' '

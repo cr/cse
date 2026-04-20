@@ -380,6 +380,16 @@ This was applied to `puts_imm` and caused the splash screen
 (and all `puts` macro calls) to read garbage for the string
 low byte.  Reverted to an explicit 16-bit decrement.
 
+**Regression history:** tried again in a later puts_imm rewrite,
+not caught by the existing test suite because no test actually
+inspected screen output after a `puts` macro call (log_info / log_err
+pass A/X directly to io_puts; TestBlockSize only checked the
+block_size variable).  Empirical test via `B` command showed
+garbage output → reverted.  `test_puts_imm_reads_inline_word_correctly`
+in `test_log.py` now guards this permanently by emitting a known
+RODATA string through an injected `jsr puts_imm; .word str; rts`
+stub and asserting the string appears on screen.
+
 ## 20. Stack replaces BSS for cross-call temporaries
 
 When a value must survive one `jsr` call, `pha`/`pla` replaces
@@ -686,3 +696,91 @@ to skip one add entirely.
 
 Used in: `symtab.s` — `entry_ptr` ×6+base with register caching
 and chained add (-13 B).
+
+## 33. PLA+ADC chain for return-address arithmetic
+
+When a subroutine needs to read and bump its own return address
+(e.g. to skip inline arguments after a `jsr`), PLA the bytes
+directly into A and chain the arithmetic inline: `pla; clc; adc #K`
+on the low byte, then `pla; adc #0` on the high byte to propagate
+carry.  Combined with `sta` into a ZP pointer and `tay`/`tax`
+register-caching (§35), the popped-and-adjusted value serves two
+purposes simultaneously — it is both the string-pointer base and
+(after another +1 chain) the patched return address for the
+eventual RTS.
+
+```asm
+; before: pla/sta, pla/sta, arithmetic on ZP, pla/pha reload
+        pla                     ; 1 B — ret_lo
+        clc
+        adc #1                  ; 2 B — +1 to low byte
+        sta rp_tmp              ; 2 B — stash low
+        tay                     ; 1 B — cache low in Y (see §35)
+        pla                     ; 1 B — ret_hi
+        adc #0                  ; 2 B — carry propagates
+        sta rp_tmp+1            ; 2 B — rp_tmp = adjusted
+        tax                     ; 1 B — cache high in X
+```
+
+This block is 12 bytes and: pops both return-address bytes, adds a
+16-bit constant, stores the result into a ZP pointer, AND caches
+both bytes in Y/X for a later re-push.  The absolute-indexed
+alternative (`tsx; lda $0101,x; ...; sta $0101,x`) is larger
+because each stack-slot access is 3 bytes (`$0101,X` / `$0102,X`).
+
+Used in: `log.s` — `puts_imm` does this twice: once to form
+`rp_tmp = str_lo_addr` from the popped return address, once to
+push back `str_hi_addr` as the patched RTS target.
+
+## 34. Branchless 16-bit carry propagation with `adc #0`
+
+When adding a small constant to a 16-bit value, the idiomatic
+`clc; lda lo; adc #K; sta lo; bcc :+; inc hi; :` uses a branch
+for carry propagation.  `adc #0` on the high byte achieves the
+same propagation without the branch — 2 bytes saved, same cycle
+count, straight-line code (also easier to read).
+
+```asm
+; before (11 bytes, branchy)          ; after (9 bytes, branchless)
+        clc                                 clc
+        lda lo                              lda lo
+        adc #K                              adc #K
+        sta lo                              sta lo
+        bcc :+                              lda hi
+        inc hi                              adc #0
+:                                           sta hi
+```
+
+Works because ADC adds `A + operand + carry`; the carry flag
+surviving the first ADC naturally becomes the +1 (or +0) on the
+high byte.  Only applicable when you want the carry to propagate
+into the next byte — which is the whole point of multi-byte add.
+
+Used in: `log.s` — `puts_imm` does `adc #2` on ret_lo then
+`adc #0` on ret_hi to advance past inline arguments.
+
+## 35. Register-cache via `tax`/`tay` to span arithmetic
+
+When a value needs to survive a sequence of register operations
+that would otherwise clobber it, stash it in X or Y with a
+single-byte transfer.  `tay` / `tax` are 1 byte each, vs. 2 for
+`sta tmp` + 2 for `lda tmp` later.  Works as long as the spanning
+code doesn't also need the donor register.
+
+```asm
+; before (6 B: stash to ZP, reload)   ; after (2 B: stash to reg)
+        sta @low                            sta dst1
+        ; ...arithmetic on A...             tay                 ; cache
+        lda @low                            ; ...arithmetic on A...
+        ; ...reuse low...                   tya                 ; recover
+```
+
+Pairs naturally with §33 and §34 when you're producing a value
+that needs to go to BOTH a ZP slot AND be usable later in a
+different position: `sta rp_tmp; tay` is 3 bytes and leaves the
+value in Y for a subsequent `tya` (1 byte) without a reload.
+
+Used in: `log.s` — `puts_imm`'s first arithmetic pass caches the
+low byte of `str_lo_addr` in Y and the high byte in X via
+`sta rp_tmp; tay` / `sta rp_tmp+1; tax`, so the second +1 pass
+can begin from registers with no ZP reloads.

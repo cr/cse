@@ -581,7 +581,6 @@ parse_hex4_ptr1:
         sec
         rts
 @error:
-        jsr newline
         ldy #LOG_ERR
         jsr log_open        ; ";?"
         puts str_expr
@@ -629,7 +628,6 @@ parse_hex4_ptr1:
 ; show_block_size — emit current B=XXXX setting
 ; ───────────────────────────────────────────────────────────
 .proc show_block_size
-        jsr newline
         ldy #LOG_INFO
         jsr log_open
         puts str_blk_eq
@@ -646,7 +644,6 @@ parse_hex4_ptr1:
         clc
         adc #'1'
         pha
-        jsr newline
         ldy #LOG_INFO
         jsr log_open
         puts str_bp_pfx
@@ -672,7 +669,6 @@ parse_hex4_ptr1:
 ; show_theme_colors — emit current border/bg/fg color triplet
 ; ───────────────────────────────────────────────────────────
 .proc show_theme_colors
-        jsr newline
         ldy #LOG_INFO
         jsr log_open
         puts str_color
@@ -1065,11 +1061,8 @@ peek_brk_opcode:
         rts
 
 .proc show_break_result
-        ; Conditional newline above header.
-        lda CUR_COL
-        beq @col0
-        jsr newline
-@col0:
+        ; log_open auto-advances if cursor is mid-line (userland
+        ; return may leave it anywhere); no manual newline needed.
 
         ; Special case: clean RTS through our brk_stub sentinel
         ; (dbg_reason=0 and brk_pc == brk_stub).  The break PC is
@@ -1468,7 +1461,6 @@ peek_brk_opcode:
         pha                     ; lo
         txa
         pha                     ; hi
-        jsr newline
         ldy #LOG_ERR
         jsr log_open
         puts str_expr
@@ -1476,7 +1468,7 @@ peek_brk_opcode:
         tax
         pla                     ; lo
         jsr io_puts
-        jmp log_close   
+        jmp log_close
 @syn_err:
         lda #<str_syntax
         ldx #>str_syntax
@@ -1951,7 +1943,6 @@ pre_userland_run:
 
 @clear_all:
         jsr dbg_bp_clear
-        jsr newline
         lda #<str_bp_clr
         ldx #>str_bp_clr
         jsr log_info
@@ -2353,7 +2344,6 @@ TAB_MASK_WL = TAB_WIDTH - 1
         cmp #40                 ; > 39 ?
         bcc @ok
         ; Print ";!long LNN" (1-based line number)
-        jsr newline
         ldy #LOG_WARN
         jsr log_open
         puts str_long
@@ -2382,7 +2372,6 @@ TAB_MASK_WL = TAB_WIDTH - 1
 ; ═══════════════════════════════════════════════════════════
 io_err_load:
 io_err_save:
-        jsr newline
         lda #<str_fail
         ldx #>str_fail
         jsr log_err
@@ -2545,7 +2534,6 @@ parse_ls_args:
 print_op_name:
         sta rp_tmp
         stx rp_tmp+1
-        jsr newline
         ldy #LOG_INFO
         jsr log_open
         lda rp_tmp
@@ -2617,7 +2605,6 @@ print_op_name:
         beq @seq_too_large
         jmp io_err_load         ; tail-jumps to disk_done
 @seq_too_large:
-        jsr newline
         lda #<str_too_big
         ldx #>str_too_big
         jsr log_err
@@ -2654,7 +2641,6 @@ print_op_name:
 
 ; seq_ok_done — print "; N lines, M bytes", long-line warnings, done.
 seq_ok_done:
-        jsr newline
         ldy #LOG_INFO
         jsr log_open
         jsr print_seq_stats
@@ -2664,7 +2650,6 @@ seq_ok_done:
 
 ; prg_ok_done — print "; prg AAAA-BBBB  NNNb", done.
 prg_ok_done:
-        jsr newline
         jsr prg_line
         jmp disk_done
 
@@ -3139,8 +3124,7 @@ prg_ok_done:
 @h_r:   jmp cmd_reg
 @h_l:   jmp cmd_load
 @h_s:   jmp cmd_write
-@h_i:   jsr newline
-        clc                     ; C=0 = full mode
+@h_i:   clc                     ; C=0 = full mode
         jmp cmd_info
 
 @h_at:  ; @ — set address
@@ -3307,7 +3291,6 @@ prg_ok_done:
         bcc @u_scan
 
 @u_show:
-        jsr newline
         ldy #LOG_INFO
         jsr log_open
         puts str_cpu
@@ -3357,7 +3340,6 @@ prg_ok_done:
 @a_cancel:
         jmp nl_clear
 @a_run:
-        jsr newline
         ldy #LOG_INFO
         jsr log_open        ; "; "
         puts str_asm_ing        ; "asm..."
@@ -3407,7 +3389,6 @@ prg_ok_done:
         jcs @calc_err
 
         ; hex display
-        jsr newline
         ldy #LOG_INFO
         jsr log_open
         lda expr_val+1
@@ -3480,7 +3461,6 @@ prg_ok_done:
         jmp log_close   
 
 @calc_err:
-        jsr newline
         ldy #LOG_ERR
         jsr log_open
         puts str_expr

@@ -13,7 +13,8 @@
 
 ### log_open
 **In:**  Y = level char (`LOG_ERR`/`LOG_WARN`/`LOG_INFO`)
-**Out:** cursor after `;` + level char at the current cursor position
+**Out:** cursor after `;` + level char on a fresh row (auto-newlines
+when entered mid-line, so caller does not need one)
 **Clobbers:** A
 
 Opens a log line.  The caller appends content via `io_puts` / `io_putdec` /
@@ -92,9 +93,12 @@ Three log levels distinguished by the first column of the line:
 | `LOG_WARN` | `!` | `;!` | warning |
 | `LOG_INFO` | ` ` (space) | `; ` | info |
 
-Contract: log functions print wherever the cursor is.  The caller
-owns cursor positioning — typically `jsr newline` at handler entry
-to leave the prompt line intact.
+Contract: **enter anywhere, exit at col 0.** `log_open` (and
+`info_line_head`) auto-advance to a fresh row when `CUR_COL != 0`,
+so callers never need a defensive `jsr newline` before opening a
+log line.  `log_close` then does `io_clear_eol + newline`, so
+output flows line-by-line without explicit newlines at call
+sites.
 
 Address context goes in the `AAAA:` prefix (caller's job).  Line
 references go at the tail of the content (`LNNN`).
