@@ -408,6 +408,44 @@ tests are written, when they are written, and what they test.
     computed lookup, anything in a CODE segment), it ceases to be
     axiomatic and gets a test file at that point.
 
+13. **Partial-result contracts need position-pinning tests.**  A
+    function whose success value depends on state *other than* its
+    return code — the position of an input pointer after a partial
+    parse, a side-effect counter, a residual-input marker — must
+    have unit tests that pin that ancillary state, not just the
+    return code.  Callers composing such a function can only reason
+    correctly about it when the partial-result state is both
+    documented (module doc) and executable (test file).
+
+    **How this shows up in docs.**  Any function whose contract
+    admits "I consumed some of the input" must publish a table of
+    stopping positions for representative inputs.  See
+    [expr.md § Partial-mode contract](modules/expr.md#partial-mode-contract)
+    as the reference template: a short grammar, a stopping-position
+    table, a greediness clause.  The prose must explicitly name the
+    caller's obligation (here: enforce end-of-input if you wanted a
+    complete parse).
+
+    **How this shows up in tests.**  A `TestStopContract` class (or
+    equivalent section) parametrises `(input, expected_value,
+    expected_ptr_offset)` tuples and asserts all three fields.
+    Asserting only `return_code + value` leaves the partial-result
+    state under-specified and invites silent-partial-success bugs
+    at every caller.
+
+    Cautionary example (Escape Analysis 2026-04-20): `expr_eval`
+    accepted `"1x"` as value `1` and left `expr_ptr` at `'x'`.  This
+    is *correct partial-mode behaviour* — assembler-operand callers
+    depend on it to parse prefixes like `$10,X`.  But the REPL's `?`
+    command, which wanted "one complete expression and nothing
+    else," had no way to reason about this because the parser's
+    stopping contract was implicit: expr.md mentioned `expr_ptr
+    advances past the parsed expression` but never tabulated what
+    that meant for `"1x"` vs. `"1+1"` vs. `"1,2"`.  `? 1x` silently
+    displayed `$01` for years.  A `TestStopContract` at unit tier
+    would have made the contract audit-able at a glance; this
+    principle would have forced it to exist.
+
 ## Anti-patterns
 
 These exist in the current test tree.  Don't add more of them;

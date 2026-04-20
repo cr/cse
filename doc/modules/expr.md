@@ -111,11 +111,49 @@ wrote a 4-digit literal, signalling absolute intent.
 buffer, NUL-terminates at the end of the identifier, calls
 `sym_lookup`, restores the original char.
 
+## Partial-mode contract
+
+`expr_eval` is a **partial-mode parser.**  On success it consumes as
+much of the input as forms a valid expression and leaves `expr_ptr`
+at the first unparsed byte.  Partial mode is deliberate, not a
+footgun: every assembler-operand caller (`addr_mode`, `asm_src`, the
+REPL's `try_expr`) relies on this behaviour to parse prefixes like
+`$10,X`, `AAAA:`, or `label+3,Y`, where the "trailing" bytes are
+meaningful continuation syntax the caller consumes next.
+
+**Consequence for single-expression callers.**  Callers that expect
+*exactly one complete expression and nothing else* (the REPL's `?`,
+`@`, `B`, `C` commands) **must enforce their own end-of-input check**
+after `expr_eval` returns success — skip trailing whitespace, then
+verify the next byte is `$00` (end of line_buf) or `';'` (comment
+start).  Anything else is trailing garbage and must be reported as
+a syntax error at the caller's contract tier.  See
+[repl.md § `?` command](repl.md) for the reference implementation.
+
+**Stopping positions** (pinned by
+`tests/unit/test_expr.py::TestStopContract`):
+
+| Input | val | `expr_ptr` stops at |
+|-------|-----|---------------------|
+| `"1x"` | 1 | `'x'` (offset 1) |
+| `"$10gg"` | $10 | `'g'` (offset 3) |
+| `"1 + 1"` | 2 | NUL (offset 5, fully consumed) |
+| `"1 x"` | 1 | `'x'` (offset 2 — space consumed by `parse_mul::skip_sp`) |
+| `"1,2"` | 1 | `','` (offset 1 — `,` is not a recognised operator) |
+| `"42;cmt"` | 42 | `';'` (offset 2) |
+
+**Greediness.**  The parser is greedy within each grammar production:
+`parse_expr`, `parse_add`, and `parse_mul` each call `skip_sp`
+between their inner sub-parse and their operator peek, so inter-token
+whitespace is always consumed if followed by a valid operator.  The
+parser never "un-skips" whitespace it already consumed — if the
+operator peek fails, `expr_ptr` stays where `skip_sp` last parked it.
+
 ## Caveats
 
 - `skip_sp` skips $20 (space) and $A0 (tab) between tokens.
-- `expr_ptr` is advanced past the parsed expression on return.
-  The caller can check what follows (e.g., `,` for comma-separated lists).
+- `expr_ptr` is advanced past the parsed prefix on return (see
+  § Partial-mode contract above for the formal statement).
 - `expr_wide` is reset to 0 at the start of each `_expr_eval` call.
   No contamination from previous calls.
 - Label charset: letters, digits, `.` (dot).  No underscore (not

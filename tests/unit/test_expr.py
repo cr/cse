@@ -502,6 +502,75 @@ def _run_error_str(asm_syms, last_err_value):
     return cpu.a, cpu.x
 
 
+class TestStopContract:
+    """expr_eval is a partial-mode parser: on success it consumes as
+    much of the input as forms a valid expression and leaves `expr_ptr`
+    at the first unparsed byte.  This partial-mode contract is relied
+    on by every assembler-operand caller (addr_mode, asm_src,
+    try_expr) to parse prefixes like `$10,X` or `AAAA:`.
+
+    Pinned by this test class so callers (and any future strict-mode
+    wrapper) can reason about what the parser stops on.
+
+    Added by Escape Analysis 2026-04-20 (`? 1x` silently accepted 1):
+    the contract was implicit in expr.md § Caveats but had no
+    executable witness.
+    """
+
+    # (input, expected_val, expected_ptr_offset, note)
+    STOP_CASES = [
+        ("1x",          0x0001, 1,  "decimal stops at non-digit"),
+        ("$10gzz",      0x0010, 3,  "hex stops at non-hex-digit"),
+        ("%1010z",      0x000A, 5,  "binary stops at non-bin-digit"),
+        ("1,2",         0x0001, 1,  "comma is not an operator"),
+        ("42;comment",  42,     2,  "semicolon is not an operator"),
+        ("1 x",         0x0001, 2,  "inter-token space consumed; 'x' remains"),
+        ("1 ",          0x0001, 2,  "trailing space fully consumed (NUL next)"),
+        ("1 + 1",       0x0002, 5,  "full expression consumed; expr_ptr at NUL"),
+        ("1+1",         0x0002, 3,  "no-space expression consumed"),
+        ("$10 ",        0x0010, 4,  "hex + trailing space → consumed to NUL"),
+        ("42)",         42,     2,  "unmatched ')' stops parsing"),
+        ("1 1",         0x0001, 2,  "second operand without operator stops there"),
+    ]
+
+    @pytest.mark.parametrize("input_str,val,offset,note", STOP_CASES,
+                             ids=[c[3] for c in STOP_CASES])
+    def test_stop_position(self, asm_syms, input_str, val, offset, note):
+        """expr_ptr points at the first unparsed byte after a successful
+        partial parse.  The byte at that offset is either the offending
+        non-operator character or the NUL terminator."""
+        mpu, mem = _setup(asm_syms)
+        rc, got_val = _eval(asm_syms, mpu, mem, input_str)
+        assert rc <= 1, f"{note}: {input_str!r} should succeed, got rc={rc}"
+        assert got_val == val, \
+            f"{note}: {input_str!r} value ${got_val:04X}, expected ${val:04X}"
+        final_ptr = (mem[asm_syms.expr_ptr] |
+                     (mem[asm_syms.expr_ptr + 1] << 8))
+        actual_offset = final_ptr - _STR_BUF
+        assert actual_offset == offset, \
+            f"{note}: {input_str!r} expr_ptr at offset {actual_offset}, " \
+            f"expected {offset}"
+
+    def test_greediness_is_deterministic(self, asm_syms):
+        """Parser is greedy within each grammar production: skip_sp is
+        called between sub-parses in parse_add/mul/expr, so inter-token
+        whitespace is always consumed if followed by a valid operator.
+        Guarantee: the parser never "un-skips" whitespace it's already
+        consumed — if the operator peek fails, expr_ptr stays wherever
+        skip_sp last parked it (past the whitespace, at the non-operator
+        character).  This test pins that specifically."""
+        mpu, mem = _setup(asm_syms)
+        # "1  x" — two spaces between '1' and 'x'.  parse_mul's skip_sp
+        # should eat both, leaving expr_ptr at 'x' (offset 3), not at
+        # the first space (offset 1) or second space (offset 2).
+        rc, val = _eval(asm_syms, mpu, mem, "1  x")
+        assert rc <= 1 and val == 1
+        final_ptr = (mem[asm_syms.expr_ptr] |
+                     (mem[asm_syms.expr_ptr + 1] << 8))
+        assert final_ptr - _STR_BUF == 3, \
+            f"expected expr_ptr at offset 3 (the 'x'), got {final_ptr - _STR_BUF}"
+
+
 class TestExprErrorStr:
     """expr_error_str: returns A/X = pointer to err_str[last_err]."""
 

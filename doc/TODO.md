@@ -97,6 +97,25 @@ Open bugs, roughly ordered by priority.
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
   silently falls back to step-over.  Consider showing a one-line
   note (e.g. `; rom step -> over`).  Low priority.
+- [ ] **BUG** (class-wide, Escape Analysis 2026-04-20): REPL commands
+  that take a single expression silently accept trailing garbage.
+  `?` was fixed (it now skips trailing whitespace and rejects any
+  non-NUL, non-`;` content), but the same class hits `@` (seek), `B`
+  (block size), `C` (color), and any other "one complete expression"
+  command that goes through `try_expr` without its own EOI check.
+  Root cause is contractual, not a parser bug: `expr_eval` is
+  partial-mode by design (assembler operand parsing needs
+  "parse prefix, leave rest" for inputs like `$10,X` or `AAAA:`), so
+  the EOI obligation lives at the caller.  Fix: extract the
+  `@calc_eoi_lp / @calc_trail_err` snippet from `@h_calc` into a
+  private `_require_eoi_or_err` helper, and call it after every
+  `try_expr` / `expr_eval` callsite in repl.s that represents a
+  "one expression argument, nothing else" command.  Test: parametrise
+  the new `TestCalculator::test_calc_rejects_trailing_garbage` pattern
+  across `@`, `B`, `C`, and any other one-shot.  Contract: add a
+  "rejects trailing content" clause to each affected row of repl.md
+  § Commands, and a `repl.md § Single-expression command contract`
+  section that cross-references the helper.
 - [ ] **BUG**: `. .` is accepted as a valid dot-assemble source and
   emits `$00` (BRK opcode).  The dot-assemble parser in repl.s
   treats the second `.` as a mnemonic prefix, mn7 hashes three

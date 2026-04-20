@@ -488,7 +488,7 @@ becomes `project.`.  Pressing RETURN on this line saves the binary.
 | Key   | Name    | Addressed | Example               | Notes                                |
 |-------|---------|-----------|----------------------|--------------------------------------|
 | `i`   | info    | —         | `i`                  | Show memory map                       |
-| `?`   | calc    | —         | `? 1000+20`          | Hex expression calculator             |
+| `?`   | calc    | —         | `? 1000+20`          | Hex expression calculator.  Takes exactly one complete expression; rejects trailing non-whitespace / non-comment content as a syntax error (§ Single-expression command contract). |
 | `k`   | kill    | —         | `k`                  | Clear source buffer; guards unsaved   |
 | `B`   | block   | —         | `B 40` or `B`       | Set/show block size (uppercase)        |
 | `C`   | color   | —         | `C 06` or `C 0e6`   | Set text/bg/border color (uppercase)  |
@@ -497,6 +497,39 @@ becomes `project.`.  Pressing RETURN on this line saves the binary.
 | `R`   | reset   | —         | `R`                  | Warmstart (uppercase; ends debug if active, then refreshes screen) |
 | `x`   | clear   | —         | `x`                  | Clear screen                          |
 | `;`   | comment | —         | `; note`             | No-op (inline comment)                |
+
+### Single-expression command contract
+
+A subset of REPL commands take **exactly one complete expression
+and nothing else**: currently `?` (calc).  Other one-argument
+commands — `@` (seek), `B` (block size), `C` (color) — share this
+intent but not yet the enforcement (see `doc/TODO.md` § Bugs —
+class-wide trailing-garbage escape from 2026-04-20).
+
+For these commands, the parser's
+[expr.md § Partial-mode contract](expr.md#partial-mode-contract)
+is a footgun: `expr_eval` returns success on `"1x"` with `expr_val = 1`
+and `expr_ptr` at `'x'`, which is correct for assembler-operand
+callers (`$10,X` is a valid prefix for INX mode) but silently wrong
+for `?`.  The caller **must** enforce end-of-input after a successful
+`expr_eval`:
+
+1. Skip trailing whitespace (`$20`, `$A0`) at `expr_ptr`.
+2. Verify the next byte is `$00` (end of `line_buf`) or `';'` (comment
+   start).  Anything else is trailing garbage.
+3. On garbage: `log_err` with `str_syntax` ("syntax"), no value
+   displayed.
+
+Reference implementation: `@calc_eoi_lp / @calc_trail_err` inside
+`@h_calc` in `src/repl.s`.  To be extracted into a private
+`_require_eoi_or_err` helper and shared with the other three
+single-expression commands — tracked in `doc/TODO.md`.
+
+Test contract:
+`tests/integration/test_repl.py::TestCalculator::test_calc_rejects_trailing_garbage`
+parametrises 6 garbage inputs (`?1x`, `?$10x`, `?%10abc`, `?1+2foo`,
+`?$10 xx`, `?1,2`).  The test-matrix principle demands each new
+single-expression command add its parallel row once fixed.
 
 ### Gating pattern
 

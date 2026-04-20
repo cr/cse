@@ -584,6 +584,96 @@ class TestCalculator:
         if unchanged:
             assert get_cur_addr(cpu, rsyms) == 0x1000
 
+    # ── Trailing-garbage rejection (Escape Analysis 2026-04-20) ──
+    #
+    # Bug (pre-fix): "? 1x" was accepted as value $01 because expr_eval
+    # stops at the first non-digit and returns success, leaving the 'x'
+    # in expr_ptr.  The ? command never checked that the expression
+    # fully consumed the line, so the trailing 'x' was silently ignored.
+    #
+    # Fix: ? now verifies expr_ptr reaches end-of-input (NUL, ';', or
+    # whitespace-then-NUL/';') after expr_eval success; otherwise
+    # reports an error line.
+    #
+    # Each case feeds input that parses to a value but has trailing
+    # non-whitespace, non-comment content.  After exec_line, we scan
+    # the screen for the error-line marker (";?") vs. the info-line
+    # marker (";  ").  A value output would contain "01" or "$" near
+    # the start of its row; an error line starts with ";?".
+
+    GARBAGE_CASES = [
+        "?1x",          # the original escape: "? 1x" (bare decimal + letter)
+        "?$10x",        # hex + letter
+        "?%10abc",      # binary + letters
+        "?1+2foo",      # sub-expression parses, trailing word
+        "?$10 xx",      # whitespace then garbage
+        "?1,2",         # second value (no comma operator)
+    ]
+
+    @pytest.mark.parametrize("cmd", GARBAGE_CASES, ids=GARBAGE_CASES)
+    def test_calc_rejects_trailing_garbage(self, rsyms, cmd):
+        """? must reject trailing non-whitespace/non-comment content.
+
+        Covered contract clauses:
+          - repl.md § Commands — Info / Utility ('?' row)
+          - expr.md § Caveats (parser stops at first unparsed char;
+            caller responsible for end-of-input check).
+        """
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x1000)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+
+        # Scan screen for an error-line marker: ";?" at column 0 of
+        # any row.  Screen codes: ';' = $3B, '?' = $3F.
+        found_error = False
+        found_value = False
+        for row in range(ROWS):
+            base = SCREEN + row * COLS
+            if cpu.memory[base] == 0x3B and cpu.memory[base + 1] == 0x3F:
+                found_error = True
+            elif cpu.memory[base] == 0x3B and cpu.memory[base + 1] == 0x20:
+                # ";  " info line — would indicate the buggy silent accept
+                # IF it also contains hex/decimal value content.  Scan
+                # for '$' ($24) or a digit ($30-$39) later in the row.
+                for c in range(2, COLS):
+                    b = cpu.memory[base + c]
+                    if b == 0x24 or (0x30 <= b <= 0x39):
+                        found_value = True
+                        break
+        assert found_error, \
+            f"{cmd!r} accepted silently (no ';?' error row); " \
+            f"found info line with value={found_value}"
+        assert not found_value, \
+            f"{cmd!r} displayed a value despite trailing garbage"
+
+    def test_calc_accepts_trailing_whitespace(self, rsyms):
+        """Whitespace after the expression is fine (no trailing-garbage error)."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x1000)
+        set_line_buf(cpu, rsyms, "?$10   ")
+        run_at(cpu, rsyms.exec_line)
+        # Expect NO ";?" error row; expect at least one ";  " info row.
+        for row in range(ROWS):
+            base = SCREEN + row * COLS
+            assert not (cpu.memory[base] == 0x3B and
+                        cpu.memory[base + 1] == 0x3F), \
+                f"row {row} unexpectedly contains ';?' error prefix"
+
+    def test_calc_accepts_trailing_comment(self, rsyms):
+        """';' comment after expression is fine (not garbage)."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x1000)
+        set_line_buf(cpu, rsyms, "?$10 ; comment")
+        run_at(cpu, rsyms.exec_line)
+        # The first ';' in the output is the log-line prefix; scan for
+        # a ';?' error prefix specifically.
+        for row in range(ROWS):
+            base = SCREEN + row * COLS
+            assert not (cpu.memory[base] == 0x3B and
+                        cpu.memory[base + 1] == 0x3F), \
+                f"row {row} unexpectedly contains ';?' error prefix"
+
 
 # ── I. Register display (r command) ──────────────────────────
 

@@ -3388,6 +3388,34 @@ prg_ok_done:
         cmp #2
         jcs @calc_err
 
+        ; End-of-input check: trailing non-whitespace / non-comment
+        ; content is a syntax error (Escape Analysis 2026-04-20 —
+        ; expr_eval stops at the first unparsed char and leaves it
+        ; in expr_ptr; per expr.md § Caveats the caller owns the EOI
+        ; policy, and `?` takes a single complete expression).
+@calc_eoi_lp:
+        ldy #0
+        lda (expr_ptr),y
+        beq @calc_eoi_ok        ; NUL — end of line_buf
+        cmp #';'
+        beq @calc_eoi_ok        ; comment — end of evaluable input
+        cmp #' '
+        beq @calc_eoi_adv
+        cmp #$a0                ; shifted space / tab
+        bne @calc_trail_err
+@calc_eoi_adv:
+        inc expr_ptr
+        bne @calc_eoi_lp
+        inc expr_ptr+1
+        jmp @calc_eoi_lp
+
+@calc_trail_err:
+        ldy #LOG_ERR
+        jsr log_open
+        puts str_syntax
+        jmp log_close
+
+@calc_eoi_ok:
         ; hex display
         ldy #LOG_INFO
         jsr log_open
