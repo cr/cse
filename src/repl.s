@@ -128,7 +128,7 @@ STEP_OVER = 2
 ; ── Imports: strings.s ────────────────────────────────────
         .import str_flag_ch, str_bp_pfx, str_3sp, str_2sp, str_brk
         .import str_at, str_nmi, str_bp_clr, str_deleted
-        .import str_rts, str_stk_warn, str_debug, str_qynq
+        .import str_rts, str_stk_warn, str_debug, str_qynq, str_dbg
         .import str_syntax, str_bad_val, str_full, str_cmd
         .import str_no_name, str_range, str_fail, str_too_big
         .import str_expr, str_no_ctx
@@ -204,6 +204,11 @@ rp_next_hi:     .res 2          ; 16-bit scratch pair (rp_next_hi: BSS only)
 rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
 rp_hexbuf:      .res 3          ; cmd_dot hex byte parse
+cold_preview_done: .res 1       ; cmd_step cold-preview marker.  Set
+                                ; by show_cold_preview, consumed (and
+                                ; cleared) by the next cmd_step's MODE
+                                ; selection — forces MODE_JUMP so the
+                                ; first real step pushes a sentinel.
 
 zp_stage_buf:   .res 8          ; staging buffer for the user-ZP
                                 ; read redirect — `m` dump (8 B) and
@@ -1161,6 +1166,43 @@ peek_brk_opcode:
         lda (rp_ptr),y
         rts
 
+; ═══════════════════════════════════════════════════════════
+; show_cold_preview — first t/o with no resumable session.
+;
+; Emits "; dbg at $PC" + regs + disas at brk_pc.  No user code
+; runs.  Caller (cmd_step) sets dbg_reason := DBG_BRK and
+; _rtu_need_sentinel := 1 so the next real step pushes a fresh
+; sentinel.
+;
+; The "dbg" tag is intentionally distinct from "; brk"/"; rts"
+; — the user wants to know this is a *preview*, not the result
+; of an instruction having executed.
+; ═══════════════════════════════════════════════════════════
+.proc show_cold_preview
+        ldy #' '
+        jsr log_open            ; "; "
+        lda #<str_dbg
+        ldx #>str_dbg
+        jsr io_puts             ; "dbg"
+        puts str_at             ; " at $"
+        lda brk_pc
+        ldx brk_pc+1
+        jsr io_puthex4
+        jsr io_clear_eol
+        jsr newline
+        jsr emit_reg
+        jsr newline
+        ; Disas at brk_pc (also updates cur_addr).
+        lda brk_pc
+        sta cur_addr
+        sta rp_addr
+        lda brk_pc+1
+        sta cur_addr+1
+        sta rp_addr+1
+        jsr emit_dot
+        jmp nl_clear
+.endproc
+
 .proc show_break_result
         ; log_open auto-advances if cursor is mid-line (userland
         ; return may leave it anywhere); no manual newline needed.
@@ -1863,9 +1905,14 @@ pre_userland_run:
 .proc cmd_step
         sta rp_save2            ; is_next (0=into, 1=over)
 
-        ; Cold-start: no prior break → init brk_pc from cur_addr.
+        ; Cold-start: no resumable session → init brk_pc from cur_addr.
+        ; DBG_NONE (no session) and DBG_RTS (alive-but-terminal) both
+        ; want the entry PC, not whatever stale brk_pc the prior
+        ; session left.  `cmp #DBG_BRK / bcs` matches DBG_BRK and
+        ; DBG_NMI (resumable — keep their brk_pc).
         lda dbg_reason
-        bne @has_ctx
+        cmp #DBG_BRK
+        bcs @has_ctx
         lda cur_addr
         sta brk_pc
         lda cur_addr+1
@@ -1893,6 +1940,25 @@ pre_userland_run:
         lda #0
         sta rp_cnt+1
 @got_cnt:
+
+        ; Cold preview: if no active step session, emit a "; dbg"
+        ; panel at brk_pc and return WITHOUT executing user code.
+        ; The user must hit t/o again to actually step; the preview
+        ; is the visual "you're here, ready to step from".
+        ;
+        ; Gating: skip if a resumable session exists (DBG_BRK/NMI),
+        ; or if cold_preview_done is already set (preview just done,
+        ; this t/o is the first real step).
+        lda cold_preview_done
+        bne @do_step
+        lda dbg_reason
+        cmp #DBG_BRK
+        bcs @do_step
+        jsr show_cold_preview
+        lda #1
+        sta cold_preview_done
+        rts
+@do_step:
 
         ; step_state = STEP_OVER if is_next else STEP_INTO.
         lda rp_save2
@@ -1967,14 +2033,21 @@ pre_userland_run:
 
         jsr pre_userland_run
 
-        ; Mode: MODE_RESUME for resumable sessions (DBG_BRK/DBG_NMI,
-        ; where the sentinel is still on the user stack); MODE_JUMP
-        ; for DBG_NONE (no session) and DBG_RTS (user RTS'd off the
-        ; top — sentinel already popped, need a fresh one).
+        ; Mode: MODE_JUMP if cold preview just established the
+        ; session (no sentinel yet — first real step must push one),
+        ; else MODE_RESUME for resumable sessions (DBG_BRK/DBG_NMI),
+        ; else MODE_JUMP for DBG_NONE / DBG_RTS (no sentinel).
+        ; Consume cold_preview_done here.
+        lda cold_preview_done
+        beq @check_dr
+        lda #0
+        sta cold_preview_done
+        beq @jump               ; always taken (Z=1)
+@check_dr:
         lda dbg_reason
         cmp #DBG_BRK
         bcs @resume
-        lda #MODE_JUMP
+@jump:  lda #MODE_JUMP
         .byte $2C
 @resume: lda #MODE_RESUME
         sta run_user_pending

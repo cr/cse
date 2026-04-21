@@ -25,7 +25,7 @@
         ; ── repl strings ──
         .export str_flag_ch, str_bp_pfx, str_3sp, str_2sp, str_brk
         .export str_at, str_nmi, str_bp_clr, str_deleted
-        .export str_rts
+        .export str_rts, str_dbg
         .export str_syntax, str_bad_val, str_full, str_cmd
         .export str_no_name, str_range, str_fail, str_too_big
         .export str_expr, str_no_ctx
@@ -86,6 +86,7 @@ str_brk:        .byte "brk", 0
 str_rts:        .byte "rts", 0
 str_at:         .byte " at $", 0
 str_nmi:        .byte "nmi", 0
+str_dbg:        .byte "dbg", 0
 str_bp_clr:     .byte "bp clr", 0
 str_deleted:    .byte " del", 0
 

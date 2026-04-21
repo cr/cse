@@ -37,11 +37,13 @@ def _run_step(cse_prg, target_lo, target_hi):
     emu.memory[USER_CODE + 1] = target_lo
     emu.memory[USER_CODE + 2] = target_hi
 
-    # Debugger state: stopped at USER_CODE (dbg_reason!=0 so cmd_step
-    # treats brk_pc as authoritative and skips cur_addr init).
+    # Debugger state: stopped at USER_CODE with a resumable session
+    # (DBG_BRK=2) so cmd_step treats brk_pc as authoritative, skips
+    # cur_addr init, and bypasses the cold-preview path (which fires
+    # for DBG_NONE/DBG_RTS and would skip step arming entirely).
     emu.write_word(emu.sym("cur_addr"), USER_CODE)
     emu.write_word(emu.sym("brk_pc"), USER_CODE)
-    emu.memory[dr] = 1
+    emu.memory[dr] = 2   # DBG_BRK
     emu.memory[bh] = 0xFF
     emu.write_word(emu.sym("block_size"), 0x0001)
     for i in range(8):
