@@ -817,7 +817,39 @@ Exit conditions (from the existing step primitive — unchanged):
 All row / column manipulation uses the direct KERNAL cursor
 pointers `CUR_ROW ($D6)` and `CUR_COL ($D3)`, followed by a call
 to `cse_io.s::io_sync` to refresh the screen-line pointers.
-Relative moves (`sbc #N`) must clamp to 0.
+
+**Upward moves clamp to row 0.**  cmd_step's "up 3" uses the same
+clamping idiom that `screen.s` already uses for scroll-end-adjust
+(two's complement add with carry → clamp):
+
+```asm
+; CUR_ROW := max(CUR_ROW - 3, 0)
+lda CUR_ROW
+sec
+sbc #3
+bcs @set_row            ; no borrow → result is valid
+lda #0                  ; borrow → underflow → clamp to 0
+@set_row:
+sta CUR_ROW
+lda #0
+sta CUR_COL
+jsr io_sync
+```
+
+This means: if the debugger panel was placed near the top of
+screen and the user hits `t`, the cmd_step up-3 lands at row 0
+(or wherever the edge is) and emits the pre-step dis there.
+Visually the log-trail row overwrites whatever is at the top of
+the screen — which is typically earlier log entries that have
+already scrolled out of context.  Not a perfect experience at
+screen edge, but avoids CUR_ROW underflow and KERNAL PLOT
+misbehavior.
+
+**Downward movement** (emit + newline) scrolls the screen
+naturally via KERNAL CHROUT when at row 24 — no special handling
+needed.  The debugger panel follows the prompt downward as it
+scrolls, so the panel always ends up near the bottom of visible
+screen.
 
 Auto-advance via `log_open`'s `CUR_COL != 0 → newline` contract
 handles cursor normalization before each info/regs/disas emission.
