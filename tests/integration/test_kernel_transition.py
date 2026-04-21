@@ -635,3 +635,63 @@ class TestProductionChainStress:
         assert emu.memory[emu.sym("dbg_reason")] == 0, \
             f"dbg_reason=${emu.memory[emu.sym('dbg_reason')]:02X} " \
             f"expected 0 (clean exit)"
+
+
+# ── 13. Tag classification regression (RTS-via-step-BRK) ────────
+
+class TestTagClassification:
+    """Regression guard for the bug "rts needs to be stepped on
+    twice before it registers as rts": a step-BRK trap landing on
+    an RTS instruction left dbg_reason = DBG_BRK (set by
+    cse_brk_handler), and show_break_result classified the tag
+    from dbg_reason — so the display said "; brk at $rtsaddr"
+    even though the user was sitting on a return op.  The fix
+    classifies the tag from the OPCODE at brk_pc (NMI excepted),
+    so RTS / RTI always show "; rts" regardless of dbg_reason.
+
+    This test exercises the production trap path: it sets up
+    user state with brk_pc on an RTS, dbg_reason=DBG_BRK (as
+    cse_brk_handler would leave it), then calls show_break_result
+    and inspects the tag written to the screen.
+    """
+
+    @staticmethod
+    def _screen_has(emu, pattern):
+        for base in range(0x0400, 0x07E8 - len(pattern) + 1):
+            if bytes(emu.memory[base + i] for i in range(len(pattern))) == pattern:
+                return True
+        return False
+
+    @staticmethod
+    def _clear_screen(emu):
+        for i in range(0x0400, 0x0800):
+            emu.memory[i] = 0x20
+
+    # Tag patterns include the leading "; " so the scan does not
+    # collide with the disassembly line below the tag (which can
+    # also contain "rts" if brk_pc opcode is $60).
+    # CSE shifted charset: 'a'=$01, 'b'=$02, ..., 'z'=$1A.
+    _TAG_BRK = bytes([0x3B, 0x20, 0x02, 0x12, 0x0B])  # "; brk"
+    _TAG_RTS = bytes([0x3B, 0x20, 0x12, 0x14, 0x13])  # "; rts"
+
+    def test_rts_landing_via_step_brk_registers_as_rts(self, emu):
+        """The bug-repro: dbg_reason=DBG_BRK (as left by
+        cse_brk_handler after a step BRK trap), opcode at brk_pc
+        is $60 (RTS).  Without the fix the display said "; brk";
+        with the opcode-based classification it must say "; rts"."""
+        _cold_init_to_prompt(emu)
+        USER = 0x3000
+        emu.memory[USER] = 0x60                           # RTS
+        emu.write_word(emu.sym("brk_pc"), USER)
+        emu.write_word(emu.sym("cur_addr"), USER)
+        emu.memory[emu.sym("dbg_reason")] = 1             # DBG_BRK
+        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
+        self._clear_screen(emu)
+
+        emu.jsr(emu.sym("show_break_result"))
+
+        assert self._screen_has(emu, self._TAG_RTS), \
+            "expected '; rts' tag when sitting on RTS opcode " \
+            "(classification must derive from opcode, not dbg_reason)"
+        assert not self._screen_has(emu, self._TAG_BRK), \
+            "did not expect '; brk' tag when sitting on RTS opcode"
