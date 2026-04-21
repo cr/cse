@@ -2002,24 +2002,48 @@ pre_userland_run:
         jmp post_run_cleanup    ; tail-call
 
 @arm:
-        ; Single-step (rp_cnt == 1): emit the "log trail" dis line at
-        ; brk_pc BEFORE the step.  This is the pending instruction —
-        ; executing it makes this line retrospectively the history of
-        ; "what just ran".  Multi-step (rp_cnt > 1) skips the log to
-        ; avoid flooding the screen on t50/t100 batches; user sees
-        ; final state via show_break_result at the end of the chain.
-        ; (See doc/modules/debugger.md § Step output semantics.)
+        ; Warm-step "up 3 lines" mechanic (single-step only).
+        ;
+        ; Cursor at exec_line entry sits on the prompt row mid-line
+        ; (after user's typed "t" + RETURN — main.s comment "Cursor
+        ; intentionally NOT homed").  The previous panel above is
+        ; 3 rows tall: info / regs / disas.  Going up 3 lands at
+        ; the info row; the pre-step disas overwrites it, becoming
+        ; the audit-trail entry of "what just ran" once the step
+        ; completes.  show_break_result then emits the new
+        ; info/regs/disas in the rows below (overwriting the prior
+        ; panel's regs/disas/prompt), and show_prompt appends a
+        ; fresh prompt one row further down.  Net: panel slides
+        ; down by 1, leaving 1 row of history per step.
+        ;
+        ; Multi-step (rp_cnt > 1) skips this — would flood screen.
         lda rp_cnt+1
         bne @skip_log
         lda rp_cnt
         cmp #2
         bcs @skip_log
+        ; CUR_ROW := max(CUR_ROW - 3, 0)
+        lda CUR_ROW
+        sec
+        sbc #3
+        bcs @set_row
+        lda #0
+@set_row:
+        sta CUR_ROW
+        lda #0
+        sta CUR_COL
+        jsr io_sync
+        ; Emit pre-step disas at brk_pc.  No closing newline —
+        ; pre_userland_run's newline advances cursor to the row
+        ; below for the post-step show_break_result emission.
+        ; io_clear_eol wipes any leftover chars from the prior
+        ; (possibly longer) info-row content.
         lda brk_pc
         sta rp_addr
         lda brk_pc+1
         sta rp_addr+1
         jsr emit_dot
-        jsr newline
+        jsr io_clear_eol
 @skip_log:
 
         jsr arm_step_bp
