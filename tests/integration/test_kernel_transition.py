@@ -565,3 +565,73 @@ class TestWarmCont:
                 break
         assert emu.memory[emu.sym("warm_cont")] == 0, \
             "warm_cont not consumed by main_loop_top"
+
+
+# ── 12. Production-chain stress (kernel-stack-corruption guard) ──
+
+class TestProductionChainStress:
+    """End-to-end stress driving REPL commands via the real
+    main_loop → exec_line → cmd_X → ...rts-up-the-chain → main_loop
+    dispatch → gate → user code → break → handler → main_loop_top
+    chain.
+
+    Why this matters (the bug class these tests guard against): a
+    helper running on the kernel call stack that writes to user's
+    `$0100,reg_sp` slot via `sta abs,X` can clobber the kernel's own
+    return-address frames sitting at the same stack-page slots when
+    `reg_sp = $FF` (typical for fresh sessions).  exec_line's `rts`
+    then jumps to garbage, BRK fires in kernel mode, and cse_recover
+    warm-starts.  A direct `emu.jsr()` test masks this entirely:
+    the harness installs ITS OWN return-address sentinel at the same
+    slots production code touches, so the corruption appears to be
+    "the test's own return address" and the test passes.
+
+    Discipline: drive REPL commands via keyboard injection through
+    `main_loop`, NOT via `emu.jsr(emu.sym("cmd_X"))`.  See
+    testing.md for the broader principle on production-chain stress.
+    """
+
+    def test_g_via_keyboard_no_warm_start(self, emu):
+        """Drive `g\\r` via keystroke injection through the
+        production main_loop dispatch chain.  Asserts (a) no warm-
+        start fired (warm_guard untouched) and (b) clean exit
+        through brk_stub (dbg_reason back to 0).
+
+        Catches the bug class where a kernel-stack helper writes to
+        `$0100,reg_sp` and clobbers kernel return-address frames at
+        $01FE/$01FF.  A `cmd_jmp` invocation via direct `emu.jsr`
+        would mask this — the harness's jsr-return sentinel sits at
+        the same overlapping slots."""
+        _cold_init_to_prompt(emu)
+
+        # User code: simple RTS at $3000 (clean exit via brk_stub).
+        USER = 0x3000
+        emu.memory[USER] = 0x60                          # RTS
+        emu.memory[emu.sym("cur_addr")]     = USER & 0xFF
+        emu.memory[emu.sym("cur_addr") + 1] = USER >> 8
+
+        # Inject "g\r" via keyboard buffer.  PETSCII 'g' = $47.
+        emu.inject_keys(b"\x47\x0D")
+
+        # Re-enter main_loop and let it process the input.
+        emu._cpu.pc = emu.sym("main_loop_top")
+        emu.sp = 0xFF
+        # main_loop dispatches g → cmd_jmp → gate → user code → RTS
+        # → brk_stub → handler → main_loop_top → @wait poll on $C6.
+        for _ in range(2_000_000):
+            emu._cpu.step()
+            if emu.memory[emu.sym("warm_guard")] != 0:
+                break
+
+        # warm_guard non-zero would mean cse_recover fired — i.e. a
+        # BRK trapped while in kernel mode (in_userland=0), which
+        # only happens if the kernel return-address frame got
+        # clobbered and CPU jumped into garbage / brk_stub.
+        assert emu.memory[emu.sym("warm_guard")] == 0, \
+            "g triggered cse_recover/warm-start (kernel return frame " \
+            "likely clobbered by a helper writing $0100,reg_sp from " \
+            "kernel-call-stack context)"
+        # Clean exit through brk_stub sets dbg_reason = 0.
+        assert emu.memory[emu.sym("dbg_reason")] == 0, \
+            f"dbg_reason=${emu.memory[emu.sym('dbg_reason')]:02X} " \
+            f"expected 0 (clean exit)"
