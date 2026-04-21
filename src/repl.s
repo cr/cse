@@ -563,17 +563,26 @@ parse_hex4_ptr1:
 ; On clean EOI: normal RTS (rp_ptr, Y unchanged on return).
 ; On garbage:   POPS the caller's return address from the stack and
 ;               tail-calls log_err with str_syntax — control flows
-;               back to exec_line, skipping the remainder of the
-;               caller's command handler body.
+;               back to exec_line's caller, skipping the remainder
+;               of the caller's command handler body.
+;
+; This is the "pop-trick error escape" pattern catalogued in
+; optimization.md § 36.  It saves ~2 B per call site (no `bcs
+; <abort>` branch needed at the caller) but imposes a strict
+; stack-shape contract on callers — see below.
 ;
 ; Used by commands that take "exactly one argument and nothing else"
-; (? @ B C, and any future one-shot).  See
+; (? @ B C, t/o, and any future one-shot).  See
 ; doc/modules/repl.md § Single-expression command contract.
 ;
-; Stack contract: the caller must be at top of the handler's call
-; chain (jsr'd directly from exec_line's jmp (rp_ptr2) dispatch or
-; its equivalent) — the pla/pla discards ONE return address and
-; relies on log_err's RTS popping exec_line's caller.
+; Stack contract: the caller must be exactly one jsr deep from
+; exec_line's invocation point — i.e. dispatched directly via
+; exec_line's `jmp (rp_ptr2)` or via a tail-jmp trampoline that
+; preserves the same stack shape (e.g. `lda #0 / jmp cmd_step`
+; from @h_t).  The pla/pla discards ONE return address and relies
+; on log_err's RTS popping exec_line's caller.  A NESTED sub-proc
+; (caller of caller of exec_line) MUST NOT call this helper —
+; would discard the wrong frame.
 ; ═══════════════════════════════════════════════════════════
 _require_eoi_or_err:
 @lp:    lda (rp_ptr),y
@@ -1823,8 +1832,14 @@ pre_userland_run:
         ; Parse count: via try_expr, or default to 1 (single step).
         ; t/o are single-step commands by default; an expression arg
         ; overrides for multi-step (e.g. `t10` = step 10 instructions).
+        ; On try_expr success, reject trailing garbage via the pop-
+        ; trick helper (never returns on garbage — see optimization.md
+        ; § Pop-trick error escape).  No state has been written yet,
+        ; so an early escape is clean.
         jsr try_expr
         bcc @def_count
+        ldy #0
+        jsr _require_eoi_or_err
         lda expr_val
         ora expr_val+1
         beq @def_count          ; zero → default

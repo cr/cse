@@ -784,3 +784,63 @@ Used in: `log.s` — `puts_imm`'s first arithmetic pass caches the
 low byte of `str_lo_addr` in Y and the high byte in X via
 `sta rp_tmp; tay` / `sta rp_tmp+1; tax`, so the second +1 pass
 can begin from registers with no ZP reloads.
+
+## 36. Pop-trick error escape (two-level RTS via `pla pla / jmp`)
+
+A helper that detects a fatal-but-recoverable error condition can
+"escape" both itself AND its caller in one shot by popping its
+own return address off the stack and tail-jumping to a logger.
+The logger's `rts` then pops the caller's return address — landing
+control at the caller's caller, skipping the rest of the caller's
+body entirely.
+
+```asm
+; helper (10 B body after the scan)
+@err:   pla                     ; discard caller-return lo
+        pla                     ; discard caller-return hi
+        lda #<str_msg
+        ldx #>str_msg
+        jmp log_err             ; log_err's rts pops two-deep
+@ok:    rts
+
+; caller (3 B per site — no abort branch needed)
+        jsr helper              ; on err: never returns
+        ; ...success-only code follows...
+```
+
+vs. the conventional flag-return ABI:
+
+```asm
+; helper
+@err:   lda #<str_msg
+        ldx #>str_msg
+        jsr log_err
+        sec
+        rts
+@ok:    clc
+        rts
+
+; caller (5 B per site)
+        jsr helper
+        bcs @abort
+        ; ...success...
+@abort:                         ; usually rts or jmp shared exit
+```
+
+**Saving:** ~2 B per call site (no `bcs <abort>` branch, no shared
+abort target needed).  Helper itself is roughly the same size.
+
+**Stack contract (encode in the helper docstring AND in the
+optimization-doc section that catalogues each use):** the caller
+must be exactly one `jsr` deep from the desired escape point.  In
+CSE, "the desired escape point" is `main_loop`'s call to
+`exec_line` — so all callers must be top-of-handler-chain
+(dispatched directly via `exec_line`'s `jmp (rp_ptr2)` or
+equivalent).  A nested sub-proc cannot use the trick — the
+pla/pla would discard the wrong frame.
+
+Used in: `repl.s` — `_require_eoi_or_err` is the trailing-garbage
+check after expression parsing.  Callers: `@h_at`, `@h_j`,
+`@h_blk`, `@h_col`, `@h_calc`, `cmd_step`.  All called directly
+from `exec_line`'s dispatch (or `jmp cmd_step` from a dispatch
+trampoline that preserves the same stack shape).

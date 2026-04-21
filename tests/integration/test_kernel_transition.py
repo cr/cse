@@ -701,8 +701,8 @@ class TestTagClassification:
         line_buf = emu.sym("line_buf")
         for i in range(8):
             emu.memory[line_buf + i] = 0
-        emu.memory[0x20] = line_buf & 0xFF
-        emu.memory[0x21] = line_buf >> 8
+        emu.memory[0x02] = line_buf & 0xFF
+        emu.memory[0x03] = line_buf >> 8
         self._clear_screen(emu)
 
     def test_state_a_real_trap_landing_shows_brk(self, emu):
@@ -738,8 +738,8 @@ class TestTagClassification:
         line_buf = emu.sym("line_buf")
         for i in range(8):
             emu.memory[line_buf + i] = 0
-        emu.memory[0x20] = line_buf & 0xFF
-        emu.memory[0x21] = line_buf >> 8
+        emu.memory[0x02] = line_buf & 0xFF
+        emu.memory[0x03] = line_buf >> 8
 
         emu.jsr(emu.sym("cmd_step"), a=0)                 # bare t
 
@@ -748,6 +748,55 @@ class TestTagClassification:
             "bare t must default to count=1 (single step), not block_size"
         assert emu.memory[emu.sym("step_remaining")] == 0, \
             "step_remaining = count-1; for single step, should be 0"
+
+    def test_t_with_trailing_garbage_aborts_and_logs_syntax(self, emu):
+        """`t10xyz` (value $10 followed by garbage `xyz`) must:
+          (a) abort cmd_step BEFORE the step_state write
+              (proves the pop-trick helper fired), and
+          (b) log ";?syntax" on screen (proves log_err ran).
+
+        CSE always renders to $0400; REPL_SCREEN at $F4F2 is just
+        a save buffer for editor takeover.  Format is `;?syntax`
+        with NO space between `;` and `?` (log_err's prefix is
+        just the two chars, the str follows immediately)."""
+        _cold_init_to_prompt(emu)
+        USER = 0x3000
+        emu.memory[USER] = 0xEA                          # NOP
+        emu.write_word(emu.sym("brk_pc"), USER)
+        emu.write_word(emu.sym("cur_addr"), USER)
+        emu.memory[emu.sym("dbg_reason")] = 1            # active session
+        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
+        emu.memory[emu.sym("step_state")] = 0            # not stepping
+
+        # rp_ptr → "10xyz\0" — try_expr parses 10, rp_ptr lands on
+        # "x" → garbage → pop-trick fires.
+        line_buf = emu.sym("line_buf")
+        for i, b in enumerate(b"10xyz\x00"):
+            emu.memory[line_buf + i] = b
+        emu.memory[0x02] = line_buf & 0xFF                # rp_ptr (zp.s: $02)
+        emu.memory[0x03] = line_buf >> 8
+
+        # Clear screen so the marker scan is unambiguous.
+        for i in range(0x0400, 0x0800):
+            emu.memory[i] = 0x20
+
+        emu.jsr(emu.sym("cmd_step"), a=0)
+
+        # (a) step_state stays 0 — pop-trick escaped before state writes.
+        assert emu.memory[emu.sym("step_state")] == 0, \
+            "garbage in t arg must abort before arming step_state " \
+            "(pop-trick _require_eoi_or_err did not escape)"
+
+        # (b) ";?syntax" rendered to $0400 (CSE shifted charset:
+        #     ';'=$3B, '?'=$3F, 's'=$13, 'y'=$19, 'n'=$0E, 't'=$14,
+        #     'a'=$01, 'x'=$18).
+        marker = bytes([0x3B, 0x3F, 0x13, 0x19, 0x0E, 0x14, 0x01, 0x18])
+        found = False
+        for base in range(0x0400, 0x07E8 - len(marker) + 1):
+            if bytes(emu.memory[base + i] for i in range(len(marker))) == marker:
+                found = True
+                break
+        assert found, "expected ';?syntax' on screen (log_err output)"
 
     def test_state_b_cmd_step_early_stop_shows_rts(self, emu):
         """State B: user types t/o while sitting on the RTS.
