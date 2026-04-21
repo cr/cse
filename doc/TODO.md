@@ -177,22 +177,38 @@ Open bugs, roughly ordered by priority.
   complicated by their `expr_or_blocksize` fallback — tracked as a
   follow-up below.)
 
-- [ ] **Escape Analysis follow-up** (Principle 11 class closure):
-  apply the `_require_eoi_or_err` pattern to `+` and `-`.  Both use
-  `expr_or_blocksize` which returns a value either from parsing or
-  from block_size fallback, so the straightforward "error on
-  trailing garbage" check would emit a double error on
-  `+ undefsym` (one from try_expr's expr-error emission, one from
-  our EOI check seeing the undefined symbol name as garbage).
-  Design: bifurcate the paths — if try_expr returned C=1 (success),
-  run EOI check before applying; if C=0 (empty or error), skip EOI
-  (the fallback / error-already-emitted path).  Mirrors the shape
-  used in `@h_at` and `@h_j`.  Landing requires adding the same
-  bifurcation to expr_or_blocksize's callers or inlining try_expr
-  directly in `@h_plus` / `@h_minus`.  Low priority — manual testing
-  shows the silent-accept is benign for `+` / `-` in practice
-  (cur_addr moves by an unintended amount but no state corruption),
-  but closing the class is worth doing for consistency.
+- [x] ~~**Escape Analysis follow-up** (Principle 11 class closure):
+  apply the `_require_eoi_or_err` pattern to `+` and `-`.~~
+  (resolved: commit 805ece5 added an unconditional EOI check after
+  `expr_or_blocksize` in both `@h_plus` and `@h_minus`.  The double-
+  error concern in the original entry turns out to be narrower than
+  feared — `try_expr` advances `rp_ptr` past the expression even on
+  error, so the EOI check on `+ undefsym\0` sees NUL at rp_ptr and
+  passes silently (one error only).  Double-error only fires on
+  `+ undefsym GARBAGE` where there's actual trailing content after
+  the bad expression — acceptable: the user typed two distinct
+  errors and gets one complaint per.  The same migration also
+  covered `t`/`o` (via `try_expr_or_err` wrapper — see § 37 of
+  optimization.md), `b ADDR`, `m` (both @dump and @ed_done),
+  and `d`.  Full Principle 11 class closure on single-expression
+  commands.)
+
+- [ ] **BUG** Assembler: `jsr a` reports "bad insn" but segment
+  output still follows (seems to complete the assembly run?).
+  Switching to `jsr ax` or `jsr aa` works.  Unclear whether
+  single-letter label `a` is being rejected at mnemonic-classify
+  time (short labels colliding with instruction-prefix disambiguation),
+  at expr-parse time (one-letter labels are valid — e.g. `.const
+  a $1000` — so this would be a regression), or somewhere in
+  addressing-mode parsing.  The "segment output still follows"
+  detail suggests the error is raised but not fatal — the source
+  assembler's error recovery may allow the bad line through.
+  Reproduce: assemble a source with `.const a $1000` then
+  `jsr a` on another line.  Investigation: compare the parse path
+  for `a` (single letter) vs `aa` / `ax` (two-letter labels) in
+  `au_mode.s` / `asm_line.s` — suspect the branch that checks
+  "label? or addressing-mode character (A/X/Y)?" is biased toward
+  addressing mode for the single letter `a`.
 - [x] ~~**BUG**: `. .` is accepted as a valid dot-assemble source~~
   (fixed via Escape Analysis c8501d2: the actual symptom was
   "silent no-op" not "emits $00" — the cmd_dot @try_mne gate in
