@@ -820,3 +820,112 @@ class TestTagClassification:
         assert not self._screen_has(emu, self._TAG_BRK), \
             "state B must not show '; brk' — no trap fired, we're " \
             "just reporting that the next op would be a return"
+
+
+# ── 14. Trailing-garbage rejection across migrated commands ─────
+
+class TestTrailingGarbageRejection:
+    """Cross-command regression: any command that went through the
+    _require_eoi_or_err migration must reject trailing garbage and
+    leave state untouched (pop-trick escapes before the apply).
+
+    These are production-chain tests via exec_line dispatch.  Each
+    sub-test seeds line_buf with the command string, invokes
+    exec_line, and asserts both (a) ";?syntax" appears on screen
+    and (b) the command's target state is unchanged."""
+
+    _SYNTAX_MARKER = bytes([0x3B, 0x3F, 0x13, 0x19, 0x0E, 0x14, 0x01, 0x18])
+
+    @staticmethod
+    def _screen_has_marker(emu, marker):
+        for base in range(0x0400, 0x07E8 - len(marker) + 1):
+            if bytes(emu.memory[base + i] for i in range(len(marker))) == marker:
+                return True
+        return False
+
+    @staticmethod
+    def _clear_screen(emu):
+        for i in range(0x0400, 0x0800):
+            emu.memory[i] = 0x20
+
+    @staticmethod
+    def _to_petscii(cmd_bytes):
+        """Convert a shell-readable ASCII cmd to CSE's PETSCII input
+        encoding: lowercase letters $61-$7A → uppercase $41-$5A
+        (c64 shifted charset maps $41-$5A to lowercase on screen, so
+        typing 'b' at the keyboard produces PETSCII $42).  Digits
+        and punctuation are identity."""
+        out = bytearray()
+        for b in cmd_bytes:
+            if 0x61 <= b <= 0x7A:
+                out.append(b - 0x20)
+            else:
+                out.append(b)
+        return bytes(out)
+
+    def _run_command(self, emu, cmd_bytes):
+        """Set up line_buf + rp_ptr, clear screen, jsr exec_line.
+        cmd_bytes may be given in ASCII lowercase for readability;
+        converted to CSE PETSCII (uppercase for letters) here."""
+        cmd_bytes = self._to_petscii(cmd_bytes)
+        line_buf = emu.sym("line_buf")
+        for i, b in enumerate(cmd_bytes):
+            emu.memory[line_buf + i] = b
+        emu.memory[line_buf + len(cmd_bytes)] = 0
+        emu.memory[0x02] = line_buf & 0xFF          # rp_ptr
+        emu.memory[0x03] = line_buf >> 8
+        self._clear_screen(emu)
+        emu.jsr(emu.sym("exec_line"))
+
+    def test_plus_with_garbage_does_not_advance_cur_addr(self, emu):
+        """`+ $10 xyz` must log ';?syntax' and leave cur_addr as-is.
+        Without the migration, it would silently advance by $10."""
+        _cold_init_to_prompt(emu)
+        CUR = 0x2000
+        emu.write_word(emu.sym("cur_addr"), CUR)
+
+        # PETSCII: '+'=$2B, ' '=$20, '$'=$24, '1'=$31, '0'=$30,
+        #           'x'=$78, 'y'=$79, 'z'=$7A
+        self._run_command(emu, b"+ $10 xyz")
+
+        assert emu.read_word(emu.sym("cur_addr")) == CUR, \
+            "+ with trailing garbage must NOT advance cur_addr"
+        assert self._screen_has_marker(emu, self._SYNTAX_MARKER), \
+            "expected ';?syntax' on screen"
+
+    def test_b_with_garbage_does_not_install_breakpoint(self, emu):
+        """`b $1020 xyz` must log ';?syntax' and NOT add a bp.
+        Without the migration, it would silently install bp at $1020
+        even though the user's input was bad."""
+        _cold_init_to_prompt(emu)
+        emu.jsr(emu.sym("dbg_bp_clear"))
+
+        self._run_command(emu, b"b $1020 xyz")
+
+        # bp_table first slot should still be zero (no bp installed).
+        bp0 = emu.read_word(emu.sym("bp_table"))
+        assert bp0 == 0, \
+            f"b with trailing garbage must NOT install bp (got ${bp0:04X})"
+        assert self._screen_has_marker(emu, self._SYNTAX_MARKER), \
+            "expected ';?syntax' on screen"
+
+    def test_m_with_garbage_after_addr_does_not_dump(self, emu):
+        """`m $1000 xyz` must log ';?syntax'.  cmd_mem's @dump entry
+        now requires EOI.  Without the migration, it would dump
+        block_size bytes at $1000 silently."""
+        _cold_init_to_prompt(emu)
+
+        self._run_command(emu, b"m $1000 xyz")
+
+        assert self._screen_has_marker(emu, self._SYNTAX_MARKER), \
+            "expected ';?syntax' on screen for m with garbage"
+
+    def test_d_with_any_inline_arg_aborts(self, emu):
+        """`d xyz` must log ';?syntax' — cmd_disasm takes no inline
+        args (ADDR comes via 1000:d addressed form, not inline)."""
+        _cold_init_to_prompt(emu)
+
+        self._run_command(emu, b"d xyz")
+
+        assert self._screen_has_marker(emu, self._SYNTAX_MARKER), \
+            "expected ';?syntax' on screen for d with inline content"

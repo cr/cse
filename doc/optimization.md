@@ -841,6 +841,8 @@ pla/pla would discard the wrong frame.
 
 Used in: `repl.s` — `_require_eoi_or_err` is the trailing-garbage
 check after expression parsing.  Callers: `@h_at`, `@h_j`,
-`@h_blk`, `@h_col`, `@h_calc`, `cmd_step`.  All called directly
-from `exec_line`'s dispatch (or `jmp cmd_step` from a dispatch
-trampoline that preserves the same stack shape).
+`@h_blk`, `@h_col`, `@h_calc`, `@h_plus`, `@h_minus`, `cmd_step`,
+`cmd_brk`, `cmd_mem` (two sites: `@dump`, `@ed_done`), `cmd_disasm`.
+All called directly from `exec_line`'s dispatch (or via
+`jmp cmd_XXX` from a dispatch trampoline that preserves the same
+stack shape).

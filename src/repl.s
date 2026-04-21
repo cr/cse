@@ -1537,6 +1537,14 @@ peek_brk_opcode:
 ;   rp_ptr = args (ignored)
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_disasm
+        ; cmd_disasm takes no inline args; reject garbage at entry
+        ; (pop-trick).  Addressed form `1000:l` sets cur_addr via
+        ; exec_line before this proc runs — rp_ptr on entry points
+        ; at what follows the `l` key.
+        jsr skip_sp_ptr1
+        ldy #0
+        jsr _require_eoi_or_err
+
         jsr load_curaddr
 
         ; end = addr + block_size
@@ -1642,6 +1650,11 @@ peek_brk_opcode:
         jmp @ed_lp
 
 @ed_done:
+        ; Final-arg garbage check: reject non-EOW after the last HH
+        ; (pop-trick).  Must precede emit_mem / cur_addr update so
+        ; bad trailing input leaves state untouched.
+        ldy #0
+        jsr _require_eoi_or_err
         lda rp_cnt
         sta rp_save             ; nbytes for emit
         jsr emit_mem
@@ -1660,7 +1673,14 @@ peek_brk_opcode:
         sta cur_addr+1
 @ed_nl: jmp newline
 
-@dump:  ; Dump block_size bytes in 8-col rows
+@dump:  ; Reject trailing garbage after the optional ADDR (pop-trick).
+        ; rp_ptr is already skipped past whitespace and past any hex4
+        ; ADDR we parsed.  Legit EOLs (NUL, ';', spaces-then-those)
+        ; pass; anything else is garbage and aborts the dump.
+        ldy #0
+        jsr _require_eoi_or_err
+
+        ; Dump block_size bytes in 8-col rows
         lda block_size
         sta rp_cnt
         lda block_size+1
@@ -1797,7 +1817,9 @@ pre_userland_run:
 ; cmd_step — 't' (step-into) / 'o' (step-over) command.
 ;
 ; Seed-only under the Phase-18 handler-resident state machine:
-;   1. Parse count (N).
+;   1. Parse count (N), default 1.  On expression success, reject
+;      trailing garbage via the pop-trick _require_eoi_or_err —
+;      `t10xyz` logs ";?syntax" and aborts before any state write.
 ;   2. Set step_state (STEP_INTO or STEP_OVER).
 ;   3. If no prior break, initialise brk_pc from cur_addr.
 ;   4. Temporarily disable any bp at brk_pc (so the first step can
@@ -1952,6 +1974,10 @@ pre_userland_run:
         bcs :+
         jmp @err_b
 :
+        ; Reject trailing garbage (pop-trick).  Must happen BEFORE
+        ; dbg_bp_set so a bad "b ADDR garbage" doesn't install the bp.
+        ldy #0
+        jsr _require_eoi_or_err
         ; Range-check: bp must be in workspace [$0800, __CODE_RUN__)
         lda expr_val+1
         cmp #>$0800
@@ -3220,6 +3246,8 @@ prg_ok_done:
 
 @h_plus:; + — advance address
         jsr expr_or_blocksize
+        ldy #0
+        jsr _require_eoi_or_err ; reject trailing garbage (pop-trick)
         lda cur_addr
         clc
         adc expr_val
@@ -3232,6 +3260,8 @@ prg_ok_done:
 @h_minus:
         ; - — retreat address
         jsr expr_or_blocksize
+        ldy #0
+        jsr _require_eoi_or_err ; reject trailing garbage (pop-trick)
         lda cur_addr
         sec
         sbc expr_val

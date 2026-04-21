@@ -348,14 +348,14 @@ The REPL's line editor operates within the 40-column screen:
 
 | Key | Name     | Addressed | Example                     | Notes                                      |
 |-----|----------|-----------|-----------------------------|----------------------------------------------|
-| `m` | memory   | yes       | `1000:m` dump, `1000:m A9 00...` edit | Bare = dump `B` bytes; with hex = edit  |
+| `m` | memory   | yes       | `1000:m` dump, `1000:m A9 00...` edit | Bare = dump `B` bytes; with hex = edit.  Rejects trailing garbage after the (optional) ADDR or after the last edit byte (§ Single-expression command contract). |
 
 ### Commands — Assembly / Disassembly
 
 | Key | Name       | Addressed | Example              | Notes                                        |
 |-----|------------|-----------|-----------------------|----------------------------------------------|
 | `.` | asm/disasm | yes       | `1000:. lda #$00`    | Single instruction; full expressions in operands. See *Input-shape matrix* below. |
-| `d` | disassemble| yes       | `1000:d`              | Disassemble `b` bytes (block mode)           |
+| `d` | disassemble| yes       | `1000:d`              | Disassemble `b` bytes (block mode).  Takes no inline args; rejects trailing content (§ Single-expression command contract). |
 | `a` | assemble   | —         | `a`                   | Assemble source buffer (two-pass)            |
 
 #### `.` command input-shape matrix
@@ -391,9 +391,9 @@ distinguishes "nothing after `.`" (valid silent redisplay) from
 | Key | Name      | Addressed | Example         | Notes                                    |
 |-----|-----------|-----------|-----------------|------------------------------------------|
 | `r` | registers | —         | `r` or `r a:05...` | View / edit CPU registers             |
-| `b` | breakpoint| —         | `b $1020`, `b main`, `b -1`, `b *` | Set (expr), delete, list. See [debugger.md](debugger.md). |
-| `t` | trace     | —         | `t` or `t 5`    | Step-into EXPR instructions (default `B`). Enters subroutines. |
-| `o` | trace over| —         | `o` or `o 5`    | Step-over EXPR instructions (default `B`). JSR runs to completion. |
+| `b` | breakpoint| —         | `b $1020`, `b main`, `b -1`, `b *` | Set (expr), delete, list. See [debugger.md](debugger.md).  The `b ADDR` set-form rejects trailing garbage (§ Single-expression command contract). |
+| `t` | trace     | —         | `t` or `t 5`    | Step-into EXPR instructions (bare = single step). Enters subroutines. Rejects trailing garbage (§ Single-expression command contract). |
+| `o` | trace over| —         | `o` or `o 5`    | Step-over EXPR instructions (bare = single step). JSR runs to completion. Rejects trailing garbage (§ Single-expression command contract). |
 
 ### Commands — Navigation
 
@@ -401,8 +401,8 @@ distinguishes "nothing after `.`" (valid silent redisplay) from
 |-----|---------|-----------|---------------|------------------------------------------|
 | `@` | seek    | —         | `@ $C000` or `@ main` | Set `cur_addr` to expression; bare = no-op.  Rejects trailing non-whitespace / non-comment content as a syntax error (§ Single-expression command contract). |
 | `B` | block   | —         | `B $40`       | Set block size (expression); bare = show (uppercase).  Rejects trailing garbage (§ Single-expression command contract). |
-| `+` | forward | —         | `+` or `+ $20` | Advance cur_addr by block_size (or expr) |
-| `-` | back    | —         | `-` or `- $20` | Retreat cur_addr by block_size (or expr) |
+| `+` | forward | —         | `+` or `+ $20` | Advance cur_addr by block_size (or expr).  Rejects trailing garbage (§ Single-expression command contract). |
+| `-` | back    | —         | `-` or `- $20` | Retreat cur_addr by block_size (or expr).  Rejects trailing garbage (§ Single-expression command contract). |
 
 ### Commands — I/O
 
@@ -522,7 +522,10 @@ becomes `project.`.  Pressing RETURN on this line saves the binary.
 
 A subset of REPL commands take **exactly one complete expression
 and nothing else**.  Currently covered: `?` (calc), `@` (seek),
-`B` (block size), `C` (color), `j` (jump).
+`B` (block size), `C` (color), `j` (jump), `t`/`o` (trace),
+`+`/`-` (advance/retreat), `b ADDR` (breakpoint set), `d` (disasm,
+no inline args), `m` (memory — final-arg check on both `@dump`
+and `@ed_done` sub-forms).
 
 For these commands, the parser's
 [expr.md § Partial-mode contract](expr.md#partial-mode-contract)
