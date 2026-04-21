@@ -78,6 +78,14 @@ MODE_NONE   = 0
 MODE_JUMP   = 1
 MODE_RESUME = 2
 
+        ; dbg_reason enum — ordered by liveness (higher = more alive).
+        ; Mirrors main.s declaration (ca65 doesn't import equates).
+        ; `cmp #DBG_BRK / bcs` identifies a resumable session.
+DBG_NONE = 0    ; no session
+DBG_RTS  = 1    ; alive-but-terminal: landed at RTS/RTI or clean exit
+DBG_BRK  = 2    ; resumable: non-return break
+DBG_NMI  = 3    ; resumable: NMI
+
 ; ── Imports: debugger step modes (match debugger.s values) ───
 STEP_NONE = 0
 STEP_INTO = 1
@@ -1106,16 +1114,19 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ;
 ; Unified return-to-REPL path after running user code.  Prints one
 ; line of the form "; TAG[ N] at $PC" followed by the register dump
-; and a disassembly at brk_pc.  TAG depends on dbg_reason and, for
-; clean exits, an opcode peek at brk_pc:
+; and a disassembly at brk_pc.  TAG is chosen from dbg_reason:
 ;
 ;   dbg_reason=DBG_NMI → "; nmi at $PC"
 ;   dbg_reason=DBG_BRK → "; brk at $PC"          (unplanned / step end)
 ;                        "; brk N at $PC"        (user bp slot N+1 hit)
-;   dbg_reason=0       → "; brk at $PC"          (opcode at PC is $00)
-;                        "; rts at $PC"          (PC == brk_stub, or
-;                                                 opcode is $60 RTS /
-;                                                 $40 RTI, or default)
+;   dbg_reason=DBG_RTS → "; rts at $PC"          (user RTS/RTI landed at
+;                                                 brk_stub; handler has
+;                                                 already reset brk_pc
+;                                                 := cur_addr) — or the
+;                                                 cmd_step early-stop
+;                                                 pre-RTS/RTI path.
+;   dbg_reason=DBG_NONE → "; brk at $PC"         (defensive; should not
+;                                                 normally occur here)
 ;
 ; Separator newline above the header only if the cursor isn't
 ; already at column 0 (user CHROUT may have left the row padded).
@@ -1126,8 +1137,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ; ═══════════════════════════════════════════════════════════
 
 ; ── peek_brk_opcode — read the opcode byte at brk_pc into A ───
-; Used by show_break_result's classification (brk vs rts) and by
-; post_run_cleanup's last_cmd-clear-on-RTS/RTI check.
+; Used by post_run_cleanup's last_cmd-clear-on-RTS/RTI check.
 ; Clobbers: A, Y, rp_ptr.
 peek_brk_opcode:
         lda brk_pc
@@ -1142,52 +1152,24 @@ peek_brk_opcode:
         ; log_open auto-advances if cursor is mid-line (userland
         ; return may leave it anywhere); no manual newline needed.
 
-        ; Special case: clean RTS through our brk_stub sentinel
-        ; (dbg_reason=0 and brk_pc == brk_stub).  The break PC is
-        ; the sentinel itself — not a user-meaningful address — so
-        ; print just "; rts" and reset brk_pc to cur_addr (the
-        ; pre-j entry point, untouched during the run).  emit_reg
-        ; then shows PC at the entry, and the follow-up disasm
-        ; sits on the user's code, not on brk_stub.
+        ; Decide tag string (rp_ptr2 = ptr to zero-terminated tag)
+        ; from dbg_reason.  Handler pre-populates brk_pc := cur_addr
+        ; for DBG_RTS (sentinel landing), so no special-case reset
+        ; is needed here — brk_pc is already user-meaningful.
         lda dbg_reason
-        bne @tag_select
-        lda brk_pc
-        cmp #<brk_stub
-        bne @tag_select
-        lda brk_pc+1
-        cmp #>brk_stub
-        bne @tag_select
-        ; Reset brk_pc to cur_addr.
-        lda cur_addr
-        sta brk_pc
-        lda cur_addr+1
-        sta brk_pc+1
-        ldy #' '
-        jsr log_open
-        puts str_rts
-        jsr io_clear_eol
-        jmp @regs_keep_addr
-
-@tag_select:
-        ; Decide tag string (rp_ptr2 = ptr to zero-terminated tag).
-        lda dbg_reason
-        cmp #2
+        cmp #DBG_NMI
         bne @not_nmi
         lda #<str_nmi
         ldx #>str_nmi
         jmp @have_tag
 @not_nmi:
-        cmp #1
-        beq @is_brk
-        ; dbg_reason = 0 (clean): classify by opcode at brk_pc.
-        ; $00 BRK → brk; otherwise ($60 RTS, $40 RTI, default) → rts.
-        jsr peek_brk_opcode
-        cmp #$00
-        beq @is_brk
+        cmp #DBG_RTS
+        bne @is_brk
         lda #<str_rts
         ldx #>str_rts
         jmp @have_tag
 @is_brk:
+        ; DBG_BRK or defensive DBG_NONE fallback.
         lda #<str_brk
         ldx #>str_brk
 
@@ -1204,7 +1186,7 @@ peek_brk_opcode:
 
         ; Append " N" if this is a user bp-slot hit.
         lda dbg_reason
-        cmp #1
+        cmp #DBG_BRK
         bne @no_slot
         lda dbg_bp_hit
         cmp #$FF
@@ -1232,15 +1214,7 @@ peek_brk_opcode:
         sta cur_addr
         lda brk_pc+1
         sta cur_addr+1
-        jmp @disasm
 
-@regs_keep_addr:
-        ; Regs + disasm at cur_addr (unchanged — user's entry PC).
-        jsr newline
-        jsr emit_reg
-        jsr newline
-
-@disasm:
         lda cur_addr
         sta rp_addr
         lda cur_addr+1
@@ -1805,7 +1779,7 @@ hygiene_after_userland:
         ; The cooldown clears automatically once KERNAL STOP
         ; ($FFE1) reports the key released.
         lda dbg_reason
-        cmp #2                  ; DBG_NMI
+        cmp #DBG_NMI
         bne @drain
         lda #1
         sta stop_cooldown
@@ -1933,23 +1907,29 @@ pre_userland_run:
         ; show_break_result, clear last_cmd on RTS/RTI) — call it
         ; with step_state still set so it takes the step branch.
         ;
-        ; Clear dbg_reason BEFORE post_run_cleanup so show_break_result
-        ; takes the opcode-based fallback ("; rts" for $60/$40, "; brk"
-        ; for $00) — the user-meaningful tag for "tried to step but
-        ; couldn't, next instruction would have been a return op".
-        ; The first-time-landing case (real BRK trap on the RTS
-        ; instruction) sees dbg_reason = DBG_BRK and gets "; brk" via
-        ; the trap path through main_loop_top → post_run_cleanup; only
-        ; the cmd_step early-stop sets dbg_reason = 0 here.  Without
-        ; this re-order, the second t/o on the same RTS would still
-        ; show "; brk" (bug: "rts needs to be stepped on twice before
-        ; it registers as rts").
+        ; Classify dbg_reason BEFORE post_run_cleanup so show_break_result
+        ; picks the right tag ("; rts" for $60/$40, "; brk" for $00) —
+        ; the user-meaningful tag for "tried to step but couldn't, next
+        ; instruction would have been a return op".  The first-time-
+        ; landing case (real BRK trap on the RTS instruction) reaches
+        ; here via main_loop_top → post_run_cleanup with dbg_reason
+        ; already set by the handler; only the cmd_step early-stop
+        ; writes dbg_reason here.  Without this, the second t/o on the
+        ; same RTS would still show "; brk" (bug: "rts needs to be
+        ; stepped on twice before it registers as rts").
         lda step_next_lo
         ora step_next_lo+1
         ora step_next_hi
         ora step_next_hi+1
         bne @arm
-        lda #0
+        ; Peek opcode at brk_pc: $00 (BRK) → DBG_BRK; $60/$40 → DBG_RTS.
+        jsr peek_brk_opcode
+        cmp #$00
+        beq @es_brk
+        lda #DBG_RTS
+        .byte $2C               ; skip next lda via BIT abs
+@es_brk:
+        lda #DBG_BRK
         sta dbg_reason
         jmp post_run_cleanup    ; tail-call
 
@@ -1985,12 +1965,16 @@ pre_userland_run:
 
         jsr pre_userland_run
 
-        ; Mode: fresh (sentinel) if no prior break, resume otherwise.
+        ; Mode: MODE_RESUME for resumable sessions (DBG_BRK/DBG_NMI,
+        ; where the sentinel is still on the user stack); MODE_JUMP
+        ; for DBG_NONE (no session) and DBG_RTS (user RTS'd off the
+        ; top — sentinel already popped, need a fresh one).
         lda dbg_reason
-        beq @fresh
-        lda #MODE_RESUME
+        cmp #DBG_BRK
+        bcs @resume
+        lda #MODE_JUMP
         .byte $2C
-@fresh: lda #MODE_JUMP
+@resume: lda #MODE_RESUME
         sta run_user_pending
         rts
 .endproc
@@ -3750,12 +3734,15 @@ prg_ok_done:
         jsr reset_screen
         jmp io_clear_eol
 
-@h_c:   ; c — continue debugger
+@h_c:   ; c — continue debugger.  Only resumable sessions (DBG_BRK
+        ; and DBG_NMI) accept continue; DBG_NONE (never started) and
+        ; DBG_RTS (terminal — ran off the top) are rejected.
         lda dbg_reason
-        bne @c_has_ctx
+        cmp #DBG_BRK
+        bcs @c_has_ctx
         lda #<str_no_ctx
         ldx #>str_no_ctx
-        jmp log_err   
+        jmp log_err
 @c_has_ctx:
         ; delete hit breakpoint before continuing
         lda dbg_bp_hit
@@ -3853,7 +3840,7 @@ KSTK_MIN = 64
         ; history entry, and main_loop_top will paint the new prompt
         ; at brk_pc.  See doc/modules/debugger.md § Step output.
         lda dbg_reason
-        cmp #2                  ; DBG_NMI
+        cmp #DBG_NMI
         beq @full
         lda dbg_bp_hit
         cmp #$FF

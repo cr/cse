@@ -107,10 +107,12 @@ P_B_FLAG     = $10            ; mask: bit 4 of stacked P
 BANK_IN      = $36
 BANK_OUT     = $34
 
-; Reason codes (match debugger.s)
-DBG_NONE = 0
-DBG_BRK  = 1
-DBG_NMI  = 2
+; Reason codes — ordered by liveness (higher = more alive).
+; `cmp #DBG_BRK / bcs` identifies a resumable session in one compare.
+DBG_NONE = 0    ; no session (never started / ended)
+DBG_RTS  = 1    ; alive-but-terminal: landed at RTS/RTI or clean exit
+DBG_BRK  = 2    ; resumable: non-return break
+DBG_NMI  = 3    ; resumable: NMI
 
 ; run_user_pending values.  Set by command handlers; dispatched by
 ; main_loop after exec_line rts's back.
@@ -772,14 +774,21 @@ cse_brk_handler:
         lda #$FF
         sta dbg_bp_hit
 
-        ; Clean exit via brk_stub?
+        ; Clean exit via brk_stub?  User's top-level RTS popped the
+        ; sentinel, landing at brk_stub where this BRK fired.  Promote
+        ; to DBG_RTS (alive-but-terminal) and reset brk_pc := cur_addr
+        ; so the display layer shows a user-meaningful address.
         lda brk_pc
         cmp #<brk_stub
         bne @not_clean
         lda brk_pc+1
         cmp #>brk_stub
         bne @not_clean
-        lda #DBG_NONE
+        lda cur_addr
+        sta brk_pc
+        lda cur_addr+1
+        sta brk_pc+1
+        lda #DBG_RTS
         sta dbg_reason
         jmp handler_finalize
 
