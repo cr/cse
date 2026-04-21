@@ -417,7 +417,9 @@ All three converge on `cse_brk_handler` (main.s):
   `cmd_step` for `t`/`o` single-step.
 - **BRK at `brk_stub`** — user's top-level RTS popped the sentinel.
   Handler classifies (PC − 2 == brk_stub address) → clean exit,
-  `dbg_reason = 0`.
+  `dbg_reason = DBG_RTS` (alive-but-terminal — user must `j`/`g`
+  for a fresh run) and resets `brk_pc := cur_addr` so subsequent
+  display shows a user-meaningful address.
 - **NMI in userland** — `cse_nmi_handler` reads `in_userland`,
   routes to the BRK-style entry path so the same capture logic runs.
   `dbg_reason = DBG_NMI`.

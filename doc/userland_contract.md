@@ -56,8 +56,8 @@ active break context on demand:
   active and/or the editor has unsaved changes.
 
 Ending a session resets SP to `kernel_init_sp`, clears `dbg_reason`
-/ `step_state` / `run_user_pending` / `in_userland`, restores any
-breakpoint-patched opcodes via `unpatch_all`, and jumps to
+(→ `DBG_NONE`) / `step_state` / `run_user_pending` / `in_userland`,
+restores any breakpoint-patched opcodes via `unpatch_all`, and jumps to
 `main_loop_top`.  The editor buffer and the breakpoint table
 (`bp_table` slots themselves) are preserved across the reset.
 See [main.md § Layer 3](modules/main.md) and

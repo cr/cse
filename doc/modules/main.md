@@ -48,7 +48,9 @@ The unified BRK dispatcher.  Classifies the BRK source and routes:
   RTI routes through a bank-out stub.  Returns via RTI to original
   code with kernal banked back out.
 - B=1 (BRK):
-  - PC-2 == `brk_stub` → user clean exit (`dbg_reason = 0`).
+  - PC-2 == `brk_stub` → user clean exit.  Handler sets
+    `dbg_reason = DBG_RTS` and resets `brk_pc := cur_addr` so
+    downstream display shows a user-meaningful address.
   - PC-2 matches an armed breakpoint slot → breakpoint hit
     (`dbg_reason = DBG_BRK`, `dbg_bp_hit = slot`).
   - PC-2 matches an armed step-BRK slot → step iteration; the
@@ -56,6 +58,14 @@ The unified BRK dispatcher.  Classifies the BRK source and routes:
     decides chain-or-finish.
   - Otherwise → unplanned user BRK (`dbg_reason = DBG_BRK`,
     `dbg_bp_hit = $FF`).
+
+  After bp/step classification, handler peeks opcode at `brk_pc`
+  and promotes `DBG_BRK → DBG_RTS` if the opcode is `$60` (RTS)
+  or `$40` (RTI).  This unifies the "landed at return op" case
+  with the clean-exit case under a single reason value — the
+  display layer then dispatches on `DBG_RTS` alone, no brk_pc /
+  brk_stub comparison needed.  See
+  [debugger.md § `dbg_reason` enum](debugger.md#dbg_reason-enum--ordered-by-liveness).
 
 After classification, the handler captures user state into the
 `reg_*` shadows (debugger.s), clears `in_userland`, runs `vic_reset`
