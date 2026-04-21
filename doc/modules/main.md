@@ -50,22 +50,23 @@ The unified BRK dispatcher.  Classifies the BRK source and routes:
 - B=1 (BRK):
   - PC-2 == `brk_stub` → user clean exit.  Handler sets
     `dbg_reason = DBG_RTS` and resets `brk_pc := cur_addr` so
-    downstream display shows a user-meaningful address.
+    downstream display shows a user-meaningful address.  This
+    is the *only* site in the handler that sets `DBG_RTS`.
   - PC-2 matches an armed breakpoint slot → breakpoint hit
     (`dbg_reason = DBG_BRK`, `dbg_bp_hit = slot`).
   - PC-2 matches an armed step-BRK slot → step iteration; the
     handler-resident state machine (see [debugger.md § Single-step](debugger.md))
-    decides chain-or-finish.
+    decides chain-or-finish.  `dbg_reason = DBG_BRK` on a
+    landed-on-RTS step — intentional; the SECOND `t` on the
+    same address is what promotes to `DBG_RTS` via cmd_step's
+    RTS-early-stop path.
   - Otherwise → unplanned user BRK (`dbg_reason = DBG_BRK`,
     `dbg_bp_hit = $FF`).
 
-  After bp/step classification, handler peeks opcode at `brk_pc`
-  and promotes `DBG_BRK → DBG_RTS` if the opcode is `$60` (RTS)
-  or `$40` (RTI).  This unifies the "landed at return op" case
-  with the clean-exit case under a single reason value — the
-  display layer then dispatches on `DBG_RTS` alone, no brk_pc /
-  brk_stub comparison needed.  See
-  [debugger.md § `dbg_reason` enum](debugger.md#dbg_reason-enum--ordered-by-liveness).
+  The handler does **not peek opcode bytes** for classification.
+  Opcode-based promotion to `DBG_RTS` happens only in
+  cmd_step's RTS-early-stop path (via `step_next_pc`'s existing
+  dispatch).  See [debugger.md § `dbg_reason` enum](debugger.md#dbg_reason-enum--ordered-by-liveness).
 
 After classification, the handler captures user state into the
 `reg_*` shadows (debugger.s), clears `in_userland`, runs `vic_reset`

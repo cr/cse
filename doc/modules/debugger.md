@@ -706,35 +706,81 @@ Mechanism:
 
 ##### RTS variant (`dbg_reason == DBG_RTS`)
 
-`DBG_RTS` covers both "step landed at RTS/RTI opcode" AND "user
-code's top-level RTS popped brk_stub sentinel" (clean exit).  The
-handler promotes `DBG_BRK → DBG_RTS` when it detects either:
+`DBG_RTS` is set in two distinct sites, corresponding to the two
+ways the user can end up "at a return op":
 
-- `brk_pc == brk_stub` — clean exit.  Handler **resets `brk_pc :=
-  cur_addr`** in this path so the address shown in the panel is
-  user-meaningful (not the sentinel's internal address).
-- opcode at `brk_pc` is `$60` (RTS) or `$40` (RTI) — step landed
-  at a return op.  `brk_pc` left as-is (the RTS's address).
+- **Handler (main.s)** — `brk_pc == brk_stub`, i.e. user code's
+  top-level RTS popped our sentinel.  Handler sets `DBG_RTS` and
+  **resets `brk_pc := cur_addr`** so the address shown is user-
+  meaningful (not the sentinel's internal address).
 
-Both cases share the same panel shape — the panel contracts to
-2 lines:
+- **cmd_step RTS-early-stop (repl.s)** — user tried to step but
+  `step_next_pc` returned zeros (brk_pc's opcode is `$60`/`$40`/
+  `$00` — can't compute a lookahead, can't step past).  cmd_step
+  sets `dbg_reason := DBG_RTS` and jumps to `post_run_cleanup`
+  without entering userland.  This fires on the SECOND `t`/`o`
+  when the user is sitting on an RTS — the first landing (via a
+  step-BRK trap) stays `DBG_BRK` because that's semantically
+  correct: we BROKE at that instruction, haven't executed it.
+
+The "twice" pattern users see is intentional, not a workaround:
 
 ```
-PC_old:. xx yy <mne op>           ← last log-trail entry (unchanged)
-; rts at PC                        ← info (was old regs row)
-r pc:PC a:.. ...                   ← regs (was old lookahead row)
-PC:<cursor>                        ← prompt (no disas line)
+t ... (some step earlier)
+  landed at $080e (an RTS opcode):
+  ; brk at $080e           ← correct: we broke here, haven't run it
+  r pc:080e ...
+  080e:. 60 rts            ← lookahead fallback (step_next_pc = 0)
+  080e:
+
+t  (user tries to step again)
+  ; rts at $080e           ← correct: we couldn't step past
+  (+ preserved lookahead row above, per RTS panel mechanics)
+  r pc:080e ...
+  080e:
+```
+
+There is **no opcode peek in the handler**.  The opcode-based
+classification lives in `step_next_pc` (which is the existing
+step primitive) via its dispatch on `$60`/`$40`/`$00`.  The
+handler's only RTS-related check is `brk_pc == brk_stub`.
+
+The RTS panel **preserves the prior lookahead disas row** — which,
+by construction, is the disas at the PC we just stepped to (the
+RTS instruction itself).  The panel visually identifies the RTS
+via the preserved row, with info/regs framing it:
+
+```
+PC_old:. xx yy <mne op>           ← last log-trail entry
+; rts at PC                        ← new info  (was prior info row)
+PC:. 60 rts                        ← PRESERVED — was prior lookahead
+r pc:PC a:.. ...                   ← new regs  (was prior prompt row)
+PC:<cursor>                        ← new prompt (new row)
 ```
 
 (Where PC = user-meaningful: brk_pc for "landed at RTS" case,
 or cur_addr for clean-exit case — handler made them equal by
 resetting brk_pc in the latter.)
 
-`show_break_result` dispatches on `dbg_reason == DBG_RTS` to the
-rts path: emits info + regs + `io_clear_eol` (no `emit_dot`, no
-closing newline).  `main_loop_top`'s `show_prompt` auto-advances
-to the prompt row.  **No brk_stub address comparison in the
-display layer** — the handler's classification is authoritative.
+**Emit sequence** (`show_break_result` DBG_RTS path):
+
+1. Emit info ("; rts at $PC") at current cursor — log_open's
+   auto-advance handles positioning.
+2. Newline (advances to old lookahead row).
+3. **Second newline** (skips the old lookahead row without
+   overwriting — this is the preservation).
+4. Emit regs.
+5. `io_clear_eol`, no closing newline.
+
+The two newlines after info are the key — they consume the row
+that held the prior lookahead disas without touching it.  The
+user's mental model of this is "info goes 2 rows above the new
+prompt" — from the KERNAL cursor arithmetic perspective it's
+just "emit, skip, emit" forward.
+
+No `emit_dot` call in this path, no `_compute_lookahead`, no
+brk_stub address comparison.  The handler's `dbg_reason` value
+is the sole classifier.
 
 **Session semantics in RTS state**: `dbg_reason == DBG_RTS` is
 alive-but-terminal.  `c` (continue) and `t` (step) refuse to
