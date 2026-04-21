@@ -376,9 +376,9 @@ brk_stub:
         jeq @jsr
 
         cmp #$60
-        jeq @stop               ; RTS
+        jeq @rts                ; RTS — peek user stack
         cmp #$40
-        jeq @stop               ; RTI
+        jeq @rti                ; RTI — peek user stack
 
         cmp #$4C
         jeq @jmp_abs
@@ -527,6 +527,40 @@ brk_stub:
         sta step_next_lo
         iny
         lda (rp_ptr),y
+        sta step_next_lo+1
+        rts
+
+; ── @rts — RTS lookahead via user-stack peek ────────────────────
+; User SP at trap is in reg_sp.  RTS pops 2 bytes (return_lo at
+; $0100 + reg_sp + 1, return_hi at $0100 + reg_sp + 2), then sets
+; PC := (return_hi:return_lo) + 1.  We compute that lookahead and
+; arm a step BRK there, so step-INTO can follow returns naturally
+; instead of getting stuck at the rts.  RAM stack is accessible
+; regardless of $01 banking.
+@rts:
+        ldx reg_sp
+        inx                     ; SP+1 (return_lo)
+        lda $0100,x
+        clc
+        adc #1
+        sta step_next_lo
+        inx                     ; SP+2 (return_hi)
+        lda $0100,x
+        adc #0
+        sta step_next_lo+1
+        rts
+
+; ── @rti — RTI lookahead via user-stack peek ────────────────────
+; RTI pops 3 bytes (P at SP+1, PCL at SP+2, PCH at SP+3), then
+; sets PC := (PCH:PCL) (NO +1, unlike RTS).  Same banking as @rts.
+@rti:
+        ldx reg_sp
+        inx
+        inx                     ; SP+2 (PCL)
+        lda $0100,x
+        sta step_next_lo
+        inx                     ; SP+3 (PCH)
+        lda $0100,x
         sta step_next_lo+1
         rts
 
