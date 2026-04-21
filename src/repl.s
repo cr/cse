@@ -1114,19 +1114,31 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ;
 ; Unified return-to-REPL path after running user code.  Prints one
 ; line of the form "; TAG[ N] at $PC" followed by the register dump
-; and a disassembly at brk_pc.  TAG is chosen from dbg_reason:
+; and a disassembly at brk_pc.
+;
+; Tag classification (two-tier):
 ;
 ;   dbg_reason=DBG_NMI → "; nmi at $PC"
-;   dbg_reason=DBG_BRK → "; brk at $PC"          (unplanned / step end)
-;                        "; brk N at $PC"        (user bp slot N+1 hit)
-;   dbg_reason=DBG_RTS → "; rts at $PC"          (user RTS/RTI landed at
-;                                                 brk_stub; handler has
-;                                                 already reset brk_pc
-;                                                 := cur_addr) — or the
-;                                                 cmd_step early-stop
-;                                                 pre-RTS/RTI path.
-;   dbg_reason=DBG_NONE → "; brk at $PC"         (defensive; should not
-;                                                 normally occur here)
+;   dbg_reason=DBG_RTS → "; rts at $PC"          (handler already set
+;                                                 this for clean-exit
+;                                                 via brk_stub, after
+;                                                 resetting brk_pc :=
+;                                                 cur_addr; also set by
+;                                                 cmd_step early-stop)
+;   Otherwise (DBG_BRK / DBG_NONE) → classify by OPCODE at brk_pc:
+;     $60 RTS / $40 RTI → "; rts"   (step trap landed on a return op
+;                                    — the *next* step would execute
+;                                    it; critical for not mistagging
+;                                    step-onto-rts as "; brk")
+;     everything else   → "; brk"   ($00 BRK opcodes fall here; the
+;                                    user-meaningful tag is "; brk")
+;
+; The opcode tier is what makes "step lands on rts" display "; rts"
+; even though the step BRK fired with dbg_reason=DBG_BRK.  See
+; b9c3914 for the bug history.
+;
+; Additionally if dbg_reason=DBG_BRK AND dbg_bp_hit != $FF, appends
+; the slot number: "; brk N at $PC" (user breakpoint hit).
 ;
 ; Separator newline above the header only if the cursor isn't
 ; already at column 0 (user CHROUT may have left the row padded).
@@ -1137,7 +1149,8 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ; ═══════════════════════════════════════════════════════════
 
 ; ── peek_brk_opcode — read the opcode byte at brk_pc into A ───
-; Used by post_run_cleanup's last_cmd-clear-on-RTS/RTI check.
+; Used by show_break_result's opcode-tier classification and by
+; post_run_cleanup's last_cmd-clear-on-RTS/RTI check.
 ; Clobbers: A, Y, rp_ptr.
 peek_brk_opcode:
         lda brk_pc
@@ -1152,10 +1165,9 @@ peek_brk_opcode:
         ; log_open auto-advances if cursor is mid-line (userland
         ; return may leave it anywhere); no manual newline needed.
 
-        ; Decide tag string (rp_ptr2 = ptr to zero-terminated tag)
-        ; from dbg_reason.  Handler pre-populates brk_pc := cur_addr
-        ; for DBG_RTS (sentinel landing), so no special-case reset
-        ; is needed here — brk_pc is already user-meaningful.
+        ; Tier 1: dbg_reason overrides for NMI and handler-classified
+        ; RTS (clean exit via brk_stub).  Tier 2 (opcode-based) runs
+        ; for DBG_BRK / DBG_NONE.
         lda dbg_reason
         cmp #DBG_NMI
         bne @not_nmi
@@ -1164,14 +1176,20 @@ peek_brk_opcode:
         jmp @have_tag
 @not_nmi:
         cmp #DBG_RTS
-        bne @is_brk
-        lda #<str_rts
-        ldx #>str_rts
-        jmp @have_tag
-@is_brk:
-        ; DBG_BRK or defensive DBG_NONE fallback.
+        beq @is_rts
+        ; Tier 2: classify by opcode at brk_pc.
+        jsr peek_brk_opcode
+        cmp #$60                ; RTS
+        beq @is_rts
+        cmp #$40                ; RTI
+        beq @is_rts
+        ; Default — BRK opcode ($00) and everything else.
         lda #<str_brk
         ldx #>str_brk
+        jmp @have_tag
+@is_rts:
+        lda #<str_rts
+        ldx #>str_rts
 
 @have_tag:
         sta rp_ptr2
@@ -1904,33 +1922,17 @@ pre_userland_run:
         ; If both slots zero (opcode is RTS/RTI/BRK), stop without
         ; entering user code.  post_run_cleanup already knows how to
         ; finish a step (clear step_state, re-enable disabled bp,
-        ; show_break_result, clear last_cmd on RTS/RTI) — call it
-        ; with step_state still set so it takes the step branch.
-        ;
-        ; Classify dbg_reason BEFORE post_run_cleanup so show_break_result
-        ; picks the right tag ("; rts" for $60/$40, "; brk" for $00) —
-        ; the user-meaningful tag for "tried to step but couldn't, next
-        ; instruction would have been a return op".  The first-time-
-        ; landing case (real BRK trap on the RTS instruction) reaches
-        ; here via main_loop_top → post_run_cleanup with dbg_reason
-        ; already set by the handler; only the cmd_step early-stop
-        ; writes dbg_reason here.  Without this, the second t/o on the
-        ; same RTS would still show "; brk" (bug: "rts needs to be
-        ; stepped on twice before it registers as rts").
+        ; show_break_result, clear last_cmd on RTS/RTI).  Its opcode
+        ; peek classifies $60/$40 as "; rts" and $00 as "; brk" — so
+        ; we don't need to touch dbg_reason here (it's either DBG_BRK
+        ; from a prior handler trap, or DBG_NONE/DBG_RTS on a cold
+        ; start; show_break_result's opcode tier classifies correctly
+        ; from the instruction byte regardless).
         lda step_next_lo
         ora step_next_lo+1
         ora step_next_hi
         ora step_next_hi+1
         bne @arm
-        ; Peek opcode at brk_pc: $00 (BRK) → DBG_BRK; $60/$40 → DBG_RTS.
-        jsr peek_brk_opcode
-        cmp #$00
-        beq @es_brk
-        lda #DBG_RTS
-        .byte $2C               ; skip next lda via BIT abs
-@es_brk:
-        lda #DBG_BRK
-        sta dbg_reason
         jmp post_run_cleanup    ; tail-call
 
 @arm:
