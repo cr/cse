@@ -3932,46 +3932,24 @@ KSTK_MIN = 64
 :       lda #$FF
         sta rp_dis_bp
 
-        ; Classify: break event OR multi-step → full display (tag +
-        ; regs + preview dis via show_break_result).  Otherwise (a
-        ; single-step that landed on a regular instruction) → silent
-        ; finish — cmd_step already emitted the pre-step dis as the
-        ; history entry, and main_loop_top will paint the new prompt
-        ; at brk_pc.  See doc/modules/debugger.md § Step output.
-        lda dbg_reason
-        cmp #DBG_NMI
-        beq @full
-        lda dbg_bp_hit
-        cmp #$FF
-        bne @full               ; user bp hit
+        ; Per spec: every brk emits info+regs+lookahead.  No silent
+        ; finish — the user wants to see the panel after every step
+        ; so the audit trail shows what just ran (cmd_step's pre-step
+        ; disas) AND what state we're now in (this panel).  RTS/RTI
+        ; landings additionally clear last_cmd so RETURN doesn't
+        ; re-step a return op.
         jsr peek_brk_opcode
-        cmp #$00
-        beq @full               ; natural BRK opcode
         cmp #$60
         beq @full_ret           ; RTS — full + clear last_cmd
         cmp #$40
         beq @full_ret           ; RTI — full + clear last_cmd
-        ; Not a break event.  Multi-step? (rp_cnt > 1)
-        lda rp_cnt+1
-        bne @full
-        lda rp_cnt
-        cmp #2
-        bcs @full
-        ; Silent single-step finish — just hand off cur_addr.
-        lda brk_pc
-        sta cur_addr
-        lda brk_pc+1
-        sta cur_addr+1
-        rts
+        jmp show_break_result   ; tail-call
 
 @full_ret:
         jsr show_break_result
         lda #0
         sta last_cmd            ; prevent RETURN repeating the step
         rts
-
-@full:
-        jmp show_break_result   ; tail-call
 
 @not_step:
         jmp show_break_result
