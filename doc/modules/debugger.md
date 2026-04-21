@@ -556,17 +556,9 @@ t               step 1 instruction
 t N             step N instructions (N in hex)
 ```
 
-`t N` is a loop of N × `t 1`.  Each iteration computes the next-PC,
-arms a temporary step BRK, and enters user code for one instruction.
-On completion (or early exit), one register line and one disassembly
-line are printed showing the final state:
-
-```
-> t 3
-r a:00 x:03 y:00 sp:f5 nvdizc
- 1005  sta $d021
-1008:
-```
+`t N` with N > 1 is an internal chain via the handler-resident
+state machine.  Each iteration computes the next-PC, arms a
+temporary step BRK, and enters user code for one instruction.
 
 Bare `t` is single-step (count = 1).  `t N` overrides for this
 invocation only.  `block_size` is NOT consulted by trace — it is a
@@ -580,6 +572,60 @@ The loop exits early if:
 - An NMI fires or a regular breakpoint is hit mid-sequence
 - RTS or RTI is reached (stops before executing — prevents
   following a garbage return address)
+
+#### Step output semantics
+
+**Single-step (bare `t` or `t 1`)** — "edit workflow" output:
+
+Each step emits ONE disassembly line at the pre-step PC (the
+pending instruction) BEFORE arming the step BRK.  After the step
+returns at a regular instruction, `post_run_cleanup` performs a
+**silent finish** — just updates `cur_addr := brk_pc` and lets
+`main_loop_top` paint the new prompt.  No tag, no register dump.
+
+Repeatedly pressing RETURN therefore leaves a natural log trail:
+
+```
+0800:a                          (earlier assembly)
+080e:t                          (user types t + return)
+080e:. xx yy insn1              (pre-step dis of insn at 080e)
+0810:                           (silent finish; prompt at new PC)
+                                (user presses return to repeat t)
+0810:. xx yy insn2              (pre-step dis of insn at 0810)
+0812:                           (silent finish)
+...
+```
+
+The pre-step dis line is retroactively the history entry the
+moment the step returns — no screen rewriting needed.
+
+On a **break event** (opcode at `brk_pc` is BRK $00 / RTS $60 /
+RTI $40, or a user breakpoint hit, or NMI), the full display
+fires via `show_break_result`:
+
+```
+0810:. xx yy insn2              (pre-step dis from cmd_step entry)
+; brk                           (break event tag)
+r pc:0812 a:44 x:55...          (register dump)
+0812:. 00        brk            (preview dis at brk_pc)
+0812:                           (prompt)
+```
+
+**Multi-step (`t N` with N > 1)** — skip the log trail.  No
+pre-step dis emission per iteration (would flood the screen on
+t50 / t100 batches).  Always full display at the end, whether or
+not a break event fired — user sees final state via
+`show_break_result`.  The screen's backlog from a multi-step
+batch is inherently non-informative anyway.
+
+#### Next-PC ambiguity
+
+The `step_next_pc` helper may arm TWO step-BRKs when the next
+instruction is a branch (taken vs. fallthrough) or `jsr`
+(STEP_INTO target vs. STEP_OVER fallthrough).  This is a
+speculation — the CPU resolves it at execution time.  After the
+step returns, `brk_pc` holds a single unambiguous post-step PC,
+so the log-trail entry and the next prompt are correct.
 
 ### `o` — Trace over (step-over)
 

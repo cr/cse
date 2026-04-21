@@ -1954,6 +1954,26 @@ pre_userland_run:
         jmp post_run_cleanup    ; tail-call
 
 @arm:
+        ; Single-step (rp_cnt == 1): emit the "log trail" dis line at
+        ; brk_pc BEFORE the step.  This is the pending instruction —
+        ; executing it makes this line retrospectively the history of
+        ; "what just ran".  Multi-step (rp_cnt > 1) skips the log to
+        ; avoid flooding the screen on t50/t100 batches; user sees
+        ; final state via show_break_result at the end of the chain.
+        ; (See doc/modules/debugger.md § Step output semantics.)
+        lda rp_cnt+1
+        bne @skip_log
+        lda rp_cnt
+        cmp #2
+        bcs @skip_log
+        lda brk_pc
+        sta rp_addr
+        lda brk_pc+1
+        sta rp_addr+1
+        jsr emit_dot
+        jsr newline
+@skip_log:
+
         jsr arm_step_bp
 
         ; step_remaining = count - 1 (first iteration runs below via
@@ -3825,18 +3845,47 @@ KSTK_MIN = 64
         sta bp_table+3,x
 :       lda #$FF
         sta rp_dis_bp
-        ; Always show full break result.
-        jsr show_break_result
-        ; Clear last_cmd if stopped on RTS/RTI (prevents RETURN repeat).
+
+        ; Classify: break event OR multi-step → full display (tag +
+        ; regs + preview dis via show_break_result).  Otherwise (a
+        ; single-step that landed on a regular instruction) → silent
+        ; finish — cmd_step already emitted the pre-step dis as the
+        ; history entry, and main_loop_top will paint the new prompt
+        ; at brk_pc.  See doc/modules/debugger.md § Step output.
+        lda dbg_reason
+        cmp #2                  ; DBG_NMI
+        beq @full
+        lda dbg_bp_hit
+        cmp #$FF
+        bne @full               ; user bp hit
         jsr peek_brk_opcode
+        cmp #$00
+        beq @full               ; natural BRK opcode
         cmp #$60
-        beq @clr_last
+        beq @full_ret           ; RTS — full + clear last_cmd
         cmp #$40
-        bne @done
-@clr_last:
+        beq @full_ret           ; RTI — full + clear last_cmd
+        ; Not a break event.  Multi-step? (rp_cnt > 1)
+        lda rp_cnt+1
+        bne @full
+        lda rp_cnt
+        cmp #2
+        bcs @full
+        ; Silent single-step finish — just hand off cur_addr.
+        lda brk_pc
+        sta cur_addr
+        lda brk_pc+1
+        sta cur_addr+1
+        rts
+
+@full_ret:
+        jsr show_break_result
         lda #0
-        sta last_cmd
-@done:  rts
+        sta last_cmd            ; prevent RETURN repeating the step
+        rts
+
+@full:
+        jmp show_break_result   ; tail-call
 
 @not_step:
         jmp show_break_result

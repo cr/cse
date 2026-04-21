@@ -929,3 +929,160 @@ class TestTrailingGarbageRejection:
 
         assert self._screen_has_marker(emu, self._SYNTAX_MARKER), \
             "expected ';?syntax' on screen for d with inline content"
+
+
+# ── 15. Step output semantics (Option C edit workflow) ──────────
+
+class TestStepOutputSemantics:
+    """Verifies the "edit workflow" step output:
+
+    Single-step (`t` / `o` with count=1):
+      - cmd_step emits a "pre-step dis" line at brk_pc BEFORE arming
+        the step BRK.  This line shows the PENDING instruction; after
+        the step returns, the line is retrospectively the history of
+        "what just ran".
+      - On normal completion (no BRK/RTS/RTI/bp/NMI at landing PC),
+        post_run_cleanup performs a SILENT FINISH — just updates
+        cur_addr to brk_pc, lets main_loop repaint the prompt.  No
+        "; brk" tag, no register dump.
+      - On break event (opcode at brk_pc ∈ {$00, $60, $40} or
+        dbg_bp_hit != $FF or DBG_NMI), emits full display
+        (tag + regs + preview dis) via show_break_result.
+
+    Multi-step (`t N` with N > 1):
+      - No pre-step dis (chain would flood the screen on t50/t100).
+      - Always full display at end — user sees final state even
+        without a break event.
+    """
+
+    @staticmethod
+    def _clear_screen(emu):
+        for i in range(0x0400, 0x0800):
+            emu.memory[i] = 0x20
+
+    def test_single_step_emits_pre_step_dis_line(self, emu):
+        """Seed a LDA #$42 at $3000, dbg_reason=DBG_BRK, brk_pc=$3000.
+        Call cmd_step (t1).  The pre-step dis of the LDA must appear
+        on screen BEFORE the step actually runs (the step never runs
+        in this test — we only check cmd_step's pre-step output)."""
+        _cold_init_to_prompt(emu)
+        USER = 0x3000
+        emu.memory[USER]     = 0xA9            # LDA #imm
+        emu.memory[USER + 1] = 0x42
+        emu.memory[USER + 2] = 0x00            # BRK after (stops chain)
+        emu.write_word(emu.sym("brk_pc"), USER)
+        emu.write_word(emu.sym("cur_addr"), USER)
+        emu.memory[emu.sym("dbg_reason")] = 1   # active session
+        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
+        # empty line_buf → try_expr_or_err returns C=0 → count=1
+        line_buf = emu.sym("line_buf")
+        for i in range(8):
+            emu.memory[line_buf + i] = 0
+        emu.memory[0x02] = line_buf & 0xFF
+        emu.memory[0x03] = line_buf >> 8
+        self._clear_screen(emu)
+
+        emu.jsr(emu.sym("cmd_step"), a=0)       # t1
+
+        # Scan screen for "3000:. A9 42" pattern (pre-step dis).
+        # CSE shifted charset: '3'=$33, '0'=$30, ':'=$3A, '.'=$2E,
+        # ' '=$20; hex digits display as hex nibbles (screen codes
+        # match PETSCII for 0-9, A-F are $41-$46).
+        marker = bytes([0x33, 0x30, 0x30, 0x30, 0x3A, 0x2E])  # "3000:."
+        found = any(
+            bytes(emu.memory[base + i] for i in range(len(marker))) == marker
+            for base in range(0x0400, 0x07E8 - len(marker) + 1)
+        )
+        assert found, "expected pre-step dis '3000:.' on screen"
+
+    def test_silent_finish_updates_cur_addr(self, emu):
+        """After a step landing on a regular insn, post_run_cleanup
+        must update cur_addr := brk_pc WITHOUT calling
+        show_break_result (no tag, no regs).  Verify by seeding
+        post-step state directly and calling post_run_cleanup."""
+        _cold_init_to_prompt(emu)
+        # Post-step state: landed at $3002 (an LDA instruction, not a
+        # break event).  brk_pc=$3002, dbg_bp_hit=$FF, dbg_reason=1
+        # (from handler), step_state=STEP_INTO (cleanup will clear it).
+        NEW_PC = 0x3002
+        emu.memory[NEW_PC] = 0xA9               # LDA #imm (not a break)
+        emu.write_word(emu.sym("brk_pc"), NEW_PC)
+        emu.write_word(emu.sym("cur_addr"), 0x9999)  # stale value
+        emu.memory[emu.sym("dbg_reason")] = 1
+        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
+        emu.memory[emu.sym("step_state")] = 1    # STEP_INTO
+        emu.memory[emu.sym("step_remaining")] = 0
+        emu.write_word(emu.sym("rp_cnt"), 1)     # single-step
+        # reg_sp above KSTK_MIN so the warning doesn't fire
+        emu.memory[emu.sym("reg_sp")] = 0xFF
+        self._clear_screen(emu)
+
+        emu.jsr(emu.sym("post_run_cleanup"))
+
+        # cur_addr must be updated to brk_pc.
+        assert emu.read_word(emu.sym("cur_addr")) == NEW_PC, \
+            "silent finish must update cur_addr to brk_pc"
+        # step_state must be cleared.
+        assert emu.memory[emu.sym("step_state")] == 0
+
+        # No "; brk" or "; rts" tag on screen.
+        tag_brk = bytes([0x3B, 0x20, 0x02, 0x12, 0x0B])  # "; brk"
+        tag_rts = bytes([0x3B, 0x20, 0x12, 0x14, 0x13])  # "; rts"
+        for base in range(0x0400, 0x07E8 - 5):
+            window = bytes(emu.memory[base + i] for i in range(5))
+            assert window != tag_brk, \
+                "silent finish must not emit '; brk'"
+            assert window != tag_rts, \
+                "silent finish must not emit '; rts'"
+
+    def test_break_event_on_brk_opcode_shows_full_display(self, emu):
+        """Stopped at a natural BRK ($00) opcode: full display.
+        Verify '; brk' tag appears on screen."""
+        _cold_init_to_prompt(emu)
+        USER = 0x3000
+        emu.memory[USER] = 0x00                   # BRK
+        emu.write_word(emu.sym("brk_pc"), USER)
+        emu.write_word(emu.sym("cur_addr"), USER)
+        emu.memory[emu.sym("dbg_reason")] = 1
+        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
+        emu.memory[emu.sym("step_state")] = 1
+        emu.memory[emu.sym("step_remaining")] = 0
+        emu.write_word(emu.sym("rp_cnt"), 1)
+        emu.memory[emu.sym("reg_sp")] = 0xFF
+        self._clear_screen(emu)
+
+        emu.jsr(emu.sym("post_run_cleanup"))
+
+        tag_brk = bytes([0x3B, 0x20, 0x02, 0x12, 0x0B])  # "; brk"
+        found = any(
+            bytes(emu.memory[base + i] for i in range(5)) == tag_brk
+            for base in range(0x0400, 0x07E8 - 4)
+        )
+        assert found, "BRK opcode at brk_pc must produce '; brk' tag"
+
+    def test_multi_step_gets_full_display_even_without_break_event(self, emu):
+        """After t5 (rp_cnt=5) completes normally (landed on a regular
+        insn), post_run_cleanup must still emit full display — the
+        user wants to see where they ended up after batch steps."""
+        _cold_init_to_prompt(emu)
+        NEW_PC = 0x3002
+        emu.memory[NEW_PC] = 0xA9                 # LDA (no break event)
+        emu.write_word(emu.sym("brk_pc"), NEW_PC)
+        emu.write_word(emu.sym("cur_addr"), 0x9999)
+        emu.memory[emu.sym("dbg_reason")] = 1
+        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
+        emu.memory[emu.sym("step_state")] = 1
+        emu.memory[emu.sym("step_remaining")] = 0
+        emu.write_word(emu.sym("rp_cnt"), 5)       # MULTI-step
+        emu.memory[emu.sym("reg_sp")] = 0xFF
+        self._clear_screen(emu)
+
+        emu.jsr(emu.sym("post_run_cleanup"))
+
+        tag_brk = bytes([0x3B, 0x20, 0x02, 0x12, 0x0B])  # "; brk"
+        found = any(
+            bytes(emu.memory[base + i] for i in range(5)) == tag_brk
+            for base in range(0x0400, 0x07E8 - 4)
+        )
+        assert found, "multi-step completion must emit full display " \
+                      "even without a break event"
