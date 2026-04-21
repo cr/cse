@@ -603,6 +603,35 @@ _require_eoi_or_err:
         jmp log_err
 
 ; ═══════════════════════════════════════════════════════════
+; try_expr_or_err — try_expr + on-success EOI garbage check
+;
+; The common pattern for "take exactly one expression, nothing
+; else" commands: parse, then require clean EOI.  This wrapper
+; folds both calls into one, saving 5 B per migrated call site
+; (no inline `ldy #0 / jsr _require_eoi_or_err` after a success).
+;
+; Returns: same as try_expr (C=1 success, C=0 empty or error) on
+;          the non-garbage paths.  On success-with-garbage, tail-
+;          calls _require_eoi_or_err which pops the CALLER'S OF
+;          try_expr_or_err return address via the pop-trick — so
+;          control escapes two levels up (matching optimization.md
+;          § 36 contract, because the helper's `jmp` preserves the
+;          same stack depth as a direct `jsr _require_eoi_or_err`
+;          from the outer caller).
+;
+; Stack contract: inherits _require_eoi_or_err's — the caller of
+; try_expr_or_err must be exactly one jsr deep from the desired
+; escape point (top-of-handler-chain).
+; ═══════════════════════════════════════════════════════════
+.proc try_expr_or_err
+        jsr try_expr
+        bcc @r                  ; empty/error — return as-is
+        ldy #0
+        jmp _require_eoi_or_err ; tail-call (preserves stack contract)
+@r:     rts
+.endproc
+
+; ═══════════════════════════════════════════════════════════
 ; try_expr — evaluate expression at rp_ptr
 ;   C=1: success (result in expr_val, rp_ptr advanced)
 ;   C=0: empty or error (error printed)
@@ -1851,17 +1880,13 @@ pre_userland_run:
         sta brk_pc+1
 @has_ctx:
 
-        ; Parse count: via try_expr, or default to 1 (single step).
-        ; t/o are single-step commands by default; an expression arg
-        ; overrides for multi-step (e.g. `t10` = step 10 instructions).
-        ; On try_expr success, reject trailing garbage via the pop-
-        ; trick helper (never returns on garbage — see optimization.md
-        ; § Pop-trick error escape).  No state has been written yet,
-        ; so an early escape is clean.
-        jsr try_expr
+        ; Parse count: via try_expr_or_err (parse + reject trailing
+        ; garbage via the pop-trick helper), or default to 1 (single
+        ; step).  t/o are single-step by default; an expression arg
+        ; overrides (e.g. `t10` = step 10 instructions).  No state
+        ; has been written yet, so a garbage-escape is clean.
+        jsr try_expr_or_err
         bcc @def_count
-        ldy #0
-        jsr _require_eoi_or_err
         lda expr_val
         ora expr_val+1
         beq @def_count          ; zero → default
@@ -1969,15 +1994,13 @@ pre_userland_run:
         jmp @delete_one
 :
 
-        ; b ADDR — set breakpoint
-        jsr try_expr
+        ; b ADDR — set breakpoint.  try_expr_or_err parses AND
+        ; rejects trailing garbage via the pop-trick — so a bad
+        ; "b ADDR xyz" never installs the bp.
+        jsr try_expr_or_err
         bcs :+
         jmp @err_b
 :
-        ; Reject trailing garbage (pop-trick).  Must happen BEFORE
-        ; dbg_bp_set so a bad "b ADDR garbage" doesn't install the bp.
-        ldy #0
-        jsr _require_eoi_or_err
         ; Range-check: bp must be in workspace [$0800, __CODE_RUN__)
         lda expr_val+1
         cmp #>$0800
@@ -3228,15 +3251,12 @@ prg_ok_done:
 @h_i:   clc                     ; C=0 = full mode
         jmp cmd_info
 
-@h_at:  ; @ — set address.  Parse → EOI check → apply.
+@h_at:  ; @ — set address.  Parse+EOI-check → apply.
         ; Can't delegate to expr_set_curaddr: it applies cur_addr
         ; before we can check EOI.  Inline the apply after the EOI
         ; check so garbage input leaves cur_addr untouched.
-        jsr try_expr
-        bcc @at_done            ; empty/error → skip apply and EOI
-                                ; (try_expr emits its own error)
-        ldy #0
-        jsr _require_eoi_or_err
+        jsr try_expr_or_err     ; parse + reject garbage (pop-trick)
+        bcc @at_done            ; empty/error → skip apply
         lda expr_val
         sta cur_addr
         lda expr_val+1
@@ -3272,14 +3292,12 @@ prg_ok_done:
         jmp nl_clear
 
 @h_j:   ; j — jump/execute
-        ; Class-wide Escape Analysis fix: same pattern as @h_at — parse,
-        ; EOI check, apply.  On bare `j` or expr-error, preserve the
-        ; existing behaviour of jumping with whatever cur_addr holds
-        ; (try_expr already emitted its own error if there was one).
-        jsr try_expr
+        ; Same pattern as @h_at: parse+EOI-check, then apply.  On
+        ; bare `j` or expr-error, preserve the existing behaviour of
+        ; jumping with whatever cur_addr holds (try_expr already
+        ; emitted its own error if there was one).
+        jsr try_expr_or_err     ; parse + reject garbage (pop-trick)
         bcc @j_run              ; empty/error → jump with current cur_addr
-        ldy #0
-        jsr _require_eoi_or_err ; trailing garbage → abort, don't jump
         lda expr_val
         sta cur_addr
         lda expr_val+1
@@ -3314,12 +3332,8 @@ prg_ok_done:
         jmp nl_clear
 
 @h_blk: ; B (PETSCII $C2) — block size
-        jsr try_expr
+        jsr try_expr_or_err     ; parse + reject garbage (pop-trick)
         bcc @B_show             ; empty or error → show current
-        ; Success path: reject trailing garbage before applying value
-        ; (Escape Analysis class-wide via shared helper).
-        ldy #0
-        jsr _require_eoi_or_err
         lda expr_val
         ora expr_val+1
         beq @B_show

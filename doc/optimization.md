@@ -840,9 +840,63 @@ equivalent).  A nested sub-proc cannot use the trick — the
 pla/pla would discard the wrong frame.
 
 Used in: `repl.s` — `_require_eoi_or_err` is the trailing-garbage
-check after expression parsing.  Callers: `@h_at`, `@h_j`,
-`@h_blk`, `@h_col`, `@h_calc`, `@h_plus`, `@h_minus`, `cmd_step`,
-`cmd_brk`, `cmd_mem` (two sites: `@dump`, `@ed_done`), `cmd_disasm`.
-All called directly from `exec_line`'s dispatch (or via
-`jmp cmd_XXX` from a dispatch trampoline that preserves the same
-stack shape).
+check after expression parsing.  Direct callers: `@h_col`,
+`@h_calc`, `@h_plus`, `@h_minus`, `cmd_mem` (two sites: `@dump`,
+`@ed_done`), `cmd_disasm`.  Indirect callers via `try_expr_or_err`
+(which tail-jumps to `_require_eoi_or_err` on success — the `jmp`
+preserves the same stack shape as a direct call): `@h_at`, `@h_j`,
+`@h_blk`, `cmd_step`, `cmd_brk`.  All top-of-handler-chain.
+
+The `try_expr_or_err` wrapper exists because the pattern
+`jsr try_expr / bcc @skip / ldy #0 / jsr _require_eoi_or_err`
+repeated at enough call sites (5) that folding parse+EOI into one
+call saved 13 B net (5 sites × 5 B − 12 B wrapper body).  See §
+"Parse-and-check fusion wrappers" below.
+
+## 37. Parse-and-check fusion wrappers
+
+When a group of call sites all follow the same parse-then-check
+pattern — each pays the call overhead for TWO helpers where ONE
+wrapper + tail-call chains them naturally — fuse the two calls
+into a single wrapper.  The wrapper's tail-call to the second
+helper preserves the stack shape, so any stack contracts of the
+second helper (e.g. optimization.md § 36's pop-trick) continue
+to hold for callers of the wrapper.
+
+```asm
+; before (5 B per call site × N sites)
+        jsr try_expr
+        bcc @skip
+        ldy #0
+        jsr _require_eoi_or_err
+        ; success path
+
+; after (0 B per call site — subsumed into wrapper call)
+        jsr try_expr_or_err     ; 3 B — replaces jsr try_expr
+        bcc @skip               ; 2 B — same as before
+        ; success path
+
+; wrapper (12 B body)
+.proc try_expr_or_err
+        jsr try_expr            ; 3 B
+        bcc @r                  ; 2 B
+        ldy #0                  ; 2 B
+        jmp _require_eoi_or_err ; 3 B tail-call
+@r:     rts                     ; 1 B
+.endproc
+```
+
+**Saving:** `N × pattern_cost − wrapper_body`.  Breakeven: 3 sites
+for the 5-B pattern above (3 × 5 = 15 > 12).  Linear saving past
+that.
+
+**Stack-contract preservation:** if the second helper uses the
+pop-trick (§ 36), the wrapper's tail-`jmp` leaves the stack
+identical to what a direct `jsr <second_helper>` from the outer
+caller would produce.  So wrapper-callers inherit the original
+stack contract verbatim.  Document the chain clearly in both the
+wrapper's docstring and § 36's "Used in" entry.
+
+Used in: `repl.s` — `try_expr_or_err` chains `try_expr` → (on
+success) `_require_eoi_or_err` tail-call.  Callers: `@h_at`,
+`@h_j`, `@h_blk`, `cmd_step`, `cmd_brk`.
