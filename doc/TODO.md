@@ -193,6 +193,26 @@ Open bugs, roughly ordered by priority.
   and `d`.  Full Principle 11 class closure on single-expression
   commands.)
 
+- [ ] **BUG** Disk: `l "foo` (filename with missing closing quote)
+  errs `;?expr undef` but loads the file anyway.  Two issues
+  conflated: (a) the parse path raises an expression error on the
+  unterminated string yet still proceeds with the load (should
+  abort on syntax error before any I/O); (b) "expr undef" is the
+  wrong error class for an unterminated string literal — should
+  be `;?syntax` or a dedicated string-parse error.  Reproduce:
+  type `l "foo` (no closing quote) at the prompt.  Investigation:
+  cmd_load's filename parse — find where the missing `"` is
+  detected vs where the load actually fires; the abort path is
+  missing or wrongly placed.
+- [ ] **BUG** Editor: switching to the editor after `l` always
+  inserts a tab on entry, even when the buffer already has
+  source loaded (so the first line gets a leading tab where it
+  shouldn't).  Should only auto-tab when entering an empty
+  buffer.  Reproduce: load a non-empty source via `l NAME`,
+  then enter the editor (any path).  Investigation: editor's
+  on-entry hook — likely an unconditional "indent for new line"
+  that should be gated on buffer-empty.
+
 - [ ] **BUG** Assembler: `jsr a` reports "bad insn" but segment
   output still follows (seems to complete the assembly run?).
   Switching to `jsr ax` or `jsr aa` works.  Unclear whether
