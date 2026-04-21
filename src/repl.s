@@ -1132,20 +1132,6 @@ peek_brk_opcode:
 
 @tag_select:
         ; Decide tag string (rp_ptr2 = ptr to zero-terminated tag).
-        ; NMI → "; nmi".  Otherwise classify by OPCODE at brk_pc:
-        ;   $60 RTS / $40 RTI → "; rts" (sitting on a return op —
-        ;     the next step would execute it).
-        ;   anything else (incl $00 BRK) → "; brk".
-        ;
-        ; The classification must not depend on dbg_reason (NMI
-        ; excepted): a step BRK that landed on an RTS still has
-        ; dbg_reason = DBG_BRK (set by cse_brk_handler), but the
-        ; user-meaningful tag is "; rts".  Keying off dbg_reason
-        ; was the cause of the "rts needs to be stepped on twice
-        ; before it registers as rts" bug — first two displays
-        ; said "; brk" because dbg_reason was DBG_BRK, then
-        ; cmd_step's RTS-early-stop cleared dbg_reason and the
-        ; third step finally hit the opcode-based path.
         lda dbg_reason
         cmp #2
         bne @not_nmi
@@ -1153,17 +1139,19 @@ peek_brk_opcode:
         ldx #>str_nmi
         jmp @have_tag
 @not_nmi:
+        cmp #1
+        beq @is_brk
+        ; dbg_reason = 0 (clean): classify by opcode at brk_pc.
+        ; $00 BRK → brk; otherwise ($60 RTS, $40 RTI, default) → rts.
         jsr peek_brk_opcode
-        cmp #$60
-        beq @is_rts
-        cmp #$40
-        beq @is_rts
-        lda #<str_brk
-        ldx #>str_brk
-        jmp @have_tag
-@is_rts:
+        cmp #$00
+        beq @is_brk
         lda #<str_rts
         ldx #>str_rts
+        jmp @have_tag
+@is_brk:
+        lda #<str_brk
+        ldx #>str_brk
 
 @have_tag:
         sta rp_ptr2
@@ -1880,16 +1868,26 @@ pre_userland_run:
         ; finish a step (clear step_state, re-enable disabled bp,
         ; show_break_result, clear last_cmd on RTS/RTI) — call it
         ; with step_state still set so it takes the step branch.
+        ;
+        ; Clear dbg_reason BEFORE post_run_cleanup so show_break_result
+        ; takes the opcode-based fallback ("; rts" for $60/$40, "; brk"
+        ; for $00) — the user-meaningful tag for "tried to step but
+        ; couldn't, next instruction would have been a return op".
+        ; The first-time-landing case (real BRK trap on the RTS
+        ; instruction) sees dbg_reason = DBG_BRK and gets "; brk" via
+        ; the trap path through main_loop_top → post_run_cleanup; only
+        ; the cmd_step early-stop sets dbg_reason = 0 here.  Without
+        ; this re-order, the second t/o on the same RTS would still
+        ; show "; brk" (bug: "rts needs to be stepped on twice before
+        ; it registers as rts").
         lda step_next_lo
         ora step_next_lo+1
         ora step_next_hi
         ora step_next_hi+1
         bne @arm
-        jsr post_run_cleanup
-        ; Mark "no context" so a follow-up `c` reports cleanly.
         lda #0
         sta dbg_reason
-        rts
+        jmp post_run_cleanup    ; tail-call
 
 @arm:
         jsr arm_step_bp

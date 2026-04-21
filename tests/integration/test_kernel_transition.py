@@ -637,22 +637,37 @@ class TestProductionChainStress:
             f"expected 0 (clean exit)"
 
 
-# ── 13. Tag classification regression (RTS-via-step-BRK) ────────
+# ── 13. Tag classification regression (cmd_step on RTS) ─────────
 
 class TestTagClassification:
     """Regression guard for the bug "rts needs to be stepped on
-    twice before it registers as rts": a step-BRK trap landing on
-    an RTS instruction left dbg_reason = DBG_BRK (set by
-    cse_brk_handler), and show_break_result classified the tag
-    from dbg_reason — so the display said "; brk at $rtsaddr"
-    even though the user was sitting on a return op.  The fix
-    classifies the tag from the OPCODE at brk_pc (NMI excepted),
-    so RTS / RTI always show "; rts" regardless of dbg_reason.
+    twice before it registers as rts".
 
-    This test exercises the production trap path: it sets up
-    user state with brk_pc on an RTS, dbg_reason=DBG_BRK (as
-    cse_brk_handler would leave it), then calls show_break_result
-    and inspects the tag written to the screen.
+    Two distinct states share the same brk_pc-on-RTS observable
+    but want different tags:
+
+    State A — real trap landing (cse_brk_handler ran):
+        Step BRK fired at the RTS instruction.  Handler set
+        dbg_reason = DBG_BRK.  Tag MUST be "; brk" — this reflects
+        the trap source (we just broke at this insn).  This is the
+        first time the user lands on the RTS.
+
+    State B — cmd_step early-stop (no trap fired):
+        User typed t/o again at the same brk_pc.  cmd_step sees
+        opcode $60 in step_next_pc and aborts WITHOUT entering
+        userland.  Tag MUST be "; rts" — this reflects the
+        stepping outcome (the next thing that would have run is a
+        return op).  show_break_result distinguishes A from B by
+        dbg_reason: cmd_step's RTS-early-stop clears dbg_reason
+        BEFORE calling post_run_cleanup so show_break_result takes
+        the opcode-based fallback.
+
+    Without the fix in cmd_step's ordering (post_run_cleanup ran
+    before the dbg_reason clear), state B inherited dbg_reason =
+    DBG_BRK from state A and wrongly displayed "; brk".  The third
+    consecutive t/o then accidentally got dbg_reason = 0 from the
+    second's tail-clear and finally showed "; rts" — hence "twice
+    before rts".
     """
 
     @staticmethod
@@ -668,30 +683,62 @@ class TestTagClassification:
             emu.memory[i] = 0x20
 
     # Tag patterns include the leading "; " so the scan does not
-    # collide with the disassembly line below the tag (which can
-    # also contain "rts" if brk_pc opcode is $60).
+    # collide with the disassembly line below the tag (which also
+    # contains "rts" when brk_pc opcode is $60).
     # CSE shifted charset: 'a'=$01, 'b'=$02, ..., 'z'=$1A.
     _TAG_BRK = bytes([0x3B, 0x20, 0x02, 0x12, 0x0B])  # "; brk"
     _TAG_RTS = bytes([0x3B, 0x20, 0x12, 0x14, 0x13])  # "; rts"
 
-    def test_rts_landing_via_step_brk_registers_as_rts(self, emu):
-        """The bug-repro: dbg_reason=DBG_BRK (as left by
-        cse_brk_handler after a step BRK trap), opcode at brk_pc
-        is $60 (RTS).  Without the fix the display said "; brk";
-        with the opcode-based classification it must say "; rts"."""
+    def _setup_at_rts(self, emu, addr=0x3000):
+        """Common fixture: cold-init, RTS at addr, brk_pc=cur_addr=
+        addr, dbg_bp_hit=$FF.  Caller sets dbg_reason."""
         _cold_init_to_prompt(emu)
-        USER = 0x3000
-        emu.memory[USER] = 0x60                           # RTS
-        emu.write_word(emu.sym("brk_pc"), USER)
-        emu.write_word(emu.sym("cur_addr"), USER)
-        emu.memory[emu.sym("dbg_reason")] = 1             # DBG_BRK
+        emu.memory[addr] = 0x60                          # RTS
+        emu.write_word(emu.sym("brk_pc"), addr)
+        emu.write_word(emu.sym("cur_addr"), addr)
         emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
+        # rp_ptr → empty line_buf so try_expr returns C=0 (default cnt).
+        line_buf = emu.sym("line_buf")
+        for i in range(8):
+            emu.memory[line_buf + i] = 0
+        emu.memory[0x20] = line_buf & 0xFF
+        emu.memory[0x21] = line_buf >> 8
         self._clear_screen(emu)
+
+    def test_state_a_real_trap_landing_shows_brk(self, emu):
+        """State A: cse_brk_handler just left dbg_reason=DBG_BRK
+        with brk_pc on the RTS.  show_break_result MUST say "; brk"
+        — this is the trap-source reflection (first time landing)."""
+        self._setup_at_rts(emu)
+        emu.memory[emu.sym("dbg_reason")] = 1            # DBG_BRK
 
         emu.jsr(emu.sym("show_break_result"))
 
+        assert self._screen_has(emu, self._TAG_BRK), \
+            "state A (real trap landing) must show '; brk'"
+        assert not self._screen_has(emu, self._TAG_RTS), \
+            "state A must not show '; rts' — the RTS hasn't run yet, " \
+            "we just trapped at it"
+
+    def test_state_b_cmd_step_early_stop_shows_rts(self, emu):
+        """State B: user types t/o while sitting on the RTS.
+        cmd_step's RTS-early-stop fires (step_next_pc returns zeros
+        for $60), and the resulting display MUST say "; rts" — this
+        reflects the stepping outcome (would-be next op is a return).
+
+        This is the bug-repro: without the fix, cmd_step called
+        post_run_cleanup BEFORE clearing dbg_reason, so
+        show_break_result inherited dbg_reason=DBG_BRK from state A
+        and displayed "; brk" again."""
+        self._setup_at_rts(emu)
+        emu.memory[emu.sym("dbg_reason")] = 1            # state A leftover
+
+        emu.jsr(emu.sym("cmd_step"), a=0)                # t1
+
         assert self._screen_has(emu, self._TAG_RTS), \
-            "expected '; rts' tag when sitting on RTS opcode " \
-            "(classification must derive from opcode, not dbg_reason)"
+            "state B (cmd_step early-stop on RTS) must show '; rts' " \
+            "— bug 'rts needs to be stepped on twice before it " \
+            "registers as rts'"
         assert not self._screen_has(emu, self._TAG_BRK), \
-            "did not expect '; brk' tag when sitting on RTS opcode"
+            "state B must not show '; brk' — no trap fired, we're " \
+            "just reporting that the next op would be a return"
