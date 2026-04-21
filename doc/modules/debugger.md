@@ -616,254 +616,79 @@ The loop exits early if:
 - RTS or RTI is reached (stops before executing — prevents
   following a garbage return address)
 
-#### Step output semantics (edit workflow)
+#### Step output: the edit workflow
 
-`t` / `o` output is a **3-line debugger panel + prompt** that
-stays at a fixed screen position relative to the latest prompt.
-Each warm step shifts the panel down by one row, leaving behind a
-one-line log trail of executed instructions.  The step primitive
-(handler-resident chain, step_next_pc, patch/unpatch) is
-untouched — this is pure UX layered on top.
+`t` / `o` produce a running **audit trail** of executed
+instructions culminating in a break panel for the current state.
+Pressing RETURN repeatedly advances one instruction per press,
+leaving behind the history of what ran.
 
-##### Panel anatomy
+The panel abstracts to:
 
-The panel is 4 rows tall:
+- **Info** — `"; TAG at $PC"`, tag selected from `dbg_reason`
+  (debug / brk / nmi / rts).
+- **Regs** — one-line `r pc:.. a:.. x:.. y:.. sp:.. p:..`.
+- **Lookahead** — disassembly of the next-to-run instruction
+  (STEP_OVER semantics: fall-through for conditional branches
+  and `jsr`; target for `jmp`; the instruction itself for
+  RTS/RTI/BRK, where "next" is undefined).
 
-```
-Row D+0:  ; <tag> at $PC          ← info line
-Row D+1:  r pc:PC a:.. x:.. ...   ← register dump
-Row D+2:  LOOK:. xx yy <mne op>   ← disas at LOOKAHEAD (next-to-run)
-Row D+3:  PC:<cursor>              ← prompt
-```
+The step primitive (handler-resident chain, `step_next_pc`,
+patch/unpatch arming) is untouched — this is pure UX layered on
+top of it.  Screen mechanics (where each row sits, how the panel
+shifts, cursor positioning) are an implementation detail and
+live in the code; they're verified on real hardware/VICE rather
+than pinned by contract.
 
-where **LOOKAHEAD = `brk_pc + oplen(opcode)`** under STEP_OVER
-semantics (fall-through for conditional branches and `jsr`;
-target for `jmp`; undefined for RTS/RTI/BRK).  Showing fall-
-through regardless of `t` vs `o` is intentional: when the branch
-is taken, the branch-taken line is almost always already visible
-above as a prior log-trail entry.
+Tag taxonomy:
 
-Tag variants:
-- `debug` — cold preview (first `t` / `o` with no active session)
-- `brk`   — step landed on a regular instruction, or a user BP hit
-- `nmi`   — NMI landed in userland
-- `rts`   — step landed on RTS/RTI, or clean exit via brk_stub
+| `dbg_reason` | Tag     | When                                      |
+| :---         | :---    | :---                                      |
+| `DBG_NONE`   | `debug` | Cold preview: first `t`/`o` with no session; "debug" signals we're merely showing current state, not the outcome of a step. |
+| `DBG_BRK`    | `brk`   | Step landed on a non-return instruction, or user BP hit. |
+| `DBG_NMI`    | `nmi`   | NMI fired in userland. |
+| `DBG_RTS`    | `rts`   | Step landed at RTS/RTI, or clean exit via brk_stub. |
 
-##### Cold preview (first `t` / `o` with `dbg_reason == DBG_NONE`)
+Multi-step (`t N` / `o N` with N > 1) is implemented as an
+N-iteration loop of the single-step path.  Each iteration is a
+full REPL round-trip.  Future optimisation (see
+TODO "handler t loop short circuit") would fold the iteration
+into the handler-resident chain; not done yet.
 
-```
-PC:t                              ← user types t + return (prompt row)
-; debug at $PC                    ← info
-r pc:PC a:.. ...                  ← regs
-PC:. xx yy <mne op>               ← disas at cur_addr (pending insn)
-PC:                               ← prompt (unchanged PC — no step)
-```
+##### DBG_RTS: two sources, unified display
 
-Separate code path in `cmd_step`.  Emits the 3-line panel, sets
-`brk_pc := cur_addr`, **establishes the debug session** so that
-subsequent `t` / `o` take the warm-step path, then short-circuits
-back to the REPL loop.  `dbg_reason := DBG_BRK` is the session-
-establishment mechanism (value `>= DBG_BRK` means resumable).
-`_rtu_need_sentinel := 1` signals the gate to push a brk_stub
-sentinel on the first subsequent userland transition — the cold
-preview itself never crosses the gate.
-
-Factoring: an inline sequence of `log_open "; debug"`, `puts
-str_at + io_puthex4`, `emit_reg`, `emit_dot`.  A dedicated proc
-`show_cold_preview` in repl.s is the single site.
-
-##### Warm step (subsequent `t` / `o`, `dbg_reason >= DBG_BRK`)
-
-```
-PC:t                              ← user types t (prompt row D+3)
-PC:. xx yy <mne op>               ← new row D, overwrites old "; brk at PC" info
-; brk at NEWPC                    ← overwrites old regs
-r pc:NEWPC a:.. ...               ← overwrites old lookahead disas
-LOOK2:. xx yy <mne op>            ← new lookahead disas (fresh row)
-NEWPC:<cursor>                    ← new prompt
-```
-
-Each warm step contributes exactly **one new row** at the bottom
-of the screen.  The net screen movement per iteration is +1 row.
-Mechanism:
-
-1. `cmd_step` repositions cursor **3 rows up** (from prompt row
-   D+3 back to row D — where the old info line sat).  Direct
-   `CUR_ROW -= 3` + `CUR_COL := 0` + `io_sync` call.
-2. Emits `emit_dot` at `brk_pc` — the pre-step disassembly of the
-   pending instruction.  This overwrites the old info line;
-   becomes the log-trail history entry the moment the step
-   returns.
-3. Proceeds to the existing step primitive (step_next_pc, arm,
-   pre_userland_run, MODE_RESUME).  `pre_userland_run`'s newline
-   advances cursor to row D+1 for subsequent output.
-4. Userland runs one instruction, step BRK fires, handler returns
-   to `main_loop_top` → `post_run_cleanup` → `show_break_result`.
-5. `show_break_result` emits the new panel at rows D+1, D+2, D+3
-   (replacing old regs, old lookahead, and overwriting the user-
-   typed command on prompt row).  `main_loop`'s `show_prompt`
-   auto-advances to row D+4 and paints the new prompt.
-
-##### RTS variant (`dbg_reason == DBG_RTS`)
-
-`DBG_RTS` is set in two distinct sites, corresponding to the two
-ways the user can end up "at a return op":
+`DBG_RTS` is set in two sites corresponding to the two ways to
+end up "at a return op":
 
 - **Handler (main.s)** — `brk_pc == brk_stub`, i.e. user code's
   top-level RTS popped our sentinel.  Handler sets `DBG_RTS` and
-  **resets `brk_pc := cur_addr`** so the address shown is user-
+  resets `brk_pc := cur_addr` so the address shown is user-
   meaningful (not the sentinel's internal address).
 
-- **cmd_step RTS-early-stop (repl.s)** — user tried to step but
-  `step_next_pc` returned zeros (brk_pc's opcode is `$60`/`$40`/
-  `$00` — can't compute a lookahead, can't step past).  cmd_step
-  sets `dbg_reason := DBG_RTS` and jumps to `post_run_cleanup`
-  without entering userland.  This fires on the SECOND `t`/`o`
-  when the user is sitting on an RTS — the first landing (via a
-  step-BRK trap) stays `DBG_BRK` because that's semantically
-  correct: we BROKE at that instruction, haven't executed it.
-
-The "twice" pattern users see is intentional, not a workaround:
-
-```
-t ... (some step earlier)
-  landed at $080e (an RTS opcode):
-  ; brk at $080e           ← correct: we broke here, haven't run it
-  r pc:080e ...
-  080e:. 60 rts            ← lookahead fallback (step_next_pc = 0)
-  080e:
-
-t  (user tries to step again)
-  ; rts at $080e           ← correct: we couldn't step past
-  (+ preserved lookahead row above, per RTS panel mechanics)
-  r pc:080e ...
-  080e:
-```
+- **cmd_step RTS-early-stop (repl.s)** — `step_next_pc` returns
+  zeros (brk_pc's opcode is `$60`/`$40`/`$00`).  cmd_step sets
+  `DBG_RTS` and jumps to `post_run_cleanup` without entering
+  userland.  This fires on the SECOND `t`/`o` when the user is
+  sitting on an RTS — the first landing (via a step-BRK trap)
+  stays `DBG_BRK` because we BROKE at that instruction without
+  executing it.
 
 There is **no opcode peek in the handler**.  The opcode-based
-classification lives in `step_next_pc` (which is the existing
-step primitive) via its dispatch on `$60`/`$40`/`$00`.  The
-handler's only RTS-related check is `brk_pc == brk_stub`.
+classification lives in `step_next_pc` and in cmd_step's early-
+stop path.  The handler's only RTS-related check is
+`brk_pc == brk_stub`.
 
-The RTS panel **preserves the prior lookahead disas row** — which,
-by construction, is the disas at the PC we just stepped to (the
-RTS instruction itself).  The panel visually identifies the RTS
-via the preserved row, with info/regs framing it:
+The "twice" pattern users see (`; brk` on first landing, `; rts`
+on the second try to step past) is intentional, not a workaround:
+the first is "we trapped here", the second is "we can't step
+past".
 
-```
-PC_old:. xx yy <mne op>           ← last log-trail entry
-; rts at PC                        ← new info  (was prior info row)
-PC:. 60 rts                        ← PRESERVED — was prior lookahead
-r pc:PC a:.. ...                   ← new regs  (was prior prompt row)
-PC:<cursor>                        ← new prompt (new row)
-```
-
-(Where PC = user-meaningful: brk_pc for "landed at RTS" case,
-or cur_addr for clean-exit case — handler made them equal by
-resetting brk_pc in the latter.)
-
-**Emit sequence** (`show_break_result` DBG_RTS path):
-
-1. Emit info ("; rts at $PC") at current cursor — log_open's
-   auto-advance handles positioning.
-2. Newline (advances to old lookahead row).
-3. **Second newline** (skips the old lookahead row without
-   overwriting — this is the preservation).
-4. Emit regs.
-5. `io_clear_eol`, no closing newline.
-
-The two newlines after info are the key — they consume the row
-that held the prior lookahead disas without touching it.  The
-user's mental model of this is "info goes 2 rows above the new
-prompt" — from the KERNAL cursor arithmetic perspective it's
-just "emit, skip, emit" forward.
-
-No `emit_dot` call in this path, no `_compute_lookahead`, no
-brk_stub address comparison.  The handler's `dbg_reason` value
-is the sole classifier.
-
-**Session semantics in RTS state**: `dbg_reason == DBG_RTS` is
-alive-but-terminal.  `c` (continue) and `t` (step) refuse to
-proceed — the `cmp #DBG_BRK / bcs` check in their entry gate
-fails.  User must `j` / `g` to start a fresh run.  For the
-landed-at-RTS case, the semantic fit: we can't step past an RTS
-without peeking user's stack for the return address, and `c`
-would re-execute the same RTS (falling through to clean exit).
-For the clean-exit case, the session is already over — resuming
-makes no sense.
-
-##### Multi-step (`t N` / `o N` with N > 1)
-
-Implemented as a **high-level loop** inside `cmd_step`:
-iteratively invokes the single-step path N times.  Each iteration
-is a full REPL round-trip — cmd_step entry, gate, userland,
-handler, post_run_cleanup, back to cmd_step.  The loop is
-slow-per-iteration but emits the complete log trail + final
-panel, matching the single-step visual.
-
-Future optimization (see TODO "handler t loop short circuit"):
-push the iteration count into the handler-resident chain so
-iterations 2..N happen entirely inside `cse_brk_handler` without
-the full round-trip.  Adds ~50 B of code to support in-handler
-emit (kernel-ZP-swap, KERNAL-banking).
-
-Exit conditions (from the existing step primitive — unchanged):
-- BRK opcode encountered (user BRK, not our step BRK)
-- NMI fires or a user breakpoint hits mid-sequence
-- RTS / RTI reached (stops before executing — RTS-variant output)
-
-##### Cursor positioning contract
-
-All row / column manipulation uses the direct KERNAL cursor
-pointers `CUR_ROW ($D6)` and `CUR_COL ($D3)`, followed by a call
-to `cse_io.s::io_sync` to refresh the screen-line pointers.
-
-**Upward moves clamp to row 0.**  cmd_step's "up 3" uses the same
-clamping idiom that `screen.s` already uses for scroll-end-adjust
-(two's complement add with carry → clamp):
-
-```asm
-; CUR_ROW := max(CUR_ROW - 3, 0)
-lda CUR_ROW
-sec
-sbc #3
-bcs @set_row            ; no borrow → result is valid
-lda #0                  ; borrow → underflow → clamp to 0
-@set_row:
-sta CUR_ROW
-lda #0
-sta CUR_COL
-jsr io_sync
-```
-
-This means: if the debugger panel was placed near the top of
-screen and the user hits `t`, the cmd_step up-3 lands at row 0
-(or wherever the edge is) and emits the pre-step dis there.
-Visually the log-trail row overwrites whatever is at the top of
-the screen — which is typically earlier log entries that have
-already scrolled out of context.  Not a perfect experience at
-screen edge, but avoids CUR_ROW underflow and KERNAL PLOT
-misbehavior.
-
-**Downward movement** (emit + newline) scrolls the screen
-naturally via KERNAL CHROUT when at row 24 — no special handling
-needed.  The debugger panel follows the prompt downward as it
-scrolls, so the panel always ends up near the bottom of visible
-screen.
-
-Auto-advance via `log_open`'s `CUR_COL != 0 → newline` contract
-handles cursor normalization before each info/regs/disas emission.
-Callers don't need defensive newlines as long as the emit helpers
-follow the log.md "enter anywhere" contract.
-
-##### Next-PC speculation (internal, invisible to output)
-
-The `step_next_pc` helper may arm TWO temporary BRKs when the
-next instruction is a conditional branch (under STEP_INTO).  The
-CPU resolves which fires at execution time.  After the step
-returns, `brk_pc` holds a single unambiguous post-step PC, so the
-log-trail entry and the next panel are correct regardless of
-which path was taken.
+**Session semantics in RTS state**: `DBG_RTS` is alive-but-
+terminal.  `c` (continue) and `t` (step) refuse to proceed — the
+`cmp #DBG_BRK / bcs` gate fails.  User must `j` / `g` to start a
+fresh run.  For landed-at-RTS, we can't step past an RTS without
+peeking user's stack; for clean-exit, the session is already
+over — resuming makes no sense.
 
 ##### Session-state contracts
 

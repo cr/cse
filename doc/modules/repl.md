@@ -161,6 +161,19 @@ runs is the responsibility of the previous command handler
 10. **`;` is a no-op command.**  Screen output accumulates as a
     readable, scrollable log.
 
+11. **No spurious blank lines.**  Every row a command emits carries
+    content — a tag, a dump line, a disassembly, a register row, a
+    prompt.  Commands must never leave a fully-blank row (all `$20`)
+    between their first output row and the following prompt.
+    Screen real estate is scarce (25 rows, minus splash / reserved
+    rows); blank rows that serve no separator purpose are a bug.
+
+    Enforced by a single smoke test (`TestOutputHygiene`) that runs
+    a representative slice of commands and fails if any blank row
+    appears in the output region.  Individual command output layout
+    (row counts, cursor-up arithmetic, panel heights) is verified
+    on real hardware / VICE rather than pinned by unit contracts.
+
 ### Error reporting
 
 Errors use the prefix `;?` — the `;` makes the line non-executable

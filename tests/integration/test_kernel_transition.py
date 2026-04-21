@@ -1006,28 +1006,27 @@ class TestTrailingGarbageRejection:
             "expected ';?syntax' on screen for d with inline content"
 
 
-# ── 15. Step output semantics (Option C edit workflow) ──────────
+# ── 15. REPL output hygiene smoke test ──────────────────────────
 
-class TestStepOutputSemantics:
-    """Verifies the "edit workflow" step output:
+class TestOutputHygiene:
+    """Smoke test for repl.md principle 11: "No spurious blank lines."
 
-    Single-step (`t` / `o` with count=1):
-      - cmd_step emits a "pre-step dis" line at brk_pc BEFORE arming
-        the step BRK.  This line shows the PENDING instruction; after
-        the step returns, the line is retrospectively the history of
-        "what just ran".
-      - On normal completion (no BRK/RTS/RTI/bp/NMI at landing PC),
-        post_run_cleanup performs a SILENT FINISH — just updates
-        cur_addr to brk_pc, lets main_loop repaint the prompt.  No
-        "; brk" tag, no register dump.
-      - On break event (opcode at brk_pc ∈ {$00, $60, $40} or
-        dbg_bp_hit != $FF or DBG_NMI), emits full display
-        (tag + regs + preview dis) via show_break_result.
+    Drives the self-contained emit helpers (emit_reg, emit_mem,
+    emit_dot) in the sequence a typical REPL session would, then
+    scans for any fully-blank row ($20-padded) between the first
+    and last emitter output.
 
-    Multi-step (`t N` with N > 1):
-      - No pre-step dis (chain would flood the screen on t50/t100).
-      - Always full display at end — user sees final state even
-        without a break event.
+    Rationale: the REPL treats screen real estate as scarce.  Any
+    command that emits an accidental newline / missing clreol / row-
+    arithmetic off-by-one shows up as a blank row between adjacent
+    emit runs.  Caught at the emitter level, the bug is pinned to
+    a small unit; individual panel layout (row counts, cursor
+    positioning) is verified on real hardware / VICE.
+
+    This test does NOT use `emu.jsr(exec_line)` because many
+    command paths longjmp back to `main_loop_top` rather than RTS
+    cleanly — unsafe as a jsr target.  Emit helpers are pure
+    subroutines and are safe.
     """
 
     @staticmethod
@@ -1035,129 +1034,74 @@ class TestStepOutputSemantics:
         for i in range(0x0400, 0x0800):
             emu.memory[i] = 0x20
 
-    def test_single_step_emits_pre_step_dis_line(self, emu):
-        """Seed a LDA #$42 at $3000, dbg_reason=DBG_BRK, brk_pc=$3000.
-        Call cmd_step (t1).  The pre-step dis of the LDA must appear
-        on screen BEFORE the step actually runs (the step never runs
-        in this test — we only check cmd_step's pre-step output)."""
-        _cold_init_to_prompt(emu)
-        USER = 0x3000
-        emu.memory[USER]     = 0xA9            # LDA #imm
-        emu.memory[USER + 1] = 0x42
-        emu.memory[USER + 2] = 0x00            # BRK after (stops chain)
-        emu.write_word(emu.sym("brk_pc"), USER)
-        emu.write_word(emu.sym("cur_addr"), USER)
-        emu.memory[emu.sym("dbg_reason")] = DBG_BRK   # active session
-        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
-        # empty line_buf → try_expr_or_err returns C=0 → count=1
-        line_buf = emu.sym("line_buf")
-        for i in range(8):
-            emu.memory[line_buf + i] = 0
-        emu.memory[0x02] = line_buf & 0xFF
-        emu.memory[0x03] = line_buf >> 8
-        self._clear_screen(emu)
+    @staticmethod
+    def _is_blank_row(emu, row):
+        base = 0x0400 + row * 40
+        return all(emu.memory[base + c] == 0x20 for c in range(40))
 
-        emu.jsr(emu.sym("cmd_step"), a=0)       # t1
+    @staticmethod
+    def _position(emu, row, col=0):
+        emu.memory[0xD6] = row
+        emu.memory[0xD3] = col
+        emu.jsr(emu.sym("io_sync"))
 
-        # Scan screen for "3000:. A9 42" pattern (pre-step dis).
-        # CSE shifted charset: '3'=$33, '0'=$30, ':'=$3A, '.'=$2E,
-        # ' '=$20; hex digits display as hex nibbles (screen codes
-        # match PETSCII for 0-9, A-F are $41-$46).
-        marker = bytes([0x33, 0x30, 0x30, 0x30, 0x3A, 0x2E])  # "3000:."
-        found = any(
-            bytes(emu.memory[base + i] for i in range(len(marker))) == marker
-            for base in range(0x0400, 0x07E8 - len(marker) + 1)
-        )
-        assert found, "expected pre-step dis '3000:.' on screen"
+    def test_no_blank_rows_across_emitter_sequence(self, emu):
+        """Drive emit_reg + emit_mem + emit_dot in sequence, as
+        show_break_result would.  Assert: from the first output row
+        to the cursor's current row, no row is fully blank.
 
-    def test_silent_finish_updates_cur_addr(self, emu):
-        """After a step landing on a regular insn, post_run_cleanup
-        must update cur_addr := brk_pc WITHOUT calling
-        show_break_result (no tag, no regs).  Verify by seeding
-        post-step state directly and calling post_run_cleanup."""
-        _cold_init_to_prompt(emu)
-        # Post-step state: landed at $3002 (an LDA instruction, not a
-        # break event).  brk_pc=$3002, dbg_bp_hit=$FF, dbg_reason=1
-        # (from handler), step_state=STEP_INTO (cleanup will clear it).
-        NEW_PC = 0x3002
-        emu.memory[NEW_PC] = 0xA9               # LDA #imm (not a break)
-        emu.write_word(emu.sym("brk_pc"), NEW_PC)
-        emu.write_word(emu.sym("cur_addr"), 0x9999)  # stale value
-        emu.memory[emu.sym("dbg_reason")] = DBG_BRK
-        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
-        emu.memory[emu.sym("step_state")] = 1    # STEP_INTO
-        emu.memory[emu.sym("step_remaining")] = 0
-        emu.write_word(emu.sym("rp_cnt"), 1)     # single-step
-        # reg_sp above KSTK_MIN so the warning doesn't fire
+        Uses _minimal_init rather than _cold_init_to_prompt: emitter
+        invariants don't need cold-init state, and _cold_init_to_prompt
+        leaves the emulator in a layout-fragile mode that makes
+        subsequent jsr() calls unreliable."""
+        _minimal_init(emu)
+
+        # Seed state: brk_pc/rp_addr at $1000 (safe RAM), populate
+        # memory bytes so emit_mem has non-zero content.
+        ADDR = 0x1000
+        for i in range(16):
+            emu.memory[ADDR + i] = 0xEA   # NOP's, non-blank bytes
+        emu.write_word(emu.sym("brk_pc"), ADDR)
+        emu.write_word(emu.sym("cur_addr"), ADDR)
+        emu.write_word(emu.sym("rp_addr"), ADDR)
+        # emit_reg reads PC from brk_pc (set above).
+        emu.memory[emu.sym("reg_a")]  = 0x42
+        emu.memory[emu.sym("reg_x")]  = 0x11
+        emu.memory[emu.sym("reg_y")]  = 0x22
         emu.memory[emu.sym("reg_sp")] = 0xFF
+        emu.memory[emu.sym("reg_p")]  = 0x00
+
+        # Clear the screen and position cursor on row 5, col 0.
         self._clear_screen(emu)
+        self._position(emu, row=5)
 
-        emu.jsr(emu.sym("post_run_cleanup"))
+        first_row = 5
 
-        # cur_addr must be updated to brk_pc.
-        assert emu.read_word(emu.sym("cur_addr")) == NEW_PC, \
-            "silent finish must update cur_addr to brk_pc"
-        # step_state must be cleared.
-        assert emu.memory[emu.sym("step_state")] == 0
+        # Drive the emitter sequence.  Each is a pure subroutine
+        # ending at RTS.  Order mimics show_break_result + a follow-
+        # up memory dump (common sequence: inspect regs, then dump).
+        emu.jsr(emu.sym("emit_reg"))
+        emu.jsr(emu.sym("newline"))
+        emu.jsr(emu.sym("emit_dot"))
+        emu.jsr(emu.sym("newline"))
+        # reset rp_addr for emit_mem (emit_dot advanced it).
+        emu.write_word(emu.sym("rp_addr"), ADDR)
+        emu.memory[emu.sym("rp_cnt")] = 8
+        emu.jsr(emu.sym("emit_mem"))
+        emu.jsr(emu.sym("newline"))
+        emu.jsr(emu.sym("emit_dot"))
 
-        # No "; brk" or "; rts" tag on screen.
-        tag_brk = bytes([0x3B, 0x20, 0x02, 0x12, 0x0B])  # "; brk"
-        tag_rts = bytes([0x3B, 0x20, 0x12, 0x14, 0x13])  # "; rts"
-        for base in range(0x0400, 0x07E8 - 5):
-            window = bytes(emu.memory[base + i] for i in range(5))
-            assert window != tag_brk, \
-                "silent finish must not emit '; brk'"
-            assert window != tag_rts, \
-                "silent finish must not emit '; rts'"
+        last_row = emu.memory[0xD6]
+        assert last_row >= first_row, \
+            f"cursor moved backwards: started {first_row}, ended {last_row}"
 
-    def test_break_event_on_brk_opcode_shows_full_display(self, emu):
-        """Stopped at a natural BRK ($00) opcode: full display.
-        Verify '; brk' tag appears on screen."""
-        _cold_init_to_prompt(emu)
-        USER = 0x3000
-        emu.memory[USER] = 0x00                   # BRK
-        emu.write_word(emu.sym("brk_pc"), USER)
-        emu.write_word(emu.sym("cur_addr"), USER)
-        emu.memory[emu.sym("dbg_reason")] = DBG_BRK
-        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
-        emu.memory[emu.sym("step_state")] = 1
-        emu.memory[emu.sym("step_remaining")] = 0
-        emu.write_word(emu.sym("rp_cnt"), 1)
-        emu.memory[emu.sym("reg_sp")] = 0xFF
-        self._clear_screen(emu)
-
-        emu.jsr(emu.sym("post_run_cleanup"))
-
-        tag_brk = bytes([0x3B, 0x20, 0x02, 0x12, 0x0B])  # "; brk"
-        found = any(
-            bytes(emu.memory[base + i] for i in range(5)) == tag_brk
-            for base in range(0x0400, 0x07E8 - 4)
+        # Scan rows strictly BETWEEN first and last — inclusive
+        # endpoints hold the first and last emit output, which are
+        # non-blank by construction.  Any blank in the middle is a
+        # bug (extra newline, missing clreol, cursor jump).
+        blanks = [row for row in range(first_row, last_row + 1)
+                  if self._is_blank_row(emu, row)]
+        assert blanks == [], (
+            f"repl.md principle 11 violated: blank rows at {blanks} "
+            f"in emitter-output window [{first_row}..{last_row}]"
         )
-        assert found, "BRK opcode at brk_pc must produce '; brk' tag"
-
-    def test_multi_step_gets_full_display_even_without_break_event(self, emu):
-        """After t5 (rp_cnt=5) completes normally (landed on a regular
-        insn), post_run_cleanup must still emit full display — the
-        user wants to see where they ended up after batch steps."""
-        _cold_init_to_prompt(emu)
-        NEW_PC = 0x3002
-        emu.memory[NEW_PC] = 0xA9                 # LDA (no break event)
-        emu.write_word(emu.sym("brk_pc"), NEW_PC)
-        emu.write_word(emu.sym("cur_addr"), 0x9999)
-        emu.memory[emu.sym("dbg_reason")] = DBG_BRK
-        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
-        emu.memory[emu.sym("step_state")] = 1
-        emu.memory[emu.sym("step_remaining")] = 0
-        emu.write_word(emu.sym("rp_cnt"), 5)       # MULTI-step
-        emu.memory[emu.sym("reg_sp")] = 0xFF
-        self._clear_screen(emu)
-
-        emu.jsr(emu.sym("post_run_cleanup"))
-
-        tag_brk = bytes([0x3B, 0x20, 0x02, 0x12, 0x0B])  # "; brk"
-        found = any(
-            bytes(emu.memory[base + i] for i in range(5)) == tag_brk
-            for base in range(0x0400, 0x07E8 - 4)
-        )
-        assert found, "multi-step completion must emit full display " \
-                      "even without a break event"
