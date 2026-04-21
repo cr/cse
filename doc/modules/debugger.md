@@ -552,7 +552,7 @@ Error if no active break context.
 ### `t` — Trace (step-into)
 
 ```
-t               step block_size instructions
+t               step 1 instruction
 t N             step N instructions (N in hex)
 ```
 
@@ -568,9 +568,10 @@ r a:00 x:03 y:00 sp:f5 nvdizc
 1008:
 ```
 
-Bare `t` uses `block_size` as the count (default $10 = 16 steps).
-`t N` overrides for this invocation only — does not change
-`block_size`.
+Bare `t` is single-step (count = 1).  `t N` overrides for this
+invocation only.  `block_size` is NOT consulted by trace — it is a
+memory-block setting (m/l/s commands) and unrelated to stepping
+cadence.
 
 JSR: steps into the subroutine.
 
@@ -583,13 +584,13 @@ The loop exits early if:
 ### `o` — Trace over (step-over)
 
 ```
-o               step block_size instructions (over subroutines)
+o               step 1 instruction (over subroutines)
 o N             step N instructions (over subroutines)
 ```
 
-Same semantics as `t` (loop of N × `o 1`, bare `o` uses
-`block_size`).  JSR: the subroutine runs to completion, temporary
-breakpoint placed at PC+3.
+Same semantics as `t` (loop of N × `o 1`, bare `o` is single-step).
+JSR: the subroutine runs to completion, temporary breakpoint placed
+at PC+3.
 
 ### `j` — Jump (start execution)
 

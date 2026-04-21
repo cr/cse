@@ -720,6 +720,35 @@ class TestTagClassification:
             "state A must not show '; rts' — the RTS hasn't run yet, " \
             "we just trapped at it"
 
+    def test_bare_t_defaults_to_single_step(self, emu):
+        """Bare `t` (no expression argument) must arm exactly one
+        step — rp_cnt = 1, step_remaining = 0 (= count - 1).
+        Trace is single-step by default; block_size is for memory
+        commands (m/l/s) and is NOT consulted by t/o."""
+        _cold_init_to_prompt(emu)
+        USER = 0x3000
+        emu.memory[USER]     = 0xEA                       # NOP (linear)
+        emu.write_word(emu.sym("brk_pc"), USER)
+        emu.write_word(emu.sym("cur_addr"), USER)
+        emu.memory[emu.sym("dbg_reason")]    = 1          # active session
+        emu.memory[emu.sym("dbg_bp_hit")]    = 0xFF
+        # Set block_size to a sentinel (16) — should NOT influence count.
+        emu.write_word(emu.sym("block_size"), 0x0010)
+        # rp_ptr → empty line_buf so try_expr returns C=0.
+        line_buf = emu.sym("line_buf")
+        for i in range(8):
+            emu.memory[line_buf + i] = 0
+        emu.memory[0x20] = line_buf & 0xFF
+        emu.memory[0x21] = line_buf >> 8
+
+        emu.jsr(emu.sym("cmd_step"), a=0)                 # bare t
+
+        # rp_cnt = 1 (single step), step_remaining = count - 1 = 0.
+        assert emu.read_word(emu.sym("rp_cnt")) == 1, \
+            "bare t must default to count=1 (single step), not block_size"
+        assert emu.memory[emu.sym("step_remaining")] == 0, \
+            "step_remaining = count-1; for single step, should be 0"
+
     def test_state_b_cmd_step_early_stop_shows_rts(self, emu):
         """State B: user types t/o while sitting on the RTS.
         cmd_step's RTS-early-stop fires (step_next_pc returns zeros

@@ -1820,7 +1820,9 @@ pre_userland_run:
         sta brk_pc+1
 @has_ctx:
 
-        ; Parse count: via try_expr, or default to block_size.
+        ; Parse count: via try_expr, or default to 1 (single step).
+        ; t/o are single-step commands by default; an expression arg
+        ; overrides for multi-step (e.g. `t10` = step 10 instructions).
         jsr try_expr
         bcc @def_count
         lda expr_val
@@ -1832,9 +1834,9 @@ pre_userland_run:
         sta rp_cnt+1
         jmp @got_cnt
 @def_count:
-        lda block_size
+        lda #1
         sta rp_cnt
-        lda block_size+1
+        lda #0
         sta rp_cnt+1
 @got_cnt:
 
