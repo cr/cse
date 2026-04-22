@@ -767,6 +767,34 @@ Defined scope, needs work.
 
 ### Debugger
 
+- [ ] Show wall-clock execution time on the `j`/`g` clean-exit
+  panel.  Sample KERNAL jiffy clock ($A0/$A1/$A2, the TOD-style
+  3-byte counter incremented by the IRQ at 60 Hz on NTSC,
+  50 Hz on PAL) at userland entry (in `_rtu_body` just before
+  the RTI) and again at handler entry (`cse_brk_handler`),
+  store the delta somewhere the panel can read (e.g. a 3-byte
+  `run_jiffies` slot).  Format on the DBG_RTS panel:
+    < 1 s        → `Nms` (jiffy * 1000 / clock_hz, 0–999)
+    1 s ..< 1 m  → `Ns` or `N.NNNs`
+    1 m ..< 1 h  → `NmNs`
+    >= 1 h       → `NhNmNs`
+  Render as a tail field on the info or regs row, e.g.
+  `; rts at $0800  3.4s` or `r pc:0800 ... s:ff  217ms`.
+  Notes:
+    - Jiffy clock wraps after ~4.7 days (24-bit counter at
+      60 Hz) — fine for typical debug sessions; longer runs
+      get `>4d` clamp.
+    - PAL/NTSC detection: the assembled binary already knows
+      via build flag (CMOS / 6502 / 6510 builds may differ);
+      otherwise sample $02A6 at startup (KERNAL sets 0=NTSC,
+      1=PAL).
+    - Jiffy clock pauses while the kernel runs (IRQ disabled
+      during handler), so the delta excludes our overhead —
+      only user code time is reported.  Good.
+    - `t`/`o` step-result panels probably DON'T need this
+      (single steps are sub-microsecond), but a `t100`-class
+      batch could surface aggregate time.
+
 - [ ] BRK tracer rewrite: use BRK's signature byte ($00 XX) to
   encode breakpoint metadata.  The 6502 skips the byte after BRK
   but the handler can read it at pushed_PC-1.  Encoding candidates:
