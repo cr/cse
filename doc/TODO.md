@@ -213,6 +213,25 @@ Open bugs, roughly ordered by priority.
   on-entry hook — likely an unconditional "indent for new line"
   that should be gated on buffer-empty.
 
+- [ ] **BUG** Debugger: regular RTS from userland with debug
+  off prints a bogus `; rts at $<main_addr>` info line — the
+  address shown is the j-target (cur_addr the handler reset
+  brk_pc to), not the actual rts instruction's location.
+  Reproduce: `j main` on a program that returns cleanly; the
+  panel reads e.g. `; rts at $0800` even though main's rts
+  is at $0814.  Three possible fixes (in order of effort):
+    (a) Pure `; rts` (drop the address) — cheapest; clear
+        signal that the program returned, no misleading addr.
+    (b) Drop the info line entirely, show just the reg dump
+        — minimal "session ended" panel.
+    (c) `; rts at <real rts addr>` — would need to track the
+        actual rts PC at handler entry (before the brk_stub
+        reset) and surface it; doable but more state.
+  The current behaviour came from the DBG_RTS handler classifier
+  (fd1c67b) resetting brk_pc := cur_addr so the disas line in
+  the panel showed user-meaningful code; the info-line address
+  inherited that reset and now misrepresents.
+
 - [ ] **BUG** Debugger: repeated `t` after a clean-exit RTS
   alternates between `; brk` and `; rts` (visible on tight loops
   like a one-rts test program).  Cause: clean exit lands at
