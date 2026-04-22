@@ -1282,12 +1282,13 @@ peek_brk_opcode:
         sta cur_addr+1
 
         ; DBG_RTS: skip the lookahead disas — the program's done
-        ; (clean exit via brk_stub).  Just clear EOL and return; no
-        ; closing newline (per spec — keeps cursor adjacent to regs).
+        ; (clean exit via brk_stub).  Newline + clreol so show_prompt
+        ; lands on a fresh row instead of overwriting the regs row
+        ; (show_prompt only resets CUR_COL, doesn't advance CUR_ROW).
         lda dbg_reason
         cmp #DBG_RTS
         bne @disas
-        jmp io_clear_eol
+        jmp nl_clear
 
 @disas:
         ; Lookahead disas at brk_pc.
