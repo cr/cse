@@ -213,6 +213,28 @@ Open bugs, roughly ordered by priority.
   on-entry hook — likely an unconditional "indent for new line"
   that should be gated on buffer-empty.
 
+- [ ] **BUG** Debugger: repeated `t` after a clean-exit RTS
+  alternates between `; brk` and `; rts` (visible on tight loops
+  like a one-rts test program).  Cause: clean exit lands at
+  brk_stub → handler sets DBG_RTS + clears last_cmd.  User must
+  type `t` (RETURN no longer repeats).  cmd_step gates DBG_RTS
+  to cold-preview path → emits `; dbg`, promotes dbg_reason to
+  DBG_BRK, arms cold_preview_done.  Next `t` steps the rts via
+  @rts → lands at brk_stub again → DBG_RTS again.  Result: the
+  user perceives an alternating `; brk` / `; rts` pattern (the
+  `; dbg` cold-preview tag may be misread as `; brk`, or the
+  next step's actual `; brk` panel from a non-trivial program
+  alternates with the `; rts` clean exit).  Reproduce: tight
+  test with `j main / t / t / t / ...` after the program has
+  already returned once.  Investigation: cmd_step's cold-preview
+  re-firing after every clean exit may be the wrong UX — once a
+  session has terminated, perhaps subsequent `t` should be
+  rejected entirely (mirroring `c` after DBG_RTS) instead of
+  silently restarting.  Or: the cold-preview path could detect
+  "this is a re-entry to the same brk_pc" and skip the preview
+  emit, going straight to step.  Tied to the broader question
+  of "what does `t` mean when the session is terminal?".
+
 - [ ] **BUG** Assembler: `jsr a` reports "bad insn" but segment
   output still follows (seems to complete the assembly run?).
   Switching to `jsr ax` or `jsr aa` works.  Unclear whether
