@@ -3939,24 +3939,19 @@ KSTK_MIN = 64
 :       lda #$FF
         sta rp_dis_bp
 
-        ; Per spec: every brk emits info+regs+lookahead.  No silent
-        ; finish — the user wants to see the panel after every step
-        ; so the audit trail shows what just ran (cmd_step's pre-step
-        ; disas) AND what state we're now in (this panel).  RTS/RTI
-        ; landings additionally clear last_cmd so RETURN doesn't
-        ; re-step a return op.
-        jsr peek_brk_opcode
-        cmp #$60
-        beq @full_ret           ; RTS — full + clear last_cmd
-        cmp #$40
-        beq @full_ret           ; RTI — full + clear last_cmd
+        ; Per spec: every brk emits info+regs+lookahead.  All step
+        ; landings — including landings on rts/rti opcodes — go
+        ; through show_break_result the same way; last_cmd stays
+        ; intact so RETURN repeats t/o (with step_next_pc's @rts/@rti
+        ; peeking the user stack, the next step naturally follows
+        ; the return instead of getting stuck).
+        ;
+        ; Historical: a previous version cleared last_cmd on RTS/RTI
+        ; landings to "prevent RETURN repeating a step that wouldn't
+        ; advance" — that was a workaround for the early-stop on
+        ; rts.  No longer applicable now that step-INTO follows
+        ; rts/rti.
         jmp show_break_result   ; tail-call
-
-@full_ret:
-        jsr show_break_result
-        lda #0
-        sta last_cmd            ; prevent RETURN repeating the step
-        rts
 
 @not_step:
         jmp show_break_result
