@@ -1207,9 +1207,22 @@ peek_brk_opcode:
         ; log_open auto-advances if cursor is mid-line (userland
         ; return may leave it anywhere); no manual newline needed.
 
-        ; Tier 1: dbg_reason overrides for NMI and handler-classified
-        ; RTS (clean exit via brk_stub).  Tier 2 (opcode-based) runs
-        ; for DBG_BRK / DBG_NONE.
+        ; Tag classification by dbg_reason ONLY:
+        ;   DBG_NMI → "; nmi"
+        ;   DBG_RTS → "; rts"  (handler-classified clean exit via
+        ;                       brk_stub — user's top-level RTS popped
+        ;                       the sentinel; brk_pc already reset to
+        ;                       cur_addr by the handler)
+        ;   DBG_BRK / DBG_NONE → "; brk"  (any other trap, including
+        ;                                  step landing AT an rts/rti
+        ;                                  opcode — we trapped there,
+        ;                                  haven't executed the rts
+        ;                                  yet, so "brk" is correct)
+        ;
+        ; Step-INTO can follow rts/rti naturally now (step_next_pc
+        ; @rts/@rti peek user stack), so the user reaches the post-
+        ; rts location on their next t — "; rts" is reserved for
+        ; the clean-exit case where the program actually returned.
         lda dbg_reason
         cmp #DBG_NMI
         bne @not_nmi
@@ -1219,13 +1232,7 @@ peek_brk_opcode:
 @not_nmi:
         cmp #DBG_RTS
         beq @is_rts
-        ; Tier 2: classify by opcode at brk_pc.
-        jsr peek_brk_opcode
-        cmp #$60                ; RTS
-        beq @is_rts
-        cmp #$40                ; RTI
-        beq @is_rts
-        ; Default — BRK opcode ($00) and everything else.
+        ; DBG_BRK or DBG_NONE → "; brk"
         lda #<str_brk
         ldx #>str_brk
         jmp @have_tag

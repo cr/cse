@@ -780,37 +780,11 @@ class TestTagClassification:
         emu.memory[0x03] = line_buf >> 8
         self._clear_screen(emu)
 
-    def test_rts_landing_via_step_brk_registers_as_rts(self, emu):
-        """b9c3914 regression guard: a step-BRK trap landing on an
-        RTS instruction leaves dbg_reason=DBG_BRK (set by the
-        handler from the BRK frame), but the display MUST say
-        "; rts" — the user is sitting on a return op and the
-        tag should reflect that.
-
-        show_break_result's opcode tier catches this: regardless
-        of dbg_reason (NMI excepted), opcode $60/$40 at brk_pc
-        drives the tag to "; rts".  Uses _minimal_init to avoid
-        _cold_init_to_prompt's layout fragility."""
-        _minimal_init(emu)
-        USER = 0x3000
-        emu.memory[USER] = 0x60                              # RTS
-        emu.write_word(emu.sym("brk_pc"), USER)
-        emu.write_word(emu.sym("cur_addr"), USER)
-        emu.memory[emu.sym("dbg_reason")] = DBG_BRK          # handler default
-        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
-        # Clear screen for clean marker scan.
-        for i in range(0x0400, 0x0800):
-            emu.memory[i] = 0x20
-
-        emu.jsr(emu.sym("show_break_result"))
-
-        assert self._screen_has(emu, self._TAG_RTS), \
-            "expected '; rts' when sitting on $60 RTS opcode — " \
-            "classification must derive from opcode, not dbg_reason"
-        assert not self._screen_has(emu, self._TAG_BRK), \
-            "did not expect '; brk' when sitting on RTS opcode " \
-            "(bug: 'rts needs to be stepped on twice before it " \
-            "registers as rts')"
+    # b9c3914's "rts opcode → ; rts tag" semantics has been retired.
+    # New rule (per user spec, 2026-04-22): tag from dbg_reason ONLY.
+    # DBG_RTS = clean exit via brk_stub → "; rts".  DBG_BRK landing
+    # on rts opcode → "; brk" (we trapped, haven't run the rts).
+    # See test_step_landing_on_rts_shows_brk below.
 
     def test_bare_t_defaults_to_single_step(self, emu):
         """Bare `t` (no expression argument) must arm exactly one
@@ -890,28 +864,36 @@ class TestTagClassification:
                 break
         assert found, "expected ';?syntax' on screen (log_err output)"
 
-    def test_state_b_cmd_step_early_stop_shows_rts(self, emu):
-        """State B: user types t/o while sitting on the RTS.
-        cmd_step's RTS-early-stop fires (step_next_pc returns zeros
-        for $60), and the resulting display MUST say "; rts" — this
-        reflects the stepping outcome (would-be next op is a return).
+    def test_step_landing_on_rts_shows_brk(self, emu):
+        """User stepped and landed AT an RTS opcode (handler set
+        DBG_BRK).  Display MUST say "; brk" — we trapped at the rts
+        instruction but haven't executed it yet.  "; rts" is reserved
+        for DBG_RTS (true clean exit via brk_stub, where the user's
+        top-level RTS popped the sentinel).
 
-        This is the bug-repro: without the fix, cmd_step called
-        post_run_cleanup BEFORE clearing dbg_reason, so
-        show_break_result inherited dbg_reason=DBG_BRK from state A
-        and displayed "; brk" again."""
-        self._setup_at_rts(emu)
-        emu.memory[emu.sym("dbg_reason")] = DBG_BRK            # state A leftover
+        Uses _minimal_init to avoid _cold_init_to_prompt's layout-
+        shift fragility; the tag classifier in show_break_result is
+        independent of cold-init state."""
+        _minimal_init(emu)
+        addr = 0x3000
+        emu.memory[addr] = 0x60                       # RTS
+        emu.write_word(emu.sym("brk_pc"), addr)
+        emu.write_word(emu.sym("cur_addr"), addr)
+        emu.memory[emu.sym("dbg_reason")] = DBG_BRK   # handler default
+        emu.memory[emu.sym("dbg_bp_hit")] = 0xFF
+        # Clear screen for clean marker scan.
+        for i in range(0x0400, 0x0800):
+            emu.memory[i] = 0x20
 
-        emu.jsr(emu.sym("cmd_step"), a=0)                # t1
+        emu.jsr(emu.sym("show_break_result"))
 
-        assert self._screen_has(emu, self._TAG_RTS), \
-            "state B (cmd_step early-stop on RTS) must show '; rts' " \
-            "— bug 'rts needs to be stepped on twice before it " \
-            "registers as rts'"
-        assert not self._screen_has(emu, self._TAG_BRK), \
-            "state B must not show '; brk' — no trap fired, we're " \
-            "just reporting that the next op would be a return"
+        assert self._screen_has(emu, self._TAG_BRK), \
+            "landing on rts via step trap must show '; brk' " \
+            "(we're at the rts but haven't run it; only DBG_RTS " \
+            "from clean exit shows '; rts')"
+        assert not self._screen_has(emu, self._TAG_RTS), \
+            "must not show '; rts' for a step-trap landing — " \
+            "'; rts' is reserved for DBG_RTS (clean exit)"
 
 
 # ── 14. Trailing-garbage rejection across migrated commands ─────
