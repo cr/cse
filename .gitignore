@@ -20,4 +20,6 @@ rom/chargen_cbm.bin
 rom/*_patched.bin
 rom/*_upatched.bin
 
+paper
+
 .claude/
