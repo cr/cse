@@ -1273,15 +1273,25 @@ peek_brk_opcode:
         jsr io_puthex4
         jsr io_clear_eol
 
-        ; Regs + disasm at brk_pc (also updates cur_addr).
+        ; Regs.  Update cur_addr := brk_pc regardless of variant.
         jsr newline
         jsr emit_reg
-        jsr newline
         lda brk_pc
         sta cur_addr
         lda brk_pc+1
         sta cur_addr+1
 
+        ; DBG_RTS: skip the lookahead disas — the program's done
+        ; (clean exit via brk_stub).  Just clear EOL and return; no
+        ; closing newline (per spec — keeps cursor adjacent to regs).
+        lda dbg_reason
+        cmp #DBG_RTS
+        bne @disas
+        jmp io_clear_eol
+
+@disas:
+        ; Lookahead disas at brk_pc.
+        jsr newline
         lda cur_addr
         sta rp_addr
         lda cur_addr+1
@@ -1912,20 +1922,6 @@ pre_userland_run:
 .proc cmd_step
         sta rp_save2            ; is_next (0=into, 1=over)
 
-        ; Cold-start: no resumable session → init brk_pc from cur_addr.
-        ; DBG_NONE (no session) and DBG_RTS (alive-but-terminal) both
-        ; want the entry PC, not whatever stale brk_pc the prior
-        ; session left.  `cmp #DBG_BRK / bcs` matches DBG_BRK and
-        ; DBG_NMI (resumable — keep their brk_pc).
-        lda dbg_reason
-        cmp #DBG_BRK
-        bcs @has_ctx
-        lda cur_addr
-        sta brk_pc
-        lda cur_addr+1
-        sta brk_pc+1
-@has_ctx:
-
         ; Parse count: via try_expr_or_err (parse + reject trailing
         ; garbage via the pop-trick helper), or default to 1 (single
         ; step).  t/o are single-step by default; an expression arg
@@ -1948,20 +1944,24 @@ pre_userland_run:
         sta rp_cnt+1
 @got_cnt:
 
-        ; Cold preview: if no active step session, emit a "; dbg"
-        ; panel at brk_pc and return WITHOUT executing user code.
-        ; The user must hit t/o again to actually step; the preview
-        ; is the visual "you're here, ready to step from".
-        ;
-        ; Gating: skip if a resumable session exists (DBG_BRK/NMI),
-        ; or if cold_preview_done is already set (preview just done,
-        ; this t/o is the first real step).
-        lda cold_preview_done
-        bne @do_step
+        ; Step gate: only step if dbg_reason > DBG_RTS (resumable
+        ; session: DBG_BRK or DBG_NMI).  DBG_NONE (no session) and
+        ; DBG_RTS (alive-but-terminal — clean exit, sentinel popped)
+        ; both go to the cold-preview path: init brk_pc from cur_addr,
+        ; emit the "; dbg" panel, promote dbg_reason to DBG_BRK so
+        ; the next t/o steps for real, and arm cold_preview_done so
+        ; MODE selection knows to push a fresh sentinel.
         lda dbg_reason
         cmp #DBG_BRK
         bcs @do_step
+        ; Cold-preview path
+        lda cur_addr
+        sta brk_pc
+        lda cur_addr+1
+        sta brk_pc+1
         jsr show_cold_preview
+        lda #DBG_BRK
+        sta dbg_reason
         lda #1
         sta cold_preview_done
         rts
@@ -2066,19 +2066,14 @@ pre_userland_run:
 
         ; Mode: MODE_JUMP if cold preview just established the
         ; session (no sentinel yet — first real step must push one),
-        ; else MODE_RESUME for resumable sessions (DBG_BRK/DBG_NMI),
-        ; else MODE_JUMP for DBG_NONE / DBG_RTS (no sentinel).
+        ; else MODE_RESUME (we've already gated on dbg_reason >=
+        ; DBG_BRK above, so the sentinel is on the user stack).
         ; Consume cold_preview_done here.
         lda cold_preview_done
-        beq @check_dr
+        beq @resume
         lda #0
         sta cold_preview_done
-        beq @jump               ; always taken (Z=1)
-@check_dr:
-        lda dbg_reason
-        cmp #DBG_BRK
-        bcs @resume
-@jump:  lda #MODE_JUMP
+        lda #MODE_JUMP
         .byte $2C
 @resume: lda #MODE_RESUME
         sta run_user_pending
@@ -3946,12 +3941,17 @@ KSTK_MIN = 64
         ; peeking the user stack, the next step naturally follows
         ; the return instead of getting stuck).
         ;
-        ; Historical: a previous version cleared last_cmd on RTS/RTI
-        ; landings to "prevent RETURN repeating a step that wouldn't
-        ; advance" — that was a workaround for the early-stop on
-        ; rts.  No longer applicable now that step-INTO follows
-        ; rts/rti.
-        jmp show_break_result   ; tail-call
+        ; DBG_RTS (clean exit via brk_stub) is the exception: the
+        ; session is terminal and RETURN-repeating-t would just
+        ; trigger another cold preview.  Clear last_cmd so RETURN
+        ; goes back to "do nothing" instead.
+        jsr show_break_result
+        lda dbg_reason
+        cmp #DBG_RTS
+        bne @ret
+        lda #0
+        sta last_cmd
+@ret:   rts
 
 @not_step:
         jmp show_break_result
