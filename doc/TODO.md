@@ -265,6 +265,60 @@ Open bugs, roughly ordered by priority.
   cold preview as before; DBG_RTS terminal session needs j/g
   to restart.)
 
+- [ ] **Escape Analysis sibling (bug 1, 8c315e0 era)**: regs
+  row also misleads on DBG_RTS — `pc:0800` shown is the j-target,
+  not the actual rts PC.  emit_reg reads from `brk_pc` which
+  the handler retconned via `brk_pc := cur_addr` for clean exit.
+  Same fix family as bug 1: either suppress the `pc:` field for
+  DBG_RTS, render `pc:----`, or do option (c) of bug 1's TODO
+  (track real rts PC at handler entry).  Discovered during
+  Escape Analysis class-wide sweep.
+
+- [ ] **Escape Analysis sibling (bug 2)**: enumerate the
+  `dbg_reason × command` matrix in doc/modules/debugger.md and
+  ensure every cell is specified + tested.  Audit revealed the
+  following commands have unspecified or partially-specified
+  behaviour for some `dbg_reason` values: `j` / `g` (no warn
+  when interrupting an active session?), `r` (regs from captured
+  state vs defaults — when?), `a` / `l` / `s` (warn-and-end-debug
+  branches not uniformly tested across reason values).  Class
+  closure analogous to the `?/@/B/C/j` trailing-garbage closure
+  (TODO:172).
+
+- [ ] **Escape Analysis siblings (bug 3, address-write gate)**:
+  other primitives that write to user-supplied or computed
+  addresses without a workspace check:
+    - `m ADDR BYTES` (memory poke command in `m` interactive
+      mode) — writes user memory, no range check.  Test:
+      `m $f100 11 22 33` corrupts KDATA.
+    - `.` dot-assemble at `cur_addr` — assembles & writes one
+      instruction's bytes; cur_addr can be set to anywhere via
+      `@`, so .-assembling at $f100 corrupts KDATA.
+    - `a` full-source assemble — writes per `.org` directives;
+      no range check on .org.  Source `.org $f100\nlda #0`
+      corrupts KDATA at assemble time.
+    - `l NAME ADDR` load-to-address — disk byte stream into
+      memory; verify range-check coverage.
+  Class closure: define a single `addr_write_gate` (or reuse
+  `bp_range_check` semantics) and apply uniformly.
+
+- [ ] **Escape Analysis principle candidate**: side-effecting
+  operations on user-supplied / computed addresses (memory
+  writes, including transient patches) must enforce a documented
+  address-range contract.  Tests must cover boundary cells:
+  in-range, just-outside-low, just-outside-high, ROM/IO/KDATA
+  shadows.  Discovered via bug 3 (workspace gate); no current
+  testing.md principle prescribes this.  Pairs with the bug 3
+  sibling sweep above.  Consider as testing.md Principle 14.
+
+- [ ] **Escape Analysis (bug 3 cross-module)**: push
+  `bp_range_check` DOWN into `dbg_bp_set` and `arm_step_bp`
+  (currently in repl.s::cmd_brk and repl.s::cmd_step).  Today
+  any future caller of dbg_bp_set / arm_step_bp bypasses the
+  gate by skipping cmd_brk / cmd_step.  Contract should live
+  with the side-effect (the actual bp install / arm), not at
+  a specific call site.  Principle 13 spirit.
+
 - [ ] **BUG** Assembler: `jsr a` reports "bad insn" but segment
   output still follows (seems to complete the assembly run?).
   Switching to `jsr ax` or `jsr aa` works.  Unclear whether
