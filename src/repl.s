@@ -699,6 +699,44 @@ _require_eoi_or_err:
 .endproc
 
 ; ───────────────────────────────────────────────────────────
+; bp_range_check — gate: addr must be in [workstart, workend].
+;
+; workstart = $0800 (fixed), workend = buf_base - 1 (dynamic).
+; Equivalently the in-range test is:  $0800 <= addr < buf_base.
+;
+; Used by:
+;   * cmd_brk (managed bp creation) — error on oor.
+;   * cmd_step (step BRK arming) — warn on oor.
+;
+; Without this gate, step BRK arming or user bp creation could
+; write the patched $00 byte to ROM-shadowed RAM ($A000-$BFFF
+; under BASIC, $E000+ under KERNAL), to IO ($D000-$DFFF — VIC,
+; SID, CIA, color RAM), or to KDATA at $F100+.  Patches are
+; transient (unpatch_all restores), but the brief window of
+; corruption can change colors, raster behaviour, or our own
+; KDATA tables.
+;
+; In:  A = addr lo, X = addr hi
+; Out: C=0 in range, C=1 out of range
+; Clobbers: A
+; ───────────────────────────────────────────────────────────
+.proc bp_range_check
+        ; Lower bound: addr >= $0800.
+        cpx #$08
+        bcc @oor
+        ; Upper bound: addr < buf_base.
+        cpx buf_base+1
+        bcc @ok                 ; hi < buf_base.hi → in range
+        bne @oor                ; hi > buf_base.hi → out
+        cmp buf_base            ; hi == buf_base.hi → check lo
+        bcc @ok
+@oor:   sec
+        rts
+@ok:    clc
+        rts
+.endproc
+
+; ───────────────────────────────────────────────────────────
 ; expr_or_blocksize — expr_val := expression or block_size if empty/zero
 ;   Returns with expr_val populated.
 ; ───────────────────────────────────────────────────────────
@@ -2028,6 +2066,29 @@ pre_userland_run:
         jmp post_run_cleanup    ; tail-call
 
 @arm:
+        ; Workspace gate: any non-zero step BRK arm slot must
+        ; land in [workstart, workend].  Stepping into ROM/IO/
+        ; KDATA would patch transient $00 bytes there (writes
+        ; pass through under ROM, hit IO regs in $D000 page).
+        ; Refuse and warn ";!range" instead — user must c past
+        ; the out-of-workspace section to a known re-entry point.
+        lda step_next_lo
+        ora step_next_lo+1
+        beq @check_hi
+        lda step_next_lo
+        ldx step_next_lo+1
+        jsr bp_range_check
+        bcs @oor_warn
+@check_hi:
+        lda step_next_hi
+        ora step_next_hi+1
+        beq @armable
+        lda step_next_hi
+        ldx step_next_hi+1
+        jsr bp_range_check
+        bcs @oor_warn
+@armable:
+
         ; Warm-step "up 3 lines" mechanic (single-step only).
         ;
         ; Cursor at exec_line entry sits on the prompt row mid-line
@@ -2097,6 +2158,15 @@ pre_userland_run:
 @resume: lda #MODE_RESUME
         sta run_user_pending
         rts
+
+@oor_warn:
+        ; Step BRK arm slot is outside [workstart, workend].
+        ; Warn and refuse the step — user keeps their session
+        ; (dbg_reason and brk_pc unchanged), can `c` to run past
+        ; the offending region or `r pc:XXXX` to relocate.
+        lda #<str_range
+        ldx #>str_range
+        jmp log_warn
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -2125,18 +2195,16 @@ pre_userland_run:
         bcs :+
         jmp @err_b
 :
-        ; Range-check: bp must be in workspace [$0800, __CODE_RUN__)
-        lda expr_val+1
-        cmp #>$0800
-        jcc @bp_range
-        lda expr_val+1
-        cmp #>__CODE_RUN__
-        bcc @bp_ok
-        jne @bp_range
+        ; Range-check: bp must land in [workstart, workend] —
+        ; the user-code workspace.  bp_range_check enforces this
+        ; against the dynamic buf_base (editor source area starts
+        ; just above workend).  Old check used __CODE_RUN__ as the
+        ; upper bound, which let bp's land in editor-source / heap
+        ; areas — wrong; tightened to buf_base.
         lda expr_val
-        cmp #<__CODE_RUN__
+        ldx expr_val+1
+        jsr bp_range_check
         jcs @bp_range
-@bp_ok:
         lda expr_val
         ldx expr_val+1
         jsr dbg_bp_set         ; returns slot in A ($FF=full)

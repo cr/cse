@@ -48,6 +48,14 @@ def _run_step(cse_prg, target_lo, target_hi):
     emu.write_word(emu.sym("block_size"), 0x0001)
     for i in range(8):
         emu.memory[sb + i] = 0
+    # Set buf_base high so the bp_range_check gate doesn't refuse
+    # step BRK arming.  These tests exercise @jsr's RAM/ROM dispatch
+    # logic specifically — the workspace gate is a separate concern
+    # layered on top.  In production, buf_base is editor-driven and
+    # tracks where the user's code ends; here we just want to disable
+    # the gate by making "workspace" cover all of low RAM + the ROM
+    # zones whose RAM-shadow dispatch we're testing ($A000-$DFFF).
+    emu.write_word(emu.sym("buf_base"), 0xFFFF)
 
     # "t1" in line_buf (PETSCII: t=$54, 1=$31)
     lb = emu.sym("line_buf")

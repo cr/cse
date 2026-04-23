@@ -151,8 +151,13 @@ Open bugs, roughly ordered by priority.
   `asm_expr_error` entry point sets `asm_expr_err=1`; `.` command
   and source assembler now print `expr_error_str` detail e.g. "undef")
 - [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
-  silently falls back to step-over.  Consider showing a one-line
-  note (e.g. `; rom step -> over`).  Low priority.
+  silently falls back to step-over (per @jsr's RAM-target check).
+  Consider showing a one-line note (e.g. `; rom step -> over`).
+  Low priority.  (Workspace gate added in a follow-up — step BRK
+  arming refuses outside [workstart, workend] with ";!range" warn,
+  which catches the broader cases.  This specific JSR-to-ROM case
+  still falls through silently because step_next_pc rewrites the
+  lookahead to PC+3 (in-workspace) before the gate sees it.)
 - [x] ~~**TDD Maintenance finding** (Principle 13 sweep 2026-04-20):
   `editor.ed_read_line` has no position-pinning witness.~~  (resolved
   via option b: four new test methods in
@@ -213,8 +218,8 @@ Open bugs, roughly ordered by priority.
   on-entry hook — likely an unconditional "indent for new line"
   that should be gated on buffer-empty.
 
-- [ ] **BUG** Debugger: regular RTS from userland with debug
-  off prints a bogus `; rts at $<main_addr>` info line — the
+- [x] ~~**BUG** Debugger: regular RTS from userland with debug
+  off prints a bogus `; rts at $<main_addr>` info line~~ — the
   address shown is the j-target (cur_addr the handler reset
   brk_pc to), not the actual rts instruction's location.
   Reproduce: `j main` on a program that returns cleanly; the
@@ -231,8 +236,10 @@ Open bugs, roughly ordered by priority.
   (fd1c67b) resetting brk_pc := cur_addr so the disas line in
   the panel showed user-meaningful code; the info-line address
   inherited that reset and now misrepresents.
+  (Fixed 1ecc863: option (a) — show_break_result skips the
+  " at $PC" emit for DBG_RTS.  Pure "; rts" + reg row.)
 
-- [ ] **BUG** Debugger: repeated `t` after a clean-exit RTS
+- [x] ~~**BUG** Debugger: repeated `t` after a clean-exit RTS
   alternates between `; brk` and `; rts` (visible on tight loops
   like a one-rts test program).  Cause: clean exit lands at
   brk_stub → handler sets DBG_RTS + clears last_cmd.  User must
@@ -252,7 +259,11 @@ Open bugs, roughly ordered by priority.
   silently restarting.  Or: the cold-preview path could detect
   "this is a re-entry to the same brk_pc" and skip the preview
   emit, going straight to step.  Tied to the broader question
-  of "what does `t` mean when the session is terminal?".
+  of "what does `t` mean when the session is terminal?".~~
+  (Fixed 1ecc863: cmd_step now rejects t/o on DBG_RTS with
+  "; ?no ctx", mirroring cmd_continue.  DBG_NONE still triggers
+  cold preview as before; DBG_RTS terminal session needs j/g
+  to restart.)
 
 - [ ] **BUG** Assembler: `jsr a` reports "bad insn" but segment
   output still follows (seems to complete the assembly run?).
@@ -693,6 +704,49 @@ discussion).  Each block is independent; do in any order.
 ## Planned
 
 Defined scope, needs work.
+
+### Corpus
+
+- [ ] **DDD follow-up for the 2026-04-22 Design Priorities expansion.**
+  `doc/project.md § Design Priorities` was amended out-of-cycle to
+  reformulate priority #3 (Fluent interaction → "Fluent, immediate
+  interaction") and add priorities #6 (Transparency) and #7 (One
+  environment, two audiences).  `§ What Is CSE?` was also tweaked to
+  name both audiences.  A top-level user-facing `background.md` was
+  added, linked from README.md.  The amendments were drafted directly
+  rather than put through the full DDD Method because the changes are
+  formalisations of already-implicit design intent, not new
+  constraints on code.  Follow-up work required, to be put through a
+  proper DDD Method cycle:
+  1. **DDD Analysis** — walk the corpus against the three new/revised
+     priorities.  Identify any doc section that contradicts
+     Transparency (e.g. any place a hidden abstraction layer is
+     casually proposed) or the Dual-audience commitment (e.g. any
+     place a "beginner mode" or expert-only flag is suggested).
+     Surface any module doc whose Design section should cite one of
+     the new priorities explicitly.
+  2. **TDD Analysis** — the new priorities are design constraints, not
+     behavioural contracts, so there is no direct test delta.  Verify
+     this explicitly rather than assume it.  If any existing test
+     encodes behaviour that would violate Transparency (e.g. relies
+     on a non-inspectable layer) or the Dual-audience principle,
+     flag it.
+  3. **Cross-reference check** — every doc that enumerates the Design
+     Priorities (currently only `project.md`; verify no copies exist
+     elsewhere per Principle 3 — single source of truth) is
+     consistent.  `architecture.md` introductory text and
+     `README.md`/`background.md` language should not drift from the
+     corpus wording.
+  4. **DDD Maintenance item 8** — confirm the user-facing
+     `background.md` does not silently duplicate any corpus fact that
+     would then diverge.  `background.md` is a derived document (like
+     the root README): it explains and motivates, but all
+     authoritative claims should link back rather than restate.  Any
+     restatement that must exist for narrative reasons is flagged as
+     a known derivation so future drift is caught.
+  5. **Commit as a single DDD-Method close-out** with the analyses,
+     any corpus fixes they produced, and a report entry naming the
+     out-of-cycle amendment this resolves.
 
 ### REPL
 
