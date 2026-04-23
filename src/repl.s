@@ -1266,11 +1266,19 @@ peek_brk_opcode:
         jsr io_putc
 @no_slot:
 
-        ; " at $PC"
+        ; " at $PC" — but NOT for DBG_RTS.  After clean exit the
+        ; handler reset brk_pc := cur_addr (j-target), so the address
+        ; would be the j-target, NOT the actual rts location — bogus.
+        ; A pure "; rts" is the clearest signal that the program
+        ; returned; the user's regs row below shows the final state.
+        lda dbg_reason
+        cmp #DBG_RTS
+        beq @no_at
         puts str_at
         lda brk_pc
         ldx brk_pc+1
         jsr io_puthex4
+@no_at:
         jsr io_clear_eol
 
         ; Regs.  Update cur_addr := brk_pc regardless of variant.
@@ -1945,17 +1953,23 @@ pre_userland_run:
         sta rp_cnt+1
 @got_cnt:
 
-        ; Step gate: only step if dbg_reason > DBG_RTS (resumable
-        ; session: DBG_BRK or DBG_NMI).  DBG_NONE (no session) and
-        ; DBG_RTS (alive-but-terminal — clean exit, sentinel popped)
-        ; both go to the cold-preview path: init brk_pc from cur_addr,
-        ; emit the "; dbg" panel, promote dbg_reason to DBG_BRK so
-        ; the next t/o steps for real, and arm cold_preview_done so
-        ; MODE selection knows to push a fresh sentinel.
+        ; Step gate by dbg_reason:
+        ;   DBG_BRK / DBG_NMI → step (resumable session).
+        ;   DBG_NONE          → cold preview (fresh state — emit
+        ;                       "; dbg" panel, promote to DBG_BRK,
+        ;                       next t/o steps for real).
+        ;   DBG_RTS           → reject ("; ?no ctx") — terminal
+        ;                       session, user must j/g to restart.
+        ;                       Mirrors `c`'s gate behaviour.
+        ;                       Without this, t after a clean exit
+        ;                       would re-trigger cold preview each
+        ;                       time, looping rts/dbg/rts/dbg.
         lda dbg_reason
         cmp #DBG_BRK
         bcs @do_step
-        ; Cold-preview path
+        cmp #DBG_RTS
+        beq @no_ctx
+        ; DBG_NONE — cold preview path
         lda cur_addr
         sta brk_pc
         lda cur_addr+1
@@ -1966,6 +1980,10 @@ pre_userland_run:
         lda #1
         sta cold_preview_done
         rts
+@no_ctx:
+        lda #<str_no_ctx
+        ldx #>str_no_ctx
+        jmp log_err
 @do_step:
 
         ; step_state = STEP_OVER if is_next else STEP_INTO.
