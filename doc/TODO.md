@@ -56,6 +56,92 @@ risk that needs a design pass.  See the Escape Analysis follow-up
 entry below.  Everything else in this file is feature work, not
 TDD.
 
+## DDD amendments pending
+
+Session retrospective findings (debugger trace workflow,
+2026-04-22 to -24).  Not release-blocking; captured for the
+next DDD Maintenance pass or opportunistic uptake.
+
+### General (DDD System — apply to any DDD-using project)
+
+- [ ] **State-introduction principle** (proposed testing.md
+  Principle 14): when a new value is added to an enumerated
+  state (e.g. dbg_reason gained DBG_RTS), enumerate the cross-
+  product matrix of all consumers × all values **in the same
+  commit**.  Untouched cells become explicit "no change"
+  entries, not implicit.  Evidence: the debugger's
+  `dbg_reason × command` matrix wasn't enumerated when DBG_RTS
+  was introduced (fd1c67b); the gap escaped as bug 2 ("t/o
+  after clean exit loops") weeks later, surfacing multiple
+  under-specified cells in j/g/r/a/l/s/R simultaneously.
+
+- [ ] **Display-content vs state-content test distinction**
+  (proposed testing.md Principle 15): `assert state == X` and
+  `assert screen contains Y` are different contracts.  Any
+  function that produces rendered output must have tests for
+  both: internal state changes AND visible content.  Evidence:
+  bug 1 ("; rts at $<j-target>") escaped because the existing
+  DBG_RTS classification test (`test_clean_rts_classified_as
+  _clean_exit`) asserted only internal state (`dbg_reason`,
+  `brk_pc`) without reading the rendered panel.
+
+- [ ] **Escape Analysis "triage" gate between sweep and
+  commit** (amend README.md § Escape Analysis step 5→6):
+  when a class-wide sweep produces a candidate list, present
+  it to the owner for scope triage BEFORE proposing
+  amendments.  Evidence: bug 3's sibling sweep proposed 4
+  additional commands + a Principle 14 candidate; owner
+  trimmed to 1 (asm-emit gate) on triage.  80% of proposed
+  work was skip-worthy.  Saves commit-worth of effort per
+  escape.
+
+- [ ] **DDD-Lite for UX** (new README.md § or testing.md
+  principle): contract the *model*, not the *render*.  Pixel-
+  level mechanics (cursor arithmetic, row counts, overwrite
+  sequences) stay in code comments, NOT in module docs.  The
+  module doc specifies abstract behaviour and invariants; the
+  code owns the rendering.  Evidence: the ~240-line "Step
+  output semantics" appendix in debugger.md was pinning
+  implementation ("up 3 lines", "emit skip emit", "cursor
+  underflow clamp") that had to be ripped out when the UX
+  evolved.  Tests that scanned for exact tag positions caught
+  neither contract violations nor real layout bugs — they
+  pinned implementation.
+
+- [ ] **Cycle-detection heuristic** (amend README.md § DDD
+  Method or § Escape Analysis): when the same proc gets
+  modified ≥3 times in one session for the same concern,
+  that's a signal the spec is unclear — PAUSE and clarify
+  with the owner before continuing to iterate.  Evidence:
+  tag classifier cycled through 4 implementations this
+  session (b9c3914 → fd1c67b → 391a8c8 → f573f93) before
+  landing, burning ~4 commits.  A mid-cycle clarifying
+  question would have converged faster.
+
+- [ ] **Commit granularity rule**: "one fix per commit unless
+  the fixes are trivially co-dependent."  Amend README.md §
+  DDD Method step 6 ("Commit all").  Evidence: commit d591a13
+  bundled 3 distinct debugger fixes (gate-by-reason, no-disas-
+  on-rts, clear-last_cmd-on-rts) under one message.  Harder
+  to bisect, harder to revert individually, harder to credit
+  in a changelog.
+
+### Project-specific (CSE)
+
+- [ ] **Test-harness layout fragility investigation**: the
+  `_cold_init_to_prompt` path in test_kernel_transition.py
+  fails with TimeoutError at various $B5xx / $7Dxx addresses
+  depending on where the preceding code lands.  ~17 tests
+  fluctuate between pass/fail as code shifts.  The workaround
+  (`_minimal_init` + direct-handler-invocation via
+  `_fake_brk_at`) is viable for some tests but not all.  Root
+  cause suspected: `$01` banking + BASIC ROM shadow at
+  $A000-$BFFF interacting with CSE's CODE segment, but never
+  fully diagnosed across multiple sessions.  Either fix the
+  root cause (may require CODE-segment layout change) OR
+  document as a known harness limitation and retire the
+  fragile tests.  Recurring pain = accumulating debt.
+
 ## Bugs
 
 Open bugs, roughly ordered by priority.
