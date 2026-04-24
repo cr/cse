@@ -878,17 +878,20 @@ Defined scope, needs work.
       (single steps are sub-microsecond), but a `t100`-class
       batch could surface aggregate time.
 
-- [ ] BRK tracer rewrite: use BRK's signature byte ($00 XX) to
-  encode breakpoint metadata.  The 6502 skips the byte after BRK
-  but the handler can read it at pushed_PC-1.  Encoding candidates:
-  slot number (0-7), type (trace/watch/assert), step mode
-  (into/over), managed vs unmanaged BRK.  Eliminates the
-  `dbg_bp_find` address search — the handler reads the signature
-  byte directly.  Simplifies step BRK vs user BP distinction.
-- [ ] Single-RETURN single-step workflow: bare `t` (repeated via
-  RETURN) should default to 1 step when there's an active debug
-  context (`dbg_reason != 0`), not `block_size`.  Enables rapid
-  `t1, RETURN, RETURN, RETURN...` stepping.
+- [x] ~~BRK tracer rewrite: use BRK's signature byte ($00 XX)~~
+  Scratched: BRK must remain 1 byte only.  The 6502 BRK
+  instruction is documented as 1 byte; the byte at PC+1 is a
+  user-controlled signature for their own purposes (e.g. the
+  ".db" pattern in user BRK debug breakpoints — see "user BRK
+  workflow" below).  Encoding metadata into that byte would
+  collide with user code.  step BRK / user BP discrimination
+  stays via the dbg_bp_find address search.
+
+- [x] ~~Single-RETURN single-step workflow~~  (done: combined
+  effect of ef667ce — bare `t` defaults to 1 step (not block_size)
+  — and the cold-preview / warm-step / step-through-rts work
+  in 9c6abaf..d591a13.  `t / RETURN / RETURN / ...` now does
+  rapid single-stepping with full panel after each step.)
 - [x] ~~Extend userland ZP backup to $00–$7F~~  (done: Phase 17.
   ZP_SAVE_LO/HI widened to $00/$7F (128 B), covering the full
   user-accessible half.  `m`/`.` now read a uniform user-ZP view —
