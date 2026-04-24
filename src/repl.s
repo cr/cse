@@ -741,24 +741,35 @@ _require_eoi_or_err:
 .endproc
 
 ; ───────────────────────────────────────────────────────────
-; addr_is_brk_stub — Z=1 if A:X equals brk_stub.
+; bp_range_check_step — gate variant: workspace OR brk_stub.
 ;
-; Used by cmd_step's workspace gate to exempt brk_stub from the
-; range check.  Stepping across the user's top-level RTS lands
+; Same as bp_range_check (workspace check) but additionally
+; treats brk_stub as in-range.  Used by cmd_step's step BRK
+; arming gate: stepping across the user's top-level RTS lands
 ; at brk_stub (the stack peek in step_next_pc's @rts returns
 ; (brk_stub-1)+1 = brk_stub).  brk_stub lives in CSE's CODE
-; segment around $A000-range — way outside the user workspace
-; — so the gate would refuse without an exemption.
+; segment around $A000-range — outside the user workspace —
+; so the strict gate would refuse, leaving the user unable to
+; step past the top-level rts.  Step BRK arming at brk_stub
+; is a harmless no-op patch ($00 over $00); the handler's
+; brk_stub check supersedes the step_bp match anyway and
+; classifies as DBG_RTS clean exit.  cmd_brk's gate stays
+; strict (no exemption — user setting a managed bp at
+; brk_stub is pointless).
 ;
-; In:  A = lo, X = hi.  Preserves A and X.
-; Out: Z=1 if equal, Z=0 otherwise.
+; In:  A = lo, X = hi.
+; Out: C=0 in range (or brk_stub), C=1 out of range.
+; Clobbers: A.
 ; ───────────────────────────────────────────────────────────
-.proc addr_is_brk_stub
+.proc bp_range_check_step
         cpx #>brk_stub
-        bne @no
+        bne @normal
         cmp #<brk_stub
-        rts                     ; Z reflects cmp
-@no:    rts                     ; Z=0 from cpx
+        bne @normal
+        clc                     ; brk_stub — accept
+        rts
+@normal:
+        jmp bp_range_check      ; tail-call
 .endproc
 
 ; ───────────────────────────────────────────────────────────
@@ -2162,28 +2173,17 @@ pre_userland_run:
 
 @arm:
         ; Workspace gate: any non-zero step BRK arm slot must
-        ; land in [workstart, workend].  Stepping into ROM/IO/
+        ; land in [workstart, workend] (or be brk_stub — see
+        ; bp_range_check_step header).  Stepping into ROM/IO/
         ; KDATA would patch transient $00 bytes there (writes
-        ; pass through under ROM, hit IO regs in $D000 page).
-        ; Refuse and warn ";!range" instead — user must c past
-        ; the out-of-workspace section to a known re-entry point.
-        ;
-        ; Exemption: brk_stub.  Stepping across the user's top-
-        ; level RTS lands at brk_stub (our sentinel — outside
-        ; workspace, in CSE's CODE segment).  Arming a step BRK
-        ; there is a harmless no-op patch ($00 over $00); the
-        ; handler's brk_stub check supersedes the step_bp match
-        ; and classifies as DBG_RTS clean exit.  Without this
-        ; exemption the gate would refuse, leaving the user
-        ; unable to step past the top-level rts.
+        ; pass through under ROM, hit IO regs in $D000 page);
+        ; refuse and warn ";!range" instead.
         lda step_next_lo
         ora step_next_lo+1
         beq @check_hi
         lda step_next_lo
         ldx step_next_lo+1
-        jsr addr_is_brk_stub
-        beq @check_hi
-        jsr bp_range_check      ; A,X preserved from above
+        jsr bp_range_check_step
         bcs @oor_warn
 @check_hi:
         lda step_next_hi
@@ -2191,9 +2191,7 @@ pre_userland_run:
         beq @armable
         lda step_next_hi
         ldx step_next_hi+1
-        jsr addr_is_brk_stub
-        beq @armable
-        jsr bp_range_check
+        jsr bp_range_check_step
         bcs @oor_warn
 @armable:
 
