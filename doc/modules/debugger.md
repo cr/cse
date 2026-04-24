@@ -625,13 +625,25 @@ leaving behind the history of what ran.
 
 The panel abstracts to:
 
-- **Info** — `"; TAG at $PC"`, tag selected from `dbg_reason`
-  (debug / brk / nmi / rts).
+- **Info** — `"; TAG"` always; `"; TAG at $PC"` only when a
+  user-meaningful PC is available.  DBG_BRK and DBG_NMI panels
+  carry the address (`brk_pc` is the actual trap location, the
+  user's natural reference point).  DBG_RTS panels omit the
+  address: the handler retconned `brk_pc := cur_addr` so the
+  displayed value would be the j-target, not the rts location
+  — printing it would be plain wrong (`; rts at $0800` when the
+  rts is at $0814 misleads the user about what just executed).
+  Pure `; rts` is the unambiguous "the program returned" signal.
 - **Regs** — one-line `r pc:.. a:.. x:.. y:.. sp:.. p:..`.
+  Always shown verbatim from the captured state; even on
+  DBG_RTS the `pc:` field reflects the true entry-PC of the
+  debugger session — that's not misleading, it's just the
+  recorded value at break/exit time.
 - **Lookahead** — disassembly of the next-to-run instruction
   (STEP_OVER semantics: fall-through for conditional branches
   and `jsr`; target for `jmp`; the instruction itself for
-  RTS/RTI/BRK, where "next" is undefined).
+  RTS/RTI/BRK, where "next" is undefined).  Suppressed for
+  DBG_RTS: the program ended; there is no next-to-run.
 
 The step primitive (handler-resident chain, `step_next_pc`,
 patch/unpatch arming) is untouched — this is pure UX layered on

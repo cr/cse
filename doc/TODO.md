@@ -265,15 +265,6 @@ Open bugs, roughly ordered by priority.
   cold preview as before; DBG_RTS terminal session needs j/g
   to restart.)
 
-- [ ] **Escape Analysis sibling (bug 1, 8c315e0 era)**: regs
-  row also misleads on DBG_RTS — `pc:0800` shown is the j-target,
-  not the actual rts PC.  emit_reg reads from `brk_pc` which
-  the handler retconned via `brk_pc := cur_addr` for clean exit.
-  Same fix family as bug 1: either suppress the `pc:` field for
-  DBG_RTS, render `pc:----`, or do option (c) of bug 1's TODO
-  (track real rts PC at handler entry).  Discovered during
-  Escape Analysis class-wide sweep.
-
 - [ ] **Escape Analysis sibling (bug 2)**: enumerate the
   `dbg_reason × command` matrix in doc/modules/debugger.md and
   ensure every cell is specified + tested.  Audit revealed the
