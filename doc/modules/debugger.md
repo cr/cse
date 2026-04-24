@@ -734,6 +734,50 @@ fresh run.  For landed-at-RTS, we can't step past an RTS without
 peeking user's stack; for clean-exit, the session is already
 over — resuming makes no sense.
 
+##### User BRK workflow ("lazy debug breakpoint")
+
+Convention: the user sprinkles `brk` (+ optional `.db $XX`
+signature byte) into their source as quick stop points without
+bothering with `b ADDR`.  When the BRK fires, CSE's handler
+captures it as DBG_BRK with `brk_pc` pointing AT the `$00`
+opcode.  The user inspects state, then continues with `o` / `c`,
+or hangs at the BRK with `t`.
+
+Rules under CSE's debugger:
+
+- **All user BRK becomes a debugger trap.**  CSE's BRK vector
+  intercepts every `$00` opcode in user code; the user's own
+  IRQ handler never sees them.  This is unavoidable while the
+  debugger is active (and is the whole point — BRK is what
+  the lazy-debug pattern relies on).
+- **`o` and `c` skip past the BRK by 2 bytes.**  Per the CPU's
+  RTI-from-BRK semantics, BRK + signature byte is a 2-byte
+  effective instruction.  `cmd_step` (STEP_OVER) and
+  `cmd_continue` call `brk_skip_user` which advances `brk_pc`
+  by 2 if the opcode at `brk_pc` is `$00`.  The IRQ vector is
+  never invoked — we side-step the BRK entirely.
+- **`t` deliberately hangs.**  STEP_INTO does NOT call
+  `brk_skip_user`.  `step_next_pc` on `$00` returns zeros, so
+  cmd_step early-stops to `post_run_cleanup` and the panel
+  redisplays without progress.  This is the user's preferred
+  UX: `t` interrupts the return-step workflow at the BRK so
+  the user can inspect.  Use `o` to advance past.
+- **Naked `brk` (no signature byte) loses its next code byte
+  to the +2 skip.**  Per convention, write `brk; .db $XX`.
+  (Or use the planned `.brk [n]` directive — see TODO.)
+- **Disassembly stays 1-byte for BRK.**  `dasm` continues to
+  follow the universal 6502 convention.  `d` from a BRK
+  address shows `brk` (1 byte), then the byte at `brk+1`
+  interpreted as the next opcode — typically garbage if it's
+  the signature byte.  Same as VICE monitor.  Users navigate
+  past via `o`/`c`/`t` rather than `d`.
+
+The user-BRK detection is centralised in `brk_skip_user`
+(repl.s).  No new `dbg_reason` value — the handler still
+classifies as DBG_BRK, the opcode peek at command time
+distinguishes user BRK from step BRK / user BP cleanly enough
+for the two callers (`o` and `c`).
+
 ##### Session-state contracts
 
 - `dbg_reason` — see § `dbg_reason` enum above.  Life-cycle:

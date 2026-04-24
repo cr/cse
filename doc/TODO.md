@@ -357,17 +357,15 @@ Open bugs, roughly ordered by priority.
   tests to skip the ZP swap when set, and arm it in cmd_step's
   seed + the handler's chain path.  Expected saving: ~2 * 128 =
   256 cycles per step iteration.
-- [ ] Debugger: what do we do if we trace into an actual BRK?  A
-  user-authored `BRK` opcode in the traced code is indistinguishable
-  at the hardware level from our patched step BRK — same $00 byte,
-  same handler entry, same PC-2 stack push.  step_next_pc currently
-  treats "opcode == $00" as "stop before executing," so we break
-  one step short and report an unplanned user BRK at that address.
-  Open questions: should we *step past* a user BRK (counting it as
-  one executed instruction)?  Should `t1` onto a user BRK show a
-  distinct message (vs. arbitrary unplanned BRK elsewhere)?  Should
-  the BRK-signature-byte convention (TODO "BRK tracer rewrite") help
-  disambiguate?  Pairs with the step-into-ROM-fallback decision.
+- [x] ~~Debugger: what do we do if we trace into an actual BRK?~~
+  Resolved (see debugger.md § User BRK workflow).  Rules: `o` and
+  `c` skip past via `brk_skip_user` (advance brk_pc by 2 — past
+  BRK + signature byte, matching CPU's RTI semantics).  `t`
+  deliberately hangs to interrupt the return-step workflow for
+  inspection.  No new `dbg_reason` value — opcode peek at command
+  time distinguishes user BRK from step BRK / user BP via the
+  centralised `brk_skip_user` helper.  IRQ vector is never
+  invoked — we side-step BRK entirely.
 - [x] ~~**Phase 18 — CSE as a Kernel.**~~  (done.  ISR-style kernel
   model: shared flat stack with 64-byte kernel headroom contract,
   direct vector patching via `setup_interrupts`, unified
@@ -926,6 +924,18 @@ Defined scope, needs work.
   Single BASIC line: `.bas` → `0 SYS NNNNN`.
   `.bas "TEXT"` → `0 SYS NNNNN:REM TEXT`.
   Always 5 decimal digits (260 B).  2799 tests.
+
+- [ ] `.brk [n]` directive: emit a 2-byte BRK instruction (BRK
+  opcode + signature byte).  Optional `n` is the signature byte
+  (default 0).  Replaces the verbose `brk; .db $XX` pattern that
+  the lazy-debug user-BRK workflow currently requires (see
+  debugger.md § User BRK workflow).  Without `.brk`, the user
+  must manually pair `brk` with `.db $XX`; forgetting the .db
+  loses the next code byte to CSE's STEP_OVER / continue +2 skip.
+  `.brk` makes the convention explicit and forgive-by-default.
+  Use cases: `.brk` (default sig byte 0), `.brk $42` (custom),
+  `.brk MARKER` (expression).  Single line in source maps to
+  the canonical 2-byte BRK that matches CPU's RTI semantics.
 - [ ] Assembler error display: show source line number + context.
 - [ ] **Error-category tables are part of the contract.**  asm_err,
   expr, and repl each have their own error code → message mapping

@@ -741,6 +741,47 @@ _require_eoi_or_err:
 .endproc
 
 ; ───────────────────────────────────────────────────────────
+; brk_skip_user — advance brk_pc past a user BRK opcode.
+;
+; "Lazy debug" workflow: user puts a `brk` (+ signature byte
+; via `.db $XX`) somewhere in their code as a quick stop point.
+; When the BRK fires, the handler captures brk_pc pointing AT
+; the $00 opcode itself (handler already adjusted PC -= 2 from
+; the CPU-stacked PC+2).  Resuming from there would re-trap
+; immediately — we'd never make progress.
+;
+; This helper checks the opcode at brk_pc; if it's $00 (user
+; BRK), advances brk_pc by 2 (past BRK + signature byte —
+; matches the CPU's own RTI semantics).  Used by:
+;   * cmd_step on STEP_OVER (`o`) — skip BRK, then step the
+;     instruction after.  cmd_step on STEP_INTO (`t`) does NOT
+;     call this — `t` deliberately hangs at user BRK so the
+;     return-step workflow stops there for inspection.
+;   * cmd_continue (`c`) — skip BRK, then resume.
+;
+; Note: we never execute the BRK opcode itself — the IRQ is
+; bypassed entirely.  The handler's IRQ vector is not invoked.
+;
+; Clobbers: A, Y, rp_ptr.
+; ───────────────────────────────────────────────────────────
+.proc brk_skip_user
+        lda brk_pc
+        sta rp_ptr
+        lda brk_pc+1
+        sta rp_ptr+1
+        ldy #0
+        lda (rp_ptr),y
+        bne @done               ; not $00 — not a user BRK
+        lda brk_pc
+        clc
+        adc #2
+        sta brk_pc
+        bcc @done
+        inc brk_pc+1
+@done:  rts
+.endproc
+
+; ───────────────────────────────────────────────────────────
 ; expr_or_blocksize — expr_val := expression or block_size if empty/zero
 ;   Returns with expr_val populated.
 ; ───────────────────────────────────────────────────────────
@@ -2051,6 +2092,18 @@ pre_userland_run:
         .byte $2C               ; BIT abs — skip next 2 bytes
 @into:  lda #STEP_INTO
         sta step_state
+
+        ; User BRK skip: o (STEP_OVER) advances past a user BRK
+        ; opcode at brk_pc (advances brk_pc by 2 — past BRK +
+        ; signature byte).  t (STEP_INTO) does NOT skip — the user
+        ; specifically wants to "hang" at user BRK to interrupt
+        ; the return-step workflow for inspection.  See
+        ; brk_skip_user docstring + debugger.md § user BRK workflow.
+        lda step_state
+        cmp #STEP_OVER
+        bne @no_brk_skip
+        jsr brk_skip_user
+@no_brk_skip:
 
         ; Temporarily disable any user-visible bp at brk_pc.
         lda #$FF
@@ -3949,6 +4002,12 @@ prg_ok_done:
         beq @c_enter
         jsr dbg_bp_del
 @c_enter:
+        ; User BRK skip: if brk_pc points at a $00 opcode (lazy-debug
+        ; user BRK), advance brk_pc by 2 (past BRK + signature byte)
+        ; before resuming.  Without this, c would re-trap on the same
+        ; BRK forever.  See brk_skip_user docstring + debugger.md
+        ; § user BRK workflow.
+        jsr brk_skip_user
         ; Drain KERNAL keyboard buffer.
         lda #0
         sta $C6
