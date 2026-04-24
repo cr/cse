@@ -741,6 +741,27 @@ _require_eoi_or_err:
 .endproc
 
 ; ───────────────────────────────────────────────────────────
+; addr_is_brk_stub — Z=1 if A:X equals brk_stub.
+;
+; Used by cmd_step's workspace gate to exempt brk_stub from the
+; range check.  Stepping across the user's top-level RTS lands
+; at brk_stub (the stack peek in step_next_pc's @rts returns
+; (brk_stub-1)+1 = brk_stub).  brk_stub lives in CSE's CODE
+; segment around $A000-range — way outside the user workspace
+; — so the gate would refuse without an exemption.
+;
+; In:  A = lo, X = hi.  Preserves A and X.
+; Out: Z=1 if equal, Z=0 otherwise.
+; ───────────────────────────────────────────────────────────
+.proc addr_is_brk_stub
+        cpx #>brk_stub
+        bne @no
+        cmp #<brk_stub
+        rts                     ; Z reflects cmp
+@no:    rts                     ; Z=0 from cpx
+.endproc
+
+; ───────────────────────────────────────────────────────────
 ; brk_skip_user — advance brk_pc past a user BRK opcode.
 ;
 ; "Lazy debug" workflow: user puts a `brk` (+ signature byte
@@ -2146,12 +2167,23 @@ pre_userland_run:
         ; pass through under ROM, hit IO regs in $D000 page).
         ; Refuse and warn ";!range" instead — user must c past
         ; the out-of-workspace section to a known re-entry point.
+        ;
+        ; Exemption: brk_stub.  Stepping across the user's top-
+        ; level RTS lands at brk_stub (our sentinel — outside
+        ; workspace, in CSE's CODE segment).  Arming a step BRK
+        ; there is a harmless no-op patch ($00 over $00); the
+        ; handler's brk_stub check supersedes the step_bp match
+        ; and classifies as DBG_RTS clean exit.  Without this
+        ; exemption the gate would refuse, leaving the user
+        ; unable to step past the top-level rts.
         lda step_next_lo
         ora step_next_lo+1
         beq @check_hi
         lda step_next_lo
         ldx step_next_lo+1
-        jsr bp_range_check
+        jsr addr_is_brk_stub
+        beq @check_hi
+        jsr bp_range_check      ; A,X preserved from above
         bcs @oor_warn
 @check_hi:
         lda step_next_hi
@@ -2159,6 +2191,8 @@ pre_userland_run:
         beq @armable
         lda step_next_hi
         ldx step_next_hi+1
+        jsr addr_is_brk_stub
+        beq @armable
         jsr bp_range_check
         bcs @oor_warn
 @armable:
