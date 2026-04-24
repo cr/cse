@@ -703,16 +703,31 @@ _require_eoi_or_err:
 .endproc
 
 ; ───────────────────────────────────────────────────────────
-; bp_range_check — gate: addr must be in [workstart, workend].
+; bp_range_check / bp_range_check_step — address-write gates.
 ;
-; workstart = $0800 (fixed), workend = buf_base - 1 (dynamic).
-; Equivalently the in-range test is:  $0800 <= addr < buf_base.
+; bp_range_check: addr must be in [workstart, workend].
+;   workstart = $0800 (fixed), workend = buf_base - 1 (dynamic).
+;   Equivalently:  $0800 <= addr < buf_base.
+;   Used by cmd_brk (managed bp creation) — strict gate, errors
+;   on out-of-range.
 ;
-; Used by:
-;   * cmd_brk (managed bp creation) — error on oor.
-;   * cmd_step (step BRK arming) — warn on oor.
+; bp_range_check_step: same as bp_range_check but additionally
+;   treats brk_stub as in-range.  Used by cmd_step's step BRK
+;   arming gate: stepping across the user's top-level RTS lands
+;   at brk_stub (step_next_pc's @rts peeks the user stack and
+;   returns (brk_stub-1)+1 = brk_stub).  brk_stub lives in CSE's
+;   CODE segment around $A000-range — outside the user workspace
+;   — so the strict gate would refuse, leaving the user unable
+;   to step past the top-level rts.  Step BRK arming at brk_stub
+;   is a harmless no-op patch ($00 over $00); the handler's
+;   brk_stub check supersedes the step_bp match anyway and
+;   classifies as DBG_RTS clean exit.  cmd_brk stays strict
+;   (no exemption — `b $brk_stub` is pointless).
 ;
-; Without this gate, step BRK arming or user bp creation could
+; bp_range_check_step is laid out IMMEDIATELY before bp_range_check
+; so its mismatch path falls through (no jmp).  Saves 3 B.
+;
+; Without the gate, step BRK arming or user bp creation could
 ; write the patched $00 byte to ROM-shadowed RAM ($A000-$BFFF
 ; under BASIC, $E000+ under KERNAL), to IO ($D000-$DFFF — VIC,
 ; SID, CIA, color RAM), or to KDATA at $F100+.  Patches are
@@ -720,10 +735,19 @@ _require_eoi_or_err:
 ; corruption can change colors, raster behaviour, or our own
 ; KDATA tables.
 ;
-; In:  A = addr lo, X = addr hi
-; Out: C=0 in range, C=1 out of range
-; Clobbers: A
+; In:  A = addr lo, X = addr hi.
+; Out: C=0 in range, C=1 out of range.
+; Clobbers: A.
 ; ───────────────────────────────────────────────────────────
+.proc bp_range_check_step
+        cpx #>brk_stub
+        bne bp_range_check      ; mismatch → fall to strict gate
+        cmp #<brk_stub
+        bne bp_range_check
+        clc                     ; brk_stub — accept
+        rts
+.endproc
+
 .proc bp_range_check
         ; Lower bound: addr >= $0800.
         cpx #$08
@@ -738,38 +762,6 @@ _require_eoi_or_err:
         rts
 @ok:    clc
         rts
-.endproc
-
-; ───────────────────────────────────────────────────────────
-; bp_range_check_step — gate variant: workspace OR brk_stub.
-;
-; Same as bp_range_check (workspace check) but additionally
-; treats brk_stub as in-range.  Used by cmd_step's step BRK
-; arming gate: stepping across the user's top-level RTS lands
-; at brk_stub (the stack peek in step_next_pc's @rts returns
-; (brk_stub-1)+1 = brk_stub).  brk_stub lives in CSE's CODE
-; segment around $A000-range — outside the user workspace —
-; so the strict gate would refuse, leaving the user unable to
-; step past the top-level rts.  Step BRK arming at brk_stub
-; is a harmless no-op patch ($00 over $00); the handler's
-; brk_stub check supersedes the step_bp match anyway and
-; classifies as DBG_RTS clean exit.  cmd_brk's gate stays
-; strict (no exemption — user setting a managed bp at
-; brk_stub is pointless).
-;
-; In:  A = lo, X = hi.
-; Out: C=0 in range (or brk_stub), C=1 out of range.
-; Clobbers: A.
-; ───────────────────────────────────────────────────────────
-.proc bp_range_check_step
-        cpx #>brk_stub
-        bne @normal
-        cmp #<brk_stub
-        bne @normal
-        clc                     ; brk_stub — accept
-        rts
-@normal:
-        jmp bp_range_check      ; tail-call
 .endproc
 
 ; ───────────────────────────────────────────────────────────
