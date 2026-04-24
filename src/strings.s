@@ -33,7 +33,7 @@
         .export str_lines, str_bytes, str_long
         .export str_unsaved, str_ok, str_blk_eq
         .export str_del_src, str_quit, str_load
-        .export str_init, str_end_dbg, str_asm
+        .export str_init, str_end_dbg, str_asm, str_go
         .export str_debug, str_qynq
         .export str_color, str_cpu, str_stk_warn
         .export str_asm_ing, str_load_pfx, str_save_pfx, str_dots
@@ -121,6 +121,7 @@ str_load:       .byte "load", 0
 str_init:       .byte "init", 0
 str_end_dbg:    .byte "end debug", 0
 str_asm:        .byte "asm", 0
+str_go:         .byte "go", 0          ; j/g end-debug prompt
 ; Shared trailer printed by query_user after the action stem.
 str_qynq:       .byte "? y/n", 0
 str_ok:         .byte "ok", 0

@@ -136,7 +136,7 @@ STEP_OVER = 2
         .import str_lines, str_bytes, str_long
         .import str_unsaved, str_ok, str_blk_eq
         .import str_del_src, str_quit, str_load
-        .import str_init, str_end_dbg, str_asm
+        .import str_init, str_end_dbg, str_asm, str_go
         .import str_color, str_cpu
         .import str_asm_ing, str_load_pfx, str_save_pfx, str_dots
         .import s_save_default
@@ -1916,8 +1916,32 @@ hygiene_after_userland:
 ; cmd_jmp — 'j'/'g' command.  Stages reg_* / brk_pc (already in
 ; cur_addr by caller), drains kbd buffer, requests a fresh-start
 ; run (MODE_JUMP = push sentinel).
+;
+; Debug-session gate: if dbg_reason indicates an active
+; resumable session (DBG_BRK / DBG_NMI), warn ";!debug" + ask
+; "go? y/n".  On yes: end the debug session and replay the
+; command via warm_cont (mirrors the `a` command pattern).
+; On cancel: nl_clear and return to repl.  On DBG_NONE / DBG_RTS
+; the gate is transparent — j/g proceed immediately.
+;
+; Per debugger.md § dbg_reason × command matrix.
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_jmp
+        lda dbg_reason
+        cmp #DBG_BRK
+        bcc @run                ; DBG_NONE / DBG_RTS — no gate
+        ; Active resumable session — warn + ask + end-debug-replay.
+        jsr warn_if_debug
+        lda #<str_go
+        ldx #>str_go
+        jsr query_user
+        bcc @cancel
+        lda #1
+        sta warm_cont           ; replay line_buf after end-debug
+        jmp cse_end_debug
+@cancel:
+        jmp nl_clear
+@run:
         lda cur_addr
         sta brk_pc
         lda cur_addr+1
@@ -2890,23 +2914,18 @@ print_op_name:
         beq @load_prg
 
         ; ── SEQ load ──
-        ; Gate: warn + prompt when either dirty or debugging.  If
-        ; debug was active on yes, replay via warm_cont + end_debug.
-        ; Otherwise (clean state or dirty-only) proceed.
-        lda dbg_reason
-        ora ed_dirty
+        ; Gate: warn + prompt only when editor is dirty.  Per
+        ; debugger.md § dbg_reason × command matrix, l/s have NO
+        ; debug gating — loading new source under an active debug
+        ; session is the user's call (breakpoints may invalidate;
+        ; they own that decision).  Unsaved-edits gate stays.
+        lda ed_dirty
         beq @do_load
-        jsr warn_if_unsaved     ; stack order: unsaved before debug
-        jsr warn_if_debug
+        jsr warn_if_unsaved
         lda #<str_load
         ldx #>str_load
         jsr query_user
         jcc @l_cancel
-        lda dbg_reason
-        beq @do_load            ; clean-debug yes → load directly
-        lda #1
-        sta warm_cont           ; replay line_buf after end-debug
-        jmp cse_end_debug
 @do_load:
 
         lda #<str_load_pfx
@@ -3839,25 +3858,16 @@ prg_ok_done:
 @q_cancel:
         jmp nl_clear
 @h_reset:
-        ; R — warmstart (uppercase).  Always prompts.  With an
-        ; active debug session: ";!debug" + "end debug? y/n".
-        ; Without: "init? y/n".  On yes: end_debug_body (if active)
-        ; + jmp cse_refresh.  No continuation (warm_cont stays 0).
-        lda dbg_reason
-        beq @reset_init
-        ; active debug path
-        jsr warn_if_debug
-        lda #<str_end_dbg
-        ldx #>str_end_dbg
-        jsr query_user
-        bcc @r_cancel
-        jsr end_debug_body
-        jmp cse_refresh
-@reset_init:
+        ; R — warmstart (uppercase).  Always prompts "init? y/n";
+        ; on yes, end_debug_body (no-op if no session) + cse_refresh.
+        ; Per debugger.md § dbg_reason × command matrix, R has NO
+        ; debug gating — the reset action implicitly ends any debug
+        ; session as a side effect; no separate "; ! debug" warn.
         lda #<str_init
         ldx #>str_init
         jsr query_user
         bcc @r_cancel
+        jsr end_debug_body      ; idempotent — safe when no session
         jmp cse_refresh
 @r_cancel:
         jmp nl_clear

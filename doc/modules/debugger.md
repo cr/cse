@@ -201,6 +201,38 @@ outside the handler.
 (The `dbg_running` flag from earlier designs is replaced by main.s's
 `in_userland` flag, which is the single source of truth.)
 
+#### `dbg_reason` × command matrix
+
+Every command that interacts with the debug session falls into
+one of three behavioural patterns: **transparent** (no debug
+gating), **gated by reason** (different action per dbg_reason
+value), or **end-debug-and-replay** (warn + ask + end debug + re-
+run the same command line).  This matrix is the contract.
+
+| Command | `DBG_NONE` | `DBG_RTS` | `DBG_BRK` | `DBG_NMI` | Notes |
+|---|---|---|---|---|---|
+| `c`     | reject (`;?no ctx`) | reject | run | run | `c` is gated by reason; on run the session continues until next break or clean exit. |
+| `t`/`o` | cold preview (`;dbg`, no exec) | reject (`;?no ctx`) | step | step | `t`/`o` is gated by reason; cold preview promotes to DBG_BRK so the next t steps for real. |
+| `j`/`g` | run | run | warn + ask (`;!debug` / `go? y/n`) | warn + ask | On yes: end debug + replay command (warm_cont).  On cancel: nl_clear. |
+| `r`     | run | run | run | run | Transparent.  Always renders the captured reg shadows. |
+| `a`     | run | run | warn + ask (`;!debug` / `asm? y/n`) | warn + ask | Same end-debug-and-replay pattern as j/g; assemble is stack-heavy under an active session, so we end first. |
+| `l`/`s` | run | run | run | run | Transparent w.r.t. debug.  (Editor-dirty gate is separate.) |
+| `R`     | run | run | run | run | Transparent.  Reset always prompts `init? y/n`; on yes calls `end_debug_body` (idempotent) + `cse_refresh`. |
+
+**Gating idioms:**
+
+- *Reject*: `cmp #DBG_BRK / bcc <reject>` (covers DBG_NONE +
+  DBG_RTS).  Used by `c`.  `t`/`o` adds a separate
+  `cmp #DBG_RTS / beq` to split DBG_NONE → preview from
+  DBG_RTS → reject.
+- *Warn + ask + end-debug-and-replay*: pattern lives at the
+  cmd_X entry point; on confirm sets `warm_cont := 1` and tail-
+  jumps to `cse_end_debug` (which clears state, returns to repl,
+  re-runs the buffered command line).
+- *Transparent*: command body unchanged; consumes captured
+  state where applicable (e.g. `r` reads reg shadows even
+  during a session — that's the user's view of "what happened").
+
 ### Memory
 
 **BSS (~48 bytes):**

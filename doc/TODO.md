@@ -265,16 +265,19 @@ Open bugs, roughly ordered by priority.
   cold preview as before; DBG_RTS terminal session needs j/g
   to restart.)
 
-- [ ] **Escape Analysis sibling (bug 2)**: enumerate the
+- [x] ~~**Escape Analysis sibling (bug 2)**: enumerate the
   `dbg_reason × command` matrix in doc/modules/debugger.md and
-  ensure every cell is specified + tested.  Audit revealed the
-  following commands have unspecified or partially-specified
-  behaviour for some `dbg_reason` values: `j` / `g` (no warn
-  when interrupting an active session?), `r` (regs from captured
-  state vs defaults — when?), `a` / `l` / `s` (warn-and-end-debug
-  branches not uniformly tested across reason values).  Class
-  closure analogous to the `?/@/B/C/j` trailing-garbage closure
-  (TODO:172).
+  ensure every cell is specified + tested.~~  (Matrix landed in
+  debugger.md § dbg_reason × command matrix; code aligned in
+  the same commit.  Three behavioural patterns per command:
+  *transparent* (r, l, s, R — no debug gating), *gated by
+  reason* (c, t, o), *end-debug-and-replay* (j, g, a — warn,
+  ask, end debug, replay command).  Code changes: cmd_jmp got
+  the warn+ask gate (covers j and g); cmd_load lost its
+  warn_if_debug (l/s now transparent); @h_reset simplified to a
+  single "init? y/n" + idempotent end_debug_body.  str_go added
+  for the j/g prompt.  Tests still need cell-by-cell coverage —
+  separate TODO if pursued.)
 
 - [ ] **Escape Analysis siblings (bug 3, address-write gate)**:
   other primitives that write to user-supplied or computed
