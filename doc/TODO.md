@@ -279,39 +279,20 @@ Open bugs, roughly ordered by priority.
   for the j/g prompt.  Tests still need cell-by-cell coverage —
   separate TODO if pursued.)
 
-- [ ] **Escape Analysis siblings (bug 3, address-write gate)**:
-  other primitives that write to user-supplied or computed
-  addresses without a workspace check:
-    - `m ADDR BYTES` (memory poke command in `m` interactive
-      mode) — writes user memory, no range check.  Test:
-      `m $f100 11 22 33` corrupts KDATA.
-    - `.` dot-assemble at `cur_addr` — assembles & writes one
-      instruction's bytes; cur_addr can be set to anywhere via
-      `@`, so .-assembling at $f100 corrupts KDATA.
-    - `a` full-source assemble — writes per `.org` directives;
-      no range check on .org.  Source `.org $f100\nlda #0`
-      corrupts KDATA at assemble time.
-    - `l NAME ADDR` load-to-address — disk byte stream into
-      memory; verify range-check coverage.
-  Class closure: define a single `addr_write_gate` (or reuse
-  `bp_range_check` semantics) and apply uniformly.
-
-- [ ] **Escape Analysis principle candidate**: side-effecting
-  operations on user-supplied / computed addresses (memory
-  writes, including transient patches) must enforce a documented
-  address-range contract.  Tests must cover boundary cells:
-  in-range, just-outside-low, just-outside-high, ROM/IO/KDATA
-  shadows.  Discovered via bug 3 (workspace gate); no current
-  testing.md principle prescribes this.  Pairs with the bug 3
-  sibling sweep above.  Consider as testing.md Principle 14.
-
-- [ ] **Escape Analysis (bug 3 cross-module)**: push
-  `bp_range_check` DOWN into `dbg_bp_set` and `arm_step_bp`
-  (currently in repl.s::cmd_brk and repl.s::cmd_step).  Today
-  any future caller of dbg_bp_set / arm_step_bp bypasses the
-  gate by skipping cmd_brk / cmd_step.  Contract should live
-  with the side-effect (the actual bp install / arm), not at
-  a specific call site.  Principle 13 spirit.
+- [ ] Assembler: `a` source-assemble warn+ask when emit
+  destination is outside [workstart, workend].  `.org $f100\nlda #0`
+  silently writes to KDATA today.  Same risk class as bug 3
+  (CSE state corruption during a debug workflow), same gate
+  range.  Pattern: per-segment check at `_seg_log_open` time
+  (or per-byte at emit time, whichever has the lower overhead);
+  if first emit address is out-of-range, prompt
+  `;!range / asm? y/n`.  Yes proceeds (user override); no
+  cancels the assemble.  This is the only sibling from bug 3's
+  sweep judged worth chasing — other footguns (m-poke,
+  .-assemble at `@`-set cur_addr, l-to-address) are explicit
+  user actions and stay un-gated; the assemble case is special
+  because `.org` lives in source code and is easy to typo into
+  CSE-shadow ranges without realising.
 
 - [ ] **BUG** Assembler: `jsr a` reports "bad insn" but segment
   output still follows (seems to complete the assembly run?).
