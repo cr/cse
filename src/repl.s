@@ -205,10 +205,14 @@ rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
 rp_hexbuf:      .res 3          ; cmd_dot hex byte parse
 cold_preview_done: .res 1       ; cmd_step cold-preview marker.  Set
-                                ; by show_cold_preview, consumed (and
-                                ; cleared) by the next cmd_step's MODE
-                                ; selection — forces MODE_JUMP so the
-                                ; first real step pushes a sentinel.
+                                ; by cmd_step's cold-preview branch
+                                ; (alongside dbg_reason promotion to
+                                ; DBG_BRK), consumed and cleared by
+                                ; the next cmd_step's MODE selection
+                                ; to force MODE_JUMP — the first real
+                                ; step after a cold preview must push
+                                ; a fresh sentinel (the preview itself
+                                ; never crossed the gate).
 
 zp_stage_buf:   .res 8          ; staging buffer for the user-ZP
                                 ; read redirect — `m` dump (8 B) and
@@ -1155,62 +1159,44 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ; ═══════════════════════════════════════════════════════════
 ; show_break_result — status msg header + regs + disasm
 ;
-; Unified return-to-REPL path after running user code.  Prints one
-; line of the form "; TAG[ N] at $PC" followed by the register dump
-; and a disassembly at brk_pc.
+; Unified return-to-REPL path after running user code.  Emits the
+; break panel: tag info line, regs row, and (for non-RTS variants)
+; a lookahead disassembly.  See doc/modules/debugger.md § Step
+; output for the panel anatomy.
 ;
-; Tag classification (two-tier):
+; Tag classification — one-tier from dbg_reason (NO opcode peek):
 ;
-;   dbg_reason=DBG_NMI → "; nmi at $PC"
-;   dbg_reason=DBG_RTS → "; rts at $PC"          (handler already set
-;                                                 this for clean-exit
-;                                                 via brk_stub, after
-;                                                 resetting brk_pc :=
-;                                                 cur_addr; also set by
-;                                                 cmd_step early-stop)
-;   Otherwise (DBG_BRK / DBG_NONE) → classify by OPCODE at brk_pc:
-;     $60 RTS / $40 RTI → "; rts"   (step trap landed on a return op
-;                                    — the *next* step would execute
-;                                    it; critical for not mistagging
-;                                    step-onto-rts as "; brk")
-;     everything else   → "; brk"   ($00 BRK opcodes fall here; the
-;                                    user-meaningful tag is "; brk")
+;   DBG_NMI → "; nmi at $PC"
+;   DBG_RTS → "; rts"               (no address — handler retconned
+;                                    brk_pc := cur_addr for clean
+;                                    exit, so the displayed value
+;                                    would be the j-target, not the
+;                                    rts location.  See debugger.md
+;                                    § panel anatomy.)
+;   DBG_BRK → "; brk at $PC"        (default — step trap, user BP,
+;                                    or unplanned user BRK).  If
+;                                    dbg_bp_hit != $FF, appends the
+;                                    slot number: "; brk N at $PC".
+;   DBG_NONE → "; brk at $PC"       (defensive; not normally reached
+;                                    via this path — DBG_NONE means
+;                                    no session, panel shouldn't fire).
 ;
-; The opcode tier is what makes "step lands on rts" display "; rts"
-; even though the step BRK fired with dbg_reason=DBG_BRK.  See
-; b9c3914 for the bug history.
-;
-; Additionally if dbg_reason=DBG_BRK AND dbg_bp_hit != $FF, appends
-; the slot number: "; brk N at $PC" (user breakpoint hit).
-;
-; Separator newline above the header only if the cursor isn't
-; already at column 0 (user CHROUT may have left the row padded).
+; DBG_RTS variant additionally suppresses the lookahead disas (the
+; program ended; nothing to step to) and ends with nl_clear (newline
+; + clreol) so show_prompt lands on a fresh row.
 ;
 ; Colours/VIC state are already restored by hygiene_after_userland
 ; in handler_finalize (called before main_loop_top → post_run_cleanup
 ; → here), so no restore_colors at entry.
 ; ═══════════════════════════════════════════════════════════
 
-; ── peek_brk_opcode — read the opcode byte at brk_pc into A ───
-; Used by show_break_result's opcode-tier classification and by
-; post_run_cleanup's last_cmd-clear-on-RTS/RTI check.
-; Clobbers: A, Y, rp_ptr.
-peek_brk_opcode:
-        lda brk_pc
-        sta rp_ptr
-        lda brk_pc+1
-        sta rp_ptr+1
-        ldy #0
-        lda (rp_ptr),y
-        rts
-
 ; ═══════════════════════════════════════════════════════════
 ; show_cold_preview — first t/o with no resumable session.
 ;
 ; Emits "; dbg at $PC" + regs + disas at brk_pc.  No user code
 ; runs.  Caller (cmd_step) sets dbg_reason := DBG_BRK and
-; _rtu_need_sentinel := 1 so the next real step pushes a fresh
-; sentinel.
+; cold_preview_done := 1 so the next real step pushes a fresh
+; sentinel via MODE_JUMP.
 ;
 ; The "dbg" tag is intentionally distinct from "; brk"/"; rts"
 ; — the user wants to know this is a *preview*, not the result
@@ -1967,26 +1953,36 @@ pre_userland_run:
 ; ═══════════════════════════════════════════════════════════
 ; cmd_step — 't' (step-into) / 'o' (step-over) command.
 ;
-; Seed-only under the Phase-18 handler-resident state machine:
-;   1. Parse count (N), default 1.  On expression success, reject
-;      trailing garbage via the pop-trick _require_eoi_or_err —
-;      `t10xyz` logs ";?syntax" and aborts before any state write.
-;   2. Set step_state (STEP_INTO or STEP_OVER).
-;   3. If no prior break, initialise brk_pc from cur_addr.
-;   4. Temporarily disable any bp at brk_pc (so the first step can
-;      execute the instruction there without immediately re-hitting
-;      its own bp).
-;   5. Compute first next-PC(s) via debugger.s::step_next_pc.
-;      If both slots are zero (opcode is RTS/RTI/BRK), stop before
-;      executing: reuse post_run_cleanup for the step finish-up,
-;      clear dbg_reason, return with run_user_pending=0.
-;   6. Arm step_bp slots (arm_step_bp).
-;   7. step_remaining := N - 1 (the first iteration runs via our
-;      return; the handler chain handles iterations 2..N).
-;   8. Set run_user_pending.  MODE_JUMP if no prior break context
-;      (fresh entry — sentinel needed), MODE_RESUME otherwise
-;      (reuse existing sentinel).
-;   9. RTS up to main_loop, which dispatches to the gate.
+; Seed-only under the Phase-18 handler-resident state machine.
+; Per debugger.md § dbg_reason × command matrix, gates by reason:
+;
+;   DBG_NONE  → cold preview (init brk_pc := cur_addr, emit
+;               "; dbg" panel, promote to DBG_BRK + arm
+;               cold_preview_done; rts to repl without
+;               entering userland).
+;   DBG_RTS   → reject (";?no ctx") — terminal session.
+;   DBG_BRK   → step (real run).
+;   DBG_NMI   → step (real run).
+;
+; Real-step path (DBG_BRK / DBG_NMI):
+;   1. Set step_state (STEP_INTO / STEP_OVER).
+;   2. Disable any user bp at brk_pc (so the first step doesn't
+;      immediately re-hit its own bp).
+;   3. step_next_pc → lookahead address(es).  Both zero (BRK
+;      opcode) → early-stop via post_run_cleanup.
+;   4. Workspace gate: bp_range_check on each non-zero arm slot;
+;      out-of-range → ";!range" warn, no step.
+;   5. Warm-step "up 3 lines" + emit pre-step disas (single-step
+;      only — multi-step skips to avoid screen flood).
+;   6. arm_step_bp + step_remaining := N-1 + pre_userland_run.
+;   7. MODE selection: cold_preview_done set → MODE_JUMP (push
+;      sentinel for first real step after cold preview, consume
+;      flag); else MODE_RESUME.
+;   8. RTS up to main_loop, which dispatches via run_user_pending.
+;
+; Argument parsing: try_expr_or_err parses the count + rejects
+; trailing garbage via the pop-trick (so `t10xyz` aborts cleanly
+; with ";?syntax" before any state is written).  Default count 1.
 ;
 ; In: rp_ptr = args, A = is_next (0=into, 1=over)
 ; ═══════════════════════════════════════════════════════════
@@ -2073,15 +2069,16 @@ pre_userland_run:
         ; Compute first next-PC.  step_next_pc reads opcode at brk_pc.
         jsr step_next_pc
 
-        ; If both slots zero (opcode is RTS/RTI/BRK), stop without
-        ; entering user code.  post_run_cleanup already knows how to
-        ; finish a step (clear step_state, re-enable disabled bp,
-        ; show_break_result, clear last_cmd on RTS/RTI).  Its opcode
-        ; peek classifies $60/$40 as "; rts" and $00 as "; brk" — so
-        ; we don't need to touch dbg_reason here (it's either DBG_BRK
-        ; from a prior handler trap, or DBG_NONE/DBG_RTS on a cold
-        ; start; show_break_result's opcode tier classifies correctly
-        ; from the instruction byte regardless).
+        ; If both slots zero, opcode at brk_pc is BRK ($00) —
+        ; step_next_pc's @rts/@rti handle the return ops by
+        ; peeking the user stack, so they DO return non-zero
+        ; lookahead and proceed normally to @arm.  Only $00
+        ; falls through to "no slots".  Stop without entering
+        ; userland: post_run_cleanup finishes the step (clear
+        ; step_state, re-enable disabled bp, show panel) with
+        ; dbg_reason left as the handler set it (DBG_BRK on
+        ; the prior trap landing — show_break_result tags it
+        ; "; brk", which is correct: we trapped at a BRK opcode).
         lda step_next_lo
         ora step_next_lo+1
         ora step_next_hi
@@ -3693,11 +3690,15 @@ prg_ok_done:
 @u_p2:  jsr io_putc
 .endif
         jmp log_close   
-@h_a:   ; a — assemble source.  With an active debug session this
-        ; path is stack-heavy (measured ~130 B for nested exprs); gate
-        ; by ending the debug session + replaying the command.
+@h_a:   ; a — assemble source.  Per debugger.md § dbg_reason ×
+        ; command matrix: warn + ask + end-debug-replay only for
+        ; resumable sessions (DBG_BRK / DBG_NMI).  DBG_NONE / DBG_RTS
+        ; pass through unchanged — assemble proceeds.  (Stack-heavy
+        ; under an active session, ~130 B for nested exprs, hence
+        ; the end-debug pattern rather than running concurrently.)
         lda dbg_reason
-        beq @a_run
+        cmp #DBG_BRK
+        bcc @a_run
         jsr warn_if_debug
         lda #<str_asm
         ldx #>str_asm
@@ -3986,12 +3987,12 @@ prg_ok_done:
 ; only handles break-result display and step cleanup.
 ;
 ; Responsibilities:
-;   * If we were stepping: clear step_state / step_remaining, zero
-;     step_bp slots, re-enable any bp cmd_step disabled, show
-;     break result.  If stopping opcode is RTS/RTI, clear last_cmd
-;     (so RETURN doesn't repeat the step).
-;   * Else show break result (dbg_reason picks the tag;
-;     show_break_result handles the rts-through-sentinel case).
+;   * If we were stepping: clear step_state / step_remaining,
+;     zero step_bp slots, re-enable any bp cmd_step disabled,
+;     show break result.  For DBG_RTS landings clear last_cmd
+;     so RETURN doesn't re-trigger cold preview after a clean
+;     exit (terminal session — user must type a fresh command).
+;   * Else just show break result (NMI / external BRK paths).
 ; ═══════════════════════════════════════════════════════════
 ; Stack headroom budget — must match main.s::kernel_stack_budget.
 ; See userland_contract.md § Kernel stack budget.  Kept as a local
