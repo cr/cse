@@ -6,15 +6,27 @@ CSE (C64 Screen Editor) is an integrated assembler development
 environment for the Commodore 64.  It also runs on the C128 in C64
 mode, with 65C02 support for the 8502 CPU.
 
-It is built for programmers who want to **sketch ideas fast and play
-with them as they go** — write a few lines of code, assemble, run,
-poke at registers, tweak a byte, re-run.  The entire cycle happens
-on the C64 itself, with no cross-development toolchain required.
+CSE serves **two audiences on one surface**.  For the seasoned
+developer it is a sketchpad — write a few lines of code, assemble,
+run, poke at registers, tweak a byte, re-run, with no cross-development
+toolchain and no context switch.  For the learner it is a first
+environment whose whole surface is the language to be learned —
+64 KiB of documented RAM, 56 documented instructions, a memory map
+that prints on one page, and a cheat sheet that is the environment.
+Both audiences get the same tool, undiluted.  See
+[Design Priorities § 7](#design-priorities) for the commitment this
+implies.
 
 CSE combines the workflow of **MasterSeka** (immediate single-line
 assembly, integrated editor, fast iteration) with the power of a
 **radare2-style REPL** (addressable commands, hex editing, expression
 calculator, memory inspection, block operations).
+
+For the motivating context — why CSE exists, how it compares to its
+peers, and the pedagogical thesis the design priorities below derive
+from — see [background.md](../background.md).  The priorities and
+audiences stated here are the corpus-authoritative summary;
+background.md is the user-facing long form.
 
 ## Components
 
@@ -129,6 +141,11 @@ constants from the last assembly.  Output shows hex, decimal, and
 
 ## Design Priorities
 
+**Dependants:** [README.md § Who it's for](../README.md) (framing
+summary for end users); [background.md](../background.md) (long-form
+motivation and peer comparison).  Both are derived from this section;
+changes here must propagate.
+
 1. **Minimal footprint.**  Every byte of CSE is a byte the user can't
    use for their project.  Code is hand-optimized 6502 assembly where
    it matters.  ROM-ready architecture (no self-modifying code) enables
@@ -138,20 +155,60 @@ constants from the last assembly.  Output shows hex, decimal, and
    at $0800 and up."  CSE stays out of the way.  The `i` command shows
    exactly what's free.
 
-3. **Fluent interaction.**  If you know MasterSeka or radare2, CSE
-   feels immediately familiar.  Short commands, screen-as-buffer,
-   edit-in-place.  No modes to memorize beyond REPL and editor.
+3. **Fluent, immediate interaction.**  The edit-assemble-run-inspect
+   cycle has no build step and no context switch.  The screen is the
+   command buffer; every line is executable; RETURN repeats at the
+   next address.  Commands are single characters, addressable as
+   `AAAA:cmd`, with one grammar shared across editor, assembler,
+   monitor, calculator, and debugger.  No modes to memorize beyond
+   REPL and editor.  Users familiar with MasterSeka or radare2 should
+   feel at home immediately; users new to both should not find the
+   surface any larger than the work requires.
 
 4. **C64 keyboard is the only input device.**  Every character used
    in source syntax, commands, and expressions must be typeable on
    the unmodified C64 keyboard.  This is why OR is `£` (not `|`),
-   XOR is `^` (the ↑ key), and labels have no underscore.
+   XOR is `^` (the ↑ key), and labels have no underscore.  This is
+   also what lets the tool and the machine share a single surface:
+   every key the user can press is a key CSE can parse.
 
 5. **KERNAL-friendly.**  CSE completely replaces BASIC but cooperates
    with the KERNAL.  Disk I/O uses KERNAL calls.  `q` restores BASIC
    cleanly.  The NMI vector is intercepted for mode switching but
    the KERNAL's IRQ handler continues running (keyboard scan, jiffy
    clock).
+
+6. **Transparency.**  CSE interposes nothing between the user and the
+   CPU.  The assembler emits bytes the user can see; the disassembler
+   and monitor show memory and instructions as they are; the debugger
+   steps the real CPU one instruction at a time.  Every level of the
+   stack — source, bytes, registers, memory — is inspectable and
+   directly editable.  CSE does not ship an interpreter, a virtual
+   machine, or a managed runtime.  If the user wants to know what the
+   machine is doing, the answer is always one command away.
+
+   This rules out any layer that would stand between the user and the
+   instruction stream: a BASIC-like command wrapper, a scripting
+   layer on top of the REPL, or a pseudo-register / pseudo-address
+   illusion that simplifies the surface by lying about it.  The
+   environment is the whole thing; nothing lives on top of it.
+
+7. **One environment, two audiences.**  CSE is simultaneously a first
+   environment for a programmer learning 6502 and a sketchpad for a
+   seasoned developer.  Design decisions must serve both.  No
+   "beginner mode" or "advanced mode" split.  No dumbed-down surface
+   an expert has to work around, and no expert-only feature that
+   leaves a beginner lost.  The cheat sheet is the whole language.
+   Features that would help one audience at the cost of the other do
+   not ship.
+
+   The duality does not require splitting the surface because the
+   underlying constraint — *the whole environment fits in the user's
+   head* — is the same in both cases.  It also implies a feature
+   filter: the mental model the learner builds on day one must still
+   be correct on year five.  Any feature that teaches a temporarily-
+   useful lie fails the dual-audience test, because the learner would
+   have to unlearn it and the expert never wanted it.
 
 ## Implementation Principles
 

@@ -546,7 +546,8 @@ See [DDD Maintenance](#ddd-maintenance) for the full audit scope and trigger.
 
 | Document | Scope |
 |----------|-------|
-| [README.md](../README.md) | User reference manual (REPL commands, editor, assembler, debugger, memory map).  Not a corpus document — maintained via DDD Maintenance item 8. |
+| [README.md](../README.md) | User reference manual (REPL commands, editor, assembler, debugger, memory map).  Not a corpus document — maintained via DDD Maintenance item 8.  Derived in part from [project.md § Design Priorities](project.md#design-priorities). |
+| [background.md](../background.md) | User-facing long-form motivation: why CSE exists, how it compares to its peers, what keeps the promise honest.  Not a corpus document — derived from [project.md](project.md) (§ *What Is CSE?* and § *Design Priorities*) and [README.md](../README.md).  Maintained under the same drift audit as the README. |
 | [assembler_syntax.md](assembler_syntax.md) | Source language: labels, instructions, directives, expressions |
 
 ### Project management

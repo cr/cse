@@ -820,46 +820,22 @@ Defined scope, needs work.
 
 ### Corpus
 
-- [ ] **DDD follow-up for the 2026-04-22 Design Priorities expansion.**
-  `doc/project.md § Design Priorities` was amended out-of-cycle to
-  reformulate priority #3 (Fluent interaction → "Fluent, immediate
-  interaction") and add priorities #6 (Transparency) and #7 (One
-  environment, two audiences).  `§ What Is CSE?` was also tweaked to
-  name both audiences.  A top-level user-facing `background.md` was
-  added, linked from README.md.  The amendments were drafted directly
-  rather than put through the full DDD Method because the changes are
-  formalisations of already-implicit design intent, not new
-  constraints on code.  Follow-up work required, to be put through a
-  proper DDD Method cycle:
-  1. **DDD Analysis** — walk the corpus against the three new/revised
-     priorities.  Identify any doc section that contradicts
-     Transparency (e.g. any place a hidden abstraction layer is
-     casually proposed) or the Dual-audience commitment (e.g. any
-     place a "beginner mode" or expert-only flag is suggested).
-     Surface any module doc whose Design section should cite one of
-     the new priorities explicitly.
-  2. **TDD Analysis** — the new priorities are design constraints, not
-     behavioural contracts, so there is no direct test delta.  Verify
-     this explicitly rather than assume it.  If any existing test
-     encodes behaviour that would violate Transparency (e.g. relies
-     on a non-inspectable layer) or the Dual-audience principle,
-     flag it.
-  3. **Cross-reference check** — every doc that enumerates the Design
-     Priorities (currently only `project.md`; verify no copies exist
-     elsewhere per Principle 3 — single source of truth) is
-     consistent.  `architecture.md` introductory text and
-     `README.md`/`background.md` language should not drift from the
-     corpus wording.
-  4. **DDD Maintenance item 8** — confirm the user-facing
-     `background.md` does not silently duplicate any corpus fact that
-     would then diverge.  `background.md` is a derived document (like
-     the root README): it explains and motivates, but all
-     authoritative claims should link back rather than restate.  Any
-     restatement that must exist for narrative reasons is flagged as
-     a known derivation so future drift is caught.
-  5. **Commit as a single DDD-Method close-out** with the analyses,
-     any corpus fixes they produced, and a report entry naming the
-     out-of-cycle amendment this resolves.
+- [x] ~~**DDD follow-up for the 2026-04-22 Design Priorities expansion.**~~
+  Closed 2026-04-25 by Phase 23 DDD Streamlining maintenance round.
+  Six absorption gaps from `background.md` folded into corpus voice in
+  `doc/project.md`: §4 keyboard rule gained its "shared surface" *why*;
+  §6 Transparency gained an exclusion paragraph (BASIC-like wrappers,
+  scripting layers, pseudo-register/pseudo-address illusions); §7 Two
+  audiences gained the "fits in the user's head" justification and the
+  no-unlearning-step feature filter; § *What Is CSE?* gained a pointer
+  to background.md for motivating context.  Principle-3 hygiene:
+  `**Dependants:**` annotation added under § Design Priorities;
+  background.md indexed in `doc/README.md` § *User-facing behaviour* as
+  a derived document.  No corpus contradictions found.  TDD delta
+  confirmed nil (priorities are design constraints, no behavioural
+  contract).  No copies of the priorities list exist elsewhere
+  (verified by grep over `doc/`); architecture.md intro stays focused
+  on kernel framing, no drift introduced.
 
 ### REPL
 

@@ -1,10 +1,38 @@
-# CSE - THE ULTIMATE C64 ASM ENV
+# CSE — THE ULTIMATE C64 ASM ENV
 
-CSE is the native, integrated assembler environment for the C64 that
-you did not know you were missing. Its functionality and workflows are
-heavily inspired by MasterSeka, radare2, and SMON. Sketch and iterate
-ideas fast, edit, assemble, run, debug in one place, all natively on
-the C64 itself, pure and simple.
+CSE is a native, integrated assembler environment for the Commodore 64 —
+editor, assembler, disassembler, hex monitor, expression calculator,
+and step debugger sharing one screen and one command grammar.  Its
+workflows are inspired by MasterSeka, radare2, and SMON.  Edit,
+assemble, run, and debug in one place, natively on the C64 itself.
+Pure and simple.
+
+## Who it's for
+
+CSE is built for two kinds of programmer, and it refuses to compromise
+on either.
+
+**The seasoned developer** who wants a sketchpad. An immediate-mode
+6502 REPL with no toolchain, no build step, no context switch back to
+the host OS. Try three versions of an inner loop, watch the cycle
+count change, poke at the hardware, get out. The loop from "I want to
+try something" to "I am watching it run" has no pipeline in the middle.
+
+**The learner** who wants a first computer that does one thing
+honestly. 64 KiB of RAM they can read all of, 56 documented CPU
+instructions, a memory map that prints on one page, a screen that is
+literally the command buffer. No browser tab, no notifications, no
+package manager. The scope is finite, the ceiling is visible, and the
+computer stops when the user does. Give them a 6502 book and the CSE
+cheat sheet and they're ready to start.
+
+The same design choices serve both — minimal footprint, maximum
+workspace, fluent interaction, one environment instead of many tools —
+because a beginner and an expert both benefit from a computer whose
+surface area fits in their head.
+
+For the longer story — why CSE exists, how it compares to its peers,
+and what keeps the promise honest — see [background.md](background.md).
 
 ## Contents
 
