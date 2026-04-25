@@ -1,6 +1,13 @@
 # CSE — TODO
 
-## Corpus status at 2026-04-20 handover
+## Corpus status snapshot — 2026-04-20 handover
+
+> *Historical reference point captured at the end of the L0–L5 TDD-
+> compliance milestone.  Not refreshed; later phases (21 BSS migration,
+> 22 debugger workflow, 23 DDD Streamlining) have moved the corpus on.
+> Newer phase summaries live in the auto-memory under
+> `project_phase*_complete.md`.*
+
 
 **Full TDD compliance across L0–L5.**  3042 tests passing, 18 vocal
 skips, 0 failures.  Every behavioural module's documented contract
@@ -836,6 +843,62 @@ Defined scope, needs work.
   contract).  No copies of the priorities list exist elsewhere
   (verified by grep over `doc/`); architecture.md intro stays focused
   on kernel framing, no drift introduced.
+
+- [ ] **L0 data modules unowned** (DDD Maintenance 2026-04-25, item 2).
+  10 generated/data source files in `src/` lack module docs:
+  `loader.s`, `mn6.s`, `mn7.s`, `mn{6,7,_asm,_modes,_config}_tables.s`,
+  `oplen_tbl.s`, `dasm_tables.s`.  All are listed in `architecture.md`
+  as L0 axiomatic-data, but corpus Principle 4 (explicit ownership)
+  requires each to be claimed by exactly one document.  Decide:
+  (a) extend `architecture.md` to declare ownership inline for the
+  L0 data set, or (b) write a single umbrella module doc
+  (`doc/modules/l0_data.md`) covering the generated tables, with
+  pointers to `dev/instruction_set.py` / `dev/mnemonic_tables.py` /
+  `dev/dasm_tables.py` as upstream generators.  Option (b) parallels
+  the existing `mn_classify.md` pattern.
+
+- [ ] **dev/ tooling unowned** (DDD Maintenance 2026-04-25, item 2).
+  ~17 files in `dev/` are not claimed by any corpus doc:
+  `dev/asm_core_test_stub.s`, `dev/{cse_io,dasm,repl,symtab}_test_stub.s`,
+  `dev/search/*.py` (8 files), `dev/od65_syms.py`, `dev/scs_*.py`,
+  `dev/size_report.py`, `dev/gen_asm_tests.py`.  `build_system.md`
+  owns the canonical generators (instruction_set, mnemonic_tables,
+  hashes, dasm_tables) but not the auxiliary tooling.  Either extend
+  `build_system.md` § Tooling with a table covering these, or split
+  into `doc/dev_tools.md` if the surface grows.  Test stubs are a
+  separate cluster — `testing.md § Framework` could absorb them.
+
+- [ ] **Tests unclaimed** (DDD Maintenance 2026-04-25, item 2).
+  ~15 test files are not declared as `test contract` for any module:
+  `tests/unit/test_{asm_err,gap_buffer,log}.py`;
+  `tests/integration/test_c64emu_*.py` (5),
+  `tests/integration/test_{repl,repl_disk,screen}.py`;
+  the entire `tests/retired/` tree.  Each module doc should list the
+  test file(s) that cover it under "Owned files" with relation
+  `test contract` (Principle 4).  Mechanical fix; no design debate
+  required.
+
+- [ ] **`main.s` lacks dedicated unit tests** (DDD Maintenance
+  2026-04-25, item 7).  BRK/NMI dispatch, vector setup, and the
+  cold-init sequence are critical and tested only transitively via
+  integration tests (`test_kernel_transition.py`, `test_step_rom.py`
+  exercise composed flows).  Either add `tests/integration/test_main.py`
+  with dedicated coverage of dispatcher classification and vector
+  installation, or document the transitive coverage explicitly in
+  `doc/modules/main.md` per Principle 9 Pattern A (out-of-tier).
+
+- [ ] **`disk.s` coverage gap undocumented** (DDD Maintenance
+  2026-04-25, item 7).  KERNAL-dependent I/O is legitimately
+  integration-hard.  `doc/modules/disk.s` (or wherever its contract
+  lives) should state Pattern C explicitly — "tested via manual VICE
+  workflow, no automated unit/integration coverage" — so the gap is
+  vocal rather than silent.
+
+- [ ] **`loader.s` triple gap** (DDD Maintenance 2026-04-25, items
+  2, 6, 7).  Undocumented, unowned, untested.  Closed when the L0
+  data umbrella doc (item above) lands AND `architecture.md` declares
+  it as a binary-stage artifact OR a dedicated `doc/modules/loader.md`
+  is written.
 
 ### REPL
 

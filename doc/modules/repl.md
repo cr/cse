@@ -52,28 +52,29 @@ Both wrap the core `log_*` primitives from `log.s`.  Other modules
 
 ### Memory
 
-**BSS (140 bytes):**
+**BSS (107 bytes):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
 | `cur_addr` | 2 | Current memory address (REPL prompt) |
-| `cur_device` | 1 | Floppy device number (default 8) |
 | `last_cmd` | 1 | Last executed command byte |
 | `block_size` | 2 | Block size for `+`/`-` commands |
-| `cur_project_name` | 17 | Project name stem (16 chars + NUL) |
+| `disk_name_buf` | 18 | Composed disk filename (FILENAME_MAX + 2) |
+| `_verbatim_type` | 1 | 0 / 's' / 'p' from strip_and_classify |
+| `_arg_count` | 1 | Numeric argument count from last parse (0–2) |
 | `line_buf` | 42 | Screen line capture buffer |
 | `dot_asm_buf` | 24 | Inline assembler instruction buffer |
-| `rp_addr` | 2 | Working address (command processing) |
-| `rp_save` | 1 | General scratch byte |
-| `rp_save2` | 1 | Secondary scratch byte |
-| `rp_cnt` | 2 | 16-bit loop counter |
-| `rp_next_lo` | 2 | cmd_step: next instruction lo |
-| `rp_next_hi` | 2 | cmd_step: next instruction hi |
+| `rp_next_hi` | 2 | cmd_step: next-instruction hi pair (lo lives in zp.s) |
 | `rp_opc` | 1 | cmd_step: saved opcode |
 | `rp_dis_bp` | 1 | cmd_step: disabled breakpoint slot |
 | `rp_hexbuf` | 3 | Hex byte parse buffer |
-| `fbuf` | 20 | Decimal/free-line output buffer |
+| `cold_preview_done` | 1 | cmd_step cold-preview marker |
 | `zp_stage_buf` | 8 | User-ZP staging buffer for `m` dump and `.` disasm (see [User-ZP view](#user-zp-view)) |
+
+The 16-bit scratch pointers `rp_addr`, `rp_save`, `rp_save2`, `rp_cnt`,
+`rp_next_lo` and the byte `cur_device`, plus the project-name string
+`cur_project_name`, were migrated to zp.s in Phase 21.1.  The decimal
+output buffer `fbuf` was retired when log.s absorbed the formatting.
 
 **Depends on:** asm_src (`a`), editor (`n`/`l`/`s`), disk (`l`/`s`/`$`),
 debugger (`b`/`c`/`t`/`o`), asm_line (`.`), dasm (`d`), expr (`?`),

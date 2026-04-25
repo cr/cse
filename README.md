@@ -89,7 +89,8 @@ if one was defined.
 Commands like `d` (disassemble) and `m` (memory dump) operate on
 a chunk of *block size* bytes.  Default is $10 (16).  Change it
 with `B EXPR`.  `+` and `-` also advance/retreat by the block size.
-`t` and `o` use it as "number of trace steps".
+`t` and `o` take an explicit step count: `t 5` steps five
+instructions, bare `t` steps one (block size does not apply).
 
 ### Screen editing
 
