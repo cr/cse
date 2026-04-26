@@ -7,6 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/asm_err.s`](../../src/asm_err.s) | implementation |
+| [`tests/unit/test_asm_err.py`](../../tests/unit/test_asm_err.py) | test contract |
 
 ## Interface
 

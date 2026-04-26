@@ -19,6 +19,8 @@ framing.
 | File | Role |
 |------|------|
 | [`src/repl.s`](../../src/repl.s) | implementation (assembly) |
+| [`tests/integration/test_repl.py`](../../tests/integration/test_repl.py) | test contract — Tier I (full PRG via `C64Emu`) |
+| [`tests/integration/test_repl_disk.py`](../../tests/integration/test_repl_disk.py) | test contract — Tier I disk-command paths (`l`, `s`, `$`) routed through `exec_line` |
 
 ## Interface
 

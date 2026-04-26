@@ -8,6 +8,24 @@
 |------|------|
 | [`src/main.s`](../../src/main.s) | implementation (6502 assembly) |
 
+**Test coverage** — Pattern A (out-of-tier) per
+[testing.md § Principle 9](../testing.md).  No dedicated test file
+for `main.s`.  The dispatcher classification logic
+(`cse_brk_handler` → debugger / breakpoint / step-BRK / brk_stub
+branches; `cse_nmi_handler` swallow vs. break-into-debugger) is
+exercised at Tier I via
+[`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py)
+(BRK/RTI/RTS classification, dbg_reason promotion) and
+[`tests/integration/test_step_rom.py`](../../tests/integration/test_step_rom.py)
+(step-into-KERNAL gates).  Vector installation (`setup_interrupts`)
+and cold-init are covered transitively by every C64Emu integration
+test, since each runs the production PRG through the full loader
+→ `_main` → `main_loop` boot path.  Unit-tier isolation is not
+productive: the synthesised state needed to drive the dispatcher
+in isolation (vector table, banking config, BRK frame, ZP flags)
+is essentially the integration-tier setup minus the work that
+makes it observable.
+
 ## Interface
 
 - `_main` — entry point (jumped to by `loader.s` after

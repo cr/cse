@@ -494,6 +494,15 @@ the *mirror*, not the ASM.  When the ASM diverges from the
 mirror, the test still passes because the mirror is what's
 running.
 
+**Owned files (retired tree):** the `tests/retired/` tree is
+claimed by this section.  Contents:
+[`tests/retired/test_editor.py`](../tests/retired/test_editor.py)
+(the original mirror-tests, preserved as a worked example) and
+[`tests/retired/conftest.py`](../tests/retired/conftest.py) (the
+harness scaffolding that produced them).  These files are not run
+by `pytest`; they exist as a historical reference for what the
+mirror-test anti-pattern looks like in practice.
+
 Examples previously in `tests/test_editor.py` (retired — preserved
 for historical reference in `tests/retired/test_editor.py`):
 

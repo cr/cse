@@ -14,6 +14,11 @@
 | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | implementation — disassembler table generator |
 | [`tests/conftest.py`](../tests/conftest.py) | implementation — test fixtures and auto-rebuild |
 | [`tests/c64emu.py`](../tests/c64emu.py) | implementation — C64 emulator class (C64Emu) |
+| [`tests/integration/test_c64emu.py`](../tests/integration/test_c64emu.py) | test contract — exercises the C64Emu harness itself (basic execution, register access, screen access) |
+| [`tests/integration/test_c64emu_banking.py`](../tests/integration/test_c64emu_banking.py) | test contract — `$01` banking + KERNAL/BASIC ROM mapping |
+| [`tests/integration/test_c64emu_cia.py`](../tests/integration/test_c64emu_cia.py) | test contract — CIA1/CIA2 timer + IRQ behaviour |
+| [`tests/integration/test_c64emu_interrupts.py`](../tests/integration/test_c64emu_interrupts.py) | test contract — IRQ / NMI vector dispatch + I-flag preservation |
+| [`tests/integration/test_c64emu_jiffy.py`](../tests/integration/test_c64emu_jiffy.py) | test contract — KERNAL jiffy clock + IRQ-driven cursor blink |
 | `rom/kernal_cbm.bin` | dependency — stock C64 KERNAL ROM (not committed; see `.gitignore`) |
 | `rom/basic_cbm.bin` | dependency — stock C64 BASIC ROM (not committed) |
 | `rom/chargen_cbm.bin` | dependency — stock C64 character ROM (not committed) |
@@ -24,6 +29,23 @@
 | [`dev/hashes.py`](../dev/hashes.py) | implementation — hash function definitions |
 | [`dev/size_report.py`](../dev/size_report.py) | implementation — binary size analysis |
 | [`dev/od65_syms.py`](../dev/od65_syms.py) | implementation — od65-based symbol extraction from .o files |
+| [`dev/scs_analysis.py`](../dev/scs_analysis.py) | implementation — screen-code sequence analysis tool |
+| [`dev/scs_pack.py`](../dev/scs_pack.py) | implementation — screen-code sequence packer |
+| [`dev/gen_asm_tests.py`](../dev/gen_asm_tests.py) | implementation — generator for assembler-test fixtures |
+| [`dev/strings.txt`](../dev/strings.txt) | implementation — input list for `dev/scs_pack.py` |
+| [`dev/test.cfg`](../dev/test.cfg) | implementation — generic linker config for legacy unit-test stubs |
+| [`dev/asm_core_test_stub.s`](../dev/asm_core_test_stub.s) | implementation — linker scaffolding for the asm_core test bundle (asm_line + addr_mode + opcode_lookup) |
+| [`dev/asm_src_test.cfg`](../dev/asm_src_test.cfg) | implementation — linker config for the asm_src test bundle |
+| [`dev/asm_src_test_stub.s`](../dev/asm_src_test_stub.s) | implementation — linker scaffolding for the asm_src test bundle |
+| [`dev/breakpoints_test_stub.s`](../dev/breakpoints_test_stub.s) | implementation — linker scaffolding for the breakpoints test bundle |
+| [`dev/cse_io_test_stub.s`](../dev/cse_io_test_stub.s) | implementation — linker scaffolding for the cse_io test bundle |
+| [`dev/dasm_test_stub.s`](../dev/dasm_test_stub.s) | implementation — linker scaffolding for the dasm test bundle |
+| [`dev/repl_test.cfg`](../dev/repl_test.cfg) | implementation — linker config for the repl test bundle |
+| [`dev/repl_test_stub.s`](../dev/repl_test_stub.s) | implementation — linker scaffolding for the repl test bundle |
+| [`dev/symtab_test_stub.s`](../dev/symtab_test_stub.s) | implementation — linker scaffolding for the symtab test bundle |
+| [`dev/search/`](../dev/search/) | implementation — historical hash-search exploration scripts (mn6/mn7 fingerprint search, perfect-hash candidate analysis); kept for provenance, not part of the active build |
+| [`dev/src.d64`](../dev/src.d64) | dependency — committed source disk image (sample programs) |
+| [`dev/test.d64`](../dev/test.d64) | dependency — disk image used by integration tests |
 
 ## Toolchain
 

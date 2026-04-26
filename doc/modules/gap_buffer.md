@@ -7,7 +7,8 @@
 | File | Role |
 |------|------|
 | [`src/gap_buffer.s`](../../src/gap_buffer.s) | implementation |
-| tier-I integration tests | [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py) (via the full PRG for now; a dedicated Tier-U bundle is a queued follow-up) |
+| [`tests/unit/test_gap_buffer.py`](../../tests/unit/test_gap_buffer.py) | test contract — Tier-U bundled coverage (35 tests) |
+| [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py) | test contract (transitive via the editor) |
 
 ## Purpose
 

@@ -66,31 +66,21 @@ TDD.
 ## DDD amendments pending
 
 Session retrospective findings (debugger trace workflow,
-2026-04-22 to -24).  Not release-blocking; captured for the
-next DDD Maintenance pass or opportunistic uptake.
+2026-04-22 to -24) and 2026-04-25 DDD Maintenance round.  Not
+release-blocking; captured for the next DDD Maintenance pass or
+opportunistic uptake.
 
-### General (DDD System — apply to any DDD-using project)
+Items are classified by **scope of applicability**, not by their
+source.  *Universal* amendments tighten the DDD/TDD method itself;
+*domain-class* amendments apply only to projects of a particular
+shape; *project-specific* items belong to CSE alone.
 
-- [ ] **State-introduction principle** (proposed testing.md
-  Principle 14): when a new value is added to an enumerated
-  state (e.g. dbg_reason gained DBG_RTS), enumerate the cross-
-  product matrix of all consumers × all values **in the same
-  commit**.  Untouched cells become explicit "no change"
-  entries, not implicit.  Evidence: the debugger's
-  `dbg_reason × command` matrix wasn't enumerated when DBG_RTS
-  was introduced (fd1c67b); the gap escaped as bug 2 ("t/o
-  after clean exit loops") weeks later, surfacing multiple
-  under-specified cells in j/g/r/a/l/s/R simultaneously.
+### Tier A — Universal DDD System amendments
 
-- [ ] **Display-content vs state-content test distinction**
-  (proposed testing.md Principle 15): `assert state == X` and
-  `assert screen contains Y` are different contracts.  Any
-  function that produces rendered output must have tests for
-  both: internal state changes AND visible content.  Evidence:
-  bug 1 ("; rts at $<j-target>") escaped because the existing
-  DBG_RTS classification test (`test_clean_rts_classified_as
-  _clean_exit`) asserted only internal state (`dbg_reason`,
-  `brk_pc`) without reading the rendered panel.
+*Apply to any project under DDD discipline, regardless of domain.
+These amendments belong in [doc/README.md](README.md) (DDD Method
+/ Escape Analysis) or [doc/testing.md](testing.md) at the
+process-level layers, not at the principle-list layer.*
 
 - [ ] **Escape Analysis "triage" gate between sweep and
   commit** (amend README.md § Escape Analysis step 5→6):
@@ -101,19 +91,6 @@ next DDD Maintenance pass or opportunistic uptake.
   trimmed to 1 (asm-emit gate) on triage.  80% of proposed
   work was skip-worthy.  Saves commit-worth of effort per
   escape.
-
-- [ ] **DDD-Lite for UX** (new README.md § or testing.md
-  principle): contract the *model*, not the *render*.  Pixel-
-  level mechanics (cursor arithmetic, row counts, overwrite
-  sequences) stay in code comments, NOT in module docs.  The
-  module doc specifies abstract behaviour and invariants; the
-  code owns the rendering.  Evidence: the ~240-line "Step
-  output semantics" appendix in debugger.md was pinning
-  implementation ("up 3 lines", "emit skip emit", "cursor
-  underflow clamp") that had to be ripped out when the UX
-  evolved.  Tests that scanned for exact tag positions caught
-  neither contract violations nor real layout bugs — they
-  pinned implementation.
 
 - [ ] **Cycle-detection heuristic** (amend README.md § DDD
   Method or § Escape Analysis): when the same proc gets
@@ -133,7 +110,62 @@ next DDD Maintenance pass or opportunistic uptake.
   to bisect, harder to revert individually, harder to credit
   in a changelog.
 
-### Project-specific (CSE)
+### Tier B — Domain-class amendments
+
+*Apply only to projects of a particular shape.  Not universal:
+a project outside the named class does not need the amendment.
+Each item names the class it depends on.*
+
+#### B1. State-machine projects
+
+*Projects with enumerated states consumed by multiple sites:
+compilers, debuggers, protocol implementations, workflow engines,
+game logic.  Pure libraries and stateless tools are out of class.*
+
+- [ ] **State-introduction principle** (proposed testing.md
+  Principle 14): when a new value is added to an enumerated
+  state (e.g. dbg_reason gained DBG_RTS), enumerate the cross-
+  product matrix of all consumers × all values **in the same
+  commit**.  Untouched cells become explicit "no change"
+  entries, not implicit.  Evidence: the debugger's
+  `dbg_reason × command` matrix wasn't enumerated when DBG_RTS
+  was introduced (fd1c67b); the gap escaped as bug 2 ("t/o
+  after clean exit loops") weeks later, surfacing multiple
+  under-specified cells in j/g/r/a/l/s/R simultaneously.
+
+#### B2. Projects with rendered output / UX
+
+*Projects whose contract surface includes pixels, screen layout,
+or stream-formatted output: TUI tools, GUIs, REPLs with on-screen
+panels.  Pure libraries with structured-data return values are
+out of class.*
+
+- [ ] **Display-content vs state-content test distinction**
+  (proposed testing.md Principle 15): `assert state == X` and
+  `assert screen contains Y` are different contracts.  Any
+  function that produces rendered output must have tests for
+  both: internal state changes AND visible content.  Evidence:
+  bug 1 ("; rts at $<j-target>") escaped because the existing
+  DBG_RTS classification test (`test_clean_rts_classified_as
+  _clean_exit`) asserted only internal state (`dbg_reason`,
+  `brk_pc`) without reading the rendered panel.
+
+- [ ] **DDD-Lite for UX** (new README.md § or testing.md
+  principle): contract the *model*, not the *render*.  Pixel-
+  level mechanics (cursor arithmetic, row counts, overwrite
+  sequences) stay in code comments, NOT in module docs.  The
+  module doc specifies abstract behaviour and invariants; the
+  code owns the rendering.  Evidence: the ~240-line "Step
+  output semantics" appendix in debugger.md was pinning
+  implementation ("up 3 lines", "emit skip emit", "cursor
+  underflow clamp") that had to be ripped out when the UX
+  evolved.  Tests that scanned for exact tag positions caught
+  neither contract violations nor real layout bugs — they
+  pinned implementation.
+
+### Tier C — Project-specific (CSE)
+
+#### C1. Process / methodology debt
 
 - [ ] **Test-harness layout fragility investigation**: the
   `_cold_init_to_prompt` path in test_kernel_transition.py
@@ -148,6 +180,12 @@ next DDD Maintenance pass or opportunistic uptake.
   root cause (may require CODE-segment layout change) OR
   document as a known harness limitation and retire the
   fragile tests.  Recurring pain = accumulating debt.
+
+#### C2. Corpus-coverage gaps (DDD Maintenance 2026-04-25)
+
+*Tracked further down under § Planned / Corpus.  The items
+there are mechanical fixes; this header just acknowledges they
+belong in the same taxonomy.*
 
 ## Bugs
 
@@ -844,61 +882,65 @@ Defined scope, needs work.
   (verified by grep over `doc/`); architecture.md intro stays focused
   on kernel framing, no drift introduced.
 
-- [ ] **L0 data modules unowned** (DDD Maintenance 2026-04-25, item 2).
-  10 generated/data source files in `src/` lack module docs:
-  `loader.s`, `mn6.s`, `mn7.s`, `mn{6,7,_asm,_modes,_config}_tables.s`,
-  `oplen_tbl.s`, `dasm_tables.s`.  All are listed in `architecture.md`
-  as L0 axiomatic-data, but corpus Principle 4 (explicit ownership)
-  requires each to be claimed by exactly one document.  Decide:
-  (a) extend `architecture.md` to declare ownership inline for the
-  L0 data set, or (b) write a single umbrella module doc
-  (`doc/modules/l0_data.md`) covering the generated tables, with
-  pointers to `dev/instruction_set.py` / `dev/mnemonic_tables.py` /
-  `dev/dasm_tables.py` as upstream generators.  Option (b) parallels
-  the existing `mn_classify.md` pattern.
+- [x] ~~**L0 data modules unowned** (DDD Maintenance 2026-04-25, item 2).~~
+  Closed 2026-04-25.  Each generated table is now claimed by the
+  module that consumes it: `mn7_tables.s`, `mn6_tables.s`,
+  `mn_config.s` → `mn_classify.md`; `mn_asm_tables.s`, `mn_modes.s`,
+  `oplen_tbl.s` → `opcode_lookup.md`; `dasm_tables.s`,
+  `dasm_mne_idx.s` → `dasm.md`; `loader.s` → new `loader.md`;
+  `mn_vars.s` was already in `mn_classify.md`.  `architecture.md`'s
+  L1 module table and Generated-files table now link every L0 file
+  to its owning doc.  `mn_config.s` flagged in its claim row as a
+  vestigial 256-byte table (predecessor of `mn7_tables.s`); follow-up
+  TODO under § Architecture to retire the file from the build.
 
-- [ ] **dev/ tooling unowned** (DDD Maintenance 2026-04-25, item 2).
-  ~17 files in `dev/` are not claimed by any corpus doc:
-  `dev/asm_core_test_stub.s`, `dev/{cse_io,dasm,repl,symtab}_test_stub.s`,
-  `dev/search/*.py` (8 files), `dev/od65_syms.py`, `dev/scs_*.py`,
-  `dev/size_report.py`, `dev/gen_asm_tests.py`.  `build_system.md`
-  owns the canonical generators (instruction_set, mnemonic_tables,
-  hashes, dasm_tables) but not the auxiliary tooling.  Either extend
-  `build_system.md` § Tooling with a table covering these, or split
-  into `doc/dev_tools.md` if the surface grows.  Test stubs are a
-  separate cluster — `testing.md § Framework` could absorb them.
+- [x] ~~**dev/ tooling unowned** (DDD Maintenance 2026-04-25, item 2).~~
+  Closed 2026-04-25.  `build_system.md` § Owned files extended to
+  claim every previously-unowned `dev/` file: `scs_analysis.py`,
+  `scs_pack.py`, `gen_asm_tests.py`, `strings.txt`, `test.cfg`, the
+  six test-bundle stubs (`asm_core_test_stub.s`, `asm_src_test_stub.s`,
+  `breakpoints_test_stub.s`, `cse_io_test_stub.s`, `dasm_test_stub.s`,
+  `repl_test_stub.s`, `symtab_test_stub.s`), the two test-bundle
+  configs (`asm_src_test.cfg`, `repl_test.cfg`), the `dev/search/`
+  exploration scripts (claimed wholesale as historical hash-search
+  provenance), and the two committed disk images (`src.d64`,
+  `test.d64`).
 
-- [ ] **Tests unclaimed** (DDD Maintenance 2026-04-25, item 2).
-  ~15 test files are not declared as `test contract` for any module:
-  `tests/unit/test_{asm_err,gap_buffer,log}.py`;
-  `tests/integration/test_c64emu_*.py` (5),
-  `tests/integration/test_{repl,repl_disk,screen}.py`;
-  the entire `tests/retired/` tree.  Each module doc should list the
-  test file(s) that cover it under "Owned files" with relation
-  `test contract` (Principle 4).  Mechanical fix; no design debate
-  required.
+- [x] ~~**Tests unclaimed** (DDD Maintenance 2026-04-25, item 2).~~
+  Closed 2026-04-25.  Test files added to module-doc Owned files
+  blocks: `test_asm_err.py` → `asm_err.md`; `test_gap_buffer.py` →
+  `gap_buffer.md` (existing transitive-via-editor row preserved);
+  `test_log.py` → `log.md`; `test_repl.py` and `test_repl_disk.py`
+  → `repl.md`; `test_screen.py` → `screen.md`.  The five C64Emu
+  harness tests (`test_c64emu*.py`) added to `build_system.md`
+  alongside `c64emu.py`.  `tests/retired/` claimed by
+  `testing.md § Mirror tests` as a worked-example archive.
 
-- [ ] **`main.s` lacks dedicated unit tests** (DDD Maintenance
-  2026-04-25, item 7).  BRK/NMI dispatch, vector setup, and the
-  cold-init sequence are critical and tested only transitively via
-  integration tests (`test_kernel_transition.py`, `test_step_rom.py`
-  exercise composed flows).  Either add `tests/integration/test_main.py`
-  with dedicated coverage of dispatcher classification and vector
-  installation, or document the transitive coverage explicitly in
-  `doc/modules/main.md` per Principle 9 Pattern A (out-of-tier).
+- [x] ~~**`main.s` lacks dedicated unit tests** (DDD Maintenance
+  2026-04-25, item 7).~~  Closed 2026-04-25.  `doc/modules/main.md`
+  now declares Pattern A coverage explicitly: dispatcher
+  classification (`cse_brk_handler`, `cse_nmi_handler`) covered at
+  Tier I via `test_kernel_transition.py` + `test_step_rom.py`;
+  vector installation and cold-init covered transitively by every
+  integration test that boots the production PRG.  Unit-tier
+  isolation rejected as not productive — the synthesised state
+  needed to drive the dispatcher is essentially the integration
+  setup.
 
-- [ ] **`disk.s` coverage gap undocumented** (DDD Maintenance
-  2026-04-25, item 7).  KERNAL-dependent I/O is legitimately
-  integration-hard.  `doc/modules/disk.s` (or wherever its contract
-  lives) should state Pattern C explicitly — "tested via manual VICE
-  workflow, no automated unit/integration coverage" — so the gap is
-  vocal rather than silent.
+- [x] ~~**`disk.s` coverage gap undocumented** (DDD Maintenance
+  2026-04-25, item 7).~~  Closed 2026-04-25.  `doc/modules/disk.md`
+  now declares Pattern C coverage explicitly: KERNAL IEC entry
+  points are not modelled by py65 + C64Emu (no virtual IEC bus, no
+  D64 backend), so coverage is manual VICE walks of `l` / `s` / `$`
+  paths.  Cross-references the queued
+  § C64Emu extension roadmap → Virtual IEC disk item.
 
-- [ ] **`loader.s` triple gap** (DDD Maintenance 2026-04-25, items
-  2, 6, 7).  Undocumented, unowned, untested.  Closed when the L0
-  data umbrella doc (item above) lands AND `architecture.md` declares
-  it as a binary-stage artifact OR a dedicated `doc/modules/loader.md`
-  is written.
+- [x] ~~**`loader.s` triple gap** (DDD Maintenance 2026-04-25, items
+  2, 6, 7).~~  Closed 2026-04-25 by the new `doc/modules/loader.md`
+  (interface + design + caveats + Pattern A coverage statement) and
+  the architecture.md ownership-link update.  The legacy duplicate
+  entry under § Architecture (line ~1285, "Missing module doc:
+  `src/loader.s`") is now obsolete and removed.
 
 ### REPL
 
@@ -1204,6 +1246,20 @@ from our exit context.
 
 ### Architecture
 
+- [ ] **Retire `src/mn_config.s`** (DDD Maintenance 2026-04-25
+  follow-up).  The file is a 256-byte vestigial table (predecessor
+  of `mn7_tables.s`) that is still emitted by
+  `dev/mnemonic_tables.py` and linked into every build, but its
+  labels (`mn_base_op` / `mn_profile`) are not exported and not
+  read.  `mn_classify.s` aliases the live `mn_base_op` /
+  `mn_profile` exports to the `mn7_*` (or `mn6_*`) tables instead.
+  Verified via `.lbl`: the symbols sit in KDATA at $F140/$F180
+  occupying 256 B of bank-mapped RAM with no reader.  Drop the
+  file from `Makefile`'s `ASM_SRCS`, drop the `write_mn_config`
+  call in `dev/mnemonic_tables.py`, drop the file from
+  `mn_classify.md`'s Owned files block.  Saves 256 B KDATA per
+  build (3 build variants).
+
 - [ ] Loader: reverse-direction copy.  `loader.s` currently does a
   forward memcpy (low → high) for CODE+RODATA and KDATA.  Forward
   copy is unsafe when `dst > src` and the ranges overlap, which is
@@ -1282,7 +1338,9 @@ from our exit context.
   `**Depends on:**` in 11 module docs; Phase 15 audit remediation)
 - [x] ~~Missing module doc: `src/mem.s`~~ (fixed: `doc/modules/mem.md`
   created; Phase 15 audit remediation)
-- [ ] Missing module doc: `src/loader.s` has no `doc/modules/*.md`.
+- [x] ~~Missing module doc: `src/loader.s` has no `doc/modules/*.md`.~~
+  (fixed 2026-04-25: `doc/modules/loader.md` created during Phase 23
+  DDD Maintenance round.)
 - [x] ~~debugger.md: all symbol names use `_` prefix~~ (fixed:
   stripped `_` prefix from all symbol names throughout the document
   to match actual exports; Phase 17 DDD Maintenance)

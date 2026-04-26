@@ -7,6 +7,9 @@
 | File | Role |
 |------|------|
 | [`src/opcode_lookup.s`](../../src/opcode_lookup.s) | implementation |
+| [`src/mn_asm_tables.s`](../../src/mn_asm_tables.s) | generated — `mode_offset` (64 B) + `direct_opcodes` (16 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Also consumed by `dasm.s`. |
+| [`src/mn_modes.s`](../../src/mn_modes.s) | generated — operand-profile addressing-mode bitfield (30 profiles × 2 B = 60 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Also consumed by `dasm.s`. |
+| [`src/oplen_tbl.s`](../../src/oplen_tbl.s) | generated — packed opcode→instruction-length table (64 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Consumers: `asm_line.s`, `debugger.s`, `repl.s` (cmd_step). |
 | [`tests/unit/test_opcode_lookup.py`](../../tests/unit/test_opcode_lookup.py) | test contract (asm_validate_mode predicate; asm_opcode_lookup covered exhaustively by test_asm_line.py::test_assemble) |
 
 ## Interface

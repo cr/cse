@@ -8,6 +8,21 @@
 |------|------|
 | [`src/disk.s`](../../src/disk.s) | implementation |
 
+**Test coverage** — Pattern C (cannot be enforced at any unit tier)
+per [testing.md § Principle 9](../testing.md).  No automated test
+file for `disk.s`.  Every export (`list_directory`, `floppy_status`,
+`floppy_read_status`, the SETLFS / SETNAM / OPEN / LOAD / SAVE
+wrappers) drives KERNAL IEC entry points that are not modelled by
+the py65 + C64Emu harness — there is no virtual IEC bus, no D64
+backend, and no IEC timing simulation.  Coverage is therefore
+manual: VICE with a mounted D64 image, exercising `l` / `s` /
+`$` REPL commands across PRG / SEQ / verbatim-name forms,
+device-not-present, file-not-found, and overwrite paths.  Plans
+to graduate this to Tier I are tracked under
+[TODO.md § C64Emu extension roadmap — Virtual IEC disk](../TODO.md).
+Until that lands, every disk.s edit must be VICE-walked before
+commit.
+
 ## Interface
 
 ### floppy_read_status

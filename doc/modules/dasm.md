@@ -7,7 +7,8 @@
 | File | Role |
 |------|------|
 | [`src/dasm.s`](../../src/dasm.s) | implementation |
-| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | implementation — mnemonic index table |
+| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — packed mnemonic strings (115 entries, 230 B), produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
+| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated — mnemonic index constants (`MNE_*`), produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
 | [`tests/unit/test_dasm.py`](../../tests/unit/test_dasm.py) | test contract |
 
 ## Interface

@@ -7,6 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/screen.s`](../../src/screen.s) | implementation |
+| [`tests/integration/test_screen.py`](../../tests/integration/test_screen.py) | test contract — Tier I (full PRG via `C64Emu`) |
 
 ## Interface
 

@@ -100,17 +100,19 @@ SP, and the user must leave a documented headroom for kernel re-entry
 | cse_io.s | 1 | Raw screen I/O, keyboard, PETSCII→screencode | [cse_io.md](modules/cse_io.md) |
 | mn_classify.s | 1 | Build-time dispatcher: selects mn6 or mn7 | [mn_classify.md](modules/mn_classify.md) |
 | mn7.s / mn6.s | 1 | Perfect hash mnemonic classifier (mn7: 114, mn6: 56) | [mn_classify.md](modules/mn_classify.md) |
-| mn_vars.s | 1 | Mnemonic classifier inputs (mn_c1/c2/c3) | — |
+| mn_vars.s | 1 | Mnemonic classifier inputs (mn_c1/c2/c3) | [mn_classify.md](modules/mn_classify.md) |
 | zp.s | 0 | Central zero-page layout (all user ZP + shared cross-module flags) | [zp.md](modules/zp.md) |
 | strings.s | 0 | Centralised user-facing string constants (RODATA) | [strings.md](modules/strings.md) |
-| loader.s | 6 | Discardable cold-boot stub (copies CODE+RODATA+KDATA into runtime location) | — |
+| loader.s | 6 | Discardable cold-boot stub (copies CODE+RODATA+KDATA into runtime location) | [loader.md](modules/loader.md) |
 
 Generated files (do not edit — regenerate with `make tables`):
 
-| File | Generator |
-|------|-----------|
-| mn7_tables.s, mn_asm_tables.s, mn_modes.s, mn_config.s | mnemonic_tables.py |
-| dasm_tables.s | dasm_tables.py |
+| File | Generator | Owning doc |
+|------|-----------|------------|
+| mn7_tables.s, mn6_tables.s, mn_config.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [mn_classify.md](modules/mn_classify.md) |
+| mn_asm_tables.s, mn_modes.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [opcode_lookup.md](modules/opcode_lookup.md) |
+| oplen_tbl.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [opcode_lookup.md](modules/opcode_lookup.md) |
+| dasm_tables.s, dasm_mne_idx.s | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | [dasm.md](modules/dasm.md) |
 
 ## Dependency Graph
 
