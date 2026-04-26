@@ -480,6 +480,87 @@ tests are written, when they are written, and what they test.
     would have made the contract audit-able at a glance; this
     principle would have forced it to exist.
 
+14. **Enumerated-state introductions enumerate the cross-product.**
+    *Applies to projects with enumerated states consumed by multiple
+    sites — state machines, dispatch tags, mode flags, error codes.
+    Stateless libraries may skip.*
+
+    When a new value is added to an enumerated state, the commit that
+    introduces the value must also enumerate the cross-product matrix
+    of `consumers × values` and decide every cell explicitly.  Cells
+    where the new value behaves identically to an existing one become
+    explicit "no change" entries — never implicit fall-through.
+
+    **Why.**  An enumerated state is a contract whose surface area is
+    `|values| × |consumers|`.  Adding a value grows the surface in one
+    direction only at the doc level, but every consumer silently grows
+    in the same direction at the code level — its existing branches
+    now have to handle one more case.  Branches that fall through
+    by default produce implicit decisions the doc never made and
+    tests never assert.
+
+    **How this shows up in docs.**  The owning module doc carries a
+    `state × consumer` matrix.  Each cell is one of: a named
+    behaviour, "as for value V" (explicit alias), or a vocal "no
+    change" with reasoning.  The matrix is updated in the same
+    commit as the enum value.
+
+    **How this shows up in tests.**  `@pytest.mark.parametrize` over
+    the new value paired with each consumer.  Cells claiming "as for
+    V" assert behavioural equivalence; "no change" cells assert the
+    pre-existing behaviour still holds.
+
+    Cautionary example (Escape Analysis 2026-04-22): `dbg_reason`
+    gained the `DBG_RTS` value (commit fd1c67b) without enumerating
+    its interaction with each command consumer (`t`, `o`, `j`, `g`,
+    `r`, `a`, `l`, `s`, `R`).  Most commands fell through identically
+    to `DBG_BRK`; the one cell that should have differed (`t` /`o`
+    after a clean exit) silently looped.  The bug surfaced weeks
+    later as user-reported "stepping after a finished program just
+    repeats the last instruction."  A 9-row × 5-value matrix in
+    debugger.md and a parametrised test would have made the gap a
+    failing test in the introduction commit itself.
+
+15. **Display-content and state-content are different contracts.**
+    *Applies to projects whose contract surface includes rendered
+    output — TUIs, GUIs, REPLs with on-screen panels, stream
+    formatters.  Pure libraries returning structured data may skip.*
+
+    `assert state == X` and `assert screen contains Y` exercise
+    different code paths.  Any function that produces rendered output
+    must have tests for both: the internal state changes AND the
+    visible content the user sees.  A test that asserts only one is
+    fooled by code that mutates state without rendering, or renders
+    without mutating state, or renders into the wrong region.
+
+    **How this shows up in tests.**  For each rendering function,
+    pair every state-change assertion with a screen-content
+    assertion.  Use the harness's screen-RAM accessor (`C64Emu.scr`
+    in CSE) to read the rendered region directly.
+
+    **When the render is implementation detail.**  Per Principle 2
+    and the *DDD-Lite for UX* corpus principle ([README.md
+    § Principles](README.md)), pixel-level mechanics (cursor
+    arithmetic, exact column positions, overwrite sequences) are
+    NOT the contract — they belong in code comments.  Display-
+    content tests assert the *abstract* visible result ("the panel
+    shows the new PC value", "the line begins with `;rts`"), not
+    the pixel-level recipe.  When the contract genuinely is
+    pixel-level (memory dump column alignment, register-panel
+    layout), the doc must promote the pixel layout to an explicit
+    interface table — at which point asserting it is asserting a
+    contract, not implementation.
+
+    Cautionary example (Escape Analysis 2026-04-22): the DBG_RTS
+    classification test
+    (`test_clean_rts_classified_as_clean_exit`) asserted internal
+    state (`dbg_reason == DBG_RTS`, `brk_pc` correct) but never
+    read the rendered debugger panel.  Bug 1 ("`; rts at $<j-target>`"
+    instead of the user's `main_addr`) ran the wrong code path
+    through the renderer while leaving state correct — and shipped
+    silently because the test was state-only.  A paired
+    screen-content assertion would have caught it.
+
 ## Anti-patterns
 
 These exist in the current test tree.  Don't add more of them;
@@ -567,6 +648,69 @@ update — feeds directly into Step 4.  Within Step 4, tests are
 written first (matching the documentation), then code is written
 to pass them.  Tests are the specification in executable form;
 they must be green before Step 5 begins.
+
+## Harness limitations
+
+Documented constraints of the `C64Emu` + `py65` harness that put
+specific code paths out of reach.  Each entry names the mechanism,
+the affected tests, and the recommended skip pattern.
+
+### BASIC ROM shadow overlap (cold-init resume fragility)
+
+**Mechanism.**  CSE's runtime image (CODE + RODATA, ~20 KiB) lives
+in high RAM and inherently overlaps the BASIC ROM shadow region at
+`$A000–$BFFF`.  In production this is fine: CSE banks BASIC out
+(`$01 = $36`, LORAM=0) so the region is RAM containing CSE code.
+The C64Emu banking model is correct (`tests/c64emu.py` gates BASIC
+ROM visibility on LORAM/HIRAM faithfully).
+
+**The fragility.**  After `_cold_init_to_prompt()` runs the long
+boot path through `run_until()`, the emulator is left in a state
+where some subsequent `run_until(..., start_at=return_to_userland)`
+calls trip a step-engine edge case — the CPU appears to jump to
+`$0001` on the first instruction of the resume.  When the CODE
+segment shifts size (because of unrelated source changes), the
+exact addresses that fail move with it (typically `$B5xx` /
+`$7Dxx`), causing ~17 tests in
+`tests/integration/test_kernel_transition.py` to fluctuate
+between pass and fail across commits.
+
+**Why this is harness-only, not production.**  Real silicon and
+VICE both run the same CODE-in-shadow layout without issue; the
+production banking is correct.  The fragility is a composition
+artifact of the harness's step engine resuming from a long prior
+`run_until()`, not a bug in CSE.  See `compute_layout.py` (the
+runtime-start computation already takes the layout as a hard
+constraint; it cannot move CODE out of the shadow without
+shrinking workspace below usable).
+
+**Workaround in current code.**  `_minimal_init` +
+`_fake_brk_at` (in `tests/integration/test_kernel_transition.py`)
+bypasses the full cold-init path, staying out of the fragile
+state.  Two tests already use it
+(`test_clean_rts_classified_as_clean_exit`,
+`test_step_landing_on_rts_shows_brk`); the workaround is viable
+for any test whose coverage is a single dispatcher decision and
+not the full boot sequence.
+
+**Recommended skip pattern** (Pattern A — out-of-tier):
+
+```python
+@pytest.mark.skip(reason=(
+    "Pattern A: integration-tier cold-init harness limitation "
+    "(BASIC ROM shadow overlap; see testing.md § Harness "
+    "Limitations).  Coverage of the underlying handler logic "
+    "lives at unit tier in test_<module>.py."
+))
+```
+
+A test should be retained (rewritten on `_minimal_init`) only when
+its coverage genuinely requires the full cold-init sequence.  Most
+tests in the affected set assert dispatcher decisions whose unit
+coverage is already comprehensive.
+
+**Status.**  17 tests currently fragile; per-test triage is queued
+under [TODO.md § DDD amendments pending — Tier C1](TODO.md).
 
 ## Per-module tier assignment
 

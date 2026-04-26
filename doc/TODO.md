@@ -66,14 +66,22 @@ TDD.
 ## DDD amendments pending
 
 Session retrospective findings (debugger trace workflow,
-2026-04-22 to -24) and 2026-04-25 DDD Maintenance round.  Not
-release-blocking; captured for the next DDD Maintenance pass or
-opportunistic uptake.
+2026-04-22 to -24) and 2026-04-25 DDD Maintenance round.
 
 Items are classified by **scope of applicability**, not by their
 source.  *Universal* amendments tighten the DDD/TDD method itself;
 *domain-class* amendments apply only to projects of a particular
 shape; *project-specific* items belong to CSE alone.
+
+**Status (2026-04-25):** all seven items below were addressed in
+the Phase 23 DDD Maintenance close-out.  Tier A landed three
+amendments to README.md (DDD Method + Escape Analysis); Tier B
+landed two principles in testing.md (14 + 15) and one in
+README.md (Principle 7); Tier C1 closed the harness-fragility
+investigation with a documented limitation in testing.md.  Two
+follow-ups (per-test triage of the 17 fragile tests; mn_config.s
+retirement) sit under § Architecture below as separate work items
+requiring owner judgement.
 
 ### Tier A — Universal DDD System amendments
 
@@ -82,33 +90,26 @@ These amendments belong in [doc/README.md](README.md) (DDD Method
 / Escape Analysis) or [doc/testing.md](testing.md) at the
 process-level layers, not at the principle-list layer.*
 
-- [ ] **Escape Analysis "triage" gate between sweep and
-  commit** (amend README.md § Escape Analysis step 5→6):
-  when a class-wide sweep produces a candidate list, present
-  it to the owner for scope triage BEFORE proposing
-  amendments.  Evidence: bug 3's sibling sweep proposed 4
-  additional commands + a Principle 14 candidate; owner
-  trimmed to 1 (asm-emit gate) on triage.  80% of proposed
-  work was skip-worthy.  Saves commit-worth of effort per
-  escape.
+- [x] ~~**Escape Analysis "triage" gate between sweep and commit**~~
+  (closed 2026-04-25).  README.md § Escape Analysis: step 5
+  rewritten to produce a *candidate list* (not yet decisions); new
+  step 6 *Triage the sweep* sits between sweep and commit, splitting
+  candidates into mechanical-inline / queued-TODO / skip-worthy
+  buckets.  Step 6 (commit) renumbered to step 7.
 
-- [ ] **Cycle-detection heuristic** (amend README.md § DDD
-  Method or § Escape Analysis): when the same proc gets
-  modified ≥3 times in one session for the same concern,
-  that's a signal the spec is unclear — PAUSE and clarify
-  with the owner before continuing to iterate.  Evidence:
-  tag classifier cycled through 4 implementations this
-  session (b9c3914 → fd1c67b → 391a8c8 → f573f93) before
-  landing, burning ~4 commits.  A mid-cycle clarifying
-  question would have converged faster.
+- [x] ~~**Cycle-detection heuristic**~~ (closed 2026-04-25).
+  README.md § DDD Method step 4 (Implementation) gained the
+  *Cycle-detection rule*: ≥3 modifications of the same proc/section
+  in one session for the same concern signals an unclear spec —
+  pause and clarify before iterating.
 
-- [ ] **Commit granularity rule**: "one fix per commit unless
-  the fixes are trivially co-dependent."  Amend README.md §
-  DDD Method step 6 ("Commit all").  Evidence: commit d591a13
-  bundled 3 distinct debugger fixes (gate-by-reason, no-disas-
-  on-rts, clear-last_cmd-on-rts) under one message.  Harder
-  to bisect, harder to revert individually, harder to credit
-  in a changelog.
+- [x] ~~**Commit granularity rule**~~ (closed 2026-04-25).
+  README.md § DDD Method step 6 (Commit) gained the *Granularity
+  rule*: one fix per commit unless the fixes are trivially
+  co-dependent.  Escape Analysis step 7 explicitly suspends the
+  rule (the value of an EA closure is in seeing the bug fix, the
+  missing test, and the contract/principle amendment land as one
+  auditable unit).
 
 ### Tier B — Domain-class amendments
 
@@ -122,16 +123,13 @@ Each item names the class it depends on.*
 compilers, debuggers, protocol implementations, workflow engines,
 game logic.  Pure libraries and stateless tools are out of class.*
 
-- [ ] **State-introduction principle** (proposed testing.md
-  Principle 14): when a new value is added to an enumerated
-  state (e.g. dbg_reason gained DBG_RTS), enumerate the cross-
-  product matrix of all consumers × all values **in the same
-  commit**.  Untouched cells become explicit "no change"
-  entries, not implicit.  Evidence: the debugger's
-  `dbg_reason × command` matrix wasn't enumerated when DBG_RTS
-  was introduced (fd1c67b); the gap escaped as bug 2 ("t/o
-  after clean exit loops") weeks later, surfacing multiple
-  under-specified cells in j/g/r/a/l/s/R simultaneously.
+- [x] ~~**State-introduction principle** (proposed testing.md
+  Principle 14)~~ (closed 2026-04-25).  Landed as testing.md
+  Principle 14 (*Enumerated-state introductions enumerate the
+  cross-product*) with the dbg_reason × command escape as
+  cautionary example.  Scope-limited to projects with enumerated
+  states consumed by multiple sites — explicitly NOT universal
+  per the Tier B1 classification.
 
 #### B2. Projects with rendered output / UX
 
@@ -140,46 +138,43 @@ or stream-formatted output: TUI tools, GUIs, REPLs with on-screen
 panels.  Pure libraries with structured-data return values are
 out of class.*
 
-- [ ] **Display-content vs state-content test distinction**
-  (proposed testing.md Principle 15): `assert state == X` and
-  `assert screen contains Y` are different contracts.  Any
-  function that produces rendered output must have tests for
-  both: internal state changes AND visible content.  Evidence:
-  bug 1 ("; rts at $<j-target>") escaped because the existing
-  DBG_RTS classification test (`test_clean_rts_classified_as
-  _clean_exit`) asserted only internal state (`dbg_reason`,
-  `brk_pc`) without reading the rendered panel.
+- [x] ~~**Display-content vs state-content test distinction**
+  (proposed testing.md Principle 15)~~ (closed 2026-04-25).
+  Landed as testing.md Principle 15 (*Display-content and
+  state-content are different contracts*) with the DBG_RTS
+  panel-render escape as cautionary example.  Cross-references
+  README.md Principle 7 (*Contract the model, not the render*)
+  for the doc-side complement.
 
-- [ ] **DDD-Lite for UX** (new README.md § or testing.md
-  principle): contract the *model*, not the *render*.  Pixel-
-  level mechanics (cursor arithmetic, row counts, overwrite
-  sequences) stay in code comments, NOT in module docs.  The
-  module doc specifies abstract behaviour and invariants; the
-  code owns the rendering.  Evidence: the ~240-line "Step
-  output semantics" appendix in debugger.md was pinning
-  implementation ("up 3 lines", "emit skip emit", "cursor
-  underflow clamp") that had to be ripped out when the UX
-  evolved.  Tests that scanned for exact tag positions caught
-  neither contract violations nor real layout bugs — they
-  pinned implementation.
+- [x] ~~**DDD-Lite for UX**~~ (closed 2026-04-25).  Landed as
+  README.md Principle 7 (*Contract the model, not the render*)
+  with the debugger.md "Step output semantics" appendix as
+  cautionary example.  Names testing.md Principle 15 as the
+  test-side complement.  Together the two principles draw the
+  line: docs specify abstract behaviour, tests assert abstract
+  visible results, code owns the render.
 
 ### Tier C — Project-specific (CSE)
 
 #### C1. Process / methodology debt
 
-- [ ] **Test-harness layout fragility investigation**: the
-  `_cold_init_to_prompt` path in test_kernel_transition.py
-  fails with TimeoutError at various $B5xx / $7Dxx addresses
-  depending on where the preceding code lands.  ~17 tests
-  fluctuate between pass/fail as code shifts.  The workaround
-  (`_minimal_init` + direct-handler-invocation via
-  `_fake_brk_at`) is viable for some tests but not all.  Root
-  cause suspected: `$01` banking + BASIC ROM shadow at
-  $A000-$BFFF interacting with CSE's CODE segment, but never
-  fully diagnosed across multiple sessions.  Either fix the
-  root cause (may require CODE-segment layout change) OR
-  document as a known harness limitation and retire the
-  fragile tests.  Recurring pain = accumulating debt.
+- [x] ~~**Test-harness layout fragility investigation**~~ (closed
+  2026-04-25).  Mechanism confirmed: CSE's runtime image (CODE +
+  RODATA) inherently overlaps the BASIC ROM shadow at
+  `$A000–$BFFF`; production banking is correct, but the harness's
+  `run_until` step engine, after the long `_cold_init_to_prompt`
+  boot path, enters an unreliable resume state for subsequent
+  `run_until(start_at=return_to_userland)` calls.  When CODE
+  shifts size, the failure addresses move with it (~17 tests
+  fluctuate).  Documented as
+  [testing.md § Harness limitations](testing.md) — *BASIC ROM
+  shadow overlap*, with the recommended Pattern A skip template
+  and the existing `_minimal_init` workaround referenced.  The
+  per-test triage (decide for each of the ~17 fragile tests:
+  rewrite on `_minimal_init`, retire with Pattern A skip, or
+  retain) is queued separately under § Architecture below
+  because it requires per-test owner judgement and is not
+  release-blocking.
 
 #### C2. Corpus-coverage gaps (DDD Maintenance 2026-04-25)
 
@@ -1245,6 +1240,27 @@ from our exit context.
   for RODATA (256 B).  Changes the architecture fundamentally.
 
 ### Architecture
+
+- [ ] **Triage the 17 cold-init-fragile tests in
+  test_kernel_transition.py** (DDD Maintenance 2026-04-25
+  follow-up).  Mechanism documented under
+  [testing.md § Harness limitations — BASIC ROM shadow overlap](testing.md).
+  For each of the ~17 tests that compose `_cold_init_to_prompt()`
+  with a subsequent `run_until(..., start_at=return_to_userland)`
+  or `jsr()` from the resulting state, decide:
+  (a) **rewrite on `_minimal_init` + `_fake_brk_at`** — for tests
+  whose coverage is a single dispatcher decision and can run
+  without the full boot sequence;
+  (b) **retire with Pattern A skip** — for tests whose underlying
+  handler logic is already covered at unit tier (likely most of
+  the 17, per the investigation report);
+  (c) **retain** — only for tests whose coverage genuinely
+  requires the full cold-init-to-userland sequence.
+  Inputs to the decision: the unit-tier coverage map for each
+  affected handler; the test's docstring/intent; the cost of
+  the rewrite if (a).  Owner judgement required per test —
+  mass-retiring without per-test review risks dropping the
+  one cell whose coverage is unique.
 
 - [ ] **Retire `src/mn_config.s`** (DDD Maintenance 2026-04-25
   follow-up).  The file is a 256-byte vestigial table (predecessor

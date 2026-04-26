@@ -78,6 +78,14 @@ the unplanned changes are presented for discussion and approval
 before being put through the DDD Method recursively.  Recursion
 terminates at the discretion of the approver.
 
+*Cycle-detection rule.*  When the same procedure (or section of
+documentation) is modified three or more times in one session for
+the same concern, the spec is unclear — pause and clarify with the
+approver before iterating again.  Each repetition is evidence the
+contract has not been pinned, not a refinement of the
+implementation.  Continuing burns commits and obscures the
+inflection point at which the contract diverged from the design.
+
 **Step 5 — Differential DDD Analysis.**  After implementation, a
 second DDD Analysis identifies all documentation discrepancies
 created by the development work.  The required documentation
@@ -85,6 +93,14 @@ updates are then implemented.
 
 **Step 6 — Commit.**  All changes — documentation, tests, and
 code — are committed to version control.
+
+*Granularity rule.*  One fix per commit unless the fixes are
+trivially co-dependent (one cannot land without the other in the
+same diff).  Independent fixes that happen to land in the same
+session belong in separate commits: each easier to bisect,
+easier to revert individually, easier to credit in a changelog.
+Bundling unrelated fixes erases the "which change broke this"
+trail without saving any work.
 
 **Step 7 — Final DDD Report.**  A summary of all changes made to
 the repository (documentation, tests, code), highlighting any
@@ -344,20 +360,43 @@ harness bugs, and doc-code fidelity gaps.
    write to that state in the call chain; verify each write
    produces a value consistent with the contract's assumption.
 
-   Both sweep axes produce the same two outcomes:
+   Both sweep axes produce a **candidate list** — sites that share
+   the bug's shape, callers whose state provision could defeat the
+   contract, or principle proposals raised by the analysis.  The
+   list is the input to step 6, not yet a commitment.
+
+6. **Triage the sweep.**  Present the candidate list to the owner
+   for scope triage *before* proposing amendments.  For each
+   candidate, the triage answers: *in scope for this escape*,
+   *queued as a separate `TODO.md` entry*, or *skip-worthy
+   entirely*.  Triage produces three buckets:
+
    - **Mechanical sibling fixes** land in the same commit as the
      original escape.
-   - **Non-mechanical siblings** (different shapes, different
-     owners, or enough scope that they need their own DDD pass)
-     become explicit `doc/TODO.md` entries naming the class and
-     cross-referencing the principle.  Flagged, not forgotten.
+   - **Non-mechanical siblings** become explicit `doc/TODO.md`
+     entries naming the class and cross-referencing the principle.
+     Flagged, not forgotten.
+   - **Skip-worthy candidates** are dropped — surface-resemblant
+     but not the same class.  The triage discussion is the record;
+     no entry is filed.
 
-6. **Commit all amendments together.**  A single commit contains:
+   *Why this gate exists.*  Without it, every escape inflates into
+   a multi-site refactor proposal whose cost dwarfs the original
+   fix.  Empirically, ~80% of swept candidates trim to skip-worthy
+   on triage; spending implementation effort before the gate is
+   waste, and — worse — the sweep itself becomes a disincentive to
+   do escape analyses thoroughly.
+
+7. **Commit all amendments together.**  A single commit contains:
    the bug fix, the new test that would have caught it, the
    contract amendment, any testing.md principle amendment, the
    sweep findings (inline fixes or queued TODOs), and a commit
    message naming Escape Analysis explicitly so the log preserves
-   the chain of reasoning.
+   the chain of reasoning.  The DDD Method's commit-granularity
+   rule (one fix per commit) is suspended for Escape Analysis on
+   purpose — the value of the closure is in seeing the bug fix,
+   the missing test, and the contract/principle amendment land
+   together as one auditable unit.
 
 **Output:** a tighter Corpus.  The same class of bug cannot
 escape twice — at the corpus level, not just at the reported
@@ -518,6 +557,48 @@ before it.  A reader going top-to-bottom never hits an undefined term.
 The corpus must be audited periodically, independent of feature work,
 to catch drift and gaps that individual changes miss.
 See [DDD Maintenance](#ddd-maintenance) for the full audit scope and trigger.
+
+### 7. Contract the model, not the render
+
+*Applies to documents covering modules with rendered output —
+TUIs, REPLs, panels, formatted streams.*
+
+Module docs specify *abstract behaviour and invariants*; the code
+owns the *render*.  A doc states what the user sees as a property
+("the panel shows the new PC value"; "an error line begins with
+`?`"); the doc does NOT specify pixel-level mechanics (cursor row
+offsets, exact column positions, overwrite sequences, the order
+in which characters arrive on screen).
+
+The line between the two is "could the implementation change
+without invalidating the contract?"  If yes, the detail is render
+and belongs in code comments; if no, the detail is contract and
+belongs in the doc — and a test must pin it.
+
+**Why.**  Pixel-level specifications pin implementation choices
+that the contract should be free to revise.  When the UX evolves
+— a panel layout changes, a status line moves, a render strategy
+gets rewritten — every pixel-level clause has to be edited in
+lockstep.  The clauses that *should* hold steady (what the user
+must see) drown in the clauses that change (where exactly the
+cursor lands).  Tests written against pixel-level specs catch
+neither real layout bugs (the spec drifted with the bug) nor
+contract violations (the spec was never the contract).
+
+This principle is the doc-side complement of
+[testing.md § Principle 15](testing.md) (display-content vs.
+state-content): tests assert abstract visible results; docs
+specify the abstract contract; the render is the
+implementation's prerogative.
+
+Cautionary example (Escape Analysis 2026-04-22): debugger.md once
+carried a ~240-line "Step output semantics" appendix pinning
+"emit, skip, emit", "up 3 lines", "cursor underflow clamp", and
+the exact column at which each tag appeared.  Tests scanned for
+the tags at those columns.  When the UX evolved (Phase 22), the
+appendix had to be ripped out and the tests rewritten — and
+during the years it lived, the tests caught zero contract
+violations and zero real layout bugs.  They pinned implementation.
 
 ---
 
