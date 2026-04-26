@@ -384,8 +384,8 @@ tests are written, when they are written, and what they test.
     is one that declares only symbol exports — layout slots, RODATA
     literals and tables, BSS reservations, numeric constants — and
     contains no CODE segment.  In CSE these are all of L0 (`zp`,
-    `strings`, every `*_tables`, `mn_config`, `oplen_tbl`,
-    `dasm_mne_idx`) plus `mn_vars` at L1 (pure BSS scratch).  An
+    `strings`, every `*_tables`, `oplen_tbl`, `dasm_mne_idx`) plus
+    `mn_vars` at L1 (pure BSS scratch).  An
     axiomatic module has no testable contract beyond "the symbols
     exist and link," which the linker enforces on every build.
 
@@ -716,7 +716,7 @@ under [TODO.md § DDD amendments pending — Tier C1](TODO.md).
 
 | Module | Layer | Tier | Harness |
 |---|---|---|---|
-| zp, strings, *_tables, mn_config, oplen_tbl, dasm_mne_idx | 0 | — | (pure data; generator tests in `dev/`) |
+| zp, strings, *_tables, oplen_tbl, dasm_mne_idx | 0 | — | (pure data; generator tests in `dev/`) |
 | mn_vars | 1 | — | (single-byte ZP scratch; no behaviour) |
 | **cse_io** | 1 | U | standalone leaf bundle |
 | **mem** | 1 | U | standalone leaf bundle |

@@ -201,7 +201,7 @@ endif
 # ── All assembler source files (pure asm, no C) ─────────────────────
 ASM_SRCS = zp loader main strings \
            asm_line asm_err asm_src mn_vars mn_classify \
-           $(MN_SRCS) mn_config \
+           $(MN_SRCS) \
            addr_mode mn_modes mn_asm_tables opcode_lookup \
            mem cse_io screen disk expr symtab dasm dasm_tables \
            breakpoints debugger gap_buffer repl editor log oplen_tbl
@@ -291,7 +291,7 @@ disk:
 # -----------------------------------------------------------------------
 TABLE_GEN  = $(DEV)/mnemonic_tables.py
 TABLE_DEPS = $(DEV)/instruction_set.py $(DEV)/hashes.py
-TABLE_OUTS = $(SRC)/mn_modes.s $(SRC)/mn_config.s \
+TABLE_OUTS = $(SRC)/mn_modes.s \
              $(SRC)/mn6_tables.s $(SRC)/mn7_tables.s \
              $(SRC)/mn_asm_tables.s $(SRC)/oplen_tbl.s
 TABLES_STAMP = $(ROOT)build/.tables.stamp

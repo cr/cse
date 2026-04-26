@@ -1262,19 +1262,19 @@ from our exit context.
   mass-retiring without per-test review risks dropping the
   one cell whose coverage is unique.
 
-- [ ] **Retire `src/mn_config.s`** (DDD Maintenance 2026-04-25
-  follow-up).  The file is a 256-byte vestigial table (predecessor
-  of `mn7_tables.s`) that is still emitted by
-  `dev/mnemonic_tables.py` and linked into every build, but its
-  labels (`mn_base_op` / `mn_profile`) are not exported and not
-  read.  `mn_classify.s` aliases the live `mn_base_op` /
-  `mn_profile` exports to the `mn7_*` (or `mn6_*`) tables instead.
-  Verified via `.lbl`: the symbols sit in KDATA at $F140/$F180
-  occupying 256 B of bank-mapped RAM with no reader.  Drop the
-  file from `Makefile`'s `ASM_SRCS`, drop the `write_mn_config`
-  call in `dev/mnemonic_tables.py`, drop the file from
-  `mn_classify.md`'s Owned files block.  Saves 256 B KDATA per
-  build (3 build variants).
+- [x] ~~**Retire `src/mn_config.s`**~~ (closed 2026-04-25).
+  Removed from `Makefile` (ASM_SRCS + TABLE_OUTS), from
+  `dev/mnemonic_tables.py` (deleted dead `write_config_table`
+  function and its caller stub; tidied generator-doc comments
+  that referenced it), and from `dev/size_report.py`.  Source
+  file deleted.  Doc updates: `mn_classify.md` Owned files row
+  removed, `architecture.md` Generated-files + L0 leaves listings
+  pruned, `testing.md` Principle 12 + per-module tier table
+  pruned, `build_system.md` generator outputs row corrected
+  (also gained `oplen_tbl.s` which was missing).  Build verified:
+  `make tables` clean, `make CPU=6510` produces a 21031-byte
+  PRG (was 21287, exactly **−256 B saved per build variant**;
+  3051 tests pass, 18 expected skips).
 
 - [ ] Loader: reverse-direction copy.  `loader.s` currently does a
   forward memcpy (low → high) for CODE+RODATA and KDATA.  Forward

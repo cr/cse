@@ -72,11 +72,11 @@ CORE_MODULES = {'main.o', 'repl.o', 'editor.o', 'screen.o', 'disk.o', 'debugger.
 ASM_MODULES = {
     'asm_line.o', 'asm_vars.o', 'asm_src.o', 'mn_vars.o',
     'mn_classify.o', 'mn7.o', 'mn7_tables.o', 'mn6.o', 'mn6_tables.o',
-    'mn_config.o', 'addr_mode.o', 'mn_modes.o',
+    'addr_mode.o', 'mn_modes.o',
     'mn_asm_tables.o', 'opcode_lookup.o', 'expr.o', 'symtab.o',
 }
 DASM_MODULES = {'dasm.o', 'dasm_tables.o'}
-IO_MODULES = {'cse_io.o', 'meminfo.o'}
+IO_MODULES = {'cse_io.o'}
 
 def categorize(mod_name):
     if mod_name in CORE_MODULES:

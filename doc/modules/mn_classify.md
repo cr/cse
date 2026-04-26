@@ -12,7 +12,6 @@
 | [`src/mn_vars.s`](../../src/mn_vars.s) | implementation — ZP variable definitions |
 | [`src/mn7_tables.s`](../../src/mn7_tables.s) | generated — 7-bit hash tables (`mn7_fp` / `mn7_base_op` / `mn7_profile`, 3×128 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py) |
 | [`src/mn6_tables.s`](../../src/mn6_tables.s) | generated — 6-bit hash tables (`mn6_fp` / `mn6_base_op` / `mn6_profile`, 3×64 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py) |
-| [`src/mn_config.s`](../../src/mn_config.s) | generated — historical 256-byte legacy table (predecessor of `mn7_tables.s`); still emitted by the generator and linked but no longer read.  Removal pending — see [TODO.md § Architecture](../TODO.md). |
 | [`tests/unit/test_mn_classify.py`](../../tests/unit/test_mn_classify.py) | test contract |
 
 ## Interface

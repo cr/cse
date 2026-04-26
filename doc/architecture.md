@@ -42,7 +42,7 @@ Contract user code may rely on / must preserve:
 ├─────────────────────────────────────────────────────────────────────┤
 │ L1  mem, cse_io, mn_classify (mn6 / mn7 / mn_vars)                  │  primitive services
 ├─────────────────────────────────────────────────────────────────────┤
-│ L0  zp, strings, *_tables, mn_config, oplen_tbl, dasm_mne_idx       │  pure data
+│ L0  zp, strings, *_tables, oplen_tbl, dasm_mne_idx                  │  pure data
 └─────────────────────────────────────────────────────────────────────┘
        │
        │  return_to_userland (RTI to synthesized frame; j/g/t/o/c)
@@ -109,7 +109,7 @@ Generated files (do not edit — regenerate with `make tables`):
 
 | File | Generator | Owning doc |
 |------|-----------|------------|
-| mn7_tables.s, mn6_tables.s, mn_config.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [mn_classify.md](modules/mn_classify.md) |
+| mn7_tables.s, mn6_tables.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [mn_classify.md](modules/mn_classify.md) |
 | mn_asm_tables.s, mn_modes.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [opcode_lookup.md](modules/opcode_lookup.md) |
 | oplen_tbl.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [opcode_lookup.md](modules/opcode_lookup.md) |
 | dasm_tables.s, dasm_mne_idx.s | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | [dasm.md](modules/dasm.md) |
@@ -151,7 +151,7 @@ export state that lower layers reach up for.
 | mn_classify | mn6, mn7, mn6_tables, mn7_tables |
 | mn6 / mn7 | mn_vars, mn6_tables / mn7_tables, zp |
 | mn_vars | zp |
-| zp, strings, *_tables, mn_config, oplen_tbl, dasm_mne_idx | (leaves) |
+| zp, strings, *_tables, oplen_tbl, dasm_mne_idx | (leaves) |
 
 ## Dependency Rules
 

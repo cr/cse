@@ -6,7 +6,7 @@
 ;   fp  = (c2<<3) | (c3>>2)
 ;
 ; mn7_fp[h]       8-bit fingerprint  (0 = empty slot; fp ≥ 8 always)
-; mn7_base_op[h]  base opcode  (semantics identical to mn_config.s)
+; mn7_base_op[h]  base opcode
 ; mn7_profile[h]  bits7:6=cat(00=legal 01=legal+CMOS 10=illegal 11=CMOS-only)
 ;                 bit5=dir_bit, bits4:0=profile_index(0-29)
 ;

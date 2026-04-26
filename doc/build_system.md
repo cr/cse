@@ -285,7 +285,7 @@ changes:
 
 | Generator | Input | Output |
 |-----------|-------|--------|
-| `dev/mnemonic_tables.py` | `dev/instruction_set.py` | `src/mn7_tables.s`, `src/mn6_tables.s`, `src/mn_asm_tables.s`, `src/mn_modes.s`, `src/mn_config.s` |
+| `dev/mnemonic_tables.py` | `dev/instruction_set.py` | `src/mn7_tables.s`, `src/mn6_tables.s`, `src/mn_asm_tables.s`, `src/mn_modes.s`, `src/oplen_tbl.s` |
 | `dev/dasm_tables.py` | `dev/instruction_set.py` | `src/dasm_tables.s` |
 
 Run with `make tables` or directly with `python3 dev/mnemonic_tables.py`.

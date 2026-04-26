@@ -6,7 +6,7 @@
 ;   fp  = (c1   + c2*218) & $FF
 ;
 ; mn6_fp[h]       8-bit fingerprint  (0 = empty slot)
-; mn6_base_op[h]  base opcode  (semantics identical to mn_config.s)
+; mn6_base_op[h]  base opcode
 ; mn6_profile[h]  bits7:6=cat(always 00 for mn6)  bit5=dir_bit  bits4:0=profile_index(0-29)
 ;
 ; 56/64 slots filled  (8 empty)
