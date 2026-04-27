@@ -33,6 +33,7 @@
         .import check_buf_end
         .import ed_total_lines
         .import src_top, src_bot
+        .import update_workend
 
         .import io_sync, io_blip
         .import kernal_bank_out, kernal_bank_in
@@ -180,7 +181,7 @@ _ed_cur_row:
         sta ed_cur_col
         sta ed_top_line
         sta ed_top_line+1
-        rts
+        jmp update_workend      ; publish workend; tail-call
 .endproc
 
 ; ── ed_new — clear editor (new file) ─────────────────────────

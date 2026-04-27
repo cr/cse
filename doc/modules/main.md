@@ -216,31 +216,64 @@ symtab, log, mem, strings, zp
 
 #### Layer 1: `cse_cold_init` (one-time setup)
 
-Runs once after `loader.s` jumps to `_main`.  Sequence:
+Runs once after `loader.s` jumps to `_main`.  Sequence is
+ordered by dependency: each step's prerequisites are satisfied
+by earlier steps, with no hidden cross-subsystem reach-ins.
 
-1. Save $01-$7F to KBSS.
-2. Reset SP to $FF.
-3. Unmap BASIC ROM ($01 = $36).
-4. `setup_interrupts` — patch all four vectors (must happen before
-   any bank-out so the early-entry handlers are reachable).
-5. Initialise subsystems: dbg_init, sym_clear, screen, theme,
-   cse_io.
-6. `sym_define` for `workstart` ($0800) — the fixed workspace
-   symbol.  `workend` is defined by `editor.s::update_workend` the
-   first time the editor initialises.
-7. Fill free memory with $00.
-8. Draw splash screen.
-9. Capture `kernel_init_sp` (fault-recovery setjmp target), then
-   `jmp main_loop_no_clear` — enter the REPL with splash still
-   visible.  Prompt is drawn by `main_loop_top`'s `show_prompt`
-   call.
+1. **Keyboard / charset-switch setup.**  `KEY_REPEAT` |= $80;
+   `$0291` = $80 (disable C= + SHIFT charset toggle).
+2. **Save $01-$7F to KBSS.**  Snapshot the user's ZP and CPU-port
+   into `_cold_zp` (under-KERNAL RAM) so `cse_exit_to_basic` can
+   restore it on clean exit.
+3. **Unmap BASIC ROM** (`$01 &= ~1` → $36).  CSE owns $A000-$BFFF
+   from this point; LORAM=0 must hold for the rest of cold init.
+4. **`setup_interrupts`** — patch all four vectors.  Must happen
+   before any bank-out so the early-entry handlers are reachable.
+5. **`dbg_init`** — zero bp/step tables, seed `userland_zp_buf`
+   and `kernel_zp_buf` with the CPU-port default ($00=$2F, $01=$36)
+   so the first user entry via `return_to_userland` has sane
+   banking.
+6. **`sym_clear`** — wipe 256 hash slots, reset `_st_heap` to the
+   heap base.  **Strictly precedes any `sym_define` caller** —
+   any `sym_define` call before this point would write through
+   `_st_heap = $0000` (BSS-zero) and corrupt `$0000-$0007` (DDR
+   + CPU-port latch).  See [§ Caveats — cold-init sequence
+   prerequisite](#caveats).
+7. **`ed_ensure_init`** — first-time `gb_init` (sets `buf_base =
+   gap_lo = gap_hi = ed_top_ptr = src_top = src_bot = BUF_END`,
+   `ed_total_lines = 1`, `ed_dirty = 0`).  `gb_init` is a leaf —
+   it does not touch the symbol table.  The workspace symbols
+   are registered by step 8.
+8. **`define_ws_syms`** — register `workstart = $0800` (fixed),
+   then fall through to `update_workend` which registers
+   `workend = buf_base - 1` (uses `buf_base` set by step 7).
+9. **CPU-mode default** — `lda #DEFAULT_CPU; sta asm_cpu`.
+10. **Free-ZP fill** — `$FF` from `cse_zp_end` to `$80`.
+    Sentinel for unused ZP.
+11. **Free-workspace fill** — `$00` from `WORKSTART` to
+    `cse_start`.  Clears user RAM.
+12. **HW + screen** — `io_init`, `theme_init`, `reset_screen`,
+    `set_charset`.
+13. **Global state** — `reset_globals` (state=ST_REPL,
+    cur_device=8, block_size=$10, cur_addr=$0800,
+    run_user_pending=0).
+14. **Splash** — version string, `cmd_info` (splash mode),
+    manual line, prompt row.
+15. **Capture `kernel_init_sp`** — `tsx; stx kernel_init_sp` —
+    setjmp target for `cse_recover` / `cse_end_debug` /
+    `cse_refresh`.
+16. **`jmp main_loop_no_clear`** — enter the REPL with splash
+    still visible.  Prompt is drawn by the REPL's first
+    iteration.
+
+The order is load-bearing.  `_main` must reach
+`main_loop_no_clear` without `cse_brk_handler` or `cse_recover`
+ever being entered — see [testing.md § Principles
+(Cold-init terminal-state assertion)](../testing.md#principles).
 
 A cold-init BRK-into-kernel handoff was considered (would share
 the first-prompt code path with userland clean-exit recovery)
 but not implemented: unnecessary failure surface at startup.
-`dbg_init` instead pre-seeds `userland_zp_buf` and `kernel_zp_buf`
-with the CPU-port default ($00=$2F, $01=$36) so the first user
-entry via `return_to_userland` has sane banking.
 
 #### Layer 2: `setup_interrupts`
 
@@ -545,8 +578,15 @@ Handled by `ed_handle_key()`.  See [editor.md](editor.md).
   `return_to_userland` is the last statement in its caller's effective
   control flow — there is nothing for the kernel to return to.
 - `src_top`/`src_bot` are owned by editor.s.
-- `ed_ensure_init` is called at startup to initialize the gap
-  buffer before `define_ws_syms` (workend needs `buf_base`).
+- **Cold-init sequence prerequisite.**  `sym_clear` must run
+  before any code path that can call `sym_define`.  In `_main`
+  the order is `sym_clear` (step 6) → `ed_ensure_init` (step 7,
+  pure leaf — sets `buf_base` only) → `define_ws_syms` (step 8,
+  registers `workstart` and `workend`).  Reversing steps 6 and
+  7 corrupts `$0000-$0007` because `_st_heap` is BSS-zero and
+  `gb_init`'s symbol-publication path would write through it.
+  This was bug e47efdf (Phase 24).  The same constraint
+  applies to any future caller introduced into cold init.
 - None of the warmstart entry points (`cse_recover`, `cse_end_debug`,
   `cse_refresh`) call `leave_editor` or touch editor state — the
   editor invariant says the source survives every warmstart.

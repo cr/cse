@@ -102,7 +102,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         sta ed_total_lines+1
         lda #1
         sta ed_total_lines
-        jmp update_workend      ; tail call
+        rts                     ; leaf — caller publishes workend
 .endproc
 
 ; ── ed_ensure_init — lazy init guard ─────────────────────────

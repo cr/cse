@@ -561,6 +561,73 @@ tests are written, when they are written, and what they test.
     silently because the test was state-only.  A paired
     screen-content assertion would have caught it.
 
+16. **Cold-init terminal-state assertion.**  *Applies to projects
+    with a fault-recovery path that overlaps cold initialisation
+    enough to mask a broken cold-init flow.*
+
+    `_main` (cold init) must reach `main_loop_top` without
+    `cse_brk_handler` or `cse_recover` ever being entered.  A
+    Tier I test hooks both entry-point addresses and fails if
+    either fires during a `_cold_init_to_prompt` run.
+
+    **Why this is its own principle.**  CSE's `cse_recover` runs
+    a soft-reset (`hw_reinit_body` + `end_debug_body` +
+    `refresh_body`) that overlaps enough of `_main` to produce a
+    *working-looking* REPL even when cold init has silently
+    faulted partway through.  Without this assertion, a test
+    that runs cold init and then asserts post-prompt invariants
+    will pass against the recovery state and miss whatever
+    `_main` skipped.  This bug class escaped once
+    (Phase 24, e47efdf — `ed_ensure_init` ordered before
+    `sym_clear` corrupted `$0001`, BRK'd into `cse_recover`,
+    suite stayed green for months).
+
+    **How to enforce.**  At Tier I, install address-watchers on
+    `cse_brk_handler` and `cse_recover` for the duration of the
+    cold-init run.  Per [Principle 7 — Pre-cutover stress
+    tests](#principles), this is the kind of overlap-mask check
+    that must be added *before* the recovery path is trusted as
+    a fallback.
+
+17. **Sequence-prerequisite declaration.**  *Applies to modules
+    whose entry points have non-obvious init dependencies on
+    sibling modules.*
+
+    A module-level entry point that internally calls into
+    another module (transitively or directly) must declare the
+    prerequisite in its module doc and pin it with a test if
+    any caller could violate it.  "Declared" means the prose
+    names the prerequisite explicitly — "X must run after Y has
+    initialised" — not just "X is called at cold init."
+
+    Cautionary example (Phase 24): `gap_buffer.s::gb_init`
+    tail-called `update_workend` → `sym_define`, an undeclared
+    dependency on the symbol table being initialised.
+    `_main`'s order swapped `sym_clear` and `ed_ensure_init`,
+    triggering `sym_define` against `_st_heap = $0000` and
+    corrupting the CPU port.  The fix: make `gb_init` a leaf
+    (no symbol-table contact) and lift the workend publication
+    to `ed_init`'s wrapper, where the prerequisite is satisfied
+    by construction.  General principle: prefer making the
+    prerequisite go away over documenting it.
+
+18. **Multi-CPU integration-test parity.**  *Applies to
+    projects with multiple production binaries that differ only
+    in build flags but exercise distinct memory layouts.*
+
+    At least one Tier I test must run against each production
+    PRG variant.  When integration coverage runs against only
+    one variant, layout-dependent failures in the others are
+    invisible.
+
+    Cautionary example (Phase 24): the cold-init bug above
+    breaks the 6510 build harder than the CMOS build (no clean
+    BRK; CPU times out wandering BASIC ROM).  Because
+    integration tests only loaded `cse-cmos.prg`, the 6510
+    failure was undetected for months.  A single
+    `_cold_init_to_prompt` test parametrised across all three
+    PRG variants would have surfaced it on the first run.
+
 ## Anti-patterns
 
 These exist in the current test tree.  Don't add more of them;
@@ -653,80 +720,11 @@ Documented constraints of the `C64Emu` + `py65` harness that put
 specific code paths out of reach.  Each entry names the mechanism,
 the affected tests, and the recommended skip pattern.
 
-### BASIC ROM shadow overlap (cold-init resume fragility)
-
-> ⚠ **2026-04-25 — this section was written on a wrong diagnosis
-> and is retained here as a record of the misdiagnosis until the
-> underlying production bug is fixed.**  RCA on 2026-04-25 (see
-> [TODO.md § Bugs — *Cold-init silently faults and recovers on
-> CMOS*](TODO.md)) showed that the fragility is **not** a harness
-> artifact — it is a production cold-init ordering bug that
-> corrupts `$0001` (the CPU port latch) via `heap_copy_name`
-> running before `sym_clear` initialises `_st_heap`.  The
-> resulting LORAM=1 state banks BASIC IN over CSE's CODE, the
-> CPU executes BASIC ROM bytes as instructions, eventually
-> hits a `$00` byte and BRKs, and `cse_recover` quietly
-> reinitialises the runtime as if cold-init had succeeded
-> normally.  Real silicon and VICE exhibit the same bug; it has
-> simply been invisible to manual smoke-testing because the
-> recovery path produces a working REPL.
->
-> The text below describes the **observed harness behaviour**
-> (which is faithful), not the cause.  The Pattern A skip
-> template is still useful as a stopgap if any single test
-> needs to be retired before the fix lands, but the bulk
-> per-test triage previously planned here is deferred until the
-> cold-init fix lands — most fragile tests are expected to pass
-> without per-test changes once the corruption is removed.
-
-**Observed behaviour.**  After `_cold_init_to_prompt()` runs the
-long boot path through `run_until()`, the emulator is left in a
-state where some subsequent
-`run_until(..., start_at=return_to_userland)` calls trip what
-looks like a step-engine edge case — the CPU appears to jump to
-`$0001` on the first instruction of the resume.  When the CODE
-segment shifts size, the failing addresses move with it
-(typically `$B5xx` / `$7Dxx`), causing ~17 tests in
-`tests/integration/test_kernel_transition.py` to fluctuate
-between pass and fail across commits.
-
-**Actual mechanism (per RCA).**  See the linked § Bugs entry for
-the full chain.  Summary: cold-init's `ed_ensure_init` (line 224)
-runs before `sym_clear` (line 227); the transitive
-`heap_copy_name` call writes a name string into ZP `$0000-$0007`
-because `_st_heap` is BSS-zero; `$0001` (CPU port latch) ends up
-at `$47`; LORAM=1 banks BASIC IN; `jsr define_ws_syms` lands in
-the BASIC ROM shadow; CPU eventually hits `$00` → BRK; kernel-
-mode BRK trap routes to `cse_recover`; recovery resets `$01` and
-runs a soft-reset via `hw_reinit_body` that produces a usable
-runtime.  All subsequent test behaviour is from the recovery
-state, not the intended cold-init state.
-
-**Workaround in current code.**  `_minimal_init` +
-`_fake_brk_at` (in `tests/integration/test_kernel_transition.py`)
-bypasses the full cold-init path, staying out of the fragile
-state.  Two tests already use it
-(`test_clean_rts_classified_as_clean_exit`,
-`test_step_landing_on_rts_shows_brk`); the workaround is viable
-for any test whose coverage is a single dispatcher decision and
-not the full boot sequence.
-
-**Recommended skip pattern** (Pattern A — out-of-tier; use only
-as a stopgap for individual tests that are blocking other work):
-
-```python
-@pytest.mark.skip(reason=(
-    "Pattern A: blocked by cold-init silent-recovery bug "
-    "(see TODO.md § Bugs — Cold-init silently faults and "
-    "recovers on CMOS).  Coverage of the underlying handler "
-    "logic lives at unit tier in test_<module>.py."
-))
-```
-
-**Status.**  17 tests currently fragile; the dedicated-session
-fix plan and the deferred per-test triage are tracked under
-[TODO.md § Bugs](TODO.md) and the corresponding § Architecture
-follow-up.
+(No entries currently active.  The previous *BASIC ROM shadow
+overlap (cold-init resume fragility)* entry was retired
+2026-04-27 when Phase 24 fixed the underlying production
+cold-init bug; see [TODO.md § Bugs](TODO.md) for the closure
+record.)
 
 ## Per-module tier assignment
 

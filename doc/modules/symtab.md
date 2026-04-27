@@ -47,8 +47,8 @@ Direct callers in the corpus:
 
 | Caller | Name | Purpose |
 |---|---|---|
-| `main.s` cold init | `workstart` | fixed $0800, once at boot |
-| `editor.s::update_workend` | `workend` | `buf_base - 1` after every buffer move |
+| `gap_buffer.s::define_ws_syms` | `workstart` | fixed $0800, registered at cold init |
+| `gap_buffer.s::update_workend` | `workend` | `buf_base - 1`, refreshed after every buffer-base change |
 | `asm_src.s::asm_assemble` | both | refresh after `sym_clear` at pass 0 |
 | `asm_src.s` label emit | user labels | per `main:` / `.loop:` in source |
 | `repl.s::cmd_define` (future) | user symbols | REPL `=` command |

@@ -505,6 +505,54 @@ class TestGbEnsureRoom:
         assert _buf_base(mem, gb_syms) == floor
 
 
+# ── gb_init leaf contract (testing.md Principle 17) ──────────────────────
+
+class TestGbInitLeaf:
+    """`gb_init` must be a pure leaf: no contact with the symbol
+    table.  Callers that need `workend` republished after a
+    `buf_base` change must do so explicitly (e.g. `editor.s::ed_init`
+    calls `update_workend` after `gb_init`).
+
+    This contract is what permits cold init to call `ed_ensure_init`
+    (which transitively calls `gb_init`) before `sym_clear` has
+    initialised `_st_heap`, without corrupting `$0000-$0007` via a
+    transitive `sym_define` → `heap_copy_name` chain.  See
+    [doc/TODO.md § Bugs — Cold-init silently faults](
+    ../../doc/TODO.md) for the original failure mode.
+    """
+
+    def test_gb_init_does_not_touch_zp_lo_with_zero_st_heap(self, gb_syms):
+        """Poison `_st_heap` to `$0000` (the BSS-zero state cold init
+        sees if `sym_clear` hasn't yet run).  Call `gb_init` directly.
+        Bytes `$0000-$0007` must remain untouched.
+
+        Pre-F2 behaviour: `gb_init` tail-called `update_workend` →
+        `sym_define` → `heap_copy_name`, which would write
+        "workend\\0" via `sta (_st_heap),y` straight into
+        `$0000-$0007`.  Post-F2: the tail-call is gone; `gb_init`
+        does not reach the symbol table at all.
+        """
+        cpu, mem = make_cpu(gb_syms)
+        # Pre-fill $0000-$0007 with a recognisable canary distinct
+        # from the "workend" PETSCII pattern ($57 $4F $52 $4B $45 $4E
+        # $44 $00).
+        canary = bytes([0xA5, 0xA5, 0xA5, 0xA5, 0xA5, 0xA5, 0xA5, 0xA5])
+        for i, b in enumerate(canary):
+            mem[i] = b
+        # Poison _st_heap = $0000 (BSS-zero — pre-`sym_clear` state).
+        mem[gb_syms._st_heap]     = 0x00
+        mem[gb_syms._st_heap + 1] = 0x00
+        # Call gb_init in isolation.
+        _jsr(cpu, mem, gb_syms.gb_init)
+        actual = bytes(mem[i] for i in range(8))
+        assert actual == canary, (
+            f"gb_init touched $0000-$0007: got {actual.hex(' ')}, "
+            f"expected canary {canary.hex(' ')} preserved.  This "
+            "indicates gb_init is reaching the symbol table — the "
+            "leaf contract is broken."
+        )
+
+
 # ── define_ws_syms / update_workend — workspace symbol registration ──────
 
 class TestWorkspaceSymbols:

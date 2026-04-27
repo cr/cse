@@ -73,16 +73,19 @@ source.  *Universal* amendments tighten the DDD/TDD method itself;
 *domain-class* amendments apply only to projects of a particular
 shape; *project-specific* items belong to CSE alone.
 
-**Status (2026-04-25):** Tier A landed three amendments to
+**Status (2026-04-27):** Tier A landed three amendments to
 README.md (DDD Method + Escape Analysis); Tier B landed two
 principles in testing.md (14 + 15) and one in README.md
 (Principle 7); Tier C1 was *initially* closed with a documented
-"harness limitation" in testing.md, but was **re-opened the same
-day** when deeper RCA showed the diagnosis was wrong — the
-fragility is a production cold-init bug, not a harness artifact.
-The bug entry sits at the top of [§ Bugs](#bugs) for a
-dedicated DDD Method session.  `mn_config.s` retirement (the
-other follow-up) closed cleanly under § Architecture.
+"harness limitation" in testing.md, then **re-opened** when
+deeper RCA showed the diagnosis was wrong, and finally **closed
+2026-04-27 by Phase 24** — the cold-init bug fix landed (F1 +
+F2), the testing.md harness-limitations entry was retired, and
+three new Escape-Analysis principles (16: cold-init terminal-
+state assertion; 17: sequence-prerequisite declaration; 18:
+multi-CPU integration-test parity) were promoted from the
+bug-entry candidates into testing.md.  `mn_config.s` retirement
+closed cleanly under § Architecture.
 
 ### Tier A — Universal DDD System amendments
 
@@ -159,18 +162,17 @@ out of class.*
 
 #### C1. Process / methodology debt
 
-- [ ] ~~**Test-harness layout fragility investigation**~~
-  **(closed 2026-04-25 ON A WRONG DIAGNOSIS — re-opened
-  2026-04-25 after deeper RCA).**  The 2026-04-25 closure
-  attributed the fragility to a py65 step-engine artifact and
-  documented it as a "harness limitation."  Subsequent RCA
-  during the same session proved that diagnosis wrong: it is a
-  production cold-init bug masked by an unintended fault-recovery
-  path.  See [§ Bugs — *Cold-init silently faults and recovers
-  on CMOS*](#bugs) for the full chain and the dedicated-session
-  plan.  This C1 entry stays open as evidence that the original
-  closure was premature; do not re-close it independently of the
-  bug-entry resolution.
+- [x] ~~**Test-harness layout fragility investigation**~~
+  (closed 2026-04-27 alongside the cold-init bug fix).  The
+  2026-04-25 closure attributed the fragility to a py65 step-
+  engine artifact (wrong diagnosis); the 2026-04-25 RCA pass
+  showed it was a production cold-init bug; the Phase-24
+  dedicated session landed F1 (cold-init order swap) and F2
+  (`gb_init` becomes a leaf, `update_workend` lifts to
+  `ed_init`'s wrapper).  All 17 previously-fragile tests in
+  `test_kernel_transition.py` are stable green without
+  per-test triage — exactly as the bug-entry prediction table
+  forecast.  See [§ Bugs](#bugs) for the closed bug entry.
 
 #### C2. Corpus-coverage gaps (DDD Maintenance 2026-04-25)
 
@@ -182,16 +184,48 @@ belong in the same taxonomy.*
 
 Open bugs, roughly ordered by priority.
 
-- [ ] **★ HIGH — Cold-init silently faults and recovers on CMOS;
-  6510 build is fully broken in test path.**  Discovered
-  2026-04-25 during DDD Maintenance follow-up to the
-  Tier C1 "test-harness layout fragility" investigation.
-  Supersedes the earlier C1 closure (which was based on a wrong
-  diagnosis: this is a production bug, not a harness artifact).
-  Needs a dedicated DDD Method session — too large for a
-  maintenance round.
+- [x] ~~**★ HIGH — Cold-init silently faults and recovers on CMOS;
+  6510 build is fully broken in test path.**~~  **Closed
+  2026-04-27, Phase 24.**  Fixed by:
 
-  ### Symptom
+  - **F1** (commit d9cac91 — *Phase 24 F1: order sym_clear before
+    ed_ensure_init in cold init*).  Reorders `_main` cold-init
+    so `sym_clear` precedes `ed_ensure_init`.  `_st_heap` is
+    valid by the time `gb_init`'s tail-call to `update_workend`
+    fires; `heap_copy_name` writes to SYM_HEAP ($E600) rather
+    than $0000-$0007; the `$01` corruption + BASIC-shadow BRK
+    chain is gone.
+  - **F2** (this commit — *Phase 24 F2: …*).  Removes
+    `gb_init`'s `jmp update_workend` tail-call (gb_init becomes
+    a pure leaf with no symbol-table contact); lifts the
+    workend publication to `editor.s::ed_init` as an explicit
+    `jmp update_workend` tail-call.  Eliminates the layering
+    inversion (gap buffer reaching into the symbol table) that
+    let the bug exist.
+
+  Net code delta: gap_buffer.s -2 B (jmp→rts), editor.s +3 B
+  (added jmp), main.s ±0 B (reorder).  Total +1 B.
+
+  Tier I tests pinning the new contract (testing.md
+  Principle 16, *Cold-init terminal-state assertion*) added
+  in `test_kernel_transition.py::TestColdInitTerminalState`:
+  no-BRK/no-recover, workstart/workend resolvable, $0000-$0007
+  uncorrupted, free-ZP `$FF` fill, free-workspace `$00` fill.
+  Tier U test pinning F2's leaf contract added in
+  `test_gap_buffer.py::TestGbInitLeaf`.
+
+  Verification: full suite 3057 passed / 18 skipped; the 17
+  previously-fragile tests now stable green.  6510 build no
+  longer enters the BASIC ROM shadow during cold init (the
+  fault chain is gone in all variants because the corruption
+  itself is gone).  Multi-CPU integration-test parity is
+  tracked separately under § Architecture as a follow-up.
+
+  Original symptom + RCA preserved below for the audit trail.
+
+  ### Original RCA (pre-fix)
+
+  #### Symptom
 
   After `_cold_init_to_prompt(emu)` runs against the production
   CMOS PRG via the integration-test harness, `$01` reads `$36`
@@ -212,7 +246,7 @@ Open bugs, roughly ordered by priority.
   *thinks* it's making — but on emulator + py65 the wild ride
   through BASIC ROM bytes is observable.
 
-  ### Reproduction
+  #### Reproduction
 
   Three probes against `build/debug/cmos/cse-cmos.prg`:
 
@@ -240,7 +274,7 @@ Open bugs, roughly ordered by priority.
   cyc=6464  $7C94   REACHED main_loop_top
   ```
 
-  ### Full chain
+  #### Full chain
 
   1. **Order bug in `main.s` cold-init.**  Line 224 calls
      `ed_ensure_init` before line 227 calls `sym_clear`.
@@ -277,7 +311,7 @@ Open bugs, roughly ordered by priority.
      `end_debug_body`, then `refresh_body`, then
      `jmp main_loop_top`.
 
-  ### What this means
+  #### What this means
 
   **`main.s` cold-init never reaches lines 227+ on CMOS.**  The
   intended cold-init flow from `sym_clear` onward (sym_clear,
@@ -312,7 +346,7 @@ Open bugs, roughly ordered by priority.
   symptom the C1 entry described — but it's the *production*
   cold-init that's fragile, not the harness.
 
-  ### Fix candidates
+  #### Fix candidates
 
   - **F1 — Reorder cold-init.**  Swap `main.s:224` and `:227`:
     `sym_clear` before `ed_ensure_init`.  Prevents the heap
@@ -330,7 +364,7 @@ Open bugs, roughly ordered by priority.
     doesn't fix the upstream ordering issue.  Useful as a
     belt-and-braces against future regressions.
 
-  ### Phased landing plan
+  #### Phased landing plan
 
   Per session DDD Method.  Each phase has an explicit gate.
 
@@ -390,7 +424,7 @@ Open bugs, roughly ordered by priority.
     variant (6502/6510/cmos), not just CMOS.  Otherwise CPU-
     specific cold-init breakage is invisible.
 
-  ### Latent issues F1 may surface
+  #### Latent issues F1 may surface
 
   After F1 lands, anything `_main` 227+ does that `cse_recover`
   doesn't may newly become observable.  Known differences:
@@ -406,7 +440,7 @@ Open bugs, roughly ordered by priority.
   | `reset_screen`, `set_charset` (264–265) | screen + charset | **Yes** (in `hw_reinit_body`) |
   | rest (266+) | unread; tabulate in Phase 0 | ? |
 
-  ### Investigation artifacts
+  #### Investigation artifacts
 
   Probes used during the 2026-04-25 RCA (now removed but
   reproducible):
@@ -1480,6 +1514,22 @@ from our exit context.
   for RODATA (256 B).  Changes the architecture fundamentally.
 
 ### Architecture
+
+- [ ] **Multi-CPU integration-test parity.**  Today
+  `tests/integration/conftest.py::cse_prg` returns the CMOS
+  PRG only.  The Phase-24 cold-init RCA showed this hides
+  layout-dependent breakage in the 6502/6510 builds (per
+  [testing.md § Principles — Multi-CPU integration-test
+  parity](testing.md#principles)).  Parametrise the
+  fixture across all three production PRG variants
+  (6502 / 6510 / cmos) and run at least the cold-init
+  terminal-state assertion against each.  Scope: fixture
+  parametrisation + audit which existing integration tests
+  need `pytest.mark.parametrize`-style coverage vs which
+  are CPU-agnostic.  Out of scope for the Phase-24 fix
+  itself — that fix lands the principle (testing.md) and
+  the bug closure; this TODO carries the harness work
+  separately.
 
 - [ ] **Triage the 17 cold-init-fragile tests in
   test_kernel_transition.py** — **deferred until the cold-init

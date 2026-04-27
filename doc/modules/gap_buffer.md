@@ -62,12 +62,20 @@ KERNAL machinery because that machinery lives at L4.
 **In:** none
 **Out:** empty buffer — `buf_base = gap_lo = gap_hi = BUF_END`,
 `ed_top_ptr = BUF_END`, `src_top = src_bot = BUF_END`, `ed_total_lines = 1`
-(the implicit empty line), `ed_dirty = 0`.  Calls `update_workend`.
+(the implicit empty line), `ed_dirty = 0`.
 **Clobbers:** A.
 
-Called by `editor.s::ed_init` at cold init and on `ed_new` / disk
-load.  `editor.s` handles the additional rendering-state reset
-(`ed_cur_line`, `ed_cur_col`, `ed_top_line`) after this returns.
+**Leaf — does not touch the symbol table.**  Callers that need
+the `workend` symbol republished after a `buf_base` change call
+`update_workend` (or `define_ws_syms`) explicitly:
+- `editor.s::ed_init` does so as part of its full reset wrapper.
+- `main.s::_main` does so at cold init via `define_ws_syms`
+  (step 8) immediately after `ed_ensure_init` (step 7).
+
+Called by `editor.s::ed_init` (full reset) and `ed_ensure_init`
+(lazy-init guard).  `editor.s` handles the additional
+rendering-state reset (`ed_cur_line`, `ed_cur_col`, `ed_top_line`)
+in its `ed_init` wrapper after this returns.
 
 ### ed_ensure_init
 **In:** none
@@ -169,8 +177,11 @@ after `sym_clear`.
 **Clobbers:** A.  (sym_define call uses the standard sym_name/val/wide
 ZP as input.)
 
-`update_workend` is also called internally by `gb_init` and
-`gb_ensure_room` whenever `buf_base` changes.
+`update_workend` is called internally by `gb_ensure_room` after
+a gap grow shifts `buf_base` down, and by `editor.s::ed_init`
+after every full editor reset.  It is **not** called by
+`gb_init` — `gb_init` is a leaf with no symbol-table contact;
+its callers are responsible for republishing `workend` if needed.
 
 ### Memory
 

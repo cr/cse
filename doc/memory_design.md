@@ -664,7 +664,9 @@ The `workstart` and `workend` symbols are pre-defined in the symbol
 table by `_main` (via `define_ws_syms`), usable in assembly (`.org workstart`) and REPL
 expressions (`@ workend`, `j workstart`).  `workstart` is always
 $0800.  `workend` adjusts when the editor resizes the gap buffer
-(`update_workend` in editor.s).
+(`update_workend` in `gap_buffer.s`, called from
+`editor.s::ed_init` after every full editor reset and from
+`gap_buffer.s::gb_ensure_room` after a gap grow).
 
 ## Zero Page Layout
 

@@ -1001,6 +1001,7 @@ class GapBufferSymbols:
         self.sym_name   = s["sym_name"]
         self.sym_val    = s["sym_val"]
         self.sym_wide   = s["sym_wide"]
+        self._st_heap   = s["_st_heap"]   # ZP — symtab heap pointer
 
         # From strings.s — workspace symbol-name pointers used by
         # define_ws_syms / update_workend.

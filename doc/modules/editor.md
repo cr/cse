@@ -29,7 +29,7 @@ Owned by editor.s (L4):
 - `enter_editor()` — save REPL screen, switch to editor mode
 - `leave_editor()` — restore REPL screen, return to REPL
 - `ed_handle_key(ch)` — process one keystroke (A = PETSCII key)
-- `ed_init()` — full reset: calls `gb_init` then zeros rendering state
+- `ed_init()` — full reset: calls `gb_init`, zeros rendering state, calls `update_workend` to republish the `workend` symbol against the new `buf_base`
 - `ed_new()` — clear source buffer (calls `ed_init` + clears filename)
 - `ed_save_source(name)` — save source as SEQ file; A=0 on success
 - `ed_load_source(name)` — load SEQ file into buffer; A=0 on success
