@@ -169,10 +169,13 @@ _ed_cur_row:
         rts
 
 ; ── ed_init — reset full editor state ────────────────────────
-; Wrapper that calls gb_init (L3 — resets gap-buffer state) and then
-; zeros the rendering state owned by editor.s (L4): cursor position
-; and top-line scroll anchor.  Called at cold boot (via ed_new or
-; lazy init), on disk load, and by the `k` command (ed_new).
+; Wrapper that calls gb_init (L3 — resets gap-buffer state), zeros
+; the rendering state owned by editor.s (L4 — cursor position, top-
+; line scroll anchor), then republishes the `workend` symbol via
+; update_workend.  Called by ed_new (k command) and ed_load_source
+; (disk load).  Cold init does NOT call ed_init — it goes through
+; ed_ensure_init → gb_init directly, with main.s publishing
+; workstart/workend explicitly via define_ws_syms.
 .proc ed_init
         jsr gb_init
         lda #0

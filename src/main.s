@@ -42,7 +42,7 @@
         .importzp state, in_userland, warm_cont                 ; zp.s
         .export cse_recover, cse_end_debug, cse_refresh
         .export hw_reinit_body, end_debug_body, refresh_body
-        .export main_loop_top, main_loop_no_clear
+        .export main_loop_top
         .export cse_brk_handler, cse_nmi_handler
         .export cse_brk_handler_early
         .export bank_out_stub
@@ -233,14 +233,14 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         ; ── 8. Workspace symbols ──
         jsr define_ws_syms
 
-        ; ── 8. CPU mode default ──
+        ; ── 9. CPU mode default ──
 .ifndef DEFAULT_CPU
   DEFAULT_CPU = 1
 .endif
         lda #DEFAULT_CPU
         sta asm_cpu
 
-        ; ── 9. Fill free ZP with $FF ──
+        ; ── 10. Fill free ZP with $FF ──
         jsr cse_zp_end
         tax
         lda #$FF
@@ -249,7 +249,7 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         cpx #$80
         bcc @zp
 
-        ; ── 10. Fill free workspace with $00 ──
+        ; ── 11. Fill free workspace with $00 ──
         lda #<WORKSTART
         sta rp_ptr
         lda #>WORKSTART
@@ -264,16 +264,16 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
 :       cpx rp_ptr+1
         bne @work
 
-        ; ── 11. I/O + screen ──
+        ; ── 12. I/O + screen ──
         jsr io_init
         jsr theme_init
         jsr reset_screen
         jsr set_charset
 
-        ; ── 12. Global state ──
+        ; ── 13. Global state ──
         jsr reset_globals
 
-        ; ── 13. Splash ──
+        ; ── 14. Splash ──
         lda #SCREEN_HEIGHT - 10
         jsr splash_row
         lda #<VERSION_STR
@@ -291,13 +291,13 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         jsr splash_row
         jsr io_clear_eol
 
-        ; ── 14. Capture kernel_init_sp (fault-recovery target only) ──
+        ; ── 15. Capture kernel_init_sp (fault-recovery target only) ──
         tsx
         stx kernel_init_sp
 
-        ; ── 15. Enter the REPL via the no-clear path (splash on
-        ;       screen already); main_loop_top draws the prompt.
-        jmp main_loop_no_clear
+        ; ── 16. Enter the REPL.  Splash is already drawn; the prompt
+        ;       is drawn by main_loop_top's first `jsr show_prompt`.
+        jmp main_loop_top
 .endproc
 
 ; ═════════════════════════════════════════════════════════════
@@ -307,14 +307,10 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
 ;   * cse_brk_handler's longjmp (handler_finalize) — SP = reg_sp.
 ;   * Each of the three warmstart entry points (cse_recover,
 ;     cse_end_debug, cse_refresh) — SP = kernel_init_sp ($FF).
+;   * The cold-init userland handoff (`_main`'s final jmp).
 ; All are valid entries; main_loop's internal stack use is balanced.
-;
-; main_loop_no_clear is an alias for the cold-init-handoff path
-; (splash already drawn, no screen clear needed).  Semantically the
-; same target as main_loop_top.
 ; ═════════════════════════════════════════════════════════════
 main_loop_top:
-main_loop_no_clear:
         cli
         lda state
         bne @live
@@ -598,11 +594,9 @@ main_loop:
         sta IBRK_VEC + 1
         lda #<cse_nmi_handler
         sta INMIV_VEC
-        lda #>cse_nmi_handler
-        sta INMIV_VEC + 1
-        lda #<cse_nmi_handler
         sta NMI_VEC_RAM
         lda #>cse_nmi_handler
+        sta INMIV_VEC + 1
         sta NMI_VEC_RAM + 1
         lda #<cse_brk_handler_early
         sta IRQ_VEC_RAM
@@ -615,15 +609,14 @@ main_loop:
 reset_globals:
         lda #ST_REPL
         sta state
-        lda #8
-        sta cur_device
         lda #$10
         sta block_size
         lda #0
         sta block_size+1
         sta cur_addr
         sta run_user_pending
-        lda #$08
+        lda #$08                ; cur_device + cur_addr+1 share the value
+        sta cur_device
         sta cur_addr+1
         rts
 
@@ -948,17 +941,15 @@ cse_recover:
 
         ldx #$FF
         txs
+        stx kernel_init_sp              ; X=$FF, captured for end_debug
+                                        ; / refresh; SP doesn't change
+                                        ; across the balanced jsrs below
         jsr hw_reinit_body
         jsr end_debug_body              ; fault → context is suspect
         jsr refresh_body
 
         lda #0
         sta warm_guard
-
-        ; Capture kernel_init_sp (same role as in cold init — the
-        ; fault-recovery target).
-        tsx
-        stx kernel_init_sp
 
         jmp main_loop_top
 

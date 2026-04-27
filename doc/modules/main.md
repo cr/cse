@@ -262,14 +262,14 @@ by earlier steps, with no hidden cross-subsystem reach-ins.
 15. **Capture `kernel_init_sp`** — `tsx; stx kernel_init_sp` —
     setjmp target for `cse_recover` / `cse_end_debug` /
     `cse_refresh`.
-16. **`jmp main_loop_no_clear`** — enter the REPL with splash
-    still visible.  Prompt is drawn by the REPL's first
-    iteration.
+16. **`jmp main_loop_top`** — enter the REPL.  Splash is already
+    drawn; the prompt is drawn by the REPL's first
+    `jsr show_prompt`.
 
-The order is load-bearing.  `_main` must reach
-`main_loop_no_clear` without `cse_brk_handler` or `cse_recover`
-ever being entered — see [testing.md § Principles
-(Cold-init terminal-state assertion)](../testing.md#principles).
+The order is load-bearing.  `_main` must reach `main_loop_top`
+without `cse_brk_handler` or `cse_recover` ever being entered —
+see [testing.md § Principles (Cold-init terminal-state
+assertion)](../testing.md#principles).
 
 A cold-init BRK-into-kernel handoff was considered (would share
 the first-prompt code path with userland clean-exit recovery)
@@ -342,9 +342,6 @@ in [memory_design.md § Warmstart entry points](../memory_design.md#warmstart-en
 2. Breakpoint table (`bp_table`) is preserved as the user's *intent*;
    `end_debug_body` calls `unpatch_all` to restore the in-memory
    bytes, but the slots themselves remain.  Next `j`/`g` re-patches.
-
-`main_loop_no_clear` — late entry into `main_loop` that skips
-screen-clear; used by the cold-init handoff (splash already drawn).
 
 #### Layer 4: `main_loop` (event loop / ISR body)
 
@@ -535,7 +532,8 @@ BASIC warm start.
 
 Shows zp, lo02, lo03, and work free ranges at startup.  Drawn
 before the cold-init userland handoff; remains visible because the
-handoff routes through `main_loop_no_clear`.
+handoff jumps directly to `main_loop_top`, which does not clear
+the screen.
 
 ## Keyboard
 

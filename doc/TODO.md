@@ -782,8 +782,9 @@ Open bugs, roughly ordered by priority.
   - [x] ~~`return_to_userland` helper.~~  (in debugger.s; shares
     `_rtu_body` with `restore_userland_state`.)
   - [x] ~~`brk_stub` and clean userland exit.~~
-  - [x] ~~Cold-init userland handoff.~~  (splash stays on
-    `main_loop_no_clear` path.)
+  - [x] ~~Cold-init userland handoff.~~  (splash stays visible —
+    cold init `jmp`s directly to `main_loop_top` after drawing
+    the splash; main_loop_top does not clear the screen.)
   - [x] ~~`in_userland` flag.~~  ($80/0 convention for `bit/bmi`
     dispatch; owned by main.s.)
   - [x] ~~`setup_interrupts` — unified vector setup.~~  (direct

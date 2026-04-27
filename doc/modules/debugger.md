@@ -413,21 +413,13 @@ recovery — ESC/CLR is the user's binding for that.
 
 ### Cold-init handoff
 
-`brk_stub` is also the target of cold init's userland synthesis.
-At boot:
-
-1. Cold init does `setup_interrupts`, `dbg_init` (zeroes bp_table,
-   sets `reg_a/x/y/p` to a clean default).
-2. Splash drawn.
-3. Cold-init userland handoff (in main.s): synth RTI frame with PC
-   = `brk_stub`, sentinel below; RTI.
-4. CPU lands at brk_stub, BRK fires.
-5. `cse_brk_handler` classifies (PC-2 == brk_stub) → clean exit.
-6. Handler longjmps to `main_loop_no_clear`.
-7. REPL runs, splash visible.
-
-This shares cold-init's first-prompt code path with normal
-userland-recovery.  No separate "first prompt" routine.
+Cold init does *not* synthesise a BRK frame to enter the REPL.
+A BRK-into-kernel handoff was considered (it would have shared
+cold init's entry path with userland-recovery, classifying via
+`cse_brk_handler`) but rejected as unnecessary failure surface
+at startup.  See [main.md § Layer 1](main.md#layer-1-cse_cold_init-one-time-setup)
+for the actual sequence; in short, `_main` draws splash, captures
+`kernel_init_sp`, and `jmp`s directly to `main_loop_top`.
 
 ### Single-step: `t` (trace into) — handler-resident state machine
 

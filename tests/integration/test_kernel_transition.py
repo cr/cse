@@ -4,7 +4,7 @@ test_kernel_transition.py — Kernel/userland transition contract tests.
 Exercises the Phase-18 ISR-kernel model:
   - setup_interrupts wires all four vectors correctly
   - return_to_userland → BRK dispatches and captures user state
-  - Cold-init userland handoff lands at main_loop_no_clear
+  - Cold-init userland handoff lands at main_loop_top
   - NMI swallow in kernel mode; capture in userland mode
   - BRK in kernel mode routes to cse_recover
   - Step chaining runs inside the BRK handler (no SP creep)
@@ -165,9 +165,9 @@ class TestSetupInterrupts:
 # ── 2. Cold-init userland handoff ────────────────────────────────
 
 class TestColdInitHandoff:
-    def test_handoff_lands_at_main_loop_no_clear(self, emu):
+    def test_handoff_lands_at_main_loop_top(self, emu):
         """Cold init draws splash + prompt row, then jmps directly
-        into main_loop_no_clear (no synth-RTI-to-brk_stub handoff).
+        into main_loop_top (no synth-RTI-to-brk_stub handoff).
         After reaching main_loop_top, in_userland==0, dbg_reason==0."""
         _cold_init_to_prompt(emu)
         assert emu.memory[emu.sym("in_userland")] == 0

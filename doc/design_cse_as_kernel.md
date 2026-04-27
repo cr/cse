@@ -184,11 +184,13 @@ Status updated after corpus propagation (2026-04-17):
   entry where user's SP is below the budget.  Tracked in
   [TODO.md § Phase 18](TODO.md) as "Kernel stack-depth measurement"
   + "CSE re-entry stack-headroom warning."
-- **Cold init → warm-start shared path detail.** ✅ Resolved by
-  propagation: cold-init handoff RTIs to `brk_stub`, BRK fires,
-  handler classifies as clean exit, longjmps to
-  `main_loop_no_clear`.  See [modules/main.md](modules/main.md)
-  § Four-layer architecture.
+- **Cold init → warm-start shared path detail.** ✅ Resolved:
+  cold init draws splash, captures `kernel_init_sp`, and `jmp`s
+  directly to `main_loop_top`.  The originally-considered
+  BRK-into-kernel handoff (RTI to `brk_stub` → BRK → clean-exit
+  longjmp) was rejected as unnecessary failure surface at
+  startup.  See [modules/main.md](modules/main.md) § Four-layer
+  architecture.
 - **IRQ early-entry bank-out mechanism.** ✅ Resolved: stub in
   CODE; second RTI frame synthesised before `JMP $EA31` (kernal
   IRQ body); kernal's RTI lands at the bank-out stub which banks

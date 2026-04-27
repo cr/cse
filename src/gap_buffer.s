@@ -11,7 +11,7 @@
 ;   * `bp_table`-style BSS: ed_total_lines (line counter, bumped on
 ;     CR insert/delete), src_top / src_bot (buffer bounds for the
 ;     `i` info command).
-;   * gb_init / gb_ensure_init: cold-init + lazy-init entry points.
+;   * gb_init / ed_ensure_init: cold-init + lazy-init entry points.
 ;   * gb_insert / gb_backspace / gb_cursor_right / gb_cursor_left /
 ;     gb_home / gb_ensure_room: the six primitives that manipulate
 ;     the gap.
@@ -79,9 +79,10 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .segment "CODE"
 
 ; ── gb_init — reset gap-buffer state ──────────────────────────
-; Called by editor.s::ed_init at cold init and on ed_new / disk load.
-; editor.s handles the additional rendering-state reset (ed_cur_line,
-; ed_cur_col, ed_top_line) after calling back.
+; Pure leaf — no symbol-table contact.  Callers:
+;   * ed_ensure_init (cold init via main.s, lazy init elsewhere)
+;   * editor.s::ed_init (full reset on ed_new / disk load —
+;     publishes workend via update_workend afterwards).
 .proc gb_init
         lda #<BUF_END
         sta gap_lo
@@ -122,15 +123,11 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 @done:  rts
 .endproc
 
-; ══════════════════════════════════════════════════════════
-; Moved from editor.s 188..208  (define_ws_syms)
-; ══════════════════════════════════════════════════════════
 ; ── define_ws_syms — register both workspace symbols ─────────
 ; workstart = $0800 (fixed), workend = buf_base - 1 (dynamic).
 ; Called from main.s cold-init and asm_src.s::asm_assemble after
 ; sym_clear.  Falls through into update_workend for the workend
-; half — saves bytes vs. two independent procs.  Moved from mem.s
-; in Phase 21 Move 1 so mem.s can stay a zp-only leaf.
+; half — saves bytes vs. two independent procs.
 .proc define_ws_syms
         ; workstart ($0800, fixed)
         lda #<$0800
@@ -147,9 +144,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         ; fall through to update_workend for the dynamic half
 .endproc
 
-; ══════════════════════════════════════════════════════════
-; Moved from editor.s 210..228  (update_workend)
-; ══════════════════════════════════════════════════════════
 ; ── update_workend — redefine workend symbol from buf_base ────
 ; Called after any buf_base change (ed_init, gb_ensure_room) and
 ; also falls-into from define_ws_syms above.
@@ -170,9 +164,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         jmp sym_define         ; tail call
 .endproc
 
-; ══════════════════════════════════════════════════════════
-; Moved from editor.s 230..356  (gb_ensure_room)
-; ══════════════════════════════════════════════════════════
 ; ── gb_ensure_room — grow buffer if gap exhausted ─────────────
 ; Returns: C=1 ok, C=0 fail (out of memory)
 .proc gb_ensure_room
