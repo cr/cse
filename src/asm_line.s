@@ -45,6 +45,8 @@
         ; addr_mode.s interface
         .importzp asm_ptr, asm_opr
         .import   mode_parse, asm_skip_ws
+        .import   _au_no_acc            ; we set this before mode_parse
+        .import   _au_warn_shdw         ; we clear this at entry; mode_parse may set
 
         ; mnemonic classifier
         .importzp mn_c1, mn_c2, mn_c3
@@ -53,6 +55,7 @@
 
         ; opcode tables and helpers (opcode_lookup.s)
         .import   asm_validate_mode, asm_opcode_lookup
+        .import   mn_modes_lo           ; ACC-bit test for IMP→ACC promotion
 
         ; banking
         .import kernal_bank_out, kernal_bank_in
@@ -209,6 +212,7 @@ _asm_emit_base_opr:
 _asm_line_core:
         lda #0
         sta asm_len             ; initialise byte counter
+        sta _au_warn_shdw       ; clear stale shadow flag (defensive)
 
         ldy #0
         jsr _asm_skip_sp        ; Y = first non-space position
@@ -291,6 +295,17 @@ _asm_line_core:
         inc asm_pidx            ; 65C02 → upgrade to CMOS profile
 .endif ; CMOS_SUPPORT
 @no_upgrade:
+
+        ; ── ACC-vs-label disambiguation flag ──────────────────────────────────
+        ; Tell mode_parse whether the literal `A` operand is the ACC token
+        ; (profile accepts ACC → flag = 0) or a single-letter label
+        ; (profile rejects ACC → flag nonzero).  See
+        ; doc/modules/asm_line.md § ACC mode handling.
+        ldx asm_pidx
+        lda mn_modes_lo,x
+        and #$02                ; isolate MODE_ACC bit: $02 if accepted, $00 if not
+        eor #$02                ; invert: $00 if accepted, $02 if not
+        sta _au_no_acc
 
         ; ── reset Y=0 before zone dispatch ────────────────────────────────────
         ; mn7_classify clobbers Y (sets Y=mn_c2 for the hash table lookup).
@@ -404,6 +419,24 @@ _asm_line_core:
         jsr mode_parse
         sta asm_mode
 
+        ; ── IMP → ACC promotion for ACC-accepting profiles ────────────────
+        ; A bare mnemonic on an ACC-accepting profile (profile 11: ASL,
+        ; LSR, ROL, ROR; CMOS DEC, INC) means accumulator mode.  mode_parse
+        ; returns MODE_IMP for an empty operand; promote to MODE_ACC here
+        ; when the profile's mode set has the ACC bit.  Profiles that
+        ; reject ACC keep MODE_IMP and fall to validate_mode, which
+        ; rejects (the documented "bare implied is invalid for non-ACC
+        ; multi-mode" path).  See doc/modules/asm_line.md § ACC mode
+        ; handling.
+        cmp #0                  ; MODE_IMP = 0
+        bne @validate
+        ldx asm_pidx
+        lda mn_modes_lo,x
+        and #$02                ; MODE_ACC bit
+        beq @validate           ; profile rejects ACC → keep IMP
+        lda #MODE_ACC
+        sta asm_mode
+@validate:
         ; Validate mode against the effective profile's mode set.
         jsr asm_validate_mode
         bcc @mode_ok

@@ -50,10 +50,43 @@ sta screen
 beq .loop
 jmp (table)
 rol a
+rol                  ; same as `rol a` — bare form = ACC
 ```
 
 Standard 6502/65C02 mnemonics. Operands support the full expression
 syntax (labels, arithmetic, lo/hi byte operators, etc.).
+
+### Accumulator addressing — bare and explicit forms
+
+The six mnemonics ASL, LSR, ROL, ROR (always) and INC, DEC (CMOS
+only) accept accumulator mode in two equivalent forms:
+
+| Form | Example | Bytes |
+|------|---------|-------|
+| bare mnemonic | `asl` | $0A |
+| explicit `A` | `asl a` | $0A |
+
+For all *other* mnemonics, `A` in operand position is parsed as a
+one-character label.  This is what lets `jmp a`, `lda a`, `jsr a`,
+`bne a`, etc. resolve a defined symbol `a`.
+
+**Shadow rule.** If the user defines a label named `a` and then
+writes the explicit form `asl a` (or any of the six ACC-accepting
+mnemonics), accumulator mode wins — the symbol is *shadowed*.  The
+assembler emits `;!a shadow` once per occurrence, on pass 1.  To
+read or write memory at symbol `a` from one of these six mnemonics,
+use a different label name, or write the address explicitly:
+
+```
+a = $2000           ; defines label `a`
+asl a               ; ACC mode → $0A      (warning: ;!a shadow)
+asl a+0             ; address mode → $0E $00 $20  (no warning)
+asl $2000           ; address mode → $0E $00 $20
+```
+
+`X` and `Y` are not register tokens at the start of an operand —
+they only appear as the trailing index in `,X` / `,Y` forms — so
+labels named `x` or `y` are unambiguous and never shadowed.
 
 ## Expressions
 

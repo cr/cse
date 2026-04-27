@@ -445,3 +445,315 @@ class TestRegShadows:
 # principle:
 #   - TestAsmValidateMode  → tests/unit/test_opcode_lookup.py
 #   - TestAsmSkipWs        → tests/unit/test_addr_mode.py
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# ACC vs label disambiguation (addr_mode.md § ACC vs label disambiguation,
+# asm_line.md § ACC mode handling)
+# ═════════════════════════════════════════════════════════════════════════
+#
+# Six mnemonics accept ACC mode (profile 11): ASL, LSR, ROL, ROR (always);
+# INC, DEC (CMOS only).  Per the contract:
+#
+#   - bare mnemonic         → ACC opcode (IMP→ACC promotion in zone G/H)
+#   - explicit `<mne> A`    → ACC opcode (mode_parse SC_A path)
+#   - `<mne> A` with `A` defined → ACC opcode + shadow flag set
+#   - non-ACC profile + `A` → label resolution (the original bug class)
+#
+# These four cells together pin Principle 11's matrix for the ambiguity.
+
+
+# ── helpers for the new test classes ──────────────────────────────────────
+
+_NAME_BUF = 0x3500   # scratch buffer for symbol names (above _IN_BUF)
+
+
+def _define_sym(asm_syms, mem, mpu, name, value, wide):
+    """Define one symbol via sym_define.  Caller must have already cleared
+    the table (sym_clear) at least once before the first call."""
+    from conftest import push_rts_sentinel, step_until_pc
+    enc = name.encode('ascii') + b'\x00'  # ASCII upper = PETSCII upper
+    for i, b in enumerate(enc):
+        mem[_NAME_BUF + i] = b
+    mem[asm_syms.sym_name]     = _NAME_BUF & 0xFF
+    mem[asm_syms.sym_name + 1] = (_NAME_BUF >> 8) & 0xFF
+    mem[asm_syms.sym_val]      = value & 0xFF
+    mem[asm_syms.sym_val + 1]  = (value >> 8) & 0xFF
+    mem[asm_syms.sym_wide]     = wide
+    push_rts_sentinel(mpu, sentinel=0xFFFE)
+    mpu.pc = asm_syms.sym_define
+    step_until_pc(mpu, 0xFFFE, max_steps=_MAX_STEPS, what=f"define {name}")
+
+
+def _clear_syms(asm_syms, mem, mpu):
+    from conftest import push_rts_sentinel, step_until_pc
+    push_rts_sentinel(mpu, sentinel=0xFFFE)
+    mpu.pc = asm_syms.sym_clear
+    step_until_pc(mpu, 0xFFFE, max_steps=_MAX_STEPS, what="sym_clear")
+
+
+def _run_with_pass(asm_syms, source, asm_cpu=2, asm_pass=1, syms=None):
+    """Variant of _run that lets a test set asm_pass and pre-define symbols.
+
+    Returns (output_bytes, warn_shdw_flag) so callers can assert both the
+    emitted bytes and whether the label-shadow warning was set.
+    """
+    from conftest import make_cpu, push_rts_sentinel, step_until_pc
+
+    cpu, mem = make_cpu(asm_syms)
+
+    # Symbols, if requested.  sym_clear must run BEFORE asm_pass is set —
+    # sym_clear writes to ZP/heap, unaffected by asm_pass; the pass byte
+    # is only consulted by mode_parse.
+    if syms:
+        _clear_syms(asm_syms, mem, cpu)
+        for name, (value, wide) in syms.items():
+            _define_sym(asm_syms, mem, cpu, name, value, wide)
+
+    mem[asm_syms.asm_pass]    = asm_pass
+    mem[asm_syms._au_warn_shdw] = 0   # clear any leftover from setup
+
+    for i, b in enumerate(_sc(source)):
+        mem[_IN_BUF + i] = b
+    mem[asm_syms.asm_ptr]     = _IN_BUF & 0xFF
+    mem[asm_syms.asm_ptr + 1] = (_IN_BUF >> 8) & 0xFF
+
+    mem[asm_syms.asm_pc]      = _TEST_PC & 0xFF
+    mem[asm_syms.asm_pc + 1]  = (_TEST_PC >> 8) & 0xFF
+    mem[asm_syms.asm_out]     = _OUT_BUF & 0xFF
+    mem[asm_syms.asm_out + 1] = (_OUT_BUF >> 8) & 0xFF
+    mem[asm_syms.asm_cpu]     = asm_cpu
+
+    sentinel = push_rts_sentinel(cpu, sentinel=0xFFFF)
+    mem[asm_syms._asm_saved_sp] = cpu.sp
+
+    cpu.pc = asm_syms._asm_line_core
+    cpu.y  = 0
+    step_until_pc(cpu, sentinel, max_steps=_MAX_STEPS, what=repr(source))
+
+    n = mem[asm_syms.asm_len]
+    if n == 0:
+        raise AssertionError(f"asm_error reached while assembling {source!r}")
+    return (bytes(mem[_OUT_BUF : _OUT_BUF + n]),
+            mem[asm_syms._au_warn_shdw])
+
+
+class TestAccBareForm:
+    """Bare mnemonic = ACC for ACC-accepting profiles (profile 11).
+
+    The IMP→ACC promotion in asm_line zone G/H produces the same opcode
+    as the explicit `<mne> A` form.  Today (before the fix) bare forms
+    fail with `;?bad insn` because mode_parse returns IMP and validate
+    rejects (IMP not in profile 11's mode set).
+    """
+
+    # (source, expected_bytes, asm_cpu)
+    NMOS_BARE_CASES = [
+        ("ASL", bytes([0x0A]), 2),
+        ("LSR", bytes([0x4A]), 2),
+        ("ROL", bytes([0x2A]), 2),
+        ("ROR", bytes([0x6A]), 2),
+    ]
+    CMOS_BARE_CASES = [
+        ("INC", bytes([0x1A]), 2),
+        ("DEC", bytes([0x3A]), 2),
+    ]
+
+    @pytest.mark.parametrize("source,expected,asm_cpu", NMOS_BARE_CASES,
+                             ids=[c[0] for c in NMOS_BARE_CASES])
+    def test_bare_nmos_shifts(self, asm_syms, source, expected, asm_cpu):
+        got, _warn = _run_with_pass(asm_syms, source, asm_cpu=asm_cpu)
+        assert got == expected
+
+    @pytest.mark.parametrize("source,expected,asm_cpu", CMOS_BARE_CASES,
+                             ids=[c[0] for c in CMOS_BARE_CASES])
+    def test_bare_cmos_inc_dec(self, asm_syms, source, expected, asm_cpu):
+        """CMOS-only bare INC/DEC promote to ACC.  On NMOS, the same
+        bare forms must error (profile 10's mode set has no ACC and no
+        IMP) — covered by `test_bare_inc_dec_rejected_on_nmos` below."""
+        got, _warn = _run_with_pass(asm_syms, source, asm_cpu=asm_cpu)
+        assert got == expected
+
+    def test_bare_inc_dec_rejected_on_nmos(self, asm_syms):
+        """Bare INC / DEC on asm_cpu < 2 (NMOS): profile 10 has neither
+        IMP nor ACC, so the IMP→ACC promotion's mode-bit check fails
+        and validate_mode then rejects.  This is the documented
+        cmos-only nature of bare INC/DEC."""
+        for source in ("INC", "DEC"):
+            with pytest.raises(AssertionError):
+                _run_with_pass(asm_syms, source, asm_cpu=0)
+
+
+class TestSingleLetterLabelResolution:
+    """Non-ACC profiles must accept single-letter `A` as a label.
+
+    Before the fix: mode_parse classified bare `A` as MODE_ACC
+    unconditionally; profiles that don't accept ACC (JMP, JSR, LDA,
+    branches, …) then errored with `;?bad insn` even when the symbol
+    `A` was defined.  This class is the original-bug regression
+    witness for `a: jmp a` and the broader matrix of
+    `<non-acc-mne> A`.
+    """
+
+    # (source, expected_bytes, asm_cpu)
+    # Symbol A defined as $0042 (ZP) and B as $1234 (ABS) below.
+    LABEL_CASES_ZP_A = [
+        ("LDA A",       bytes([0xA5, 0x42]), 2),    # ZP load
+        ("STA A",       bytes([0x85, 0x42]), 2),    # ZP store
+        ("BIT A",       bytes([0x24, 0x42]), 2),    # BIT zp
+        ("CMP A",       bytes([0xC5, 0x42]), 2),    # CMP zp
+    ]
+    LABEL_CASES_ABS_B = [
+        ("JMP B",       bytes([0x4C, 0x34, 0x12]), 2),
+        ("JSR B",       bytes([0x20, 0x34, 0x12]), 2),
+        ("LDA B",       bytes([0xAD, 0x34, 0x12]), 2),
+        ("STA B",       bytes([0x8D, 0x34, 0x12]), 2),
+    ]
+
+    @pytest.mark.parametrize("source,expected,asm_cpu", LABEL_CASES_ZP_A,
+                             ids=[c[0] for c in LABEL_CASES_ZP_A])
+    def test_zp_label_a(self, asm_syms, source, expected, asm_cpu):
+        """`<non-acc-mne> A` resolves the symbol `A` at $0042 (ZP)."""
+        syms = {"A": (0x0042, 0)}    # wide=0 → ZP-eligible
+        got, _warn = _run_with_pass(asm_syms, source, asm_cpu=asm_cpu, syms=syms)
+        assert got == expected
+
+    @pytest.mark.parametrize("source,expected,asm_cpu", LABEL_CASES_ABS_B,
+                             ids=[c[0] for c in LABEL_CASES_ABS_B])
+    def test_abs_label_b(self, asm_syms, source, expected, asm_cpu):
+        """`<non-acc-mne> B` resolves the symbol `B` at $1234 (ABS)."""
+        syms = {"B": (0x1234, 1)}    # wide=1 → ABS
+        got, _warn = _run_with_pass(asm_syms, source, asm_cpu=asm_cpu, syms=syms)
+        assert got == expected
+
+    def test_jmp_a_undefined_errors(self, asm_syms):
+        """`JMP A` with no symbol defined → expr-undef error on pass 1.
+        (Pass 0 substitutes asm_pc+2 for sizing per addr_mode.md §
+        Forward-reference handling.)"""
+        with pytest.raises(AssertionError):
+            _run_with_pass(asm_syms, "JMP A", asm_cpu=2, asm_pass=1)
+
+
+class TestAccLabelShadow:
+    """When the explicit `<acc-mne> A` form runs against a defined
+    label `A`, accumulator mode wins (textual disambiguation per the
+    contract — see addr_mode.md § ACC vs label disambiguation).
+
+    mode_parse sets `_au_warn_shdw = 1` on pass 1 so the calling
+    layer (asm_src.s in production) can emit `;!a shadow`.  These
+    tests pin both the opcode (ACC) and the warning flag.
+    """
+
+    def test_asl_a_acc_wins_with_warning(self, asm_syms):
+        syms = {"A": (0x1234, 1)}
+        got, warn = _run_with_pass(asm_syms, "ASL A", asm_cpu=2, syms=syms)
+        assert got == bytes([0x0A]), "ACC must win over the defined label"
+        assert warn == 1, "shadow warning flag must be set"
+
+    def test_lsr_a_shadow(self, asm_syms):
+        syms = {"A": (0x0042, 0)}
+        got, warn = _run_with_pass(asm_syms, "LSR A", asm_cpu=2, syms=syms)
+        assert got == bytes([0x4A])
+        assert warn == 1
+
+    def test_no_shadow_when_undefined(self, asm_syms):
+        """`ASL A` with no symbol `A` defined: ACC wins (same opcode),
+        no warning."""
+        got, warn = _run_with_pass(asm_syms, "ASL A", asm_cpu=2)
+        assert got == bytes([0x0A])
+        assert warn == 0
+
+    def test_no_shadow_for_bare_form(self, asm_syms):
+        """Bare `ASL` doesn't even consult symtab — the SC_A path is
+        not entered.  No warning regardless of symbol definition."""
+        syms = {"A": (0x1234, 1)}
+        got, warn = _run_with_pass(asm_syms, "ASL", asm_cpu=2, syms=syms)
+        assert got == bytes([0x0A])
+        assert warn == 0
+
+    def test_no_shadow_when_explicit_address(self, asm_syms):
+        """`ASL $42` is unambiguous memory mode — no SC_A path, no
+        warning, even if symbol `A` happens to be defined."""
+        syms = {"A": (0x1234, 1)}
+        got, warn = _run_with_pass(asm_syms, "ASL $42", asm_cpu=2, syms=syms)
+        assert got == bytes([0x06, 0x42])
+        assert warn == 0
+
+    def test_pass_0_suppresses_warning(self, asm_syms):
+        """Pass 0 (sizing) must not set the warning flag — the source
+        assembler runs two passes; we want exactly one warning per
+        shadow site, emitted on pass 1."""
+        syms = {"A": (0x1234, 1)}
+        got, warn = _run_with_pass(asm_syms, "ASL A", asm_cpu=2,
+                                   asm_pass=0, syms=syms)
+        assert got == bytes([0x0A])
+        assert warn == 0, "pass-0 must not set shadow flag"
+
+    def test_two_letter_label_no_shadow(self, asm_syms):
+        """`ASL AB` is a label parse, not the SC_A peek-ahead — never
+        triggers the shadow path."""
+        syms = {"AB": (0x0050, 0)}
+        got, warn = _run_with_pass(asm_syms, "ASL AB", asm_cpu=2, syms=syms)
+        assert got == bytes([0x06, 0x50])
+        assert warn == 0
+
+
+class TestNoAccFlagSetByAsmLine:
+    """asm_line.s writes `_au_no_acc` based on profile before
+    mode_parse; mode_parse reads the flag in its SC_A branch.
+
+    These tests exercise that handshake by leaving a "poison" value
+    in `_au_no_acc` before the call and asserting asm_line overwrites
+    it correctly.  This is what makes single-letter labels work for
+    non-ACC profiles: the flag arrives nonzero so mode_parse falls
+    through to label parse.
+    """
+
+    def test_flag_nonzero_for_non_acc_profile(self, asm_syms):
+        """After assembling a non-ACC instruction, `_au_no_acc`
+        should be nonzero (set by asm_line based on profile)."""
+        from conftest import make_cpu, push_rts_sentinel, step_until_pc
+        cpu, mem = make_cpu(asm_syms)
+        for i, b in enumerate(_sc("LDA #$00")):
+            mem[_IN_BUF + i] = b
+        mem[asm_syms.asm_ptr]     = _IN_BUF & 0xFF
+        mem[asm_syms.asm_ptr + 1] = (_IN_BUF >> 8) & 0xFF
+        mem[asm_syms.asm_pc]      = 0
+        mem[asm_syms.asm_pc + 1]  = 0
+        mem[asm_syms.asm_out]     = _OUT_BUF & 0xFF
+        mem[asm_syms.asm_out + 1] = (_OUT_BUF >> 8) & 0xFF
+        mem[asm_syms.asm_cpu]     = 2
+        mem[asm_syms._au_no_acc]  = 0   # poison
+        sentinel = push_rts_sentinel(cpu, sentinel=0xFFFF)
+        mem[asm_syms._asm_saved_sp] = cpu.sp
+        cpu.pc = asm_syms._asm_line_core
+        cpu.y  = 0
+        step_until_pc(cpu, sentinel, max_steps=_MAX_STEPS, what="LDA #$00")
+        # LDA profile (6) does not include ACC → flag must be nonzero
+        assert mem[asm_syms._au_no_acc] != 0, \
+            f"_au_no_acc=${mem[asm_syms._au_no_acc]:02X}; " \
+            f"expected nonzero for LDA (profile 6, no ACC bit)"
+
+    def test_flag_zero_for_acc_profile(self, asm_syms):
+        """After assembling an ASL (profile 11), `_au_no_acc` should
+        be zero — the profile accepts ACC."""
+        from conftest import make_cpu, push_rts_sentinel, step_until_pc
+        cpu, mem = make_cpu(asm_syms)
+        for i, b in enumerate(_sc("ASL $42")):
+            mem[_IN_BUF + i] = b
+        mem[asm_syms.asm_ptr]     = _IN_BUF & 0xFF
+        mem[asm_syms.asm_ptr + 1] = (_IN_BUF >> 8) & 0xFF
+        mem[asm_syms.asm_pc]      = 0
+        mem[asm_syms.asm_pc + 1]  = 0
+        mem[asm_syms.asm_out]     = _OUT_BUF & 0xFF
+        mem[asm_syms.asm_out + 1] = (_OUT_BUF >> 8) & 0xFF
+        mem[asm_syms.asm_cpu]     = 2
+        mem[asm_syms._au_no_acc]  = 0xFF   # poison
+        sentinel = push_rts_sentinel(cpu, sentinel=0xFFFF)
+        mem[asm_syms._asm_saved_sp] = cpu.sp
+        cpu.pc = asm_syms._asm_line_core
+        cpu.y  = 0
+        step_until_pc(cpu, sentinel, max_steps=_MAX_STEPS, what="ASL $42")
+        assert mem[asm_syms._au_no_acc] == 0, \
+            f"_au_no_acc=${mem[asm_syms._au_no_acc]:02X}; " \
+            f"expected 0 for ASL (profile 11, has ACC bit)"

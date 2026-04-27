@@ -63,10 +63,13 @@ used to live here; as of Phase 18 they are owned by `mem.s`
 alongside the `save_userland_zp` / `restore_userland_zp` /
 `save_kernel_zp` / `restore_kernel_zp` primitives.)
 
-**Depends on:** addr_mode (mode_parse, asm_skip_ws), opcode_lookup
-(asm_opcode_lookup), mn_classify (mn_base_op, mn_profile), asm_err
+**Depends on:** addr_mode (mode_parse, asm_skip_ws, _au_no_acc,
+_au_warn_shdw), opcode_lookup (asm_opcode_lookup), mn_classify
+(mn_base_op, mn_profile), mn_modes (mn_modes_lo — for the ACC-bit
+test that drives _au_no_acc and the IMP→ACC promotion), asm_err
 (asm_syntax_error / asm_expr_error / asm_expr_err / _asm_saved_sp),
-mem (kernal_bank_out / kernal_bank_in), zp
+log (log_warn — for the shadow warning), mem (kernal_bank_out /
+kernal_bank_in), zp
 
 ## Build-time variants
 
@@ -136,6 +139,48 @@ determines which zone handles assembly.  30 profiles mapped to 8 zones:
 Zones A–F handle fixed single-mode instructions inline.  Zones G and H
 call `mode_parse` to determine the addressing mode, then
 `asm_opcode_lookup` to compute the opcode byte.
+
+### ACC mode handling
+
+Six mnemonics accept the accumulator addressing mode: ASL, LSR, ROL,
+ROR (always); INC, DEC (CMOS only).  All six map to operand profile
+11 with the mode set `{ACC, ZP, ABS, ZPX, ABX}`.  Both syntactic
+forms produce the ACC opcode:
+
+- **Bare** (`ASL`) — mode_parse returns MODE_IMP for an empty operand;
+  asm_line's zone G/H entry promotes IMP → ACC when `mn_modes_lo[asm_pidx]`
+  has the ACC bit set.  Profiles that don't accept ACC keep MODE_IMP
+  (validate_mode then rejects, producing `;?bad insn`).
+- **Explicit** (`ASL A`) — mode_parse returns MODE_ACC directly via
+  the SC_A path, gated on `_au_no_acc = 0`.
+
+asm_line writes `_au_no_acc` once per instruction, before any
+`mode_parse` call:
+
+```
+_au_no_acc = (mn_modes_lo[asm_pidx] & MODE_ACC_BIT) ? 0 : nonzero
+```
+
+When the profile rejects ACC, `_au_no_acc` is nonzero and the SC_A
+path in mode_parse falls through to label resolution.  This is what
+lets `JMP A`, `LDA A`, `JSR A`, `BNE A`, etc. resolve a defined
+single-letter symbol `A` instead of failing with `;?bad insn`.
+
+### Label-shadow warning
+
+When mode_parse takes the explicit-`A` path on pass 1 and a symbol
+named `A` is defined, mode_parse sets `_au_warn_shdw = 1`.  asm_line
+checks the flag immediately after `mode_parse` returns; if set, it
+emits `;!a shadow` via `log_warn` and clears the flag.  The warning
+is emitted exactly once per shadow site (pass-0 detections are
+suppressed in mode_parse itself).
+
+The contract this surfaces: when the user writes `ASL A` against a
+defined label `A`, accumulator mode wins.  The user must use a
+different name or write the address explicitly to access symbol
+`A` from one of the six ACC-accepting mnemonics.  See
+[addr_mode.md § ACC vs label disambiguation](addr_mode.md#acc-vs-label-disambiguation)
+for the full matrix.
 
 **Error handling:** On any error, `jmp asm_error` (in asm_err.s)
 restores the 6502 SP from `_asm_saved_sp` and returns 0 to the

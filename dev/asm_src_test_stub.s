@@ -32,6 +32,7 @@
         .export newline
         .export log_open
         .export log_close
+        .export log_warn                        ; no-op stub (log.s not linked)
         .export seg_line                        ; no-op stub (log.s not linked)
         ; rp_addr, rp_cnt, rp_save2 now in zp.s (Phase 21.1 Move 3B)
         .export puts_imm
@@ -165,6 +166,7 @@ io_clear_eol:
 newline:
 log_open:
 log_close:
+log_warn:
 seg_line:
 define_ws_syms:
         rts

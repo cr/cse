@@ -180,6 +180,72 @@ out of class.*
 there are mechanical fixes; this header just acknowledges they
 belong in the same taxonomy.*
 
+### Phase 24 retrospective — amendment candidates (2026-04-27)
+
+*Findings from the Phase-24 session retrospective (cold-init bug
+fix + warm/cold init survey).  These are candidates for a future
+DDD Review round; not yet triaged into Tier A / B / C.*
+
+- [ ] **Optimization survey checklist: fall-through opportunities
+  across reorderable proc boundaries.**  The Phase-24 init survey
+  initially missed the warmstart fall-through (`cse_refresh` →
+  `main_loop_top`) on the first pass and only caught it after the
+  user prompted for a second look.  Candidate addition to
+  [doc/optimization.md](optimization.md): when surveying a code
+  region, explicitly list adjacent procs whose reorder would
+  enable a `jmp foo` → fall-through conversion (saves 3 B per
+  collapsed jump).  Likely **Tier A** (universal optimization
+  technique, applies to any assembly project).
+
+- [ ] **DDD Maintenance: flag stale "Moved from …" historical
+  headers after a time threshold.**  Phase-24 retired three
+  "Moved from editor.s 188..208 / 210..228 / 230..356" comment
+  blocks in `gap_buffer.s` that had outlived their refactor
+  context (placed during the gap-buffer extraction, no longer
+  load-bearing).  Candidate addition to README.md § DDD
+  Maintenance: "historical-marker comments" as a recurring sweep
+  category — grep for `Moved from`, `Extracted from`, `was
+  formerly`, etc.; retire any older than N phases.  Likely
+  **Tier A** (universal — every refactored codebase accumulates
+  these).
+
+- [ ] **TDD principle: probe assumptions before encoding them in
+  tests.**  Phase-24 hit three test-bugs in succession from
+  unverified assumptions: (a) PETSCII vs screencode encoding for
+  `"workend"` ($57 vs $17); (b) `WORKSTART` value (0x07FF vs
+  0x0800 = TXTTAB-1); (c) `cse_start` / `cse_zp_end` treated as
+  byte-valued symbols when they're routine entry points.  Each
+  cost a red-bar cycle.  Candidate addition to testing.md as a
+  new principle: *Probe before you pin.*  When a test asserts a
+  numeric value derived from a memory map, encoding, or symbol
+  semantic, prove the value with a one-liner probe (read the
+  PRG, jsr the routine and read A) before hardcoding it.
+  Cautionary example: Phase-24 cold-init tests.  Likely
+  **Tier B** (domain-class: low-level systems with multiple
+  encoding/layout layers; less relevant to high-level apps).
+
+- [ ] **DDD pattern: pre-draft Escape-Analysis principles inside
+  the bug entry.**  The Phase-24 bug entry's Phase-4 section
+  contained pre-drafted text for testing.md Principles 16/17/18
+  before they were promoted.  Step-5 transcription was trivial —
+  the principles were already publication-quality by the time the
+  fix landed.  Candidate addition to README.md § Escape Analysis
+  step 5: *if the bug entry already pre-drafted candidate
+  principles, the sweep promotes those drafts directly; resist
+  re-deriving them from scratch.*  Likely **Tier A** (universal
+  DDD discipline — applies to any project under DDD).
+
+- [ ] **DDD Method: build-cache awareness for tests targeting
+  debug builds.**  Phase-24 lost a debugging cycle to a stale
+  debug PRG: `make` rebuilt only release variants, leaving the
+  debug PRG (which `cse_prg` fixture uses) at the pre-fix
+  binary.  Candidate addition to build_system.md or testing.md:
+  when a fix targets behaviour observable only under debug
+  symbols, run `make debug` (or equivalent) explicitly before
+  running the test suite — `make` alone is not sufficient.
+  Likely **Tier C** (CSE-specific: depends on this project's
+  build target layout).
+
 ## Bugs
 
 Open bugs, roughly ordered by priority.
@@ -691,22 +757,66 @@ Open bugs, roughly ordered by priority.
   because `.org` lives in source code and is easy to typo into
   CSE-shadow ranges without realising.
 
-- [ ] **BUG** Assembler: `jsr a` reports "bad insn" but segment
-  output still follows (seems to complete the assembly run?).
-  Switching to `jsr ax` or `jsr aa` works.  Unclear whether
-  single-letter label `a` is being rejected at mnemonic-classify
-  time (short labels colliding with instruction-prefix disambiguation),
-  at expr-parse time (one-letter labels are valid — e.g. `.const
-  a $1000` — so this would be a regression), or somewhere in
-  addressing-mode parsing.  The "segment output still follows"
-  detail suggests the error is raised but not fatal — the source
-  assembler's error recovery may allow the bad line through.
-  Reproduce: assemble a source with `.const a $1000` then
-  `jsr a` on another line.  Investigation: compare the parse path
-  for `a` (single letter) vs `aa` / `ax` (two-letter labels) in
-  `au_mode.s` / `asm_line.s` — suspect the branch that checks
-  "label? or addressing-mode character (A/X/Y)?" is biased toward
-  addressing mode for the single letter `a`.
+- [x] ~~**★ MUST — BUG** Assembler: single-letter label resolution
+  fails as an instruction operand, reporting "bad insn".~~  (Phase 25
+  fix.)  Root cause: `mode_parse` had a fixed peek-ahead at the
+  SC_A character that classified bare `A` as MODE_ACC unconditionally,
+  even for mnemonics whose profile rejects ACC (JMP, JSR, LDA, BNE,
+  …).  `asm_validate_mode` then errored with `;?bad insn` and the
+  defined label `A` was never consulted.  The expression calculator
+  worked because it never goes through this peek-ahead — it calls
+  `expr_eval` directly.  Resolved by:
+  - **`addr_mode.s`** — new `_au_no_acc` BSS flag.  The SC_A path
+    is gated on it: profile rejects ACC → `A` falls through to
+    label parse.
+  - **`asm_line.s`** — sets `_au_no_acc` once per instruction from
+    `mn_modes_lo[asm_pidx] & MODE_ACC_BIT`, before zone dispatch.
+    Adds an IMP→ACC promotion in zone G/H so bare `ASL` / `LSR` /
+    `ROL` / `ROR` (and CMOS bare `INC` / `DEC`) emit the ACC opcode
+    without requiring the explicit `A` form.
+  - **Shadow warning** — when the user defines `A:` and writes the
+    explicit `<acc-mne> A` form, ACC wins (the contract is
+    pass-invariant; cannot depend on transient symtab state).
+    `mode_parse` sets `_au_warn_shdw=1` on pass 1 if `sym_lookup("A")`
+    succeeds; `asm_src.s::process_line` reads-and-clears the flag
+    after each `asm_line` call and emits `;!a shadow`.
+  - **Tests** — four new classes in `test_asm_line.py`
+    (TestAccBareForm, TestSingleLetterLabelResolution,
+    TestAccLabelShadow, TestNoAccFlagSetByAsmLine) — 25 cases
+    pinning the matrix.
+  - **Docs** — addr_mode.md § ACC vs label disambiguation,
+    asm_line.md § ACC mode handling, asm_src.md (warning emit
+    contract), assembler_syntax.md § Accumulator addressing —
+    bare and explicit forms (user-facing rule + shadow example).
+  - **Cost:** +97 B per production variant (6510/6502/cmos), 2 BSS,
+    2 RODATA bytes for `"A\0"` probe + `"a shadow"` string.
+  - **Test suite:** 3085 passed / 18 skipped (was 3057 / 18).
+
+- [ ] **Follow-up — `.` REPL command does not emit the ACC label-
+  shadow warning.**  The `.` command's `dot_assemble` (in repl.s)
+  pre-evaluates expressions via `expr_eval` *before* calling
+  `asm_line` and rebuilds the operand as a `$xxxx` literal, so
+  `mode_parse` never sees the bare `A` token and the
+  `_au_warn_shdw` path is never entered.  Asymmetric with source
+  assembly, which does emit the warning.  Net effect: a user
+  typing `.asl a` against a defined `a:` gets the labelled
+  memory address (because `expr_eval` resolves `a` first), with
+  no warning.  Source-assembly users get accumulator mode + the
+  warning.  Resolution options: (a) Make `dot_assemble` skip the
+  pre-eval for bare-`A` operands when the mnemonic is in
+  profile 11 — small special case; (b) move the entire pre-eval
+  out of `dot_assemble` and let `asm_line`'s expression-aware
+  pipeline handle everything (larger change, also closes other
+  asymmetries).  Low priority: the `.` command shows immediate
+  output, so the user sees what was assembled and can correct.
+
+- [ ] **Follow-up — `_au_warn_shdw` stale-flag clear could be
+  shared with `asm_len` init.**  `_asm_line_core` now does
+  `lda #0 / sta asm_len / sta _au_warn_shdw` at entry (3 byte
+  saving over two separate stores).  If a future shrink pass
+  generalises this pattern, candidates for similar pairing
+  exist in `mode_parse` (clears asm_opr) and the IMP→ACC
+  promotion path.  Cosmetic optimisation, not a bug.
 - [x] ~~**BUG**: `. .` is accepted as a valid dot-assemble source~~
   (fixed via Escape Analysis c8501d2: the actual symptom was
   "silent no-op" not "emits $00" — the cmd_dot @try_mne gate in

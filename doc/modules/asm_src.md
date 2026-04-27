@@ -55,10 +55,11 @@ Suppressed when no segments were emitted (`_min_pc` == $FFFF).
   to match the inclusive-end convention used by the `s` command
   and by `; org AAAA-BBBB` segment lines.
 
-**Depends on:** asm_line, expr, symtab (sym_define, sym_clear),
-editor (ed_read_line, ed_read_rewind, buf_base), log (log_open,
-log_close, puts_imm, log_line, seg_line), asm_err (asm_pass,
-asm_expr_err), mem, cse_io, strings, zp
+**Depends on:** asm_line, addr_mode (_au_warn_shdw — read after
+each asm_line call to surface label-shadow warnings), expr, symtab
+(sym_define, sym_clear), editor (ed_read_line, ed_read_rewind,
+buf_base), log (log_open, log_close, log_warn, puts_imm, log_line,
+seg_line), asm_err (asm_pass, asm_expr_err), mem, cse_io, strings, zp
 
 Phase 21 Move 3 + Phase 21.1 Moves 3B and 6a collapsed every
 formerly-present asm_src→repl edge:
@@ -91,6 +92,13 @@ Two passes over the editor source:
 - Same scan as pass 0 but `asm_line` writes bytes to memory.
 - Undefined symbols → error.  `emit_error` increments `_asm_errors`.
 - Directives emit data directly (not via `asm_line`).
+- Label-shadow warning: after each successful `asm_line` call,
+  `process_line` reads `_au_warn_shdw` (set by `addr_mode.s::mode_parse`
+  on pass 1 when `<acc-mne> A` was assembled while symbol `A` was
+  defined), emits `;!a shadow` via `log_warn`, and clears the flag.
+  Suppressed during pass 0 in `mode_parse` itself, so each shadow
+  site produces exactly one warning.  See
+  [addr_mode.md § ACC vs label disambiguation](addr_mode.md#acc-vs-label-disambiguation).
 
 **KERNAL banking:** `asm_assemble` holds the KERNAL banked out
 across both passes.  Inside the batch, `asm_line`'s own

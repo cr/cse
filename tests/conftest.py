@@ -348,6 +348,11 @@ class AsmCoreSymbols:
         # addr_mode.s extra entry point for isolated testing
         self.asm_skip_ws      = s["asm_skip_ws"]
 
+        # addr_mode.s ACC-vs-label disambiguation flags (BSS).  See
+        # addr_mode.md § ACC vs label disambiguation.
+        self._au_no_acc       = s["_au_no_acc"]
+        self._au_warn_shdw    = s["_au_warn_shdw"]
+
         raw = _AC_BIN[config].read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]

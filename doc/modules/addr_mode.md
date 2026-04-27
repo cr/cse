@@ -41,8 +41,16 @@ test would re-exercise the same bytes through a thinner harness.
 **ZP (4 bytes):** `asm_ptr` (2), `asm_opr` (2).
 Also uses `expr_ptr`, `expr_val`, `expr_wide` (defined in zp.s).
 
+**BSS (2 bytes):**
+
+| Variable | Size | Purpose |
+|----------|------|---------|
+| `_au_no_acc` | 1 | Caller signal: 0 = ACC syntax allowed, nonzero = the literal `A` operand must be parsed as a label.  Written by `asm_line.s` per profile.  Read by mode_parse's SC_A branch. |
+| `_au_warn_shdw` | 1 | Set to 1 by mode_parse when an explicit `A` operand was parsed as ACC AND a symbol named `A` is defined.  asm_line consumes the flag (emits `;!a shadow` and clears it).  Pass-1 only — pass 0 leaves it untouched. |
+
 **Depends on:** expr (expr_eval_nb), asm_err (asm_syntax_error,
-asm_expr_error, asm_pass), zp
+asm_expr_error, asm_pass), symtab (sym_lookup — for shadow detection),
+zp
 
 ## Design
 
@@ -76,6 +84,36 @@ narrow (0) → ZP modes, wide (1) → ABS modes.
 Character constants for PETSCII: A=$41, X=$58, Y=$59, #=$23,
 $=$24, (=$28, )=$29, ,=$2C.
 
+### ACC vs label disambiguation
+
+The single-character operand `A` is genuinely ambiguous between the
+ACC addressing mode and a one-character label named `A`.  mode_parse
+resolves this from a single signal — `_au_no_acc` — written by the
+caller (asm_line) before the call:
+
+|  | `_au_no_acc = 0` (profile accepts ACC) | `_au_no_acc ≠ 0` (profile rejects ACC) |
+|---|---|---|
+| operand exactly `A` followed by end-of-expr | **MODE_ACC** — `A` shadows any defined symbol of the same name; mode_parse sets `_au_warn_shdw = 1` if `sym_lookup("A")` succeeds on pass 1 | label parse via `_au_read_val` |
+| operand `A` + ident chars (`AB`, `AX`, …) | label parse | label parse |
+| empty / pure whitespace | MODE_IMP (asm_line promotes to MODE_ACC for ACC-accepting profiles — see [asm_line.md](asm_line.md)) | MODE_IMP |
+| anything else (`#`, `(`, digit, `$`, `*`, …) | normal parse | normal parse |
+
+The decision is **purely textual + caller-flag-based**.  It does not
+consult symtab to *change* the parse choice — only to detect the
+shadow case for the warning.  Pass 0 sees identical bytes for `A`
+as ACC vs `A` as label-with-undef-symbol (both 1 byte: ACC is 1, the
+ABS sizing fallback is 2; ACC always wins for ACC-accepting profiles
+regardless of symbol state).  This is a deliberate choice: the
+parse must be invariant across passes, and "is `A` a defined symbol
+*right now*?" is not — symbols can be defined later in the source.
+
+The shadow rule means a user who defines `A:` somewhere and then
+writes `ASL A` gets accumulator mode, *not* a memory access to the
+labelled location.  asm_line emits `;!a shadow` once on pass 1 to
+flag this.  Use a different label name or write the address
+explicitly (`ASL <expr>`) to address symbol `A` from one of the
+six ACC-accepting mnemonics (ASL/LSR/ROL/ROR; INC/DEC on CMOS).
+
 ### Forward-reference handling
 
 During pass 0, `_au_read_val` consults `asm_pass` (in `asm_err.s`).
@@ -97,3 +135,11 @@ the correct bytes.
   `asm_expr_err=1` so callers can print the expr-specific message.
 - `expr_eval_nb` runs without KERNAL banking — mode_parse is called
   from within `_asm_line_core` where KERNAL is already banked out.
+- ACC syntax (`A` operand) is recognised only when the caller has
+  cleared `_au_no_acc`.  See § ACC vs label disambiguation.  Single-
+  letter labels named `A` are accepted as labels only when the
+  caller signals "ACC not valid here"; otherwise `A` always means
+  the accumulator.  `X` and `Y` are not register tokens for
+  mode_parse — they only appear as the trailing index in `,X` /
+  `,Y` forms — so single-letter labels named `X` or `Y` are
+  unambiguous and parsed normally.
