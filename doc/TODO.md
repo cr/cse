@@ -73,15 +73,16 @@ source.  *Universal* amendments tighten the DDD/TDD method itself;
 *domain-class* amendments apply only to projects of a particular
 shape; *project-specific* items belong to CSE alone.
 
-**Status (2026-04-25):** all seven items below were addressed in
-the Phase 23 DDD Maintenance close-out.  Tier A landed three
-amendments to README.md (DDD Method + Escape Analysis); Tier B
-landed two principles in testing.md (14 + 15) and one in
-README.md (Principle 7); Tier C1 closed the harness-fragility
-investigation with a documented limitation in testing.md.  Two
-follow-ups (per-test triage of the 17 fragile tests; mn_config.s
-retirement) sit under § Architecture below as separate work items
-requiring owner judgement.
+**Status (2026-04-25):** Tier A landed three amendments to
+README.md (DDD Method + Escape Analysis); Tier B landed two
+principles in testing.md (14 + 15) and one in README.md
+(Principle 7); Tier C1 was *initially* closed with a documented
+"harness limitation" in testing.md, but was **re-opened the same
+day** when deeper RCA showed the diagnosis was wrong — the
+fragility is a production cold-init bug, not a harness artifact.
+The bug entry sits at the top of [§ Bugs](#bugs) for a
+dedicated DDD Method session.  `mn_config.s` retirement (the
+other follow-up) closed cleanly under § Architecture.
 
 ### Tier A — Universal DDD System amendments
 
@@ -158,23 +159,18 @@ out of class.*
 
 #### C1. Process / methodology debt
 
-- [x] ~~**Test-harness layout fragility investigation**~~ (closed
-  2026-04-25).  Mechanism confirmed: CSE's runtime image (CODE +
-  RODATA) inherently overlaps the BASIC ROM shadow at
-  `$A000–$BFFF`; production banking is correct, but the harness's
-  `run_until` step engine, after the long `_cold_init_to_prompt`
-  boot path, enters an unreliable resume state for subsequent
-  `run_until(start_at=return_to_userland)` calls.  When CODE
-  shifts size, the failure addresses move with it (~17 tests
-  fluctuate).  Documented as
-  [testing.md § Harness limitations](testing.md) — *BASIC ROM
-  shadow overlap*, with the recommended Pattern A skip template
-  and the existing `_minimal_init` workaround referenced.  The
-  per-test triage (decide for each of the ~17 fragile tests:
-  rewrite on `_minimal_init`, retire with Pattern A skip, or
-  retain) is queued separately under § Architecture below
-  because it requires per-test owner judgement and is not
-  release-blocking.
+- [ ] ~~**Test-harness layout fragility investigation**~~
+  **(closed 2026-04-25 ON A WRONG DIAGNOSIS — re-opened
+  2026-04-25 after deeper RCA).**  The 2026-04-25 closure
+  attributed the fragility to a py65 step-engine artifact and
+  documented it as a "harness limitation."  Subsequent RCA
+  during the same session proved that diagnosis wrong: it is a
+  production cold-init bug masked by an unintended fault-recovery
+  path.  See [§ Bugs — *Cold-init silently faults and recovers
+  on CMOS*](#bugs) for the full chain and the dedicated-session
+  plan.  This C1 entry stays open as evidence that the original
+  closure was premature; do not re-close it independently of the
+  bug-entry resolution.
 
 #### C2. Corpus-coverage gaps (DDD Maintenance 2026-04-25)
 
@@ -185,6 +181,247 @@ belong in the same taxonomy.*
 ## Bugs
 
 Open bugs, roughly ordered by priority.
+
+- [ ] **★ HIGH — Cold-init silently faults and recovers on CMOS;
+  6510 build is fully broken in test path.**  Discovered
+  2026-04-25 during DDD Maintenance follow-up to the
+  Tier C1 "test-harness layout fragility" investigation.
+  Supersedes the earlier C1 closure (which was based on a wrong
+  diagnosis: this is a production bug, not a harness artifact).
+  Needs a dedicated DDD Method session — too large for a
+  maintenance round.
+
+  ### Symptom
+
+  After `_cold_init_to_prompt(emu)` runs against the production
+  CMOS PRG via the integration-test harness, `$01` reads `$36`
+  and tests pass.  Pretty-printed banking looks normal.  But the
+  intended `_main` flow has not actually completed — control has
+  jumped through a kernel-fault recovery path and arrived at
+  `main_loop_top` via an entirely different route than `_main`'s
+  source code suggests.
+
+  The 17-test fragility under `_cold_init_to_prompt` (previously
+  attributed to a py65 step-engine edge case) is in fact this
+  bug: the fault chain is layout-dependent because the byte
+  patterns in BASIC ROM determine whether the BRK fires cleanly,
+  whether `cse_brk_handler` reaches `cse_recover` cleanly, and
+  whether `cse_recover`'s subsequent path stays out of the
+  shadow.  Real silicon and VICE were never tested against this
+  flow because both auto-bank correctly via the `$01` write CSE
+  *thinks* it's making — but on emulator + py65 the wild ride
+  through BASIC ROM bytes is observable.
+
+  ### Reproduction
+
+  Three probes against `build/debug/cmos/cse-cmos.prg`:
+
+  **Probe 1** — `_cold_init_to_prompt`, then read `$01`:
+  ```
+  After cold-init: PC=$7C94 (main_loop_top) $01=$36
+  ```
+  Looks normal.
+
+  **Probe 2** — same, hooking every write to `$01`:
+  ```
+  [0] save_zp+0xf            $36 →  $36
+  [1] kernal_bank_out+0x9    $36 →  $34
+  [2] heap_copy_name+0xd     $34 → ★$4F   ← corruption
+  [3] kernal_bank_in+0x9     $4F →  $47   ← LORAM=1, BASIC banked IN
+  [4] hw_reinit_body+0x3     $47 → ★$36   ← fault recovery resets $01
+  ```
+
+  **Probe 3** — same, watching for CPU entries to fault paths:
+  ```
+  cyc=1137  $A4F4   BRK at define_ws_syms+0x1
+  cyc=1148  $7EBD   enter cse_brk_handler  in_userland=0 → fault
+  cyc=1151  $7F8C   enter cse_recover
+  cyc=1157  $7FC3   enter hw_reinit_body
+  cyc=6464  $7C94   REACHED main_loop_top
+  ```
+
+  ### Full chain
+
+  1. **Order bug in `main.s` cold-init.**  Line 224 calls
+     `ed_ensure_init` before line 227 calls `sym_clear`.
+     `ed_ensure_init` → `gb_init` → `update_workend` →
+     `sym_define` → `heap_copy_name`.  `heap_copy_name` reads
+     `_st_heap` (zp `$3D-$3E`) which is BSS-zero ($0000) at this
+     point — `sym_clear` hasn't run.  The inner copy loop
+     `sta (_st_heap),y` writes the source name `"workend\0"`
+     across `$0000-$0007`.
+
+  2. **DDR + CPU-port corruption.**  `$0000` (DDR) gets the first
+     name byte ($57 = `'W'` screen-code).  `$0001` (CPU port latch)
+     gets the second ($4F = `'O'`).  After the next
+     `kernal_bank_in` ORs bit 1 in, the latch is `$47`: LORAM=1
+     (BASIC banked IN), HIRAM=1, CHAREN=1, plus stray bit 6.
+
+  3. **`define_ws_syms` falls in the BASIC shadow.**  At
+     `main.s:228` the next instruction is `jsr define_ws_syms`.
+     `define_ws_syms` lives at `$A4F3` (CMOS) — inside `$A000-$BFFF`.
+     With LORAM=1 the CPU fetches BASIC ROM at `$A4F3`, not the
+     real `define_ws_syms`.  BASIC ROM byte at offset `$04F3` is
+     a one-byte instruction; PC advances to `$A4F4`; BASIC ROM
+     byte at offset `$04F4` is `$00` → BRK fires.
+
+  4. **Kernel-mode BRK trap.**  `cse_brk_handler` reads
+     `in_userland`, finds it `0`, takes the kernel-fault branch:
+     `jmp cse_recover`.
+
+  5. **Fault recovery as accidental cold-init.**  `cse_recover`
+     resets SP to `$FF`, calls `hw_reinit_body` (which writes
+     `$36` to `$01` — fixing the banking — then runs
+     `setup_interrupts`, `dbg_init`, `reset_globals`, `io_init`,
+     `theme_init`, `restore_colors`, `set_charset`), then
+     `end_debug_body`, then `refresh_body`, then
+     `jmp main_loop_top`.
+
+  ### What this means
+
+  **`main.s` cold-init never reaches lines 227+ on CMOS.**  The
+  intended cold-init flow from `sym_clear` onward (sym_clear,
+  define_ws_syms, CPU-mode default, free-ZP fill, free-workspace
+  fill, the splash sequence, the first userland transition,
+  global state init) is dead code in practice.  The production
+  CMOS build always cold-boots through the recovery path.
+
+  **6510 build is broken differently.**  Probe against
+  `build/debug/6510/cse.prg` shows the same corruption (writes
+  [0]–[3] identical) but no write [4] — `hw_reinit_body` never
+  fires because the BASIC ROM bytes at 6510's `define_ws_syms`
+  address don't produce a clean BRK.  `$01` stays at `$47`.
+  `dbg_bp_clear` (`$A226`) and `return_to_userland` (`$A333`) are
+  in the shadow and unreachable; the CPU times out wandering
+  through BASIC ROM.  Integration tests don't exercise the 6510
+  PRG so this is currently invisible.
+
+  **Test suite is only green because** the integration tests
+  use only the CMOS PRG, and CMOS happens to fault in a way
+  that recovers cleanly.  Layout shifts that change BASIC ROM
+  byte patterns at the affected addresses can:
+  - move the fault from the clean `BRK at $A4F4` to a different
+    address, possibly one where recovery doesn't reach
+    `main_loop_top`;
+  - cause the recovery path to itself land in the shadow at a
+    bad byte;
+  - mask the fault entirely (BASIC ROM byte happens to be a
+    benign instruction sequence that returns to RAM).
+
+  This is exactly the "fluctuates pass/fail at $B5xx / $7Dxx"
+  symptom the C1 entry described — but it's the *production*
+  cold-init that's fragile, not the harness.
+
+  ### Fix candidates
+
+  - **F1 — Reorder cold-init.**  Swap `main.s:224` and `:227`:
+    `sym_clear` before `ed_ensure_init`.  Prevents the heap
+    corruption, prevents the BRK, prevents the silent recovery.
+    One-line change.  Low-risk if the rest of cold-init is sound.
+
+  - **F2 — Decouple `gb_init` from the symbol table.**  Remove
+    the `jmp update_workend` tail call from `gap_buffer.s::gb_init`.
+    Make `update_workend` an explicit call at every cold-init /
+    `ed_new` / disk-load site.  Cleaner separation of concerns.
+    Subsumes the F1 fix.  More call-site churn.
+
+  - **F3 — Defend `heap_copy_name`.**  If `_st_heap < SYM_HEAP`,
+    refuse to write or fall through to `sec; rts`.  Mask only;
+    doesn't fix the upstream ordering issue.  Useful as a
+    belt-and-braces against future regressions.
+
+  ### Phased landing plan
+
+  Per session DDD Method.  Each phase has an explicit gate.
+
+  **Phase 0 — Read past `main.s:266`.**  Tabulate everything
+  `_main` does between line 227 (`sym_clear`) and the final
+  `jmp main_loop_top`.  Tabulate everything `cse_recover` does
+  between its entry and its `jmp main_loop_top`.  Diff the two.
+  The diff is the body of state changes that **today never
+  occur on CMOS cold-init**.  Outcome: a delta table that
+  predicts what F1 will newly observe.
+
+  **Phase 1 — Predict latent issues from the delta.**  For each
+  delta entry, decide: (a) does it matter?  (b) does any test
+  assert it post-cold-init?  Likely candidates for surprise:
+  - free-ZP fill with `$FF` (lines 237–244)
+  - free-workspace fill with `$00` (lines 246–259)
+  - the splash + first-userland-transition pair (after line
+    266, unread)
+  - the symbol table actually getting a real `workstart` /
+    `workend` instead of corrupted `$0000` ZP pointers
+
+  **Phase 2 — Apply F1.**  One-line swap.  Run the full test
+  suite.  Triage any new failures: they're the latent issues
+  Phase 1 predicted (or didn't).
+
+  **Phase 3 — Decide F2.**  After F1 is green, evaluate whether
+  `gb_init`'s tail call to `update_workend` should be removed.
+  `gb_init` is called from at least three places (`ed_init`,
+  `ed_ensure_init`, and possibly disk-load); each needs an
+  explicit `update_workend` if F2 lands.
+
+  **Phase 4 — Escape Analysis pass.**  This bug class —
+  *layout-dependent silent fault during cold-init recovers
+  transparently and the test suite reads recovery state as if
+  it were intended behaviour* — escaped because:
+  (a) tests don't compare cold-init paths against expected
+      sequences;
+  (b) `cse_recover` is too willing to act as a cold-init
+      fallback (it runs the full hw_reinit + soft-reset
+      sequence, which is everything cold-init needs);
+  (c) the test suite runs only CMOS, so the 6510 break is
+      invisible.
+
+  Candidate principles to amend (testing.md / README.md):
+  - **Cold-init terminal-state assertion.**  `_main` must
+    reach `main_loop_top` without `cse_brk_handler` or
+    `cse_recover` ever being entered.  Asserted by a Tier I
+    test that hooks both entry points and fails if either
+    fires during cold-init.
+  - **Sequence-prerequisite declaration.**  Modules whose
+    entry points depend on prior init (e.g. `gb_init` requires
+    sym table to be initialised because of its tail call) must
+    declare the prerequisite in their module doc and assert it
+    in tests if any caller could violate it.
+  - **Multi-CPU integration-test parity.**  At least one
+    integration test should run against each production PRG
+    variant (6502/6510/cmos), not just CMOS.  Otherwise CPU-
+    specific cold-init breakage is invisible.
+
+  ### Latent issues F1 may surface
+
+  After F1 lands, anything `_main` 227+ does that `cse_recover`
+  doesn't may newly become observable.  Known differences:
+
+  | Step | What `_main` does (line) | Done by `cse_recover`? |
+  |------|--------------------------|------------------------|
+  | `sym_clear` (227) | clears 256 hash slots, resets `_st_heap` | **No** |
+  | `define_ws_syms` (228) | defines `workstart`/`workend` | **No** |
+  | `sta asm_cpu` (234) | sets default CPU mode | maybe via `reset_globals` — verify |
+  | free-ZP fill `$FF` (237–244) | scratch sentinel | **No** |
+  | free-workspace fill `$00` (246–259) | clears user RAM | **No** |
+  | `io_init`, `theme_init` (262–263) | I/O + theme | **Yes** (in `hw_reinit_body`) |
+  | `reset_screen`, `set_charset` (264–265) | screen + charset | **Yes** (in `hw_reinit_body`) |
+  | rest (266+) | unread; tabulate in Phase 0 | ? |
+
+  ### Investigation artifacts
+
+  Probes used during the 2026-04-25 RCA (now removed but
+  reproducible):
+
+  - `_rca_probe.py` — confirm `$01=$47` after cold-init, trace
+    8 instructions from `return_to_userland`.
+  - `_rca_probe2.py` — hook every `$01` write during cold-init,
+    log the call site.
+  - `_rca_probe3.py` — capture `_st_heap` at the moment of the
+    offending `sta (_st_heap),y`.
+  - `_rca_probe4.py` — log every write to `$3D`/`$3E` during
+    cold-init (proves `sym_clear` runs *after* the corruption).
+  - `_rca_callchain.py` — watch every CPU step for entries to
+    `cse_brk_handler`, `cse_recover`, `hw_reinit_body`; dump
+    BRK frame to identify origin.
 
 - [x] ~~Disable C64 SHIFT+C= mode switch on CSE init~~ (fixed: main.s)
 - [x] ~~`i` command output shows stale memory map~~ (fixed: repl.s
@@ -1245,25 +1482,18 @@ from our exit context.
 ### Architecture
 
 - [ ] **Triage the 17 cold-init-fragile tests in
-  test_kernel_transition.py** (DDD Maintenance 2026-04-25
-  follow-up).  Mechanism documented under
-  [testing.md § Harness limitations — BASIC ROM shadow overlap](testing.md).
-  For each of the ~17 tests that compose `_cold_init_to_prompt()`
-  with a subsequent `run_until(..., start_at=return_to_userland)`
-  or `jsr()` from the resulting state, decide:
-  (a) **rewrite on `_minimal_init` + `_fake_brk_at`** — for tests
-  whose coverage is a single dispatcher decision and can run
-  without the full boot sequence;
-  (b) **retire with Pattern A skip** — for tests whose underlying
-  handler logic is already covered at unit tier (likely most of
-  the 17, per the investigation report);
-  (c) **retain** — only for tests whose coverage genuinely
-  requires the full cold-init-to-userland sequence.
-  Inputs to the decision: the unit-tier coverage map for each
-  affected handler; the test's docstring/intent; the cost of
-  the rewrite if (a).  Owner judgement required per test —
-  mass-retiring without per-test review risks dropping the
-  one cell whose coverage is unique.
+  test_kernel_transition.py** — **deferred until the cold-init
+  bug lands.**  This entry was originally framed as a per-test
+  triage (rewrite on `_minimal_init`, retire with Pattern A
+  skip, or retain) under the assumption that the fragility was
+  a harness limitation around the BASIC ROM shadow.  The
+  2026-04-25 RCA proved otherwise — the fragility is the
+  CMOS cold-init recovery path interacting with the BASIC
+  shadow, not a harness artifact (see [§ Bugs](#bugs)).
+  Once the cold-init bug is fixed, the 17 tests likely pass
+  cleanly without per-test triage; if any still fail post-fix,
+  they may genuinely need the rewrite/skip/retain decision.
+  Defer to that point.
 
 - [x] ~~**Retire `src/mn_config.s`**~~ (closed 2026-04-25).
   Removed from `Makefile` (ASM_SRCS + TABLE_OUTS), from

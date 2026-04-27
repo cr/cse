@@ -655,32 +655,52 @@ the affected tests, and the recommended skip pattern.
 
 ### BASIC ROM shadow overlap (cold-init resume fragility)
 
-**Mechanism.**  CSE's runtime image (CODE + RODATA, ~20 KiB) lives
-in high RAM and inherently overlaps the BASIC ROM shadow region at
-`$A000–$BFFF`.  In production this is fine: CSE banks BASIC out
-(`$01 = $36`, LORAM=0) so the region is RAM containing CSE code.
-The C64Emu banking model is correct (`tests/c64emu.py` gates BASIC
-ROM visibility on LORAM/HIRAM faithfully).
+> ⚠ **2026-04-25 — this section was written on a wrong diagnosis
+> and is retained here as a record of the misdiagnosis until the
+> underlying production bug is fixed.**  RCA on 2026-04-25 (see
+> [TODO.md § Bugs — *Cold-init silently faults and recovers on
+> CMOS*](TODO.md)) showed that the fragility is **not** a harness
+> artifact — it is a production cold-init ordering bug that
+> corrupts `$0001` (the CPU port latch) via `heap_copy_name`
+> running before `sym_clear` initialises `_st_heap`.  The
+> resulting LORAM=1 state banks BASIC IN over CSE's CODE, the
+> CPU executes BASIC ROM bytes as instructions, eventually
+> hits a `$00` byte and BRKs, and `cse_recover` quietly
+> reinitialises the runtime as if cold-init had succeeded
+> normally.  Real silicon and VICE exhibit the same bug; it has
+> simply been invisible to manual smoke-testing because the
+> recovery path produces a working REPL.
+>
+> The text below describes the **observed harness behaviour**
+> (which is faithful), not the cause.  The Pattern A skip
+> template is still useful as a stopgap if any single test
+> needs to be retired before the fix lands, but the bulk
+> per-test triage previously planned here is deferred until the
+> cold-init fix lands — most fragile tests are expected to pass
+> without per-test changes once the corruption is removed.
 
-**The fragility.**  After `_cold_init_to_prompt()` runs the long
-boot path through `run_until()`, the emulator is left in a state
-where some subsequent `run_until(..., start_at=return_to_userland)`
-calls trip a step-engine edge case — the CPU appears to jump to
+**Observed behaviour.**  After `_cold_init_to_prompt()` runs the
+long boot path through `run_until()`, the emulator is left in a
+state where some subsequent
+`run_until(..., start_at=return_to_userland)` calls trip what
+looks like a step-engine edge case — the CPU appears to jump to
 `$0001` on the first instruction of the resume.  When the CODE
-segment shifts size (because of unrelated source changes), the
-exact addresses that fail move with it (typically `$B5xx` /
-`$7Dxx`), causing ~17 tests in
+segment shifts size, the failing addresses move with it
+(typically `$B5xx` / `$7Dxx`), causing ~17 tests in
 `tests/integration/test_kernel_transition.py` to fluctuate
 between pass and fail across commits.
 
-**Why this is harness-only, not production.**  Real silicon and
-VICE both run the same CODE-in-shadow layout without issue; the
-production banking is correct.  The fragility is a composition
-artifact of the harness's step engine resuming from a long prior
-`run_until()`, not a bug in CSE.  See `compute_layout.py` (the
-runtime-start computation already takes the layout as a hard
-constraint; it cannot move CODE out of the shadow without
-shrinking workspace below usable).
+**Actual mechanism (per RCA).**  See the linked § Bugs entry for
+the full chain.  Summary: cold-init's `ed_ensure_init` (line 224)
+runs before `sym_clear` (line 227); the transitive
+`heap_copy_name` call writes a name string into ZP `$0000-$0007`
+because `_st_heap` is BSS-zero; `$0001` (CPU port latch) ends up
+at `$47`; LORAM=1 banks BASIC IN; `jsr define_ws_syms` lands in
+the BASIC ROM shadow; CPU eventually hits `$00` → BRK; kernel-
+mode BRK trap routes to `cse_recover`; recovery resets `$01` and
+runs a soft-reset via `hw_reinit_body` that produces a usable
+runtime.  All subsequent test behaviour is from the recovery
+state, not the intended cold-init state.
 
 **Workaround in current code.**  `_minimal_init` +
 `_fake_brk_at` (in `tests/integration/test_kernel_transition.py`)
@@ -691,24 +711,22 @@ state.  Two tests already use it
 for any test whose coverage is a single dispatcher decision and
 not the full boot sequence.
 
-**Recommended skip pattern** (Pattern A — out-of-tier):
+**Recommended skip pattern** (Pattern A — out-of-tier; use only
+as a stopgap for individual tests that are blocking other work):
 
 ```python
 @pytest.mark.skip(reason=(
-    "Pattern A: integration-tier cold-init harness limitation "
-    "(BASIC ROM shadow overlap; see testing.md § Harness "
-    "Limitations).  Coverage of the underlying handler logic "
-    "lives at unit tier in test_<module>.py."
+    "Pattern A: blocked by cold-init silent-recovery bug "
+    "(see TODO.md § Bugs — Cold-init silently faults and "
+    "recovers on CMOS).  Coverage of the underlying handler "
+    "logic lives at unit tier in test_<module>.py."
 ))
 ```
 
-A test should be retained (rewritten on `_minimal_init`) only when
-its coverage genuinely requires the full cold-init sequence.  Most
-tests in the affected set assert dispatcher decisions whose unit
-coverage is already comprehensive.
-
-**Status.**  17 tests currently fragile; per-test triage is queued
-under [TODO.md § DDD amendments pending — Tier C1](TODO.md).
+**Status.**  17 tests currently fragile; the dedicated-session
+fix plan and the deferred per-test triage are tracked under
+[TODO.md § Bugs](TODO.md) and the corresponding § Architecture
+follow-up.
 
 ## Per-module tier assignment
 
