@@ -575,36 +575,34 @@ the *mirror*, not the ASM.  When the ASM diverges from the
 mirror, the test still passes because the mirror is what's
 running.
 
-**Owned files (retired tree):** the `tests/retired/` tree is
-claimed by this section.  Contents:
-[`tests/retired/test_editor.py`](../tests/retired/test_editor.py)
-(the original mirror-tests, preserved as a worked example) and
-[`tests/retired/conftest.py`](../tests/retired/conftest.py) (the
-harness scaffolding that produced them).  These files are not run
-by `pytest`; they exist as a historical reference for what the
-mirror-test anti-pattern looks like in practice.
+Two cautionary examples from CSE history (the implementations
+have since been retired in favour of `C64Emu`-based real-ASM
+coverage; the patterns are kept here as descriptions of the
+anti-shape):
 
-Examples previously in `tests/test_editor.py` (retired — preserved
-for historical reference in `tests/retired/test_editor.py`):
+- **Pure-Python mirror of `editor.s::ed_render_line`.**  A
+  `render_line(gb, line_num)` helper re-implemented the
+  gap-buffer walk and the PETSCII → screen-code conversion in
+  Python, then `TestRendering` asserted its output against
+  expected screen rows.  If the real `ed_render_line` changed
+  its conversion rule, stopped handling the gap, or read from
+  the wrong pointer, the test still passed — because the test
+  was running the Python `render_line`, not the ASM.
 
-- **`render_line`** mirrors `editor.s::ed_render_line` in pure
-  Python, including the PETSCII→screen-code conversion table.
-  `TestRendering` verifies the mirror.  If `ed_render_line`
-  changes its conversion rule (or stops handling the gap, or
-  reads from the wrong pointer), this test will not catch it.
-- **`TestScrollMemmove`** mirrors `editor.s::ed_scroll_up` /
-  `ed_scroll_down` as `scroll_up_memmove` / `scroll_down_memmove`
-  in Python.  This was added as a regression test for the
-  ed_scroll_down byte-level memmove bug that lived undetected
-  for months — but the regression test it added cannot
-  detect the same class of bug because the actual ASM never
-  runs.
+- **`TestScrollMemmove` mirroring `ed_scroll_up` /
+  `ed_scroll_down`.**  Added as a regression test after a
+  byte-level memmove bug in `ed_scroll_down` lived undetected
+  for months.  The test exercised Python re-implementations
+  (`scroll_up_memmove` / `scroll_down_memmove`) of the row-by-row
+  copy.  It could not catch the same class of bug because the
+  actual ASM memmove never ran under the test.
 
 The right fix for both: load the production PRG into `C64Emu`
 and exercise the real `ed_render_line` / `ed_scroll_up` /
 `ed_scroll_down` against real screen RAM at `$0400`.  `C64Emu`
 provides the KERNAL, screen RAM, and banking — no ASM stubs
-needed.
+needed.  Coverage now lives in
+[`tests/integration/test_editor.py`](../tests/integration/test_editor.py).
 
 ### Implementation-detail tests
 

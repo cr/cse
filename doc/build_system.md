@@ -402,8 +402,7 @@ instructions if the ROM is missing.
 make test
 
 # Quick run (direct, via pipenv — assumes builds exist).  Uses
-# pyproject.toml testpaths config to include tests/unit + tests/integration
-# (and skip tests/retired).
+# pyproject.toml testpaths config to include tests/unit + tests/integration.
 pipenv run pytest -q
 
 # Only Tier U (fast; no PRG build needed for bundles with their own)

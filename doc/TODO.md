@@ -908,8 +908,11 @@ Defined scope, needs work.
   `test_log.py` → `log.md`; `test_repl.py` and `test_repl_disk.py`
   → `repl.md`; `test_screen.py` → `screen.md`.  The five C64Emu
   harness tests (`test_c64emu*.py`) added to `build_system.md`
-  alongside `c64emu.py`.  `tests/retired/` claimed by
-  `testing.md § Mirror tests` as a worked-example archive.
+  alongside `c64emu.py`.  `tests/retired/` was initially claimed by
+  `testing.md § Mirror tests` as a worked-example archive, then
+  retired entirely (its anti-pattern descriptions inlined into the
+  same section); the tree itself was removed when it was found to
+  shadow `tests/conftest.py` and break `pytest tests/`.
 
 - [x] ~~**`main.s` lacks dedicated unit tests** (DDD Maintenance
   2026-04-25, item 7).~~  Closed 2026-04-25.  `doc/modules/main.md`
