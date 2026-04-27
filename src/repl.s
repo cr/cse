@@ -2999,7 +2999,9 @@ print_op_name:
         lda #<str_load
         ldx #>str_load
         jsr query_user
-        jcc @l_cancel
+        bcs @do_load
+        jmp nl_clear
+
 @do_load:
 
         lda #<str_load_pfx
@@ -3038,9 +3040,6 @@ print_op_name:
         ora rp_cnt+1
         bne prg_ok_done
         jmp io_err_load         ; tail-jumps to disk_done
-
-@l_cancel:
-        jmp nl_clear
 .endproc
 
 ; ═══════════════════════════════════════════════════════════

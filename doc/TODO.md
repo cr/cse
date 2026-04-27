@@ -943,12 +943,20 @@ Open bugs, roughly ordered by priority.
     `cse_refresh` drop its `jmp main_loop_top` (-3 B).  Reorder
     and verify branch ranges don't regress anywhere.
 
-  - [ ] **Shared `@*_cancel` exit in `exec_line` dispatch.**
-    Five gated commands (`k`/`Q`/`R`/`a` plus `l`'s gate in
-    `cmd_load`) each have a local `jmp nl_clear` cancel tail
-    (3 B × 5 = 15 B).  Folding to a single shared label would
-    save ~12 B but branch range inside the large `exec_line`
-    `.proc` body was the blocker.  Revisit with a linker-map check.
+  - [x] ~~**Shared `@*_cancel` exit in `exec_line` dispatch.**~~
+    Closed 2026-04-27 with partial gain.  Investigation showed
+    the headline ~12 B saving via "single shared label" was not
+    achievable: the 5 cancels span ~500 lines inside `exec_line`
+    and `bcc`'s ±127-byte range can't fold them all.  Each of
+    the 4 in-`exec_line` cancels (`k`/`a`/`Q`/`R`) is already at
+    the minimum 5-byte shape (`bcc @x_cancel` 2 B + trailing
+    `@x_cancel: jmp nl_clear` 3 B).  The 5th cancel
+    (`cmd_load::@l_cancel`) was 8 B (`jcc` 5 B + trailing label
+    + jmp 3 B); inverted polarity to `bcs @do_load / jmp nl_clear`
+    inline (5 B) saves 3 B.  Q/R cancel chaining was also viable
+    for another -3 B but adds a cross-handler label dependency
+    that exceeds its byte value.  Net result: -3 B landed on
+    cmd_load only.
 
   - [ ] **End-to-end gate tests (keypress injection).**  Current
     `TestGating` covers only the `warn_if_*` helpers directly.
