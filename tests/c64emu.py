@@ -757,6 +757,38 @@ class C64Emu:
             f"{max_cycles} cycles at PC=${self._cpu.pc:04X}"
         )
 
+    def run_until_with_watch(self, stop_addr, watch_addrs, *,
+                              start_at=None, max_cycles=500_000):
+        """Like run_until, but also records every cycle the CPU's PC
+        equals one of `watch_addrs`.  Returns a list of (pc, cycle)
+        tuples in the order visited.
+
+        Use this to assert that a code path is (or is not) entered
+        during a longer run — e.g. that cold init reaches
+        `main_loop_top` without ever entering `cse_brk_handler` or
+        `cse_recover`.
+        """
+        if start_at is not None:
+            self._cpu.pc = start_at
+        watch = set(watch_addrs)
+        hits = []
+        cycles = 0
+        while cycles < max_cycles:
+            pc = self._cpu.pc
+            if pc == stop_addr:
+                return hits
+            if pc in watch:
+                hits.append((pc, cycles))
+            self._cpu.step()
+            cycles += 1
+            self._cycle_total += 1
+            if self._pending:
+                self._dispatch_pending()
+        raise TimeoutError(
+            f"C64Emu: run_until_with_watch({stop_addr:#06X}) timeout "
+            f"after {max_cycles} cycles at PC=${self._cpu.pc:04X}"
+        )
+
     def trigger_nmi(self, user_pc, *, user_p=0x20):
         """Synthesise a CPU NMI frame on the stack and set PC to the
         NMI vector's target.  Stack ordering matches what the CPU

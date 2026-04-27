@@ -220,11 +220,17 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         ; ── 5. Init debugger (zeroes bp+step tables, reg_*) ──
         jsr dbg_init
 
-        ; ── 6. Init editor buffer ──
+        ; ── 6. Symbol table ──
+        ; Must precede any sym_define caller (e.g. ed_ensure_init,
+        ; which reaches sym_define transitively via gb_init →
+        ; update_workend pre-F2).  See doc/modules/main.md
+        ; § Caveats — cold-init sequence prerequisite.
+        jsr sym_clear
+
+        ; ── 7. Init editor buffer ──
         jsr ed_ensure_init
 
-        ; ── 7. Symbol table ──
-        jsr sym_clear
+        ; ── 8. Workspace symbols ──
         jsr define_ws_syms
 
         ; ── 8. CPU mode default ──

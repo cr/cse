@@ -159,6 +159,132 @@ class TestColdInitHandoff:
         assert emu.memory[emu.sym("dbg_reason")] == 0
 
 
+# ── 2b. Cold-init terminal-state assertion (testing.md Principle 16) ─
+
+class TestColdInitTerminalState:
+    """`_main` must reach `main_loop_top` without `cse_brk_handler` or
+    `cse_recover` ever firing, AND must leave the post-cold-init state
+    that lines 227-294 of `_main` are responsible for producing.
+
+    Until the Phase-24 cold-init bug fix lands, every test in this
+    class is expected to fail: cold init silently faults at
+    `define_ws_syms` (which lands inside the BASIC ROM shadow due to
+    `$01` corruption from `heap_copy_name` running before `sym_clear`),
+    BRKs into `cse_brk_handler`, and recovers via `cse_recover` —
+    bypassing all of `sym_clear`, `define_ws_syms`, the default-CPU
+    write, the free-ZP `$FF` fill, the free-workspace `$00` fill, and
+    the splash sequence.
+
+    See [TODO.md § Bugs — Cold-init silently faults and recovers on
+    CMOS](../../doc/TODO.md) and [testing.md § Principles 16-17](
+    ../../doc/testing.md#principles).
+    """
+
+    def test_no_brk_no_recover_during_cold_init(self, emu):
+        """Hook `cse_brk_handler` and `cse_recover` entry addresses;
+        run cold init; assert neither was ever entered."""
+        brk = emu.sym("cse_brk_handler")
+        rec = emu.sym("cse_recover")
+        hits = emu.run_until_with_watch(
+            emu.sym("main_loop_top"),
+            [brk, rec],
+            start_at=emu.sym("_main"),
+            max_cycles=2_000_000,
+        )
+        assert hits == [], (
+            "cold init must reach main_loop_top without entering "
+            f"cse_brk_handler (${brk:04X}) or cse_recover (${rec:04X}); "
+            f"got hits: {[(f'${pc:04X}', c) for pc, c in hits]}"
+        )
+
+    def test_workstart_workend_resolvable(self, emu):
+        """After cold init, sym_lookup must resolve `workstart` to
+        $0800 and `workend` to `buf_base - 1`.  These symbols are
+        registered by `define_ws_syms` (cold-init step 8); on the
+        recovery path they are never registered."""
+        _cold_init_to_prompt(emu)
+        ws = emu.sym("s_workstart")
+        we = emu.sym("s_workend")
+
+        # sym_lookup(ptr) — caller writes ptr into sym_name (ZP), jsr,
+        # reads C=0+sym_val on hit, C=1 on miss.
+        def lookup(name_ptr):
+            emu.write_word(emu.sym("sym_name"), name_ptr)
+            emu.jsr(emu.sym("sym_lookup"))
+            if emu.carry:
+                return None
+            return emu.read_word(emu.sym("sym_val"))
+
+        assert lookup(ws) == 0x0800, "workstart must resolve to $0800"
+        bb = emu.read_word(emu.sym("buf_base"))
+        assert lookup(we) == (bb - 1) & 0xFFFF, \
+            f"workend must resolve to buf_base-1 = ${(bb-1) & 0xFFFF:04X}"
+
+    def test_zp_lo_bytes_uncorrupted(self, emu):
+        """`$0000-$0006` must not contain the leading bytes of
+        `"workend"` in PETSCII uppercase ($57 $4F $52 $4B $45 $4E
+        $44).  This is the direct fingerprint of the
+        `heap_copy_name` corruption documented in the bug entry.
+        Byte $0001 is excluded from the comparison because the CPU
+        port latch is rewritten by `kernal_bank_in/out` and
+        `hw_reinit_body` after the corruption — but $0000 (DDR) and
+        $0002-$0006 are not touched downstream and retain the
+        copied bytes verbatim."""
+        _cold_init_to_prompt(emu)
+        # $0000 = 'W' = $57; $0002-$0006 = 'R','K','E','N','D'.
+        assert emu.memory[0x0000] != 0x57, (
+            "$0000 = $57 ('W') — heap_copy_name corruption "
+            "detected at the DDR byte"
+        )
+        tail = bytes(emu.memory[i] for i in range(0x02, 0x07))
+        assert tail != bytes([0x52, 0x4B, 0x45, 0x4E, 0x44]), (
+            f"$0002-$0006 = {tail.hex(' ')} — corresponds to "
+            "'RKEND' (continuation of heap_copy_name corruption)"
+        )
+
+    def test_free_zp_filled_with_FF(self, emu):
+        """Free ZP from the byte returned by `cse_zp_end` up to
+        `$80` must be `$FF` after cold init — written by `_main`
+        step 10 (free-ZP fill).  `cse_zp_end` is a routine (not a
+        constant); it returns the first free ZP byte in A."""
+        _cold_init_to_prompt(emu)
+        emu.jsr(emu.sym("cse_zp_end"))
+        zp_end = emu.a
+        for addr in range(zp_end, 0x80):
+            assert emu.memory[addr] == 0xFF, (
+                f"free-ZP byte ${addr:02X} = ${emu.memory[addr]:02X}, "
+                "expected $FF (post-cold-init free-ZP fill)"
+            )
+
+    def test_free_workspace_filled_with_zero(self, emu):
+        """Free workspace from `WORKSTART` ($0800) up to (but not
+        including) the page containing `__CODE_RUN__` must be `$00`
+        after cold init — written by `_main` step 11
+        (free-workspace fill).  `cse_start` is a routine that
+        returns `__CODE_RUN__` in A/X (lo/hi).  Sample the boundary
+        plus a few interior bytes; a full scan would be too slow."""
+        _cold_init_to_prompt(emu)
+        emu.jsr(emu.sym("cse_start"))
+        code_run = emu.a | (emu.x << 8)   # __CODE_RUN__
+        WORKSTART = 0x0800
+        # The fill loop stops when rp_ptr+1 == hi(__CODE_RUN__).
+        # Filled range: [WORKSTART, code_run & $FF00).
+        end_excl = code_run & 0xFF00
+        samples = [
+            WORKSTART,
+            WORKSTART + 1,
+            (WORKSTART + end_excl) // 2,
+            end_excl - 2,
+            end_excl - 1,
+        ]
+        for addr in samples:
+            assert emu.memory[addr] == 0x00, (
+                f"free-workspace byte ${addr:04X} = "
+                f"${emu.memory[addr]:02X}, expected $00 "
+                "(post-cold-init free-workspace fill)"
+            )
+
+
 # ── 3. return_to_userland → clean RTS ────────────────────────────────
 
 class TestReturnToUser:
