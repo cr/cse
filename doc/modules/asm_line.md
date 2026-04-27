@@ -63,13 +63,13 @@ used to live here; as of Phase 18 they are owned by `mem.s`
 alongside the `save_userland_zp` / `restore_userland_zp` /
 `save_kernel_zp` / `restore_kernel_zp` primitives.)
 
-**Depends on:** addr_mode (mode_parse, asm_skip_ws, _au_no_acc,
-_au_warn_shdw), opcode_lookup (asm_opcode_lookup), mn_classify
-(mn_base_op, mn_profile), mn_modes (mn_modes_lo — for the ACC-bit
-test that drives _au_no_acc and the IMP→ACC promotion), asm_err
-(asm_syntax_error / asm_expr_error / asm_expr_err / _asm_saved_sp),
-log (log_warn — for the shadow warning), mem (kernal_bank_out /
-kernal_bank_in), zp
+**Depends on:** addr_mode (mode_parse, asm_skip_ws, _au_no_acc),
+opcode_lookup (asm_opcode_lookup), mn_classify (mn_base_op,
+mn_profile), mn_modes (mn_modes_lo — for the ACC-bit test that
+drives _au_no_acc; the IMP→ACC promotion reuses _au_no_acc rather
+than re-reading the table), asm_err (asm_syntax_error /
+asm_expr_error / asm_expr_err / _asm_saved_sp), mem (kernal_bank_out
+/ kernal_bank_in), zp
 
 ## Build-time variants
 
@@ -169,11 +169,12 @@ single-letter symbol `A` instead of failing with `;?bad insn`.
 ### Label-shadow warning
 
 When mode_parse takes the explicit-`A` path on pass 1 and a symbol
-named `A` is defined, mode_parse sets `_au_warn_shdw = 1`.  asm_line
-checks the flag immediately after `mode_parse` returns; if set, it
-emits `;!a shadow` via `log_warn` and clears the flag.  The warning
-is emitted exactly once per shadow site (pass-0 detections are
-suppressed in mode_parse itself).
+named `A` is defined, mode_parse emits `;!a shadow` directly via
+`log_warn`.  asm_line is not involved — the warning emission is a
+property of the parser's recognition of the shadow case, not a
+post-hoc check by the line assembler.  The warning is emitted
+exactly once per shadow site (pass-0 detections are suppressed in
+mode_parse).
 
 The contract this surfaces: when the user writes `ASL A` against a
 defined label `A`, accumulator mode wins.  The user must use a

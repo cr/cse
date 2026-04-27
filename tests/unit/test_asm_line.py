@@ -495,8 +495,10 @@ def _clear_syms(asm_syms, mem, mpu):
 def _run_with_pass(asm_syms, source, asm_cpu=2, asm_pass=1, syms=None):
     """Variant of _run that lets a test set asm_pass and pre-define symbols.
 
-    Returns (output_bytes, warn_shdw_flag) so callers can assert both the
-    emitted bytes and whether the label-shadow warning was set.
+    Returns (output_bytes, warn_count) so callers can assert both the
+    emitted bytes and whether the label-shadow warning was emitted.
+    `warn_count` is the asm_core stub's `_warn_witness` byte
+    (incremented on each `log_warn` call by the bundle's stub).
     """
     from conftest import make_cpu, push_rts_sentinel, step_until_pc
 
@@ -510,8 +512,8 @@ def _run_with_pass(asm_syms, source, asm_cpu=2, asm_pass=1, syms=None):
         for name, (value, wide) in syms.items():
             _define_sym(asm_syms, mem, cpu, name, value, wide)
 
-    mem[asm_syms.asm_pass]    = asm_pass
-    mem[asm_syms._au_warn_shdw] = 0   # clear any leftover from setup
+    mem[asm_syms.asm_pass]      = asm_pass
+    mem[asm_syms._warn_witness] = 0   # reset stub log_warn counter
 
     for i, b in enumerate(_sc(source)):
         mem[_IN_BUF + i] = b
@@ -535,7 +537,7 @@ def _run_with_pass(asm_syms, source, asm_cpu=2, asm_pass=1, syms=None):
     if n == 0:
         raise AssertionError(f"asm_error reached while assembling {source!r}")
     return (bytes(mem[_OUT_BUF : _OUT_BUF + n]),
-            mem[asm_syms._au_warn_shdw])
+            mem[asm_syms._warn_witness])
 
 
 class TestAccBareForm:
@@ -639,16 +641,17 @@ class TestAccLabelShadow:
     label `A`, accumulator mode wins (textual disambiguation per the
     contract — see addr_mode.md § ACC vs label disambiguation).
 
-    mode_parse sets `_au_warn_shdw = 1` on pass 1 so the calling
-    layer (asm_src.s in production) can emit `;!a shadow`.  These
-    tests pin both the opcode (ACC) and the warning flag.
+    mode_parse emits `;!a shadow` directly via `log_warn` on pass 1.
+    Under the asm_core test bundle, `log_warn` is stubbed to increment
+    `_warn_witness` (see dev/asm_core_test_stub.s).  These tests pin
+    both the opcode (ACC wins) and the warning emission count.
     """
 
     def test_asl_a_acc_wins_with_warning(self, asm_syms):
         syms = {"A": (0x1234, 1)}
         got, warn = _run_with_pass(asm_syms, "ASL A", asm_cpu=2, syms=syms)
         assert got == bytes([0x0A]), "ACC must win over the defined label"
-        assert warn == 1, "shadow warning flag must be set"
+        assert warn == 1, "log_warn must be called exactly once"
 
     def test_lsr_a_shadow(self, asm_syms):
         syms = {"A": (0x0042, 0)}
@@ -658,7 +661,7 @@ class TestAccLabelShadow:
 
     def test_no_shadow_when_undefined(self, asm_syms):
         """`ASL A` with no symbol `A` defined: ACC wins (same opcode),
-        no warning."""
+        no warning emitted."""
         got, warn = _run_with_pass(asm_syms, "ASL A", asm_cpu=2)
         assert got == bytes([0x0A])
         assert warn == 0
@@ -680,14 +683,14 @@ class TestAccLabelShadow:
         assert warn == 0
 
     def test_pass_0_suppresses_warning(self, asm_syms):
-        """Pass 0 (sizing) must not set the warning flag — the source
+        """Pass 0 (sizing) must not emit the warning — the source
         assembler runs two passes; we want exactly one warning per
         shadow site, emitted on pass 1."""
         syms = {"A": (0x1234, 1)}
         got, warn = _run_with_pass(asm_syms, "ASL A", asm_cpu=2,
                                    asm_pass=0, syms=syms)
         assert got == bytes([0x0A])
-        assert warn == 0, "pass-0 must not set shadow flag"
+        assert warn == 0, "pass-0 must not emit shadow warning"
 
     def test_two_letter_label_no_shadow(self, asm_syms):
         """`ASL AB` is a label parse, not the SC_A peek-ahead — never

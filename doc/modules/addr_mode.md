@@ -41,16 +41,17 @@ test would re-exercise the same bytes through a thinner harness.
 **ZP (4 bytes):** `asm_ptr` (2), `asm_opr` (2).
 Also uses `expr_ptr`, `expr_val`, `expr_wide` (defined in zp.s).
 
-**BSS (2 bytes):**
+**BSS (1 byte):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
 | `_au_no_acc` | 1 | Caller signal: 0 = ACC syntax allowed, nonzero = the literal `A` operand must be parsed as a label.  Written by `asm_line.s` per profile.  Read by mode_parse's SC_A branch. |
-| `_au_warn_shdw` | 1 | Set to 1 by mode_parse when an explicit `A` operand was parsed as ACC AND a symbol named `A` is defined.  asm_line consumes the flag (emits `;!a shadow` and clears it).  Pass-1 only — pass 0 leaves it untouched. |
 
 **Depends on:** expr (expr_eval_nb), asm_err (asm_syntax_error,
 asm_expr_error, asm_pass), symtab (sym_lookup — for shadow detection),
-zp
+log (log_warn — emits `;!a shadow` directly when an explicit `A`
+operand parses as ACC against a defined symbol `A`), strings
+(s_a_shadow), zp
 
 ## Design
 
@@ -93,7 +94,7 @@ caller (asm_line) before the call:
 
 |  | `_au_no_acc = 0` (profile accepts ACC) | `_au_no_acc ≠ 0` (profile rejects ACC) |
 |---|---|---|
-| operand exactly `A` followed by end-of-expr | **MODE_ACC** — `A` shadows any defined symbol of the same name; mode_parse sets `_au_warn_shdw = 1` if `sym_lookup("A")` succeeds on pass 1 | label parse via `_au_read_val` |
+| operand exactly `A` followed by end-of-expr | **MODE_ACC** — `A` shadows any defined symbol of the same name; mode_parse emits `;!a shadow` via `log_warn` (pass 1 only) when `sym_lookup("A")` succeeds | label parse via `_au_read_val` |
 | operand `A` + ident chars (`AB`, `AX`, …) | label parse | label parse |
 | empty / pure whitespace | MODE_IMP (asm_line promotes to MODE_ACC for ACC-accepting profiles — see [asm_line.md](asm_line.md)) | MODE_IMP |
 | anything else (`#`, `(`, digit, `$`, `*`, …) | normal parse | normal parse |
@@ -109,8 +110,9 @@ parse must be invariant across passes, and "is `A` a defined symbol
 
 The shadow rule means a user who defines `A:` somewhere and then
 writes `ASL A` gets accumulator mode, *not* a memory access to the
-labelled location.  asm_line emits `;!a shadow` once on pass 1 to
-flag this.  Use a different label name or write the address
+labelled location.  mode_parse emits `;!a shadow` directly on
+pass 1 (via `log_warn`) so the source assembler's output makes the
+shadow visible.  Use a different label name or write the address
 explicitly (`ASL <expr>`) to address symbol `A` from one of the
 six ACC-accepting mnemonics (ASL/LSR/ROL/ROR; INC/DEC on CMOS).
 

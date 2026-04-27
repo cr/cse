@@ -793,9 +793,8 @@ Open bugs, roughly ordered by priority.
   - **Shadow warning** — when the user defines `A:` and writes the
     explicit `<acc-mne> A` form, ACC wins (the contract is
     pass-invariant; cannot depend on transient symtab state).
-    `mode_parse` sets `_au_warn_shdw=1` on pass 1 if `sym_lookup("A")`
-    succeeds; `asm_src.s::process_line` reads-and-clears the flag
-    after each `asm_line` call and emits `;!a shadow`.
+    `mode_parse` calls `sym_lookup("A")` on pass 1; on hit, emits
+    `;!a shadow` directly via `log_warn`.  No cross-module flag.
   - **Tests** — four new classes in `test_asm_line.py`
     (TestAccBareForm, TestSingleLetterLabelResolution,
     TestAccLabelShadow, TestNoAccFlagSetByAsmLine) — 25 cases
@@ -804,9 +803,10 @@ Open bugs, roughly ordered by priority.
     asm_line.md § ACC mode handling, asm_src.md (warning emit
     contract), assembler_syntax.md § Accumulator addressing —
     bare and explicit forms (user-facing rule + shadow example).
-  - **Cost:** +97 B per production variant (6510/6502/cmos), 2 BSS,
-    2 RODATA bytes for `"A\0"` probe + `"a shadow"` string.
-  - **Test suite:** 3085 passed / 18 skipped (was 3057 / 18).
+  - **Cost:** +67 B per production variant (6510/6502/cmos), 1 BSS,
+    2 RODATA bytes for `"A\0"` probe + `"a shadow"` string in
+    strings.s.
+  - **Test suite:** 3088 passed / 18 skipped (was 3057 / 18).
 
 - [ ] **Follow-up — `.` REPL command does not emit the ACC label-
   shadow warning.**  The `.` command's `dot_assemble` (in repl.s)
@@ -826,13 +826,6 @@ Open bugs, roughly ordered by priority.
   asymmetries).  Low priority: the `.` command shows immediate
   output, so the user sees what was assembled and can correct.
 
-- [ ] **Follow-up — `_au_warn_shdw` stale-flag clear could be
-  shared with `asm_len` init.**  `_asm_line_core` now does
-  `lda #0 / sta asm_len / sta _au_warn_shdw` at entry (3 byte
-  saving over two separate stores).  If a future shrink pass
-  generalises this pattern, candidates for similar pairing
-  exist in `mode_parse` (clears asm_opr) and the IMP→ACC
-  promotion path.  Cosmetic optimisation, not a bug.
 - [x] ~~**BUG**: `. .` is accepted as a valid dot-assemble source~~
   (fixed via Escape Analysis c8501d2: the actual symptom was
   "silent no-op" not "emits $00" — the cmd_dot @try_mne gate in

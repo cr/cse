@@ -348,10 +348,13 @@ class AsmCoreSymbols:
         # addr_mode.s extra entry point for isolated testing
         self.asm_skip_ws      = s["asm_skip_ws"]
 
-        # addr_mode.s ACC-vs-label disambiguation flags (BSS).  See
+        # addr_mode.s ACC-vs-label disambiguation flag (BSS).  See
         # addr_mode.md § ACC vs label disambiguation.
         self._au_no_acc       = s["_au_no_acc"]
-        self._au_warn_shdw    = s["_au_warn_shdw"]
+        # asm_core test bundle's stub log_warn witness — incremented
+        # on each call.  Tests assert the count to verify mode_parse
+        # emitted the ACC label-shadow warning.
+        self._warn_witness    = s["_warn_witness"]
 
         raw = _AC_BIN[config].read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]

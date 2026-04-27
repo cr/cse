@@ -25,7 +25,7 @@
         .importzp       kernal_out                          ; zp.s
         .import         io_puts, io_putc, io_putdec, io_puthex4, io_clear_eol, newline
         .import         io_utoa, dec_buf
-        .import         log_open, log_close, log_warn, seg_line, puts_imm   ; log.s
+        .import         log_open, log_close, seg_line, puts_imm   ; log.s
         .importzp       rp_addr, rp_cnt, rp_save2                 ; zp.s
         .import         str_tag_org
         .import         define_ws_syms                             ; editor.s
@@ -41,8 +41,7 @@
 
 ; ── Imports: strings.s ──────────────────────────────────────
         .import s_err_sep, s_bad_val, s_exp_name, s_sym_full
-        .import s_exp_quot, s_bad_insn, s_a_shadow
-        .import _au_warn_shdw           ; addr_mode.s — set on ACC-shadow
+        .import s_exp_quot, s_bad_insn
         .import s_save_s, s_save_q_sp, s_save_default, s_trunc
         .import dec_pow_lo, dec_pow_hi
 
@@ -1314,25 +1313,7 @@ BASIC_REM = $8F
         jsr asm_line
         tax
         beq @bad
-        ; ── label-shadow warning ──────────────────────────────────────
-        ; mode_parse sets _au_warn_shdw on pass 1 when an explicit
-        ; `<acc-mne> A` form was assembled while symbol `A` is defined.
-        ; Surface the shadow once per site; clear the flag.  See
-        ; doc/modules/addr_mode.md § ACC vs label disambiguation.
-        lda _au_warn_shdw
-        beq :+
-        lda #0
-        sta _au_warn_shdw
-        txa                     ; save byte count across log_warn
-        pha
-        lda #<s_a_shadow
-        ldx #>s_a_shadow
-        jsr log_warn
-        pla
-        tax
-:
         clc
-        txa
         adc asm_pc
         sta asm_pc
         bcc :+

@@ -33,12 +33,13 @@
         .export mode_parse              ; main entry point
         .export asm_skip_ws             ; used by asm_line.s
         .export _au_no_acc              ; caller-set: nonzero → 'A' is a label
-        .export _au_warn_shdw           ; mode_parse-set: 'A' shadowed a defined label
         .import asm_syntax_error        ; provided by caller / test stub
         .import asm_expr_error          ; expr-specific error (sets asm_expr_err)
         .import expr_eval_nb            ; no-banking expr evaluator (expr.s)
         .import asm_pass                ; 0=pass 0 (sizing), 1=pass 1 (emit)
         .import sym_lookup              ; for ACC-shadow detection
+        .import log_warn                ; emit ";!a shadow" directly on detection
+        .import s_a_shadow              ; warning string (strings.s)
         .importzp expr_ptr, expr_val, expr_wide
         .importzp asm_pc                ; for forward-ref dummy value
         .importzp asm_ptr, asm_opr
@@ -78,10 +79,9 @@ MODE_ZPREL= 15  ; zero page + relative  [65C02]  $nn,$rr
 
 ; ── BSS ──────────────────────────────────────────────────────────────────────
         .segment "BSS"
-; ACC vs label disambiguation flags.  See doc/modules/addr_mode.md
+; ACC vs label disambiguation flag.  See doc/modules/addr_mode.md
 ; § ACC vs label disambiguation.
-_au_no_acc:    .res 1   ; in:  0 = `A` is ACC, nonzero = `A` is a label
-_au_warn_shdw: .res 1   ; out: 1 = ACC chosen for `A` while symbol `A` defined
+_au_no_acc:    .res 1   ; caller signal: 0 = `A` is ACC, nonzero = `A` is a label
 
 ; ── RODATA ───────────────────────────────────────────────────────────────────
         .segment "RODATA"
@@ -276,31 +276,30 @@ mode_parse:
         lda #SC_A
         jmp @not_acc
 @is_acc:
-        iny                     ; consume 'A'
-        jsr _au_check_end       ; validate end (handles // correctly)
-        ; Pass-1 shadow detection: if a symbol named "A" is defined,
-        ; the user wrote `<acc-mne> A` against a real label.  Set the
-        ; warn flag for asm_src to surface as `;!a shadow`.  Pass 0 is
-        ; suppressed so the source assembler emits exactly one warning
-        ; per shadow site (across both passes).
+        ; Pass-1 shadow detection runs FIRST (with Y=0 invariant from
+        ; the peek-ahead's `dey`), then we explicitly set Y=1 to match
+        ; the iny we'd otherwise need.  This avoids a tya/pha/pla/tay
+        ; pair around sym_lookup + log_warn — both clobber Y, but Y is
+        ; dead until we set it for `_au_check_end` below.  Pass 0 is
+        ; suppressed so each shadow site produces exactly one warning
+        ; (mode_parse runs once per pass; warning fires only on pass 1).
         lda asm_pass
-        beq @acc_ret            ; pass 0 → skip
-        ; sym_lookup clobbers Y; preserve the post-`A` stop position
-        ; required by mode_parse's partial-result contract (Principle 13,
-        ; pinned by TestModeParseStopContract).
-        tya
-        pha
+        beq @no_shdw            ; pass 0 → skip detection + emit
         lda #<_str_A
         sta sym_name
         lda #>_str_A
         sta sym_name+1
         jsr sym_lookup
-        pla
-        tay                     ; (PLA + TAY preserve C from sym_lookup)
-        bcs @acc_ret            ; not found → no shadow
-        lda #1
-        sta _au_warn_shdw
-@acc_ret:
+        bcs @no_shdw            ; not found → no shadow → no emit
+        ; Symbol `A` is defined: emit ";!a shadow" directly via log_warn.
+        ; This is the documented contract for the explicit `<acc-mne> A`
+        ; form; see doc/modules/addr_mode.md § ACC vs label disambiguation.
+        lda #<s_a_shadow
+        ldx #>s_a_shadow
+        jsr log_warn
+@no_shdw:
+        ldy #1                  ; consume 'A' (was iny — Y is dead here)
+        jsr _au_check_end       ; validate end (Y advances past trailing ws)
         lda #MODE_ACC
         ldx #0
         rts

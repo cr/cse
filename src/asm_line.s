@@ -46,7 +46,6 @@
         .importzp asm_ptr, asm_opr
         .import   mode_parse, asm_skip_ws
         .import   _au_no_acc            ; we set this before mode_parse
-        .import   _au_warn_shdw         ; we clear this at entry; mode_parse may set
 
         ; mnemonic classifier
         .importzp mn_c1, mn_c2, mn_c3
@@ -212,7 +211,6 @@ _asm_emit_base_opr:
 _asm_line_core:
         lda #0
         sta asm_len             ; initialise byte counter
-        sta _au_warn_shdw       ; clear stale shadow flag (defensive)
 
         ldy #0
         jsr _asm_skip_sp        ; Y = first non-space position
@@ -423,17 +421,17 @@ _asm_line_core:
         ; A bare mnemonic on an ACC-accepting profile (profile 11: ASL,
         ; LSR, ROL, ROR; CMOS DEC, INC) means accumulator mode.  mode_parse
         ; returns MODE_IMP for an empty operand; promote to MODE_ACC here
-        ; when the profile's mode set has the ACC bit.  Profiles that
-        ; reject ACC keep MODE_IMP and fall to validate_mode, which
-        ; rejects (the documented "bare implied is invalid for non-ACC
-        ; multi-mode" path).  See doc/modules/asm_line.md § ACC mode
-        ; handling.
+        ; when the profile accepts ACC.  We reuse `_au_no_acc` (set above
+        ; from the same `mn_modes_lo[asm_pidx] & MODE_ACC_BIT` test that
+        ; gates the SC_A path in mode_parse) instead of re-reading the
+        ; table — same signal, half the bytes.  Profiles that reject ACC
+        ; keep MODE_IMP and fall to validate_mode, which rejects (the
+        ; documented "bare implied is invalid for non-ACC multi-mode"
+        ; path).  See doc/modules/asm_line.md § ACC mode handling.
         cmp #0                  ; MODE_IMP = 0
         bne @validate
-        ldx asm_pidx
-        lda mn_modes_lo,x
-        and #$02                ; MODE_ACC bit
-        beq @validate           ; profile rejects ACC → keep IMP
+        lda _au_no_acc
+        bne @validate           ; nonzero → ACC rejected → keep IMP
         lda #MODE_ACC
         sta asm_mode
 @validate:
