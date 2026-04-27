@@ -47,6 +47,21 @@ def emu(cse_prg):
     return e
 
 
+@pytest.fixture
+def emu_per_cpu(cse_prg_per_cpu):
+    """Multi-CPU emulator fixture (testing.md Principle 18) — yields a
+    fresh C64Emu loaded with each production debug PRG in turn
+    (6510 / 6502 / cmos).  Used by `TestBootsCleanly` to prove the
+    cold-init path executes on every variant; detailed contract
+    assertions live with `emu` (CMOS-only)."""
+    prg, map_path = cse_prg_per_cpu
+    e = C64Emu()
+    e.load_prg(prg, map_path)
+    if e.sym_opt("setup_interrupts") is None:
+        pytest.skip("Phase 18 cutover impl pending")
+    return e
+
+
 def _cold_init_to_prompt(emu):
     """Run cold init up to the first main_loop_top (i.e. past the
     cold-init userland handoff, splash drawn, ready for input).
@@ -283,6 +298,47 @@ class TestColdInitTerminalState:
                 f"${emu.memory[addr]:02X}, expected $00 "
                 "(post-cold-init free-workspace fill)"
             )
+
+
+# ── 2c. Multi-CPU boot smoke test (testing.md Principle 18) ──────────
+
+class TestBootsCleanly:
+    """Coarse smoke check: cold init runs to completion on every
+    production CPU build (6510 / 6502 / cmos).  Pytest expands the
+    consuming test once per variant via `cse_prg_per_cpu`.
+
+    This class deliberately does NOT duplicate the per-target
+    contract assertions in `TestColdInitTerminalState` — those live
+    on the canonical CMOS-only `emu` fixture and prevent the bug at
+    its source.  This class's job is the complementary one: ensure
+    the boot path *executes* on each variant, so a layout-dependent
+    failure that would otherwise be invisible (because the
+    canonical-target run happens to mask it) is caught
+    immediately.
+
+    See [doc/testing.md § Principle 18](../../doc/testing.md) for
+    the division of labour between coarse multi-CPU smoke tests
+    and detailed canonical-target contract tests.
+    """
+
+    def test_cold_init_completes(self, emu_per_cpu):
+        """Cold init must reach `main_loop_top` within the cycle
+        budget and land in the REPL (state == ST_REPL,
+        in_userland == 0)."""
+        emu = emu_per_cpu
+        # Reuse run_until — TimeoutError fails the test cleanly with
+        # the offending PC, which is exactly the diagnostic we want
+        # if a variant breaks.
+        emu.run_until(emu.sym("main_loop_top"),
+                      start_at=emu.sym("_main"),
+                      max_cycles=2_000_000)
+        assert emu.memory[emu.sym("state")] == 1, (        # ST_REPL
+            f"state = ${emu.memory[emu.sym('state')]:02X}, "
+            "expected $01 (ST_REPL)"
+        )
+        assert emu.memory[emu.sym("in_userland")] == 0, (
+            "in_userland != 0 after cold init"
+        )
 
 
 # ── 3. return_to_userland → clean RTS ────────────────────────────────

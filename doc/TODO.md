@@ -1515,21 +1515,30 @@ from our exit context.
 
 ### Architecture
 
-- [ ] **Multi-CPU integration-test parity.**  Today
-  `tests/integration/conftest.py::cse_prg` returns the CMOS
-  PRG only.  The Phase-24 cold-init RCA showed this hides
-  layout-dependent breakage in the 6502/6510 builds (per
-  [testing.md § Principles — Multi-CPU integration-test
-  parity](testing.md#principles)).  Parametrise the
-  fixture across all three production PRG variants
-  (6502 / 6510 / cmos) and run at least the cold-init
-  terminal-state assertion against each.  Scope: fixture
-  parametrisation + audit which existing integration tests
-  need `pytest.mark.parametrize`-style coverage vs which
-  are CPU-agnostic.  Out of scope for the Phase-24 fix
-  itself — that fix lands the principle (testing.md) and
-  the bug closure; this TODO carries the harness work
-  separately.
+- [x] ~~**Multi-CPU integration-test parity.**~~  Closed
+  2026-04-27.  Implemented as a coarse smoke check
+  rather than a full per-CPU re-run of detailed contract
+  tests, per the principle's actual intent (proving the
+  boot path *executes* on every variant, not duplicating
+  per-target contract assertions).  Detailed contract
+  tests remain on the canonical CMOS-only `emu` fixture.
+  Landed:
+  - `cse_prg_per_cpu` fixture in
+    [tests/conftest.py](../tests/conftest.py)
+    (params=`["6510", "6502", "cmos"]`).
+  - `emu_per_cpu` fixture +
+    `TestBootsCleanly::test_cold_init_completes` in
+    [tests/integration/test_kernel_transition.py](
+    ../tests/integration/test_kernel_transition.py) —
+    pytest expands to 3 invocations.
+  - [doc/testing.md § Principle 18](
+    testing.md#principles) clarified to spell out the
+    coarse-vs-detailed division of labour.
+
+  All three variants currently pass.  Confirms the
+  Phase-24 prediction that the heap-corruption root
+  cause was CPU-agnostic; F1 + F2 fixed all three even
+  though only CMOS was directly tested at fix time.
 
 - [ ] **Triage the 17 cold-init-fragile tests in
   test_kernel_transition.py** — **deferred until the cold-init

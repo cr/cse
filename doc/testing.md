@@ -616,17 +616,39 @@ tests are written, when they are written, and what they test.
     in build flags but exercise distinct memory layouts.*
 
     At least one Tier I test must run against each production
-    PRG variant.  When integration coverage runs against only
-    one variant, layout-dependent failures in the others are
-    invisible.
+    PRG variant.  Its job is **coarse**: prove that the boot
+    path *executes* on every variant.  When integration
+    coverage runs against only one variant, a layout-dependent
+    regression that prevents boot on the others is invisible —
+    not because the bug is CPU-specific (it usually isn't), but
+    because the canonical-target run happens to land on bytes
+    that mask the failure.
 
-    Cautionary example (Phase 24): the cold-init bug above
-    breaks the 6510 build harder than the CMOS build (no clean
-    BRK; CPU times out wandering BASIC ROM).  Because
-    integration tests only loaded `cse-cmos.prg`, the 6510
-    failure was undetected for months.  A single
-    `_cold_init_to_prompt` test parametrised across all three
-    PRG variants would have surfaced it on the first run.
+    **Division of labour with detailed contract tests.**
+    Per-target *contract* assertions (specific post-cold-init
+    state — symbol resolution, free-region fills, etc.) live
+    with the canonical debug target only.  They prevent the bug
+    at its source.  The multi-CPU layer doesn't duplicate them —
+    it just runs the same boot path on each variant and
+    asserts it completed.  Detailed = "did the boot do the
+    right things?"; coarse = "did the boot complete at all?"
+
+    Cautionary example (Phase 24): the cold-init bug broke all
+    three builds (the heap-corruption root cause was
+    CPU-agnostic), but the *manifestation* differed by
+    variant — CMOS produced a clean BRK that recovered into a
+    working-looking REPL (test passed via fault recovery),
+    6510's BASIC-ROM bytes at the affected address didn't
+    produce a clean BRK (CPU timed out wandering the ROM),
+    6502 was untested.  Multi-CPU smoke coverage would have
+    caught the 6510 timeout on day one regardless of which
+    contract specifically broke.
+
+    **CSE implementation:** [conftest.py](
+    ../tests/conftest.py)'s `cse_prg_per_cpu` fixture
+    (params=`["6510", "6502", "cmos"]`) yields the per-variant
+    PRG; `test_kernel_transition.py::TestBootsCleanly`
+    consumes it.
 
 ## Anti-patterns
 

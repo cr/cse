@@ -1073,7 +1073,37 @@ def cse_release_prg():
     return _CMOS_REL_PRG, _CMOS_REL_MAP
 
 
-# (Per-CPU-build PRG fixtures were introduced for integration-tier
-# gate tests but retired once the gate tests moved to unit tier via
-# the `asm_6510_syms` bundle in the asm_core family above.  Re-add
-# here if a future integration-tier test needs the 6510/6502 PRGs.)
+# Per-CPU-build PRG fixture for multi-CPU integration-test parity
+# (testing.md Principle 18).  Yields the (prg, map) tuple for each
+# variant in turn — pytest expands a consuming test 3× under the
+# parameter id "6510" / "6502" / "cmos".  Reuses `make debug`'s
+# all-three-variants build output.
+#
+# Use this for COARSE smoke checks of the boot path on each variant
+# (e.g. "cold init reaches main_loop_top").  Detailed per-target
+# contract assertions stay on the canonical CMOS-only `cse_prg`
+# fixture — see Principle 18 for the division of labour.
+
+_PER_CPU_PRG = {
+    "6510": (ROOT / "build" / "debug" / "6510" / "cse.prg",
+             ROOT / "build" / "debug" / "6510" / "cse.map"),
+    "6502": (ROOT / "build" / "debug" / "6502" / "cse-6502.prg",
+             ROOT / "build" / "debug" / "6502" / "cse.map"),
+    "cmos": (_CMOS_DBG_PRG, _CMOS_DBG_MAP),
+}
+
+
+def _ensure_all_debug_built():
+    """Build all three debug PRGs if any is missing."""
+    if not all(p.exists() and m.exists()
+               for p, m in _PER_CPU_PRG.values()):
+        subprocess.run(["make", "debug"], cwd=ROOT, check=True,
+                       capture_output=True)
+
+
+@pytest.fixture(scope="session", params=["6510", "6502", "cmos"])
+def cse_prg_per_cpu(request):
+    """Session-scoped: yields each production debug PRG in turn.
+    Pytest parametrises the consuming test once per variant."""
+    _ensure_all_debug_built()
+    return _PER_CPU_PRG[request.param]
