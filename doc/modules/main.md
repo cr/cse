@@ -326,7 +326,8 @@ cse_end_debug:   jsr end_debug_body
                  jmp main_loop_top
 
 cse_refresh:     jsr refresh_body
-                 jmp main_loop_top
+                 ; falls through to main_loop_top (-3 B)
+main_loop_top:   ...
 ```
 
 `cse_recover` guards against re-entry (`warm_guard`) to prevent

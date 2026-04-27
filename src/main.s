@@ -301,12 +301,73 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
 .endproc
 
 ; ═════════════════════════════════════════════════════════════
+; Layer 3: Reason-named warmstart entry points.
+;
+; Three composable entry points, each named after the reason it
+; was reached.  They share three rts-returning body subroutines:
+;   hw_reinit_body  — HW + software re-init (SP, $01, vectors,
+;                     dbg state, I/O, theme, charset).
+;   end_debug_body  — discard any active debug context; unpatch_all
+;                     so the program as-written is what's in memory.
+;   refresh_body    — reset screen, draw prompt row, position cursor.
+;
+; Order is load-bearing: cse_refresh sits immediately before
+; main_loop_top so its tail falls through (saves the trailing
+; `jmp main_loop_top`).  Body subroutines live further down in the
+; file (after the BRK/NMI handlers).
+;
+; See doc/memory_design.md § Warmstart entry points for the
+; invariants (editor and breakpoint-table survival).
+; ═════════════════════════════════════════════════════════════
+
+; ── cse_recover — internal CSE fault recovery ────────────────
+; Reset SP first, then call the bodies as balanced jsr-subs.  The
+; `ldx #$FF / txs` discards whatever kernel frames were on the
+; stack when the fault struck.
+cse_recover:
+        lda warm_guard
+        bne @hard_fail
+        inc warm_guard
+
+        ldx #$FF
+        txs
+        stx kernel_init_sp              ; X=$FF, captured for end_debug
+                                        ; / refresh; SP doesn't change
+                                        ; across the balanced jsrs below
+        jsr hw_reinit_body
+        jsr end_debug_body              ; fault → context is suspect
+        jsr refresh_body
+
+        lda #0
+        sta warm_guard
+
+        jmp main_loop_top
+
+@hard_fail:
+        jmp $FCE2               ; KERNAL cold start — last resort
+
+; ── cse_end_debug — explicit debug-session termination ──────
+cse_end_debug:
+        ldx kernel_init_sp
+        txs
+        jsr end_debug_body
+        jmp main_loop_top
+
+; ── cse_refresh — user asked for the view back ──────────────
+; Falls through into main_loop_top (saves the trailing `jmp`).
+cse_refresh:
+        ldx kernel_init_sp
+        txs
+        jsr refresh_body
+
+; ═════════════════════════════════════════════════════════════
 ; Layer 4: main_loop_top / main_loop
 ;
 ; main_loop_top is the target of:
 ;   * cse_brk_handler's longjmp (handler_finalize) — SP = reg_sp.
-;   * Each of the three warmstart entry points (cse_recover,
-;     cse_end_debug, cse_refresh) — SP = kernel_init_sp ($FF).
+;   * cse_recover and cse_end_debug (warmstart `jmp`s);
+;     cse_refresh falls through directly above.
+;     SP = kernel_init_sp ($FF) on all three.
 ;   * The cold-init userland handoff (`_main`'s final jmp).
 ; All are valid entries; main_loop's internal stack use is balanced.
 ; ═════════════════════════════════════════════════════════════
@@ -916,64 +977,11 @@ cse_nmi_handler:
         jmp handler_finalize
 
 ; ═════════════════════════════════════════════════════════════
-; Layer 3: Reason-named warmstart entry points.
-;
-; Three composable entry points, each named after the reason it
-; was reached.  They share three rts-returning body subroutines:
-;   hw_reinit_body  — HW + software re-init (SP, $01, vectors,
-;                     dbg state, I/O, theme, charset).
-;   end_debug_body  — discard any active debug context; unpatch_all
-;                     so the program as-written is what's in memory.
-;   refresh_body    — reset screen, draw prompt row, position cursor.
-;
-; See doc/memory_design.md § Warmstart entry points for the
-; invariants (editor and breakpoint-table survival).
-; ═════════════════════════════════════════════════════════════
-
-; ── cse_recover — internal CSE fault recovery ────────────────
-; Reset SP first, then call the bodies as balanced jsr-subs.  The
-; `ldx #$FF / txs` discards whatever kernel frames were on the
-; stack when the fault struck.
-cse_recover:
-        lda warm_guard
-        bne @hard_fail
-        inc warm_guard
-
-        ldx #$FF
-        txs
-        stx kernel_init_sp              ; X=$FF, captured for end_debug
-                                        ; / refresh; SP doesn't change
-                                        ; across the balanced jsrs below
-        jsr hw_reinit_body
-        jsr end_debug_body              ; fault → context is suspect
-        jsr refresh_body
-
-        lda #0
-        sta warm_guard
-
-        jmp main_loop_top
-
-@hard_fail:
-        jmp $FCE2               ; KERNAL cold start — last resort
-
-; ── cse_end_debug — explicit debug-session termination ──────
-cse_end_debug:
-        ldx kernel_init_sp
-        txs
-        jsr end_debug_body
-        jmp main_loop_top
-
-; ── cse_refresh — user asked for the view back ──────────────
-cse_refresh:
-        ldx kernel_init_sp
-        txs
-        jsr refresh_body
-        jmp main_loop_top
-
-; ═════════════════════════════════════════════════════════════
-; Body subroutines.  Balanced jsr-subs — SP discipline is the
-; caller's responsibility.  Entry points above do the SP reset
-; once before jsr'ing in.
+; Body subroutines (called by the warmstart entry points above —
+; cse_recover / cse_end_debug / cse_refresh, located just before
+; main_loop_top).  Balanced jsr-subs — SP discipline is the
+; caller's responsibility.  Entry points do the SP reset once
+; before jsr'ing in.
 ; ═════════════════════════════════════════════════════════════
 
 ; hw_reinit_body — full HW + software re-init.  Idempotent.

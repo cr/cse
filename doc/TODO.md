@@ -962,14 +962,20 @@ Open bugs, roughly ordered by priority.
     the helper, and each action string shortened to its verb stem.
     -25 B per build.)
 
-  - [ ] **Cold init ↔ `hw_reinit_body` sharing.**  Cold init's
-    steps 4/5/11/12 (`setup_interrupts`, `dbg_init`, `io_init`,
-    `theme_init`, `set_charset`, `reset_globals`) overlap heavily
-    with `hw_reinit_body`.  Different: cold init has `reset_screen`
-    between `theme_init` and `set_charset` and lacks `restore_colors`
-    (no theme yet).  A unified pipeline with a configurable
-    middle step would save ~9-12 B.  Invasive (touches boot
-    ordering); defer.
+  - [x] ~~**Cold init ↔ `hw_reinit_body` sharing.**~~  Closed
+    2026-04-27 as **considered, not worth it.**  Re-examined
+    during the Phase-24 follow-up survey of the init paths.
+    The overlap looks tempting (six shared steps), but the
+    *order* differs meaningfully: cold init runs
+    `setup_interrupts` and `dbg_init` early (before any code
+    that could fault), then sym/editor/workspace setup, then
+    I/O + screen + globals at the end.  `hw_reinit_body`
+    bundles HW + globals together because fault recovery
+    doesn't have to interleave with sym/editor init.  Forcing
+    a shared pipeline would either break cold init's
+    ordering constraint or carry a configurable-middle-step
+    parameter through both call sites — net cost in clarity
+    likely exceeds the ~9-12 B saving.  Decision recorded.
 
 ### Fixed bugs (reference)
 
@@ -1541,19 +1547,16 @@ from our exit context.
   cause was CPU-agnostic; F1 + F2 fixed all three even
   though only CMOS was directly tested at fix time.
 
-- [ ] **Triage the 17 cold-init-fragile tests in
-  test_kernel_transition.py** — **deferred until the cold-init
-  bug lands.**  This entry was originally framed as a per-test
-  triage (rewrite on `_minimal_init`, retire with Pattern A
-  skip, or retain) under the assumption that the fragility was
-  a harness limitation around the BASIC ROM shadow.  The
-  2026-04-25 RCA proved otherwise — the fragility is the
-  CMOS cold-init recovery path interacting with the BASIC
-  shadow, not a harness artifact (see [§ Bugs](#bugs)).
-  Once the cold-init bug is fixed, the 17 tests likely pass
-  cleanly without per-test triage; if any still fail post-fix,
-  they may genuinely need the rewrite/skip/retain decision.
-  Defer to that point.
+- [x] ~~**Triage the 17 cold-init-fragile tests in
+  test_kernel_transition.py.**~~  Closed 2026-04-27 as a no-op:
+  all 17 tests have been stable green across the F1, F2,
+  multi-CPU smoke, and cleanup commits with no per-test
+  changes — exactly as the bug entry's prediction table
+  forecast.  The fragility was a manifestation of the
+  cold-init heap-corruption bug; with the corruption fixed,
+  the underlying contracts each test asserts are sound and
+  the tests pass cleanly.  No `_minimal_init` rewrites, no
+  Pattern A skips, no retentions-with-caveats needed.
 
 - [x] ~~**Retire `src/mn_config.s`**~~ (closed 2026-04-25).
   Removed from `Makefile` (ASM_SRCS + TABLE_OUTS), from
