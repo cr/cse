@@ -661,17 +661,33 @@ Open bugs, roughly ordered by priority.
   and `d`.  Full Principle 11 class closure on single-expression
   commands.)
 
-- [ ] **BUG** Disk: `l "foo` (filename with missing closing quote)
-  errs `;?expr undef` but loads the file anyway.  Two issues
-  conflated: (a) the parse path raises an expression error on the
-  unterminated string yet still proceeds with the load (should
-  abort on syntax error before any I/O); (b) "expr undef" is the
-  wrong error class for an unterminated string literal — should
-  be `;?syntax` or a dedicated string-parse error.  Reproduce:
-  type `l "foo` (no closing quote) at the prompt.  Investigation:
-  cmd_load's filename parse — find where the missing `"` is
-  detected vs where the load actually fires; the abort path is
-  missing or wrongly placed.
+- [x] ~~**BUG** Disk: `l "foo` (filename with missing closing quote)
+  errs `;?expr undef` but loads the file anyway.~~  (Phase 25 fix.)
+  Root cause: `parse_filename` (repl.s) treated NUL during the
+  scan-for-closing-quote loop as a successful close.  The "name"
+  was extracted (`"foo"` between opening quote and NUL) but
+  `rp_ptr` was *not advanced* past it, so `parse_ls_args` then
+  re-parsed the same bytes via `try_expr` — which raised
+  `;?expr undef` on the undefined symbol `foo` while
+  `parse_filename` had already declared success and the load
+  proceeded with name `FOO`.  Two layered defects: wrong error
+  class (expr undef vs syntax), and load-despite-error.
+  Resolved by:
+  - **`src/repl.s`** — `parse_filename` splits the NUL-during-scan
+    path from `@close`: NUL → `@unterm` (new), which uses the
+    multi-level pop-trick (extension of optimization.md § 36) to
+    discard three caller frames (`get_filename`, `parse_ls_args`,
+    `cmd_load` / `cmd_write`) and tail-jump to `log_err` with
+    `str_syntax`.  The `;?syntax` message is emitted; `log_err`'s
+    rts pops `main_loop`'s return → next prompt.  No disk I/O.
+  - **`doc/modules/repl.md`** — § Argument parsing now declares
+    the unterminated-quote rule explicitly.
+  - **Tests** — `TestUnterminatedQuote` in
+    `tests/integration/test_repl_disk.py` (3 cases):
+    `l "foo` → no load, `s "foo` → no save, project name
+    untouched after aborted parse.
+  - **Cost:** +13 B per production variant.
+  - **Test suite:** 3088 passed / 18 skipped (was 3085 / 18).
 - [ ] **BUG** Editor: switching to the editor after `l` always
   inserts a tab on entry, even when the buffer already has
   source loaded (so the first line gets a leading tab where it

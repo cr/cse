@@ -2590,10 +2590,11 @@ pre_userland_run:
         sta rp_ptr2
         lda rp_ptr+1
         sta rp_ptr2+1
-        ; scan for closing quote or NUL
+        ; scan for closing quote.  NUL before a closing quote is an
+        ; unterminated-string syntax error — see @unterm.
         ldy #0
 @scan:  lda (rp_ptr),y
-        beq @done
+        beq @unterm
         cmp #$22
         beq @close
         iny
@@ -2617,6 +2618,26 @@ pre_userland_run:
         rts
 @fail:  lda #0                  ; A=0, Z=1: no name
         rts
+        ; ─── unterminated-string abort ──────────────────────────────
+        ; `l "foo` / `s "foo` (no closing quote) is a syntax error.
+        ; Use the multi-level pop-trick (extension of optimization.md
+        ; § 36) to escape the entire l/s command without leaving
+        ; partial state for callers to act on.  Stack at entry:
+        ;   bottom → [main_loop ret][cmd_l/s ret][parse_ls_args ret]
+        ;            [get_filename ret] ← top
+        ; Pop the top three frames; log_err's rts pops main_loop's ret.
+        ; cmd_load / cmd_write are dispatched via @h_l / @h_s as `jmp`
+        ; (no extra frame), so the stack shape matches every time.
+@unterm:
+        pla                     ; discard get_filename ret lo
+        pla                     ; discard get_filename ret hi
+        pla                     ; discard parse_ls_args ret lo
+        pla                     ; discard parse_ls_args ret hi
+        pla                     ; discard cmd_l/s ret lo
+        pla                     ; discard cmd_l/s ret hi
+        lda #<str_syntax
+        ldx #>str_syntax
+        jmp log_err
 .endproc
 
 ; ═══════════════════════════════════════════════════════════

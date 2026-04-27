@@ -557,3 +557,54 @@ class TestLoadCommand:
         run_at(cpu, rsyms.exec_line)
         assert cpu.memory[rsyms.op_witness] == OP_SEQ_SAVE
         assert get_name(cpu, rsyms.save_name) == "FOO"
+
+
+class TestUnterminatedQuote:
+    """Unterminated quoted name (opening `"` without closing) is a
+    syntax error that aborts the command before any disk I/O.
+
+    Pre-fix bug (TODO.md): `l "foo` (no closing quote) reported
+    `;?expr undef` and *still* loaded the file `foo` from disk.
+    Two issues conflated:
+      (a) the parse error didn't abort — a load fired anyway;
+      (b) the error class was `expr undef`, not `syntax`, because
+          the unterminated name's bytes were re-parsed by the
+          numeric-arg path as a label expression.
+
+    Contract (per repl.md § Argument parsing): unterminated
+    string → `;?syntax` and no disk operation.
+    """
+
+    def test_load_unterminated_quote_aborts(self, rsyms):
+        """`l "foo` (unterminated) → no load."""
+        cpu = make_cpu(rsyms)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 'l "foo')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_NONE, \
+            "load fired despite unterminated quote"
+
+    def test_save_unterminated_quote_aborts(self, rsyms):
+        """`s "foo` (unterminated) → no save."""
+        cpu = make_cpu(rsyms)
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 's "foo')
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.op_witness] == OP_NONE, \
+            "save fired despite unterminated quote"
+
+    def test_unterminated_quote_does_not_corrupt_project_name(self, rsyms):
+        """The aborted command must not have updated cur_project_name
+        with the partial token.  Pre-existing project name (or empty)
+        stays untouched."""
+        cpu = make_cpu(rsyms)
+        # Pre-set cur_project_name = "BAR"
+        for i, c in enumerate("BAR"):
+            cpu.memory[rsyms.cur_project_name + i] = ord(c)
+        cpu.memory[rsyms.cur_project_name + 3] = 0
+        clear_witness(cpu, rsyms)
+        set_line_buf(cpu, rsyms, 'l "foo')
+        run_at(cpu, rsyms.exec_line)
+        # Project name must NOT have been changed to "FOO"
+        assert get_cur_project_name(cpu, rsyms) != "FOO", \
+            "cur_project_name was modified by aborted parse"

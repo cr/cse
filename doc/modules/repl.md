@@ -452,7 +452,11 @@ This prevents dot or suffix accumulation across consecutive saves.
 
 **Argument parsing** (shared between `l` and `s`, strictly positional):
 
-1. Optional `"quoted name"`.  Quotes required.
+1. Optional `"quoted name"`.  Quotes required.  An unterminated
+   string (opening quote without matching closing quote before
+   end-of-input) is a syntax error: `;?syntax` is logged and the
+   command aborts before any disk I/O.  The empty form `""` and
+   the bare form (no quote) are both valid — see Mode classification.
 2. Numeric args via the expression parser, up to two.  Stops at first
    failed expression, `;`, or end of input.
 
