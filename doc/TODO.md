@@ -1775,21 +1775,6 @@ from our exit context.
   PRG (was 21287, exactly **−256 B saved per build variant**;
   3051 tests pass, 18 expected skips).
 
-- [ ] Loader: reverse-direction copy.  `loader.s` currently does a
-  forward memcpy (low → high) for CODE+RODATA and KDATA.  Forward
-  copy is unsafe when `dst > src` and the ranges overlap, which is
-  why `compute_layout.py` enforces `payload_end < runtime_start` and
-  fails the build if the binary outgrows the gap.  A backward copy
-  (top → bottom, DEY/DEX loops) is safe in exactly the direction we
-  copy, so the overlap constraint disappears and CODE+RODATA can
-  grow all the way up to `runtime_start` without tripping the build
-  check.  Changes: flip both page+remainder loops in loader.s
-  (CODE+RODATA copy, KDATA copy — BSS zeroing is direction-
-  independent); drop the payload-overlap sanity check in
-  `compute_layout.py`; update `doc/memory_design.md` and the
-  loader's own comments.  Opens room for modestly larger binaries
-  without any layout-math changes elsewhere.
-
 - [x] Relocating startup: done (Roadmap R2, Session 10).
 
 - [x] **PETSCII pipeline unification + expr_eval in line assembler.**
