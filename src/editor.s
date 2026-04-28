@@ -2028,13 +2028,11 @@ _ed_cur_row:
         rts
 @read_byte:
         ldy #0
-        lda (save_ptr),y
-        pha
+        lda (save_ptr),y        ; byte in A; survives the inc-pair below (no A-touch)
         inc save_ptr
         bne :+
         inc save_ptr+1
-:       pla
-        ldx #0
+:       ldx #0
         rts
 .endproc
 

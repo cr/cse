@@ -504,13 +504,11 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         bcs @eof
 @ok:
         ldy #0
-        lda (read_ptr),y
-        pha                     ; save byte
+        lda (read_ptr),y        ; byte in A; survives the inc-pair below (no A-touch)
         inc read_ptr
         bne :+
         inc read_ptr+1
-:       pla                     ; byte in A
-        ldx #0
+:       ldx #0
         rts
 @eof:
         lda #$FF

@@ -92,7 +92,7 @@ str_deleted:    .byte " del", 0
 
 ; Error content strings (prefix-free — log_line prepends ";?")
 str_syntax:     .byte "syntax", 0        ; shared: asm + b + addr_mode
-str_cpu_err:    .byte "cpu", 0           ; CPU-gate rejection (asm_line)
+str_cpu_err     = str_tag_cpu            ; "cpu" — same content
 str_bad_val:    .byte "bad val", 0
 str_full        = s_sym_full + 4         ; "full" is suffix of "sym full"
 str_cmd:        .byte "cmd", 0
@@ -114,7 +114,7 @@ str_long:       .byte "long L", 0
 
 ; Warning contents (emitted at LOG_WARN by warn_if_unsaved / warn_if_debug).
 str_unsaved:    .byte "unsaved", 0
-str_debug:      .byte "debug", 0
+str_debug       = str_end_dbg + 4        ; "debug" is suffix of "end debug"
 ; Action-stem strings (passed to query_user, which appends "? y/n").
 str_del_src:    .byte "del src", 0
 str_quit:       .byte "quit", 0
@@ -159,7 +159,7 @@ str_tag_zp:     .byte "zp", 0
 str_tag_stk:    .byte "stk", 0
 str_tag_sys:    .byte "sys", 0
 str_tag_work:   .byte "work", 0
-str_tag_src:    .byte "src", 0
+str_tag_src     = str_del_src + 4        ; "src" is suffix of "del src"
 str_tag_low:    .byte "low", 0
 str_tag_rom:    .byte "rom", 0
 str_banked:     .byte "banked", 0
@@ -168,7 +168,7 @@ str_banked:     .byte "banked", 0
 
 str_cse_rt      = str_tag_cse           ; both "cse"
 str_tag_scr     = str_screen            ; both "scr"
-str_tag_cse:    .byte "cse", 0          ; canonical copy
+str_tag_cse     = s_manual + 19          ; "cse" is suffix of "man: github.com/cr/cse"
 str_tag_io      = str_io               ; both "io"
 str_io:        .byte "io", 0           ; canonical copy
 str_free_suf    = str_bytes_free        ; " free" suffix for free_line

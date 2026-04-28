@@ -250,6 +250,18 @@ DDD Review round; not yet triaged into Tier A / B / C.*
 
 Open bugs, roughly ordered by priority.
 
+- [ ] **BUG** Source assembler: `;<line>: truncated` warning never
+  fires.  In `asm_src.s::do_pass` (lines ~1402–1428), `txa` clobbers
+  the length returned by `ed_read_line` (A=lo, X=hi=0 for non-EOF)
+  before the saved-for-truncation `pha`.  The subsequent `cmp #39`
+  always sees 0, so `bne @no_trunc` always takes and the truncation
+  log line is dead code.  Reproduce: assemble a source with a line
+  ≥39 chars (max line width); CSE silently truncates without
+  warning.  Found during the optimization-round pha/pla audit
+  2026-04-28.  Fix: re-order the save — `pha` BEFORE `txa`, then
+  `bmi @done_pop` with a small @done_pop trampoline that pulls the
+  pushed length on the EOF exit.  Real bug, not just stale code.
+
 - [x] ~~**★ HIGH — Cold-init silently faults and recovers on CMOS;
   6510 build is fully broken in test path.**~~  **Closed
   2026-04-27, Phase 24.**  Fixed by:
