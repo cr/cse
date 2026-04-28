@@ -55,7 +55,7 @@
         .import dbg_bp_count
         .import bp_table, step_bp
         .import __CODE_RUN__
-        .importzp dbg_reason            ; Phase 21: moved to zp.s
+        .importzp dbg_reason
         .import dbg_bp_hit
         .import brk_pc, brk_stub
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
@@ -71,7 +71,7 @@
         .import run_user_pending, stop_cooldown
         .import cse_refresh, cse_end_debug
         .import end_debug_body
-        .importzp warm_cont             ; Phase 21: moved to zp.s
+        .importzp warm_cont
         ; MODE_NONE, MODE_JUMP, MODE_RESUME constants are defined in
         ; main.s; redefine here (ca65 doesn't import equates).
 MODE_NONE   = 0
@@ -112,7 +112,7 @@ STEP_OVER = 2
         .import ed_save_source, ed_load_source
         .import ed_save_bytes, ed_save_lines
         .import ed_ensure_init, ed_new
-        .importzp ed_dirty              ; Phase 21: moved to zp.s
+        .importzp ed_dirty
         .import ed_total_lines
         .import ed_read_rewind, ed_read_byte
         .importzp buf_base
@@ -122,7 +122,7 @@ STEP_OVER = 2
         .import src_top, src_bot
 
 ; ── Imports: global state ──────────────────────────────────
-        .importzp state                 ; Phase 21: moved to zp.s
+        .importzp state
         .importzp asm_cpu
 
 ; ── Imports: strings.s ────────────────────────────────────
@@ -188,19 +188,15 @@ CUR_ROW       = $D6
 .segment "BSS"
 
 cur_addr:      .res 2          ; current memory address (init by splash)
-; cur_device moved to zp.s (Phase 21 Move 4)
 last_cmd:       .res 1          ; last command byte
 block_size:     .res 2          ; block size for I/O (init by main.s)
-; cur_project_name moved to zp.s (Phase 21.1 Move 6a)
 disk_name_buf:     .res FILENAME_MAX + 2   ; composed disk name (stem + optional ".")
 _verbatim_type:    .res 1          ; 0 / 's' / 'p' from strip_and_classify
 _arg_count:        .res 1          ; 0, 1, or 2 — numeric args in last parse
 
 line_buf:       .res 42
 dot_asm_buf:    .res 24
-; rp_addr / rp_cnt / rp_save / rp_save2 / rp_next_lo moved to zp.s
-; (Phase 21.1 Move 3B).
-rp_next_hi:     .res 2          ; 16-bit scratch pair (rp_next_hi: BSS only)
+rp_next_hi:     .res 2          ; 16-bit scratch pair (rp_next_lo lives in zp.s)
 rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
 rp_hexbuf:      .res 3          ; cmd_dot hex byte parse
@@ -270,8 +266,6 @@ nl_clear:
         jmp io_clear_eol
 
 
-; puts_imm moved to log.s (Phase 21 Move 3).
-
 ; ───────────────────────────────────────────────────────────
 ; io_addr_cmd — print "XXXX:C" at column 0
 ;   rp_addr = address, A = command char
@@ -289,8 +283,8 @@ io_addr_cmd:
         jmp io_putc
 
 ; Logging API (log_open / log_close / log_line / log_err / log_warn /
-; log_info) moved to log.s in Phase 21 Move 3.  repl.s imports them.
-; log.inc still provides the LOG_ERR/WARN/INFO level constants.
+; log_info) lives in log.s; repl.s imports them.  log.inc provides
+; the LOG_ERR/WARN/INFO level constants.
 .include "log.inc"
 
 ; ───────────────────────────────────────────────────────────
@@ -615,6 +609,17 @@ _require_eoi_or_err:
 @ok:    rts
 @err:   pla                     ; discard caller return lo
         pla                     ; discard caller return hi
+        ; fall through to _syntax_err
+
+; ═══════════════════════════════════════════════════════════
+; _syntax_err — shared `;?syntax` tail.  Works as both a tail-jmp
+; (jmp _syntax_err — log_err's rts pops the caller's caller's
+; frame, same as direct `jmp log_err`) and a jsr target (returns
+; to the call site after the saved return is popped).  Pairs
+; naturally with _require_eoi_or_err's pop-trick, which falls
+; through here.
+; ═══════════════════════════════════════════════════════════
+_syntax_err:
         lda #<str_syntax
         ldx #>str_syntax
         jmp log_err
@@ -1710,9 +1715,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         jsr io_puts
         jmp log_close
 @syn_err:
-        lda #<str_syntax
-        ldx #>str_syntax
-        jmp log_err
+        jmp _syntax_err
 @cpu_err:
         lda #<str_cpu_err
         ldx #>str_cpu_err
@@ -2401,9 +2404,7 @@ pre_userland_run:
         ldx #>str_range
         jmp log_err   
 
-@err_b: lda #<str_syntax
-        ldx #>str_syntax
-        jmp log_err   
+@err_b: jmp _syntax_err
 @done:  jmp io_clear_eol
 .endproc
 
@@ -2644,9 +2645,7 @@ pre_userland_run:
         pla                     ; discard parse_ls_args ret hi
         pla                     ; discard cmd_l/s ret lo
         pla                     ; discard cmd_l/s ret hi
-        lda #<str_syntax
-        ldx #>str_syntax
-        jmp log_err
+        jmp _syntax_err
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -3443,9 +3442,6 @@ prg_ok_done:
 @done:  jmp io_clear_eol
 .endproc
 
-.segment "BSS"
-; _info_mode moved to zp.s (Phase 21.1 Move 3B)
-.segment "CODE"
 
 ; ═══════════════════════════════════════════════════════════
 ; exec_line — parse line_buf and execute command

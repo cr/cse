@@ -99,9 +99,8 @@ save_ptr = read_ptr
 ed_cur_line:    .res 2          ; cursor line (0-based)
 ed_cur_col:     .res 1          ; cursor visual column (0-based)
 ed_top_line:    .res 2          ; line number at screen row 0
-; ed_total_lines moved to gap_buffer.s (L3) — line count is
-; gap-buffer state, updated on CR insert/delete.
-; ed_dirty moved to zp.s (Phase 21 Move 4)
+; ed_total_lines lives in gap_buffer.s (L3) — line count is
+; gap-buffer state, updated on CR insert/delete.  ed_dirty lives in zp.s.
 ed_save_bytes: .res 2          ; bytes from last file op
 ed_save_lines: .res 2          ; lines from last file op
 _load_overflow: .res 1         ; sticky: set if any insert during load

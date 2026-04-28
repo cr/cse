@@ -36,11 +36,9 @@
         .export seg_line                        ; no-op stub (log.s not linked)
         ; rp_addr, rp_cnt, rp_save2 now in zp.s (Phase 21.1 Move 3B)
         .export puts_imm
-        ; cur_project_name now provided by zp.s (Phase 21.1 Move 6a);
-        ; asm_src bundle links zp.s, so no stub definition needed.
-        .export define_ws_syms          ; Phase 21 Move 1: no-op stub
-                                        ; (real impl lives in editor.s, which
-                                        ; isn't linked into the asm_src bundle)
+        ; cur_project_name lives in zp.s; asm_src bundle links zp.s.
+        .export define_ws_syms          ; no-op stub (real impl in editor.s,
+                                        ; not linked into the asm_src bundle)
         .export __CODE_RUN__    : absolute = $4000
 
         .import asm_assemble
