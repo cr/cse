@@ -215,6 +215,24 @@ MANUAL_TESTS = [
         "expect_errors": 0,
     },
     {
+        # Sibling of the .dw/.db forward-ref bug.  .res/.align use the
+        # expression VALUE to determine pass-0 size, so a forward-ref
+        # count cannot be tolerated the same way.  This case is marked
+        # xfail and tracked in TODO.md until either the directive
+        # rejects forward refs vocally on pass 0 or pass 1 promotes
+        # the value to drive consistent layout.  The expected bytes
+        # below describe the *correct* behaviour CSE should produce
+        # if the fix lands.
+        "name": ".res with forward-ref count + jmp across (PC drift)",
+        "source": ".org $c000\n  jmp target\n.res N\ntarget:\n  rts\n.const N $04",
+        "expect_org": 0xC000,
+        # Layout if fix lands: jmp (3) + 4-byte .res + rts (1).
+        # target = $C007.  jmp bytes: $4C $07 $C0; .res zeros; rts: $60.
+        "expect_bytes": [0x4C, 0x07, 0xC0, 0, 0, 0, 0, 0x60],
+        "expect_errors": 0,
+        "xfail": ".res forward-ref drift — TODO.md sibling bug",
+    },
+    {
         "name": ".res directive",
         "source": ".org $c000\n.res 4, $ea\n  rts",
         "expect_org": 0xC000,
@@ -425,6 +443,8 @@ ERROR_TESTS = [
 
 @pytest.mark.parametrize("tc", MANUAL_TESTS, ids=lambda t: t["name"])
 def test_assemble(as_syms, tc):
+    if "xfail" in tc:
+        pytest.xfail(tc["xfail"])
     org, data, errors = _run(as_syms, tc["source"])
     assert errors == tc["expect_errors"], (
         f"error count: got {errors}, expected {tc['expect_errors']}"
