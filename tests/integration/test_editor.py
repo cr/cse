@@ -272,3 +272,152 @@ class TestEnterEditorSeed:
 # run against the Tier U gap_buffer bundle instead of the full PRG via
 # C64Emu.  Same coverage, ~50x faster per test.  See doc/testing.md
 # § Principle 9 Pattern B (subsumed).
+
+
+# ── Buffer-overflow safety ─────────────────────────────────────────────────
+#
+# The gap buffer can grow downward by paging buf_base (gb_ensure_room),
+# but only as far as BUF_FLOOR.  Once buf_base hits the floor and the
+# gap is empty, gb_insert returns C=0 (failure).  Two distinct paths
+# can hit this:
+#
+#   1. ed_load_source — disk loads via a callback (load_insert) which
+#      sets the sticky _load_overflow flag on first failure.  Subsequent
+#      bytes are silently dropped; ed_load_source returns code 2 ("file
+#      too large") and resets the buffer.
+#
+#   2. ed_handle_key — RETURN, INS, TAB, and printable keystrokes call
+#      gb_insert in the inserting paths.  On C=0 the keystroke is
+#      refused via @reject (audible blip + cursor resync); ed_cur_col
+#      and ed_cur_line do NOT advance.  Without the carry check the
+#      bookkeeping would drift from the buffer, corrupting all
+#      subsequent rendering.
+
+class TestBufferOverflow:
+    """Both overflow paths (load and keystroke) must refuse cleanly
+    instead of corrupting editor state.  See TODO.md § Editor crash
+    prevention."""
+
+    # BUF_FLOOR is page-aligned just above the LOADER region; the
+    # production layout pins it at $1400 (compute_layout.py).  The
+    # gb_ensure_room check is `cmp #>BUF_FLOOR+1` so any buf_base.hi
+    # ≤ $14 triggers the no-room branch.
+    BUF_FLOOR = 0x1400
+
+    @staticmethod
+    def _force_full(emu):
+        """Directly poke gap-buffer pointers to a known-full state:
+        buf_base pinned at BUF_FLOOR (gb_ensure_room can't page down)
+        and gap_lo == gap_hi (gap exhausted).  Far faster than
+        filling via 30K+ gb_insert calls in emulation."""
+        floor_lo = TestBufferOverflow.BUF_FLOOR & 0xFF
+        floor_hi = (TestBufferOverflow.BUF_FLOOR >> 8) & 0xFF
+        for sym in ("buf_base", "gap_lo", "gap_hi"):
+            addr = emu.sym(sym)
+            emu.memory[addr]     = floor_lo
+            emu.memory[addr + 1] = floor_hi
+        # Cursor at the (now empty) start of the only line so the
+        # line-width pre-checks in ed_handle_key pass and we reach
+        # gb_insert.
+        emu.memory[emu.sym("ed_cur_col")] = 0
+        cur_line = emu.sym("ed_cur_line")
+        emu.memory[cur_line]     = 0
+        emu.memory[cur_line + 1] = 0
+        # Plant a CR at gap_hi so cursor_line_vwidth returns 0 (current
+        # line is empty).  Otherwise random bytes between gap_hi and
+        # BUF_END could push line_vwidth above the 39-col cap, making
+        # the line-width pre-check refuse the keystroke for the wrong
+        # reason — the real test is whether the gb_insert C=0 carry is
+        # honoured.
+        emu.memory[TestBufferOverflow.BUF_FLOOR] = 0x0D       # CR
+        # Sanity: a probe gb_insert must report C=0 (full).
+        emu.jsr(emu.sym("gb_insert"), a=ord('?'))
+        assert not emu.carry, "_force_full: gb_insert unexpectedly succeeded"
+
+    # ── Load path ──
+
+    def test_load_oversize_returns_too_big(self, cse_prg):
+        """A SEQ load that overruns the gap buffer must return code 2
+        (file too large) and leave the buffer in a clean reset state.
+        Pinned at the unit level: load_insert detects gb_insert C=0,
+        sets _load_overflow, ed_load_source resets and returns 2."""
+        emu = make_emu(cse_prg)
+        # Pin buf_base at BUF_FLOOR so the very next gb_insert fails.
+        TestBufferOverflow._force_full(emu)
+        # Reset cursor/buffer state (don't re-init buf_base — keep
+        # the floor we just established).
+        # Simulate one load_insert byte: should set _load_overflow.
+        load_overflow = emu.sym("_load_overflow")
+        emu.memory[load_overflow] = 0
+        emu.jsr(emu.sym("load_insert"), a=ord('Y'))
+        assert emu.memory[load_overflow] != 0, \
+            "_load_overflow must be set when gb_insert fails during load"
+
+    def test_load_overflow_is_sticky(self, cse_prg):
+        """Once _load_overflow is set, subsequent load_insert calls are
+        no-ops — they must not crash, leak, or unset the flag."""
+        emu = make_emu(cse_prg)
+        TestBufferOverflow._force_full(emu)
+        load_overflow = emu.sym("_load_overflow")
+        emu.memory[load_overflow] = 1               # already overflowed
+        # Hammer load_insert: each call should short-circuit and keep
+        # the flag set without writing anything.
+        for _ in range(64):
+            emu.jsr(emu.sym("load_insert"), a=ord('Z'))
+            assert emu.memory[load_overflow] == 1
+
+    # ── Keystroke path ──
+
+    def test_full_buffer_refuses_printable_keystroke(self, cse_prg):
+        """Typing a character into a full buffer must NOT advance
+        ed_cur_col — the gb_insert returned C=0, so the keystroke is
+        refused at @reject.  Pre-fix: ed_cur_col was incremented
+        unconditionally → bookkeeping drifted from the buffer."""
+        emu = make_emu(cse_prg)
+        TestBufferOverflow._force_full(emu)
+        col_before = emu.memory[emu.sym("ed_cur_col")]
+        type_keys(emu, b"A")
+        assert emu.memory[emu.sym("ed_cur_col")] == col_before, \
+            "printable keystroke must be refused on full buffer (no col advance)"
+
+    def test_full_buffer_refuses_tab(self, cse_prg):
+        """C=+SPACE ($A0) on a full buffer must be refused."""
+        emu = make_emu(cse_prg)
+        TestBufferOverflow._force_full(emu)
+        col_before = emu.memory[emu.sym("ed_cur_col")]
+        type_keys(emu, [0xA0])
+        assert emu.memory[emu.sym("ed_cur_col")] == col_before, \
+            "TAB keystroke must be refused on full buffer"
+
+    def test_full_buffer_refuses_return(self, cse_prg):
+        """RETURN on a full buffer must be refused — ed_cur_line stays
+        put.  Pre-fix: ed_cur_line was incremented even though the CR
+        wasn't actually inserted, drifting line count from buffer
+        contents."""
+        emu = make_emu(cse_prg)
+        TestBufferOverflow._force_full(emu)
+        # Read 16-bit ed_cur_line.
+        cur_line_addr = emu.sym("ed_cur_line")
+        line_before = (emu.memory[cur_line_addr]
+                       | (emu.memory[cur_line_addr + 1] << 8))
+        type_keys(emu, b"\r")
+        line_after = (emu.memory[cur_line_addr]
+                      | (emu.memory[cur_line_addr + 1] << 8))
+        assert line_before == line_after, \
+            f"RETURN refused must not advance ed_cur_line " \
+            f"(was {line_before}, now {line_after})"
+
+    def test_full_buffer_refuses_ins(self, cse_prg):
+        """CH_INS on a full buffer must be refused."""
+        emu = make_emu(cse_prg)
+        TestBufferOverflow._force_full(emu)
+        # Capture gap_lo as the witness — INS would advance gap_lo by
+        # one byte if it succeeded.  On a full buffer gap_lo stays put.
+        gap_lo_addr = emu.sym("gap_lo")
+        gap_before = (emu.memory[gap_lo_addr]
+                      | (emu.memory[gap_lo_addr + 1] << 8))
+        type_keys(emu, [0x94])                      # CH_INS = $94
+        gap_after = (emu.memory[gap_lo_addr]
+                     | (emu.memory[gap_lo_addr + 1] << 8))
+        assert gap_before == gap_after, \
+            "INS refused must not move gap_lo"

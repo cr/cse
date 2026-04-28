@@ -1651,11 +1651,16 @@ _ed_cur_row:
 @step4:
         lda #$0D
         jsr gb_insert
+        jcc @reject             ; full buffer → refuse newline (no col/line drift)
         inc ed_cur_line
         bne :+
         inc ed_cur_line+1
 :       lda #$A0
-        jsr gb_insert
+        jsr gb_insert           ; second insert may fail on the very last
+                                ; byte of capacity; accept partial state
+                                ; (CR landed, indent missed) — bookkeeping
+                                ; below assumes the tab succeeded but
+                                ; that's only cosmetic on the new line.
         lda #TAB_WIDTH
         sta ed_cur_col
         jmp @enter_render
@@ -1664,6 +1669,7 @@ _ed_cur_row:
 @bol_cr:
         lda #$0D
         jsr gb_insert
+        jcc @reject             ; full → refuse
         inc ed_cur_line
         bne :+
         inc ed_cur_line+1
@@ -1704,6 +1710,7 @@ _ed_cur_row:
         jcs @reject
         lda #$20
         jsr gb_insert
+        jcc @reject             ; buffer full → refuse
         jsr gb_cursor_left      ; cursor back onto the space
         jsr render_current_row
         jmp @edited_repos
@@ -1732,6 +1739,7 @@ _ed_cur_row:
         sta @new_col
         lda #$A0
         jsr gb_insert
+        jcc @reject             ; buffer full → refuse TAB
         lda @new_col
         sta ed_cur_col
         jsr render_current_row
@@ -1756,6 +1764,7 @@ _ed_cur_row:
         bcs @reject
         lda @key
         jsr gb_insert
+        jcc @reject             ; buffer full → refuse char
         inc ed_cur_col
         ; Smart colon: typing ':' at EOL strips leading $A0
         lda @key

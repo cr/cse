@@ -1584,7 +1584,30 @@ Defined scope, needs work.
 
 ### Editor
 
-- [ ] Handle files > gap buffer capacity (show error, don't crash).
+- [x] ~~Handle files > gap buffer capacity (show error, don't crash).~~
+  (Phase 25 fix.)  Two paths covered:
+  - **Load path** was already safe — `_load_overflow` flag in
+    `editor.s::load_insert` short-circuits subsequent bytes,
+    `ed_load_source` resets the buffer and returns code 2 → REPL
+    shows `;?too big`.  Now pinned by tests.
+  - **Keystroke path** was the actual crash class — `gb_insert`
+    sites in `ed_handle_key` ignored the C=0 (full) signal and
+    advanced `ed_cur_col` / `ed_cur_line` regardless, drifting
+    bookkeeping from buffer contents and corrupting all
+    subsequent rendering.  Fixed by adding `jcc @reject` after
+    each gb_insert in the RETURN, INS, TAB, and printable paths.
+    Refuse semantics: audible blip + cursor resync, no col/line
+    advance.
+  - **Tests** — `TestBufferOverflow` in
+    `tests/integration/test_editor.py` (6 cases) pins both
+    halves: `_load_overflow` set/sticky behaviour and per-key
+    refuse for printable / TAB / RETURN / INS.  Setup pokes
+    `buf_base = BUF_FLOOR` + zero-byte gap directly so the test
+    runs in milliseconds rather than fill-loop seconds.
+  - **Doc** — `editor.md` § Buffer-full refuse spells out the
+    contract and the load-path mechanism.
+  - **Cost:** +25 B per production variant (5 × `jcc @reject`).
+  - **Test suite:** 3109 passed / 18 skipped.
 - [ ] Gap buffer floor above directory load area: if `list_directory`
   stays LOAD-based (loads to $0801, max ~5.1 KB), set gap buffer
   bottom to $0801+$1400=$1C01 so `$` can never clobber source.

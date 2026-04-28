@@ -309,6 +309,22 @@ Cursor movement preserves the target column across UP/DOWN (saved
 in `target_col` before the move, restored after).  Target column is
 the *visual* column, not the byte offset.
 
+### Buffer-full refuse
+
+Every inserting keystroke (RETURN, INS, TAB, printable) checks the
+carry returned by `gb_insert` and routes to `@reject` when the
+gap buffer is full (`buf_base` at `BUF_FLOOR` and gap exhausted —
+see [gap_buffer.md](gap_buffer.md) § gb_ensure_room).  Refuse means:
+audible blip via `io_blip`, and `ed_cur_col` / `ed_cur_line` do NOT
+advance.  Without the carry check the bookkeeping would drift from
+the actual buffer contents, corrupting all subsequent rendering.
+
+The load path uses a separate mechanism: the `_load_overflow` BSS
+flag is set on first `gb_insert` failure inside `load_insert`.
+Subsequent bytes from `disk_load_seq` are silently dropped;
+`ed_load_source` then resets the buffer and returns code 2 ("file
+too large") which the REPL surfaces as `;?too big`.
+
 ### Tab character
 
 C=+SPACE ($A0) is the tab key.  It inserts a single $A0 byte into
