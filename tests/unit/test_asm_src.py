@@ -215,24 +215,6 @@ MANUAL_TESTS = [
         "expect_errors": 0,
     },
     {
-        # Sibling of the .dw/.db forward-ref bug.  .res/.align use the
-        # expression VALUE to determine pass-0 size, so a forward-ref
-        # count cannot be tolerated the same way.  This case is marked
-        # xfail and tracked in TODO.md until either the directive
-        # rejects forward refs vocally on pass 0 or pass 1 promotes
-        # the value to drive consistent layout.  The expected bytes
-        # below describe the *correct* behaviour CSE should produce
-        # if the fix lands.
-        "name": ".res with forward-ref count + jmp across (PC drift)",
-        "source": ".org $c000\n  jmp target\n.res N\ntarget:\n  rts\n.const N $04",
-        "expect_org": 0xC000,
-        # Layout if fix lands: jmp (3) + 4-byte .res + rts (1).
-        # target = $C007.  jmp bytes: $4C $07 $C0; .res zeros; rts: $60.
-        "expect_bytes": [0x4C, 0x07, 0xC0, 0, 0, 0, 0, 0x60],
-        "expect_errors": 0,
-        "xfail": ".res forward-ref drift — TODO.md sibling bug",
-    },
-    {
         "name": ".res directive",
         "source": ".org $c000\n.res 4, $ea\n  rts",
         "expect_org": 0xC000,
@@ -434,6 +416,30 @@ ERROR_TESTS = [
     {
         "name": "bad directive",
         "source": ".org $c000\n.bogus",
+        "expect_min_errors": 1,
+    },
+    {
+        # .res's count drives pass-0 size, so a forward-ref count is
+        # rejected vocally on BOTH passes (not silent on pass 0 like
+        # other expression errors).  Without this rule, pass 0 sizes
+        # the directive as 0 bytes and any label defined after it
+        # drifts; the user's binary is silently wrong.  See
+        # asm_src.s::emit_reserve and _vocal_fwd_err.
+        "name": ".res with forward-ref count rejects vocally",
+        "source": ".org $c000\n.res N\ntarget:\n  rts\n.const N $04",
+        # Both passes emit ";? : fwd ref" → asm_errors >= 2 (one per
+        # pass); the strict count isn't important — we just need the
+        # error to be VISIBLE (silent pass-0 drift is the bug).
+        "expect_min_errors": 1,
+    },
+    {
+        "name": ".align with forward-ref boundary rejects vocally",
+        "source": ".org $c000\n.align M\ntarget:\n  rts\n.const M $04",
+        "expect_min_errors": 1,
+    },
+    {
+        "name": ".res fill expr with forward-ref rejects vocally",
+        "source": ".org $c000\n.res 4, FILL\n.const FILL $42",
         "expect_min_errors": 1,
     },
 ]

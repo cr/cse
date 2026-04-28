@@ -61,7 +61,7 @@
 
         ; ── asm_src strings ──
         .export s_err_sep, s_bad_val, s_exp_name, s_sym_full
-        .export s_exp_quot, s_bad_insn, s_a_shadow
+        .export s_exp_quot, s_bad_insn, s_a_shadow, s_fwd_ref
         .export s_save_s, s_save_q_sp, s_save_default, s_trunc
 
         ; ── disk strings ──
@@ -207,6 +207,7 @@ s_sym_full:     .byte "sym full", 0
 s_exp_quot:     .byte "exp ", $22, 0
 s_bad_insn:     .byte "bad insn", 0
 s_a_shadow:     .byte "a shadow", 0
+s_fwd_ref:      .byte "fwd ref", 0
 s_save_s:       .byte "s ", $22, 0
 s_save_q_sp:    .byte $22, " $", 0
 s_save_default: .byte "out", 0

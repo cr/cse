@@ -717,18 +717,28 @@ Open bugs, roughly ordered by priority.
   - **Cost:** +9 B per production variant.
   - **Test suite:** 3094 passed / 18 skipped.
 
-- [ ] **Sibling bug class** (Escape Analysis sweep — same shape
+- [x] ~~**Sibling bug class** (Escape Analysis sweep — same shape
   as the `.dw` forward-ref drift): `.res N` and `.align M` use
-  the expression *value* to determine pass-0 size, and there's
-  no sensible substitution for an undefined symbol there.  The
-  current pass-0 error path skips the directive entirely → PC
-  drift between passes → labels defined afterward have wrong
-  addresses.  Workaround documented in `asm_src.md` (define the
-  count/boundary first).  Likely fix: emit a *vocal* pass-0
-  error specifically for "forward ref in `.res` / `.align`
-  operand" so the user can't accidentally hit the silent-drift
-  path.  Lower priority than .dw — `.res`/`.align` are usually
-  paired with literal numbers; forward refs there are uncommon.
+  the expression *value* to determine pass-0 size.~~  (Phase 25
+  fix — landed alongside a refinement of the `.db`/`.dw` fix.)
+  Resolution: forward refs in `.res`/`.align` are now a hard
+  error on BOTH passes (vocal pass 0 + vocal pass 1).  The new
+  `_vocal_fwd_err` helper in `asm_src.s` temporarily promotes
+  `asm_pass = 1` across the `emit_error` call to bypass the
+  silent-pass-0 guard for this specific case; the directive
+  aborts (no PC advance) so layout stays pass-stable.  Covers
+  count, fill (.res second arg), and boundary (.align).  New
+  string `s_fwd_ref` ("fwd ref") in strings.s.  Test coverage:
+  three new ERROR_TESTS cases pin the vocal-error contract.
+
+  Same commit also simplified the `.db`/`.dw` fix per design
+  feedback: pass 0 size is value-independent for these (every
+  arg is exactly `_as_wsize` bytes), so pass 0 skips the rc
+  check entirely and just lets `_emit_byte`/`_emit_word`'s
+  pass-aware advance handle size — saves the cmp-#5 special
+  case from the previous attempt and keeps multi-arg lists
+  (`.dw $1234, FORWARD, $5678`) consistent across passes.
+  Cost +49 B per variant net; suite 3097 passed / 18 skipped.
 
 - [x] ~~**BUG** Editor: switching to the editor after `l` always
   inserts a tab on entry, even when the buffer already has
@@ -815,21 +825,6 @@ Open bugs, roughly ordered by priority.
   single "init? y/n" + idempotent end_debug_body.  str_go added
   for the j/g prompt.  Tests still need cell-by-cell coverage —
   separate TODO if pursued.)
-
-- [ ] Assembler: `a` source-assemble warn+ask when emit
-  destination is outside [workstart, workend].  `.org $f100\nlda #0`
-  silently writes to KDATA today.  Same risk class as bug 3
-  (CSE state corruption during a debug workflow), same gate
-  range.  Pattern: per-segment check at `_seg_log_open` time
-  (or per-byte at emit time, whichever has the lower overhead);
-  if first emit address is out-of-range, prompt
-  `;!range / asm? y/n`.  Yes proceeds (user override); no
-  cancels the assemble.  This is the only sibling from bug 3's
-  sweep judged worth chasing — other footguns (m-poke,
-  .-assemble at `@`-set cur_addr, l-to-address) are explicit
-  user actions and stay un-gated; the assemble case is special
-  because `.org` lives in source code and is easy to typo into
-  CSE-shadow ranges without realising.
 
 - [x] ~~**★ MUST — BUG** Assembler: single-letter label resolution
   fails as an instruction operand, reporting "bad insn".~~  (Phase 25
@@ -1553,18 +1548,6 @@ Defined scope, needs work.
   `.bas "TEXT"` → `0 SYS NNNNN:REM TEXT`.
   Always 5 decimal digits (260 B).  2799 tests.
 
-- [ ] `.brk [n]` directive: emit a 2-byte BRK instruction (BRK
-  opcode + signature byte).  Optional `n` is the signature byte
-  (default 0).  Replaces the verbose `brk; .db $XX` pattern that
-  the lazy-debug user-BRK workflow currently requires (see
-  debugger.md § User BRK workflow).  Without `.brk`, the user
-  must manually pair `brk` with `.db $XX`; forgetting the .db
-  loses the next code byte to CSE's STEP_OVER / continue +2 skip.
-  `.brk` makes the convention explicit and forgive-by-default.
-  Use cases: `.brk` (default sig byte 0), `.brk $42` (custom),
-  `.brk MARKER` (expression).  Single line in source maps to
-  the canonical 2-byte BRK that matches CPU's RTI semantics.
-- [ ] Assembler error display: show source line number + context.
 - [ ] **Error-category tables are part of the contract.**  asm_err,
   expr, and repl each have their own error code → message mapping
   (`asm_expr_err` flag, expr's 0..6 return codes, REPL's string
@@ -1955,6 +1938,40 @@ Exploratory, not yet scoped.
 - [ ] Macro support: .macro/.endmacro.
 - [ ] Conditional assembly: .if/.else/.endif.
 - [ ] Include files: .inc.
+- [ ] `.brk [n]` directive: emit a 2-byte BRK instruction (BRK
+  opcode + signature byte).  Optional `n` is the signature byte
+  (default 0).  Replaces the verbose `brk; .db $XX` pattern that
+  the lazy-debug user-BRK workflow currently requires (see
+  debugger.md § User BRK workflow).  Without `.brk`, the user
+  must manually pair `brk` with `.db $XX`; forgetting the .db
+  loses the next code byte to CSE's STEP_OVER / continue +2 skip.
+  `.brk` makes the convention explicit and forgive-by-default.
+  Use cases: `.brk` (default sig byte 0), `.brk $42` (custom),
+  `.brk MARKER` (expression).  Single line in source maps to
+  the canonical 2-byte BRK that matches CPU's RTI semantics.
+  *(Demoted from Planned 2026-04-28: nice-to-have, not release-
+  relevant — the manual `brk; .db $XX` pairing is documented and
+  works.)*
+- [ ] Assembler error display: show source line number + context.
+  *(Demoted from Planned 2026-04-28: nice-to-have, not release-
+  relevant — current `;? <line> : <message>` carries the line
+  number; the source-context preview is a polish item.)*
+- [ ] Assembler: `a` source-assemble warn+ask when emit
+  destination is outside [workstart, workend].  `.org $f100\nlda #0`
+  silently writes to KDATA today.  Same risk class as bug 3
+  (CSE state corruption during a debug workflow), same gate
+  range.  Pattern: per-segment check at `_seg_log_open` time
+  (or per-byte at emit time, whichever has the lower overhead);
+  if first emit address is out-of-range, prompt
+  `;!range / asm? y/n`.  Yes proceeds (user override); no
+  cancels the assemble.  This is the only sibling from bug 3's
+  sweep judged worth chasing — other footguns (m-poke,
+  .-assemble at `@`-set cur_addr, l-to-address) are explicit
+  user actions and stay un-gated; the assemble case is special
+  because `.org` lives in source code and is easy to typo into
+  CSE-shadow ranges without realising.
+  *(Demoted from Bugs 2026-04-28: not release-relevant — the
+  user can see workmem and is expected to comply.)*
 - [ ] Detect PAL/NTSC at startup.
 - [ ] MEGA65 Open-KERNAL compatibility (C64-compatible mode):
   `$` works (LOAD-based).  Floppy status empty (shows `; `)

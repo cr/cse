@@ -41,7 +41,7 @@
 
 ; ── Imports: strings.s ──────────────────────────────────────
         .import s_err_sep, s_bad_val, s_exp_name, s_sym_full
-        .import s_exp_quot, s_bad_insn
+        .import s_exp_quot, s_bad_insn, s_fwd_ref
         .import s_save_s, s_save_q_sp, s_save_default, s_trunc
         .import dec_pow_lo, dec_pow_hi
 
@@ -299,24 +299,20 @@ _emit_word:
         inc expr_ptr+1
         bne @comma
 @expr:  jsr expr_eval
-        cmp #2
-        bcc @emit
-        ; Forward-ref tolerance for two-pass sizing: an undefined
-        ; symbol on pass 0 is normal (the label gets defined later in
-        ; this same pass).  Fall through to @emit so _emit_byte /
-        ; _emit_word advance asm_pc by _as_wsize — pass 0's pass-aware
-        ; guard skips the actual store, only the PC advance matters.
-        ; Without this, pass 0 would size .dw/.db items with forward
-        ; refs as zero bytes, and every label defined after them
-        ; would carry a too-low address into pass 1.  Pass 1 still
-        ; errors on undef (real failure).  Other error classes
-        ; (parse, paren, overflow, divzero) fall through to
-        ; emit_error unchanged.
-        cmp #5                  ; ERR_UNDEFINED?
-        bne @real_err
+        ; Pass 0 sizing is value-independent for .db / .dw: every
+        ; argument occupies exactly _as_wsize bytes regardless of
+        ; whether the expression resolves.  Skip the error check on
+        ; pass 0 entirely — _emit_byte / _emit_word's pass-aware
+        ; guards advance PC without storing anything, so size stays
+        ; consistent across passes for forward-ref symbols and other
+        ; pass-0-resolvable expressions alike.  Pass 1 errors on bad
+        ; expressions normally; the user's broken-binary case has
+        ; asm_errors > 0, so any pass-1 PC drift after the failure
+        ; doesn't matter (the binary won't be used).
         ldy asm_pass
-        beq @emit               ; pass 0 + undef → tolerate, advance PC
-@real_err:
+        beq @emit               ; pass 0: any rc → advance PC
+        cmp #2
+        bcc @emit               ; pass 1 success → emit
         lda #<s_bad_val
         ldx #>s_bad_val
         jmp emit_error          ; tail-call; emit_error returns to our caller
@@ -403,12 +399,43 @@ _emit_word:
 @done:  rts
 .endproc
 
+; ── _vocal_fwd_err ─────────────────────────────────────────────────────────
+; Forward-reference error reporter for .res / .align — directives whose
+; pass-0 size depends on the expression value and so cannot tolerate an
+; unresolved symbol the way .db / .dw can.  Bypasses emit_error's
+; silent-pass-0 guard by temporarily setting asm_pass=1 across the
+; call.  Caller is expected to abort the directive after this returns.
+.proc _vocal_fwd_err
+        lda asm_pass
+        pha
+        lda #1
+        sta asm_pass
+        lda #<s_fwd_ref
+        ldx #>s_fwd_ref
+        jsr emit_error
+        pla
+        sta asm_pass
+        rts
+.endproc
+
 ; ── emit_reserve ───────────────────────────────────────────────────────────
 ; .res count [,fill]  In: expr_ptr = operand start
+;
+; The count expression must resolve on pass 0 — its value drives the
+; directive's pass-0 size.  Forward refs there would cause silent PC
+; drift between passes (pass 0 sizes as 0; pass 1 advances by the
+; resolved count), so a forward ref is a hard error on both passes.
+; Other expression errors (parse, paren, overflow, divzero) follow
+; the usual silent-pass-0 / vocal-pass-1 convention via emit_error.
 .proc emit_reserve
         jsr expr_eval
         cmp #2
         bcc :+
+        cmp #5                  ; ERR_UNDEFINED?
+        bne @gen_err
+        jsr _vocal_fwd_err      ; force vocal on both passes; rts to here
+        rts                     ; abort the directive (no PC advance)
+@gen_err:
         lda #<s_bad_val
         ldx #>s_bad_val
         jmp emit_error
@@ -427,6 +454,11 @@ _emit_word:
 :       jsr expr_eval
         cmp #2
         bcc :+
+        cmp #5                  ; ERR_UNDEFINED in fill expr?
+        bne @gen_err2
+        jsr _vocal_fwd_err
+        rts
+@gen_err2:
         lda #<s_bad_val
         ldx #>s_bad_val
         jmp emit_error
@@ -449,10 +481,19 @@ _emit_word:
 
 ; ── emit_align ─────────────────────────────────────────────────────────────
 ; .align boundary   In: expr_ptr = operand start
+;
+; Like .res, the boundary value drives pass-0 size (padding count).
+; Forward refs in the boundary are a hard error on both passes — see
+; emit_reserve for the rationale.
 .proc emit_align
         jsr expr_eval
         cmp #2
         bcc :+
+        cmp #5                  ; ERR_UNDEFINED?
+        bne @gen_err
+        jsr _vocal_fwd_err
+        rts
+@gen_err:
         lda #<s_bad_val
         ldx #>s_bad_val
         jmp emit_error
