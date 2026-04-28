@@ -37,7 +37,7 @@
         .export dbg_bp_set, dbg_bp_del, dbg_bp_clear
         .export dbg_bp_count
         .export bp_table, step_bp
-        .export dbg_bp_hit              ; dbg_reason → zp.s (Phase 21)
+        .export dbg_bp_hit
         .export brk_pc
         .export step_witness
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
@@ -49,7 +49,6 @@
 
 ; ── Exports: main.s stubs (gate dispatch flag) ────────────────
         .export run_user_pending, stop_cooldown
-        ; warm_cont → zp.s (Phase 21 Move 4)
         .export cse_refresh, cse_end_debug, end_debug_body
 
 ; ── Exports: disk stubs ───────────────────────────────────────
@@ -65,15 +64,11 @@
         .export ed_save_source, ed_load_source
         .export ed_save_bytes, ed_save_lines, ed_total_lines
         .export ed_ensure_init, ed_new
-        ; ed_dirty → zp.s (Phase 21 Move 4)
         .export ed_read_rewind, ed_read_byte
 
 ; ── Exports: meminfo stubs (cse_start/end/zp_end now in mem.s) ──
         .export src_top, src_bot
         .export __CODE_RUN__    : absolute = $4000
-
-; ── Exports: global state ─────────────────────────────────────
-        ; state → zp.s (Phase 21 Move 4)
 
 ; ── Exports: KERNAL PLOT stub (io_sync) ──────────────────────
         .export kplot_stub
@@ -84,9 +79,9 @@
 ; ── Import repl.s entry points ────────────────────────────────
         .import exec_line, read_line, show_prompt
         .import cur_addr
-        .importzp cur_project_name      ; zp.s (Phase 21.1 Move 6a)
-        .importzp cur_device            ; zp.s (Phase 21 Move 4)
-        .importzp dbg_reason            ; zp.s (Phase 21 Move 4)
+        .importzp cur_project_name
+        .importzp cur_device
+        .importzp dbg_reason
         .import line_buf, last_cmd, block_size
         .import post_run_cleanup
 
@@ -117,7 +112,6 @@ sym_refs:
 ; as exports.  test_repl.py does not patch/unpatch via this table.
 bp_table:      .res 32         ; 8 × 4
 step_bp:       .res 8          ; 2 × 4
-; dbg_reason moved to zp.s (Phase 21 Move 4)
 brk_pc:        .res 2
 dbg_bp_hit:    .res 1
 step_state:    .res 1
@@ -131,7 +125,6 @@ step_witness:  .res 4          ; snapshot of step_bp[0..3] at
 ; Main-side stub: kernel→userland dispatch flag.
 run_user_pending: .res 1
 stop_cooldown:    .res 1
-; warm_cont moved to zp.s (Phase 21 Move 4)
 
 ; Registers
 reg_a:         .res 1
@@ -146,7 +139,6 @@ reg_p:         .res 1
 ed_save_bytes: .res 2
 ed_save_lines: .res 2
 ed_total_lines: .res 2
-; ed_dirty moved to zp.s (Phase 21 Move 4)
 
 ; Assembler state
 asm_org:       .res 2
@@ -173,7 +165,6 @@ src_top:       .res 2
 src_bot:       .res 2
 
 ; Global
-; state moved to zp.s (Phase 21 Move 4)
 
 ; Test instrumentation
 newline_count:  .res 1          ; count newline calls

@@ -45,7 +45,7 @@ undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 | 5 | Error: undefined symbol |
 | 6 | Error: division by zero |
 
-### _expr_error_str
+### expr_error_str
 **In:** none (uses last error state)
 **Out:** A/X = pointer to NUL-terminated error message
 
