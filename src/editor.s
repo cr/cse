@@ -1854,13 +1854,25 @@ _ed_cur_row:
         ; Init gap buffer if needed
         jsr ed_ensure_init
 
-        ; Smart indent: if buffer is empty, seed first line with a tab.
-        ; Empty = gap_lo == buf_base (nothing before the gap).
+        ; Smart indent: if buffer is truly empty, seed first line
+        ; with a tab.  Truly empty needs BOTH halves of the gap-buffer
+        ; envelope at their init positions: gap_lo == buf_base AND
+        ; gap_hi == BUF_END.  Checking only gap_lo is wrong — after
+        ; ed_load_source the cursor is rewound to the start, so
+        ; gap_lo == buf_base holds even though loaded content fills
+        ; [gap_hi, BUF_END).  See doc/modules/editor.md § enter_editor
+        ; step 4.
         lda gap_lo
         cmp buf_base
         bne @has_content
         lda gap_lo+1
         cmp buf_base+1
+        bne @has_content
+        lda gap_hi
+        cmp #<BUF_END
+        bne @has_content
+        lda gap_hi+1
+        cmp #>BUF_END
         bne @has_content
         lda #$A0
         jsr gb_insert

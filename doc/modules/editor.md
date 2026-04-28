@@ -261,11 +261,21 @@ RUN/STOP toggles between REPL and editor.
 **`enter_editor`:**
 1. Save REPL cursor position (`io_cx`, `io_cy`)
 2. Save REPL screen RAM (1000 bytes) to `repl_screen`
-3. Initialize gap buffer if first entry (`ed_init`)
-4. Clear editor area (rows 0–21) with spaces
-5. Copy 2 REPL lines above the prompt to rows 23–24 (context strip)
-6. Full render (`ed_render`)
-7. Restore editor cursor position, set `state = ST_EDIT`
+3. Initialize gap buffer if first entry (`ed_ensure_init`)
+4. Smart indent seed: if the buffer is **truly empty** — both
+   `gap_lo == buf_base` (no content before the gap) AND
+   `gap_hi == BUF_END` (no content after the gap) — insert a
+   single `$A0` (tab) byte and set `ed_cur_col = TAB_WIDTH`,
+   leaving `ed_dirty = 0`.  Both halves of the emptiness test
+   are required because after `ed_load_source` the cursor is
+   rewound to the start: `gap_lo == buf_base` holds even though
+   loaded source lives in `[gap_hi, BUF_END)`.  Skipping the
+   `gap_hi` half would silently insert a leading tab into a
+   just-loaded file.
+5. Clear editor area (rows 0–21) with spaces
+6. Copy 2 REPL lines above the prompt to rows 23–24 (context strip)
+7. Full render (`ed_render`)
+8. Restore editor cursor position, set `state = ST_EDIT`
 
 **`leave_editor`:**
 1. Restore REPL screen RAM from `repl_screen`

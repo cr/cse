@@ -199,6 +199,70 @@ class TestEdNew:
         assert emu.memory[emu.sym("ed_dirty")] == 0
 
 
+# ── enter_editor smart-indent seed ────────────────────────────────────────
+
+class TestEnterEditorSeed:
+    """The smart-indent seed in enter_editor inserts a single $A0
+    (tab) byte only when the buffer is **truly empty**.  Empty
+    means both halves of the gap-buffer envelope are at their
+    init positions — no content before the gap (`gap_lo ==
+    buf_base`) AND no content after (`gap_hi == BUF_END`).
+
+    Pre-fix bug (TODO.md): only the first half was checked.  After
+    `l NAME` (load source), the cursor is rewound to the start so
+    `gap_lo == buf_base` even though the loaded source lives in
+    `[gap_hi, BUF_END)`.  enter_editor's emptiness test fired
+    spuriously and inserted a leading tab into the loaded file.
+    """
+
+    def test_seed_on_truly_empty_buffer(self, cse_prg):
+        """Empty buffer + enter_editor → exactly one $A0 byte
+        seeded, ed_cur_col = TAB_WIDTH, ed_dirty stays 0."""
+        emu = make_emu(cse_prg)
+        # Buffer is empty after init_cse(editor=True).
+        emu.jsr(emu.sym("enter_editor"))
+        assert read_back(emu) == b"\xa0"
+        # Smart indent leaves ed_dirty=0 (seed is not a user edit).
+        assert emu.memory[emu.sym("ed_dirty")] == 0
+
+    def test_no_seed_when_loaded_buffer_at_start(self, cse_prg):
+        """Loaded source + cursor rewound to start → enter_editor
+        must NOT insert a tab.  Simulates the post-`l` state where
+        gap_lo == buf_base but content lives in [gap_hi, BUF_END)."""
+        emu = make_emu(cse_prg)
+        # Insert content (cursor ends up at end of inserted text).
+        insert_text(emu, b"LOADED\rTEXT")
+        # Mimic ed_load_source's @rewind loop: walk cursor to start.
+        emu.jsr(emu.sym("gb_home"))            # to start of last line
+        # gb_home only goes to start of current line — repeat
+        # gb_cursor_left until gap_lo == buf_base.
+        for _ in range(64):
+            gap_lo = (emu.memory[emu.sym("gap_lo")]
+                      | (emu.memory[emu.sym("gap_lo") + 1] << 8))
+            buf_base = (emu.memory[emu.sym("buf_base")]
+                        | (emu.memory[emu.sym("buf_base") + 1] << 8))
+            if gap_lo == buf_base:
+                break
+            emu.jsr(emu.sym("gb_cursor_left"))
+        else:
+            pytest.fail("could not rewind cursor to buf_base")
+
+        emu.jsr(emu.sym("enter_editor"))
+        # Buffer must be exactly what was loaded — no leading $A0.
+        assert read_back(emu) == b"LOADED\rTEXT"
+
+    def test_no_seed_when_buffer_has_content_before_gap(self, cse_prg):
+        """Non-empty buffer with cursor at end (post-typing state)
+        → enter_editor must NOT insert a tab.  This is the case the
+        original `gap_lo == buf_base` check correctly rejected; the
+        regression guard ensures the new (stricter) check still
+        rejects it."""
+        emu = make_emu(cse_prg)
+        insert_text(emu, b"X")
+        emu.jsr(emu.sym("enter_editor"))
+        assert read_back(emu) == b"X"
+
+
 # ── ed_read_line — sequential line reader ──────────────────────────────────
 #
 # TestEdReadLine (incl. all 7 cases + the 4 Principle-13 position-pinning

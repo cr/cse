@@ -688,14 +688,30 @@ Open bugs, roughly ordered by priority.
     untouched after aborted parse.
   - **Cost:** +13 B per production variant.
   - **Test suite:** 3088 passed / 18 skipped (was 3085 / 18).
-- [ ] **BUG** Editor: switching to the editor after `l` always
+- [x] ~~**BUG** Editor: switching to the editor after `l` always
   inserts a tab on entry, even when the buffer already has
   source loaded (so the first line gets a leading tab where it
-  shouldn't).  Should only auto-tab when entering an empty
-  buffer.  Reproduce: load a non-empty source via `l NAME`,
-  then enter the editor (any path).  Investigation: editor's
-  on-entry hook — likely an unconditional "indent for new line"
-  that should be gated on buffer-empty.
+  shouldn't).~~  (Phase 25 fix.)  Root cause: `enter_editor`'s
+  smart-indent seed test checked only `gap_lo == buf_base` ("no
+  content before the gap").  After `ed_load_source` the cursor
+  is rewound to the start, so `gap_lo == buf_base` holds even
+  though loaded content fills `[gap_hi, BUF_END)` — the test
+  fired falsely and a tab was inserted into the just-loaded file.
+  Resolved by:
+  - **`src/editor.s`** — `enter_editor`'s emptiness check now
+    requires BOTH halves of the gap envelope: `gap_lo == buf_base`
+    AND `gap_hi == BUF_END`.  Both fences must be at their init
+    positions for the buffer to be truly empty.
+  - **`doc/modules/editor.md`** — § enter_editor step 4 now
+    spells out the two-half rule and names the post-`l`
+    failure mode as the regression class.
+  - **Tests** — `TestEnterEditorSeed` (3 cases) in
+    `tests/integration/test_editor.py`: tab seeded only when
+    truly empty; not seeded after a simulated load (insert +
+    rewind to buf_base); not seeded when content lives before
+    the gap.
+  - **Cost:** +12 B per production variant.
+  - **Test suite:** 3091 passed / 18 skipped (was 3088 / 18).
 
 - [x] ~~**BUG** Debugger: regular RTS from userland with debug
   off prints a bogus `; rts at $<main_addr>` info line~~ — the
