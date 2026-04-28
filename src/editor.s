@@ -10,7 +10,8 @@
         ; Exports owned by editor.s (L4 — rendering + input + disk):
         .export enter_editor, leave_editor
         .export ed_handle_key
-        .export ed_init, ed_new
+        .export ed_new
+        ; ed_init is internal only; called by ed_new and ed_load_source.
         .export ed_save_source, ed_load_source
         .export ed_save_bytes, ed_save_lines
 
