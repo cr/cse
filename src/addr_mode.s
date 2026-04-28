@@ -34,7 +34,7 @@
         .export asm_skip_ws             ; used by asm_line.s
         .export _au_no_acc              ; caller-set: nonzero → 'A' is a label
         .import asm_syntax_error        ; provided by caller / test stub
-        .import asm_expr_error          ; expr-specific error (sets asm_expr_err)
+        .import asm_expr_error          ; expr-specific error (sets asm_err_code=1)
         .import expr_eval_nb            ; no-banking expr evaluator (expr.s)
         .import asm_pass                ; 0=pass 0 (sizing), 1=pass 1 (emit)
         .import sym_lookup              ; for ACC-shadow detection

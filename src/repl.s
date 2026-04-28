@@ -45,7 +45,7 @@
 ; hex_val, is_hex, hex_val_to_char are now local (below)
 
 ; ── Imports: assembler / disassembler ──────────────────────
-        .import asm_line, asm_expr_err
+        .import asm_line, asm_err_code
         .import dasm_insn, dasm_buf
         .import asm_assemble, seg_print_save
 
@@ -129,7 +129,7 @@ STEP_OVER = 2
         .import str_flag_ch, str_bp_pfx, str_3sp, str_2sp, str_brk
         .import str_at, str_nmi, str_bp_clr, str_deleted
         .import str_rts, str_stk_warn, str_debug, str_qynq, str_dbg
-        .import str_syntax, str_bad_val, str_full, str_cmd
+        .import str_syntax, str_cpu_err, str_bad_val, str_full, str_cmd
         .import str_no_name, str_range, str_fail, str_too_big
         .import str_expr, str_no_ctx
         .import str_r_pc, str_a, str_x, str_y, str_s
@@ -1687,9 +1687,14 @@ zp_stage_prep_addr:                     ; convenience entry: load
         jsr dot_assemble
         cmp #0
         bne @show               ; success → show result
-        ; Check if expr error → print "expr <detail>"
-        lda asm_expr_err
+        ; Dispatch error category (asm_err.s § asm_err_code):
+        ;   0 = syntax  → ;?syntax
+        ;   1 = expr    → ;?expr <detail>
+        ;   2 = cpu     → ;?cpu
+        lda asm_err_code
         beq @syn_err
+        cmp #2
+        beq @cpu_err
         jsr expr_error_str      ; A/X = error string
         ; Stack-park the pointer — puts_imm below clobbers rp_tmp,
         ; and rp_tmp2 is only 1 byte wide (see query_user).
@@ -1707,7 +1712,11 @@ zp_stage_prep_addr:                     ; convenience entry: load
 @syn_err:
         lda #<str_syntax
         ldx #>str_syntax
-        jmp log_err   
+        jmp log_err
+@cpu_err:
+        lda #<str_cpu_err
+        ldx #>str_cpu_err
+        jmp log_err
 .endproc
 
 ; ═══════════════════════════════════════════════════════════

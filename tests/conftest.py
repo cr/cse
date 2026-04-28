@@ -300,6 +300,7 @@ class AsmCoreSymbols:
         self.asm_skip_ws      = s["asm_skip_ws"]
         self.asm_syntax_error = s["asm_syntax_error"]
         self.asm_expr_error   = s["asm_expr_error"]
+        self.asm_cpu_error    = s["asm_cpu_error"]
 
         # asm_line entry points
         self._asm_line_core   = s["_asm_line_core"]
@@ -314,7 +315,7 @@ class AsmCoreSymbols:
         self.asm_cpu          = s["asm_cpu"]
         self._asm_saved_sp    = s["_asm_saved_sp"]
         self.asm_pass         = s["asm_pass"]
-        self.asm_expr_err     = s["asm_expr_err"]
+        self.asm_err_code     = s["asm_err_code"]
 
         # expr.s + symtab.s entry points (linked into asm_core; used
         # by test_expr.py after Tranche 3 folded it into this bundle).

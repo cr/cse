@@ -4,17 +4,19 @@ Contract source: [doc/modules/asm_err.md](../../doc/modules/asm_err.md).
 
 Coverage of the documented contract
 -----------------------------------
-All 3 error entry points + 2 BSS bytes:
+Four error entry points + 2 BSS bytes:
 
-    asm_error          — generic syntax / invalid-mode exit
+    asm_error          — generic syntax / invalid-mode exit (code 0)
     asm_syntax_error   — alias of asm_error (shared label)
-    asm_expr_error     — expression-eval error; sets asm_expr_err=1
-    asm_expr_err (BSS) — tested via flag transitions in the three
-                         error-entry tests
+    asm_expr_error     — expression-eval error                (code 1)
+    asm_cpu_error      — CPU-gate rejection                   (code 2)
+    asm_err_code (BSS) — 0/1/2 per the table above; written
+                         by every entry point, read by callers
+                         (asm_src.s, repl.s) for tag dispatch
     asm_pass (BSS)     — tested for addressability
 
-All three entry points share an unwind body: SP restored to
-`_asm_saved_sp`, asm_expr_err written, kernal_bank_in called,
+All four entry points share an unwind body: SP restored to
+`_asm_saved_sp`, asm_err_code written, kernal_bank_in called,
 A=0/X=0 on return.
 
 Test protocol simulates what asm_line does at entry: save the pre-jsr
@@ -35,7 +37,7 @@ import pytest
 from conftest import make_cpu, push_rts_sentinel, step_until_pc
 
 
-def _run_error(asm_syms, error_entry, preset_expr_err=None, nested_depth=6):
+def _run_error(asm_syms, error_entry, preset_err_code=None, nested_depth=6):
     """Invoke error_entry with a faked asm_line-style stack frame.
 
     Returns (cpu, mem) after the error path unwinds back to the sentinel.
@@ -53,38 +55,56 @@ def _run_error(asm_syms, error_entry, preset_expr_err=None, nested_depth=6):
         mem[0x0100 + cpu.sp] = 0xAA     # marker — unused
         cpu.sp = (cpu.sp - 1) & 0xFF
 
-    if preset_expr_err is not None:
-        mem[asm_syms.asm_expr_err] = preset_expr_err
+    if preset_err_code is not None:
+        mem[asm_syms.asm_err_code] = preset_err_code
 
     cpu.pc = error_entry
     step_until_pc(cpu, sentinel, max_steps=200, what="asm_err unwind")
     return cpu, mem
 
 
-# ── Contract tests ──────────────────────────────────────────────────
+# ── Error-category contract ────────────────────────────────────────────
+# Each entry point writes a specific code into asm_err_code.  Callers
+# (asm_src.s @bad, repl.s dot_assemble) dispatch on the code to choose
+# the user-visible error tag.  See doc/modules/asm_err.md § Error
+# categories.
 
-def test_asm_error_clears_flag(asm_syms):
-    """asm_error (generic exit) clears asm_expr_err to 0."""
-    cpu, mem = _run_error(asm_syms, asm_syms.asm_error, preset_expr_err=0xAB)
+ERR_SYNTAX = 0
+ERR_EXPR   = 1
+ERR_CPU    = 2
+
+
+def test_asm_error_writes_code_0(asm_syms):
+    """asm_error (generic exit) writes asm_err_code = 0 = ;?syntax."""
+    cpu, mem = _run_error(asm_syms, asm_syms.asm_error, preset_err_code=0xAB)
     assert cpu.a == 0
     assert cpu.x == 0
-    assert mem[asm_syms.asm_expr_err] == 0
+    assert mem[asm_syms.asm_err_code] == ERR_SYNTAX
 
 
 # test_asm_syntax_error_clears_flag retired — asm_syntax_error and
 # asm_error are literally the same address (proven by
-# test_asm_error_and_syntax_error_alias); running test_asm_error_clears_flag
+# test_asm_error_and_syntax_error_alias); running test_asm_error_writes_code_0
 # through the aliased entry point exercises identical code.  A future
 # unaliasing would fail test_asm_error_and_syntax_error_alias loudly.
 
 
-def test_asm_expr_error_sets_flag(asm_syms):
-    """asm_expr_error sets asm_expr_err=1 so callers can route to the
+def test_asm_expr_error_writes_code_1(asm_syms):
+    """asm_expr_error writes asm_err_code = 1 so callers route to the
     expr-specific error message (expr_error_str)."""
-    cpu, mem = _run_error(asm_syms, asm_syms.asm_expr_error, preset_expr_err=0)
+    cpu, mem = _run_error(asm_syms, asm_syms.asm_expr_error, preset_err_code=0)
     assert cpu.a == 0
     assert cpu.x == 0
-    assert mem[asm_syms.asm_expr_err] == 1
+    assert mem[asm_syms.asm_err_code] == ERR_EXPR
+
+
+def test_asm_cpu_error_writes_code_2(asm_syms):
+    """asm_cpu_error writes asm_err_code = 2 so callers route to the
+    `;?cpu` tag (CPU-gate rejection — PHY on 6502 etc.)."""
+    cpu, mem = _run_error(asm_syms, asm_syms.asm_cpu_error, preset_err_code=0)
+    assert cpu.a == 0
+    assert cpu.x == 0
+    assert mem[asm_syms.asm_err_code] == ERR_CPU
 
 
 def test_asm_error_restores_sp(asm_syms):
@@ -105,12 +125,9 @@ def test_asm_error_and_syntax_error_alias(asm_syms):
 
 # test_asm_expr_error_differs_from_asm_error retired — the address
 # difference is implied by the behavioural pair
-# test_asm_error_clears_flag (asm_expr_err = 0 after asm_error) and
-# test_asm_expr_error_sets_flag (asm_expr_err = 1 after asm_expr_error).
-# Two distinct behaviours can only come from distinct code, so the
-# address-difference assertion was subsumed.  Retired 2026-04-20 per
-# doc/testing.md § Principle 9 Pattern B (subsumed by functional
-# tests above).
+# test_asm_error_writes_code_0 and test_asm_expr_error_writes_code_1.
+# Three distinct codes can only come from three distinct code paths,
+# so the address-difference assertion is subsumed.
 
 
 def test_asm_pass_is_accessible(asm_syms):
@@ -119,5 +136,5 @@ def test_asm_pass_is_accessible(asm_syms):
     mem = bytearray(65536)
     asm_syms.load_into(mem)
     assert asm_syms.asm_pass != 0, "asm_pass symbol resolved to null"
-    # Distinct from asm_expr_err (same module, adjacent BSS bytes)
-    assert asm_syms.asm_pass != asm_syms.asm_expr_err
+    # Distinct from asm_err_code (same module, adjacent BSS bytes)
+    assert asm_syms.asm_pass != asm_syms.asm_err_code

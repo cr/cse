@@ -35,7 +35,7 @@
         .export str_del_src, str_quit, str_load
         .export str_init, str_end_dbg, str_asm, str_go
         .export str_debug, str_qynq
-        .export str_color, str_cpu, str_stk_warn
+        .export str_color, str_cpu, str_cpu_err, str_stk_warn
         .export str_asm_ing, str_load_pfx, str_save_pfx, str_dots
         .export str_errors, str_dashes, str_colon_sp, str_pct
         .export str_ioport, str_stack, str_kernal, str_screen
@@ -92,6 +92,7 @@ str_deleted:    .byte " del", 0
 
 ; Error content strings (prefix-free — log_line prepends ";?")
 str_syntax:     .byte "syntax", 0        ; shared: asm + b + addr_mode
+str_cpu_err:    .byte "cpu", 0           ; CPU-gate rejection (asm_line)
 str_bad_val:    .byte "bad val", 0
 str_full        = s_sym_full + 4         ; "full" is suffix of "sym full"
 str_cmd:        .byte "cmd", 0

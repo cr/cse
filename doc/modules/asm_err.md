@@ -14,15 +14,16 @@
 ### asm_syntax_error
 **In:**  none
 **Out:** does not return — unwinds SP via `_asm_saved_sp`, banks KERNAL
-back in, returns 0 to asm_line's caller
+back in, returns 0 to asm_line's caller; writes `asm_err_code = 0`
 **Clobbers:** A, X, SP
 
 Called by `addr_mode.s` / `opcode_lookup.s` / `asm_line.s` on any
-non-expression syntax error.  Clears `asm_expr_err`.
+non-expression syntax error.
 
 ### asm_error
 **In:**  none
-**Out:** same as `asm_syntax_error` (they share the same body)
+**Out:** same as `asm_syntax_error` (they share the same body and
+write the same code)
 **Clobbers:** A, X, SP
 
 Generic error exit.  Used by `opcode_lookup.s` for invalid mode /
@@ -30,10 +31,44 @@ bad mnemonic combinations.
 
 ### asm_expr_error
 **In:**  none
-**Out:** same unwind as `asm_syntax_error`, but sets `asm_expr_err=1`
-first so the caller (`cmd_dot`, `asm_src`'s error line emitter) can
-print the expression-specific message via `expr_error_str`
+**Out:** same unwind as `asm_syntax_error`, writes `asm_err_code = 1`
 **Clobbers:** A, X, SP
+
+Used by `addr_mode.s::_au_read_val` when `expr_eval` returns an error
+on pass 1 (undefined symbol, overflow, paren mismatch, divide by zero).
+
+### asm_cpu_error
+**In:**  none
+**Out:** same unwind as `asm_syntax_error`, writes `asm_err_code = 2`
+**Clobbers:** A, X, SP
+
+Used by `asm_line.s`'s CPU-mode gate when a mnemonic is rejected for
+the current `asm_cpu` (PHY on 6502, illegal NMOS opcode on 65C02, …).
+The distinct code lets the dispatcher emit `;?cpu` instead of the
+strictly-correct-but-misleading `;?syntax`.
+
+## Error categories
+
+The four entry points encode three categories into a single byte
+(`asm_err_code`).  Callers (`asm_src.s::process_line` and
+`repl.s::dot_assemble`) read the code after `asm_line` returns 0 and
+pick the user-visible error tag.
+
+| Code | Entry point | Meaning | Tag emitted by caller |
+|---|---|---|---|
+| 0 | `asm_error` / `asm_syntax_error` | generic syntax / invalid mode / unknown mnemonic | `;?syntax` (REPL) or `;?<line>: bad insn` (asm_src) |
+| 1 | `asm_expr_error` | expression-eval error (undef / overflow / paren / divzero) | `;?expr <detail>` (REPL) or `;?<line>: <detail>` (asm_src), via [`expr_error_str`](expr.md#expr_error_str) |
+| 2 | `asm_cpu_error` | CPU-gate rejection (`asm_line.s` § asm_cpu × category gate) | `;?cpu` (REPL) or `;?<line>: cpu` (asm_src) |
+
+The actual emitted strings live in [`strings.s`](../../src/strings.s):
+`str_syntax`, `str_cpu_err`, `s_bad_insn`.  The expr family lives in the
+`err_str_lo`/`err_str_hi` table indexed by [`expr.s`](expr.md)'s rc value
+(see [`expr.md`](expr.md) for the per-rc strings).
+
+The four entry points share a single 12-byte unwind body; the
+distinguishing `lda #N / sta asm_err_code` is implemented as a
+BIT-abs skip cascade so the three loaders chain into the shared
+store + unwind tail.
 
 ### Memory
 
@@ -44,7 +79,7 @@ used by the error exits to unwind nested `jsr` frames in one step.
 
 | Name | Size | Purpose |
 |---|---|---|
-| `asm_expr_err` | 1 | Nonzero if the last assembler error was an expression-eval failure; consulted by callers to select the error message |
+| `asm_err_code` | 1 | Error category (0/1/2 per the table above), set by every error exit; read by callers (asm_src.s, repl.s) for tag dispatch |
 | `asm_pass` | 1 | 0 = pass 0 (sizing), 1 = pass 1 (emit).  Read by `addr_mode.s` (forward-reference handling in `_au_read_val`) and written by `asm_src.s` at the start of each pass |
 
 **Depends on:** mem (kernal_bank_in), zp
@@ -71,9 +106,24 @@ asm_line:                         asm_syntax_error:
                                     rts            ; to asm_line's caller
 ```
 
-All three error exits (`asm_error`, `asm_syntax_error`, `asm_expr_error`)
-share the same body; the only difference is whether `asm_expr_err` is
-set to 0 or 1 on the way in.
+All four error exits (`asm_error`, `asm_syntax_error`, `asm_expr_error`,
+`asm_cpu_error`) share the same body; the only difference is the value
+written to `asm_err_code` on the way in.  The cascade uses BIT-abs
+($2C) skips so the three loaders share the store and tail:
+
+```
+asm_cpu_error:
+        lda #2
+        .byte $2C               ; BIT abs — skip the next lda #1
+asm_expr_error:
+        lda #1
+        .byte $2C               ; BIT abs — skip the next lda #0
+asm_error:
+asm_syntax_error:
+        lda #0
+        sta asm_err_code
+        ; … shared unwind tail …
+```
 
 ### asm_pass ownership
 
@@ -88,9 +138,10 @@ in `asm_src.s` where only its writer lives.
 
 `expr.s` owns `expr_error_str` (the getter that returns the current
 expression-error message pointer).  `asm_err.s` does not call it —
-it only sets `asm_expr_err` so callers know to invoke `expr_error_str`
-themselves.  Split ownership: the *flag* lives here; the *message
-table* lives in expr.s where the message producers live.
+it only sets `asm_err_code = 1` so callers know to invoke
+`expr_error_str` themselves.  Split ownership: the *category* lives
+here; the *message table* lives in expr.s where the message producers
+live.
 
 ## Caveats
 
@@ -107,3 +158,9 @@ table* lives in expr.s where the message producers live.
   exit.
 - `asm_pass` reset at the start of each pass is asm_src.s's
   responsibility.  asm_err.s only declares and exports it.
+- `asm_cpu_error` is the *only* error exit not used directly by the
+  syntactic parsing chain; it is reached only from
+  `asm_line.s`'s CPU-mode gate, after a successful classify but before
+  any mode parsing.  Strict-syntax errors (unknown mnemonic, bad
+  mode, REL out of range) all stay on `asm_error` because the user's
+  immediate problem is the source text, not the CPU profile.

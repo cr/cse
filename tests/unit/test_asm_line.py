@@ -448,6 +448,100 @@ class TestRegShadows:
 
 
 # ═════════════════════════════════════════════════════════════════════════
+# Error category dispatch (asm_err.s § asm_err_code)
+# ═════════════════════════════════════════════════════════════════════════
+#
+# After a failed assembly, asm_err_code carries the category code that
+# repl.s::dot_assemble (and asm_src.s::process_line @bad) dispatches on
+# to pick the user-visible tag:
+#     0 = ;?syntax  — generic syntax error / unknown mnemonic / bad mode
+#     1 = ;?expr <detail>  — expression eval (undef / overflow / paren …)
+#     2 = ;?cpu     — CPU-gate rejection (PHY on 6502 etc.)
+
+
+def _run_expecting_err(asm_syms, source, asm_cpu=2):
+    """Drive _asm_line_core for `source`, asserting that it errors out.
+    Returns the asm_err_code value the entry point wrote."""
+    from conftest import make_cpu, push_rts_sentinel, step_until_pc
+    cpu, mem = make_cpu(asm_syms)
+    for i, b in enumerate(_sc(source)):
+        mem[_IN_BUF + i] = b
+    mem[asm_syms.asm_ptr]     = _IN_BUF & 0xFF
+    mem[asm_syms.asm_ptr + 1] = (_IN_BUF >> 8) & 0xFF
+    mem[asm_syms.asm_pc]      = _TEST_PC & 0xFF
+    mem[asm_syms.asm_pc + 1]  = (_TEST_PC >> 8) & 0xFF
+    mem[asm_syms.asm_out]     = _OUT_BUF & 0xFF
+    mem[asm_syms.asm_out + 1] = (_OUT_BUF >> 8) & 0xFF
+    mem[asm_syms.asm_cpu]     = asm_cpu
+    mem[asm_syms.asm_err_code] = 0xFF       # poison
+    sentinel = push_rts_sentinel(cpu, sentinel=0xFFFF)
+    mem[asm_syms._asm_saved_sp] = cpu.sp
+    cpu.pc = asm_syms._asm_line_core
+    cpu.y  = 0
+    step_until_pc(cpu, sentinel, max_steps=_MAX_STEPS, what=repr(source))
+    assert mem[asm_syms.asm_len] == 0, \
+        f"{source!r} unexpectedly assembled successfully"
+    return mem[asm_syms.asm_err_code]
+
+
+class TestErrorCategoryDispatch:
+    """Every failed-assembly path must set asm_err_code so the caller
+    can pick the right `;?<tag>` for the user.  Pin the matrix per
+    asm_err.md § Error categories."""
+
+    def test_unknown_mnemonic_writes_syntax(self, asm_syms):
+        """Unknown mnemonic → mn_classify rejects → asm_error → code 0."""
+        # "ZZZ" is not in any classifier table.
+        code = _run_expecting_err(asm_syms, "ZZZ")
+        assert code == 0, f"expected ERR_SYNTAX (0), got {code}"
+
+    def test_invalid_mode_writes_syntax(self, asm_syms):
+        """Mode rejected by validate_mode → asm_error → code 0.
+        JSR only accepts ABS; JSR with IMM operand → bad mode."""
+        code = _run_expecting_err(asm_syms, "JSR #$00")
+        assert code == 0, f"expected ERR_SYNTAX (0), got {code}"
+
+    def test_undef_symbol_writes_expr(self, asm_syms):
+        """Undefined symbol on pass 1 → asm_expr_error → code 1.
+        Operand parser routes through expr_eval which jumps to
+        asm_expr_error on undef when asm_pass != 0."""
+        from conftest import make_cpu, push_rts_sentinel, step_until_pc
+        # Force pass 1 so undef is a real error (not a forward-ref dummy).
+        cpu, mem = make_cpu(asm_syms)
+        mem[asm_syms.asm_pass] = 1
+        mem[asm_syms.asm_err_code] = 0xFF
+        for i, b in enumerate(_sc("LDA NOWHERE")):
+            mem[_IN_BUF + i] = b
+        mem[asm_syms.asm_ptr]     = _IN_BUF & 0xFF
+        mem[asm_syms.asm_ptr + 1] = (_IN_BUF >> 8) & 0xFF
+        mem[asm_syms.asm_pc]      = _TEST_PC & 0xFF
+        mem[asm_syms.asm_pc + 1]  = (_TEST_PC >> 8) & 0xFF
+        mem[asm_syms.asm_out]     = _OUT_BUF & 0xFF
+        mem[asm_syms.asm_out + 1] = (_OUT_BUF >> 8) & 0xFF
+        mem[asm_syms.asm_cpu]     = 2
+        sentinel = push_rts_sentinel(cpu, sentinel=0xFFFF)
+        mem[asm_syms._asm_saved_sp] = cpu.sp
+        cpu.pc = asm_syms._asm_line_core
+        cpu.y  = 0
+        step_until_pc(cpu, sentinel, max_steps=_MAX_STEPS, what="undef sym")
+        assert mem[asm_syms.asm_len] == 0
+        assert mem[asm_syms.asm_err_code] == 1, \
+            f"expected ERR_EXPR (1), got {mem[asm_syms.asm_err_code]}"
+
+    def test_cpu_gate_cmos_rejected_writes_cpu(self, asm_syms):
+        """Pure-CMOS mnemonic on asm_cpu=0 → CPU gate rejects via
+        asm_cpu_error → code 2."""
+        code = _run_expecting_err(asm_syms, "PHY", asm_cpu=0)
+        assert code == 2, f"expected ERR_CPU (2), got {code}"
+
+    def test_cpu_gate_illegal_rejected_writes_cpu(self, asm_syms):
+        """Illegal NMOS mnemonic on asm_cpu=2 → CPU gate rejects via
+        asm_cpu_error → code 2."""
+        code = _run_expecting_err(asm_syms, "SLO $42", asm_cpu=2)
+        assert code == 2, f"expected ERR_CPU (2), got {code}"
+
+
+# ═════════════════════════════════════════════════════════════════════════
 # ACC vs label disambiguation (addr_mode.md § ACC vs label disambiguation,
 # asm_line.md § ACC mode handling)
 # ═════════════════════════════════════════════════════════════════════════

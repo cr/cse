@@ -132,9 +132,12 @@ the correct bytes.
   `$hex`, `%binary`, decimal, labels, `*`, and operators.
 - Whitespace: space ($20) and tab ($A0).
 - End-of-expression: NUL, CR ($0D), LF ($0A), `;`, `//`.
-- On syntax error: `jmp asm_syntax_error` (in asm_err.s).
-- On expression error: `jmp asm_expr_error` (in asm_err.s) — sets
-  `asm_expr_err=1` so callers can print the expr-specific message.
+- On syntax error: `jmp asm_syntax_error` (in asm_err.s) — writes
+  `asm_err_code=0`.
+- On expression error: `jmp asm_expr_error` (in asm_err.s) — writes
+  `asm_err_code=1` so callers can print the expr-specific message
+  via `expr_error_str`.  See
+  [asm_err.md § Error categories](asm_err.md#error-categories).
 - `expr_eval_nb` runs without KERNAL banking — mode_parse is called
   from within `_asm_line_core` where KERNAL is already banked out.
 - ACC syntax (`A` operand) is recognised only when the caller has

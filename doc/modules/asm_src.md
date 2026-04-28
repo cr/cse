@@ -58,7 +58,7 @@ Suppressed when no segments were emitted (`_min_pc` == $FFFF).
 **Depends on:** asm_line, expr, symtab (sym_define, sym_clear),
 editor (ed_read_line, ed_read_rewind, buf_base), log (log_open,
 log_close, puts_imm, log_line, seg_line), asm_err (asm_pass,
-asm_expr_err), mem, cse_io, strings, zp
+asm_err_code), mem, cse_io, strings, zp
 
 (The ACC label-shadow warning `;!a shadow` is emitted directly by
 `addr_mode.s::mode_parse` on detection — asm_src is not in the

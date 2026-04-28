@@ -1548,20 +1548,32 @@ Defined scope, needs work.
   `.bas "TEXT"` → `0 SYS NNNNN:REM TEXT`.
   Always 5 decimal digits (260 B).  2799 tests.
 
-- [ ] **Error-category tables are part of the contract.**  asm_err,
-  expr, and repl each have their own error code → message mapping
-  (`asm_expr_err` flag, expr's 0..6 return codes, REPL's string
-  table).  Today those tables are partly documented and partly
-  implicit.  Make each module's error category list a first-class
-  part of its doc (one table per module), and add unit tests that
-  assert every documented code maps to the expected message.
-  Companion fix: CPU-mode-gate rejection in `asm_line.s` currently
-  flows through the generic `asm_error` path and is displayed as
-  "syntax" — strictly accurate but misleading.  Introduce a
-  distinct "cpu" error category (new `asm_err` entry point, new
-  string, REPL dispatch update) as part of the same cleanup so
-  PHY-on-6502 displays as `;?cpu` rather than `;?syntax`.
-  Uncovered by the asm_cpu gate Escape Analysis (2026-04-20).
+- [x] ~~**Error-category tables are part of the contract.**~~
+  (Phase 25 fix.)  Resolved by:
+  - **`src/asm_err.s`** — boolean `asm_expr_err` replaced with
+    a 3-state `asm_err_code` byte (0=syntax, 1=expr, 2=cpu).
+    New `asm_cpu_error` entry point added to the BIT-abs-skip
+    cascade so all four exits share the same SP-restore/bank-in
+    tail.
+  - **`src/asm_line.s`** — CPU-gate rejects (cat=11 on non-CMOS,
+    cat=10 on non-6510) now `jmp asm_cpu_error` instead of
+    `jmp asm_error`.
+  - **`src/strings.s`** — new `str_cpu_err: "cpu"` string.
+  - **`src/asm_src.s::process_line @bad`** + **`src/repl.s::cmd_dot`**
+    — both error dispatchers now branch on `asm_err_code` (0/1/2)
+    to pick the right user-visible tag.
+  - **Tests** — `test_asm_err.py` updated for the rename, gains
+    `test_asm_cpu_error_writes_code_2`.  New
+    `TestErrorCategoryDispatch` in `test_asm_line.py` (5 cases)
+    pins the asm_err_code matrix end-to-end via the assembly
+    pipeline (unknown mnemonic, bad mode, undef symbol, pure-CMOS
+    on 6502, illegal NMOS on 65C02).
+  - **Docs** — `asm_err.md` § Error categories now lists the table
+    as a first-class contract.  `asm_line.md`, `asm_src.md`,
+    `repl.md`, `addr_mode.md` cross-reference the table; `repl.md`
+    § cmd_dot gains the dispatch table for the user-visible tags.
+  - **Cost:** +29 B per production variant.  Suite 3103 passed /
+    18 skipped (was 3097 / 18; +6 new asm_err + dispatch tests).
 - [x] Per-segment assembly summary — bug fixes + streaming design.
   Fixed bugs (pass-0 output, stale asm_pc, asm_org clobber,
   expr_val clobber, filename `,s`→`,p`).  Streaming segment lines

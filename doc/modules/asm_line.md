@@ -35,9 +35,12 @@ source-pass and the line-asm REPL command:
 `asm_line` owns its own KERNAL banking (bracket of
 `kernal_bank_out`/`kernal_bank_in` around the `_asm_line_core` call).
 Callers do not — and must not — bank the KERNAL themselves.  The
-error-unwind path (`asm_error` / `asm_syntax_error` / `asm_expr_error`,
-in [asm_err.md](asm_err.md)) also banks the KERNAL back in before
-returning 0, so success and error exits are symmetric.
+error-unwind path (`asm_error` / `asm_syntax_error` / `asm_expr_error`
+/ `asm_cpu_error`, in [asm_err.md](asm_err.md)) also banks the KERNAL
+back in before returning 0, so success and error exits are symmetric.
+The four entry points encode three categories into `asm_err_code` so
+callers can pick the right user-visible tag — see
+[asm_err.md § Error categories](asm_err.md#error-categories).
 
 Input is PETSCII.  Mnemonic characters are normalized to 1–26 via
 AND #$1F (handles uppercase, lowercase, and legacy VICII screen
@@ -46,8 +49,8 @@ codes identically — see [mn_classify.md](mn_classify.md)).
 ### Memory (asm_line.s)
 
 **ZP:** none of its own.  The error-recovery SP snapshot
-(`_asm_saved_sp`) and the expression-error flag (`asm_expr_err`)
-both live in [asm_err.md](asm_err.md).
+(`_asm_saved_sp`) and the error-category byte (`asm_err_code`) both
+live in [asm_err.md](asm_err.md).
 
 **BSS (182 bytes — user register shadows):**
 
@@ -68,8 +71,8 @@ opcode_lookup (asm_opcode_lookup), mn_classify (mn_base_op,
 mn_profile), mn_modes (mn_modes_lo — for the ACC-bit test that
 drives _au_no_acc; the IMP→ACC promotion reuses _au_no_acc rather
 than re-reading the table), asm_err (asm_syntax_error /
-asm_expr_error / asm_expr_err / _asm_saved_sp), mem (kernal_bank_out
-/ kernal_bank_in), zp
+asm_expr_error / asm_cpu_error / asm_err_code / _asm_saved_sp),
+mem (kernal_bank_out / kernal_bank_in), zp
 
 ## Build-time variants
 
@@ -102,9 +105,11 @@ See [testing.md § Principle 10](../testing.md).
 
 Every mnemonic's `asm_prof` byte encodes a 2-bit category in bits
 7:6.  The gate at [asm_line.s:247](../../src/asm_line.s) implements
-the table below.  Reject cells emit `jmp asm_error`; accept cells
-fall through with the appropriate profile (upgraded to the CMOS
-variant when `cat=01` and `asm_cpu>=2` under `CMOS_SUPPORT`).
+the table below.  Reject cells emit `jmp asm_cpu_error` (so the
+caller's dispatcher selects the `;?cpu` tag rather than the
+strictly-correct-but-misleading `;?syntax`); accept cells fall
+through with the appropriate profile (upgraded to the CMOS variant
+when `cat=01` and `asm_cpu>=2` under `CMOS_SUPPORT`).
 
 | | `cat=00` legal NMOS | `cat=01` legal + CMOS-ext | `cat=10` illegal NMOS | `cat=11` pure CMOS |
 |---|---|---|---|---|
@@ -183,17 +188,22 @@ different name or write the address explicitly to access symbol
 [addr_mode.md § ACC vs label disambiguation](addr_mode.md#acc-vs-label-disambiguation)
 for the full matrix.
 
-**Error handling:** On any error, `jmp asm_error` (in asm_err.s)
-restores the 6502 SP from `_asm_saved_sp` and returns 0 to the
-caller.  `asm_expr_err` is cleared to 0.  Expression evaluation
-errors use the `asm_expr_error` entry point, which loads A=1 then
-merges into `asm_error`'s shared tail via a BIT-abs skip (the
-`lda #0` at `asm_error` is consumed as a BIT operand, preserving
-A=1).  Both paths store A into `asm_expr_err` and share the SP
-restore, bank-in, and return.  Callers check `asm_expr_err` after
-a zero return to distinguish syntax errors from expression errors
-and can call
-`expr_error_str` for the specific message (e.g. "undef").
+**Error handling:** On any error, asm_line's chain jumps into one
+of four entry points in [`asm_err.s`](asm_err.md): `asm_error` /
+`asm_syntax_error` (code 0), `asm_expr_error` (code 1), or
+`asm_cpu_error` (code 2).  All four restore the 6502 SP from
+`_asm_saved_sp`, bank the KERNAL back in, and return 0; they differ
+only in the value written to `asm_err_code`.  Callers read
+`asm_err_code` after a zero return to pick the user-visible tag —
+see [asm_err.md § Error categories](asm_err.md#error-categories)
+for the full table.
+
+asm_line itself uses two of these directly: `jmp asm_error` for
+unknown mnemonics (mn_classify miss) and bad-mode-for-profile;
+`jmp asm_cpu_error` for the CPU-gate reject paths.  The third
+(`asm_expr_error`) is reached transitively via
+`addr_mode.s::_au_read_val` when `expr_eval` returns an error on
+pass 1.
 
 ## Caveats
 

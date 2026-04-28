@@ -28,7 +28,7 @@
         .export theme_border, theme_bg, theme_fg
 
 ; ── Exports: assembler / execution stubs ──────────────────────
-        .export asm_line, asm_expr_err
+        .export asm_line, asm_err_code
         .export asm_assemble, asm_org, asm_size, seg_print_save
 
 ; ── Exports: debugger stubs ───────────────────────────────────
@@ -151,7 +151,7 @@ ed_total_lines: .res 2
 ; Assembler state
 asm_org:       .res 2
 asm_size:      .res 2
-asm_expr_err:  .res 1
+asm_err_code:  .res 1
 fl_buf:        .res 32
 
 ; Disk I/O witnesses (test instrumentation)

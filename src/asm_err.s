@@ -7,18 +7,24 @@
 ; 6502 SP to the snapshot taken at asm_line entry and returns 0 to
 ; asm_line's caller in one step (longjmp-style).
 ;
-;   asm_syntax_error / asm_error
-;       Generic entry (syntax error, unknown mnemonic, invalid mode).
-;       Clears asm_expr_err; shared tail runs the SP restore + bank_in.
+; Three error categories are represented by a single byte
+; (asm_err_code) so callers can dispatch the right user-visible tag.
 ;
-;   asm_expr_error
-;       Expression-eval error entry.  Sets asm_expr_err=1 first, then
-;       falls into the shared tail via a BIT-abs skip (the lda #0 at
-;       asm_error is consumed as a BIT operand, preserving A=1).
+;     code | entry point          | meaning             | repl tag
+;     -----+----------------------+---------------------+-----------
+;     0    | asm_error            | generic syntax /    | ;?syntax
+;          | asm_syntax_error     | invalid mode /      |
+;          |                      | unknown mnemonic    |
+;     1    | asm_expr_error       | expression eval     | ;?expr <detail>
+;          |                      | (undefined symbol,  |
+;          |                      | overflow, paren, …) |
+;     2    | asm_cpu_error        | CPU-gate rejection  | ;?cpu
+;          |                      | (PHY on 6502, …)    |
 ;
-; The three entry points share the same body; only the asm_expr_err
-; value differs.  Callers distinguish "syntax vs expression" error
-; types by testing asm_expr_err after a zero return from asm_line.
+; All three entry points share one body: load the code (0/1/2) into
+; A, store to asm_err_code, restore SP, bank KERNAL back in, return
+; 0.  The BIT-abs trick lets the three entries share the store and
+; the unwind tail.
 ;
 ; Moved here from asm_line.s in Phase 21 Move 2 so the error handler
 ; is not defined inside the module that calls it — that was the
@@ -27,7 +33,9 @@
 ;
 ;   _asm_saved_sp (ZP, owned by zp.s) — SP snapshot taken by asm_line
 ;                                       at entry.  Read by the unwind.
-;   asm_expr_err  (BSS)  — set by asm_expr_error; cleared by asm_error.
+;   asm_err_code  (BSS)  — 0/1/2 per the table above.  Written by
+;                          every entry point; read by asm_src.s and
+;                          repl.s for tag dispatch.
 ;   asm_pass      (BSS)  — 0 = pass 0 (sizing), 1 = pass 1 (emit).
 ;                          Read by addr_mode (_au_read_val forward-ref
 ;                          handling); written by asm_src at each pass.
@@ -35,8 +43,9 @@
 
         .setcpu "6502"
 
-        .export asm_error, asm_syntax_error, asm_expr_error
-        .export asm_expr_err, asm_pass
+        .export asm_error, asm_syntax_error
+        .export asm_expr_error, asm_cpu_error
+        .export asm_err_code, asm_pass
 
         .importzp _asm_saved_sp
         .import kernal_bank_in
@@ -44,25 +53,26 @@
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
 
-asm_expr_err:   .res 1          ; nonzero if last asm_error was expr eval
+asm_err_code:   .res 1          ; 0=syntax, 1=expr, 2=cpu (see header)
 asm_pass:       .res 1          ; 0 = pass 0, 1 = pass 1
 
 ; ── CODE ─────────────────────────────────────────────────────
 .segment "CODE"
 
-; ── asm_error / asm_syntax_error / asm_expr_error ─────────────
-; Jumped to (not called) by _asm_line_core / mode_parse / expr_eval
-; on any assembler error.  Restores the 6502 stack to the snapshot
-; saved at asm_line entry, banks the KERNAL back in, returns 0.
-;
-; asm_expr_error sets asm_expr_err = 1; the other two clear it.
+; ── asm_*_error entry points ─────────────────────────────────
+; Jumped to (not called) on any assembler error.  Loads the
+; category code (0/1/2) into A via a BIT-abs skip cascade, stores
+; to asm_err_code, restores SP, banks KERNAL in, returns 0.
+asm_cpu_error:
+        lda #2
+        .byte $2C               ; BIT abs — skip the next lda #1
 asm_expr_error:
         lda #1
         .byte $2C               ; BIT abs — skip the next lda #0
 asm_error:
 asm_syntax_error:
         lda #0
-        sta asm_expr_err
+        sta asm_err_code
         ldx _asm_saved_sp
         txs                     ; restore SP (unwind nested jsrs)
         jsr kernal_bank_in      ; pair the bank_out from asm_line entry

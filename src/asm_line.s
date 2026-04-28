@@ -34,7 +34,7 @@
 
         .export asm_line
         .export _asm_line_core
-        .import asm_error, asm_syntax_error     ; asm_err.s
+        .import asm_error, asm_syntax_error, asm_cpu_error   ; asm_err.s
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
 
         ; zero-page variables (zp.s)
@@ -276,14 +276,14 @@ _asm_line_core:
         cmp #2
         bcs @no_upgrade         ; 65C02 (+ CMOS_SUPPORT) → accept
 .endif
-        jmp asm_error           ; else reject
+        jmp asm_cpu_error       ; else reject — `;?cpu` (pure-CMOS on non-CMOS CPU)
 @chk_illegal:
         cmp #$80                ; cat=10 (illegal NMOS)?
         bne @chk_ext
         lda asm_cpu
         cmp #1
         beq @no_upgrade         ; 6510 → accept
-        jmp asm_error           ; 6502 / 65C02 → reject
+        jmp asm_cpu_error       ; 6502 / 65C02 → reject — `;?cpu` (illegal mnemonic on non-6510)
 @chk_ext:
         ; Fell through — cat=01 (legal + CMOS extension).
 .ifdef CMOS_SUPPORT

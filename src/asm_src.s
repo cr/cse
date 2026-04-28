@@ -18,7 +18,7 @@
         .export         seg_print_save
 
         .import         asm_line                            ; asm_line.s
-        .import         asm_expr_err, asm_pass              ; asm_err.s
+        .import         asm_err_code, asm_pass              ; asm_err.s
         .import         expr_error_str, expr_eval           ; expr.s
         .import         sym_define, sym_clear               ; symtab.s
         .import         kernal_bank_out, kernal_bank_in     ; mem.s
@@ -41,7 +41,7 @@
 
 ; ── Imports: strings.s ──────────────────────────────────────
         .import s_err_sep, s_bad_val, s_exp_name, s_sym_full
-        .import s_exp_quot, s_bad_insn, s_fwd_ref
+        .import s_exp_quot, s_bad_insn, s_fwd_ref, str_cpu_err
         .import s_save_s, s_save_q_sp, s_save_default, s_trunc
         .import dec_pow_lo, dec_pow_hi
 
@@ -1368,13 +1368,23 @@ BASIC_REM = $8F
         bcc @done
         inc asm_size+1
 @done:  rts
-@bad:   lda asm_expr_err
+@bad:   ; Dispatch error tag from asm_err_code (asm_err.s):
+        ;   0 = ;?<line>: bad insn   (syntax)
+        ;   1 = ;?<line>: expr <detail>
+        ;   2 = ;?<line>: cpu        (CPU gate rejected mnemonic)
+        lda asm_err_code
         beq @bad_syn
+        cmp #2
+        beq @bad_cpu
         jsr expr_error_str      ; A/X = expr error string
         jmp emit_error
 @bad_syn:
         lda #<s_bad_insn
         ldx #>s_bad_insn
+        jmp emit_error
+@bad_cpu:
+        lda #<str_cpu_err
+        ldx #>str_cpu_err
         jmp emit_error
 .endproc
 

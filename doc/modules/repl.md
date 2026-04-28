@@ -394,6 +394,21 @@ and produced no error.  The `@try_mne` gate in `cmd_dot` now
 distinguishes "nothing after `.`" (valid silent redisplay) from
 "non-letter garbage" (syntax error).
 
+#### Error tag dispatch (mnemonic-assemble path)
+
+When `dot_assemble` returns 0 (assembly failed), the dispatcher
+reads `asm_err_code` (set by the unwind exit in
+[asm_err.s](asm_err.md)) and picks the tag:
+
+| `asm_err_code` | Tag emitted | Example trigger |
+|---|---|---|
+| 0 | `;?syntax`      | unknown mnemonic, bad mode for profile |
+| 1 | `;?expr <detail>` | undef symbol, overflow, paren mismatch — `<detail>` from `expr_error_str` |
+| 2 | `;?cpu`         | mnemonic rejected by the CPU-mode gate (PHY on 6502, illegal NMOS on 65C02, etc.) |
+
+The strings live in [`strings.s`](../../src/strings.s) — `str_syntax`,
+`str_cpu_err`, plus the per-rc table referenced by `expr_error_str`.
+
 ### Commands — Execution
 
 | Key | Name | Addressed | Example          | Notes                                      |
