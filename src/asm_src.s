@@ -235,6 +235,16 @@ _emit_word:
         txa
         jmp _emit_byte          ; emit hi byte
 
+; ── _bad_val_err ──────────────────────────────────────────────────────────
+; Shared "bad value" error tail for the directive handlers in this
+; module.  Works equivalently when reached via JMP (tail-call: returns
+; to the caller's caller via emit_error's rts) or JSR (returns to the
+; caller after the jsr — emit_error's rts pops the saved return).
+_bad_val_err:
+        lda #<s_bad_val
+        ldx #>s_bad_val
+        jmp emit_error
+
 .proc adv_pc_size
         lda _as_wsize
         clc
@@ -299,32 +309,22 @@ _emit_word:
         inc expr_ptr+1
         bne @comma
 @expr:  jsr expr_eval
-        ; Pass 0 sizing is value-independent for .db / .dw: every
-        ; argument occupies exactly _as_wsize bytes regardless of
-        ; whether the expression resolves.  Skip the error check on
-        ; pass 0 entirely — _emit_byte / _emit_word's pass-aware
-        ; guards advance PC without storing anything, so size stays
-        ; consistent across passes for forward-ref symbols and other
-        ; pass-0-resolvable expressions alike.  Pass 1 errors on bad
-        ; expressions normally; the user's broken-binary case has
-        ; asm_errors > 0, so any pass-1 PC drift after the failure
-        ; doesn't matter (the binary won't be used).
+        ; .db/.dw size is value-independent: every arg occupies
+        ; exactly _as_wsize bytes whether the expression resolves
+        ; or not.  Skip the rc check on pass 0; let _emit_byte's
+        ; pass-aware advance handle size.  Pass 1 errors normally.
         ldy asm_pass
         beq @emit               ; pass 0: any rc → advance PC
         cmp #2
         bcc @emit               ; pass 1 success → emit
-        lda #<s_bad_val
-        ldx #>s_bad_val
-        jmp emit_error          ; tail-call; emit_error returns to our caller
-@emit:  lda _as_wsize
+        jmp _bad_val_err
+@emit:  lda expr_val
+        jsr _emit_byte          ; always emit lo byte
+        lda _as_wsize
         cmp #2
-        beq @word
-        lda expr_val
+        bne @comma              ; .db: skip hi byte
+        lda expr_val+1
         jsr _emit_byte
-        jmp @comma
-@word:  lda expr_val
-        ldx expr_val+1
-        jsr _emit_word
 @comma: jsr skipws_ep
         cmp #','
         bne @done
@@ -436,9 +436,7 @@ _emit_word:
         jsr _vocal_fwd_err      ; force vocal on both passes; rts to here
         rts                     ; abort the directive (no PC advance)
 @gen_err:
-        lda #<s_bad_val
-        ldx #>s_bad_val
-        jmp emit_error
+        jmp _bad_val_err
 :       lda expr_val
         sta _as_ptr             ; count lo
         lda expr_val+1
@@ -459,9 +457,7 @@ _emit_word:
         jsr _vocal_fwd_err
         rts
 @gen_err2:
-        lda #<s_bad_val
-        ldx #>s_bad_val
-        jmp emit_error
+        jmp _bad_val_err
 :       lda expr_val
         sta _as_wsize           ; fill byte
 @go:    lda _as_ptr
@@ -494,15 +490,11 @@ _emit_word:
         jsr _vocal_fwd_err
         rts
 @gen_err:
-        lda #<s_bad_val
-        ldx #>s_bad_val
-        jmp emit_error
+        jmp _bad_val_err
 :       lda expr_val
         ora expr_val+1
         bne :+
-        lda #<s_bad_val
-        ldx #>s_bad_val
-        jmp emit_error
+        jmp _bad_val_err
 :       ; remainder = asm_pc % boundary (repeated subtraction; boundary in expr_val)
         lda asm_pc
         sta _as_ptr
@@ -594,9 +586,7 @@ _emit_word:
         lda #2
         sta asm_cpu              ; 65c02
         rts
-@bad:   lda #<s_bad_val
-        ldx #>s_bad_val
-        jmp emit_error
+@bad:   jmp _bad_val_err
 .endproc
 
 
@@ -996,9 +986,7 @@ BASIC_REM = $8F
         ldy _as_wsize
         pla
         sta (sym_name),y
-        lda #<s_bad_val
-        ldx #>s_bad_val
-        jsr emit_error
+        jsr _bad_val_err
         clc
         rts
 @cok:   lda asm_pass
@@ -1068,9 +1056,7 @@ BASIC_REM = $8F
         jsr expr_eval
         cmp #2
         bcc :+
-        lda #<s_bad_val
-        ldx #>s_bad_val
-        jsr emit_error
+        jsr _bad_val_err
         clc
         rts
 :       ; Save new origin on stack — _seg_log_close clobbers asm_tmp
