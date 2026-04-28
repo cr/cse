@@ -301,6 +301,22 @@ _emit_word:
 @expr:  jsr expr_eval
         cmp #2
         bcc @emit
+        ; Forward-ref tolerance for two-pass sizing: an undefined
+        ; symbol on pass 0 is normal (the label gets defined later in
+        ; this same pass).  Fall through to @emit so _emit_byte /
+        ; _emit_word advance asm_pc by _as_wsize — pass 0's pass-aware
+        ; guard skips the actual store, only the PC advance matters.
+        ; Without this, pass 0 would size .dw/.db items with forward
+        ; refs as zero bytes, and every label defined after them
+        ; would carry a too-low address into pass 1.  Pass 1 still
+        ; errors on undef (real failure).  Other error classes
+        ; (parse, paren, overflow, divzero) fall through to
+        ; emit_error unchanged.
+        cmp #5                  ; ERR_UNDEFINED?
+        bne @real_err
+        ldy asm_pass
+        beq @emit               ; pass 0 + undef → tolerate, advance PC
+@real_err:
         lda #<s_bad_val
         ldx #>s_bad_val
         jmp emit_error          ; tail-call; emit_error returns to our caller

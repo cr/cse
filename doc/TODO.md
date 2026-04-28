@@ -688,6 +688,48 @@ Open bugs, roughly ordered by priority.
     untouched after aborted parse.
   - **Cost:** +13 B per production variant.
   - **Test suite:** 3088 passed / 18 skipped (was 3085 / 18).
+- [x] ~~**BUG** Assembler: `.dw` / `.db` with a forward-ref label
+  silently sizes as zero bytes on pass 0, causing labels defined
+  afterward to drift to too-low addresses; pass 1 then emits both
+  the data bytes and any jump/branch operands using those wrong
+  addresses.~~  (Phase 25 fix — discovered during a PC-advance
+  audit, originally suspected by the user but not reproducible
+  without targeted tests.)  Root cause: `emit_data_bytes` checked
+  `expr_eval`'s rc and tail-jumped to `emit_error` on any
+  rc ≥ 2 — including ERR_UNDEFINED — bypassing `_emit_word` /
+  `_emit_byte` and their pass-aware PC advance.  Pass 0 errors are
+  silent (intended), but the PC advance was a casualty.  Resolved by:
+  - **`src/asm_src.s::emit_data_bytes`** — on rc==5 (ERR_UNDEFINED)
+    AND pass 0, fall through to the emit path.  `_emit_byte` /
+    `_emit_word` skip the store on pass 0 and advance asm_pc by
+    `_as_wsize`, so two-pass sizing stays consistent.  Pass 1 +
+    undef still errors.  Other error classes (parse, paren,
+    overflow, divzero) fall through to `emit_error` unchanged.
+  - **Tests** — three new MANUAL_TESTS cases in
+    `tests/unit/test_asm_src.py`: `.dw target / target:` resolves
+    correctly; `.db <target / target:` (lo-byte forward ref);
+    `.dw target / jmp target / target:` (jump across the .dw
+    lands at the right address — the user's recollected
+    symptom).
+  - **Doc** — `asm_src.md` § Design now spells out the pass-0
+    forward-ref rules for both instruction operands (via
+    `_au_read_val`) and data directives (via `emit_data_bytes`).
+  - **Cost:** +9 B per production variant.
+  - **Test suite:** 3094 passed / 18 skipped.
+
+- [ ] **Sibling bug class** (Escape Analysis sweep — same shape
+  as the `.dw` forward-ref drift): `.res N` and `.align M` use
+  the expression *value* to determine pass-0 size, and there's
+  no sensible substitution for an undefined symbol there.  The
+  current pass-0 error path skips the directive entirely → PC
+  drift between passes → labels defined afterward have wrong
+  addresses.  Workaround documented in `asm_src.md` (define the
+  count/boundary first).  Likely fix: emit a *vocal* pass-0
+  error specifically for "forward ref in `.res` / `.align`
+  operand" so the user can't accidentally hit the silent-drift
+  path.  Lower priority than .dw — `.res`/`.align` are usually
+  paired with literal numbers; forward refs there are uncommon.
+
 - [x] ~~**BUG** Editor: switching to the editor after `l` always
   inserts a tab on entry, even when the buffer already has
   source loaded (so the first line gets a leading tab where it

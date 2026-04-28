@@ -181,6 +181,40 @@ MANUAL_TESTS = [
         "expect_errors": 0,
     },
     {
+        # Regression for the .dw forward-ref PC-advance bug:
+        # On pass 0, a `.dw forward_label` operand was undefined →
+        # emit_data_bytes tail-jumped to emit_error → silent on pass 0
+        # but skipping _emit_word, so asm_pc was NOT advanced.  Any
+        # label defined AFTER the .dw got the wrong (low) address;
+        # pass 1 then emitted that wrong address into the .dw bytes
+        # AND landed jumps/branches at the wrong PC.
+        "name": ".dw with forward-ref label (PC advance)",
+        "source": ".org $c000\n.dw target\ntarget:\n  rts",
+        "expect_org": 0xC000,
+        # .dw at $C000 (2 bytes) → target at $C002 → bytes are $02 $C0,
+        # then RTS at $C002.
+        "expect_bytes": [0x02, 0xC0, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": ".db with forward-ref label (PC advance)",
+        "source": ".org $c000\n.db <target\ntarget:\n  rts",
+        "expect_org": 0xC000,
+        # .db at $C000 (1 byte) → target at $C001 → byte is $01 (lo of $C001),
+        # then RTS at $C001.
+        "expect_bytes": [0x01, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": ".dw forward + jmp across (PC advance)",
+        "source": ".org $c000\n.dw target\n  jmp target\ntarget:\n  rts",
+        "expect_org": 0xC000,
+        # Layout: .dw (2) + jmp abs (3) + rts (1).  target = $C005.
+        # .dw bytes: $05 $C0; jmp: $4C $05 $C0; rts: $60.
+        "expect_bytes": [0x05, 0xC0, 0x4C, 0x05, 0xC0, 0x60],
+        "expect_errors": 0,
+    },
+    {
         "name": ".res directive",
         "source": ".org $c000\n.res 4, $ea\n  rts",
         "expect_org": 0xC000,

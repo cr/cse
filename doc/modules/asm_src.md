@@ -87,9 +87,24 @@ Two passes over the editor source:
 - Constants: `.const name expr` → sym_define(name, expr_val).
 - Instructions: rebuilt as PETSCII in `_insn_buf`, passed to
   `_asm_line` to determine size.  asm_pc advanced by returned length.
-- Forward references: dummy target `asm_pc+2` used so branches
-  assemble in-range (offset=0) and return correct size.
+- Forward references: in instruction operands, `_au_read_val`
+  substitutes the dummy target `asm_pc+2` so branches assemble
+  in-range (offset=0) and return correct size.  In `.db` / `.dw`
+  operand expressions, the `emit_data_bytes` loop tolerates an
+  ERR_UNDEFINED on pass 0 by falling through to its emit-path —
+  `_emit_byte` / `_emit_word` advance asm_pc by `_as_wsize` (1 or 2)
+  without storing.  Both mechanisms keep pass 0's PC arithmetic
+  identical to pass 1's, which is the load-bearing invariant for
+  every label defined later in the source.
 - Errors not counted in pass 0.
+
+  **Limitation.**  `.res N` and `.align M` use the *value* of `N`/`M`
+  to determine pass-0 size.  A forward-referenced symbol there
+  cannot be sized (no sensible substitution exists), and the
+  current pass-0 error path skips the directive entirely — labels
+  defined afterwards drift relative to pass 1.  Workaround: define
+  the count/boundary above the directive that uses it.  See
+  [TODO.md](../TODO.md) for the open item.
 
 **Pass 1:** Resolve references, emit bytes, count errors.
 - Same scan as pass 0 but `asm_line` writes bytes to memory.
