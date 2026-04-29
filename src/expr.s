@@ -564,8 +564,20 @@ _ex_op_setup:
         cmp #'9'+1
         bcc @decimal_bare
 
-        ; label (a-z)
+        ; label (a-z, or shifted-uppercase $C1-$DA folded in-place)
 @chk_label:
+        ; Fold shifted uppercase $C1-$DA → $41-$5A in-place (mirrors @lscan).
+        ; Without this, a symbol whose first char is SHIFT+letter on the C64
+        ; (PETSCII $C1-$DA) is rejected as "expected expression".
+        cmp #$C1
+        bcc @cnoshift
+        cmp #$DB
+        bcs @cnoshift
+        sec
+        sbc #$80
+        ldy #0
+        sta (expr_ptr),y        ; fold in-place so sym_lookup sees $41-$5A
+@cnoshift:
         cmp #$41
         bcc @err_expected
         cmp #$5B

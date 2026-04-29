@@ -174,6 +174,16 @@ POSITIVE = [
     ("table-start",     0xB800, RC_ABS, True, 0x1000, "ABS - ABS → ABS"),
     ("<(table+$42)",    0x0042, RC_ZP,  True, 0x1000, "lo of ABS sum → ZP"),
 
+    # ── case-insensitive symbol lookup (shifted PETSCII $C1-$DA) ─
+    # _petscii() folds A-Z → $C1-$DA; expr.s @chk_label must accept
+    # shifted-uppercase as a symbol-start char (fold $C1-$DA → $41-$5A
+    # in-place, mirroring @lscan's continuation-loop fold).
+    ("START",           0x0800, RC_ABS, True, 0x1000, "uppercase first char → fold"),
+    ("Start",           0x0800, RC_ABS, True, 0x1000, "Mixed case first char → fold"),
+    ("TOP",             0xFFFF, RC_ABS, True, 0x1000, "all uppercase → fold"),
+    ("PORT+1",          0xD021, RC_ABS, True, 0x1000, "uppercase label in expr → fold"),
+    ("<PORT",           0x0020, RC_ZP,  True, 0x1000, "lo of uppercase label → ZP"),
+
     # ── multiply / divide ────────────────────────────────────────
     ("3*4",             12,     RC_ZP,  False, 0x1000, "3*4 = 12"),
     ("$10*$10",         0x0100, RC_ABS, False, 0x1000, "$10*$10 = $100"),

@@ -339,6 +339,33 @@ as universal (Tier A).*
 
 Open bugs, roughly ordered by priority.
 
+- [x] ~~**BUG** Expression parser: symbols cannot start with a
+  capital (SHIFTed) letter.~~  (v0.1-rc1 VICE-testing fix,
+  2026-04-29.)  In `src/expr.s::parse_factor::@chk_label`, the
+  first-character classifier tested only `$41-$5A` (unshifted
+  PETSCII letters) and rejected anything outside that range.
+  The continuation loop `@lscan` already folded shifted-uppercase
+  `$C1-$DA → $41-$5A` in-place, but the entry check did not — so
+  a symbol whose first byte was a SHIFT+letter on the C64
+  keyboard (`$C1-$DA`) failed with `;?<line>: expected` before the
+  fold ever ran.  Affected every consumer of `expr_eval`: the
+  source assembler operand parser, the `.` REPL command, `.const`
+  values, `.org`, `.dw` / `.db` lists, etc.  Label *definitions*
+  were unaffected (asm_src calls `fold_block` before
+  `define_label`).  Found during VICE user-testing of v0.1-rc1.
+  - **`src/expr.s::parse_factor::@chk_label`** — fold inserted
+    before the `$41-$5A` range check, mirroring `@lscan`'s
+    in-place fold pattern (sta back so `sym_lookup` sees the
+    folded byte).
+  - **Tests** — 5 new POSITIVE entries in
+    `tests/unit/test_expr.py` exercising uppercase / mixed-case
+    first chars (`START`, `Start`, `TOP`, `PORT+1`, `<PORT`) —
+    `_petscii()` already encoded `A-Z → $C1-$DA`, so the test
+    inputs map straight onto the failing path.  Pre-fix all 5
+    failed with `rc=ERR_EXPECTED`; post-fix all 5 pass.
+  - **Cost:** +15 B per production variant for the inline fold
+    (6510 21159→21174, 6502 20717→20732, cmos 21613→21628).
+
 - [x] ~~**BUG** Source assembler: `;<line>: truncated` warning
   never fires.~~  (Phase 25 fix.)  In `asm_src.s::do_pass`,
   `txa` clobbered the length returned by `ed_read_line` (A=lo,
