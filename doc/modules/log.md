@@ -8,6 +8,7 @@
 |------|------|
 | [`src/log.s`](../../src/log.s) | implementation |
 | [`src/log.inc`](../../src/log.inc) | shared level constants (`LOG_ERR`, `LOG_WARN`, `LOG_INFO`) |
+| [`src/macros.inc`](../../src/macros.inc) | shared `puts` macro that calls `puts_imm` (in this module) |
 | [`tests/unit/test_log.py`](../../tests/unit/test_log.py) | test contract |
 
 ## Interface

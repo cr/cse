@@ -44,7 +44,7 @@ Sequence (LOADER segment, load = run = $080D):
 because CSE always has `dst > src` for both regions (payload lives
 low, runtime lives high; KDATA load is below `$F100` run).  Backward
 copy is always safe under this layout.  See
-[build_system.md § The ld65 load/run split](../build_system.md).
+[build_system.md § The ld65 load/run split](../build_system.md#the-ld65-loadrun-split).
 
 **ZP usage.**  The loader borrows `$02–$05` as two 16-bit pointers
 (`ptr1` = source, `ptr2` = destination).  Same addresses as

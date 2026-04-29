@@ -227,7 +227,7 @@ use of `ed_insert_string` is single-byte smart-indent so this
 path never surfaced before; disk-load goes via `load_insert` →
 `gb_insert` directly without the alias.
 
-## Design notes
+## Design
 
 **Why `ed_total_lines` / `src_top` / `src_bot` are here and not in
 `editor.s`.**  All three are gap-buffer state: `ed_total_lines` is

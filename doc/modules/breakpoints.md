@@ -139,7 +139,7 @@ old `debugger.s`) is covered at integration tier by
 `tests/integration/test_kernel_transition.py` and
 `tests/integration/test_step_rom.py`.
 
-## Design notes
+## Design
 
 **Why the step slots live in the same table as user breakpoints.**
 A single `patch_all` pass covers both.  If user-visible slots lived

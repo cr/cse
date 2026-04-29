@@ -1191,7 +1191,7 @@ Open bugs, roughly ordered by priority.
 - [x] Review all user-facing strings — terse convention established.
 - [x] Line-break warnings on file load — one per split.
 - [x] `theme_border`/`theme_bg`/`theme_fg` in RODATA — moved to BSS.
-- [ ] `.` and `m` show CSE ZP — `m` fixed in `ac1a31f`, `.` still open (see above).
+- [x] `.` and `m` show CSE ZP — fully resolved in Phase 19 via the user-ZP redirect (see open-section entry above).
 - [x] Stack-snapshot revisit under KERNAL — resolved.
 - [x] BASIC SYS residue on hardware stack — SP reset at startup.
 - [x] `dbg_enter` ZP save buffer sizing — fixed.

@@ -285,7 +285,8 @@ Case-insensitive. Characters: a--z, 0--9, dot.
     JMP ($1000)     ; indirect
     LDA ($42)       ; zero page indirect (65C02 build only)
     JMP ($1000,X)   ; absolute indirect,X (65C02 build only)
-    ROL A           ; accumulator
+    ROL             ; accumulator (bare form)
+    ROL A           ; accumulator (explicit form, equivalent)
     BEQ .loop       ; relative (assembler computes offset)
 
 ### Directives

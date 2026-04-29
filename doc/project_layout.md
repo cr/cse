@@ -31,8 +31,7 @@ cse/
 │   ├── loader.s            Discardable bootstrap (PRG → runtime relocation)
 │   ├── mem.s               Memory manager (banking, segment queries, workspace)
 │   ├── mn*_tables.s        ┐
-│   ├── mn_modes.s          │
-│   ├── mn_config.s         │ GENERATED — do not edit
+│   ├── mn_modes.s          │ GENERATED — do not edit
 │   ├── mn_asm_tables.s     │ (regenerate: make tables)
 │   ├── dasm_tables.s       │
 │   └── oplen_tbl.s         ┘

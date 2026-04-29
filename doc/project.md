@@ -252,7 +252,6 @@ and ca65 `-t c64` character literals (`'A'` = $C1) produce.  The
 $C0–$DF, so the round-trip through screen RAM **preserves case**.
 Case-insensitive comparators (assembler, symbol table, expression
 parser) fold $C0–$DF → $40–$5F at their own boundaries.
-See [feedback: ca65 char literals](../feedback_ca65_charlit.md).
 
 The full mapping tables and rules live in
 [cse_io.md § Character Encoding Reference](cse_io.md#character-encoding-reference)
