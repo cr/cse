@@ -39,6 +39,7 @@ and what keeps the promise honest — see [background.md](background.md).
 - [Concepts](#concepts)
 - [Quick start](#quick-start)
 - [REPL commands](#repl-commands)
+- [Error and warning messages](#error-and-warning-messages)
 - [Editor](#editor)
 - [Assembler syntax](#assembler-syntax)
 - [Memory layout](#memory-layout)
@@ -229,19 +230,75 @@ Color values are single hex digits 0--F (C64 palette).
 `C F` sets foreground only; `C B F` sets border+foreground;
 `C B G F` sets all three.
 
+**Recovering the display.**  If user code or a misbehaving program
+has trashed the screen, press CLR/HOME or ESC at the REPL prompt
+to redraw the CSE display.  Active debug context is preserved.
+
+## Error and warning messages
+
+CSE uses a BASIC-style `;?<tag>` for errors and `;!<tag>` for
+warnings.  All tags are short and lowercase; the leading `;` makes
+them easy to scan for in mixed log output.
+
+### Errors (`;?`)
+
+| Tag | Meaning |
+|-----|---------|
+| `;?syntax` | Generic parse / addressing-mode / unknown-mnemonic error |
+| `;?cpu` | Mnemonic isn't valid for the current CPU mode (e.g. `PHY` on 6502, illegal opcodes on 65C02) |
+| `;?expr <detail>` | Expression error.  `<detail>` is one of: `exp val` (expected a value), `ovfl` (overflow), `exp )` (mismatched parenthesis), `undef` (undefined symbol), `div0` (divide by zero) |
+| `;?bad val` | Value out of range for the context (e.g. block size = 0) |
+| `;?range` | Address outside permitted range (e.g. `b` setting a breakpoint outside workspace) |
+| `;?cmd` | Unknown REPL command |
+| `;?no name` | No filename available (and no remembered project name) |
+| `;?no ctx` | Debugger command (`c`, `t`, `o`) issued with no active break |
+| `;?fail` | Disk I/O failed |
+| `;?too big` | File too large for the gap buffer |
+| `;?full` | Symbol table full |
+
+When the source assembler reports an error, the line number prefixes
+the tag: `;?42 : undef` means undefined symbol on line 42.  The `;?42 :`
+prefix replaces `;?expr ` for source-assembly errors (the line
+number is more useful than repeating `expr`).
+
+### Warnings (`;!`)
+
+| Tag | Meaning |
+|-----|---------|
+| `;!unsaved` | Buffer has unsaved changes (gating prompts for `k`, `q`, `R`) |
+| `;!debug` | An active debug session is being ended (gating prompts for `a`, `l`, `R`) |
+| `;!a shadow` | Source line wrote `<acc-mne> A` (e.g. `ASL A`) but a label `A` is also defined.  The accumulator wins; the label is shadowed for that mnemonic.  Use a different name or write the address explicitly to access the label from one of the six ACC-accepting mnemonics. |
+| `;!stk N` | Kernel stack approached its 64-byte budget — `N` is the decimal headroom remaining.  Indicates a deeply-nested user expression or a future kernel-recursion bug. |
+| `;!range` | Step BRK arming refused outside `[workstart, workend]`. |
+
+### Source-assembly line errors
+
+These appear as `;?<line>: <message>` from the source assembler:
+
+| Message | Cause |
+|---------|-------|
+| `bad insn` | Invalid mnemonic / addressing-mode combination |
+| `bad val` | Numeric value out of range for the directive |
+| `cpu` | CPU-gate rejection (same as REPL `;?cpu`) |
+| `exp id` | `.const` expected an identifier name |
+| `exp "` | `.str` / `.scr` expected an opening quote |
+| `fwd ref` | Forward reference in `.res` / `.align` (the value drives the directive's pass-0 size — must be defined before use) |
+| `sym full` | Symbol table full |
+| `: truncated` | Source line was longer than 39 characters and got truncated by `ed_read_line` |
+
 ## Editor
 
 Press RUN/STOP to enter the editor from the REPL and back.
 
 | Key | Action |
 |-----|--------|
-| Printable | Insert character (39-column visual limit) |
-| RETURN | Newline with auto-indent (see below) |
+| Printable | Insert character (39-column visual limit; refused with audible blip if at the cap or the buffer is full) |
+| RETURN | Newline with auto-indent (see below; refused if the buffer is full) |
 | DEL | Backspace |
-| INS | Insert space at cursor (cursor stays) |
+| INS | Insert space at cursor (cursor stays; refused at cap / on full buffer) |
 | Cursor keys | Navigate |
 | HOME | Start of line |
-| SHIFT+SPACE | Tab (to next tab stop) |
+| SHIFT+SPACE | Tab (to next tab stop; refused at cap / on full buffer) |
 | RUN/STOP | Return to REPL |
 
 **Smart indent.**  New lines start with a tab (SHIFT+SPACE).
@@ -362,16 +419,18 @@ At startup CSE shows the free memory available:
 | Low page 3 | $0334--$03FF | Free RAM (204 bytes, includes tape buffer) |
 | Screen | $0400--$07FF | VIC-II screen RAM |
 | Workspace | $0800--workend | Your programs and data |
-| CSE | XXXX--$CFFF | CSE runtime code and data |
+| CSE | workend+1--$CFFF | CSE runtime code and data |
 | I/O | $D000--$DFFF | VIC-II, SID, CIA |
-| Symbols | $E000--$EEFF | Symbol table + name heap (under KERNAL ROM) |
-| CSE banked | $EF00--$F8D9 | Stack snapshots, KDATA tables, REPL screen (under KERNAL ROM) |
-| KERNAL | $F8DA--$FFFF | KERNAL ROM |
+| KERNAL ROM (and CSE data behind it) | $E000--$FFFF | Symbol table, lookup tables, REPL screen save, KERNAL ROM, NMI/BRK vectors |
 
 CSE unmaps BASIC ROM, so the full $0800--$CFFF range is available
-as contiguous workspace.  The $E000--$F8D9 region under KERNAL ROM
-holds CSE data (symbol table, lookup tables, screen save); CSE
-banks the KERNAL out temporarily when accessing it.
+as contiguous workspace.  Several large CSE structures (symbol
+table, name heap, lookup tables, REPL screen save) live in RAM
+under KERNAL ROM at $E000+; CSE banks the KERNAL out temporarily
+when accessing them.  The NMI ($FFFA) and IRQ/BRK ($FFFE) vectors
+are patched to CSE handlers so RUN/STOP+RESTORE and `BRK` route
+through the debugger.  See [doc/memory_design.md](doc/memory_design.md)
+for the full address-by-address breakdown.
 
 ### What your code can use
 

@@ -215,6 +215,12 @@ Useful for direct screen memory writes.
 Advances PC by N bytes. In pass 1, emits N copies of the fill byte
 (default $00). Useful for BSS-style reservations and padding.
 
+**Forward refs not allowed.**  The count and fill expressions must
+resolve on pass 0 — the directive's pass-0 size depends on the
+count's value.  `.res FORWARD_LABEL` reports `;?<line>: fwd ref` on
+both passes.  Define the count above the directive that uses it
+(`.const COUNT 16` then `.res COUNT`), or use a literal number.
+
 ### `.align` — Align PC
 
 ```
@@ -225,6 +231,28 @@ Advances PC by N bytes. In pass 1, emits N copies of the fill byte
 
 Advances PC to the next multiple of the given value. The gap is
 filled with $00. If PC is already aligned, does nothing.
+
+**Forward refs not allowed.**  Like `.res`, the boundary expression
+drives pass-0 size and so cannot tolerate an unresolved symbol.
+`.align FORWARD_LABEL` reports `;?<line>: fwd ref`.
+
+### Forward references
+
+Labels defined later in the source can be used in expressions for
+most directives and instruction operands — the assembler runs two
+passes (sizing then emit) so forward refs to *labels* always work
+in `.db`, `.dw`, branches, and absolute jumps:
+
+```
+        jmp end             ; OK — `end` is defined below
+        .dw  end             ; OK — emits the address
+        .db  <end, >end      ; OK — lo/hi bytes
+end:    rts
+```
+
+The exception is `.res` and `.align`, where the *value* of the
+expression determines how much PC advances on pass 0.  Those two
+directives reject forward refs vocally on both passes.
 
 ### `.bas` — Emit BASIC SYS Stub
 
