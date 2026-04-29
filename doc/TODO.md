@@ -246,6 +246,95 @@ DDD Review round; not yet triaged into Tier A / B / C.*
   Likely **Tier C** (CSE-specific: depends on this project's
   build target layout).
 
+### Phase 25 retrospective — amendment candidates (2026-04-29)
+
+*Findings from the Phase-25 release-polish session DDD Log.
+See [doc/ddd_log.md § Phase 25](ddd_log.md) for the full
+self-review and motivating evidence behind each candidate.
+Not yet triaged into Tier A / B / C; the Log frames all five
+as universal (Tier A).*
+
+- [ ] **A1. Agent-finding verification principle.**  Findings
+  produced by an agent are *candidates*, not conclusions.  Each
+  must be verified by an independent grep / read / test before
+  being acted on.  Verification checks at minimum: (a) all
+  consumption modes (jsr, jmp, .import, test-fixture label
+  lookup, indirect dispatch, dual-entry labels), (b) the
+  assumption underlying the finding's claim (e.g. "X preserves
+  C" requires reading X's body).  Candidate amendment to
+  README.md § DDD Method step 4 (Implementation) or a new
+  subsection.  Motivating evidence: Phase-25 had three
+  optimization-survey agents return HIGH-confidence false
+  positives (set_cpu carry-preservation; `_asm_line_core` /
+  `asm_org` / `asm_size` / `asm_errors` "dead" exports — actually
+  consumed via test label lookups; `_expr_eval_inner` inlining —
+  blocked by dual-entry label `expr_eval_nb`).  Likely **Tier A**.
+
+- [ ] **A2. TODO closure-with-commit rule.**  If the commit
+  closes one or more entries in `doc/TODO.md`, the same commit
+  ticks (`[x]` and strikes-through) those entries.  A commit
+  that lands a fix without retiring the corresponding TODO
+  entry is incomplete.  Candidate amendment to README.md §
+  DDD Method step 6 (Commit).  Motivating evidence: the
+  "Loader reverse-direction copy" entry stayed open in TODO.md
+  long after Phase 19 had landed the fix; closure had been
+  recorded only in the closed-bugs reference block.  Likely
+  **Tier A**.
+
+- [ ] **A3. Stale historical markers as a DDD Maintenance
+  audit item.**  Grep the corpus (source comments AND prose)
+  for `Phase \d`, `Move \d`, `moved to`, `previously`, `was
+  formerly`, `TODO:` and confirm each is either load-bearing
+  (describes a still-current invariant) or stale (and therefore
+  retired in this audit).  Candidate addition to README.md §
+  DDD Maintenance audit scope as a new item, complementing the
+  existing TODO-hygiene and User-manual-fidelity items.
+  Overlaps and supersedes the Phase-24 candidate "flag stale
+  'Moved from …' historical headers after a time threshold"
+  above; merge if both ever land.  Motivating evidence:
+  stale-marker cleanup recurred in three distinct Phase-25
+  sessions despite each being thorough at the time.  Likely
+  **Tier A**.
+
+- [ ] **A4. Prefer enumeration codes over boolean flags.**
+  When adding a flag byte, if there is *any* prospect of a
+  third state (a future error class, mode, level, etc.), encode
+  as a single-byte enumeration from day one.  Boolean (0/1)
+  flags are correct only when the underlying domain is
+  genuinely binary and will stay so.  Candidate addition to
+  testing.md (or the glossary) as a new principle.  Motivating
+  evidence: the Phase-25 `asm_expr_err` (boolean) →
+  `asm_err_code` (3-state) rename propagated through 4 files;
+  the cost of an unused enumeration value is one byte
+  (`cmp #2`), the cost of a rename is non-trivial.  Likely
+  **Tier A** (universal abstraction-shape principle).
+
+- [ ] **A5. Cross-module handoff sweep in Step 2, not after
+  the fact.**  For every code path that will consume the new
+  contract or signal, walk the path explicitly: does the
+  consumer actually receive the signal under all conditions,
+  or are there intermediate transformations (pre-evaluation,
+  mock paths, build-variant differences) that bypass it?
+  Document the answer; if any path bypasses, file as a known
+  asymmetry before implementation.  Candidate amendment to
+  README.md § DDD Method step 2 (DDD Analysis).  Motivating
+  evidence: the `.` REPL command's missing ACC label-shadow
+  warning was an asymmetry that survived implementation
+  because Step 2 didn't audit the dot-command pre-eval path
+  (which bypasses `mode_parse`'s shadow detection by
+  pre-evaluating via `expr_eval`).  Step 5 catches doc-code
+  drift after the fact; Step 2 should catch design gaps before
+  the fact.  Likely **Tier A**.
+
+- [ ] **Meta: DDD Log cadence.**  The glossary entry for *DDD
+  Log* (added Phase 25) describes the practice but does not
+  fix a cadence.  The Log itself recommends: *performed at each
+  milestone, alongside DDD Maintenance — the Log is the
+  reflective half of the milestone gate (DDD Maintenance audits
+  the artefact; the Log audits the process).*  Candidate
+  amendment to the glossary entry to lock that cadence in.
+  Likely **Tier A**.
+
 ## Bugs
 
 Open bugs, roughly ordered by priority.

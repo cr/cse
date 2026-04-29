@@ -1,19 +1,24 @@
-# DDD Log — Phase 25 (Release Polish)
+# DDD Log
+
+Self-review of how the DDD System (Method, Corpus, Maintenance,
+Escape Analysis, test framework) served each milestone.  Per
+[glossary § DDD Log](glossary.md): distinct from the DDD Report
+(which summarises *what* changed) and from Escape Analysis (which
+reacts to a single escape) — the Log evaluates the *system itself*
+against the lived experience of the session.
+
+Newest entries on top.
+
+---
+
+## Phase 25 — Release Polish
 
 **Scope:** the v0.1 release-polish session covering ~18 commits from
 the single-letter-label fix through the Phase 25 DDD Maintenance pass.
-Self-review of how the DDD System (Method, Corpus, Maintenance,
-Escape Analysis, test framework) served the work — what worked, what
-didn't, what to amend.
 
-Per [glossary § DDD Log](glossary.md): distinct from the DDD Report
-(which summarises *what* changed) and from Escape Analysis (which
-reacts to a single escape).  This Log evaluates the *system itself*
-against the lived experience of the session.
+### What worked
 
-## What worked
-
-### The Step 2/3 approval gate caught multiple wrong directions
+#### The Step 2/3 approval gate caught multiple wrong directions
 
 The DDD Method's mandatory analysis-and-approval gate before
 implementation paid for itself several times:
@@ -35,7 +40,7 @@ The lesson: presenting two named approaches (with explicit feasibility
 claims) is much more useful than presenting one and asking "OK?".  The
 contrast surfaces hidden assumptions.
 
-### Doc-first made implementations mechanical
+#### Doc-first made implementations mechanical
 
 Writing the "ACC vs label disambiguation" matrix in `addr_mode.md`
 *before* touching code turned the implementation into a translation
@@ -44,7 +49,7 @@ cells; the doc and the code converged automatically.  The same
 worked for the error-category cleanup (asm_err.md error code table
 was the spec, code followed).
 
-### Differential DDD Analysis (Step 5) caught real drift
+#### Differential DDD Analysis (Step 5) caught real drift
 
 Several times Step 5 found a doc-code mismatch I'd introduced
 during implementation:
@@ -56,7 +61,7 @@ during implementation:
   call-site code but I'd forgotten to update the count in the
   `### Memory` table of the affected modules — Step 5 caught it.
 
-### Escape Analysis discipline preserved evidence
+#### Escape Analysis discipline preserved evidence
 
 When the truncation bug surfaced during a pha/pla audit, the
 DDD-trained instinct was "file the bug, don't conflate with the
@@ -65,7 +70,7 @@ let the truncation fix get its own first-class entry, test, and
 explanation.  The principle worked: discoveries are evidence, not
 opportunistic patches.
 
-### Bundled testing held up
+#### Bundled testing held up
 
 The asm_core / asm_src bundles continued to pay off.  When the
 error-category refactor renamed `asm_expr_err` → `asm_err_code`,
@@ -73,9 +78,9 @@ the failure surface was *exactly* the bundle that linked the
 renamed symbol — three short link-error iterations and the test
 suite was green.  No mock / stub gymnastics.
 
-## What didn't work
+### What didn't work
 
-### Agents over-promised, often confidently
+#### Agents over-promised, often confidently
 
 This is the strongest finding of the session.  Three different
 optimization-survey agents returned HIGH-confidence findings that
@@ -99,7 +104,7 @@ labels, multi-exit-rts shapes).  Verification was always required;
 in some rounds verification turned every HIGH finding into a
 false positive.
 
-### Stale-comment cleanup is iterative; one sweep doesn't catch all
+#### Stale-comment cleanup is iterative; one sweep doesn't catch all
 
 I cleaned up Phase 21 / Move N comments in repl.s during the broad
 optimization round.  A later DDD Maintenance pass surfaced more
@@ -109,7 +114,7 @@ file.  The pattern: stale historical markers accumulate everywhere
 they can hide, and a single grep against a single area is never
 exhaustive.
 
-### TODO.md drift between fix and closure
+#### TODO.md drift between fix and closure
 
 The "Loader reverse-direction copy" entry was open in TODO.md long
 after Phase 19 had landed the fix.  The closure was elsewhere in
@@ -118,7 +123,7 @@ to retire the open entry.  This is the same shape as the
 `_expr_error_str` doc typo — corpus drift between when work lands
 and when the references catch up.
 
-### Boolean abstractions outgrew their semantics
+#### Boolean abstractions outgrew their semantics
 
 `asm_expr_err` started as a 0/1 flag for "was this error from the
 expression evaluator or a syntax error?"  When the CPU-gate
@@ -129,7 +134,7 @@ have been better as a code byte from day one — the cost of
 "unused enumeration values" is zero, the cost of "rename a
 public flag" is non-trivial.
 
-### Cross-module handoff sweep happens too late in the Method
+#### Cross-module handoff sweep happens too late in the Method
 
 The `.` REPL command's missing ACC label-shadow warning (an
 asymmetry filed as feature work, not a bug) was discovered only
@@ -142,13 +147,13 @@ contract, identify whether it actually flows through".  Step 5
 catches the doc-code drift after the fact; Step 2 should catch
 the design gap before the fact.
 
-## Suggested amendments
+### Suggested amendments
 
 These are concrete proposals.  None landed in this session
 (per the DDD Log's role: feed the next Maintenance round); they are
 candidates for a future testing.md / README.md amendment pass.
 
-### A1.  Agent-finding verification principle
+#### A1.  Agent-finding verification principle
 
 **Proposal**: amend `doc/README.md` § DDD Method Step 4 (Implementation)
 or add a new subsection: "Findings produced by an agent are
@@ -161,7 +166,7 @@ C" requires reading X's body)."
 
 The motivating evidence is in this Log § Agents over-promised.
 
-### A2.  TODO closure-with-commit rule
+#### A2.  TODO closure-with-commit rule
 
 **Proposal**: amend `doc/README.md` § DDD Method Step 6 (Commit) to
 require: "if the commit closes one or more entries in `doc/TODO.md`,
@@ -172,7 +177,7 @@ entry is incomplete."
 The rationale is the "Loader reverse-direction copy" pattern: closed
 work that stays open in the queue rots into stale documentation.
 
-### A3.  Stale-marker grep as a DDD Maintenance item
+#### A3.  Stale-marker grep as a DDD Maintenance item
 
 **Proposal**: add a new item to `doc/README.md` § DDD Maintenance
 audit scope: "**Stale historical markers** — grep the corpus
@@ -185,7 +190,7 @@ items 6 (TODO hygiene) and 8 (User manual fidelity)."
 The motivating evidence: stale-marker cleanup recurred in 3 distinct
 sessions despite each being thorough at the time.
 
-### A4.  Prefer enumeration codes over boolean flags
+#### A4.  Prefer enumeration codes over boolean flags
 
 **Proposal**: add a new principle to `doc/testing.md` (or the
 glossary): "When adding a flag byte, if there is *any* prospect of
@@ -199,7 +204,7 @@ this session.  The cost of an unused enumeration value is one byte
 of code (`cmp #2`); the cost of a rename is propagation through
 the entire consumer chain.
 
-### A5.  Cross-module handoff sweep in Step 2, not just after the fact
+#### A5.  Cross-module handoff sweep in Step 2, not just after the fact
 
 **Proposal**: amend `doc/README.md` § DDD Method Step 2 (DDD
 Analysis) to add: "For every code path that will consume the new
@@ -213,7 +218,7 @@ The motivating evidence: the `.` REPL command's missing
 ACC-shadow warning was an asymmetry that survived implementation
 because Step 2 didn't audit the dot-command pre-eval path.
 
-## Meta: should DDD Logs be regular?
+### Meta: should DDD Logs be regular?
 
 The glossary entry I added describes the DDD Log as a self-review
 practice; it doesn't say *when* to do one.  Three plausible cadences:
@@ -231,7 +236,7 @@ milestone, alongside DDD Maintenance" — the Log is the
 *reflective* half of the milestone gate (DDD Maintenance audits
 the artefact; the Log audits the process).
 
-## Closing summary
+### Closing summary
 
 Phase 25 closed cleanly: 5 user-facing bugs fixed, 1 directive class
 expanded (bare ACC), error-category surface expanded with `;?cpu`
