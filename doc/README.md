@@ -637,6 +637,7 @@ violations and zero real layout bugs.  They pinned implementation.
 |----------|-------|
 | [TODO.md](TODO.md) | Outstanding work: bugs, features, cleanup, architecture |
 | [templates/README.md](templates/README.md) | Active document templates and their coverage |
+| [ddd_log_phase25.md](ddd_log_phase25.md) | DDD Log for Phase 25 — first session retrospective on how the DDD System served the work; findings feed the next Maintenance round |
 
 ### Authoritative data files (dev/)
 
