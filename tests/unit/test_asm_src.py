@@ -1006,3 +1006,67 @@ class TestKernelStackDepth:
         assert errors == 0
         assert depth < self.CEILING_DEEP, \
             f"levels={levels} depth={depth} exceeds ceiling {self.CEILING_DEEP}"
+
+
+# ── Truncation warning regression ─────────────────────────────────────────
+#
+# Source lines are capped at 39 chars by ed_read_line (one less than the
+# 40-col cap so the truncation tag fits a final byte).  Lines at exactly
+# 39 chars are flagged with `;<line>: truncated` on pass 1.  Pre-fix
+# (asm_src.s do_pass), `txa` clobbered A with X (=0 for non-EOF) BEFORE
+# the saved-for-truncation `pha`, so the `cmp #39` always saw 0 and the
+# warning was never emitted.  The fix saves `pha` first, with a
+# `@done_pop` trampoline pulling the pushed length on the EOF exit.
+#
+# Witness: dev/asm_src_test_stub.s::log_open increments _warn_witness on
+# every `log_open(LOG_WARN)` call.  Truncation is the only path that
+# emits LOG_WARN inside asm_src; we can compare counts directly.
+
+class TestTruncationWarning:
+    """Regression for the silent-truncation bug fixed 2026-04-28."""
+
+    def _assemble(self, as_syms, source):
+        cpu = MPU()
+        mem = cpu.memory
+        as_syms.load_into(mem)
+        encoded = _petscii(source)
+        for i, b in enumerate(encoded):
+            mem[as_syms.test_src_buf + i] = b
+        cpu.sp = 0xFF
+        mem[0x01FF] = 0xFF
+        mem[0x01FE] = 0xFE
+        cpu.sp = 0xFD
+        cpu.pc = as_syms.asm_src_test_entry
+        for _ in range(_MAX_STEPS):
+            if cpu.pc == 0xFFFF:
+                break
+            cpu.step()
+        else:
+            raise TimeoutError(f"exceeded {_MAX_STEPS} steps")
+        return mem[as_syms.warn_witness]
+
+    def test_38_char_line_no_warning(self, as_syms):
+        """A 38-char source line stays under the cap → no warning."""
+        # ".org $c000\n" + 38-char comment line (";xxx..." 38 total)
+        line = ";" + "x" * 37        # 38 chars total
+        src = ".org $c000\n" + line + "\n  rts"
+        warn_count = self._assemble(as_syms, src)
+        assert warn_count == 0, \
+            f"38-char line should not trigger truncation; got {warn_count}"
+
+    def test_39_char_line_emits_warning(self, as_syms):
+        """A 39-char source line hits ed_read_line's cap → exactly one
+        ;<line>: truncated warning.  Pre-fix this was 0 (silent bug)."""
+        line = ";" + "x" * 38        # 39 chars total
+        src = ".org $c000\n" + line + "\n  rts"
+        warn_count = self._assemble(as_syms, src)
+        assert warn_count == 1, \
+            f"39-char line should emit one truncation warning; got {warn_count}"
+
+    def test_two_long_lines_two_warnings(self, as_syms):
+        """Two 39-char lines should each fire."""
+        line = ";" + "x" * 38
+        src = ".org $c000\n" + line + "\n" + line + "\n  rts"
+        warn_count = self._assemble(as_syms, src)
+        assert warn_count == 2, \
+            f"two 39-char lines should emit two warnings; got {warn_count}"

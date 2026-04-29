@@ -1402,11 +1402,10 @@ BASIC_REM = $8F
 @loop:  ; Call ed_read_line(_line_buf)
         lda #<_line_buf
         ldx #>_line_buf
-        jsr ed_read_line       ; A=lo, X=hi of signed int return
-        ; Negative return = EOF
+        jsr ed_read_line       ; A = length (lo), X = sign byte (hi)
+        pha                     ; save length BEFORE txa clobbers A
         txa
-        bmi @done
-        pha                     ; save length for truncation check
+        bmi @done_pop           ; EOF (sign byte negative) — pull and exit
         inc _line_num
         bne :+
         inc _line_num+1
@@ -1432,6 +1431,8 @@ BASIC_REM = $8F
         sta _as_ptr+1
         jsr process_line
         jmp @loop
+@done_pop:
+        pla                     ; discard saved length on EOF
 @done:  rts
 .endproc
 

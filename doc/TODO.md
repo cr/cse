@@ -250,17 +250,30 @@ DDD Review round; not yet triaged into Tier A / B / C.*
 
 Open bugs, roughly ordered by priority.
 
-- [ ] **BUG** Source assembler: `;<line>: truncated` warning never
-  fires.  In `asm_src.s::do_pass` (lines ~1402–1428), `txa` clobbers
-  the length returned by `ed_read_line` (A=lo, X=hi=0 for non-EOF)
-  before the saved-for-truncation `pha`.  The subsequent `cmp #39`
-  always sees 0, so `bne @no_trunc` always takes and the truncation
-  log line is dead code.  Reproduce: assemble a source with a line
-  ≥39 chars (max line width); CSE silently truncates without
-  warning.  Found during the optimization-round pha/pla audit
-  2026-04-28.  Fix: re-order the save — `pha` BEFORE `txa`, then
-  `bmi @done_pop` with a small @done_pop trampoline that pulls the
-  pushed length on the EOF exit.  Real bug, not just stale code.
+- [x] ~~**BUG** Source assembler: `;<line>: truncated` warning
+  never fires.~~  (Phase 25 fix.)  In `asm_src.s::do_pass`,
+  `txa` clobbered the length returned by `ed_read_line` (A=lo,
+  X=hi=0 for non-EOF) before the saved-for-truncation `pha`.
+  The subsequent `cmp #39` always saw 0, so `bne @no_trunc`
+  always took and the truncation log line was dead code.  Lines
+  ≥39 chars were silently truncated.  Found during the
+  optimization-round pha/pla audit 2026-04-28.
+  - **`src/asm_src.s::do_pass`** — `pha` now precedes `txa` so
+    the length is saved before A is clobbered with the sign byte;
+    EOF takes a new `@done_pop` trampoline that pulls and falls
+    into `@done`.
+  - **`dev/asm_src_test_stub.s`** — log_open stub now increments
+    `_warn_witness` on `LOG_WARN` calls (only path that triggers
+    inside asm_src is the truncation warning), giving tests a
+    counter.
+  - **Tests** — `TestTruncationWarning` (3 cases) in
+    `tests/unit/test_asm_src.py`: 38-char line emits 0 warnings,
+    39-char line emits 1, two 39-char lines emit 2.  Pre-fix all
+    three would have asserted 0 (regression net for the silent-
+    drop bug).
+  - **Cost:** +1 B per production variant (the new `pla` at
+    `@done_pop`).
+  - **Test suite:** 3112 passed / 18 skipped.
 
 - [x] ~~**★ HIGH — Cold-init silently faults and recovers on CMOS;
   6510 build is fully broken in test path.**~~  **Closed
@@ -625,14 +638,6 @@ Open bugs, roughly ordered by priority.
 - [x] ~~Assembler: `bne <nonexisting>` reports "bad insn"~~ (fixed:
   `asm_expr_error` entry point sets `asm_expr_err=1`; `.` command
   and source assembler now print `expr_error_str` detail e.g. "undef")
-- [ ] Debugger: stepping `t1` over a JSR to KERNAL ROM ($E000+)
-  silently falls back to step-over (per @jsr's RAM-target check).
-  Consider showing a one-line note (e.g. `; rom step -> over`).
-  Low priority.  (Workspace gate added in a follow-up — step BRK
-  arming refuses outside [workstart, workend] with ";!range" warn,
-  which catches the broader cases.  This specific JSR-to-ROM case
-  still falls through silently because step_next_pc rewrites the
-  lookahead to PC+3 (in-workspace) before the gate sees it.)
 - [x] ~~**TDD Maintenance finding** (Principle 13 sweep 2026-04-20):
   `editor.ed_read_line` has no position-pinning witness.~~  (resolved
   via option b: four new test methods in
@@ -873,24 +878,6 @@ Open bugs, roughly ordered by priority.
     strings.s.
   - **Test suite:** 3088 passed / 18 skipped (was 3057 / 18).
 
-- [ ] **Follow-up — `.` REPL command does not emit the ACC label-
-  shadow warning.**  The `.` command's `dot_assemble` (in repl.s)
-  pre-evaluates expressions via `expr_eval` *before* calling
-  `asm_line` and rebuilds the operand as a `$xxxx` literal, so
-  `mode_parse` never sees the bare `A` token and the
-  `_au_warn_shdw` path is never entered.  Asymmetric with source
-  assembly, which does emit the warning.  Net effect: a user
-  typing `.asl a` against a defined `a:` gets the labelled
-  memory address (because `expr_eval` resolves `a` first), with
-  no warning.  Source-assembly users get accumulator mode + the
-  warning.  Resolution options: (a) Make `dot_assemble` skip the
-  pre-eval for bare-`A` operands when the mnemonic is in
-  profile 11 — small special case; (b) move the entire pre-eval
-  out of `dot_assemble` and let `asm_line`'s expression-aware
-  pipeline handle everything (larger change, also closes other
-  asymmetries).  Low priority: the `.` command shows immediate
-  output, so the user sees what was assembled and can correct.
-
 - [x] ~~**BUG**: `. .` is accepted as a valid dot-assemble source~~
   (fixed via Escape Analysis c8501d2: the actual symptom was
   "silent no-op" not "emits $00" — the cmd_dot @try_mne gate in
@@ -921,23 +908,6 @@ Open bugs, roughly ordered by priority.
   `ora #$02` on $D018 replaced by absolute `lda #$15 / sta`.
   `restore_colors` still applies theme + colour RAM.  Promotes
   the Planned `vic_reset` item below to Done.)
-- [ ] Debugger: fast turnaround in the BRK handler for long
-  trace loops.  Today every step iteration runs the full save/
-  restore_userland_zp + save/restore_kernel_zp pair — two 128-byte
-  ZP copies (one user→buf, one buf→live) per break/resume cycle.
-  For `t 100`-class stepping the ZP churn dwarfs the actual user
-  instruction cost.  Opportunity: detect "we're mid-chain, no
-  REPL code will run between break and resume, kernel ZP state
-  hasn't been consumed" and skip the ZP swap entirely — just
-  keep user ZP live across the handler's chain body (step_next_pc
-  doesn't touch user ZP, only reads abs/stack addresses).  Must
-  still handle NMI breakouts: if NMI fires during the fast-turnaround
-  chain, the handler needs to fall back to the full ZP swap and
-  longjmp so post_run_cleanup sees a consistent ZP view.  Consider
-  a flag (`step_fast_chain` or similar) that save_userland_state
-  tests to skip the ZP swap when set, and arm it in cmd_step's
-  seed + the handler's chain path.  Expected saving: ~2 * 128 =
-  256 cycles per step iteration.
 - [x] ~~Debugger: what do we do if we trace into an actual BRK?~~
   Resolved (see debugger.md § User BRK workflow).  Rules: `o` and
   `c` skip past via `brk_skip_user` (advance brk_pc by 2 — past
@@ -1483,6 +1453,32 @@ Defined scope, needs work.
 
 ### Debugger
 
+- [ ] `t1` over a JSR to KERNAL ROM ($E000+) silently falls back to
+  step-over (per @jsr's RAM-target check).  Show a one-line note
+  (e.g. `; rom step → over`) so the user knows.  The workspace
+  gate added later — step-BRK arming refuses outside [workstart,
+  workend] with `;!range` — catches the broader cases, but this
+  specific JSR-to-ROM path still slips through silently because
+  `step_next_pc` rewrites the lookahead to PC+3 (in-workspace)
+  before the gate sees it.
+
+- [ ] Fast turnaround in the BRK handler for long trace loops.
+  Today every step iteration runs the full save/restore_userland_zp
+  + save/restore_kernel_zp pair — two 128-byte ZP copies (one
+  user→buf, one buf→live) per break/resume cycle.  For `t 100`-class
+  stepping the ZP churn dwarfs the actual user instruction cost.
+  Opportunity: detect "we're mid-chain, no REPL code will run
+  between break and resume, kernel ZP state hasn't been consumed"
+  and skip the ZP swap entirely — keep user ZP live across the
+  handler's chain body (step_next_pc doesn't touch user ZP, only
+  reads abs/stack addresses).  NMI breakouts: if NMI fires during
+  the fast-turnaround chain, fall back to the full ZP swap and
+  longjmp so post_run_cleanup sees a consistent ZP view.  Consider
+  a flag (`step_fast_chain` or similar) that save_userland_state
+  tests to skip the ZP swap when set, armed by cmd_step's seed +
+  the handler's chain path.  Expected saving: ~2 * 128 = 256
+  cycles per step iteration.
+
 - [ ] Show wall-clock execution time on the `j`/`g` clean-exit
   panel.  Sample KERNAL jiffy clock ($A0/$A1/$A2, the TOD-style
   3-byte counter incremented by the IRQ at 60 Hz on NTSC,
@@ -1554,6 +1550,23 @@ Defined scope, needs work.
   be straightforward.
 
 ### Assembler
+
+- [ ] `.` REPL command: emit ACC label-shadow warning to match the
+  source-assembler behaviour.  `dot_assemble` (in repl.s) pre-
+  evaluates expressions via `expr_eval` *before* calling `asm_line`
+  and rebuilds the operand as a `$xxxx` literal, so `mode_parse`
+  never sees the bare `A` token and the `_au_warn_shdw` path is
+  never entered.  Net effect: typing `.asl a` against a defined
+  `a:` gets the labelled memory address (because `expr_eval`
+  resolves `a` first), with no warning.  Source-assembly users
+  get accumulator mode + the `;!a shadow` warning — this is the
+  asymmetry.  Resolution options: (a) Make `dot_assemble` skip
+  the pre-eval for bare-`A` operands when the mnemonic is in
+  profile 11 — small special case; (b) move the entire pre-eval
+  out of `dot_assemble` and let `asm_line`'s expression-aware
+  pipeline handle everything (larger change, also closes other
+  asymmetries).  Low priority — the `.` command shows immediate
+  output, so the user sees what was assembled.
 
 - [x] `.bas` directive: emit a BASIC SYS stub.  (Phase 12, done)
   Single BASIC line: `.bas` → `0 SYS NNNNN`.

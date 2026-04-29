@@ -571,6 +571,7 @@ class AsmSrcSymbols:
         self.asm_src_test_entry = s['asm_src_test_entry']
         self.test_src_buf       = s['_test_src_buf']
         self.bank_witness       = s['_bank_witness']
+        self.warn_witness       = s['_warn_witness']
 
         # asm_src BSS vars (previously required BSS offset calculation)
         self.asm_org    = s['asm_org']

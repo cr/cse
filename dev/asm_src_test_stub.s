@@ -20,6 +20,9 @@
         .export _test_src_buf           ; Python writes source text here
         .export _bank_witness           ; OR-accumulator of $01 values seen
                                         ; by ed_read_line during assembly
+        .export _warn_witness           ; count of log_open(LOG_WARN) calls —
+                                        ; lets tests detect truncation-warning
+                                        ; emission without a real screen
 
 
         .export ed_read_line
@@ -59,7 +62,7 @@ _src_done:      .res 1      ; non-zero = EOF
 _test_src_buf:  .res 2048   ; source: NUL-terminated lines, $FF = EOF
 _bank_witness:  .res 1      ; OR of $01 at every ed_read_line call
                             ; (placed last so test_src_buf offset is unchanged)
-; cur_project_name moved to zp.s (Phase 21.1 Move 6a)
+_warn_witness:  .res 1      ; count of log_open(LOG_WARN) calls
 
 ; ── CODE ──────────────────────────────────────────────────────────────────────
 .segment "CODE"
@@ -74,7 +77,8 @@ asm_src_test_entry:
         sta _src_ptr+1
         lda #0
         sta _src_done
-        sta _bank_witness       ; reset witness to 0
+        sta _bank_witness       ; reset witnesses to 0
+        sta _warn_witness
         lda #<$0800             ; default origin
         ldx #>$0800
         jsr asm_assemble        ; A/X = error count
@@ -162,12 +166,18 @@ io_putc:
 io_puthex4:
 io_clear_eol:
 newline:
-log_open:
 log_close:
 log_warn:
 seg_line:
 define_ws_syms:
         rts
+
+; log_open — record LOG_WARN ('!') opens for the truncation test.
+log_open:
+        cpy #'!'
+        bne :+
+        inc _warn_witness
+:       rts
 
 .segment "BSS"
 ; rp_addr, rp_cnt, rp_save2 moved to zp.s (Phase 21.1 Move 3B)
