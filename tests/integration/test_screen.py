@@ -101,6 +101,69 @@ class TestResetScreen:
         assert emu.memory[0xD3] == 0
 
 
+class TestResetScreenSanitizesKernalZp:
+    """reset_screen restores KERNAL screen-edit ZP to a pristine
+    post-init state.  Defends against NMI-during-CHROUT
+    corruption: when RESTORE fires inside a tight `$FFD2` loop,
+    KERNAL leaves $D5 / $D9-$F1 / $D8 / $D4 / $CE / $C6 in
+    transient mid-update values; PLOT (called by io_sync) does
+    not touch any of those.  Without this sanitize step the
+    editor swallows the first cursor key and the REPL's line-
+    edit cursor drifts off-screen.  Bug found in v0.1-rc1
+    VICE testing.
+    """
+
+    def _poison(self, emu):
+        """Set every sanitized byte to a non-pristine value."""
+        emu.memory[0xC6] = 0x05         # NDX: 5 buffered keys
+        emu.memory[0xD4] = 0x01         # QTSW: quote mode active
+        emu.memory[0xD5] = 0x4F         # LNMX: 79 (logical line spans 2 rows)
+        emu.memory[0xD8] = 0x02         # INSRT: 2 inserts pending
+        emu.memory[0xCE] = 0x41         # GDBLN: stale char-under-cursor
+        for r in range(25):
+            # Half the rows marked as continuation (00), half as start ($80)
+            emu.memory[0xD9 + r] = 0x00 if r & 1 else 0x80
+
+    def test_drains_key_buffer(self, cse_prg):
+        emu = make_emu(cse_prg)
+        self._poison(emu)
+        emu.jsr(emu.sym("reset_screen"))
+        assert emu.memory[0xC6] == 0, "NDX must be drained"
+
+    def test_clears_quote_mode(self, cse_prg):
+        emu = make_emu(cse_prg)
+        self._poison(emu)
+        emu.jsr(emu.sym("reset_screen"))
+        assert emu.memory[0xD4] == 0, "QTSW must be cleared"
+
+    def test_resets_lnmx_to_39(self, cse_prg):
+        emu = make_emu(cse_prg)
+        self._poison(emu)
+        emu.jsr(emu.sym("reset_screen"))
+        assert emu.memory[0xD5] == 39, "LNMX must be 39 (single-row logical line)"
+
+    def test_clears_insert_pending(self, cse_prg):
+        emu = make_emu(cse_prg)
+        self._poison(emu)
+        emu.jsr(emu.sym("reset_screen"))
+        assert emu.memory[0xD8] == 0, "INSRT must be cleared"
+
+    def test_clears_char_under_cursor(self, cse_prg):
+        emu = make_emu(cse_prg)
+        self._poison(emu)
+        emu.jsr(emu.sym("reset_screen"))
+        assert emu.memory[0xCE] == 0, "GDBLN must be cleared"
+
+    def test_reinit_line_link_table(self, cse_prg):
+        emu = make_emu(cse_prg)
+        self._poison(emu)
+        emu.jsr(emu.sym("reset_screen"))
+        # All 25 rows must be marked as logical-line starts ($80).
+        for r in range(25):
+            assert emu.memory[0xD9 + r] == 0x80, \
+                f"LDTB1[{r}] (=${0xD9+r:02X}) must be $80, got ${emu.memory[0xD9+r]:02X}"
+
+
 # ── newline ─────────────────────────────────────────────────────────────────
 
 class TestNewline:

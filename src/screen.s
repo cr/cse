@@ -139,7 +139,7 @@ theme_fg:     .res 1
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; reset_screen — clear screen + restore colors
+; reset_screen — clear screen + restore colors + sanitize KERNAL ZP
 ; ═════════════════════════════════════════════════════════
 .proc reset_screen
         jsr restore_colors
@@ -155,7 +155,56 @@ theme_fg:     .res 1
         lda #0
         sta CUR_COL
         sta CUR_ROW
+        jsr _kernal_screen_reset
         jmp io_sync
+.endproc
+
+; ═════════════════════════════════════════════════════════
+; _kernal_screen_reset — restore KERNAL screen-edit ZP to a
+; pristine post-init state.  Defends against NMI-during-CHROUT
+; corruption (RESTORE pressed mid-`$FFD2` loop): KERNAL CHROUT
+; transiently mutates several ZP bytes that PLOT does not touch,
+; and an interrupting NMI captures those bytes mid-update.  Left
+; uncorrected, the corrupted line-link table / `$D5` / quote &
+; insert flags leak into subsequent CHROUT and KERNAL line-input
+; ops, producing erratic cursor movement in both the editor (one
+; eaten keystroke + a double-jump on the next) and the REPL
+; (cursor drifts off-screen, line-wrap math wrong).
+;
+; Reset (post-init values from CINT/$E544):
+;   $C6        NDX     ← 0     drain key buffer (in-flight keys
+;                              typed during the interrupted op
+;                              are no longer routed to the right
+;                              consumer; safest to discard).
+;   $D4        QTSW    ← 0     quote mode off.
+;   $D5        LNMX    ← 39    current logical-line max column
+;                              (single-physical-line logical).
+;   $D8        INSRT   ← 0     no insert-mode pending.
+;   $CE        GDBLN   ← 0     no char-under-cursor cached.
+;   $D9..$F1   LDTB1   ← $80   line-link table: every row is the
+;             (25 B)           start of its own logical line
+;                              (matches the just-cleared screen).
+;
+; Bytes deliberately NOT reset: $D1/$D2/$D3/$D6/$F3/$F4 — these
+; are set by the io_sync (KERNAL PLOT) call that follows.
+; Clobbers: A, X.
+; ═════════════════════════════════════════════════════════
+.proc _kernal_screen_reset
+        lda #0
+        sta $C6                 ; NDX (key buffer count)
+        sta $D4                 ; QTSW (quote mode)
+        sta $D8                 ; INSRT
+        sta $CE                 ; GDBLN
+        lda #SCR_W - 1
+        sta $D5                 ; LNMX (= 39)
+        ; Line-link table: 25 bytes at $D9-$F1, each = $80 to mark
+        ; "this row is the start of its own logical line".
+        lda #$80
+        ldx #SCR_H - 1          ; 24..0
+@l:     sta $D9,x
+        dex
+        bpl @l
+        rts
 .endproc
 
 ; ═════════════════════════════════════════════════════════

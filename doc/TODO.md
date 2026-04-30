@@ -339,6 +339,101 @@ as universal (Tier A).*
 
 Open bugs, roughly ordered by priority.
 
+- [x] ~~**BUG** RESTORE-during-CHROUT corrupts KERNAL screen-edit
+  state.~~  (v0.1-rc1 VICE-testing fix, 2026-04-30, Approach B
+  per the analysis below.)  Symptoms (v0.1-rc1 VICE testing,
+  2026-04-29):
+  1. In the editor: after RESTORE during a tight `$FFD2` (CHROUT)
+     loop (NMI fires inside the KERNAL, e.g. PC=$E9D6), the first
+     cursor-up / cursor-down keystroke produces no visible
+     movement; the second keystroke moves *two* lines.
+  2. In the REPL: cursor movements during line editing become
+     erratic — the cursor can drift off-screen, line-wrap
+     handling misbehaves, characters appear at wrong columns.
+
+  **Root cause (working hypothesis).**  KERNAL CHROUT mid-write
+  maintains transient state across several zero-page bytes:
+   - `$D5` (LNMX) — current logical-line max column, mid-update
+     during line wraps.
+   - `$D9–$F1` (line-link table, 25 bytes) — flips $80 ↔ 0 to
+     mark logical-line starts; mid-write may have a partial
+     update.
+   - `$D8` (QTSW) — quote-mode flag, toggled by `"` chars.
+   - `$D4` (INSRT) — insert-mode pending count.
+   - `$CE` (GDBLN) — char under cursor, used by blink and
+     by `^` (CHR$(94)) handling.
+   - `$C6` (NDX) — keyboard buffer count; a key typed *during*
+     the interrupted CHROUT sits here unconsumed.
+
+  When CSE's NMI handler `cse_nmi_handler` (`src/main.s`
+  line 944) is in kernel mode (`in_userland=0`), it `jmp`s
+  directly to `cse_refresh`, which calls `reset_screen` →
+  `io_sync` (KERNAL PLOT).  PLOT resets `$D1/$D2/$D3/$D6/$F3/$F4`
+  but does **not** touch `$D5`, the line-link table, `$D8`,
+  `$D4`, `$CE`, or `$C6`.  Subsequent CHROUT / cursor / line-
+  editing operations read the stale values and produce wrong
+  positions; the buffered key in `$C6` is consumed without
+  being routed to the cursor handler in editor mode.
+
+  **Verification path.**  In VICE: monitor-set PC=$E9D6
+  (mid-CHROUT), trigger NMI via RESTORE, examine
+  `m d5`, `m d9..f1`, `m c6` — confirm transient values
+  visibly survive `cse_refresh`.
+
+  **Proposed approaches** (one named alternative each, per
+  DDD Method Step 2 — pick before implementing):
+
+  - **A. Defer NMI dispatch in kernel mode.**  Re-introduce a
+    `nmi_pending` flag (the Phase-18 swallow-in-kernel model
+    eliminated this; reversing).  `cse_nmi_handler` while
+    `in_userland=0` sets the flag and RTIs immediately.  Output
+    paths (`io_puts`, `log_line`, `log_close`, `cursor_show`,
+    `cursor_hide`) check the flag at safe points and dispatch
+    `cse_refresh` from there.  Pros: bullet-proof — atomic
+    CHROUT semantics restored; no KERNAL-state archaeology
+    needed.  Cons: reverses Phase-18 decision; RESTORE response
+    is delayed until next safe point; adds polling overhead at
+    every output point; needs an audit of every output path.
+
+  - **B. Sanitize KERNAL screen-edit ZP on `cse_refresh`.**
+    Extend `reset_screen` (or its caller) to explicitly reset
+    `$D5 ← 39`, `$D9-$F1 ← $80` (25 bytes, every row a logical-
+    line start), `$D8 ← 0`, `$D4 ← 0`, `$CE ← 0`, `$C6 ← 0`
+    before `io_sync`.  Pros: local, surgical, ~30 B; no
+    architectural change.  Cons: requires correctly enumerating
+    every KERNAL ZP byte CHROUT touches — the list above is a
+    best-effort survey and could be incomplete; future KERNAL
+    CHROUT changes (none expected on stock C64) wouldn't be
+    covered.
+
+  Recommendation: **B for v0.1-rc2**, with A as a follow-up
+  candidate if rc2 testing surfaces residual cases B doesn't
+  catch.  B's downside (incomplete enumeration) is testable —
+  if we list a byte CHROUT touches and don't cover it, the
+  symptom remains and we add the byte.
+
+  **Resolution (Approach B landed 2026-04-30).**
+  - **`src/screen.s::reset_screen`** — added a `jsr
+    _kernal_screen_reset` step before `io_sync`.
+  - **`src/screen.s::_kernal_screen_reset`** — new helper that
+    resets `$C6/$D4/$D5/$D8/$CE` to post-init values and rewrites
+    the 25-byte line-link table at `$D9-$F1` to all `$80` (every
+    row a logical-line start).  PLOT-set bytes
+    (`$D1/$D2/$D3/$D6/$F3/$F4`) deliberately untouched — `io_sync`
+    sets them immediately after.
+  - **`tests/integration/test_screen.py::TestResetScreenSanitizesKernalZp`**
+    — 6 new contract tests poison each sanitized byte and assert
+    `reset_screen` returns it to the pristine value.  Pre-fix all
+    6 fail (ZP unchanged); post-fix all 6 pass.
+  - **`doc/modules/screen.md`** — `reset_screen` section gained a
+    *KERNAL ZP sanitize* table documenting every reset byte and
+    why.
+  - **Cost:** +27 B per production variant (cmos 21628→21655).
+  - **Generalisation candidate:** see [§ Architecture](#architecture)
+    for the C-split TODO that promotes the pattern from a fixed
+    enumeration into a buffered swap (covers any KERNAL byte in
+    the `$C0-$FF` zone, not just the enumerated ones).
+
 - [x] ~~**BUG** Expression parser: symbols cannot start with a
   capital (SHIFTed) letter.~~  (v0.1-rc1 VICE-testing fix,
   2026-04-29.)  In `src/expr.s::parse_factor::@chk_label`, the
@@ -1963,6 +2058,40 @@ from our exit context.
   2797 tests pass.
 - [x] ~~BSS optimization: overlap with `ws_buf`~~ (moot: `ws_buf`
   removed in smart indent rewrite, Phase 15)
+- [ ] **ZP swap: extend isolation to KERNAL screen-edit zone
+  (`$C0-$FF`).**  Today `save_userland_zp` / `save_kernel_zp`
+  swap only `$00-$7F` between userland and CSE-kernel views
+  (`ZP_SAVE_LO=$00`, `ZP_SAVE_LEN=128`, see [doc/modules/mem.md](
+  modules/mem.md)).  The KERNAL screen-edit zone (`$C6/$C8/$CC/
+  $CE/$D0-$F2`) is shared — userland code that touches any of
+  these bytes (custom IRQ, screen tricks, tape state) leaks into
+  CSE-kernel CHROUT and vice-versa.
+
+  *C-split* design (analysed 2026-04-30 alongside the
+  RESTORE-during-CHROUT bug fix above): keep the existing
+  `$00-$7F` zone, add a second `$C0-$FF` zone (64 B, two buffers
+  → +128 B BSS).  Skip `$80-$BF` to avoid disturbing the KERNAL
+  jiffy clock at `$A0-$A2` (continuously running across modes
+  today; userland may rely on this) and tape/file scratch state.
+  Cost: +128 B BSS, +~25 B code (second loop body), +~1 K cycles
+  (≈1 ms) per userland↔kernel transition.
+
+  Side benefit: provides a free generalisation of the rc1-fix
+  Approach B above.  Today `screen.s::_kernal_screen_reset`
+  resets a *fixed enumeration* of bytes (`$D5/$D9-$F1/$D8/$D4/
+  $CE/$C6`); with C-split + a one-shot pristine snapshot
+  captured at init, the kernel-mode NMI path could `restore
+  kernel_zp` from that snapshot and recover *any* corrupted
+  byte in `$C0-$FF` — not just the enumerated ones.  Eliminates
+  the "did we list every byte CHROUT touches?" risk that was
+  Approach B's documented weakness.
+
+  Pairs naturally with a future architectural sweep that
+  audits userland↔kernel state isolation; not blocking on the
+  RESTORE bug fix (B already covers it for v0.1).
+  See `doc/TODO.md` § Bugs § RESTORE-during-CHROUT for the full
+  three-way A/B/C analysis that produced this entry.
+
 - [ ] BSS optimization: collapse `disk_seq_bytes`/`disk_seq_lines`
   with `ed_save_bytes`/`ed_save_lines` (saves 4 B).
 - [ ] BSS optimization: overlap `rp_next_lo`/`rp_next_hi` with

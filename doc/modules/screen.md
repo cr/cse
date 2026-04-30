@@ -18,8 +18,37 @@
 
 ### reset_screen
 **In:** none
-**Out:** screen cleared with spaces, colors restored, cursor to 0,0
+**Out:** screen cleared with spaces, colors restored, cursor to 0,0,
+KERNAL screen-edit ZP returned to a pristine post-init state
+(see *KERNAL ZP sanitize* below).
 **Clobbers:** A, X, Y
+
+#### KERNAL ZP sanitize
+
+`reset_screen` resets a fixed set of KERNAL screen-edit zero-page
+bytes to their post-init values *before* it calls `io_sync`:
+
+| Addr | Name | Reset to | Why |
+|------|------|----------|-----|
+| `$C6` | NDX | 0 | Drain key buffer; in-flight keys typed during an interrupted CHROUT have no valid consumer. |
+| `$D4` | QTSW | 0 | Quote mode off (mid-string `"` may have set it). |
+| `$D5` | LNMX | 39 | Single-physical-line logical line (mid-wrap may have set it to 79). |
+| `$D8` | INSRT | 0 | No insert pending. |
+| `$CE` | GDBLN | 0 | No char-under-cursor cached. |
+| `$D9..$F1` | LDTB1 | $80 each | Line-link table: every row is the start of its own logical line (matches the just-cleared screen). |
+
+Bytes deliberately NOT touched: `$D1/$D2/$D3/$D6/$F3/$F4` are set
+by the `io_sync` call that immediately follows (KERNAL PLOT
+populates them from `CUR_COL`/`CUR_ROW`).
+
+This sanitize step exists so that the kernel-mode NMI path
+(`cse_nmi_handler` → `cse_refresh` → `reset_screen`) is robust
+against KERNAL CHROUT being mid-write when RESTORE fires.  Without
+the sanitize, transient values in the line-link table / `$D5` /
+quote & insert flags survive into subsequent CHROUT and KERNAL
+line-input ops and produce erratic cursor movement in both the
+editor and the REPL line editor.  See [TODO § Bugs](../TODO.md)
+for the v0.1-rc1 VICE-testing entry that motivated this.
 
 ### vic_reset
 **In:** none
