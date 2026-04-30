@@ -203,20 +203,27 @@ theme_fg:     .res 1
 ; Clobbers: A, X.
 ; ═════════════════════════════════════════════════════════
 .proc kernal_screen_reset
-        lda #0
-        sta $C6                 ; NDX (key buffer count)
-        sta $D4                 ; QTSW (quote mode)
-        sta $D8                 ; INSRT
-        sta $CE                 ; GDBLN
-        lda #SCR_W - 1
-        sta $D5                 ; LNMX (= 39)
-        ; Line-link table: 25 bytes at $D9-$F1, each = $80 to mark
-        ; "this row is the start of its own logical line".
+        ; Fill LDTB1 ($D9-$F1, 25 bytes) with $80 ("each row is the
+        ; start of its own logical line"), exiting with X=0 so the
+        ; same X can drive the four zero-stores below — saves a
+        ; separate `lda #0`.
+        ;
+        ; sta $D8,x with X=25..1 writes $D8+25=$F1 down to $D8+1=$D9
+        ; — exactly the LDTB1 range.  $D8 itself is NOT written by
+        ; the loop (bne exits before X reaches 0), which is what we
+        ; want: $D8 (INSRT) is one of the zero-store targets below.
         lda #$80
-        ldx #SCR_H - 1          ; 24..0
-@l:     sta $D9,x
+        ldx #SCR_H              ; 25
+@l:     sta $D8,x
         dex
-        bpl @l
+        bne @l                  ; exits with X=0 (NOT $FF — bne, not bpl)
+        ; X=0 — reuse for every byte that resets to zero.
+        stx $C6                 ; NDX (key buffer count)
+        stx $CE                 ; GDBLN (char-under-cursor)
+        stx $D4                 ; QTSW (quote mode)
+        stx $D8                 ; INSRT (loop skipped this slot)
+        lda #SCR_W - 1          ; 39
+        sta $D5                 ; LNMX
         rts
 .endproc
 
