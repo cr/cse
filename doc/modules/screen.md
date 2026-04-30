@@ -18,15 +18,31 @@
 
 ### reset_screen
 **In:** none
-**Out:** screen cleared with spaces, colors restored, cursor to 0,0,
-KERNAL screen-edit ZP returned to a pristine post-init state
-(see *KERNAL ZP sanitize* below).
+**Out:** screen cleared with spaces, colors restored, cursor to 0,0
 **Clobbers:** A, X, Y
 
-#### KERNAL ZP sanitize
+`reset_screen` does NOT touch KERNAL screen-edit ZP
+(`$C6/$D4/$D5/$D8/$CE/$D9-$F1`).  The line-link table and
+`$D5` reflect the *displayed content*; cold-init and the `x`
+(clear-screen) command rely on KERNAL CHROUT continuing to
+position correctly relative to that state, so a wholesale
+sanitize on every reset_screen would corrupt subsequent
+positioning.  See `kernal_screen_reset` for the dedicated
+sanitize entry point used only on the cse_refresh path.
 
-`reset_screen` resets a fixed set of KERNAL screen-edit zero-page
-bytes to their post-init values *before* it calls `io_sync`:
+### kernal_screen_reset
+
+**In:** none
+**Out:** KERNAL screen-edit ZP reset to pristine post-init state
+**Clobbers:** A, X
+
+Defends against NMI-during-CHROUT corruption.  When RESTORE fires
+inside a tight `$FFD2` loop, KERNAL CHROUT leaves several ZP bytes
+mid-update; CSE's NMI handler dispatches to `cse_refresh →
+refresh_body`, which calls `kernal_screen_reset` BEFORE
+`reset_screen`'s tail-call to `io_sync` (KERNAL PLOT).  Without
+this step the editor swallows the first cursor key and the REPL's
+line-edit cursor drifts off-screen.
 
 | Addr | Name | Reset to | Why |
 |------|------|----------|-----|
@@ -41,14 +57,15 @@ Bytes deliberately NOT touched: `$D1/$D2/$D3/$D6/$F3/$F4` are set
 by the `io_sync` call that immediately follows (KERNAL PLOT
 populates them from `CUR_COL`/`CUR_ROW`).
 
-This sanitize step exists so that the kernel-mode NMI path
-(`cse_nmi_handler` → `cse_refresh` → `reset_screen`) is robust
-against KERNAL CHROUT being mid-write when RESTORE fires.  Without
-the sanitize, transient values in the line-link table / `$D5` /
-quote & insert flags survive into subsequent CHROUT and KERNAL
-line-input ops and produce erratic cursor movement in both the
-editor and the REPL line editor.  See [TODO § Bugs](../TODO.md)
-for the v0.1-rc1 VICE-testing entry that motivated this.
+**Call-site discipline.**  Exactly one caller: `refresh_body` in
+main.s.  NOT called from cold-init's `reset_screen`, the `x`
+command, or `scroll_up`'s full-clear path — those callers own
+the screen transition and do not have a transiently-mid-CHROUT
+KERNAL state to recover from.  An earlier rc2 candidate placed
+the call inside `reset_screen` and regressed userland CHROUT
+positioning (cold-init wiped LDTB1 / `$D5` before the splash
+prints, leaving the screen-editor's view of logical lines
+disagreeing with the displayed content).
 
 ### vic_reset
 **In:** none

@@ -9,6 +9,7 @@
         .export theme_border, theme_bg, theme_fg
         .export theme_init
         .export vic_reset
+        .export kernal_screen_reset
         .import io_puts, io_sync, io_color
         .import scr_lo, scr_hi
         .import _io_scr_setup
@@ -139,7 +140,7 @@ theme_fg:     .res 1
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; reset_screen — clear screen + restore colors + sanitize KERNAL ZP
+; reset_screen — clear screen + restore colors
 ; ═════════════════════════════════════════════════════════
 .proc reset_screen
         jsr restore_colors
@@ -155,12 +156,11 @@ theme_fg:     .res 1
         lda #0
         sta CUR_COL
         sta CUR_ROW
-        jsr _kernal_screen_reset
         jmp io_sync
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; _kernal_screen_reset — restore KERNAL screen-edit ZP to a
+; kernal_screen_reset — restore KERNAL screen-edit ZP to a
 ; pristine post-init state.  Defends against NMI-during-CHROUT
 ; corruption (RESTORE pressed mid-`$FFD2` loop): KERNAL CHROUT
 ; transiently mutates several ZP bytes that PLOT does not touch,
@@ -170,6 +170,18 @@ theme_fg:     .res 1
 ; ops, producing erratic cursor movement in both the editor (one
 ; eaten keystroke + a double-jump on the next) and the REPL
 ; (cursor drifts off-screen, line-wrap math wrong).
+;
+; CALL SITE — exactly one: `refresh_body` in main.s, on the
+; cse_refresh path (kernel-mode NMI dispatch).  NOT called from
+; cold-init's reset_screen, the `x` (clear screen) command, or
+; scroll_up's full-clear path — those callers own the screen
+; transition and do not have a transiently-mid-CHROUT KERNAL
+; state to recover from.  Reseting LDTB1 / $D5 wholesale on those
+; paths regressed userland CHROUT positioning (rc1-rc2 finding):
+; KERNAL line-link state established by prior REPL output is the
+; correct context for subsequent userland CHROUT, and wiping it
+; on every reset_screen left the screen-editor in a state that
+; disagreed with the displayed content.
 ;
 ; Reset (post-init values from CINT/$E544):
 ;   $C6        NDX     ← 0     drain key buffer (in-flight keys
@@ -186,10 +198,11 @@ theme_fg:     .res 1
 ;                              (matches the just-cleared screen).
 ;
 ; Bytes deliberately NOT reset: $D1/$D2/$D3/$D6/$F3/$F4 — these
-; are set by the io_sync (KERNAL PLOT) call that follows.
+; are set by the io_sync (KERNAL PLOT) call that follows in
+; refresh_body's reset_screen.
 ; Clobbers: A, X.
 ; ═════════════════════════════════════════════════════════
-.proc _kernal_screen_reset
+.proc kernal_screen_reset
         lda #0
         sta $C6                 ; NDX (key buffer count)
         sta $D4                 ; QTSW (quote mode)

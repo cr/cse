@@ -58,6 +58,7 @@
         .import io_init, io_putc, io_sync, io_blip
         .import io_getc, io_clear_eol
         .import reset_screen, restore_colors, newline, theme_init
+        .import kernal_screen_reset
         .import cursor_show, cursor_hide
         .import scr_lo, scr_hi
         .import define_ws_syms
@@ -1016,7 +1017,17 @@ end_debug_body:
         jmp unpatch_all                 ; tail-call
 
 ; refresh_body — reset screen, draw prompt row, position cursor.
+;
+; Calls `kernal_screen_reset` BEFORE `reset_screen` so the
+; KERNAL screen-edit ZP ($C6/$D4/$D5/$D8/$CE/$D9-$F1) is
+; pristine when reset_screen's tail-call to io_sync (KERNAL
+; PLOT) runs.  This is the rc1 NMI-during-CHROUT defence —
+; PLOT only touches $D1/$D2/$D3/$D6/$F3/$F4, leaving the
+; line-link table and friends in whatever transient state
+; the interrupted CHROUT had mid-update.  See screen.s
+; § kernal_screen_reset for the call-site discipline.
 refresh_body:
+        jsr kernal_screen_reset
         jsr reset_screen
         lda #SCREEN_HEIGHT - 1
         jsr splash_row

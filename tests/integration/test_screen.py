@@ -101,16 +101,26 @@ class TestResetScreen:
         assert emu.memory[0xD3] == 0
 
 
-class TestResetScreenSanitizesKernalZp:
-    """reset_screen restores KERNAL screen-edit ZP to a pristine
-    post-init state.  Defends against NMI-during-CHROUT
+class TestKernalScreenReset:
+    """kernal_screen_reset restores KERNAL screen-edit ZP to a
+    pristine post-init state.  Defends against NMI-during-CHROUT
     corruption: when RESTORE fires inside a tight `$FFD2` loop,
     KERNAL leaves $D5 / $D9-$F1 / $D8 / $D4 / $CE / $C6 in
     transient mid-update values; PLOT (called by io_sync) does
     not touch any of those.  Without this sanitize step the
     editor swallows the first cursor key and the REPL's line-
-    edit cursor drifts off-screen.  Bug found in v0.1-rc1
-    VICE testing.
+    edit cursor drifts off-screen.
+
+    Call-site discipline: kernal_screen_reset is called ONLY
+    from `refresh_body` (the cse_refresh / kernel-mode NMI
+    dispatch), NOT from the broader `reset_screen` proc.  An
+    earlier rc2 candidate landed the call inside reset_screen
+    and regressed userland CHROUT positioning — the cold-init
+    and `x`-command callers of reset_screen do not own a
+    transient mid-CHROUT state, and wiping LDTB1 / $D5 on those
+    paths corrupted the line-link state KERNAL had built up
+    from prior REPL output.  Tests below pin the helper itself,
+    not its (single) call site.
     """
 
     def _poison(self, emu):
@@ -127,41 +137,64 @@ class TestResetScreenSanitizesKernalZp:
     def test_drains_key_buffer(self, cse_prg):
         emu = make_emu(cse_prg)
         self._poison(emu)
-        emu.jsr(emu.sym("reset_screen"))
+        emu.jsr(emu.sym("kernal_screen_reset"))
         assert emu.memory[0xC6] == 0, "NDX must be drained"
 
     def test_clears_quote_mode(self, cse_prg):
         emu = make_emu(cse_prg)
         self._poison(emu)
-        emu.jsr(emu.sym("reset_screen"))
+        emu.jsr(emu.sym("kernal_screen_reset"))
         assert emu.memory[0xD4] == 0, "QTSW must be cleared"
 
     def test_resets_lnmx_to_39(self, cse_prg):
         emu = make_emu(cse_prg)
         self._poison(emu)
-        emu.jsr(emu.sym("reset_screen"))
+        emu.jsr(emu.sym("kernal_screen_reset"))
         assert emu.memory[0xD5] == 39, "LNMX must be 39 (single-row logical line)"
 
     def test_clears_insert_pending(self, cse_prg):
         emu = make_emu(cse_prg)
         self._poison(emu)
-        emu.jsr(emu.sym("reset_screen"))
+        emu.jsr(emu.sym("kernal_screen_reset"))
         assert emu.memory[0xD8] == 0, "INSRT must be cleared"
 
     def test_clears_char_under_cursor(self, cse_prg):
         emu = make_emu(cse_prg)
         self._poison(emu)
-        emu.jsr(emu.sym("reset_screen"))
+        emu.jsr(emu.sym("kernal_screen_reset"))
         assert emu.memory[0xCE] == 0, "GDBLN must be cleared"
 
     def test_reinit_line_link_table(self, cse_prg):
         emu = make_emu(cse_prg)
         self._poison(emu)
-        emu.jsr(emu.sym("reset_screen"))
+        emu.jsr(emu.sym("kernal_screen_reset"))
         # All 25 rows must be marked as logical-line starts ($80).
         for r in range(25):
             assert emu.memory[0xD9 + r] == 0x80, \
                 f"LDTB1[{r}] (=${0xD9+r:02X}) must be $80, got ${emu.memory[0xD9+r]:02X}"
+
+    def test_reset_screen_does_NOT_touch_kernal_zp(self, cse_prg):
+        """Regression net: reset_screen must NOT call kernal_screen_reset.
+        Cold-init and the `x` command depend on KERNAL line-link state
+        being preserved across screen clears so subsequent CHROUT
+        positions correctly.  See class docstring."""
+        emu = make_emu(cse_prg)
+        self._poison(emu)
+        emu.jsr(emu.sym("reset_screen"))
+        # Poisoned bytes outside PLOT's scope MUST survive.
+        # ($D5/$D8/$CE/$D9..$F1/$D4 are not set by PLOT.  $C6 is drained
+        # by hygiene_after_userland on userland exit, but NOT by
+        # reset_screen — it's not reset_screen's concern.)
+        assert emu.memory[0xD4] == 0x01, "reset_screen must not touch QTSW"
+        assert emu.memory[0xD5] == 0x4F, "reset_screen must not touch LNMX"
+        assert emu.memory[0xD8] == 0x02, "reset_screen must not touch INSRT"
+        assert emu.memory[0xCE] == 0x41, "reset_screen must not touch GDBLN"
+        assert emu.memory[0xC6] == 0x05, "reset_screen must not touch NDX"
+        # Line-link table must survive too (preserves logical-line context
+        # for subsequent CHROUT after a cold-init or `x` clear).
+        ld_state = bytes(emu.memory[0xD9 + r] for r in range(25))
+        expected = bytes(0x00 if r & 1 else 0x80 for r in range(25))
+        assert ld_state == expected, "reset_screen must not touch LDTB1"
 
 
 # ── newline ─────────────────────────────────────────────────────────────────

@@ -413,21 +413,40 @@ Open bugs, roughly ordered by priority.
   symptom remains and we add the byte.
 
   **Resolution (Approach B landed 2026-04-30).**
-  - **`src/screen.s::reset_screen`** — added a `jsr
-    _kernal_screen_reset` step before `io_sync`.
-  - **`src/screen.s::_kernal_screen_reset`** — new helper that
-    resets `$C6/$D4/$D5/$D8/$CE` to post-init values and rewrites
-    the 25-byte line-link table at `$D9-$F1` to all `$80` (every
-    row a logical-line start).  PLOT-set bytes
-    (`$D1/$D2/$D3/$D6/$F3/$F4`) deliberately untouched — `io_sync`
-    sets them immediately after.
-  - **`tests/integration/test_screen.py::TestResetScreenSanitizesKernalZp`**
-    — 6 new contract tests poison each sanitized byte and assert
-    `reset_screen` returns it to the pristine value.  Pre-fix all
-    6 fail (ZP unchanged); post-fix all 6 pass.
-  - **`doc/modules/screen.md`** — `reset_screen` section gained a
-    *KERNAL ZP sanitize* table documenting every reset byte and
-    why.
+
+  Initial landing called the new `kernal_screen_reset` helper
+  from inside `reset_screen` itself.  This regressed userland
+  CHROUT positioning during repeated `g` runs — `reset_screen`
+  is also called at cold init and by the `x` (clear-screen)
+  command, neither of which has a transient mid-CHROUT KERNAL
+  state to recover from.  Wiping LDTB1 / `$D5` on those paths
+  left the KERNAL screen-editor's view of logical lines
+  disagreeing with the displayed content, so subsequent CHROUT
+  positioned wrong.  Re-landed with the call site narrowed to
+  `refresh_body` only (the cse_refresh / kernel-mode NMI
+  dispatch).
+  - **`src/screen.s::kernal_screen_reset`** — new exported
+    helper that resets `$C6/$D4/$D5/$D8/$CE` to post-init values
+    and rewrites the 25-byte line-link table at `$D9-$F1` to all
+    `$80` (every row a logical-line start).  PLOT-set bytes
+    (`$D1/$D2/$D3/$D6/$F3/$F4`) deliberately untouched — the
+    following `reset_screen → io_sync` sets them.
+  - **`src/main.s::refresh_body`** — adds `jsr
+    kernal_screen_reset` BEFORE `jsr reset_screen`.  The single
+    call site enforces the discipline: only the cse_refresh
+    path runs the sanitize.
+  - **`src/screen.s::reset_screen`** — unchanged from rc1 (no
+    sanitize); a regression-net test below pins this.
+  - **`tests/integration/test_screen.py::TestKernalScreenReset`**
+    — 6 contract tests poison each sanitized byte and assert
+    `kernal_screen_reset` returns it to the pristine value, plus
+    a 7th regression-net test that pins `reset_screen` does NOT
+    touch the KERNAL ZP (preventing the rc2 regression from
+    sneaking back).
+  - **`doc/modules/screen.md`** — gained `kernal_screen_reset`
+    section with the reset table and the call-site discipline
+    rationale; `reset_screen` section explicitly documents that
+    it does NOT touch KERNAL ZP.
   - **Cost:** +27 B per production variant (cmos 21628→21655).
   - **Generalisation candidate:** see [§ Architecture](#architecture)
     for the C-split TODO that promotes the pattern from a fixed
