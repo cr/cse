@@ -57,7 +57,7 @@ amounts.
 | `$D5` | LNMX | 39 | Single-physical-line logical line (mid-wrap may have set it to 79). |
 | `$D8` | INSRT | 0 | No insert pending. |
 | `$CE` | GDBLN | 0 | No char-under-cursor cached. |
-| `$D9..$F1` | LDTB1 | $80 each | Line-link table: every row is the start of its own logical line. |
+| `$D9..$F1` | LDTB1 | $80 \| scr_hi[r] | Line-link table: every row is the start of its own logical line, AND the row's screen-address page is encoded in the low 7 bits (KERNAL reads this when CHROUT advances to a new row to recompute `$D1/$D2`). Rows 0-6 → $84, rows 7-12 → $85, rows 13-19 → $86, rows 20-24 → $87. |
 
 Bytes deliberately NOT touched: `$D1/$D2/$D3/$D6/$F3/$F4` are set
 by the `io_sync` (KERNAL PLOT) that follows in

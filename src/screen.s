@@ -203,20 +203,28 @@ theme_fg:     .res 1
 ; Clobbers: A, X.
 ; ═════════════════════════════════════════════════════════
 .proc kernal_screen_reset
-        ; Fill LDTB1 ($D9-$F1, 25 bytes) with $80 ("each row is the
-        ; start of its own logical line"), exiting with X=0 so the
-        ; same X can drive the four zero-stores below — saves a
-        ; separate `lda #0`.
+        ; LDTB1 ($D9-$F1, 25 bytes): KERNAL stores the row's
+        ; screen-address page in the low 7 bits, with bit 7 set to
+        ; mark a logical-line start.  E.g. row 0 (addr $0400) →
+        ; $80 | $04 = $84;  row 10 ($0590) → $80 | $05 = $85.
         ;
-        ; sta $D8,x with X=25..1 writes $D8+25=$F1 down to $D8+1=$D9
-        ; — exactly the LDTB1 range.  $D8 itself is NOT written by
-        ; the loop (bne exits before X reaches 0), which is what we
-        ; want: $D8 (INSRT) is one of the zero-store targets below.
-        lda #$80
+        ; A flat $80 fill puts the page at $00 (effectively $04 via
+        ; KERNAL's internal screen-base addition), sending every
+        ; row's CHROUT writes back into page $04 — the "first 256
+        ; chars only" symptom in user code post-NMI-recovery.  Use
+        ; CSE's existing scr_hi[r] table to get the correct per-row
+        ; page byte.
+        ;
+        ; Loop range: ldx #25; lda scr_hi-1,x; sta $D8,x; dex; bne @l
+        ; covers x=25..1 → reads scr_hi[24..0], writes LDTB1[24..0]
+        ; ($F1..$D9).  Exits with X=0 so we can reuse `stx` for the
+        ; four zero-store targets ($C6/$CE/$D4/$D8).
         ldx #SCR_H              ; 25
-@l:     sta $D8,x
+@l:     lda scr_hi-1,x          ; scr_hi[x-1]
+        ora #$80                ; mark logical-line start
+        sta $D8,x               ; LDTB1[x-1]  ($D8+x = $D9..$F1)
         dex
-        bne @l                  ; exits with X=0 (NOT $FF — bne, not bpl)
+        bne @l                  ; exits with X=0
         ; X=0 — reuse for every byte that resets to zero.
         stx $C6                 ; NDX (key buffer count)
         stx $CE                 ; GDBLN (char-under-cursor)

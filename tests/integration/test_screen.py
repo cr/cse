@@ -168,10 +168,17 @@ class TestKernalScreenReset:
         emu = make_emu(cse_prg)
         self._poison(emu)
         emu.jsr(emu.sym("kernal_screen_reset"))
-        # All 25 rows must be marked as logical-line starts ($80).
+        # Each row marked as a logical-line start ($80) AND tagged
+        # with its screen-address page in low bits (KERNAL stores
+        # the page there for $D1/$D2 recomputation on row change).
+        # Rows 0-6: page $04, rows 7-12: page $05, rows 13-19: page $06,
+        # rows 20-24: page $07.
         for r in range(25):
-            assert emu.memory[0xD9 + r] == 0x80, \
-                f"LDTB1[{r}] (=${0xD9+r:02X}) must be $80, got ${emu.memory[0xD9+r]:02X}"
+            expected = 0x80 | ((0x0400 + r * 40) >> 8)
+            actual = emu.memory[0xD9 + r]
+            assert actual == expected, \
+                f"LDTB1[{r}] (=${0xD9+r:02X}) must be ${expected:02X} " \
+                f"($80 | scr_hi[{r}]), got ${actual:02X}"
 
     def test_reset_screen_does_NOT_touch_kernal_zp(self, cse_prg):
         """Regression net: reset_screen must NOT call kernal_screen_reset.
@@ -203,16 +210,28 @@ class TestPlotAgainstCorruptLdtb1:
     KERNAL PLOT (`$FFF0`) walks the line-link table to find the
     logical-line start row, then computes `$D1/$D2/$F3/$F4` and the
     in-line column from THAT start row's screen address — not from
-    the requested row directly.  If LDTB1 has been left in a mid-
-    CHROUT state by an interrupted userland `$FFD2` loop (e.g.
-    "row 10 is a continuation of row 9, LNMX=79"), PLOT(10, 5)
-    silently lands on the wrong screen address and computes the
-    wrong column.
+    the requested row directly.  Two ways LDTB1 can be wrong:
 
-    These tests pin the mechanism so the rc1 root-cause stays
+    1. **Logical-line corruption**: row R marked as a continuation
+       of row R-1, LNMX=79 (left over from a 2-row wrap).  PLOT(R,
+       any) lands on row R-1, column reinterpreted within the wrap.
+
+    2. **Page corruption**: LDTB1[r] low 7 bits are wrong (KERNAL
+       stores the row's screen-address page there; rc3 v1 of this
+       fix wrote a flat $80 instead of $80 | scr_hi[r], leaving
+       PLOT to compute every row's $D2 as $04 — the "user CHROUT
+       output stuck in upper third of screen" symptom).
+
+    These tests pin both mechanisms so the rc1/rc3 root-causes stay
     documented in the test suite, and confirm `kernal_screen_reset`
     sanitizes LDTB1 before PLOT can read it.
     """
+
+    @staticmethod
+    def _canonical_ldtb1_for_row(r):
+        """KERNAL CINT's per-row LDTB1 value: $80 | scr_hi[r]."""
+        scr_addr = 0x0400 + r * 40
+        return 0x80 | (scr_addr >> 8)
 
     def _plot(self, emu, row, col):
         """KERNAL PLOT (CLC = set position)."""
@@ -222,53 +241,93 @@ class TestPlotAgainstCorruptLdtb1:
         emu.jsr(0xFFF0)
 
     def test_plot_with_clean_ldtb1_computes_correct_screen_ptr(self, cse_prg):
-        """Reference: clean LDTB1 → PLOT(10,5) lands on row 10 col 5."""
+        """Reference: canonical LDTB1 ($80 | scr_hi[r]) → PLOT(10,5)
+        lands at row 10's actual screen address $0590, col 5."""
         emu = make_emu(cse_prg)
         for r in range(25):
-            emu.memory[0xD9 + r] = 0x80
+            emu.memory[0xD9 + r] = self._canonical_ldtb1_for_row(r)
         emu.memory[0xD5] = 39
         self._plot(emu, row=10, col=5)
-        # Row 10's screen address: $0400 + 10*40 = $0400 + 400 = $0590.
-        assert (emu.memory[0xD1], emu.memory[0xD2]) == (0x90, 0x04), \
-            "PNT (line ptr) should point at row 10's start"
+        # Row 10's screen address: $0400 + 10*40 = $0590.
+        assert (emu.memory[0xD1], emu.memory[0xD2]) == (0x90, 0x05), \
+            f"PNT should point at row 10's start ($0590), " \
+            f"got ${emu.memory[0xD2]:02X}{emu.memory[0xD1]:02X}"
         assert emu.memory[0xD3] == 5, "column should be 5 as requested"
 
-    def test_plot_with_corrupt_ldtb1_lands_wrong(self, cse_prg):
-        """Mechanism witness: corrupt LDTB1 → PLOT(10,5) lands on
-        row 9 with column 45.  This is the rc1 jank, reproducible in
-        py65 against the real C64 KERNAL ROM."""
+    def test_plot_with_logical_line_corruption(self, cse_prg):
+        """Mechanism witness 1: logical-line corruption.  LDTB1[10]=0
+        ('row 10 is continuation of row 9') with LNMX=79 →
+        PLOT(10, 5) silently lands on row 9 col 45 instead of
+        row 10 col 5.  This is the original rc1 cursor-drift jank."""
         emu = make_emu(cse_prg)
         for r in range(25):
-            emu.memory[0xD9 + r] = 0x80
-        emu.memory[0xD9 + 10] = 0x00       # row 10 is continuation of row 9
+            emu.memory[0xD9 + r] = self._canonical_ldtb1_for_row(r)
+        emu.memory[0xD9 + 10] = 0x00       # row 10 = continuation
         emu.memory[0xD5] = 79              # 2-row LNMX
         self._plot(emu, row=10, col=5)
-        # Row 9's screen address: $0400 + 9*40 = $0468.
-        assert (emu.memory[0xD1], emu.memory[0xD2]) == (0x68, 0x04), \
-            "with corrupt LDTB1, PNT lands on row 9 (start of logical line)"
+        # Row 9's screen address: $0400 + 9*40 = $0568.
+        assert (emu.memory[0xD1], emu.memory[0xD2]) == (0x68, 0x05), \
+            f"with logical-line corruption, PNT lands on row 9 " \
+            f"(start of logical line); got " \
+            f"${emu.memory[0xD2]:02X}{emu.memory[0xD1]:02X}"
         assert emu.memory[0xD3] == 45, \
-            "column reinterpreted as col-within-logical-line (5 + 40)"
+            "column reinterpreted as col-within-2-row-logical-line (5 + 40)"
+
+    def test_plot_with_page_corruption(self, cse_prg):
+        """Mechanism witness 2: page corruption.  LDTB1[r]=$80 (low
+        bits zero, no page info) → PLOT(10, 5) lands at $0490
+        (page $04, wrong row) instead of $0590.  This was the rc3
+        v1 bug — userland CHROUT output stuck in upper third."""
+        emu = make_emu(cse_prg)
+        for r in range(25):
+            emu.memory[0xD9 + r] = 0x80     # logical-line start, page $00
+        emu.memory[0xD5] = 39
+        self._plot(emu, row=10, col=5)
+        # WRONG: $D2 reflects KERNAL's "use base $04" fallback when
+        # LDTB1's low bits are 0.  Real row 10 should be at $0590.
+        assert emu.memory[0xD2] == 0x04, \
+            "page-corrupted LDTB1 → PLOT computes wrong page"
+        # But $D1 IS row 10's low byte ($90) because PLOT does honour
+        # the row argument for the in-page offset.
+        assert emu.memory[0xD1] == 0x90, "low byte still row-10's"
 
     def test_kernal_screen_reset_then_plot_recovers(self, cse_prg):
         """Defence: kernal_screen_reset before PLOT recovers the
-        clean reference behaviour even from the worst poisoned LDTB1.
+        clean reference behaviour from BOTH corruption mechanisms.
         This is the contract hygiene_after_userland relies on — it
         calls kernal_screen_reset before its tail-call to io_sync."""
         emu = make_emu(cse_prg)
         # Poison LDTB1 maximally: alternating start/continuation rows
-        # plus LNMX=79.
+        # AND zero out the page bits.  Plus LNMX=79.
         for r in range(25):
             emu.memory[0xD9 + r] = 0x80 if (r & 1) else 0x00
         emu.memory[0xD5] = 79
-        # Now apply the defence:
+        # Apply the defence:
         emu.jsr(emu.sym("kernal_screen_reset"))
-        # And do the same PLOT as the clean reference test:
+        # PLOT(10, 5) should land at row 10's actual address $0590 col 5.
         self._plot(emu, row=10, col=5)
-        # Should match the clean reference exactly.
-        assert (emu.memory[0xD1], emu.memory[0xD2]) == (0x90, 0x04), \
-            "after sanitize, PNT lands on row 10 (no logical-line desync)"
+        assert (emu.memory[0xD1], emu.memory[0xD2]) == (0x90, 0x05), \
+            f"after sanitize, PNT must land at row 10's ACTUAL " \
+            f"address $0590; got " \
+            f"${emu.memory[0xD2]:02X}{emu.memory[0xD1]:02X}"
         assert emu.memory[0xD3] == 5, \
             "after sanitize, column = 5 as requested"
+
+    def test_kernal_screen_reset_writes_per_row_pages(self, cse_prg):
+        """The page-encoding contract: LDTB1[r] = $80 | scr_hi[r]
+        for each row, matching what KERNAL CINT writes.  Pin every
+        row so a regression is immediate."""
+        emu = make_emu(cse_prg)
+        # Poison every row to a wrong value.
+        for r in range(25):
+            emu.memory[0xD9 + r] = 0xFF
+        emu.jsr(emu.sym("kernal_screen_reset"))
+        for r in range(25):
+            expected = self._canonical_ldtb1_for_row(r)
+            actual = emu.memory[0xD9 + r]
+            assert actual == expected, \
+                f"LDTB1[{r}] (=${0xD9+r:02X}): expected ${expected:02X}, " \
+                f"got ${actual:02X}"
 
 
 # ── newline ─────────────────────────────────────────────────────────────────
