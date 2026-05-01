@@ -822,6 +822,67 @@ class TestWarmCont:
         assert emu.memory[emu.sym("warm_cont")] == 0, \
             "warm_cont not consumed by main_loop_top"
 
+    def test_warm_cont_replay_dispatches_userland(self, emu):
+        """rc4 regression: warm_cont=1 + replayed `g $XXXX` → exec_line
+        sets run_user_pending=MODE_JUMP, and main_loop_top must
+        dispatch to return_to_userland (NOT fall through to
+        @check_post_run, which would interpret run_user_pending as
+        "just returned from userland" and trigger post_run_cleanup
+        falsely).
+
+        Pre-fix symptom (reported during VICE testing of the
+        a+g+NMI(userland)+g flow): the second `g`, after the user
+        confirmed "go? y/n", appeared to immediately hit a brk at
+        the program's start address — actually post_run_cleanup
+        running against brk_pc=cur_addr without any user code
+        executing.
+
+        This test stages warm_cont=1 with line_buf="3000:g\\0",
+        plants an RTS at $3000 so user code returns cleanly, runs
+        from main_loop_top, and asserts that the dispatch reached
+        return_to_userland (proxy: PC reached $3000).  Pre-fix this
+        assertion would fail because PC never reaches $3000."""
+        _cold_init_to_prompt(emu)
+
+        # Stage replay: line_buf holds "3000:g\0" in PETSCII (the
+        # build's char encoding — 'g' is $47, NOT ASCII $67).  An
+        # explicit AAAA: prefix is parsed by exec_line which sets
+        # cur_addr=$3000, then dispatching cmd_jmp.  cmd_jmp's @run
+        # path uses cur_addr as brk_pc, sets run_user_pending=MODE_JUMP,
+        # RTS.
+        line_buf = emu.sym("line_buf")
+        # PETSCII bytes for "3000:g": digits and ':' are same as ASCII;
+        # 'g' lowercase in PETSCII unshifted = $47 (same as ASCII 'G').
+        for i, b in enumerate([0x33, 0x30, 0x30, 0x30, 0x3A, 0x47, 0x00]):
+            emu.memory[line_buf + i] = b
+
+        # User code at $3000: a single RTS sentinel — the brk_stub
+        # path will fire on RTS-off-the-top, classifying as DBG_RTS.
+        emu.memory[0x3000] = 0x60  # RTS
+
+        # Stage debug context so the warm-cont path is realistic
+        # (this matches what cse_end_debug would have just zeroed
+        # after the user confirmed "go? y/n").
+        emu.memory[emu.sym("dbg_reason")]       = 0
+        emu.memory[emu.sym("step_state")]       = 0
+        emu.memory[emu.sym("run_user_pending")] = 0
+        emu.memory[emu.sym("warm_cont")]        = 1
+
+        # Run from main_loop_top.  If the dispatch works, we'll
+        # reach $3000 (user code).  If the rc4 bug is present, we'll
+        # idle in main_loop's keyboard wait or hit post_run_cleanup
+        # without ever reaching $3000.
+        emu.run_until(0x3000,
+                      start_at=emu.sym("main_loop_top"),
+                      max_cycles=500_000)
+        # If we got here, run_until succeeded — PC did reach $3000.
+        # Pre-fix this run_until would TimeoutError because the
+        # buggy main_loop_top.@check_post_run path never dispatches
+        # to userland.
+        assert emu._cpu.pc == 0x3000, \
+            f"expected PC at $3000 (user code dispatched); " \
+            f"got ${emu._cpu.pc:04X}"
+
 
 # ── 12. Production-chain stress (kernel-stack-corruption guard) ──
 

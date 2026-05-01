@@ -386,8 +386,28 @@ main_loop_top:
         beq @check_post_run
         lda #0
         sta warm_cont           ; consume
+        sta run_user_pending    ; clear before exec_line — mirror the
+                                ; main_loop RETURN-key convention so the
+                                ; post-exec dispatch below sees only what
+                                ; the replayed command set this cycle.
         jsr exec_line           ; replay the gated command
-        jmp main_loop_top
+        ; If the replayed command was userland (j/g/c/t/o), it set
+        ; run_user_pending to MODE_JUMP / MODE_RESUME — dispatch the
+        ; same way main_loop's RETURN-key path does.  Without this
+        ; dispatch, the bare `jmp main_loop_top` would re-enter and
+        ; @check_post_run below would interpret run_user_pending as a
+        ; "just returned from userland" signal, running post_run_cleanup
+        ; against a fresh brk_pc=cur_addr and falsely reporting a brk
+        ; at the user's program start (rc4 bug: a+g+NMI+g produced a
+        ; phantom brk on the first replay after "go? y/n").
+        lda run_user_pending
+        beq :+
+        cmp #MODE_JUMP
+        bne @resume_warm
+        jmp return_to_userland
+@resume_warm:
+        jmp restore_userland_state
+:       jmp main_loop_top
 
 @check_post_run:
         ; Post-run cleanup if we just came back from userland.
