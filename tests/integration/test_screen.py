@@ -197,6 +197,80 @@ class TestKernalScreenReset:
         assert ld_state == expected, "reset_screen must not touch LDTB1"
 
 
+class TestPlotAgainstCorruptLdtb1:
+    """Mechanism witness for the rc1 NMI-during-userland-CHROUT jank.
+
+    KERNAL PLOT (`$FFF0`) walks the line-link table to find the
+    logical-line start row, then computes `$D1/$D2/$F3/$F4` and the
+    in-line column from THAT start row's screen address — not from
+    the requested row directly.  If LDTB1 has been left in a mid-
+    CHROUT state by an interrupted userland `$FFD2` loop (e.g.
+    "row 10 is a continuation of row 9, LNMX=79"), PLOT(10, 5)
+    silently lands on the wrong screen address and computes the
+    wrong column.
+
+    These tests pin the mechanism so the rc1 root-cause stays
+    documented in the test suite, and confirm `kernal_screen_reset`
+    sanitizes LDTB1 before PLOT can read it.
+    """
+
+    def _plot(self, emu, row, col):
+        """KERNAL PLOT (CLC = set position)."""
+        emu._cpu.x = row
+        emu._cpu.y = col
+        emu.carry = False
+        emu.jsr(0xFFF0)
+
+    def test_plot_with_clean_ldtb1_computes_correct_screen_ptr(self, cse_prg):
+        """Reference: clean LDTB1 → PLOT(10,5) lands on row 10 col 5."""
+        emu = make_emu(cse_prg)
+        for r in range(25):
+            emu.memory[0xD9 + r] = 0x80
+        emu.memory[0xD5] = 39
+        self._plot(emu, row=10, col=5)
+        # Row 10's screen address: $0400 + 10*40 = $0400 + 400 = $0590.
+        assert (emu.memory[0xD1], emu.memory[0xD2]) == (0x90, 0x04), \
+            "PNT (line ptr) should point at row 10's start"
+        assert emu.memory[0xD3] == 5, "column should be 5 as requested"
+
+    def test_plot_with_corrupt_ldtb1_lands_wrong(self, cse_prg):
+        """Mechanism witness: corrupt LDTB1 → PLOT(10,5) lands on
+        row 9 with column 45.  This is the rc1 jank, reproducible in
+        py65 against the real C64 KERNAL ROM."""
+        emu = make_emu(cse_prg)
+        for r in range(25):
+            emu.memory[0xD9 + r] = 0x80
+        emu.memory[0xD9 + 10] = 0x00       # row 10 is continuation of row 9
+        emu.memory[0xD5] = 79              # 2-row LNMX
+        self._plot(emu, row=10, col=5)
+        # Row 9's screen address: $0400 + 9*40 = $0468.
+        assert (emu.memory[0xD1], emu.memory[0xD2]) == (0x68, 0x04), \
+            "with corrupt LDTB1, PNT lands on row 9 (start of logical line)"
+        assert emu.memory[0xD3] == 45, \
+            "column reinterpreted as col-within-logical-line (5 + 40)"
+
+    def test_kernal_screen_reset_then_plot_recovers(self, cse_prg):
+        """Defence: kernal_screen_reset before PLOT recovers the
+        clean reference behaviour even from the worst poisoned LDTB1.
+        This is the contract hygiene_after_userland relies on — it
+        calls kernal_screen_reset before its tail-call to io_sync."""
+        emu = make_emu(cse_prg)
+        # Poison LDTB1 maximally: alternating start/continuation rows
+        # plus LNMX=79.
+        for r in range(25):
+            emu.memory[0xD9 + r] = 0x80 if (r & 1) else 0x00
+        emu.memory[0xD5] = 79
+        # Now apply the defence:
+        emu.jsr(emu.sym("kernal_screen_reset"))
+        # And do the same PLOT as the clean reference test:
+        self._plot(emu, row=10, col=5)
+        # Should match the clean reference exactly.
+        assert (emu.memory[0xD1], emu.memory[0xD2]) == (0x90, 0x04), \
+            "after sanitize, PNT lands on row 10 (no logical-line desync)"
+        assert emu.memory[0xD3] == 5, \
+            "after sanitize, column = 5 as requested"
+
+
 # ── newline ─────────────────────────────────────────────────────────────────
 
 class TestNewline:

@@ -412,42 +412,74 @@ Open bugs, roughly ordered by priority.
   if we list a byte CHROUT touches and don't cover it, the
   symptom remains and we add the byte.
 
-  **Resolution (Approach B landed 2026-04-30).**
+  **Resolution (Approach B, third-landing 2026-05-01).**
 
-  Initial landing called the new `kernal_screen_reset` helper
-  from inside `reset_screen` itself.  This regressed userland
-  CHROUT positioning during repeated `g` runs — `reset_screen`
-  is also called at cold init and by the `x` (clear-screen)
-  command, neither of which has a transient mid-CHROUT KERNAL
-  state to recover from.  Wiping LDTB1 / `$D5` on those paths
-  left the KERNAL screen-editor's view of logical lines
-  disagreeing with the displayed content, so subsequent CHROUT
-  positioned wrong.  Re-landed with the call site narrowed to
-  `refresh_body` only (the cse_refresh / kernel-mode NMI
-  dispatch).
-  - **`src/screen.s::kernal_screen_reset`** — new exported
-    helper that resets `$C6/$D4/$D5/$D8/$CE` to post-init values
-    and rewrites the 25-byte line-link table at `$D9-$F1` to all
-    `$80` (every row a logical-line start).  PLOT-set bytes
-    (`$D1/$D2/$D3/$D6/$F3/$F4`) deliberately untouched — the
-    following `reset_screen → io_sync` sets them.
-  - **`src/main.s::refresh_body`** — adds `jsr
-    kernal_screen_reset` BEFORE `jsr reset_screen`.  The single
-    call site enforces the discipline: only the cse_refresh
-    path runs the sanitize.
-  - **`src/screen.s::reset_screen`** — unchanged from rc1 (no
-    sanitize); a regression-net test below pins this.
+  This bug went through three landings before reaching the right
+  call site — a worked example for the Phase-25 DDD Log
+  amendment "A1 Agent-finding verification principle" (don't
+  trust enumeration without a probe).
+
+  - **rc2 attempt 1 (2026-04-30, commit 207a704):** put
+    `kernal_screen_reset` inside `reset_screen`.  Regressed
+    userland CHROUT positioning during repeated `g` runs —
+    cold init and the `x` command also call `reset_screen`,
+    neither of which has a mid-CHROUT KERNAL state to recover
+    from.  Wiping LDTB1 / `$D5` on those paths left KERNAL's
+    line-link view disagreeing with the displayed content.
+  - **rc2 attempt 2 (2026-04-30, commit f53f2f7):** narrowed
+    to `refresh_body` (cse_refresh / kernel-mode NMI dispatch).
+    No regression but cursor still janky — symptom unchanged.
+    The fix wasn't actually running on the bug's path.
+  - **rc3 attempt 3 (2026-05-01, this entry):** root-caused via
+    py65 probe.  CSE's own screen output (`io_putc`) writes
+    screen RAM directly and bypasses KERNAL CHROUT entirely,
+    so kernel-mode NMI cannot corrupt KERNAL ZP.  The rc1
+    scenario is *userland* NMI: user's program calls `$FFD2`
+    in a loop, RESTORE fires NMI inside KERNAL at `$E9D6`,
+    dispatch goes through `cse_nmi_handler @userland_nmi →
+    save_userland_state → handler_finalize →
+    hygiene_after_userland → main_loop_top` — never through
+    cse_refresh.  Mechanism witness via
+    `tests/integration/test_screen.py::TestPlotAgainstCorruptLdtb1`:
+    PLOT(10, 5) with corrupt LDTB1 lands on row 9 col 45
+    instead of row 10 col 5, reproducible in py65 against the
+    real C64 KERNAL ROM.
+  - **`src/screen.s::kernal_screen_reset`** — exported helper
+    that resets `$C6/$D4/$D5/$D8/$CE` to post-init values and
+    rewrites the 25-byte line-link table at `$D9-$F1` to all
+    `$80`.  PLOT-set bytes (`$D1/$D2/$D3/$D6/$F3/$F4`)
+    deliberately untouched — the following `io_sync` sets them.
+  - **`src/repl.s::hygiene_after_userland`** — calls `jsr
+    kernal_screen_reset` immediately before its tail-call to
+    `io_sync`.  Replaces the prior manual `lda #0; sta $C6`
+    drain (kernal_screen_reset clears $C6 anyway).
+  - **`src/main.s::refresh_body`** — restored to the pre-rc2
+    shape (no kernal_screen_reset call).  Kernel-mode NMI
+    cannot have mid-CHROUT KERNAL state to recover from
+    because CSE bypasses KERNAL CHROUT for screen output.
+  - **`src/screen.s::reset_screen`** — unchanged from rc1; a
+    regression-net test pins this.
+  - **`dev/repl_test_stub.s::kernal_screen_reset`** — no-op
+    stub so the repl test bundle links (real-screen-ZP
+    contracts are pinned in test_screen.py against the real
+    screen.o, not the bundle).
   - **`tests/integration/test_screen.py::TestKernalScreenReset`**
-    — 6 contract tests poison each sanitized byte and assert
-    `kernal_screen_reset` returns it to the pristine value, plus
-    a 7th regression-net test that pins `reset_screen` does NOT
-    touch the KERNAL ZP (preventing the rc2 regression from
-    sneaking back).
-  - **`doc/modules/screen.md`** — gained `kernal_screen_reset`
-    section with the reset table and the call-site discipline
-    rationale; `reset_screen` section explicitly documents that
-    it does NOT touch KERNAL ZP.
-  - **Cost:** +27 B per production variant (cmos 21628→21655).
+    — 7 contract tests on the helper itself.
+  - **`tests/integration/test_screen.py::TestPlotAgainstCorruptLdtb1`**
+    — 3 mechanism-witness tests demonstrating the rc1 jank
+    (PLOT lands wrong with corrupt LDTB1) and the defence
+    (kernal_screen_reset before PLOT recovers).
+  - **`dev/probe_chrout_zp.py`** + **`dev/probe_plot_with_corrupt_ldtb1.py`**
+    — investigation scripts that produced the root-cause
+    diagnosis.  Kept as future reference for similar
+    "enumeration vs probe" debugging.
+  - **`doc/modules/screen.md`** — `kernal_screen_reset`
+    section rewritten with the user-NMI scenario, the
+    mechanism witness pointer, and the historical detour
+    (three landings before it landed right).
+  - **Cost:** +27 B per production variant (rc2 size unchanged
+    — moving the call site preserves byte count, the
+    optimisation in commit 44754fd already shaved 4 raw B).
   - **Generalisation candidate:** see [§ Architecture](#architecture)
     for the C-split TODO that promotes the pattern from a fixed
     enumeration into a buffered swap (covers any KERNAL byte in

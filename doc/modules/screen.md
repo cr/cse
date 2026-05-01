@@ -36,36 +36,58 @@ sanitize entry point used only on the cse_refresh path.
 **Out:** KERNAL screen-edit ZP reset to pristine post-init state
 **Clobbers:** A, X
 
-Defends against NMI-during-CHROUT corruption.  When RESTORE fires
-inside a tight `$FFD2` loop, KERNAL CHROUT leaves several ZP bytes
-mid-update; CSE's NMI handler dispatches to `cse_refresh →
-refresh_body`, which calls `kernal_screen_reset` BEFORE
-`reset_screen`'s tail-call to `io_sync` (KERNAL PLOT).  Without
-this step the editor swallows the first cursor key and the REPL's
-line-edit cursor drifts off-screen.
+Defends against userland-NMI-during-CHROUT corruption.  CSE's
+*own* screen output (`io_putc`) writes screen RAM directly and
+does NOT call KERNAL CHROUT — so kernel-mode NMI cannot corrupt
+KERNAL screen-edit ZP.  USER programs, however, commonly use
+`jsr $FFD2` for output.  When the user presses RESTORE inside a
+tight `$FFD2` loop the NMI fires *inside the KERNAL CHROUT path*
+(typically PC=$E9D6) and leaves transient mid-update values in
+several ZP bytes that PLOT does not touch.  Without this defence,
+the very next CSE-side cursor move (REPL or editor) calls
+`io_sync` → KERNAL PLOT, which walks the corrupt LDTB1 to
+compute the wrong screen-RAM pointer and column.  The user
+observes the cursor drifting off-screen or jumping by surprising
+amounts.
 
 | Addr | Name | Reset to | Why |
 |------|------|----------|-----|
-| `$C6` | NDX | 0 | Drain key buffer; in-flight keys typed during an interrupted CHROUT have no valid consumer. |
+| `$C6` | NDX | 0 | Drain key buffer; in-flight keys typed during the interrupted op have no valid consumer. |
 | `$D4` | QTSW | 0 | Quote mode off (mid-string `"` may have set it). |
 | `$D5` | LNMX | 39 | Single-physical-line logical line (mid-wrap may have set it to 79). |
 | `$D8` | INSRT | 0 | No insert pending. |
 | `$CE` | GDBLN | 0 | No char-under-cursor cached. |
-| `$D9..$F1` | LDTB1 | $80 each | Line-link table: every row is the start of its own logical line (matches the just-cleared screen). |
+| `$D9..$F1` | LDTB1 | $80 each | Line-link table: every row is the start of its own logical line. |
 
 Bytes deliberately NOT touched: `$D1/$D2/$D3/$D6/$F3/$F4` are set
-by the `io_sync` call that immediately follows (KERNAL PLOT
-populates them from `CUR_COL`/`CUR_ROW`).
+by the `io_sync` (KERNAL PLOT) that follows in
+`hygiene_after_userland`.
 
-**Call-site discipline.**  Exactly one caller: `refresh_body` in
-main.s.  NOT called from cold-init's `reset_screen`, the `x`
-command, or `scroll_up`'s full-clear path — those callers own
-the screen transition and do not have a transiently-mid-CHROUT
-KERNAL state to recover from.  An earlier rc2 candidate placed
-the call inside `reset_screen` and regressed userland CHROUT
-positioning (cold-init wiped LDTB1 / `$D5` before the splash
-prints, leaving the screen-editor's view of logical lines
-disagreeing with the displayed content).
+**Call-site discipline.**  Exactly one caller:
+`hygiene_after_userland` in repl.s, immediately before its
+tail-call to `io_sync`.  This is the *only* path where KERNAL
+screen-edit ZP can have been left mid-update — userland-NMI
+dispatch (`@userland_nmi → save_userland_state →
+handler_finalize → hygiene_after_userland → main_loop_top`).
+
+Mechanism witness: see
+[tests/integration/test_screen.py::TestPlotAgainstCorruptLdtb1](
+../../tests/integration/test_screen.py).  The middle test
+reproduces the rc1 jank in py65 against the real C64 KERNAL ROM
+(corrupt LDTB1 → PLOT(10,5) lands on row 9 col 45 instead of row
+10 col 5); the third test confirms `kernal_screen_reset` recovers
+clean PLOT behaviour.
+
+**Historical detour.**  An earlier candidate (rc2) placed the
+call inside `reset_screen`; that wiped LDTB1 at cold init and on
+the `x` (clear-screen) command, regressing the few cases where
+KERNAL line-link state needed to survive a screen clear.  A
+follow-up landing narrowed the call to `refresh_body` (cse_refresh
+path), which still didn't help — kernel-mode NMI doesn't have
+KERNAL-CHROUT-mid-write state to recover from.  The current
+landing in `hygiene_after_userland` is the third attempt and the
+first one informed by an actual py65 ZP-mutation probe rather than
+guessed enumeration.
 
 ### vic_reset
 **In:** none

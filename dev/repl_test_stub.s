@@ -24,6 +24,7 @@
 
 ; ── Exports: screen module ────────────────────────────────────
         .export newline, restore_colors, reset_screen, vic_reset
+        .export kernal_screen_reset
         .export cursor_show, cursor_hide
         .export theme_border, theme_bg, theme_fg
 
@@ -224,6 +225,10 @@ COLS = 40
 restore_colors:
 ; vic_reset — no-op in tests
 vic_reset:
+; kernal_screen_reset — no-op in tests (the repl bundle doesn't
+; exercise KERNAL screen-edit ZP semantics; the contract is pinned
+; in test_screen.py against the real screen.o)
+kernal_screen_reset:
         rts
 
 ; cursor_show / cursor_hide — no-op in tests

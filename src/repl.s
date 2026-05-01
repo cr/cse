@@ -40,6 +40,7 @@
 
 ; ── Imports: screen.s ──────────────────────────────────────
         .import newline, restore_colors, reset_screen, vic_reset
+        .import kernal_screen_reset
         .import theme_border, theme_bg, theme_fg
 
 ; hex_val, is_hex, hex_val_to_char are now local (below)
@@ -1940,8 +1941,21 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ; User code can leave the machine in any state: VIC blanked or in
 ; bitmap/multicolor/extended-color mode, charset pointer moved,
 ; sprites covering the text layer, raster IRQ armed, color RAM
-; painted over, stuck keys in $C6, KERNAL cursor re-enabled.
-; Clobbers: A, X, Y (via vic_reset + restore_colors + io_sync).
+; painted over, stuck keys in $C6, KERNAL cursor re-enabled, KERNAL
+; screen-edit ZP mid-CHROUT (RESTORE pressed inside a tight `$FFD2`
+; loop in user code → NMI hit at e.g. PC=$E9D6 mid-write).  Clean
+; everything before returning control to the REPL/editor.
+;
+; KERNAL screen-edit ZP defence: kernal_screen_reset wipes
+; $C6/$D4/$D5/$D8/$CE/$D9-$F1 to pristine post-init values, and the
+; tail-called io_sync (KERNAL PLOT) sets $D1/$D2/$D3/$D6/$F3/$F4
+; against that clean state.  Without the helper, a corrupt LDTB1
+; ("rows 9-10 are a single 2-row logical line", left over from
+; user's wrapped CHROUT) makes PLOT compute wrong $D1/$D2 / $D3
+; on the very next REPL or editor cursor move — that's the rc1 jank.
+;
+; Clobbers: A, X, Y (via vic_reset + restore_colors +
+; kernal_screen_reset + io_sync).
 hygiene_after_userland:
         lda #1
         sta $CC                 ; KERNAL cursor off (cse_io invariant)
@@ -1971,8 +1985,10 @@ hygiene_after_userland:
         lda #1
         sta stop_cooldown
 @drain:
-        lda #0
-        sta $C6                 ; drain any buffered keystrokes
+        ; kernal_screen_reset includes draining $C6 — no separate
+        ; sta $C6 needed.  Must run BEFORE io_sync so PLOT walks a
+        ; clean LDTB1 to compute $D1/$D2/$F3/$F4.
+        jsr kernal_screen_reset
         jmp io_sync             ; tail-call
 
 ; ═══════════════════════════════════════════════════════════
