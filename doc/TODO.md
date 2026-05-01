@@ -339,6 +339,67 @@ as universal (Tier A).*
 
 Open bugs, roughly ordered by priority.
 
+- [x] ~~**BUG** `a+g+NMI(in kernelland)+g` runs straight into a
+  phantom brk on the first replay after the "go? y/n"
+  prompt.~~  (v0.1-rc4 VICE-testing fix, 2026-05-01, commit
+  `5bd916b`.)  Sequence: assemble code with `a`, run with
+  `g`, press RESTORE during user code's CHROUT loop (`NMI in
+  kernelland` = NMI lands inside the KERNAL ROM region — the
+  user's program had called `$FFD2`), then `g` to run again.
+  CSE prompts `;!debug` + `go? y/n`; user confirms; CSE
+  appears to immediately hit a brk at the program's start
+  address, even though no user code actually executed.
+  Subsequent `g` commands work normally (one-shot bug).
+
+  **Root cause.**  `main_loop_top`'s warm-cont path
+  (`@live` branch, runs after `cse_end_debug` consumes the
+  debug session) did `jsr exec_line; jmp main_loop_top`.
+  When the replayed `g` set `run_user_pending = MODE_JUMP`,
+  the bare `jmp main_loop_top` re-entered at the top —
+  where `@check_post_run` interprets `run_user_pending` as
+  a "just-returned-from-userland" signal (its dual purpose,
+  the same byte serves both pre-dispatch and post-return)
+  and falsely runs `post_run_cleanup` against `brk_pc =
+  cur_addr`.  User code never ran.  The RETURN-key path in
+  `main_loop @not_enter` had the missing dispatch since
+  forever; the warm-cont path didn't.
+
+  **Why "only the first time".**  After the phantom
+  cleanup, `dbg_reason` is reset; the user's next `g` goes
+  through the regular RETURN-key path, which dispatches
+  correctly.
+
+  **Resolution.**  `main.s::main_loop_top @live` now
+  replicates the @not_enter post-exec dispatch:
+
+  - Clear `run_user_pending` before `jsr exec_line` so the
+    post-exec check sees only what THIS cycle's command
+    produced.
+  - After `jsr exec_line`, read `run_user_pending`; if
+    `MODE_JUMP` → `jmp return_to_userland`; if `MODE_RESUME`
+    → `jmp restore_userland_state`; else fall through to
+    `jmp main_loop_top` (no userland was requested).
+
+  - **`tests/integration/test_kernel_transition.py::TestWarmCont::test_warm_cont_replay_dispatches_userland`**
+    — pre-fix fails with `TimeoutError` (idle in
+    `main_loop @wait` after the phantom cleanup); post-fix
+    passes (PC reaches user code).
+  - **`tests/integration/test_kernel_transition.py::TestNmiKernelMode::test_refresh_preserves_run_user_pending`**
+    — contract-pin: cse_refresh deliberately preserves
+    `run_user_pending` / `dbg_reason` / `step_state`.  Any
+    future change to that contract must flip the assertion.
+
+  **Audit follow-ups** (filed in [§ Architecture](#architecture)):
+  - "Split `run_user_pending` into pre-dispatch and post-
+    return flags" — removes the dual-purpose ambiguity that
+    enabled this bug class.
+  - "Close the `cse_refresh` micro-race on `run_user_pending`"
+    — the only remaining path where rc4-shape false signals
+    can manifest (microseconds-window race; not exploitable
+    in practice but worth closing alongside the split).
+
+  **Cost:** +18 B per production variant.
+
 - [x] ~~**BUG** RESTORE-during-CHROUT corrupts KERNAL screen-edit
   state.~~  (v0.1-rc1 VICE-testing fix, 2026-04-30, Approach B
   per the analysis below.)  Symptoms (v0.1-rc1 VICE testing,
@@ -2142,6 +2203,76 @@ from our exit context.
   RESTORE bug fix (B already covers it for v0.1).
   See `doc/TODO.md` § Bugs § RESTORE-during-CHROUT for the full
   three-way A/B/C analysis that produced this entry.
+
+- [ ] **Split `run_user_pending` into pre-dispatch and
+  post-return flags.**  Today the byte serves two purposes:
+
+  - (A) "Command set MODE; needs userland dispatch" — written
+    by `cmd_jmp` / `cmd_step` / `cmd_continue`, consumed by
+    `main_loop @not_enter` and (since the rc4 fix) by
+    `main_loop_top @live` warm-cont path.  Drives `jmp
+    return_to_userland` / `jmp restore_userland_state`.
+  - (B) "User code returned; needs cleanup" — same byte
+    survives the RTI/userland round-trip; consumed by
+    `main_loop_top @check_post_run` to fire `post_run_cleanup`.
+
+  Phase A → B transition relies on the dispatch *not* clearing
+  the flag.  Any caller that runs `exec_line` and then
+  re-enters `main_loop_top` without dispatching falsely
+  conflates A as B — exactly the rc4 bug shape (a+g+NMI+g
+  produced a phantom brk because the warm-cont replay set A
+  but no dispatch fired, then `@check_post_run` consumed it
+  as B).  Fixed in `main.s` commit `5bd916b` by adding the
+  dispatch.
+
+  Proposed split: `run_pending_mode` (A) and `run_returned`
+  (B).  Each has a single writer-set, single reader-consume
+  contract.  The dispatch (return_to_userland or
+  restore_userland_state's prologue) sets `run_returned` and
+  clears `run_pending_mode`.  The handler/userland-return
+  path leaves `run_returned` set; `@check_post_run` consumes
+  it.  Cost: +1 B BSS, ~+10 B code (extra clearing logic),
+  removes the dual-purpose ambiguity entirely.
+
+  Not blocking: rc4's fix closes the only known manifestation.
+  File for the v0.2 architecture sweep.  See [§ Bugs](#bugs)
+  § "BUG a+g+NMI+g phantom brk" for the rc4 audit chain.
+
+- [ ] **Close the `cse_refresh` micro-race on `run_user_pending`.**
+  When kernel-mode NMI fires in the ~5–10 cycle window
+  between a command setting `run_user_pending` (e.g.
+  `cmd_jmp.@run`'s `sta run_user_pending`) and `main_loop
+  @not_enter`'s post-exec dispatch reading it, `cse_refresh`
+  runs while the flag is set.  Falls through to
+  `main_loop_top @check_post_run` which interprets the flag
+  as a "just returned from userland" signal and runs
+  `post_run_cleanup` against `brk_pc=cur_addr` — phantom
+  break display.
+
+  Not exploitable in practice: the window is microseconds in
+  idle code paths and the user can recover by typing the
+  command again.  But it's the only remaining path where
+  the rc4 bug class can manifest, so worth closing.
+
+  Two ways to close it:
+  - **Cheap:** `lda #0; sta run_user_pending` in
+    `refresh_body` (or in `cse_refresh` proper).  +4 B.
+    Side effect: also clears the flag on legitimate RESTORE-
+    after-userland-return cycles, suppressing any redisplay
+    of break/regs that depended on the dual-purpose flag.
+    **Verify** the existing "show break info on RESTORE"
+    behaviour against
+    `tests/integration/test_kernel_transition.py::TestNmiKernelMode::test_refresh_preserves_run_user_pending`
+    — that test pins the current preserve-the-flag contract;
+    landing this fix means flipping the test's assertion.
+  - **Comprehensive:** Land the run_user_pending split above;
+    `cse_refresh` clears `run_pending_mode` but not
+    `run_returned`.  Race window closes cleanly without
+    affecting the redisplay behaviour.
+
+  Recommendation: bundle with the dual-purpose split (the
+  comprehensive option) rather than landing the cheap fix
+  in isolation.
 
 - [ ] BSS optimization: collapse `disk_seq_bytes`/`disk_seq_lines`
   with `ed_save_bytes`/`ed_save_lines` (saves 4 B).

@@ -473,6 +473,63 @@ class TestNmiKernelMode:
         assert emu.memory[emu.sym("dbg_reason")] == DBG_BRK
         assert emu.memory[emu.sym("reg_sp")] == 0x80
 
+    def test_refresh_preserves_run_user_pending(self, emu):
+        """Contract pin (rc4 audit follow-up): cse_refresh does NOT
+        clear run_user_pending.  This is intentional — preserves the
+        flag so the userland-return-cleanup path in @check_post_run
+        sees its dual-purpose signal correctly when the user has just
+        broken from userland and pressed RESTORE while the prompt is
+        idle.
+
+        Theoretical micro-race: if a kernel-mode NMI fires DURING the
+        ~5–10 cycle window between a command setting run_user_pending
+        and main_loop @not_enter dispatching, cse_refresh would run
+        with run_user_pending != 0, and main_loop_top.@check_post_run
+        would consume it as a "just returned" signal → phantom
+        post_run_cleanup display.  Window is microseconds in idle code
+        — not exploitable in practice, but if you later decide to
+        close it (e.g. `lda #0; sta run_user_pending` in refresh_body)
+        this test will fail loudly so the change is deliberate.
+
+        Also pins: refresh does NOT clear dbg_reason or step_state.
+        The current "show break info on RESTORE" behaviour depends on
+        these surviving.
+
+        See doc/TODO.md § Architecture for the v0.2 candidate that
+        proposes splitting run_user_pending into two flags to remove
+        the dual-purpose ambiguity entirely."""
+        _cold_init_to_prompt(emu)
+        assert emu.memory[emu.sym("in_userland")] == 0
+
+        # Pre-set the bytes that @check_post_run reads, simulating
+        # mid-cycle state (e.g. cmd_jmp.@run just set MODE_JUMP and
+        # is about to RTS).
+        MODE_JUMP = 1
+        emu.memory[emu.sym("run_user_pending")] = MODE_JUMP
+        emu.memory[emu.sym("dbg_reason")]       = DBG_BRK
+        emu.memory[emu.sym("step_state")]       = 0x42  # arbitrary non-zero
+
+        # Synthesise NMI frame.
+        SENTINEL = 0xABCD
+        emu.memory[0x0100 + emu.sp] = SENTINEL >> 8
+        emu.sp = (emu.sp - 1) & 0xFF
+        emu.memory[0x0100 + emu.sp] = SENTINEL & 0xFF
+        emu.sp = (emu.sp - 1) & 0xFF
+        emu.memory[0x0100 + emu.sp] = 0x20          # P
+        emu.sp = (emu.sp - 1) & 0xFF
+
+        emu.run_until(emu.sym("main_loop_top"),
+                      start_at=emu.sym("cse_nmi_handler"),
+                      max_cycles=200_000)
+
+        # All three @check_post_run inputs preserved across cse_refresh.
+        assert emu.memory[emu.sym("run_user_pending")] == MODE_JUMP, \
+            "cse_refresh must not touch run_user_pending"
+        assert emu.memory[emu.sym("dbg_reason")] == DBG_BRK, \
+            "cse_refresh must not touch dbg_reason"
+        assert emu.memory[emu.sym("step_state")] == 0x42, \
+            "cse_refresh must not touch step_state"
+
 
 # ── 7. BRK in kernel mode (internal fault) ──────────────────────
 
