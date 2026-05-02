@@ -197,17 +197,25 @@ DDD Review round; not yet triaged into Tier A / B / C.*
   collapsed jump).  Likely **Tier A** (universal optimization
   technique, applies to any assembly project).
 
-- [ ] **DDD Maintenance: flag stale "Moved from …" historical
-  headers after a time threshold.**  Phase-24 retired three
+- [x] ~~**DDD Maintenance: flag stale "Moved from …" historical
+  headers after a time threshold.**~~  (Closed 2026-05-02 by
+  Step 1E of the doc-audit pass.)  Phase-24 had retired three
   "Moved from editor.s 188..208 / 210..228 / 230..356" comment
   blocks in `gap_buffer.s` that had outlived their refactor
-  context (placed during the gap-buffer extraction, no longer
-  load-bearing).  Candidate addition to README.md § DDD
-  Maintenance: "historical-marker comments" as a recurring sweep
-  category — grep for `Moved from`, `Extracted from`, `was
-  formerly`, etc.; retire any older than N phases.  Likely
-  **Tier A** (universal — every refactored codebase accumulates
-  these).
+  context.  Step 1E mechanised the grep via
+  `dev/audit_phase_markers.py` and surfaced ten more
+  `; Moved from editor.s ...` comments still in `gap_buffer.s`
+  (rows 296, 331, 365, 393, 423, 465, 480, 520, 573, 591) —
+  all retired in the same commit.  The script remains as
+  permanent infrastructure for the next maintenance round.
+
+  Note for the next DDD Review: this audit class still belongs
+  in the README.md § DDD Maintenance "8-item audit" list
+  (currently item 9 candidate per **A3** above).  The script
+  generalises **A3** mechanically — anything matching `Phase \d`,
+  `Move \d`, `moved to`, `previously`, `was formerly`, or
+  `TODO:` shows up in the report sorted by frequency, ready for
+  human triage.
 
 - [ ] **TDD principle: probe assumptions before encoding them in
   tests.**  Phase-24 hit three test-bugs in succession from

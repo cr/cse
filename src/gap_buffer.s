@@ -293,7 +293,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .endproc
 
 ; ══════════════════════════════════════════════════════════
-; Moved from editor.s 358..388  (gb_insert)
 ; ══════════════════════════════════════════════════════════
 ; ── gb_insert — insert byte at gap ────────────────────────────
 ; Input: A = byte to insert
@@ -328,7 +327,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .endproc
 
 ; ══════════════════════════════════════════════════════════
-; Moved from editor.s 390..419  (gb_backspace)
 ; ══════════════════════════════════════════════════════════
 ; ── gb_backspace — delete before gap ──────────────────────────
 .proc gb_backspace
@@ -362,7 +360,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .endproc
 
 ; ══════════════════════════════════════════════════════════
-; Moved from editor.s 422..445  (gb_cursor_right)
 ; ══════════════════════════════════════════════════════════
 ; Clobbers: A, Y
 .proc gb_cursor_right
@@ -390,7 +387,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .endproc
 
 ; ══════════════════════════════════════════════════════════
-; Moved from editor.s 448..473  (gb_cursor_left)
 ; ══════════════════════════════════════════════════════════
 ; Clobbers: A, Y
 .proc gb_cursor_left
@@ -420,7 +416,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .endproc
 
 ; ══════════════════════════════════════════════════════════
-; Moved from editor.s 492..509  (ed_insert_string)
 ; ══════════════════════════════════════════════════════════
 ; ── ed_insert_string — insert PETSCII string at cursor ────────
 ; Input: A/X = text pointer
@@ -462,7 +457,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .endproc
 
 ; ══════════════════════════════════════════════════════════
-; Moved from editor.s 511..521  (ed_read_rewind)
 ; ══════════════════════════════════════════════════════════
 ; ── Sequential reader — for source assembler ─────────────────
 
@@ -477,7 +471,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .endproc
 
 ; ══════════════════════════════════════════════════════════
-; Moved from editor.s 524..561  (ed_read_byte)
 ; ══════════════════════════════════════════════════════════
 ; Returns: A/X = byte (X=0), or A=$FF/X=$FF at EOF
 .proc ed_read_byte
@@ -517,7 +510,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .endproc
 
 ; ══════════════════════════════════════════════════════════
-; Moved from editor.s 565..613  (ed_read_line)
 ; ══════════════════════════════════════════════════════════
 ; Returns: A/X = length, or A=$FF/X=$FF at EOF
 .proc ed_read_line
@@ -570,7 +562,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .endproc
 
 ; ══════════════════════════════════════════════════════════
-; Moved from editor.s 654..667  (check_buf_end)
 ; ══════════════════════════════════════════════════════════
 ; Returns: C=1 if >= BUF_END (past end), C=0 if still in buffer
 .proc check_buf_end
@@ -588,7 +579,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .endproc
 
 ; ══════════════════════════════════════════════════════════
-; Moved from editor.s 1639..1665  (gb_home)
 ; ══════════════════════════════════════════════════════════
 ; ── gb_home — move gap to start of current line ──────────────
 .proc gb_home
