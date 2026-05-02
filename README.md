@@ -7,6 +7,10 @@ workflows are inspired by MasterSeka, radare2, and SMON.  Edit,
 assemble, run, and debug in one place, natively on the C64 itself.
 Pure and simple.
 
+<p align="center">
+  <img src="img/editor.png" alt="CSE editor with two REPL prompt rows pinned at the bottom" width="480">
+</p>
+
 ## Who it's for
 
 CSE is built for two kinds of programmer, and it refuses to compromise
@@ -38,6 +42,7 @@ and what keeps the promise honest — see [background.md](background.md).
 
 - [Concepts](#concepts)
 - [Quick start](#quick-start)
+  - [Themes](#themes)
 - [REPL commands](#repl-commands)
 - [Error and warning messages](#error-and-warning-messages)
 - [Editor](#editor)
@@ -55,6 +60,10 @@ The **REPL** is a command prompt for inspecting memory, assembling,
 running, and debugging code.  Every command operates on the
 *current address* shown in the `AAAA:` prompt.  Navigate with `@`,
 `+`, `-`.
+
+<p align="center">
+  <img src="img/running.png" alt="REPL with assemble + run flow" width="384">
+</p>
 
 The **editor** is a full-screen text editor for writing assembly
 source.  The `a` command in the REPL assembles the editor's content
@@ -125,6 +134,37 @@ arithmetic, labels, and lo/hi byte operators.  See
 CSE boots into the REPL. Type commands at the `AAAA:` prompt.
 Press RUN/STOP to toggle between the REPL and the source editor.
 
+### Themes
+
+CSE ships with thirteen built-in colour themes — pick one at
+build time with `make THEME=NAME`, or change the live colours
+with the `C` REPL command.
+
+<table>
+<tr>
+  <td align="center"><img src="img/theme-GREENLAND.png" width="160" alt="GREENLAND"><br><sub>GREENLAND <i>(default)</i></sub></td>
+  <td align="center"><img src="img/theme-RADIOACTIVITY.png" width="160" alt="RADIOACTIVITY"><br><sub>RADIOACTIVITY</sub></td>
+  <td align="center"><img src="img/theme-MATRIX.png" width="160" alt="MATRIX"><br><sub>MATRIX</sub></td>
+  <td align="center"><img src="img/theme-HERCULES.png" width="160" alt="HERCULES"><br><sub>HERCULES</sub></td>
+</tr>
+<tr>
+  <td align="center"><img src="img/theme-MILKYWAY.png" width="160" alt="MILKYWAY"><br><sub>MILKYWAY</sub></td>
+  <td align="center"><img src="img/theme-LEEBRUCE.png" width="160" alt="LEEBRUCE"><br><sub>LEEBRUCE</sub></td>
+  <td align="center"><img src="img/theme-BRUCELEE.png" width="160" alt="BRUCELEE"><br><sub>BRUCELEE</sub></td>
+  <td align="center"><img src="img/theme-MRSPIGGY.png" width="160" alt="MRSPIGGY"><br><sub>MRSPIGGY</sub></td>
+</tr>
+<tr>
+  <td align="center"><img src="img/theme-ORANGE.png" width="160" alt="ORANGE"><br><sub>ORANGE</sub></td>
+  <td align="center"><img src="img/theme-MUDDY.png" width="160" alt="MUDDY"><br><sub>MUDDY</sub></td>
+  <td align="center"><img src="img/theme-CLOUDY.png" width="160" alt="CLOUDY"><br><sub>CLOUDY</sub></td>
+  <td align="center"><img src="img/theme-C64.png" width="160" alt="C64"><br><sub>C64</sub></td>
+</tr>
+<tr>
+  <td align="center"><img src="img/theme-C128.png" width="160" alt="C128"><br><sub>C128</sub></td>
+  <td colspan="3" align="left" valign="top"><sub>Or specify any 3-digit hex code directly: <code>make THEME=cb5</code> (border, background, foreground — C64 palette $0–$F).  At runtime, <code>C B G F</code> sets all three.</sub></td>
+</tr>
+</table>
+
 ## REPL commands
 
 ### Navigation
@@ -147,6 +187,12 @@ Press RUN/STOP to toggle between the REPL and the source editor.
 | `m` | `m` | Hex+ASCII dump of block-size bytes |
 | `m` | `m [HH] [HH] ...` | Edit up to 8 bytes at current address |
 | `i` | `i` | Show full memory map |
+
+<p align="center">
+  <img src="img/disassembly.png" alt="d-command disassembly output" width="320">
+  &nbsp;&nbsp;
+  <img src="img/memoryediting.png" alt="m-command hex+ASCII dump" width="320">
+</p>
 
 ### Assembler
 
@@ -178,6 +224,10 @@ RUN/STOP+RESTORE triggers an NMI break into the debugger while
 user code is running.  Pressed at the REPL prompt, it refreshes
 the screen (classic C64 behaviour, preserves any active debug
 session).
+
+<p align="center">
+  <img src="img/tracing.png" alt="Step-tracing with t command, register display, breakpoint" width="384">
+</p>
 
 Stepping into a JSR whose target is in KERNAL ROM ($E000--$FFFF)
 automatically falls back to step-over.
