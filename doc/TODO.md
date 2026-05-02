@@ -339,6 +339,53 @@ as universal (Tier A).*
 
 Open bugs, roughly ordered by priority.
 
+- [x] ~~**BUG** Disassembling KERNAL ROM (`$E000-$FFFF`) produces
+  only "BRK" / "..." instead of real instructions.~~  (v0.1-rc5
+  VICE-testing fix, 2026-05-02.)
+
+  **Symptom.**  `d $E000` (or any address `>= $E000`) shows every
+  byte as the BRK opcode (or `...` from filler $FF), regardless of
+  what's actually in KERNAL ROM.
+
+  **Root cause.**  `dasm_insn` (`src/dasm.s`) banks KERNAL OUT at
+  entry so its internal tables — `mn_modes`, `mode_offset`,
+  `dasm_mne_str` — which live in the KDATA segment under KERNAL
+  ROM are accessible.  All `lda (_dasm_ptr),y` reads of the user's
+  target address therefore see RAM under KERNAL (mostly $00, hence
+  BRK), never the actual ROM bytes.
+
+  **Resolution.**  Snapshot 3 max-insn bytes from the user's
+  address into a new BSS buffer `_dasm_in` BEFORE banking out,
+  using whatever bank state the caller had in force:
+
+  - At the REPL prompt that's KERNAL-in, so `d $E000` snapshots
+    real ROM bytes.
+  - Inside `asm_assemble` (kernal_out=1 batch) that's KERNAL-out,
+    so user RAM under KERNAL is what the user wrote.
+
+  Either way, the user's "current view" of memory is what gets
+  disassembled.  `_dasm_ptr` stays pointing at the user's actual
+  address (used by branch-target arithmetic in `_compute_branch_target`
+  for `bcc $XXXX` / `bne $XXXX` / BBR / BBS); the 8 byte reads of
+  opcode/operand inside the decoder switch from
+  `lda (_dasm_ptr),y` (zp,y indirect) to `lda _dasm_in,y` (abs,y
+  direct).
+  - **`src/dasm.s::dasm_insn`** — pre-bank-out snapshot loop +
+    new `_dasm_in: .res 3` BSS slot.
+  - **`src/dasm.s` decode + format_operand + cc11 paths** — 8
+    reads switched to `lda _dasm_in,y`; the branch-offset read
+    in `_compute_branch_target` switches but its `adc _dasm_ptr`
+    is preserved so target addresses match the user's PC.
+  - **`tests/integration/test_dasm_rom.py`** — new file, 7
+    tests against real C64 KERNAL ROM (`$E000`, `$FF8A`, `$FFD2`,
+    `$FFE4`).  Pre-fix 6 of 7 fail (length=1, mnemonic="BRK");
+    post-fix all 7 pass.  Plus a regression-net test pinning
+    `RAM disassembly still works` — the fix didn't break the
+    non-ROM path.
+  - **Cost.**  +16-18 B per production variant (`abs,y` reads
+    are 1 byte longer than `zp,y` indirect, ×8 sites).
+  - **Discovered via** v0.1-rc5 VICE testing (2026-05-02).
+
 - [x] ~~**BUG** `a+g+NMI(in kernelland)+g` runs straight into a
   phantom brk on the first replay after the "go? y/n"
   prompt.~~  (v0.1-rc4 VICE-testing fix, 2026-05-01, commit

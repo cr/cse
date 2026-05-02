@@ -30,6 +30,12 @@
 ; ── BSS ──────────────────────────────────────────────────
 .segment "BSS"
 dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
+_dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
+                               ; the user's address with the caller's bank
+                               ; state still in force, so KERNAL ROM at
+                               ; $E000+ is captured BEFORE dasm_insn banks
+                               ; out for its internal table reads.  See the
+                               ; rationale in dasm_insn's docstring.
 
 ; ── CODE ─────────────────────────────────────────────────
 .segment "CODE"
@@ -46,6 +52,17 @@ dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
 ; bank helpers short-circuit, so this wrapper costs only the
 ; flag check on each call from inside the batch.
 ;
+; KERNAL-ROM read fix: snapshot the 3 max-insn bytes from the
+; user's address into _dasm_in BEFORE banking out — otherwise
+; disassembly of `$E000+` would read the RAM under KERNAL (mostly
+; $00 / $FF) and produce a stream of "brk" / "..." instead of the
+; real KERNAL instructions.  The snapshot uses whatever bank state
+; the caller had in force: at the REPL prompt that's KERNAL-in
+; (so `d $E000` gets ROM); inside an asm_assemble batch that's
+; KERNAL-out (so user RAM under KERNAL is what the user wrote).
+; Either way, the user's "current view" of memory is what gets
+; disassembled.
+;
 ; All exit paths (finish, the RMB/SMB / BBR/BBS handlers in
 ; decode_cc11) rts back here, where bank_in pairs with the
 ; entry bank_out before returning the length to the caller.
@@ -53,6 +70,17 @@ dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
 .proc dasm_insn
         sta _dasm_ptr
         stx _dasm_ptr+1
+        ; Snapshot 3 bytes from the user address while the caller's
+        ; bank state is still in force.  _dasm_ptr stays pointing at
+        ; the user address — it's used by branch-target arithmetic in
+        ; format_operand to compute PC-relative destinations.  Byte
+        ; reads of opcode/operand throughout the decoder use the
+        ; absolute-Y form `lda _dasm_in,y` instead of `(_dasm_ptr),y`.
+        ldy #2
+@cp:    lda (_dasm_ptr),y
+        sta _dasm_in,y
+        dey
+        bpl @cp
         jsr kernal_bank_out
         jsr dasm_decode         ; A = length on return
         pha                     ; save length before bank_in clobbers A
@@ -68,9 +96,10 @@ dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
         lda #0
         sta _dasm_wptr          ; reset buffer write position
 
-        ; Read opcode
+        ; Read opcode (from snapshot, not user address — _dasm_ptr is
+        ; reserved for branch-target arithmetic).
         ldy #0
-        lda (_dasm_ptr),y
+        lda _dasm_in,y
         sta _dasm_opc
 
         ; Extract cc = opcode & 3
@@ -218,16 +247,16 @@ dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
 
         ; 8-bit operand
         ldy #1
-        lda (_dasm_ptr),y
+        lda _dasm_in,y
         jsr buf_hex2
         jmp @suffix
 
 @op16:  ; 16-bit operand (lo, hi)
         ldy #2
-        lda (_dasm_ptr),y       ; hi byte
+        lda _dasm_in,y          ; hi byte
         jsr buf_hex2
         ldy #1
-        lda (_dasm_ptr),y       ; lo byte
+        lda _dasm_in,y          ; lo byte
         jsr buf_hex2
         jmp @suffix
 
@@ -248,7 +277,7 @@ dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
         lda #$24                ; '$'
         jsr buf_putc
         ldy #1
-        lda (_dasm_ptr),y
+        lda _dasm_in,y
         jsr buf_hex2
         lda #$2C                ; ','
         jsr buf_putc
@@ -335,8 +364,8 @@ _emit_target:
         clc
         adc #1
         sta @adj                ; stash adjustment (2 or 3)
-        lda (_dasm_ptr),y       ; signed offset
-        ldx _dasm_ptr+1
+        lda _dasm_in,y          ; signed offset (from snapshot)
+        ldx _dasm_ptr+1         ; user PC for target arithmetic
         cmp #$80                ; sign-extend: negative → pre-dec hi
         bcc @pos
         dex
@@ -1131,9 +1160,10 @@ _dasm_aaa:
         jsr print_mne           ; print "RMB " or "SMB "
         ; Back up 1 position (overwrite the space with digit)
         dec _dasm_wptr
-        ; Re-read opcode (print_mne clobbers _dasm_opc)
+        ; Re-read opcode (print_mne clobbers _dasm_opc).  From snapshot,
+        ; not user address (_dasm_ptr is reserved for branch arithmetic).
         ldy #0
-        lda (_dasm_ptr),y
+        lda _dasm_in,y
         lsr
         lsr
         lsr
@@ -1165,7 +1195,7 @@ _dasm_aaa:
         jsr print_mne
         dec _dasm_wptr
         ldy #0
-        lda (_dasm_ptr),y       ; re-read opcode (print_mne clobbers _dasm_opc)
+        lda _dasm_in,y          ; re-read opcode from snapshot
         lsr
         lsr
         lsr
