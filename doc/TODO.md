@@ -9,7 +9,7 @@
 > `project_phase*_complete.md`.*
 
 
-**Full TDD compliance across L0–L5.**  3042 tests passing, 18 vocal
+**Full TDD compliance across L0–L5.**  3138 tests passing, 18 vocal
 skips, 0 failures.  Every behavioural module's documented contract
 is exercised at its prescribed tier:
 

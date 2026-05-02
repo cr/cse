@@ -40,10 +40,13 @@ cc=11 BBR/BBS inline `rts`) all pair correctly with the entry
 
 **ZP (8 bytes):** `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1).
 
-**BSS (24 bytes):** `_dasm_buf` (24) — output buffer for disassembled instruction text.
+**BSS (27 bytes):** `dasm_buf` (24) — output buffer for the
+disassembled instruction text (PETSCII + NUL); `_dasm_in` (3) —
+input snapshot of the 3 max-insn bytes read from the user's
+address before banking out (see Caveats).
 
 **Depends on:** dasm_tables (GENERATED), kernal_bank_out /
-kernal_bank_in (symtab.s)
+kernal_bank_in (mem.s)
 
 ## Design
 
@@ -78,5 +81,15 @@ in `.ifdef CMOS_SUPPORT`; 6510 illegal opcode paths use
 - Output is PETSCII (not VICII screen codes).  Caller does
   `io_puts(dasm_buf)` to display.
 - The disassembler has zero I/O dependency — pure computation.
-- `_dasm_buf` is 24 bytes: 3 (mnemonic) + 1 (space) + up to 9
+- `dasm_buf` is 24 bytes: 3 (mnemonic) + 1 (space) + up to 9
   (operand, longest is ZPREL `$XX,$XXXX`) + NUL + padding.
+- **KERNAL ROM snapshot.**  `dasm_insn` snapshots 3 bytes from
+  the user's address into `_dasm_in` BEFORE banking out, using
+  whatever bank state the caller had in force.  The decoder
+  then reads opcode/operand bytes from `_dasm_in` via
+  `lda _dasm_in,y` instead of `(_dasm_ptr),y`.  `_dasm_ptr`
+  itself stays at the user's actual address — used by
+  `_compute_branch_target` for PC-relative branch destinations
+  (`bcc $XXXX` / `bne $XXXX` / `BBR` / `BBS`).  Without the
+  snapshot, disassembly of `$E000+` would read the RAM under
+  KERNAL (mostly $00 → BRK).  See `tests/integration/test_dasm_rom.py`.

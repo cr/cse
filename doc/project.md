@@ -254,7 +254,7 @@ Case-insensitive comparators (assembler, symbol table, expression
 parser) fold $C0–$DF → $40–$5F at their own boundaries.
 
 The full mapping tables and rules live in
-[cse_io.md § Character Encoding Reference](cse_io.md#character-encoding-reference)
+[cse_io.md § Character Encoding Reference](modules/cse_io.md#character-encoding-reference)
 — that is the single source of truth.
 
 ### 4. CPU-specific code must be compile-time gated

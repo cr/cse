@@ -169,8 +169,8 @@ same stack shape.
 `rp_tmp2` (1) — scratch pointers/bytes shared by repl.s,
 debugger.s, asm_line.s.
 
-**BSS (2 bytes):** `warm_guard` (1), `kernel_init_sp` (1),
-`run_user_pending` (1).
+**BSS (5 bytes):** `warm_guard` (1), `kernel_init_sp` (1),
+`run_user_pending` (1), `_irq_saved_a` (1), `stop_cooldown` (1).
 
 The shared flags `state`, `in_userland`, `warm_cont`, `stop_cooldown`
 live in `zp.s` as `.exportzp` bytes — see the note at the top of
