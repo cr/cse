@@ -43,6 +43,8 @@ AUDITS = [
      "audit_doc_owned_files.py", True),
     ("4",  "module Depends-on accuracy",
      "audit_doc_depends_on.py", True),
+    ("6",  "tone/structure (heading skips, tables, etc.)",
+     "audit_doc_structure.py", True),
 ]
 
 
@@ -83,7 +85,7 @@ def main():
                     help="Print full stdout for every audit")
     args = ap.parse_args()
 
-    print("CSE doc audit — running 7 audits ...\n")
+    print(f"CSE doc audit — running {len(AUDITS)} audits ...\n")
 
     overall_ok = True
     rows = []

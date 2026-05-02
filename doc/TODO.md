@@ -2128,6 +2128,42 @@ from our exit context.
 
 ### Architecture
 
+- [ ] **Doc-audit Step 5 — examples-as-tests.**  The seven
+  audit scripts under `dev/` (driven by `dev/audit_doc.py`)
+  catch structural drift mechanically — broken cross-refs,
+  numerical claims, BSS counts, owned-files coverage,
+  depends-on accuracy.  What they don't catch is *executable*
+  drift: code fences that no longer assemble, REPL command
+  examples that no longer parse, or build-command snippets
+  whose targets have been renamed.
+
+  Step 5 of the doc-audit plan proposed a permanent regression
+  net: a pytest fixture that, for each fenced code block in
+  README.md / `doc/assembler_syntax.md` / `doc/modules/*.md`:
+
+  1. Classifies the block by language hint (asm / repl /
+     shell / output-sample).
+  2. For asm blocks: feeds them through asm_assemble + checks
+     for clean assembly (zero `;?<line>` errors).
+  3. For repl blocks: parses the `AAAA:CMD` shape and
+     dispatches via the test harness's `set_line_buf` +
+     `exec_line`, asserting no error logs.
+  4. For shell blocks: extracts `make TARGET` invocations and
+     verifies the targets exist in the current Makefile.
+  5. Output-samples (lines starting with `;` or matching the
+     `; org AAAA-BBBB Nb` shape) are inert — skip with a
+     comment.
+
+  Estimated effort: ~1 full session (the harness already has
+  most pieces — `cse_prg` fixture, `set_line_buf`, `exec_line`,
+  `asm_assemble` test stubs).  Build-block extraction is the
+  novel part.
+
+  Why not v0.1: the structural audits already cover ~95% of
+  documented drift.  Code-block drift is rare and self-flagging
+  (a maintainer trying the example sees it fail).  Defer to
+  v0.2 architecture sweep.
+
 - [x] ~~**Multi-CPU integration-test parity.**~~  Closed
   2026-04-27.  Implemented as a coarse smoke check
   rather than a full per-CPU re-run of detailed contract
