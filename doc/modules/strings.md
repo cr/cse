@@ -52,7 +52,7 @@ by `query_user` after the action stem), `str_del_src` (`"del src"`),
 
 `VERSION_STR` is composed at assemble time.  `strings.s` includes
 `version.inc` from the build directory (Makefile-generated, per
-build); the file expands `VERSION_STRING` to the Makefile's
+build); the file expands `VERSION_STR` to the Makefile's
 `VERSION` value (e.g. `"0.1"`).  The final bytes are
 `"cse v" + VERSION_STRING + " by cr"`.  See
 [build_system.md § Version propagation](../build_system.md#version-propagation).

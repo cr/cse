@@ -151,6 +151,5 @@ matches their "end address" convention.
   `log_line` call must save it to the 6502 stack first.
 - `log_close` ends with `newline` which scrolls if the cursor is on
   the last row.  Callers that want the cursor left exactly where
-  `log_open`'s content ended must call `log_close` indirectly (e.g.
-  via `log_close_eol` in repl.s) or fall through to their own
-  row-management.
+  `log_open`'s content ended must inline a `log_open` + content
+  emit + manual `io_clear_eol` instead of calling `log_close`.

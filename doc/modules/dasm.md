@@ -34,7 +34,7 @@ guards the call with `pha` / `jsr kernal_bank_in` / `pla`, the
 length result returned by any of `dasm_decode`'s exits (the
 common `finish` path, the cc=11 RMB/SMB inline `rts`, and the
 cc=11 BBR/BBS inline `rts`) all pair correctly with the entry
-`bank_out`.  No exit can leave the KERNAL mapped out by accident.
+`kernal_bank_out`.  No exit can leave the KERNAL mapped out by accident.
 
 ### Memory
 

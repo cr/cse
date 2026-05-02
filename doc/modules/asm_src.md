@@ -108,7 +108,7 @@ Two passes over the editor source:
 
 **Pass 1:** Resolve references, emit bytes, count errors.
 - Same scan as pass 0 but `asm_line` writes bytes to memory.
-- Undefined symbols → error.  `emit_error` increments `_asm_errors`.
+- Undefined symbols → error.  `emit_error` increments `asm_errors`.
 - Directives emit data directly (not via `asm_line`).
 - ACC label-shadow warnings (`;!a shadow`) are emitted directly by
   `addr_mode.s::mode_parse` during the pass-1 line assembly — not by

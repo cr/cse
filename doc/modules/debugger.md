@@ -807,7 +807,7 @@ at PC+3.
 j [ADDR]        start execution at ADDR (default: cur_addr)
 ```
 
-Populates `reg_pc` from ADDR (or `cur_addr`) and calls
+Populates `brk_pc` from ADDR (or `cur_addr`) and calls
 `return_to_userland`.  When breakpoints exist, they are patched
 into user memory before transfer; `cse_brk_handler` unpatches
 on return.

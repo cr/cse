@@ -234,7 +234,7 @@ anchor.
 
 - `ed_render_line(row, &pos)` — render one line from buffer position
   `pos` to screen row `row`.  Advances `pos` past the CR or to
-  `buf_end`.  Transparently skips the gap.  Converts PETSCII to
+  `BUF_END`.  Transparently skips the gap.  Converts PETSCII to
   screen codes: $41–$5A → $01–$1A (lowercase), $C1–$DA → $41–$5A
   (uppercase).  Expands $A0 (tab) to spaces up to the next
   `TAB_WIDTH` column boundary.  If content extends beyond col 38,

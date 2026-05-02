@@ -37,16 +37,13 @@ framing.
 - `last_cmd` (char) — last command (for RETURN repeat)
 - `block_size` (uint16) — block size for m/d/f/>/+/-, default $10
 
-**Logging API** — moved to [log.md](log.md) as of Phase 21.  repl.s
-still owns two local line-ending wrappers that are specific to the
-prompt-row discipline:
-
-- `log_err_eol(A/X)` — newline + `log_err` + clear (error-only exits)
-- `log_close_eol()` — `log_close` + clear (multi-part exits)
-
-Both wrap the core `log_*` primitives from `log.s`.  Other modules
-(`disk.s`, `editor.s`, `asm_src.s`, `main.s`) import directly from
-`log.s` — no longer from here.
+**Logging API** — moved to [log.md](log.md) as of Phase 21.  All
+modules including repl.s now import the core `log_*` primitives
+directly from `log.s` (`log_open`, `log_close`, `log_line`,
+`log_err`, `log_warn`, `log_info`).  The repl-local
+`log_err_eol` / `log_close_eol` wrappers were retired (callers
+inline `log_err` + `io_clear_eol` or use `log_close` followed by
+`io_clear_eol` instead).
 
 **Range/info line family** — moved to [log.md](log.md) as of Phase 21
 (`seg_line`, `prg_line`, `free_line`).  repl.s imports them for
@@ -639,7 +636,7 @@ directly.  That keeps the common "clean state" case frictionless:
 debug just loads.
 
 The `c` (continue) command is **not gated** — it requires an
-active debug context and errors with `;?no ctx` via `log_err_eol`
+active debug context and errors with `;?no ctx` via `log_err`
 when `dbg_reason == 0`.
 
 ### Internal helpers
