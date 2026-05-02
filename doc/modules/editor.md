@@ -266,7 +266,7 @@ RUN/STOP toggles between REPL and editor.
 
 **`enter_editor`:**
 1. Save REPL cursor position (`CUR_COL`, `CUR_ROW`)
-2. Save REPL screen RAM (1000 bytes) to `repl_screen`
+2. Save REPL screen RAM (1000 bytes) to `REPL_SCREEN`
 3. Initialize gap buffer if first entry (`ed_ensure_init`)
 4. Smart indent seed: if the buffer is **truly empty** — both
    `gap_lo == buf_base` (no content before the gap) AND
@@ -284,7 +284,7 @@ RUN/STOP toggles between REPL and editor.
 8. Restore editor cursor position, set `state = ST_EDIT`
 
 **`leave_editor`:**
-1. Restore REPL screen RAM from `repl_screen`
+1. Restore REPL screen RAM from `REPL_SCREEN`
 2. Restore REPL cursor position
 3. Set `state = ST_REPL`
 

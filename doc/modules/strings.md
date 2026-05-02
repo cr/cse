@@ -16,53 +16,80 @@ byte-indexing (e.g. `str_flag_ch`).
 
 ### Exported labels
 
-**repl group:** `str_flag_ch`, `str_bp_pfx`, `str_3sp`, `str_2sp`,
-`str_brk`, `str_rts`, `str_at`, `str_nmi`, `str_bp_clr`, `str_deleted`,
+Grouped by importer.  Each label is RODATA; an importer reads
+the bytes via `puts <label>` (see log.s) or by direct
+byte-indexing (e.g. `str_flag_ch`).
+
+#### repl group
+
+UI / debugger / assembler chrome strings consumed by repl.s:
+
+`str_flag_ch`, `str_bp_pfx`, `str_3sp`, `str_2sp`, `str_brk`,
+`str_rts`, `str_at`, `str_nmi`, `str_bp_clr`, `str_deleted`,
 `str_syntax`, `str_bad_val`, `str_full`, `str_cmd`, `str_no_name`,
 `str_range`, `str_fail`, `str_too_big`, `str_expr`, `str_no_ctx`,
 `str_r_pc`, `str_a`, `str_x`, `str_y`, `str_s`,
-`str_lines`, `str_bytes`, `str_bytes_sp`, `str_long`,
+`str_lines`, `str_bytes`, `str_long`,
 `str_ok`, `str_blk_eq`,
-`str_color`, `str_cpu`, `str_stk_warn`, `str_6510`\*, `str_65c02`\*,
+`str_color`, `str_cpu`, `str_stk_warn`,
+`str_6510`\*, `str_65c02`\*,
 `str_asm_ing`, `str_load_pfx`, `str_save_pfx`, `str_dots`,
 `str_errors`, `str_dashes`, `str_colon_sp`, `str_pct`,
-**Gating strings** (see [repl.md § Gating pattern](repl.md#gating-pattern)):
-`str_unsaved` (warn content, `"unsaved"`), `str_debug` (warn
-content, `"debug"`), `str_qynq` (shared `"? y/n"` trailer emitted
-by `query_user` after the action stem), `str_del_src` (`"del src"`),
-`str_quit` (`"quit"`), `str_load` (`"load"`), `str_init` (`"init"`),
-`str_end_dbg` (`"end debug"`), `str_asm` (`"asm"`),
 `str_ioport`, `str_stack`, `str_kernal`, `str_screen`,
-`str_cse_rt`, `str_bytes_free`, `str_io`,
-`str_free`, `str_l`, `str_main`,
+`str_cse_rt`, `str_io`, `str_main`,
 `str_tag_cpu`, `str_tag_zp`, `str_tag_stk`, `str_tag_sys`,
 `str_tag_scr`, `str_tag_cse`, `str_tag_work`, `str_free_suf`,
-`str_tag_src`, `str_tag_lo02`, `str_tag_io`,
-`str_tag_rom`, `str_banked`
+`str_tag_src`, `str_tag_io`, `str_tag_rom`, `str_banked`
 
-\* conditional: `str_6510` requires `CPU_6510`, `str_65c02` requires `CMOS_SUPPORT`
+\* conditional: `str_6510` requires `CPU_6510`,
+`str_65c02` requires `CMOS_SUPPORT`.
 
-**disk group:** `str_dname`, `str_dir_brk`, `str_blk_free`,
-`str_blk_pre`, `str_blk_suf`
+##### Gating strings
 
-**mem group:** `s_workstart`, `s_workend`
+Used by repl.s's [warn-and-confirm gates](repl.md#gating-pattern):
 
-**main group:** `VERSION_STR`, `s_manual`, `s_zp_tag`, `s_lo02_tag`,
-`s_work_tag`, `s_free`
+- `str_unsaved` — warn content `"unsaved"`
+- `str_debug` — warn content `"debug"`
+- `str_qynq` — shared `"? y/n "` trailer emitted by
+  `query_user` after the action stem
+- `str_del_src`, `str_quit`, `str_load`, `str_init`,
+  `str_end_dbg`, `str_asm` — action stems matching the
+  `cmd_*` they gate
 
-`VERSION_STR` is composed at assemble time.  `strings.s` includes
-`version.inc` from the build directory (Makefile-generated, per
-build); the file expands `VERSION_STR` to the Makefile's
-`VERSION` value (e.g. `"0.1"`).  The final bytes are
-`"cse v" + VERSION_STRING + " by cr"`.  See
+#### disk group
+
+`str_dname`, `str_dir_brk`, `str_blk_free`, `str_blk_pre`,
+`str_blk_suf`.
+
+#### mem group
+
+`s_workstart`, `s_workend` — symbols hosted as RODATA strings
+because the memory-map labels are exposed in the assembler's
+symbol table at runtime.
+
+#### main group
+
+`VERSION_STR`, `s_manual` — the splash header and the manual
+URL, the only two strings imported by main.s.
+
+`VERSION_STR` is composed at assemble time.  `strings.s`
+includes `version.inc` from the build directory (Makefile-
+generated, per build); the file expands `VERSION_STR` to the
+Makefile's `VERSION` value (e.g. `"0.1"`).  The final bytes
+are `"cse v" + VERSION_STR + " by cr"`.  See
 [build_system.md § Version propagation](../build_system.md#version-propagation).
 
-**asm_src group:** `s_err_sep`, `s_bad_val`, `s_exp_name`, `s_sym_full`,
-`s_exp_quot`, `s_bad_insn`, `s_seg_pfx`, `s_save_s`, `s_save_q_sp`,
-`s_save_default`, `s_trunc`
+#### asm_src group
 
-**expr group:** `err_none`, `err_expected`, `err_overflow`, `err_paren`,
-`err_undefined`, `err_divzero`, `err_str_lo`, `err_str_hi`
+`s_err_sep`, `s_bad_val`, `s_exp_name`, `s_sym_full`,
+`s_exp_quot`, `s_bad_insn`, `s_fwd_ref`, `s_save_s`,
+`s_save_q_sp`, `s_save_default`, `s_trunc`, plus `str_tag_org`
+and `str_cpu_err`.
+
+#### expr group
+
+`err_none`, `err_expected`, `err_overflow`, `err_paren`,
+`err_undefined`, `err_divzero`, `err_str_lo`, `err_str_hi`.
 
 ### Aliases
 
@@ -75,16 +102,14 @@ or suffix/prefix substrings:
 | `str_cse_rt` | `str_tag_cse` | duplicate `"cse"` |
 | `str_tag_io` | `str_io` | duplicate `"io"` |
 | `str_free_suf` | `str_bytes_free` | duplicate `"b free"` |
-| `s_free` | `str_bytes_free` | duplicate `"b free"` |
 | `s_bad_val` | `str_bad_val` | duplicate `"bad val"` |
 | `s_err_sep` | `str_colon_sp` | duplicate `": "` |
 | `str_dots` | `str_asm_ing + 3` | suffix — `"..."` within `"asm..."` |
 | `str_full` | `s_sym_full + 4` | suffix — `"full"` within `"sym full"` |
 | `str_dname` | `str_dashes` | prefix — `"$"` within `"$----"` |
 
-**Depends on:** nothing (leaf module, RODATA only)
-
-**Depends on:** nothing (pure RODATA leaf)
+**Depends on:** nothing (pure RODATA leaf — no callable routines,
+no ZP, no BSS).
 
 ## Design
 
