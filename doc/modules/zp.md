@@ -14,7 +14,7 @@ Every ZP variable in the project is defined and `.exportzp`'d by zp.s.
 Modules `.importzp` what they need.  No other file may contain a
 `.segment "ZEROPAGE"` section in production code.
 
-### Exported symbols (~92 bytes, $02–$5D)
+### Exported symbols (118 bytes, $02–$77)
 
 | Range | Consumer | Variables |
 |-------|----------|-----------|

@@ -672,27 +672,36 @@ $0800.  `workend` adjusts when the editor resizes the gap buffer
 
 ### Overview
 
-85 bytes ($02–$56), all defined in `src/zp.s` (single source of truth).
-41 bytes free ($57–$7F) for user programs.
+118 bytes ($02–$77), all defined in `src/zp.s` (single source of truth).
+8 bytes free ($78–$7F) for user programs.
 
-### Module allocation (6510 build)
+### Module allocation
 
 | Range | Bytes | Consumer | Variables |
 |-------|-------|----------|-----------|
-| $02–$07 | 6 | main | `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) |
+| $02–$07 | 6 | main / repl scratch | `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) |
 | $08 | 1 | asm_line | `_asm_saved_sp` (1) |
-| $09–$20 | 24 | assembler | `asm_pc`..`expr_wide` (see § Shared state) |
+| $09–$20 | 24 | assembler | `asm_pc`..`expr_wide` (asm_pc/out/cpu/len/slot/prof/pidx/base/bit/mode/tmp/tmp2 + sym_name/val/wide + expr_ptr/val/wide) |
 | $21–$23 | 3 | asm_src | `_as_ptr` (2), `_as_wsize` (1) |
 | $24–$26 | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
-| $27 | 1 | mn7/mn6 | `mn7_h_tmp` / `mn6_h_tmp` (1, aliased) |
+| $27 | 1 | mn7/mn6 | `mn7_h_tmp` / `mn6_h_tmp` (1, aliased — only one linked at a time) |
 | $28–$2B | 4 | addr_mode | `asm_ptr` (2), `asm_opr` (2) |
 | $2C | 1 | opcode_lookup | `_asm_ok_tmp` (1) |
 | $2D–$30 | 4 | cse_io | `_io_tmp` (2), `_io_scr` (2) |
 | $31–$32 | 2 | disk | `disk_ptr` (2) |
 | $33–$36 | 4 | expr | `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1) |
-| $37–$40 | 10 | symtab | hash/probe state, heap pointers |
-| $41–$48 | 8 | dasm | decode state, output pointer |
-| $49–$56 | 14 | editor | gap pointers, screen scratch |
+| $37–$40 | 10 | symtab | `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_heap` (2), `_st_heap_base` (2) |
+| $41–$48 | 8 | dasm | `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) |
+| $49–$56 | 14 | editor | `gap_lo` (2), `gap_hi` (2), `buf_base` (2), `ed_top_ptr` (2), `read_ptr` (2, aliases `save_ptr`), `ed_tmp` (2), `ed_scr` (2) |
+| $57–$5D | 7 | cross-module flags <sup>1</sup> | `in_userland` (1), `state` (1), `warm_cont` (1), `kernal_out` (1), `ed_dirty` (1), `dbg_reason` (1), `cur_device` (1) |
+| $5E–$6E | 17 | filename stem <sup>2</sup> | `cur_project_name` (FILENAME_MAX + NUL) |
+| $6F–$77 | 9 | output-formatter scratch <sup>3</sup> | `rp_addr` (2), `rp_cnt` (2), `rp_save` (1), `rp_save2` (1), `rp_next_lo` (2), `_info_mode` (1) |
+
+<sup>1</sup> Phase 21 Move 4 — shared single-byte state read across module boundaries (typically by a lower-layer module than the writer).  Hosted here to eliminate back-edges; see [doc/modules/zp.md](modules/zp.md) for the writer/reader table.
+
+<sup>2</sup> Phase 21.1 Move 6a — written by `repl.s::parse_ls_args`, read by `editor.s` (status bar), `asm_src.s` (`;asm "PROJ"` log line + save-suggestion emitter), and `repl.s` (logging).  Hosted here to eliminate `asm_src→repl` and `editor→repl` back-edges.
+
+<sup>3</sup> Phase 21.1 Move 3B — calling-convention slots for `repl.s` command handlers (`cmd_memory`, `cmd_disasm` etc.) and `log.s` range-line formatters (`seg_line` / `prg_line` / `free_line` / `info_line_*` / `_range_core`).  Hosted here to eliminate the Move-3 residual `asm_src→repl` back-edge and shorten ~190 BSS access sites by 1 byte apiece (~200 B total saved).
 
 ### Non-concurrent groups
 
@@ -705,7 +714,13 @@ variables could share addresses:
 | **Editor** | editor | 14 | 59 | ST_EDIT mode |
 | **Disassembler** | dasm | 8 | 24 | `d`/`t`/`o` |
 | **Disk I/O** | disk | — | 67 | `l`/`s`/`$` |
-| **Always active** | main, cse_io, symtab, expr, repl | 27 | 116 | any time |
+| **Always active** | main, cse_io, symtab, expr, repl, Phase-21 shared <sup>†</sup> | 60 | 116 | any time |
+
+<sup>†</sup> "Phase-21 shared" is the +33 ZP bytes at $57–$77 added by
+Phase 21 Move 4 (cross-module flags, 7 B), Phase 21.1 Move 6a
+(`cur_project_name`, 17 B), and Phase 21.1 Move 3B (output-formatter
+scratch, 9 B).  All three blocks are "always active" — read at any
+prompt cycle by main, repl, or log.
 
 Assembler and editor are fully non-concurrent.  Assembler and
 disassembler are also non-concurrent.  Expression evaluation
