@@ -55,10 +55,13 @@ Suppressed when no segments were emitted (`_min_pc` == $FFFF).
   to match the inclusive-end convention used by the `s` command
   and by `; org AAAA-BBBB` segment lines.
 
-**Depends on:** asm_line, expr, symtab (sym_define, sym_clear),
-editor (ed_read_line, ed_read_rewind, buf_base), log (log_open,
-log_close, puts_imm, log_line, seg_line), asm_err (asm_pass,
-asm_err_code), mem, cse_io, strings, zp
+**Depends on:** asm_line, expr (expr_eval, expr_error_str),
+symtab (sym_define, sym_clear), gap_buffer (ed_read_line,
+ed_read_rewind, buf_base — the gap-buffer reader API was moved
+to gap_buffer.s during the editor extraction), log (log_open,
+log_close, puts_imm, seg_line), asm_err (asm_pass, asm_err_code),
+mem (kernal_bank_in / kernal_bank_out), cse_io, strings
+(str_tag_org), zp
 
 (The ACC label-shadow warning `;!a shadow` is emitted directly by
 `addr_mode.s::mode_parse` on detection — asm_src is not in the

@@ -262,8 +262,13 @@ byte.  User and kernel share the single hardware stack page.
 Both are `.exportzp` in zp.s.  debugger.s writes them; main.s and
 repl.s read them for dispatch decisions.
 
-**Depends on:** asm_line (register state, ZP save), dasm (instruction
-length for step), mem (ZP save/restore primitives), oplen_tbl, zp
+**Depends on:** asm_line (`reg_a`, `reg_x`, `reg_y`, `reg_sp`,
+`reg_p` — userland register shadows), oplen_tbl (instruction
+length for step targeting — read directly, not via dasm), mem
+(`save_userland_zp` / `restore_userland_zp` /
+`save_kernel_zp` / `restore_kernel_zp` ZP-swap primitives;
+`kernel_zp_buf`, `userland_zp_buf` save areas),
+breakpoints (`bp_init`), zp
 
 ## Design
 

@@ -60,9 +60,15 @@ runtime loop and the `T` REPL command (~30 bytes saved).
 counts from last file operation.  `ed_total_lines` (uint16, BSS,
 exported) — current line count, used by the REPL's `i` command.
 
-**Depends on:** disk (SEQ callbacks), screen, cse_io, log, symtab
-(sym_define for `update_workend`), mem (cse_start), strings
-(s_workend), zp (state, ed_dirty cross-module flags)
+**Depends on:** gap_buffer (gb_init, gb_insert, gb_backspace,
+gb_cursor_left, gb_cursor_right, gb_home, gb_ensure_room,
+ed_ensure_init, ed_insert_string, ed_read_rewind, ed_read_byte,
+ed_read_line, check_buf_end, ed_total_lines, src_top, src_bot,
+update_workend, buf_base), cse_io (io_sync, io_blip, scr_lo,
+scr_hi), mem (kernal_bank_out, kernal_bank_in), disk
+(disk_save_seq, disk_load_seq, disk_seq_bytes, disk_seq_lines,
+disk_ptr), zp (cur_project_name, state, ed_dirty cross-module
+flags)
 
 Phase 21.1 Move 6a resolved the pre-existing `cur_project_name`
 back-edge by hosting the buffer in `zp.s` as `.exportzp` (17 bytes

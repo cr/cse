@@ -38,7 +38,11 @@ dir`, `bits 4:0 = profile index (0–29)` — see
 [dev/mnemonic_tables.py](../../dev/mnemonic_tables.py)
 (`_compute_cat` / `_compute_dir_bit`) for the authoritative encoding.
 
-**Depends on:** mn_vars (mn_c1/c2/c3), mn6_tables or mn7_tables (GENERATED)
+**Depends on:** zp (`mn_c1` / `mn_c2` / `mn_c3` — originally
+hosted in mn_vars, migrated to zp.s as `.exportzp` ZP vars),
+mn6_tables or mn7_tables (GENERATED — `mn{6,7}_classify`,
+`mn{6,7}_base_op`, `mn{6,7}_profile`, selected per build-time
+`USE_MN6`)
 
 ### Memory
 

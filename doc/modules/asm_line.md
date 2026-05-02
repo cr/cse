@@ -70,9 +70,14 @@ alongside the `save_userland_zp` / `restore_userland_zp` /
 opcode_lookup (asm_opcode_lookup), mn_classify (mn_base_op,
 mn_profile), mn_modes (mn_modes_lo — for the ACC-bit test that
 drives _au_no_acc; the IMP→ACC promotion reuses _au_no_acc rather
-than re-reading the table), asm_err (asm_syntax_error /
-asm_expr_error / asm_cpu_error / asm_err_code / _asm_saved_sp),
-mem (kernal_bank_out / kernal_bank_in), zp
+than re-reading the table), asm_err (asm_error, asm_syntax_error,
+asm_cpu_error), mem (kernal_bank_out / kernal_bank_in), zp
+(`_asm_saved_sp`, `asm_pc`, `asm_out`, `asm_len`, `asm_*`
+slot/profile state).
+
+The `asm_err_code` byte itself is BSS owned by asm_err.s — it's
+written by `asm_error` and read by asm_src.s; asm_line is not in
+the read or write path.
 
 ## Build-time variants
 

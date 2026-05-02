@@ -19,7 +19,8 @@ ZP scratch window (reused as `ptr1`/`ptr2`), and the LOADER segment's
 own memory once `_main` reclaims it as workspace.
 
 **State:** none — the loader runs once and is overwritten.
-**Depends on:** `_main` (entry point), and the linker-supplied symbols
+**Depends on:** `_main` — the loader's final `jmp` target after
+relocation is complete; plus the linker-supplied symbols
 `__CODE_LOAD__`, `__CODE_RUN__`, `__CODE_SIZE__`, `__RODATA_SIZE__`,
 `__BSS_RUN__`, `__BSS_SIZE__`, `__KDATA_LOAD__`, `__KDATA_RUN__`,
 `__KDATA_SIZE__`.
