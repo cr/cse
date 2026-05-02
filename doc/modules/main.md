@@ -205,7 +205,7 @@ STOP shadow $91 reports STOP released.  See `main_loop` for the
 edge-trigger discipline.
 
 **KBSS (cold-init snapshot, under kernal ROM):**
-- `_cold_zp` (127 B) — snapshot of $01-$7F at cold-init entry
+- `COLD_ZP` (127 B) — snapshot of $01-$7F at cold-init entry
 
 **Depends on:** repl, editor, debugger, asm_line, screen, cse_io,
 symtab, log, mem, strings, zp
@@ -223,7 +223,7 @@ by earlier steps, with no hidden cross-subsystem reach-ins.
 1. **Keyboard / charset-switch setup.**  `KEY_REPEAT` |= $80;
    `$0291` = $80 (disable C= + SHIFT charset toggle).
 2. **Save $01-$7F to KBSS.**  Snapshot the user's ZP and CPU-port
-   into `_cold_zp` (under-KERNAL RAM) so `cse_exit_to_basic` can
+   into `COLD_ZP` (under-KERNAL RAM) so `cse_exit_to_basic` can
    restore it on clean exit.
 3. **Unmap BASIC ROM** (`$01 &= ~1` → $36).  CSE owns $A000-$BFFF
    from this point; LORAM=0 must hold for the rest of cold init.

@@ -259,7 +259,7 @@ that don't change, then renders only the single new line:
 RUN/STOP toggles between REPL and editor.
 
 **`enter_editor`:**
-1. Save REPL cursor position (`io_cx`, `io_cy`)
+1. Save REPL cursor position (`CUR_COL`, `CUR_ROW`)
 2. Save REPL screen RAM (1000 bytes) to `repl_screen`
 3. Initialize gap buffer if first entry (`ed_ensure_init`)
 4. Smart indent seed: if the buffer is **truly empty** — both
@@ -289,7 +289,7 @@ verbatim on return.
 ### Keystroke dispatch
 
 `ed_handle_key` processes one keystroke per call.  All cases end
-with the `reposition` label which syncs `io_cx`/`io_cy` to the
+with the `reposition` label which syncs `CUR_COL`/`CUR_ROW` to the
 editor cursor.
 
 | Key | Action | Redraw |

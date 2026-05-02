@@ -99,8 +99,8 @@ before disk_load_prg/save_prg/load_seq/save_seq.
 
 | Variable | Size | Purpose |
 |----------|------|---------|
-| `_disk_seq_bytes` | 2 | Bytes transferred (last SEQ op) |
-| `_disk_seq_lines` | 2 | Lines transferred (last SEQ op) |
+| `disk_seq_bytes` | 2 | Bytes transferred (last SEQ op) |
+| `disk_seq_lines` | 2 | Lines transferred (last SEQ op) |
 | `fl_buf` | 32 | File listing line buffer |
 | `open_buf` | 28 | Filename build buffer for CBM open |
 | `callback` | 2 | SEQ I/O function pointer |
@@ -119,7 +119,7 @@ cross-module flag, eliminating the repl back-edge.
 All file I/O uses direct KERNAL calls (SETLFS, SETNAM, OPEN, CLOSE,
 CHKIN, CHKOUT, CHRIN, CHROUT, LOAD, SAVE, READST, CLRCHN).
 
-**Device number** comes from `_cur_device` (imported from repl.s).
+**Device number** comes from `cur_device` (imported from repl.s).
 
 **CBM DOS open strings** are built by `build_open_str`, which takes
 mode (`r`/`w` in A) and file type (`s` for SEQ, `p` for PRG in X).

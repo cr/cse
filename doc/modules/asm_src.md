@@ -86,7 +86,7 @@ Two passes over the editor source:
 - Local labels: `.name:` → stored as `scope.name` in symbol table.
 - Constants: `.const name expr` → sym_define(name, expr_val).
 - Instructions: rebuilt as PETSCII in `_insn_buf`, passed to
-  `_asm_line` to determine size.  asm_pc advanced by returned length.
+  `_asm_line_core` to determine size.  asm_pc advanced by returned length.
 - Forward references: in instruction operands, `_au_read_val`
   substitutes the dummy target `asm_pc+2` so branches assemble
   in-range (offset=0) and return correct size.  In `.db` / `.dw`
@@ -172,7 +172,7 @@ for the full list, parameters, and per-pass behaviour.
 
 **ZP locals:** `_as_ptr` (2B, parse pointer), `_as_wsize` (1B, scratch)
 
-**BSS:** `_asm_pass` (1B), `_line_num` (2B), `_line_buf` (40B),
+**BSS:** `asm_pass` (1B), `_line_num` (2B), `_line_buf` (40B),
 `_scope_name` (24B), `_full_label` (48B), `_insn_buf` (32B),
 `_expr_buf` (48B), `_as_conv` (1B, screen code conversion flag),
 `_eb_idx` (1B, write index into _expr_buf),
@@ -196,6 +196,6 @@ for the full list, parameters, and per-pass behaviour.
 - Forward-reference dummy uses `asm_pc+2` (not $0000) so branch
   instructions get correct 2-byte size in pass 0.
 - Error messages are only printed in pass 1 (`emit_error` checks
-  `_asm_pass`).  Format: `;?N: message` where N is the source
+  `asm_pass`).  Format: `;?N: message` where N is the source
   line number.  Uses `;?` prefix consistent with the REPL error
   convention (non-executable line).

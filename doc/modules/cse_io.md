@@ -34,8 +34,8 @@ $D6 (row).
 
 | Address | Name | Read/Write | Purpose |
 |---------|------|-----------|---------|
-| $D3 | CUR_COL | R/W | Cursor column (0–39).  Aliased as `io_cx` in code. |
-| $D6 | CUR_ROW | R/W | Cursor row (0–24).  Aliased as `io_cy` in code. |
+| $D3 | CUR_COL | R/W | Cursor column (0–39).  Cursor column register.|
+| $D6 | CUR_ROW | R/W | Cursor row (0–24).  Cursor row register.|
 | $D1/$D2 | SCR_PTR | — | NOT used by cse_io; updated by io_sync via KERNAL PLOT |
 | $F3/$F4 | COL_PTR | — | NOT used by cse_io; updated by io_sync via KERNAL PLOT |
 | $C6 | KEY_COUNT | R | Keyboard buffer count (io_kbhit) |
@@ -72,39 +72,39 @@ $20–$7F → identity.  Extracted from read_line for testability.
 ### io_putc
 
 **Input:** A = PETSCII character
-**Precondition:** io_cy and io_cx are valid (0–24, 0–39)
+**Precondition:** CUR_ROW and CUR_COL are valid (0–24, 0–39)
 
 **Behavior:**
 1. Convert PETSCII `ch` to screen code using the table above
-2. Compute screen address: `addr = scr_lo[io_cy] | (scr_hi[io_cy] << 8)`
-3. Write screen code to `addr + io_cx`
-4. Increment io_cx (clamped at 39: if io_cx was 39, stays 39)
+2. Compute screen address: `addr = scr_lo[CUR_ROW] | (scr_hi[CUR_ROW] << 8)`
+3. Write screen code to `addr + CUR_COL`
+4. Increment CUR_COL (clamped at 39: if CUR_COL was 39, stays 39)
 
 **Postconditions:**
-- Exactly 1 byte written to screen RAM at row io_cy, column (original io_cx)
-- io_cx = min(original_io_cx + 1, 39)
-- io_cy unchanged
+- Exactly 1 byte written to screen RAM at row CUR_ROW, column (original CUR_COL)
+- CUR_COL = min(original_CUR_COL + 1, 39)
+- CUR_ROW unchanged
 - _io_scr clobbered (used internally)
 - _io_tmp preserved (safe to call from io_puts)
 
 **Does NOT:**
 - Write to color RAM
 - Call io_sync
-- Modify io_cy
+- Modify CUR_ROW
 - Scroll the screen
 
 ### io_puts
 
 **Input:** A/X = pointer to NUL-terminated PETSCII string
-**Precondition:** io_cy and io_cx are valid
+**Precondition:** CUR_ROW and CUR_COL are valid
 
 **Behavior:**
 For each byte in `s` until NUL: call io_putc(byte).
 
 **Postconditions:**
-- N bytes written to screen RAM starting at (io_cy, original_io_cx)
-- io_cx = min(original_io_cx + strlen(s), 39)
-- io_cy unchanged
+- N bytes written to screen RAM starting at (CUR_ROW, original_CUR_COL)
+- CUR_COL = min(original_CUR_COL + strlen(s), 39)
+- CUR_ROW unchanged
 - _io_tmp clobbered (used for string pointer)
 
 ### io_puthex2
@@ -112,10 +112,10 @@ For each byte in `s` until NUL: call io_putc(byte).
 **Input:** A = byte value
 
 **Behavior:**
-1. Compute screen address from scr_lo/scr_hi[io_cy]
-2. Write hex_tab[v >> 4] at io_cx
-3. Write hex_tab[v & $0F] at io_cx + 1
-4. Advance io_cx by 2 (clamped at 39)
+1. Compute screen address from scr_lo/scr_hi[CUR_ROW]
+2. Write hex_tab[v >> 4] at CUR_COL
+3. Write hex_tab[v & $0F] at CUR_COL + 1
+4. Advance CUR_COL by 2 (clamped at 39)
 
 **Output screen codes:** hex_tab values: $30–$39 for 0–9, $01–$06 for A–F
 
@@ -124,7 +124,7 @@ For each byte in `s` until NUL: call io_putc(byte).
 **Input:** A = lo byte, X = hi byte
 
 **Behavior:** Call io_puthex2(hi), then io_puthex2(lo).
-Writes 4 hex digits, advances io_cx by 4.
+Writes 4 hex digits, advances CUR_COL by 4.
 
 ### io_repc
 
@@ -168,16 +168,16 @@ jsr io_utoa in io_putdec — caller's carry passes through.
 
 ### io_clear_eol
 
-**Precondition:** io_cy and io_cx are valid
+**Precondition:** CUR_ROW and CUR_COL are valid
 
 **Behavior:**
-1. Compute screen address from scr_lo/scr_hi[io_cy]
-2. Fill screen RAM from io_cx to column 39 with $20 (space)
+1. Compute screen address from scr_lo/scr_hi[CUR_ROW]
+2. Fill screen RAM from CUR_COL to column 39 with $20 (space)
 
 **Postconditions:**
-- Columns io_cx through 39 of current row are $20
-- io_cx unchanged
-- io_cy unchanged
+- Columns CUR_COL through 39 of current row are $20
+- CUR_COL unchanged
+- CUR_ROW unchanged
 
 ### io_getc
 
@@ -197,16 +197,16 @@ nonzero = keys waiting.
 
 ### io_sync
 
-**Behavior:** Call KERNAL PLOT ($FFF0) with CLC, X=io_cy, Y=io_cx.
+**Behavior:** Call KERNAL PLOT ($FFF0) with CLC, X=CUR_ROW, Y=CUR_COL.
 This updates $D1/$D2 (screen line pointer) and $F3/$F4 (color
 line pointer) to match the current cursor position.
 
-**When to call:** After modifying io_cy ($D6).  Not needed after
-modifying only io_cx ($D3).
+**When to call:** After modifying CUR_ROW ($D6).  Not needed after
+modifying only CUR_COL ($D3).
 
 **Note:** cse_io's output functions (io_putc, io_puts, io_puthex*,
 io_putdec, io_clear_eol) do NOT use $D1/$D2.  They compute the
-screen address directly from scr_lo/scr_hi[io_cy].  io_sync exists
+screen address directly from scr_lo/scr_hi[CUR_ROW].  io_sync exists
 for the KERNAL's benefit (cursor blink, screen editor state).
 
 ### io_blip
@@ -385,7 +385,7 @@ CSE keeps $CC=1 at all times and manages the cursor via cursor_show/hide.
 ## Caveats
 
 - Set `$CC=1` (`io_cursor_off()`) at startup.  Never re-enable KERNAL cursor.
-- Call `io_sync()` after changing `io_cy`.
+- Call `io_sync()` after changing `CUR_ROW`.
 - Fill screen RAM and color RAM at startup (`memset`).
 - Use `SEI`/`CLI` around screen RAM memmove in `scroll_up` (cosmetic).
 - Manage cursor visibility via `cursor_show()`/`cursor_hide()`.

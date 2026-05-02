@@ -13,7 +13,7 @@
 
 ### restore_colors
 **In:** none (reads theme_border, theme_bg, theme_fg)
-**Out:** VIC border/bg set, `_io_color` set, color RAM filled with theme_fg
+**Out:** VIC border/bg set, `io_color` set, color RAM filled with theme_fg
 **Clobbers:** A, X
 
 ### reset_screen
@@ -111,17 +111,17 @@ only handles the mode registers.
 ### scroll_up
 **In:** A = number of rows to scroll
 **Out:** screen RAM scrolled up, bottom rows cleared with spaces,
-io_cy adjusted (clamped to 0).  If A ≥ 25: full screen clear.
+CUR_ROW adjusted (clamped to 0).  If A ≥ 25: full screen clear.
 **Clobbers:** A, X, Y
 
 ### newline
-**In:** none (uses io_cy, io_cx)
-**Out:** io_cx = 0, io_cy incremented.  If at bottom row (24),
+**In:** none (uses CUR_ROW, CUR_COL)
+**Out:** CUR_COL = 0, CUR_ROW incremented.  If at bottom row (24),
 scrolls up 1 instead of incrementing.  Calls `io_sync`.
 **Clobbers:** A, X, Y
 
 ### cursor_show / cursor_hide
-**In:** none (uses io_cy, io_cx)
+**In:** none (uses CUR_ROW, CUR_COL)
 **Out:** screen byte at cursor XOR'd with $80 (toggles reverse)
 **Clobbers:** A, X, Y
 
@@ -141,8 +141,10 @@ target where RODATA lives in ROM.
 
 ## Theme System
 
-Three RODATA bytes control the color scheme: `_theme_border`,
-`_theme_bg`, `_theme_fg`.  Values are C64 color indices 0–F.
+Three BSS bytes control the color scheme: `theme_border`,
+`theme_bg`, `theme_fg`.  Values are C64 color indices 0–F.
+(BSS, not RODATA — the `c BFS` REPL command rewrites them at
+runtime, and the planned CRT target has RODATA in ROM.)
 
 **Build-time selection:** `make THEME=BFS` where B, F, S are hex
 nybbles for border, background, and foreground.  Decoded by the
@@ -198,4 +200,4 @@ position.  No KERNAL cursor — CSE manages its own via $CC=1.
   (`pha`/`pla`).  Stack depth during scroll: 3 bytes (n, src_row,
   dst_row) plus the JSR return address.
 - `newline` at row 24 scrolls then stays at row 24.  Below row 24
-  it increments.  Both paths reset io_cx to 0.
+  it increments.  Both paths reset CUR_COL to 0.

@@ -25,7 +25,7 @@ framing.
 ## Interface
 
 - `exec_line()` — parse current screen line, dispatch command
-- `read_line()` — capture screen row at io_cy into line_buf (PETSCII)
+- `read_line()` — capture screen row at CUR_ROW into line_buf (PETSCII)
 - `show_prompt()` — write `AAAA:` at cursor using cur_addr
 
 **State:**
@@ -127,7 +127,7 @@ runs is the responsibility of the previous command handler
    uppercase screen codes ($41–$5A) to PETSCII $C1–$DA.
 
 3. **Commands own their output lines.**  Every line a handler writes
-   must be `clear_eol`'d — no leftover characters from previous
+   must be `io_clear_eol`'d — no leftover characters from previous
    content.
 
 4. **Commands own their prompt line.**  In block-edit mode (`.` with
@@ -135,7 +135,7 @@ runs is the responsibility of the previous command handler
    reflect the edited state.  What's on screen is the truth.
 
 5. **Commands own the next line's clearing.**  Before returning,
-   handlers clear the prompt line (`clear_eol`) so the loop's
+   handlers clear the prompt line (`io_clear_eol`) so the loop's
    `show_prompt` writes `AAAA:` onto a clean line.  Exception: `.`
    and `m` in edit mode leave the next line intact — this is the
    block-edit workflow (cursor up, modify, re-RETURN).  `show_prompt`
@@ -245,7 +245,7 @@ The `.` handler has three modes:
 3. **Without args:** disassemble one instruction at `cur_addr`.
 
 **Expression support:** In mode 2, the operand is evaluated through
-`_expr_eval` before being passed to the line assembler.  This means
+`expr_eval` before being passed to the line assembler.  This means
 full expressions work in the `.` command:
 
     1000:. lda screen+$20     ; label + arithmetic
@@ -258,7 +258,7 @@ available, since the symbol table heap persists between assemblies.
 The operand is evaluated to a numeric value, formatted as `$XX` or
 `$XXXX` (based on `expr_wide`), and the prefix/suffix characters
 (`#`, `(`, `,x`, `)`, etc.) are preserved around it.  The formatted
-string is then passed to `_asm_line` which handles only hex operands.
+string is then passed to `_asm_line_core` which handles only hex operands.
 
 In all three cases, the handler finishes by disassembling the
 instruction at `cur_addr` and rewriting the prompt line with the
@@ -859,7 +859,7 @@ paths:
 - `emit_reg()` — writes `r pc:xxxx a:xx x:xx y:xx s:xx Nv-bDizc`
   (set flags uppercase, clear flags lowercase; AND #$DF on PETSCII)
 
-Each emitter starts at column 0 and calls `clear_eol` at the end.
+Each emitter starts at column 0 and calls `io_clear_eol` at the end.
 
 ### Implementation status
 

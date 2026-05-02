@@ -74,7 +74,7 @@ factor     = '$'hex | '%'bin | decimal | '*' | label        [parse_factor]
 
 **Width tracking:** The ZP flag `expr_wide` determines whether the
 result selects 2-byte (ZP) or 3-byte (ABS) instruction encoding.
-It is reset to 0 (narrow) at the start of each `_expr_eval` call
+It is reset to 0 (narrow) at the start of each `expr_eval` call
 and accumulates via OR — once wide, always wide.
 
 Width sources (leaves):
@@ -154,7 +154,7 @@ operator peek fails, `expr_ptr` stays where `skip_sp` last parked it.
 - `skip_sp` skips $20 (space) and $A0 (tab) between tokens.
 - `expr_ptr` is advanced past the parsed prefix on return (see
   § Partial-mode contract above for the formal statement).
-- `expr_wide` is reset to 0 at the start of each `_expr_eval` call.
+- `expr_wide` is reset to 0 at the start of each `expr_eval` call.
   No contamination from previous calls.
 - Label charset: letters, digits, `.` (dot).  No underscore (not
   typeable on C64 keyboard).  Accepts PETSCII $41–$5A (the letter
