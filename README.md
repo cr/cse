@@ -126,6 +126,23 @@ arithmetic, labels, and lo/hi byte operators.  See
 
 ## Quick start
 
+### Get the binary
+
+Grab the latest release from
+[github.com/cr/cse/releases/latest](https://github.com/cr/cse/releases/latest).
+Each release attaches:
+
+| File | Use |
+|------|-----|
+| `cse.d64` | Disk image — mount in VICE or write to a real 1541; contains all three CPU variants |
+| `cse-exo.prg` | 6510 build (default — exomizer-compressed, handles illegal opcodes) |
+| `cse-6502-exo.prg` | 6502 build — strict legal opcodes only |
+| `cse-cmos-exo.prg` | 65C02 build — adds CMOS opcode set |
+
+Or [build from source](#development) if you prefer.
+
+### Run
+
     LOAD "CSE",8,1
     RUN
 
