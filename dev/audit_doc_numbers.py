@@ -157,6 +157,13 @@ def all_md_files():
         if f.is_file()
         and ".claude" not in f.parts
         and "build" not in f.parts
+        # ddd_log.md is by-design retrospective — quotes
+        # historical-state numerical claims as part of its
+        # what-worked-and-didn't structure.  Excluded from this
+        # audit; cross-doc consistency is gated elsewhere.
+        and f.name != "ddd_log.md"
+        # project_phase*_complete.md are historical snapshots.
+        and not f.name.startswith("project_phase")
     ]
 
 

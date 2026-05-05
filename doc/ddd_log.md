@@ -11,6 +11,274 @@ Newest entries on top.
 
 ---
 
+## Phase 26 — v0.1 Release
+
+**Scope:** the v0.1 release-cycle session covering rc1 → rc4 → v0.1.
+Five rc1-VICE bugs caught, fixed, and re-tested through three
+release candidates; eight permanent documentation-audit scripts
+landed under `dev/`; ~50 doc drift fixes; the project published
+to `github.com/cr/cse` with MIT licensing and a v0.1 GitHub
+Release carrying disk-image + per-CPU PRG artifacts.
+
+### What worked
+
+#### Probe-first debugging unblocked the recurring CHROUT-jank fix
+
+The cursor-jank bug went through THREE landings before reaching
+the right code — and the first two were *enumeration-driven*
+(rc2 attempt 1 in `reset_screen`; rc2 attempt 2 in `refresh_body`).
+The third (rc3) was *probe-driven*: I wrote
+`dev/probe_chrout_zp.py` to enumerate which ZP bytes KERNAL
+CHROUT actually mutates, and `dev/probe_plot_with_corrupt_ldtb1.py`
+to demonstrate the PLOT-with-corrupt-LDTB1 mechanism.  Both
+probes ran in py65 against the real C64 KERNAL ROM.  The first
+probe revealed that CSE's `io_putc` *bypasses KERNAL CHROUT
+entirely* — so the kernel-mode NMI path I'd been patching could
+never have been corrupting KERNAL ZP in the first place.  The
+second probe demonstrated that PLOT(10, 5) lands on row 9 col 45
+when LDTB1 is corrupt, which IS the user-visible jank.
+
+After two enumeration-based attempts that fixed nothing, one
+~30-line py65 probe gave the answer in 5 minutes.  This is
+exactly the discipline the Phase-25 A1 amendment proposed.  The
+amendment paid for itself within one session of becoming policy.
+
+#### Mechanical doc audits surfaced real drift the eye missed
+
+Eight audit scripts landed under `dev/` (umbrella `audit_doc.py`).
+Combined, they caught ~50 documentation drift issues that
+manual reading had missed across multiple Phase-25-Maintenance
+passes.  Notable wins:
+
+- ZP overview claimed "85 bytes ($02-$56)" — actual is 118 bytes
+  ($02-$77).  Phase-21 added 33 bytes that no doc touched.
+- BSS counts in `dasm.md` and `main.md` off by 3 and 3 bytes
+  respectively (added but unaccounted-for `.res` directives).
+- "Depends on" lists in `editor.md`, `asm_src.md`, `mn_classify.md`
+  named modules that had been refactored away.
+- Symbol renames (io_cx/io_cy → CUR_COL/CUR_ROW, _expr_eval →
+  expr_eval, clear_eol → io_clear_eol, etc.) — 25+ stale refs.
+- `kernal_bank_*` attributed to `symtab.s` but lived in `mem.s`.
+
+The umbrella now gates release-readiness mechanically.  A
+maintainer running `dev/audit_doc.py --quiet` before a tag gets
+a 30-second guarantee against the entire class of structural
+drift.  This is the Phase-25 amendment direction made permanent
+infrastructure.
+
+#### Linker-map source-of-truth beat text parsing
+
+The first version of `audit_doc_module_bss.py` parsed `.res`
+directives from `src/*.s` directly — and false-positived on
+`.res (BP_SLOTS + STEP_SLOTS) * SLOT_SIZE` (breakpoints.s) and
+`.res FILENAME_MAX + 2` (repl.s) because expressions need
+constant evaluation.  Switched to reading the linker map
+(`build/debug/cmos/cse.map` "Modules list" section) which has
+the post-evaluation byte counts.  False positives → zero.
+
+Lesson catalogued: when auditing assembled code for size /
+layout claims, the linker map is the source-of-truth.  Don't
+re-implement what the assembler/linker already computed.
+
+#### DDD discipline survived all four rc cycles
+
+Every fix went through the seven steps: doc → DDD analysis →
+TDD analysis → implement → differential DDD → commit → report.
+Even the failed CHROUT landings went through their full cycles
+— each had an honest commit message acknowledging why the
+*previous* attempt was wrong.  Result: the bug entry in
+`doc/TODO.md § Bugs` reads as a worked example of the
+"three-landings-before-it-landed-right" pattern, which is
+*more useful* than a single clean fix would have been.
+
+The system worked exactly as designed: wrong attempts get
+DOCUMENTED, not hidden.
+
+#### VICE test plan generalised from per-rc fix-list to permanent gate
+
+Initial intent was a checklist for v0.1 final readiness.  Once
+written, the structure obviously generalised: `doc/vice_test_plan.md`
+is now a permanent test-plan reference where § E (rc-fix
+verifications) refreshes per release but A–D, F–H stay constant.
+Future v0.2 / v0.3 inherit it.
+
+The Phase-25 A2 amendment (TODO closure with commit) and the
+new permanent test plan together close the loop:
+findings → bug entries → fixes → permanent VICE-verifiable
+contract.
+
+#### Public-publication mechanics were trivial after the discipline
+
+The transition from "tagged v0.1 locally" to "live at
+github.com/cr/cse" was three commands: `gh repo create`,
+`git push -u origin main`, `git push origin v0.1` (plus
+`gh release create` for the binary release page).  Total
+elapsed time: ~3 minutes once SSH→HTTPS auth was configured.
+
+The reason this was trivial is that everything was already
+in shape: README rendered correctly with screenshots,
+LICENSE auto-detected by GitHub for the sidebar badge, all
+audits green, all rc tags accumulated as a public tag history.
+The discipline did the publish.
+
+### What didn't work
+
+#### Same-bug-class multi-landing is a correctness smell I missed in real time
+
+Three landings on the CHROUT-jank bug.  Phase-25 had A1 (probe
+before enumerating) but I didn't internalise the principle as
+a *real-time signal*.  The pattern: when a fix doesn't resolve
+the user-reported symptom on first try, the second attempt
+should NOT be "narrow the scope of the same enumeration" —
+it should be "stop, write a probe, reset assumptions."  I did
+attempt 2 (narrow scope) and only after that failed did I
+write the probe.
+
+Lesson for amendment: explicit "second-landing trigger" — if a
+fix doesn't resolve the reported symptom, the *next* action is
+mandatory probe-writing, not another enumeration attempt.
+
+#### Audit-suite false positives delayed the initial value
+
+Step 1B (symbol existence) initially flagged 198 names.  Most
+were false positives: module file names referenced as concepts
+("the asm_src module"), build-time `-D` macros, KERNAL ROM
+addresses CSE references but doesn't define, conceptual handler
+names (`cmd_continue` is `@h_c` in code).  Spent ~30% of the
+audit-development time iterating filters before the audit gave
+clean signal.
+
+The right pattern, in retrospect: pick mechanical-fail gating
+tests EARLY (false negatives are fine — bug entries can be
+filed for residuals), then refine.  Don't try to ship a
+zero-false-positive audit on the first cut.  The Phase-25 A4
+amendment direction (enum codes over booleans) generalises:
+report-only audits should escalate to gating only when their
+false-positive rate is genuinely low.
+
+#### License + ROM attribution were caught by the user, not by the corpus
+
+The user caught the missing LICENSE during pre-tag.  I caught
+the MEGA65-ROM-without-attribution on `gh repo create`.  Both
+should have been gated by a `release_checklist.md` (mechanical
+pre-flight).  Both are exactly the kind of "we forgot something
+obvious" issue that a checklist catches and a verbal "I think
+we're ready" doesn't.
+
+#### Semantic correctness of user-facing examples is a class the audits don't catch
+
+The README's `.org $C000` examples would have crashed CSE if
+pasted by a user (CSE runtime is at `$7B00-$CFFF`; user code
+at `$C000` corrupts CSE's own BSS).  The structural audits
+catch broken cross-refs and stale numbers but not "this
+example, if executed, breaks the system."  This is a different
+drift class — *semantic* validity of examples — and warrants
+its own audit step.
+
+The user caught the C000 issue and asked me to double-check;
+I found 3 residuals beyond the user's pass.  This is the kind
+of finding a Step-5-style "examples-as-tests" audit would
+catch automatically.
+
+### Suggested amendments
+
+These are concrete proposals, none of which landed in this
+session.  They feed the next Maintenance round.
+
+#### A6.  Probe-first debugging: second-landing trigger
+
+**Proposal**: amend `doc/README.md` § DDD Method Step 4
+(Implementation) or a new subsection: "When a fix does not
+resolve the reported symptom on first attempt, the next action
+is *mandatory probe-writing* — not another enumeration-based
+fix.  Multi-landing fixes (more than one attempt at the same
+bug class in a session without a probe in between) are a
+correctness smell.  The probe is what reveals which assumption
+was wrong; without it, the second attempt is just noise."
+
+The motivating evidence is in this Log § Same-bug-class
+multi-landing.  The Phase-25 A1 amendment proposed probe-driven
+verification of *findings*; A6 extends it to probe-driven
+verification of *root causes* before re-attempting fixes.
+
+#### A7.  Pre-publish release checklist
+
+**Proposal**: add a new `doc/release_checklist.md` (or section
+of `doc/vice_test_plan.md`) covering the mechanical pre-flight
+before any tag intended for public release:
+
+- LICENSE file present + author/year correct.
+- All committed binary artifacts have provenance documented
+  (rom/README.md style).
+- README user-facing examples use only addresses in
+  workspace ($0800-workend) or KERNAL ranges; no examples
+  referencing CSE runtime ($7B00-$CFFF).
+- `dev/audit_doc.py --quiet` reports all gating audits green.
+- All rc tags pushed to remote.
+- v0.x release page exists with binary artifacts attached.
+
+Both LICENSE and ROM attribution were caught last-minute this
+session — exactly the class of issue a checklist catches.
+
+#### A8.  Semantic-correctness audit for user-facing examples
+
+**Proposal**: Step 5 of the doc-audit plan
+(`examples-as-tests`, currently filed as v0.2 candidate)
+gains a *semantic correctness* dimension beyond mere
+assembleability: every `$XXXX` in user-facing prose
+(README.md, doc/assembler_syntax.md) that names a memory
+location should be classified safe / unsafe based on the
+runtime memory map.  Unsafe addresses (CSE runtime, BSS,
+KERNAL ROM under-RAM) flag for review.
+
+The motivating evidence: three `$C000` residuals in README
+this session, all of which would have crashed CSE if
+executed.  The user's `.org $C000` cleanup pass caught
+some; the others survived.  A mechanical scanner that
+knows the memory map would catch all of them.
+
+#### A9.  Audit-suite gates for v0.x final tags
+
+**Proposal**: amend `doc/release_checklist.md` (per A7) to
+formally require all gating audits in `dev/audit_doc.py`
+green before any tag without an `-rc` suffix.  Currently the
+umbrella exists and is recommended; A9 makes it required for
+release tags.  Combined with A7, it converts a discipline
+into a process.
+
+### Closing summary
+
+Phase 26 closed cleanly: v0.1 published at github.com/cr/cse,
+five rc1-VICE bugs all closed and retested, ~50 doc drift
+fixes, eight permanent audit scripts under `dev/`, MIT
+licensing applied, ROM attribution documented, release page
+with disk-image + 3 PRG variants.  The DDD System held
+through four rc cycles.  Every bug entry traceable from
+symptom → root-cause-via-probe → fix → regression test →
+public release.
+
+Phase 25's five amendments (A1-A5) all landed implicitly via
+the work this session demanded.  A1 (probe-first) was
+internalised the hard way (three landings before it stuck).
+A2 (TODO closure with commit) was honoured automatically.
+A3 (stale-marker grep) became `audit_phase_markers.py`.  A4
+(enum codes) didn't apply directly but informed the
+report-only-vs-gating audit distinction.  A5 (cross-module
+handoff in Step 2) showed up as the audit infrastructure
+itself.
+
+The four new amendments above (A6-A9) extend the system from
+*correctness discipline* into *release-readiness gating* —
+the mechanical pre-flight that closes the loop between
+"tested" and "shipped."
+
+Next is v0.2: the audit suite catches its first generation
+of drift, the new amendments apply at every release, and
+the DDD whitepaper takes the methodology where the corpus
+documentation can't reach.
+
+---
+
 ## Phase 25 — Release Polish
 
 **Scope:** the v0.1 release-polish session covering ~18 commits from
