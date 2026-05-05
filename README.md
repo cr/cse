@@ -1,4 +1,4 @@
-# CSE — THE ULTIMATE C64 ASM ENV
+# CSE — THE INTEGRATED C64 ASM ENV
 
 CSE is a native, integrated assembler environment for the Commodore 64 —
 editor, assembler, disassembler, hex monitor, expression calculator,
@@ -16,24 +16,23 @@ Pure and simple.
 CSE is built for two kinds of programmer, and it refuses to compromise
 on either.
 
-**The seasoned developer** who wants a sketchpad. An immediate-mode
+**Experienced developer** who want a sketchpad. An immediate-mode
 6502 REPL with no toolchain, no build step, no context switch back to
-the host OS. Try three versions of an inner loop, watch the cycle
-count change, poke at the hardware, get out. The loop from "I want to
-try something" to "I am watching it run" has no pipeline in the middle.
+the host OS. The loop from "I want to try something" to "I am watching
+it run" has no pipeline in the middle.
 
-**The learner** who wants a first computer that does one thing
-honestly. 64 KiB of RAM they can read all of, 56 documented CPU
-instructions, a memory map that prints on one page, a screen that is
-literally the command buffer. No browser tab, no notifications, no
-package manager. The scope is finite, the ceiling is visible, and the
-computer stops when the user does. Give them a 6502 book and the CSE
-cheat sheet and they're ready to start.
+**The learners** who want a first computer that does one thing
+honestly. 64 K of RAM you can read entirely, 56 well-documented CPU
+instructions, a on-page memory map, a screen that is literally the
+command buffer. No browser tabs, no notifications, no package
+managers. The scope is finite, the ceiling is visible, and the
+computer hides no complexity. Give them a 6502 book and the CSE
+cheat sheet, and they're ready to start.
 
-The same design choices serve both — minimal footprint, maximum
+The same design principles serve both — minimal footprint, maximum
 workspace, fluent interaction, one environment instead of many tools —
-because a beginner and an expert both benefit from a computer whose
-surface area fits in their head.
+because beginner and expert likewise benefit from a computer you can
+truly understand in its entirety.
 
 For the longer story — why CSE exists, how it compares to its peers,
 and what keeps the promise honest — see [background.md](background.md).
@@ -136,9 +135,9 @@ Press RUN/STOP to toggle between the REPL and the source editor.
 
 ### Themes
 
-CSE ships with thirteen built-in colour themes — pick one at
-build time with `make THEME=NAME`, or change the live colours
-with the `C` REPL command.
+CSE ships with thirteen compile time colour themes — pick one
+with `make THEME=NAME`, or change the colours with the `C` REPL
+command.
 
 <table>
 <tr>
@@ -149,8 +148,8 @@ with the `C` REPL command.
 </tr>
 <tr>
   <td align="center"><img src="img/theme-MILKYWAY.png" width="160" alt="MILKYWAY"><br><sub>MILKYWAY</sub></td>
-  <td align="center"><img src="img/theme-LEEBRUCE.png" width="160" alt="LEEBRUCE"><br><sub>LEEBRUCE</sub></td>
   <td align="center"><img src="img/theme-BRUCELEE.png" width="160" alt="BRUCELEE"><br><sub>BRUCELEE</sub></td>
+  <td align="center"><img src="img/theme-LEEBRUCE.png" width="160" alt="LEEBRUCE"><br><sub>LEEBRUCE</sub></td>
   <td align="center"><img src="img/theme-MRSPIGGY.png" width="160" alt="MRSPIGGY"><br><sub>MRSPIGGY</sub></td>
 </tr>
 <tr>
