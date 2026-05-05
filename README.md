@@ -1,9 +1,9 @@
 # CSE — THE INTEGRATED C64 ASM ENV
 
-CSE is a native, integrated assembler environment for the Commodore 64 —
-editor, assembler, disassembler, hex monitor, expression calculator,
-and step debugger sharing one screen and one command grammar.  Its
-workflows are inspired by MasterSeka, radare2, and SMON.  Edit,
+CSE is a native, integrated assembler and debugger environment for the
+Commodore 64 — editor, assembler, disassembler, hex monitor, expression
+calculator, and step debugger sharing one screen and one command grammar.
+Its workflows are inspired by MasterSeka, radare2, and SMON. Edit,
 assemble, run, and debug in one place, natively on the C64 itself.
 Pure and simple.
 
@@ -19,20 +19,20 @@ on either.
 **Experienced developer** who want a sketchpad. An immediate-mode
 6502 REPL with no toolchain, no build step, no context switch back to
 the host OS. The loop from "I want to try something" to "I am watching
-it run" has no pipeline in the middle.
+it run" feels fluent without some pipeline in the middle.
 
 **The learners** who want a first computer that does one thing
 honestly. 64 K of RAM you can read entirely, 56 well-documented CPU
-instructions, a on-page memory map, a screen that is literally the
+instructions, a one-page memory map, a screen that is literally the
 command buffer. No browser tabs, no notifications, no package
 managers. The scope is finite, the ceiling is visible, and the
 computer hides no complexity. Give them a 6502 book and the CSE
-cheat sheet, and they're ready to start.
+cheat sheet, and they're good to go.
 
 The same design principles serve both — minimal footprint, maximum
 workspace, fluent interaction, one environment instead of many tools —
 because beginner and expert likewise benefit from a computer you can
-truly understand in its entirety.
+understand completely.
 
 For the longer story — why CSE exists, how it compares to its peers,
 and what keeps the promise honest — see [background.md](background.md).
@@ -49,6 +49,7 @@ and what keeps the promise honest — see [background.md](background.md).
 - [Memory layout](#memory-layout)
 - [Built-in symbols](#built-in-symbols)
 - [Development](#development)
+- [License](#license)
 
 ## Concepts
 
@@ -72,7 +73,7 @@ into memory at the current address.
 
 1. Write source in the editor (RUN/STOP to enter).
 2. Switch back to the REPL (RUN/STOP).
-3. Set the origin: `@ $C000` (or use `.org` in source).
+3. Set the origin: `@ $C000` (or use `.org` or `.bas` in source).
 4. Assemble: `a`
 5. Run: `g` (jumps to `main:` label).
 6. Inspect: `d` to disassemble, `m` to hex-dump, `r` for registers.
@@ -98,8 +99,6 @@ if one was defined.
 Commands like `d` (disassemble) and `m` (memory dump) operate on
 a chunk of *block size* bytes.  Default is $10 (16).  Change it
 with `B EXPR`.  `+` and `-` also advance/retreat by the block size.
-`t` and `o` take an explicit step count: `t 5` steps five
-instructions, bare `t` steps one (block size does not apply).
 
 ### Screen editing
 
@@ -111,12 +110,12 @@ screen-editor workflow: the screen *is* your input buffer.
 
 For example, `d` might show:
 
-    C000:. A9 42     LDA #$42
-    C002:. 8D 20 D0  STA $D020
-    C005:. 60        RTS
+    1000:. A9 42     LDA #$42
+    1002:. 8D 20 D0  STA $D020
+    1005:. 60        RTS
 
 Cursor up to the first line, change `42` to `07`, press RETURN —
-the byte at $C000 is now patched.
+the byte at $1000 is now patched.
 
 ### Expressions
 
@@ -252,7 +251,7 @@ can't collide in the CBM DOS directory.
 
 - Bare `l "demo"` / `s "demo"` loads/saves the **source**.
 - Any address argument forces **PRG** mode: `s "demo" $2000` saves the
-  binary as `demo.`; `l "demo" $c000` loads the binary to `$c000`,
+  binary as `demo.`; `l "demo" $1000` loads the binary to `$1000`,
   `l "demo" 0` loads at the PRG header address.
 - Explicit `,s` or `,p` suffix bypasses derivation: `s "foo,p"` saves
   as literal `foo` PRG; `l "foo,s"` loads literal `foo` SEQ.
@@ -397,7 +396,7 @@ Case-insensitive. Characters: a--z, 0--9, dot.
 
 ### Directives
 
-    .org $C000              ; set origin
+    .org $2000              ; set origin
     .const NAME EXPR        ; define constant
     .cpu 6502               ; set CPU mode
     .db $41, $42, 0         ; emit bytes
@@ -434,7 +433,7 @@ digits) forces absolute.  Width is sticky across operators.
 ### Example
 
     .cpu 6502
-    .org $C000
+    .org $1000
 
     .const border $D020
 
@@ -449,7 +448,7 @@ digits) forces absolute.  Width is sticky across operators.
 
 Assemble and run:
 
-    C000:a          ; assemble
+    a               ; assemble (.org in source sets the address)
     g               ; run (jumps to main:)
 
 ## Memory layout
@@ -520,9 +519,12 @@ Use in REPL: `@ workstart`, `j workstart`
 
 ### Quick start
 
-    make            # build cse.prg (requires ca65/ld65)
+    make            # build cse.prg + d64 (release)
     make run        # build + launch in VICE
-    make test       # run pytest test suite (requires py65)
+    make test       # run pytest test suite
+
+See [Build requirements](#build-requirements) below for the
+toolchain CSE needs.
 
 ### Documentation
 
@@ -534,8 +536,17 @@ All design docs, module specs, and project goals live in
 - [cc65](https://cc65.github.io/) -- provides `ca65` (assembler)
   and `ld65` (linker).  CSE is pure 6502 assembly; the cc65
   C compiler is not used.
-- [VICE](https://vice-emu.sourceforge.io/) -- C64 emulator
-  (for `make run`)
-- Python 3 + [py65](https://pypi.org/project/py65/) -- test harness
-- pipenv or virtualenv for the test environment
-- C64 KERNAL ROM for testing (copied from VICE; see `make test`)
+- [exomizer](https://bitbucket.org/magli143/exomizer) -- PRG
+  compressor used by the release build.
+- [VICE](https://vice-emu.sourceforge.io/) -- C64 emulator.
+  Required for `make run`; also bundles `c1541` which the
+  release build uses to write the `.d64` disk image.
+- Python 3 + [pipenv](https://pipenv.pypa.io/) -- pipenv manages
+  the test virtualenv (py65, pytest, pytest-xdist).  `make
+  tables` (auto-triggered by `make`) also runs Python.
+- C64 KERNAL ROM for testing (copied from VICE; see `make test`).
+
+## License
+
+CSE is released under the [MIT License](LICENSE).
+© 2026 Christiane Ruetten (cr@23bit.net).
