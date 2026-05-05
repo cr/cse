@@ -347,6 +347,31 @@ as universal (Tier A).*
 
 Open bugs, roughly ordered by priority.
 
+- [x] ~~**BUG** `m` dump line is not re-executable — cursor-up
+  + RETURN on a memory-dump row logs `;?syntax`.~~  (v0.1-rc3
+  VICE-testing fix, 2026-05-05.)  Cursor-up onto an `m` dump
+  line and pressing RETURN logged `;?syntax` instead of
+  re-writing the 8 bytes.  The `m` edit path's
+  `_require_eoi_or_err` correctly rejected the trailing ASCII
+  column as garbage — but the dump format was the problem:
+  `emit_mem` separated hex from ASCII with a single space,
+  leaving no comment marker.  Fix: swap the space for `;`
+  (same width, since the line is already at 39/40 cols).
+  `_require_eoi_or_err` recognises `;` as valid EOI, so the
+  trailing ASCII column is treated as a comment.
+
+  - **`src/repl.s::emit_mem`** — `lda #' ' / jsr io_putc` →
+    `lda #';' / jsr io_putc`.  Single-byte swap; output line
+    width unchanged.
+  - **`tests/integration/test_repl.py::TestMemoryEdit::test_m_dump_line_is_re_executable`**
+    — regression test that feeds the literal dump-line shape
+    `m 2f 36 00 00 00 00 00 00;/6......` to exec_line and
+    asserts the 8 bytes are written.
+  - **`doc/modules/repl.md`** — output-format description
+    updated to show the `;` separator and explain the
+    re-executability contract.
+  - **Cost:** zero source bytes.
+
 - [x] ~~**BUG** Disassembling KERNAL ROM (`$E000-$FFFF`) produces
   only "BRK" / "..." instead of real instructions.~~  (v0.1-rc5
   VICE-testing fix, 2026-05-02.)

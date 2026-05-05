@@ -197,7 +197,11 @@ operate on `block_size` bytes and output a screenful of executable
 lines:
 
 - `d` outputs `AAAA:. HH HH HH  MNE OPR` lines (via `emit_dot`)
-- `m` outputs `AAAA:m HH HH ... cccccccc` lines (via `emit_mem`)
+- `m` outputs `AAAA:m HH HH HH HH HH HH HH HH;cccccccc` lines
+  (via `emit_mem`).  The `;` separator before the ASCII column
+  makes the line re-executable: `_require_eoi_or_err` accepts
+  `;` as valid EOI, so cursor-up + RETURN treats the trailing
+  ASCII as a comment and the 8 hex bytes as an edit-write.
 
 Each output line is a valid command.  The block command clears the
 final prompt line and stops.  The screen is now a buffer of editable

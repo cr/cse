@@ -1159,7 +1159,14 @@ zp_stage_prep_addr:                     ; convenience entry: load
         sta rp_save2
         jsr emit_hex_cols
 
-        lda #' '
+        ; Separator between hex bytes and ASCII column.  Use `;`
+        ; so that re-executing the line (cursor-up + RETURN on a
+        ; dump row) treats the trailing ASCII as a comment — the
+        ; `m` edit path's _require_eoi_or_err recognises `;` as
+        ; valid EOI.  Without this, `m XX XX ... XX XX ASCII`
+        ; would syntax-err on the ASCII column.  Same width as
+        ; the previous space — the line still fits in 40 cols.
+        lda #';'
         jsr io_putc
 
         ldy #0

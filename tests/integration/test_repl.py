@@ -478,6 +478,33 @@ class TestMemoryEdit:
             assert cpu.memory[addr + i] == val, \
                 f"Byte {i}: expected ${val:02X}, got ${cpu.memory[addr + i]:02X}"
 
+    def test_m_dump_line_is_re_executable(self, rsyms):
+        """rc3 VICE finding: when the user does cursor-up + RETURN
+        on an `m` dump line, exec_line sees the full line including
+        the trailing ASCII column — e.g.
+        `m 00 00 00 00 00 00 00 00;........`.  Pre-fix: the ASCII
+        column tripped `_require_eoi_or_err`'s pop-trick and CSE
+        logged `;?syntax`.  Post-fix: emit_mem separates hex from
+        ASCII with `;` (a recognised comment marker that EOI
+        accepts), so re-execution is a clean write.
+
+        Verifies the edit path completes and writes the expected
+        bytes."""
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x1000)
+        # Simulate what cursor-up+RETURN sees: the literal dump line.
+        # The "/6......" is the ASCII column from prior dump output.
+        set_line_buf(cpu, rsyms,
+                     "m 2f 36 00 00 00 00 00 00;/6......")
+        run_at(cpu, rsyms.exec_line)
+        # If the trailing ASCII tripped _require_eoi_or_err, no
+        # bytes would be written.  Verify the 8 bytes are now present.
+        expected = [0x2f, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        for i, val in enumerate(expected):
+            assert cpu.memory[0x1000 + i] == val, \
+                f"Byte {i}: expected ${val:02X}, " \
+                f"got ${cpu.memory[0x1000 + i]:02X}"
+
 
 # ── F'. User-ZP redirect (m/. on $00..$7F) ───
 #
