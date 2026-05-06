@@ -72,8 +72,8 @@ Per-module assignment is enumerated in the
 
 ## The TDD Method
 
-The TDD Method is the testing companion to the DDD Method (see
-[README.md § The DDD Method](README.md#the-ddd-method), step 3).  It governs how
+The TDD Method is the testing companion to the CDD Method (see
+[README.md § The CDD Method](README.md#the-cdd-method), step 3).  It governs how
 tests are written, when they are written, and what they test.
 
 ### Principles
@@ -99,7 +99,7 @@ tests are written, when they are written, and what they test.
    for automated testing.  The TDD Analysis must evaluate each
    change and explicitly state whether automated tests are
    practical, impractical, or unnecessary.  When automation is
-   impractical, say so and state the alternative (DDD audit, manual
+   impractical, say so and state the alternative (CDD audit, manual
    VICE testing, code review).
 
 4. **UI-heavy code gets selective testing.**  The REPL command loop
@@ -131,7 +131,7 @@ tests are written, when they are written, and what they test.
    write stress tests that force that scenario through the new
    mechanism **before** you trust the design enough to remove the
    old guard.  Passing the existing test suite + documenting the
-   desired state (DDD Step 1) is *not* sufficient — the old guard
+   desired state (CDD Step 1) is *not* sufficient — the old guard
    was often masking latent bugs that the new mechanism has to
    handle on its own.
 
@@ -539,7 +539,7 @@ tests are written, when they are written, and what they test.
     in CSE) to read the rendered region directly.
 
     **When the render is implementation detail.**  Per Principle 2
-    and the *DDD-Lite for UX* corpus principle ([README.md
+    and the *CDD-Lite for UX* corpus principle ([README.md
     § Principles](README.md)), pixel-level mechanics (cursor
     arithmetic, exact column positions, overwrite sequences) are
     NOT the contract — they belong in code comments.  Display-
@@ -713,8 +713,8 @@ docstring so future maintainers know why it looks unusual.
 
 ### The TDD Analysis
 
-The TDD Analysis is performed as step 3 of the DDD Method, after
-the DDD Analysis and before implementation.  It must:
+The TDD Analysis is performed as step 3 of the CDD Method, after
+the CDD Analysis and before implementation.  It must:
 
 1. **Identify test gaps** — what existing tests cover the affected
    code, and where are the holes?
@@ -725,10 +725,10 @@ the DDD Analysis and before implementation.  It must:
    verification is used.
 4. **Flag implications** — if the test analysis reveals that the
    intended code change needs adjustment (e.g. an interface must
-   change to be testable), this triggers a DDD Feedback Round before
+   change to be testable), this triggers a CDD Feedback Round before
    proceeding.
 
-The TDD Analysis is included in the final DDD Report.
+The TDD Analysis is included in the final CDD Report.
 
 The output of the TDD Analysis — the list of tests to write or
 update — feeds directly into Step 4.  Within Step 4, tests are
@@ -979,7 +979,7 @@ Policy:
   `kplot_stub` tracks PLOT's CLC-set / SEC-get contract exactly,
   using cse_io's production row-address tables so mock/prod
   divergence is structurally impossible.
-- New mocks require explicit sign-off via DDD Method (contract
+- New mocks require explicit sign-off via CDD Method (contract
   clause + test policy change).  Not an ad-hoc decision.
 
 #### Leaf module tests

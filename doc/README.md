@@ -1,8 +1,8 @@
 # CSE Documentation
 
-## Preface: Document-Driven Development
+## Preface: Contract-Driven Development
 
-CSE is built under **Document-Driven Development (DDD)**: documentation is
+CSE is built under **Contract-Driven Development (CDD)**: documentation is
 the source of truth for design intent, interfaces, and behaviour.  Code
 implements the docs; tests verify the code matches the docs.
 
@@ -38,9 +38,9 @@ implements the docs; tests verify the code matches the docs.
 
 ---
 
-## The DDD Method
+## The CDD Method
 
-All development work in this repository follows the DDD Method.
+All development work in this repository follows the CDD Method.
 Judgement calls are expected — not every one-line fix needs a full
 seven-step cycle — but the bias must always be toward following the
 process.  Changes that affect design intent, interfaces, test
@@ -54,7 +54,7 @@ creates a deliberate delta between documentation and code.  The
 delta is the work to be done.  (Desired *changes* and their
 rationale belong in `TODO.md`, not in the specification documents.)
 
-**Step 2 — DDD Analysis.**  Before touching code, identify the
+**Step 2 — CDD Analysis.**  Before touching code, identify the
 relevant documentation and compare it against the existing code
 reality.  The analysis covers: documentation quality, coverage,
 mismatches between documentation and code (including source comments
@@ -75,7 +75,7 @@ written to match both the documentation and the tests.  If
 implementation requires unexpected significant changes outside the
 original scope, a Scope Creep discussion is triggered:
 the unplanned changes are presented for discussion and approval
-before being put through the DDD Method recursively.  Recursion
+before being put through the CDD Method recursively.  Recursion
 terminates at the discretion of the approver.
 
 *Cycle-detection rule.*  When the same procedure (or section of
@@ -86,8 +86,8 @@ contract has not been pinned, not a refinement of the
 implementation.  Continuing burns commits and obscures the
 inflection point at which the contract diverged from the design.
 
-**Step 5 — Differential DDD Analysis.**  After implementation, a
-second DDD Analysis identifies all documentation discrepancies
+**Step 5 — Differential CDD Analysis.**  After implementation, a
+second CDD Analysis identifies all documentation discrepancies
 created by the development work.  The required documentation
 updates are then implemented.
 
@@ -102,22 +102,22 @@ easier to revert individually, easier to credit in a changelog.
 Bundling unrelated fixes erases the "which change broke this"
 trail without saving any work.
 
-**Step 7 — Final DDD Report.**  A summary of all changes made to
+**Step 7 — Final CDD Report.**  A summary of all changes made to
 the repository (documentation, tests, code), highlighting any
 unplanned changes and suggesting future improvements.
 
-The DDD Method does not have an opinion about how the plan that
+The CDD Method does not have an opinion about how the plan that
 triggers it was created.  It starts with a plan and ends with a
 report.
 
 ---
 
-## DDD Maintenance
+## CDD Maintenance
 
-The DDD Method protects the corpus during active development.  DDD
+The CDD Method protects the corpus during active development.  CDD
 Maintenance is the complementary recurring process that catches drift,
 gaps, and decay that no single change introduced — or that predates
-the DDD System entirely.
+the CDD System entirely.
 
 **Trigger:** at each project milestone, before the milestone commit.
 
@@ -149,16 +149,16 @@ the DDD System entirely.
    addressing mode, and key binding listed in the README matches
    the current code as documented in those source documents.
 
-**Output:** a DDD Maintenance Report listing findings by category.
+**Output:** a CDD Maintenance Report listing findings by category.
 Mechanical corrections (broken links, stale comments, formatting)
 that don't affect design intent may be fixed inline.  Substantive
-findings become TODO items and go through the DDD Method.
+findings become TODO items and go through the CDD Method.
 
 ---
 
 ## TDD Maintenance
 
-DDD Maintenance audits prose against code.  **TDD Maintenance** is
+CDD Maintenance audits prose against code.  **TDD Maintenance** is
 its counterpart for the executable half of the Corpus: a periodic
 audit of the test suite against the contracts it's supposed to
 verify.  Tests drift the same way docs do — they accrete during
@@ -167,7 +167,7 @@ quietly cover one cell of a matrix while claiming to cover the
 whole surface.  TDD Maintenance walks the corpus module by module
 and tightens the test contracts.
 
-**Trigger:** at each project milestone (shared with DDD
+**Trigger:** at each project milestone (shared with CDD
 Maintenance), and reactively whenever an Escape Analysis amends
 a [testing.md](testing.md) principle — the new principle may
 reveal gaps across modules that weren't previously considered
@@ -265,14 +265,14 @@ principle-relevant.
 Mechanical corrections (rename test file, retire duplicate, move
 misplaced test class to its module's file, update stale stub
 comment) may be applied inline.  Substantive findings become
-either TODO items (follow through via DDD Method) or new Escape
+either TODO items (follow through via CDD Method) or new Escape
 Analysis candidates (if a bug is suspected).
 
 **Relationship to the other processes:**
 
-TDD Maintenance is the test-corpus twin of DDD Maintenance and
+TDD Maintenance is the test-corpus twin of CDD Maintenance and
 inherits the same rhythm.  Escape Analysis produces principle
-amendments; TDD Maintenance propagates them.  The DDD Method
+amendments; TDD Maintenance propagates them.  The CDD Method
 continues to use TDD Analysis (step 3) for per-change test
 planning — TDD Maintenance is the orthogonal periodic check that
 nothing has drifted since the last audit.
@@ -281,7 +281,7 @@ nothing has drifted since the last audit.
 
 ## Escape Analysis
 
-The DDD Method protects the Corpus during planned change; DDD
+The CDD Method protects the Corpus during planned change; CDD
 Maintenance catches drift at milestone boundaries.  **Escape
 Analysis** is the third entry point — reactive, invoked whenever a
 bug is discovered that the test suite failed to catch.  Every such
@@ -392,7 +392,7 @@ harness bugs, and doc-code fidelity gaps.
    contract amendment, any testing.md principle amendment, the
    sweep findings (inline fixes or queued TODOs), and a commit
    message naming Escape Analysis explicitly so the log preserves
-   the chain of reasoning.  The DDD Method's commit-granularity
+   the chain of reasoning.  The CDD Method's commit-granularity
    rule (one fix per commit) is suspended for Escape Analysis on
    purpose — the value of the closure is in seeing the bug fix,
    the missing test, and the contract/principle amendment land
@@ -401,21 +401,21 @@ harness bugs, and doc-code fidelity gaps.
 **Output:** a tighter Corpus.  The same class of bug cannot
 escape twice — at the corpus level, not just at the reported
 instance.  Patterns across escapes (noted in commit messages)
-inform future DDD Maintenance audits.
+inform future CDD Maintenance audits.
 
 **Relationship to the other processes:**
 
 | Process | Trigger | Direction | Audits |
 |---|---|---|---|
-| DDD Method | Planned change | Forward | Docs → tests → code for one change |
-| TDD Analysis | Step 3 of DDD Method | Forward | Test gaps for that one change |
-| DDD Maintenance | Milestone boundary | Cross-cutting | Doc corpus integrity |
+| CDD Method | Planned change | Forward | Docs → tests → code for one change |
+| TDD Analysis | Step 3 of CDD Method | Forward | Test gaps for that one change |
+| CDD Maintenance | Milestone boundary | Cross-cutting | Doc corpus integrity |
 | TDD Maintenance | Milestone boundary or post-Escape-Analysis | Cross-cutting | Test corpus integrity |
 | Escape Analysis | Bug discovered | Backward | Bug → test → contract → principle |
 
 Any Escape Analysis that uncovers multiple missing clauses at
 once is still one Escape Analysis, but it is evidence of a
-larger DDD/TDD Maintenance gap — log it for the next scheduled
+larger CDD/TDD Maintenance gap — log it for the next scheduled
 audit.
 
 ---
@@ -540,7 +540,7 @@ names the relation.  Valid relations:
 | `header` | The file exposes the C interface this doc describes. |
 
 A file with no owning document is an undocumented file — a gap in
-the Corpus.  DDD Maintenance must resolve all gaps.
+the Corpus.  CDD Maintenance must resolve all gaps.
 
 This principle is what the **Owned files** section in module docs
 (see [templates/module.md](templates/module.md)) implements.
@@ -556,7 +556,7 @@ before it.  A reader going top-to-bottom never hits an undefined term.
 
 The corpus must be audited periodically, independent of feature work,
 to catch drift and gaps that individual changes miss.
-See [DDD Maintenance](#ddd-maintenance) for the full audit scope and trigger.
+See [CDD Maintenance](#cdd-maintenance) for the full audit scope and trigger.
 
 ### 7. Contract the model, not the render
 
@@ -627,7 +627,7 @@ violations and zero real layout bugs.  They pinned implementation.
 
 | Document | Scope |
 |----------|-------|
-| [README.md](../README.md) | User reference manual (REPL commands, editor, assembler, debugger, memory map).  Not a corpus document — maintained via DDD Maintenance item 8.  Derived in part from [project.md § Design Priorities](project.md#design-priorities). |
+| [README.md](../README.md) | User reference manual (REPL commands, editor, assembler, debugger, memory map).  Not a corpus document — maintained via CDD Maintenance item 8.  Derived in part from [project.md § Design Priorities](project.md#design-priorities). |
 | [background.md](../background.md) | User-facing long-form motivation: why CSE exists, how it compares to its peers, what keeps the promise honest.  Not a corpus document — derived from [project.md](project.md) (§ *What Is CSE?* and § *Design Priorities*) and [README.md](../README.md).  Maintained under the same drift audit as the README. |
 | [assembler_syntax.md](assembler_syntax.md) | Source language: labels, instructions, directives, expressions |
 
@@ -637,7 +637,7 @@ violations and zero real layout bugs.  They pinned implementation.
 |----------|-------|
 | [TODO.md](TODO.md) | Outstanding work: bugs, features, cleanup, architecture |
 | [templates/README.md](templates/README.md) | Active document templates and their coverage |
-| [ddd_log.md](ddd_log.md) | DDD Log — running self-review of how the DDD System serves each milestone (newest entries on top); findings feed the next Maintenance round |
+| [cdd_log.md](cdd_log.md) | CDD Log — running self-review of how the CDD System serves each milestone (newest entries on top); findings feed the next Maintenance round |
 
 ### Authoritative data files (dev/)
 

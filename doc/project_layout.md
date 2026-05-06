@@ -80,7 +80,7 @@ cse/
 │   └── *_mega.bin          MEGA65 Open-ROMs (committed)
 │
 ├── doc/                    Documentation (see doc/README.md)
-│   ├── README.md           DDD methodology, document index
+│   ├── README.md           CDD methodology, document index
 │   ├── modules/            Per-module technical specs
 │   └── *.md                System-level docs
 │

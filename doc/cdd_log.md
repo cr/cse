@@ -1,8 +1,8 @@
-# DDD Log
+# CDD Log
 
-Self-review of how the DDD System (Method, Corpus, Maintenance,
+Self-review of how the CDD System (Method, Corpus, Maintenance,
 Escape Analysis, test framework) served each milestone.  Per
-[glossary § DDD Log](glossary.md): distinct from the DDD Report
+[glossary § CDD Log](glossary.md): distinct from the CDD Report
 (which summarises *what* changed) and from Escape Analysis (which
 reacts to a single escape) — the Log evaluates the *system itself*
 against the lived experience of the session.
@@ -80,10 +80,10 @@ Lesson catalogued: when auditing assembled code for size /
 layout claims, the linker map is the source-of-truth.  Don't
 re-implement what the assembler/linker already computed.
 
-#### DDD discipline survived all four rc cycles
+#### CDD discipline survived all four rc cycles
 
-Every fix went through the seven steps: doc → DDD analysis →
-TDD analysis → implement → differential DDD → commit → report.
+Every fix went through the seven steps: doc → CDD analysis →
+TDD analysis → implement → differential CDD → commit → report.
 Even the failed CHROUT landings went through their full cycles
 — each had an honest commit message acknowledging why the
 *previous* attempt was wrong.  Result: the bug entry in
@@ -187,7 +187,7 @@ session.  They feed the next Maintenance round.
 
 #### A6.  Probe-first debugging: second-landing trigger
 
-**Proposal**: amend `doc/README.md` § DDD Method Step 4
+**Proposal**: amend `doc/README.md` § CDD Method Step 4
 (Implementation) or a new subsection: "When a fix does not
 resolve the reported symptom on first attempt, the next action
 is *mandatory probe-writing* — not another enumeration-based
@@ -252,7 +252,7 @@ Phase 26 closed cleanly: v0.1 published at github.com/cr/cse,
 five rc1-VICE bugs all closed and retested, ~50 doc drift
 fixes, eight permanent audit scripts under `dev/`, MIT
 licensing applied, ROM attribution documented, release page
-with disk-image + 3 PRG variants.  The DDD System held
+with disk-image + 3 PRG variants.  The CDD System held
 through four rc cycles.  Every bug entry traceable from
 symptom → root-cause-via-probe → fix → regression test →
 public release.
@@ -274,7 +274,7 @@ the mechanical pre-flight that closes the loop between
 
 Next is v0.2: the audit suite catches its first generation
 of drift, the new amendments apply at every release, and
-the DDD whitepaper takes the methodology where the corpus
+the CDD whitepaper takes the methodology where the corpus
 documentation can't reach.
 
 ---
@@ -282,13 +282,13 @@ documentation can't reach.
 ## Phase 25 — Release Polish
 
 **Scope:** the v0.1 release-polish session covering ~18 commits from
-the single-letter-label fix through the Phase 25 DDD Maintenance pass.
+the single-letter-label fix through the Phase 25 CDD Maintenance pass.
 
 ### What worked
 
 #### The Step 2/3 approval gate caught multiple wrong directions
 
-The DDD Method's mandatory analysis-and-approval gate before
+The CDD Method's mandatory analysis-and-approval gate before
 implementation paid for itself several times:
 
 - **Single-letter label fix.**  My first proposal was a per-call
@@ -317,7 +317,7 @@ cells; the doc and the code converged automatically.  The same
 worked for the error-category cleanup (asm_err.md error code table
 was the spec, code followed).
 
-#### Differential DDD Analysis (Step 5) caught real drift
+#### Differential CDD Analysis (Step 5) caught real drift
 
 Several times Step 5 found a doc-code mismatch I'd introduced
 during implementation:
@@ -332,7 +332,7 @@ during implementation:
 #### Escape Analysis discipline preserved evidence
 
 When the truncation bug surfaced during a pha/pla audit, the
-DDD-trained instinct was "file the bug, don't conflate with the
+CDD-trained instinct was "file the bug, don't conflate with the
 optimization commit."  That kept the optimization commit clean and
 let the truncation fix get its own first-class entry, test, and
 explanation.  The principle worked: discoveries are evidence, not
@@ -375,7 +375,7 @@ false positive.
 #### Stale-comment cleanup is iterative; one sweep doesn't catch all
 
 I cleaned up Phase 21 / Move N comments in repl.s during the broad
-optimization round.  A later DDD Maintenance pass surfaced more
+optimization round.  A later CDD Maintenance pass surfaced more
 of the same shape in `dev/repl_test_stub.s` that I'd missed.  An
 even later session-internal pass surfaced still more in the same
 file.  The pattern: stale historical markers accumulate everywhere
@@ -390,6 +390,8 @@ the file (in the closed-bugs reference block) but never propagated
 to retire the open entry.  This is the same shape as the
 `_expr_error_str` doc typo — corpus drift between when work lands
 and when the references catch up.
+
+#### Semantic correctness of user-facing examples is a class the audits don't catch
 
 #### Boolean abstractions outgrew their semantics
 
@@ -409,7 +411,7 @@ asymmetry filed as feature work, not a bug) was discovered only
 *after* the fix landed and got documented.  The cross-module
 handoff — that mode_parse's flag is read by asm_src but the `.`
 path bypasses mode_parse via `expr_eval` pre-evaluation — would
-have been caught earlier if the DDD Analysis step (2) had been
+have been caught earlier if the CDD Analysis step (2) had been
 required to include "for every code path that consumes the new
 contract, identify whether it actually flows through".  Step 5
 catches the doc-code drift after the fact; Step 2 should catch
@@ -418,12 +420,12 @@ the design gap before the fact.
 ### Suggested amendments
 
 These are concrete proposals.  None landed in this session
-(per the DDD Log's role: feed the next Maintenance round); they are
+(per the CDD Log's role: feed the next Maintenance round); they are
 candidates for a future testing.md / README.md amendment pass.
 
 #### A1.  Agent-finding verification principle
 
-**Proposal**: amend `doc/README.md` § DDD Method Step 4 (Implementation)
+**Proposal**: amend `doc/README.md` § CDD Method Step 4 (Implementation)
 or add a new subsection: "Findings produced by an agent are
 *candidates*, not conclusions.  Each finding must be verified by an
 independent grep / read / test before being acted on.  Verification
@@ -436,7 +438,7 @@ The motivating evidence is in this Log § Agents over-promised.
 
 #### A2.  TODO closure-with-commit rule
 
-**Proposal**: amend `doc/README.md` § DDD Method Step 6 (Commit) to
+**Proposal**: amend `doc/README.md` § CDD Method Step 6 (Commit) to
 require: "if the commit closes one or more entries in `doc/TODO.md`,
 the same commit ticks (`[x]` and strikes-through) those entries.  A
 commit that lands a fix without retiring the corresponding TODO
@@ -445,9 +447,9 @@ entry is incomplete."
 The rationale is the "Loader reverse-direction copy" pattern: closed
 work that stays open in the queue rots into stale documentation.
 
-#### A3.  Stale-marker grep as a DDD Maintenance item
+#### A3.  Stale-marker grep as a CDD Maintenance item
 
-**Proposal**: add a new item to `doc/README.md` § DDD Maintenance
+**Proposal**: add a new item to `doc/README.md` § CDD Maintenance
 audit scope: "**Stale historical markers** — grep the corpus
 (source comments AND prose) for `Phase \d`, `Move \d`, `moved to`,
 `previously`, `was formerly`, `TODO:` and confirm each is either
@@ -474,7 +476,7 @@ the entire consumer chain.
 
 #### A5.  Cross-module handoff sweep in Step 2, not just after the fact
 
-**Proposal**: amend `doc/README.md` § DDD Method Step 2 (DDD
+**Proposal**: amend `doc/README.md` § CDD Method Step 2 (CDD
 Analysis) to add: "For every code path that will consume the new
 contract or signal, walk the path explicitly: does the consumer
 actually receive the signal under all conditions, or are there
@@ -486,22 +488,22 @@ The motivating evidence: the `.` REPL command's missing
 ACC-shadow warning was an asymmetry that survived implementation
 because Step 2 didn't audit the dot-command pre-eval path.
 
-### Meta: should DDD Logs be regular?
+### Meta: should CDD Logs be regular?
 
-The glossary entry I added describes the DDD Log as a self-review
+The glossary entry I added describes the CDD Log as a self-review
 practice; it doesn't say *when* to do one.  Three plausible cadences:
 
 1. **Every commit** — too noisy.  Not every commit changes the
    system enough to retrospect on.
-2. **Every milestone (alongside DDD Maintenance)** — natural
+2. **Every milestone (alongside CDD Maintenance)** — natural
    pairing with the milestone audit; the Log's findings feed the
    next round.  This is the cadence I'd recommend.
 3. **Every Escape Analysis** — already covered by Escape Analysis
    itself; a separate Log would duplicate.
 
 Recommendation: amend the glossary entry to say "performed at each
-milestone, alongside DDD Maintenance" — the Log is the
-*reflective* half of the milestone gate (DDD Maintenance audits
+milestone, alongside CDD Maintenance" — the Log is the
+*reflective* half of the milestone gate (CDD Maintenance audits
 the artefact; the Log audits the process).
 
 ### Closing summary
@@ -509,7 +511,7 @@ the artefact; the Log audits the process).
 Phase 25 closed cleanly: 5 user-facing bugs fixed, 1 directive class
 expanded (bare ACC), error-category surface expanded with `;?cpu`
 and `;!a shadow`, ~120 B added per production variant, 55 new tests
-(3057 → 3112), all DDD Maintenance items reconciled.  The DDD
+(3057 → 3112), all CDD Maintenance items reconciled.  The CDD
 System held throughout — every commit is doc + tests + code, every
 audit went through Steps 2/3 approval, every escape produced
 permanent corpus tightening.

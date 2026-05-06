@@ -248,7 +248,7 @@ Remaining Phase 18 tail items (tracked in `TODO.md`):
 
 If a similar phase-scale refactor comes up again, the working
 pattern was: document the desired state across the corpus first
-(DDD Step 1), then implement as a single atomic cutover once all
+(CDD Step 1), then implement as a single atomic cutover once all
 affected modules' docs are mutually consistent.  Tests (especially
 C64Emu-level kernel-transition tests) get written in Step 3
 alongside the design review.

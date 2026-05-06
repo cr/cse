@@ -4,7 +4,7 @@
 
 > *Historical reference point captured at the end of the L0–L5 TDD-
 > compliance milestone.  Not refreshed; later phases (21 BSS migration,
-> 22 debugger workflow, 23 DDD Streamlining) have moved the corpus on.
+> 22 debugger workflow, 23 CDD Streamlining) have moved the corpus on.
 > Newer phase summaries live in the auto-memory under
 > `project_phase*_complete.md`.*
 
@@ -27,7 +27,7 @@ is exercised at its prescribed tier:
 - **L6** (loader): implicit via every integration test's load path,
   acceptable per testing.md's Tier I definition.
 
-**Process ratchets added this session** (DDD System amendments):
+**Process ratchets added this session** (CDD System amendments):
 
 - testing.md Principle 10: test bundles mirror production build configs.
 - testing.md Principle 11: contract matrices drive test matrices.
@@ -63,18 +63,18 @@ risk that needs a design pass.  See the Escape Analysis follow-up
 entry below.  Everything else in this file is feature work, not
 TDD.
 
-## DDD amendments pending
+## CDD amendments pending
 
 Session retrospective findings (debugger trace workflow,
-2026-04-22 to -24) and 2026-04-25 DDD Maintenance round.
+2026-04-22 to -24) and 2026-04-25 CDD Maintenance round.
 
 Items are classified by **scope of applicability**, not by their
-source.  *Universal* amendments tighten the DDD/TDD method itself;
+source.  *Universal* amendments tighten the CDD/TDD method itself;
 *domain-class* amendments apply only to projects of a particular
 shape; *project-specific* items belong to CSE alone.
 
 **Status (2026-04-27):** Tier A landed three amendments to
-README.md (DDD Method + Escape Analysis); Tier B landed two
+README.md (CDD Method + Escape Analysis); Tier B landed two
 principles in testing.md (14 + 15) and one in README.md
 (Principle 7); Tier C1 was *initially* closed with a documented
 "harness limitation" in testing.md, then **re-opened** when
@@ -87,10 +87,10 @@ multi-CPU integration-test parity) were promoted from the
 bug-entry candidates into testing.md.  `mn_config.s` retirement
 closed cleanly under § Architecture.
 
-### Tier A — Universal DDD System amendments
+### Tier A — Universal CDD System amendments
 
-*Apply to any project under DDD discipline, regardless of domain.
-These amendments belong in [doc/README.md](README.md) (DDD Method
+*Apply to any project under CDD discipline, regardless of domain.
+These amendments belong in [doc/README.md](README.md) (CDD Method
 / Escape Analysis) or [doc/testing.md](testing.md) at the
 process-level layers, not at the principle-list layer.*
 
@@ -102,13 +102,13 @@ process-level layers, not at the principle-list layer.*
   buckets.  Step 6 (commit) renumbered to step 7.
 
 - [x] ~~**Cycle-detection heuristic**~~ (closed 2026-04-25).
-  README.md § DDD Method step 4 (Implementation) gained the
+  README.md § CDD Method step 4 (Implementation) gained the
   *Cycle-detection rule*: ≥3 modifications of the same proc/section
   in one session for the same concern signals an unclear spec —
   pause and clarify before iterating.
 
 - [x] ~~**Commit granularity rule**~~ (closed 2026-04-25).
-  README.md § DDD Method step 6 (Commit) gained the *Granularity
+  README.md § CDD Method step 6 (Commit) gained the *Granularity
   rule*: one fix per commit unless the fixes are trivially
   co-dependent.  Escape Analysis step 7 explicitly suspends the
   rule (the value of an EA closure is in seeing the bug fix, the
@@ -150,7 +150,7 @@ out of class.*
   README.md Principle 7 (*Contract the model, not the render*)
   for the doc-side complement.
 
-- [x] ~~**DDD-Lite for UX**~~ (closed 2026-04-25).  Landed as
+- [x] ~~**CDD-Lite for UX**~~ (closed 2026-04-25).  Landed as
   README.md Principle 7 (*Contract the model, not the render*)
   with the debugger.md "Step output semantics" appendix as
   cautionary example.  Names testing.md Principle 15 as the
@@ -174,7 +174,7 @@ out of class.*
   per-test triage — exactly as the bug-entry prediction table
   forecast.  See [§ Bugs](#bugs) for the closed bug entry.
 
-#### C2. Corpus-coverage gaps (DDD Maintenance 2026-04-25)
+#### C2. Corpus-coverage gaps (CDD Maintenance 2026-04-25)
 
 *Tracked further down under § Planned / Corpus.  The items
 there are mechanical fixes; this header just acknowledges they
@@ -184,7 +184,7 @@ belong in the same taxonomy.*
 
 *Findings from the Phase-24 session retrospective (cold-init bug
 fix + warm/cold init survey).  These are candidates for a future
-DDD Review round; not yet triaged into Tier A / B / C.*
+CDD Review round; not yet triaged into Tier A / B / C.*
 
 - [ ] **Optimization survey checklist: fall-through opportunities
   across reorderable proc boundaries.**  The Phase-24 init survey
@@ -197,7 +197,7 @@ DDD Review round; not yet triaged into Tier A / B / C.*
   collapsed jump).  Likely **Tier A** (universal optimization
   technique, applies to any assembly project).
 
-- [x] ~~**DDD Maintenance: flag stale "Moved from …" historical
+- [x] ~~**CDD Maintenance: flag stale "Moved from …" historical
   headers after a time threshold.**~~  (Closed 2026-05-02 by
   Step 1E of the doc-audit pass.)  Phase-24 had retired three
   "Moved from editor.s 188..208 / 210..228 / 230..356" comment
@@ -209,8 +209,8 @@ DDD Review round; not yet triaged into Tier A / B / C.*
   all retired in the same commit.  The script remains as
   permanent infrastructure for the next maintenance round.
 
-  Note for the next DDD Review: this audit class still belongs
-  in the README.md § DDD Maintenance "8-item audit" list
+  Note for the next CDD Review: this audit class still belongs
+  in the README.md § CDD Maintenance "8-item audit" list
   (currently item 9 candidate per **A3** above).  The script
   generalises **A3** mechanically — anything matching `Phase \d`,
   `Move \d`, `moved to`, `previously`, `was formerly`, or
@@ -232,7 +232,7 @@ DDD Review round; not yet triaged into Tier A / B / C.*
   **Tier B** (domain-class: low-level systems with multiple
   encoding/layout layers; less relevant to high-level apps).
 
-- [ ] **DDD pattern: pre-draft Escape-Analysis principles inside
+- [ ] **CDD pattern: pre-draft Escape-Analysis principles inside
   the bug entry.**  The Phase-24 bug entry's Phase-4 section
   contained pre-drafted text for testing.md Principles 16/17/18
   before they were promoted.  Step-5 transcription was trivial —
@@ -241,9 +241,9 @@ DDD Review round; not yet triaged into Tier A / B / C.*
   step 5: *if the bug entry already pre-drafted candidate
   principles, the sweep promotes those drafts directly; resist
   re-deriving them from scratch.*  Likely **Tier A** (universal
-  DDD discipline — applies to any project under DDD).
+  CDD discipline — applies to any project under CDD).
 
-- [ ] **DDD Method: build-cache awareness for tests targeting
+- [ ] **CDD Method: build-cache awareness for tests targeting
   debug builds.**  Phase-24 lost a debugging cycle to a stale
   debug PRG: `make` rebuilt only release variants, leaving the
   debug PRG (which `cse_prg` fixture uses) at the pre-fix
@@ -256,8 +256,8 @@ DDD Review round; not yet triaged into Tier A / B / C.*
 
 ### Phase 25 retrospective — amendment candidates (2026-04-29)
 
-*Findings from the Phase-25 release-polish session DDD Log.
-See [doc/ddd_log.md § Phase 25](ddd_log.md) for the full
+*Findings from the Phase-25 release-polish session CDD Log.
+See [doc/cdd_log.md § Phase 25](cdd_log.md) for the full
 self-review and motivating evidence behind each candidate.
 Not yet triaged into Tier A / B / C; the Log frames all five
 as universal (Tier A).*
@@ -270,7 +270,7 @@ as universal (Tier A).*
   lookup, indirect dispatch, dual-entry labels), (b) the
   assumption underlying the finding's claim (e.g. "X preserves
   C" requires reading X's body).  Candidate amendment to
-  README.md § DDD Method step 4 (Implementation) or a new
+  README.md § CDD Method step 4 (Implementation) or a new
   subsection.  Motivating evidence: Phase-25 had three
   optimization-survey agents return HIGH-confidence false
   positives (set_cpu carry-preservation; `_asm_line_core` /
@@ -283,19 +283,19 @@ as universal (Tier A).*
   ticks (`[x]` and strikes-through) those entries.  A commit
   that lands a fix without retiring the corresponding TODO
   entry is incomplete.  Candidate amendment to README.md §
-  DDD Method step 6 (Commit).  Motivating evidence: the
+  CDD Method step 6 (Commit).  Motivating evidence: the
   "Loader reverse-direction copy" entry stayed open in TODO.md
   long after Phase 19 had landed the fix; closure had been
   recorded only in the closed-bugs reference block.  Likely
   **Tier A**.
 
-- [ ] **A3. Stale historical markers as a DDD Maintenance
+- [ ] **A3. Stale historical markers as a CDD Maintenance
   audit item.**  Grep the corpus (source comments AND prose)
   for `Phase \d`, `Move \d`, `moved to`, `previously`, `was
   formerly`, `TODO:` and confirm each is either load-bearing
   (describes a still-current invariant) or stale (and therefore
   retired in this audit).  Candidate addition to README.md §
-  DDD Maintenance audit scope as a new item, complementing the
+  CDD Maintenance audit scope as a new item, complementing the
   existing TODO-hygiene and User-manual-fidelity items.
   Overlaps and supersedes the Phase-24 candidate "flag stale
   'Moved from …' historical headers after a time threshold"
@@ -325,7 +325,7 @@ as universal (Tier A).*
   mock paths, build-variant differences) that bypass it?
   Document the answer; if any path bypasses, file as a known
   asymmetry before implementation.  Candidate amendment to
-  README.md § DDD Method step 2 (DDD Analysis).  Motivating
+  README.md § CDD Method step 2 (CDD Analysis).  Motivating
   evidence: the `.` REPL command's missing ACC label-shadow
   warning was an asymmetry that survived implementation
   because Step 2 didn't audit the dot-command pre-eval path
@@ -334,11 +334,11 @@ as universal (Tier A).*
   drift after the fact; Step 2 should catch design gaps before
   the fact.  Likely **Tier A**.
 
-- [ ] **Meta: DDD Log cadence.**  The glossary entry for *DDD
+- [ ] **Meta: CDD Log cadence.**  The glossary entry for *CDD
   Log* (added Phase 25) describes the practice but does not
   fix a cadence.  The Log itself recommends: *performed at each
-  milestone, alongside DDD Maintenance — the Log is the
-  reflective half of the milestone gate (DDD Maintenance audits
+  milestone, alongside CDD Maintenance — the Log is the
+  reflective half of the milestone gate (CDD Maintenance audits
   the artefact; the Log audits the process).*  Candidate
   amendment to the glossary entry to lock that cadence in.
   Likely **Tier A**.
@@ -522,7 +522,7 @@ Open bugs, roughly ordered by priority.
   visibly survive `cse_refresh`.
 
   **Proposed approaches** (one named alternative each, per
-  DDD Method Step 2 — pick before implementing):
+  CDD Method Step 2 — pick before implementing):
 
   - **A. Defer NMI dispatch in kernel mode.**  Re-introduce a
     `nmi_pending` flag (the Phase-18 swallow-in-kernel model
@@ -556,7 +556,7 @@ Open bugs, roughly ordered by priority.
   **Resolution (Approach B, third-landing 2026-05-01).**
 
   This bug went through three landings before reaching the right
-  call site — a worked example for the Phase-25 DDD Log
+  call site — a worked example for the Phase-25 CDD Log
   amendment "A1 Agent-finding verification principle" (don't
   trust enumeration without a probe).
 
@@ -860,7 +860,7 @@ Open bugs, roughly ordered by priority.
 
   #### Phased landing plan
 
-  Per session DDD Method.  Each phase has an explicit gate.
+  Per session CDD Method.  Each phase has an explicit gate.
 
   **Phase 0 — Read past `main.s:266`.**  Tabulate everything
   `_main` does between line 227 (`sym_clear`) and the final
@@ -1409,7 +1409,7 @@ Open bugs, roughly ordered by priority.
     stayed in repl.s — see follow-up below.
 
   **Totals:** −107 B (6510/6502), −82 B (cmos).  2681/2681 tests
-  green at every commit.  Every back-edge in the Step-2 DDD Analysis
+  green at every commit.  Every back-edge in the Step-2 CDD Analysis
   was eliminated except the residuals listed below.
 
   Residual back-edges — **all cleared in Phase 21.1** (commits
@@ -1631,7 +1631,7 @@ systems, ASM stubs, and test-specific linker configs.
   is complete.
 - [ ] README cross-reference tests: parse command tables in
   `README.md`, verify each command key has a handler symbol in the
-  `.lbl` file.  See DDD Maintenance item 8.
+  `.lbl` file.  See CDD Maintenance item 8.
 
 ### Test restructure Tranche 4 — `test_repl.py` → C64Emu
 
@@ -1703,8 +1703,8 @@ Defined scope, needs work.
 
 ### Corpus
 
-- [x] ~~**DDD follow-up for the 2026-04-22 Design Priorities expansion.**~~
-  Closed 2026-04-25 by Phase 23 DDD Streamlining maintenance round.
+- [x] ~~**CDD follow-up for the 2026-04-22 Design Priorities expansion.**~~
+  Closed 2026-04-25 by Phase 23 CDD Streamlining maintenance round.
   Six absorption gaps from `background.md` folded into corpus voice in
   `doc/project.md`: §4 keyboard rule gained its "shared surface" *why*;
   §6 Transparency gained an exclusion paragraph (BASIC-like wrappers,
@@ -1720,7 +1720,7 @@ Defined scope, needs work.
   (verified by grep over `doc/`); architecture.md intro stays focused
   on kernel framing, no drift introduced.
 
-- [x] ~~**L0 data modules unowned** (DDD Maintenance 2026-04-25, item 2).~~
+- [x] ~~**L0 data modules unowned** (CDD Maintenance 2026-04-25, item 2).~~
   Closed 2026-04-25.  Each generated table is now claimed by the
   module that consumes it: `mn7_tables.s`, `mn6_tables.s`,
   `mn_config.s` → `mn_classify.md`; `mn_asm_tables.s`, `mn_modes.s`,
@@ -1732,7 +1732,7 @@ Defined scope, needs work.
   vestigial 256-byte table (predecessor of `mn7_tables.s`); follow-up
   TODO under § Architecture to retire the file from the build.
 
-- [x] ~~**dev/ tooling unowned** (DDD Maintenance 2026-04-25, item 2).~~
+- [x] ~~**dev/ tooling unowned** (CDD Maintenance 2026-04-25, item 2).~~
   Closed 2026-04-25.  `build_system.md` § Owned files extended to
   claim every previously-unowned `dev/` file: `scs_analysis.py`,
   `scs_pack.py`, `gen_asm_tests.py`, `strings.txt`, `test.cfg`, the
@@ -1744,7 +1744,7 @@ Defined scope, needs work.
   provenance), and the two committed disk images (`src.d64`,
   `test.d64`).
 
-- [x] ~~**Tests unclaimed** (DDD Maintenance 2026-04-25, item 2).~~
+- [x] ~~**Tests unclaimed** (CDD Maintenance 2026-04-25, item 2).~~
   Closed 2026-04-25.  Test files added to module-doc Owned files
   blocks: `test_asm_err.py` → `asm_err.md`; `test_gap_buffer.py` →
   `gap_buffer.md` (existing transitive-via-editor row preserved);
@@ -1757,7 +1757,7 @@ Defined scope, needs work.
   same section); the tree itself was removed when it was found to
   shadow `tests/conftest.py` and break `pytest tests/`.
 
-- [x] ~~**`main.s` lacks dedicated unit tests** (DDD Maintenance
+- [x] ~~**`main.s` lacks dedicated unit tests** (CDD Maintenance
   2026-04-25, item 7).~~  Closed 2026-04-25.  `doc/modules/main.md`
   now declares Pattern A coverage explicitly: dispatcher
   classification (`cse_brk_handler`, `cse_nmi_handler`) covered at
@@ -1768,7 +1768,7 @@ Defined scope, needs work.
   needed to drive the dispatcher is essentially the integration
   setup.
 
-- [x] ~~**`disk.s` coverage gap undocumented** (DDD Maintenance
+- [x] ~~**`disk.s` coverage gap undocumented** (CDD Maintenance
   2026-04-25, item 7).~~  Closed 2026-04-25.  `doc/modules/disk.md`
   now declares Pattern C coverage explicitly: KERNAL IEC entry
   points are not modelled by py65 + C64Emu (no virtual IEC bus, no
@@ -1776,7 +1776,7 @@ Defined scope, needs work.
   paths.  Cross-references the queued
   § C64Emu extension roadmap → Virtual IEC disk item.
 
-- [x] ~~**`loader.s` triple gap** (DDD Maintenance 2026-04-25, items
+- [x] ~~**`loader.s` triple gap** (CDD Maintenance 2026-04-25, items
   2, 6, 7).~~  Closed 2026-04-25 by the new `doc/modules/loader.md`
   (interface + design + caveats + Pattern A coverage statement) and
   the architecture.md ownership-link update.  The legacy duplicate
@@ -2402,16 +2402,16 @@ from our exit context.
   migrated from local `.segment "ZEROPAGE"` to `.importzp`.  `asm_vars.s`
   deleted (role absorbed by zp.s).  All test stubs and configs updated
   to link zp.s.  Pure refactor: 0 bytes size change, 2797 tests pass.
-- [x] ~~DDD template drift~~ (fixed: moved `### Memory` before
+- [x] ~~CDD template drift~~ (fixed: moved `### Memory` before
   `**Depends on:**` in 11 module docs; Phase 15 audit remediation)
 - [x] ~~Missing module doc: `src/mem.s`~~ (fixed: `doc/modules/mem.md`
   created; Phase 15 audit remediation)
 - [x] ~~Missing module doc: `src/loader.s` has no `doc/modules/*.md`.~~
   (fixed 2026-04-25: `doc/modules/loader.md` created during Phase 23
-  DDD Maintenance round.)
+  CDD Maintenance round.)
 - [x] ~~debugger.md: all symbol names use `_` prefix~~ (fixed:
   stripped `_` prefix from all symbol names throughout the document
-  to match actual exports; Phase 17 DDD Maintenance)
+  to match actual exports; Phase 17 CDD Maintenance)
 - [x] ~~README: missing `.bas` directive~~ (fixed: Phase 15 audit)
 - [x] ~~README: `a` command description says "advances past assembled
   code"~~ (fixed: README now reads "Assemble source from editor
@@ -2419,7 +2419,7 @@ from our exit context.
 - [x] ~~README: "gap buffer grows down from $D000"~~ (fixed: Phase 15)
 - [x] ~~editor.md + memory_design.md: `BUF_END` / gap buffer described
   as `$D000`~~ (fixed: updated to `__CODE_RUN__` in editor.md ×3
-  and memory_design.md Design Principle 5; Phase 17 DDD Maintenance)
+  and memory_design.md Design Principle 5; Phase 17 CDD Maintenance)
 - [ ] Export `LOG_INFO`, `LOG_WARN`, `LOG_ERR` from repl.s so
   consumers (main.s, asm_src.s, disk.s) can import them instead
   of redefining locally.
@@ -2567,8 +2567,8 @@ Exploratory, not yet scoped.
   (MEGA65/open-roms#116, #117).  Channel-based dir code
   preserved in `1348247` for when fixes land.  All other
   features work.  Native mode is roadmap R7.
-- [ ] DDD back-reference tracking: link source files to their
-  documentation via a machine-readable index.  DDD Maintenance
+- [ ] CDD back-reference tracking: link source files to their
+  documentation via a machine-readable index.  CDD Maintenance
   verifies code changes trigger doc updates for all covering
   documents.
 - [x] ~~**RESTORE-only screen recovery.**~~  (Phase 20 — done
