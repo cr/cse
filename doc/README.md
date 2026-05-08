@@ -62,6 +62,22 @@ and docstrings), and recommends documentation improvements to be
 made before proceeding.  The analysis must be presented for
 discussion and approval.
 
+*Cross-module handoff audit.*  When the change introduces or
+revises a contract or signal that other modules will consume,
+walk each consumer path explicitly during this step — not after
+the fact.  For each path: does the consumer actually receive the
+signal under all conditions, or do intermediate transformations
+(pre-evaluation, mock paths, build-variant differences,
+conditional dispatch) bypass it?  Document the answer; if any
+path bypasses, file the asymmetry as a known issue before
+implementation begins.  Step 5 (Differential CDD Analysis)
+catches doc-code drift after the fact; step 2 catches design
+gaps before code lands.  Cautionary example: the `.` REPL
+command's missing ACC label-shadow warning (Phase 25) survived
+implementation because step 2 had not audited the dot-command
+pre-eval path, which bypasses `mode_parse`'s shadow detection
+by pre-evaluating via `expr_eval`.
+
 **Step 3 — TDD Analysis.**  Defined in full in
 [testing.md § The TDD Method](testing.md#the-tdd-method).  Identifies test gaps,
 recommends test framework changes, and assesses automation
@@ -86,6 +102,23 @@ contract has not been pinned, not a refinement of the
 implementation.  Continuing burns commits and obscures the
 inflection point at which the contract diverged from the design.
 
+*Agent-finding verification.*  When an agent (LLM, static analyser,
+optimisation survey, dead-code probe, …) surfaces findings during
+this step or any other Method step, those findings are
+*candidates*, not conclusions.  Verify each by independent grep /
+read / test before acting.  Verification covers (a) all consumption
+modes of the symbol or pattern in question — direct call, `jmp`,
+`.import`, test-fixture label lookup, indirect dispatch, dual-entry
+labels — and (b) the assumption underlying the finding's claim
+(e.g. "X preserves carry" requires reading X's body, not trusting
+the finding's summary).  A high-confidence finding that turns out
+wrong costs a commit cycle.  Cautionary example: Phase-25
+optimisation surveys returned three high-confidence false positives
+(`set_cpu` carry-preservation; `_asm_line_core` / `asm_org` /
+`asm_size` / `asm_errors` "dead" exports actually consumed via test
+label lookups; `_expr_eval_inner` inlining blocked by dual-entry
+label `expr_eval_nb`).
+
 **Step 5 — Differential CDD Analysis.**  After implementation, a
 second CDD Analysis identifies all documentation discrepancies
 created by the development work.  The required documentation
@@ -101,6 +134,19 @@ session belong in separate commits: each easier to bisect,
 easier to revert individually, easier to credit in a changelog.
 Bundling unrelated fixes erases the "which change broke this"
 trail without saving any work.
+
+*TODO closure rule.*  When a commit lands work that closes one
+or more entries in `TODO.md` — a fix, a feature, a methodology
+amendment — the same commit ticks (`[x]`) and strikes through
+(`~~…~~`) those entries.  A commit that lands the substantive
+work without retiring the TODO entry is incomplete: the open
+entry will outlive its purpose and accumulate as noise that the
+next CDD Maintenance round must triage.  Closure happens
+contemporaneous with the work, not as a separate cleanup pass.
+Cautionary example: the *Loader reverse-direction copy* entry
+stayed open in `TODO.md` long after Phase 19 had landed the
+fix; closure had been recorded only in the closed-bugs reference
+block.
 
 **Step 7 — Final CDD Report.**  A summary of all changes made to
 the repository (documentation, tests, code), highlighting any
@@ -148,6 +194,18 @@ the CDD System entirely.
    `memory_design.md`.  Verify that every command, directive,
    addressing mode, and key binding listed in the README matches
    the current code as documented in those source documents.
+
+9. **Historical-marker drift** — grep the corpus (source comments
+   AND prose) for `Phase \d`, `Move \d`, `moved to`, `previously`,
+   `was formerly`, `TODO:`.  Confirm each match is either
+   load-bearing (describes a still-current invariant) or stale
+   (and therefore retired in this audit).  Stale markers
+   accumulate during refactors and feature work; periodic sweep
+   keeps the corpus's voice in the present tense.  When a
+   project-specific marker pattern beyond the universal set
+   recurs, add it to the local sweep config.  Implemented in
+   `dev/audit_phase_markers.py`; the script reports matches
+   sorted by frequency, ready for human triage.
 
 **Output:** a CDD Maintenance Report listing findings by category.
 Mechanical corrections (broken links, stale comments, formatting)
@@ -333,6 +391,18 @@ harness bugs, and doc-code fidelity gaps.
      amendment and prevents the entire class of bug, not just the
      instance.  Reference the specific escape in the new principle
      so future readers see the evidence that produced it.
+
+   *Pre-drafted principles.*  When the bug entry's analysis
+   section already contains pre-drafted candidate principle text
+   — a pattern that emerges when the entry was written carefully
+   while the evidence was fresh — step 4 promotes the drafts
+   directly.  Resist re-deriving from scratch; the bug entry's
+   draft was written closest to the evidence and is typically
+   more precise than a re-derivation.  Cautionary example:
+   Phase-24's cold-init bug entry pre-drafted text for
+   testing.md Principles 16 / 17 / 18 before they were promoted;
+   the step-4 transcription was trivial because the principles
+   were already publication-quality by the time the fix landed.
 
 5. **Sweep the corpus — two axes.**  The "same class of bug
    cannot escape twice" guarantee is only real if the class is
@@ -599,6 +669,30 @@ the tags at those columns.  When the UX evolved (Phase 22), the
 appendix had to be ripped out and the tests rewritten — and
 during the years it lived, the tests caught zero contract
 violations and zero real layout bugs.  They pinned implementation.
+
+### 8. Prefer enumeration codes over boolean flags
+
+When introducing a flag byte or status field, if there is *any*
+prospect of a third state — a future error class, mode, level,
+or category — encode as a single-byte enumeration from day one.
+A Boolean (0 / 1) is correct only when the underlying domain is
+genuinely binary and will stay so.
+
+The cost of an unused enumeration value is one byte (`cmp #2` at
+the consumer); the cost of widening a Boolean later is a
+multi-file rename.  Enumerations also document the shape of the
+domain at the declaration site — readers see the value space
+without tracing the consumers.
+
+**When a Boolean is right.**  Truly binary state with no
+foreseeable extension (`is_initialised`, `is_eof`).  When in
+doubt, prefer enumeration.
+
+Cautionary example: `asm_expr_err` (Boolean, two states) became
+`asm_err_code` (enumeration, three states) when a parse-error
+class was added; the rename propagated through four files.
+Encoding as an enumeration from day one would have avoided the
+rename at the cost of a single comparison byte at the consumer.
 
 ---
 

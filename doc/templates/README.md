@@ -12,5 +12,20 @@ must be defined here before the second instance is written.
 
 | Template | Applies to | Instances |
 |----------|------------|-----------|
-| [module.md](module.md) | `doc/modules/*.md` — one doc per source module | 15 |
-| [subsystem.md](subsystem.md) | `doc/*.md` — top-level subsystem docs | 6 |
+| [module.md](module.md) | `doc/modules/*.md` — one doc per source module | 23 |
+| [subsystem.md](subsystem.md) | `doc/*.md` — top-level subsystem docs | 9 |
+| [todo.md](todo.md) | `doc/TODO.md` — the project's running TODO file | 1 |
+
+## Non-templated top-level docs
+
+Some `doc/*.md` files are deliberately out of template because they
+belong to single-instance categories or are running artefacts whose
+shape is owned by a different process.  Each is recognised as
+out-of-template by category, not as drift.
+
+| Category | Files | Why no template |
+|----------|-------|-----------------|
+| Index | [README.md](../README.md) | The corpus index itself; the structure is the index. |
+| Glossary | [glossary.md](../glossary.md) | Single-instance reference; structure is `## category` + table. |
+| Running log | [cdd_log.md](../cdd_log.md) | Append-mostly artefact; structural drift is feature, not bug. |
+| Process / checklist | [optimization.md](../optimization.md), [vice_test_plan.md](../vice_test_plan.md) | Single-instance procedural references.  When a second instance lands (e.g. a proposed `release_checklist.md`), promote a template before the second instance is written, per the rule above. |
