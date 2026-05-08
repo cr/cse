@@ -171,8 +171,27 @@ the CDD System entirely.
 
 1. **Template conformance** — all documents in a templated category
    conform to their template.
-2. **Ownership completeness** — every file in the repository is claimed
-   by exactly one document.  Unclaimed files are corpus gaps.
+2. **Ownership completeness** — every file in the repository is
+   claimed by exactly one document.  Unclaimed files are corpus
+   gaps.  See [§ Ownership](#ownership) for the full contract.
+
+   (a) **Forward and backward link.**  For each owning document,
+   verify every owned file's back-link points to this document.
+   Files whose row in the owner's Owned files table carries an
+   explicit `back-link-exempt` annotation are skipped at this
+   step (the audit script enforces this mechanically).
+
+   (b) **Exempt-file walk.**  For each `back-link-exempt` row in
+   any Owned files table, walk the file.  Has it changed since
+   the last audit in a way that requires a change to the owning
+   document or downstream consumers?  Findings surface in the
+   Maintenance Report under the Ownership category, presented
+   for operator review at the standard report-stage approval
+   gate.  Each exempt-file-walk finding is dated, names the
+   file, and either records "no propagation needed" or describes
+   the propagation required.  TODO entries arise downstream of
+   operator approval, per the standard CDD Maintenance output
+   flow.
 3. **Doc-code fidelity** — each module doc matches its source file:
    function signatures, ZP addresses, algorithms, clobber rules.
 4. **Cross-reference integrity** — all links in the corpus resolve:
@@ -211,6 +230,100 @@ the CDD System entirely.
 Mechanical corrections (broken links, stale comments, formatting)
 that don't affect design intent may be fixed inline.  Substantive
 findings become TODO items and go through the CDD Method.
+
+---
+
+## Ownership
+
+[Principle 4](#4-explicit-ownership) declares that every file is
+owned by exactly one document.  This section owns the ownership
+*process* — the contract between owning docs and owned files,
+and the audit that proves it holds.
+
+**Trigger:** at each milestone boundary as part of
+[CDD Maintenance](#cdd-maintenance) item 2.  Projects with
+sufficient corpus volatility may escalate the bidirectional
+check to a pre-commit (or pre-push) hook so drift surfaces
+continuously rather than only at milestone gates.  The audit
+script is the same; only the cadence differs.
+
+**Audit scope:**
+
+1. **Completeness** — every file under CDD regime is claimed by
+   at least one document.  Unclaimed files are corpus gaps.
+
+2. **Uniqueness** — every file is claimed by *exactly one*
+   document.  Two docs claiming the same file is a contract
+   collision; resolve on owner-of-record (the doc whose Owned
+   files table landed first; later claims become
+   cross-references).
+
+3. **Bidirectional consistency** — every non-exempt owned file
+   carries a back-link to its owning document.  The forward link
+   (doc → file) and back-link (file → doc) must resolve to the
+   same pair.
+
+**Forward-link mechanism.**  Each owning document declares its
+owned files in an **Owned files** table — see
+[`templates/module.md`](templates/module.md) and
+[`templates/subsystem.md`](templates/subsystem.md) for the table
+shape.  Each row names the file path, its role
+(`implementation`, `test contract`, `generated`, `header`), and
+optional inline annotations.
+
+**Back-link convention.**  Every owned file whose syntax permits
+text references carries a back-link to its owning document in
+its header:
+
+| File type | Back-link form |
+|-----------|---------------|
+| Source files (`.s`, `.c`, `.py`, …) | First or second header-comment line: `; Owner: doc/modules/<module>.md` (or the language's comment-syntax equivalent). |
+| Markdown files | Top-of-file `**Owner:** [path](...)` metadata line, for files owned by a parent doc rather than self-templated. |
+| Build files (`Makefile`, comment-bearing configs) | Header-comment line in the language's comment syntax. |
+
+The back-link lets an auditor (human or script) start at the
+file and find the owning document, closing the loop the forward
+link opens.
+
+**Exemption grammar.**  Files whose syntax does not permit text
+references — binary artefacts, generated outputs, no-comment
+configs — are exempt from the back-link requirement.  Owners
+declare exemptions inline at the row of the Owned files table
+that carries the exempt file, by appending `; back-link-exempt
+(<reason>)` to the Role cell:
+
+| File | Role |
+|------|------|
+| `assets/logo.png` | generated; back-link-exempt (binary) |
+| `dev/build.cfg` | generated; back-link-exempt (no-comment-syntax) |
+
+The reason field is **required**.  There is no central exception
+register: each owner declares its own exemptions next to the
+file in question.  A central register would itself drift; local
+annotation keeps exemption knowledge with the doc that already
+owns the file.
+
+**Audit implementation.**  The audit script reads exemption
+annotations from each owner's Owned files table, performs the
+bidirectional check on non-exempt rows, and walks exempt rows
+producing a Maintenance Report finding per file.  See
+`dev/audit_doc_owned_files.py` for the reference implementation.
+The script is the implementation of the spec; this section is
+the spec.
+
+**Output:** an Ownership audit section in the CDD Maintenance
+Report listing findings by category (completeness gaps /
+uniqueness collisions / bidirectional mismatches /
+exempt-file-walk findings).  Findings flow through the standard
+Maintenance Report → operator approval → TODO chain.
+
+**Relationship to other processes:**
+
+| Process | Ownership role |
+|---|---|
+| [CDD Method](#the-cdd-method) | Step 5 (Differential CDD Analysis) verifies the change did not break ownership invariants. |
+| [CDD Maintenance](#cdd-maintenance) | Item 2 invokes this section's audit scope; sub-steps 2(a) and 2(b) are defined there. |
+| [Escape Analysis](#escape-analysis) | When a bug traces to ownership ambiguity (no doc, or two), the amendment lands in the relevant Owned files table. |
 
 ---
 
@@ -599,23 +712,21 @@ The answer points to the owner.
 ### 4. Explicit ownership
 
 Every file in the repository is owned by exactly one document.
-The owning document explicitly links to every file it owns and
-names the relation.  Valid relations:
+The owning document declares every file it owns in an **Owned
+files** table; each owned file (where syntax permits) carries a
+back-link to its owning document.  Valid roles:
 
-| Relation | Meaning |
-|----------|---------|
+| Role | Meaning |
+|------|---------|
 | `implementation` | The file implements the behaviour this doc specifies. |
 | `test contract` | The file verifies the interface this doc defines. |
 | `generated` | The file is produced from data this doc is authoritative for. |
 | `header` | The file exposes the C interface this doc describes. |
 
-A file with no owning document is an undocumented file — a gap in
-the Corpus.  CDD Maintenance must resolve all gaps.
-
-This principle is what the **Owned files** section in module docs
-(see [templates/module.md](templates/module.md)) implements.
-Top-level documents without a template must carry an equivalent
-ownership declaration wherever appropriate.
+A file with no owning document is an undocumented file — a corpus
+gap that CDD Maintenance must resolve.  The full ownership
+*process* — back-link conventions per file type, exemption
+grammar, audit specification — lives at [§ Ownership](#ownership).
 
 ### 5. Natural reading order
 
