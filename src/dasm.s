@@ -1,27 +1,38 @@
-; dasm.s — Bit-slice 6502/6510/65C02 disassembler
+; dasm.s — table-driven disassembler (6502 / 6510 / 65C02)
+; Owner: doc/modules/dasm.md
 ;
 ; Interface:
 ;   dasm_insn (A/X = addr lo/hi)
 ;     Output: NUL-terminated PETSCII string in dasm_buf
 ;     Returns instruction length in A (1-3)
 ;
-; CPU mode: asm_cpu  0=6502(legal only)  1=6510(+illegal)  2=65C02(+cmos)
+; CPU view: asm_cpu (build_system.md § Builds and CPU sets) selects one of
+; the build's CPU views.  Every opcode fact comes from the generated
+; dasm_tables.s (one block per CPU set); this file holds none:
 ;
-; Design: aaabbbcc bit-slice decode.  No 256-entry tables.
-;   cc=01: fully regular (8-entry mne + 8-entry mode)
-;   cc=10: semi-regular (aaa→mne for odd bbb, per-CPU for even bbb)
-;   cc=00: branches + implied + memory subgroups
-;   cc=11: CPU-dependent (6502→???, 6510→illegals, 65C02→RMB/SMB/BBR/BBS)
+;   dasm_cpu_map_lo/hi[asm_cpu]  → the view's map block:
+;       +0    256 B  mnemonic index per opcode (0 = MNE_UNK, "...")
+;       +256  128 B  mode per opcode, two 4-bit modes per byte (even = low)
+;   dasm_cpu_bm[asm_cpu] = 1     → the view is the subset bitmap
+;       dasm_view_bm over that map (DASM_SUBSET sets only); an opcode
+;       outside it lists as "..."
+;   dasm_mode_len / dasm_mode_fmt[mode]  → length and operand format
+;   dasm_mne_str[index]          → 3 chars packed into 2 bytes (5 bits/char)
 ;
-; Mnemonic packing: 3 chars in 2 bytes (5 bits/char, A=1..Z=26, ?=27)
-; Mode format byte: hi nybble=prefix+size, lo nybble=suffix
-;   Instruction length derived from mode.
+; A bit-digit key (MNE_DIGIT_LO..HI) is listed with the opcode's bits 6:4
+; as its digit (RMB3).
+
+        .include "dasm_mne_idx.s"   ; MNE_UNK, MNE_DIGIT_*, DASM_SUBSET
 
         .export dasm_insn
         .export dasm_buf
 
         .importzp asm_cpu
-        .import dasm_mne_str
+        .import dasm_mne_str, dasm_mode_len, dasm_mode_fmt
+        .import dasm_cpu_map_lo, dasm_cpu_map_hi
+.ifdef DASM_SUBSET
+        .import dasm_cpu_bm, dasm_view_bm
+.endif
         .import kernal_bank_out, kernal_bank_in
 
 ; ── ZP usage ─────────────────────────────────────────────
@@ -46,11 +57,10 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
 ;   Returns length in A.  dasm_buf filled with PETSCII + NUL.
 ;
 ; dasm_insn owns its own KERNAL banking — callers don't manage
-; it.  KDATA tables (mn_modes, mode_offset, dasm_mne_str) live
-; under KERNAL ROM, so the inner decoder must run with KERNAL
-; banked out.  Inside an asm_assemble batch (kernal_out=1) the
-; bank helpers short-circuit, so this wrapper costs only the
-; flag check on each call from inside the batch.
+; it.  dasm_mne_str lives under KERNAL ROM (KDATA), so the decoder
+; runs with KERNAL banked out.  Inside an asm_assemble batch
+; (kernal_out=1) the bank helpers short-circuit, so this wrapper
+; costs only the flag check on each call from inside the batch.
 ;
 ; KERNAL-ROM read fix: snapshot the 3 max-insn bytes from the
 ; user's address into _dasm_in BEFORE banking out — otherwise
@@ -63,9 +73,8 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
 ; Either way, the user's "current view" of memory is what gets
 ; disassembled.
 ;
-; All exit paths (finish, the RMB/SMB / BBR/BBS handlers in
-; decode_cc11) rts back here, where bank_in pairs with the
-; entry bank_out before returning the length to the caller.
+; The decoder has one exit (finish); its length survives the
+; bank_in through pha / pla.
 ; ════════════════════════════════════════════════════════════
 .proc dasm_insn
         sta _dasm_ptr
@@ -73,9 +82,7 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         ; Snapshot 3 bytes from the user address while the caller's
         ; bank state is still in force.  _dasm_ptr stays pointing at
         ; the user address — it's used by branch-target arithmetic in
-        ; format_operand to compute PC-relative destinations.  Byte
-        ; reads of opcode/operand throughout the decoder use the
-        ; absolute-Y form `lda _dasm_in,y` instead of `(_dasm_ptr),y`.
+        ; format_operand to compute PC-relative destinations.
         ldy #2
 @cp:    lda (_dasm_ptr),y
         sta _dasm_in,y
@@ -89,37 +96,60 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         rts
 .endproc
 
-; ── dasm_decode — actual decoder, runs with KERNAL banked out ──
-; Caller (dasm_insn) has already set _dasm_ptr from A/X.
-; Returns length in A via finish / RMB-SMB / BBR-BBS exits.
+; ── dasm_decode — map lookup, runs with KERNAL banked out ────
+; Returns the instruction length in A (via finish).
 .proc dasm_decode
         lda #0
         sta _dasm_wptr          ; reset buffer write position
 
-        ; Read opcode (from snapshot, not user address — _dasm_ptr is
-        ; reserved for branch-target arithmetic).
-        ldy #0
-        lda _dasm_in,y
-        sta _dasm_opc
+        ; The view's map block → _dasm_mne (free until print_mne).
+        ldx asm_cpu
+        lda dasm_cpu_map_lo,x
+        sta _dasm_mne
+        lda dasm_cpu_map_hi,x
+        sta _dasm_mne+1
+        ldy _dasm_in            ; opcode
+        sty _dasm_opc
 
-        ; Extract cc = opcode & 3
-        and #$03
-        beq @cc00
-        cmp #$01
-        beq @cc01
-        cmp #$02
-        beq @cc10
-        jmp decode_cc11         ; cc=3
-
-@cc00:  jmp decode_cc00
-@cc01:  jmp decode_cc01
-@cc10:  jmp decode_cc10
+.ifdef DASM_SUBSET
+        ; Subset view: an opcode outside the bitmap lists as "...".
+        lda dasm_cpu_bm,x
+        beq @mapped
+        tya
+        lsr
+        lsr
+        lsr
+        tax                     ; X = opcode >> 3
+        tya
+        and #$07
+        tay
+        lda _bit_tab,y
+        and dasm_view_bm,x
+        bne @in_view
+        lda #MNE_UNK
+        sta _dasm_midx
+        sta _dasm_mode          ; MODE_IMP = 0: length 1, no operand
+        jmp finish
+@in_view:
+        ldy _dasm_opc
+@mapped:
+.endif
+        lda (_dasm_mne),y       ; mnemonic index
+        sta _dasm_midx
+        inc _dasm_mne+1         ; → the mode nibbles (block + 256)
+        tya
+        lsr                     ; C = opcode bit 0
+        tay
+        lda (_dasm_mne),y
+        bcc @even
+        lsr
+        lsr
+        lsr
+        lsr
+@even:  and #$0F
+        sta _dasm_mode
+        ; fall through
 .endproc
-
-; Top-level decode stores mne_idx and mode_idx in ZP,
-; then calls print_mne, then format_operand.
-
-.segment "CODE"
 
 ; ════════════════════════════════════════════════════════════
 ; finish — print mnemonic + operand, return length
@@ -128,7 +158,7 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
 ;   Returns instruction length in A.
 ; ════════════════════════════════════════════════════════════
 .proc finish
-        jsr print_mne           ; 3 chars + space
+        jsr print_mne           ; name (+ digit) + space
         jsr format_operand      ; mode-driven operand output
         ; NUL-terminate
         ldx _dasm_wptr
@@ -136,12 +166,12 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         sta dasm_buf,x
         ; Return instruction length from mode
         ldx _dasm_mode
-        lda mode_len,x
+        lda dasm_mode_len,x
         rts
 .endproc
 
 ; ════════════════════════════════════════════════════════════
-; print_mne — write 3-char mnemonic + space to buffer
+; print_mne — write the mnemonic (+ bit digit) + space to buffer
 ; ════════════════════════════════════════════════════════════
 .proc print_mne
         lda _dasm_midx
@@ -158,20 +188,21 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         lsr
         jsr emit_alpha
 
-        ; char 2: ((hi & 3) << 3) | (lo >> 5)
+        ; char 2: ((hi & 3) << 3) | (lo >> 5); hi is dead after char 1,
+        ; so it holds the high part.
         lda _dasm_mne
         and #$03
         asl
         asl
         asl                     ; (hi & 3) << 3
-        sta _dasm_opc           ; borrow as temp
+        sta _dasm_mne
         lda _dasm_mne+1
         lsr
         lsr
         lsr
         lsr
         lsr                     ; lo >> 5
-        ora _dasm_opc           ; combine
+        ora _dasm_mne
         jsr emit_alpha
 
         ; char 3: lo & $1F
@@ -179,7 +210,23 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         and #$1F
         jsr emit_alpha
 
-        ; space
+.ifdef MNE_DIGIT_LO
+        ; bit-digit key: append the opcode's bits 6:4 (RMB3, BBS7)
+        lda _dasm_midx
+        cmp #MNE_DIGIT_LO
+        bcc @space
+        cmp #MNE_DIGIT_HI+1
+        bcs @space
+        lda _dasm_opc
+        lsr
+        lsr
+        lsr
+        lsr
+        and #$07
+        ora #$30                ; '0'..'7'
+        jsr buf_putc
+@space:
+.endif
         lda #$20
         jmp buf_putc
 .endproc
@@ -422,945 +469,11 @@ _emit_target:
         jmp buf_putc
 .endproc
 
-; ── _dasm_finish_unk — set MNE_UNK + MODE_IMP and finish ────
-_dasm_finish_unk:
-        lda #MNE_UNK
-        sta _dasm_midx
-        ; fall through
 
-; ── _dasm_finish_imp — set MODE_IMP and jump to finish ──────
-_dasm_finish_imp:
-        lda #MODE_IMP
-        sta _dasm_mode
-        jmp finish
-
-; ── _dasm_set_finish — A=mnemonic, X=mode → set both, finish ──
-_dasm_set_finish:
-        sta _dasm_midx
-        stx _dasm_mode
-        jmp finish
-
-; ── _dasm_aaa — extract aaa field (bits 7-5) into X ─────────
-; Returns A = X = opcode >> 5.  Clobbers A.
-_dasm_aaa:
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr
-        tax
-        rts
-
-; ════════════════════════════════════════════════════════════
-; GROUP DECODERS
-; ════════════════════════════════════════════════════════════
-
-; ── cc=01: fully regular ─────────────────────────────────
-.proc decode_cc01
-        jsr _dasm_aaa
-        lda g1_mne,x
-        sta _dasm_midx
-
-        lda _dasm_opc
-        lsr
-        lsr
-        and #$07                ; bbb
-        tax
-        lda g1_mode,x
-        sta _dasm_mode
-
-        ; Exception: $89 = BIT #imm on 65C02, ??? on NMOS
-        lda _dasm_opc
-        cmp #$89
-        bne @go
-.ifdef CMOS_SUPPORT
-        lda asm_cpu
-        cmp #2
-        bne @unk89
-        lda #MNE_BIT
-        sta _dasm_midx
-        jmp finish
-@unk89:
-.endif
-        jmp _dasm_finish_unk
-@go:    jmp finish
-.endproc
-
-; ── cc=10: semi-regular ──────────────────────────────────
-.proc decode_cc10
-        lda _dasm_opc
-        lsr
-        lsr
-        and #$07                ; bbb
-        cmp #$01
-        beq @bbb1
-        cmp #$03
-        beq @bbb3
-        cmp #$05
-        beq @bbb5
-        cmp #$07
-        beq @bbb7
-
-        ; Even bbb (0,2,4,6) — irregular, handle per-CPU
-        jmp decode_cc10_even
-
-@bbb1:  ; ZP mode
-        lda #MODE_ZP
-        jmp @regular
-@bbb3:  ; ABS mode
-        lda #MODE_ABS
-        jmp @regular
-@bbb5:  ; ZPX (or ZPY for STX/LDX)
-        lda _dasm_opc
-        and #$E0
-        cmp #$80                ; aaa=4 (STX)?
-        beq @zpy
-        cmp #$A0                ; aaa=5 (LDX)?
-        beq @zpy
-        lda #MODE_ZPX
-        jmp @regular
-@zpy:   lda #MODE_ZPY
-        jmp @regular
-@bbb7:  ; ABX (or ABY for LDX, SXA on NMOS)
-        lda _dasm_opc
-        and #$E0
-        cmp #$A0                ; aaa=5 (LDX)?
-        beq @aby7
-        ; Check $9E: SXA/SHX on 6510, STZ ABX on 65C02, ??? on 6502
-        lda _dasm_opc
-        cmp #$9E
-        bne @abx7
-.ifndef CPU_6502
-        lda asm_cpu
-        cmp #1
-        bne :+
-        ; 6510: SXA ABY
-        lda #MNE_SXA
-        ldx #MODE_ABY
-        jmp _dasm_set_finish
-:
-.ifdef CMOS_SUPPORT
-        cmp #2
-        bne @to_unk             ; 6502: ???
-        ; 65C02: STZ ABX
-        lda #MNE_STZ
-        ldx #MODE_ABX
-        jmp _dasm_set_finish
-.endif ; CMOS_SUPPORT
-.endif ; !CPU_6502
-@to_unk:
-        jmp _dasm_finish_unk
-@aby7:  lda #MODE_ABY
-        jmp @regular
-@abx7:  lda #MODE_ABX
-
-@regular:
-        sta _dasm_mode
-        jsr _dasm_aaa
-        lda g2_mne,x
-        sta _dasm_midx
-        jmp finish
-.endproc
-
-; ── cc=10 even bbb (0,2,4,6) ────────────────────────────
-.proc decode_cc10_even
-        lda _dasm_opc
-        lsr
-        lsr
-        and #$07                ; bbb
-        cmp #$02
-        beq @bbb2
-        cmp #$04
-        bne :+
-        jmp @bbb4
-:       cmp #$06
-        bne :+
-        jmp @bbb6
-:
-
-        ; bbb=0: almost all unknown
-        ; Only $A2 = LDX #imm (legal), $02 = KIL (6510)
-        lda _dasm_opc
-        cmp #$A2
-        beq @ldx_imm
-.ifndef CPU_6502
-        ; 6510: $02 = KIL
-        lda asm_cpu
-        cmp #1
-        bne @b0_unk
-        lda _dasm_opc
-        cmp #$02
-        bne @b0_unk
-        lda #MNE_KIL
-        sta _dasm_midx
-        jmp _dasm_finish_imp
-@b0_unk:
-.endif
-        jmp @unk
-
-@ldx_imm:
-        lda #MNE_LDX
-        ldx #MODE_IMM
-        jmp _dasm_set_finish
-
-@bbb2:  ; Accumulator / implied column
-        jsr _dasm_aaa
-        lda g2b2_mne,x
-        sta _dasm_midx
-        lda g2b2_mode,x
-        sta _dasm_mode
-.ifdef CMOS_SUPPORT
-        ; 65C02 overrides: $1A=INC A, $3A=DEC A
-        lda asm_cpu
-        cmp #2
-        bne @b2go
-        lda _dasm_opc
-        cmp #$1A
-        bne :+
-        lda #MNE_INC
-        sta _dasm_midx
-        lda #MODE_ACC
-        sta _dasm_mode
-:       lda _dasm_opc
-        cmp #$3A
-        bne @b2go
-        lda #MNE_DEC
-        sta _dasm_midx
-        lda #MODE_ACC
-        sta _dasm_mode
-.endif
-@b2go:  jmp finish
-
-@bbb4:  ; 65C02: ZPI. 6510: $D2=CIM
-.ifndef CPU_6502
-        lda asm_cpu
-.ifdef CMOS_SUPPORT
-        cmp #2
-        beq @bbb4_cmos
-.endif
-        ; 6510: check for $D2=CIM
-        cmp #1
-        bne @b4_unk
-        lda _dasm_opc
-        cmp #$D2
-        bne @b4_unk
-        lda #MNE_CIM
-        sta _dasm_midx
-        jmp _dasm_finish_imp
-@b4_unk:
-.endif
-        jmp @unk
-.ifdef CMOS_SUPPORT
-@bbb4_cmos:
-        ; aaa selects same mnemonic as cc=01 (ORA,AND,EOR,ADC,STA,LDA,CMP,SBC)
-        jsr _dasm_aaa
-        lda g1_mne,x            ; reuse cc=01 table!
-        sta _dasm_midx
-        lda #MODE_ZPI
-        sta _dasm_mode
-        ; Exception: $D2 on some 65C02s is CMP(zp), but our table
-        ; has it right since g1_mne[6]=CMP
-        jmp finish
-.endif
-
-@bbb6:  ; Per-CPU implied column
-        jsr _dasm_aaa
-.ifdef CMOS_SUPPORT
-        ; Check asm_cpu for CMOS extras
-        lda asm_cpu
-        cmp #2
-        beq @b6_cmos
-.endif
-        ; NMOS/6502: only TXS($9A) and TSX($BA) are legal
-        lda g2b6_mne_nmos,x
-        sta _dasm_midx
-        lda #MODE_IMP
-        sta _dasm_mode
-.ifndef CPU_6502
-        ; Check if this CPU supports it
-        lda asm_cpu
-        bne @b6go               ; 6510: all entries valid
-.endif
-        ; 6502: UNK entries in g2b6_mne_nmos print as "???" via finish
-@b6go:  jmp finish
-
-.ifdef CMOS_SUPPORT
-@b6_cmos:
-        lda g2b6_mne_cmos,x
-        sta _dasm_midx
-        ; INC/DEC use ACC mode, rest use IMP
-        cmp #MNE_INC
-        beq @b6_acc
-        cmp #MNE_DEC
-        beq @b6_acc
-        jmp _dasm_finish_imp
-@b6_acc:
-        lda #MODE_ACC
-        sta _dasm_mode
-        jmp finish
-.endif
-
-@unk:   jmp _dasm_finish_unk
-.endproc
-
-; ── cc=00: branches + implied + memory ───────────────────
-.proc decode_cc00
-        ; Check for branch: (opcode & $1F) == $10
-        lda _dasm_opc
-        and #$1F
-        cmp #$10
-        beq @branch
-
-        ; Extract bbb
-        lda _dasm_opc
-        lsr
-        lsr
-        and #$07
-        cmp #$02
-        beq @impl2
-        cmp #$06
-        beq @impl6
-
-        ; Memory operations (bbb=0,1,3,5,7)
-        jmp decode_cc00_mem
-
-@branch:
-        jsr _dasm_aaa
-        lda g0_br_mne,x
-        sta _dasm_midx
-        lda #MODE_REL
-        sta _dasm_mode
-        ; Exception: $80 = BRA on 65C02, SKB on 6510
-        lda _dasm_opc
-        cmp #$80
-        bne @brgo
-.ifndef CPU_6502
-        lda asm_cpu
-.ifdef CMOS_SUPPORT
-        cmp #2
-        beq @bra
-.endif
-        cmp #1
-        bne @br_unk
-        ; 6510: $80 = SKB #imm
-        lda #MNE_SKB
-        ldx #MODE_IMM
-        jmp _dasm_set_finish
-@br_unk:
-.endif
-        ; 6502: ??? (not a valid branch)
-        jmp _dasm_finish_unk
-@brgo:  jmp finish
-
-.ifdef CMOS_SUPPORT
-@bra:   lda #MNE_BRA
-        sta _dasm_midx
-        jmp finish
-.endif
-
-@impl2:
-        jsr _dasm_aaa
-        lda g0_i2_mne,x
-        sta _dasm_midx
-        jmp _dasm_finish_imp
-
-@impl6:
-        jsr _dasm_aaa
-        lda g0_i6_mne,x
-        sta _dasm_midx
-        jmp _dasm_finish_imp
-.endproc
-
-; ── cc=00 memory operations (bbb=0,1,3,5,7) ─────────────
-.proc decode_cc00_mem
-        lda _dasm_opc
-        lsr
-        lsr
-        and #$07                ; bbb
-        sta _dasm_mode           ; temp: bbb
-
-        ; aaa
-        lda _dasm_opc
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr
-        tax                     ; X = aaa
-
-        ; aaa >= 4: regular family (STY/LDY/CPY/CPX)
-        cpx #4
-        bcs @family
-
-        ; aaa 0-3: specials per bbb
-        lda _dasm_mode          ; bbb (lda sets Z for beq)
-        bne :+
-        jmp @bbb0_low
-:
-        cmp #1
-        bne :+
-        jmp @bbb1_low
-:       cmp #3
-        bne :+
-        jmp @bbb3_low
-:       ; bbb=5 or 7, aaa<4: check CPU-specific opcodes
-        jmp @bbb57_low
-
-@family:
-        ; aaa 4-7 → STY(4), LDY(5), CPY(6), CPX(7)
-        lda g0_fam_mne-4,x     ; table indexed from aaa=4
-        sta _dasm_midx
-
-        ; Mode from bbb: 0→IMM, 1→ZP, 3→ABS, 5→ZPX, 7→ABX
-        lda _dasm_mode          ; bbb
-        tax
-        lda g0_fam_mode,x       ; bbb→mode (8-entry, 2/4/6 unused)
-        sta _dasm_mode
-
-        ; Validity checks for cc=00 family modes
-        lda _dasm_mode
-        cmp #MODE_ZPX
-        beq @fam_zpx
-        cmp #MODE_ABX
-        beq @fam_abx
-        ; IMM/ZP/ABS: STY has no IMM.
-        ; $80 (aaa=4, bbb=0, IMM slot) = SKB(6510) / BRA(65C02) / ???(6502)
-        lda _dasm_midx
-        cmp #MNE_STY
-        bne @famgo
-        lda _dasm_mode
-        cmp #MODE_IMM
-        bne @famgo
-.ifndef CPU_6502
-        lda asm_cpu
-.ifdef CMOS_SUPPORT
-        cmp #2
-        bne @not_bra80
-        lda #MNE_BRA
-        ldx #MODE_REL
-        jmp _dasm_set_finish
-@not_bra80:
-.endif
-        cmp #1
-        bne @fam80_unk
-        lda #MNE_SKB
-        sta _dasm_midx
-        jmp finish              ; keep IMM mode
-@fam80_unk:
-.endif
-        jmp @unk
-
-@fam_zpx:
-        ; ZPX valid only for STY and LDY
-        lda _dasm_midx
-        cmp #MNE_STY
-        beq @famgo
-        cmp #MNE_LDY
-        beq @famgo
-        jmp @unk                ; CPY/CPX have no ZPX
-
-@fam_abx:
-        ; ABX: only LDY has it. STY→??? or CPU override.
-        ; $9C (aaa=4, bbb=7): STY ABX slot
-        ; $BC (aaa=5, bbb=7): LDY ABX — valid
-        lda _dasm_midx
-        cmp #MNE_LDY
-        beq @famgo
-        cmp #MNE_STY
-        bne @fam_abx_unk
-        ; $9C: STZ ABS on 65C02, SYA ABX on 6510
-.ifndef CPU_6502
-        lda asm_cpu
-.ifdef CMOS_SUPPORT
-        cmp #2
-        bne @not_stz9c
-        lda #MNE_STZ
-        ldx #MODE_ABS           ; STZ ABS (not ABX)
-        jmp _dasm_set_finish
-@not_stz9c:
-.endif
-        cmp #1
-        bne @fam_abx_unk
-        lda #MNE_SYA
-        sta _dasm_midx
-        ; keep ABX mode
-        jmp finish
-.endif
-@fam_abx_unk:
-        jmp @unk                ; CPY/CPX have no ABX
-
-@famgo: jmp finish
-
-@bbb0_low:
-        ; aaa 0-3: BRK($00), JSR($20), RTI($40), RTS($60)
-        lda g0b0_mne,x
-        sta _dasm_midx
-        lda g0b0_mode,x
-        sta _dasm_mode
-        jmp finish
-
-@bbb1_low:
-        ; aaa 0-3: varies by CPU
-        ; NMOS: IGN($04), BIT($24), ???($44), ???($64)
-        ; 6510: IGN($04), BIT($24), IGN($44), ???($64)
-        ; CMOS: TSB($04), BIT($24), ???($44), STZ($64)
-.ifdef CMOS_SUPPORT
-        lda asm_cpu
-        cmp #2
-        beq @b1_cmos
-.endif
-        ; NMOS/6502
-        cpx #1                  ; aaa=1: BIT
-        beq @bit_zp
-.ifndef CPU_6502
-        lda asm_cpu
-        cmp #1
-        bne @b1_unk
-        ; 6510: $04=IGN only
-        cpx #0
-        beq @ign_zp
-@b1_unk:
-.endif
-        jmp @unk
-
-.ifdef CMOS_SUPPORT
-@b1_cmos:
-        cpx #0                  ; TSB
-        beq @tsb_zp
-        cpx #1                  ; BIT
-        beq @bit_zp
-        cpx #3                  ; STZ
-        beq @stz_zp
-        jmp @unk
-.endif
-
-@bit_zp:
-        lda #MNE_BIT
-        ldx #MODE_ZP
-        jmp _dasm_set_finish
-@ign_zp:
-        lda #MNE_IGN
-        ldx #MODE_ZP
-        jmp _dasm_set_finish
-@tsb_zp:
-        lda #MNE_TSB
-        ldx #MODE_ZP
-        jmp _dasm_set_finish
-@stz_zp:
-        lda #MNE_STZ
-        ldx #MODE_ZP
-        jmp _dasm_set_finish
-
-@bbb3_low:
-        ; aaa 0-1: TOP/TSB ABS, BIT ABS
-        ; aaa 2: JMP ABS ($4C)
-        ; aaa 3: JMP IND ($6C) or JMP AIX ($7C on 65C02)
-        cpx #2
-        beq @jmp_abs
-        cpx #3
-        beq @jmp_ind
-        cpx #1
-        beq @bit_abs
-        ; aaa=0: TOP(nmos) or TSB(cmos)
-.ifndef CPU_6502
-        lda asm_cpu
-.ifdef CMOS_SUPPORT
-        cmp #2
-        beq @tsb_abs
-.endif
-        cmp #1
-        bne @b3_unk
-        ; 6510: TOP
-        lda #MNE_TOP
-        ldx #MODE_ABS
-        jmp _dasm_set_finish
-@b3_unk:
-.endif
-        jmp @unk
-
-@jmp_abs:
-        lda #MNE_JMP
-        ldx #MODE_ABS
-        jmp _dasm_set_finish
-@jmp_ind:
-        lda #MNE_JMP
-        ldx #MODE_IND
-        jmp _dasm_set_finish
-@bit_abs:
-        lda #MNE_BIT
-        ldx #MODE_ABS
-        jmp _dasm_set_finish
-@tsb_abs:
-        lda #MNE_TSB
-        ldx #MODE_ABS
-        jmp _dasm_set_finish
-
-; ── cc=00 bbb=5/7, aaa<4: CPU-specific opcodes ──────────
-@bbb57_low:
-        ; X = aaa (0-3), _dasm_mode has bbb (5 or 7)
-.ifndef CPU_6502
-        lda asm_cpu
-.ifdef CMOS_SUPPORT
-        cmp #2
-        beq @b57_cmos
-.endif
-        cmp #1
-        beq @b57_nmos
-.endif
-        jmp @unk                ; 6502 legal: all ???
-
-.ifndef CPU_6502
-@b57_nmos:
-        lda _dasm_mode          ; bbb
-        cmp #5
-        bne @b57n_7
-        cpx #0                  ; $14=IGN ZPX
-        beq :+
-        jmp @unk
-:       lda #MNE_IGN
-        ldx #MODE_ZPX
-        jmp _dasm_set_finish
-@b57n_7:
-        cpx #0                  ; $1C=TOP ABX
-        bne @unk
-        lda #MNE_TOP
-        ldx #MODE_ABX
-        jmp _dasm_set_finish
-.endif
-
-.ifdef CMOS_SUPPORT
-@b57_cmos:
-        lda _dasm_mode          ; bbb
-        cmp #5
-        bne @b57c_7
-        ; bbb=5 (ZPX): aaa 0=TRB, 1=BIT, 3=STZ
-        cpx #0
-        beq @trb_zpc
-        cpx #1
-        beq @bit_zpx
-        cpx #3
-        beq @stz_zpx
-        jmp @unk
-@b57c_7:
-        ; bbb=7: aaa 0=TRB ABS, 1=BIT ABX, 3=JMP AIX
-        cpx #0
-        beq @trb_absc
-        cpx #1
-        beq @bit_abx
-        cpx #3
-        beq @jmp_aix
-        jmp @unk
-
-@trb_zpc:
-        lda #MNE_TRB
-        ldx #MODE_ZP
-        jmp _dasm_set_finish
-@bit_zpx:
-        lda #MNE_BIT
-        ldx #MODE_ZPX
-        jmp _dasm_set_finish
-@stz_zpx:
-        lda #MNE_STZ
-        ldx #MODE_ZPX
-        jmp _dasm_set_finish
-@trb_absc:
-        lda #MNE_TRB
-        ldx #MODE_ABS
-        jmp _dasm_set_finish
-@bit_abx:
-        lda #MNE_BIT
-        ldx #MODE_ABX
-        jmp _dasm_set_finish
-@jmp_aix:
-        lda #MNE_JMP
-        ldx #MODE_AIX
-        jmp _dasm_set_finish
-.endif
-
-@unk:   jmp _dasm_finish_unk
-.endproc
-
-; ── cc=11: CPU-dependent ─────────────────────────────────
-.proc decode_cc11
-.ifndef CPU_6502
-        lda asm_cpu
-        cmp #1
-        beq @nmos
-.ifdef CMOS_SUPPORT
-        cmp #2
-        beq @cmos
-.endif
-.endif
-
-        ; asm_cpu=0 (6502), or CPU_CEIL=0: all ???
-        jmp _dasm_finish_unk
-
-.ifndef CPU_6502
-@nmos:  ; 6510: illegal opcodes
-        ; Regular: aaa→mne from g3_mne, bbb→mode from g1_mode
-        jsr _dasm_aaa
-        lda g3_mne_nmos,x
-        sta _dasm_midx
-
-        lda _dasm_opc
-        lsr
-        lsr
-        and #$07                ; bbb
-        tax
-        lda g1_mode,x           ; reuse cc=01 mode table!
-        sta _dasm_mode
-
-        ; Check exceptions (IMM column + aaa=4,5 irregulars)
-        ldx #0
-@exc_loop:
-        lda g3_exc_nmos,x
-        beq @exc_done           ; end sentinel
-        cmp _dasm_opc
-        beq @exc_hit
-        inx
-        inx
-        inx
-        jmp @exc_loop
-@exc_hit:
-        lda g3_exc_nmos+1,x
-        sta _dasm_midx
-        lda g3_exc_nmos+2,x
-        sta _dasm_mode
-@exc_done:
-        jmp finish
-.endif ; !CPU_6502
-
-.ifdef CMOS_SUPPORT
-@cmos:  ; 65C02: RMB/SMB/BBR/BBS + other CMOS additions
-        ; RMB/SMB: low nybble = $7 (bbb=1, cc=11)
-        ; BBR/BBS: low nybble = $F (bbb=3, cc=11)
-        lda _dasm_opc
-        and #$0F
-        cmp #$07
-        beq @rmb_smb
-        cmp #$0F
-        beq @bbr_bbs
-
-        ; Other cc=11 on 65C02: all NOP/???
-        jmp _dasm_finish_unk
-
-@rmb_smb:
-        ; Bit number = (opcode >> 4) & 7
-        ; RMB if bit 7 clear, SMB if bit 7 set
-        lda _dasm_opc
-        bmi @smb
-        lda #MNE_RMB
-        .byte $2C               ; BIT abs — skip next 2 bytes
-@smb:   lda #MNE_SMB
-        sta _dasm_midx
-        lda #MODE_ZP
-        sta _dasm_mode
-        ; Append digit to mnemonic
-        jsr print_mne           ; print "RMB " or "SMB "
-        ; Back up 1 position (overwrite the space with digit)
-        dec _dasm_wptr
-        ; Re-read opcode (print_mne clobbers _dasm_opc).  From snapshot,
-        ; not user address (_dasm_ptr is reserved for branch arithmetic).
-        ldy #0
-        lda _dasm_in,y
-        lsr
-        lsr
-        lsr
-        lsr
-        and #$07
-        clc
-        adc #$30                ; '0'..'7'
-        jsr buf_putc
-        lda #$20                ; space
-        jsr buf_putc
-        jsr format_operand
-        ; NUL-terminate and return length
-        ldx _dasm_wptr
-        lda #0
-        sta dasm_buf,x
-        lda #2                  ; ZP mode = 2 bytes
-        rts
-
-@bbr_bbs:
-        lda _dasm_opc
-        bmi @bbs
-        lda #MNE_BBR
-        .byte $2C               ; BIT abs — skip
-@bbs:   lda #MNE_BBS
-        sta _dasm_midx
-        lda #MODE_ZPREL
-        sta _dasm_mode
-        ; Append digit
-        jsr print_mne
-        dec _dasm_wptr
-        ldy #0
-        lda _dasm_in,y          ; re-read opcode from snapshot
-        lsr
-        lsr
-        lsr
-        lsr
-        and #$07
-        clc
-        adc #$30
-        jsr buf_putc
-        lda #$20
-        jsr buf_putc
-        jsr format_operand
-        ldx _dasm_wptr
-        lda #0
-        sta dasm_buf,x
-        lda #3                  ; ZPREL = 3 bytes
-        rts
-.endif ; CMOS_SUPPORT
-.endproc
-
-; ════════════════════════════════════════════════════════════
-; RODATA — tables
-; ════════════════════════════════════════════════════════════
 .segment "RODATA"
 
-; ── Mnemonic index constants ─────────────────────────────
-; (These values must match dasm_mne_str order — generated by
-;  dasm_tables.py.  We define a few here for inline use.)
-.include "dasm_mne_idx.s"
-
-; ── Mode length table (derived from mode format hi nybble) ─
-; mode → instruction length (1, 2, or 3)
-mode_len:
-        .byte 1                 ; 0  IMP
-        .byte 1                 ; 1  ACC
-        .byte 2                 ; 2  IMM
-        .byte 2                 ; 3  ZP
-        .byte 2                 ; 4  ZPX
-        .byte 2                 ; 5  ZPY
-        .byte 3                 ; 6  ABS
-        .byte 3                 ; 7  ABX
-        .byte 3                 ; 8  ABY
-        .byte 3                 ; 9  IND
-        .byte 2                 ; 10 INX
-        .byte 2                 ; 11 INY
-        .byte 2                 ; 12 REL
-        .byte 2                 ; 13 ZPI
-        .byte 3                 ; 14 AIX
-        .byte 3                 ; 15 ZPREL
-
-; ── Mode format descriptors ──────────────────────────────
-dasm_mode_fmt:
-        .byte $00,$60,$30,$10,$11,$12,$20,$21
-        .byte $22,$53,$44,$45,$70,$43,$54,$80
-
-; ── cc=01 tables (shared, perfectly regular) ─────────────
-; aaa → mnemonic index
-g1_mne: ; ORA AND EOR ADC STA LDA CMP SBC
-        .byte MNE_ORA,MNE_AND,MNE_EOR,MNE_ADC
-        .byte MNE_STA,MNE_LDA,MNE_CMP,MNE_SBC
-
-; bbb → mode index
-g1_mode:
-        .byte MODE_INX,MODE_ZP,MODE_IMM,MODE_ABS
-        .byte MODE_INY,MODE_ZPX,MODE_ABY,MODE_ABX
-
-; ── cc=10 mnemonic (shared, from bbb=1 ZP column) ───────
-g2_mne: ; ASL ROL LSR ROR STX LDX DEC INC
-        .byte MNE_ASL,MNE_ROL,MNE_LSR,MNE_ROR
-        .byte MNE_STX,MNE_LDX,MNE_DEC,MNE_INC
-
-; ── cc=10 bbb=2 (accumulator/implied) ───────────────────
-g2b2_mne:
-        .byte MNE_ASL,MNE_ROL,MNE_LSR,MNE_ROR
-        .byte MNE_TXA,MNE_TAX,MNE_DEX,MNE_NOP
-g2b2_mode:
-        .byte MODE_ACC,MODE_ACC,MODE_ACC,MODE_ACC
-        .byte MODE_IMP,MODE_IMP,MODE_IMP,MODE_IMP
-
-; ── cc=10 bbb=6 (NMOS implied) ──────────────────────────
-g2b6_mne_nmos:
-        .byte MNE_UNK,MNE_UNK,MNE_UNK,MNE_UNK
-        .byte MNE_TXS,MNE_TSX,MNE_UNK,MNE_UNK
-.ifdef CMOS_SUPPORT
-g2b6_mne_cmos:
-        .byte MNE_INC,MNE_DEC,MNE_PHY,MNE_PLY
-        .byte MNE_TXS,MNE_TSX,MNE_PHX,MNE_PLX
+.ifdef DASM_SUBSET
+; Bit masks for an opcode's bit within its bitmap byte (opcode & 7).
+_bit_tab:
+        .byte $01, $02, $04, $08, $10, $20, $40, $80
 .endif
-
-; ── cc=00 branch mnemonics ───────────────────────────────
-g0_br_mne:
-        .byte MNE_BPL,MNE_BMI,MNE_BVC,MNE_BVS
-        .byte MNE_BCC,MNE_BCS,MNE_BNE,MNE_BEQ
-
-; ── cc=00 implied bbb=2 ─────────────────────────────────
-g0_i2_mne:
-        .byte MNE_PHP,MNE_PLP,MNE_PHA,MNE_PLA
-        .byte MNE_DEY,MNE_TAY,MNE_INY,MNE_INX
-
-; ── cc=00 implied bbb=6 ─────────────────────────────────
-g0_i6_mne:
-        .byte MNE_CLC,MNE_SEC,MNE_CLI,MNE_SEI
-        .byte MNE_TYA,MNE_CLV,MNE_CLD,MNE_SED
-
-; ── cc=00 family (aaa=4-7): STY LDY CPY CPX ─────────────
-g0_fam_mne:
-        .byte MNE_STY,MNE_LDY,MNE_CPY,MNE_CPX
-
-; bbb → mode for cc=00 family
-g0_fam_mode:
-        .byte MODE_IMM          ; bbb=0
-        .byte MODE_ZP           ; bbb=1
-        .byte MODE_IMP          ; bbb=2 (unused, implied handled separately)
-        .byte MODE_ABS          ; bbb=3
-        .byte MODE_REL          ; bbb=4 (unused, branches handled separately)
-        .byte MODE_ZPX          ; bbb=5
-        .byte MODE_IMP          ; bbb=6 (unused)
-        .byte MODE_ABX          ; bbb=7
-
-; ── cc=00 bbb=0 aaa=0-3: BRK JSR RTI RTS ────────────────
-g0b0_mne:
-        .byte MNE_BRK,MNE_JSR,MNE_RTI,MNE_RTS
-g0b0_mode:
-        .byte MODE_IMP,MODE_ABS,MODE_IMP,MODE_IMP
-
-.ifndef CPU_6502
-; ── cc=11 NMOS illegal mnemonic (aaa→mne) ────────────────
-g3_mne_nmos:
-        .byte MNE_SLO,MNE_RLA,MNE_SRE,MNE_RRA
-        .byte MNE_SAX,MNE_LAX,MNE_DCP,MNE_ISC
-
-; ── cc=11 NMOS exceptions (opc, mne_idx, mode_idx) ───────
-; Terminated by $00 sentinel.
-g3_exc_nmos:
-        .byte $0B, MNE_ANC, MODE_IMM
-        .byte $2B, MNE_AAC, MODE_IMM
-        .byte $4B, MNE_ASR, MODE_IMM
-        .byte $6B, MNE_ARR, MODE_IMM
-        .byte $8B, MNE_XAA, MODE_IMM
-        .byte $93, MNE_SHA, MODE_INY
-        .byte $97, MNE_SAX, MODE_ZPY
-        .byte $9B, MNE_XAS, MODE_ABY
-        .byte $9F, MNE_SHA, MODE_ABY
-        .byte $AB, MNE_LXA, MODE_IMM
-        .byte $B7, MNE_LAX, MODE_ZPY
-        .byte $BB, MNE_LAS, MODE_ABY
-        .byte $BF, MNE_LAX, MODE_ABY
-        .byte $CB, MNE_SBX, MODE_IMM
-        .byte $EB, MNE_USB, MODE_IMM
-        .byte $00                       ; sentinel
-.endif
-
-; Mode index constants (must match MODE_NAMES order)
-MODE_IMP   = 0
-MODE_ACC   = 1
-MODE_IMM   = 2
-MODE_ZP    = 3
-MODE_ZPX   = 4
-MODE_ZPY   = 5
-MODE_ABS   = 6
-MODE_ABX   = 7
-MODE_ABY   = 8
-MODE_IND   = 9
-MODE_INX   = 10
-MODE_INY   = 11
-MODE_REL   = 12
-MODE_ZPI   = 13
-MODE_AIX   = 14
-MODE_ZPREL = 15

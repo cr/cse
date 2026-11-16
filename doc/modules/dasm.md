@@ -7,8 +7,8 @@
 | File | Role |
 |------|------|
 | [`src/dasm.s`](../../src/dasm.s) | implementation — entry, prefix peel, map decode, operand formatter |
-| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — one block per CPU set: packed mnemonic strings (the set's names only), the opcode map, the mode map, the view bitmaps, `dasm_mode_len` and `dasm_mode_fmt` (one byte per mode), and on `MEGA_SUPPORT` the Q map; produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
-| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated — one block per CPU set: mnemonic index constants (`MNE_*`) and the index-range constants (`MNE_DIGIT_*`, `MNE_QSFX_*`, `MNE_QNAME_*`), produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
+| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — one block per CPU set: the map blocks, the per-`asm_cpu` view tables (`dasm_cpu_map_lo/hi`; `dasm_cpu_bm` + `dasm_view_bm` where a view is a subset bitmap), `dasm_mode_len` and `dasm_mode_fmt` (one byte per mode) in RODATA; the packed mnemonic strings (the set's names only) in KDATA; on `MEGA_SUPPORT` also the Q map.  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
+| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated, `.include`d by `dasm.s` — one block per CPU set: `MNE_UNK` (= 0), and only where the set needs them the decoder's switches `DASM_SUBSET`, `MNE_DIGIT_LO/HI` (on `MEGA_SUPPORT` also `MNE_QSFX_*`, `MNE_QNAME_*`).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
 | [`tests/unit/test_dasm.py`](../../tests/unit/test_dasm.py) | test contract |
 
 ## Interface
@@ -53,35 +53,44 @@ kernal_bank_out / kernal_bank_in (mem.s)
 ## Design
 
 **Opcode map.**  Every opcode fact comes from the generated tables;
-the decoder holds none.  Per CPU set the generator emits, for the
-set's top CPU, the **opcode map** `dasm_map` (256 B: mnemonic index
-per opcode, `MNE_UNK` where the CPU defines none) and the **mode
-map** `dasm_mmap` (the mode per opcode: two 4-bit modes per byte on C64
-CPU sets, one byte per opcode on the m65 CPU set).  Decoding is two
-indexed loads:
+the decoder holds none.  A **map block** (RODATA) holds one CPU view:
+256 B of mnemonic indexes (`MNE_UNK` = 0 where the CPU defines no
+opcode), then the mode of every opcode — two 4-bit modes per byte
+(even opcode in the low nibble) on C64 CPU sets, one byte per opcode
+on the m65 set.  `dasm_cpu_map_lo/hi[asm_cpu]` point at the block of
+that CPU's view, so decoding is a pointer load and two indexed loads:
 
 ```
-mne  = dasm_map[op]
-mode = dasm_mmap[op]          (nibble or byte, per CPU set)
+block = dasm_cpu_map[asm_cpu]
+mne   = block[op]
+mode  = block[256 + op/2]  (nibble by op bit 0)
 ```
 
-**Views.**  Each other CPU of the set is either a *subset view* — it
-defines a subset of the top CPU's opcodes and decodes each of them
-identically — or it gets a map of its own.  A subset view has a
-**view bitmap** (32 B, one bit per opcode); an opcode whose bit is
-clear decodes as `MNE_UNK`, mode IMP, length 1.
+**Views.**  The generator takes the set's CPUs from the top down;
+each either decodes as a subset of an existing map — every opcode it
+defines decodes identically there — or gets a map of its own.  A
+subset view is the **view bitmap** `dasm_view_bm` (32 B, one bit per
+opcode) over its host map, flagged by `dasm_cpu_bm[asm_cpu]`; an
+opcode whose bit is clear decodes as `MNE_UNK`, mode IMP, length 1.
+A set has at most one subset view; only a set with one carries the
+bitmap, the flag table and the check (`DASM_SUBSET`).
 
-| CPU set | Maps | View bitmaps |
+| CPU set | Maps | Subset view |
 |---|---|---|
 | {6502} | 6502 | — |
-| {6502, 6510} | 6510 | 6502 |
-| {6502, 6510, 65C02} | 65C02; 6510 | 6502 (over the 6510 map) |
-| {6502, 4510, 45GS02} | 4510 | 6502 |
+| {6502, 6510} | 6510 | 6502, over the 6510 map |
+| {6502, 6510, 65C02} | 65C02; 6510 | 6502, over the 65C02 map |
+| {6502, 4510, 45GS02} | 4510 | 6502, over the 4510 map |
+
+The per-`asm_cpu` tables are padded to the platform's top `asm_cpu`
+(3 entries on C64 sets, 5 on m65); a value outside the build's set
+reads the top CPU's view.
 
 The 45GS02 view is the 4510 map plus the prefix peel.
 
-**Mnemonic strings.**  3 chars packed into 2 bytes (5 bits per char,
-A=1..Z=26, 27=dot); `MNE_UNK` packs as 27,27,27 → `...`.  The
+**Mnemonic strings** (`dasm_mne_str`, KDATA).  3 chars packed into
+2 bytes (5 bits per char, A=1..Z=26, 27=dot); `MNE_UNK` packs as
+27,27,27 → `...`.  Only the names the set's maps use are stored.  The
 generator orders the indices so that every decoration is a range
 compare against a generated constant:
 
@@ -134,9 +143,10 @@ offset8`; REL16: `PC + 2 + offset16` (the address of the
 instruction's last byte).
 
 **Compile-time guards:** a build assembles only its CPU set's table
-block (`.ifdef CPU_<top>`); the second map and its selection exist
-only in the {6502, 6510, 65C02} block; the prefix peel and `_dasm_pfx`
-only on `MEGA_SUPPORT`.
+block (`.ifdef CPU_<top>`).  The decoder's optional paths are switched
+by the generated constants, not by CPU defines: the subset check by
+`DASM_SUBSET`, the digit decoration by `MNE_DIGIT_LO`; the prefix peel
+and `_dasm_pfx` exist only on `MEGA_SUPPORT`.
 
 ## Caveats
 

@@ -983,6 +983,6 @@ rename at the cost of a single comparison byte at the consumer.
 |------|-----------------|
 | `dev/instruction_set.py` | OPCODES, MNEMONICS, OPERAND_PROFILES — the instruction set |
 | `dev/hashes.py` | Hash functions (h6, h7), fingerprint formulas, HASH_T |
-| `dev/mnemonic_tables.py` | Table generator: reads instruction_set.py, writes src/mn*_tables.s |
-| `dev/dasm_tables.py` | Disassembler table generator: writes src/dasm_tables.s |
+| `dev/mnemonic_tables.py` | Assembler table generator and the CPU-set registry: reads instruction_set.py and hashes.py, writes src/mn_modes.s, mn_asm_tables.s, mn6/mn7_tables.s, oplen_tbl.s (one block per CPU set) |
+| `dev/dasm_tables.py` | Disassembler table generator: reads instruction_set.py and the CPU-set registry, writes src/dasm_tables.s, dasm_mne_idx.s (one block per CPU set) |
 

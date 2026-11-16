@@ -56,7 +56,7 @@
         .import   asm_opcode_lookup
         .import   mn_modes_lo           ; ACC-bit test for IMP→ACC promotion
         .import   asm_oplen             ; operand bytes per mode (generated)
-        .import   ASM_ZONE_G            ; first multi-mode pidx (generated)
+        .importzp ASM_ZONE_G            ; first multi-mode pidx (generated constant)
 
         ; banking
         .import kernal_bank_out, kernal_bank_in
@@ -300,7 +300,7 @@ _asm_line_core:
         ; A B F C D E and gives a CPU set only the zones it has, so the
         ; table below is indexed by pidx directly.
         lda asm_pidx
-        cmp #<ASM_ZONE_G
+        cmp #ASM_ZONE_G
         bcc :+
         jmp @zone_gh            ; multi-mode G/H
 :

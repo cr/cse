@@ -756,7 +756,7 @@ record.)
 
 | Module | Layer | Tier | Harness |
 |---|---|---|---|
-| zp, strings, *_tables, oplen_tbl, dasm_mne_idx | 0 | — | (pure data; generator model tests in `tests/unit/test_mnemonic_tables.py`) |
+| zp, strings, *_tables, oplen_tbl, dasm_mne_idx | 0 | — | (pure data; generator model tests in `tests/unit/test_mnemonic_tables.py`, `test_dasm_tables.py`) |
 | mn_vars | 1 | — | (single-byte ZP scratch; no behaviour) |
 | **cse_io** | 1 | U | standalone leaf bundle |
 | **mem** | 1 | U | standalone leaf bundle |

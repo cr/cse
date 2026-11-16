@@ -21,6 +21,7 @@
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — C64 release PRG sizes within budget (TODO § M65, gate 1) |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
+| [`tests/unit/test_dasm_tables.py`](../tests/unit/test_dasm_tables.py) | test contract — the disassembler model of `dev/dasm_tables.py` |
 | [`tests/integration/test_c64emu.py`](../tests/integration/test_c64emu.py) | test contract — exercises the C64Emu harness itself (basic execution, register access, screen access) |
 | [`tests/integration/test_c64emu_banking.py`](../tests/integration/test_c64emu_banking.py) | test contract — `$01` banking + KERNAL/BASIC ROM mapping |
 | [`tests/integration/test_c64emu_cia.py`](../tests/integration/test_c64emu_cia.py) | test contract — CIA1/CIA2 timer + IRQ behaviour |
@@ -293,8 +294,8 @@ member, as a global enumeration — **0 = 6502, 1 = 6510, 2 = 65C02,
 | Build | `PLATFORM` / `CPU` | Defines | CPU set (`asm_cpu`) | Default `asm_cpu` | Classifier |
 |---|---|---|---|---|---|
 | c64-6502 | `c64` / `6502` | `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
-| c64-6510 | `c64` / `6510` | `CPU_6510` `ILLEGAL_SUPPORT` `CPU_CEIL=1` | 6502, 6510 (0, 1) | 0 | `mn7` |
-| c64-65c02 | `c64` / `65c02` | `CPU_65C02` `ILLEGAL_SUPPORT` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 6510, 65C02 (0, 1, 2) | 2 | `mn7` |
+| c64-6510 | `c64` / `6510` | `CPU_6510` `CPU_CEIL=1` | 6502, 6510 (0, 1) | 0 | `mn7` |
+| c64-65c02 | `c64` / `65c02` | `CPU_65C02` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 6510, 65C02 (0, 1, 2) | 2 | `mn7` |
 | m65-45gs02 | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 4510, 45GS02 (0, 3, 4) | 4 | `mn7`, m65 keys |
 
 Exactly one `CPU_<top>` define is set per build.  It selects the
@@ -302,9 +303,9 @@ build's generated table block ([§ Table generation](#table-generation)).
 m65-45gs02 is the only m65 build: its CPU set is fixed, and the 6502
 and the 4510 are selected at run time.  Code
 paths are gated by the feature defines: `.ifdef CMOS_SUPPORT` (65C02
-paths), `.ifdef ILLEGAL_SUPPORT` (6510 illegal paths), `.ifdef
-MEGA_SUPPORT` (the 4510's modes and mnemonics and the 45GS02's Q and
-far prefixes).  A build contains no
+paths), `.ifdef MEGA_SUPPORT` (the 4510's modes and mnemonics and the
+45GS02's Q and far prefixes).  No code path is 6510-specific: the
+illegal opcodes are rows of the 6510 CPU sets' tables.  A build contains no
 code path, profile, delta row or opcode-map entry for a CPU outside its
 set.  The one exception is the C64 `mn7` key set: it spans the 6510 and
 the 65C02 names in both `mn7` builds, so the CPU gate can answer a
@@ -336,7 +337,7 @@ changes:
 | Generator | Input | Output |
 |-----------|-------|--------|
 | `dev/mnemonic_tables.py` | `dev/instruction_set.py`, `dev/hashes.py` | `src/mn7_tables.s`, `src/mn6_tables.s`, `src/mn_asm_tables.s`, `src/mn_modes.s`, `src/oplen_tbl.s` |
-| `dev/dasm_tables.py` | `dev/instruction_set.py` | `src/dasm_tables.s`, `src/dasm_mne_idx.s` |
+| `dev/dasm_tables.py` | `dev/instruction_set.py`, `dev/mnemonic_tables.py` (the CPU-set registry) | `src/dasm_tables.s`, `src/dasm_mne_idx.s` |
 
 **One source, one format, sized per build.**  Every opcode fact in
 every build comes from `dev/instruction_set.py`; no source file
@@ -346,10 +347,10 @@ only its own block.  The *format* of a table is the same in every
 block; its *content and size* are the CPU set's — a C64 block never
 carries 4510 or 45GS02 entries.
 
-`instruction_set.py`, `hashes.py` and `dasm_tables.py` are shared
-with bbbc64 and identical in both repositories.  `mnemonic_tables.py`
-is cse's own since the per-CPU-set tables: it writes ca65 only, and
-bbbc64 adopts its model in its own cycle
+`instruction_set.py` and `hashes.py` are shared with bbbc64 and
+identical in both repositories.  `mnemonic_tables.py` and
+`dasm_tables.py` are cse's own since the per-CPU-set tables: they
+write ca65 only, and bbbc64 adopts the asm model in its own cycle
 ([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1)).
 
 ### Golden files
@@ -366,7 +367,9 @@ reason and the measured cycle change.  The size gate
 (`test_size_budget.py`) is a ratchet in the same spirit: a commit
 that shrinks a C64 build lowers its budget to the new size.
 
-Run with `make tables` or directly with `python3 dev/mnemonic_tables.py`.
+Run with `make tables` (both generators; the stamp depends on both
+and on their inputs) or directly with `python3 dev/mnemonic_tables.py`
+and `python3 dev/dasm_tables.py`.
 Generated files carry a "do not edit" comment.  Their owning docs are
 [mn_classify.md](modules/mn_classify.md),
 [opcode_lookup.md](modules/opcode_lookup.md) and [dasm.md](modules/dasm.md).

@@ -1,96 +1,212 @@
 #!/usr/bin/env python3
 """
-dev/dasm_tables.py — Generate disassembler table files for CSE (shared unchanged
-with bbbc64, which has no disassembler — doc/asm.md § Instruction set).
+dev/dasm_tables.py — the disassembler's generated tables.
+Owner: doc/build_system.md
 
-Produces:
-  src/dasm_tables.s    — packed mnemonic strings (RODATA)
-  src/dasm_mne_idx.s   — MNE_xxx = N constants for dasm.s
+Every opcode fact dasm.s uses comes from dev/instruction_set.py through
+this file (doc/modules/dasm.md § Design).  One block per CPU set,
+selected by the build's CPU_<top> define; the CPU-set registry is
+dev/mnemonic_tables.py's CPU_SETS.
 
-    python3 dev/dasm_tables.py [--syntax ca65|acme] [--out DIR]
+Generates into src/:
+    dasm_tables.s   – map blocks, per-asm_cpu view tables, subset bitmap,
+                      mode lengths and formats, packed mnemonic strings
+    dasm_mne_idx.s  – MNE_UNK and the decoration index ranges (.include'd
+                      by dasm.s, so the decoder's code can test them)
 
-With no --out the tables go to CSE's src/, and only in a tree that is CSE's
-(its src/ holds mn6.s); anywhere else --out is required.
+    python3 dev/dasm_tables.py [--out DIR]
 """
+import argparse
+import pathlib
+import sys
+from dataclasses import dataclass
 
-import argparse, os, sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import instruction_set as I
+import mnemonic_tables as MT
 
-from dev.instruction_set import OPCODES, MNEMONICS
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_ap = argparse.ArgumentParser(description='Generate the disassembler tables from dev/instruction_set.py.')
-_ap.add_argument('--syntax', choices=('ca65', 'acme'), default='ca65')
-_ap.add_argument('--out', help="output directory (default: CSE's src/)")
-_args = _ap.parse_args()
-CA65 = _args.syntax == 'ca65'
-BYTE = '.byte' if CA65 else '!byte'
-if _args.out is not None:
-    SRC = _args.out
-    os.makedirs(SRC, exist_ok=True)
-else:
-    SRC = os.path.join(ROOT, 'src')
-    if not os.path.exists(os.path.join(SRC, 'mn6.s')):
-        sys.exit(f"dasm_tables.py: {ROOT} is not a CSE tree (no src/mn6.s); pass --out DIR")
+# asm_cpu tables are padded to the platform's top asm_cpu, so a value
+# outside the build's CPU set reads the top CPU's view, never past the table.
+N_ASM_CPU = 1 + max(MT.ASM_CPU.values())
 
-# ── 65C02 additions not in instruction_set.py ────────────────────
-CMOS_ADDITIONS = {
-    0x80: ('BRA', 'REL'),
-    0x04: ('TSB', 'ZP'),  0x0C: ('TSB', 'ABS'),
-    0x14: ('TRB', 'ZP'),  0x1C: ('TRB', 'ABS'),
-    0x64: ('STZ', 'ZP'),  0x74: ('STZ', 'ZPX'),
-    0x9C: ('STZ', 'ABS'), 0x9E: ('STZ', 'ABX'),
-    0x34: ('BIT', 'ZPX'), 0x3C: ('BIT', 'ABX'), 0x89: ('BIT', 'IMM'),
-    0x7C: ('JMP', 'AIX'),
-    0x1A: ('INC', 'ACC'), 0x3A: ('DEC', 'ACC'),
-    0x5A: ('PHY', 'IMP'), 0x7A: ('PLY', 'IMP'),
-    0xDA: ('PHX', 'IMP'), 0xFA: ('PLX', 'IMP'),
-    0x12: ('ORA', 'ZPI'), 0x32: ('AND', 'ZPI'),
-    0x52: ('EOR', 'ZPI'), 0x72: ('ADC', 'ZPI'),
-    0x92: ('STA', 'ZPI'), 0xB2: ('LDA', 'ZPI'),
-    0xD2: ('CMP', 'ZPI'), 0xF2: ('SBC', 'ZPI'),
-}
+# Listing-name order (dasm.md § Design, *Listing name*): where several rows
+# name one opcode, the name whose key comes last here wins.
+LISTING_ORDER = list(I.OPCODES) + list(getattr(I, 'OPCODES_4510_ADDED', {}))
+_RANK = {k: i for i, k in enumerate(LISTING_ORDER)}
 
-# ── Collect all unique mnemonics ─────────────────────────────────
-def collect_mnemonics():
-    mne_set = {'...'}
-    mne_set.update(['RMB', 'SMB', 'BBR', 'BBS'])   # base forms (digit appended by code)
-    mne_set.update(['BRA', 'TRB', 'TSB'])           # CMOS not in OPCODES
-    for mne in OPCODES:
-        mne_set.add(mne)
-    return sorted(mne_set)
+# Operand-format byte (dasm.md § Design, *Mode formatting*).
+_FMT_SPECIAL = {'IMP': 0x00, 'ACC': 0x60, 'REL': 0x70, 'ZPREL': 0x80, 'REL16': 0xA0}
+_FMT_SUFFIX = {'': 0, ',X': 1, ',Y': 2, ')': 3, ',X)': 4, '),Y': 5, '),Z': 6, ',S),Y': 7}
 
-MNE_LIST = collect_mnemonics()
-MNE_IDX = {m: i for i, m in enumerate(MNE_LIST)}
 
-# ── Pack 3-char mnemonic into 2 bytes (5 bits/char) ─────────────
-def pack_mne(s):
+class DasmModelError(AssertionError):
+    pass
+
+
+def mode_format(mode):
+    if mode in _FMT_SPECIAL:
+        return _FMT_SPECIAL[mode]
+    shape, wide = I.MODE_SHAPE[mode], I.MODE_OPERAND_BYTES[mode] == 2
+    if shape.startswith('#'):
+        hi = 9 if wide else 3
+    elif shape.startswith('('):
+        hi = 5 if wide else 4
+    else:
+        hi = 2 if wide else 1
+    return (hi << 4) | _FMT_SUFFIX[shape[shape.index('e') + 1:]]
+
+
+def view_map(view):
+    """opcode → (listing key, mode) of one CPU view, unprefixed rows only.
+    A bit-digit key is listed by its key; dasm.s appends the digit."""
+    best = {}
+    for r in I.instructions(view):
+        if r.prefix:
+            continue
+        cur = best.get(r.opcode)
+        if cur is None or _RANK[r.key] >= _RANK[cur.key]:
+            best[r.opcode] = r
+    return {op: (r.key, r.mode) for op, r in best.items()}
+
+
+@dataclass
+class DasmModel:
+    cpu_set: str
+    define: str
+    maps: list                # [(view, opcode → (key, mode))], map blocks in order
+    cpu_map: list             # asm_cpu → map index (padded to N_ASM_CPU)
+    cpu_bm: list              # asm_cpu → 1 if the subset bitmap applies
+    bitmap: set               # opcodes the subset view defines (None if no subset view)
+    names: list               # mnemonic index → name; 0 = '...'
+    digit_range: tuple        # (lo, hi) of the bit-digit keys' indexes, or None
+    n_modes: int
+
+
+def build_dasm_model(cpu_set):
+    define, views, _cls = MT.CPU_SETS[cpu_set]
+    maps, cpu_map, cpu_bm, bitmap = [], {}, {}, None
+    for view in reversed(views):                       # top CPU first
+        vm = view_map(view)
+        host = next((i for i, (_, m) in enumerate(maps)
+                     if all(m.get(op) == e for op, e in vm.items())), None)
+        if host is None:
+            maps.append((view, vm))
+            cpu_map[MT.ASM_CPU[view]], cpu_bm[MT.ASM_CPU[view]] = len(maps) - 1, 0
+        else:
+            if bitmap is not None:
+                raise DasmModelError(f"{cpu_set}: more than one subset view")
+            bitmap = set(vm)
+            cpu_map[MT.ASM_CPU[view]], cpu_bm[MT.ASM_CPU[view]] = host, 1
+    top = MT.ASM_CPU[views[-1]]
+    pad_map = [cpu_map.get(c, cpu_map[top]) for c in range(N_ASM_CPU)]
+    pad_bm = [cpu_bm.get(c, cpu_bm[top]) for c in range(N_ASM_CPU)]
+
+    used = sorted({k for _, m in maps for k, _ in m.values()})
+    digit = [k for k in used if k in I.BIT_DIGIT_MNEMONICS]
+    names = ['...'] + digit + [k for k in used if k not in I.BIT_DIGIT_MNEMONICS]
+    n_modes = 1 + max(I.ALL_MODES.index(md) for _, m in maps for _, md in m.values())
+    if len(names) > 128 or n_modes > 16:
+        raise DasmModelError(f"{cpu_set}: {len(names)} names / {n_modes} modes do not fit")
+    return DasmModel(cpu_set, define, maps, pad_map, pad_bm, bitmap, names,
+                     (1, len(digit)) if digit else None, n_modes)
+
+
+def pack_name(s):
     def cv(c):
         return 27 if c == '.' else ord(c) - ord('A') + 1
     s = s.upper().ljust(3, '.')[:3]
     v = (cv(s[0]) << 10) | (cv(s[1]) << 5) | cv(s[2])
     return v >> 8, v & 0xFF
 
-# ── Write dasm_tables.s (packed strings) ─────────────────────────
-with open(os.path.join(SRC, 'dasm_tables.s'), 'w') as f:
-    f.write('; dasm_tables.s — GENERATED by dev/dasm_tables.py — DO NOT EDIT\n')
-    f.write(f'; {len(MNE_LIST)} packed mnemonic strings ({len(MNE_LIST)*2} bytes)\n\n')
-    if CA65:
-        f.write('.segment "KDATA"\n\n')
-        f.write('        .export dasm_mne_str\n')
-    f.write('dasm_mne_str:\n')
-    for i, m in enumerate(MNE_LIST):
-        hi, lo = pack_mne(m)
-        f.write(f'        {BYTE} ${hi:02X},${lo:02X}')
-        f.write(f'         ; {i:2d} {m}\n')
 
-# ── Write dasm_mne_idx.s (constants) ─────────────────────────────
-with open(os.path.join(SRC, 'dasm_mne_idx.s'), 'w') as f:
-    f.write('; dasm_mne_idx.s — GENERATED by dev/dasm_tables.py — DO NOT EDIT\n')
-    f.write(f'; Mnemonic index constants for dasm.s ({len(MNE_LIST)} entries)\n\n')
-    for m in MNE_LIST:
-        name = 'UNK' if m == '...' else m
-        f.write(f'MNE_{name:4s} = {MNE_IDX[m]}\n')
+def map_block(model, m):
+    """256 mnemonic indexes, then 128 bytes of packed modes (even opcode in
+    the low nibble)."""
+    idx = {n: i for i, n in enumerate(model.names)}
+    mne = [idx[m[op][0]] if op in m else 0 for op in range(256)]
+    mode = [I.ALL_MODES.index(m[op][1]) if op in m else 0 for op in range(256)]
+    return mne + [mode[i] | (mode[i + 1] << 4) for i in range(0, 256, 2)]
 
-print(f'wrote dasm_tables.s: {len(MNE_LIST)} mnemonics, {len(MNE_LIST)*2} bytes')
-print(f'wrote dasm_mne_idx.s: {len(MNE_LIST)} constants')
+
+def _bytes(label, data, per=16, names=None):
+    out = [f'{label}:'] if label else []
+    for i in range(0, len(data), per):
+        note = ('  ; ' + names[i // per]) if names else ''
+        out.append('        .byte   ' + ','.join(f'${v:02X}' for v in data[i:i + per]) + note)
+    return out
+
+
+def write(models, out):
+    t = ['; dasm_tables.s',
+         '; Generated by dev/dasm_tables.py – DO NOT EDIT BY HAND',
+         ';',
+         '; Disassembler tables (doc/modules/dasm.md § Design).  One block per CPU set,',
+         '; selected by the build\'s CPU_<top> define.',
+         ';   dasm_cpu_map_lo/hi[asm_cpu]  map block of that CPU\'s view',
+         ';   dasm_cpu_bm[asm_cpu]         1 = the view is the subset bitmap over that map',
+         ';                                (sets with a subset view only: DASM_SUBSET)',
+         ';   map block: 256 B mnemonic index per opcode, 128 B packed modes',
+         '',
+         '        .export dasm_mne_str, dasm_mode_len, dasm_mode_fmt',
+         '        .export dasm_cpu_map_lo, dasm_cpu_map_hi',
+         '']
+    x = ['; dasm_mne_idx.s',
+         '; Generated by dev/dasm_tables.py – DO NOT EDIT BY HAND',
+         ';',
+         '; .include\'d by dasm.s: the constants its code tests.  MNE_DIGIT_LO/HI exist',
+         '; only in CPU sets with the bit-digit keys (RMB SMB BBR BBS), DASM_SUBSET only',
+         '; in sets where a CPU view is the subset bitmap over a map.',
+         '']
+    for m in models:
+        t += [f'.ifdef {m.define}', f'; ── CPU set {m.cpu_set} ' + '─' * 40, '.segment "RODATA"']
+        t += ['dasm_cpu_map_lo:', f'        .byte   ' + ','.join(f'<_dasm_map_{i}' for i in m.cpu_map)]
+        t += ['dasm_cpu_map_hi:', f'        .byte   ' + ','.join(f'>_dasm_map_{i}' for i in m.cpu_map)]
+        if m.bitmap is not None:
+            bm = [0] * 32
+            for op in m.bitmap:
+                bm[op >> 3] |= 1 << (op & 7)
+            t += ['        .export dasm_cpu_bm, dasm_view_bm']
+            t += _bytes('dasm_cpu_bm', m.cpu_bm)
+            t += ['; subset-view bitmap: bit (opcode & 7) of byte (opcode >> 3)']
+            t += _bytes('dasm_view_bm', bm)
+        t += _bytes('dasm_mode_len', [1 + I.MODE_OPERAND_BYTES[md] for md in I.ALL_MODES[:m.n_modes]])
+        t += _bytes('dasm_mode_fmt', [mode_format(md) for md in I.ALL_MODES[:m.n_modes]])
+        for i, (view, vm) in enumerate(m.maps):
+            t += [f'; map {i}: the {view} view']
+            t += _bytes(f'_dasm_map_{i}', map_block(m, vm),
+                        names=[f'${r:02X}-${r + 15:02X}' for r in range(0, 256, 16)]
+                        + [f'modes ${r:02X}-${r + 31:02X}' for r in range(0, 256, 32)])
+        t += ['.segment "KDATA"', 'dasm_mne_str:']
+        for i, n in enumerate(m.names):
+            hi, lo = pack_name(n)
+            t.append(f'        .byte   ${hi:02X},${lo:02X}    ; {i:3d} {n}')
+        t += ['.endif', '']
+        x += [f'.ifdef {m.define}', 'MNE_UNK = 0']
+        if m.bitmap is not None:
+            x += ['DASM_SUBSET = 1                 ; a CPU view is the subset bitmap']
+        if m.digit_range:
+            x += [f'MNE_DIGIT_LO = {m.digit_range[0]}', f'MNE_DIGIT_HI = {m.digit_range[1]}']
+        x += ['.endif', '']
+    (out / 'dasm_tables.s').write_text('\n'.join(t) + '\n')
+    (out / 'dasm_mne_idx.s').write_text('\n'.join(x) + '\n')
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    ap.add_argument('--out', type=pathlib.Path, help='output directory (default: src/)')
+    args = ap.parse_args(argv)
+    out = args.out or ROOT / 'src'
+    out.mkdir(parents=True, exist_ok=True)
+    models = [build_dasm_model(c) for c in MT.CPU_SETS]
+    write(models, out)
+    for m in models:
+        size = (2 + (1 if m.bitmap else 0)) * N_ASM_CPU + (32 if m.bitmap else 0) \
+            + 2 * m.n_modes + 384 * len(m.maps)
+        print(f"CPU set {m.cpu_set}: {len(m.maps)} map(s), "
+              f"{'1 subset bitmap, ' if m.bitmap else ''}{len(m.names)} names; "
+              f"RODATA {size} B + KDATA {2 * len(m.names)} B")
+
+
+if __name__ == '__main__':
+    sys.exit(main())

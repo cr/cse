@@ -225,6 +225,9 @@ $(BUILD)/src/:
 $(BUILD)/src/%.o: $(SRC)/%.s $(FLAGS_STAMP) $(BUILD)/version.inc | $(BUILD)/src/
 	$(CA65) $(AFLAGS) -o $@ $<
 
+# dasm.s .includes its generated constants.
+$(BUILD)/src/dasm.o: $(SRC)/dasm_mne_idx.s
+
 # The stamp file itself
 $(FLAGS_STAMP): | $(BUILD)/
 	@printf '%s' '$(BUILD_FLAGS)' > $@
@@ -287,18 +290,22 @@ disk:
 # -----------------------------------------------------------------------
 # tables — regenerate generated .s table files from Python
 # -----------------------------------------------------------------------
-TABLE_GEN  = $(DEV)/mnemonic_tables.py
+TABLE_GEN  = $(DEV)/mnemonic_tables.py $(DEV)/dasm_tables.py
 TABLE_DEPS = $(DEV)/instruction_set.py $(DEV)/hashes.py
 TABLE_OUTS = $(SRC)/mn_modes.s \
              $(SRC)/mn6_tables.s $(SRC)/mn7_tables.s \
-             $(SRC)/mn_asm_tables.s $(SRC)/oplen_tbl.s
+             $(SRC)/mn_asm_tables.s $(SRC)/oplen_tbl.s \
+             $(SRC)/dasm_tables.s $(SRC)/dasm_mne_idx.s
 TABLES_STAMP = $(ROOT)build/.tables.stamp
 
 .PHONY: tables
 tables: $(TABLES_STAMP)
 
+# dasm_tables.py imports mnemonic_tables.py's CPU-set registry, so any
+# generator change regenerates both.
 $(TABLES_STAMP): $(TABLE_GEN) $(TABLE_DEPS) | $(ROOT)build/
-	$(PYTHON) $(TABLE_GEN)
+	$(PYTHON) $(DEV)/mnemonic_tables.py
+	$(PYTHON) $(DEV)/dasm_tables.py
 	@touch $@
 
 $(TABLE_OUTS): $(TABLES_STAMP)

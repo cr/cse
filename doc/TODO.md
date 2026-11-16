@@ -125,8 +125,7 @@ uncommitted docs; ca65 + `od65`, CODE+RODATA+KDATA bytes):**
 | c64-65c02 | 21 555 (−133) | 30 × 6 × 16 | 48 + 142 + 60 = 250 | −4.4 % |
 
 Worst single case +0.5 %; all 6912 asm golden cases identical.  The
-disassembler (A4) is still the bit-slice: projected decode + strings
-≈ 807 / 1071 / 1454 B → ≈ 530 / 670 / 1080 B.
+disassembler (A4) followed: see A4 below.
 
 **Acceptance gates (Phase A, per C64 build):**
 
@@ -173,12 +172,15 @@ disassembler (A4) is still the bit-slice: projected decode + strings
   `build_asm_model` + derive-or-die `validate_asm_model`; `mn_modes`,
   `mn_asm_tables`, `mn6/7_tables` (hash `T` moved in) and `oplen_tbl`
   in per-CPU-set blocks; `tests/unit/test_mnemonic_tables.py`.)
-- [ ] A1d. The disassembler's tables in `dasm_tables.py`: opcode map,
-  mode map, view bitmaps, mode lengths and formats — lands with A4.
-- [ ] A1b. Feature define `ILLEGAL_SUPPORT` (c64-6510, c64-65c02)
-  replaces the `.ifndef CPU_6502` gate on 6510 illegal paths, so the
-  m65 build excludes them ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
-  The gate's only user is the bit-slice `dasm.s`, so it lands with A4.
+- [x] ~~A1d. The disassembler's tables in `dasm_tables.py`: opcode map,
+  mode map, view bitmaps, mode lengths and formats.~~  (Done
+  2026-11-16 with A4; `make tables` now runs both generators.)
+- [x] ~~A1b. Feature define `ILLEGAL_SUPPORT` replacing the
+  `.ifndef CPU_6502` gate on 6510 illegal paths.~~  (Closed as
+  unneeded, 2026-11-16: the gate's only user was the bit-slice
+  `dasm.s`; the opcode-map decoder has no 6510-specific path — the
+  illegal opcodes are rows of the 6510 sets' tables — so no build
+  defines it.)
 - [x] ~~A2. Profile byte: `cat` (2) + `pidx` (6), no `dir` bit
   ([mn_classify.md](modules/mn_classify.md)).~~  (Done 2026-11-16.)
 - [x] ~~A3. `opcode_lookup.s` → profile-row lookup
@@ -196,7 +198,13 @@ disassembler (A4) is still the bit-slice: projected decode + strings
   `$2C`: every later allocation moves down one byte and the user ZP
   becomes `$77–$7F` (9 bytes) — a userland-contract change
   ([userland_contract.md](userland_contract.md)), so not bundled.
-- [ ] A4. `dasm.s` → opcode-map decoder ([dasm.md](modules/dasm.md)).
+- [x] ~~A4. `dasm.s` → opcode-map decoder ([dasm.md](modules/dasm.md)).~~
+  (Done 2026-11-16.  Map blocks in RODATA, the set's own mnemonic
+  strings in KDATA.  Measured, release builds: PRG 20 549 → 20 220 /
+  21 028 → 20 563 / 21 555 → 21 144 B; dasm + dasm_tables 1314 → 985 /
+  1578 → 1113 / 1961 → 1550 B; dasm sweep cycles −3.8 / −7.5 / −4.7 %,
+  worst single case +5.7 % (an unknown opcode, which the bit-slice
+  short-circuited); all 1536 dasm golden cases identical.)
 - [ ] A5. Gates 1–3 measured and recorded here; asm → dasm → asm
   round trip over every row; generator tests (placement rules refuse
   violating input, minimal row count, no foreign entries per block).
@@ -245,6 +253,13 @@ disassembler (A4) is still the bit-slice: projected decode + strings
   2026-11-16):** the c64-65c02 set includes 6510; `u` is fixed to
   accept it and `set_cpu` to refuse values outside the set — own CDD
   cycle, before B5.
+
+- [ ] **The linker does not bound KDATA.**  memory_design.md gives KDATA
+  $F100–$F4F1 (1010 B), with KBSS (the REPL screen save) from $F4F2,
+  but `src/c64_cse.cfg.in` declares the KDATA area `size = $0EFA`, so
+  a KDATA overflow would silently overwrite the KBSS area instead of
+  failing the link.  Usage today: 400 / 681 / 776 B.  Own CDD cycle:
+  `size = $03F2`, plus KBSS in the config so the linker sees both.
 
 ### Known issues filed by the Step-2 handoff audit (not this slice)
 

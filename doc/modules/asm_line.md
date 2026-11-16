@@ -129,8 +129,8 @@ own contract.
 | Variant | `-D` flags | Classifier | CMOS reject gate | CMOS upgrade | Illegal gate | Accepts |
 |---|---|---|---|---|---|---|
 | **c64-6502** | `USE_MN6` | mn6 (56 legal only) | — (unreachable) | — | — (unreachable) | legal NMOS |
-| **c64-6510** | `ILLEGAL_SUPPORT` | mn7 (114) | **compiled in** | — (tables absent) | **compiled in** | legal + illegals |
-| **c64-65c02** | `ILLEGAL_SUPPORT` `CMOS_SUPPORT` | mn7 (114) | compiled in | compiled in | compiled in | legal + CMOS |
+| **c64-6510** | (none) | mn7 (114) | **compiled in** | — (tables absent) | **compiled in** | legal + illegals |
+| **c64-65c02** | `CMOS_SUPPORT` | mn7 (114) | compiled in | compiled in | compiled in | legal + CMOS |
 | **m65-45gs02** | `MEGA_SUPPORT` | mn7, m65 keys (98) | compiled in | compiled in (4510 extension) | — | legal + 65C02 + 4510; Q and far forms at `asm_cpu=4` |
 
 On mn6 builds, unsupported mnemonics are rejected at the classifier

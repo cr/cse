@@ -267,7 +267,7 @@ Code and tables specific to a CPU (6502, 6510, 65C02, 4510, 45GS02)
 must be excluded at compile time — not gated at runtime.  Each build
 serves a CPU set ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets));
 the Makefile defines its top CPU (`CPU_<top>`, `CPU_CEIL`) and its
-feature defines (`ILLEGAL_SUPPORT`, `CMOS_SUPPORT`, `MEGA_SUPPORT`).  A build must not contain instruction paths, tables or
+feature defines (`CMOS_SUPPORT`, `MEGA_SUPPORT`).  A build must not contain instruction paths, tables or
 decode logic for a CPU outside its set (one exception, the C64 `mn7`
 key set, is stated there).  This keeps the binary small
 on constrained targets, and keeps the C64 builds untouched by the
