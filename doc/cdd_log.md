@@ -2,12 +2,35 @@
 
 Self-review of how the CDD System (Method, Corpus, Maintenance,
 Escape Analysis, test framework) served each milestone.  Per
-[glossary § CDD Log](glossary.md): distinct from the CDD Report
-(which summarises *what* changed) and from Escape Analysis (which
-reacts to a single escape) — the Log evaluates the *system itself*
-against the lived experience of the session.
+[glossary § CDD Log](glossary.md) and the full process spec at
+[README § CDD Log](README.md#cdd-log): distinct from the CDD
+Report (which summarises *what* changed) and from Escape Analysis
+(which reacts to a single escape) — the Log evaluates the *system
+itself* against the lived experience of the session.
 
-Newest entries on top.
+**Cadence.**  One entry per milestone, alongside CDD Maintenance.
+Mid-milestone entries are permitted when a session surfaces
+significant methodology friction worth capturing at the moment.
+
+**Entry shape.**  Four sections — *What worked* / *What didn't* /
+*Suggested amendments* / *Closing summary* — per
+[`templates/cdd_log_entry.md`](templates/cdd_log_entry.md).
+Existing entries (Phase 25 / 26) predate the template and use
+slightly different shapes; retro-conform pass is a CDD Maintenance
+task, not a precondition for the template.
+
+**Amendment flow.**  Suggested amendments land in
+[`TODO.md` § CDD amendments pending](TODO.md#cdd-amendments-pending)
+under their tier subsection (A / B / C).  The next CDD Maintenance
+round triages and lands or defers each.
+
+**Handovers.**  Session-bridging Handovers
+(see [README § CDD Handover](README.md#cdd-handover)) live in the
+project's working area, separately from this Log.  This Log is
+per-milestone, the methodology's own retrospective; the Handover
+is per-session, the project's working state recap.
+
+**Newest entries on top.**
 
 ---
 

@@ -119,6 +119,24 @@ optimisation surveys returned three high-confidence false positives
 label lookups; `_expr_eval_inner` inlining blocked by dual-entry
 label `expr_eval_nb`).
 
+*Probe-first debugging: second-landing trigger.*  When a fix
+does not resolve the reported symptom on the first attempt, the
+next action is **mandatory probe-writing**, not another
+enumeration-based fix.  Multi-landing fixes (more than one
+attempt at the same bug class in a session without a probe in
+between) are a correctness smell, not a refinement: the probe
+is what reveals which assumption was wrong; without it, the
+second attempt is just noise.  This rule extends
+*Agent-finding verification* — which guards against acting on
+unverified candidates — into the post-action case where action
+was taken and didn't land.  Cautionary example: the Phase-26
+CHROUT-jank bug went through three landings before the correct
+fix; the first two were enumeration-driven and the third was
+probe-driven (`dev/probe_chrout_zp.py`,
+`dev/probe_plot_with_corrupt_ldtb1.py`) — the probes revealed
+that earlier attempts had been patching the wrong code path
+entirely.
+
 **Step 5 — Differential CDD Analysis.**  After implementation, a
 second CDD Analysis identifies all documentation discrepancies
 created by the development work.  The required documentation
@@ -213,6 +231,21 @@ the CDD System entirely.
    `memory_design.md`.  Verify that every command, directive,
    addressing mode, and key binding listed in the README matches
    the current code as documented in those source documents.
+
+   **Semantic verification.**  Beyond structural drift (does the
+   doc still parse, do cross-references resolve, does the
+   command list match), each embedded platform-specific
+   identifier — memory address, command syntax, file path,
+   environment string — must be checked for *semantic*
+   correctness: does the address still point at safe memory,
+   does the command still parse against the current grammar,
+   does the file path still exist?  A scanner that knows the
+   project's runtime memory map / command grammar / file layout
+   catches drift that grep-and-eyeball passes miss.
+   Cautionary example: three `$C000` residuals in README at v0.1
+   would have crashed CSE if executed (the address landed in
+   the runtime image after the workspace was widened); a
+   memory-map-aware scanner would have flagged all three.
 
 9. **Historical-marker drift** — grep the corpus (source comments
    AND prose) for `Phase \d`, `Move \d`, `moved to`, `previously`,
@@ -600,6 +633,106 @@ Any Escape Analysis that uncovers multiple missing clauses at
 once is still one Escape Analysis, but it is evidence of a
 larger CDD/TDD Maintenance gap — log it for the next scheduled
 audit.
+
+---
+
+## CDD Log
+
+The CDD Method protects the corpus during planned change;
+[CDD Maintenance](#cdd-maintenance) audits artefact integrity at
+milestone boundaries; [Escape Analysis](#escape-analysis) closes
+contracts that bugs find unprotected.  The **CDD Log** is the
+parallel reflective audit: at each milestone, the operator
+reviews how the methodology *itself* served the work — what the
+process caught, what it missed, what should change.  The Log is
+the artefact through which the methodology self-improves.
+
+**Trigger:** at each project milestone, alongside CDD
+Maintenance.  The Log is the reflective half of the milestone
+gate (Maintenance audits the artefact; Log audits the process).
+Mid-milestone entries are permitted when a session surfaces
+significant methodology friction worth capturing at the moment of
+friction rather than reconstructed later.
+
+**Entry shape:** four sections, in order, codified in
+[`templates/cdd_log_entry.md`](templates/cdd_log_entry.md):
+
+1. **What worked.**  Specific instances of process discipline
+   that produced value this milestone.  Not a general
+   endorsement.
+
+2. **What didn't.**  Process gaps, friction, miscalibrations.
+   Each item names the symptom, the underlying gap, and the
+   evidence (a session, a bug, a near-miss).
+
+3. **Suggested amendments.**  Concrete changes to the methodology
+   the milestone evidence motivates.  Each amendment carries an
+   ID (`A<N>` Tier A universal, `B<N>` Tier B domain-class,
+   `C<N>` Tier C project-specific) and proposes a home (a
+   specific section of `README.md`, `testing.md`, the glossary,
+   or a new artefact).
+
+4. **Closing summary.**  One paragraph naming the methodology
+   trajectory: what the milestone confirmed, what changed, what
+   the next round inherits.
+
+**Output:** suggested amendments flow into
+[`TODO.md` § CDD amendments pending](TODO.md#cdd-amendments-pending)
+under their tier subsection.  The next CDD Maintenance round
+triages and lands or defers each.  No silent omissions.
+
+**Relationship to other processes:**
+
+| Process | Log role |
+|---|---|
+| [CDD Method](#the-cdd-method) | The Method protects against per-change drift; the Log captures cross-change patterns the Method's per-change discipline misses. |
+| [CDD Maintenance](#cdd-maintenance) | The two run in tandem at each milestone: Maintenance audits the corpus; Log audits the process. |
+| [Escape Analysis](#escape-analysis) | EA amendments and Log-suggested amendments share `TODO.md § CDD amendments pending` and the same triage. |
+| [CDD Handover](#cdd-handover) | The Log faces forward (proposed amendments for the next cycle); the Handover reads backward (digest of the prior Log's proposals at session open). |
+
+---
+
+## CDD Handover
+
+The CDD Handover is the bridge between sessions.  Where the
+[CDD Log](#cdd-log) faces forward at session close (proposed
+amendments for the next cycle), the **Handover** faces backward
+at session open: a state recap plus a digest of the prior Log's
+forward proposals, framed for whoever (or whichever agent)
+starts the next session.
+
+**Trigger:** at session close when the next session is
+non-trivial or operator-discontinuous (different person,
+different agent, different week).  Routine continuous-thread
+sessions need none.
+
+**Audit scope:**
+
+1. **State.**  What is in flight, what was just landed, what is
+   blocked, what is decided.  Concrete enough that the next
+   session begins without re-discovery.
+
+2. **Forward digest.**  The prior CDD Log's *Suggested
+   amendments* surfaced for whoever starts next; explicit
+   decisions on which to act on, defer, or close.
+
+3. **Standing rules.**  Methodology constraints active in this
+   project that the next session must observe.  Carries forward
+   between Handovers; only edited when a constraint changes.
+
+**Output:** a Handover document in the project's working area,
+read at session open before any other context.  Handovers are
+typically per-thread (a new Handover starts a new thread) and
+either supersede or amend the previous one — the prior Handover
+remains as historical record but the active one is named
+unambiguously.
+
+**Relationship to other processes:**
+
+| Process | Handover role |
+|---|---|
+| [CDD Log](#cdd-log) | Log writes forward at session close; Handover reads backward at session open.  The Log entry's *Suggested amendments* section is the Handover's forward digest input. |
+| [CDD Method](#the-cdd-method) | Handover defines what state the Method's Step 1 (Documentation first) starts from. |
 
 ---
 
