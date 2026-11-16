@@ -6,90 +6,155 @@
 
 | File | Role |
 |------|------|
-| [`src/dasm.s`](../../src/dasm.s) | implementation |
-| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — packed mnemonic strings (115 entries, 230 B), produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
-| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated — mnemonic index constants (`MNE_*`), produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
+| [`src/dasm.s`](../../src/dasm.s) | implementation — entry, prefix peel, map decode, operand formatter |
+| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — one block per CPU set: packed mnemonic strings (the set's names only), the opcode map, the mode map, the view bitmaps, `dasm_mode_len` and `dasm_mode_fmt` (one byte per mode), and on `MEGA_SUPPORT` the Q map; produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
+| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated — one block per CPU set: mnemonic index constants (`MNE_*`) and the index-range constants (`MNE_DIGIT_*`, `MNE_QSFX_*`, `MNE_QNAME_*`), produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
 | [`tests/unit/test_dasm.py`](../../tests/unit/test_dasm.py) | test contract |
 
 ## Interface
 
 ### dasm_insn
 **In:** A/X = instruction address (lo/hi).  `asm_cpu` (ZP) selects
-CPU mode: 0=6502, 1=6510, 2=65C02.
-**Out:** A = instruction length (1–3).  `dasm_buf` filled with
-NUL-terminated PETSCII string.
+the CPU view — one member of the build's CPU set
+([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)).
+**Out:** A = instruction length (1–3 on C64 builds; 1–5 on the
+m65 build, prefixes included).  `dasm_buf` filled with NUL-terminated
+PETSCII string.
 **Clobbers:** A, X, Y, all _dasm_* ZP vars
 
 `dasm_insn` owns its own KERNAL banking: it banks out at entry,
-calls the inner `dasm_decode` (which reads `dasm_mne_str` and
-the mode/operand tables under KERNAL), and banks back in at
-every exit.  Callers — currently `repl.s::emit_dot` (used by
-both the `d` block-disassemble command and the `.` single-line
-command) — just call `dasm_insn` and don't manage banking.
+calls the inner `dasm_decode` (which reads the generated tables
+under KERNAL), and banks back in at every exit.  Callers —
+currently `repl.s::emit_dot` (used by both the `d` block-disassemble
+command and the `.` single-line command) — just call `dasm_insn` and
+don't manage banking.
 
 The wrapper structure is the same as `asm_line` in
 `asm_line.s`: a thin entry that brackets the decoder with
-`kernal_bank_out` / `kernal_bank_in`.  Because the wrapper
-guards the call with `pha` / `jsr kernal_bank_in` / `pla`, the
-length result returned by any of `dasm_decode`'s exits (the
-common `finish` path, the cc=11 RMB/SMB inline `rts`, and the
-cc=11 BBR/BBS inline `rts`) all pair correctly with the entry
-`kernal_bank_out`.  No exit can leave the KERNAL mapped out by accident.
+`kernal_bank_out` / `kernal_bank_in`.  The decoder has a single
+exit (`finish`), whose length result the wrapper preserves across
+`kernal_bank_in` with `pha` / `pla`.  No exit can leave the KERNAL
+mapped out by accident.
 
 ### Memory
 
 **ZP (8 bytes):** `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1).
 
-**BSS (27 bytes):** `dasm_buf` (24) — output buffer for the
-disassembled instruction text (PETSCII + NUL); `_dasm_in` (3) —
-input snapshot of the 3 max-insn bytes read from the user's
-address before banking out (see Caveats).
+**BSS:** `dasm_buf` (24) — output buffer for the disassembled
+instruction text (PETSCII + NUL); `_dasm_in` (3 on C64 builds, 5 on
+the m65 build) — input snapshot of the maximum-length instruction read
+from the user's address before banking out (see Caveats);
+`_dasm_pfx` (1, `MEGA_SUPPORT` only) — the peeled prefix enumeration,
+0 = none, 1 = Q, 2 = far, 3 = Q + far.
 
-**Depends on:** dasm_tables (GENERATED), kernal_bank_out /
-kernal_bank_in (mem.s)
+**Depends on:** dasm_tables (GENERATED), dasm_mne_idx,
+kernal_bank_out / kernal_bank_in (mem.s)
 
 ## Design
 
-Bit-slice decoder exploiting the 6502 `aaabbbcc` opcode structure.
-Dispatches on `cc = opcode & 3`:
+**Opcode map.**  Every opcode fact comes from the generated tables;
+the decoder holds none.  Per CPU set the generator emits, for the
+set's top CPU, the **opcode map** `dasm_map` (256 B: mnemonic index
+per opcode, `MNE_UNK` where the CPU defines none) and the **mode
+map** `dasm_mmap` (the mode per opcode: two 4-bit modes per byte on C64
+CPU sets, one byte per opcode on the m65 CPU set).  Decoding is two
+indexed loads:
 
-| cc | Group | Strategy |
-|----|-------|----------|
-| 01 | Group 1 | Perfectly regular: `aaa`→mnemonic, `bbb`→mode.  8-entry tables. |
-| 10 | Group 2 | Semi-regular: odd `bbb` rows regular, even rows use exception tables. |
-| 00 | Group 0 | Sub-dispatch: branches, implied (bbb=2,6), memory ops. |
-| 11 | Group 3 | CPU-dependent: 6502→`???`, 6510→illegal table, 65C02→RMB/SMB/BBR/BBS. |
+```
+mne  = dasm_map[op]
+mode = dasm_mmap[op]          (nibble or byte, per CPU set)
+```
 
-**CPU mode** (`asm_cpu`): 0=6502 (legal only, illegals→`...`),
-1=6510 (legal+illegal), 2=65C02 (legal+CMOS).
+**Views.**  Each other CPU of the set is either a *subset view* — it
+defines a subset of the top CPU's opcodes and decodes each of them
+identically — or it gets a map of its own.  A subset view has a
+**view bitmap** (32 B, one bit per opcode); an opcode whose bit is
+clear decodes as `MNE_UNK`, mode IMP, length 1.
 
-**Mnemonic packing:** 3 chars packed into 2 bytes (5 bits per char,
-A=1..Z=26, 27=dot).  Unknown opcodes pack as 27,27,27 → `...`.
-Unpacked to PETSCII for output.
+| CPU set | Maps | View bitmaps |
+|---|---|---|
+| {6502} | 6502 | — |
+| {6502, 6510} | 6510 | 6502 |
+| {6502, 6510, 65C02} | 65C02; 6510 | 6502 (over the 6510 map) |
+| {6502, 4510, 45GS02} | 4510 | 6502 |
 
-**Mode formatting:** 16 mode descriptors (1 byte each) encode prefix,
-operand size, and suffix.  Instruction length derived from mode.
+The 45GS02 view is the 4510 map plus the prefix peel.
 
-**Compile-time guards:** 65C02-specific code and tables are wrapped
-in `.ifdef CMOS_SUPPORT`; 6510 illegal opcode paths use
-`.ifndef CPU_6502`.  A 6502-only build contains neither.  Runtime
-`lda asm_cpu` checks remain within guarded blocks for the 6510 vs
-65C02 distinction.
+**Mnemonic strings.**  3 chars packed into 2 bytes (5 bits per char,
+A=1..Z=26, 27=dot); `MNE_UNK` packs as 27,27,27 → `...`.  The
+generator orders the indices so that every decoration is a range
+compare against a generated constant:
+
+| Range | Holds | Display |
+|---|---|---|
+| `MNE_DIGIT_LO`..`MNE_DIGIT_HI` | `RMB` `SMB` `BBR` `BBS` | name + the opcode's bits 6:4 as a digit (`rmb3`) |
+| `MNE_QSFX_LO`..`MNE_QSFX_HI` (`MEGA_SUPPORT`) | the Q suffix stems | under a Q prefix: name + `q` (`adcq`) |
+| `MNE_QNAME_LO`..`MNE_QNAME_HI` (`MEGA_SUPPORT`) | `LDA` `STA` `ORA` `DEC` `INC`, each followed by its Q name | under a Q prefix: the string at index + 1 (`ldq`) |
+
+**Listing name.**  Where several rows name one opcode (the 6510
+aliases such as `SAX`/`AAX`; `NOP`/`EOM` on the 4510), the map holds the
+name whose key comes last in the listing-name order: `OPCODES` order,
+then `OPCODES_4510_ADDED` order (`dev/instruction_set.py`).  So the m65
+CPU set lists `$EA` as `EOM` in every view.
+
+### Prefix peel
+
+On `MEGA_SUPPORT` with `asm_cpu` = 4 (45GS02), before the map lookup:
+
+1. **Q:** bytes 0–1 are `$42 $42`, and byte 2 has a Q form in the
+   **Q map** (2 bits per opcode, 64 B: 0 = no Q form, 1 = Q form,
+   2 = Q form whose `ZPIZ` operand is written `($nn)`) — or byte 2 is
+   `$EA` and byte 3 is far-capable with a Q form.  The Q prefix is 2
+   bytes.
+2. **Far:** the byte after any Q prefix is `$EA` and the next byte is
+   far-capable: its mode in the map is `ZPIZ`.  The far prefix is 1
+   byte.
+3. The snapshot is shifted left by the prefix length, so the decoder
+   sees the base opcode at `_dasm_in[0]`, and `_dasm_pfx` records the
+   prefixes.
+
+Otherwise `$42` is `NEG` and `$EA` is `EOM`, each one byte.  In the
+4510 and 6502 views no prefix is peeled.  Prefixes never precede a
+branch, so `_dasm_ptr` (the instruction's own address) stays correct
+for branch-target arithmetic.
+
+**Length** is the prefix length plus `dasm_mode_len[mode]`.
+
+**Mode formatting.**  `dasm_mode_fmt` (one byte per mode, generated
+from `MODE_SHAPE` and `MODE_OPERAND_BYTES`) encodes prefix, operand
+size and suffix: hi nybble 0 = none, 1 = `$`+8, 2 = `$`+16, 3 = `#$`+8,
+4 = `($`+8, 5 = `($`+16, 6 = `a`, 7 = branch target (REL), 8 = ZPREL,
+9 = `#$`+16 (IMM16), 10 = branch target (REL16); lo nybble 0 = none,
+1 = `,x`, 2 = `,y`, 3 = `)`, 4 = `,x)`, 5 = `),y`, 6 = `),z`,
+7 = `,sp),y`.  A far prefix prints `[` / `]` in place of `(` / `)`; a
+Q-map value 2 prints `ZPIZ` as `($nn)`.
+
+**Branch targets.**  REL: `PC + 2 + offset8`; ZPREL: `PC + 3 +
+offset8`; REL16: `PC + 2 + offset16` (the address of the
+instruction's last byte).
+
+**Compile-time guards:** a build assembles only its CPU set's table
+block (`.ifdef CPU_<top>`); the second map and its selection exist
+only in the {6502, 6510, 65C02} block; the prefix peel and `_dasm_pfx`
+only on `MEGA_SUPPORT`.
 
 ## Caveats
 
 - Output is PETSCII (not VICII screen codes).  Caller does
   `io_puts(dasm_buf)` to display.
 - The disassembler has zero I/O dependency — pure computation.
-- `dasm_buf` is 24 bytes: 3 (mnemonic) + 1 (space) + up to 9
-  (operand, longest is ZPREL `$XX,$XXXX`) + NUL + padding.
-- **KERNAL ROM snapshot.**  `dasm_insn` snapshots 3 bytes from
-  the user's address into `_dasm_in` BEFORE banking out, using
-  whatever bank state the caller had in force.  The decoder
-  then reads opcode/operand bytes from `_dasm_in` via
-  `lda _dasm_in,y` instead of `(_dasm_ptr),y`.  `_dasm_ptr`
-  itself stays at the user's actual address — used by
+- `dasm_buf` is 24 bytes: up to 4 (mnemonic) + 1 (space) + up to 10
+  (operand, longest are `($XX,sp),y` and ZPREL `$XX,$XXXX`) + NUL +
+  padding.
+- **KERNAL ROM snapshot.**  `dasm_insn` snapshots the maximum
+  instruction length (3 or 5 bytes) from the user's address into
+  `_dasm_in` BEFORE banking out, using whatever bank state the caller
+  had in force.  The decoder then reads opcode/operand bytes from
+  `_dasm_in` via `lda _dasm_in,y` instead of `(_dasm_ptr),y`.
+  `_dasm_ptr` itself stays at the user's actual address — used by
   `_compute_branch_target` for PC-relative branch destinations
   (`bcc $XXXX` / `bne $XXXX` / `BBR` / `BBS`).  Without the
   snapshot, disassembly of `$E000+` would read the RAM under
   KERNAL (mostly $00 → BRK).  See `tests/integration/test_dasm_rom.py`.
+- Disassembly that starts inside a prefixed instruction decodes from
+  that byte (the second `$42` lists as `NEG`), as on any byte stream.

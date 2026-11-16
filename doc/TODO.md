@@ -63,6 +63,205 @@ risk that needs a design pass.  See the Escape Analysis follow-up
 entry below.  Everything else in this file is feature work, not
 TDD.
 
+## M65 — the 45GS02 assembler and disassembler (R7, slice 1)
+
+**Branch:** `m65` (cut from `main` @ 910d96d, 2026-11-16).
+**Goal:** the m65 platform's CPU layer — line assembler, source
+assembler and disassembler for the 45GS02, with the 4510 and the
+6502 as runtime alternatives — built from the one instruction set
+that serves every build.  The rest of R7 (screen driver, memory
+model, KERNAL interface, debugger) is not this slice.
+
+**Hard constraint (operator, 2026-11-16):** no change made for the
+m65 target may make any C64 build bigger or significantly slower.
+Tables grow only where the platform is m65.
+
+**Rationale — one source, one format, sized per build.**
+`dev/instruction_set.py` is the single source of every opcode fact
+for every build (operator ruling, 2026-11-16).  Today two consumers
+re-state facts in hand-written code: `opcode_lookup.s` (five
+exception steps, the `dir` bit, the zone-3 `ABY` conflict) and the
+bit-slice decoder in `dasm.s` (`g1_mne`/`g1_mode`, the per-CPU
+exception chains, `mode_len`, `dasm_mode_fmt`), plus `asm_line.s`'s
+`_asm_oplen`.  A 4510 extension of either would add more of the
+same — the 4510 defines all 256 opcodes and four new modes.  So both
+move to a table format the generator derives completely, and every
+build gets that format sized to its own CPU set:
+
+- **Assembler — profile rows** (the design bbbc64 locked for cse to
+  adopt — bbbc64 repository, `doc/asm.md` § Line assembler):
+  `opcode = base ^ asm_delta[asm_row[pidx] + mode]` behind the
+  existing mode-mask test.  Replaces `opcode_lookup.s`'s dispatch,
+  `mode_offset` and `direct_opcodes`.
+- **Disassembler — opcode map**: per opcode a mnemonic index and a
+  mode, a 256-bit view bitmap per subset CPU view, generated mode
+  lengths and formats.  Replaces the bit-slice group decoders; the
+  operand formatter stays.
+- **45GS02 prefixes** (`$42 $42` Q, `$EA` far) are modifiers on
+  4510 single-byte rows, never opcodes: the assembler emits them in
+  front of the looked-up opcode, the disassembler peels them before
+  the map lookup.  Instruction length becomes 1–5 on the m65 build.
+
+**Model (2026-11-16, `instruction_set.py` via bbbc64's exact row
+colouring, 16 modes on C64, 20 on m65):**
+
+| Build | CPU set | Profiles | Rows | Asm tables (masks + rows + index) |
+|---|---|---|---|---|
+| c64-6502 | 6502 | 14 | 3 | 90 B |
+| c64-6510 | 6502, 6510 | 22 | 4 | 130 B |
+| c64-65c02 | 6502, 6510, 65C02 | 30 | 6 | 186 B |
+| m65-45gs02 | 6502, 4510, 45GS02 | 36 | 7 | 284 B |
+
+**Baseline (measured 2026-11-16, fresh `make release` at 910d96d +
+uncommitted docs; ca65 + `od65`, CODE+RODATA+KDATA bytes):**
+
+| Build | PRG (unpacked) | asm_line | opcode_lookup + mn_asm_tables + mn_modes | dasm + dasm_tables | oplen_tbl | classifier + tables | addr_mode |
+|---|---|---|---|---|---|---|---|
+| c64-6502 | 20 790 | 394 | 224 + 80 + 60 = 364 | 1084 + 230 = 1314 | 64 | mn6 104 + 192 | 543 |
+| c64-6510 | 21 232 | 394 | 364 | 1348 + 230 = 1578 | 64 | mn7 63 + 384 | 543 |
+| c64-65c02 | 21 688 | 408 | 364 | 1731 + 230 = 1961 | 64 | mn7 63 + 384 | 543 |
+
+Projected C64 effect (model, not measured): asm lookup 364 B →
+≈ 140 / 190 / 250 B; dasm decode + strings ≈ 807 / 1071 / 1454 B →
+≈ 530 / 670 / 1080 B.
+
+**Acceptance gates (Phase A, per C64 build):**
+
+1. **Size:** the unpacked PRG is no larger than the baseline above.
+2. **Speed:** over the exhaustive sweeps (every instruction-set row
+   through `asm_line`; every opcode × every `asm_cpu` of the build
+   through `dasm_insn`), total py65 cycles ≤ baseline, and no single
+   case more than 10 % above its baseline.
+3. **Behaviour:** both sweeps match the oracle derived from
+   `instruction_set.py`, and are byte-identical to the baseline
+   build's output except where the baseline disagrees with the
+   oracle; each such case is a baseline defect, listed in the Phase A
+   report and filed under Bugs.
+
+### Phase A — C64 builds move to the generated formats (no behaviour change)
+
+- [ ] A0. Sync the four shared generator files from bbbc64
+  (`instruction_set.py`, `hashes.py`, `mnemonic_tables.py`,
+  `dasm_tables.py`).  Verified 2026-11-16: bbbc64's copies regenerate
+  cse's seven tables byte-identically.
+- [ ] A0b. **Before any code change:** dasm bundles for c64-6502 and
+  c64-6510 (today only the 65c02 variant is built); test oracles
+  rewritten over `instruction_set.instructions(variant)` (no
+  hand-coded `CMOS_ADDITIONS`); golden files recorded from the current
+  code — every instruction-set row through `asm_line`, every opcode ×
+  `asm_cpu` through `dasm_insn`, per C64 variant, with py65 cycle
+  counts ([testing.md § Principle 7](testing.md#principles)).
+- [ ] A0c. Gate tooling: a size-budget test (each C64 release PRG ≤ its
+  baseline) and a `dev/` benchmark comparing cycles to the golden
+  files.
+- [ ] A1. Generator: per-CPU-set table blocks
+  ([build_system.md § Table generation](build_system.md#table-generation));
+  the profile-row model moved into the shared `mnemonic_tables.py`
+  with ca65 output; the opcode map, view bitmaps, mode lengths and
+  mode formats in `dasm_tables.py`; `_asm_oplen` generated.
+- [ ] A1b. Feature define `ILLEGAL_SUPPORT` (c64-6510, c64-65c02)
+  replaces the `.ifndef CPU_6502` gate on 6510 illegal paths, so the
+  m65 build excludes them ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
+- [ ] A2. Profile byte: `cat` (2) + `pidx` (6), no `dir` bit
+  ([mn_classify.md](modules/mn_classify.md)).
+- [ ] A3. `opcode_lookup.s` → profile-row lookup
+  ([opcode_lookup.md](modules/opcode_lookup.md)); it needs no ZP, so
+  `_asm_ok_tmp` is removed and `$2C` is left unallocated
+  ([zp.md](modules/zp.md)).
+- [ ] A3b. *(follow-up, own CDD cycle)* Recompact ZP over the freed
+  `$2C`: every later allocation moves down one byte and the user ZP
+  becomes `$77–$7F` (9 bytes) — a userland-contract change
+  ([userland_contract.md](userland_contract.md)), so not bundled.
+- [ ] A4. `dasm.s` → opcode-map decoder ([dasm.md](modules/dasm.md)).
+- [ ] A5. Gates 1–3 measured and recorded here; asm → dasm → asm
+  round trip over every row; generator tests (placement rules refuse
+  violating input, minimal row count, no foreign entries per block).
+
+### Phase B — the m65 build (m65-45gs02)
+
+- [ ] B1. Build defines `PLATFORM_M65`, `CPU_45GS02`, `MEGA_SUPPORT`;
+  `asm_cpu` values 3 and 4 (6502 and 4510 selectable at run time); m65
+  test bundles ([build_system.md](build_system.md)).
+- [ ] B2. Classifier: `mn7` over the m65 key set
+  ([mn_classify.md § Variants](modules/mn_classify.md#variants)).
+- [ ] B3. `mode_parse`: `(e),z`, `(e,sp),y`, `[e]`, `[e],z`, wide
+  immediate ([addr_mode.md](modules/addr_mode.md)).
+- [ ] B4. `asm_line`: mnemonic suffix (digit, `q`), Q zone, far flag,
+  prefix emission, `REL`/`REL16` selection, the m65 gate matrix
+  ([asm_line.md](modules/asm_line.md)).
+- [ ] B4b. Pass stamp for pass-stable branch width: `sym_stamp` /
+  `sym_fwd` ([symtab.md § Pass stamp](modules/symtab.md#pass-stamp-mega_support)),
+  `expr_fwd` ([expr.md](modules/expr.md)), per-pass stamp and built-in
+  refresh in asm_src ([asm_src.md](modules/asm_src.md)) — all
+  `MEGA_SUPPORT` only, so the C64 builds do not grow.
+- [ ] B5. `.cpu` / `u` on m65 ([assembler_syntax.md](assembler_syntax.md),
+  [repl.md](modules/repl.md)).
+- [ ] B6. `dasm_insn`: prefix peel, m65 modes, 1–5-byte length
+  ([dasm.md](modules/dasm.md)).
+- [ ] B7. REPL `.` / `d`: hex columns = the build's maximum length;
+  `dot_assemble` passes suffixes, `[`, `,z`, `,sp`
+  ([repl.md](modules/repl.md)).
+
+### Prerequisite bug (separate fix, lands before B4)
+
+- [ ] **Bit-op mnemonics are not assembled.**  `asm_line.s` zones D/E
+  (`RMB`/`SMB`/`BBR`/`BBS`) are `jmp asm_error` ("not yet tested"),
+  while [asm_line.md](modules/asm_line.md) documents them as working;
+  `dot_assemble` also stops the mnemonic at the first digit.  Affects
+  c64-65c02 today; the 4510 keeps all four.  Fix under its own CDD
+  cycle (digit suffix scan + digit zone), then B4 builds on it.
+
+- [ ] **`.cpu` and `u` do not enforce the CPU set.**  `asm_src.s::set_cpu`
+  accepts `6502`/`6510`/`65c02` on every build (no ceiling check,
+  though [assembler_syntax.md § `.cpu`](assembler_syntax.md#cpu--set-cpu-mode)
+  says "limited by the build-time CPU ceiling"); `repl.s` `u` refuses
+  `6510` on c64-65c02 (`and #5`), while
+  [build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)
+  gives that build the set {6502, 6510, 65C02}.  **Ruled (D2,
+  2026-11-16):** the c64-65c02 set includes 6510; `u` is fixed to
+  accept it and `set_cpu` to refuse values outside the set — own CDD
+  cycle, before B5.
+
+### Known issues filed by the Step-2 handoff audit (not this slice)
+
+- [ ] **Debugger single-step on m65.**  `debugger.s::step_next_pc`
+  takes `brk_pc + oplen_tbl[opcode]`; on a Q or far instruction that
+  is the prefix's length, so the step BRK would land inside the
+  instruction.  Also missing: `REL16` branches, `BSR`, `JSR (ind)` /
+  `(abs,X)`, `RTS #`.  Belongs to the R7 debugger slice; it must use
+  the prefix rule of [dasm.md § Prefix peel](modules/dasm.md#prefix-peel).
+- [ ] **bbbc64's shared-file contract.**  After A1 the shared
+  generators write per-CPU-set blocks, and bbbc64's golden copies of
+  cse's tables (pinned at cse 910d96d) no longer describe cse's
+  current output.  bbbc64 takes the new shared files in its own CDD
+  cycle; its `asm_tables.py` becomes a consumer of the shared model.
+
+### Step-2 rulings (operator, 2026-11-16)
+
+- **Single m65 build.**  m65-45gs02 is the only m65 target: 45GS02 by
+  default, 6502 and 4510 selectable at run time.  One feature define,
+  `MEGA_SUPPORT`.
+- **D1. Branch width under forward references:** the per-pass symbol
+  stamp (B4b) — a target read before its definition in the current
+  pass takes `REL`; otherwise by distance.
+- **D2.** c64-65c02's CPU set includes 6510 (see the `.cpu`/`u` bug).
+- **D3.** `$EA` lists as `eom` in every view of the m65 build.
+- **D4.** `rtn #$nn` is the spelling of `$62` (`rts #$nn` refused),
+  per bbbc64's leniency criterion.
+- **D5.** O1 and O3 stay open until checked on hardware; Phase A does
+  not depend on them.
+- **doc/README.md** § Authoritative data files gets its row update
+  after the operator's pending README edits are committed.
+
+### Open questions (hardware)
+
+- **O1. `REL16` offset base.**  Contract states `target − (PC + 2)`
+  (the address of the instruction's last byte).  Verify against the
+  compendium and on hardware.
+- **O3. Q-mode coverage** (`Q_MODES`) is checked against the
+  compendium only; confirm the edge rows (`LDQ ($nn),Z`, `ASLQ $nn,X`)
+  on hardware.
+
 ## CDD amendments pending
 
 Session retrospective findings (debugger trace workflow,
@@ -2449,14 +2648,18 @@ independent relative to their link address.
 
 All C ported to assembly.  cc65 C compiler eliminated.
 
-### R7 — MEGA65 native support (stretch goal)
+### R7 — MEGA65 native support (in progress)
 
 Native MEGA65 platform target, separate from C64-compatible mode.
 The MEGA65 is a much more capable machine (32-bit address space,
 relocated ZP internals in native mode, VIC-IV) requiring bigger
 adaptations than a compatibility shim.  Alongside C128 native
 (R3/R4), this would be a distinct platform target with its own
-screen driver and memory model.  Far-future — depends on R3.
+screen driver and memory model.  Slice 1 — the CPU layer (assembler
+and disassembler) — is active: see
+[M65](#m65--the-45gs02-assembler-and-disassembler-r7-slice-1).
+The dependency on R3 applies to the platform layer (screen, memory,
+KERNAL), not to the CPU layer.
 
 ## Ideas
 

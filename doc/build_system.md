@@ -226,7 +226,8 @@ absolute address.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `CPU` | `6510` | Target CPU for `run`/`disk`/`size` (`6502` / `6510` / `65c02`) |
+| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` is accepted by the test-bundle builds only; the m65 PRG is R7's ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
+| `CPU` | `6510` on `c64`, `45gs02` on `m65` | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`; `m65`: `45gs02` only) |
 | `THEME` | `GREENLAND` | Named theme or 3-digit hex code (`make themes` for list) |
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
 | `VERSION` | `0.1` | Version string embedded in splash + D64 label |
@@ -267,16 +268,58 @@ Passed as `make OPTION=value`:
 
 | Option | Values | Default | Effect |
 |--------|--------|---------|--------|
-| `CPU` | `6502` `6510` `65c02` | `6510` | Sets `CPU_CEIL` and `CMOS_SUPPORT` defines |
+| `PLATFORM` | `c64` `m65` | `c64` | Selects the platform's builds ([§ Builds and CPU sets](#builds-and-cpu-sets)); `m65` sets `PLATFORM_M65` |
+| `CPU` | `c64`: `6502` `6510` `65c02`; `m65`: `45gs02` | `6510` / `45gs02` | Selects the build within the platform; sets its defines ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
 | `ROMSET` | `cbm` `mega` | `cbm` | ROM set for `make run` (see below) |
 | `THEME` | name or hex | default | Colour theme for the REPL |
 | `TAB_WIDTH` | 1..32 | `8` | Editor tab stop interval.  Must be a power of two for `col mod TAB_WIDTH` to collapse to a single `and` — non-power-of-two values compile but pay a 10-cycle modulo loop per tab render.  8 matches every C64-era toolchain convention. |
 
-`CPU_CEIL` (0=6502 only, 1=6502+6510, 2=all three), `CMOS_SUPPORT`,
-`CPU_6502`, `CPU_6510`, and `CPU_65C02` gate which mnemonic tables
-and decoder paths are compiled in.  Assembly uses `.ifdef CMOS_SUPPORT`
-(65C02 paths) and `.ifndef CPU_6502` (6510 illegal paths).  A
-`CPU=6502` build excludes all illegal and CMOS code.
+### Builds and CPU sets
+
+A **build** is a (platform, CPU) pair.  Its **CPU set** is the set of
+CPUs the assembler and disassembler serve at run time (`.cpu`, `u`);
+the build's `CPU` is the set's top member.  `asm_cpu` holds one
+member, as a global enumeration — **0 = 6502, 1 = 6510, 2 = 65C02,
+3 = 4510, 4 = 45GS02** — so a value means the same CPU in every build.
+`CPU_CEIL` is the top member's `asm_cpu` value.
+
+| Build | `PLATFORM` / `CPU` | Defines | CPU set (`asm_cpu`) | Default `asm_cpu` | Classifier |
+|---|---|---|---|---|---|
+| c64-6502 | `c64` / `6502` | `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
+| c64-6510 | `c64` / `6510` | `CPU_6510` `ILLEGAL_SUPPORT` `CPU_CEIL=1` | 6502, 6510 (0, 1) | 0 | `mn7` |
+| c64-65c02 | `c64` / `65c02` | `CPU_65C02` `ILLEGAL_SUPPORT` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 6510, 65C02 (0, 1, 2) | 2 | `mn7` |
+| m65-45gs02 | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 4510, 45GS02 (0, 3, 4) | 4 | `mn7`, m65 keys |
+
+Exactly one `CPU_<top>` define is set per build.  It selects the
+build's generated table block ([§ Table generation](#table-generation)).
+m65-45gs02 is the only m65 build: its CPU set is fixed, and the 6502
+and the 4510 are selected at run time.  Code
+paths are gated by the feature defines: `.ifdef CMOS_SUPPORT` (65C02
+paths), `.ifdef ILLEGAL_SUPPORT` (6510 illegal paths), `.ifdef
+MEGA_SUPPORT` (the 4510's modes and mnemonics and the 45GS02's Q and
+far prefixes).  A build contains no
+code path, profile, delta row or opcode-map entry for a CPU outside its
+set.  The one exception is the C64 `mn7` key set: it spans the 6510 and
+the 65C02 names in both `mn7` builds, so the CPU gate can answer a
+foreign mnemonic with `;?cpu` instead of `;?syntax`
+([asm_line.md § asm_cpu × category gate matrix](modules/asm_line.md#asm_cpu--category-gate-matrix)).  `DEFAULT_CPU` is
+the default `asm_cpu` column.
+
+**`asm_cpu` × consumer** (Principle 14 of [testing.md](testing.md#principles);
+a cell names the behaviour, `—` means the value cannot occur in any build
+the consumer is part of):
+
+| Consumer | 0 (6502) | 1 (6510) | 2 (65C02) | 3 (4510) | 4 (45GS02) |
+|---|---|---|---|---|---|
+| asm_line CPU gate ([asm_line.md](modules/asm_line.md#asm_cpu--category-gate-matrix)) | legal NMOS, NMOS profiles | + 6510 illegals | + 65C02 extension and 65C02-only keys | + 4510 extension and 4510-only keys | as 3 + Q forms and far operands |
+| dasm view ([dasm.md](modules/dasm.md#design)) | 6502 view bitmap | 6510 map | 65C02 map | 4510 map | 4510 map + prefix peel |
+| `.cpu` (`set_cpu`) and `u` | accepted in every build | c64-6510, c64-65c02 | c64-65c02 | m65-45gs02 | m65-45gs02 |
+| `DEFAULT_CPU` (main.s) | c64-6502, c64-6510 | — | c64-65c02 | — | m65-45gs02 |
+| debugger step (`cmp #2` paths) | NMOS step | NMOS step | + `JMP (a,X)`, `BRA` (c64-65c02) | — (no m65 debugger in R7 slice 1) | — (same) |
+
+The m65 build exists as test bundles (asm_core, mn7, dasm) at the end
+of R7 slice 1; `PLATFORM=m65` with a PRG target is refused until the
+m65 platform layer (screen, memory, KERNAL) lands.
 
 ## Table generation
 
@@ -285,12 +328,26 @@ changes:
 
 | Generator | Input | Output |
 |-----------|-------|--------|
-| `dev/mnemonic_tables.py` | `dev/instruction_set.py` | `src/mn7_tables.s`, `src/mn6_tables.s`, `src/mn_asm_tables.s`, `src/mn_modes.s`, `src/oplen_tbl.s` |
-| `dev/dasm_tables.py` | `dev/instruction_set.py` | `src/dasm_tables.s` |
+| `dev/mnemonic_tables.py` | `dev/instruction_set.py`, `dev/hashes.py` | `src/mn7_tables.s`, `src/mn6_tables.s`, `src/mn_asm_tables.s`, `src/mn_modes.s`, `src/oplen_tbl.s` |
+| `dev/dasm_tables.py` | `dev/instruction_set.py` | `src/dasm_tables.s`, `src/dasm_mne_idx.s` |
+
+**One source, one format, sized per build.**  Every opcode fact in
+every build comes from `dev/instruction_set.py`; no source file
+restates one by hand.  Each generated file holds one block per CPU
+set, guarded by that set's `CPU_<top>` define, so a build assembles
+only its own block.  The *format* of a table is the same in every
+block; its *content and size* are the CPU set's — a C64 block never
+carries 4510 or 45GS02 entries.
+
+The four generator files (`instruction_set.py`, `hashes.py`,
+`mnemonic_tables.py`, `dasm_tables.py`) are shared with bbbc64 and
+kept identical in both repositories; `--syntax ca65` (the default)
+writes cse's blocks, `--syntax acme --out` bbbc64's.
 
 Run with `make tables` or directly with `python3 dev/mnemonic_tables.py`.
 Generated files carry a "do not edit" comment.  Their owning docs are
-[mn_classify.md](modules/mn_classify.md) and [dasm.md](modules/dasm.md).
+[mn_classify.md](modules/mn_classify.md),
+[opcode_lookup.md](modules/opcode_lookup.md) and [dasm.md](modules/dasm.md).
 
 ## ROM compatibility constraints
 

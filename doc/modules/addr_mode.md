@@ -13,8 +13,10 @@
 
 ### mode_parse
 **In:** `asm_ptr` (ZP, pointer to operand string in PETSCII), Y=0
-**Out:** A = mode index (0–15), X = operand byte count (0–2),
-`asm_opr[0..1]` = operand bytes (little-endian).
+**Out:** A = mode index (0–15 on C64 builds; 0–19 on the m65 build —
+[opcode_lookup.md § Mode constants](opcode_lookup.md#design)),
+X = operand byte count (0–2), `asm_opr[0..1]` = operand bytes
+(little-endian); on `MEGA_SUPPORT` also `_au_far` (BSS).
 **Partial-result state** (per testing.md § Principle 13): the
 combined position `asm_ptr + Y` on return points at the first byte
 beyond the recognised operand — NUL (end of input), `';'` (comment
@@ -46,6 +48,7 @@ Also uses `expr_ptr`, `expr_val`, `expr_wide` (defined in zp.s).
 | Variable | Size | Purpose |
 |----------|------|---------|
 | `_au_no_acc` | 1 | Caller signal: 0 = ACC syntax allowed, nonzero = the literal `A` operand must be parsed as a label.  Written by `asm_line.s` per profile.  Read by mode_parse's SC_A branch. |
+| `_au_far` | 1 | `MEGA_SUPPORT` only.  Result: 1 = the operand was written in brackets (`[e]`, `[e],z`), 0 otherwise.  Written by every mode_parse call; read by asm_line (far prefix). |
 
 **Depends on:** expr (expr_eval_nb), asm_err (asm_syntax_error,
 asm_expr_error, asm_pass), symtab (sym_lookup — for shadow detection),
@@ -76,6 +79,28 @@ mode syntaxes:
 | `(expr)` (narrow) | ZPI | 13 |
 | `(expr,X)` (wide) | AIX | 14 |
 | `expr,expr` | ZPREL | 15 |
+
+On `MEGA_SUPPORT` (m65-45gs02) also:
+
+| Syntax | Mode | Index |
+|--------|------|-------|
+| `(expr),Z` (narrow) | ZPIZ | 19 |
+| `(expr,SP),Y` or `(expr,S),Y` (narrow) | ISPY | 18 |
+
+and the far forms, which set `_au_far` (asm_line accepts them at
+`asm_cpu=4` only):
+
+| Syntax | Mode | `_au_far` |
+|--------|------|-----------|
+| `[expr]` (narrow) | ZPI (13) | 1 |
+| `[expr],Z` (narrow) | ZPIZ (19) | 1 |
+
+`IMM16` (16) and `REL16` (17) are never returned: `#expr` is always
+IMM, and asm_line promotes it to IMM16 on a profile that has IMM16 and
+no IMM (`PHW`); a branch target is returned as ZP/ABS and asm_line
+selects REL or REL16 ([asm_line.md § Branches](asm_line.md#branches-zone-b)).
+A wide value in a narrow-only form (`(expr),Z`, `(expr,SP),Y`,
+`[expr]`) is a syntax error, as for `(expr,X)` today.
 
 Operand values parsed by `expr_eval_nb` (no-banking variant of
 `expr_eval`).  Accepts `$hex`, `%binary`, decimal, labels, `*` (PC),
@@ -127,7 +152,9 @@ the correct bytes.
 
 ## Caveats
 
-- Input is PETSCII.  Register letters are A=$41, X=$58, Y=$59.
+- Input is PETSCII.  Register letters are A=$41, X=$58, Y=$59; on
+  the m65 build also S=$53, P=$50 (in `,SP`) and Z=$5A.  `[`=$5B and
+  `]`=$5D (typed SHIFT+`:` / SHIFT+`;` on the C64 keyboard).
 - Operand values delegated to `expr_eval_nb` (expr.s), which handles
   `$hex`, `%binary`, decimal, labels, `*`, and operators.
 - Whitespace: space ($20) and tab ($A0).

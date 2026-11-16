@@ -67,20 +67,24 @@ showing how much room is left.
 
 ### The Assembler
 
-A two-pass 6502/6510/65C02 assembler with:
+A two-pass assembler for the CPUs of the build's platform — 6502,
+6510 and 65C02 on the C64; 6502, 4510 and 45GS02 on the MEGA65 — with:
 
 - Global and local labels, constants, forward references
 - Full expression language (arithmetic, bitwise, lo/hi byte, grouping)
 - Directives: `.org`, `.db`, `.dw`, `.str`, `.scr`, `.res`, `.align`,
   `.cpu`, `.const`
 - Automatic ZP/ABS mode selection — no manual overrides needed
-- Runtime CPU switching: legal-only 6502, 6510 with illegals, or 65C02
+- Runtime CPU switching within the build's CPU set: legal-only 6502,
+  6510 with illegals, or 65C02 on the C64; legal-only 6502, 4510, or
+  45GS02 (Q and far forms) on the MEGA65
 
 ### The Disassembler
 
-A compact bit-slice decoder that understands all three CPU modes.
-Used by the `.` and `d` commands, it decodes the `aaabbbcc` opcode
-structure without 256-entry lookup tables.
+A table-driven decoder over a generated opcode map, sized to the
+build's CPU set, that understands every CPU mode of the build.  Used
+by the `.` and `d` commands.  On the MEGA65 it decodes the 45GS02's
+prefixed (Q and far) instructions as single instructions.
 
 ## Features
 
@@ -259,18 +263,19 @@ The full mapping tables and rules live in
 
 ### 4. CPU-specific code must be compile-time gated
 
-Code that is specific to a CPU target (6502, 6510, 65C02) must be
-excluded at compile time via `.ifdef` — not gated at runtime.  The Makefile defines `CMOS_SUPPORT` for
-65C02 builds and `CPU_CEIL` (0/1/2) for all targets.  A 6502
-build must not contain 65C02 instruction paths, tables, or
-decode logic.  This keeps the binary small on constrained targets.
+Code and tables specific to a CPU (6502, 6510, 65C02, 4510, 45GS02)
+must be excluded at compile time — not gated at runtime.  Each build
+serves a CPU set ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets));
+the Makefile defines its top CPU (`CPU_<top>`, `CPU_CEIL`) and its
+feature defines (`ILLEGAL_SUPPORT`, `CMOS_SUPPORT`, `MEGA_SUPPORT`).  A build must not contain instruction paths, tables or
+decode logic for a CPU outside its set (one exception, the C64 `mn7`
+key set, is stated there).  This keeps the binary small
+on constrained targets, and keeps the C64 builds untouched by the
+MEGA65's larger CPU.
 
-**Current status:** implemented.  The mnemonic classifier uses
-compile-time selection (mn6 vs mn7).  The assembler (`.ifdef
-CMOS_SUPPORT`), disassembler (`.ifdef CMOS_SUPPORT` +
-`.ifndef CPU_6502`), and debugger step logic (`#ifdef CMOS_SUPPORT`)
-all use compile-time gating.  Runtime `asm_cpu` checks remain within
-guarded blocks for 6510 vs 65C02 distinction.
+**Current status:** the generated tables come in one block per CPU set
+(`.ifdef CPU_<top>`); code paths use the feature defines.  Runtime
+`asm_cpu` checks remain only between members of the build's own set.
 
 ### 5. Don't get in the KERNAL's way — user code sees a working C64
 

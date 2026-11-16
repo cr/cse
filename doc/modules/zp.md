@@ -25,7 +25,7 @@ Modules `.importzp` what they need.  No other file may contain a
 | $24–$26 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
 | $27 | mn7/mn6 | `mn7_h_tmp` / `mn6_h_tmp` (1, aliased — only one linked) |
 | $28–$2B | addr_mode | `asm_ptr` (2), `asm_opr` (2) |
-| $2C | opcode_lookup | `_asm_ok_tmp` (1) |
+| $2C | — | unallocated (1) — see [TODO § M65](../TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1), A3b |
 | $2D–$30 | cse_io | `_io_tmp` (2), `_io_scr` (2) |
 | $31–$32 | disk | `disk_ptr` (2) |
 | $33–$36 | expr | `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1) |

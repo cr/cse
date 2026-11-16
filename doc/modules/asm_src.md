@@ -119,6 +119,13 @@ Two passes over the editor source:
   each shadow site produces exactly one warning.  See
   [addr_mode.md § ACC vs label disambiguation](addr_mode.md#acc-vs-label-disambiguation).
 
+**Pass stamp (`MEGA_SUPPORT`):** each pass first sets `sym_stamp`
+(`SYM_P0` for pass 0, 0 for pass 1), then defines the built-in
+symbols (`workstart`, `workend`), so every symbol defined before a
+read in the same pass carries that pass's stamp.  `sym_stamp` stays 0
+after the assembly.  This is what makes a branch's width the same in
+both passes ([symtab.md § Pass stamp](symtab.md#pass-stamp-mega_support)).
+
 **KERNAL banking:** `asm_assemble` holds the KERNAL banked out
 across both passes.  Inside the batch, `asm_line`'s own
 `kernal_bank_out`/`kernal_bank_in` calls short-circuit, so each

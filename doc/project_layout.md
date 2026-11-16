@@ -20,7 +20,7 @@ cse/
 │   ├── mn_vars.s           Mnemonic classifier ZP variables
 │   ├── expr.s              Expression parser (recursive descent)
 │   ├── symtab.s            Symbol table (hash + linear probe)
-│   ├── dasm.s              Disassembler (bit-slice decoder)
+│   ├── dasm.s              Disassembler (opcode-map decoder)
 │   ├── screen.s            Screen management, scroll, cursor
 │   ├── cse_io.s            Raw screen I/O (putc, puts, hex/dec)
 │   ├── disk.s              CBM file I/O (load, save, directory)

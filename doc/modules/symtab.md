@@ -19,11 +19,16 @@
 
 If the name already exists, updates the value and width.
 If new, copies the name to the heap and creates a new entry.
+On `MEGA_SUPPORT` it also writes the pass stamp: scope bit 6 =
+`sym_stamp` ([§ Pass stamp](#pass-stamp-mega_support)).
 
 ### sym_lookup
 **In:** `sym_name` (ZP, pointer to NUL-terminated name)
 **Out:** `sym_val` (ZP, 16-bit), `sym_wide` (ZP, 0=ZP 1=ABS).
-C=0 found, C=1 not found.
+C=0 found, C=1 not found.  On `MEGA_SUPPORT`, when found, also
+`sym_fwd` (BSS): nonzero iff the entry's stamp differs from
+`sym_stamp` — the symbol was defined in an earlier pass only, so this
+read is a forward reference in the current pass.
 **Clobbers:** A, X, Y, all _st_* ZP vars
 
 ### sym_clear
@@ -38,6 +43,11 @@ C=0 found, C=1 not found.
 Probe state for linear probing.  `_st_heap`/`_st_heap_base` track
 the name heap (fixed at $E600 under KERNAL).
 
+**BSS (`MEGA_SUPPORT` only, 2 bytes):** `sym_stamp` (1) — input: the
+current pass's stamp, `SYM_P0` ($40) during pass 0 of an assembly, 0
+otherwise; written by asm_src.  `sym_fwd` (1) — output of
+`sym_lookup`.
+
 **Depends on:** mem (kernal_bank_out / kernal_bank_in), zp
 
 ### Callers of `sym_define`
@@ -49,7 +59,7 @@ Direct callers in the corpus:
 |---|---|---|
 | `gap_buffer.s::define_ws_syms` | `workstart` | fixed $0800, registered at cold init |
 | `gap_buffer.s::update_workend` | `workend` | `buf_base - 1`, refreshed after every buffer-base change |
-| `asm_src.s::asm_assemble` | both | refresh after `sym_clear` at pass 0 |
+| `asm_src.s::asm_assemble` | both | refresh after `sym_clear` at pass 0; on `MEGA_SUPPORT` again at pass 1, after setting `sym_stamp` |
 | `asm_src.s` label emit | user labels | per `main:` / `.loop:` in source |
 | `repl.s::cmd_define` (future) | user symbols | REPL `=` command |
 
@@ -63,7 +73,8 @@ Offset  Size  Field
   1       2   value      16-bit symbol value (lo, hi)
   3       2   name_ptr   pointer to name in heap ($0000 = empty slot)
   5       1   scope      bit 7 = ZP/ABS (0=ZP, $80=ABS)
-                          bits 6-0 = reserved
+                          bit 6 = pass stamp (MEGA_SUPPORT; else 0)
+                          bits 5-0 = reserved
 ```
 
 **Capacity is 256 — all slots are addressable.** The empty marker
@@ -77,6 +88,20 @@ A fully populated table is detected by **probe-wrap**: `sym_define`
 walks the linear probe chain and returns C=1 (full) if `_st_idx`
 returns to its starting hash without finding either an empty slot
 or a name match.  No separate count is maintained.
+
+### Pass stamp (`MEGA_SUPPORT`)
+
+The 4510's branches have two widths, so a branch's size must be
+decided identically in both passes ([asm_line.md § Branches](asm_line.md#branches-zone-b)).
+The stamp tells a reader whether a symbol is defined *so far in the
+current pass*: `sym_define` stamps every entry it writes with
+`sym_stamp`, and asm_src gives each pass its own stamp — `SYM_P0`
+for pass 0, 0 for pass 1 and outside an assembly — refreshing the
+built-in symbols after each change.  During pass 1 an entry still
+carrying `SYM_P0` was defined only in pass 0, i.e. later in the
+source: `sym_lookup` reports it with `sym_fwd`.  During pass 0 such a
+symbol is simply not found.  Outside an assembly every entry carries
+0, so no read is forward.
 
 ### KERNAL banking
 

@@ -91,7 +91,7 @@ SP, and the user must leave a documented headroom for kernel re-entry
 | addr_mode.s | 3 | Addressing-mode and operand parser | [addr_mode.md](modules/addr_mode.md) |
 | opcode_lookup.s | 3 | (profile, mode) → opcode byte | [opcode_lookup.md](modules/opcode_lookup.md) |
 | expr.s | 3 | Recursive-descent expression parser | [expr.md](modules/expr.md) |
-| dasm.s | 3 | Bit-slice disassembler (6502/6510/65C02) | [dasm.md](modules/dasm.md) |
+| dasm.s | 3 | Opcode-map disassembler over the CPU set's generated tables; 45GS02 prefix peel on m65 | [dasm.md](modules/dasm.md) |
 | screen.s | 2 | Scroll, newline, cursor, color theme, vic_reset | [screen.md](modules/screen.md) |
 | symtab.s | 2 | Hash-table symbol storage with name heap (banking via mem.s) | [symtab.md](modules/symtab.md) |
 | log.s | 2 | Standardised logging API (log_open / log_close / log_err / log_warn / log_info) | [log.md](modules/log.md) |
@@ -99,7 +99,7 @@ SP, and the user must leave a documented headroom for kernel re-entry
 | mem.s | 1 | Memory manager: banking, ZP save/restore, segment queries | [memory_design.md](memory_design.md) |
 | cse_io.s | 1 | Raw screen I/O, keyboard, PETSCII→screencode | [cse_io.md](modules/cse_io.md) |
 | mn_classify.s | 1 | Build-time dispatcher: selects mn6 or mn7 | [mn_classify.md](modules/mn_classify.md) |
-| mn7.s / mn6.s | 1 | Perfect hash mnemonic classifier (mn7: 114, mn6: 56) | [mn_classify.md](modules/mn_classify.md) |
+| mn7.s / mn6.s | 1 | Perfect hash mnemonic classifier (mn7: 114 on C64, 98 on m65; mn6: 56) | [mn_classify.md](modules/mn_classify.md) |
 | mn_vars.s | 1 | Mnemonic classifier inputs (mn_c1/c2/c3) | [mn_classify.md](modules/mn_classify.md) |
 | zp.s | 0 | Central zero-page layout (all user ZP + shared cross-module flags) | [zp.md](modules/zp.md) |
 | strings.s | 0 | Centralised user-facing string constants (RODATA) | [strings.md](modules/strings.md) |
@@ -136,12 +136,12 @@ semantic homes (zp.s or log.s) and the dispatcher modules no longer
 export state that lower layers reach up for.
 | disk | screen, log, cse_io, strings, zp |
 | debugger | breakpoints, oplen_tbl, mem, zp |
-| asm_line | addr_mode, opcode_lookup, mn_classify, asm_err, mem, zp |
+| asm_line | addr_mode, opcode_lookup, mn_classify, mn_asm_tables, mn_modes, asm_err, mem, zp |
 | breakpoints | zp |
 | addr_mode | expr, asm_err, zp |
-| opcode_lookup | mn_asm_tables, mn_modes, asm_err, zp |
+| opcode_lookup | mn_asm_tables, mn_modes, zp |
 | expr | symtab, strings, mem, zp |
-| dasm | dasm_tables, mem, zp |
+| dasm | dasm_tables, dasm_mne_idx, mem, zp |
 | screen | cse_io, strings, zp |
 | symtab | mem, zp |
 | log | cse_io, strings, zp |

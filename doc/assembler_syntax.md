@@ -53,8 +53,33 @@ rol a
 rol                  ; same as `rol a` — bare form = ACC
 ```
 
-Standard 6502/65C02 mnemonics. Operands support the full expression
-syntax (labels, arithmetic, lo/hi byte operators, etc.).
+Standard 6502/6510/65C02 mnemonics on C64 builds; 6502/4510/45GS02
+mnemonics on the m65 build — the CPUs of the build's CPU set
+([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
+Operands support the full expression syntax (labels, arithmetic, lo/hi
+byte operators, etc.).
+
+### 4510 and 45GS02 instructions (m65)
+
+```
+ldz #$00            ; 4510: Z register
+lda ($fb),z         ; 4510: zero-page indirect adds Z
+lda ($02,sp),y      ; 4510: stack-relative, also written ($02,s),y
+phw #$1234          ; 4510: push word (16-bit immediate)
+bne far_away        ; 8-bit or 16-bit offset, chosen by distance
+ldq ($fb)           ; 45GS02: 32-bit load into Q (A,X,Y,Z)
+adcq $10            ; 45GS02: Q form, stem + q
+staq $2000          ; 45GS02: same as `stq $2000`
+lda [$fb],z         ; 45GS02: far — 32-bit pointer at $fb
+rmb3 $12            ; bit-op: the bit number is the mnemonic's digit
+```
+
+The full spelling contract — which forms are accepted, which are
+refused, and how the disassembler lists each — is
+[asm_line.md § Mnemonic word](modules/asm_line.md#mnemonic-word);
+the operand forms are [addr_mode.md § Design](modules/addr_mode.md#design).
+Branch width and forward references:
+[asm_line.md § Branches](modules/asm_line.md#branches-zone-b).
 
 ### Accumulator addressing — bare and explicit forms
 
@@ -151,12 +176,15 @@ Default: `$0800`.
 
 ```
 .cpu 6502           ; legal opcodes only
-.cpu 6510           ; legal + illegal opcodes
-.cpu 65c02          ; legal + CMOS extensions
+.cpu 6510           ; legal + illegal opcodes        (C64 builds)
+.cpu 65c02          ; legal + CMOS extensions        (C64 builds)
+.cpu 4510           ; 65C02 set + 4510 additions     (m65)
+.cpu 45gs02         ; 4510 + Q and far forms         (m65, default)
 ```
 
-Affects which mnemonics and addressing modes are accepted.
-Limited by the build-time CPU ceiling.
+Affects which mnemonics and addressing modes are accepted.  Only the
+members of the build's CPU set are accepted; any other value is an
+error.
 
 ### `.db` — Define Bytes
 

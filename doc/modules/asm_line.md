@@ -14,9 +14,11 @@
 
 ### _asm_line_core
 **In:** `asm_ptr` (ZP, text pointer, PETSCII), `asm_pc` (ZP, address),
-`asm_out` (ZP, output pointer), `asm_cpu` (ZP, CPU mode), Y=0
-**Out:** bytes written to `[asm_out]`, `asm_len` = byte count (1–3),
-C = 0 (clear) on success
+`asm_out` (ZP, output pointer), `asm_cpu` (ZP, CPU mode — the global
+enumeration of [build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)), Y=0
+**Out:** bytes written to `[asm_out]`, `asm_len` = byte count (1–3 on
+C64 builds; 1–5 on the m65 build, prefixes included), C = 0 (clear) on
+success
 **Clobbers:** A, X, Y, all asm_* ZP vars
 
 ### asm_line (public entry point)
@@ -46,11 +48,46 @@ Input is PETSCII.  Mnemonic characters are normalized to 1–26 via
 AND #$1F (handles uppercase, lowercase, and legacy VICII screen
 codes identically — see [mn_classify.md](mn_classify.md)).
 
+### Mnemonic word
+
+The mnemonic is one word: a three-letter **key** and an optional
+one-character **suffix** directly after it.
+
+| Suffix | Builds | Meaning |
+|---|---|---|
+| digit `0`–`7` | CPU sets with 65C02 or 4510 | the bit number of a digit-zone key (`RMB` `SMB` `BBR` `BBS`), ORed into the opcode's bits 6:4 |
+| `q` | `MEGA_SUPPORT` | the Q form of a quad stem ([§ Prefixes](#prefixes-45gs02)) |
+
+A digit on any other key, a digit-zone key without a digit, `q` on a
+key with no Q form, any other fourth character, or a fifth character
+is `;?syntax`.  `lda x` is `LDA` with the label `x`; `ldax` is no word.
+
+**Accepted spellings on the m65 build** — a second spelling is accepted
+only when the scanner alone can map it onto an existing row (it adds
+no row and no table fact):
+
+| Form | Accepted | Listed by the disassembler as |
+|---|---|---|
+| accumulator | bare or `a`; after a Q form bare only | bare |
+| zero-page indirect | `(e),z` where the CPU adds Z; `(e)` on the seven Q forms that do not (`adcq` `andq` `cmpq` `eorq` `orq` `sbcq` `stq`) | as accepted |
+| far (32-bit pointer) | `[e],z` / `[e]`, by the same Z rule | as accepted |
+| stack-relative | `(e,sp),y` or `(e,s),y` | `(e,sp),y` |
+| `$EA` | `nop`, `eom` | `eom` |
+| quad form | the key (`stq`, `ldq`) or stem + `q` (`staq`, `ldaq`) | the compendium name (`stq`, `adcq`) |
+
+A spelling that misstates the CPU is `;?syntax` regardless: `(e)`
+where Z is added, `,z` where it is not, a register operand after a Q
+form (`aslq a` names the label `a`).
+
 ### Memory (asm_line.s)
 
 **ZP:** none of its own.  The error-recovery SP snapshot
 (`_asm_saved_sp`) and the error-category byte (`asm_err_code`) both
 live in [asm_err.md](asm_err.md).
+
+**BSS (`MEGA_SUPPORT` only, 1 byte):** `asm_pfx` — prefix
+enumeration for the instruction being assembled: 0 = none, 1 = Q,
+2 = far, 3 = Q + far.
 
 **BSS (182 bytes — user register shadows):**
 
@@ -66,8 +103,11 @@ used to live here; as of Phase 18 they are owned by `mem.s`
 alongside the `save_userland_zp` / `restore_userland_zp` /
 `save_kernel_zp` / `restore_kernel_zp` primitives.)
 
-**Depends on:** addr_mode (mode_parse, asm_skip_ws, _au_no_acc),
-opcode_lookup (asm_opcode_lookup), mn_classify (mn_base_op,
+**Depends on:** expr (`expr_fwd`, `MEGA_SUPPORT` only), addr_mode
+(mode_parse, asm_skip_ws, _au_no_acc;
+`_au_far` on `MEGA_SUPPORT`), opcode_lookup (asm_validate_mode,
+asm_opcode_lookup), mn_asm_tables (`asm_oplen`, the `ASM_ZONE_*`
+constants), mn_classify (mn_base_op,
 mn_profile), mn_modes (mn_modes_lo — for the ACC-bit test that
 drives _au_no_acc; the IMP→ACC promotion reuses _au_no_acc rather
 than re-reading the table), asm_err (asm_error, asm_syntax_error,
@@ -81,17 +121,18 @@ the read or write path.
 
 ## Build-time variants
 
-Three production builds (see Makefile `_*_DEFS`) instantiate this
-module with different `-D` flag combinations.  The classifier choice
+Four CPU sets (see [build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets))
+instantiate this module with different `-D` flag combinations.  The classifier choice
 and the in-binary gate behaviour both depend on the flags — so the
 module effectively ships as three distinct binaries, each with its
 own contract.
 
 | Variant | `-D` flags | Classifier | CMOS reject gate | CMOS upgrade | Illegal gate | Accepts |
 |---|---|---|---|---|---|---|
-| **6502** | `USE_MN6` | mn6 (56 legal only) | — (unreachable) | — | — (unreachable) | legal NMOS |
-| **6510** | (none) | mn7 (114) | **compiled in** | — (tables absent) | **compiled in** | legal + illegals |
-| **65C02** | `CMOS_SUPPORT` | mn7 (114) | compiled in | compiled in | compiled in | legal + CMOS |
+| **c64-6502** | `USE_MN6` | mn6 (56 legal only) | — (unreachable) | — | — (unreachable) | legal NMOS |
+| **c64-6510** | `ILLEGAL_SUPPORT` | mn7 (114) | **compiled in** | — (tables absent) | **compiled in** | legal + illegals |
+| **c64-65c02** | `ILLEGAL_SUPPORT` `CMOS_SUPPORT` | mn7 (114) | compiled in | compiled in | compiled in | legal + CMOS |
+| **m65-45gs02** | `MEGA_SUPPORT` | mn7, m65 keys (98) | compiled in | compiled in (4510 extension) | — | legal + 65C02 + 4510; Q and far forms at `asm_cpu=4` |
 
 On mn6 builds, unsupported mnemonics are rejected at the classifier
 tier (mn6 doesn't hash them), so the in-binary gate never sees
@@ -122,6 +163,20 @@ when `cat=01` and `asm_cpu>=2` under `CMOS_SUPPORT`).
 | `asm_cpu=1` (6510)  | accept | accept (NMOS profile) | accept | **REJECT** |
 | `asm_cpu=2` (65C02) | accept | accept (CMOS profile, needs `CMOS_SUPPORT`) | **REJECT** | accept (needs `CMOS_SUPPORT`) |
 
+**m65 build** (`asm_cpu` ∈ {0, 3, 4}):
+
+| | `cat=00` legal NMOS | `cat=01` legal + 4510 ext | `cat=10` Q name | `cat=11` 4510-only |
+|---|---|---|---|---|
+| `asm_cpu=0` (6502)   | accept | accept (NMOS profile) | **REJECT** | **REJECT** |
+| `asm_cpu=3` (4510)   | accept | accept (extension profile) | **REJECT** | accept |
+| `asm_cpu=4` (45GS02) | accept | accept (extension profile) | accept (Q, `pidx` is the Q profile) | accept |
+
+The **effective profile** is `pidx` after the extension upgrade.  The
+`q` suffix is accepted iff `asm_cpu=4`, `cat≠10`, and the effective
+profile lies in zone Q ([opcode_lookup.md § Profile index layout](opcode_lookup.md#design));
+the Q profile is then effective + 1.  Otherwise `q` is `;?cpu` on
+`asm_cpu` 0/3 for a quad stem, `;?syntax` for any other key.
+
 Every cell is tested per-variant-bundle in `TestCpuGateCmosBundle`
 and `TestCpuGate6510Bundle` (test_asm_line.py).  Populating this
 matrix was a direct consequence of the asm_cpu gate Escape Analysis
@@ -132,23 +187,61 @@ omitted under `.ifdef CMOS_SUPPORT`.
 
 ## Design
 
-**Zone dispatch:** The mnemonic's operand profile (from mn7_profile)
-determines which zone handles assembly.  30 profiles mapped to 8 zones:
+**Zone dispatch:** The effective profile's zone (generated constants
+`ASM_ZONE_*`, [opcode_lookup.md § Profile index layout](opcode_lookup.md#design))
+determines which path assembles the instruction:
 
-| Zone | Profiles | Mode | Examples |
-|------|----------|------|---------|
-| A | 0 | Implied | BRK, CLC, DEX, NOP, RTS, ... |
-| B | 1 | Relative (branch) | BCC, BEQ, BNE, BPL, ... |
-| C | 2 | Immediate | LDX #$00, CPX #$FF, ... |
-| D | 3 | Bit-op ZP (RMB/SMB) | RMB0–7, SMB0–7 |
-| E | 4 | Bit-op ZP,REL (BBR/BBS) | BBR0–7, BBS0–7 |
-| F | 5 | Absolute (JSR only) | JSR $XXXX |
-| G | 6–15 | Multi-mode (2–5 modes) | LDX, STX, CPX, CPY, DEC, INC, ... |
-| H | 16–29 | Multi-mode (3–8 modes) | LDA, STA, ADC, AND, ORA, JMP, ... |
+| Zone | Mode | Examples |
+|------|------|---------|
+| A | Implied | BRK, CLC, DEX, NOP, RTS; on m65 also TAZ, MAP, EOM, … |
+| B | Branch (REL; REL16 on `MEGA_SUPPORT`) | BCC, BEQ, BNE, BPL, …; on m65 also BSR |
+| C | Immediate only | illegal ANC/ALR/…; on m65 RTN |
+| D | Bit-op ZP (RMB/SMB) | RMB0–7, SMB0–7 |
+| E | Bit-op ZP,REL (BBR/BBS) | BBR0–7, BBS0–7 |
+| F | Absolute only | JSR (C64); ASW, ROW (m65) |
+| G | Multi-mode extension pairs | DEC, INC, BIT, JMP, LDA, …; JSR on m65 |
+| Q | Multi-mode quad groups (`MEGA_SUPPORT`) | LDA/LDQ, ADC/ADCQ, ASL/ASLQ, … |
+| H | Multi-mode, the rest | LDX, STX, CPX, CPY, … |
 
-Zones A–F handle fixed single-mode instructions inline.  Zones G and H
-call `mode_parse` to determine the addressing mode, then
-`asm_opcode_lookup` to compute the opcode byte.
+Zones A–F handle fixed single-shape instructions inline.  Zones G, Q
+and H call `mode_parse` to determine the addressing mode, then
+`asm_validate_mode` and `asm_opcode_lookup` to compute the opcode byte;
+the operand byte count is the generated `asm_oplen[mode]`.
+
+### Branches (zone B)
+
+The operand is the target address; the offset is computed.  For `REL`
+the offset is `target − (asm_pc + 2)`, valid in −128..127.  On
+`MEGA_SUPPORT` a profile may also (or only) accept `REL16`, a 16-bit
+offset `target − (asm_pc + 2)` (the address of the instruction's last
+byte).  Width: a **forward** target — `expr_fwd` set: the target
+expression reads a symbol not yet defined in the current pass
+([symtab.md § Pass stamp](symtab.md#pass-stamp-mega_support)) — takes
+`REL` where the profile has it; otherwise `REL` if the profile has it
+and the target is in reach, else `REL16` if the profile has it, else
+out of range (`;?syntax`).  Both passes see the same forward/backward
+split, so the width — and every later address — is pass-stable.  A
+forward `REL` whose target is out of reach on pass 1 is an error; the
+source then needs a backward target or a `jmp`.
+
+### IMM16 promotion (`MEGA_SUPPORT`)
+
+`mode_parse` returns IMM for every `#expr`.  On a profile that accepts
+IMM16 and not IMM (`PHW`), asm_line promotes IMM to IMM16 and emits
+both operand bytes; elsewhere IMM stays IMM and emits the low byte, as
+on the C64 builds.  Same shape as the IMP → ACC promotion.
+
+### Prefixes (45GS02)
+
+The 45GS02's Q and far forms are modifiers on a 4510 row, not
+opcodes.  A Q form (the `q` suffix or a `cat=10` key) emits `$42 $42`;
+a far operand (`[e]`, `[e],z` — flagged by mode_parse) emits `$EA`.
+Far is valid exactly where the effective profile accepts the parsed
+zero-page-indirect mode (`ZPI` or `ZPIZ`), so the mask test that admits
+`(e)` / `(e),z` admits `[e]` / `[e],z`.  Emission order: `$42 $42` if
+Q, `$EA` if far, the opcode, `asm_oplen[mode]` operand bytes.  Both
+prefixes exist only at `asm_cpu=4`: on 0 and 3 a Q form or a far
+operand is `;?cpu`.
 
 ### ACC mode handling
 
@@ -215,8 +308,10 @@ pass 1.
 - Input is PETSCII (uppercase $41–$5A or lowercase $61–$7A).
   AND #$1F normalization in `_asm_rd_upper` handles both cases
   and is also backward-compatible with raw VICII screen codes.
-- `asm_cpu` values: 0=6502, 1=6510, 2=65C02.  CMOS gate uses
-  `cmp #2`/`bcs`/`bcc` — only asm_cpu=2 enables CMOS extensions.
+- `asm_cpu` values: 0=6502, 1=6510, 2=65C02, 3=4510, 4=45GS02 (one
+  global enumeration).  The CMOS gate's `cmp #2` compares are compiled
+  only into C64 builds, the 4510 gate's `cmp #3` only into the m65 build,
+  so each build compares within its own CPU set.
 - Zone B accepts `$XXXX` absolute target for branches; computes
   signed offset internally.
 - `mn7_classify` clobbers Y (sets Y=mn_c2).  `ldy #0` is required

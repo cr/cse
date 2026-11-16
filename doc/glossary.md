@@ -43,7 +43,7 @@ and documentation.
 | **ABS** | Absolute: address $0000–$FFFF.  Selects 3-byte instruction encoding. |
 | **BSS** | Uninitialized runtime state segment.  Zeroed at boot by main.s.  All mutable module variables live here. |
 | **RODATA** | Read-only data segment.  Constants, string literals, lookup tables.  Linked into the runtime image alongside CODE. |
-| **KDATA** | Data segment that lives under KERNAL ROM ($F100–$F4F1).  Copied from the PRG load image to banked RAM by loader.s at startup.  Contains lookup tables (mn_modes, mode_offset, dasm strings). |
+| **KDATA** | Data segment that lives under KERNAL ROM ($F100–$F4F1).  Copied from the PRG load image to banked RAM by loader.s at startup.  Contains lookup tables (mn_modes, asm_row/asm_delta, the classifier tables, the dasm opcode map and strings). |
 | **workspace** | The $0800–workend memory region shared by user programs and source text.  The gap buffer grows downward from `__CODE_RUN__`; user output grows upward from $0800. |
 | **gap buffer** | The editor's text storage: a contiguous buffer with a movable gap at the cursor.  Insertions fill the gap (O(1)); the gap slides on cursor movement.  `buf_base` is the buffer floor, `BUF_END = __CODE_RUN__` is the ceiling. |
 | **symbol table** | Hash table at $E000–$E5FF (256 slots × 6 bytes) under KERNAL ROM.  Stores assembler labels and constants.  Name strings live in the adjacent heap. |
@@ -51,11 +51,17 @@ and documentation.
 | **fingerprint** | Mnemonic disambiguation byte: `fp = (c2<<3) | (c3>>2)`.  After the h7 hash selects a slot, the fingerprint confirms the exact mnemonic with zero false positives. |
 | **mnemonic hash** | `h7 = (c1×4 + c3 + HASH_T[c2]) & $7F`.  Maps a 3-letter mnemonic to a 7-bit slot index (0–127).  Uses VICII-normalized letter values (A=1..Z=26). |
 | **wide** | `expr_wide = 1`: expression forced to ABS.  Sticky — once wide, stays wide. |
-| **base opcode** | Opcode byte with the mode field (`bbb`) zeroed.  Final opcode = `base | (bbb << 2)`. |
-| **mode index** | Integer 0–15 encoding an addressing mode.  Used by `addr_mode.s` and `opcode_lookup.s`.  The mapping: 0=IMP, 1=ACC, 2=IMM, 3=ZP, 4=ZPX, 5=ZPY, 6=ABS, 7=ABX, 8=ABY, 9=IND, 10=INX, 11=INY, 12=REL, 13=ZPI, 14=AIX, 15=ZPREL. |
-| **operand profile** | Index (0–29) describing which mode indices a mnemonic accepts.  Encoded as a 16-bit bitmask in `mn_modes`.  Example: profile 16 (LDA) = {IMM, ZP, ZPX, ABS, ABX, ABY, INX, INY}. |
-| **zone** | Dispatch category (A–H) in the line assembler.  Derived from the operand profile.  Zones A–F are fixed single-mode groups; G and H are multi-mode groups that call `mode_parse` + `asm_opcode_lookup`. |
-| **mnemonic suffix** | Digit `0`–`7` after RMB/SMB/BBR/BBS: the `3` in `RMB3`.  Encodes a bit index. |
+| **base opcode** | A key's own zero-page opcode, else its absolute opcode, else its lowest mode's — always one of the key's opcodes.  Final opcode = `base ^ delta[mode]`. |
+| **mode index** | Integer encoding an addressing mode — the catalogue index of `ALL_MODES` in `dev/instruction_set.py` (append-only).  0=IMP, 1=ACC, 2=IMM, 3=ZP, 4=ZPX, 5=ZPY, 6=ABS, 7=ABX, 8=ABY, 9=IND, 10=INX, 11=INY, 12=REL, 13=ZPI, 14=AIX, 15=ZPREL; on the m65 build also 16=IMM16, 17=REL16, 18=ISPY, 19=ZPIZ. |
+| **operand profile** | A pair (accepted modes, delta row), indexed by `pidx` (numbered per CPU set by the generator).  The modes are a bitmask in the `mn_modes` planes; the delta row turns the base opcode into each mode's opcode.  Example: the LDA profile on the C64 = {IMM, ZP, ZPX, ABS, ABX, ABY, INX, INY}. |
+| **delta row** | One byte per mode, `opcode ^ base`, shared by every profile that never disagrees with it on a mode both accept.  `asm_delta`, indexed by `asm_row[pidx] + mode`. |
+| **CPU set** | The CPUs a build serves at run time (`.cpu`, `u`); its top member is the build's `CPU`.  Generated tables come in one block per CPU set.  See [build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets). |
+| **opcode map** | The disassembler's generated per-opcode table: mnemonic index and mode of every opcode of the CPU set's top CPU. |
+| **view bitmap** | 256 bits marking which opcodes a lower CPU of the set defines identically to the opcode map; the disassembler shows the others as `...` in that CPU's view. |
+| **Q prefix** | `$42 $42` (NEG NEG) on the 45GS02: the following 4510 instruction operates on the 32-bit Q register (A, X, Y, Z). |
+| **far prefix** | `$EA` (EOM/NOP) on the 45GS02: a following `($nn),Z` (or Q `($nn)`) instruction reads a 32-bit pointer — written `[$nn],z` / `[$nn]`. |
+| **zone** | Dispatch category in the line assembler: a range of `pidx` with generated bounds (`ASM_ZONE_*`).  Zones A–F are fixed single-shape groups; G (extension pairs), Q (45GS02 quad groups) and H are multi-mode groups that call `mode_parse` + `asm_opcode_lookup`. |
+| **mnemonic suffix** | The optional fourth character of a mnemonic word: a digit `0`–`7` after RMB/SMB/BBR/BBS (the `3` in `RMB3`, a bit index), or `q` after a quad stem on the 45GS02 (`ADCQ`). |
 
 ## Process
 

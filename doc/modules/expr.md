@@ -15,7 +15,10 @@
 **In:** `expr_ptr` (ZP, pointer to PETSCII expression string),
 `asm_pc` (ZP, current PC for `*` operator)
 **Out:** `expr_val` (ZP, 16-bit result), `expr_wide` (ZP, 0=ZP 1=ABS).
-Returns A = return code.
+Returns A = return code.  On `MEGA_SUPPORT` also `expr_fwd` (BSS):
+nonzero iff the expression read a symbol that is undefined (rc 5) or
+that `sym_lookup` reported with `sym_fwd` — a forward reference in the
+current pass ([symtab.md § Pass stamp](symtab.md#pass-stamp-mega_support)).
 **Clobbers:** A, X, Y, `_ex_tmp`, `_ex_digits`, `_ex_wide_tmp`
 
 `expr_eval` owns its own KERNAL banking — callers don't manage it.
@@ -53,7 +56,8 @@ undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 
 **ZP (4 bytes):** `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1).
 
-**BSS (5 bytes):** `last_err` (1), `_mul_tmp` (2), `_div_rem` (2).
+**BSS (5 bytes):** `last_err` (1), `_mul_tmp` (2), `_div_rem` (2);
+on `MEGA_SUPPORT` also `expr_fwd` (1).
 
 **Depends on:** symtab (`sym_lookup` for label resolution),
 mem (`kernal_bank_out` / `kernal_bank_in` for the wrapper),

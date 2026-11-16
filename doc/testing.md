@@ -390,8 +390,8 @@ tests are written, when they are written, and what they test.
     exist and link," which the linker enforces on every build.
 
     **Why no unit tests.**  A unit test needs something to assert.
-    Asserting `mn_modes[16] == $00F0` against the generator's own
-    output is a mirror test (see Anti-patterns § Mirror tests).
+    Asserting a generated mask byte (`mn_modes_lo[pidx] == …`) against
+    the generator's own output is a mirror test (see Anti-patterns § Mirror tests).
     Asserting `strings_prompt == "cse>"` against a string literal
     is tautology.  The only meaningful correctness check for
     axiomatic data is "does it make consumers behave correctly" —
@@ -413,8 +413,9 @@ tests are written, when they are written, and what they test.
     hide from a consumer's test if the generator and consumer
     share the wrong assumption.  The guard is that
     `test_asm_line::test_assemble` and `test_dasm` both cross-
-    reference every opcode against `dev/instruction_set.py` — the
-    independent authoritative source the generator reads.  Tables
+    reference every opcode against `dev/instruction_set.py`
+    (`instructions(variant)`) — the independent authoritative source
+    the generator reads; no test file restates an opcode by hand.  Tables
     are tested against an oracle, not against themselves.
 
     **TDD Maintenance rule.**  Axiomatic modules are not flagged
@@ -944,6 +945,14 @@ get their own small binary.
 | `mn6` / `mn7` | mn_classify + mn_vars + mn6/mn7 + tables | (none — pure leaf) | test_mn_classify |
 | `asm_src` | asm_core + asm_src | `asm_src_test_stub.s` (ed_read_line mock) | test_asm_src |
 | `dasm` | zp, dasm, dasm_tables, mem | `dasm_test_stub.s` (linker scaffolding only) | test_dasm |
+
+**Variants (Principle 10).**  Each bundle ships one variant per CPU
+set its modules are built for: `asm_core` and `dasm` — `6502`,
+`6510`, `cmos`, `m65`; `mn6` — `6502`; `mn7` — `cmos` (C64 keys),
+`m65`; `asm_src` and `symtab` — `cmos`, `m65` (the `m65` variant
+carries the pass stamp: `sym_stamp`, `sym_fwd`, `expr_fwd`).  Each
+variant uses the production `-D` set of its build
+([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
 | `log` | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |
 
 The `asm_core` bundle includes the `asm_err` leaf module for

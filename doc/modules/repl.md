@@ -256,10 +256,13 @@ full expressions work in the `.` command:
 Symbols and labels from the last source assembly (`a` command) are
 available, since the symbol table heap persists between assemblies.
 
+The mnemonic word is copied whole — the three-letter key and its
+suffix, a bit digit or `q` ([asm_line.md § Mnemonic word](asm_line.md#mnemonic-word)).
 The operand is evaluated to a numeric value, formatted as `$XX` or
 `$XXXX` (based on `expr_wide`), and the prefix/suffix characters
-(`#`, `(`, `,x`, `)`, etc.) are preserved around it.  The formatted
-string is then passed to `_asm_line_core` which handles only hex operands.
+(`#`, `(`, `[` on `MEGA_SUPPORT`; `,x`, `)`, `),z`, `,sp),y`, `]`, etc.)
+are preserved around it.  The formatted string is then passed to
+`_asm_line_core` which handles only hex operands.
 
 In all three cases, the handler finishes by disassembling the
 instruction at `cur_addr` and rewriting the prompt line with the
@@ -357,7 +360,8 @@ The REPL's line editor operates within the 40-column screen:
 
 ### Line formats (40 columns)
 
-    AAAA:. HH HH HH  MNEMONIC OPERAND     asm / disasm
+    AAAA:. HH HH HH  MNEMONIC OPERAND     asm / disasm (C64 builds)
+    AAAA:. HH HH HH HH HH  MNEMONIC OPERAND     asm / disasm (m65)
     AAAA:m HH HH HH HH HH HH HH HH cccc hex dump / edit
     r pc:XXXX a:XX x:XX y:XX s:XX Nv-bDizc CPU registers (UC=set)
 
@@ -385,7 +389,7 @@ rejection cell.  Testing matrix:
 |---|---|---|
 | Nothing (`NUL`) | Silent redisplay of current line | `.` |
 | `';'` comment | Silent redisplay | `. ; note` |
-| Two hex digits + space/NUL (1–3 pairs) | Hex-byte poke at `cur_addr` | `. a9 42` |
+| Two hex digits + space/NUL (1 to the build's maximum instruction length: 3 pairs on C64, 5 on m65) | Hex-byte poke at `cur_addr` | `. a9 42` |
 | Letter `a`–`z` (mnemonic start) | Mnemonic assemble via `dot_assemble` | `. lda #$00` |
 | **Anything else** | **Syntax error** (`;?syntax`) | `. .`, `. ,`, `. $`, `. 123` |
 
@@ -834,8 +838,14 @@ Accepts 1, 2, or 3 single hex digits.  Extra characters ignored.
 ### `u` — CPU mode
 
     u 6502       standard NMOS 6502
-    u 6510       6510 (with illegal opcodes)
-    u 65c02      WDC 65C02 (CMOS extensions)
+    u 6510       6510 (with illegal opcodes)            C64 builds
+    u 65c02      WDC 65C02 (CMOS extensions)            C64 builds
+    u 4510       CSG 4510 (65CE02 set + MAP/EOM)        m65
+    u 45gs02     45GS02 (4510 + Q and far forms)        m65, default
+
+`u` accepts only members of the build's CPU set
+([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets))
+and lists exactly those, marking the active one.
 
 ### Free / reserved keys
 
