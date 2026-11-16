@@ -4,11 +4,17 @@
 Owner: doc/build_system.md
 
 Runs the exhaustive sweeps of tests/asm_dasm_runner.py against the
-current source, once per C64 bundle config, and writes
-tests/fixtures/golden/asm_dasm_<config>.json: per case the output and
-the py65 cycle count.  Run it on a known-good tree *before* a refactor
-of the assembler or disassembler; tests/unit/test_golden_asm_dasm.py
-then holds the refactored code to the recorded output and cycles.
+current source, once per C64 CPU set, and writes
+tests/fixtures/golden/asm_dasm_<cpu set>.json: per case the output and
+the py65 cycle count.  tests/unit/test_golden_asm_dasm.py holds later
+code to the recorded output and cycles.
+
+When to re-record (doc/build_system.md § Golden files): only in a
+commit that deliberately changes what a C64 build assembles or lists,
+or what it costs — never to make a refactor pass.  That commit states
+the reason and the measured cycle change.  `source_rev` is the commit
+the files were recorded from, with `-dirty` when the tree had
+uncommitted source changes.
 
     python dev/capture_golden.py            # all configs
     python dev/capture_golden.py cmos       # one config
@@ -30,6 +36,9 @@ def capture(config):
     asyms = conftest.AsmCoreSymbols(config=config)
     rev = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
                          capture_output=True, text=True).stdout.strip()
+    if subprocess.run(["git", "status", "--porcelain", "--", "src", "dev"], cwd=ROOT,
+                      capture_output=True, text=True).stdout.strip():
+        rev += "-dirty"
     data = {
         "config": config,
         "source_rev": rev,

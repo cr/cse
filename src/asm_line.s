@@ -53,9 +53,10 @@
         .import   mn_base_op, mn_profile
 
         ; opcode tables and helpers (opcode_lookup.s, mn_asm_tables.s)
-        .import   asm_validate_mode, asm_opcode_lookup
+        .import   asm_opcode_lookup
         .import   mn_modes_lo           ; ACC-bit test for IMP→ACC promotion
         .import   asm_oplen             ; operand bytes per mode (generated)
+        .import   ASM_ZONE_G            ; first multi-mode pidx (generated)
 
         ; banking
         .import kernal_bank_out, kernal_bank_in
@@ -67,14 +68,6 @@ MODE_IMM   = 2
 MODE_ZP    = 3
 MODE_ABS   = 6
 MODE_REL   = 12
-
-; Profile zone boundaries
-ZONE_A_PIDX = 0         ; IMP
-ZONE_B_PIDX = 1         ; REL
-ZONE_C_PIDX = 2         ; IMM
-ZONE_D_PIDX = 3         ; ZP  bit-op
-ZONE_E_PIDX = 4         ; ZPREL bit-op
-ZONE_F_PIDX = 5         ; ABS  (JSR)
 
         .importzp _asm_saved_sp
 
@@ -303,10 +296,13 @@ _asm_line_core:
         ldy #0
 
         ; ── zone dispatch ─────────────────────────────────────────────────────
+        ; pidx < ASM_ZONE_G is a fixed zone; the generator numbers them
+        ; A B F C D E and gives a CPU set only the zones it has, so the
+        ; table below is indexed by pidx directly.
         lda asm_pidx
-        cmp #6
+        cmp #<ASM_ZONE_G
         bcc :+
-        jmp @zone_gh            ; pidx >= 6 → multi-mode G/H
+        jmp @zone_gh            ; multi-mode G/H
 :
         tax
         lda @ztbl_hi,x
@@ -316,11 +312,11 @@ _asm_line_core:
         rts                     ; RTS trick → dispatches to (addr+1)
 
 @ztbl_lo:
-        .byte <(@zone_a-1), <(@zone_b-1), <(@zone_c-1)
-        .byte <(@zone_d-1), <(@zone_e-1), <(@zone_f-1)
+        .byte <(@zone_a-1), <(@zone_b-1), <(@zone_f-1)
+        .byte <(@zone_c-1), <(@zone_d-1), <(@zone_e-1)
 @ztbl_hi:
-        .byte >(@zone_a-1), >(@zone_b-1), >(@zone_c-1)
-        .byte >(@zone_d-1), >(@zone_e-1), >(@zone_f-1)
+        .byte >(@zone_a-1), >(@zone_b-1), >(@zone_f-1)
+        .byte >(@zone_c-1), >(@zone_d-1), >(@zone_e-1)
 
 ; ── Zone A: implied — no operand ─────────────────────────────────────────────
 @zone_a:
@@ -417,25 +413,23 @@ _asm_line_core:
         ; from the same `mn_modes_lo[asm_pidx] & MODE_ACC_BIT` test that
         ; gates the SC_A path in mode_parse) instead of re-reading the
         ; table — same signal, half the bytes.  Profiles that reject ACC
-        ; keep MODE_IMP and fall to validate_mode, which rejects (the
+        ; keep MODE_IMP and fall to asm_opcode_lookup, which rejects (the
         ; documented "bare implied is invalid for non-ACC multi-mode"
         ; path).  See doc/modules/asm_line.md § ACC mode handling.
         cmp #0                  ; MODE_IMP = 0
-        bne @validate
+        bne @lookup
         lda _au_no_acc
-        bne @validate           ; nonzero → ACC rejected → keep IMP
+        bne @lookup             ; nonzero → ACC rejected → keep IMP
         lda #MODE_ACC
         sta asm_mode
-@validate:
-        ; Validate mode against the effective profile's mode set.
-        jsr asm_validate_mode
+@lookup:
+        ; Validate the mode against the effective profile and compute the
+        ; opcode: base ^ delta[row[pidx] + mode] (opcode_lookup.s).
+        jsr asm_opcode_lookup   ; C=0: A = opcode; C=1: mode not accepted
         bcc @mode_ok
 @err_mode:
         jmp asm_error
 @mode_ok:
-
-        ; Compute opcode: base ^ delta[row[pidx] + mode] (opcode_lookup.s).
-        jsr asm_opcode_lookup   ; → A = opcode
         jsr _asm_emit           ; emit opcode byte
 
         ; Emit operand bytes: 0, 1, or 2 depending on the mode.

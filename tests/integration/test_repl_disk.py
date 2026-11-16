@@ -74,7 +74,7 @@ def _build():
         stem = src.stem
         obj = BUILD / f"{stem}_repl.o"
         subprocess.run(
-            ["ca65", "-t", "c64", "--cpu", "6502", *PROD_DEFS["cmos"],
+            ["ca65", "-t", "c64", "--cpu", "6502", *PROD_DEFS["65c02"],
              "-I", str(BUILD),
              str(src), "-o", str(obj)],
             check=True,

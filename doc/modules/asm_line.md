@@ -105,9 +105,8 @@ alongside the `save_userland_zp` / `restore_userland_zp` /
 
 **Depends on:** expr (`expr_fwd`, `MEGA_SUPPORT` only), addr_mode
 (mode_parse, asm_skip_ws, _au_no_acc;
-`_au_far` on `MEGA_SUPPORT`), opcode_lookup (asm_validate_mode,
-asm_opcode_lookup), mn_asm_tables (`asm_oplen`, the `ASM_ZONE_*`
-constants), mn_classify (mn_base_op,
+`_au_far` on `MEGA_SUPPORT`), opcode_lookup
+(asm_opcode_lookup), mn_asm_tables (`asm_oplen`, `ASM_ZONE_G`), mn_classify (mn_base_op,
 mn_profile), mn_modes (mn_modes_lo — for the ACC-bit test that
 drives _au_no_acc; the IMP→ACC promotion reuses _au_no_acc rather
 than re-reading the table), asm_err (asm_error, asm_syntax_error,
@@ -187,9 +186,11 @@ omitted under `.ifdef CMOS_SUPPORT`.
 
 ## Design
 
-**Zone dispatch:** The effective profile's zone (generated constants
-`ASM_ZONE_*`, [opcode_lookup.md § Profile index layout](opcode_lookup.md#design))
-determines which path assembles the instruction:
+**Zone dispatch:** The effective profile's zone
+([opcode_lookup.md § Profile index layout](opcode_lookup.md#design))
+determines which path assembles the instruction.  A `pidx` below the
+generated `ASM_ZONE_G` is a fixed zone and indexes the jump table
+directly (order A B F C D E); the rest is multi-mode:
 
 | Zone | Mode | Examples |
 |------|------|---------|
@@ -205,7 +206,8 @@ determines which path assembles the instruction:
 
 Zones A–F handle fixed single-shape instructions inline.  Zones G, Q
 and H call `mode_parse` to determine the addressing mode, then
-`asm_validate_mode` and `asm_opcode_lookup` to compute the opcode byte;
+`asm_opcode_lookup`, which rejects a mode the profile does not accept
+and otherwise returns the opcode byte;
 the operand byte count is the generated `asm_oplen[mode]`.
 
 ### Branches (zone B)

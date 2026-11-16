@@ -60,7 +60,7 @@ and documentation.
 | **view bitmap** | 256 bits marking which opcodes a lower CPU of the set defines identically to the opcode map; the disassembler shows the others as `...` in that CPU's view. |
 | **Q prefix** | `$42 $42` (NEG NEG) on the 45GS02: the following 4510 instruction operates on the 32-bit Q register (A, X, Y, Z). |
 | **far prefix** | `$EA` (EOM/NOP) on the 45GS02: a following `($nn),Z` (or Q `($nn)`) instruction reads a 32-bit pointer — written `[$nn],z` / `[$nn]`. |
-| **zone** | Dispatch category in the line assembler: a range of `pidx` with generated bounds (`ASM_ZONE_*`).  Zones A–F are fixed single-shape groups; G (extension pairs), Q (45GS02 quad groups) and H are multi-mode groups that call `mode_parse` + `asm_opcode_lookup`. |
+| **zone** | Dispatch category in the line assembler: a range of `pidx`; the first multi-mode index is the generated `ASM_ZONE_G`.  Zones A–F are fixed single-shape groups; G (extension pairs), Q (45GS02 quad groups) and H are multi-mode groups that call `mode_parse` + `asm_opcode_lookup`. |
 | **mnemonic suffix** | The optional fourth character of a mnemonic word: a digit `0`–`7` after RMB/SMB/BBR/BBS (the `3` in `RMB3`, a bit index), or `q` after a quad stem on the 45GS02 (`ADCQ`). |
 
 ## Process

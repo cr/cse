@@ -5,11 +5,11 @@ Owner: doc/build_system.md
 Contract source: [doc/TODO.md § M65](../../doc/TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
 *Acceptance gates*; [doc/testing.md § Principle 7](../../doc/testing.md#principles).
 
-The golden files (tests/fixtures/golden/asm_dasm_<config>.json) were
+The golden files (tests/fixtures/golden/asm_dasm_<cpu set>.json) were
 recorded by dev/capture_golden.py from the C64 assembler and
 disassembler *before* the move to the generated table formats.  For
-every C64 bundle config this test re-runs the same exhaustive sweeps
-on the current source and asserts:
+every C64 CPU set this test re-runs the same exhaustive sweeps on the
+current source and asserts:
 
   * **Behaviour (gate 3)** — every case's output (dasm text + length;
     asm bytes or error code) equals the golden one, except the cases
@@ -19,7 +19,8 @@ on the current source and asserts:
     total, and no single case exceeds its golden cycles by more than
     10 %.
 
-Size (gate 1) is tests/integration/test_size_budget.py.
+Size (gate 1) is tests/integration/test_size_budget.py.  When the
+golden files may be re-recorded: dev/capture_golden.py's docstring.
 """
 
 import json

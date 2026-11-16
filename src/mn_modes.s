@@ -4,7 +4,6 @@
 ; Profile validity masks (doc/modules/opcode_lookup.md § Design), indexed by pidx.
 ;   mn_modes_lo bits 0-7: IMP ACC IMM ZP ZPX ZPY ABS ABX
 ;   mn_modes_hi bits 0-7: ABY IND INX INY REL ZPI AIX ZPREL
-;
 ; One block per CPU set, selected by the build's CPU_<top> define
 ; (doc/build_system.md § Table generation).
 
@@ -15,40 +14,36 @@
 .ifdef CPU_6502
 ; ── CPU set 6502 ────────────────────────────────────────
 mn_modes_lo:
-        .byte   $01,$00,$00,$00,$00,$40,$DC,$D8
-        .byte   $DA,$D8,$48,$40,$6C,$DC,$68,$58
-        .byte   $4C
+        .byte   $01,$00,$40,$DC,$D8,$DA,$D8,$48
+        .byte   $40,$6C,$DC,$68,$58,$4C
 mn_modes_hi:
-        .byte   $00,$10,$00,$00,$00,$00,$0D,$0D
-        .byte   $00,$00,$00,$02,$01,$00,$00,$00
-        .byte   $00
+        .byte   $00,$10,$00,$0D,$0D,$00,$00,$00
+        .byte   $02,$01,$00,$00,$00,$00
 .endif
 
 .ifdef CPU_6510
 ; ── CPU set 6510 ────────────────────────────────────────
 mn_modes_lo:
-        .byte   $01,$00,$04,$00,$00,$40,$DC,$D8
-        .byte   $DA,$D8,$48,$40,$6C,$DC,$68,$58
-        .byte   $4C,$68,$68,$C0,$18,$00,$00,$80
+        .byte   $01,$00,$40,$04,$DC,$D8,$DA,$D8
+        .byte   $48,$40,$6C,$DC,$68,$58,$4C,$68
+        .byte   $68,$C0,$18,$00,$00,$80
 mn_modes_hi:
-        .byte   $00,$10,$00,$00,$00,$00,$0D,$0D
-        .byte   $00,$00,$00,$02,$01,$00,$00,$00
-        .byte   $00,$0D,$04,$00,$00,$09,$01,$00
+        .byte   $00,$10,$00,$00,$0D,$0D,$00,$00
+        .byte   $00,$02,$01,$00,$00,$00,$00,$0D
+        .byte   $04,$00,$00,$09,$01,$00
 .endif
 
 .ifdef CPU_65C02
 ; ── CPU set 65c02 ────────────────────────────────────────
 mn_modes_lo:
-        .byte   $01,$00,$04,$08,$00,$40,$DC,$DC
+        .byte   $01,$00,$40,$04,$08,$00,$DC,$DC
         .byte   $D8,$D8,$D8,$DA,$48,$DC,$40,$40
-        .byte   $DA,$6C,$DC,$68,$58,$4C,$D8,$D8
-        .byte   $68,$68,$C0,$18,$00,$00,$80,$D8
-        .byte   $48
+        .byte   $DA,$6C,$DC,$68,$58,$4C,$68,$68
+        .byte   $C0,$18,$00,$00,$80,$D8
 mn_modes_hi:
-        .byte   $00,$10,$00,$00,$80,$00,$0D,$2D
+        .byte   $00,$10,$00,$00,$00,$80,$0D,$2D
         .byte   $0D,$2D,$00,$00,$00,$00,$02,$42
-        .byte   $00,$01,$00,$00,$00,$00,$0D,$00
-        .byte   $0D,$04,$00,$00,$09,$01,$00,$00
-        .byte   $00
+        .byte   $00,$01,$00,$00,$00,$00,$0D,$04
+        .byte   $00,$00,$09,$01,$00,$00
 .endif
 

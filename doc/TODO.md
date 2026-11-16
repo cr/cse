@@ -102,15 +102,10 @@ build gets that format sized to its own CPU set:
   front of the looked-up opcode, the disassembler peels them before
   the map lookup.  Instruction length becomes 1–5 on the m65 build.
 
-**Model (2026-11-16, `instruction_set.py` via bbbc64's exact row
-colouring, 16 modes on C64, 20 on m65):**
-
-| Build | CPU set | Profiles | Rows | Asm tables (masks + rows + index) |
-|---|---|---|---|---|
-| c64-6502 | 6502 | 14 | 3 | 90 B |
-| c64-6510 | 6502, 6510 | 22 | 4 | 130 B |
-| c64-65c02 | 6502, 6510, 65C02 | 30 | 6 | 186 B |
-| m65-45gs02 | 6502, 4510, 45GS02 | 36 | 7 | 284 B |
+**Model for the m65 set (2026-11-16, `instruction_set.py` via exact
+row colouring, 20 modes; not yet built):** 36 profiles, 7 delta rows,
+≈ 284 B of masks + rows + index.  The C64 sets are built — see
+*Measured* below.
 
 **Baseline (measured 2026-11-16, fresh `make release` at 910d96d +
 uncommitted docs; ca65 + `od65`, CODE+RODATA+KDATA bytes):**
@@ -121,13 +116,23 @@ uncommitted docs; ca65 + `od65`, CODE+RODATA+KDATA bytes):**
 | c64-6510 | 21 232 | 394 | 364 | 1348 + 230 = 1578 | 64 | mn7 63 + 384 | 543 |
 | c64-65c02 | 21 688 | 408 | 364 | 1731 + 230 = 1961 | 64 | mn7 63 + 384 | 543 |
 
-Projected C64 effect (model, not measured): asm lookup 364 B →
-≈ 140 / 190 / 250 B; dasm decode + strings ≈ 807 / 1071 / 1454 B →
-≈ 530 / 670 / 1080 B.
+**Measured after the assembler slice (release builds, 2026-11-16):**
+
+| Build | PRG | Profiles × rows × row width | opcode_lookup + mn_asm_tables + mn_modes | asm sweep cycles |
+|---|---|---|---|---|
+| c64-6502 | 20 549 (−241) | 14 × 3 × 13 | 48 + 66 + 28 = 142 (was 364) | −4.6 % |
+| c64-6510 | 21 028 (−204) | 22 × 4 × 13 | 48 + 87 + 44 = 179 | −4.3 % |
+| c64-65c02 | 21 555 (−133) | 30 × 6 × 16 | 48 + 142 + 60 = 250 | −4.4 % |
+
+Worst single case +0.5 %; all 6912 asm golden cases identical.  The
+disassembler (A4) is still the bit-slice: projected decode + strings
+≈ 807 / 1071 / 1454 B → ≈ 530 / 670 / 1080 B.
 
 **Acceptance gates (Phase A, per C64 build):**
 
-1. **Size:** the unpacked PRG is no larger than the baseline above.
+1. **Size:** the unpacked PRG is no larger than its budget — the
+   baseline above, ratcheted down whenever a commit shrinks a build
+   (`tests/integration/test_size_budget.py`).
 2. **Speed:** over the exhaustive sweeps (every instruction-set row
    through `asm_line`; every opcode × every `asm_cpu` of the build
    through `dasm_insn`), total py65 cycles ≤ baseline, and no single
@@ -182,7 +187,11 @@ Projected C64 effect (model, not measured): asm lookup 364 B →
   ([zp.md](modules/zp.md)).~~  (Done 2026-11-16.  Measured, release
   builds: PRG 20 790 → 20 579 / 21 232 → 21 058 / 21 688 → 21 573 B;
   opcode machinery 364 → 169 / 206 / 265 B; asm sweep cycles −3.5 /
-  −3.2 / −3.4 %, worst single case +0.5 %; golden behaviour identical.)
+  −3.2 / −3.4 %, worst single case +0.5 %; golden behaviour identical.
+  A review pass the same day removed the empty and duplicate profiles,
+  trimmed the row width, merged validate into `asm_opcode_lookup`,
+  wired `ASM_ZONE_G`, and fixed the sharing rule that would have put
+  the 4510's `DEW`/`INW` into zone D — figures under *Measured* above.)
 - [ ] A3b. *(follow-up, own CDD cycle)* Recompact ZP over the freed
   `$2C`: every later allocation moves down one byte and the user ZP
   becomes `$77–$7F` (9 bytes) — a userland-contract change
@@ -245,11 +254,22 @@ Projected C64 effect (model, not measured): asm lookup 364 B →
   instruction.  Also missing: `REL16` branches, `BSR`, `JSR (ind)` /
   `(abs,X)`, `RTS #`.  Belongs to the R7 debugger slice; it must use
   the prefix rule of [dasm.md § Prefix peel](modules/dasm.md#prefix-peel).
-- [ ] **bbbc64's shared-file contract.**  After A1 the shared
-  generators write per-CPU-set blocks, and bbbc64's golden copies of
-  cse's tables (pinned at cse 910d96d) no longer describe cse's
-  current output.  bbbc64 takes the new shared files in its own CDD
-  cycle; its `asm_tables.py` becomes a consumer of the shared model.
+- [ ] **bbbc64's shared-file contract.**  Since A1
+  `dev/mnemonic_tables.py` is cse's own (per-CPU-set blocks, ca65
+  only; the `--syntax acme` paths went with the old writers), and
+  bbbc64's golden copies of cse's tables (pinned at cse 910d96d) no
+  longer describe cse's output.  `instruction_set.py`, `hashes.py` and
+  `dasm_tables.py` are still identical in both repositories.  bbbc64
+  adopts the model in its own CDD cycle; its `asm_tables.py` holds the
+  same profile-row logic for ACME.
+- [ ] **Retire the hand-numbered profile scheme in
+  `instruction_set.py`.**  `OPERAND_PROFILES`' index order, `cmos_bit`,
+  `_CMOS_PAIRS`, `_BIT_OPERAND` and the `JMP`/`TRB`/`TSB`/`AHX` entries
+  of `_BASE_OPCODE_OVERRIDES` no longer drive any table: the generator
+  derives profiles, categories and bases from `instructions(view)`.
+  `OPCODES` already lists every mode per mnemonic, so `MNEMONICS`
+  could shrink to (key → category).  The file is shared with bbbc64 —
+  own CDD cycle, coordinated with the item above.
 
 ### Step-2 rulings (operator, 2026-11-16)
 

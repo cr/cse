@@ -12,7 +12,7 @@ Fixtures provided
 asm_syms        — asm_core bundle, -DCMOS_SUPPORT (65C02 production)
 asm_6510_syms   — asm_core bundle, no CMOS_SUPPORT (6510 production)
 asm_6502_syms   — asm_core bundle, -DUSE_MN6     (6502 production)
-dasm_bundle(c)  — dasm bundle per C64 build (c ∈ DASM_CONFIGS), PROD_DEFS[c]
+dasm_bundle(c)  — dasm bundle per C64 CPU set (c ∈ PROD_DEFS)
 mn6_syms        — mn6 hash test binary  (test_mn_classify.py)
 mn7_syms        — mn7 hash test binary  (test_mn_classify.py)
 mem_syms        — zp + mem bundle       (test_mem.py)
@@ -174,24 +174,14 @@ class SymbolTable:
 # The stub is minimal: BRK error handler + linker symbols for mem.s.
 # No per-module mocking — every import is satisfied by real code.
 
-# Three build configs mirror the three production builds (see
-# Makefile _*_DEFS):
+# One variant per C64 CPU set (PROD_DEFS below), each built with its
+# production `-D` set:
 #
-#   "cmos"  — -DCMOS_SUPPORT + mn7   (mirrors 65C02 production).
-#             Default for most asm_core tests.
-#   "6510"  — no -DCMOS_SUPPORT + mn7 (mirrors 6510 production).
-#             Used for asm_cpu gate tests: the 6510 build still uses
-#             mn7 (which recognizes CMOS mnemonics), but the CMOS
-#             reject gate inside asm_line.s is `.ifdef CMOS_SUPPORT`-
-#             wrapped — so only this bundle exposes regressions in the
-#             gate's compile-time path.
-#   "6502"  — -DUSE_MN6 + mn6         (mirrors 6502 production).
-#             mn6 only recognizes the 56 legal NMOS mnemonics; CMOS
-#             and illegals are rejected at the classifier tier before
-#             the gate is even reached.  Used to exercise any
-#             `.ifdef USE_MN6` code path that differs from the mn7
-#             configs.  The source list swaps mn7.s/mn7_tables.s for
-#             mn6.s/mn6_tables.s.
+#   "65c02" — CMOS_SUPPORT + mn7.  Default for most asm_core tests.
+#   "6510"  — mn7 without CMOS_SUPPORT: the classifier still recognises
+#             CMOS mnemonics, so only this variant exercises the CMOS
+#             reject gate's non-CMOS compile-time path.
+#   "6502"  — USE_MN6 + mn6: only the 56 legal NMOS mnemonics classify.
 
 # Common sources across all three asm_core bundle configs.
 _AC_COMMON_SOURCES = [
@@ -213,7 +203,7 @@ _AC_COMMON_SOURCES = [
 
 # Per-config additions: the classifier (mn7 or mn6) + its tables.
 _AC_CLASSIFIER_SOURCES = {
-    "cmos": [SRC / "mn7.s", SRC / "mn7_tables.s"],
+    "65c02": [SRC / "mn7.s", SRC / "mn7_tables.s"],
     "6510": [SRC / "mn7.s", SRC / "mn7_tables.s"],
     "6502": [SRC / "mn6.s", SRC / "mn6_tables.s"],
 }
@@ -223,79 +213,68 @@ def _ac_sources(config):
     return _AC_COMMON_SOURCES + _AC_CLASSIFIER_SOURCES[config]
 
 
-_AC_BIN = {
-    "cmos": BUILD / "asm_core_test.bin",
-    "6510": BUILD / "asm_core_6510_test.bin",
-    "6502": BUILD / "asm_core_6502_test.bin",
-}
-_AC_MAP = {
-    "cmos": BUILD / "asm_core_test.map",
-    "6510": BUILD / "asm_core_6510_test.map",
-    "6502": BUILD / "asm_core_6502_test.map",
-}
-_AC_LBL = {
-    "cmos": BUILD / "asm_core_test.lbl",
-    "6510": BUILD / "asm_core_6510_test.lbl",
-    "6502": BUILD / "asm_core_6502_test.lbl",
-}
 # Production `-D` sets per CPU set, mirroring the Makefile's
 # `_<cpu>_DEFS` minus TAB_WIDTH (build_system.md § Builds and CPU sets;
-# testing.md Principle 10).  Pinned against the Makefile by
+# testing.md Principle 10).  Keys are the generator's CPU-set names
+# (dev/mnemonic_tables.py CPU_SETS).  Pinned against the Makefile by
 # tests/unit/test_build_parity.py.
 PROD_DEFS = {
-    "6502": ["-DCPU_6502", "-DUSE_MN6", "-DDEFAULT_CPU=0", "-DCPU_CEIL=0"],
-    "6510": ["-DCPU_6510", "-DDEFAULT_CPU=0", "-DCPU_CEIL=1"],
-    "cmos": ["-DCPU_65C02", "-DCMOS_SUPPORT", "-DDEFAULT_CPU=2", "-DCPU_CEIL=2"],
+    "6502":  ["-DCPU_6502", "-DUSE_MN6", "-DDEFAULT_CPU=0", "-DCPU_CEIL=0"],
+    "6510":  ["-DCPU_6510", "-DDEFAULT_CPU=0", "-DCPU_CEIL=1"],
+    "65c02": ["-DCPU_65C02", "-DCMOS_SUPPORT", "-DDEFAULT_CPU=2", "-DCPU_CEIL=2"],
 }
 
-_AC_FLAGS = PROD_DEFS
+
+class Bundle:
+    """One py65 test binary: sources, `-D` flags, linker config.
+
+    ensure() rebuilds it when the binary is missing or older than a
+    source or the linker config, or when it was built with other flags
+    (recorded in a `.flags` stamp beside the binary — mtimes alone miss
+    a flag change)."""
+
+    def __init__(self, stem, sources, flags, *, tag, cfg=None, ca65=(), deps=()):
+        self.bin = BUILD / f"{stem}.bin"
+        self.map = BUILD / f"{stem}.map"
+        self.lbl = BUILD / f"{stem}.lbl"
+        self.sources, self.flags, self.tag = list(sources), list(flags), tag
+        self.cfg = cfg or DEV / "test.cfg"
+        self.ca65, self.deps = list(ca65), list(deps)
+
+    def _stale(self):
+        stamp = self.bin.with_suffix(".flags")
+        if not (self.bin.exists() and self.lbl.exists() and stamp.exists()):
+            return True
+        if stamp.read_text() != " ".join(self.flags):
+            return True
+        built = self.bin.stat().st_mtime
+        return any(f.stat().st_mtime > built
+                   for f in self.sources + self.deps + [self.cfg] if f.exists())
+
+    def ensure(self):
+        if not self._stale():
+            return self
+        BUILD.mkdir(exist_ok=True)
+        objs = []
+        for src in self.sources:
+            obj = BUILD / f"{src.stem}_{self.tag}.o"
+            subprocess.run(["ca65", "-g", "--cpu", "6502", *self.ca65, *self.flags,
+                            "-I", str(SRC), "-I", str(BUILD), str(src), "-o", str(obj)],
+                           check=True)
+            objs.append(str(obj))
+        subprocess.run(["ld65", "-C", str(self.cfg), *objs, "-o", str(self.bin),
+                        "-m", str(self.map), "-Ln", str(self.lbl)], check=True)
+        self.bin.with_suffix(".flags").write_text(" ".join(self.flags))
+        return self
 
 
-def _flags_stamp(binary):
-    return binary.with_suffix(".flags")
+def _variant_stem(base, config):
+    """The 65C02 variant keeps the historical un-suffixed file names."""
+    return f"{base}_test" if config == "65c02" else f"{base}_{config}_test"
 
 
-def _flags_changed(binary, flags):
-    """True when `binary` was built with a different `-D` set than
-    `flags` (mtime checks alone miss a flag change)."""
-    stamp = _flags_stamp(binary)
-    return not stamp.exists() or stamp.read_text() != " ".join(flags)
-
-
-def _write_flags_stamp(binary, flags):
-    _flags_stamp(binary).write_text(" ".join(flags))
-
-
-def _ac_needs_rebuild(config):
-    if not _AC_BIN[config].exists() or not _AC_LBL[config].exists():
-        return True
-    if _flags_changed(_AC_BIN[config], _AC_FLAGS[config]):
-        return True
-    bin_mtime = _AC_BIN[config].stat().st_mtime
-    return any(s.stat().st_mtime > bin_mtime
-               for s in _ac_sources(config) + [DEV / "test.cfg"])
-
-
-def _ac_build(config):
-    BUILD.mkdir(exist_ok=True)
-    obj_files = []
-    for src in _ac_sources(config):
-        obj = BUILD / f"{src.stem}_ac_{config}.o"
-        cmd = ["ca65", "-g", "--cpu", "6502",
-               *_AC_FLAGS[config],
-               "-I", str(BUILD),
-               str(src), "-o", str(obj)]
-        subprocess.run(cmd, check=True)
-        obj_files.append(str(obj))
-    subprocess.run(
-        ["ld65", "-C", str(DEV / "test.cfg"),
-         *obj_files,
-         "-o", str(_AC_BIN[config]),
-         "-m", str(_AC_MAP[config]),
-         "-Ln", str(_AC_LBL[config])],
-        check=True,
-    )
-    _write_flags_stamp(_AC_BIN[config], _AC_FLAGS[config])
+_AC = {c: Bundle(_variant_stem("asm_core", c), _ac_sources(c), PROD_DEFS[c], tag=f"ac_{c}")
+       for c in PROD_DEFS}
 
 
 class AsmCoreSymbols:
@@ -306,19 +285,18 @@ class AsmCoreSymbols:
     All symbols resolved from .lbl file (debug build).
 
     Parameter `config`:
-      "cmos" — bundle built with -DCMOS_SUPPORT (matches 65C02 prod
+      "65c02" — bundle built with -DCMOS_SUPPORT (matches 65C02 prod
                build config).  Default for all existing tests.
       "6510" — bundle built without -DCMOS_SUPPORT (matches 6510 prod
                build config).  Used by asm_cpu gate tests where the
                CMOS reject gate is ifdef-wrapped and thus config-sensitive.
     """
 
-    def __init__(self, config="cmos"):
+    def __init__(self, config="65c02"):
         self.config = config
-        if _ac_needs_rebuild(config):
-            _ac_build(config)
+        bundle = _AC[config].ensure()
 
-        s = SymbolTable(_AC_LBL[config])
+        s = SymbolTable(bundle.lbl)
 
         # addr_mode entry points
         self.mode_parse       = s["mode_parse"]
@@ -366,7 +344,6 @@ class AsmCoreSymbols:
         self.reg_p            = s["reg_p"]
 
         # opcode_lookup.s entry points (linked into asm_core)
-        self.asm_validate_mode = s["asm_validate_mode"]
         self.asm_opcode_lookup = s["asm_opcode_lookup"]
         self.asm_mode         = s["asm_mode"]
         self.asm_pidx         = s["asm_pidx"]
@@ -383,7 +360,7 @@ class AsmCoreSymbols:
         # emitted the ACC label-shadow warning.
         self._warn_witness    = s["_warn_witness"]
 
-        raw = _AC_BIN[config].read_bytes()
+        raw = bundle.bin.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]
 
@@ -395,7 +372,7 @@ class AsmCoreSymbols:
 
 @pytest.fixture(scope="session")
 def asm_syms():
-    """Session-scoped asm_core binary (config='cmos', -DCMOS_SUPPORT)."""
+    """Session-scoped asm_core binary, 65C02 build (-DCMOS_SUPPORT)."""
     return AsmCoreSymbols()
 
 
@@ -436,54 +413,19 @@ _MN_SOURCES = {
             SRC / "mn_classify.s"],
 }
 
-_MN_BIN = {v: BUILD / f"{v}_test.bin" for v in ('mn6', 'mn7')}
-_MN_MAP = {v: BUILD / f"{v}_test.map" for v in ('mn6', 'mn7')}
-_MN_LBL = {v: BUILD / f"{v}_test.lbl" for v in ('mn6', 'mn7')}
-
 # mn6 is the classifier of CPU set {6502}; mn7's bundle uses the 65C02
 # build's set (its C64 key set is the same in both mn7 builds).
-_MN_FLAGS = {'mn6': PROD_DEFS["6502"], 'mn7': PROD_DEFS["cmos"]}
-
-
-def _mn_needs_rebuild(variant):
-    bin_path = _MN_BIN[variant]
-    if not bin_path.exists() or not _MN_LBL[variant].exists():
-        return True
-    if _flags_changed(bin_path, _MN_FLAGS[variant]):
-        return True
-    bin_mtime = bin_path.stat().st_mtime
-    return any(s.stat().st_mtime > bin_mtime for s in _MN_SOURCES[variant])
-
-
-def _mn_build(variant):
-    BUILD.mkdir(exist_ok=True)
-    obj_files = []
-    for src in _MN_SOURCES[variant]:
-        obj = BUILD / (src.stem + f"_{variant}.o")
-        cmd = ["ca65", "-g", "--cpu", "6502", *_MN_FLAGS[variant],
-               "-I", str(BUILD),
-               str(src), "-o", str(obj)]
-        subprocess.run(cmd, check=True)
-        obj_files.append(str(obj))
-    subprocess.run(
-        ["ld65", "-C", str(DEV / "test.cfg"),
-         *obj_files,
-         "-o", str(_MN_BIN[variant]),
-         "-m", str(_MN_MAP[variant]),
-         "-Ln", str(_MN_LBL[variant])],
-        check=True,
-    )
-    _write_flags_stamp(_MN_BIN[variant], _MN_FLAGS[variant])
+_MN = {v: Bundle(f"{v}_test", _MN_SOURCES[v], PROD_DEFS[c], tag=v)
+       for v, c in (('mn6', '6502'), ('mn7', '65c02'))}
 
 
 class MnHashBinary:
     """Compiled mn6 or mn7 test binary with resolved symbol addresses."""
 
     def __init__(self, variant):
-        if _mn_needs_rebuild(variant):
-            _mn_build(variant)
+        bundle = _MN[variant].ensure()
 
-        s = SymbolTable(_MN_LBL[variant])
+        s = SymbolTable(bundle.lbl)
 
         self.variant  = variant
         self.mn_c1    = s['mn_c1']
@@ -499,7 +441,7 @@ class MnHashBinary:
         self.fp_table   = s[f'{variant}_fp']
         self.hash_t     = s[f'{variant}_hash_t']
 
-        raw = _MN_BIN[variant].read_bytes()
+        raw = bundle.bin.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]
 
@@ -531,10 +473,6 @@ def mn7_syms():
 #
 # Linked with asm_src_test.cfg (adds DATA segment for asm_src.s).
 
-_AS_BIN = BUILD / "asm_src_test.bin"
-_AS_MAP = BUILD / "asm_src_test.map"
-_AS_LBL = BUILD / "asm_src_test.lbl"
-_AS_CFG = DEV / "asm_src_test.cfg"
 
 _AS_SOURCES = [
     SRC / "zp.s",
@@ -557,37 +495,8 @@ _AS_SOURCES = [
 ]
 
 
-_AS_FLAGS = PROD_DEFS["cmos"]
-
-
-def _as_needs_rebuild():
-    if not _AS_BIN.exists() or not _AS_LBL.exists():
-        return True
-    if _flags_changed(_AS_BIN, _AS_FLAGS):
-        return True
-    bin_mtime = _AS_BIN.stat().st_mtime
-    return any(s.stat().st_mtime > bin_mtime for s in _AS_SOURCES + [_AS_CFG])
-
-
-def _as_build():
-    BUILD.mkdir(exist_ok=True)
-    obj_files = []
-    for src in _AS_SOURCES:
-        obj = BUILD / f"{src.stem}_as.o"
-        cmd = ["ca65", "-g", "--cpu", "6502", "-t", "c64", *_AS_FLAGS,
-               "-I", str(BUILD),
-               str(src), "-o", str(obj)]
-        subprocess.run(cmd, check=True)
-        obj_files.append(str(obj))
-    _write_flags_stamp(_AS_BIN, _AS_FLAGS)
-    subprocess.run(
-        ["ld65", "-C", str(_AS_CFG),
-         *obj_files,
-         "-o", str(_AS_BIN),
-         "-m", str(_AS_MAP),
-         "-Ln", str(_AS_LBL)],
-        check=True,
-    )
+_AS = Bundle("asm_src_test", _AS_SOURCES, PROD_DEFS["65c02"], tag="as",
+             cfg=DEV / "asm_src_test.cfg", ca65=["-t", "c64"])
 
 
 class AsmSrcSymbols:
@@ -598,10 +507,9 @@ class AsmSrcSymbols:
     """
 
     def __init__(self):
-        if _as_needs_rebuild():
-            _as_build()
+        bundle = _AS.ensure()
 
-        s = SymbolTable(_AS_LBL)
+        s = SymbolTable(bundle.lbl)
 
         # Stub entry points and BSS vars (previously required fragile
         # segment-offset computation from the map file)
@@ -625,7 +533,7 @@ class AsmSrcSymbols:
         self.min_pc     = s['_min_pc']
         self.max_pc     = s['_max_pc']
 
-        raw = _AS_BIN.read_bytes()
+        raw = bundle.bin.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]
 
@@ -645,16 +553,7 @@ def as_syms():
 # Links: dasm.s + dasm_tables.s + dasm_test_stub.s
 # The stub provides banking helpers; ZP comes from zp.s.
 # One binary per production CPU set (Principle 10), built with that
-# build's PROD_DEFS.  "cmos" keeps the historical dasm_test.* names.
-
-DASM_CONFIGS = ("6502", "6510", "cmos")
-
-def _dasm_stem(config):
-    return "dasm_test" if config == "cmos" else f"dasm_{config}_test"
-
-_DASM_BIN = {c: BUILD / f"{_dasm_stem(c)}.bin" for c in DASM_CONFIGS}
-_DASM_MAP = {c: BUILD / f"{_dasm_stem(c)}.map" for c in DASM_CONFIGS}
-_DASM_LBL = {c: BUILD / f"{_dasm_stem(c)}.lbl" for c in DASM_CONFIGS}
+# build's PROD_DEFS.
 
 _DASM_SOURCES = [
     SRC / "zp.s",
@@ -664,37 +563,9 @@ _DASM_SOURCES = [
     DEV / "dasm_test_stub.s",
 ]
 
-
-def _dasm_needs_rebuild(config):
-    if not _DASM_BIN[config].exists() or not _DASM_LBL[config].exists():
-        return True
-    if _flags_changed(_DASM_BIN[config], PROD_DEFS[config]):
-        return True
-    bin_mtime = _DASM_BIN[config].stat().st_mtime
-    extra = [SRC / "dasm_mne_idx.s", DEV / "test.cfg"]
-    return any(s.stat().st_mtime > bin_mtime
-               for s in _DASM_SOURCES + extra if s.exists())
-
-
-def _dasm_build(config):
-    BUILD.mkdir(exist_ok=True)
-    obj_files = []
-    for src in _DASM_SOURCES:
-        obj = BUILD / f"{src.stem}_dasm_{config}.o"
-        cmd = ["ca65", "-g", "--cpu", "6502", *PROD_DEFS[config],
-               "-I", str(SRC), "-I", str(BUILD),
-               str(src), "-o", str(obj)]
-        subprocess.run(cmd, check=True)
-        obj_files.append(str(obj))
-    subprocess.run(
-        ["ld65", "-C", str(DEV / "test.cfg"),
-         *obj_files,
-         "-o", str(_DASM_BIN[config]),
-         "-m", str(_DASM_MAP[config]),
-         "-Ln", str(_DASM_LBL[config])],
-        check=True,
-    )
-    _write_flags_stamp(_DASM_BIN[config], PROD_DEFS[config])
+_DASM = {c: Bundle(_variant_stem("dasm", c), _DASM_SOURCES, PROD_DEFS[c],
+                   tag=f"dasm_{c}", deps=[SRC / "dasm_mne_idx.s"])
+         for c in PROD_DEFS}
 
 
 class DasmSymbols:
@@ -703,18 +574,17 @@ class DasmSymbols:
     All symbols resolved from .lbl file (debug build).
     """
 
-    def __init__(self, config="cmos"):
+    def __init__(self, config="65c02"):
         self.config = config
-        if _dasm_needs_rebuild(config):
-            _dasm_build(config)
+        bundle = _DASM[config].ensure()
 
-        s = SymbolTable(_DASM_LBL[config])
+        s = SymbolTable(bundle.lbl)
 
         self.dasm_test_entry = s["dasm_test_entry"]
         self.asm_cpu         = s["asm_cpu"]
         self.dasm_buf        = s["dasm_buf"]
 
-        raw = _DASM_BIN[config].read_bytes()
+        raw = bundle.bin.read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]
 
@@ -734,8 +604,8 @@ def dasm_bundle(config):
 
 @pytest.fixture(scope="session")
 def dasm_syms():
-    """Session-scoped dasm test binary, 65C02 build (config 'cmos')."""
-    return dasm_bundle("cmos")
+    """Session-scoped dasm test binary, 65C02 build."""
+    return dasm_bundle("65c02")
 
 
 # ── mem test binary ──────────────────────────────────────────────────────────

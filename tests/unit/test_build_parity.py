@@ -18,8 +18,8 @@ from conftest import PROD_DEFS
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-# Makefile variable prefix for each bundle config.
-_MAKE_VAR = {"6502": "_6502_DEFS", "6510": "_6510_DEFS", "cmos": "_65c02_DEFS"}
+# The Makefile names each C64 build's -D set `_<cpu set>_DEFS`.
+_MAKE_VAR = {c: f"_{c}_DEFS" for c in ("6502", "6510", "65c02")}
 
 
 def _makefile_defs(var):
@@ -29,8 +29,8 @@ def _makefile_defs(var):
     return [d for d in m.group(1).split() if not d.startswith("-DTAB_WIDTH")]
 
 
-def test_prod_defs_cover_every_c64_build():
-    assert set(PROD_DEFS) >= set(_MAKE_VAR)
+def test_prod_defs_cover_exactly_the_c64_builds():
+    assert set(PROD_DEFS) == set(_MAKE_VAR)
 
 
 def test_prod_defs_match_makefile():

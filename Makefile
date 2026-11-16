@@ -5,9 +5,8 @@
 #   all          Build release (default, same as 'release')
 #   release      Build all three CPU targets, optimized + exomizer + D64
 #   debug        Build all three CPU targets with -g (full symbols)
-#   tables       Regenerate src/mn*_tables.s and src/mn_{modes,config}.s
+#   tables       Regenerate the generated tables in src/ (dev/mnemonic_tables.py)
 #   test         Run all pytest tests (requires both debug + release)
-#   test-bins    Assemble the three py65 test binaries
 #   disk         Create D64 disk image (uses CPU= for PRG selection)
 #   run          Build disk image and launch in VICE
 #   size         Exhaustive size breakdown of selected PRG
@@ -139,7 +138,6 @@ else
 endif
 
 # ── Test-binary flags (bare 6502, no C64 platform defs) ─────────────────
-T65 = $(CA65) --cpu 6502
 
 # ── Linker config ────────────────────────────────────────────────────────
 TRIAL_CFG = $(SRC)/c64_trial.cfg
@@ -306,55 +304,6 @@ $(TABLES_STAMP): $(TABLE_GEN) $(TABLE_DEPS) | $(ROOT)build/
 $(TABLE_OUTS): $(TABLES_STAMP)
 
 # -----------------------------------------------------------------------
-# test-bins — assemble the three py65 unit-test binaries
-# -----------------------------------------------------------------------
-
-# (au_mode test binary removed — now part of asm_core bundle built by conftest.py)
-
-# mn6 --------------------------------------------------------------------
-MN6_BIN = $(ROOT)build/mn6_test.bin
-MN6_MAP = $(ROOT)build/mn6_test.map
-MN6_LST = $(ROOT)build/mn6_classify.lst
-MN6_O1  = $(ROOT)build/mn_vars_mn6.o
-MN6_O2  = $(ROOT)build/mn6_mn6.o
-MN6_O3  = $(ROOT)build/mn6_tables_mn6.o
-
-$(MN6_O1): $(SRC)/mn_vars.s | $(ROOT)build/
-	$(T65) $< -o $@
-
-$(MN6_O2): $(SRC)/mn6.s | $(ROOT)build/
-	$(T65) --listing $(MN6_LST) $< -o $@
-
-$(MN6_O3): $(SRC)/mn6_tables.s | $(ROOT)build/
-	$(T65) $< -o $@
-
-$(MN6_BIN): $(MN6_O1) $(MN6_O2) $(MN6_O3) $(DEV)/test.cfg
-	$(LD65) -C $(DEV)/test.cfg $(MN6_O1) $(MN6_O2) $(MN6_O3) -o $@ -m $(MN6_MAP)
-
-# mn7 --------------------------------------------------------------------
-MN7_BIN = $(ROOT)build/mn7_test.bin
-MN7_MAP = $(ROOT)build/mn7_test.map
-MN7_LST = $(ROOT)build/mn7_classify.lst
-MN7_O1  = $(ROOT)build/mn_vars_mn7.o
-MN7_O2  = $(ROOT)build/mn7_mn7.o
-MN7_O3  = $(ROOT)build/mn7_tables_mn7.o
-
-$(MN7_O1): $(SRC)/mn_vars.s | $(ROOT)build/
-	$(T65) $< -o $@
-
-$(MN7_O2): $(SRC)/mn7.s | $(ROOT)build/
-	$(T65) --listing $(MN7_LST) $< -o $@
-
-$(MN7_O3): $(SRC)/mn7_tables.s | $(ROOT)build/
-	$(T65) $< -o $@
-
-$(MN7_BIN): $(MN7_O1) $(MN7_O2) $(MN7_O3) $(DEV)/test.cfg
-	$(LD65) -C $(DEV)/test.cfg $(MN7_O1) $(MN7_O2) $(MN7_O3) -o $@ -m $(MN7_MAP)
-
-.PHONY: test-bins
-test-bins: $(MN6_BIN) $(MN7_BIN)
-
-# -----------------------------------------------------------------------
 # run — build release, then launch in VICE
 # -----------------------------------------------------------------------
 .PHONY: run
@@ -449,7 +398,6 @@ help:
 	@printf "%-15s %s\n" "run"          "Build release + launch in VICE (CPU=, ROMSET=cbm|mega)"
 	@printf "%-15s %s\n" "tables"       "Regenerate src/mn*_tables.s via mnemonic_tables.py"
 	@printf "%-15s %s\n" "test"         "Run all pytest tests (builds both debug + release)"
-	@printf "%-15s %s\n" "test-bins"    "Assemble mn6 / mn7 test binaries"
 	@printf "%-15s %s\n" "size"         "Size breakdown of selected PRG (CPU=)"
 	@printf "%-15s %s\n" "clean"        "Remove the build/ directory"
 	@printf "%-15s %s\n" "clean-tables" "Remove generated table sources in src/"

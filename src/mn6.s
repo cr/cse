@@ -65,7 +65,7 @@
 ;   mn6_base_op  64 bytes  (mn6_tables.s)
 ;   mn6_profile  64 bytes  (mn6_tables.s)
 ;   mn6_h_tmp     1 byte   (ZEROPAGE)
-;   Total: 54 + 192 + 1 = 247 bytes
+;   Total: mn6_tables.s 54 + 192 = 246 bytes, + 1 ZP byte
 ; ============================================================
 
         .export mn6_classify
@@ -73,7 +73,7 @@
         .import mn6_fp, mn6_hash_t, mn6_fp_c2
 
 ; ------------------------------------------------------------
-; T6 lookup table  (generated constant; see dev/mnemonic_tables.py)
+; mn6_classify
 ; ------------------------------------------------------------
 .segment "CODE"
 

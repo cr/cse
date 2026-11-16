@@ -203,17 +203,36 @@ def test_mn7_full_sweep(mn7_syms):
 # ─── Table-value coverage ────────────────────────────────────────────────────
 #
 # The sweep above proves the hash and fingerprint tables drive the
-# correct recognise/reject decision, but it does NOT verify what the
-# caller reads from mn_base_op[slot] / mn_profile[slot] after a hit.
-# The tests below close that gap by cross-checking every slot against
-# the Python authority in dev/mnemonic_tables.py.
+# correct recognise/reject decision.  What the caller reads from
+# mn_base_op[slot] / mn_profile[slot] after a hit is checked here against
+# the documented rules, derived from dev/instruction_set.py alone — not
+# against the generator that wrote the tables (mn_classify.md § Packed
+# profile byte; opcode_lookup.md § Design, *Profile*):
+#
+#   base  — the key's own zero-page opcode, else its absolute opcode,
+#           else its lowest mode's, taken from the key's home CPU
+#   cat   — 0 legal NMOS, 1 legal with a 65C02 extension, 2 illegal,
+#           3 65C02-only
+#
+# The pidx bits are covered end to end: every (mnemonic, mode) must
+# assemble to the instruction set's opcode (test_asm_line, and per CPU
+# set test_golden_asm_dasm).
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent / "dev"))
-import mnemonic_tables as _MT  # noqa: E402 — import after sys.path tweak above
+import instruction_set as I  # noqa: E402 — import after sys.path tweak above
 
-# Each classifier bundle's CPU set (conftest._MN_FLAGS): mn6 → {6502},
-# mn7 → the 65C02 build's set.
-_BUNDLE_SET = {'mn6': '6502', 'mn7': '65c02'}
+_HOME = {'legal': '6502', 'illegal': '6510', 'cmos': '65c02'}
+
+
+def _expected(mne):
+    """(base opcode, cat) of a key in the bundle's CPU set."""
+    _profile, cmos_bit, category = I.MNEMONICS[mne]
+    cat = {'legal': 1 if cmos_bit else 0, 'illegal': 2, 'cmos': 3}[category]
+    ops = {r.mode: r.opcode for r in I.instructions(_HOME[category])
+           if r.key == mne and r.suffix in ('', '0')}
+    for mode in ('ZP', 'ABS', *I.ALL_MODES):
+        if mode in ops:
+            return ops[mode], cat
 
 
 def _run_once(cpu, mem, syms, c1, c2, c3, entry_addr):
@@ -234,45 +253,28 @@ def _run_once(cpu, mem, syms, c1, c2, c3, entry_addr):
 
 
 def _table_check(cls, syms_fixture):
-    """For every recognised mnemonic, assert mn_base_op[slot] and
-    mn_profile[slot] match the Python authority."""
     cpu = MPU()
     mem = cpu.memory
     syms_fixture.load_into(mem)
-
-    slot_mne = cls.build_slot_map()
-    model = _MT.build_asm_model(_BUNDLE_SET[cls.__name__])
     errors = []
-    for slot, mne in slot_mne.items():
-        # Pull the slot's table entries directly from RAM (the binary
-        # loaded them into the RODATA block at load time).
+    for slot, mne in cls.build_slot_map().items():
+        want_base, want_cat = _expected(mne)
         got_base = mem[syms_fixture.mn_base_op + slot]
-        got_prof = mem[syms_fixture.mn_profile + slot]
-
-        want_base = model.key_base[mne]
-        want_prof = model.key_prof[mne]
-        assert want_prof >> 6 == _MT._compute_cat(mne), mne
-
-        if got_base != want_base:
-            errors.append(f"{mne} slot {slot}: base_op got ${got_base:02X}, "
-                          f"want ${want_base:02X}")
-        if got_prof != want_prof:
-            errors.append(f"{mne} slot {slot}: profile got ${got_prof:02X}, "
-                          f"want ${want_prof:02X}")
-
+        got_cat = mem[syms_fixture.mn_profile + slot] >> 6
+        if (got_base, got_cat) != (want_base, want_cat):
+            errors.append(f"{mne} slot {slot}: base ${got_base:02X} cat {got_cat}, "
+                          f"want ${want_base:02X} cat {want_cat}")
     assert not errors, \
         f"{len(errors)} table mismatches:\n" + "\n".join(errors[:20])
 
 
 def test_mn7_table_values(mn7_syms):
-    """Every recognised mn7 mnemonic maps to the correct (base_op, profile)
-    at its hash slot."""
+    """Every mn7 key's base opcode and category at its hash slot (65C02 set)."""
     _table_check(mn7, mn7_syms)
 
 
 def test_mn6_table_values(mn6_syms):
-    """Every recognised mn6 mnemonic maps to the correct (base_op, profile)
-    at its hash slot."""
+    """Every mn6 key's base opcode and category at its hash slot."""
     _table_check(mn6, mn6_syms)
 
 

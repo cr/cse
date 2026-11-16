@@ -1,16 +1,11 @@
 ; opcode_lookup.s — (profile, mode) → opcode byte for the line assembler
 ; Owner: doc/modules/opcode_lookup.md
 ;
-; Two entry points:
-;
-;   asm_validate_mode
-;       Check that asm_mode is legal for the effective profile asm_pidx.
-;       Returns C=0 if valid, C=1 if invalid.  Does not call asm_error.
-;
 ;   asm_opcode_lookup
-;       opcode = asm_base ^ asm_delta[asm_row[asm_pidx] + asm_mode]
-;       Precondition: asm_validate_mode accepted (asm_pidx, asm_mode).
-;       No error exit — every accepted pair has a delta.
+;       Check asm_mode against the effective profile asm_pidx and compute
+;       the opcode.
+;       C=0: A = asm_base ^ asm_delta[asm_row[asm_pidx] + asm_mode]
+;       C=1: the profile does not accept the mode (A undefined)
 ;
 ; Every encoding fact lives in the generated tables (mn_modes.s,
 ; mn_asm_tables.s), one block per CPU set; this file holds none.
@@ -23,7 +18,7 @@
 
         .setcpu "6502"
 
-        .export asm_validate_mode, asm_opcode_lookup
+        .export asm_opcode_lookup
 
         .importzp asm_pidx, asm_base, asm_mode
         .import   mn_modes_lo, mn_modes_hi
@@ -38,11 +33,9 @@ _bit_tab:
 
 .segment "CODE"
 
-; ── asm_validate_mode ────────────────────────────────────────────────────────
-; Check asm_mode against the mask plane of asm_pidx.
-; Returns: C=0 valid, C=1 invalid.
+; ── asm_opcode_lookup ────────────────────────────────────────────────────────
 ; Clobbers: A, X, Y
-asm_validate_mode:
+asm_opcode_lookup:
         lda asm_mode
         and #$07                ; bit position within the plane
         tax
@@ -56,20 +49,11 @@ asm_validate_mode:
         sec
         rts
 @hi:    and mn_modes_hi,x       ; modes 8–15: hi plane
-        bne @ok
-        rts                     ; C=1 preserved from bcs @hi (AND doesn't affect C)
-@ok:    clc
-        rts
-
-; ── asm_opcode_lookup ────────────────────────────────────────────────────────
-; A = asm_base ^ asm_delta[asm_row[asm_pidx] + asm_mode]
-; Clobbers: A, X
-asm_opcode_lookup:
-        ldx asm_pidx
-        lda asm_row,x           ; delta row's byte offset (row × ASM_N_MODES)
+        beq @done               ; rejected: C=1 from the bcs above
+@ok:    tya                     ; asm_mode
         clc
-        adc asm_mode
+        adc asm_row,x           ; + the delta row's byte offset (< 256: C=0)
         tax
         lda asm_delta,x
         eor asm_base
-        rts
+@done:  rts

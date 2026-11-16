@@ -16,7 +16,7 @@
 | [`tests/c64emu.py`](../tests/c64emu.py) | implementation — C64 emulator class (C64Emu) |
 | [`tests/asm_dasm_runner.py`](../tests/asm_dasm_runner.py) | implementation — exhaustive asm_line / dasm_insn sweeps on py65 (output + cycles) |
 | [`dev/capture_golden.py`](../dev/capture_golden.py) | implementation — records the asm/dasm golden files from a known-good tree |
-| [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<config>.json`, one per C64 bundle config, by `dev/capture_golden.py`; back-link-exempt (JSON has no comment syntax) |
+| [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<cpu set>.json`, one per C64 CPU set, by `dev/capture_golden.py`; back-link-exempt (JSON has no comment syntax) |
 | [`tests/unit/test_golden_asm_dasm.py`](../tests/unit/test_golden_asm_dasm.py) | test contract — behaviour and speed against the golden files (TODO § M65, gates 2–3) |
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — C64 release PRG sizes within budget (TODO § M65, gate 1) |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
@@ -346,10 +346,25 @@ only its own block.  The *format* of a table is the same in every
 block; its *content and size* are the CPU set's — a C64 block never
 carries 4510 or 45GS02 entries.
 
-The four generator files (`instruction_set.py`, `hashes.py`,
-`mnemonic_tables.py`, `dasm_tables.py`) are shared with bbbc64 and
-kept identical in both repositories; `--syntax ca65` (the default)
-writes cse's blocks, `--syntax acme --out` bbbc64's.
+`instruction_set.py`, `hashes.py` and `dasm_tables.py` are shared
+with bbbc64 and identical in both repositories.  `mnemonic_tables.py`
+is cse's own since the per-CPU-set tables: it writes ca65 only, and
+bbbc64 adopts its model in its own cycle
+([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1)).
+
+### Golden files
+
+`tests/fixtures/golden/asm_dasm_<cpu set>.json` record, per C64 CPU
+set, what every instruction assembles to, how every opcode lists
+under every `asm_cpu`, and the py65 cycles of each case
+(`dev/capture_golden.py`).  `test_golden_asm_dasm.py` holds the
+current source to them: identical output, total cycles no higher, no
+case more than 10 % slower.  They are re-recorded only by a commit
+that deliberately changes what a C64 build assembles or lists, or
+what it costs — never to make a refactor pass; that commit states the
+reason and the measured cycle change.  The size gate
+(`test_size_budget.py`) is a ratchet in the same spirit: a commit
+that shrinks a C64 build lowers its budget to the new size.
 
 Run with `make tables` or directly with `python3 dev/mnemonic_tables.py`.
 Generated files carry a "do not edit" comment.  Their owning docs are

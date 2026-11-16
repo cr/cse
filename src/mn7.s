@@ -56,7 +56,7 @@
 ;   mn7_base_op 128 bytes  (mn7_tables.s)
 ;   mn7_profile 128 bytes  (mn7_tables.s)
 ;   mn7_h_tmp    1 byte   (ZEROPAGE)
-;   Total: 27 + 384 + 1 = 412 bytes
+;   Total: mn7_tables.s 27 + 384 = 411 bytes, + 1 ZP byte
 ; ============================================================
 
         .export mn7_classify
@@ -66,7 +66,7 @@
         .importzp mn7_h_tmp
 
 ; ------------------------------------------------------------
-; T7 lookup table  (generated constant; see dev/mnemonic_tables.py)
+; mn7_classify
 ; ------------------------------------------------------------
 .segment "CODE"
 

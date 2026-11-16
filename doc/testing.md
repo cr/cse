@@ -951,11 +951,14 @@ get their own small binary.
 
 **Variants (Principle 10).**  Each bundle ships one variant per CPU
 set its modules are built for: `asm_core` and `dasm` — `6502`,
-`6510`, `cmos`, `m65`; `mn6` — `6502`; `mn7` — `cmos` (C64 keys),
-`m65`; `asm_src` and `symtab` — `cmos`, `m65` (the `m65` variant
+`6510`, `65c02`, `m65`; `mn6` — `6502`; `mn7` — `65c02` (C64 keys),
+`m65`; `asm_src` and `symtab` — `65c02`, `m65` (the `m65` variant
 carries the pass stamp: `sym_stamp`, `sym_fwd`, `expr_fwd`).  Each
-variant uses the production `-D` set of its build
-([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
+variant is named after its CPU set (the generator's `CPU_SETS`) and
+uses the production `-D` set of its build (`conftest.PROD_DEFS`;
+[build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
+One `conftest.Bundle` builds every variant and rebuilds it when a
+source, the linker config or the `-D` set changed.
 | `log` | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |
 
 The `asm_core` bundle includes the `asm_err` leaf module for

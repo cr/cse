@@ -7,7 +7,7 @@ Coverage of the documented contract
 2 exported items:
 
   dasm_insn        — test_dasm (256 opcodes × every asm_cpu of every
-                      C64 build: 6502 ×1, 6510 ×2, cmos ×3 = 1536
+                      C64 build: 6502 ×1, 6510 ×2, 65c02 ×3 = 1536
                       cases) against the oracle built from
                       instruction_set.instructions(variant);
                       test_dasm_boundary_operands (operand edge cases);
@@ -24,35 +24,21 @@ CPU modes:
   2 = 65C02   (legal + CMOS extensions)
 
 Bundles: dasm + dasm_tables + dasm_test_stub, one per C64 build
-(`dasm_bundle(config)`, config ∈ 6502 / 6510 / cmos, production -D
-sets); the single-variant tests below use `dasm_syms` (cmos).
+(`dasm_bundle(config)`, config ∈ 6502 / 6510 / 65c02, production -D
+sets); the single-variant tests below use `dasm_syms` (65c02).
 """
 
-import sys
-import pathlib
 import pytest
 from py65.devices.mpu6502 import MPU
 
-sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent / "dev"))
-import instruction_set as I
+import asm_dasm_runner as R
+from asm_dasm_runner import run_dasm
+from conftest import dasm_bundle
 
-from conftest import DASM_CONFIGS, dasm_bundle
+I = R.I
 
-# ── CPU modes (asm_cpu, build_system.md § Builds and CPU sets) ───
-CPU_6502  = 0   # legal only
-CPU_6510  = 1   # legal + illegal
-CPU_65C02 = 2   # legal + CMOS
-
-# asm_cpu value → instruction-set variant of that CPU's view.
-CPU_VARIANT = {CPU_6502: '6502', CPU_6510: '6510', CPU_65C02: '65c02'}
-
-# Each dasm build config → the asm_cpu values of its CPU set.
-CONFIG_CPUS = {
-    '6502': (CPU_6502,),
-    '6510': (CPU_6502, CPU_6510),
-    'cmos': (CPU_6502, CPU_6510, CPU_65C02),
-}
-assert set(CONFIG_CPUS) == set(DASM_CONFIGS)
+# asm_cpu values (build_system.md § Builds and CPU sets)
+CPU_6502, CPU_6510, CPU_65C02 = (R.MT.ASM_CPU[v] for v in ('6502', '6510', '65c02'))
 
 # Instruction length per mode = opcode byte + operand bytes.
 MODE_LEN = {m: 1 + n for m, n in I.MODE_OPERAND_BYTES.items()}
@@ -99,7 +85,7 @@ def build_cpu_maps():
     row whose key ranks last in the listing-name order."""
     rank = _listing_rank()
     maps = {}
-    for cpu, variant in CPU_VARIANT.items():
+    for cpu, variant in R.CPU_VIEW.items():
         best = {}
         for r in I.instructions(variant):
             if r.prefix:
@@ -112,9 +98,8 @@ def build_cpu_maps():
 
 CPU_MAPS = build_cpu_maps()
 
-INSN_ADDR = 0x0B00  # Must be above CODE+RODATA+BSS (ends ~$095E)
-TEST_OPERANDS = [0x42, 0x34]  # arbitrary operand bytes
-RETURN_ADDR = 0x0F00
+INSN_ADDR = R.DASM_INSN_ADDR
+TEST_OPERANDS = list(R.DASM_OPERANDS)
 
 
 def expected_string(cpu, opc, operands=TEST_OPERANDS):
@@ -133,43 +118,12 @@ def expected_length(cpu, opc):
     return MODE_LEN[CPU_MAPS[cpu][opc][1]]
 
 
-def run_dasm(syms, cpu, insn_bytes):
-    """Disassemble `insn_bytes` at INSN_ADDR with asm_cpu=`cpu`.
-    Returns (text, length, cycles)."""
-    mpu = MPU()
-    mem = bytearray(0x10000)
-    syms.load_into(mem)
-    for n, b in enumerate(insn_bytes):
-        mem[INSN_ADDR + n] = b
-    mem[syms.asm_cpu] = cpu
-    mem[RETURN_ADDR] = 0x00  # BRK
-    mpu.memory = mem
-    mpu.sp = 0xFF
-    mpu.sp -= 1; mem[0x01FF] = (RETURN_ADDR - 1) >> 8
-    mpu.sp -= 1; mem[0x01FE] = (RETURN_ADDR - 1) & 0xFF
-    mpu.pc = syms.dasm_test_entry
-    start = mpu.processorCycles
-    for _ in range(10000):
-        if mpu.pc == RETURN_ADDR:
-            break
-        mpu.step()
-    else:
-        raise TimeoutError(f"dasm did not return (PC=${mpu.pc:04X})")
-    text = ''
-    for n in range(24):
-        ch = mem[syms.dasm_buf + n]
-        if ch == 0:
-            break
-        text += chr(ch)
-    return text, mpu.a, mpu.processorCycles - start
-
-
 # ── Parametrize: every opcode × every CPU of every build ─────────
 def gen_cases():
     cases = []
-    for config, cpus in CONFIG_CPUS.items():
+    for config, cpus in R.CONFIG_CPUS.items():
         for cpu in cpus:
-            tag = CPU_VARIANT[cpu].upper()
+            tag = R.CPU_VIEW[cpu].upper()
             for opc in range(256):
                 cases.append(pytest.param(config, cpu, opc,
                                           id=f'{config}-{tag}-${opc:02X}'))
@@ -233,38 +187,9 @@ for operands, tag in BOUNDARY_OPERANDS:
 @pytest.mark.parametrize("opc,operands,exp", _BOUNDARY_CASES)
 def test_dasm_boundary_operands(dasm_syms, opc, operands, exp):
     """Disassemble with boundary operand values ($00, $FF, $80)."""
-    mpu = MPU()
-    mem = bytearray(0x10000)
-    dasm_syms.load_into(mem)
-
-    mem[INSN_ADDR]     = opc
-    mem[INSN_ADDR + 1] = operands[0]
-    mem[INSN_ADDR + 2] = operands[1]
-    mem[dasm_syms.asm_cpu] = CPU_6510
-
-    RETURN_ADDR = 0x0F00
-    mem[RETURN_ADDR] = 0x00
-    mpu.memory = mem
-    mpu.sp = 0xFF
-    mpu.sp -= 1; mem[0x01FF] = (RETURN_ADDR - 1) >> 8
-    mpu.sp -= 1; mem[0x01FE] = (RETURN_ADDR - 1) & 0xFF
-
-    mpu.pc = dasm_syms.dasm_test_entry
-    for _ in range(10000):
-        if mpu.pc == RETURN_ADDR: break
-        mpu.step()
-    else:
-        pytest.fail(f"Timeout ${opc:02X}")
-
-    buf = dasm_syms.dasm_buf
-    result = ''
-    for i in range(24):
-        ch = mem[buf + i]
-        if ch == 0: break
-        result += chr(ch)
-
-    assert result.upper().rstrip() == exp.upper(), \
-        f'boundary ${opc:02X} ops={operands}: got {result!r}, expected {exp!r}'
+    text, _length, _ = run_dasm(dasm_syms, CPU_6510, [opc, *operands])
+    assert text.upper().rstrip() == exp.upper(), \
+        f'boundary ${opc:02X} ops={operands}: got {text!r}, expected {exp!r}'
 
 
 # ── dasm_insn bank-state contract ───────────────────────────────────────────

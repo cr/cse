@@ -60,10 +60,9 @@ from py65.devices.mpu6502 import MPU
 # Add dev/ to path so we can import instruction_set directly
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent / "dev"))
 
-from instruction_set import (
-    MNEMONICS, OPCODES, MODE_EXAMPLES,
-    ALL_MODES, mne_modes,
-)
+from instruction_set import MNEMONICS, OPCODES
+
+import asm_dasm_runner as R
 
 # ── PETSCII encoder ──────────────────────────────────────────────────────────
 
@@ -80,15 +79,10 @@ def _sc(s: str) -> bytes:
     return bytes(out)
 
 
-def _has_lowercase_letter(s: str) -> bool:
-    """Return True if the string contains any ASCII lowercase letter a-z."""
-    return any('a' <= c <= 'z' for c in s)
-
-
 # ── Test vector generation ─────────────────────────────────────────────────────
-_TEST_PC    = 0x0000    # PC used for REL/ZPREL offset tests
-_OUT_BUF    = 0x4000    # output buffer address in simulated RAM
-_IN_BUF     = 0x3000    # input string buffer
+_TEST_PC    = R.ASM_PC       # PC used for REL/ZPREL offset tests
+_OUT_BUF    = R.ASM_OUT_BUF  # output buffer address in simulated RAM
+_IN_BUF     = R.ASM_IN_BUF   # input string buffer
 _MAX_STEPS  = 50_000    # safety limit for the emulated CPU
 
 # Region layout from dev/test.cfg
@@ -99,28 +93,19 @@ _ZP_SIZE    = 0x0100
 
 def _build_cases():
     cases = []
-    for mne, (profile, cmos_bit, category) in MNEMONICS.items():
-        modes = mne_modes(profile, cmos_bit)
+    for mne, mode, operand_src, operand_bytes in R.examples():
+        opcode = OPCODES[mne].get(mode)
+        if opcode is None:
+            continue                # Zone D/E: digit-encoded; skip
         # asm_cpu that ACCEPTS this mnemonic's category (see the
         # asm_cpu × category matrix in doc/modules/asm_line.md):
         #   illegal → asm_cpu=1 (6510 only)
         #   legal + cmos → asm_cpu=2 (65C02; also legal on 0/1 but we
         #                             pick 2 so cat=01 modes get the
         #                             CMOS upgrade)
-        asm_cpu = 1 if category == 'illegal' else 2
-        for mode in sorted(modes, key=lambda m: list(ALL_MODES).index(m)):
-            opcode = OPCODES[mne].get(mode)
-            if opcode is None:
-                continue            # Zone D/E: digit-encoded; skip
-            examples = MODE_EXAMPLES.get(mode, [])
-            for operand_src, operand_bytes in examples:
-                source = f"{mne} {operand_src}".strip()
-                # Skip variants with lowercase operand letters (x, y, a)
-                # that mode_parse does not accept.
-                if _has_lowercase_letter(operand_src):
-                    continue
-                expected = bytes([opcode] + operand_bytes)
-                cases.append((source, expected, asm_cpu))
+        asm_cpu = 1 if MNEMONICS[mne][2] == 'illegal' else 2
+        source = f"{mne} {operand_src}".strip()
+        cases.append((source, bytes([opcode] + operand_bytes), asm_cpu))
     return cases
 
 
@@ -135,35 +120,10 @@ def _run(asm_syms, source: str, asm_cpu: int = 2):
 
     Raises AssertionError if asm_error is reached, TimeoutError on runaway.
     """
-    from conftest import make_cpu, push_rts_sentinel, step_until_pc
-
-    cpu, mem = make_cpu(asm_syms)
-
-    # PETSCII source → input buffer; point asm_ptr at it
-    for i, b in enumerate(_sc(source)):
-        mem[_IN_BUF + i] = b
-    mem[asm_syms.asm_ptr]     = _IN_BUF & 0xFF
-    mem[asm_syms.asm_ptr + 1] = (_IN_BUF >> 8) & 0xFF
-
-    mem[asm_syms.asm_pc]      = _TEST_PC & 0xFF
-    mem[asm_syms.asm_pc + 1]  = (_TEST_PC >> 8) & 0xFF
-    mem[asm_syms.asm_out]     = _OUT_BUF & 0xFF
-    mem[asm_syms.asm_out + 1] = (_OUT_BUF >> 8) & 0xFF
-    mem[asm_syms.asm_cpu]     = asm_cpu
-
-    sentinel = push_rts_sentinel(cpu, sentinel=0xFFFF)
-    # asm_line's error path does `ldx _asm_saved_sp / txs / rts`,
-    # so pre-seed _asm_saved_sp to match for symmetric success/error return.
-    mem[asm_syms._asm_saved_sp] = cpu.sp
-
-    cpu.pc = asm_syms._asm_line_core
-    cpu.y  = 0
-    step_until_pc(cpu, sentinel, max_steps=_MAX_STEPS, what=repr(source))
-
-    n = mem[asm_syms.asm_len]
-    if n == 0:
+    got, _err, _cycles = R.run_asm(asm_syms, source, asm_cpu)
+    if got is None:
         raise AssertionError(f"asm_error reached while assembling {source!r}")
-    return bytes(mem[_OUT_BUF : _OUT_BUF + n])
+    return got
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
