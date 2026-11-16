@@ -2,6 +2,8 @@
 dev/hashes.py
 
 Perfect-hash specifications for the CSE assembler mnemonic classifiers.
+Shared unchanged with bbbc64 (doc/asm.md § Instruction set); file references
+below are CSE's.
 
 Two assembler variants derived from a common base:
 

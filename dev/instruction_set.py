@@ -1,12 +1,15 @@
 """
-dev/instruction_set.py — AUTHORITATIVE 6502/65C02 instruction set definition.
+dev/instruction_set.py — AUTHORITATIVE 6502/6510/65C02/4510/45GS02 instruction set definition.
 
 This file is the single source of truth for opcodes, mnemonics, operand
-profiles, and addressing modes across the entire CSE project.  Table
-generators (mnemonic_tables.py, dasm_tables.py) read from here.  Tests
-validate against here.  Do not duplicate this data elsewhere.
+profiles, and addressing modes.  Table generators (mnemonic_tables.py,
+dasm_tables.py) read from here.  Tests validate against here.  Do not
+duplicate this data elsewhere.
 
-See doc/README.md § Single source of truth.
+Shared, unchanged, by CSE and bbbc64.  Contract: CSE doc/README.md § Single
+source of truth; bbbc64 doc/asm.md § Instruction set.  The 4510/45GS02 layer
+at the end of this file is additive: it leaves every CSE structure above it,
+and so every CSE generated table, as it was.
 
 Each entry in MNEMONICS is a tuple:
     'MNE': (profile, cmos_bit, category)
@@ -98,9 +101,15 @@ REL   = 'REL'   # Relative              [branches]
 ZPI   = 'ZPI'   # (Zero Page)           (nn)     [65C02 only]
 AIX   = 'AIX'   # (Absolute, X)         (nnnn,X) [65C02 JMP only]
 ZPREL = 'ZPREL' # Zero Page + Relative  nn,rr    [65C02 BBR/BBS only]
+# Appended for the 4510 — the catalogue is append-only, so no index above moves.
+IMM16 = 'IMM16' # Immediate word        #nnnn    [4510 PHW only]
+REL16 = 'REL16' # Relative word         [4510 branches, BSR]
+ISPY  = 'ISPY'  # (Stack relative), Y   (nn,SP),Y [4510 LDA/STA only]
+ZPIZ  = 'ZPIZ'  # (Zero Page),Z         (nn),Z   [4510/45GS02: the zero-page-indirect row where the CPU adds Z]
 
 ALL_MODES = (IMP, ACC, IMM, ZP, ZPX, ZPY, ABS, ABX, ABY,
-             IND, INX, INY, REL, ZPI, AIX, ZPREL)
+             IND, INX, INY, REL, ZPI, AIX, ZPREL,
+             IMM16, REL16, ISPY, ZPIZ)
 
 # Operand bytes emitted after the opcode, indexed by mode.
 MODE_OPERAND_BYTES = {
@@ -120,6 +129,10 @@ MODE_OPERAND_BYTES = {
     ZPI:   1,   # zero-page address  (65C02)
     AIX:   2,   # absolute address, little-endian  (65C02 JMP only)
     ZPREL: 2,   # zero-page address + PC-relative offset  (65C02)
+    IMM16: 2,   # immediate word, little-endian  (4510)
+    REL16: 2,   # PC-relative word offset  (4510)
+    ISPY:  1,   # stack offset  (4510)
+    ZPIZ:  1,   # zero-page address  (4510/45GS02)
 }
 
 # ============================================================
@@ -694,3 +707,216 @@ def _check_mode_examples():
     assert not errors, "MODE_EXAMPLES byte-count validation failed"
 
 _check_mode_examples()
+
+
+# ============================================================
+# 4510 / 45GS02 (MEGA65) — the additive layer
+#
+# Source: the MEGA65 compendium, Appendix L.  The 4510 is the 65C02 set
+# above (its zero-page-indirect rows are ZPIZ, written ($nn),Z; $EA is both NOP and EOM) plus
+# OPCODES_4510_ADDED.  The 45GS02 adds prefixed instructions, each one a
+# prefix plus its base mnemonic's 4510 opcode in the same mode.
+# ============================================================
+from collections import namedtuple
+
+CPU_VARIANTS = ('6502', '6510', '65c02', '4510', '45gs02')
+
+# One row per encoding.  mnemonic = key + suffix; base is the mnemonic whose
+# single-byte opcode the row uses (it differs from key only for prefixed rows
+# and for EOM); prefix is b'' for a single-byte instruction.
+Instruction = namedtuple('Instruction', 'mnemonic key suffix base mode prefix opcode')
+
+BIT_DIGIT_MNEMONICS = ('BBR', 'BBS', 'RMB', 'SMB')   # suffix 0-7 ORed into bits 4-6
+
+OPCODES_4510_ADDED = {
+    'ASR': {ACC:0x43, ZP:0x44, ZPX:0x54},
+    'ASW': {ABS:0xCB},
+    'BCC': {REL16:0x93},
+    'BCS': {REL16:0xB3},
+    'BEQ': {REL16:0xF3},
+    'BMI': {REL16:0x33},
+    'BNE': {REL16:0xD3},
+    'BPL': {REL16:0x13},
+    'BRA': {REL16:0x83},
+    'BSR': {REL16:0x63},
+    'BVC': {REL16:0x53},
+    'BVS': {REL16:0x73},
+    'CLE': {IMP:0x02},
+    'CPZ': {IMM:0xC2, ZP:0xD4, ABS:0xDC},
+    'DEW': {ZP:0xC3},
+    'DEZ': {IMP:0x3B},
+    'EOM': {IMP:0xEA},                   # = NOP, which the 4510 keeps
+    'INW': {ZP:0xE3},
+    'INZ': {IMP:0x1B},
+    'JSR': {IND:0x22, AIX:0x23},
+    'LDA': {ISPY:0xE2},
+    'LDZ': {IMM:0xA3, ABS:0xAB, ABX:0xBB},
+    'MAP': {IMP:0x5C},
+    'NEG': {ACC:0x42},
+    'PHW': {IMM16:0xF4, ABS:0xFC},
+    'PHZ': {IMP:0xDB},
+    'PLZ': {IMP:0xFB},
+    'ROW': {ABS:0xEB},
+    'RTN': {IMM:0x62},                   # the compendium writes RTS #$nn
+    'SEE': {IMP:0x03},
+    'STA': {ISPY:0x82},
+    'STX': {ABY:0x9B},
+    'STY': {ABX:0x8B},
+    'TAB': {IMP:0x5B},
+    'TAZ': {IMP:0x4B},
+    'TBA': {IMP:0x7B},
+    'TSY': {IMP:0x0B},
+    'TYS': {IMP:0x2B},
+    'TZA': {IMP:0x6B},
+}
+
+PREFIX_Q   = b'\x42\x42'   # NEG NEG: operate on 32 bits (the Q pseudo-register A,X,Y,Z)
+PREFIX_FAR = b'\xea'       # EOM/NOP: a following (nn),Z reads a 32-bit pointer
+
+# Modes in which a base mnemonic takes the Q prefix.  ACC is the Q register.
+Q_MODES = {
+    'ADC': frozenset({ZP, ABS, ZPI}),
+    'AND': frozenset({ZP, ABS, ZPI}),
+    'CMP': frozenset({ZP, ABS, ZPI}),
+    'EOR': frozenset({ZP, ABS, ZPI}),
+    'LDA': frozenset({ZP, ABS, ZPI}),
+    'ORA': frozenset({ZP, ABS, ZPI}),
+    'SBC': frozenset({ZP, ABS, ZPI}),
+    'STA': frozenset({ZP, ABS, ZPI}),
+    'ASL': frozenset({ACC, ZP, ABS, ZPX, ABX}),
+    'LSR': frozenset({ACC, ZP, ABS, ZPX, ABX}),
+    'ROL': frozenset({ACC, ZP, ABS, ZPX, ABX}),
+    'ROR': frozenset({ACC, ZP, ABS, ZPX, ABX}),
+    'DEC': frozenset({ACC, ZP, ABS, ZPX, ABX}),
+    'INC': frozenset({ACC, ZP, ABS, ZPX, ABX}),
+    'ASR': frozenset({ACC, ZP, ZPX}),
+    'BIT': frozenset({ZP, ABS}),
+}
+
+# Modes in which a base mnemonic takes the far prefix.  Where Q_MODES also
+# allows the mode, the far Q form exists too (prefix Q then far).
+FAR_MODES = {mne: frozenset({ZPI})
+             for mne in ('ADC', 'AND', 'CMP', 'EOR', 'LDA', 'ORA', 'SBC', 'STA')}
+
+# The Q mnemonics that are not base + 'Q'.  Every other Q base is a suffix stem.
+Q_NAMES = {'LDQ': 'LDA', 'STQ': 'STA', 'ORQ': 'ORA', 'DEQ': 'DEC', 'INQ': 'INC'}
+Q_SUFFIX_STEMS = frozenset(Q_MODES) - frozenset(Q_NAMES.values())
+
+# A Q instruction in ZPI is written ($nn) — Z is part of Q — except these, which
+# keep ($nn),Z because they still add Z.
+Q_ZPI_Z_INDEXED = frozenset({'LDA'})
+
+# The CPUs that add Z to a zero-page-indirect operand: on them a ZPI row is ZPIZ, except
+# a Q row of a stem outside Q_ZPI_Z_INDEXED (asm.md § Instruction set, addressing modes).
+Z_CPUS = ('4510', '45gs02')
+QUAD_STEMS = frozenset(Q_MODES)        # the sixteen stems with a quad form
+
+# The syntactic shape of each mode — its syntax with the value and its width removed;
+# what the lexer classifies an asm operand into.  Far is a flag beside the shape, not a
+# shape (asm.md § Line assembler, *The generated tables*).
+MODE_SHAPE = {
+    IMP: '', ACC: 'A', IMM: '#e', ZP: 'e', ZPX: 'e,X', ZPY: 'e,Y', ABS: 'e', ABX: 'e,X',
+    ABY: 'e,Y', IND: '(e)', INX: '(e,X)', INY: '(e),Y', REL: 'e', ZPI: '(e)', AIX: '(e,X)',
+    ZPREL: 'e,e', IMM16: '#e', REL16: 'e', ISPY: '(e,S),Y', ZPIZ: '(e),Z',
+}
+assert set(MODE_SHAPE) == set(ALL_MODES), "MODE_SHAPE must cover the mode catalogue"
+
+
+def _with_z(rows, variant):
+    """On a Z CPU a zero-page-indirect row is ZPIZ — except a Q row of a stem that does
+    not add Z, which stays ZPI; a far row follows its base row's mode."""
+    if variant not in Z_CPUS:
+        return rows
+    return [r._replace(mode=ZPIZ)
+            if r.mode == ZPI and not (r.prefix.startswith(PREFIX_Q) and r.base not in Q_ZPI_Z_INDEXED)
+            else r for r in rows]
+
+
+def _q_row(base, mode, opcode, prefix):
+    names = {b: n for n, b in Q_NAMES.items()}
+    if base in names:
+        return Instruction(names[base], names[base], '', base, mode, prefix, opcode)
+    return Instruction(base + 'Q', base, 'Q', base, mode, prefix, opcode)
+
+
+def _cse_rows(categories, cmos):
+    rows = []
+    for mne, (profile, cmos_bit, cat) in MNEMONICS.items():
+        if cat not in categories:
+            continue
+        modes = mne_modes(profile, cmos_bit and cmos)
+        for mode in ALL_MODES:
+            if mode not in modes:
+                continue
+            opcode = OPCODES[mne][mode]
+            if opcode is None:           # BBR/BBS/RMB/SMB: one row per bit digit
+                base = _BASE_OPCODE_OVERRIDES[mne]
+                rows += [Instruction(f'{mne}{d}', mne, str(d), mne, mode, b'', base | (d << 4))
+                         for d in range(8)]
+            else:
+                rows.append(Instruction(mne, mne, '', mne, mode, b'', opcode))
+    return rows
+
+
+def _rows_4510():
+    """The 4510 rows before the Z mapping (their zero-page-indirect mode is still ZPI)."""
+    rows = _cse_rows({'legal', 'cmos'}, cmos=True)
+    for mne, modes in OPCODES_4510_ADDED.items():
+        for mode in ALL_MODES:
+            if mode in modes:
+                rows.append(Instruction(mne, mne, '', mne, mode, b'', modes[mode]))
+    return rows
+
+
+def instructions(variant):
+    """Every encoding of a CPU variant, as Instruction rows."""
+    if variant == '6502':
+        return _cse_rows({'legal'}, cmos=False)
+    if variant == '6510':
+        return _cse_rows({'legal', 'illegal'}, cmos=False)
+    if variant == '65c02':
+        return _cse_rows({'legal', 'cmos'}, cmos=True)
+    if variant == '4510':
+        return _with_z(_rows_4510(), variant)
+    if variant == '45gs02':
+        rows = _rows_4510()
+        base = {(i.mnemonic, i.mode): i.opcode for i in rows}
+        for mne, modes in Q_MODES.items():
+            for mode in ALL_MODES:
+                if mode in modes:
+                    rows.append(_q_row(mne, mode, base[(mne, mode)], PREFIX_Q))
+        for mne, modes in FAR_MODES.items():
+            for mode in ALL_MODES:
+                if mode in modes:
+                    rows.append(Instruction(mne, mne, '', mne, mode, PREFIX_FAR, base[(mne, mode)]))
+                    if mode in Q_MODES.get(mne, ()):
+                        rows.append(_q_row(mne, mode, base[(mne, mode)], PREFIX_Q + PREFIX_FAR))
+        return _with_z(rows, variant)
+    raise ValueError(f'unknown CPU variant {variant!r}; expected one of {CPU_VARIANTS}')
+
+
+def _check_4510_layer():
+    """Derive-or-die: the layer is consistent with the CSE data it extends."""
+    errors = []
+    c02 = {(i.mnemonic, i.mode) for i in _cse_rows({'legal', 'cmos'}, cmos=True)}
+    for mne, modes in OPCODES_4510_ADDED.items():
+        for mode in modes:
+            if mode not in ALL_MODES:
+                errors.append(f'{mne}: unknown mode {mode!r}')
+            if (mne, mode) in c02:
+                errors.append(f'{mne} {mode}: already in the 65C02 set')
+    rows = _rows_4510()
+    opcodes = [i.opcode for i in rows if i.mnemonic != 'NOP']
+    if sorted(opcodes) != list(range(256)):
+        errors.append('the 4510 single-byte opcodes do not cover $00-$FF exactly once')
+    have = {(i.mnemonic, i.mode) for i in rows}
+    for table in (Q_MODES, FAR_MODES):
+        for mne, modes in table.items():
+            for mode in modes:
+                if (mne, mode) not in have:
+                    errors.append(f'{mne} {mode}: prefixed, but not a 4510 instruction')
+    for e in errors:
+        print(f"4510 LAYER ERROR: {e}")
+    assert not errors, "4510/45GS02 layer validation failed"
+
+_check_4510_layer()

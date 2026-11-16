@@ -2,7 +2,9 @@
 """
 dev/mnemonic_tables.py
 
-Assembler config table generator for the CSE 6502/65C02 assembler.
+Assembler config table generator for the CSE 6502/65C02 assembler, shared
+unchanged with bbbc64 (doc/asm.md § Instruction set); file references below
+are CSE's.
 Imports all instruction-set definitions from dev/instruction_set.py.
 Uses mn6 (6-bit hash, 56 legal NMOS mnemonics) and mn7 (7-bit hash, all 114
 mnemonics) from dev/hashes.py.
@@ -13,10 +15,17 @@ Generates:
     src/mn6_tables.s    – per-mnemonic tables, mn6 6-bit hash (3×64  = 192 bytes)
     src/mn_asm_tables.s – mode_offset (64 B) + direct_opcodes (16 B)
     src/oplen_tbl.s     – packed opcode→length table (64 bytes)
+
+    python3 dev/mnemonic_tables.py [--syntax ca65|acme] [--out DIR]
+
+With no --out the tables go to CSE's src/, and only in a tree that is CSE's
+(its src/ holds mn6.s); anywhere else --out is required.
 """
+import argparse
 import functools
 import operator
 import pathlib
+import sys
 
 from instruction_set import (
     ALL_MODES, OPERAND_PROFILES, MNEMONICS, OPCODES,
@@ -24,6 +33,29 @@ from instruction_set import (
     mne_modes, sc, MODE_OPERAND_BYTES,
 )
 from hashes import mn6, mn7
+
+ROOT   = pathlib.Path(__file__).resolve().parent.parent
+SYNTAX = 'ca65'   # --syntax
+OUT    = None     # --out; None = CSE's src/
+
+
+def _out(name):
+    """Output path for a generated table: --out, else CSE's src/ in a CSE tree."""
+    global OUT
+    if OUT is None:
+        if not (ROOT / 'src' / 'mn6.s').exists():
+            sys.exit(f"mnemonic_tables.py: {ROOT} is not a CSE tree (no src/mn6.s); pass --out DIR")
+        OUT = ROOT / 'src'
+    return OUT / name
+
+
+def _byte():
+    return '.byte' if SYNTAX == 'ca65' else '!byte'
+
+
+def _ca65_only(line):
+    """A ca65 directive line (.export, .segment): ACME has no counterpart."""
+    return [line] if SYNTAX == 'ca65' else []
 
 # ============================================================
 # Sanity checks
@@ -344,7 +376,7 @@ def write_mode_table(out_path=None):
     Indexed by the 5-bit operand profile index (0-29).  30 × 2 = 60 bytes total.
     """
     if out_path is None:
-        out_path = pathlib.Path(__file__).parent / '../src/mn_modes.s'
+        out_path = _out('mn_modes.s')
     out_path = pathlib.Path(out_path)
 
     profiles = list(range(_N_OPERAND_PROFILES))
@@ -393,9 +425,9 @@ def write_mode_table(out_path=None):
         f';   mn_modes_hi  bits 0-7 : {hi_legend}',
         '; A set bit means that addressing mode is supported by this profile.',
         '',
-        '        .export mn_modes_lo, mn_modes_hi',
+        *_ca65_only('        .export mn_modes_lo, mn_modes_hi'),
         '',
-        '.segment "KDATA"',
+        *_ca65_only('.segment "KDATA"'),
         '',
     ]
 
@@ -407,7 +439,7 @@ def write_mode_table(out_path=None):
             hex_vals = ','.join(f'${v:02X}' for v in vals)
             hex_vals = f'{hex_vals:<23}'
             names    = '  '.join(str(p) for p in chunk)
-            lines.append(f'        .byte   {hex_vals}  ; {names}')
+            lines.append(f'        {_byte()}   {hex_vals}  ; {names}')
         lines.append('')
 
     emit_table('mn_modes_lo', lo_bytes)
@@ -436,7 +468,7 @@ def write_config_table_7bit(out_path=None):
     See dev/hashes.py (mn7 class) and src/mn7.s.
     """
     if out_path is None:
-        out_path = pathlib.Path(__file__).parent / '../src/mn7_tables.s'
+        out_path = _out('mn7_tables.s')
     out_path = pathlib.Path(out_path)
 
     slot_mne      = mn7.build_slot_map()
@@ -469,10 +501,10 @@ def write_config_table_7bit(out_path=None):
         f'; {len(slot_mne)}/128 slots filled  ({128 - len(slot_mne)} empty)',
         '; 0 false positives — see dev/hashes.py mn7.verify_fingerprint()',
         '',
-        '        .export mn7_fp',
-        '        .export mn7_base_op, mn7_profile',
+        *_ca65_only('        .export mn7_fp'),
+        *_ca65_only('        .export mn7_base_op, mn7_profile'),
         '',
-        '.segment "KDATA"',
+        *_ca65_only('.segment "KDATA"'),
         '',
     ]
 
@@ -483,7 +515,7 @@ def write_config_table_7bit(out_path=None):
             hex_str = ','.join(f'${v:02X}' for v in chunk)
             mnes    = [f'{slot_mne.get(row_base + i, "---"):<3}' for i in range(8)]
             comment = '  '.join(mnes)
-            lines.append(f'        .byte   {hex_str:<31}  ; {comment}')
+            lines.append(f'        {_byte()}   {hex_str:<31}  ; {comment}')
         lines.append('')
 
     emit_table('mn7_fp',      fp_table)
@@ -515,7 +547,7 @@ def write_config_table_6bit(out_path=None):
     See dev/mn6_fingerprint_collisions.txt.
     """
     if out_path is None:
-        out_path = pathlib.Path(__file__).parent / '../src/mn6_tables.s'
+        out_path = _out('mn6_tables.s')
     out_path = pathlib.Path(out_path)
 
     slot_mne    = mn6.build_slot_map()
@@ -547,10 +579,10 @@ def write_config_table_6bit(out_path=None):
         f'; {len(slot_mne)}/64 slots filled  ({64 - len(slot_mne)} empty)',
         '; 16 known false positives (0.09%) — see dev/mn6_fingerprint_collisions.txt',
         '',
-        '        .export mn6_fp',
-        '        .export mn6_base_op, mn6_profile',
+        *_ca65_only('        .export mn6_fp'),
+        *_ca65_only('        .export mn6_base_op, mn6_profile'),
         '',
-        '.segment "KDATA"',
+        *_ca65_only('.segment "KDATA"'),
         '',
     ]
 
@@ -561,7 +593,7 @@ def write_config_table_6bit(out_path=None):
             hex_str = ','.join(f'${v:02X}' for v in chunk)
             mnes    = [f'{slot_mne.get(row_base + i, "---"):<3}' for i in range(8)]
             comment = '  '.join(mnes)
-            lines.append(f'        .byte   {hex_str:<31}  ; {comment}')
+            lines.append(f'        {_byte()}   {hex_str:<31}  ; {comment}')
         lines.append('')
 
     emit_table('mn6_fp',      fp_table)
@@ -591,7 +623,7 @@ def write_asm_tables(out_path=None):
     All data derived from instruction_set.OPCODES.
     """
     if out_path is None:
-        out_path = pathlib.Path(__file__).parent / '../src/mn_asm_tables.s'
+        out_path = _out('mn_asm_tables.s')
     out_path = pathlib.Path(out_path)
 
     # ── mode_offset[zone][mode]: bbb<<2 to OR into base_op ────────────────
@@ -672,7 +704,7 @@ def write_asm_tables(out_path=None):
         chunk = data[base:base+n]
         hex_  = ','.join(f'${v:02X}' for v in chunk)
         lbl   = label_fn(base, n) if label_fn else ''
-        return f'        .byte   {hex_:<{n*4-1}}  ; {lbl}'
+        return f'        {_byte()}   {hex_:<{n*4-1}}  ; {lbl}'
 
     lines = [
         '; mn_asm_tables.s',
@@ -684,10 +716,10 @@ def write_asm_tables(out_path=None):
         f'; direct_opcodes   {N_DIR_PROFILES*16} bytes  – direct opcode per mode for dir_bit profiles',
         f';                             profile 28 (STZ) at offset 0  (FIRST_DIR_PROFILE=28)',
         ';',
-        '        .export mode_offset, direct_opcodes',
-        f'        .export FIRST_DIR_PROFILE',
+        *_ca65_only('        .export mode_offset, direct_opcodes'),
+        *_ca65_only(f'        .export FIRST_DIR_PROFILE'),
         '',
-        '.segment "KDATA"',
+        *_ca65_only('.segment "KDATA"'),
         '',
     ]
 
@@ -701,7 +733,7 @@ def write_asm_tables(out_path=None):
             chunk = row[base:base+8]
             hex_  = ','.join(f'${v:02X}' for v in chunk)
             names = '  '.join(f'{ALL_MODES[base+i][:3]}' for i in range(8))
-            lines.append(f'        .byte   {hex_:<35}  ; {names}')
+            lines.append(f'        {_byte()}   {hex_:<35}  ; {names}')
         if z == 3:
             lines.append('        ; NOTE: ABY=$FF — genuine bbb conflict (bbb=6 vs bbb=7).')
             lines.append('        ;   All zone=3/ABY handled by runtime exception in opcode_lookup.s')
@@ -718,7 +750,7 @@ def write_asm_tables(out_path=None):
             chunk = direct_opcodes[d*16+base:d*16+base+8]
             hex_  = ','.join(f'${v:02X}' for v in chunk)
             names = '  '.join(f'{ALL_MODES[base+i][:3]}' for i in range(8))
-            lines.append(f'        .byte   {hex_:<35}  ; {names}')
+            lines.append(f'        {_byte()}   {hex_:<35}  ; {names}')
         lines.append('')
 
     out_path.write_text('\n'.join(lines) + '\n')
@@ -764,7 +796,7 @@ def write_oplen_table():
     assert len(packed) == 64
 
     # Write the .s file
-    path = pathlib.Path(__file__).parent / '../src/oplen_tbl.s'
+    path = _out('oplen_tbl.s')
     lines = [
         '; oplen_tbl.s — packed opcode→instruction length table',
         '; Generated by dev/mnemonic_tables.py — DO NOT EDIT BY HAND',
@@ -776,9 +808,9 @@ def write_oplen_table():
         '; Values: 1 = 1 byte, 2 = 2 bytes, 3 = 3 bytes.',
         '; Safe for all CPU modes (65C02 superset).',
         '',
-        '        .export oplen_tbl',
+        *_ca65_only('        .export oplen_tbl'),
         '',
-        '.segment "RODATA"',
+        *_ca65_only('.segment "RODATA"'),
         '',
         'oplen_tbl:',
     ]
@@ -787,7 +819,7 @@ def write_oplen_table():
         vals = packed[row * 8:(row + 1) * 8]
         hex_str = ','.join(f'${v:02X}' for v in vals)
         start_opc = row * 32
-        lines.append(f'        .byte {hex_str}  ; ${start_opc:02X}-${start_opc+31:02X}')
+        lines.append(f'        {_byte()} {hex_str}  ; ${start_opc:02X}-${start_opc+31:02X}')
 
     lines.append('')
 
@@ -800,6 +832,15 @@ def write_oplen_table():
 # ============================================================
 
 if __name__ == '__main__':
+    _ap = argparse.ArgumentParser(description='Generate the assembler tables from dev/instruction_set.py.')
+    _ap.add_argument('--syntax', choices=('ca65', 'acme'), default='ca65')
+    _ap.add_argument('--out', type=pathlib.Path, help="output directory (default: CSE's src/)")
+    _args = _ap.parse_args()
+    SYNTAX = _args.syntax
+    if _args.out is not None:
+        OUT = _args.out
+        OUT.mkdir(parents=True, exist_ok=True)
+    _out('mn_modes.s')                    # refuse outside a CSE tree before any work
     print_summary()
     print_by_category()
     verify_opcodes()
