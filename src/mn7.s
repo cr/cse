@@ -51,7 +51,7 @@
 ; Zero false positives over all 17,576 three-letter strings.
 ;
 ; Table sizes  (mn7_tables.s is generated; do not edit by hand)
-;   mn7_hash_t  27 bytes  (here, RODATA)
+;   mn7_hash_t  27 bytes  (mn7_tables.s, generated)
 ;   mn7_fp     128 bytes  (mn7_tables.s)
 ;   mn7_base_op 128 bytes  (mn7_tables.s)
 ;   mn7_profile 128 bytes  (mn7_tables.s)
@@ -61,28 +61,12 @@
 
         .export mn7_classify
         .importzp mn_c1, mn_c2, mn_c3
-        .import mn7_fp
+        .import mn7_fp, mn7_hash_t
 
         .importzp mn7_h_tmp
 
 ; ------------------------------------------------------------
 ; T7 lookup table  (generated constant; see dev/mnemonic_tables.py)
-; ------------------------------------------------------------
-.segment "RODATA"
-
-; mn7_hash_t: 27 bytes.  Index 0 = $FF guard (c2 is always 1..26).
-; Indices 1..26 correspond to A..Z.  Max value = $7F.
-; Formula: h7 = (c1*4 + c3 + mn7_hash_t[c2]) & $7F
-mn7_hash_t:
-;             @     A     B     C     D     E     F     G     H
-        .byte $FF, $7B, $5B, $50, $0F, $4F, $7B, $00, $0D
-;             I     J     K     L     M     N     O     P     Q
-        .byte $15, $7B, $7B, $7B, $69, $13, $2C, $45, $7B
-;             R     S     T     U     V     W     X     Y     Z
-        .byte $32, $7F, $47, $7B, $7E, $7B, $30, $56, $7B
-
-; ------------------------------------------------------------
-; mn7_classify
 ; ------------------------------------------------------------
 .segment "CODE"
 

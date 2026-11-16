@@ -52,9 +52,10 @@
         .import   mn_classify
         .import   mn_base_op, mn_profile
 
-        ; opcode tables and helpers (opcode_lookup.s)
+        ; opcode tables and helpers (opcode_lookup.s, mn_asm_tables.s)
         .import   asm_validate_mode, asm_opcode_lookup
         .import   mn_modes_lo           ; ACC-bit test for IMP→ACC promotion
+        .import   asm_oplen             ; operand bytes per mode (generated)
 
         ; banking
         .import kernal_bank_out, kernal_bank_in
@@ -92,15 +93,6 @@ reg_p:         .res 1          ; saved P (status flags)
 ; the kernel↔userland transitions — live in mem.s alongside the
 ; save_userland_zp / restore_userland_zp / save_kernel_zp /
 ; restore_kernel_zp primitives that operate on them.)
-
-; ── RODATA ────────────────────────────────────────────────────────────────────
-.segment "RODATA"
-
-; Operand byte count per mode (16 bytes, uncompressed for fast lookup).
-; Mirrors MODE_OPERAND_BYTES from dev/instruction_set.py.
-;   IMP ACC IMM ZP  ZPX ZPY ABS ABX ABY IND INX INY REL ZPI AIX ZPR
-_asm_oplen:
-        .byte  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  1,  1,  1,  1,  2,  2
 
 .segment "CODE"
 
@@ -243,8 +235,8 @@ _asm_line_core:
         sta asm_base
         lda mn_profile,x
         sta asm_prof
-        and #$1F
-        sta asm_pidx            ; raw profile index
+        and #$3F
+        sta asm_pidx            ; raw profile index (bits 5:0; 7:6 = cat)
 
         ; ── CPU-mode gate ─────────────────────────────────────────────────
         ;
@@ -442,13 +434,13 @@ _asm_line_core:
         jmp asm_error
 @mode_ok:
 
-        ; Compute opcode via the category/dir/profile dispatch in opcode_lookup.
-        jsr asm_opcode_lookup   ; → A = opcode, or jmps asm_error
+        ; Compute opcode: base ^ delta[row[pidx] + mode] (opcode_lookup.s).
+        jsr asm_opcode_lookup   ; → A = opcode
         jsr _asm_emit           ; emit opcode byte
 
         ; Emit operand bytes: 0, 1, or 2 depending on the mode.
         ldx asm_mode
-        lda _asm_oplen,x        ; operand byte count for this mode
+        lda asm_oplen,x         ; operand byte count for this mode
         beq @gh_done            ; 0 bytes → done
         tax                     ; X = oplen (1 or 2)
 

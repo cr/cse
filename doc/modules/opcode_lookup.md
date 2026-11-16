@@ -9,7 +9,7 @@
 | [`src/opcode_lookup.s`](../../src/opcode_lookup.s) | implementation |
 | [`src/mn_asm_tables.s`](../../src/mn_asm_tables.s) | generated — one block per CPU set: `asm_row` (1 B per profile) + `asm_delta` (one row of `ASM_N_MODES` bytes per delta row) + `asm_oplen` (operand bytes per mode, `ASM_N_MODES` B; read by asm_line) + the zone constants, produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py) |
 | [`src/mn_modes.s`](../../src/mn_modes.s) | generated — one block per CPU set: the profile validity masks, one plane per 8 modes (`mn_modes_lo`, `mn_modes_hi`; `mn_modes_x` on `MEGA_SUPPORT`), 1 B per profile per plane, produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py) |
-| [`src/oplen_tbl.s`](../../src/oplen_tbl.s) | generated — one block per CPU set: packed opcode → single-byte-instruction length (64 B, 2 bits/opcode; prefixes not counted), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Consumers: `debugger.s`, `repl.s` (cmd_step). |
+| [`src/oplen_tbl.s`](../../src/oplen_tbl.s) | generated — one block per CPU set: packed opcode → single-byte-instruction length (64 B, 2 bits/opcode; prefixes not counted; the C64 blocks share one content, every `OPCODES` row's length), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Consumers: `debugger.s`, `repl.s` (cmd_step). |
 | [`tests/unit/test_opcode_lookup.py`](../../tests/unit/test_opcode_lookup.py) | test contract (asm_validate_mode predicate; asm_opcode_lookup covered exhaustively by test_asm_line.py::test_assemble) |
 
 ## Interface

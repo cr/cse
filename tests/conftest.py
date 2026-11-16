@@ -370,6 +370,7 @@ class AsmCoreSymbols:
         self.asm_opcode_lookup = s["asm_opcode_lookup"]
         self.asm_mode         = s["asm_mode"]
         self.asm_pidx         = s["asm_pidx"]
+        self.asm_base         = s["asm_base"]
 
         # addr_mode.s extra entry point for isolated testing
         self.asm_skip_ws      = s["asm_skip_ws"]
@@ -439,9 +440,16 @@ _MN_BIN = {v: BUILD / f"{v}_test.bin" for v in ('mn6', 'mn7')}
 _MN_MAP = {v: BUILD / f"{v}_test.map" for v in ('mn6', 'mn7')}
 _MN_LBL = {v: BUILD / f"{v}_test.lbl" for v in ('mn6', 'mn7')}
 
+# mn6 is the classifier of CPU set {6502}; mn7's bundle uses the 65C02
+# build's set (its C64 key set is the same in both mn7 builds).
+_MN_FLAGS = {'mn6': PROD_DEFS["6502"], 'mn7': PROD_DEFS["cmos"]}
+
+
 def _mn_needs_rebuild(variant):
     bin_path = _MN_BIN[variant]
     if not bin_path.exists() or not _MN_LBL[variant].exists():
+        return True
+    if _flags_changed(bin_path, _MN_FLAGS[variant]):
         return True
     bin_mtime = bin_path.stat().st_mtime
     return any(s.stat().st_mtime > bin_mtime for s in _MN_SOURCES[variant])
@@ -452,12 +460,9 @@ def _mn_build(variant):
     obj_files = []
     for src in _MN_SOURCES[variant]:
         obj = BUILD / (src.stem + f"_{variant}.o")
-        cmd = ["ca65", "-g", "--cpu", "6502",
+        cmd = ["ca65", "-g", "--cpu", "6502", *_MN_FLAGS[variant],
                "-I", str(BUILD),
                str(src), "-o", str(obj)]
-        # mn_classify.s branches on USE_MN6 at build time.
-        if variant == 'mn6':
-            cmd += ["-D", "USE_MN6"]
         subprocess.run(cmd, check=True)
         obj_files.append(str(obj))
     subprocess.run(
@@ -468,6 +473,7 @@ def _mn_build(variant):
          "-Ln", str(_MN_LBL[variant])],
         check=True,
     )
+    _write_flags_stamp(_MN_BIN[variant], _MN_FLAGS[variant])
 
 
 class MnHashBinary:
@@ -551,8 +557,13 @@ _AS_SOURCES = [
 ]
 
 
+_AS_FLAGS = PROD_DEFS["cmos"]
+
+
 def _as_needs_rebuild():
     if not _AS_BIN.exists() or not _AS_LBL.exists():
+        return True
+    if _flags_changed(_AS_BIN, _AS_FLAGS):
         return True
     bin_mtime = _AS_BIN.stat().st_mtime
     return any(s.stat().st_mtime > bin_mtime for s in _AS_SOURCES + [_AS_CFG])
@@ -563,11 +574,12 @@ def _as_build():
     obj_files = []
     for src in _AS_SOURCES:
         obj = BUILD / f"{src.stem}_as.o"
-        cmd = ["ca65", "-g", "--cpu", "6502", "-t", "c64",
+        cmd = ["ca65", "-g", "--cpu", "6502", "-t", "c64", *_AS_FLAGS,
                "-I", str(BUILD),
                str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)
         obj_files.append(str(obj))
+    _write_flags_stamp(_AS_BIN, _AS_FLAGS)
     subprocess.run(
         ["ld65", "-C", str(_AS_CFG),
          *obj_files,

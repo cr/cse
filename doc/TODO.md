@@ -161,20 +161,28 @@ Projected C64 effect (model, not measured): asm lookup 364 B →
   baseline) and a `dev/` benchmark comparing cycles to the golden
   files.~~  (Done 2026-11-16 as tests: `test_size_budget.py` (gate 1),
   `test_golden_asm_dasm.py` (gates 2–3), `test_build_parity.py`.)
-- [ ] A1. Generator: per-CPU-set table blocks
+- [x] ~~A1. Generator: per-CPU-set table blocks
   ([build_system.md § Table generation](build_system.md#table-generation));
   the profile-row model moved into the shared `mnemonic_tables.py`
-  with ca65 output; the opcode map, view bitmaps, mode lengths and
-  mode formats in `dasm_tables.py`; `_asm_oplen` generated.
+  with ca65 output; `_asm_oplen` generated.~~  (Done 2026-11-16:
+  `build_asm_model` + derive-or-die `validate_asm_model`; `mn_modes`,
+  `mn_asm_tables`, `mn6/7_tables` (hash `T` moved in) and `oplen_tbl`
+  in per-CPU-set blocks; `tests/unit/test_mnemonic_tables.py`.)
+- [ ] A1d. The disassembler's tables in `dasm_tables.py`: opcode map,
+  mode map, view bitmaps, mode lengths and formats — lands with A4.
 - [ ] A1b. Feature define `ILLEGAL_SUPPORT` (c64-6510, c64-65c02)
   replaces the `.ifndef CPU_6502` gate on 6510 illegal paths, so the
   m65 build excludes them ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
-- [ ] A2. Profile byte: `cat` (2) + `pidx` (6), no `dir` bit
-  ([mn_classify.md](modules/mn_classify.md)).
-- [ ] A3. `opcode_lookup.s` → profile-row lookup
+  The gate's only user is the bit-slice `dasm.s`, so it lands with A4.
+- [x] ~~A2. Profile byte: `cat` (2) + `pidx` (6), no `dir` bit
+  ([mn_classify.md](modules/mn_classify.md)).~~  (Done 2026-11-16.)
+- [x] ~~A3. `opcode_lookup.s` → profile-row lookup
   ([opcode_lookup.md](modules/opcode_lookup.md)); it needs no ZP, so
   `_asm_ok_tmp` is removed and `$2C` is left unallocated
-  ([zp.md](modules/zp.md)).
+  ([zp.md](modules/zp.md)).~~  (Done 2026-11-16.  Measured, release
+  builds: PRG 20 790 → 20 579 / 21 232 → 21 058 / 21 688 → 21 573 B;
+  opcode machinery 364 → 169 / 206 / 265 B; asm sweep cycles −3.5 /
+  −3.2 / −3.4 %, worst single case +0.5 %; golden behaviour identical.)
 - [ ] A3b. *(follow-up, own CDD cycle)* Recompact ZP over the freed
   `$2C`: every later allocation moves down one byte and the user ZP
   becomes `$77–$7F` (9 bytes) — a userland-contract change

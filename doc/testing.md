@@ -416,7 +416,10 @@ tests are written, when they are written, and what they test.
     reference every opcode against `dev/instruction_set.py`
     (`instructions(variant)`) — the independent authoritative source
     the generator reads; no test file restates an opcode by hand.  Tables
-    are tested against an oracle, not against themselves.
+    are tested against an oracle, not against themselves.  The
+    generator's own model (profile placement, row minimality, no
+    foreign entries per CPU set) is pinned by
+    `tests/unit/test_mnemonic_tables.py`.
 
     **TDD Maintenance rule.**  Axiomatic modules are not flagged
     as untested.  The per-module tier table below uses `—` in the
@@ -753,7 +756,7 @@ record.)
 
 | Module | Layer | Tier | Harness |
 |---|---|---|---|
-| zp, strings, *_tables, oplen_tbl, dasm_mne_idx | 0 | — | (pure data; generator tests in `dev/`) |
+| zp, strings, *_tables, oplen_tbl, dasm_mne_idx | 0 | — | (pure data; generator model tests in `tests/unit/test_mnemonic_tables.py`) |
 | mn_vars | 1 | — | (single-byte ZP scratch; no behaviour) |
 | **cse_io** | 1 | U | standalone leaf bundle |
 | **mem** | 1 | U | standalone leaf bundle |

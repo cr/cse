@@ -59,8 +59,8 @@
 ; See dev/mn6_fingerprint_collisions.txt for the complete list.
 ;
 ; Table sizes  (mn6_tables.s is generated; do not edit by hand)
-;   mn6_hash_t   27 bytes  (here, RODATA)
-;   mn6_fp_c2    27 bytes  (here, RODATA)
+;   mn6_hash_t   27 bytes  (mn6_tables.s, generated)
+;   mn6_fp_c2    27 bytes  (mn6_tables.s, generated)
 ;   mn6_fp       64 bytes  (mn6_tables.s)
 ;   mn6_base_op  64 bytes  (mn6_tables.s)
 ;   mn6_profile  64 bytes  (mn6_tables.s)
@@ -70,36 +70,10 @@
 
         .export mn6_classify
         .importzp mn_c1, mn_c2, mn_c3, mn6_h_tmp
-        .import mn6_fp
+        .import mn6_fp, mn6_hash_t, mn6_fp_c2
 
 ; ------------------------------------------------------------
 ; T6 lookup table  (generated constant; see dev/mnemonic_tables.py)
-; ------------------------------------------------------------
-.segment "RODATA"
-
-; mn6_hash_t: 27 bytes.  Index 0 = $00 guard (c2 is always 1..26).
-; Indices 1..26 correspond to A..Z.  Max value = $2E.
-; Formula: h6 = (c1*8 + c3*15 + mn6_hash_t[c2]) & $3F
-mn6_hash_t:
-;             @     A     B     C     D     E     F     G     H
-        .byte $00, $1C, $1C, $00, $03, $00, $00, $00, $2C
-;             I     J     K     L     M     N     O     P     Q
-        .byte $04, $00, $00, $01, $01, $00, $08, $03, $00
-;             R     S     T     U     V     W     X     Y     Z
-        .byte $1E, $0E, $02, $00, $21, $00, $2E, $05, $00
-
-; mn6_fp_c2: 27 bytes.  Index i = (i * 218) & $FF.
-; Precomputed c2 contribution to fingerprint; Y still = mn_c2 on use.
-mn6_fp_c2:
-;             @     A     B     C     D     E     F     G     H
-        .byte $00, $DA, $B4, $8E, $68, $42, $1C, $F6, $D0
-;             I     J     K     L     M     N     O     P     Q
-        .byte $AA, $84, $5E, $38, $12, $EC, $C6, $A0, $7A
-;             R     S     T     U     V     W     X     Y     Z
-        .byte $54, $2E, $08, $E2, $BC, $96, $70, $4A, $24
-
-; ------------------------------------------------------------
-; mn6_classify
 ; ------------------------------------------------------------
 .segment "CODE"
 

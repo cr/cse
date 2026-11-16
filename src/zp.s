@@ -68,9 +68,10 @@ mn6_h_tmp:      .res 1          ; mn6: c1*8 during hash computation
 asm_ptr:        .res 2          ; pointer to argument string
 asm_opr:        .res 2          ; output operand bytes (lo, hi)
 
-; ── opcode_lookup.s: scratch ──────────────────────────────────────────── $2C
-        .exportzp _asm_ok_tmp
-_asm_ok_tmp:    .res 1          ; cat-bits cache / zone*16
+; ── unallocated ───────────────────────────────────────────────────────── $2C
+; One free byte, held so every later address stays put; recompaction is
+; TODO § M65 A3b (it moves the user ZP, a userland-contract change).
+                .res 1
 
 ; ── cse_io.s: screen I/O scratch ──────────────────────────────────────── $2D
         .exportzp _io_tmp, _io_scr

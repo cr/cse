@@ -17,6 +17,7 @@ Test binary: repl.s + cse_io.s + expr.s + symtab.s + dasm.s
 
 import subprocess, pathlib, re, pytest
 from py65.devices.mpu6502 import MPU
+from conftest import PROD_DEFS
 
 ROOT  = pathlib.Path(__file__).parent.parent.parent
 BUILD = ROOT / "build"
@@ -73,7 +74,7 @@ def _build():
         stem = src.stem
         obj = BUILD / f"{stem}_repl.o"
         subprocess.run(
-            ["ca65", "-t", "c64", "--cpu", "6502", "-DCMOS_SUPPORT", "-DCPU_CEIL=2",
+            ["ca65", "-t", "c64", "--cpu", "6502", *PROD_DEFS["cmos"],
              "-I", str(BUILD),
              str(src), "-o", str(obj)],
             check=True,

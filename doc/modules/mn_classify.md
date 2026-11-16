@@ -11,7 +11,7 @@
 | [`src/mn6.s`](../../src/mn6.s) | implementation — 6-bit hash classifier |
 | [`src/mn_vars.s`](../../src/mn_vars.s) | implementation — ZP variable definitions |
 | [`src/mn7_tables.s`](../../src/mn7_tables.s) | generated — one block per `mn7` CPU set: `mn7_hash_t` (27 B) + `mn7_fp` / `mn7_base_op` / `mn7_profile` (3×128 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py) |
-| [`src/mn6_tables.s`](../../src/mn6_tables.s) | generated — the `mn6` block (CPU set {6502}): `mn6_hash_t` (27 B) + `mn6_fp` / `mn6_base_op` / `mn6_profile` (3×64 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py) |
+| [`src/mn6_tables.s`](../../src/mn6_tables.s) | generated — the `mn6` block (CPU set {6502}): `mn6_hash_t` (27 B) + `mn6_fp_c2` (27 B, `(c2·218) & $FF`) + `mn6_fp` / `mn6_base_op` / `mn6_profile` (3×64 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py) |
 | [`tests/unit/test_mn_classify.py`](../../tests/unit/test_mn_classify.py) | test contract |
 
 ## Interface
@@ -62,7 +62,7 @@ mn6_tables or mn7_tables (GENERATED — `mn{6,7}_classify`,
 | mn_vars.s ZP | `mn_c1`, `mn_c2`, `mn_c3` | 1 B each | **Exported inputs.**  `asm_line.s` writes all three before every `jsr mn_classify`.  Values are 1–26 (A=1..Z=26); callers normalize PETSCII/screencode via `AND #$1F`. |
 | mn7.s ZP | `mn7_h_tmp` | 1 B | **Internal scratch.**  Holds `c3>>2` transiently during the fingerprint check.  Not exported; no external contract other than "reserved — do not alias". |
 | mn7_tables.s RODATA | `mn7_hash_t` | 27 B | **Internal.**  T[c2] hash perturbation, generated per CPU set from `dev/hashes.py`.  Not exported.  Byte values are an implementation detail subsumed by the classifier's observable behaviour (`test_mn7_full_sweep`). |
-| mn6_tables.s RODATA | `mn6_hash_t` | 27 B | Same status as `mn7_hash_t`. |
+| mn6_tables.s RODATA | `mn6_hash_t`, `mn6_fp_c2` | 27 B each | Same status as `mn7_hash_t`; `mn6_fp_c2` is the fingerprint's c2 term. |
 | mn7_tables.s RODATA | `mn7_fp`, `mn7_base_op`, `mn7_profile` | 128 B each | `mn7_base_op` / `mn7_profile` are **re-exported via mn_classify** (see above).  `mn7_fp` is internal — only `mn7_classify` reads it. |
 | mn6_tables.s RODATA | `mn6_fp`, `mn6_base_op`, `mn6_profile` | 64 B each | Same split: `base_op` / `profile` re-exported; `fp` internal. |
 
