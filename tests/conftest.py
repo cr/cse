@@ -12,6 +12,7 @@ Fixtures provided
 asm_syms        — asm_core bundle, -DCMOS_SUPPORT (65C02 production)
 asm_6510_syms   — asm_core bundle, no CMOS_SUPPORT (6510 production)
 asm_6502_syms   — asm_core bundle, -DUSE_MN6     (6502 production)
+dasm_bundle(c)  — dasm bundle per C64 build (c ∈ DASM_CONFIGS), PROD_DEFS[c]
 mn6_syms        — mn6 hash test binary  (test_mn_classify.py)
 mn7_syms        — mn7 hash test binary  (test_mn_classify.py)
 mem_syms        — zp + mem bundle       (test_mem.py)
@@ -237,15 +238,38 @@ _AC_LBL = {
     "6510": BUILD / "asm_core_6510_test.lbl",
     "6502": BUILD / "asm_core_6502_test.lbl",
 }
-_AC_FLAGS = {
-    "cmos": ["-DCMOS_SUPPORT"],
-    "6510": [],
-    "6502": ["-DUSE_MN6"],
+# Production `-D` sets per CPU set, mirroring the Makefile's
+# `_<cpu>_DEFS` minus TAB_WIDTH (build_system.md § Builds and CPU sets;
+# testing.md Principle 10).  Pinned against the Makefile by
+# tests/unit/test_build_parity.py.
+PROD_DEFS = {
+    "6502": ["-DCPU_6502", "-DUSE_MN6", "-DDEFAULT_CPU=0", "-DCPU_CEIL=0"],
+    "6510": ["-DCPU_6510", "-DDEFAULT_CPU=0", "-DCPU_CEIL=1"],
+    "cmos": ["-DCPU_65C02", "-DCMOS_SUPPORT", "-DDEFAULT_CPU=2", "-DCPU_CEIL=2"],
 }
+
+_AC_FLAGS = PROD_DEFS
+
+
+def _flags_stamp(binary):
+    return binary.with_suffix(".flags")
+
+
+def _flags_changed(binary, flags):
+    """True when `binary` was built with a different `-D` set than
+    `flags` (mtime checks alone miss a flag change)."""
+    stamp = _flags_stamp(binary)
+    return not stamp.exists() or stamp.read_text() != " ".join(flags)
+
+
+def _write_flags_stamp(binary, flags):
+    _flags_stamp(binary).write_text(" ".join(flags))
 
 
 def _ac_needs_rebuild(config):
     if not _AC_BIN[config].exists() or not _AC_LBL[config].exists():
+        return True
+    if _flags_changed(_AC_BIN[config], _AC_FLAGS[config]):
         return True
     bin_mtime = _AC_BIN[config].stat().st_mtime
     return any(s.stat().st_mtime > bin_mtime
@@ -271,6 +295,7 @@ def _ac_build(config):
          "-Ln", str(_AC_LBL[config])],
         check=True,
     )
+    _write_flags_stamp(_AC_BIN[config], _AC_FLAGS[config])
 
 
 class AsmCoreSymbols:
@@ -603,14 +628,21 @@ def as_syms():
     return AsmSrcSymbols()
 
 
-# ── dasm test binary ─────────────────────────────────────────────────────────
+# ── dasm test binaries ───────────────────────────────────────────────────────
 #
 # Links: dasm.s + dasm_tables.s + dasm_test_stub.s
 # The stub provides banking helpers; ZP comes from zp.s.
+# One binary per production CPU set (Principle 10), built with that
+# build's PROD_DEFS.  "cmos" keeps the historical dasm_test.* names.
 
-_DASM_BIN = BUILD / "dasm_test.bin"
-_DASM_MAP = BUILD / "dasm_test.map"
-_DASM_LBL = BUILD / "dasm_test.lbl"
+DASM_CONFIGS = ("6502", "6510", "cmos")
+
+def _dasm_stem(config):
+    return "dasm_test" if config == "cmos" else f"dasm_{config}_test"
+
+_DASM_BIN = {c: BUILD / f"{_dasm_stem(c)}.bin" for c in DASM_CONFIGS}
+_DASM_MAP = {c: BUILD / f"{_dasm_stem(c)}.map" for c in DASM_CONFIGS}
+_DASM_LBL = {c: BUILD / f"{_dasm_stem(c)}.lbl" for c in DASM_CONFIGS}
 
 _DASM_SOURCES = [
     SRC / "zp.s",
@@ -621,21 +653,23 @@ _DASM_SOURCES = [
 ]
 
 
-def _dasm_needs_rebuild():
-    if not _DASM_BIN.exists() or not _DASM_LBL.exists():
+def _dasm_needs_rebuild(config):
+    if not _DASM_BIN[config].exists() or not _DASM_LBL[config].exists():
         return True
-    bin_mtime = _DASM_BIN.stat().st_mtime
-    extra = [SRC / "dasm_mne_idx.s"]
+    if _flags_changed(_DASM_BIN[config], PROD_DEFS[config]):
+        return True
+    bin_mtime = _DASM_BIN[config].stat().st_mtime
+    extra = [SRC / "dasm_mne_idx.s", DEV / "test.cfg"]
     return any(s.stat().st_mtime > bin_mtime
                for s in _DASM_SOURCES + extra if s.exists())
 
 
-def _dasm_build():
+def _dasm_build(config):
     BUILD.mkdir(exist_ok=True)
     obj_files = []
     for src in _DASM_SOURCES:
-        obj = BUILD / f"{src.stem}_dasm.o"
-        cmd = ["ca65", "-g", "--cpu", "6502", "-DCMOS_SUPPORT",
+        obj = BUILD / f"{src.stem}_dasm_{config}.o"
+        cmd = ["ca65", "-g", "--cpu", "6502", *PROD_DEFS[config],
                "-I", str(SRC), "-I", str(BUILD),
                str(src), "-o", str(obj)]
         subprocess.run(cmd, check=True)
@@ -643,31 +677,32 @@ def _dasm_build():
     subprocess.run(
         ["ld65", "-C", str(DEV / "test.cfg"),
          *obj_files,
-         "-o", str(_DASM_BIN),
-         "-m", str(_DASM_MAP),
-         "-Ln", str(_DASM_LBL)],
+         "-o", str(_DASM_BIN[config]),
+         "-m", str(_DASM_MAP[config]),
+         "-Ln", str(_DASM_LBL[config])],
         check=True,
     )
+    _write_flags_stamp(_DASM_BIN[config], PROD_DEFS[config])
 
 
 class DasmSymbols:
-    """Resolved symbol addresses + binary loader for the dasm test.
+    """Resolved symbol addresses + binary loader for one dasm variant.
 
-    All symbols resolved from .lbl file (debug build) — no more BSS
-    segment parsing or stub-offset fallback logic.
+    All symbols resolved from .lbl file (debug build).
     """
 
-    def __init__(self):
-        if _dasm_needs_rebuild():
-            _dasm_build()
+    def __init__(self, config="cmos"):
+        self.config = config
+        if _dasm_needs_rebuild(config):
+            _dasm_build(config)
 
-        s = SymbolTable(_DASM_LBL)
+        s = SymbolTable(_DASM_LBL[config])
 
         self.dasm_test_entry = s["dasm_test_entry"]
         self.asm_cpu         = s["asm_cpu"]
         self.dasm_buf        = s["dasm_buf"]
 
-        raw = _DASM_BIN.read_bytes()
+        raw = _DASM_BIN[config].read_bytes()
         self._zp_blob   = raw[:_ZP_SIZE]
         self._code_blob = raw[_ZP_SIZE:]
 
@@ -676,10 +711,19 @@ class DasmSymbols:
         memory[_CODE_START : _CODE_START + len(self._code_blob)]   = self._code_blob
 
 
+_DASM_CACHE = {}
+
+def dasm_bundle(config):
+    """Session-cached dasm variant (one build per config per session)."""
+    if config not in _DASM_CACHE:
+        _DASM_CACHE[config] = DasmSymbols(config)
+    return _DASM_CACHE[config]
+
+
 @pytest.fixture(scope="session")
 def dasm_syms():
-    """Session-scoped dasm test binary + symbol addresses."""
-    return DasmSymbols()
+    """Session-scoped dasm test binary, 65C02 build (config 'cmos')."""
+    return dasm_bundle("cmos")
 
 
 # ── mem test binary ──────────────────────────────────────────────────────────

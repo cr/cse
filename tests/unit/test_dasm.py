@@ -6,9 +6,10 @@ Coverage of the documented contract
 -----------------------------------
 2 exported items:
 
-  dasm_insn        — test_dasm (256 opcodes × 3 CPU modes = 768
-                      parametrised cases) against expected mnemonic +
-                      operand format from dev/instruction_set.py;
+  dasm_insn        — test_dasm (256 opcodes × every asm_cpu of every
+                      C64 build: 6502 ×1, 6510 ×2, cmos ×3 = 1536
+                      cases) against the oracle built from
+                      instruction_set.instructions(variant);
                       test_dasm_boundary_operands (operand edge cases);
                       TestDasmBankContract (banking state post-call)
   dasm_buf (BSS)   — read directly by every test_dasm case (decoded
@@ -22,8 +23,9 @@ CPU modes:
   1 = 6510    (legal + NMOS illegals)
   2 = 65C02   (legal + CMOS extensions)
 
-Bundle: dasm + dasm_tables + dasm_test_stub (tests/unit/test_dasm.py
-uses the `dasm_syms` conftest fixture).
+Bundles: dasm + dasm_tables + dasm_test_stub, one per C64 build
+(`dasm_bundle(config)`, config ∈ 6502 / 6510 / cmos, production -D
+sets); the single-variant tests below use `dasm_syms` (cmos).
 """
 
 import sys
@@ -32,18 +34,28 @@ import pytest
 from py65.devices.mpu6502 import MPU
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent / "dev"))
-from instruction_set import OPCODES, MNEMONICS
+import instruction_set as I
 
-# ── CPU modes ────────────────────────────────────────────────────
+from conftest import DASM_CONFIGS, dasm_bundle
+
+# ── CPU modes (asm_cpu, build_system.md § Builds and CPU sets) ───
 CPU_6502  = 0   # legal only
 CPU_6510  = 1   # legal + illegal
 CPU_65C02 = 2   # legal + CMOS
 
-MODE_LEN = {
-    'IMP': 1, 'ACC': 1, 'IMM': 2, 'ZP': 2, 'ZPX': 2, 'ZPY': 2,
-    'ABS': 3, 'ABX': 3, 'ABY': 3, 'IND': 3, 'INX': 2, 'INY': 2,
-    'REL': 2, 'ZPI': 2, 'AIX': 3, 'ZPREL': 3,
+# asm_cpu value → instruction-set variant of that CPU's view.
+CPU_VARIANT = {CPU_6502: '6502', CPU_6510: '6510', CPU_65C02: '65c02'}
+
+# Each dasm build config → the asm_cpu values of its CPU set.
+CONFIG_CPUS = {
+    '6502': (CPU_6502,),
+    '6510': (CPU_6502, CPU_6510),
+    'cmos': (CPU_6502, CPU_6510, CPU_65C02),
 }
+assert set(CONFIG_CPUS) == set(DASM_CONFIGS)
+
+# Instruction length per mode = opcode byte + operand bytes.
+MODE_LEN = {m: 1 + n for m, n in I.MODE_OPERAND_BYTES.items()}
 
 # ── Operand formatters ───────────────────────────────────────────
 def fmt_operand(mode, operand_bytes, insn_addr):
@@ -72,144 +84,110 @@ def fmt_operand(mode, operand_bytes, insn_addr):
         return f'${b[0]:02X},${target:04X}'
     return ''
 
-# ── 65C02 additions ──────────────────────────────────────────────
-CMOS_ADDITIONS = {
-    0x80: ('BRA', 'REL'),
-    0x04: ('TSB', 'ZP'),  0x0C: ('TSB', 'ABS'),
-    0x14: ('TRB', 'ZP'),  0x1C: ('TRB', 'ABS'),
-    0x64: ('STZ', 'ZP'),  0x74: ('STZ', 'ZPX'),
-    0x9C: ('STZ', 'ABS'), 0x9E: ('STZ', 'ABX'),
-    0x34: ('BIT', 'ZPX'), 0x3C: ('BIT', 'ABX'), 0x89: ('BIT', 'IMM'),
-    0x7C: ('JMP', 'AIX'),
-    0x1A: ('INC', 'ACC'), 0x3A: ('DEC', 'ACC'),
-    0x5A: ('PHY', 'IMP'), 0x7A: ('PLY', 'IMP'),
-    0xDA: ('PHX', 'IMP'), 0xFA: ('PLX', 'IMP'),
-    0x12: ('ORA', 'ZPI'), 0x32: ('AND', 'ZPI'),
-    0x52: ('EOR', 'ZPI'), 0x72: ('ADC', 'ZPI'),
-    0x92: ('STA', 'ZPI'), 0xB2: ('LDA', 'ZPI'),
-    0xD2: ('CMP', 'ZPI'), 0xF2: ('SBC', 'ZPI'),
-}
-for d in range(8):
-    CMOS_ADDITIONS[0x07 + d * 0x10] = (f'RMB{d}', 'ZP')
-    CMOS_ADDITIONS[0x87 + d * 0x10] = (f'SMB{d}', 'ZP')
-    CMOS_ADDITIONS[0x0F + d * 0x10] = (f'BBR{d}', 'ZPREL')
-    CMOS_ADDITIONS[0x8F + d * 0x10] = (f'BBS{d}', 'ZPREL')
 
+# ── Per-CPU views, from the instruction set alone ────────────────
+def _listing_rank():
+    """Mnemonic → rank in the listing-name order: `OPCODES` order, then
+    `OPCODES_4510_ADDED` order (dasm.md § Design, *Listing name*)."""
+    order = list(I.OPCODES) + list(I.OPCODES_4510_ADDED)
+    return {m: i for i, m in enumerate(order)}
 
-# ── Build per-CPU maps ───────────────────────────────────────────
-CMOS_ONLY_MODES = {'ZPI', 'AIX'}  # modes that exist only on 65C02
-
-# Specific opcodes that are 65C02-only despite the mnemonic being "legal"
-CMOS_ONLY_OPCODES = set(CMOS_ADDITIONS.keys())
 
 def build_cpu_maps():
-    maps = {CPU_6502: {}, CPU_6510: {}, CPU_65C02: {}}
-    for mne, modes in OPCODES.items():
-        cat = MNEMONICS[mne][2]
-        for mode, opc in modes.items():
-            if opc is None:
+    """opcode → (listing name, mode) per asm_cpu.  Where several rows
+    name one opcode (the 6510 aliases, NOP/EOM), the listing name is the
+    row whose key ranks last in the listing-name order."""
+    rank = _listing_rank()
+    maps = {}
+    for cpu, variant in CPU_VARIANT.items():
+        best = {}
+        for r in I.instructions(variant):
+            if r.prefix:
                 continue
-            is_cmos_only = mode in CMOS_ONLY_MODES or opc in CMOS_ONLY_OPCODES
-            if cat == 'legal':
-                if not is_cmos_only:
-                    maps[CPU_6502][opc]  = (mne, mode)
-                    maps[CPU_6510][opc]  = (mne, mode)
-                maps[CPU_65C02][opc] = (mne, mode)
-            elif cat == 'illegal':
-                maps[CPU_6510][opc]  = (mne, mode)
-            elif cat == 'cmos':
-                maps[CPU_65C02][opc] = (mne, mode)
-    for opc, (mne, mode) in CMOS_ADDITIONS.items():
-        maps[CPU_65C02][opc] = (mne, mode)
+            cur = best.get(r.opcode)
+            if cur is None or rank[r.key] >= rank[cur.key]:
+                best[r.opcode] = r
+        maps[cpu] = {op: (r.mnemonic, r.mode) for op, r in best.items()}
     return maps
 
 CPU_MAPS = build_cpu_maps()
 
 INSN_ADDR = 0x0B00  # Must be above CODE+RODATA+BSS (ends ~$095E)
 TEST_OPERANDS = [0x42, 0x34]  # arbitrary operand bytes
+RETURN_ADDR = 0x0F00
 
 
-def expected_string(cpu, opc):
+def expected_string(cpu, opc, operands=TEST_OPERANDS):
     if opc not in CPU_MAPS[cpu]:
         return '...'
     mne, mode = CPU_MAPS[cpu][opc]
-    operand = fmt_operand(mode, TEST_OPERANDS, INSN_ADDR)
+    operand = fmt_operand(mode, operands, INSN_ADDR)
     if operand:
         return f'{mne} {operand}'
     return mne
 
 
-# ── Parametrize ──────────────────────────────────────────────────
-def gen_cases():
-    cases = []
-    for cpu in [CPU_6502, CPU_6510, CPU_65C02]:
-        for opc in range(256):
-            exp = expected_string(cpu, opc)
-            tag = ['6502', '6510', '65C02'][cpu]
-            cases.append(pytest.param(cpu, opc, exp, id=f'{tag}-${opc:02X}'))
-    return cases
+def expected_length(cpu, opc):
+    if opc not in CPU_MAPS[cpu]:
+        return 1
+    return MODE_LEN[CPU_MAPS[cpu][opc][1]]
 
 
-@pytest.mark.parametrize("cpu,opc,exp", gen_cases())
-def test_dasm(dasm_syms, cpu, opc, exp):
-    """Disassemble one opcode and compare with expected output."""
+def run_dasm(syms, cpu, insn_bytes):
+    """Disassemble `insn_bytes` at INSN_ADDR with asm_cpu=`cpu`.
+    Returns (text, length, cycles)."""
     mpu = MPU()
     mem = bytearray(0x10000)
-    dasm_syms.load_into(mem)
-
-    # Place instruction at $0300
-    mem[INSN_ADDR]     = opc
-    mem[INSN_ADDR + 1] = TEST_OPERANDS[0]
-    mem[INSN_ADDR + 2] = TEST_OPERANDS[1]
-
-    # Set CPU mode
-    mem[dasm_syms.asm_cpu] = cpu
-
-    # Place a BRK at return address so we know when done.
-    # Must be ABOVE all segments (CODE+RODATA+BSS can extend past $0A00).
-    RETURN_ADDR = 0x0F00
+    syms.load_into(mem)
+    for n, b in enumerate(insn_bytes):
+        mem[INSN_ADDR + n] = b
+    mem[syms.asm_cpu] = cpu
     mem[RETURN_ADDR] = 0x00  # BRK
-
     mpu.memory = mem
     mpu.sp = 0xFF
-    # Push return address - 1 for the stub's RTS
-    mpu.sp -= 1
-    mem[0x01FF] = (RETURN_ADDR - 1) >> 8
-    mpu.sp -= 1
-    mem[0x01FE] = (RETURN_ADDR - 1) & 0xFF
-
-    mpu.pc = dasm_syms.dasm_test_entry
-
-    # Execute until PC hits RETURN_ADDR (BRK)
-    steps = 0
-    while steps < 10000:
+    mpu.sp -= 1; mem[0x01FF] = (RETURN_ADDR - 1) >> 8
+    mpu.sp -= 1; mem[0x01FE] = (RETURN_ADDR - 1) & 0xFF
+    mpu.pc = syms.dasm_test_entry
+    start = mpu.processorCycles
+    for _ in range(10000):
         if mpu.pc == RETURN_ADDR:
             break
         mpu.step()
-        steps += 1
     else:
-        pytest.fail(f"Didn't return after 10000 steps (PC=${mpu.pc:04X})")
-
-    # Read dasm_buf
-    buf = dasm_syms.dasm_buf
-    result = ''
-    for i in range(24):
-        ch = mem[buf + i]
+        raise TimeoutError(f"dasm did not return (PC=${mpu.pc:04X})")
+    text = ''
+    for n in range(24):
+        ch = mem[syms.dasm_buf + n]
         if ch == 0:
             break
-        result += chr(ch)
+        text += chr(ch)
+    return text, mpu.a, mpu.processorCycles - start
 
-    # Compare (normalize to uppercase for PETSCII)
-    assert result.upper().rstrip() == exp.upper(), \
-        f'${opc:02X} cpu={cpu}: got {result!r}, expected {exp!r}'
 
-    # Check instruction length
-    if opc in CPU_MAPS[cpu]:
-        _, mode = CPU_MAPS[cpu][opc]
-        assert mpu.a == MODE_LEN[mode], \
-            f'${opc:02X} cpu={cpu}: length={mpu.a}, expected {MODE_LEN[mode]}'
-    else:
-        assert mpu.a == 1, f'${opc:02X} cpu={cpu}: unknown should be length 1'
+# ── Parametrize: every opcode × every CPU of every build ─────────
+def gen_cases():
+    cases = []
+    for config, cpus in CONFIG_CPUS.items():
+        for cpu in cpus:
+            tag = CPU_VARIANT[cpu].upper()
+            for opc in range(256):
+                cases.append(pytest.param(config, cpu, opc,
+                                          id=f'{config}-{tag}-${opc:02X}'))
+    return cases
+
+
+@pytest.mark.parametrize("config,cpu,opc", gen_cases())
+def test_dasm(config, cpu, opc):
+    """Disassemble one opcode on one build's CPU view and compare with
+    the instruction-set oracle (text and length)."""
+    text, length, _ = run_dasm(dasm_bundle(config), cpu,
+                               [opc, *TEST_OPERANDS])
+    exp = expected_string(cpu, opc)
+    assert text.upper().rstrip() == exp.upper(), \
+        f'{config} ${opc:02X} cpu={cpu}: got {text!r}, expected {exp!r}'
+    assert length == expected_length(cpu, opc), \
+        f'{config} ${opc:02X} cpu={cpu}: length={length}, ' \
+        f'expected {expected_length(cpu, opc)}'
 
 
 # ── GAP 3: Boundary operand tests ────────────────────────────────────────────

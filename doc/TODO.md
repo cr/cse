@@ -140,20 +140,27 @@ Projected C64 effect (model, not measured): asm lookup 364 B →
 
 ### Phase A — C64 builds move to the generated formats (no behaviour change)
 
-- [ ] A0. Sync the four shared generator files from bbbc64
+- [x] ~~A0. Sync the four shared generator files from bbbc64
   (`instruction_set.py`, `hashes.py`, `mnemonic_tables.py`,
   `dasm_tables.py`).  Verified 2026-11-16: bbbc64's copies regenerate
-  cse's seven tables byte-identically.
-- [ ] A0b. **Before any code change:** dasm bundles for c64-6502 and
+  cse's seven tables byte-identically.~~  (Done 2026-11-16: synced; tables
+  unchanged; suite 3139 passed / 18 skipped.)
+- [x] ~~A0b. **Before any code change:** dasm bundles for c64-6502 and
   c64-6510 (today only the 65c02 variant is built); test oracles
   rewritten over `instruction_set.instructions(variant)` (no
   hand-coded `CMOS_ADDITIONS`); golden files recorded from the current
   code — every instruction-set row through `asm_line`, every opcode ×
   `asm_cpu` through `dasm_insn`, per C64 variant, with py65 cycle
-  counts ([testing.md § Principle 7](testing.md#principles)).
-- [ ] A0c. Gate tooling: a size-budget test (each C64 release PRG ≤ its
+  counts ([testing.md § Principle 7](testing.md#principles)).~~  (Done
+  2026-11-16: `dasm_bundle(config)` for 6502/6510/cmos with `PROD_DEFS`;
+  `asm_core` on `PROD_DEFS`; `tests/asm_dasm_runner.py`,
+  `dev/capture_golden.py`, `tests/fixtures/golden/` — 1536 dasm + 6912
+  asm cases.  The oracle surfaced the listing-name rule for aliases,
+  now in [dasm.md § Design](modules/dasm.md#design).)
+- [x] ~~A0c. Gate tooling: a size-budget test (each C64 release PRG ≤ its
   baseline) and a `dev/` benchmark comparing cycles to the golden
-  files.
+  files.~~  (Done 2026-11-16 as tests: `test_size_budget.py` (gate 1),
+  `test_golden_asm_dasm.py` (gates 2–3), `test_build_parity.py`.)
 - [ ] A1. Generator: per-CPU-set table blocks
   ([build_system.md § Table generation](build_system.md#table-generation));
   the profile-row model moved into the shared `mnemonic_tables.py`
