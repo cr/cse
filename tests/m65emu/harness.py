@@ -4,8 +4,11 @@ Owner: doc/build_system.md
 
 Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65-integration-harness).
 
-MPU45GS02 on M65Memory behind EmuBase's surface (the one C64Emu has),
-started either blank or from the post-boot snapshot that
+MPU45GS02 on M65Memory behind EmuBase's surface (the one C64Emu has:
+M65Emu supplies EmuBase's hooks — interrupt entry through the CPU, a
+jiffy tick that latches $D019's raster bit, RESTORE in $DD0D, keys
+into the hardware queue, load_prg() into bank 0), started either
+blank or from the post-boot snapshot that
 dev/capture_m65_state.py records from xmega65 into build/m65_state/:
 
     chip.bin       chip RAM, $00000-$5FFFF (the ROM image included)
@@ -21,9 +24,10 @@ The snapshot holds the MEGA65 ROM, so it is never committed.
 import json
 import pathlib
 
-from emu_base import EmuBase, decode_screen_codes
+from emu_base import EmuBase, KeyMatrix, decode_screen_codes
 
-from .devices import CIA1Ports, DMAController, KeyboardQueue
+from .devices import (CIA1Ports, CIA2InterruptControl, DMAController,
+                      KeyboardQueue, VICInterruptLatch)
 from .memory import COLOUR, M65Memory
 from .mpu45gs02 import MPU45GS02
 
@@ -61,11 +65,15 @@ class M65Emu(EmuBase):
         mem = M65Memory()
         self.dma = DMAController(mem)
         self.keyboard = KeyboardQueue()
-        self.cia1 = CIA1Ports()
+        self.cia1 = CIA1Ports(KeyMatrix())
+        self.cia2_icr = CIA2InterruptControl()
+        self.vic_irq = VICInterruptLatch()
         mem.attach(self.dma, 0x700, 0x70F)
         for off in KeyboardQueue.REGISTERS:
             mem.attach(self.keyboard, off)
         mem.attach(self.cia1, 0xC00, 0xC01)
+        mem.attach(self.cia2_icr, 0xD0D)
+        mem.attach(self.vic_irq, 0x019)
         if snapshot is not None:
             st = snapshot["state"]
             mem.load(0, snapshot["chip"])
@@ -116,20 +124,36 @@ class M65Emu(EmuBase):
         """jsr(): push onto the current stack, as JSR would."""
         self._cpu._push_word(ret)
 
-    def inject_keys(self, data):
-        """Queue PETSCII bytes in the keyboard scanner, as typed."""
-        for petscii in data:
-            self.keyboard.push(petscii)
+    # ── the hooks of EmuBase's interrupts, keyboard and loader ────
 
-    def load_prg(self, prg_path, map_path=None):
-        """Put the payload at its load address in bank 0, as the
-        KERNAL's LOAD does, and load the symbols of the .lbl beside
-        the map; return the load address."""
-        prg_path = pathlib.Path(prg_path)
-        load_addr, payload = self._read_prg(prg_path)
-        self._mem.load(load_addr, payload)
-        self._load_symbols(map_path or prg_path.with_suffix(".map"))
-        return load_addr
+    def _enter_irq(self):
+        """MPU45GS02's entry: refused while I is set, a prefix or the
+        MAP latch is pending."""
+        return self._cpu.irq()
+
+    def _enter_nmi(self):
+        return self._cpu.nmi()
+
+    def _jiffy_tick(self):
+        """The tick stands for a frame: the raster interrupt latched,
+        as the KERNAL's IRQ handler checks before its frame work."""
+        self.vic_irq.raise_(0x01)
+
+    def _latch_restore(self):
+        self.cia2_icr.latch(0x10)
+
+    def _queue_key(self, petscii):
+        """Into the hardware keyboard queue (no limit)."""
+        self.keyboard.push(petscii)
+
+    @property
+    def _keys(self):
+        return self.cia1.keys
+
+    @property
+    def _ram(self):
+        """load_prg() writes bank 0, as the KERNAL's LOAD does."""
+        return memoryview(self._mem.chip)[:0x10000]
 
     # ── the screen, where the VIC-IV shows it ─────────────────────
 

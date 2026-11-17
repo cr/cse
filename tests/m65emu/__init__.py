@@ -6,9 +6,11 @@ Layer 1, the CPU: MPU45GS02 (mpu45gs02.py), decoding from the
 compendium's instruction table (isa.py), checked against xmega65
 through the golden file (golden.py).  Layer 2, the memory
 layout: M65Memory (memory.py), checked against translations recorded
-in xmega65.  The harness, M65Emu (harness.py), runs them behind
-C64Emu's surface (emu_base.py), from a post-boot snapshot recorded in
-xmega65.  Layer 3, the devices, follows in S2-3d.
+in xmega65.  Layer 3, the devices (devices.py): the DMA controller,
+checked against jobs recorded in xmega65, the keyboard queue, the CIA
+ports and the VIC interrupt latch.  The harness, M65Emu (harness.py),
+runs them behind C64Emu's surface (emu_base.py) — feature parity, not
+a full MEGA65 — from a post-boot snapshot recorded in xmega65.
 """
 
 from .harness import M65Emu, SnapshotMissing, load_snapshot

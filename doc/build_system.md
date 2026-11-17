@@ -14,7 +14,7 @@
 | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | implementation — disassembler table generator |
 | [`tests/conftest.py`](../tests/conftest.py) | implementation — test fixtures and auto-rebuild |
 | [`tests/c64emu.py`](../tests/c64emu.py) | implementation — C64 emulator class (C64Emu) |
-| [`tests/emu_base.py`](../tests/emu_base.py) | implementation — `EmuBase`, what C64Emu and M65Emu share: registers, run loops, word access, symbols, screen-code decoding |
+| [`tests/emu_base.py`](../tests/emu_base.py) | implementation — `EmuBase`, what C64Emu and M65Emu share: registers, run loops, word access, symbols, screen-code decoding, the interrupt scheduler and jiffy tick, `KeyMatrix` and the keyboard calls, `load_prg()` with segment relocation, `set_cursor()`, `init_cse()` |
 | [`tests/asm_dasm_runner.py`](../tests/asm_dasm_runner.py) | implementation — exhaustive asm_line / dasm_insn sweeps on py65 (output + cycles) |
 | [`dev/capture_golden.py`](../dev/capture_golden.py) | implementation — records the asm/dasm golden files from a known-good tree |
 | [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<cpu set>.json`, one per C64 CPU set, by `dev/capture_golden.py`; `m65_cpu.json`, the 45GS02 as xmega65 executes it, by `dev/capture_m65_golden.py`; `m65_mem.json`, the CPU view's translation per banking state, by `dev/capture_m65_mem.py`; `m65_dma.json`, DMA jobs, by `dev/capture_m65_dma.py`; back-link-exempt (JSON has no comment syntax) |
@@ -23,7 +23,7 @@
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
 | [`tests/unit/test_dasm_tables.py`](../tests/unit/test_dasm_tables.py) | test contract — the disassembler model of `dev/dasm_tables.py` |
-| [`tests/m65emu/`](../tests/m65emu/) | implementation — M65Emu, the m65 harness: `MPU45GS02` (`mpu45gs02.py`), its decode table from the compendium fixture (`isa.py`), the CPU golden-file format (`golden.py`), `M65Memory` (`memory.py`), the devices — DMA controller, keyboard queue, CIA1 matrix port (`devices.py`) —, the `M65Emu` harness and its snapshot loading (`harness.py`) ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)) |
+| [`tests/m65emu/`](../tests/m65emu/) | implementation — M65Emu, the m65 harness: `MPU45GS02` (`mpu45gs02.py`), its decode table from the compendium fixture (`isa.py`), the CPU golden-file format (`golden.py`), `M65Memory` (`memory.py`), the devices — DMA controller, keyboard queue, CIA1 matrix port, VIC interrupt latch, CIA2 interrupt control (`devices.py`) —, the `M65Emu` harness and its snapshot loading (`harness.py`) ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)) |
 | [`tests/xmega65.py`](../tests/xmega65.py) | implementation — the xmega65 driver (headless start on a cloned SD image, uartmon commands) for Tier X and the M65Emu recordings |
 | [`dev/capture_m65_golden.py`](../dev/capture_m65_golden.py) | implementation — records `m65_cpu.json` in xmega65 |
 | [`dev/capture_m65_state.py`](../dev/capture_m65_state.py) | implementation — records M65Emu's post-boot snapshot and reference run from xmega65 into `build/m65_state/` (run by hand; holds the ROM, never committed) |
@@ -32,15 +32,16 @@
 | [`tests/fixtures/mega65_instruction_set.csv`](../tests/fixtures/mega65_instruction_set.csv) | dependency — the MEGA65 compendium's instruction tables (bbbc64's `dev/mega65_opcode_extract.py` output, copied unchanged); `MPU45GS02`'s decoder source; back-link-exempt (CSV) |
 | [`tests/unit/test_mpu45gs02.py`](../tests/unit/test_mpu45gs02.py) | test contract — `MPU45GS02` against the fixture, the 45GS02-specific behaviour and every case of `m65_cpu.json` |
 | [`tests/unit/test_m65emu_harness.py`](../tests/unit/test_m65emu_harness.py) | test contract — the M65Emu harness without a snapshot: `jsr`, `run_until`, registers, `load_prg`, `screen_text`, the I/O log, `restore()` |
-| [`tests/integration/test_m65emu.py`](../tests/integration/test_m65emu.py) | test contract — M65Emu on the real MEGA65 KERNAL: `CHROUT` matches xmega65's reference run (skipped without the snapshot) |
+| [`tests/integration/test_m65emu.py`](../tests/integration/test_m65emu.py) | test contract — M65Emu on the real MEGA65 KERNAL: the reference runs (`CHROUT`, the DMA scroll) match xmega65's, `GETIN` reads injected keys, and the parity calls reach the KERNAL — the jiffy tick's frame work, STOP through the matrix, RESTORE's NMI, `PLOT` (skipped without the snapshot) |
 | [`tests/unit/test_m65dma.py`](../tests/unit/test_m65dma.py) | test contract — the DMA controller against every job of `m65_dma.json`, plus snapshot restore and the modes that raise |
-| [`tests/unit/test_m65devices.py`](../tests/unit/test_m65devices.py) | test contract — the keyboard queue, the CIA1 matrix port, device claims and the unmodelled-I/O log |
+| [`tests/unit/test_m65devices.py`](../tests/unit/test_m65devices.py) | test contract — the keyboard queue and `inject_key()`, the CIA1 matrix port, the VIC interrupt latch (`$D019`), the CIA2 interrupt register (`$DD0D`), device claims and the unmodelled-I/O log |
 | [`tests/unit/test_m65memory.py`](../tests/unit/test_m65memory.py) | test contract — `M65Memory` against every state of `m65_mem.json`, plus colour RAM, ROM protection, the CPU port, the page-table triggers and `MAP` run on `MPU45GS02` |
-| [`tests/integration/test_c64emu.py`](../tests/integration/test_c64emu.py) | test contract — exercises the C64Emu harness itself (basic execution, register access, screen access) |
+| [`tests/integration/test_c64emu.py`](../tests/integration/test_c64emu.py) | test contract — exercises the C64Emu harness itself (construction, banking, `jsr`, the KERNAL buffer, `PLOT`, `GETIN`, screen access) |
 | [`tests/integration/test_c64emu_banking.py`](../tests/integration/test_c64emu_banking.py) | test contract — `$01` banking + KERNAL/BASIC ROM mapping |
-| [`tests/integration/test_c64emu_cia.py`](../tests/integration/test_c64emu_cia.py) | test contract — CIA1/CIA2 timer + IRQ behaviour |
-| [`tests/integration/test_c64emu_interrupts.py`](../tests/integration/test_c64emu_interrupts.py) | test contract — IRQ / NMI vector dispatch + I-flag preservation |
-| [`tests/integration/test_c64emu_jiffy.py`](../tests/integration/test_c64emu_jiffy.py) | test contract — KERNAL jiffy clock + IRQ-driven cursor blink |
+| [`tests/integration/test_c64emu_cia.py`](../tests/integration/test_c64emu_cia.py) | test contract — C64-only: the matrix hidden under the character ROM (CHAREN=0) |
+| [`tests/integration/test_c64emu_interrupts.py`](../tests/integration/test_c64emu_interrupts.py) | test contract — C64-only: the interrupt vector fetched through the banking |
+| [`tests/integration/test_c64emu_jiffy.py`](../tests/integration/test_c64emu_jiffy.py) | test contract — C64-only: the jiffy tick makes the C64 KERNAL count `$A0`–`$A2` |
+| [`tests/integration/test_emu_parity.py`](../tests/integration/test_emu_parity.py) | test contract — what `C64Emu` and `M65Emu` share (`emu_base.py`): interrupt scheduler, jiffy tick, keyboard matrix, RESTORE, key injection, `load_prg()` relocation, `set_cursor()`, `init_cse()` — parametrised over both |
 | `rom/kernal_cbm.bin` | dependency — stock C64 KERNAL ROM (not committed; see `.gitignore`) |
 | `rom/basic_cbm.bin` | dependency — stock C64 BASIC ROM (not committed) |
 | `rom/chargen_cbm.bin` | dependency — stock C64 character ROM (not committed) |

@@ -1,4 +1,5 @@
-"""devices.py — M65Emu's devices (layer 3): DMA, keyboard queue, CIA1 port.
+"""devices.py — M65Emu's devices (layer 3): DMA, keyboard queue, CIA ports,
+the VIC interrupt latch.
 
 Owner: doc/build_system.md
 
@@ -9,7 +10,10 @@ read(off) / write(off, value) for them, and load(io) restores its
 state from a snapshot's I/O page without side effects.  The DMA
 controller is checked against jobs recorded in xmega65
 (tests/fixtures/golden/m65_dma.json); the keyboard queue follows
-xemu's source (the monitor cannot type a key).
+xemu's source (the monitor cannot type a key).  The CIA1 port reads
+the key matrix C64Emu reads (emu_base.KeyMatrix); the VIC latch and
+the CIA2 interrupt register hold what the jiffy tick and RESTORE raise
+— no raster timing, no CIA timers, as in C64Emu.
 """
 
 import collections
@@ -244,18 +248,64 @@ class KeyboardQueue:
 
 
 class CIA1Ports:
-    """CIA1's keyboard matrix ports: port A ($DC00) selects rows and
-    reads back; port B ($DC01) reads $FF — no key held."""
+    """CIA1's keyboard matrix ports: port A ($DC00) selects columns and
+    reads back; port B ($DC01) reads the held keys of `keys` (a
+    KeyMatrix) in the selected columns."""
 
-    def __init__(self):
+    def __init__(self, keys):
+        self.keys = keys
         self.port_a = 0xFF
 
     def load(self, io):
         pass                                  # the CIAs are not captured
 
     def read(self, off):
-        return self.port_a if off == 0xC00 else 0xFF
+        return self.port_a if off == 0xC00 else self.keys.rows(self.port_a)
 
     def write(self, off, v):
         if off == 0xC00:
             self.port_a = v
+
+
+class CIA2InterruptControl:
+    """CIA2's interrupt control register ($DD0D), as far as RESTORE
+    goes: bit 4 latched by `latch()`, returned and cleared by a read."""
+
+    def __init__(self):
+        self.latched = 0
+
+    def load(self, io):
+        self.latched = 0                      # the CIAs are not captured
+
+    def latch(self, bits):
+        self.latched |= bits
+
+    def read(self, off):
+        v, self.latched = self.latched, 0
+        return v
+
+    def write(self, off, v):
+        pass                                  # the mask: no timers to mask
+
+
+class VICInterruptLatch:
+    """The VIC's interrupt latch ($D019): bits 0-3 raised by `raise_()`
+    (the jiffy tick raises bit 0, the raster interrupt), bit 7 set
+    while any is; writing 1s clears those bits.  Bits 4-6 read as the
+    snapshot left them."""
+
+    def __init__(self):
+        self.latched = 0
+        self.rest = 0
+
+    def load(self, io):
+        self.latched, self.rest = io[0x019] & 0x0F, io[0x019] & 0x70
+
+    def raise_(self, bits):
+        self.latched |= bits & 0x0F
+
+    def read(self, off):
+        return self.rest | self.latched | (0x80 if self.latched else 0)
+
+    def write(self, off, v):
+        self.latched &= ~v & 0x0F

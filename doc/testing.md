@@ -221,8 +221,12 @@ interface.  Unclaimed I/O registers read back what was written;
 `M65Memory.io_log` counts each access to one (`R $Dxxx` / `W $Dxxx`),
 so a test can assert which there were.  What the KERNAL uses decides
 the order: it scrolls the screen by DMA, `GETIN` reads the hardware
-keyboard queue, and its IRQ handler is driven by the VIC raster
-interrupt and scans the CIA1 keyboard matrix.
+keyboard queue, and its IRQ handler does its frame work — cursor
+blink, key repeat, the STOP scan of the CIA1 matrix into `$91` — only
+when `$D019` bit 7 reports a VIC interrupt.  It keeps no jiffy
+counter: `RDTIM` reads the CIA1 TOD clock (`$DC08`–`$DC0B`), which,
+like the CIA timers and raster timing, is not modelled — `C64Emu`
+models none of them either.
 
 - **The DMA controller** (`$D700`–`$D70F`).  A job list is read from
   the flat address `$D700`/`$D701`/`$D702` (bits 0–22) and `$D704`
@@ -251,10 +255,22 @@ interrupt and scans the CIA1 keyboard matrix.
   writing `$D610` or `$D619` drops the head, writing `$D60A` with bit 7
   clear empties the queue; `$D611` reads the keys held now (none).
   `M65Emu.inject_keys()` queues PETSCII bytes, as `C64Emu`'s does.
-- **The CIA1 keyboard matrix** (`$DC00`, `$DC01`): port B reads `$FF`,
-  no key held, whatever row port A selects.  CIA timers and interrupts
-  are not modelled yet, nor is the VIC raster interrupt: no test needs
-  them before the debugger's hooks (S2-7).
+- **The CIA1 keyboard matrix** (`$DC00`, `$DC01`): port A selects
+  columns (a 0 bit selects), port B reads a 0 in the row of each held
+  key in a selected column — the matrix `C64Emu` reads, shared
+  (`emu_base.KeyMatrix`); `press_key()`, `press_stop()` and their
+  releases set it.  The KERNAL's frame work reads column 7, so
+  `press_stop()` and one tick make `STOP` (`$FFE1`) report the key, as
+  on the C64.
+- **The VIC interrupt latch** (`$D019`): reads the latched bits 0–3,
+  bit 7 set while any of them is, bits 4–6 as the snapshot left them;
+  writing 1s clears those bits (the
+  KERNAL acknowledges with `TSB $D019`).  The jiffy tick latches bit 0,
+  the raster interrupt, before it raises the IRQ — the tick stands for
+  a frame, without raster timing.
+- **The CIA2 interrupt control register** (`$DD0D`): bit 4 latched by
+  `press_restore()`, which also raises an NMI, as `C64Emu` does;
+  reading returns the latch and clears it.
 
 The hypervisor (`$D640`–`$D67F`) and the floppy controller (`$D080`)
 are not modelled: a test that needs them is Tier X.
@@ -287,29 +303,66 @@ The state contains the MEGA65 ROM, so it is never committed; M65Emu's
 Tier I tests are skipped, with the reason and the command that makes
 it, when it is absent.  Pytest never starts xmega65 by itself.
 
-**Interface.**  `M65Emu` (`tests/m65emu/harness.py`) and `C64Emu`
-share one base class (`tests/emu_base.py`): the registers `a`, `x`,
-`y`, `pc`, `p` and the flags, `cpu`, `memory`, `jsr()`,
-`run_until()`, `run_until_with_watch()`, `read_word()`,
-`write_word()`, `sym()`, `sym_opt()`, and the screen-code decoding
-behind `screen_text()` — so a Tier I test of behaviour both platforms
-share can be parametrised over both harnesses.  Each harness keeps
-what differs: C64Emu its synthesised KERNAL state, interrupts and
-keyboard matrix; M65Emu `z`, `b`, the 16-bit `sp`, the `MAP`
-registers, and:
+**Interface.**  `M65Emu` (`tests/m65emu/harness.py`) has `C64Emu`'s
+test surface: what a Tier I test calls is the same on both, so a test
+of behaviour both platforms share is parametrised over both
+harnesses.  The two share one base class (`tests/emu_base.py`), which
+holds:
+
+- the registers `a`, `x`, `y`, `pc`, `p` and the flags, `cpu`,
+  `memory`, `jsr()`, `run_until()`, `run_until_with_watch()`,
+  `read_word()`, `write_word()`, `sym()`, `sym_opt()`, and the
+  screen-code decoding behind `screen_text()`;
+- the interrupt scheduler: `schedule_irq(n)` and `schedule_nmi(n)`
+  raise an interrupt `n` steps from now, `cancel_pending_interrupts()`
+  drops them, `enable_jiffy_clock(interval)` (16421 steps by default)
+  and `disable_jiffy_clock()` a repeating IRQ, each tick counted from
+  the step the last one fired.  An IRQ waits while the CPU refuses it
+  (`I` set), an NMI does not; IRQs due together fire one after another,
+  NMIs due together once.  Steps, not cycles, count;
+- the keyboard: `press_key()`, `release_key()`, `release_all_keys()`,
+  `press_stop()`, `release_stop()` on the shared matrix,
+  `press_restore()`, `inject_key()` and `inject_keys()`;
+- `load_prg()`: the payload at its load address, the symbols of the
+  `.lbl` beside the map, and each segment whose load and run
+  addresses differ (`__<SEG>_LOAD__`/`_RUN__`/`_SIZE__`) copied to its
+  run address, as the loader does;
+- `set_cursor(row, col)`: the KERNAL's `PLOT` (`$FFF0`, carry clear),
+  called through `jsr()`;
+- `init_cse(editor=False)`: cse's cold-init routines by symbol
+  (`theme_init`, `restore_colors`, `setup_interrupts`, `dbg_init`,
+  `sym_clear`; `ed_ensure_init` with `editor`).
+
+Each harness supplies what differs:
+
+| | `C64Emu` | `M65Emu` |
+|---|---|---|
+| Interrupt entry | the 6502's frame, vector through the banking | `MPU45GS02.irq()`/`nmi()` — also held off while a prefix or the `MAP` latch is pending |
+| Jiffy tick | the IRQ alone (the KERNAL counts `$A0`–`$A2`) | latches `$D019` bit 0 first (the KERNAL's frame work) |
+| RESTORE | CIA2 `$DD0D` bit 4 and an NMI | the same, through the `$DD0D` device |
+| `inject_key()` | the KERNAL buffer (`$0277`, `$C6`; ten keys, then `OverflowError`) | the hardware keyboard queue (unbounded) |
+| `load_prg()` writes | RAM under any ROM | bank 0 |
+| Registers of its own | — | `z`, `b`, the 16-bit `sp`, the `MAP` registers |
+
+and M65Emu besides:
 
 - `jsr()` pushes the return onto the current stack (in the post-boot
   state, BASIC 65's) and stops at a sentinel (`$0002`) compared by PC
   only, never written to memory;
-- `load_prg()` puts the payload at its load address in bank 0, as the
-  KERNAL's `LOAD` does, and loads the symbols of the `.lbl` beside it
-  (segment relocation follows with the m65 loader, S2-1 and S2-4);
 - `screen_text()` finds the screen through the VIC-IV screen pointer
   (`$D060`–`$D063`), the line step (`$D058`–`$D059`) and the width
   (`$D05E`) — the KERNAL's `CHROUT` reads the same pointer;
 - `io_log` counts the accesses to I/O registers no device models.
 
-- `inject_keys()` queues PETSCII bytes in the keyboard device.
+`C64Emu`'s synthesised KERNAL state stays its own; M65Emu starts from
+the snapshot instead.
+
+The shared contracts — the scheduler, the jiffy tick, the matrix,
+RESTORE, key injection, `load_prg()` relocation, `set_cursor()`,
+`init_cse()` — are tested once, parametrised over both harnesses, in
+`tests/integration/test_emu_parity.py`; C64-only cases (the vector
+fetched through banking, the matrix hidden under the character ROM,
+the KERNAL's `$A0`–`$A2`) stay in `test_c64emu_*.py`.
 
 The Tier I tests (`tests/integration/test_m65emu.py`) replay the
 reference runs: `CHROUT` on the real MEGA65 KERNAL takes the same 125
@@ -317,7 +370,11 @@ steps as in xmega65, and both runs leave the same registers, chip RAM
 and colour RAM — the scroll's 350 DMA jobs included.  The character
 shows on the screen as `screen_text()` reads it, the scroll touches no
 I/O register that no device models but the screen pointer, and `GETIN`
-returns injected keys in order, then 0.
+returns injected keys in order, then 0.  On the real KERNAL too: a
+jiffy tick runs the IRQ handler's frame work and is acknowledged;
+`press_stop()` and a tick make `STOP` report the key; `press_restore()`
+enters the KERNAL's NMI handler, which reads `$DD0D`; `set_cursor()`
+moves the cursor where `PLOT` reads it back.
 
 **Validation.**  M65Emu is checked against xmega65, not against our
 own reading of the compendium:
@@ -1141,7 +1198,11 @@ rather than just exports (~230).  For build details see
 
 ### C64Emu — emulator class
 
-`C64Emu` is a single class used by every test fixture.  It provides
+`C64Emu` is a single class used by every test fixture.  What it shares
+with `M65Emu` — the run loops, the interrupt scheduler and jiffy tick,
+the keyboard matrix, `load_prg()`, `set_cursor()`, `init_cse()` — lives
+in `tests/emu_base.py`
+([§ M65Emu, Interface](#m65emu--the-m65-integration-harness)).  It provides
 a 6502 CPU, 64 KB RAM, the original C64 KERNAL ROM at $E000–$FFFF,
 and just enough C64 hardware modelling to run CSE code under py65.
 

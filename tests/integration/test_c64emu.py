@@ -292,40 +292,6 @@ class TestKernalGetin:
         assert emu.memory[0xC6] == 0
 
 
-# ── PRG loading ─────────────────────────────────────────────────────────────
-
-class TestPrgLoading:
-    """load_prg reads .prg format and parses .map symbols."""
-
-    def test_load_prg_basic(self, tmp_path):
-        """Load a minimal PRG: 2-byte header + payload."""
-        prg = tmp_path / "test.prg"
-        # Load at $2000, payload: LDA #$42; RTS
-        prg.write_bytes(bytes([0x00, 0x20, 0xA9, 0x42, 0x60]))
-        emu = C64Emu()
-        addr = emu.load_prg(prg)
-        assert addr == 0x2000
-        assert emu.memory[0x2000] == 0xA9
-        # Execute it
-        emu.jsr(0x2000)
-        assert emu.a == 0x42
-
-    def test_load_prg_with_map(self, tmp_path):
-        """load_prg parses companion .lbl for symbols."""
-        prg = tmp_path / "test.prg"
-        prg.write_bytes(bytes([0x00, 0x20, 0x60]))  # RTS at $2000
-        # Write a fake map file (load_prg needs it as argument)
-        map_file = tmp_path / "test.map"
-        map_file.write_text("")
-        # Write a .lbl file (VICE label format) — this is what
-        # _parse_map actually reads for symbol resolution.
-        lbl_file = tmp_path / "test.lbl"
-        lbl_file.write_text("al 002000 .my_func\n")
-        emu = C64Emu()
-        emu.load_prg(prg, map_file)
-        assert emu.sym("my_func") == 0x2000
-
-
 # ── Screen helpers ──────────────────────────────────────────────────────────
 
 class TestScreenHelpers:

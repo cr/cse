@@ -18,59 +18,13 @@ Usage:
 import pathlib
 from py65.devices.mpu6502 import MPU
 
-from emu_base import EmuBase, decode_screen_codes
+from emu_base import EmuBase, KeyMatrix, decode_screen_codes
 
 _ROM_DIR     = pathlib.Path(__file__).parent.parent / "rom"
 _ROM_KERNAL  = _ROM_DIR / "kernal_cbm.bin"
 _ROM_BASIC   = _ROM_DIR / "basic_cbm.bin"
 _ROM_CHARGEN = _ROM_DIR / "chargen_cbm.bin"
 
-
-# ── Keyboard matrix (PETSCII → (row, col)) ───────────────────────
-#
-# C64 keyboard is scanned as an 8×8 matrix via CIA1 $DC00/$DC01.
-# This table covers the keys most tests care about: letters, digits,
-# common punctuation, RETURN, SPACE, STOP.  Lowercase PETSCII maps
-# to the same matrix cell as uppercase.
-_KEY_MATRIX = {
-    # Control keys
-    0x0D: (0, 1),    # RETURN
-    0x20: (7, 4),    # SPACE
-    0x03: (7, 7),    # STOP
-    # Digits (row 7 alternates 1/2, then row 1 for 3/4 etc.)
-    0x31: (7, 0), 0x32: (7, 3), 0x33: (1, 0), 0x34: (1, 3),
-    0x35: (2, 0), 0x36: (2, 3), 0x37: (3, 0), 0x38: (3, 3),
-    0x39: (4, 0), 0x30: (4, 3),
-    # Letters
-    0x41: (1, 2), 0x42: (3, 4), 0x43: (2, 4), 0x44: (2, 2),
-    0x45: (1, 6), 0x46: (2, 5), 0x47: (3, 2), 0x48: (3, 5),
-    0x49: (4, 1), 0x4A: (4, 2), 0x4B: (4, 5), 0x4C: (5, 2),
-    0x4D: (4, 4), 0x4E: (4, 7), 0x4F: (4, 6), 0x50: (5, 1),
-    0x51: (7, 6), 0x52: (2, 1), 0x53: (1, 5), 0x54: (2, 6),
-    0x55: (3, 6), 0x56: (3, 7), 0x57: (1, 1), 0x58: (2, 7),
-    0x59: (3, 1), 0x5A: (1, 4),
-    # Common punctuation
-    0x2C: (5, 7), 0x2E: (5, 4), 0x2F: (6, 7), 0x3A: (5, 5),
-    0x3B: (6, 2), 0x3D: (6, 5), 0x2B: (5, 0), 0x2D: (5, 3),
-    0x2A: (6, 1), 0x40: (5, 6),
-}
-
-
-def _petscii_to_matrix(ch):
-    """Resolve a PETSCII char (int or 1-char str) to (row, col)."""
-    if isinstance(ch, str):
-        if len(ch) != 1:
-            raise ValueError(f"press/release_key expects single char, got {ch!r}")
-        ch = ord(ch)
-    # Lowercase ($61-$7A) → uppercase ($41-$5A).
-    if 0x61 <= ch <= 0x7A:
-        ch -= 0x20
-    # Shifted uppercase ($C1-$DA) → plain uppercase.
-    if 0xC1 <= ch <= 0xDA:
-        ch -= 0x80
-    if ch not in _KEY_MATRIX:
-        raise KeyError(f"no matrix mapping for PETSCII ${ch:02X}")
-    return _KEY_MATRIX[ch]
 
 # C64 memory layout constants
 SCREEN     = 0x0400
@@ -125,7 +79,7 @@ class BankedMemory:
         'rom_kernal', 'rom_basic', 'rom_chargen',
         'loram', 'hiram', 'charen',
         'external_01',
-        'keyboard_pressed',        # set of (row, col) currently depressed
+        'keys',                    # KeyMatrix: the held keys
         'cia2_nmi_latch',          # bit 4 of $DD0D — RESTORE-key latch
     )
 
@@ -144,7 +98,7 @@ class BankedMemory:
         self.hiram  = True
         self.charen = True
         self.external_01 = self.DEFAULT_EXTERNAL_01
-        self.keyboard_pressed = set()   # populated via C64Emu.press_key
+        self.keys = KeyMatrix()         # set via C64Emu.press_key
         self.cia2_nmi_latch = 0         # set when RESTORE triggers NMI
 
     def __len__(self):
@@ -171,7 +125,7 @@ class BankedMemory:
         # unpressed = 1).  Only modelled when I/O is actually visible
         # (HIRAM=1 and CHAREN=1).
         if addr == 0xDC01 and self.hiram and self.charen:
-            return self._read_keyboard_rows()
+            return self.keys.rows(self.ram[0xDC00])
         # CIA2 ICR read — bit 4 = RESTORE-latched NMI.  Reading ICR
         # clears all latched bits (real-hardware semantics).
         if addr == 0xDD0D and self.hiram and self.charen:
@@ -185,16 +139,6 @@ class BankedMemory:
             latched = self.ram[0x01]
             return ((latched & ddr) | (self.external_01 & (ddr ^ 0xFF))) & 0xFF
         return self.ram[addr]
-
-    def _read_keyboard_rows(self):
-        """Return $DC01 row-bit value based on current column mask at
-        $DC00 and the set of pressed keys.  Pressed → 0, unpressed → 1."""
-        col_mask = self.ram[0xDC00]
-        rows = 0xFF
-        for r, c in self.keyboard_pressed:
-            if ((col_mask >> c) & 1) == 0:   # column selected (0)
-                rows &= ~(1 << r) & 0xFF
-        return rows
 
     def __setitem__(self, key, val):
         if isinstance(key, slice):
@@ -254,15 +198,6 @@ class C64Emu(EmuBase):
         cpu = MPU()
         cpu.memory = mem
         EmuBase.__init__(self, cpu, mem)
-
-        # Cycle counter (monotonic across jsr/run_until calls) +
-        # pending-interrupt queue for schedule_irq / schedule_nmi.
-        # Each entry: (fire_cycle, kind) where kind is 'irq', 'nmi',
-        # or 'jiffy' (a self-re-scheduling IRQ used for the KERNAL
-        # clock tick).
-        self._cycle_total = 0
-        self._pending = []
-        self._jiffy_interval = 0     # 0 = disabled
 
         # -- processor port --
         # CSE runtime default: $01 = $36 = 0011 0110 → LORAM=0
@@ -355,64 +290,17 @@ class C64Emu(EmuBase):
     def sp(self, val):
         self._cpu.sp = val & 0xFF
 
-    # ── Scheduled interrupts ────────────────────────────────────
-    #
-    # The run loops (jsr, run_until) consult a pending-interrupt
-    # queue every CPU step.  Each entry fires when the cycle counter
-    # reaches its scheduled target.  IRQs honour the I flag (deferred
-    # until cleared); NMIs fire unconditionally and are edge-triggered.
-    # Vector fetch respects banking ($FFFA/$FFFE read through
-    # BankedMemory, so KERNAL-out tests see the RAM-shadow vectors).
+    # ── Interrupts (the scheduler: EmuBase) ─────────────────────
 
-    def schedule_irq(self, cycles_from_now):
-        """Enqueue an IRQ to fire `cycles_from_now` steps from now.
+    def _enter_irq(self):
+        if self._cpu.p & self._cpu.INTERRUPT:
+            return False
+        self._fire_interrupt("irq")
+        return True
 
-        IRQs fire only while I=0.  Multiple IRQs at the same cycle
-        are coalesced into a single fire (matches real hardware —
-        IRQ is level-triggered)."""
-        self._pending.append((self._cycle_total + max(cycles_from_now, 0), 'irq'))
-        self._pending.sort()
-
-    def schedule_nmi(self, cycles_from_now):
-        """Enqueue an NMI to fire `cycles_from_now` steps from now.
-
-        NMIs fire unconditionally (edge-triggered — once per schedule)."""
-        self._pending.append((self._cycle_total + max(cycles_from_now, 0), 'nmi'))
-        self._pending.sort()
-
-    def cancel_pending_interrupts(self):
-        """Drop all queued IRQ/NMI schedules (does not disable jiffy)."""
-        self._pending.clear()
-
-    # ── Jiffy clock ─────────────────────────────────────────────
-    #
-    # On real C64 hardware the KERNAL programs CIA1 Timer A to
-    # underflow every ~16400 cycles, triggering an IRQ whose handler
-    # (at $EA31) increments the jiffy counter at $A0-$A2 and scans
-    # the keyboard.  We simulate this as a repeating IRQ that
-    # re-schedules itself after each fire.
-    #
-    # Opt-in via enable_jiffy_clock() — tests that assume no IRQs
-    # are unaffected by default.
-
-    JIFFY_INTERVAL = 16421   # matches KERNAL RAM-init timer value
-
-    def enable_jiffy_clock(self, interval=None):
-        """Schedule a repeating IRQ at `interval` cycles apart
-        (default: 16421, matching KERNAL's CIA1 Timer A setup).
-        Each fire re-schedules the next tick automatically.
-
-        Pair with `init_cse()` + a cleared I flag for KERNAL's IRQ
-        handler to pick up and tick $A0-$A2."""
-        self._jiffy_interval = interval if interval is not None else self.JIFFY_INTERVAL
-        self._pending.append((self._cycle_total + self._jiffy_interval, 'jiffy'))
-        self._pending.sort()
-
-    def disable_jiffy_clock(self):
-        """Stop the repeating jiffy IRQ.  Existing pending jiffy
-        entries are dropped; other scheduled IRQs/NMIs stay."""
-        self._jiffy_interval = 0
-        self._pending = [(w, k) for w, k in self._pending if k != 'jiffy']
+    def _enter_nmi(self):
+        self._fire_interrupt("nmi")
+        return True
 
     def _fire_interrupt(self, kind):
         """Synthesise the CPU's IRQ/NMI entry: push PCH, PCL, P, set I,
@@ -432,65 +320,6 @@ class C64Emu(EmuBase):
         hi = self._mem[vec_addr + 1]
         self._cpu.pc = (hi << 8) | lo
 
-    def _dispatch_pending(self):
-        """Called after each CPU step: fire any interrupts whose
-        scheduled cycle has arrived.  NMI first (higher priority);
-        IRQ (including 'jiffy' kind) only when I flag is clear."""
-        if not self._pending:
-            return
-        # Separate due events by kind.
-        due_nmi = False
-        due_irq_count = 0
-        due_jiffy = False
-        remaining = []
-        for when, kind in self._pending:
-            if when <= self._cycle_total:
-                if kind == 'nmi':
-                    due_nmi = True
-                elif kind == 'irq':
-                    due_irq_count += 1
-                elif kind == 'jiffy':
-                    due_jiffy = True
-            else:
-                remaining.append((when, kind))
-
-        if due_nmi:
-            self._fire_interrupt('nmi')
-            # Other due events stay pending for the next dispatch tick.
-            self._pending = remaining + [
-                (self._cycle_total, 'irq')   for _ in range(due_irq_count)
-            ] + (
-                [(self._cycle_total, 'jiffy')] if due_jiffy else []
-            )
-            return
-
-        if due_irq_count or due_jiffy:
-            if not (self._cpu.p & self._cpu.INTERRUPT):
-                self._fire_interrupt('irq')
-                # Consume one IRQ event; jiffy re-schedules.
-                self._pending = remaining
-                if due_jiffy and self._jiffy_interval:
-                    self._pending.append(
-                        (self._cycle_total + self._jiffy_interval, 'jiffy')
-                    )
-                    self._pending.sort()
-                # Any extra due IRQs roll over to the next step.
-                if due_irq_count > 1:
-                    self._pending.extend(
-                        [(self._cycle_total + 1, 'irq')] * (due_irq_count - 1)
-                    )
-                    self._pending.sort()
-            else:
-                # I=1 — requeue all due IRQ/jiffy for re-poll next step.
-                self._pending = remaining
-                self._pending.extend(
-                    [(self._cycle_total + 1, 'irq')] * due_irq_count
-                )
-                if due_jiffy:
-                    self._pending.append((self._cycle_total + 1, 'jiffy'))
-                self._pending.sort()
-            return
-
     # ── Execution (the loops: EmuBase) ──────────────────────────
 
     def _push_return(self, ret):
@@ -500,136 +329,27 @@ class C64Emu(EmuBase):
         self._mem.ram[0x01FE] = ret & 0xFF
         self._cpu.sp = 0xFD
 
-    def _after_step(self):
-        self._cycle_total += 1
-        if self._pending:
-            self._dispatch_pending()
+    # ── Keyboard (the calls: EmuBase) ───────────────────────────
 
-    # ── Keyboard matrix (CIA1 $DC00/$DC01) ──────────────────────
+    @property
+    def _keys(self):
+        return self._mem.keys
 
-    def press_key(self, ch):
-        """Mark a key as pressed in the CIA1 keyboard matrix.
-
-        Reads of $DC01 with the appropriate $DC00 column mask will
-        see the key's row bit cleared.  Multiple keys can be held
-        simultaneously.  Use PETSCII char (int) or single-char string.
-        """
-        row, col = _petscii_to_matrix(ch)
-        self._mem.keyboard_pressed.add((row, col))
-
-    def release_key(self, ch):
-        """Release a previously-pressed matrix key.  No-op if not held."""
-        row, col = _petscii_to_matrix(ch)
-        self._mem.keyboard_pressed.discard((row, col))
-
-    def release_all_keys(self):
-        """Clear the matrix to all-released."""
-        self._mem.keyboard_pressed.clear()
-
-    def press_stop(self):
-        """Convenience: press the STOP key (matrix row 7 col 7)."""
-        self._mem.keyboard_pressed.add((7, 7))
-
-    def release_stop(self):
-        self._mem.keyboard_pressed.discard((7, 7))
-
-    def press_restore(self):
-        """Simulate RESTORE key: latches CIA2 ICR bit 4 and schedules
-        an NMI.  The RESTORE key on C64 is hard-wired to the NMI line,
-        not the keyboard matrix."""
+    def _latch_restore(self):
         self._mem.cia2_nmi_latch |= 0x10
-        self.schedule_nmi(0)
 
-    # ── KERNAL keyboard buffer injection ────────────────────────
-
-    def inject_key(self, petscii):
-        """Enqueue one PETSCII byte into the KERNAL keyboard buffer."""
+    def _queue_key(self, petscii):
+        """Into the KERNAL keyboard buffer ($0277, count in $C6)."""
         count = self._mem.ram[KBD_COUNT]
         if count >= 10:
             raise OverflowError("Keyboard buffer full (10 keys)")
-        self._mem.ram[KBD_BUF + count] = petscii & 0xFF
+        self._mem.ram[KBD_BUF + count] = petscii
         self._mem.ram[KBD_COUNT] = count + 1
 
-    def inject_keys(self, data):
-        """Enqueue multiple PETSCII bytes into the keyboard buffer."""
-        for b in data:
-            self.inject_key(b)
-
-    # ── PRG loading and symbol resolution ───────────────────────
-
-    def load_prg(self, prg_path, map_path=None):
-        """Load a .prg file and optionally parse its .map for symbols.
-
-        The .prg format: 2-byte little-endian load address, then payload.
-        Payload is written starting at the load address.
-        If map_path is not given, replaces .prg with .map.
-
-        After loading, if the map reveals segments with load != run
-        addresses (e.g. CODE relocated to high memory), those segments
-        are copied from their load position to their run position,
-        mirroring what the loader.s bootstrap does on real hardware.
-        """
-        prg_path = pathlib.Path(prg_path)
-        load_addr, payload = self._read_prg(prg_path)
-        for i, b in enumerate(payload):
-            self._mem.ram[load_addr + i] = b
-
-        # Parse map file for symbols
-        if map_path is None:
-            map_path = prg_path.with_suffix('.map')
-        map_path = pathlib.Path(map_path)
-        if map_path.exists():
-            self._load_symbols(map_path)
-            self._relocate_segments(map_path)
-
-        return load_addr
-
-    def _relocate_segments(self, map_path):
-        """Copy segments from load to run address when they differ.
-
-        Uses __SEG_LOAD__ / __SEG_RUN__ symbols (generated by ld65
-        when segments have define=yes) to identify relocated segments.
-        Mirrors what loader.s does at startup on real hardware.
-        """
-        import re
-        # Find all segments that have both LOAD and RUN symbols
-        seg_names = set()
-        for sym in self._syms:
-            m = re.match(r"__(\w+)_LOAD__$", sym)
-            if m:
-                seg_names.add(m.group(1))
-        for name in seg_names:
-            load_sym = f"__{name}_LOAD__"
-            run_sym = f"__{name}_RUN__"
-            size_sym = f"__{name}_SIZE__"
-            if all(s in self._syms for s in (load_sym, run_sym, size_sym)):
-                load = self._syms[load_sym]
-                run = self._syms[run_sym]
-                size = self._syms[size_sym]
-                if load != run and size > 0:
-                    for i in range(size):
-                        self._mem.ram[run + i] = self._mem.ram[load + i]
-
-    def trigger_nmi(self, user_pc, *, user_p=0x20):
-        """Synthesise a CPU NMI frame on the stack and set PC to the
-        NMI vector's target.  Stack ordering matches what the CPU
-        pushes on an NMI: PChi, PClo, P (in that push order — pop
-        order at RTI is P, PClo, PChi).
-
-        After this, step/run to the handler; an RTI in the handler
-        will pop back to user_pc with user_p installed in P.
-
-        Typically used by tests that want to exercise cse_nmi_handler
-        without CIA timer fiddling.
-        """
-        sp = self._cpu.sp
-        self._mem.ram[0x0100 + sp] = (user_pc >> 8) & 0xFF
-        sp = (sp - 1) & 0xFF
-        self._mem.ram[0x0100 + sp] = user_pc & 0xFF
-        sp = (sp - 1) & 0xFF
-        self._mem.ram[0x0100 + sp] = user_p & 0xFF
-        sp = (sp - 1) & 0xFF
-        self._cpu.sp = sp
+    @property
+    def _ram(self):
+        """load_prg() writes RAM under any ROM."""
+        return self._mem.ram
 
     # ── Helpers ─────────────────────────────────────────────────
 
@@ -641,32 +361,3 @@ class C64Emu(EmuBase):
     def screen_text(self, row):
         """One screen row as text (emu_base.decode_screen_codes)."""
         return decode_screen_codes(self.screen_row(row))
-
-    def set_cursor(self, row, col):
-        """Set cursor position via KERNAL PLOT (CLC path)."""
-        # CLC; LDX #row; LDY #col; JSR $FFF0; RTS
-        stub = 0xDF80  # small stub area in I/O gap
-        code = [0x18, 0xA2, row & 0xFF, 0xA0, col & 0xFF,
-                0x20, 0xF0, 0xFF, 0x60]
-        for i, b in enumerate(code):
-            self._mem.ram[stub + i] = b
-        self.jsr(stub)
-
-    def init_cse(self, *, editor=False):
-        """Run CSE init routines.  Call after load_prg().
-
-        Runs the minimal cold-init sequence — theme_init +
-        restore_colors + setup_interrupts + dbg_init + sym_clear.
-        `sym_clear` is mandatory because update_workend (called
-        from editor init and asm_assemble) writes to the symbol
-        heap via sym_define; without sym_clear the heap pointer
-        is \$0000 (BSS default) and writes corrupt zero page.
-        If editor=True, also runs ed_ensure_init.
-        """
-        self.jsr(self.sym("theme_init"))
-        self.jsr(self.sym("restore_colors"))
-        self.jsr(self.sym("setup_interrupts"))
-        self.jsr(self.sym("dbg_init"))
-        self.jsr(self.sym("sym_clear"))
-        if editor:
-            self.jsr(self.sym("ed_ensure_init"))

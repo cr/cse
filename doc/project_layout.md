@@ -67,6 +67,7 @@ cse/
 │   │   └── test_symtab.py          symtab.s leaf
 │   ├── integration/        Tier I — C64Emu + full PRG
 │   │   ├── test_c64emu.py        Emulator harness smoke
+│   │   ├── test_emu_parity.py    C64Emu/M65Emu shared contracts
 │   │   ├── test_editor.py        Editor via C64Emu
 │   │   ├── test_kernel_transition.py  Phase-18 kernel↔user
 │   │   ├── test_repl.py          REPL command E2E
@@ -77,7 +78,9 @@ cse/
 │
 ├── rom/                    KERNAL/BASIC/CHARGEN ROM images
 │   ├── *_cbm.bin           Stock Commodore ROMs (git-ignored)
-│   └── *_mega.bin          MEGA65 Open-ROMs (committed)
+│   ├── *_mega.bin          MEGA65 Open-ROMs (committed)
+│   ├── mega65.rom          MEGA65 ROM from xmega65 (git-ignored; make m65-rom)
+│   └── mega65_open.rom     MEGA65 Open-ROMs, MEGA65 build (committed)
 │
 ├── doc/                    Documentation (see doc/README.md)
 │   ├── README.md           CDD methodology, document index

@@ -10,7 +10,11 @@ that makes it, when it is absent.  The snapshot's reference runs are
 replayed in the order they were recorded — "chrout" (one character)
 and "scroll" (30 RETURNs: the KERNAL scrolls by DMA) — and must leave
 the registers and memory xmega65 left.  GETIN reads keys injected into
-the keyboard queue.
+the keyboard queue.  The parity calls reach the real KERNAL as on the
+C64: a jiffy tick runs the IRQ handler's frame work (the STOP scan
+into $91) and is acknowledged, press_stop() makes STOP ($FFE1) report
+the key, press_restore() enters the NMI handler, which reads $DD0D,
+and set_cursor() moves the cursor where PLOT reads it back.
 """
 
 import pytest
@@ -102,3 +106,66 @@ def test_getin_reads_injected_keys(emu):
         emu.run_until(0x1804)
         got.append(emu.a)
     assert got == [0x48, 0x49, 0x00]
+
+
+LOOP = 0x1800
+
+
+def idle(emu, *, cli):
+    """Park the CPU in a `JMP self` loop at LOOP, interrupts on or off."""
+    emu.memory.load(LOOP, bytes([0x4C, LOOP & 0xFF, LOOP >> 8]))
+    emu.pc = LOOP
+    if cli:
+        emu.cpu.p &= ~emu.cpu.INTERRUPT
+    else:
+        emu.cpu.p |= emu.cpu.INTERRUPT
+
+
+def run_for(emu, steps, watch=()):
+    """Run `steps` steps; the (pc, step) visits to `watch`."""
+    hits = []
+    for _ in range(steps):
+        if emu.pc in watch:
+            hits.append(emu.pc)
+        emu.cpu.step()
+        emu._after_step()
+    return hits
+
+
+def test_jiffy_tick_runs_the_kernals_frame_work(emu):
+    idle(emu, cli=True)
+    emu.memory[0x91] = 0x00
+    handler = emu.read_word(0x0314)
+    emu.enable_jiffy_clock(interval=2000)
+    hits = run_for(emu, 5000, watch={handler})
+    assert len(hits) == 2
+    assert emu.memory[0x91] == 0xFF                  # STOP scanned: up
+    assert emu.memory[0xD019] & 0x0F == 0            # acknowledged
+
+
+@pytest.mark.parametrize("held", [False, True])
+def test_stop_reaches_the_kernal_through_the_matrix(emu, held):
+    idle(emu, cli=True)
+    if held:
+        emu.press_stop()
+    emu.enable_jiffy_clock(interval=500)
+    run_for(emu, 1000)
+    emu.disable_jiffy_clock()
+    emu.jsr(0xFFE1)                                  # STOP
+    assert emu.zero == held
+
+
+def test_restore_enters_the_kernals_nmi_handler(emu):
+    idle(emu, cli=False)
+    handler = emu.read_word(0xFFFA)
+    emu.press_restore()
+    hits = run_for(emu, 200, watch={handler, LOOP})
+    assert hits[:2] == [LOOP, handler]
+    assert emu.pc == LOOP                            # back in the loop
+    assert emu.memory[0xDD0D] == 0                   # the handler read it
+
+
+def test_set_cursor_moves_the_cursor_plot_reads(emu):
+    emu.set_cursor(5, 10)
+    emu.jsr(0xFFF0, carry=True)                      # PLOT: read
+    assert (emu.x, emu.y) == (5, 10)

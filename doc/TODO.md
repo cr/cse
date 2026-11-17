@@ -426,6 +426,24 @@ in xmega65's data directory):
     matrix port.  The raster IRQ and the CIA timers wait for S2-7.
     Done 2026-11-17: all 28 recorded jobs and the 30-line scroll
     replay byte for byte; options stay for a whole chained session.
+  - [x] S2-3e. Feature parity with `C64Emu` — the goal is C64Emu's
+    test surface, not a fuller MEGA65 (operator, 2026-11-17).  What
+    both harnesses offer moves into `EmuBase`: the interrupt scheduler
+    and the jiffy tick, the keyboard matrix with STOP and RESTORE,
+    `inject_key()`, `load_prg()` with segment relocation,
+    `set_cursor()` and `init_cse()`; M65Emu adds the two latches the
+    MEGA65 KERNAL reads — `$D019` (the tick's VIC interrupt) and
+    `$DD0D` (RESTORE).  C64Emu's behaviour stays as it is, its own
+    tests unchanged in what they assert.  Not part of parity, because
+    C64Emu does not model them either: raster timing, CIA timers, the
+    TOD clock (the MEGA65's `RDTIM` reads it), the hypervisor, disk.
+    `init_cse()` runs on a real m65 build once S2-1 makes one.
+    Done 2026-11-17: the MEGA65 KERNAL keeps no jiffy counter (its
+    `RDTIM` reads the CIA1 TOD clock) and does its frame work only when
+    `$D019` bit 7 is set, so M65Emu's tick latches the raster bit; its
+    STOP scan reads the CIA1 matrix into `$91`, as the C64's does.
+    `test_emu_parity.py` runs the shared contracts on both harnesses;
+    C64Emu's earlier tests pass unchanged against the new base.
 - [ ] S2-4. Memory model: the data area in a RAM bank outside BASIC
   65's use, mapped into a 16-bit window by `MAP`, so the `(zp),y`
   readers stay unchanged and only mem.s's bank-in/out helpers change;

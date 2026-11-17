@@ -1,18 +1,13 @@
-"""test_c64emu_interrupts.py — scheduled-IRQ / scheduled-NMI contracts.
+"""test_c64emu_interrupts.py — C64Emu's interrupt vector fetch.
 
-Verifies that C64Emu.schedule_irq / schedule_nmi behave like real
-6502 interrupts:
-
-  * IRQ respects the I flag (deferred until CLI).
-  * NMI fires unconditionally (edge-triggered).
-  * Vector fetch goes through BankedMemory (the bank-out-stub path
-    that Phase 18's cse_brk_handler_early handles — testing it here
-    is exactly the stress-test gap the testing.md Principle 7
-    cautionary example calls for).
-  * Pushed frame: PCH, PCL, P (B=0), in that order.
+The scheduler's contracts (the I flag, NMI, the pushed frame, cancel)
+hold for both harnesses and are tested in test_emu_parity.py.  This
+file keeps the C64-only case: the vector is fetched through
+BankedMemory (the bank-out-stub path that Phase 18's
+cse_brk_handler_early handles — the stress-test gap the testing.md
+Principle 7 cautionary example calls for).
 """
 
-import pytest
 from c64emu import C64Emu
 
 
@@ -73,109 +68,6 @@ def _setup_self_contained(emu):
     emu.memory[0x01] = 0x34
 
 
-# ── NMI edge-triggered ────────────────────────────────────────────
-
-def test_nmi_fires_immediately():
-    emu = C64Emu()
-    _setup_self_contained(emu)
-    emu.schedule_nmi(10)       # fire after 10 steps
-    emu._cpu.pc = USER_CODE
-    emu.run_until(DONE_ADDR, max_cycles=1000)
-    assert emu.memory[0x2001] == 1       # NMI handler ran
-    assert emu.memory[0x2000] == 0       # IRQ did not
-
-
-def test_nmi_ignores_i_flag():
-    """NMI fires even with I=1."""
-    emu = C64Emu()
-    _setup_self_contained(emu)
-    emu._cpu.p |= emu._cpu.INTERRUPT     # set I
-    emu.schedule_nmi(5)
-    emu._cpu.pc = USER_CODE
-    emu.run_until(DONE_ADDR, max_cycles=1000)
-    assert emu.memory[0x2001] == 1
-
-
-def test_nmi_one_shot():
-    """Each schedule_nmi fires exactly once."""
-    emu = C64Emu()
-    _setup_self_contained(emu)
-    emu.schedule_nmi(5)
-    emu.schedule_nmi(10)       # second NMI queued
-    emu._cpu.pc = USER_CODE
-    emu.run_until(DONE_ADDR, max_cycles=1000)
-    # First NMI handler ran; the second is still pending but user
-    # code never reaches a CLI/RTI point before run_until exits.
-    assert emu.memory[0x2001] == 1
-
-
-# ── IRQ respects I flag ───────────────────────────────────────────
-
-def test_irq_fires_when_i_clear():
-    emu = C64Emu()
-    _setup_self_contained(emu)
-    emu._cpu.p &= ~emu._cpu.INTERRUPT    # clear I
-    emu.schedule_irq(5)
-    emu._cpu.pc = USER_CODE
-    emu.run_until(DONE_ADDR, max_cycles=1000)
-    assert emu.memory[0x2000] == 1       # IRQ handler ran
-
-
-def test_irq_deferred_while_i_set():
-    """IRQ pending with I=1 doesn't fire.  The loop runs to
-    timeout without the handler ever executing."""
-    emu = C64Emu()
-    _setup_self_contained(emu)
-    emu._cpu.p |= emu._cpu.INTERRUPT     # set I
-    emu.schedule_irq(5)
-    emu._cpu.pc = USER_CODE
-    with pytest.raises(TimeoutError):
-        emu.run_until(DONE_ADDR, max_cycles=500)
-    assert emu.memory[0x2000] == 0       # handler never ran
-
-
-def test_irq_fires_when_cli_clears_i():
-    """Program does CLI after IRQ was scheduled; IRQ then fires."""
-    # User code: SEI ; CLI ; JMP self
-    cli_code = USER_CODE
-    emu = C64Emu()
-    _setup_self_contained(emu)
-    emu.memory[cli_code]     = 0x78    # SEI
-    emu.memory[cli_code + 1] = 0x58    # CLI
-    emu.memory[cli_code + 2] = 0x4C    # JMP cli_code+2
-    emu.memory[cli_code + 3] = (cli_code + 2) & 0xFF
-    emu.memory[cli_code + 4] = ((cli_code + 2) >> 8) & 0xFF
-    emu._cpu.pc = cli_code
-    emu.schedule_irq(1)                # arms before CLI executes
-    emu.run_until(DONE_ADDR, max_cycles=1000)
-    assert emu.memory[0x2000] == 1
-
-
-# ── Frame push shape ──────────────────────────────────────────────
-
-def test_irq_push_frame_shape():
-    """Verify PCH, PCL, P (B=0) are pushed on the stack."""
-    emu = C64Emu()
-    _setup_self_contained(emu)
-    emu._cpu.p &= ~emu._cpu.INTERRUPT
-    # Pre-set a known SP so we can read back the frame.
-    emu._cpu.sp = 0xFF
-    emu.schedule_irq(1)
-    emu._cpu.pc = USER_CODE
-    emu.run_until(DONE_ADDR, max_cycles=1000)
-    # After handler's RTI (no, actually INC/JMP — no RTI.  Handler
-    # leaves frame on stack.  SP should now be $FC: three bytes pushed.)
-    assert emu._cpu.sp == 0xFC
-    # Read frame: top-of-stack = P (B=0, I=1 from mask)
-    p = emu.memory[0x0100 + 0xFD]
-    assert (p & 0x10) == 0           # B clear
-    # PCL, PCH = USER_CODE (the JMP self address).
-    pcl = emu.memory[0x0100 + 0xFE]
-    pch = emu.memory[0x0100 + 0xFF]
-    pushed_pc = (pch << 8) | pcl
-    assert pushed_pc == USER_CODE
-
-
 # ── Vector fetch respects banking ─────────────────────────────────
 
 def test_vector_fetched_from_ram_when_kernal_banked_out():
@@ -193,19 +85,3 @@ def test_vector_fetched_from_ram_when_kernal_banked_out():
     emu._cpu.pc = USER_CODE
     emu.run_until(DONE_ADDR, max_cycles=1000)
     assert emu.memory[0x2000] == 1       # IRQ landed on our RAM-shadow handler
-
-
-# ── Cancel + reset ────────────────────────────────────────────────
-
-def test_cancel_pending_drops_all():
-    emu = C64Emu()
-    _setup_self_contained(emu)
-    emu.schedule_irq(5)
-    emu.schedule_nmi(10)
-    emu.cancel_pending_interrupts()
-    emu._cpu.p &= ~emu._cpu.INTERRUPT
-    emu._cpu.pc = USER_CODE
-    with pytest.raises(TimeoutError):
-        emu.run_until(DONE_ADDR, max_cycles=500)
-    assert emu.memory[0x2000] == 0
-    assert emu.memory[0x2001] == 0
