@@ -45,7 +45,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 from m65emu import golden as G                    # noqa: E402
 from m65emu import isa                            # noqa: E402
 from m65emu.mpu45gs02 import B, C, D, E, I, N, V, Z   # noqa: E402
-from xmega65 import XMega65                       # noqa: E402
+from xmega65 import Interrupted, XMega65          # noqa: E402
 
 WORK = ROOT / "build" / "m65_golden"
 
@@ -264,15 +264,6 @@ def snapshot(xm):
             for k, v in enumerate(xm.read(start, n))}
 
 
-def run(xm, instructions):
-    """Write `instructions` at CODE and step through them."""
-    xm.write(CODE, flatten(instructions))
-    xm.cmd(f"g {CODE:x}")
-    for _ in instructions:
-        r = xm.step()
-    return r
-
-
 def hexkeys(table):
     return {f"{a:05X}": v for a, v in sorted(table.items())}
 
@@ -287,7 +278,9 @@ def record(xm, c):
         xm.write(a, bytes(init[k] for k in range(a, a + n)))
     xm.write(end, flatten(TAIL))
     xm.write(start, c["code"])
-    if run(xm, pre)["pc"] != start:
+    try:
+        xm.run(CODE, pre)
+    except Interrupted:
         return None
     before = xm.regs()
     mem_before = snapshot(xm)
@@ -305,7 +298,7 @@ def record(xm, c):
         for _ in TAIL:
             xm.step()
     if (after["mapl"], after["maph"]) != POST_BOOT_MAP or c["code"] == [0x5C]:
-        r = run(xm, RESTORE_MAP)
+        r = xm.run(CODE, RESTORE_MAP)
         assert (r["mapl"], r["maph"]) == POST_BOOT_MAP, r
     got = dict(
         name=c["name"],

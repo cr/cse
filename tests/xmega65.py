@@ -37,6 +37,11 @@ _DUMP = re.compile(r":[0-9A-F]{8}:([0-9A-F]{32})")
 _PROMPT = b"\r\n.\r\n"
 
 
+class Interrupted(RuntimeError):
+    """A stepped sequence did not run straight through (an interrupt
+    got in); the caller may retry it."""
+
+
 class XMega65:
     def __init__(self, work):
         self.work = pathlib.Path(work)
@@ -112,6 +117,19 @@ class XMega65:
     def step(self):
         """Run one opcode in trace mode; return the registers after it."""
         return self.regs(self.cmd(""))
+
+    def run(self, addr, instructions):
+        """Write `instructions` (a list of byte lists) at `addr` and
+        step through them in trace mode; return the registers after.
+        Raise if they did not run straight through (an interrupt)."""
+        code = [b for ins in instructions for b in ins]
+        self.write(addr, code)
+        self.cmd(f"g {addr:x}")
+        for _ in instructions:
+            r = self.step()
+        if r["pc"] != addr + len(code):
+            raise Interrupted(r)
+        return r
 
     def write(self, addr, data):
         for k in range(0, len(data), 64):

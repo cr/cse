@@ -30,7 +30,7 @@ steps.
 
 Memory protocol: `memory[addr16]` is the CPU's 16-bit view;
 `memory.read_flat(addr28)` / `memory.write_flat(addr28, value)` the
-flat 28-bit space.  FlatRAM is the plain implementation (the CPU view
+flat 28-bit space; MAP calls `memory.map_changed(cpu)`.  FlatRAM is the plain implementation (the CPU view
 is the first 64 KB of the flat space); M65Memory (layer 2) translates
 the CPU view through MAP, $01 and $D030.
 """
@@ -90,6 +90,9 @@ class FlatRAM:
 
     def __setitem__(self, a, v):
         self.low[a & 0xFFFF] = v & 0xFF
+
+    def map_changed(self, cpu):       # the CPU view is fixed: no MAP
+        pass
 
 
 class MPU45GS02(mpu6502.MPU):
@@ -611,6 +614,7 @@ def _map(c, ea):
         c.map_hi_mb = c.y
     else:
         c.maph = c.z << 8 | c.y
+    c.memory.map_changed(c)
 
 
 def _jmp(c, target):

@@ -165,21 +165,45 @@ and `memory.read_flat()` / `memory.write_flat()` (the 28-bit space).
 `FlatRAM` is the plain memory its Tier U tests run on (the CPU view is
 the first 64 KB of the flat space); `M65Memory` is the real layout.
 
-**Layer 2 — the memory layout, `M65Memory`.**  The object py65 reads
-and writes through `memory[addr]`, as `C64Emu`'s `BankedMemory` is:
+**Layer 2 — the memory layout, `M65Memory`**
+(`tests/m65emu/memory.py`).  The object `MPU45GS02` reads and writes
+through, as `C64Emu`'s `BankedMemory` is for py65 (the memory
+protocol of layer 1: `memory[addr16]`, `read_flat()`, `write_flat()`):
 
-- a 28-bit flat store: 384 KB chip RAM with the ROM image at
-  `$20000`–`$3FFFF` (from the user's `MEGA65.ROM`), colour RAM at
-  `$FF80000`, attic RAM at `$8000000` (sparse);
-- the CPU's 16-bit view, per 8 KB block, in the hardware's order:
-  the `MAP` offset (lower and upper half, with their megabyte
-  selectors), else the ROM banking of `$01` and `$D030`, else RAM;
-  I/O at `$D000`–`$DFFF` when `$01` maps it in, in the I/O
-  personality selected through `$D02F`, with the colour-RAM window
-  at `$D800`;
-- an 8-entry page table, rebuilt only on writes to `MAP`, `$01`,
-  `$D030` or `$D02F`, so a byte access is one table lookup; flat
-  access uses the 28-bit address directly.
+- **The flat store** (28-bit): 384 KB chip RAM with the ROM image at
+  `$20000`–`$3FFFF`, colour RAM at `$FF80000` (32 KB; its first 2 KB
+  is the same memory as chip RAM `$1F800`–`$1FFFF`), attic RAM at
+  `$8000000` (sparse).  While ROM protection is on — as after boot —
+  writes to `$20000`–`$3FFFF` are dropped, flat or mapped.
+- **The CPU's 16-bit view**, per 4 KB page, in the hardware's order:
+  1. `MAP` (per 8 KB block, lower half `$0000`–`$7FFF`, upper half
+     `$8000`–`$FFFF`): a mapped block reads and writes megabyte +
+     ((offset + address) & `$FFFFF`) — the offset wraps inside its
+     megabyte.
+  2. Banking, from the CPU port's configuration ((`$01` |
+     ~`$00`) & 7, the C64's table) and the ROM bits of `$D030`
+     (`$8000`, `$A000`, `$C000`, `$E000`) — written in the VIC-III or
+     VIC-IV I/O mode, and still banking after a switch to VIC-II: a
+     ROM page reads `$20000` + address — at `$D000` the character ROM
+     — and writes the RAM under it; an I/O page is `$D000`–`$DFFF`.
+  3. Otherwise RAM, address = flat address.
+- **The CPU port**: `$00` (direction) and `$01` (data) exist only in
+  the CPU's view (while `MAP` leaves block 0 alone); flat `$0`/`$1`
+  are plain RAM.
+- **The I/O page**, in the mode the `$D02F` key selects (`$47 $53`
+  VIC-IV — the post-boot mode —, `$A5 $96` VIC-III, anything else
+  VIC-II): `$D800`–`$DBFF` is colour RAM `$000`–`$3FF` (in VIC-II mode
+  only the low nibble is written and the high nibble reads as `$F`); `$D030` bit 0 maps `$DC00`–`$DFFF`
+  to colour RAM `$400`–`$7FF`, hiding the CIAs; `$D02F` and `$D030`
+  act as above; every other register is plain storage, one bank per
+  I/O mode, until a layer-3 device claims it.  The ethernet I/O mode,
+  the disk buffer and the hypervisor are not modelled.
+- **The page table**: 16 entries of 4 KB, rebuilt only when `MAP` runs
+  (the CPU calls `memory.map_changed(cpu)`, which `FlatRAM` ignores)
+  or `$00`, `$01`, `$D02F` or — in the VIC-III/IV I/O modes — `$D030`
+  is written, so a byte access is one table lookup; flat access uses
+  the 28-bit address directly.  `load()` puts bytes into the flat
+  store past ROM protection, as the monitor and a ROM loader do.
 
 **Layer 3 — the devices,** added one at a time, each when a test
 needs it: the DMA controller (`$D700`, F018A/B job lists: copy, fill,
@@ -228,9 +252,25 @@ own reading of the compendium:
   `MPU45GS02` and compares registers and memory; it needs neither
   xmega65 nor the ROM.  It also pins the 45GS02-specific behaviour by
   name and checks the decoder against the fixture row for row.
-- `tests/unit/test_m65memory.py` (Tier U) checks the address
-  translation against a recorded table of `MAP`/`$01`/`$D030` states
-  and the linear addresses xmega65 resolves them to.
+- `dev/capture_m65_mem.py` sets up banking states in xmega65 —
+  `MAP` run in block 0, CPU-view writes (uartmon's `777xxxx`
+  addresses) to `$00`, `$01`, `$D02F`, `$D030` — and records, per
+  state and 4 KB page, the flat address a CPU read comes from and
+  where a CPU write lands (or that it is dropped), into
+  `tests/fixtures/golden/m65_mem.json`.  Unique signatures planted in
+  the candidate RAM pages make the match unambiguous; a ROM page is
+  matched by its own content, which is never recorded; two candidates
+  holding the same bytes stop the recording (an alias would make the
+  record a guess).  I/O pages other than the colour window are not
+  written (side effects).  27 states, plus one flat `STA [zp],Z` into
+  ROM.  Two xmega65 limits shape the states: no state maps megabyte
+  `$08` (undecoded; xmega65 crashes), and the upper-half attic state
+  uses megabyte `$81`, because flat `$8008100` reads the same bytes as
+  `$8100`.
+- `tests/unit/test_m65memory.py` (Tier U) replays every recorded
+  state on `M65Memory`, and pins by name the shared colour RAM, ROM
+  protection, flat access, and that the page table is rebuilt only by
+  its triggers; one test runs `MAP` on `MPU45GS02` over `M65Memory`.
 - A Tier X test re-runs the capture when xmega65 is present and fails
   on any difference from the committed golden file.
 
@@ -248,8 +288,12 @@ and flat operations — agreed with the reading.
 **Not in the recording.**  The monitor cannot raise an interrupt or
 show the latch, so these rest on a reading of xemu's source, not on
 its behaviour: interrupt entry (`irq()`, `nmi()`), the `MAP` latch
-and the pending-prefix interrupt hold, and what the megabyte
-selectors address (S2-3b's translation recording covers that one).
+and the pending-prefix interrupt hold.  Of the memory layout, the
+translation recording does not cover: block 0 under `MAP` (no state
+maps the code page — `M65Memory` then hides the CPU port, as xemu
+does), a `$D030` write in VIC-II mode (`M65Memory` leaves banking
+alone), and every I/O register but the colour window, `$D02F` and
+`$D030`.
 Two things xmega65 does that `MPU45GS02` does not: it holds an
 interrupt off for one instruction after a single-cycle instruction
 (no cycles here), and it runs `NEG NEG NEG` as a 32-bit negate (no

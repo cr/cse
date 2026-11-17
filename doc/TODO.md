@@ -402,9 +402,14 @@ in xmega65's data directory):
     the reading on BCD (NMOS-style) and `BIT #` (sets `N`/`V`)
     ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
     The xmega65 driver is `tests/xmega65.py`, shared with S2-8.
-  - [ ] S2-3b. `M65Memory`: the 28-bit store, the `MAP` / `$01` /
-    `$D030` / `$D02F` page table, colour RAM, flat access;
-    `test_m65memory.py` against translations recorded in xmega65.
+  - [x] S2-3b. `M65Memory`: the 28-bit store, the `MAP` / `$01` /
+    `$D030` / `$D02F` page table (16 × 4 KB), the CPU port, ROM
+    protection, colour RAM and its window, flat access;
+    `test_m65memory.py` against translations recorded in xmega65 by
+    `dev/capture_m65_mem.py` (`m65_mem.json`).  Done 2026-11-17: all
+    27 recorded states replay; the recording added two rules (a
+    latched `$D030` keeps banking in VIC-II mode; VIC-II colour
+    writes keep the low nibble).
   - [ ] S2-3c. The post-boot state (`dev/capture_m65_state.py` →
     `build/m65_state/`) and the `C64Emu` interface; a first Tier I
     test calls `CHROUT` on the real MEGA65 KERNAL.
