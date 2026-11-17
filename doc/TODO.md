@@ -411,11 +411,17 @@ in xmega65's data directory):
     lacked (a latched `$D030` keeps banking in VIC-II mode; the base
     colour window is 4-bit in VIC-II mode, the extended one never;
     I/O registers are the same in every I/O mode).
-  - [ ] S2-3c. The post-boot state (`dev/capture_m65_state.py` →
-    `build/m65_state/`) and the `C64Emu` interface; a first Tier I
-    test calls `CHROUT` on the real MEGA65 KERNAL.
+  - [x] S2-3c. The post-boot state (`dev/capture_m65_state.py` →
+    `build/m65_state/`, captured by hand) with a reference run; the
+    harness base shared with `C64Emu` (`tests/emu_base.py`) and
+    `M65Emu`; a first Tier I test calls `CHROUT` on the real MEGA65
+    KERNAL and matches xmega65's reference run.  Done 2026-11-17: the
+    reference run matches step for step and byte for byte; `C64Emu`
+    moved onto the base unchanged in behaviour (suite before and
+    after: 4552 passed).
   - [ ] S2-3d. Devices (DMA controller, CIAs, VIC-IV storage,
-    keyboard queue), each with the first test that needs it.
+    keyboard queue and `inject_keys()`), each with the first test
+    that needs it.
 - [ ] S2-4. Memory model: the data area in a RAM bank outside BASIC
   65's use, mapped into a 16-bit window by `MAP`, so the `(zp),y`
   readers stay unchanged and only mem.s's bank-in/out helpers change;

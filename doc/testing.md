@@ -218,22 +218,59 @@ chained jobs), the CIAs (keyboard matrix, timer IRQ — `C64Emu`'s
 model), the VIC-IV registers as storage, the keyboard queue
 (`$D610`).  The hypervisor (`$D640`–`$D67F`) and the floppy
 controller (`$D080`) are not modelled: a test that needs them is
-Tier X.  Unmodelled I/O registers read back what was written; the
-harness records each access to one, and a test can assert there was
-none.
+Tier X.  Unmodelled I/O registers read back what was written;
+`M65Memory.io_log` counts each access to one (`R $Dxxx` / `W $Dxxx`),
+so a test can assert which there were.
 
 **Starting state.**  M65Emu does not emulate the boot.
-`dev/capture_m65_state.py` records a post-boot state from xmega65 —
-chip RAM (`-dumpmem`), the CPU registers and `MAP` state (`r` over
-uartmon), the I/O registers M65Emu models — into `build/m65_state/`.
-The state contains the MEGA65 ROM, so it is generated locally and
-never committed; M65Emu tests are skipped, with the reason, when it
-is absent.
+`dev/capture_m65_state.py` (run by hand; about 20 s) boots xmega65 to
+the BASIC 65 prompt, stops the CPU in trace mode and reads, over
+uartmon, a post-boot state into `build/m65_state/`:
 
-**Interface.**  `C64Emu`'s: `a`, `x`, `y`, `sp`, `pc`, `p`, `jsr()`,
-`load_prg()`, `run_until()`, `inject_keys()`, `screen_text()`,
-`sym()` — plus `z`, `b`, `map_state` — so a Tier I test of behaviour
-both platforms share is parametrised over both harnesses.
+- `chip.bin` (384 KB, the ROM image included), `colour.bin` (32 KB),
+  `io.bin` (the I/O page `$D000`–`$D7FF` in VIC-IV mode; not the
+  CIAs, whose reads clear their flags);
+- `state.json`: the CPU registers and `MAP` (the megabyte selectors
+  cannot be read; they are 0 after boot, as `m65_mem.json`'s
+  post-boot state confirms), the CPU port, `$D030`, the I/O mode,
+  the xmega65 version and the ROM's SHA-256;
+- `reference.json`: what xmega65 did next, from that state — `SEI`,
+  `LDA #'A'`, `JSR $FFD2` (`CHROUT`) — its registers, step count and
+  memory changes, the oracle M65Emu's first Tier I test replays.
+
+The state contains the MEGA65 ROM, so it is never committed; M65Emu's
+Tier I tests are skipped, with the reason and the command that makes
+it, when it is absent.  Pytest never starts xmega65 by itself.
+
+**Interface.**  `M65Emu` (`tests/m65emu/harness.py`) and `C64Emu`
+share one base class (`tests/emu_base.py`): the registers `a`, `x`,
+`y`, `pc`, `p` and the flags, `cpu`, `memory`, `jsr()`,
+`run_until()`, `run_until_with_watch()`, `read_word()`,
+`write_word()`, `sym()`, `sym_opt()`, and the screen-code decoding
+behind `screen_text()` — so a Tier I test of behaviour both platforms
+share can be parametrised over both harnesses.  Each harness keeps
+what differs: C64Emu its synthesised KERNAL state, interrupts and
+keyboard matrix; M65Emu `z`, `b`, the 16-bit `sp`, the `MAP`
+registers, and:
+
+- `jsr()` pushes the return onto the current stack (in the post-boot
+  state, BASIC 65's) and stops at a sentinel (`$0002`) compared by PC
+  only, never written to memory;
+- `load_prg()` puts the payload at its load address in bank 0, as the
+  KERNAL's `LOAD` does, and loads the symbols of the `.lbl` beside it
+  (segment relocation follows with the m65 loader, S2-1 and S2-4);
+- `screen_text()` finds the screen through the VIC-IV screen pointer
+  (`$D060`–`$D063`), the line step (`$D058`–`$D059`) and the width
+  (`$D05E`) — the KERNAL's `CHROUT` reads the same pointer;
+- `io_log` counts the accesses to I/O registers no device models.
+
+`inject_keys()` follows with the keyboard device (S2-3d).
+
+The first Tier I test (`tests/integration/test_m65emu.py`) replays the
+reference run: `CHROUT` on the real MEGA65 KERNAL takes the same 125
+steps as in xmega65 and leaves the same registers, chip RAM and colour
+RAM; it shows on the screen as `screen_text()` reads it, and it reads
+no I/O but the screen pointer.
 
 **Validation.**  M65Emu is checked against xmega65, not against our
 own reading of the compendium:

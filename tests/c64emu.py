@@ -18,6 +18,8 @@ Usage:
 import pathlib
 from py65.devices.mpu6502 import MPU
 
+from emu_base import EmuBase, decode_screen_codes
+
 _ROM_DIR     = pathlib.Path(__file__).parent.parent / "rom"
 _ROM_KERNAL  = _ROM_DIR / "kernal_cbm.bin"
 _ROM_BASIC   = _ROM_DIR / "basic_cbm.bin"
@@ -220,8 +222,11 @@ class BankedMemory:
         self.ram[addr] = val
 
 
-class C64Emu:
-    """Minimal C64 emulator for testing CSE assembly code."""
+class C64Emu(EmuBase):
+    """Minimal C64 emulator for testing CSE assembly code.  The
+    registers, run loops, word access and symbols come from EmuBase."""
+
+    NAME = "C64Emu"
 
     # Sentinel address — the RTS target for jsr().
     # Placed in I/O area ($D000–$DFFF) which CSE never executes from.
@@ -245,10 +250,10 @@ class C64Emu:
             assert len(chargen_data) == 4096, \
                 f"CHARGEN ROM must be 4096 bytes, got {len(chargen_data)}"
 
-        self._mem = BankedMemory(kernal_data, basic_data, chargen_data)
-        self._cpu = MPU()
-        self._cpu.memory = self._mem
-        self._syms = {}
+        mem = BankedMemory(kernal_data, basic_data, chargen_data)
+        cpu = MPU()
+        cpu.memory = mem
+        EmuBase.__init__(self, cpu, mem)
 
         # Cycle counter (monotonic across jsr/run_until calls) +
         # pending-interrupt queue for schedule_irq / schedule_nmi.
@@ -340,31 +345,7 @@ class C64Emu:
             if val != 0:
                 self._mem.ram[addr] = val
 
-    # ── Register accessors ──────────────────────────────────────
-
-    @property
-    def a(self):
-        return self._cpu.a
-
-    @a.setter
-    def a(self, val):
-        self._cpu.a = val & 0xFF
-
-    @property
-    def x(self):
-        return self._cpu.x
-
-    @x.setter
-    def x(self, val):
-        self._cpu.x = val & 0xFF
-
-    @property
-    def y(self):
-        return self._cpu.y
-
-    @y.setter
-    def y(self, val):
-        self._cpu.y = val & 0xFF
+    # ── Register accessors (the rest: EmuBase) ──────────────────
 
     @property
     def sp(self):
@@ -373,49 +354,6 @@ class C64Emu:
     @sp.setter
     def sp(self, val):
         self._cpu.sp = val & 0xFF
-
-    @property
-    def pc(self):
-        return self._cpu.pc
-
-    @pc.setter
-    def pc(self, val):
-        self._cpu.pc = val & 0xFFFF
-
-    @property
-    def p(self):
-        return self._cpu.p
-
-    @p.setter
-    def p(self, val):
-        self._cpu.p = val & 0xFF
-
-    @property
-    def carry(self):
-        return bool(self._cpu.p & self._cpu.CARRY)
-
-    @carry.setter
-    def carry(self, val):
-        if val:
-            self._cpu.p |= self._cpu.CARRY
-        else:
-            self._cpu.p &= ~self._cpu.CARRY
-
-    @property
-    def zero(self):
-        return bool(self._cpu.p & self._cpu.ZERO)
-
-    @property
-    def negative(self):
-        return bool(self._cpu.p & self._cpu.NEGATIVE)
-
-    @property
-    def overflow(self):
-        return bool(self._cpu.p & self._cpu.OVERFLOW)
-
-    @property
-    def memory(self):
-        return self._mem
 
     # ── Scheduled interrupts ────────────────────────────────────
     #
@@ -553,49 +491,19 @@ class C64Emu:
                 self._pending.sort()
             return
 
-    # ── Execution ───────────────────────────────────────────────
+    # ── Execution (the loops: EmuBase) ──────────────────────────
 
-    def jsr(self, addr, *, a=None, x=None, y=None, carry=None,
-            max_cycles=500_000):
-        """Simulate JSR to addr.  Returns cycle count.
-
-        Sets up a sentinel return address on the stack so that the
-        target routine's RTS halts emulation.  Raises TimeoutError
-        if max_cycles is exceeded.
-        """
-        sentinel = self.SENTINEL
-        self._mem.ram[sentinel] = 0xEA  # NOP — marker
-
-        # Push (sentinel - 1) as return address (RTS adds 1)
-        self._cpu.sp = 0xFF
-        self._mem.ram[0x01FF] = ((sentinel - 1) >> 8) & 0xFF
-        self._mem.ram[0x01FE] = (sentinel - 1) & 0xFF
+    def _push_return(self, ret):
+        """jsr(): a fresh stack holding `ret`; a NOP marks the sentinel."""
+        self._mem.ram[self.SENTINEL] = 0xEA
+        self._mem.ram[0x01FF] = (ret >> 8) & 0xFF
+        self._mem.ram[0x01FE] = ret & 0xFF
         self._cpu.sp = 0xFD
 
-        if a is not None:
-            self._cpu.a = a & 0xFF
-        if x is not None:
-            self._cpu.x = x & 0xFF
-        if y is not None:
-            self._cpu.y = y & 0xFF
-        if carry is not None:
-            self.carry = carry
-
-        self._cpu.pc = addr
-        cycles = 0
-        while cycles < max_cycles:
-            if self._cpu.pc == sentinel:
-                return cycles
-            self._cpu.step()
-            cycles += 1
-            self._cycle_total += 1
-            if self._pending:
-                self._dispatch_pending()
-
-        raise TimeoutError(
-            f"C64Emu: timeout after {max_cycles} cycles at "
-            f"${self._cpu.pc:04X}"
-        )
+    def _after_step(self):
+        self._cycle_total += 1
+        if self._pending:
+            self._dispatch_pending()
 
     # ── Keyboard matrix (CIA1 $DC00/$DC01) ──────────────────────
 
@@ -662,9 +570,7 @@ class C64Emu:
         mirroring what the loader.s bootstrap does on real hardware.
         """
         prg_path = pathlib.Path(prg_path)
-        data = prg_path.read_bytes()
-        load_addr = data[0] | (data[1] << 8)
-        payload = data[2:]
+        load_addr, payload = self._read_prg(prg_path)
         for i, b in enumerate(payload):
             self._mem.ram[load_addr + i] = b
 
@@ -673,7 +579,7 @@ class C64Emu:
             map_path = prg_path.with_suffix('.map')
         map_path = pathlib.Path(map_path)
         if map_path.exists():
-            self._parse_map(map_path)
+            self._load_symbols(map_path)
             self._relocate_segments(map_path)
 
         return load_addr
@@ -704,91 +610,6 @@ class C64Emu:
                     for i in range(size):
                         self._mem.ram[run + i] = self._mem.ram[load + i]
 
-    def _parse_map(self, map_path):
-        """Load symbols from the .lbl file (VICE label format) companion
-        to the ld65 map file.  Uses conftest.SymbolTable for parsing."""
-        from conftest import SymbolTable
-        lbl_path = map_path.with_suffix('.lbl')
-        if lbl_path.exists():
-            st = SymbolTable(lbl_path)
-            for name in st.keys():
-                self._syms[name] = st[name]
-
-    def sym(self, name):
-        """Look up a symbol address by name."""
-        try:
-            return self._syms[name]
-        except KeyError:
-            raise KeyError(
-                f"Symbol {name!r} not found. "
-                f"Available: {', '.join(sorted(self._syms)[:20])}..."
-            ) from None
-
-    def sym_opt(self, name):
-        """Look up a symbol address; return None if not present.
-
-        Useful for feature-gated tests that should skip cleanly when
-        a symbol is missing (e.g. during staged refactors).
-        """
-        return self._syms.get(name)
-
-    def run_until(self, stop_addr, *, start_at=None, max_cycles=500_000):
-        """Step CPU until PC == stop_addr (or max_cycles exceeded).
-
-        Unlike jsr(), this does not install a sentinel return — the
-        caller arranges that control reaches stop_addr some other way
-        (e.g. via a longjmp/RTI-into-user-code path).
-
-        If start_at is given, PC is set to that address first.
-        """
-        if start_at is not None:
-            self._cpu.pc = start_at
-        cycles = 0
-        while cycles < max_cycles:
-            if self._cpu.pc == stop_addr:
-                return cycles
-            self._cpu.step()
-            cycles += 1
-            self._cycle_total += 1
-            if self._pending:
-                self._dispatch_pending()
-        raise TimeoutError(
-            f"C64Emu: run_until({stop_addr:#06X}) timeout after "
-            f"{max_cycles} cycles at PC=${self._cpu.pc:04X}"
-        )
-
-    def run_until_with_watch(self, stop_addr, watch_addrs, *,
-                              start_at=None, max_cycles=500_000):
-        """Like run_until, but also records every cycle the CPU's PC
-        equals one of `watch_addrs`.  Returns a list of (pc, cycle)
-        tuples in the order visited.
-
-        Use this to assert that a code path is (or is not) entered
-        during a longer run — e.g. that cold init reaches
-        `main_loop_top` without ever entering `cse_brk_handler` or
-        `cse_recover`.
-        """
-        if start_at is not None:
-            self._cpu.pc = start_at
-        watch = set(watch_addrs)
-        hits = []
-        cycles = 0
-        while cycles < max_cycles:
-            pc = self._cpu.pc
-            if pc == stop_addr:
-                return hits
-            if pc in watch:
-                hits.append((pc, cycles))
-            self._cpu.step()
-            cycles += 1
-            self._cycle_total += 1
-            if self._pending:
-                self._dispatch_pending()
-        raise TimeoutError(
-            f"C64Emu: run_until_with_watch({stop_addr:#06X}) timeout "
-            f"after {max_cycles} cycles at PC=${self._cpu.pc:04X}"
-        )
-
     def trigger_nmi(self, user_pc, *, user_p=0x20):
         """Synthesise a CPU NMI frame on the stack and set PC to the
         NMI vector's target.  Stack ordering matches what the CPU
@@ -812,46 +633,14 @@ class C64Emu:
 
     # ── Helpers ─────────────────────────────────────────────────
 
-    def read_word(self, addr):
-        """Read a 16-bit little-endian word from memory."""
-        return self._mem[addr] | (self._mem[addr + 1] << 8)
-
-    def write_word(self, addr, val):
-        """Write a 16-bit little-endian word to memory."""
-        self._mem[addr] = val & 0xFF
-        self._mem[addr + 1] = (val >> 8) & 0xFF
-
     def screen_row(self, row):
         """Read screen codes for one row (40 bytes) as a list."""
         base = SCREEN + row * COLS
         return [self._mem[base + c] for c in range(COLS)]
 
     def screen_text(self, row):
-        """Read one screen row as a Python string (screen code → ASCII).
-
-        Decodes using the lowercase/uppercase charset (CSE's runtime
-        mode):
-          $00        → '@'
-          $01-$1A    → 'a'-'z'  (lowercase)
-          $20-$3F    → identity (space, punctuation, digits)
-          $41-$5A    → 'A'-'Z'  (uppercase)
-          everything else → '?'
-        """
-        codes = self.screen_row(row)
-        chars = []
-        for sc in codes:
-            sc &= 0x7F
-            if sc == 0x00:
-                chars.append('@')
-            elif 0x01 <= sc <= 0x1A:        # lowercase a-z
-                chars.append(chr(sc + 0x60))
-            elif 0x20 <= sc <= 0x3F:        # identity range
-                chars.append(chr(sc))
-            elif 0x41 <= sc <= 0x5A:        # uppercase A-Z
-                chars.append(chr(sc))
-            else:
-                chars.append('?')
-        return ''.join(chars).rstrip()
+        """One screen row as text (emu_base.decode_screen_codes)."""
+        return decode_screen_codes(self.screen_row(row))
 
     def set_cursor(self, row, col):
         """Set cursor position via KERNAL PLOT (CLC path)."""

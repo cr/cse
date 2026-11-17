@@ -20,9 +20,13 @@ The CPU's view, per 4 KB page: MAP (per 8 KB block) first, then the
 banking of the CPU port and $D030, else RAM.  A page-table entry is
 the flat base the page's reads (`rd`) and writes (`wr`) go to, or _IO
 for the I/O page.  The table is rebuilt only when a MAP register
-changes or $00, $01, $D02F or (in VIC-III/IV mode) $D030 is written;
-`rebuilds` counts the rebuilds.
+changes or $00, $01, $D02F or (in VIC-III/IV mode) $D030 is written,
+or `restore()` sets the banking from a snapshot; `rebuilds` counts the
+rebuilds.  `io_log` counts the CPU's accesses to I/O registers no
+device models ("R $Dxxx" / "W $Dxxx").
 """
+
+import collections
 
 _M28 = (1 << 28) - 1
 COLOUR = 0xFF80000         # colour RAM, 32 KB
@@ -53,6 +57,7 @@ class M65Memory:
             self.chip[0x20000:0x20000 + len(rom)] = rom
         self.rom_protect = rom_protect
         self.io = bytearray(0x1000)           # registers no device claims
+        self.io_log = collections.Counter()
         self.io_mode = VIC2
         self.key = 0                          # last byte written to $D02F
         self.d030 = 0                         # latched in VIC-III/IV mode
@@ -91,6 +96,9 @@ class M65Memory:
     def load(self, a, data):
         """Put `data` at flat `a`, ignoring ROM protection (as the
         monitor and a ROM loader do)."""
+        if a + len(data) <= 0x60000:                  # chip RAM: one slice
+            self.chip[a:a + len(data)] = data
+            return
         for k, v in enumerate(data):
             store, i = self._cell((a + k) & _M28)
             store[i] = v
@@ -127,6 +135,12 @@ class M65Memory:
         else:
             self.write_flat(a, v)
 
+    def restore(self, *, ddr, port, d030, io_mode):
+        """Set the CPU port, `$D030` and the I/O mode directly, as a
+        snapshot records them (no `$D02F` key sequence)."""
+        self.ddr, self.port, self.d030, self.io_mode = ddr, port, d030, io_mode
+        self._rebuild()
+
     def map_changed(self, cpu):
         self.map = (cpu.mapl, cpu.maph, cpu.map_lo_mb, cpu.map_hi_mb)
         self._rebuild()
@@ -148,6 +162,8 @@ class M65Memory:
     def _io_read(self, off):
         cell, nibble = self._colour_cell(off)
         if cell is None:
+            if off not in (0x02F, 0x030):
+                self.io_log[f"R $D{off:03X}"] += 1
             return self.io[off]
         store, i = cell
         return store[i] | 0xF0 if nibble else store[i]
@@ -159,6 +175,8 @@ class M65Memory:
             store[i] = v & 0x0F if nibble else v
             return
         self.io[off] = v
+        if off not in (0x02F, 0x030):
+            self.io_log[f"W $D{off:03X}"] += 1
         if off == 0x02F:
             self.io_mode = _MODE_OF_KEY.get(self.key << 8 | v, VIC2)
             self.key = v
