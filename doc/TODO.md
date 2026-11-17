@@ -389,7 +389,7 @@ in xmega65's data directory):
   ([build_system.md § The m65 PRG](build_system.md#the-m65-prg)).
 - [ ] S2-2. `src/m45_ops.inc`, the raw-byte macros, and an audit
   test: no module encodes a 45GS02-only instruction outside it.
-- [ ] S2-3. M65Emu, the m65 integration harness
+- [x] S2-3. M65Emu, the m65 integration harness
   ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
   It depends on none of the open design items, so it lands first
   (operator, 2026-11-17).
@@ -419,9 +419,13 @@ in xmega65's data directory):
     reference run matches step for step and byte for byte; `C64Emu`
     moved onto the base unchanged in behaviour (suite before and
     after: 4552 passed).
-  - [ ] S2-3d. Devices (DMA controller, CIAs, VIC-IV storage,
-    keyboard queue and `inject_keys()`), each with the first test
-    that needs it.
+  - [x] S2-3d. Devices, as the KERNAL needs them: the DMA controller
+    (scrolling; checked against jobs recorded in xmega65,
+    `dev/capture_m65_dma.py` → `m65_dma.json`, and a scroll reference
+    run), the keyboard queue and `inject_keys()` (`GETIN`), the CIA1
+    matrix port.  The raster IRQ and the CIA timers wait for S2-7.
+    Done 2026-11-17: all 28 recorded jobs and the 30-line scroll
+    replay byte for byte; options stay for a whole chained session.
 - [ ] S2-4. Memory model: the data area in a RAM bank outside BASIC
   65's use, mapped into a 16-bit window by `MAP`, so the `(zp),y`
   readers stay unchanged and only mem.s's bank-in/out helpers change;

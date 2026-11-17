@@ -12,9 +12,14 @@ build/m65_state/ (tests/m65emu/harness.py has the file list):
 - the registers and MAP, the CPU port, $D030 and the I/O mode; the
   megabyte selectors cannot be read and are 0 after boot, as the
   post-boot state of m65_mem.json confirms;
-- a reference run from that state — SEI, LDA #'A', JSR CHROUT — with
-  its registers, step count and memory changes, which
-  tests/integration/test_m65emu.py replays on M65Emu.
+- reference runs, one after the other from that state, each with the
+  registers it ends with and its memory changes, which
+  tests/integration/test_m65emu.py replays on M65Emu in the same
+  order: "chrout" (SEI, LDA #'A', JSR CHROUT; single-stepped, so its
+  step count is recorded too) and "scroll" (30 RETURNs and an 'A'
+  through CHROUT: the screen scrolls by DMA; about 140k steps, so it
+  runs at full speed to a breakpoint, interrupts off, parked there by
+  a JMP to itself).
 
 The snapshot holds the MEGA65 ROM, so it stays in build/ and is never
 committed.  Run it by hand (about 20 s); pytest never starts xmega65.
@@ -40,8 +45,13 @@ from xmega65 import POST_BOOT_MAP, recording      # noqa: E402
 
 WORK = ROOT / "build" / "m65_state_capture"
 CODE = 0x1800
-REFERENCE = [0x78, 0xA9, 0x41, 0x20, 0xD2, 0xFF]   # SEI; LDA #'A'; JSR CHROUT
 IO_BYTES = 0x800                                  # $D000-$D7FF: no CIAs
+CHROUT = [0x20, 0xD2, 0xFF]
+RUNS = (                                          # (name, code, single-step?)
+    ("chrout", [0x78, 0xA9, 0x41] + CHROUT, True),
+    ("scroll", [0x78] + [0xA9, 0x0D] + CHROUT
+     + ([0xA9, 0x0D] + CHROUT) * 29 + [0xA9, 0x41] + CHROUT, False),
+)
 
 
 def capture(xm):
@@ -59,31 +69,39 @@ def capture(xm):
                  xmega65=xm.version(),
                  captured=datetime.date.today().isoformat(),
                  rom_sha256=hashlib.sha256(chip[0x20000:0x40000]).hexdigest())
-    return files, state, reference_run(xm, chip, files["colour.bin"])
+    runs, before = [], (chip[:0x20000], files["colour.bin"])
+    for name, code, single_step in RUNS:
+        run, before = reference_run(xm, name, code, single_step, *before)
+        runs.append(run)
+    return files, state, dict(runs=runs)
 
 
-def reference_run(xm, chip, colour):
-    """Run REFERENCE at CODE from the captured state; record the
-    registers after it, the steps it took and what it changed in
-    chip RAM below $20000 and in colour RAM."""
-    xm.write(CODE, REFERENCE)
+def reference_run(xm, name, code, single_step, chip, colour):
+    """Run `code` at CODE; record the registers after it, its steps
+    (single-stepped runs only) and what it changed in chip RAM below
+    $20000 and in colour RAM, outside its own code."""
+    end = CODE + len(code)
+    xm.write(CODE, code + [0x4C, end & 0xFF, end >> 8])   # parked at end
     xm.cmd(f"g {CODE:x}")
-    end, steps = CODE + len(REFERENCE), 0
-    regs = xm.regs()
-    while regs["pc"] != end:
-        regs = xm.step()
-        steps += 1
-        if steps > 10_000:
-            raise RuntimeError(f"reference run did not return: {regs}")
-    after_chip = xm.read(0, 0x20000)
-    after_colour = xm.read(COLOUR, 0x8000)
-    code = range(CODE, end)
-    return dict(code=" ".join(f"{b:02X}" for b in REFERENCE), at=CODE,
-                steps=steps, after=regs,
-                chip_changes={f"{a:05X}": after_chip[a] for a in range(0x20000)
-                              if after_chip[a] != chip[a] and a not in code},
-                colour_changes={f"{a:04X}": after_colour[a] for a in range(0x8000)
-                                if after_colour[a] != colour[a]})
+    steps = None
+    if single_step:
+        steps, regs = 0, xm.regs()
+        while regs["pc"] != end:
+            regs = xm.step()
+            steps += 1
+            if steps > 10_000:
+                raise RuntimeError(f"{name}: did not return: {regs}")
+    else:
+        regs = xm.run_to(end)
+    after_chip, after_colour = xm.read(0, 0x20000), xm.read(COLOUR, 0x8000)
+    own = range(CODE, end + 3)
+    run = dict(name=name, code=" ".join(f"{b:02X}" for b in code), at=CODE,
+               steps=steps, after=regs,
+               chip_changes={f"{a:05X}": after_chip[a] for a in range(0x20000)
+                             if after_chip[a] != chip[a] and a not in own},
+               colour_changes={f"{a:04X}": after_colour[a] for a in range(0x8000)
+                               if after_colour[a] != colour[a]})
+    return run, (after_chip, after_colour)
 
 
 def main():
@@ -99,7 +117,7 @@ def main():
     shutil.rmtree(STATE_DIR, ignore_errors=True)
     tmp.rename(STATE_DIR)                         # never a half snapshot
     print(f"wrote {STATE_DIR} (xmega65 {state['xmega65'].split()[2][:8]}, "
-          f"reference run {reference['steps']} steps)")
+          f"reference runs: {', '.join(r['name'] for r in reference['runs'])})")
 
 
 if __name__ == "__main__":

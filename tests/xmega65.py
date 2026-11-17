@@ -154,6 +154,26 @@ class XMega65:
                 raise Interrupted(r)
         return r
 
+    def run_to(self, addr, timeout=60):
+        """Run at full speed (from trace mode) until PC reaches `addr`,
+        then pause; return the registers.  The monitor reports the hit
+        by itself — a register dump without a prompt — and the CPU runs
+        one more instruction before it stops, so park the code at
+        `addr` (e.g. JMP to itself)."""
+        self.cmd(f"b {addr:x}")
+        self.sock.sendall(b"t0\n")
+        want = f"\r\n{addr:04X} ".encode()
+        buf, deadline = b"", time.time() + timeout
+        while want not in buf:
+            if time.time() > deadline:
+                raise TimeoutError(f"breakpoint ${addr:04X} not reached")
+            try:
+                buf += self.sock.recv(65536)
+            except socket.timeout:
+                pass
+        self.cmd("t1")
+        return self.regs()
+
     def set_map(self, addr, mapl, maph, mb_lo=0, mb_hi=0):
         """Run, at `addr`, the code that sets the megabyte selectors
         and then both MAP halves, with interrupts off; EOM ends each."""

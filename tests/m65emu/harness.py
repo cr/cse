@@ -23,6 +23,7 @@ import pathlib
 
 from emu_base import EmuBase, decode_screen_codes
 
+from .devices import CIA1Ports, DMAController, KeyboardQueue
 from .memory import COLOUR, M65Memory
 from .mpu45gs02 import MPU45GS02
 
@@ -56,13 +57,20 @@ class M65Emu(EmuBase):
 
     def __init__(self, snapshot=None):
         """A blank machine (no ROM, CPU reset), or the one in `snapshot`
-        (from load_snapshot())."""
+        (from load_snapshot()); either with the devices attached."""
         mem = M65Memory()
+        self.dma = DMAController(mem)
+        self.keyboard = KeyboardQueue()
+        self.cia1 = CIA1Ports()
+        mem.attach(self.dma, 0x700, 0x70F)
+        for off in KeyboardQueue.REGISTERS:
+            mem.attach(self.keyboard, off)
+        mem.attach(self.cia1, 0xC00, 0xC01)
         if snapshot is not None:
             st = snapshot["state"]
             mem.load(0, snapshot["chip"])
             mem.load(COLOUR, snapshot["colour"])
-            mem.io[:len(snapshot["io"])] = snapshot["io"]
+            mem.restore_io(snapshot["io"])
             mem.restore(ddr=st["ddr"], port=st["port"], d030=st["d030"],
                         io_mode=st["io_mode"])
         cpu = MPU45GS02(mem)
@@ -107,6 +115,11 @@ class M65Emu(EmuBase):
     def _push_return(self, ret):
         """jsr(): push onto the current stack, as JSR would."""
         self._cpu._push_word(ret)
+
+    def inject_keys(self, data):
+        """Queue PETSCII bytes in the keyboard scanner, as typed."""
+        for petscii in data:
+            self.keyboard.push(petscii)
 
     def load_prg(self, prg_path, map_path=None):
         """Put the payload at its load address in bank 0, as the

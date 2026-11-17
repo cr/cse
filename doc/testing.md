@@ -80,8 +80,9 @@ share: the recording session and the file writer):
   screen.
 - **Input and state:** the `-uartmon` socket (monitor commands:
   `r` registers, `m` memory read, `s` memory write, `g` go, `t1`/`t0`
-  trace mode on/off, `t` one step); keystrokes go into the KERNAL
-  keyboard buffer.  `s` and `m` address linear (28-bit) memory;
+  trace mode on/off, `t` one step, `b` breakpoint — a hit is reported
+  unprompted, after one more instruction); keystrokes go into the
+  KERNAL keyboard buffer.  `s` and `m` address linear (28-bit) memory;
   the CPU's mapped view is the `777xxxx` range.  The socket path is relative to the run
   directory, because a Unix-domain socket path is limited to 104
   characters and xmega65 exits when it cannot bind.
@@ -212,15 +213,51 @@ protocol of layer 1: `memory[addr16]`, `read_flat()`, `write_flat()`):
   address directly.  `load()` puts bytes into the flat
   store past ROM protection, as the monitor and a ROM loader do.
 
-**Layer 3 — the devices,** added one at a time, each when a test
-needs it: the DMA controller (`$D700`, F018A/B job lists: copy, fill,
-chained jobs), the CIAs (keyboard matrix, timer IRQ — `C64Emu`'s
-model), the VIC-IV registers as storage, the keyboard queue
-(`$D610`).  The hypervisor (`$D640`–`$D67F`) and the floppy
-controller (`$D080`) are not modelled: a test that needs them is
-Tier X.  Unmodelled I/O registers read back what was written;
+**Layer 3 — the devices** (`tests/m65emu/devices.py`), added one at a
+time, each when a test needs it.  A device claims a range of I/O
+registers in `M65Memory` (`M65Memory.attach()`); the CPU's accesses to
+them go to the device, which reaches memory through the flat
+interface.  Unclaimed I/O registers read back what was written;
 `M65Memory.io_log` counts each access to one (`R $Dxxx` / `W $Dxxx`),
-so a test can assert which there were.
+so a test can assert which there were.  What the KERNAL uses decides
+the order: it scrolls the screen by DMA, `GETIN` reads the hardware
+keyboard queue, and its IRQ handler is driven by the VIC raster
+interrupt and scans the CIA1 keyboard matrix.
+
+- **The DMA controller** (`$D700`–`$D70F`).  A job list is read from
+  the flat address `$D700`/`$D701`/`$D702` (bits 0–22) and `$D704`
+  (the megabyte) give; writing `$D700` starts a list in the format of
+  the default revision (`$D703` bit 0: F018A, or F018B with its extra
+  sub-command byte), writing `$D705` an enhanced list (an option list
+  before each job).  Commands: copy, fill, swap, mix; each side steps
+  up, down or holds; chained jobs; a side with address bit 23 set
+  reads or writes the I/O page.  Enhanced options: revision (`$0A`,
+  `$0B`), source and target megabyte (`$80`, `$81`), skip rates
+  (`$82`–`$85`), transparency (`$06`, `$07`, `$86`), the length's
+  third byte (`$90`), megabyte crossing (`$01`).  A job runs to its end
+  when it is started — the CPU is halted during DMA on the MEGA65 too.
+  Line drawing, modulo mode and lists read through the CPU's view
+  (`$D706`, `$D707`) are not modelled: they raise `DMANotModelled`.
+  The recording settled three points: DMA writes into protected ROM
+  are dropped; an enhanced option holds for the rest of the session,
+  chained jobs included (their own option lists add to it); a held
+  target keeps the last byte.  After boot the KERNAL runs the
+  controller in F018B mode (`$D703` = 1); a snapshot restores the
+  registers without starting a job (`M65Memory.restore_io()`).
+- **The keyboard queue** (`$D610`, `$D619`, `$D60A`, `$D611`).  Each
+  entry is a key as ASCII, as PETSCII and its modifier keys; `$D610`
+  reads the head's ASCII (0 when empty), `$D619` its PETSCII (`$FF`
+  when empty), `$D60A` its modifiers (bit 7: an entry is waiting);
+  writing `$D610` or `$D619` drops the head, writing `$D60A` with bit 7
+  clear empties the queue; `$D611` reads the keys held now (none).
+  `M65Emu.inject_keys()` queues PETSCII bytes, as `C64Emu`'s does.
+- **The CIA1 keyboard matrix** (`$DC00`, `$DC01`): port B reads `$FF`,
+  no key held, whatever row port A selects.  CIA timers and interrupts
+  are not modelled yet, nor is the VIC raster interrupt: no test needs
+  them before the debugger's hooks (S2-7).
+
+The hypervisor (`$D640`–`$D67F`) and the floppy controller (`$D080`)
+are not modelled: a test that needs them is Tier X.
 
 **Starting state.**  M65Emu does not emulate the boot.
 `dev/capture_m65_state.py` (run by hand; about 20 s) boots xmega65 to
@@ -234,9 +271,14 @@ uartmon, a post-boot state into `build/m65_state/`:
   cannot be read; they are 0 after boot, as `m65_mem.json`'s
   post-boot state confirms), the CPU port, `$D030`, the I/O mode,
   the xmega65 version and the ROM's SHA-256;
-- `reference.json`: what xmega65 did next, from that state — `SEI`,
-  `LDA #'A'`, `JSR $FFD2` (`CHROUT`) — its registers, step count and
-  memory changes, the oracle M65Emu's first Tier I test replays.
+- `reference.json`: what xmega65 did next, run after run from that
+  state, each run's registers and memory changes, the oracle M65Emu's
+  Tier I tests replay in the same order — "chrout" (`SEI`,
+  `LDA #'A'`, `JSR $FFD2`; single-stepped, so its 125 steps are
+  recorded too) and "scroll" (30 RETURNs and an 'A' through `CHROUT`,
+  the screen scrolled by DMA; about 140k steps, run at full speed to a
+  breakpoint with interrupts off, the code parked there by a `JMP` to
+  itself).
 
 The state contains the MEGA65 ROM, so it is never committed; M65Emu's
 Tier I tests are skipped, with the reason and the command that makes
@@ -264,13 +306,15 @@ registers, and:
   (`$D05E`) — the KERNAL's `CHROUT` reads the same pointer;
 - `io_log` counts the accesses to I/O registers no device models.
 
-`inject_keys()` follows with the keyboard device (S2-3d).
+- `inject_keys()` queues PETSCII bytes in the keyboard device.
 
-The first Tier I test (`tests/integration/test_m65emu.py`) replays the
-reference run: `CHROUT` on the real MEGA65 KERNAL takes the same 125
-steps as in xmega65 and leaves the same registers, chip RAM and colour
-RAM; it shows on the screen as `screen_text()` reads it, and it reads
-no I/O but the screen pointer.
+The Tier I tests (`tests/integration/test_m65emu.py`) replay the
+reference runs: `CHROUT` on the real MEGA65 KERNAL takes the same 125
+steps as in xmega65, and both runs leave the same registers, chip RAM
+and colour RAM — the scroll's 350 DMA jobs included.  The character
+shows on the screen as `screen_text()` reads it, the scroll touches no
+I/O register that no device models but the screen pointer, and `GETIN`
+returns injected keys in order, then 0.
 
 **Validation.**  M65Emu is checked against xmega65, not against our
 own reading of the compendium:
@@ -321,6 +365,15 @@ own reading of the compendium:
   state on `M65Memory`, and pins by name the shared colour RAM, ROM
   protection, flat access, and that the page table is rebuilt only by
   its triggers; one test runs `MAP` on `MPU45GS02` over `M65Memory`.
+- `dev/capture_m65_dma.py` plants a job list at `$1C00`, fills the
+  memory regions with the pattern and starts the list from code in
+  block 0, recording what each job changed into
+  `tests/fixtures/golden/m65_dma.json` (28 cases: both list formats,
+  every command, stepping, chaining, I/O on either side, a copy into
+  ROM, the enhanced options).  A job runs to its end within the step
+  of the store that starts it, in xmega65 as in M65Emu.
+  `tests/unit/test_m65dma.py` (Tier U) replays them through the CPU's
+  view of the DMA registers.
 - A Tier X test re-runs the capture when xmega65 is present and fails
   on any difference from the committed golden file.
 
@@ -342,6 +395,8 @@ and the pending-prefix interrupt hold.  Of the memory layout, the
 translation recording does not cover a `$D030` write in VIC-II mode
 (`M65Memory` leaves banking alone), nor what any I/O register does
 beyond the colour window, `$D02F`, `$D030` and one plain register.
+The keyboard queue rests on xemu's source alone: the monitor cannot
+type a key.
 Two things xmega65 does that `MPU45GS02` does not: it holds an
 interrupt off for one instruction after a single-cycle instruction
 (no cycles here), and it runs `NEG NEG NEG` as a 32-bit negate (no

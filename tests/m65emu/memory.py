@@ -22,8 +22,11 @@ the flat base the page's reads (`rd`) and writes (`wr`) go to, or _IO
 for the I/O page.  The table is rebuilt only when a MAP register
 changes or $00, $01, $D02F or (in VIC-III/IV mode) $D030 is written,
 or `restore()` sets the banking from a snapshot; `rebuilds` counts the
-rebuilds.  `io_log` counts the CPU's accesses to I/O registers no
-device models ("R $Dxxx" / "W $Dxxx").
+rebuilds.
+
+I/O registers a device claims (`attach()`) go to the device; every
+other register is plain storage, and `io_log` counts the CPU's
+accesses to those ("R $Dxxx" / "W $Dxxx").
 """
 
 import collections
@@ -58,6 +61,8 @@ class M65Memory:
         self.rom_protect = rom_protect
         self.io = bytearray(0x1000)           # registers no device claims
         self.io_log = collections.Counter()
+        self.devices = []
+        self._claims = [None] * 0x1000        # I/O offset → device
         self.io_mode = VIC2
         self.key = 0                          # last byte written to $D02F
         self.d030 = 0                         # latched in VIC-III/IV mode
@@ -135,6 +140,25 @@ class M65Memory:
         else:
             self.write_flat(a, v)
 
+    def attach(self, device, first, last=None):
+        """Give I/O registers $D000+`first`..`last` to `device`, which
+        has read(off) and write(off, value)."""
+        last = first if last is None else last
+        taken = [f"$D{o:03X}" for o in range(first, last + 1) if self._claims[o]]
+        if taken:
+            raise ValueError(f"I/O registers already claimed: {', '.join(taken)}")
+        for off in range(first, last + 1):
+            self._claims[off] = device
+        if device not in self.devices:
+            self.devices.append(device)
+
+    def restore_io(self, io):
+        """Set the I/O registers from a snapshot: storage, then each
+        device's own state (load(io)), without side effects."""
+        self.io[:len(io)] = io
+        for device in self.devices:
+            device.load(self.io)
+
     def restore(self, *, ddr, port, d030, io_mode):
         """Set the CPU port, `$D030` and the I/O mode directly, as a
         snapshot records them (no `$D02F` key sequence)."""
@@ -162,6 +186,9 @@ class M65Memory:
     def _io_read(self, off):
         cell, nibble = self._colour_cell(off)
         if cell is None:
+            device = self._claims[off]
+            if device is not None:
+                return device.read(off)
             if off not in (0x02F, 0x030):
                 self.io_log[f"R $D{off:03X}"] += 1
             return self.io[off]
@@ -173,6 +200,10 @@ class M65Memory:
         if cell is not None:
             store, i = cell
             store[i] = v & 0x0F if nibble else v
+            return
+        device = self._claims[off]
+        if device is not None:
+            device.write(off, v)
             return
         self.io[off] = v
         if off not in (0x02F, 0x030):
