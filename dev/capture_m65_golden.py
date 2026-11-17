@@ -35,9 +35,7 @@ import argparse
 import datetime
 import json
 import pathlib
-import shutil
 import sys
-import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
@@ -45,13 +43,13 @@ sys.path.insert(0, str(ROOT / "tests"))
 from m65emu import golden as G                    # noqa: E402
 from m65emu import isa                            # noqa: E402
 from m65emu.mpu45gs02 import B, C, D, E, I, N, V, Z   # noqa: E402
-from xmega65 import Interrupted, XMega65          # noqa: E402
+from xmega65 import (POST_BOOT_MAP, recording, retrying,   # noqa: E402
+                     write_recording)
 
 WORK = ROOT / "build" / "m65_golden"
 
 CODE = 0x1800
 BASE_PAGE = 0x19                 # B: base page $1900
-POST_BOOT_MAP = (0xE300, 0xB300)  # MAPL, MAPH after BASIC 65 boots
 
 # Flat ranges a case may touch; all in block 0 except the
 # flat-addressing target page.
@@ -80,14 +78,6 @@ DEFAULT_REGS = dict(a=0x3C, x=0x04, y=0x05, z=0x06, p=E | I, sp=0x01F0)
 # prefix or MAP latch the instruction left, so the next `g` (which
 # drains them by stepping) has nothing to run.
 TAIL = [[0xEA], [0xA9, 0x00]]                          # EOM, LDA #0
-
-RESTORE_MAP = [
-    [0xA9, 0x00], [0xA2, 0x0F], [0xA0, 0x00], [0xA3, 0x0F], [0x5C], [0xEA],
-    [0xA9, POST_BOOT_MAP[0] & 0xFF], [0xA2, POST_BOOT_MAP[0] >> 8],
-    [0xA0, POST_BOOT_MAP[1] & 0xFF], [0xA3, POST_BOOT_MAP[1] >> 8],
-    [0x5C], [0xEA], [0xA9, 0x00],
-]
-
 
 def flatten(instructions):
     return [b for ins in instructions for b in ins]
@@ -269,7 +259,7 @@ def hexkeys(table):
 
 
 def record(xm, c):
-    """Run one case; None if an interrupt got into its preamble."""
+    """Run one case (Interrupted if an interrupt got into its preamble)."""
     pre = preamble(c["regs"])
     start = CODE + len(flatten(pre))
     end = start + len(c["code"])
@@ -278,10 +268,7 @@ def record(xm, c):
         xm.write(a, bytes(init[k] for k in range(a, a + n)))
     xm.write(end, flatten(TAIL))
     xm.write(start, c["code"])
-    try:
-        xm.run(CODE, pre)
-    except Interrupted:
-        return None
+    xm.run(CODE, pre)
     before = xm.regs()
     mem_before = snapshot(xm)
     view = {a: xm.read_cpu(a, 1)[0] for a in c["view"]}
@@ -298,8 +285,7 @@ def record(xm, c):
         for _ in TAIL:
             xm.step()
     if (after["mapl"], after["maph"]) != POST_BOOT_MAP or c["code"] == [0x5C]:
-        r = xm.run(CODE, RESTORE_MAP)
-        assert (r["mapl"], r["maph"]) == POST_BOOT_MAP, r
+        xm.set_map(CODE, *POST_BOOT_MAP)
     got = dict(
         name=c["name"],
         code=" ".join(f"{b:02X}" for b in c["code"]),
@@ -316,16 +302,6 @@ def record(xm, c):
     return got
 
 
-def boot(xm):
-    deadline = time.time() + 60
-    while time.time() < deadline:
-        r = xm.regs()
-        if (r["mapl"], r["maph"]) == POST_BOOT_MAP and r["pc"] >= 0x8000:
-            return
-        time.sleep(0.5)
-    raise RuntimeError("xmega65 did not reach BASIC 65")
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--only", help="record only cases whose name starts so; print, do not write")
@@ -333,37 +309,18 @@ def main():
     args = ap.parse_args()
     todo = [c for c in cases() if not args.only or c["name"].startswith(args.only)]
     recorded = []
-    try:
-        with XMega65(WORK) as xm:
-            boot(xm)
-            version = xm.version()
-            xm.cmd("t1")
-            for n, c in enumerate(todo):
-                for _attempt in range(3):
-                    got = record(xm, c)
-                    if got:
-                        break
-                else:
-                    raise RuntimeError(f"case {c['name']!r}: preamble never completed")
-                recorded.append(got)
-                if args.only:
-                    print(json.dumps(got))
-                elif n % 100 == 0:
-                    print(f"{n}/{len(todo)} {c['name']}", file=sys.stderr)
-    finally:
-        shutil.rmtree(WORK, ignore_errors=True)
+    with recording(WORK) as xm:
+        version = xm.version()
+        for c in todo:
+            recorded.append(retrying(lambda: record(xm, c)))
+            if args.only:
+                print(json.dumps(recorded[-1]))
     if args.only:
         return
     source = dict(xmega65=version, recorded=datetime.date.today().isoformat(),
                   fixture=isa.FIXTURE.name)
-    # one case per line, so a re-record's diff reads case by case
-    args.out.write_text(
-        '{"source": ' + json.dumps(source) + ",\n"
-        ' "regions": ' + json.dumps(REGIONS) + ",\n"
-        ' "base": ' + json.dumps(hexkeys(POINTERS)) + ",\n"
-        ' "cases": [\n  '
-        + ",\n  ".join(json.dumps(c) for c in recorded)
-        + "\n ]}\n")
+    write_recording(args.out, dict(source=source, regions=REGIONS,
+                                   base=hexkeys(POINTERS)), "cases", recorded)
     print(f"wrote {args.out} ({len(recorded)} cases)")
 
 

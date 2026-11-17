@@ -17,16 +17,27 @@ Use it as a context manager, so xmega65 never outlives the caller:
 
 Never start xmega65 without `-headless` from automation (not even
 `-h`): it opens the GUI and blocks on an error dialog.
+
+`recording()` is the session the golden-file recorders share: start,
+wait for BASIC 65, enter trace mode, and remove the run directory at
+the end; `write_recording()` writes their one-entry-per-line JSON.
 """
+import contextlib
+import json
 import os
 import pathlib
 import re
+import shutil
 import socket
 import subprocess
 import time
 
-XMEGA65 = "/Applications/xmega65.app/Contents/MacOS/xmega65"
+# $XMEGA65 overrides the binary, as the Makefile's XMEGA65 option does.
+XMEGA65 = os.environ.get(
+    "XMEGA65", "/Applications/xmega65.app/Contents/MacOS/xmega65")
 SDIMG = pathlib.Path.home() / "Library/Application Support/xemu-lgb/mega65/mega65.img"
+
+POST_BOOT_MAP = (0xE300, 0xB300)   # MAPL, MAPH once BASIC 65 is up
 
 _REGS = re.compile(
     r"^([0-9A-F]{4}) ([0-9A-F]{2}) ([0-9A-F]{2}) ([0-9A-F]{2}) "
@@ -118,17 +129,42 @@ class XMega65:
         """Run one opcode in trace mode; return the registers after it."""
         return self.regs(self.cmd(""))
 
+    def wait_for_basic(self, timeout=60):
+        """Block until BASIC 65 is up (its MAP is in place)."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            r = self.regs()
+            if (r["mapl"], r["maph"]) == POST_BOOT_MAP and r["pc"] >= 0x8000:
+                return
+            time.sleep(0.5)
+        raise RuntimeError("xmega65 did not reach BASIC 65")
+
     def run(self, addr, instructions):
         """Write `instructions` (a list of byte lists) at `addr` and
-        step through them in trace mode; return the registers after.
-        Raise if they did not run straight through (an interrupt)."""
-        code = [b for ins in instructions for b in ins]
-        self.write(addr, code)
+        step through them in trace mode; return the registers after
+        the last.  Raise Interrupted at the first step that does not
+        land on the next instruction (an interrupt got in)."""
+        self.write(addr, [b for ins in instructions for b in ins])
         self.cmd(f"g {addr:x}")
-        for _ in instructions:
+        r = self.regs()
+        for ins in instructions:
+            addr += len(ins)
             r = self.step()
-        if r["pc"] != addr + len(code):
-            raise Interrupted(r)
+            if r["pc"] != addr:
+                raise Interrupted(r)
+        return r
+
+    def set_map(self, addr, mapl, maph, mb_lo=0, mb_hi=0):
+        """Run, at `addr`, the code that sets the megabyte selectors
+        and then both MAP halves, with interrupts off; EOM ends each."""
+        def map_code(a, x, y, z):
+            return [[0xA9, a], [0xA2, x], [0xA0, y], [0xA3, z],
+                    [0x5C], [0xEA], [0xA9, 0x00]]
+        seq = ([[0x78]] + map_code(mb_lo, 0x0F, mb_hi, 0x0F)
+               + map_code(mapl & 0xFF, mapl >> 8, maph & 0xFF, maph >> 8))
+        r = retrying(lambda: self.run(addr, seq))
+        if (r["mapl"], r["maph"]) != (mapl, maph):
+            raise RuntimeError(f"MAP not set: {r}")
         return r
 
     def write(self, addr, data):
@@ -158,3 +194,36 @@ class XMega65:
         text = (self.work / "xmega65.log").read_text(errors="replace")
         m = re.search(r"VERSION: (.*)", text)
         return m.group(1).strip() if m else "unknown"
+
+
+def retrying(action, tries=3):
+    """Run `action()`, again when an interrupt got into its stepping."""
+    for _ in range(tries):
+        try:
+            return action()
+        except Interrupted:
+            continue
+    raise RuntimeError("stepping kept being interrupted")
+
+
+@contextlib.contextmanager
+def recording(work):
+    """An xmega65 in trace mode at the BASIC 65 prompt, for a golden-file
+    recorder; the run directory is removed afterwards."""
+    try:
+        with XMega65(work) as xm:
+            xm.wait_for_basic()
+            xm.cmd("t1")
+            yield xm
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def write_recording(path, header, key, entries):
+    """Write a golden file: `header`'s items, then `key`: `entries`,
+    one entry per line, so a re-record's diff reads entry by entry."""
+    lines = [f' "{k}": {json.dumps(v)},' for k, v in header.items()]
+    lines[0] = "{" + lines[0][1:]
+    body = ",\n  ".join(json.dumps(e) for e in entries)
+    pathlib.Path(path).write_text(
+        "\n".join(lines) + f'\n "{key}": [\n  {body}\n ]}}\n')

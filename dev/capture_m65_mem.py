@@ -16,7 +16,8 @@ port.  `$00`, `$01`, `$D02F` and `$D030` are written through uartmon's
 CPU-view addresses (`777xxxx`).
 
 Per page one probe address (`$x100`; `$D900` in the I/O page, the
-colour window): unique 16-byte signatures are planted at every flat
+colour window; with `$D030` bit 0 also `$DC00` and `$DE00`, the
+extended window): unique 16-byte signatures are planted at every flat
 address the read could come from — the RAM under the address, the
 MAP targets, colour RAM — and a ROM candidate is matched by its own
 content (never recorded).  A read that matches no candidate stops the
@@ -24,6 +25,11 @@ recording: the model behind the candidate list is wrong.  A write
 (16 fresh bytes through the CPU view) is found the same way; no
 candidate changed means it was dropped.  I/O registers other than the
 colour window are never written.
+
+Three things the page probes cannot show are recorded on their own: a
+flat `STA [zp],Z` into ROM; one I/O register written in VIC-IV mode
+and read back in every mode; and the CPU port while MAP covers
+block 0 (mapped onto itself, so the code keeps running).
 
     python dev/capture_m65_mem.py              # all states
     python dev/capture_m65_mem.py --only MAP   # states named MAP*, printed
@@ -39,20 +45,18 @@ import argparse
 import datetime
 import json
 import pathlib
-import shutil
 import sys
-import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
-from xmega65 import Interrupted, XMega65          # noqa: E402
+from m65emu.memory import COLOUR, IO_KEYS         # noqa: E402
+from xmega65 import POST_BOOT_MAP, recording, write_recording   # noqa: E402
 
 GOLDEN = ROOT / "tests" / "fixtures" / "golden" / "m65_mem.json"
 WORK = ROOT / "build" / "m65_mem"
 CODE = 0x1800
-COLOUR = 0xFF80000
-KEYS = {"vic4": (0x47, 0x53), "vic3": (0xA5, 0x96), "vic2": (0x00, 0x00)}
+CRAM2K = 0x01
 
 
 # ── states ────────────────────────────────────────────────────────
@@ -63,16 +67,21 @@ def state(name, *, ddr=0xFF, port=0x35, key="vic4", d030=0x00,
                 mapl=mapl, maph=maph, mb_lo=mb_lo, mb_hi=mb_hi)
 
 
-def states():
-    out = [state("post-boot", port=0x85, d030=0x64,
-                 mapl=0xE300, maph=0xB300)]
+def states(ddr, port, d030):
+    """The states; the first re-creates what xmega65 booted into
+    (`ddr`, `port`, `d030` as read then; BASIC 65 runs in VIC-IV mode)."""
+    out = [state("post-boot", ddr=ddr, port=port, d030=d030,
+                 mapl=POST_BOOT_MAP[0], maph=POST_BOOT_MAP[1])]
     out += [state(f"port {p} MAP off", port=0x30 | p) for p in range(8)]
     out += [state("ddr 00 (all input) port 30", ddr=0x00, port=0x30)]
-    out += [state(f"D030 {b:02X}", d030=b) for b in (0x08, 0x10, 0x20, 0x80, 0x01)]
+    out += [state(f"D030 {b:02X}", d030=b) for b in (0x08, 0x10, 0x20, 0x80)]
     out += [state("D030 A8 port 30 (all RAM)", d030=0xA8, port=0x30)]
     out += [state("VIC-III D030 20", key="vic3", d030=0x20),
             state("VIC-II D030 20 latched", key="vic2", d030=0x20),
-            state("VIC-II colour window", key="vic2", port=0x35)]
+            state("VIC-II colour window", key="vic2")]
+    out += [state(f"{name} extended colour window", key=key, d030=CRAM2K)
+            for name, key in (("VIC-IV", "vic4"), ("VIC-III", "vic3"),
+                              ("VIC-II", "vic2"))]
     out += [state("MAP lower blocks 1-3 to $40000", mapl=0xE400),
             state("MAP upper blocks 4-7 to $40000", maph=0xF400, port=0x30),
             state("MAP upper offset wraps in the megabyte", maph=0xFFF0, port=0x30),
@@ -81,25 +90,28 @@ def states():
                   port=0x30),
             state("MAP over banking", maph=0xF400, port=0x37, d030=0xA8),
             state("MAP block 6 hides I/O", maph=0x4400, port=0x35),
-            state("MAP onto ROM", mapl=0xE300, maph=0xB300, port=0x30)]
+            state("MAP onto ROM", mapl=POST_BOOT_MAP[0], maph=POST_BOOT_MAP[1],
+                  port=0x30)]
     return out
 
 
 # ── candidates ────────────────────────────────────────────────────
 
-def probe_addr(page):
-    return 0xD900 if page == 0xD else page << 12 | 0x100
+def probe_addrs(st):
+    addrs = [0xD900 if page == 0xD else page << 12 | 0x100
+             for page in range(16)]
+    if st["d030"] & CRAM2K:
+        addrs += [0xDC00, 0xDE00]
+    return sorted(addrs)
 
 
 def map_target(st, addr):
     """Where MAP would put `addr`, or None (the model under test)."""
-    lower = addr < 0x8000
-    mask = (st["mapl"] if lower else st["maph"]) >> 12
-    if not mask >> ((addr >> 13) & 3) & 1:
+    half = "mapl" if addr < 0x8000 else "maph"
+    if not st[half] >> 12 >> (addr >> 13 & 3) & 1:
         return None
-    off = ((st["mapl"] if lower else st["maph"]) & 0xFFF) << 8
-    mb = (st["mb_lo"] if lower else st["mb_hi"]) << 20
-    return mb + ((off + addr) & 0xFFFFF)
+    mb = st["mb_lo" if addr < 0x8000 else "mb_hi"] << 20
+    return mb + ((((st[half] & 0xFFF) << 8) + addr) & 0xFFFFF)
 
 
 def candidates(st, addr):
@@ -108,7 +120,7 @@ def candidates(st, addr):
     t = map_target(st, addr)
     if t is not None:
         cands.append(t)
-    if 0xD800 <= addr < 0xDC00:
+    if 0xD800 <= addr < 0xE000:
         cands.append(COLOUR + addr - 0xD800)
     return list(dict.fromkeys(cands))
 
@@ -124,37 +136,19 @@ def signature(a, salt):
 
 # ── recording ─────────────────────────────────────────────────────
 
-def map_code(a, x, y, z):
-    return [[0xA9, a], [0xA2, x], [0xA0, y], [0xA3, z], [0x5C], [0xEA],
-            [0xA9, 0x00]]
-
-
-def set_map(xm, mapl, maph, mb_lo=0, mb_hi=0):
-    seq = ([[0x78]]                                    # SEI
-           + map_code(mb_lo, 0x0F, mb_hi, 0x0F)
-           + map_code(mapl & 0xFF, mapl >> 8, maph & 0xFF, maph >> 8))
-    for _ in range(3):
-        try:
-            return xm.run(CODE, seq)
-        except Interrupted:
-            continue
-    raise RuntimeError("MAP sequence kept being interrupted")
-
-
 def cpu_write(xm, addr, *values):
     for v in values:
         xm.write(0x7770000 | addr, bytes([v]))
 
 
 def set_state(xm, st):
-    set_map(xm, 0, 0)
+    xm.set_map(CODE, 0, 0)
     cpu_write(xm, 0x0000, 0xFF)
     cpu_write(xm, 0x0001, 0x35)
-    cpu_write(xm, 0xD02F, *KEYS["vic4"])
+    cpu_write(xm, 0xD02F, *IO_KEYS["vic4"])
     cpu_write(xm, 0xD030, st["d030"])
-    cpu_write(xm, 0xD02F, *KEYS[st["key"]])
-    r = set_map(xm, st["mapl"], st["maph"], st["mb_lo"], st["mb_hi"])
-    assert (r["mapl"], r["maph"]) == (st["mapl"], st["maph"]), (st, r)
+    cpu_write(xm, 0xD02F, *IO_KEYS[st["key"]])
+    xm.set_map(CODE, st["mapl"], st["maph"], st["mb_lo"], st["mb_hi"])
     cpu_write(xm, 0x0000, st["ddr"])
     cpu_write(xm, 0x0001, st["port"])
 
@@ -170,16 +164,15 @@ def find(xm, cands, data, mask=0):
     return hits[0] if hits else None
 
 
-def probe_page(xm, st, page):
-    addr = probe_addr(page)
+def probe(xm, st, addr):
     cands = candidates(st, addr)
     for salt, c in enumerate(cands):
         if not protected(c):
             xm.write(c, signature(c, salt))
     seen = xm.read_cpu(addr, 16)
-    entry = {"page": page, "addr": f"{addr:04X}"}
+    entry = {"addr": f"{addr:04X}"}
     src = find(xm, cands, seen)
-    if src is None and page == 0xD:                    # VIC-II colour nibble
+    if src is None:                                    # VIC-II colour nibble?
         src = find(xm, cands, seen, mask=0xF0)
         if src is not None:
             entry["read_or"] = 0xF0
@@ -189,41 +182,60 @@ def probe_page(xm, st, page):
     entry["read"] = f"{src:07X}"
     fresh = signature(addr, 0xA5)
     xm.write(0x7770000 | addr, fresh)
-    dst = find(xm, cands, fresh) or find(xm, cands, bytes(b & 0x0F for b in fresh))
-    if dst is not None and xm.read(dst, 16) != fresh:
-        entry["write_and"] = 0x0F
+    dst = find(xm, cands, fresh)
+    if dst is None:                                    # only the low nibble?
+        dst = find(xm, cands, bytes(b & 0x0F for b in fresh))
+        if dst is not None:
+            entry["write_and"] = 0x0F
     entry["write"] = None if dst is None else f"{dst:07X}"
     return entry
+
+
+def record(xm, st):
+    set_state(xm, st)
+    setup = {k: v for k, v in st.items() if k != "name"}
+    return dict(name=st["name"], setup=setup,
+                probes=[probe(xm, st, a) for a in probe_addrs(st)])
 
 
 def flat_rom_write(xm):
     """A flat STA [zp],Z into ROM: is it dropped?"""
     target = 0x3E123
     before = xm.read(target, 1)[0]
-    xm.write(0x1980, bytes([target & 0xFF, target >> 8 & 0xFF, target >> 16, 0]))
-    seq = [[0x78], [0xA9, 0x19], [0x5B], [0xA3, 0x00],    # SEI, B=$19, Z=0
-           [0xA9, before ^ 0xFF], [0xEA], [0x92, 0x80],   # STA [$80],Z
-           [0xA9, 0x00], [0x5B]]                          # B=0
-    xm.run(CODE, seq)
+    xm.write(0x1980, target.to_bytes(4, "little"))
+    xm.run(CODE, [[0x78], [0xA9, 0x19], [0x5B], [0xA3, 0x00],  # SEI, B=$19, Z=0
+                  [0xA9, before ^ 0xFF], [0xEA], [0x92, 0x80],  # STA [$80],Z
+                  [0xA9, 0x00], [0x5B]])                        # B=0
     return dict(target=f"{target:07X}", dropped=xm.read(target, 1)[0] == before)
 
 
-def record(xm, st):
-    set_state(xm, st)
-    return dict(name=st["name"],
-                setup={k: st[k] for k in ("ddr", "port", "key", "d030",
-                                          "mapl", "maph", "mb_lo", "mb_hi")},
-                pages=[probe_page(xm, st, p) for p in range(16)])
+def io_register(xm):
+    """A register no I/O mode treats specially, written in VIC-IV
+    mode: what does each mode read back?"""
+    addr, value = 0xD000, 0x5A                         # sprite 0 X
+    set_state(xm, state("I/O in, VIC-IV"))
+    cpu_write(xm, addr, value)
+    reads = {}
+    for mode in ("vic4", "vic3", "vic2"):
+        cpu_write(xm, 0xD02F, *IO_KEYS[mode])
+        reads[mode] = xm.read_cpu(addr, 1)[0]
+    return dict(addr=f"{addr:04X}", written=value, reads=reads)
 
 
-def boot(xm):
-    deadline = time.time() + 60
-    while time.time() < deadline:
-        r = xm.regs()
-        if (r["mapl"], r["maph"]) == (0xE300, 0xB300) and r["pc"] >= 0x8000:
-            return
-        time.sleep(0.5)
-    raise RuntimeError("xmega65 did not reach BASIC 65")
+def port_under_map(xm):
+    """The CPU port while MAP covers block 0 — mapped onto itself, so
+    the flat bytes at $0/$1 tell RAM from the port."""
+    ddr, port, ram = 0xFF, 0x35, [0xA5, 0x5A]
+    set_state(xm, state("block 0 mapped onto itself", ddr=ddr, port=port,
+                        mapl=0x1000))
+    xm.write(0, bytes(ram))
+    seen = list(xm.read_cpu(0, 2))
+    cpu_write(xm, 0x0001, 0x36)                        # a write through the view
+    ram_after = list(xm.read(0, 2))
+    xm.set_map(CODE, 0, 0)
+    return dict(mapl=0x1000, ddr=ddr, port=port, ram=ram, cpu_reads=seen,
+                written={"0001": 0x36}, ram_after=ram_after,
+                port_after_unmap=list(xm.read_cpu(0, 2)))
 
 
 def main():
@@ -231,32 +243,24 @@ def main():
     ap.add_argument("--only", help="record only states whose name starts so; print, do not write")
     ap.add_argument("--out", type=pathlib.Path, default=GOLDEN)
     args = ap.parse_args()
-    todo = [s for s in states() if not args.only or s["name"].startswith(args.only)]
     recorded = []
-    try:
-        with XMega65(WORK) as xm:
-            boot(xm)
-            version = xm.version()
-            xm.cmd("t1")
-            post = xm.read_cpu(0, 2) + xm.read_cpu(0xD030, 1)
-            for st in todo:
-                recorded.append(record(xm, st))
-                if args.only:
-                    print(json.dumps(recorded[-1]))
-            rom = flat_rom_write(xm)
-    finally:
-        shutil.rmtree(WORK, ignore_errors=True)
+    with recording(WORK) as xm:
+        version = xm.version()
+        booted = xm.read_cpu(0, 2) + xm.read_cpu(0xD030, 1)
+        for st in states(*booted):
+            if args.only and not st["name"].startswith(args.only):
+                continue
+            recorded.append(record(xm, st))
+            if args.only:
+                print(json.dumps(recorded[-1]))
+        extra = dict(flat_rom_write=flat_rom_write(xm),
+                     io_register=io_register(xm),
+                     port_under_map=port_under_map(xm))
     if args.only:
-        print("post-boot $00 $01 $D030:", post.hex(), "flat ROM write:", rom)
+        print(json.dumps(extra))
         return
-    source = dict(xmega65=version, recorded=datetime.date.today().isoformat(),
-                  post_boot={"00": post[0], "01": post[1], "D030": post[2]})
-    args.out.write_text(
-        '{"source": ' + json.dumps(source) + ",\n"
-        ' "flat_rom_write": ' + json.dumps(rom) + ",\n"
-        ' "states": [\n  '
-        + ",\n  ".join(json.dumps(s) for s in recorded)
-        + "\n ]}\n")
+    source = dict(xmega65=version, recorded=datetime.date.today().isoformat())
+    write_recording(args.out, dict(source=source, **extra), "states", recorded)
     print(f"wrote {args.out} ({len(recorded)} states)")
 
 

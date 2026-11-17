@@ -407,9 +407,10 @@ in xmega65's data directory):
     protection, colour RAM and its window, flat access;
     `test_m65memory.py` against translations recorded in xmega65 by
     `dev/capture_m65_mem.py` (`m65_mem.json`).  Done 2026-11-17: all
-    27 recorded states replay; the recording added two rules (a
-    latched `$D030` keeps banking in VIC-II mode; VIC-II colour
-    writes keep the low nibble).
+    29 recorded states replay; the recording added rules the reading
+    lacked (a latched `$D030` keeps banking in VIC-II mode; the base
+    colour window is 4-bit in VIC-II mode, the extended one never;
+    I/O registers are the same in every I/O mode).
   - [ ] S2-3c. The post-boot state (`dev/capture_m65_state.py` →
     `build/m65_state/`) and the `C64Emu` interface; a first Tier I
     test calls `CHROUT` on the real MEGA65 KERNAL.

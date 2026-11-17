@@ -68,7 +68,8 @@ What M65Emu does not model, and the reference M65Emu is checked
 against.  A test that needs the MEGA65's boot, its hypervisor or its
 disk drive, or that records the 45GS02's behaviour for M65Emu's golden
 files, runs in xmega65 (Xemu's MEGA65 emulator), driven by
-`tests/xmega65.py`:
+`tests/xmega65.py` (which also holds what the golden-file recorders
+share: the recording session and the file writer):
 
 - **Start:** headless at full speed (`-headless -sleepless
   -skipconfigfile -besure`), the PRG through `-prg` or the D81
@@ -88,7 +89,8 @@ files, runs in xmega65 (Xemu's MEGA65 emulator), driven by
   the test ends xmega65 with SIGTERM.
 
 Tests live in `tests/emulator/` and are skipped, with the reason, when
-`$(XMEGA65)` or the SD image is absent.  Boot to the prompt takes
+`$(XMEGA65)` (the driver reads the `XMEGA65` environment variable) or
+the SD image is absent.  Boot to the prompt takes
 about 5–8 s, so Tier X holds the m65 boot, hypervisor and disk tests
 and the recording of M65Emu's golden files, not sweeps; the sweeps
 run on M65Emu.  xmega65 is an emulator: an answer it gives to a
@@ -188,21 +190,26 @@ protocol of layer 1: `memory[addr16]`, `read_flat()`, `write_flat()`):
      — and writes the RAM under it; an I/O page is `$D000`–`$DFFF`.
   3. Otherwise RAM, address = flat address.
 - **The CPU port**: `$00` (direction) and `$01` (data) exist only in
-  the CPU's view (while `MAP` leaves block 0 alone); flat `$0`/`$1`
-  are plain RAM.
+  the CPU's view; flat `$0`/`$1` are plain RAM.  While `MAP` covers
+  block 0 the port is hidden: `$00`/`$01` are then the mapped memory.
 - **The I/O page**, in the mode the `$D02F` key selects (`$47 $53`
   VIC-IV — the post-boot mode —, `$A5 $96` VIC-III, anything else
   VIC-II): `$D800`–`$DBFF` is colour RAM `$000`–`$3FF` (in VIC-II mode
-  only the low nibble is written and the high nibble reads as `$F`); `$D030` bit 0 maps `$DC00`–`$DFFF`
-  to colour RAM `$400`–`$7FF`, hiding the CIAs; `$D02F` and `$D030`
-  act as above; every other register is plain storage, one bank per
-  I/O mode, until a layer-3 device claims it.  The ethernet I/O mode,
-  the disk buffer and the hypervisor are not modelled.
-- **The page table**: 16 entries of 4 KB, rebuilt only when `MAP` runs
-  (the CPU calls `memory.map_changed(cpu)`, which `FlatRAM` ignores)
-  or `$00`, `$01`, `$D02F` or — in the VIC-III/IV I/O modes — `$D030`
-  is written, so a byte access is one table lookup; flat access uses
-  the 28-bit address directly.  `load()` puts bytes into the flat
+  only the low nibble is written and the high nibble reads as `$F`);
+  `$D030` bit 0 maps `$DC00`–`$DFFF` to colour RAM `$400`–`$7FF`,
+  hiding the CIAs (full bytes in every mode); `$D02F` and `$D030` act
+  as above; every other register is plain storage — one bank, the
+  same in every I/O mode — until a layer-3 device claims it.  The
+  ethernet I/O mode, the disk buffer and the hypervisor are not
+  modelled.
+- **The page table**: 16 entries of 4 KB, rebuilt only when a `MAP`
+  register changes — by `MAP`, a reset, or an assignment to the CPU's
+  `mapl`, `maph`, `map_lo_mb`, `map_hi_mb`; each calls
+  `memory.map_changed(cpu)` (which `FlatRAM` ignores), so the CPU and
+  the memory cannot disagree — or `$00`, `$01`, `$D02F` or, in the
+  VIC-III/IV I/O modes, `$D030` is written.  A byte access is a table
+  lookup and, for chip RAM, one index; flat access uses the 28-bit
+  address directly.  `load()` puts bytes into the flat
   store past ROM protection, as the monitor and a ROM loader do.
 
 **Layer 3 — the devices,** added one at a time, each when a test
@@ -255,15 +262,21 @@ own reading of the compendium:
 - `dev/capture_m65_mem.py` sets up banking states in xmega65 —
   `MAP` run in block 0, CPU-view writes (uartmon's `777xxxx`
   addresses) to `$00`, `$01`, `$D02F`, `$D030` — and records, per
-  state and 4 KB page, the flat address a CPU read comes from and
-  where a CPU write lands (or that it is dropped), into
+  state and probed address (one per 4 KB page, plus the extended
+  colour window where `$D030` bit 0 opens it), the flat address a CPU
+  read comes from and where a CPU write lands (or that it is
+  dropped), into
   `tests/fixtures/golden/m65_mem.json`.  Unique signatures planted in
   the candidate RAM pages make the match unambiguous; a ROM page is
   matched by its own content, which is never recorded; two candidates
   holding the same bytes stop the recording (an alias would make the
   record a guess).  I/O pages other than the colour window are not
-  written (side effects).  27 states, plus one flat `STA [zp],Z` into
-  ROM.  Two xmega65 limits shape the states: no state maps megabyte
+  written (side effects).  29 states, the first re-creating what
+  xmega65 booted into, plus three observations the probes cannot
+  make: a flat `STA [zp],Z` into ROM; one I/O register written in
+  VIC-IV mode and read back in every mode; and the CPU port while
+  `MAP` covers block 0 (mapped onto itself, so the code keeps
+  running).  Two xmega65 limits shape the states: no state maps megabyte
   `$08` (undecoded; xmega65 crashes), and the upper-half attic state
   uses megabyte `$81`, because flat `$8008100` reads the same bytes as
   `$8100`.
@@ -289,11 +302,9 @@ and flat operations — agreed with the reading.
 show the latch, so these rest on a reading of xemu's source, not on
 its behaviour: interrupt entry (`irq()`, `nmi()`), the `MAP` latch
 and the pending-prefix interrupt hold.  Of the memory layout, the
-translation recording does not cover: block 0 under `MAP` (no state
-maps the code page — `M65Memory` then hides the CPU port, as xemu
-does), a `$D030` write in VIC-II mode (`M65Memory` leaves banking
-alone), and every I/O register but the colour window, `$D02F` and
-`$D030`.
+translation recording does not cover a `$D030` write in VIC-II mode
+(`M65Memory` leaves banking alone), nor what any I/O register does
+beyond the colour window, `$D02F`, `$D030` and one plain register.
 Two things xmega65 does that `MPU45GS02` does not: it holds an
 interrupt off for one instruction after a single-cycle instruction
 (no cycles here), and it runs `NEG NEG NEG` as a 32-bit negate (no

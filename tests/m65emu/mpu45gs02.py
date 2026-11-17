@@ -30,7 +30,9 @@ steps.
 
 Memory protocol: `memory[addr16]` is the CPU's 16-bit view;
 `memory.read_flat(addr28)` / `memory.write_flat(addr28, value)` the
-flat 28-bit space; MAP calls `memory.map_changed(cpu)`.  FlatRAM is the plain implementation (the CPU view
+flat 28-bit space; `memory.map_changed(cpu)` is called whenever a MAP
+register changes (MAP, reset, or an assignment to `mapl`, `maph`,
+`map_lo_mb`, `map_hi_mb`), so the memory's view cannot go stale.  FlatRAM is the plain implementation (the CPU view
 is the first 64 KB of the flat space); M65Memory (layer 2) translates
 the CPU view through MAP, $01 and $D030.
 """
@@ -95,7 +97,22 @@ class FlatRAM:
         pass
 
 
+def _map_register(name):
+    """A MAP register: assigning it tells the memory to remap."""
+    def get(self):
+        return self._map[name]
+
+    def put(self, value):
+        self._map[name] = value
+        self.memory.map_changed(self)
+    return property(get, put)
+
+
 class MPU45GS02(mpu6502.MPU):
+    mapl = _map_register("mapl")              # MAP lower half: X<<8 | A
+    maph = _map_register("maph")              # MAP upper half: Z<<8 | Y
+    map_lo_mb = _map_register("map_lo_mb")    # megabyte selectors
+    map_hi_mb = _map_register("map_hi_mb")    #   (MAP with X/Z = $0F)
 
     def __init__(self, memory=None, pc=0x0000, *, clean=False,
                  allow=frozenset()):
@@ -111,10 +128,8 @@ class MPU45GS02(mpu6502.MPU):
         self.sp = 0x01FF          # SPH:SPL
         self.z = 0
         self.b = 0
-        self.mapl = 0             # MAP lower half: X<<8 | A
-        self.maph = 0             # MAP upper half: Z<<8 | Y
-        self.map_lo_mb = 0        # megabyte selectors (MAP with X/Z = $0F)
-        self.map_hi_mb = 0
+        self._map = dict(mapl=0, maph=0, map_lo_mb=0, map_hi_mb=0)
+        self.memory.map_changed(self)
         self.map_latch = False    # MAP → EOM: interrupts blocked
         self.prefix = P_NONE
 
@@ -281,8 +296,9 @@ class MPU45GS02(mpu6502.MPU):
             raise kind(f"${start:04X}: {row.mnemonic} ({row.mode}) "
                        f"{' '.join('%02X' % b for b in key)}")
         self.pc = (start + 1) & 0xFFFF
-        if not entry.op(self, entry.mode(self)):
-            self.prefix = P_NONE      # NEG and EOM return true: they set it
+        entry.op(self, entry.mode(self))
+        if not entry.sets_prefix:
+            self.prefix = P_NONE
         self.processorCycles += 1
         return self
 
@@ -595,13 +611,11 @@ def _neg(c, ea):
     c.a = -c.a & 0xFF
     c._nz(c.a)
     c.prefix = P_NEGNEG if c.prefix == P_NEG else P_NEG
-    return True
 
 
 def _eom(c, ea):
     c.map_latch = False
     c.prefix = P_NEGNEGNOP if c.prefix == P_NEGNEG else P_NOP
-    return True
 
 
 def _map(c, ea):
@@ -614,7 +628,6 @@ def _map(c, ea):
         c.map_hi_mb = c.y
     else:
         c.maph = c.z << 8 | c.y
-    c.memory.map_changed(c)
 
 
 def _jmp(c, target):
@@ -726,12 +739,14 @@ class Entry(NamedTuple):
     row: tuple            # the fixture row (isa.Row)
     mode: object          # addressing routine; None for a reserved row
     op: object            # semantic routine; None for a reserved row
+    sets_prefix: bool     # NEG, EOM: the op leaves the next prefix state
 
 
 def _entry(row):
     if row.mnemonic in RESERVED:
-        return Entry(row, None, None)
-    return Entry(row, _mode_fn(row), _OPS[row.mnemonic])
+        return Entry(row, None, None, False)
+    op = _OPS[row.mnemonic]
+    return Entry(row, _mode_fn(row), op, op in (_neg, _eom))
 
 
 _TABLE = {key: _entry(row) for key, row in decode_table().items()}
