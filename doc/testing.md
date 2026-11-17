@@ -4,10 +4,13 @@
 
 ## Test tiers
 
-CSE tests fall into three explicit tiers that reflect the module
+CSE tests fall into four explicit tiers that reflect the module
 architecture.  A test lives in exactly one tier; the tier is
 determined by the module's dependency profile, not by the test's
-size or shape.
+size or shape.  Tier I runs the C64 builds on `C64Emu` and the m65
+build on `M65Emu` ([§ M65Emu](#m65emu--the-m65-integration-harness)).
+Tier X runs the m65 build in xmega65: boot and disk, and the
+reference `M65Emu` is checked against.
 
 ### Tier U — Unit (module + "linking down")
 
@@ -24,6 +27,14 @@ Tests live in `tests/unit/`.  One pytest file per module (or
 per bundle — the `asm_core` and `mn6`/`mn7` bundles group
 tightly-coupled neighbours).
 
+**m65 bundles** run on M65Emu's CPU, `MPU45GS02`
+([§ M65Emu](#m65emu--the-m65-integration-harness)), in *clean* mode:
+it admits the 6502's documented opcodes plus the opcodes of the
+raw-byte macros in `src/m45_ops.inc`, and any other opcode stops the
+test.  That is the run-time half of the clean-6502 rule; the static
+half is an audit test that refuses a 45GS02-only opcode emitted
+outside `m45_ops.inc`.
+
 This is **bundled unit testing** (see [glossary.md § Process](glossary.md#process)):
 a CSE-specific variant of Martin Fowler's *sociable unit testing*,
 where the SUT runs against its real transitive dependencies instead
@@ -32,7 +43,7 @@ The codebase's stratified shape makes this cheap: a bundle is a
 downward slice through the dependency DAG, so every test cell
 exercises real code on real code without combinatorial blow-up.
 
-### Tier I — Integration (C64Emu + full PRG)
+### Tier I — Integration (C64Emu / M65Emu + full PRG)
 
 A test graduates to Tier I when any of the following holds:
 - Crosses the Layer-5 `main ↔ repl` cycle — these cannot be
@@ -47,28 +58,188 @@ A test graduates to Tier I when any of the following holds:
   dispatch, command prompts, disk I/O through KERNAL).
 
 Tests live in `tests/integration/`.  All go through the
-`C64Emu` harness + production/debug PRG fixture; no per-test
-build systems, no stubs beyond what the C64Emu provides (real
-KERNAL, real memory map).
+`C64Emu` harness (C64 builds) or the `M65Emu` harness (m65 build)
++ production/debug PRG fixture; no per-test build systems, no stubs
+beyond what the harness provides (real KERNAL, real memory map).
 
-### Tier M — Manual (VICE / hardware)
+### Tier X — xmega65 (m65, automated)
+
+What M65Emu does not model, and the reference M65Emu is checked
+against.  A test that needs the MEGA65's boot, its hypervisor or its
+disk drive, or that records the 45GS02's behaviour for M65Emu's golden
+files, runs in xmega65 (Xemu's MEGA65 emulator), driven by
+`tests/xmega65.py`:
+
+- **Start:** headless at full speed (`-headless -sleepless
+  -skipconfigfile -besure`), the PRG through `-prg` or the D81
+  through `-8` with `-autoload`.
+- **SD card:** a copy-on-write clone (`cp -c`) of the configured SD
+  image in xmega65's data directory, never the image itself.  An
+  empty virtual SD card stops at the MEGA65's first-boot onboarding
+  screen.
+- **Input and state:** the `-uartmon` socket (monitor commands:
+  `r` registers, `m` memory read, `s` memory write, `g` go, `t1`/`t0`
+  trace mode on/off, `t` one step); keystrokes go into the KERNAL
+  keyboard buffer.  `s` and `m` address linear (28-bit) memory, not
+  the CPU's mapped view.  The socket path is relative to the run
+  directory, because a Unix-domain socket path is limited to 104
+  characters and xmega65 exits when it cannot bind.
+- **Output:** `-dumpscreen`, `-dumpmem`, `-screenshot`, written when
+  the test ends xmega65 with SIGTERM.
+
+Tests live in `tests/emulator/` and are skipped, with the reason, when
+`$(XMEGA65)` or the SD image is absent.  Boot to the prompt takes
+about 5–8 s, so Tier X holds the m65 boot, hypervisor and disk tests
+and the recording of M65Emu's golden files, not sweeps; the sweeps
+run on M65Emu.  xmega65 is an emulator: an answer it gives to a
+hardware question (TODO O1, O3) is provisional until the hardware
+confirms it.
+
+### Tier M — Manual (VICE / xmega65 / hardware)
 
 Timing-dependent, audible, visual, or real-I/O behaviour that
 py65 cannot faithfully simulate: SID audio envelopes, VIC-II
 raster effects, real 1541 drive timing, keyboard autorepeat
-rhythms, thermal quirks.  Not automated.  Verified in VICE or
-on hardware; documented in the relevant module's Caveats
-section.
+rhythms, thermal quirks.  Not automated.  Verified in VICE (C64
+builds), xmega65 (m65) or on hardware — a C64 or the MEGA65;
+documented in the relevant module's Caveats section.
 
 ### The tier-boundary signal
 
 **If a test needs to manually stub out KERNAL calls, it's in the
-wrong tier.**  Either link the real KERNAL via C64Emu (Tier I),
+wrong tier.**  Either link the real KERNAL via C64Emu or M65Emu
+(Tier I), run the MEGA65 in xmega65 (Tier X, m65),
 or write the test at a level where the KERNAL doesn't matter
 (Tier U — pure data structures, pure arithmetic, pure parsing).
 
 Per-module assignment is enumerated in the
 [per-module tier table](#per-module-tier-assignment) below.
+
+## M65Emu — the m65 integration harness
+
+`tests/m65emu/` runs the m65 build on the real MEGA65 KERNAL inside
+py65, as `C64Emu` runs the C64 builds on the real C64 KERNAL.  It is
+built in three layers.
+
+**Layer 1 — the CPU, `MPU45GS02`** (`tests/m65emu/mpu45gs02.py`).
+A subclass of py65's 6502 MPU — its register names, `memory`,
+`step()`, `reset()`, `irq()`, `nmi()` and `processorCycles` — with its
+own instruction table in place of py65's, implementing the whole
+45GS02:
+
+- all 256 4510 opcodes, including the 16-bit branches, `BSR`,
+  `RTS #n`, the word operations (`INW`, `DEW`, `ASW`, `ROW`, `PHW`),
+  `NEG`, `ASR`, and `MAP`/`EOM` with their interrupt latch (`MAP`
+  with `X` = `$0F` or `Z` = `$0F` selects a megabyte instead);
+- the registers `A X Y Z B`, the 16-bit `SP` (8-bit while the `E`
+  flag is set; `PLP` and `RTI` never load `E`), and every zero-page
+  access offset by `B`;
+- the 45GS02 prefixes, executed as the CPU executes them: `$42` is a
+  `NEG` and `$EA` an `EOM`, one step each, leaving a prefix state the
+  next opcode reads — `NEG NEG` makes it a Q (32-bit `AXYZ`)
+  operation, `EOM` makes a `(zp),Z` operation flat (`[zp],Z`, a
+  28-bit pointer), both make a flat Q operation.  An opcode without a
+  row for the prefix state runs as the plain opcode; interrupts wait
+  while a prefix is pending, as between `MAP` and `EOM`.  The
+  compendium's reserved Q rows (`RESQ`, `RSVQ`) and `NEG NEG NEG`
+  raise instead of guessing.
+
+Its decoder is built from the MEGA65 compendium's instruction tables,
+`tests/fixtures/mega65_instruction_set.csv` (bbbc64's
+`dev/mega65_opcode_extract.py` output, copied unchanged), not from
+`dev/instruction_set.py`, so the emulator does not share the tables
+the assembler is generated from: `tests/m65emu/isa.py` turns each row
+into a decode key (the prefix bytes and the opcode) whose mnemonic and
+mode select a semantic and an addressing routine.  Cycle counts are
+not part of its contract (the speed gate is the C64 builds');
+`processorCycles` only grows.  In *clean* mode it admits only the
+6502's 151 documented opcodes and the decode keys it is given — the
+`m45_ops.inc` macros' ([§ Tier U](#tier-u--unit-module--linking-down))
+— and raises `UncleanOpcode` on anything else.
+
+It reads and writes through `memory[addr]` (the CPU's 16-bit view)
+and `memory.read_flat()` / `memory.write_flat()` (the 28-bit space).
+`FlatRAM` is the plain memory its Tier U tests run on (the CPU view is
+the first 64 KB of the flat space); `M65Memory` is the real layout.
+
+**Layer 2 — the memory layout, `M65Memory`.**  The object py65 reads
+and writes through `memory[addr]`, as `C64Emu`'s `BankedMemory` is:
+
+- a 28-bit flat store: 384 KB chip RAM with the ROM image at
+  `$20000`–`$3FFFF` (from the user's `MEGA65.ROM`), colour RAM at
+  `$FF80000`, attic RAM at `$8000000` (sparse);
+- the CPU's 16-bit view, per 8 KB block, in the hardware's order:
+  the `MAP` offset (lower and upper half, with their megabyte
+  selectors), else the ROM banking of `$01` and `$D030`, else RAM;
+  I/O at `$D000`–`$DFFF` when `$01` maps it in, in the I/O
+  personality selected through `$D02F`, with the colour-RAM window
+  at `$D800`;
+- an 8-entry page table, rebuilt only on writes to `MAP`, `$01`,
+  `$D030` or `$D02F`, so a byte access is one table lookup; flat
+  access uses the 28-bit address directly.
+
+**Layer 3 — the devices,** added one at a time, each when a test
+needs it: the DMA controller (`$D700`, F018A/B job lists: copy, fill,
+chained jobs), the CIAs (keyboard matrix, timer IRQ — `C64Emu`'s
+model), the VIC-IV registers as storage, the keyboard queue
+(`$D610`).  The hypervisor (`$D640`–`$D67F`) and the floppy
+controller (`$D080`) are not modelled: a test that needs them is
+Tier X.  Unmodelled I/O registers read back what was written; the
+harness records each access to one, and a test can assert there was
+none.
+
+**Starting state.**  M65Emu does not emulate the boot.
+`dev/capture_m65_state.py` records a post-boot state from xmega65 —
+chip RAM (`-dumpmem`), the CPU registers and `MAP` state (`r` over
+uartmon), the I/O registers M65Emu models — into `build/m65_state/`.
+The state contains the MEGA65 ROM, so it is generated locally and
+never committed; M65Emu tests are skipped, with the reason, when it
+is absent.
+
+**Interface.**  `C64Emu`'s: `a`, `x`, `y`, `sp`, `pc`, `p`, `jsr()`,
+`load_prg()`, `run_until()`, `inject_keys()`, `screen_text()`,
+`sym()` — plus `z`, `b`, `map_state` — so a Tier I test of behaviour
+both platforms share is parametrised over both harnesses.
+
+**Validation.**  M65Emu is checked against xmega65, not against our
+own reading of the compendium:
+
+- `dev/capture_m65_golden.py` runs instruction sequences in xmega65 —
+  one per row of the fixture (both outcomes of every conditional
+  branch) and edge cases (flags, BCD, stack wraps in both `E` modes,
+  base-page wraps, prefixes without a row, `MAP` megabytes), with
+  chosen operands, registers and flags, in block 0, which the
+  post-boot `MAP` leaves unmapped — and records the registers and the
+  memory differences before and after each into
+  `tests/fixtures/golden/m65_cpu.json` (no ROM content, so it is
+  committed; one case per line).  The registers are set by a preamble
+  the CPU executes, and `before` is read after it, so the preamble's
+  own semantics do not matter.  The file records the xmega65 version;
+  it is re-recorded when xmega65 is updated or a case is added, and a
+  changed `after` in the diff is a behaviour change of the reference,
+  which the commit states.  `BRK` has no case: it vectors through
+  ROM, outside the recorded memory.
+- `tests/unit/test_mpu45gs02.py` (Tier U) runs the same sequences on
+  `MPU45GS02` and compares registers and memory; it needs neither
+  xmega65 nor the ROM.  It also pins the 45GS02-specific behaviour by
+  name and checks the decoder against the fixture row for row.
+- `tests/unit/test_m65memory.py` (Tier U) checks the address
+  translation against a recorded table of `MAP`/`$01`/`$D030` states
+  and the linear addresses xmega65 resolves them to.
+- A Tier X test re-runs the capture when xmega65 is present and fails
+  on any difference from the committed golden file.
+
+An M65Emu answer to a hardware question (O1, O3) is xmega65's answer
+at second hand: provisional until the hardware confirms it.
+
+The first recording (xmega65 `0870689e`, 2026-11-17, 516 cases)
+overruled the compendium reading in two places, which `MPU45GS02`
+now follows: decimal-mode `ADC`/`SBC` behave as on the NMOS 6502 (the
+flags come from the binary result, not the 65C02's), and `BIT #`
+sets `N` and `V` from the operand like the other `BIT` modes.
+Everything else — the 16-bit branch base, `BSR`, `RTS #n`, `PHW`'s
+byte order, the `E`-flag stack, base-page wraps, the Q and flat
+operations — agreed with the reading.
 
 ## The TDD Method
 

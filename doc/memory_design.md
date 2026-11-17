@@ -98,10 +98,14 @@ CSE targets:
 - Stock C64 KERNAL ROM
 - Stock C128 KERNAL ROM (C64 mode)
 - OpenROMs on C64/C128 hardware (excluding MEMORY_MODEL_60K)
+- The MEGA65 KERNAL in MEGA65 mode — the m65 build only
+  ([§ Memory Map — m65](#memory-map--m65-mega65-mode))
 
 The 60K exclusion means $02A7-$02FF remains usable (the 60K model
 repurposes this range).  Low memory ($0000-$03FF) is assumed to be
-"C64-shaped" across all targets.
+"C64-shaped" across all C64 targets.  The m65 build does not assume
+it: its KERNAL variables and internals come from the m65 platform
+constants.
 
 ## CSE ↔ KERNAL Contract
 
@@ -581,6 +585,64 @@ The CRT build has no loader — CODE + RODATA live in ROM at their
 final address.  Only BSS zeroing, KDATA copy, and KBSS zeroing
 are needed at startup.  The CRT init code performs these steps
 then jumps to `_main`.
+
+## Memory Map — m65 (MEGA65 mode)
+
+The m65 build runs in MEGA65 mode, on BASIC 65 and the MEGA65
+KERNAL ([build_system.md § The m65 PRG](build_system.md#the-m65-prg)).
+The parts below are fixed; the ones marked S2-Q*n* are open design
+items of R7 slice 2, settled in its CDD Analysis
+([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-prg-r7-platform-layer)).
+
+**PRG load image.**
+
+    $1FFF-$2000  PRG load address (2 bytes, file header)
+    $2001-$200C  BASIC 65 stub "SYS 8205"
+    $200D        Loader code (discardable bootstrap)
+      ...        CODE + RODATA payload
+      ...        KDATA payload (copied into the data area)
+    end of file
+
+The loader does what the C64 loader does
+([§ Loader Module](#loader-module-loaders)): reset the stack, copy
+CODE + RODATA to the runtime position, zero BSS, initialise the data
+area (copy KDATA, zero KBSS), jump to `_main`.  For the D81 the PRG is
+wrapped with exomizer SFX `-t 65`, which decompresses to `$2001`
+before the stub runs.
+
+**Instructions.**  All code is 6502 code.  The 45GS02-only
+instructions the platform layer needs are raw bytes from
+`src/m45_ops.inc`: `MAP` and `EOM` (banking), `[zp],Z` (flat 28-bit
+access), the `Z` register.  On the 45GS02 every documented NMOS
+opcode decodes to the same instruction as on the 6502, so the shared
+modules assemble unchanged; the 6510 illegal opcodes are 4510
+instructions there and never appear in cse's own code.  The
+differences that remain — cycle counts, the stack being 8-bit only
+while the `E` flag is set, read-modify-write instructions without the
+NMOS dummy write — are checked against the MEGA65 KERNAL's state in
+Tier X ([testing.md § Tier X](testing.md#tier-x--xmega65-m65-automated)).
+
+**Data area.**  What lives under the KERNAL ROM on the C64 (symbol
+table, name heap, KDATA, REPL screen save, cold-init ZP snapshot)
+lives in a RAM bank outside BASIC 65's use, mapped by `MAP` into a
+16-bit window, so the readers' `(zp),y` code is shared with the C64
+builds and only mem.s's bank-in/bank-out helpers differ (`MAP`/`EOM`
+instead of `$01` bit 1).  Which bank and window, and how interrupts
+behave while it is mapped, is S2-Q1.
+
+**Screen.**  MEGA65 mode boots an 80×25 screen at `$0800`.  The
+editor and REPL width is S2-Q2.
+
+**Zero page.**  Base page 0 shared with BASIC 65 and the KERNAL
+(saved and restored, as on the C64), or a private base page through
+the `B` register, is S2-Q3.
+
+**KERNAL interface.**  The jump table (`$FF81`–`$FFF3`) is the C64's:
+`CHROUT`, `CHRIN`, `GETIN`, `STOP`, `OPEN` are the same `JMP ($03xx)`
+stubs at the same addresses, and `LOAD`, `PLOT`, `SETLFS` sit at the
+same jump-table addresses.  KERNAL internals and RAM variables differ
+from the C64's ([§ KERNAL ZP locations](#kernal-zp-locations-readwritten-directly)
+lists the C64 ones) and come from the m65 platform constants.
 
 ## Loader Module (loader.s)
 

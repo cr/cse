@@ -1,0 +1,627 @@
+set,mnemonic,mode,syntax,bytes,length,page
+6502,ADC,"(indirect,X)","ADC ($nn,X)",61,2,L-18
+6502,ADC,zero-page,ADC $nn,65,2,L-18
+6502,ADC,immediate 8bit,ADC #$nn,69,2,L-18
+6502,ADC,absolute,ADC $nnnn,6D,3,L-18
+6502,ADC,"(indirect),Y","ADC ($nn),Y",71,2,L-18
+6502,ADC,"zero-page,X","ADC $nn,X",75,2,L-18
+6502,ADC,"absolute,Y","ADC $nnnn,Y",79,3,L-18
+6502,ADC,"absolute,X","ADC $nnnn,X",7D,3,L-18
+6502,ALR,immediate 8bit,ALR #$nn,4B,2,L-19
+6502,ANC,immediate 8bit,ANC #$nn,0B,2,L-19
+6502,ANC,immediate 8bit,ANC #$nn,2B,2,L-19
+6502,AND,"(indirect,X)","AND ($nn,X)",21,2,L-20
+6502,AND,zero-page,AND $nn,25,2,L-20
+6502,AND,immediate 8bit,AND #$nn,29,2,L-20
+6502,AND,absolute,AND $nnnn,2D,3,L-20
+6502,AND,"(indirect),Y","AND ($nn),Y",31,2,L-20
+6502,AND,"zero-page,X","AND $nn,X",35,2,L-20
+6502,AND,"absolute,Y","AND $nnnn,Y",39,3,L-20
+6502,AND,"absolute,X","AND $nnnn,X",3D,3,L-20
+6502,ARR,immediate 8bit,ARR #$nn,6B,2,L-20
+6502,ASL,zero-page,ASL $nn,06,2,L-21
+6502,ASL,accumulator,ASL A,0A,1,L-21
+6502,ASL,absolute,ASL $nnnn,0E,3,L-21
+6502,ASL,"zero-page,X","ASL $nn,X",16,2,L-21
+6502,ASL,"absolute,X","ASL $nnnn,X",1E,3,L-21
+6502,BCC,relative,BCC $rr,90,2,L-21
+6502,BCS,relative,BCS $rr,B0,2,L-22
+6502,BEQ,relative,BEQ $rr,F0,2,L-22
+6502,BIT,zero-page,BIT $nn,24,2,L-23
+6502,BIT,absolute,BIT $nnnn,2C,3,L-23
+6502,BMI,relative,BMI $rr,30,2,L-23
+6502,BNE,relative,BNE $rr,D0,2,L-23
+6502,BPL,relative,BPL $rr,10,2,L-24
+6502,BRK,implied,BRK,00,1,L-24
+6502,BVC,relative,BVC $rr,50,2,L-25
+6502,BVS,relative,BVS $rr,70,2,L-25
+6502,CLC,implied,CLC,18,1,L-25
+6502,CLD,implied,CLD,D8,1,L-26
+6502,CLI,implied,CLI,58,1,L-26
+6502,CLV,implied,CLV,B8,1,L-27
+6502,CMP,"(indirect,X)","CMP ($nn,X)",C1,2,L-27
+6502,CMP,zero-page,CMP $nn,C5,2,L-27
+6502,CMP,immediate 8bit,CMP #$nn,C9,2,L-27
+6502,CMP,absolute,CMP $nnnn,CD,3,L-27
+6502,CMP,"(indirect),Y","CMP ($nn),Y",D1,2,L-27
+6502,CMP,"zero-page,X","CMP $nn,X",D5,2,L-27
+6502,CMP,"absolute,Y","CMP $nnnn,Y",D9,3,L-27
+6502,CMP,"absolute,X","CMP $nnnn,X",DD,3,L-27
+6502,CPX,immediate 8bit,CPX #$nn,E0,2,L-28
+6502,CPX,zero-page,CPX $nn,E4,2,L-28
+6502,CPX,absolute,CPX $nnnn,EC,3,L-28
+6502,CPY,immediate 8bit,CPY #$nn,C0,2,L-28
+6502,CPY,zero-page,CPY $nn,C4,2,L-28
+6502,CPY,absolute,CPY $nnnn,CC,3,L-28
+6502,DCP,"(indirect,X)","DCP ($nn,X)",C3,2,L-29
+6502,DCP,zero-page,DCP $nn,C7,2,L-29
+6502,DCP,absolute,DCP $nnnn,CF,3,L-29
+6502,DCP,"(indirect),Y","DCP ($nn),Y",D3,2,L-29
+6502,DCP,"zero-page,X","DCP $nn,X",D7,2,L-29
+6502,DCP,"absolute,Y","DCP $nnnn,Y",DB,3,L-29
+6502,DCP,"absolute,X","DCP $nnnn,X",DF,3,L-29
+6502,DEC,zero-page,DEC $nn,C6,2,L-30
+6502,DEC,absolute,DEC $nnnn,CE,3,L-30
+6502,DEC,"zero-page,X","DEC $nn,X",D6,2,L-30
+6502,DEC,"absolute,X","DEC $nnnn,X",DE,3,L-30
+6502,DEX,implied,DEX,CA,1,L-30
+6502,DEY,implied,DEY,88,1,L-31
+6502,EOR,"(indirect,X)","EOR ($nn,X)",41,2,L-31
+6502,EOR,zero-page,EOR $nn,45,2,L-31
+6502,EOR,immediate 8bit,EOR #$nn,49,2,L-31
+6502,EOR,absolute,EOR $nnnn,4D,3,L-31
+6502,EOR,"(indirect),Y","EOR ($nn),Y",51,2,L-31
+6502,EOR,"zero-page,X","EOR $nn,X",55,2,L-31
+6502,EOR,"absolute,Y","EOR $nnnn,Y",59,3,L-31
+6502,EOR,"absolute,X","EOR $nnnn,X",5D,3,L-31
+6502,INC,zero-page,INC $nn,E6,2,L-32
+6502,INC,absolute,INC $nnnn,EE,3,L-32
+6502,INC,"zero-page,X","INC $nn,X",F6,2,L-32
+6502,INC,"absolute,X","INC $nnnn,X",FE,3,L-32
+6502,INX,implied,INX,E8,1,L-32
+6502,INY,implied,INY,C8,1,L-33
+6502,ISC,"(indirect,X)","ISC ($nn,X)",E3,2,L-33
+6502,ISC,zero-page,ISC $nn,E7,2,L-33
+6502,ISC,absolute,ISC $nnnn,EF,3,L-33
+6502,ISC,"(indirect),Y","ISC ($nn),Y",F3,2,L-33
+6502,ISC,"zero-page,X","ISC $nn,X",F7,2,L-33
+6502,ISC,"absolute,Y","ISC $nnnn,Y",FB,3,L-33
+6502,ISC,"absolute,X","ISC $nnnn,X",FF,3,L-33
+6502,JMP,absolute,JMP $nnnn,4C,3,L-34
+6502,JMP,(indirect),JMP ($nnnn),6C,3,L-34
+6502,JSR,absolute,JSR $nnnn,20,3,L-34
+6502,KIL,implied,KIL,02,1,L-35
+6502,KIL,implied,KIL,12,1,L-35
+6502,KIL,implied,KIL,22,1,L-35
+6502,KIL,implied,KIL,32,1,L-35
+6502,KIL,implied,KIL,42,1,L-35
+6502,KIL,implied,KIL,52,1,L-35
+6502,KIL,implied,KIL,62,1,L-35
+6502,KIL,implied,KIL,72,1,L-35
+6502,KIL,implied,KIL,92,1,L-35
+6502,KIL,implied,KIL,B2,1,L-35
+6502,KIL,implied,KIL,D2,1,L-35
+6502,KIL,implied,KIL,F2,1,L-35
+6502,LAS,"absolute,Y","LAS $nnnn,Y",BB,3,L-35
+6502,LAX,"(indirect,X)","LAX ($nn,X)",A3,2,L-36
+6502,LAX,zero-page,LAX $nn,A7,2,L-36
+6502,LAX,immediate 8bit,LAX #$nn,AB,2,L-36
+6502,LAX,absolute,LAX $nnnn,AF,3,L-36
+6502,LAX,"(indirect),Y","LAX ($nn),Y",B3,2,L-36
+6502,LAX,"zero-page,Y","LAX $nn,Y",B7,2,L-36
+6502,LAX,"absolute,Y","LAX $nnnn,Y",BF,3,L-36
+6502,LDA,"(indirect,X)","LDA ($nn,X)",A1,2,L-37
+6502,LDA,zero-page,LDA $nn,A5,2,L-37
+6502,LDA,immediate 8bit,LDA #$nn,A9,2,L-37
+6502,LDA,absolute,LDA $nnnn,AD,3,L-37
+6502,LDA,"(indirect),Y","LDA ($nn),Y",B1,2,L-37
+6502,LDA,"zero-page,X","LDA $nn,X",B5,2,L-37
+6502,LDA,"absolute,Y","LDA $nnnn,Y",B9,3,L-37
+6502,LDA,"absolute,X","LDA $nnnn,X",BD,3,L-37
+6502,LDX,immediate 8bit,LDX #$nn,A2,2,L-37
+6502,LDX,zero-page,LDX $nn,A6,2,L-37
+6502,LDX,absolute,LDX $nnnn,AE,3,L-37
+6502,LDX,"zero-page,Y","LDX $nn,Y",B6,2,L-37
+6502,LDX,"absolute,Y","LDX $nnnn,Y",BE,3,L-37
+6502,LDY,immediate 8bit,LDY #$nn,A0,2,L-38
+6502,LDY,zero-page,LDY $nn,A4,2,L-38
+6502,LDY,absolute,LDY $nnnn,AC,3,L-38
+6502,LDY,"zero-page,X","LDY $nn,X",B4,2,L-38
+6502,LDY,"absolute,X","LDY $nnnn,X",BC,3,L-38
+6502,LSR,zero-page,LSR $nn,46,2,L-39
+6502,LSR,accumulator,LSR A,4A,1,L-39
+6502,LSR,absolute,LSR $nnnn,4E,3,L-39
+6502,LSR,"zero-page,X","LSR $nn,X",56,2,L-39
+6502,LSR,"absolute,X","LSR $nnnn,X",5E,3,L-39
+6502,NOP,zero-page,NOP $nn,04,2,L-40
+6502,NOP,absolute,NOP $nnnn,0C,3,L-40
+6502,NOP,"zero-page,X","NOP $nn,X",14,2,L-40
+6502,NOP,implied,NOP,1A,1,L-40
+6502,NOP,"absolute,X","NOP $nnnn,X",1C,3,L-40
+6502,NOP,"zero-page,X","NOP $nn,X",34,2,L-40
+6502,NOP,implied,NOP,3A,1,L-40
+6502,NOP,"absolute,X","NOP $nnnn,X",3C,3,L-40
+6502,NOP,zero-page,NOP $nn,44,2,L-40
+6502,NOP,"zero-page,X","NOP $nn,X",54,2,L-40
+6502,NOP,implied,NOP,5A,1,L-40
+6502,NOP,"absolute,X","NOP $nnnn,X",5C,3,L-40
+6502,NOP,zero-page,NOP $nn,64,2,L-40
+6502,NOP,"zero-page,X","NOP $nn,X",74,2,L-40
+6502,NOP,implied,NOP,7A,1,L-40
+6502,NOP,"absolute,X","NOP $nnnn,X",7C,3,L-40
+6502,NOP,immediate 8bit,NOP #$nn,80,2,L-40
+6502,NOP,immediate 8bit,NOP #$nn,82,2,L-40
+6502,NOP,immediate 8bit,NOP #$nn,89,2,L-40
+6502,NOP,immediate 8bit,NOP #$nn,C2,2,L-40
+6502,NOP,"zero-page,X","NOP $nn,X",D4,2,L-40
+6502,NOP,implied,NOP,DA,1,L-40
+6502,NOP,"absolute,X","NOP $nnnn,X",DC,3,L-40
+6502,NOP,immediate 8bit,NOP #$nn,E2,2,L-40
+6502,NOP,implied,NOP,EA,1,L-40
+6502,NOP,"zero-page,X","NOP $nn,X",F4,2,L-40
+6502,NOP,implied,NOP,FA,1,L-40
+6502,NOP,"absolute,X","NOP $nnnn,X",FC,3,L-40
+6502,ORA,"(indirect,X)","ORA ($nn,X)",01,2,L-41
+6502,ORA,zero-page,ORA $nn,05,2,L-41
+6502,ORA,immediate 8bit,ORA #$nn,09,2,L-41
+6502,ORA,absolute,ORA $nnnn,0D,3,L-41
+6502,ORA,"(indirect),Y","ORA ($nn),Y",11,2,L-41
+6502,ORA,"zero-page,X","ORA $nn,X",15,2,L-41
+6502,ORA,"absolute,Y","ORA $nnnn,Y",19,3,L-41
+6502,ORA,"absolute,X","ORA $nnnn,X",1D,3,L-41
+6502,PHA,implied,PHA,48,1,L-41
+6502,PHP,implied,PHP,08,1,L-42
+6502,PLA,implied,PLA,68,1,L-42
+6502,PLP,implied,PLP,28,1,L-42
+6502,RLA,"(indirect,X)","RLA ($nn,X)",23,2,L-43
+6502,RLA,zero-page,RLA $nn,27,2,L-43
+6502,RLA,absolute,RLA $nnnn,2F,3,L-43
+6502,RLA,"(indirect),Y","RLA ($nn),Y",33,2,L-43
+6502,RLA,"zero-page,X","RLA $nn,X",37,2,L-43
+6502,RLA,"absolute,Y","RLA $nnnn,Y",3B,3,L-43
+6502,RLA,"absolute,X","RLA $nnnn,X",3F,3,L-43
+6502,ROL,zero-page,ROL $nn,26,2,L-44
+6502,ROL,accumulator,ROL A,2A,1,L-44
+6502,ROL,absolute,ROL $nnnn,2E,3,L-44
+6502,ROL,"zero-page,X","ROL $nn,X",36,2,L-44
+6502,ROL,"absolute,X","ROL $nnnn,X",3E,3,L-44
+6502,ROR,zero-page,ROR $nn,66,2,L-44
+6502,ROR,accumulator,ROR A,6A,1,L-44
+6502,ROR,absolute,ROR $nnnn,6E,3,L-44
+6502,ROR,"zero-page,X","ROR $nn,X",76,2,L-44
+6502,ROR,"absolute,X","ROR $nnnn,X",7E,3,L-44
+6502,RRA,"(indirect,X)","RRA ($nn,X)",63,2,L-45
+6502,RRA,zero-page,RRA $nn,67,2,L-45
+6502,RRA,absolute,RRA $nnnn,6F,3,L-45
+6502,RRA,"(indirect),Y","RRA ($nn),Y",73,2,L-45
+6502,RRA,"zero-page,X","RRA $nn,X",77,2,L-45
+6502,RRA,"absolute,Y","RRA $nnnn,Y",7B,3,L-45
+6502,RRA,"absolute,X","RRA $nnnn,X",7F,3,L-45
+6502,RTI,implied,RTI,40,1,L-45
+6502,RTS,implied,RTS,60,1,L-46
+6502,SAX,"(indirect,X)","SAX ($nn,X)",83,2,L-46
+6502,SAX,zero-page,SAX $nn,87,2,L-46
+6502,SAX,absolute,SAX $nnnn,8F,3,L-46
+6502,SAX,"zero-page,Y","SAX $nn,Y",97,2,L-46
+6502,SBC,"(indirect,X)","SBC ($nn,X)",E1,2,L-47
+6502,SBC,zero-page,SBC $nn,E5,2,L-47
+6502,SBC,immediate 8bit,SBC #$nn,E9,2,L-47
+6502,SBC,immediate 8bit,SBC #$nn,EB,2,L-47
+6502,SBC,absolute,SBC $nnnn,ED,3,L-47
+6502,SBC,"(indirect),Y","SBC ($nn),Y",F1,2,L-47
+6502,SBC,"zero-page,X","SBC $nn,X",F5,2,L-47
+6502,SBC,"absolute,Y","SBC $nnnn,Y",F9,3,L-47
+6502,SBC,"absolute,X","SBC $nnnn,X",FD,3,L-47
+6502,SBX,immediate 8bit,SBX #$nn,CB,2,L-48
+6502,SEC,implied,SEC,38,1,L-48
+6502,SED,implied,SED,F8,1,L-49
+6502,SEI,implied,SEI,78,1,L-49
+6502,SHA,"(indirect),Y","SHA ($nn),Y",93,2,L-49
+6502,SHA,"absolute,Y","SHA $nnnn,Y",9F,3,L-49
+6502,SHX,"absolute,Y","SHX $nnnn,Y",9E,3,L-50
+6502,SHY,"absolute,X","SHY $nnnn,X",9C,3,L-50
+6502,SLO,"(indirect,X)","SLO ($nn,X)",03,2,L-51
+6502,SLO,zero-page,SLO $nn,07,2,L-51
+6502,SLO,absolute,SLO $nnnn,0F,3,L-51
+6502,SLO,"(indirect),Y","SLO ($nn),Y",13,2,L-51
+6502,SLO,"zero-page,X","SLO $nn,X",17,2,L-51
+6502,SLO,"absolute,Y","SLO $nnnn,Y",1B,3,L-51
+6502,SLO,"absolute,X","SLO $nnnn,X",1F,3,L-51
+6502,SRE,"(indirect,X)","SRE ($nn,X)",43,2,L-51
+6502,SRE,zero-page,SRE $nn,47,2,L-51
+6502,SRE,absolute,SRE $nnnn,4F,3,L-51
+6502,SRE,"(indirect),Y","SRE ($nn),Y",53,2,L-51
+6502,SRE,"zero-page,X","SRE $nn,X",57,2,L-51
+6502,SRE,"absolute,Y","SRE $nnnn,Y",5B,3,L-51
+6502,SRE,"absolute,X","SRE $nnnn,X",5F,3,L-51
+6502,STA,"(indirect,X)","STA ($nn,X)",81,2,L-52
+6502,STA,zero-page,STA $nn,85,2,L-52
+6502,STA,absolute,STA $nnnn,8D,3,L-52
+6502,STA,"(indirect),Y","STA ($nn),Y",91,2,L-52
+6502,STA,"zero-page,X","STA $nn,X",95,2,L-52
+6502,STA,"absolute,Y","STA $nnnn,Y",99,3,L-52
+6502,STA,"absolute,X","STA $nnnn,X",9D,3,L-52
+6502,STX,zero-page,STX $nn,86,2,L-52
+6502,STX,absolute,STX $nnnn,8E,3,L-52
+6502,STX,"zero-page,Y","STX $nn,Y",96,2,L-52
+6502,STY,zero-page,STY $nn,84,2,L-53
+6502,STY,absolute,STY $nnnn,8C,3,L-53
+6502,STY,"zero-page,X","STY $nn,X",94,2,L-53
+6502,TAS,"absolute,Y","TAS $nnnn,Y",9B,3,L-53
+6502,TAX,implied,TAX,AA,1,L-54
+6502,TAY,implied,TAY,A8,1,L-54
+6502,TSX,implied,TSX,BA,1,L-54
+6502,TXA,implied,TXA,8A,1,L-55
+6502,TXS,implied,TXS,9A,1,L-55
+6502,TYA,implied,TYA,98,1,L-56
+6502,XAA,immediate 8bit,XAA #$nn,8B,2,L-56
+4510,ADC,"(indirect,X)","ADC ($nn,X)",61,2,L-62
+4510,ADC,base-page,ADC $nn,65,2,L-62
+4510,ADC,immediate 8bit,ADC #$nn,69,2,L-62
+4510,ADC,absolute,ADC $nnnn,6D,3,L-62
+4510,ADC,"(indirect),Y","ADC ($nn),Y",71,2,L-62
+4510,ADC,"(indirect),Z","ADC ($nn),Z",72,2,L-62
+4510,ADC,"base-page,X","ADC $nn,X",75,2,L-62
+4510,ADC,"absolute,Y","ADC $nnnn,Y",79,3,L-62
+4510,ADC,"absolute,X","ADC $nnnn,X",7D,3,L-62
+4510,AND,"(indirect,X)","AND ($nn,X)",21,2,L-63
+4510,AND,base-page,AND $nn,25,2,L-63
+4510,AND,immediate 8bit,AND #$nn,29,2,L-63
+4510,AND,absolute,AND $nnnn,2D,3,L-63
+4510,AND,"(indirect),Y","AND ($nn),Y",31,2,L-63
+4510,AND,"(indirect),Z","AND ($nn),Z",32,2,L-63
+4510,AND,"base-page,X","AND $nn,X",35,2,L-63
+4510,AND,"absolute,Y","AND $nnnn,Y",39,3,L-63
+4510,AND,"absolute,X","AND $nnnn,X",3D,3,L-63
+4510,ASL,base-page,ASL $nn,06,2,L-64
+4510,ASL,accumulator,ASL A,0A,1,L-64
+4510,ASL,absolute,ASL $nnnn,0E,3,L-64
+4510,ASL,"base-page,X","ASL $nn,X",16,2,L-64
+4510,ASL,"absolute,X","ASL $nnnn,X",1E,3,L-64
+4510,ASR,accumulator,ASR A,43,1,L-64
+4510,ASR,base-page,ASR $nn,44,2,L-64
+4510,ASR,"base-page,X","ASR $nn,X",54,2,L-64
+4510,ASW,absolute,ASW $nnnn,CB,3,L-65
+4510,BBR0,base-page+rel,"BBR0 $nn,$rr",0F,3,L-65
+4510,BBR1,base-page+rel,"BBR1 $nn,$rr",1F,3,L-66
+4510,BBR2,base-page+rel,"BBR2 $nn,$rr",2F,3,L-66
+4510,BBR3,base-page+rel,"BBR3 $nn,$rr",3F,3,L-66
+4510,BBR4,base-page+rel,"BBR4 $nn,$rr",4F,3,L-67
+4510,BBR5,base-page+rel,"BBR5 $nn,$rr",5F,3,L-67
+4510,BBR6,base-page+rel,"BBR6 $nn,$rr",6F,3,L-68
+4510,BBR7,base-page+rel,"BBR7 $nn,$rr",7F,3,L-68
+4510,BBS0,base-page+rel,"BBS0 $nn,$rr",8F,3,L-68
+4510,BBS1,base-page+rel,"BBS1 $nn,$rr",9F,3,L-69
+4510,BBS2,base-page+rel,"BBS2 $nn,$rr",AF,3,L-69
+4510,BBS3,base-page+rel,"BBS3 $nn,$rr",BF,3,L-70
+4510,BBS4,base-page+rel,"BBS4 $nn,$rr",CF,3,L-70
+4510,BBS5,base-page+rel,"BBS5 $nn,$rr",DF,3,L-70
+4510,BBS6,base-page+rel,"BBS6 $nn,$rr",EF,3,L-71
+4510,BBS7,base-page+rel,"BBS7 $nn,$rr",FF,3,L-71
+4510,BCC,relative,BCC $rr,90,2,L-72
+4510,BCC,16-bit relative,BCC $rrrr,93,3,L-72
+4510,BCS,relative,BCS $rr,B0,2,L-72
+4510,BCS,16-bit relative,BCS $rrrr,B3,3,L-72
+4510,BEQ,relative,BEQ $rr,F0,2,L-72
+4510,BEQ,16-bit relative,BEQ $rrrr,F3,3,L-72
+4510,BIT,base-page,BIT $nn,24,2,L-73
+4510,BIT,absolute,BIT $nnnn,2C,3,L-73
+4510,BIT,"base-page,X","BIT $nn,X",34,2,L-73
+4510,BIT,"absolute,X","BIT $nnnn,X",3C,3,L-73
+4510,BIT,immediate 8bit,BIT #$nn,89,2,L-73
+4510,BMI,relative,BMI $rr,30,2,L-74
+4510,BMI,16-bit relative,BMI $rrrr,33,3,L-74
+4510,BNE,relative,BNE $rr,D0,2,L-74
+4510,BNE,16-bit relative,BNE $rrrr,D3,3,L-74
+4510,BPL,relative,BPL $rr,10,2,L-74
+4510,BPL,16-bit relative,BPL $rrrr,13,3,L-74
+4510,BRA,relative,BRA $rr,80,2,L-75
+4510,BRA,16-bit relative,BRA $rrrr,83,3,L-75
+4510,BRK,implied,BRK,00,1,L-75
+4510,BSR,16-bit relative,BSR $rrrr,63,3,L-76
+4510,BVC,relative,BVC $rr,50,2,L-76
+4510,BVC,16-bit relative,BVC $rrrr,53,3,L-76
+4510,BVS,relative,BVS $rr,70,2,L-77
+4510,BVS,16-bit relative,BVS $rrrr,73,3,L-77
+4510,CLC,implied,CLC,18,1,L-77
+4510,CLD,implied,CLD,D8,1,L-77
+4510,CLE,implied,CLE,02,1,L-78
+4510,CLI,implied,CLI,58,1,L-78
+4510,CLV,implied,CLV,B8,1,L-79
+4510,CMP,"(indirect,X)","CMP ($nn,X)",C1,2,L-79
+4510,CMP,base-page,CMP $nn,C5,2,L-79
+4510,CMP,immediate 8bit,CMP #$nn,C9,2,L-79
+4510,CMP,absolute,CMP $nnnn,CD,3,L-79
+4510,CMP,"(indirect),Y","CMP ($nn),Y",D1,2,L-79
+4510,CMP,"(indirect),Z","CMP ($nn),Z",D2,2,L-79
+4510,CMP,"base-page,X","CMP $nn,X",D5,2,L-79
+4510,CMP,"absolute,Y","CMP $nnnn,Y",D9,3,L-79
+4510,CMP,"absolute,X","CMP $nnnn,X",DD,3,L-79
+4510,CPX,immediate 8bit,CPX #$nn,E0,2,L-80
+4510,CPX,base-page,CPX $nn,E4,2,L-80
+4510,CPX,absolute,CPX $nnnn,EC,3,L-80
+4510,CPY,immediate 8bit,CPY #$nn,C0,2,L-81
+4510,CPY,base-page,CPY $nn,C4,2,L-81
+4510,CPY,absolute,CPY $nnnn,CC,3,L-81
+4510,CPZ,immediate 8bit,CPZ #$nn,C2,2,L-81
+4510,CPZ,base-page,CPZ $nn,D4,2,L-81
+4510,CPZ,absolute,CPZ $nnnn,DC,3,L-81
+4510,DEC,accumulator,DEC A,3A,1,L-82
+4510,DEC,base-page,DEC $nn,C6,2,L-82
+4510,DEC,absolute,DEC $nnnn,CE,3,L-82
+4510,DEC,"base-page,X","DEC $nn,X",D6,2,L-82
+4510,DEC,"absolute,X","DEC $nnnn,X",DE,3,L-82
+4510,DEW,base-page,DEW $nn,C3,2,L-82
+4510,DEX,implied,DEX,CA,1,L-83
+4510,DEY,implied,DEY,88,1,L-83
+4510,DEZ,implied,DEZ,3B,1,L-84
+4510,EOM,implied,EOM,EA,1,L-84
+4510,EOR,"(indirect,X)","EOR ($nn,X)",41,2,L-85
+4510,EOR,base-page,EOR $nn,45,2,L-85
+4510,EOR,immediate 8bit,EOR #$nn,49,2,L-85
+4510,EOR,absolute,EOR $nnnn,4D,3,L-85
+4510,EOR,"(indirect),Y","EOR ($nn),Y",51,2,L-85
+4510,EOR,"(indirect),Z","EOR ($nn),Z",52,2,L-85
+4510,EOR,"base-page,X","EOR $nn,X",55,2,L-85
+4510,EOR,"absolute,Y","EOR $nnnn,Y",59,3,L-85
+4510,EOR,"absolute,X","EOR $nnnn,X",5D,3,L-85
+4510,INC,accumulator,INC A,1A,1,L-86
+4510,INC,base-page,INC $nn,E6,2,L-86
+4510,INC,absolute,INC $nnnn,EE,3,L-86
+4510,INC,"base-page,X","INC $nn,X",F6,2,L-86
+4510,INC,"absolute,X","INC $nnnn,X",FE,3,L-86
+4510,INW,base-page,INW $nn,E3,2,L-86
+4510,INX,implied,INX,E8,1,L-87
+4510,INY,implied,INY,C8,1,L-87
+4510,INZ,implied,INZ,1B,1,L-88
+4510,JMP,absolute,JMP $nnnn,4C,3,L-88
+4510,JMP,(indirect),JMP ($nnnn),6C,3,L-88
+4510,JMP,"(indirect,X)","JMP ($nnnn,X)",7C,3,L-88
+4510,JSR,absolute,JSR $nnnn,20,3,L-89
+4510,JSR,(indirect),JSR ($nnnn),22,3,L-89
+4510,JSR,"(indirect,X)","JSR ($nnnn,X)",23,3,L-89
+4510,LDA,"(indirect,X)","LDA ($nn,X)",A1,2,L-89
+4510,LDA,base-page,LDA $nn,A5,2,L-89
+4510,LDA,immediate 8bit,LDA #$nn,A9,2,L-89
+4510,LDA,absolute,LDA $nnnn,AD,3,L-89
+4510,LDA,"(indirect),Y","LDA ($nn),Y",B1,2,L-89
+4510,LDA,"(indirect),Z","LDA ($nn),Z",B2,2,L-89
+4510,LDA,"base-page,X","LDA $nn,X",B5,2,L-89
+4510,LDA,"absolute,Y","LDA $nnnn,Y",B9,3,L-89
+4510,LDA,"absolute,X","LDA $nnnn,X",BD,3,L-89
+4510,LDA,"(immediate,SP),Y","LDA ($nn,SP),Y",E2,2,L-89
+4510,LDX,immediate 8bit,LDX #$nn,A2,2,L-90
+4510,LDX,base-page,LDX $nn,A6,2,L-90
+4510,LDX,absolute,LDX $nnnn,AE,3,L-90
+4510,LDX,"base-page,Y","LDX $nn,Y",B6,2,L-90
+4510,LDX,"absolute,Y","LDX $nnnn,Y",BE,3,L-90
+4510,LDY,immediate 8bit,LDY #$nn,A0,2,L-91
+4510,LDY,base-page,LDY $nn,A4,2,L-91
+4510,LDY,absolute,LDY $nnnn,AC,3,L-91
+4510,LDY,"base-page,X","LDY $nn,X",B4,2,L-91
+4510,LDY,"absolute,X","LDY $nnnn,X",BC,3,L-91
+4510,LDZ,immediate 8bit,LDZ #$nn,A3,2,L-91
+4510,LDZ,absolute,LDZ $nnnn,AB,3,L-91
+4510,LDZ,"absolute,X","LDZ $nnnn,X",BB,3,L-91
+4510,LSR,base-page,LSR $nn,46,2,L-92
+4510,LSR,accumulator,LSR A,4A,1,L-92
+4510,LSR,absolute,LSR $nnnn,4E,3,L-92
+4510,LSR,"base-page,X","LSR $nn,X",56,2,L-92
+4510,LSR,"absolute,X","LSR $nnnn,X",5E,3,L-92
+4510,MAP,implied,MAP,5C,1,L-93
+4510,NEG,accumulator,NEG A,42,1,L-93
+4510,ORA,"(indirect,X)","ORA ($nn,X)",01,2,L-94
+4510,ORA,base-page,ORA $nn,05,2,L-94
+4510,ORA,immediate 8bit,ORA #$nn,09,2,L-94
+4510,ORA,absolute,ORA $nnnn,0D,3,L-94
+4510,ORA,"(indirect),Y","ORA ($nn),Y",11,2,L-94
+4510,ORA,"(indirect),Z","ORA ($nn),Z",12,2,L-94
+4510,ORA,"base-page,X","ORA $nn,X",15,2,L-94
+4510,ORA,"absolute,Y","ORA $nnnn,Y",19,3,L-94
+4510,ORA,"absolute,X","ORA $nnnn,X",1D,3,L-94
+4510,PHA,implied,PHA,48,1,L-94
+4510,PHP,implied,PHP,08,1,L-94
+4510,PHW,immediate 16bit,PHW #$nnnn,F4,3,L-95
+4510,PHW,absolute,PHW $nnnn,FC,3,L-95
+4510,PHX,implied,PHX,DA,1,L-95
+4510,PHY,implied,PHY,5A,1,L-95
+4510,PHZ,implied,PHZ,DB,1,L-96
+4510,PLA,implied,PLA,68,1,L-96
+4510,PLP,implied,PLP,28,1,L-96
+4510,PLX,implied,PLX,FA,1,L-97
+4510,PLY,implied,PLY,7A,1,L-97
+4510,PLZ,implied,PLZ,FB,1,L-97
+4510,RMB0,base-page,RMB0 $nn,07,2,L-98
+4510,RMB1,base-page,RMB1 $nn,17,2,L-98
+4510,RMB2,base-page,RMB2 $nn,27,2,L-98
+4510,RMB3,base-page,RMB3 $nn,37,2,L-99
+4510,RMB4,base-page,RMB4 $nn,47,2,L-99
+4510,RMB5,base-page,RMB5 $nn,57,2,L-99
+4510,RMB6,base-page,RMB6 $nn,67,2,L-100
+4510,RMB7,base-page,RMB7 $nn,77,2,L-100
+4510,ROL,base-page,ROL $nn,26,2,L-101
+4510,ROL,accumulator,ROL A,2A,1,L-101
+4510,ROL,absolute,ROL $nnnn,2E,3,L-101
+4510,ROL,"base-page,X","ROL $nn,X",36,2,L-101
+4510,ROL,"absolute,X","ROL $nnnn,X",3E,3,L-101
+4510,ROR,base-page,ROR $nn,66,2,L-101
+4510,ROR,accumulator,ROR A,6A,1,L-101
+4510,ROR,absolute,ROR $nnnn,6E,3,L-101
+4510,ROR,"base-page,X","ROR $nn,X",76,2,L-101
+4510,ROR,"absolute,X","ROR $nnnn,X",7E,3,L-101
+4510,ROW,absolute,ROW $nnnn,EB,3,L-102
+4510,RTI,implied,RTI,40,1,L-102
+4510,RTS,implied,RTS,60,1,L-103
+4510,RTS,immediate 8bit,RTS #$nn,62,2,L-103
+4510,SBC,"(indirect,X)","SBC ($nn,X)",E1,2,L-104
+4510,SBC,base-page,SBC $nn,E5,2,L-104
+4510,SBC,immediate 8bit,SBC #$nn,E9,2,L-104
+4510,SBC,absolute,SBC $nnnn,ED,3,L-104
+4510,SBC,"(indirect),Y","SBC ($nn),Y",F1,2,L-104
+4510,SBC,"(indirect),Z","SBC ($nn),Z",F2,2,L-104
+4510,SBC,"base-page,X","SBC $nn,X",F5,2,L-104
+4510,SBC,"absolute,Y","SBC $nnnn,Y",F9,3,L-104
+4510,SBC,"absolute,X","SBC $nnnn,X",FD,3,L-104
+4510,SEC,implied,SEC,38,1,L-104
+4510,SED,implied,SED,F8,1,L-105
+4510,SEE,implied,SEE,03,1,L-105
+4510,SEI,implied,SEI,78,1,L-106
+4510,SMB0,base-page,SMB0 $nn,87,2,L-106
+4510,SMB1,base-page,SMB1 $nn,97,2,L-106
+4510,SMB2,base-page,SMB2 $nn,A7,2,L-107
+4510,SMB3,base-page,SMB3 $nn,B7,2,L-107
+4510,SMB4,base-page,SMB4 $nn,C7,2,L-107
+4510,SMB5,base-page,SMB5 $nn,D7,2,L-108
+4510,SMB6,base-page,SMB6 $nn,E7,2,L-108
+4510,SMB7,base-page,SMB7 $nn,F7,2,L-108
+4510,STA,"(indirect,X)","STA ($nn,X)",81,2,L-109
+4510,STA,"(immediate,SP),Y","STA ($nn,SP),Y",82,2,L-109
+4510,STA,base-page,STA $nn,85,2,L-109
+4510,STA,absolute,STA $nnnn,8D,3,L-109
+4510,STA,"(indirect),Y","STA ($nn),Y",91,2,L-109
+4510,STA,"(indirect),Z","STA ($nn),Z",92,2,L-109
+4510,STA,"base-page,X","STA $nn,X",95,2,L-109
+4510,STA,"absolute,Y","STA $nnnn,Y",99,3,L-109
+4510,STA,"absolute,X","STA $nnnn,X",9D,3,L-109
+4510,STX,base-page,STX $nn,86,2,L-109
+4510,STX,absolute,STX $nnnn,8E,3,L-109
+4510,STX,"base-page,Y","STX $nn,Y",96,2,L-109
+4510,STX,"absolute,Y","STX $nnnn,Y",9B,3,L-109
+4510,STY,base-page,STY $nn,84,2,L-110
+4510,STY,"absolute,X","STY $nnnn,X",8B,3,L-110
+4510,STY,absolute,STY $nnnn,8C,3,L-110
+4510,STY,"base-page,X","STY $nn,X",94,2,L-110
+4510,STZ,base-page,STZ $nn,64,2,L-110
+4510,STZ,"base-page,X","STZ $nn,X",74,2,L-110
+4510,STZ,absolute,STZ $nnnn,9C,3,L-110
+4510,STZ,"absolute,X","STZ $nnnn,X",9E,3,L-110
+4510,TAB,implied,TAB,5B,1,L-110
+4510,TAX,implied,TAX,AA,1,L-111
+4510,TAY,implied,TAY,A8,1,L-111
+4510,TAZ,implied,TAZ,4B,1,L-112
+4510,TBA,implied,TBA,7B,1,L-112
+4510,TRB,base-page,TRB $nn,14,2,L-113
+4510,TRB,absolute,TRB $nnnn,1C,3,L-113
+4510,TSB,base-page,TSB $nn,04,2,L-113
+4510,TSB,absolute,TSB $nnnn,0C,3,L-113
+4510,TSX,implied,TSX,BA,1,L-114
+4510,TSY,implied,TSY,0B,1,L-114
+4510,TXA,implied,TXA,8A,1,L-115
+4510,TXS,implied,TXS,9A,1,L-115
+4510,TYA,implied,TYA,98,1,L-115
+4510,TYS,implied,TYS,2B,1,L-116
+4510,TZA,implied,TZA,6B,1,L-116
+45GS02,ADC,"[indirect],Z","ADC [$nn],Z",EA 72,3,L-117
+45GS02,ADCQ,base-page quad,ADCQ $nn,42 42 65,4,L-118
+45GS02,ADCQ,absolute quad,ADCQ $nnnn,42 42 6D,5,L-118
+45GS02,ADCQ,(indirect quad),ADCQ ($nn),42 42 72,4,L-118
+45GS02,ADCQ,[indirect quad],ADCQ [$nn],42 42 EA 72,5,L-118
+45GS02,AND,"[indirect],Z","AND [$nn],Z",EA 32,3,L-118
+45GS02,ANDQ,base-page quad,ANDQ $nn,42 42 25,4,L-119
+45GS02,ANDQ,absolute quad,ANDQ $nnnn,42 42 2D,5,L-119
+45GS02,ANDQ,(indirect quad),ANDQ ($nn),42 42 32,4,L-119
+45GS02,ANDQ,[indirect quad],ANDQ [$nn],42 42 EA 32,5,L-119
+45GS02,ASLQ,base-page quad,ASLQ $nn,42 42 06,4,L-120
+45GS02,ASLQ,Q Pseudo Register,ASLQ Q,42 42 0A,3,L-120
+45GS02,ASLQ,absolute quad,ASLQ $nnnn,42 42 0E,5,L-120
+45GS02,ASLQ,"base-page quad,X","ASLQ $nn,X",42 42 16,4,L-120
+45GS02,ASLQ,"absolute quad,X","ASLQ $nnnn,X",42 42 1E,5,L-120
+45GS02,ASRQ,Q Pseudo Register,ASRQ Q,42 42 43,3,L-120
+45GS02,ASRQ,base-page quad,ASRQ $nn,42 42 44,4,L-120
+45GS02,ASRQ,"base-page quad,X","ASRQ $nn,X",42 42 54,4,L-120
+45GS02,BITQ,base-page quad,BITQ $nn,42 42 24,4,L-121
+45GS02,BITQ,absolute quad,BITQ $nnnn,42 42 2C,5,L-121
+45GS02,CMP,"[indirect],Z","CMP [$nn],Z",EA D2,3,L-122
+45GS02,CMPQ,base-page quad,CMPQ $nn,42 42 C5,4,L-122
+45GS02,CMPQ,absolute quad,CMPQ $nnnn,42 42 CD,5,L-122
+45GS02,CMPQ,(indirect quad),CMPQ ($nn),42 42 D2,4,L-122
+45GS02,CMPQ,[indirect quad],CMPQ [$nn],42 42 EA D2,5,L-122
+45GS02,DEQ,Q Pseudo Register,DEQ Q,42 42 3A,3,L-123
+45GS02,DEQ,base-page quad,DEQ $nn,42 42 C6,4,L-123
+45GS02,DEQ,absolute quad,DEQ $nnnn,42 42 CE,5,L-123
+45GS02,DEQ,"base-page quad,X","DEQ $nn,X",42 42 D6,4,L-123
+45GS02,DEQ,"absolute quad,X","DEQ $nnnn,X",42 42 DE,5,L-123
+45GS02,EOR,"[indirect],Z","EOR [$nn],Z",EA 52,3,L-124
+45GS02,EORQ,base-page quad,EORQ $nn,42 42 45,4,L-124
+45GS02,EORQ,absolute quad,EORQ $nnnn,42 42 4D,5,L-124
+45GS02,EORQ,(indirect quad),EORQ ($nn),42 42 52,4,L-124
+45GS02,EORQ,[indirect quad],EORQ [$nn],42 42 EA 52,5,L-124
+45GS02,INQ,Q Pseudo Register,INQ Q,42 42 1A,3,L-125
+45GS02,INQ,base-page quad,INQ $nn,42 42 E6,4,L-125
+45GS02,INQ,absolute quad,INQ $nnnn,42 42 EE,5,L-125
+45GS02,INQ,"base-page quad,X","INQ $nn,X",42 42 F6,4,L-125
+45GS02,INQ,"absolute quad,X","INQ $nnnn,X",42 42 FE,5,L-125
+45GS02,LDA,"[indirect],Z","LDA [$nn],Z",EA B2,3,L-125
+45GS02,LDQ,base-page quad,LDQ $nn,42 42 A5,4,L-126
+45GS02,LDQ,absolute quad,LDQ $nnnn,42 42 AD,5,L-126
+45GS02,LDQ,"(indirect quad),Z","LDQ ($nn),Z",42 42 B2,4,L-126
+45GS02,LDQ,"[indirect quad],Z","LDQ [$nn],Z",42 42 EA B2,5,L-126
+45GS02,LSRQ,base-page quad,LSRQ $nn,42 42 46,4,L-127
+45GS02,LSRQ,Q Pseudo Register,LSRQ Q,42 42 4A,3,L-127
+45GS02,LSRQ,absolute quad,LSRQ $nnnn,42 42 4E,5,L-127
+45GS02,LSRQ,"base-page quad,X","LSRQ $nn,X",42 42 56,4,L-127
+45GS02,LSRQ,"absolute quad,X","LSRQ $nnnn,X",42 42 5E,5,L-127
+45GS02,ORA,"[indirect],Z","ORA [$nn],Z",EA 12,3,L-127
+45GS02,ORQ,base-page quad,ORQ $nn,42 42 05,4,L-128
+45GS02,ORQ,absolute quad,ORQ $nnnn,42 42 0D,5,L-128
+45GS02,ORQ,(indirect quad),ORQ ($nn),42 42 12,4,L-128
+45GS02,ORQ,[indirect quad],ORQ [$nn],42 42 EA 12,5,L-128
+45GS02,RESQ,"(indirect quad,X)","RESQ ($nn,X)",42 42 01,4,L-129
+45GS02,RESQ,"(indirect quad),Y","RESQ ($nn),Y",42 42 11,4,L-129
+45GS02,RESQ,"base-page quad,X","RESQ $nn,X",42 42 15,4,L-129
+45GS02,RESQ,"absolute quad,Y","RESQ $nnnn,Y",42 42 19,5,L-129
+45GS02,RESQ,"absolute quad,X","RESQ $nnnn,X",42 42 1D,5,L-129
+45GS02,RESQ,"(indirect quad,X)","RESQ ($nn,X)",42 42 21,4,L-129
+45GS02,RESQ,"(indirect quad),Y","RESQ ($nn),Y",42 42 31,4,L-129
+45GS02,RESQ,"base-page quad,X","RESQ $nn,X",42 42 34,4,L-129
+45GS02,RESQ,"base-page quad,X","RESQ $nn,X",42 42 35,4,L-129
+45GS02,RESQ,"absolute quad,Y","RESQ $nnnn,Y",42 42 39,5,L-129
+45GS02,RESQ,"absolute quad,X","RESQ $nnnn,X",42 42 3C,5,L-129
+45GS02,RESQ,"absolute quad,X","RESQ $nnnn,X",42 42 3D,5,L-129
+45GS02,RESQ,"(indirect quad,X)","RESQ ($nn,X)",42 42 41,4,L-129
+45GS02,RESQ,"(indirect quad),Y","RESQ ($nn),Y",42 42 51,4,L-129
+45GS02,RESQ,"base-page quad,X","RESQ $nn,X",42 42 55,4,L-129
+45GS02,RESQ,"absolute quad,Y","RESQ $nnnn,Y",42 42 59,5,L-129
+45GS02,RESQ,"absolute quad,X","RESQ $nnnn,X",42 42 5D,5,L-129
+45GS02,RESQ,"(indirect quad,X)","RESQ ($nn,X)",42 42 61,4,L-129
+45GS02,RESQ,"(indirect quad),Y","RESQ ($nn),Y",42 42 71,4,L-129
+45GS02,RESQ,"base-page quad,X","RESQ $nn,X",42 42 75,4,L-129
+45GS02,RESQ,"absolute quad,Y","RESQ $nnnn,Y",42 42 79,5,L-129
+45GS02,RESQ,"absolute quad,X","RESQ $nnnn,X",42 42 7D,5,L-129
+45GS02,ROLQ,base-page quad,ROLQ $nn,42 42 26,4,L-130
+45GS02,ROLQ,Q Pseudo Register,ROLQ Q,42 42 2A,3,L-130
+45GS02,ROLQ,absolute quad,ROLQ $nnnn,42 42 2E,5,L-130
+45GS02,ROLQ,"base-page quad,X","ROLQ $nn,X",42 42 36,4,L-130
+45GS02,ROLQ,"absolute quad,X","ROLQ $nnnn,X",42 42 3E,5,L-130
+45GS02,RORQ,base-page quad,RORQ $nn,42 42 66,4,L-131
+45GS02,RORQ,Q Pseudo Register,RORQ Q,42 42 6A,3,L-131
+45GS02,RORQ,absolute quad,RORQ $nnnn,42 42 6E,5,L-131
+45GS02,RORQ,"base-page quad,X","RORQ $nn,X",42 42 76,4,L-131
+45GS02,RORQ,"absolute quad,X","RORQ $nnnn,X",42 42 7E,5,L-131
+45GS02,RSVQ,"(indirect quad,X)","RSVQ ($nn,X)",42 42 81,4,L-132
+45GS02,RSVQ,"(indirect quad,SP),Y","RSVQ ($nn,SP),Y",42 42 82,4,L-132
+45GS02,RSVQ,"(indirect quad),Y","RSVQ ($nn),Y",42 42 91,4,L-132
+45GS02,RSVQ,"base-page quad,X","RSVQ $nn,X",42 42 95,4,L-132
+45GS02,RSVQ,"absolute quad,Y","RSVQ $nnnn,Y",42 42 99,5,L-132
+45GS02,RSVQ,"absolute quad,X","RSVQ $nnnn,X",42 42 9D,5,L-132
+45GS02,RSVQ,"(indirect quad,X)","RSVQ ($nn,X)",42 42 A1,4,L-132
+45GS02,RSVQ,"(indirect quad,X)","RSVQ ($nn,X)",42 42 C1,4,L-132
+45GS02,RSVQ,"(indirect quad),Y","RSVQ ($nn),Y",42 42 D1,4,L-132
+45GS02,RSVQ,"base-page quad,X","RSVQ $nn,X",42 42 D5,4,L-132
+45GS02,RSVQ,"absolute quad,Y","RSVQ $nnnn,Y",42 42 D9,5,L-132
+45GS02,RSVQ,"absolute quad,X","RSVQ $nnnn,X",42 42 DD,5,L-132
+45GS02,RSVQ,"(indirect quad,X)","RSVQ ($nn,X)",42 42 E1,4,L-132
+45GS02,RSVQ,"(indirect quad),Y","RSVQ ($nn),Y",42 42 F1,4,L-132
+45GS02,RSVQ,"base-page quad,X","RSVQ $nn,X",42 42 F5,4,L-132
+45GS02,RSVQ,"absolute quad,Y","RSVQ $nnnn,Y",42 42 F9,5,L-132
+45GS02,RSVQ,"absolute quad,X","RSVQ $nnnn,X",42 42 FD,5,L-132
+45GS02,SBC,"[indirect],Z","SBC [$nn],Z",EA F2,3,L-133
+45GS02,SBCQ,base-page quad,SBCQ $nn,42 42 E5,4,L-133
+45GS02,SBCQ,absolute quad,SBCQ $nnnn,42 42 ED,5,L-133
+45GS02,SBCQ,(indirect quad),SBCQ ($nn),42 42 F2,4,L-133
+45GS02,SBCQ,[indirect quad],SBCQ [$nn],42 42 EA F2,5,L-133
+45GS02,STA,"[indirect],Z","STA [$nn],Z",EA 92,3,L-134
+45GS02,STQ,base-page quad,STQ $nn,42 42 85,4,L-134
+45GS02,STQ,absolute quad,STQ $nnnn,42 42 8D,5,L-134
+45GS02,STQ,(indirect quad),STQ ($nn),42 42 92,4,L-134
+45GS02,STQ,[indirect quad],STQ [$nn],42 42 EA 92,5,L-134

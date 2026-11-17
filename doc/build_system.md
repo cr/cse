@@ -16,12 +16,17 @@
 | [`tests/c64emu.py`](../tests/c64emu.py) | implementation — C64 emulator class (C64Emu) |
 | [`tests/asm_dasm_runner.py`](../tests/asm_dasm_runner.py) | implementation — exhaustive asm_line / dasm_insn sweeps on py65 (output + cycles) |
 | [`dev/capture_golden.py`](../dev/capture_golden.py) | implementation — records the asm/dasm golden files from a known-good tree |
-| [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<cpu set>.json`, one per C64 CPU set, by `dev/capture_golden.py`; back-link-exempt (JSON has no comment syntax) |
+| [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<cpu set>.json`, one per C64 CPU set, by `dev/capture_golden.py`; `m65_cpu.json`, the 45GS02 as xmega65 executes it, by `dev/capture_m65_golden.py`; back-link-exempt (JSON has no comment syntax) |
 | [`tests/unit/test_golden_asm_dasm.py`](../tests/unit/test_golden_asm_dasm.py) | test contract — behaviour and speed against the golden files (TODO § M65, gates 2–3) |
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — C64 release PRG sizes within budget (TODO § M65, gate 1) |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
 | [`tests/unit/test_dasm_tables.py`](../tests/unit/test_dasm_tables.py) | test contract — the disassembler model of `dev/dasm_tables.py` |
+| [`tests/m65emu/`](../tests/m65emu/) | implementation — M65Emu, the m65 harness: `MPU45GS02` (`mpu45gs02.py`), its decode table from the compendium fixture (`isa.py`), the golden-file format (`golden.py`) ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)) |
+| [`tests/xmega65.py`](../tests/xmega65.py) | implementation — the xmega65 driver (headless start on a cloned SD image, uartmon commands) for Tier X and the M65Emu recordings |
+| [`dev/capture_m65_golden.py`](../dev/capture_m65_golden.py) | implementation — records `m65_cpu.json` in xmega65 |
+| [`tests/fixtures/mega65_instruction_set.csv`](../tests/fixtures/mega65_instruction_set.csv) | dependency — the MEGA65 compendium's instruction tables (bbbc64's `dev/mega65_opcode_extract.py` output, copied unchanged); `MPU45GS02`'s decoder source; back-link-exempt (CSV) |
+| [`tests/unit/test_mpu45gs02.py`](../tests/unit/test_mpu45gs02.py) | test contract — `MPU45GS02` against the fixture, the 45GS02-specific behaviour and every case of `m65_cpu.json` |
 | [`tests/integration/test_c64emu.py`](../tests/integration/test_c64emu.py) | test contract — exercises the C64Emu harness itself (basic execution, register access, screen access) |
 | [`tests/integration/test_c64emu_banking.py`](../tests/integration/test_c64emu_banking.py) | test contract — `$01` banking + KERNAL/BASIC ROM mapping |
 | [`tests/integration/test_c64emu_cia.py`](../tests/integration/test_c64emu_cia.py) | test contract — CIA1/CIA2 timer + IRQ behaviour |
@@ -196,18 +201,22 @@ self-extracting binary: on `RUN`, exomizer's decrunch stub
 decompresses the payload in-place, then the BASIC SYS stub and
 loader run normally.  ~38% smaller than the raw PRG.
 
-`make disk` writes the compressed PRG to the D64.
+`make disk` writes the compressed PRG to the D64 (D81 on m65).
 `make run` launches the uncompressed PRG (no decrunch delay).
+
+The C64 builds use exomizer's default target (`-t 64`, BASIC stub at
+`$0801`); the m65 build uses `-t 65` (C65, BASIC stub at `$2001`),
+which exomizer 3.1 provides ([§ The m65 PRG](#the-m65-prg)).
 
 ## Build targets
 
 | Target | Command | Output |
 |--------|---------|--------|
 | All (default) | `make` | Same as `release` |
-| Release | `make release` | All three CPU variants, optimized + exomizer + D64 |
-| Debug | `make debug` | All three CPU variants with `-g` (full symbols in `.lbl`) |
-| Disk (single) | `make disk` | Per-CPU D64 in build dir (for quick iteration) |
-| Run | `make run` | Build release + launch in VICE |
+| Release | `make release` | `c64`: all three CPU variants, optimized + exomizer + D64; `m65`: the m65 PRG, optimized + exomizer + D81 |
+| Debug | `make debug` | The platform's builds with `-g` (full symbols in `.lbl`) |
+| Disk (single) | `make disk` | Per-build disk image in the build dir — D64 on `c64`, D81 on `m65` (for quick iteration) |
+| Run | `make run` | Build release + launch in VICE (`c64`) or xmega65 (`m65`) |
 | Tables | `make tables` | Regenerate `src/mn*_tables.s` via `mnemonic_tables.py` |
 | Tests | `make test` | Build both debug + release, then run all pytest tests |
 | Size | `make size` | Size breakdown of selected release PRG (`CPU=`) |
@@ -234,7 +243,8 @@ absolute address.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` is accepted by the test-bundle builds only; the m65 PRG is R7's ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
+| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG and D81 ([§ The m65 PRG](#the-m65-prg)) and the m65 test bundles |
+| `XMEGA65` | `xmega65` | The xmega65 executable for `make run` and Tier X on `m65` (on macOS: `/Applications/xmega65.app/Contents/MacOS/xmega65`) |
 | `CPU` | `6510` on `c64`, `45gs02` on `m65` | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`; `m65`: `45gs02` only) |
 | `THEME` | `GREENLAND` | Named theme or 3-digit hex code (`make themes` for list) |
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
@@ -252,11 +262,14 @@ changed between invocations.
         6510/   cse.prg  cse-exo.prg  cse.map  cse.lbl  cse.dbg  src/*.o
         6502/   cse-6502.prg  cse-6502-exo.prg  ...
         cmos/   cse-cmos.prg  cse-cmos-exo.prg  ...
+        m65/    cse-m65.prg  cse-m65-exo.prg  ...
       debug/
         6510/   cse.prg  cse.map  cse.lbl  cse.dbg  src/*.o
         6502/   cse-6502.prg  ...
         cmos/   cse-cmos.prg  ...
-      cse.d64             distribution D64 (from release, all three CPUs)
+        m65/    cse-m65.prg  ...
+      cse.d64             distribution D64 (from release, all three C64 CPUs)
+      cse-m65.d81         distribution D81 (from release, the m65 PRG)
       asm_core_test.*     conftest.py test bundles (built with -g)
       mn6_test.*          ...
       mn7_test.*          ...
@@ -325,9 +338,38 @@ the consumer is part of):
 | `DEFAULT_CPU` (main.s) | c64-6502, c64-6510 | — | c64-65c02 | — | m65-45gs02 |
 | debugger step (`cmp #2` paths) | NMOS step | NMOS step | + `JMP (a,X)`, `BRA` (c64-65c02) | — (no m65 debugger in R7 slice 1) | — (same) |
 
-The m65 build exists as test bundles (asm_core, mn7, dasm) at the end
-of R7 slice 1; `PLATFORM=m65` with a PRG target is refused until the
-m65 platform layer (screen, memory, KERNAL) lands.
+The m65 build ships as the MEGA65 PRG ([§ The m65 PRG](#the-m65-prg)).
+Status: at the end of R7 slice 1 it exists as test bundles (asm_core,
+mn7, dasm) only, and `PLATFORM=m65` with a PRG target is refused until
+slice 2 — the platform layer — lands
+([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-prg-r7-platform-layer)).
+
+### The m65 PRG
+
+The m65-45gs02 build is a native MEGA65 program: it runs in MEGA65
+mode, on BASIC 65 and the MEGA65 KERNAL — not in GO64 (operator
+ruling, 2026-11-17).
+
+- **Load and start.**  The PRG loads at `$2001`.  Its BASIC 65 stub
+  (`SYS 8205`) starts the loader at `$200D`, which copies the payload
+  to where it runs and initialises the data area
+  ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)).
+  `RUN` after `LOAD "CSE-M65"` starts it, as `RUN` does on the C64.
+- **Clean 6502 code.**  Every module is assembled with
+  `.setcpu "6502"`, in the m65 build as in the C64 builds.  A
+  45GS02-only instruction the platform layer needs — `MAP`, `EOM`,
+  flat 28-bit access through `[zp],Z`, the `Z` register — is written
+  as raw bytes by a macro from `src/m45_ops.inc`, the one place that
+  encodes them.  An audit test refuses a 45GS02-only opcode emitted
+  anywhere else ([testing.md § Tier U](testing.md#tier-u--unit-module--linking-down)).
+- **Distribution.**  `make release PLATFORM=m65` writes
+  `build/release/m65/cse-m65.prg`, its exomizer SFX
+  `cse-m65-exo.prg` (`exomizer sfx sys -t 65`), and
+  `build/cse-m65.d81`, formatted and written by `c1541` (VICE's disk
+  tool writes D81 as well as D64), holding the SFX as `cse-m65`.
+- **Run.**  `make run PLATFORM=m65` starts `$(XMEGA65)` with the D81
+  on drive 8 and `-autoload`; a MEGA65-mode PRG at `$2001` needs no
+  `-go64`.
 
 ## Table generation
 
@@ -366,6 +408,14 @@ what it costs — never to make a refactor pass; that commit states the
 reason and the measured cycle change.  The size gate
 (`test_size_budget.py`) is a ratchet in the same spirit: a commit
 that shrinks a C64 build lowers its budget to the new size.
+
+`tests/fixtures/golden/m65_cpu.json` records the 45GS02 as xmega65
+executes it, case by case (`dev/capture_m65_golden.py`, which needs
+xmega65 and a configured MEGA65 SD image); `test_mpu45gs02.py` holds
+M65Emu's CPU to it.  It is re-recorded when xmega65 is updated or a
+case is added; a changed `after` is a behaviour change of the
+reference, which that commit states
+([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
 
 Run with `make tables` (both generators; the stamp depends on both
 and on their inputs) or directly with `python3 dev/mnemonic_tables.py`

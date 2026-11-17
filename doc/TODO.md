@@ -70,7 +70,9 @@ TDD.
 assembler and disassembler for the 45GS02, with the 4510 and the
 6502 as runtime alternatives — built from the one instruction set
 that serves every build.  The rest of R7 (screen driver, memory
-model, KERNAL interface, debugger) is not this slice.
+model, KERNAL interface, debugger) is not this slice: it is
+[slice 2](#m65-slice-2--the-mega65-prg-r7-platform-layer), which
+turns the m65 build into the MEGA65 PRG.
 
 **Hard constraint (operator, 2026-11-16):** no change made for the
 m65 target may make any C64 build bigger or significantly slower.
@@ -311,6 +313,148 @@ disassembler (A4) followed: see A4 below.
 - **O3. Q-mode coverage** (`Q_MODES`) is checked against the
   compendium only; confirm the edge rows (`LDQ ($nn),Z`, `ASLQ $nn,X`)
   on hardware.
+
+O1 and O3 get a provisional answer from xmega65 (slice 2, S2-3a and
+S2-8): an emulator's answer, which the hardware confirms.  M65Emu
+cannot answer them on its own — its semantics are our reading of the
+compendium until its golden file, recorded in xmega65, says otherwise.
+
+**Provisional answers (xmega65 `0870689e`, S2-3a golden file,
+2026-11-17)** — both still open for the hardware:
+- O1: xmega65 agrees with the contract — a 16-bit branch or `BSR`
+  lands at its last byte plus the offset (cases `BRA 16-bit
+  relative`, `BRA16 backwards`, `BSR backwards`).
+- O3: both edge rows exist and behave as listed — `LDQ ($nn),Z` adds
+  `Z` to the pointer (case `LDQ ($20),Z Z=03`), `ASLQ $nn,X` shifts the
+  four bytes at base page + `X` (case `ASLQ base-page quad,X`).
+
+## M65 slice 2 — the MEGA65 PRG (R7, platform layer)
+
+**Depends on:** [slice 1](#m65--the-45gs02-assembler-and-disassembler-r7-slice-1)
+(the m65 CPU layer, Phase B).  Its own CDD cycle: this section is the
+plan; the CDD Analysis settles the open design items (S2-Q1…Q5)
+before any test or code lands.
+
+**Target (operator, 2026-11-17).**  The m65-45gs02 build ships as a
+native MEGA65 program — MEGA65 mode (BASIC 65 and the MEGA65
+KERNAL), not GO64:
+
+- **Load and start.**  A PRG loading at `$2001`, whose BASIC 65
+  stub `SYS`es the loader; the loader copies the payload to where it
+  runs and initialises the data area, as the C64 loader does
+  ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)).
+- **Distribution.**  The PRG (raw and exomizer SFX, `-t 65`) and a
+  D81 (`build/cse-m65.d81`, written by `c1541`)
+  ([build_system.md § The m65 PRG](build_system.md#the-m65-prg)).
+- **Clean 6502 code.**  Every module stays `.setcpu "6502"`.  A
+  45GS02-only instruction the platform layer needs — banking (`MAP`,
+  `EOM`), flat 28-bit access (`[zp],Z`), the `Z` register — is
+  written as raw bytes through one macro include, `src/m45_ops.inc`,
+  and nowhere else.
+- **The C64 builds do not change** (the slice-1 hard constraint
+  holds).
+
+**Carried over unchanged** (checked 2026-11-17 against the MEGA65 ROM
+in xmega65's data directory):
+- The KERNAL jump table.  `CHROUT`, `CHRIN`, `GETIN`, `STOP`, `OPEN`
+  are the same `JMP ($03xx)` stubs at the same addresses as the
+  C64's; `LOAD`, `PLOT`, `SETLFS` sit at the same jump-table
+  addresses.
+- The loader's copy scheme ([memory_design.md § Loader Module](memory_design.md#loader-module-loaders)).
+- The CPU layer (slice 1).
+
+**Needs an m65 counterpart** (survey 2026-11-17):
+- **C64 ROM internals called directly:** `$EA31`, `$EA81`, `$FE43`,
+  `$F8DA`, `$E544`, `$E9D6`, `$FCE2`, `$F6ED` (main, mem, debugger,
+  cse_io, repl).  The MEGA65 KERNAL's internals are elsewhere (its NMI
+  entry is `$FAC1`, not `$FE43`).
+- **KERNAL RAM variables used directly:** `$C6`, `$CC`, `$D1`–`$D3`,
+  `$D6`, `$F3`–`$F4`
+  ([memory_design.md § KERNAL ZP locations](memory_design.md#kernal-zp-locations-readwritten-directly)),
+  and the `$0316`/`$0318` hooks.
+- **Screen:** 40×25 at `$0400` with colour RAM at `$D800` (screen,
+  cse_io, editor, repl, log, main); MEGA65 mode boots 80×25 at
+  `$0800`.
+- **Data under the KERNAL:** `$E000`–`$FFFF` through `$01` bit 1
+  (symbol table, heap, KDATA, screen save, ZP snapshot), and the
+  `$FFFA`/`$FFFE` RAM-shadow vectors.
+- **Zero page `$02`–`$7F`** and the cold-init snapshot, against
+  BASIC 65's zero-page use.
+
+**Plan:**
+
+- [ ] S2-1. Build: the `PLATFORM=m65` PRG target — linker config,
+  BASIC 65 stub at `$2001`, loader, exomizer `-t 65`; `make disk`
+  writes the D81, `make run` starts xmega65
+  ([build_system.md § The m65 PRG](build_system.md#the-m65-prg)).
+- [ ] S2-2. `src/m45_ops.inc`, the raw-byte macros, and an audit
+  test: no module encodes a 45GS02-only instruction outside it.
+- [ ] S2-3. M65Emu, the m65 integration harness
+  ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
+  It depends on none of the open design items, so it lands first
+  (operator, 2026-11-17).
+  - [x] S2-3a. `MPU45GS02`: the whole 45GS02 — all 256 4510 opcodes,
+    the Q and flat prefixes, `Z`, `B`, the 16-bit stack, the `MAP`
+    latch; decoder from the compendium fixture; clean mode.  Its golden
+    file `m65_cpu.json`, recorded in xmega65 by
+    `dev/capture_m65_golden.py`, and `test_mpu45gs02.py` against it.
+    Done 2026-11-17: 516 recorded cases replay; the recording overruled
+    the reading on BCD (NMOS-style) and `BIT #` (sets `N`/`V`)
+    ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
+    The xmega65 driver is `tests/xmega65.py`, shared with S2-8.
+  - [ ] S2-3b. `M65Memory`: the 28-bit store, the `MAP` / `$01` /
+    `$D030` / `$D02F` page table, colour RAM, flat access;
+    `test_m65memory.py` against translations recorded in xmega65.
+  - [ ] S2-3c. The post-boot state (`dev/capture_m65_state.py` →
+    `build/m65_state/`) and the `C64Emu` interface; a first Tier I
+    test calls `CHROUT` on the real MEGA65 KERNAL.
+  - [ ] S2-3d. Devices (DMA controller, CIAs, VIC-IV storage,
+    keyboard queue), each with the first test that needs it.
+- [ ] S2-4. Memory model: the data area in a RAM bank outside BASIC
+  65's use, mapped into a 16-bit window by `MAP`, so the `(zp),y`
+  readers stay unchanged and only mem.s's bank-in/out helpers change;
+  the interrupt-vector shadows
+  ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)).
+- [ ] S2-5. Platform constants: the KERNAL internals and RAM
+  variables, one include per platform.
+- [ ] S2-6. Screen driver for MEGA65 mode.
+- [ ] S2-7. Debugger hooks (BRK, NMI) on the MEGA65 KERNAL.
+- [ ] S2-8. Tier X: the xmega65 tests — boot to the prompt from the
+  PRG and the D81, typed REPL commands, the screen dump, the golden
+  re-check of S2-3; provisional answers to O1 and O3
+  ([testing.md § Tier X](testing.md#tier-x--xmega65-m65-automated)).
+
+**Open design items** (the CDD Analysis settles them):
+
+- **S2-Q1. Data bank and window.**  Which 64 KB bank holds the data
+  area, which 16-bit window `MAP` maps it into, how that interacts
+  with the KERNAL's own mapping, and how interrupts behave while it
+  is mapped.
+- **S2-Q2. Screen width.**  80×25 native or 40×25 (editor width,
+  REPL layout, `m`/`d` line formats).
+- **S2-Q3. Zero page.**  Share base page 0 with BASIC 65 and the
+  KERNAL (save and restore, as on the C64), or a private base page
+  through the `B` register (every KERNAL call needs `B` = 0).
+- **S2-Q4. Exit to BASIC 65.**  What `x` restores.
+- **S2-Q5. CPU speed.**  Run at 40 MHz (a register write, not an
+  instruction) or keep the BASIC 65 setting.
+- **S2-Q6. R3 dependency.**  The R7 roadmap entry makes the platform
+  layer depend on [R3](#r3--universal-c64c128-binary) (machine
+  differences isolated to leaf functions).  Either slice 2 waits for
+  R3, or slice 2 does that isolation for c64/m65 (S2-4, S2-5) and R3
+  later adds the C128 to it.
+
+### Slice-2 rulings (operator, 2026-11-17)
+
+- **Native, not GO64.**  The m65 PRG runs in MEGA65 mode, loads at
+  `$2001` and copies itself to where it belongs.
+- **Distribution:** PRG and D81.
+- **Clean 6502 code;** 45GS02-only instructions as raw bytes.
+- **M65Emu: a full 45GS02 port of py65 plus the MEGA65 memory
+  layout,** devices as tests need them — a subclass in `tests/`, the
+  way py65's own 65C02 MPU extends its 6502 MPU, not a patch to the
+  installed package.  It is the m65 build's Tier I, checked against
+  xmega65.
 
 ## CDD amendments pending
 
@@ -2708,8 +2852,12 @@ adaptations than a compatibility shim.  Alongside C128 native
 screen driver and memory model.  Slice 1 — the CPU layer (assembler
 and disassembler) — is active: see
 [M65](#m65--the-45gs02-assembler-and-disassembler-r7-slice-1).
+Slice 2 — the platform layer, shipped as a MEGA65-mode PRG at
+`$2001` with a D81 — follows it: see
+[M65 slice 2](#m65-slice-2--the-mega65-prg-r7-platform-layer).
 The dependency on R3 applies to the platform layer (screen, memory,
-KERNAL), not to the CPU layer.
+KERNAL), not to the CPU layer; whether slice 2 waits for R3 or does
+the platform isolation itself is S2-Q6.
 
 ## Ideas
 
