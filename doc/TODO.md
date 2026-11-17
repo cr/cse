@@ -398,7 +398,7 @@ in xmega65's data directory):
     latch; decoder from the compendium fixture; clean mode.  Its golden
     file `m65_cpu.json`, recorded in xmega65 by
     `dev/capture_m65_golden.py`, and `test_mpu45gs02.py` against it.
-    Done 2026-11-17: 516 recorded cases replay; the recording overruled
+    Done 2026-11-17: 518 recorded cases replay; the recording overruled
     the reading on BCD (NMOS-style) and `BIT #` (sets `N`/`V`)
     ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
     The xmega65 driver is `tests/xmega65.py`, shared with S2-8.

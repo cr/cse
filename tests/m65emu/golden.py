@@ -2,22 +2,31 @@
 
 Owner: doc/build_system.md
 
+Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65-integration-harness).
+
 dev/capture_m65_golden.py records, in xmega65, one case per
 instruction sequence into tests/fixtures/golden/m65_cpu.json;
-tests/unit/test_mpu45gs02.py replays each case on MPU45GS02.  Both
-sides build the same starting memory: every byte of REGIONS holds
-pattern(addr), then the case's recorded differences are applied.
+tests/unit/test_mpu45gs02.py replays each case on MPU45GS02.
+
+The file:
+    source    the xmega65 version, the date, the instruction fixture
+    regions   [[flat start, length], ...] — the memory a case may touch
+    base      {flat addr (hex): byte} — what every case starts with on
+              top of pattern(addr): the pointers the indirect modes use
+    cases     one per line
 
 A case:
     name      what it exercises
-    code      the instruction under test, hex bytes
+    code      the instruction under test, hex bytes, at `before.pc`
     before    registers when it starts: pc a x y z b sp p mapl maph
-    mem       {flat addr (hex): byte} — differences from the pattern
-              when it starts (the code bytes, the case's operands,
-              what the preamble pushed)
+    mem       {flat addr (hex): byte} — differences from pattern + base
+              when it starts, outside the sequence's own code (the
+              case's operands, what the register preamble pushed)
+    cpu_view  {CPU addr (hex): byte} — bytes the instruction reads
+              outside `regions`, as the CPU saw them (BRK's vector)
     steps     xmega65 steps to complete it (a prefix byte is a step)
     after     registers when it has completed
-    mem_after {flat addr (hex): byte} — what it changed in REGIONS
+    mem_after {flat addr (hex): byte} — what it changed in `regions`
 """
 
 import json
@@ -26,28 +35,12 @@ import pathlib
 GOLDEN = (pathlib.Path(__file__).resolve().parents[1]
           / "fixtures" / "golden" / "m65_cpu.json")
 
-# Flat ranges the cases may touch; all in block 0 ($0000-$1FFF, which
-# the post-boot MAP leaves unmapped, so CPU address = flat address)
-# except the flat-addressing target page.
-REGIONS = (
-    (0x00100, 0x200),     # stack page and the page above (16-bit stack)
-    (0x01800, 0x100),     # code
-    (0x01900, 0x100),     # base page (B = $19)
-    (0x01A00, 0x200),     # data
-    (0x40000, 0x100),     # flat-addressing target, outside the CPU view
-)
-
 REG_NAMES = ("pc", "a", "x", "y", "z", "b", "sp", "p", "mapl", "maph")
 
 
 def pattern(addr):
-    """The byte every region holds before a case's differences."""
+    """The byte every region holds before `base` and a case's `mem`."""
     return (addr * 0x9E3779B1 >> 16 ^ addr) & 0xFF
-
-
-def region_addrs():
-    for start, length in REGIONS:
-        yield from range(start, start + length)
 
 
 def load(path=GOLDEN):
@@ -55,20 +48,16 @@ def load(path=GOLDEN):
         return json.load(f)
 
 
-def memory_for(case, memory_cls):
-    """A fresh memory holding the case's starting state."""
-    mem = memory_cls()
-    for a in region_addrs():
-        mem.write_flat(a, pattern(a))
-    for a, v in case["mem"].items():
-        mem.write_flat(int(a, 16), v)
+def addrs(table):
+    """A file's {hex addr: byte} table with integer addresses."""
+    return {int(a, 16): v for a, v in table.items()}
+
+
+def start_memory(data, case):
+    """{flat addr: byte} of every region byte when the case starts."""
+    mem = {a: pattern(a) for start, n in data["regions"]
+           for a in range(start, start + n)}
+    mem.update(addrs(data["base"]))
+    mem.update(addrs(case["mem"]))
+    mem.update(enumerate(bytes.fromhex(case["code"]), case["before"]["pc"]))
     return mem
-
-
-def expected_memory(case):
-    want = {a: pattern(a) for a in region_addrs()}
-    for a, v in case["mem"].items():
-        want[int(a, 16)] = v
-    for a, v in case["mem_after"].items():
-        want[int(a, 16)] = v
-    return want

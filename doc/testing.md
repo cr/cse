@@ -80,8 +80,8 @@ files, runs in xmega65 (Xemu's MEGA65 emulator), driven by
 - **Input and state:** the `-uartmon` socket (monitor commands:
   `r` registers, `m` memory read, `s` memory write, `g` go, `t1`/`t0`
   trace mode on/off, `t` one step); keystrokes go into the KERNAL
-  keyboard buffer.  `s` and `m` address linear (28-bit) memory, not
-  the CPU's mapped view.  The socket path is relative to the run
+  keyboard buffer.  `s` and `m` address linear (28-bit) memory;
+  the CPU's mapped view is the `777xxxx` range.  The socket path is relative to the run
   directory, because a Unix-domain socket path is limited to 104
   characters and xmega65 exits when it cannot bind.
 - **Output:** `-dumpscreen`, `-dumpmem`, `-screenshot`, written when
@@ -122,10 +122,11 @@ py65, as `C64Emu` runs the C64 builds on the real C64 KERNAL.  It is
 built in three layers.
 
 **Layer 1 — the CPU, `MPU45GS02`** (`tests/m65emu/mpu45gs02.py`).
-A subclass of py65's 6502 MPU — its register names, `memory`,
-`step()`, `reset()`, `irq()`, `nmi()` and `processorCycles` — with its
-own instruction table in place of py65's, implementing the whole
-45GS02:
+A subclass of py65's 6502 MPU for its interface only — its register
+names, `memory`, `step()`, `reset()`, `irq()`, `nmi()` and
+`processorCycles` — with its own instruction table in place of
+py65's (py65's inherited instruction helpers are unused, and wrong
+for this CPU), implementing the whole 45GS02:
 
 - all 256 4510 opcodes, including the 16-bit branches, `BSR`,
   `RTS #n`, the word operations (`INW`, `DEW`, `ASW`, `ROW`, `PHW`),
@@ -150,9 +151,11 @@ Its decoder is built from the MEGA65 compendium's instruction tables,
 `dev/instruction_set.py`, so the emulator does not share the tables
 the assembler is generated from: `tests/m65emu/isa.py` turns each row
 into a decode key (the prefix bytes and the opcode) whose mnemonic and
-mode select a semantic and an addressing routine.  Cycle counts are
-not part of its contract (the speed gate is the C64 builds');
-`processorCycles` only grows.  In *clean* mode it admits only the
+mode select a semantic and an addressing routine; one routine serves
+an operation at every width it comes in (8 bits, the 16-bit word
+shifts, the 32-bit Q forms).  Cycle counts are not part of its
+contract (the speed gate is the C64 builds'); `processorCycles`
+counts steps.  In *clean* mode it admits only the
 6502's 151 documented opcodes and the decode keys it is given — the
 `m45_ops.inc` macros' ([§ Tier U](#tier-u--unit-module--linking-down))
 — and raises `UncleanOpcode` on anything else.
@@ -212,13 +215,15 @@ own reading of the compendium:
   post-boot `MAP` leaves unmapped — and records the registers and the
   memory differences before and after each into
   `tests/fixtures/golden/m65_cpu.json` (no ROM content, so it is
-  committed; one case per line).  The registers are set by a preamble
-  the CPU executes, and `before` is read after it, so the preamble's
-  own semantics do not matter.  The file records the xmega65 version;
-  it is re-recorded when xmega65 is updated or a case is added, and a
+  committed; one case per line; the format is in
+  `tests/m65emu/golden.py`).  The registers are set by a preamble the
+  CPU executes, and `before` is read after it, so the preamble's own
+  semantics do not matter.  `BRK` reads its vector through the `MAP`,
+  outside the recorded memory; the case records the two bytes as the
+  CPU saw them.  The file records the xmega65 version; it is
+  re-recorded when xmega65 is updated or a case is added, and a
   changed `after` in the diff is a behaviour change of the reference,
-  which the commit states.  `BRK` has no case: it vectors through
-  ROM, outside the recorded memory.
+  which the commit states.
 - `tests/unit/test_mpu45gs02.py` (Tier U) runs the same sequences on
   `MPU45GS02` and compares registers and memory; it needs neither
   xmega65 nor the ROM.  It also pins the 45GS02-specific behaviour by
@@ -232,14 +237,23 @@ own reading of the compendium:
 An M65Emu answer to a hardware question (O1, O3) is xmega65's answer
 at second hand: provisional until the hardware confirms it.
 
-The first recording (xmega65 `0870689e`, 2026-11-17, 516 cases)
-overruled the compendium reading in two places, which `MPU45GS02`
-now follows: decimal-mode `ADC`/`SBC` behave as on the NMOS 6502 (the
+The recording (xmega65 `0870689e`, 2026-11-17, 518 cases) overruled
+the compendium reading in two places, which `MPU45GS02` now follows: decimal-mode `ADC`/`SBC` behave as on the NMOS 6502 (the
 flags come from the binary result, not the 65C02's), and `BIT #`
 sets `N` and `V` from the operand like the other `BIT` modes.
-Everything else — the 16-bit branch base, `BSR`, `RTS #n`, `PHW`'s
-byte order, the `E`-flag stack, base-page wraps, the Q and flat
-operations — agreed with the reading.
+Everything else recorded — the 16-bit branch base, `BSR`, `RTS #n`,
+`PHW`'s byte order, `BRK`, the `E`-flag stack, base-page wraps, the Q
+and flat operations — agreed with the reading.
+
+**Not in the recording.**  The monitor cannot raise an interrupt or
+show the latch, so these rest on a reading of xemu's source, not on
+its behaviour: interrupt entry (`irq()`, `nmi()`), the `MAP` latch
+and the pending-prefix interrupt hold, and what the megabyte
+selectors address (S2-3b's translation recording covers that one).
+Two things xmega65 does that `MPU45GS02` does not: it holds an
+interrupt off for one instruction after a single-cycle instruction
+(no cycles here), and it runs `NEG NEG NEG` as a 32-bit negate (no
+compendium row, so it raises).
 
 ## The TDD Method
 

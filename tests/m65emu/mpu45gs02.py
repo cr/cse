@@ -2,13 +2,20 @@
 
 Owner: doc/build_system.md
 
-A py65 MPU subclass: py65's register names, `memory`, `step()`,
-`reset()`, `irq()`, `nmi()` and `processorCycles`, with the whole
-45GS02 behind them.  The instruction table is
-tests/fixtures/mega65_instruction_set.csv (see isa.py); each row's
-mnemonic and mode select a semantic routine and an addressing routine
-here.  Semantics are checked against xmega65 by the golden file
-tests/fixtures/golden/m65_cpu.json, not against this reading.
+Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65-integration-harness).
+
+A py65 MPU subclass for its interface only — `memory`, `pc`, `a`, `x`,
+`y`, `sp`, `p`, `step()`, `reset()`, `irq()`, `nmi()`,
+`processorCycles` — with the whole 45GS02 behind it.  py65's own
+instruction methods and helpers (`inst_0x..`, `op...`, `stPush`, ...)
+are inherited but not used, and are wrong for this CPU (8-bit stack,
+no base page): do not call them.
+
+The instruction table is tests/fixtures/mega65_instruction_set.csv
+(see isa.py); each row's mnemonic and mode select a semantic routine
+`op(cpu, ea)` and an addressing routine returning the effective
+address `ea`.  Semantics are checked against xmega65 by the golden
+file tests/fixtures/golden/m65_cpu.json, not against this reading.
 
 The 45GS02 prefixes are executed as the CPU does: `$42` is a NEG and
 `$EA` an EOM, each one step, and they leave a prefix state the next
@@ -18,8 +25,8 @@ make a flat Q operation.  An opcode without a row for the prefix
 state runs as the plain opcode.  Interrupts wait while a prefix is
 pending and between MAP and EOM.
 
-Cycle counts are not part of the contract: `processorCycles` grows
-by a nominal amount per step.
+Cycle counts are not part of the contract: `processorCycles` counts
+steps.
 
 Memory protocol: `memory[addr16]` is the CPU's 16-bit view;
 `memory.read_flat(addr28)` / `memory.write_flat(addr28, value)` the
@@ -28,14 +35,19 @@ is the first 64 KB of the flat space); M65Memory (layer 2) translates
 the CPU view through MAP, $01 and $D030.
 """
 
+from typing import NamedTuple
+
 from py65.devices import mpu6502
 
 from .isa import RESERVED, decode_table, documented_6502
 
+# processor flags; bit 5 is E (8-bit stack), the 6502's unused bit
+N, V, E, B, D, I, Z, C = 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
+
 FLAT = 1 << 28            # tag on an effective address: flat 28-bit space
-_M28 = (1 << 28) - 1
-_ACC = -1                 # effective address of the accumulator
-_QREG = -2                # effective address of the Q pseudo register
+_M28 = FLAT - 1
+_REG = -1                 # effective address of the register operand:
+#                           A, or Q for a 32-bit operation
 
 # prefix states
 P_NONE, P_NEG, P_NOP, P_NEGNEG, P_NEGNEGNOP = range(5)
@@ -58,21 +70,13 @@ class UncleanOpcode(Exception):
 class FlatRAM:
     """A flat 28-bit RAM; the CPU view is its first 64 KB."""
 
-    def __init__(self, fill=None):
+    def __init__(self):
         self.low = bytearray(0x60000)      # chip RAM: 384 KB
         self.high = {}                     # sparse: everything above
-        if fill is not None:
-            for a in range(len(self.low)):
-                self.low[a] = fill(a)
-        self.fill = fill
 
     def read_flat(self, a):
         a &= _M28
-        if a < len(self.low):
-            return self.low[a]
-        if a in self.high:
-            return self.high[a]
-        return self.fill(a) if self.fill else 0
+        return self.low[a] if a < len(self.low) else self.high.get(a, 0)
 
     def write_flat(self, a, v):
         a &= _M28
@@ -87,16 +91,8 @@ class FlatRAM:
     def __setitem__(self, a, v):
         self.low[a & 0xFFFF] = v & 0xFF
 
-    def __len__(self):
-        return 0x10000
-
-
-_TABLE = decode_table()
-_DOCUMENTED = documented_6502()
-
 
 class MPU45GS02(mpu6502.MPU):
-    EXTEND = 0x20         # E: 8-bit stack (the 6502's unused bit)
 
     def __init__(self, memory=None, pc=0x0000, *, clean=False,
                  allow=frozenset()):
@@ -108,7 +104,7 @@ class MPU45GS02(mpu6502.MPU):
 
     def reset(self):
         mpu6502.MPU.reset(self)
-        self.p = self.EXTEND | self.INTERRUPT
+        self.p = E | I
         self.sp = 0x01FF          # SPH:SPL
         self.z = 0
         self.b = 0
@@ -119,7 +115,7 @@ class MPU45GS02(mpu6502.MPU):
         self.map_latch = False    # MAP → EOM: interrupts blocked
         self.prefix = P_NONE
 
-    # ── state views ───────────────────────────────────────────────
+    # ── register views ────────────────────────────────────────────
 
     @property
     def q(self):
@@ -131,20 +127,26 @@ class MPU45GS02(mpu6502.MPU):
         self.y, self.z = v >> 16 & 0xFF, v >> 24 & 0xFF
 
     @property
-    def map_state(self):
-        return dict(mapl=self.mapl, maph=self.maph,
-                    lo_mb=self.map_lo_mb, hi_mb=self.map_hi_mb,
-                    latch=self.map_latch)
+    def spl(self):
+        return self.sp & 0xFF
 
-    def reprformat(self):
-        return ("%s PC   AC XR YR ZR BR SP   NV-BDIZC\n"
-                "%s: %04x %02x %02x %02x %02x %02x %04x %s")
+    @spl.setter
+    def spl(self, v):
+        self.sp = (self.sp & 0xFF00) | v
+
+    @property
+    def sph(self):
+        return self.sp >> 8
+
+    @sph.setter
+    def sph(self, v):
+        self.sp = v << 8 | (self.sp & 0xFF)
 
     def __repr__(self):
-        flags = format(self.p, "08b")
-        return self.reprformat() % (" " * (len(self.name) + 2), self.name,
-                                    self.pc, self.a, self.x, self.y, self.z,
-                                    self.b, self.sp, flags)
+        return ("%s: PC=%04x A=%02x X=%02x Y=%02x Z=%02x B=%02x SP=%04x "
+                "NVEBDIZC=%s" % (self.name, self.pc, self.a, self.x, self.y,
+                                 self.z, self.b, self.sp,
+                                 format(self.p, "08b")))
 
     # ── memory ────────────────────────────────────────────────────
 
@@ -165,12 +167,24 @@ class MPU45GS02(mpu6502.MPU):
             return FLAT | ((ea + k) & _M28)
         return (ea + k) & 0xFFFF
 
-    def _rdq(self, ea):
-        return sum(self._rd(self._add(ea, k)) << 8 * k for k in range(4))
+    def _get(self, ea, bits=8):
+        """The `bits`-wide little-endian operand at `ea` (or A / Q)."""
+        if ea == _REG:
+            return self.q if bits == 32 else self.a
+        if bits == 8:
+            return self._rd(ea)
+        return sum(self._rd(self._add(ea, k)) << 8 * k
+                   for k in range(bits // 8))
 
-    def _wrq(self, ea, v):
-        for k in range(4):
-            self._wr(self._add(ea, k), v >> 8 * k)
+    def _put(self, ea, v, bits=8):
+        if ea == _REG:
+            if bits == 32:
+                self.q = v
+            else:
+                self.a = v & 0xFF
+        else:
+            for k in range(bits // 8):
+                self._wr(self._add(ea, k), v >> 8 * k)
 
     def _fetch(self):
         v = self.memory[self.pc]
@@ -187,8 +201,8 @@ class MPU45GS02(mpu6502.MPU):
     # ── stack ─────────────────────────────────────────────────────
 
     def _sp_step(self, d):
-        if self.p & self.EXTEND:
-            self.sp = (self.sp & 0xFF00) | ((self.sp + d) & 0xFF)
+        if self.p & E:
+            self.spl = (self.sp + d) & 0xFF
         else:
             self.sp = (self.sp + d) & 0xFFFF
 
@@ -214,13 +228,11 @@ class MPU45GS02(mpu6502.MPU):
         self.p = (self.p | bit) if cond else (self.p & ~bit & 0xFF)
 
     def _nz(self, v, bits=8):
-        top = 1 << (bits - 1)
-        self._flag(self.NEGATIVE, v & top)
-        self._flag(self.ZERO, not v & ((top << 1) - 1))
+        self._flag(N, v >> (bits - 1) & 1)
+        self._flag(Z, not v & ((1 << bits) - 1))
 
     def _set_p(self, v):              # PLP / RTI: E and B are not loaded
-        keep = self.p & self.EXTEND
-        self.p = (v & ~(self.EXTEND | self.BREAK) & 0xFF) | keep
+        self.p = (v & ~(E | B) & 0xFF) | (self.p & E)
 
     # ── interrupts ────────────────────────────────────────────────
 
@@ -228,7 +240,7 @@ class MPU45GS02(mpu6502.MPU):
         return not self.map_latch and self.prefix == P_NONE
 
     def irq(self):
-        if self.p & self.INTERRUPT or not self._interruptible():
+        if self.p & I or not self._interruptible():
             return False
         self._interrupt(0xFFFE)
         return True
@@ -239,43 +251,36 @@ class MPU45GS02(mpu6502.MPU):
         self._interrupt(0xFFFA)
         return True
 
-    def _interrupt(self, vector):
+    def _interrupt(self, vector, brk=0):
         self._push_word(self.pc)
-        self._push(self.p & ~self.BREAK)
-        self.p = (self.p | self.INTERRUPT) & ~self.DECIMAL & 0xFF
-        self.pc = self.memory[vector] | self.memory[(vector + 1) & 0xFFFF] << 8
-        self.processorCycles += 7
+        self._push((self.p & ~B) | brk)
+        self.p = (self.p | I) & ~D & 0xFF
+        self.pc = self._get(vector, 16)
 
     # ── decode / step ─────────────────────────────────────────────
 
     def decode(self, op, prefix=None):
-        """The decode key and row `op` runs as in prefix state `prefix`."""
+        """The decode key and table entry `op` runs as in a prefix state."""
         prefix = self.prefix if prefix is None else prefix
         key = _PREFIX_BYTES[prefix] + (op,)
-        row = _TABLE.get(key)
-        if row is None:
+        if key not in _TABLE:
             if prefix == P_NEGNEG and op == 0x42:
                 raise UndefinedPrefix("NEG NEG NEG (NEGQ) has no compendium row")
             key = (op,)
-            row = _TABLE[key]
-        return key, row
+        return key, _TABLE[key]
 
     def step(self):
         start = self.pc
-        op = self.memory[start]
-        key, row = self.decode(op)
-        if row.mnemonic in RESERVED:
-            raise ReservedOpcode(f"${start:04X}: {row.mnemonic} "
-                                 f"{' '.join('%02X' % b for b in key)}")
-        if self.clean and key not in self.allowed:
-            raise UncleanOpcode(f"${start:04X}: {row.mnemonic} ({row.mode}) "
-                                f"{' '.join('%02X' % b for b in key)}")
+        key, entry = self.decode(self.memory[start])
+        if entry.op is None or (self.clean and key not in self.allowed):
+            row = entry.row
+            kind = ReservedOpcode if entry.op is None else UncleanOpcode
+            raise kind(f"${start:04X}: {row.mnemonic} ({row.mode}) "
+                       f"{' '.join('%02X' % b for b in key)}")
         self.pc = (start + 1) & 0xFFFF
-        mode_fn, op_fn = _DISPATCH[key]
-        prefix = self.prefix
-        self.prefix = P_NONE
-        op_fn(self, mode_fn, prefix)
-        self.processorCycles += 1 + len(key)
+        if not entry.op(self, entry.mode(self)):
+            self.prefix = P_NONE      # NEG and EOM return true: they set it
+        self.processorCycles += 1
         return self
 
     # ── addressing modes: each returns an effective address ───────
@@ -283,11 +288,8 @@ class MPU45GS02(mpu6502.MPU):
     def m_imp(self):
         return None
 
-    def m_acc(self):
-        return _ACC
-
-    def m_q(self):
-        return _QREG
+    def m_reg(self):
+        return _REG
 
     def m_imm(self):
         ea = self.pc
@@ -317,7 +319,7 @@ class MPU45GS02(mpu6502.MPU):
     def m_absy(self):
         return (self._fetch16() + self.y) & 0xFFFF
 
-    def _bp_ptr(self, n):
+    def _bp_ptr(self, n):             # the pointer wraps in the base page
         return self._rd(self._bp(n)) | self._rd(self._bp(n + 1)) << 8
 
     def m_izx(self):
@@ -329,56 +331,49 @@ class MPU45GS02(mpu6502.MPU):
     def m_izz(self):
         return (self._bp_ptr(self._fetch()) + self.z) & 0xFFFF
 
-    def m_iz(self):                    # (zp) quad: no index
+    def m_iz(self):                   # (zp) quad: no index
         return self._bp_ptr(self._fetch())
 
-    def m_isy(self):                   # (d,SP),Y
-        d = self._fetch()
-        t = (self.sp & 0xFF) + d
-        if self.p & self.EXTEND:
-            lo = (self.sp & 0xFF00) + (t & 0xFF)
-            hi = (self.sp & 0xFF00) + ((t + 1) & 0xFF)
-        else:
-            lo = (self.sp & 0xFF00) + t
-            hi = lo + 1
-        ptr = self._rd(lo & 0xFFFF) | self._rd(hi & 0xFFFF) << 8
+    def m_isy(self):                  # (d,SP),Y
+        t = self.spl + self._fetch()
+        wrap = 0xFF if self.p & E else 0xFFFF
+        page = self.sp & 0xFF00
+        ptr = (self._rd(page + (t & wrap))
+               | self._rd(page + ((t + 1) & wrap)) << 8)
         return (ptr + self.y) & 0xFFFF
 
-    def m_ind(self):                   # JMP/JSR ($nnnn)
-        a = self._fetch16()
-        return self._rd(a) | self._rd((a + 1) & 0xFFFF) << 8
+    def m_ind(self):                  # JMP/JSR ($nnnn)
+        return self._get(self._fetch16(), 16)
 
-    def m_iax(self):                   # JMP/JSR ($nnnn,X)
-        a = (self._fetch16() + self.x) & 0xFFFF
-        return self._rd(a) | self._rd((a + 1) & 0xFFFF) << 8
+    def m_iax(self):                  # JMP/JSR ($nnnn,X)
+        return self._get((self._fetch16() + self.x) & 0xFFFF, 16)
 
-    def _flat_ptr(self, index):
+    def _flat_ptr(self, index):       # the pointer wraps in the base page
         n = self._fetch()
         ptr = sum(self._rd(self._bp(n + k)) << 8 * k for k in range(4))
         return FLAT | ((ptr + index) & _M28)
 
-    def m_flz(self):                   # [zp],Z
+    def m_flz(self):                  # [zp],Z
         return self._flat_ptr(self.z)
 
-    def m_fl(self):                    # [zp] quad: no index
+    def m_fl(self):                   # [zp] quad: no index
         return self._flat_ptr(0)
 
     def m_rel(self):
         off = self._fetch()
         return (self.pc + off - (0x100 if off & 0x80 else 0)) & 0xFFFF
 
-    def m_rel16(self):
-        off = self._fetch16()
-        # relative to the instruction's last byte (TODO O1)
+    def m_rel16(self):                # from the instruction's last byte
+        off = self._fetch16()         # (xmega65; the hardware: TODO O1)
         return (self.pc - 1 + off - (0x10000 if off & 0x8000 else 0)) & 0xFFFF
 
-    def m_bprel(self):
+    def m_bprel(self):                # BBRn/BBSn: (tested byte, target)
         ea = self._bp(self._fetch())
         return ea, self.m_rel()
 
 
 _MODES = {
-    "implied": "m_imp", "accumulator": "m_acc", "Q Pseudo Register": "m_q",
+    "implied": "m_imp", "accumulator": "m_reg", "Q Pseudo Register": "m_reg",
     "immediate 8bit": "m_imm", "immediate 16bit": "m_imm16",
     "base-page": "m_bp", "base-page,X": "m_bpx", "base-page,Y": "m_bpy",
     "absolute": "m_abs", "absolute,X": "m_absx", "absolute,Y": "m_absy",
@@ -394,109 +389,33 @@ _MODES = {
 
 
 def _mode_fn(row):
-    if row.mode == "(indirect,X)":
+    if row.mode == "(indirect,X)":    # one name for ($nn,X) and ($nnnn,X)
         return MPU45GS02.m_izx if row.length - len(row.key) == 1 \
             else MPU45GS02.m_iax
     return getattr(MPU45GS02, _MODES[row.mode])
 
 
-# ── semantic routines: op(cpu, mode_fn, prefix_before) ─────────────
+# ── semantic routines: op(cpu, ea) ────────────────────────────────
+#
+# `reg` names the register (a property for Q, SPL, SPH), `bits` the
+# operand width: 8, 16 (ASW, ROW) or 32 (the Q operations).
 
-def _val(c, ea):
-    if ea == _ACC:
-        return c.a
-    return c._rd(ea)
-
-
-def _put(c, ea, v):
-    if ea == _ACC:
-        c.a = v & 0xFF
-    else:
-        c._wr(ea, v)
-
-
-def _adc(c, m):
-    carry = c.p & c.CARRY
-    a = c.a
-    if c.p & c.DECIMAL:          # NMOS-style BCD (as xmega65; golden file)
-        t = (a & 0x0F) + (m & 0x0F) + carry
-        if t > 9:
-            t += 6
-        if t <= 0x0F:
-            t = (t & 0x0F) + (a & 0xF0) + (m & 0xF0)
-        else:
-            t = (t & 0x0F) + (a & 0xF0) + (m & 0xF0) + 0x10
-        c._flag(c.ZERO, not (a + m + carry) & 0xFF)
-        c._flag(c.NEGATIVE, t & 0x80)
-        c._flag(c.OVERFLOW, (a ^ t) & 0x80 and not (a ^ m) & 0x80)
-        if (t & 0x1F0) > 0x90:
-            t += 0x60
-        c._flag(c.CARRY, (t & 0xFF0) > 0xF0)
-        c.a = t & 0xFF
-        return
-    t = a + m + carry
-    c._flag(c.CARRY, t > 0xFF)
-    c._flag(c.OVERFLOW, not (a ^ m) & 0x80 and (a ^ t) & 0x80)
-    c.a = t & 0xFF
-    c._nz(c.a)
-
-
-def _sbc(c, m):
-    borrow = 0 if c.p & c.CARRY else 1
-    a = c.a
-    t = (a - m - borrow) & 0xFFFF            # flags come from the binary result
-    c._flag(c.CARRY, t < 0x100)
-    c._flag(c.OVERFLOW, (a ^ t) & 0x80 and (a ^ m) & 0x80)
-    c._nz(t & 0xFF)
-    if c.p & c.DECIMAL:          # NMOS-style BCD (as xmega65; golden file)
-        lo = (a & 0x0F) - (m & 0x0F) - borrow
-        if lo & 0x10:
-            r = ((lo - 6) & 0x0F) | ((a & 0xF0) - (m & 0xF0) - 0x10)
-        else:
-            r = (lo & 0x0F) | ((a & 0xF0) - (m & 0xF0))
-        if r & 0x100:
-            r -= 0x60
-        c.a = r & 0xFF
-    else:
-        c.a = t & 0xFF
-
-
-def _cmp(c, reg, m):
-    t = (reg - m) & 0xFFFF
-    c._flag(c.CARRY, t < 0x100)
-    c._nz(t & 0xFF)
-
-
-def _branch(cond):
-    def op(c, mode, _):
-        target = mode(c)
-        if cond(c):
-            c.pc = target
-    return op
-
-
-def _flag_op(bit, value):
-    def op(c, mode, _):
-        c._flag(bit, value)
-    return op
-
-
-def _load(reg):
-    def op(c, mode, _):
-        v = c._rd(mode(c))
+def _load(reg, bits=8):
+    def op(c, ea):
+        v = c._get(ea, bits)
         setattr(c, reg, v)
-        c._nz(v)
+        c._nz(v, bits)
     return op
 
 
-def _store(reg):
-    def op(c, mode, _):
-        c._wr(mode(c), getattr(c, reg))
+def _store(reg, bits=8):
+    def op(c, ea):
+        c._put(ea, getattr(c, reg), bits)
     return op
 
 
 def _transfer(src, dst, flags=True):
-    def op(c, mode, _):
+    def op(c, ea):
         v = getattr(c, src)
         setattr(c, dst, v)
         if flags:
@@ -504,119 +423,127 @@ def _transfer(src, dst, flags=True):
     return op
 
 
-def _incdec(reg, d):
-    def op(c, mode, _):
+def _logic(fn, reg="a", bits=8):
+    def op(c, ea):
+        v = fn(getattr(c, reg), c._get(ea, bits))
+        setattr(c, reg, v)
+        c._nz(v, bits)
+    return op
+
+
+def _compare(reg, bits=8):
+    def op(c, ea):
+        r, m = getattr(c, reg), c._get(ea, bits)
+        c._flag(C, r >= m)
+        c._nz(r - m, bits)
+    return op
+
+
+def _bit(reg="a", bits=8):
+    def op(c, ea):
+        m = c._get(ea, bits)
+        c._flag(N, m >> (bits - 1) & 1)   # BIT # too (xmega65; golden file)
+        c._flag(V, m >> (bits - 2) & 1)
+        c._flag(Z, not getattr(c, reg) & m)
+    return op
+
+
+def _adc(reg="a", bits=8):
+    top = 1 << (bits - 1)
+
+    def op(c, ea):
+        r, m, carry = getattr(c, reg), c._get(ea, bits), c.p & C
+        if bits == 8 and c.p & D:
+            return _adc_bcd(c, r, m, carry)
+        t = r + m + carry
+        c._flag(C, t >> bits)
+        c._flag(V, ~(r ^ m) & (r ^ t) & top)
+        setattr(c, reg, t & (2 * top - 1))
+        c._nz(t, bits)
+    return op
+
+
+def _adc_bcd(c, a, m, carry):
+    """8-bit decimal ADC, NMOS-style: as xmega65 does it (golden file)."""
+    t = (a & 0x0F) + (m & 0x0F) + carry
+    if t > 9:
+        t += 6
+    t = (t & 0x0F) + (a & 0xF0) + (m & 0xF0) + (0x10 if t > 0x0F else 0)
+    c._flag(Z, not (a + m + carry) & 0xFF)
+    c._flag(N, t & 0x80)
+    c._flag(V, ~(a ^ m) & (a ^ t) & 0x80)
+    if (t & 0x1F0) > 0x90:
+        t += 0x60
+    c._flag(C, (t & 0xFF0) > 0xF0)
+    c.a = t & 0xFF
+
+
+def _sbc(reg="a", bits=8):
+    top = 1 << (bits - 1)
+
+    def op(c, ea):
+        r, m, borrow = getattr(c, reg), c._get(ea, bits), ~c.p & C
+        t = r - m - borrow              # the flags are the binary result's,
+        c._flag(C, t >= 0)              # in decimal mode too (NMOS-style)
+        c._flag(V, (r ^ t) & (r ^ m) & top)
+        c._nz(t, bits)
+        if bits == 8 and c.p & D:
+            t = _sbc_bcd(r, m, borrow)
+        setattr(c, reg, t & (2 * top - 1))
+    return op
+
+
+def _sbc_bcd(a, m, borrow):
+    """The 8-bit decimal SBC result, NMOS-style (golden file)."""
+    lo = (a & 0x0F) - (m & 0x0F) - borrow
+    hi = (a & 0xF0) - (m & 0xF0)
+    if lo < 0:
+        lo, hi = lo - 6, hi - 0x10
+    if hi < 0:
+        hi -= 0x60
+    return (lo & 0x0F) | (hi & 0xF0)
+
+
+# shift kind → (carry out, result) from the value, carry in, top bit
+_SHIFTS = {
+    "asl": lambda v, cin, top: (v & top, v << 1),
+    "rol": lambda v, cin, top: (v & top, v << 1 | cin),
+    "lsr": lambda v, cin, top: (v & 1, v >> 1),
+    "asr": lambda v, cin, top: (v & 1, v >> 1 | v & top),
+    "ror": lambda v, cin, top: (v & 1, v >> 1 | (top if cin else 0)),
+}
+
+
+def _shift(kind, bits=8):
+    fn, top = _SHIFTS[kind], 1 << (bits - 1)
+
+    def op(c, ea):
+        cout, v = fn(c._get(ea, bits), c.p & C, top)
+        v &= 2 * top - 1
+        c._flag(C, cout)
+        c._nz(v, bits)
+        c._put(ea, v, bits)
+    return op
+
+
+def _step(d, bits=8):                  # INC / DEC of memory, A or Q
+    def op(c, ea):
+        v = (c._get(ea, bits) + d) & ((1 << bits) - 1)
+        c._nz(v, bits)
+        c._put(ea, v, bits)
+    return op
+
+
+def _incdec(reg, d):                   # INX, DEY, ...
+    def op(c, ea):
         v = (getattr(c, reg) + d) & 0xFF
         setattr(c, reg, v)
         c._nz(v)
     return op
 
 
-def _rmw(fn):
-    """Read-modify-write on memory or A: fn(c, value) → new value."""
-    def op(c, mode, _):
-        ea = mode(c)
-        _put(c, ea, fn(c, _val(c, ea)))
-    return op
-
-
-def _asl(c, v):
-    c._flag(c.CARRY, v & 0x80)
-    v = v << 1 & 0xFF
-    c._nz(v)
-    return v
-
-
-def _lsr(c, v):
-    c._flag(c.CARRY, v & 1)
-    v >>= 1
-    c._nz(v)
-    return v
-
-
-def _asr(c, v):
-    c._flag(c.CARRY, v & 1)
-    v = v >> 1 | v & 0x80
-    c._nz(v)
-    return v
-
-
-def _rol(c, v):
-    v = v << 1 | (c.p & c.CARRY)
-    c._flag(c.CARRY, v & 0x100)
-    v &= 0xFF
-    c._nz(v)
-    return v
-
-
-def _ror(c, v):
-    v |= (c.p & c.CARRY) << 8
-    c._flag(c.CARRY, v & 1)
-    v >>= 1
-    c._nz(v)
-    return v
-
-
-def _inc(c, v):
-    v = (v + 1) & 0xFF
-    c._nz(v)
-    return v
-
-
-def _dec(c, v):
-    v = (v - 1) & 0xFF
-    c._nz(v)
-    return v
-
-
-def _logic(fn):
-    def op(c, mode, _):
-        c.a = fn(c.a, c._rd(mode(c))) & 0xFF
-        c._nz(c.a)
-    return op
-
-
-def _bit(c, mode, _):
-    ea = mode(c)
-    m = c._rd(ea)
-    c._flag(c.NEGATIVE, m & 0x80)    # BIT # too (xmega65; golden file)
-    c._flag(c.OVERFLOW, m & 0x40)
-    c._flag(c.ZERO, not c.a & m)
-
-
-def _tsb(c, mode, _):
-    ea = mode(c)
-    m = c._rd(ea)
-    c._flag(c.ZERO, not m & c.a)
-    c._wr(ea, m | c.a)
-
-
-def _trb(c, mode, _):
-    ea = mode(c)
-    m = c._rd(ea)
-    c._flag(c.ZERO, not m & c.a)
-    c._wr(ea, m & ~c.a)
-
-
-def _bitop(bit, setbit):
-    def op(c, mode, _):
-        ea = mode(c)
-        m = c._rd(ea)
-        c._wr(ea, m | 1 << bit if setbit else m & ~(1 << bit))
-    return op
-
-
-def _bbx(bit, setbit):
-    def op(c, mode, _):
-        ea, target = mode(c)
-        if bool(c._rd(ea) >> bit & 1) == setbit:
-            c.pc = target
-    return op
-
-
-def _word_bp(d):                       # INW / DEW: base-page word
-    def op(c, mode, _):
-        lo = mode(c)
+def _word_bp(d):                       # INW / DEW: the word wraps in the
+    def op(c, lo):                     # base page, unlike the Q operands
         hi = (lo & 0xFF00) | ((lo + 1) & 0xFF)
         v = (c._rd(lo) | c._rd(hi) << 8) + d & 0xFFFF
         c._nz(v, 16)
@@ -625,38 +552,56 @@ def _word_bp(d):                       # INW / DEW: base-page word
     return op
 
 
-def _asw(c, mode, _):
-    a = mode(c)
-    v = c._rd(a) | c._rd((a + 1) & 0xFFFF) << 8
-    c._flag(c.CARRY, v & 0x8000)
-    v = v << 1 & 0xFFFF
-    c._nz(v, 16)
-    c._wr(a, v)
-    c._wr((a + 1) & 0xFFFF, v >> 8)
+def _test_bits(keep):                  # TSB / TRB
+    def op(c, ea):
+        m = c._rd(ea)
+        c._flag(Z, not m & c.a)
+        c._wr(ea, m | c.a if keep else m & ~c.a)
+    return op
 
 
-def _row(c, mode, _):
-    a = mode(c)
-    v = (c._rd(a) | c._rd((a + 1) & 0xFFFF) << 8) << 1 | (c.p & c.CARRY)
-    c._flag(c.CARRY, v & 0x10000)
-    v &= 0xFFFF
-    c._nz(v, 16)
-    c._wr(a, v)
-    c._wr((a + 1) & 0xFFFF, v >> 8)
+def _bitop(bit, setbit):               # SMBn / RMBn
+    def op(c, ea):
+        m = c._rd(ea)
+        c._wr(ea, m | 1 << bit if setbit else m & ~(1 << bit))
+    return op
 
 
-def _neg(c, mode, prefix):
+def _bbx(bit, setbit):                 # BBSn / BBRn
+    def op(c, ea_target):
+        ea, target = ea_target
+        if c._rd(ea) >> bit & 1 == setbit:
+            c.pc = target
+    return op
+
+
+def _branch(cond):
+    def op(c, target):
+        if cond(c):
+            c.pc = target
+    return op
+
+
+def _flag_op(bit, value):
+    def op(c, ea):
+        c._flag(bit, value)
+    return op
+
+
+def _neg(c, ea):
     c.a = -c.a & 0xFF
     c._nz(c.a)
-    c.prefix = P_NEGNEG if prefix == P_NEG else P_NEG
+    c.prefix = P_NEGNEG if c.prefix == P_NEG else P_NEG
+    return True
 
 
-def _eom(c, mode, prefix):
+def _eom(c, ea):
     c.map_latch = False
-    c.prefix = P_NEGNEGNOP if prefix == P_NEGNEG else P_NOP
+    c.prefix = P_NEGNEGNOP if c.prefix == P_NEGNEG else P_NOP
+    return True
 
 
-def _map(c, mode, _):
+def _map(c, ea):
     c.map_latch = True
     if c.x == 0x0F:
         c.map_lo_mb = c.a
@@ -668,254 +613,103 @@ def _map(c, mode, _):
         c.maph = c.z << 8 | c.y
 
 
-def _jmp(c, mode, _):
-    c.pc = mode(c)
-
-
-def _jsr(c, mode, _):
-    ret = (c.pc + 1) & 0xFFFF          # the instruction's last byte
-    target = mode(c)
-    c._push_word(ret)
+def _jmp(c, target):
     c.pc = target
 
 
-def _bsr(c, mode, _):
-    ret = (c.pc + 1) & 0xFFFF
-    target = mode(c)
-    c._push_word(ret)
+def _call(c, target):                  # JSR / BSR: push the last byte's
+    c._push_word((c.pc - 1) & 0xFFFF)  # address, as the 6502's JSR does
     c.pc = target
 
 
-def _rts(c, mode, _):
-    ea = mode(c)
+def _rts(c, ea):                       # RTS / RTS #n
     n = 0 if ea is None else c._rd(ea)
     c.pc = (c._pull_word() + 1) & 0xFFFF
-    if n:
-        if c.p & c.EXTEND:
-            c.sp = (c.sp & 0xFF00) | ((c.sp + n) & 0xFF)
-        else:
-            c.sp = (c.sp + n) & 0xFFFF
+    c._sp_step(n)
 
 
-def _rti(c, mode, _):
+def _rti(c, ea):
     c._set_p(c._pull())
     c.pc = c._pull_word()
 
 
-def _brk(c, mode, _):
-    c._push_word((c.pc + 1) & 0xFFFF)
-    c._push(c.p | c.BREAK)
-    c.p = (c.p | c.INTERRUPT) & ~c.DECIMAL & 0xFF
-    c.pc = c._rd(0xFFFE) | c._rd(0xFFFF) << 8
+def _brk(c, ea):
+    c.pc = (c.pc + 1) & 0xFFFF         # the byte after BRK is skipped
+    c._interrupt(0xFFFE, brk=B)
 
 
 def _push_reg(reg, extra=0):
-    def op(c, mode, _):
+    def op(c, ea):
         c._push(getattr(c, reg) | extra)
     return op
 
 
 def _pull_reg(reg):
-    def op(c, mode, _):
+    def op(c, ea):
         v = c._pull()
         setattr(c, reg, v)
         c._nz(v)
     return op
 
 
-def _plp(c, mode, _):
+def _plp(c, ea):
     c._set_p(c._pull())
 
 
-def _phw(c, mode, _):
-    ea = mode(c)                       # PHW #$nnnn: the operand word;
-    w = c._rd(ea) | c._rd((ea + 1) & 0xFFFF) << 8   # PHW $nnnn: the word there
-    c._push(w)                         # low byte first (unlike JSR)
+def _phw(c, ea):                       # the operand word (#) or the word
+    w = c._get(ea, 16)                 # at $nnnn; low byte first, unlike JSR
+    c._push(w)
     c._push(w >> 8)
 
 
-def _txs(c, mode, _):
-    c.sp = (c.sp & 0xFF00) | c.x
-
-
-def _tsx(c, mode, _):
-    c.x = c.sp & 0xFF
-    c._nz(c.x)
-
-
-def _tys(c, mode, _):
-    c.sp = c.y << 8 | (c.sp & 0xFF)
-
-
-def _tsy(c, mode, _):
-    c.y = c.sp >> 8
-    c._nz(c.y)
-
-
-def _tab(c, mode, _):
-    c.b = c.a
-
-
-def _tba(c, mode, _):
-    c.a = c.b
-    c._nz(c.a)
-
-
-# ── Q (32-bit AXYZ) operations ────────────────────────────────────
-
-def _qval(c, ea):
-    return c.q if ea == _QREG else c._rdq(ea)
-
-
-def _qput(c, ea, v):
-    v &= 0xFFFFFFFF
-    if ea == _QREG:
-        c.q = v
-    else:
-        c._wrq(ea, v)
-
-
-def _q_load(c, mode, _):
-    c.q = c._rdq(mode(c))
-    c._nz(c.q, 32)
-
-
-def _q_store(c, mode, _):
-    c._wrq(mode(c), c.q)
-
-
-def _q_logic(fn):
-    def op(c, mode, _):
-        c.q = fn(c.q, c._rdq(mode(c))) & 0xFFFFFFFF
-        c._nz(c.q, 32)
-    return op
-
-
-def _q_adc(c, mode, _):
-    q, m = c.q, c._rdq(mode(c))
-    r = q + m + (c.p & c.CARRY)
-    c._flag(c.CARRY, r > 0xFFFFFFFF)
-    r &= 0xFFFFFFFF
-    c._flag(c.OVERFLOW, (r ^ q) & 0x80000000 and not (q ^ m) & 0x80000000)
-    c.q = r
-    c._nz(r, 32)
-
-
-def _q_sbc(c, mode, _):
-    q, m = c.q, c._rdq(mode(c))
-    r = q - m - 1 + (c.p & c.CARRY)
-    c._flag(c.CARRY, r >= 0)
-    r &= 0xFFFFFFFF
-    c._flag(c.OVERFLOW, (r ^ q) & 0x80000000 and (q ^ m) & 0x80000000)
-    c.q = r
-    c._nz(r, 32)
-
-
-def _q_cmp(c, mode, _):
-    r = c.q - c._rdq(mode(c))
-    c._flag(c.CARRY, r >= 0)
-    c._nz(r & 0xFFFFFFFF, 32)
-
-
-def _q_bit(c, mode, _):
-    m = c._rdq(mode(c))
-    c._flag(c.NEGATIVE, m & 0x80000000)
-    c._flag(c.OVERFLOW, m & 0x40000000)
-    c._flag(c.ZERO, not c.q & m)
-
-
-def _q_rmw(fn):
-    def op(c, mode, _):
-        ea = mode(c)
-        v = fn(c, _qval(c, ea)) & 0xFFFFFFFF
-        c._nz(v, 32)
-        _qput(c, ea, v)
-    return op
-
-
-def _q_asl(c, v):
-    c._flag(c.CARRY, v & 0x80000000)
-    return v << 1
-
-
-def _q_lsr(c, v):
-    c._flag(c.CARRY, v & 1)
-    return v >> 1
-
-
-def _q_asr(c, v):
-    c._flag(c.CARRY, v & 1)
-    return v >> 1 | v & 0x80000000
-
-
-def _q_rol(c, v):
-    r = v << 1 | (c.p & c.CARRY)
-    c._flag(c.CARRY, v & 0x80000000)
-    return r
-
-
-def _q_ror(c, v):
-    r = v >> 1 | (0x80000000 if c.p & c.CARRY else 0)
-    c._flag(c.CARRY, v & 1)
-    return r
-
-
 _OPS = {
-    "ADC": lambda c, mode, _: _adc(c, c._rd(mode(c))),
-    "SBC": lambda c, mode, _: _sbc(c, c._rd(mode(c))),
-    "AND": _logic(lambda a, m: a & m),
-    "ORA": _logic(lambda a, m: a | m),
-    "EOR": _logic(lambda a, m: a ^ m),
-    "CMP": lambda c, mode, _: _cmp(c, c.a, c._rd(mode(c))),
-    "CPX": lambda c, mode, _: _cmp(c, c.x, c._rd(mode(c))),
-    "CPY": lambda c, mode, _: _cmp(c, c.y, c._rd(mode(c))),
-    "CPZ": lambda c, mode, _: _cmp(c, c.z, c._rd(mode(c))),
-    "BIT": _bit, "TSB": _tsb, "TRB": _trb,
     "LDA": _load("a"), "LDX": _load("x"), "LDY": _load("y"),
-    "LDZ": _load("z"),
+    "LDZ": _load("z"), "LDQ": _load("q", 32),
     "STA": _store("a"), "STX": _store("x"), "STY": _store("y"),
-    "STZ": _store("z"),
-    "ASL": _rmw(_asl), "LSR": _rmw(_lsr), "ASR": _rmw(_asr),
-    "ROL": _rmw(_rol), "ROR": _rmw(_ror),
-    "INC": _rmw(_inc), "DEC": _rmw(_dec),
-    "INX": _incdec("x", 1), "INY": _incdec("y", 1), "INZ": _incdec("z", 1),
-    "DEX": _incdec("x", -1), "DEY": _incdec("y", -1),
-    "DEZ": _incdec("z", -1),
-    "INW": _word_bp(1), "DEW": _word_bp(-1), "ASW": _asw, "ROW": _row,
-    "NEG": _neg, "EOM": _eom, "MAP": _map,
+    "STZ": _store("z"), "STQ": _store("q", 32),
     "TAX": _transfer("a", "x"), "TAY": _transfer("a", "y"),
     "TAZ": _transfer("a", "z"), "TXA": _transfer("x", "a"),
     "TYA": _transfer("y", "a"), "TZA": _transfer("z", "a"),
-    "TAB": _tab, "TBA": _tba, "TXS": _txs, "TSX": _tsx,
-    "TYS": _tys, "TSY": _tsy,
-    "CLC": _flag_op(0x01, False), "SEC": _flag_op(0x01, True),
-    "CLI": _flag_op(0x04, False), "SEI": _flag_op(0x04, True),
-    "CLD": _flag_op(0x08, False), "SED": _flag_op(0x08, True),
-    "CLV": _flag_op(0x40, False),
-    "CLE": _flag_op(0x20, False), "SEE": _flag_op(0x20, True),
+    "TBA": _transfer("b", "a"), "TAB": _transfer("a", "b", flags=False),
+    "TSX": _transfer("spl", "x"), "TXS": _transfer("x", "spl", flags=False),
+    "TSY": _transfer("sph", "y"), "TYS": _transfer("y", "sph", flags=False),
+    "AND": _logic(int.__and__), "ANDQ": _logic(int.__and__, "q", 32),
+    "ORA": _logic(int.__or__), "ORQ": _logic(int.__or__, "q", 32),
+    "EOR": _logic(int.__xor__), "EORQ": _logic(int.__xor__, "q", 32),
+    "CMP": _compare("a"), "CPX": _compare("x"), "CPY": _compare("y"),
+    "CPZ": _compare("z"), "CMPQ": _compare("q", 32),
+    "BIT": _bit(), "BITQ": _bit("q", 32),
+    "ADC": _adc(), "ADCQ": _adc("q", 32),
+    "SBC": _sbc(), "SBCQ": _sbc("q", 32),
+    "ASL": _shift("asl"), "ASLQ": _shift("asl", 32), "ASW": _shift("asl", 16),
+    "ROL": _shift("rol"), "ROLQ": _shift("rol", 32), "ROW": _shift("rol", 16),
+    "LSR": _shift("lsr"), "LSRQ": _shift("lsr", 32),
+    "ASR": _shift("asr"), "ASRQ": _shift("asr", 32),
+    "ROR": _shift("ror"), "RORQ": _shift("ror", 32),
+    "INC": _step(1), "INQ": _step(1, 32),
+    "DEC": _step(-1), "DEQ": _step(-1, 32),
+    "INX": _incdec("x", 1), "INY": _incdec("y", 1), "INZ": _incdec("z", 1),
+    "DEX": _incdec("x", -1), "DEY": _incdec("y", -1),
+    "DEZ": _incdec("z", -1),
+    "INW": _word_bp(1), "DEW": _word_bp(-1),
+    "TSB": _test_bits(True), "TRB": _test_bits(False),
+    "NEG": _neg, "EOM": _eom, "MAP": _map,
+    "CLC": _flag_op(C, False), "SEC": _flag_op(C, True),
+    "CLI": _flag_op(I, False), "SEI": _flag_op(I, True),
+    "CLD": _flag_op(D, False), "SED": _flag_op(D, True),
+    "CLE": _flag_op(E, False), "SEE": _flag_op(E, True),
+    "CLV": _flag_op(V, False),
     "PHA": _push_reg("a"), "PHX": _push_reg("x"), "PHY": _push_reg("y"),
-    "PHZ": _push_reg("z"), "PHP": _push_reg("p", 0x10),
+    "PHZ": _push_reg("z"), "PHP": _push_reg("p", B), "PHW": _phw,
     "PLA": _pull_reg("a"), "PLX": _pull_reg("x"), "PLY": _pull_reg("y"),
-    "PLZ": _pull_reg("z"), "PLP": _plp, "PHW": _phw,
-    "JMP": _jmp, "JSR": _jsr, "BSR": _bsr, "RTS": _rts, "RTI": _rti,
+    "PLZ": _pull_reg("z"), "PLP": _plp,
+    "JMP": _jmp, "JSR": _call, "BSR": _call, "RTS": _rts, "RTI": _rti,
     "BRK": _brk,
-    "BCC": _branch(lambda c: not c.p & c.CARRY),
-    "BCS": _branch(lambda c: c.p & c.CARRY),
-    "BNE": _branch(lambda c: not c.p & c.ZERO),
-    "BEQ": _branch(lambda c: c.p & c.ZERO),
-    "BPL": _branch(lambda c: not c.p & c.NEGATIVE),
-    "BMI": _branch(lambda c: c.p & c.NEGATIVE),
-    "BVC": _branch(lambda c: not c.p & c.OVERFLOW),
-    "BVS": _branch(lambda c: c.p & c.OVERFLOW),
+    "BCC": _branch(lambda c: not c.p & C), "BCS": _branch(lambda c: c.p & C),
+    "BNE": _branch(lambda c: not c.p & Z), "BEQ": _branch(lambda c: c.p & Z),
+    "BPL": _branch(lambda c: not c.p & N), "BMI": _branch(lambda c: c.p & N),
+    "BVC": _branch(lambda c: not c.p & V), "BVS": _branch(lambda c: c.p & V),
     "BRA": _branch(lambda c: True),
-    "LDQ": _q_load, "STQ": _q_store,
-    "ANDQ": _q_logic(lambda q, m: q & m),
-    "ORQ": _q_logic(lambda q, m: q | m),
-    "EORQ": _q_logic(lambda q, m: q ^ m),
-    "ADCQ": _q_adc, "SBCQ": _q_sbc, "CMPQ": _q_cmp, "BITQ": _q_bit,
-    "ASLQ": _q_rmw(_q_asl), "LSRQ": _q_rmw(_q_lsr), "ASRQ": _q_rmw(_q_asr),
-    "ROLQ": _q_rmw(_q_rol), "RORQ": _q_rmw(_q_ror),
-    "INQ": _q_rmw(lambda c, v: v + 1), "DEQ": _q_rmw(lambda c, v: v - 1),
 }
 for _n in range(8):
     _OPS[f"RMB{_n}"] = _bitop(_n, False)
@@ -924,12 +718,17 @@ for _n in range(8):
     _OPS[f"BBS{_n}"] = _bbx(_n, True)
 
 
-def _reserved(c, mode, _):             # never reached: step() raises first
-    raise ReservedOpcode
+class Entry(NamedTuple):
+    row: tuple            # the fixture row (isa.Row)
+    mode: object          # addressing routine; None for a reserved row
+    op: object            # semantic routine; None for a reserved row
 
 
-_DISPATCH = {
-    key: (_mode_fn(row) if row.mnemonic not in RESERVED else None,
-          _OPS[row.mnemonic] if row.mnemonic not in RESERVED else _reserved)
-    for key, row in _TABLE.items()
-}
+def _entry(row):
+    if row.mnemonic in RESERVED:
+        return Entry(row, None, None)
+    return Entry(row, _mode_fn(row), _OPS[row.mnemonic])
+
+
+_TABLE = {key: _entry(row) for key, row in decode_table().items()}
+_DOCUMENTED = documented_6502()

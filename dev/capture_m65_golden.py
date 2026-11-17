@@ -44,63 +44,78 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from m65emu import golden as G                    # noqa: E402
 from m65emu import isa                            # noqa: E402
+from m65emu.mpu45gs02 import B, C, D, E, I, N, V, Z   # noqa: E402
 from xmega65 import XMega65                       # noqa: E402
 
 WORK = ROOT / "build" / "m65_golden"
 
 CODE = 0x1800
-BASE = 0x19                      # base page $1900
-SP0 = 0x01F0
-E, BF, D, I, Z, C, N, V = 0x20, 0x10, 0x08, 0x04, 0x02, 0x01, 0x80, 0x40
+BASE_PAGE = 0x19                 # B: base page $1900
 POST_BOOT_MAP = (0xE300, 0xB300)  # MAPL, MAPH after BASIC 65 boots
 
-# Memory every case starts from, on top of the pattern: the pointers
-# the indirect modes use.
+# Flat ranges a case may touch; all in block 0 except the
+# flat-addressing target page.
+REGIONS = (
+    (0x00100, 0x200),     # stack page and the page above (16-bit stack)
+    (0x01800, 0x100),     # code
+    (0x01900, 0x100),     # base page
+    (0x01A00, 0x200),     # data
+    (0x40000, 0x100),     # flat-addressing target, outside the CPU view
+)
+
+# What every case starts with on top of the pattern: the pointers the
+# indirect modes use.
 POINTERS = {
     0x1920: 0x40, 0x1921: 0x1A,                       # ($20) → $1A40
     0x1924: 0x00, 0x1925: 0x00, 0x1926: 0x04, 0x1927: 0x00,   # [$24] → $40000
     0x1928: 0x80, 0x1929: 0x1A, 0x192A: 0x00, 0x192B: 0x00,   # [$28] → $1A80
     0x01F1: 0x19, 0x01F2: 0x1A, 0x01F3: 0x1A, 0x01F4: 0x1B,   # (d,SP) pointers
 }
+BASE = {a: G.pattern(a) for start, n in REGIONS
+        for a in range(start, start + n)} | POINTERS
 
-DEFAULT_REGS = dict(a=0x3C, x=0x04, y=0x05, z=0x06, p=E | I, sp=SP0)
-
-
-# ── cases ─────────────────────────────────────────────────────────
-
-def case(name, code, mem=None, **regs):
-    r = dict(DEFAULT_REGS, **regs)
-    return dict(name=name, code=list(code), mem=dict(mem or {}), regs=r)
-
-
-def preamble(regs):
-    sp = regs["sp"]
-    out = [0x78, 0x03,                                 # SEI, SEE
-           0xA9, BASE, 0x5B,                           # LDA #B, TAB
-           0xA0, sp >> 8, 0x2B,                        # LDY #SPH, TYS
-           0xA2, sp & 0xFF, 0x9A]                      # LDX #SPL, TXS
-    if not regs["p"] & E:
-        out += [0x02]                                  # CLE
-    out += [0xA9, regs["p"] | BF, 0x48,                # LDA #P, PHA
-            0xA2, regs["x"], 0xA0, regs["y"], 0xA3, regs["z"],
-            0xA9, regs["a"], 0x28]                     # PLP
-    return out
-
-
-def preamble_steps(regs):
-    return 15 if regs["p"] & E else 16
-
+DEFAULT_REGS = dict(a=0x3C, x=0x04, y=0x05, z=0x06, p=E | I, sp=0x01F0)
 
 # The tail runs after an instruction that falls through: it ends any
 # prefix or MAP latch the instruction left, so the next `g` (which
 # drains them by stepping) has nothing to run.
-TAIL = [0xEA, 0xA9, 0x00]
+TAIL = [[0xEA], [0xA9, 0x00]]                          # EOM, LDA #0
+
+RESTORE_MAP = [
+    [0xA9, 0x00], [0xA2, 0x0F], [0xA0, 0x00], [0xA3, 0x0F], [0x5C], [0xEA],
+    [0xA9, POST_BOOT_MAP[0] & 0xFF], [0xA2, POST_BOOT_MAP[0] >> 8],
+    [0xA0, POST_BOOT_MAP[1] & 0xFF], [0xA3, POST_BOOT_MAP[1] >> 8],
+    [0x5C], [0xEA], [0xA9, 0x00],
+]
+
+
+def flatten(instructions):
+    return [b for ins in instructions for b in ins]
+
+
+# ── cases ─────────────────────────────────────────────────────────
+
+def case(name, code, mem=None, view=(), **regs):
+    return dict(name=name, code=list(code), mem=dict(mem or {}),
+                view=tuple(view), regs=dict(DEFAULT_REGS, **regs))
+
+
+def preamble(regs):
+    """The instructions that put `regs` into the CPU."""
+    sp = regs["sp"]
+    return ([[0x78], [0x03],                           # SEI, SEE
+             [0xA9, BASE_PAGE], [0x5B],                # LDA #, TAB
+             [0xA0, sp >> 8], [0x2B],                  # LDY #, TYS
+             [0xA2, sp & 0xFF], [0x9A]]                # LDX #, TXS
+            + ([] if regs["p"] & E else [[0x02]])      # CLE
+            + [[0xA9, regs["p"] | B], [0x48],          # LDA #, PHA
+               [0xA2, regs["x"]], [0xA0, regs["y"]], [0xA3, regs["z"]],
+               [0xA9, regs["a"]], [0x28]])             # PLP
 
 
 def operands(row):
     """Operand bytes and register overrides for a row's mode."""
-    m, op = row.mode, row.key[-1]
-    n = row.length - len(row.key)
+    m = row.mode
     if m in ("implied", "accumulator", "Q Pseudo Register"):
         return [], {}
     if m == "immediate 8bit":
@@ -122,7 +137,7 @@ def operands(row):
     if m == "absolute,Y":
         return [0xF8, 0x1A], {"y": 0x10}
     if m == "(indirect,X)":
-        if n == 2:                                     # JMP/JSR ($nnnn,X)
+        if row.length - len(row.key) == 2:             # JMP/JSR ($nnnn,X)
             return [0x10, 0x1A], {"x": 0x04}
         return [0x1C], {"x": 0x04}
     if m == "(indirect),Y":
@@ -156,10 +171,12 @@ def cases():
     out = []
     table = isa.decode_table()
     for key, row in sorted(table.items(), key=lambda kv: (len(kv[0]), kv[0])):
-        if row.mnemonic in isa.RESERVED or key == (0x00,):
+        if row.mnemonic in isa.RESERVED:
             continue
         ops, regs = operands(row)
-        out.append(case(label(row), list(key) + ops, **regs))
+        # BRK reads its vector through the MAP, outside the regions
+        view = (0xFFFE, 0xFFFF) if row.mnemonic == "BRK" else ()
+        out.append(case(label(row), list(key) + ops, view=view, **regs))
         # both outcomes of every conditional branch
         if row.mode in ("relative", "16-bit relative") and row.mnemonic != "BRA":
             for p in (E | I, E | I | N | V | Z | C):
@@ -199,13 +216,14 @@ def sweeps():
         add(case(f"JSR SP=0101 {tag}", [0x20, 0x30, 0x18], sp=0x0101, p=p))
         add(case(f"RTS #3 SP=01FD {tag}", [0x62, 0x03], sp=0x01FD, p=p))
         add(case(f"PHP {tag}", [0x08], p=p | C | N))
-        add(case(f"TSX {tag}", [0xBA], sp=0x01F0, p=p))
+        add(case(f"TSX {tag}", [0xBA], p=p))
         add(case(f"LDA (d,SP),Y SP=01FF {tag}", [0xE2, 0x01], sp=0x01FF, y=0x01, p=p,
                  mem={0x0100: 0x50, 0x0101: 0x1A, 0x0200: 0x60, 0x0201: 0x1A}))
     add(case("PLP E clear on stack", [0x28], mem={0x01F1: 0xC3}))
     add(case("PLP all set on stack", [0x28], mem={0x01F1: 0xFF}))
     add(case("RTI", [0x40], mem={0x01F1: 0xC3, 0x01F2: 0x40, 0x01F3: 0x18}))
     add(case("RTS", [0x60], mem={0x01F1: 0x3F, 0x01F2: 0x18}))
+    add(case("BRK with D set", [0x00], view=(0xFFFE, 0xFFFF), p=E | I | D | C))
     add(case("TYS Y=02", [0x2B], y=0x02))
     add(case("TSY", [0x0B], sp=0x0280))
     add(case("BRA16 backwards", [0x83, 0xF0, 0xFF]))
@@ -242,70 +260,67 @@ def sweeps():
 # ── recording ─────────────────────────────────────────────────────
 
 def snapshot(xm):
-    mem = {}
-    for start, length in G.REGIONS:
-        for k, v in enumerate(xm.read(start, length)):
-            mem[start + k] = v
-    return mem
+    return {start + k: v for start, n in REGIONS
+            for k, v in enumerate(xm.read(start, n))}
 
 
-def restore_map(xm):
-    code = [0xA9, 0x00, 0xA2, 0x0F, 0xA0, 0x00, 0xA3, 0x0F, 0x5C, 0xEA,
-            0xA9, POST_BOOT_MAP[0] & 0xFF, 0xA2, POST_BOOT_MAP[0] >> 8,
-            0xA0, POST_BOOT_MAP[1] & 0xFF, 0xA3, POST_BOOT_MAP[1] >> 8,
-            0x5C, 0xEA, 0xA9, 0x00]
-    xm.write(CODE, code)
+def run(xm, instructions):
+    """Write `instructions` at CODE and step through them."""
+    xm.write(CODE, flatten(instructions))
     xm.cmd(f"g {CODE:x}")
-    for _ in range(13):
-        xm.step()
-    r = xm.regs()
-    assert (r["mapl"], r["maph"]) == POST_BOOT_MAP, r
+    for _ in instructions:
+        r = xm.step()
+    return r
+
+
+def hexkeys(table):
+    return {f"{a:05X}": v for a, v in sorted(table.items())}
 
 
 def record(xm, c):
-    regs = c["regs"]
-    pre = preamble(regs)
-    start = CODE + len(pre)
-    code = pre + c["code"] + TAIL
-    init = {a: G.pattern(a) for a in G.region_addrs()}
-    init.update(POINTERS)
-    init.update(c["mem"])
-    for k, v in enumerate(code):
-        init[CODE + k] = v
-    for rs, rl in G.REGIONS:
-        xm.write(rs, bytes(init[a] for a in range(rs, rs + rl)))
-    xm.cmd(f"g {CODE:x}")
-    for _ in range(preamble_steps(regs)):
-        r = xm.step()
-    if r["pc"] != start:
-        return None                                  # an interrupt got in
+    """Run one case; None if an interrupt got into its preamble."""
+    pre = preamble(c["regs"])
+    start = CODE + len(flatten(pre))
+    end = start + len(c["code"])
+    init = BASE | c["mem"]
+    for a, n in REGIONS:
+        xm.write(a, bytes(init[k] for k in range(a, a + n)))
+    xm.write(end, flatten(TAIL))
+    xm.write(start, c["code"])
+    if run(xm, pre)["pc"] != start:
+        return None
     before = xm.regs()
     mem_before = snapshot(xm)
-    end = start + len(c["code"])
+    view = {a: xm.read_cpu(a, 1)[0] for a in c["view"]}
     steps = 0
     while True:
-        r = xm.step()
+        after = xm.step()
         steps += 1
-        if not start < r["pc"] < end or steps > 4:
+        if not start < after["pc"] < end:
             break
-    after = r
+        if steps == 4:                               # 42 42 EA op is the longest
+            raise RuntimeError(f"case {c['name']!r} did not complete: {after}")
     mem_after = snapshot(xm)
     if after["pc"] == end:
-        for _ in range(2):
-            xm.step()                                # TAIL: end prefix / latch
-    if c["code"][0] == 0x5C or (after["mapl"], after["maph"]) != POST_BOOT_MAP:
-        restore_map(xm)
-    return dict(
+        for _ in TAIL:
+            xm.step()
+    if (after["mapl"], after["maph"]) != POST_BOOT_MAP or c["code"] == [0x5C]:
+        r = run(xm, RESTORE_MAP)
+        assert (r["mapl"], r["maph"]) == POST_BOOT_MAP, r
+    got = dict(
         name=c["name"],
         code=" ".join(f"{b:02X}" for b in c["code"]),
         before=before,
-        mem={f"{a:05X}": v for a, v in sorted(mem_before.items())
-             if v != G.pattern(a)},
+        mem=hexkeys({a: v for a, v in mem_before.items()
+                     if v != BASE[a] and not CODE <= a < end + len(flatten(TAIL))}),
         steps=steps,
         after=after,
-        mem_after={f"{a:05X}": v for a, v in sorted(mem_after.items())
-                   if v != mem_before[a]},
+        mem_after=hexkeys({a: v for a, v in mem_after.items()
+                           if v != mem_before[a]}),
     )
+    if view:
+        got["cpu_view"] = {f"{a:04X}": v for a, v in view.items()}
+    return got
 
 
 def boot(xm):
@@ -313,7 +328,6 @@ def boot(xm):
     while time.time() < deadline:
         r = xm.regs()
         if (r["mapl"], r["maph"]) == POST_BOOT_MAP and r["pc"] >= 0x8000:
-            time.sleep(2)                            # let BASIC 65 settle
             return
         time.sleep(0.5)
     raise RuntimeError("xmega65 did not reach BASIC 65")
@@ -324,42 +338,40 @@ def main():
     ap.add_argument("--only", help="record only cases whose name starts so; print, do not write")
     ap.add_argument("--out", type=pathlib.Path, default=G.GOLDEN)
     args = ap.parse_args()
-    out_path = args.out.resolve()
     todo = [c for c in cases() if not args.only or c["name"].startswith(args.only)]
-    xm = XMega65(WORK)
+    recorded = []
     try:
-        boot(xm)
-        xm_version = xm.version()
-        xm.cmd("t1")
-        recorded = []
-        for n, c in enumerate(todo):
-            for _attempt in range(3):
-                got = record(xm, c)
-                if got:
-                    break
-            else:
-                raise RuntimeError(f"case {c['name']!r}: preamble never completed")
-            recorded.append(got)
-            if args.only:
-                print(json.dumps(got))
-            elif n % 50 == 0:
-                print(f"{n}/{len(todo)} {c['name']}", file=sys.stderr)
+        with XMega65(WORK) as xm:
+            boot(xm)
+            version = xm.version()
+            xm.cmd("t1")
+            for n, c in enumerate(todo):
+                for _attempt in range(3):
+                    got = record(xm, c)
+                    if got:
+                        break
+                else:
+                    raise RuntimeError(f"case {c['name']!r}: preamble never completed")
+                recorded.append(got)
+                if args.only:
+                    print(json.dumps(got))
+                elif n % 100 == 0:
+                    print(f"{n}/{len(todo)} {c['name']}", file=sys.stderr)
     finally:
-        xm.close()
         shutil.rmtree(WORK, ignore_errors=True)
     if args.only:
         return
-    source = dict(xmega65=xm_version, recorded=datetime.date.today().isoformat(),
+    source = dict(xmega65=version, recorded=datetime.date.today().isoformat(),
                   fixture=isa.FIXTURE.name)
     # one case per line, so a re-record's diff reads case by case
-    lines = ['{"source": ' + json.dumps(source) + ",",
-             ' "regions": ' + json.dumps([[s, n] for s, n in G.REGIONS]) + ",",
-             ' "cases": [']
-    lines += ["  " + json.dumps(c) + "," for c in recorded]
-    lines[-1] = lines[-1][:-1]
-    lines += [" ]}"]
-    out_path.write_text("\n".join(lines) + "\n")
-    print(f"wrote {out_path} ({len(recorded)} cases)")
+    args.out.write_text(
+        '{"source": ' + json.dumps(source) + ",\n"
+        ' "regions": ' + json.dumps(REGIONS) + ",\n"
+        ' "base": ' + json.dumps(hexkeys(POINTERS)) + ",\n"
+        ' "cases": [\n  '
+        + ",\n  ".join(json.dumps(c) for c in recorded)
+        + "\n ]}\n")
+    print(f"wrote {args.out} ({len(recorded)} cases)")
 
 
 if __name__ == "__main__":

@@ -16,12 +16,14 @@ Tier U: needs neither xmega65 nor the MEGA65 ROM.  Three parts:
 
 import pytest
 
-from m65emu import (FLAT, FlatRAM, MPU45GS02, ReservedOpcode,
-                    UncleanOpcode, UndefinedPrefix)
+from m65emu import (FlatRAM, MPU45GS02, ReservedOpcode, UncleanOpcode,
+                    UndefinedPrefix)
 from m65emu import golden as G
 from m65emu import isa
+from m65emu.mpu45gs02 import (B, C, D, E, I, N, V, Z,
+                              P_NEGNEG, P_NEGNEGNOP, P_NONE, P_NOP)
 
-E, B, D, I, Z, C, N, V = 0x20, 0x10, 0x08, 0x04, 0x02, 0x01, 0x80, 0x40
+TABLE = isa.decode_table()
 
 
 def cpu_with(code, *, at=0x1800, steps=None, **regs):
@@ -44,13 +46,11 @@ def test_every_4510_opcode_decodes_as_the_compendium_lists():
     rows = [r for r in isa.rows() if r.cpu_set == "4510"]
     assert sorted(r.key[0] for r in rows) == list(range(256))
     for r in rows:
-        key, row = cpu.decode(r.key[0], prefix=0)
-        assert (key, row.mnemonic, row.mode, row.length) == \
-            (r.key, r.mnemonic, r.mode, r.length)
+        key, entry = cpu.decode(r.key[0], prefix=P_NONE)
+        assert (key, entry.row) == (r.key, r)
 
 
 def test_every_45gs02_row_decodes_under_its_prefix():
-    from m65emu.mpu45gs02 import P_NEGNEG, P_NEGNEGNOP, P_NOP
     state = {(0xEA,): P_NOP, (0x42, 0x42): P_NEGNEG,
              (0x42, 0x42, 0xEA): P_NEGNEGNOP}
     cpu = MPU45GS02()
@@ -58,14 +58,13 @@ def test_every_45gs02_row_decodes_under_its_prefix():
     for r in isa.rows():
         if r.cpu_set != "45GS02":
             continue
-        key, row = cpu.decode(r.key[-1], prefix=state[r.key[:-1]])
+        key, entry = cpu.decode(r.key[-1], prefix=state[r.key[:-1]])
         assert key == r.key
         if r.key in seen:      # a reserved encoding listed twice
             assert r.mnemonic in isa.RESERVED
             continue
         seen.add(r.key)
-        assert (row.mnemonic, row.mode, row.length) == \
-            (r.mnemonic, r.mode, r.length)
+        assert entry.row == r
 
 
 def test_documented_6502_set_is_the_151_nmos_opcodes():
@@ -278,53 +277,35 @@ def test_clean_mode_admits_6502_opcodes_and_the_allowed_set_only():
 
 # ── golden file (recorded in xmega65) ─────────────────────────────
 
-def _golden_cases():
-    try:
-        data = G.load()
-    except FileNotFoundError:
-        return []
-    return data["cases"]
+GOLDEN = G.load()
 
 
-_CASES = _golden_cases()
-
-
-def test_golden_file_is_present_and_covers_the_table():
-    data = G.load()
-    covered = set()
-    for case in data["cases"]:
-        code = bytes.fromhex(case["code"])
-        covered.add(_key_of(code))
-    missing = {k for k, r in isa.decode_table().items()
-               if r.mnemonic not in isa.RESERVED} - covered - set(GOLDEN_EXEMPT)
+def test_golden_file_has_a_case_for_every_row():
+    def key_of(code):          # the longest prefix of the code that is a key
+        return next(code[:n] for n in (4, 3, 2, 1) if code[:n] in TABLE)
+    covered = {key_of(tuple(bytes.fromhex(case["code"])))
+               for case in GOLDEN["cases"]}
+    missing = {k for k, r in TABLE.items()
+               if r.mnemonic not in isa.RESERVED} - covered
     assert not missing, sorted(missing)
 
 
-# Rows the recorder cannot run in xmega65's block 0.
-GOLDEN_EXEMPT = {
-    (0x00,): "BRK: vectors through $FFFE, which the post-boot MAP puts "
-             "in ROM outside the recorded regions",
-}
-
-
-def _key_of(code):
-    for n in (4, 3, 2):
-        if tuple(code[:n]) in isa.decode_table():
-            return tuple(code[:n])
-    return (code[0],)
-
-
-@pytest.mark.parametrize("case", _CASES, ids=[c["name"] for c in _CASES])
+@pytest.mark.parametrize("case", GOLDEN["cases"],
+                         ids=[c["name"] for c in GOLDEN["cases"]])
 def test_golden_case(case):
-    mem = G.memory_for(case, FlatRAM)
+    start = G.start_memory(GOLDEN, case)
+    mem = FlatRAM()
+    for a, v in start.items():
+        mem.write_flat(a, v)
+    for a, v in G.addrs(case.get("cpu_view", {})).items():
+        mem[a] = v
     cpu = MPU45GS02(mem)
     for name in G.REG_NAMES:
         setattr(cpu, name, case["before"][name])
     for _ in range(case["steps"]):
         cpu.step()
-    got = {name: getattr(cpu, name) for name in G.REG_NAMES}
-    assert got == case["after"]
-    want = G.expected_memory(case)
+    assert {name: getattr(cpu, name) for name in G.REG_NAMES} == case["after"]
+    want = start | G.addrs(case["mem_after"])
     diff = {f"{a:05X}": (mem.read_flat(a), v) for a, v in want.items()
             if mem.read_flat(a) != v}
     assert not diff, diff
