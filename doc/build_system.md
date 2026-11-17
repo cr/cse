@@ -47,6 +47,10 @@
 | [`rom/kernal_mega.bin`](../rom/kernal_mega.bin) | dependency — MEGA65 Open-ROMs KERNAL (committed) |
 | [`rom/basic_mega.bin`](../rom/basic_mega.bin) | dependency — MEGA65 Open-ROMs BASIC (committed) |
 | [`rom/chargen_mega.bin`](../rom/chargen_mega.bin) | dependency — MEGA65 Open-ROMs character ROM (committed) |
+| `rom/mega65.rom` | dependency — the MEGA65 ROM xmega65 uses (not committed; copied by `make m65-rom`) |
+| [`rom/mega65_open.rom`](../rom/mega65_open.rom) | dependency — MEGA65 Open ROMs, MEGA65 build, pinned upstream commit (committed; C64 mode only, see [rom/README.md](../rom/README.md#mega65-roms)) |
+| [`dev/find_m65_rom.py`](../dev/find_m65_rom.py) | implementation — finds the MEGA65 ROM in xmega65's data directory and copies it to `rom/mega65.rom` (`make m65-rom`) |
+| [`tests/unit/test_find_m65_rom.py`](../tests/unit/test_find_m65_rom.py) | test contract — the MEGA65 ROM discovery: search order, acceptance, copy; the committed Open ROM's pin |
 | [`dev/instruction_set.py`](../dev/instruction_set.py) | implementation — authoritative opcode database |
 | [`dev/hashes.py`](../dev/hashes.py) | implementation — hash function definitions |
 | [`dev/size_report.py`](../dev/size_report.py) | implementation — binary size analysis |
@@ -228,6 +232,7 @@ which exomizer 3.1 provides ([§ The m65 PRG](#the-m65-prg)).
 | Run | `make run` | Build release + launch in VICE (`c64`) or xmega65 (`m65`) |
 | Tables | `make tables` | Regenerate `src/mn*_tables.s` via `mnemonic_tables.py` |
 | Tests | `make test` | Build both debug + release, then run all pytest tests |
+| MEGA65 ROM | `make m65-rom` | Copy the MEGA65 ROM from xmega65's data directory to `rom/mega65.rom` ([§ MEGA65 ROM](#mega65-rom)) |
 | Size | `make size` | Size breakdown of selected release PRG (`CPU=`) |
 | Clean | `make clean` | Remove `build/` directory |
 | Themes | `make themes` | List available colour themes |
@@ -454,8 +459,9 @@ These apply to all code and apply regardless of build target:
 ## ROM sets
 
 `ROMSET=` selects which KERNAL, BASIC, and CHARGEN ROMs VICE uses
-for `make run`.  All ROM files live in `rom/` and are listed in
-`.gitignore` (not committed).
+for `make run`.  All ROM files live in `rom/`; the stock CBM ROMs are
+listed in `.gitignore` (not committed), the Open-ROMs sets are
+committed ([rom/README.md](../rom/README.md)).
 
 | `ROMSET` | KERNAL | BASIC | CHARGEN | Source |
 |----------|--------|-------|---------|--------|
@@ -539,6 +545,29 @@ providing real KERNAL routines (PLOT, GETIN, CHROUT, etc.) instead
 of hand-crafted ASM or Python stubs.  Bank-switching via $01 toggles
 between ROM and RAM at $E000–$FFFF.  Run `make test` for setup
 instructions if the ROM is missing.
+
+### MEGA65 ROM
+
+The MEGA65 ROM (`rom/mega65.rom`, 128 KB) is the m65 counterpart,
+copied from the local xmega65 installation and listed in
+`.gitignore`.  `make m65-rom` runs `dev/find_m65_rom.py`, which
+searches xmega65's data directory (`$XEMU_MEGA65_DIR` if set, else
+`~/Library/Application Support/xemu-lgb/mega65/` on macOS and
+`~/.local/share/xemu-lgb/mega65/` on Linux; `MEGA65.ROM`, then
+`hdos/MEGA65.ROM`), accepts only a 128 KB image with a C65/MEGA65
+KERNAL, copies it and prints its version; it exits non-zero, listing
+the places searched, when there is none.  The xmega65 driver finds
+the SD image (`mega65.img`) in the same directory.
+
+M65Emu takes its ROM from the post-boot snapshot, not from this
+file; `dev/capture_m65_state.py` runs the discovery first and
+refuses to record when the ROM xmega65 booted differs from
+`rom/mega65.rom`, so the snapshot's ROM is always the one in `rom/`.
+
+`rom/mega65_open.rom`, the MEGA65 build of the Open ROMs, is
+committed next to it, pinned to an upstream commit and SHA-256.  It
+holds no C65/MEGA65 KERNAL and no BASIC 65 — it boots to C64 mode —
+so it cannot run the m65 PRG ([rom/README.md](../rom/README.md#mega65-roms)).
 
 ## Running tests
 

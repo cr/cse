@@ -21,8 +21,10 @@ build/m65_state/ (tests/m65emu/harness.py has the file list):
   runs at full speed to a breakpoint, interrupts off, parked there by
   a JMP to itself).
 
-The snapshot holds the MEGA65 ROM, so it stays in build/ and is never
-committed.  Run it by hand (about 20 s); pytest never starts xmega65.
+The ROM xmega65 boots must be rom/mega65.rom: the script first copies
+it from xmega65's data directory (dev/find_m65_rom.py, `make m65-rom`)
+and refuses to record when the booted ROM differs.  The snapshot holds
+the MEGA65 ROM, so it stays in build/ and is never committed.  Run it by hand (about 20 s); pytest never starts xmega65.
 Re-run it after an xmega65 or ROM update.
 
     python dev/capture_m65_state.py
@@ -39,6 +41,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
+from find_m65_rom import check_booted, install   # noqa: E402
 from m65emu.harness import STATE_DIR              # noqa: E402
 from m65emu.memory import COLOUR, IO_KEYS, VIC4   # noqa: E402
 from xmega65 import POST_BOOT_MAP, recording      # noqa: E402
@@ -62,6 +65,7 @@ def capture(xm):
     if key != IO_KEYS[VIC4][1]:
         raise RuntimeError(f"$D02F reads ${key:02X}: not BASIC 65's VIC-IV mode")
     chip = xm.read(0, 0x60000)
+    check_booted(chip[0x20000:0x40000])
     files = {"chip.bin": chip,
              "colour.bin": xm.read(COLOUR, 0x8000),
              "io.bin": xm.read_cpu(0xD000, IO_BYTES)}
@@ -105,6 +109,7 @@ def reference_run(xm, name, code, single_step, chip, colour):
 
 
 def main():
+    install()
     with recording(WORK) as xm:
         files, state, reference = capture(xm)
     tmp = STATE_DIR.with_name(STATE_DIR.name + ".new")

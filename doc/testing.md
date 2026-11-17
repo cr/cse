@@ -270,7 +270,10 @@ uartmon, a post-boot state into `build/m65_state/`:
 - `state.json`: the CPU registers and `MAP` (the megabyte selectors
   cannot be read; they are 0 after boot, as `m65_mem.json`'s
   post-boot state confirms), the CPU port, `$D030`, the I/O mode,
-  the xmega65 version and the ROM's SHA-256;
+  the xmega65 version and the ROM's SHA-256 — the ROM must be
+  `rom/mega65.rom` (the script runs `make m65-rom`'s discovery first
+  and refuses to record when the booted ROM differs:
+  [build_system.md § MEGA65 ROM](build_system.md#mega65-rom));
 - `reference.json`: what xmega65 did next, run after run from that
   state, each run's registers and memory changes, the oracle M65Emu's
   Tier I tests replay in the same order — "chrout" (`SEI`,

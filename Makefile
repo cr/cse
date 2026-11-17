@@ -345,6 +345,11 @@ check-roms:
 	  exit 1; \
 	fi
 
+# m65-rom — copy the MEGA65 ROM from xmega65's data directory into rom/
+.PHONY: m65-rom
+m65-rom:
+	$(PYTHON) $(DEV)/find_m65_rom.py
+
 test: debug release check-roms
 	$(PYTEST) -v
 
@@ -406,6 +411,7 @@ help:
 	@printf "%-15s %s\n" "tables"       "Regenerate src/mn*_tables.s via mnemonic_tables.py"
 	@printf "%-15s %s\n" "test"         "Run all pytest tests (builds both debug + release)"
 	@printf "%-15s %s\n" "size"         "Size breakdown of selected PRG (CPU=)"
+	@printf "%-15s %s\n" "m65-rom"      "Copy the MEGA65 ROM from xmega65's data into rom/mega65.rom"
 	@printf "%-15s %s\n" "clean"        "Remove the build/ directory"
 	@printf "%-15s %s\n" "clean-tables" "Remove generated table sources in src/"
 	@printf "%-15s %s\n" "themes"       "List available color themes"

@@ -30,12 +30,28 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import time
 
 # $XMEGA65 overrides the binary, as the Makefile's XMEGA65 option does.
 XMEGA65 = os.environ.get(
     "XMEGA65", "/Applications/xmega65.app/Contents/MacOS/xmega65")
-SDIMG = pathlib.Path.home() / "Library/Application Support/xemu-lgb/mega65/mega65.img"
+
+
+def xemu_dirs(env=os.environ, home=None, system=sys.platform):
+    """Where xmega65 keeps its data (SD image, MEGA65.ROM): only
+    $XEMU_MEGA65_DIR when set, else the platform's directory."""
+    if env.get("XEMU_MEGA65_DIR"):
+        return [pathlib.Path(env["XEMU_MEGA65_DIR"])]
+    home = pathlib.Path.home() if home is None else pathlib.Path(home)
+    if system == "darwin":
+        return [home / "Library/Application Support/xemu-lgb/mega65"]
+    data = pathlib.Path(env["XDG_DATA_HOME"]) if env.get("XDG_DATA_HOME") \
+        else home / ".local/share"
+    return [data / "xemu-lgb/mega65"]
+
+
+SDIMG = xemu_dirs()[0] / "mega65.img"
 
 POST_BOOT_MAP = (0xE300, 0xB300)   # MAPL, MAPH once BASIC 65 is up
 
