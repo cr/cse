@@ -444,6 +444,70 @@ class TestBufferOverflow:
             "the tab did not fit: the cursor is at column 0"
 
 
+# ── leave_editor (editor.md § Mode switching) ──────────────────────────────
+
+ST_REPL, ST_EDIT = 1, 2
+
+
+class TestLeaveEditor:
+    """leave_editor restores the REPL screen verbatim and the REPL
+    cursor, and sets state = ST_REPL."""
+
+    def test_round_trip_restores_repl_screen_and_cursor(self, cse_prg):
+        emu = make_emu(cse_prg)
+        for i in range(1000):
+            emu.memory[0x0400 + i] = (i * 7) & 0x7F
+        repl_screen = [emu.memory[0x0400 + i] for i in range(1000)]
+        emu.set_cursor(17, 23)
+        emu.jsr(emu.sym("enter_editor"))
+        assert emu.memory[emu.sym("state")] == ST_EDIT
+        type_keys(emu, b"LDA #1")                  # the editor draws over it
+        emu.jsr(emu.sym("leave_editor"))
+        assert [emu.memory[0x0400 + i] for i in range(1000)] == repl_screen
+        assert (emu.memory[0xD6], emu.memory[0xD3]) == (17, 23)
+        assert emu.memory[emu.sym("state")] == ST_REPL
+
+
+# ── ed_save_source / ed_load_source return codes (editor.md § File I/O) ────
+#
+# C64Emu models a serial bus with no drive (testing.md § C64Emu), so the
+# disk-error paths run for real.  A successful transfer and code 2 (file
+# too large) need a drive that delivers bytes — a virtual IEC disk, which
+# C64Emu does not model (TODO § C64Emu extension roadmap); load_insert's
+# overflow flag, the mechanism behind code 2, is pinned in
+# TestBufferOverflow above.
+
+_NAME = 0x3800
+
+
+def _set_name(emu, name=b"SRC"):
+    for i, c in enumerate(name + b"\0"):
+        emu.memory[_NAME + i] = c
+    emu.memory[emu.sym("cur_device")] = 8
+
+
+class TestEdDiskErrors:
+
+    def test_load_with_no_drive_returns_1_and_leaves_empty_buffer(self, cse_prg):
+        emu = make_emu(cse_prg)
+        insert_text(emu, b"\xa0NOP\r")
+        _set_name(emu)
+        emu.jsr(emu.sym("ed_load_source"), a=_NAME & 0xFF, x=_NAME >> 8)
+        assert (emu.a, emu.x) == (1, 0)
+        assert read_back(emu) == b"", "a failed load leaves a clean empty buffer"
+        assert total_lines(emu) == 1
+
+    @pytest.mark.skip(reason=(
+        "ed_load_source code 2 (file too large) and the success paths "
+        "of ed_save_source / ed_load_source need a drive that delivers "
+        "bytes: C64Emu models only an empty serial bus, no virtual IEC "
+        "disk (TODO § C64Emu extension roadmap).  Covered by "
+        "TestBufferOverflow (load_insert's overflow flag) and the VICE "
+        "checklist (l / s on a D64)."))
+    def test_load_too_large_returns_2(self, cse_prg):
+        pass
+
+
 # ── TAB_WIDTH build guard (editor.md § Tab width) ─────────────────────────
 
 import pathlib as _pathlib

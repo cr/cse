@@ -31,8 +31,8 @@ Owned by editor.s (L4):
 - `ed_handle_key(ch)` — process one keystroke (A = PETSCII key)
 - `ed_init()` — full reset: calls `gb_init`, zeros rendering state, calls `update_workend` to republish the `workend` symbol against the new `buf_base`
 - `ed_new()` — clear source buffer (calls `ed_init` + clears filename)
-- `ed_save_source(name)` — save source as SEQ file; A=0 on success
-- `ed_load_source(name)` — load SEQ file into buffer; A=0 on success
+- `ed_save_source(name)` — save source as SEQ file; A=0 on success (clears `ed_dirty`), nonzero on a disk error (`ed_dirty` and the buffer unchanged)
+- `ed_load_source(name)` — load SEQ file into buffer; A=0 on success, 1 on a disk error or an empty file, 2 when the file does not fit; on 1 or 2 the buffer is left empty
 
 Owned by gap_buffer.s (L3), re-listed here for editor-consumer convenience:
 - `ed_ensure_init()` — allocate gap buffer if not yet done
@@ -401,8 +401,8 @@ file format (CR-terminated text lines) is unchanged.  No
 line-width enforcement is applied during loading — lines are
 stored as-is regardless of visual width.
 
-The load always succeeds and the file content is preserved
-verbatim.  After loading, the REPL scans the buffer and prints
+A load that fits the buffer preserves the file content
+verbatim (a failed load leaves an empty buffer, see § File I/O).  After loading, the REPL scans the buffer and prints
 one `;!long LNN` warning per line exceeding 39 visual columns.
 The same scan runs after save.  Lines show the `>` overflow
 indicator in the editor.
