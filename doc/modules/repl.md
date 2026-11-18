@@ -91,13 +91,21 @@ refused) and main.s's `end_debug_body` (the session ended).
 Called by `main_loop_top` after user code broke back into the kernel
 (`dbg_reason`, `step_state` or `run_user_pending` non-zero).
 **Out:** `;!stk N` (LOG_WARN) when `reg_sp` < 64
-(`KSTK_MIN`, the kernel stack budget — [userland_contract.md § Kernel stack budget](../userland_contract.md#kernel-stack-budget));
+(`kernel_stack_budget` — [userland_contract.md § Kernel stack budget](../userland_contract.md#kernel-stack-budget));
 then, if a step was running, `step_cleanup`; then the break panel
 (`show_break_result`, debugger.md § Break panel); after a
 clean exit (`; rts`) the `pc:` field shows `cur_addr` at exit time;
 `cur_addr` = `brk_pc`.  After a step that ended the session
 (`DBG_RTS`) `last_cmd` = 0, so RETURN does not repeat the step.
 **Clobbers:** A, X, Y and the REPL's ZP scratch.
+
+### kernel_stack_budget
+**Value:** 64 (exported equate, defined once in repl.s).
+
+The kernel-reentry headroom of
+[userland_contract.md § 4](../userland_contract.md#4-stack-contract);
+`post_run_cleanup`'s `;!stk` check is its only reader.  Exported for
+the test harness's label lookup; no module imports it.
 
 ### hygiene_after_userland
 Called by main.s's `handler_finalize` on every return from user code.

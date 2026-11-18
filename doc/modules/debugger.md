@@ -130,14 +130,6 @@ on the way out).
 
 Callers: as `step_next_pc`.
 
-### kernel_stack_budget
-**Value:** 64 (exported equate).
-
-The kernel-reentry headroom of
-[userland_contract.md § 4](../userland_contract.md#4-stack-contract).
-No module imports it: `repl.s` keeps its own `KSTK_MIN = 64` for the
-`;!stk` check.
-
 **State** — **BSS (11 bytes):**
 
 | Variable | Size | Exported | Purpose |
@@ -496,5 +488,3 @@ session can no longer be resumed.
 - $0316/$0318 (BRK/NMI vectors) and $FFFE/$FFFA (RAM shadows) belong
   to CSE.  User code that overwrites them bypasses the corresponding
   path ([userland_contract.md § 5](../userland_contract.md#5-interrupt-vector-and-banking-hazards)).
-- `kernel_stack_budget` is exported but unused (repl.s duplicates it
-  as `KSTK_MIN`); changing the budget means changing both.
