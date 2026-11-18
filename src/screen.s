@@ -14,13 +14,16 @@
         .import io_puts, io_sync, io_color
         .import scr_lo, scr_hi
         .import _io_scr_setup
-        .importzp _io_scr
+        .importzp _io_scr, scr_src
 
 ; NOTE: No runtime ZP dependencies (no sp, popax, etc.)
 
-; ── ZP pointers (reuse cse_io's area) ───────────────────
-src_ptr = $FB           ; 2 bytes
-dst_ptr = $FD           ; 2 bytes
+; ── ZP pointers (CSE's own ZP — never the user's $80–$FF) ─
+; dst_ptr reuses cse_io's _io_scr: it is transient (every reader
+; re-derives it via _io_scr_setup right before use), and scroll_up's
+; only caller, newline, moves the cursor anyway.
+src_ptr = scr_src       ; 2 bytes (zp.s)
+dst_ptr = _io_scr       ; 2 bytes (zp.s, cse_io)
 
 
 ; ── C64 hardware ─────────────────────────────────────────

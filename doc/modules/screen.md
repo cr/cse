@@ -112,7 +112,7 @@ only handles the mode registers.
 **In:** A = number of rows to scroll
 **Out:** screen RAM scrolled up, bottom rows cleared with spaces,
 CUR_ROW adjusted (clamped to 0).  If A ≥ 25: full screen clear.
-**Clobbers:** A, X, Y
+**Clobbers:** A, X, Y, `scr_src`, `_io_scr`
 
 ### newline
 **In:** none (uses CUR_ROW, CUR_COL)
@@ -128,6 +128,9 @@ scrolls up 1 instead of incrementing.  Calls `io_sync`.
 `cursor_hide` is aliased to `cursor_show` — same toggle operation.
 
 ### Memory
+
+**ZP (2 bytes, defined in zp.s):** `scr_src` — `scroll_up`'s
+source row pointer.
 
 **BSS (3 bytes):** `theme_border` (1), `theme_bg` (1),
 `theme_fg` (1) — runtime color theme.  Initialized from the
@@ -193,9 +196,11 @@ position.  No KERNAL cursor — CSE manages its own via $CC=1.
 ## Caveats
 
 - Requires $CC=1 (KERNAL cursor disabled).  Set at startup by io_init.
-- `scroll_up` uses ZP $FB–$FE (src_ptr/dst_ptr) as scratch.  These
-  overlap with KERNAL's FNADR/FNADR+1 but that's safe since CSE
-  doesn't call KERNAL file routines during scroll.
+- `scroll_up`'s row pointers live in CSE's own ZP: the source in
+  `scr_src` (zp.s), the destination in cse_io's transient `_io_scr`
+  (every reader re-derives it via `_io_scr_setup`).  It never writes
+  ZP `$80`–`$FF` — `$FB`–`$FE`, the C64's free user ZP, survive a
+  break and every REPL scroll ([userland_contract.md § 2](../userland_contract.md)).
 - `scroll_up` saves/restores row indices via the 6502 stack
   (`pha`/`pla`).  Stack depth during scroll: 3 bytes (n, src_row,
   dst_row) plus the JSR return address.

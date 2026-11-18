@@ -413,6 +413,33 @@ class TestScrollUp:
             f"io_cy should be 10-3=7, got {emu.memory[0xD6]}"
 
 
+# ── Scrolling leaves the user's ZP $80–$FF alone ───────────────────────────
+
+class TestScrollZeroPage:
+    """userland_contract.md § 2: CSE never writes ZP $80–$FF beyond the
+    KERNAL cells it lists.  `$FB`–`$FE` are the C64's free user ZP; a
+    REPL scroll after a break must not overwrite them (screen.md §
+    scroll_up: its pointers live in CSE's own ZP)."""
+
+    USER_ZP = range(0xFB, 0xFF)
+
+    @pytest.mark.parametrize("n", [1, 5])
+    def test_scroll_up_keeps_fb_fe(self, cse_prg, n):
+        emu = make_emu(cse_prg)
+        for a in self.USER_ZP:
+            emu.memory[a] = 0x55
+        emu.jsr(emu.sym("scroll_up"), a=n)
+        assert [emu.memory[a] for a in self.USER_ZP] == [0x55] * 4
+
+    def test_newline_at_bottom_keeps_fb_fe(self, cse_prg):
+        emu = make_emu(cse_prg)
+        for a in self.USER_ZP:
+            emu.memory[a] = 0x55
+        emu.set_cursor(24, 0)
+        emu.jsr(emu.sym("newline"))
+        assert [emu.memory[a] for a in self.USER_ZP] == [0x55] * 4
+
+
 # ── cursor_show / cursor_hide ──────────────────────────────────────────────
 
 class TestCursorToggle:

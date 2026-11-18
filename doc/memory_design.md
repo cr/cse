@@ -224,7 +224,8 @@ recovery.  See [userland_contract.md § 5](userland_contract.md#5-interrupt-vect
       $5E-$6E    cur_project_name (17 bytes — filename stem)
       $6F-$77    Output scratch (9 bytes: rp_addr, rp_cnt, rp_save,
                                  rp_save2, rp_next_lo, _info_mode)
-      $78-$7F    Free (8 bytes, available for user programs)
+      $78-$79    screen (2 bytes: scr_src)
+      $7A-$7F    Free (6 bytes, available for user programs)
       $80-$FF    KERNAL work area
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
     $0200-$02A6  KERNAL editor state, input buffer (reserved)
@@ -734,8 +735,8 @@ $0800.  `workend` adjusts when the editor resizes the gap buffer
 
 ### Overview
 
-118 bytes ($02–$77), all defined in `src/zp.s` (single source of truth).
-8 bytes free ($78–$7F) for user programs.
+120 bytes ($02–$79), all defined in `src/zp.s` (single source of truth).
+6 bytes free ($7A–$7F) for user programs.
 
 ### Module allocation
 
