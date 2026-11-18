@@ -9,6 +9,7 @@
 | [`Makefile`](../Makefile) | implementation |
 | [`src/c64_trial.cfg`](../src/c64_trial.cfg) | implementation — trial linker config (size measurement) |
 | [`src/c64_cse.cfg.in`](../src/c64_cse.cfg.in) | implementation — production linker config template |
+| `src/m65_cse.cfg.in` | implementation — the m65 linker config (planned, P0: [§ The m65 builds](#the-m65-builds)) |
 | [`dev/compute_layout.py`](../dev/compute_layout.py) | implementation — computes runtime start, generates production config |
 | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | implementation — mnemonic table generator |
 | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | implementation — disassembler table generator |
@@ -270,20 +271,19 @@ decompresses the payload in-place, then the BASIC SYS stub and
 loader run normally.  About a third smaller than the raw PRG
 (the `_one` line of `make release` prints both sizes).
 
-`make disk` writes the compressed PRG to the D64 (D81 on m65,
-planned).
+`make disk` writes the compressed PRG to the D64.
 `make run` launches the uncompressed PRG (no decrunch delay).
 
-The C64 builds use exomizer's default target (`-t 64`, BASIC stub at
-`$0801`); the m65 build uses `-t 65` (C65, BASIC stub at `$2001`),
-which exomizer 3.1 provides ([§ The m65 PRG](#the-m65-prg)).
+Exomizer serves the C64 builds only, with its default target (`-t
+64`, BASIC stub at `$0801`).  The m65 build ships uncompressed
+([§ The m65 builds](#the-m65-builds)).
 
 ## Build targets
 
 | Target | Command | Output |
 |--------|---------|--------|
 | All (default) | `make` | Same as `release` |
-| Release | `make release` | `c64`: all three CPU variants, optimized + exomizer + D64; `m65`: the m65 PRG, optimized + exomizer + D81 |
+| Release | `make release` | `c64`: all three CPU variants, optimized + exomizer + D64; `m65`: the m65 PRG and cartridge image + D81, uncompressed |
 | Debug | `make debug` | The platform's builds with `-g` (full symbols in `.lbl`) |
 | Disk (single) | `make disk` | Per-build disk image in the build dir — D64 on `c64`, D81 on `m65` (for quick iteration) |
 | Run | `make run` | Build release + launch in VICE (`c64`) or xmega65 (`m65`) |
@@ -307,7 +307,7 @@ Only the output directory and assembler flags differ:
 
 | Profile | Flags | Exomizer | Symbols in `.lbl` |
 |---------|-------|----------|-------------------|
-| `release` | `-t c64` | yes | ~410 (exports only) |
+| `release` | `-t c64` | yes (C64 builds) | ~410 (exports only) |
 | `debug` | `-g -t c64 -DDEBUG` | no | ~2040 (all labels) |
 
 The `-g` flag tells ca65 to embed debug symbols in `.o` files.
@@ -319,7 +319,7 @@ absolute address.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG and D81 ([§ The m65 PRG](#the-m65-prg)) and the m65 test bundles; until R7 slice 2 every PRG target refuses `PLATFORM=m65` with an error (`help`, `themes`, `clean`, `clean-tables`, `tables`, `m65-rom`, `check-roms` still run) |
+| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG, D81 and cartridge ([§ The m65 builds](#the-m65-builds)) and the m65 test bundles; until R7 slice 2 every PRG target refuses `PLATFORM=m65` with an error (`help`, `themes`, `clean`, `clean-tables`, `tables`, `m65-rom`, `check-roms` still run) |
 | `XMEGA65` | `/Applications/xmega65.app/Contents/MacOS/xmega65` | The xmega65 executable; an environment variable read by `tests/xmega65.py` (Tier X, the M65Emu recordings).  The Makefile option for `make run PLATFORM=m65` is planned with the m65 PRG |
 | `CPU` | `6510` on `c64`, `45gs02` on `m65` | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`; `m65`: `45gs02` only) |
 | `THEME` | `GREENLAND` | Named theme or 3-digit hex code (`make themes` for list) |
@@ -347,7 +347,7 @@ python`), `PYTEST` (`pipenv run pytest`), `VICE` (`x64sc`), `C1541`,
                 .build_flags  src/*.o  src/*.d
         6502/   cse-6502.prg  cse-6502-exo.prg  ...
         cmos/   cse-cmos.prg  cse-cmos-exo.prg  ...
-        m65/    cse-m65.prg  cse-m65-exo.prg  ...      (planned)
+        m65/    cse-m65.prg  cse-m65.crt  m65_cse.cfg  ... (planned; no -exo.prg)
       debug/
         6510/   cse.prg  cse.map  cse.lbl  cse.dbg  ...  (no -exo.prg)
         6502/   cse-6502.prg  ...
@@ -366,9 +366,9 @@ python`), `PYTEST` (`pipenv run pytest`), `VICE` (`x64sc`), `C1541`,
 PRG names are the same in both profiles — the `release/` vs `debug/`
 directory disambiguates.
 
-CRT target (cartridge) is a planned future target using the same source
-with a different linker config.  See [memory_design.md](memory_design.md)
-for the CRT memory layout.
+A C64 cartridge is a planned future target (R5) using the same source
+with a different linker config.  The m65 cartridge is part of the m65
+build ([§ The m65 builds](#the-m65-builds)).
 
 ## Build-time options
 
@@ -376,7 +376,7 @@ Passed as `make OPTION=value`:
 
 | Option | Values | Default | Effect |
 |--------|--------|---------|--------|
-| `PLATFORM` | `c64` `m65` | `c64` | Selects the platform's builds ([§ Builds and CPU sets](#builds-and-cpu-sets)); `m65` sets `PLATFORM_M65` |
+| `PLATFORM` | `c64` `m65` | `c64` | Selects the platform's builds ([§ Builds and CPU sets](#builds-and-cpu-sets)); sets `PLATFORM_C64` or `PLATFORM_M65` |
 | `CPU` | `c64`: `6502` `6510` `65c02`; `m65`: `45gs02` | `6510` / `45gs02` | Selects the build within the platform; sets its defines ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
 | `ROMSET` | `cbm` `mega` | `cbm` | ROM set for `make run` (see below) |
 | `THEME` | name or hex | default | Colour theme for the REPL |
@@ -393,11 +393,15 @@ member, as a global enumeration — **0 = 6502, 1 = 6510, 2 = 65C02,
 
 | Build | `PLATFORM` / `CPU` | Defines | CPU set (`asm_cpu`) | Default `asm_cpu` | Classifier |
 |---|---|---|---|---|---|
-| c64-6502 | `c64` / `6502` | `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
-| c64-6510 | `c64` / `6510` | `CPU_6510` `CPU_CEIL=1` | 6502, 6510 (0, 1) | 0 | `mn7` |
-| c64-65c02 | `c64` / `65c02` | `CPU_65C02` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 6510, 65C02 (0, 1, 2) | 2 | `mn7` |
+| c64-6502 | `c64` / `6502` | `PLATFORM_C64` `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
+| c64-6510 | `c64` / `6510` | `PLATFORM_C64` `CPU_6510` `CPU_CEIL=1` | 6502, 6510 (0, 1) | 0 | `mn7` |
+| c64-65c02 | `c64` / `65c02` | `PLATFORM_C64` `CPU_65C02` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 6510, 65C02 (0, 1, 2) | 2 | `mn7` |
 | m65-45gs02 | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 4510, 45GS02 (0, 3, 4) | 4 | `mn7`, m65 keys |
 
+Exactly one `PLATFORM_<platform>` define is set per build — the C64
+builds carry `PLATFORM_C64` as the m65 build carries `PLATFORM_M65`,
+so a platform body is always selected by its own name
+([platform_layer.md § Platforms and defines](platform_layer.md#platforms-and-defines)).
 Exactly one `CPU_<top>` define is set per build.  It selects the
 build's generated table block ([§ Table generation](#table-generation)).
 m65-45gs02 is the only m65 build: its CPU set is fixed, and the 6502
@@ -425,7 +429,8 @@ the consumer is part of):
 | `DEFAULT_CPU` (main.s) | c64-6502, c64-6510 | — | c64-65c02 | — | m65-45gs02 |
 | debugger step (`cmp #2` paths) | NMOS step | NMOS step | + `JMP (a,X)`, `BRA` (c64-65c02) | — (no m65 debugger in R7 slice 1) | — (same) |
 
-The m65 build ships as the MEGA65 PRG ([§ The m65 PRG](#the-m65-prg)).
+The m65 build ships as a PRG, a D81 and a cartridge image
+([§ The m65 builds](#the-m65-builds)).
 Status: planned.  Its test bundles are R7 slice 1, Phase B
 ([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
 B1; `conftest.PROD_DEFS` holds the three C64 sets only), its PRG slice
@@ -433,32 +438,88 @@ B1; `conftest.PROD_DEFS` holds the three C64 sets only), its PRG slice
 ([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer));
 until then `PLATFORM=m65` with a PRG target is refused.
 
-### The m65 PRG
+### The m65 builds
 
 The m65-45gs02 build is a native MEGA65 program: it runs in MEGA65
-mode, on BASIC 65 and the MEGA65 KERNAL — not in GO64 (operator
-ruling, 2026-11-17).
+mode, on BASIC 65 and the MEGA65 KERNAL — not in GO64.  Where its
+parts live at run time is [memory_design.md § Memory Map —
+m65](memory_design.md#memory-map--m65-mega65-mode); how its
+platform bodies are selected is [platform_layer.md](platform_layer.md).
+Status: planned ([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer));
+P0 brings the PRG, P3 the D81 and the cartridge.
 
-- **Load and start.**  The PRG loads at `$2001`.  Its BASIC 65 stub
-  (`SYS 8205`) starts the loader at `$200D`, which copies the payload
-  to where it runs and initialises the data area
-  ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)).
-  `RUN` after `LOAD "CSE-M65"` starts it, as `RUN` does on the C64.
-- **Clean 6502 code.**  Every module is assembled with
-  `.setcpu "6502"`, in the m65 build as in the C64 builds.  A
-  45GS02-only instruction the platform layer needs — `MAP`, `EOM`,
-  flat 28-bit access through `[zp],Z`, the `Z` register — is written
-  as raw bytes by a macro from `src/m45_ops.inc`, the one place that
-  encodes them.  An audit test refuses a 45GS02-only opcode emitted
-  anywhere else ([testing.md § Tier U](testing.md#tier-u--unit-module--linking-down)).
-- **Distribution.**  `make release PLATFORM=m65` writes
-  `build/release/m65/cse-m65.prg`, its exomizer SFX
-  `cse-m65-exo.prg` (`exomizer sfx sys -t 65`), and
-  `build/cse-m65.d81`, formatted and written by `c1541` (VICE's disk
-  tool writes D81 as well as D64), holding the SFX as `cse-m65`.
-- **Run.**  `make run PLATFORM=m65` starts `$(XMEGA65)` with the D81
-  on drive 8 and `-autoload`; a MEGA65-mode PRG at `$2001` needs no
-  `-go64`.
+**Defines.**  `PLATFORM_M65`, `CPU_45GS02`, `MEGA_SUPPORT`,
+`CPU_CEIL=4`, `DEFAULT_CPU=4` ([§ Builds and CPU sets](#builds-and-cpu-sets)).
+ca65 assembles it with `-t c64`, as the C64 builds: the target
+selects ca65's string translation to PETSCII, which MEGA65 mode
+shares, and cse sets its CPU with `.setcpu` in every module.
+
+**Clean 6502 code.**  Every module is assembled with
+`.setcpu "6502"`.  A 45GS02-only instruction the platform layer
+needs — `MAP`, `EOM`, the DMA trigger, flat access through
+`[zp],Z`, the `Z` register — is written as raw bytes by a macro from
+`src/m45_ops.inc`, the one place that encodes them.  An audit test
+refuses a 45GS02-only opcode emitted anywhere else
+([testing.md § Tier U](testing.md#tier-u--unit-module--linking-down)).
+
+**Segments and the linker config** (`src/m65_cse.cfg.in`): one
+MEMORY area per place the code runs, each bounded by its region's
+size, so an overflow fails the link instead of overwriting the
+neighbour:
+
+| Segment(s) | Runs at (CPU view) | Lives in | Bound | Load |
+|---|---|---|---|---|
+| `LOADADDR`, `EXEHDR` | `$2001` | bank 0, the PRG image | — | the file |
+| `LOADER` | `$200D` | bank 0, the PRG image (discarded) | — | the file |
+| `STUB` | `$1600` | `0.1600` | `$0900` (to `0.1EFF`) | the file, copied by the loader |
+| `CODE`, `RODATA` | `$2000` | `3.2000` | `$6000` (24 K) | the file, DMA'd by the loader |
+| `KDATA` | `$8000`+ | `3.8000` | inside the data bank | the file, DMA'd by the loader |
+| `BSS` (incl. the former KBSS) | after `KDATA` | `3.8000` | the rest of `$4000` (16 K) | cleared by the loader |
+| `ZEROPAGE` | `$02` | base page 0 | as on the C64 ([zp.md](modules/zp.md)) | — |
+
+There is no two-pass layout on m65 (`compute_layout.py` is the C64
+builds' runtime-start computation): every run address is fixed by
+the region it lives in.  The C64's KBSS under the KERNAL (symbol
+table, name heap, REPL screen save; the cold-init ZP snapshot has no
+m65 counterpart) is
+ordinary BSS of the data bank on m65.
+
+**Load and start.**  The PRG loads at `$2001`.  Its BASIC 65 stub
+(`SYS 8205`) starts the loader at `$200D`, which installs the stub,
+the code and the data and enters `_main` through the stub
+([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)).
+`RUN` after `LOAD "CSE-M65"` starts it, as `RUN` does on the C64.
+
+**Distribution — raw, no exomizer.**  The 1581 and the disk images
+load fast enough that packing buys nothing; every m65 output is
+uncompressed.
+
+- `make release PLATFORM=m65` writes `build/release/m65/cse-m65.prg`.
+- `make disk PLATFORM=m65` writes `build/cse-m65.d81`, formatted and
+  written by `c1541` (VICE's disk tool writes D81 as well as D64),
+  holding the PRG as `cse-m65`.
+- The cartridge, `build/release/m65/cse-m65.crt`: a 32 K MEGA65-style
+  cartridge of type 0 (generic: 16 K ROML at `$400.8000`, 16 K ROMH
+  at `$400.C000`), following the MEGA65-style cartridge standard
+  (MEGA65 wiki, work in progress).  Its first 8 K is the bootstrap
+  the ROM DMAs to `$8000` and starts: the cold- and warm-start jumps
+  at `$8000`/`$8003`, the flags at `$8006` (bit 0 = auto-start), the
+  `"m65"` signature at `$8007`; the bootstrap is the loader's body
+  assembled for the cartridge, reading the payload from the
+  cartridge's own bank.  The `.CRT` container (the `"MEGA65
+  CARTRIDGE"` signature, CHIP packets) is written by a `dev/` tool.
+  *Stated with P3* (analysis task A3 settles the signature's last
+  byte and what the ROM implements).
+
+**Run.**  `make run PLATFORM=m65` starts `$(XMEGA65)` with the D81 on
+drive 8 and `-autoload`; a MEGA65-mode PRG at `$2001` needs no
+`-go64`.  Automation never starts xmega65 without `-headless`
+([testing.md § Tier X](testing.md#tier-x--xmega65-m65-automated)).
+
+**Gates.**  The C64 release PRGs stay byte-identical through every
+m65 step ([platform_layer.md § Gates](platform_layer.md#gates)); the
+m65 PRG's two banks are bounded by the linker as above, and its size
+joins `BUDGET` once it first builds ([§ Size gate](#size-gate)).
 
 ## Table generation
 
@@ -517,7 +578,11 @@ the spirit of the golden files:
   that caused it.
 - **m65 work** may not grow any C64 build at all
   ([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
-  acceptance gate 1).
+  acceptance gate 1); moving the C64 builds onto the platform layer
+  leaves them byte-identical ([platform_layer.md § Gates](platform_layer.md#gates)).
+- **The m65 build** joins `BUDGET` with its first measured PRG; its
+  code bank and data bank are bounded by the linker as well
+  ([§ The m65 builds](#the-m65-builds)).
 
 `tests/fixtures/golden/m65_cpu.json` records the 45GS02 as xmega65
 executes it, case by case (`dev/capture_m65_golden.py`, which needs

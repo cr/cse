@@ -17,10 +17,11 @@ that *host* a seam point here for its per-platform body.
 
 | File | Role |
 |------|------|
-| `src/platform.inc` | header — every platform constant, selected by `.ifdef` (planned, P0-3) |
-| `src/mem.inc` | header — the user-memory access macros (planned, P0-3) |
-| `dev/audit_platform_literals.py` | implementation — the literal audit (planned, P0-3) |
-| `tests/unit/test_platform_audit.py` | test contract — the audit's rule and the byte-identical gate (planned, P0-3) |
+| `src/platform.inc` | header — every platform constant, selected by `.ifdef` (planned, P0) |
+| `src/mem.inc` | header — the user-memory access macros (planned, P0) |
+| `dev/audit_platform_literals.py` | implementation — the literal audit (planned, P0) |
+| `tests/unit/test_platform_audit.py` | test contract — the audit's rule and the byte-identical gate (planned, P0) |
+| `tests/fixtures/golden/c64_prg_sha256.json` | generated — the recorded SHA-256 of each C64 release PRG (planned, P0) |
 
 The files are listed as they will exist; until P0-3 lands they are
 not in the repository.
@@ -77,16 +78,16 @@ not carry two copies.
 |---|---|---|
 | [Constants](#constants) | `platform.inc` (L0) | named addresses and cells; never a literal |
 | [Banking](#banking) | mem.s (L1) | `kernal_bank_out` / `kernal_bank_in`, the `kernal_out` batch flag |
-| [User memory](#user-memory) | `mem.inc`, mem.s (L1) | `UMEM_PTR`, `UMEM_LDA`, `UMEM_STA`, `umem_copy` |
-| [Source text](#source-text) | gap_buffer.s (L3) through the user-memory seam | the gap buffer's bytes, wherever they live |
-| [User transitions](#user-transitions) | mem.s (L1) | `plat_user_enter`, `plat_user_leave` |
+| [User memory](#user-memory) | `mem.inc` (L1) | `UMEM_LDA`, `UMEM_STA` |
+| [Source text](#source-text) | `mem.inc` (L1) | `SRC_LDA`, `SRC_STA` — the gap buffer's bytes, wherever they live |
+| [User transitions](#user-transitions) | `platform.inc`; mem.s (L1) hosts the m65 stub | `PLAT_TO_USER` — the kernel's last instruction before user code |
 | [Vectors](#vectors) | main.s (L5) | `plat_vectors_install`, `plat_vectors_restore` |
 | [Interrupt frame](#interrupt-frame) | `platform.inc`; debugger.s, main.s | `FRAME_DEPTH` and the frame offsets derived from it |
 | [IRQ early entry](#irq-early-entry) | main.s | present on platforms whose KERNAL can be unmapped; absent elsewhere |
 | [Cold start and exit](#cold-start-and-exit) | main.s | `plat_hw_init`, `cse_exit_to_basic`, `PLAT_COLD_START` |
 | [Terminal](#terminal) | cse_io.s (L1) | `io_init`, `io_sync`, `io_getc`, `io_kbhit`, `io_stop_down`, `scr_lo`/`scr_hi`, the width |
 | [Display](#display) | screen.s (L2) | `vic_reset`, `restore_colors`, `kernal_screen_reset`, `reset_screen`, `scroll_up`, `cursor_show`/`hide`, `screen_mode_set`, `screen_geometry` |
-| [Screen save](#screen-save) | editor.s through `umem_copy`; its home from `platform.inc` | the REPL screen saved and restored around the editor |
+| [Screen save](#screen-save) | editor.s, through the [banking](#banking) seam; its home from `platform.inc` | the REPL screen saved and restored around the editor |
 | [Disk bank](#disk-bank) | disk.s | `PLAT_SETBNK` before `OPEN`, `LOAD`, `SAVE` |
 | [Info map](#info-map) | repl.s | the rows of the `i` command |
 | [Loader](#loader) | loader.s (L6) | `loader_entry`; the cartridge bootstrap is the same body under `PLAT_CRT` |
@@ -123,7 +124,7 @@ assemble.
 | Screen | `SCREEN $0400`, `COLOR_RAM $D800`, 40 × 25, VIC-II `$D011`–`$D021`, SID `$D400` | the screen base is runtime (`$D060–$D063`), colour RAM at `FF8.0000` + `$D064/5`, width and height from `SCRORG`; VIC-IV registers; SID `$D400` | VIC-II or VDC |
 | Memory bounds | `HIMEM $D000`, `workstart $0800`, the KDATA/KBSS homes under the KERNAL | the two maps of [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode): the stub at `0.1600`, the user's `0.2000–0.CFFF`, the source region's end `1.F700`, the data bank `3.8000` | reserved |
 | Cold start / exit entries | `$FCE2`; exit by `CINT` + `jmp ($A002)` | `RESET_RUN` A=1 for both | reserved |
-| CPU-port seeds | `$00 = $2F`, `$01 = $36` | `$00 = $3F`, `$01 = $35` (MEGA65 mode's values; `MAP` overrides them for mapped blocks) | reserved |
+| CPU-port seeds | `$00 = $2F`, `$01 = $36` | the values BASIC 65 leaves: `$00 = $FF`, `$01 = $85` at the READY prompt (post-boot snapshot); `MAP` overrides the port for every mapped block | reserved |
 
 ### Banking
 
@@ -142,62 +143,76 @@ I flag is never touched; **Clobbers:** A.
 
 ### User memory
 
-`src/mem.inc` macros, with `umem_copy` in mem.s.  Contract: the
-upper layers address *user memory* — the memory a user program sees
-at a 16-bit address — through these and nothing else:
+`src/mem.inc` macros.  Contract: the upper layers address *user
+memory* — the memory a user program sees at a 16-bit address —
+through these and nothing else:
 
-- `UMEM_PTR ptr, addr_lo, addr_hi` — point `ptr` at a 16-bit user
-  address (the platform adds its bank).
-- `UMEM_LDA ptr` / `UMEM_STA ptr` — `A` ← / → the byte at `ptr` +
-  the index register the platform's instruction takes.  Clobbers
-  nothing but A (load) and the flags.
-- `umem_copy` — a block between user memory and CSE data, size in
-  A/X; **Clobbers:** A, X, Y and the platform's scratch.
+- `UMEM_LDA ptr` / `UMEM_STA ptr` — `A` ← / → the user byte at the
+  16-bit address in the 2-byte ZP pointer `ptr`, plus `Y`.  The
+  pointer and the index are the same on every platform, so the call
+  sites are the same code everywhere.  **Clobbers:** A (load only)
+  and N/Z; nothing else.
 
 The users of the seam are the assembler's emit paths (asm_src
-`_emit_byte`, asm_line), the REPL's `m`, `.` and `d`, the
-disassembler's fetch, breakpoint patching and un-patching, the
-editor's screen save and the gap buffer.  What user memory *is* per
-platform is [userland_contract.md § 3](userland_contract.md#3-memory-regions).
+`_emit_byte`, asm_line's emit), the REPL's `m`, `.` and `d`, the
+disassembler's fetch, and breakpoint patching and un-patching.  No
+command moves a block of user memory, so the seam has no block copy.
+What user memory *is* per platform is
+[userland_contract.md § 3](userland_contract.md#3-memory-regions).
 
 | Platform | Body |
 |---|---|
-| c64 | `(ptr),y` with a 2-byte ZP pointer — the instruction the code has today; user memory is the workspace, directly addressable |
-| m65 | `[ptr],Z` flat 28-bit access with a 4-byte ZP pointer (lo, hi, bank, 0), the index in `Z`; the raw bytes come from `src/m45_ops.inc`; `umem_copy` is a DMA job.  User memory is bank 0 and is *not* visible through the CSE map's `$2000–$BFFF`, which holds CSE itself |
+| c64 | `lda (ptr),y` / `sta (ptr),y` — the instructions the code has today, so the C64 builds assemble to the same bytes; user memory is the workspace, directly addressable |
+| m65 | `ptr` and the bank (`0`) are copied into the shared flat pointer `umem_fp` (4 bytes of ZP, m65 only — [zp.md](modules/zp.md)), then `TYZ` · `lda [umem_fp],z` / `sta [umem_fp],z` · `LDZ #0`, raw bytes from `src/m45_ops.inc` (the store keeps `A` across the copy on the stack).  User memory is bank 0, which the CSE map's `$2000–$BFFF` does not show |
 | c128 | `(ptr),y` with the MMU's bank for the access |
 
-Pointer width differs by platform, so the ZP pointers the seam's
-users own are allocated by [zp.md](modules/zp.md) with the
-platform's width.
+`Z` is 0 outside these macros on m65: cse never otherwise uses it,
+and BASIC 65 calls the KERNAL with `Z` = 0 (the READY-prompt
+snapshot has `Z` = 0) — whether the KERNAL needs it is checked
+against every call cse makes in P0's analysis.  One shared flat
+pointer, rather than a flat pointer per user, keeps every pointer 2
+bytes on every platform and the ZP layout the same; the price is a
+few instructions per access on m65, where speed is no constraint.
 
 ### Source text
 
-The gap buffer ([gap_buffer.md](modules/gap_buffer.md)) addresses
-its bytes through the [user-memory seam](#user-memory) with its own
-pointer; where the text lives is a platform fact of
-[memory_design.md § Source Code Storage](memory_design.md#source-code-storage):
-the workspace below the runtime on c64; `1.2000–1.F6FF`, growing down
-from `1.F700`, on m65 (its base and cap are one pointer pair, so the
-region relocates by changing them); RAM 1 on c128.
-
-### User transitions
-
-`plat_user_enter` / `plat_user_leave` — mem.s.  Contract:
-`plat_user_enter` is the last thing the kernel does before control
-reaches user code (called from `return_to_userland`,
-[debugger.md](modules/debugger.md)); `plat_user_leave` the first thing
-the break path does after the KERNAL has delivered the interrupt
-(called from the break and NMI handlers, [main.md](modules/main.md)).
-Between them the machine is the *user machine* of
-[userland_contract.md](userland_contract.md).  Neither touches the
-registers the handlers have saved; **Clobbers:** A (and the
-platform's map state).
+`SRC_LDA ptr` / `SRC_STA ptr` (`src/mem.inc`): the user-memory
+macros' contract, for the bytes of the source text — the gap buffer
+([gap_buffer.md](modules/gap_buffer.md)) and the editor's rendering
+and cursor walks over it ([editor.md](modules/editor.md)).  Where the
+text lives is
+[memory_design.md § Source Code Storage](memory_design.md#source-code-storage).
 
 | Platform | Body |
 |---|---|
-| c64 | nothing but the KERNAL banked in (`$01`): the user machine *is* the kernel machine with the KERNAL mapped |
-| m65 | `MAP` to the user map / to the CSE map, executed in the resident stub at `0.1600` ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)): the stub is the only code reachable in both maps |
-| c128 | MMU configuration |
+| c64 | `lda (ptr),y` / `sta (ptr),y` — the workspace below the runtime |
+| m65 | as `UMEM_*`, with the source region's bank (`1`) in `umem_fp`: the text is `1.2000–1.F6FF`, growing down from `1.F700`.  Every pointer into the text stays a 16-bit offset inside that bank, so the gap buffer's arithmetic is the same code |
+| c128 | RAM 1 |
+
+### User transitions
+
+`PLAT_TO_USER` (macro, `platform.inc`) is the kernel → user
+transition: the tail of `_rtu_body` ([debugger.md](modules/debugger.md)).
+**In:** the RTI frame (PC, P) on the stack, the user's ZP restored,
+the user's registers in the snapshot (`reg_a`, `reg_x`, `reg_y`; on
+m65 also `reg_z`, `reg_b`).  **Out:** the user's instruction runs
+with the user's registers, P and SP, in the *user machine* of
+[userland_contract.md](userland_contract.md).  The user → kernel
+direction is not a separate routine: it is wherever the
+[vectors](#vectors) point, and it ends in `cse_brk_handler` or
+`cse_nmi_handler` with the kernel's map in place.
+
+| Platform | `PLAT_TO_USER` | User → kernel |
+|---|---|---|
+| c64 | `ldx reg_x` · `ldy reg_y` · `lda reg_a` · `rti` — `_rtu_body`'s tail as it is, so the C64 builds stay byte-identical; the user machine is the kernel's with the KERNAL mapped, `$01` the user's from the ZP restore | the vectors reach the handlers directly |
+| m65 | pushes `reg_a`, `reg_x`, `reg_y`, `reg_z`, `reg_b` above the RTI frame and `jmp stub_user`; the stub `MAP`s the user map, `EOM`, pulls B, Z, Y, X, A (the KERNAL frame's order) and `rti`s.  The registers travel on the stack because `MAP` takes its operands in A, X, Y, Z and the snapshot cells are in the data bank, which the user map does not show; the stack page and the stub are in bank 0, which both maps show ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)) | the vectors reach `stub_brk` / `stub_nmi`, which `MAP` the CSE map and jump through the stub's target words to the handlers |
+| c128 | MMU configuration, then `rti` | settled by R3 |
+
+The stub is hosted by mem.s (L1) in a segment of its own, `STUB`,
+whose load image the loader copies to `0.1600`.  Its target words
+are data written from above — `setup_interrupts` (main.s) writes the
+two handler addresses, the loader writes `_main`'s — so it imports
+nothing from a higher layer.
 
 ### Vectors
 
@@ -213,7 +228,7 @@ the KERNAL's defaults back.  Called with interrupts disabled;
 | Platform | Body |
 |---|---|
 | c64 | writes `$0316`/`$0318` and the RAM shadows `$FFFA`/`$FFFE` (read by the CPU while the KERNAL is banked out); restore by `RESTOR` |
-| m65 | `VECTOR` reads the 56-byte table into CSE data, `IBRK` (offset 2) and `INMI` (offset 4) are pointed at the resident stub's entries, `VECTOR` writes it back; no shadows — the KERNAL is mapped in every map CSE allows; restore by `RESTOR` |
+| m65 | `VECTOR` reads the 56-byte table into CSE data; `IBRK` (offset 2) and `INMI` (offset 4) are pointed at `stub_brk` and `stub_nmi`; `VECTOR` writes it back; `cse_brk_handler` and `cse_nmi_handler` are written into the stub's target words.  No shadows — the KERNAL is mapped in every map CSE allows.  Restore by `RESTOR` |
 | c128 | `$0316`/`$0318`; restore by `RESTOR` |
 
 ### Interrupt frame
@@ -300,10 +315,13 @@ bodies differ.
 ### Screen save
 
 The editor saves and restores the REPL screen around itself
-([editor.md](modules/editor.md)) through `umem_copy`; the buffer's
-home is a constant: under the KERNAL (`REPL_SCREEN`) on c64, in the
-data bank on m65 (sized for the largest mode, 80 × 50), RAM 1 on
-c128.
+([editor.md](modules/editor.md)) with a plain `(zp),y` copy between
+the screen and the save buffer, bracketed by the
+[banking](#banking) seam.  The buffer's home is a constant
+(`REPL_SCREEN`): under the KERNAL on c64 (hence the banking); in the
+data bank on m65, sized for the largest mode, 80 × 50 — there the
+screen (`0.0800`) and the buffer are both directly addressable in the
+CSE map and the banking calls are no-ops; RAM 1 on c128.
 
 ### Disk bank
 
@@ -324,7 +342,8 @@ block per platform (`.ifdef`), each stating that platform's map in
 body per platform: the C64's copy loop; the m65's install sequence
 ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode))
 — stub copy, ROM write protection off, DMA of the payload into the
-code bank, the data bank cleared, then the stub's `MAP` and `_main`;
+code bank, the data bank cleared, `_main` into the stub's cold
+target, then `jmp stub_cold`;
 the cartridge bootstrap is the same body assembled with `PLAT_CRT`,
 reading its payload from the cartridge's own bank instead of the PRG
 image.
@@ -332,10 +351,14 @@ image.
 ## Gates
 
 1. **Byte-identical C64 builds.**  Moving the C64 build onto the
-   seams (P0-3) and every later platform body leave each C64 release
-   PRG byte-identical to the build before; `test_platform_audit.py`
-   compares against the recorded hashes, and the size and golden
-   gates stand ([build_system.md § Size gate](build_system.md#size-gate)).
+   seams and every later platform body leave each C64 release PRG
+   byte-identical to the build before: `test_platform_audit.py`
+   compares each with its SHA-256 in
+   `tests/fixtures/golden/c64_prg_sha256.json`, re-recorded only by a
+   commit that deliberately changes a C64 build
+   ([testing.md § Tier U](testing.md#tier-u--unit-module--linking-down));
+   the size and golden gates stand beside it
+   ([build_system.md § Size gate](build_system.md#size-gate)).
 2. **The literal audit.**  `dev/audit_platform_literals.py` scans
    `src/` for the literal classes of [§ The rule](#the-rule) and
    fails on one outside `platform.inc` or a seam's platform body.

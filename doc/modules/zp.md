@@ -48,7 +48,22 @@ every module that `.importzp`s at least one of the block's variables
 Unallocated holes: $13, $2C and $36 — held so every later address
 stays put; recompaction is TODO § M65, A3b.
 
-First free byte: $7A.  $7A–$7F is not allocated by CSE.  Which zero
+**On m65** the table is the same, plus one m65-only allocation
+(`.ifdef PLATFORM_M65` in `src/zp.s`):
+
+| Range | Section | Variables | Used by |
+|-------|---------|-----------|---------|
+| $7A–$7D | flat pointer (m65) | `umem_fp` (4: lo, hi, bank, 0) — the shared 28-bit pointer of the user-memory and source-text macros | every user of `UMEM_*` / `SRC_*` ([platform_layer.md § User memory](../platform_layer.md#user-memory)) |
+
+Whether the MEGA65 KERNAL leaves base page 0's `$02–$7F` to CSE
+while CSE runs — its IRQ handler and every call CSE makes — is open
+item P-Q4 of
+[TODO § M65 slice 2](../TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer),
+settled in P0's analysis; the layout above is the m65 layout only if
+it holds.
+
+First free byte: $7A.  $7A–$7F is not allocated by CSE (on m65,
+$7E–$7F).  Which zero
 page a user program may use is
 [userland_contract.md § 3](../userland_contract.md#3-memory-regions)'s
 call (CSE saves and restores the whole of $00–$7F around every user

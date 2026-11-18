@@ -37,6 +37,20 @@ test.  That is the run-time half of the clean-6502 rule; the static
 half is an audit test that refuses a 45GS02-only opcode emitted
 outside `m45_ops.inc`.
 
+**Platform-layer gates** ([platform_layer.md § Gates](platform_layer.md#gates))
+are static Tier U tests in `tests/unit/test_platform_audit.py`:
+
+- *The literal audit* — `dev/audit_platform_literals.py` over `src/`:
+  no ROM address, KERNAL cell, I/O register, screen or colour base or
+  banking value outside `src/platform.inc` and the seams' platform
+  bodies.
+- *The C64 PRGs are the recorded ones* — the SHA-256 of each C64
+  release PRG equals `tests/fixtures/golden/c64_prg_sha256.json`.  It
+  is re-recorded only by a commit that deliberately changes what a
+  C64 build contains, and that commit states why — the regime of the
+  golden files ([build_system.md § Golden files](build_system.md#golden-files));
+  a platform-layer refactor and every m65 commit leave it untouched.
+
 This is **bundled unit testing** (see [glossary.md § Process](glossary.md#process)):
 a CSE-specific variant of Martin Fowler's *sociable unit testing*,
 where the SUT runs against its real transitive dependencies instead
@@ -91,9 +105,9 @@ share: the recording session and the file writer):
 - **Output:** `-dumpscreen`, `-dumpmem`, `-screenshot`, written when
   the test ends xmega65 with SIGTERM.
 
-Tests will live in `tests/emulator/` (planned:
-[TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer),
-S2-8; today `tests/xmega65.py` serves the golden-file recorders) and
+Tests will live in `tests/emulator/` (planned with P0 of
+[TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer);
+today `tests/xmega65.py` serves the golden-file recorders) and
 are skipped, with the reason, when
 `$(XMEGA65)` (the driver reads the `XMEGA65` environment variable) or
 the SD image is absent.  Boot to the prompt takes
@@ -466,7 +480,7 @@ own reading of the compendium:
   `tests/unit/test_m65devices.py` drives the two devices through the
   same steps (a latch call for each raster line waited for) and must
   read the same values.
-- A Tier X test (S2-8) re-runs the capture when xmega65 is present and
+- A Tier X test re-runs the capture when xmega65 is present and
   fails on any difference from the committed golden file.
 
 An M65Emu answer to a hardware question (O1, O3) is xmega65's answer
@@ -499,6 +513,42 @@ Two things xmega65 does that `MPU45GS02` does not: it holds an
 interrupt off for one instruction after a single-cycle instruction
 (no cycles here), and it runs `NEG NEG NEG` as a 32-bit negate (no
 compendium row, so it raises).
+
+### The m65 PRG on M65Emu
+
+What the m65 build's Tier I and Tier X tests rest on (planned, P0 of
+[TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)).
+The installed machine they check is
+[memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode).
+
+- **Fixtures.**  `cse_m65_prg` (the debug m65 PRG with its map and
+  labels) and `cse_m65_release_prg`, built by `make debug
+  PLATFORM=m65` / `make release PLATFORM=m65` on the same freshness
+  rule as the C64 fixtures; skipped with the reason when the
+  post-boot snapshot is absent (it holds the ROM and is never
+  committed).
+- **The loader runs for real** (`tests/integration/test_loader.py`,
+  as for the C64 builds).  The PRG is placed at `$2001` in the
+  post-boot state, the `SYS 8205` entry is taken with the KERNAL's
+  `SYS` map, and the real `loader_entry` runs until `_main`'s first
+  instruction.  Then: `3.2000` holds the CODE + RODATA image, the
+  data bank holds KDATA and a cleared BSS, `0.1600` holds the stub
+  with `_main` in its cold target, the ROM write protection is off,
+  and MAPLO / MAPHI are `$E300` / `$B300`.
+- **`load_prg()` and `init_cse()`** put the m65 PRG into that same
+  installed state from Python — the code image into bank 3, the
+  stub into `0.1600`, the map — so other Tier I tests start there
+  without running the loader; the loader test proves the two equal,
+  as it does for the C64's `_relocate_segments()`.
+- **The Hypervisor trap the loader uses.**  M65Emu models no
+  Hypervisor, except the one trap the install needs: a write of
+  `$70` to `$D640` toggles the ROM write protection of banks 2–3.  The
+  Tier X boot test records the protection state after the trap in
+  xmega65, and the model follows that recording.
+- **Tier X, boot.**  xmega65 starts the PRG through `-prg` in MEGA65
+  mode and stops at a `uartmon` breakpoint on `_main`; the test reads
+  the map, the stub and the protection state and compares them with
+  the Tier I loader test's.  The D81 and the cartridge join with P3.
 
 ## The TDD Method
 

@@ -63,6 +63,20 @@ KERNAL machinery because that lives at L4.
   the gap (jumps from `gap_lo` to `gap_hi` when it reaches the gap
   boundary).
 
+**On m65** the layout is the same, in bank 1
+([memory_design.md § Source Code Storage](../memory_design.md#source-code-storage)):
+`BUF_END` = `$F700` (the region ends at `1.F6FF`, below BASIC's
+reserved page and the colour window), `__BUF_FLOOR__` = the source
+region's floor, a platform constant (at most `$2000`; its cap is open
+item P-Q1).  Every pointer above stays a 2-byte offset inside bank 1,
+so the pointer arithmetic is the same code on both platforms; only the
+byte accesses differ, and they go through the source-text seam,
+`SRC_LDA` / `SRC_STA` ([platform_layer.md § Source text](../platform_layer.md#source-text)),
+whose clobbers (A on a load, N/Z) are those of the instructions they
+replace — so no clobber list below changes.  The source text and the
+user's output no longer share memory, so on m65 they no longer race
+for the same space.
+
 Lines are separated by `$0D` (CR); there is no terminator after the
 last line.  The workspace this buffer shares with the assembled
 output is mapped in
@@ -225,6 +239,11 @@ the `workend` symbol at `buf_base - 1` (dynamic — tracks buffer
 growth).  Both symbols are absolute (`sym_wide = 1`).
 **Clobbers:** A, X, Y, symtab ZP.
 
+**On m65:** `workstart` is `$2000` and `workend` is `$CFFF`, the
+user region's bounds ([userland_contract.md § 3](../userland_contract.md#3-memory-regions));
+`workend` does not move, because the source text is not in bank 0.  `update_workend`
+still runs where it runs today and defines the same value.
+
 `define_ws_syms` is called from `main.s` cold init and from
 `asm_src.s::asm_assemble` after `sym_clear`.  `update_workend` is
 called by `gb_ensure_room` after a gap grow shifts `buf_base` down,
@@ -240,8 +259,10 @@ and by `editor.s::ed_init` after every full editor reset.  It is
 `ed_dirty`.
 
 **Depends on:** `zp` (ZP vars), `strings` (`s_workstart`,
-`s_workend`), `symtab` (`sym_define` + sym_name/val/wide ZP).
-Linker-provided `__CODE_RUN__` (= BUF_END) and `__BUF_FLOOR__`.
+`s_workend`), `symtab` (`sym_define` + sym_name/val/wide ZP),
+`mem.inc` (`SRC_LDA` / `SRC_STA`).
+Linker-provided `__CODE_RUN__` (= BUF_END) and `__BUF_FLOOR__` on c64;
+platform constants on m65.
 
 ## Test contract
 

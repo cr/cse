@@ -11,6 +11,12 @@
 
 ## Interface
 
+mem.s hosts three seams of the platform driver layer — banking, the
+user-memory macros' pointer conventions and, on m65, the resident
+stub ([platform_layer.md](../platform_layer.md)).  The entries below
+state the c64 body; each **On m65** paragraph states the m65 body of
+the same entry.
+
 ### kernal_bank_out
 **In:** `kernal_out` (zp.s batch flag)
 **Out:** KERNAL ROM hidden ($01 bit 1 cleared) — unless `kernal_out`
@@ -22,6 +28,11 @@ is nonzero, then nothing changes.  The I flag is not touched.
 **Out:** KERNAL ROM visible ($01 bit 1 set) — unless `kernal_out` is
 nonzero, then nothing changes.  The I flag is not touched.
 **Clobbers:** A
+
+**On m65:** both are `rts` and clobber nothing.  Nothing of CSE's is
+under the KERNAL: the data area is the data bank, mapped in the CSE
+map at all times ([platform_layer.md § Banking](../platform_layer.md#banking)).
+Their callers are platform-neutral and stay as they are.
 
 ### save_userland_zp / save_kernel_zp
 **In:** none
@@ -56,6 +67,9 @@ save/restore).
 **Out:** A/X = `__CODE_RUN__` (runtime start address, lo/hi)
 **Clobbers:** A, X
 
+**On m65:** A/X = `$D000`.  CSE does not run in bank 0, so the user
+region ends at the I/O page, and this is the first byte above it.
+
 Callers: `main.s` cold init (end of the workspace fill), `repl.s`
 (`i` map).
 
@@ -66,6 +80,8 @@ Callers: `main.s` cold init (end of the workspace fill), `repl.s`
 
 Caller: `repl.s` (`i` map).
 
+**On m65:** unchanged (`$D000`).
+
 ### cse_zp_end
 **In:** none
 **Out:** A = first free ZP byte — `<__ZP_LAST__`, which ld65 defines as
@@ -74,6 +90,34 @@ the first address past the ZEROPAGE segment; X = 0
 
 Caller: `main.s` cold init (fills the free ZP with `$FF` from there to
 `$7F`).
+
+### The resident stub (m65 only)
+
+The code of the `STUB` segment, which the loader copies to `0.1600`
+and which runs there in both maps
+([memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode),
+[platform_layer.md § User transitions](../platform_layer.md#user-transitions)).
+Assembled only under `.ifdef PLATFORM_M65`.
+
+| Entry | Reached by | Does | Out |
+|---|---|---|---|
+| `stub_brk` | the `IBRK` vector, with the KERNAL's frame on the stack | `MAP` CSE · `EOM` · `jmp (stub_brk_target)` | in `cse_brk_handler`, frame and registers as the KERNAL left them, I flag unchanged |
+| `stub_nmi` | the `INMI` vector | `MAP` CSE · `EOM` · `jmp (stub_nmi_target)` | in `cse_nmi_handler`, likewise |
+| `stub_cold` | the loader | `MAP` CSE · `EOM` · `jmp (stub_cold_target)` | in `_main` |
+| `stub_user` | `PLAT_TO_USER` in `_rtu_body` (debugger.s), with the user's A, X, Y, Z, B pushed above the RTI frame | `MAP` user · `EOM` · pull B, Z, Y, X, A · `rti` | in user code, every register the user's |
+
+**Clobbers:** the three CSE-bound entries clobber A, X, Y, Z (the
+`MAP` operands); the user's values are already saved, in the
+KERNAL's frame on the stack.  `stub_user` ends with every register
+the user's: it takes them from the stack, not from the snapshot
+cells, which the user map does not show
+([platform_layer.md § User transitions](../platform_layer.md#user-transitions)).
+
+**State** (in the stub, `0.1600`+): `stub_brk_target`,
+`stub_nmi_target`, `stub_cold_target` — one word each, written by
+`setup_interrupts` (main.s) and the loader.  The stub holds no
+address of CSE's code itself and imports nothing from a higher
+layer.
 
 **State:**
 
@@ -97,7 +141,7 @@ cross-module flags in `zp.s` ([zp.md](zp.md)).
 view) take their range check and buffer index from these constants.
 
 **Depends on:** zp (`kernal_out`); linker symbols `__ZP_LAST__`,
-`__CODE_RUN__`
+`__CODE_RUN__`; on m65 `src/m45_ops.inc` (the stub's `MAP`/`EOM`)
 
 ## Design
 
@@ -151,9 +195,17 @@ the target DDR mask after data bits are set.  No redundant
 would only mask a regressed save postcondition.
 
 **Bootstrap seed:** `debugger.s::dbg_init` pre-seeds both
-buffers with `$00=$2F` / `$01=$36` so the first transition (before
-any userland has populated `userland_zp_buf`) doesn't restore zeros
-into the live CPU port.
+buffers with the platform's CPU-port seeds — `$00=$2F` / `$01=$36` on
+c64 ([platform_layer.md § Constants](../platform_layer.md#constants))
+— so the first transition (before any userland has populated
+`userland_zp_buf`) doesn't restore zeros into the live CPU port.
+
+**On m65** the primitives are the same code: `$0000–$1FFF` is
+unmapped in both maps, so `$00`/`$01` are the CPU port and base page
+0 is the KERNAL's in both, and the DDR protocol above holds as on the
+C64 (M65Emu models the port with the C64's rule).  `B` is 0 at every
+transition; a private user base page is analysis task A2 of
+[TODO § M65 slice 2](../TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer).
 
 ## Caveats
 

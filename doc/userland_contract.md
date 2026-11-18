@@ -165,6 +165,38 @@ $7A–$7F unallocated ([zp.md](modules/zp.md)) concerns CSE only; it
 does not change what user code may use.  `$00`/`$01` are the CPU
 port: see § 5.3.
 
+### On m65
+
+The m65 build leaves bank 0 to the user's program and keeps itself
+in the BASIC ROM banks and bank 1
+([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)).
+User code runs in the *user map* — the machine a `SYS` from BASIC 65
+gives: bank 0 RAM to `$CFFF`, I/O at `$D000`, the KERNAL at `$E000`.
+
+| Region | Address | User code may use |
+|--------|---------|-------------------|
+| Base page 0 | `0.0000–0.00FF` | as on the C64 (`$00–$7F` the user's, swapped at every transition) — subject to open item P-Q4, settled with P0 |
+| Stack page | `0.0100–0.01FF` | § 4 |
+| KERNAL variables, screen | `0.0200–0.15FF` | **No** — the MEGA65 KERNAL's (screen at `0.0800`); only through the KERNAL's jump table |
+| Resident stub | `0.1600` – the stub's end | **No** — CSE's only code in bank 0; overwriting it breaks every break and return |
+| Free | the stub's end – `0.1EFF` | Yes |
+| Free if no bitmap graphics | `0.1F00–0.1FFF` | Yes (BASIC 65's graphics base page; CSE does not use it) |
+| Workspace | `0.2000–0.CFFF` | Yes — the user's; CSE writes it only when asked (`a`, `m`, `.`, `l`).  `workstart` = `$2000`, `workend` = `$CFFF` |
+| I/O | `$D000–$DFFF` | Yes |
+| KERNAL | `$E000–$FFFF` (→ `3.E000`) | **No** — must stay mapped for interrupts (§ 5) |
+| DOS buffers | `1.0000–1.1FFF` | **No** — the KERNAL's |
+| Source text | `1.2000–1.F6FF` | **No** — the editor's buffer |
+| Colour RAM window, reserved | `1.F700–1.FFFF` | through the screen only |
+| ROM | `2.0000–2.FFFF` | **No** |
+| CSE | `3.0000–3.FFFF` | **No** — CSE's code and data, and the KERNAL |
+| Banks 4, 5, Attic RAM | `4.0000–5.FFFF`, `800.0000`+ | Yes — CSE never touches them (bitmap and double buffering are the user's) |
+
+The stub's end is a link-time value; `i` shows it.  What survives a
+quit (`Q` is a Hypervisor reset) is nothing this contract promises.
+The rest of the m65 contract — state tiers, the stack, the vector
+and map hazards — is stated with P1 of
+[TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer).
+
 ## 4. Stack contract
 
 CSE and user code **share** the single 6502 stack page.  There is no

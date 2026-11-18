@@ -313,8 +313,8 @@ the screen and keyboard (P2).  Phase B and P3–P5 follow.
 - **The source text lives high up in bank 1**, growing down from
   `1.F700`, relocatable — not in banks 4 and 5, which user programs
   may want for bank-based double buffering.
-- **The ROM is RAM loaded by the Hypervisor**, not a shadow: `x` is
-  a Hypervisor reset.  No stash.
+- **The ROM is RAM loaded by the Hypervisor**, not a shadow: quitting
+  (`Q`) ends in a Hypervisor reset.  No stash.
 - **No exomizer on m65**; the PRG and the D81 ship raw.
 - **The KERNAL API, not its internals**: jump table and vector
   table only; full past-present-future KERNAL compatibility
@@ -346,11 +346,11 @@ xmega65 by the milestone that relies on it.
 |---|---|
 | [platform_layer.md](platform_layer.md) | the seams and their contracts per platform; the no-literals rule; the gates |
 | [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) | the two maps, the banks, the stub, the install sequence, interrupts, exit; § Source Code Storage for bank 1 |
-| [userland_contract.md](userland_contract.md) | what a user program owns and may rely on, per platform; what survives a run and `x` |
-| [build_system.md § The m65 builds](build_system.md#the-m65-prg) | `PLATFORM=m65`, the defines, the linker layout per bank, the PRG, the D81, the CRT image, no exomizer, the m65 gates |
-| [testing.md](testing.md) | the m65 PRG fixture and Tier I on M65Emu, Tier X, the ROM matrix (closed ROM, Open ROMs), the byte-identical gate and the literal audit as tests |
+| [userland_contract.md](userland_contract.md) | what a user program owns and may rely on, per platform; what survives a run and `Q` |
+| [build_system.md § The m65 builds](build_system.md#the-m65-builds) | `PLATFORM=m65`, the defines, the linker layout per bank, the PRG, the D81, the CRT image, no exomizer, the m65 gates |
+| [testing.md](testing.md) | the m65 PRG fixture and Tier I on M65Emu, Tier X, the ROM versions the port is verified on, the byte-identical gate and the literal audit as tests |
 | [architecture.md](architecture.md) | the driver as a role of the leaves (rule 9) |
-| [README.md](../README.md) | the MEGA65 chapter: starting from PRG / D81 / CRT, screen modes, keys, memory for your programs, `x`, `i` |
+| [README.md](../README.md) | the MEGA65 chapter: starting from PRG / D81 / CRT, screen modes, keys, memory for your programs, `Q`, `i` |
 | [glossary.md](glossary.md) | CSE map, user map, resident stub, seam, the `b.xxxx` notation |
 | module docs | each seam host's Interface states the per-platform body or points to platform_layer.md: [mem.md](modules/mem.md), [cse_io.md](modules/cse_io.md), [screen.md](modules/screen.md), [main.md](modules/main.md), [loader.md](modules/loader.md), [disk.md](modules/disk.md), [gap_buffer.md](modules/gap_buffer.md), [debugger.md](modules/debugger.md), [breakpoints.md](modules/breakpoints.md), [zp.md](modules/zp.md); [editor.md](modules/editor.md), [repl.md](modules/repl.md), [log.md](modules/log.md) state that they carry no platform knowledge and are width-driven |
 
@@ -366,24 +366,45 @@ Step-1 delta (what the documents will state):
 - [x] [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)
   and § Source Code Storage: the maps, banks, stub, install,
   interrupts, exit, bank 1.  (Written and approved 2026-11-18.)
-- [ ] [build_system.md § The m65 builds](build_system.md#the-m65-prg):
-  the defines (`PLATFORM_M65`, `CPU_45GS02`, `MEGA_SUPPORT`; the C64
-  builds gain `PLATFORM_C64`), the linker layout (CODE+RODATA at
-  `$2000`, DATA at `$8000`, STUB at `$1600`, LOADER at `$200D`, the
-  `SYS 8205` stub), the raw PRG, the m65 size gate, no exomizer, the
-  Makefile guard retired.
-- [ ] [testing.md](testing.md): the m65 PRG fixture, `load_prg()` and
-  `init_cse()` on the real PRG, the first Tier I contracts (install,
-  map, stub, ROM protection), Tier X's boot to the cold vector, the
-  byte-identical gate and the literal audit.
-- [ ] [loader.md](modules/loader.md), [mem.md](modules/mem.md),
-  [main.md](modules/main.md) (§ _main, § Exit path),
-  [gap_buffer.md](modules/gap_buffer.md), [zp.md](modules/zp.md)
-  (the 4-byte pointers), [glossary.md](glossary.md): the seam bodies
-  and terms the delta above names.
-- [ ] [userland_contract.md](userland_contract.md) § 3: the m65 user
-  regions (the stub's bytes excepted), stated so that the loader and
-  `mem.s` can be written against it; the rest of the contract is P1.
+- [x] [build_system.md § The m65 builds](build_system.md#the-m65-builds):
+  the defines (`PLATFORM_C64` / `PLATFORM_M65`, `CPU_45GS02`,
+  `MEGA_SUPPORT`), `-t c64` for PETSCII, the segments per bank with
+  their linker bounds, the raw PRG, D81 and 32 K cartridge, no
+  exomizer, the gates.  (Written and approved 2026-11-18.)
+- [x] [testing.md](testing.md): the platform-layer gates (literal
+  audit; the C64 PRG hashes, `c64_prg_sha256.json`), § The m65 PRG on
+  M65Emu (fixtures, the real loader run, `load_prg()`/`init_cse()`,
+  the one Hypervisor trap modelled, Tier X boot).  (Written and approved
+  2026-11-18.)
+- [x] [loader.md](modules/loader.md) (the m65 entry, the seven-step
+  sequence, the ROM-version refusal), [mem.md](modules/mem.md)
+  (banking no-ops, `cse_start` on m65, the resident stub and its
+  target words), [main.md](modules/main.md) (`_main`,
+  `setup_interrupts`, the per-step cold-init differences, the fallback,
+  the exit), [gap_buffer.md](modules/gap_buffer.md) (bank 1,
+  `SRC_LDA`/`SRC_STA`, `workstart`/`workend`), [zp.md](modules/zp.md)
+  (`umem_fp`, P-Q4), [glossary.md](glossary.md) (bank notation, the
+  two maps, stub, flat pointer, Hypervisor reset, platform driver
+  layer, seam).  (Written and approved 2026-11-18.)
+- [x] [userland_contract.md § 3](userland_contract.md#3-memory-regions):
+  the m65 regions.  (Written and approved 2026-11-18.)
+- [x] Corrections to the approved deltas, from the post-boot snapshot
+  and the CPU recording (2026-11-18): the CSE map's MAPLO is `$E3`,
+  not `$F3` (block 0 stays unmapped; the CSE map is BASIC 65's own
+  map); `EOM` releases `MAP`'s interrupt hold and leaves the I flag
+  alone; the CPU-port seeds are `$FF`/`$85`; the user transition
+  carries the user's registers on the stack (`PLAT_TO_USER`,
+  `stub_user`); one shared flat pointer instead of 4-byte pointers;
+  no user-memory block copy; no cold-init ZP snapshot on m65; the
+  quit command is `Q`, not `x`.
+
+**P0's CDD Analysis checks, besides doc against code** (each a
+recording or a trace in xmega65 before code is written against it):
+the MEGA65 KERNAL's use of base page 0 while CSE runs (P-Q4); that
+the KERNAL is content with `Z` = 0 at every call CSE makes and keeps
+it; `M65_MIN_ROM`, the oldest ROM the port is verified on; what the
+`$D640 ← $70` trap does to the protection, for M65Emu's model; that
+the interrupt entry's frame is A X Y Z B as the book says.
 
 Then: CDD Analysis and approval; TDD Analysis; the code, in this
 order — (1) the C64 build moved onto the seams as a pure refactor,
@@ -401,7 +422,7 @@ protection as memory_design.md states; the C64 PRGs byte-identical.
 Step-1 delta:
 - [ ] [userland_contract.md](userland_contract.md) for m65 in full:
   mode model, state tiers, regions, stack, the vector hazards in
-  vector-table terms, what survives a run and what survives `x`
+  vector-table terms, what survives a run and what survives `Q`
   (nothing promised; checked in xmega65 after the Hypervisor reset).
 - [ ] [platform_layer.md](platform_layer.md): the m65 bodies of
   the vector, frame and transition seams confirmed against the
@@ -409,7 +430,7 @@ Step-1 delta:
 - [ ] [main.md](modules/main.md) (§ BRK dispatch, § NMI dispatch; no
   early entry on m65), [debugger.md](modules/debugger.md)
   (`save_userland_state` on `FRAME_DEPTH`, `return_to_userland`
-  through `plat_user_enter`), [breakpoints.md](modules/breakpoints.md)
+  through `PLAT_TO_USER`), [breakpoints.md](modules/breakpoints.md)
   (patching through the user-memory seam), [design_cse_as_kernel.md](design_cse_as_kernel.md)
   (the transitions in two-map terms).
 - [ ] [testing.md](testing.md): the lifecycle matrix on m65, the
@@ -441,7 +462,7 @@ Step-1 delta:
   xmega65's screen dump; the ESC 4 / 5 / 8 round trip; typed
   commands through the typing queue.
 
-Gate: `?`, `m`, `.`, the editor and `x` at 80 × 25 in M65Emu and
+Gate: `?`, `m`, `.`, the editor and `Q` at 80 × 25 in M65Emu and
 xmega65; 40 × 25 and 80 × 50 render.
 
 **P3 — disk, exit and the three distribution formats.**
@@ -457,20 +478,21 @@ Step-1 delta:
   `$8000` with the vectors, flags and magic at `$8000–$8009`, the
   payload DMA'd from the cartridge's bank, the `.CRT` writer in
   `dev/` following the draft format.
-- [ ] [main.md § Exit path](modules/main.md#exit-path): `x` as the
+- [ ] [main.md § Exit path](modules/main.md#exit-path): `Q` ending in the
   Hypervisor reset.
 - [ ] [README.md](../README.md): starting from PRG, D81 and CRT; what
-  `x` does on the MEGA65.
+  `Q` does on the MEGA65.
 - [ ] [testing.md](testing.md): Tier X boots each format to the
-  prompt; `x` returns to a working BASIC 65.
+  prompt; `Q` returns to a working BASIC 65.
 
 **P4 — the CPU layer on the platform** = slice 1 Phase B (B1–B7,
 B4b, its prerequisite bugs), now with an m65 build to run on.  Its
 deltas are slice 1's ([assembler_syntax.md](assembler_syntax.md),
 the CPU-layer module docs).
 
-**P5 — the contract closed:** the ROM matrix (closed ROM
-`rom/mega65.rom`, Open ROMs `rom/mega65_open.rom`) in Tier I; the
+**P5 — the contract closed:** the ROM versions the port is verified
+on (`M65_MIN_ROM` and the current one; the Open ROMs boot to C64 mode
+and cannot run the m65 build — [build_system.md § MEGA65 ROM](build_system.md#mega65-rom)) in Tier I; the
 m65 size and cycle gates; every *stated with P<n>* resolved; the CDD
 Report.
 
@@ -479,7 +501,7 @@ Report.
 - [ ] **A1. KERNAL API survey** (before P1 and P2).  For every KERNAL
   call, ROM internal and KERNAL cell the C64 build uses, the MEGA65
   jump-table replacement, its prerequisites (bank, `B`, interrupts)
-  and its behaviour on the closed ROM and the Open ROMs — from the
+  and its behaviour on the MEGA65 ROM versions in use — from the
   book's Appendix I, confirmed in xmega65 against both ROMs.  Output:
   the m65 column of every seam in
   [platform_layer.md](platform_layer.md) that still says *stated
@@ -504,8 +526,16 @@ Report.
   base is a build constant, an `i`-visible setting or a command
   (P0's analysis; memory_design.md § Source Code Storage).
 - **P-Q2.** What a Hypervisor reset leaves in bank 0 (P1; the
-  userland contract's `x` clause).
+  userland contract's `Q` clause).
 - **P-Q3.** The `"m65"` magic's last byte (A3).
+- **P-Q4.** Whether the MEGA65 KERNAL leaves base page 0's `$02–$7F`
+  to CSE while CSE runs — its IRQ handler and every call CSE makes.
+  `JSRFAR` takes its parameters at `$02–$09` (book I-31), so BASIC 65's
+  base page is not the C64's.  If CSE's block collides with the
+  KERNAL's, CSE's variables move to a private base page (`B` ≠ 0),
+  with `B` = 0 around every KERNAL call — the KERNAL's interrupt
+  entry already saves `B` in its frame.  Settled in P0's analysis;
+  [zp.md](modules/zp.md) states the m65 layout only once it is.
 
 ### Done (S2-3, the harness)
 

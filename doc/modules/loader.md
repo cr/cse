@@ -26,9 +26,31 @@ workspace.
 `loader_entry` is not exported: it is reached by its fixed address,
 not by name.
 
+**On m65** (one entry, its body by `.ifdef PLATFORM_M65`;
+[platform_layer.md § Loader](../platform_layer.md#loader)):
+**In:** BASIC 65 has just `SYS 8205`-jumped here (the BASIC 65 stub at
+`$2001`; `loader_entry` at `$200D`), under the KERNAL's `SYS` map:
+`$2000–$7FFF` bank 0 RAM, the KERNAL at `$E000`, `B` = 0, `Z` = 0.
+**Out:** on a ROM older than the one the port is verified on
+(`VERSIONQ` below `M65_MIN_ROM`, a [platform constant](../platform_layer.md#constants)):
+prints `cse needs a newer MEGA65 ROM` through `PRIMM` and returns to
+BASIC with nothing changed.  Otherwise does not return: the machine
+is installed as [memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode)
+states — the stub at `0.1600` with `_main` in its cold target, CODE +
+RODATA at `3.2000`, KDATA in the data bank and its BSS cleared, the
+ROM write protection off — and control is in `_main` under the CSE
+map, reached through `stub_cold`.
+**Clobbers:** A, X, Y, Z; SP (reset to `$FF`); the base-page pointers
+the DMA jobs use; the DMA registers; the LOADER segment's memory,
+which `_main` leaves to the user.
+
 **State:** none — the loader runs once and is overwritten.
 **Depends on:** main (`_main`) — the loader's final `jmp` target after
-relocation is complete; plus the linker-supplied symbols
+relocation is complete (on m65: the address it writes into the
+stub's cold target); on m65 also mem (the `STUB` segment's image,
+which it copies to `0.1600`, and `stub_cold`), the KERNAL's
+`VERSIONQ` and `PRIMM`, and `src/m45_ops.inc`; plus the
+linker-supplied symbols
 `__CODE_LOAD__`, `__CODE_RUN__`, `__CODE_SIZE__`, `__RODATA_SIZE__`,
 `__BSS_RUN__`, `__BSS_SIZE__`, `__KDATA_LOAD__`, `__KDATA_RUN__`,
 `__KDATA_SIZE__`.
@@ -76,15 +98,52 @@ Tier I test loads through) produces, and the BSS must be zeroed.
 Unit-tier isolation would need synthesised linker symbols and is not
 productive ([testing.md § Principle 9](../testing.md), Pattern A).
 
+**The m65 sequence** (LOADER at `$200D`, load = run, inside the PRG
+image in bank 0):
+
+1. `VERSIONQ`; below `M65_MIN_ROM`, `PRIMM` the message and `rts` to
+   BASIC — before anything is written.
+2. Assert the MEGA65 I/O personality (`$D02F ← $47, $53`; BASIC 65
+   already runs in it, so this is defensive).
+3. Reset the stack pointer to `$FF`.
+4. Copy the `STUB` image to `0.1600` and write `_main`'s address into
+   its cold target.
+5. Lift the ROM write protection (Hypervisor trap `$D640 ← $70`,
+   then `CLV`).
+6. One DMA job list: CODE + RODATA image → `3.2000`, KDATA image →
+   the data bank, BSS → zero.  The job list is data in the LOADER
+   segment.
+7. `jmp stub_cold`, which `MAP`s the CSE map and jumps to `_main`.
+   The loader does not execute the `MAP` itself: it runs in the
+   `$2000–$7FFF` window the CSE map replaces.
+
+The m65 body does the C64 body's work (relocate, clear BSS, place
+KDATA) with the platform's means; the two share the entry, the
+contract shape and this document.  The cartridge bootstrap is the
+same body assembled with `PLAT_CRT`, reading its images from the
+cartridge's bank instead of the PRG (*stated with P3*).
+
+**m65 test coverage.**  Tier I, `test_loader.py` on the m65 PRG: the
+real `loader_entry` runs from the `SYS 8205` entry state until
+`_main`'s first instruction, and the installed machine is checked
+against memory_design.md; a ROM below `M65_MIN_ROM` is refused with
+nothing written.  Tier X boots the PRG in xmega65 to the same point
+([testing.md § The m65 PRG on M65Emu](../testing.md#the-m65-prg-on-m65emu)).
+
 ## Caveats
 
-- The loader runs in its own address space ($080D–$08xx) and **must
-  not call any code outside the LOADER segment** until the relocation
-  is complete.  After `jmp _main`, the LOADER memory becomes
+- The loader runs in its own address space ($080D–$08xx; `$200D`+ on
+  m65) and **must not call any code outside the LOADER segment** —
+  the KERNAL's jump table excepted — until the relocation is
+  complete.  After `jmp _main`, the LOADER memory becomes
   user workspace.
 - `_main` snapshots `$01–$7F` for the exit to BASIC after the loader
   ran, so the BASIC-side values of `$02–$05` are the loader's pointer
   leftovers, not BASIC's.
 - Only assembled with `.setcpu "6502"` — never use illegal or CMOS
   opcodes here.  The loader runs on every CSE target regardless of
-  build profile.
+  build profile.  The m65 body's 45GS02-only instructions (the DMA
+  trigger, `LDZ`) come from `src/m45_ops.inc`.
+- On m65 nothing the loader writes overlaps the PRG image it reads
+  from: the DMA jobs write only bank 3, the stub copy only
+  `0.1600–0.1EFF`, below the image at `$2001`.
