@@ -2351,11 +2351,15 @@ set_run_mode:
 
         ; b ADDR — set breakpoint.  try_expr_or_err parses AND
         ; rejects trailing garbage via the pop-trick — so a bad
-        ; "b ADDR xyz" never installs the bp.
+        ; "b ADDR xyz" never installs the bp.  An expression error
+        ; (Z=0) was reported by try_expr: stop there; only the
+        ; empty case (`b ;…`) is a syntax error.
         jsr try_expr_or_err
-        bcs :+
-        jmp @err_b
-:
+        bcs @set
+        bne @ret
+        jmp _syntax_err
+@ret:   rts
+@set:
         ; Range-check: bp must land in [workstart, workend] —
         ; the user-code workspace.  bp_range_check enforces this
         ; against the dynamic buf_base (editor source area starts
@@ -2453,7 +2457,6 @@ set_run_mode:
         ldx #>str_range
         jmp log_err   
 
-@err_b: jmp _syntax_err
 @done:  jmp io_clear_eol
 .endproc
 

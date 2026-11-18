@@ -1417,6 +1417,20 @@ class TestBreakCommand:
         assert ";?range" in self._run(cpu, rsyms, f"b {addr}")
         assert self._slot(cpu, rsyms, 0) == 0
 
+    def test_bad_expr_is_one_error_row(self, rsyms):
+        """repl.md `b` row: an expression error is its `;?expr` row
+        alone — no second `;?syntax` row — and sets nothing."""
+        cpu = self._new(rsyms)
+        scr = self._run(cpu, rsyms, "b nosuch")
+        assert ";?expr undef" in scr
+        assert "syntax" not in scr
+        assert self._slot(cpu, rsyms, 0) == 0
+
+    def test_trailing_garbage_is_syntax(self, rsyms):
+        cpu = self._new(rsyms)
+        assert ";?syntax" in self._run(cpu, rsyms, "b $1000 x")
+        assert self._slot(cpu, rsyms, 0) == 0
+
     def test_table_full(self, rsyms):
         cpu = self._new(rsyms)
         for i in range(8):

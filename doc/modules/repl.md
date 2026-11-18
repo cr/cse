@@ -524,7 +524,7 @@ The debug-session gates of these commands, `t`/`o`, `a` and `R` are
 | Key | Name      | Addressed | Example         | Notes                                    |
 |-----|-----------|-----------|-----------------|------------------------------------------|
 | `r` | registers | —         | `r` or `r a:05 x:07` | Bare = show.  Fields by label in any order and subset: `a:XX` `x:XX` `y:XX` `s:XX` `pc:XXXX` (hex digits) and the 8-character flags field (`nv-bdizc`; uppercase = set, lowercase / `-` / `.` = clear; bit 5 stays 0).  The whole line is checked before anything is applied; a bad field is `;?syntax`. |
-| `b` | breakpoint| —         | `b $1020`, `b main`, `b -1`, `b *`, `b` | Set (expression; must be in the workspace, else `;?range`; an address already set reuses its slot), delete slot 1–8, clear all, list the 8 user slots.  A bad set argument is `;?syntax` (after the `;?expr` row for an expression error).  See [breakpoints.md](breakpoints.md). |
+| `b` | breakpoint| —         | `b $1020`, `b main`, `b -1`, `b *`, `b` | Set (expression; must be in the workspace, else `;?range`; an address already set reuses its slot), delete slot 1–8, clear all, list the 8 user slots.  An expression error is its `;?expr` row alone; trailing garbage is `;?syntax`.  See [breakpoints.md](breakpoints.md). |
 | `t` | trace     | —         | `t` or `t 5`    | Step into, count = expression (default 1).  No session: cold preview.  Rejects trailing garbage. |
 | `o` | trace over| —         | `o` or `o 5`    | Step over (a `jsr` runs to completion), otherwise as `t`. |
 

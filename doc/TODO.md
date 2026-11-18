@@ -1159,7 +1159,8 @@ documentation round that follows this filing.
   undef` (or do a cold preview) — the shape of the fixed `j` bug:
   `cmd_step` treats an error as an empty argument.
   Fixed 2026-11-18: `cmd_step` returns on try_expr's Z=0 (error) before the gate, as `j` does (+2 B), test test_bad_step_count_neither_steps_nor_previews.
-- [ ] **`b nosuch` prints `;?expr undef` and then an extra `;?syntax`.**
+- [x] **`b nosuch` prints `;?expr undef` and then an extra `;?syntax`.**
+  Fixed 2026-11-18: `cmd_brk` returns on try_expr's Z=0; only the empty case is `;?syntax` (±0 B), test test_bad_expr_is_one_error_row.
 - [ ] **`;!N: truncated` fires for a line of exactly 39 characters**,
   which is not truncated.
 - [ ] **Steps chained inside the handler (`t N`, N > 1) skip the
