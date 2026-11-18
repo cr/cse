@@ -1973,3 +1973,105 @@ class TestDbgInitOutputs:
         for buf in ("userland_zp_buf", "kernel_zp_buf"):
             assert (e.memory[e.sym(buf)], e.memory[e.sym(buf) + 1]) == (0x2F, 0x36)
         assert [e.memory[bt + i] for i in range(40)] == [0x11] * 40
+
+
+# ── query_user outcomes: every y/n gate, typed through main_loop ──
+
+def _insert_source(s, text):
+    buf = 0x7000
+    for i, ch in enumerate(text):
+        s.e.memory[buf + i] = ord(ch)
+    s.e.memory[buf + len(text)] = 0
+    s.call("ed_insert_string", a=buf & 0xFF, x=buf >> 8)
+
+
+def _brk_session(s):
+    """A live DBG_BRK session: b $3001, j $3000 (NOP; NOP; RTS)."""
+    for i, b in enumerate((0xEA, 0xEA, 0x60)):
+        s.e.memory[0x3000 + i] = b
+    s.type("b $3001")
+    s.type("j $3000")
+    assert s.v("dbg_reason") == DBG_BRK
+
+
+class TestQueryUserOutcomes:
+    """repl.md § Gating pattern: query_user prints `;!<stem>? y/n`;
+    only `y` confirms, any other key cancels and changes nothing."""
+
+    @pytest.mark.parametrize("key,yes", [(b"Y", True), (b"N", False),
+                                         (b"X", False)])
+    def test_k_delete_source(self, session, key, yes):
+        s = session
+        _insert_source(s, "MAIN RTS\r")
+        before = s.v("ed_dirty"), s.e.read_word(s.e.sym("ed_total_lines"))
+        s.start("k")
+        s.keys(key)
+        assert "del src? y/n" in s.screen()
+        lines = s.e.read_word(s.e.sym("ed_total_lines"))
+        if yes:
+            assert lines == 1 and s.v("ed_dirty") == 0
+        else:
+            assert (s.v("ed_dirty"), lines) == before
+
+    @pytest.mark.parametrize("key", [b"N", b"X"])
+    def test_Q_cancel_stays(self, session, key):
+        s = session
+        s.start("Q")
+        s.keys(key)
+        assert "quit? y/n" in s.screen()
+        assert s.v("state") == 1
+
+    def test_Q_yes_exits_to_basic(self, session):
+        s, e = session, session.e
+        s.start("Q")
+        e.inject_keys(b"Y")
+        e.run_until(e.sym("cse_exit_to_basic"), max_cycles=2_000_000)
+        assert s.v("state") == 0
+
+    @pytest.mark.parametrize("key,yes", [(b"Y", True), (b"N", False)])
+    def test_R_reset(self, session, key, yes):
+        s = session
+        _brk_session(s)
+        s.start("R")
+        s.keys(key)
+        assert s.v("dbg_reason") == (DBG_NONE if yes else DBG_BRK)
+        if not yes:
+            assert "init? y/n" in s.screen()
+
+    @pytest.mark.parametrize("key,yes", [(b"Y", True), (b"N", False)])
+    def test_j_gate(self, session, key, yes):
+        s = session
+        _brk_session(s)
+        s.start("j $3000")
+        s.keys(key)
+        if yes:     # session ended, j replayed: stops at the bp again
+            assert s.v("dbg_reason") == DBG_BRK and s.w("brk_pc") == 0x3001
+            assert s.v("warm_cont") == 0
+        else:
+            assert "go? y/n" in s.screen()
+            assert s.v("dbg_reason") == DBG_BRK and s.w("brk_pc") == 0x3001
+            assert s.v("run_user_pending") == 0
+
+    @pytest.mark.parametrize("key,yes", [(b"Y", True), (b"N", False)])
+    def test_a_gate(self, session, key, yes):
+        s = session
+        _insert_source(s, "MAIN RTS\r")
+        _brk_session(s)
+        s.start("a")
+        s.keys(key)
+        scr = s.screen()
+        assert "asm? y/n" in scr or yes
+        if yes:
+            assert s.v("dbg_reason") == DBG_NONE and "; asm..." in scr
+        else:
+            assert s.v("dbg_reason") == DBG_BRK
+
+    def test_l_gate_cancel_keeps_source(self, session):
+        s = session
+        _insert_source(s, "MAIN RTS\r")
+        lines = s.e.read_word(s.e.sym("ed_total_lines"))
+        s.start('l "other"')
+        s.keys(b"N")
+        assert "load? y/n" in s.screen()
+        assert s.e.read_word(s.e.sym("ed_total_lines")) == lines
+        assert s.v("ed_dirty") == 1

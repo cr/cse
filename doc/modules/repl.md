@@ -659,6 +659,13 @@ The `c` (continue) command is **not gated** — it requires an
 active debug context and errors with `;?no ctx` via `log_err`
 when `dbg_reason == 0`.
 
+`query_user` confirms on `y` only; any other key cancels and the
+command changes nothing.  Every gate's yes and no outcome (`k`, `Q`,
+`R`, the `j` and `a` end-debug gates, the `l` dirty-source gate) is
+pinned by `TestQueryUserOutcomes` in
+`tests/integration/test_kernel_transition.py`, typed through
+`main_loop`.
+
 ### Internal helpers
 
 **`confirm_yn`** — shows the cursor (`cursor_show`), waits for a
