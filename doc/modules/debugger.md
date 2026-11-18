@@ -492,6 +492,8 @@ JMP (ind):     next = peek16(operand)            ← NMOS page wrap:
                JMP ($xxFF) takes its high byte from $xx00, as the
                6502/6510 does (not when asm_cpu = 65C02)
 JMP (abs,X):   next = peek16(operand + X)       ← 65C02 only, no wrap
+               peek16 reads $00–$7F from the user's ZP image
+               (userland_zp_buf), not the kernel's live ZP
 JSR abs:       next = operand                    ← `t`: step INTO
                EXCEPT if operand >= $E000:
                next = PC + 3 (step OVER — KERNAL ROM is unpatchable)

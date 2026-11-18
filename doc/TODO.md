@@ -866,9 +866,13 @@ documentation round that follows this filing.
   `asm_cpu` is 65C02, tests
   `TestStepIndirectJump::test_jmp_ind_page_wrap_nmos` /
   `test_jmp_ind_no_wrap_65c02`.
-- [ ] **Step over `JMP (zp)` / `JMP (abs,X)` reads the vector from the
+- [x] **Step over `JMP (zp)` / `JMP (abs,X)` reads the vector from the
   kernel's ZP**, not `userland_zp_buf` (refused with `;!range`, or a
   wrong target).
+  Fixed 2026-11-18: `step_next_pc` reads the vector through
+  `peek_user` (`userland_zp_buf` for $00-$7F), tests
+  `TestStepIndirectJump::test_jmp_zp_vector_from_user_zp` /
+  `test_jmp_abs_x_vector_from_user_zp_65c02`.
 - [ ] **`t N` / `o N` take N mod 256** (`t 257` steps 1, `t 300`
   steps 44): `step_remaining` is one byte.
 - [ ] **`b` accepts a duplicate address**: a second slot re-breaks at

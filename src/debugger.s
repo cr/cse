@@ -343,7 +343,8 @@ brk_stub:
 ;                                 step_next_hi = fall-through
 ;                    STEP_OVER — step_next_lo = fall-through only
 ;   JMP abs:         step_next_lo = operand
-;   JMP (ind):       step_next_lo = peek16(operand); JMP ($xxFF) takes
+;   JMP (ind):       step_next_lo = peek16(operand), read through the
+;                    user's ZP image for $00-$7F; JMP ($xxFF) takes
 ;                    its high byte from $xx00 (NMOS wrap) unless
 ;                    asm_cpu = 65C02
 ;   JMP (abs,x):     65C02 only — peek16(operand + x)
@@ -403,13 +404,7 @@ brk_stub:
         lda (rp_ptr2),y
         adc #0
         sta rp_ptr+1
-        ldy #0
-        lda (rp_ptr),y
-        sta step_next_lo
-        iny
-        lda (rp_ptr),y
-        sta step_next_lo+1
-        rts
+        jmp @vec                ; asm_cpu = 65C02 here: no page wrap
 @not_7c:
         lda step_save
         cmp #$80
@@ -523,22 +518,23 @@ brk_stub:
         iny
         lda (rp_ptr2),y
         sta rp_ptr+1
-        ldy #0
-        lda (rp_ptr),y
+@vec:   ; Read the vector at rp_ptr as the CPU will: through the user's
+        ; ZP image for $00-$7F (peek_user).  High byte: the NMOS CPU
+        ; only increments the low byte of the vector address, so
+        ; JMP ($xxFF) reads its high byte from $xx00.  The 65C02
+        ; carries into the page.
+        jsr peek_user
         sta step_next_lo
-        ; High byte: the NMOS CPU only increments the low byte of the
-        ; vector address, so JMP ($xxFF) reads its high byte from
-        ; $xx00.  The 65C02 carries into the page.
         inc rp_ptr
-        bne @ind_hi
 .ifdef CMOS_SUPPORT
+        bne @ind_hi
         lda asm_cpu
         cmp #2
         bcc @ind_hi             ; NMOS: page wrap
         inc rp_ptr+1            ; 65C02: no wrap
 .endif
 @ind_hi:
-        lda (rp_ptr),y
+        jsr peek_user
         sta step_next_lo+1
         rts
 
@@ -579,6 +575,23 @@ brk_stub:
 @stop:
         rts
 .endproc
+
+; ── peek_user ───────────────────────────────────────────────────────
+; A := the byte at rp_ptr as user code sees it: $00-$7F come from the
+; user's ZP image (userland_zp_buf — the live ZP is the kernel's while
+; CSE runs), everything else is read live.  Clobbers: Y.
+;
+peek_user:
+        ldy #0
+        lda rp_ptr+1
+        bne @live
+        lda rp_ptr
+        bmi @live               ; $80-$FF: not in the save range
+        tay
+        lda userland_zp_buf,y
+        rts
+@live:  lda (rp_ptr),y
+        rts
 
 ; ── compute_rel_target ──────────────────────────────────────────────
 ; step_next_lo = brk_pc + 2 + sign_extend(byte_at(rp_ptr2+1)).

@@ -1791,3 +1791,30 @@ class TestStepIndirectJump:
         e.jsr(e.sym("step_next_pc"))
         e._cpu.pc, e._cpu.sp = pc, sp
         assert e.read_word(e.sym("step_next_lo")) == 0x4000
+
+    def test_jmp_zp_vector_from_user_zp(self, session):
+        s, e = session, session.e
+        self._poke(e, 0x1000, [0xA9, 0x00, 0x85, 0x50,       # LDA #0; STA $50
+                               0xA9, 0x30, 0x85, 0x51,       # LDA #$30; STA $51
+                               0xEA, 0x6C, 0x50, 0x00])      # NOP; JMP ($0050)
+        self._poke(e, 0x3000, [0xEA, 0x60])
+        s.type("b $1009")
+        s.type("j $1000")
+        s.type("t")
+        assert s.v("dbg_reason") == DBG_BRK
+        assert s.w("brk_pc") == 0x3000
+
+    def test_jmp_abs_x_vector_from_user_zp_65c02(self, session):
+        s, e = session, session.e
+        self._poke(e, 0x1000, [0x7C, 0x40, 0x00])           # JMP ($0040,X)
+        zp = e.sym("userland_zp_buf")
+        e.memory[zp + 0x42] = 0x00
+        e.memory[zp + 0x43] = 0x30
+        e.memory[e.sym("asm_cpu")] = 2
+        e.memory[e.sym("reg_x")] = 2
+        e.memory[e.sym("step_state")] = 1
+        e.write_word(e.sym("brk_pc"), 0x1000)
+        pc, sp = e._cpu.pc, e._cpu.sp
+        e.jsr(e.sym("step_next_pc"))
+        e._cpu.pc, e._cpu.sp = pc, sp
+        assert e.read_word(e.sym("step_next_lo")) == 0x3000
