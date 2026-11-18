@@ -629,6 +629,17 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   access macros, `FAR_BANK`, `PLAT_SETBNK`, `PLAT_COLD_START`; T7,
   T11.  Plan change: T8 runs the real loader on the linked PRG, so it
   moves to step (5) with the build target.
+- [x] Step (4c): the resident stub (mem.s's `STUB` segment, 73 of
+  80 bytes: `stub_brk`, `stub_nmi`, `stub_cold`, `stub_user`,
+  `brk_stub` — moved there from debugger.s on m65 — and the three
+  targets); the loader's m65 body (the gate through `$FF00,x`, nothing
+  written before it passes; the stub copy, the base-page clear, the
+  cold target; `hyppo_rom_writeenable`; one F018B list of three
+  chained jobs; `jmp stub_cold`); `_main`'s steps 10 (`ZP_FILL_END`)
+  and 11 (one DMA fill job); `cse_exit_to_basic` = `hyppo_reset`; the
+  m65 BASIC stub `10 SYS 8205`.  The loader and debugger assemble for
+  m65; mem.s and main.s wait for step (5)'s m65 answers (`HIMEM`, the
+  screen geometry), and T8 tests the install there.
 - The m65 bodies the docs state for P0, written in step (4) with the
   harness that tests them: `KCALL` / `KJMP`, `FAR_SIZE` and the far
   access macros, `FAR_BANK` at every far pointer's set sites,

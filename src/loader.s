@@ -147,3 +147,132 @@ zero_pages:
 @done:  rts
 
 .endif ; PLATFORM_C64
+
+; ═════════════════════════════════════════════════════════════
+; m65 — the gate and the install (doc/modules/loader.md § Design,
+; *The m65 sequence*).  Entered by `10 SYS 8205` with the run premise:
+; the user map, B = 0, interrupts on.  Nothing is written before the
+; gate has passed, so a refusal returns to BASIC with nothing changed.
+; ═════════════════════════════════════════════════════════════
+.ifdef PLATFORM_M65
+
+        .import _main
+        .import stub_cold, stub_cold_target
+        .import __STUB_LOAD__, __STUB_RUN__, __STUB_SIZE__
+        .import __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
+        .import __RODATA_SIZE__
+        .import __KDATA_LOAD__, __KDATA_RUN__, __KDATA_SIZE__
+        .import __BSS_RUN__, __BSS_SIZE__
+
+.segment "LOADER"
+
+loader_entry:
+        ; ── 1. The gate: Hyppo 1.2+, and every jump-table entry CSE
+        ;       calls is a JMP or JMP () — no store before it passes
+        HYPPO HYPPO_GETVERSION, HYPPO_TRAP      ; A.X = Hyppo major.minor
+        cmp #1
+        bcc @refuse
+        bne @entries                            ; 2.x or later
+        cpx #2
+        bcc @refuse
+@entries:
+        ldy #entries_end - entries - 1
+@entry: ldx entries,y
+        lda KERNAL_JUMP_PAGE,x
+        cmp #$4C                                ; JMP abs
+        beq @next
+        cmp #$6C                                ; JMP (abs)
+        bne @refuse
+@next:  dey
+        bpl @entry
+
+        ; ── 2. Interrupts off; the stack from its top ──
+        sei
+        ldx #STACK_TOP
+        txs
+
+        ; ── 3. The stub to STUB_BASE, CSE's base page cleared, the
+        ;       stub's cold target = _main
+        ldx #<__STUB_SIZE__
+@stub:  lda __STUB_LOAD__ - 1,x
+        sta __STUB_RUN__ - 1,x
+        dex
+        bne @stub
+        lda #0
+        ldx #ZP_FILL_END
+@bp:    sta CSE_BP * 256 - 1,x
+        dex
+        bne @bp
+        lda #<_main
+        sta stub_cold_target
+        lda #>_main
+        sta stub_cold_target + 1
+
+        ; ── 4. Banks 2-3 writable ──
+        HYPPO HYPPO_ROM_WRITEENABLE, HYPPO_TRAP_ROM
+
+        ; ── 5. The images to bank 3, BSS cleared: one job list ──
+        lda #BANK_USER
+        sta DMA_LIST_BANK
+        lda #>install_jobs
+        sta DMA_LIST_HI
+        lda #<install_jobs
+        sta DMA_START_ENH
+
+        ; ── 6. Into _main through the stub, which MAPs the CSE map ──
+        jmp stub_cold
+
+@refuse:
+        ldy #0
+@msg:   lda refusal,y
+        beq @done
+        jsr CHROUT                              ; B = 0 here: no KCALL
+        iny
+        bne @msg
+@done:  rts
+
+; The low bytes of the jump-table entries CSE calls ($FFxx).
+entries:
+        .byte <GETIN, <PLOT, <SETLFS, <SETNAM, <OPEN, <CLOSE, <CHKIN
+        .byte <CHKOUT, <CLRCHN, <CHRIN, <CHROUT, <LOAD, <READST
+        .byte <LISTEN, <UNLSN, <VECTOR, <SETBNK, <SCRORG, <SYSFLAGS
+entries_end:
+
+refusal:
+        .byte "cse needs MEGA65 ROM 920413+ (Hyppo 1.2+)", $0D, 0
+
+; The install: CODE + RODATA and KDATA from the PRG image (bank 0) to
+; bank 3, then BSS cleared — three chained F018B jobs.
+install_jobs:
+        .byte DMA_OPT_F018B, $00
+        .byte DMA_COPY | DMA_CHAIN
+        .word __CODE_SIZE__ + __RODATA_SIZE__
+        .word __CODE_LOAD__
+        .byte BANK_USER
+        .word __CODE_RUN__
+        .byte BANK_CSE
+        .byte $00
+        .word 0
+        .byte $00                               ; options: none
+        .byte DMA_COPY | DMA_CHAIN
+        .word __KDATA_SIZE__
+        .word __KDATA_LOAD__
+        .byte BANK_USER
+        .word __KDATA_RUN__
+        .byte BANK_CSE
+        .byte $00
+        .word 0
+        .byte $00
+        .byte DMA_FILL
+        .word __BSS_SIZE__
+        .byte $00, $00, $00                     ; the fill byte
+        .word __BSS_RUN__
+        .byte BANK_CSE
+        .byte $00
+        .word 0
+
+        .assert >GETIN = >KERNAL_JUMP_PAGE, error, "a jump-table entry outside $FFxx"
+        .assert >SETBNK = >KERNAL_JUMP_PAGE, error, "a jump-table entry outside $FFxx"
+        .assert >SYSFLAGS = >KERNAL_JUMP_PAGE, error, "a jump-table entry outside $FFxx"
+
+.endif ; PLATFORM_M65

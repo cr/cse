@@ -42,7 +42,11 @@
         .export brk_pc
         .export save_userland_state, restore_userland_state
         .export return_to_userland
+.ifdef PLATFORM_C64
         .export brk_stub
+.else
+        .import brk_stub                ; mem.s's resident stub
+.endif
         .export step_next_pc
         .export arm_step_bp
         .export step_state
@@ -349,9 +353,12 @@ _rtu_body:
 ; ── brk_stub ────────────────────────────────────────────────────────
 ; Fixed code address where user's top-level RTS lands after popping
 ; the sentinel pushed by return_to_userland.  BRK + 1 signature byte.
+; m65: in the resident stub (mem.s), which the user map shows.
+.ifdef PLATFORM_C64
 brk_stub:
         brk
         .byte $42               ; signature (arbitrary non-$00)
+.endif
 
 ; ═══════════════════════════════════════════════════════════════════════
 ; Step-chain helpers (shared between cmd_step seed and handler chain).

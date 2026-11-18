@@ -77,6 +77,7 @@ DDR_SEED        = $2F           ; the DDR as the KERNAL sets it
 PORT_SEED       = $36           ; the kernel's configuration: KERNAL in, BASIC out
 BANK_IN         = PORT_SEED
 ZP_BASE         = $00           ; the zero page's first byte
+ZP_FILL_END     = $80           ; cold init fills the free ZP up to here
 ZP_SAVE_LO      = $00           ; the user ZP swapped at every transition
 ZP_SAVE_LEN     = 128           ;   … $00–$7F
 
@@ -173,6 +174,20 @@ HYPPO_RESET     = $7E               ; via HYPPO_TRAP: does not return
 CSE_BP          = $1F               ; B while kernel code runs: 0.1F00
 BP_PAGE         = CSE_BP
 STUB_BASE       = $1FB0             ; the resident stub, to 0.1FFF
+ZP_BASE         = $00               ; the base page's first byte (offset)
+ZP_FILL_END     = <STUB_BASE        ; cold init fills the free part to here
+
+; ── The KERNAL's jump table: every entry CSE calls is in this page ───
+KERNAL_JUMP_PAGE = $FF00
+
+; ── The DMAgic: an enhanced job list at (bank, hi, lo); $D705 starts it
+DMA_LIST_HI     = $D701
+DMA_LIST_BANK   = $D702             ; bits 16-22; clears the megabyte
+DMA_START_ENH   = $D705             ; bits 0-7, starts an enhanced list
+DMA_OPT_F018B   = $0B               ; option: the F018B job format
+DMA_COPY        = $00               ; job commands
+DMA_FILL        = $03
+DMA_CHAIN       = $04               ; another job follows
 
 ; ── The banks a far pointer names (§ Far memory) ─────────────────────
 BANK_USER       = 0                 ; user memory, the screen (40/80 x 25)
@@ -195,6 +210,7 @@ FRAME_DEPTH     = 5                 ; B Z Y X A above the CPU's P PCL PCH
 STACK_TOP       = $F1               ; a fresh start's SP is the premise's $EF
 
 ; ── Homes ────────────────────────────────────────────────────────────
+BASIC_START     = $2001             ; BASIC 65's program start (the PRG)
 PROG_LO         = $2000             ; the program region, bank 0
 PROG_HI         = $BFFF
 WORKSTART       = PROG_LO

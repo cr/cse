@@ -174,6 +174,28 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         .byte "2061", 0
 @next:  .word 0
 .endif
+; m65: `10 SYS 8205` — the loader at $200D (memory_design.md § Memory
+; Map — m65).
+.ifdef PLATFORM_M65
+.segment "EXEHDR"
+        .word @next
+        .word 10
+        .byte $9E
+        .byte "8205", 0
+@next:  .word 0
+
+; _main's step 11: $00 over the program region, one F018B fill job.
+.segment "RODATA"
+prog_fill_job:
+        .byte DMA_OPT_F018B, $00                ; options, end
+        .byte DMA_FILL                          ; command
+        .word PROG_HI - PROG_LO + 1             ; count
+        .byte $00, $00, $00                     ; source: the fill byte
+        .word PROG_LO                           ; target
+        .byte BANK_USER
+        .byte $00                               ; sub-command
+        .word 0                                 ; modulo
+.endif
 
 ; ── CODE ────────────────────────────────────────────────────
 .segment "CODE"
@@ -244,10 +266,20 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         lda #$FF
 @zp:    sta ZP_BASE,x
         inx
-        cpx #$80
+        cpx #ZP_FILL_END
         bcc @zp
 
         ; ── 11. Fill free workspace with $00 ──
+.ifdef PLATFORM_M65
+        ; the program region, by one DMA fill job (its list in RODATA,
+        ; flat in bank 3); this wipes the PRG image and the loader
+        lda #BANK_CSE
+        sta DMA_LIST_BANK
+        lda #>prog_fill_job
+        sta DMA_LIST_HI
+        lda #<prog_fill_job
+        sta DMA_START_ENH
+.else
         lda #<WORKSTART
         sta rp_ptr
         lda #>WORKSTART
@@ -261,6 +293,7 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         inc rp_ptr+1
 :       cpx rp_ptr+1
         bne @work
+.endif
 
         ; ── 12. I/O + screen ──
         jsr io_init
@@ -1085,6 +1118,10 @@ refresh_body:
 ; cse_exit_to_basic
 ; ═════════════════════════════════════════════════════════════
 cse_exit_to_basic:
+.ifdef PLATFORM_M65
+        sei                     ; the Hypervisor reset: banks 2-3 reloaded,
+        HYPPO HYPPO_RESET, HYPPO_TRAP   ; the KERNAL boots BASIC 65
+.endif
 .ifdef PLATFORM_C64
         sei
         lda #$00

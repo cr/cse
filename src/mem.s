@@ -278,3 +278,74 @@ cse_zp_end:
 .endproc
 
 .endif ; PLATFORM_C64
+
+; ═════════════════════════════════════════════════════════════
+; The resident stub (m65 only) — doc/modules/mem.md § The resident
+; stub.  CSE's only code in bank 0, at STUB_BASE (0.1FB0), visible in
+; both maps; the loader copies the STUB segment there.  Its CSE
+; entries map the CSE map, set B = CSE_BP and jump through a target
+; word written from above (main.s, the loader), so the stub imports
+; nothing of a higher layer.  MAP holds interrupts off until EOM.
+; ═════════════════════════════════════════════════════════════
+.ifdef PLATFORM_M65
+
+        .export stub_brk, stub_nmi, stub_cold, stub_user, brk_stub
+        .export stub_brk_target, stub_nmi_target, stub_cold_target
+
+; MAP the CSE map, B = CSE_BP, jump through `target`.
+; Clobbers A, X, Y, Z, B.
+.macro TO_CSE target
+        lda #MAP_CSE_A
+        ldx #MAP_CSE_X
+        ldy #MAP_CSE_Y
+        M45_LDZ_IMM MAP_CSE_Z
+        M45_MAP
+        M45_EOM
+        lda #CSE_BP
+        M45_TAB
+        jmp (target)
+.endmacro
+
+.segment "STUB"
+
+; BRK / NMI through the KERNAL's vectors, in either map; its frame on
+; the stack, B = 0 (its entry set it).
+stub_brk:
+        TO_CSE stub_brk_target
+stub_nmi:
+        TO_CSE stub_nmi_target
+
+; From the loader by jmp, interrupts off.
+stub_cold:
+        TO_CSE stub_cold_target
+
+; From PLAT_TO_USER: the user's A X Y Z B pushed above the RTI frame.
+stub_user:
+        lda #MAP_USER_A
+        ldx #MAP_USER_X
+        ldy #MAP_USER_Y
+        M45_LDZ_IMM MAP_USER_Z
+        M45_MAP
+        M45_EOM
+        pla
+        M45_TAB
+        M45_PLZ
+        M45_PLY
+        M45_PLX
+        pla
+        rti
+
+; A program's final RTS lands here (the sentinel return_to_userland
+; pushes): in bank 0, which the user map shows.
+brk_stub:
+        brk
+        .byte $42               ; signature (arbitrary non-$00)
+
+stub_brk_target:  .word 0
+stub_nmi_target:  .word 0
+stub_cold_target: .word 0
+stub_end:
+
+        .assert stub_end - stub_brk <= $0050, error, "the resident stub overflows 0.1FB0-0.1FFF"
+
+.endif ; PLATFORM_M65

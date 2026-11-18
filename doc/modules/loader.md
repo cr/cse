@@ -19,7 +19,7 @@ left.
 **Out:** does not return.  Tail-jumps to `_main` after relocation:
 CODE + RODATA at their runtime addresses, BSS zeroed, KDATA at its
 runtime address under the KERNAL.  `$01` is unchanged.
-**Clobbers:** A, X, Y; SP (reset to `$FF`); ZP `$02–$05` (`ptr1`,
+**Clobbers:** A, X, Y; SP (reset to `STACK_TOP`); ZP `$02–$05` (`ptr1`,
 `ptr2`); the LOADER segment's own memory once `_main` reclaims it as
 workspace.
 
@@ -37,7 +37,7 @@ and returns to BASIC with nothing changed.  Otherwise does not
 return: the machine is installed — memory_design.md § Memory Map —
 m65, *The installed machine* — and control is in `_main`, reached
 through the resident stub's cold entry.
-**Clobbers:** A, X, Y, Z, B; SP (reset to `$FF`); the DMA registers;
+**Clobbers:** A, X, Y, Z, B; SP (reset to `STACK_TOP`); the DMA registers;
 the LOADER segment's memory, which `_main` clears with the rest of
 the program region.
 

@@ -138,7 +138,9 @@ platform lacks is absent there, so a stray use fails to assemble.
 | SID | `$D400`, `$D401`, `$D404`, `$D40B`, `$D412`, `$D418` | the same |
 | BASIC format | `SYS` token `$9E`, `REM` token `$8F` | the same in BASIC 65 |
 | CPU-port seeds | `$00 = $2F`, `$01 = $36` | none: the m65 build never touches the CPU port |
-| DMAgic | none | the job-list address and trigger registers `$D700–$D705` (the loader's install) |
+| DMAgic | none | the job-list address and trigger registers `$D700–$D705` (the loader's install, `_main`'s step 11); the F018B option and the job commands |
+| The free-ZP fill (`_main` step 10) | `ZP_BASE` `$00`, `ZP_FILL_END` `$80` | `ZP_BASE` `$00`, `ZP_FILL_END` = `STUB_BASE`'s low byte: the free part of CSE's base page |
+| The jump-table page (the loader's gate) | none | `KERNAL_JUMP_PAGE` `$FF00`: every entry CSE calls is in it |
 | `DISK_LOCAL_PTR` (disk.s's private pointer) | `$FD` — in the KERNAL half; see [TODO § Bugs](TODO.md#bugs) | a far pointer in CSE's base page — *stated with P3* |
 
 **Hypervisor services (m65).**  The documented Hypervisor traps the
