@@ -1030,10 +1030,12 @@ documentation round that follows this filing.
 - [ ] **The `;!a shadow` warning crashes `a`**: printed while the
   KERNAL is banked out, `newline` → `io_sync` calls into the KERNAL
   area (CSE data there) → BRK → `cse_recover`.
-- [ ] **CLR/HOME or ESC at a breakpoint, then `c`, hangs**:
+- [x] **CLR/HOME or ESC at a breakpoint, then `c`, hangs**:
   `cse_refresh` resets SP to `kernel_init_sp`, and kernel `jsr`s
   overwrite the user's `brk_stub` sentinel at `$01FE/$01FF`; README
   promises the debug context is preserved.
+  Fixed 2026-11-18 (runtime track): `cse_refresh` resets SP to `reg_sp`
+  in a live session, test in test_kernel_transition.py.
 - [ ] **Dotted global labels**: `jmp main.loop` is `undef`; a global
   label with an embedded dot is defined but cannot be referenced (the
   operand expansion prefixes the scope at every `.`); `a_b:` is
