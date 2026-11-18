@@ -237,6 +237,33 @@ class TestBpDel:
         assert not ok
 
 
+class TestBpHitInvalidation:
+    """breakpoints.md § dbg_bp_del / dbg_bp_clear: deleting the hit
+    slot (or all slots) drops dbg_bp_hit to $FF."""
+
+    def test_del_hit_slot_clears_hit(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_bp_set(mpu, dbg_syms, 0x00, 0x30)
+        mpu.memory[dbg_syms.dbg_bp_hit] = 0
+        cmd_bp_del(mpu, dbg_syms, 0)
+        assert mpu.memory[dbg_syms.dbg_bp_hit] == 0xFF
+
+    def test_del_other_slot_keeps_hit(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_bp_set(mpu, dbg_syms, 0x00, 0x30)
+        cmd_bp_set(mpu, dbg_syms, 0x10, 0x30)
+        mpu.memory[dbg_syms.dbg_bp_hit] = 0
+        cmd_bp_del(mpu, dbg_syms, 1)
+        assert mpu.memory[dbg_syms.dbg_bp_hit] == 0
+
+    def test_clear_clears_hit(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_bp_set(mpu, dbg_syms, 0x00, 0x30)
+        mpu.memory[dbg_syms.dbg_bp_hit] = 0
+        cmd_bp_clear(mpu, dbg_syms)
+        assert mpu.memory[dbg_syms.dbg_bp_hit] == 0xFF
+
+
 class TestBpClear:
     def test_clear_all(self, dbg_syms):
         mpu = make_cpu(dbg_syms)

@@ -1646,3 +1646,23 @@ class TestRefusedStep:
                     max_cycles=200_000)
         assert e.memory[bt + 3] == 1
         assert s.v("rp_dis_bp") == 0xFF
+
+
+class TestBpHitAfterTableEdit:
+    """breakpoints.md § dbg_bp_clear: after `b *` the hit breakpoint is
+    gone; `c` must not delete a new breakpoint set in its slot."""
+
+    def test_c_keeps_new_bp_in_hit_slot(self, session):
+        s, e = session, session.e
+        for a, b in {0x3000: 0x20, 0x3001: 0x10, 0x3002: 0x30,   # JSR $3010
+                     0x3003: 0xE8, 0x3004: 0x60,                  # INX; RTS
+                     0x3010: 0xEA, 0x3011: 0x60}.items():         # NOP; RTS
+            e.memory[a] = b
+        s.type("b $3010")
+        s.type("j $3000")
+        assert s.v("dbg_bp_hit") == 0
+        s.type("b *")
+        s.type("b $3003")
+        s.type("c")
+        assert e.read_word(e.sym("bp_table")) == 0x3003
+        assert s.v("dbg_reason") == DBG_BRK and s.w("brk_pc") == 0x3003

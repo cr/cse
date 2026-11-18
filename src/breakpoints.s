@@ -129,14 +129,20 @@ dbg_bp_set:
         rts
 
 ; ── dbg_bp_del ────────────────────────────────────────────────────────
-; Delete a breakpoint by slot number.
+; Delete a breakpoint by slot number.  Deleting the slot dbg_bp_hit
+; names sets dbg_bp_hit = $FF (the hit breakpoint is gone).
 ; In:  A = slot number (0–7)
 ; Out: C=0 success, C=1 invalid slot.
+; Clobbers: A, X.
 ;
 dbg_bp_del:
         cmp #BP_SLOTS
         bcs @bad
-        asl
+        cmp dbg_bp_hit
+        bne @keep
+        ldx #$FF
+        stx dbg_bp_hit
+@keep:  asl
         asl
         tax
         lda #0
@@ -151,9 +157,13 @@ dbg_bp_del:
         rts
 
 ; ── dbg_bp_clear ──────────────────────────────────────────────────────
-; Delete all user-visible breakpoints (slots 0–7).  Step slots untouched.
+; Delete all user-visible breakpoints (slots 0–7), dbg_bp_hit = $FF.
+; Step slots untouched.
+; Clobbers: A, X.
 ;
 dbg_bp_clear:
+        lda #$FF
+        sta dbg_bp_hit
         ldx #BP_SLOTS * SLOT_SIZE - 1
         lda #0
 @z:     sta bp_table,x

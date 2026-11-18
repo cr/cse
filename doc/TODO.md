@@ -818,8 +818,11 @@ documentation round that follows this filing.
   state, step slots, the disabled bp — and runs on the refusal,
   after a step lands, and in `end_debug_body` (after its
   `unpatch_all`), test `TestRefusedStep`.
-- [ ] **`dbg_bp_hit` survives `b *` / `b ADDR`**: `c` then deletes the
+- [x] **`dbg_bp_hit` survives `b *` / `b ADDR`**: `c` then deletes the
   unrelated breakpoint now in that slot.
+  Fixed 2026-11-18: `dbg_bp_del` of the hit slot and `dbg_bp_clear`
+  set `dbg_bp_hit = $FF`, tests `TestBpHitInvalidation`,
+  `TestBpHitAfterTableEdit`.
 - [ ] **RUN/STOP+RESTORE in the editor** redraws the REPL but leaves
   `state = ST_EDIT`; the next keys silently edit the source.
 - [ ] **RUN/STOP+RESTORE during `a`** refreshes with `kernal_out = 1`

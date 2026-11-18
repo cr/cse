@@ -71,11 +71,14 @@ Find the first empty user-visible slot and install
 **Out:** C=0 success; C=1 invalid slot (A=$FF)
 **Clobbers:** A, X.
 
-Zero all four bytes of the indexed slot.
+Zero all four bytes of the indexed slot.  If the slot is the one
+`dbg_bp_hit` names, `dbg_bp_hit` becomes `$FF`: the hit breakpoint is
+gone, so `c` must not delete whatever is set in that slot later.
 
 ### dbg_bp_clear
 **In:** none
-**Out:** slots 0–7 zeroed.  Slots 8–9 (step) untouched.
+**Out:** slots 0–7 zeroed, `dbg_bp_hit = $FF`.  Slots 8–9 (step)
+untouched.
 **Clobbers:** A, X.
 
 ### dbg_bp_count
