@@ -3,6 +3,7 @@
 ;
 ; Requires $CC=1 (KERNAL cursor disabled).
 
+        .include "platform.inc"
         .export restore_colors, reset_screen
         .export scroll_up, newline
         .export cursor_show, cursor_hide
@@ -24,22 +25,9 @@ dst_ptr = _io_scr       ; 2 bytes (zp.s, cse_io)
 
 
 ; ── C64 hardware ─────────────────────────────────────────
-SCREEN    = $0400
-COLOR_RAM = $D800
-VIC_CR1    = $D011        ; DEN/BMM/ECM/RSEL/YSCROLL
-VIC_SP_EN  = $D015        ; sprite enable mask
-VIC_CR2    = $D016        ; RES/MCM/CSEL/XSCROLL
-VIC_MEMCTL = $D018        ; screen + charset base
-VIC_IRR    = $D019        ; interrupt latch (write to ack)
-VIC_IMR    = $D01A        ; interrupt mask
-VIC_BRD   = $D020
-VIC_BG    = $D021
-CUR_COL   = $D3
-CUR_ROW   = $D6
 
-SCR_W     = 40
-SCR_H     = 25
-SCR_SIZE  = 1000          ; 25 * 40
+SCR_W     = SCREEN_WIDTH
+SCR_H     = SCREEN_HEIGHT
 
 ; ── Theme (BSS — defaults applied by theme_init at startup) ─
 ; Build-time selection: -DTHEME_BOR=x -DTHEME_BG=x -DTHEME_FG=x
@@ -100,7 +88,7 @@ theme_fg:     .res 1
         ; paints its output in whatever colour BASIC left
         ; behind, and the wrong colour persists until CSE next
         ; calls restore_colors after the user code returns.
-        sta $0286
+        sta CHRCOLOR
         ; fill color RAM with theme_fg
         ldx #0
 @fill:  sta COLOR_RAM,x
@@ -220,16 +208,16 @@ theme_fg:     .res 1
         ldx #SCR_H              ; 25
 @l:     lda scr_hi-1,x          ; scr_hi[x-1]
         ora #$80                ; mark logical-line start
-        sta $D8,x               ; LDTB1[x-1]  ($D8+x = $D9..$F1)
+        sta LDTB1-1,x           ; LDTB1[x-1]  ($D8+x = $D9..$F1)
         dex
         bne @l                  ; exits with X=0
         ; X=0 — reuse for every byte that resets to zero.
-        stx $C6                 ; NDX (key buffer count)
-        stx $CE                 ; GDBLN (char-under-cursor)
-        stx $D4                 ; QTSW (quote mode)
-        stx $D8                 ; INSRT (loop skipped this slot)
+        stx NDX                 ; NDX (key buffer count)
+        stx GDBLN               ; GDBLN (char-under-cursor)
+        stx QTSW                ; QTSW (quote mode)
+        stx INSRT               ; INSRT (loop skipped this slot)
         lda #SCR_W - 1          ; 39
-        sta $D5                 ; LNMX
+        sta LNMX                ; LNMX
         rts
 .endproc
 

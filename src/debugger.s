@@ -35,6 +35,7 @@
 ;             doc/memory_design.md § Stack contract.
 
         .setcpu "6502"
+        .include "platform.inc"
         .macpack longbranch
 
         .export dbg_init
@@ -145,12 +146,12 @@ dbg_init:
         ;   After the very first user-exit cycle, save_userland_zp
         ;   and save_kernel_zp (in mem.s) overwrite these seeds with
         ;   real captured values.
-        lda #$2F
-        sta userland_zp_buf + $00
-        sta kernel_zp_buf + $00
-        lda #$36
-        sta userland_zp_buf + $01
-        sta kernel_zp_buf + $01
+        lda #DDR_SEED
+        sta userland_zp_buf + CPU_DDR
+        sta kernel_zp_buf + CPU_DDR
+        lda #PORT_SEED
+        sta userland_zp_buf + CPU_PORT
+        sta kernel_zp_buf + CPU_PORT
         rts
 
 ; ═══════════════════════════════════════════════════════════════════════
@@ -480,7 +481,7 @@ brk_stub:
         ; can't be BRK-patched.
         ldy #2
         lda (rp_ptr2),y
-        cmp #$E0
+        cmp #ROM_BASE_HI
         bcc @jsr_into
 @jsr_over:
         lda brk_pc

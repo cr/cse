@@ -33,6 +33,7 @@
 ; a jsr frame — they just stage state and rts normally.
 
         .setcpu "6502"
+        .include "platform.inc"
         .macpack longbranch
         .include "macros.inc"
 
@@ -91,22 +92,10 @@
 
 ; ── Constants ────────────────────────────────────────────────
         .include "log.inc"
-SCREEN_WIDTH = 40
-SCREEN_HEIGHT = 25
-MEM_CONFIG   = $01
-KEY_REPEAT   = $028A
-VIC_MEMCTL   = $D018
 
 ; KERNAL vectors
-IBRK_VEC     = $0316          ; page-3 BRK dispatch
-INMIV_VEC    = $0318          ; page-3 NMI dispatch
-NMI_VEC_RAM  = $FFFA          ; RAM shadow (kernal-out)
-IRQ_VEC_RAM  = $FFFE
-KERNAL_RESTOR = $FF8A
-KERNAL_IRQ_BODY = $EA31
 
 P_B_FLAG     = $10            ; mask: bit 4 of stacked P
-BANK_IN      = $36
 
 ; Reason codes (dbg_reason) — one definition, shared with repl.s.
         .include "dbg_reason.inc"
@@ -135,13 +124,8 @@ CH_HOME      = 19
 CH_CLR       = 147
 CH_ESC       = $1B
 
-CUR_COL      = $D3
-CUR_ROW      = $D6
 
-TXTTAB       = $0801
-WORKSTART    = TXTTAB - 1
 
-COLD_ZP      = $F8DA          ; KBSS: 127 B snapshot of $01-$7F
 
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
@@ -174,7 +158,7 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
 
 ; ── PRG load address ─────────────────────────────────────────
 .segment "LOADADDR"
-        .word $0801
+        .word BASIC_START
 
 ; ── EXEHDR — BASIC stub ─────────────────────────────────────
 .segment "EXEHDR"
@@ -196,21 +180,21 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         ora #$80
         sta KEY_REPEAT
         lda #$80
-        sta $0291
+        sta CHARSET_LOCK
 
         ; ── 2. Save $01-$7F to KBSS ──
         ldx #0
 @save_zp:
-        lda $01,x
+        lda CPU_PORT,x
         sta COLD_ZP,x
         inx
         cpx #$7F
         bne @save_zp
 
         ; ── 3. Unmap BASIC ROM ──
-        lda MEM_CONFIG
+        lda CPU_PORT
         and #$FE
-        sta MEM_CONFIG
+        sta CPU_PORT
 
         ; ── 4. Install interrupt hooks BEFORE any bank-out ──
         jsr setup_interrupts
@@ -243,7 +227,7 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         jsr cse_zp_end
         tax
         lda #$FF
-@zp:    sta $00,x
+@zp:    sta ZP_BASE,x
         inx
         cpx #$80
         bcc @zp
@@ -343,7 +327,7 @@ cse_recover:
         jmp main_loop_top
 
 @hard_fail:
-        jmp $FCE2               ; KERNAL cold start — last resort
+        jmp KERNAL_COLD               ; KERNAL cold start — last resort
 
 ; ── cse_end_debug — explicit debug-session termination ──────
 cse_end_debug:
@@ -461,13 +445,13 @@ main_loop:
         ; R3 (universal C64/C128 binary) will need to abstract this
         ;   into a leaf function — other kernals may not expose the
         ;   same shadow layout.  See TODO.md § R3.
-        lda $91
+        lda STKEY
         cmp #$7F
         beq @still_down
         lda #0
         sta stop_cooldown
 @still_down:
-        lda $C6                 ; kb buffer count (non-blocking kbhit)
+        lda NDX                 ; kb buffer count (non-blocking kbhit)
         beq @wait
         jsr io_getc
         sta main_key
@@ -670,10 +654,10 @@ main_loop:
         lda #>cse_brk_handler
         sta IBRK_VEC + 1
         lda #<cse_nmi_handler
-        sta INMIV_VEC
+        sta INMI_VEC
         sta NMI_VEC_RAM
         lda #>cse_nmi_handler
-        sta INMIV_VEC + 1
+        sta INMI_VEC + 1
         sta NMI_VEC_RAM + 1
         lda #<cse_brk_handler_early
         sta IRQ_VEC_RAM
@@ -784,7 +768,7 @@ cse_brk_handler_early:
         ; first (rather than a shared ZP scratch — the interrupted code
         ; may be mid-use of ZP temps).
         sta _irq_saved_a
-        lda MEM_CONFIG
+        lda CPU_PORT
         pha                     ; the interrupted $01, for bank_out_stub
         lda #>bank_out_stub
         pha
@@ -800,7 +784,7 @@ cse_brk_handler_early:
         tya
         pha                     ; user Y
         lda #BANK_IN
-        sta MEM_CONFIG
+        sta CPU_PORT
         jmp KERNAL_IRQ_BODY
 
 ; bank_out_stub — RTI target for the IRQ surgery above.  Restores
@@ -810,7 +794,7 @@ cse_brk_handler_early:
 bank_out_stub:
         sta _irq_saved_a        ; preserve A across the $01 restore
         pla
-        sta MEM_CONFIG
+        sta CPU_PORT
         lda _irq_saved_a
         rti
 
@@ -1025,7 +1009,7 @@ cse_nmi_handler:
 ; hw_reinit_body — full HW + software re-init.  Idempotent.
 hw_reinit_body:
         lda #BANK_IN
-        sta MEM_CONFIG
+        sta CPU_PORT
         jsr setup_interrupts
         jsr dbg_init
         jsr reset_globals
@@ -1063,7 +1047,7 @@ refresh_body:
         ; passes hold kernal_out = 1, $01 = $34); reset_screen needs
         ; the ROM.  The interrupted batch is abandoned.
         lda #BANK_IN
-        sta MEM_CONFIG
+        sta CPU_PORT
         lda #0
         sta kernal_out
         jsr reset_screen
@@ -1077,21 +1061,21 @@ refresh_body:
 cse_exit_to_basic:
         sei
         lda #$00
-        sta $0291
-        jsr KERNAL_RESTOR
-        lda MEM_CONFIG
+        sta CHARSET_LOCK
+        jsr RESTOR
+        lda CPU_PORT
         and #$FD
-        sta MEM_CONFIG
+        sta CPU_PORT
         ldx #1
 @rzp:   lda COLD_ZP,x
-        sta $01,x
+        sta CPU_PORT,x
         inx
         cpx #$7F
         bne @rzp
         lda COLD_ZP
-        sta MEM_CONFIG
+        sta CPU_PORT
         cli
         lda #0
-        sta TXTTAB - 1
-        jsr $FF81               ; KERNAL CINT
-        jmp ($A002)
+        sta BASIC_START - 1
+        jsr CINT               ; KERNAL CINT
+        jmp (BASIC_WARM)

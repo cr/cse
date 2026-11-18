@@ -10,6 +10,7 @@
 ;
 ; Code: ~340 bytes.  RODATA: 76 bytes.  ZP: 4 bytes (zp.s).  BSS: 7 bytes.
 
+        .include "platform.inc"
         .export io_init
         .export io_putc, io_repc, io_puts
         .export pet_to_scr, scr_to_pet
@@ -24,21 +25,11 @@
 
         .export dec_pow_lo, dec_pow_hi
 
-COLS    = 40
-ROWS    = 25
-SCREEN  = $0400
+COLS    = SCREEN_WIDTH
 
 ; KERNAL ZP locations
-CUR_COL = $D3           ; cursor column
-CUR_ROW = $D6           ; cursor row
-SCR_PTR = $D1           ; screen line pointer (lo/hi)
-COL_PTR = $F3           ; color RAM line pointer (lo/hi)
 
 ; SID registers (only for io_blip)
-SID_V1_FREQ_LO = $D400
-SID_V1_FREQ_HI = $D401
-SID_V1_CTRL    = $D404
-SID_VOL        = $D418
 
         .importzp _io_tmp, _io_scr
 
@@ -73,7 +64,7 @@ dec_pow_hi:     .byte >1, >10, >100, >1000, >10000
 ; Disables KERNAL cursor ($CC=1).  All cse_io IRQ safety depends on this.
 io_init:
         lda #1
-        sta $CC                 ; KERNAL cursor off — required invariant
+        sta BLNSW               ; KERNAL cursor off — required invariant
         rts
 
 ; ── _io_scr_setup — set _io_scr to screen line address for CUR_ROW ───
@@ -94,7 +85,7 @@ io_sync:
         ldx CUR_ROW
         ldy CUR_COL
         clc                     ; CLC = set position
-        jmp $FFF0               ; KERNAL PLOT: sets $D1/$D2/$D3/$D6/$F3/$F4
+        jmp PLOT                ; KERNAL PLOT: sets $D1/$D2/$D3/$D6/$F3/$F4
 
 ; ── pet_to_scr — PETSCII → screen code (pure function) ──────
 ; In:  A = PETSCII byte
@@ -342,14 +333,14 @@ io_clear_eol:
 
 ; ── io_getc — blocking keyboard read ────────────────────────
 io_getc:
-        jsr $FFE4               ; KERNAL GETIN
+        jsr GETIN               ; KERNAL GETIN
         beq io_getc            ; loop until key pressed
         ldx #0
         rts
 
 ; ── io_kbhit — non-blocking keyboard check ──────────────────
 io_kbhit:
-        lda $C6                 ; keyboard buffer count
+        lda NDX                 ; keyboard buffer count
         ldx #0
         rts
 

@@ -5,6 +5,7 @@
 ; LOAD/CLRCHN/READST.  SAVE is not used: PRG save writes the
 ; header and payload through CHROUT.
 
+        .include "platform.inc"
         .macpack longbranch
         .include "macros.inc"
 
@@ -24,29 +25,12 @@
         .import str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf
 
 ; ── KERNAL entry points ──────────────────────────────────
-SETLFS  = $FFBA
-SETNAM  = $FFBD
-OPEN    = $FFC0
-CLOSE   = $FFC3
-CHKIN   = $FFC6
-CHKOUT  = $FFC9
-CLRCHN  = $FFCC
-CHRIN   = $FFCF
-CHROUT  = $FFD2
-LOAD    = $FFD5
-SAVE    = $FFD8
-READST  = $FFB7
-LISTEN  = $FFB1
-UNLSN   = $FFAE
-ST      = $90               ; KERNAL I/O status
 
-CUR_COL = $D3
-CUR_ROW = $D6
 CH_STOP = 3
 
 ; ── ZP temporaries ──────────────────────────────────────
         .importzp _io_tmp       ; shared with cse_io (zp.s)
-ptr     = $FD                   ; 2 bytes, local pointer
+ptr     = DISK_LOCAL_PTR                   ; 2 bytes, local pointer
 
 ; ── BSS ──────────────────────────────────────────────────
         .segment "BSS"
@@ -348,8 +332,8 @@ _status_ret:
 
         ; LOAD directory to workspace at $0801 (same as BASIC)
         lda #0                  ; 0 = LOAD (not VERIFY)
-        ldx #<$0801
-        ldy #>$0801
+        ldx #<BASIC_START
+        ldy #>BASIC_START
         jsr LOAD
         jcs @err                ; carry set = error
 
@@ -359,9 +343,9 @@ _status_ret:
 
         ; disk_ptr = walk pointer into loaded data ($0801)
         ; (disk_ptr is free here: list_directory takes no filename)
-        lda #<$0801
+        lda #<BASIC_START
         sta disk_ptr
-        lda #>$0801
+        lda #>BASIC_START
         sta disk_ptr+1
 
         ; First 2 bytes are the link pointer of the first line

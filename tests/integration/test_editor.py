@@ -613,6 +613,7 @@ class TestEdDiskOnADrive:
 
 import pathlib as _pathlib
 import subprocess as _subprocess
+from conftest import PLATFORM_DEFS as _PLATFORM_DEFS
 
 _SRC = _pathlib.Path(__file__).resolve().parents[2] / "src"
 
@@ -624,8 +625,8 @@ _SRC = _pathlib.Path(__file__).resolve().parents[2] / "src"
 def test_tab_width_must_be_power_of_two(tmp_path, width, ok):
     """TAB_WIDTH is a power of two in 1..32; `col and TAB_WIDTH-1` is
     the column modulo, so any other value must not assemble."""
-    r = _subprocess.run(["ca65", "-t", "c64", "-DCPU_65C02",
-                         f"-DTAB_WIDTH={width}", str(_SRC / "editor.s"),
+    r = _subprocess.run(["ca65", "-t", "c64", *_PLATFORM_DEFS["c64"],
+                         "-DCPU_65C02", f"-DTAB_WIDTH={width}", str(_SRC / "editor.s"),
                          "-o", str(tmp_path / "editor.o")],
                         capture_output=True, text=True)
     assert (r.returncode == 0) == ok, r.stderr

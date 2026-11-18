@@ -6,6 +6,7 @@
 ; cmd [args] for bare commands.  ';' ends parsing.
 
         .setcpu "6502"
+        .include "platform.inc"
         .macpack longbranch
         .include "macros.inc"
 
@@ -57,7 +58,6 @@
         .import brk_pc, brk_stub
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
         .import userland_zp_buf
-        .importzp ZP_SAVE_LO, ZP_SAVE_LEN       ; equates (zero-page range constants)
         .import step_state, step_remaining
         .import step_next_pc, arm_step_bp
         .import step_next_lo, step_next_hi
@@ -151,12 +151,8 @@ STEP_OVER = 2
         .importzp disk_ptr, _io_tmp
 
 ; ── Constants ──────────────────────────────────────────────
-SCREEN        = $0400
-SCREEN_WIDTH  = 40
 FILENAME_MAX  = 16
 ST_STOP       = 0
-CUR_COL       = $D3
-CUR_ROW       = $D6
 
 ; ═══════════════════════════════════════════════════════════
 ; ZP: rp_ptr = q (parse pointer into line_buf or args)
@@ -1995,9 +1991,9 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ; kernal_screen_reset + io_sync).
 hygiene_after_userland:
         lda #1
-        sta $CC                 ; KERNAL cursor off (cse_io invariant)
+        sta BLNSW               ; KERNAL cursor off (cse_io invariant)
         lda #$80
-        sta $0291               ; lock SHIFT+C= charset toggle (userland
+        sta CHARSET_LOCK               ; lock SHIFT+C= charset toggle (userland
                                 ;   may have cleared this to 0; KERNAL
                                 ;   honours the combo when it's 0)
         ; SID silence: zero the voice-1/2/3 control registers to release
@@ -2005,9 +2001,9 @@ hygiene_after_userland:
         ; so a read-modify-write to clear just bit 0 isn't possible;
         ; clobbering waveform + gate is the practical silence primitive.
         lda #0
-        sta $D404
-        sta $D40B
-        sta $D412
+        sta SID_V1_CTRL
+        sta SID_V2_CTRL
+        sta SID_V3_CTRL
         jsr vic_reset           ; $D011/$D015/$D016/$D018/$D019/$D01A
         jsr restore_colors      ; border/bg/fg + color RAM + CHROUT colour
 
@@ -2023,7 +2019,7 @@ hygiene_after_userland:
         sta stop_cooldown
 @drain:
         ; kernal_screen_reset includes draining $C6 — no separate
-        ; sta $C6 needed.  Must run BEFORE io_sync so PLOT walks a
+        ; sta NDX needed.  Must run BEFORE io_sync so PLOT walks a
         ; clean LDTB1 to compute $D1/$D2/$F3/$F4.
         jsr kernal_screen_reset
         jmp io_sync             ; tail-call
@@ -2077,7 +2073,7 @@ pre_userland_run:
         jsr newline
         jsr io_clear_eol
         lda #0
-        sta $C6
+        sta NDX
         rts
 
 ; ═══════════════════════════════════════════════════════════
@@ -3471,9 +3467,9 @@ prg_ok_done:
         sta rp_ptr2
         lda #>str_tag_work
         sta rp_ptr2+1
-        lda #<$0800
+        lda #<WORKSTART
         sta rp_addr
-        lda #>$0800
+        lda #>WORKSTART
         sta rp_addr+1
         lda buf_base
         sec
@@ -4184,7 +4180,7 @@ prg_ok_done:
         jsr brk_skip_user
         ; Drain KERNAL keyboard buffer.
         lda #0
-        sta $C6
+        sta NDX
         ; Resume (reuse the sentinel from the session's fresh start),
         ; or a fresh start if a cold preview set the session up.
         jmp set_run_mode

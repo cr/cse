@@ -6,6 +6,7 @@
 ;   Row 22     Status bar
 ;   Row 23-24  Last 2 lines preserved from REPL
 
+        .include "platform.inc"
         .macpack longbranch
 
         ; Exports owned by editor.s (L4 — rendering + input + disk):
@@ -39,15 +40,12 @@
         .importzp disk_ptr
 
 ; ── Constants ────────────────────────────────────────────────
-SCREEN       = $0400
-SCREEN_WIDTH = 40
 ED_LINES     = 22            ; visible source lines
 ED_STATUS    = 22            ; status bar row
 .import __CODE_RUN__
 .import __BUF_FLOOR__
 .define BUF_END __CODE_RUN__   ; exclusive end of buffer (= runtime start)
 .define BUF_FLOOR __BUF_FLOOR__ ; source growth limit (compute_layout.py)
-REPL_SCREEN  = $F4F2         ; banked RAM under KERNAL
 
 ; ── Tab width (build-time constant) ──────────────────────────
 ; TAB_WIDTH is set via `-DTAB_WIDTH=N` in the Makefile (default 8,
@@ -64,8 +62,6 @@ TAB_WIDTH = 8
 TAB_MASK = TAB_WIDTH - 1
 
 ; KERNAL locations
-CUR_COL      = $D3           ; io_cx
-CUR_ROW      = $D6           ; io_cy
 
 ; State constants
 ST_REPL      = 1
@@ -762,8 +758,8 @@ _ed_cur_row:
         pha
         lda ed_scr+1
         pha
-        lda #<$0800             ; workstart (lower free bound)
-        ldx #>$0800
+        lda #<WORKSTART             ; workstart (lower free bound)
+        ldx #>WORKSTART
         sta ed_tmp
         stx ed_tmp+1
         pla

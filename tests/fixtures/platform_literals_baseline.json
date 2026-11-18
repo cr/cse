@@ -1,18 +1,6 @@
 {
  "comment": "The literal audit's ratchet: each file's exact count of platform literals not yet moved onto the seams (doc/platform_layer.md \u00a7 Gates).  Lowered by every seam's commit; deleted when empty.",
  "counts": {
-  "addr_mode.s": 3,
-  "asm_src.s": 5,
-  "cse_io.s": 13,
-  "debugger.s": 4,
-  "disk.s": 22,
-  "editor.s": 6,
-  "gap_buffer.s": 2,
-  "log.s": 2,
-  "main.s": 24,
-  "mem.s": 3,
-  "repl.s": 32,
-  "screen.s": 19,
-  "symtab.s": 7
+  "repl.s": 20
  }
 }

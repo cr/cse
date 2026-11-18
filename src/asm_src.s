@@ -11,6 +11,7 @@
 ;   All emit_* helpers read from expr_ptr; set expr_ptr before calling them.
 
         .setcpu         "6502"
+        .include "platform.inc"
         .macpack longbranch
         .include "macros.inc"
 
@@ -129,14 +130,14 @@ _org_set:       .res 1          ; non-zero after first .org on pass 0
 ; vector (cse_brk_handler_early) handles IRQs while KERNAL is banked
 ; out.
 _bank_in_tmp:
-        lda $01
+        lda CPU_PORT
         ora #$02
-        sta $01
+        sta CPU_PORT
         rts
 _bank_out_tmp:
-        lda $01
+        lda CPU_PORT
         and #$FD
-        sta $01
+        sta CPU_PORT
         rts
 
 ; ── skipws_ep ──────────────────────────────────────────────────────────────
@@ -236,7 +237,6 @@ inc_pc_size:
 ; and never after a wrap past $FFFF (_pc_wrap).  Otherwise the byte is
 ; dropped and _oor set — do_pass reports `range` once for the line.
 ; Preserves X.
-WORKSTART = $0800
 _emit_byte:
         ldy asm_pass
         beq @skip

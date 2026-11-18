@@ -32,6 +32,7 @@
 ; for the L4 responsibilities and gap_buffer.md for the L3 contract.
 
         .setcpu "6502"
+        .include "platform.inc"
         .macpack longbranch
 
         .export gb_init
@@ -128,9 +129,9 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 ; half — saves bytes vs. two independent procs.
 .proc define_ws_syms
         ; workstart ($0800, fixed)
-        lda #<$0800
+        lda #<WORKSTART
         sta sym_val
-        lda #>$0800
+        lda #>WORKSTART
         sta sym_val+1
         lda #<s_workstart
         sta sym_name

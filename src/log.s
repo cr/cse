@@ -28,6 +28,7 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 
         .setcpu "6502"
+        .include "platform.inc"
 
         .export log_line, log_open, log_close
         .export log_err, log_warn, log_info
@@ -47,9 +48,6 @@
 .include "macros.inc"           ; `puts` macro (calls puts_imm below)
 
 ; C64 screen editor registers (matches repl.s definitions)
-CUR_COL      = $D3
-CUR_ROW      = $D6
-SCREEN_WIDTH = 40
 
 .segment "CODE"
 

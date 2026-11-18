@@ -30,6 +30,7 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 
         .setcpu "6502"
+        .include "platform.inc"
 
         .export mode_parse              ; main entry point
         .export asm_skip_ws             ; used by asm_line.s
@@ -306,15 +307,15 @@ mode_parse:
         ; form; see doc/modules/addr_mode.md § ACC vs label disambiguation.
         ; mode_parse runs banked out; the screen output needs the KERNAL
         ; (io_sync → PLOT), so bank it in around the warning.
-        lda $01
+        lda CPU_PORT
         pha
         ora #$02
-        sta $01
+        sta CPU_PORT
         lda #<s_a_shadow
         ldx #>s_a_shadow
         jsr log_warn
         pla
-        sta $01                 ; back to the caller's banking
+        sta CPU_PORT                 ; back to the caller's banking
 @no_shdw:
         ldy #1                  ; consume 'A' (was iny — Y is dead here)
         jsr _au_check_end       ; validate end (Y advances past trailing ws)

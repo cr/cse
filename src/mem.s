@@ -22,6 +22,7 @@
 ;     cse_zp_end         returns first free ZP byte in A
 
         .setcpu "6502"
+        .include "platform.inc"
 
 ; ── ZP save/restore range ────────────────────────────────────
 ; The save buffers (kernel_zp_buf / userland_zp_buf) mirror live
@@ -29,8 +30,6 @@
 ; that wants to read or write "user ZP" rather than "live ZP"
 ; must use these constants to decide its range and index
 ; `userland_zp_buf - ZP_SAVE_LO` for the offset arithmetic.
-ZP_SAVE_LO  = $00
-ZP_SAVE_LEN = 128
 
 ; ── Exports ──────────────────────────────────────────────────
         .export kernal_bank_out, kernal_bank_in
@@ -45,8 +44,6 @@ ZP_SAVE_LEN = 128
         .importzp kernal_out                    ; zp.s
 
 ; ── Constants ────────────────────────────────────────────────
-CPU_PORT     = $01
-HIMEM        = $D000
 
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"

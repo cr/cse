@@ -21,6 +21,7 @@
 ;   Both save $01 on entry and restore it on every exit (nesting guard).
 ;   sym_clear:   (no args) — wipes all slots, resets heap
 
+        .include "platform.inc"
         .export sym_define, sym_lookup, sym_clear
         .export sym_stamp, sym_fwd
 
@@ -50,9 +51,7 @@ SYM_P0       = $40              ; pass-0 stamp (scope bit 6)
 sym_stamp:   .res 1             ; in: stamp sym_define writes (asm_src)
 sym_fwd:     .res 1             ; out of sym_lookup: entry stamp <> sym_stamp
 
-sym_table    = $E000
-SYM_HEAP     = $E600
-SYM_HEAP_END = $EF00
+sym_table    = SYM_TABLE
 
 .segment "CODE"
 
@@ -260,7 +259,7 @@ SYM_HEAP_END = $EF00
         lda _st_hash
         sta _st_idx             ; SYM_MASK=$FF: no masking needed for 8-bit ZP
 
-        lda $01                 ; nesting guard: keep the caller's banking
+        lda CPU_PORT                 ; nesting guard: keep the caller's banking
         pha                     ; (restored on every exit, never bank_in)
         jsr kernal_bank_out
 
@@ -326,7 +325,7 @@ SYM_HEAP_END = $EF00
 
 @full:  sec
 @exit:  pla
-        sta $01                 ; caller's banking (C kept)
+        sta CPU_PORT                 ; caller's banking (C kept)
         rts
 .endproc
 
@@ -341,7 +340,7 @@ SYM_HEAP_END = $EF00
         lda _st_hash
         sta _st_idx             ; SYM_MASK=$FF: no masking needed for 8-bit ZP
 
-        lda $01                 ; nesting guard (see sym_define)
+        lda CPU_PORT                 ; nesting guard (see sym_define)
         pha
         jsr kernal_bank_out
 
@@ -391,6 +390,6 @@ SYM_HEAP_END = $EF00
 @notfound:
         sec
 @exit:  pla
-        sta $01                 ; caller's banking (C kept)
+        sta CPU_PORT                 ; caller's banking (C kept)
         rts
 .endproc
