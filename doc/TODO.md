@@ -858,10 +858,10 @@ documentation round that follows this filing.
   the base's high byte is 0.
   REPL side fixed 2026-11-18: `zp_poke` (`m` edit, `.` hex poke) computes the
   16-bit effective address, so a run wrapping past `$FFFF` lands in
-  `userland_zp_buf`, test `TestEditWrapPastFFFF`.  Open: the
-  assembler's `asm_out` wrap (`.` mnemonic, `a`) belongs to the
-  assembler track; the `m`/`.` display of a wrapping run still reads
-  live ZP (`zp_stage_prep` stages only page-0 bases).
+  `userland_zp_buf`, test `TestEditWrapPastFFFF`.  Assembler side fixed
+  2026-11-18 (30e963f on the assembler track): output past `$FFFF` is
+  refused.  Open: the `m`/`.` display of a wrapping run still reads live
+  ZP (`zp_stage_prep` stages only page-0 bases).
 - [x] **INS at column 0 of the REPL hangs and writes the workspace**
   (`main.s` `@ins_loop`: unsigned `cpy CUR_COL` with CUR_COL = 0 never
   ends; Y wraps over `(rp_ptr)+0..255`).
@@ -1078,12 +1078,10 @@ documentation round that follows this filing.
 - [ ] **Mutable bytes in CODE**: `main.s` `@key`, `dasm.s` `@adj`,
   `disk.s` `disk_save_prg`'s `@size_lo`/`@size_hi`
   (blocks a ROM/CRT build; memory_design.md "no self-modifying code").
-  `dasm.s` `@adj` half fixed 2026-11-18: _compute_branch_target folds
-  the adjustment into its arithmetic, test TestCodeIsReadOnly
-  (test_dasm.py); `main.s` `@key` stays open (runtime track).
-  `main.s` half fixed 2026-11-18: `@key` is now `main_key` in BSS,
-  test `TestMainCodeReadOnly`.  Open: `dasm.s` `@adj` (disassembler
-  track), `disk.s` `disk_save_prg`'s size bytes.
+  `dasm.s` `@adj` fixed 2026-11-18: _compute_branch_target folds the
+  adjustment into its arithmetic, test TestCodeIsReadOnly (test_dasm.py).
+  `main.s` `@key` fixed 2026-11-18: now `main_key` in BSS, test
+  `TestMainCodeReadOnly`.  Open: `disk.s` `disk_save_prg`'s size bytes.
 - [x] `disk.s` closes LFN 1 on an OPEN failure although the file is
   LFN 2; the SEQ error paths close nothing.
   Fixed 2026-11-18: `_disk_open_buf` closes LFN 2 when OPEN fails (dead `@err_close` removed); C64Emu models an empty serial bus, test test_disk.py.
@@ -1105,29 +1103,34 @@ documentation round that follows this filing.
 
 ### Code bugs — found by the live example run (2026-11-18)
 
-- [ ] **`.const` with a symbol in its expression defines nothing**:
+- [x] **`.const` with a symbol in its expression defines nothing**:
   `.const vic $d000 / .const border vic + $20 / sta border` →
   `;?…: undef` (expr's label lookup overwrites `sym_name`, which the
   `.const` handler still holds).  assembler_syntax.md's own example.
-- [ ] **The `;!a shadow` warning crashes `a`**: printed while the
+  Fixed 2026-11-18 (ac1f426 on the assembler track: the .const name is kept across expr_eval).
+- [x] **The `;!a shadow` warning crashes `a`**: printed while the
   KERNAL is banked out, `newline` → `io_sync` calls into the KERNAL
   area (CSE data there) → BRK → `cse_recover`.
+  Fixed 2026-11-18 (e1211d7 on the assembler track: the warning banks the KERNAL in).
 - [x] **CLR/HOME or ESC at a breakpoint, then `c`, hangs**:
   `cse_refresh` resets SP to `kernel_init_sp`, and kernel `jsr`s
   overwrite the user's `brk_stub` sentinel at `$01FE/$01FF`; README
   promises the debug context is preserved.
   Fixed 2026-11-18 (runtime track): `cse_refresh` resets SP to `reg_sp`
   in a live session, test in test_kernel_transition.py.
-- [ ] **Dotted global labels**: `jmp main.loop` is `undef`; a global
+- [x] **Dotted global labels**: `jmp main.loop` is `undef`; a global
   label with an embedded dot is defined but cannot be referenced (the
   operand expansion prefixes the scope at every `.`); `a_b:` is
   accepted though `_` is not a label character, and the reference
   fails.  Settle the label grammar (assembler_syntax.md) and enforce it.
-- [ ] **`.db` values > 255 truncate silently** (`.db 256` → `$00`);
+  Fixed 2026-11-18 (737b1ab on the assembler track: label grammar settled in assembler_syntax.md and enforced).
+- [x] **`.db` values > 255 truncate silently** (`.db 256` → `$00`);
   **`.const 5 5`** defines a symbol named `5` (no `exp id`).
-- [ ] **The assembler writes outside the workspace**: `.org $c000`
+  Fixed 2026-11-18 (841c27c on the assembler track: `.db` byte range and `.const` name checks).
+- [x] **The assembler writes outside the workspace**: `.org $c000`
   assembles over CSE's own code with no error (the breakpoint range
   gate already refuses such addresses); add the same guard to emit.
+  Fixed 2026-11-18 (ad3b42c on the assembler track: emit outside $0800..buf_base is `;?N: range`).
 - [x] **`scroll_up` uses `$FB–$FE`** — the C64's free user ZP —
   although userland_contract.md promises CSE never writes `$80–$FF`
   beyond the listed KERNAL cells; use CSE's own ZP.
