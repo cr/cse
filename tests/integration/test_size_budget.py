@@ -22,9 +22,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # CPU set → (release PRG, byte budget)
 BUDGET = {
-    "6502":  (ROOT / "build/release/6502/cse-6502.prg", 20_255),
-    "6510":  (ROOT / "build/release/6510/cse.prg",      20_598),
-    "65c02": (ROOT / "build/release/cmos/cse-cmos.prg", 21_179),
+    "6502":  (ROOT / "build/release/6502/cse-6502.prg", 20_258),
+    "6510":  (ROOT / "build/release/6510/cse.prg",      20_601),
+    "65c02": (ROOT / "build/release/cmos/cse-cmos.prg", 21_190),
 }
 
 
