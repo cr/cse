@@ -59,7 +59,7 @@ mn6_tables or mn7_tables (GENERATED — `mn{6,7}_classify`,
 
 | Location | Symbol | Size | Consumers / contract status |
 |---|---|---|---|
-| mn_vars.s ZP | `mn_c1`, `mn_c2`, `mn_c3` | 1 B each | **Exported inputs.**  `asm_line.s` writes all three before every `jsr mn_classify`.  Values are 1–26 (A=1..Z=26); callers normalize PETSCII/screencode via `AND #$1F`. |
+| mn_vars.s ZP | `mn_c1`, `mn_c2`, `mn_c3` | 1 B each | **Exported inputs.**  `asm_line.s` writes all three before every `jsr mn_classify`.  Values are 1–26 (A=1..Z=26); the caller refuses non-letters before normalizing. |
 | mn7.s ZP | `mn7_h_tmp` | 1 B | **Internal scratch.**  Holds `c3>>2` transiently during the fingerprint check.  Not exported; no external contract other than "reserved — do not alias". |
 | mn7_tables.s RODATA | `mn7_hash_t` | 27 B | **Internal.**  T[c2] hash perturbation, generated per CPU set from `dev/hashes.py`.  Not exported.  Byte values are an implementation detail subsumed by the classifier's observable behaviour (`test_mn7_full_sweep`). |
 | mn6_tables.s RODATA | `mn6_hash_t`, `mn6_fp_c2` | 27 B each | Same status as `mn7_hash_t`; `mn6_fp_c2` is the fingerprint's c2 term. |
@@ -103,10 +103,12 @@ mnemonic).
 
 **Encoding normalization:** The classifier input (mn_c1/c2/c3)
 uses values 1–26 (A=1..Z=26), not raw character codes.  The
-caller normalizes with AND #$1F, which maps PETSCII uppercase
-($41–$5A), PETSCII lowercase ($61–$7A), and VICII screen codes
-($01–$1A) identically to 1–26.  The classifiers themselves are
-encoding-agnostic.
+caller (`asm_line`'s `_asm_rd_upper`) accepts only letters — PETSCII
+$41–$5A, $61–$7A, $C1–$DA — and maps them to 1–26; any other
+character is refused before the classifier runs.  The classifiers
+themselves are encoding-agnostic, and their behaviour for values
+outside 1–26 is undefined (the 27-entry tables would be read out of
+range).
 
 ## Caveats
 

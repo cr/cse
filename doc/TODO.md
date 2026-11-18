@@ -998,10 +998,14 @@ documentation round that follows this filing.
   restore it on every exit (never bank_in), so asm_line's bank-out
   survives a symbol lookup; mem.s unchanged. Tests TestBankGuardNests
   (test_symtab.py), TestReplDotAfterSymbol (test_asm_src.py).
-- [ ] **Non-letters reach the mnemonic hash**: 906 false positives on
+- [x] **Non-letters reach the mnemonic hash**: 906 false positives on
   mn7 builds (`ld8` → DEX, `xb` → BCC, `fo0` → NOP), 884 on mn6;
   `_asm_rd_upper` passes bytes below `$41`, and the tables are indexed
   out of range.  An empty line assembles to BRK on mn7 builds.
+  Fixed 2026-11-18: _asm_rd_upper accepts letters only ($41-$5A,
+  $61-$7A, $C1-$DA; AND #$5F) and refuses anything else with ;?syntax
+  before mn_classify, so an empty line no longer assembles to BRK.
+  Test TestNonLetterKeys (test_asm_line.py).
 - [ ] **Implied instructions ignore their operand**: `rts garbage`,
   `nop $1234`, `inxy` assemble silently (zone A has no end check;
   asm_line.md says a fifth character is `;?syntax`).

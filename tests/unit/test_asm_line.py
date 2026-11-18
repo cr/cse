@@ -816,3 +816,37 @@ class TestNoAccFlagSetByAsmLine:
         assert mem[asm_syms._au_no_acc] == 0, \
             f"_au_no_acc=${mem[asm_syms._au_no_acc]:02X}; " \
             f"expected 0 for ASL (profile 11, has ACC bit)"
+
+
+# ── Non-letter keys never reach the hash (asm_line.md § asm_line) ───────────
+#
+# Each key character must be a letter; anything else is `;?syntax`
+# before mn_classify runs.  These keys used to collide with a mnemonic
+# (found by brute force over letter pairs + one non-letter).
+
+_MN7_NONLETTER = ["4AX", "4AY", "B@A", "DS2", "3EC", "FO0", "0HA", "I9C",
+                  "J8A", "JO2", "LA8", "LD8", "LD9", "LN1", "LS8", "2OL",
+                  "", "  ", ";", "..."]
+_MN6_NONLETTER = ["[AD", "AR1", "FA0", "*FH", "HM2", "6II", "J*M", "JQ5",
+                  "KZ.", "LY2", "MS0", "NL9", ".NG", "", "  "]
+
+
+class TestNonLetterKeys:
+
+    @pytest.mark.parametrize("source", _MN7_NONLETTER)
+    def test_mn7_refuses(self, asm_syms, source):
+        for cpu in (0, 1, 2):
+            got, err, _ = R.run_asm(asm_syms, source, cpu)
+            assert got is None and err == 0, f"{source!r} → {got!r}"
+
+    @pytest.mark.parametrize("source", _MN6_NONLETTER)
+    def test_mn6_refuses(self, asm_6502_syms, source):
+        got, err, _ = R.run_asm(asm_6502_syms, source, 0)
+        assert got is None and err == 0, f"{source!r} → {got!r}"
+
+    @pytest.mark.parametrize("source,expected", [
+        ("lda #1", bytes([0xA9, 0x01])),            # lowercase letters
+    ])
+    def test_letter_forms_accepted(self, asm_syms, source, expected):
+        got, _, _ = R.run_asm(asm_syms, source, 2)
+        assert got == expected

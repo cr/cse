@@ -53,9 +53,15 @@ The four entry points encode three categories into `asm_err_code` so
 callers can pick the right user-visible tag — see
 [asm_err.md § Error categories](asm_err.md#error-categories).
 
-Input is PETSCII.  Mnemonic characters are normalized to 1–26 via
-AND #$1F (handles uppercase, lowercase, and legacy VICII screen
-codes identically — see [mn_classify.md](mn_classify.md)).
+Input is PETSCII.  Each of the three key characters must be a letter
+— `$41`–`$5A`, `$61`–`$7A` or shifted `$C1`–`$DA` (the fold `AND #$5F`
+also maps `$E1`–`$FA` onto the letters) — and is normalized
+to 1–26 for the classifier ([mn_classify.md](mn_classify.md)).  Any
+other character there (a digit, punctuation, NUL — so also an empty
+line) is `;?syntax` before the hash runs; the classifier's 27-entry
+tables are never indexed out of range and no non-letter key can
+collide with a mnemonic (`ld8`, `xb`, `fo0` used to assemble as DEX,
+BCC, NOP).
 
 ### Mnemonic word
 
@@ -316,9 +322,10 @@ pass 1.
 
 ## Caveats
 
-- Input is PETSCII (uppercase $41–$5A or lowercase $61–$7A).
-  AND #$1F normalization in `_asm_rd_upper` handles both cases
-  and is also backward-compatible with raw VICII screen codes.
+- Input is PETSCII (letters $41–$5A, $61–$7A, $C1–$DA — and $E1–$FA,
+  which `AND #$5F` folds onto them — in the key).
+  `_asm_rd_upper` refuses anything else (raw VICII screen codes are
+  no longer accepted — no caller passes them).
 - `asm_cpu` values: 0=6502, 1=6510, 2=65C02, 3=4510, 4=45GS02 (one
   global enumeration).  The CMOS gate's `cmp #2` compares are compiled
   only into C64 builds, the 4510 gate's `cmp #3` only into the m65 build,

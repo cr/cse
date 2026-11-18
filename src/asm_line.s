@@ -194,20 +194,22 @@ _asm_emit:
         rts
 
 ; ── _asm_rd_upper ────────────────────────────────────────────────────────────
-; Read one character from (asm_ptr),y, normalize to 1–26 for letters,
-; advance Y, and return the value in A.
-; Handles:  PETSCII uppercase $41–$5A  (AND #$1F → $01–$1A)
-;           PETSCII lowercase $61–$7A  (AND #$1F → $01–$1A)
-;           VICII screen codes $01–$1A (pass-through, below $41)
-; Non-letter characters are passed through unchanged (validated later by
-; mn_classify).
+; Read one key character from (asm_ptr),y, advance Y, return it as 1–26.
+; Letters only: AND #$5F folds PETSCII lowercase $61–$7A, shifted $C1–$DA
+; (and $E1–$FA) onto $41–$5A; anything else — digit, punctuation, NUL,
+; screen code — is `;?syntax` here, so mn_classify only ever sees 1–26
+; (asm_line.md § asm_line).
 _asm_rd_upper:
         lda (asm_ptr),y
         iny
-        cmp #$41                ; below $41 → already normalized (or non-letter)
-        bcc :+
-        and #$1F                ; map $41–$5A and $61–$7A to $01–$1A
-:       rts
+        and #$5F
+        sec
+        sbc #$41                ; 'A' → 0
+        cmp #26
+        bcs @bad                ; not a letter
+        adc #1                  ; C=0: A = 1..26
+        rts
+@bad:   jmp asm_error
 
 ; ── _asm_emit_base_opr — emit asm_base then asm_opr[0] ──────────────────────
 _asm_emit_base_opr:
