@@ -611,3 +611,19 @@ class TestUnterminatedQuote:
         # Project name must NOT have been changed to "FOO"
         assert get_cur_project_name(cpu, rsyms) != "FOO", \
             "cur_project_name was modified by aborted parse"
+
+
+class TestDirDevice:
+    """repl.md § `$`: `$ N` with a decimal N in 4-30 selects device N
+    (cur_device) before listing; other numbers keep the current one.
+    Runs on this file's stub harness (list_directory is a stub here;
+    C64Emu has no IEC device to list)."""
+
+    @pytest.mark.parametrize("cmd,dev", [("$", 8), ("$ 9", 9), ("$ 30", 30),
+                                         ("$ 4", 4), ("$ 3", 8), ("$ 31", 8),
+                                         ("$ 255", 8)])
+    def test_device_parse(self, rsyms, cmd, dev):
+        cpu = make_cpu(rsyms)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[rsyms.cur_device] == dev

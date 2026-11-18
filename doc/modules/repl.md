@@ -786,8 +786,10 @@ selection, and drive commands.  Parsing is prefix-based:
     $              directory listing (current drive)
     $9             select drive 9 as current, show directory
 
-A single digit after `$` (8 or 9) sets `cur_device` permanently.
-Bare `$` lists the directory.
+A decimal device number after `$` (optional space) in 4–30 sets
+`cur_device` permanently, then lists that drive; any other number
+keeps the current device.  Bare `$` lists the directory.  Tests:
+`TestDirDevice` (tests/integration/test_repl_disk.py).
 
 ### Tab width (build-time constant)
 

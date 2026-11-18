@@ -1236,3 +1236,4 @@ class TestClearScreen:
         set_line_buf(cpu, rsyms, "x")
         run_at(cpu, rsyms.exec_line)
         assert all(cpu.memory[SCREEN + i] == 0x20 for i in range(1000))
+
