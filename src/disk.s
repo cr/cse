@@ -36,6 +36,9 @@ CHROUT  = $FFD2
 LOAD    = $FFD5
 SAVE    = $FFD8
 READST  = $FFB7
+LISTEN  = $FFB1
+UNLSN   = $FFAE
+ST      = $90               ; KERNAL I/O status
 
 CUR_COL = $D3
 CUR_ROW = $D6
@@ -219,6 +222,18 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 ; floppy_read_status — read drive error channel into fl_buf
 ; ═════════════════════════════════════════════════════════
 .proc floppy_read_status
+        ; Probe the drive first: OPEN with an empty name sends nothing,
+        ; and CHKIN on a missing device hangs in the KERNAL's talk
+        ; turnaround (TKSA waits for a talker to pull CLK).
+        lda #0
+        sta fl_buf              ; empty status if no drive answers
+        sta ST
+        lda cur_device
+        jsr LISTEN
+        jsr UNLSN
+        lda ST
+        bmi @done               ; device not present
+
         ; OPEN 14,8,15,""
         lda #0
         jsr SETNAM              ; empty filename

@@ -36,9 +36,15 @@ pointer `ptr` = `$FD`/`$FE` for it (§ Memory).  The device is
 **In:** none
 **Out:** the drive's command-channel status line in `fl_buf`: at most
 30 characters, a trailing CR stripped, NUL-terminated.  Uses LFN 14 /
-SA 15 and closes it.  If the OPEN itself fails, returns with nothing
-open and `fl_buf` unchanged.
+SA 15 and closes it.  `fl_buf` empty, nothing opened, when no drive
+answers.
 **Clobbers:** A, X, Y
+
+The device is probed first (`LISTEN` + `UNLSN`, then `ST` bit 7):
+`OPEN` with an empty name sends nothing on the bus, and the KERNAL's
+`CHKIN` on a missing serial device waits forever in its talk
+turnaround — a stock C64 hangs there.  With no drive the routine
+returns at once, nothing opened.
 
 ### floppy_status
 **In:** none

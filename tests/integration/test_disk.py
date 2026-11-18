@@ -72,3 +72,15 @@ def test_second_attempt_fails_for_the_same_reason(emu, call):
     call(emu)
     assert emu.memory[0x90] & 0x80
     assert emu.memory[LDTND] == 0
+
+
+def test_status_with_no_drive_returns_an_empty_status(emu):
+    """floppy_read_status must not hang when no drive answers: the
+    KERNAL's CHKIN on a missing serial device waits forever in its
+    talk turnaround, so the drive is probed first.  fl_buf is empty
+    and no file is left open."""
+    fl_buf = emu.sym("fl_buf")
+    emu.memory[fl_buf] = 0x41                   # stale content
+    emu.jsr(emu.sym("floppy_read_status"), max_cycles=200_000)
+    assert emu.memory[fl_buf] == 0
+    assert emu.memory[LDTND] == 0
