@@ -1912,3 +1912,23 @@ class TestIrqKeepsBanking:
         hits = e.run_steps(60_000, watch=[stub])
         assert hits, "no IRQ went through bank_out_stub"
         assert e.memory.ram[1] == port, f"$01 = ${e.memory.ram[1]:02X}"
+
+
+class TestMainCodeReadOnly:
+    """memory_design.md § Design Principles: no self-modifying code —
+    main.s's CODE is the same before and after a REPL session."""
+
+    def test_main_code_unchanged_by_keys(self, session, cse_prg):
+        import re, pathlib
+        s, e = session, session.e
+        text = pathlib.Path(cse_prg[1]).read_text()
+        m = re.search(r"^main\.o:\n\s+CODE\s+Offs=([0-9A-F]+)\s+Size=([0-9A-F]+)",
+                      text, re.M)
+        start = e.sym("__CODE_RUN__") + int(m.group(1), 16)
+        size = int(m.group(2), 16)
+        before = bytes(e.memory[start + i] for i in range(size))
+        s.keys(b"\x11\x91\x1d\x9d")         # cursor keys
+        s.type("? 1")
+        after = bytes(e.memory[start + i] for i in range(size))
+        diff = [hex(start + i) for i in range(size) if before[i] != after[i]]
+        assert diff == [], f"main.s CODE written at {diff}"

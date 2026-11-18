@@ -162,6 +162,7 @@ _irq_saved_a:      .res 1      ; scratch for cse_brk_handler_early's
                                 ; while we clobber A with the
                                 ; bank_out_stub address bytes, then
                                 ; restored for the FF48-style push.
+main_key:          .res 1      ; main_loop: the key being dispatched
 stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
                                 ;   set to 1 when (a) we process a STOP
                                 ;     press (so the same hold doesn't
@@ -475,10 +476,10 @@ main_loop:
         lda $C6                 ; kb buffer count (non-blocking kbhit)
         beq @wait
         jsr io_getc
-        sta @key
+        sta main_key
         jsr cursor_hide
 
-        lda @key
+        lda main_key
         cmp #CH_STOP
         bne @not_stop
         lda stop_cooldown
@@ -500,12 +501,12 @@ main_loop:
         lda state
         cmp #ST_EDIT
         bne @repl_mode
-        lda @key
+        lda main_key
         jsr ed_handle_key
         jmp main_loop
 
 @repl_mode:
-        lda @key
+        lda main_key
 
         cmp #CH_ENTER
         bne @not_enter
@@ -655,15 +656,13 @@ main_loop:
         lda CUR_COL
         cmp #SCREEN_WIDTH - 1
         jcs @reject
-        lda @key
+        lda main_key
         jsr io_putc
         jmp main_loop
 
 @reject:
         jsr io_blip
         jmp main_loop
-
-@key:   .byte 0
 
 ; ═════════════════════════════════════════════════════════════
 ; setup_interrupts — install all four vectors.

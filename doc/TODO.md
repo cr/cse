@@ -999,6 +999,9 @@ documentation round that follows this filing.
 - [ ] **Mutable bytes in CODE**: `main.s` `@key`, `dasm.s` `@adj`,
   `disk.s` `disk_save_prg`'s `@size_lo`/`@size_hi`
   (blocks a ROM/CRT build; memory_design.md "no self-modifying code").
+  `main.s` half fixed 2026-11-18: `@key` is now `main_key` in BSS,
+  test `TestMainCodeReadOnly`.  Open: `dasm.s` `@adj` (disassembler
+  track), `disk.s` `disk_save_prg`'s size bytes.
 - [x] `disk.s` closes LFN 1 on an OPEN failure although the file is
   LFN 2; the SEQ error paths close nothing.
   Fixed 2026-11-18: `_disk_open_buf` closes LFN 2 when OPEN fails (dead `@err_close` removed); C64Emu models an empty serial bus, test test_disk.py.
