@@ -1566,3 +1566,17 @@ class TestSegPrintSave:
     def test_nothing_emitted_prints_nothing(self, cse_prg):
         emu = self._print(cse_prg, "; only a comment")
         assert emu.screen_text(10) == ""
+
+
+class TestShadowWarningOnC64:
+    """addr_mode.md § ACC vs label: the `;!a shadow` warning is printed
+    with the KERNAL banked in — mode_parse runs banked out, and printing
+    there used to call into the RAM under $FFF0 (crash → cse_recover)."""
+
+    def test_assembles_and_warns(self, cse_prg):
+        emu, errors = _c64_assemble(
+            cse_prg, ".org $1000\n.const a $2000\n asl a\n nop")
+        assert errors == 0
+        assert list(emu.memory[0x1000:0x1002]) == [0x0A, 0xEA]
+        text = [emu.screen_text(r) for r in range(25)]
+        assert any(t.startswith(";!") and "shadow" in t for t in text), text

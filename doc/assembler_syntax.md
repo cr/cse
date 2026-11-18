@@ -117,7 +117,7 @@ read or write memory at symbol `a` from one of these six mnemonics,
 use a different label name, or write the address explicitly:
 
 ```
-a = $2000           ; defines label `a`
+.const a $2000      ; defines symbol `a`
 asl a               ; ACC mode → $0A      (warning: ;!a shadow)
 asl a+0             ; address mode → $0E $00 $20  (no warning)
 asl $2000           ; address mode → $0E $00 $20

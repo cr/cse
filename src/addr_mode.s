@@ -304,9 +304,17 @@ mode_parse:
         ; Symbol `A` is defined: emit ";!a shadow" directly via log_warn.
         ; This is the documented contract for the explicit `<acc-mne> A`
         ; form; see doc/modules/addr_mode.md § ACC vs label disambiguation.
+        ; mode_parse runs banked out; the screen output needs the KERNAL
+        ; (io_sync → PLOT), so bank it in around the warning.
+        lda $01
+        pha
+        ora #$02
+        sta $01
         lda #<s_a_shadow
         ldx #>s_a_shadow
         jsr log_warn
+        pla
+        sta $01                 ; back to the caller's banking
 @no_shdw:
         ldy #1                  ; consume 'A' (was iny — Y is dead here)
         jsr _au_check_end       ; validate end (Y advances past trailing ws)
