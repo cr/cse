@@ -74,11 +74,13 @@
 | [`dev/dasm_test_stub.s`](../dev/dasm_test_stub.s) | implementation — linker scaffolding for the dasm test bundle |
 | [`dev/symtab_test_stub.s`](../dev/symtab_test_stub.s) | implementation — linker scaffolding for the symtab test bundle |
 | [`dev/audit_doc.py`](../dev/audit_doc.py) | implementation — runs the doc audits below in one report |
-| [`dev/audit_doc_depends_on.py`](../dev/audit_doc_depends_on.py) | implementation — doc audit: module docs' depends-on lists against the sources' imports |
+| [`dev/audit_doc_depends_on.py`](../dev/audit_doc_depends_on.py) | implementation — doc audit: module docs' depends-on lists against the sources' imports, both directions |
 | [`dev/audit_doc_links.py`](../dev/audit_doc_links.py) | implementation — doc audit: every corpus link resolves (CDD Maintenance item 4) |
 | [`dev/audit_doc_module_bss.py`](../dev/audit_doc_module_bss.py) | implementation — doc audit: BSS sizes module docs state against the build |
 | [`dev/audit_doc_numbers.py`](../dev/audit_doc_numbers.py) | implementation — doc audit: numerical claims against the code |
 | [`dev/audit_doc_owned_files.py`](../dev/audit_doc_owned_files.py) | implementation — the ownership audit (CDD Maintenance item 2, [README.md § Ownership](README.md#ownership)) |
+| [`dev/check_deps.py`](../dev/check_deps.py) | implementation — layer checker: every src import goes to the same or a lower layer of architecture.md's Modules table |
+| [`tests/unit/test_check_deps.py`](../tests/unit/test_check_deps.py) | test contract — the layer checker and the Depends-on audit's import → doc direction, on small trees and the real tree |
 | [`tests/unit/test_audit_owned_files.py`](../tests/unit/test_audit_owned_files.py) | test contract — the ownership audit on small trees: completeness, uniqueness, directory rows, back-links, exemptions, local-file rows |
 | [`dev/audit_doc_structure.py`](../dev/audit_doc_structure.py) | implementation — doc audit: tone and structure (CDD Maintenance item 1) |
 | [`dev/audit_doc_symbols.py`](../dev/audit_doc_symbols.py) | implementation — doc audit: code symbols named in docs exist |

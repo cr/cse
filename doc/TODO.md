@@ -1345,9 +1345,10 @@ Stale against the code, by document (each item verified both ways):
   and its helper contracts (`_emit_byte`, `emit_error`,
   `_bad_val_err`, `_vocal_fwd_err`); the asm_src test input format;
   the size gate's growth procedure.
-- [ ] Audit tooling: `audit_doc_depends_on.py` checks only doc →
+- [x] Audit tooling: `audit_doc_depends_on.py` checks only doc →
   import (add import → doc); `dev/check_deps.py` (architecture.md
   cites it) does not exist.
+  Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
 ## Bugs
 

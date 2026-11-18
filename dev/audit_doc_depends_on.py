@@ -17,6 +17,13 @@ Two checks per claim:
       (e.g. "addr_mode (mode_parse, asm_skip_ws, _au_no_acc)"),
       verify the symbol appears in `src/foo.s`'s `.import` lines.
 
+and one in the reverse direction (import → doc), module-level:
+
+  (c) Every module `src/foo.s` imports a symbol from (the src file
+      that exports it, via dev/check_deps.py's scan) is named in
+      foo.md's Depends-on block, outside the parenthesised hints.
+      A module importing anything must have a Depends-on block.
+
 Run:
 
     /Users/cr/.local/share/virtualenvs/cse-rXGMsE9U/bin/python \\
@@ -27,6 +34,9 @@ import re
 import sys
 import pathlib
 from collections import defaultdict
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import check_deps                                   # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MODULES_DIR = ROOT / "doc" / "modules"
@@ -134,11 +144,58 @@ def parse_depends(block):
     return out
 
 
+def named_modules(block):
+    """Every identifier in a Depends-on block outside its parenthesised
+    hints — the module names it claims ("mn6_tables or mn7_tables"
+    names both)."""
+    depth, flat = 0, []
+    for ch in block:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            flat.append(ch)
+    return set(re.findall(r"[A-Za-z_]\w*", "".join(flat).replace("`", "")))
+
+
+def reverse_findings(modules_dir, src_dir):
+    """(c): [(doc, module, dep, symbols)] for each imported-from module
+    the module's doc does not name (dep None: no Depends-on block)."""
+    mods = check_deps.scan(src_dir)
+    edges = check_deps.module_edges(mods)
+    out = []
+    for module in sorted(edges):
+        doc = pathlib.Path(modules_dir) / f"{module}.md"
+        if not doc.exists():
+            continue                    # owned by a sibling doc (mn6/mn7, …)
+        block = extract_depends_block(doc.read_text())
+        if block is None:
+            out.append((doc, module, None, []))
+            continue
+        named = named_modules(block)
+        for dep, syms in sorted(edges[module].items()):
+            if dep not in named:
+                out.append((doc, module, dep, syms))
+    return out
+
+
 def main():
     findings = {
         "missing_module": [],   # module name claimed but no src/foo.s imported from
         "missing_symbol": [],   # symbol claimed but not actually .import'd
+        "unlisted_import": [],  # (c) imported-from module not in Depends-on
     }
+    for doc, module, dep, syms in reverse_findings(MODULES_DIR, SRC_DIR):
+        findings["unlisted_import"].append({
+            "doc": str(doc.relative_to(ROOT)),
+            "module": module,
+            "dep": dep,
+            "note": (f"src/{module}.s imports from modules but the doc has "
+                     f"no Depends-on block" if dep is None else
+                     f"src/{module}.s imports {', '.join(syms)} from "
+                     f"src/{dep}.s"),
+        })
 
     audited = 0
     for doc in sorted(MODULES_DIR.glob("*.md")):
@@ -230,6 +287,13 @@ def main():
         for f in findings["missing_symbol"]:
             print(f"   {f['doc']}  claims `{f['claimed_symbol']}` "
                   f"from {f['claimed_dep']}")
+            print(f"      {f['note']}")
+        print()
+    if findings["unlisted_import"]:
+        print(f"── (c) Module imported from but not named in the doc's "
+              f"Depends-on ({len(findings['unlisted_import'])})")
+        for f in findings["unlisted_import"]:
+            print(f"   {f['doc']}  omits {f['dep']}")
             print(f"      {f['note']}")
         print()
 

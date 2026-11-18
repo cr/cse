@@ -45,6 +45,8 @@ AUDITS = [
      "audit_doc_owned_files.py", True),
     ("4",  "module Depends-on accuracy",
      "audit_doc_depends_on.py", True),
+    ("5",  "layer DAG (imports go downward)",
+     "check_deps.py", True),
     ("6",  "tone/structure (heading skips, tables, etc.)",
      "audit_doc_structure.py", True),
 ]

@@ -162,7 +162,7 @@ of the `dbg_reason` values.
 1. **DAG, strictly downward cross-layer.**  Every `.import` /
    `.importzp` that crosses a layer boundary resolves to a module
    in a strictly lower layer.  `dev/check_deps.py` checks it by
-   scanning the source tree.
+   scanning the source tree (run by `dev/audit_doc.py`).
 2. **Same-layer imports are permitted when acyclic.**  Within a
    layer, forward imports among siblings are allowed if the induced
    subgraph is a DAG.  Current intentional intra-layer edges:
