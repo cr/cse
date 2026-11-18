@@ -1562,3 +1562,24 @@ class TestRecoverKeepsBreakpoints:
         assert e.memory[0x3000] == 0xA9, "patched $00 left in user code"
         e.jsr(e.sym("dbg_bp_count"))
         assert e.a == 1, "breakpoint table wiped by cse_recover"
+
+
+class TestColdPreviewSession:
+    """debugger.md § dbg_reason × command matrix: after a cold preview
+    the first run into userland is a fresh start (sentinel pushed)."""
+
+    def _prog(self, s):
+        s.e.memory[0x3000] = 0xE8          # INX
+        s.e.memory[0x3001] = 0x60          # RTS
+
+    def test_c_after_cold_preview_is_clean_exit(self, session):
+        s = session
+        self._prog(s)
+        s.type("@ $3000")
+        s.type("t")                         # cold preview
+        assert s.v("dbg_reason") == DBG_BRK
+        s.type("c")
+        assert s.v("warm_guard") == 0
+        assert s.v("dbg_reason") == DBG_RTS, "user RTS must hit brk_stub"
+        assert s.v("reg_x") == 1
+        assert s.v("cold_preview_done") == 0

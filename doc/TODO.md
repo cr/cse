@@ -797,10 +797,13 @@ documentation round that follows this filing.
   Fixed 2026-11-18: `cld` first in `cse_brk_handler` and
   `cse_nmi_handler` (the user's D stays in `reg_p`), test
   `TestDecimalFlag`.
-- [ ] **A cold preview (`t` with no session) counts as resumable.**
+- [x] **A cold preview (`t` with no session) counts as resumable.**
   It promotes `dbg_reason` to DBG_BRK with `reg_sp = $FF` and no
   sentinel; `c` then resumes and the user's RTS jumps into zero page
   (`;!stk 1`, `brk at $fffe`).
+  Fixed 2026-11-18: `c` and `t`/`o` share `set_run_mode`: after a
+  cold preview the first run is MODE_JUMP (sentinel pushed) and
+  consumes `cold_preview_done`, test `TestColdPreviewSession`.
 - [ ] **`cold_preview_done` survives `end_debug_body`.**  A later real
   step uses MODE_JUMP and pushes a second sentinel; the subroutine's
   RTS ends the session early (`; rts`).

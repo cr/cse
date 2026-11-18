@@ -2277,21 +2277,7 @@ pre_userland_run:
         sta step_remaining
 
         jsr pre_userland_run
-
-        ; Mode: MODE_JUMP if cold preview just established the
-        ; session (no sentinel yet — first real step must push one),
-        ; else MODE_RESUME (we've already gated on dbg_reason >=
-        ; DBG_BRK above, so the sentinel is on the user stack).
-        ; Consume cold_preview_done here.
-        lda cold_preview_done
-        beq @resume
-        lda #0
-        sta cold_preview_done
-        lda #MODE_JUMP
-        .byte $2C
-@resume: lda #MODE_RESUME
-        sta run_user_pending
-        rts
+        jmp set_run_mode        ; tail-call
 
 @oor_warn:
         ; Step BRK arm slot is outside [workstart, workend].
@@ -2302,6 +2288,23 @@ pre_userland_run:
         ldx #>str_range
         jmp log_warn
 .endproc
+
+; ── set_run_mode — run_user_pending for a step / `c` ──────────────────
+; MODE_JUMP if a cold preview established the session (no user code
+; has run, so no sentinel is on the user stack yet — this transition
+; must push one), consuming cold_preview_done; else MODE_RESUME (the
+; sentinel from the session's fresh start is still in place).
+; Clobbers: A.
+set_run_mode:
+        lda cold_preview_done
+        beq @resume
+        lda #0
+        sta cold_preview_done
+        lda #MODE_JUMP
+        .byte $2C
+@resume: lda #MODE_RESUME
+        sta run_user_pending
+        rts
 
 ; ═══════════════════════════════════════════════════════════
 ; cmd_brk — 'b' command: breakpoints
@@ -4084,10 +4087,9 @@ prg_ok_done:
         ; Drain KERNAL keyboard buffer.
         lda #0
         sta $C6
-        ; Resume (reuse existing sentinel from the prior fresh start).
-        lda #MODE_RESUME
-        sta run_user_pending
-        rts
+        ; Resume (reuse the sentinel from the session's fresh start),
+        ; or a fresh start if a cold preview set the session up.
+        jmp set_run_mode
 
 ; ── Command dispatch table (parallel arrays) ──
 @cmd_chars:

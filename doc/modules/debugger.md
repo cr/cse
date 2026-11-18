@@ -217,7 +217,7 @@ run the same command line).  This matrix is the contract.
 
 | Command | `DBG_NONE` | `DBG_RTS` | `DBG_BRK` | `DBG_NMI` | Notes |
 |---|---|---|---|---|---|
-| `c`     | reject (`;?no ctx`) | reject | run | run | `c` is gated by reason; on run the session continues until next break or clean exit. |
+| `c`     | reject (`;?no ctx`) | reject | run | run | `c` is gated by reason; on run the session continues until next break or clean exit.  After a cold preview (no user code has run) `c` is a fresh start: it pushes the `brk_stub` sentinel like `j`, so the program's top-level RTS ends the session cleanly. |
 | `t`/`o` | cold preview (`;dbg`, no exec) | reject (`;?no ctx`) | step | step | `t`/`o` is gated by reason; cold preview promotes to DBG_BRK so the next t steps for real. |
 | `j`/`g` | run | run | warn + ask (`;!debug` / `go? y/n`) | warn + ask | On yes: end debug + replay command (warm_cont).  On cancel: nl_clear. |
 | `r`     | run | run | run | run | Transparent.  Always renders the captured reg shadows. |
@@ -791,6 +791,12 @@ for the two callers (`o` and `c`).
   - **RTS-early-stop in cmd_step**: sets `DBG_RTS` (same as a
     handler-classified RTS landing — unified display behavior).
   - **end-debug** (`R` command): clears to `DBG_NONE`.
+
+- `cold_preview_done` (repl.s) — 1 = the session was set up by
+  a cold preview and no user code has run yet.  The first
+  transition into userland after it — a step (`t`/`o`) or `c` —
+  is a fresh start (MODE_JUMP: the `brk_stub` sentinel is pushed)
+  and consumes the flag.
 
 - `_rtu_need_sentinel` — 1 = the next userland transition (via
   `restore_userland_state`) must push a fresh brk_stub sentinel
