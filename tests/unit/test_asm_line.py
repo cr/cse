@@ -869,3 +869,21 @@ class TestImpliedAndWordEnd:
     def test_accepted(self, asm_syms, source, expected):
         got, _, _ = R.run_asm(asm_syms, source, 2)
         assert got == expected
+
+
+# ── A narrow branch operand is a target (asm_line.md § Branches) ────────────
+
+class TestNarrowBranchTarget:
+
+    @pytest.mark.parametrize("source,expected", [
+        ("BNE $10", bytes([0xD0, 0x0E])),      # PC $0000: $10 - 2
+        ("BEQ $02", bytes([0xF0, 0x00])),
+        ("BCC $81", bytes([0x90, 0x7F])),
+    ])
+    def test_narrow_operand_is_target(self, asm_syms, source, expected):
+        got, _, _ = R.run_asm(asm_syms, source, 2)
+        assert got == expected
+
+    def test_narrow_target_out_of_reach(self, asm_syms):
+        got, err, _ = R.run_asm(asm_syms, "BNE $82", 2)   # offset +128
+        assert got is None and err == 0

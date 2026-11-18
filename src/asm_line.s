@@ -8,8 +8,8 @@
 ;   - MNEMONIC: 3 letters (PETSCII uppercase $41–$5A or lowercase $61–$7A;
 ;               AND #$1F normalizes both to 1–26 for the hash classifier)
 ;   - OPERAND:  addressing-mode argument, same syntax as mode_parse accepts
-;               Exception: Zone B (REL) accepts a 4-digit absolute target ($xxxx)
-;               and computes the signed PC-relative offset automatically.
+;               Zone B (REL): the operand is the target (narrow or wide);
+;               the signed PC-relative offset is computed.
 ;   - No labels, symbols, directives, or expressions (stub: hex literals only).
 ;
 ; Public entry point: asm_line (A/X = PETSCII text pointer)
@@ -375,19 +375,16 @@ _asm_line_core:
         jmp _asm_emit           ; tail-call; _asm_emit preserves C
 @a_bad: jmp asm_error
 
-; ── Zone B: REL — branch target (absolute or raw offset) ─────────────────────
+; ── Zone B: REL — branch target ──────────────────────────────────────────────
 @zone_b:
         jsr mode_parse
-        ; mode_parse returns MODE_ABS for a 4-digit $xxxx target, or
-        ; MODE_ZP for a 2-digit $xx raw offset.
+        ; The operand is the target, wide (MODE_ABS) or narrow (MODE_ZP —
+        ; a zero-page target; asm_opr[1] is already 0 for a narrow value).
         cmp #MODE_ABS
         beq @rel_abs
         cmp #MODE_ZP
-        beq :+
+        beq @rel_abs
         jmp asm_error           ; neither ABS nor ZP
-:       ; ZP: asm_opr[0] is the raw signed offset byte
-        clc
-        jmp _asm_emit_base_opr  ; tail-call; _asm_emit preserves C
 
 @rel_abs:
         ; Compute signed offset = target − (asm_pc + 2)

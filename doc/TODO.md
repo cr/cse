@@ -1013,8 +1013,11 @@ documentation round that follows this filing.
   '//'), and the character after the three-letter key must be
   whitespace, end or ';' (asm_line.md § Mnemonic word, § Zone
   dispatch). Test TestImpliedAndWordEnd (test_asm_line.py).
-- [ ] **A narrow branch operand is emitted as a raw offset**:
+- [x] **A narrow branch operand is emitted as a raw offset**:
   `BNE $10` → `D0 10` (asm_line.md: the operand is the target).
+  Fixed 2026-11-18: zone B treats a narrow operand as a zero-page
+  target like a wide one (-4 B). Test TestNarrowBranchTarget
+  (test_asm_line.py).
 - [ ] **`expr` loses the wide flag after a nested `<`/`>`**:
   `$0000+(<$12+1)` returns narrow (the saved flag is not stacked).
 - [ ] **Immediate values > 255 are truncated silently**

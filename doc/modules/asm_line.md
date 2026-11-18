@@ -231,7 +231,9 @@ the operand byte count is the generated `asm_oplen[mode]`.
 
 ### Branches (zone B)
 
-The operand is the target address; the offset is computed.  For `REL`
+The operand is the target address; the offset is computed — for a
+narrow operand too: `bne $10` branches to `$0010` (out of reach
+anywhere but page zero), it is not a raw offset byte.  For `REL`
 the offset is `target − (asm_pc + 2)`, valid in −128..127.  On
 `MEGA_SUPPORT` a profile may also (or only) accept `REL16`, a 16-bit
 offset `target − (asm_pc + 2)` (the address of the instruction's last
