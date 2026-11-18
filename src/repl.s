@@ -3991,15 +3991,10 @@ prg_ok_done:
         ldy #LOG_INFO
         jsr log_open
         lda expr_val+1
-        bne @calc_16bit
+        bne @calc_16bit         ; >= 256: $xxxx, whatever the low byte
         jsr calc_put_u8_hex
         jmp @calc_dec
 @calc_16bit:
-        lda expr_val
-        bne @calc_16bit_real
-        jsr calc_put_u8_hex
-        jmp @calc_dec
-@calc_16bit_real:
         lda #'$'
         jsr io_putc
         lda expr_val

@@ -1151,9 +1151,10 @@ documentation round that follows this filing.
 
 ### Code bugs — found by the doc-drift round (2026-11-18)
 
-- [ ] **`?` shows a 16-bit value whose low byte is 0 in the 8-bit
+- [x] **`?` shows a 16-bit value whose low byte is 0 in the 8-bit
   form**: `? $1000` prints `;   $00   4096` (`@calc_16bit` falls back
   to the 8-bit form when the low byte is 0).
+  Fixed 2026-11-18: the low-byte fallback is gone, a value ≥ 256 always shows `$xxxx` (−10 B, budget lowered), test test_calc_hex_form_follows_the_value.
 - [ ] **`t nosuchsym` / `o nosuchsym` step anyway** after `;?expr
   undef` (or do a cold preview) — the shape of the fixed `j` bug:
   `cmd_step` treats an error as an empty argument.

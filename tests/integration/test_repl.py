@@ -762,6 +762,24 @@ class TestCalculator:
             f"expected ';' (log-info) on row 6 col 0, got " \
             f"${cpu.memory[next_base]:02X}"
 
+    @pytest.mark.parametrize("cmd,hexform,dec", [
+        ("?$1000", "$1000", "4096"),     # low byte 0: the 16-bit form
+        ("?$2300", "$2300", "8960"),
+        ("?$0100", "$0100", "256"),
+        ("?$1001", "$1001", "4097"),
+        ("?$00", "$00", "0"),            # below 256: the 8-bit form
+        ("?$42", "$42", "66"),
+    ])
+    def test_calc_hex_form_follows_the_value(self, rsyms, cmd, hexform, dec):
+        """repl.md `?` row: hex is `$xx` below 256, `$xxxx` from 256 on —
+        whatever the low byte."""
+        cpu = make_cpu(rsyms)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        rows = [screencode_str(cpu, r).decode("latin-1") for r in range(ROWS)]
+        out = next(r for r in rows if r.startswith(";") and dec in r)
+        assert out.split()[1:3] == [hexform, dec], out
+
     def test_calc_accepts_trailing_whitespace(self, rsyms):
         """Whitespace after the expression is fine (no trailing-garbage error)."""
         cpu = make_cpu(rsyms)

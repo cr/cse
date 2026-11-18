@@ -659,7 +659,7 @@ it a PRG save to `project.`; RETURN on the row saves the binary.
 | Key   | Name    | Addressed | Example               | Notes                                |
 |-------|---------|-----------|----------------------|--------------------------------------|
 | `i`   | info    | —         | `i`                  | Show the memory map |
-| `?`   | calc    | —         | `? $1000+20`         | Expression calculator: hex, decimal, and for values below 256 binary and signed.  Takes exactly one expression; rejects trailing garbage. |
+| `?`   | calc    | —         | `? $1000+20`         | Expression calculator: hex (`$xx` below 256, `$xxxx` from 256 on), decimal, and for values below 256 binary and signed.  Takes exactly one expression; rejects trailing garbage. |
 | `k`   | kill    | —         | `k`                  | Delete the source buffer (gated) |
 | `B`   | block   | —         | `B $40` or `B`       | Set block size (expression; 0 or an error keeps it); always shows `; blk=XXXX`.  Rejects trailing garbage. |
 | `C`   | color   | —         | `C 6`, `C 06`, `C 0e6`, `C` | Set fg / bg+fg / border+bg+fg from 1–3 adjacent hex digits; bare = show.  See [§ `C`](#c--color-uppercase). |
@@ -940,10 +940,6 @@ paths; each starts at column 0 and ends with `io_clear_eol`.
   hex digits are lowercase ([expr.md](expr.md)).  The `AAAA:` prefix,
   `m`'s address, `.`/`m` byte pairs, `r` fields and `C` digits are
   plain hex.
-- `?` prints a value of $0100 or more whose low byte is 0 in the
-  8-bit hex form: `? $1000` shows `;   $00   4096` (`@calc_16bit`
-  falls back to the 8-bit form when the low byte is 0).  A defect, to be
-  filed in TODO.md; the decimal column is right.
 - `warn_long_lines` keeps 4 mutable bytes (`@vcol`, `@line`, `@tw`) in
   the CODE segment, like the open TODO § Code bugs "Mutable bytes in
   CODE" items.
