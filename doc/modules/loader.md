@@ -12,12 +12,19 @@
 ## Interface
 
 ### loader_entry
-**In:** machine reset state — BASIC has just `SYS`-jumped here from
-the PRG header at `$080D`.  Stack is in unknown state.
-**Out:** does not return.  Tail-jumps to `_main` after relocation.
-**Clobbers:** the 6502 stack pointer (reset to $FF), the entire $02–$05
-ZP scratch window (reused as `ptr1`/`ptr2`), and the LOADER segment's
-own memory once `_main` reclaims it as workspace.
+**In:** BASIC has just `SYS 2061`-jumped here (the `EXEHDR` stub in
+`main.s` at `$0801`; `loader_entry` is the first byte of the LOADER
+segment at `$080D`).  Registers, stack and `$01` are whatever BASIC
+left.
+**Out:** does not return.  Tail-jumps to `_main` after relocation:
+CODE + RODATA at their runtime addresses, BSS zeroed, KDATA at its
+runtime address under the KERNAL.  `$01` is unchanged.
+**Clobbers:** A, X, Y; SP (reset to `$FF`); ZP `$02–$05` (`ptr1`,
+`ptr2`); the LOADER segment's own memory once `_main` reclaims it as
+workspace.
+
+`loader_entry` is not exported: it is reached by its fixed address,
+not by name.
 
 **State:** none — the loader runs once and is overwritten.
 **Depends on:** `_main` — the loader's final `jmp` target after
@@ -30,7 +37,8 @@ relocation is complete; plus the linker-supplied symbols
 
 The loader is a discardable bootstrap stage that runs once at PRG
 startup and is never re-entered.  Its memory is reclaimed as user
-workspace immediately after `_main` takes over.
+workspace after `_main` takes over (cold init fills the workspace
+from `$0800` with `$00`).
 
 Sequence (LOADER segment, load = run = $080D):
 
@@ -40,7 +48,14 @@ Sequence (LOADER segment, load = run = $080D):
 3. Zero the BSS region.
 4. Copy KDATA from its load position to its runtime position
    (≥ $F100, under the KERNAL bank) — backward memcpy, top-down.
+   Pure stores under the KERNAL reach the RAM beneath it whatever
+   `$01` says, so the copy needs no banking.
 5. `jmp _main` — control transfers to the runtime image.
+
+Only BSS is zeroed.  The rest of the banked RAM under the KERNAL
+(symbol table, REPL screen save, `main.s`'s `COLD_ZP` snapshot) is
+not touched by the loader; see
+[memory_design.md § Banked layout](../memory_design.md#banked-layout-e000ffff).
 
 **Copy direction.**  Both copies are top-down (highest byte first)
 because CSE always has `dst > src` for both regions (payload lives
@@ -50,7 +65,7 @@ copy is always safe under this layout.  See
 
 **ZP usage.**  The loader borrows `$02–$05` as two 16-bit pointers
 (`ptr1` = source, `ptr2` = destination).  Same addresses as
-`main.s::rp_ptr` / `rp_ptr2`, but the loader runs strictly before
+`zp.s`'s `rp_ptr` / `rp_ptr2`, but the loader runs strictly before
 `_main` so there is no temporal conflict.
 
 **Test coverage.**  Tier I, `test_loader.py`: the unrelocated PRG
@@ -67,9 +82,9 @@ productive ([testing.md § Principle 9](../testing.md), Pattern A).
   not call any code outside the LOADER segment** until the relocation
   is complete.  After `jmp _main`, the LOADER memory becomes
   user workspace.
-- The KDATA copy targets a region under the KERNAL bank — the loader
-  banks ROM out for the KDATA copy and back in afterward, since
-  KDATA's runtime address ($F100+) is shadowed by KERNAL by default.
+- `_main` snapshots `$01–$7F` for the exit to BASIC after the loader
+  ran, so the BASIC-side values of `$02–$05` are the loader's pointer
+  leftovers, not BASIC's.
 - Only assembled with `.setcpu "6502"` — never use illegal or CMOS
   opcodes here.  The loader runs on every CSE target regardless of
   build profile.

@@ -10,8 +10,8 @@
 ; Copy direction: **top-down** (backward memcpy — highest byte
 ; first).  CSE always has dst > src for both copies (payload lives
 ; low, runtime lives high; KDATA load is below $F100 run), so
-; backward copy is always safe and the old payload-end sanity gate
-; is gone.  See doc/build_system.md § Copy direction.
+; backward copy is always safe.  See doc/build_system.md § The ld65
+; load/run split.
 
         .setcpu "6502"
 
@@ -24,7 +24,7 @@
         .import __KDATA_LOAD__, __KDATA_RUN__, __KDATA_SIZE__
 
 ; ── ZP (borrowed — only used during loader, before _main) ────
-; Same addresses as main's rp_ptr/rp_ptr2/rp_tmp, but the
+; Same addresses as zp.s's rp_ptr/rp_ptr2, but the
 ; loader runs before _main so there is no conflict.
 ptr1     = $02                  ; 2 bytes — source pointer
 ptr2     = $04                  ; 2 bytes — destination pointer
