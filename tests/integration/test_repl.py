@@ -10,9 +10,8 @@ C64Emu + the production CMOS PRG.
 The tests use the real production binary through C64Emu, so they
 exercise the same code that runs on the C64.
 
-Disk tests (TestSaveCommand, TestLoadCommand) still live in
-test_repl_disk.py using the old stub-based harness; they migrate
-back here once virtual IEC lands in C64Emu.
+The disk commands (`s`, `l`, `$`) are in test_repl_disk.py, on a
+virtual drive.
 """
 
 import pytest
@@ -1093,9 +1092,7 @@ class TestDotHexEdit:
 
 # ── R. Load/Save command tests ─────────────────────────────────────
 #
-# In test_repl_disk.py — those tests need the repl_test_stub.s
-# witness variables to capture disk-op arguments.  They migrate back
-# here when the virtual IEC lands in C64Emu.
+# In test_repl_disk.py, on C64Emu with a virtual 1541 attached.
 
 
 

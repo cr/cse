@@ -7,23 +7,24 @@
 | File | Role |
 |------|------|
 | [`src/disk.s`](../../src/disk.s) | implementation |
-| [`tests/integration/test_disk.py`](../../tests/integration/test_disk.py) | test contract — the error paths with no drive: error codes, no file left open |
+| [`tests/integration/test_disk.py`](../../tests/integration/test_disk.py) | test contract — every export on the real PRG: with no drive (error codes, no file left open, no hang) and on a virtual 1541 (transfers, status, directory) |
 
-**Test coverage** — the error paths with no drive are Tier I
-(`test_disk.py`: C64Emu models an empty serial bus, so every KERNAL
-OPEN / LOAD on a serial device fails with "device not present").
-Successful transfers are Pattern C per
-[testing.md § Principle 9](../testing.md): every export
-(`list_directory`, `floppy_status`, `floppy_read_status`, the PRG and
-SEQ load/save entries) needs a drive that answers, and the harness
-has no virtual IEC device and no D64 backend.  Coverage of those is
-therefore manual: VICE with a mounted D64 image, exercising `l` /
-`s` / `$` REPL commands across PRG / SEQ / verbatim-name forms,
-device-not-present, file-not-found, and overwrite paths.  Plans
-to graduate this to Tier I are tracked under
-[TODO.md § C64Emu extension roadmap — Virtual IEC disk](../TODO.md).
-Until that lands, every disk.s edit must be VICE-walked before
-commit.
+**Test coverage** — Tier I on the real PRG (`test_disk.py`).  With no
+drive, C64Emu models an empty serial bus, so every KERNAL OPEN / LOAD
+on a serial device fails with "device not present": the error codes,
+no file left open, the status read that must not hang.  With a
+virtual 1541 on the bus
+([testing.md § Virtual IEC drives](../testing.md#virtual-iec-drives))
+every export runs its transfer through the KERNAL for real:
+`disk_load_prg` (header and given address, file not found),
+`disk_save_prg` (header + payload, `@:` replace), `disk_load_seq` /
+`disk_save_seq` (bytes, line and byte counts, missing and empty
+files), `floppy_read_status` / `floppy_status`, `list_directory`
+(header, entries, blocks free, other devices, a D64 image).  The REPL
+commands over them (`l`, `s`, `$`) are tested in
+`test_repl_disk.py`.  Real-hardware specifics the model leaves out
+(bus timing, the MEGA65 Open-KERNAL's channel I/O) remain VICE /
+xmega65 walks.
 
 ## Interface
 

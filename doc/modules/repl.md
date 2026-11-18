@@ -27,7 +27,7 @@ framing.  The user-facing command reference is the root
 |------|------|
 | [`src/repl.s`](../../src/repl.s) | implementation (assembly) |
 | [`tests/integration/test_repl.py`](../../tests/integration/test_repl.py) | test contract — Tier I (full PRG via `C64Emu`) |
-| [`tests/integration/test_repl_disk.py`](../../tests/integration/test_repl_disk.py) | test contract — `l`, `s` and `$` argument parsing on a bare-MPU binary (repl.s + `repl_test_stub.s`): the disk primitives are stubs that record their arguments, since C64Emu has no IEC device |
+| [`tests/integration/test_repl_disk.py`](../../tests/integration/test_repl_disk.py) | test contract — Tier I disk-command paths (`l`, `s`, `$`) routed through `exec_line`, on C64Emu with a virtual 1541 |
 
 Further REPL contracts live with the subsystem they exercise:
 `TestOutputHygiene` and `TestQueryUserOutcomes` in

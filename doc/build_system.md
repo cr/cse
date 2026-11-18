@@ -72,8 +72,6 @@
 | [`dev/asm_src_test_stub.s`](../dev/asm_src_test_stub.s) | implementation — linker scaffolding for the asm_src test bundle |
 | [`dev/cse_io_test_stub.s`](../dev/cse_io_test_stub.s) | implementation — linker scaffolding for the cse_io test bundle |
 | [`dev/dasm_test_stub.s`](../dev/dasm_test_stub.s) | implementation — linker scaffolding for the dasm test bundle |
-| [`dev/repl_test.cfg`](../dev/repl_test.cfg) | implementation — linker config for the repl test bundle |
-| [`dev/repl_test_stub.s`](../dev/repl_test_stub.s) | implementation — linker scaffolding for the repl test bundle |
 | [`dev/symtab_test_stub.s`](../dev/symtab_test_stub.s) | implementation — linker scaffolding for the symtab test bundle |
 | [`dev/audit_doc.py`](../dev/audit_doc.py) | implementation — runs the doc audits below in one report |
 | [`dev/audit_doc_depends_on.py`](../dev/audit_doc_depends_on.py) | implementation — doc audit: module docs' depends-on lists against the sources' imports |

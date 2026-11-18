@@ -1617,23 +1617,16 @@ reimplementations of other modules.
 | `test_breakpoints.py` | breakpoints.s | `breakpoints_test_stub.s` | Only ZP |
 
 Leaf tests use `SymbolTable` for all symbol lookups — the same
-encapsulation as conftest bundles.  `test_repl_disk.py` still builds
-its own bare-MPU binary with stubbed disk calls; it moves to C64Emu
-with the virtual IEC disk (Tranche 4).
+encapsulation as conftest bundles.  (The last hand-built bare-MPU
+binary, `test_repl_disk.py`'s with stubbed disk calls, is gone: its
+tests run on C64Emu against a virtual drive,
+[§ Virtual IEC drives](#virtual-iec-drives).)
 
 Complex modules with substantive production dependencies should NOT
 build standalone test binaries.  They belong in a conftest bundle
 (if they share an import graph with existing bundles) or in C64Emu
 integration tests (if they depend on most of the codebase).
 
-
-**test_repl.py witness resolution:** Disk I/O witness addresses
-(`save_addr`, `save_size`, `load_result`) are resolved from the
-stub's RODATA `sym_refs` table (slots 11–13), not from hardcoded
-BSS offsets.  The old `stub_bss + 185` pattern broke whenever BSS
-layout changed.  All stub-local addresses should be resolved via
-the `sym_refs` table or via `SymbolTable` when the test migrates
-to C64Emu.
 
 ### Running a test
 
