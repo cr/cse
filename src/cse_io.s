@@ -85,7 +85,7 @@ io_sync:
         ldx CUR_ROW
         ldy CUR_COL
         clc                     ; CLC = set position
-        jmp PLOT                ; KERNAL PLOT: sets $D1/$D2/$D3/$D6/$F3/$F4
+        KJMP  PLOT              ; KERNAL PLOT: sets $D1/$D2/$D3/$D6/$F3/$F4
 
 ; ── pet_to_scr — PETSCII → screen code (pure function) ──────
 ; In:  A = PETSCII byte
@@ -333,7 +333,7 @@ io_clear_eol:
 
 ; ── io_getc — blocking keyboard read ────────────────────────
 io_getc:
-        jsr GETIN               ; KERNAL GETIN
+        KCALL GETIN             ; KERNAL GETIN
         beq io_getc            ; loop until key pressed
         ldx #0
         rts

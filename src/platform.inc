@@ -122,4 +122,24 @@ DISK_LOCAL_PTR  = $FD
 
 .endif ; PLATFORM_C64
 
+; ═════════════════════════════════════════════════════════════════════
+; Macros — one contract each (doc/platform_layer.md § Seam contracts),
+; a body per platform.
+; ═════════════════════════════════════════════════════════════════════
+
+; ── KERNAL calls (§ KERNAL calls) ────────────────────────────────────
+; Call / tail-jump to a KERNAL jump-table entry under the KERNAL's
+; prerequisites.  A, X, Y and C pass through in both directions.
+.macro KCALL entry
+  .ifdef PLATFORM_C64
+        jsr entry
+  .endif
+.endmacro
+
+.macro KJMP entry
+  .ifdef PLATFORM_C64
+        jmp entry
+  .endif
+.endmacro
+
 .endif ; PLATFORM_INC

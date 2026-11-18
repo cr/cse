@@ -193,15 +193,15 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 .proc _disk_open_buf
         ldx #<open_buf
         ldy #>open_buf
-        jsr SETNAM
+        KCALL SETNAM
         lda #2
         ldx cur_device
         ldy #2
-        jsr SETLFS
-        jsr OPEN
+        KCALL SETLFS
+        KCALL OPEN
         bcc @ok
         lda #2
-        jsr CLOSE
+        KCALL CLOSE
         sec
 @ok:    rts
 .endproc
@@ -217,30 +217,30 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         sta fl_buf              ; empty status if no drive answers
         sta ST
         lda cur_device
-        jsr LISTEN
-        jsr UNLSN
+        KCALL LISTEN
+        KCALL UNLSN
         lda ST
         bmi @done               ; device not present
 
         ; OPEN 14,8,15,""
         lda #0
-        jsr SETNAM              ; empty filename
+        KCALL SETNAM            ; empty filename
         lda #14                 ; lfn
         ldx cur_device
         ldy #15                 ; secondary (command channel)
-        jsr SETLFS
-        jsr OPEN
+        KCALL SETLFS
+        KCALL OPEN
         bcs @done
 
         ; CHKIN 14
         ldx #14
-        jsr CHKIN
+        KCALL CHKIN
 
         ; read bytes into fl_buf
         ldy #0
 @read:  jsr READST
         bne @close              ; any status = done
-        jsr CHRIN
+        KCALL CHRIN
         cpy #30                 ; buffer limit
         bcs @close
         sta fl_buf,y
@@ -261,9 +261,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         lda #0
         sta fl_buf,y
 
-        jsr CLRCHN
+        KCALL CLRCHN
         lda #14
-        jmp CLOSE
+        KJMP  CLOSE
 @done:  rts
 .endproc
 
@@ -284,9 +284,9 @@ floppy_status:
 ;        else A = 1, Z = 0.  X = 0.  fl_buf = the status.
 ; ═════════════════════════════════════════════════════════
 _close2_status:
-        jsr CLRCHN
+        KCALL CLRCHN
         lda #2
-        jsr CLOSE
+        KCALL CLOSE
 _status_ret:
         jsr floppy_read_status
         ldx #0
@@ -322,19 +322,19 @@ _status_ret:
         lda #1
         ldx #<str_dname
         ldy #>str_dname
-        jsr SETNAM
+        KCALL SETNAM
 
         ; SETLFS 0,device,0  (SA=0 → load to given address)
         lda #0
         ldx @dev
         ldy #0
-        jsr SETLFS
+        KCALL SETLFS
 
         ; LOAD directory to workspace at $0801 (same as BASIC)
         lda #0                  ; 0 = LOAD (not VERIFY)
         ldx #<BASIC_START
         ldy #>BASIC_START
-        jsr LOAD
+        KCALL LOAD
         jcs @err                ; carry set = error
 
         ; X/Y = end address after LOAD; save as limit
@@ -661,7 +661,7 @@ _status_ret:
         tya                     ; A = length
         ldx ptr
         ldy ptr+1
-        jsr SETNAM
+        KCALL SETNAM
 
         lda _io_tmp
         ora _io_tmp+1
@@ -670,24 +670,24 @@ _status_ret:
         lda #2
         ldx cur_device
         tay
-        jsr SETLFS
-        jsr OPEN
+        KCALL SETLFS
+        KCALL OPEN
         bcs @hdr_close          ; device not present
         ldx #2
-        jsr CHKIN
-        jsr CHRIN
+        KCALL CHKIN
+        KCALL CHRIN
         sta _io_tmp
-        jsr CHRIN
+        KCALL CHRIN
         sta _io_tmp+1
-        jsr READST              ; 0 = more data follows
+        KCALL READST            ; 0 = more data follows
         pha
-        jsr CLRCHN
+        KCALL CLRCHN
         pla                     ; Z from READST
         clc
 @hdr_close:
         php                     ; Z=0 / C=1: no usable header
         lda #2
-        jsr CLOSE
+        KCALL CLOSE
         plp
         bcs @error
         bne @error
@@ -697,11 +697,11 @@ _status_ret:
         lda #1
         ldx cur_device
         ldy #0
-        jsr SETLFS
+        KCALL SETLFS
         lda #0                  ; 0 = LOAD (not VERIFY)
         ldx _io_tmp             ; dest lo
         ldy _io_tmp+1           ; dest hi
-        jsr LOAD
+        KCALL LOAD
         bcc @ok
 @error: ldx #0                  ; error: end = 0
         ldy #0
@@ -711,7 +711,7 @@ _status_ret:
         tya
         pha
         lda #1
-        jsr CLOSE
+        KCALL CLOSE
         jsr floppy_read_status  ; the drive's word into fl_buf
         pla
         tax                     ; end hi
@@ -747,7 +747,7 @@ _status_ret:
         ; between OPEN and CHKIN disrupts the serial bus channel.
         ; Errors are caught by READST during the read loop.
         ldx #2
-        jsr CHKIN
+        KCALL CHKIN
 
         ; Clear counters (must explicitly load 0 — A is undefined after CHKIN)
         lda #0
@@ -758,12 +758,12 @@ _status_ret:
         sta disk_seq_lines
 
 @read:
-        jsr CHRIN
+        KCALL CHRIN
         pha                     ; save byte
 
         ; Check KERNAL status IMMEDIATELY after CHRIN,
         ; before the callback (which may clobber $90).
-        jsr READST
+        KCALL READST
         sta eof_flag            ; save full READST
 
         ; Call callback(byte)
@@ -791,9 +791,9 @@ _status_ret:
         beq @read
 
 @ok:
-        jsr CLRCHN
+        KCALL CLRCHN
         lda #2
-        jsr CLOSE
+        KCALL CLOSE
         jsr floppy_read_status  ; the drive's word into fl_buf
 
         ; Check for read errors (timeout/device not present).
@@ -855,7 +855,7 @@ _status_ret:
 
         ; CHKOUT 2
         ldx #2
-        jsr CHKOUT
+        KCALL CHKOUT
 
         ; Clear counters (lines starts at 1: N newlines = N+1 lines)
         lda #0
@@ -876,7 +876,7 @@ _status_ret:
         pha
 
         ; Write byte via CHROUT
-        jsr CHROUT
+        KCALL CHROUT
 
         ; Count bytes
         inc disk_seq_bytes
@@ -932,13 +932,13 @@ _status_ret:
         bcs @err
 
         ldx #2
-        jsr CHKOUT
+        KCALL CHKOUT
 
         ; Write 2-byte load address header
         lda _io_tmp
-        jsr CHROUT
+        KCALL CHROUT
         lda _io_tmp+1
-        jsr CHROUT
+        KCALL CHROUT
 
         ; Write payload: size bytes from _io_tmp
         pla                     ; size hi
@@ -950,7 +950,7 @@ _status_ret:
         ora @size_hi
         beq @done
         lda (_io_tmp),y
-        jsr CHROUT
+        KCALL CHROUT
         ; advance _io_tmp
         inc _io_tmp
         bne :+

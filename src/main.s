@@ -1062,7 +1062,7 @@ cse_exit_to_basic:
         sei
         lda #$00
         sta CHARSET_LOCK
-        jsr RESTOR
+        KCALL RESTOR
         lda CPU_PORT
         and #$FD
         sta CPU_PORT
@@ -1077,5 +1077,5 @@ cse_exit_to_basic:
         cli
         lda #0
         sta BASIC_START - 1
-        jsr CINT               ; KERNAL CINT
+        KCALL CINT             ; KERNAL CINT
         jmp (BASIC_WARM)
