@@ -1752,3 +1752,42 @@ class TestRestoreDuringAssembly:
         assert s.v("kernal_out") == 0 and e.memory.ram[1] & 0x02
         s.type("? $10")
         assert "$10" in s.screen()
+
+
+class TestStepIndirectJump:
+    """debugger.md § Next-PC: JMP (ind) reads its vector as the CPU
+    does — NMOS page wrap for JMP ($xxFF), user ZP image for $00-$7F."""
+
+    def _poke(self, e, addr, data):
+        for i, b in enumerate(data):
+            e.memory[addr + i] = b
+
+    def _wrap_prog(self, e):
+        self._poke(e, 0x1000, [0xEA, 0x6C, 0xFF, 0x20])  # NOP; JMP ($20FF)
+        e.memory[0x20FF] = 0x00
+        e.memory[0x2000] = 0x30             # NMOS high byte → $3000
+        e.memory[0x2100] = 0x40             # 65C02 high byte → $4000
+        self._poke(e, 0x3000, [0xEA, 0x60])
+        self._poke(e, 0x4000, [0xEA, 0x60])
+
+    def test_jmp_ind_page_wrap_nmos(self, session):
+        s, e = session, session.e
+        self._wrap_prog(e)
+        s.type("u 6502")
+        s.type("b $1001")
+        s.type("j $1000")
+        s.type("t")
+        assert s.v("dbg_reason") == DBG_BRK
+        assert s.w("brk_pc") == 0x3000
+        assert e.memory[0x4000] == 0xEA, "stale step BRK left behind"
+
+    def test_jmp_ind_no_wrap_65c02(self, session):
+        s, e = session, session.e
+        self._wrap_prog(e)
+        e.memory[e.sym("asm_cpu")] = 2
+        e.memory[e.sym("step_state")] = 1                  # STEP_INTO
+        e.write_word(e.sym("brk_pc"), 0x1001)
+        pc, sp = e._cpu.pc, e._cpu.sp
+        e.jsr(e.sym("step_next_pc"))
+        e._cpu.pc, e._cpu.sp = pc, sp
+        assert e.read_word(e.sym("step_next_lo")) == 0x4000

@@ -858,9 +858,14 @@ documentation round that follows this filing.
 - [ ] **`r` parses its fields by position, not by label**: `r x:05`
   sets A, `r a:zz` / `r a` set every register to `$FF` with no error;
   a following `c` resumes with SP = `$FF` and crashes.
-- [ ] **Step over `JMP ($xxFF)` ignores the NMOS page wrap**: the step
+- [x] **Step over `JMP ($xxFF)` ignores the NMOS page wrap**: the step
   BRK is armed at the wrong target, user code runs free, and `$00`
   stays patched there.
+  Fixed 2026-11-18: `step_next_pc` reads the high byte from $xx00
+  (only the low byte of the vector address is incremented) unless
+  `asm_cpu` is 65C02, tests
+  `TestStepIndirectJump::test_jmp_ind_page_wrap_nmos` /
+  `test_jmp_ind_no_wrap_65c02`.
 - [ ] **Step over `JMP (zp)` / `JMP (abs,X)` reads the vector from the
   kernel's ZP**, not `userland_zp_buf` (refused with `;!range`, or a
   wrong target).

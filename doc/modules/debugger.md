@@ -488,7 +488,10 @@ Linear insn:   next = PC + length (via dasm_insn / oplen_tbl)
 Branch (Bxx):  next₁ = PC + 2 + signed_offset (taken)
                next₂ = PC + 2 (not taken)
 JMP abs:       next = operand
-JMP (ind):     next = peek16(operand)
+JMP (ind):     next = peek16(operand)            ← NMOS page wrap:
+               JMP ($xxFF) takes its high byte from $xx00, as the
+               6502/6510 does (not when asm_cpu = 65C02)
+JMP (abs,X):   next = peek16(operand + X)       ← 65C02 only, no wrap
 JSR abs:       next = operand                    ← `t`: step INTO
                EXCEPT if operand >= $E000:
                next = PC + 3 (step OVER — KERNAL ROM is unpatchable)

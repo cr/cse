@@ -343,7 +343,9 @@ brk_stub:
 ;                                 step_next_hi = fall-through
 ;                    STEP_OVER — step_next_lo = fall-through only
 ;   JMP abs:         step_next_lo = operand
-;   JMP (ind):       step_next_lo = peek16(operand)
+;   JMP (ind):       step_next_lo = peek16(operand); JMP ($xxFF) takes
+;                    its high byte from $xx00 (NMOS wrap) unless
+;                    asm_cpu = 65C02
 ;   JMP (abs,x):     65C02 only — peek16(operand + x)
 ;   BRA:             65C02 only — branch target
 ;   JSR abs:         STEP_INTO + RAM target (<$E000) — step_next_lo = target
@@ -524,7 +526,18 @@ brk_stub:
         ldy #0
         lda (rp_ptr),y
         sta step_next_lo
-        iny
+        ; High byte: the NMOS CPU only increments the low byte of the
+        ; vector address, so JMP ($xxFF) reads its high byte from
+        ; $xx00.  The 65C02 carries into the page.
+        inc rp_ptr
+        bne @ind_hi
+.ifdef CMOS_SUPPORT
+        lda asm_cpu
+        cmp #2
+        bcc @ind_hi             ; NMOS: page wrap
+        inc rp_ptr+1            ; 65C02: no wrap
+.endif
+@ind_hi:
         lda (rp_ptr),y
         sta step_next_lo+1
         rts
