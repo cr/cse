@@ -1,6 +1,6 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 ; Owner: doc/modules/log.md
-; log.s — Standardised logging API (Phase 21 Move 3)
+; log.s — Standardised logging API
 ;
 ; Owns the logging primitives used across the corpus:
 ;
@@ -84,7 +84,7 @@ log_info:
 
 ; ── log_open — open a log line at current cursor ─────────
 ; Y = level char
-; Clobbers: A
+; Clobbers: A, X, Y, _io_scr (+ newline's when mid-line)
 ; Auto-advances to a fresh row when CUR_COL != 0, so callers
 ; never need a defensive `jsr newline` before log_open.  Paired
 ; with log_close's clear-eol + newline, this gives the log family
@@ -162,10 +162,9 @@ puts_imm:
 ;                     convention; decrements rp_cnt then falls into
 ;                     seg_line)
 ;   seg_line        "; TAG  AAAA-BBBB NNNNNb"       (inclusive end;
-;                     caller pre-loads rp_ptr2=tag)
+;                     caller pre-loads rp_ptr2=tag, rp_save2=highlight)
 ;
-; Moved from repl.s in Phase 21.1 Move 3B alongside the scratch-pool
-; ZP promotion.  asm_src.s's single `jsr seg_line` now resolves here.
+; Callers: asm_src.s (seg_line), repl.s (prg_line, free_line, info_line).
 ; ═══════════════════════════════════════════════════════════
 
 info_line:
