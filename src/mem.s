@@ -1,7 +1,8 @@
 ; mem.s — Memory manager: banking, ZP save/restore, segment queries.
 ; Owner: doc/modules/mem.md
 ;
-; zp-only leaf — consolidates low-level state-preservation primitives:
+; Leaf (imports only zp.s's kernal_out and linker symbols) —
+; consolidates low-level state-preservation primitives:
 ;
 ;   KERNAL ROM banking:
 ;     kernal_bank_out    clear $01 bit 1 (honours kernal_out ZP flag)
@@ -52,8 +53,8 @@ HIMEM        = $D000
 
 ; ── ZP save/restore buffers ─────────────────────────────────
 ; Cover the full user-accessible page-zero range $00..$7F.  CSE
-; only allocates $02..$59 for its own variables, but the full
-; lower half is snapshotted so:
+; allocates only part of it for its own variables (zp.s), but the
+; full lower half is snapshotted so:
 ;   1. The `m` and `.` commands render a uniform user-ZP view
 ;      across the entire range.
 ;   2. The $00/$01 CPU-port pair round-trips via these buffers
@@ -73,11 +74,11 @@ userland_zp_buf:    .res ZP_SAVE_LEN  ; user's ZP snapshot (exit capture,
 ; kernal_bank_out: clear $01 bit 1 → KERNAL ROM hidden
 ; kernal_bank_in:  set   $01 bit 1 → KERNAL ROM restored
 ;
-; No SEI/CLI guards are needed here: Phase 18's $FFFE RAM-shadow
-; points at cse_brk_handler_early, which transparently handles an
-; IRQ that fires while KERNAL is banked out (insert bank_out_stub
-; frame, bank KERNAL in, delegate to $EA31, KERNAL's RTI lands at
-; bank_out_stub which banks out again and RTIs the original frame).
+; No SEI/CLI guards are needed here: the $FFFE RAM-shadow points
+; at cse_brk_handler_early, which transparently handles an IRQ that
+; fires while KERNAL is banked out (insert bank_out_stub frame, bank
+; KERNAL in, delegate to $EA31, KERNAL's RTI lands at bank_out_stub
+; which restores the interrupted $01 and RTIs the original frame).
 ; The CPU's I flag is therefore irrelevant to banking correctness.
 ;
 ; Both helpers honour the kernal_out flag: when non-zero, the caller

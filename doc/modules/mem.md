@@ -1,4 +1,4 @@
-# mem — Memory manager: banking, ZP save/restore, segment queries, workspace symbols
+# mem — Memory manager: banking, ZP save/restore, segment queries
 
 **Template:** [module](../templates/module.md)
 
@@ -12,67 +12,80 @@
 ## Interface
 
 ### kernal_bank_out
-**In:** none
-**Out:** KERNAL ROM hidden (bit 1 of $01 cleared).  I flag preserved
-(Phase 18 IRQ early-entry handles IRQ-during-bank-out transparently).
+**In:** `kernal_out` (zp.s batch flag)
+**Out:** KERNAL ROM hidden ($01 bit 1 cleared) — unless `kernal_out`
+is nonzero, then nothing changes.  The I flag is not touched.
 **Clobbers:** A
-
-No-op when `kernal_out` flag is set (batch caller managing banking).
 
 ### kernal_bank_in
-**In:** none
-**Out:** KERNAL ROM restored (bit 1 of $01 set).  I flag preserved.
+**In:** `kernal_out`
+**Out:** KERNAL ROM visible ($01 bit 1 set) — unless `kernal_out` is
+nonzero, then nothing changes.  The I flag is not touched.
 **Clobbers:** A
 
-No-op when `kernal_out` flag is set.
-
-### save_userland_zp / restore_userland_zp / save_kernel_zp / restore_kernel_zp
+### save_userland_zp / save_kernel_zp
 **In:** none
-**Out:** matching 128-byte ZP buffer mirrors live $00..$7F (save
-variants) or vice versa (restore variants).  save variants leave
-live $00=$FF as a postcondition (documented side effect of the
-single-pass DDR-stash pattern).
-**Clobbers:** A, X (save variants also clobber Y).
+**Out:** `userland_zp_buf` / `kernel_zp_buf` = live $00..$7F, with
+`buf[$01]` the fully latched CPU-port byte and `buf[$00]` the DDR as it
+was at entry.  Live $00 = $FF afterwards (postcondition the restore
+primitives rely on).
+**Clobbers:** A, X, Y
 
-Four CPU-port-aware primitives that swap live ZP against
-`userland_zp_buf` / `kernel_zp_buf`.  See the CPU-port protocol
-note at the top of the save/restore procs in `mem.s` for the
-full rationale (DDR masking, single-pass save with Y-stash,
-backwards restore with DDR=$FF).
+### restore_userland_zp / restore_kernel_zp
+**In:** live $00 = $FF (the paired save's postcondition)
+**Out:** live $00..$7F = `userland_zp_buf` / `kernel_zp_buf`; $01 is
+written before $00, so every data bit latches before the DDR is
+re-applied.
+**Clobbers:** A, X
 
-Called by `debugger.s`:
-- `save_userland_state` invokes `save_userland_zp` +
-  `restore_kernel_zp` (exit: capture user ZP, restore kernel ZP).
+The four primitives swap live ZP against the two buffers at every
+kernel↔userland transition.  Callers (debugger.s, the only ones):
+
+- `save_userland_state` — `save_userland_zp` + `restore_kernel_zp`
+  (userland → kernel).
 - `_rtu_body` (shared by `return_to_userland` and
-  `restore_userland_state`) invokes `save_kernel_zp` +
-  `restore_userland_zp` (entry: capture kernel ZP, restore user ZP).
+  `restore_userland_state`) — `save_kernel_zp` + `restore_userland_zp`
+  (kernel → userland).
+
+Each restore is reached only through its paired save, which is what
+makes the `$00 = $FF` precondition hold (§ CPU-port aware ZP
+save/restore).
 
 ### cse_start
 **In:** none
-**Out:** A/X = `__CODE_RUN__` (runtime start address)
+**Out:** A/X = `__CODE_RUN__` (runtime start address, lo/hi)
+**Clobbers:** A, X
+
+Callers: `main.s` cold init (end of the workspace fill), `repl.s`
+(`i` map).
 
 ### cse_end
 **In:** none
-**Out:** A/X = $D000 (HIMEM, first byte past runtime)
+**Out:** A/X = $D000 (HIMEM, first byte past the runtime image)
+**Clobbers:** A, X
+
+Caller: `repl.s` (`i` map).
 
 ### cse_zp_end
 **In:** none
-**Out:** A = first free ZP byte — the byte right after CSE's
-ZEROPAGE segment, which is ld65's `__ZP_LAST__` itself (ld65 defines
-`__<seg>_LAST__` as the first address past the segment); X = 0
+**Out:** A = first free ZP byte — `<__ZP_LAST__`, which ld65 defines as
+the first address past the ZEROPAGE segment; X = 0
+**Clobbers:** A, X
+
+Caller: `main.s` cold init (fills the free ZP with `$FF` from there to
+`$7F`).
 
 **State:**
 
 | Variable | Size | Segment | Purpose |
 |----------|------|---------|---------|
-| `userland_zp_buf` | `ZP_SAVE_LEN` | BSS | User's `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` snapshot (captured on userland exit) |
-| `kernel_zp_buf` | `ZP_SAVE_LEN` | BSS | Kernel's snapshot over the same range (captured on userland entry) |
+| `userland_zp_buf` | `ZP_SAVE_LEN` | BSS | User's `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` snapshot (captured on userland exit, restored on entry) |
+| `kernel_zp_buf` | `ZP_SAVE_LEN` | BSS | Kernel's snapshot over the same range (captured on userland entry, restored on exit) |
 
-The `kernal_out` batch-banking flag is **not** owned here; it lives
-in `zp.s` alongside the other cross-module flags so the banking
-helpers can read/write a single ZP byte.
+The `kernal_out` batch-banking flag is not owned here; it is one of the
+cross-module flags in `zp.s` ([zp.md](zp.md)).
 
-**Exported constants:**
+**Exported constants** (defined in mem.s):
 
 | Symbol | Value | Purpose |
 |--------|-------|---------|
@@ -80,12 +93,11 @@ helpers can read/write a single ZP byte.
 | `ZP_SAVE_LEN` | 128 | Length of the save range (so `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` = $00..$7F) |
 
 `userland_zp_buf[i]` mirrors live ZP address `ZP_SAVE_LO + i`.
-Consumers that want to read or write "user ZP" instead of "live
-ZP" (currently `repl.s::zp_stage_prep` and `repl.s::zp_poke`) must
-use these constants for their range checks and index the buffer
-as `userland_zp_buf - ZP_SAVE_LO`.
+`repl.s::zp_stage_prep` and `repl.s::zp_poke` (the `m` / `.` user-ZP
+view) take their range check and buffer index from these constants.
 
-**Depends on:** zp (kernal_out flag, buffers' size constants)
+**Depends on:** zp (`kernal_out`); linker symbols `__ZP_LAST__`,
+`__CODE_RUN__`
 
 ## Design
 
@@ -100,35 +112,17 @@ perform the real bank operation BEFORE setting/clearing the flag:
     lda #1                 sta kernal_out
     sta kernal_out         jsr kernal_bank_in
 
-### Interrupt vectors (Phase 18: trampolines retired)
-
-mem.s no longer owns interrupt setup.  The `setup_interrupts`
-routine in main.s patches all four vectors directly during cold
-init:
-
-- $0316/$0317 (IBRK)  → `cse_brk_handler` (kernal-in entry)
-- $0318/$0319 (INMIV) → `cse_nmi_handler` (kernal-in entry)
-- $FFFA/$FFFB (NMI shadow under kernal ROM)     → `cse_nmi_handler` (direct)
-- $FFFE/$FFFF (IRQ/BRK shadow under kernal ROM) → `cse_brk_handler_early`
-
-There are no separate trampolines at $FF00 / $FF04.  The BRK
-early-entry prologue is part of the handler body in main.s and
-executes only when the CPU read the vector from RAM (i.e. when
-kernal was banked out at the moment of interrupt).  NMI needs no
-early-entry shim: the 6502 sets I=1 as part of the NMI vector
-sequence, so IRQ interleaving is already prevented.
-
-See [main.md](main.md) for handler details and [memory_design.md
-§ Stack contract](../memory_design.md#stack-contract) for the
-overall kernel↔userland model.
+The helpers need no SEI/CLI: an IRQ that fires while the KERNAL is
+banked out is routed through `cse_brk_handler_early` and
+`bank_out_stub`, which restore the interrupted `$01` exactly
+([main.md § IRQ early-entry bank-out](main.md#irq-early-entry-bank-out)).
 
 ### CPU-port aware ZP save/restore
 
-The `save_userland_zp` / `restore_userland_zp` / `save_kernel_zp`
-/ `restore_kernel_zp` primitives preserve/restore ZP $00..$7F
-across kernel↔userland transitions.  $00 (CPU port DDR) and
-$01 (data) need special handling because bits configured as
-input by $00 read external state, not the value the CPU wrote.
+The four primitives preserve/restore ZP $00..$7F across
+kernel↔userland transitions.  $00 (CPU port DDR) and $01 (data) need
+special handling because bits configured as input by $00 read
+external state, not the value the CPU wrote.
 
 **Save (single-pass DDR stash):**
 ```
@@ -157,34 +151,25 @@ the target DDR mask after data bits are set.  No redundant
 would only mask a regressed save postcondition.
 
 **Bootstrap seed:** `debugger.s::dbg_init` pre-seeds both
-buffers with `$00=$2F` / `$01=$36` so the first return_to_userland
-(before any userland has populated `userland_zp_buf`) doesn't
-restore zeros into the live CPU port.
-
-### Workspace symbols (owned by callers)
-
-The workspace boundary labels `workstart` and `workend` are defined
-directly by their owning modules via `symtab.s::sym_define`.  mem.s
-does not participate:
-
-- `main.s` cold init defines `workstart` = $0800 (fixed) once at boot.
-- `editor.s::update_workend` redefines `workend` = `buf_base - 1`
-  after every `buf_base` change (gap-buffer grow, `ed_init`, file load).
-- `asm_src.s::asm_assemble` redefines both after `sym_clear` clears
-  the symbol table at the start of each build.
-
-This split keeps mem.s a zp-only leaf — the "who owns this memory
-region" logic lives with whoever *changes* the region.
+buffers with `$00=$2F` / `$01=$36` so the first transition (before
+any userland has populated `userland_zp_buf`) doesn't restore zeros
+into the live CPU port.
 
 ## Caveats
 
-- Pure writes to $E000–$FFFF always hit RAM, even with kernal
+- Pure writes to $E000–$FFFF always hit RAM, even with the KERNAL
   mapped in.  Only reads require banking.
-- `kernal_bank_out` / `kernal_bank_in` do NOT touch the I flag.
-  Phase 18's $FFFE early-entry (`cse_brk_handler_early` +
-  `bank_out_stub`) handles an IRQ that fires while KERNAL is
-  banked out transparently, so the SEI/CLI pair that used to wrap
-  every bank toggle is redundant.  Caller's I state is preserved
-  across a bank-out/bank-in pair.
-- Interrupt vector ownership has moved to main.s
-  (`setup_interrupts`).  mem.s no longer installs trampolines.
+- `kernal_bank_out` / `kernal_bank_in` do not nest: `kernal_bank_in`
+  banks in even when an outer caller banked out, unless that caller
+  set `kernal_out`.  A routine that may run inside someone else's
+  bank-out window saves and restores `$01` itself (as
+  `sym_define` / `sym_lookup` do).
+- `kernal_bank_out` / `kernal_bank_in` do not touch the I flag; the
+  caller's I state survives a bank-out/bank-in pair.
+- `debugger.s::peek_user` (step targets through a ZP vector) reads
+  `userland_zp_buf` with the range `$00–$7F` built in, not through
+  `ZP_SAVE_LO` / `ZP_SAVE_LEN`; changing the save range means
+  changing it too.
+- Workspace symbols (`workstart`, `workend`) are not mem.s's: they are
+  defined by `gap_buffer.s::define_ws_syms` / `update_workend`
+  ([gap_buffer.md](gap_buffer.md)).
