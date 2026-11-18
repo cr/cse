@@ -527,7 +527,8 @@ current ([platform_layer.md § Interrupt frame](platform_layer.md#interrupt-fram
 
 **The installed machine.**  After the loader
 ([loader.md § Design](modules/loader.md#design)): the resident stub
-at `0.1FB0` with `_main` in its cold target, CSE's base page cleared,
+at `0.1FB0`, CSE's base page cleared but for the stub's cold target
+(`_main`; the stub's targets live in the base page, [zp.md](modules/zp.md)),
 CODE + RODATA at `3.2000`, KDATA in the data window and BSS cleared,
 banks 2–3 writable; control in `_main` under the CSE map with `B =
 $1F`.  The PRG image:

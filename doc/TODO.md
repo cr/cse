@@ -269,9 +269,9 @@ compendium until its golden file, recorded in xmega65, says otherwise.
 
 ## M65 slice 2 — the MEGA65 platform (R7, platform layer)
 
-**Branch:** `m65`.  **Status (2026-11-18):** the harness (S2-3) and
-P0 are done (the m65 PRG installs itself and reaches `_main`); P1's
-Step-1 delta is written and its CDD Analysis awaits approval.
+**Branch:** `m65`.  **Status (2026-11-18):** the harness (S2-3), P0
+(the m65 PRG installs itself and reaches `_main`) and P1 (user code,
+maps, vectors and the debugger on m65) are done; P2 is next.
 
 **How this plan is read.**  Under CDD the documents are the truth:
 each milestone below is a **Step-1 doc delta** — the documents that
@@ -688,7 +688,11 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   which is in bank 4 in 80 × 50, but are not in zp.md's far-pointer
   list (`ed_scr` is); P2's delta adds them.
 
-**P1 — running user code: maps, vectors, debugger.**
+**P1 — running user code: maps, vectors, debugger.**  **Gate met
+(2026-11-18):** T1–T11 green on 920413 and 920421 (M65Emu) and in
+xmega65; the P1 pending count 0; the C64 PRGs byte-identical; m65-6502
+21 485 B.  Code commits 5f81880 (harness), 184d062 (far pointers),
+658e56e (bank state, stub, handlers), f0ab625 (`r`, Tier X).
 
 Found by P0's analysis, for this delta: `brk_stub` moves to the
 resident stub; the user-ZP view of `m` and `.` reads base page 0
@@ -1240,6 +1244,25 @@ out of class.*
   `test_kernel_transition.py` are stable green without
   per-test triage — exactly as the bug-entry prediction table
   forecast.  See [§ Bugs](#bugs) for the closed bug entry.
+
+- [ ] **The doc side of the pending count** (P1 Step 5, 2026-11-18).
+  The pending-body count (`test_platform_audit.py`) counts
+  `PLAT_PENDING` sites in the code only; a seam whose m65 body is
+  shared code but whose doc still says *stated with P<n>* escapes it.
+  P1 closed with two such markers left (main.md `hw_reinit_body`,
+  `refresh_body`), found by Step 5's grep, not by a gate.  Proposal:
+  the audit also counts *stated with P<n>* in `doc/`, recorded per
+  milestone beside the code count, zero when the milestone closes.
+- [ ] **Machine facts are cited or recorded before they enter a
+  delta** (P1, 2026-11-18).  Two P1 claims entered the delta
+  unverified: "the 45GS02 cannot read `MAP`, so the map is lost at a
+  break" (from memory; the book's `hyppo_get_mapping` answers it —
+  the operator caught it at Step 2), and "a flat access to `0`/`1`
+  reaches the CPU port" (from the xemu source; T1's recording
+  overruled it).  Proposal: platform_layer.md § Platform references
+  gains the rule that a Step-1 delta names, for each new machine
+  fact, its book page or the recording that will confirm it; Step 2
+  checks the list.
 
 #### C2. Corpus-coverage gaps (CDD Maintenance 2026-04-25)
 

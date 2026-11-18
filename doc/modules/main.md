@@ -173,7 +173,13 @@ table); `reset_globals` (`state = ST_REPL`, `cur_addr = $0800`,
 
 Caller: `cse_recover`.
 
-**On m65:** *stated with P1* ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame), § Banking).
+**On m65:** the same sequence.  `BANK_KERNEL` is empty (the KERNAL is
+mapped in both maps, and the CPU port is the kernel's whenever kernel
+code runs: a kernel fault captures nothing); `setup_interrupts` goes
+through `VECTOR`; `dbg_init` seeds the saved bank state with the run
+premise's, as the session ends anyway (`end_debug_body`);
+`restore_colors` and `set_charset` are the display's — P2's pending
+bodies until P2 ([platform_layer.md § Display](../platform_layer.md#display)).
 
 ### end_debug_body
 **In:** none
@@ -198,7 +204,12 @@ column 0, that row cleared.
 
 Callers: `cse_recover`, `cse_refresh`.
 
-**On m65:** *stated with P1* ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame), § Banking).
+**On m65:** `BANK_KERNEL` is empty and `kernal_out` means nothing
+([platform_layer.md § Banking](../platform_layer.md#banking)): a
+kernel-mode NMI finds the CSE map and the kernel's CPU port, because
+the stub captures and switches nothing for it, and a session's saved
+bank state is kept.  `reset_screen` and the prompt row are the
+display's — P2's.
 
 ### main_loop_top
 **In:** any SP the caller set (§ Longjmp SP convention).
