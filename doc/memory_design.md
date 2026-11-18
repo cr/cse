@@ -331,7 +331,8 @@ defined in `main.s`:
   disabled re-enabled, `rp_dis_bp` = $FF); resets `reg_sp` to $FF;
   calls `unpatch_all` (restores user's in-memory bytes that any
   live breakpoints had overwritten with $00).
-- `refresh_body` — `reset_screen`, `splash_row`, `io_clear_eol`.
+- `refresh_body` — `state` := REPL (the view it draws), `reset_screen`,
+  `splash_row`, `io_clear_eol`.
   Cursor ends on the bottom row, column 0.
 
 ### Continuation flag (`warm_cont`)

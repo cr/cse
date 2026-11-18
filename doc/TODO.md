@@ -823,8 +823,10 @@ documentation round that follows this filing.
   Fixed 2026-11-18: `dbg_bp_del` of the hit slot and `dbg_bp_clear`
   set `dbg_bp_hit = $FF`, tests `TestBpHitInvalidation`,
   `TestBpHitAfterTableEdit`.
-- [ ] **RUN/STOP+RESTORE in the editor** redraws the REPL but leaves
+- [x] **RUN/STOP+RESTORE in the editor** redraws the REPL but leaves
   `state = ST_EDIT`; the next keys silently edit the source.
+  Fixed 2026-11-18: `refresh_body` sets `state = ST_REPL` (the view
+  it draws; the source is kept), test `TestRefreshInEditor`.
 - [ ] **RUN/STOP+RESTORE during `a`** refreshes with `kernal_out = 1`
   and `$01 = $34` → kernel BRK → `cse_recover` (assembly abandoned,
   globals and breakpoints reset).

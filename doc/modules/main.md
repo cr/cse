@@ -318,8 +318,9 @@ end_debug_body   — dbg_reason/step_state/run_user_pending/in_userland
                    breakpoints had overwritten with $00); last_cmd
                    cleared.  Editor state and bp_table untouched.
 
-refresh_body     — reset_screen, splash_row, io_clear_eol.
-                   Puts the cursor on the bottom row, column 0.
+refresh_body     — state := ST_REPL, reset_screen, splash_row,
+                   io_clear_eol.  Puts the cursor on the bottom row,
+                   column 0 of the REPL screen it draws.
 ```
 
 Composition:
@@ -563,7 +564,7 @@ others are mode-specific.
 | Key | Action |
 |-----|--------|
 | RUN/STOP | Toggle REPL ↔ editor (handled inline in the main loop, with key-release debounce so holding it only toggles once) |
-| RUN/STOP+RESTORE | NMI break — handled by `cse_nmi_handler`.  In userland: breaks into the debugger (same path as BRK).  In kernel mode: routes to `cse_refresh` (screen recovery; debug context preserved). |
+| RUN/STOP+RESTORE | NMI break — handled by `cse_nmi_handler`.  In userland: breaks into the debugger (same path as BRK).  In kernel mode: routes to `cse_refresh` (screen recovery; debug context preserved).  `cse_refresh` always lands in the REPL (`state = ST_REPL`): pressed in the editor it returns to the REPL with the source kept, so the next keys are REPL keys, matching the screen. |
 
 ### REPL mode keys
 

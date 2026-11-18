@@ -1046,8 +1046,12 @@ end_debug_body:
         jmp step_cleanup                ; tail-call (re-enables a bp a
                                         ; step disabled, rp_dis_bp=$FF)
 
-; refresh_body — reset screen, draw prompt row, position cursor.
+; refresh_body — back to the REPL view: state := ST_REPL (RESTORE in
+; the editor lands in the REPL it draws; the source is kept), reset
+; screen, draw prompt row, position cursor.
 refresh_body:
+        lda #ST_REPL
+        sta state
         jsr reset_screen
         lda #SCREEN_HEIGHT - 1
         jsr splash_row

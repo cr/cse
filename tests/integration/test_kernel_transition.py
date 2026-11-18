@@ -1699,3 +1699,21 @@ class TestRefreshKeepsSession:
         s.type("c")
         assert s.v("dbg_reason") == DBG_RTS
         assert s.v("reg_x") == 8
+
+
+class TestRefreshInEditor:
+    """main.md § Global keys: RESTORE in the editor lands in the REPL
+    (state = ST_REPL); the next key is a REPL key, the source is kept."""
+
+    def test_restore_in_editor_returns_to_repl(self, session):
+        s, e = session, session.e
+        s.keys(b"\x03")                     # RUN/STOP → editor
+        assert s.v("state") == 2
+        e.memory[0x91] = 0xFF               # STOP released
+        dirty = s.v("ed_dirty")
+        e.press_restore()
+        e.run_steps(10)
+        s.idle()
+        assert s.v("state") == 1
+        s.keys(b"X")
+        assert s.v("ed_dirty") == dirty, "key went into the source"
