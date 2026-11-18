@@ -1870,3 +1870,25 @@ class TestDuplicateBreakpoint:
         assert s.v("dbg_reason") == DBG_BRK
         s.type("c")
         assert s.v("dbg_reason") == DBG_RTS
+
+
+class TestReplInsKey:
+    """main.md § REPL mode keys: INS right-shifts the row from the
+    cursor, at any column, keeps column 39 blank, and touches nothing
+    but that row."""
+
+    @pytest.mark.parametrize("col", [0, 5, 38, 39])
+    def test_ins_shifts_row(self, session, col):
+        s, e = session, session.e
+        row = e.memory[0xD6]
+        base = 0x0400 + row * 40
+        text = [0x01 + (i % 26) for i in range(40)]
+        for i, c in enumerate(text):
+            e.memory[base + i] = c
+        work = [e.memory[0x0800 + i] for i in range(256)]
+        e.memory[0xD3] = col
+        s.keys(b"\x94", max_steps=200_000)             # INS
+        got = [e.memory[base + i] & 0x7F for i in range(40)]
+        want = (text[:col] + [0x20] + text[col:])[:39] + [0x20]  # col 39 blank
+        assert got == want
+        assert [e.memory[0x0800 + i] for i in range(256)] == work

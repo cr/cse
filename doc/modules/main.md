@@ -577,7 +577,7 @@ others are mode-specific.
 | Cursor keys | Move within screen, no wrap.  Refused (audible blip) at the screen edges. |
 | RETURN | `read_line` the cursor row, `exec_line`, `show_prompt` |
 | DEL | Backspace, shifting row left.  Refused at col 0, or at or before col 5 of an `AAAA:cmd` row. |
-| INS | Right-shift the row, opening a space at the cursor |
+| INS | Right-shift the row from the cursor, opening a space there (any column, 0 included); the character pushed into column 39 is dropped, column 39 stays blank.  Only the cursor row changes. |
 | HOME | Cursor to col 0 of current row |
 | Shift+HOME / ESC | `reset_screen` + `show_prompt` |
 

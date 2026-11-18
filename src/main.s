@@ -582,21 +582,19 @@ main_loop:
         lda scr_hi,x
         sta rp_ptr+1
         ldy #SCREEN_WIDTH - 2
-@ins_loop:
         cpy CUR_COL
-        bcc @ins_done_shift
+        bcc @ins_pad            ; cursor at col 39: nothing to shift
+@ins_loop:                      ; move cols CUR_COL..38 one right
         lda (rp_ptr),y
         iny
         sta (rp_ptr),y
         dey
+        cpy CUR_COL
+        beq @ins_blank          ; ends at CUR_COL, also when it is 0
         dey
-        jmp @ins_loop
-@ins_done_shift:
-        lda CUR_COL
-        cmp #SCREEN_WIDTH - 1
-        bcs @ins_pad
-        tay
-        lda #$20
+        bpl @ins_loop           ; always (Y <= 37)
+@ins_blank:
+        lda #$20                ; Y = CUR_COL: the opened space
         sta (rp_ptr),y
 @ins_pad:
         lda #$20

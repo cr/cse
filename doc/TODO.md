@@ -862,9 +862,11 @@ documentation round that follows this filing.
   assembler's `asm_out` wrap (`.` mnemonic, `a`) belongs to the
   assembler track; the `m`/`.` display of a wrapping run still reads
   live ZP (`zp_stage_prep` stages only page-0 bases).
-- [ ] **INS at column 0 of the REPL hangs and writes the workspace**
+- [x] **INS at column 0 of the REPL hangs and writes the workspace**
   (`main.s` `@ins_loop`: unsigned `cpy CUR_COL` with CUR_COL = 0 never
   ends; Y wraps over `(rp_ptr)+0..255`).
+  Fixed 2026-11-18: the shift loop ends on `Y == CUR_COL` (col 39
+  skips it), then blanks that column, test `TestReplInsKey`.
 - [ ] **The IRQ early-entry stub forces `$01 = $34`** on return
   (`bank_out_stub`), so user code running with KERNAL out and I/O in
   (`$35`) loses I/O after the first IRQ; contradicts
