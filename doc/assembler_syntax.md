@@ -31,6 +31,10 @@ keyboard).
 Local labels (dot prefix) are scoped to the last preceding global
 label and stored as `global.local` in the symbol table.
 
+The symbol table holds 256 symbols (labels, constants and the
+built-ins `workstart`/`workend`) with 2304 bytes of names; a label or
+constant that does not fit is `;?N: sym full` and stays undefined.
+
 A label name is at most **23 characters** — for a local label, the
 part after the dot.  A longer one is `;?N: too long` and is not
 defined (a too-long global label also clears the scope).  An

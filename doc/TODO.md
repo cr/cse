@@ -975,9 +975,13 @@ documentation round that follows this filing.
   once asm_pc wrapped (`;?N: range`, once per line); asm_line parks
   bytes after a wrap in _asm_sink and refuses (`;?expr ovfl`). Tests
   TestNoWrapPastFFFF, TestAsmLineNoWrap (test_asm_src.py).
-- [ ] **A full symbol table is silent**: 300 labels → 0 errors, 44
+- [x] **A full symbol table is silent**: 300 labels → 0 errors, 44
   dropped; `sym full` is reported only on pass 0, where `emit_error`
   is silent.
+  Fixed 2026-11-18: labels and .const are defined on pass 1 too (pass-
+  stamp commit), so a symbol that does not fit is `;?N: sym full`
+  where errors are vocal; contract in assembler_syntax.md § Labels.
+  Test TestSymbolTableFull.
 - [ ] **Directives read past their NUL**: `.o…` matches `.org` on the
   first letter (`.oops` = `.org`), `.co`/`.cp` likewise; `.const k`
   with no value reads stale `_line_buf` bytes.

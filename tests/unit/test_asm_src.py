@@ -55,7 +55,7 @@ def _petscii(text: str) -> bytes:
 
 # ── py65 runner ───────────────────────────────────────────────────────────────
 
-def _run(as_syms, source: str):
+def _run(as_syms, source: str, max_steps=_MAX_STEPS):
     """Run the two-pass assembler over source and return (org, bytes, errors).
 
     Returns:
@@ -81,12 +81,12 @@ def _run(as_syms, source: str):
 
     cpu.pc = as_syms.asm_src_test_entry
 
-    for _ in range(_MAX_STEPS):
+    for _ in range(max_steps):
         if cpu.pc == 0xFFFF:
             break
         cpu.step()
     else:
-        raise TimeoutError(f"exceeded {_MAX_STEPS} steps")
+        raise TimeoutError(f"exceeded {max_steps} steps")
 
     org    = mem[as_syms.asm_org] | (mem[as_syms.asm_org + 1] << 8)
     size   = mem[as_syms.asm_size] | (mem[as_syms.asm_size + 1] << 8)
@@ -1374,3 +1374,19 @@ class TestPassZeroWritesNothing:
         errors, mem, _ = _run_mem(as_syms, ".org $1000\n lda nosuch")
         assert errors == 1
         assert list(mem[0x1000:0x1003]) == [0, 0, 0]
+
+
+class TestSymbolTableFull:
+    """assembler_syntax.md § Labels: a symbol that does not fit the
+    table is `;?N: sym full` on pass 1 — it used to be reported only
+    on pass 0, where errors are silent (300 labels: 0 errors)."""
+
+    def test_each_dropped_label_is_an_error(self, as_syms):
+        src = ".org $c000\n" + "\n".join(f"l{i:03d}:" for i in range(300))
+        _, _, errors = _run(as_syms, src, max_steps=40_000_000)
+        assert errors == 300 - 256          # 256 slots, no built-ins here
+
+    def test_dropped_const_is_an_error(self, as_syms):
+        src = "\n".join(f"l{i:03d}:" for i in range(256)) + "\n.const k 1"
+        _, _, errors = _run(as_syms, src, max_steps=40_000_000)
+        assert errors == 1
