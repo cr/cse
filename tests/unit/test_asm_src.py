@@ -307,6 +307,13 @@ MANUAL_TESTS = [
         "expect_errors": 0,
     },
     {
+        "name": ".db byte range edges",
+        "source": ".org $c000\n.db 255, -1, -128, 0\n.dw 256",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xFF, 0xFF, 0x80, 0x00, 0x00, 0x01],
+        "expect_errors": 0,
+    },
+    {
         "name": ".res directive",
         "source": ".org $c000\n.res 4, $ea\n  rts",
         "expect_org": 0xC000,
@@ -570,6 +577,14 @@ ERROR_TESTS = [
     {"name": "global label with a dot", "source": ".org $c000\na.b: nop",
      "expect_min_errors": 1},
     {"name": "local label without a name", "source": ".org $c000\nm:\n.: nop",
+     "expect_min_errors": 1},
+    {"name": ".db value > 255", "source": ".org $c000\n.db 256", "expect_min_errors": 1},
+    {"name": ".db value < -128", "source": ".org $c000\n.db -129", "expect_min_errors": 1},
+    {"name": ".str tail value > 255", "source": '.org $c000\n.str "a", $100',
+     "expect_min_errors": 1},
+    {"name": ".const named with a digit", "source": ".const 5 5\n.org $c000\n rts",
+     "expect_min_errors": 1},
+    {"name": ".const named with a dot", "source": ".const a.b 5\n.org $c000\n rts",
      "expect_min_errors": 1},
     # A `:` with no name is `exp id`, not an endless re-scan of the
     # same word (assembler_syntax.md § Labels).

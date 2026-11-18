@@ -65,7 +65,9 @@ instruction buffer; a longer one is `;?N: too long` as well.
 .const border vic + $20
 ```
 
-`.const name expression` defines a constant.  The expression is
+`.const name expression` defines a constant.  The name follows the
+global-label grammar ([§ Labels](#labels)): `.const 5 5` or
+`.const a.b 1` is `;?N: exp id`.  The expression is
 required (`.const k` alone is `;?N: bad val`) and evaluated
 immediately.  Width (ZP/ABS) is inherited from the
 expression.
@@ -248,7 +250,10 @@ on both passes.  After the assembly the REPL's CPU (`u`) is unchanged.
 
 Emits one byte per comma-separated expression.  Quoted strings emit
 each character as its PETSCII value (multi-character strings are
-expanded inline).
+expanded inline).  Each value must fit a byte — 0–255, or −128..−1 for
+a negative value; a larger one (`.db 256`) is `;?N: ovfl`, never
+silently truncated (its low byte is still emitted, so the layout does
+not move).  The same holds for the byte list after `.str` / `.scr`.
 
 ### `.dw` — Define Words
 

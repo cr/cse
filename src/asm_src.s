@@ -46,7 +46,7 @@ SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp
         .import s_err_sep, s_bad_val, s_exp_name, s_sym_full
         .import s_exp_quot, s_bad_insn, s_fwd_ref, str_cpu_err
         .import s_save_s, s_save_q_sp, s_save_default, s_trunc
-        .import s_too_long, str_range
+        .import s_too_long, str_range, err_overflow
         .import dec_pow_lo, dec_pow_hi
 
 ; ── BSS (all reset by asm_assemble before each run) ─────────────────────
@@ -314,10 +314,11 @@ _bad_val_err:
 ;   In: expr_ptr = operand start; _as_wsize = 1 (byte) or 2 (word)
 .proc emit_data_bytes
 @loop:  jsr skipws_ep
-        beq @done
+        beq @rts
         cmp #';'
-        beq @done
-        cmp #'"'
+        bne :+
+@rts:   rts
+:       cmp #'"'
         bne @expr
         lda _as_wsize
         cmp #1
@@ -350,20 +351,34 @@ _bad_val_err:
         cmp #2
         bcc @emit               ; pass 1 success → emit
         jmp _bad_val_err
-@emit:  lda expr_val
-        jsr _emit_byte          ; always emit lo byte
-        lda _as_wsize
+@emit:  lda _as_wsize
         cmp #2
-        bne @comma              ; .db: skip hi byte
+        beq @word
+        ldy asm_pass            ; .db on pass 1: the value must fit a
+        beq @byte               ; byte, $00xx or -128..-1 ($FF80..)
+        ldx expr_val+1
+        beq @byte
+        inx
+        bne @ovfl
+        bit expr_val
+        bmi @byte
+@ovfl:  lda #<err_overflow      ; reported; the low byte is still
+        ldx #>err_overflow      ; emitted so the layout does not move
+        jsr emit_error
+@byte:  lda expr_val
+        jsr _emit_byte
+        jmp @comma
+@word:  lda expr_val
+        jsr _emit_byte
         lda expr_val+1
         jsr _emit_byte
 @comma: jsr skipws_ep
         cmp #','
         bne @done
         inc expr_ptr
-        bne @loop
+        bne :+
         inc expr_ptr+1
-        jmp @loop
+:       jmp @loop
 @done:  rts
 .endproc
 
@@ -999,8 +1014,9 @@ d_const:
         iny
         bne @cscan
 @cend:  cpy #0
-        beq @const_noname
-        lda (sym_name),y        ; name ends the line → no value
+        bne :+
+        jmp @const_noname
+:       lda (sym_name),y        ; name ends the line → no value
         bne :+                  ; (and nothing past the NUL to read)
         jsr _bad_val_err
         clc
@@ -1013,6 +1029,13 @@ d_const:
         pha                     ; save displaced char
         lda #0
         sta (sym_name),y        ; NUL-terminate
+        jsr _name_ok            ; global-label grammar (no 5, no a.b)
+        bcc @cname_ok
+        ldy _as_wsize           ; restore the displaced char
+        pla
+        sta (sym_name),y
+        jmp @const_noname
+@cname_ok:
         ; Advance expr_ptr past name+NUL, skip remaining spaces to expression
         ; (+1 to step over the NUL we placed at the space position)
         lda _as_wsize
