@@ -1,6 +1,8 @@
 """
 dev/fp_candidate_analysis.py
 
+Owner: doc/build_system.md
+
 Detailed false-positive cross-analysis for the top-3 best (A,B) fingerprint
 candidates identified by fp_wdist_search.py.
 

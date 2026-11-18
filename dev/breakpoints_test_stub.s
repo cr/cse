@@ -1,4 +1,5 @@
 ; breakpoints_test_stub.s — Test harness stub for breakpoints.s (L3)
+; Owner: doc/modules/breakpoints.md
 ;
 ; Protocol: Python writes a command byte + arguments to fixed addresses,
 ; then JSRs to bp_test_entry.  The stub dispatches based on the command.

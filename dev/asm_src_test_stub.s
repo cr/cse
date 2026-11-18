@@ -1,4 +1,5 @@
 ; asm_src_test_stub.s — test harness for asm_src.s + full assembler pipeline
+; Owner: doc/build_system.md
 ;
 ; Provides:
 ;   ed_read_line, ed_read_rewind — mock editor reading _test_src_buf
@@ -37,7 +38,7 @@
         .export log_close
         .export log_warn                        ; no-op stub (log.s not linked)
         .export seg_line                        ; no-op stub (log.s not linked)
-        ; rp_addr, rp_cnt, rp_save2 now in zp.s (Phase 21.1 Move 3B)
+        ; rp_addr, rp_cnt, rp_save2 live in zp.s
         .export puts_imm
         ; cur_project_name lives in zp.s; asm_src bundle links zp.s.
         .export define_ws_syms          ; no-op stub (real impl in editor.s,
@@ -180,7 +181,7 @@ log_open:
 :       rts
 
 .segment "BSS"
-; rp_addr, rp_cnt, rp_save2 moved to zp.s (Phase 21.1 Move 3B)
+; rp_addr, rp_cnt, rp_save2: in zp.s
 
         .importzp _io_tmp
 ; dec_pow tables (normally in cse_io.s, inlined here for test bundle)

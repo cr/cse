@@ -1,4 +1,5 @@
 ; symtab_test_stub.s — Test harness for symtab.s
+; Owner: doc/build_system.md
 ;
 ; ZP variables provided by zp.s (linked into the test binary).
 

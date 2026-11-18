@@ -1,4 +1,5 @@
 # CSE String Constants Catalog
+# Owner: doc/build_system.md
 # Phase 16 feasibility study: Shortest Common Superstring (SCS)
 #
 # Format: ID | seg | bytes | source:line | content

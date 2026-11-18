@@ -1,6 +1,8 @@
 """
 conftest.py – build test binaries and provide session-scoped fixtures.
 
+Owner: doc/build_system.md
+
 Binaries are built once per session (cached in build/) and rebuilt
 automatically whenever their source files are newer than the cached binary.
 All test binaries are assembled with -g (debug symbols) and linked with
@@ -511,19 +513,18 @@ class AsmSrcSymbols:
 
         s = SymbolTable(bundle.lbl)
 
-        # Stub entry points and BSS vars (previously required fragile
-        # segment-offset computation from the map file)
+        # Stub entry points and BSS vars
         self.asm_src_test_entry = s['asm_src_test_entry']
         self.test_src_buf       = s['_test_src_buf']
         self.bank_witness       = s['_bank_witness']
         self.warn_witness       = s['_warn_witness']
 
-        # asm_src BSS vars (previously required BSS offset calculation)
+        # asm_src BSS vars
         self.asm_org    = s['asm_org']
         self.asm_size   = s['asm_size']
         self.asm_errors = s['asm_errors']
 
-        # Exported symbols (previously from map exports)
+        # Exported symbols
         self.asm_line   = s['asm_line']
         self.asm_ptr    = s['asm_ptr']
         self.asm_pc     = s['asm_pc']
@@ -959,7 +960,7 @@ def gb_syms():
     return GapBufferSymbols()
 
 
-# ── C64Emu-based fixtures (Phase 9) ──────────────────────────────────────────
+# ── C64Emu-based fixtures ──────────────────────────────────────────────────
 #
 # These fixtures load the CMOS PRG into C64Emu and provide symbol
 # resolution via the .map/.lbl file.  Two profiles are available:

@@ -1,5 +1,7 @@
 """
-test_editor_asm.py — ASM-level editor tests via C64Emu.
+test_editor.py — ASM-level editor tests via C64Emu.
+
+Owner: doc/modules/editor.md
 
 Tests the real editor.s code (gap buffer, insert, read-back, line reader)
 against the production binary.  Replaces the Python mirror anti-pattern.
@@ -49,9 +51,8 @@ def total_lines(emu):
 
 # ── Gap buffer: insert + read back ─────────────────────────────────────────
 #
-# TestGapBufferInsert moved to tests/unit/test_gap_buffer.py at the
-# 2026-04-20 editor/gap_buffer split.  The tests exercise pure gap-
-# buffer primitives (ed_insert_string, ed_read_byte, ed_total_lines,
+# The insert/read-back tests are in tests/unit/test_gap_buffer.py.  They
+# exercise pure gap-buffer primitives (ed_insert_string, ed_read_byte, ed_total_lines,
 # ed_dirty) that now live in gap_buffer.s (L3) and bundle-test at
 # Tier U against real zp + strings + mem + symtab — no C64Emu, no
 # full PRG.  Same coverage, ~50x faster per test.  See
@@ -265,9 +266,8 @@ class TestEnterEditorSeed:
 
 # ── ed_read_line — sequential line reader ──────────────────────────────────
 #
-# TestEdReadLine (incl. all 7 cases + the 4 Principle-13 position-pinning
-# tests) moved to tests/unit/test_gap_buffer.py at the 2026-04-20
-# editor/gap_buffer split.  ed_read_line is pure gap-buffer traversal
+# The ed_read_line tests (all 7 cases + the 4 Principle-13 position-
+# pinning tests) are in tests/unit/test_gap_buffer.py.  ed_read_line is pure gap-buffer traversal
 # (no screen, no KERNAL) and now lives in gap_buffer.s (L3); the tests
 # run against the Tier U gap_buffer bundle instead of the full PRG via
 # C64Emu.  Same coverage, ~50x faster per test.  See doc/testing.md

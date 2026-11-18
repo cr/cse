@@ -17,7 +17,6 @@ rom/chargen_cbm.bin
 
 # Proprietary MEGA65 ROM (not distributable; make m65-rom copies it)
 rom/mega65.rom
-rom/mega65.rom.new
 
 # Local ROM testing artifacts
 rom/*_patched.bin

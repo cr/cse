@@ -14,7 +14,7 @@ dev/capture_m65_state.py records from xmega65 into build/m65_state/:
     chip.bin       chip RAM, $00000-$5FFFF (the ROM image included)
     colour.bin     colour RAM, 32 KB
     io.bin         the I/O page $D000-$D7FF, read in VIC-IV mode
-    state.json     registers, MAP, CPU port, $D030, I/O mode, source
+    state.json     format, registers, MAP, CPU port, $D030, I/O mode, source
     reference.json what xmega65 did next from that state (the oracle
                    of tests/integration/test_m65emu.py)
 
@@ -24,7 +24,7 @@ The snapshot holds the MEGA65 ROM, so it is never committed.
 import json
 import pathlib
 
-from emu_base import EmuBase, KeyMatrix, decode_screen_codes
+from emu_base import EmuBase, KeyMatrix, register
 
 from .devices import (CIA1Ports, CIA2InterruptControl, DMAController,
                       KeyboardQueue, VICInterruptLatch)
@@ -33,10 +33,12 @@ from .mpu45gs02 import MPU45GS02
 
 STATE_DIR = pathlib.Path(__file__).resolve().parents[2] / "build" / "m65_state"
 CAPTURE = "python dev/capture_m65_state.py"
+FORMAT = 2                  # of the snapshot; state.json's "format"
 
 
 class SnapshotMissing(FileNotFoundError):
-    """No post-boot snapshot: run dev/capture_m65_state.py."""
+    """No post-boot snapshot, or one an older recorder made: run
+    dev/capture_m65_state.py."""
 
 
 def load_snapshot(state_dir=STATE_DIR):
@@ -47,10 +49,13 @@ def load_snapshot(state_dir=STATE_DIR):
     if missing:
         raise SnapshotMissing(f"no M65Emu post-boot snapshot in {d} "
                               f"(missing {', '.join(missing)}); run: {CAPTURE}")
+    state = json.loads((d / "state.json").read_text())
+    if state.get("format") != FORMAT:
+        raise SnapshotMissing(f"the M65Emu post-boot snapshot in {d} is in "
+                              f"an older format; run: {CAPTURE}")
     return dict(chip=(d / "chip.bin").read_bytes(),
                 colour=(d / "colour.bin").read_bytes(),
-                io=(d / "io.bin").read_bytes(),
-                state=json.loads((d / "state.json").read_text()),
+                io=(d / "io.bin").read_bytes(), state=state,
                 reference=json.loads((d / "reference.json").read_text()))
 
 
@@ -65,9 +70,11 @@ class M65Emu(EmuBase):
         mem = M65Memory()
         self.dma = DMAController(mem)
         self.keyboard = KeyboardQueue()
-        self.cia1 = CIA1Ports(KeyMatrix())
+        self._keys = KeyMatrix()
+        self._ram = memoryview(mem.chip)[:0x10000]   # load_prg(): bank 0, as LOAD
+        self.cia1 = CIA1Ports(self._keys)
         self.cia2_icr = CIA2InterruptControl()
-        self.vic_irq = VICInterruptLatch()
+        self.vic_irq = VICInterruptLatch(mem)
         mem.attach(self.dma, 0x700, 0x70F)
         for off in KeyboardQueue.REGISTERS:
             mem.attach(self.keyboard, off)
@@ -86,45 +93,16 @@ class M65Emu(EmuBase):
         if snapshot is not None:
             for name, value in snapshot["state"]["regs"].items():
                 setattr(cpu, name, value)
-            self.snapshot = snapshot
 
-    @classmethod
-    def from_snapshot(cls, state_dir=STATE_DIR):
-        return cls(load_snapshot(state_dir))
+    z = register("z", 0xFF)             # the 45GS02's own registers
+    b = register("b", 0xFF)
+    sp = register("sp", 0xFFFF)
 
-    # ── the 45GS02's own registers ────────────────────────────────
-
-    @property
-    def z(self):
-        return self._cpu.z
-
-    @z.setter
-    def z(self, val):
-        self._cpu.z = val & 0xFF
-
-    @property
-    def b(self):
-        return self._cpu.b
-
-    @b.setter
-    def b(self, val):
-        self._cpu.b = val & 0xFF
-
-    @property
-    def sp(self):
-        return self._cpu.sp
-
-    @sp.setter
-    def sp(self, val):
-        self._cpu.sp = val & 0xFFFF
-
-    # ── running and loading ───────────────────────────────────────
+    # ── EmuBase's hooks ───────────────────────────────────────────
 
     def _push_return(self, ret):
         """jsr(): push onto the current stack, as JSR would."""
         self._cpu._push_word(ret)
-
-    # ── the hooks of EmuBase's interrupts, keyboard and loader ────
 
     def _enter_irq(self):
         """MPU45GS02's entry: refused while I is set, a prefix or the
@@ -137,7 +115,7 @@ class M65Emu(EmuBase):
     def _jiffy_tick(self):
         """The tick stands for a frame: the raster interrupt latched,
         as the KERNAL's IRQ handler checks before its frame work."""
-        self.vic_irq.raise_(0x01)
+        self.vic_irq.latch(0x01)
 
     def _latch_restore(self):
         self.cia2_icr.latch(0x10)
@@ -145,15 +123,6 @@ class M65Emu(EmuBase):
     def _queue_key(self, petscii):
         """Into the hardware keyboard queue (no limit)."""
         self.keyboard.push(petscii)
-
-    @property
-    def _keys(self):
-        return self.cia1.keys
-
-    @property
-    def _ram(self):
-        """load_prg() writes bank 0, as the KERNAL's LOAD does."""
-        return memoryview(self._mem.chip)[:0x10000]
 
     # ── the screen, where the VIC-IV shows it ─────────────────────
 
@@ -168,6 +137,3 @@ class M65Emu(EmuBase):
         base, step, cols = self._screen()
         start = base + row * step
         return [self._mem.read_flat(start + c) for c in range(cols)]
-
-    def screen_text(self, row):
-        return decode_screen_codes(self.screen_row(row))

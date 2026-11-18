@@ -1,4 +1,7 @@
 """Audit module-doc BSS claims — extends the doc-numerical audit
+
+Owner: doc/build_system.md
+
 to catch per-module BSS byte-count drift like the dasm.md "BSS
 (24 bytes)" miss after the rc5 _dasm_in addition.
 

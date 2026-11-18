@@ -1,6 +1,8 @@
 """
 test_step_rom.py — Debugger step-into JSR with ROM target fallback.
 
+Owner: doc/modules/debugger.md
+
 Verifies that cmd_step ('t1') correctly falls back to step-over when
 the JSR target is in KERNAL ROM ($E000-$FFFF), and steps into RAM
 targets normally.  Uses C64Emu with the production PRG.

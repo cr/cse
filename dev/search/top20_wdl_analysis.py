@@ -2,6 +2,8 @@
 """
 dev/top20_wdl_analysis.py
 
+Owner: doc/build_system.md
+
 Step 1: Regenerate all 1,264 valid (T, C1, C3) hash combinations using the
         targeted T-solver (same random seed as hash_search.py).
 

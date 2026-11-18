@@ -1,4 +1,5 @@
 ; expr.s — Expression parser (recursive descent)
+; Owner: doc/modules/expr.md
 ;
 ; Grammar:
 ;   expr     = bool_term (('£' | '&' | '^') bool_term)*

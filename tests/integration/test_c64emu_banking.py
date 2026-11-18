@@ -1,5 +1,9 @@
 """test_c64emu_banking.py — BankedMemory contracts: $01 banking + DDR.
 
+Owner: doc/build_system.md
+
+Contract source: [doc/testing.md § C64Emu](../../doc/testing.md#c64emu--emulator-class).
+
 Sanity checks for the C64Emu full-$01 banking model.  Verifies:
   * LORAM (bit 0) overlay for BASIC ROM at $A000-$BFFF
   * HIRAM (bit 1) overlay for KERNAL ROM at $E000-$FFFF (existing)

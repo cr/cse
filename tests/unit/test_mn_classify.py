@@ -1,6 +1,8 @@
 """
 test_mn_classify.py — Tier-I unit tests for the mn_classify subsystem.
 
+Owner: doc/modules/mn_classify.md
+
 Covers the four source files that the mn_classify module groups together
 ([doc/modules/mn_classify.md](../../doc/modules/mn_classify.md)):
 

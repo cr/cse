@@ -2,6 +2,8 @@
 """
 dev/size_report.py — Exhaustive size breakdown of cse.prg
 
+Owner: doc/build_system.md
+
 Reads the ld65 map file and debug file to produce:
   1. C64 memory map (like the `i` command)
   2. Per-segment sizes

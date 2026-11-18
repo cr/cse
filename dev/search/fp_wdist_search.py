@@ -1,6 +1,8 @@
 """
 dev/fp_wdist_search.py
 
+Owner: doc/build_system.md
+
 Search for the best mn6 fingerprint function fp(c1,c2) = (c1*A + c2*B) & 0xFF
 in terms of minimising close false positives, measured by weighted Hamming
 distance on QWERTY keyboard layout.

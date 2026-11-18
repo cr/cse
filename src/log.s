@@ -1,4 +1,5 @@
 ; ─────────────────────────────────────────────────────────────────────────────
+; Owner: doc/modules/log.md
 ; log.s — Standardised logging API (Phase 21 Move 3)
 ;
 ; Owns the logging primitives used across the corpus:

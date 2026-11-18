@@ -1,6 +1,8 @@
 """
 test_repl_disk.py — Save/Load command tests (disk ops) for repl.s.
 
+Owner: doc/modules/repl.md
+
 Covers the `s` and `l` commands: argument parsing, verbatim vs derived
 naming, project-name reuse, SEQ vs PRG routing.  These tests still use
 the bare-MPU + repl_test_stub.s harness because they assert on stub

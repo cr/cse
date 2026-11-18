@@ -1,6 +1,8 @@
 """
 test_mem.py — Tier-I unit tests for mem.s.
 
+Owner: doc/modules/mem.md
+
 Contract source: [doc/modules/mem.md](../../doc/modules/mem.md).
 Exercises only the documented API (not implementation details).
 
@@ -483,22 +485,22 @@ class TestCrossBufferRoundTrip:
 
     def test_save_both_restore_each(self, mem_syms):
         cpu = make_cpu(mem_syms)
-        # Phase 1: snapshot "userland state" (pattern A).
+        # Step 1: snapshot "userland state" (pattern A).
         pattern_a = [(i ^ 0xAA) & 0xFF for i in range(128)]
         _prime_zp(cpu, pattern_a)
         jsr(cpu, mem_syms.save_userland_zp)
 
-        # Phase 2: overwrite live ZP with "kernel state" (pattern B)
+        # Step 2: overwrite live ZP with "kernel state" (pattern B)
         # and snapshot it.
         pattern_b = [(i ^ 0x55) & 0xFF for i in range(128)]
         _prime_zp(cpu, pattern_b)
         jsr(cpu, mem_syms.save_kernel_zp)
 
-        # Phase 3: restore userland — live ZP must become pattern A.
+        # Step 3: restore userland — live ZP must become pattern A.
         jsr(cpu, mem_syms.restore_userland_zp)
         assert _read_zp(cpu) == pattern_a
 
-        # Phase 4: restore kernel — live ZP must become pattern B.
+        # Step 4: restore kernel — live ZP must become pattern B.
         jsr(cpu, mem_syms.restore_kernel_zp)
         assert _read_zp(cpu) == pattern_b
 
@@ -554,7 +556,8 @@ class TestHardwareOnlyContract:
         "requires an IRQ to actually fire mid-operation.  py65 has no "
         "scheduled-interrupt facility in this test tier; the stress "
         "test lives in integration (tests/integration/test_c64emu_"
-        "interrupts.py)."
+        "interrupts.py: the vector through banking; the scheduler's "
+        "I-flag contracts: tests/integration/test_emu_parity.py)."
     ))
     def test_i_flag_preserved_across_bank_out_in(self, mem_syms):
         pass

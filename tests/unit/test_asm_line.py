@@ -1,5 +1,7 @@
 """test_asm_line.py — Tier-U unit tests for asm_line.s.
 
+Owner: doc/modules/asm_line.md
+
 Contract source: [doc/modules/asm_line.md](../../doc/modules/asm_line.md).
 
 Coverage of the documented contract

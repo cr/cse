@@ -2,6 +2,8 @@
 
 Owner: doc/build_system.md
 
+Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65-integration-harness).
+
 Layer 1, the CPU: MPU45GS02 (mpu45gs02.py), decoding from the
 compendium's instruction table (isa.py), checked against xmega65
 through the golden file (golden.py).  Layer 2, the memory

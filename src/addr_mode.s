@@ -1,4 +1,5 @@
 ; ─────────────────────────────────────────────────────────────────────────────
+; Owner: doc/modules/addr_mode.md
 ; addr_mode.s  –  addressing-mode and operand parser
 ;   (renamed from au_mode.s in Phase 21)
 ;

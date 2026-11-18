@@ -1,5 +1,7 @@
 """Audit backticked symbols in docs against the binary — Step 1B.
 
+Owner: doc/build_system.md
+
 For each `\\w+` in backticks across doc/, root README.md, root
 background.md, check whether it looks like a CSE source symbol
 (identifier with at least one underscore, not a standard 6502/CPU

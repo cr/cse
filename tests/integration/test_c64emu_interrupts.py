@@ -1,5 +1,9 @@
 """test_c64emu_interrupts.py — C64Emu's interrupt vector fetch.
 
+Owner: doc/build_system.md
+
+Contract source: [doc/testing.md § C64Emu](../../doc/testing.md#c64emu--emulator-class).
+
 The scheduler's contracts (the I flag, NMI, the pushed frame, cancel)
 hold for both harnesses and are tested in test_emu_parity.py.  This
 file keeps the C64-only case: the vector is fetched through

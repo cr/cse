@@ -1,5 +1,7 @@
 """test_dasm.py — Tier-U unit tests for dasm.s.
 
+Owner: doc/modules/dasm.md
+
 Contract source: [doc/modules/dasm.md](../../doc/modules/dasm.md).
 
 Coverage of the documented contract

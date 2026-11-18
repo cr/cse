@@ -2,6 +2,8 @@
 """
 Phase 16 feasibility study: SCS packer for CSE string tables.
 
+Owner: doc/build_system.md
+
 Reads dev/strings.txt, computes the shortest common superstring via
 beam search + local improvement, and reports compaction potential.
 

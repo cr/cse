@@ -1,4 +1,5 @@
 ; ============================================================
+; Owner: doc/modules/mn_classify.md
 ; mn7.s -- 7-bit perfect hash mnemonic classifier (all 114 mnemonics)
 ; ============================================================
 ;

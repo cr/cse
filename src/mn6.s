@@ -1,4 +1,5 @@
 ; ============================================================
+; Owner: doc/modules/mn_classify.md
 ; mn6.s -- 6-bit perfect hash mnemonic classifier (legal NMOS only)
 ; ============================================================
 ;

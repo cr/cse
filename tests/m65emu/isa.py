@@ -2,6 +2,8 @@
 
 Owner: doc/build_system.md
 
+Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65-integration-harness).
+
 Built from tests/fixtures/mega65_instruction_set.csv, the MEGA65
 compendium's Appendix L tables as extracted by bbbc64's
 dev/mega65_opcode_extract.py, never from dev/instruction_set.py: the

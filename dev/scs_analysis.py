@@ -2,6 +2,8 @@
 """
 Phase 16 feasibility study: Shortest Common Superstring (SCS) analysis.
 
+Owner: doc/build_system.md
+
 Parses dev/strings.txt catalog, eliminates substrings, and reports
 compaction potential.
 """

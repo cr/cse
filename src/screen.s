@@ -1,4 +1,5 @@
 ; screen.s — Screen management (scroll, newline, cursor, color)
+; Owner: doc/modules/screen.md
 ;
 ; Replaces screen.c with direct 6502 implementation.
 ; Requires $CC=1 (KERNAL cursor disabled).

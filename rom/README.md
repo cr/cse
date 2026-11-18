@@ -1,5 +1,7 @@
 # ROM files
 
+**Owner:** [doc/build_system.md](../doc/build_system.md)
+
 This directory holds the C64 ROM images used by CSE's test
 harness and by the ROMSET-investigation Makefile target, and the
 MEGA65 ROM images of the m65 port.  Proprietary ROMs are copied
@@ -57,21 +59,9 @@ notice and the MEGA65 attribution.
 
 `mega65.rom` is © the MEGA65 project and Commodore and cannot be
 redistributed.  `make m65-rom` (`dev/find_m65_rom.py`) finds it in
-xmega65's data directory and copies it here:
-
-| Searched | Where |
-|----------|-------|
-| `$XEMU_MEGA65_DIR` | if set, the only place searched |
-| macOS | `~/Library/Application Support/xemu-lgb/mega65/` |
-| Linux | `~/.local/share/xemu-lgb/mega65/` |
-
-In each, `MEGA65.ROM` first, then `hdos/MEGA65.ROM`.  The script
-accepts only a 128 KB image with a C65/MEGA65 KERNAL (a reset
-vector at `$3FFFC`), prints its version (`V920421` …, at offset
-`$16`), and replaces a stale copy.  `dev/capture_m65_state.py`
-runs the same discovery and refuses to record a snapshot whose ROM
-differs from `mega65.rom`, so the snapshot and this copy name the
-same ROM.
+xmega65's data directory and copies it here; where it searches and
+what it accepts is in
+[build_system.md § MEGA65 ROM](../doc/build_system.md#mega65-rom).
 
 `mega65_open.rom` is `bin/mega65.rom` of
 [github.com/MEGA65/open-roms](https://github.com/MEGA65/open-roms)

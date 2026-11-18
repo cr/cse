@@ -1,5 +1,7 @@
 """Probe: what does KERNAL actually put in LDTB1 after CINT/init?
 
+Owner: doc/build_system.md
+
 If LDTB1[r] is just "$80 = logical-line start", my fix is right.
 If LDTB1[r] = $80 | scr_hi[r] (i.e., the page of the row's screen
 address with bit 7 set), my fix is wrong — every row would be

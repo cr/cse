@@ -1,5 +1,7 @@
 """test_symtab.py — Tier-U unit tests for symtab.s.
 
+Owner: doc/modules/symtab.md
+
 Contract source: [doc/modules/symtab.md](../../doc/modules/symtab.md).
 
 Coverage of the documented contract
@@ -79,7 +81,7 @@ class SymtabSyms:
         if _needs_rebuild(): _build()
         s = SymbolTable(LBL)
         self._raw = BIN.read_bytes()
-        # Entry points — previously required hardcoded base+12/base+24
+        # Entry points
         self.sym_define = s["test_define"]
         self.sym_lookup = s["test_lookup"]
         self.sym_clear  = s["test_clear"]

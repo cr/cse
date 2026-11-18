@@ -1,5 +1,7 @@
 """Audit doc numerical claims — Step 1D of the doc-audit plan.
 
+Owner: doc/build_system.md
+
 Scrapes byte/size claims from doc/ + root README.md and compares
 against current build artifacts:
 

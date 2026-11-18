@@ -1,5 +1,7 @@
 """test_addr_mode.py — Tier-U unit tests for addr_mode.s.
 
+Owner: doc/modules/addr_mode.md
+
 Contract source: [doc/modules/addr_mode.md](../../doc/modules/addr_mode.md).
 
 Coverage of the documented contract

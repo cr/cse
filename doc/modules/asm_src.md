@@ -7,8 +7,10 @@
 | File | Role |
 |------|------|
 | [`src/asm_src.s`](../../src/asm_src.s) | implementation |
-| [`dev/asm_src_test_stub.s`](../../dev/asm_src_test_stub.s) | test harness |
 | [`tests/unit/test_asm_src.py`](../../tests/unit/test_asm_src.py) | test contract |
+
+Its test bundle's stub, [`dev/asm_src_test_stub.s`](../../dev/asm_src_test_stub.s),
+is owned by [build_system.md](../build_system.md).
 
 ## Interface
 

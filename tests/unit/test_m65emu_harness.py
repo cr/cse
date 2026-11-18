@@ -6,15 +6,19 @@ Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65
 
 Tier U: a bare M65Emu (blank memory, no ROM) is enough to pin the
 harness surface — jsr() on the current stack with a sentinel never
-written, run_until(), registers, load_prg() into bank 0 with symbols,
+written, run_until(), registers, load_prg() into bank 0,
 screen_text() through the VIC-IV screen pointer, the I/O access log,
-and M65Memory.restore().  The real-KERNAL tests (Tier I) are in
+M65Memory.restore(), and load_snapshot() refusing a missing or an
+outdated snapshot.  The real-KERNAL tests (Tier I) are in
 tests/integration/test_m65emu.py.
 """
 
+import json
+
 import pytest
 
-from m65emu import M65Emu
+from m65emu import M65Emu, SnapshotMissing, load_snapshot
+from m65emu.harness import FORMAT
 from m65emu.memory import VIC2, VIC4
 
 E, I = 0x20, 0x04
@@ -65,18 +69,15 @@ def test_sp_is_16_bit():
     assert (emu.sp, emu.cpu.sp) == (0x02F0, 0x02F0)
 
 
-def test_load_prg_writes_bank_0_and_loads_symbols(tmp_path):
+def test_load_prg_writes_bank_0_whatever_is_mapped(tmp_path):
+    """(What load_prg() shares with C64Emu: test_emu_parity.py.)"""
     prg = tmp_path / "t.prg"
     prg.write_bytes(bytes([0x01, 0x20, 0xA9, 0x07, 0x60]))   # $2001: LDA #7; RTS
-    (tmp_path / "t.lbl").write_text("al 002001 .start\nal 002003 .done\n")
     emu = M65Emu()
     emu.cpu.mapl = 0xE400                              # MAP $2000 → $42000
     assert emu.load_prg(prg) == 0x2001
     assert emu.memory.read_flat(0x2001) == 0xA9        # bank 0, as LOAD does
     assert emu.memory[0x2001] == 0x00                  # the CPU sees $42001
-    emu.cpu.mapl = 0
-    emu.jsr(emu.sym("start"))
-    assert emu.a == 7 and emu.sym_opt("nope") is None
 
 
 def test_screen_text_follows_the_vic_iv_screen_pointer():
@@ -100,6 +101,7 @@ def test_io_log_counts_unmodelled_registers_only():
     mem[0xD020] = 1
     _ = mem[0xD800]                                    # colour window
     mem[0xD02F] = 0x47                                 # the key register
+    _ = mem[0xD02F], mem[0xD030]                       # modelled by the memory
     assert dict(mem.io_log) == {"R $D061": 1, "W $D020": 1}
 
 
@@ -113,3 +115,16 @@ def test_restore_sets_banking_without_the_key_dance():
     assert mem.rd[0xC] == 0x2C000                      # $D030 ROM at $C000
     mem.restore(ddr=0xFF, port=0x30, d030=0x00, io_mode=VIC2)
     assert mem.rd[0xD] == 0xD000                       # all RAM
+
+
+def test_load_snapshot_refuses_a_missing_or_an_outdated_snapshot(tmp_path):
+    with pytest.raises(SnapshotMissing, match="capture_m65_state.py"):
+        load_snapshot(tmp_path)
+    for name in ("chip.bin", "colour.bin", "io.bin"):
+        (tmp_path / name).write_bytes(b"\x00")
+    (tmp_path / "reference.json").write_text('{"runs": []}')
+    (tmp_path / "state.json").write_text(json.dumps({"format": FORMAT - 1}))
+    with pytest.raises(SnapshotMissing, match="older format"):
+        load_snapshot(tmp_path)
+    (tmp_path / "state.json").write_text(json.dumps({"format": FORMAT}))
+    assert load_snapshot(tmp_path)["reference"] == {"runs": []}

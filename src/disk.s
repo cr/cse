@@ -1,4 +1,5 @@
 ; disk.s — CBM file I/O via direct KERNAL calls
+; Owner: doc/modules/disk.md
 ;
 ; Direct KERNAL calls for CBM file I/O
 ; with direct KERNAL SETLFS/SETNAM/OPEN/CLOSE/CHKIN/CHKOUT/

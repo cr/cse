@@ -7,9 +7,10 @@
 | File | Role |
 |------|------|
 | [`src/dasm.s`](../../src/dasm.s) | implementation — entry, prefix peel, map decode, operand formatter |
-| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — one block per CPU set: the map blocks, the per-`asm_cpu` view tables (`dasm_cpu_map_lo/hi`; `dasm_cpu_bm` + `dasm_view_bm` where a view is a subset bitmap), `dasm_mode_len` and `dasm_mode_fmt` (one byte per mode) in RODATA; the packed mnemonic strings (the set's names only) in KDATA; on `MEGA_SUPPORT` also the Q map.  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
-| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated, `.include`d by `dasm.s` — one block per CPU set: `MNE_UNK` (= 0), and only where the set needs them the decoder's switches `DASM_SUBSET`, `MNE_DIGIT_LO/HI` (on `MEGA_SUPPORT` also `MNE_QSFX_*`, `MNE_QNAME_*`).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py) |
+| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — one block per CPU set: the map blocks, the per-`asm_cpu` view tables (`dasm_cpu_map_lo/hi`; `dasm_cpu_bm` + `dasm_view_bm` where a view is a subset bitmap), `dasm_mode_len` and `dasm_mode_fmt` (one byte per mode) in RODATA; the packed mnemonic strings (the set's names only) in KDATA; on `MEGA_SUPPORT` also the Q map.  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
+| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated, `.include`d by `dasm.s` — one block per CPU set: `MNE_UNK` (= 0), and only where the set needs them the decoder's switches `DASM_SUBSET`, `MNE_DIGIT_LO/HI` (on `MEGA_SUPPORT` also `MNE_QSFX_*`, `MNE_QNAME_*`).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
 | [`tests/unit/test_dasm.py`](../../tests/unit/test_dasm.py) | test contract |
+| [`tests/integration/test_dasm_rom.py`](../../tests/integration/test_dasm_rom.py) | test contract — Tier I: `dasm_insn` reads the bytes of `$E000`+ through the caller's banking (KERNAL ROM at the REPL prompt) |
 
 ## Interface
 

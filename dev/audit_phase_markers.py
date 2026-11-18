@@ -1,9 +1,13 @@
 """Audit historical phase markers — Step 1E of the doc-audit plan.
 
+Owner: doc/build_system.md
+
 Per Phase-25 DDD Log amendment **A3** (Stale historical markers as
-a DDD Maintenance audit item): grep the corpus (doc + src
-comments) for time-anchored phrases that often outlive their
-context.
+a DDD Maintenance audit item): grep the corpus — doc/, the source
+comments of src/, and the comments and docstrings of the Python
+and assembly under tests/ and dev/ (dev/search/ excepted: kept as
+history on purpose) — for time-anchored phrases that often outlive
+their context.
 
 The script can't decide load-bearing vs stale automatically — the
 output is a structured report grouped by marker class for human
@@ -65,17 +69,23 @@ def files_to_scan():
     if (ROOT / "src").exists():
         out.extend((ROOT / "src").rglob("*.s"))
         out.extend((ROOT / "src").rglob("*.inc"))
+    for tree in ("tests", "dev"):
+        if (ROOT / tree).exists():
+            out.extend((ROOT / tree).rglob("*.py"))
+            out.extend((ROOT / tree).rglob("*.s"))
     return [
         f for f in out
         if f.is_file()
         and ".claude" not in f.parts
         and "build" not in f.parts
+        and "search" not in f.relative_to(ROOT).parts[:2]
+        and "retired" not in f.parts
     ]
 
 
 def main():
     files = files_to_scan()
-    print(f"Scanning {len(files)} files (doc/ + src/) ...\n")
+    print(f"Scanning {len(files)} files (doc/, src/, tests/, dev/) ...\n")
 
     # findings[class_label] = list of (path, lineno, line_text)
     findings = {label: [] for label, _, _ in MARKERS}

@@ -7,8 +7,10 @@
 | File | Role |
 |------|------|
 | [`src/asm_line.s`](../../src/asm_line.s) | implementation — line assembler core, KERNAL banking, error recovery |
-| [`src/zp.s`](../../src/zp.s) | ZP definitions (central, shared by all modules) |
 | [`tests/unit/test_asm_line.py`](../../tests/unit/test_asm_line.py) | test contract |
+
+Its ZP definitions are in [`src/zp.s`](../../src/zp.s), owned by
+[zp.md](zp.md).
 
 ## Interface
 

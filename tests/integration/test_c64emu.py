@@ -1,5 +1,8 @@
-"""
-test_c64emu.py — Smoke tests for C64Emu and KERNAL compatibility.
+"""test_c64emu.py — Smoke tests for C64Emu and KERNAL compatibility.
+
+Owner: doc/build_system.md
+
+Contract source: [doc/testing.md § C64Emu](../../doc/testing.md#c64emu--emulator-class).
 
 Validates that the emulator class works and that the C64 KERNAL
 routines we depend on function correctly under py65 without real hardware.

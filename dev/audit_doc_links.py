@@ -1,5 +1,7 @@
 """Audit doc cross-references — Step 1A of the doc-audit plan.
 
+Owner: doc/build_system.md
+
 Walks every Markdown file under doc/ + root-level README.md/background.md,
 extracts every `[text](path)` and `<a href="path">` reference, and reports
 the ones whose target doesn't resolve.  Resolves anchors (`#section`)

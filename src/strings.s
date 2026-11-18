@@ -1,4 +1,5 @@
 ; strings.s — centralised string constants for CSE
+; Owner: doc/modules/strings.md
 ;
 ; Every user-facing string lives here.  Other modules import the
 ; labels they need.  Duplicates are resolved via aliases.

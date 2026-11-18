@@ -1,4 +1,7 @@
 """Probe: where does CHROUT actually land output rows after the
+
+Owner: doc/build_system.md
+
 LDTB1=$80 reset, vs after the canonical $84-$87 reset?
 
 Reproduces the user's "output stuck in upper third" symptom in

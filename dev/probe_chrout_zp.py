@@ -1,5 +1,7 @@
 """Probe what KERNAL ZP bytes CHROUT actually mutates.
 
+Owner: doc/build_system.md
+
 Investigation tool, NOT a test.  Run as:
 
     /Users/cr/.local/share/virtualenvs/cse-rXGMsE9U/bin/python \

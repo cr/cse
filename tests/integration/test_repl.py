@@ -1,14 +1,14 @@
 """
 test_repl.py — REPL command tests for repl.s.
 
+Owner: doc/modules/repl.md
+
 Tests the REPL command loop (exec_line), screen I/O (read_line,
 show_prompt), and all command handlers via table-driven tests on
 C64Emu + the production CMOS PRG.
 
-Tranche 4 migration: previously this test file used a custom
-bare-MPU harness with dev/repl_test_stub.s.  It now uses the real
-production binary through C64Emu so the tests exercise the same
-code that runs on the C64.
+The tests use the real production binary through C64Emu, so they
+exercise the same code that runs on the C64.
 
 Disk tests (TestSaveCommand, TestLoadCommand) still live in
 test_repl_disk.py using the old stub-based harness; they migrate
@@ -1093,7 +1093,7 @@ class TestDotHexEdit:
 
 # ── R. Load/Save command tests ─────────────────────────────────────
 #
-# Moved to test_repl_disk.py — those tests still need the repl_test_stub.s
+# In test_repl_disk.py — those tests need the repl_test_stub.s
 # witness variables to capture disk-op arguments.  They migrate back
 # here when the virtual IEC lands in C64Emu.
 
@@ -1101,6 +1101,4 @@ class TestDotHexEdit:
 
 # ── Q. Step into JSR — ROM target falls back to step-over ───────
 #
-# Moved to tests/test_step_rom.py (C64Emu-based, no layout fragility).
-# The old tests were xfail'd because step_witness was computed from
-# a hardcoded BSS offset that broke on any code size change.
+# In tests/integration/test_step_rom.py (C64Emu-based).

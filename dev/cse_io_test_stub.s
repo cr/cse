@@ -1,4 +1,5 @@
 ; cse_io_test_stub.s — KERNAL PLOT stub for py65 test environment
+; Owner: doc/build_system.md
 ;
 ; io_sync calls JSR $FFF0 (KERNAL PLOT).  In py65 there's no ROM,
 ; so we patch $FFF0 → JMP kplot_stub.  This stub uses the same

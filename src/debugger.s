@@ -1,4 +1,5 @@
 ; debugger.s — Step state machine + kernel↔userland gates (L4)
+; Owner: doc/modules/debugger.md
 ;                (Phase 18 — ISR-kernel model)
 ;
 ; Owns:

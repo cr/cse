@@ -1,13 +1,15 @@
 """test_gap_buffer.py — Tier-U unit tests for gap_buffer.s (L3).
 
+Owner: doc/modules/gap_buffer.md
+
 Contract source: [doc/modules/gap_buffer.md](../../doc/modules/gap_buffer.md).
 
 Migrated from tests/integration/test_editor.py at the 2026-04-20
 editor/gap_buffer split: gap-buffer primitives are pure data-structure
 operations and now run at Tier U against a bundle that links real
 zp + strings + mem + symtab + gap_buffer (no behavioural mocks).
-Previously these tests ran against the full PRG via C64Emu — same
-coverage, ~50x faster execution, tighter isolation.
+Against the full PRG via C64Emu the same coverage would run ~50x
+slower, with looser isolation.
 
 Coverage
 --------
@@ -132,9 +134,7 @@ class TestGapBufferInsert:
 class TestEdReadLine:
     """ed_read_line reads one line at a time for the assembler.
 
-    Migrated from tests/integration/test_editor.py::TestEdReadLine at
-    the 2026-04-20 editor/gap_buffer split.  Includes the Principle-13
-    position-pinning tests (previously integration-tier, now unit).
+    Includes the Principle-13 position-pinning tests.
     """
 
     def test_single_line(self, gb_syms):

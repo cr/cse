@@ -217,7 +217,7 @@ protocol of layer 1: `memory[addr16]`, `read_flat()`, `write_flat()`):
 time, each when a test needs it.  A device claims a range of I/O
 registers in `M65Memory` (`M65Memory.attach()`); the CPU's accesses to
 them go to the device, which reaches memory through the flat
-interface.  Unclaimed I/O registers read back what was written;
+interface and the I/O page through `io_read()`/`io_write()`.  Unclaimed I/O registers read back what was written;
 `M65Memory.io_log` counts each access to one (`R $Dxxx` / `W $Dxxx`),
 so a test can assert which there were.  What the KERNAL uses decides
 the order: it scrolls the screen by DMA, `GETIN` reads the hardware
@@ -229,16 +229,19 @@ like the CIA timers and raster timing, is not modelled — `C64Emu`
 models none of them either.
 
 - **The DMA controller** (`$D700`–`$D70F`).  A job list is read from
-  the flat address `$D700`/`$D701`/`$D702` (bits 0–22) and `$D704`
-  (the megabyte) give; writing `$D700` starts a list in the format of
-  the default revision (`$D703` bit 0: F018A, or F018B with its extra
-  sub-command byte), writing `$D705` an enhanced list (an option list
-  before each job).  Commands: copy, fill, swap, mix; each side steps
+  the flat address `$D700`/`$D701`/`$D702` (bits 0–22; writing `$D702`
+  clears the megabyte) and `$D704` (the megabyte) give; `$D70E` sets
+  bits 0–7 without starting.  Writing `$D700` starts a list in the
+  format of the default revision (`$D703` bit 0: F018A, or F018B with
+  its extra sub-command byte; bit 1: megabyte crossing), writing
+  `$D705` an enhanced list (an option list before each job).  Commands: copy, fill, swap, mix; each side steps
   up, down or holds; chained jobs; a side with address bit 23 set
   reads or writes the I/O page.  Enhanced options: revision (`$0A`,
   `$0B`), source and target megabyte (`$80`, `$81`), skip rates
   (`$82`–`$85`), transparency (`$06`, `$07`, `$86`), the length's
-  third byte (`$90`), megabyte crossing (`$01`).  A job runs to its end
+  third byte (`$90`), the source and target start fractions (`$91`,
+  `$92`), megabyte crossing (`$01`); other options are ignored, as
+  xemu ignores them.  A job runs to its end
   when it is started — the CPU is halted during DMA on the MEGA65 too.
   Line drawing, modulo mode and lists read through the CPU's view
   (`$D706`, `$D707`) are not modelled: they raise `DMANotModelled`.
@@ -262,28 +265,34 @@ models none of them either.
   releases set it.  The KERNAL's frame work reads column 7, so
   `press_stop()` and one tick make `STOP` (`$FFE1`) report the key, as
   on the C64.
-- **The VIC interrupt latch** (`$D019`): reads the latched bits 0–3,
-  bit 7 set while any of them is, bits 4–6 as the snapshot left them;
-  writing 1s clears those bits (the
-  KERNAL acknowledges with `TSB $D019`).  The jiffy tick latches bit 0,
-  the raster interrupt, before it raises the IRQ — the tick stands for
-  a frame, without raster timing.
+- **The VIC interrupt latch** (`$D019`), as xmega65 shows it
+  (`m65_latches.json`): bits 0–3 latched, cleared by writing 1s to
+  them (the KERNAL acknowledges with `TSB $D019`; a 0 clears nothing);
+  bits 5–6 read as 1; bit 7 is the IRQ line — whether a latched bit is
+  enabled in the mask `$D01A` (plain storage; `$E1` after boot),
+  computed when a bit latches and when `$D019` is written, not when
+  the mask changes.  Nothing is latched after a snapshot.  The jiffy
+  tick latches bit 0, the raster interrupt, before it raises the IRQ —
+  the tick stands for a frame, without raster timing.
 - **The CIA2 interrupt control register** (`$DD0D`): bit 4 latched by
   `press_restore()`, which also raises an NMI, as `C64Emu` does;
-  reading returns the latch and clears it.
+  reading returns the latch and clears it — as xmega65 does for a
+  timer A underflow whose source is masked (`m65_latches.json`: `$01`,
+  then `$00`).
 
 The hypervisor (`$D640`–`$D67F`) and the floppy controller (`$D080`)
 are not modelled: a test that needs them is Tier X.
 
 **Starting state.**  M65Emu does not emulate the boot.
-`dev/capture_m65_state.py` (run by hand; about 20 s) boots xmega65 to
+`dev/capture_m65_state.py` (run by hand; about 25 s) boots xmega65 to
 the BASIC 65 prompt, stops the CPU in trace mode and reads, over
 uartmon, a post-boot state into `build/m65_state/`:
 
 - `chip.bin` (384 KB, the ROM image included), `colour.bin` (32 KB),
   `io.bin` (the I/O page `$D000`–`$D7FF` in VIC-IV mode; not the
   CIAs, whose reads clear their flags);
-- `state.json`: the CPU registers and `MAP` (the megabyte selectors
+- `state.json`: the snapshot's format number, the CPU registers and
+  `MAP` (the megabyte selectors
   cannot be read; they are 0 after boot, as `m65_mem.json`'s
   post-boot state confirms), the CPU port, `$D030`, the I/O mode,
   the xmega65 version and the ROM's SHA-256 — the ROM must be
@@ -291,17 +300,19 @@ uartmon, a post-boot state into `build/m65_state/`:
   and refuses to record when the booted ROM differs:
   [build_system.md § MEGA65 ROM](build_system.md#mega65-rom));
 - `reference.json`: what xmega65 did next, run after run from that
-  state, each run's registers and memory changes, the oracle M65Emu's
-  Tier I tests replay in the same order — "chrout" (`SEI`,
+  state — each run's code as it was planted (ending in the `JMP` to
+  itself that parks it), the address it ends at, the registers and
+  the memory changes — the oracle M65Emu's Tier I tests replay in the
+  same order: "chrout" (`SEI`,
   `LDA #'A'`, `JSR $FFD2`; single-stepped, so its 125 steps are
   recorded too) and "scroll" (30 RETURNs and an 'A' through `CHROUT`,
   the screen scrolled by DMA; about 140k steps, run at full speed to a
-  breakpoint with interrupts off, the code parked there by a `JMP` to
-  itself).
+  breakpoint with interrupts off).
 
 The state contains the MEGA65 ROM, so it is never committed; M65Emu's
 Tier I tests are skipped, with the reason and the command that makes
-it, when it is absent.  Pytest never starts xmega65 by itself.
+it, when it is absent or in an older recorder's format.  Pytest never
+starts xmega65 by itself.
 
 **Interface.**  `M65Emu` (`tests/m65emu/harness.py`) has `C64Emu`'s
 test surface: what a Tier I test calls is the same on both, so a test
@@ -311,6 +322,7 @@ holds:
 
 - the registers `a`, `x`, `y`, `pc`, `p` and the flags, `cpu`,
   `memory`, `jsr()`, `run_until()`, `run_until_with_watch()`,
+  `run_steps()` (a fixed number of steps, for code that never ends),
   `read_word()`, `write_word()`, `sym()`, `sym_opt()`, and the
   screen-code decoding behind `screen_text()`;
 - the interrupt scheduler: `schedule_irq(n)` and `schedule_nmi(n)`
@@ -342,7 +354,7 @@ Each harness supplies what differs:
 | RESTORE | CIA2 `$DD0D` bit 4 and an NMI | the same, through the `$DD0D` device |
 | `inject_key()` | the KERNAL buffer (`$0277`, `$C6`; ten keys, then `OverflowError`) | the hardware keyboard queue (unbounded) |
 | `load_prg()` writes | RAM under any ROM | bank 0 |
-| Registers of its own | — | `z`, `b`, the 16-bit `sp`, the `MAP` registers |
+| Registers of its own | — | `z`, `b`, the 16-bit `sp` (the `MAP` registers through `cpu`) |
 
 and M65Emu besides:
 
@@ -352,7 +364,7 @@ and M65Emu besides:
 - `screen_text()` finds the screen through the VIC-IV screen pointer
   (`$D060`–`$D063`), the line step (`$D058`–`$D059`) and the width
   (`$D05E`) — the KERNAL's `CHROUT` reads the same pointer;
-- `io_log` counts the accesses to I/O registers no device models.
+- `memory.io_log` counts the accesses to I/O registers no device models.
 
 `C64Emu`'s synthesised KERNAL state stays its own; M65Emu starts from
 the snapshot instead.
@@ -367,7 +379,7 @@ the KERNAL's `$A0`–`$A2`) stay in `test_c64emu_*.py`.
 The Tier I tests (`tests/integration/test_m65emu.py`) replay the
 reference runs: `CHROUT` on the real MEGA65 KERNAL takes the same 125
 steps as in xmega65, and both runs leave the same registers, chip RAM
-and colour RAM — the scroll's 350 DMA jobs included.  The character
+and colour RAM — the scroll's 700 DMA jobs included.  The character
 shows on the screen as `screen_text()` reads it, the scroll touches no
 I/O register that no device models but the screen pointer, and `GETIN`
 returns injected keys in order, then 0.  On the real KERNAL too: a
@@ -434,14 +446,24 @@ own reading of the compendium:
   of the store that starts it, in xmega65 as in M65Emu.
   `tests/unit/test_m65dma.py` (Tier U) replays them through the CPU's
   view of the DMA registers.
-- A Tier X test re-runs the capture when xmega65 is present and fails
-  on any difference from the committed golden file.
+- `dev/capture_m65_latches.py` runs a probe in block 0, interrupts
+  off, at full speed to a breakpoint: `$D019` acknowledged, the raster
+  bit waited for with `$D01A`'s raster mask on and off, written with
+  0 bits; a CIA2 timer A underflow with its sources masked, `$DD0D`
+  read twice.  The eight values read go into
+  `tests/fixtures/golden/m65_latches.json`;
+  `tests/unit/test_m65devices.py` drives the two devices through the
+  same steps (a latch call for each raster line waited for) and must
+  read the same values.
+- A Tier X test (S2-8) re-runs the capture when xmega65 is present and
+  fails on any difference from the committed golden file.
 
 An M65Emu answer to a hardware question (O1, O3) is xmega65's answer
 at second hand: provisional until the hardware confirms it.
 
 The recording (xmega65 `0870689e`, 2026-11-17, 518 cases) overruled
-the compendium reading in two places, which `MPU45GS02` now follows: decimal-mode `ADC`/`SBC` behave as on the NMOS 6502 (the
+the compendium reading in two places, which `MPU45GS02` now follows:
+decimal-mode `ADC`/`SBC` behave as on the NMOS 6502 (the
 flags come from the binary result, not the 65C02's), and `BIT #`
 sets `N` and `V` from the operand like the other `BIT` modes.
 Everything else recorded — the 16-bit branch base, `BSR`, `RTS #n`,
@@ -456,7 +478,12 @@ translation recording does not cover a `$D030` write in VIC-II mode
 (`M65Memory` leaves banking alone), nor what any I/O register does
 beyond the colour window, `$D02F`, `$D030` and one plain register.
 The keyboard queue rests on xemu's source alone: the monitor cannot
-type a key.
+type a key.  Of the parity devices, the recording covers the two
+latches' register behaviour; it cannot press RESTORE, so its bit 4 in
+`$DD0D` follows `C64Emu`, and the jiffy tick standing for a frame
+rests on traces of the MEGA65 KERNAL on M65Emu (its frame work runs
+on a latched raster bit; no raster position or frame rate is
+modelled).
 Two things xmega65 does that `MPU45GS02` does not: it holds an
 interrupt off for one instruction after a single-cycle instruction
 (no cycles here), and it runs `NEG NEG NEG` as a 32-bit negate (no
@@ -1219,7 +1246,8 @@ On construction:
 - 64 KB RAM zeroed.
 - Original C64 KERNAL ROM (`rom/kernal_cbm.bin`) loaded as a ROM
   overlay at $E000–$FFFF.
-- Processor port ($01) set to $37 (KERNAL + BASIC + I/O mapped).
+- Processor port: DDR (`$00`) = `$2F`, `$01` = `$36` — CSE's runtime
+  banking: BASIC out (`$A000`–`$BFFF` is RAM), KERNAL and I/O in.
 - Bank-switch emulation: writes to $01 toggle the KERNAL ROM
   overlay — clearing bit 1 exposes the underlying RAM at
   $E000–$FFFF (used by `mem.s::kernal_bank_out`); setting it
@@ -1287,9 +1315,11 @@ emu.load_prg("build/cse.prg")   # load production binary
 ```
 
 `load_prg(path)` reads a `.prg` file (2-byte load-address header
-+ payload), writes the payload at the load address, and parses
-the companion `.map` file for symbol resolution.  All exported
-symbols become attributes on the emulator instance:
++ payload), writes the payload at the load address, loads every
+symbol of the `.lbl` file beside the companion `.map`, and copies
+each relocated segment to its run address (shared with M65Emu:
+[§ M65Emu, Interface](#m65emu--the-m65-integration-harness)).
+Symbols are looked up by name:
 
 ```python
 addr = emu.sym("_asm_line_core")      # look up any exported symbol

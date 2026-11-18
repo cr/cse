@@ -2,6 +2,8 @@
 """
 dev/fp_wdist_analysis.py
 
+Owner: doc/build_system.md
+
 Weighted Hamming distance analysis of false positives for three fingerprint
 candidates using full physical QWERTY keyboard adjacency (including diagonals).
 """

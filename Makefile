@@ -1,5 +1,6 @@
 # -----------------------------------------------------------------------
 # Makefile — CSE 6502 assembler
+# Owner: doc/build_system.md
 #
 # Targets
 #   all          Build release (default, same as 'release')

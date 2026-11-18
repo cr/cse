@@ -1,4 +1,5 @@
 ; main.s — CSE application shell: cold init, warm start, main loop,
+; Owner: doc/modules/main.md
 ;          permanent interrupt dispatch (Phase 18 — ISR-kernel model).
 ;
 ; Four-layer architecture:

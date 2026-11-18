@@ -8,7 +8,9 @@
 |------|------|
 | [`src/gap_buffer.s`](../../src/gap_buffer.s) | implementation |
 | [`tests/unit/test_gap_buffer.py`](../../tests/unit/test_gap_buffer.py) | test contract — Tier-U bundled coverage (35 tests) |
-| [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py) | test contract (transitive via the editor) |
+
+The editor's Tier I tests, [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py)
+(owned by [editor.md](editor.md)), exercise this module transitively.
 
 ## Purpose
 

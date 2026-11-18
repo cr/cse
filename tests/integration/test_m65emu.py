@@ -41,12 +41,9 @@ def emu():
 
 
 def replay(emu, run):
-    """Run a reference run's code, parked at its end as recorded."""
-    code = bytes.fromhex(run["code"])
-    end = run["at"] + len(code)
-    emu.memory.load(run["at"], code + bytes([0x4C, end & 0xFF, end >> 8]))
-    emu.pc = run["at"]
-    return emu.run_until(end, max_cycles=1_000_000)
+    """Run a reference run's code as it was planted; the step count."""
+    emu.memory.load(run["at"], bytes.fromhex(run["code"]))
+    return emu.run_until(run["end"], start_at=run["at"], max_cycles=1_000_000)
 
 
 def replay_up_to(emu, name):
@@ -66,7 +63,7 @@ def test_reference_run_matches_xmega65(emu, name):
     if run["steps"] is not None:
         assert steps == run["steps"]
     assert {r: getattr(emu.cpu, r) for r in REGS} == run["after"]
-    code_end = run["at"] + len(bytes.fromhex(run["code"])) + 3
+    code_end = run["at"] + len(bytes.fromhex(run["code"]))
     for a, v in run["chip_changes"].items():
         chip[int(a, 16)] = v
     got = emu.memory.chip[:0x20000]
@@ -121,23 +118,12 @@ def idle(emu, *, cli):
         emu.cpu.p |= emu.cpu.INTERRUPT
 
 
-def run_for(emu, steps, watch=()):
-    """Run `steps` steps; the (pc, step) visits to `watch`."""
-    hits = []
-    for _ in range(steps):
-        if emu.pc in watch:
-            hits.append(emu.pc)
-        emu.cpu.step()
-        emu._after_step()
-    return hits
-
-
 def test_jiffy_tick_runs_the_kernals_frame_work(emu):
     idle(emu, cli=True)
     emu.memory[0x91] = 0x00
     handler = emu.read_word(0x0314)
     emu.enable_jiffy_clock(interval=2000)
-    hits = run_for(emu, 5000, watch={handler})
+    hits = emu.run_steps(5000, watch={handler})
     assert len(hits) == 2
     assert emu.memory[0x91] == 0xFF                  # STOP scanned: up
     assert emu.memory[0xD019] & 0x0F == 0            # acknowledged
@@ -149,7 +135,7 @@ def test_stop_reaches_the_kernal_through_the_matrix(emu, held):
     if held:
         emu.press_stop()
     emu.enable_jiffy_clock(interval=500)
-    run_for(emu, 1000)
+    emu.run_steps(1000)
     emu.disable_jiffy_clock()
     emu.jsr(0xFFE1)                                  # STOP
     assert emu.zero == held
@@ -159,7 +145,7 @@ def test_restore_enters_the_kernals_nmi_handler(emu):
     idle(emu, cli=False)
     handler = emu.read_word(0xFFFA)
     emu.press_restore()
-    hits = run_for(emu, 200, watch={handler, LOOP})
+    hits = [pc for pc, _ in emu.run_steps(200, watch={handler, LOOP})]
     assert hits[:2] == [LOOP, handler]
     assert emu.pc == LOOP                            # back in the loop
     assert emu.memory[0xDD0D] == 0                   # the handler read it

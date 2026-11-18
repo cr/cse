@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """od65_syms.py – extract symbols from ca65 object files via od65.
 
+Owner: doc/build_system.md
+
 Usage (standalone):
     python dev/od65_syms.py build/cmos-dbg/src/        # all .o in dir
     python dev/od65_syms.py build/cmos-dbg/src/zp.o    # single file

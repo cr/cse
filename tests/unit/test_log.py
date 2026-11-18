@@ -1,5 +1,7 @@
 """test_log.py — Tier-U unit tests for log.s.
 
+Owner: doc/modules/log.md
+
 Contract source: [doc/modules/log.md](../../doc/modules/log.md).
 
 Coverage of the documented contract

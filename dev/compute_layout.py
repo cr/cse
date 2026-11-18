@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Compute runtime start address and generate production linker config.
 
+Owner: doc/build_system.md
+
 Two-pass build:
   1. Trial link with c64_trial.cfg → trial.map (measures segment sizes)
   2. This script reads sizes, computes RUNTIME_START, writes production cfg

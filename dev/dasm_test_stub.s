@@ -1,4 +1,5 @@
 ; dasm_test_stub.s — Test harness for the bit-slice disassembler
+; Owner: doc/build_system.md
 ;
 ; Memory layout:
 ;   $0B00-$0B0F  instruction bytes (placed by Python before JSR)

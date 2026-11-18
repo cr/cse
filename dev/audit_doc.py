@@ -1,5 +1,7 @@
 """Run all documentation audits and produce a single summary.
 
+Owner: doc/build_system.md
+
 Wraps the seven individual audit scripts under dev/ and presents
 their results as a unified report.  Exits non-zero if any
 contract-style audit (1A, 1D, 2, 3, 4) is dirty.  Step 1B

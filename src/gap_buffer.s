@@ -1,4 +1,5 @@
 ; gap_buffer.s — Gap-buffer primitives (L3)
+; Owner: doc/modules/gap_buffer.md
 ;
 ; Pure data-structure operations on the editor's gap buffer: insert,
 ; delete, cursor navigation within the buffer, buffer-growth, and the

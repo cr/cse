@@ -1,4 +1,5 @@
 ; asm_line.s — single-line instruction assembler
+; Owner: doc/modules/asm_line.md
 ;
 ; Assembles one instruction from a PETSCII string and writes the resulting
 ; bytes to the output buffer.

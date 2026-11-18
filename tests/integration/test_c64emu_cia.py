@@ -1,5 +1,9 @@
 """test_c64emu_cia.py — C64Emu's keyboard matrix under the banking.
 
+Owner: doc/build_system.md
+
+Contract source: [doc/testing.md § C64Emu](../../doc/testing.md#c64emu--emulator-class).
+
 The matrix, STOP and RESTORE hold for both harnesses and are tested in
 test_emu_parity.py.  This file keeps the C64-only case: with CHAREN=0
 (I/O hidden by the CHARGEN overlay) $DC01 reads the character ROM, not

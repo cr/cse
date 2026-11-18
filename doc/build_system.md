@@ -14,10 +14,10 @@
 | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | implementation — disassembler table generator |
 | [`tests/conftest.py`](../tests/conftest.py) | implementation — test fixtures and auto-rebuild |
 | [`tests/c64emu.py`](../tests/c64emu.py) | implementation — C64 emulator class (C64Emu) |
-| [`tests/emu_base.py`](../tests/emu_base.py) | implementation — `EmuBase`, what C64Emu and M65Emu share: registers, run loops, word access, symbols, screen-code decoding, the interrupt scheduler and jiffy tick, `KeyMatrix` and the keyboard calls, `load_prg()` with segment relocation, `set_cursor()`, `init_cse()` |
+| [`tests/emu_base.py`](../tests/emu_base.py) | implementation — `EmuBase`, what C64Emu and M65Emu share: registers, run loops, word access, symbols, screen-code decoding, `run_steps()`, the interrupt scheduler and jiffy tick, `KeyMatrix` and the keyboard calls, `load_prg()` with segment relocation, `screen_text()`, `set_cursor()`, `init_cse()` |
 | [`tests/asm_dasm_runner.py`](../tests/asm_dasm_runner.py) | implementation — exhaustive asm_line / dasm_insn sweeps on py65 (output + cycles) |
 | [`dev/capture_golden.py`](../dev/capture_golden.py) | implementation — records the asm/dasm golden files from a known-good tree |
-| [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<cpu set>.json`, one per C64 CPU set, by `dev/capture_golden.py`; `m65_cpu.json`, the 45GS02 as xmega65 executes it, by `dev/capture_m65_golden.py`; `m65_mem.json`, the CPU view's translation per banking state, by `dev/capture_m65_mem.py`; `m65_dma.json`, DMA jobs, by `dev/capture_m65_dma.py`; back-link-exempt (JSON has no comment syntax) |
+| [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<cpu set>.json`, one per C64 CPU set, by `dev/capture_golden.py`; `m65_cpu.json`, the 45GS02 as xmega65 executes it, by `dev/capture_m65_golden.py`; `m65_mem.json`, the CPU view's translation per banking state, by `dev/capture_m65_mem.py`; `m65_dma.json`, DMA jobs, by `dev/capture_m65_dma.py`; `m65_latches.json`, the VIC and CIA2 interrupt latches, by `dev/capture_m65_latches.py`; back-link-exempt (JSON has no comment syntax) |
 | [`tests/unit/test_golden_asm_dasm.py`](../tests/unit/test_golden_asm_dasm.py) | test contract — behaviour and speed against the golden files (TODO § M65, gates 2–3) |
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — C64 release PRG sizes within budget (TODO § M65, gate 1) |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
@@ -26,15 +26,16 @@
 | [`tests/m65emu/`](../tests/m65emu/) | implementation — M65Emu, the m65 harness: `MPU45GS02` (`mpu45gs02.py`), its decode table from the compendium fixture (`isa.py`), the CPU golden-file format (`golden.py`), `M65Memory` (`memory.py`), the devices — DMA controller, keyboard queue, CIA1 matrix port, VIC interrupt latch, CIA2 interrupt control (`devices.py`) —, the `M65Emu` harness and its snapshot loading (`harness.py`) ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)) |
 | [`tests/xmega65.py`](../tests/xmega65.py) | implementation — the xmega65 driver (headless start on a cloned SD image, uartmon commands) for Tier X and the M65Emu recordings |
 | [`dev/capture_m65_golden.py`](../dev/capture_m65_golden.py) | implementation — records `m65_cpu.json` in xmega65 |
-| [`dev/capture_m65_state.py`](../dev/capture_m65_state.py) | implementation — records M65Emu's post-boot snapshot and reference run from xmega65 into `build/m65_state/` (run by hand; holds the ROM, never committed) |
+| [`dev/capture_m65_state.py`](../dev/capture_m65_state.py) | implementation — records M65Emu's post-boot snapshot and its reference runs from xmega65 into `build/m65_state/`, refusing a booted ROM other than `rom/mega65.rom` (run by hand; holds the ROM, never committed) |
 | [`dev/capture_m65_dma.py`](../dev/capture_m65_dma.py) | implementation — records `m65_dma.json` (DMA jobs as xmega65 runs them) |
+| [`dev/capture_m65_latches.py`](../dev/capture_m65_latches.py) | implementation — records `m65_latches.json` (the `$D019` and `$DD0D` interrupt latches as xmega65 shows them) |
 | [`dev/capture_m65_mem.py`](../dev/capture_m65_mem.py) | implementation — records `m65_mem.json` (the CPU view's translation per banking state) in xmega65 |
 | [`tests/fixtures/mega65_instruction_set.csv`](../tests/fixtures/mega65_instruction_set.csv) | dependency — the MEGA65 compendium's instruction tables (bbbc64's `dev/mega65_opcode_extract.py` output, copied unchanged); `MPU45GS02`'s decoder source; back-link-exempt (CSV) |
 | [`tests/unit/test_mpu45gs02.py`](../tests/unit/test_mpu45gs02.py) | test contract — `MPU45GS02` against the fixture, the 45GS02-specific behaviour and every case of `m65_cpu.json` |
-| [`tests/unit/test_m65emu_harness.py`](../tests/unit/test_m65emu_harness.py) | test contract — the M65Emu harness without a snapshot: `jsr`, `run_until`, registers, `load_prg`, `screen_text`, the I/O log, `restore()` |
+| [`tests/unit/test_m65emu_harness.py`](../tests/unit/test_m65emu_harness.py) | test contract — the M65Emu harness without a snapshot: `jsr`, `run_until`, registers, `load_prg` into bank 0, `screen_text`, the I/O log, `restore()`, `load_snapshot()` refusing a missing or outdated snapshot |
 | [`tests/integration/test_m65emu.py`](../tests/integration/test_m65emu.py) | test contract — M65Emu on the real MEGA65 KERNAL: the reference runs (`CHROUT`, the DMA scroll) match xmega65's, `GETIN` reads injected keys, and the parity calls reach the KERNAL — the jiffy tick's frame work, STOP through the matrix, RESTORE's NMI, `PLOT` (skipped without the snapshot) |
 | [`tests/unit/test_m65dma.py`](../tests/unit/test_m65dma.py) | test contract — the DMA controller against every job of `m65_dma.json`, plus snapshot restore and the modes that raise |
-| [`tests/unit/test_m65devices.py`](../tests/unit/test_m65devices.py) | test contract — the keyboard queue and `inject_key()`, the CIA1 matrix port, the VIC interrupt latch (`$D019`), the CIA2 interrupt register (`$DD0D`), device claims and the unmodelled-I/O log |
+| [`tests/unit/test_m65devices.py`](../tests/unit/test_m65devices.py) | test contract — the keyboard queue and `inject_key()`, the CIA1 matrix port, the VIC interrupt latch (`$D019`) and the CIA2 interrupt register (`$DD0D`) against `m65_latches.json`, device claims and the unmodelled-I/O log |
 | [`tests/unit/test_m65memory.py`](../tests/unit/test_m65memory.py) | test contract — `M65Memory` against every state of `m65_mem.json`, plus colour RAM, ROM protection, the CPU port, the page-table triggers and `MAP` run on `MPU45GS02` |
 | [`tests/integration/test_c64emu.py`](../tests/integration/test_c64emu.py) | test contract — exercises the C64Emu harness itself (construction, banking, `jsr`, the KERNAL buffer, `PLOT`, `GETIN`, screen access) |
 | [`tests/integration/test_c64emu_banking.py`](../tests/integration/test_c64emu_banking.py) | test contract — `$01` banking + KERNAL/BASIC ROM mapping |
@@ -45,15 +46,16 @@
 | `rom/kernal_cbm.bin` | dependency — stock C64 KERNAL ROM (not committed; see `.gitignore`) |
 | `rom/basic_cbm.bin` | dependency — stock C64 BASIC ROM (not committed) |
 | `rom/chargen_cbm.bin` | dependency — stock C64 character ROM (not committed) |
-| [`rom/kernal_mega.bin`](../rom/kernal_mega.bin) | dependency — MEGA65 Open-ROMs KERNAL (committed) |
-| [`rom/basic_mega.bin`](../rom/basic_mega.bin) | dependency — MEGA65 Open-ROMs BASIC (committed) |
-| [`rom/chargen_mega.bin`](../rom/chargen_mega.bin) | dependency — MEGA65 Open-ROMs character ROM (committed) |
+| [`rom/README.md`](../rom/README.md) | implementation — the ROM files: where each comes from, its licence, whether it is committed |
+| [`rom/kernal_mega.bin`](../rom/kernal_mega.bin) | dependency — MEGA65 Open-ROMs KERNAL (committed); back-link-exempt (binary) |
+| [`rom/basic_mega.bin`](../rom/basic_mega.bin) | dependency — MEGA65 Open-ROMs BASIC (committed); back-link-exempt (binary) |
+| [`rom/chargen_mega.bin`](../rom/chargen_mega.bin) | dependency — MEGA65 Open-ROMs character ROM (committed); back-link-exempt (binary) |
 | `rom/mega65.rom` | dependency — the MEGA65 ROM xmega65 uses (not committed; copied by `make m65-rom`) |
-| [`rom/mega65_open.rom`](../rom/mega65_open.rom) | dependency — MEGA65 Open ROMs, MEGA65 build, pinned upstream commit (committed; C64 mode only, see [rom/README.md](../rom/README.md#mega65-roms)) |
+| [`rom/mega65_open.rom`](../rom/mega65_open.rom) | dependency — MEGA65 Open ROMs, MEGA65 build, pinned upstream commit (committed; C64 mode only, see [rom/README.md](../rom/README.md#mega65-roms)); back-link-exempt (binary) |
 | [`dev/find_m65_rom.py`](../dev/find_m65_rom.py) | implementation — finds the MEGA65 ROM in xmega65's data directory and copies it to `rom/mega65.rom` (`make m65-rom`) |
 | [`tests/unit/test_find_m65_rom.py`](../tests/unit/test_find_m65_rom.py) | test contract — the MEGA65 ROM discovery: search order, acceptance, copy; the committed Open ROM's pin |
-| [`dev/instruction_set.py`](../dev/instruction_set.py) | implementation — authoritative opcode database |
-| [`dev/hashes.py`](../dev/hashes.py) | implementation — hash function definitions |
+| [`dev/instruction_set.py`](../dev/instruction_set.py) | implementation — authoritative opcode database; back-link-exempt (shared verbatim with bbbc64) |
+| [`dev/hashes.py`](../dev/hashes.py) | implementation — hash function definitions; back-link-exempt (shared verbatim with bbbc64) |
 | [`dev/size_report.py`](../dev/size_report.py) | implementation — binary size analysis |
 | [`dev/od65_syms.py`](../dev/od65_syms.py) | implementation — od65-based symbol extraction from .o files |
 | [`dev/scs_analysis.py`](../dev/scs_analysis.py) | implementation — screen-code sequence analysis tool |
@@ -64,15 +66,30 @@
 | [`dev/asm_core_test_stub.s`](../dev/asm_core_test_stub.s) | implementation — linker scaffolding for the asm_core test bundle (asm_line + addr_mode + opcode_lookup) |
 | [`dev/asm_src_test.cfg`](../dev/asm_src_test.cfg) | implementation — linker config for the asm_src test bundle |
 | [`dev/asm_src_test_stub.s`](../dev/asm_src_test_stub.s) | implementation — linker scaffolding for the asm_src test bundle |
-| [`dev/breakpoints_test_stub.s`](../dev/breakpoints_test_stub.s) | implementation — linker scaffolding for the breakpoints test bundle |
 | [`dev/cse_io_test_stub.s`](../dev/cse_io_test_stub.s) | implementation — linker scaffolding for the cse_io test bundle |
 | [`dev/dasm_test_stub.s`](../dev/dasm_test_stub.s) | implementation — linker scaffolding for the dasm test bundle |
 | [`dev/repl_test.cfg`](../dev/repl_test.cfg) | implementation — linker config for the repl test bundle |
 | [`dev/repl_test_stub.s`](../dev/repl_test_stub.s) | implementation — linker scaffolding for the repl test bundle |
 | [`dev/symtab_test_stub.s`](../dev/symtab_test_stub.s) | implementation — linker scaffolding for the symtab test bundle |
+| [`dev/audit_doc.py`](../dev/audit_doc.py) | implementation — runs the doc audits below in one report |
+| [`dev/audit_doc_depends_on.py`](../dev/audit_doc_depends_on.py) | implementation — doc audit: module docs' depends-on lists against the sources' imports |
+| [`dev/audit_doc_links.py`](../dev/audit_doc_links.py) | implementation — doc audit: every corpus link resolves (CDD Maintenance item 4) |
+| [`dev/audit_doc_module_bss.py`](../dev/audit_doc_module_bss.py) | implementation — doc audit: BSS sizes module docs state against the build |
+| [`dev/audit_doc_numbers.py`](../dev/audit_doc_numbers.py) | implementation — doc audit: numerical claims against the code |
+| [`dev/audit_doc_owned_files.py`](../dev/audit_doc_owned_files.py) | implementation — the ownership audit (CDD Maintenance item 2, [README.md § Ownership](README.md#ownership)) |
+| [`tests/unit/test_audit_owned_files.py`](../tests/unit/test_audit_owned_files.py) | test contract — the ownership audit on small trees: completeness, uniqueness, directory rows, back-links, exemptions, local-file rows |
+| [`dev/audit_doc_structure.py`](../dev/audit_doc_structure.py) | implementation — doc audit: tone and structure (CDD Maintenance item 1) |
+| [`dev/audit_doc_symbols.py`](../dev/audit_doc_symbols.py) | implementation — doc audit: code symbols named in docs exist |
+| [`dev/audit_phase_markers.py`](../dev/audit_phase_markers.py) | implementation — historical-marker sweep (CDD Maintenance item 9) |
+| [`dev/probe_chrout_repeated.py`](../dev/probe_chrout_repeated.py) | implementation — investigation probe, run by hand against the real KERNAL (not a test): where CHROUT lands output rows after an `LDTB1` reset |
+| [`dev/probe_chrout_zp.py`](../dev/probe_chrout_zp.py) | implementation — investigation probe, run by hand against the real KERNAL (not a test): which KERNAL ZP bytes CHROUT mutates |
+| [`dev/probe_ldtb1_encoding.py`](../dev/probe_ldtb1_encoding.py) | implementation — investigation probe, run by hand against the real KERNAL (not a test): what the KERNAL puts in `LDTB1` after its init |
+| [`dev/probe_plot_with_corrupt_ldtb1.py`](../dev/probe_plot_with_corrupt_ldtb1.py) | implementation — investigation probe, run by hand against the real KERNAL (not a test): PLOT with a corrupt line-link table |
 | [`dev/search/`](../dev/search/) | implementation — historical hash-search exploration scripts (mn6/mn7 fingerprint search, perfect-hash candidate analysis); kept for provenance, not part of the active build |
-| [`dev/src.d64`](../dev/src.d64) | dependency — committed source disk image (sample programs) |
-| [`dev/test.d64`](../dev/test.d64) | dependency — disk image used by integration tests |
+| [`dev/src.d64`](../dev/src.d64) | dependency — committed source disk image (sample programs); back-link-exempt (binary) |
+| [`dev/test.d64`](../dev/test.d64) | dependency — disk image used by integration tests; back-link-exempt (binary) |
+| [`dev/search/mn6_fingerprint_collisions.txt`](../dev/search/mn6_fingerprint_collisions.txt) | generated — output of the hash-search scripts above; back-link-exempt (generated data) |
+| [`dev/search/mn6_hash_candidates.txt`](../dev/search/mn6_hash_candidates.txt) | generated — output of the hash-search scripts above; back-link-exempt (generated data) |
 
 ## Toolchain
 
@@ -430,7 +447,9 @@ xmega65 and a configured MEGA65 SD image); `test_mpu45gs02.py` holds
 M65Emu's CPU to it.  `m65_mem.json` (`dev/capture_m65_mem.py`) records
 the CPU view's translation per banking state; `test_m65memory.py`
 holds `M65Memory` to it; `m65_dma.json` (`dev/capture_m65_dma.py`)
-and `test_m65dma.py` do the same for the DMA controller.  They are
+and `test_m65dma.py` do the same for the DMA controller, `m65_latches.json`
+(`dev/capture_m65_latches.py`) and `test_m65devices.py` for the two
+interrupt latches.  They are
 re-recorded when xmega65 is
 updated or a case or state is added; a changed recording is a
 behaviour change of the reference, which that commit states
@@ -556,8 +575,9 @@ searches xmega65's data directory (`$XEMU_MEGA65_DIR` if set, else
 `~/Library/Application Support/xemu-lgb/mega65/` on macOS and
 `~/.local/share/xemu-lgb/mega65/` on Linux; `MEGA65.ROM`, then
 `hdos/MEGA65.ROM`), accepts only a 128 KB image with a C65/MEGA65
-KERNAL, copies it and prints its version; it exits non-zero, listing
-the places searched, when there is none.  The xmega65 driver finds
+KERNAL (vectors at `$3FFFA`), copies it — replacing a stale copy — and
+prints its version (`V920421` …, at offset `$16`); it exits non-zero,
+listing the places searched, when there is none.  The xmega65 driver finds
 the SD image (`mega65.img`) in the same directory.
 
 M65Emu takes its ROM from the post-boot snapshot, not from this

@@ -32,6 +32,7 @@ accesses to those ("R $Dxxx" / "W $Dxxx").
 import collections
 
 _M28 = (1 << 28) - 1
+_OWN_REGISTERS = (0x02F, 0x030)   # modelled here, so not in io_log
 COLOUR = 0xFF80000         # colour RAM, 32 KB
 _SHARED = 0x1F800          # chip RAM $1F800-$1FFFF = colour RAM $000-$7FF
 _IO = -1                   # page-table entry of the I/O page
@@ -116,7 +117,7 @@ class M65Memory:
             return self.port if a else self.ddr
         base = self.rd[a >> 12]
         if base < 0:
-            return self._io_read(a & 0xFFF)
+            return self.io_read(a & 0xFFF)
         a = base + (a & 0xFFF)
         return self.chip[a] if a < 0x60000 else self.read_flat(a)
 
@@ -132,7 +133,7 @@ class M65Memory:
             return
         base = self.wr[a >> 12]
         if base < 0:
-            self._io_write(a & 0xFFF, v)
+            self.io_write(a & 0xFFF, v)
             return
         a = base + (a & 0xFFF)
         if a < 0x20000:
@@ -183,19 +184,19 @@ class M65Memory:
             return None, False
         return self._cell(COLOUR + off - 0x800), nibble
 
-    def _io_read(self, off):
+    def io_read(self, off):
         cell, nibble = self._colour_cell(off)
         if cell is None:
             device = self._claims[off]
             if device is not None:
                 return device.read(off)
-            if off not in (0x02F, 0x030):
+            if off not in _OWN_REGISTERS:
                 self.io_log[f"R $D{off:03X}"] += 1
             return self.io[off]
         store, i = cell
         return store[i] | 0xF0 if nibble else store[i]
 
-    def _io_write(self, off, v):
+    def io_write(self, off, v):
         cell, nibble = self._colour_cell(off)
         if cell is not None:
             store, i = cell
@@ -206,7 +207,7 @@ class M65Memory:
             device.write(off, v)
             return
         self.io[off] = v
-        if off not in (0x02F, 0x030):
+        if off not in _OWN_REGISTERS:
             self.io_log[f"W $D{off:03X}"] += 1
         if off == 0x02F:
             self.io_mode = _MODE_OF_KEY.get(self.key << 8 | v, VIC2)

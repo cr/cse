@@ -1,4 +1,5 @@
 ; mem.s — Memory manager: banking, ZP save/restore, segment queries.
+; Owner: doc/modules/mem.md
 ;
 ; zp-only leaf — consolidates low-level state-preservation primitives:
 ;

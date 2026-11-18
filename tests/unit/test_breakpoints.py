@@ -1,6 +1,8 @@
 """
 test_breakpoints.py — breakpoints.s BP-table contract tests (Tier U)
 
+Owner: doc/modules/breakpoints.md
+
 Covers the pure-data-structure surface of breakpoints.s (L3):
   * bp_init      — bp_table + dbg_bp_hit zero sweep; dbg_bp_hit = $FF
   * dbg_bp_set   — find empty slot, install (addr, saved, flags)
@@ -12,9 +14,8 @@ Covers the pure-data-structure surface of breakpoints.s (L3):
   * dbg_bp_find  — address → slot lookup
   * dbg_step_clear — zero step slots (8–9)
 
-Renamed from test_debugger_contracts.py at the 2026-04-20 debugger
-split: breakpoint-table CRUD moved to its own L3 module
-(breakpoints.s); this test file follows the module.  The step/BRK
+Breakpoint-table CRUD is its own L3 module (breakpoints.s); this
+test file follows the module.  The step/BRK
 state machine still lives in debugger.s (L4) and is covered at
 integration tier by test_kernel_transition.py / test_step_rom.py.
 

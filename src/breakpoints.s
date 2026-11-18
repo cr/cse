@@ -1,4 +1,5 @@
 ; breakpoints.s — Breakpoint-table CRUD and patching (L3)
+; Owner: doc/modules/breakpoints.md
 ;
 ; Pure data-structure operations on a fixed-size 10-slot breakpoint
 ; table.  No KERNAL calls, no vectors, no banking, no stack frames —

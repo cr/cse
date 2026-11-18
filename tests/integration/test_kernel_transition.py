@@ -1,6 +1,8 @@
 """
 test_kernel_transition.py — Kernel/userland transition contract tests.
 
+Owner: doc/modules/debugger.md
+
 Exercises the Phase-18 ISR-kernel model:
   - setup_interrupts wires all four vectors correctly
   - return_to_userland → BRK dispatches and captures user state
@@ -43,7 +45,7 @@ def emu(cse_prg):
     e = C64Emu()
     e.load_prg(prg, map_path)
     if e.sym_opt("setup_interrupts") is None:
-        pytest.skip("Phase 18 cutover impl pending")
+        pytest.skip("build without setup_interrupts")
     return e
 
 
@@ -58,7 +60,7 @@ def emu_per_cpu(cse_prg_per_cpu):
     e = C64Emu()
     e.load_prg(prg, map_path)
     if e.sym_opt("setup_interrupts") is None:
-        pytest.skip("Phase 18 cutover impl pending")
+        pytest.skip("build without setup_interrupts")
     return e
 
 

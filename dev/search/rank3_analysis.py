@@ -2,6 +2,8 @@
 """
 dev/rank3_analysis.py
 
+Owner: doc/build_system.md
+
 Full analysis of hash candidate ranked #3 in the min_wdl summary:
   C1=59, C3=30, fp=(c1*2 + c2*81) & $FF, 24 FPs, min_wdl=1.5
 

@@ -1,4 +1,5 @@
 ; editor.s — gap-buffer source editor
+; Owner: doc/modules/editor.md
 ;
 ; Screen layout:
 ;   Row  0-21  Source text (22 lines)

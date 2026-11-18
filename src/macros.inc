@@ -1,4 +1,5 @@
 ; macros.inc — shared assembler macros for CSE
+; Owner: doc/modules/log.md
 ;
 ; Include with `.include "macros.inc"` after `.setcpu` and before
 ; any code that uses these macros.

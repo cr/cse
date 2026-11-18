@@ -1,5 +1,7 @@
 """test_asm_err.py — Tier-U unit tests for asm_err.s.
 
+Owner: doc/modules/asm_err.md
+
 Contract source: [doc/modules/asm_err.md](../../doc/modules/asm_err.md).
 
 Coverage of the documented contract

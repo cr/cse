@@ -5,9 +5,9 @@ Owner: doc/build_system.md
 
 Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65-integration-harness).
 
-Each device claims I/O registers in M65Memory (`attach()`), answers
-read(off) / write(off, value) for them, and load(io) restores its
-state from a snapshot's I/O page without side effects.  The DMA
+Each device (`Device`) claims I/O registers in M65Memory (`attach()`),
+answers read(off) / write(off, value) for them, and load(io) restores
+its state from a snapshot's I/O page without side effects.  The DMA
 controller is checked against jobs recorded in xmega65
 (tests/fixtures/golden/m65_dma.json); the keyboard queue follows
 xemu's source (the monitor cannot type a key).  The CIA1 port reads
@@ -20,6 +20,19 @@ import collections
 
 _M28 = (1 << 28) - 1
 COPY, MIX, SWAP, FILL = range(4)
+
+
+class Device:
+    """What M65Memory asks of a device; a device overrides what it has."""
+
+    def load(self, io):
+        """Restore from a snapshot's I/O page (default: nothing kept)."""
+
+    def read(self, off):
+        raise NotImplementedError
+
+    def write(self, off, v):
+        """A register write (default: ignored)."""
 
 
 class DMANotModelled(Exception):
@@ -47,7 +60,7 @@ class _Channel:
             self.base = (self.base + (0x100000 if self.step >= 0 else -0x100000)) & _M28
 
 
-class DMAController:
+class DMAController(Device):
     """The F018A/B DMA controller at $D700-$D70F (claimed by M65Emu).
     A job list runs to its end when it is started."""
 
@@ -186,7 +199,7 @@ class DMAController:
     def _get(self, ch):
         a = ch.at()
         if ch.io and a & 0xF000 == 0xD000:
-            return self.mem._io_read(a & 0xFFF)
+            return self.mem.io_read(a & 0xFFF)
         return self.mem.read_flat(a)
 
     def _put(self, ch, v, s):
@@ -194,7 +207,7 @@ class DMAController:
             return
         a = ch.at()
         if ch.io and a & 0xF000 == 0xD000:
-            self.mem._io_write(a & 0xFFF, v)
+            self.mem.io_write(a & 0xFFF, v)
         else:
             self.mem.write_flat(a, v)
 
@@ -214,7 +227,7 @@ def _petscii_to_ascii(p):
     return p
 
 
-class KeyboardQueue:
+class KeyboardQueue(Device):
     """The hardware keyboard scanner's queue: $D610 (ASCII), $D619
     (PETSCII), $D60A (modifiers), $D611 (keys held now)."""
 
@@ -222,9 +235,6 @@ class KeyboardQueue:
 
     def __init__(self):
         self.queue = collections.deque()      # (ascii, petscii, modifiers)
-
-    def load(self, io):
-        self.queue.clear()                    # a snapshot's queue is empty
 
     def push(self, petscii, modifiers=0):
         self.queue.append((_petscii_to_ascii(petscii), petscii, modifiers))
@@ -247,17 +257,15 @@ class KeyboardQueue:
             self.queue.clear()
 
 
-class CIA1Ports:
+class CIA1Ports(Device):
     """CIA1's keyboard matrix ports: port A ($DC00) selects columns and
     reads back; port B ($DC01) reads the held keys of `keys` (a
-    KeyMatrix) in the selected columns."""
+    KeyMatrix) in the selected columns.  (The CIAs are not captured in
+    a snapshot.)"""
 
     def __init__(self, keys):
         self.keys = keys
         self.port_a = 0xFF
-
-    def load(self, io):
-        pass                                  # the CIAs are not captured
 
     def read(self, off):
         return self.port_a if off == 0xC00 else self.keys.rows(self.port_a)
@@ -267,15 +275,13 @@ class CIA1Ports:
             self.port_a = v
 
 
-class CIA2InterruptControl:
+class CIA2InterruptControl(Device):
     """CIA2's interrupt control register ($DD0D), as far as RESTORE
-    goes: bit 4 latched by `latch()`, returned and cleared by a read."""
+    goes: bit 4 latched by `latch()`, returned and cleared by a read.
+    Writes (the mask) are ignored: there are no timers to mask."""
 
     def __init__(self):
         self.latched = 0
-
-    def load(self, io):
-        self.latched = 0                      # the CIAs are not captured
 
     def latch(self, bits):
         self.latched |= bits
@@ -284,28 +290,31 @@ class CIA2InterruptControl:
         v, self.latched = self.latched, 0
         return v
 
-    def write(self, off, v):
-        pass                                  # the mask: no timers to mask
 
+class VICInterruptLatch(Device):
+    """The VIC's interrupt latch ($D019), as xmega65 shows it
+    (tests/fixtures/golden/m65_latches.json): bits 0-3 latched by
+    `latch()` (the jiffy tick latches bit 0, the raster interrupt) and
+    cleared by writing 1s to them; bits 5-6 read as 1; bit 7 the IRQ
+    line — whether a latched bit is enabled in the mask ($D01A, plain
+    storage), computed when a bit latches and when $D019 is written,
+    not when the mask changes."""
 
-class VICInterruptLatch:
-    """The VIC's interrupt latch ($D019): bits 0-3 raised by `raise_()`
-    (the jiffy tick raises bit 0, the raster interrupt), bit 7 set
-    while any is; writing 1s clears those bits.  Bits 4-6 read as the
-    snapshot left them."""
-
-    def __init__(self):
+    def __init__(self, mem):
+        self.mem = mem
         self.latched = 0
-        self.rest = 0
+        self.irq = False
 
-    def load(self, io):
-        self.latched, self.rest = io[0x019] & 0x0F, io[0x019] & 0x70
+    def _update(self):
+        self.irq = bool(self.latched & self.mem.io[0x01A] & 0x0F)
 
-    def raise_(self, bits):
+    def latch(self, bits):
         self.latched |= bits & 0x0F
+        self._update()
 
     def read(self, off):
-        return self.rest | self.latched | (0x80 if self.latched else 0)
+        return 0x60 | self.latched | (0x80 if self.irq else 0)
 
     def write(self, off, v):
         self.latched &= ~v & 0x0F
+        self._update()

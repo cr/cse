@@ -12,8 +12,9 @@ build/m65_state/ (tests/m65emu/harness.py has the file list):
 - the registers and MAP, the CPU port, $D030 and the I/O mode; the
   megabyte selectors cannot be read and are 0 after boot, as the
   post-boot state of m65_mem.json confirms;
-- reference runs, one after the other from that state, each with the
-  registers it ends with and its memory changes, which
+- reference runs, one after the other from that state, each with its
+  code as planted, the registers it ends with and its memory changes,
+  which
   tests/integration/test_m65emu.py replays on M65Emu in the same
   order: "chrout" (SEI, LDA #'A', JSR CHROUT; single-stepped, so its
   step count is recorded too) and "scroll" (30 RETURNs and an 'A'
@@ -24,7 +25,8 @@ build/m65_state/ (tests/m65emu/harness.py has the file list):
 The ROM xmega65 boots must be rom/mega65.rom: the script first copies
 it from xmega65's data directory (dev/find_m65_rom.py, `make m65-rom`)
 and refuses to record when the booted ROM differs.  The snapshot holds
-the MEGA65 ROM, so it stays in build/ and is never committed.  Run it by hand (about 20 s); pytest never starts xmega65.
+the MEGA65 ROM, so it stays in build/ and is never committed.  Run it
+by hand (about 25 s); pytest never starts xmega65.
 Re-run it after an xmega65 or ROM update.
 
     python dev/capture_m65_state.py
@@ -42,7 +44,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
 from find_m65_rom import check_booted, install   # noqa: E402
-from m65emu.harness import STATE_DIR              # noqa: E402
+from m65emu.harness import FORMAT, STATE_DIR      # noqa: E402
 from m65emu.memory import COLOUR, IO_KEYS, VIC4   # noqa: E402
 from xmega65 import POST_BOOT_MAP, recording      # noqa: E402
 
@@ -52,8 +54,8 @@ IO_BYTES = 0x800                                  # $D000-$D7FF: no CIAs
 CHROUT = [0x20, 0xD2, 0xFF]
 RUNS = (                                          # (name, code, single-step?)
     ("chrout", [0x78, 0xA9, 0x41] + CHROUT, True),
-    ("scroll", [0x78] + [0xA9, 0x0D] + CHROUT
-     + ([0xA9, 0x0D] + CHROUT) * 29 + [0xA9, 0x41] + CHROUT, False),
+    ("scroll", [0x78] + ([0xA9, 0x0D] + CHROUT) * 30 + [0xA9, 0x41] + CHROUT,
+     False),
 )
 
 
@@ -69,7 +71,8 @@ def capture(xm):
     files = {"chip.bin": chip,
              "colour.bin": xm.read(COLOUR, 0x8000),
              "io.bin": xm.read_cpu(0xD000, IO_BYTES)}
-    state = dict(regs=regs, ddr=ddr, port=port, d030=d030, io_mode=VIC4,
+    state = dict(format=FORMAT, regs=regs, ddr=ddr, port=port, d030=d030,
+                 io_mode=VIC4,
                  xmega65=xm.version(),
                  captured=datetime.date.today().isoformat(),
                  rom_sha256=hashlib.sha256(chip[0x20000:0x40000]).hexdigest())
@@ -81,11 +84,13 @@ def capture(xm):
 
 
 def reference_run(xm, name, code, single_step, chip, colour):
-    """Run `code` at CODE; record the registers after it, its steps
+    """Run `code` at CODE, parked at its end by a JMP to itself;
+    record the code as planted, the registers after it, its steps
     (single-stepped runs only) and what it changed in chip RAM below
-    $20000 and in colour RAM, outside its own code."""
+    $20000 and in colour RAM, outside the planted code."""
     end = CODE + len(code)
-    xm.write(CODE, code + [0x4C, end & 0xFF, end >> 8])   # parked at end
+    planted = code + [0x4C, end & 0xFF, end >> 8]
+    xm.write(CODE, planted)
     xm.cmd(f"g {CODE:x}")
     steps = None
     if single_step:
@@ -98,9 +103,9 @@ def reference_run(xm, name, code, single_step, chip, colour):
     else:
         regs = xm.run_to(end)
     after_chip, after_colour = xm.read(0, 0x20000), xm.read(COLOUR, 0x8000)
-    own = range(CODE, end + 3)
-    run = dict(name=name, code=" ".join(f"{b:02X}" for b in code), at=CODE,
-               steps=steps, after=regs,
+    own = range(CODE, CODE + len(planted))
+    run = dict(name=name, code=bytes(planted).hex(" ").upper(), at=CODE,
+               end=end, steps=steps, after=regs,
                chip_changes={f"{a:05X}": after_chip[a] for a in range(0x20000)
                              if after_chip[a] != chip[a] and a not in own},
                colour_changes={f"{a:04X}": after_colour[a] for a in range(0x8000)

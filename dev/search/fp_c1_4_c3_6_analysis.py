@@ -2,6 +2,8 @@
 """
 dev/fp_c1_4_c3_6_analysis.py
 
+Owner: doc/build_system.md
+
 Full false-positive cross-analysis for hash candidate C1=4, C3=6
 with fingerprint fp=(c1*1 + c2*230) & $FF.
 

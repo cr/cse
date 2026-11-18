@@ -12,14 +12,14 @@ from the `.lbl` file beside a PRG, the screen-code decoding behind
 keyboard matrix (`KeyMatrix`) with STOP and RESTORE, key injection,
 `load_prg()` with segment relocation, `set_cursor()` and `init_cse()`.
 
-A subclass supplies `SENTINEL`, `_push_return()` (how `jsr` makes the
-routine's RTS land on the sentinel), `_keys` (its `KeyMatrix`), and:
+A subclass supplies `SENTINEL`, `screen_row()`, the attributes `_keys`
+(its `KeyMatrix`) and `_ram` (the 64 KB load_prg() writes), and:
 
+    _push_return(ret)             make the routine's RTS land on `ret` + 1
     _enter_irq() / _enter_nmi()   take the interrupt now, or False
     _jiffy_tick()                 what a tick does before its IRQ
     _latch_restore()              what RESTORE latches before its NMI
     _queue_key(petscii)           where one injected key goes
-    _ram                          the 64 KB load_prg() writes
 """
 
 import pathlib
@@ -76,7 +76,7 @@ _KEY_MATRIX = {
     0x3B: (6, 2), 0x3D: (6, 5), 0x2B: (5, 0), 0x2D: (5, 3),
     0x2A: (6, 1), 0x40: (5, 6),
 }
-STOP_KEY = (7, 7)
+STOP = 0x03                     # the PETSCII of the STOP key
 
 
 def petscii_to_matrix(ch):
@@ -92,6 +92,16 @@ def petscii_to_matrix(ch):
     if ch not in _KEY_MATRIX:
         raise KeyError(f"no matrix mapping for PETSCII ${ch:02X}")
     return _KEY_MATRIX[ch]
+
+
+def register(name, mask):
+    """A harness property for the CPU register `name`, `mask` wide."""
+    def get(self):
+        return getattr(self._cpu, name)
+
+    def put(self, val):
+        setattr(self._cpu, name, val & mask)
+    return property(get, put)
 
 
 class KeyMatrix:
@@ -127,26 +137,17 @@ class EmuBase:
         # entries — kind 'irq', 'nmi', 'jiffy' (a tick not yet raised)
         # or 'held' (a raised tick waiting for its IRQ) — and the tick
         # interval (0: off).
-        self._cycle_total = 0
+        self._steps = 0
         self._pending = []
         self._jiffy_interval = 0
 
     # ── registers ─────────────────────────────────────────────────
 
-    def _reg(name, mask):
-        def get(self):
-            return getattr(self._cpu, name)
-
-        def put(self, val):
-            setattr(self._cpu, name, val & mask)
-        return property(get, put)
-
-    a = _reg("a", 0xFF)
-    x = _reg("x", 0xFF)
-    y = _reg("y", 0xFF)
-    pc = _reg("pc", 0xFFFF)
-    p = _reg("p", 0xFF)
-    del _reg
+    a = register("a", 0xFF)
+    x = register("x", 0xFF)
+    y = register("y", 0xFF)
+    pc = register("pc", 0xFFFF)
+    p = register("p", 0xFF)
 
     @property
     def carry(self):
@@ -185,28 +186,83 @@ class EmuBase:
         """Arrange the stack so the routine's RTS goes to `ret` + 1."""
         raise NotImplementedError
 
-    def _after_step(self):
-        """After every CPU step: count it, fire what is due."""
-        self._cycle_total += 1
-        if self._pending:
-            self._dispatch_pending()
+    def _run(self, stop, max_cycles, watch=(), what="run"):
+        """Step until PC == `stop`; return the step count and the
+        (pc, step) visits to `watch`.  With `stop` None, run exactly
+        `max_cycles` steps; else TimeoutError after them."""
+        watched = set(watch)
+        hits = []
+        cpu = self._cpu
+        for n in range(max_cycles):
+            pc = cpu.pc
+            if pc == stop:
+                return n, hits
+            if pc in watched:
+                hits.append((pc, n))
+            cpu.step()
+            self._steps += 1
+            if self._pending:
+                self._dispatch_pending()
+        if stop is None:
+            return max_cycles, hits
+        raise TimeoutError(f"{self.NAME}: {what} timeout after {max_cycles} "
+                           f"cycles at ${self._cpu.pc:04X}")
+
+    def jsr(self, addr, *, carry=None, max_cycles=500_000, **regs):
+        """Call the routine at `addr` as JSR would and run it until its
+        RTS; return the step count.  Keyword registers (`JSR_REGS`)
+        and `carry` are set first.  TimeoutError after `max_cycles`."""
+        unknown = set(regs) - set(self.JSR_REGS)
+        if unknown:
+            raise TypeError(f"jsr() sets {self.JSR_REGS}, not {sorted(unknown)}")
+        self._push_return((self.SENTINEL - 1) & 0xFFFF)
+        for name, val in regs.items():
+            if val is not None:
+                setattr(self, name, val)
+        if carry is not None:
+            self.carry = carry
+        self._cpu.pc = addr
+        return self._run(self.SENTINEL, max_cycles, what=f"jsr(${addr:04X})")[0]
+
+    def run_until(self, stop_addr, *, start_at=None, max_cycles=500_000):
+        """Step until PC == `stop_addr`; return the step count.  The
+        caller arranges how control gets there (no sentinel)."""
+        if start_at is not None:
+            self._cpu.pc = start_at
+        return self._run(stop_addr, max_cycles,
+                         what=f"run_until(${stop_addr:04X})")[0]
+
+    def run_until_with_watch(self, stop_addr, watch_addrs, *,
+                             start_at=None, max_cycles=500_000):
+        """Like run_until, but return the (pc, step) visits to
+        `watch_addrs` in order — to assert a path is (not) entered."""
+        if start_at is not None:
+            self._cpu.pc = start_at
+        return self._run(stop_addr, max_cycles, watch=watch_addrs,
+                         what=f"run_until_with_watch(${stop_addr:04X})")[1]
+
+    def run_steps(self, steps, watch=()):
+        """Run exactly `steps` steps — for code that never ends, such
+        as a loop waiting for interrupts; return the (pc, step) visits
+        to `watch`."""
+        return self._run(None, steps, watch=watch)[1]
 
     # ── scheduled interrupts ──────────────────────────────────────
     #
-    # The run loops consult the pending queue after every step; an
+    # The run loop consults the pending queue after every step; an
     # entry fires once the step counter reaches it.  An IRQ waits while
     # the CPU refuses it (I set, or a 45GS02 prefix pending); an NMI is
     # edge-triggered and fires once per schedule.  The vector is
     # fetched through the memory's banking.
 
-    def schedule_irq(self, cycles_from_now):
-        """An IRQ `cycles_from_now` steps from now.  IRQs due together
+    def schedule_irq(self, steps_from_now):
+        """An IRQ `steps_from_now` steps from now.  IRQs due together
         fire one after another, one per step the CPU takes them."""
-        self._schedule(cycles_from_now, "irq")
+        self._schedule(steps_from_now, "irq")
 
-    def schedule_nmi(self, cycles_from_now):
-        """An NMI `cycles_from_now` steps from now (fires once)."""
-        self._schedule(cycles_from_now, "nmi")
+    def schedule_nmi(self, steps_from_now):
+        """An NMI `steps_from_now` steps from now (fires once)."""
+        self._schedule(steps_from_now, "nmi")
 
     def cancel_pending_interrupts(self):
         """Drop every scheduled IRQ/NMI (the jiffy clock stays on)."""
@@ -225,17 +281,17 @@ class EmuBase:
                          if k not in ("jiffy", "held")]
 
     def _schedule(self, steps, kind):
-        self._pending.append((self._cycle_total + max(steps, 0), kind))
+        self._pending.append((self._steps + max(steps, 0), kind))
         self._pending.sort()
 
     def _dispatch_pending(self):
         """Fire what is due: an NMI first (due NMIs fire once); else
         one IRQ, if the CPU takes it, which also serves a due tick.
         Whatever stays due is polled again next step."""
-        now = self._cycle_total
-        due = [k for w, k in self._pending if w <= now]
-        if not due:
+        now = self._steps
+        if self._pending[0][0] > now:             # sorted: nothing due
             return
+        due = [k for w, k in self._pending if w <= now]
         later = [(w, k) for w, k in self._pending if w > now]
         if "jiffy" in due:                        # the tick happens now
             self._jiffy_tick()
@@ -250,9 +306,12 @@ class EmuBase:
                 tick = False
                 if self._jiffy_interval:          # the next from now
                     later.append((now + self._jiffy_interval, "jiffy"))
-        again = now + 1
-        self._pending = sorted(later + [(again, "irq")] * irqs
-                               + [(again, "held")] * tick + [(again, "nmi")] * nmi)
+        waiting = ["irq"] * irqs
+        if tick:
+            waiting.append("held")
+        if nmi:
+            waiting.append("nmi")
+        self._pending = sorted(later + [(now + 1, k) for k in waiting])
 
     def _enter_irq(self):
         raise NotImplementedError
@@ -276,10 +335,10 @@ class EmuBase:
         self._keys.pressed.clear()
 
     def press_stop(self):
-        self._keys.pressed.add(STOP_KEY)
+        self.press_key(STOP)
 
     def release_stop(self):
-        self._keys.pressed.discard(STOP_KEY)
+        self.release_key(STOP)
 
     def press_restore(self):
         """RESTORE: latch CIA2 $DD0D bit 4 and raise an NMI (the key
@@ -295,72 +354,7 @@ class EmuBase:
         for b in data:
             self.inject_key(b)
 
-    # ── KERNAL helpers ────────────────────────────────────────────
-
-    def set_cursor(self, row, col):
-        """Move the cursor through the KERNAL's PLOT (carry clear)."""
-        self.jsr(self.PLOT, carry=False, x=row, y=col)
-
-    def init_cse(self, *, editor=False):
-        """Run CSE's cold-init routines by symbol; call after
-        load_prg().  `sym_clear` is mandatory: update_workend (editor
-        init, asm_assemble) writes the symbol heap through sym_define,
-        whose pointer is $0000 (BSS) until sym_clear sets it.  With
-        `editor`, ed_ensure_init too."""
-        for name in self.INIT_ROUTINES + (("ed_ensure_init",) if editor else ()):
-            self.jsr(self.sym(name))
-
-    def _run(self, stop, max_cycles, watch=None, what="run"):
-        """Step until PC == `stop`; return the step count — or, given
-        `watch` addresses, the (pc, step) visits to them in order."""
-        watched = set(watch or ())
-        hits = []
-        cpu = self._cpu
-        for n in range(max_cycles):
-            pc = cpu.pc
-            if pc == stop:
-                return n if watch is None else hits
-            if pc in watched:
-                hits.append((pc, n))
-            cpu.step()
-            self._after_step()
-        raise TimeoutError(f"{self.NAME}: {what} timeout after {max_cycles} "
-                           f"cycles at ${self._cpu.pc:04X}")
-
-    def jsr(self, addr, *, carry=None, max_cycles=500_000, **regs):
-        """Call the routine at `addr` as JSR would and run it until its
-        RTS; return the step count.  Keyword registers (`JSR_REGS`)
-        and `carry` are set first.  TimeoutError after `max_cycles`."""
-        unknown = set(regs) - set(self.JSR_REGS)
-        if unknown:
-            raise TypeError(f"jsr() sets {self.JSR_REGS}, not {sorted(unknown)}")
-        self._push_return((self.SENTINEL - 1) & 0xFFFF)
-        for name, val in regs.items():
-            if val is not None:
-                setattr(self, name, val)
-        if carry is not None:
-            self.carry = carry
-        self._cpu.pc = addr
-        return self._run(self.SENTINEL, max_cycles, what=f"jsr(${addr:04X})")
-
-    def run_until(self, stop_addr, *, start_at=None, max_cycles=500_000):
-        """Step until PC == `stop_addr`; return the step count.  The
-        caller arranges how control gets there (no sentinel)."""
-        if start_at is not None:
-            self._cpu.pc = start_at
-        return self._run(stop_addr, max_cycles,
-                         what=f"run_until(${stop_addr:04X})")
-
-    def run_until_with_watch(self, stop_addr, watch_addrs, *,
-                             start_at=None, max_cycles=500_000):
-        """Like run_until, but return the (pc, step) visits to
-        `watch_addrs` in order — to assert a path is (not) entered."""
-        if start_at is not None:
-            self._cpu.pc = start_at
-        return self._run(stop_addr, max_cycles, watch=list(watch_addrs),
-                         what=f"run_until_with_watch(${stop_addr:04X})")
-
-    # ── memory and symbols ────────────────────────────────────────
+    # ── memory, PRG loading and symbols ───────────────────────────
 
     def read_word(self, addr):
         return self._mem[addr] | (self._mem[addr + 1] << 8)
@@ -382,20 +376,23 @@ class EmuBase:
         address, as the loader does; return the load address."""
         prg_path = pathlib.Path(prg_path)
         load_addr, payload = self._read_prg(prg_path)
-        ram = self._ram
-        ram[load_addr:load_addr + len(payload)] = payload
+        self._ram[load_addr:load_addr + len(payload)] = payload
         self._load_symbols(map_path or prg_path.with_suffix(".map"))
         self._relocate_segments()
         return load_addr
 
     def _relocate_segments(self):
         """Segments with __<SEG>_LOAD__/_RUN__/_SIZE__ symbols (ld65's
-        define=yes) and load != run: copied from load to run."""
-        s, ram = self._syms, self._ram
-        for name in sorted({m.group(1) for m in map(re.compile(r"__(\w+)_LOAD__$").match, s)
-                            if m}):
-            load, run, size = (s.get(f"__{name}_{k}__") for k in ("LOAD", "RUN", "SIZE"))
-            if None not in (load, run, size) and load != run and size > 0:
+        define=yes): copied from load to run (the same place for a
+        segment that is not relocated)."""
+        syms, ram = self._syms, self._ram
+        for sym, load in list(syms.items()):
+            m = re.fullmatch(r"__(\w+)_LOAD__", sym)
+            if not m:
+                continue
+            run = syms.get(f"__{m.group(1)}_RUN__")
+            size = syms.get(f"__{m.group(1)}_SIZE__")
+            if run is not None and size:
                 ram[run:run + size] = ram[load:load + size]
 
     def _load_symbols(self, map_path):
@@ -418,3 +415,26 @@ class EmuBase:
     def sym_opt(self, name):
         """A symbol's address, or None (for feature-gated tests)."""
         return self._syms.get(name)
+
+    # ── the screen and the KERNAL ─────────────────────────────────
+
+    def screen_row(self, row):
+        """One row's screen codes."""
+        raise NotImplementedError
+
+    def screen_text(self, row):
+        """One screen row as text (decode_screen_codes)."""
+        return decode_screen_codes(self.screen_row(row))
+
+    def set_cursor(self, row, col):
+        """Move the cursor through the KERNAL's PLOT (carry clear)."""
+        self.jsr(self.PLOT, carry=False, x=row, y=col)
+
+    def init_cse(self, *, editor=False):
+        """Run CSE's cold-init routines by symbol; call after
+        load_prg().  `sym_clear` is mandatory: update_workend (editor
+        init, asm_assemble) writes the symbol heap through sym_define,
+        whose pointer is $0000 (BSS) until sym_clear sets it.  With
+        `editor`, ed_ensure_init too."""
+        for name in self.INIT_ROUTINES + (("ed_ensure_init",) if editor else ()):
+            self.jsr(self.sym(name))

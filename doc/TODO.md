@@ -387,6 +387,10 @@ in xmega65's data directory):
   BASIC 65 stub at `$2001`, loader, exomizer `-t 65`; `make disk`
   writes the D81, `make run` starts xmega65
   ([build_system.md § The m65 PRG](build_system.md#the-m65-prg)).
+  With it, M65Emu's first run of cse itself: the m65 test bundles
+  and an m65 PRG fixture, `load_prg()` of the real PRG (its
+  relocated segments included) and `init_cse()` against its symbols
+  — so far tested only on synthetic PRGs (CDD audit, 2026-11-17).
 - [ ] S2-2. `src/m45_ops.inc`, the raw-byte macros, and an audit
   test: no module encodes a 45GS02-only instruction outside it.
 - [x] S2-3. M65Emu, the m65 integration harness
@@ -423,7 +427,8 @@ in xmega65's data directory):
     (scrolling; checked against jobs recorded in xmega65,
     `dev/capture_m65_dma.py` → `m65_dma.json`, and a scroll reference
     run), the keyboard queue and `inject_keys()` (`GETIN`), the CIA1
-    matrix port.  The raster IRQ and the CIA timers wait for S2-7.
+    matrix port.  (Raster timing and the CIA timers stay unmodelled:
+    S2-3e.)
     Done 2026-11-17: all 28 recorded jobs and the 30-line scroll
     replay byte for byte; options stay for a whole chained session.
   - [x] S2-3e. Feature parity with `C64Emu` — the goal is C64Emu's
@@ -457,6 +462,12 @@ in xmega65's data directory):
   PRG and the D81, typed REPL commands, the screen dump, the golden
   re-check of S2-3; provisional answers to O1 and O3
   ([testing.md § Tier X](testing.md#tier-x--xmega65-m65-automated)).
+  Also check in xmega65 that the KERNAL's IRQ frame work runs on a
+  latched raster bit — the jiffy tick's stand-in for a frame
+  ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness),
+  "Not in the recording"; CDD audit, 2026-11-17).  (The two latches'
+  register behaviour is recorded: `m65_latches.json`, 2026-11-17 —
+  it corrected bit 7 of `$D019` to the IRQ line and bits 5–6 to 1.)
 
 **Open design items** (the CDD Analysis settles them):
 
@@ -740,6 +751,322 @@ as universal (Tier A).*
   the artefact; the Log audits the process).*  Candidate
   amendment to the glossary entry to lock that cadence in.
   Likely **Tier A**.
+
+## CDD Maintenance + Quality Sweep findings (2026-11-17/18)
+
+Findings of the repo-wide CDD Maintenance pass (eight doc-vs-code
+reviewers) and the first CDD Quality Sweep
+([README.md § CDD Quality Sweep](README.md#cdd-quality-sweep): source
+edge-probes, lifecycle matrix, cross-doc fact clusters, task-driven
+cold reader, live example execution).  Every **code bug** below was
+reproduced live on the debug PRG under C64Emu (repro scripts kept with
+the sweep notes); every doc item was read on both sides.  Code and
+test items go through the CDD Method; doc-drift items are fixed in the
+documentation round that follows this filing.
+
+### Code bugs — debugger and breakpoints
+
+- [ ] **A breakpoint that never ran writes `$00` into user code.**
+  `dbg_bp_set` stores `saved = 0` (`breakpoints.s` set path) and
+  `unpatch_all` restores `saved` for every enabled slot, patched or
+  not, so `b ADDR` followed by any `end_debug_body` (`R`, the
+  `a`/`j`/`g` end-debug gate) writes `$00` at ADDR.  Track "patched"
+  per slot or skip unpatched slots.
+- [ ] **`cse_recover` wipes the breakpoint table and leaves patched
+  `$00` bytes behind.**  `hw_reinit_body` → `dbg_init` → `bp_init`
+  zeroes `bp_table` before `end_debug_body` runs, so breakpoints
+  patched in at the fault are never unpatched; contradicts
+  memory_design.md § Breakpoint invariant ("survives every
+  warmstart").  `reset_globals` also resets `cur_addr`,
+  `block_size`, `cur_device` on recovery (undocumented).
+- [ ] **The decimal flag leaks from user code into the kernel.**
+  `SED; RTS` → `save_userland_state`'s `adc #8` and the brk_pc
+  `sbc #2` run in decimal → bad `reg_sp`, missed brk_stub match →
+  kernel BRK → `cse_recover`; D stays set afterwards (`+ $0a` gives
+  `$0314`).  No `cld` on any kernel entry (BRK, NMI, IRQ early entry).
+- [ ] **A cold preview (`t` with no session) counts as resumable.**
+  It promotes `dbg_reason` to DBG_BRK with `reg_sp = $FF` and no
+  sentinel; `c` then resumes and the user's RTS jumps into zero page
+  (`;!stk 1`, `brk at $fffe`).
+- [ ] **`cold_preview_done` survives `end_debug_body`.**  A later real
+  step uses MODE_JUMP and pushes a second sentinel; the subroutine's
+  RTS ends the session early (`; rts`).
+- [ ] **A refused step (`;!range`) leaves the hit breakpoint disabled
+  and `step_state` set** (`cmd_step` writes them before the range
+  gate; `@oor_warn` undoes nothing; `end_debug_body` does not
+  re-enable the slot).
+- [ ] **`dbg_bp_hit` survives `b *` / `b ADDR`**: `c` then deletes the
+  unrelated breakpoint now in that slot.
+- [ ] **RUN/STOP+RESTORE in the editor** redraws the REPL but leaves
+  `state = ST_EDIT`; the next keys silently edit the source.
+- [ ] **RUN/STOP+RESTORE during `a`** refreshes with `kernal_out = 1`
+  and `$01 = $34` → kernel BRK → `cse_recover` (assembly abandoned,
+  globals and breakpoints reset).
+- [ ] **`j <bad expression>` runs anyway**: `try_expr` returns C=0 for
+  both empty and error, so `j nosuchsym` prints `;?expr undef` and
+  jumps to the old `cur_addr`.  Same shape in `+`/`-` (moves by
+  `block_size` after the error).
+- [ ] **`cse_zp_end` returns `$79`, not the first free byte `$78`**
+  (`mem.s` `<(__ZP_LAST__ + 1)`; ld65's `__ZP_LAST__` already is the
+  first free byte); cold init leaves `$78` unfilled.
+  `test_mem.py` pins the `+ 1`.
+- [ ] **Edits past `$FFFF` wrap into the live CPU port.**  `m`, `.`
+  and assembly wrap `(zp),y` / `asm_out` to `$0000`/`$0001` — not the
+  user-ZP image — e.g. `m fffc 00 00 00 00 2f 30` banks out KERNAL and
+  I/O and crashes; `ffff:. 4c 2f 30` sets `$01` to `$32`; CSE's own ZP
+  `$02`–`$07` is overwritten.  The user-ZP redirect applies only when
+  the base's high byte is 0.
+- [ ] **INS at column 0 of the REPL hangs and writes the workspace**
+  (`main.s` `@ins_loop`: unsigned `cpy CUR_COL` with CUR_COL = 0 never
+  ends; Y wraps over `(rp_ptr)+0..255`).
+- [ ] **The IRQ early-entry stub forces `$01 = $34`** on return
+  (`bank_out_stub`), so user code running with KERNAL out and I/O in
+  (`$35`) loses I/O after the first IRQ; contradicts
+  userland_contract.md § 5.3.
+- [ ] **`r` parses its fields by position, not by label**: `r x:05`
+  sets A, `r a:zz` / `r a` set every register to `$FF` with no error;
+  a following `c` resumes with SP = `$FF` and crashes.
+- [ ] **Step over `JMP ($xxFF)` ignores the NMOS page wrap**: the step
+  BRK is armed at the wrong target, user code runs free, and `$00`
+  stays patched there.
+- [ ] **Step over `JMP (zp)` / `JMP (abs,X)` reads the vector from the
+  kernel's ZP**, not `userland_zp_buf` (refused with `;!range`, or a
+  wrong target).
+- [ ] **`t N` / `o N` take N mod 256** (`t 257` steps 1, `t 300`
+  steps 44): `step_remaining` is one byte.
+- [ ] **`b` accepts a duplicate address**: a second slot re-breaks at
+  the same place after `c`; duplicates fill the table.
+- [ ] **The editor status bar shows lines ≥ 1000 as garbage**
+  (`:00`, `<34`, `t00`) — no clamp on the 3-digit field.
+
+### Code bugs — assembler
+
+- [ ] **A lone `:` hangs `a`** (`:`, ` : nop`, `x: : nop`): a
+  zero-length label re-scans the same word forever (`asm_src.s`
+  `@adv_lbl`).
+- [ ] **Symbol-heap overflow corrupts KDATA.**  `heap_copy_name`
+  advances `_st_heap` before its bound check and never rolls back;
+  enough long labels overwrite `$F100`+ (KDATA) and the REPL screen
+  save — the assembler and disassembler stay broken until reload
+  (`NOP` disassembles as `VBX`).  symtab.md claims the check prevents
+  it.
+- [ ] **Long labels overrun BSS.**  A global label of ≥ 24 characters
+  followed by a local overruns `_scope_name` / `_full_label` /
+  `_expr_buf` (no bounds), corrupting `_seg_pc`, `_min_pc`,
+  `_max_pc`, `kernel_zp_buf`, `userland_zp_buf`.  No label-length
+  limit is documented.
+- [ ] **Expression nesting has no depth limit**: ~30 `(` wrap the
+  hardware stack (`expr.s` parse_factor recursion).
+- [ ] **Pass-0 forward references with an offset size to 0 bytes.**
+  `lda tbl+1` (also `jsr fwd+3`, `bne fwd+2`, `sta fwd+1,x`)
+  substitutes `asm_pc + 2` but leaves `expr_ptr` after the name, so
+  the operand is a syntax error on pass 0 (silent there) and later
+  labels shift: `.org $c000 / lda tbl+1 / jmp end / end: rts /
+  tbl: .db 1,2` → `ad 05 c0 4c 03 c0`, 0 errors.
+- [ ] **Pass-0/pass-1 width mismatch for later-defined ZP constants.**
+  `lda zp` with `.const zp $10` after it is sized ABS on pass 0 and ZP
+  on pass 1; following labels are one byte off (`jmp` into its own
+  operand), 0 errors.  Pass 0 also writes bytes.
+- [ ] **Code before the first `.org`** gets labels from the pass-0
+  layout (default origin) while pass 1 emits at the first `.org`
+  (`_set_first_org` overwrites `asm_org`; every pass starts at it).
+- [ ] **Emitting past `$FFFF` wraps into `$0000`/`$0001`** (the CPU
+  port) — no wrap check in `_asm_emit` / `_emit_byte`.
+- [ ] **A full symbol table is silent**: 300 labels → 0 errors, 44
+  dropped; `sym full` is reported only on pass 0, where `emit_error`
+  is silent.
+- [ ] **Directives read past their NUL**: `.o…` matches `.org` on the
+  first letter (`.oops` = `.org`), `.co`/`.cp` likewise; `.const k`
+  with no value reads stale `_line_buf` bytes.
+- [ ] **`.cpu` in source changes `asm_cpu` for pass 1 from the start**
+  (lines before the directive) and leaks into the REPL afterwards; not
+  restored by `asm_assemble`.
+- [ ] **REPL `.` with a symbol operand reads tables from ROM.**
+  `sym_lookup`'s `kernal_bank_in` really banks in inside `asm_line`
+  (non-nesting helpers), so `.asl $12,zz` emits `A2 12 02`, 0 errors.
+- [ ] **Non-letters reach the mnemonic hash**: 906 false positives on
+  mn7 builds (`ld8` → DEX, `xb` → BCC, `fo0` → NOP), 884 on mn6;
+  `_asm_rd_upper` passes bytes below `$41`, and the tables are indexed
+  out of range.  An empty line assembles to BRK on mn7 builds.
+- [ ] **Implied instructions ignore their operand**: `rts garbage`,
+  `nop $1234`, `inxy` assemble silently (zone A has no end check;
+  asm_line.md says a fifth character is `;?syntax`).
+- [ ] **A narrow branch operand is emitted as a raw offset**:
+  `BNE $10` → `D0 10` (asm_line.md: the operand is the target).
+- [ ] **`expr` loses the wide flag after a nested `<`/`>`**:
+  `$0000+(<$12+1)` returns narrow (the saved flag is not stacked).
+- [ ] **Immediate values > 255 are truncated silently**
+  (`lda #$1234` → `A9 34`).
+- [ ] **`//` comments are parsed as division** (`lda #1 // c` → expr
+  error), though addr_mode.md lists `//` as end-of-expression.
+- [ ] **Shift counts ignore their high byte**: `1<<256` = 1,
+  `$8000>>256` = `$8000`.
+- [ ] Latent: `mode_parse`'s accumulator test assumes `A` at offset 0
+  (`ldy #1`) and has no CR/LF in its peek; production strips leading
+  whitespace first.
+
+### Code bugs — editor, build, tooling
+
+- [ ] **`TAB_WIDTH` accepts 1..32 but only powers of two work**
+  (`and #TAB_MASK`); add a power-of-two `.error` and narrow the doc.
+- [ ] **RETURN at one byte of room**: the gutter-tab insert ignores
+  carry; `ed_cur_col` drifts (editor.md says it cannot).
+- [ ] **Tier I tests run against a stale PRG**: `conftest.py` calls
+  `make` only when the PRG or map is missing; `.inc` files are not
+  prerequisites in the Makefile or the bundles.
+- [ ] **`make … PLATFORM=m65` silently builds the C64 PRGs** — add a
+  refusal guard until S2-1 (or fold into B1).
+- [ ] **`oplen_tbl` keeps the last row where a 6510 and a 65C02
+  opcode share a byte**; the generator should refuse a conflict.
+- [ ] **Mutable bytes in CODE**: `main.s` `@key` and `dasm.s` `@adj`
+  (blocks a ROM/CRT build; memory_design.md "no self-modifying code").
+- [ ] `disk.s` closes LFN 1 on an OPEN failure although the file is
+  LFN 2; the SEQ error paths close nothing.
+- [ ] Dead code and imports: `kernel_stack_budget` (exported, unused;
+  repl.s duplicates it as `KSTK_MIN`), `str_end_dbg`, `str_no_name`,
+  `io_color` (written, never read), `mn_vars.s` (empty shell); dead
+  imports in `asm_src.s` (`buf_base`, `dec_pow_lo/hi`), `symtab.s`
+  (`kernal_out`), `editor.s` (seven), `disk.s` (`io_color`, `io_puts`,
+  `io_puthex2/4`), `repl.s` (`oplen_tbl`), `asm_src_test_stub.s`
+  (`_min_pc`, `_max_pc`); `test_asm_src.py`'s dead `xfail` path.
+- [ ] `ed_insert_string` has no production caller and ignores
+  `gb_insert`'s carry — keep as a test-only export (documented) or
+  retire.
+- [ ] `dbg_reason` enum defined twice (`main.s`, `repl.s`).
+
+### Test gaps
+
+- [ ] The loader never runs in a test (`load_prg` relocates in
+  Python); add one Tier I test running `loader_entry`.
+- [ ] `test_mem.py`'s TOP-RISK CPU-port skip is closable — C64Emu
+  models the DDR; add the Tier I test.
+- [ ] No oracle test for `oplen_tbl` (testing.md claims test_dasm
+  guards it; no bundle links it).
+- [ ] Untested contracts: `dbg_step_clear`, `dbg_init`'s outputs,
+  breakpoint overlap and step slots 8–9; `leave_editor`,
+  `ed_save_source`, `ed_load_source` (return codes 1/2);
+  `seg_print_save`; `info_line`; REPL `k`, `Q`, `R`, `x`, `$`, `i`
+  (full), `c`, `C` colours, `b` through `cmd_brk`, every `query_user`
+  yes/no outcome; `cse_exit_to_basic`; `$A0` / leading whitespace in
+  `test_addr_mode`.
+- [ ] Bundle hygiene: `test_repl_disk.py` still builds its own
+  bare-MPU binary with stubbed disk calls and a map regex (Tranche 4);
+  behavioural stubs in `asm_core_test_stub.s` (`log_warn`) and
+  `asm_src_test_stub.s` (log, cse_io, editor, gap_buffer routines)
+  are outside the mock policy; the mem, log, gap_buffer, symtab,
+  breakpoints and cse_io bundles are hand-rolled, not `Bundle`;
+  `cse_release_prg` is unused.
+
+### Doc drift (to fix in the documentation round)
+
+Stale against the code, by document (each item verified both ways):
+
+- **debugger.md** — next-PC table and RTS/RTI stepping; the
+  `_rtu_need_sentinel` description; NMI in kernel mode (refresh, not
+  swallow); the `return_to_userland` listing (push order, `$80`);
+  `dbg_bp_*` entries and the Memory table (owned by breakpoints.s /
+  asm_line.s); seven undocumented exports; the step chain; callers of
+  the gate; phantom `dbg_brk_capture` / `dbg_nmi_capture`; "N-iteration
+  loop"; the `;!range` gate; SP at entry (−6); `kernel_zp_buf`
+  direction; example output; history.
+- **breakpoints.md** — `rp_ptr` clobbers; `dbg_bp_set($0000)`; test
+  class names.  **mem.md** — Depends-on; history.
+- **editor.md** — overflow `>` (normal); Tab is SHIFT+SPACE (also
+  test comments); `BUF_FLOOR` computed; strip one leading tab; status
+  bar; state and tests now in gap_buffer; `ed_init` not exported;
+  workspace map; load can fail; `line_vwidth`; history.
+- **gap_buffer.md** — clobber lists; `ed_read_line` 39 + NUL;
+  `ed_insert_string`; 36 tests.  **cse_io.md** — `scr_to_pet` mapping;
+  `dec_buf[5]`; `io_init`; `io_color`; Depends-on.  **screen.md** —
+  default theme GREENLAND; `theme_init`; `$0286`; `$FB–$FE`; source
+  comments.
+- **asm_src.md** — `_min_pc`/`_max_pc` not exported; `asm_pass` in
+  asm_err; `asm_line` not `_asm_line_core`; `.res`/`.align`
+  pass-stability; Depends-on; history.  **symtab.md** — SEI/CLI
+  snippet; hash before bank-out.  **strings.md** — five undocumented
+  labels; aliases; `s_workstart` consumer; `str_qynq`.  **log.md** —
+  `log_open`/`log_close` clobbers; `seg_line`/`prg_line`/`free_line`
+  inputs; `puts` macro location.  **zp.md** — flag writer/reader
+  table; **zp.s** header comment and flag comments.  **dasm.md** —
+  `@adj`; Depends-on.
+- **asm_line.md** — BSS 5 bytes; `-D` column; profile number; caller
+  of `asm_error`; history.  **addr_mode.md** — `(expr),Y`; REL never
+  returned; `#` comments; asm_line and Y.  **mn_classify.md** —
+  Memory table; mn6 `T[0]`.  **asm_err.md** — callers; 13-byte body.
+  **expr.md** — case folding writes the input; clobbers;
+  `expr_eval_nb`; `last_err` ≥ 7; Depends-on.
+- **repl.md** — the debug-gate matrix (debugger.md is right); `B`
+  takes an expression; `$` device range, no drive commands; `i` map
+  and splash; `cur_addr` default `$0800`; phantom `f`, `>`, `/`;
+  `x` and `Q`; `+`/`-` covered; `C`; `m` row format; error examples;
+  undocumented exports; Depends-on; test-file descriptions; history.
+- **main.md** — BRK longjmp to `reg_sp`; `main_loop_top`;
+  `cse_nmi_handler`; `in_userland = $80`; `stop_cooldown` / `warm_cont`
+  location; the IRQ early-entry listing; "cold-init handoff";
+  undocumented exports; Depends-on.  **disk.md** — ZP, `cur_device`,
+  save path, `floppy_status`; clobbers.  **loader.md** — does not
+  bank ROM.
+- **memory_design.md** — stack contract (longjmp to `reg_sp`); the
+  rejected cold-start sentinel; KBSS not zeroed; I flag around bank
+  toggles; flags in ZP; runtime start and slack; mem.s role; KDATA
+  1010 B is the reserved window; group tables; ws_buf / `_dasm_buf` /
+  line cites / `gap_sz`; warmstart body details; `;!stk` landed;
+  `DBG_RTS`; vector early-entry; `workend`; history.
+- **architecture.md** — dependency table and rule 7; `asm_src →
+  editor` edge gone; `debugger → asm_line`; `dev/check_deps.py` does
+  not exist.  **userland_contract.md** — page 3: `$0334–$03FF` is
+  free, 204 B (researched 2026-11-18: no KERNAL/BASIC access to
+  `$03FC–$03FF`; the "BSOUT save" row has no source); SID control
+  registers zeroed whole; first-entry SP `$FD`; stack diagram;
+  cold-start sentinel; `;!stk` landed; `j`/`g` gate; CSE's writes to
+  `$80–$FF`; sprites; § 5 pointer.  **design_cse_as_kernel.md** —
+  status ledger stale; `g`/`o` semantics.
+- **glossary.md** — block size; KDATA; BSS zeroing; flags' storage;
+  "swallow"; `KERNAL_VECTOR`; cold entry; workend; orphans.
+- **README.md** (user manual) — **unsafe** `@ $C000` (inside CSE);
+  `b $C010` is rejected; `C` syntax; workstart; gating prompts;
+  `;?full`, `;?bad val`, `;?no name`, `;?no ctx`; splash rows;
+  fixed tab quirk; `m` rows; `r` syntax; workspace; runtime start;
+  `£`; SHIFT+CLR/HOME; `;!N: truncated` and `;!long`; `bad val`;
+  error prefix; status bar; patched-byte address; lowercase hex.
+  **assembler_syntax.md** — **unsafe** `.org $c000` ×2; `a = $2000`
+  (no such syntax); save line; `; N err`; BASIC stub size; `.bas`
+  implies `.org $0801`; default origin.
+- **build_system.md** — conftest rebuild; RUNTIME_START formula;
+  targets table; `_parse_map`; symbol counts; BUILD_FLAGS /
+  version.inc / INTROSPECT; `oplen_tbl` has no per-CPU block; size
+  figures; size-gate growth procedure.  **testing.md** — phantom
+  `test_debugger.py`; finished migrations; `_AC_FLAGS`; bundle table;
+  `oplen_tbl` claim; mock policy vs stubs; MID-RISK tier; xfail
+  convention; dead `cse` fixture recipe; C64Emu API details.
+  **project_layout.md** — phantoms (`tests/retired/`,
+  `build/6510/`) and about 60 unlisted paths.  **vice_test_plan.md**
+  — a closed v0.1 checklist.  **optimization.md** — seven stale
+  symbols.
+
+### Duplication and layering (systemic; a scoped arc each)
+
+- [ ] Facts restated in many docs, several already contradicting each
+  other: the ZP allocation table, the KERNAL-RAM banked layout, the
+  interrupt vectors, the stack contract, the cold-init sequence, the
+  user memory regions, the cross-module flags, the `dbg_reason` enum,
+  the breakpoint table, warmstart bodies, the runtime start address.
+  Keep one owner each; the copies become pointers.
+- [ ] memory_design.md restates module interfaces (mem.s exports,
+  loader steps, warmstart bodies, `return_to_userland` and the BRK
+  handler) — move to the module docs, keep the invariants.
+- [ ] The user manual carries mechanism (gap buffer, internal names,
+  runtime start) and lacks a REPL-keys table; project.md and the
+  glossary restate addresses and sizes.
+- [ ] Missing guidance for agents: the REPL command-dispatch table
+  and handler entry contract (`rp_ptr`, `try_expr`'s C=0 meaning, the
+  one-jsr-deep rule, the repeat list); the asm_src directive switch
+  and its helper contracts (`_emit_byte`, `emit_error`,
+  `_bad_val_err`, `_vocal_fwd_err`); the asm_src test input format;
+  the size gate's growth procedure.
+- [ ] Audit tooling: `audit_doc_depends_on.py` checks only doc →
+  import (add import → doc); `dev/check_deps.py` (architecture.md
+  cites it) does not exist.
 
 ## Bugs
 
@@ -2684,6 +3011,39 @@ from our exit context.
   2797 tests pass.
 - [x] ~~BSS optimization: overlap with `ws_buf`~~ (moot: `ws_buf`
   removed in smart indent rewrite, Phase 15)
+- [x] **Back-links for every test file.**  Only 16 of the 44
+  Python files under `tests/` carry the `Owner:` line the
+  back-link convention requires
+  ([README.md § Ownership](README.md#ownership)); the files the
+  M65Emu work touched have theirs (CDD audit, 2026-11-17).  Add
+  the line (and `Contract source:`) to the rest, owner
+  `doc/build_system.md`, or exempt a file explicitly in its row.
+  Done 2026-11-17, with the next item: every non-exempt file under CDD
+  regime (src/, tests/, dev/, rom/, the Makefile) carries its
+  back-link; generated tables, binaries, the two files shared verbatim
+  with bbbc64 and the hash-search outputs are exempt in their rows.
+
+- [x] **Ownership audit outside `src/`.**  `dev/audit_doc_owned_files.py`
+  checks module docs against `src/` only; nothing checks the Owned
+  files table of `doc/build_system.md` (`tests/`, `dev/`, `rom/`,
+  fixtures) for completeness, uniqueness or back-links, which is how
+  an unclaimed `rom/README.md`, missing back-links and binary rows
+  without `back-link-exempt` went unnoticed until the 2026-11-17 CDD
+  audit.  Extend the script to every Owned files table and every
+  file under CDD regime.  Done 2026-11-17 (`test_audit_owned_files.py`);
+  the first run found 14 unclaimed files, 4 files with two owners
+  (resolved by owner-of-record: the earlier claim stays, the later one
+  became a cross-reference), 82 missing back-links and 2 binaries
+  without exemption — all fixed.
+
+- [x] **Historical-marker sweep outside `doc/` and `src/`.**
+  `dev/audit_phase_markers.py` (CDD Maintenance item 9) scans `doc/`
+  and `src/` only; source comments and docstrings under `tests/` and
+  `dev/` are not swept (CDD audit, 2026-11-17).  Add them.  Done
+  2026-11-17 (`dev/search/` excepted); of the 40 new hits, 23 stale
+  ones were retired, the 17 left are load-bearing (named design
+  phases, quoted docs) or the sweep's own patterns.
+
 - [ ] **ZP swap: extend isolation to KERNAL screen-edit zone
   (`$C0-$FF`).**  Today `save_userland_zp` / `save_kernel_zp`
   swap only `$00-$7F` between userland and CSE-kernel views

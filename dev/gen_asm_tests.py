@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
 gen_asm_tests.py — Generate assembler smoke-test and self-check SEQ files
+
+Owner: doc/build_system.md
+
 for the CSE test D64 image.
 
 Reads instruction_set.py as the authoritative source.  Writes PETSCII SEQ

@@ -1,5 +1,7 @@
 """test_opcode_lookup.py — Tier-U unit tests for opcode_lookup.s.
 
+Owner: doc/modules/opcode_lookup.md
+
 Contract source: [doc/modules/opcode_lookup.md](../../doc/modules/opcode_lookup.md).
 
 Coverage of the documented contract

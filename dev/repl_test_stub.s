@@ -1,4 +1,5 @@
 ; repl_test_stub.s — test harness for repl.s
+; Owner: doc/build_system.md
 ;
 ; Provides stubs for all repl.s imports not satisfied by linked modules
 ; (cse_io.s, expr.s, symtab.s, dasm.s, dasm_tables.s, asm pipeline).
@@ -134,7 +135,7 @@ reg_y:         .res 1
 reg_sp:        .res 1
 reg_p:         .res 1
 
-; userland_zp_buf moved to mem.s; imported via the linked module.
+; userland_zp_buf: in mem.s, imported via the linked module.
 
 ; Editor state
 ed_save_bytes: .res 2

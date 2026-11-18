@@ -79,11 +79,6 @@ def install_ticker(emu):
     poke(emu, IRQ_HANDLER, [0xEE, IRQ_COUNT & 0xFF, IRQ_COUNT >> 8, 0x40])
 
 
-def run_for(emu, steps):
-    with pytest.raises(TimeoutError):
-        emu.run_until(DONE, max_cycles=steps)
-
-
 def irq_on(emu, on=True):
     if on:
         emu.cpu.p &= ~emu.cpu.INTERRUPT
@@ -129,8 +124,10 @@ def test_each_irq_fires_once_also_when_due_together(emu):
     irq_on(emu)
     emu.schedule_irq(5)
     emu.schedule_irq(5)
-    emu.schedule_irq(50)
-    run_for(emu, 500)
+    emu.schedule_irq(400)
+    emu.run_steps(100)
+    assert emu.memory[IRQ_COUNT] == 2                            # not the late one yet
+    emu.run_steps(400)
     assert emu.memory[IRQ_COUNT] == 3
 
 
@@ -138,7 +135,7 @@ def test_irq_waits_while_i_is_set(emu):
     install(emu)
     irq_on(emu, False)
     emu.schedule_irq(5)
-    run_for(emu, 500)
+    emu.run_steps(500)
     assert emu.memory[IRQ_COUNT] == 0
 
 
@@ -168,7 +165,7 @@ def test_cancel_drops_every_pending_interrupt(emu):
     emu.schedule_nmi(10)
     emu.cancel_pending_interrupts()
     irq_on(emu)
-    run_for(emu, 500)
+    emu.run_steps(500)
     assert (emu.memory[IRQ_COUNT], emu.memory[NMI_COUNT]) == (0, 0)
 
 
@@ -178,7 +175,7 @@ def test_jiffy_ticks_once_per_interval(emu):
     install_ticker(emu)
     irq_on(emu)
     emu.enable_jiffy_clock(interval=1000)
-    run_for(emu, 5000)
+    emu.run_steps(5000)
     assert 4 <= emu.memory[IRQ_COUNT] <= 6
 
 
@@ -186,19 +183,31 @@ def test_jiffy_waits_while_i_is_set(emu):
     install_ticker(emu)
     irq_on(emu, False)
     emu.enable_jiffy_clock(interval=200)
-    run_for(emu, 2000)
+    emu.run_steps(2000)
     assert emu.memory[IRQ_COUNT] == 0
+
+
+def test_a_tick_due_while_i_is_set_fires_once_i_clears(emu):
+    install_ticker(emu)
+    irq_on(emu, False)
+    emu.enable_jiffy_clock(interval=100)
+    emu.run_steps(150)
+    irq_on(emu)
+    emu.run_steps(10)
+    assert emu.memory[IRQ_COUNT] == 1                            # it waited
+    emu.run_steps(100)
+    assert emu.memory[IRQ_COUNT] == 2                            # the next: from then
 
 
 def test_disable_stops_the_ticks(emu):
     install_ticker(emu)
     irq_on(emu)
     emu.enable_jiffy_clock(interval=500)
-    run_for(emu, 1200)
+    emu.run_steps(1200)
     ticks = emu.memory[IRQ_COUNT]
     assert ticks >= 1
     emu.disable_jiffy_clock()
-    run_for(emu, 2000)
+    emu.run_steps(2000)
     assert emu.memory[IRQ_COUNT] == ticks
 
 
@@ -207,9 +216,9 @@ def test_default_interval_is_the_c64_kernals(emu):
     install_ticker(emu)
     irq_on(emu)
     emu.enable_jiffy_clock()
-    run_for(emu, 16420)
+    emu.run_steps(16420)
     assert emu.memory[IRQ_COUNT] == 0
-    run_for(emu, 10)
+    emu.run_steps(10)
     assert emu.memory[IRQ_COUNT] == 1
 
 

@@ -1,5 +1,7 @@
 """test_expr.py — Tier-U unit tests for expr.s.
 
+Owner: doc/modules/expr.md
+
 Contract source: [doc/modules/expr.md](../../doc/modules/expr.md).
 
 Coverage of the documented contract
@@ -287,9 +289,9 @@ NEGATIVE_ANY = [
 # ═══════════════════════════════════════════════════════════════════
 # Infrastructure
 #
-# Tranche 3 (Phase 21.1 follow-up): expr_eval / sym_define / sym_clear
-# are now called directly through the asm_core `asm_syms` fixture — no
-# separate binary, no per-entry trampolines, no dev/expr_test_stub.s.
+# expr_eval / sym_define / sym_clear are called directly through the
+# asm_core `asm_syms` fixture — no separate binary, no per-entry
+# trampolines, no stub.
 # ═══════════════════════════════════════════════════════════════════
 
 def _petscii(s):

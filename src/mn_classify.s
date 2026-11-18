@@ -1,4 +1,5 @@
 ; mn_classify.s — compile-time mnemonic classifier selector
+; Owner: doc/modules/mn_classify.md
 ;
 ; Provides common entry points that forward to either the 6-bit
 ; (56-mnemonic legal-NMOS) or the 7-bit (114-mnemonic full) hash

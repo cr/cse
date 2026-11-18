@@ -1,5 +1,7 @@
 """Audit module-doc "Depends on:" claims — Step 4 (focused subset).
 
+Owner: doc/build_system.md
+
 For each `doc/modules/foo.md` with a `**Depends on:**` block,
 extract the listed module names and the parenthesised symbol
 hints, then verify against the actual `.import` directives in

@@ -1,4 +1,5 @@
 ; loader.s — Discardable bootstrap for PRG builds
+; Owner: doc/modules/loader.md
 ;
 ; Runs once at startup from the LOADER segment ($080D).
 ; Copies CODE+RODATA from their load position to the runtime

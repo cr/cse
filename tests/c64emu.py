@@ -1,5 +1,8 @@
-"""
-c64emu.py — Minimal C64 emulator for the CSE test harness.
+"""c64emu.py — Minimal C64 emulator for the CSE test harness.
+
+Owner: doc/build_system.md
+
+Contract source: [doc/testing.md § C64Emu](../doc/testing.md#c64emu--emulator-class).
 
 Wraps py65 with:
   - Original C64 KERNAL ROM at $E000–$FFFF (ROM overlay)
@@ -18,7 +21,7 @@ Usage:
 import pathlib
 from py65.devices.mpu6502 import MPU
 
-from emu_base import EmuBase, KeyMatrix, decode_screen_codes
+from emu_base import EmuBase, KeyMatrix, register
 
 _ROM_DIR     = pathlib.Path(__file__).parent.parent / "rom"
 _ROM_KERNAL  = _ROM_DIR / "kernal_cbm.bin"
@@ -198,6 +201,8 @@ class C64Emu(EmuBase):
         cpu = MPU()
         cpu.memory = mem
         EmuBase.__init__(self, cpu, mem)
+        self._keys = mem.keys            # the held keys
+        self._ram = mem.ram              # load_prg() writes RAM under any ROM
 
         # -- processor port --
         # CSE runtime default: $01 = $36 = 0011 0110 → LORAM=0
@@ -280,15 +285,7 @@ class C64Emu(EmuBase):
             if val != 0:
                 self._mem.ram[addr] = val
 
-    # ── Register accessors (the rest: EmuBase) ──────────────────
-
-    @property
-    def sp(self):
-        return self._cpu.sp
-
-    @sp.setter
-    def sp(self, val):
-        self._cpu.sp = val & 0xFF
+    sp = register("sp", 0xFF)        # the other registers: EmuBase
 
     # ── Interrupts (the scheduler: EmuBase) ─────────────────────
 
@@ -331,10 +328,6 @@ class C64Emu(EmuBase):
 
     # ── Keyboard (the calls: EmuBase) ───────────────────────────
 
-    @property
-    def _keys(self):
-        return self._mem.keys
-
     def _latch_restore(self):
         self._mem.cia2_nmi_latch |= 0x10
 
@@ -346,18 +339,9 @@ class C64Emu(EmuBase):
         self._mem.ram[KBD_BUF + count] = petscii
         self._mem.ram[KBD_COUNT] = count + 1
 
-    @property
-    def _ram(self):
-        """load_prg() writes RAM under any ROM."""
-        return self._mem.ram
-
     # ── Helpers ─────────────────────────────────────────────────
 
     def screen_row(self, row):
         """Read screen codes for one row (40 bytes) as a list."""
         base = SCREEN + row * COLS
         return [self._mem[base + c] for c in range(COLS)]
-
-    def screen_text(self, row):
-        """One screen row as text (emu_base.decode_screen_codes)."""
-        return decode_screen_codes(self.screen_row(row))

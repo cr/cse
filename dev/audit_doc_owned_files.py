@@ -1,167 +1,158 @@
-"""Audit module-doc Owned-files coverage — Step 3.
+"""audit_doc_owned_files.py — the ownership audit (CDD Maintenance item 2).
 
-Two-way coverage check:
+Owner: doc/build_system.md
 
-  (a) For each `doc/modules/foo.md`, read the "Owned files" table
-      and verify every linked path resolves.
+Contract source: [doc/README.md § Ownership](../doc/README.md#ownership).
 
-  (b) For each `src/foo.s`, verify there's a `doc/modules/foo.md`
-      that LISTS that path in its Owned files (catches the case
-      where a new source file was added but the corresponding doc
-      wasn't updated to claim it).
+The implementation of [doc/README.md § Ownership](../doc/README.md#ownership)
+over every Owned files table in doc/ (doc/templates/ excepted):
 
-  (c) For each `src/foo.s`, verify a `doc/modules/foo.md` exists
-      at all (catches new modules added without corresponding
-      doc).
+  - missing path: a row links a path that does not exist;
+  - completeness: every file under CDD regime — the git-tracked files
+    of src/, tests/, dev/, rom/ and the Makefile — is claimed, by its
+    own row or a directory row;
+  - uniqueness: no file is claimed by two documents;
+  - back-links: a claimed text file names its owning document in an
+    `Owner:` line near its top, unless its row's Role carries
+    `back-link-exempt (<reason>)`; a binary file needs that exemption;
+  - exempt-file walk: each exempt file is listed with its owner and
+    reason, for the Maintenance Report (informational).
 
-The Owned-files table is recognised by markdown's standard table
-syntax following an `## Owned files` heading.  Path columns use
-the `[`label`](`path`)` link form.
+A row whose path is not a link (`rom/kernal_cbm.bin`) names a local
+file kept out of git: it is neither required to exist nor in the
+regime.
 
-Run:
-
-    /Users/cr/.local/share/virtualenvs/cse-rXGMsE9U/bin/python \\
-        dev/audit_doc_owned_files.py
+    python dev/audit_doc_owned_files.py
 """
 
-import re
-import sys
 import pathlib
+import re
+import subprocess
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-MODULES_DIR = ROOT / "doc" / "modules"
-SRC_DIR = ROOT / "src"
-
-# Some src/*.s files are not modules in their own right — they're
-# generated tables, glue, or stubs for other modules.  These
-# legitimately don't have their own doc/modules/*.md.
-NO_MODULE_DOC_EXPECTED = {
-    # Generated tables consumed by other modules.
-    "dasm_tables", "dasm_mne_idx",
-    "mn7_tables", "mn6_tables",
-    "mn_modes", "mn_asm_tables", "mn_models",
-    "oplen_tbl",
-    # Helper bundles documented as part of their parent module.
-    "mn_vars",         # documented in mn_classify.md
-    # Loader: tiny relocator, documented inline.
-    # (Comment out if loader.md exists — verify per build.)
-}
+REGIME = ("src", "tests", "dev", "rom", "Makefile")
+_LINK = re.compile(r"\[([^\]]+)\]\(([^)#\s]+)\)")
+_EXEMPT = re.compile(r"back-link-exempt \(([^)]*)\)")
+_OWNER = re.compile(r"Owner:\**\s*\[?([^\s\]\)]+\.md)")
+_HEAD = 40                                        # back-link: within these lines
 
 
-def find_owned_files_block(text):
-    """Return list of (label, path) pairs from the Owned files table."""
-    # Locate the "## Owned files" heading.
-    m = re.search(r"^##\s+Owned files\s*$", text, re.MULTILINE)
+def owned_rows(doc):
+    """(paths relative to the repository, role) per row of `doc`'s
+    Owned files table; only linked paths."""
+    text = doc.read_text()
+    m = re.search(r"^##\s+Owned files\s*$", text, re.M)
     if not m:
         return []
-    # Walk lines until next "## " heading.
-    after = text[m.end():]
-    next_h = re.search(r"^##\s", after, re.MULTILINE)
-    block = after[:next_h.start()] if next_h else after
-    # Extract every `[label](path)` link.
-    return [
-        (lab.strip(), path.strip())
-        for lab, path in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", block)
-        if not path.startswith(("http://", "https://"))
-    ]
+    block = text[m.end():]
+    end = re.search(r"^#{1,2}\s", block, re.M)
+    rows = []
+    for line in (block[:end.start()] if end else block).splitlines():
+        cells = line.split("|")
+        if len(cells) < 4 or set(cells[1].strip()) <= set("-: "):
+            continue
+        links = [p for _, p in _LINK.findall(cells[1])]
+        role = "|".join(cells[2:-1]).strip()
+        rows.append(([(doc.parent / p).resolve() for p in links], role))
+    return rows
+
+
+def _owner_named(path):
+    """The document an `Owner:` back-link near the top of `path` names
+    (relative to the repository), '' for none, None for a binary."""
+    try:
+        head = "\n".join(path.read_text().splitlines()[:_HEAD])
+    except UnicodeDecodeError:
+        return None
+    m = _OWNER.search(head)
+    return re.sub(r"^(\.\./|\./)+", "", m.group(1)) if m else ""
+
+
+def audit(root, regime):
+    """The findings for the repository at `root` and its files under
+    CDD regime (paths relative to `root`)."""
+    root = pathlib.Path(root).resolve()
+    findings = dict(missing_path=[], unclaimed=[], collisions=[],
+                    no_back_link=[], wrong_back_link=[], binary_not_exempt=[],
+                    exempt=[])
+    claims = {}                                   # path -> {doc: exemption or None}
+    for doc in sorted((root / "doc").rglob("*.md")):
+        rel_doc = doc.relative_to(root).as_posix()
+        if rel_doc.startswith("doc/templates/"):
+            continue
+        for paths, role in owned_rows(doc):
+            m = _EXEMPT.search(role)
+            for p in paths:
+                if not p.exists():
+                    findings["missing_path"].append((rel_doc, p.relative_to(root).as_posix()))
+                claims.setdefault(p, {})[rel_doc] = m.group(1) if m else None
+    dirs = [(p, owners) for p, owners in claims.items() if p.is_dir()]
+    for rel in regime:
+        path = (root / rel).resolve()
+        owners = dict(claims.get(path, {}))
+        if not owners:
+            for d, dir_owners in dirs:
+                if path.is_relative_to(d):
+                    owners.update(dir_owners)
+        if not owners:
+            findings["unclaimed"].append(rel)
+            continue
+        if len(owners) > 1:
+            findings["collisions"].append((rel, sorted(owners)))
+            continue
+        (owner, exemption), = owners.items()
+        if exemption is not None:
+            findings["exempt"].append((rel, owner, exemption))
+            continue
+        named = _owner_named(path)
+        if named is None:
+            findings["binary_not_exempt"].append(rel)
+        elif not named:
+            findings["no_back_link"].append(rel)
+        elif named != owner:
+            findings["wrong_back_link"].append((rel, named, owner))
+    return findings
+
+
+def regime_files(root=ROOT):
+    out = subprocess.run(["git", "ls-files", *REGIME], cwd=root,
+                         capture_output=True, text=True, check=True).stdout
+    return out.split()
+
+
+_TITLES = dict(
+    missing_path="Owned-files row links a path that does not exist",
+    unclaimed="file under CDD regime claimed by no document",
+    collisions="file claimed by more than one document",
+    no_back_link="claimed text file without an Owner: back-link",
+    wrong_back_link="Owner: back-link names another document than the owner",
+    binary_not_exempt="binary file whose row is not back-link-exempt",
+)
 
 
 def main():
-    findings = {
-        "missing_path": [],          # (a)
-        "src_not_listed": [],        # (b)
-        "src_no_doc": [],            # (c)
-    }
-
-    # Load all module docs and the paths they claim ownership of.
-    docs_seen = {}  # module_name -> set of relative paths it owns
-    for doc in sorted(MODULES_DIR.glob("*.md")):
-        try:
-            text = doc.read_text()
-        except (OSError, UnicodeDecodeError):
-            continue
-        owned = find_owned_files_block(text)
-        # Normalize paths (resolve relative to doc location).
-        owned_resolved = set()
-        for label, raw_path in owned:
-            # Strip backticks and trim.
-            raw_path = raw_path.strip("`").strip()
-            try:
-                target = (doc.parent / raw_path).resolve()
-            except (OSError, ValueError):
-                continue
-            owned_resolved.add(target)
-            if not target.exists():
-                findings["missing_path"].append({
-                    "doc": str(doc.relative_to(ROOT)),
-                    "label": label,
-                    "path": raw_path,
-                    "resolved": str(target),
-                })
-        docs_seen[doc.stem] = owned_resolved
-
-    # (b) and (c): every src/foo.s should be claimed in SOME module
-    # doc's Owned files table.  Some src files (mn6/mn7) are
-    # documented as part of a parent module (mn_classify.md) rather
-    # than having their own doc — that's fine, the doc just needs
-    # to list them as owned.
-    for src in sorted(SRC_DIR.glob("*.s")):
-        stem = src.stem
-        if stem in NO_MODULE_DOC_EXPECTED:
-            continue
-        target = src.resolve()
-        owners = [d for d, paths in docs_seen.items() if target in paths]
-        if not owners:
-            # Not claimed anywhere.  Either there's no doc (c), or
-            # the existing same-name doc fails to claim its own src (b).
-            if (MODULES_DIR / f"{stem}.md").exists():
-                findings["src_not_listed"].append({
-                    "src": str(src.relative_to(ROOT)),
-                    "doc": f"doc/modules/{stem}.md",
-                })
-            else:
-                findings["src_no_doc"].append({
-                    "src": str(src.relative_to(ROOT)),
-                    "expected_doc": f"doc/modules/{stem}.md",
-                })
-
-    audited = len(docs_seen)
-    src_count = len(list(SRC_DIR.glob("*.s")))
-    print(f"Audited {audited} module docs, {src_count} src/*.s files.")
+    regime = regime_files()
+    f = audit(ROOT, regime)
+    print(f"Audited {len(regime)} files under CDD regime against every "
+          "Owned files table.\n")
+    n = sum(len(f[k]) for k in _TITLES)
+    for key, title in _TITLES.items():
+        if f[key]:
+            print(f"── {title} ({len(f[key])})")
+            for item in f[key]:
+                print("   " + (" | ".join(map(str, item)) if isinstance(item, tuple) else item))
+            print()
+    print(f"── exempt-file walk ({len(f['exempt'])} files; check each for "
+          "changes the owner should reflect)")
+    for rel, owner, reason in f["exempt"]:
+        print(f"   {rel}  ({owner}: {reason})")
     print()
-
-    n = sum(len(v) for v in findings.values())
     if n == 0:
-        print("✓ All module docs claim only existing paths, and every "
-              "non-generated src file is covered by its module doc.")
+        print("✓ Every file under CDD regime has exactly one owner, and every "
+              "non-exempt one links back to it.")
         return 0
-
-    print(f"✗ {n} findings:")
-    print()
-
-    if findings["missing_path"]:
-        print(f"── (a) Owned-file path not found "
-              f"({len(findings['missing_path'])})")
-        for f in findings["missing_path"]:
-            print(f"   {f['doc']}  '{f['label']}' → {f['path']}")
-        print()
-
-    if findings["src_not_listed"]:
-        print(f"── (b) src file exists but its module doc doesn't "
-              f"claim it in Owned files ({len(findings['src_not_listed'])})")
-        for f in findings["src_not_listed"]:
-            extra = (f"  (also owned by: {f['owned_by_other']})"
-                     if f['owned_by_other'] else "")
-            print(f"   {f['src']}  expected in {f['doc']}{extra}")
-        print()
-
-    if findings["src_no_doc"]:
-        print(f"── (c) src file has no module doc at all "
-              f"({len(findings['src_no_doc'])})")
-        for f in findings["src_no_doc"]:
-            print(f"   {f['src']}  (no {f['expected_doc']})")
-        print()
-
+    print(f"✗ {n} findings.")
     return 1
 
 

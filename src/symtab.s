@@ -1,4 +1,5 @@
 ; symtab.s — Symbol table: hash table with linear probing + name heap
+; Owner: doc/modules/symtab.md
 ;
 ; Entry: hash(1) + value(2) + name_ptr(2) + scope(1) = 6 bytes
 ;   hash:      full 8-bit hash (all 256 values valid)

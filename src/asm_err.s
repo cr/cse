@@ -1,4 +1,5 @@
 ; ─────────────────────────────────────────────────────────────────────────────
+; Owner: doc/modules/asm_err.md
 ; asm_err.s — Assembler error state + longjmp unwind (Phase 21 Move 2)
 ;
 ; Owns the error-signalling contract for the single-line assembler

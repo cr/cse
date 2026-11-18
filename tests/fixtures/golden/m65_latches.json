@@ -1,0 +1,17 @@
+{
+ "source": {
+  "xmega65": "https://github.com/lgblgblgb/xemu dev 0870689e7195d845dc294a79429b18d6c3d38cf9 20260807182148 official-build",
+  "recorded": "2026-11-17"
+ },
+ "code": "78 AD 1A D0 8D 00 19 A9 0F 8D 19 D0 AD 19 D0 8D 01 19 A9 01 8D 1A D0 AD 19 D0 29 01 F0 F9 AD 19 D0 8D 02 19 A9 00 8D 1A D0 AD 19 D0 8D 03 19 A9 01 8D 19 D0 AD 19 D0 8D 04 19 AD 19 D0 29 01 F0 F9 A9 00 8D 19 D0 AD 19 D0 8D 05 19 AD 00 19 8D 1A D0 A9 7F 8D 0D DD AD 0D DD A9 10 8D 04 DD A9 00 8D 05 DD A9 19 8D 0E DD AD 0D DD F0 FB 8D 06 19 AD 0D DD 8D 07 19 4C 77 18",
+ "reads": {
+  "D01A as booted": 225,
+  "D019 after writing $0F": 96,
+  "D019 with the raster bit latched, raster mask on": 225,
+  "D019 with the raster bit latched, raster mask off": 225,
+  "D019 after writing $01 (mask off)": 96,
+  "D019 after writing $00 with the raster bit latched (mask off)": 97,
+  "DD0D at the first read after a timer A underflow (sources masked)": 1,
+  "DD0D at the read after that": 0
+ }
+}

@@ -1,6 +1,8 @@
 """
 test_dasm_rom.py — dasm_insn against KERNAL ROM ($E000-$FFFF).
 
+Owner: doc/modules/dasm.md
+
 Pre-fix bug: dasm_insn banks KERNAL out before reading any byte
 from the user's address (so its internal tables under KERNAL ROM
 are accessible).  When the user disassembles `$E000+`, the read

@@ -1,5 +1,7 @@
 """Audit doc tone/structure — Step 6 (mechanized subset).
 
+Owner: doc/build_system.md
+
 Scans markdown files for structural issues that frequently
 indicate stale or hand-stitched content:
 

@@ -1,5 +1,7 @@
 """test_asm_src.py — Two-pass source assembler integration tests.
 
+Owner: doc/modules/asm_src.md
+
 Tests the full pipeline: source text → _test_src_buf → _asm_assemble → memory.
 
 The test binary links asm_src.s with the complete assembler core (asm_line,

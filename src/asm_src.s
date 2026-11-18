@@ -1,4 +1,5 @@
 ; asm_src.s — Two-pass source assembler
+; Owner: doc/modules/asm_src.md
 ;
 ; Reads source from the editor gap buffer (ed_read_line).
 ; Pass 0: collect labels/constants, compute instruction sizes.

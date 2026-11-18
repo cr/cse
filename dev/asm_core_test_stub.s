@@ -1,4 +1,5 @@
 ; asm_core_test_stub.s — minimal stub for the asm_core test bundle
+; Owner: doc/build_system.md
 ;
 ; The asm_core bundle links the full single-line assembler pipeline:
 ;   zp + opcode_lookup + asm_line + asm_err + addr_mode

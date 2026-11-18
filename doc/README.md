@@ -256,8 +256,10 @@ the CDD System entirely.
    keeps the corpus's voice in the present tense.  When a
    project-specific marker pattern beyond the universal set
    recurs, add it to the local sweep config.  Implemented in
-   `dev/audit_phase_markers.py`; the script reports matches
-   sorted by frequency, ready for human triage.
+   `dev/audit_phase_markers.py`, which sweeps `doc/`, the comments
+   of `src/`, and the Python and assembly of `tests/` and `dev/`
+   (`dev/search/`, history on purpose, excepted); the script
+   reports matches sorted by frequency, ready for human triage.
 
 **Output:** a CDD Maintenance Report listing findings by category.
 Mechanical corrections (broken links, stale comments, formatting)
@@ -336,10 +338,17 @@ file in question.  A central register would itself drift; local
 annotation keeps exemption knowledge with the doc that already
 owns the file.
 
-**Audit implementation.**  The audit script reads exemption
-annotations from each owner's Owned files table, performs the
-bidirectional check on non-exempt rows, and walks exempt rows
-producing a Maintenance Report finding per file.  See
+**Audit implementation.**  The audit script reads every Owned
+files table of the corpus (`doc/templates/` excepted) with its
+exemption annotations; checks that every file under CDD regime —
+the git-tracked files of `src/`, `tests/`, `dev/`, `rom/` and the
+`Makefile` — is claimed by exactly one document (directly or through
+a directory row), that every linked path exists, and that every
+non-exempt owned file names its owner in an `Owner:` back-link
+(a binary file needs an exemption); and walks exempt rows producing
+a Maintenance Report finding per file.  A row whose path is not a
+link names a local file kept out of git (a proprietary ROM): it is
+neither required to exist nor under regime.  See
 `dev/audit_doc_owned_files.py` for the reference implementation.
 The script is the implementation of the spec; this section is
 the spec.
@@ -480,6 +489,189 @@ amendments; TDD Maintenance propagates them.  The CDD Method
 continues to use TDD Analysis (step 3) for per-change test
 planning — TDD Maintenance is the orthogonal periodic check that
 nothing has drifted since the last audit.
+
+---
+
+## CDD Quality Sweep
+
+CDD Maintenance is the **standing gate**: cadenced at every
+milestone, mechanised where it can be, its audit categories fixed.
+The **CDD Quality Sweep** is its parallel — an **operator-invoked**,
+deep, *varied-lens* pass that goes beyond the gate's reach: an
+adversarial re-examination of the whole corpus against four quality
+criteria, from a **different investigative axis each time**.
+Maintenance asks *"has anything drifted since the last gate?"*; a
+Quality Sweep asks *"what has never been looked at from **this**
+angle?"* — on the working premise that the more you look, the more
+you find.  (Backported 2026-11-17 from the sibling project bbbc64,
+where the process and its techniques were proven.)
+
+**Trigger — operator-invoked.**  Unlike Maintenance, a Quality Sweep
+runs only when the operator calls for one.  It is deliberate and
+expensive — a parallel fan-out of adversarial probers — so it is
+on-demand, not cadence-bound.  The operator may also set its output
+mode (e.g. *"fix the docs, file code and tests as TODOs"*).
+
+**The four quality criteria** (the sweep's rubric):
+
+1. **Correctness** — code ⇔ docs ⇔ tests agree with each other and
+   with the oracle: the real KERNAL ROMs under `C64Emu`, VICE and
+   hardware for the C64 builds; xmega65's recordings and the hardware
+   for the m65 build.
+2. **Human and agent readability** — prose and code legible to both
+   audiences ([§ Goals](#goals)).
+3. **No duplications** — single source
+   ([Principle 3](#3-single-source-of-truth)): no restated literals,
+   mechanisms or cross-doc copies.
+4. **Appropriate abstraction layering** — each fact in the right
+   document ([Principle 1](#1-layered-depth): user manual vs module
+   contract vs system doc), each routine in the right module and
+   layer ([architecture.md](architecture.md)).
+
+**Vary the axis every invocation.**  Re-running the *same* lens has
+sharply diminishing returns; each invocation flips to an axis the
+prior ones under-covered, and runs **at least two complementary
+lenses** — they find disjoint defect classes.  The axes proven so
+far (a menu, not a fixed list — grow it):
+
+- *Doc-slice* — read each doc, verify the code matches.  Finds doc
+  drift; blind to code bugs that contradict no prose.  (This is also
+  CDD Maintenance item 3's lens.)
+- *Source-first edge-probe* — hammer runtime boundaries, ignoring the
+  docs.  Finds code bugs (crash, hang, corruption, wrong result);
+  blind to doc drift.
+- *Doc-defect-class fan-out* — one prober per defect **class**
+  (numeric/concrete, duplication, layering, code→doc inverse).
+- *Reader/completeness* — onboarding coherence, undocumented surface
+  (enumerated from the CODE), live execution of the examples,
+  terminology consistency.
+- *Status/structure* — status-tag and temporal accuracy, structural
+  integrity of diagrams, tables and maps, tests-as-corpus, stated
+  limits and invariants.
+- *Contract/perf* — error semantics, seam and ABI contracts,
+  performance claims, build-variant claims.
+- *Meta/process + deep-read* — the process corpus, its ledgers and
+  the ownership graph, plus one **depth-first** adversarial read of a
+  single load-bearing doc to counter the breadth passes.
+
+**Discipline:**
+
+- **A sweep is an "all of X" task — enumerate first.**  The lens
+  decides *what* to look for; the enumeration decides *where*, and it
+  is derived and checked before the reading starts, not reconstructed
+  afterwards.
+- **Fan out probers; verify every finding against LIVE source.**  A
+  prober's report is a *hypothesis*: a doc's own prose can be fiction,
+  and a prober will faithfully relay it.  **Reproduce a bug live
+  before filing it** — prove reachability, not a code smell.
+- **Output mode (operator-set).**  In the standing *fix-the-docs*
+  mode: fix bounded, low-judgment **doc** defects inline; **file**
+  code, test and systemic re-layering findings as TODO items, which
+  go through the CDD Method.  A doc-, comment- or test-only change
+  leaves every release PRG byte-identical (rebuild and compare).
+- **Escalate like any finding.**  A confirmed bug gets a standing
+  test and an [Escape Analysis](#escape-analysis); a recurring defect
+  class an amendment.  A Quality Sweep is **not** a substitute for the
+  per-milestone Maintenance gate or the per-change Method — it is the
+  deliberate deep pass that finds what a cadenced gate's fixed
+  categories and per-change slices structurally miss.
+- **Record the sweep** in the [CDD Log](#cdd-log): the lenses run,
+  what each found, and any technique it proved; a new technique is
+  appended to the inventory below.
+
+**Technique inventory** (the accumulated playbook; grow it as
+techniques prove out).
+
+*Verification discipline — the recurring source of near-misses:*
+
+- **Verify every finding against live source** before acting.
+- **Reproduce a bug live** — a real missing bound can be unreachable
+  given an invariant.
+- **Verify status by wiring, not labels** — read the dispatch table
+  or the `.ifdef`, not the "done / deferred / planned" prose.
+- **Verify what a number counts before "fixing" it** — a subset vs a
+  total, a value count vs a slot count; then take the number from the
+  tool (linker map, `make size`, `pytest --collect-only`), not from a
+  doc that quotes it.
+- **Verify a "gated / enforced" claim against the actual gate** — a
+  doc claiming machine protection the code does not provide is silent
+  false confidence.
+- **Do not invent an unverifiable definition** — a terminology drift
+  may hide a real *distinction*; verify before normalising.
+- **When two probers disagree, resolve from source — not by vote.**
+- **Enforced layer vs prose layer** — a test-enforced number cannot
+  drift silently; the prose beside it can.
+- **Distrust the absolute, not the mechanism** — "no X anywhere" is
+  falsified by one deliberate exception; hunt the exception.
+
+*Finding techniques — each surfaces a class the others miss:*
+
+- **Code-first → doc** (the inverse of doc-slice) — start from recent
+  commits and changed routines; catches the author's own doc lag.
+- **Concrete-claim verification** — every number (sizes, free bytes,
+  cycle counts, limits) against the map, the listing or the source;
+  numbers decay fastest after code churn.
+- **Completeness from code** — enumerate the public surface (exports,
+  REPL commands, key bindings, error messages, directives) from
+  `src/`, and check that each is documented and classified.
+- **Live example execution** — run every worked example through the
+  real assembler and REPL; a stale output is a doc fix or a code
+  regression (file the bug; do not launder it into the doc).
+- **Execute the corpus** — harvest every claim a machine can decide
+  (stated results, error conditions, boundaries) and run them; it
+  reaches the class where every static artefact is individually
+  correct and the defect lies between them.
+- **Phantom-constant enumeration** — collect the identifiers used in
+  `src/` comments and in docs, subtract what the assembler defines,
+  and read the residue: names that bind to nothing.
+- **Terminology against code** — a vestigial NAME carries a stale
+  model across sibling docs; several spellings of one thing are
+  variants (settle on the code's name and sweep every spelling).
+- **Status-tag / temporal audit** — "deferred", "planned", "done"
+  tags decay silently; a shipped-but-"planned" tag misleads.
+- **Diagram and table integrity** — memory maps, byte layouts and
+  address tables must add up AND match the code; when a model is
+  fixed, its diagram and its source comments are fixed with it.
+- **Tests-as-corpus** — audit test docstrings and comments against
+  the asserts and the contract clauses they claim to pin.
+- **Adversarial boundary battery** — per domain: overflow, minimum,
+  empty, maximum length, out-of-bounds, type edges, round-trips; each
+  bug found is seeded as a standing test.
+- **Lifecycle matrix** — enumerate every lifecycle event from the
+  code (cold start, warm start, BRK, NMI, enter/leave editor,
+  assemble, run, load, save) and every state cell; per event, list
+  what it resets and what it leaves, and judge each survivor.  It
+  reaches *state left behind*, which contradicts no sentence and
+  never shows on a fresh fixture.
+- **Cross-doc fact clusters** — take every identifier stated in three
+  or more docs, group by fact family, and read each family side by
+  side against the code and the owning doc; per-doc reads miss drift
+  between copies.
+- **Task-driven cold reader** — an agent performs a concrete task
+  (add a REPL command, add a mnemonic, trace an error) from the docs
+  alone, then checks each step against the code; it finds wrong
+  *guidance*, which no fact check sees.
+- **Pointer lands on fact** — follow every pointer to its target and
+  judge whether the target *states* what the source relies on, not
+  merely that the link resolves.
+- **Ownership ≠ resolving link** — the link audit proves anchors
+  resolve, not that the target owns the content.
+- **Depth-first deep-read** — periodically trade a breadth fan-out
+  for one adversarial single-doc read, and re-verify your own earlier
+  edits while there.
+
+*Fix discipline:*
+
+- **Fix bounded, file systemic** — clear, low-judgment doc defects
+  inline; a corpus-wide re-layering is a scoped arc, not a rushed
+  edit.
+- **Single-source dedup, machine-checked first** — a duplicate that
+  contradicts its declared owner is a real violation; a value a test
+  pins cannot drift silently, so do not over-dedup it.
+- **Byte-identity** — a doc-, comment- or test-only change must not
+  change a release PRG.
+- **Escape Analysis on each confirmed bug** — test miss → contract
+  miss → principle miss.
 
 ---
 
@@ -627,6 +819,7 @@ inform future CDD Maintenance audits.
 | TDD Analysis | Step 3 of CDD Method | Forward | Test gaps for that one change |
 | CDD Maintenance | Milestone boundary | Cross-cutting | Doc corpus integrity |
 | TDD Maintenance | Milestone boundary or post-Escape-Analysis | Cross-cutting | Test corpus integrity |
+| CDD Quality Sweep | Operator-invoked | Cross-cutting, varied lens | The whole corpus against the four quality criteria |
 | Escape Analysis | Bug discovered | Backward | Bug → test → contract → principle |
 
 Any Escape Analysis that uncovers multiple missing clauses at
@@ -870,7 +1063,9 @@ before it.  A reader going top-to-bottom never hits an undefined term.
 
 The corpus must be audited periodically, independent of feature work,
 to catch drift and gaps that individual changes miss.
-See [CDD Maintenance](#cdd-maintenance) for the full audit scope and trigger.
+See [CDD Maintenance](#cdd-maintenance) for the full audit scope and trigger;
+the on-demand deep pass beside it is the
+[CDD Quality Sweep](#cdd-quality-sweep).
 
 ### 7. Contract the model, not the render
 

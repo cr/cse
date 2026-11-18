@@ -1,4 +1,5 @@
 ; mn_vars.s — shared zero-page mnemonic classifier inputs
+; Owner: doc/modules/mn_classify.md
 ;
 ; Provides the three VICII-screencode input registers consumed by
 ; both mn6_classify (mn6.s) and mn7_classify (mn7.s).

@@ -1,6 +1,8 @@
 """
 test_cse_io.py — Tier-I unit tests for cse_io.s.
 
+Owner: doc/modules/cse_io.md
+
 Contract source: [doc/modules/cse_io.md](../../doc/modules/cse_io.md).
 
 Coverage of the documented contract

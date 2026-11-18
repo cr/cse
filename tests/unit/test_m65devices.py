@@ -8,18 +8,25 @@ Tier U.  The keyboard queue follows xemu's source (the monitor cannot
 type a key, so there is no recording); `inject_key()` queues one key.
 The CIA1 matrix port reads the shared key matrix through port A's
 column selection; the VIC interrupt latch ($D019) holds what the
-jiffy tick raised until the KERNAL writes 1s back; the CIA2 interrupt
-control register ($DD0D) holds RESTORE until read.  Also: claimed
+jiffy tick raised until the KERNAL writes 1s back, and both it and
+the CIA2 interrupt control register ($DD0D, RESTORE until read) read
+as xmega65 recorded them (tests/fixtures/golden/m65_latches.json).  Also: claimed
 registers leave the unmodelled-I/O log, and devices claim only their
 own registers.  The matrix calls themselves are in
 test_emu_parity.py; GETIN, STOP and RESTORE on the real KERNAL in
 tests/integration/test_m65emu.py.
 """
 
+import json
+import pathlib
+
 import pytest
 
 from m65emu import M65Emu
 from m65emu.memory import VIC4
+
+LATCHES = json.loads((pathlib.Path(__file__).resolve().parents[1] / "fixtures"
+                      / "golden" / "m65_latches.json").read_text())
 
 
 @pytest.fixture
@@ -86,15 +93,37 @@ def test_cia1_matrix_port_reads_the_key_matrix(emu):
     assert mem[0xDC01] == 0xFF
 
 
+def test_vic_latch_reads_as_xmega65_recorded(emu):
+    """The recorded probe (dev/capture_m65_latches.py), step by step:
+    the raster bit latching stands in for the raster line."""
+    mem, want = emu.memory, list(LATCHES["reads"].values())
+    mem[0xD01A] = want[0]                             # the mask as booted
+    emu.vic_irq.latch(0x01)
+    mem[0xD019] = 0x0F
+    got = [mem[0xD01A], mem[0xD019]]
+    mem[0xD01A] = 0x01
+    emu.vic_irq.latch(0x01)
+    got.append(mem[0xD019])                           # mask on
+    mem[0xD01A] = 0x00
+    got.append(mem[0xD019])                           # mask off: line kept
+    mem[0xD019] = 0x01
+    got.append(mem[0xD019])                           # acknowledged
+    emu.vic_irq.latch(0x01)
+    mem[0xD019] = 0x00
+    got.append(mem[0xD019])                           # a 0 clears nothing
+    assert got == want[:6]
+
+
 def test_vic_latch_holds_the_tick_until_acknowledged(emu):
     mem = emu.memory
-    assert mem[0xD019] & 0x8F == 0
-    emu.vic_irq.raise_(0x01)                          # what the tick does
-    assert mem[0xD019] & 0x8F == 0x81                 # raster + any
+    mem[0xD01A] = 0x01                                # raster enabled, as the KERNAL has it
+    assert mem[0xD019] == 0x60
+    emu.vic_irq.latch(0x01)                           # what the tick does
+    assert mem[0xD019] == 0xE1                        # raster + IRQ line
     mem[0xD019] = 0x02                                # not that bit
-    assert mem[0xD019] & 0x8F == 0x81
+    assert mem[0xD019] == 0xE1
     mem[0xD019] = mem[0xD019]                         # the KERNAL's TSB
-    assert mem[0xD019] & 0x8F == 0
+    assert mem[0xD019] == 0x60
 
 
 def test_jiffy_tick_raises_the_vic_latch_once(emu):
@@ -102,19 +131,22 @@ def test_jiffy_tick_raises_the_vic_latch_once(emu):
     mem.load(0x3000, bytes([0x4C, 0x00, 0x30]))      # JMP self, I set
     emu.pc = 0x3000
     emu.cpu.p |= emu.cpu.INTERRUPT
+    mem[0xD01A] = 0x01
     emu.enable_jiffy_clock(interval=100)
-    run_for(emu, 99)
+    emu.run_steps(99)
     assert mem[0xD019] & 0x01 == 0
-    run_for(emu, 1)
+    emu.run_steps(1)
     assert mem[0xD019] & 0x81 == 0x81
     mem[0xD019] = 0x01                                # acknowledged while held
-    run_for(emu, 50)
+    emu.run_steps(50)
     assert mem[0xD019] & 0x01 == 0                    # not raised again
 
 
-def run_for(emu, steps):
-    with pytest.raises(TimeoutError):
-        emu.run_until(0xDFE0, max_cycles=steps)
+def test_cia2_icr_reads_as_xmega65_recorded(emu):
+    """A latched source, its mask off: returned once, then cleared."""
+    want = list(LATCHES["reads"].values())[6:8]
+    emu.cia2_icr.latch(0x01)                          # timer A underflow
+    assert [emu.memory[0xDD0D], emu.memory[0xDD0D]] == want
 
 
 def test_cia2_icr_holds_restore_until_read(emu):

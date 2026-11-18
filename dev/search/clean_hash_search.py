@@ -2,6 +2,8 @@
 """
 clean_hash_search.py
 
+Owner: doc/build_system.md
+
 Fully deterministic co-optimisation of mn6 hash parameters and fingerprint.
 No randomness anywhere. Fixed, reproducible results.
 

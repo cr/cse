@@ -1,5 +1,9 @@
 """test_c64emu_jiffy.py — the jiffy tick on the C64 KERNAL.
 
+Owner: doc/build_system.md
+
+Contract source: [doc/testing.md § C64Emu](../../doc/testing.md#c64emu--emulator-class).
+
 The tick's contracts (interval, re-scheduling, the I flag, disable,
 the default interval) hold for both harnesses and are tested in
 test_emu_parity.py.  This file keeps the C64 end-to-end case: with
@@ -43,10 +47,7 @@ def test_jiffy_increments_kernal_clock(cse_prg):
     _install_user_loop(emu)
     emu._cpu.p &= ~emu._cpu.INTERRUPT
     emu._cpu.pc = USER_LOOP
-    try:
-        emu.run_until(0xDFE0, max_cycles=20000)
-    except TimeoutError:
-        pass
+    emu.run_steps(20000)
 
     # 24-bit jiffy counter should have advanced.
     jiffy = (

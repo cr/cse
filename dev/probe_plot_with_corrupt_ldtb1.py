@@ -1,5 +1,7 @@
 """Probe: does KERNAL PLOT misbehave with a corrupt line-link table?
 
+Owner: doc/build_system.md
+
 Confirms the working hypothesis: the rc1 jank is *not* "CSE was
 mid-CHROUT when NMI fired" (CSE bypasses KERNAL CHROUT for screen
 output via io_putc).  It's "USERLAND was mid-CHROUT when NMI fired,

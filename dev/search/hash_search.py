@@ -1,6 +1,8 @@
 """
 dev/hash_search.py
 
+Owner: doc/build_system.md
+
 Search for alternative mn6 6-bit perfect hash parameters and co-optimise
 the fingerprint.
 
