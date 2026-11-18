@@ -1070,6 +1070,16 @@ documentation round that follows this filing.
   `test_addr_mode`.
   Editor part, 2026-11-18: `leave_editor` and `ed_load_source` code 1 tested (TestLeaveEditor, TestEdDiskErrors on C64Emu's empty serial bus); code 2 and the success paths are an explained skip until a virtual IEC disk exists.
   `ed_save_source` code 1, 2026-11-18: it reported success on a disk error (Z taken from `disk_save_seq`'s `ldx #0`) and cleared `ed_dirty`; fixed, test test_save_with_no_drive_returns_1_and_keeps_buffer_dirty.
+  Runtime part covered 2026-11-18: `dbg_step_clear`, step slots 8-9
+  and overlap (TestStepSlots / TestStepClear / TestOverlap),
+  `dbg_init` (TestDbgInitOutputs), `k` `Q` `R` and every
+  `query_user` outcome (TestQueryUserOutcomes), `x` and `C`
+  (TestClearScreen / TestColorApply), `$` devices (TestDirDevice; it
+  revealed `$ 260` selecting device 4, fixed), `i` full mode
+  (TestInfoFullMode), `c` (TestContinueCommand), `b` via `cmd_brk`
+  (TestBreakCommand), `cse_exit_to_basic` (TestExitToBasic).  Still
+  open: the editor, asm_src, log and addr_mode contracts of this
+  item.
 - [ ] Bundle hygiene: `test_repl_disk.py` still builds its own
   bare-MPU binary with stubbed disk calls and a map regex (Tranche 4);
   behavioural stubs in `asm_core_test_stub.s` (`log_warn`) and
