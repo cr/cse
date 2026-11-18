@@ -817,7 +817,7 @@ class TestRegisterSet:
 
     CASES = [
         # (args, expected_a, expected_x, expected_y, expected_sp)
-        ("r a:ff x:10 y:20 s:fd nv..i...", 0xFF, 0x10, 0x20, 0xFD),
+        ("r a:ff x:10 y:20 s:fd nv..dI..", 0xFF, 0x10, 0x20, 0xFD),
         ("r a:00 x:00 y:00 s:ff ........", 0x00, 0x00, 0x00, 0xFF),
     ]
 
@@ -1102,3 +1102,43 @@ class TestDotHexEdit:
 # ── Q. Step into JSR — ROM target falls back to step-over ───────
 #
 # In tests/integration/test_step_rom.py (C64Emu-based).
+
+
+class TestRegisterFieldsByLabel:
+    """debugger.md § `r`: fields by label, any subset, all-or-nothing."""
+
+    def _regs(self, cpu, rsyms):
+        return [cpu.memory[a] for a in (rsyms.reg_a, rsyms.reg_x,
+                                        rsyms.reg_y, rsyms.reg_sp,
+                                        rsyms.reg_p)]
+
+    def _prime(self, cpu, rsyms):
+        for a, v in ((rsyms.reg_a, 0x11), (rsyms.reg_x, 0x22),
+                     (rsyms.reg_y, 0x33), (rsyms.reg_sp, 0xF0),
+                     (rsyms.reg_p, 0x04)):
+            cpu.memory[a] = v
+
+    def test_single_field_by_label(self, rsyms):
+        cpu = make_cpu(rsyms)
+        self._prime(cpu, rsyms)
+        set_line_buf(cpu, rsyms, "r x:05")
+        run_at(cpu, rsyms.exec_line)
+        assert self._regs(cpu, rsyms) == [0x11, 0x05, 0x33, 0xF0, 0x04]
+
+    def test_any_order(self, rsyms):
+        cpu = make_cpu(rsyms)
+        self._prime(cpu, rsyms)
+        set_line_buf(cpu, rsyms, "r s:e0 a:01")
+        run_at(cpu, rsyms.exec_line)
+        assert self._regs(cpu, rsyms) == [0x01, 0x22, 0x33, 0xE0, 0x04]
+
+    @pytest.mark.parametrize("cmd", ["r a:zz", "r a", "r q:01", "r a:1",
+                                     "r x:05 a:zz", "r a:01 nv-bdiz",
+                                     "r pc:12", "r a:012"])
+    def test_bad_field_is_syntax_error_and_changes_nothing(self, rsyms, cmd):
+        cpu = make_cpu(rsyms)
+        self._prime(cpu, rsyms)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        assert self._regs(cpu, rsyms) == [0x11, 0x22, 0x33, 0xF0, 0x04]
+        assert "syntax" in "".join(cpu.screen_text(r) for r in range(25))

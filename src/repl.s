@@ -225,6 +225,9 @@ zp_stage_buf:   .res 8          ; staging buffer for the user-ZP
 cpu_pair_tbl:    .byte '0','2',0,  '1','0',1,  'c','0',2
 cpu_mask_bits:   .byte 1,2,4
 
+; r command field labels: reg_a / reg_x / reg_y / reg_sp order, then pc
+reg_labels:      .byte "axysp"
+
 ; ── info tables: 8 bytes per row: tag(2) lo(2) hi(2) desc(2) ──
 ; These stay in repl.s because INFO_TBL_*_ROWS are compile-time
 ; constants computed from segment arithmetic (can't be imported).
@@ -2442,102 +2445,162 @@ set_run_mode:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; parse_regval — skip 2 chars (label:), parse 2 hex at rp_ptr
-;   Advances rp_ptr by 4. Returns byte in A.
-; ═══════════════════════════════════════════════════════════
-.proc parse_regval
-        lda rp_ptr
-        clc
-        adc #2
-        sta rp_ptr
-        bcc :+
-        inc rp_ptr+1
-:       jmp parse_hex2_ptr1
-.endproc
-
-; ═══════════════════════════════════════════════════════════
 ; cmd_reg — 'r' command
 ;   rp_ptr = args
+;
+; Bare `r` shows the registers.  Otherwise the fields are matched by
+; label, in any order, any subset (debugger.md § `r`):
+;   a:XX x:XX y:XX s:XX   reg_a / reg_x / reg_y / reg_sp
+;   pc:XXXX               brk_pc
+;   8 flag characters     reg_p (nv-bdizc; uppercase = set, lowercase,
+;                         '-' or '.' = clear; bit 5 forced 0)
+; Each field ends at a space, ';' or NUL.  The line is checked in full
+; first (reg_fields with rp_save2 = 0) and applied only when every
+; field is valid (second pass, rp_save2 = 1) — a bad field is
+; `;?syntax` and changes nothing.
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_reg
         jsr skip_peek_ptr1
         beq @show
-
-        ; Optional "pc:XXXX" — matches emit_reg's display, so the
-        ; user can cursor-up onto the echoed register line, edit any
-        ; field (including PC), and have it committed on RETURN.
-        cmp #'p'
-        bne @no_pc
-        ; skip "pc:" (3 chars), parse 4 hex → brk_pc
         lda rp_ptr
-        clc
-        adc #3
+        sta rp_addr             ; start of the fields, for pass 2
+        lda rp_ptr+1
+        sta rp_addr+1
+        lda #0
+        sta rp_save2            ; pass 1: check only
+        jsr reg_fields
+        bcs @syntax
+        lda rp_addr
         sta rp_ptr
-        bcc :+
-        inc rp_ptr+1
-:       jsr parse_hex4_ptr1     ; A = lo, X = hi
-        sta brk_pc
-        stx brk_pc+1
-        jsr skip_sp_ptr1
-@no_pc:
-
-        ; Parse a:XX x:XX y:XX s:XX into reg_a..reg_sp (contiguous
-        ; in BSS — defined in that order in asm_line.s).  Each
-        ; iteration: parse_regval eats "X:YY", skip_sp_ptr1 eats
-        ; the delimiting space before the next field (or leading
-        ; space of the flags block on the last iteration).
-        ldx #0
-@rlp:   jsr parse_regval
-        sta reg_a,x
-        jsr skip_sp_ptr1
-        inx
-        cpx #4
-        bcc @rlp
-
-        ; Parse flags: 8 chars, bit=1 if typed char is uppercase form
-        ; of str_flag_ch[x] (PETSCII $C0-$DF, i.e. lowercase + $80).
-        ; Lowercase, '-', or anything else → bit=0.
-        ; rp_tmp2 accumulates from the right; the 8 asl's below shift
-        ; any initial garbage entirely out, so no zero-init needed.
-        ldy #0                  ; input offset
-        ldx #0                  ; flag slot
-@pflag: asl rp_tmp2             ; make room; low bit defaults 0
-        lda (rp_ptr),y
-        beq @pdone              ; end of input → remaining bits stay 0
-        cmp #';'
-        beq @pdone
-        iny                     ; consume this char
-        eor str_flag_ch,x       ; match iff typed == reference ^ $80 (uppercase)
-        cmp #$80                ; $80 means: matches reference, with bit 7 set
-        bne @pnext              ; not a "set" marker → bit=0
-        inc rp_tmp2             ; flip low bit 0→1
-@pnext: inx
-        cpx #8
-        bcc @pflag
-        beq @pstore             ; got 8 bits, store directly
-@pdone: ; pad remaining slots with 0
-@ppad:  cpx #8
-        bcs @pstore
-        asl rp_tmp2
-        inx
-        bne @ppad
-@pstore:
-        ; rp_ptr advance past consumed flag chars used to be here but
-        ; nothing reads rp_ptr after cmd_reg returns (@show just
-        ; emit_reg + nl_clear) — dead code, removed.
-        lda rp_tmp2
-        and #%11011111          ; keep bit 5 = 0 invariant (matches
-                                ; the capture-time mask in debugger.s);
-                                ; lets emit_reg skip its '-' guard.
-        sta reg_p
-
+        lda rp_addr+1
+        sta rp_ptr+1
+        inc rp_save2            ; pass 2: apply
+        jsr reg_fields
 @show:  ; emit_reg already sets CUR_COL=0, so it overwrites the
         ; current row — the edited `r …` line is replaced in place
         ; with the authoritative formatted register state.  nl_clear
         ; then advances to a fresh row for the next prompt.
         jsr emit_reg
         jmp nl_clear
+@syntax:
+        jmp _syntax_err
 .endproc
+
+; ── reg_fields — one pass over cmd_reg's fields ─────────────────────
+; In:  rp_ptr = first field, rp_save2 = 0 check only / 1 apply.
+; Out: C=0 all fields valid (applied when rp_save2 != 0); C=1 a field
+;      is invalid.  rp_ptr advanced.
+; Clobbers: A, X, Y, rp_tmp, rp_tmp2, rp_save.
+.proc reg_fields
+@next:  jsr skip_peek_ptr1      ; A = char, Y = 0
+        beq @ok
+        cmp #';'
+        beq @ok
+        ldx #4                  ; 0-3 = a x y s, 4 = pc
+@lbl:   cmp reg_labels,x
+        beq @label
+        dex
+        bpl @lbl
+        ; No label: the 8-character flags field, then end of field.
+@fl:    lda (rp_ptr),y
+        eor str_flag_ch,y
+        beq @f0                 ; lowercase reference → clear
+        cmp #$80
+        beq @f1                 ; uppercase reference → set (C=1)
+        lda (rp_ptr),y
+        cmp #'-'
+        beq @f0
+        cmp #'.'
+        bne @err
+@f0:    clc
+@f1:    rol rp_tmp
+        iny
+        cpy #8
+        bcc @fl
+        jsr is_eow_at_ptr1_y    ; Y = 8
+        bne @err
+        tya
+        jsr adv_ptr1
+        lda rp_tmp
+        and #%11011111          ; keep bit 5 = 0 invariant (matches
+                                ; the capture-time mask in main.s);
+                                ; lets emit_reg skip its '-' guard.
+        ldx #4                  ; reg_a + 4 = reg_p (asm_line.s order)
+        bne @store              ; always
+
+@err:   sec
+        rts
+@ok:    clc
+        rts
+
+@label: ; "L:XX" (L = a/x/y/s) or "pc:XXXX"
+        iny
+        cpx #4
+        bne @colon
+        lda (rp_ptr),y
+        cmp #'c'
+        bne @err
+        iny
+@colon: lda (rp_ptr),y
+        cmp #':'
+        bne @err
+        iny
+        tya
+        jsr adv_ptr1            ; past the label
+        ; Digits: 2, or 4 for pc; then end of field.
+        lda #0
+        sta rp_tmp
+        sta rp_tmp2
+        tay
+@dig:   lda (rp_ptr),y
+        jsr _hex_val
+        cmp #$10
+        bcs @err
+        sta rp_save
+        lda rp_tmp
+        asl
+        asl
+        asl
+        asl
+        ora rp_save
+        sta rp_tmp              ; pc: the high byte is ready after
+        iny                     ; two digits — move it up
+        cpy #2
+        bne :+
+        cpx #4
+        bne @digend
+        sta rp_tmp2
+:       cpy #4
+        bcc @dig
+@digend:
+        jsr is_eow_at_ptr1_y
+        bne @err
+        tya
+        jsr adv_ptr1
+        lda rp_tmp
+        cpx #4
+        bcs @pc
+@store: ldy rp_save2            ; pass 1: check only
+        beq @to_next
+        sta reg_a,x
+@to_next:
+        jmp @next
+@pc:    ldy rp_save2
+        beq @to_next
+        sta brk_pc
+        lda rp_tmp2
+        sta brk_pc+1
+        bcs @to_next            ; always (C=1 from cpx #4)
+.endproc
+
+; ── adv_ptr1 — rp_ptr += A.  Clobbers A. ───────────────────────────
+adv_ptr1:
+        clc
+        adc rp_ptr
+        sta rp_ptr
+        bcc :+
+        inc rp_ptr+1
+:       rts
 
 ; ═══════════════════════════════════════════════════════════
 ; ═══════════════════════════════════════════════════════════

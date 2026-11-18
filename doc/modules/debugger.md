@@ -860,7 +860,21 @@ On break, displays:
 ```
 r               display registers
 r a:XX x:XX y:XX s:XX NvBdizc    set registers
+r pc:XXXX a:XX x:XX y:XX s:XX NvBdizc
 ```
+
+Fields are matched by their label, in any order, and any subset may
+be given (`r x:05` sets X only).  A register field is `a:`, `x:`,
+`y:` or `s:` plus exactly two hex digits; `pc:` takes four.  The
+flags field is exactly 8 characters in `nv-bdizc` order: the
+uppercase letter sets the flag, the lowercase letter, `-` or `.`
+clears it (bit 5 stays 0).  Each field ends at a space, `;` or the
+line end.  Anything else — an unknown label, a missing or non-hex
+digit, a flags field of the wrong length or with a foreign
+character — is `;?syntax` and changes no register: the line is
+checked in full before any field is applied.  The echoed line
+(`emit_reg`'s format) re-executes unchanged, so cursor-up + edit +
+RETURN edits registers in place.
 
 Register modifications via `r` between a break and `c`/`t`/`o`
 are applied when execution resumes (next call to `return_to_userland`

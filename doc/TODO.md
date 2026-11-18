@@ -855,9 +855,13 @@ documentation round that follows this filing.
   (`bank_out_stub`), so user code running with KERNAL out and I/O in
   (`$35`) loses I/O after the first IRQ; contradicts
   userland_contract.md § 5.3.
-- [ ] **`r` parses its fields by position, not by label**: `r x:05`
+- [x] **`r` parses its fields by position, not by label**: `r x:05`
   sets A, `r a:zz` / `r a` set every register to `$FF` with no error;
   a following `c` resumes with SP = `$FF` and crashes.
+  Fixed 2026-11-18: `cmd_reg` matches fields by label (`a:` `x:`
+  `y:` `s:` `pc:`, 8-char flags), any order and subset; the line is
+  checked in full before anything is applied, a bad field is
+  `;?syntax`, tests `TestRegisterFieldsByLabel`.
 - [x] **Step over `JMP ($xxFF)` ignores the NMOS page wrap**: the step
   BRK is armed at the wrong target, user code runs free, and `$00`
   stays patched there.
