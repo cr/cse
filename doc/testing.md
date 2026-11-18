@@ -1420,8 +1420,12 @@ clear, X and Y kept).  Everything above them is the KERNAL's own code:
 `OPEN`, `CLOSE`, `CHKIN`, `CHKOUT`, `CHRIN`, `CHROUT`, `CLRCHN`,
 `LOAD`, `SAVE`, the file table, `ST`.  So:
 
-- a device number with no drive sets `ST` bit 7 (device not present;
-  `OPEN` and `LOAD` fail with error 5);
+- a device number with no drive is not served: the KERNAL's own
+  routine runs against the empty bus above, as on a C64 without that
+  drive — `ST` bit 7 (device not present; `OPEN` with a name and
+  `LOAD` fail with error 5), and a `CHKIN` on such a device hangs in
+  the KERNAL's talk turnaround (`TKSA` waits for a talker to pull CLK),
+  as a stock C64 does;
 - `ACPTR` sets `ST` bit 6 (EOI) with a file's last byte; from a channel
   with nothing to send (a file that failed to open, or one read out)
   it returns `$0D` with `ST` = `$42` (EOI + read timeout) — so `LOAD`

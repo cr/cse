@@ -402,7 +402,6 @@ class C64Emu(EmuBase):
 ST = 0x90                       # KERNAL I/O status byte
 ST_TIMEOUT_READ = 0x02
 ST_EOI = 0x40
-ST_DEVICE_NOT_PRESENT = 0x80
 
 BLOCKS_TOTAL = 664              # a formatted 1541 disk
 DIR_LOAD_ADDR = 0x0401          # the "$" file's load address
@@ -752,8 +751,9 @@ class IECBus:
     UNLSN — at the addresses the KERNAL's jump table names) carry each
     byte to and from the addressed drive, so OPEN, CLOSE, CHKIN,
     CHKOUT, CHRIN, CHROUT, CLRCHN, LOAD and SAVE run the KERNAL's own
-    code above them.  A device with no drive leaves ST = $80 (device
-    not present)."""
+    code above them.  A device with no drive is not served: the
+    KERNAL's routine runs against the empty bus (BankedMemory's $DD00),
+    exactly as on a C64 without that drive."""
 
     _JUMP_TABLE = {"talk": 0xFFB4, "listen": 0xFFB1, "second": 0xFF93,
                    "tksa": 0xFF96, "ciout": 0xFFA8, "acptr": 0xFFA5,
@@ -780,29 +780,30 @@ class IECBus:
             self.emu.remove_trap(addr)
 
     def _serve(self, handler):
-        handler(self.emu)
-        self.emu.carry = False
-        self.emu._rts()
+        """Run `handler`; if it served the call (a drive is addressed),
+        return from the routine as it would (carry clear, X/Y kept);
+        else leave PC, so the KERNAL's own routine runs."""
+        if handler(self.emu):
+            self.emu.carry = False
+            self.emu._rts()
 
     def _st(self, bits):
         self.emu.memory[ST] = self.emu.memory[ST] | bits
 
-    def _address(self, dev):
-        drive = self.drives.get(dev & 0x1F)
-        if drive is None:
-            self._st(ST_DEVICE_NOT_PRESENT)
-        return drive
-
     def _talk(self, emu):
-        self._talker, self._talk_ch = self._address(emu.a), None
+        self._talker = self.drives.get(emu.a & 0x1F)
+        self._talk_ch = None
+        return self._talker is not None
 
     def _listen(self, emu):
-        self._listener, self._listen_ch = self._address(emu.a), None
+        self._listener = self.drives.get(emu.a & 0x1F)
+        self._listen_ch = None
         self._opening = False
+        return self._listener is not None
 
     def _second(self, emu):
         if self._listener is None:
-            return
+            return False
         cmd, ch = emu.a & 0xF0, emu.a & 0x0F
         self._listen_ch = ch
         self._opening = cmd == 0xF0
@@ -810,34 +811,43 @@ class IECBus:
         if cmd == 0xE0:
             self._listener.close(ch)
             self._listen_ch = None
+        return True
 
     def _tksa(self, emu):
-        if self._talker is not None:
-            self._talk_ch = emu.a & 0x0F
+        if self._talker is None:
+            return False
+        self._talk_ch = emu.a & 0x0F
+        return True
 
     def _ciout(self, emu):
-        if self._listener is None or self._listen_ch is None:
-            return
-        if self._opening:
+        if self._listener is None:
+            return False
+        if self._listen_ch is None:
+            pass
+        elif self._opening:
             self._name.append(emu.a)
         else:
             self._listener.write(self._listen_ch, emu.a)
+        return True
 
     def _unlsn(self, emu):
         drive, ch = self._listener, self._listen_ch
-        if drive is not None and ch is not None:
+        if drive is None:
+            return False
+        if ch is not None:
             if self._opening:
                 drive.open(ch, self._name)
             else:
                 drive.unlisten(ch)
         self._listener = self._listen_ch = None
         self._opening = False
+        return True
 
     def _acptr(self, emu):
-        got = None
-        if self._talker is not None and self._talk_ch is not None:
-            got = self._talker.read(self._talk_ch)
-        if got is None:                 # nobody sends: the read times out
+        if self._talker is None:
+            return False
+        got = None if self._talk_ch is None else self._talker.read(self._talk_ch)
+        if got is None:                 # nothing to send: the read times out
             byte = 0x0D
             self._st(ST_EOI | ST_TIMEOUT_READ)
         else:
@@ -847,6 +857,10 @@ class IECBus:
         emu.a = byte
         p = emu.p & ~(emu.cpu.ZERO | emu.cpu.NEGATIVE)
         emu.p = p | (emu.cpu.ZERO if byte == 0 else 0) | (byte & 0x80)
+        return True
 
     def _untlk(self, emu):
+        if self._talker is None:
+            return False
         self._talker = self._talk_ch = None
+        return True

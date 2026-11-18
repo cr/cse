@@ -380,6 +380,16 @@ class TestKernalOnTheBus:
         carry, err, _ = Kernal(emu).load(b"X", 9, 1)
         assert carry and err == 5 and emu.memory[ST] == 0x80
 
+    def test_chkin_on_a_device_with_no_drive_hangs_as_on_a_c64(self, emu):
+        """Not served: the KERNAL's TKSA turns the bus round and waits
+        for a talker to pull CLK — forever on the empty bus.  OPEN with
+        an empty name sends nothing, so it does not notice."""
+        emu.attach_drive(8)
+        k = Kernal(emu)
+        assert not k.open(15, 9, 15)
+        with pytest.raises(TimeoutError):
+            emu.jsr(CHKIN, x=15, max_cycles=50_000)
+
     def test_load_directory(self, emu):
         d = emu.attach_drive(8)
         d.put("FOO", b"\x01\x08x")
