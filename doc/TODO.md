@@ -991,9 +991,13 @@ documentation round that follows this filing.
 - [ ] **`.cpu` in source changes `asm_cpu` for pass 1 from the start**
   (lines before the directive) and leaks into the REPL afterwards; not
   restored by `asm_assemble`.
-- [ ] **REPL `.` with a symbol operand reads tables from ROM.**
+- [x] **REPL `.` with a symbol operand reads tables from ROM.**
   `sym_lookup`'s `kernal_bank_in` really banks in inside `asm_line`
   (non-nesting helpers), so `.asl $12,zz` emits `A2 12 02`, 0 errors.
+  Fixed 2026-11-18: sym_define/sym_lookup save $01 on entry and
+  restore it on every exit (never bank_in), so asm_line's bank-out
+  survives a symbol lookup; mem.s unchanged. Tests TestBankGuardNests
+  (test_symtab.py), TestReplDotAfterSymbol (test_asm_src.py).
 - [ ] **Non-letters reach the mnemonic hash**: 906 false positives on
   mn7 builds (`ld8` → DEX, `xb` → BCC, `fo0` → NOP), 884 on mn6;
   `_asm_rd_upper` passes bytes below `$41`, and the tables are indexed

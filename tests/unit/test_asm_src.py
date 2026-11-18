@@ -1409,3 +1409,27 @@ class TestCodeBeforeFirstOrg:
         assert errors == 0
         assert org == 0x0800
         assert seg == {"min_pc": 0x0800, "max_pc": 0xC001}
+
+
+class TestReplDotAfterSymbol:
+    """symtab.md § KERNAL banking: on the REPL `.` path (asm_line with
+    kernal_out = 0) a symbol operand must not bank the KERNAL back in —
+    the opcode tables read afterwards live in RAM under it (C64Emu
+    models the banking; the instruction used to come out wrong)."""
+
+    @pytest.mark.parametrize("text,expect", [
+        ("lda zz", [0xAD, 0x00, 0x10]),
+        ("lda zz,x", [0xBD, 0x00, 0x10]),
+        ("jmp (zz)", [0x6C, 0x00, 0x10]),
+    ])
+    def test_symbol_operand(self, cse_prg, text, expect):
+        emu, errors = _c64_assemble(cse_prg, ".org $1000\nzz: rts")
+        assert errors == 0
+        data = [ord(c) - 0x20 if "a" <= c <= "z" else ord(c) for c in text] + [0]
+        emu.memory[0x3000:0x3000 + len(data)] = data
+        emu.write_word(emu.sym("asm_pc"), 0x2000)
+        emu.write_word(emu.sym("asm_out"), 0x2000)
+        emu.memory[emu.sym("kernal_out")] = 0
+        emu.jsr(emu.sym("asm_line"), a=0x00, x=0x30)
+        assert emu.a == len(expect)
+        assert list(emu.memory[0x2000:0x2000 + len(expect)]) == expect

@@ -479,6 +479,30 @@ class TestDesignGuarantees:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Nesting bank guard (symtab.md § KERNAL banking)
+# ═══════════════════════════════════════════════════════════════════
+
+class TestBankGuardNests:
+    """sym_define / sym_lookup restore the caller's $01 on every exit
+    (with kernal_out = 0): a caller that has banked out stays banked
+    out, one that has not stays banked in."""
+
+    @pytest.mark.parametrize("port", [0x35, 0x37])
+    @pytest.mark.parametrize("op", ["define", "lookup hit", "lookup miss"])
+    def test_port_restored(self, symt, port, op):
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        assert _define(symt, mpu, mem, "zz", 0x1234)
+        mem[SymbolTable(LBL)["kernal_out"]] = 0
+        mem[0x01] = port
+        if op == "define":
+            _define(symt, mpu, mem, "yy", 1)
+        else:
+            _lookup(symt, mpu, mem, "zz" if op == "lookup hit" else "nope")
+        assert mem[0x01] == port
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Pass stamp (symtab.md § Pass stamp)
 # ═══════════════════════════════════════════════════════════════════
 

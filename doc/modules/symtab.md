@@ -125,19 +125,25 @@ at all.
 scan, name compare) and therefore must bank out before access.
 `sym_clear` is a pure writer (zeros 1536 bytes) and does not bank.
 
-The banking guard sequence used by `sym_define` and `sym_lookup`:
+The banking guard used by `sym_define` and `sym_lookup` **nests**: it
+saves `$01` on entry, banks out through `kernal_bank_out`, and on
+every exit restores the saved `$01` — it never banks *in* on its own:
 
 ```
-sei                 ; disable interrupts
 lda $01
-and #$FD           ; clear bit 1 → KERNAL RAM visible
-sta $01
+pha                 ; caller's banking
+jsr kernal_bank_out ; KERNAL RAM visible (no-op inside a batch)
   ... table access ...
-lda $01
-ora #$02           ; set bit 1 → KERNAL ROM restored
-sta $01
-cli                 ; re-enable interrupts
+pla
+sta $01             ; back to exactly the caller's state
 ```
+
+So a caller that has itself banked out without the `kernal_out` batch
+flag — `asm_line` on the REPL `.` path, which reads its KDATA tables
+after a symbol operand is resolved — keeps the KERNAL banked out
+across the lookup.  (A guard that ended with `kernal_bank_in` banked
+the ROM back in under such a caller: `.asl $12,zz` read the opcode
+tables from ROM and emitted `A2 12 02`.)
 
 The kernal banking functions (`kernal_bank_out`, `kernal_bank_in`,
 `kernal_out`) live in `mem.s`.  symtab.s imports them.

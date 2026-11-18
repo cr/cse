@@ -23,7 +23,7 @@
         .export sym_define, sym_lookup, sym_clear
         .export sym_stamp, sym_fwd
 
-        .import kernal_bank_out, kernal_bank_in
+        .import kernal_bank_out
         .importzp kernal_out            ; zp.s
 
         .importzp sym_name, sym_val, sym_wide
@@ -268,6 +268,8 @@ SYM_HEAP_END = $EF00
         lda _st_hash
         sta _st_idx             ; SYM_MASK=$FF: no masking needed for 8-bit ZP
 
+        lda $01                 ; nesting guard: keep the caller's banking
+        pha                     ; (restored on every exit, never bank_in)
         jsr kernal_bank_out
 
         ; Probe loop: linear probe, stop on empty or name match.
@@ -321,9 +323,8 @@ SYM_HEAP_END = $EF00
         ldy #5
         sta (_st_ptr),y
 
-        jsr kernal_bank_in
         clc
-        rts
+        bcc @exit               ; always
 
 @next:
         inc _st_idx             ; wraps 255→0 naturally (8-bit ZP)
@@ -331,8 +332,9 @@ SYM_HEAP_END = $EF00
         cmp _st_hash
         bne @probe              ; haven't wrapped → keep probing
 
-@full:  jsr kernal_bank_in
-        sec
+@full:  sec
+@exit:  pla
+        sta $01                 ; caller's banking (C kept)
         rts
 .endproc
 
@@ -347,6 +349,8 @@ SYM_HEAP_END = $EF00
         lda _st_hash
         sta _st_idx             ; SYM_MASK=$FF: no masking needed for 8-bit ZP
 
+        lda $01                 ; nesting guard (see sym_define)
+        pha
         jsr kernal_bank_out
 
 @probe: jsr entry_ptr
@@ -383,9 +387,8 @@ SYM_HEAP_END = $EF00
         rol
         sta sym_wide
 
-        jsr kernal_bank_in
         clc
-        rts
+        bcc @exit               ; always
 
 @next:
         inc _st_idx             ; wraps 255→0 naturally (8-bit ZP)
@@ -394,7 +397,8 @@ SYM_HEAP_END = $EF00
         bne @probe              ; haven't wrapped → keep probing
 
 @notfound:
-        jsr kernal_bank_in
         sec
+@exit:  pla
+        sta $01                 ; caller's banking (C kept)
         rts
 .endproc
