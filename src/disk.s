@@ -198,6 +198,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         ldx cur_device
         ldy #2
         KCALL SETLFS
+        PLAT_SETBNK
         KCALL OPEN
         bcc @ok
         lda #2
@@ -229,6 +230,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         ldx cur_device
         ldy #15                 ; secondary (command channel)
         KCALL SETLFS
+        PLAT_SETBNK
         KCALL OPEN
         bcs @done
 
@@ -331,6 +333,7 @@ _status_ret:
         KCALL SETLFS
 
         ; LOAD directory to workspace at $0801 (same as BASIC)
+        PLAT_SETBNK
         lda #0                  ; 0 = LOAD (not VERIFY)
         ldx #<BASIC_START
         ldy #>BASIC_START
@@ -671,6 +674,7 @@ _status_ret:
         ldx cur_device
         tay
         KCALL SETLFS
+        PLAT_SETBNK
         KCALL OPEN
         bcs @hdr_close          ; device not present
         ldx #2
@@ -698,6 +702,7 @@ _status_ret:
         ldx cur_device
         ldy #0
         KCALL SETLFS
+        PLAT_SETBNK
         lda #0                  ; 0 = LOAD (not VERIFY)
         ldx _io_tmp             ; dest lo
         ldy _io_tmp+1           ; dest hi

@@ -214,6 +214,12 @@ DISK_LOCAL_PTR  = $FD
   .endif
 .endmacro
 
+; ── Disk bank (§ Disk bank) ──────────────────────────────────────────
+; Precedes each OPEN and LOAD (before LOAD's register arguments): the
+; banks of the data and of the filename.  c64: empty.
+.macro PLAT_SETBNK
+.endmacro
+
 ; ── Banking (§ Banking) ──────────────────────────────────────────────
 ; For the sites whose banking does not fit kernal_bank_out / _in's
 ; batch protocol.  They compose: BANK_PUSH · BANK_IN_A … BANK_POP.

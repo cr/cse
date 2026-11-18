@@ -579,11 +579,13 @@ P0 progress (step (1), one commit per seam, each byte-identical):
 - [x] Cold start and exit — `PLAT_COLD_START`; `_main`'s steps 1–3,
   `set_charset` and `cse_exit_to_basic` by platform (m65: step 1 and
   `set_charset` `PLAT_PENDING 2`; steps 2–3 absent).
-- [ ] Disk bank, Info map, Loader.
+- [x] Disk bank — `PLAT_SETBNK` before disk.s's three `OPEN`s and
+  two `LOAD`s (before `LOAD`'s register arguments).
+- [ ] Info map, Loader.
 - The m65 bodies the docs state for P0, written in step (4) with the
   harness that tests them: `KCALL` / `KJMP`, `FAR_SIZE` and the far
   access macros, `FAR_BANK` at every far pointer's set sites,
-  `BP_PAGE = CSE_BP`, `PLAT_COLD_START` and `cse_exit_to_basic`
+  `BP_PAGE = CSE_BP`, `PLAT_SETBNK`, `PLAT_COLD_START` and `cse_exit_to_basic`
   (`hyppo_reset`), `_main`'s steps 10–11 (the base-page fill bound,
   the program-region DMA fill), the resident stub, the loader.
 - Finding for P2: the screen pointers `_io_scr` (cse_io.s, screen.s's
