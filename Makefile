@@ -154,7 +154,7 @@ BUILD_YEAR := $(shell date +%Y)
 # view).  Works with both release and debug profiles.
 #   make run INTROSPECT=1
 #   make debug INTROSPECT=1
-ifdef INTROSPECT
+ifeq ($(INTROSPECT),1)
   INTROSPECT_DEFS := -DINTROSPECT
 else
   INTROSPECT_DEFS :=

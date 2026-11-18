@@ -234,8 +234,8 @@ redirect — `m` and `.` then read and write live ZP directly:
     make release INTROSPECT=1   # release + introspection
 
 Mechanism: the Makefile passes `-DINTROSPECT` to `ca65` when
-`INTROSPECT` is set to any non-empty value (`ifdef` — `INTROSPECT=0`
-enables it too), which ca65 `.ifdef`s in [repl.s](../src/repl.s)
+`INTROSPECT=1` (any other value, `INTROSPECT=0` included, leaves it
+off), which ca65 `.ifdef`s in [repl.s](../src/repl.s)
 `zp_stage_prep` and `zp_poke`.  In the INTROSPECT build both helpers become
 pass-through stubs (`rts` / `sta (rp_ptr2),y / rts`) and the
 redirect code is not assembled.  The flag is part of
@@ -314,7 +314,7 @@ absolute address.
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
 | `VERSION` | `0.1` | Version string embedded in splash + D64 label |
 | `ROMSET` | `cbm` | KERNAL/BASIC/CHARGEN set for `run` (`cbm` / `mega`) |
-| `INTROSPECT` | unset | If set (`=1`), disable the user-ZP redirect in `m`/`.` (see above) |
+| `INTROSPECT` | unset | `=1` disables the user-ZP redirect in `m`/`.` (see above); any other value leaves it on |
 
 `CPU`, `THEME`, `TAB_WIDTH`, `VERSION`, `INTROSPECT` and the profile
 form `BUILD_FLAGS`, which the Makefile records in the flags stamp
