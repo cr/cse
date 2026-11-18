@@ -47,7 +47,7 @@ every line is executable.  From here the user can:
   continue (`c`), NMI break, register inspect.
 
 Commands are terse single-character keys.  Block-size-aware operations
-(`m`, `d`, `f`, `t`) work on configurable ranges.  Auto-advance and
+(`m`, `d`, `+`, `-`) work on configurable ranges.  Auto-advance and
 repeat-on-RETURN keep the flow uninterrupted.
 
 ### The Editor
@@ -94,12 +94,12 @@ prefixed (Q and far) instructions as single instructions.
 |------|----------|--------------|
 | Memory | `m` | Hex dump and in-place byte editing |
 | Assembly | `.` `d` `a` | Single-line asm/disasm, block disassembly, full source assembly |
-| Execution | `j` | JSR to address, show registers on return |
+| Execution | `j` `g` | Run at an address / at `main`; a top-level RTS returns to the REPL and shows the registers |
 | Registers | `r` | View/edit A, X, Y, SP, and individual flags |
 | Navigation | `@` `+` `-` `B` | Seek, advance, retreat, set block size |
-| Files | `l` `s` `$` | Load/save PRG and SEQ files, disk directory/commands |
+| Files | `l` `s` `$` | Load/save PRG and SEQ files, disk directory |
 | Utility | `?` `i` `C` `u` | Expression calculator, memory map, colors, CPU mode |
-| Debug | `b` `t` `o` `c` `g` | Breakpoints, trace, trace-over, continue, go |
+| Debug | `b` `t` `o` `c` | Breakpoints, trace, trace-over, continue |
 
 The screen is the command buffer.  Every line is executable.  RETURN
 on an empty line repeats the last command at the next address.
@@ -132,10 +132,9 @@ on an empty line repeats the last command at the next address.
 
 Both assembler and disassembler respect the active CPU mode.
 
-The available modes are bounded at build time by `CPU_CEIL` (0=6502
-only, 1=6502+6510, 2=all three) and `CMOS_SUPPORT` (includes 65C02
-tables and code).  A 6502-only build excludes all illegal and CMOS
-code, saving ROM space.
+Which modes a build offers is fixed at build time by its CPU set
+([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
+A 6502-only build excludes all illegal and CMOS code, saving space.
 
 **Expression calculator** (`?` command):
 
@@ -177,10 +176,10 @@ changes here must propagate.
    every key the user can press is a key CSE can parse.
 
 5. **KERNAL-friendly.**  CSE completely replaces BASIC but cooperates
-   with the KERNAL.  Disk I/O uses KERNAL calls.  `q` restores BASIC
-   cleanly.  The NMI vector is intercepted for mode switching but
-   the KERNAL's IRQ handler continues running (keyboard scan, jiffy
-   clock).
+   with the KERNAL.  Disk I/O uses KERNAL calls.  `Q` restores BASIC
+   cleanly.  The BRK and NMI vectors are taken over for the debugger
+   and RUN/STOP+RESTORE, but the KERNAL's IRQ handler continues
+   running (keyboard scan, jiffy clock).
 
 6. **Transparency.**  CSE interposes nothing between the user and the
    CPU.  The assembler emits bytes the user can see; the disassembler
@@ -224,8 +223,9 @@ Constraints that govern how the code is written.
 - **Stack** — scratch values (saved/restored via `pha`/`pla`)
 - **BSS** — persistent state that doesn't need fast access
 
-Modules that never run concurrently (e.g. assembler vs disassembler)
-can share ZP addresses.  See [memory_design.md § Zero Page Layout](memory_design.md#zero-page-layout).
+Modules that never run concurrently can share ZP addresses — once
+the call graph confirms they never overlap (the obvious candidates
+do; see [memory_design.md § Zero Page Layout](memory_design.md#zero-page-layout)).
 
 ### 2. All syntax characters must be typeable on the C64 keyboard
 
@@ -279,7 +279,7 @@ MEGA65's larger CPU.
 
 ### 5. Don't get in the KERNAL's way — user code sees a working C64
 
-User programs launched from the REPL (via `j`, `g`, `t`, `o`)
+User programs launched from the REPL (via `j`, `g`, `c`, `t`, `o`)
 are expected to use the C64 KERNAL as their I/O layer, much as
 a modern program uses its host terminal.  A user program's
 `JSR $FFD2` is the equivalent of `write(1, …)` on Unix: it
@@ -291,75 +291,33 @@ anything first.
 Concretely, CSE must ensure that at every moment user code
 could start running:
 
-- **KERNAL vectors are the real KERNAL.**  $0314/$0316/$0318
-  (IRQ/BRK/NMI) are either the stock KERNAL addresses or
-  CSE-installed handlers that *delegate to the KERNAL path*
-  for anything they don't themselves use.  The debugger patches
-  $0316 for BRK capture, and restores it on exit.
+- **KERNAL vectors lead to the real KERNAL.**  The IRQ/BRK/NMI
+  vectors are either the stock KERNAL addresses or CSE-installed
+  handlers that *delegate to the KERNAL path* for anything they
+  don't themselves use.  CSE takes over BRK and NMI (`$0316`,
+  `$0318`) for the debugger and RUN/STOP+RESTORE while it runs; the
+  KERNAL's IRQ handler keeps running; RESTOR puts the KERNAL's
+  vectors back on exit.
 - **Screen state is coherent.**  VIC border / background /
-  $D018 charset mode / `$0286` (CHRCOLOR) all reflect the
-  current theme.  The KERNAL's screen editor invariants
-  ($D1/$D2 line pointer, $F3/$F4 color pointer, cursor
-  position at $D3/$D6) are kept in sync via `io_sync` so
-  the KERNAL can resume where CSE left off.
+  `$D018` charset mode / `$0286` (CHRCOLOR) all reflect the
+  current theme.  The KERNAL's screen-editor state (line
+  pointers, cursor position) is kept in sync with CSE's cursor
+  so the KERNAL can resume where CSE left off.
 - **No inherited junk.**  Values that BASIC's `SYS` or a
   previous user-code run might have left in well-known
-  locations (hardware stack residue, $0286 stale colour,
-  $0277 keyboard buffer crud) are reset before user code
-  can observe them.
+  locations (a stale text colour, keys still queued) are reset
+  before user code can observe them.
 
 The rule-of-thumb statement: **user code that does not
 explicitly configure colour, cursor, or screen mode must see
 whatever the current CSE theme is — not BASIC defaults, not
 garbage from a previous run.**  Anywhere CSE overrides a
-KERNAL variable for its own use (e.g. $CC=1 to disable the
+KERNAL variable for its own use (e.g. `$CC` = 1 to disable the
 KERNAL cursor so CSE can manage its own) it must either
 restore the KERNAL value before the user gains control, or
 document the override as part of the user-code contract.
 
-**Current status:** fully audited 2026-04-08; revised for the
-Phase 18 design 2026-04-17.  Every kernal location CSE touches
-has been walked and verified.  The full state contract lives in
-[userland_contract.md](userland_contract.md); summary here:
-
-- Theme colour via `$0286` (CHRCOLOR) and VIC registers —
-  refreshed by `restore_colors` before any user-code entry
-  and after every return.  Phase 18 adds `vic_reset` for VIC
-  text-mode normalisation.
-- Startup SP reset to $FF (cold-init invariant).
-- `$0316` (IBRK) and `$0318` (INMIV) — permanently owned by
-  CSE, patched once by `setup_interrupts` (main.s) at cold init.
-  Restored at exit via kernal RESTOR.
-- `$FFFA`/`$FFFE` RAM shadows — also patched by
-  `setup_interrupts` to early-entry handler labels (no separate
-  trampolines).  See [main.md § setup_interrupts](modules/main.md).
-- NMI dispatch routes on `in_userland` (main.s flag): swallow
-  in kernel mode; break-into-debugger in userland.
-- `$D018` charset mode — forced to $16 (lowercase/uppercase) by
-  `vic_reset` on every userland → kernel transition, called from
-  `hygiene_after_userland` in `handler_finalize` (main.s).  User
-  code is free to change it during its run; state is snapped back
-  on exit.
-- `$D1/$D2`, `$F3/$F4`, `$D3/$D6` (kernal screen-editor state)
-  — `io_sync` keeps them in lockstep with CSE's cursor.
-  `cmd_jmp` emits a newline before rts'ing to `main_loop` so
-  the user's first CHROUT lands on a fresh row;
-  `hygiene_after_userland` calls `io_sync` on exit.
-- `$CC` cursor flag — re-asserted to 1 by `hygiene_after_userland`
-  on every userland → kernel transition.  Hardware kernal cursor
-  stays disabled; CSE manages its own.
-- `$C6` keyboard buffer count — zeroed by `cmd_jmp` before the
-  userland run (so user code's first `GETIN`/`CHRIN` sees an
-  empty queue) and by `hygiene_after_userland` on return (so
-  keystrokes typed during the run don't leak into the REPL).
-- `$0291` (SHIFT+C= lock) — re-asserted to $80 by
-  `hygiene_after_userland` to keep the charset-toggle key combo
-  disabled even if userland cleared it.
-- Hardware stack — user code sees ~240 B free; user must leave
-  64 B of headroom for kernel re-entry on break.  See
-  [memory_design.md § Stack contract](memory_design.md#stack-contract)
-  and [userland_contract.md § 4](userland_contract.md#4-stack-contract).
-  The two-image swap (formerly required for `c`-from-stepped-
-  subroutine correctness) is retired; the new contract guarantees
-  the stack page is preserved naturally because the kernel never
-  pushes below the user's SP.
+The KERNAL cells and hardware registers CSE writes, and when, are
+listed in [userland_contract.md § 2](userland_contract.md#2-state-contract);
+the stack page the user's program shares with CSE in
+[userland_contract.md § 4](userland_contract.md#4-stack-contract).
