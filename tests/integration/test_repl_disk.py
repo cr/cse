@@ -274,6 +274,19 @@ class TestLoadCommand:
         assert emu.memory[0xC000] == 0x0A
         assert project_name(emu) == b"FOO"
 
+    @pytest.mark.parametrize("cmd,start", [('l "foo" 0', 0xC000),
+                                           ('l "foo" $5000', 0x5000)],
+                             ids=["header", "given"])
+    def test_load_prg_prints_where_it_landed(self, emu, cmd, start):
+        """The range line shows the load's own start and size, not
+        cur_addr (here 0)."""
+        set_cur_addr(emu, 0)
+        emu.drive(8).put("FOO.", b"\x00\xc0\x01\x02\x03")
+        run(emu, cmd)
+        assert rows(emu) == ['; load "foo."...',
+                             f"; prg  {start:04x}-{start + 2:04x}     3b",
+                             "; 00, ok,00,00"]
+
     def test_load_prg_missing_fails_with_the_drive_status(self, emu):
         run(emu, 'l "nope" 0')
         assert rows(emu) == ['; load "nope."...', ";?fail",

@@ -618,7 +618,9 @@ A size of 0 is `;?range`.
   `ed_load_source(name)`.  With unsaved edits the `l` gate asks first
   ([§ Gating pattern](#gating-pattern)).
 - PRG: `end` is the target address.  `end == 0` → the PRG header's
-  load address (SETLFS SA=1 path).  Otherwise load to `end` (SA=0).
+  load address.  Otherwise load to `end`.  The result line
+  `; prg  AAAA-BBBB NNNb` shows where the file landed: AAAA its start,
+  BBBB its last byte.
 
 After a successful SEQ load or save the REPL prints `; Nl Mb` and
 one `;!long LNN` per line wider than 39 columns (`warn_long_lines`;

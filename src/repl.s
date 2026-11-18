@@ -3164,6 +3164,11 @@ print_op_name:
         jsr disk_load_prg       ; A/X = end addr (0/0 on error)
         sta rp_cnt              ; end lo
         stx rp_cnt+1            ; end hi
+        lda _io_tmp             ; start: where the file landed
+        sta rp_addr
+        lda _io_tmp+1
+        sta rp_addr+1
+        lda rp_cnt
         ora rp_cnt+1
         bne prg_ok_done
         jmp io_err_load         ; tail-jumps to disk_done

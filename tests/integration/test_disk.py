@@ -146,6 +146,22 @@ class TestLoadPrg:
         assert (e.a | e.x << 8) == 0x5003
         assert e.memory[0x5000:0x5003] == [1, 2, 3]
 
+    @pytest.mark.parametrize("addr,start", [(0, 0xC000), (0x5000, 0x5000)])
+    def test_start_address_in_io_tmp(self, drv, addr, start):
+        e, d = drv
+        d.put("FOO", b"\x00\xc0\x01\x02\x03")
+        e.jsr(e.sym("disk_load_prg"), a=addr & 0xFF, x=addr >> 8)
+        assert e.read_word(e.sym("_io_tmp")) == start
+        assert (e.a | e.x << 8) == start + 3
+        assert e.memory[LDTND] == 0
+
+    def test_header_only_file_is_an_error(self, drv):
+        """Nothing to load after the address: an error, not a hang."""
+        e, d = drv
+        d.put("FOO", b"\x00\xc0")
+        e.jsr(e.sym("disk_load_prg"), a=0, x=0, max_cycles=200_000)
+        assert (e.a, e.x) == (0, 0) and e.memory[LDTND] == 0
+
     def test_missing_file_returns_0_and_the_drive_says_62(self, drv):
         e, d = drv
         _name(e, b"NOPE")

@@ -650,8 +650,13 @@ _status_ret:
 
 ; ═════════════════════════════════════════════════════════
 ; disk_load_prg
-;   A/X = addr, disk_ptr = name (ZP, set by caller)
-;   Returns end address in A/X (0 on error)
+;   A/X = addr (0: the file's own header address), disk_ptr = name
+;   Returns end address in A/X (0 on error), _io_tmp = start address
+;
+;   With addr = 0 the header is read first (OPEN 2 + two CHRINs on
+;   the same name), so the start is known; then KERNAL LOAD with
+;   SA=0 puts the file there.  A file with no byte after its header
+;   is an error (LOAD would wait for data forever).
 ; ═════════════════════════════════════════════════════════
 .proc disk_load_prg
         sta _io_tmp             ; save addr lo
@@ -662,39 +667,65 @@ _status_ret:
         ldx disk_ptr+1
         jsr str_setup           ; ptr = name, Y = length
 
-        ; SETNAM
+        ; SETNAM (kept for both the header OPEN and the LOAD)
         tya                     ; A = length
         ldx ptr
         ldy ptr+1
         jsr SETNAM
 
-        ; SETLFS 1,dev,SA — SA=0: load to X/Y addr; SA=1: use PRG header
-        ldy #0                  ; default: SA=0 (honour X/Y addr)
         lda _io_tmp
         ora _io_tmp+1
         bne @set_lfs
-        ldy #1                  ; no addr → SA=1 (use PRG header)
+        ; No address: read the header.  OPEN 2,dev,2,name
+        lda #2
+        ldx cur_device
+        tay
+        jsr SETLFS
+        jsr OPEN
+        bcs @hdr_close          ; device not present
+        ldx #2
+        jsr CHKIN
+        jsr CHRIN
+        sta _io_tmp
+        jsr CHRIN
+        sta _io_tmp+1
+        jsr READST              ; 0 = more data follows
+        pha
+        jsr CLRCHN
+        pla                     ; Z from READST
+        clc
+@hdr_close:
+        php                     ; Z=0 / C=1: no usable header
+        lda #2
+        jsr CLOSE
+        plp
+        bcs @error
+        bne @error
+
 @set_lfs:
+        ; SETLFS 1,dev,0 — load to the X/Y address
         lda #1
         ldx cur_device
+        ldy #0
         jsr SETLFS
-
-@do_load:
         lda #0                  ; 0 = LOAD (not VERIFY)
         ldx _io_tmp             ; dest lo
         ldy _io_tmp+1           ; dest hi
         jsr LOAD
         bcc @ok
-        ldx #0                  ; error: end = 0
+@error: ldx #0                  ; error: end = 0
         ldy #0
 @ok:    ; X/Y = end address (0 on error)
-        stx _io_tmp
-        sty _io_tmp+1
+        txa
+        pha
+        tya
+        pha
         lda #1
         jsr CLOSE
         jsr floppy_read_status  ; the drive's word into fl_buf
-        lda _io_tmp
-        ldx _io_tmp+1
+        pla
+        tax                     ; end hi
+        pla                     ; end lo
         rts
 .endproc
 

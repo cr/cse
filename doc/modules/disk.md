@@ -82,13 +82,17 @@ channel-I/O bugs).  The caller reads the drive status afterwards
 **In:** A/X = load address, or 0 for the file's own; `disk_ptr` =
 filename
 **Out:** A/X = end address (KERNAL LOAD's end: the first byte after
-the data), A = X = 0 on error.  LFN 1 is closed on both paths.
-`fl_buf` = the drive's status.
-**Clobbers:** A, X, Y, `_io_tmp`, `ptr`
+the data), A = X = 0 on error; `_io_tmp` = start address (where the
+file landed).  LFN 1 is closed on both paths.  `fl_buf` = the drive's
+status.
+**Clobbers:** A, X, Y, `ptr`
 
-KERNAL SETLFS secondary address selects the load mode:
-- addr ≠ 0 → SA=0: KERNAL loads to the address in X/Y (caller's addr).
-- addr = 0 → SA=1: KERNAL loads to the PRG file's 2-byte header address.
+The load itself is KERNAL `LOAD` with SA=0, to a known address:
+- addr ≠ 0 → that address.
+- addr = 0 → the file's 2-byte header address, read first through
+  `OPEN 2` + two `CHRIN`s on the same name (SA=1 would load there too,
+  but leave the start unknown to the caller).  A file with nothing
+  after its header is an error — `LOAD` would wait for data forever.
 
 ### disk_save_prg
 **In:** A/X = size in bytes; `disk_ptr` = filename; `_io_tmp` = start
