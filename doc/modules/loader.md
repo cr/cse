@@ -7,6 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/loader.s`](../../src/loader.s) | implementation |
+| [`tests/integration/test_loader.py`](../../tests/integration/test_loader.py) | test contract — `loader_entry` on the unrelocated PRG equals `EmuBase._relocate_segments()`, BSS zeroed |
 
 ## Interface
 
@@ -52,15 +53,13 @@ copy is always safe under this layout.  See
 `main.s::rp_ptr` / `rp_ptr2`, but the loader runs strictly before
 `_main` so there is no temporal conflict.
 
-**Test coverage.**  No dedicated test file — the loader is exercised
-implicitly by every integration test that loads the production PRG
-through `C64Emu`.  See
-[testing.md § Tier I](../testing.md) and the L6 entry in
-[architecture.md § Layer Diagram](../architecture.md#layer-diagram).
-This is Pattern A coverage per [testing.md § Principle 9](../testing.md):
-the bootstrap path is observable only as part of a full PRG load
-cycle, so unit-tier isolation would require synthesising the
-linker-supplied symbols and is not productive.
+**Test coverage.**  Tier I, `test_loader.py`: the unrelocated PRG
+of each C64 build is put in memory and the real `loader_entry` runs
+up to its `jmp _main`; every relocated segment must equal what
+`EmuBase._relocate_segments()` (the Python relocation every other
+Tier I test loads through) produces, and the BSS must be zeroed.
+Unit-tier isolation would need synthesised linker symbols and is not
+productive ([testing.md § Principle 9](../testing.md), Pattern A).
 
 ## Caveats
 

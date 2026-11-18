@@ -1196,7 +1196,7 @@ record.)
 | **disk** | 4 | I | needs KERNAL LOAD/SAVE/CHKIN |
 | **editor** | 4 | I | observable behaviour goes through screen RAM + keys; gap-buffer primitives now live in `gap_buffer` at L3 |
 | **repl / main** | 5 | I | Layer-5 cycle; only testable full-PRG |
-| **loader** | 6 | I | exercised implicitly by C64Emu `load_prg` |
+| **loader** | 6 | I | `test_loader.py`: `loader_entry` against `load_prg`'s Python relocation |
 
 ## Framework
 
