@@ -350,3 +350,45 @@ class TestDasmBankContract:
             f"$01 bit 1 not set after BBR0: ${mem[0x01]:02X}"
         assert (mpu.p & 0x04) == 0, \
             f"I flag still set after BBR0: ${mpu.p:02X}"
+
+
+# ── No mutable bytes in CODE (dasm.md § Memory; memory_design.md § Design
+#    Principles 2: "No self-modifying code") ──────────────────────────────
+
+class TestCodeIsReadOnly:
+    """Disassembling must not write into the bundle's CODE/RODATA image
+    (a ROM/CRT build cannot).  _compute_branch_target used to stash its
+    PC adjustment in a byte inside CODE (`@adj`)."""
+
+    @pytest.mark.parametrize("insn", [[0xD0, 0xFE], [0x10, 0x05],
+                                      [0x0F, 0x42, 0x80]],     # BNE, BPL, BBR0
+                             ids=["bne", "bpl", "bbr0"])
+    def test_image_unchanged(self, dasm_syms, insn):
+        from asm_dasm_runner import DASM_INSN_ADDR, DASM_RETURN
+        from conftest import _CODE_START
+        mpu = MPU()
+        mem = bytearray(0x10000)
+        dasm_syms.load_into(mem)
+        image = bytes(dasm_syms._code_blob)
+        for n, b in enumerate(insn):
+            mem[DASM_INSN_ADDR + n] = b
+        mem[dasm_syms.asm_cpu] = CPU_65C02
+        mpu.memory = mem
+        mpu.sp = 0xFD
+        mem[0x01FF] = (DASM_RETURN - 1) >> 8
+        mem[0x01FE] = (DASM_RETURN - 1) & 0xFF
+        mpu.pc = dasm_syms.dasm_test_entry
+        for _ in range(10000):
+            if mpu.pc == DASM_RETURN:
+                break
+            mpu.step()
+        # the CODE segment's extent, from the bundle's map
+        import re
+        from conftest import _DASM
+        mapf = _DASM[dasm_syms.config].ensure().bin.with_suffix(".map")
+        m = re.search(r"^CODE\s+([0-9A-F]{6})\s+([0-9A-F]{6})",
+                      mapf.read_text(), re.M)
+        lo, hi = int(m.group(1), 16), int(m.group(2), 16)
+        changed = [a for a in range(lo, hi + 1)
+                   if mem[a] != image[a - _CODE_START]]
+        assert not changed, f"dasm wrote into CODE at ${changed[0]:04X}"

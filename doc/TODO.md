@@ -1078,6 +1078,9 @@ documentation round that follows this filing.
 - [ ] **Mutable bytes in CODE**: `main.s` `@key`, `dasm.s` `@adj`,
   `disk.s` `disk_save_prg`'s `@size_lo`/`@size_hi`
   (blocks a ROM/CRT build; memory_design.md "no self-modifying code").
+  `dasm.s` `@adj` half fixed 2026-11-18: _compute_branch_target folds
+  the adjustment into its arithmetic, test TestCodeIsReadOnly
+  (test_dasm.py); `main.s` `@key` stays open (runtime track).
   `main.s` half fixed 2026-11-18: `@key` is now `main_key` in BSS,
   test `TestMainCodeReadOnly`.  Open: `dasm.s` `@adj` (disassembler
   track), `disk.s` `disk_save_prg`'s size bytes.

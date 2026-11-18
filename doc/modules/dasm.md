@@ -48,6 +48,12 @@ from the user's address before banking out (see Caveats);
 `_dasm_pfx` (1, `MEGA_SUPPORT` only) — the peeled prefix enumeration,
 0 = none, 1 = Q, 2 = far, 3 = Q + far.
 
+**No mutable bytes in CODE:** every scratch value lives in ZP or BSS
+(the branch-target adjustment is folded into the arithmetic of
+`_compute_branch_target`), so dasm.s runs unchanged from ROM
+([memory_design.md § Design Principles](../memory_design.md#design-principles),
+"No self-modifying code").
+
 **Depends on:** dasm_tables (GENERATED), dasm_mne_idx,
 kernal_bank_out / kernal_bank_in (mem.s)
 

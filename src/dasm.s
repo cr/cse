@@ -405,27 +405,22 @@ _emit_target:
 
 .proc _compute_branch_target
         ; In: Y = offset byte index (1 for REL, 2 for ZPREL).
-        ;     Adjustment = Y + 1 (PC past this insn).
-        ; Out: A = target lo, X = target hi.
-        tya
-        clc
-        adc #1
-        sta @adj                ; stash adjustment (2 or 3)
+        ; Out: A/X = target = PC + (Y + 1) + sign-extended offset.
+        ; No scratch byte: CODE stays read-only (ROM/CRT-ready).
+        ldx _dasm_ptr+1         ; user PC hi
         lda _dasm_in,y          ; signed offset (from snapshot)
-        ldx _dasm_ptr+1         ; user PC for target arithmetic
-        cmp #$80                ; sign-extend: negative → pre-dec hi
-        bcc @pos
-        dex
-@pos:   clc
+        bpl :+
+        dex                     ; negative: pre-decrement hi
+:       tya
+        sec                     ; + 1: PC past this insn = Y + 1
         adc _dasm_ptr
         bcc :+
         inx
 :       clc
-        adc @adj                ; + PC adjustment
+        adc _dasm_in,y          ; + offset
         bcc :+
         inx
 :       rts
-@adj:   .byte 0
 .endproc
 
 ; ════════════════════════════════════════════════════════════
