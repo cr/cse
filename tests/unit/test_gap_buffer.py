@@ -505,6 +505,28 @@ class TestGbEnsureRoom:
         assert _buf_base(mem, gb_syms) == floor
 
 
+# ── ed_insert_string: test-only export, carry ignored ─────────────────────
+
+class TestEdInsertStringFull:
+    """gap_buffer.md § ed_insert_string: a test-only seeding helper that
+    ignores gb_insert's carry — on a full buffer the rest of the string
+    is dropped and the call returns normally, nothing written past the
+    gap."""
+
+    def test_full_buffer_drops_the_rest_of_the_string(self, gb_syms):
+        cpu, mem = make_cpu(gb_syms)
+        _jsr(cpu, mem, gb_syms.ed_ensure_init)
+        floor = gb_syms.BUF_FLOOR
+        mem[floor:floor + 4] = [0x41, 0x42, 0x00, 0x0D]   # "AB" | 1-byte gap | CR
+        for sym, val in ((gb_syms.buf_base, floor), (gb_syms.gap_lo, floor + 2),
+                         (gb_syms.gap_hi, floor + 3)):
+            mem[sym], mem[sym + 1] = val & 0xFF, val >> 8
+        _insert_text(cpu, mem, gb_syms, b"XYZ")
+        assert mem[gb_syms.gap_lo] | (mem[gb_syms.gap_lo + 1] << 8) == floor + 3
+        assert bytes(mem[floor:floor + 4]) == b"ABX\r"
+        assert _buf_base(mem, gb_syms) == floor
+
+
 # ── gb_init leaf contract (testing.md Principle 17) ──────────────────────
 
 class TestGbInitLeaf:

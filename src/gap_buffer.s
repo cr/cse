@@ -16,8 +16,8 @@
 ;   * gb_insert / gb_backspace / gb_cursor_right / gb_cursor_left /
 ;     gb_home / gb_ensure_room: the six primitives that manipulate
 ;     the gap.
-;   * ed_insert_string: public wrapper — insert a NUL-terminated
-;     string at the cursor.
+;   * ed_insert_string: test-only export — insert a NUL-terminated
+;     string at the cursor; ignores gb_insert's carry (gap_buffer.md).
 ;   * ed_read_rewind / ed_read_byte / ed_read_line: sequential
 ;     reader (transparent gap skip, EOF reporting).
 ;   * define_ws_syms / update_workend: register workstart/workend
@@ -426,9 +426,10 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 ; its pre-gap block-copy.  For inputs ≤ 256 bytes the first growth
 ; has pre_size = 0 and skips the copy entirely, so save_ptr is
 ; untouched — which is why this stack-save dance only matters for
-; > 256-byte strings (the editor's production smart-indent inserts
-; one byte; disk-load goes via load_insert → gb_insert directly
-; and never uses ed_insert_string).  Latent bug exposed by
+; > 256-byte strings.  Test-only: no production caller (keystrokes
+; and load_insert call gb_insert directly).  gb_insert's carry is
+; ignored — on a full buffer the rest of the string is dropped.
+; Latent bug exposed by
 ; TestGbEnsureRoom::test_growth_preserves_content at the 2026-04-20
 ; L3 TDD sweep.
 .proc ed_insert_string

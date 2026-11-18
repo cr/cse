@@ -125,10 +125,15 @@ pre-gap content down, making room at the gap_hi side.  Updates
 **Clobbers:** A, Y, `ed_tmp`, `ed_scr`, save_ptr (= `read_ptr`).
 
 ### ed_insert_string
+**Test-only export.**  No production code calls it (the editor's
+keystrokes and `load_insert` call `gb_insert` directly); it stays
+exported for the gap_buffer and editor tests to seed buffer content.
 **In:** A/X = NUL-terminated PETSCII string pointer
 **Out:** string inserted at cursor (bytes fed into `gb_insert`).
-On buffer-full mid-string, insertion stops silently — the caller is
-responsible for checking `_load_overflow` in editor.s.
+It ignores `gb_insert`'s carry: once the buffer is full the rest of
+the string is dropped and the call returns normally — the caller
+gets no indication.  A production caller would have to check the
+carry per byte instead.
 **Clobbers:** A, Y, save_ptr (= `read_ptr`).
 
 ### ed_read_rewind
@@ -208,6 +213,7 @@ Full Tier U coverage via `tests/unit/test_gap_buffer.py` (35 tests):
 | `TestGbCursorMove` (6) | `gb_cursor_left` / `gb_cursor_right` content preservation, round-trip, gap_lo/gap_hi co-movement, no-op at buffer ends. |
 | `TestGbHome` (3) | `gb_home` single-line → buf_base, multi-line → just past CR, already-at-start no-op. |
 | `TestGbEnsureRoom` (3) | First insert triggers growth, content preserved across multiple growth rounds, BUF_FLOOR returns C=0. |
+| `TestEdInsertStringFull` (1) | `ed_insert_string` on a full buffer drops the rest of the string, nothing written past the gap. |
 | `TestWorkspaceSymbols` (3) | `define_ws_syms` registers `workstart = $0800`, `workend = buf_base - 1`, and `update_workend` tracks growth. |
 | `TestBufferBoundsState` (3) | `src_top` / `src_bot` BSS state reflects buffer bounds. |
 
@@ -224,10 +230,9 @@ pointer for the pre-gap block-copy during growth) use it.
 around each `gb_insert` call — required for inputs >256 bytes,
 which trigger a growth whose copy clobbers `save_ptr`.
 Latent bug exposed by the `test_growth_preserves_content` test;
-fixed at the 2026-04-20 L3 TDD sweep.  The editor's production
-use of `ed_insert_string` is single-byte smart-indent so this
-path never surfaced before; disk-load goes via `load_insert` →
-`gb_insert` directly without the alias.
+fixed at the 2026-04-20 L3 TDD sweep.  `ed_insert_string` has no
+production caller, so this path never surfaced before; disk-load
+goes via `load_insert` → `gb_insert` directly without the alias.
 
 ## Design
 

@@ -39,7 +39,7 @@ Owned by gap_buffer.s (L3), re-listed here for editor-consumer convenience:
 - `ed_read_rewind()` — reset sequential reader to start of source
 - `ed_read_line(buf)` — read next line into buf (maxlen=40 hardcoded); A/X = length or $FFFF at EOF
 - `ed_read_byte()` — read next byte from source; A/X = byte or $FFFF at EOF
-- `ed_insert_string(text)` — programmatic text insertion at cursor
+- `ed_insert_string(text)` — text insertion at cursor; test-only (no production caller, ignores a full buffer)
 
 See [gap_buffer.md](gap_buffer.md) for the L3 module's full
 contract (insert/delete/cursor primitives, partial-result behaviour

@@ -935,9 +935,10 @@ documentation round that follows this filing.
   (`kernal_out`), `editor.s` (seven), `disk.s` (`io_color`, `io_puts`,
   `io_puthex2/4`), `repl.s` (`oplen_tbl`), `asm_src_test_stub.s`
   (`_min_pc`, `_max_pc`); `test_asm_src.py`'s dead `xfail` path.
-- [ ] `ed_insert_string` has no production caller and ignores
+- [x] `ed_insert_string` has no production caller and ignores
   `gb_insert`'s carry — keep as a test-only export (documented) or
   retire.
+  Fixed 2026-11-18: kept as a documented test-only export (gap_buffer.md: ignores the carry, drops the rest on a full buffer), test TestEdInsertStringFull.
 - [ ] `dbg_reason` enum defined twice (`main.s`, `repl.s`).
 
 ### Code bugs — found by the live example run (2026-11-18)
