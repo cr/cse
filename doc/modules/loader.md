@@ -76,7 +76,7 @@ from `$0800` with `$00`).
 
 Sequence (LOADER segment, load = run = $080D):
 
-1. Reset the 6502 stack pointer to $FF.
+1. Reset the 6502 stack pointer to `STACK_TOP`.
 2. Copy CODE + RODATA from their load position (low memory) to their
    runtime position (high memory) — backward memcpy, top-down.
 3. Zero the BSS region.
@@ -111,7 +111,7 @@ image in bank 0):
    holds `$4C` or `$6C`.  Otherwise the message through `CHROUT`, and
    `rts` to BASIC.  The gate checks capabilities, not a ROM version
    number (ROM 920413, the floor, has no `VERSIONQ`).
-2. `sei`; reset the stack pointer to `$FF`.
+2. `sei`; reset the stack pointer to `STACK_TOP`.
 3. Copy the `STUB` image to `STUB_BASE`; clear CSE's base page;
    write `_main`'s address into the stub's cold target.
 4. `hyppo_rom_writeenable`: banks 2–3 writable.

@@ -51,6 +51,11 @@ are static Tier U tests in `tests/unit/test_platform_audit.py`:
   16-bit pointer to one, unless written `BP_ABS(sym)`
   ([platform_layer.md § Base page](platform_layer.md#base-page));
   zero, with unit tests on synthetic sources.
+- *The stack-top check* — the same tool: no literal `#$FF` loaded and
+  then put in SP (`txs`) or `reg_sp` by the next instruction; the
+  stack top is `STACK_TOP`
+  ([platform_layer.md § Stack](platform_layer.md#stack)); zero, with
+  unit tests on synthetic sources.
 - *The raw-byte audit* — no `.byte` in a CODE segment outside
   `src/m45_ops.inc` emits a 45GS02-only opcode (the 4510 rows the
   6502 lacks, from `dev/instruction_set.py`).

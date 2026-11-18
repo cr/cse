@@ -38,6 +38,10 @@ baseline; the last seam emptied it.)
 Beside it, the base-page check: no absolute-mode access to a CSE
 base-page symbol, nor a pointer to one, unless written BP_ABS(sym)
 (platform_layer.md § Base page).  It asserts zero from the start.
+
+And the stack-top check: no literal `#$FF` put in SP or `reg_sp`; the
+stack top is STACK_TOP (platform_layer.md § Stack).  Zero from the
+start.
 """
 import pathlib
 import re
@@ -214,6 +218,33 @@ def base_page_count(src=SRC):
             if f.name != "zp.s" and (s := base_page_sites(f, names))}
 
 
+_OP = re.compile(r"^\s*(?:[@\w]+:)?\s*([A-Za-z]{3})\b\s*(.*?)\s*$")
+
+
+def stack_top_sites(path):
+    """[(line number, text)] of a literal `#$FF` loaded and then put in
+    SP (`txs`) or stored to `reg_sp` by the next instruction — the
+    stack top is STACK_TOP (platform_layer.md § Stack)."""
+    out, prev = [], None
+    for n, raw in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        m = _OP.match(strip_comment(raw))
+        if not m or raw.lstrip().startswith("."):
+            continue
+        op, arg = m.group(1).lower(), m.group(2)
+        if prev and (op == "txs" and prev[1] == "x" or
+                     op[:2] == "st" and op[2] == prev[1] and arg == "reg_sp"):
+            out.append(prev[0])
+        prev = None
+        if op[:2] == "ld" and op[2] in "axy" and arg.upper() == "#$FF":
+            prev = ((n, raw.strip()), op[2])
+    return out
+
+
+def stack_top_count(src=SRC):
+    return {f.name: len(s) for f in sorted(src.glob("*.s"))
+            if (s := stack_top_sites(f))}
+
+
 def main(argv):
     total = 0
     for f in audited_files():
@@ -229,6 +260,8 @@ def main(argv):
     for f in sorted(SRC.glob("*.s")):
         for n, text in ([] if f.name == "zp.s" else base_page_sites(f, names)):
             print(f"base page: {f.name}:{n}: {text[:60]}")
+        for n, text in stack_top_sites(f):
+            print(f"stack top: {f.name}:{n}: {text[:60]}")
     return 0
 
 

@@ -126,7 +126,7 @@ dbg_init:
         sta reg_y
         sta reg_p
         sta dbg_reason
-        lda #$FF
+        lda #STACK_TOP
         sta reg_sp              ; user's stack begins empty
 
         ; Bootstrap seed for the CPU-port bytes in both ZP backup

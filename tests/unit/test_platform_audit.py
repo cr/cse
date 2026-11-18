@@ -132,3 +132,27 @@ def test_base_page_check(tmp_path, line, flagged):
     (tmp_path / "m.s").write_text("alias = bp_buf\n" + line + "\n")
     names = AUDIT.base_page_symbols(tmp_path)
     assert bool(AUDIT.base_page_sites(tmp_path / "m.s", names)) == flagged
+
+
+# ── the stack-top check (platform_layer.md § Stack) ──
+
+def test_no_literal_stack_top():
+    """A stack reset and `reg_sp`'s seeds use STACK_TOP — `$F1` on m65,
+    where a literal `$FF` would hand the program the wrong SP."""
+    assert AUDIT.stack_top_count() == {}
+
+
+@pytest.mark.parametrize("text,flagged", [
+    ("        ldx #$FF\n        txs\n", True),
+    ("        ldx #$ff        ; top\n        txs\n", True),
+    ("        lda #$FF\n        sta reg_sp\n", True),
+    ("        ldx #$FF\n\n; c\n        stx reg_sp\n", True),
+    ("        ldx #STACK_TOP\n        txs\n", False),
+    ("        lda #STACK_TOP\n        sta reg_sp\n", False),
+    ("        ldx reg_sp\n        txs\n", False),
+    ("        ldx #$FF\n        stx dbg_bp_hit\n", False),
+    ("        ldx #$FF\n        inx\n        txs\n", False),
+])
+def test_stack_top_check(tmp_path, text, flagged):
+    (tmp_path / "m.s").write_text(text)
+    assert bool(AUDIT.stack_top_sites(tmp_path / "m.s")) == flagged

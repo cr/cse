@@ -35,7 +35,7 @@ matrix, and the stepping machinery as a whole.
 **Out:** the step-state block (`brk_pc`, `step_state`,
 `step_remaining`, `step_next_lo`, `step_next_hi`, `step_save`,
 `_rtu_need_sentinel`) zeroed; `reg_a`, `reg_x`, `reg_y`, `reg_p` = 0;
-`dbg_reason = DBG_NONE`; `reg_sp = $FF`; the CPU-port bytes of both ZP
+`dbg_reason = DBG_NONE`; `reg_sp = STACK_TOP`; the CPU-port bytes of both ZP
 save buffers seeded: `userland_zp_buf` / `kernel_zp_buf` `[$00] = $2F`,
 `[$01] = $36`.  The breakpoint table is not touched.
 **Clobbers:** A, X

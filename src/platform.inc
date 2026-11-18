@@ -89,6 +89,9 @@ IRQ_VEC_RAM     = $FFFE
 ; ── The interrupt frame ──────────────────────────────────────────────
 FRAME_DEPTH     = 3             ; Y X A above the CPU's P PCL PCH
 
+; ── The stack top (platform_layer.md § Stack) ────────────────────────
+STACK_TOP       = $FF           ; the whole page
+
 ; ── Homes ────────────────────────────────────────────────────────────
 HIMEM           = $D000         ; first byte past the runtime image
 BASIC_START     = $0801         ; BASIC's program start (TXTTAB)

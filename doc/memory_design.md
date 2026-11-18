@@ -303,8 +303,9 @@ with balanced JSR/RTS discipline.
 
 ### Invariants
 
-1. **Cold init starts at SP=$FF** (the loader resets it).  Without a
-   debug session the kernel's loop runs at SP = $FF.
+1. **Cold init starts at SP = `STACK_TOP`** (the loader resets it;
+   [platform_layer.md § Stack](platform_layer.md#stack)).  Without a
+   debug session the kernel's loop runs at SP = `STACK_TOP`.
 2. **The kernel never writes a stack byte above the user's SP.**  The
    bytes from the user's SP + 1 up to $01FF are the user's live stack
    (return addresses, the `brk_stub` sentinel, pushed data) and survive
@@ -456,7 +457,7 @@ pointers ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
 [userland_contract.md § 3](userland_contract.md#3-memory-regions)'s.
 
     0.0000–0.00FF  base page 0                                  the user and the KERNAL
-    0.0100–0.01FF  the stack (8-bit, E = 1)                     shared
+    0.0100–0.01FF  the stack (8-bit, E = 1), top at $01F1       shared
     0.0200–0.15FF  KERNAL variables; the screen at 0.0800       the KERNAL
                    (40 × 25 and 80 × 25)
     0.1600–0.1EFF  free for programs                            —

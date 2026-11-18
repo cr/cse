@@ -40,13 +40,13 @@ entry.
 
 ### _main
 **In:** jumped to by `loader.s` after relocation (BSS zero, KDATA in
-place); SP = `$FF`.
+place); SP = `STACK_TOP`.
 **Out:** does not return — runs the cold-init sequence (§ Layer 1)
 and `jmp main_loop_top`.
 **Clobbers:** everything.
 
 **On m65:** reached from the resident stub's cold entry under the CSE
-map, after the loader's install ([loader.md](loader.md)); SP = `$FF`,
+map, after the loader's install ([loader.md](loader.md)); SP = `STACK_TOP`,
 `B = CSE_BP`, interrupts off.  Same sequence, with the per-step
 differences of § Layer 1.
 
@@ -119,7 +119,7 @@ interrupt frame below it.
 ### cse_recover
 **In:** any state — reached by `jmp` from `cse_brk_handler` on a BRK
 in kernel code (`in_userland = 0`).
-**Out:** does not return.  SP = `$FF`, `kernel_init_sp = $FF`,
+**Out:** does not return.  SP = `kernel_init_sp` = `STACK_TOP`,
 `hw_reinit_body`, `end_debug_body`, `refresh_body`, then
 `main_loop_top`.  A second entry before the first finished
 (`warm_guard`) jumps to the platform's cold-start fallback,
@@ -161,7 +161,7 @@ Caller: `cse_recover`.
 **Out:** the debug session is gone: `unpatch_all` (every patched
 breakpoint's byte restored); `dbg_reason`, `run_user_pending`,
 `in_userland`, `stop_cooldown`, `last_cmd`, `cold_preview_done` = 0;
-`reg_sp = $FF`; `dbg_bp_hit = $FF`; then `repl.s::step_cleanup`
+`reg_sp = STACK_TOP`; `dbg_bp_hit = $FF`; then `repl.s::step_cleanup`
 (`step_state` / `step_remaining` = 0, step slots zeroed, a breakpoint
 a step disabled enabled again).  Editor state and the breakpoint
 table are kept.
@@ -200,7 +200,7 @@ code)
 
 | Variable | Exported | Purpose |
 |---|---|---|
-| `kernel_init_sp` | yes (no importer) | SP for `cse_end_debug`; `tsx` at the end of cold init (`$FF`), `$FF` again by `cse_recover`. |
+| `kernel_init_sp` | yes (no importer) | SP for `cse_end_debug`; `tsx` at the end of cold init (`STACK_TOP`), `STACK_TOP` again by `cse_recover`. |
 | `run_user_pending` | yes (repl.s) | `MODE_NONE` (0) / `MODE_JUMP` (1) / `MODE_RESUME` (2): set by `j`/`g`/`c`/`t`/`o`, dispatched by `main_loop` after `exec_line` returns. |
 | `stop_cooldown` | yes (repl.s) | RUN/STOP edge filter (§ Keyboard). |
 | `warm_guard` | no | `cse_recover` re-entry guard. |
@@ -306,7 +306,7 @@ triggering event), not what it does:
 They compose the three body subroutines (Interface above):
 
 ```
-cse_recover:     ldx #$FF / txs / stx kernel_init_sp
+cse_recover:     ldx #STACK_TOP / txs / stx kernel_init_sp
                  jsr hw_reinit_body
                  jsr end_debug_body
                  jsr refresh_body
@@ -323,11 +323,11 @@ main_loop_top:   ...
 ```
 
 `cse_recover` and `cse_end_debug` end any debug session and reset SP
-to `$FF`.  `cse_refresh` keeps the session, so it resets SP to
+to `STACK_TOP` ([platform_layer.md § Stack](../platform_layer.md#stack)).  `cse_refresh` keeps the session, so it resets SP to
 `reg_sp`: the user's stack above it (the `brk_stub` sentinel and
 whatever the program pushed) stays intact under the kernel's own
 calls, and `c`/`t`/`o` resume correctly after CLR, ESC or
-RUN/STOP+RESTORE at the prompt.  With no session `reg_sp` is `$FF`.
+RUN/STOP+RESTORE at the prompt.  With no session `reg_sp` is `STACK_TOP`.
 On the next `main_loop_top` pass a live session's break panel is
 shown again (`post_run_cleanup`).
 
@@ -372,11 +372,11 @@ once and the loop's own stack use is balanced:
 
 | Entry | SP |
 |---|---|
-| `_main` | `$FF` (loader's reset; balanced `jsr`s) |
+| `_main` | `STACK_TOP` (loader's reset; balanced `jsr`s) |
 | `handler_finalize` (end of every userland break) | `reg_sp` — the user's SP at the break |
-| `cse_refresh` | `reg_sp` (`$FF` without a session) |
-| `cse_recover` | `$FF` |
-| `cse_end_debug` | `kernel_init_sp` (`$FF`) |
+| `cse_refresh` | `reg_sp` (`STACK_TOP` without a session) |
+| `cse_recover` | `STACK_TOP` |
+| `cse_end_debug` | `kernel_init_sp` (`STACK_TOP`) |
 
 The kernel runs on the user's stack page below `reg_sp`, so the
 user's frames — the `brk_stub` sentinel among them — survive a break

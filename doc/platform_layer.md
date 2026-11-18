@@ -89,9 +89,10 @@ stretch target, not a platform
 |---|---|---|
 | [Constants](#constants) | `platform.inc` (L0) | named entries, cells, homes, sizes; never a literal |
 | [KERNAL calls](#kernal-calls) | `platform.inc` | `KCALL entry`, `KJMP entry` |
-| [Base page](#base-page) | `platform.inc`; zp.s (L0), mem.s (L1) | where CSE's zero page is; the user-ZP swap |
+| [Base page](#base-page) | `platform.inc`; zp.s (L0), mem.s (L1) | where CSE's zero page is; `BP_PAGE`, `BP_ABS`; the user-ZP swap |
+| [Stack](#stack) | `platform.inc` | `STACK_TOP` |
 | [Banking](#banking) | mem.s (L1), `platform.inc` | `kernal_bank_out` / `kernal_bank_in`, `kernal_out`; `BANK_PUSH`, `BANK_POP`, `BANK_IN_A`, `BANK_FORCE_IN`, `BANK_FORCE_OUT`, `BANK_KERNEL` |
-| [Far memory](#far-memory) | `platform.inc`; zp.s | `FAR_PTR`, `FAR_BANK`, `FAR_LDA`, `FAR_STA` |
+| [Far memory](#far-memory) | `platform.inc`; zp.s | `FAR_PTR`, `FAR_BANK`, `FAR_LDA`, `FAR_STA`, `FAR_ORA` |
 | [User transitions](#user-transitions) | `platform.inc`; mem.s hosts the m65 resident stub | `PLAT_TO_USER` |
 | [Vectors](#vectors) | main.s (L5) | `setup_interrupts` |
 | [Interrupt frame](#interrupt-frame) | `platform.inc`; debugger.s, main.s | `FRAME_DEPTH` and the offsets derived from it |
@@ -129,6 +130,7 @@ platform lacks is absent there, so a stray use fails to assemble.
 | Homes — the names (`HIMEM`, `WORKSTART`, `BASIC_START`, `SYM_TABLE`, `SYM_HEAP`, `KDATA_RUN`, `REPL_SCREEN`, `COLD_ZP`, `CSE_BP`, `STUB_BASE`, `BUF_FLOOR`, `BUF_END`, `PROG_LO`, `PROG_HI`) | values: [memory_design.md § Memory Map — Runtime](memory_design.md#memory-map--runtime-c64-builds) and § Banked layout | values: [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) |
 | `ROM_BASE_HI` (the debugger does not step into ROM) | `$E0` | `$C0` (the interface ROM at `$C000` in the user map) |
 | User ZP | [§ Base page](#base-page) | [§ Base page](#base-page) |
+| `STACK_TOP` | [§ Stack](#stack) | [§ Stack](#stack) |
 | Screen geometry | `SCREEN $0400`, `COLOR_RAM $D800`, `SCREEN_WIDTH 40`, `SCREEN_HEIGHT 25` and the sizes derived from them (the editor's 22 rows, its status columns, the 1000-, 920-, 880- and 80-byte copies) | read from the hardware and `SCRORG` at run time — *stated with P2* |
 | VIC | `$D011`, `$D015`, `$D016`, `$D018`, `$D019`, `$D01A`, `$D020`, `$D021` | VIC-IV — *stated with P2* |
 | SID | `$D400`, `$D401`, `$D404`, `$D40B`, `$D412`, `$D418` | the same |
@@ -168,6 +170,15 @@ Where CSE's zero page is, and what a transition does with the user's.
 | c64 | base page 0, `$02–$79` ([zp.md](modules/zp.md)) | `$00–$7F`, swapped at every kernel ↔ user transition by mem.s's four primitives |
 | m65 | its own base page: `B = CSE_BP` (`$1F`, the page `0.1F00`) whenever kernel code runs | base page 0, never touched by CSE: the transitions switch `B`, not bytes |
 
+`B` names a page of the CPU's 16-bit address space, and `MAP`
+translates a base-page access like any other.  `CSE_BP` reaches bank
+0 because both maps leave `$0000–$1FFF` unmapped
+([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)):
+the page is `0.1F00` in either map, which the resident stub at its
+top relies on.  A `B` in a mapped block would follow the map (`$20`
+is `3.2000` in the CSE map, inside the code window).  The base page
+is CSE's own; the stack is not ([§ Stack](#stack)).
+
 On m65 `B = CSE_BP` is set by the resident stub's CSE entries and
 restored by every `KCALL`; the KERNAL's interrupt entry saves `B` and
 sets `B = 0` for itself ([§ Interrupt frame](#interrupt-frame)), so
@@ -195,6 +206,27 @@ debugger.s's seeds, all `.ifdef PLATFORM_C64`; on m65 the transitions
 switch `B` and `save_userland_state`'s swap tail is an `rts`.  The
 user-ZP view of `m` and `.` (repl.s's `zp_stage_prep`, `zp_poke`;
 debugger.s's `peek_user`) is `PLAT_PENDING 1` on m65.
+
+### Stack
+
+Neither platform gives CSE a stack of its own: the kernel and user
+code share the one stack page, and the kernel runs below the user's
+SP ([memory_design.md § Stack contract](memory_design.md#stack-contract)).
+The platform fact is `STACK_TOP` (constant): the SP with which the
+loader enters `_main` and `cse_recover` and `cse_end_debug` restart
+the kernel, and `reg_sp` without a session — the SP at which a fresh
+start pushes the `brk_stub` sentinel:
+
+| Platform | Stack page | `STACK_TOP` | The user's SP at a fresh start |
+|---|---|---|---|
+| c64 | `$0100–$01FF` | `$FF` | `$FD`: the whole page below the sentinel |
+| m65 | `0.0100–0.01FF`, 8-bit (`E` = 1) | `$F1` | `$EF`, with the sentinel on top: the run premise's SP and return address |
+
+On m65 `$01F2–$01FF` stays unused, so that a program finds the SP a
+`RUN`-started PRG finds ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)),
+its top-level return address in the same two bytes.  On both
+platforms `r s:` moves `reg_sp`, and user code may reset SP and claim
+the whole page ([userland_contract.md § 4](userland_contract.md#4-stack-contract)).
 
 ### Banking
 
@@ -446,7 +478,9 @@ code.
    a recorded baseline, which each seam's commit lowered, so every
    commit of the refactor was green and none could add a site; the
    Info map seam emptied it.)  Beside it, the base-page check
-   ([§ Base page](#base-page); zero from the start), the raw-byte
+   ([§ Base page](#base-page); zero from the start), the stack-top
+   check ([§ Stack](#stack): no literal `#$FF` put in SP or `reg_sp`;
+   zero from the start), the raw-byte
    audit ([§ Raw-byte instructions](#raw-byte-instructions)) and the
    pending-body count ([§ Pending bodies](#pending-bodies)).
 3. **Per-seam tests.**  Each seam's platform body is pinned at the

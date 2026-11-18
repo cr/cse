@@ -320,16 +320,16 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
 
 ; ── cse_recover — internal CSE fault recovery ────────────────
 ; Reset SP first, then call the bodies as balanced jsr-subs.  The
-; `ldx #$FF / txs` discards whatever kernel frames were on the
+; `ldx #STACK_TOP / txs` discards whatever kernel frames were on the
 ; stack when the fault struck.
 cse_recover:
         lda warm_guard
         bne @hard_fail
         inc warm_guard
 
-        ldx #$FF
+        ldx #STACK_TOP
         txs
-        stx kernel_init_sp              ; X=$FF, captured for end_debug
+        stx kernel_init_sp              ; X=STACK_TOP, captured for end_debug
                                         ; / refresh; SP doesn't change
                                         ; across the balanced jsrs below
         jsr hw_reinit_body
@@ -367,9 +367,9 @@ cse_refresh:
 ;
 ; main_loop_top is the target of:
 ;   * cse_brk_handler's longjmp (handler_finalize) — SP = reg_sp.
-;   * cse_recover ($FF) and cse_end_debug (kernel_init_sp) — warmstart
+;   * cse_recover (STACK_TOP) and cse_end_debug (kernel_init_sp) — warmstart
 ;     `jmp`s; cse_refresh (SP = reg_sp) falls through directly above.
-;   * `_main`'s final jmp (SP = $FF).
+;   * `_main`'s final jmp (SP = STACK_TOP).
 ; All are valid entries; main_loop's internal stack use is balanced.
 ; ═════════════════════════════════════════════════════════════
 main_loop_top:
@@ -1055,8 +1055,11 @@ end_debug_body:
         sta stop_cooldown
         sta last_cmd
         sta cold_preview_done
-        lda #$FF
+        lda #STACK_TOP
         sta reg_sp                      ; userland SP reset
+.if STACK_TOP <> $FF
+        lda #$FF
+.endif
         sta dbg_bp_hit
         jmp step_cleanup                ; tail-call (re-enables a bp a
                                         ; step disabled, rp_dis_bp=$FF)

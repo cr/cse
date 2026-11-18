@@ -40,7 +40,7 @@ ptr2     = $04                  ; 2 bytes — destination pointer
 
 loader_entry:
         ; ── 1. Reset the 6502 hardware stack ─────────────────
-        ldx #$FF
+        ldx #STACK_TOP
         txs
 
         ; ── 2. Copy CODE+RODATA to runtime address ──────────

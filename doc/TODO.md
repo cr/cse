@@ -587,10 +587,18 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   deleted and the test asserts zero.
 - [x] Loader — loader.s's copy loop and main.s's `SYS 2061` stub
   under `PLATFORM_C64`.  Step (1) is complete.
+- Stack top (feedback round, 2026-11-18): CSE's base page is
+  private, the stack is shared; on m65 the stack top is `$F1`, so a
+  fresh start leaves the program at the run premise's SP `$EF` with
+  the sentinel where `SYS` puts its return address
+  ([platform_layer.md § Stack](platform_layer.md#stack)).
+  `STACK_TOP` at the four c64 sites (the loader, `cse_recover`,
+  `end_debug_body`, `dbg_init`), byte-identical, pinned by the
+  stack-top check.
 - The m65 bodies the docs state for P0, written in step (4) with the
   harness that tests them: `KCALL` / `KJMP`, `FAR_SIZE` and the far
   access macros, `FAR_BANK` at every far pointer's set sites,
-  `BP_PAGE = CSE_BP`, `PLAT_SETBNK`, `PLAT_COLD_START` and `cse_exit_to_basic`
+  `BP_PAGE = CSE_BP`, `STACK_TOP = $F1`, `PLAT_SETBNK`, `PLAT_COLD_START` and `cse_exit_to_basic`
   (`hyppo_reset`), `_main`'s steps 10–11 (the base-page fill bound,
   the program-region DMA fill), the resident stub, the loader.
 - Finding for P2: the screen pointers `_io_scr` (cse_io.s, screen.s's
@@ -609,7 +617,7 @@ the register snapshot and `r`.  (The C64 handlers' clearing of P bit
 
 Step-1 delta:
 - [ ] [userland_contract.md](userland_contract.md) for m65 in full:
-  mode model, state tiers, regions, stack, the vector hazards in
+  mode model, state tiers, regions, the vector hazards in
   vector-table terms, what survives a run and what survives `Q`
   (nothing promised; checked in xmega65 after the Hypervisor reset).
 - [ ] [platform_layer.md](platform_layer.md): the m65 bodies of

@@ -205,13 +205,20 @@ that calls into BASIC 65's ROM code does not work under CSE.
 **Zero page.**  `m` and `.` on `$00–$FF` show and edit base page 0
 itself: there is no swapped image on m65 — *stated with P1*.
 
+**Stack.**  Shared as on c64 (§ 4), with its top at `$01F1`
+(`STACK_TOP`, [platform_layer.md § Stack](platform_layer.md#stack)):
+a fresh start pushes the sentinel at `$01F1`/`$01F0`, and the program
+starts with SP = `$EF`, 240 bytes of free stack below the sentinel —
+the SP and the return-address bytes a `RUN`-started PRG finds.
+`$01F2–$01FF` stays unused.
+
 **Quitting (`Q`)** is a Hypervisor reset.  This contract promises
 nothing across it; the source text is lost (CSE warns when it is
 unsaved).  Observed, not promised: banks 0, 4 and 5 keep what they
 hold, bank 1 is cleared.
 
-The rest of the m65 contract — the state tiers, the stack, the
-vector and map hazards — is stated with P1 of
+The rest of the m65 contract — the state tiers, the vector and map
+hazards — is stated with P1 of
 [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer).
 
 ## 4. Stack contract
@@ -222,9 +229,9 @@ RTI/RTS-driven and cost about 20 cycles.
 
 ### Layout at userland entry
 
-A fresh start pushes the sentinel at the user's SP (`reg_sp`, $FF
-unless changed with `r s:`), then an RTI frame below it.  For
-`reg_sp` = $FF, just before the RTI:
+A fresh start pushes the sentinel at the user's SP (`reg_sp`: the
+stack top, $FF, unless changed with `r s:`; on m65 § 3), then an RTI
+frame below it.  For `reg_sp` = $FF, just before the RTI:
 
 ```
 $01FF  (brk_stub - 1) hi  ─┐  the program's top-level return address
@@ -262,7 +269,7 @@ typed at a break (`m`, `.`, `d`, `r`, stepping), with margin.
 
 The deepest kernel path, the assembler, never runs on a break's
 stack: `a` with a live session ends the session first (§ 1), which
-resets SP to $FF.  `tests/unit/test_asm_src.py::TestKernelStackDepth`
+resets SP to the stack top.  `tests/unit/test_asm_src.py::TestKernelStackDepth`
 measures the assembler's depth from a fresh SP and pins ceilings
 (80 B for realistic programs, 160 B for deeply nested expressions).
 Typing a deeply nested expression at a break while the user's SP is
