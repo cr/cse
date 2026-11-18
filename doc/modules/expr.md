@@ -199,6 +199,8 @@ operator peek fails, `expr_ptr` stays where `skip_sp` last parked it.
   the recursive descent's hardware-stack use; deeper input used to
   wrap the stack page.  An error inside any level, including under a
   unary prefix, propagates unchanged to the caller.
+- **Shifts:** the count is the full 16-bit right operand; a count of
+  16 or more shifts every bit out (`1<<256` = 0, `$8000>>16` = 0).
 - **16-bit wraparound:** Arithmetic on computed results silently
   wraps: `$FFFF + 1 = $0000`, `$100 * $100 = $0000`.  Overflow
   errors only apply to literal parsing (5+ hex digits, decimal

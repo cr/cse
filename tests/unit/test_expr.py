@@ -256,6 +256,12 @@ POSITIVE = [
     ("$10+16+%10000",   0x0030, RC_ZP,  False, 0x1000, "hex+dec+bin ZP"),
     ("*+page",          0x1100, RC_ABS, True, 0x1000, "star + ABS label"),
     ("<($1200+$34)",    0x0034, RC_ZP,  False, 0x1000, "lo of hex sum"),
+    # shift counts use all 16 bits; 16 or more → 0
+    ("1<<256",          0x0000, RC_ABS, False, 0x1000, "shl by 256 → 0"),
+    ("$8000>>256",      0x0000, RC_ABS, False, 0x1000, "shr by 256 → 0"),
+    ("1<<16",           0x0000, RC_ZP,  False, 0x1000, "shl by 16 → 0"),
+    ("$ffff>>16",       0x0000, RC_ABS, False, 0x1000, "shr by 16 → 0"),
+    ("1<<15",           0x8000, RC_ABS, False, 0x1000, "shl by 15"),
     # the left operand's width survives a nested operator (stacked)
     ("$0000+(<$12+1)",  0x0013, RC_ABS, False, 0x1000, "wide left, nested < and +"),
     ("$0000&(>$1234*2)", 0x0000, RC_ABS, False, 0x1000, "wide left, nested > and *"),

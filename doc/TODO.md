@@ -1035,8 +1035,11 @@ documentation round that follows this filing.
   the expression, not a divide (expr.md § Partial-mode contract).
   Tests test_stop_position[// is a comment*] (test_expr.py),
   test_double_slash_comment (test_asm_line.py).
-- [ ] **Shift counts ignore their high byte**: `1<<256` = 1,
+- [x] **Shift counts ignore their high byte**: `1<<256` = 1,
   `$8000>>256` = `$8000`.
+  Fixed 2026-11-18: the shift count is the full 16-bit operand; 16 or
+  more gives 0 (expr.md § Caveats). Tests test_positive[shl/shr by *]
+  (test_expr.py).
 - [ ] Latent: `mode_parse`'s accumulator test assumes `A` at offset 0
   (`ldy #1`) and has no CR/LF in its peek; production strips leading
   whitespace first.

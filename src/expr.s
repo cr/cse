@@ -452,12 +452,14 @@ _ex_op_setup:
         pha
         jsr parse_factor
         bcs @mul_err
-        ; Left shift: left << right (right = shift count in expr_val lo)
+        ; Left shift: left << right (16-bit count; >= 16 → 0)
         pla
         sta _ex_tmp
         pla
         sta _ex_tmp+1
-        ldx expr_val            ; shift count
+        jsr @shift_count        ; X = count 0..15, or C=1: all out
+        bcs @shl_done
+        txa
         beq @shl_done
 @shl_loop:
         asl _ex_tmp
@@ -487,7 +489,9 @@ _ex_op_setup:
         sta _ex_tmp
         pla
         sta _ex_tmp+1
-        ldx expr_val
+        jsr @shift_count        ; X = count 0..15, or C=1: all out
+        bcs @shr_done
+        txa
         beq @shr_done
 @shr_loop:
         lsr _ex_tmp+1
@@ -502,6 +506,22 @@ _ex_op_setup:
         pla                     ; left operand's width
         jsr @merge_wide
         jmp @op
+
+; ── shift count: X = expr_val if < 16 (C=0); else zero the operand,
+;    C=1 (every bit shifts out — expr.md § Caveats) ───────
+@shift_count:
+        ldx expr_val
+        lda expr_val+1
+        bne @all_out
+        cpx #16
+        bcc @cnt_ok
+@all_out:
+        lda #0
+        sta _ex_tmp
+        sta _ex_tmp+1
+        sec
+@cnt_ok:
+        rts
 
 ; ── 16-bit multiply: _ex_tmp × expr_val → expr_val ───
 ; Shift-and-add: shift right operand (expr_val), add left (_ex_tmp)
