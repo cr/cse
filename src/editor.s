@@ -2036,7 +2036,7 @@ _ed_cur_row:
         sta save_phase
 
         ; Call disk_save_seq(name, save_read_fn)
-        ; name is on parameter stack, read_fn in A/X
+        ; name in disk_ptr (stored above), read_fn in A/X
         lda #<save_read_fn
         ldx #>save_read_fn
         jsr disk_save_seq      ; A = error, X = 0 (Z is X's: test A)

@@ -1,9 +1,9 @@
 ; disk.s — CBM file I/O via direct KERNAL calls
 ; Owner: doc/modules/disk.md
 ;
-; Direct KERNAL calls for CBM file I/O
-; with direct KERNAL SETLFS/SETNAM/OPEN/CLOSE/CHKIN/CHKOUT/
-; CHRIN/CHROUT/LOAD/SAVE/CLRCHN/READST calls.
+; KERNAL SETLFS/SETNAM/OPEN/CLOSE/CHKIN/CHKOUT/CHRIN/CHROUT/
+; LOAD/CLRCHN/READST.  SAVE is not used: PRG save writes the
+; header and payload through CHROUT.
 
         .macpack longbranch
         .include "macros.inc"
@@ -318,7 +318,7 @@ floppy_status:
         sty @end_hi
 
         ; disk_ptr = walk pointer into loaded data ($0801)
-        ; (Using disk_ptr because ptr/$FD is clobbered by screen scroll)
+        ; (disk_ptr is free here: list_directory takes no filename)
         lda #<$0801
         sta disk_ptr
         lda #>$0801
@@ -669,8 +669,8 @@ floppy_status:
 
 ; ═════════════════════════════════════════════════════════
 ; disk_load_seq(name, insert_fn)
-;   A/X = insert_fn, name on parameter stack
-;   Returns 0 on success, nonzero on error
+;   A/X = insert_fn, disk_ptr = name (ZP, set by caller)
+;   Returns A = 0 on success, A = 1 on error or empty file; X = 0
 ; ═════════════════════════════════════════════════════════
 .proc disk_load_seq
         ; Save callback
@@ -776,9 +776,9 @@ floppy_status:
 
 ; ═════════════════════════════════════════════════════════
 ; disk_save_seq(name, read_fn)
-;   A/X = read_fn, name on parameter stack
-;   read_fn returns byte in A (0-255), or -1 (carry set) for EOF
-;   Returns 0 on success, nonzero on error
+;   A/X = read_fn, disk_ptr = name (ZP, set by caller)
+;   read_fn returns byte in A with X = 0, or X = $FF for EOF
+;   Returns A = 0 on success, A = 1 if the OPEN failed; X = 0
 ; ═════════════════════════════════════════════════════════
 .proc disk_save_seq
         ; Save callback
