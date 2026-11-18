@@ -435,7 +435,10 @@ The early-entry handler must:
    anyway.
 4. **B=0 (real IRQ):** delegate to kernal's IRQ body, but route
    the kernal's eventual RTI through a bank-out stub so the
-   interrupted code resumes with kernal banked back out.
+   interrupted code resumes with kernal banked back out.  The stub
+   restores `$01` to the exact value the interrupted code had (it is
+   pushed under the second frame and pulled by `bank_out_stub`), so
+   `$35` (KERNAL out, I/O in), `$34`, `$30` all survive the IRQ.
 
 The IRQ delegation uses **stack frame surgery**:
 

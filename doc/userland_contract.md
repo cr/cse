@@ -275,8 +275,10 @@ Modifying $01 with kernal banked out is recoverable as long as the
 $FFFE/$FFFA vectors remain pointed at CSE's early-entry handlers
 (the standard layout): an IRQ/NMI fired during the kernal-out window
 hits the early-entry handler, which detects the kernal-out state
-(by the very fact of being reached from RAM-resident vectors) and
-banks kernal back in before the final RTI.
+(by the very fact of being reached from RAM-resident vectors), banks
+kernal in for the KERNAL's IRQ body, and restores `$01` to exactly
+the interrupted code's value before the final RTI — KERNAL out with
+I/O in (`$35`) stays `$35`.
 
 But if user code combines:
 

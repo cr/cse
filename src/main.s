@@ -18,7 +18,7 @@
 ;                      as part of the NMI vector sequence, so no SEI
 ;                      shim is needed to suppress IRQ interleaving.
 ;   bank_out_stub    — second-RTI-frame target for IRQ early-entry:
-;                      banks KERNAL back out and RTIs original frame.
+;                      restores the interrupted $01, RTIs original frame.
 ;
 ; Gate primitives live in debugger.s:
 ;   save_userland_state    — called by handlers (userland → kernel).
@@ -106,7 +106,6 @@ KERNAL_IRQ_BODY = $EA31
 
 P_B_FLAG     = $10            ; mask: bit 4 of stacked P
 BANK_IN      = $36
-BANK_OUT     = $34
 
 ; Reason codes — ordered by liveness (higher = more alive).
 ; `cmp #DBG_BRK / bcs` identifies a resumable session in one compare.
@@ -781,7 +780,7 @@ cse_brk_handler_early:
         ;   expects them.
         ;
         ;   Final stack layout for `jmp $EA31`:
-        ;     Y  X  A  (our P, PClo, PChi = bank_out_stub)  orig P PCL PCH
+        ;     Y  X  A  (our P, PClo, PChi = bank_out_stub)  $01  orig P PCL PCH
         ;
         ;   RTI-expected push order is PChi, PClo, P (so P ends up
         ;   on top of the 3).
@@ -793,6 +792,8 @@ cse_brk_handler_early:
         ; first (rather than a shared ZP scratch — the interrupted code
         ; may be mid-use of ZP temps).
         sta _irq_saved_a
+        lda MEM_CONFIG
+        pha                     ; the interrupted $01, for bank_out_stub
         lda #>bank_out_stub
         pha
         lda #<bank_out_stub
@@ -810,14 +811,15 @@ cse_brk_handler_early:
         sta MEM_CONFIG
         jmp KERNAL_IRQ_BODY
 
-; bank_out_stub — RTI target for the IRQ surgery above.  Banks
-; KERNAL back out, then RTIs the original (outer) frame to the
-; interrupted code at the banking state it had.
+; bank_out_stub — RTI target for the IRQ surgery above.  Restores
+; $01 to the interrupted code's value (pushed by @irq_path under the
+; second frame: $35, $34, ... exactly as it was), then RTIs the
+; original (outer) frame.  _irq_saved_a is free again by now.
 bank_out_stub:
-        pha                     ; preserve A across $01 write
-        lda #BANK_OUT
-        sta MEM_CONFIG
+        sta _irq_saved_a        ; preserve A across the $01 restore
         pla
+        sta MEM_CONFIG
+        lda _irq_saved_a
         rti
 
 ; ═════════════════════════════════════════════════════════════

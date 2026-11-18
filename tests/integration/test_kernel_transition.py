@@ -1892,3 +1892,23 @@ class TestReplInsKey:
         want = (text[:col] + [0x20] + text[col:])[:39] + [0x20]  # col 39 blank
         assert got == want
         assert [e.memory[0x0800 + i] for i in range(256)] == work
+
+
+class TestIrqKeepsBanking:
+    """userland_contract.md § 5.3: an IRQ during kernal-out user code
+    returns with $01 exactly as the user had it."""
+
+    @pytest.mark.parametrize("port", [0x35, 0x34])
+    def test_irq_restores_cpu_port(self, session, port):
+        s, e = session, session.e
+        loop = [0xA9, port, 0x85, 0x01,             # LDA #port; STA $01
+                0xEE, 0x00, 0x30,                   # INC $3000
+                0x4C, 0x14, 0x30]                   # JMP $3014
+        for i, b in enumerate(loop):
+            e.memory[0x3010 + i] = b
+        e.enable_jiffy_clock()
+        s.start("j $3010")
+        stub = e.sym("bank_out_stub")
+        hits = e.run_steps(60_000, watch=[stub])
+        assert hits, "no IRQ went through bank_out_stub"
+        assert e.memory.ram[1] == port, f"$01 = ${e.memory.ram[1]:02X}"

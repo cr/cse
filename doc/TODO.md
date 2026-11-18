@@ -867,10 +867,13 @@ documentation round that follows this filing.
   ends; Y wraps over `(rp_ptr)+0..255`).
   Fixed 2026-11-18: the shift loop ends on `Y == CUR_COL` (col 39
   skips it), then blanks that column, test `TestReplInsKey`.
-- [ ] **The IRQ early-entry stub forces `$01 = $34`** on return
+- [x] **The IRQ early-entry stub forces `$01 = $34`** on return
   (`bank_out_stub`), so user code running with KERNAL out and I/O in
   (`$35`) loses I/O after the first IRQ; contradicts
   userland_contract.md § 5.3.
+  Fixed 2026-11-18: `@irq_path` pushes the interrupted `$01` under
+  the second frame and `bank_out_stub` restores it, test
+  `TestIrqKeepsBanking`.
 - [x] **`r` parses its fields by position, not by label**: `r x:05`
   sets A, `r a:zz` / `r a` set every register to `$FF` with no error;
   a following `c` resumes with SP = `$FF` and crashes.
