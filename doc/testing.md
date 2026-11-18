@@ -342,8 +342,9 @@ holds:
 - `set_cursor(row, col)`: the KERNAL's `PLOT` (`$FFF0`, carry clear),
   called through `jsr()`;
 - `init_cse(editor=False)`: cse's cold-init routines by symbol
-  (`theme_init`, `restore_colors`, `setup_interrupts`, `dbg_init`,
-  `sym_clear`; `ed_ensure_init` with `editor`).
+  (`theme_init`, `restore_colors`, `setup_interrupts`, `bp_init`,
+  `dbg_init`, `sym_clear`; `ed_ensure_init` with `editor`) — the
+  order `_main` runs them in.
 
 Each harness supplies what differs:
 

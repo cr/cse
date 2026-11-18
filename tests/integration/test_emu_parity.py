@@ -347,7 +347,7 @@ def test_set_cursor_calls_plot_with_carry_clear(emu):
 
 
 INIT_ROUTINES = ("theme_init", "restore_colors", "setup_interrupts",
-                 "dbg_init", "sym_clear", "ed_ensure_init")
+                 "bp_init", "dbg_init", "sym_clear", "ed_ensure_init")
 
 
 @pytest.mark.parametrize("editor", [False, True])
@@ -366,4 +366,4 @@ def test_init_cse_calls_the_cold_init_routines_in_order(emu, tmp_path, editor):
     emu.init_cse(editor=editor)
     n = emu.memory[0x20F0]
     assert [emu.memory[0x2100 + k] for k in range(n)] == \
-        list(range(6 if editor else 5))
+        list(range(7 if editor else 6))

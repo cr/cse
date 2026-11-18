@@ -127,7 +127,7 @@ class EmuBase:
     JIFFY_INTERVAL = 16421      # the C64 KERNAL's CIA1 timer A value, in steps
     PLOT = 0xFFF0               # the KERNAL's PLOT
     INIT_ROUTINES = ("theme_init", "restore_colors", "setup_interrupts",
-                     "dbg_init", "sym_clear")
+                     "bp_init", "dbg_init", "sym_clear")
 
     def __init__(self, cpu, mem):
         self._cpu = cpu
