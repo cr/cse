@@ -278,7 +278,14 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   `BANK_SRC` (2: the source region), `BANK_CSE` (3: CSE's code and
   data — the CSE map's `$2000–$BFFF` is flat `3.2000–3.BFFF`).  A
   pointer that serves user memory and CSE scratch alike carries
-  whichever bank it was set to.
+  whichever bank it was set to.  A pointer's `FAR_BANK` sites are
+  written with the milestone whose tests first run its module on m65,
+  so each bank is decided where a test can check it: P1 the
+  user-memory pointers (`rp_ptr`, `rp_ptr2`, `_dasm_ptr`, `asm_out`,
+  `asm_pc`), P2 the screen, string and source pointers (`ed_scr`,
+  `_io_tmp`, `gap_lo`, `gap_hi`, `buf_base`, `ed_top_ptr`,
+  `read_ptr`, `ed_tmp`), P3 `disk_ptr`.  Until then a far pointer's
+  bank is 0 (`BANK_USER`): the loader clears CSE's base page.
 - **Access:** `FAR_LDA name` / `FAR_STA name` — `A` ← / → the byte at
   the pointer + `Y`; `FAR_ORA name` — `A` ← `A` OR that byte (disk.s's
   directory walk tests a link for zero).

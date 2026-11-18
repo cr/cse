@@ -561,8 +561,9 @@ P0 progress (step (1), one commit per seam, each byte-identical):
 - [x] Far memory — `FAR_PTR` for zp.md's 14 pointers, `FAR_LDA` /
   `FAR_STA` / `FAR_ORA` at their 170 accesses.  Feedback round:
   `FAR_ORA` added to the contract (disk.s's directory walk, two
-  sites).  `FAR_BANK` is placed with the m65 bodies (step (4)), where
-  each set site's bank is decided; on c64 it is empty.
+  sites).  `FAR_BANK`'s set sites are placed per pointer with the
+  milestone whose tests first run its module on m65 (P1, P2, P3:
+  platform_layer.md § Far memory); on c64 it is empty.
 - [x] Base page — the swap primitives, buffers and seeds under
   `PLATFORM_C64`; the user-ZP view `PLAT_PENDING 1` on m65.  Feedback
   round: an access to a CSE base-page symbol in an *absolute* mode
@@ -640,6 +641,10 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   m65 BASIC stub `10 SYS 8205`.  The loader and debugger assemble for
   m65; mem.s and main.s wait for step (5)'s m65 answers (`HIMEM`, the
   screen geometry), and T8 tests the install there.
+- Step (4b), decided 2026-11-18: `FAR_BANK` at the set sites moves
+  to P1 / P2 / P3 by pointer (platform_layer.md § Far memory): a
+  site's bank is decided where a test runs the module on m65.  Each
+  milestone's step-1 delta below names its pointers.
 - The m65 bodies the docs state for P0, written in step (4) with the
   harness that tests them: `KCALL` / `KJMP`, `FAR_SIZE` and the far
   access macros, `FAR_BANK` at every far pointer's set sites,
@@ -661,6 +666,9 @@ the register snapshot and `r`.  (The C64 handlers' clearing of P bit
 `E`, recorded.)
 
 Step-1 delta:
+- [ ] `FAR_BANK` at the set sites of the user-memory pointers
+  (`rp_ptr`, `rp_ptr2`, `_dasm_ptr`, `asm_out`, `asm_pc`), each bank
+  checked by the m65 tests of `m`, `.`, `d`, `a` and the debugger.
 - [ ] [userland_contract.md](userland_contract.md) for m65 in full:
   mode model, state tiers, regions, the vector hazards in
   vector-table terms, what survives a run and what survives `Q`
@@ -685,6 +693,10 @@ and breakpoints work in M65Emu and xmega65.
 **P2 — the KERNAL API layer: screen and keyboard.**
 
 Step-1 delta:
+- [ ] `FAR_BANK` at the set sites of the screen, string and source
+  pointers (`ed_scr`, `_io_tmp`, `gap_lo`, `gap_hi`, `buf_base`,
+  `ed_top_ptr`, `read_ptr`, `ed_tmp`), with the screen's bank by mode
+  and the source region's `BANK_SRC`.
 - [ ] [platform_layer.md](platform_layer.md) § Terminal and
   § Display: the m65 bodies (from analysis task A1), the new
   `screen_mode_set` / `screen_geometry` contracts, the key codes of
@@ -709,6 +721,7 @@ xmega65; 40 × 25 and 80 × 50 render.
 **P3 — disk, exit and the three distribution formats.**
 
 Step-1 delta:
+- [ ] `FAR_BANK` at `disk_ptr`'s set sites.
 - [ ] [disk.md](modules/disk.md): `PLAT_SETBNK`, the load target in
   the user's bank through the seam, `l`/`s` and the editor's
   load/save on M65Emu's virtual drive (C64Emu's 1541 moved to the
