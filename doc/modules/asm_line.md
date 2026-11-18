@@ -28,6 +28,13 @@ success
 **Out:** A = byte count (0 = error), X = 0
 **Clobbers:** all
 
+**Output never wraps.**  An instruction whose bytes would run past
+`$FFFF` is refused: `asm_expr_error` with the expression error
+`overflow` (the REPL shows `;?expr ovfl`), and nothing is written at
+`$0000`/`$0001` (the CPU port).  `_asm_emit` parks any byte after the
+wrap in the 3-byte `_asm_sink`; `asm_line` refuses when one landed
+there.  An instruction whose last byte is at `$FFFF` is accepted.
+
 `asm_line` is the **single shared entry point** for both the
 source-pass and the line-asm REPL command:
 

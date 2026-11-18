@@ -34,7 +34,7 @@
         .importzp       cur_project_name           ; zp.s
         .importzp       buf_base                ; editor.s — gap buffer low bound
         .importzp       rp_ptr2                 ; zp.s — scratch pointer (repl/info_line)
-        .importzp       asm_pc, asm_out, asm_cpu, asm_tmp, asm_tmp2
+        .importzp       asm_pc, asm_out, asm_len, asm_cpu, asm_tmp, asm_tmp2
         .importzp       expr_ptr, expr_val, expr_wide
         .importzp       sym_name, sym_val, sym_wide
 
@@ -44,7 +44,7 @@
         .import s_err_sep, s_bad_val, s_exp_name, s_sym_full
         .import s_exp_quot, s_bad_insn, s_fwd_ref, str_cpu_err
         .import s_save_s, s_save_q_sp, s_save_default, s_trunc
-        .import s_too_long
+        .import s_too_long, str_range
         .import dec_pow_lo, dec_pow_hi
 
 ; ── BSS (all reset by asm_assemble before each run) ─────────────────────
@@ -58,6 +58,7 @@ MAX_LABEL = 23                  ; label name chars (local: after the dot)
 INSN_MAX  = 57                  ; _insn_buf text chars (+ NUL)
 _scope_name:    .res MAX_LABEL+1        ; last global label (for .local expansion)
 _full_label:    .res 2*MAX_LABEL+2      ; scratch: "scope.local"
+_insn_out       = _full_label   ; asm_line output scratch (process_line)
 _insn_buf:      .res INSN_MAX+1 ; instruction text for asm_line, locals expanded
 _as_conv:       .res 1          ; emit_string convert-to-screen-code flag
 _eb_idx:        .res 1          ; .bas string length
@@ -68,6 +69,8 @@ _seg_pc:        .res 2          ; start address of current segment
 _min_pc:        .res 2          ; global lowest origin
 _max_pc:        .res 2          ; global highest byte (exclusive)
 _seg_open:      .res 1          ; non-zero if a segment is open
+_pc_wrap:       .res 1          ; non-zero once asm_pc wrapped past $FFFF
+_oor:           .res 1          ; non-zero: this line dropped a byte (range)
 _org_set:       .res 1          ; non-zero after first .org on pass 0
 
 ; ── RODATA ────────────────────────────────────────────────────────────────
@@ -217,6 +220,8 @@ inc_pc_size:
         inc asm_pc
         bne :+
         inc asm_pc+1
+        bne :+
+        inc _pc_wrap            ; $FFFF → $0000: later bytes are refused
 :       inc asm_size
         bne :+
         inc asm_size+1
@@ -224,12 +229,19 @@ inc_pc_size:
 
 ; ── _emit_byte ────────────────────────────────────────────────────────────
 ; Emit byte in A to (asm_pc) on pass 1; advance asm_pc+asm_size always.
+; The single gate for every output byte: past $FFFF (_pc_wrap) the byte
+; is dropped and _oor set — do_pass reports `range` once for the line.
+; Preserves X.
 _emit_byte:
         ldy asm_pass
         beq @skip
+        ldy _pc_wrap
+        bne @oor
         ldy #0
         sta (asm_pc),y
 @skip:  jmp inc_pc_size
+@oor:   sty _oor
+        jmp inc_pc_size
 
 ; ── _emit_word ────────────────────────────────────────────────────────────
 ; Emit 16-bit little-endian word from A (lo) / X (hi).
@@ -686,6 +698,11 @@ _seg_log_open:
         sta _seg_open
         rts
 
+; _org_set_pc — .org/.bas just set asm_pc: clear the wrap state, then
+;   fall into _set_first_org.
+_org_set_pc:
+        lda #0
+        sta _pc_wrap
 ; _set_first_org — set asm_org from asm_pc on pass 0, first time only.
 ;   Called by .org and .bas handlers after setting asm_pc.
 _set_first_org:
@@ -916,7 +933,7 @@ BASIC_REM = $8F
         sta asm_pc
         lda #$08
         sta asm_pc+1
-        jsr _set_first_org
+        jsr _org_set_pc
         jsr _seg_log_open           ; open .bas segment at $0801
         jsr emit_bas
         clc
@@ -1072,7 +1089,7 @@ BASIC_REM = $8F
         sta asm_pc
         pla
         sta asm_pc+1
-        jsr _set_first_org
+        jsr _org_set_pc
         ; Open new segment (uses new asm_pc)
         jsr _seg_log_open
         clc
@@ -1361,26 +1378,21 @@ _too_long_err:
         ldx _ib_idx
         lda #0
         sta _insn_buf,x
-        lda asm_pc
-        sta asm_out
-        lda asm_pc+1
+        lda #<_insn_out         ; assemble into scratch; _emit_byte
+        sta asm_out             ; places the bytes (both passes)
+        lda #>_insn_out
         sta asm_out+1
         lda #<_insn_buf
         ldx #>_insn_buf
         jsr asm_line
         tax
         beq @bad
-        clc
-        adc asm_pc
-        sta asm_pc
-        bcc :+
-        inc asm_pc+1
-:       txa
-        clc
-        adc asm_size
-        sta asm_size
-        bcc @done
-        inc asm_size+1
+        ldx #0
+@emit:  lda _insn_out,x
+        jsr _emit_byte          ; preserves X
+        inx
+        cpx asm_len
+        bne @emit
 @done:  rts
 @bad:   ; Dispatch error tag from asm_err_code (asm_err.s):
         ;   0 = ;?<line>: bad insn   (syntax)
@@ -1409,6 +1421,7 @@ _too_long_err:
         lda #0
         sta _line_num
         sta _line_num+1
+        sta _pc_wrap
         lda asm_org
         sta asm_pc
         lda asm_org+1
@@ -1444,6 +1457,13 @@ _too_long_err:
         lda #>_line_buf
         sta _as_ptr+1
         jsr process_line
+        lda _oor                ; a byte of this line was dropped?
+        beq @loop
+        lda #0
+        sta _oor
+        lda #<str_range
+        ldx #>str_range
+        jsr emit_error
         jmp @loop
 @done_pop:
         pla                     ; discard saved length on EOF

@@ -957,8 +957,13 @@ documentation round that follows this filing.
 - [ ] **Code before the first `.org`** gets labels from the pass-0
   layout (default origin) while pass 1 emits at the first `.org`
   (`_set_first_org` overwrites `asm_org`; every pass starts at it).
-- [ ] **Emitting past `$FFFF` wraps into `$0000`/`$0001`** (the CPU
+- [x] **Emitting past `$FFFF` wraps into `$0000`/`$0001`** (the CPU
   port) — no wrap check in `_asm_emit` / `_emit_byte`.
+  Fixed 2026-11-18: asm_src assembles each instruction into a scratch
+  buffer and emits every byte through _emit_byte, which drops bytes
+  once asm_pc wrapped (`;?N: range`, once per line); asm_line parks
+  bytes after a wrap in _asm_sink and refuses (`;?expr ovfl`). Tests
+  TestNoWrapPastFFFF, TestAsmLineNoWrap (test_asm_src.py).
 - [ ] **A full symbol table is silent**: 300 labels → 0 errors, 44
   dropped; `sym full` is reported only on pass 0, where `emit_error`
   is silent.

@@ -37,6 +37,7 @@
         .export expr_eval
         .export expr_eval_nb            ; no-banking variant for callers already banked out
         .export expr_error_str
+        .export last_err                ; asm_line sets 3 (overflow) on a $FFFF wrap
 
         .import sym_lookup
         .import kernal_bank_out, kernal_bank_in

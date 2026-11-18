@@ -1133,3 +1133,106 @@ class TestLabelLength:
         org, data, errors = _run(as_syms, src)
         assert errors == 0
         assert data == [0xAD, 0x00, 0x80, 0x60]
+
+
+# ── No emission past $FFFF (asm_src.md § Emission, asm_line.md) ─────────────
+#
+# Output that would run past $FFFF used to wrap to $0000/$0001 — the
+# CPU port on a C64.  asm_src refuses the bytes (`range`, once per
+# line); asm_line (the REPL `.` path) refuses the instruction.
+
+def _run_mem(as_syms, source):
+    """Like _run, but also return the whole memory image."""
+    cpu = MPU()
+    mem = cpu.memory
+    as_syms.load_into(mem)
+    for i, b in enumerate(_petscii(source)):
+        mem[as_syms.test_src_buf + i] = b
+    cpu.sp = 0xFF
+    mem[0x01FF] = 0xFF
+    mem[0x01FE] = 0xFE
+    cpu.sp = 0xFD
+    cpu.pc = as_syms.asm_src_test_entry
+    mem[0x00], mem[0x01] = 0xA5, 0x35       # sentinels (bit 1 = banking)
+    zp_before = [0xA5, 0x37]
+    for _ in range(_MAX_STEPS):
+        if cpu.pc == 0xFFFF:
+            break
+        cpu.step()
+    else:
+        raise TimeoutError
+    errors = mem[as_syms.asm_errors] | (mem[as_syms.asm_errors + 1] << 8)
+    return errors, mem, zp_before
+
+
+class TestNoWrapPastFFFF:
+
+    @pytest.mark.parametrize("src", [
+        ".org $fffe\n nop\n nop\n nop",
+        ".org $fffe\n lda $1234",
+        ".org $ffff\n.dw $4242",
+        ".org $fffe\n.res 4, $42",
+        '.org $fffe\n.str "abcd"',
+    ])
+    def test_refused_and_cpu_port_untouched(self, as_syms, src):
+        errors, mem, zp_before = _run_mem(as_syms, src)
+        assert errors >= 1
+        assert [mem[0], mem[1] | 2] == zp_before, "wrapped into $0000/$0001"
+
+    def test_one_error_per_line(self, as_syms):
+        errors, _, _ = _run_mem(as_syms, ".org $ffff\n.res 8, $42")
+        assert errors == 1
+
+    def test_last_byte_at_ffff_is_fine(self, as_syms):
+        errors, mem, _ = _run_mem(as_syms, ".org $fffd\n lda $1234")
+        assert errors == 0
+        assert list(mem[0xFFFD:0x10000]) == [0xAD, 0x34, 0x12]
+
+    def test_org_after_wrap_emits_again(self, as_syms):
+        errors, mem, _ = _run_mem(
+            as_syms, ".org $ffff\n nop\n nop\n.org $c000\n rts")
+        assert errors == 1
+        assert mem[0xC000] == 0x60
+
+
+def _asm_line_at(as_syms, text, addr):
+    """asm_line(text) with asm_pc = asm_out = addr (the REPL `.` path)."""
+    cpu = MPU()
+    mem = cpu.memory
+    as_syms.load_into(mem)
+    enc = _petscii(text).rstrip(b"\x00") + b"\x00"
+    for i, b in enumerate(enc):
+        mem[_AL_TEXT_BUF + i] = b
+    for zp in (as_syms.asm_pc, as_syms.asm_out):
+        mem[zp] = addr & 0xFF
+        mem[zp + 1] = addr >> 8
+    mem[as_syms.kernal_out] = 0
+    mem[0x01] = 0x37
+    zp_before = list(mem[0:2])
+    cpu.sp = 0xFF
+    mem[0x01FF] = 0xFF
+    mem[0x01FE] = 0xFE
+    cpu.sp = 0xFD
+    cpu.a = _AL_TEXT_BUF & 0xFF
+    cpu.x = _AL_TEXT_BUF >> 8
+    cpu.pc = as_syms.asm_line
+    for _ in range(_MAX_STEPS):
+        if cpu.pc == 0xFFFF:
+            break
+        cpu.step()
+    return cpu.a, mem, zp_before
+
+
+class TestAsmLineNoWrap:
+
+    @pytest.mark.parametrize("text,addr", [
+        ("lda #$42", 0xFFFF), ("lda $1234", 0xFFFE), ("lda $1234", 0xFFFF)])
+    def test_wrapping_instruction_refused(self, as_syms, text, addr):
+        n, mem, zp_before = _asm_line_at(as_syms, text, addr)
+        assert n == 0
+        assert list(mem[0:2]) == zp_before, "wrote the CPU port"
+
+    def test_ending_at_ffff_accepted(self, as_syms):
+        n, mem, _ = _asm_line_at(as_syms, "lda #$42", 0xFFFE)
+        assert n == 2
+        assert list(mem[0xFFFE:0x10000]) == [0xA9, 0x42]

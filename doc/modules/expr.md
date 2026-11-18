@@ -56,7 +56,9 @@ undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 
 **ZP (4 bytes):** `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1).
 
-**BSS (6 bytes):** `last_err` (1), `_ex_depth` (1, nesting depth),
+**BSS (6 bytes):** `last_err` (1; exported — `asm_line` sets it to 3
+when an instruction would wrap past `$FFFF`, so `expr_error_str`
+names it), `_ex_depth` (1, nesting depth),
 `_mul_tmp` (2), `_div_rem` (2);
 on `MEGA_SUPPORT` also `expr_fwd` (1).
 

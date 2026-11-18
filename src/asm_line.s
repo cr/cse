@@ -36,6 +36,7 @@
         .export asm_line
         .export _asm_line_core
         .import asm_error, asm_syntax_error, asm_cpu_error   ; asm_err.s
+        .import asm_expr_error, last_err                     ; asm_err.s, expr.s
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
 
         ; zero-page variables (zp.s)
@@ -82,6 +83,8 @@ reg_x:         .res 1          ; saved X
 reg_y:         .res 1          ; saved Y
 reg_sp:        .res 1          ; saved SP
 reg_p:         .res 1          ; saved P (status flags)
+_asm_sink:     .res 3          ; bytes past a $FFFF wrap land here (refused)
+        .assert >(_asm_sink+3) = >_asm_sink, error, "_asm_sink must not cross a page"
 
 ; (kernel_zp_buf and userland_zp_buf — the ZP save/restore buffers for
 ; the kernel↔userland transitions — live in mem.s alongside the
@@ -122,6 +125,21 @@ asm_line:
         ; ── call assembler ──────────────────────────────────────────────
         ldy #0                  ; required by _asm_line_core entry contract
         jsr _asm_line_core
+
+        ; ── output wrapped past $FFFF with bytes to spare? _asm_emit
+        ; parked them in _asm_sink: refuse as an expression overflow.
+        lda asm_out+1
+        cmp #>_asm_sink
+        bne @fits
+        lda asm_out
+        sec
+        sbc #<(_asm_sink+1)
+        cmp #3                  ; asm_out in _asm_sink+1 .. +3 ?
+        bcs @fits
+        lda #3                  ; ERR_OVERFLOW (expr.md)
+        sta last_err
+        jmp asm_expr_error
+@fits:
 
         ; ── bank back in.  bank_in clobbers A, so reload asm_len after.
         jsr kernal_bank_in
@@ -165,7 +183,14 @@ _asm_emit:
         inc asm_out
         bne :+
         inc asm_out+1
+        beq @wrap               ; $FFFF → $0000: never write the CPU port
 :       inc asm_len
+        rts
+@wrap:  ldy #<_asm_sink         ; park any further byte (asm_line refuses)
+        sty asm_out
+        ldy #>_asm_sink
+        sty asm_out+1
+        inc asm_len
         rts
 
 ; ── _asm_rd_upper ────────────────────────────────────────────────────────────
