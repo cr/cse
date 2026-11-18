@@ -19,7 +19,7 @@ states the seam's contract and points there.
 
 | File | Role |
 |------|------|
-| `src/platform.inc` | header — every platform constant and macro, selected by `.ifdef` (planned, P0) |
+| [`src/platform.inc`](../src/platform.inc) | header — every platform constant and macro, selected by `.ifdef` |
 | `src/m45_ops.inc` | header — the 45GS02-only instructions as raw-byte macros ([§ Raw-byte instructions](#raw-byte-instructions); planned, P0) |
 | [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit: the address-literal classes, the per-file counts, the baseline writer |
 | [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the audit's rule, the raw-byte audit and the pending-body count as they land (P0) |

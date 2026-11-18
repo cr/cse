@@ -36,3 +36,14 @@ def test_prod_defs_cover_exactly_the_c64_builds():
 def test_prod_defs_match_makefile():
     for config, var in _MAKE_VAR.items():
         assert PROD_DEFS[config] == _makefile_defs(var), config
+
+
+def test_platform_defs_match_makefile():
+    """Every bundle is assembled with the platform define the Makefile
+    gives the same platform's builds."""
+    from conftest import PLATFORM_DEFS
+    text = (ROOT / "Makefile").read_text()
+    for platform, defs in PLATFORM_DEFS.items():
+        m = re.search(rf"^_{platform}_PDEFS\s*=\s*(.+)$", text, re.MULTILINE)
+        assert m, f"_{platform}_PDEFS not found in Makefile"
+        assert defs == m.group(1).split(), platform

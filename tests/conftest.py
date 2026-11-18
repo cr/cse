@@ -228,6 +228,11 @@ def _ac_sources(config):
 # testing.md Principle 10).  Keys are the generator's CPU-set names
 # (dev/mnemonic_tables.py CPU_SETS).  Pinned against the Makefile by
 # tests/unit/test_build_parity.py.
+# The platform define every test bundle is assembled with, mirroring
+# the Makefile's PLATFORM_DEFS (doc/platform_layer.md § Platforms and
+# defines); test_build_parity.py holds the two equal.
+PLATFORM_DEFS = {"c64": ["-DPLATFORM_C64"]}
+
 PROD_DEFS = {
     "6502":  ["-DCPU_6502", "-DUSE_MN6", "-DDEFAULT_CPU=0", "-DCPU_CEIL=0"],
     "6510":  ["-DCPU_6510", "-DDEFAULT_CPU=0", "-DCPU_CEIL=1"],
@@ -251,7 +256,7 @@ class Bundle:
     modules use PETSCII literals, as the production build does."""
 
     def __init__(self, stem, sources, flags, *, tag, cfg=None, ca65=(), deps=(),
-                 ld65=()):
+                 ld65=(), platform="c64"):
         self.bin = BUILD / f"{stem}.bin"
         self.map = BUILD / f"{stem}.map"
         self.lbl = BUILD / f"{stem}.lbl"
@@ -259,7 +264,8 @@ class Bundle:
         self.cfg = cfg or DEV / "test.cfg"
         # Every bundle also depends on the shared include files
         # (`src/*.inc`): a changed macro rebuilds the bundle.
-        self.ca65, self.deps = list(ca65), list(deps) + _INC_DEPS
+        self.ca65 = PLATFORM_DEFS[platform] + list(ca65)
+        self.deps = list(deps) + _INC_DEPS
         self.ld65 = list(ld65)          # e.g. -D for linker-provided symbols
 
     def _stamp(self):

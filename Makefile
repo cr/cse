@@ -88,6 +88,11 @@ endif
 # any other value is a build error.  See doc/modules/editor.md.
 TAB_WIDTH ?= 8
 
+# The platform define: exactly one per assembly (doc/platform_layer.md
+# § Platforms and defines).  The m65 build's arrives with its target.
+_c64_PDEFS    = -DPLATFORM_C64
+PLATFORM_DEFS = $(_$(PLATFORM)_PDEFS)
+
 _6510_DEFS    = -DCPU_6510 -DDEFAULT_CPU=0 -DCPU_CEIL=1 -DTAB_WIDTH=$(TAB_WIDTH)
 _6510_MN      = mn7 mn7_tables
 _6510_SUBDIR  = 6510
@@ -116,10 +121,10 @@ _PROFILE ?= release
 
 ifeq ($(_PROFILE),debug)
   BUILD  = $(ROOT)build/debug/$(_$(CPU)_SUBDIR)
-  AFLAGS = -g -t c64 -DDEBUG $(CPU_DEFS) $(THEME_DEFS) $(INTROSPECT_DEFS) -I$(ROOT) -I$(BUILD)
+  AFLAGS = -g -t c64 -DDEBUG $(PLATFORM_DEFS) $(CPU_DEFS) $(THEME_DEFS) $(INTROSPECT_DEFS) -I$(ROOT) -I$(BUILD)
 else
   BUILD  = $(ROOT)build/release/$(_$(CPU)_SUBDIR)
-  AFLAGS = -t c64 $(CPU_DEFS) $(THEME_DEFS) $(INTROSPECT_DEFS) -I$(ROOT) -I$(BUILD)
+  AFLAGS = -t c64 $(PLATFORM_DEFS) $(CPU_DEFS) $(THEME_DEFS) $(INTROSPECT_DEFS) -I$(ROOT) -I$(BUILD)
 endif
 
 # ── Theme selection ──────────────────────────────────────────────────────
@@ -210,7 +215,7 @@ LBL      = $(BUILD)/cse.lbl
 # .o files are up to date and re-uses them with the wrong flags.
 # Workaround: write a stamp file containing all build-affecting flag
 # values; if its contents differ, touch it so its mtime updates.
-BUILD_FLAGS := CPU=$(CPU) THEME=$(THEME) TAB_WIDTH=$(TAB_WIDTH) PROFILE=$(_PROFILE) VERSION=$(VERSION) INTROSPECT=$(INTROSPECT)
+BUILD_FLAGS := PLATFORM=$(PLATFORM) CPU=$(CPU) THEME=$(THEME) TAB_WIDTH=$(TAB_WIDTH) PROFILE=$(_PROFILE) VERSION=$(VERSION) INTROSPECT=$(INTROSPECT)
 FLAGS_STAMP := $(BUILD)/.build_flags
 _PREV_FLAGS := $(shell cat $(FLAGS_STAMP) 2>/dev/null)
 ifneq ($(_PREV_FLAGS),$(BUILD_FLAGS))

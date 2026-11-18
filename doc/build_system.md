@@ -329,7 +329,7 @@ absolute address.
 | `ROMSET` | `cbm` | KERNAL/BASIC/CHARGEN set for `run` (`cbm` / `mega`) |
 | `INTROSPECT` | unset | `=1` disables the user-ZP redirect in `m`/`.` (see above); any other value leaves it on |
 
-`CPU`, `THEME`, `TAB_WIDTH`, `VERSION`, `INTROSPECT` and the profile
+`PLATFORM`, `CPU`, `THEME`, `TAB_WIDTH`, `VERSION`, `INTROSPECT` and the profile
 form `BUILD_FLAGS`, which the Makefile records in the flags stamp
 `build/<profile>/<cpu>/.build_flags`; a value that differs from the
 recorded one reassembles every object of that build.  `ROMSET` only
