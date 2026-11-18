@@ -10,6 +10,6 @@
 ; doc/modules/debugger.md § `dbg_reason` enum.
 
 DBG_NONE = 0    ; no session (never started / ended)
-DBG_RTS  = 1    ; alive-but-terminal: landed at RTS/RTI or clean exit
-DBG_BRK  = 2    ; resumable: non-return break
+DBG_RTS  = 1    ; alive-but-terminal: clean exit via brk_stub
+DBG_BRK  = 2    ; resumable: breakpoint, step, cold preview, user BRK
 DBG_NMI  = 3    ; resumable: NMI

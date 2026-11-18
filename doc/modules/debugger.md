@@ -6,865 +6,427 @@
 
 | File | Role |
 |------|------|
-| [`src/debugger.s`](../../src/debugger.s) | implementation: step state, `dbg_init`, `save/restore_userland_state`, `return_to_userland`, `brk_stub` |
+| [`src/debugger.s`](../../src/debugger.s) | implementation: `dbg_init`, the gate primitives, `brk_stub`, the step-target computation and its state |
 | [`src/dbg_reason.inc`](../../src/dbg_reason.inc) | the `dbg_reason` enum (`DBG_NONE`…`DBG_NMI`), the one definition, included by main.s and repl.s |
-| [`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py) | tier-I tests: kernel↔user transitions, step chains |
+| [`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py) | tier-I tests: kernel↔user transitions, step chains, the command matrix |
 | [`tests/integration/test_step_rom.py`](../../tests/integration/test_step_rom.py) | tier-I tests: step-into-ROM fallback |
 
-The debugger is the kernel's **userland gateway**.  It owns the
-`return_to_userland` helper (the one place that synthesizes RTI frames
-into user code) and the `brk_stub` (the fixed code address user's
-top-level RTS lands at).  All BRK/NMI dispatch is owned by main.s
-and lives in `cse_brk_handler` / `cse_nmi_handler`.
+The debugger is the kernel's **userland gateway**: the two gate
+primitives that move the machine between CSE and user code, the
+`brk_stub` a user program's top-level RTS lands on, and the
+computation of where a single step must stop.  Neighbouring parts of
+the debugger live elsewhere and are documented by their owners:
 
-**Split (2026-04-20 structural refactor).**  Breakpoint-table CRUD
-and patching live in [breakpoints.md](breakpoints.md) at L3 — a
-pure data-structure module that bundle-tests in isolation.  This
-module (debugger.s, L4) keeps everything that genuinely requires
-the CPU interrupt protocol + KERNAL vectors: the step state
-machine, `save/restore_userland_state` primitives, `return_to_userland`
-wrapper, `brk_stub`, and `dbg_init`.  The split makes the tier
-boundary compile-time-enforced (L4 `debugger.s` imports from L3
-`breakpoints.s`, never the reverse) rather than a disciplined
-convention.
+| Part | Owner |
+|---|---|
+| Breakpoint table, patch/unpatch, `dbg_bp_*` | [breakpoints.md](breakpoints.md) |
+| BRK/NMI/IRQ handlers, step chaining in the handler, warmstarts | [main.md](main.md) |
+| User register shadows `reg_a/x/y/p/sp` | [asm_line.md](asm_line.md) |
+| The commands' parsing and dispatch (`b c t o j g r`) | [repl.md](repl.md) |
+| What user code may rely on (stack, vectors, banking) | [userland_contract.md](../userland_contract.md) |
 
-For the design framing (CSE as kernel, kernel↔user transitions via
-RTI/BRK) see [design_cse_as_kernel.md](../design_cse_as_kernel.md)
-and [userland_contract.md](../userland_contract.md).
+This document owns the `dbg_reason` enum, the command × session
+matrix, and the stepping machinery as a whole.
 
 ## Interface
 
-### return_to_userland
-**In:** `reg_a`, `reg_x`, `reg_y`, `reg_p`, `brk_pc` populated
-with the user state to install.
-**Out:** does not return — RTIs into user code at `brk_pc`.
-**Clobbers:** all (control transfers to user)
-
-The single shared kernel→userland wrapper, used by `cmd_jmp`
-(`j`/`g`) and `cmd_continue` (`c`).  `return_to_userland` pushes a
-fresh `brk_stub - 1` sentinel before falling into the shared
-body (`restore_userland_state`).  The step-chain tail and `t`/`o`
-resume paths jump to `restore_userland_state` directly — no new
-sentinel (the one from the initial fresh start is still valid).
-
-Sequence (via `_rtu_body`, shared between `return_to_userland` and
-`restore_userland_state`):
-
-1. `patch_all` — write $00 at every armed bp/step slot.
-2. `save_kernel_zp` (mem.s) — live ZP → `kernel_zp_buf`,
-   single-pass DDR-stash (see mem.s § CPU-port aware ZP
-   save/restore).
-3. `restore_userland_zp` (mem.s) — `userland_zp_buf` → live ZP,
-   DDR=$FF-first backwards copy.
-4. `ldx reg_sp / txs` — switch SP to user's saved SP.
-5. (return_to_userland only) push sentinel (PCH then PCL of
-   `brk_stub - 1`).
-6. Push RTI frame — PCH, PCL, P (in that push order, so RTI
-   pops them back as P, PCL, PCH).
-7. `sta in_userland` = $80 (bit 7 set — the convention required
-   by `cse_nmi_handler`'s A-independent `bit / bmi` test).
-8. Load A/X/Y from `reg_a` / `reg_x` / `reg_y`.
-9. `rti` — CPU pops P/PCL/PCH, jumps to user's PC.
-
-ZP swap and `patch_all` live INSIDE the shared body (rather than
-in callers) so every kernel→userland transition is symmetric
-with the BRK handler's `save_userland_state` / `unpatch_all`.
-This makes the transition primitives the single source of truth
-for the bracket contract.
-
-### brk_stub
-**Address:** stable code label, exported.
-
-A 1-byte `BRK` instruction (opcode $00) followed by a 1-byte
-signature.  When user code performs its top-level RTS, it pops
-the (brk_stub-1) sentinel pre-pushed by `return_to_userland`, lands at
-`brk_stub`, and the BRK fires immediately.
-
-The BRK handler classifies (PC-2 == brk_stub) as a clean userland
-exit: sets `dbg_reason = DBG_RTS` (alive-but-terminal — same
-classification as landing at an RTS/RTI opcode mid-step) and
-resets `brk_pc := cur_addr` so the display shows a user-meaningful
-address rather than brk_stub's internal location.
-
 ### dbg_init
 **In:** none
-**Out:** step-state block (`brk_pc`, `step_*`) and `reg_a/x/y/p`
-zeroed, `dbg_reason = 0`, `reg_sp = $FF`, the CPU-port bytes of
-`userland_zp_buf` and `kernel_zp_buf` seeded ($00 = $2F, $01 = $36).
-The breakpoint table is **not** touched.
+**Out:** the step-state block (`brk_pc`, `step_state`,
+`step_remaining`, `step_next_lo`, `step_next_hi`, `step_save`,
+`_rtu_need_sentinel`) zeroed; `reg_a`, `reg_x`, `reg_y`, `reg_p` = 0;
+`dbg_reason = DBG_NONE`; `reg_sp = $FF`; the CPU-port bytes of both ZP
+save buffers seeded: `userland_zp_buf` / `kernel_zp_buf` `[$00] = $2F`,
+`[$01] = $36`.  The breakpoint table is not touched.
 **Clobbers:** A, X
 
-Called at startup and on warm-start recovery (`hw_reinit_body`).
-The breakpoint table is zeroed only at cold init (`bp_init`, called
-by `_main`), so the user's breakpoints survive `cse_recover`
+Called by `_main` at cold init and by `hw_reinit_body`
+(`cse_recover`).  The breakpoint table is zeroed only at cold init
+(`bp_init`), so breakpoints survive `cse_recover`
 ([memory_design.md § Breakpoint invariant](../memory_design.md#breakpoint-invariant)).
+The seed keeps the first restore of a ZP buffer from writing `$00`
+into the DDR ([mem.md § CPU-port aware ZP save/restore](mem.md#cpu-port-aware-zp-saverestore)).
 
-### save_userland_state / restore_userland_state
-The two complementary gate primitives for userland ↔ kernel
-transitions.  Both operate on stack-resident regs, the ZP
-save/restore buffers in mem.s, and `in_userland`.
-
-**save_userland_state** (called from `cse_brk_handler` /
-`cse_nmi_handler` after dispatch and after `in_userland` is
-cleared).  Extracts Y/X/A/P/PCL/PCH from the stacked BRK+KERNAL
-frame into `reg_*` / `brk_pc`, computes `reg_sp = SP + 8` (the
-BRK frame's 6 bytes + the 2-byte jsr return that reached
-save_userland_state), then calls `save_userland_zp` (capture user
-ZP) and `restore_kernel_zp` (both in mem.s — see the CPU-port
-protocol note there).  Raw P is stored; BRK-vs-NMI masking of P
-and the `brk_pc` −= 2 adjust (BRK only) happen in the calling
-handler, because the masks differ by source.
-
-**restore_userland_state** (called from main_loop's dispatch
-after a resume command, and from the BRK handler's step-chain
-body) — the shared body `_rtu_body` above.  Does the full
-kernel → userland reinstall in the sequence documented in the
-return_to_userland Sequence list.
-
-### dbg_bp_set
-**In:** A/X = address (lo/hi)
-**Out:** C=0 success (A = slot number), C=1 table full
+### save_userland_state
+**In:** called (`jsr`) by `cse_brk_handler` / `cse_nmi_handler` with
+the $FF48-shape frame above the return address: SP+3..SP+8 = Y, X,
+A, P, PCL, PCH; live ZP is the user's.
+**Out:** `reg_y`, `reg_x`, `reg_a`, `reg_p` (raw stacked P) and
+`brk_pc` (raw stacked PC) captured; `reg_sp` = SP + 8 = the user's SP
+before the interrupt; `userland_zp_buf` = the user's ZP; live ZP =
+`kernel_zp_buf` (`$00 = $2F`, `$01 = $36`).  The stack is only read.
 **Clobbers:** A, X, Y
 
-### dbg_bp_del
-**In:** A = slot number (0-based)
-**Out:** C=0 success, C=1 invalid slot
+Masking P and the BRK `brk_pc − 2` are the calling handler's job,
+because they differ by source ([main.md § BRK dispatch](main.md#brk-dispatch)).
+
+### return_to_userland
+**In:** `brk_pc`, `reg_a/x/y/p`, `reg_sp` = the state to install;
+live ZP is the kernel's.
+**Out:** does not return — as `restore_userland_state`, but first
+pushes the `brk_stub − 1` sentinel (hi, lo) at `reg_sp`, so the user
+program's top-level RTS lands on `brk_stub`.
+**Clobbers:** everything (control passes to user code).
+
+The fresh-start door: `main_loop` / `main_loop_top` jump here when a
+command set `run_user_pending = MODE_JUMP` (`j`, `g`, and the first
+`t`/`o`/`c` after a cold preview).
+
+### restore_userland_state
+**In:** as `return_to_userland`.
+**Out:** does not return.  In order (`_rtu_body`, shared with
+`return_to_userland`):
+1. `patch_all` — `$00` into every enabled breakpoint and step slot.
+2. `save_kernel_zp`, `restore_userland_zp` — live ZP becomes the
+   user's.
+3. SP := `reg_sp`.
+4. (`return_to_userland` only) push the sentinel.
+5. Push PCH, PCL (from `brk_pc`), P (`reg_p`).
+6. `in_userland := $80` (bit 7, for `cse_nmi_handler`'s `bit`/`bmi`).
+7. X, Y, A from `reg_*`; `rti`.
+
+**Clobbers:** everything.
+
+The resume door: `MODE_RESUME` (`c`, `t`, `o` in a session whose
+sentinel is already on the user stack) and the handler's step chain.
+A resume pushes no sentinel — the one from the session's fresh start
+is still in place; pushing another would creep the stack by 2 bytes
+per resume.  SP := `reg_sp` is a no-op on the `main_loop` path (the
+handler left SP there) and a correction on the chain path (SP was
+BRK-frame deep) or after `r s:XX`.
+
+Both doors put the ZP swap and `patch_all` inside the primitive, so
+every kernel → userland transition is the mirror image of the
+handlers' `save_userland_state` + `unpatch_all`.
+
+### brk_stub
+**Address:** CODE label, exported (imported by main.s and repl.s).
+
+`BRK` followed by the signature byte `$42`.  The user program's
+top-level RTS pops the `brk_stub − 1` sentinel, lands here, and the
+BRK fires; `cse_brk_handler` recognises `brk_pc = brk_stub`, sets
+`dbg_reason = DBG_RTS` and `brk_pc := cur_addr` (the address the REPL
+was at — the `j` target, or the last break's address).
+
+### step_next_pc
+**In:** `brk_pc` (the instruction about to run), `step_state`
+(STEP_INTO / STEP_OVER); `reg_sp` (RTS/RTI), `reg_x` (JMP (abs,X)),
+`asm_cpu` (65C02 rules, CMOS builds only), `userland_zp_buf` (vectors
+in $00–$7F).
+**Out:** `step_next_lo` = where the step stops, `step_next_hi` = a
+second stop for a branch under STEP_INTO; 0 = none (both 0 for BRK).
+**Clobbers:** A, X, Y, `rp_ptr`, `rp_ptr2`, `step_save`
+
+The table is § Next-PC.  Callers: `repl.s::cmd_step` (first step)
+and `cse_brk_handler` (each chained step).
+
+### arm_step_bp
+**In:** `step_next_lo`, `step_next_hi`
+**Out:** `dbg_step_clear`, then step slot 8 = (`step_next_lo`,
+saved 0, flags 1) if nonzero and slot 9 = (`step_next_hi`, saved 0,
+flags 1) if nonzero.  Nothing is patched yet (`patch_all` does that
+on the way out).
 **Clobbers:** A, X
 
-### dbg_bp_clear
-**In:** none
-**Out:** all breakpoint slots cleared
-**Clobbers:** A, X
+Callers: as `step_next_pc`.
 
-### dbg_bp_count
-**In:** none
-**Out:** A = number of non-empty breakpoint slots (0–8)
-**Clobbers:** A, X
+### kernel_stack_budget
+**Value:** 64 (exported equate).
 
-### dbg_bp_find
-**In:** A = addr lo, X = addr hi
-**Out:** C=0 found, A = slot number (0–7).  C=1 not found, A = $FF.
-**Clobbers:** A, X, Y
+The kernel-reentry headroom of
+[userland_contract.md § 4](../userland_contract.md#4-stack-contract).
+No module imports it: `repl.s` keeps its own `KSTK_MIN = 64` for the
+`;!stk` check.
 
-Used by the BRK handler to identify which breakpoint slot was hit.
+**State** — **BSS (11 bytes):**
 
-### REPL (repl.s command handlers)
+| Variable | Size | Exported | Purpose |
+|---|---|---|---|
+| `brk_pc` | 2 | yes (main.s, repl.s) | PC of the last break = resume address (`r pc:`) |
+| `step_state` | 1 | yes (main.s, repl.s) | `STEP_NONE` (0) / `STEP_INTO` (1, `t`) / `STEP_OVER` (2, `o`) |
+| `step_remaining` | 2 | yes (main.s, repl.s) | steps left after the current one (16-bit) |
+| `step_next_lo` | 2 | yes (repl.s) | `step_next_pc` result, first stop |
+| `step_next_hi` | 2 | yes (repl.s) | `step_next_pc` result, second stop |
+| `step_save` | 1 | no | opcode scratch of `step_next_pc` |
+| `_rtu_need_sentinel` | 1 | no | per call: 1 from `return_to_userland`, 0 from `restore_userland_state`; read by `_rtu_body` |
 
-- `cmd_jmp(args)` — `j`/`g` commands: populate `reg_*`, call
-  `return_to_userland`.
-- `cmd_continue` — `c` command: re-call `return_to_userland` with
-  the saved state from the previous break.
-- `cmd_brk(args)` — `b` command: set, list, or delete breakpoints.
-- `cmd_step(args, is_next)` — `t`/`o` commands: arm step BRKs,
-  call `return_to_userland`, repeat until count exhausted.
+`dbg_reason` and `in_userland` are cross-module flags in `zp.s`
+([zp.md § Cross-module flag semantics](zp.md#cross-module-flag-semantics));
+`dbg_reason`'s values are § `dbg_reason` enum.  `step_bp` (slots 8–9)
+is breakpoints.s's; `reg_*` are asm_line.s's; `kernel_zp_buf` /
+`userland_zp_buf` are mem.s's.
 
-**State:**
-- `bp_table` — 8 breakpoint slots (see § Breakpoint table)
-- `dbg_reason` — session state + break classification.  Ordered so
-  "can continue from here?" is a single compare (see § `dbg_reason`
-  enum below).  Values: `DBG_NONE` (0), `DBG_RTS` (1), `DBG_BRK` (2),
-  `DBG_NMI` (3).
-- `brk_pc` — PC where the break occurred / execution will resume
-- `dbg_bp_hit` — slot number of the breakpoint that was hit ($FF = none)
-- `step_bp` — temporary breakpoint(s) for single-step (2 slots)
+**Depends on:** asm_line (`reg_a`, `reg_x`, `reg_y`, `reg_sp`,
+`reg_p`), mem (`save_userland_zp`, `restore_userland_zp`,
+`save_kernel_zp`, `restore_kernel_zp`, `kernel_zp_buf`,
+`userland_zp_buf`), breakpoints (`patch_all`, `step_bp`,
+`dbg_step_clear`), oplen_tbl, zp (`rp_ptr`, `rp_ptr2`, `in_userland`,
+`dbg_reason`, `asm_cpu`)
 
-#### `dbg_reason` enum — ordered by "liveness"
+## Debug session
+
+### `dbg_reason` enum
 
 Defined once, in `src/dbg_reason.inc`, which main.s and repl.s
 include (a test pins that no source defines the values itself).
+Ordered by liveness:
 
 ```
-DBG_NONE = 0    ; no session (never started, or ended via end-debug)
-DBG_RTS  = 1    ; session active, terminal — landed at RTS/RTI opcode
-                ;   or user top-level RTS popped brk_stub sentinel.
-                ;   Can't step / continue past this without restarting
-                ;   via j/g (which establishes a fresh sentinel).
-DBG_BRK  = 2    ; session active, resumable — stopped at a non-return
-                ;   op (step BRK, user bp, unplanned user BRK).
-DBG_NMI  = 3    ; session active, resumable — NMI landed in userland.
+DBG_NONE = 0    ; no session (never started, or ended)
+DBG_RTS  = 1    ; session over but inspectable: the program's
+                ;   top-level RTS reached brk_stub (clean exit)
+DBG_BRK  = 2    ; resumable: breakpoint, step, cold preview, or a
+                ;   BRK in user code
+DBG_NMI  = 3    ; resumable: RUN/STOP+RESTORE while user code ran
 ```
 
 **Ordering invariant:** `dbg_reason >= DBG_BRK` iff the session can
-proceed via `c` or be extended via `t`/`o`.  Single compare:
+proceed via `c` or `t`/`o` — one compare:
 
 ```asm
 lda dbg_reason
 cmp #DBG_BRK
-bcs @resumable       ; active AND can continue
-; else: DBG_NONE (0) or DBG_RTS (1) — no resume
+bcs @resumable       ; DBG_BRK or DBG_NMI
 ```
 
-| Check | Code | Bytes |
+| Writer | Value |
+|---|---|
+| `dbg_init` (cold init, `cse_recover`) | `DBG_NONE` |
+| `cse_brk_handler` | `DBG_BRK`; `DBG_RTS` at `brk_stub` (the only site) |
+| `cse_nmi_handler` (userland) | `DBG_NMI` |
+| `end_debug_body` | `DBG_NONE` |
+| `t`/`o` cold preview | `DBG_BRK` |
+| `a`, after an error-free assembly | `DBG_NONE` |
+
+Every consumer — the break panel, the command gates,
+`hygiene_after_userland`, `main_loop_top` — reads `dbg_reason` alone;
+no consumer re-classifies a break from `brk_pc` or from opcodes
+(`brk_skip_user`'s opcode peek only decides whether to skip a user
+BRK).
+
+### `dbg_reason` × command matrix
+
+| Command | `DBG_NONE` | `DBG_RTS` | `DBG_BRK` / `DBG_NMI` |
+|---|---|---|---|
+| `c` | `;?no ctx` | `;?no ctx` | resume |
+| `t` / `o` | cold preview | `;?no ctx` | step |
+| `j` / `g` | run | run | `;!debug`, `;!go? y/n` |
+| `a` | assemble | assemble | `;!debug`, `;!asm? y/n` |
+| `R` | `;!init? y/n` | `;!init? y/n` | `;!init? y/n` |
+| `r`, `b`, `l`, `s`, all others | no debug gate | no debug gate | no debug gate |
+
+- **Ask** (`j`/`g`, `a`): "y" sets `warm_cont = 1` and jumps to
+  `cse_end_debug`, which ends the session and replays the typed line
+  ([main.md § Layer 4](main.md#layer-4-main_loop-event-loop)); any
+  other key cancels and nothing changes.
+- **`R`**: on "y", `end_debug_body` (idempotent) then `cse_refresh`,
+  whatever the session state.
+- **`c`** after a cold preview is a fresh start (§ Cold preview).
+- Commands without a debug gate may still have their own (`;!unsaved`
+  for `k`, `Q` and a source `l`):
+  [repl.md § Gating pattern](repl.md#gating-pattern).
+
+### Break panel
+
+Every return from user code ends in `post_run_cleanup` (repl.s),
+which first warns `;!stk N` when `reg_sp` is below 64 (N = `reg_sp`,
+decimal), ends a step (`step_cleanup`), and prints the panel:
+
+```
+; brk 1 at $1010
+r pc:1010 a:00 x:05 y:00 s:fb nv-Bdizc
+1010:.  ee 20 d0  inc $d020
+```
+
+- **Tag row** — `; brk at $PC` (`DBG_BRK`), `; brk N at $PC` when a
+  user breakpoint (slot N, 1-based) hit, `; nmi at $PC` (`DBG_NMI`),
+  `; rts` (`DBG_RTS`, no address: `brk_pc` was replaced by
+  `cur_addr`).
+- **Register row** — `emit_reg`'s `r` line: `brk_pc`, `reg_a/x/y`,
+  `reg_sp` as `s:`, `reg_p` as `nv-bdizc` with set flags in
+  uppercase.  It re-executes as an `r` command (§ `r`).
+- **Lookahead row** — the instruction at `brk_pc` (`emit_dot`),
+  omitted for `DBG_RTS`.
+- `cur_addr := brk_pc`, so the prompt shows the break address.
+
+A cold preview prints the same rows under `; dbg at $PC`.  After a
+step, the row above the panel keeps the instruction that just ran
+(single steps only), so repeated RETURN leaves an audit trail:
+
+```
+1000:t
+1000:.  a2 05     ldx #$05
+; brk at $1002
+r pc:1002 a:00 x:05 y:00 s:fd nv-Bdizc
+1002:.  20 10 10  jsr $1010
+```
+
+`j`/`g`/`t`/`o` move to a fresh row (and drain the keyboard buffer)
+before user code runs, so user output starts below the command
+([userland_contract.md § 6](../userland_contract.md#6-kernal-as-terminal-affordance)).
+
+## Single-step
+
+`t` (into) and `o` (over) step one instruction, or N with `t N` /
+`o N` (an expression; 16-bit; 0 or none means 1).  Iteration runs
+**inside the BRK handler**: `main_loop` never loops over steps,
+because every break longjmps back to `main_loop_top` and discards the
+REPL's call chain.
+
+**Seed (`repl.s::cmd_step`)**, in a resumable session:
+
+1. `step_state := STEP_INTO / STEP_OVER`.
+2. `o` only: skip a user BRK at `brk_pc` (`brk_skip_user`, § User BRK
+   workflow).
+3. Disable the breakpoint the session stopped at (`dbg_bp_hit`), so
+   the step does not re-break on it at once.
+4. `step_next_pc`.  Both results 0 (a BRK at `brk_pc` under `t`) →
+   `post_run_cleanup` (panel again, no user code runs).
+5. **Workspace gate:** every nonzero target must satisfy
+   `$0800 ≤ addr < buf_base` (or be `brk_stub`); else the step is
+   undone (`step_cleanup`: `step_state`, step slots, the disabled
+   breakpoint enabled again) and `;!range` is printed — the session
+   is exactly as before.
+6. `arm_step_bp`; `step_remaining := N − 1`.
+7. `run_user_pending := MODE_RESUME`, or `MODE_JUMP` right after a
+   cold preview.
+
+**Chain (`cse_brk_handler`, main.s):** a BRK at step slot 8 or 9
+while `step_state ≠ 0` and `step_remaining ≠ 0` → `unpatch_all`,
+`step_next_pc`, `arm_step_bp`, `step_remaining −= 1`,
+`jmp restore_userland_state`.  A user breakpoint, an NMI, `brk_stub`
+or an unplanned BRK ends the chain like any break; so does the step
+BRK with `step_remaining = 0`.  The chain re-enters userland from the
+handler with SP back at `reg_sp`, so `t 1000` uses no more stack than
+`t 1`.
+
+**End:** `post_run_cleanup` → `step_cleanup` (step state and slots
+cleared, the disabled breakpoint enabled again) and the panel.
+`end_debug_body` runs `step_cleanup` too, so ending a session never
+leaves a disabled slot behind.
+
+### Next-PC
+
+| Instruction at `brk_pc` | `step_next_lo` | `step_next_hi` |
 |---|---|---|
-| Any session at all | `lda / bne` | 4 |
-| Resumable (`c`, warm step) | `lda / cmp #DBG_BRK / bcs` | 5 |
-| No session (dead) | `lda / beq` | 4 |
-| At RTS (terminal-alive) | `lda / cmp #DBG_BRK / bcc + bne` | 7 |
+| linear | `PC + length` (`oplen_tbl`) | — |
+| conditional branch, `t` | taken target | `PC + 2` |
+| conditional branch, `o` | `PC + 2` | — |
+| `BRA` (65C02, `asm_cpu` = 65C02) | target | — |
+| `JMP abs` | operand | — |
+| `JMP (ind)` | the vector at the operand; `JMP ($xxFF)` takes its high byte from `$xx00` (NMOS) unless `asm_cpu` = 65C02 | — |
+| `JMP (abs,X)` (65C02) | the vector at operand + `reg_x`, no page wrap | — |
+| `JSR`, `t`, target < `$E000` | target (into the subroutine) | — |
+| `JSR`, `o`, or target ≥ `$E000` | `PC + 3` (over) | — |
+| `RTS` | user stack `($0100 + reg_sp + 1)` + 1 | — |
+| `RTI` | user stack PCL/PCH at `reg_sp + 2` / `+ 3` | — |
+| `BRK` | — | — |
 
-The consolidation of "clean exit via brk_stub" and "stopped at
-RTS/RTI opcode" under a single `DBG_RTS` means the handler is the
-sole site that classifies by inspecting the break-PC and opcode.
-Every consumer (show_break_result, cmd_continue, cmd_step) reads
-`dbg_reason` alone — no brk_pc address comparisons, no opcode peeks
-outside the handler.
+Vectors are read as the CPU will read them: `$00–$7F` from
+`userland_zp_buf` (the live ZP is the kernel's while CSE runs),
+everything else live (`peek_user`).  The 65C02 rows apply only to
+CMOS builds with `asm_cpu` = 65C02; elsewhere those opcodes are
+linear.
 
-(The `dbg_running` flag from earlier designs is replaced by main.s's
-`in_userland` flag, which is the single source of truth.)
+`RTS` and `RTI` are followed through the user's stack, so stepping
+continues past a return.  Stepping over the program's top-level RTS
+reaches `brk_stub` (exempt from the gate) and ends the session as a
+clean exit (`; rts`).
 
-#### `dbg_reason` × command matrix
+`JSR` into `$E000+` is stepped over even under `t`: a BRK written
+there lands in the RAM under the KERNAL ROM and is never fetched
+while the KERNAL is mapped.
 
-Every command that interacts with the debug session falls into
-one of three behavioural patterns: **transparent** (no debug
-gating), **gated by reason** (different action per dbg_reason
-value), or **end-debug-and-replay** (warn + ask + end debug + re-
-run the same command line).  This matrix is the contract.
+Under `o` a conditional branch arms only the fall-through: a taken
+backward branch runs the loop at full speed until it falls through.
 
-| Command | `DBG_NONE` | `DBG_RTS` | `DBG_BRK` | `DBG_NMI` | Notes |
-|---|---|---|---|---|---|
-| `c`     | reject (`;?no ctx`) | reject | run | run | `c` is gated by reason; on run the session continues until next break or clean exit.  After a cold preview (no user code has run) `c` is a fresh start: it pushes the `brk_stub` sentinel like `j`, so the program's top-level RTS ends the session cleanly. |
-| `t`/`o` | cold preview (`;dbg`, no exec) | reject (`;?no ctx`) | step | step | `t`/`o` is gated by reason; cold preview promotes to DBG_BRK so the next t steps for real. |
-| `j`/`g` | run | run | warn + ask (`;!debug` / `go? y/n`) | warn + ask | On yes: end debug + replay command (warm_cont).  On cancel: nl_clear. |
-| `r`     | run | run | run | run | Transparent.  Always renders the captured reg shadows. |
-| `a`     | run | run | warn + ask (`;!debug` / `asm? y/n`) | warn + ask | Same end-debug-and-replay pattern as j/g; assemble is stack-heavy under an active session, so we end first. |
-| `l`/`s` | run | run | run | run | Transparent w.r.t. debug.  (Editor-dirty gate is separate.) |
-| `R`     | run | run | run | run | Transparent.  Reset always prompts `init? y/n`; on yes calls `end_debug_body` (idempotent) + `cse_refresh`. |
+### Cold preview
 
-**Gating idioms:**
-
-- *Reject*: `cmp #DBG_BRK / bcc <reject>` (covers DBG_NONE +
-  DBG_RTS).  Used by `c`.  `t`/`o` adds a separate
-  `cmp #DBG_RTS / beq` to split DBG_NONE → preview from
-  DBG_RTS → reject.
-- *Warn + ask + end-debug-and-replay*: pattern lives at the
-  cmd_X entry point; on confirm sets `warm_cont := 1` and tail-
-  jumps to `cse_end_debug` (which clears state, returns to repl,
-  re-runs the buffered command line).
-- *Transparent*: command body unchanged; consumes captured
-  state where applicable (e.g. `r` reads reg shadows even
-  during a session — that's the user's view of "what happened").
-
-### Memory
-
-**BSS (~48 bytes):**
-
-| Variable | Size | Purpose |
-|----------|------|---------|
-| `bp_table` | 32 | 8 breakpoint slots × 4 bytes |
-| `step_bp` | 8 | 2 step breakpoint slots × 4 bytes |
-| `brk_pc` | 2 | PC at break / resume address |
-| `dbg_bp_hit` | 1 | Slot of breakpoint hit ($FF = none) |
-| `reg_a/x/y/p/sp` | 5 | User register shadows |
-| `reg_pc_lo/hi` | 2 | User PC shadow (= `brk_pc` low/hi) |
-| `step_state` | 1 | 0=not stepping, 1=`t`, 2=`o` (handler-resident state machine) |
-| `step_remaining` | 2 | Iterations left after current step (16-bit) |
-
-**No KBSS** — Phase 18 dropped the two 256-byte stack image
-buffers (`user_stack_buf`, `cse_stack_buf`) and the `cse_sp` BSS
-byte.  User and kernel share the single hardware stack page.
-
-**Cross-module flags (in zp.s):**
-
-| Name | Size | Role |
-|---|---|---|
-| `dbg_reason` | 1 | Session state + break reason.  `DBG_NONE` (0), `DBG_RTS` (1), `DBG_BRK` (2), `DBG_NMI` (3) — ordered by liveness (`>= DBG_BRK` is resumable).  See § `dbg_reason` enum. |
-| `in_userland` | 1 | 1 = user code running, 0 = kernel |
-
-Both are `.exportzp` in zp.s.  debugger.s writes them; main.s and
-repl.s read them for dispatch decisions.
-
-**Depends on:** asm_line (`reg_a`, `reg_x`, `reg_y`, `reg_sp`,
-`reg_p` — userland register shadows), oplen_tbl (instruction
-length for step targeting — read directly, not via dasm), mem
-(`save_userland_zp` / `restore_userland_zp` /
-`save_kernel_zp` / `restore_kernel_zp` ZP-swap primitives;
-`kernel_zp_buf`, `userland_zp_buf` save areas),
-breakpoints (`bp_init`), zp
-
-## Design
-
-### Breakpoint table
+`t`/`o` with no session (`DBG_NONE`) runs nothing: `brk_pc :=
+cur_addr`, the panel is printed under `; dbg at $PC`, `dbg_reason :=
+DBG_BRK` and `cold_preview_done := 1` (repl.s).  A count is ignored.
 
 ```
-8 slots × 4 bytes = 32 bytes BSS
-
-Offset  Size  Field
-  0       2   addr       breakpoint address ($0000 = unused slot)
-  2       1   saved      original byte at addr
-  3       1   flags      bit 0 = enabled
+1000:t
+; dbg at $1000
+r pc:1000 a:00 x:00 y:00 s:ff nv-bdizc
+1000:.  a2 05     ldx #$05
 ```
 
-Slot 0–7.  Address $0000 = empty.  The `saved` byte is captured
-when the breakpoint is patched and restored when unpatched.
+No sentinel is on the user stack yet, so the first transition after
+the preview — `t`, `o` or `c` — is a fresh start: `set_run_mode`
+picks `MODE_JUMP` (sentinel pushed) and clears `cold_preview_done`;
+later ones are `MODE_RESUME`.  `end_debug_body` clears the flag with
+the rest of the session.
 
-### Step breakpoints
+### User BRK workflow
 
-2 additional slots (same layout, 8 bytes) used by `t` and `o` for
-temporary breakpoints.  Cleaned up automatically after each step.
-Two slots are needed because a branch instruction has two possible
-next addresses (taken / not taken).
+A `brk` the user placed in the program (with a signature byte,
+`brk` / `.db $XX`) stops as `DBG_BRK` with `brk_pc` at the `$00`:
 
-### Kernel ↔ userland transition
-
-CSE is structured as a kernel; transitions are RTI/BRK-driven and
-flat.  See [memory_design.md § Stack contract](../memory_design.md#stack-contract)
-for the full contract.
-
-**Kernel → userland (return_to_userland):**
-
-```
-return_to_userland:
-        ; push user's top-level RTS sentinel
-        lda #>(brk_stub - 1)
-        pha
-        lda #<(brk_stub - 1)
-        pha
-        ; build RTI frame (push order: P, PCH, PCL — RTI pops PCL/PCH/P)
-        lda reg_p
-        pha
-        lda brk_pc+1
-        pha
-        lda brk_pc
-        pha
-        ; install live regs and mode flag
-        lda #1
-        sta in_userland
-        ldx reg_x
-        ldy reg_y
-        lda reg_a
-        rti
-```
-
-The RTI pops PCL/PCH/P, jumps to user's PC.  Below the RTI frame
-sits the `brk_stub - 1` sentinel; user's top-level RTS pops it
-and lands at `brk_stub`.
-
-**Userland → kernel** routes through one of:
-
-- BRK at debugger breakpoint slot (patched $00).
-- BRK at step-BRK slot (patched $00 by `cmd_step`).
-- BRK at `brk_stub` (clean exit).
-- NMI in userland (RUN/STOP+RESTORE).
-- Unplanned BRK ($00 opcode in user code, no slot match).
-
-`cse_brk_handler` (main.s) classifies and calls
-`dbg_brk_capture` (or `dbg_nmi_capture`) to populate the `reg_*`
-shadows.  Then it longjmps SP to `main_loop_top` and resumes the
-REPL.
-
-### BRK mechanism (C64 hardware flow)
-
-```
-BRK executes at user address $AAAA:
-  1. CPU pushes PChi, PClo ($AAAA+2), P (B=1, I=1) → stack
-  2. CPU sets I=1 (masks IRQ)
-  3. CPU loads PC from ($FFFE)
-       kernal-in:  → $FF48 (KERNAL ROM)
-       kernal-out: → cse_brk_handler early-entry label (RAM shadow)
-
-KERNAL at $FF48:
-  4. PHA; TXA; PHA; TYA; PHA          (saves A, X, Y on stack)
-  5. TSX; LDA $0104,X; AND #$10       (checks B flag in stacked P)
-  6. BEQ → normal IRQ handling         (keyboard, timers, cursor)
-     BNE → JMP ($0316)                 (BRK dispatch — cse_brk_handler)
-
-Stack at handler entry (SP = user_SP − 9):
-  SP+1: Y    (KERNAL)
-  SP+2: X    (KERNAL)
-  SP+3: A    (KERNAL)
-  SP+4: P    (CPU, B=1)
-  SP+5: PClo (CPU, = breakpoint addr + 2)
-  SP+6: PChi (CPU)
-  — user's prior stack data above —
-```
-
-The early-entry path (kernal-out) replicates $FF48's prologue
-(register pushes + B-flag test) and then converges with the
-$FF48-arrived path at `cse_brk_handler`'s common entry.
-
-**Key property:** The KERNAL's B-flag check happens *before* any IRQ
-servicing.  BRK dispatch does not clobber KERNAL state: no keyboard
-scan, no cursor blink, no timer service has occurred.  The user's
-KERNAL interaction state is intact.
-
-### NMI break mechanism
-
-```
-NMI fires during user code:
-  1. CPU pushes PChi, PClo (exact addr), P → stack
-  2. CPU loads PC from ($FFFA)
-       kernal-in:  → $FE43 (KERNAL ROM)
-                    KERNAL: SEI; JMP ($0318) → cse_nmi_handler
-       kernal-out: → cse_nmi_handler early-entry label (RAM shadow)
-
-Stack at handler entry (SP = user_SP − 3):
-  SP+1: P    (CPU)
-  SP+2: PClo (CPU, exact resume address — no +2 unlike BRK)
-  SP+3: PChi (CPU)
-  — A, X, Y are live (NOT on stack) —
-```
-
-`cse_nmi_handler` (main.s) reads `in_userland`.  When set, it
-stashes live A/X/Y, then routes into the BRK-style entry path so
-`dbg_nmi_capture` runs the same capture/longjmp tail.
-
-When `in_userland` is clear (NMI in kernel mode), the handler
-swallows: simply RTI, kernel code resumes.  No automatic screen
-recovery — ESC/CLR is the user's binding for that.
-
-**Key difference from BRK:**
-- NMI stacks exact PC (not PC+2).  No adjustment needed on resume.
-- KERNAL NMI entry does NOT push A/X/Y.  Handler saves from regs.
-- The CPU NMI frame is 3 bytes (not 6 like BRK+KERNAL).
-
-### Saved state at break
-
-| Component | Size | Location | Notes |
-|-----------|------|----------|-------|
-| ZP $00–$7F | 128 B | `kernel_zp_buf` (BSS) | CSE's ZP image; restored on next return_to_userland. |
-| ZP $00–$7F | 128 B | `userland_zp_buf` (BSS) | User's ZP snapshot.  `m` and `.` always read from and write to this buffer for addresses in the save range (`[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` — today $00–$7F); see [repl.md § User-ZP view](repl.md#user-zp-view). |
-| Registers (A,X,Y,P) | 4 B | `reg_a/x/y/p` (BSS) | |
-| Stack pointer | 1 B | `reg_sp` (BSS) | User's SP at break |
-| PC | 2 B | `brk_pc` (BSS) | (= `reg_pc_lo/hi`) |
-
-### Cold-init handoff
-
-Cold init does *not* synthesise a BRK frame to enter the REPL.
-A BRK-into-kernel handoff was considered (it would have shared
-cold init's entry path with userland-recovery, classifying via
-`cse_brk_handler`) but rejected as unnecessary failure surface
-at startup.  See [main.md § Layer 1](main.md#layer-1-cse_cold_init-one-time-setup)
-for the actual sequence; in short, `_main` draws splash, captures
-`kernel_init_sp`, and `jmp`s directly to `main_loop_top`.
-
-### Single-step: `t` (trace into) — handler-resident state machine
-
-`cmd_step` cannot loop in REPL code, because the BRK handler's
-longjmp to `main_loop_top` discards the kernel call chain on every
-break.  Instead, multi-step iteration runs **inside the BRK
-handler**, with `cmd_step` providing only the seed.
-
-State (BSS in debugger.s):
-
-| Variable | Size | Purpose |
-|----------|------|---------|
-| `step_state` | 1 | 0 = not stepping; 1 = `t` (into); 2 = `o` (over) |
-| `step_remaining` | 2 | Iterations left after current step (16-bit) |
-
-Plus the existing `step_bp` slots (2 × 4 B) for the temporary
-breakpoint addresses.
-
-**Seed (cmd_step in repl.s):**
-
-```
-1. Read opcode at brk_pc; compute next-PC(s) (see below).
-2. Place temp BRK(s) in step_bp slots; arm.
-3. step_state := 1 or 2; step_remaining := N - 1.
-4. jsr return_to_userland → RTI to user → user runs one instruction →
-   BRK fires at next-PC.
-   (return_to_userland does not return to here; control resumes via
-   the BRK handler.)
-```
-
-**Chain (cse_brk_handler tail in main.s, after dbg_brk_capture):**
-
-```
-if dbg_bp_hit ∈ step_bp slots and step_remaining > 0
-   and dbg_reason != DBG_NMI:
-        ; chain another step
-        step_remaining -= 1
-        compute next-PC(s) from current brk_pc (re-using the
-          same dispatch logic as cmd_step's seed)
-        place new step BRK(s)
-        ; tail call return_to_userland (it pushes RTI frame and RTIs)
-        jmp return_to_userland
-else:
-        ; done — show result and longjmp to REPL
-        unpatch_all
-        restore CSE ZP from kernel_zp_buf
-        ldx kernel_init_sp; txs
-        jmp main_loop_top      ; show_break_result runs from REPL
-```
-
-**Next-PC determination (shared by seed and chain):**
-
-```
-Linear insn:   next = PC + length (via dasm_insn / oplen_tbl)
-Branch (Bxx):  next₁ = PC + 2 + signed_offset (taken)
-               next₂ = PC + 2 (not taken)
-JMP abs:       next = operand
-JMP (ind):     next = peek16(operand)            ← NMOS page wrap:
-               JMP ($xxFF) takes its high byte from $xx00, as the
-               6502/6510 does (not when asm_cpu = 65C02)
-JMP (abs,X):   next = peek16(operand + X)       ← 65C02 only, no wrap
-               peek16 reads $00–$7F from the user's ZP image
-               (userland_zp_buf), not the kernel's live ZP
-JSR abs:       next = operand                    ← `t`: step INTO
-               EXCEPT if operand >= $E000:
-               next = PC + 3 (step OVER — KERNAL ROM is unpatchable)
-RTS/RTI:       stop (break before executing — flag in step_state)
-BRK:           stop (don't step into vector)
-```
-
-For `o` (step-over), JSR's next-PC is always `PC + 3` (the
-instruction after the JSR); the subroutine runs to completion at
-full speed.  For conditional branches, `o` places only the
-fall-through step BRK.
-
-**SP discipline during chaining:**
-
-Each iteration's stack consumption is bounded by the BRK handler's
-own depth + return_to_userland's pushes, NOT by accumulation across
-iterations.  The handler's `unpatch_all`-on-exit branch happens
-only at chain termination; during chaining, the handler tail-jumps
-to `return_to_userland` while still inside its own first-call frame.
-
-This means stepping `t 100` consumes the same kernel stack budget
-as `t 1` — no SP creep.
-
-**Branch handling:** conditional branches (BCC, BEQ, BNE, etc.)
-have two possible next addresses.  Both get a step BRK — the
-taken target (`PC + 2 + signed_offset`) and the not-taken target
-(`PC + 2`).  Whichever path the CPU takes, it hits a BRK.
-`patch_all` saves both original bytes; `unpatch_all` restores both.
-
-**RTS/RTI guard:** the step loop stops BEFORE executing RTS or RTI.
-The instruction is displayed but not run.  This prevents following
-a garbage return address when no JSR context exists.
-
-### Single-step: `o` (trace over / step over)
-
-Identical to `t` except for JSR and conditional branches:
-
-**JSR:**
-- `t` (trace into): step BRK at subroutine entry (`operand`) —
-  follows the call, next step is the first instruction of the sub.
-- `o` (trace over): step BRK at `PC + 3` — the instruction after
-  the JSR.  The subroutine runs to completion at full speed.
-
-**Conditional branches (BCC, BCS, BEQ, BNE, BPL, BMI, BVC, BVS):**
-- `t` (trace into): step BRKs at BOTH the taken target and the
-  fall-through.  Whichever path the CPU takes, the next step
-  fires.
-- `o` (trace over): step BRK at the fall-through ONLY.  If the
-  branch is taken, the code runs at full speed until it naturally
-  reaches the fall-through address (e.g., a loop runs to
-  completion).
-
-**Caveat:** `o` on a branch assumes the fall-through will
-eventually be reached.  If the loop body contains a JMP or JSR
-that exits sideways without passing through the fall-through
-address, execution escapes and only NMI (RUN/STOP+RESTORE) can
-break out — same as `o` on a JSR to a routine that never returns.
-
-### KERNAL ROM JSR fallback
-
-`t` (trace into) on a `JSR $XXXX` where `$XXXX >= $E000` cannot
-work as written.  CSE patches a BRK at the target so the step
-fires when execution reaches it, but writes to ROM addresses pass
-through to the underlying RAM while the CPU still fetches the
-original ROM byte — the BRK is never seen, the user code runs
-into the KERNAL routine, and on return there is no step BRK to
-catch it.  Symptom: stepping into `JSR $FFD2` (CHROUT) "hangs",
-typically with screen output corruption from the runaway execution.
-
-`cmd_step` detects this and silently falls back to step-over for
-KERNAL targets.  The user steps PAST the JSR instead of into it.
-
-`$A000–$BFFF` is **NOT** a fallback case: CSE unmaps BASIC ROM at
-startup (clearing `$01` bit 0), so that range is RAM workspace and
-JSR into the user's own code there steps in normally.
-
-### User code output and the prompt row
-
-`return_to_userland` does NOT save/restore `CUR_ROW`/`CUR_COL` across
-user code execution.  Instead, the CALLER is responsible for moving
-the cursor to a fresh row before invoking it:
-
-- **`cmd_jmp` (j/g):** does `newline` + `io_clear_eol` once before
-  `return_to_userland`.  User CHROUT output then writes to the row below
-  the typed command, not on top of it.  When the user code returns,
-  the cursor is wherever the user code left it; `nl_clear` advances
-  one more row, and `show_prompt` writes the new prompt there.
-- **`cmd_step` (t/o):** does `newline` + `io_clear_eol` once BEFORE
-  the step loop, not per iteration.  Multi-step commands like `t10`
-  therefore add only one fresh row of vertical space, not ten.
-
-This integrates with the kernal-as-terminal affordance — see
-[userland_contract.md § 6](../userland_contract.md#6-kernal-as-terminal-affordance).
-
-### User BRK detection
-
-If a BRK fires at an address that is NOT one of our breakpoint
-slots, NOT a step breakpoint, and NOT `brk_stub`, it's a BRK in
-the user's own code.  The debugger reports it as a user BRK (not
-a breakpoint hit) and sets `brk_pc` to the BRK instruction's
-address.  The user can inspect state and `c` to continue past it
-(PC advances by 2, as the 6502 skips the BRK signature byte).
+- **`o` and `c` skip it.**  `brk_skip_user` (repl.s) advances
+  `brk_pc` by 2 when the byte at `brk_pc` is `$00` — BRK plus its
+  signature byte, as the CPU's own RTI from BRK would.  The BRK is
+  never executed.
+- **`t` stays on it.**  `step_next_pc` yields no target for BRK, so
+  `t` redisplays the panel without progress; use `o` to go on.
+- A `brk` without a signature byte loses the following byte to the
+  2-byte skip.
+- `d` disassembles BRK as one byte, like other 6502 monitors.
 
 ## Commands
 
-### `b` — Breakpoints
+The debugger-facing semantics of the REPL commands; their parsing,
+dispatch and error conventions are [repl.md](repl.md)'s.
+
+### `b`
 
 ```
-b               list all breakpoints
-b ADDR          set breakpoint at ADDR (next free slot)
-b -N            delete breakpoint in slot N (1–8)
-b *             delete all breakpoints
+b               list slots 1-8
+b ADDR          set a breakpoint (expression)
+b -N            delete slot N (1-8)
+b *             delete all
 ```
 
-List output:
-```
-; bp 1: $1000
-; bp 2: $2050
-; bp 3: ----
-  ...
-```
+`b ADDR` requires `$0800 ≤ addr < buf_base` (else `;?range`) and
+reuses the slot that already holds the address; a full table is
+`;?full`.  Output: `; bp 1: $1010` (set, list), `; bp 3: $----`
+(empty slot), `; bp 1 del`, `; bp clr`.  Breakpoints persist across
+sessions and warmstarts ([breakpoints.md](breakpoints.md)).
 
-### `c` — Continue
+### `c`
 
-```
-c               continue execution from brk_pc
-```
+Resumes a `DBG_BRK` / `DBG_NMI` session (else `;?no ctx`).  If the
+break was a user breakpoint, that breakpoint is **deleted** first
+(`dbg_bp_del` of `dbg_bp_hit`), so `c` never re-breaks on the spot it
+leaves; re-set it with `b` to break there again.  A user BRK at
+`brk_pc` is skipped (§ User BRK workflow).
 
-If the break was caused by a user breakpoint, `c` **deletes that
-breakpoint** before continuing.  The user must re-set it with `b`
-if they want to break there again.  This eliminates the re-entry
-problem (breakpoint at current PC would immediately re-trigger).
+### `t` / `o`
 
-If the break was caused by NMI or a user BRK instruction (not one
-of our breakpoints), `c` simply continues without deleting anything.
+§ Single-step.  `t` steps into subroutines, `o` over them.
 
-Error if no active break context.
+### `j` / `g`
 
-### `t` — Trace (step-into)
-
-```
-t               step 1 instruction
-t N             step N instructions (N in hex)
-```
-
-`t N` with N > 1 is an internal chain via the handler-resident
-state machine.  N is a full 16-bit count (`t 300` steps 300
-instructions; 0 means 1); `step_remaining` is two bytes.  Each iteration computes the next-PC, arms a
-temporary step BRK, and enters user code for one instruction.
-
-Bare `t` is single-step (count = 1).  `t N` overrides for this
-invocation only.  `block_size` is NOT consulted by trace — it is a
-memory-block setting (m/l/s commands) and unrelated to stepping
-cadence.
-
-JSR: steps into the subroutine.
-
-A step whose next PC lies outside the workspace (`$0800` ≤ addr <
-`buf_base`, `brk_stub` excepted) is refused with `;!range` before
-any user code runs.  A refused step changes nothing: `step_state`
-stays 0 and a breakpoint the step had disabled (the one just hit)
-is enabled again, so the session is exactly as before the `t`.
-Likewise `end_debug_body` re-enables such a breakpoint, so ending a
-session never leaves a disabled slot behind.
-
-The loop exits early if:
-- A BRK opcode is encountered (user BRK, not a debugger breakpoint)
-- An NMI fires or a regular breakpoint is hit mid-sequence
-- RTS or RTI is reached (stops before executing — prevents
-  following a garbage return address)
-
-#### Step output: the edit workflow
-
-`t` / `o` produce a running **audit trail** of executed
-instructions culminating in a break panel for the current state.
-Pressing RETURN repeatedly advances one instruction per press,
-leaving behind the history of what ran.
-
-The panel abstracts to:
-
-- **Info** — `"; TAG"` always; `"; TAG at $PC"` only when a
-  user-meaningful PC is available.  DBG_BRK and DBG_NMI panels
-  carry the address (`brk_pc` is the actual trap location, the
-  user's natural reference point).  DBG_RTS panels omit the
-  address: the handler retconned `brk_pc := cur_addr` so the
-  displayed value would be the j-target, not the rts location
-  — printing it would be plain wrong (`; rts at $0800` when the
-  rts is at $0814 misleads the user about what just executed).
-  Pure `; rts` is the unambiguous "the program returned" signal.
-- **Regs** — one-line `r pc:.. a:.. x:.. y:.. sp:.. p:..`.
-  Always shown verbatim from the captured state; even on
-  DBG_RTS the `pc:` field reflects the true entry-PC of the
-  debugger session — that's not misleading, it's just the
-  recorded value at break/exit time.
-- **Lookahead** — disassembly of the next-to-run instruction
-  (STEP_OVER semantics: fall-through for conditional branches
-  and `jsr`; target for `jmp`; the instruction itself for
-  RTS/RTI/BRK, where "next" is undefined).  Suppressed for
-  DBG_RTS: the program ended; there is no next-to-run.
-
-The step primitive (handler-resident chain, `step_next_pc`,
-patch/unpatch arming) is untouched — this is pure UX layered on
-top of it.  Screen mechanics (where each row sits, how the panel
-shifts, cursor positioning) are an implementation detail and
-live in the code; they're verified on real hardware/VICE rather
-than pinned by contract.
-
-Tag taxonomy:
-
-| `dbg_reason` | Tag     | When                                      |
-| :---         | :---    | :---                                      |
-| `DBG_NONE`   | `debug` | Cold preview: first `t`/`o` with no session; "debug" signals we're merely showing current state, not the outcome of a step. |
-| `DBG_BRK`    | `brk`   | Step landed on a non-return instruction, or user BP hit. |
-| `DBG_NMI`    | `nmi`   | NMI fired in userland. |
-| `DBG_RTS`    | `rts`   | Step landed at RTS/RTI, or clean exit via brk_stub. |
-
-Multi-step (`t N` / `o N` with N > 1) is implemented as an
-N-iteration loop of the single-step path.  Each iteration is a
-full REPL round-trip.  Future optimisation (see
-TODO "handler t loop short circuit") would fold the iteration
-into the handler-resident chain; not done yet.
-
-##### DBG_RTS: two sources, unified display
-
-`DBG_RTS` is set in two sites corresponding to the two ways to
-end up "at a return op":
-
-- **Handler (main.s)** — `brk_pc == brk_stub`, i.e. user code's
-  top-level RTS popped our sentinel.  Handler sets `DBG_RTS` and
-  resets `brk_pc := cur_addr` so the address shown is user-
-  meaningful (not the sentinel's internal address).
-
-- **cmd_step RTS-early-stop (repl.s)** — `step_next_pc` returns
-  zeros (brk_pc's opcode is `$60`/`$40`/`$00`).  cmd_step sets
-  `DBG_RTS` and jumps to `post_run_cleanup` without entering
-  userland.  This fires on the SECOND `t`/`o` when the user is
-  sitting on an RTS — the first landing (via a step-BRK trap)
-  stays `DBG_BRK` because we BROKE at that instruction without
-  executing it.
-
-There is **no opcode peek in the handler**.  The opcode-based
-classification lives in `step_next_pc` and in cmd_step's early-
-stop path.  The handler's only RTS-related check is
-`brk_pc == brk_stub`.
-
-The "twice" pattern users see (`; brk` on first landing, `; rts`
-on the second try to step past) is intentional, not a workaround:
-the first is "we trapped here", the second is "we can't step
-past".
-
-**Session semantics in RTS state**: `DBG_RTS` is alive-but-
-terminal.  `c` (continue) and `t` (step) refuse to proceed — the
-`cmp #DBG_BRK / bcs` gate fails.  User must `j` / `g` to start a
-fresh run.  For landed-at-RTS, we can't step past an RTS without
-peeking user's stack; for clean-exit, the session is already
-over — resuming makes no sense.
-
-##### User BRK workflow ("lazy debug breakpoint")
-
-Convention: the user sprinkles `brk` (+ optional `.db $XX`
-signature byte) into their source as quick stop points without
-bothering with `b ADDR`.  When the BRK fires, CSE's handler
-captures it as DBG_BRK with `brk_pc` pointing AT the `$00`
-opcode.  The user inspects state, then continues with `o` / `c`,
-or hangs at the BRK with `t`.
-
-Rules under CSE's debugger:
-
-- **All user BRK becomes a debugger trap.**  CSE's BRK vector
-  intercepts every `$00` opcode in user code; the user's own
-  IRQ handler never sees them.  This is unavoidable while the
-  debugger is active (and is the whole point — BRK is what
-  the lazy-debug pattern relies on).
-- **`o` and `c` skip past the BRK by 2 bytes.**  Per the CPU's
-  RTI-from-BRK semantics, BRK + signature byte is a 2-byte
-  effective instruction.  `cmd_step` (STEP_OVER) and
-  `cmd_continue` call `brk_skip_user` which advances `brk_pc`
-  by 2 if the opcode at `brk_pc` is `$00`.  The IRQ vector is
-  never invoked — we side-step the BRK entirely.
-- **`t` deliberately hangs.**  STEP_INTO does NOT call
-  `brk_skip_user`.  `step_next_pc` on `$00` returns zeros, so
-  cmd_step early-stops to `post_run_cleanup` and the panel
-  redisplays without progress.  This is the user's preferred
-  UX: `t` interrupts the return-step workflow at the BRK so
-  the user can inspect.  Use `o` to advance past.
-- **Naked `brk` (no signature byte) loses its next code byte
-  to the +2 skip.**  Per convention, write `brk; .db $XX`.
-  (Or use the planned `.brk [n]` directive — see TODO.)
-- **Disassembly stays 1-byte for BRK.**  `dasm` continues to
-  follow the universal 6502 convention.  `d` from a BRK
-  address shows `brk` (1 byte), then the byte at `brk+1`
-  interpreted as the next opcode — typically garbage if it's
-  the signature byte.  Same as VICE monitor.  Users navigate
-  past via `o`/`c`/`t` rather than `d`.
-
-The user-BRK detection is centralised in `brk_skip_user`
-(repl.s).  No new `dbg_reason` value — the handler still
-classifies as DBG_BRK, the opcode peek at command time
-distinguishes user BRK from step BRK / user BP cleanly enough
-for the two callers (`o` and `c`).
-
-##### Session-state contracts
-
-- `dbg_reason` — see § `dbg_reason` enum above.  Life-cycle:
-  - **Cold**: `DBG_NONE`.  Cold preview sets `DBG_BRK`.
-  - **Handler**: sets `DBG_BRK` for normal traps; promotes to
-    `DBG_RTS` when at RTS/RTI opcode or clean-exit brk_stub
-    path; sets `DBG_NMI` for NMI.
-  - **RTS-early-stop in cmd_step**: sets `DBG_RTS` (same as a
-    handler-classified RTS landing — unified display behavior).
-  - **end-debug** (`R` command): clears to `DBG_NONE`.
-
-- `cold_preview_done` (repl.s) — 1 = the session was set up by
-  a cold preview and no user code has run yet.  The first
-  transition into userland after it — a step (`t`/`o`) or `c` —
-  is a fresh start (MODE_JUMP: the `brk_stub` sentinel is pushed)
-  and consumes the flag.  `end_debug_body` clears it with the rest
-  of the session, so it never outlives the preview's session.
-
-- `_rtu_need_sentinel` — 1 = the next userland transition (via
-  `restore_userland_state`) must push a fresh brk_stub sentinel
-  onto user's stack.  Set by `return_to_userland` (always, for
-  `j`/`g`/cold-init); set by cold preview (so the first real
-  userland transition after preview pushes a sentinel); **not
-  reset by `restore_userland_state`** (lets cold-preview's flag
-  survive until the gate consumes it).  `_rtu_body` clears the
-  flag after pushing.
-
-### `o` — Trace over (step-over)
+`j [ADDR]` sets `cur_addr` (when given) and starts the program there
+(a bad expression runs nothing); `g` starts at the symbol `main`, or
+at `cur_addr` when `main` is undefined.  `brk_pc := cur_addr`,
+`MODE_JUMP`: `return_to_userland` pushes the sentinel, so the
+program's top-level RTS is a clean exit:
 
 ```
-o               step 1 instruction (over subroutines)
-o N             step N instructions (over subroutines)
+0800:j $1010
+; rts
+r pc:1010 a:00 x:00 y:00 s:ff nv-Bdizc
 ```
 
-Same semantics as `t` (loop of N × `o 1`, bare `o` is single-step).
-JSR: the subroutine runs to completion, temporary breakpoint placed
-at PC+3.
+In a resumable session `j`/`g` ask first (§ matrix).
 
-### `j` — Jump (start execution)
+### `r`
 
 ```
-j [ADDR]        start execution at ADDR (default: cur_addr)
-```
-
-Populates `brk_pc` from ADDR (or `cur_addr`) and calls
-`return_to_userland`.  When breakpoints exist, they are patched
-into user memory before transfer; `cse_brk_handler` unpatches
-on return.
-
-On break, displays:
-```
-; brk 3 at $1000                         ← breakpoint hit
-; a:00 x:03 y:00 sp:f5 Nvdizc
-1000:
-
-; nmi break at $0823                     ← RUN/STOP+RESTORE
-; a:ff x:00 y:03 sp:f7 NVdizc
-0823:
-```
-
-### `r` — Registers (unchanged)
-
-```
-r               display registers
-r a:XX x:XX y:XX s:XX NvBdizc    set registers
-r pc:XXXX a:XX x:XX y:XX s:XX NvBdizc
+r                                   show the registers
+r pc:XXXX a:XX x:XX y:XX s:XX nv-bdizc
 ```
 
 Fields are matched by their label, in any order, and any subset may
@@ -880,124 +442,54 @@ checked in full before any field is applied.  The echoed line
 (`emit_reg`'s format) re-executes unchanged, so cursor-up + edit +
 RETURN edits registers in place.
 
-Register modifications via `r` between a break and `c`/`t`/`o`
-are applied when execution resumes (next call to `return_to_userland`
-reads the updated `reg_*` shadows).
+Changed registers are installed by the next transfer to user code
+(`c`, `t`, `o`, `j`, `g`); `j`/`g` replace `pc:` with their start
+address.  `s:` moves the user's SP.
 
-## Workflow Examples
+## Workflow example
 
-### Set breakpoint, run, inspect, continue
-
-```
-1000: b 1020
-; bp 1: $1020
-1000: j
-; brk 1 at $1020
-; a:42 x:00 y:03 sp:f3 nvdizc
-1020: m 00fb 0100
-  ...
-1020: c
-; brk 1 at $1020
-1020: b *
-; breakpoints cleared
-1020: c
-; (runs to RTS — clean exit via brk_stub)
-; a:00 x:00 y:00 sp:f5 nvdizc
-1000:
-```
-
-### Trace through code
+The program: `1000 ldx #$05 / jsr $1010 / dex / bne $1002 / rts`,
+`1010 inc $d020 / rts`.
 
 ```
-1000: t 5
-r a:00 x:ff y:00 sp:f3 Nvdizc
- 1042  stx $d020
-1044:
+1000:b $1010
+; bp 1: $1010
+1000:j
+; brk 1 at $1010
+r pc:1010 a:00 x:05 y:00 s:fb nv-Bdizc
+1010:.  ee 20 d0  inc $d020
+1010:c
+; rts
+r pc:1010 a:00 x:00 y:00 s:ff nv-Bdizc
+1010:c
+;?no ctx
 ```
 
-Output shows final state after 5 steps.
-
-### Step over subroutine
-
-```
-1008: o
-r a:00 x:00 y:00 sp:f5 nvdizc
- 100b  ldx #$00
-100b:
-```
-
-### NMI break from runaway code
-
-```
-1000: j
-  (user presses RUN/STOP + RESTORE)
-; nmi break at $0823
-; a:ff x:00 y:03 sp:f7 NVdizc
-0823: r
-; a:ff x:00 y:03 sp:f7 NVdizc
-0823: c
-  (continues running; or t to step from here)
-```
-
-### NMI in REPL (no user code running)
-
-```
-1000:
-  (user presses RUN/STOP + RESTORE)
-1000:
-```
-
-NMI is swallowed in kernel mode.  Use ESC/CLR for screen recovery
-if needed.
-
-## Cost Estimate
-
-| Component | Bytes | Segment |
-|-----------|-------|---------|
-| return_to_userland | ~30 | CODE |
-| brk_stub | 2 | CODE |
-| Breakpoint patch/unpatch (combined loop) | ~50 | CODE |
-| Breakpoint table management | ~100 | CODE |
-| Step BRK arming logic | ~120 | CODE |
-| dbg_brk_capture / dbg_nmi_capture | ~80 | CODE |
-| REPL commands: b, c, t, o | ~400 | CODE |
-| Breakpoint table (8 × 4) | 32 | BSS |
-| Step-break temp slots (2 × 4) | 8 | BSS |
-| Flags and state (reg_*, brk_pc, dbg_reason, dbg_bp_hit) | ~10 | BSS |
-| **Total** | **~780 CODE, ~50 BSS** | |
-
-Phase 18 net delta vs. two-image swap design:
-- **−512 B KBSS** (no `user_stack_buf` / `cse_stack_buf`).
-- **−1 B BSS** (`cse_sp` retired; `in_userland` lives in main.s).
-- **~−100 B CODE** (no `@tramp` swap-in / swap-out memcpy).
-- **~−1500 cycles** per user transition (memcpy gone, 9 ms each
-  way → ~20 cycles each way).
+`c` deleted breakpoint 1, so the loop ran to the program's RTS — a
+clean exit; `pc:` shows `cur_addr` (here the last break), and the
+session can no longer be resumed.
 
 ## Caveats
 
-- **Shared stack:** user code shares the CSE stack page; the
-  contract is "user must leave 64 bytes of headroom for kernel
-  re-entry on break."  See
+- **Shared stack:** user code shares the CSE stack page and must
+  leave 64 bytes of headroom below its SP for the kernel's re-entry;
+  a break with `reg_sp` below 64 warns `;!stk N`.  See
   [userland_contract.md § 4](../userland_contract.md#4-stack-contract).
-- **`return_to_userland` does not return.**  Control transfers to user
-  code via RTI; the next time the kernel runs, it's via
-  `cse_brk_handler`'s longjmp to `main_loop_top`.  Callers cannot
-  rely on instructions placed after `return_to_userland` running on
-  the user-bound code path.
-- **`dbg_init` runs at cold init**, before the cold-init userland
-  handoff.  `reg_a/x/y/p` must be initialised to clean defaults
-  (e.g. all zero, P with bit 5 = 0) so the synthesized RTI frame
-  is well-defined.
-- Breakpoints only work in RAM.  Cannot set a breakpoint in ROM
-  or I/O space (the BRK byte must be writable).
-- `o` (step-over) on JSR places BRK at PC+3.  If the subroutine
-  never returns (e.g., JMP to a loop), the BRK is never hit.  Use
-  NMI (RUN/STOP+RESTORE) to break out.
-- `t`/`o` stop BEFORE executing RTS or RTI.  The debugger does not
-  follow return addresses — the user must `c` or `j` to continue.
+- **`return_to_userland` / `restore_userland_state` do not return.**
+  The kernel runs again only through `cse_brk_handler` /
+  `cse_nmi_handler` and their jump to `main_loop_top`.
+- Breakpoints and step BRKs work only in workspace RAM: `b` refuses
+  addresses outside `$0800 ≤ addr < buf_base` (`;?range`), the first
+  step refuses targets outside it (`;!range`).  Steps chained inside
+  the handler (`t N`, N > 1) are not range-checked.
+- `o` over a `JSR` or a branch whose fall-through is never reached
+  (a routine that does not return, a loop that exits sideways) runs
+  free; RUN/STOP+RESTORE breaks in.
 - Self-modifying code may overwrite a patched BRK byte between the
-  patch and the hit, causing the breakpoint to be silently lost.
-- $0316/$0318 (BRK/NMI vectors) and $FFFE/$FFFA (RAM shadows) are
-  permanently owned by CSE.  If user code overwrites any of them,
-  the corresponding interrupt path is bypassed.  See
-  [userland_contract.md § 5](../userland_contract.md#5-interrupt-vector-and-banking-hazards).
+  patch and the hit, losing the breakpoint, and `unpatch_all` then
+  writes the saved byte over the program's own change.
+- $0316/$0318 (BRK/NMI vectors) and $FFFE/$FFFA (RAM shadows) belong
+  to CSE.  User code that overwrites them bypasses the corresponding
+  path ([userland_contract.md § 5](../userland_contract.md#5-interrupt-vector-and-banking-hazards)).
+- `kernel_stack_budget` is exported but unused (repl.s duplicates it
+  as `KSTK_MIN`); changing the budget means changing both.

@@ -1,6 +1,6 @@
 ; debugger.s — Step state machine + kernel↔userland gates (L4)
 ; Owner: doc/modules/debugger.md
-;                (Phase 18 — ISR-kernel model)
+;                (ISR-kernel model)
 ;
 ; Owns:
 ;   * Step state machine: `step_state`, `step_remaining` (16-bit), `step_next_*`,
@@ -10,9 +10,10 @@
 ;     complementary gate primitives for kernel↔userland transitions.
 ;   * `return_to_userland`: wrapper that pushes a fresh brk_stub sentinel
 ;     before falling into `restore_userland_state`.  Used for fresh
-;     execution starts (`j`, cold-init handoff).  Resumes (`c`, `t`,
-;     `o`, handler chain) call `restore_userland_state` directly —
-;     the existing sentinel from the prior fresh start is still valid.
+;     execution starts (MODE_JUMP: `j`/`g`, and the first `t`/`o`/`c`
+;     after a cold preview).  Resumes (MODE_RESUME, handler chain)
+;     use `restore_userland_state` directly — the existing sentinel
+;     from the session's fresh start is still valid.
 ;   * `dbg_init`: cold-init / warm-recovery entry point.  Zeros the
 ;     step-state block, the reg_* shadows, dbg_reason, and seeds the
 ;     CPU-port bytes in the ZP save buffers.  Leaves bp_table alone
@@ -63,17 +64,18 @@
         .import step_bp
         .import dbg_step_clear
 
-; Reason codes (DBG_NONE/DBG_BRK/DBG_NMI) are declared in main.s
-; where cse_brk_handler / cse_nmi_handler actually assign dbg_reason.
+; Reason codes (DBG_NONE/DBG_RTS/DBG_BRK/DBG_NMI) are defined in
+; dbg_reason.inc (included by main.s and repl.s, which assign and test
+; dbg_reason); this module only zeroes it.
 
 ; Step mode (stored in step_state)
 STEP_NONE = 0
 STEP_INTO = 1
 STEP_OVER = 2
 
-; User-side stack headroom contract (conservative-pending-empirical;
-; see userland_contract.md § 4).  One-byte change here + a doc edit
-; tightens the contract post-audit.
+; User-side stack headroom contract (userland_contract.md § 4).
+; Exported but imported by no module: repl.s's KSTK_MIN is the copy
+; the `;!stk` check uses — change both together.
 kernel_stack_budget = 64
 
 ; Size of the step-state BSS window zeroed by dbg_init (11 bytes:
@@ -113,7 +115,7 @@ _rtu_need_sentinel: .res 1
 ; Clobbers: A, X.
 ;
 dbg_init:
-        ; Zero the 10-byte step-state block in one sweep.
+        ; Zero the 11-byte step-state block in one sweep.
         ldx #STEP_STATE_SIZE - 1
         lda #0
 @z:     sta brk_pc,x
@@ -238,11 +240,13 @@ save_userland_state:
 ; ── return_to_userland ──────────────────────────────────────────────────
 ; Wrapper that pushes a fresh (brk_stub - 1) sentinel for the user's
 ; top-level RTS clean-exit path, then falls through to
-; restore_userland_state.  Used for fresh execution starts:
+; restore_userland_state.  Used for fresh execution starts
+; (run_user_pending = MODE_JUMP):
 ;   * `j` / `g` commands (user begins at new PC).
-;   * cold-init userland handoff (first ever transition).
+;   * the first `t` / `o` / `c` after a cold preview (no sentinel
+;     on the user stack yet).
 ;
-; Do NOT call from resume paths (`c`, `t`, `o`, step-chain): the
+; Do NOT call from resume paths (MODE_RESUME, step-chain): the
 ; existing sentinel from the prior fresh start is still valid, and
 ; pushing another would creep the stack by 2 bytes per resume.
 ; Resume paths jump to restore_userland_state directly.

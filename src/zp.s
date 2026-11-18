@@ -5,8 +5,8 @@
 ; in the project is defined here and exported.  Modules .importzp what they
 ; need.  The linker places this segment at $02 (per c64_trial.cfg).
 ;
-; Total: 85 bytes ($02–$56).  First free: $57.
-; User programs may use $57–$7F (41 bytes) without conflict.
+; Total: 120 bytes ($02–$79).  First free: $7A (see the tail below).
+; Allocation table and user-ZP rules: doc/modules/zp.md.
 
         .setcpu "6502"
 
@@ -125,12 +125,12 @@ ed_scr:         .res 2          ; screen pointer for rendering
 ; writer/reader table.
         .exportzp in_userland, state, warm_cont, kernal_out
         .exportzp ed_dirty, dbg_reason, cur_device
-in_userland:    .res 1          ; 1 = user code running, 0 = kernel
+in_userland:    .res 1          ; $80 = user code running (bit 7: bit/bmi), 0 = kernel
 state:          .res 1          ; 0=STOP, 1=REPL, 2=EDIT
 warm_cont:      .res 1          ; 0=fresh prompt, 1=replay line_buf
 kernal_out:     .res 1          ; nonzero = KERNAL banked out (batch flag)
 ed_dirty:       .res 1          ; buffer modified flag
-dbg_reason:     .res 1          ; 0=clean RTS, 1=BRK, 2=NMI
+dbg_reason:     .res 1          ; DBG_NONE/RTS/BRK/NMI = 0-3 (dbg_reason.inc)
 cur_device:     .res 1          ; floppy device number (default 8)
 
 ; ── Current project name (Phase 21.1 Move 6a) ─────────────────────────── $5E
