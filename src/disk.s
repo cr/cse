@@ -194,7 +194,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 ; Shared by disk_load_seq, disk_save_seq, disk_save_prg — all three
 ; open the file built in open_buf on LFN 2 / SA 2.
 ;   In:  A = name length (typically carried from build_open_str).
-;   Out: C = 1 on OPEN error (propagated from KERNAL).
+;   Out: C = 1 on OPEN error; LFN 2 is then closed again — the
+;        KERNAL keeps the file-table entry when the device fails
+;        (device not present), so a later OPEN 2 would be refused.
 ; Clobbers: A, X, Y.
 ; ═════════════════════════════════════════════════════════
 .proc _disk_open_buf
@@ -205,7 +207,12 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         ldx cur_device
         ldy #2
         jsr SETLFS
-        jmp OPEN                ; tail call — C propagates
+        jsr OPEN
+        bcc @ok
+        lda #2
+        jsr CLOSE
+        sec
+@ok:    rts
 .endproc
 
 ; ═════════════════════════════════════════════════════════
@@ -756,11 +763,7 @@ floppy_status:
         ldx #0
         rts
 
-@err_close:
-        jsr CLRCHN
-        lda #2
-        jsr CLOSE
-@err:
+@err:                           ; OPEN failed (_disk_open_buf closed LFN 2)
         lda #1
         ldx #0
         rts
@@ -917,9 +920,7 @@ floppy_status:
         rts
 
 @err:   pla                     ; drop saved size from stack
-        pla
-        lda #1
-        jsr CLOSE
+        pla                     ; (OPEN failed; _disk_open_buf closed LFN 2)
         lda #1
         ldx #0
         rts

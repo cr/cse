@@ -925,8 +925,9 @@ documentation round that follows this filing.
   Fixed 2026-11-18: `oplen_lengths()` refuses a length conflict; a crash (JAM) row yields, so `$D2` is 2 (65C02 `CMP (zp)`, was 1), tests test_oplen_*.
 - [ ] **Mutable bytes in CODE**: `main.s` `@key` and `dasm.s` `@adj`
   (blocks a ROM/CRT build; memory_design.md "no self-modifying code").
-- [ ] `disk.s` closes LFN 1 on an OPEN failure although the file is
+- [x] `disk.s` closes LFN 1 on an OPEN failure although the file is
   LFN 2; the SEQ error paths close nothing.
+  Fixed 2026-11-18: `_disk_open_buf` closes LFN 2 when OPEN fails (dead `@err_close` removed); C64Emu models an empty serial bus, test test_disk.py.
 - [ ] Dead code and imports: `kernel_stack_budget` (exported, unused;
   repl.s duplicates it as `KSTK_MIN`), `str_end_dbg`, `str_no_name`,
   `io_color` (written, never read), `mn_vars.s` (empty shell); dead

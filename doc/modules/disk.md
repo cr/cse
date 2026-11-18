@@ -7,15 +7,17 @@
 | File | Role |
 |------|------|
 | [`src/disk.s`](../../src/disk.s) | implementation |
+| [`tests/integration/test_disk.py`](../../tests/integration/test_disk.py) | test contract — the error paths with no drive: error codes, no file left open |
 
-**Test coverage** — Pattern C (cannot be enforced at any unit tier)
-per [testing.md § Principle 9](../testing.md).  No automated test
-file for `disk.s`.  Every export (`list_directory`, `floppy_status`,
-`floppy_read_status`, the SETLFS / SETNAM / OPEN / LOAD / SAVE
-wrappers) drives KERNAL IEC entry points that are not modelled by
-the py65 + C64Emu harness — there is no virtual IEC bus, no D64
-backend, and no IEC timing simulation.  Coverage is therefore
-manual: VICE with a mounted D64 image, exercising `l` / `s` /
+**Test coverage** — the error paths with no drive are Tier I
+(`test_disk.py`: C64Emu models an empty serial bus, so every KERNAL
+OPEN / LOAD on a serial device fails with "device not present").
+Successful transfers are Pattern C per
+[testing.md § Principle 9](../testing.md): every export
+(`list_directory`, `floppy_status`, `floppy_read_status`, the SETLFS
+/ SETNAM / OPEN / LOAD / SAVE wrappers) needs a drive that answers,
+and the harness has no virtual IEC device and no D64 backend.
+Coverage of those is therefore manual: VICE with a mounted D64 image, exercising `l` / `s` /
 `$` REPL commands across PRG / SEQ / verbatim-name forms,
 device-not-present, file-not-found, and overwrite paths.  Plans
 to graduate this to Tier I are tracked under
@@ -133,6 +135,14 @@ don't need the `,type,mode` tail.
 editor passes its insert function for loading and its read function
 for saving.  Callbacks are stored in `callback` (2B BSS) and invoked
 via `jmp (callback)`.
+
+**No file left open.**  Every entry returns with none of its
+logical files open, on success and on error.  The SEQ and PRG-save
+paths open LFN 2 through `_disk_open_buf`; when OPEN fails there
+(device not present), the KERNAL has already entered LFN 2 in its
+file table, so `_disk_open_buf` closes LFN 2 again before returning
+C = 1 — otherwise every later OPEN 2 would fail with "file open".
+`disk_load_prg` (KERNAL LOAD, LFN 1) closes LFN 1 on both paths.
 
 **SEQ read loop:** After each CHRIN, READST is called immediately
 (before the callback) to capture the EOF flag — the callback may
