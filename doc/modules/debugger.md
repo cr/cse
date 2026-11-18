@@ -151,7 +151,7 @@ No module imports it: `repl.s` keeps its own `KSTK_MIN = 64` for the
 | `_rtu_need_sentinel` | 1 | no | per call: 1 from `return_to_userland`, 0 from `restore_userland_state`; read by `_rtu_body` |
 
 `dbg_reason` and `in_userland` are cross-module flags in `zp.s`
-([zp.md § Cross-module flag semantics](zp.md#cross-module-flag-semantics));
+([zp.md § Cross-module flags](zp.md#cross-module-flags));
 `dbg_reason`'s values are § `dbg_reason` enum.  `step_bp` (slots 8–9)
 is breakpoints.s's; `reg_*` are asm_line.s's; `kernel_zp_buf` /
 `userland_zp_buf` are mem.s's.

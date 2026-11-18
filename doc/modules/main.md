@@ -180,7 +180,7 @@ snapshot taken at cold init for `cse_exit_to_basic`.
 The cross-module flags main.s reads and writes (`state`,
 `in_userland`, `warm_cont`, `kernal_out`, `dbg_reason`, `cur_device`)
 live in `zp.s`; their meaning and writers are
-[zp.md § Cross-module flag semantics](zp.md#cross-module-flag-semantics).
+[zp.md § Cross-module flags](zp.md#cross-module-flags).
 The `dbg_reason` values come from `src/dbg_reason.inc`
 ([debugger.md § `dbg_reason` enum](debugger.md#dbg_reason-enum)).
 

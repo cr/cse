@@ -161,7 +161,7 @@ editor (`ed_save_source`, `ed_load_source`, `ed_new`,
 `ed_save_lines`, `ed_save_bytes`), gap_buffer (`ed_ensure_init`,
 `ed_total_lines`, `ed_read_rewind`, `ed_read_byte`, `src_top`,
 `src_bot`), disk (`list_directory`, `disk_load_prg`,
-`disk_save_prg`, `floppy_status`, `floppy_read_status`, `fl_buf`),
+`disk_save_prg`, `floppy_read_status`, `fl_buf`),
 mem (`userland_zp_buf`, `ZP_SAVE_LO`, `ZP_SAVE_LEN`, `cse_start`,
 `cse_end`), log (`log_*`, `seg_line`, `prg_line`, `free_line`,
 `info_line*`, `puts_imm`), cse_io, screen, strings, zp (`state`,
@@ -807,7 +807,7 @@ the same for `t 100` as for `t 1`.
 ### Splash screen
 
 At startup main.s prints the version row, then `cmd_info` in splash
-mode (C=1), then the manual link ([main.md § Splash screen](main.md#splash-screen)).
+mode (C=1), then the manual link ([main.md § Layer 1](main.md#layer-1-_main-cold-init-one-time-setup), step 14).
 Splash mode prints only the free rows:
 
     ; zp   0002-007f   126b free
