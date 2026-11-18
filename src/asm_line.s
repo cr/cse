@@ -5,31 +5,31 @@
 ; bytes to the output buffer.
 ;
 ; Format: MNEMONIC [OPERAND]
-;   - MNEMONIC: 3 letters (PETSCII uppercase $41–$5A or lowercase $61–$7A;
-;               AND #$1F normalizes both to 1–26 for the hash classifier)
+;   - MNEMONIC: 3 letters (PETSCII $41–$5A, $61–$7A or $C1–$DA; AND #$5F
+;               folds them, _asm_rd_upper maps them to 1–26 for the hash
+;               classifier); whitespace, end of line or ';' must follow
 ;   - OPERAND:  addressing-mode argument, same syntax as mode_parse accepts
+;               (expressions and symbols via expr_eval_nb).
 ;               Zone B (REL): the operand is the target (narrow or wide);
 ;               the signed PC-relative offset is computed.
-;   - No labels, symbols, directives, or expressions (stub: hex literals only).
 ;
 ; Public entry point: asm_line (A/X = PETSCII text pointer)
 ;   Manages KERNAL banking, error recovery, SP save/restore.
 ;   Calls _asm_line_core internally.
 ;
-; Internal entry point: _asm_line_core
+; Internal entry point: _asm_line_core (KERNAL banked out)
 ;   asm_ptr   — ZP word pointing to the instruction string (PETSCII, null-terminated)
-;   asm_pc    — current PC (lo, hi); required for REL/ZPREL offset computation
+;   asm_pc    — current PC (lo, hi); required for REL offset computation
 ;   asm_out   — output buffer pointer (lo, hi)
-;   asm_cpu   — 0 = 6502, 1 = 6510, 2 = 65C02
-;   Y = 0
+;   asm_cpu   — 0 = 6502, 1 = 6510, 2 = 65C02 (global enumeration)
+;   (sets Y = 0 itself)
 ;
 ; Exit (success):
 ;   asm_len — number of bytes written to [asm_out]
 ;   C = 0
 ;
-; Error: jmp asm_error (does not return)
-;   Triggered for: unknown mnemonic, invalid mode for profile, out-of-range
-;   REL offset, or any other structural assembler error.
+; Error: jmp asm_error / asm_expr_error / asm_cpu_error (asm_err.s; does
+;   not return — unwinds to _asm_saved_sp).  See asm_line.md § Design.
 
         .setcpu "6502"
 
@@ -122,7 +122,7 @@ asm_line:
         jsr kernal_bank_out
 
         ; ── call assembler ──────────────────────────────────────────────
-        ldy #0                  ; required by _asm_line_core entry contract
+        ldy #0                  ; (_asm_line_core also resets Y itself)
         jsr _asm_line_core
 
         ; ── output wrapped past $FFFF with bytes to spare? _asm_emit
@@ -451,7 +451,7 @@ _asm_line_core:
         clc
         jmp _asm_emit_base_opr  ; tail-call; _asm_emit preserves C
 
-; ── Zone D/E: bit-ops (RMB, SMB, BBR, BBS) — not yet tested ──────────────────
+; ── Zone D/E: bit-ops (RMB, SMB, BBR, BBS) — not assembled yet ───────────────
 @zone_d:
 @zone_e:
         jmp asm_error
@@ -466,7 +466,7 @@ _asm_line_core:
         clc
         jmp _asm_emit           ; tail-call; _asm_emit preserves C
 
-; ── Zone G/H: multi-mode (profiles 6–29) ─────────────────────────────────────
+; ── Zone G/H: multi-mode (pidx >= ASM_ZONE_G) ────────────────────────────────
 @zone_gh:
         ; Parse the addressing-mode argument.
         jsr mode_parse
@@ -476,8 +476,8 @@ _asm_line_core:
         jsr _asm_imm_chk        ; A = MODE_IMM kept (≠ 0)
 :
         ; ── IMP → ACC promotion for ACC-accepting profiles ────────────────
-        ; A bare mnemonic on an ACC-accepting profile (profile 11: ASL,
-        ; LSR, ROL, ROR; CMOS DEC, INC) means accumulator mode.  mode_parse
+        ; A bare mnemonic on an ACC-accepting profile (ASL, LSR, ROL,
+        ; ROR; CMOS DEC, INC) means accumulator mode.  mode_parse
         ; returns MODE_IMP for an empty operand; promote to MODE_ACC here
         ; when the profile accepts ACC.  We reuse `_au_no_acc` (set above
         ; from the same `mn_modes_lo[asm_pidx] & MODE_ACC_BIT` test that
