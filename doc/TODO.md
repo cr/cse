@@ -1016,7 +1016,10 @@ documentation round that follows this filing.
   `gb_insert`'s carry — keep as a test-only export (documented) or
   retire.
   Fixed 2026-11-18: kept as a documented test-only export (gap_buffer.md: ignores the carry, drops the rest on a full buffer), test TestEdInsertStringFull.
-- [ ] `dbg_reason` enum defined twice (`main.s`, `repl.s`).
+- [x] `dbg_reason` enum defined twice (`main.s`, `repl.s`).
+  Fixed 2026-11-18: the enum lives in `src/dbg_reason.inc` (owner
+  debugger.md), included by main.s and repl.s, test
+  `TestDbgReasonSingleDefinition`.
 
 ### Code bugs — found by the live example run (2026-11-18)
 

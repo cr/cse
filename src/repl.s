@@ -81,13 +81,8 @@ MODE_NONE   = 0
 MODE_JUMP   = 1
 MODE_RESUME = 2
 
-        ; dbg_reason enum — ordered by liveness (higher = more alive).
-        ; Mirrors main.s declaration (ca65 doesn't import equates).
-        ; `cmp #DBG_BRK / bcs` identifies a resumable session.
-DBG_NONE = 0    ; no session
-DBG_RTS  = 1    ; alive-but-terminal: landed at RTS/RTI or clean exit
-DBG_BRK  = 2    ; resumable: non-return break
-DBG_NMI  = 3    ; resumable: NMI
+        ; dbg_reason enum — one definition, shared with main.s.
+        .include "dbg_reason.inc"
 
 ; ── Imports: debugger step modes (match debugger.s values) ───
 STEP_NONE = 0

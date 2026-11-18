@@ -1932,3 +1932,14 @@ class TestMainCodeReadOnly:
         after = bytes(e.memory[start + i] for i in range(size))
         diff = [hex(start + i) for i in range(size) if before[i] != after[i]]
         assert diff == [], f"main.s CODE written at {diff}"
+
+
+class TestDbgReasonSingleDefinition:
+    """debugger.md § dbg_reason enum: defined once, in dbg_reason.inc."""
+
+    def test_only_the_include_defines_the_enum(self):
+        import re, pathlib
+        src = pathlib.Path(__file__).resolve().parents[2] / "src"
+        hits = sorted(p.name for p in list(src.glob("*.s")) + list(src.glob("*.inc"))
+                      if re.search(r"^\s*DBG_BRK\s*=", p.read_text(), re.M))
+        assert hits == ["dbg_reason.inc"]

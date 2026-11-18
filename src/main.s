@@ -107,12 +107,8 @@ KERNAL_IRQ_BODY = $EA31
 P_B_FLAG     = $10            ; mask: bit 4 of stacked P
 BANK_IN      = $36
 
-; Reason codes — ordered by liveness (higher = more alive).
-; `cmp #DBG_BRK / bcs` identifies a resumable session in one compare.
-DBG_NONE = 0    ; no session (never started / ended)
-DBG_RTS  = 1    ; alive-but-terminal: landed at RTS/RTI or clean exit
-DBG_BRK  = 2    ; resumable: non-return break
-DBG_NMI  = 3    ; resumable: NMI
+; Reason codes (dbg_reason) — one definition, shared with repl.s.
+        .include "dbg_reason.inc"
 
 ; run_user_pending values.  Set by command handlers; dispatched by
 ; main_loop after exec_line rts's back.

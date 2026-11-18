@@ -7,6 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/debugger.s`](../../src/debugger.s) | implementation: step state, `dbg_init`, `save/restore_userland_state`, `return_to_userland`, `brk_stub` |
+| [`src/dbg_reason.inc`](../../src/dbg_reason.inc) | the `dbg_reason` enum (`DBG_NONE`…`DBG_NMI`), the one definition, included by main.s and repl.s |
 | [`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py) | tier-I tests: kernel↔user transitions, step chains |
 | [`tests/integration/test_step_rom.py`](../../tests/integration/test_step_rom.py) | tier-I tests: step-into-ROM fallback |
 
@@ -168,6 +169,9 @@ Used by the BRK handler to identify which breakpoint slot was hit.
 - `step_bp` — temporary breakpoint(s) for single-step (2 slots)
 
 #### `dbg_reason` enum — ordered by "liveness"
+
+Defined once, in `src/dbg_reason.inc`, which main.s and repl.s
+include (a test pins that no source defines the values itself).
 
 ```
 DBG_NONE = 0    ; no session (never started, or ended via end-debug)
