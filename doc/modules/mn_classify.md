@@ -7,9 +7,9 @@
 | File | Role |
 |------|------|
 | [`src/mn_classify.s`](../../src/mn_classify.s) | implementation — dispatcher |
-| [`src/mn7.s`](../../src/mn7.s) | implementation — 7-bit hash classifier (C64 `mn7` keys and the m65 keys, over their CPU set's tables) |
+| [`src/mn7.s`](../../src/mn7.s) | implementation — 7-bit hash classifier (C64 `mn7` keys; the planned m65 key set uses it over its own tables) |
 | [`src/mn6.s`](../../src/mn6.s) | implementation — 6-bit hash classifier |
-| [`src/mn_vars.s`](../../src/mn_vars.s) | implementation — ZP variable definitions |
+| [`src/mn_vars.s`](../../src/mn_vars.s) | an empty shell: one `.importzp` of `mn_c1`–`mn_c3` and a calling-convention comment; it defines and emits nothing (the inputs are in zp.s) |
 | [`src/mn7_tables.s`](../../src/mn7_tables.s) | generated — one block per `mn7` CPU set: `mn7_hash_t` (27 B) + `mn7_fp` / `mn7_base_op` / `mn7_profile` (3×128 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/mn6_tables.s`](../../src/mn6_tables.s) | generated — the `mn6` block (CPU set {6502}): `mn6_hash_t` (27 B) + `mn6_fp_c2` (27 B, `(c2·218) & $FF`) + `mn6_fp` / `mn6_base_op` / `mn6_profile` (3×64 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`tests/unit/test_mn_classify.py`](../../tests/unit/test_mn_classify.py) | test contract |
@@ -21,9 +21,11 @@ Forwards to `mn6_classify` or `mn7_classify` depending on build-time
 `USE_MN6` define.  Default: mn7.
 
 ### mn6_classify / mn7_classify
-**In:** `mn_c1`, `mn_c2`, `mn_c3` (ZP, normalized 1–26: A=1..Z=26)
-**Out:** C=0 → recognized, A = hash slot.  C=1 → unrecognized.
-**Clobbers:** A, X, Y, mn*_h_tmp
+**In:** `mn_c1`, `mn_c2`, `mn_c3` (ZP, normalized 1–26: A=1..Z=26);
+KERNAL banked out (the fingerprint tables are KDATA).
+**Out:** C=0 → recognized, A = X = hash slot.  C=1 → unrecognized
+(A undefined).
+**Clobbers:** A, X, Y (Y = `mn_c2`), `mn7_h_tmp` / `mn6_h_tmp`
 
 On success, index `mn_base_op[slot]` and `mn_profile[slot]` for
 the base opcode and operand profile.
@@ -39,7 +41,7 @@ profile index, numbered per CPU set by the generator — see
 [opcode_lookup.md § Profile index layout](opcode_lookup.md#design)).
 `cat` is the key's CPU category; its meaning is per platform:
 
-| `cat` | C64 CPU sets | m65 CPU set |
+| `cat` | C64 CPU sets | m65 CPU set (planned) |
 |---|---|---|
 | 00 | legal NMOS | legal NMOS |
 | 01 | legal NMOS with a 65C02 extension profile at `pidx + 1` | legal NMOS with a 4510 extension profile at `pidx + 1` |
@@ -49,28 +51,28 @@ profile index, numbered per CPU set by the generator — see
 The gate that reads `cat` is [asm_line.md § asm_cpu × category gate
 matrix](asm_line.md#asm_cpu--category-gate-matrix).
 
-**Depends on:** zp (`mn_c1` / `mn_c2` / `mn_c3` — originally
-hosted in mn_vars, migrated to zp.s as `.exportzp` ZP vars),
-mn6_tables or mn7_tables (GENERATED — `mn{6,7}_classify`,
-`mn{6,7}_base_op`, `mn{6,7}_profile`, selected per build-time
+**Depends on:** zp (`mn_c1`, `mn_c2`, `mn_c3`, `mn7_h_tmp` /
+`mn6_h_tmp`), mn7_tables or mn6_tables (GENERATED — `mn7_hash_t`,
+`mn7_fp`, `mn7_base_op`, `mn7_profile`; or `mn6_hash_t`, `mn6_fp_c2`,
+`mn6_fp`, `mn6_base_op`, `mn6_profile`; selected per build-time
 `USE_MN6`)
 
 ### Memory
 
 | Location | Symbol | Size | Consumers / contract status |
 |---|---|---|---|
-| mn_vars.s ZP | `mn_c1`, `mn_c2`, `mn_c3` | 1 B each | **Exported inputs.**  `asm_line.s` writes all three before every `jsr mn_classify`.  Values are 1–26 (A=1..Z=26); the caller refuses non-letters before normalizing. |
-| mn7.s ZP | `mn7_h_tmp` | 1 B | **Internal scratch.**  Holds `c3>>2` transiently during the fingerprint check.  Not exported; no external contract other than "reserved — do not alias". |
-| mn7_tables.s RODATA | `mn7_hash_t` | 27 B | **Internal.**  T[c2] hash perturbation, generated per CPU set from `dev/hashes.py`.  Not exported.  Byte values are an implementation detail subsumed by the classifier's observable behaviour (`test_mn7_full_sweep`). |
+| zp.s ZP | `mn_c1`, `mn_c2`, `mn_c3` | 1 B each | **Inputs.**  `asm_line.s` writes all three before every `jsr mn_classify`.  Values are 1–26 (A=1..Z=26); the caller refuses non-letters before normalizing. |
+| zp.s ZP | `mn7_h_tmp` / `mn6_h_tmp` | 1 B (one address, only one classifier linked) | **Scratch.**  mn7: `c3>>2` during the fingerprint check; mn6: `c1×8`, then the computed fingerprint. |
+| mn7_tables.s RODATA | `mn7_hash_t` | 27 B | T[c2] hash perturbation, generated per CPU set from `dev/hashes.py`; exported to mn7.s only.  Byte values are an implementation detail subsumed by the classifier's observable behaviour (`test_mn7_full_sweep`). |
 | mn6_tables.s RODATA | `mn6_hash_t`, `mn6_fp_c2` | 27 B each | Same status as `mn7_hash_t`; `mn6_fp_c2` is the fingerprint's c2 term. |
-| mn7_tables.s RODATA | `mn7_fp`, `mn7_base_op`, `mn7_profile` | 128 B each | `mn7_base_op` / `mn7_profile` are **re-exported via mn_classify** (see above).  `mn7_fp` is internal — only `mn7_classify` reads it. |
-| mn6_tables.s RODATA | `mn6_fp`, `mn6_base_op`, `mn6_profile` | 64 B each | Same split: `base_op` / `profile` re-exported; `fp` internal. |
+| mn7_tables.s KDATA | `mn7_fp`, `mn7_base_op`, `mn7_profile` | 128 B each | `mn7_base_op` / `mn7_profile` are **re-exported via mn_classify** (see above).  `mn7_fp` is read only by `mn7_classify`. |
+| mn6_tables.s KDATA | `mn6_fp`, `mn6_base_op`, `mn6_profile` | 64 B each | Same split: `base_op` / `profile` re-exported; `fp` internal. |
 
 ## Variants
 
 |  | mn6 | mn7 (C64) | mn7 (m65) |
 |--|-----|-----|-----|
-| Builds | c64-6502 | c64-6510, c64-65c02 | m65-45gs02 |
+| Builds | c64-6502 | c64-6510, c64-65c02 | m65-45gs02 (planned) |
 | File | mn6.s + mn6_tables.s | mn7.s + mn7_tables.s | mn7.s + mn7_tables.s |
 | Keys | 56 (legal NMOS only) | 114 (legal + CMOS + illegal) | 98 (legal + 65C02 + 4510 + the five Q names) |
 | Hash bits | 6 | 7 | 7 |
@@ -81,14 +83,14 @@ mn6_tables or mn7_tables (GENERATED — `mn{6,7}_classify`,
 | Table size | 3×64 + 27 + 27 = 246 B | 3×128 + 27 = 411 B | 3×128 + 27 = 411 B |
 | Build flag | `-D USE_MN6` | default | default |
 
-The m65 `mn7` is the same routine over the m65 key set's tables (bbbc64
-names that table set `mn7gs`): the form admits no false positive for
+The planned m65 `mn7` is the same routine over the m65 key set's
+tables (bbbc64 names that table set `mn7gs`): the form admits no false positive for
 any key set on a 7-bit table, so only `T` differs, found by the
 generator's displacement search over the sorted keys.
 
 Both use the same table layout per slot: fingerprint (1B),
-base_op (1B), profile (1B).  Both use a 27-byte T[c2] lookup in
-RODATA (index 0 = guard, 1–26 = A–Z).
+base_op (1B), profile (1B), in KDATA.  Both use a 27-byte T[c2]
+lookup in RODATA (index 0 = unused, 1–26 = A–Z).
 
 ## Design
 
@@ -114,11 +116,10 @@ range).
 
 - Both classifiers clobber Y.  Caller must `ldy #0` after the call
   if Y is needed.
-- Input values are 1-based (A=1..Z=26).  Index 0 in T[] is
-  a guard value ($FF).
+- Input values are 1-based (A=1..Z=26).  Index 0 in T[] is never
+  read; the generator writes `$FF` there for mn7 and `$00` for mn6.
 - mn6 does not recognize CMOS, illegal or 4510 mnemonics.
 - The classifier sees the three-letter key only.  A fourth character
-  (a bit digit, or `q` on `MEGA_SUPPORT`) is the suffix, scanned by
-  asm_line ([asm_line.md § Mnemonic word](asm_line.md#mnemonic-word)).
+  is asm_line's business ([asm_line.md § Mnemonic word](asm_line.md#mnemonic-word)).
 - Tables are GENERATED by `dev/mnemonic_tables.py`.  Do not edit
   mn6_tables.s or mn7_tables.s by hand.

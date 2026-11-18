@@ -1,13 +1,12 @@
-; mn_vars.s — shared zero-page mnemonic classifier inputs
+; mn_vars.s — mnemonic classifier inputs (calling convention only)
 ; Owner: doc/modules/mn_classify.md
 ;
-; Provides the three VICII-screencode input registers consumed by
-; both mn6_classify (mn6.s) and mn7_classify (mn7.s).
+; Defines and emits nothing: the three inputs mn_c1 / mn_c2 / mn_c3
+; are ZP variables of zp.s, consumed by mn6_classify (mn6.s) and
+; mn7_classify (mn7.s).
 ;
 ; Calling convention (both classifiers):
-;   Store the first / middle / last letter screencodes in
-;   mn_c1 / mn_c2 / mn_c3, then JSR mn6_classify or mn7_classify.
-;
-; VICII screencodes: A=$01 .. Z=$1A  (1-based; 0 = unused guard)
+;   Store the first / middle / last letter, normalized to 1..26
+;   (A=1 .. Z=26), in mn_c1 / mn_c2 / mn_c3, then JSR mn_classify.
 
         .importzp mn_c1, mn_c2, mn_c3

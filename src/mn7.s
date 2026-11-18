@@ -12,14 +12,14 @@
 ;   hash slot:   h7 = (c1*4 + c3 + mn7_hash_t[c2]) & $7F
 ;   fingerprint: fp = (c2<<3) | (c3>>2)
 ;
-; where c1/c2/c3 are the normalized letter values (AND #$1F) of the
+; where c1/c2/c3 are the normalized letter values (1..26) of the
 ; first, middle, and last letters of the three-character mnemonic.
 ;
 ; Character encoding
 ; ------------------
-; Normalized values:  A=1 .. Z=26  (AND #$1F maps PETSCII upper/lower
-; and VICII screencodes identically; see mn_classify.md)
-; mn7_hash_t[0] = $FF guards the unused index-0 slot.
+; Normalized values:  A=1 .. Z=26  (asm_line's _asm_rd_upper maps the
+; PETSCII letters onto them and refuses anything else; see mn_classify.md)
+; mn7_hash_t[0] = $FF fills the never-read index 0.
 ;
 ; Calling convention
 ; ------------------
@@ -56,7 +56,7 @@
 ;   mn7_fp     128 bytes  (mn7_tables.s)
 ;   mn7_base_op 128 bytes  (mn7_tables.s)
 ;   mn7_profile 128 bytes  (mn7_tables.s)
-;   mn7_h_tmp    1 byte   (ZEROPAGE)
+;   mn7_h_tmp    1 byte   (zp.s)
 ;   Total: mn7_tables.s 27 + 384 = 411 bytes, + 1 ZP byte
 ; ============================================================
 

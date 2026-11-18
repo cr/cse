@@ -11,13 +11,13 @@
 ;   hash slot:   h6 = (c1*8 + c3*15 + mn6_hash_t[c2]) & $3F
 ;   fingerprint: mn6_fp[h6] == (c1 + c2*218) & $FF
 ;
-; where c1/c2/c3 are the normalized letter values (AND #$1F) of the
+; where c1/c2/c3 are the normalized letter values (1..26) of the
 ; first, middle, and last letters of the three-character mnemonic.
 ;
 ; Character encoding
 ; ------------------
-; Normalized values:  A=1 .. Z=26  (AND #$1F maps PETSCII upper/lower
-; and VICII screencodes identically; see mn_classify.md)
+; Normalized values:  A=1 .. Z=26  (asm_line's _asm_rd_upper maps the
+; PETSCII letters onto them and refuses anything else; see mn_classify.md)
 ;
 ; Calling convention
 ; ------------------
@@ -65,7 +65,7 @@
 ;   mn6_fp       64 bytes  (mn6_tables.s)
 ;   mn6_base_op  64 bytes  (mn6_tables.s)
 ;   mn6_profile  64 bytes  (mn6_tables.s)
-;   mn6_h_tmp     1 byte   (ZEROPAGE)
+;   mn6_h_tmp     1 byte   (zp.s)
 ;   Total: mn6_tables.s 54 + 192 = 246 bytes, + 1 ZP byte
 ; ============================================================
 
