@@ -1,6 +1,6 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 ; Owner: doc/modules/asm_err.md
-; asm_err.s — Assembler error state + longjmp unwind (Phase 21 Move 2)
+; asm_err.s — Assembler error state + longjmp unwind
 ;
 ; Owns the error-signalling contract for the single-line assembler
 ; pipeline: asm_line -> addr_mode -> _au_read_val -> expr_eval.  Any
@@ -27,10 +27,9 @@
 ; 0.  The BIT-abs trick lets the three entries share the store and
 ; the unwind tail.
 ;
-; Moved here from asm_line.s in Phase 21 Move 2 so the error handler
-; is not defined inside the module that calls it — that was the
-; asm_line↔addr_mode mutual-recursion + opcode_lookup→asm_line
-; back-edges which the refactor eliminates.
+; The handler lives in its own module, not in asm_line.s, so that
+; addr_mode (which asm_line calls) can reach it without a back-edge
+; to asm_line.
 ;
 ;   _asm_saved_sp (ZP, owned by zp.s) — SP snapshot taken by asm_line
 ;                                       at entry.  Read by the unwind.
@@ -39,7 +38,8 @@
 ;                          repl.s for tag dispatch.
 ;   asm_pass      (BSS)  — 0 = pass 0 (sizing), 1 = pass 1 (emit).
 ;                          Read by addr_mode (_au_read_val forward-ref
-;                          handling); written by asm_src at each pass.
+;                          handling, shadow warning) and asm_src;
+;                          written by asm_src at each pass.
 ; ─────────────────────────────────────────────────────────────────────────────
 
         .setcpu "6502"
