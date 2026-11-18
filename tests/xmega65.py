@@ -15,6 +15,12 @@ Use it as a context manager, so xmega65 never outlives the caller:
     with XMega65(work_dir) as xm:
         xm.cmd("t1")
 
+`rom=` boots a given MEGA65 ROM: it goes onto the clone's FAT
+partition as MEGA65.ROM (mcopy, at the partition's offset from the
+clone's MBR) and xmega65 starts with -romfromsd; `booted_rom()` reads
+back what it booted.  `prg=` makes xmega65 load and RUN a PRG in
+MEGA65 mode (-prg, -prgmode 65).
+
 Never start xmega65 without `-headless` from automation (not even
 `-h`): it opens the GUI and blocks on an error dialog.
 
@@ -54,6 +60,30 @@ def xemu_dir(env=os.environ, home=None, system=sys.platform):
 SDIMG = xemu_dir() / "mega65.img"
 
 POST_BOOT_MAP = (0xE300, 0xB300)   # MAPL, MAPH once BASIC 65 is up
+FAT_TYPES = (0x06, 0x0B, 0x0C, 0x0E)
+
+
+def fat_partition_offset(mbr):
+    """The byte offset of the first FAT partition the MBR lists."""
+    if mbr[510:512] != b"\x55\xAA":
+        raise ValueError("no MBR (no $55 $AA signature)")
+    for i in range(4):
+        entry = mbr[0x1BE + 16 * i:0x1BE + 16 * (i + 1)]
+        if entry[4] in FAT_TYPES:
+            return int.from_bytes(entry[8:12], "little") * 512
+    raise ValueError("the MBR lists no FAT partition")
+
+
+def start_args(rom=False, prg=None):
+    """xmega65's arguments: headless at full speed on sd.img with the
+    monitor on um.sock; the ROM from the SD card, a PRG to RUN."""
+    args = ["-skipconfigfile", "-headless", "-sleepless", "-besure",
+            "-sdimg", "sd.img", "-uartmon", "um.sock"]
+    if prg is not None:
+        args += ["-prg", str(prg), "-prgmode", "65"]
+    if rom:
+        args += ["-romfromsd"]
+    return args
 
 _REGS = re.compile(
     r"^([0-9A-F]{4}) ([0-9A-F]{2}) ([0-9A-F]{2}) ([0-9A-F]{2}) "
@@ -70,8 +100,10 @@ class Interrupted(RuntimeError):
 
 
 class XMega65:
-    def __init__(self, work):
+    def __init__(self, work, rom=None, prg=None):
         self.work = pathlib.Path(work)
+        self.rom = None if rom is None else pathlib.Path(rom)
+        self.prg = None if prg is None else pathlib.Path(prg)
         self.work.mkdir(parents=True, exist_ok=True)
         self.proc = self.sock = None
         self.log = open(self.work / "xmega65.log", "w")
@@ -83,13 +115,22 @@ class XMega65:
 
     def _start(self):
         # copy-on-write clone (APFS): the user's image is never written
-        subprocess.run(["cp", "-c", str(SDIMG), str(self.work / "sd.img")],
-                       check=True)
+        sd = self.work / "sd.img"
+        subprocess.run(["cp", "-c", str(SDIMG), str(sd)], check=True)
+        if self.rom is not None:
+            with open(sd, "rb") as f:
+                offset = fat_partition_offset(f.read(512))
+            subprocess.run(["mcopy", "-o", "-i", f"{sd}@@{offset}",
+                            str(self.rom), "::MEGA65.ROM"], check=True,
+                           env=dict(os.environ, MTOOLS_SKIP_CHECK="1"))
+        prg = None
+        if self.prg is not None:
+            prg = "run.prg"
+            shutil.copy(self.prg, self.work / prg)
         sock = self.work / "um.sock"
         sock.unlink(missing_ok=True)
         self.proc = subprocess.Popen(
-            [XMEGA65, "-skipconfigfile", "-headless", "-sleepless", "-besure",
-             "-sdimg", "sd.img", "-uartmon", "um.sock"],
+            [XMEGA65] + start_args(rom=self.rom is not None, prg=prg),
             cwd=self.work, stdout=self.log, stderr=subprocess.STDOUT)
         deadline = time.time() + 10
         while not sock.exists():
@@ -224,6 +265,10 @@ class XMega65:
         assert addr + length <= 0x10000
         return self.read(0x7770000 | addr, length)
 
+    def booted_rom(self):
+        """The ROM image xmega65 runs (flat $20000-$3FFFF)."""
+        return self.read(0x20000, 0x20000)
+
     def version(self):
         """The VERSION line this instance logged at start-up."""
         self.log.flush()
@@ -243,11 +288,12 @@ def retrying(action, tries=3):
 
 
 @contextlib.contextmanager
-def recording(work):
-    """An xmega65 in trace mode at the BASIC 65 prompt, for a golden-file
-    recorder; the run directory is removed afterwards."""
+def recording(work, rom=None):
+    """An xmega65 in trace mode at the BASIC 65 prompt (on `rom`, if
+    given), for a golden-file recorder; the run directory is removed
+    afterwards."""
     try:
-        with XMega65(work) as xm:
+        with XMega65(work, rom=rom) as xm:
             xm.wait_for_basic()
             xm.cmd("t1")
             yield xm

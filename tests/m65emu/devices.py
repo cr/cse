@@ -1,5 +1,5 @@
 """devices.py — M65Emu's devices (layer 3): DMA, keyboard queue, CIA ports,
-the VIC interrupt latch.
+the VIC interrupt latch, the Hypervisor traps.
 
 Owner: doc/build_system.md
 
@@ -13,7 +13,9 @@ controller is checked against jobs recorded in xmega65
 xemu's source (the monitor cannot type a key).  The CIA1 port reads
 the key matrix C64Emu reads (emu_base.KeyMatrix); the VIC latch and
 the CIA2 interrupt register hold what the jiffy tick and RESTORE raise
-— no raster timing, no CIA timers, as in C64Emu.
+— no raster timing, no CIA timers, as in C64Emu.  Of the Hypervisor,
+the two services the m65 loader uses are modelled; any other trap
+raises.
 """
 
 import collections
@@ -318,3 +320,37 @@ class VICInterruptLatch(Device):
     def write(self, off, v):
         self.latched &= ~v & 0x0F
         self._update()
+
+
+# hyppo_getversion's answer: A.X = Hyppo 1.2, Y.Z = HDOS 1.3, as
+# tests/fixtures/golden/m65_premise.json recorded it on both ROMs
+HYPPO_GETVERSION = (1, 2, 1, 3)
+
+
+class HypervisorNotModelled(Exception):
+    """A Hypervisor trap or register M65Emu does not model: Tier X."""
+
+
+class Hypervisor(Device):
+    """The Hypervisor traps ($D640-$D67F): a store there traps.  Only
+    the two services the m65 loader uses are modelled —
+    hyppo_getversion ($D640 <- $00) sets A X Y Z, hyppo_rom_writeenable
+    ($D641 <- $02) lifts M65Memory's ROM protection; anything else, and
+    any read, raises.  `cpu` is set once the CPU exists."""
+
+    FIRST, LAST = 0x640, 0x67F
+
+    def __init__(self, mem):
+        self.mem = mem
+        self.cpu = None
+
+    def read(self, off):
+        raise HypervisorNotModelled(f"read of $D{off:03X}")
+
+    def write(self, off, v):
+        if (off, v) == (0x640, 0x00):
+            self.cpu.a, self.cpu.x, self.cpu.y, self.cpu.z = HYPPO_GETVERSION
+        elif (off, v) == (0x641, 0x02):
+            self.mem.rom_protect = False
+        else:
+            raise HypervisorNotModelled(f"trap ${v:02X} through $D{off:03X}")

@@ -975,3 +975,26 @@ def cse_prg_per_cpu(request):
     Pytest parametrises the consuming test once per variant."""
     _ensure_all_debug_built()
     return _PER_CPU_PRG[request.param]
+
+
+# ── M65Emu's post-boot snapshots, one per ROM ─────────────────────────────
+# testing.md § The m65 PRG on M65Emu, *ROMs*: a test taking
+# `m65_snapshot` runs once per snapshot under build/m65_state/ (ids: the
+# ROM versions), and is skipped, with the command that records one, when
+# there is none.
+
+from m65emu.harness import CAPTURE, SnapshotMissing, load_snapshot, snapshot_dirs  # noqa: E402
+
+_M65_SNAPSHOTS = snapshot_dirs()
+
+
+@pytest.fixture(scope="session",
+                params=_M65_SNAPSHOTS or [None],
+                ids=[d.name for d in _M65_SNAPSHOTS] or ["no-snapshot"])
+def m65_snapshot(request):
+    if request.param is None:
+        pytest.skip(f"no M65Emu post-boot snapshot in build/m65_state/; run: {CAPTURE}")
+    try:
+        return load_snapshot(request.param)
+    except SnapshotMissing as e:
+        pytest.skip(str(e))

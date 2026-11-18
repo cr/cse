@@ -111,12 +111,16 @@ files, runs in xmega65 (Xemu's MEGA65 emulator), driven by
 share: the recording session and the file writer):
 
 - **Start:** headless at full speed (`-headless -sleepless
-  -skipconfigfile -besure`), the PRG through `-prg` or the D81
-  through `-8` with `-autoload`.
+  -skipconfigfile -besure`), the PRG through `-prg` with `-prgmode
+  65` (xmega65 loads and `RUN`s it in MEGA65 mode — `XMega65(work,
+  prg=…)`) or the D81 through `-8` with `-autoload`.
 - **SD card:** a copy-on-write clone (`cp -c`) of the configured SD
   image in xmega65's data directory, never the image itself.  An
   empty virtual SD card stops at the MEGA65's first-boot onboarding
-  screen.
+  screen.  A wanted ROM (`XMega65(work, rom=…)`) goes onto the
+  clone's FAT partition as `MEGA65.ROM` (`mcopy`, at the partition's
+  offset from the clone's MBR) and xmega65 starts with `-romfromsd`;
+  the ROM it booted is checked against the one given.
 - **Input and state:** the `-uartmon` socket (monitor commands:
   `r` registers, `m` memory read, `s` memory write, `g` go, `t1`/`t0`
   trace mode on/off, `t` one step, `b` breakpoint — a hit is reported
@@ -332,17 +336,28 @@ models none of them either.
   timer A underflow whose source is masked (`m65_latches.json`: `$01`,
   then `$00`).
 
-The hypervisor (`$D640`–`$D67F`) and the floppy controller (`$D080`)
-are not modelled — except the two Hypervisor services the m65 loader
-uses ([§ The m65 PRG on M65Emu](#the-m65-prg-on-m65emu)): a test that
-needs anything else of them is Tier X.
+- **The Hypervisor traps** (`$D640`–`$D67F`).  A store there is a
+  trap, as on the MEGA65 (`lda #service` · `sta register` · `clv`).
+  Two are modelled, the services the m65 loader uses
+  ([platform_layer.md § Constants](platform_layer.md#constants)):
+  `$D640 ← $00`, `hyppo_getversion`, sets A, X, Y and Z to the answer
+  `m65_premise.json` recorded (Hyppo 1.2, HDOS 1.3); `$D641 ← $02`,
+  `hyppo_rom_writeenable`, clears `M65Memory`'s ROM protection.  Any
+  other store there, and any read, raises `HypervisorNotModelled`:
+  `hyppo_reset` and the rest of the Hypervisor are Tier X.
+
+The floppy controller (`$D080`) is not modelled: a test that needs it
+is Tier X.
 
 **Starting state.**  M65Emu does not emulate the boot.
-`dev/capture_m65_state.py` (run by hand; about 25 s) boots xmega65 on
-a given MEGA65 ROM to the BASIC 65 prompt, stops the CPU in trace mode
-and reads, over uartmon, a post-boot state into
-`build/m65_state/<ROM version>/` — one snapshot per ROM M65Emu is
-checked on:
+`dev/capture_m65_state.py` (run by hand; about 25 s per ROM) boots
+xmega65 on each MEGA65 ROM it is given (`--rom PATH`, repeatable;
+default `rom/mega65.rom`) to the BASIC 65 prompt, stops the CPU in
+trace mode and reads, over uartmon, a post-boot state into
+`build/m65_state/<ROM version>/` (the six digits of the ROM's
+`V9xxxxx` string, e.g. `920413/`) — one snapshot per ROM M65Emu is
+checked on.  The ROM reaches xmega65 on the session's SD clone
+([§ Tier X](#tier-x--xmega65-m65-automated)):
 
 - `chip.bin` (384 KB, the ROM image included), `colour.bin` (32 KB),
   `io.bin` (the I/O page `$D000`–`$D7FF` in VIC-IV mode; not the
@@ -351,10 +366,11 @@ checked on:
   `MAP` (the megabyte selectors
   cannot be read; they are 0 after boot, as `m65_mem.json`'s
   post-boot state confirms), the CPU port, `$D030`, the I/O mode,
-  the xmega65 version and the ROM's SHA-256 — the ROM must be
-  `rom/mega65.rom` (the script runs `make m65-rom`'s discovery first
-  and refuses to record when the booted ROM differs:
-  [build_system.md § MEGA65 ROM](build_system.md#mega65-rom));
+  the xmega65 version, the ROM's version and its SHA-256 — the ROM
+  must be the one given (without `--rom` the script runs `make
+  m65-rom`'s discovery first) and the script refuses to record when
+  the booted ROM differs
+  ([build_system.md § MEGA65 ROM](build_system.md#mega65-rom));
 - `reference.json`: what xmega65 did next, run after run from that
   state — each run's code as it was planted (ending in the `JMP` to
   itself that parks it), the address it ends at, the registers and
@@ -517,6 +533,24 @@ own reading of the compendium:
   `tests/unit/test_m65devices.py` drives the two devices through the
   same steps (a latch call for each raster line waited for) and must
   read the same values.
+- `dev/capture_m65_premise.py` records the run premise
+  ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode))
+  on each ROM it is given (`--rom PATH`, repeatable; default
+  `rom/mega65.rom`): xmega65 `RUN`s a probe PRG — a BASIC 65 line
+  `SYS 8205` and, at `$200D`, a `JMP` to itself — and, parked there,
+  the script reads the registers, `MAP` and `P`, the stack bytes
+  above SP and the address its `RTS` returns to, the CPU port,
+  `$D030`, the VIC-IV registers of the screen (mode, base, width, rows,
+  line step) and the speed, and how many bytes of `0.1600–0.1EFF`
+  and of CSE's page `0.1F00–0.1FFF` are not zero; then it calls
+  `hyppo_getversion` and records A, X, Y and Z.  One entry per ROM
+  goes into `tests/fixtures/golden/m65_premise.json` (no ROM content,
+  so it is committed).  `tests/unit/test_m65_premise.py` (Tier U)
+  holds memory_design.md's run premise to every entry, requires the
+  entries to agree on everything but the ROM's own `SYS` return path
+  (the return address, which differs between ROMs within page 3, and
+  BASIC's frames above BASIC's saved map), and M65Emu's
+  `hyppo_getversion` to give the recorded answer.
 - A Tier X test re-runs the capture when xmega65 is present and
   fails on any difference from the committed golden file.
 
@@ -560,10 +594,13 @@ The installed machine they check is
 
 - **ROMs.**  The m65 Tier I suite runs on each post-boot snapshot:
   the ROM floor ([platform_layer.md § Platforms and defines](platform_layer.md#platforms-and-defines))
-  and the ROM xmega65 ships.  Tier X, and the snapshot recorder, boot
-  xmega65 on a wanted ROM by putting it on the session's SD clone
-  (`mcopy` into the FAT partition) and starting with `-romfromsd`; the
-  user's xmega65 data directory is never changed.
+  and the ROM xmega65 ships.  The fixture `m65_snapshot`
+  (`tests/conftest.py`) is parametrised over the snapshots present,
+  its ids the ROM versions: a test that takes it runs once per ROM,
+  and is skipped, with the reason and the command, when there is
+  none.  Tier X, and the snapshot recorder, boot xmega65 on a wanted
+  ROM through the session's SD clone ([§ Tier X](#tier-x--xmega65-m65-automated));
+  the user's xmega65 data directory is never changed.
 - **Fixtures.**  `cse_m65_prg` (the debug m65 PRG with its map and
   labels) and `cse_m65_release_prg`, built by `make debug
   PLATFORM=m65` / `make release PLATFORM=m65` on the same freshness
@@ -583,9 +620,9 @@ The installed machine they check is
   as it does for the C64's `_relocate_segments()`.
 - **The Hypervisor services the loader uses**
   ([platform_layer.md § Constants](platform_layer.md#constants)):
-  M65Emu models `hyppo_getversion` (answering Hyppo 1.2, HDOS 1.3, as
-  recorded) and `hyppo_rom_writeenable`.  `hyppo_reset`, which ends a
-  session, is Tier X only.
+  M65Emu models `hyppo_getversion` and `hyppo_rom_writeenable` as
+  layer 3's Hypervisor traps ([§ M65Emu](#m65emu--the-m65-integration-harness)).
+  `hyppo_reset`, which ends a session, is Tier X only.
 - **Tier X, boot and quit.**  xmega65 starts the PRG through `-prg`
   and stops at a `uartmon` breakpoint on `_main`; the test reads the
   map, the stub, the base page and the protection state and compares

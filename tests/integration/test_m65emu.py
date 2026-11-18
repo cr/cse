@@ -4,9 +4,10 @@ Owner: doc/build_system.md
 
 Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65-integration-harness).
 
-Runs from the post-boot snapshot dev/capture_m65_state.py records in
-xmega65 (build/m65_state/, never committed); skipped, with the command
-that makes it, when it is absent.  The snapshot's reference runs are
+Runs on each post-boot snapshot dev/capture_m65_state.py records in
+xmega65, one per ROM (build/m65_state/<ROM version>/, never
+committed), through the m65_snapshot fixture; skipped, with the
+command that makes one, when there is none.  The snapshot's reference runs are
 replayed in the order they were recorded — "chrout" (one character)
 and "scroll" (30 RETURNs: the KERNAL scrolls by DMA) — and must leave
 the registers and memory xmega65 left.  GETIN reads keys injected into
@@ -19,25 +20,17 @@ and set_cursor() moves the cursor where PLOT reads it back.
 
 import pytest
 
-from m65emu import M65Emu, SnapshotMissing
-from m65emu.harness import load_snapshot
-
-try:
-    SNAPSHOT = load_snapshot()
-except SnapshotMissing as e:
-    pytestmark = pytest.mark.skip(reason=str(e))
-    SNAPSHOT = None
+from m65emu import M65Emu
 
 REGS = ("pc", "a", "x", "y", "z", "b", "sp", "p", "mapl", "maph")
-
-
-def runs():
-    return SNAPSHOT["reference"]["runs"] if SNAPSHOT else []
+RUNS = ("chrout", "scroll")             # capture_m65_state.py's, in order
 
 
 @pytest.fixture
-def emu():
-    return M65Emu(SNAPSHOT)
+def emu(m65_snapshot):
+    emu = M65Emu(m65_snapshot)
+    emu.reference = m65_snapshot["reference"]["runs"]
+    return emu
 
 
 def replay(emu, run):
@@ -47,14 +40,14 @@ def replay(emu, run):
 
 
 def replay_up_to(emu, name):
-    for run in runs():
+    for run in emu.reference:
         if run["name"] == name:
             return run
         replay(emu, run)
     raise KeyError(name)
 
 
-@pytest.mark.parametrize("name", [r["name"] for r in runs()])
+@pytest.mark.parametrize("name", RUNS)
 def test_reference_run_matches_xmega65(emu, name):
     run = replay_up_to(emu, name)
     chip = bytearray(emu.memory.chip[:0x20000])
@@ -79,7 +72,7 @@ def test_reference_run_matches_xmega65(emu, name):
 
 def test_chrout_shows_on_the_screen(emu):
     before = [emu.screen_text(r) for r in range(25)]
-    replay(emu, runs()[0])
+    replay(emu, emu.reference[0])
     after = [emu.screen_text(r) for r in range(25)]
     changed = [(before[r], after[r]) for r in range(25) if before[r] != after[r]]
     assert changed == [("", "a")]                    # screen code $01
@@ -88,7 +81,7 @@ def test_chrout_shows_on_the_screen(emu):
 def test_scrolling_uses_only_modelled_io(emu):
     replay_up_to(emu, "scroll")
     emu.memory.io_log.clear()
-    replay(emu, runs()[1])
+    replay(emu, emu.reference[1])
     assert all(k.startswith("R $D06") for k in emu.memory.io_log), \
         dict(emu.memory.io_log)
 

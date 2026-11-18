@@ -3,9 +3,10 @@
 
 Owner: doc/build_system.md
 
-Boots xmega65 to the BASIC 65 prompt, stops the CPU in trace mode and
-reads, over uartmon, the state M65Emu starts from, into
-build/m65_state/ (tests/m65emu/harness.py has the file list):
+Boots xmega65, on each MEGA65 ROM given, to the BASIC 65 prompt, stops
+the CPU in trace mode and reads, over uartmon, the state M65Emu starts
+from, into build/m65_state/<ROM version>/ (tests/m65emu/harness.py has
+the file list):
 
 - chip RAM (the ROM image included), colour RAM, and the I/O page
   $D000-$D7FF in VIC-IV mode — not the CIAs, whose reads clear flags;
@@ -22,17 +23,21 @@ build/m65_state/ (tests/m65emu/harness.py has the file list):
   runs at full speed to a breakpoint, interrupts off, parked there by
   a JMP to itself).
 
-The ROM xmega65 boots must be rom/mega65.rom: the script first copies
-it from xmega65's data directory (dev/find_m65_rom.py, `make m65-rom`)
-and refuses to record when the booted ROM differs.  The snapshot holds
-the MEGA65 ROM, so it stays in build/ and is never committed.  Run it
-by hand (about 25 s); pytest never starts xmega65.
-Re-run it after an xmega65 or ROM update.
+Each ROM reaches xmega65 on the session's SD clone (tests/xmega65.py,
+rom=); the script refuses to record when the booted ROM differs from
+the one given.  Without --rom it records rom/mega65.rom, which it
+first copies from xmega65's data directory (dev/find_m65_rom.py,
+`make m65-rom`).  A snapshot holds the MEGA65 ROM, so it stays in
+build/ and is never committed.  Run it by hand (about 25 s per ROM);
+pytest never starts xmega65.  Re-run it after an xmega65 or ROM
+update.
 
-    python dev/capture_m65_state.py
+    python dev/capture_m65_state.py                       # rom/mega65.rom
+    python dev/capture_m65_state.py --rom 920413.bin --rom rom/mega65.rom
 
 Needs xmega65 and the user's configured MEGA65 SD image.
 """
+import argparse
 import datetime
 import hashlib
 import json
@@ -43,8 +48,9 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
-from find_m65_rom import check_booted, install   # noqa: E402
-from m65emu.harness import FORMAT, STATE_DIR      # noqa: E402
+from find_m65_rom import (TARGET, check_booted, check_native,  # noqa: E402
+                          install, rom_version)
+from m65emu.harness import FORMAT, STATE_DIR, snapshot_name  # noqa: E402
 from m65emu.memory import COLOUR, IO_KEYS, VIC4   # noqa: E402
 from xmega65 import POST_BOOT_MAP, recording      # noqa: E402
 
@@ -59,7 +65,7 @@ RUNS = (                                          # (name, code, single-step?)
 )
 
 
-def capture(xm):
+def capture(xm, rom_path):
     regs = xm.regs()
     assert (regs["mapl"], regs["maph"]) == POST_BOOT_MAP, regs
     ddr, port = xm.read_cpu(0x0000, 2)
@@ -67,13 +73,14 @@ def capture(xm):
     if key != IO_KEYS[VIC4][1]:
         raise RuntimeError(f"$D02F reads ${key:02X}: not BASIC 65's VIC-IV mode")
     chip = xm.read(0, 0x60000)
-    check_booted(chip[0x20000:0x40000])
+    check_booted(chip[0x20000:0x40000], target=rom_path)
     files = {"chip.bin": chip,
              "colour.bin": xm.read(COLOUR, 0x8000),
              "io.bin": xm.read_cpu(0xD000, IO_BYTES)}
     state = dict(format=FORMAT, regs=regs, ddr=ddr, port=port, d030=d030,
                  io_mode=VIC4,
                  xmega65=xm.version(),
+                 rom=rom_version(chip[0x20000:0x40000]),
                  captured=datetime.date.today().isoformat(),
                  rom_sha256=hashlib.sha256(chip[0x20000:0x40000]).hexdigest())
     runs, before = [], (chip[:0x20000], files["colour.bin"])
@@ -113,21 +120,41 @@ def reference_run(xm, name, code, single_step, chip, colour):
     return run, (after_chip, after_colour)
 
 
-def main():
-    install()
-    with recording(WORK) as xm:
-        files, state, reference = capture(xm)
-    tmp = STATE_DIR.with_name(STATE_DIR.name + ".new")
+def record(rom_path):
+    """Boot `rom_path`, capture, and write build/m65_state/<version>/."""
+    data = pathlib.Path(rom_path).read_bytes()
+    check_native(data)
+    out = STATE_DIR / snapshot_name(data)
+    with recording(WORK, rom=rom_path) as xm:
+        files, state, reference = capture(xm, rom_path)
+    tmp = out.with_name(out.name + ".new")
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
-    for name, data in files.items():
-        (tmp / name).write_bytes(data)
+    for name, blob in files.items():
+        (tmp / name).write_bytes(blob)
     (tmp / "state.json").write_text(json.dumps(state, indent=1) + "\n")
     (tmp / "reference.json").write_text(json.dumps(reference, indent=1) + "\n")
-    shutil.rmtree(STATE_DIR, ignore_errors=True)
-    tmp.rename(STATE_DIR)                         # never a half snapshot
-    print(f"wrote {STATE_DIR} (xmega65 {state['xmega65'].split()[2][:8]}, "
-          f"reference runs: {', '.join(r['name'] for r in reference['runs'])})")
+    shutil.rmtree(out, ignore_errors=True)
+    tmp.rename(out)                               # never a half snapshot
+    print(f"wrote {out} ({state['rom']}, xmega65 "
+          f"{state['xmega65'].split()[2][:8]}, reference runs: "
+          f"{', '.join(r['name'] for r in reference['runs'])})")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--rom", action="append", type=pathlib.Path,
+                    help="a MEGA65 ROM image (repeatable; default "
+                         "rom/mega65.rom, found by `make m65-rom`)")
+    roms = ap.parse_args(argv).rom
+    if not roms:
+        install()
+        roms = [TARGET]
+    for name in ("chip.bin", "colour.bin", "io.bin", "state.json",
+                 "reference.json"):                # a format-2 flat snapshot
+        (STATE_DIR / name).unlink(missing_ok=True)
+    for rom in roms:
+        record(rom)
 
 
 if __name__ == "__main__":

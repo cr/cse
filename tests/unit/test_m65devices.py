@@ -1,4 +1,4 @@
-"""test_m65devices.py — M65Emu's keyboard queue, CIA ports, VIC latch.
+"""test_m65devices.py — M65Emu's keyboard queue, CIA ports, VIC latch, Hypervisor traps.
 
 Owner: doc/build_system.md
 
@@ -12,7 +12,10 @@ jiffy tick raised until the KERNAL writes 1s back, and both it and
 the CIA2 interrupt control register ($DD0D, RESTORE until read) read
 as xmega65 recorded them (tests/fixtures/golden/m65_latches.json).  Also: claimed
 registers leave the unmodelled-I/O log, and devices claim only their
-own registers.  The matrix calls themselves are in
+own registers.  The Hypervisor traps: `hyppo_getversion` and
+`hyppo_rom_writeenable` as the loader uses them, anything else
+raising (the recorded answer is pinned in test_m65_premise.py).  The
+matrix calls themselves are in
 test_emu_parity.py; GETIN, STOP and RESTORE on the real KERNAL in
 tests/integration/test_m65emu.py.
 """
@@ -23,6 +26,7 @@ import pathlib
 import pytest
 
 from m65emu import M65Emu
+from m65emu.devices import HYPPO_GETVERSION, HypervisorNotModelled
 from m65emu.memory import VIC4
 
 LATCHES = json.loads((pathlib.Path(__file__).resolve().parents[1] / "fixtures"
@@ -173,3 +177,44 @@ def test_attach_refuses_an_overlap():
     emu = M65Emu()
     with pytest.raises(ValueError):
         emu.memory.attach(emu.memory.devices[0], 0x700, 0x701)
+
+
+# ── the Hypervisor traps ($D640-$D67F) ────────────────────────────
+
+def trap(emu, register, service):
+    """`lda #service` · `sta register` · `clv`, run on the CPU."""
+    code = [0xA9, service, 0x8D, register & 0xFF, register >> 8, 0xB8, 0x60]
+    emu.memory.load(0x1800, bytes(code))
+    emu.jsr(0x1800)
+
+
+def test_hyppo_getversion_answers_hyppo_1_2_hdos_1_3(emu):
+    trap(emu, 0xD640, 0x00)
+    assert (emu.a, emu.x, emu.y, emu.z) == HYPPO_GETVERSION == (1, 2, 1, 3)
+
+
+def test_hyppo_rom_writeenable_lifts_the_rom_protection(emu):
+    mem = emu.memory
+    mem.write_flat(0x32000, 0x5A)
+    assert mem.read_flat(0x32000) == 0                 # protected
+    trap(emu, 0xD641, 0x02)
+    mem.write_flat(0x32000, 0x5A)
+    assert mem.read_flat(0x32000) == 0x5A
+    trap(emu, 0xD641, 0x02)                            # idempotent
+    assert not mem.rom_protect
+
+
+@pytest.mark.parametrize("register,service", [
+    (0xD640, 0x7E),                                    # hyppo_reset: Tier X
+    (0xD640, 0x02),
+    (0xD641, 0x00),
+    (0xD67F, 0x00),
+])
+def test_any_other_trap_raises(emu, register, service):
+    with pytest.raises(HypervisorNotModelled):
+        trap(emu, register, service)
+
+
+def test_reading_a_hypervisor_register_raises(emu):
+    with pytest.raises(HypervisorNotModelled):
+        _ = emu.memory[0xD640]

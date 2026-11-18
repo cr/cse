@@ -1,0 +1,6 @@
+{"xmega65": "https://github.com/lgblgblgb/xemu dev 0870689e7195d845dc294a79429b18d6c3d38cf9 20260807182148 official-build",
+ "captured": "2026-11-18",
+ "roms": [
+  {"rom": "V920413", "regs": {"a": 0, "x": 0, "y": 0, "z": 0, "b": 0, "p": 32, "sp": 495, "mapl": 57344, "maph": 33536}, "stack_above_sp": "9C 03 B3 00 E3 00 79 3D C1 7E 2D 31 AC 36 2F 20", "rts_target": 925, "port": [255, 133], "io": {"D011": 27, "D016": 201, "D02F": 83, "D030": 100, "D031": 224, "D054": 64, "D058": 80, "D059": 0, "D05E": 80, "D060": 0, "D061": 8, "D062": 0, "D07B": 24}, "nonzero_1600_1EFF": 0, "nonzero_1F00_1FFF": 4, "hyppo_getversion": [1, 2, 1, 3]},
+  {"rom": "V920421", "regs": {"a": 0, "x": 0, "y": 0, "z": 0, "b": 0, "p": 32, "sp": 495, "mapl": 57344, "maph": 33536}, "stack_above_sp": "A0 03 B3 00 E3 00 E1 3D C1 DB 2D 31 19 37 4F 20", "rts_target": 929, "port": [255, 133], "io": {"D011": 27, "D016": 201, "D02F": 83, "D030": 100, "D031": 224, "D054": 64, "D058": 80, "D059": 0, "D05E": 80, "D060": 0, "D061": 8, "D062": 0, "D07B": 24}, "nonzero_1600_1EFF": 0, "nonzero_1F00_1FFF": 4, "hyppo_getversion": [1, 2, 1, 3]}
+ ]}

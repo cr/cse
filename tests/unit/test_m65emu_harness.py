@@ -18,6 +18,7 @@ import json
 import pytest
 
 from m65emu import M65Emu, SnapshotMissing, load_snapshot
+from m65emu.harness import snapshot_dirs, snapshot_name
 from m65emu.harness import FORMAT
 from m65emu.memory import VIC2, VIC4
 
@@ -128,3 +129,21 @@ def test_load_snapshot_refuses_a_missing_or_an_outdated_snapshot(tmp_path):
         load_snapshot(tmp_path)
     (tmp_path / "state.json").write_text(json.dumps({"format": FORMAT}))
     assert load_snapshot(tmp_path)["reference"] == {"runs": []}
+
+
+def test_snapshots_are_one_directory_per_rom(tmp_path):
+    for name in ("920421", "920413"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "state.json").write_text("{}")
+    (tmp_path / "stray").mkdir()                       # no state.json
+    (tmp_path / "chip.bin").write_bytes(b"")           # an old flat snapshot
+    assert [d.name for d in snapshot_dirs(tmp_path)] == ["920413", "920421"]
+    assert snapshot_dirs(tmp_path / "absent") == []
+
+
+def test_a_snapshot_is_named_by_its_rom_version():
+    rom = bytearray(0x20000)
+    rom[0x16:0x1D] = b"V920413"
+    assert snapshot_name(bytes(rom)) == "920413"
+    with pytest.raises(ValueError):
+        snapshot_name(bytes(0x20000))

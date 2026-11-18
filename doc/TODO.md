@@ -510,18 +510,22 @@ lands, except T1, which is green by construction):
 - [ ] T4. The m65 build: test_makefile_guards' refusal tests become
   build tests (`make release/debug PLATFORM=m65`, m65-6502); a region
   overflow fails the link.
-- [ ] T5. M65Emu: one post-boot snapshot per ROM, the `m65_snapshot`
+- [x] T5. M65Emu: one post-boot snapshot per ROM, the `m65_snapshot`
   fixture, the existing m65 suites on each; `capture_m65_state.py
-  --rom`.
-- [ ] T6. M65Emu: `hyppo_getversion` and `hyppo_rom_writeenable`;
-  any other trap raises.
+  --rom`.  (Done 2026-11-18: `build/m65_state/920413/`, `920421/`,
+  format 3; `test_m65emu.py` runs on both.)
+- [x] T6. M65Emu: `hyppo_getversion` and `hyppo_rom_writeenable`;
+  any other trap raises.  (Done 2026-11-18: the `Hypervisor` device,
+  `HypervisorNotModelled`.)
 - [ ] T7. The m65 macro bodies in a small m65 bundle on M65Emu
   (`KCALL`/`KJMP` keep `B`; far loads and stores across banks 0, 2, 3,
   4; `FAR_BANK` keeps A).
 - [ ] T8. The loader on each ROM: the install field by field; the gate's
   two refusals; `load_prg()`/`init_cse()` equal to the real loader.
-- [ ] T9. The run premise and the services' answers as a golden file
-  (`capture_m65_premise.py` → `m65_premise.json`, per ROM).
+- [x] T9. The run premise and the services' answers as a golden file
+  (`capture_m65_premise.py` → `m65_premise.json`, per ROM).  (Done
+  2026-11-18: memory_design.md's premise holds on both ROMs; they
+  differ only in their own `SYS` return path — `$039D` / `$03A1`.)
 - [ ] T10. Tier X: the PRG boots to `_main` on both ROMs through the SD
   clone (`tests/xmega65.py` gains `prg=`, `rom=`).
 - [ ] T11. The `PLAT_PENDING` count (only goes down).
@@ -608,6 +612,12 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   Known limit: a `.byte` table after a branch pair that is always
   taken (repl.s's `@rep_chars`) is an opcode position to the audit;
   its first byte, `'.'`, is a 6502 opcode.
+- [x] Step (3): the harness — T5, T6, T9.  `tests/xmega65.py` gained
+  `rom=` (the ROM onto the SD clone's FAT partition, `-romfromsd`)
+  and `prg=` (`-prg`, `-prgmode 65`), which T10 also needs.
+  Recording finding: the `SYS` return address differs between ROMs
+  (within page 3), as do BASIC's frames above its saved map; the
+  premise names neither, and CSE replaces both with its sentinel.
 - The m65 bodies the docs state for P0, written in step (4) with the
   harness that tests them: `KCALL` / `KJMP`, `FAR_SIZE` and the far
   access macros, `FAR_BANK` at every far pointer's set sites,

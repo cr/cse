@@ -7,14 +7,17 @@ Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65
 MPU45GS02 on M65Memory behind EmuBase's surface (the one C64Emu has:
 M65Emu supplies EmuBase's hooks — interrupt entry through the CPU, a
 jiffy tick that latches $D019's raster bit, RESTORE in $DD0D, keys
-into the hardware queue, load_prg() into bank 0), started either
-blank or from the post-boot snapshot that
-dev/capture_m65_state.py records from xmega65 into build/m65_state/:
+into the hardware queue, load_prg() into bank 0; the two Hypervisor
+services the loader uses), started either blank or from a post-boot
+snapshot that dev/capture_m65_state.py records from xmega65, one per
+ROM, into build/m65_state/<ROM version>/ (snapshot_dirs() lists them;
+the fixture m65_snapshot in tests/conftest.py runs a test on each):
 
     chip.bin       chip RAM, $00000-$5FFFF (the ROM image included)
     colour.bin     colour RAM, 32 KB
     io.bin         the I/O page $D000-$D7FF, read in VIC-IV mode
-    state.json     format, registers, MAP, CPU port, $D030, I/O mode, source
+    state.json     format, registers, MAP, CPU port, $D030, I/O mode,
+                   the ROM's version and SHA-256, the xmega65 version
     reference.json what xmega65 did next from that state (the oracle
                    of tests/integration/test_m65emu.py)
 
@@ -23,17 +26,18 @@ The snapshot holds the MEGA65 ROM, so it is never committed.
 
 import json
 import pathlib
+import re
 
 from emu_base import EmuBase, KeyMatrix, register
 
 from .devices import (CIA1Ports, CIA2InterruptControl, DMAController,
-                      KeyboardQueue, VICInterruptLatch)
+                      Hypervisor, KeyboardQueue, VICInterruptLatch)
 from .memory import COLOUR, M65Memory
 from .mpu45gs02 import MPU45GS02
 
 STATE_DIR = pathlib.Path(__file__).resolve().parents[2] / "build" / "m65_state"
-CAPTURE = "python dev/capture_m65_state.py"
-FORMAT = 2                  # of the snapshot; state.json's "format"
+CAPTURE = "python dev/capture_m65_state.py [--rom PATH]..."
+FORMAT = 3                  # of the snapshot; state.json's "format"
 
 
 class SnapshotMissing(FileNotFoundError):
@@ -41,7 +45,25 @@ class SnapshotMissing(FileNotFoundError):
     dev/capture_m65_state.py."""
 
 
-def load_snapshot(state_dir=STATE_DIR):
+def snapshot_name(rom):
+    """A snapshot's directory name: the six digits of the ROM's
+    `V9xxxxx` version string at $16."""
+    m = re.match(rb"V(9\d{5})", rom[0x16:0x1D])
+    if not m:
+        raise ValueError("not a MEGA65 ROM: no V9xxxxx version at $16")
+    return m.group(1).decode()
+
+
+def snapshot_dirs(root=STATE_DIR):
+    """The snapshot directories under `root`, one per ROM, in order."""
+    root = pathlib.Path(root)
+    if not root.is_dir():
+        return []
+    return sorted(d for d in root.iterdir()
+                  if d.is_dir() and (d / "state.json").exists())
+
+
+def load_snapshot(state_dir):
     """The snapshot's parts: chip, colour, io (bytes), state, reference."""
     d = pathlib.Path(state_dir)
     names = ("chip.bin", "colour.bin", "io.bin", "state.json", "reference.json")
@@ -81,6 +103,8 @@ class M65Emu(EmuBase):
         mem.attach(self.cia1, 0xC00, 0xC01)
         mem.attach(self.cia2_icr, 0xD0D)
         mem.attach(self.vic_irq, 0x019)
+        self.hypervisor = Hypervisor(mem)
+        mem.attach(self.hypervisor, Hypervisor.FIRST, Hypervisor.LAST)
         if snapshot is not None:
             st = snapshot["state"]
             mem.load(0, snapshot["chip"])
@@ -89,6 +113,7 @@ class M65Emu(EmuBase):
             mem.restore(ddr=st["ddr"], port=st["port"], d030=st["d030"],
                         io_mode=st["io_mode"])
         cpu = MPU45GS02(mem)
+        self.hypervisor.cpu = cpu
         EmuBase.__init__(self, cpu, mem)
         if snapshot is not None:
             for name, value in snapshot["state"]["regs"].items():
