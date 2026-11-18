@@ -1,5 +1,20 @@
 # VICE Test Plan — v0.1 final readiness
 
+> **Closed record.**  This is the manual checklist the v0.1 release
+> candidates were run against (v0.1-rc3 → v0.1-rc4 → the `v0.1`
+> tag).  It is kept as that record and is not maintained against the
+> current code.  Re-using it for a later release:
+>
+> - **Never assemble at `$C000`.**  `$C000` lies inside CSE's own
+>   runtime (CODE+RODATA+BSS end at `$CFFF`; the splash's `work` line
+>   shows the free workspace).  The assembler now refuses an emit
+>   outside the workspace with `;?N: range`, so the `.org $C000`
+>   programs of E2, E3 and E5 fail as written; at v0.1 they assembled
+>   over CSE.  Use a workspace origin such as `.org $3000` (and
+>   `g $3000`), and the same for the `.` pokes of E4c.
+> - Item texts are corrected where their expected result was wrong
+>   even for v0.1 (A2, A3, B1, B4, C3).
+
 The mechanical audits (`dev/audit_doc.py`) and pytest suite catch
 all the drift py65 can model against the real KERNAL ROM.  This
 checklist covers what neither catches: real screen rendering,
@@ -9,7 +24,8 @@ real keyboard timing, real RUN/STOP+RESTORE behaviour, and real
 Each item is < 1 minute.  Tick through linearly; any RED fails
 the candidate.
 
-**Build under test:** v0.1-rc3 (cse-cmos.prg, 21688 B compressed).
+**Build under test:** v0.1-rc3 (cse-cmos.prg, 21688 B unpacked,
+14313 B exomizer SFX).
 
 ## A. Boot smoke (3 variants)
 
@@ -19,9 +35,12 @@ Run each PRG cleanly on a freshly-booted C64.
       shows version, ZP/RAM/work line counts, manual URL,
       `0800:` prompt.  No flicker, no error tones.
 - [ ] **A2.** Same with `cse-6502-exo.prg` (6502 build).  CMOS
-      mnemonics rejected by `.`/`a` with `;?cmos` error.
-- [ ] **A3.** Same with `cse-exo.prg` (6510 build).  Illegal
-      opcodes accepted by `.`/`a` (e.g. `lax $ff`).
+      mnemonics rejected by `.`/`a` with `;?syntax` (the 6502
+      build's classifier does not know them; `;?cpu` is the mn7
+      builds' answer to a mnemonic outside the active CPU).
+- [ ] **A3.** Same with `cse-exo.prg` (6510 build).  The build
+      starts as 6502 (`lax $ff` is `;?cpu`); after `u 6510`,
+      illegal opcodes are accepted by `.`/`a` (e.g. `lax $ff`).
 
 ## B. Theme gallery
 
@@ -29,12 +48,13 @@ Run each PRG cleanly on a freshly-booted C64.
 to spot-check the palette decoder.
 
 - [ ] **B1.** `make THEME=GREENLAND` (default) — light-green
-      border, green canvas, black text.
+      border, green canvas, light-green text.
 - [ ] **B2.** `make THEME=MATRIX` — black canvas, green text.
 - [ ] **B3.** `make THEME=C64` — light-blue / blue / light-blue
       classic.
-- [ ] **B4.** Runtime `c 0e6` — same colours as B3 applied via
-      REPL command without rebuild.
+- [ ] **B4.** Runtime `C e6e` (uppercase `C`, typed with SHIFT;
+      lowercase `c` is continue) — the B3 colours applied via REPL
+      command without rebuild.
 
 ## C. REPL command spot-checks
 
@@ -45,8 +65,8 @@ At the prompt:
 - [ ] **C2.** `B 8` then `+` advances by 8.  `B` alone shows
       current block size.
 - [ ] **C3.** `. lda #$42` assembles 2 bytes at cur_addr,
-      advances.  `.` (no operand) re-disassembles previous
-      instruction.
+      advances.  `.` (no operand) disassembles the instruction at
+      cur_addr (the one after) and advances.
 - [ ] **C4.** `? $1234 + 100` shows hex/dec/binary/signed
       conversion table.
 - [ ] **C5.** `r` shows registers.  `r a:7f x:00 y:80` updates
@@ -116,7 +136,8 @@ left the editor / REPL cursor in a corrupted state.
       ```
 
       `a`, then `g`.  After ~half a second, press RUN/STOP+
-      RESTORE.
+      RESTORE.  (Re-use: `.org $3000` — the current assembler
+      refuses `$C000` with `;?N: range`; see the note at the top.)
 
 - [ ] **E2b.** Now press cursor-up/down at the REPL prompt
       several times.  Cursor moves cleanly one row per press.
@@ -155,7 +176,8 @@ dasm read RAM under KERNAL.
       instructions (this is the address user RC1 reported).
 
 - [ ] **E4c.** Step into a JSR to KERNAL: write `jsr $ffd2;
-      rts` at $C000, `g $c000`, `t` (step into).  Falls back
+      rts` at $C000 (re-use: a workspace address such as `$3000` —
+      `$C000` is CSE's own code), `g $c000`, `t` (step into).  Falls back
       to step-over (per docs); doesn't enter KERNAL.
 
 ### E5. LDTB1 page-encoded line links  (commit `436750a`)
