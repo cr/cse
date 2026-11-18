@@ -1017,9 +1017,7 @@ BASIC_REM = $8F
 @cret:  clc
         rts
 @const_noname:
-        lda #<s_exp_name
-        ldx #>s_exp_name
-        jsr emit_error
+        jsr _exp_name_err
         clc
         rts
 @nd:    cmp #'d'
@@ -1176,6 +1174,14 @@ BASIC_REM = $8F
 @done:  rts
 .endproc
 
+; ── _exp_name_err ──────────────────────────────────────────────────────────
+; Shared "exp id" error tail: `.const` without a name, and a ':' with no
+; label name in front of it (process_line).  Tail-calls emit_error.
+_exp_name_err:
+        lda #<s_exp_name
+        ldx #>s_exp_name
+        jmp emit_error
+
 ; ── process_line ───────────────────────────────────────────────────────────
 ; Parse and assemble one source line.
 ;   In: _as_ptr = NUL-terminated line text
@@ -1218,7 +1224,7 @@ BASIC_REM = $8F
 
         ; It's a label.  Define without the ':'.
         dey                     ; Y = name length (index of ':')
-        beq @adv_lbl            ; zero-length: skip
+        beq _exp_name_err       ; zero-length (lone ':') → exp id, line done
         lda _as_ptr
         sta sym_name
         lda _as_ptr+1

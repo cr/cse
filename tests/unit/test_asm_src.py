@@ -444,6 +444,14 @@ ERROR_TESTS = [
         "source": ".org $c000\n.res 4, FILL\n.const FILL $42",
         "expect_min_errors": 1,
     },
+    # A `:` with no name is `exp id`, not an endless re-scan of the
+    # same word (assembler_syntax.md § Labels).
+    {"name": "lone colon", "source": ".org $c000\n:\n rts",
+     "expect_min_errors": 1},
+    {"name": "lone colon before insn", "source": ".org $c000\n : nop",
+     "expect_min_errors": 1},
+    {"name": "lone colon after label", "source": ".org $c000\nx: : nop",
+     "expect_min_errors": 1},
 ]
 
 

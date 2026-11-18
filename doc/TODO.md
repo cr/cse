@@ -914,9 +914,11 @@ documentation round that follows this filing.
 
 ### Code bugs — assembler
 
-- [ ] **A lone `:` hangs `a`** (`:`, ` : nop`, `x: : nop`): a
+- [x] **A lone `:` hangs `a`** (`:`, ` : nop`, `x: : nop`): a
   zero-length label re-scans the same word forever (`asm_src.s`
   `@adv_lbl`).
+  Fixed 2026-11-18: a ':' with no name is `;?N: exp id` (shared
+  _exp_name_err tail), test test_errors[lone colon*].
 - [ ] **Symbol-heap overflow corrupts KDATA.**  `heap_copy_name`
   advances `_st_heap` before its bound check and never rolls back;
   enough long labels overwrite `$F100`+ (KDATA) and the REPL screen

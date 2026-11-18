@@ -20,7 +20,9 @@ main: lda #0   ; label and instruction on the same line
 ```
 
 Labels end with `:` (required).  A label may appear alone on a line
-or followed by an instruction.
+or followed by an instruction.  A `:` with no name in front of it
+(a lone `:`, `x: : nop`) is an error, `;?N: exp id`; the rest of the
+line is skipped.
 
 Case insensitive (input is folded to uppercase internally).
 Characters: a-z, 0-9, dot.  No underscore (not typeable on C64
