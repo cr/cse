@@ -152,7 +152,7 @@ filename.  It lies outside CSE's ZEROPAGE segment, in `$80`–`$FF`;
 what user code may assume about that range is
 [userland_contract.md § 2](../userland_contract.md)'s.
 
-**BSS (67 bytes):**
+**BSS (84 bytes):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
@@ -162,6 +162,7 @@ what user code may assume about that range is
 | `open_buf` | 28 | Filename build buffer for CBM open |
 | `callback` | 2 | SEQ I/O function pointer |
 | `eof_flag` | 1 | READST value after the last CHRIN of a SEQ read |
+| proc-local `@` scratch | 17 | `str_setup`, `build_open_str`, `list_directory`, `disk_save_prg` locals — in BSS, so disk.s's CODE stays read-only |
 
 **Depends on:** log (puts_imm, log_info), screen (newline), cse_io
 (io_putc, io_putdec, io_getc, io_kbhit, io_clear_eol, scr_lo,

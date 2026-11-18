@@ -1085,13 +1085,14 @@ documentation round that follows this filing.
 - [x] **`oplen_tbl` keeps the last row where a 6510 and a 65C02
   opcode share a byte**; the generator should refuse a conflict.
   Fixed 2026-11-18: `oplen_lengths()` refuses a length conflict; a crash (JAM) row yields, so `$D2` is 2 (65C02 `CMP (zp)`, was 1), tests test_oplen_*.
-- [ ] **Mutable bytes in CODE**: `main.s` `@key`, `dasm.s` `@adj`,
+- [x] **Mutable bytes in CODE**: `main.s` `@key`, `dasm.s` `@adj`,
   `disk.s` `disk_save_prg`'s `@size_lo`/`@size_hi`
   (blocks a ROM/CRT build; memory_design.md "no self-modifying code").
   `dasm.s` `@adj` fixed 2026-11-18: _compute_branch_target folds the
   adjustment into its arithmetic, test TestCodeIsReadOnly (test_dasm.py).
   `main.s` `@key` fixed 2026-11-18: now `main_key` in BSS, test
   `TestMainCodeReadOnly`.  Open: `disk.s` `disk_save_prg`'s size bytes.
+  `disk.s` fixed 2026-11-18: `disk_save_prg`'s size bytes and the other 15 proc-local bytes in disk.s's CODE (`str_setup`, `build_open_str`, `list_directory`) moved to BSS (-17 B), test `test_save_prg_payload_leaves_code_read_only` (test_disk.py; OPEN / CHKOUT / CHROUT redirected through the KERNAL vectors).
 - [x] `disk.s` closes LFN 1 on an OPEN failure although the file is
   LFN 2; the SEQ error paths close nothing.
   Fixed 2026-11-18: `_disk_open_buf` closes LFN 2 when OPEN fails (dead `@err_close` removed); C64Emu models an empty serial bus, test test_disk.py.

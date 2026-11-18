@@ -2185,6 +2185,10 @@ class TestExitToBasic:
 
     def test_q_yes_restores_and_enters_basic(self, session):
         s, e = session, session.e
+        # A real SYS from BASIC snapshots $01 = $37 (BASIC in); C64Emu
+        # starts _main at $36, which would send `jmp ($A002)` into the
+        # RAM under BASIC (CSE's own CODE: layout-dependent garbage).
+        e.memory.ram[0xF8DA] = 0x37
         cold = [e.memory.ram[0xF8DA + i] for i in range(0x7F)]   # COLD_ZP
         warm = e.memory.rom_basic[2] | (e.memory.rom_basic[3] << 8)
         e.memory[0x0800] = 0x55

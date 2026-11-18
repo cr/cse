@@ -372,3 +372,50 @@ class TestDriveStatusAfterTransfer:
         emu.memory[fl] = 0x41
         _save_prg(emu)
         assert emu.memory[fl] == 0
+
+
+# KERNAL I/O vectors (the jump table at $FFC0.. goes through them).
+IOPEN, ICLOSE, ICKOUT, ICLRCH, IBSOUT = 0x031A, 0x031C, 0x0320, 0x0322, 0x0326
+STUB_OK = 0x2F10        # clc / rts — OPEN and CHKOUT succeed
+STUB_OUT = 0x2F20       # CHROUT: append A to OUT_BUF, keep X / Y
+OUT_BUF, OUT_IDX = 0x2E00, 0x2DFF
+
+
+def test_save_prg_payload_leaves_code_read_only(emu, cse_prg):
+    """memory_design.md § Design Principles (no self-modifying code):
+    a PRG save that reaches its payload loop writes no byte of disk.s's
+    CODE.  OPEN / CHKOUT / CHROUT are redirected through the KERNAL
+    vectors, so the save runs to completion on the empty serial bus."""
+    import re, pathlib
+    e = emu
+    for i, b in enumerate((0x18, 0x60)):
+        e.memory[STUB_OK + i] = b
+    # stx $2DFE / ldx OUT_IDX / sta OUT_BUF,x / inc OUT_IDX / ldx $2DFE / clc / rts
+    stub = [0x8E, 0xFE, 0x2D, 0xAE, 0xFF, 0x2D, 0x9D, 0x00, 0x2E,
+            0xEE, 0xFF, 0x2D, 0xAE, 0xFE, 0x2D, 0x18, 0x60]
+    for i, b in enumerate(stub):
+        e.memory[STUB_OUT + i] = b
+    e.memory[OUT_IDX] = 0
+    for vec, tgt in ((IOPEN, STUB_OK), (ICKOUT, STUB_OK), (IBSOUT, STUB_OUT),
+                     (ICLOSE, RTS_STUB), (ICLRCH, RTS_STUB)):
+        e.write_word(vec, tgt)
+    for i in range(0x102):
+        e.memory[0x4000 + i] = (i * 7) & 0xFF
+    text = pathlib.Path(cse_prg[1]).read_text()
+    m = re.search(r"^disk\.o:\n\s+CODE\s+Offs=([0-9A-F]+)\s+Size=([0-9A-F]+)",
+                  text, re.M)
+    start = e.sym("__CODE_RUN__") + int(m.group(1), 16)
+    size = int(m.group(2), 16)
+    before = bytes(e.memory[start + i] for i in range(size))
+    e.write_word(e.sym("_io_tmp"), 0x4000)
+    e.jsr(e.sym("disk_save_prg"), a=0x02, x=0x01)      # $0102 bytes
+    assert e.a == 0
+    after = bytes(e.memory[start + i] for i in range(size))
+    diff = [hex(start + i) for i in range(size) if before[i] != after[i]]
+    assert diff == [], f"disk.s CODE written at {diff}"
+    # 2 header + $102 payload bytes; the 256-byte capture ring wraps,
+    # so its first 4 slots hold stream bytes 256..259 = payload 254..257.
+    stream = bytes((0x00, 0x40)) + bytes((i * 7) & 0xFF for i in range(0x102))
+    out = bytes(e.memory[OUT_BUF + i] for i in range(256))
+    assert e.memory[OUT_IDX] == len(stream) & 0xFF
+    assert out == stream[256:] + stream[len(stream) - 256:256]

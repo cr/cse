@@ -96,7 +96,9 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         iny
         bne @cp
 @done:  rts
-@nlen:  .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@nlen:  .res 1
+        .segment "CODE"
 .endproc
 
 ; ═════════════════════════════════════════════════════════
@@ -187,9 +189,11 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         txa                     ; A = total length
         rts
 
-@mode:  .byte 0
-@type:  .byte 0
-@nlen:  .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@mode:  .res 1
+@type:  .res 1
+@nlen:  .res 1
+        .segment "CODE"
 .endproc
 
 ; ═════════════════════════════════════════════════════════
@@ -635,16 +639,18 @@ _status_ret:
         sta (_io_tmp),y
         rts
 
-@is_first:       .byte 0
-@blocks:         .byte 0, 0
-@textlen:        .byte 0
-@end_lo:         .byte 0
-@end_hi:         .byte 0
-@dev:            .byte 0
-@fn_start:       .byte 0
-@fn_close:       .byte 0
-@fn_trimmed_end: .byte 0
-@fn_tmp:         .byte 0
+        .segment "BSS"          ; CODE stays read-only
+@is_first:       .res 1
+@blocks:         .res 2
+@textlen:        .res 1
+@end_lo:         .res 1
+@end_hi:         .res 1
+@dev:            .res 1
+@fn_start:       .res 1
+@fn_close:       .res 1
+@fn_trimmed_end: .res 1
+@fn_tmp:         .res 1
+        .segment "CODE"
 
 .endproc
 
@@ -980,6 +986,8 @@ _status_ret:
         lda #1
         rts
 
-@size_lo: .byte 0
-@size_hi: .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@size_lo: .res 1
+@size_hi: .res 1
+        .segment "CODE"
 .endproc
