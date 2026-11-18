@@ -1191,8 +1191,9 @@ documentation round that follows this filing.
   SEQ and PRG saves report success and clear `ed_dirty`; read the
   status (ST / the command channel) after the write.
   Fixed 2026-11-18 (fa20f2e on the IEC track: every disk.s transfer reads the drive status into `fl_buf`; a refused save fails and keeps `ed_dirty`).
-- [ ] `ed_status_dirty` is effectively dead: `gb_insert` /
+- [x] `ed_status_dirty` is effectively dead: `gb_insert` /
   `gb_backspace` set `ed_dirty` before `ed_mark_edited` checks it.
+  Fixed 2026-11-18: not only dead — a RETURN that scrolled (ed_scroll_up redraws no status) left a clean source without its `*`. `ed_mark_edited` now always draws the marker, `ed_status_dirty` is folded into it (−17 B, budget lowered), tests TestDirtyMarker.
 
 ### Test gaps
 

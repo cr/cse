@@ -649,20 +649,6 @@ _ed_cur_row:
 @ldone: rts
 .endproc
 
-; ── ed_status_dirty — update dirty flag (col 0) ──────────────
-.proc ed_status_dirty
-        ldx #ED_STATUS
-        jsr _ed_scr_row
-        lda ed_dirty
-        beq @clean
-        lda #($2A | $80)        ; '*' reversed
-        jmp @store
-@clean: lda #$A0                ; space reversed
-@store: ldy #0
-        sta (ed_scr),y
-        rts
-.endproc
-
 ; ── ed_status_free — update upper free address (cols 29-32) ───
 .proc ed_status_free
         ldx #ED_STATUS
@@ -1353,13 +1339,17 @@ _ed_cur_row:
 .endproc
 
 ; ── ed_mark_edited — set dirty flag, update status ────────────
+; Draws the dirty marker on every edit: gb_insert / gb_backspace set
+; ed_dirty before this runs, and not every edit path re-renders the
+; status bar (ed_scroll_up does not).
 .proc ed_mark_edited
-        lda ed_dirty
-        bne @already
         lda #1
         sta ed_dirty
-        jsr ed_status_dirty
-@already:
+        ldx #ED_STATUS
+        jsr _ed_scr_row
+        lda #($2A | $80)        ; '*' reversed, col 0
+        ldy #0
+        sta (ed_scr),y
         jsr ed_status_free
         jmp ed_status_pos
 .endproc

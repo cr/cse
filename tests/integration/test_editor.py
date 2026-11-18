@@ -673,3 +673,40 @@ class TestCodeReadOnly:
         after = bytes(emu.memory[start + i] for i in range(size))
         diff = [hex(start + i) for i in range(size) if before[i] != after[i]]
         assert diff == [], f"editor.s CODE written at {diff}"
+
+
+class TestDirtyMarker:
+    """editor.md § status bar: col 0 shows a reversed '*' once the
+    source is edited, and a reversed space while it is clean."""
+
+    @pytest.mark.parametrize("keys", [b"A", b"\xa0", b"\r", b"AB\x14"],
+                             ids=["printable", "tab", "return", "delete"])
+    def test_first_edit_draws_the_marker(self, cse_prg, keys):
+        emu = make_emu(cse_prg)
+        self._clean(emu)
+        type_keys(emu, keys)
+        self._assert_marked(emu)
+
+    def test_return_that_scrolls_draws_the_marker(self, cse_prg):
+        """RETURN on the bottom row scrolls instead of re-rendering the
+        rows (and with them the status bar)."""
+        emu = make_emu(cse_prg)
+        type_keys(emu, b"\r" * 21)
+        self._clean(emu)
+        type_keys(emu, b"\r")
+        assert emu.memory[emu.sym("ed_top_line")] == 1, "did not scroll"
+        self._assert_marked(emu)
+
+    @staticmethod
+    def _col0(emu):
+        return (emu.memory[emu.sym("scr_lo") + 22]
+                | emu.memory[emu.sym("scr_hi") + 22] << 8)
+
+    def _clean(self, emu):
+        emu.memory[emu.sym("ed_dirty")] = 0
+        emu.jsr(emu.sym("ed_render"))
+        assert emu.memory[self._col0(emu)] == 0xA0
+
+    def _assert_marked(self, emu):
+        assert emu.memory[emu.sym("ed_dirty")] == 1
+        assert emu.memory[self._col0(emu)] == 0xAA

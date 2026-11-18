@@ -200,9 +200,11 @@ The status bar (40 columns, all reversed):
 
 The status bar is rebuilt in full (`ed_render_status`) by every
 redraw that goes through `ed_render` / `ed_render_rows` — mode
-entry and every edit.  Cursor moves update only cols 33–39
-(`ed_status_pos`); edits also refresh cols 29–32 (`ed_status_free`)
-and the position through `ed_mark_edited`.
+entry and most edits.  Cursor moves update only cols 33–39
+(`ed_status_pos`).  Every edit ends in `ed_mark_edited`, which sets
+`ed_dirty`, draws the reversed `*` in col 0 and refreshes cols 29–32
+(`ed_status_free`) and the position — so the marker appears on edits
+that scroll instead of re-rendering (RETURN on the bottom row).
 
 ### Rendering
 
@@ -414,8 +416,4 @@ REPL's business (`l` / `s`), not the editor's.
   colour RAM is never touched by the editor.
 - `ed_load_source` returns with Z = 1 on every path (flags from
   `ldx #0`): test A, not Z.
-- `ed_status_dirty` (col 0 only) is drawn only when `ed_dirty` was
-  0 before the edit; `gb_insert` / `gb_backspace` set it first, so in
-  practice col 0 is drawn by the full `ed_render_status` that every
-  edit runs.
 - `BUF_END` is the link-time constant `__CODE_RUN__`, not a variable.
