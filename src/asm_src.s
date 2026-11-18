@@ -47,7 +47,6 @@ SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp
         .import s_exp_quot, s_bad_insn, s_fwd_ref, str_cpu_err
         .import s_save_s, s_save_q_sp, s_save_default, s_trunc
         .import s_too_long, str_range, err_overflow
-        .import dec_pow_lo, dec_pow_hi          ; (unused)
 
 ; ── BSS (all reset by asm_assemble before each run) ─────────────────────
 .segment "BSS"

@@ -16,9 +16,9 @@
         .export step_cleanup
 
 ; ── Imports: log.s ─────────────────────────────────────────
-        .import log_line, log_open, log_close
+        .import log_open, log_close
         .import log_err, log_warn, log_info
-        .import seg_line, prg_line, free_line
+        .import prg_line, free_line
         .import info_line, info_line_head, info_line_tail
         .import puts_imm
 
@@ -51,7 +51,7 @@
 ; ── Imports: debugger ──────────────────────────────────────
         .import dbg_step_clear
         .import dbg_bp_set, dbg_bp_del, dbg_bp_clear
-        .import bp_table, step_bp
+        .import bp_table
         .importzp dbg_reason
         .import dbg_bp_hit
         .import brk_pc, brk_stub

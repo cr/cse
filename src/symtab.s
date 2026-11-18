@@ -25,7 +25,6 @@
         .export sym_stamp, sym_fwd
 
         .import kernal_bank_out
-        .importzp kernal_out            ; zp.s (unused)
 
         .importzp sym_name, sym_val, sym_wide
 

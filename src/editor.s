@@ -26,12 +26,8 @@
         .import ed_ensure_init
         .import gb_insert, gb_backspace
         .import gb_cursor_left, gb_cursor_right, gb_home
-        .import gb_ensure_room
-        .import ed_insert_string
-        .import ed_read_rewind, ed_read_byte, ed_read_line
         .import check_buf_end
         .import ed_total_lines
-        .import src_top, src_bot
         .import update_workend
 
         .import io_sync, io_blip

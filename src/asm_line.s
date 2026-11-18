@@ -42,7 +42,7 @@
         ; zero-page variables (zp.s)
         .importzp asm_pc, asm_out, asm_len
         .importzp asm_slot, asm_prof, asm_pidx, asm_base, asm_mode, asm_cpu
-        .importzp asm_tmp, asm_tmp2
+        .importzp asm_tmp
 
         ; addr_mode.s interface
         .importzp asm_ptr, asm_opr

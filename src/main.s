@@ -42,7 +42,7 @@
         .export stop_cooldown
         .importzp state, in_userland, warm_cont                 ; zp.s
         .export cse_recover, cse_end_debug, cse_refresh
-        .export hw_reinit_body, end_debug_body, refresh_body
+        .export end_debug_body
         .export main_loop_top
         .export cse_brk_handler, cse_nmi_handler
         .export cse_brk_handler_early
@@ -53,7 +53,7 @@
         ; .export).  No external export needed.
 
 ; ── Runtime ZP ───────────────────────────────────────────────
-        .importzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
+        .importzp rp_ptr
 
 ; ── Imports ──────────────────────────────────────────────────
         .import io_init, io_putc, io_sync, io_blip
