@@ -848,7 +848,10 @@ KERNAL ROM.
 
 ### `C` — Color (uppercase)
 
-Accepts 1, 2, or 3 single hex digits.  Extra characters ignored.
+Accepts 1, 2, or 3 single hex digits and applies them at once
+(`restore_colors`: border, background, colour RAM); anything else
+after the digits is `;?syntax`.  Bare `C` shows the current colours
+(`; color: BGF`).  Tests: `TestColorApply`, `TestColorCommand`.
 
     C 6          set text color to blue
     C 06         set bg=black, text=blue

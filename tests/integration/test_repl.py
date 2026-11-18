@@ -1190,3 +1190,49 @@ class TestEditWrapPastFFFF:
             assert cpu.memory[buf] == 0x30
         assert cpu.memory.ram[0x01] == live1, "live CPU port written"
         assert cpu.memory[0x00] == live0
+
+
+class TestColorApply:
+    """repl.md § `C`: 1, 2 or 3 hex digits set fg / bg+fg /
+    border+bg+fg and apply them at once; bare `C` shows them."""
+
+    def _theme(self, cpu):
+        return tuple(cpu.memory[cpu.sym(n)] for n in
+                     ("theme_border", "theme_bg", "theme_fg"))
+
+    def _set(self, cpu, b, g, f):
+        for n, v in zip(("theme_border", "theme_bg", "theme_fg"), (b, g, f)):
+            cpu.memory[cpu.sym(n)] = v
+
+    @pytest.mark.parametrize("cmd,want", [("C 6", (1, 2, 6)),
+                                          ("C 06", (1, 0, 6)),
+                                          ("C 0e6", (0, 0xE, 6))])
+    def test_digits_set_and_apply(self, rsyms, cmd, want):
+        cpu = make_cpu(rsyms)
+        self._set(cpu, 1, 2, 3)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        assert self._theme(cpu) == want
+        assert cpu.memory[0xD020] & 0x0F == want[0]
+        assert cpu.memory[0xD021] & 0x0F == want[1]
+        assert cpu.memory[0xD800] & 0x0F == want[2]
+
+    def test_bare_shows_and_keeps(self, rsyms):
+        cpu = make_cpu(rsyms)
+        self._set(cpu, 1, 2, 3)
+        set_line_buf(cpu, rsyms, "C")
+        run_at(cpu, rsyms.exec_line)
+        assert self._theme(cpu) == (1, 2, 3)
+        assert "color: 123" in "".join(cpu.screen_text(r) for r in range(ROWS))
+
+
+class TestClearScreen:
+    """repl.md § Commands — Info / Utility: `x` clears the screen."""
+
+    def test_x_clears(self, rsyms):
+        cpu = make_cpu(rsyms)
+        for i in range(1000):
+            cpu.memory[SCREEN + i] = 0x01
+        set_line_buf(cpu, rsyms, "x")
+        run_at(cpu, rsyms.exec_line)
+        assert all(cpu.memory[SCREEN + i] == 0x20 for i in range(1000))
