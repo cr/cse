@@ -9,7 +9,7 @@
 ; (read_ptr) indexing.
 ;
 ; Owns:
-;   * `bp_table`-style BSS: ed_total_lines (line counter, bumped on
+;   * BSS gap-buffer state: ed_total_lines (line counter, bumped on
 ;     CR insert/delete), src_top / src_bot (buffer bounds for the
 ;     `i` info command).
 ;   * gb_init / ed_ensure_init: cold-init + lazy-init entry points.
@@ -27,10 +27,9 @@
 ; Layer: L3 (core engines), same stratum as addr_mode / expr /
 ; opcode_lookup / asm_line / dasm / breakpoints — bundle-testable.
 ;
-; Split from editor.s at session 2026-04-20.  editor.s keeps the L4
-; parts: keystroke dispatch, screen rendering, scroll drivers,
-; enter_editor/leave_editor, disk I/O.  See editor.md for the L4
-; responsibilities and gap_buffer.md for the L3 contract.
+; editor.s holds the L4 parts: keystroke dispatch, screen rendering,
+; scroll drivers, enter_editor/leave_editor, disk I/O.  See editor.md
+; for the L4 responsibilities and gap_buffer.md for the L3 contract.
 
         .setcpu "6502"
         .macpack longbranch
@@ -114,8 +113,6 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 ; BSS-zero at cold boot and doesn't need touching on lazy init.
 ; ed_new (in editor.s) handles the full reset via ed_init instead
 ; when the user explicitly asks for a fresh buffer.
-; Name kept as ed_ensure_init for consumer-compat across the
-; 2026-04-20 gap_buffer split.
 .proc ed_ensure_init
         lda ed_total_lines
         ora ed_total_lines+1
@@ -182,7 +179,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         ; Check buf_base - 256 >= BUF_FLOOR
         ; BUF_FLOOR is page-aligned, so hi-byte check is sufficient
         lda buf_base+1
-        cmp #>(BUF_FLOOR) + 1   ; #$49
+        cmp #>(BUF_FLOOR) + 1   ; buf_base.hi > BUF_FLOOR.hi?
         jcc @no_room
 @can_grow:
         ; pre_size = gap_lo - buf_base
@@ -429,9 +426,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 ; > 256-byte strings.  Test-only: no production caller (keystrokes
 ; and load_insert call gb_insert directly).  gb_insert's carry is
 ; ignored — on a full buffer the rest of the string is dropped.
-; Latent bug exposed by
-; TestGbEnsureRoom::test_growth_preserves_content at the 2026-04-20
-; L3 TDD sweep.
+; Pinned by TestGbEnsureRoom::test_growth_preserves_content.
 .proc ed_insert_string
         sta save_ptr            ; reuse save_ptr as text pointer
         stx save_ptr+1

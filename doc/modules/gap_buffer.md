@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/gap_buffer.s`](../../src/gap_buffer.s) | implementation |
-| [`tests/unit/test_gap_buffer.py`](../../tests/unit/test_gap_buffer.py) | test contract — Tier-U bundled coverage (35 tests) |
+| [`tests/unit/test_gap_buffer.py`](../../tests/unit/test_gap_buffer.py) | test contract — Tier-U bundled coverage (36 tests) |
 
 The editor's Tier I tests, [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py)
 (owned by [editor.md](editor.md)), exercise this module transitively.
@@ -22,12 +22,11 @@ BRK vectors.  This is what makes it bundle-testable at Tier U
 independently of the keystroke dispatch / rendering / disk I/O
 machinery that lives one layer up in `editor.s`.
 
-Split from `editor.s` at the 2026-04-20 structural refactor so the
-tier boundary becomes a compile-time fact rather than a disciplined
-convention — same pattern as the `breakpoints.s` split from
-`debugger.s`.  Anything that depends on `gap_buffer.s` is strictly
-one layer up, and `gap_buffer.s` itself can't reach into screen /
-KERNAL machinery because that machinery lives at L4.
+The split from `editor.s` makes the tier boundary a compile-time
+fact rather than a convention (the same pattern as `breakpoints.s`
+under `debugger.s`): anything that depends on `gap_buffer.s` is
+strictly one layer up, and `gap_buffer.s` cannot reach screen or
+KERNAL machinery because that lives at L4.
 
 ## Buffer layout
 
@@ -42,14 +41,20 @@ KERNAL machinery because that machinery lives at L4.
 ```
 
 - **`buf_base`** — floor of the buffer.  Grows downward (`buf_base -=
-  $100`) when `gb_ensure_room` needs more space; clamps at
-  `__BUF_FLOOR__` (set by `dev/compute_layout.py`).
+  $100`) when `gb_ensure_room` needs more space, never below
+  `__BUF_FLOOR__`.
 - **`gap_lo`** — first byte of the gap.  Bytes `[buf_base, gap_lo)`
   are pre-cursor content.
 - **`gap_hi`** — first byte after the gap.  Bytes `[gap_hi, BUF_END)`
   are post-cursor content.
 - **`BUF_END`** (= `__CODE_RUN__`) — ceiling, exclusive.  Fixed at
   link time as the start of runtime code.
+- **`__BUF_FLOOR__`** — the lowest address the buffer may grow to,
+  computed per build by `dev/compute_layout.py`
+  (`$0800` + one ninth of the workspace, page-aligned down), so the
+  source text and the assembled output growing up from `$0800` meet
+  at about the same time.  It must be page-aligned (the growth check
+  compares high bytes only).
 - **Cursor** — logically sits "in" the gap.  Moving right consumes
   the first byte of post-gap (copies it into the pre-gap side).
   Moving left does the reverse.
@@ -58,7 +63,18 @@ KERNAL machinery because that machinery lives at L4.
   the gap (jumps from `gap_lo` to `gap_hi` when it reaches the gap
   boundary).
 
+Lines are separated by `$0D` (CR); there is no terminator after the
+last line.  The workspace this buffer shares with the assembled
+output is mapped in
+[memory_design.md § Source Code Storage](../memory_design.md#source-code-storage).
+
 ## Interface
+
+The clobber lists below include what a callee pulls in: every
+`gb_insert` can grow the buffer, and growth calls `update_workend`
+→ `sym_define` ([symtab.md](symtab.md)), which clobbers A, X, Y,
+`sym_name` / `sym_val` / `sym_wide` and symtab's `_st_*` ZP.  That
+set is written "symtab ZP" below.
 
 ### gb_init
 **In:** none
@@ -71,42 +87,47 @@ KERNAL machinery because that machinery lives at L4.
 the `workend` symbol republished after a `buf_base` change call
 `update_workend` (or `define_ws_syms`) explicitly:
 - `editor.s::ed_init` does so as part of its full reset wrapper.
-- `main.s::_main` does so at cold init via `define_ws_syms`
-  (step 8) immediately after `ed_ensure_init` (step 7).
+- `main.s` cold init does so via `define_ws_syms` right after
+  `ed_ensure_init` ([main.md § Layer 1](main.md)).
 
-Called by `editor.s::ed_init` (full reset) and `ed_ensure_init`
-(lazy-init guard).  `editor.s` handles the additional
-rendering-state reset (`ed_cur_line`, `ed_cur_col`, `ed_top_line`)
-in its `ed_init` wrapper after this returns.
+This is what lets cold init call `ed_ensure_init` before `sym_clear`
+has set up the name heap.  `editor.s::ed_init` resets the rendering
+state (`ed_cur_line`, `ed_cur_col`, `ed_top_line`) after this returns.
 
 ### ed_ensure_init
 **In:** none
-**Out:** if `ed_total_lines` is zero, runs `gb_init`; otherwise no-op.
+**Out:** if `ed_total_lines` is zero (BSS-zero: never initialised),
+runs `gb_init`; otherwise no-op.
 **Clobbers:** A.
 
-Lazy init guard.  Called by the sequential reader, `ed_insert_string`,
-and `editor.s::enter_editor` so first use does a full init but later
-use is a cheap check.
+Lazy init guard.  Called by `ed_read_rewind`, `ed_insert_string`,
+`editor.s` (`enter_editor`, `ed_save_source`), `main.s` cold init
+and `repl.s` (`s` of a SEQ file), so first use does a full init and
+later use is a cheap check.
 
 ### gb_insert
 **In:** A = byte to insert
-**Out:** C=1 success, C=0 failure (buffer full — byte discarded).
-Inserts at the cursor (= `gap_lo`); `gap_lo` advances by 1.  Bumps
-`ed_total_lines` if the byte is CR.  Sets `ed_dirty`.
-**Clobbers:** A, Y.
+**Out:** C=1 success, C=0 failure (buffer full — byte discarded,
+nothing changed).  Calls `gb_ensure_room` first, then stores at the
+cursor (= `gap_lo`); `gap_lo` advances by 1.  Bumps
+`ed_total_lines` if the byte is CR.  Sets `ed_dirty` on success.
+**Clobbers:** A, Y, `ed_tmp`; when the buffer grows also X,
+`ed_scr`, `read_ptr` (= save_ptr) and symtab ZP.
 
 ### gb_backspace
 **In:** none
 **Out:** byte immediately before the cursor is deleted (`gap_lo -= 1`).
 Decrements `ed_total_lines` if the deleted byte was CR.  Sets
-`ed_dirty`.  No-op if cursor is at `buf_base`.
-**Clobbers:** A.
+`ed_dirty`.  No-op (and `ed_dirty` untouched) if the cursor is at
+`buf_base`.
+**Clobbers:** A, Y.
 
 ### gb_cursor_left / gb_cursor_right
 **In:** none
 **Out:** moves one byte in the given direction by shifting a byte
-across the gap.  No-op at the respective buffer end.
-**Clobbers:** A.
+across the gap.  No-op at the respective buffer end (`buf_base` /
+`BUF_END`).  Crosses CRs like any other byte; `ed_dirty` untouched.
+**Clobbers:** A, Y.
 
 ### gb_home
 **In:** none
@@ -117,12 +138,14 @@ current logical line (either the byte after the previous CR or
 
 ### gb_ensure_room
 **In:** none
-**Out:** C=1 if the gap has at least one byte free; C=0 if the
-buffer floor has been reached.  If the gap is exhausted but growth
-is still possible, subtracts 256 from `buf_base` and copies the
-pre-gap content down, making room at the gap_hi side.  Updates
-`src_bot` and calls `update_workend`.
-**Clobbers:** A, Y, `ed_tmp`, `ed_scr`, save_ptr (= `read_ptr`).
+**Out:** C=1 if the gap has at least one byte free (growing first if
+needed); C=0 if the gap is empty and `buf_base - 256` would fall
+below `__BUF_FLOOR__`.  To grow, it subtracts 256 from `buf_base`,
+copies the pre-gap content down by 256, leaves a 256-byte gap, moves
+`ed_top_ptr` down with the text when it points into the pre-gap,
+sets `src_bot = buf_base` and calls `update_workend`.
+**Clobbers:** A, `ed_tmp`; when it grows also X, Y, `ed_scr`,
+`read_ptr` (= save_ptr) and symtab ZP.
 
 ### ed_insert_string
 **Test-only export.**  No production code calls it (the editor's
@@ -134,7 +157,8 @@ It ignores `gb_insert`'s carry: once the buffer is full the rest of
 the string is dropped and the call returns normally — the caller
 gets no indication.  A production caller would have to check the
 carry per byte instead.
-**Clobbers:** A, Y, save_ptr (= `read_ptr`).
+**Clobbers:** A, X, Y, `read_ptr` (= save_ptr, the text pointer),
+and everything `gb_insert` clobbers.
 
 ### ed_read_rewind
 **In:** none
@@ -148,23 +172,41 @@ works.
 **Out:** A = next byte from the buffer, X = 0; or A = X = $FF at EOF.
 Advances `read_ptr` by 1 (or skips from `gap_lo` to `gap_hi` when it
 lands inside the gap).
-**Clobbers:** A, X, Y, `ed_tmp`.
-
-Partial-result contract (Principle 13): on success `read_ptr`
-advances by 1 byte (virtual), possibly jumping across the gap
-physically.  On EOF `read_ptr` is stable (already at or past BUF_END).
+**Clobbers:** A, X, Y.
 
 ### ed_read_line
-**In:** A/X = destination buffer pointer (maxlen hardcoded to 40).
-**Out:** A = length copied (0–40), X = 0 on success; A = X = $FF at
-EOF.  Scan runs from `read_ptr` until CR or EOF, copies bytes into
-the buffer, returns length.  On CR termination, `read_ptr` advances
-by (length + 1).  On no-CR-last-line, `read_ptr` advances to
-`BUF_END` (crossing the gap).  On EOF, `read_ptr` is stable.
+**In:** A/X = destination buffer pointer (at least 40 bytes; maxlen
+is fixed at 40).
+**Out:** A = length copied (0–39), X = 0, buffer NUL-terminated; or
+A = X = $FF at EOF (nothing left to read).  Copies bytes from
+`read_ptr` up to the next CR or EOF; the CR is consumed, not stored.
+A line longer than 39 bytes is **truncated**: the first 39 bytes are
+stored, the rest is consumed up to the CR and dropped.  Length 39
+therefore means "39 bytes or more" — the caller cannot tell an exact
+39-byte line from a truncated one.
 **Clobbers:** A, X, Y, `ed_scr`, `ed_tmp`.
 
-See [editor.md § Partial-result contract](editor.md) for the
-full stopping-position matrix.
+### Partial-result contract
+
+`ed_read_line` and `ed_read_byte` are partial-result functions
+([testing.md § Principles](../testing.md#principles), item 13):
+`read_ptr` is the ancillary state.  Each successful call advances
+`read_ptr` past the consumed bytes; callers (the two-pass source
+assembler, `repl.s::warn_long_lines`) depend on this to compose
+repeated reads into a stream walk.
+
+- `ed_read_byte` — advances `read_ptr` by 1 on each non-EOF call,
+  stepping over the gap when `read_ptr` lands on `gap_lo`.  Returns
+  A = X = $FF at EOF without further advance.
+- `ed_read_line` — on a CR-terminated line the advance is exactly
+  (bytes on the line + 1), truncated bytes included.  On the final
+  line with no trailing CR, `read_ptr` ends at `BUF_END` (it crosses
+  the gap if the gap lies after the content).  **EOF is
+  idempotent:** once a call has returned EOF, further calls keep
+  returning EOF and leave `read_ptr` stable.  The *first* EOF call
+  may still advance (from `gap_lo` across the gap to `BUF_END`);
+  what callers can rely on is that `read_ptr` is stable across
+  repeated EOF calls.
 
 ### check_buf_end
 **In:** `ed_scr` = pointer to check.
@@ -172,30 +214,29 @@ full stopping-position matrix.
 buffer.
 **Clobbers:** A.
 
-Internal helper shared between `gap_buffer.s`'s reader and
-`editor.s`'s rendering code.
+Shared helper for `editor.s`'s rendering code.
 
 ### define_ws_syms / update_workend
 **In:** none
-**Out:** registers the `workstart` symbol at `$0800` (fixed) and
+**Out:** `define_ws_syms` registers the `workstart` symbol at `$0800`
+(fixed) and falls through into `update_workend`, which (re)defines
 the `workend` symbol at `buf_base - 1` (dynamic — tracks buffer
-growth).  Called from main.s cold-init and `asm_src::asm_assemble`
-after `sym_clear`.
-**Clobbers:** A.  (sym_define call uses the standard sym_name/val/wide
-ZP as input.)
+growth).  Both symbols are absolute (`sym_wide = 1`).
+**Clobbers:** A, X, Y, symtab ZP.
 
-`update_workend` is called internally by `gb_ensure_room` after
-a gap grow shifts `buf_base` down, and by `editor.s::ed_init`
-after every full editor reset.  It is **not** called by
-`gb_init` — `gb_init` is a leaf with no symbol-table contact;
-its callers are responsible for republishing `workend` if needed.
+`define_ws_syms` is called from `main.s` cold init and from
+`asm_src.s::asm_assemble` after `sym_clear`.  `update_workend` is
+called by `gb_ensure_room` after a gap grow shifts `buf_base` down,
+and by `editor.s::ed_init` after every full editor reset.  It is
+**not** called by `gb_init` (see § gb_init).
 
 ### Memory
 
 **BSS (6 bytes):** `ed_total_lines` (2), `src_top` (2), `src_bot` (2).
 
-**ZP reads (from zp.s):** `gap_lo`, `gap_hi`, `buf_base`,
-`ed_top_ptr`, `read_ptr` (= save_ptr), `ed_tmp`, `ed_scr`, `ed_dirty`.
+**ZP (from zp.s, allocation in [zp.md](zp.md)):** `gap_lo`, `gap_hi`,
+`buf_base`, `ed_top_ptr`, `read_ptr` (= save_ptr), `ed_tmp`, `ed_scr`,
+`ed_dirty`.
 
 **Depends on:** `zp` (ZP vars), `strings` (`s_workstart`,
 `s_workend`), `symtab` (`sym_define` + sym_name/val/wide ZP).
@@ -203,36 +244,29 @@ Linker-provided `__CODE_RUN__` (= BUF_END) and `__BUF_FLOOR__`.
 
 ## Test contract
 
-Full Tier U coverage via `tests/unit/test_gap_buffer.py` (35 tests):
+Full Tier U coverage via `tests/unit/test_gap_buffer.py` (36 tests):
 
 | Test class | Coverage |
 |---|---|
 | `TestGapBufferInsert` (5) | `ed_insert_string`, `gb_insert`, `ed_total_lines` bump on CR, `ed_dirty` flag. |
-| `TestEdReadLine` (7) | `ed_read_rewind`, `ed_read_byte`, `ed_read_line` + 4 Principle-13 position-pinning cases (exact delta for CR-terminated, empty-line, no-CR-last-line, post-EOF idempotency). |
+| `TestEdReadLine` (7) | `ed_read_rewind`, `ed_read_byte`, `ed_read_line` + 4 position-pinning cases (exact delta for CR-terminated, empty-line, no-CR-last-line, post-EOF idempotency). |
 | `TestGbBackspace` (5) | `gb_backspace` content shortening, gap_lo decrement (ancillary state), CR-deletion decrements `ed_total_lines`, no-op at buf_base. |
 | `TestGbCursorMove` (6) | `gb_cursor_left` / `gb_cursor_right` content preservation, round-trip, gap_lo/gap_hi co-movement, no-op at buffer ends. |
 | `TestGbHome` (3) | `gb_home` single-line → buf_base, multi-line → just past CR, already-at-start no-op. |
 | `TestGbEnsureRoom` (3) | First insert triggers growth, content preserved across multiple growth rounds, BUF_FLOOR returns C=0. |
 | `TestEdInsertStringFull` (1) | `ed_insert_string` on a full buffer drops the rest of the string, nothing written past the gap. |
+| `TestGbInitLeaf` (1) | `gb_init` does not reach the symbol table (`$0000`–`$0007` untouched with `_st_heap` = 0). |
 | `TestWorkspaceSymbols` (3) | `define_ws_syms` registers `workstart = $0800`, `workend = buf_base - 1`, and `update_workend` tracks growth. |
 | `TestBufferBoundsState` (3) | `src_top` / `src_bot` BSS state reflects buffer bounds. |
+
+`ed_read_byte`'s per-call advance is also witnessed transitively by
+the `_read_back` helper, which walks the whole buffer byte by byte
+and asserts the reconstructed content in every insert case.
 
 The bundle links `zp + strings + mem + symtab + gap_buffer` — no
 behavioural mocks.  `sym_table` at `$E000` is writable RAM in py65
 so the real symtab code runs.  Linker-provided `__CODE_RUN__=$4000`
 and `__BUF_FLOOR__=$1500` via `ld65 -D` flags.
-
-**Caveat — `save_ptr` / `read_ptr` aliasing.**  The module's ZP
-`save_ptr` is a compile-time alias for `read_ptr`; both
-`ed_insert_string` (input text ptr) and `gb_ensure_room` (source
-pointer for the pre-gap block-copy during growth) use it.
-`ed_insert_string` protects its text ptr by pushing / popping
-around each `gb_insert` call — required for inputs >256 bytes,
-which trigger a growth whose copy clobbers `save_ptr`.
-Latent bug exposed by the `test_growth_preserves_content` test;
-fixed at the 2026-04-20 L3 TDD sweep.  `ed_insert_string` has no
-production caller, so this path never surfaced before; disk-load
-goes via `load_insert` → `gb_insert` directly without the alias.
 
 ## Design
 
@@ -258,3 +292,16 @@ handles disk I/O, or tracks visual cursor state lives in `editor.s`
 which is gap-byte movement), `enter_editor`, `leave_editor`,
 `ed_save_source`, `ed_load_source`, and the `ed_cur_line` /
 `ed_cur_col` / `ed_top_line` BSS triple.
+
+## Caveats
+
+- **`save_ptr` / `read_ptr` aliasing.**  `save_ptr` is a
+  compile-time alias for `read_ptr`; `ed_insert_string` (its text
+  pointer), `gb_ensure_room` (the source pointer of the pre-gap block
+  copy) and the reader all use it, and they are never live at the
+  same time.  `ed_insert_string` pushes / pops its text pointer
+  around each `gb_insert`, because a growth with pre-gap content
+  overwrites it (`TestGbEnsureRoom::test_growth_preserves_content`).
+  A read in progress does not survive an insert that grows the buffer.
+- Growth is in 256-byte steps; the block copy of the pre-gap text is
+  the most expensive operation in the module.
