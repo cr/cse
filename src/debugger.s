@@ -13,10 +13,10 @@
 ;     execution starts (`j`, cold-init handoff).  Resumes (`c`, `t`,
 ;     `o`, handler chain) call `restore_userland_state` directly —
 ;     the existing sentinel from the prior fresh start is still valid.
-;   * `dbg_init`: cold-init entry point.  Delegates bp-table zeroing
-;     to bp_init (breakpoints.s, L3), then zeros the step-state block
-;     here, the reg_* shadows, dbg_reason, and seeds the CPU-port
-;     bytes in the ZP save buffers.
+;   * `dbg_init`: cold-init / warm-recovery entry point.  Zeros the
+;     step-state block, the reg_* shadows, dbg_reason, and seeds the
+;     CPU-port bytes in the ZP save buffers.  Leaves bp_table alone
+;     (main.s's cold init calls bp_init itself).
 ;
 ; Breakpoint-table CRUD + patching lives in breakpoints.s (L3) — a
 ; clean data-structure module that bundle-tests in isolation without
@@ -59,7 +59,6 @@
         .import save_kernel_zp, restore_kernel_zp
 
         ; From breakpoints.s (L3, strictly-downward):
-        .import bp_init
         .import patch_all
         .import step_bp
         .import dbg_step_clear
@@ -106,15 +105,14 @@ _rtu_need_sentinel: .res 1
 .segment "CODE"
 
 ; ── dbg_init ──────────────────────────────────────────────────────────
-; Cold-init entry point.  Zero bp table (via bp_init in breakpoints.s),
-; zero the step-state block here, zero reg_* shadows + dbg_reason, set
-; reg_sp = $FF, seed CPU-port bytes in both ZP backup buffers.
+; Cold-init and warm-recovery entry point (_main, hw_reinit_body).
+; Zero the step-state block here, zero reg_* shadows + dbg_reason, set
+; reg_sp = $FF, seed CPU-port bytes in both ZP backup buffers.  The
+; breakpoint table is NOT touched: _main zeroes it once (bp_init) and
+; it survives cse_recover (memory_design.md § Breakpoint invariant).
 ; Clobbers: A, X.
 ;
 dbg_init:
-        ; Zero bp_table + set dbg_bp_hit = $FF (breakpoints.s, L3).
-        jsr bp_init
-
         ; Zero the 10-byte step-state block in one sweep.
         ldx #STEP_STATE_SIZE - 1
         lda #0

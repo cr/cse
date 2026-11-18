@@ -319,8 +319,11 @@ Each entry point composes from rts-returning **body subroutines**
 defined in `main.s`:
 
 - `hw_reinit_body` — SP=$FF, `$01`=$36, `setup_interrupts`,
-  `dbg_init`, `reset_globals`, `io_init`, `theme_init`,
-  `restore_colors`, `set_charset`.  Idempotent.
+  `dbg_init` (step state and `reg_*`; never the breakpoint table),
+  `reset_globals` (`state` = REPL, `cur_addr` = $0800, `block_size`
+  = $0010, `cur_device` = 8, `run_user_pending` = 0 — a fault
+  recovery does not trust the REPL globals), `io_init`,
+  `theme_init`, `restore_colors`, `set_charset`.  Idempotent.
 - `end_debug_body` — zeroes `dbg_reason`, `step_state`,
   `run_user_pending`, `in_userland`, `kernal_out`, `stop_cooldown`,
   `rp_dis_bp`, `dbg_bp_hit`, `last_cmd`; resets `reg_sp` to $FF;

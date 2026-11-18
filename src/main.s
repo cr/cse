@@ -64,7 +64,7 @@
         .import define_ws_syms
         .import cse_zp_end, cse_start
         .import sym_clear
-        .import dbg_init
+        .import dbg_init, bp_init
         .import save_userland_state, restore_userland_state
         .import return_to_userland
         .import brk_stub
@@ -218,7 +218,9 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         ; ── 4. Install interrupt hooks BEFORE any bank-out ──
         jsr setup_interrupts
 
-        ; ── 5. Init debugger (zeroes bp+step tables, reg_*) ──
+        ; ── 5. Init debugger: bp table (cold init only — it survives
+        ;       cse_recover), then step state + reg_* ──
+        jsr bp_init
         jsr dbg_init
 
         ; ── 6. Symbol table ──

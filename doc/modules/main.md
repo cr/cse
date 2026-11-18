@@ -235,7 +235,9 @@ by earlier steps, with no hidden cross-subsystem reach-ins.
    from this point; LORAM=0 must hold for the rest of cold init.
 4. **`setup_interrupts`** — patch all four vectors.  Must happen
    before any bank-out so the early-entry handlers are reachable.
-5. **`dbg_init`** — zero bp/step tables, seed `userland_zp_buf`
+5. **`bp_init` + `dbg_init`** — zero the breakpoint table (cold
+   init only — `hw_reinit_body` runs `dbg_init` alone, so
+   breakpoints survive `cse_recover`), zero the step state, seed `userland_zp_buf`
    and `kernel_zp_buf` with the CPU-port default ($00=$2F, $01=$36)
    so the first user entry via `return_to_userland` has sane
    banking.

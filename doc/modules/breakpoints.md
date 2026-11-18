@@ -53,9 +53,10 @@ is the CPU port (DDR), never a meaningful breakpoint target.
 **Out:** `bp_table` zeroed (all 40 bytes); `dbg_bp_hit = $FF`.
 **Clobbers:** A, X.
 
-Cold-init entry for the table.  Called once at boot by
-`debugger.s::dbg_init`.  `dbg_init` then handles step-state zeroing
-and ZP-buffer seeding separately.
+Cold-init entry for the table.  Called once at boot by `main.s`'s
+`_main`, never on a warmstart: the table survives `cse_recover`.
+`debugger.s::dbg_init` handles step-state zeroing and ZP-buffer
+seeding separately.
 
 ### dbg_bp_set
 **In:** A = addr lo, X = addr hi

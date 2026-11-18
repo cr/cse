@@ -1544,3 +1544,21 @@ class TestBreakpointNeverRun:
         s.keys(b"Y")                        # init? y
         assert s.e.memory[0x1000] == 0xA9
         assert s.v("warm_guard") == 0
+
+
+class TestRecoverKeepsBreakpoints:
+    """memory_design.md § Breakpoint invariant: bp_table survives every
+    warmstart, cse_recover included, and the $00 bytes patched in at
+    the fault are restored."""
+
+    def test_recover_with_patched_breakpoint(self, session):
+        s, e = session, session.e
+        e.memory[0x3000] = 0xA9
+        s.type("b $3000")
+        e.jsr(e.sym("patch_all"))          # as while user code runs
+        assert e.memory[0x3000] == 0x00
+        e.run_until(e.sym("main_loop_top"), start_at=e.sym("cse_recover"),
+                    max_cycles=500_000)
+        assert e.memory[0x3000] == 0xA9, "patched $00 left in user code"
+        e.jsr(e.sym("dbg_bp_count"))
+        assert e.a == 1, "breakpoint table wiped by cse_recover"

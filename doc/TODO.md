@@ -776,13 +776,19 @@ documentation round that follows this filing.
   sets it (and skips patched slots), `unpatch_all` restores and
   clears only patched ones, tests `TestBpPatchedFlag`,
   `TestBreakpointNeverRun`.
-- [ ] **`cse_recover` wipes the breakpoint table and leaves patched
+- [x] **`cse_recover` wipes the breakpoint table and leaves patched
   `$00` bytes behind.**  `hw_reinit_body` → `dbg_init` → `bp_init`
   zeroes `bp_table` before `end_debug_body` runs, so breakpoints
   patched in at the fault are never unpatched; contradicts
   memory_design.md § Breakpoint invariant ("survives every
   warmstart").  `reset_globals` also resets `cur_addr`,
   `block_size`, `cur_device` on recovery (undocumented).
+  Fixed 2026-11-18: `dbg_init` no longer calls `bp_init`; `_main`
+  zeroes the table once at cold init, so `cse_recover`'s
+  `end_debug_body` unpatches with the table intact; the
+  `reset_globals` reset on recovery is now documented
+  (memory_design.md § Warmstart entry points), test
+  `TestRecoverKeepsBreakpoints`.
 - [x] **The decimal flag leaks from user code into the kernel.**
   `SED; RTS` → `save_userland_state`'s `adc #8` and the brk_pc
   `sbc #2` run in decimal → bad `reg_sp`, missed brk_stub match →

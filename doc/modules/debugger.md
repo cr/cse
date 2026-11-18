@@ -87,10 +87,16 @@ address rather than brk_stub's internal location.
 
 ### dbg_init
 **In:** none
-**Out:** breakpoint table zeroed, flags cleared
+**Out:** step-state block (`brk_pc`, `step_*`) and `reg_a/x/y/p`
+zeroed, `dbg_reason = 0`, `reg_sp = $FF`, the CPU-port bytes of
+`userland_zp_buf` and `kernel_zp_buf` seeded ($00 = $2F, $01 = $36).
+The breakpoint table is **not** touched.
 **Clobbers:** A, X
 
-Called at startup and on warm-start recovery.
+Called at startup and on warm-start recovery (`hw_reinit_body`).
+The breakpoint table is zeroed only at cold init (`bp_init`, called
+by `_main`), so the user's breakpoints survive `cse_recover`
+([memory_design.md § Breakpoint invariant](../memory_design.md#breakpoint-invariant)).
 
 ### save_userland_state / restore_userland_state
 The two complementary gate primitives for userland ↔ kernel
