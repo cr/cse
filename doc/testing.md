@@ -27,7 +27,9 @@ Tests live in `tests/unit/`.  One pytest file per module (or
 per bundle — the `asm_core` and `mn6`/`mn7` bundles group
 tightly-coupled neighbours).
 
-**m65 bundles** run on M65Emu's CPU, `MPU45GS02`
+**m65 bundles** (planned with the m65 build:
+[TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
+B1) run on M65Emu's CPU, `MPU45GS02`
 ([§ M65Emu](#m65emu--the-m65-integration-harness)), in *clean* mode:
 it admits the 6502's documented opcodes plus the opcodes of the
 raw-byte macros in `src/m45_ops.inc`, and any other opcode stops the
@@ -89,7 +91,10 @@ share: the recording session and the file writer):
 - **Output:** `-dumpscreen`, `-dumpmem`, `-screenshot`, written when
   the test ends xmega65 with SIGTERM.
 
-Tests live in `tests/emulator/` and are skipped, with the reason, when
+Tests will live in `tests/emulator/` (planned:
+[TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-prg-r7-platform-layer),
+S2-8; today `tests/xmega65.py` serves the golden-file recorders) and
+are skipped, with the reason, when
 `$(XMEGA65)` (the driver reads the `XMEGA65` environment variable) or
 the SD image is absent.  Boot to the prompt takes
 about 5–8 s, so Tier X holds the m65 boot, hypervisor and disk tests
@@ -555,11 +560,10 @@ tests are written, when they are written, and what they test.
    was often masking latent bugs that the new mechanism has to
    handle on its own.
 
-   Cautionary example: Phase 18 introduced `cse_brk_handler_early`
-   with stack surgery to handle "IRQ fires while KERNAL is banked
-   out" transparently.  The pre-existing SEI guards in
-   `kernal_bank_out/in` had been masking that scenario entirely.
-   Phase 18 landed with the new handler and all tests green
+   Cautionary example: `cse_brk_handler_early` was introduced with
+   stack surgery to handle "IRQ fires while KERNAL is banked out"
+   transparently, while the SEI guards in `kernal_bank_out/in` still
+   masked that scenario entirely.  It landed with all tests green
    (`a628e65`).  A later optimisation commit dropped the "now
    redundant" SEIs (`8e60b62`) — which *finally exposed the new
    mechanism to the stress it was designed for*, and three latent
@@ -597,11 +601,9 @@ tests are written, when they are written, and what they test.
    - **"User-facing" vs. "implementation-detail" is not a valid
      excuse.**  A symbol exported across module boundaries is by
      definition not an implementation detail; other modules link
-     to it.  (This principle was added after a test-audit round
-     in which several L1 exports had been deferred as
-     "internal sibling helpers" and received no coverage.  If a
-     symbol is exported, someone depends on it; that someone is
-     what the test protects.)
+     to it.  If a symbol is exported, someone depends on it; that
+     someone is what the test protects — "internal sibling helper"
+     is not a reason to leave an export uncovered.
 
 9. **Vocal omissions — skipped tests must state a reason in code.**
    When a contractual test is not automated, the omission must be
@@ -642,14 +644,19 @@ tests are written, when they are written, and what they test.
 
    ```python
    @pytest.mark.skip(reason=(
-       "$01 reads fully-latched under DDR=$FF (mem.md § CPU-port "
-       "aware ZP save/restore): py65 has no CPU-port emulation. "
-       "Byte-level round-trip is verified here (TestSaveUserlandZp); "
-       "the fully-latched guarantee is verified on the VICE manual "
-       "checklist.  If C64Emu ever gains CPU-port modelling, convert "
-       "this skip into a real test."
+       "Real VIC-II display state (screen.md § vic_reset): C64Emu does "
+       "not model the VIC-II chip — $D011/$D016/$D018/$D015/$D01A/$D019 "
+       "are flat RAM.  Register-write values ARE verified (TestVicReset). "
+       "End-to-end 'VIC renders correctly after user code flipped it to "
+       "bitmap mode / sprites on / charset swapped' is verified ONLY in "
+       "the VICE manual checklist."
    ))
    ```
+
+   When the harness gains the missing model, the skip becomes a real
+   test (the CPU-port skip of `test_mem.py` became
+   `test_dollar_01_reads_fully_latched_under_ddr_ff` once C64Emu
+   modelled the DDR).
 
    **B. Subsumed by another test.**  Write this skip only after
    retiring the test — leave a one-line pointer at the same source
@@ -686,22 +693,27 @@ tests are written, when they are written, and what they test.
    a dated preamble comment at its source location:
 
    ```python
-   # ⚠  TOP-RISK L1 GAP (per coverage audit 2026-04-20):
-   #    The DDR-stash protocol is the most-likely place an undetected
-   #    L1 regression could land — a "clever" refactor of save_*_zp
-   #    that byte-round-trips on py65 but breaks the fully-latched-$01
-   #    read on silicon would pass CI and ship.  The only backstop
-   #    is the VICE manual checklist.
+   # ⚠  MID-RISK L2 GAP (per coverage audit 2026-04-20):
+   #    C64Emu treats VIC-II registers as flat RAM.  The register-write
+   #    tests above confirm the correct BYTES reach the correct registers,
+   #    but don't observe the VIC's actual response (...).
+   #    VICE manual checklist is the only backstop.
    ```
 
-   Risk tiers:
+   The marker reads `⚠  <TIER>-RISK L<layer> GAP (per coverage audit
+   <date>):`.  Risk tiers:
    - **TOP** — silent-ship regression is plausible and impact is
      module-wide (corruption, crash, silent data loss).  Treat
      the VICE checklist as mandatory before merging any change to
      the flagged code path.
    - **HIGH** — silent-ship possible but requires specific
      conditions; scope is bounded.  Code review is the primary
-     mitigation.
+     mitigation (e.g. `test_cse_io.py`'s `$CC` lifetime invariant).
+   - **MID** — a hardware effect the harness does not model.  The
+     tests pin the values the code writes, so only a change to
+     *which* registers or steps there are can ship silently, and its
+     effect stays within the module's own output.  The VICE checklist
+     is the backstop (e.g. `test_screen.py`'s VIC-II display state).
    - **LOW** — regression requires a separate maintainer mistake
      (e.g. copying a broken harness pattern).  A single existing
      assertion elsewhere is already a de-facto guard — the skip
@@ -714,17 +726,21 @@ tests are written, when they are written, and what they test.
 
    #### When to prefer `xfail` over `skip`
 
-   Use `xfail(strict=True)` for a test whose code is WRITTEN and
-   whose expected behaviour IS the contract, but which currently
-   fails against a known bug.  This makes the test fail the suite
-   the moment the bug gets fixed — a free alarm that the skip can
-   now go away.
+   Use `@pytest.mark.xfail(reason=…, strict=True)` for a test whose
+   code is WRITTEN and whose expected behaviour IS the contract, but
+   which currently fails against a known bug.  The reason names the
+   bug's TODO entry.  This makes the test fail the suite the moment
+   the bug gets fixed — a free alarm that the mark can now go away;
+   the fix removes the mark in the same change.
 
    Use `skip` for behaviour that isn't implemented at the test
    tier at all (no code to run).
 
-   Never use `xfail(strict=False)` — it silences both failure and
-   unexpected passes, defeating the point.
+   Never use `xfail(strict=False)` or the imperative `pytest.xfail()`
+   inside a test body — both silence an unexpected pass, defeating
+   the point.  No test is marked xfail today; `test_asm_src.py`'s
+   `"xfail"` case key (an imperative `pytest.xfail()`) is used by no
+   case and is listed for removal (TODO § Code bugs, dead code).
 
 10. **Test bundles must mirror production build configs.**  A module
     built by the Makefile as N distinct binaries (different `-D`
@@ -742,7 +758,7 @@ tests are written, when they are written, and what they test.
 
     **Mechanics.**  When a module ships as N production variants,
     [conftest.py](../tests/conftest.py) parametrises the bundle
-    config (`_AC_FLAGS[config]`, `_AC_CLASSIFIER_SOURCES[config]`,
+    config (`PROD_DEFS[config]`, `_AC_CLASSIFIER_SOURCES[config]`,
     etc.) and exposes N session fixtures (e.g. `asm_syms`,
     `asm_6510_syms`, `asm_6502_syms`).  Each variant has a matching
     test class in the module's test file.  When adding or removing
@@ -805,7 +821,8 @@ tests are written, when they are written, and what they test.
     literals and tables, BSS reservations, numeric constants — and
     contains no CODE segment.  In CSE these are all of L0 (`zp`,
     `strings`, every `*_tables`, `oplen_tbl`, `dasm_mne_idx`) plus
-    `mn_vars` at L1 (pure BSS scratch).  An
+    `mn_vars` at L1 (an empty shell: the classifier inputs
+    `mn_c1`–`mn_c3` are allocated in `zp.s`).  An
     axiomatic module has no testable contract beyond "the symbols
     exist and link," which the linker enforces on every build.
 
@@ -885,7 +902,7 @@ tests are written, when they are written, and what they test.
     in the advancement corrupts every test that walks it.  Examples:
     `expr.skip_sp` and `addr_mode.asm_skip_ws` are pinned by
     `TestStopContract` / `TestModeParseStopContract`'s whitespace-
-    surrounding cases; `editor.ed_read_byte` is pinned by
+    surrounding cases; `gap_buffer.ed_read_byte` is pinned by
     `test_editor.py::read_back` walking the full gap buffer byte
     by byte.  When a partial-result function is already transitively
     pinned, a direct `TestStopContract` would re-exercise the same
@@ -963,8 +980,9 @@ tests are written, when they are written, and what they test.
 
     **How this shows up in tests.**  For each rendering function,
     pair every state-change assertion with a screen-content
-    assertion.  Use the harness's screen-RAM accessor (`C64Emu.scr`
-    in CSE) to read the rendered region directly.
+    assertion.  Use the harness's screen accessors (`screen_text(row)`
+    and `screen_row(row)` in CSE) to read the rendered region
+    directly.
 
     **When the render is implementation detail.**  Per Principle 2
     and the *CDD-Lite for UX* corpus principle ([README.md
@@ -1006,7 +1024,7 @@ tests are written, when they are written, and what they test.
     that runs cold init and then asserts post-prompt invariants
     will pass against the recovery state and miss whatever
     `_main` skipped.  This bug class escaped once
-    (Phase 24, e47efdf — `ed_ensure_init` ordered before
+    (e47efdf — `ed_ensure_init` ordered before
     `sym_clear` corrupted `$0001`, BRK'd into `cse_recover`,
     suite stayed green for months).
 
@@ -1028,7 +1046,7 @@ tests are written, when they are written, and what they test.
     names the prerequisite explicitly — "X must run after Y has
     initialised" — not just "X is called at cold init."
 
-    Cautionary example (Phase 24): `gap_buffer.s::gb_init`
+    Cautionary example (e47efdf): `gap_buffer.s::gb_init`
     tail-called `update_workend` → `sym_define`, an undeclared
     dependency on the symbol table being initialised.
     `_main`'s order swapped `sym_clear` and `ed_ensure_init`,
@@ -1061,7 +1079,7 @@ tests are written, when they are written, and what they test.
     asserts it completed.  Detailed = "did the boot do the
     right things?"; coarse = "did the boot complete at all?"
 
-    Cautionary example (Phase 24): the cold-init bug broke all
+    Cautionary example (e47efdf): the cold-init bug broke all
     three builds (the heap-corruption root cause was
     CPU-agnostic), but the *manifestation* differed by
     variant — CMOS produced a clean BRK that recovered into a
@@ -1118,7 +1136,7 @@ The right fix for both: load the production PRG into `C64Emu`
 and exercise the real `ed_render_line` / `ed_scroll_up` /
 `ed_scroll_down` against real screen RAM at `$0400`.  `C64Emu`
 provides the KERNAL, screen RAM, and banking — no ASM stubs
-needed.  Coverage now lives in
+needed.  Coverage lives in
 [`tests/integration/test_editor.py`](../tests/integration/test_editor.py).
 
 ### Implementation-detail tests
@@ -1170,50 +1188,52 @@ Documented constraints of the `C64Emu` + `py65` harness that put
 specific code paths out of reach.  Each entry names the mechanism,
 the affected tests, and the recommended skip pattern.
 
-(No entries currently active.  The previous *BASIC ROM shadow
-overlap (cold-init resume fragility)* entry was retired
-2026-04-27 when Phase 24 fixed the underlying production
-cold-init bug; see [TODO.md § Bugs](TODO.md) for the closure
-record.)
+No entries are active.
 
 ## Per-module tier assignment
 
 | Module | Layer | Tier | Harness |
 |---|---|---|---|
 | zp, strings, *_tables, oplen_tbl, dasm_mne_idx | 0 | — | (pure data; generator model tests in `tests/unit/test_mnemonic_tables.py`, `test_dasm_tables.py`) |
-| mn_vars | 1 | — | (single-byte ZP scratch; no behaviour) |
-| **cse_io** | 1 | U | standalone leaf bundle |
-| **mem** | 1 | U | standalone leaf bundle |
+| mn_vars | 1 | — | (empty shell; `mn_c1`–`mn_c3` are in `zp.s`; no behaviour) |
+| **cse_io** | 1 | U | leaf bundle in `test_cse_io.py` |
+| **mem** | 1 | U | conftest `mem` bundle (zp + mem) |
 | **mn6 / mn7 / mn_classify** | 1 | U | `mn6` / `mn7` bundles |
 | **screen** | 2 | I | hardware-adjacent by nature (VIC registers, KERNAL cursor sync); C64Emu is the natural home even though it doesn't model VIC internals |
 | **log** | 2 | U | bundle: log + screen + cse_io (PLOT via shared `kplot_stub`) |
-| **symtab** | 2 | U | bundle: symtab + mem |
-| **asm_err** | 2 | U | bundle: asm_err + mem |
+| **symtab** | 2 | U | leaf bundle in `test_symtab.py`: symtab + mem |
+| **asm_err** | 2 | U | via `asm_core` bundle (`test_asm_err.py`) |
 | **expr** | 3 | U | via `asm_core` bundle |
 | **opcode_lookup** | 3 | U | via `asm_core` bundle |
 | **addr_mode** | 3 | U | via `asm_core` bundle (`test_addr_mode.py`) |
 | **asm_line** | 3 | U | `asm_core` bundle |
 | **dasm** | 3 | U | `dasm` bundle |
-| **breakpoints** | 3 | U | standalone `breakpoints` bundle — BP-table CRUD (extracted from debugger.s at the 2026-04-20 split) |
-| **gap_buffer** | 3 | U | standalone `gap_buffer` bundle — gap-buffer primitives + sequential reader (extracted from editor.s at the 2026-04-20 split) |
-| **debugger** | 4 | I | step/BRK state + userland-transition gates; BP-table CRUD now lives in `breakpoints` at L3 |
+| **breakpoints** | 3 | U | leaf bundle in `test_breakpoints.py` — BP-table CRUD |
+| **gap_buffer** | 3 | U | conftest `gap_buffer` bundle — gap-buffer primitives + sequential reader |
+| **debugger** | 4 | I | step/BRK state + userland-transition gates; BP-table CRUD is `breakpoints`' (L3) |
 | **asm_src** | 4 | U | `asm_src` bundle |
 | **disk** | 4 | I | needs KERNAL LOAD/SAVE/CHKIN |
-| **editor** | 4 | I | observable behaviour goes through screen RAM + keys; gap-buffer primitives now live in `gap_buffer` at L3 |
+| **editor** | 4 | I | observable behaviour goes through screen RAM + keys; gap-buffer primitives are `gap_buffer`'s (L3) |
 | **repl / main** | 5 | I | Layer-5 cycle; only testable full-PRG |
 | **loader** | 6 | I | `test_loader.py`: `loader_entry` against `load_prg`'s Python relocation |
 
 ## Framework
 
-All tests use **pytest**.  The test tree is split into two directories
-reflecting the tier boundary:
+All tests use **pytest**.  The test files are split into two
+directories reflecting the tier boundary:
 
 ```
 tests/
-├── c64emu.py                    — emulator harness
-├── conftest.py                  — bundle fixtures + cse_prg fixture
-├── unit/                        — Tier U tests (bare MPU + bundles)
-└── integration/                 — Tier I tests (C64Emu + full PRG)
+├── conftest.py          — Bundle, the bundle and PRG fixtures, SymbolTable
+├── emu_base.py          — EmuBase: what C64Emu and M65Emu share
+├── c64emu.py            — C64Emu, the C64 harness
+├── m65emu/              — M65Emu, the m65 harness (§ M65Emu)
+├── xmega65.py           — the xmega65 driver (recorders; Tier X)
+├── asm_dasm_runner.py   — exhaustive asm_line / dasm_insn sweeps (golden files)
+├── fixtures/            — golden files, the MEGA65 compendium tables
+├── unit/                — Tier U tests (bare MPU + bundles; generator,
+│                          audit and build-gate tests)
+└── integration/         — Tier I tests (C64Emu / M65Emu + full PRG)
 ```
 
 Unit-tier tests load a small bundle binary (module + its
@@ -1224,8 +1244,8 @@ module's code + its data.
 Integration-tier tests load the debug CMOS PRG
 (`build/debug/cmos/cse-cmos.prg`) into `C64Emu` and call into any
 function by its `.lbl`-file address.  Debug builds include `-g`
-symbols, so the `.lbl` file contains all labels (~1800 symbols)
-rather than just exports (~230).  For build details see
+symbols, so the `.lbl` file contains all labels (~2040 symbols)
+rather than just exports (~410).  For build details see
 [build_system.md § Test build pipeline](build_system.md#test-build-pipeline).
 
 ### C64Emu — emulator class
@@ -1243,26 +1263,31 @@ and just enough C64 hardware modelling to run CSE code under py65.
 ```python
 from c64emu import C64Emu
 
-emu = C64Emu()          # default: KERNAL loaded, screen cleared
+emu = C64Emu()          # rom_path= overrides rom/kernal_cbm.bin
 ```
 
 On construction:
 
 - 64 KB RAM zeroed.
-- Original C64 KERNAL ROM (`rom/kernal_cbm.bin`) loaded as a ROM
-  overlay at $E000–$FFFF.
+- Original C64 KERNAL ROM (`rom/kernal_cbm.bin`, required) loaded as
+  a ROM overlay at $E000–$FFFF; BASIC (`rom/basic_cbm.bin`) and the
+  character ROM (`rom/chargen_cbm.bin`) when present.
 - Processor port: DDR (`$00`) = `$2F`, `$01` = `$36` — CSE's runtime
   banking: BASIC out (`$A000`–`$BFFF` is RAM), KERNAL and I/O in.
-- Bank-switch emulation: writes to $01 toggle the KERNAL ROM
-  overlay — clearing bit 1 exposes the underlying RAM at
-  $E000–$FFFF (used by `mem.s::kernal_bank_out`); setting it
-  restores the ROM image.
+- Bank-switch emulation: writes to `$01` switch the overlays as the
+  PLA does (HIRAM: KERNAL, used by `mem.s::kernal_bank_out`; LORAM +
+  HIRAM: BASIC; CHAREN = 0: the character ROM over I/O); a read of
+  `$01` returns the DDR-gated value.  Writes always go to the RAM
+  underneath.
 - Screen RAM ($0400–$07E7) filled with $20 (space).
 - Color RAM ($D800–$DBE7) filled with $01 (white).
 - KERNAL ZP state initialised: cursor at row 0 col 0, screen line
   pointers ($D1/$D2, $F3/$F4) set for row 0, cursor disabled
   ($CC = 1), text colour ($0286) = $01, keyboard buffer empty
-  ($C6 = 0).
+  ($C6 = 0), screen page `$0288` = `$04`, the line-link table
+  ($D9–$F1) with every row a line of its own.
+- The page-3 vectors ($0314–$0333) as the KERNAL's `RESTOR` sets
+  them (run once in a scratch CPU).
 - CPU stack pointer at $FF.
 - An empty serial (IEC) bus: CIA2 port A (`$DD00`) reads CLK IN
   (bit 6) and DATA IN (bit 7) as the inverse of the C64's own CLK
@@ -1279,17 +1304,24 @@ hardware probing (VIC-II, CIA) which has no effect in py65.
 #### Execution
 
 ```python
-cycles = emu.jsr(addr, a=0, x=0, y=0, max_cycles=500_000)
+steps = emu.jsr(addr, a=0, x=0, y=0, carry=None, max_cycles=500_000)
 ```
 
 `jsr(addr)` simulates a JSR to `addr`:
 
-1. Pushes a sentinel return address onto the stack.
-2. Sets A/X/Y from keyword arguments, sets PC = `addr`.
+1. Resets the stack to hold the sentinel return address
+   (`SENTINEL` = `$DFF0`, an I/O address CSE never executes; SP =
+   `$FD`).
+2. Sets A/X/Y (and the carry, if given) from the keyword arguments,
+   sets PC = `addr`.
 3. Steps the CPU until PC reaches the sentinel address.
-4. Returns the cycle count.
+4. Returns the step count (`max_cycles` bounds steps, not cycles).
 5. Raises `TimeoutError` if `max_cycles` is exceeded (reports
    the stuck PC).
+
+`run_until(addr, start_at=…)` steps to an address without a sentinel
+(e.g. `_main` to `main_loop_top`); `run_steps(n)` runs a fixed number
+of steps.
 
 After `jsr()` returns, the CPU registers and memory are
 available for assertions:
@@ -1316,17 +1348,21 @@ emu.inject_keys(b"HELLO\r")    # enqueue a string
 ```
 
 Writes to the KERNAL keyboard buffer ($0277–$0280) and
-increments $C6.  Used by tests that exercise `GETIN`-based
-input (cse_io.s `io_kbhit`, REPL `read_line`).
+increments $C6; an eleventh pending key raises `OverflowError`.
+Used by tests that exercise `GETIN`-based input (cse_io.s
+`io_kbhit`, REPL `read_line`).  `press_key()` / `press_stop()` /
+`press_restore()` drive the matrix and RESTORE instead
+([§ M65Emu, Interface](#m65emu--the-m65-integration-harness)).
 
 #### PRG loading
 
 ```python
-emu = C64Emu()              # KERNAL + screen ready
-emu.load_prg("build/cse.prg")   # load production binary
+prg, map_path = cse_prg                  # the fixture's (PRG, map) pair
+emu = C64Emu()                           # KERNAL + screen ready
+emu.load_prg(prg, map_path)              # load production binary
 ```
 
-`load_prg(path)` reads a `.prg` file (2-byte load-address header
+`load_prg(path, map_path=None)` reads a `.prg` file (2-byte load-address header
 + payload), writes the payload at the load address, loads every
 symbol of the `.lbl` file beside the companion `.map`, and copies
 each relocated segment to its run address (shared with M65Emu:
@@ -1334,7 +1370,8 @@ each relocated segment to its run address (shared with M65Emu:
 Symbols are looked up by name:
 
 ```python
-addr = emu.sym("_asm_line_core")      # look up any exported symbol
+addr = emu.sym("asm_line")       # any label of the .lbl; KeyError if absent
+addr = emu.sym_opt("ed_dirty")   # None if absent
 ```
 
 Since the full production binary is loaded, every module's real
@@ -1380,29 +1417,41 @@ get their own small binary.
 
 #### conftest bundles
 
-| Bundle | Modules | Stub | Tests |
+| Bundle (fixture) | Modules | Stub | Tests |
 |--------|---------|------|-------|
-| `asm_core` | zp, opcode_lookup, asm_line, addr_mode, asm_err, expr, symtab, mem, mn7, mn_classify, mn_modes, mn_asm_tables | `asm_core_test_stub.s` (linker symbols) | test_addr_mode, test_asm_line, test_opcode_lookup |
-| `mn6` / `mn7` | mn_classify + mn_vars + mn6/mn7 + tables | (none — pure leaf) | test_mn_classify |
-| `asm_src` | asm_core + asm_src | `asm_src_test_stub.s` (ed_read_line mock) | test_asm_src |
-| `dasm` | zp, dasm, dasm_tables, mem | `dasm_test_stub.s` (linker scaffolding only) | test_dasm |
-| `log` | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |
-| `mem` | zp, mem | (none; `__CODE_RUN__` via `ld65 -D`) | test_mem |
-| `gap_buffer` | zp, strings, mem, symtab, gap_buffer | (none; `__CODE_RUN__`, `__BUF_FLOOR__` via `ld65 -D`) | test_gap_buffer |
+| `asm_core` (`asm_syms`, `asm_6510_syms`, `asm_6502_syms`, `AsmCoreSymbols(config)`) | zp, strings, opcode_lookup, asm_line, asm_err, addr_mode, expr, symtab, mem, mn_vars, mn_modes, mn_asm_tables, mn_classify + mn7, mn7_tables (6510, 65c02) or mn6, mn6_tables (6502) | `asm_core_test_stub.s` (linker symbols; `log_warn` mock) | test_addr_mode, test_asm_line, test_opcode_lookup, test_expr, test_asm_err, test_golden_asm_dasm |
+| `mn6` / `mn7` (`mn6_syms`, `mn7_syms`) | zp, mn_vars, mn6/mn7 + tables, mn_classify | (none — pure leaf) | test_mn_classify |
+| `asm_src` (`as_syms`) | asm_core's modules (mn7 set) + asm_src | `asm_src_test_stub.s` (source reader and output mocks); `dev/asm_src_test.cfg` | test_asm_src |
+| `dasm` (`dasm_syms`, `dasm_bundle(config)`) | zp, dasm, dasm_tables, mem | `dasm_test_stub.s` (linker scaffolding only) | test_dasm, test_golden_asm_dasm |
+| `log` (`log_syms`) | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |
+| `mem` (`mem_syms`) | zp, mem | (none; `__CODE_RUN__` via `ld65 -D`) | test_mem |
+| `gap_buffer` (`gb_syms`) | zp, strings, mem, symtab, gap_buffer | (none; `__CODE_RUN__`, `__BUF_FLOOR__` via `ld65 -D`) | test_gap_buffer |
 
-**Variants (Principle 10).**  Each bundle ships one variant per CPU
-set its modules are built for: `asm_core` and `dasm` — `6502`,
-`6510`, `65c02`, `m65`; `mn6` — `6502`; `mn7` — `65c02` (C64 keys),
-`m65`; `asm_src` and `symtab` — `65c02`, `m65` (the `m65` variant
-carries the pass stamp: `sym_stamp`, `sym_fwd`, `expr_fwd`).  Each
-variant is named after its CPU set (the generator's `CPU_SETS`) and
-uses the production `-D` set of its build (`conftest.PROD_DEFS`;
-[build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
-One `conftest.Bundle` builds every variant and rebuilds it when a
-source, a shared include (`src/*.inc`), the linker config or the `-D`
-set changed.  The bundles whose modules have no CPU-gated code (`log`,
-`mem`, `gap_buffer` and the leaf bundles below) build one variant,
-with the `65c02` `-D` set and `-t c64`, as production does.
+Every bundle links with `dev/test.cfg` (ZP at `$0000`, the rest at
+`$4000`) unless the table names another config, is assembled with
+`ca65 -g --cpu 6502` and lands in `build/<stem>.bin` / `.map` / `.lbl`
+/ `.flags`.
+
+**Variants (Principle 10).**  A bundle ships one variant per CPU
+set whose build-time code paths differ in its modules: `asm_core` and
+`dasm` — `6502`, `6510`, `65c02`; `mn6` — `6502`; `mn7` — `65c02`
+(the C64 key set is the same in both `mn7` builds); `asm_src` —
+`65c02`.  The `m65` variants (`asm_core`, `dasm`, `mn7`, `asm_src`,
+`symtab`) are planned with the m65 build
+([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
+B1).  Each variant is named after its CPU set (the generator's
+`CPU_SETS`) and uses the production `-D` set of its build
+(`conftest.PROD_DEFS`, held to the Makefile by `test_build_parity.py`;
+[build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets));
+the `65c02` variants keep the un-suffixed names (`asm_core_test`),
+the others carry the set (`asm_core_6510_test`).  One
+`conftest.Bundle` builds every variant and rebuilds it when it is
+missing, older than a source, a shared include (`src/*.inc`), a
+listed generated dependency or the linker config, or built with
+another `-D` set (its `.flags` stamp).  The bundles whose modules
+have no CPU-gated code (`log`, `mem`, `gap_buffer` and the leaf
+bundles below) build one variant, with the `65c02` `-D` set and
+`-t c64`, as production does.
 
 The `asm_core` bundle includes the `asm_err` leaf module for
 error-state primitives that `addr_mode`, `opcode_lookup`, and
@@ -1479,9 +1528,6 @@ build standalone test binaries.  They belong in a conftest bundle
 (if they share an import graph with existing bundles) or in C64Emu
 integration tests (if they depend on most of the codebase).
 
-**TODO:** migrate test_expr.py to the asm_core bundle (expr.s is
-already linked there) and test_repl.py to C64Emu integration
-(repl.s is the central hub with 8+ subsystem dependencies).
 
 **test_repl.py witness resolution:** Disk I/O witness addresses
 (`save_addr`, `save_size`, `load_result`) are resolved from the
@@ -1493,18 +1539,82 @@ to C64Emu.
 
 ### Running a test
 
+**A routine on the full PRG** (Tier I).  The `cse_prg` fixture is the
+debug CMOS PRG's `(prg, map)` pair:
+
 ```python
-def test_something(cse):
+from c64emu import C64Emu
+
+def test_something(cse_prg):
     emu = C64Emu()
-    cse.load_into(emu)
-    emu.memory[emu.sym("asm_ptr")]     = lo
-    emu.memory[emu.sym("asm_ptr") + 1] = hi
-    emu.jsr(emu.sym("_asm_line_core"))
-    assert emu.a == expected
+    emu.load_prg(*cse_prg)
+    emu.init_cse()                        # cold-init routines, by symbol
+    emu.memory[0x3000:0x3004] = b"NOP\x00"  # PETSCII, NUL-terminated
+    emu.write_word(emu.sym("asm_pc"), 0x1000)
+    emu.write_word(emu.sym("asm_out"), 0x3100)
+    emu.jsr(emu.sym("asm_line"), a=0x00, x=0x30)   # A/X = text pointer
+    assert emu.memory[emu.sym("asm_len")] == 1
+    assert emu.memory[0x3100] == 0xEA
 ```
 
-Functions under test end with `rts` which returns to the sentinel
-address pushed by `jsr()`, halting the emulation loop.
+The routine ends with `rts`, which returns to the sentinel address
+pushed by `jsr()` and halts the emulation loop.
+
+**A REPL command** (`tests/integration/test_repl.py`).  The
+session-scoped `rsyms` fixture resolves the REPL's symbols once
+(`rsyms.exec_line`, `rsyms.line_buf`, `rsyms.cur_addr`, …);
+`rsyms.new_emu()` returns a fresh emulator with the PRG loaded,
+`init_cse()` run, the cursor at row 5 and the REPL defaults the full
+cold init would set (`block_size` = `$0010`, `cur_device` = 8,
+`asm_cpu` = 1 — the 6510, although the PRG is the CMOS build, so a
+65C02-only test sets `asm_cpu` itself).  A command is the text
+`read_line` would have produced, run through `exec_line`:
+
+```python
+def test_plus(rsyms):
+    cpu = rsyms.new_emu()
+    set_cur_addr(cpu, rsyms, 0x2000)
+    set_line_buf(cpu, rsyms, "+$80")    # ASCII → PETSCII, NUL-terminated
+    cpu.jsr(rsyms.exec_line)
+    assert get_cur_addr(cpu, rsyms) == 0x2080
+```
+
+`set_line_buf` converts lowercase to PETSCII `$41`–`$5A` and uppercase
+to the shifted `$C1`–`$DA`, as `read_line` delivers them; the
+command's output is read back from screen RAM.
+
+**A typed session** (`Session` in
+`tests/integration/test_kernel_transition.py`).  For behaviour that
+depends on the real cold init and the main loop — the debug session,
+RESTORE, warm starts — `Session(cse_prg)` runs `_main` to
+`main_loop_top` and idles; `s.type("j $3000")` writes the command after
+the prompt, queues RETURN and runs until the main loop polls an empty
+keyboard buffer again; `s.start(cmd)` queues without running (to
+press RESTORE mid-run); `s.v(name)` / `s.w(name)` read a byte / word
+by symbol; `s.call(name)` calls a routine from the idle loop;
+`s.screen()` is the whole screen as text.
+
+**The two-pass assembler** (`tests/unit/test_asm_src.py`, Tier U).
+The `asm_src` bundle reads its source from `_test_src_buf`
+(2048 bytes) through the stub's `ed_read_line`: PETSCII lines, each
+terminated by a NUL, `$FF` after the last.  `_petscii(text)` builds
+that image from Python text (`\n` → NUL, lowercase → `$41`–`$5A`,
+everything else unchanged, then NUL + `$FF`); `_run(as_syms, source)`
+writes it, calls `asm_src_test_entry` (workspace `$0800`–`$DFFF`,
+default origin `$0800`) and returns `(org, bytes, error count)` from
+`asm_org`, `asm_size`, `asm_errors`.  The table cases are dicts:
+
+| Key | Meaning |
+|---|---|
+| `name` | the parametrised test id |
+| `source` | the source text |
+| `expect_org` | the origin `asm_org` must hold |
+| `expect_bytes` | the bytes at the origin (a prefix of the output) |
+| `expect_errors` | the exact error count |
+| `expect_min_errors` | (error table) at least this many errors |
+
+`MANUAL_TESTS` cases take `expect_org` / `expect_bytes` /
+`expect_errors`; `ERROR_TESTS` cases `expect_min_errors`.
 
 ### Conventions
 
@@ -1523,8 +1633,9 @@ address pushed by `jsr()`, halting the emulation loop.
   handles dependency tracking, includes included.  PRGs are
   cached in `build/debug/` and `build/release/`.
 
-- **xfail:** Known limitations (e.g. CMOS gate bugs) are marked
-  `pytest.mark.xfail` with a reason string.
+- **xfail:** only `@pytest.mark.xfail(reason=…, strict=True)` on a
+  test pinning a filed bug (Principle 9, *When to prefer `xfail`
+  over `skip`*).
 
 - **KERNAL ROM:** Tests require the original C64 KERNAL ROM at
   `rom/kernal_cbm.bin` (copied from a local VICE installation; not
