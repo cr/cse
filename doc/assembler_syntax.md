@@ -137,6 +137,10 @@ ldx #cols-1         ; constant in expression
 lda #mask & $0f     ; bitwise AND
 ```
 
+An immediate operand (`#expr`) must fit a byte — 0–255, or −128..−1
+for a negative value; a larger one is `;?N: ovfl`, never truncated.
+Use `#<expr` / `#>expr` to take a byte of a 16-bit value.
+
 ### Numeric formats
 - `$ff` — hex (requires `$` prefix, digits 0-9 and a-f lowercase only)
 - `42` — decimal (bare digits)

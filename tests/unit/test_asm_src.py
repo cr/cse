@@ -263,6 +263,13 @@ MANUAL_TESTS = [
         "expect_errors": 0,
     },
     {
+        "name": "immediate lo byte of a forward label",
+        "source": ".org $c000\n lda #<fwd\n ldx #-1\nfwd: rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA9, 0x04, 0xA2, 0xFF, 0x60],
+        "expect_errors": 0,
+    },
+    {
         "name": ".res directive",
         "source": ".org $c000\n.res 4, $ea\n  rts",
         "expect_org": 0xC000,
@@ -496,6 +503,11 @@ ERROR_TESTS = [
     {"name": "implied with operand", "source": ".org $c000\n nop $1234",
      "expect_min_errors": 1},
     {"name": "key with a fourth letter", "source": ".org $c000\n inxy",
+     "expect_min_errors": 1},
+    # an immediate must fit a byte (asm_line.md § Immediate range)
+    {"name": "immediate > 255", "source": ".org $c000\n lda #$1234",
+     "expect_min_errors": 1},
+    {"name": "immediate of a forward label", "source": ".org $c000\n lda #fwd\nfwd: rts",
      "expect_min_errors": 1},
     # A `:` with no name is `exp id`, not an endless re-scan of the
     # same word (assembler_syntax.md § Labels).

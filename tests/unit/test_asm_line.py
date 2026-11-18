@@ -887,3 +887,26 @@ class TestNarrowBranchTarget:
     def test_narrow_target_out_of_reach(self, asm_syms):
         got, err, _ = R.run_asm(asm_syms, "BNE $82", 2)   # offset +128
         assert got is None and err == 0
+
+
+# ── Immediate range (asm_line.md § Immediate range) ─────────────────────────
+
+class TestImmediateRange:
+
+    @pytest.mark.parametrize("source,expected", [
+        ("LDA #$FF", bytes([0xA9, 0xFF])), ("LDA #$0012", bytes([0xA9, 0x12])),
+        ("LDA #-1", bytes([0xA9, 0xFF])), ("LDA #-128", bytes([0xA9, 0x80])),
+        ("CPX #255", bytes([0xE0, 0xFF])), ("LDA #<$1234", bytes([0xA9, 0x34])),
+    ])
+    def test_fits(self, asm_syms, source, expected):
+        got, _, _ = R.run_asm(asm_syms, source, 2)
+        assert got == expected
+
+    @pytest.mark.parametrize("source,cpu", [
+        ("LDA #$1234", 2), ("LDA #256", 2), ("LDA #-129", 2), ("LDX #$0100", 2),
+        ("ANC #$100", 1),                     # zone C (immediate-only)
+    ])
+    def test_refused_as_overflow(self, asm_syms, asm_6510_syms, source, cpu):
+        syms = asm_6510_syms if cpu == 1 else asm_syms
+        got, err, _ = R.run_asm(syms, source, cpu)
+        assert got is None and err == 1, f"{source!r} → {got!r}"

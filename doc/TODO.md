@@ -1023,8 +1023,12 @@ documentation round that follows this filing.
   Fixed 2026-11-18: each binary operator pushes its left operand's
   width with the operand (expr.md § Width propagation); _ex_wide_tmp
   is unused. Test test_positive[wide left, *] (test_expr.py).
-- [ ] **Immediate values > 255 are truncated silently**
+- [x] **Immediate values > 255 are truncated silently**
   (`lda #$1234` → `A9 34`).
+  Fixed 2026-11-18: an IMM operand must fit a byte ($00-$FF or
+  -128..-1), else expression overflow (asm_line.md § Immediate range);
+  _asm_imm_chk in zones C and G/H. Tests TestImmediateRange
+  (test_asm_line.py), test_errors[immediate *] (test_asm_src.py).
 - [ ] **`//` comments are parsed as division** (`lda #1 // c` → expr
   error), though addr_mode.md lists `//` as end-of-expression.
 - [ ] **Shift counts ignore their high byte**: `1<<256` = 1,

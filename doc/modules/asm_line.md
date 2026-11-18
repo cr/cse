@@ -247,6 +247,17 @@ split, so the width — and every later address — is pass-stable.  A
 forward `REL` whose target is out of reach on pass 1 is an error; the
 source then needs a backward target or a `jmp`.
 
+### Immediate range
+
+An `IMM` operand must fit a byte: `$00`–`$FF`, or a negative value
+−128..−1 (`#-1` is `$FF`).  Anything else — `lda #$1234`, `lda #-129`,
+`lda #label` for a label above page zero — is refused as an expression
+overflow (`;?expr ovfl`, in a source `;?N: ovfl`) instead of being
+truncated to its low byte.  A wide literal that fits (`#$0012`) is
+fine.  Not checked on pass 0 for an operand that reads an undefined
+symbol (pass 0 only sizes it); on an IMM16 profile (`MEGA_SUPPORT`)
+the full word is emitted instead.
+
 ### IMM16 promotion (`MEGA_SUPPORT`)
 
 `mode_parse` returns IMM for every `#expr`.  On a profile that accepts

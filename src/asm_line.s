@@ -36,7 +36,7 @@
         .export asm_line
         .export _asm_line_core
         .import asm_error, asm_syntax_error, asm_cpu_error   ; asm_err.s
-        .import asm_expr_error, last_err                     ; asm_err.s, expr.s
+        .import asm_expr_error, last_err, expr_fwd           ; asm_err.s, expr.s
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
 
         ; zero-page variables (zp.s)
@@ -210,6 +210,24 @@ _asm_rd_upper:
         adc #1                  ; C=0: A = 1..26
         rts
 @bad:   jmp asm_error
+
+; ── _asm_imm_chk — an IMM operand must fit a byte ───────────────────────────
+; $00xx, or -128..-1 ($FF80..$FFFF); else expression overflow (asm_line.md
+; § Immediate range).  Skipped when the operand read an undefined symbol
+; (pass 0 sizes it with a dummy value).  Preserves A, Y.
+_asm_imm_chk:
+        bit expr_fwd
+        bmi @ok                 ; undefined: pass-0 dummy, not checked
+        ldx asm_opr+1
+        beq @ok
+        inx
+        bne @ovfl               ; hi neither $00 nor $FF
+        bit asm_opr
+        bmi @ok                 ; $FF80..$FFFF: -128..-1
+@ovfl:  lda #3                  ; ERR_OVERFLOW (expr.md)
+        sta last_err
+        jmp asm_expr_error
+@ok:    rts
 
 ; ── _asm_emit_base_opr — emit asm_base then asm_opr[0] ──────────────────────
 _asm_emit_base_opr:
@@ -429,6 +447,7 @@ _asm_line_core:
         jsr mode_parse
         cmp #MODE_IMM
         bne @err_mode
+        jsr _asm_imm_chk
         clc
         jmp _asm_emit_base_opr  ; tail-call; _asm_emit preserves C
 
@@ -452,7 +471,10 @@ _asm_line_core:
         ; Parse the addressing-mode argument.
         jsr mode_parse
         sta asm_mode
-
+        cmp #MODE_IMM
+        bne :+
+        jsr _asm_imm_chk        ; A = MODE_IMM kept (≠ 0)
+:
         ; ── IMP → ACC promotion for ACC-accepting profiles ────────────────
         ; A bare mnemonic on an ACC-accepting profile (profile 11: ASL,
         ; LSR, ROL, ROR; CMOS DEC, INC) means accumulator mode.  mode_parse
