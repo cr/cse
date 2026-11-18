@@ -23,20 +23,16 @@ a subroutine.  Break-even is 3 call sites (the `jsr` overhead = 3 bytes
 per site; the subroutine body + `rts` = original_size + 1).
 
 ```asm
-; before: 8 bytes inline × 3 sites = 24 bytes
-        sei
+; before: 6 bytes inline × 3 sites = 18 bytes
         lda $01
         ora #$02
         sta $01
-        cli
 
-; after: 14 bytes (subroutine) + 3 × 3 bytes (jsr) = 23 bytes
+; after: 7 bytes (subroutine) + 3 × 3 bytes (jsr) = 16 bytes
 _bank_in_tmp:
-        sei
         lda $01
         ora #$02
         sta $01
-        cli
         rts
 ```
 
@@ -56,7 +52,8 @@ can be reversed.
         bne @dgt
 ```
 
-Used in: `_emit_decimal` (power tables reversed to match downward index).
+Used in: `io_utoa` (cse_io.s; `dec_pow_lo`/`dec_pow_hi` stored low→high
+and indexed 4→0).
 
 ## 4. Fixed-format output to avoid sizing logic
 
@@ -69,21 +66,23 @@ Eliminates the length-computation code entirely.
 ; after: always emit 5 digits, stub size = constant.  0 B overhead.
 ```
 
-BASIC `SYS 02062` works identically to `SYS 2062`.  By always emitting
-5 decimal digits, the SYS address becomes `asm_pc + constant` — no
+BASIC `SYS  2062` works identically to `SYS 2062` (BASIC skips the
+spaces).  By always emitting 5 characters, the stub's length is a
+constant, so the SYS address becomes `asm_pc + constant` — no
 digit-count iteration, no `_count_digits` routine.
 
-Used in: `.bas` directive (`_emit_decimal` always 5 digits).
+Used in: `.bas` directive (`emit_bas` emits the 5 characters of
+`io_utoa`'s space-padded form, `sec` on entry).
 
 ## 5. Merge pass-check into existing register load
 
-When a function needs to check `_asm_pass` and also set up a register,
+When a function needs to check `asm_pass` and also set up a register,
 combine them if the check result can serve double duty.
 
 ```asm
 ; before (5 bytes)                ; after (4 bytes)
-        pha                               ldy _asm_pass
-        lda _asm_pass                     beq @skip
+        pha                               ldy asm_pass
+        lda asm_pass                      beq @skip
         beq @skip                         ldy #0
         pla                               sta (asm_pc),y
         ldy #0                    @skip:  jmp inc_pc_size
@@ -93,11 +92,12 @@ combine them if the check result can serve double duty.
         jmp inc_pc_size
 ```
 
-The `ldy _asm_pass` loads Y with the pass number.  If pass 0, Y is
+The `ldy asm_pass` loads Y with the pass number.  If pass 0, Y is
 already 0 — but we branch past the store anyway.  If pass 1, we
 reload Y=0 for the indirect store.  Saves the `pha/pla` pair.
 
-Used in: `_emit_byte`.
+Used in: `_emit_byte` (asm_src.s; its workspace range gate sits
+between the pass check and the store, also on Y).
 
 ## 6. Streaming output instead of collect-then-print
 
@@ -199,10 +199,11 @@ general calling convention (e.g. value in A instead of a fixed
 BSS location) may cost 1-2 extra bytes in the helper but save
 many more across call sites.
 
-Example: `_emit_byte` takes the byte in A, checks `_asm_pass`
+Example: `_emit_byte` takes the byte in A, checks `asm_pass`
 internally, and calls `inc_pc_size`.  This interface is generic
-enough for `.db`, `.dw`, `.str`, `.scr`, `.res`, `.align`, `.bas`,
-and `_emit_decimal` — 8 consumers from one 7-byte helper.
+enough for every byte the assembler writes — instructions, `.db`,
+`.dw`, `.str`, `.scr`, `.res`, `.align`, `.bas` — so one helper is
+also the single place the workspace range gate lives.
 
 Counter-example: a helper that reads from `expr_val` directly
 would only serve expression-emitting call sites, forcing the
@@ -236,7 +237,10 @@ or stripped.  If a post-loop strip phase removes zero-digits, use
 digits are emitted (fixed-width), use `$30` ('0') so digit=0 emits
 '0' correctly.  Getting this wrong produces '/' ($2F) in the output.
 
-Used in: `_emit_decimal` — Y counts from '0' through '9' directly.
+Used in: no routine at present.  `io_utoa`, the one decimal
+formatter, counts the digit in Y from 0 and converts with
+`ora #'0'` (2 bytes), because it stores through Y's other role, the
+buffer position.
 
 ## 14. Consolidate exit points into shared `@done: rts`
 
@@ -346,7 +350,7 @@ _ed_scr_ghi:
 ```
 
 Used in: `editor.s` — 5 helpers (`_ed_scr_row`, `_ed_scr_top`,
-`_ed_scr_ghi`, `_ed_scr_glo`, `_ed_cur_row`) covering 26 call sites.
+`_ed_scr_ghi`, `_ed_scr_glo`, `_ed_cur_row`) covering 20 call sites.
 
 ## 18. Audit feasibility before applying loop/branch transforms
 
@@ -365,7 +369,7 @@ inverted branch can reach the target (±127 bytes).  Cross-module
 labels and distant `.proc` entries are usually out of range.
 Verify each candidate individually.
 
-Used in: Phase 13 audit — 5 of 8 branch-inversion candidates were
+Measured: in one audit 5 of 8 branch-inversion candidates were
 feasible; 0 of 16 downward-loop candidates were profitable
 (all used registers as array indices).
 
@@ -445,9 +449,8 @@ Criteria: if the inline code has a clear *what it does* name
 (not just *what instructions it runs*), it's a helper candidate.
 
 ```
-expr_set_curaddr — try_expr + copy result to cur_addr  (3 sites)
 expr_or_blocksize — try_expr with block_size default   (2 sites)
-bp_open_slot     — format ";bp N" log prefix           (4 sites)
+bp_open_slot     — format ";bp N" log prefix           (3 sites)
 sym_set_curaddr  — sym_lookup + copy to cur_addr       (2 sites)
 ```
 
@@ -455,7 +458,8 @@ Each helper is 10-15 bytes; each call site shrinks to 3 bytes.
 Even at 2 sites the savings are significant because the inline
 code is verbose (conditional branches, pointer copies, formatting).
 
-Used in: `repl.s` — 7 semantic helpers extracted.
+Used in: `repl.s` — the helpers above.  (`expr_set_curaddr`, the same
+kind of helper, has no caller left.)
 
 ## 23. Table-driven dispatch replaces cascaded comparisons
 
@@ -542,7 +546,7 @@ The key insight: `lda abs,x` and `sta (zp),y` can use different
 registers simultaneously.  Choose the register assignment that
 avoids conflicts.
 
-Used in: `editor.s` — `ed_status` filename loop (eliminated
+Used in: `editor.s` — `ed_render_status` filename loop (eliminated
 `@fn_idx` BSS byte, `pha`/`pla` pair, and `jmp` → `bne`);
 `visual_col` (X as vcol counter, eliminated `@vcol_save`);
 `copy_leading_ws` (X as counter, eliminated `@save_y`);
@@ -572,7 +576,7 @@ trampoline label within the proc.  Saves 3 bytes per site
 ```
 
 Used in: `editor.s` — `ed_handle_key` has `@status_repos`
-(5 call sites) and `@edited_repos` (4 call sites).
+(5 call sites) and `@edited_repos` (5 call sites).
 
 ## 27. Carry-preserving tail-call
 
@@ -636,8 +640,9 @@ it each iteration.
 Prerequisite: trace the called subroutine to confirm it reads but does
 not write the variable.
 
-Used in: `mem.s` — `define_ws_syms` sets `sym_wide` once for two
-`sym_define` calls (-4 B).
+Used in: no routine at present.  `gap_buffer.s`'s `define_ws_syms`
+falls through into `update_workend`, which is also an entry of its
+own and so sets `sym_wide` again itself.
 
 ## 30. Cross-module helper sharing
 
@@ -647,7 +652,7 @@ import it in other modules that repeat the same computation.  The
 runtime cost beyond the subroutine call overhead.
 
 ```asm
-; cse_io.s exports _io_scr_setup (13B body, used internally 4×)
+; cse_io.s exports _io_scr_setup (used internally 3×)
 ; screen.s imports and calls it for cursor_show (saves 9B inline)
 ```
 
