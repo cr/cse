@@ -47,7 +47,6 @@
         .export step_state
         .export step_remaining
         .export step_next_lo, step_next_hi
-        .export kernel_stack_budget
 
         .importzp rp_ptr, rp_ptr2
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
@@ -72,11 +71,6 @@
 STEP_NONE = 0
 STEP_INTO = 1
 STEP_OVER = 2
-
-; User-side stack headroom contract (userland_contract.md § 4).
-; Exported but imported by no module: repl.s's KSTK_MIN is the copy
-; the `;!stk` check uses — change both together.
-kernel_stack_budget = 64
 
 ; Size of the step-state BSS window zeroed by dbg_init (11 bytes:
 ; brk_pc, step_state, step_remaining, step_next_lo, step_next_hi,

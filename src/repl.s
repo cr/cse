@@ -4248,18 +4248,19 @@ step_cleanup:
 ;     exit (terminal session — user must type a fresh command).
 ;   * Else just show break result (NMI / external BRK paths).
 ; ═══════════════════════════════════════════════════════════
-; Stack headroom budget — must match debugger.s::kernel_stack_budget.
-; See userland_contract.md § Kernel stack budget.  Kept as a local
-; literal rather than an import so the repl-only test binary (which
-; doesn't link debugger.s) builds unchanged.
-KSTK_MIN = 64
+; User-side stack headroom contract (conservative-pending-empirical;
+; see userland_contract.md § 4) — its one definition; post_run_cleanup
+; is its only reader.  One-byte change here + a doc edit tightens the
+; contract post-audit.  Exported for the test harness's label lookup.
+        .export kernel_stack_budget
+kernel_stack_budget = 64
 
 .proc post_run_cleanup
         ; Stack headroom warning.  If user's SP at break is below
         ; the documented kernel-reentry budget, log ";!stk N" where N
         ; is the remaining headroom (reg_sp as decimal).
         lda reg_sp
-        cmp #KSTK_MIN
+        cmp #kernel_stack_budget
         bcs @stk_ok
         ldy #LOG_WARN
         jsr log_open
