@@ -1025,7 +1025,7 @@ Report.
 
 ### Analysis tasks (own cycles; their results are doc deltas)
 
-- [ ] **A1. KERNAL API survey** (before P1 and P2).  For every KERNAL
+- [x] **A1. KERNAL API survey** (before P1 and P2).  For every KERNAL
   call, ROM internal and KERNAL cell the C64 build uses, the MEGA65
   jump-table replacement, its prerequisites (bank, `B`, interrupts)
   and its behaviour on the MEGA65 ROM versions in use — from the
@@ -1033,6 +1033,60 @@ Report.
   the m65 column of every seam in
   [platform_layer.md](platform_layer.md) that still says *stated
   with P<n>*.
+
+  **A1 record (2026-11-18) — approved 2026-11-18**, D-A1-1..5 as below.  The inventory: 14 jump-
+  table calls (the same addresses on the MEGA65, under `KCALL`), 3
+  ROM internals (gone on m65 since P0), 16 KERNAL cells.  The book
+  documents the screen editor only through the jump table, the editor
+  vectors, the ESC sequences and the VIC-IV registers, and says so:
+  "Except where explicitly documented, programs are not expected to
+  read or modify KERNAL variables directly" (14-13); the ROM is still
+  developed.  So no KERNAL cell crosses to m65; each has a documented
+  replacement, recorded in xmega65 on 920413 and 920421 by
+  `dev/capture_m65_editor.py` (`m65_editor.json`; identical on both
+  ROMs except as noted):
+
+  | C64 | m65 means | Recorded |
+  |---|---|---|
+  | the cursor in `$D3` / `$D6` (`IO_CX`, `IO_CY`) | CSE's own two cells in its base page; `PLOT` (C = 0) tells the KERNAL | `PLOT` is relative to the editor's *window* (`ESC T` / `ESC B` / BASIC's `WINDOW`), sets C outside it; `HOME HOME` (`$13 $13` through `BSOUT`) leaves the window |
+  | the line pointers (`io_sync`) | `PLOT` | — |
+  | `kernal_screen_reset` (`$C6 $CE $D4 $D5 $D8`, the line links `$D9–$F1`) | `ESC O`, `HOME HOME`, `PLOT` | logical lines follow the screen's content, no table survives CSE's direct writes (a RETURN after printing past the margin skips the linked row; after the rows were rewritten in screen RAM it does not); a scrolling `BSOUT` (5464 steps) abandoned at any of 51 points spread over it recovers with `PLOT` alone (`ESC O` + `PLOT` too): the next print lands where `PLOT` put it and RETURN goes to the next row.  Quote and insert mode, left on by a program, survive `PLOT` and every later `BSOUT` (a later `ESC 8` is then printed, not obeyed); `ESC O` cancels both, as RETURN and shifted RETURN do; a second `"` ends quote mode only (each case on a fresh machine) |
+  | the key count `$C6` (`IO_KBHIT`, `IO_KBD_FLUSH`), `GETIN` | `GETIN` over its three sources (the macro, the KERNAL buffer `ADDKEY` feeds, the hardware typing queue); drain = `GETIN` until 0; a peek has no KERNAL means — `ASCIIKEY` `$D610` ≠ 0 shows the hardware queue only (book F-3) | `GETIN` empty: A = 0, C = 0; `ADDKEY 'Q'` then `GETIN` → `'Q'`, then 0 |
+  | the STOP row `$91` (`IO_STOP_DOWN`) | `ScanStopKey` (`$FFEA`): A = `$7F` while STOP is held, `$FF` otherwise — the C64 cell's values; no side effects (`STOP` closes channels and flushes keys) | idle: A = `$FF`, N = 1 |
+  | the blink switch `$CC` | nothing: off for code started by `SYS` (book I-21); `CURSOR` exists from 920421 only | `CURSOR` (`$FF35`) is `$FF` on 920413 |
+  | `CHRCOLOR` `$0286` | a colour code through `BSOUT` | `$1E` then a character: colour 5 in colour RAM |
+  | the charset lock `$0291`; key repeat `$028A` | `SYSFLAGS` bit 7 (Mega + Shift lock), bit 5 (function-key macros off); repeat: the hardware typing queue's, no setting | `SYSFLAGS` at the run premise: `$00` |
+  | `SCREEN`, the width and height | `SCRORG`: C = 1 in 40 columns; A / Z the window's top-left address (16 bits); X / Y the window's **right column and bottom row** — the book says width and height; the recording overrules it.  The 80 × 50 screen's bank is not in `SCRORG`: `$D060–$D063` (book Q) | 80 × 25 `$0800`, 79, 24, C = 0; 80 × 50 `$0800`, 79, 49 with `$D060–$D063` = `00 08 04 00`; 40 × 25 39, 24, C = 1; window (2,3)–(10,40): `$08A3`, 40, 10 |
+  | `ST` `$90` (disk.s, P3) | `READSS` (`$FFB7`) | — |
+
+  Also recorded: `BSOUT`, `BASIN`, `GETIN` and `STOP` are `JMP ($nnnn)`
+  (vectored) in the jump table, every other entry CSE would call a
+  `JMP` — the loader's gate accepts both; the base-page-0 cells the
+  calls write (the userland contract's clobbered list): `BSOUT` `$EC
+  $EF $F0` (a RETURN also `$C4 $C5 $DA $E0 $E1 $EA $EB`), `PLOT` `$C4
+  $C5 $DA $E0 $E1 $E8 $E9 $EB $EC` (`$DA` at the read on 920413, at
+  the set on 920421), `SCRORG`, `GETIN`, `ScanStopKey`, `SYSFLAGS`
+  none.
+
+  Decisions (approved; P2's delta takes them):
+  - **D-A1-1** No KERNAL cell on m65: `IO_CX` / `IO_CY` become CSE's
+    own base-page cells (the `BP_PENDING` placeholders made real),
+    `io_sync` tells the KERNAL with `PLOT`.
+  - **D-A1-2** `io_kbhit` = a one-key lookahead fed by `GETIN`, so a
+    peek sees all three sources and needs no I/O register; the flush
+    drains `GETIN` and empties the lookahead.  (Alternative: `$D610`,
+    which misses `ADDKEY`'s keys.)
+  - **D-A1-3** `kernal_screen_reset` on m65 = `ESC O` (quote and
+    insert mode off — first, so what follows is obeyed, not printed),
+    `HOME HOME` (a program's window does not survive a break: CSE needs
+    the full screen), then `io_sync`.  No line-link repair: there is
+    none to do.
+  - **D-A1-4** The screen's address, width and height come from
+    `SCRORG` (X + 1, Y + 1 after `HOME HOME`), its bank from `$D062`;
+    `screen_mode_set` is `ESC 4 / 5 / 8` through `BSOUT`.
+  - **D-A1-5** Function-key macros: open for P2 — `SYSFLAGS` bit 5 set
+    while CSE reads keys, and what a program finds (the premise's
+    `$00`) — README's P2 item says "off while CSE runs".
 - [ ] **A2. Zero page and low memory** (after P1; changes the
   userland contract).  Answered by P0's analysis: CSE's own base page
   (`0.1F00`), base page 0 wholly the user's and the KERNAL's.  Still

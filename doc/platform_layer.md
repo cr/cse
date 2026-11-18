@@ -124,9 +124,9 @@ platform lacks is absent there, so a stray use fails to assemble.
 
 | Group | c64 | m65 |
 |---|---|---|
-| KERNAL entries CSE calls | `GETIN $FFE4`, `PLOT $FFF0`, `RESTOR $FF8A`, `CINT $FF81`; the file calls `SETLFS $FFBA`, `SETNAM $FFBD`, `OPEN $FFC0`, `CLOSE $FFC3`, `CHKIN $FFC6`, `CHKOUT $FFC9`, `CLRCHN $FFCC`, `CHRIN $FFCF`, `CHROUT $FFD2`, `LOAD $FFD5`, `READST $FFB7`, `LISTEN $FFB1`, `UNLSN $FFAE` | the same addresses for the same calls (book I-5/6), except `RESTOR` and `CINT`, which the m65 exit does not need; plus `VECTOR $FF8D`, `SETBNK $FF6B`, `SCRORG $FFED`, `SYSFLAGS $FF47`.  ROM 920413 lacks `VERSIONQ`, `RESET_RUN` and `CURSOR`; CSE does not use them |
+| KERNAL entries CSE calls | `GETIN $FFE4`, `PLOT $FFF0`, `RESTOR $FF8A`, `CINT $FF81`; the file calls `SETLFS $FFBA`, `SETNAM $FFBD`, `OPEN $FFC0`, `CLOSE $FFC3`, `CHKIN $FFC6`, `CHKOUT $FFC9`, `CLRCHN $FFCC`, `CHRIN $FFCF`, `CHROUT $FFD2`, `LOAD $FFD5`, `READST $FFB7`, `LISTEN $FFB1`, `UNLSN $FFAE` | the same addresses for the same calls (book I-5/6), except `RESTOR` and `CINT`, which the m65 exit does not need; plus `VECTOR $FF8D`, `SETBNK $FF6B`, `SCRORG $FFED`, `SYSFLAGS $FF47`, `ScanStopKey $FFEA`.  `BSOUT` (`CHROUT`), `BASIN` (`CHRIN`), `GETIN` and `STOP` are `JMP ($nnnn)` in the jump table, the others `JMP` (recorded, A1).  ROM 920413 lacks `VERSIONQ`, `RESET_RUN` and `CURSOR` (recorded: `$FF35` holds `$FF`); CSE does not use them |
 | KERNAL internals called directly | `$EA31` (the IRQ body, from the early entry), `$FCE2` (cold start, the fallback); BASIC's warm-start vector `($A002)` | none |
-| KERNAL cells | `ST $90`, the STOP row `$91`, the key count `$C6`, the blink switch `$CC`, `$CE`, the cursor column `$D3`, `$D4`, `$D5`, the cursor row `$D6`, `$D8`, the line-link table `$D9–$F1`, `CHRCOLOR $0286`, `KEY_REPEAT $028A`, the charset lock `$0291` | none written: each use is a KERNAL call or an I/O register — *stated with P2* ([§ Base page](#base-page) for how a base-page-0 cell is reached) |
+| KERNAL cells | `ST $90`, the STOP row `$91`, the key count `$C6`, the blink switch `$CC`, `$CE`, the cursor column `$D3`, `$D4`, `$D5`, the cursor row `$D6`, `$D8`, the line-link table `$D9–$F1`, `CHRCOLOR $0286`, `KEY_REPEAT $028A`, the charset lock `$0291` | none, read or written (book 14-13: KERNAL variables are not an interface): `ST` → `READSS`; STOP → `ScanStopKey`; the keys → `GETIN`; the cursor → CSE's cells and `PLOT`; the editor's modes and lines → `ESC O`, `HOME HOME`, `PLOT`; the colour → a colour code through `BSOUT`; the charset lock → `SYSFLAGS` bit 7; key repeat → the hardware's, no setting ([§ Terminal](#terminal), A1 in [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)) |
 | Vector table | `$0316` (`IBRK`), `$0318` (`INMI`) written directly; RAM shadows `$FFFA`/`$FFFE`; `$0314` (`IIRQ`) untouched | the KERNAL's table, read and written only through `VECTOR` |
 | `FRAME_DEPTH` | 3 | 5 ([§ Interrupt frame](#interrupt-frame)) |
 | Homes — the names (`HIMEM`, `WORKSTART`, `BASIC_START`, `SYM_TABLE`, `SYM_HEAP`, `KDATA_RUN`, `REPL_SCREEN`, `COLD_ZP`, `CSE_BP`, `STUB_BASE`, `BUF_FLOOR`, `BUF_END`, `PROG_LO`, `PROG_HI`) | values: [memory_design.md § Memory Map — Runtime](memory_design.md#memory-map--runtime-c64-builds) and § Banked layout | values: [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) |
@@ -510,13 +510,13 @@ column says *P2* is `PLAT_PENDING 2` until then.
 | Name | c64 | m65 |
 |---|---|---|
 | `io_init` | `$CC ← 1` (the KERNAL's blink off) | nothing: the KERNAL keeps its blink off for code started by `SYS` (book I-21); CSE draws its own cursor |
-| `io_sync` | `KJMP PLOT` with C = 0 | the same |
-| `io_getc` / `io_kbhit` | `GETIN`; `$C6` | `KCALL GETIN`; the typing queue — *P2* |
-| `IO_CX`, `IO_CY` (the cursor cells; main, repl, editor, log, disk, screen, cse_io) | `$D3`, `$D6` | *P2* |
-| `IO_STOP_DOWN` (main_loop's STOP-held test) | `lda $91` · `cmp #$7F` | *P2* |
-| `IO_KBHIT` (main_loop's inline peek) | `lda $C6` | *P2* |
-| `IO_KBD_FLUSH` (repl's drains) | `sta $C6` (A = 0) | *P2* |
-| `scr_lo` / `scr_hi`, the width | RODATA tables of `SCREEN` + 40·row; `COLS = 40` | run-time tables and width — *P2* |
+| `io_sync` | `KJMP PLOT` with C = 0 | the same; `PLOT` is relative to the editor's window, which CSE keeps at the full screen (`kernal_screen_reset`) |
+| `io_getc` / `io_kbhit` | `GETIN`; `$C6` | `KCALL GETIN` — its three sources: a function-key macro, the KERNAL buffer `ADDKEY` feeds, the hardware typing queue (book I-30s, F-3); `io_kbhit` through a one-key lookahead that `GETIN` fills (no KERNAL means peeks), which `io_getc` takes first |
+| `IO_CX`, `IO_CY` (the cursor cells; main, repl, editor, log, disk, screen, cse_io) | `$D3`, `$D6` | CSE's own two cells in its base page — no KERNAL cell is read or written on m65 (book 14-13); `io_sync` tells the KERNAL |
+| `IO_STOP_DOWN` (main_loop's STOP-held test) | `lda $91` · `cmp #$7F` | `KCALL ScanStopKey` · `cmp #$7F`: A = `$7F` while STOP is held, `$FF` otherwise (recorded), no side effects |
+| `IO_KBHIT` (main_loop's inline peek) | `lda $C6` | `jsr io_kbhit` (the lookahead) |
+| `IO_KBD_FLUSH` (repl's drains) | `sta $C6` (A = 0) | `GETIN` until it answers 0 (recorded: empty answers A = 0, C = 0), the lookahead emptied |
+| `scr_lo` / `scr_hi`, the width | RODATA tables of `SCREEN` + 40·row; `COLS = 40` | run-time tables and width from `SCRORG` after `HOME HOME`: A / Z the top-left address, X + 1 columns, Y + 1 rows (recorded: X / Y are the window's right column and bottom row, not the book's width and height); the bank from `$D062` (80 × 50: 4) |
 | `io_blip` | SID voice 1 | the same |
 
 ### Display
@@ -532,7 +532,17 @@ one macro; the m65 bodies are *stated with P2*.
 | `reset_screen` | colours, clear, home |
 | `scroll_up`, `newline`, `cursor_show` / `hide` | through `scr_lo`/`scr_hi` |
 | `PLAT_HYGIENE` (repl's `hygiene_after_userland`) | `$CC ← 1`, `$0291 ← $80`, SID voices 1–3 gated off |
-| `screen_mode_set`, `screen_geometry` | constants, no-op (m65: ESC 4 / 5 / 8 through `CHROUT`, then the geometry from the hardware) |
+| `screen_mode_set`, `screen_geometry` | constants, no-op (m65: ESC 4 / 5 / 8 through `CHROUT`, then the geometry from `SCRORG` and `$D062`, [§ Terminal](#terminal)) |
+
+`kernal_screen_reset` on m65 (A1, recorded): `ESC O` through `BSOUT`
+— quote and insert mode off (a program can leave either on; both
+survive `PLOT` and turn every later control code, `HOME` included,
+into a printed glyph) — then `HOME HOME` (a program's window does not
+survive a break, CSE needs the full screen), then `io_sync`.  There is no line-link table to repair: the MEGA65
+editor's logical lines follow the screen's content, and a `BSOUT` a
+program's NMI abandoned leaves nothing `PLOT` does not resync.  The
+rest of the display's m65 bodies (VIC-IV registers, colours, the
+fill) are *stated with P2*.
 
 On m65 the screen is at `0.0800` in 40 × 25 and 80 × 25 and at
 `4.0800` in 80 × 50 (recorded), so the display bodies reach it
