@@ -846,14 +846,18 @@ recorded behaviours M65Emu models and one round trip end to end.
   (it needs the snapshot's ROM, so not `test_m65emu_harness.py`).
   Green at once: `MPU45GS02` already modelled both; the tests pin them
   (a mutant without the `MAP` hold fails).
-- [ ] T4. `FAR_USER` / `far_user` and `FAR_BANK`'s megabyte, in the m65
+- [x] T4. `FAR_USER` / `far_user` and `FAR_BANK`'s megabyte, in the m65
   macro bundle on M65Emu in clean mode (`test_platform_m65.py`): each
   row's edges — `$0000`, `$0001` (the RAM beneath the port), `$1F00`, `$BFFF`,
   `$C000`, `$CFFF`, `$D000`, `$D020`, `$DFFF`, `$E000`, `$FFFF` — read
   and written through the pointer; A, X, Y preserved by the routine;
   a pointer set to I/O and then `FAR_BANK`'d reaches bank 3, not
   `FFD.xxxx`; D-P1-2's edge pinned (`$BFFC` + Y = 4 reaches `0.C000`).
-- [ ] T5. The workspace bound on m65, on the installed PRG by `jsr`
+  Done 2026-11-18; plan change: `far_user` is mem.s's, which the macro
+  bundle cannot link, so its rows run on the installed PRG
+  (`test_m65_debugger.py`, against `M65Memory`'s user-map view); the
+  megabyte and the edge stay in the bundle.
+- [x] T5. The workspace bound on m65, on the installed PRG by `jsr`
   (`tests/integration/test_m65_debugger.py`): `bp_range_check` refuses
   `$1FFF` and `$C000` and takes `$2000` and `$BFFF`;
   `bp_range_check_step` also takes `brk_stub`; `_emit_byte` writes
@@ -863,7 +867,9 @@ recorded behaviours M65Emu models and one round trip end to end.
   b:16 x:05` in `line_buf`, stopped at `emit_reg` (rendering is P2's):
   `reg_x` = 5, `reg_z` = `$12`, `reg_b` = `$16`; a malformed field
   changes nothing (`;?syntax` path reached).  Red today: the parser
-  reads bank 0.
+  reads bank 0.  Step (2) done 2026-11-18: `r x:05 a:3c` applies both
+  fields (it timed out in the KERNAL before the root's `FAR_BANK`);
+  `z:` / `b:` and the malformed field join with step (4).
 - [ ] T7. The user-ZP view on m65 (`jsr` on the installed PRG):
   `zp_stage_prep` and `peek_user` take `$00`/`$01` from the captured
   port and every other base-page byte live from base page 0;

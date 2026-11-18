@@ -191,6 +191,7 @@ _asm_emit:
         sty asm_out
         ldy #>_asm_sink
         sty asm_out+1
+        FAR_BANK asm_out, BANK_CSE
         inc asm_len
         rts
 

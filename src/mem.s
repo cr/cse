@@ -146,6 +146,48 @@ cse_zp_end:
         ldx #0
         rts
 
+; ═════════════════════════════════════════════════════════════
+; far_user — FAR_USER's m65 body (doc/modules/mem.md § far_user): the
+; far pointer at X holds a user address in its offset; set its bank
+; and megabyte to where the user map shows that address (platform.inc
+; BANK_IROM / BANK_KERNAL / BANK_IO):
+;   $0000-$BFFF bank 0 · $C000-$CFFF 2.C000 · $E000-$FFFF 3.E000 ·
+;   $D000-$DFFF FFD.3000 (the offset's high byte $Dx becomes $3x).
+; In: X = the pointer's base-page offset.  Preserves A, X, Y, P.
+; ═════════════════════════════════════════════════════════════
+.ifdef PLATFORM_M65
+        .export far_user
+.proc far_user
+        php
+        pha
+        lda #0
+        sta 3,x                 ; megabyte 0; the I/O row sets its own
+        lda 1,x
+        cmp #$C0
+        bcc @user
+        cmp #$D0
+        bcc @irom
+        cmp #$E0
+        bcs @kernal
+        eor #$D0 ^ IO_FLAT_HI   ; $Dx -> $3x
+        sta 1,x
+        lda #MB_IO
+        sta 3,x
+        lda #BANK_IO
+        .byte $2C               ; BIT abs: skip the next lda
+@kernal:
+        lda #BANK_KERNAL
+        .byte $2C
+@irom:  lda #BANK_IROM
+        .byte $2C
+@user:  lda #BANK_USER
+        sta 2,x
+        pla
+        plp
+        rts
+.endproc
+.endif
+
 .ifdef PLATFORM_C64                     ; m65: no ZP swap (doc/modules/mem.md
                                         ; § ZP swap on m65)
 ; ═══════════════════════════════════════════════════════════════════════════

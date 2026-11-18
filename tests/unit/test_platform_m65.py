@@ -11,7 +11,9 @@ only — with B = CSE_BP, as kernel code runs:
 - KCALL / KJMP: the entry runs with B = 0; A, X, Y and C pass through
   in both directions; B is CSE_BP again afterwards.
 - FAR_LDA / FAR_STA / FAR_ORA reach the pointer's bank + offset + Y
-  in banks 0, 2, 3 and 4; FAR_BANK sets the bank and keeps A.
+  in banks 0, 2, 3 and 4; FAR_BANK sets the bank, clears the
+  megabyte and keeps A; an access past a row's end reaches the next
+  flat bytes of the pointer's bank (D-P1-2).
 - PLAT_SETBNK calls SETBNK with the data's bank BANK_USER and the
   filename's BANK_CSE.
 """
@@ -93,10 +95,20 @@ def test_far_load_store_or_reach_bank_offset_plus_y(emu, syms, bank):
 
 def test_far_bank_sets_the_bank_and_keeps_a(emu, syms):
     set_ptr(emu, syms, BANK_USER, 0x1234)
+    emu.memory.write_flat(bp(syms, "fp") + 3, 0x0F)  # as FAR_USER's I/O row
     emu.jsr(syms["t_far_bank"], a=0x77, b=CSE_BP)
     assert emu.a == 0x77
     a = bp(syms, "fp")
     assert [emu.memory.read_flat(a + k) for k in range(4)] == [0x34, 0x12, BANK_SRC, 0]
+
+
+def test_far_access_past_a_rows_end_reaches_the_next_flat_bytes(emu, syms):
+    """D-P1-2: the translation is the pointer's; $BFFC + Y = 4 in bank
+    0 is 0.C000, not the interface ROM the user map shows there."""
+    set_ptr(emu, syms, BANK_USER, 0xBFFC)
+    emu.memory.write_flat(0x0C000, 0x99)
+    emu.jsr(syms["t_far_lda"], y=4, b=CSE_BP)
+    assert emu.a == 0x99
 
 
 # ── PLAT_SETBNK ───────────────────────────────────────────────────

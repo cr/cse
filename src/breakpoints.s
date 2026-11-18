@@ -234,6 +234,7 @@ dbg_bp_find:
 ; Clobbers: A, X, Y, rp_ptr.
 ;
 patch_all:
+        FAR_BANK rp_ptr, BANK_USER      ; every target is in the workspace
         ldx #0
         ldy #0
 @loop:  lda bp_table,x
@@ -267,6 +268,7 @@ patch_all:
 ; Clobbers: A, X, Y, rp_ptr.
 ;
 unpatch_all:
+        FAR_BANK rp_ptr, BANK_USER      ; every target is in the workspace
         ldx #(BP_SLOTS + STEP_SLOTS - 1) * SLOT_SIZE    ; last slot offset
         ldy #0
 @loop:  lda bp_table+3,x

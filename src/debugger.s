@@ -398,6 +398,7 @@ brk_stub:
         sta rp_ptr2
         lda brk_pc+1
         sta rp_ptr2+1
+        FAR_USER rp_ptr2        ; brk_pc is a user address
 
         ldy #0
         FAR_LDA rp_ptr2
@@ -549,7 +550,8 @@ brk_stub:
         iny
         FAR_LDA rp_ptr2
         sta rp_ptr+1
-@vec:   ; Read the vector at rp_ptr as the CPU will: through the user's
+@vec:   FAR_USER rp_ptr         ; the vector's address is a user address
+        ; Read the vector at rp_ptr as the CPU will: through the user's
         ; ZP image for $00-$7F (peek_user).  High byte: the NMOS CPU
         ; only increments the low byte of the vector address, so
         ; JMP ($xxFF) reads its high byte from $xx00.  The 65C02

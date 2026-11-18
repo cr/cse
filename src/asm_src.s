@@ -229,7 +229,8 @@ inc_pc_size:
 ; ── _emit_byte ────────────────────────────────────────────────────────────
 ; Emit byte in A to (asm_pc) on pass 1; advance asm_pc+asm_size always.
 ; The single gate for every output byte: only the workspace,
-; WORKSTART <= asm_pc < buf_base (workstart..workend, as bp_range_check),
+; WORKSTART <= asm_pc < the workspace's upper bound (c64 buf_base, m65
+; HIMEM: workstart..workend, as bp_range_check),
 ; and never after a wrap past $FFFF (_pc_wrap).  Otherwise the byte is
 ; dropped and _oor set — do_pass reports `range` once for the line.
 ; Preserves X.
@@ -240,13 +241,18 @@ _emit_byte:
         bne @oor
         ldy asm_pc+1
         cpy #>WORKSTART
-        bcc @oor                ; below $0800
+        bcc @oor                ; below the workspace
+.ifdef PLATFORM_M65
+        cpy #>HIMEM
+        bcs @oor                ; at/above the program region's end
+.else
         cpy buf_base+1
         bcc @ok
         bne @oor                ; at/above the source text
         ldy asm_pc
         cpy buf_base
         bcs @oor
+.endif
 @ok:    ldy #0
         FAR_STA asm_pc
 @skip:  jmp inc_pc_size
@@ -704,6 +710,7 @@ _seg_log_close:
         sta rp_ptr2
         lda #>str_tag_org
         sta rp_ptr2+1
+        FAR_BANK rp_ptr2, BANK_CSE
         lda _seg_pc
         sta rp_addr
         lda _seg_pc+1
@@ -976,14 +983,14 @@ d_align:
         clc
         rts
 d_bas:
-        ; .bas is an implicit .org $0801
+        ; .bas is an implicit .org BASIC_START (BASIC's program start)
         jsr _seg_log_close      ; close previous segment
-        lda #$01
+        lda #<BASIC_START
         sta asm_pc
-        lda #$08
+        lda #>BASIC_START
         sta asm_pc+1
         jsr _org_set_pc
-        jsr _seg_log_open           ; open .bas segment at $0801
+        jsr _seg_log_open           ; open .bas segment at BASIC_START
         jsr emit_bas
         clc
         rts
@@ -1448,6 +1455,7 @@ _too_long_err:
         sta asm_out             ; places the bytes (both passes)
         lda #>_insn_out
         sta asm_out+1
+        FAR_BANK asm_out, BANK_CSE
         lda #<_insn_buf
         ldx #>_insn_buf
         jsr asm_line

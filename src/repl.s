@@ -704,8 +704,10 @@ _syntax_err:
 ; bp_range_check / bp_range_check_step — address-write gates.
 ;
 ; bp_range_check: addr must be in [workstart, workend].
-;   workstart = $0800 (fixed), workend = buf_base - 1 (dynamic).
-;   Equivalently:  $0800 <= addr < buf_base.
+;   workstart = WORKSTART (fixed); the upper bound is the workspace's
+;   (platform_layer.md § Constants): c64 buf_base (dynamic, workend =
+;   buf_base - 1), m65 HIMEM (fixed, page-aligned).
+;   Equivalently:  WORKSTART <= addr < the bound.
 ;   Used by cmd_brk (managed bp creation) — strict gate, errors
 ;   on out-of-range.
 ;
@@ -747,20 +749,30 @@ _syntax_err:
 .endproc
 
 .proc bp_range_check
-        ; Lower bound: addr >= $0800.
-        cpx #$08
+        ; Lower bound: addr >= WORKSTART (page-aligned).
+        cpx #>WORKSTART
         bcc @oor
+.ifdef PLATFORM_M65
+        ; Upper bound: addr < HIMEM, page-aligned — C is the answer.
+        cpx #>HIMEM
+        rts
+.else
         ; Upper bound: addr < buf_base.
         cpx buf_base+1
         bcc @ok                 ; hi < buf_base.hi → in range
         bne @oor                ; hi > buf_base.hi → out
         cmp buf_base            ; hi == buf_base.hi → check lo
         bcc @ok
+.endif
 @oor:   sec
         rts
+.ifndef PLATFORM_M65
 @ok:    clc
         rts
+.endif
 .endproc
+        .assert <WORKSTART = 0 && <HIMEM = 0, error, "the workspace gates compare high bytes"
+
 
 ; ───────────────────────────────────────────────────────────
 ; step_targets_check — the step-arming gate: every non-zero
@@ -810,13 +822,14 @@ _syntax_err:
 ; Note: we never execute the BRK opcode itself — the IRQ is
 ; bypassed entirely.  The handler's IRQ vector is not invoked.
 ;
-; Clobbers: A, Y, rp_ptr.
+; Clobbers: A, Y, rp_ptr; on m65 also X (FAR_USER).
 ; ───────────────────────────────────────────────────────────
 .proc brk_skip_user
         lda brk_pc
         sta rp_ptr
         lda brk_pc+1
         sta rp_ptr+1
+        FAR_USER rp_ptr
         ldy #0
         FAR_LDA rp_ptr
         bne @done               ; not $00 — not a user BRK
@@ -1021,6 +1034,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         sta rp_ptr2                     ; fall through into the
         lda rp_addr+1                   ; main zp_stage_prep body.
         sta rp_ptr2+1
+        FAR_USER rp_ptr2                ; rp_addr is a user address
         ; fall through
 .proc zp_stage_prep
 .ifdef INTROSPECT
@@ -1626,6 +1640,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         lda rp_addr+1
         sta asm_pc+1
         sta asm_out+1
+        FAR_USER asm_out        ; `.` writes straight into user memory
         lda #<dot_asm_buf
         ldx #>dot_asm_buf
         jmp asm_line            ; tail call
@@ -1704,6 +1719,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         sta rp_ptr2
         lda rp_addr+1
         sta rp_ptr2+1
+        FAR_USER rp_ptr2
         ldy #0
 @write: cpy rp_cnt
         bcs @show
@@ -1871,6 +1887,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         sta rp_ptr2
         lda rp_addr+1
         sta rp_ptr2+1
+        FAR_USER rp_ptr2
         lda #0
         sta rp_cnt              ; nbytes
 @ed_lp: lda rp_cnt
@@ -2717,6 +2734,7 @@ adv_ptr1:
         sta rp_ptr2
         lda rp_ptr+1
         sta rp_ptr2+1
+        FAR_BANK rp_ptr2, BANK_CSE      ; the typed name, in line_buf
         ; scan for closing quote.  NUL before a closing quote is an
         ; unterminated-string syntax error — see @unterm.
         ldy #0
@@ -2816,6 +2834,7 @@ adv_ptr1:
         sta rp_ptr2
         lda #>BP_ABS(cur_project_name)
         sta rp_ptr2+1
+        FAR_BANK rp_ptr2, BANK_USER     ; CSE's base page is in bank 0
         lda #1
         rts
 .endproc
@@ -3580,6 +3599,8 @@ prg_ok_done:
         sta rp_ptr
         lda #>line_buf
         sta rp_ptr+1
+        FAR_BANK rp_ptr, BANK_CSE       ; the parser's root: its walks and
+                                        ; restores keep this bank (zp.md)
 
         jsr skip_sp_ptr1
 

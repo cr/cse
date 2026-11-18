@@ -74,7 +74,9 @@ differences; the addresses are the linker map's
   bytes more than on c64.  How each user-memory pointer gets its
   bank (P1; [platform_layer.md § Far memory](../platform_layer.md#far-memory)):
   - `rp_ptr` — CSE's line parser (`line_buf`, bank 3) at its root in
-    `exec_line` and the three restores from `expr_ptr` / `rp_addr`;
+    `exec_line`; its walks and the four restores from `expr_ptr` /
+    `rp_addr` rewrite the offset only and keep that bank (no user set
+    comes between: `expr_ptr` is a plain pointer the CSE map resolves);
     a user address (`FAR_USER`) in `brk_skip_user` and `step_next_pc`;
     bank 0 for the breakpoint table's targets (`patch_all`,
     `unpatch_all`); the screen in `read_line`, `main_loop`'s INS/DEL
@@ -82,9 +84,9 @@ differences; the addresses are the linker map's
     precedes a further read of the line within one command.
   - `rp_ptr2` — a user address (`FAR_USER`) in `step_next_pc`,
     `zp_stage_prep_addr`, `cmd_dot` and `cmd_mem`; bank 3 for CSE's
-    strings and tables (`parse_filename`, `info_emit_rows`, the
-    segment and `prg` log lines) and for `zp_stage_prep`'s
-    `zp_stage_buf`; bank 0 for `get_filename`'s
+    strings and tables (`parse_filename`, the segment and `prg` log
+    lines; `info_emit_rows` with P2's `i`, whose m65 rows it reads) and
+    for `zp_stage_prep`'s `zp_stage_buf`; bank 0 for `get_filename`'s
     `BP_ABS(cur_project_name)`.  `exec_line`'s `jmp (BP_ABS(rp_ptr2))`
     is a 16-bit jump and needs none.
   - `asm_out` — a user address (`FAR_USER`) in `dot_assemble`; bank 3

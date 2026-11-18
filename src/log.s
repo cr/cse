@@ -233,6 +233,7 @@ prg_line:
         sta rp_ptr2
         lda #>str_tag_prg
         sta rp_ptr2+1
+        FAR_BANK rp_ptr2, BANK_CSE
         lda #0
         sta rp_save2
         ; convert exclusive end → inclusive

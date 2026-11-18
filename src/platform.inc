@@ -212,6 +212,12 @@ BANK_USER       = 0                 ; user memory, the screen (40/80 x 25)
 BANK_SRC        = 2                 ; the source region
 BANK_CSE        = 3                 ; CSE's code and data
 BANK_SCREEN50   = 4                 ; the screen in 80 x 50
+; The user map's rows above bank 0 (FAR_USER, mem.s far_user):
+BANK_IROM       = 2                 ; $C000-$CFFF: the interface ROM, 2.C000
+BANK_KERNAL     = 3                 ; $E000-$FFFF: the KERNAL, 3.E000
+BANK_IO         = $FD               ; $D000-$DFFF: FFD.3000, the MEGA65
+MB_IO           = $0F               ;   personality's I/O registers
+IO_FLAT_HI      = $30               ;   at offset $3000-$3FFF
 
 ; ── The two maps: MAP's A X (MAPLO) and Y Z (MAPHI) ──────────────────
 MAP_CSE_A       = $00               ; $2000-$BFFF -> 3.2000, KERNAL 3.E000
@@ -473,7 +479,25 @@ name:   .res FAR_SIZE
         pha
         lda #bank
         sta name+2
+    .if .not .xmatch({bank}, BANK_USER) ; by token: a bank constant is not
+        lda #0                      ; yet constant inside a .proc (ca65)
+    .endif
+        sta name+3                  ; the megabyte: only FAR_USER's I/O row sets it
         pla
+  .endif
+.endmacro
+
+; The pointer's offset is a user address: set its bank (and megabyte)
+; to where the user map shows it — platform_layer.md § Far memory.
+; Once per set: the I/O row rewrites the offset's high byte.
+; c64: empty.  m65: clobbers X, N/Z.
+.macro FAR_USER name
+  .ifdef PLATFORM_M65
+    .ifndef far_user
+        .import far_user
+    .endif
+        ldx #name
+        jsr far_user
   .endif
 .endmacro
 

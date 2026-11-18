@@ -100,11 +100,15 @@ Caller: `main.s` cold init (fills the free ZP with `$FF` from there to
 **Out:** bytes 2–3 (bank, megabyte) set by the user map's row for
 that address; for `$D000–$DFFF` byte 1 rewritten to the I/O row's
 offset (`$3x`) — [platform_layer.md § Far memory](../platform_layer.md#far-memory).
-**Clobbers:** N/Z.  A, X, Y preserved.
+**Clobbers:** nothing — A, X, Y and P preserved.
 
-The body of `FAR_USER` on m65 (the macro loads X); on c64 there is no
-routine and `FAR_USER` is empty.  It lives here because mem.s is the
-memory driver; the four rows are one compare chain on the high byte.
+The body of `FAR_USER` on m65 (the macro loads X, so the macro
+clobbers X and N/Z); on c64 there is no routine and `FAR_USER` is
+empty.  It lives here because mem.s is the memory driver; the four
+rows are one compare chain on the high byte.  It is not idempotent:
+the I/O row rewrites the offset's high byte, so a pointer is
+translated once per set (`zp_poke`, called per byte, leaves it to
+its callers).
 
 ### The resident stub (m65 only)
 
