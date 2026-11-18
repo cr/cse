@@ -1283,3 +1283,69 @@ class TestInfoFullMode:
         rows = self._rows(cpu, rsyms)
         self._assert_covers(rows)
         assert "src" in [t for t, _, _ in rows]
+
+
+class TestBreakCommand:
+    """debugger.md § `b`, through exec_line → cmd_brk: list, set,
+    delete one, delete all, and the range / slot / full errors."""
+
+    def _screen(self, cpu):
+        return "\n".join(cpu.screen_text(r) for r in range(ROWS))
+
+    def _run(self, cpu, rsyms, cmd):
+        for i in range(COLS * ROWS):
+            cpu.memory[SCREEN + i] = 0x20
+        cpu.set_cursor(5, 0)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        return self._screen(cpu)
+
+    def _new(self, rsyms):
+        cpu = make_cpu(rsyms)
+        cpu.jsr(cpu.sym("ed_ensure_init"))          # buf_base: workend
+        cpu.jsr(cpu.sym("bp_init"))
+        return cpu
+
+    def _slot(self, cpu, rsyms, n):
+        return cpu.read_word(rsyms.bp_table + 4 * n)
+
+    def test_set_and_list(self, rsyms):
+        cpu = self._new(rsyms)
+        assert "; bp 1: $1000" in self._run(cpu, rsyms, "b $1000")
+        assert self._slot(cpu, rsyms, 0) == 0x1000
+        scr = self._run(cpu, rsyms, "b")
+        assert "; bp 1: $1000" in scr and "; bp 8: $----" in scr
+
+    def test_delete_one(self, rsyms):
+        cpu = self._new(rsyms)
+        self._run(cpu, rsyms, "b $1000")
+        self._run(cpu, rsyms, "b $2000")
+        assert "; bp 1 del" in self._run(cpu, rsyms, "b -1")
+        assert self._slot(cpu, rsyms, 0) == 0
+        assert self._slot(cpu, rsyms, 1) == 0x2000
+
+    @pytest.mark.parametrize("cmd", ["b -0", "b -9", "b -x"])
+    def test_delete_bad_slot(self, rsyms, cmd):
+        cpu = self._new(rsyms)
+        self._run(cpu, rsyms, "b $1000")
+        assert ";?bad val" in self._run(cpu, rsyms, cmd)
+        assert self._slot(cpu, rsyms, 0) == 0x1000
+
+    def test_clear_all(self, rsyms):
+        cpu = self._new(rsyms)
+        self._run(cpu, rsyms, "b $1000")
+        self._run(cpu, rsyms, "b $2000")
+        assert "; bp clr" in self._run(cpu, rsyms, "b *")
+        assert self._slot(cpu, rsyms, 0) == self._slot(cpu, rsyms, 1) == 0
+
+    @pytest.mark.parametrize("addr", ["$07ff", "$c000", "$e000"])
+    def test_out_of_workspace(self, rsyms, addr):
+        cpu = self._new(rsyms)
+        assert ";?range" in self._run(cpu, rsyms, f"b {addr}")
+        assert self._slot(cpu, rsyms, 0) == 0
+
+    def test_table_full(self, rsyms):
+        cpu = self._new(rsyms)
+        for i in range(8):
+            self._run(cpu, rsyms, f"b ${0x1000 + i:04x}")
+        assert ";?full" in self._run(cpu, rsyms, "b $2000")

@@ -2075,3 +2075,67 @@ class TestQueryUserOutcomes:
         assert "load? y/n" in s.screen()
         assert s.e.read_word(s.e.sym("ed_total_lines")) == lines
         assert s.v("ed_dirty") == 1
+
+
+class TestContinueCommand:
+    """debugger.md § `c`: rejected without a resumable session; after a
+    breakpoint hit it deletes that breakpoint and resumes; after a user
+    BRK it skips the BRK and its signature byte; after an NMI it resumes
+    at the interrupted PC."""
+
+    def test_c_without_session(self, session):
+        s = session
+        s.type("c")
+        assert ";?no ctx" in s.screen()
+        assert s.v("run_user_pending") == 0
+
+    def test_c_after_clean_exit(self, session):
+        s = session
+        s.e.memory[0x3000] = 0x60
+        s.type("j $3000")
+        assert s.v("dbg_reason") == DBG_RTS
+        s.type("c")
+        assert ";?no ctx" in s.screen()
+
+    def test_c_after_bp_deletes_it_and_resumes(self, session):
+        s, e = session, session.e
+        for i, b in enumerate((0xEA, 0xE8, 0x60)):      # NOP; INX; RTS
+            e.memory[0x3000 + i] = b
+        s.type("b $3001")
+        s.type("j $3000")
+        assert s.w("brk_pc") == 0x3001
+        s.type("c")
+        assert s.v("dbg_reason") == DBG_RTS and s.v("reg_x") == 1
+        s.call("dbg_bp_count")
+        assert e.a == 0, "the hit breakpoint was not deleted"
+        assert e.memory[0x3001] == 0xE8
+
+    def test_c_skips_user_brk(self, session):
+        s, e = session, session.e
+        for i, b in enumerate((0xEA, 0x00, 0x42, 0xE8, 0x60)):  # NOP; BRK $42; INX; RTS
+            e.memory[0x3000 + i] = b
+        s.type("j $3000")
+        assert s.v("dbg_reason") == DBG_BRK and s.w("brk_pc") == 0x3001
+        s.type("c")
+        assert s.v("dbg_reason") == DBG_RTS and s.v("reg_x") == 1
+
+    def test_c_after_nmi_resumes(self, session):
+        s, e = session, session.e
+        # $3000: INC $3100; LDA $3100; CMP #$F0; BNE $3000; RTS
+        prog = (0xEE, 0x00, 0x31, 0xAD, 0x00, 0x31, 0xC9, 0xF0,
+                0xD0, 0xF6, 0x60)
+        for i, b in enumerate(prog):
+            e.memory[0x3000 + i] = b
+        e.memory[0x3100] = 0
+        s.start("j $3000")
+        while e.memory[0x3100] < 0x10:
+            e.run_steps(200)
+        e.press_restore()
+        e.run_steps(10)
+        s.idle()
+        assert s.v("dbg_reason") == DBG_NMI
+        count = e.memory[0x3100]
+        assert count < 0xF0
+        s.type("c")
+        assert s.v("dbg_reason") == DBG_RTS
+        assert e.memory[0x3100] == 0xF0
