@@ -286,7 +286,12 @@ REPL's call chain.
    `$0800 ≤ addr < buf_base` (or be `brk_stub`); else the step is
    undone (`step_cleanup`: `step_state`, step slots, the disabled
    breakpoint enabled again) and `;!range` is printed — the session
-   is exactly as before.
+   is exactly as before.  The same gate (`step_targets_check`, shared
+   with the handler's chain) runs before every chained step of
+   `t N` / `o N`: a chained step that would leave the workspace ends
+   the chain at the instruction it would have run (bit 7 of
+   `step_state`), and `post_run_cleanup` prints the panel and
+   `;!range`; the session is kept.
 6. `arm_step_bp`; `step_remaining := N − 1`.
 7. `run_user_pending := MODE_RESUME`, or `MODE_JUMP` right after a
    cold preview.
@@ -479,9 +484,9 @@ session can no longer be resumed.
   The kernel runs again only through `cse_brk_handler` /
   `cse_nmi_handler` and their jump to `main_loop_top`.
 - Breakpoints and step BRKs work only in workspace RAM: `b` refuses
-  addresses outside `$0800 ≤ addr < buf_base` (`;?range`), the first
-  step refuses targets outside it (`;!range`).  Steps chained inside
-  the handler (`t N`, N > 1) are not range-checked.
+  addresses outside `$0800 ≤ addr < buf_base` (`;?range`), and every
+  step — chained ones included — refuses targets outside it
+  (`;!range`).
 - `o` over a `JSR` or a branch whose fall-through is never reached
   (a routine that does not return, a loop that exits sideways) runs
   free; RUN/STOP+RESTORE breaks in.

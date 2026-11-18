@@ -1667,6 +1667,43 @@ class TestRefusedStep:
         assert s.v("rp_dis_bp") == 0xFF
 
 
+class TestChainedStepRange:
+    """debugger.md § `t`: every step of `t N` / `o N` takes the
+    `;!range` gate, not only the first — a chained step whose target
+    is outside the workspace stops the chain at the instruction that
+    would have run, patches nothing there, and keeps the session."""
+
+    def _setup(self, s):
+        e = s.e
+        e.memory[0x3000] = 0xEA                                 # NOP
+        e.memory[0x3001] = 0xEA                                 # NOP
+        for i, b in enumerate((0x4C, 0x00, 0xC0)):             # JMP $C000
+            e.memory[0x3002 + i] = b
+        s.type("b $3000")
+        s.type("j $3000")
+        assert s.w("brk_pc") == 0x3000
+
+    @pytest.mark.parametrize("cmd", ["t 3", "t 5", "o 3"])
+    def test_chain_stops_before_out_of_range_target(self, session, cmd):
+        s, e = session, session.e
+        self._setup(s)
+        target = e.memory[0xC000]
+        s.type(cmd, max_steps=5_000_000)
+        assert ";!range" in s.screen()
+        assert s.w("brk_pc") == 0x3002
+        assert s.v("dbg_reason") == DBG_BRK
+        assert s.v("step_state") == 0
+        assert e.memory[0xC000] == target, "step BRK patched outside the workspace"
+
+    def test_session_kept_after_refused_chain(self, session):
+        s = session
+        self._setup(s)
+        s.type("t 3", max_steps=5_000_000)
+        s.type("t")
+        assert s.w("brk_pc") == 0x3002          # refused again, no run
+        assert s.v("dbg_reason") == DBG_BRK
+
+
 class TestBpHitAfterTableEdit:
     """breakpoints.md § dbg_bp_clear: after `b *` the hit breakpoint is
     gone; `c` must not delete a new breakpoint set in its slot."""

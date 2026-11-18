@@ -83,6 +83,7 @@ STEP_OVER = 2
 
 ; ── Exports: post-run cleanup (called from main_loop_top) ────
         .export post_run_cleanup
+        .export step_targets_check
         .export hygiene_after_userland
 
 ; ── Imports: expression parser ─────────────────────────────
@@ -750,6 +751,32 @@ _syntax_err:
         rts
 @ok:    clc
         rts
+.endproc
+
+; ───────────────────────────────────────────────────────────
+; step_targets_check — the step-arming gate: every non-zero
+; step_next slot (as set by step_next_pc) must pass
+; bp_range_check_step.  Shared by cmd_step (first step) and
+; main.s's handler step chain (every further step of t/o N).
+; Out: C=0 all slots armable, C=1 a slot is out of range.
+; Clobbers: A, X.
+; ───────────────────────────────────────────────────────────
+.proc step_targets_check
+        lda step_next_lo
+        ora step_next_lo+1
+        beq @hi
+        lda step_next_lo
+        ldx step_next_lo+1
+        jsr bp_range_check_step
+        bcs @r
+@hi:    lda step_next_hi
+        ora step_next_hi+1
+        beq @ok
+        lda step_next_hi
+        ldx step_next_hi+1
+        jmp bp_range_check_step ; tail-call: its C is ours
+@ok:    clc
+@r:     rts
 .endproc
 
 ; ───────────────────────────────────────────────────────────
@@ -2195,22 +2222,9 @@ pre_userland_run:
         ; KDATA would patch transient $00 bytes there (writes
         ; pass through under ROM, hit IO regs in $D000 page);
         ; refuse and warn ";!range" instead.
-        lda step_next_lo
-        ora step_next_lo+1
-        beq @check_hi
-        lda step_next_lo
-        ldx step_next_lo+1
-        jsr bp_range_check_step
+        ; The handler's step chain (t/o N > 1) takes the same gate.
+        jsr step_targets_check
         bcs @oor_warn
-@check_hi:
-        lda step_next_hi
-        ora step_next_hi+1
-        beq @armable
-        lda step_next_hi
-        ldx step_next_hi+1
-        jsr bp_range_check_step
-        bcs @oor_warn
-@armable:
 
         ; Warm-step "up 3 lines" mechanic (single-step only).
         ;
@@ -4234,7 +4248,14 @@ KSTK_MIN = 64
         lda step_state
         beq @not_step
 
-        ; Stepping just finished.
+        ; Stepping just finished.  step_state bit 7 = a chained step
+        ; was refused by the range gate (main.s @chain_oor): the
+        ; session stays at the instruction it would have run.
+        bpl @in_range
+        lda #<str_range
+        ldx #>str_range
+        jsr log_warn
+@in_range:
         jsr step_cleanup
 
         ; Per spec: every brk emits info+regs+lookahead.  All step

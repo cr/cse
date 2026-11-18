@@ -80,6 +80,7 @@
         .import ed_ensure_init
         .import exec_line, read_line, show_prompt, cmd_info
         .import post_run_cleanup, hygiene_after_userland
+        .import step_targets_check
         .import log_info                      ; log.s
         .importzp asm_cpu
         .import cur_addr, block_size
@@ -907,7 +908,9 @@ cse_brk_handler:
         ; Step chain iteration.  Sequence:
         ;   1. Unpatch current step_bp so step_next_pc sees the
         ;      original opcode at brk_pc.
-        ;   2. step_next_pc + arm_step_bp write the new targets.
+        ;   2. step_next_pc computes the new targets; step_targets_check
+        ;      applies cmd_step's ;!range gate (out of range → stop
+        ;      the chain, @chain_oor); arm_step_bp writes them.
         ;   3. dec step_remaining.
         ;   4. jmp restore_userland_state — same door as main_loop's
         ;      resume path; its txs reg_sp releases the BRK+KERNAL
@@ -916,12 +919,22 @@ cse_brk_handler:
         ;      via its internal patch_all.
         jsr unpatch_all
         jsr step_next_pc
+        jsr step_targets_check  ; same ;!range gate as cmd_step's
+        bcs @chain_oor          ;   first step
         jsr arm_step_bp
         lda step_remaining      ; 16-bit decrement
         bne :+
         dec step_remaining+1
 :       dec step_remaining
         jmp restore_userland_state
+@chain_oor:
+        ; A target is outside the workspace: end the chain here, at
+        ; the instruction that would have run (brk_pc), session kept.
+        ; step_state bit 7 tells post_run_cleanup to print ";!range"
+        ; with the panel (step_cleanup clears it).
+        sec
+        ror step_state
+        jmp handler_finalize
 
 ; ── handler_finalize ─────────────────────────────────────────
 ; All non-chain userland-exit paths converge here.  Unpatch BRKs,

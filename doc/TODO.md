@@ -911,6 +911,15 @@ documentation round that follows this filing.
   Fixed 2026-11-18: `ed_status_pos` writes the line right-aligned in
   cols 33-36 (blank-padded, clamped at 9999) with a div10 loop, test
   `TestStatusLineNumber` (test_editor.py).
+- [x] **Chained steps skip the `;!range` gate**: `t N` / `o N`
+  (N > 1) range-checks only the first step (`cmd_step`); the
+  handler's step chain arms every later step BRK unchecked, so a
+  chained step can patch `$00` into I/O, ROM-shadow or CSE memory.
+  Fixed 2026-11-18: the gate is `repl.s::step_targets_check`, called
+  by `cmd_step` and by main.s's `@chain`; a refused chained step
+  stops the chain at the instruction that would have run
+  (`step_state` bit 7 → `post_run_cleanup` prints `;!range` with the panel),
+  session kept, test `TestChainedStepRange`.
 
 ### Code bugs — assembler
 
