@@ -126,18 +126,30 @@ maximize workspace.  The exact start address depends on the total
 size of these segments, which is only known after linking.
 
 Pass 1 (trial): `ld65 -C c64_trial.cfg` links everything into a
-flat image at $0800 — the addresses are wrong, but the segment
-**sizes** in `trial.map` are correct.
+flat image after the BASIC header at $0801 — the addresses are
+wrong, but the segment **sizes** in `trial.map` are correct.
 
-`compute_layout.py` reads the sizes from `trial.map`, computes
-`RUNTIME_START = $D000 - (CODE + RODATA + BSS)`, and stamps that
-value into `c64_cse.cfg.in` to produce `build/c64_cse.cfg`.
+`compute_layout.py` reads the sizes from `trial.map` and computes
 
-Pass 2 (production): `ld65 -C build/c64_cse.cfg` links with the
-correct runtime addresses.  CODE and RODATA use ld65's `load`/`run`
-address split — they are placed in the file after the loader
-(load address ≈ $0870) but all symbol references resolve to the
-runtime address (≈ $7D00+).  The loader copies them at boot.
+    RUNTIME_START = ($D000 − (CODE + RODATA + DATA + BSS)) & $FF00
+
+— rounded down to a page boundary, because the editor's `BUF_END`
+checks compare the high byte only.  It fills three placeholders of
+`c64_cse.cfg.in` to produce `build/<profile>/<cpu>/c64_cse.cfg`:
+`@@RUNTIME_START@@`, `@@BSS_START@@` (`RUNTIME_START` + CODE +
+RODATA + DATA) and `@@BUF_FLOOR@@` (the source/output split of the
+workspace: `$0800` + one ninth of the workspace, rounded down to a
+page).  It prints the result as a `layout:` line, and stops the
+build when `RUNTIME_START` falls below `$0900`.
+
+Pass 2 (production): `ld65 -C build/<profile>/<cpu>/c64_cse.cfg`
+links with the correct runtime addresses.  CODE and RODATA use ld65's
+`load`/`run` address split — they are placed in the file directly
+after the loader, but all symbol references resolve to the runtime
+address.  The loader copies them at boot.  The figures of a build
+(runtime start, segment sizes, free regions) are the `layout:` line
+and `make size`; this document states none, since every change moves
+them.
 
 **Incremental builds.**  Each object's prerequisites are its source,
 every file it `.include`s (`macros.inc`, `log.inc`, `dasm_mne_idx.s`,
@@ -188,8 +200,10 @@ No C compiler, no `c64.lib` — the entire codebase is hand-written
 `VERSION` is defined in the Makefile (default `0.1`).  It flows
 to the binary and to the distribution disk via two mechanisms:
 
-1. **Source string** — the Makefile writes `build/version.inc`
-   containing `.define VERSION_STRING "<value>"` on every build.
+1. **Source string** — the Makefile writes
+   `build/<profile>/<cpu>/version.inc` containing
+   `.define VERSION_STRING "<value>"` whenever the flags stamp
+   changes (`VERSION` is part of it).
    `strings.s` does `.include "version.inc"` (via `ca65 -I
    $(BUILD)`) and uses the macro in the `VERSION_STR` byte
    sequence.  Result: the splash line reads `cse v<value> by cr`.
@@ -219,9 +233,10 @@ redirect — `m` and `.` then read and write live ZP directly:
     make debug INTROSPECT=1     # debug + introspection
     make release INTROSPECT=1   # release + introspection
 
-Mechanism: the Makefile passes `-DINTROSPECT` to `ca65`, which
-ca65 `.ifdef`s in [repl.s](../src/repl.s) `zp_stage_prep` and
-`zp_poke`.  In the INTROSPECT build both helpers become
+Mechanism: the Makefile passes `-DINTROSPECT` to `ca65` when
+`INTROSPECT` is set to any non-empty value (`ifdef` — `INTROSPECT=0`
+enables it too), which ca65 `.ifdef`s in [repl.s](../src/repl.s)
+`zp_stage_prep` and `zp_poke`.  In the INTROSPECT build both helpers become
 pass-through stubs (`rts` / `sta (rp_ptr2),y / rts`) and the
 redirect code is not assembled.  The flag is part of
 `BUILD_FLAGS`, so toggling it triggers a full rebuild.
@@ -240,9 +255,11 @@ Each build also produces an exomizer SFX-compressed PRG
 (`cse-exo.prg`) alongside the uncompressed one.  The SFX is a
 self-extracting binary: on `RUN`, exomizer's decrunch stub
 decompresses the payload in-place, then the BASIC SYS stub and
-loader run normally.  ~38% smaller than the raw PRG.
+loader run normally.  About a third smaller than the raw PRG
+(the `_one` line of `make release` prints both sizes).
 
-`make disk` writes the compressed PRG to the D64 (D81 on m65).
+`make disk` writes the compressed PRG to the D64 (D81 on m65,
+planned).
 `make run` launches the uncompressed PRG (no decrunch delay).
 
 The C64 builds use exomizer's default target (`-t 64`, BASIC stub at
@@ -258,13 +275,18 @@ which exomizer 3.1 provides ([§ The m65 PRG](#the-m65-prg)).
 | Debug | `make debug` | The platform's builds with `-g` (full symbols in `.lbl`) |
 | Disk (single) | `make disk` | Per-build disk image in the build dir — D64 on `c64`, D81 on `m65` (for quick iteration) |
 | Run | `make run` | Build release + launch in VICE (`c64`) or xmega65 (`m65`) |
-| Tables | `make tables` | Regenerate `src/mn*_tables.s` via `mnemonic_tables.py` |
-| Tests | `make test` | Build both debug + release, then run all pytest tests |
+| Tables | `make tables` | Run both generators, `dev/mnemonic_tables.py` and `dev/dasm_tables.py`, when a generator or its input is newer than `build/.tables.stamp` ([§ Table generation](#table-generation)) |
+| Tests | `make test` | Build both debug + release, check the ROMs, then run all pytest tests |
+| Check ROMs | `make check-roms` | Fail with copy instructions when `rom/kernal_cbm.bin` is missing (a prerequisite of `test`) |
 | MEGA65 ROM | `make m65-rom` | Copy the MEGA65 ROM from xmega65's data directory to `rom/mega65.rom` ([§ MEGA65 ROM](#mega65-rom)) |
 | Size | `make size` | Size breakdown of selected release PRG (`CPU=`) |
 | Clean | `make clean` | Remove `build/` directory |
+| Clean tables | `make clean-tables` | Remove the generated table sources in `src/` and the tables stamp |
 | Themes | `make themes` | List available colour themes |
 | Help | `make help` | List all targets and options |
+
+The `m65` cells are planned: until R7 slice 2 every PRG target refuses
+`PLATFORM=m65` ([§ Builds and CPU sets](#builds-and-cpu-sets)).
 
 ### Build profiles
 
@@ -273,8 +295,8 @@ Only the output directory and assembler flags differ:
 
 | Profile | Flags | Exomizer | Symbols in `.lbl` |
 |---------|-------|----------|-------------------|
-| `release` | `-t c64` | yes | ~230 (exports only) |
-| `debug` | `-g -t c64 -DDEBUG` | no | ~1800 (all labels) |
+| `release` | `-t c64` | yes | ~410 (exports only) |
+| `debug` | `-g -t c64 -DDEBUG` | no | ~2040 (all labels) |
 
 The `-g` flag tells ca65 to embed debug symbols in `.o` files.
 When linked with `ld65 -Ln`, the resulting `.lbl` file contains
@@ -285,38 +307,49 @@ absolute address.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG and D81 ([§ The m65 PRG](#the-m65-prg)) and the m65 test bundles; until R7 slice 2 every PRG target refuses `PLATFORM=m65` with an error (`help`, `themes`, `clean`, `tables` still run) |
-| `XMEGA65` | `xmega65` | The xmega65 executable for `make run` and Tier X on `m65` (on macOS: `/Applications/xmega65.app/Contents/MacOS/xmega65`) |
+| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG and D81 ([§ The m65 PRG](#the-m65-prg)) and the m65 test bundles; until R7 slice 2 every PRG target refuses `PLATFORM=m65` with an error (`help`, `themes`, `clean`, `clean-tables`, `tables`, `m65-rom`, `check-roms` still run) |
+| `XMEGA65` | `/Applications/xmega65.app/Contents/MacOS/xmega65` | The xmega65 executable; an environment variable read by `tests/xmega65.py` (Tier X, the M65Emu recordings).  The Makefile option for `make run PLATFORM=m65` is planned with the m65 PRG |
 | `CPU` | `6510` on `c64`, `45gs02` on `m65` | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`; `m65`: `45gs02` only) |
 | `THEME` | `GREENLAND` | Named theme or 3-digit hex code (`make themes` for list) |
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
 | `VERSION` | `0.1` | Version string embedded in splash + D64 label |
 | `ROMSET` | `cbm` | KERNAL/BASIC/CHARGEN set for `run` (`cbm` / `mega`) |
-| `INTROSPECT` | unset | If `=1`, disable the user-ZP redirect in `m`/`.` (see above) |
+| `INTROSPECT` | unset | If set (`=1`), disable the user-ZP redirect in `m`/`.` (see above) |
 
-All of these are part of `BUILD_FLAGS` and trigger a full rebuild when
-changed between invocations.
+`CPU`, `THEME`, `TAB_WIDTH`, `VERSION`, `INTROSPECT` and the profile
+form `BUILD_FLAGS`, which the Makefile records in the flags stamp
+`build/<profile>/<cpu>/.build_flags`; a value that differs from the
+recorded one reassembles every object of that build.  `ROMSET` only
+selects the ROMs `run` passes to VICE.
+
+The tools are variables too: `CA65`, `LD65`, `PYTHON` (`pipenv run
+python`), `PYTEST` (`pipenv run pytest`), `VICE` (`x64sc`), `C1541`,
+`EXOMIZER`.
 
 ### Directory layout
 
     build/
       release/
-        6510/   cse.prg  cse-exo.prg  cse.map  cse.lbl  cse.dbg  src/*.o
+        6510/   cse.prg  cse-exo.prg  cse.map  cse.lbl  cse.dbg
+                trial.prg  trial.map  c64_cse.cfg  version.inc
+                .build_flags  src/*.o  src/*.d
         6502/   cse-6502.prg  cse-6502-exo.prg  ...
         cmos/   cse-cmos.prg  cse-cmos-exo.prg  ...
-        m65/    cse-m65.prg  cse-m65-exo.prg  ...
+        m65/    cse-m65.prg  cse-m65-exo.prg  ...      (planned)
       debug/
-        6510/   cse.prg  cse.map  cse.lbl  cse.dbg  src/*.o
+        6510/   cse.prg  cse.map  cse.lbl  cse.dbg  ...  (no -exo.prg)
         6502/   cse-6502.prg  ...
         cmos/   cse-cmos.prg  ...
-        m65/    cse-m65.prg  ...
+        m65/    cse-m65.prg  ...                       (planned)
       cse.d64             distribution D64 (from release, all three C64 CPUs)
-      cse-m65.d81         distribution D81 (from release, the m65 PRG)
-      asm_core_test.*     conftest.py test bundles (built with -g)
-      mn6_test.*          ...
-      mn7_test.*          ...
-      asm_src_test.*      ...
-      dasm_test.*         ...
+      cse-m65.d81         distribution D81 (from release, the m65 PRG; planned)
+      .tables.stamp       `make tables`
+      version.inc         the test bundles' (`VERSION_STRING "test"`)
+      <bundle>.bin .map .lbl .flags
+                          test bundles (`conftest.Bundle`, built with -g;
+                          list in testing.md § conftest bundles)
+      <module>_<tag>.o    their objects
+      m65_state/          M65Emu's post-boot snapshot (dev/capture_m65_state.py)
 
 PRG names are the same in both profiles — the `release/` vs `debug/`
 directory disambiguates.
@@ -381,10 +414,12 @@ the consumer is part of):
 | debugger step (`cmp #2` paths) | NMOS step | NMOS step | + `JMP (a,X)`, `BRA` (c64-65c02) | — (no m65 debugger in R7 slice 1) | — (same) |
 
 The m65 build ships as the MEGA65 PRG ([§ The m65 PRG](#the-m65-prg)).
-Status: at the end of R7 slice 1 it exists as test bundles (asm_core,
-mn7, dasm) only, and `PLATFORM=m65` with a PRG target is refused until
-slice 2 — the platform layer — lands
-([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-prg-r7-platform-layer)).
+Status: planned.  Its test bundles are R7 slice 1, Phase B
+([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
+B1; `conftest.PROD_DEFS` holds the three C64 sets only), its PRG slice
+2 — the platform layer
+([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-prg-r7-platform-layer));
+until then `PLATFORM=m65` with a PRG target is refused.
 
 ### The m65 PRG
 
@@ -426,10 +461,15 @@ changes:
 **One source, one format, sized per build.**  Every opcode fact in
 every build comes from `dev/instruction_set.py`; no source file
 restates one by hand.  Each generated file holds one block per CPU
-set, guarded by that set's `CPU_<top>` define, so a build assembles
-only its own block.  The *format* of a table is the same in every
-block; its *content and size* are the CPU set's — a C64 block never
-carries 4510 or 45GS02 entries.
+set that uses it, guarded by that set's `CPU_<top>` define, so a build
+assembles only its own block (`mn6_tables.s` has the one `{6502}`
+block, `mn7_tables.s` the 6510 and 65C02 blocks).  The *format* of a
+table is the same in every block; its *content and size* are the CPU
+set's — a C64 block never carries 4510 or 45GS02 entries.  The
+exception is `oplen_tbl.s`: one 64-byte table (2 bits per opcode)
+shared by every C64 build, the union of the 6510 and 65C02 lengths;
+the generator refuses an opcode whose lengths conflict, and a crash
+(JAM) row yields to the real instruction.
 
 `instruction_set.py` and `hashes.py` are shared with bbbc64 and
 identical in both repositories.  `mnemonic_tables.py` and
@@ -447,9 +487,25 @@ current source to them: identical output, total cycles no higher, no
 case more than 10 % slower.  They are re-recorded only by a commit
 that deliberately changes what a C64 build assembles or lists, or
 what it costs — never to make a refactor pass; that commit states the
-reason and the measured cycle change.  The size gate
-(`test_size_budget.py`) is a ratchet in the same spirit: a commit
-that shrinks a C64 build lowers its budget to the new size.
+reason and the measured cycle change.
+
+### Size gate
+
+`tests/integration/test_size_budget.py` holds each C64 release PRG
+(unpacked) to its byte budget, `BUDGET`.  The budget is a ratchet, in
+the spirit of the golden files:
+
+- **Shrink.**  A commit that makes a C64 build smaller lowers that
+  build's budget to the new size, in the same commit, so the saving
+  cannot silently erode.
+- **Growth.**  A deliberate C64 feature that makes a build bigger
+  raises that build's budget in a commit of its own, whose message
+  states the feature and the growth in bytes per build.  A failing
+  size gate is never fixed by raising the budget inside the commit
+  that caused it.
+- **m65 work** may not grow any C64 build at all
+  ([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
+  acceptance gate 1).
 
 `tests/fixtures/golden/m65_cpu.json` records the 45GS02 as xmega65
 executes it, case by case (`dev/capture_m65_golden.py`, which needs
@@ -481,8 +537,8 @@ These apply to all code and apply regardless of build target:
 - **No self-modifying code.**  All routines work from ROM.  Runtime
   state lives in ZP or BSS, never in patched inline code.
 - **Minimize initialized data.**  Prefer runtime initialization.
-  BSS is zeroed for free; the DATA segment is currently empty (all
-  runtime state is in BSS, all constants in RODATA — see Phase 8).
+  The loader zeroes BSS; the DATA segment is empty (all runtime
+  state is in BSS, all constants in RODATA).
 - **Keep BSS small.**  Every byte of BSS is a byte unavailable to
   the developer's workspace.
 
@@ -523,34 +579,36 @@ protocol works regardless of which KERNAL is loaded.
 `make test` requires both the **debug** and **release** builds.
 Most tests (including C64Emu-based tests) run against the debug
 CMOS PRG (`build/debug/cmos/cse-cmos.prg`), which has full symbol
-coverage via its `.lbl` file (~1800 symbols).  The `cse_release_prg`
+coverage via its `.lbl` file (~2040 symbols).  The `cse_release_prg`
 fixture serves the shipping binary: `test_release_smoke.py` boots the
 release CMOS PRG from its `SYS` target through the loader to the main
 loop.
 
-Test bundles (asm_core, mn6, mn7, asm_src, dasm) are built by
-`conftest.py` with `ca65 -g` and `ld65 -Ln`, producing their
-own `.lbl` files with complete symbol coverage.
+Test bundles are built by `conftest.Bundle` with `ca65 -g` and
+`ld65 -Ln`, producing their own `.lbl` files with complete symbol
+coverage; the list of bundles and their variants is
+[testing.md § conftest bundles](testing.md#conftest-bundles).
 
 ### How it works
 
-1. `conftest.py` runs `make debug` (or `make release`) once per
+1. The PRG fixtures (`cse_prg`, `cse_release_prg`,
+   `cse_prg_per_cpu`) run `make debug` (or `make release`) once per
    session, whether or not the PRG exists — make is incremental, so
-   the PRG is never older than its sources.  The conftest bundles
-   rebuild likewise when a source, a shared include (`src/*.inc`),
-   the linker config or the `-D` set changed.
+   the PRG is never older than its sources.  A bundle rebuilds when it
+   is missing, older than a source, a shared include (`src/*.inc`),
+   a listed generated dependency or the linker config, or built with
+   another `-D` set (recorded in its `.flags` stamp).
 2. `conftest.py` parses the `.lbl` file (VICE label format) for
    all symbols at absolute addresses.
 3. Each test creates a fresh `C64Emu`, loads the PRG, looks up
    function addresses by name, and calls them via `emu.jsr()`.
 
-`C64Emu.load_prg()` automatically handles the load/run address
-split: after loading the PRG at its file address, it checks for
-segments where `__SEG_LOAD__` ≠ `__SEG_RUN__` and copies them to
-their runtime positions (mirroring what `loader.s` does on real
-hardware).  Test code always references runtime addresses.
-
-No per-test build, no per-test linker config, no per-test stubs.
+`load_prg()` (`tests/emu_base.py`) handles the load/run address
+split: after loading the PRG at its file address, it copies each
+segment with `__<SEG>_LOAD__`/`__<SEG>_RUN__`/`__<SEG>_SIZE__`
+symbols to its run address, as `loader.s` does on the C64
+(`test_loader.py` holds the two to the same result).  Test code
+always references runtime addresses.
 
 ### Symbol resolution
 
@@ -564,8 +622,8 @@ The `SymbolTable` class in `conftest.py` encapsulates all symbol
 resolution.  Test code accesses symbols by name (`s["label"]`,
 `s.get("label")`) and never touches file formats, paths, or
 parsing logic.  Both conftest bundle fixtures and leaf module
-tests use `SymbolTable` as their sole symbol resolution mechanism.
-`C64Emu._parse_map()` also delegates to `SymbolTable` internally.
+tests use `SymbolTable` as their sole symbol resolution mechanism;
+`load_prg()` reads the `.lbl` beside the map through it.
 
 For pre-link symbol inspection, `dev/od65_syms.py` extracts
 exports and debug symbols from `.o` files via `od65`.
@@ -610,14 +668,16 @@ so it cannot run the m65 PRG ([rom/README.md](../rom/README.md#mega65-roms)).
 # All tests (builds both debug + release, checks for KERNAL ROM, runs pytest)
 make test
 
-# Quick run (direct, via pipenv — assumes builds exist).  Uses
-# pyproject.toml testpaths config to include tests/unit + tests/integration.
+# Direct, via pipenv.  The PRG fixtures run make themselves, the
+# bundles rebuild themselves; pyproject.toml's testpaths select
+# tests/unit + tests/integration.
 pipenv run pytest -q
 
-# Only Tier U (fast; no PRG build needed for bundles with their own)
+# Only Tier U (bundles; the oplen oracle and the build-gate tests
+# also run make)
 pipenv run pytest tests/unit -q
 
-# Only Tier I (needs debug PRG)
+# Only Tier I (the PRG fixtures)
 pipenv run pytest tests/integration -q
 
 # Specific file

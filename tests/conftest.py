@@ -3,22 +3,31 @@ conftest.py – build test binaries and provide session-scoped fixtures.
 
 Owner: doc/build_system.md
 
-Binaries are built once per session (cached in build/) and rebuilt
-automatically whenever their source files are newer than the cached binary.
-All test binaries are assembled with -g (debug symbols) and linked with
--Ln (VICE label file) so that ALL symbols — exported, internal, and
-@local — are available at absolute addresses via SymbolTable.
+Bundles (class Bundle, cached in build/) rebuild when the binary is
+missing, older than a source, a src/*.inc include, a listed dependency or
+the linker config, or built with another -D set (a .flags stamp).  The
+PRG fixtures run `make` once per session, unconditionally (make is
+incremental).  All test binaries are assembled with -g (debug symbols)
+and linked with -Ln (VICE label file) so that ALL symbols — exported,
+internal, and @local — are available at absolute addresses via
+SymbolTable.
 
 Fixtures provided
 -----------------
-asm_syms        — asm_core bundle, -DCMOS_SUPPORT (65C02 production)
-asm_6510_syms   — asm_core bundle, no CMOS_SUPPORT (6510 production)
-asm_6502_syms   — asm_core bundle, -DUSE_MN6     (6502 production)
+asm_syms        — asm_core bundle, 65c02 PROD_DEFS (CMOS_SUPPORT)
+asm_6510_syms   — asm_core bundle, 6510 PROD_DEFS (no CMOS_SUPPORT)
+asm_6502_syms   — asm_core bundle, 6502 PROD_DEFS (USE_MN6)
 dasm_bundle(c)  — dasm bundle per C64 CPU set (c ∈ PROD_DEFS)
+dasm_syms       — dasm bundle, 65c02   (test_dasm.py)
 mn6_syms        — mn6 hash test binary  (test_mn_classify.py)
 mn7_syms        — mn7 hash test binary  (test_mn_classify.py)
+as_syms         — asm_src bundle        (test_asm_src.py)
 mem_syms        — zp + mem bundle       (test_mem.py)
-dasm_syms       — dasm bundle           (test_dasm.py)
+log_syms        — log bundle            (test_log.py)
+gb_syms         — gap_buffer bundle     (test_gap_buffer.py)
+cse_prg         — debug CMOS PRG (prg, map) for C64Emu
+cse_release_prg — release CMOS PRG (prg, map)
+cse_prg_per_cpu — each debug PRG in turn (6510, 6502, cmos)
 
 Test bundle architecture
 ------------------------
@@ -173,8 +182,8 @@ class SymbolTable:
 # Links the full single-line assembler pipeline as one test binary.
 # Shared by test_asm_line.py, test_addr_mode.py, test_opcode_lookup.py,
 # test_expr.py, and test_asm_err.py.
-# The stub is minimal: BRK error handler + linker symbols for mem.s.
-# No per-module mocking — every import is satisfied by real code.
+# The stub supplies linker symbols and one recorded mock, `log_warn`
+# (a call counter; log.s is not linked) — testing.md § Shared slim mocks.
 
 # One variant per C64 CPU set (PROD_DEFS below), each built with its
 # production `-D` set:
@@ -422,12 +431,11 @@ def asm_6502_syms():
 # ── mn6 / mn7 hash test binaries ──────────────────────────────────────────────
 #
 # Each binary is built from:
-#   mn6:  src/mn_vars.s  src/mn6.s  src/mn6_tables.s
-#   mn7:  src/mn_vars.s  src/mn7.s  src/mn7_tables.s
+#   mn6:  zp, mn_vars, mn6, mn6_tables, mn_classify
+#   mn7:  zp, mn_vars, mn7, mn7_tables, mn_classify
 #
-# Linked with dev/test.cfg (ZP at $0000, CODE/RODATA at $0200).
-# All exported symbols (mn_c1/c2/c3, mn6_classify, mn7_classify …) appear
-# in the "Exports list by name" section of the ld65 map file.
+# Linked with dev/test.cfg (ZP at $0000, CODE/RODATA at $4000); symbols
+# from the .lbl file through SymbolTable.
 
 _MN_SOURCES = {
     'mn6': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn6.s", SRC / "mn6_tables.s",
@@ -878,7 +886,7 @@ def gb_syms():
 #   cse_release_prg — release build (for E2E integration tests)
 #
 # Most tests should use cse_prg (debug).  The richer symbol table
-# (~1800 symbols vs ~230) makes debugging test failures much easier.
+# (~2040 symbols vs ~410) makes debugging test failures much easier.
 
 import subprocess
 

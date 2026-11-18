@@ -6,13 +6,17 @@
 #   all          Build release (default, same as 'release')
 #   release      Build all three CPU targets, optimized + exomizer + D64
 #   debug        Build all three CPU targets with -g (full symbols)
-#   tables       Regenerate the generated tables in src/ (dev/mnemonic_tables.py)
-#   test         Run all pytest tests (requires both debug + release)
+#   tables       Regenerate the generated tables in src/ (both generators:
+#                dev/mnemonic_tables.py, dev/dasm_tables.py)
+#   test         Build debug + release, check the ROMs, run all pytest tests
+#   check-roms   Fail with copy instructions when rom/kernal_cbm.bin is missing
+#   m65-rom      Copy the MEGA65 ROM from xmega65's data into rom/mega65.rom
 #   disk         Create D64 disk image (uses CPU= for PRG selection)
-#   run          Build disk image and launch in VICE
+#   run          Build release and launch in VICE
 #   size         Exhaustive size breakdown of selected PRG
 #   clean        Remove build/
 #   clean-tables Remove generated table sources in src/
+#   themes       List the colour themes
 #   help         Show this message
 #
 # CPU= selects the target for run/disk/size (default: 6510).
@@ -51,9 +55,14 @@ endif
 
 # ── CPU target selection ──────────────────────────────────────────────────
 # CPU= selects target for run/disk/size.  release/debug build all three.
-# make CPU=6502   → MN6 assembler, disassembler in 6502 mode
-# make CPU=6510   → MN7 assembler, disassembler in 6510 mode (default)
-# make CPU=65c02  → MN7 assembler + CMOS, disassembler in 65C02 mode
+# Each build serves a CPU set; DEFAULT_CPU is the asm_cpu it starts with
+# (`.cpu` / `u` switch within the set).  See doc/build_system.md
+# § Builds and CPU sets.
+# make CPU=6502   → mn6 classifier; CPU set 6502; starts as 6502
+# make CPU=6510   → mn7 classifier; CPU set 6502, 6510; starts as 6502
+#                   (the default target)
+# make CPU=65c02  → mn7 + CMOS_SUPPORT; CPU set 6502, 6510, 65C02;
+#                   starts as 65C02
 CPU ?= 6510
 
 # ── ROM set selection ────────────────────────────────────────────────────
@@ -151,8 +160,6 @@ else
   INTROSPECT_DEFS :=
 endif
 
-# ── Test-binary flags (bare 6502, no C64 platform defs) ─────────────────
-
 # ── Linker config ────────────────────────────────────────────────────────
 TRIAL_CFG = $(SRC)/c64_trial.cfg
 CFG_TMPL  = $(SRC)/c64_cse.cfg.in
@@ -180,7 +187,7 @@ release:
 # -----------------------------------------------------------------------
 # The -g flag embeds debug symbols into .o files; ld65 -Ln then emits
 # ALL labels (exported + internal + @local) in the .lbl file —
-# typically ~1800 symbols vs ~230 without -g.
+# typically ~2040 symbols vs ~410 without -g.
 # No exomizer step for debug builds.
 .PHONY: debug
 debug:
@@ -430,8 +437,9 @@ help:
 	@printf "%-15s %s\n" ""             "  build/debug/{6510,6502,cmos}/cse*.prg"
 	@printf "%-15s %s\n" "disk"         "Create D64 with compressed PRG (CPU=6510|6502|65c02)"
 	@printf "%-15s %s\n" "run"          "Build release + launch in VICE (CPU=, ROMSET=cbm|mega)"
-	@printf "%-15s %s\n" "tables"       "Regenerate src/mn*_tables.s via mnemonic_tables.py"
+	@printf "%-15s %s\n" "tables"       "Regenerate the generated tables in src/ (both generators)"
 	@printf "%-15s %s\n" "test"         "Run all pytest tests (builds both debug + release)"
+	@printf "%-15s %s\n" "check-roms"   "Fail with copy instructions if rom/kernal_cbm.bin is missing"
 	@printf "%-15s %s\n" "size"         "Size breakdown of selected PRG (CPU=)"
 	@printf "%-15s %s\n" "m65-rom"      "Copy the MEGA65 ROM from xmega65's data into rom/mega65.rom"
 	@printf "%-15s %s\n" "clean"        "Remove the build/ directory"
@@ -439,9 +447,10 @@ help:
 	@printf "%-15s %s\n" "themes"       "List available color themes"
 	@printf "%-15s %s\n" "help"         "Show this message"
 	@printf "\nOptions (prefix any target):\n"
+	@printf "  %-20s %s\n" "PLATFORM=c64"        "platform (default: c64; m65 has no PRG yet)"
 	@printf "  %-20s %s\n" "CPU=6510|6502|65c02" "target CPU (default: 6510)"
 	@printf "  %-20s %s\n" "THEME=NAME|BGF"      "colour theme (default: GREENLAND)"
-	@printf "  %-20s %s\n" "TAB_WIDTH=N"         "editor tab width (default: 8)"
+	@printf "  %-20s %s\n" "TAB_WIDTH=N"         "editor tab width, 1|2|4|8|16|32 (default: 8)"
 	@printf "  %-20s %s\n" "VERSION=STRING"      "version string (default: 0.1)"
 	@printf "  %-20s %s\n" "ROMSET=cbm|mega"     "KERNAL set for 'run' (default: cbm)"
 	@printf "  %-20s %s\n" "INTROSPECT=1"        "disable user-ZP redirect in m/. (CSE devs only)"
