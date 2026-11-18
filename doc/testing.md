@@ -1288,6 +1288,12 @@ On construction:
   ($D9–$F1) with every row a line of its own.
 - The page-3 vectors ($0314–$0333) as the KERNAL's `RESTOR` sets
   them (run once in a scratch CPU).
+- **Not set:** the default devices `$99` (DFLTN) and `$9A` (DFLTO)
+  stay 0, where a C64 after reset has 0 and 3, and CSE's cold init
+  does not set them either.  A user program's `CHROUT` therefore goes
+  to device 0, not the screen: its characters never appear in screen
+  RAM.  A test of user-program output must set `$9A` = 3 itself until
+  the harness does (fix pending).
 - CPU stack pointer at $FF.
 - An empty serial (IEC) bus: CIA2 port A (`$DD00`) reads CLK IN
   (bit 6) and DATA IN (bit 7) as the inverse of the C64's own CLK
