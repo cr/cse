@@ -440,7 +440,7 @@ line 42), and ends with `; N err` instead of `; ok`.
 | `sym full` | Symbol table full |
 | `range` | The line would write outside the workspace; nothing is written |
 
-`;!N: truncated` warns that line `N` is longer than 39 characters;
+`;!N: truncated` warns that line `N` has 39 characters or more;
 the assembler reads only the first 39.
 
 ## Editor
