@@ -26,29 +26,32 @@ VICE itself ships with these ROMs under its bundled-tools
 distribution.  The CSE test suite reads `kernal_cbm.bin` once
 at fixture init and never modifies it.
 
-## MEGA65 Open ROMs — **committed under LGPL-3.0**
+## Open ROMs, C64 build — **committed under LGPL-3.0**
 
-| File | Size | Source |
-|------|------|--------|
-| `kernal_mega.bin` | 8 KB | MEGA65 Open KERNAL |
-| `basic_mega.bin`  | 8 KB | MEGA65 Open BASIC |
-| `chargen_mega.bin` | 4 KB | MEGA65 Open CHARGEN |
+| File | Size | Upstream file | SHA-256 |
+|------|------|---------------|---------|
+| `kernal_mega.bin` | 8 KB | `bin/kernal_generic.rom` | `88e86ed3d0c710edab8f90ad146faa8de1ead11f43494b176c7b54724ca721c6` |
+| `basic_mega.bin`  | 8 KB | `bin/basic_generic.rom` | `54a1464b4b27c9dc61bbd62a818fdd12ec99af9089111005a5add0ad0e6bd5ec` |
+| `chargen_mega.bin` | 4 KB | `bin/chargen_pxlfont_2.3.rom` | `bc5ed24e8e694543f0229800d050acff86d9674aec6dbd95055a26e824d8a395` |
 
-These ROMs are part of the **MEGA65 Open ROMs project** —
-clean-room C64-compatible ROM replacements written from scratch
-by the MEGA65 team to avoid the CBM copyright.  Upstream:
-[github.com/MEGA65/open-roms](https://github.com/MEGA65/open-roms).
-Licensed under **GNU LGPL-3.0** (see the upstream repo for the
-canonical LICENSE).
+The *generic* (C64-compatible) build of the **Open ROMs** —
+clean-room ROM replacements written from scratch to avoid the CBM
+copyright, by the project the MEGA65 team hosts.  Upstream:
+[github.com/MEGA65/open-roms](https://github.com/MEGA65/open-roms),
+KERNAL and BASIC at commit `5192c683` (2021-08-23), the PXL font at
+`b9661811` (2020-03-06) — each the last change to that file.  The
+`_mega` suffix is the `ROMSET=mega` name, not the platform: these
+are the C64 images, not the MEGA65 one below.  Licensed under **GNU
+LGPL-3.0** (see the upstream repo for the canonical LICENSE).
 
-CSE includes them as test artifacts for the ROMSET investigation
-documented in the Phase-11 commit (`Phase 11: DDD cleanup,
-ROMSET support, Open-KERNAL investigation`).  They are NOT
-required by any active build target or test path — only by the
-optional `ROMSET=mega` Makefile mode (see `Makefile` line 49).
+They serve the optional `ROMSET=mega` mode of `make run`
+([build_system.md § ROM sets](../doc/build_system.md#rom-sets)):
+the C64 builds of CSE under VICE on an open KERNAL.  No test path
+needs them; `tests/unit/test_open_roms.py` pins them to the
+upstream files above.
 
 If you reuse these binaries elsewhere, retain the LGPL-3.0
-notice and the MEGA65 attribution.
+notice and the attribution.
 
 ## MEGA65 ROMs
 
@@ -67,14 +70,33 @@ what it accepts is in
 [github.com/MEGA65/open-roms](https://github.com/MEGA65/open-roms)
 at commit `f9a1bab1` (2021-08-24, the last change to that file;
 version string `O21082420`), SHA-256
-`430e64de736d590b26c3314a65627e5ea366a5bf596f2d935e7a041828784422`.
-It is **not** a substitute for `mega65.rom` on the m65 target: it
-holds only a C64-mode KERNAL and BASIC (at `$2E000`) — no C65/MEGA65
-KERNAL at `$3E000` (that 8 KB is zeros), no BASIC 65 — and its reset
-starts in C64 mode.  Upstream rates its MEGA65 support "PARTIAL …
-not tested yet".  A native PRG at `$2001` cannot run on it; it can
-serve the C64 target under C64 mode on a MEGA65, the role the C64
-Open ROMs above have under `ROMSET=mega`.
+`430e64de736d590b26c3314a65627e5ea366a5bf596f2d935e7a041828784422`
+— identical to upstream's current file (checked 2026-11-18).  It is
+the Open ROMs' only MEGA65 image (`bin/mega65_orfont.rom` is the same
+build with the Open ROMs font); upstream's source is still developed,
+but its binaries were last built in 2021.
+
+It is **not** a substitute for `mega65.rom` on the m65 target:
+
+- It holds a C64-style KERNAL and BASIC at `$2E000` and **no C65 /
+  MEGA65 KERNAL** — `$3E000–$3FFFF` is zeros — and no BASIC 65.
+- It starts in its *legacy* (C64) mode: the Hypervisor enters it
+  through `$FFF8` (upstream `STATUS.md`, *API extensions — MEGA65
+  build*).
+- Its own *native mode* (`GO 65`) is the Open ROMs' MEGA65-enhanced
+  environment on that same C64-style KERNAL — 80 columns (partial),
+  MEGA65 storage, extra BASIC commands — not MEGA65 mode in the
+  BASIC 65 sense.  Of the C65 jump table it implements `PRIMM`
+  (`$FF7D`) only; `VECTOR`, `SETBNK`, `SCRORG`, `JSRFAR`, `VERSIONQ`
+  and the `SYS` map that the m65 build relies on are absent.
+- Upstream rates its MEGA65 support "PARTIAL … code mostly complete,
+  but not tested yet".
+
+So the m65 PRG cannot run on it as the m65 build is designed.  It can
+serve the C64 target under its legacy mode on a MEGA65, the role the
+C64 build above has under `ROMSET=mega`.  Running CSE on the Open
+ROMs on both platforms is a stretch goal
+([TODO § M65 slice 2](../doc/TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)).
 
 ## Local-only artefacts — **gitignored**
 

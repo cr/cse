@@ -537,6 +537,36 @@ Report.
   entry already saves `B` in its frame.  Settled in P0's analysis;
   [zp.md](modules/zp.md) states the m65 layout only once it is.
 
+### Stretch goal — CSE on the Open ROMs
+
+Operator, 2026-11-18: supporting CSE on the Open ROMs on both
+platforms is a stretch goal.  Both images are mirrored and pinned
+([rom/README.md](../rom/README.md)): the C64 (generic) build as
+`rom/*_mega.bin`, the MEGA65 build as `rom/mega65_open.rom` — the
+project's only MEGA65 image, starting in its legacy (C64) mode, its
+own native mode (`GO 65`) running on the same C64-style KERNAL with
+no C65 jump table besides `PRIMM`.  Neither is a supported target
+today ([memory_design.md § Target Compatibility](memory_design.md#target-compatibility)).
+
+- [ ] **OR1. The C64 builds on the Open ROMs' C64 build.**  Which of
+  the KERNAL internals the C64 builds call directly (the platform
+  layer's c64 constants: `$EA31`, `$EA81`, `$FE43`, `$F8DA`, `$E544`,
+  `$E9D6`, `$FCE2`, `$F6ED`) and which KERNAL cells they touch (`$C6`,
+  `$CC`, `$D1`–`$D3`, `$D6`, `$F3`–`$F4`, `$91`, `$0291`) the Open
+  ROMs provide with the same meaning; the gaps become a ROM variant of
+  the c64 column in [platform_layer.md](platform_layer.md) (a define
+  beside `PLATFORM_C64`, not a fork).  Tier I: C64Emu on
+  `kernal_mega.bin` runs the platform-neutral suites.
+- [ ] **OR2. The m65 build on the Open ROMs' MEGA65 build.**  Its
+  native mode lacks `VECTOR`, `SETBNK`, `SCRORG`, `JSRFAR`,
+  `VERSIONQ`, the `SYS` map and BASIC 65's banks; what the m65 seams
+  would need there (a ROM variant of the m65 column: the C64-style
+  vectors, the C64-style screen editor at 80 columns, its own bank
+  layout) is the analysis.  The layer is shaped for it: a ROM variant
+  is one more column of bodies under `.ifdef`, never a second copy.
+- Both stay outside every milestone's gate; neither may cost a byte
+  in the supported builds.
+
 ### Done (S2-3, the harness)
 
 - [x] S2-3. M65Emu, the m65 integration harness

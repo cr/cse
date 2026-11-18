@@ -107,9 +107,15 @@ or ZP variables.
 CSE targets:
 - Stock C64 KERNAL ROM
 - Stock C128 KERNAL ROM (C64 mode)
-- OpenROMs on C64/C128 hardware (excluding MEMORY_MODEL_60K)
 - The MEGA65 KERNAL in MEGA65 mode — the planned m65 build only
   ([§ Memory Map — m65](#memory-map--m65-mega65-mode))
+
+Stretch targets — not supported until their TODO items close
+([TODO § M65 slice 2, Stretch goal](TODO.md#stretch-goal--cse-on-the-open-roms)):
+- The Open ROMs' C64 build on C64/C128 hardware (excluding
+  MEMORY_MODEL_60K) — `rom/*_mega.bin`, `ROMSET=mega`
+- The Open ROMs' MEGA65 build — `rom/mega65_open.rom`, which has no
+  C65/MEGA65 KERNAL ([rom/README.md](../rom/README.md#mega65-roms))
 
 The 60K exclusion means $02A7-$02FF remains usable (the 60K model
 repurposes this range).  Low memory ($0000-$03FF) is assumed to be

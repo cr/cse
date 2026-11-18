@@ -53,9 +53,10 @@
 | `rom/basic_cbm.bin` | dependency — stock C64 BASIC ROM (not committed) |
 | `rom/chargen_cbm.bin` | dependency — stock C64 character ROM (not committed) |
 | [`rom/README.md`](../rom/README.md) | implementation — the ROM files: where each comes from, its licence, whether it is committed |
-| [`rom/kernal_mega.bin`](../rom/kernal_mega.bin) | dependency — MEGA65 Open-ROMs KERNAL (committed); back-link-exempt (binary) |
-| [`rom/basic_mega.bin`](../rom/basic_mega.bin) | dependency — MEGA65 Open-ROMs BASIC (committed); back-link-exempt (binary) |
-| [`rom/chargen_mega.bin`](../rom/chargen_mega.bin) | dependency — MEGA65 Open-ROMs character ROM (committed); back-link-exempt (binary) |
+| [`rom/kernal_mega.bin`](../rom/kernal_mega.bin) | dependency — Open ROMs KERNAL, C64 (generic) build, pinned (committed); back-link-exempt (binary) |
+| [`rom/basic_mega.bin`](../rom/basic_mega.bin) | dependency — Open ROMs BASIC, C64 (generic) build, pinned (committed); back-link-exempt (binary) |
+| [`rom/chargen_mega.bin`](../rom/chargen_mega.bin) | dependency — Open ROMs character ROM (PXL font 2.3), pinned (committed); back-link-exempt (binary) |
+| [`tests/unit/test_open_roms.py`](../tests/unit/test_open_roms.py) | test contract — the committed C64 Open ROMs are the pinned upstream files |
 | `rom/mega65.rom` | dependency — the MEGA65 ROM xmega65 uses (not committed; copied by `make m65-rom`) |
 | [`rom/mega65_open.rom`](../rom/mega65_open.rom) | dependency — MEGA65 Open ROMs, MEGA65 build, pinned upstream commit (committed; C64 mode only, see [rom/README.md](../rom/README.md#mega65-roms)); back-link-exempt (binary) |
 | [`dev/find_m65_rom.py`](../dev/find_m65_rom.py) | implementation — finds the MEGA65 ROM in xmega65's data directory and copies it to `rom/mega65.rom` (`make m65-rom`) |
@@ -629,7 +630,7 @@ committed ([rom/README.md](../rom/README.md)).
 | `ROMSET` | KERNAL | BASIC | CHARGEN | Source |
 |----------|--------|-------|---------|--------|
 | `cbm` (default) | `kernal_cbm.bin` | `basic_cbm.bin` | `chargen_cbm.bin` | Stock Commodore C64 ROMs (from VICE) |
-| `mega` | `kernal_mega.bin` | `basic_mega.bin` | `chargen_mega.bin` | MEGA65 Open-ROMs, C64-compatible build |
+| `mega` | `kernal_mega.bin` | `basic_mega.bin` | `chargen_mega.bin` | Open ROMs, C64 (generic) build — the `mega` name is the set's, not the platform's |
 
 ROM filenames follow the pattern `{type}_{romset}.bin`.  Adding a
 new ROM set (e.g. `ROMSET=jiffy`) only requires dropping three
@@ -638,7 +639,7 @@ files with matching names — no Makefile changes needed.
 Usage:
 
     make run                # stock CBM ROMs (default)
-    make run ROMSET=mega    # MEGA65 Open-ROMs
+    make run ROMSET=mega    # Open ROMs (C64 build)
 
 The `mega` set is useful for testing CSE against the open-source
 KERNAL replacement to identify compatibility issues (particularly
@@ -734,10 +735,13 @@ file; `dev/capture_m65_state.py` runs the discovery first and
 refuses to record when the ROM xmega65 booted differs from
 `rom/mega65.rom`, so the snapshot's ROM is always the one in `rom/`.
 
-`rom/mega65_open.rom`, the MEGA65 build of the Open ROMs, is
-committed next to it, pinned to an upstream commit and SHA-256.  It
-holds no C65/MEGA65 KERNAL and no BASIC 65 — it boots to C64 mode —
-so it cannot run the m65 PRG ([rom/README.md](../rom/README.md#mega65-roms)).
+`rom/mega65_open.rom`, the MEGA65 build of the Open ROMs — the
+project's only MEGA65 image — is committed next to it, pinned to an
+upstream commit and SHA-256.  It holds no C65/MEGA65 KERNAL and no
+BASIC 65: it starts in its legacy (C64) mode, and its own native mode
+(`GO 65`) runs on the same C64-style KERNAL, without the C65 jump
+table the m65 build uses, so it cannot run the m65 PRG as designed
+([rom/README.md](../rom/README.md#mega65-roms)).
 
 ## Running tests
 
