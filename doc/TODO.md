@@ -934,6 +934,33 @@ documentation round that follows this filing.
   retire.
 - [ ] `dbg_reason` enum defined twice (`main.s`, `repl.s`).
 
+### Code bugs — found by the live example run (2026-11-18)
+
+- [ ] **`.const` with a symbol in its expression defines nothing**:
+  `.const vic $d000 / .const border vic + $20 / sta border` →
+  `;?…: undef` (expr's label lookup overwrites `sym_name`, which the
+  `.const` handler still holds).  assembler_syntax.md's own example.
+- [ ] **The `;!a shadow` warning crashes `a`**: printed while the
+  KERNAL is banked out, `newline` → `io_sync` calls into the KERNAL
+  area (CSE data there) → BRK → `cse_recover`.
+- [ ] **CLR/HOME or ESC at a breakpoint, then `c`, hangs**:
+  `cse_refresh` resets SP to `kernel_init_sp`, and kernel `jsr`s
+  overwrite the user's `brk_stub` sentinel at `$01FE/$01FF`; README
+  promises the debug context is preserved.
+- [ ] **Dotted global labels**: `jmp main.loop` is `undef`; a global
+  label with an embedded dot is defined but cannot be referenced (the
+  operand expansion prefixes the scope at every `.`); `a_b:` is
+  accepted though `_` is not a label character, and the reference
+  fails.  Settle the label grammar (assembler_syntax.md) and enforce it.
+- [ ] **`.db` values > 255 truncate silently** (`.db 256` → `$00`);
+  **`.const 5 5`** defines a symbol named `5` (no `exp id`).
+- [ ] **The assembler writes outside the workspace**: `.org $c000`
+  assembles over CSE's own code with no error (the breakpoint range
+  gate already refuses such addresses); add the same guard to emit.
+- [ ] **`scroll_up` uses `$FB–$FE`** — the C64's free user ZP —
+  although userland_contract.md promises CSE never writes `$80–$FF`
+  beyond the listed KERNAL cells; use CSE's own ZP.
+
 ### Test gaps
 
 - [ ] The loader never runs in a test (`load_prg` relocates in
@@ -1029,6 +1056,12 @@ Stale against the code, by document (each item verified both ways):
   fixed tab quirk; `m` rows; `r` syntax; workspace; runtime start;
   `£`; SHIFT+CLR/HOME; `;!N: truncated` and `;!long`; `bad val`;
   error prefix; status bar; patched-byte address; lowercase hex.
+  userland_contract.md's hello-world uses ca65 `@l:` locals (CSE:
+  `.l`) and omits the `; rts` / register lines of the transcript;
+  README's capitals (`$C000`, `LDA`) typed with SHIFT fail — show the
+  lowercase convention; `t` cold preview missing from the manual;
+  `;?full` also means the breakpoint table; expr.md says no case
+  folding but shifted names resolve.
   **assembler_syntax.md** — **unsafe** `.org $c000` ×2; `a = $2000`
   (no such syntax); save line; `; N err`; BASIC stub size; `.bas`
   implies `.org $0801`; default origin.
