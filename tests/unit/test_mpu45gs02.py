@@ -275,6 +275,31 @@ def test_clean_mode_admits_6502_opcodes_and_the_allowed_set_only():
     assert cpu.pc == 0x1806
 
 
+def test_clean_mode_by_region_checks_only_inside_the_regions():
+    mem = FlatRAM()
+    for at in (0x1800, 0x1900):
+        mem[at], mem[at + 1] = 0xA3, 0x00                 # LDZ #0
+    cpu = MPU45GS02(mem, pc=0x1900, clean=[(0x1800, 0x18FF)])
+    cpu.step()                                            # outside: runs
+    assert (cpu.pc, cpu.z) == (0x1902, 0)
+    cpu.pc = 0x1800
+    with pytest.raises(UncleanOpcode):
+        cpu.step()                                        # inside: refused
+
+
+def test_clean_regions_are_flat_so_the_map_decides():
+    from m65emu import M65Memory
+    mem = M65Memory(rom_protect=False)     # banks 2-3 writable, as installed
+    for flat in (0x02000, 0x32000):
+        mem.write_flat(flat, 0xA3)                        # LDZ #
+    cpu = MPU45GS02(mem, pc=0x2000, clean=[(0x32000, 0x37FFF)])
+    cpu.step()                                            # unmapped: 0.2000
+    cpu.mapl = 0xE300                                     # $2000 → 3.2000
+    cpu.pc = 0x2000
+    with pytest.raises(UncleanOpcode):
+        cpu.step()
+
+
 # ── golden file (recorded in xmega65) ─────────────────────────────
 
 GOLDEN = G.load()

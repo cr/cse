@@ -503,8 +503,10 @@ lands, except T1, which is green by construction):
   sites; unit tests of the audit on synthetic sources).  (Done
   2026-11-18: 142 sites in 13 files; the address-literal classes are
   in `dev/audit_platform_literals.py`.)
-- [ ] T3. The raw-byte audit (static); clean mode by PC region (run
-  time).
+- [x] T3. The raw-byte audit (static); clean mode by PC region (run
+  time).  (Done 2026-11-18: `raw_byte_sites` in the audit tool,
+  `test_m45_ops.py`, `MPU45GS02(clean=[(first, last), ...])` by the
+  PC's flat address through `memory.flat_of`.)
 - [ ] T4. The m65 build: test_makefile_guards' refusal tests become
   build tests (`make release/debug PLATFORM=m65`, m65-6502); a region
   overflow fails the link.
@@ -595,6 +597,17 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   `STACK_TOP` at the four c64 sites (the loader, `cse_recover`,
   `end_debug_body`, `dbg_init`), byte-identical, pinned by the
   stack-top check.
+- [x] Step (2): `src/m45_ops.inc` (eleven macros) and T3.  Feedback
+  round: the far access is `PHY` · `PLZ` before the flat op (the
+  45GS02 has no `TYZ`, which the contract had named); the DMA trigger
+  is an I/O store, not a raw-byte instruction (a DMAgic row in
+  § Constants); the audit's *opcode position* rule — a `.byte` after
+  an instruction that can fall through — with `brk`'s signature byte
+  and data after a transfer exempt; clean-mode regions are flat, so
+  user code at CSE's CPU addresses under the user map runs unchecked.
+  Known limit: a `.byte` table after a branch pair that is always
+  taken (repl.s's `@rep_chars`) is an opcode position to the audit;
+  its first byte, `'.'`, is a 6502 opcode.
 - The m65 bodies the docs state for P0, written in step (4) with the
   harness that tests them: `KCALL` / `KJMP`, `FAR_SIZE` and the far
   access macros, `FAR_BANK` at every far pointer's set sites,

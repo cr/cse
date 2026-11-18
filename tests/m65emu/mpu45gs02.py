@@ -30,7 +30,9 @@ steps.
 
 Memory protocol: `memory[addr16]` is the CPU's 16-bit view;
 `memory.read_flat(addr28)` / `memory.write_flat(addr28, value)` the
-flat 28-bit space; `memory.map_changed(cpu)` is called whenever a MAP
+flat 28-bit space; `memory.flat_of(addr16)` the flat address a CPU
+address reads from (None for an I/O register or the CPU port), which
+clean mode tests the PC by; `memory.map_changed(cpu)` is called whenever a MAP
 register changes (MAP, reset, or an assignment to `mapl`, `maph`,
 `map_lo_mb`, `map_hi_mb`), so the memory's view cannot go stale.  FlatRAM is the plain implementation (the CPU view
 is the first 64 KB of the flat space); M65Memory (layer 2) translates
@@ -93,6 +95,9 @@ class FlatRAM:
     def __setitem__(self, a, v):
         self.low[a & 0xFFFF] = v & 0xFF
 
+    def flat_of(self, a):             # the CPU view is the first 64 KB
+        return a & 0xFFFF
+
     def map_changed(self, cpu):       # the CPU view is fixed: no MAP
         pass
 
@@ -116,6 +121,8 @@ class MPU45GS02(mpu6502.MPU):
 
     def __init__(self, memory=None, pc=0x0000, *, clean=False,
                  allow=frozenset()):
+        # clean: False, True (the whole space), or (first, last) ranges
+        # of the flat space the PC's flat address is tested against
         self.clean = clean
         self.allowed = _DOCUMENTED | frozenset(allow)
         mpu6502.MPU.__init__(self, FlatRAM() if memory is None else memory,
@@ -290,7 +297,7 @@ class MPU45GS02(mpu6502.MPU):
     def step(self):
         start = self.pc
         key, entry = self.decode(self.memory[start])
-        if entry.op is None or (self.clean and key not in self.allowed):
+        if entry.op is None or (key not in self.allowed and self._clean_at(start)):
             row = entry.row
             kind = ReservedOpcode if entry.op is None else UncleanOpcode
             raise kind(f"${start:04X}: {row.mnemonic} ({row.mode}) "
@@ -301,6 +308,14 @@ class MPU45GS02(mpu6502.MPU):
             self.prefix = P_NONE
         self.processorCycles += 1
         return self
+
+    def _clean_at(self, pc):
+        """Whether clean mode tests the instruction at CPU address `pc`."""
+        if self.clean is True or self.clean is False:
+            return self.clean
+        flat = self.memory.flat_of(pc)
+        return flat is not None and any(lo <= flat <= hi
+                                         for lo, hi in self.clean)
 
     # ── addressing modes: each returns an effective address ───────
 

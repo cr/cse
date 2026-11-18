@@ -39,10 +39,15 @@ Beside it, the base-page check: no absolute-mode access to a CSE
 base-page symbol, nor a pointer to one, unless written BP_ABS(sym)
 (platform_layer.md § Base page).  It asserts zero from the start.
 
+The raw-byte audit: outside src/m45_ops.inc, every `.byte` in an
+opcode position starts with a literal 6502 opcode
+(platform_layer.md § Raw-byte instructions).  Zero from the start.
+
 And the stack-top check: no literal `#$FF` put in SP or `reg_sp`; the
 stack top is STACK_TOP (platform_layer.md § Stack).  Zero from the
 start.
 """
+import functools
 import pathlib
 import re
 import sys
@@ -245,6 +250,85 @@ def stack_top_count(src=SRC):
             if (s := stack_top_sites(f))}
 
 
+# ── the raw-byte audit (platform_layer.md § Raw-byte instructions) ──
+
+_EXEC_SEGMENTS = {None, "CODE", "LOADER", "STUB"}
+_SEG_DIRECTIVES = {".code": "CODE", ".rodata": "RODATA", ".data": "DATA",
+                   ".bss": "BSS", ".zeropage": "ZEROPAGE"}
+_DATA = {".byte", ".byt", ".word", ".addr", ".dbyt", ".dword", ".faraddr",
+         ".res", ".asciiz", ".lobytes", ".hibytes", ".bankbytes", ".incbin"}
+_TRANSFERS = {"rts": "stop", "rti": "stop", "jmp": "stop", "brk": "sig"}
+_LABEL = re.compile(r"^\s*@?\w+:")
+
+
+@functools.lru_cache(maxsize=None)
+def opcodes_6502():
+    """The 6502's opcodes, from dev/instruction_set.py's 6502 rows."""
+    sys.path.insert(0, str(ROOT / "dev"))
+    try:
+        import instruction_set
+    finally:
+        sys.path.pop(0)
+    return frozenset(r.opcode for r in instruction_set.instructions("6502"))
+
+
+def _literal(text):
+    """The value of a literal byte expression, or None for any other."""
+    text = text.strip()
+    for pat, conv in ((r"\$([0-9A-Fa-f]+)", lambda m: int(m, 16)),
+                      (r"%([01]+)", lambda m: int(m, 2)),
+                      (r"([0-9]+)", int),
+                      (r"'(.)'", ord)):
+        m = re.fullmatch(pat, text)
+        if m:
+            return conv(m.group(1))
+    return None
+
+
+def raw_byte_sites(path):
+    """[(line number, text)] of a `.byte` in an opcode position whose
+    first value is not a literal 6502 opcode.  An opcode position is a
+    `.byte` in an executable segment or a macro body right after an
+    instruction that can fall through (labels between do not count);
+    after `brk` it is a signature byte, after a transfer or data it is
+    data."""
+    out, seg, saved, prev = [], None, None, None
+    ops = opcodes_6502()
+    for n, raw in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        line = strip_comment(raw)
+        while _LABEL.match(line):
+            line = _LABEL.sub("", line, count=1)
+        line = line.strip()
+        if not line or _EQUATE.match(line):
+            continue
+        word = line.split(None, 1)[0].lower()
+        rest = line[len(word):].strip()
+        if word == ".segment":
+            seg, prev = rest.strip('"'), None
+        elif word in _SEG_DIRECTIVES:
+            seg, prev = _SEG_DIRECTIVES[word], None
+        elif word in (".macro", ".mac"):
+            saved, seg, prev = seg, None, None
+        elif word in (".endmacro", ".endmac"):
+            seg, prev = saved, None
+        elif word in _DATA:
+            if word in (".byte", ".byt") and prev == "fall" and seg in _EXEC_SEGMENTS:
+                if _literal(rest.split(",")[0]) not in ops:
+                    out.append((n, raw.strip()))
+            prev = "data"
+        elif word.startswith("."):
+            continue                        # .if, .proc, .export, ...: transparent
+        else:
+            prev = _TRANSFERS.get(word, "fall")
+    return out
+
+
+def raw_byte_count(src=SRC):
+    files = sorted(list(src.glob("*.s")) + list(src.glob("*.inc")))
+    return {f.name: len(s) for f in files
+            if f.name != "m45_ops.inc" and (s := raw_byte_sites(f))}
+
+
 def main(argv):
     total = 0
     for f in audited_files():
@@ -262,6 +346,9 @@ def main(argv):
             print(f"base page: {f.name}:{n}: {text[:60]}")
         for n, text in stack_top_sites(f):
             print(f"stack top: {f.name}:{n}: {text[:60]}")
+    for name in raw_byte_count():
+        for n, text in raw_byte_sites(SRC / name):
+            print(f"raw byte: {name}:{n}: {text[:60]}")
     return 0
 
 

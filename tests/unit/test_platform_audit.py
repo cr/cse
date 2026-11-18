@@ -156,3 +156,40 @@ def test_no_literal_stack_top():
 def test_stack_top_check(tmp_path, text, flagged):
     (tmp_path / "m.s").write_text(text)
     assert bool(AUDIT.stack_top_sites(tmp_path / "m.s")) == flagged
+
+
+# ── the raw-byte audit (platform_layer.md § Raw-byte instructions) ──
+
+def test_no_raw_45gs02_opcode_outside_m45_ops():
+    """Every `.byte` in an opcode position starts with a literal 6502
+    opcode; 45GS02-only instructions come from src/m45_ops.inc."""
+    assert AUDIT.raw_byte_count() == {}
+
+
+@pytest.mark.parametrize("text,flagged", [
+    ("        lda #1\n        .byte $2C       ; BIT skip\n", False),
+    ("        lda #1\n        .byte $5C\n", True),          # MAP
+    ("        lda #1\n@x:     .byte $5C\n", True),          # a label: falls in
+    ("        lda #1\n@x:\n; c\n        .byte $5C\n", True),
+    ("        bne @x\n        .byte $D2\n", True),          # a branch falls through
+    ("        lda #1\n        .byte <tbl\n", True),         # not a literal
+    ("        lda #1\n.ifdef A\n        .byte $5C\n.endif\n", True),
+    ("        brk\n        .byte $42       ; signature\n", False),
+    ("        rts\ntbl:    .byte $5C, $D2\n", False),       # data
+    ("        jmp @x\n        .byte $5C\n", False),
+    ("        rti\n        .byte $5C\n", False),
+    ("        rts\ntbl:    .byte 1\n        .byte $5C\n", False),
+    ("        .byte $5C\n", False),                         # no statement before
+    ("        lda #1\n.segment \"RODATA\"\n        .byte $5C\n", False),
+    (".macro M\n        lda #1\n        .byte $5C\n.endmacro\n", True),
+    (".macro P n\n        brk\n        .byte n\n.endmacro\n", False),
+])
+def test_raw_byte_audit(tmp_path, text, flagged):
+    (tmp_path / "m.s").write_text(text)
+    assert bool(AUDIT.raw_byte_sites(tmp_path / "m.s")) == flagged
+
+
+def test_raw_byte_audit_skips_m45_ops(tmp_path):
+    for name in ("m45_ops.inc", "m.inc", "m.s"):
+        (tmp_path / name).write_text("        lda #1\n        .byte $5C\n")
+    assert sorted(AUDIT.raw_byte_count(tmp_path)) == ["m.inc", "m.s"]

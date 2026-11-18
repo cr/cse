@@ -15,11 +15,12 @@ runs them behind C64Emu's surface (emu_base.py) — feature parity, not
 a full MEGA65 — from a post-boot snapshot recorded in xmega65.
 """
 
+from . import m45_ops
 from .harness import M65Emu, SnapshotMissing, load_snapshot
 from .memory import M65Memory
 from .mpu45gs02 import (FLAT, FlatRAM, MPU45GS02, ReservedOpcode,
                         UncleanOpcode, UndefinedPrefix)
 
-__all__ = ["FLAT", "FlatRAM", "M65Emu", "M65Memory", "MPU45GS02",
+__all__ = ["FLAT", "FlatRAM", "M65Emu", "M65Memory", "MPU45GS02", "m45_ops",
            "ReservedOpcode", "SnapshotMissing", "UncleanOpcode",
            "UndefinedPrefix", "load_snapshot"]

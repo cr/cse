@@ -20,13 +20,13 @@ states the seam's contract and points there.
 | File | Role |
 |------|------|
 | [`src/platform.inc`](../src/platform.inc) | header — every platform constant and macro, selected by `.ifdef` |
-| `src/m45_ops.inc` | header — the 45GS02-only instructions as raw-byte macros ([§ Raw-byte instructions](#raw-byte-instructions); planned, P0) |
-| [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit: the address-literal classes, the per-file counts, the baseline writer |
-| [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the audit's rule, the raw-byte audit and the pending-body count as they land (P0) |
+| [`src/m45_ops.inc`](../src/m45_ops.inc) | header — the 45GS02-only instructions as raw-byte macros ([§ Raw-byte instructions](#raw-byte-instructions)) |
+| [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit (the address-literal classes, the per-file counts), the base-page, stack-top and raw-byte checks |
+| [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top and raw-byte checks; the pending-body count with the m65 bodies (P0 step (4)) |
+| [`tests/unit/test_m45_ops.py`](../tests/unit/test_m45_ops.py) | test contract — each raw-byte macro is the compendium's encoding of its instruction |
+| [`tests/m65emu/m45_ops.py`](../tests/m65emu/m45_ops.py) | test helper — the macros assembled and decoded: clean mode's allowed keys |
 | [`tests/fixtures/golden/c64_prg_sha256.json`](../tests/fixtures/golden/c64_prg_sha256.json) | generated — the recorded SHA-256 of each C64 release PRG; back-link-exempt (JSON data) |
 
-The files are listed as they will exist; until P0 lands they are not
-in the repository.
 
 ## The rule
 
@@ -136,6 +136,7 @@ platform lacks is absent there, so a stray use fails to assemble.
 | SID | `$D400`, `$D401`, `$D404`, `$D40B`, `$D412`, `$D418` | the same |
 | BASIC format | `SYS` token `$9E`, `REM` token `$8F` | the same in BASIC 65 |
 | CPU-port seeds | `$00 = $2F`, `$01 = $36` | none: the m65 build never touches the CPU port |
+| DMAgic | none | the job-list address and trigger registers `$D700–$D705` (the loader's install) |
 | `DISK_LOCAL_PTR` (disk.s's private pointer) | `$FD` — in the KERNAL half; see [TODO § Bugs](TODO.md#bugs) | a far pointer in CSE's base page — *stated with P3* |
 
 **Hypervisor services (m65).**  The documented Hypervisor traps the
@@ -281,7 +282,7 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
 | Platform | `FAR_LDA` / `FAR_STA` / `FAR_ORA` | Clobbers |
 |---|---|---|
 | c64 | `lda (name),y` / `sta (name),y` / `ora (name),y` | load and or: A, N/Z; store: nothing |
-| m65 | `TYZ` · `lda [name],z` / `sta [name],z` / `ora [name],z` | load and or: A, N/Z, the `Z` register; store: N/Z, the `Z` register |
+| m65 | `PHY` · `PLZ` · `lda [name],z` / `sta [name],z` / `ora [name],z` (the 45GS02 has no `TYZ`; `PHY` · `PLZ` keeps A) | load and or: A, N/Z, the `Z` register; store: N/Z, the `Z` register |
 | c128 | `(name),y` with the MMU's bank, settled by R3 | — |
 
 The store's added N/Z clobber matters only at a site that tests a
@@ -455,9 +456,33 @@ sites remains ([§ Gates](#gates)).
 All code is assembled as 6502 code; a 45GS02-only instruction is a
 macro in `src/m45_ops.inc` that emits its bytes, and no other file
 encodes one ([testing.md § Tier U](testing.md#tier-u--unit-module--linking-down)).
-The m65 platform bodies use: `MAP`, `EOM`, `LDZ #`, `TAB`, `TYZ`,
-`PLZ`, `PLY`, `PLX`, the flat `[zp],Z` load and store (an `EOM`
-prefix before `(zp),Z`), and the DMA trigger.  On the 45GS02 every
+The macros are the instructions the m65 platform bodies use:
+
+| Macro | Instruction |
+|---|---|
+| `M45_MAP`, `M45_EOM` | `MAP`, `EOM` (`EOM` is the 6502's `NOP`; the macro names the intent) |
+| `M45_LDZ_IMM value` | `LDZ #value` |
+| `M45_TAB` | `TAB` |
+| `M45_PHY`, `M45_PLY`, `M45_PLX`, `M45_PLZ` | `PHY`, `PLY`, `PLX`, `PLZ` |
+| `M45_FAR_LDA zp`, `M45_FAR_STA zp`, `M45_FAR_ORA zp` | `LDA [zp],Z`, `STA [zp],Z`, `ORA [zp],Z`: the `EOM` prefix before `(zp),Z` |
+
+The DMAgic's job lists are data and its trigger a store to an I/O
+register ([§ Constants](#constants)): neither is a raw-byte
+instruction.
+
+The raw-byte audit ([§ Gates](#gates)) checks the rule in the source.
+A `.byte` line in an executable segment (`CODE`, `LOADER`, `STUB`)
+or in a macro body is an *opcode position* when the statement before
+it is an instruction that can fall through — anything but `rts`,
+`rti`, `jmp` and `brk`; a label between does not matter, since the
+CPU falls into it.  An opcode position starts with a literal 6502
+opcode (the BIT-skip idiom, `.byte $2C`).  A `.byte` after `brk` is
+a signature byte (`brk_stub`'s, `PLAT_PENDING`'s) and one after a
+transfer or other data is data; neither is decoded.  The audit is
+the static half; the run-time half is M65Emu's clean mode
+([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
+
+On the 45GS02 every
 documented NMOS opcode decodes to the same instruction as on the
 6502, so the shared modules assemble unchanged; the 6510's illegal
 opcodes are 4510 instructions there and never appear in CSE's own

@@ -56,9 +56,14 @@ are static Tier U tests in `tests/unit/test_platform_audit.py`:
   stack top is `STACK_TOP`
   ([platform_layer.md § Stack](platform_layer.md#stack)); zero, with
   unit tests on synthetic sources.
-- *The raw-byte audit* — no `.byte` in a CODE segment outside
-  `src/m45_ops.inc` emits a 45GS02-only opcode (the 4510 rows the
-  6502 lacks, from `dev/instruction_set.py`).
+- *The raw-byte audit* — the same tool: outside `src/m45_ops.inc`,
+  every `.byte` in an opcode position starts with a literal 6502
+  opcode (`dev/instruction_set.py`'s 6502 rows); a signature byte
+  after `brk` and data after a transfer are not decoded
+  ([platform_layer.md § Raw-byte instructions](platform_layer.md#raw-byte-instructions));
+  zero, with unit tests on synthetic sources.  The macros themselves
+  are pinned by `tests/unit/test_m45_ops.py`: each assembles to the
+  compendium's encoding of the instruction it names.
 - *The pending-body count* — the `PLAT_PENDING` sites of the m65 build
   ([platform_layer.md § Pending bodies](platform_layer.md#pending-bodies))
   are counted against a recorded number that only goes down.
@@ -199,20 +204,26 @@ counts steps.  In *clean* mode it admits, while the PC is in the
 regions it is given (CSE's code window and its bank-0 page on the m65
 build; the whole bundle for a Tier U bundle), only the 6502's 151
 documented opcodes and the decode keys it is given — the
-`m45_ops.inc` macros' ([§ Tier U](#tier-u--unit-module--linking-down))
-— and raises `UncleanOpcode` on anything else there.  Outside those
-regions — the MEGA65 KERNAL, which uses 4510 opcodes — every opcode
-runs.
+`m45_ops.inc` macros', which `tests/m65emu/m45_ops.py` derives by
+assembling them ([§ Tier U](#tier-u--unit-module--linking-down))
+— and raises `UncleanOpcode` on anything else there.  The regions are
+ranges of the flat space, so the test is by the code's flat home:
+user code at a CPU address the CSE map gives to CSE's code runs
+unchecked under the user map.  Outside those regions — the MEGA65
+KERNAL, which uses 4510 opcodes — every opcode runs.  `clean=True`
+is the whole space.
 
 It reads and writes through `memory[addr]` (the CPU's 16-bit view)
-and `memory.read_flat()` / `memory.write_flat()` (the 28-bit space).
+and `memory.read_flat()` / `memory.write_flat()` (the 28-bit space),
+and asks `memory.flat_of(addr)` for the flat address a CPU address
+reads from (clean mode's test of the PC; `None` for an I/O register).
 `FlatRAM` is the plain memory its Tier U tests run on (the CPU view is
 the first 64 KB of the flat space); `M65Memory` is the real layout.
 
 **Layer 2 — the memory layout, `M65Memory`**
 (`tests/m65emu/memory.py`).  The object `MPU45GS02` reads and writes
 through, as `C64Emu`'s `BankedMemory` is for py65 (the memory
-protocol of layer 1: `memory[addr16]`, `read_flat()`, `write_flat()`):
+protocol of layer 1: `memory[addr16]`, `read_flat()`, `write_flat()`, `flat_of()`):
 
 - **The flat store** (28-bit): 384 KB chip RAM with the ROM image at
   `$20000`–`$3FFFF`, colour RAM at `$FF80000` (32 KB; its first 2 KB

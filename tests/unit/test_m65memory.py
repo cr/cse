@@ -21,7 +21,7 @@ import pathlib
 
 import pytest
 
-from m65emu import M65Memory, MPU45GS02
+from m65emu import FlatRAM, M65Memory, MPU45GS02
 from m65emu.memory import IO_KEYS
 
 GOLDEN = json.loads((pathlib.Path(__file__).resolve().parents[1]
@@ -168,6 +168,19 @@ def test_memory_follows_the_map_registers_however_they_change():
     assert (cpu.mapl, cpu.a) == (0xE400, 0x22)
     MPU45GS02(mem)                                   # a new CPU: unmapped
     assert mem[0x2100] == 0x11
+
+
+def test_flat_of_follows_the_map_and_the_banking():
+    cpu = machine(rom=ROM)
+    mem = cpu.memory
+    assert mem.flat_of(0x2345) == 0x02345                # unmapped RAM
+    assert mem.flat_of(0xE123) == 0x2E123                # KERNAL ROM
+    assert mem.flat_of(0xD020) is None                   # an I/O register
+    assert mem.flat_of(0x0001) is None                   # the CPU port
+    cpu.mapl = 0xE300                                    # $2000-$7FFF → 3.2000
+    assert mem.flat_of(0x2345) == 0x32345
+    assert mem.flat_of(0x1F00) == 0x01F00                # block 0 unmapped
+    assert FlatRAM().flat_of(0x2345) == 0x2345
 
 
 def test_page_table_is_rebuilt_only_by_its_triggers():

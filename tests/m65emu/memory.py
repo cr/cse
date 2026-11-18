@@ -6,7 +6,8 @@ Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65
 
 The object MPU45GS02 reads and writes through (layer 1's memory
 protocol): `memory[addr16]` is the CPU's view, `read_flat()` /
-`write_flat()` the 28-bit space, `map_changed(cpu)` the hook the CPU
+`write_flat()` the 28-bit space, `flat_of(addr16)` the flat address a
+CPU read reaches, `map_changed(cpu)` the hook the CPU
 calls whenever a MAP register changes.  Checked against the
 translations recorded in xmega65 (tests/fixtures/golden/m65_mem.json,
 test_m65memory.py).
@@ -140,6 +141,15 @@ class M65Memory:
             self.chip[a] = v
         else:
             self.write_flat(a, v)
+
+    def flat_of(self, a):
+        """The flat address the CPU's read of `a` reaches, or None for
+        an I/O register or the CPU port."""
+        a &= 0xFFFF
+        base = self.rd[a >> 12]
+        if base < 0 or (a < 2 and self.port_visible):
+            return None
+        return base + (a & 0xFFF)
 
     def attach(self, device, first, last=None):
         """Give I/O registers $D000+`first`..`last` to `device`, which
