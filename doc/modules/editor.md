@@ -214,7 +214,7 @@ The status bar layout (40 columns, all reversed):
 
 ```
 *filename        free:LLLL-HHHH LLL,CC
-0  1-17         18 19-32      33 34-39
+0  1-17         18 19-32      33-36 37-39
 ```
 
 - Col 0: dirty flag (`*` if modified, space if clean)
@@ -223,13 +223,16 @@ The status bar layout (40 columns, all reversed):
 - Cols 24–27: lower free address (`cse_end`, static)
 - Col 28: `-`
 - Cols 29–32: upper free address (`buf_base - 1`, updates on grow)
-- Cols 34–39: cursor position as `LLL,CC` (1-based)
+- Cols 33–39: cursor position as `LLLL,CC` (1-based): the line
+  number right-aligned in cols 33–36 with leading blanks (col 33 is
+  blank below line 1000, so it doubles as the separator), clamped
+  at 9999; the column as two digits in cols 38–39.
 
 Four partial update functions avoid full redraws:
 
 | Function | Updates | When |
 |----------|---------|------|
-| `ed_status_pos` | cols 34–39 (LLL,CC) | every cursor move |
+| `ed_status_pos` | cols 33–39 (LLLL,CC) | every cursor move |
 | `ed_status_dirty` | col 0 (dirty flag) | first edit only |
 | `ed_status_free` | cols 29–32 (HHHH) | buffer grows |
 | `ed_render_status` | all 40 columns | mode enter, load, save |

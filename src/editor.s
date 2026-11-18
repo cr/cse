@@ -585,7 +585,7 @@ _ed_cur_row:
 @rem:   .byte 0
 .endproc
 
-; ── ed_status_pos — update cursor position (cols 34-39) ───────
+; ── ed_status_pos — update cursor position (cols 33-39) ───────
 .proc ed_status_pos
         ; Screen pointer to status row
         ldx #ED_STATUS
@@ -616,7 +616,9 @@ _ed_cur_row:
         dey                     ; Y=37
         sta (ed_scr),y
 
-        ; Line: 3 digits (1-based)
+        ; Line (1-based): up to 4 digits right-aligned in cols 33-36,
+        ; blank-padded (col 33 is the separator below line 1000),
+        ; clamped at 9999.
         lda ed_cur_line
         clc
         adc #1
@@ -624,51 +626,32 @@ _ed_cur_row:
         lda ed_cur_line+1
         adc #0
         sta ed_tmp+1
-        jsr div10               ; A = d0 (ones), ed_tmp = rest
-        clc
-        adc #$30
-        ora #$80
-        ldy #36
-        sta (ed_scr),y          ; ones
-
-        jsr div10               ; A = d1 (tens), ed_tmp = d2 (hundreds)
-        pha                     ; save d1
-        lda ed_tmp              ; d2 (hundreds)
-        sta @d2
-
-        pla                     ; d1
-        ; d1: show if d2 or d1 nonzero, else space
-        ldx @d2
-        bne @show_d1
-        cmp #0
-        beq @blank_d1
-@show_d1:
-        clc
-        adc #$30
-        ora #$80
-        ldy #35
+        cmp #>10000
+        bcc @lconv
+        bne @lclamp
+        lda ed_tmp
+        cmp #<10000
+        bcc @lconv
+@lclamp:
+        lda #<9999
+        sta ed_tmp
+        lda #>9999
+        sta ed_tmp+1
+@lconv: ldy #36
+@ldig:  jsr div10               ; A = next digit, ed_tmp = rest (keeps Y)
+        ora #($30 | $80)
         sta (ed_scr),y
-        jmp @do_d2
-@blank_d1:
+        dey
+        lda ed_tmp
+        ora ed_tmp+1
+        bne @ldig
         lda #$A0                ; reversed space
-        ldy #35
+@lpad:  cpy #33
+        bcc @ldone
         sta (ed_scr),y
-@do_d2:
-        lda @d2
-        beq @blank_d2
-        clc
-        adc #$30
-        ora #$80
-        ldy #34
-        sta (ed_scr),y
-        rts
-@blank_d2:
-        lda #$A0
-        ldy #34
-        sta (ed_scr),y
-        rts
-
-@d2:    .byte 0
+        dey
+        bne @lpad               ; always (Y >= 32)
+@ldone: rts
 .endproc
 
 ; ── ed_status_dirty — update dirty flag (col 0) ──────────────

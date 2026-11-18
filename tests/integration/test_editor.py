@@ -538,3 +538,25 @@ def test_tab_width_must_be_power_of_two(tmp_path, width, ok):
                          "-o", str(tmp_path / "editor.o")],
                         capture_output=True, text=True)
     assert (r.returncode == 0) == ok, r.stderr
+
+
+
+
+class TestStatusLineNumber:
+    """editor.md § status bar: the line number is right-aligned in
+    cols 33-36, up to four digits, clamped at 9999."""
+
+    @pytest.mark.parametrize("line,text", [(0, "   1,01"), (98, "  99,01"),
+                                           (998, " 999,01"),
+                                           (999, "1000,01"),
+                                           (1233, "1234,01"),
+                                           (9998, "9999,01"),
+                                           (20000, "9999,01")])
+    def test_line_field(self, cse_prg, line, text):
+        emu = make_emu(cse_prg)
+        emu.write_word(emu.sym("ed_cur_line"), line)
+        emu.memory[emu.sym("ed_cur_col")] = 0
+        emu.jsr(emu.sym("ed_render_status"))
+        row = emu.screen_text(22)
+        assert row[33:40] == text, repr(row)
+        assert row[29:33] != "    ", "free address overwritten"

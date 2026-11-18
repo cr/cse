@@ -906,8 +906,11 @@ documentation round that follows this filing.
   Fixed 2026-11-18: `dbg_bp_set` returns the slot that already holds
   the address, tests `TestBpSetDuplicate`,
   `TestDuplicateBreakpoint`.
-- [ ] **The editor status bar shows lines ≥ 1000 as garbage**
+- [x] **The editor status bar shows lines ≥ 1000 as garbage**
   (`:00`, `<34`, `t00`) — no clamp on the 3-digit field.
+  Fixed 2026-11-18: `ed_status_pos` writes the line right-aligned in
+  cols 33-36 (blank-padded, clamped at 9999) with a div10 loop, test
+  `TestStatusLineNumber` (test_editor.py).
 
 ### Code bugs — assembler
 
