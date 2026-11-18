@@ -30,9 +30,8 @@
 ; ── Imports: cse_io.s ──────────────────────────────────────
         .import io_putc, io_repc, io_puts, scr_to_pet
         .import io_puthex4, io_puthex2, io_putdec, io_putdec_pd
-        .import io_utoa, dec_buf
         .import io_clear_eol
-        .import io_getc, io_kbhit, io_sync
+        .import io_getc, io_sync
         .import cursor_show, cursor_hide
         .import scr_lo, scr_hi
 
@@ -51,16 +50,13 @@
 ; ── Imports: debugger ──────────────────────────────────────
         .import dbg_step_clear
         .import dbg_bp_set, dbg_bp_del, dbg_bp_clear
-        .import dbg_bp_count
         .import bp_table, step_bp
-        .import __CODE_RUN__
         .importzp dbg_reason
         .import dbg_bp_hit
         .import brk_pc, brk_stub
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
         .import userland_zp_buf
         .importzp ZP_SAVE_LO, ZP_SAVE_LEN       ; equates (zero-page range constants)
-        .import kernal_bank_out, kernal_bank_in
         .import oplen_tbl
         .import step_state, step_remaining
         .import step_next_pc, arm_step_bp
@@ -112,7 +108,7 @@ STEP_OVER = 2
         .importzp buf_base
 
 ; ── Imports: memory info ───────────────────────────────────
-        .import cse_start, cse_end, cse_zp_end
+        .import cse_start, cse_end
         .import src_top, src_bot
 
 ; ── Imports: global state ──────────────────────────────────
@@ -124,13 +120,13 @@ STEP_OVER = 2
         .import str_at, str_nmi, str_bp_clr, str_deleted
         .import str_rts, str_stk_warn, str_debug, str_qynq, str_dbg
         .import str_syntax, str_cpu_err, str_bad_val, str_full, str_cmd
-        .import str_no_name, str_range, str_fail, str_too_big
+        .import str_range, str_fail, str_too_big
         .import str_expr, str_no_ctx
         .import str_r_pc, str_a, str_x, str_y, str_s
         .import str_lines, str_bytes, str_long
         .import str_unsaved, str_ok, str_blk_eq
         .import str_del_src, str_quit, str_load
-        .import str_init, str_end_dbg, str_asm, str_go
+        .import str_init, str_asm, str_go
         .import str_color, str_cpu
         .import str_asm_ing, str_load_pfx, str_save_pfx, str_dots
         .import s_save_default
@@ -138,10 +134,9 @@ STEP_OVER = 2
         .import str_ioport, str_stack, str_kernal, str_screen
         .import str_cse_rt, str_io, str_main
         .import str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
-        .import str_tag_scr, str_tag_cse, str_tag_work, str_free_suf, str_tag_prg
+        .import str_tag_scr, str_tag_cse, str_tag_work
         .import str_tag_src, str_tag_low, str_tag_io
         .import str_tag_rom, str_banked
-        .import dec_pow_lo, dec_pow_hi
 .ifdef CPU_6510
         .import str_6510
 .endif
@@ -693,20 +688,6 @@ _syntax_err:
 @empty: lda #0                  ; Z=1: empty
         clc
         rts
-.endproc
-
-; ───────────────────────────────────────────────────────────
-; expr_set_curaddr — try_expr, and on success copy expr_val to cur_addr
-;   Returns C=1 on success, C=0 on empty/error.
-; ───────────────────────────────────────────────────────────
-.proc expr_set_curaddr
-        jsr try_expr
-        bcc @r
-        lda expr_val
-        sta cur_addr
-        lda expr_val+1
-        sta cur_addr+1
-@r:     rts
 .endproc
 
 ; ───────────────────────────────────────────────────────────
@@ -3660,9 +3641,8 @@ prg_ok_done:
         jmp cmd_info
 
 @h_at:  ; @ — set address.  Parse+EOI-check → apply.
-        ; Can't delegate to expr_set_curaddr: it applies cur_addr
-        ; before we can check EOI.  Inline the apply after the EOI
-        ; check so garbage input leaves cur_addr untouched.
+        ; Apply only after the EOI check so garbage input leaves
+        ; cur_addr untouched.
         jsr try_expr_or_err     ; parse + reject garbage (pop-trick)
         bcc @at_done            ; empty/error → skip apply
         lda expr_val

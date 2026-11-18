@@ -38,7 +38,7 @@
 
 ; ── Exports ──────────────────────────────────────────────────
         .export _main
-        .export kernel_init_sp, run_user_pending
+        .export run_user_pending
         .export stop_cooldown
         .importzp state, in_userland, warm_cont                 ; zp.s
         .export cse_recover, cse_end_debug, cse_refresh
@@ -80,7 +80,7 @@
         .import ed_ensure_init
         .import exec_line, read_line, show_prompt, cmd_info
         .import post_run_cleanup, hygiene_after_userland
-        .import log_line, log_info                      ; log.s
+        .import log_info                      ; log.s
         .importzp asm_cpu
         .import cur_addr, block_size
         .import ed_handle_key, enter_editor, leave_editor

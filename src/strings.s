@@ -28,13 +28,13 @@
         .export str_at, str_nmi, str_bp_clr, str_deleted
         .export str_rts, str_dbg
         .export str_syntax, str_bad_val, str_full, str_cmd
-        .export str_no_name, str_range, str_fail, str_too_big
+        .export str_range, str_fail, str_too_big
         .export str_expr, str_no_ctx
         .export str_r_pc, str_a, str_x, str_y, str_s
         .export str_lines, str_bytes, str_long
         .export str_unsaved, str_ok, str_blk_eq
         .export str_del_src, str_quit, str_load
-        .export str_init, str_end_dbg, str_asm, str_go
+        .export str_init, str_asm, str_go
         .export str_debug, str_qynq
         .export str_color, str_cpu, str_cpu_err, str_stk_warn
         .export str_asm_ing, str_load_pfx, str_save_pfx, str_dots
@@ -98,7 +98,6 @@ str_cpu_err     = str_tag_cpu            ; "cpu" — same content
 str_bad_val:    .byte "bad val", 0
 str_full        = s_sym_full + 4         ; "full" is suffix of "sym full"
 str_cmd:        .byte "cmd", 0
-str_no_name:    .byte "no name", 0
 str_range:      .byte "range", 0
 str_fail:       .byte "fail", 0          ; shared: load + save
 str_too_big:    .byte "too big", 0
@@ -116,13 +115,12 @@ str_long:       .byte "long L", 0
 
 ; Warning contents (emitted at LOG_WARN by warn_if_unsaved / warn_if_debug).
 str_unsaved:    .byte "unsaved", 0
-str_debug       = str_end_dbg + 4        ; "debug" is suffix of "end debug"
+str_debug:      .byte "debug", 0
 ; Action-stem strings (passed to query_user, which appends "? y/n").
 str_del_src:    .byte "del src", 0
 str_quit:       .byte "quit", 0
 str_load:       .byte "load", 0
 str_init:       .byte "init", 0
-str_end_dbg:    .byte "end debug", 0
 str_asm:        .byte "asm", 0
 str_go:         .byte "go", 0          ; j/g end-debug prompt
 ; Shared trailer printed by query_user after the action stem.

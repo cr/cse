@@ -46,11 +46,6 @@ UI / debugger / assembler chrome strings consumed by repl.s:
 \* conditional: `str_6510` requires `CPU_6510`,
 `str_65c02` requires `CMOS_SUPPORT`.
 
-Exported but not read: `str_no_name` (repl.s imports it, no code uses
-it); `str_end_dbg` is imported by repl.s only for its `debug` suffix
-(`str_debug`).  repl.s also imports `str_free_suf` and `str_tag_prg`
-without using them (log.s does).
-
 ##### Gating strings
 
 Used by repl.s's [warn-and-confirm gates](repl.md#gating-pattern):
@@ -124,7 +119,6 @@ or suffix/prefix substrings:
 | `s_err_sep` | `str_colon_sp` | duplicate `": "` |
 | `str_dots` | `str_asm_ing + 3` | suffix — `"..."` within `"asm..."` |
 | `str_full` | `s_sym_full + 4` | suffix — `"full"` within `"sym full"` |
-| `str_debug` | `str_end_dbg + 4` | suffix — `"debug"` within `"end debug"` |
 | `str_tag_src` | `str_del_src + 4` | suffix — `"src"` within `"del src"` |
 | `str_dname` | `str_dashes` | prefix — `"$"` within `"$----"` |
 
@@ -180,7 +174,7 @@ semantic role.
   expected quote character).
 - `str_6510` and `str_65c02` are conditionally assembled; code that
   references them must be inside matching `.ifdef` guards.
-- Suffix aliases (`str_dots`, `str_full`, `str_debug`, `str_tag_src`,
+- Suffix aliases (`str_dots`, `str_full`, `str_tag_src`,
   `str_tag_cse`, `str_dname`) depend on the
   host string's layout — changing the host string content will silently
   break the alias.

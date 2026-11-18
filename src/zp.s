@@ -118,7 +118,7 @@ read_ptr:       .res 2          ; sequential reader/save position (overlaps save
 ed_tmp:         .res 2          ; scratch (16-bit)
 ed_scr:         .res 2          ; screen pointer for rendering
 
-; ── Cross-module flags (Phase 21 Move 4) ─────────────────────────────── $57
+; ── Cross-module flags ───────────────────────────────────────────────── $57
 ; Shared 1-byte state bytes read across module boundaries — typically by
 ; a lower-layer module than the writer.  Hosting them here eliminates
 ; back-edges that would otherwise arise.  See doc/modules/zp.md for the
@@ -133,7 +133,7 @@ ed_dirty:       .res 1          ; buffer modified flag
 dbg_reason:     .res 1          ; DBG_NONE/RTS/BRK/NMI = 0-3 (dbg_reason.inc)
 cur_device:     .res 1          ; floppy device number (default 8)
 
-; ── Current project name (Phase 21.1 Move 6a) ─────────────────────────── $5E
+; ── Current project name ─────────────────────────────────────────────── $5E
 ; 17-byte filename stem (FILENAME_MAX + NUL).  Written by repl.s's
 ; parse_ls_args; read by editor.s (status bar), asm_src.s (;asm "PROJ"
 ; log line + save-suggestion emitter), and repl.s (logging).  Hosting
@@ -146,7 +146,7 @@ cur_device:     .res 1          ; floppy device number (default 8)
         .exportzp cur_project_name
 cur_project_name:       .res 17         ; FILENAME_MAX + 1
 
-; ── Shared output-formatter scratch (Phase 21.1 Move 3B) ──────────────── $6F
+; ── Shared output-formatter scratch ──────────────────────────────────── $6F
 ; General repl/log working registers.  Used by:
 ;   - repl.s's command handlers (cmd_memory, cmd_disasm, etc.) as
 ;     general 16-bit address/count scratch;
@@ -156,9 +156,9 @@ cur_project_name:       .res 17         ; FILENAME_MAX + 1
 ;   - log.s's range-line internals (rp_next_lo = saved screen row
 ;     pointer for the highlight pass).
 ;
-; Hosting here eliminates the Move-3 residual asm_src→repl back-edge
-; and saves ~200 B across the ~190 BSS access sites that shorten by
-; 1 byte apiece under ZP addressing.
+; Hosting here keeps asm_src and log free of a back-edge to repl, and
+; ZP addressing makes each of the ~190 access sites 1 byte shorter
+; than BSS would.
         .exportzp rp_addr, rp_cnt, rp_save, rp_save2
         .exportzp rp_next_lo, _info_mode
 rp_addr:        .res 2          ; working address / range start
