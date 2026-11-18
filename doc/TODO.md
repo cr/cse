@@ -1137,6 +1137,26 @@ documentation round that follows this filing.
   Fixed 2026-11-18 (d01cc76 on the track branch): `scr_src` at `$78–$79`,
   destination reuses `_io_scr`; user-free ZP is now `$7A–$7F`.
 
+### Code bugs — found by the doc-drift round (2026-11-18)
+
+- [ ] **`?` shows a 16-bit value whose low byte is 0 in the 8-bit
+  form**: `? $1000` prints `;   $00   4096` (`@calc_16bit` falls back
+  to the 8-bit form when the low byte is 0).
+- [ ] **`t nosuchsym` / `o nosuchsym` step anyway** after `;?expr
+  undef` (or do a cold preview) — the shape of the fixed `j` bug:
+  `cmd_step` treats an error as an empty argument.
+- [ ] **`b nosuch` prints `;?expr undef` and then an extra `;?syntax`.**
+- [ ] **`;!N: truncated` fires for a line of exactly 39 characters**,
+  which is not truncated.
+- [ ] **Steps chained inside the handler (`t N`, N > 1) skip the
+  `;!range` gate** — only the first step is range-checked, so a chained
+  step can patch `$00` into I/O or ROM-shadow memory.
+- [ ] **`warn_long_lines` keeps mutable bytes in CODE** (`@vcol`,
+  `@line`, `@tw`) — the same class as "Mutable bytes in CODE".
+- [ ] **A clean `make release debug` fails** with "No rule to make
+  target …/src/loader.o" (the `.d` dependency bootstrap); a second run
+  succeeds.
+
 ### Test gaps
 
 - [x] The loader never runs in a test (`load_prg` relocates in
