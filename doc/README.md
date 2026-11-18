@@ -1028,6 +1028,7 @@ it does not duplicate their content.
 | Which modules exist and how they connect | `architecture.md` (one-line summaries, links only) |
 | A term's definition | `glossary.md` |
 | Memory addresses and layout | `memory_design.md` |
+| A machine-specific address, KERNAL cell or register, or how a seam differs per platform | `platform_layer.md` (the constant or the seam's platform body) |
 | Project goals, components, priorities | `project.md` |
 | A bug, missing feature, or cleanup task | `TODO.md` |
 | Instruction set data (opcodes, profiles, modes) | `dev/instruction_set.py` |
@@ -1157,6 +1158,7 @@ rename at the cost of a single comparison byte at the consumer.
 | [memory_design.md](memory_design.md) | Memory maps (PRG/CRT), ZP layout, stack contract, banking |
 | [design_cse_as_kernel.md](design_cse_as_kernel.md) | Cross-cutting design: CSE-as-kernel framing, RTI/BRK transitions, vector ownership |
 | [userland_contract.md](userland_contract.md) | What user code may rely on / must preserve: three-tier state contract, kernel-as-terminal, vector/banking hazards |
+| [platform_layer.md](platform_layer.md) | The platform driver layer: the seams between CSE and the machine (KERNAL entries and cells, banking, maps, interrupt frame, screen, keyboard, loader) with each seam's contract per platform (c64, m65, c128) |
 | [build_system.md](build_system.md) | Toolchain, build pipeline, targets, options, test binaries |
 | [testing.md](testing.md) | The TDD Method, py65 harness conventions |
 

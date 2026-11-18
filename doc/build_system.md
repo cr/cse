@@ -430,7 +430,7 @@ Status: planned.  Its test bundles are R7 slice 1, Phase B
 ([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
 B1; `conftest.PROD_DEFS` holds the three C64 sets only), its PRG slice
 2 — the platform layer
-([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-prg-r7-platform-layer));
+([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer));
 until then `PLATFORM=m65` with a PRG target is refused.
 
 ### The m65 PRG

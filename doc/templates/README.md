@@ -13,7 +13,7 @@ must be defined here before the second instance is written.
 | Template | Applies to | Instances |
 |----------|------------|-----------|
 | [module.md](module.md) | `doc/modules/*.md` — one doc per source module | 23 |
-| [subsystem.md](subsystem.md) | `doc/*.md` — top-level subsystem docs | 9 |
+| [subsystem.md](subsystem.md) | `doc/*.md` — top-level subsystem docs | 10 |
 | [cdd_log_entry.md](cdd_log_entry.md) | `doc/cdd_log.md` entries — one per milestone | 2 |
 
 ## Non-templated top-level docs

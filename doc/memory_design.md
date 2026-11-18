@@ -389,62 +389,116 @@ to `_main`.
 
 ## Memory Map — m65 (MEGA65 mode)
 
-The m65 build is planned
-([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-prg-r7-platform-layer));
-the Makefile refuses `PLATFORM=m65` until it exists.  It runs in
-MEGA65 mode, on BASIC 65 and the MEGA65 KERNAL
-([build_system.md § The m65 PRG](build_system.md#the-m65-prg)).  The
-parts below are settled design; the ones marked S2-Q*n* are open
-design items of R7 slice 2, settled in its CDD Analysis.
+The m65 build is a native MEGA65-mode program on BASIC 65 and the
+MEGA65 KERNAL ([build_system.md § The m65 builds](build_system.md#the-m65-prg)).
+It lives in the banks the Hypervisor loads the C65 BASIC ROM into
+and leaves bank 0 to the user's programs: nothing of CSE's is tucked
+under the KERNAL, and no C64-style banking is used.  The seams
+through which the code reaches this map are owned by
+[platform_layer.md](platform_layer.md).  (Status: the plan of
+[TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer);
+the Makefile refuses `PLATFORM=m65` until P0 lands.)
 
-**PRG load image.**
+**Two 16-bit maps.**  The 45GS02 sees 64 K through the `MAP`
+register; CSE uses two settings, switched at every kernel ↔ user
+transition by the resident stub.  Both keep `$0000–$1FFF` in bank 0,
+I/O at `$D000` and the KERNAL at `$E000` → `3.E000` — the jump
+table's and the interrupt handlers' prerequisites — so the KERNAL's
+own IRQ handler runs unchanged in either.
 
-    $1FFF-$2000  PRG load address (2 bytes, file header)
-    $2001-$200C  BASIC 65 stub "SYS 8205"
-    $200D        Loader code (discardable bootstrap)
-      ...        CODE + RODATA payload
-      ...        KDATA payload (copied into the data area)
-    end of file
+    CSE map   $0000–$1FFF  bank 0: KERNAL variables; the resident stub at 0.1600
+              $2000–$7FFF  → 3.2000  CODE + RODATA (24 K; C65 BASIC's banks)
+              $8000–$BFFF  → 3.8000  CSE data (16 K; BASIC's graphics bank)
+              $C000–$CFFF  bank 0 (unmapped; $D030 ROMC cleared)
+              $D000–$DFFF  I/O         $E000–$FFFF  → 3.E000  KERNAL
+              MAPLO X=$F3 A=$00  ·  MAPHI Z=$B3 Y=$00   (one offset, $30000)
 
-The loader does what the C64 loader does
-([loader.md](modules/loader.md)): reset the stack, copy CODE + RODATA
-to the runtime position, zero BSS, copy KDATA into the data area,
-jump to `_main`.  For the D81 the PRG is wrapped with exomizer SFX
-`-t 65`, which decompresses to `$2001` before the stub runs.
+    user map  $0000–$CFFF  bank 0 RAM (the KERNAL's SYS map, ROMC cleared)
+              $D000–$DFFF  I/O         $E000–$FFFF  → 3.E000  KERNAL
+              MAPLO X=$00 A=$00  ·  MAPHI Z=$83 Y=$00
+
+**Banks and what is in them.**
+
+    0.0002–0.15FF  KERNAL variables (screen at 0.0800)      — the KERNAL's
+    0.1600–0.1EFF  the resident stub, then free               — CSE's stub, user's rest
+    0.2000–0.CFFF  user programs                              — the user's
+    1.0000–1.1FFF  DOS buffers                                — the KERNAL's
+    1.2000–1.F6FF  source text, growing down from 1.F700     — CSE's (§ Source Code Storage)
+    1.F700–1.FFFF  reserved; colour RAM window                — the KERNAL's
+    3.2000–3.7FFF  CODE + RODATA                              — CSE's
+    3.8000–3.BFFF  BSS, KDATA, symbol table, name heap,       — CSE's
+                   REPL screen save (sized for 80 × 50), the cold-init ZP snapshot
+    3.E000–3.FFFF  KERNAL                                     — the KERNAL's
+    4.0000–5.FFFF, Attic RAM                                  — the user's, untouched
+
+Banks 2–3 are RAM the Hypervisor loads from the SD card and
+write-protects; the loader lifts the protection (Hypervisor trap
+`$D640 ← $70`) before it writes bank 3.  C65 BASIC's image is thereby
+destroyed for the session; `x` is a Hypervisor reset (`RESET_RUN`
+A=1), which reloads it.
+
+**Reaching user memory.**  In the CSE map `$2000–$BFFF` is CSE
+itself, so the kernel never addresses the user's bank 0 through the
+window: every access goes through the user-memory seam
+([platform_layer.md § User memory](platform_layer.md#user-memory)),
+which is flat 28-bit access on m65.  The screen (`0.0800`) and the
+stub are in the unmapped `$0000–$1FFF` and are addressed directly in
+both maps.
+
+**The resident stub (`0.1600`).**  The only CSE code in bank 0:
+the `MAP`-to-CSE entries that the `IBRK` and `INMI` vectors point
+at and that the loader's cold start and a returning user run take,
+and the `MAP`-to-user entry that `j`, `g`, `c`, `t` and `o` take.  It
+is what the C64's `cse_brk_handler_early`, `bank_out_stub` and the
+`$FFFA`/`$FFFE` RAM shadows are there for — on m65 the KERNAL is
+mapped in every map, so no early entry exists.
+
+**Interrupts.**  `MAP` disables interrupts until the following `EOM`,
+so a map switch is atomic.  The KERNAL's IRQ handler stays
+installed and runs in whichever map is current.  BRK and NMI reach
+CSE through the vector table (`VECTOR`), with the KERNAL's five-byte
+frame (A, X, Y, Z, B) above the CPU's — [platform_layer.md § Vectors](platform_layer.md#vectors)
+and [§ Interrupt frame](platform_layer.md#interrupt-frame).
+
+**Install (the loader).**  The PRG loads at `$2001`, its BASIC 65
+stub `SYS 8205` starts the loader at `$200D` in bank-0 RAM.  The
+loader asserts the MEGA65 I/O personality, checks the ROM version
+(`VERSIONQ`), copies the stub to `0.1600`, lifts the ROM write
+protection, DMAs the payload into `3.2000` and clears `3.8000`, then
+jumps to the stub, which executes the `MAP` to the CSE map and
+`_main` — the cold boot vector.  The stub, not the loader, executes
+the `MAP`: the loader sits in the `$2000–$7FFF` window it is about
+to replace.  The D81's PRG is the same file; the cartridge's
+bootstrap runs the same sequence from the cartridge's bank
+([build_system.md § The m65 builds](build_system.md#the-m65-prg)).
+
+    $1FFF–$2000  PRG load address (file header)
+    $2001–$200C  BASIC 65 stub "SYS 8205"
+    $200D        loader (discardable; its DMA jobs are data)
+      ...        resident stub image, CODE + RODATA image, KDATA image
 
 **Instructions.**  All code is 6502 code.  The 45GS02-only
 instructions the platform layer needs are raw bytes from
-`src/m45_ops.inc`: `MAP` and `EOM` (banking), `[zp],Z` (flat 28-bit
-access), the `Z` register.  On the 45GS02 every documented NMOS
+`src/m45_ops.inc`: `MAP` and `EOM`, the DMA trigger, `[zp],Z` flat
+access, the `Z` register.  On the 45GS02 every documented NMOS
 opcode decodes to the same instruction as on the 6502, so the shared
 modules assemble unchanged; the 6510 illegal opcodes are 4510
 instructions there and never appear in cse's own code.  The
-differences that remain — cycle counts, the stack being 8-bit only
-while the `E` flag is set, read-modify-write instructions without the
-NMOS dummy write — are checked against the MEGA65 KERNAL's state in
+differences that remain — cycle counts, the stack being 8-bit while
+the `E` flag is set, read-modify-write instructions without the NMOS
+dummy write — are checked against the MEGA65 KERNAL's state in
 Tier X ([testing.md § Tier X](testing.md#tier-x--xmega65-m65-automated)).
 
-**Data area.**  What lives under the KERNAL ROM on the C64 (symbol
-table, name heap, KDATA, REPL screen save, cold-init ZP snapshot)
-lives in a RAM bank outside BASIC 65's use, mapped by `MAP` into a
-16-bit window, so the readers' `(zp),y` code is shared with the C64
-builds and only mem.s's bank-in/bank-out helpers differ (`MAP`/`EOM`
-instead of `$01` bit 1).  Which bank and window, and how interrupts
-behave while it is mapped, is S2-Q1.
+**Zero page.**  Base page 0 is shared with the KERNAL as on the C64
+(`B` = 0 at every KERNAL call; the `$02–$7F` snapshot at cold init,
+the swap at every transition).  A private base page and stack for
+user programs is a later contract change
+([TODO § M65 slice 2, A2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)).
 
-**Screen.**  MEGA65 mode boots an 80×25 screen at `$0800`.  The
-editor and REPL width is S2-Q2.
-
-**Zero page.**  Base page 0 shared with BASIC 65 and the KERNAL
-(saved and restored, as on the C64), or a private base page through
-the `B` register, is S2-Q3.
-
-**KERNAL interface.**  The jump table (`$FF81`–`$FFF3`) is the C64's:
-`CHROUT`, `CHRIN`, `GETIN`, `STOP`, `OPEN` are the same `JMP ($03xx)`
-stubs at the same addresses, and `LOAD`, `PLOT`, `SETLFS` sit at the
-same jump-table addresses.  KERNAL internals and RAM variables differ
-from the C64's ([§ KERNAL ZP locations](#kernal-zp-locations-readwritten-directly))
-and come from the m65 platform constants.
+**Screen.**  80 × 25 at the KERNAL's screen base (`0.0800`), 40 × 25
+and 80 × 50 by the editor's ESC sequences; the base, width and
+height are read from the hardware and the KERNAL, never assumed
+([platform_layer.md § Display](platform_layer.md#display)).
 
 ## Loader Module (loader.s)
 
@@ -485,6 +539,15 @@ assembly (`.org workstart`) and REPL expressions (`@ workend`,
 `buf_base − 1` and moves when the gap buffer is reset or grows:
 `update_workend` (gap_buffer.s) runs from `ed_init` (editor.s) and
 from `gb_ensure_room` after a gap grow.
+
+On m65 the gap buffer is not in the workspace: it is a 28-bit region
+in bank 1, growing down from `1.F700` into `1.2000–1.F6FF` (BASIC
+65's array and string space, idle while CSE runs); its base and cap
+are one pointer pair, so it relocates by changing them.  The user's
+bank 0 is wholly the user's, and `workend` is the user region's end
+([§ Memory Map — m65](#memory-map--m65-mega65-mode)).  The buffer's
+bytes are reached through the user-memory seam
+([platform_layer.md § Source text](platform_layer.md#source-text)).
 
 ## Zero Page Layout
 

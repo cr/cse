@@ -92,7 +92,7 @@ share: the recording session and the file writer):
   the test ends xmega65 with SIGTERM.
 
 Tests will live in `tests/emulator/` (planned:
-[TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-prg-r7-platform-layer),
+[TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer),
 S2-8; today `tests/xmega65.py` serves the golden-file recorders) and
 are skipped, with the reason, when
 `$(XMEGA65)` (the driver reads the `XMEGA65` environment variable) or
