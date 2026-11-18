@@ -18,10 +18,6 @@
 ; ── Imports: log.s ─────────────────────────────────────────
         .import log_line, log_open, log_close
         .import log_err, log_warn, log_info
-        ; log_err_eol / log_close_eol retired: callers use log_err /
-        ; log_close directly (trailing io_clear_eol was redundant —
-        ; show_prompt overwrites the new row; leading newline in the
-        ; err variant wasted a visual row).
         .import seg_line, prg_line, free_line
         .import info_line, info_line_head, info_line_tail
         .import puts_imm
@@ -45,7 +41,7 @@
         .import kernal_screen_reset
         .import theme_border, theme_bg, theme_fg
 
-; hex_val, is_hex, hex_val_to_char are now local (below)
+; _hex_val, _is_hex, _hex_val_to_char are local (below)
 
 ; ── Imports: assembler / disassembler ──────────────────────
         .import asm_line, asm_err_code
@@ -171,21 +167,22 @@ CUR_ROW       = $D6
 ;     rp_ptr2 = secondary pointer (output buffer, data src)
 ;     rp_tmp, rp_tmp2 = scratch bytes
 ;
-; BSS scratch:
+; More scratch (zp.s unless noted):
 ;   rp_addr (2) — address argument (cur_addr copy for commands)
 ;   rp_save (1) — saved byte (olen, cols, etc.)
 ;   rp_save2(1) — secondary scratch
 ;   rp_cnt  (2) — 16-bit counter
-;   rp_next_lo/hi (2+2) — secondary 16-bit scratch pair; save/load
-;                          use them for name pointers and addresses
+;   rp_next_lo (zp.s) / rp_next_hi (BSS below) (2+2) — secondary
+;                          16-bit scratch pair; save/load use them
+;                          for name pointers and addresses
 ; ═══════════════════════════════════════════════════════════
 
 ; ── BSS ────────────────────────────────────────────────────
-; Variables formerly in DATA are now BSS; initialized by main.s
-; startup or by first use.  BSS is zeroed at boot.
+; Initialized by main.s (reset_globals) or by first use.  BSS is
+; zeroed at boot.
 .segment "BSS"
 
-cur_addr:      .res 2          ; current memory address (init by splash)
+cur_addr:      .res 2          ; current memory address (init by main.s)
 last_cmd:       .res 1          ; last command byte
 block_size:     .res 2          ; block size for I/O (init by main.s)
 disk_name_buf:     .res FILENAME_MAX + 2   ; composed disk name (stem + optional ".")
@@ -306,8 +303,8 @@ confirm_yn:
 ;   In:  A/X = action stem string (e.g. "del src")
 ;   Out: A = keypress byte; C=1 yes, C=0 cancelled
 ;
-; Prints ";!<stem>? y/n " at LOG_WARN, then waits for y/n.  The
-; "? y/n " trailer is shared (str_qynq) so each action string is
+; Prints ";!<stem>? y/n" at LOG_WARN, then waits for y/n.  The
+; "? y/n" trailer is shared (str_qynq) so each action string is
 ; just the verb stem.  Any state-based warnings (unsaved, debug)
 ; are the caller's job and must be emitted BEFORE calling
 ; query_user (see warn_if_* helpers).
@@ -584,7 +581,7 @@ parse_hex4_ptr1:
 ; stack-shape contract on callers — see below.
 ;
 ; Used by commands that take "exactly one argument and nothing else"
-; (? @ B C, t/o, and any future one-shot).  See
+; (? @ B C j t o + - b d m).  See
 ; doc/modules/repl.md § Single-expression command contract.
 ;
 ; Stack contract: the caller must be exactly one jsr deep from
@@ -725,7 +722,7 @@ _syntax_err:
 ;   arming gate: stepping across the user's top-level RTS lands
 ;   at brk_stub (step_next_pc's @rts peeks the user stack and
 ;   returns (brk_stub-1)+1 = brk_stub).  brk_stub lives in CSE's
-;   CODE segment around $A000-range — outside the user workspace
+;   CODE segment, above the user workspace
 ;   — so the strict gate would refuse, leaving the user unable
 ;   to step past the top-level rts.  Step BRK arming at brk_stub
 ;   is a harmless no-op patch ($00 over $00); the handler's
@@ -1114,10 +1111,10 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ;   rp_addr = address. Returns instruction length in A.
 ; ═══════════════════════════════════════════════════════════
 .proc emit_dot
-        ; Stage bytes through the user-ZP redirect (no-op outside
-        ; a break context).  rp_ptr2 ends up pointing at either
-        ; zp_stage_buf or rp_addr — dasm_insn and emit_hex_cols
-        ; both read from rp_ptr2 uniformly.
+        ; Stage bytes through the user-ZP redirect (page-0 bases
+        ; only).  rp_ptr2 ends up pointing at either zp_stage_buf
+        ; or rp_addr — dasm_insn and emit_hex_cols both read from
+        ; rp_ptr2 uniformly.
         jsr zp_stage_prep_addr
 
         ; dasm_insn owns its KERNAL banking — we just call it.
@@ -1643,8 +1640,8 @@ zp_stage_prep_addr:                     ; convenience entry: load
         jeq @try_mne
 
         ; Stage bytes through the user-ZP redirect so the compare
-        ; reflects what the user would see (userland_zp_buf image
-        ; when a break is active, live memory otherwise).
+        ; reflects what the user sees (the userland_zp_buf image for
+        ; $00-$7F, memory elsewhere).
         jsr zp_stage_prep_addr
 
         ; Check if bytes changed vs the staged image
@@ -1665,7 +1662,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         lda rp_save
         beq @try_mne            ; not changed → try mnemonic
 
-        ; Write changed bytes (user-ZP aware).  rp_stage_prep above
+        ; Write changed bytes (user-ZP aware).  zp_stage_prep above
         ; may have repointed rp_ptr2 at zp_stage_buf; reset to
         ; rp_addr so zp_poke's redirect check sees the real address.
         lda rp_addr
@@ -1695,12 +1692,10 @@ zp_stage_prep_addr:                     ; convenience entry: load
         rts
 
 @try_mne:
-        ; Input-shape gate (Escape Analysis 2026-04-20):
+        ; Input-shape gate (repl.md § `.` command input-shape matrix):
         ;   empty / comment → silent redisplay (@show, valid)
         ;   a-z letter      → dot_assemble path
-        ;   anything else   → syntax error
-        ; Pre-fix, both "empty" and "other" fell through to @show,
-        ; silently swallowing garbage like `. .`, `. ,`, `. $`.
+        ;   anything else   → syntax error (`. .`, `. ,`, `. $`)
         jsr skip_peek_ptr1
         beq @show               ; NUL after skip — bare `.`, redisplay
         cmp #';'
@@ -1748,9 +1743,9 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ; ═══════════════════════════════════════════════════════════
 .proc cmd_disasm
         ; cmd_disasm takes no inline args; reject garbage at entry
-        ; (pop-trick).  Addressed form `1000:l` sets cur_addr via
+        ; (pop-trick).  Addressed form `1000:d` sets cur_addr via
         ; exec_line before this proc runs — rp_ptr on entry points
-        ; at what follows the `l` key.
+        ; at what follows the `d` key.
         jsr skip_sp_ptr1
         ldy #0
         jsr _require_eoi_or_err
@@ -1952,8 +1947,9 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ;
 ; `post_run_cleanup` is the inverse: called by `main_loop_top` after
 ; a break has longjmped back.  Shows break result, re-enables any
-; temporarily-disabled bp, clears step state, restores KERNAL-ZP
-; hygiene and VIC/color state.
+; temporarily-disabled bp, clears step state.  KERNAL-ZP / VIC /
+; colour hygiene is `hygiene_after_userland`, run earlier by
+; main.s's handler_finalize.
 ; ═══════════════════════════════════════════════════════════
 
 ; ── hygiene_after_userland — restore KERNAL/VIC state post-user-run ──
@@ -2065,7 +2061,7 @@ pre_userland_run:
 ; ═══════════════════════════════════════════════════════════
 ; cmd_step — 't' (step-into) / 'o' (step-over) command.
 ;
-; Seed-only under the Phase-18 handler-resident state machine.
+; Seeds the handler-resident step state machine; does not loop.
 ; Per debugger.md § dbg_reason × command matrix, gates by reason:
 ;
 ;   DBG_NONE  → cold preview (init brk_pc := cur_addr, emit
@@ -2351,9 +2347,7 @@ set_run_mode:
         ; Range-check: bp must land in [workstart, workend] —
         ; the user-code workspace.  bp_range_check enforces this
         ; against the dynamic buf_base (editor source area starts
-        ; just above workend).  Old check used __CODE_RUN__ as the
-        ; upper bound, which let bp's land in editor-source / heap
-        ; areas — wrong; tightened to buf_base.
+        ; just above workend).
         lda expr_val
         ldx expr_val+1
         jsr bp_range_check
@@ -3368,8 +3362,8 @@ prg_ok_done:
 ; Splash mode: only free sections, no highlight, no newline
 ; Full mode:   all sections, highlighted free, caller does newline
 .proc cmd_info
-        ; capture carry → _info_mode (0=full, 1=splash).
-        ; Dedicated BSS byte avoids ZP entirely — many puts below.
+        ; capture carry → _info_mode (zp.s; 0=full, 1=splash),
+        ; read by info_emit_rows and log.s's info_line family.
         lda #0
         adc #0
         sta _info_mode
@@ -4235,14 +4229,14 @@ step_cleanup:
 ;     exit (terminal session — user must type a fresh command).
 ;   * Else just show break result (NMI / external BRK paths).
 ; ═══════════════════════════════════════════════════════════
-; Stack headroom budget — must match main.s::kernel_stack_budget.
+; Stack headroom budget — must match debugger.s::kernel_stack_budget.
 ; See userland_contract.md § Kernel stack budget.  Kept as a local
-; literal rather than an import so the repl-only test harness (which
-; doesn't link main.s) can build unchanged.
+; literal rather than an import so the repl-only test binary (which
+; doesn't link debugger.s) builds unchanged.
 KSTK_MIN = 64
 
 .proc post_run_cleanup
-        ; B3: stack headroom warning.  If user's SP at break is below
+        ; Stack headroom warning.  If user's SP at break is below
         ; the documented kernel-reentry budget, log ";!stk N" where N
         ; is the remaining headroom (reg_sp as decimal).
         lda reg_sp

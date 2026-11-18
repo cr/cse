@@ -2,17 +2,24 @@
 
 **Template:** [module](../templates/module.md)
 
-REPL command interpreter and screen output.  Hex parsing helpers
-(`_hex_val`, `_is_hex`, `_hex_val_to_char`) are local to repl.s.
+The REPL command interpreter: it reads a screen row, parses an
+optional `AAAA:` address prefix and a one-character command, and
+dispatches to the command's handler.  It also owns the break panel
+that follows a run of user code and the cleanup that runs after it.
+Hex parsing helpers (`_hex_val`, `_is_hex`, `_hex_val_to_char`) are
+local to repl.s.
 
-The REPL is the body of CSE's ISR-style kernel.  `main_loop` resets
-SP to a known value at the top of each iteration, calls `show_prompt`
-/ `read_line` / `exec_line`, then loops.  When `exec_line` dispatches
-an execution command (`j`, `g`, `c`, `t`, `o`), the handler eventually
-calls `return_to_userland` (debugger.s) which RTIs to user code; control
-returns via `cse_brk_handler`'s longjmp back to `main_loop_top`.  See
+The REPL is the body of CSE's ISR-style kernel.  `main_loop`
+([main.md](main.md)) calls `read_line` / `exec_line` /
+`show_prompt`.  A command that runs user code (`j`, `g`, `c`, `t`,
+`o`) never enters user code itself: it stages the state, sets
+`run_user_pending` and returns, and `main_loop` jumps to the
+debugger's gate ([§ Command → userland dispatch](#command--userland-dispatch)).
+Control comes back through the BRK / NMI handler's longjmp to
+`main_loop_top`, which calls `post_run_cleanup`.  See
 [design_cse_as_kernel.md](../design_cse_as_kernel.md) for the design
-framing.
+framing.  The user-facing command reference is the root
+[README.md § REPL commands](../../README.md#repl-commands).
 
 ## Owned files
 
@@ -20,34 +27,101 @@ framing.
 |------|------|
 | [`src/repl.s`](../../src/repl.s) | implementation (assembly) |
 | [`tests/integration/test_repl.py`](../../tests/integration/test_repl.py) | test contract — Tier I (full PRG via `C64Emu`) |
-| [`tests/integration/test_repl_disk.py`](../../tests/integration/test_repl_disk.py) | test contract — Tier I disk-command paths (`l`, `s`, `$`) routed through `exec_line` |
+| [`tests/integration/test_repl_disk.py`](../../tests/integration/test_repl_disk.py) | test contract — `l`, `s` and `$` argument parsing on a bare-MPU binary (repl.s + `repl_test_stub.s`): the disk primitives are stubs that record their arguments, since C64Emu has no IEC device |
+
+Further REPL contracts live with the subsystem they exercise:
+`TestOutputHygiene` and `TestQueryUserOutcomes` in
+`tests/integration/test_kernel_transition.py` (run through
+`main_loop`).
 
 ## Interface
 
-- `exec_line()` — parse current screen line, dispatch command
-- `read_line()` — capture screen row at CUR_ROW into line_buf (PETSCII)
-- `show_prompt()` — write `AAAA:` at cursor using cur_addr
+### exec_line
+**In:** `line_buf` = the command line (NUL-terminated PETSCII, as
+`read_line` leaves it); `cur_addr`, `last_cmd`.
+**Out:** the command has run.  An `AAAA:` prefix has set `cur_addr`;
+the command may have moved `cur_addr`, set `last_cmd`
+([§ Repeat](#repeat)) or set `run_user_pending` (`j`/`g`/`c`/`t`/`o`;
+the caller clears it before the call and dispatches on it after).
+Most handlers return normally.  Three paths do not: `R` (yes) ends
+in `cse_refresh`, and the end-debug gates of `a` / `j` / `g` (yes)
+set `warm_cont` and jump to `cse_end_debug` — warmstarts that
+replay `line_buf` through `exec_line` ([main.md](main.md),
+[memory_design.md § Warmstart entry points](../memory_design.md#warmstart-entry-points)).
+`Q` (yes) sets `state = ST_STOP` and returns.
+**Clobbers:** A, X, Y, `rp_ptr`, `rp_ptr2`, `rp_tmp`, `rp_tmp2`,
+`rp_addr`, `rp_cnt`, `rp_save`, `rp_save2`, `rp_next_lo`, and
+whatever the dispatched command's callees clobber (expr, asm, dasm,
+disk, editor state).
 
-**State:**
-- `cur_addr` (uint16) — current address, default $1000
-- `cur_device` (uint8) — disk device number, default 8
-- `cur_project_name` (char[]) — stem of the current project (without
-  trailing type marker or dot); used to derive disk filenames for
-  `l` and `s`.  Default `"out"` when empty.
-- `last_cmd` (char) — last command (for RETURN repeat)
-- `block_size` (uint16) — block size for m/d/f/>/+/-, default $10
+### read_line
+**In:** `CUR_ROW` ($D6) = the screen row to read.
+**Out:** `line_buf` = the row's 40 characters, reverse-video bit
+stripped, screen codes converted by `scr_to_pet` (lowercase letters
+→ $41–$5A, SHIFTed letters → $C1–$DA), trailing spaces trimmed,
+NUL-terminated.
+**Clobbers:** A, X, Y, `rp_ptr`.
 
-**Logging API** — moved to [log.md](log.md) as of Phase 21.  All
-modules including repl.s now import the core `log_*` primitives
-directly from `log.s` (`log_open`, `log_close`, `log_line`,
-`log_err`, `log_warn`, `log_info`).  The repl-local
-`log_err_eol` / `log_close_eol` wrappers were retired (callers
-inline `log_err` + `io_clear_eol` or use `log_close` followed by
-`io_clear_eol` instead).
+### show_prompt
+**In:** `cur_addr`.
+**Out:** `AAAA:` written at column 0 of the cursor row; cursor at
+column 5.  Nothing else on the row changes (clearing the row is the
+previous handler's job, [§ Command handler principles](#command-handler-principles)).
+**Clobbers:** A, X, Y (and cse_io's screen pointer).
 
-**Range/info line family** — moved to [log.md](log.md) as of Phase 21
-(`seg_line`, `prg_line`, `free_line`).  repl.s imports them for
-`cmd_info` and the PRG save/load summary lines.
+### cmd_info
+**In:** C=0 full map (`i` command), C=1 splash mode (main.s's
+startup screen).
+**Out:** the memory-map rows ([§ `i` — Memory map](#i--memory-map));
+`_info_mode` = 0 full / 1 splash.  Splash mode prints only the free
+rows (zp, the two low fragments, work).
+**Clobbers:** A, X, Y, `rp_ptr`, `rp_ptr2`, `rp_addr`, `rp_cnt`,
+`rp_save2`, `rp_next_hi`, `rp_opc`; with source loaded also
+`ed_save_lines` / `ed_save_bytes`.
+
+### step_cleanup
+Ends a step: `step_state` = STEP_NONE, `step_remaining` = 0, the two
+step slots zeroed (`dbg_step_clear`), the breakpoint `cmd_step`
+disabled (`rp_dis_bp` = slot × 4) enabled again, `rp_dis_bp` = $FF.
+Called by `post_run_cleanup` (a step landed), `cmd_step` (a step was
+refused) and main.s's `end_debug_body` (the session ended).
+**In:** `rp_dis_bp`.  **Out:** as above.  **Clobbers:** A, X.
+
+### post_run_cleanup
+Called by `main_loop_top` after user code broke back into the kernel
+(`dbg_reason`, `step_state` or `run_user_pending` non-zero).
+**Out:** `;!stk N` (LOG_WARN) when `reg_sp` < 64
+(`KSTK_MIN`, the kernel stack budget — [userland_contract.md § Kernel stack budget](../userland_contract.md#kernel-stack-budget));
+then, if a step was running, `step_cleanup`; then the break panel
+(`show_break_result`, [debugger.md § Step output](debugger.md));
+`cur_addr` = `brk_pc`.  After a step that ended the session
+(`DBG_RTS`) `last_cmd` = 0, so RETURN does not repeat the step.
+**Clobbers:** A, X, Y and the REPL's ZP scratch.
+
+### hygiene_after_userland
+Called by main.s's `handler_finalize` on every return from user code.
+**Out:** `$CC` = 1 (KERNAL cursor off), `$0291` = $80 (SHIFT+C=
+charset toggle locked), the three SID voice control registers
+($D404/$D40B/$D412) = 0, `vic_reset`, `restore_colors`,
+`stop_cooldown` = 1 after an NMI break, `kernal_screen_reset`, then
+`io_sync`.
+**Clobbers:** A, X, Y.
+
+**State** (BSS, read by main.s):
+- `cur_addr` (word) — the current address shown in the prompt.
+  `reset_globals` (main.s) sets it to $0800 at cold start and on
+  `cse_recover`.
+- `block_size` (word) — block size for `m`, `d`, `+`, `-` and a bare
+  PRG `s`; default $0010 (`reset_globals`).
+- `last_cmd` (byte) — the repeatable command RETURN repeats
+  ([§ Repeat](#repeat)); cleared by `end_debug_body`.
+- `line_buf` (42 B) — the command line.  `cse_end_debug`'s replay
+  re-runs it.
+- `cold_preview_done` (byte) — set by `t`/`o`'s cold preview,
+  consumed by `set_run_mode`, cleared by `end_debug_body`.
+
+`cur_device` (default 8) and `cur_project_name` are REPL state kept
+in zero page; see [zp.md](zp.md).
 
 ### Memory
 
@@ -55,436 +129,457 @@ inline `log_err` + `io_clear_eol` or use `log_close` followed by
 
 | Variable | Size | Purpose |
 |----------|------|---------|
-| `cur_addr` | 2 | Current memory address (REPL prompt) |
-| `last_cmd` | 1 | Last executed command byte |
-| `block_size` | 2 | Block size for `+`/`-` commands |
+| `cur_addr` | 2 | Current address (REPL prompt) |
+| `last_cmd` | 1 | Repeatable command byte |
+| `block_size` | 2 | Block size |
 | `disk_name_buf` | 18 | Composed disk filename (FILENAME_MAX + 2) |
-| `_verbatim_type` | 1 | 0 / 's' / 'p' from strip_and_classify |
-| `_arg_count` | 1 | Numeric argument count from last parse (0–2) |
+| `_verbatim_type` | 1 | 0 / 's' / 'p' from `strip_and_classify` |
+| `_arg_count` | 1 | Numeric argument count from the last `l`/`s` parse (0–2) |
 | `line_buf` | 42 | Screen line capture buffer |
-| `dot_asm_buf` | 24 | Inline assembler instruction buffer |
-| `rp_next_hi` | 2 | cmd_step: next-instruction hi pair (lo lives in zp.s) |
-| `rp_opc` | 1 | cmd_step: saved opcode |
-| `rp_dis_bp` | 1 | cmd_step: disabled breakpoint slot |
-| `rp_hexbuf` | 3 | Hex byte parse buffer |
-| `cold_preview_done` | 1 | cmd_step cold-preview marker |
-| `zp_stage_buf` | 8 | User-ZP staging buffer for `m` dump and `.` disasm (see [User-ZP view](#user-zp-view)) |
+| `dot_asm_buf` | 24 | `.` instruction text handed to `asm_line` |
+| `rp_next_hi` | 2 | 16-bit scratch pair (`rp_next_lo` is in zp.s) |
+| `rp_opc` | 1 | Command character / scratch (`emit_mem` columns, `info_emit_rows` count) |
+| `rp_dis_bp` | 1 | `cmd_step`: disabled breakpoint slot × 4 ($FF = none) |
+| `rp_hexbuf` | 3 | `cmd_dot` hex byte parse |
+| `cold_preview_done` | 1 | Cold-preview marker |
+| `zp_stage_buf` | 8 | User-ZP staging buffer for `m` dump and `.` disasm ([§ User-ZP view](#user-zp-view)) |
 
-The 16-bit scratch pointers `rp_addr`, `rp_save`, `rp_save2`, `rp_cnt`,
-`rp_next_lo` and the byte `cur_device`, plus the project-name string
-`cur_project_name`, were migrated to zp.s in Phase 21.1.  The decimal
-output buffer `fbuf` was retired when log.s absorbed the formatting.
+`warn_long_lines` keeps its counters (`@vcol`, `@line`, `@tw`, 4 B)
+in CODE ([§ Caveats](#caveats)).
 
-**Depends on:** asm_src (`a`), editor (`n`/`l`/`s`), disk (`l`/`s`/`$`),
-debugger (`b`/`c`/`t`/`o`), asm_line (`.`), dasm (`d`), expr (`?`),
-symtab (`?` lookup), screen, log (logging primitives), asm_err
-(expr_error_str path), mem, cse_io, oplen_tbl, strings, zp (shared
-flags: `state`, `in_userland`, `warm_cont`, `dbg_reason`, `ed_dirty`,
-`stop_cooldown`)
+**Depends on:** asm_src (`asm_assemble`, `seg_print_save`), asm_line
+(`asm_line`, `reg_a`/`reg_x`/`reg_y`/`reg_sp`/`reg_p`), asm_err
+(`asm_err_code`), dasm (`dasm_insn`, `dasm_buf`), expr (`expr_eval`,
+`expr_error_str`), symtab (`sym_lookup`), breakpoints (`dbg_bp_set`,
+`dbg_bp_del`, `dbg_bp_clear`, `dbg_step_clear`, `bp_table`,
+`step_bp`, `dbg_bp_hit`), debugger (`brk_pc`, `brk_stub`,
+`step_next_pc`, `arm_step_bp`, `step_state`, `step_remaining`,
+`step_next_lo`, `step_next_hi`), main (`run_user_pending`,
+`stop_cooldown`, `cse_refresh`, `cse_end_debug`, `end_debug_body`),
+editor (`ed_save_source`, `ed_load_source`, `ed_new`,
+`ed_save_lines`, `ed_save_bytes`), gap_buffer (`ed_ensure_init`,
+`ed_total_lines`, `ed_read_rewind`, `ed_read_byte`, `src_top`,
+`src_bot`), disk (`list_directory`, `disk_load_prg`,
+`disk_save_prg`, `floppy_status`, `floppy_read_status`, `fl_buf`),
+mem (`userland_zp_buf`, `ZP_SAVE_LO`, `ZP_SAVE_LEN`, `cse_start`,
+`cse_end`), log (`log_*`, `seg_line`, `prg_line`, `free_line`,
+`info_line*`, `puts_imm`), cse_io, screen, strings, zp (`state`,
+`dbg_reason`, `warm_cont`, `ed_dirty`, `buf_base`, `asm_cpu`,
+`cur_device`, `cur_project_name`, the `rp_*` scratch)
 
 ## Design
 
 ### Prompting loop
 
-The main loop owns the prompt.  Command handlers never write it.
+The main loop ([main.md § Keyboard](main.md#keyboard)) owns the
+prompt; command handlers never write it.  On RETURN it calls
+`read_line` (the cursor row → `line_buf`), clears
+`run_user_pending`, calls `exec_line`, then either jumps to the
+userland gate (`run_user_pending` set) or calls `show_prompt` and
+waits for the next key.  `exec_line`:
 
-1. Assume the cursor is on the line where the prompt is to appear.
-2. Write `AAAA:` at column 0, where `AAAA` is `cur_addr`.
-3. Leave the cursor at column 5 for user input.
-4. Dispatch keystrokes to the keystroke handler; wait for RETURN.
-5. `read_line` — capture the screen row into `line_buf`.
-6. If the line begins with `AAAA:`, write `AAAA` to `cur_addr` and
-   consume five characters from the line.
-7. Seek to the first non-whitespace character; mark its column as
-   *start*.  Seek to the first `;` or end-of-line; mark that column
-   as *end*.
-8. If *start* = *end* and column 6 holds `;`: advance to the next
-   line, clear it, go to 1.
-9. If *start* = *end* (empty, no `;`): dispatch command repetition
-   (`last_cmd`), go to 1.
-10. Otherwise dispatch the line from *start* to *end* to the command
-    parser.
-11. Go to 1.
+1. Skips leading spaces.
+2. If the line starts with four hex digits and a `:`, sets
+   `cur_addr` to them and skips the prefix and following spaces.
+3. Reads the command character.
+   - NUL (empty line): if `last_cmd` is set, prints `AAAA:c` (the
+     repeated command after the address) on the row and dispatches
+     it with no arguments; else advances to a clean row.
+   - `;`: clears `last_cmd`, advances to a clean row (a comment
+     line is a no-op).
+4. Skips the command character and one following space, records a
+   repeatable command in `last_cmd`, and dispatches through the
+   command table ([§ Command dispatch](#command-dispatch)).
 
-`show_prompt` writes `AAAA:` and positions the cursor — nothing
-else.  Whether the prompt line is cleared before `show_prompt`
-runs is the responsibility of the previous command handler
-(principle 5).
+### Command dispatch
+
+The dispatch table is three parallel arrays local to `.proc
+exec_line`:
+
+- `@cmd_chars` — the command bytes, `0`-terminated.  Lowercase keys
+  are the PETSCII bytes `read_line` produces for unshifted letters
+  ($41–$5A, written `'a'` in the source); SHIFTed keys are $C1–$DA
+  (`B` = $C2, `C` = $C3, `Q` = $D1, `R` = $D2).
+- `@cmd_lo` / `@cmd_hi` — the handler addresses, `@h_<key>` labels
+  in the same proc.
+
+`exec_line` scans `@cmd_chars` for the command byte, loads the
+handler address into `rp_ptr2` and `jmp (rp_ptr2)`; no match is
+`;?cmd`.  A handler is either a `jmp` to a `cmd_…` proc or the
+command body inline.
+
+**Adding a command:** add the key byte to `@cmd_chars` and the
+handler's `<`/`>` bytes at the same index of `@cmd_lo` / `@cmd_hi`
+(the three rows must stay aligned), write `@h_<key>` (or a `jmp` to a
+`cmd_…` proc), add the key to [§ Free / reserved keys](#free--reserved-keys)
+and to the user manual.
+
+**Handler entry contract.**
+- `rp_ptr` points past the command character and at most one space:
+  at the first argument byte, a space, `;` or NUL.  Handlers that
+  accept more spaces skip them themselves (`skip_sp_ptr1`,
+  `skip_peek_ptr1`).
+- `cur_addr` already holds the `AAAA:` prefix value.
+- The stack is exactly as `main_loop`'s `jsr exec_line` left it:
+  the handler runs at exec_line's level (entered by `jmp`, no frame
+  of its own), so its final `rts` returns to `main_loop`.  The
+  pop-trick helpers below depend on this.
+
+**Shared parse helpers.**
+- `try_expr` — skips spaces, evaluates one expression at `rp_ptr`
+  and advances `rp_ptr` past it.  C=1: success, value in
+  `expr_val`.  C=0 and Z=1: empty (NUL or `;`).  C=0 and Z=0:
+  expression error; `try_expr` has already printed `;?expr <detail>`.
+  A command with an optional argument acts on "empty" only and does
+  nothing on an error ([§ Single-expression command contract](#single-expression-command-contract)).
+- `try_expr_or_err` — `try_expr`, then on success
+  `_require_eoi_or_err` on the rest of the line.  Same C/Z results;
+  trailing garbage never returns (pop-trick).
+- `_require_eoi_or_err` — Y = offset from `rp_ptr`; accepts only
+  spaces ($20 / $A0) then NUL or `;`.  On anything else it pops its
+  caller's return address and jumps to `log_err` (`;?syntax`), whose
+  `rts` returns to `main_loop`: the handler body stops at the check.
+  **One-jsr-deep rule:** call it (or `try_expr_or_err`) only from the
+  handler itself — one `jsr` below exec_line's level.  From a nested
+  subroutine it would drop the wrong frame.  `expr_or_blocksize`
+  (`+`/`-`) uses the same pop-trick for its error path, and
+  `parse_filename`'s unterminated-quote path drops three frames
+  (`get_filename`, `parse_ls_args`, `cmd_load`/`cmd_write`).
+- `_syntax_err` — the shared `;?syntax` tail (`jmp` or `jsr`).
+
+### Repeat
+
+`last_cmd` holds the last *repeatable* command: `.`, `d`, `m`, `t`,
+`o` (`@rep_chars`, scanned with `ldx #4`).  Other commands leave it
+unchanged; a `;` line, an empty line with nothing to repeat, and a
+step that ends the session (`DBG_RTS`) clear it.  RETURN on an empty
+prompt runs `last_cmd` at the current `cur_addr` with no arguments:
+`d` pages the disassembly, `m` the dump, `.` shows the next
+instruction, `t`/`o` take one more step.  `last_cmd` stores only the
+command character, no arguments.
 
 ### Command handler principles
 
-1. **The screen is the command buffer.**  Every screen line is
-   executable.  The parser reads from column 0 to `;` or end-of-line.
-   The screen operates in lowercase mode (VICII charset 2).
+1. **The screen is the command buffer.**  Every screen row is
+   executable.  The parser reads from column 0 to `;` or the end of
+   the row.  The screen uses the lowercase character set.
 
-2. **Commands are case-sensitive single characters.**  `a`–`z` and
-   `A`–`Z` are distinct command keys — 52 letter slots available.
-   Lowercase is the default; uppercase requires SHIFT.  `read_line`
-   maps lowercase screen codes ($01–$1A) to PETSCII $41–$5A and
-   uppercase screen codes ($41–$5A) to PETSCII $C1–$DA.
+2. **Commands are case-sensitive single characters.**  Lowercase
+   keys are the default; SHIFTed keys (`B`, `C`, `Q`, `R`) are
+   distinct commands — 52 letter slots.
 
-3. **Commands own their output lines.**  Every line a handler writes
-   must be `io_clear_eol`'d — no leftover characters from previous
-   content.
+3. **Commands own their output lines.**  Every row a handler writes
+   is `io_clear_eol`'d — no leftover characters.
 
 4. **Commands own their prompt line.**  In block-edit mode (`.` with
-   args, `m` with hex bytes), the handler rewrites its prompt line to
-   reflect the edited state.  What's on screen is the truth.
+   arguments, `m` with hex bytes) the handler rewrites its own row
+   to show the edited state.  What is on screen is the truth.
 
 5. **Commands own the next line's clearing.**  Before returning,
-   handlers clear the prompt line (`io_clear_eol`) so the loop's
-   `show_prompt` writes `AAAA:` onto a clean line.  Exception: `.`
-   and `m` in edit mode leave the next line intact — this is the
-   block-edit workflow (cursor up, modify, re-RETURN).  `show_prompt`
-   itself never clears.
+   handlers clear the row the prompt will go on, so `show_prompt`
+   writes `AAAA:` onto a clean row.  Exception: `.` and `m` in edit
+   mode leave the next row intact — the block-edit workflow (cursor
+   up, modify, RETURN again).
 
-6. **Non-executable output starts with `;`.**  Info text, status
-   lines, and error messages are prefaced with `;` so they're inert
-   if the user hits RETURN on them.
+6. **Non-executable output starts with `;`.**  Info, status and
+   error rows are inert when RETURN is pressed on them.
 
-7. **Executable output without a `cur_addr` relation omits `AAAA:`.**
-   If an output line is meant to be re-executable but doesn't
-   correspond to a sequential address, it has no address prefix.
+7. **Executable output without a `cur_addr` relation omits `AAAA:`**
+   (for example the `r` register row).
 
-8. **Auto-advance and repeat.**  Block-paging commands (`.`, `m`, `d`)
-   update `cur_addr` to the continuation address.  RETURN on an empty
-   prompt repeats `last_cmd` at the new `cur_addr`, always without
-   args (dump/disassemble mode).  This supports paging:
-   `d`‹RETURN›‹RETURN›‹RETURN› to scroll through disassembly, or
-   `.`‹RETURN›‹RETURN› to step one instruction at a time.
-   `last_cmd` stores only the command character — no args buffer.
+8. **Auto-advance.**  `.`, `m` and `d` leave `cur_addr` at the
+   continuation address, so [§ Repeat](#repeat) pages on.
 
-9. **Block commands are thin loops over single-line emitters.**  `d`
-   calls `emit_dot` repeatedly; `m` (dump) calls `emit_mem`
-   repeatedly.  The emitter is the unit of work.
+9. **Block commands are loops over single-line emitters.**  `d`
+   calls `emit_dot` per row, the `m` dump `emit_mem`.
 
-10. **`;` is a no-op command.**  Screen output accumulates as a
-    readable, scrollable log.
-
-11. **No spurious blank lines.**  Every row a command emits carries
-    content — a tag, a dump line, a disassembly, a register row, a
-    prompt.  Commands must never leave a fully-blank row (all `$20`)
-    between their first output row and the following prompt.
-    Screen real estate is scarce (25 rows, minus splash / reserved
-    rows); blank rows that serve no separator purpose are a bug.
-
-    Enforced by a single smoke test (`TestOutputHygiene`) that runs
-    a representative slice of commands and fails if any blank row
-    appears in the output region.  Individual command output layout
-    (row counts, cursor-up arithmetic, panel heights) is verified
-    on real hardware / VICE rather than pinned by unit contracts.
+10. **No spurious blank lines.**  Every row a command emits carries
+    content.  A fully blank row between a command's first output row
+    and the next prompt is a bug.  Pinned by one smoke test,
+    `TestOutputHygiene`, over a representative slice of commands;
+    individual layouts (row counts, cursor arithmetic) are checked
+    on real hardware / VICE, not pinned by unit contracts.
 
 ### Error reporting
 
-Errors use the prefix `;?` — the `;` makes the line non-executable
-(principle 5), the `?` signals an error.  Examples:
+Errors are `;?<tag>` (LOG_ERR), warnings `;!<tag>` (LOG_WARN), info
+`; <text>` ([log.md](log.md)).  The REPL's tags:
 
-    ;?asm           assembly error
-    ;?cmd           unknown command
-    ;?name          missing filename
-    ;?range         invalid address range
+| Row | Source |
+|-----|--------|
+| `;?syntax` | trailing garbage, bad `.`/`r`/`C` input, unterminated `"`, `b` with a bad argument |
+| `;?expr <detail>` | expression error (`exp val`, `ovfl`, `exp )`, `undef`, `div0`) |
+| `;?cpu` | `.` mnemonic refused by the CPU mode |
+| `;?cmd` | unknown command key |
+| `;?range` | `b ADDR` outside the workspace; PRG `s` of size 0 |
+| `;?full` | `b ADDR` with all 8 breakpoint slots in use |
+| `;?bad val` | `b -N` with N not 1–8 |
+| `;?no ctx` | `c` without a resumable session; `t`/`o` after the session ended |
+| `;?fail` | disk load / save failed |
+| `;?too big` | SEQ file larger than the source buffer |
+| `;!range` | a step refused: its BRK would land outside the workspace |
+| `;!unsaved`, `;!debug` | gate warnings ([§ Gating pattern](#gating-pattern)) |
+| `;!long LNN` | a loaded / saved source line wider than 39 columns |
+| `;!stk N` | user SP below the kernel stack budget at a break |
 
-The `?` expression calculator is not confused by this because `;`
-terminates parsing before `?` is reached.
+The source assembler's own rows (`;?N: <msg>`, `;!N: truncated`,
+`; N err`) are owned by [asm_src.md](asm_src.md); the user-facing
+list is [README.md § Error and warning messages](../../README.md#error-and-warning-messages).
 
 ### Block-edit workflow
 
 The block-edit workflow is how the user inspects and modifies code or
 data in bulk.  It has two phases: **dump** and **edit**.
 
-**Dump phase** — `d` and `m` (without args) are block commands.  They
-operate on `block_size` bytes and output a screenful of executable
-lines:
+**Dump phase** — `d` and `m` (without edit bytes) operate on
+`block_size` bytes and print executable rows:
 
-- `d` outputs `AAAA:. HH HH HH  MNE OPR` lines (via `emit_dot`)
-- `m` outputs `AAAA:m HH HH HH HH HH HH HH HH;cccccccc` lines
-  (via `emit_mem`).  The `;` separator before the ASCII column
-  makes the line re-executable: `_require_eoi_or_err` accepts
-  `;` as valid EOI, so cursor-up + RETURN treats the trailing
-  ASCII as a comment and the 8 hex bytes as an edit-write.
+- `d` prints `AAAA:.  HH HH HH  mne opr` rows (`emit_dot`).
+- `m` prints `AAAA:m HH HH HH HH HH HH HH HH;cccccccc` rows
+  (`emit_mem`).  The `;` before the character column makes the row
+  re-executable: `_require_eoi_or_err` accepts `;` as the end of
+  input, so RETURN on the row treats the characters as a comment and
+  the 8 hex bytes as an edit.
 
-Each output line is a valid command.  The block command clears the
-final prompt line and stops.  The screen is now a buffer of editable
-commands.
+The block command clears the final prompt row and stops.  The screen
+is now a buffer of editable commands.
 
-**Edit phase** — the user cursors to any line on screen:
+**Edit phase** — the user cursors to any row:
 
-- Modify hex bytes in an `m` line, press RETURN → `m` re-executes
-  with the edited bytes, rewrites the line to reflect the new memory
-  state, advances `cur_addr`.
-- Modify the mnemonic or operand in a `.` line, press RETURN → `.`
-  re-assembles, rewrites the line with the new disassembly, advances.
+- Change hex bytes in an `m` row, RETURN → `m` writes them, rewrites
+  the row from memory, advances `cur_addr`.
+- Change the bytes, mnemonic or operand in a `.` row, RETURN → `.`
+  pokes or re-assembles, rewrites the row, advances.
 
-When `.` or `m` are called **with arguments** (the user edited a
-dump line and pressed RETURN), they enter block-edit mode:
-1. Execute the edit (assemble instruction / write bytes)
-2. Rewrite their own prompt line to reflect the new state (principle 3)
-3. Do **not** clear the next line (principle 5 exception)
-4. Advance `cur_addr` to the continuation address (principle 8)
+With arguments, `.` and `m`:
+1. Execute the edit (assemble / write bytes).
+2. Rewrite their own row to the new state.
+3. Do **not** clear the next row.
+4. Leave `cur_addr` at the continuation address.
 
-The handler returns.  The prompting loop writes `AAAA:` over the
-first five columns of the trailing line (updating the address
-prefix) without clearing the rest — the existing dump content
-from column 5 onward remains intact and editable.
-
-Without arguments, these same commands are in dump mode (`.` disassembles
-one line; `m` dumps `block_size` bytes) and clear the prompt line
-normally.
-
-The user can continue editing the next line or cursor back to edit
-another line.  This creates a fluid cycle: dump → edit → re-execute
-→ advance, all without leaving the screen.
+The prompting loop then writes `AAAA:` over the first five columns of
+the next row without clearing the rest — the dump content from column
+5 on stays editable.  Without arguments the same commands are in dump
+mode (`.` shows one instruction, `m` dumps `block_size` bytes) and
+clear the prompt row normally.
 
 ### The `.` command in detail
 
-The `.` handler has three modes:
+The `.` handler (`cmd_dot`) has three modes:
 
-1. **With hex byte args that differ from memory:** write the bytes to
-   memory at `cur_addr`.
-2. **With hex byte args that match memory:** pass the remaining text
-   (mnemonic + operand) to the line assembler.
-3. **Without args:** disassemble one instruction at `cur_addr`.
+1. **Hex bytes that differ from memory:** write them at `cur_addr`.
+2. **Hex bytes that match memory, followed by text:** assemble the
+   text (mnemonic + operand) — the path a re-executed `d` row takes.
+3. **No arguments:** disassemble one instruction at `cur_addr`.
 
-**Expression support:** In mode 2, the operand is evaluated through
-`expr_eval` before being passed to the line assembler.  This means
-full expressions work in the `.` command:
+**Expression support.**  In mode 2 (and for a bare `. mne opr`) the
+operand is evaluated by `expr_eval` before `asm_line` sees it, so
+full expressions work:
 
     1000:. lda screen+$20     ; label + arithmetic
-    1000:. sta <addr           ; lo byte operator
-    1000:. ldx #cols-1         ; constant expression
+    1000:. sta <addr          ; lo byte operator
+    1000:. ldx #cols-1        ; constant expression
 
-Symbols and labels from the last source assembly (`a` command) are
-available, since the symbol table heap persists between assemblies.
+Symbols from the last `a` are available (the symbol table persists
+between assemblies).
 
-The mnemonic word is copied whole — the three-letter key and its
-suffix, a bit digit or `q` ([asm_line.md § Mnemonic word](asm_line.md#mnemonic-word)).
-The operand is evaluated to a numeric value, formatted as `$XX` or
-`$XXXX` (based on `expr_wide`), and the prefix/suffix characters
-(`#`, `(`, `[` on `MEGA_SUPPORT`; `,x`, `)`, `),z`, `,sp),y`, `]`, etc.)
-are preserved around it.  The formatted string is then passed to
-`_asm_line_core` which handles only hex operands.
+`dot_assemble` copies the mnemonic letters (`a`–`z`, at most 8; a
+digit ends the word, so bit-op mnemonics such as `rmb3` are not
+assembled here — TODO § M65 "Bit-op mnemonics are not assembled"),
+keeps a leading `#` and `(`, evaluates the operand to `$XX` or
+`$XXXX` (by `expr_eval`'s width result), copies the rest of the
+operand (`,x`, `)`, `),y` …) unchanged, and passes the text to
+`asm_line` with `asm_pc` = `asm_out` = `cur_addr`.  An operand that is
+the bare accumulator `a` is evaluated as an expression too, so
+`. asl a` is `;?syntax`; write `. asl` (TODO § Planned › Assembler).
+The m65 build's prefixes and suffixes (`[`, `,z`, `,sp`) are planned
+(TODO § M65 B7).
 
-In all three cases, the handler finishes by disassembling the
-instruction at `cur_addr` and rewriting the prompt line with the
-result.  What's on screen always reflects the actual memory state.
+In all three modes the handler finishes by disassembling the
+instruction at `cur_addr` and rewriting its row with the result.
 
-**User-ZP redirect (mode 1 and 3).**  See [User-ZP view](#user-zp-view)
-below.  When `cur_addr` is in the save range, mode 1 (hex poke)
-writes to `userland_zp_buf` and mode 3 (disasm) reads from
-`userland_zp_buf` — so the `.` line always shows the user's ZP
-image and edits survive `c` (continue).  Mode 2 (inline mnemonic
-assembly into ZP) is intentionally not redirected: it writes
-through the asm_line pipeline to live memory.  If the user wants
-to put a byte into user ZP, they use the hex-poke form.
+**User-ZP redirect (modes 1 and 3).**  See [§ User-ZP view](#user-zp-view).
+Mode 2 (assembly) writes through `asm_line` to live memory and is not
+redirected; to put bytes into user ZP, use the hex-poke form.
+
+#### `.` command input-shape matrix
+
+Testing matrix: `tests/integration/test_repl.py::TestDotHexEdit`.
+
+| After the `.` (+ whitespace) | Behaviour | Example |
+|---|---|---|
+| Nothing (`NUL`) | Redisplay of the current instruction | `.` |
+| `;` comment | Redisplay | `. ; note` |
+| Two hex digits + space/`;`/NUL, up to 3 pairs | Hex-byte poke at `cur_addr` | `. a9 42` |
+| Letter `a`–`z` (mnemonic start) | Assemble via `dot_assemble` | `. lda #$00` |
+| **Anything else** | **`;?syntax`** | `. .`, `. ,`, `. $`, `. 123` |
+
+On the m65 build (planned, TODO § M65 B7) the poke takes up to 5
+pairs, the build's maximum instruction length.
+
+#### Error tag dispatch (mnemonic-assemble path)
+
+When `dot_assemble` returns 0 the handler reads `asm_err_code` (set
+by [asm_err.s](asm_err.md)):
+
+| `asm_err_code` | Tag | Example trigger |
+|---|---|---|
+| 0 | `;?syntax` | unknown mnemonic, bad mode for the profile |
+| 1 | `;?expr <detail>` | undefined symbol, overflow — `<detail>` from `expr_error_str` |
+| 2 | `;?cpu` | mnemonic refused by the CPU mode (`phy` on 6502, illegal NMOS on 65C02) |
+
+An operand expression error found by `dot_assemble` itself (before
+`asm_line`) also returns 0; the tag then follows whatever
+`asm_err_code` holds.
 
 ### User-ZP view
 
 ZP locations in the save range `[ZP_SAVE_LO, ZP_SAVE_LO +
-ZP_SAVE_LEN)` (today $00–$7F, exported from [mem.s](../../src/mem.s))
-have two relevant images:
+ZP_SAVE_LEN)` ($00–$7F, exported from [mem.s](../../src/mem.s))
+have two images:
 
-- **Live ZP** — CSE's own ZP (restored on userland exit via
-  `save_userland_zp` + `restore_kernel_zp`).
+- **Live ZP** — CSE's own ZP while the kernel runs.
 - **Saved user ZP** — `userland_zp_buf` (128 B BSS, owned by
-  `mem.s`), seeded by `dbg_init` at cold boot ($00=$2F, $01=$36,
-  rest zero) and refreshed on every userland → kernel transition.
-  On `c`, the debugger restores this image back to live ZP before
-  RTI.
+  [mem.md](mem.md)), seeded by `dbg_init` at cold start and refreshed
+  on every userland → kernel transition.  The next entry into user
+  code restores it.
 
-The `m` and `.` commands **always** read from and write to the
-saved image for addresses in the save range — CSE's own live ZP
-within that range is an implementation detail and is never shown
-to or accepted from the REPL user.  Both reads and writes go
-through the redirect:
+The `m` and `.` commands **always** read and write the saved image
+for addresses in the save range — CSE's live ZP there is never shown
+to or accepted from the REPL user:
 
 | Command | Path | Redirect |
 |---------|------|----------|
-| `m` dump | read 8 bytes for display | yes — stages from `userland_zp_buf` via `zp_stage_buf` |
-| `m` edit | `sta (addr)` per edited byte | yes — writes land in `userland_zp_buf` |
-| `.` disasm (no args) | read up to 3 bytes for the disassembler | yes — stages into `zp_stage_buf`, `dasm_insn` reads from there |
-| `.` hex poke | `sta (addr)` for each parsed byte | yes — writes land in `userland_zp_buf` |
-| `.` mnemonic | asm_line emits via `asm_pc` | **no** — goes to live memory (documented; see mode 2 above) |
+| `m` dump | read 8 bytes for display | yes — staged from `userland_zp_buf` into `zp_stage_buf` |
+| `m` edit | write each edited byte | yes — lands in `userland_zp_buf` |
+| `.` disasm | read up to 3 bytes for the disassembler | yes — staged into `zp_stage_buf` |
+| `.` hex poke | write each parsed byte | yes — lands in `userland_zp_buf` |
+| `.` mnemonic | `asm_line` emits at `asm_pc` | **no** — live memory |
 
-The redirect gate: effective address in `[ZP_SAVE_LO, ZP_SAVE_LO
-+ ZP_SAVE_LEN)` (currently $00–$7F).  For writes the effective
-address is the full 16-bit `base + offset`, which wraps past
-`$FFFF` to `$0000` as the CPU's `(zp),y` does: an edit run that
-starts at `$FFFC` lands its fifth byte in the user's `$00`
-(`userland_zp_buf`), never in the live CPU port or CSE's own ZP.  Outside that range, reads
-and writes go to live memory — $80–$FF is KERNAL territory and
-not mirrored in `userland_zp_buf`, and addresses past page 0 are
-real workspace.
+For writes (`zp_poke`) the effective address is the full 16-bit
+`base + offset`, which wraps past `$FFFF` to `$0000` as `(zp),y`
+does: an edit run that starts at `$FFFC` lands its fifth byte in the
+user's `$00` (`userland_zp_buf`), never in the live CPU port or CSE's
+own ZP.  Reads (`zp_stage_prep`) are redirected only when the base
+address is in page 0; a display run that wraps past `$FFFF` reads
+live ZP (open, TODO § Code bugs "Edits past `$FFFF`").  Outside the
+save range reads and writes go to memory: $80–$FF is KERNAL ZP and
+not mirrored.
 
-Implementation: the `zp_stage_prep` helper in repl.s fills the
-8-byte `zp_stage_buf` from (rp_ptr2), mixing `userland_zp_buf`
-bytes for in-range offsets with live `(rp_ptr2),y` reads for the
-rest, and re-points rp_ptr2 at the staged buffer so downstream
-consumers (`dasm_insn`, `emit_hex_cols`, the compare loop in
-cmd_dot) read the view uniformly.  The `zp_poke` helper mirrors
-this for single-byte writes: given A=byte, rp_ptr2+Y=effective
-address, it stores into `userland_zp_buf[addr - ZP_SAVE_LO]` for
-in-range effective addresses, else to live `(rp_ptr2),y`.  Both
-live in repl.s and are used only there — other modules read live
-ZP directly through their own `(ptr),y` indirections.
-
-Range-gating assumes the save range lies entirely within page 0
-(`ZP_SAVE_LO + ZP_SAVE_LEN ≤ $100`) and `ZP_SAVE_LO = 0` (lower
-bound is trivially satisfied and elided).  If either assumption
-changes, the helpers need an explicit lower-bound check.
+`zp_stage_prep` fills the 8-byte `zp_stage_buf` from `(rp_ptr2)`,
+taking `userland_zp_buf` bytes for in-range offsets and live bytes
+for the rest, then points `rp_ptr2` at the buffer, so `dasm_insn`,
+`emit_hex_cols` and `cmd_dot`'s compare loop read the view
+uniformly.  `zp_poke` (A = byte, `rp_ptr2` + Y = address) mirrors it
+for single-byte writes.  Both assume the save range lies in page 0
+and `ZP_SAVE_LO` = 0 (the lower-bound test is elided); the
+`INTROSPECT` build compiles both to plain live access.
 
 ### Line format and address handling
 
-`AAAA:cmd [args]` or bare `cmd [args]`.  `;` terminates parsing
-(inline comment).
+`AAAA:cmd [args]` or bare `cmd [args]`; `;` ends parsing.  The
+`AAAA:` prefix is always four plain hex digits.  Commands operate on
+`cur_addr`; `.`, `m` and `d` leave it past the bytes they handled,
+`@`, `+`, `-` set it, a break panel sets it to the break PC, and `a`
+sets it to `main` when the source defines one.
 
-If the line begins with `AAAA:`, the parser sets `cur_addr` to AAAA
-before dispatching the command.  Commands operate on `cur_addr`, which
-they may override with an optional address argument of their own.
-After execution, commands update `cur_addr` to point past all the
-bytes they consumed.
+Row formats (40 columns):
 
-### Line editor rules
+    AAAA:.  HH HH HH  mne opr                 . / d (3 byte columns)
+    AAAA:m HH HH HH HH HH HH HH HH;cccccccc   m
+    r pc:XXXX a:XX x:XX y:XX s:XX nv-bdizc    r (set flags uppercase)
 
-The REPL's line editor operates within the 40-column screen:
-
-1. **Cursor movement stays within the screen.**  Left/right/up/down
-   move within the visible 40×25 area.  No wrapping between lines,
-   no scrolling.
-2. **Character insertion fills up to column 38.**  Column 39 is
-   reserved for the cursor.  Overflow shifts characters out at the
-   right edge.
-3. **DEL (backspace) left-deletes.**  Content right of the cursor
-   shifts left; a space shifts in from the right edge.  Stops at
-   start of line.  If column 5 contains `:` (a clean prompt line),
-   stops at column 6 to protect the `AAAA:` prefix.  Cursor
-   movement can still position past the `:` for on-screen edits.
-4. **INS right-shifts.**  Content at and right of the cursor shifts
-   right; a space opens at the cursor.  Overflow at column 38 is
-   lost.
-
-### Line formats (40 columns)
-
-    AAAA:. HH HH HH  MNEMONIC OPERAND     asm / disasm (C64 builds)
-    AAAA:. HH HH HH HH HH  MNEMONIC OPERAND     asm / disasm (m65)
-    AAAA:m HH HH HH HH HH HH HH HH cccc hex dump / edit
-    r pc:XXXX a:XX x:XX y:XX s:XX Nv-bDizc CPU registers (UC=set)
+The REPL's line-editing keys (DEL, INS, cursor keys, HOME,
+SHIFT+CLR/HOME) are main.s's: [main.md § Keyboard](main.md#keyboard).
 
 ### Commands — Memory
 
 | Key | Name     | Addressed | Example                     | Notes                                      |
 |-----|----------|-----------|-----------------------------|----------------------------------------------|
-| `m` | memory   | yes       | `1000:m` dump, `1000:m A9 00...` edit | Bare = dump `B` bytes; with hex = edit.  Rejects trailing garbage after the (optional) ADDR or after the last edit byte (§ Single-expression command contract). |
+| `m` | memory   | yes       | `1000:m` dump, `1000:m a9 00 …` edit, `m 2000` dump at $2000 | An optional 4-digit hex address (not an expression) after `m` overrides `cur_addr`.  Bare = dump `block_size` bytes; with hex pairs = edit up to 8 bytes.  Rejects trailing garbage (§ Single-expression command contract). |
 
 ### Commands — Assembly / Disassembly
 
 | Key | Name       | Addressed | Example              | Notes                                        |
 |-----|------------|-----------|-----------------------|----------------------------------------------|
-| `.` | asm/disasm | yes       | `1000:. lda #$00`    | Single instruction; full expressions in operands. See *Input-shape matrix* below. |
-| `d` | disassemble| yes       | `1000:d`              | Disassemble `b` bytes (block mode).  Takes no inline args; rejects trailing content (§ Single-expression command contract). |
-| `a` | assemble   | —         | `a`                   | Assemble source buffer (two-pass)            |
-
-#### `.` command input-shape matrix
-
-The dot command has three valid input shapes plus an explicit
-rejection cell.  Testing matrix:
-`tests/integration/test_repl.py::TestDotHexEdit`.
-
-| After the `.` (+ whitespace) | Behaviour | Example |
-|---|---|---|
-| Nothing (`NUL`) | Silent redisplay of current line | `.` |
-| `';'` comment | Silent redisplay | `. ; note` |
-| Two hex digits + space/NUL (1 to the build's maximum instruction length: 3 pairs on C64, 5 on m65) | Hex-byte poke at `cur_addr` | `. a9 42` |
-| Letter `a`–`z` (mnemonic start) | Mnemonic assemble via `dot_assemble` | `. lda #$00` |
-| **Anything else** | **Syntax error** (`;?syntax`) | `. .`, `. ,`, `. $`, `. 123` |
-
-Pre-fix (Escape Analysis 2026-04-20), the "anything else" cell
-silently fell through to the redisplay path — `. .` emitted nothing
-and produced no error.  The `@try_mne` gate in `cmd_dot` now
-distinguishes "nothing after `.`" (valid silent redisplay) from
-"non-letter garbage" (syntax error).
-
-#### Error tag dispatch (mnemonic-assemble path)
-
-When `dot_assemble` returns 0 (assembly failed), the dispatcher
-reads `asm_err_code` (set by the unwind exit in
-[asm_err.s](asm_err.md)) and picks the tag:
-
-| `asm_err_code` | Tag emitted | Example trigger |
-|---|---|---|
-| 0 | `;?syntax`      | unknown mnemonic, bad mode for profile |
-| 1 | `;?expr <detail>` | undef symbol, overflow, paren mismatch — `<detail>` from `expr_error_str` |
-| 2 | `;?cpu`         | mnemonic rejected by the CPU-mode gate (PHY on 6502, illegal NMOS on 65C02, etc.) |
-
-The strings live in [`strings.s`](../../src/strings.s) — `str_syntax`,
-`str_cpu_err`, plus the per-rc table referenced by `expr_error_str`.
+| `.` | asm/disasm | yes       | `1000:. lda #$00`    | Single instruction; full expressions in operands.  See the input-shape matrix. |
+| `d` | disassemble| yes       | `1000:d`              | Disassemble `block_size` bytes.  Takes no arguments; rejects trailing content. |
+| `a` | assemble   | yes       | `a`                   | Assemble the source buffer; the default origin is `cur_addr` ([asm_src.md](asm_src.md)).  Prints `; asm...`, the segment rows, then `; ok` and the executable save row, or `; N err`.  On success `dbg_reason` = DBG_NONE and `cur_addr` = `main` if defined. |
 
 ### Commands — Execution
 
 | Key | Name | Addressed | Example          | Notes                                      |
 |-----|------|-----------|------------------|--------------------------------------------|
-| `j` | jump | yes       | `1000:j` or `j main` | Start execution at expression. Patches breakpoints, enters debugger loop. Shows registers on break/RTS.  When an expression is provided, rejects trailing garbage (§ Single-expression command contract). |
-| `g` | go   | —         | `g`              | Shorthand for `j main`. Falls back to `j cur_addr` if `main` undefined. |
-| `c` | continue | —    | `c`              | Continue from last break (BRK/NMI). Error if no active break context. |
+| `j` | jump | yes       | `1000:j` or `j main` | Run at the expression, or at `cur_addr` when bare; an expression error runs nothing.  Rejects trailing garbage. |
+| `g` | go   | —         | `g`              | Run at `main`; at `cur_addr` when `main` is undefined. |
+| `c` | continue | —    | `c`              | Resume a resumable session (`DBG_BRK`/`DBG_NMI`), else `;?no ctx`.  Deletes the breakpoint that was hit, steps past a user `BRK` at `brk_pc`, then resumes; after a cold preview it is a fresh start ([debugger.md § `c`](debugger.md)). |
+
+The debug-session gates of these commands, `t`/`o`, `a` and `R` are
+[debugger.md § `dbg_reason` × command matrix](debugger.md) (owner).
 
 ### Commands — Debug / Trace
 
 | Key | Name      | Addressed | Example         | Notes                                    |
 |-----|-----------|-----------|-----------------|------------------------------------------|
-| `r` | registers | —         | `r` or `r a:05...` | View / edit CPU registers             |
-| `b` | breakpoint| —         | `b $1020`, `b main`, `b -1`, `b *` | Set (expr), delete, list. See [debugger.md](debugger.md).  The `b ADDR` set-form rejects trailing garbage (§ Single-expression command contract). |
-| `t` | trace     | —         | `t` or `t 5`    | Step-into EXPR instructions (bare = single step). Enters subroutines. Rejects trailing garbage (§ Single-expression command contract). |
-| `o` | trace over| —         | `o` or `o 5`    | Step-over EXPR instructions (bare = single step). JSR runs to completion. Rejects trailing garbage (§ Single-expression command contract). |
+| `r` | registers | —         | `r` or `r a:05 x:07` | Bare = show.  Fields by label in any order and subset: `a:XX` `x:XX` `y:XX` `s:XX` `pc:XXXX` (hex digits) and the 8-character flags field (`nv-bdizc`; uppercase = set, lowercase / `-` / `.` = clear; bit 5 stays 0).  The whole line is checked before anything is applied; a bad field is `;?syntax`. |
+| `b` | breakpoint| —         | `b $1020`, `b main`, `b -1`, `b *`, `b` | Set (expression; must be in the workspace, else `;?range`; an address already set reuses its slot), delete slot 1–8, clear all, list the 8 user slots.  A bad set argument is `;?syntax` (after the `;?expr` row for an expression error).  See [breakpoints.md](breakpoints.md). |
+| `t` | trace     | —         | `t` or `t 5`    | Step into, count = expression (default 1).  No session: cold preview.  Rejects trailing garbage. |
+| `o` | trace over| —         | `o` or `o 5`    | Step over (a `jsr` runs to completion), otherwise as `t`. |
+
+`t`/`o` take the count as a 16-bit expression; 0 and an empty
+argument mean 1.  An expression error in the count is reported and
+the command then runs with count 1 (unlike `j`).
 
 ### Commands — Navigation
 
 | Key | Name    | Addressed | Example       | Notes                                    |
 |-----|---------|-----------|---------------|------------------------------------------|
-| `@` | seek    | —         | `@ $C000` or `@ main` | Set `cur_addr` to expression; bare = no-op.  Rejects trailing non-whitespace / non-comment content as a syntax error (§ Single-expression command contract). |
-| `B` | block   | —         | `B $40`       | Set block size (expression); bare = show (uppercase).  Rejects trailing garbage (§ Single-expression command contract). |
-| `+` | forward | —         | `+` or `+ $20` | Advance cur_addr by block_size (or expr).  Rejects trailing garbage (§ Single-expression command contract). |
-| `-` | back    | —         | `-` or `- $20` | Retreat cur_addr by block_size (or expr).  Rejects trailing garbage (§ Single-expression command contract). |
+| `@` | seek    | —         | `@ $1000` or `@ main` | Set `cur_addr` to the expression; bare or an expression error = no change.  Rejects trailing garbage. |
+| `+` | forward | —         | `+` or `+ $20` | Advance `cur_addr` by the expression, or by `block_size` when bare or 0; an expression error moves nothing.  Rejects trailing garbage. |
+| `-` | back    | —         | `-` or `- $20` | As `+`, backwards. |
 
 ### Commands — I/O
 
 | Key | Name   | Addressed | Example              | Notes                                   |
 |-----|--------|-----------|----------------------|-----------------------------------------|
-| `l` | load   | yes       | `l "proj"`  / `l "proj" $c000` | Load SEQ by default; PRG when args present |
-| `s` | save   | yes       | `s "proj"`  / `s "proj" $2000` | Save SEQ by default; PRG when args present |
-| `$` | disk   | —         | `$`, `$9`             | Directory listing, drive select. See below. |
+| `l` | load   | yes       | `l "proj"` / `l "proj" $2000` | Load SEQ by default; PRG when address arguments are present |
+| `s` | save   | yes       | `s "proj"` / `s "proj" $2000` | Save SEQ by default; PRG when address arguments are present |
+| `$` | directory | —      | `$`, `$ 9`            | Directory listing; selects a device first.  See [§ Directory listing](#directory-listing). |
 
 ### Project-name and filename semantics (`l` and `s`)
 
 The user interacts with projects by **stem name**, not disk filename.
-Disk filenames are derived from the project stem + mode.  For each project
-"proj":
+Disk filenames are derived from the project stem + mode.  For each
+project "proj":
 
 - **Source (SEQ)** lives on disk as the bare stem `proj`.
 - **Binary (PRG)** lives on disk as `proj.` (trailing dot).
 
-Two files with the same stem cannot coexist on a CBM DOS disk (the type
-byte in the directory doesn't disambiguate the filename lookup), so the
-trailing dot is how CSE distinguishes the two artefacts of one project.
+Two files with the same stem cannot coexist on a CBM DOS disk (the
+type byte in the directory doesn't disambiguate the filename lookup),
+so the trailing dot is how CSE distinguishes the two artefacts of one
+project.
 
-**Project name storage** (`cur_project_name`):
-The stem of the last-used project, updated whenever the user supplies a
-quoted name.  Default `"out"` when empty.  On store:
+**Project name storage** (`cur_project_name`): the stem of the
+last-used project, updated whenever the user supplies a quoted name;
+`"out"` when none was ever given.  On store:
 1. Strip a trailing `,s` or `,p` suffix (if present).
 2. Strip any trailing dot(s) from the remaining string.
-3. Copy the result to `cur_project_name`.
+3. Copy the result (at most 16 characters) to `cur_project_name`.
 
 This prevents dot or suffix accumulation across consecutive saves.
 
 **Argument parsing** (shared between `l` and `s`, strictly positional):
 
 1. Optional `"quoted name"`.  Quotes required.  An unterminated
-   string (opening quote without matching closing quote before
-   end-of-input) is a syntax error: `;?syntax` is logged and the
-   command aborts before any disk I/O.  The empty form `""` and
-   the bare form (no quote) are both valid — see Mode classification.
-2. Numeric args via the expression parser, up to two.  Stops at first
-   failed expression, `;`, or end of input.
+   string (opening quote without a closing quote) is `;?syntax` and
+   the command aborts before any disk I/O or name change.  The empty
+   form `""` and the bare form (no quote) both reuse the project
+   name.
+2. Numeric arguments via the expression parser, up to two.  Parsing
+   stops at the first failed expression, `;` or the end of input.
 
-Count of numeric args → slots:
+Count of numeric arguments → slots:
 
 | Args | start    | end   |
 |------|----------|-------|
@@ -494,359 +589,288 @@ Count of numeric args → slots:
 
 **Mode classification** (shared):
 
-- Name ends with `,s`/`,S` (comma at second-to-last position):
-  **SEQ (verbatim)** — use the bare name (suffix stripped).
+- Name ends with `,s`/`,S`: **SEQ (verbatim)** — use the bare name
+  (suffix stripped).
 - Name ends with `,p`/`,P`: **PRG (verbatim)** — use the bare name.
-- Any other 2-char suffix starting with `,` is not recognised and
-  treated as part of the name (no verbatim classification, no strip).
-- Else if numeric args > 0: **PRG (derived)**.
+- Any other 2-character suffix starting with `,` is part of the name.
+- Else if numeric arguments > 0: **PRG (derived)**.
 - Else: **SEQ (derived)**.
 
 **Disk filename**:
 
-- Verbatim: the bare typed name (suffix stripped, **trailing dot kept**).
+- Verbatim: the typed name (suffix stripped, **trailing dot kept**).
 - SEQ (derived): `cur_project_name`.
 - PRG (derived): `cur_project_name` + `.`.
 
-**Save PRG end-address semantics** (save only).  Inclusive end, matching
-the `AAAA-BBBB` display convention used everywhere else:
+**Save PRG end-address semantics** (save only).  Inclusive end,
+matching the `AAAA-BBBB` display convention used everywhere else:
 
-- `end == 0` → `size = block_size` (bare `s` default).
-- `end <= start` → `size = end` (length fallback — treat the arg as a
-  byte count rather than an address).
+- `end == 0` → `size = block_size` (bare PRG `s`).
+- `end <= start` → `size = end` (the argument is a byte count).
 - `end > start` → `size = end - start + 1` (absolute inclusive end).
+
+A size of 0 is `;?range`.
 
 **Load semantics**:
 
-- SEQ: start and end are unused; load into editor via
-  `ed_load_source(name)`.
-- PRG: `end` is the target address.  `end == 0` → use the PRG header's
-  load address (SETLFS SA=1 path).  Otherwise load to `end` (SA=0 path).
+- SEQ: start and end are unused; load into the editor via
+  `ed_load_source(name)`.  With unsaved edits the `l` gate asks first
+  ([§ Gating pattern](#gating-pattern)).
+- PRG: `end` is the target address.  `end == 0` → the PRG header's
+  load address (SETLFS SA=1 path).  Otherwise load to `end` (SA=0).
 
-**Examples**:
+After a successful SEQ load or save the REPL prints `; Nl Mb` and
+one `;!long LNN` per line wider than 39 columns (`warn_long_lines`;
+the editor shows such lines with `>` in column 39); a PRG load or
+save prints `; prg AAAA-BBBB NNb` ([log.md](log.md)).  Both end with
+the drive status row.
+
+**Examples** (addresses are workspace addresses):
 
 | Command | Mode | Disk name | Addresses |
 |---------|------|-----------|-----------|
 | `s "demo"`                  | SEQ derived | `demo`  | — (source) |
 | `s "demo" $1000`            | PRG derived | `demo.` | start=cur_addr end=$1000 |
 | `s "demo" $1000 $2000`      | PRG derived | `demo.` | start=$1000 end=$2000 |
-| `s "demo" $1000 $100`       | PRG derived | `demo.` | start=$1000 end=$1100 (fallback) |
-| `s "demo,p"`                | PRG verbatim | `demo` | start=cur_addr end=cur_addr+blocksize |
+| `s "demo" $1000 $100`       | PRG derived | `demo.` | start=$1000 size=$100 (fallback) |
+| `s "demo,p"`                | PRG verbatim | `demo` | start=cur_addr size=block_size |
 | `s "demo,s"`                | SEQ verbatim | `demo` | — |
 | `s "demo.,p"`               | PRG verbatim | `demo.` | (dot preserved) |
 | `s`                         | reuse project | derived | — (SEQ if no args) |
 | `s $1000`                   | PRG, reuse project | `proj.` | start=cur_addr end=$1000 |
 | `l "demo"`                  | SEQ derived | `demo`  | load into editor |
 | `l "demo" 0`                | PRG derived | `demo.` | load at PRG header address |
-| `l "demo" $c000`            | PRG derived | `demo.` | load to $c000 |
+| `l "demo" $2000`            | PRG derived | `demo.` | load to $2000 |
 | `l "demo,p"`                | PRG verbatim | `demo` | load at PRG header |
 
-**Auto-generated save line (from `a`)**: after successful assembly
-`seg_print_save` emits `AAAA:s "project" $EEEE` where AAAA is the lowest
-origin and EEEE is the highest byte (inclusive, matching the `AAAA-BBBB`
-range convention).  The address argument forces PRG mode; disk name
-becomes `project.`.  Pressing RETURN on this line saves the binary.
+**Auto-generated save line (from `a`)**: after a successful assembly
+`seg_print_save` ([asm_src.md](asm_src.md)) prints
+`AAAA:s "project" $EEEE`, where AAAA is the lowest emitted address
+and EEEE the highest (inclusive) and `project` is
+`cur_project_name` (`out` when empty).  The address argument makes
+it a PRG save to `project.`; RETURN on the row saves the binary.
 
 ### Commands — Info / Utility
 
 | Key   | Name    | Addressed | Example               | Notes                                |
 |-------|---------|-----------|----------------------|--------------------------------------|
-| `i`   | info    | —         | `i`                  | Show memory map                       |
-| `?`   | calc    | —         | `? 1000+20`          | Hex expression calculator.  Takes exactly one complete expression; rejects trailing non-whitespace / non-comment content as a syntax error (§ Single-expression command contract). |
-| `k`   | kill    | —         | `k`                  | Clear source buffer; guards unsaved   |
-| `B`   | block   | —         | `B 40` or `B`       | Set/show block size (uppercase)        |
-| `C`   | color   | —         | `C 06` or `C 0e6`   | Set text/bg/border color (uppercase).  1–3 hex digits; rejects non-hex trailing content (§ Single-expression command contract). |
-| `u`   | cpu     | —         | `u 6502` or `u 65c02` | Set CPU mode for asm/disasm        |
-| `Q`   | quit    | —         | `Q`                  | Exit CSE (uppercase; guards unsaved)  |
-| `R`   | reset   | —         | `R`                  | Warmstart (uppercase; ends debug if active, then refreshes screen) |
-| `x`   | clear   | —         | `x`                  | Clear screen                          |
-| `;`   | comment | —         | `; note`             | No-op (inline comment)                |
+| `i`   | info    | —         | `i`                  | Show the memory map |
+| `?`   | calc    | —         | `? $1000+20`         | Expression calculator: hex, decimal, and for values below 256 binary and signed.  Takes exactly one expression; rejects trailing garbage. |
+| `k`   | kill    | —         | `k`                  | Delete the source buffer (gated) |
+| `B`   | block   | —         | `B $40` or `B`       | Set block size (expression; 0 or an error keeps it); always shows `; blk=XXXX`.  Rejects trailing garbage. |
+| `C`   | color   | —         | `C 6`, `C 06`, `C 0e6`, `C` | Set fg / bg+fg / border+bg+fg from 1–3 adjacent hex digits; bare = show.  See [§ `C`](#c--color-uppercase). |
+| `u`   | cpu     | —         | `u 6502`, `u 6510`, `u 65c02` | Set the CPU mode for `.`, `a` and the disassembler; always shows the modes. |
+| `Q`   | quit    | —         | `Q`                  | Exit CSE (gated) |
+| `R`   | reset   | —         | `R`                  | Warmstart (gated); ends any debug session, redraws the screen |
+| `x`   | clear   | —         | `x`                  | Clear the screen |
+| `;`   | comment | —         | `; note`             | No-op; clears the repeat command |
 
 ### Single-expression command contract
 
 A subset of REPL commands take **exactly one complete expression
-and nothing else**.  Currently covered: `?` (calc), `@` (seek),
-`B` (block size), `C` (color), `j` (jump), `t`/`o` (trace),
-`+`/`-` (advance/retreat), `b ADDR` (breakpoint set), `d` (disasm,
-no inline args), `m` (memory — final-arg check on both `@dump`
-and `@ed_done` sub-forms).
+(or none) and nothing else**: `?`, `@`, `B`, `C`, `j`, `t`/`o`,
+`+`/`-`, `b ADDR`, `d` (no arguments), `m` (after the optional
+address and after the last edit byte).
 
-For these commands, the parser's
+For these commands the parser's
 [expr.md § Partial-mode contract](expr.md#partial-mode-contract)
-is a footgun: `expr_eval` returns success on `"1x"` with `expr_val = 1`
-and `expr_ptr` at `'x'`, which is correct for assembler-operand
-callers (`$10,X` is a valid prefix for INX mode) but silently wrong
-for a single-expression command.  The caller **must** enforce
-end-of-input after a successful parse:
+is a footgun: `expr_eval` returns success on `"1x"` with
+`expr_val = 1` and `expr_ptr` at `'x'`, which is right for operand
+callers (`$10,x`) but wrong for a single-expression command.  The
+caller **must** enforce end of input after a successful parse:
 
-1. Skip trailing whitespace (`$20`, `$A0`) at the parse pointer.
-2. Verify the next byte is `$00` (end of `line_buf`) or `';'` (comment
-   start).  Anything else is trailing garbage.
-3. On garbage: emit `;?syntax` as a log_err line, no value applied.
+1. Skip trailing whitespace (`$20`, `$A0`).
+2. Verify the next byte is NUL or `;`.  Anything else is garbage.
+3. On garbage: `;?syntax`, no state change.
 
-Implementation: the shared `_require_eoi_or_err` helper in `repl.s`
-does all three steps.  On clean EOI it returns; on garbage it pops
-the caller's return address and tail-calls `log_err` with
-`str_syntax`, so control flows back to `exec_line` and the command
-body never runs past the check.  Callers must invoke the helper
-**before** applying any state change (cur_addr, block_size, theme
-colors) — otherwise garbage input would leave state half-modified.
-
-Test contract:
-`tests/integration/test_repl.py` parametrises trailing-garbage
-rejection cases for each command:
-
-- `TestCalculator::test_calc_rejects_trailing_garbage` (6 cases)
-- `TestAddressCommands::test_seek_rejects_trailing_garbage` (4 cases)
-- `TestBlockSize::test_block_rejects_trailing_garbage` (3 cases)
-- `TestColorCommand::test_color_rejects_trailing_garbage` (3 cases)
-
-Plus whitespace / comment acceptance tests where relevant to
-distinguish valid-empty-tail cases from garbage.
+`_require_eoi_or_err` does all three ([§ Command dispatch](#command-dispatch)
+for its pop-trick and the one-jsr-deep rule).  Callers invoke it
+**before** applying any state change (`cur_addr`, `block_size`,
+theme colours), so garbage never leaves state half-modified.
 
 **A bad expression is not an empty one.**  `try_expr` returns C=1 on
 success; on C=0 it sets Z=1 for an empty argument and Z=0 for an
-expression error (whose `;?expr …` line it has already printed).  A
+expression error (whose `;?expr …` row it has already printed).  A
 command whose argument is optional acts on "empty" only: `j` with no
-argument jumps to `cur_addr`, `+`/`-` with none move by `block_size`,
-but `j nosuchsym` or `+ 1/0` print the error and do nothing — no run,
-no move.  (`TestBadExpressionAborts`.)
+argument jumps to `cur_addr`, `+`/`-` with none move by
+`block_size`, but `j nosuchsym` or `+ 1/0` print the error and do
+nothing — no run, no move (`TestBadExpressionAborts`).  `@` and `B`
+likewise change nothing on an error.  `t`/`o` are the exception
+noted under [§ Commands — Debug / Trace](#commands--debug--trace).
 
-**Not (yet) covered:** `+` and `-` share the class but are
-complicated by their `expr_or_blocksize` fallback (empty → use
-block_size).  Adding the EOI check without emitting a double
-error on `+ undefsym` needs a distinct design — tracked as a
-follow-up.
+Test contract (`tests/integration/test_repl.py`): parametrised
+trailing-garbage rejection per command —
+`TestCalculator::test_calc_rejects_trailing_garbage`,
+`TestAddressCommands::test_seek_rejects_trailing_garbage`,
+`TestBlockSize::test_block_rejects_trailing_garbage`,
+`TestColorCommand::test_color_rejects_trailing_garbage` — plus
+whitespace / comment acceptance cases.
 
 ### Gating pattern
 
-Several commands need the user to confirm a state-changing
-operation, sometimes after acknowledging a precondition (dirty
-editor, active debug session).  The pattern is uniform:
+Commands that change state the user may want to keep ask first, after
+showing why:
 
-1. Emit any applicable **warning lines** via `warn_if_unsaved`
-   and/or `warn_if_debug`.  Both are tail-to-`log_line` helpers
-   that print `;!unsaved` or `;!debug` at LOG_WARN level when
-   the condition holds, no-op otherwise.  Stacking order when
-   both fire: **unsaved first, debug second**.
-2. Emit the **action prompt** via `query_user`, which prints
-   `;!<stem>? y/n ` at LOG_WARN and waits for a y/n key.
-3. If `query_user` returns C=1 (yes): proceed with the action.
-   C=0 (no) → cancel.
-
-This decomposes the old dirty/clean composite strings (`;!unsaved.
-quit? y/n`) into orthogonal warning + prompt lines, so any
-combination of conditions composes without per-command variant
-strings.
+1. **Warning rows** via `warn_if_unsaved` (`;!unsaved` when
+   `ed_dirty` ≠ 0) and/or `warn_if_debug` (`;!debug` when
+   `dbg_reason` ≠ 0), at LOG_WARN.  Both are no-ops otherwise.
+2. **The prompt** via `query_user(A/X = stem)`, which prints
+   `;!<stem>? y/n` at LOG_WARN and waits for a key.
+3. `query_user` returns C=1 on `y` (proceed); any other key is C=0
+   (cancel — the command changes nothing).
 
 Gate matrix (the commands that use this pattern):
 
 | Command | Warnings | Prompt | Yes-path |
 |---------|----------|--------|----------|
-| `k` | `warn_if_unsaved` | `str_del_src` → `;!del src? y/n` | clear source |
-| `Q` | `warn_if_unsaved` | `str_quit` → `;!quit? y/n` | set `state = ST_STOP` → `cse_exit_to_basic` |
-| `R` | `warn_if_debug` (if active) | `str_end_dbg` → `;!end debug? y/n` if active, else `str_init` → `;!init? y/n` | `end_debug_body` if active + `jmp cse_refresh` |
-| `a` | `warn_if_debug` (skipped when debug inactive) | `str_asm` → `;!asm? y/n` (only when debug active) | `warm_cont := 1; jmp cse_end_debug` |
-| `l` | `warn_if_unsaved` (SEQ only), `warn_if_debug` | `str_load` → `;!load? y/n` (when any warning fires) or proceed silently | `warm_cont := 1; jmp cse_end_debug` (debug case) or load directly |
+| `k` | `;!unsaved` if dirty | `;!del src? y/n` (always) | `ed_new` |
+| `Q` | `;!unsaved` if dirty | `;!quit? y/n` (always) | `state = ST_STOP` → `cse_exit_to_basic` |
+| `R` | — | `;!init? y/n` (always) | `end_debug_body` (no-op without a session) + `cse_refresh` |
+| `a` | `;!debug` | `;!asm? y/n` — only in a resumable session (`DBG_BRK`/`DBG_NMI`) | `warm_cont := 1`, `cse_end_debug` (the session ends, then `a` is replayed) |
+| `j`, `g` | `;!debug` | `;!go? y/n` — only in a resumable session | as `a` |
+| `l` (SEQ) | `;!unsaved` | `;!load? y/n` — only when the source is dirty | load |
 
-When **no warning fires and the action isn't inherently
-destructive**, the prompt is skipped entirely and the action runs
-directly.  That keeps the common "clean state" case frictionless:
-`a` at a clean REPL just assembles; `l "foo"` with no edits and no
-debug just loads.
+Without a prompt the command runs directly: `a`/`j`/`g` outside a
+resumable session, `l` with a clean buffer, every PRG `l`, every `s`.
+The debug-session part of this matrix is
+[debugger.md § `dbg_reason` × command matrix](debugger.md) (owner).
+`c`, `t`, `o` are not gated; they refuse with `;?no ctx` where the
+session does not allow them.
 
-The `c` (continue) command is **not gated** — it requires an
-active debug context and errors with `;?no ctx` via `log_err`
-when `dbg_reason == 0`.
-
-`query_user` confirms on `y` only; any other key cancels and the
-command changes nothing.  Every gate's yes and no outcome (`k`, `Q`,
-`R`, the `j` and `a` end-debug gates, the `l` dirty-source gate) is
-pinned by `TestQueryUserOutcomes` in
-`tests/integration/test_kernel_transition.py`, typed through
-`main_loop`.
+Every gate's yes and no outcome (`k`, `Q`, `R`, the `j` and `a`
+end-debug gates, the `l` dirty-source gate) is pinned by
+`TestQueryUserOutcomes` in `tests/integration/test_kernel_transition.py`.
 
 ### Internal helpers
 
-**`confirm_yn`** — shows the cursor (`cursor_show`), waits for a
-keypress (`io_getc`), hides the cursor (`cursor_hide`).  Returns
-Z=1 if the key was `y`.  Used by `query_user`.
+**`confirm_yn`** — `cursor_show`, `io_getc`, `cursor_hide`.  Returns
+Z=1 if the key was `y`.  Clobbers A.
 
-**`query_user(A/X = action-stem str)`** — prints `;!` + stem + `? y/n `
-at LOG_WARN, runs `confirm_yn`, returns A = keypress byte and
-C=1 on yes, C=0 on cancel.  The `? y/n ` trailer is a single
-shared string (`str_qynq`) printed by the helper, so each action
-string is just the verb stem (`"del src"`, `"quit"`, etc.).  Pure
-print-prompt-wait; no state-based variant selection.
+**`query_user(A/X = action stem)`** — prints `;!` + stem + `? y/n`
+(`str_qynq`) at LOG_WARN, runs `confirm_yn`; returns A = the key,
+C=1 on yes, C=0 on cancel (the prompt row cleared).  Each action
+string is just the verb stem (`"del src"`, `"quit"`, `"init"`,
+`"asm"`, `"go"`, `"load"`).
 
-**`warn_if_unsaved`** — emits `;!unsaved` at LOG_WARN when
-`ed_dirty != 0`.  Tail-calls `log_line`; no-op when clean.
+**`warn_if_unsaved`** / **`warn_if_debug`** — see above; tail-call
+`log_warn`.
 
-**`warn_if_debug`** — emits `;!debug` at LOG_WARN when
-`dbg_reason != 0`.  Tail-calls `log_line`; no-op when no debug
-context.
+The dirty flag `ed_dirty` is owned by the editor ([editor.md](editor.md)).
 
-The dirty flag (`ed_dirty`) is maintained by editor.s: set on any
-insert/delete, cleared on save (`ed_save_source`) and load
-(`ed_load_source`).  Exported for repl.s to read.
+### Command → userland dispatch
 
-### The `R` command (reset)
+Execution commands (`j`, `g`, `t`, `o`, `c`) never RTI into user code
+from inside their own `jsr` frame.  Each stages state and sets
+`run_user_pending`, then returns to `main_loop`:
 
-`R` (uppercase) is the explicit warmstart key.  Behaviour:
+* `MODE_JUMP` — fresh start; the gate pushes a `brk_stub - 1`
+  sentinel so the user's top-level RTS returns to `brk_stub`.  Set by
+  `cmd_jmp` (`j`/`g`, after `brk_pc` := `cur_addr`), and by
+  `set_run_mode` for the first `t`/`o`/`c` after a cold preview
+  (consuming `cold_preview_done`).
+* `MODE_RESUME` — resume from an existing break; the sentinel of the
+  session's fresh start is still on the user stack.  Set by
+  `set_run_mode` otherwise.
 
-| State | Prompt | Yes-path |
-|-------|--------|----------|
-| No active debug | `; init? y/n` | `jmp cse_refresh` |
-| Active debug | `;!debug` + `; end debug? y/n` | `jsr end_debug_body` + `jmp cse_refresh` |
+`main_loop` (main.s) then jumps to `return_to_userland` (MODE_JUMP) or
+`restore_userland_state` (MODE_RESUME), both in
+[debugger.md](debugger.md).  Control returns through the BRK / NMI
+handler's longjmp to `main_loop_top`, not to the command.
 
-After a successful yes, the screen is cleared, the prompt row is
-redrawn, and main_loop starts fresh.  The editor buffer is
-preserved ([memory_design.md § Editor invariant](../memory_design.md#editor-invariant)).
+`pre_userland_run` (shared by `j`/`g`/`t`/`o`) moves to a fresh row
+and drains the keyboard buffer (`$C6` = 0) so the user's first CHROUT
+and GETIN start clean; `c` drains the buffer itself.
+`hygiene_after_userland` runs on every return from user code
+([§ hygiene_after_userland](#hygiene_after_userland)).
 
-**Command → userland dispatch (Phase 18 pattern).**  Execution
-commands (`j`, `g`, `t`, `o`, `c`) never RTI into userland from
-inside their own jsr frame.  Instead each command *stages* state
-and sets a mode flag, then rts normally up to `main_loop`:
+**`cmd_step` (`t` / `o`)** does not loop.  With no session it shows
+the cold preview (`; dbg at $PC`, registers, the instruction at
+`cur_addr`), sets `dbg_reason` = DBG_BRK and `cold_preview_done` = 1,
+and runs nothing.  In a resumable session it sets `step_state`,
+skips a user `BRK` at `brk_pc` for `o`, disables the hit breakpoint
+(`rp_dis_bp`), computes the next PC(s) with `step_next_pc`, refuses
+with `;!range` (and `step_cleanup`) when a step BRK would land
+outside the workspace (`bp_range_check_step`: $0800 ≤ addr <
+`buf_base`, or `brk_stub`), for a single step re-prints the
+instruction about to run three rows up, arms the step BRKs
+(`arm_step_bp`), sets `step_remaining` = count − 1 and returns via
+`set_run_mode`.  Later iterations chain inside the BRK handler
+([debugger.md § Single-step](debugger.md)); the kernel stack use is
+the same for `t 100` as for `t 1`.
 
-* `run_user_pending = MODE_JUMP` — fresh start; the gate must push
-  a `brk_stub - 1` sentinel so the user's top-level RTS returns
-  cleanly to `brk_stub`.  Set by `cmd_jmp` (`j`/`g`) and by
-  `cmd_step` on its cold entry (no prior debug context).
-* `run_user_pending = MODE_RESUME` — resume from an existing break;
-  the sentinel pushed by a prior MODE_JUMP is still on the user
-  stack and must not be duplicated.  Set by `cmd_c` (continue),
-  `cmd_step` on hot entry.
-
-After `exec_line` rts's back to `main_loop` (in main.s), the loop
-reads `run_user_pending`:
-
-    MODE_JUMP   → jmp return_to_userland      (sentinel + RTI)
-    MODE_RESUME → jmp restore_userland_state  (no sentinel; RTI)
-
-Both gate primitives live in [debugger.s](debugger.md); both do
-`save_kernel_zp` / `restore_userland_zp` / `txs reg_sp` / push RTI
-frame / `sta in_userland` / `rti`.  Control returns via the BRK or
-NMI handler's longjmp to `main_loop_top`, *not* to the command.
-
-`cmd_jmp` drains `$C6` (keyboard buffer) and emits a newline before
-setting the flag so the user's first CHROUT lands on a fresh row.
-`hygiene_after_userland` ($C6 drain, $CC=1, $0291=$80, VIC reset,
-colour restore, cursor sync) runs unconditionally in
-`handler_finalize` on every return — not in any per-command wrapper.
-
-**`cmd_step` (`t` / `o`)** — does NOT loop.  Computes the first
-step's next-PC(s), arms step BRK(s) in `bp_table`'s step slots,
-seeds the handler-resident step state machine (`step_state`,
-`step_remaining`), sets `run_user_pending` (MODE_JUMP cold /
-MODE_RESUME hot), and rts's.  Subsequent step iterations chain
-inside the BRK handler tail (see [debugger.md § Single-step](debugger.md)).
-Multi-step iteration's stack budget is constant regardless of count
-— `t 100` consumes the same kernel stack as `t 1`.
-
-**`warn_long_lines`** — scans the buffer via `ed_read_byte`,
-computing visual width per line (including tab expansion).
-Prints `;!long LNN` for each line exceeding 39 visual columns.
-Called after successful SEQ load and after successful SEQ save.
-
-Several local helpers factor out repeated compound operations
-(expression evaluation with address copy, block-size defaults,
-breakpoint log formatting, color display).  The `u` (cpu) command
-uses a table-driven dispatch instead of cascaded comparisons.
-See `doc/optimization.md` strategies 22–23 for rationale.
+`bp_range_check` (the `b` gate) is the strict form: $0800 ≤ addr <
+`buf_base`, the same workspace the assembler's emit gate uses.
 
 ### Splash screen
 
-Displayed at startup by main.s.  Three memory summary lines show
-hex address ranges and decimal free byte counts:
+At startup main.s prints the version row, then `cmd_info` in splash
+mode (C=1), then the manual link ([main.md § Splash screen](main.md#splash-screen)).
+Splash mode prints only the free rows:
 
-      zp 0002-007f      126 free
-     sys 0200-03ff      512 free
-    work XXXX-cfff    NNNNN free
+    ; zp   0002-007f   126b free
+    ; low  02a7-02ff    89b free
+    ; low  0334-03ff   204b free
+    ; work 0800-XXXX NNNNNb free
 
-All values are computed from linker symbols (`cse_end`) and the
-`BUF_END` constant.  The work line's start address and byte count
-update automatically as the binary grows.
+The work row ends at `buf_base - 1` and follows the build's runtime
+start and the loaded source.
 
 ### `B` — Block size (uppercase)
 
-The `B` command sets a 16-bit block size used by `m`, `d`, `f`, `>`,
-`/`, `t`, `o`, and `+`/`-` navigation.  Default: `$0010` (16 bytes
-= 2 hex dump lines).
+`B` sets the 16-bit block size used by `m`, `d`, `+`/`-` and a bare
+PRG `s`.  Default: `$0010` (16 bytes = 2 dump rows).  The argument is
+an expression (bare digits are decimal):
 
-    B 40     set to 64 bytes (8 hex lines)
-    B C0     set to 192 bytes (full screen of hex)
-    B 0100   set to 256 bytes (4-digit)
-    B        show current block size
+    B $40    set to 64 bytes (8 dump rows)
+    B 192    set to 192 bytes
+    B        show the current block size
 
-### `$` — Disk
+### Directory listing
 
-The `$` command is a unified interface for disk directory, drive
-selection, and drive commands.  Parsing is prefix-based:
-
-    $              directory listing (current drive)
-    $9             select drive 9 as current, show directory
-
-A decimal device number after `$` (optional space) in 4–30 sets
-`cur_device` permanently, then lists that drive; any other number
-keeps the current device.  Bare `$` lists the directory.  Tests:
-`TestDirDevice` (tests/integration/test_repl_disk.py).
+`$` lists the directory of the current device, followed by the drive
+status row.  A decimal device number after `$` (optional space) in
+4–30 sets `cur_device` permanently first; any other number keeps the
+current device.  There are no drive commands.  Tests: `TestDirDevice`
+(`tests/integration/test_repl_disk.py`).
 
 ### Tab width (build-time constant)
 
-CSE's tab width is a **build-time constant** (`-DTAB_WIDTH=N`,
-default 8).  It is not runtime-mutable — there is no `T` command.
-
-Rationale: baking it in saves ~30 bytes (eliminates the runtime
-`col_mod_tw` loop and the `T` command) and matches the C64-era
-convention (Turbo Assembler, MasterSeka, Relaunch64 all default
-to 8).
-
-The "4-space" convention from modern high-level languages
-doesn't fit 6502 assembly on a 40-column screen anyway — use 8.
-If you really need a different value, rebuild with
-`make TAB_WIDTH=N`.
-
-### Loading files with long lines
-
-`ed_load_source` loads file content verbatim — no line splitting
-or width enforcement.  After load (and after save), the REPL
-scans the buffer and prints one `;!long LNN` warning per line
-exceeding 39 visual columns.  Lines show `>` in col 39 in the
-editor.  Save writes the buffer verbatim, preserving the
-original file structure.
+The tab width is a **build-time constant** (`-DTAB_WIDTH=N`, default
+8, a power of two — [build_system.md](../build_system.md)); there is
+no runtime command for it.  Baking it in keeps the column arithmetic
+a mask and matches the C64-era convention (Turbo Assembler,
+MasterSeka, Relaunch64 all default to 8).  `warn_long_lines` uses the
+same constant.
 
 ### `i` — Memory map
 
-Shows the full C64 memory layout.  Free regions are highlighted
-(inverse address range).  All addresses are computed at build time
-or runtime — nothing hardcoded.
+`i` prints the whole 64 K map; free regions carry a byte count and
+`free`:
 
-     cpu 0000-0001      2  i/o port
-      zp 0002-007f    126  free            ← highlighted
-     sys 0080-00ff    128  kernal zp
-     stk 0100-01ff    256  6502 stack
-     sys 0200-02a6    167  kernal
-    lo02 02a7-02ff     89  free            ← highlighted
-     sys 0300-0333     52  kernal
-    lo03 0334-03ff    204  free            ← highlighted
-     scr 0400-07ff   1024  screen + sprites
-    work 0800-XXXX  NNNNN  free            ← highlighted
-     src XXXX-XXXX    NNN  N lines         (if source loaded)
-     cse XXXX-CFFF  NNNNN  cse runtime     (from linker)
-      io d000-dfff   4096  vic/sid/cia
-     sym e000-eeff   3840  symbols
-     cse ef00-f8d9   2522  banked
-     rom f8da-ffff   1830  kernal rom
+    ; cpu  0000-0001 port
+    ; zp   0002-007f   126b free
+    ; sys  0080-00ff kernal
+    ; stk  0100-01ff stack
+    ; sys  0200-02a6 kernal
+    ; low  02a7-02ff    89b free
+    ; sys  0300-0333 kernal
+    ; low  0334-03ff   204b free
+    ; scr  0400-07ff scr
+    ; work 0800-XXXX NNNNNb free
+    ; src  XXXX-XXXX Nl NNb          (only when source is loaded)
+    ; cse  XXXX-cfff cse
+    ; io   d000-dfff io
+    ; cse  e000-f8d9 banked
+    ; rom  f8da-ffff kernal
 
-The lo02/lo03 rows match the splash screen layout — these are
-the usable fragments in pages 2 and 3 between KERNAL work areas
-and page-3 vectors.  The work row spans $0800 to `buf_base - 1`.
-When source is loaded, the free region shrinks and the src row
-appears.  The src line count comes from `ed_total_lines`.  The
-KERNAL RAM region ($E000–$FFFF) is broken into three rows: `sym`
-for the symbol table and heap, `cse` for banked data (stack
-snapshots, KDATA tables, REPL screen save), and `rom` for actual
-KERNAL ROM.
+The work row spans $0800 to `buf_base - 1`; the `src` row is the
+source text (`src_bot`..`src_top - 1`, with `ed_total_lines`); the
+first `cse` row runs from `cse_start` (the runtime start) to
+`cse_end - 1`.  The `zp`, `low` and `work` rows are computed in
+`cmd_info`; the fixed rows come from the `info_tbl_*` tables in
+repl.s.  The banked row's bounds ($E000–$F8D9) are fixed in the table
+and do not follow the KERNAL-RAM layout
+([memory_design.md § Banked layout](../memory_design.md#banked-layout-e000ffff)).
 
 Contract pinned by `TestInfoFullMode`: the rows run in address
 order and cover `$0000`–`$FFFF` without gap or overlap; the `src`
@@ -854,94 +878,73 @@ row appears only when source is loaded.
 
 ### `C` — Color (uppercase)
 
-Accepts 1, 2, or 3 single hex digits and applies them at once
-(`restore_colors`: border, background, colour RAM); anything else
-after the digits is `;?syntax`.  Bare `C` shows the current colours
-(`; color: BGF`).  Tests: `TestColorApply`, `TestColorCommand`.
+Takes 1, 2 or 3 adjacent hex digits and applies them at once
+(`restore_colors`: border, background, colour RAM); anything after
+the digits other than spaces / `;` is `;?syntax` and changes nothing.
+Every form ends with `; color: BGF` (border, background, foreground).
+Tests: `TestColorApply`, `TestColorCommand`.
 
-    C 6          set text color to blue
-    C 06         set bg=black, text=blue
-    C 0e6        set border=black, bg=dark grey, text=blue
+    C 6          text = blue
+    C 06         background = black, text = blue
+    C 0e6        border = black, background = light blue, text = blue
+    C            show the current colours
 
 ### `u` — CPU mode
 
-    u 6502       standard NMOS 6502
-    u 6510       6510 (with illegal opcodes)            C64 builds
-    u 65c02      WDC 65C02 (CMOS extensions)            C64 builds
-    u 4510       CSG 4510 (65CE02 set + MAP/EOM)        m65
-    u 45gs02     45GS02 (4510 + Q and far forms)        m65, default
+    u 6502       standard NMOS 6502                     every build
+    u 6510       6510 (with illegal opcodes)            6510 build
+    u 65c02      WDC 65C02 (CMOS extensions)            65C02 build
+    u 4510       CSG 4510 (65CE02 set + MAP/EOM)        m65 (planned)
+    u 45gs02     45GS02 (4510 + Q and far forms)        m65 (planned)
 
-`u` accepts only members of the build's CPU set
-([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets))
-and lists exactly those, marking the active one.
+`u` accepts only the modes its build offers, ignores anything else,
+and always prints them, the active one marked `*`
+(`; cpu: 6502* 6510`).  The 65C02 build offers 6502 and 65c02 (TODO
+§ M65 "`.cpu` and `u` do not enforce the CPU set" plans 6510 there
+too; [build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)).
 
 ### Free / reserved keys
 
     e   reserved — editor mode (source buffer)
-    h   free (was hunt, now `/`)
-    n   free (was next/step-over, now `o`)
     p   reserved — print / evaluate
-    v   reserved — visual mode (split screen?)
-    w   free (was write/save, now `s`)
-    x   free (was breakpoints, now `b`)
-    y   free
-    z   free
+    v   reserved — visual mode
+    f h n q w y z    free
+    all SHIFTed letters except B C Q R    free
 
 ### Emitters
 
-Single-line output functions, called by both edit-mode and block-mode
-paths:
+Single-line output routines, called by both edit-mode and block-mode
+paths; each starts at column 0 and ends with `io_clear_eol`.
 
-- `emit_dot(addr)` — writes `AAAA:. HH HH HH  MNE OPR`, returns
-  instruction length.  Two spaces between hex bytes and mnemonic.
-- `emit_mem(addr, cols)` — writes `AAAA:m HH HH HH HH HH HH HH HH cccc`
-- `emit_reg()` — writes `r pc:xxxx a:xx x:xx y:xx s:xx Nv-bDizc`
-  (set flags uppercase, clear flags lowercase; AND #$DF on PETSCII)
-
-Each emitter starts at column 0 and calls `io_clear_eol` at the end.
-
-### Implementation status
-
-    [x] .   asm/disasm single instruction
-    [x] d   disassemble block
-    [x] m   memory dump / edit
-    [x] a   assemble source buffer
-    [x] j   JSR / start execution
-    [x] r   registers view / edit
-    [x] @   seek (was s)
-    [x] $   directory listing (+ drive select, + drive command)
-    [x] q   quit
-    [x] clr clear screen
-    [x] +   seek forward
-    [x] -   seek backward
-    [x] i   memory map info
-    [x] ?   hex expression calculator
-    [x] B   block size (uppercase, was `b`)
-    [x] C   color theme (uppercase, was `c`)
-    [x] u   cpu mode select
-    [x] k   kill source (clear editor buffer, confirms first)
-    [x] l   load file from disk
-    [x] s   save memory to disk (was `w`)
-    [x] b   breakpoints (was `x`). See debugger.md
-    [x] c   continue execution (was color). See debugger.md
-    [x] t   trace / step-into. See debugger.md
-    [x] o   trace over / step-over (was `n`). See debugger.md
-    [x] g   go — shorthand for j main (falls back to j cur_addr)
+- `emit_dot(rp_addr)` — `AAAA:.  HH HH HH  mne opr`, returns the
+  instruction length in A.
+- `emit_mem(rp_addr, A = columns 1–8)` — `AAAA:m HH … HH;cccccccc`
+  (characters $20–$7E as themselves, others `.`).
+- `emit_reg()` — `r pc:xxxx a:xx x:xx y:xx s:xx nv-bdizc` (set flags
+  uppercase).
 
 ## Caveats
 
-- `read_line` reads screen RAM at the cursor row, converting screen
-  codes to PETSCII.  Lowercase screen codes ($01–$1A) map to $41–$5A;
-  uppercase screen codes ($41–$5A) map to $C1–$DA.  This preserves
-  case for command dispatch.
-- `exec_line` modifies `cur_addr` as a side effect of the `AAAA:` prefix.
-- The `?` command uses `expr_eval` directly — labels from the last
-  assembly are available.  Decimal output delegates to `io_putdec`
-  (cse_io.s) with space-padding for right-aligned 5-digit display.
-- **Expression arguments:** Commands `@`, `j`, `+`, `-`, `b`, `s`,
-  `t`, `o`, `B` accept full expressions (`$hex`, decimal, symbols,
-  operators).  Bare digits are decimal — hex requires `$` prefix.
-  The `AAAA:` prompt prefix remains plain hex.
-- File type (PRG vs SEQ) determined by: verbatim `,s`/`,p` suffix first;
-  otherwise plain names default to SEQ (no address args) or PRG (any
-  numeric args).  See § Project-name and filename semantics.
+- `exec_line` modifies `cur_addr` as a side effect of the `AAAA:`
+  prefix.
+- **Expression arguments:** `@`, `j`, `+`, `-`, `b`, `s`, `l`, `t`,
+  `o`, `B` take full expressions (`$hex`, decimal, `%binary`,
+  symbols, operators).  Bare digits are decimal — hex needs `$`, and
+  hex digits are lowercase ([expr.md](expr.md)).  The `AAAA:` prefix,
+  `m`'s address, `.`/`m` byte pairs, `r` fields and `C` digits are
+  plain hex.
+- `?` prints a value of $0100 or more whose low byte is 0 in the
+  8-bit hex form: `? $1000` shows `;   $00   4096` (`@calc_16bit`
+  falls back to the 8-bit form when the low byte is 0).  A defect, to be
+  filed in TODO.md; the decimal column is right.
+- `warn_long_lines` keeps 4 mutable bytes (`@vcol`, `@line`, `@tw`) in
+  the CODE segment, like the open TODO § Code bugs "Mutable bytes in
+  CODE" items.
+- Dead imports in repl.s: `dbg_bp_count`, `io_utoa`, `dec_buf`,
+  `io_kbhit`, `dec_pow_lo`/`hi`, `kernal_bank_out`/`in`,
+  `cse_zp_end`, `oplen_tbl`, `__CODE_RUN__`, `str_no_name`,
+  `str_end_dbg`, `str_free_suf`, `str_tag_prg` (TODO § Code bugs
+  "Dead code and imports").
+- `KSTK_MIN` (64) duplicates debugger.s's `kernel_stack_budget`; it
+  stays a local literal so the repl-only test binary builds without
+  debugger.s.
