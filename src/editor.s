@@ -2078,7 +2078,7 @@ _ed_cur_row:
 ; ── ed_load_source — load SEQ file into buffer ────────────────
 ; Input: A/X = name pointer
 ; Returns: A = 0 success, 1 disk error / empty file, 2 too large;
-;          X = 0 and Z = 1 on every path (test A, not Z).
+;          X = 0, Z set from A.
 ;
 ; No line-width enforcement — lines are stored as-is.
 .proc ed_load_source
@@ -2103,8 +2103,8 @@ _ed_cur_row:
         beq @no_overflow
         pla                     ; discard disk error
         jsr ed_init             ; reset buffer
-        lda #2                  ; error: file too large
         ldx #0
+        lda #2                  ; error: file too large (Z=0)
         rts
 @no_overflow:
 
@@ -2155,14 +2155,14 @@ _ed_cur_row:
 
 @empty:
         jsr ed_init
-        lda #1                  ; error: empty file
         ldx #0
+        lda #1                  ; error: empty file (Z=0)
         rts
 
 @fail:
         pha
         jsr ed_init
-        pla                     ; error code
         ldx #0
+        pla                     ; error code (Z=0)
         rts
 .endproc

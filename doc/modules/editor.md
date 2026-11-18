@@ -77,9 +77,8 @@ REPL prints shows it).
 scroll at line 1 col 0, `ed_dirty = 0`, `ed_save_bytes` /
 `ed_save_lines` = the counts read.  A = 1: disk error or empty file.
 A = 2: the file does not fit the buffer.  On 1 and 2 the buffer is
-left empty (`ed_init`).  X = 0 on every path, and the flags come from
-that `ldx #0` (Z = 1), **not** from A — callers must test A
-explicitly.
+left empty (`ed_init`).  X = 0 and Z set from A on every path (the
+REPL's `l` branches on Z).
 **Clobbers:** A, X, Y, `disk_ptr`, `ed_tmp`, `ed_scr`, `read_ptr`,
 symtab ZP, and what `disk_load_seq` clobbers.
 

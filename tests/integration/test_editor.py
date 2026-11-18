@@ -504,6 +504,7 @@ class TestEdDiskErrors:
         _set_name(emu)
         emu.jsr(emu.sym("ed_load_source"), a=_NAME & 0xFF, x=_NAME >> 8)
         assert (emu.a, emu.x) == (1, 0)
+        assert not emu.zero, "Z follows A: the REPL branches on it"
         assert read_back(emu) == b"", "a failed load leaves a clean empty buffer"
         assert total_lines(emu) == 1
 

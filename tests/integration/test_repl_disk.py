@@ -269,6 +269,16 @@ class TestLoadCommand:
         assert rows(emu) == ['; load "nope."...', ";?fail",
                              "; 62,file not found,00,00"]
 
+    @pytest.mark.parametrize("setup,status", [
+        (lambda d: None, "; 62,file not found,00,00"),
+        (lambda d: d.put("FOO", b"", "SEQ"), "; 00, ok,00,00")],
+        ids=["missing", "empty"])
+    def test_load_seq_that_fails_reports_fail(self, emu, setup, status):
+        """A failed SEQ load is `;?fail`, never a "0l 0b" success line."""
+        setup(emu.drive(8))
+        run(emu, 'l "foo"')
+        assert rows(emu) == ['; load "foo"...', ";?fail", status]
+
     def test_load_save_symmetry(self, emu):
         """l "foo" then bare s saves SEQ "foo" back."""
         emu.drive(8).put("FOO", b"\xa0NOP\r", "SEQ")
