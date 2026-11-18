@@ -1,6 +1,13 @@
-# Memory Design — Memory maps, ZP layout, calling convention
+# Memory Design — Memory maps, banked layout, stack contract, calling convention
 
 **Template:** [subsystem](templates/subsystem.md)
+
+This document owns the memory map, the banked layout under the
+KERNAL ROM, the stack contract between the kernel and user code, and
+the calling convention.  What user programs may rely on is owned by
+[userland_contract.md](userland_contract.md); the zero-page
+allocation by [zp.md](modules/zp.md); how the runtime start is
+computed by [build_system.md](build_system.md#main-build-pipeline).
 
 ## Design Principles
 
@@ -10,17 +17,19 @@
 
 2. **ROM-ready architecture.** Code and RODATA are separable from
    mutable state.  No self-modifying code.  Constants in RODATA,
-   runtime state in BSS.  The same source must build as both PRG
-   (RAM) and CRT (ROM at $8000).
+   runtime state in BSS.  The same source is meant to build as both
+   PRG (RAM) and CRT (ROM at $8000).
 
 3. **Mutable state is small and relocatable.** All runtime variables
-   live in BSS (zeroed at boot) or ZP.  No initialized DATA segment.
+   live in BSS (zeroed by the loader at boot) or ZP.  No initialized
+   DATA segment.
 
 4. **One screen, save/restore.** Both REPL and editor use screen RAM
-   at $0400.  On mode switch, the REPL screen (1000 bytes) is saved
-   to / restored from banked RAM under KERNAL ($F4F2).  The editor
-   view is always reconstructable from the gap buffer; only the REPL
-   screen needs saving.
+   at $0400.  Entering the editor saves the REPL screen (1000 bytes)
+   to banked RAM under the KERNAL ([§ Banked layout](#banked-layout-e000ffff));
+   leaving it restores the screen.  The editor view is always
+   reconstructable from the gap buffer; only the REPL screen needs
+   saving.
 
 5. **Source and output share the workspace.** Source text grows down
    from the CSE runtime start (`__CODE_RUN__`), assembled output
@@ -52,14 +61,15 @@ All modules are pure 6502 assembly.  One consistent convention:
 ### Shared state (ZP interface)
 
 Several subsystems pass data through named ZP variables rather than
-registers.  This is preferred for multi-field I/O:
+registers.  This is preferred for multi-field I/O.  All of these
+live in zp.s ([zp.md](modules/zp.md)):
 
-| ZP group | Owner | Fields | Used by |
-|----------|-------|--------|---------|
-| Assembler I/O | zp | `asm_pc`, `asm_out`, `asm_cpu`, `asm_len`, `asm_mode` | asm_line, asm_src |
-| Symbol I/O | zp | `sym_name` (ptr), `sym_val`, `sym_wide` | symtab, asm_src, expr, repl |
-| Expression I/O | zp | `expr_ptr` (ptr), `expr_val`, `expr_wide` | expr, asm_src, repl |
-| Mnemonic chars | mn_vars | `mn_c1`, `mn_c2`, `mn_c3` | mn_classify, mn7/mn6, asm_line |
+| ZP group | Fields | Used by |
+|----------|--------|---------|
+| Assembler I/O | `asm_pc`, `asm_out`, `asm_cpu`, `asm_len`, `asm_mode` | asm_line, asm_src |
+| Symbol I/O | `sym_name` (ptr), `sym_val`, `sym_wide` | symtab, asm_src, expr, repl |
+| Expression I/O | `expr_ptr` (ptr), `expr_val`, `expr_wide` | expr, asm_src, repl |
+| Mnemonic chars | `mn_c1`, `mn_c2`, `mn_c3` | mn_classify, mn7/mn6, asm_line |
 
 Callers set the input fields, call the function, read the output
 fields.  The function may modify any field in its group.
@@ -86,11 +96,11 @@ or ZP variables.
 
 | Term | Meaning |
 |------|---------|
-| **CODE** | Executable code in main RAM (XXXX–$CFFF) |
+| **CODE** | Executable code in main RAM, from the runtime start up |
 | **RODATA** | Read-only constants in main RAM (follows CODE) |
-| **BSS** | Uninitialized runtime state in main RAM (follows RODATA, zeroed at startup, no PRG space) |
-| **KDATA** | Read-only tables under KERNAL ROM ($E000–$FFFF), copied from PRG payload at startup |
-| **KBSS** | Uninitialized structures under KERNAL ROM, zeroed at startup (no PRG space) |
+| **BSS** | Uninitialized runtime state in main RAM (follows RODATA; zeroed by the loader; no PRG space) |
+| **KDATA** | Read-only tables under the KERNAL ROM, copied from the PRG payload by the loader |
+| **KBSS** | Structures under the KERNAL ROM that take no PRG space.  The loader does not clear them; each owner initialises its own ([§ Banked layout](#banked-layout-e000ffff)) |
 
 ## Target Compatibility
 
@@ -98,7 +108,7 @@ CSE targets:
 - Stock C64 KERNAL ROM
 - Stock C128 KERNAL ROM (C64 mode)
 - OpenROMs on C64/C128 hardware (excluding MEMORY_MODEL_60K)
-- The MEGA65 KERNAL in MEGA65 mode — the m65 build only
+- The MEGA65 KERNAL in MEGA65 mode — the planned m65 build only
   ([§ Memory Map — m65](#memory-map--m65-mega65-mode))
 
 The 60K exclusion means $02A7-$02FF remains usable (the 60K model
@@ -110,452 +120,233 @@ constants.
 ## CSE ↔ KERNAL Contract
 
 CSE is a KERNAL-compatible application that replaces BASIC
-interaction while active.
+interaction while active.  It keeps the KERNAL working: the KERNAL's
+IRQ handler keeps running, and CSE calls KERNAL routines for the
+keyboard, cursor sync and disk I/O.  Which KERNAL cells in zero page
+and pages 2–3 CSE writes is listed in
+[userland_contract.md § 2](userland_contract.md#2-state-contract).
 
-**CSE preserves:**
-- $80-$FF (KERNAL zero page)
-- $0100-$01FF (hardware stack — shared, balanced)
-- Live KERNAL/editor low-memory state ($0200-$02A6, $0300-$0333)
-
-**CSE owns (modifies on init, restores on exit):**
-- $01 (CPU I/O port — unmaps BASIC ROM)
-- $02-$7F (CSE zero page — saved on cold init, restored on exit)
+**CSE owns (sets at cold init, restores on exit):**
+- $01 (CPU I/O port — BASIC ROM unmapped)
+- $02-$7F (CSE zero page — snapshot of $01–$7F taken at cold init)
 - $0316/$0317 (IBRK — BRK dispatch)
 - $0318/$0319 (INMIV — NMI dispatch)
-- $FFFA/$FFFB (NMI vector RAM shadow — read by CPU when kernal banked out)
-- $FFFE/$FFFF (IRQ/BRK vector RAM shadow — read by CPU when kernal banked out)
+- $FFFA/$FFFB (NMI vector RAM shadow — read by the CPU while the KERNAL is banked out)
+- $FFFE/$FFFF (IRQ/BRK vector RAM shadow — read by the CPU while the KERNAL is banked out)
 
-**Exit obligation:** `cse_exit_to_basic` calls kernal RESTOR
-($FF8A) to restore $0314-$0333 to defaults, restores $01-$7F
-from cold-init snapshot, writes $00 to `($2B)-1` (byte before
-TXTTAB, stabilises BASIC's program link chain), calls CINT
-($FF81) to reinit screen, and enters BASIC warm start via
-`JMP ($A002)`.
+**Hook invariant.**  `setup_interrupts` (main.s) installs all four
+vectors before the first bank-out, so no interrupt can ever read a
+stale RAM vector.  The RAM shadows point at the handlers'
+early-entry code; there are no separate trampolines.  Mechanism:
+[main.md § setup_interrupts](modules/main.md#setup_interrupts) and
+[§ IRQ early-entry bank-out](modules/main.md#irq-early-entry-bank-out).
 
-**Hook installation** is performed once during cold init by
-`setup_interrupts` (main.s):
-
-- $0316/$0317 and $0318/$0319 patched via direct stores to point
-  at `cse_brk_handler` and `cse_nmi_handler` respectively.
-- $FFFA/$FFFB and $FFFE/$FFFF (RAM shadows under kernal ROM) patched
-  to point at the corresponding handler's **early-entry** label.
-  These early-entry paths execute only when the CPU read the
-  vector from RAM — i.e. when the kernal was banked out — and so
-  reaching the early-entry label is itself the signal that the
-  handler must bank the kernal back out before its final RTI.
-- `setup_interrupts` runs **before any bank-out** in cold init, so
-  the trampoline-executed-with-stale-vector window cannot exist.
-
-There are **no separate trampolines** at $FF00 / $FF04.  Handlers
-live in CODE at their link-time addresses; the early-entry
-prologues are part of the handler code, not a relocated stub
-region.
-
-**Cold-init snapshot** stored in KBSS under kernal ROM (pure
-write, no banking needed on save):
-- `_cold_zp` (127 B) — $01-$7F at cold-init entry
+**Exit obligation.**  `cse_exit_to_basic` puts the machine back as
+BASIC expects it: KERNAL vectors reset by RESTOR, $01–$7F restored
+from the cold-init snapshot, screen reinitialised, BASIC warm start.
+Sequence: [main.md § Exit path](modules/main.md#exit-path).
 
 ## User Code Contract
 
-The full contract is documented in
-[userland_contract.md](userland_contract.md).  This section
-summarises the key obligations for orientation.
-
-User code is any program executed via `j`, `g`, `t`, `o`, or `c`.
-It runs in CSE's execution context via `return_to_userland` (debugger.s),
-sharing the 6502 hardware stack and the kernal environment.
-
-**User code may clobber:**
-- $00-$7F (CSE saves/restores across user execution; includes the
-  CPU port byte at $01 — CSE re-installs its banking configuration
-  on return)
-- $0100-$01FF (user owns the stack page within their SP budget —
-  see § Stack contract)
-- $02A7-$02FF (89 bytes, free on all supported targets)
-- $0334-$03FF (204 bytes, includes tape buffer at $033C-$03FB)
-- $0800-workend (workspace — user's own assembled output)
-
-**User code must preserve:**
-- $80-$FF (kernal zero page)
-- $0200-$02A6 (kernal editor state, input buffer)
-- $0300-$0333 (kernal vectors — CSE hooks are installed here)
-- CSE runtime (XXXX-$CFFF — overwriting CSE code/data is fatal)
-
-User code shares the hardware stack page with CSE — there is no
-two-image swap.  User code may push freely within its 240-byte
-budget; CSE never reads bytes below the user's SP.  See § Stack
-contract.
-
-**Tape buffer caveat:** $033C-$03FB is the kernal tape I/O buffer.
-User code may freely use these 192 bytes, but must restore them
-if the user's own program needs tape or serial I/O through kernal
-routines that use this buffer.
-
-**Screen and I/O:** User code may use kernal CHROUT ($FFD2) for
-screen output, integrated with REPL display — see
-[userland_contract.md § 6 (KERNAL-as-terminal)](userland_contract.md#6-kernal-as-terminal-affordance).
-CSE does not save/restore screen RAM across user execution.  On
-return, CSE forces VIC into a known-good text-mode state via
-`vic_reset` (display on, charset standard, sprites off, raster
-IRQ off), restores $01 banking, kernal cursor state ($CC=1), and
-clears stuck SID voice gates.  If user code clears or repaints the
-screen, ESC or CLR from the REPL restores the CSE display.
-Colors changed by user code are restored on return.
-
-**Memory config ($01):** $01 is part of the ZP save range ($00–$7F),
-so it round-trips via `userland_zp_buf` across every user-code run.
-User code may freely change $01 (e.g. to bank in BASIC ROM or
-access I/O directly), but must not combine $01 changes with
-$FFFE/$FFFA vector changes that route to non-CSE handlers — see
-[userland_contract.md § 5.3](userland_contract.md#53-rom-banking-01).
-
-**Vector changes:** User code that overwrites $0316/$0318 (or
-$FFFE/$FFFA) breaks debugger breakpoints and/or RUN/STOP+RESTORE
-recovery.  See [userland_contract.md § 5](userland_contract.md#5-interrupt-vector-and-banking-hazards).
+What user code (anything run by `j`, `g`, `c`, `t` or `o`) may use,
+what it must preserve, and what CSE does to the machine across a
+run is owned by [userland_contract.md](userland_contract.md):
+§ 2 (state tiers), § 3 (memory regions), § 4 (stack), § 5 (vector
+and banking hazards).
 
 ## Memory Map — Runtime (all targets)
 
-    $0000-$00FF  Zero page (see § Zero Page Layout)
+    $0000-$00FF  Zero page
       $00-$01    CPU I/O port
-      $02-$56    CSE ZP variables (85 bytes, 13 modules)
-      $57-$5D    Cross-module flags (7 bytes: in_userland, state,
-                                    warm_cont, kernal_out, ed_dirty,
-                                    dbg_reason, cur_device)
-      $5E-$6E    cur_project_name (17 bytes — filename stem)
-      $6F-$77    Output scratch (9 bytes: rp_addr, rp_cnt, rp_save,
-                                 rp_save2, rp_next_lo, _info_mode)
-      $78-$79    screen (2 bytes: scr_src)
-      $7A-$7F    Free (6 bytes, available for user programs)
+      $02-$79    CSE ZP variables (zp.md)
+      $7A-$7F    Not allocated by CSE
       $80-$FF    KERNAL work area
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
-    $0200-$02A6  KERNAL editor state, input buffer (reserved)
-    $02A7-$02FF  Free (89 bytes, user code may use)
+    $0200-$02A6  KERNAL editor state, input buffer
+    $02A7-$02FF  Free (89 bytes)
     $0300-$0333  KERNAL vectors (CSE hooks at $0316, $0318)
-    $0334-$03FF  Free (204 bytes, user code may use)
+    $0334-$03FF  Free (204 bytes; the tape buffer $033C-$03FB inside it)
     $0400-$07E7  Screen RAM (40×25, VIC bank 0)
     $07E8-$07FF  Sprite pointers (unused by CSE)
     $0800        workstart — first free workspace byte
       ...        Assembled output ↑ (grows up)
       ...        Free workspace
+    workend      last byte below the source text (buf_base − 1)
       ...        Source text ↓ (grows down)
-    XXXX-1       workend — last free workspace byte
-    XXXX         CSE CODE (position determined by build size)
+    runtime start  CSE CODE (page-aligned)
       ...        CSE RODATA
       ...        CSE BSS
-    $CFFF        CSE runtime end (contiguous, no gaps)
+      ...        Slack below $D000 (under one page; unused, not cleared)
     $D000-$DFFF  I/O (VIC-II, SID, CIA1, CIA2)
     $E000-$FFFF  Banked data under KERNAL ROM (see § Banked layout)
 
-The runtime start address XXXX is not fixed — it floats based on
-the combined size of CODE + RODATA + BSS:
+The ZP lines are the CSE view.  During a user run the whole of
+$00–$7F is the user's: CSE swaps it out and in at every transition
+([userland_contract.md § 3](userland_contract.md#3-memory-regions)).
 
-    XXXX = $D000 - sizeof(CODE + RODATA + BSS)
-
-This maximizes the workspace automatically.  With the current 6510
-build (~21 KB code + rodata, ~800 B BSS), XXXX ≈ $7D00, giving
-~29 KB of workspace ($0800–$7CFF).  As the codebase grows or
-shrinks, workend adjusts and the user sees it via `i`.
+**Runtime start.**  CODE, RODATA and BSS are packed together at the
+top of main RAM below $D000.  The start address is fixed at link
+time by the build ([build_system.md § Main build
+pipeline](build_system.md#main-build-pipeline)), so it moves as the
+code grows or shrinks; the workspace takes everything below it.
+`make size` prints the start, the segment sizes and the slack for a
+build, and the `i` command shows the workspace at run time.
 
 BASIC ROM ($A000-$BFFF) is unmapped at startup.  The RAM underneath
 is part of the CSE runtime (code spans across $A000 freely).
 
 KERNAL ROM ($E000-$FFFF) remains mapped.  The RAM underneath is
-**read** by clearing bit 1 of $01.  No SEI is needed around the
-toggle: the $FFFE RAM shadow holds `cse_brk_handler_early`, which
-transparently services an IRQ that fires while KERNAL is banked
-out (insert a bank_out_stub frame, bank KERNAL in, delegate to
-$EA31, let KERNAL's RTI land at bank_out_stub which banks out
-again and RTIs the original frame).  The $FFFA RAM shadow points
-directly at `cse_nmi_handler` — no shim is needed because the
-6502 sets I=1 as part of the NMI vector sequence.  **Writes
-always pass through** to the underlying RAM regardless of $01
-bit 1, so pure-writer code (`sym_clear`, `setup_interrupts`, the
-SCREEN→`repl_screen` save in `enter_editor`) does not bank —
+**read** by clearing bit 1 of $01 (`kernal_bank_out` /
+`kernal_bank_in`, [mem.md](modules/mem.md)).  The bank toggle runs
+with interrupts enabled: an IRQ that fires while the KERNAL is banked
+out vectors through the $FFFE RAM shadow to code that banks the
+KERNAL in for its IRQ body and restores the interrupted $01
+afterwards ([main.md § IRQ early-entry
+bank-out](modules/main.md#irq-early-entry-bank-out)); the $FFFA
+shadow points straight at `cse_nmi_handler`.  **Writes always pass
+through** to the underlying RAM regardless of $01 bit 1, so
+pure-writer code (`sym_clear`, `setup_interrupts`, the loader's
+KDATA copy, the REPL-screen save in `enter_editor`) does not bank —
 only readers do.
 
-The `kernal_out` flag in BSS lets long-running batches (e.g.
-`asm_assemble` over both passes) hold the KERNAL banked out across
-many inner calls without paying a `$01` write per call: when set,
-`kernal_bank_out` and `kernal_bank_in` both short-circuit to `rts`.
+The `kernal_out` ZP flag lets long-running batches (`asm_assemble`
+over both passes) hold the KERNAL banked out across many inner calls:
+while it is set, `kernal_bank_out` and `kernal_bank_in` do nothing.
+The ordering rule for batch callers is in
+[mem.md § Banking protocol](modules/mem.md#banking-protocol).
 
 ### Banked layout ($E000–$FFFF)
 
-All data under the KERNAL ROM is initialized by the loader at
-startup.  KDATA regions are copied from the PRG payload; KBSS
-regions are zeroed (no PRG space required).
+    $E000-$E5FF  KBSS   symbol table (256 slots × 6 B = 1536 B)
+    $E600-$EEFF  KBSS   symbol name heap (2304 B)
+    $EF00-$F0FF  free   (512 B)
+    $F100-$F4F1  KDATA  lookup tables (1010 B window)
+    $F4F2-$F8D9  KBSS   REPL screen save (1000 B)
+    $F8DA-$F958  KBSS   cold-init ZP snapshot (127 B, $01-$7F)
+    $F959-$FFF9  free   (1697 B)
+    $FFFA-$FFFB  NMI vector shadow → cse_nmi_handler
+    $FFFC-$FFFD  Reset vector (untouched)
+    $FFFE-$FFFF  IRQ/BRK vector shadow → cse_brk_handler_early
 
-    $E000-$E5FF  KBSS: symbol table (1536 B, 256 slots × 6B)
-    $E600-$EEFF  KBSS: symbol name heap (2304 B)
-    $EF00-$F0FF  Free (512 B — reclaimed after Phase 18 dropped two-image stack swap)
-    $F100-$F4F1  KDATA: asm/dasm lookup tables (1010 B)
-    $F4F2-$F8D9  KBSS: REPL screen save buffer (1000 B)
-    $F8DA-$F958  KBSS: cold-init ZP snapshot (127 B, $01-$7F)
-    $F959-$FFF9  Free (1697 B)
-    $FFFA-$FFFB  NMI vector → cse_nmi_handler (direct — the 6502 sets
-                 I=1 as part of the NMI vector sequence, so no SEI
-                 shim is needed)
-    $FFFC-$FFFD  Reset vector (untouched — ROM value)
-    $FFFE-$FFFF  IRQ/BRK vector → cse_brk_handler_early
+    KBSS 4967 B · KDATA window 1010 B · free 2209 B · vectors 6 B
 
-    KDATA total:  1010 B (in PRG payload — vectors only, no trampolines)
-    KBSS total:   4967 B (zeroed, no PRG space)
-    Free:         2209 B
+| Region | Defined in | Initialised by |
+|--------|-----------|----------------|
+| Symbol table | `sym_table` (symtab.s) | `sym_clear` at cold init and before each assembly |
+| Name heap | `SYM_HEAP`/`SYM_HEAP_END` (symtab.s) | `sym_clear` resets the heap pointer; names are written before they are read |
+| KDATA | the `KDATA` segment (c64_cse.cfg) | the loader copies it from the PRG |
+| REPL screen save | `REPL_SCREEN` (editor.s) | `enter_editor` writes it before `leave_editor` reads it |
+| Cold-init ZP snapshot | `COLD_ZP` (main.s) | `_main` at cold init; read by `cse_exit_to_basic` |
+| Vector shadows | main.s | `setup_interrupts` |
+
+**KDATA window.**  The KDATA tables must stay inside
+$F100–$F4F1, below the REPL screen save.  How much of the window a
+build fills depends on its CPU set (`make size` lists KDATA); the
+linker region in `c64_cse.cfg.in` runs to $FFF9, so the link itself
+does not stop KDATA from growing into the screen save.
 
 ## Warmstart entry points
 
-Three labels in `main.s` provide reason-named entry paths back into
-a clean kernel state from anywhere in the program.  All three end
-at `main_loop_top`; none of them cold-boots (no BSS re-zero, no
-KDATA recopy).  The editor gap buffer and the user's source are
-preserved across every warmstart — see invariants below.
+Three entry points in main.s bring the kernel back to a clean state
+from anywhere; none of them cold-boots (no BSS re-zero, no KDATA
+recopy).  Their bodies and order are owned by
+[main.md § Layer 3](modules/main.md#layer-3-reason-named-warmstart-entry-points).
 
 | Entry point | Reason | Composes |
 |-------------|--------|----------|
-| `cse_recover` | Internal CSE fault (unexpected BRK in kernel code) | hw_reinit + end_debug + refresh |
-| `cse_end_debug` | User ended the current debug session (via an `a`/`l`/`R` gate) | end_debug |
-| `cse_refresh` | User asked for the view back (NMI-in-kernel, ESC/CLR, `R` without active debug) | refresh; SP := `reg_sp` (the debug session's user stack is kept) |
+| `cse_recover` | Internal CSE fault (unexpected BRK in kernel code) | hw_reinit + end_debug + refresh; SP := $FF |
+| `cse_end_debug` | The user ended the debug session (a `y` at a gate) | end_debug; SP := `kernel_init_sp` |
+| `cse_refresh` | The user asked for the view back (RUN/STOP+RESTORE in kernel mode, ESC/CLR, `R`) | refresh; SP := `reg_sp` (the session's user stack is kept) |
 
-Each entry point composes from rts-returning **body subroutines**
-defined in `main.s`:
-
-- `hw_reinit_body` — SP=$FF, `$01`=$36, `setup_interrupts`,
-  `dbg_init` (step state and `reg_*`; never the breakpoint table),
-  `reset_globals` (`state` = REPL, `cur_addr` = $0800, `block_size`
-  = $0010, `cur_device` = 8, `run_user_pending` = 0 — a fault
-  recovery does not trust the REPL globals), `io_init`,
-  `theme_init`, `restore_colors`, `set_charset`.  Idempotent.
-- `end_debug_body` — zeroes `dbg_reason`, `step_state`,
-  `run_user_pending`, `in_userland`, `stop_cooldown`,
-  `dbg_bp_hit`, `last_cmd`, `cold_preview_done`; clears the step
-  state (`step_cleanup`: step slots zeroed, a breakpoint a step had
-  disabled re-enabled, `rp_dis_bp` = $FF); resets `reg_sp` to $FF;
-  calls `unpatch_all` (restores user's in-memory bytes that any
-  live breakpoints had overwritten with $00).
-- `refresh_body` — `state` := REPL (the view it draws), KERNAL
-  banked in (`$01` = $36, `kernal_out` = 0 — RUN/STOP+RESTORE can
-  land inside a bank-out window such as `a`'s two passes, which it
-  abandons), `reset_screen`, `splash_row`, `io_clear_eol`.
-  Cursor ends on the bottom row, column 0.
-
-### Continuation flag (`warm_cont`)
-
-1-byte BSS in main.s.  Set by a gate (see [repl.md § Gating
-pattern](modules/repl.md#gating-pattern)) before jumping to a
-warmstart entry point; consumed once at the next `main_loop_top`
-pass.
-
-| Value | Meaning |
-|-------|---------|
-| `0` | No continuation — fresh prompt (default). |
-| `1` | Replay `line_buf` through `exec_line` — the command the user typed before the gate is re-run with debug state cleared. |
+A fault recovery also resets the REPL globals (`state`, `cur_addr`,
+`block_size`, `cur_device`) — `cse_recover` does not trust them.
 
 ### Editor invariant
 
 No warmstart entry point touches `buf_base`, `gap_lo`, `gap_hi`,
-`gap_sz`, `ed_dirty`, `ed_top_ptr`, or the gap-buffer-backed memory
-in the workspace region.  The user's source is preserved across
-**every** warmstart, fault recovery included.
+`ed_dirty`, `ed_top_ptr`, or the gap-buffer-backed memory in the
+workspace region.  The user's source is preserved across **every**
+warmstart, fault recovery included.
 
 ### Breakpoint invariant
 
 `bp_table` is the user's persistent intent — it survives every
-warmstart.  What changes across `end_debug_body` is the in-memory
-representation: any $00-bytes a patched breakpoint left in the
-user's code get restored to the original opcodes via `unpatch_all`.
-The next `j`/`g` re-patches from `bp_table`.
+warmstart, fault recovery included (only cold init clears it).  What
+changes across `end_debug_body` is the in-memory representation: the
+$00 bytes of patched breakpoints are restored to the original
+opcodes by `unpatch_all`.  The next run re-patches from `bp_table`.
+Table layout: [breakpoints.md](modules/breakpoints.md).
 
 ## Stack contract
 
 CSE and user code **share** the single 6502 hardware stack page at
 `$0100–$01FF`.  Transitions between kernel and userland are flat
-RTI/RTS-driven and cost ~20 cycles each direction.
+RTI/RTS-driven and cost about 20 cycles each direction.
 
 The kernel is structured as an interrupt service routine
-(see [design_cse_as_kernel.md](design_cse_as_kernel.md)).  It
-inherits whatever SP the previous transition left it with, runs
-with balanced JSR/RTS discipline within that envelope, and never
-reads bytes below the current user SP.
+([design_cse_as_kernel.md](design_cse_as_kernel.md)).  After a
+break it runs on the user's stack page directly below the user's SP,
+with balanced JSR/RTS discipline.
 
 ### Invariants
 
-1. **Cold init starts at SP=$FF** and the kernel preserves the
-   "main_loop top has SP=$FF" convention through every iteration.
-2. **The kernel never pushes below the user's SP.**  All kernel
-   pushes happen above user's SP at the moment of break; bytes the
-   user had at-or-below SP are preserved.
-3. **The user must leave at least 64 bytes of stack headroom** for
-   kernel re-entry on break (BRK frame + handler chain + safety
-   margin).  See [userland_contract.md § 4](userland_contract.md#4-stack-contract).
-4. **`in_userland` flag tracks mode**, not SP layout.  The flag is
-   the single source of truth for "kernel or user code currently
-   running" and drives NMI dispatch.
+1. **Cold init starts at SP=$FF** (the loader resets it).  Without a
+   debug session the kernel's loop runs at SP = $FF.
+2. **The kernel never writes a stack byte above the user's SP.**  The
+   bytes from the user's SP + 1 up to $01FF are the user's live stack
+   (return addresses, the `brk_stub` sentinel, pushed data) and survive
+   the break.  The bytes below the user's SP are free for the kernel
+   while it runs.
+3. **The user leaves at least 64 bytes of stack headroom** below its
+   SP for kernel re-entry on a break
+   ([userland_contract.md § 4](userland_contract.md#4-stack-contract)).
+4. **`in_userland` tracks the mode**, not the SP layout: `$80` while
+   user code runs, 0 in the kernel.  It is the single source of truth
+   for "kernel or user code running" and drives NMI dispatch.
 
-### Entry (kernel → user): `return_to_userland`
+### Entry and exit
 
-```
-return_to_userland:
-  1. lda reg_p            ; user's saved P
-  2. ora #$04             ; ensure I=0 from user's view? no — preserve user's I
-                          ; (in practice, kernel masks P transport bits and
-                          ; user-set bits are honoured)
-  3. ; push brk_stub-1 high/low onto stack — user's top-level RTS sentinel
-     lda #>(brk_stub - 1) ; pha
-     lda #<(brk_stub - 1) ; pha
-  4. ; build RTI frame: P, PChi, PClo (in that push order)
-     lda reg_p   ; pha
-     lda reg_pc_hi ; pha
-     lda reg_pc_lo ; pha
-  5. lda #1
-     sta in_userland       ; mark mode
-  6. ldx reg_x
-     ldy reg_y
-     lda reg_a
-  7. rti                    ; CPU pops PClo/PChi/P, jumps to user PC
-```
+Mechanism and code: [debugger.md § return_to_userland](modules/debugger.md#return_to_userland)
+(entry) and [main.md § cse_brk_handler](modules/main.md#cse_brk_handler)
+(exit).  The memory-level contract:
 
-After step 7, user code is running.  Below SP are: PClo, PChi, P
-(consumed by the RTI), then `brk_stub-1 lo`, `brk_stub-1 hi`, then
-the kernel's pre-call state.  When user code performs its top-level
-RTS, the CPU pops `brk_stub-1` and lands at `brk_stub`, which BRKs
-immediately.
-
-### Exit (user → kernel): three paths into `cse_brk_handler`
-
-All three converge on `cse_brk_handler` (main.s):
-
-- **BRK at debugger breakpoint** — opcode at user PC was overwritten
-  with $00.  Handler classifies via `dbg_bp_find` on (pushed_PC − 2)
-  → known slot.
-- **BRK at step-BRK slot** — temporary breakpoint placed by
-  `cmd_step` for `t`/`o` single-step.
-- **BRK at `brk_stub`** — user's top-level RTS popped the sentinel.
-  Handler classifies (PC − 2 == brk_stub address) → clean exit,
-  `dbg_reason = DBG_RTS` (alive-but-terminal — user must `j`/`g`
-  for a fresh run) and resets `brk_pc := cur_addr` so subsequent
-  display shows a user-meaningful address.
-- **NMI in userland** — `cse_nmi_handler` reads `in_userland`,
-  routes to the BRK-style entry path so the same capture logic runs.
-  `dbg_reason = DBG_NMI`.
-- **Unplanned BRK** — opcode $00 in user code at an address that's
-  not a slot and not `brk_stub`.  Reported as user BRK.
-
-The handler:
-
-```
-cse_brk_handler:
-  1. ; entered with B-flag dispatch already done at $FF48
-  2. clear in_userland
-  3. ; capture user state: A/X/Y from KERNAL pushes, P/PC from CPU pushes
-  4. ; mask P transport bits (#%11011111 — clear bit 5, keep B=1)
-  5. ; classify; populate dbg_reason / dbg_bp_hit / brk_pc / reg_*
-  6. ; longjmp back to main_loop top
-     ldx kernel_init_sp ; or ldx #$FF
-     txs
-     jmp main_loop_top
-```
-
-The longjmp at step 6 discards every byte on the stack between the
-BRK frame and the kernel's main_loop entry SP.  Anything the kernel
-had pushed before `return_to_userland` is *not used* on the return path:
-the BRK handler does not return to "after return_to_userland" — it
-restarts the REPL loop afresh, displays the break result, and
-prompts again.
-
-This is structurally a `setjmp`/`longjmp` with the setjmp implicit
-at main_loop top and the longjmp inside the BRK handler.
-
-### IRQ-safety
-
-Bank-toggle windows (any code path that clears $01 bit 1 to read
-under-kernal RAM) must run with `I=1`.  This was already true under
-the old two-image design and remains true: any IRQ fired while
-kernal is banked out routes to `cse_brk_handler`'s **early-entry**
-label (the $FFFE RAM shadow), which detects the banked-out state by
-the very fact of being reached and banks the kernal back in via
-stack surgery before its final RTI.
-
-The early-entry path is reached only from RAM-resident vectors —
-i.e. only when kernal is banked out.  Reaching it is itself the
-signal that the kernal must be banked out before the final RTI.
-
-### Cold-start sentinel
-
-Cold init synthesises the very first userland frame:
-
-```
-cold_init_userland_handoff:
-  ldx #$FE
-  txs                       ; SP = $FE
-  lda #>(brk_stub - 1)
-  sta $01FF
-  lda #<(brk_stub - 1)
-  sta $01FE                 ; sentinel below the upcoming RTI frame
-  ldx #$FB
-  txs                       ; reserve room for RTI frame
-  lda #$00 / pha            ; PClo for RTI
-  lda #...   / pha          ; PChi for RTI
-  lda #%00100000 / pha      ; P (clean: I=0, B=0, bit 5 set as RTI restores it)
-  lda #1
-  sta in_userland
-  rti                       ; → BRK handler via brk_stub immediately
-```
-
-(Details vary by implementation; the contract is "RTI to brk_stub,
-sentinel below.")  The BRK fires, classification matches "PC ==
-brk_stub", `dbg_reason = 0`, handler longjmps to the warm-start tail
-at the late-entry label that skips the screen clear (the splash is
-already drawn).  REPL runs normally.
-
-This shares cold init's post-init code path with userland recovery
-— the same code that handles a clean `j`-then-RTS handles cold boot.
+- **Entry.**  The kernel switches SP to `reg_sp`.  A fresh start
+  (`j`, `g`, and the first run after a cold preview) pushes the
+  `brk_stub - 1` sentinel there as the program's top-level return
+  address; a resume (`c`, `t`, `o`) does not, because the sentinel of
+  the fresh start is still on the user's stack.  An RTI frame built
+  from `brk_pc`/`reg_p` enters the user code.
+- **Exit.**  A BRK (breakpoint, step breakpoint, the program's own
+  `brk`, or `brk_stub` after the top-level RTS) or an NMI enters the
+  kernel.  The handler records the user's registers, SP and ZP, then
+  sets SP to `reg_sp` and jumps to `main_loop_top`: a
+  `setjmp`/`longjmp` with the setjmp implicit at `main_loop_top`.
+  The kernel never returns into the frame that started the run.  A
+  step chain instead re-enters user code directly.
 
 ### Kernel stack budget
 
-The kernel's worst-case stack consumption is bounded by two paths:
+The kernel's stack use after a break lands below the user's SP:
 
-- **Forward path** (main_loop top → return_to_userland):
-  `main_loop → exec_line → cmd_X → [helper chain] → return_to_userland`.
-  Currently ~10 B for execution commands.
-- **BRK-return path** (BRK hardware/KERNAL push + handler chain
-  before longjmp / step-chain): currently ~8 B above user's SP.
+- **BRK frame and handler chain** — 6 bytes of frame (3 CPU, 3
+  KERNAL push) plus the handler's short `jsr` chain.
+- **The command the user types at the break** — `m`, `.`, `d`, `r`,
+  stepping — runs from `main_loop` on the same stack.
 
-The deeper of the two — and the one the user must accommodate — is
-the BRK-return path, because it consumes user's stack page above
-user's pre-break SP.  The forward path runs in kernel-owned space
-($FF down) and never touches user's region.
-
-The userland contract states **64 bytes** as the required headroom,
-deliberately conservative pending empirical measurement (see
-[TODO.md § Phase 18](TODO.md)).  The 64 B reserves room for:
-
-- Current BRK + handler chain (~14 B).
-- Future debugger features (conditional BPs, trace BPs that call
-  io_puts/screen.s, watchpoints) that may invoke deeper kernel
-  paths from the handler tail — bounded by the deepest kernel
-  chain in the system, which today is the assembler pipeline
-  (`asm_src` → `asm_line` → `expr_eval` recursive descent).
-- Safety margin.
-
-**Pending implementation:** an audit measurement of `asm_src`'s
-peak depth + worst-case BRK-handler tail.  Once known, the contract
-tightens to the measured-plus-margin figure and CSE adds a runtime
-re-entry warning (`;!stk N` log when user's SP is below the budget
-at BRK-handler entry).  See [userland_contract.md § 4](userland_contract.md#4-stack-contract).
-
-### User stack budget
-
-User code sees ~240 bytes of free stack on first entry (256 −
-kernel chain at return_to_userland − sentinel − RTI frame).  User code
-that resets SP to $FF and provides its own top-level return path
-gets the full 256 bytes; the brk_stub sentinel is then overwritten
-and the user's RTS must land somewhere meaningful explicitly.
+The contract is **64 bytes** of headroom below the user's SP
+([userland_contract.md § Kernel stack
+budget](userland_contract.md#kernel-stack-budget), which also gives
+the measured depths).  On every return from user code
+`post_run_cleanup` warns `;!stk N` when `reg_sp` is below 64.
 
 ### Cost
 
-Per user-entry:    ~20 cycles (push sentinel, push RTI frame, RTI)
-Per user-exit:     ~20 cycles (BRK hardware + KERNAL push + handler entry)
+Stack handling per user-entry:  ~20 cycles (push sentinel, push RTI frame, RTI)
+Stack handling per user-exit:   ~20 cycles (BRK hardware + KERNAL push + handler entry)
 
-No memcpy, no bank toggles around stack swap.  Negligible.
+No copy of the stack page, no bank toggles around a stack swap.  The
+cost of a transition is the ZP swap: two 128-byte copies of
+$00–$7F (about 3.6k cycles).
 
 ## Memory Map — PRG Load Image
 
@@ -566,42 +357,45 @@ time, the file is a flat image:
     $0801-$080C  BASIC stub "SYS 2061"
     $080D        Loader code (discardable bootstrap)
       ...        CODE + RODATA payload
-      ...        KDATA payload (copied to $F100+ under kernal;
-                   KBSS regions are not in file)
+      ...        KDATA payload (copied to $F100+ under the KERNAL;
+                   KBSS regions are not in the file)
     end of file
 
-The loader is the first code to run.  It relocates the payload to
-its final position (see § Loader module), then becomes part of the
-workspace.  The PRG contains no filler — the file is exactly as
-large as the loader + payload.
+The loader is the first code to run.  It moves the payload to its
+run-time position ([§ Loader Module](#loader-module-loaders)), then
+becomes part of the workspace.  The PRG contains no filler — the
+file is exactly as large as the loader + payload.
 
-For D64 distribution, the entire PRG is wrapped with exomizer SFX
-compression (~38% smaller, faster disk load).  The SFX stub
+For D64 distribution, the PRG is wrapped with exomizer SFX
+compression (smaller file, faster disk load).  The SFX stub
 decompresses to $0801, then the BASIC stub and loader run normally.
 `make run` uses the uncompressed PRG (no decrunch delay).
 
 ## Memory Map — Cartridge (CRT)
 
+A planned build (roadmap R5, [TODO.md](TODO.md)):
+
     $0000-$03FF  System
     $0400-$07E7  Screen RAM
-    $0800-XXXX   Workspace (output ↑ / source ↓)
-    XXXX-$BFFF   CSE ROM (code + rodata, zero RAM cost)
+    $0800-...    Workspace (output ↑ / source ↓)
+    ...-$BFFF    CSE ROM (code + rodata, zero RAM cost)
     $C000-$CFFF  CSE RAM (BSS, 4 KB max)
     $D000-$DFFF  I/O
     $E000-$FFFF  KERNAL ROM + banked data (as above)
 
 The CRT build has no loader — CODE + RODATA live in ROM at their
-final address.  Only BSS zeroing, KDATA copy, and KBSS zeroing
-are needed at startup.  The CRT init code performs these steps
-then jumps to `_main`.
+final address.  Its init code zeroes BSS, copies KDATA, then jumps
+to `_main`.
 
 ## Memory Map — m65 (MEGA65 mode)
 
-The m65 build runs in MEGA65 mode, on BASIC 65 and the MEGA65
-KERNAL ([build_system.md § The m65 PRG](build_system.md#the-m65-prg)).
-The parts below are fixed; the ones marked S2-Q*n* are open design
-items of R7 slice 2, settled in its CDD Analysis
-([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-prg-r7-platform-layer)).
+The m65 build is planned
+([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-prg-r7-platform-layer));
+the Makefile refuses `PLATFORM=m65` until it exists.  It runs in
+MEGA65 mode, on BASIC 65 and the MEGA65 KERNAL
+([build_system.md § The m65 PRG](build_system.md#the-m65-prg)).  The
+parts below are settled design; the ones marked S2-Q*n* are open
+design items of R7 slice 2, settled in its CDD Analysis.
 
 **PRG load image.**
 
@@ -613,11 +407,10 @@ items of R7 slice 2, settled in its CDD Analysis
     end of file
 
 The loader does what the C64 loader does
-([§ Loader Module](#loader-module-loaders)): reset the stack, copy
-CODE + RODATA to the runtime position, zero BSS, initialise the data
-area (copy KDATA, zero KBSS), jump to `_main`.  For the D81 the PRG is
-wrapped with exomizer SFX `-t 65`, which decompresses to `$2001`
-before the stub runs.
+([loader.md](modules/loader.md)): reset the stack, copy CODE + RODATA
+to the runtime position, zero BSS, copy KDATA into the data area,
+jump to `_main`.  For the D81 the PRG is wrapped with exomizer SFX
+`-t 65`, which decompresses to `$2001` before the stub runs.
 
 **Instructions.**  All code is 6502 code.  The 45GS02-only
 instructions the platform layer needs are raw bytes from
@@ -650,75 +443,26 @@ the `B` register, is S2-Q3.
 `CHROUT`, `CHRIN`, `GETIN`, `STOP`, `OPEN` are the same `JMP ($03xx)`
 stubs at the same addresses, and `LOAD`, `PLOT`, `SETLFS` sit at the
 same jump-table addresses.  KERNAL internals and RAM variables differ
-from the C64's ([§ KERNAL ZP locations](#kernal-zp-locations-readwritten-directly)
-lists the C64 ones) and come from the m65 platform constants.
+from the C64's ([§ KERNAL ZP locations](#kernal-zp-locations-readwritten-directly))
+and come from the m65 platform constants.
 
 ## Loader Module (loader.s)
 
-The loader is a **discardable bootstrap** linked into the PRG
-build only.  It runs once at startup, then its memory is
-reclaimed as workspace.  Analogous to an ELF loader that maps
-segments and jumps to the entry point.
-
-**Responsibilities:**
-1. Reset the 6502 hardware stack (`ldx #$FF / txs`)
-2. Copy CODE + RODATA from the load position to the runtime
-   position (XXXX–XXXX+sizeof(CODE+RODATA)-1)
-3. Zero BSS (XXXX+sizeof(CODE+RODATA) through $CFFF)
-4. Initialize banked region under kernal (pure writer, no
-   banking needed): copy KDATA to $F100+, zero KBSS areas
-   (sym_table, heap, screen save).  Vector setup ($FFFA/$FFFE
-   shadows) is deferred to `setup_interrupts` in main.s, which
-   runs as part of cold init.
-5. Jump to `_main` (now at its runtime address)
-
-The loader lives in the LOADER segment, placed at $080D (right
-after the BASIC stub).  After step 5, nothing references the
-loader — the entire $0800–XXXX range becomes workspace.
-
-Compression uses exomizer SFX wrapping (the entire PRG is wrapped
-as a self-extracting binary).  The loader itself is always
-uncompressed — the SFX decompresses to $0801 before the loader runs.
-
-**CRT builds** do not link the loader.  The CRT init code
-performs only steps 1, 3–5 (stack reset, BSS zero, banked init,
-jump to `_main`), since CODE + RODATA are already in ROM.
-
-**C128 consideration:** The loader architecture does not assume
-a specific memory banking model.  A future C128-native loader
-could copy code to a different bank or address range without
-changing the permanent runtime.
+The loader is a **discardable bootstrap** linked into the PRG build
+only: it runs once at startup, moves CODE + RODATA to the runtime
+start, zeroes BSS, copies KDATA under the KERNAL and jumps to
+`_main`.  After that nothing references it — its bytes are part of
+the workspace.  It does not bank and does not touch KBSS or the
+vectors (`setup_interrupts` installs those at cold init).  Steps and
+copy direction: [loader.md](modules/loader.md).
 
 ## Memory Manager Module (mem.s)
 
-The memory manager is a **permanent module** that consolidates
-all runtime memory services.  It consolidates memory management
-code formerly scattered across main.s (fill_free_memory),
-symtab.s (kernal banking), meminfo.s (segment queries), and
-asm_src.s (workspace symbols).
-
-**Exports:**
-
-| Function | Purpose |
-|----------|---------|
-| `kernal_bank_out` | Clear $01 bit 1 (honours `kernal_out` flag) |
-| `kernal_bank_in` | Set $01 bit 1 (honours `kernal_out` flag) |
-| `kernal_out` | BSS flag: nonzero = kernal held banked out |
-| `cse_start` | Returns runtime start address (XXXX) in A/X |
-| `cse_end` | Returns first byte past runtime ($D000) in A/X |
-| `cse_zp_end` | Returns first free ZP byte in A |
-
-(Interrupt vector setup moved to `setup_interrupts` in main.s as
-of Phase 18; `kernal_init` retired.)
-
-After the loader (or CRT init) jumps to `_main`, the main loop
-calls mem.s functions for one-time setup (BASIC unmap, NMI
-trampoline, workspace symbols, free memory fill).
-
-The KERNAL banking functions move from symtab.s to mem.s.
-symtab.s imports them like any other module.  The ordering rule
-for batch callers (bank before flag, flag before unbank) is
-unchanged — see the inline documentation.
+mem.s is the permanent home of the memory services: KERNAL banking
+with the `kernal_out` batch flag, the CPU-port-aware ZP save/restore
+used at every kernel↔userland transition, and the runtime-extent
+queries (`cse_start`, `cse_end`, `cse_zp_end`).  Interface:
+[mem.md](modules/mem.md).
 
 ## Source Code Storage
 
@@ -728,117 +472,43 @@ growing downward from the CSE runtime start:
     $0800          workstart (fixed)
       ...          assembled output (grows up)
                      ... free gap ...
+    workend        buf_base − 1
     buf_base  ←──  source text (grows down toward $0800)
-    XXXX           workend + 1 = CSE runtime start
+      ...
+                   CSE runtime start
 
 The `workstart` and `workend` symbols are pre-defined in the symbol
-table by `_main` (via `define_ws_syms`), usable in assembly (`.org workstart`) and REPL
-expressions (`@ workend`, `j workstart`).  `workstart` is always
-$0800.  `workend` adjusts when the editor resizes the gap buffer
-(`update_workend` in `gap_buffer.s`, called from
-`editor.s::ed_init` after every full editor reset and from
-`gap_buffer.s::gb_ensure_room` after a gap grow).
+table (`define_ws_syms`, gap_buffer.s, called by `_main` at cold init
+and by `asm_assemble` before and after its passes) and usable in
+assembly (`.org workstart`) and REPL expressions (`@ workend`,
+`j workstart`).  `workstart` is always $0800.  `workend` is
+`buf_base − 1` and moves when the gap buffer is reset or grows:
+`update_workend` (gap_buffer.s) runs from `ed_init` (editor.s) and
+from `gb_ensure_room` after a gap grow.
 
 ## Zero Page Layout
 
-### Overview
+The allocation of $02–$79 — every variable, its address and its
+module — is owned by [zp.md](modules/zp.md) (source: `src/zp.s`).
+$7A–$7F are not allocated by CSE.  User code may use all of
+$00–$7F, since CSE swaps the whole range
+([userland_contract.md § 3](userland_contract.md#3-memory-regions)).
 
-120 bytes ($02–$79), all defined in `src/zp.s` (single source of truth).
-6 bytes free ($7A–$7F) for user programs.
+### Sharing ZP between modules
 
-### Module allocation
+Modules that never run at the same time could share ZP addresses
+([project.md § Implementation Principles](project.md#1-zp-is-precious--use-the-stack-for-scratch)).
+The two obvious candidates do overlap at run time, so they keep
+separate blocks:
 
-| Range | Bytes | Consumer | Variables |
-|-------|-------|----------|-----------|
-| $02–$07 | 6 | main / repl scratch | `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) |
-| $08 | 1 | asm_line | `_asm_saved_sp` (1) |
-| $09–$20 | 24 | assembler | `asm_pc`..`expr_wide` (asm_pc/out/cpu/len/slot/prof/pidx/base/bit/mode/tmp/tmp2 + sym_name/val/wide + expr_ptr/val/wide) |
-| $21–$23 | 3 | asm_src | `_as_ptr` (2), `_as_wsize` (1) |
-| $24–$26 | 3 | mn_vars | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) |
-| $27 | 1 | mn7/mn6 | `mn7_h_tmp` / `mn6_h_tmp` (1, aliased — only one linked at a time) |
-| $28–$2B | 4 | addr_mode | `asm_ptr` (2), `asm_opr` (2) |
-| $2C | 1 | — | unallocated — see [TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1), A3b |
-| $2D–$30 | 4 | cse_io | `_io_tmp` (2), `_io_scr` (2) |
-| $31–$32 | 2 | disk | `disk_ptr` (2) |
-| $33–$36 | 4 | expr | `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1) |
-| $37–$40 | 10 | symtab | `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_heap` (2), `_st_heap_base` (2) |
-| $41–$48 | 8 | dasm | `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) |
-| $49–$56 | 14 | editor | `gap_lo` (2), `gap_hi` (2), `buf_base` (2), `ed_top_ptr` (2), `read_ptr` (2, aliases `save_ptr`), `ed_tmp` (2), `ed_scr` (2) |
-| $57–$5D | 7 | cross-module flags <sup>1</sup> | `in_userland` (1), `state` (1), `warm_cont` (1), `kernal_out` (1), `ed_dirty` (1), `dbg_reason` (1), `cur_device` (1) |
-| $5E–$6E | 17 | filename stem <sup>2</sup> | `cur_project_name` (FILENAME_MAX + NUL) |
-| $6F–$77 | 9 | output-formatter scratch <sup>3</sup> | `rp_addr` (2), `rp_cnt` (2), `rp_save` (1), `rp_save2` (1), `rp_next_lo` (2), `_info_mode` (1) |
-
-<sup>1</sup> Phase 21 Move 4 — shared single-byte state read across module boundaries (typically by a lower-layer module than the writer).  Hosted here to eliminate back-edges; see [doc/modules/zp.md](modules/zp.md) for the writer/reader table.
-
-<sup>2</sup> Phase 21.1 Move 6a — written by `repl.s::parse_ls_args`, read by `editor.s` (status bar), `asm_src.s` (`;asm "PROJ"` log line + save-suggestion emitter), and `repl.s` (logging).  Hosted here to eliminate `asm_src→repl` and `editor→repl` back-edges.
-
-<sup>3</sup> Phase 21.1 Move 3B — calling-convention slots for `repl.s` command handlers (`cmd_memory`, `cmd_disasm` etc.) and `log.s` range-line formatters (`seg_line` / `prg_line` / `free_line` / `info_line_*` / `_range_core`).  Hosted here to eliminate the Move-3 residual `asm_src→repl` back-edge and shorten ~190 BSS access sites by 1 byte apiece (~200 B total saved).
-
-### Non-concurrent groups
-
-Several module groups never execute simultaneously.  Their scratch
-variables could share addresses:
-
-| Group | Modules | ZP | BSS | Active when |
-|-------|---------|-----|------|-------------|
-| **Assembler** | asm_src, asm_line, opcode_lookup, addr_mode, mn7, mn_vars | 40 | 253 | `a` command |
-| **Editor** | editor | 14 | 59 | ST_EDIT mode |
-| **Disassembler** | dasm | 8 | 24 | `d`/`t`/`o` |
-| **Disk I/O** | disk | — | 67 | `l`/`s`/`$` |
-| **Always active** | main, cse_io, symtab, expr, repl, Phase-21 shared <sup>†</sup> | 60 | 116 | any time |
-
-<sup>†</sup> "Phase-21 shared" is the +33 ZP bytes at $57–$77 added by
-Phase 21 Move 4 (cross-module flags, 7 B), Phase 21.1 Move 6a
-(`cur_project_name`, 17 B), and Phase 21.1 Move 3B (output-formatter
-scratch, 9 B).  All three blocks are "always active" — read at any
-prompt cycle by main, repl, or log.
-
-Assembler and editor are fully non-concurrent.  Assembler and
-disassembler are also non-concurrent.  Expression evaluation
-(`expr`) is called from both REPL and assembler — cannot overlap.
-
-### Optimization opportunities
-
-**ZP overlap** — investigated 2026-04-08, both candidates
-unsafe, dropped:
-
-| Overlap | Why unsafe |
-|---------|------------|
-| Editor scratch ↔ assembler scratch | `asm_src.s` calls `ed_read_line` (`asm_src.s:1204`), which uses `ed_scr`/`ed_tmp` from the editor's ZP block.  Editor ZP is therefore live during the `a` command. |
-| Dasm ↔ assembler scratch | `repl.s::cmd_dot` calls `dasm_insn` (`repl.s:765`) inside the `.` command path that *also* runs `asm_line` for verification.  Both modules' ZP are concurrently live. |
-
-The earlier estimate of ~12 B savings was a paper analysis
-that didn't trace the actual call graph.  Both overlaps are
-blocked by cross-module calls.  No code change.
-
-**BSS overlap** (not yet implemented):
-
-| Buffer A | Size | Buffer B | Size | Saving | Constraint |
-|----------|------|----------|------|--------|------------|
-| asm_src `_line_buf` | 40 | repl `line_buf` | 42 | 40 | Assembler doesn't run from REPL line buffer |
-| asm_src `_full_label` | 48 | editor `ws_buf` | 39 | 39 | Editor not active during assembly |
-| dasm `_dasm_buf` | 24 | repl `dot_asm_buf` | 24 | 24 | Disasm output consumed before `.` command |
-| **Total BSS reclaimable** | | | | **~105 B** | |
-
-**Completed optimizations:**
-- `_kernel_zp_buf` trimmed: $5E → $5A (4B BSS saved)
-- Parameter stack eliminated: `pushax`/`cse_popax`/`sp` removed,
-  all multi-arg calls use ZP variables
-- Symbol table doubled: 128 → 256 slots, moved to $E000 under KERNAL
-- Name heap moved under KERNAL at $E600 (2304B), frees main RAM
-- BUF_END raised: $C800 → $D000 (+2KB workspace)
-- KDATA tables under KERNAL: 1010B of lookup tables at $F100+
-- Packed opcode→length table: 64B, replaces dasm_insn in cmd_step
-  (5× faster stepping)
+| Overlap | Why it is unsafe |
+|---------|------------------|
+| Editor scratch ↔ assembler scratch | `asm_src` reads source lines through `ed_read_line` (gap_buffer.s), which uses the editor's ZP block.  Editor ZP is live during `a`. |
+| Disassembler ↔ assembler scratch | The REPL `.` command disassembles (`dasm_insn`) and assembles (`asm_line`) in the same command.  Both modules' ZP are live together. |
 
 ### KERNAL ZP locations (read/written directly)
 
-| Address | Name | Purpose |
-|---------|------|---------|
-| $00–$01 | CPU I/O port | Memory banking ($01 bit 1 = KERNAL) |
-| $C6 | KEY_COUNT | Keyboard buffer count (read by `io_kbhit`) |
-| $CC | CURS_FLAG | Set to 1 at startup (disables KERNAL cursor) |
-| $D1–$D2 | Screen line ptr | Updated by `io_sync` via KERNAL PLOT |
-| $D3 | CUR_COL | Cursor column (0–39) |
-| $D6 | CUR_ROW | Cursor row (0–24) |
-| $F3–$F4 | Color line ptr | Updated by `io_sync` via KERNAL PLOT |
+The KERNAL cells CSE reads or writes — cursor position and line
+pointers, the cursor-blink switch, the keyboard-buffer count, the
+screen-line link table — are listed with what writes them in
+[userland_contract.md § 2](userland_contract.md#2-state-contract).
