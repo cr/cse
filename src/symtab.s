@@ -10,21 +10,22 @@
 ;              bits 5-0 = reserved
 ;
 ; Names: PETSCII NUL-terminated strings copied into a heap on define.
-; Compared case-insensitively (uppercase folded to lowercase).
+; Compared case-insensitively (shifted letters $C1-$DA fold to $41-$5A).
 ; The heap persists until sym_clear — survives editing between assemblies.
 ;
 ; Interface (all via ZP):
 ;   sym_define:  in: sym_name (ptr), sym_val (16-bit), sym_wide (0=ZP, 1=ABS)
 ;                out: C=1 if table full or heap overflow
 ;   sym_lookup:  in: sym_name (ptr)
-;                out: sym_val (16-bit), sym_wide (0/1), C=1 if not found
+;                out: sym_val (16-bit), sym_wide (0/1), sym_fwd, C=1 if not found
+;   Both save $01 on entry and restore it on every exit (nesting guard).
 ;   sym_clear:   (no args) — wipes all slots, resets heap
 
         .export sym_define, sym_lookup, sym_clear
         .export sym_stamp, sym_fwd
 
         .import kernal_bank_out
-        .importzp kernal_out            ; zp.s
+        .importzp kernal_out            ; zp.s (unused)
 
         .importzp sym_name, sym_val, sym_wide
 
@@ -40,10 +41,10 @@ ENTRY_SIZE = 6              ; hash(1) + value(2) + name_ptr(2) + scope(1)
 ; ── ZP scratch ───────────────────────────────────────────
 .importzp _st_hash, _st_idx, _st_ptr, _st_nptr, _st_heap, _st_heap_base
 
-; ── Banked RAM under KERNAL ROM ───────────────────────────
-; This module owns $E000–$E5FF (sym_table, 256 slots × 6 B) and
-; $E600–$EEFF (the name heap, up to SYM_HEAP_END).  The full banked
-; layout is owned by doc/memory_design.md § Banked layout.
+; ── Banked RAM under KERNAL ROM ──────────────────────────
+; $E000–$E5FF  sym_table   (256 slots × 6B = 1536 bytes)
+; $E600–$EEFF  sym_heap    (2304 bytes, name heap; SYM_HEAP_END excl.)
+; The rest of $E000–$FFFF: doc/memory_design.md § Banked layout.
 SYM_P0       = $40              ; pass-0 stamp (scope bit 6)
 
 .segment "BSS"
@@ -111,7 +112,7 @@ SYM_HEAP_END = $EF00
 .endproc
 
 ; ═════════════════════════════════════════════════════════
-; fold_char — fold PETSCII uppercase ($C1-$DA) to lowercase ($41-$5A)
+; fold_char — fold a shifted letter ($C1-$DA) to the unshifted one ($41-$5A)
 ;   Input/output: A. Preserves Y.
 ; ═════════════════════════════════════════════════════════
 .proc fold_char

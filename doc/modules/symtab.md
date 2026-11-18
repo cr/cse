@@ -12,29 +12,40 @@
 ## Interface
 
 ### sym_define
-**In:** `sym_name` (ZP, pointer to NUL-terminated name),
-`sym_val` (ZP, 16-bit value), `sym_wide` (ZP, 0=ZP 1=ABS)
-**Out:** C=0 success, C=1 table full
-**Clobbers:** A, X, Y, all _st_* ZP vars
+**In:** `sym_name` (ZP, pointer to NUL-terminated name in main RAM),
+`sym_val` (ZP, 16-bit value), `sym_wide` (ZP, 0=ZP 1=ABS),
+`sym_stamp` (BSS, the stamp to write)
+**Out:** C=0 success; C=1 table full (probe wrapped) or name heap full
+(nothing written).  `$01` is the caller's on return.
+**Clobbers:** A, X, Y, `_st_hash`, `_st_idx`, `_st_ptr`, `_st_nptr`;
+`_st_heap` advances when a new name is stored.
 
-If the name already exists, updates the value and width.
-If new, copies the name to the heap and creates a new entry.
-It also writes the pass stamp: scope bit 6 = `sym_stamp`
-([§ Pass stamp](#pass-stamp-mega_support)), on every build.
+If the name already exists, updates the value, width and stamp.  If
+new, copies the name to the heap and creates a new entry.  The scope
+byte gets bit 7 = width and bit 6 = `sym_stamp`
+([§ Pass stamp](#pass-stamp)).
 
 ### sym_lookup
-**In:** `sym_name` (ZP, pointer to NUL-terminated name)
-**Out:** `sym_val` (ZP, 16-bit), `sym_wide` (ZP, 0=ZP 1=ABS).
-C=0 found, C=1 not found.  When found, also
-`sym_fwd` (BSS): nonzero iff the entry's stamp differs from
-`sym_stamp` — the symbol was defined in an earlier pass only, so this
-read is a forward reference in the current pass.
-**Clobbers:** A, X, Y, all _st_* ZP vars
+**In:** `sym_name` (ZP, pointer to NUL-terminated name in main RAM),
+`sym_stamp` (BSS)
+**Out:** C=0 found, C=1 not found.  When found: `sym_val` (ZP,
+16-bit), `sym_wide` (ZP, 0=ZP 1=ABS), `sym_fwd` (BSS): nonzero iff the
+entry's stamp differs from `sym_stamp` — the symbol was defined in an
+earlier pass only, so this read is a forward reference in the current
+pass.  When not found, `sym_val`, `sym_wide` and `sym_fwd` are
+unchanged.  `$01` is the caller's on return.
+**Clobbers:** A, X, Y, `_st_hash`, `_st_idx`, `_st_ptr`, `_st_nptr`
 
 ### sym_clear
 **In:** none
-**Out:** all slots zeroed, heap pointer reset to base
-**Clobbers:** A, X
+**Out:** all 256 slots zeroed, `_st_heap` and `_st_heap_base` = $E600
+**Clobbers:** A, X.  Does not bank (pure writer).
+
+### sym_stamp, sym_fwd
+Exported BSS bytes.  `sym_stamp` (1) — input of `sym_define` /
+`sym_lookup`: the current pass's stamp, `SYM_P0` ($40) during pass 0
+of an assembly, 0 during pass 1 and outside an assembly; written only
+by asm_src (`asm_assemble`).  `sym_fwd` (1) — output of `sym_lookup`.
 
 ### Memory
 
@@ -43,25 +54,27 @@ read is a forward reference in the current pass.
 Probe state for linear probing.  `_st_heap`/`_st_heap_base` track
 the name heap (fixed at $E600 under KERNAL).
 
-**BSS (2 bytes, exported):** `sym_stamp` (1) — input: the
-current pass's stamp, `SYM_P0` ($40) during pass 0 of an assembly, 0
-otherwise; written by asm_src.  `sym_fwd` (1) — output of
-`sym_lookup`.
+**BSS (2 bytes, exported):** `sym_stamp`, `sym_fwd` (above).
 
-**Depends on:** mem (kernal_bank_out / kernal_bank_in), zp
+**Banked RAM:** `sym_table` $E000–$E5FF and the name heap
+$E600–$EEFF (`SYM_HEAP_END` = $EF00, exclusive), in RAM under the
+KERNAL ROM.  The layout of the whole banked area is owned by
+[memory_design.md § Banked layout](../memory_design.md#banked-layout-e000ffff).
+
+**Depends on:** mem (`kernal_bank_out`), zp (`sym_name`, `sym_val`,
+`sym_wide`, `_st_*`).  symtab.s also `.importzp`s `kernal_out` but
+does not use it.
 
 ### Callers of `sym_define`
 
 `sym_define` is the generic "register a name → value" entry point.
-Direct callers in the corpus:
+Direct callers:
 
 | Caller | Name | Purpose |
 |---|---|---|
-| `gap_buffer.s::define_ws_syms` | `workstart` | fixed $0800, registered at cold init |
-| `gap_buffer.s::update_workend` | `workend` | `buf_base - 1`, refreshed after every buffer-base change |
-| `asm_src.s::asm_assemble` | both | refresh after `sym_clear` at pass 0, and again at pass 1, each after setting `sym_stamp` |
-| `asm_src.s` label emit, `.const` | user symbols | per `main:` / `.loop:` / `.const` in source, on both passes (pass 1 re-stamps) |
-| `repl.s::cmd_define` (future) | user symbols | REPL `=` command |
+| `gap_buffer.s::define_ws_syms` | `workstart` | fixed $0800; called at cold init (main.s) and by `asm_assemble` before each pass |
+| `gap_buffer.s::update_workend` | `workend` | `buf_base - 1`; falls in from `define_ws_syms`, and called after every buffer-base change |
+| `asm_src.s::define_label` and the `.const` handler (`d_const`) | user symbols | per `main:` / `.loop:` / `.const` in source, on both passes (pass 1 re-stamps) |
 
 ## Design
 
@@ -89,15 +102,16 @@ walks the linear probe chain and returns C=1 (full) if `_st_idx`
 returns to its starting hash without finding either an empty slot
 or a name match.  No separate count is maintained.
 
-### Pass stamp (`MEGA_SUPPORT`)
+<a id="pass-stamp-mega_support"></a>
 
-On every build (the heading names the build it was first designed
-for).  An operand's size must be decided identically in both passes:
+### Pass stamp
+
+An operand's size must be decided identically in both passes:
 on the C64 a symbol read before its definition is sized ABS on pass 0
 (it is undefined there), so pass 1 must size it ABS too even when its
 value turns out to be ZP; the 4510's two branch widths need the same
-([asm_line.md § Branches](asm_line.md#branches-zone-b)).
-The stamp tells a reader whether a symbol is defined *so far in the
+([asm_line.md § Branches](asm_line.md#branches-zone-b), planned m65
+build).  The stamp tells a reader whether a symbol is defined *so far in the
 current pass*: `sym_define` stamps every entry it writes with
 `sym_stamp`, and asm_src gives each pass its own stamp — `SYM_P0`
 for pass 0, 0 for pass 1 and outside an assembly — refreshing the
@@ -110,11 +124,10 @@ symbol is simply not found.  Outside an assembly every entry carries
 ### KERNAL banking
 
 `sym_table` lives at $E000–$E5FF in RAM underneath the kernal ROM.
-The name heap follows at $E600–$EEFF (2304 bytes).  The NMI shadow
-at $FFFA/$FFFB (installed by `setup_interrupts` in main.s) routes
-NMI directly to `cse_nmi_handler` so NMI is safe even while the
-kernal is banked out.  This saves ~3.8 KB of main RAM (1536B table
-+ 2304B heap).
+The name heap follows at $E600–$EEFF (2304 bytes).  This saves
+~3.8 KB of main RAM (1536 B table + 2304 B heap).  Interrupts stay
+safe while the KERNAL is banked out through the RAM vectors at
+$FFFA/$FFFE that main.s installs ([§ NMI safety](#nmi-safety)).
 
 **Reads** under KERNAL ($E000–$FFFF) require the KERNAL to be
 banked out.  **Writes always pass through** to the underlying RAM
@@ -141,12 +154,12 @@ sta $01             ; back to exactly the caller's state
 So a caller that has itself banked out without the `kernal_out` batch
 flag — `asm_line` on the REPL `.` path, which reads its KDATA tables
 after a symbol operand is resolved — keeps the KERNAL banked out
-across the lookup.  (A guard that ended with `kernal_bank_in` banked
-the ROM back in under such a caller: `.asl $12,zz` read the opcode
-tables from ROM and emitted `A2 12 02`.)
+across the lookup; a guard that banked in on exit would hand such a
+caller the ROM in place of its tables.
 
-The kernal banking functions (`kernal_bank_out`, `kernal_bank_in`,
-`kernal_out`) live in `mem.s`.  symtab.s imports them.
+The kernal banking functions (`kernal_bank_out`, `kernal_bank_in`)
+and the `kernal_out` flag are in `mem.s` / zp.s; symtab.s imports
+`kernal_bank_out` only.
 
 Both `kernal_bank_out` and `kernal_bank_in` honour the
 `kernal_out` flag — when set, they become no-ops.  The flag lets
@@ -161,9 +174,10 @@ run BEFORE the real `kernal_bank_in`.  Otherwise the very call
 that is supposed to do the bank operation short-circuits because
 the flag is already set.  See `asm_src.s::asm_assemble`.
 
-Internal subroutines (`compute_hash`, `fold_char`) that operate
-only on ZP variables and the name string (which is in main RAM)
-are called with the KERNAL already banked out by their caller.
+`compute_hash` (and its `fold_char`) reads only the name string at
+`sym_name`, which is in main RAM; `sym_define` and `sym_lookup` call
+it *before* the bank-out.  `names_equal` reads the stored name in the
+heap and runs after it.
 
 `heap_copy_name` writes to the heap while the KERNAL is banked
 out by `sym_define`.  The write itself doesn't need the bank-out,
@@ -173,14 +187,10 @@ but `sym_define`'s probing did.
 
 `sei` only masks IRQ, not NMI.  If NMI fires while the kernal is
 banked out, the CPU reads the NMI vector from RAM at $FFFA/$FFFB
-instead of ROM.  `setup_interrupts` (in main.s, called once during
-cold init before any bank-out) writes the early-entry label of
-`cse_nmi_handler` into the $FFFA/$FFFB shadow.  The handler's
-early-entry prologue banks the kernal back in if necessary and
-runs the standard NMI dispatch.
-
-See [main.md](main.md) § cse_nmi_handler for the full handler
-contract.
+instead of ROM; `setup_interrupts` (main.s, at cold init, before any
+bank-out) points it at `cse_nmi_handler`, and the IRQ/BRK vector at
+$FFFE likewise.  The handler contracts are owned by
+[main.md](main.md).
 
 ### Hash function
 
@@ -198,11 +208,11 @@ Linear probing on collision (up to 256 probes, wraparound detection).
 
 Folding happens during hash computation and name comparison, not
 during storage.  Names are stored verbatim as received.  `fold_char`
-converts PETSCII shifted uppercase ($C1–$DA) to plain uppercase
-($41–$5A).  Plain uppercase passes through unchanged.
+maps a shifted letter ($C1–$DA) to the unshifted one ($41–$5A); every
+other byte passes through unchanged.
 
-This means `SCREEN` typed in shifted mode ($C1..) and `SCREEN` in
-normal mode ($41..) resolve to the same symbol.
+This means `screen` typed with SHIFT ($D3 $C3 …) and without
+($53 $43 …) resolve to the same symbol.
 
 ### Name heap
 
@@ -222,7 +232,7 @@ assembler concatenates the scope prefix: `.loop` under `main:` is
 stored as `main.loop` in the symbol table.  From symtab's perspective,
 it's just a longer name — no special scoping logic.
 
-The scope byte's bits 6-0 are reserved but unused.
+The scope byte's bits 5-0 are reserved but unused.
 
 ### Probing
 
@@ -237,7 +247,7 @@ Wraparound to start index → C=1 (not found, table full).
 ## Caveats
 
 - 256 slots, all usable.  No dynamic resizing.  When full (or heap
-  overflow), `sym_define` returns C=1.
+  overflow), `sym_define` returns C=1 (asm_src reports `;?N: sym full`).
 - `sym_clear` zeros 1536 bytes (6 pages) — takes ~8ms at 1 MHz.
   No banking is required (pure writer), so interrupts stay enabled
   during the loop.
@@ -245,13 +255,12 @@ Wraparound to start index → C=1 (not found, table full).
   compare without popping.  Works because the 6502 stack is at $0100.
 - `heap_copy_name` copies until NUL.  The caller must ensure
   `sym_name` points to a properly NUL-terminated string.
-- Banking overhead: ~12 cycles per bank-out/bank-in pair (two
-  `lda $01 / ora-or-and / sta $01` sequences; no SEI/CLI since
-  Phase 18's IRQ early-entry handles IRQ-during-bank-out).
+- Banking overhead: the guard is `lda $01 / pha / jsr kernal_bank_out`
+  … `pla / sta $01`, a few dozen cycles; no SEI/CLI (the RAM IRQ
+  vector handles an IRQ during bank-out — memory_design.md).
   Negligible compared to the ~300-cycle hash + probe cost of a
-  typical lookup.  Inside an `asm_assemble` batch (kernal_out=1),
-  the inner bank helpers are no-ops, so the only banking cost
-  is the single outer pair.
+  typical lookup.  Inside an `asm_assemble` batch (kernal_out=1)
+  `kernal_bank_out` is a no-op.
 - Name heap overflow: `heap_copy_name` measures the name first and
   refuses it (C=1, `sym_define` reports full) when name + NUL would
   end past `SYM_HEAP_END` ($EF00).  Nothing is written and `_st_heap`
