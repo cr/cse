@@ -9,7 +9,6 @@ Covers the four source files that the mn_classify module groups together
     src/mn_classify.s   build-time dispatcher forwarding to mn6/mn7
     src/mn7.s           7-bit-hash classifier (114 mnemonics, default)
     src/mn6.s           6-bit-hash classifier (56 legal NMOS, -D USE_MN6)
-    src/mn_vars.s       shared ZP inputs (mn_c1/mn_c2/mn_c3)
 
 Coverage of the documented contract
 -----------------------------------

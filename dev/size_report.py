@@ -72,7 +72,7 @@ for line in map_text.splitlines():
 # ── Categorize modules ───────────────────────────────────────────
 CORE_MODULES = {'main.o', 'repl.o', 'editor.o', 'screen.o', 'disk.o', 'debugger.o'}
 ASM_MODULES = {
-    'asm_line.o', 'asm_vars.o', 'asm_src.o', 'mn_vars.o',
+    'asm_line.o', 'asm_vars.o', 'asm_src.o',
     'mn_classify.o', 'mn7.o', 'mn7_tables.o', 'mn6.o', 'mn6_tables.o',
     'addr_mode.o', 'mn_modes.o',
     'mn_asm_tables.o', 'opcode_lookup.o', 'expr.o', 'symtab.o',

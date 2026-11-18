@@ -4,7 +4,7 @@
 ; The asm_core bundle links the full single-line assembler pipeline:
 ;   zp + opcode_lookup + asm_line + asm_err + addr_mode
 ;   + expr + symtab + mem
-;   + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables + mn_classify
+;   + mn7 + mn7_tables + mn_modes + mn_asm_tables + mn_classify
 ;
 ; This bundle is self-contained: mem.s provides real kernal_bank_out/in
 ; (toggles $01 bit 1, harmless in py65).  zp.s defines all ZP variables.

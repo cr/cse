@@ -53,7 +53,7 @@ expr_wide:      .res 1          ; 0=ZP-eligible, 1=force ABS
 _as_ptr:        .res 2          ; active parse pointer into current line
 _as_wsize:      .res 1          ; word size or general byte scratch
 
-; ── mn_vars.s: mnemonic classifier inputs ─────────────────────────────── $24
+; ── mn_classify: mnemonic classifier inputs ──────────────────────────── $24
         .exportzp mn_c1, mn_c2, mn_c3
 mn_c1:          .res 1          ; first letter (AND #$1F normalized, 1–26)
 mn_c2:          .res 1          ; middle letter

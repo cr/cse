@@ -33,7 +33,6 @@ cse/
 │   ├── opcode_lookup.s     (profile, mode) → opcode byte
 │   ├── mn_classify.s       Mnemonic classifier dispatcher
 │   ├── mn7.s / mn6.s       Hash-based mnemonic lookup
-│   ├── mn_vars.s           Mnemonic classifier inputs (empty shell; ZP in zp.s)
 │   ├── expr.s              Expression parser (recursive descent)
 │   ├── symtab.s            Symbol table (hash + linear probe)
 │   ├── dasm.s              Disassembler (opcode-map decoder)

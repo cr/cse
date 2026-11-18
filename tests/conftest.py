@@ -205,7 +205,6 @@ _AC_COMMON_SOURCES = [
     SRC / "expr.s",
     SRC / "symtab.s",
     SRC / "mem.s",
-    SRC / "mn_vars.s",
     SRC / "mn_modes.s",
     SRC / "mn_asm_tables.s",
     SRC / "mn_classify.s",
@@ -431,16 +430,16 @@ def asm_6502_syms():
 # ── mn6 / mn7 hash test binaries ──────────────────────────────────────────────
 #
 # Each binary is built from:
-#   mn6:  zp, mn_vars, mn6, mn6_tables, mn_classify
-#   mn7:  zp, mn_vars, mn7, mn7_tables, mn_classify
+#   mn6:  zp, mn6, mn6_tables, mn_classify
+#   mn7:  zp, mn7, mn7_tables, mn_classify
 #
 # Linked with dev/test.cfg (ZP at $0000, CODE/RODATA at $4000); symbols
 # from the .lbl file through SymbolTable.
 
 _MN_SOURCES = {
-    'mn6': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn6.s", SRC / "mn6_tables.s",
+    'mn6': [SRC / "zp.s", SRC / "mn6.s", SRC / "mn6_tables.s",
             SRC / "mn_classify.s"],
-    'mn7': [SRC / "zp.s", SRC / "mn_vars.s", SRC / "mn7.s", SRC / "mn7_tables.s",
+    'mn7': [SRC / "zp.s", SRC / "mn7.s", SRC / "mn7_tables.s",
             SRC / "mn_classify.s"],
 }
 
@@ -498,7 +497,7 @@ def mn7_syms():
 #
 # Links the full two-pass assembler pipeline:
 #   zp + opcode_lookup + asm_line
-#   + addr_mode + mn_vars + mn7 + mn7_tables + mn_modes + mn_asm_tables
+#   + addr_mode + mn7 + mn7_tables + mn_modes + mn_asm_tables
 #   + mn_classify + expr + symtab + asm_src
 #   + asm_src_test_stub  (provides ed_read_line, etc.)
 #
@@ -512,7 +511,6 @@ _AS_SOURCES = [
     SRC / "asm_line.s",
     SRC / "asm_err.s",
     SRC / "addr_mode.s",
-    SRC / "mn_vars.s",
     SRC / "mn7.s",
     SRC / "mn7_tables.s",
     SRC / "mn_modes.s",

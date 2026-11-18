@@ -41,7 +41,7 @@ Contract user code may rely on / must preserve:
 ├─────────────────────────────────────────────────────────────────────┤
 │ L2  screen, symtab, log, asm_err                                    │  structured services
 ├─────────────────────────────────────────────────────────────────────┤
-│ L1  mem, cse_io, mn_classify (mn6 / mn7 / mn_vars)                  │  primitive services
+│ L1  mem, cse_io, mn_classify (mn6 / mn7)                            │  primitive services
 ├─────────────────────────────────────────────────────────────────────┤
 │ L0  zp, strings, *_tables, oplen_tbl, dasm_mne_idx                  │  pure data
 └─────────────────────────────────────────────────────────────────────┘
@@ -102,7 +102,6 @@ kernel re-entry
 | cse_io.s | 1 | Raw screen I/O, keyboard, PETSCII→screencode | [cse_io.md](modules/cse_io.md) |
 | mn_classify.s | 1 | Build-time dispatcher: selects mn6 or mn7 | [mn_classify.md](modules/mn_classify.md) |
 | mn7.s / mn6.s | 1 | Perfect hash mnemonic classifier (mn7: 114 on C64, 98 on m65; mn6: 56) | [mn_classify.md](modules/mn_classify.md) |
-| mn_vars.s | 1 | Empty shell: states the classifier input convention; `mn_c1`/`mn_c2`/`mn_c3` live in zp.s | [mn_classify.md](modules/mn_classify.md) |
 | zp.s | 0 | Central zero-page layout (all user ZP + shared cross-module flags) | [zp.md](modules/zp.md) |
 | strings.s | 0 | Centralised user-facing string constants (RODATA) | [strings.md](modules/strings.md) |
 | loader.s | 6 | Discardable cold-boot stub (copies CODE+RODATA+KDATA into runtime location) | [loader.md](modules/loader.md) |
@@ -147,7 +146,6 @@ sibling permitted by [rule 2](#dependency-rules).
 | cse_io | zp |
 | mn_classify | mn6 / mn7, mn6_tables / mn7_tables |
 | mn6 / mn7 | mn6_tables / mn7_tables, zp |
-| mn_vars | zp (imports only; exports nothing) |
 | zp, strings, *_tables, oplen_tbl, dasm_mne_idx | (leaves) |
 
 No module exports state for a higher layer to reach down into:

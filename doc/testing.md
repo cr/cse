@@ -825,9 +825,7 @@ tests are written, when they are written, and what they test.
     is one that declares only symbol exports — layout slots, RODATA
     literals and tables, BSS reservations, numeric constants — and
     contains no CODE segment.  In CSE these are all of L0 (`zp`,
-    `strings`, every `*_tables`, `oplen_tbl`, `dasm_mne_idx`) plus
-    `mn_vars` at L1 (an empty shell: the classifier inputs
-    `mn_c1`–`mn_c3` are allocated in `zp.s`).  An
+    `strings`, every `*_tables`, `oplen_tbl`, `dasm_mne_idx`).  An
     axiomatic module has no testable contract beyond "the symbols
     exist and link," which the linker enforces on every build.
 
@@ -1200,7 +1198,6 @@ No entries are active.
 | Module | Layer | Tier | Harness |
 |---|---|---|---|
 | zp, strings, *_tables, oplen_tbl, dasm_mne_idx | 0 | — | (pure data; generator model tests in `tests/unit/test_mnemonic_tables.py`, `test_dasm_tables.py`) |
-| mn_vars | 1 | — | (empty shell; `mn_c1`–`mn_c3` are in `zp.s`; no behaviour) |
 | **cse_io** | 1 | U | leaf bundle in `test_cse_io.py` |
 | **mem** | 1 | U | conftest `mem` bundle (zp + mem) |
 | **mn6 / mn7 / mn_classify** | 1 | U | `mn6` / `mn7` bundles |
@@ -1517,8 +1514,8 @@ get their own small binary.
 
 | Bundle (fixture) | Modules | Stub | Tests |
 |--------|---------|------|-------|
-| `asm_core` (`asm_syms`, `asm_6510_syms`, `asm_6502_syms`, `AsmCoreSymbols(config)`) | zp, strings, opcode_lookup, asm_line, asm_err, addr_mode, expr, symtab, mem, mn_vars, mn_modes, mn_asm_tables, mn_classify + mn7, mn7_tables (6510, 65c02) or mn6, mn6_tables (6502) | `asm_core_test_stub.s` (linker symbols; `log_warn` mock) | test_addr_mode, test_asm_line, test_opcode_lookup, test_expr, test_asm_err, test_golden_asm_dasm |
-| `mn6` / `mn7` (`mn6_syms`, `mn7_syms`) | zp, mn_vars, mn6/mn7 + tables, mn_classify | (none — pure leaf) | test_mn_classify |
+| `asm_core` (`asm_syms`, `asm_6510_syms`, `asm_6502_syms`, `AsmCoreSymbols(config)`) | zp, strings, opcode_lookup, asm_line, asm_err, addr_mode, expr, symtab, mem, mn_modes, mn_asm_tables, mn_classify + mn7, mn7_tables (6510, 65c02) or mn6, mn6_tables (6502) | `asm_core_test_stub.s` (linker symbols; `log_warn` mock) | test_addr_mode, test_asm_line, test_opcode_lookup, test_expr, test_asm_err, test_golden_asm_dasm |
+| `mn6` / `mn7` (`mn6_syms`, `mn7_syms`) | zp, mn6/mn7 + tables, mn_classify | (none — pure leaf) | test_mn_classify |
 | `asm_src` (`as_syms`) | asm_core's modules (mn7 set) + asm_src | `asm_src_test_stub.s` (source reader and output mocks); `dev/asm_src_test.cfg` | test_asm_src |
 | `dasm` (`dasm_syms`, `dasm_bundle(config)`) | zp, dasm, dasm_tables, mem | `dasm_test_stub.s` (linker scaffolding only) | test_dasm, test_golden_asm_dasm |
 | `log` (`log_syms`) | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |
