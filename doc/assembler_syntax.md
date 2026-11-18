@@ -301,6 +301,13 @@ The exception is `.res` and `.align`, where the *value* of the
 expression determines how much PC advances on pass 0.  Those two
 directives reject forward refs vocally on both passes.
 
+A forward reference is always sized **absolute**, even when the
+symbol's value later turns out to fit in a byte: `lda zp` above
+`.const zp $10` assembles to `AD 10 00`.  Define zero-page constants
+above their first use to get the 2-byte form.  A `.const` itself must
+not read a later-defined symbol: `.const k later+1` is
+`;?N: fwd ref` and `k` stays undefined.
+
 ### `.bas` — Emit BASIC SYS Stub
 
 ```

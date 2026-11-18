@@ -21,7 +21,9 @@
         .import         asm_line                            ; asm_line.s
         .import         asm_err_code, asm_pass              ; asm_err.s
         .import         expr_error_str, expr_eval           ; expr.s
-        .import         sym_define, sym_clear               ; symtab.s
+        .import         sym_define, sym_clear, sym_stamp    ; symtab.s
+        .import         expr_fwd                            ; expr.s
+SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp)
         .import         kernal_bank_out, kernal_bank_in     ; mem.s
         .importzp       kernal_out                          ; zp.s
         .import         io_puts, io_putc, io_putdec, io_puthex4, io_clear_eol, newline
@@ -976,7 +978,9 @@ BASIC_REM = $8F
         jsr set_expr_off        ; expr_ptr = _as_ptr + 5 (past "const")
         jsr skipws_ep           ; skip spaces; A = first char of name
         jsr is_ident
-        bcs @const_noname
+        bcc :+
+        jmp @const_noname
+:
         ; sym_name = expr_ptr (name start)
         lda expr_ptr
         sta sym_name
@@ -1023,8 +1027,10 @@ BASIC_REM = $8F
         clc
         rts
 @cok:   lda asm_pass
-        bne @cret_restore       ; only define in pass 0
-        lda expr_val
+        beq @cdef               ; define on both passes (pass 1 re-stamps)
+        lda expr_fwd            ; pass 1: read a later-defined symbol?
+        bne @cfwd               ; → undefined on pass 0: fwd ref
+@cdef:  lda expr_val
         sta sym_val
         lda expr_val+1
         sta sym_val+1
@@ -1041,11 +1047,12 @@ BASIC_REM = $8F
         jsr emit_error
         clc
         rts
-@cret_restore:
-        ; Restore displaced char (pass 1 skip path)
-        ldy _as_wsize
+@cfwd:  ldy _as_wsize            ; restore displaced char
         pla
         sta (sym_name),y
+        lda #<s_fwd_ref
+        ldx #>s_fwd_ref
+        jsr emit_error
 @cret:  clc
         rts
 @const_noname:
@@ -1202,9 +1209,7 @@ BASIC_REM = $8F
         beq :+
         lda #1
 :       sta sym_wide
-        lda asm_pass
-        bne @done
-        jsr sym_define
+        jsr sym_define          ; both passes: pass 1 re-stamps
         bcc @done
         lda #<s_sym_full
         ldx #>s_sym_full
@@ -1498,6 +1503,8 @@ _too_long_err:
         sta _scope_name
         jsr _seg_init           ; reset segment logging state
         ; Clear symbol table (heap at fixed $E600 under KERNAL)
+        lda #SYM_P0
+        sta sym_stamp           ; pass-0 stamp for every define below
         jsr sym_clear
         jsr define_ws_syms     ; pre-define workstart/workend
 
@@ -1533,6 +1540,8 @@ _too_long_err:
         sta asm_size+1
         sta _scope_name
         sta _seg_open
+        sta sym_stamp           ; pass-1 stamp (also the stamp after)
+        jsr define_ws_syms      ; re-stamp the built-ins
         ; Reset asm_pc from asm_org before opening default segment
         lda asm_org
         sta asm_pc

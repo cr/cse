@@ -17,9 +17,12 @@
 **Out:** `expr_val` (ZP, 16-bit result), `expr_wide` (ZP, 0=ZP 1=ABS).
 Returns A = return code.  Also `expr_fwd` (BSS, exported): nonzero
 iff the expression read a symbol that is undefined (rc 5, see
-[§ Undefined symbols](#undefined-symbols)); on `MEGA_SUPPORT` also one
-that `sym_lookup` reported with `sym_fwd` — a forward reference in the
-current pass ([symtab.md § Pass stamp](symtab.md#pass-stamp-mega_support)).
+[§ Undefined symbols](#undefined-symbols)) or one that `sym_lookup`
+reported with `sym_fwd` — a forward reference in the current pass
+([symtab.md § Pass stamp](symtab.md#pass-stamp-mega_support)).  Bit 7
+marks the undefined case (rc 5); a `sym_fwd` read only sets other
+bits and also makes the result wide, matching the ABS size pass 0
+gave the then-undefined symbol.
 **Clobbers:** A, X, Y, `_ex_tmp`, `_ex_digits`, `_ex_wide_tmp`
 
 `expr_eval` owns its own KERNAL banking — callers don't manage it.
@@ -91,7 +94,7 @@ Width sources (leaves):
 | `$` hex literal | 1–2 digits (`$00`–`$ff`) | 3–4 digits (`$000`–`$ffff`) |
 | Decimal literal | value ≤ $FF | value > $FF |
 | `%` binary literal | value ≤ $FF | value > $FF |
-| Label | `sym_wide` = 0 at definition | `sym_wide` = 1 at definition |
+| Label | `sym_wide` = 0 at definition, read backward | `sym_wide` = 1 at definition, or a forward read (`sym_fwd`), or undefined |
 | `*` (PC) | `asm_pc` ≤ $FF | `asm_pc` > $FF |
 
 Width propagation (operators):

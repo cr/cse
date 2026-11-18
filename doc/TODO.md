@@ -955,10 +955,16 @@ documentation round that follows this filing.
   unless a hard error follows), so pass 0 sizes `tbl+1` like pass 1.
   Tests TestUndefinedParsesOn (test_expr.py), test_assemble[forward
   ref with offset*] (test_asm_src.py).
-- [ ] **Pass-0/pass-1 width mismatch for later-defined ZP constants.**
+- [x] **Pass-0/pass-1 width mismatch for later-defined ZP constants.**
   `lda zp` with `.const zp $10` after it is sized ABS on pass 0 and ZP
   on pass 1; following labels are one byte off (`jmp` into its own
   operand), 0 errors.  Pass 0 also writes bytes.
+  Fixed 2026-11-18: the pass stamp now runs on every build: labels and
+  .const are defined on both passes, a pass-1 read of a symbol still
+  stamped by pass 0 is forward and sized ABS (as pass 0 did); a .const
+  reading a later symbol is `fwd ref`; pass 0 writes nothing (emission
+  commit). Tests test_assemble[later-defined ZP constant*],
+  TestPassStamp (test_symtab.py), TestPassZeroWritesNothing.
 - [ ] **Code before the first `.org`** gets labels from the pass-0
   layout (default origin) while pass 1 emits at the first `.org`
   (`_set_first_org` overwrites `asm_org`; every pass starts at it).

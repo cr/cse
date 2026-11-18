@@ -19,13 +19,13 @@
 
 If the name already exists, updates the value and width.
 If new, copies the name to the heap and creates a new entry.
-On `MEGA_SUPPORT` it also writes the pass stamp: scope bit 6 =
-`sym_stamp` ([§ Pass stamp](#pass-stamp-mega_support)).
+It also writes the pass stamp: scope bit 6 = `sym_stamp`
+([§ Pass stamp](#pass-stamp-mega_support)), on every build.
 
 ### sym_lookup
 **In:** `sym_name` (ZP, pointer to NUL-terminated name)
 **Out:** `sym_val` (ZP, 16-bit), `sym_wide` (ZP, 0=ZP 1=ABS).
-C=0 found, C=1 not found.  On `MEGA_SUPPORT`, when found, also
+C=0 found, C=1 not found.  When found, also
 `sym_fwd` (BSS): nonzero iff the entry's stamp differs from
 `sym_stamp` — the symbol was defined in an earlier pass only, so this
 read is a forward reference in the current pass.
@@ -43,7 +43,7 @@ read is a forward reference in the current pass.
 Probe state for linear probing.  `_st_heap`/`_st_heap_base` track
 the name heap (fixed at $E600 under KERNAL).
 
-**BSS (`MEGA_SUPPORT` only, 2 bytes):** `sym_stamp` (1) — input: the
+**BSS (2 bytes, exported):** `sym_stamp` (1) — input: the
 current pass's stamp, `SYM_P0` ($40) during pass 0 of an assembly, 0
 otherwise; written by asm_src.  `sym_fwd` (1) — output of
 `sym_lookup`.
@@ -59,8 +59,8 @@ Direct callers in the corpus:
 |---|---|---|
 | `gap_buffer.s::define_ws_syms` | `workstart` | fixed $0800, registered at cold init |
 | `gap_buffer.s::update_workend` | `workend` | `buf_base - 1`, refreshed after every buffer-base change |
-| `asm_src.s::asm_assemble` | both | refresh after `sym_clear` at pass 0; on `MEGA_SUPPORT` again at pass 1, after setting `sym_stamp` |
-| `asm_src.s` label emit | user labels | per `main:` / `.loop:` in source |
+| `asm_src.s::asm_assemble` | both | refresh after `sym_clear` at pass 0, and again at pass 1, each after setting `sym_stamp` |
+| `asm_src.s` label emit, `.const` | user symbols | per `main:` / `.loop:` / `.const` in source, on both passes (pass 1 re-stamps) |
 | `repl.s::cmd_define` (future) | user symbols | REPL `=` command |
 
 ## Design
@@ -73,7 +73,7 @@ Offset  Size  Field
   1       2   value      16-bit symbol value (lo, hi)
   3       2   name_ptr   pointer to name in heap ($0000 = empty slot)
   5       1   scope      bit 7 = ZP/ABS (0=ZP, $80=ABS)
-                          bit 6 = pass stamp (MEGA_SUPPORT; else 0)
+                          bit 6 = pass stamp (`sym_stamp` at the define)
                           bits 5-0 = reserved
 ```
 
@@ -91,8 +91,12 @@ or a name match.  No separate count is maintained.
 
 ### Pass stamp (`MEGA_SUPPORT`)
 
-The 4510's branches have two widths, so a branch's size must be
-decided identically in both passes ([asm_line.md § Branches](asm_line.md#branches-zone-b)).
+On every build (the heading names the build it was first designed
+for).  An operand's size must be decided identically in both passes:
+on the C64 a symbol read before its definition is sized ABS on pass 0
+(it is undefined there), so pass 1 must size it ABS too even when its
+value turns out to be ZP; the 4510's two branch widths need the same
+([asm_line.md § Branches](asm_line.md#branches-zone-b)).
 The stamp tells a reader whether a symbol is defined *so far in the
 current pass*: `sym_define` stamps every entry it writes with
 `sym_stamp`, and asm_src gives each pass its own stamp — `SYM_P0`

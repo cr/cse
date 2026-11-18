@@ -6,8 +6,8 @@
 ;   value:     16-bit symbol value
 ;   name_ptr:  pointer to name in heap ($0000 = empty slot)
 ;   scope:     bit 7 = ZP/ABS (0=ZP, 1=ABS)
-;              bit 6 = is_local (reserved, not yet implemented)
-;              bits 5-0 = parent slot if local (reserved)
+;              bit 6 = pass stamp (sym_stamp at the define; sym_fwd)
+;              bits 5-0 = reserved
 ;
 ; Names: PETSCII NUL-terminated strings copied into a heap on define.
 ; Compared case-insensitively (uppercase folded to lowercase).
@@ -21,6 +21,7 @@
 ;   sym_clear:   (no args) — wipes all slots, resets heap
 
         .export sym_define, sym_lookup, sym_clear
+        .export sym_stamp, sym_fwd
 
         .import kernal_bank_out, kernal_bank_in
         .importzp kernal_out            ; zp.s
@@ -51,6 +52,12 @@ ENTRY_SIZE = 6              ; hash(1) + value(2) + name_ptr(2) + scope(1)
 ; $FFFA–$FFFF  HW vectors (6B, fixed)
 ;
 ; Used: 5860 / 8192 bytes (71%).  Free: 2070 bytes (earmarked: 256).
+SYM_P0       = $40              ; pass-0 stamp (scope bit 6)
+
+.segment "BSS"
+sym_stamp:   .res 1             ; in: stamp sym_define writes (asm_src)
+sym_fwd:     .res 1             ; out of sym_lookup: entry stamp <> sym_stamp
+
 sym_table    = $E000
 SYM_HEAP     = $E600
 SYM_HEAP_END = $EF00
@@ -306,11 +313,12 @@ SYM_HEAP_END = $EF00
         iny
         sta (_st_ptr),y
 
-        ; Store scope byte (bit 7 = ZP/ABS)
+        ; Store scope byte (bit 7 = ZP/ABS, bit 6 = pass stamp)
         lda sym_wide
         beq :+
         lda #$80
-:       ldy #5
+:       ora sym_stamp
+        ldy #5
         sta (_st_ptr),y
 
         jsr kernal_bank_in
@@ -363,8 +371,12 @@ SYM_HEAP_END = $EF00
         lda (_st_ptr),y
         sta sym_val+1
 
-        ; Read scope → sym_wide (bit 7 → 0 or 1)
+        ; Read scope → sym_fwd (stamp differs), sym_wide (bit 7 → 0 or 1)
         ldy #5
+        lda (_st_ptr),y
+        and #SYM_P0
+        eor sym_stamp
+        sta sym_fwd
         lda (_st_ptr),y
         asl
         lda #0

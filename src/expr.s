@@ -40,7 +40,7 @@
         .export last_err                ; asm_line sets 3 (overflow) on a $FFFF wrap
         .export expr_fwd                ; nonzero: an undefined symbol was read
 
-        .import sym_lookup
+        .import sym_lookup, sym_fwd
         .import kernal_bank_out, kernal_bank_in
         .importzp sym_name, sym_val, sym_wide
 
@@ -71,7 +71,7 @@ EXPR_MAX_DEPTH = 10             ; nested factor levels: each '(' or unary prefix
 .segment "BSS"
 last_err:    .res 1
 _ex_depth:   .res 1              ; parse_factor nesting depth (reset per eval)
-expr_fwd:    .res 1              ; nonzero iff an undefined symbol was read
+expr_fwd:    .res 1              ; bit 7: undefined read; other bits: sym_fwd read
 _mul_tmp:    .res 2              ; multiply: shifted operand copy
 _div_rem:    .res 2              ; divide: remainder
 
@@ -141,8 +141,8 @@ expr_eval_nb:
         jsr skip_sp
         jsr parse_expr
         bcs @err
-        lda expr_fwd             ; parsed through an undefined symbol?
-        beq :+
+        bit expr_fwd             ; parsed through an undefined symbol?
+        bpl :+
         lda #ERR_UNDEFINED       ; soft error: expr_ptr is past the
         bne @err                 ; whole expression (always)
 :       ; Success: determine return code from wide flag
@@ -773,19 +773,25 @@ parse_factor:
         ldy #0
         sta (expr_ptr),y
         bcs @err_undef
-        ; sym_val and sym_wide set by lookup
+        ; sym_val, sym_wide, sym_fwd set by lookup.  A forward read
+        ; (defined later in this pass) is wide: pass 0 sized it ABS.
         lda sym_val
         sta expr_val
         lda sym_val+1
         sta expr_val+1
+        lda sym_fwd
+        ora expr_fwd
+        sta expr_fwd
         lda sym_wide
+        ora sym_fwd
         ora expr_wide
         sta expr_wide
         clc
         rts
 
 @err_undef:                      ; undefined: read as 0 (wide), note it,
-        inc expr_fwd             ; and parse on (expr.md § Undefined symbols)
+        lda #$80                 ; and parse on (expr.md § Undefined symbols)
+        sta expr_fwd
         lda #0
         sta expr_val
         sta expr_val+1

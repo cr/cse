@@ -479,6 +479,43 @@ class TestDesignGuarantees:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Pass stamp (symtab.md § Pass stamp)
+# ═══════════════════════════════════════════════════════════════════
+
+class TestPassStamp:
+    """sym_define stamps scope bit 6 with sym_stamp; sym_lookup reports
+    sym_fwd nonzero iff the entry's stamp differs from sym_stamp."""
+
+    def _addr(self, name):
+        return SymbolTable(LBL)[name]
+
+    def test_earlier_pass_entry_reads_forward(self, symt):
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        stamp, fwd = self._addr("sym_stamp"), self._addr("sym_fwd")
+        mem[stamp] = 0x40
+        assert _define(symt, mpu, mem, "later", 0x10)
+        found, _, _ = _lookup(symt, mpu, mem, "later")
+        assert found and mem[fwd] == 0          # same pass: backward
+        mem[stamp] = 0
+        found, val, wide = _lookup(symt, mpu, mem, "later")
+        assert found and val == 0x10 and wide == 0
+        assert mem[fwd] != 0                    # pass 1, not yet redefined
+        assert _define(symt, mpu, mem, "later", 0x10)
+        _lookup(symt, mpu, mem, "later")
+        assert mem[fwd] == 0                    # re-stamped by pass 1
+
+    def test_stamp_keeps_width(self, symt):
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        mem[self._addr("sym_stamp")] = 0x40
+        assert _define(symt, mpu, mem, "w", 0x1234, wide=1)
+        mem[self._addr("sym_stamp")] = 0
+        found, val, wide = _lookup(symt, mpu, mem, "w")
+        assert found and val == 0x1234 and wide == 1
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Name-heap bound
 # ═══════════════════════════════════════════════════════════════════
 

@@ -240,6 +240,28 @@ MANUAL_TESTS = [
         "expect_bytes": [0x03, 0x02, 0x60],
         "expect_errors": 0,
     },
+    # ── A forward read is ABS on both passes (symtab.md § Pass stamp) ─
+    {
+        "name": "later-defined ZP constant sized ABS on both passes",
+        "source": ".org $c000\n lda zp\nlbl: jmp lbl\n.const zp $10",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xAD, 0x10, 0x00, 0x4C, 0x03, 0xC0],
+        "expect_errors": 0,
+    },
+    {
+        "name": "backward ZP constant stays ZP",
+        "source": ".const zp $10\n.org $c000\n lda zp\nlbl: jmp lbl",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xA5, 0x10, 0x4C, 0x02, 0xC0],
+        "expect_errors": 0,
+    },
+    {
+        "name": "forward ZP label in a branch-free table",
+        "source": ".org $c000\n.dw zp\n lda zp,x\nend: rts\n.const zp $20",
+        "expect_org": 0xC000,
+        "expect_bytes": [0x20, 0x00, 0xBD, 0x20, 0x00, 0x60],
+        "expect_errors": 0,
+    },
     {
         "name": ".res directive",
         "source": ".org $c000\n.res 4, $ea\n  rts",
@@ -468,6 +490,8 @@ ERROR_TESTS = [
         "source": ".org $c000\n.res 4, FILL\n.const FILL $42",
         "expect_min_errors": 1,
     },
+    {"name": ".const reading a later label", "expect_min_errors": 1,
+     "source": ".org $c000\n.const k later\n rts\nlater: rts"},
     # A `:` with no name is `exp id`, not an endless re-scan of the
     # same word (assembler_syntax.md § Labels).
     {"name": "lone colon", "source": ".org $c000\n:\n rts",
@@ -1339,3 +1363,14 @@ class TestWorkspaceGuardC64:
         emu, errors = _c64_assemble(cse_prg, ".org $1000\n lda #1\n rts")
         assert errors == 0
         assert list(emu.memory[0x1000:0x1003]) == [0xA9, 0x01, 0x60]
+
+
+class TestPassZeroWritesNothing:
+    """asm_src.md § Emission: pass 0 writes no byte — a line refused on
+    pass 1 leaves its memory untouched (pass 0 used to write the
+    instruction with its dummy operand there)."""
+
+    def test_refused_line_leaves_memory(self, as_syms):
+        errors, mem, _ = _run_mem(as_syms, ".org $1000\n lda nosuch")
+        assert errors == 1
+        assert list(mem[0x1000:0x1003]) == [0, 0, 0]
