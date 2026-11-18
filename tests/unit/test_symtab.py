@@ -493,7 +493,7 @@ class TestBankGuardNests:
         mpu, mem = _setup_cpu(symt)
         _clear(symt, mpu, mem)
         assert _define(symt, mpu, mem, "zz", 0x1234)
-        mem[SymbolTable(LBL)["kernal_out"]] = 0
+        mem[SymbolTable(symt._bundle.lbl)["kernal_out"]] = 0
         mem[0x01] = port
         if op == "define":
             _define(symt, mpu, mem, "yy", 1)
@@ -511,7 +511,7 @@ class TestPassStamp:
     sym_fwd nonzero iff the entry's stamp differs from sym_stamp."""
 
     def _addr(self, name):
-        return SymbolTable(LBL)[name]
+        return SymbolTable(_BUNDLE.ensure().lbl)[name]
 
     def test_earlier_pass_entry_reads_forward(self, symt):
         mpu, mem = _setup_cpu(symt)
@@ -575,7 +575,7 @@ class TestHeapOverflow:
         changed = [a for a in range(_HEAP_END, _HEAP_END + 0x100)
                    if mem[a] != 0xA5]
         assert not changed, f"heap overflow wrote ${changed[0]:04X}"
-        heap = SymbolTable(LBL)["_st_heap"]
+        heap = SymbolTable(symt._bundle.lbl)["_st_heap"]
         ptr = mem[heap] | (mem[heap + 1] << 8)
         assert ptr <= _HEAP_END, f"_st_heap ran to ${ptr:04X}"
 
