@@ -28,13 +28,13 @@ All 9 entry points + the 2 BSS buffers + the 2 exported constants:
     userland_zp_buf / kernel_zp_buf      (BSS, verified via save/restore)
     ZP_SAVE_LO=$00 / ZP_SAVE_LEN=128     (implicit — tests use the values)
 
-Out-of-scope by design
-----------------------
+CPU port
+--------
 py65 has no 6510 CPU-port emulation — live $00/$01 behave as flat RAM
 with no DDR masking.  The byte-level contract (round-trip, buf[$00]
-ordering, postcondition $00=$FF) IS verifiable.  The hardware guarantee
-that "`$01` reads fully-latched while DDR=$FF" is NOT observable here;
-that stays in the manual VICE checklist.
+ordering, postcondition $00=$FF) is verified on the bundle.  The
+hardware guarantee that "`$01` reads fully-latched while DDR=$FF" runs
+on C64Emu, which models the port (TestHardwareOnlyContract, Tier I).
 
 Bundle
 ------
@@ -515,28 +515,36 @@ class TestCrossBufferRoundTrip:
 
 class TestHardwareOnlyContract:
 
-    # ⚠  TOP-RISK L1 GAP (per coverage audit 2026-04-20):
-    #    The DDR-stash protocol is the most-likely place an undetected
-    #    L1 regression could land — a "clever" refactor of save_*_zp
-    #    that byte-round-trips on py65 but breaks the fully-latched-$01
-    #    read on silicon would pass CI and ship.  The only backstop is
-    #    the VICE manual checklist, which is not a tight loop.  If a
-    #    future C64Emu adds CPU-port emulation, this skip should be
-    #    converted into a real test and the xfail lifted.
+    # Formerly the TOP-RISK L1 GAP: py65 has no CPU port, so the DDR
+    # masking of $01 was verified only on VICE.  C64Emu models the
+    # 6510 port (input bits read the external pins), so the clause
+    # runs at Tier I here, against the production PRG.
 
-    @pytest.mark.skip(reason=(
-        "CPU-port DDR masking (mem.md § CPU-port aware ZP save/restore): "
-        "the save protocol unmasks $01's input bits by setting DDR=$FF, "
-        "so the loop reads the fully-latched $01.  py65 has no CPU-port "
-        "emulation; $00/$01 behave as flat RAM with no DDR gating.  The "
-        "byte-level round-trip is verified (TestSaveUserlandZp etc.); "
-        "the hardware guarantee that input bits read fully-latched is "
-        "verified ONLY in the VICE manual checklist.  See the TOP-RISK "
-        "comment immediately above this skip — refactors to save_*_zp "
-        "should be cross-checked on VICE before merge."
-    ))
-    def test_dollar_01_reads_fully_latched_under_ddr_ff(self, mem_syms):
-        pass
+    def test_dollar_01_reads_fully_latched_under_ddr_ff(self, cse_prg):
+        """mem.md § CPU-port aware ZP save/restore: save_userland_zp
+        sets DDR=$FF before its loop, so buf[$01] holds the fully
+        latched $01 — not the DDR-masked view, whose input bits read
+        the external pins — and restore_userland_zp writes it back
+        under DDR=$FF before re-applying the user's DDR."""
+        from c64emu import C64Emu
+        emu = C64Emu()
+        emu.load_prg(*cse_prg)
+        emu.memory[0x00] = 0x2F               # stock DDR: bits 4,6,7 input
+        emu.memory[0x01] = 0xE6               # latched: bits 7,6,5 = 1, bit 4 = 0
+        masked = emu.memory[0x01]
+        assert masked != 0xE6                 # the plain read differs (pins)
+        buf = emu.sym("userland_zp_buf")
+
+        emu.jsr(emu.sym("save_userland_zp"))
+        assert emu.memory[buf + 1] == 0xE6, "buf[$01] must be the fully latched $01"
+        assert emu.memory[buf] == 0x2F, "buf[$00] must be the saved DDR"
+        assert emu._mem.ram[0x00] == 0xFF     # postcondition: live DDR = $FF
+
+        emu.memory[0x01] = 0x36               # kernel's own banking meanwhile
+        emu.jsr(emu.sym("restore_userland_zp"))
+        assert emu._mem.ram[0x01] == 0xE6     # latch restored in full
+        assert emu._mem.ram[0x00] == 0x2F     # user's DDR re-applied
+        assert emu.memory[0x01] == masked     # the user's view is back
 
     @pytest.mark.skip(reason=(
         "Banking side-effect on $A000-$BFFF / $E000-$FFFF (mem.md § "

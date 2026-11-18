@@ -973,8 +973,9 @@ documentation round that follows this filing.
 - [x] The loader never runs in a test (`load_prg` relocates in
   Python); add one Tier I test running `loader_entry`.
   Fixed 2026-11-18: `loader_entry` runs on each unrelocated C64 PRG and is compared with `_relocate_segments()`, test test_loader.py.
-- [ ] `test_mem.py`'s TOP-RISK CPU-port skip is closable — C64Emu
+- [x] `test_mem.py`'s TOP-RISK CPU-port skip is closable — C64Emu
   models the DDR; add the Tier I test.
+  Fixed 2026-11-18: the skip is a C64Emu test on the PRG (fails if save_userland_zp skips the DDR unmask), test test_dollar_01_reads_fully_latched_under_ddr_ff.
 - [ ] No oracle test for `oplen_tbl` (testing.md claims test_dasm
   guards it; no bundle links it).
 - [ ] Untested contracts: `dbg_step_clear`, `dbg_init`'s outputs,
