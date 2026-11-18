@@ -517,18 +517,22 @@ lands, except T1, which is green by construction):
 - [x] T6. M65Emu: `hyppo_getversion` and `hyppo_rom_writeenable`;
   any other trap raises.  (Done 2026-11-18: the `Hypervisor` device,
   `HypervisorNotModelled`.)
-- [ ] T7. The m65 macro bodies in a small m65 bundle on M65Emu
+- [x] T7. The m65 macro bodies in a small m65 bundle on M65Emu
   (`KCALL`/`KJMP` keep `B`; far loads and stores across banks 0, 2, 3,
-  4; `FAR_BANK` keeps A).
+  4; `FAR_BANK` keeps A).  (Done 2026-11-18: `test_platform_m65.py`,
+  clean mode, plus `PLAT_SETBNK`.)
 - [ ] T8. The loader on each ROM: the install field by field; the gate's
   two refusals; `load_prg()`/`init_cse()` equal to the real loader.
+  (Moved to step (5): it runs the real loader in the linked m65 PRG.)
 - [x] T9. The run premise and the services' answers as a golden file
   (`capture_m65_premise.py` → `m65_premise.json`, per ROM).  (Done
   2026-11-18: memory_design.md's premise holds on both ROMs; they
   differ only in their own `SYS` return path — `$039D` / `$03A1`.)
 - [ ] T10. Tier X: the PRG boots to `_main` on both ROMs through the SD
   clone (`tests/xmega65.py` gains `prg=`, `rom=`).
-- [ ] T11. The `PLAT_PENDING` count (only goes down).
+- [x] T11. The `PLAT_PENDING` count (only goes down).  (Done
+  2026-11-18: `pending_counts` in the audit tool; P1 4, P2 13,
+  recorded exactly.)
 
 Feedback round, written into the docs (I1–I4): the m65 build is
 m65-6502 until P4 (build_system.md § Builds and CPU sets); pending
@@ -618,6 +622,13 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   Recording finding: the `SYS` return address differs between ROMs
   (within page 3), as do BASIC's frames above its saved map; the
   premise names neither, and CSE replaces both with its sentinel.
+- [x] Step (4a): `platform.inc`'s m65 block — the KERNAL entries,
+  the Hypervisor services (`HYPPO` macro), `CSE_BP`, `STUB_BASE`, the
+  banks, the two maps' operands, `FRAME_DEPTH` 5, `STACK_TOP` `$F1`,
+  `PROG_LO`/`PROG_HI` — and the m65 bodies of `KCALL`, `KJMP`, the far
+  access macros, `FAR_BANK`, `PLAT_SETBNK`, `PLAT_COLD_START`; T7,
+  T11.  Plan change: T8 runs the real loader on the linked PRG, so it
+  moves to step (5) with the build target.
 - The m65 bodies the docs state for P0, written in step (4) with the
   harness that tests them: `KCALL` / `KJMP`, `FAR_SIZE` and the far
   access macros, `FAR_BANK` at every far pointer's set sites,

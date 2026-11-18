@@ -29,7 +29,9 @@ tightly-coupled neighbours).
 
 **m65 bundles** (planned with the m65 build:
 [TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
-B1) run on M65Emu's CPU, `MPU45GS02`
+B1; the first, `dev/m65_macros_test.s` with
+`tests/unit/test_platform_m65.py`, runs `platform.inc`'s m65 macro
+bodies) run on M65Emu's CPU, `MPU45GS02`
 ([§ M65Emu](#m65emu--the-m65-integration-harness)), in *clean* mode:
 it admits, within CSE's own code, the 6502's documented opcodes plus
 the opcodes of the raw-byte macros in `src/m45_ops.inc`, and any other
@@ -64,9 +66,11 @@ are static Tier U tests in `tests/unit/test_platform_audit.py`:
   zero, with unit tests on synthetic sources.  The macros themselves
   are pinned by `tests/unit/test_m45_ops.py`: each assembles to the
   compendium's encoding of the instruction it names.
-- *The pending-body count* — the `PLAT_PENDING` sites of the m65 build
+- *The pending-body count* — the same tool: the `PLAT_PENDING` sites
+  of the m65 build per milestone
   ([platform_layer.md § Pending bodies](platform_layer.md#pending-bodies))
-  are counted against a recorded number that only goes down.
+  equal the numbers recorded in the test; a commit that writes an m65
+  body lowers its number, and none may rise.
 - *The C64 PRGs are the recorded ones* — the SHA-256 of each C64
   release PRG equals `tests/fixtures/golden/c64_prg_sha256.json`.  It
   is re-recorded only by a commit that deliberately changes what a

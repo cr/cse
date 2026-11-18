@@ -89,8 +89,10 @@ endif
 TAB_WIDTH ?= 8
 
 # The platform define: exactly one per assembly (doc/platform_layer.md
-# § Platforms and defines).  The m65 build's arrives with its target.
+# § Platforms and defines).  The m65 PRG targets are still refused
+# (test_makefile_guards.py); its define serves the m65 test bundles.
 _c64_PDEFS    = -DPLATFORM_C64
+_m65_PDEFS    = -DPLATFORM_M65
 PLATFORM_DEFS = $(_$(PLATFORM)_PDEFS)
 
 _6510_DEFS    = -DCPU_6510 -DDEFAULT_CPU=0 -DCPU_CEIL=1 -DTAB_WIDTH=$(TAB_WIDTH)

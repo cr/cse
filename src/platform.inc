@@ -132,6 +132,76 @@ DISK_LOCAL_PTR  = $FD
 
 .endif ; PLATFORM_C64
 
+; ═════════════════════════════════════════════════════════════════════
+.ifdef PLATFORM_M65
+; ═════════════════════════════════════════════════════════════════════
+; The MEGA65 in MEGA65 mode, ROM 920413+ (doc/memory_design.md
+; § Memory Map — m65).  Constants of a seam whose m65 contract is
+; stated with a later milestone are absent until then.
+
+        .include "m45_ops.inc"
+
+; ── KERNAL jump-table entries CSE calls (book I-5/6) ─────────────────
+GETIN           = $FFE4
+PLOT            = $FFF0
+SETLFS          = $FFBA
+SETNAM          = $FFBD
+OPEN            = $FFC0
+CLOSE           = $FFC3
+CHKIN           = $FFC6
+CHKOUT          = $FFC9
+CLRCHN          = $FFCC
+CHRIN           = $FFCF
+CHROUT          = $FFD2
+LOAD            = $FFD5
+READST          = $FFB7
+LISTEN          = $FFB1
+UNLSN           = $FFAE
+VECTOR          = $FF8D             ; read / write the vector table
+SETBNK          = $FF6B             ; A: the data's bank, X: the filename's
+SCRORG          = $FFED
+SYSFLAGS        = $FF47
+
+; ── Hypervisor services (book Appendix N): lda #service · sta trap · clv
+HYPPO_TRAP      = $D640
+HYPPO_TRAP_ROM  = $D641
+HYPPO_GETVERSION = $00              ; via HYPPO_TRAP; A.X Hyppo, Y.Z HDOS
+HYPPO_ROM_WRITEENABLE = $02         ; via HYPPO_TRAP_ROM: banks 2-3 writable
+HYPPO_RESET     = $7E               ; via HYPPO_TRAP: does not return
+
+; ── CSE's base page, the resident stub ───────────────────────────────
+CSE_BP          = $1F               ; B while kernel code runs: 0.1F00
+BP_PAGE         = CSE_BP
+STUB_BASE       = $1FB0             ; the resident stub, to 0.1FFF
+
+; ── The banks a far pointer names (§ Far memory) ─────────────────────
+BANK_USER       = 0                 ; user memory, the screen (40/80 x 25)
+BANK_SRC        = 2                 ; the source region
+BANK_CSE        = 3                 ; CSE's code and data
+BANK_SCREEN50   = 4                 ; the screen in 80 x 50
+
+; ── The two maps: MAP's A X (MAPLO) and Y Z (MAPHI) ──────────────────
+MAP_CSE_A       = $00               ; $2000-$BFFF -> 3.2000, KERNAL 3.E000
+MAP_CSE_X       = $E3
+MAP_CSE_Y       = $00
+MAP_CSE_Z       = $B3
+MAP_USER_A      = $00               ; $0000-$BFFF bank 0, KERNAL 3.E000
+MAP_USER_X      = $E0
+MAP_USER_Y      = $00
+MAP_USER_Z      = $83
+
+; ── The interrupt frame, the stack top ───────────────────────────────
+FRAME_DEPTH     = 5                 ; B Z Y X A above the CPU's P PCL PCH
+STACK_TOP       = $F1               ; a fresh start's SP is the premise's $EF
+
+; ── Homes ────────────────────────────────────────────────────────────
+PROG_LO         = $2000             ; the program region, bank 0
+PROG_HI         = $BFFF
+WORKSTART       = PROG_LO
+ROM_BASE_HI     = $C0               ; the interface ROM at $C000 (user map)
+
+.endif ; PLATFORM_M65
+
 ; ── Base page (§ Base page) ──────────────────────────────────────────
 ; The 16-bit address of a CSE base-page symbol, for an access in an
 ; absolute mode (`jmp (sym)`, `sta sym,y` with no zero-page form) and
@@ -151,12 +221,25 @@ DISK_LOCAL_PTR  = $FD
 .macro KCALL entry
   .ifdef PLATFORM_C64
         jsr entry
+  .else
+        pha                     ; the jump table needs B = 0 (book I-3)
+        lda #0
+        M45_TAB
+        pla
+        jsr entry
+        pha
+        lda #CSE_BP             ; back to CSE's base page
+        M45_TAB
+        pla
   .endif
 .endmacro
 
 .macro KJMP entry
   .ifdef PLATFORM_C64
         jmp entry
+  .else
+        KCALL entry
+        rts
   .endif
 .endmacro
 
@@ -214,13 +297,29 @@ DISK_LOCAL_PTR  = $FD
 .macro PLAT_COLD_START
   .ifdef PLATFORM_C64
         jmp KERNAL_COLD
+  .else
+        HYPPO HYPPO_RESET, HYPPO_TRAP
   .endif
+.endmacro
+
+; ── Hypervisor services (§ Constants) ────────────────────────────────
+; One trap: A <- service, the store traps, CLV follows it.  m65 only.
+.macro HYPPO service, trap
+        lda #service
+        sta trap
+        clv
 .endmacro
 
 ; ── Disk bank (§ Disk bank) ──────────────────────────────────────────
 ; Precedes each OPEN and LOAD (before LOAD's register arguments): the
-; banks of the data and of the filename.  c64: empty.
+; banks of the data and of the filename.  c64: empty.  m65: clobbers
+; A, X.
 .macro PLAT_SETBNK
+  .ifdef PLATFORM_M65
+        lda #BANK_USER
+        ldx #BANK_CSE
+        KCALL SETBNK
+  .endif
 .endmacro
 
 ; ── Banking (§ Banking) ──────────────────────────────────────────────
@@ -283,6 +382,8 @@ DISK_LOCAL_PTR  = $FD
 
 .ifdef PLATFORM_C64
 FAR_SIZE        = 2
+.else
+FAR_SIZE        = 4                 ; offset lo, hi, bank, megabyte 0
 .endif
 
 ; Reserve a far pointer (zp.s).
@@ -291,27 +392,49 @@ name:   .res FAR_SIZE
 .endmacro
 
 ; Set the pointer's bank wherever the pointer is set.  c64: empty.
+; m65: A kept; clobbers N/Z.
 .macro FAR_BANK name, bank
+  .ifdef PLATFORM_M65
+        pha
+        lda #bank
+        sta name+2
+        pla
+  .endif
 .endmacro
 
-; A ← the byte at the pointer + Y.
+; m65: Z <- Y for the flat [zp],Z access; A kept.
+.macro _FAR_Z
+        M45_PHY
+        M45_PLZ
+.endmacro
+
+; A ← the byte at the pointer + Y.  m65: clobbers Z.
 .macro FAR_LDA name
   .ifdef PLATFORM_C64
         lda (name),y
+  .else
+        _FAR_Z
+        M45_FAR_LDA name
   .endif
 .endmacro
 
-; A → the byte at the pointer + Y.
+; A → the byte at the pointer + Y.  m65: clobbers Z, N/Z.
 .macro FAR_STA name
   .ifdef PLATFORM_C64
         sta (name),y
+  .else
+        _FAR_Z
+        M45_FAR_STA name
   .endif
 .endmacro
 
-; A ← A | the byte at the pointer + Y.
+; A ← A | the byte at the pointer + Y.  m65: clobbers Z.
 .macro FAR_ORA name
   .ifdef PLATFORM_C64
         ora (name),y
+  .else
+        _FAR_Z
+        M45_FAR_ORA name
   .endif
 .endmacro
 

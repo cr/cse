@@ -23,6 +23,8 @@ states the seam's contract and points there.
 | [`src/m45_ops.inc`](../src/m45_ops.inc) | header — the 45GS02-only instructions as raw-byte macros ([§ Raw-byte instructions](#raw-byte-instructions)) |
 | [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit (the address-literal classes, the per-file counts), the base-page, stack-top and raw-byte checks |
 | [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top and raw-byte checks; the pending-body count with the m65 bodies (P0 step (4)) |
+| [`tests/unit/test_platform_m65.py`](../tests/unit/test_platform_m65.py) | test contract — the m65 macro bodies on M65Emu in clean mode: `KCALL` / `KJMP` (B = 0 for the KERNAL, registers through), the far accesses in banks 0, 2, 3, 4, `FAR_BANK`, `PLAT_SETBNK` |
+| [`dev/m65_macros_test.s`](../dev/m65_macros_test.s), [`dev/m65_test.cfg`](../dev/m65_test.cfg) | test helper — the m65 macro bundle and its linker config (base page at `0.1F00`, code at `$4000`) |
 | [`tests/unit/test_m45_ops.py`](../tests/unit/test_m45_ops.py) | test contract — each raw-byte macro is the compendium's encoding of its instruction |
 | [`tests/m65emu/m45_ops.py`](../tests/m65emu/m45_ops.py) | test helper — the macros assembled and decoded: clean mode's allowed keys |
 | [`tests/fixtures/golden/c64_prg_sha256.json`](../tests/fixtures/golden/c64_prg_sha256.json) | generated — the recorded SHA-256 of each C64 release PRG; back-link-exempt (JSON data) |

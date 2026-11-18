@@ -193,3 +193,27 @@ def test_raw_byte_audit_skips_m45_ops(tmp_path):
     for name in ("m45_ops.inc", "m.inc", "m.s"):
         (tmp_path / name).write_text("        lda #1\n        .byte $5C\n")
     assert sorted(AUDIT.raw_byte_count(tmp_path)) == ["m.inc", "m.s"]
+
+
+# ── the pending-body count (platform_layer.md § Pending bodies) ──
+
+# The PLAT_PENDING sites per milestone, recorded; a commit that writes
+# an m65 body lowers its number here.  Every number is 0 when P3 closes.
+PENDING_RECORDED = {1: 4, 2: 13}
+
+
+def test_pending_bodies_are_the_recorded_count():
+    """Equal, not just below: a commit that writes a body records it,
+    so the number here is the state of the m65 build."""
+    counts = AUDIT.pending_counts()
+    assert {n: c for n, c in counts.items() if c} == \
+        {n: c for n, c in PENDING_RECORDED.items() if c}
+
+
+def test_pending_count_counts_sites_not_mentions(tmp_path):
+    (tmp_path / "m.s").write_text(
+        "        PLAT_PENDING 1\n"
+        "@x:     PLAT_PENDING 2      ; c\n"
+        "; PLAT_PENDING 2 in a comment\n"
+        ".macro PLAT_PENDING n\n")
+    assert AUDIT.pending_counts(tmp_path) == {1: 1, 2: 1}

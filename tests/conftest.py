@@ -231,7 +231,7 @@ def _ac_sources(config):
 # The platform define every test bundle is assembled with, mirroring
 # the Makefile's PLATFORM_DEFS (doc/platform_layer.md § Platforms and
 # defines); test_build_parity.py holds the two equal.
-PLATFORM_DEFS = {"c64": ["-DPLATFORM_C64"]}
+PLATFORM_DEFS = {"c64": ["-DPLATFORM_C64"], "m65": ["-DPLATFORM_M65"]}
 
 PROD_DEFS = {
     "6502":  ["-DCPU_6502", "-DUSE_MN6", "-DDEFAULT_CPU=0", "-DCPU_CEIL=0"],
