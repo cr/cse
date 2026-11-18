@@ -1436,3 +1436,41 @@ class TestBreakCommand:
         for i in range(8):
             self._run(cpu, rsyms, f"b ${0x1000 + i:04x}")
         assert ";?full" in self._run(cpu, rsyms, "b $2000")
+
+
+class TestWarnLongLines:
+    """repl.md § Memory: `warn_long_lines` keeps its counters in BSS
+    (`wl_vcol`, `wl_line`) — repl.o's CODE is not written (no
+    self-modifying code, memory_design.md) — and still warns
+    `;!long LNN` for each line wider than 39 columns."""
+
+    def _code_range(self, cpu, rsyms):
+        import pathlib
+        import re
+        text = pathlib.Path(rsyms._map).read_text()
+        m = re.search(r"^repl\.o:\n(?:\s+\w+\s+Offs=.*\n)*?"
+                      r"\s+CODE\s+Offs=([0-9A-F]+)\s+Size=([0-9A-F]+)",
+                      text, re.M)
+        return (cpu.sym("__CODE_RUN__") + int(m.group(1), 16),
+                int(m.group(2), 16))
+
+    def test_counts_in_bss_and_warns(self, rsyms):
+        cpu = make_cpu(rsyms)
+        cpu.jsr(cpu.sym("ed_ensure_init"))
+        # line 1: 10 columns; line 2: tab (8) + 32 = 40; line 3: 39
+        src = (b"A" * 10 + b"\r" + b"\xa0" + b"B" * 32 + b"\r"
+               + b"C" * 39 + b"\r")
+        for i, b in enumerate(src + b"\0"):
+            cpu.memory[0x0340 + i] = b       # cassette buffer: free
+        cpu.jsr(cpu.sym("ed_insert_string"), a=0x40, x=0x03)
+        start, size = self._code_range(cpu, rsyms)
+        before = bytes(cpu.memory[start + i] for i in range(size))
+        for i in range(COLS * ROWS):
+            cpu.memory[SCREEN + i] = 0x20
+        cpu.set_cursor(5, 0)
+        cpu.jsr(cpu.sym("warn_long_lines"))
+        after = bytes(cpu.memory[start + i] for i in range(size))
+        diff = [hex(start + i) for i in range(size) if before[i] != after[i]]
+        assert diff == [], f"repl.s CODE written at {diff}"
+        scr = "\n".join(cpu.screen_text(r) for r in range(ROWS))
+        assert scr.count("long") == 1 and ";!long L2" in scr, scr

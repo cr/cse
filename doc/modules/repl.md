@@ -126,7 +126,7 @@ in zero page; see [zp.md](zp.md).
 
 ### Memory
 
-**BSS (107 bytes):**
+**BSS (110 bytes):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
@@ -144,9 +144,8 @@ in zero page; see [zp.md](zp.md).
 | `rp_hexbuf` | 3 | `cmd_dot` hex byte parse |
 | `cold_preview_done` | 1 | Cold-preview marker |
 | `zp_stage_buf` | 8 | User-ZP staging buffer for `m` dump and `.` disasm ([§ User-ZP view](#user-zp-view)) |
-
-`warn_long_lines` keeps its counters (`@vcol`, `@line`, `@tw`, 4 B)
-in CODE ([§ Caveats](#caveats)).
+| `wl_vcol` | 1 | `warn_long_lines`: visual column of the current line |
+| `wl_line` | 2 | `warn_long_lines`: 0-based line number |
 
 **Depends on:** asm_src (`asm_assemble`, `seg_print_save`), asm_line
 (`asm_line`, `reg_a`/`reg_x`/`reg_y`/`reg_sp`/`reg_p`), asm_err
@@ -940,6 +939,3 @@ paths; each starts at column 0 and ends with `io_clear_eol`.
   hex digits are lowercase ([expr.md](expr.md)).  The `AAAA:` prefix,
   `m`'s address, `.`/`m` byte pairs, `r` fields and `C` digits are
   plain hex.
-- `warn_long_lines` keeps 4 mutable bytes (`@vcol`, `@line`, `@tw`) in
-  the CODE segment, like the open TODO § Code bugs "Mutable bytes in
-  CODE" items.

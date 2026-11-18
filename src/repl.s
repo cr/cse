@@ -2847,9 +2847,9 @@ TAB_MASK_WL = TAB_WIDTH - 1
 .proc warn_long_lines
         jsr ed_read_rewind
         lda #0
-        sta @vcol
-        sta @line
-        sta @line+1
+        sta wl_vcol
+        sta wl_line
+        sta wl_line+1
 
 @byte:  jsr ed_read_byte
         cpx #$FF
@@ -2862,51 +2862,48 @@ TAB_MASK_WL = TAB_WIDTH - 1
         cmp #$A0                ; tab?
         beq @tab
         ; Non-tab: width = 1
-        inc @vcol
+        inc wl_vcol
         jmp @byte
 
-@tab:   ; width = TAB_WIDTH - (vcol & TAB_MASK)
-        lda @vcol
-        and #TAB_MASK_WL
-        sta @tw
-        lda #TAB_WIDTH
-        sec
-        sbc @tw                 ; A = tab expansion width
+@tab:   ; next tab stop: vcol + TAB_WIDTH - (vcol & TAB_MASK)
+        ;                  = (vcol | TAB_MASK) + 1
+        lda wl_vcol
+        ora #TAB_MASK_WL
         clc
-        adc @vcol
-        sta @vcol
+        adc #1
+        sta wl_vcol
         jmp @byte
 
 @eol:   ; End of line — check if vcol > 39
         jsr @check_vcol
         ; Advance line counter, reset vcol
-        inc @line
+        inc wl_line
         bne :+
-        inc @line+1
+        inc wl_line+1
 :       lda #0
-        sta @vcol
+        sta wl_vcol
         jmp @byte
 
 @check_last:
         ; EOF — check the last line if it had any content
-        lda @vcol
+        lda wl_vcol
         beq @done
         jsr @check_vcol
 @done:  rts
 
 @check_vcol:
-        lda @vcol
+        lda wl_vcol
         cmp #40                 ; > 39 ?
         bcc @ok
         ; Print ";!long LNN" (1-based line number)
         ldy #LOG_WARN
         jsr log_open
         puts str_long
-        lda @line
+        lda wl_line
         clc
         adc #1
         sta rp_tmp
-        lda @line+1
+        lda wl_line+1
         adc #0
         tax
         lda rp_tmp
@@ -2914,9 +2911,10 @@ TAB_MASK_WL = TAB_WIDTH - 1
         jsr log_close
 @ok:    rts
 
-@vcol:  .byte 0
-@line:  .res 2
-@tw:    .byte 0
+.segment "BSS"
+wl_vcol: .res 1                 ; visual column of the current line
+wl_line: .res 2                 ; 0-based line number
+.segment "CODE"
 .endproc
 
 ; ═══════════════════════════════════════════════════════════

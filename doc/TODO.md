@@ -1167,8 +1167,9 @@ documentation round that follows this filing.
 - [ ] **Steps chained inside the handler (`t N`, N > 1) skip the
   `;!range` gate** — only the first step is range-checked, so a chained
   step can patch `$00` into I/O or ROM-shadow memory.
-- [ ] **`warn_long_lines` keeps mutable bytes in CODE** (`@vcol`,
+- [x] **`warn_long_lines` keeps mutable bytes in CODE** (`@vcol`,
   `@line`, `@tw`) — the same class as "Mutable bytes in CODE".
+  Fixed 2026-11-18: the counters are `wl_vcol` / `wl_line` in BSS and the tab step is `(vcol | TAB_MASK) + 1`, so `@tw` is gone (−14 B, budget lowered), test TestWarnLongLines::test_counts_in_bss_and_warns.
 - [x] **A clean `make release debug` fails** with "No rule to make
   target …/src/loader.o" (the `.d` dependency bootstrap); a second run
   succeeds.
