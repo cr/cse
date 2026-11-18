@@ -70,8 +70,7 @@
         .export str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf
 
         ; ── expr strings + dispatch tables ──
-        .export err_none, err_expected, err_overflow
-        .export err_paren, err_undefined, err_divzero
+        .export err_overflow
         .export err_str_lo, err_str_hi
 
 ; ═════════════════════════════════════════════════════════════

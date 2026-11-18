@@ -46,8 +46,6 @@
 
 ; ── Imports: strings.s ──────────────────────────────────────
         .import err_str_lo, err_str_hi
-        .import err_none, err_expected, err_overflow
-        .import err_paren, err_undefined, err_divzero
 
 ; ── Return / error codes ───────────────────────────────────
 RC_ZP        = 0

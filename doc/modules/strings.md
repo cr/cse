@@ -98,9 +98,9 @@ are `"cse v" + VERSION_STRING + " by cr"`.  See
 
 #### expr group
 
-`err_none`, `err_expected`, `err_overflow`, `err_paren`,
-`err_undefined`, `err_divzero`, `err_str_lo`, `err_str_hi` (the table
-`expr_error_str` indexes by `last_err`, [expr.md](expr.md)).
+`err_str_lo`, `err_str_hi` (the table `expr_error_str` indexes by
+`last_err`, [expr.md](expr.md)), and `err_overflow` (asm_src's `ovfl`).
+The other `err_*` strings are reached only through the table.
 
 ### Aliases
 

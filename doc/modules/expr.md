@@ -86,7 +86,7 @@ depth), `expr_fwd` (1, exported), `_mul_tmp` (2), `_div_rem` (2).
 
 **Depends on:** symtab (`sym_lookup`, `sym_fwd`), mem
 (`kernal_bank_out` / `kernal_bank_in` for the wrapper), strings
-(`err_str_lo` / `err_str_hi`, the `err_*` strings), zp (`expr_ptr`,
+(`err_str_lo` / `err_str_hi`), zp (`expr_ptr`,
 `expr_val`, `expr_wide`, `asm_pc`, `sym_name`, `sym_val`, `sym_wide`,
 `_ex_tmp`, `_ex_digits`)
 
