@@ -40,18 +40,10 @@ ENTRY_SIZE = 6              ; hash(1) + value(2) + name_ptr(2) + scope(1)
 ; ── ZP scratch ───────────────────────────────────────────
 .importzp _st_hash, _st_idx, _st_ptr, _st_nptr, _st_heap, _st_heap_base
 
-; ── Banked RAM layout under KERNAL ROM ($E000–$FFFF) ─────
-; $E000–$E5FF  sym_table   (256 slots × 6B = 1536 bytes)
-; $E600–$EEFF  sym_heap    (2304 bytes, name heap)
-; $EF00–$EFFF  earmarked for user stack snapshot (256B, unallocated)
-; $F000–$F0FF  free (256B)
-; $F100–$F4F1  KDATA tables (1010B)
-; $F4F2–$F8D9  REPL screen save (1000B, editor.s)
-; $F8DA–$FEFF  free (1574B)
-; $FF00–$FF09  NMI trampoline (10 bytes)
-; $FFFA–$FFFF  HW vectors (6B, fixed)
-;
-; Used: 5860 / 8192 bytes (71%).  Free: 2070 bytes (earmarked: 256).
+; ── Banked RAM under KERNAL ROM ───────────────────────────
+; This module owns $E000–$E5FF (sym_table, 256 slots × 6 B) and
+; $E600–$EEFF (the name heap, up to SYM_HEAP_END).  The full banked
+; layout is owned by doc/memory_design.md § Banked layout.
 SYM_P0       = $40              ; pass-0 stamp (scope bit 6)
 
 .segment "BSS"
