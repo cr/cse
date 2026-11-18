@@ -863,13 +863,16 @@ recorded behaviours M65Emu models and one round trip end to end.
   `bp_range_check_step` also takes `brk_stub`; `_emit_byte` writes
   `$2000` and `$BFFF` and drops `$C000` with `_oor` set.  The c64 side
   is the existing suite plus the hash gate.
-- [ ] T6. The line parser in bank 3: `exec_line` on m65 with `r z:12
+- [x] T6. The line parser in bank 3: `exec_line` on m65 with `r z:12
   b:16 x:05` in `line_buf`, stopped at `emit_reg` (rendering is P2's):
   `reg_x` = 5, `reg_z` = `$12`, `reg_b` = `$16`; a malformed field
   changes nothing (`;?syntax` path reached).  Red today: the parser
   reads bank 0.  Step (2) done 2026-11-18: `r x:05 a:3c` applies both
   fields (it timed out in the KERNAL before the root's `FAR_BANK`);
-  `z:` / `b:` and the malformed field join with step (4).
+  `z:` / `b:` and the malformed field join with step (4).  Step (4)
+  done: `r z:12 b:16 x:05` sets all three (`reg_z`, `reg_b` follow
+  `reg_p` on m65, the labels `z b` extend `reg_labels`); `r z:12 b:1g`
+  changes nothing.  `emit_reg`'s 80-column line is P2's (a vocal skip).
 - [x] T7. The user-ZP view on m65 (`jsr` on the installed PRG):
   `zp_stage_prep` and `peek_user` take `$00`/`$01` from the captured
   port and every other base-page byte live from base page 0;
@@ -915,13 +918,15 @@ recorded behaviours M65Emu models and one round trip end to end.
   `save_userland_state`; `setup_interrupts` holds interrupts itself;
   `BP_ABS` needs `a:` where the instruction has a zero-page form.
   P1's pending count is 0.
-- [ ] T10. Tier X (`tests/emulator/test_m65_boot.py`, each ROM): a
+- [x] T10. Tier X (`tests/emulator/test_m65_break.py`, each ROM): a
   user `BRK` stopped at `hygiene_after_userland` with the snapshot, the
   CSE map and `B = CSE_BP` as M65Emu has them; a program that maps a
   window and banks the I/O out, breaks, is resumed through
   `restore_userland_state` from the monitor, and stores what it reads
-  back where the test finds it.
-- [ ] T11. The gates: the P1 pending count zero
+  back where the test finds it.  Done 2026-11-18 on 920413 and 920421:
+  the snapshot and the real Hypervisor's capture equal M65Emu's; the
+  banked program reads back its window, `$34` and `$00` after `c`.
+- [x] T11. The gates: the P1 pending count zero
   (`test_platform_audit.py`'s recorded counts: P1 4 → 0); the C64
   release PRGs byte-identical after every commit (T1 of P0); the m65
   areas bounded (P0's T4 — the stub's 80 bytes among them).

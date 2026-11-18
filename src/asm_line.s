@@ -87,11 +87,11 @@ reg_x:         .res 1          ; saved X
 reg_y:         .res 1          ; saved Y
 reg_sp:        .res 1          ; saved SP
 reg_p:         .res 1          ; saved P (status flags)
-_asm_sink:     .res 3          ; bytes past a $FFFF wrap land here (refused)
 .ifdef PLATFORM_M65
-reg_z:         .res 1          ; saved Z  } the KERNAL's frame carries them
-reg_b:         .res 1          ; saved B  } on m65 (debugger.md § save_userland_state)
+reg_z:         .res 1          ; saved Z  } the KERNAL's frame carries them on
+reg_b:         .res 1          ; saved B  } m65; reg_a + 5 / + 6 for `r` (repl.s)
 .endif
+_asm_sink:     .res 3          ; bytes past a $FFFF wrap land here (refused)
 
 ; (kernel_zp_buf and userland_zp_buf — the ZP save/restore buffers for
 ; the kernel↔userland transitions — live in mem.s alongside the

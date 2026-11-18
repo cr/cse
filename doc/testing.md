@@ -721,11 +721,13 @@ The installed machine they check is
   megabyte offsets, the destination as a CPU-view or a flat bank-0
   page, the registers and the stack after the trap, and the trap
   from inside an interrupt handler with I set.
-- **Tier X, a break in user code** (`tests/emulator/test_m65_boot.py`,
-  each ROM).  A program with a `BRK` is placed in the program region
-  and entered through `return_to_userland` from a `uartmon`
-  breakpoint; the run stops at `hygiene_after_userland` with the
-  snapshot, the CSE map and `B = CSE_BP` as M65Emu has them.  A
+- **Tier X, a break in user code** (`tests/emulator/test_m65_break.py`,
+  each ROM).  The PRG stops at `_main` as in the boot test; a driver
+  planted in bank 0 runs `setup_interrupts` and `dbg_init` and enters
+  a program with a `BRK` through `return_to_userland`; the run stops at
+  `hygiene_after_userland` with the snapshot, the bank state (the real
+  Hypervisor's `hyppo_get_mapping`), the CSE map and `B = CSE_BP` as
+  M65Emu has them.  A
   second program maps its own window and banks out the I/O before its
   `BRK`; after the resume it reads its window and the port back as it
   set them.

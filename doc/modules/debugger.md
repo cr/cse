@@ -10,6 +10,7 @@
 | [`src/dbg_reason.inc`](../../src/dbg_reason.inc) | the `dbg_reason` enum (`DBG_NONE`…`DBG_NMI`), the one definition, included by main.s and repl.s |
 | [`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py) | tier-I tests: kernel↔user transitions, step chains, the command matrix |
 | [`tests/integration/test_step_rom.py`](../../tests/integration/test_step_rom.py) | tier-I tests: step-into-ROM fallback |
+| [`tests/emulator/test_m65_break.py`](../../tests/emulator/test_m65_break.py) | tier-X tests (xmega65, P1): a user BRK's snapshot equals M65Emu's; a program's bank state survives a break and a resume |
 | [`tests/integration/test_m65_debugger.py`](../../tests/integration/test_m65_debugger.py) | tier-I tests on the m65 PRG (P1): `far_user`, the workspace bound, the line parser in bank 3, the user-ZP view, the transitions and the bank state |
 
 The debugger is the kernel's **userland gateway**: the two gate

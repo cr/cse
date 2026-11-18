@@ -224,6 +224,38 @@ def regs(emu):
     return {r: m[cell(emu, "reg_" + r)] for r in ("a", "x", "y", "z", "b", "p", "sp")}
 
 
+def run_line(emu, text, stop):
+    lb = emu.sym("line_buf")
+    data = petscii(text) + [0]
+    for k, b in enumerate(data):
+        emu.memory[lb + k] = b
+    emu.run_until(emu.sym(stop), start_at=emu.sym("exec_line"), max_cycles=200_000)
+
+
+def test_r_sets_z_and_b(emu):
+    """m65's `r` fields z: and b: (debugger.md § `r`), parsed from bank 3."""
+    run_line(emu, "r z:12 b:16 x:05", "emit_reg")
+    m = emu.memory
+    assert (m[emu.sym("reg_z")], m[emu.sym("reg_b")], m[emu.sym("reg_x")]) == \
+        (0x12, 0x16, 0x05)
+
+
+def test_r_with_a_malformed_field_changes_nothing(emu):
+    m = emu.memory
+    m[emu.sym("reg_z")] = 0x77
+    run_line(emu, "r z:12 b:1g", "_syntax_err")
+    assert (m[emu.sym("reg_z")], m[emu.sym("reg_b")]) == (0x77, 0x00)
+
+
+@pytest.mark.skip(reason=(
+    "emit_reg's m65 line `r pc:XXXX a:XX x:XX y:XX z:XX b:XX s:XX nv-bdizc` "
+    "(debugger.md § `r`, 80 columns) renders through io_putc, whose m65 row "
+    "tables are P2's (D-P1-5); checked by P2's typed-command suite.  The "
+    "40-column layout is a P2 item of its own (TODO § M65 slice 2, P2)."))
+def test_r_shows_z_and_b_in_80_columns():
+    pass
+
+
 # ── T7: the user-ZP view ───────────────────────────────────────────
 
 def test_user_zp_view_shows_the_captured_port_and_base_page_0(emu):

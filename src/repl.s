@@ -215,7 +215,13 @@ cpu_pair_tbl:    .byte '0','2',0,  '1','0',1,  'c','0',2
 cpu_mask_bits:   .byte 1,2,4
 
 ; r command field labels: reg_a / reg_x / reg_y / reg_sp order, then pc
-reg_labels:      .byte "axysp"
+reg_labels:      .byte "axysp"      ; reg_a + index; 'p' is pc:
+.ifdef PLATFORM_M65
+                 .byte "zb"         ; m65: reg_z, reg_b (asm_line.s order)
+REG_LABEL_LAST = 6
+.else
+REG_LABEL_LAST = 4
+.endif
 
 ; ── info tables: 8 bytes per row: tag(2) lo(2) hi(2) desc(2) ──
 ; These stay in repl.s because INFO_TBL_*_ROWS are compile-time
@@ -2533,7 +2539,7 @@ set_run_mode:
         beq @ok
         cmp #';'
         beq @ok
-        ldx #4                  ; 0-3 = a x y s, 4 = pc
+        ldx #REG_LABEL_LAST     ; 0-3 = a x y s, 4 = pc; m65 5-6 = z b
 @lbl:   cmp reg_labels,x
         beq @label
         dex
@@ -2616,7 +2622,11 @@ set_run_mode:
         jsr adv_ptr1
         lda rp_tmp
         cpx #4
+.ifdef PLATFORM_M65
+        beq @pc                 ; 5-6 are z b, stored as the others
+.else
         bcs @pc
+.endif
 @store: ldy rp_save2            ; pass 1: check only
         beq @to_next
         sta reg_a,x
