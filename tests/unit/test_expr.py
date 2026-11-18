@@ -256,6 +256,10 @@ POSITIVE = [
     ("$10+16+%10000",   0x0030, RC_ZP,  False, 0x1000, "hex+dec+bin ZP"),
     ("*+page",          0x1100, RC_ABS, True, 0x1000, "star + ABS label"),
     ("<($1200+$34)",    0x0034, RC_ZP,  False, 0x1000, "lo of hex sum"),
+    # the left operand's width survives a nested operator (stacked)
+    ("$0000+(<$12+1)",  0x0013, RC_ABS, False, 0x1000, "wide left, nested < and +"),
+    ("$0000&(>$1234*2)", 0x0000, RC_ABS, False, 0x1000, "wide left, nested > and *"),
+    ("$0001*(1+(<$1234))", 0x0035, RC_ABS, False, 0x1000, "wide left, two levels"),
     (">($1200+$34)",    0x0012, RC_ZP,  False, 0x1000, "hi of hex sum"),
 ]
 

@@ -65,7 +65,7 @@ EXPR_MAX_DEPTH = 10             ; nested factor levels: each '(' or unary prefix
 .importzp asm_pc
 
 ; ── ZP scratch ─────────────────────────────────────────────
-.importzp _ex_tmp, _ex_digits, _ex_wide_tmp
+.importzp _ex_tmp, _ex_digits
 
 ; ── BSS ────────────────────────────────────────────────────
 .segment "BSS"
@@ -169,18 +169,19 @@ _ex_adv_ptr:
         inc expr_ptr+1
 :       rts
 
-; _ex_pop_err: discard stacked left operand, propagate error in A (C=1)
+; _ex_pop_err: discard stacked left operand + width, propagate error in A (C=1)
 _ex_pop_err:
         tax
+        pla
         pla
         pla
         txa
         sec
         rts
 
-; _ex_merge_wide: merge saved wide flag + detect 16-bit result
+; _ex_merge_wide: merge the left operand's width (in A, pulled from the
+; stack by the caller) + detect a 16-bit result
 _ex_merge_wide:
-        lda _ex_wide_tmp
         ora expr_wide
         sta expr_wide
         lda expr_val+1
@@ -190,18 +191,15 @@ _ex_merge_wide:
 :       rts
 
 ; _ex_op_setup — common binary operator preamble
-;   Advances past operator char(s), skips whitespace, saves wide flag.
-;   Caller must still push expr_val (pha/pha) after return.
+;   Advances past operator char(s), skips whitespace.
+;   Caller then pushes expr_wide, expr_val hi, expr_val lo.
 ;   Call sites: jsr _ex_op_setup  (single-char operator)
 ;              jsr _ex_op_setup_2adv  (two-char operator like << >>)
 _ex_op_setup_2adv:
         jsr _ex_adv_ptr
 _ex_op_setup:
         jsr _ex_adv_ptr
-        jsr skip_sp
-        lda expr_wide
-        sta _ex_wide_tmp
-        rts
+        jmp skip_sp
 
 ; ═══════════════════════════════════════════════════════════
 ; parse_expr — bool_term (('&' | '£' | '^') bool_term)*
@@ -222,6 +220,8 @@ _ex_op_setup:
 @done:  rts
 
 @and:   jsr _ex_op_setup
+        lda expr_wide           ; left operand's width, stacked (nests)
+        pha
         lda expr_val+1
         pha
         lda expr_val
@@ -234,10 +234,13 @@ _ex_op_setup:
         pla
         and expr_val+1
         sta expr_val+1
+        pla                     ; left operand's width
         jsr @merge_wide
         jmp @op
 
 @or:    jsr _ex_op_setup
+        lda expr_wide           ; left operand's width, stacked (nests)
+        pha
         lda expr_val+1
         pha
         lda expr_val
@@ -250,10 +253,13 @@ _ex_op_setup:
         pla
         ora expr_val+1
         sta expr_val+1
+        pla                     ; left operand's width
         jsr @merge_wide
         jmp @op
 
 @xor:   jsr _ex_op_setup
+        lda expr_wide           ; left operand's width, stacked (nests)
+        pha
         lda expr_val+1
         pha
         lda expr_val
@@ -266,6 +272,7 @@ _ex_op_setup:
         pla
         eor expr_val+1
         sta expr_val+1
+        pla                     ; left operand's width
         jsr @merge_wide
         jmp @op
 
@@ -292,6 +299,8 @@ _ex_op_setup:
 @done:  rts
 
 @add:   jsr _ex_op_setup
+        lda expr_wide           ; left operand's width, stacked (nests)
+        pha
         lda expr_val+1
         pha
         lda expr_val
@@ -306,10 +315,13 @@ _ex_op_setup:
         pla
         adc expr_val+1
         sta expr_val+1
+        pla                     ; left operand's width
         jsr @merge_wide
         jmp @op
 
 @sub:   jsr _ex_op_setup
+        lda expr_wide           ; left operand's width, stacked (nests)
+        pha
         lda expr_val+1
         pha
         lda expr_val
@@ -324,6 +336,7 @@ _ex_op_setup:
         pla
         sbc expr_val+1
         sta expr_val+1
+        pla                     ; left operand's width
         jsr @merge_wide
         jmp @op
 
@@ -371,6 +384,8 @@ _ex_op_setup:
 
 ; ── multiply ──────────────────────────────────────────
 @mul:   jsr _ex_op_setup
+        lda expr_wide           ; left operand's width, stacked (nests)
+        pha
         lda expr_val+1
         pha
         lda expr_val
@@ -384,11 +399,14 @@ _ex_op_setup:
         pla
         sta _ex_tmp+1           ; left hi
         jsr @do_mul16
+        pla                     ; left operand's width
         jsr @merge_wide
         jmp @op
 
 ; ── divide ────────────────────────────────────────────
 @div:   jsr _ex_op_setup
+        lda expr_wide           ; left operand's width, stacked (nests)
+        pha
         lda expr_val+1
         pha
         lda expr_val
@@ -405,6 +423,7 @@ _ex_op_setup:
         pla
         sta _ex_tmp+1           ; left hi
         jsr @do_div16
+        pla                     ; left operand's width
         jsr @merge_wide
         jmp @op
 
@@ -413,12 +432,15 @@ _ex_op_setup:
 @divzero:
         pla
         pla
+        pla
         lda #ERR_DIVZERO
         sec
         rts
 
 ; ── shift left ────────────────────────────────────────
 @shl:   jsr _ex_op_setup_2adv           ; skip << + save
+        lda expr_wide           ; left operand's width, stacked (nests)
+        pha
         lda expr_val+1
         pha
         lda expr_val
@@ -442,11 +464,14 @@ _ex_op_setup:
         sta expr_val
         lda _ex_tmp+1
         sta expr_val+1
+        pla                     ; left operand's width
         jsr @merge_wide
         jmp @op
 
 ; ── shift right ───────────────────────────────────────
 @shr:   jsr _ex_op_setup_2adv           ; skip >> + save
+        lda expr_wide           ; left operand's width, stacked (nests)
+        pha
         lda expr_val+1
         pha
         lda expr_val
@@ -469,6 +494,7 @@ _ex_op_setup:
         sta expr_val
         lda _ex_tmp+1
         sta expr_val+1
+        pla                     ; left operand's width
         jsr @merge_wide
         jmp @op
 

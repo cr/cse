@@ -23,7 +23,7 @@ reported with `sym_fwd` — a forward reference in the current pass
 marks the undefined case (rc 5); a `sym_fwd` read only sets other
 bits and also makes the result wide, matching the ABS size pass 0
 gave the then-undefined symbol.
-**Clobbers:** A, X, Y, `_ex_tmp`, `_ex_digits`, `_ex_wide_tmp`
+**Clobbers:** A, X, Y, `_ex_tmp`, `_ex_digits`
 
 `expr_eval` owns its own KERNAL banking — callers don't manage it.
 The expression evaluator calls `sym_lookup` to resolve labels;
@@ -58,7 +58,9 @@ undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 
 ### Memory
 
-**ZP (4 bytes):** `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1).
+**ZP (3 bytes):** `_ex_tmp` (2), `_ex_digits` (1).  (`_ex_wide_tmp`,
+still reserved in zp.s, is no longer used: the left operand's width
+lives on the stack.)
 
 **BSS (7 bytes):** `last_err` (1; exported — `asm_line` sets it to 3
 when an instruction would wrap past `$FFFF`, so `expr_error_str`
@@ -107,6 +109,11 @@ Width propagation (operators):
 | `-` (negate) | Inherits from operand; wide if result > $FF |
 | `!` (NOT) | Inherits from operand; wide if result > $FF |
 | `( )` | Transparent — inherits from inner expression |
+
+Each binary operator keeps its left operand's width on the hardware
+stack while the right operand is parsed, so a nested `<`/`>` or a
+nested operator never erases an outer operand's width:
+`$0000+(<$12+1)` is ABS.
 
 The sticky-OR rule means `$00 + $0000` → ABS even though the result
 is $0000 and fits in a byte.  This is deliberate: the programmer

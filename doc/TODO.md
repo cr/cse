@@ -1018,8 +1018,11 @@ documentation round that follows this filing.
   Fixed 2026-11-18: zone B treats a narrow operand as a zero-page
   target like a wide one (-4 B). Test TestNarrowBranchTarget
   (test_asm_line.py).
-- [ ] **`expr` loses the wide flag after a nested `<`/`>`**:
+- [x] **`expr` loses the wide flag after a nested `<`/`>`**:
   `$0000+(<$12+1)` returns narrow (the saved flag is not stacked).
+  Fixed 2026-11-18: each binary operator pushes its left operand's
+  width with the operand (expr.md § Width propagation); _ex_wide_tmp
+  is unused. Test test_positive[wide left, *] (test_expr.py).
 - [ ] **Immediate values > 255 are truncated silently**
   (`lda #$1234` → `A9 34`).
 - [ ] **`//` comments are parsed as division** (`lda #1 // c` → expr
