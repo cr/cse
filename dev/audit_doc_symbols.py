@@ -186,7 +186,7 @@ def all_md_files():
     files.extend((ROOT / "doc").rglob("*.md"))
     return [
         f for f in files
-        if f.is_file() and ".claude" not in f.parts and "build" not in f.parts
+        if f.is_file() and ".claude" not in f.relative_to(ROOT).parts and "build" not in f.relative_to(ROOT).parts
     ]
 
 

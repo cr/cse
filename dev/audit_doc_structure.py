@@ -35,8 +35,8 @@ def files_to_scan():
     return [
         f for f in out
         if f.is_file()
-        and ".claude" not in f.parts
-        and "build" not in f.parts
+        and ".claude" not in f.relative_to(ROOT).parts
+        and "build" not in f.relative_to(ROOT).parts
     ]
 
 

@@ -157,8 +157,8 @@ def all_md_files():
     return [
         f for f in files
         if f.is_file()
-        and ".claude" not in f.parts
-        and "build" not in f.parts
+        and ".claude" not in f.relative_to(ROOT).parts
+        and "build" not in f.relative_to(ROOT).parts
         # ddd_log.md is by-design retrospective — quotes
         # historical-state numerical claims as part of its
         # what-worked-and-didn't structure.  Excluded from this

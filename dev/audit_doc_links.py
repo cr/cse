@@ -108,8 +108,8 @@ def all_md_files():
     # Skip worktrees and hidden dirs
     return [
         f for f in files
-        if ".claude" not in f.parts
-        and "build" not in f.parts
+        if ".claude" not in f.relative_to(ROOT).parts
+        and "build" not in f.relative_to(ROOT).parts
         and f.is_file()
     ]
 
