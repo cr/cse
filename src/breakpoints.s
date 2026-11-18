@@ -19,11 +19,12 @@
 ;     flags bit 0 = enabled, bit 7 = patched (set by patch_all,
 ;     cleared by unpatch_all).
 ;   * `dbg_bp_hit`: slot number of the last breakpoint that fired
-;     ($FF when none).  Written by the BRK handler in main.s after
-;     classification; read by `c` / `r` display helpers.  Lives here
+;     ($FF when none).  Written by the BRK/NMI handlers and
+;     end_debug_body in main.s, and by dbg_bp_del / dbg_bp_clear
+;     here; read by repl.s (break panel, `t`/`o`, `c`).  Lives here
 ;     because its semantics index into bp_table.
 ;   * `bp_init`: zeros the table and sets dbg_bp_hit = $FF.  Called
-;     from dbg_init at cold boot.
+;     once by _main at cold init (the table survives warmstarts).
 ;   * `patch_all` / `unpatch_all`: iterate all 10 slots, save the
 ;     original byte and overwrite with $00 (BRK opcode) — or restore.
 ;     The shared 10-slot iteration is why the step slots live
@@ -32,10 +33,8 @@
 ;
 ; Layer: L3 (core engines), same as addr_mode / expr / opcode_lookup /
 ; asm_line / dasm — no KERNAL dependency, bundle-testable.
-;
-; Split from debugger.s at session 2026-04-20 (structural refactor,
-; zero behavioural change).  debugger.s keeps the L4 parts: BRK/NMI
-; dispatch state, step state machine, userland-transition gates.
+; debugger.s (L4) holds the step state machine and the
+; userland-transition gates that drive this table.
 
         .setcpu "6502"
 
@@ -75,8 +74,8 @@ dbg_bp_hit:    .res 1          ; slot# of breakpoint hit ($FF = none)
 
 ; ── bp_init ──────────────────────────────────────────────────────────
 ; Zero the full breakpoint table (40 bytes); set dbg_bp_hit = $FF.
-; Called from dbg_init at cold boot.  debugger.s's dbg_init handles
-; the step-state and ZP-buffer seed after this returns.
+; Called once by _main at cold init, before dbg_init (which handles
+; the step state and the ZP-buffer seed).
 ; Clobbers: A, X.
 ;
 bp_init:
@@ -175,6 +174,7 @@ dbg_bp_clear:
 ; ── dbg_bp_count ──────────────────────────────────────────────────────
 ; Count non-empty user-visible slots.
 ; Out: A = count (0–8).
+; Clobbers: A, X, Y.
 ;
 dbg_bp_count:
         lda #0
@@ -197,6 +197,8 @@ dbg_bp_count:
 ; Search user-visible slots 0–7 for a matching address.
 ; In:  A = addr lo, X = addr hi
 ; Out: C=0 found (A = slot 0–7); C=1 not found (A=$FF).
+;      rp_ptr = the address.  $0000 matches the first empty slot.
+; Clobbers: A, X, Y, rp_ptr.
 ;
 dbg_bp_find:
         sta rp_ptr
@@ -285,6 +287,7 @@ unpatch_all:
 
 ; ── dbg_step_clear ────────────────────────────────────────────────────
 ; Zero both step slots (last 8 bytes of bp_table).
+; Clobbers: A, X.
 ;
 dbg_step_clear:
         lda #0

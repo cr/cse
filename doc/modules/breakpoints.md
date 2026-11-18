@@ -16,13 +16,14 @@ L3 module that owns the 10-slot breakpoint table and the operations
 that manipulate it.  Pure data-structure work: no KERNAL calls, no
 vectors, no interrupt dispatch, no stack-frame synthesis.  This is
 what makes it bundle-testable at Tier U independently of the step /
-BRK state machine that consumes it from L4 (`debugger.s`).
+BRK state machine that consumes it from L4 (`debugger.s`, `main.s`,
+`repl.s`).
 
-Split from `debugger.s` at the 2026-04-20 structural refactor so the
-tier boundary becomes a compile-time fact rather than a disciplined
-convention: anything that depends on `breakpoints.s` is strictly one
-layer up, and `breakpoints.s` itself can't reach into BRK/NMI
-machinery because that machinery lives in a higher stratum.
+The table is a module of its own so the tier boundary is a
+compile-time fact rather than a convention: everything that depends
+on `breakpoints.s` is strictly one layer up, and `breakpoints.s`
+cannot reach into the BRK/NMI machinery because that machinery lives
+in a higher stratum.
 
 ## Table layout
 
@@ -42,9 +43,19 @@ Slot format (4 bytes):
 | +2 | saved byte (the opcode that was there before we patched BRK over it) |
 | +3 | flags: bit 0 = enabled, bit 7 = patched (the `$00` is in memory now; set by `patch_all`, cleared by `unpatch_all`) |
 
-A slot is empty when `addr_lo | addr_hi == 0`.  Slot 0 at address
+A slot is empty when `addr_lo | addr_hi == 0`.  A breakpoint at
 `$0000` is therefore not representable — acceptable because `$0000`
-is the CPU port (DDR), never a meaningful breakpoint target.
+is the CPU port (DDR), never a meaningful breakpoint target, and the
+only caller that takes a user address (`repl.s::cmd_brk`) accepts
+only `$0800 ≤ addr < buf_base` before it calls `dbg_bp_set`.
+
+`dbg_bp_hit` (1 byte) names the user slot (0–7) of the breakpoint the
+last break stopped at, `$FF` for none.  Writers: `bp_init`,
+`dbg_bp_del` (of that slot), `dbg_bp_clear`, and in `main.s` the BRK
+handler (the slot `dbg_bp_find` matched, else `$FF`), the NMI handler
+and `end_debug_body` (`$FF`).  Readers (`repl.s`): the break panel
+(`; brk N at $PC`), `t`/`o` (disable that slot for the step), `c`
+(delete that slot before resuming).
 
 ## Interface
 
@@ -54,20 +65,25 @@ is the CPU port (DDR), never a meaningful breakpoint target.
 **Clobbers:** A, X.
 
 Cold-init entry for the table.  Called once at boot by `main.s`'s
-`_main`, never on a warmstart: the table survives `cse_recover`.
+`_main`, never on a warmstart: the table survives `cse_recover`
+([memory_design.md § Breakpoint invariant](../memory_design.md#breakpoint-invariant)).
 `debugger.s::dbg_init` handles step-state zeroing and ZP-buffer
 seeding separately.
 
 ### dbg_bp_set
 **In:** A = addr lo, X = addr hi
 **Out:** C=0 success (A = slot 0–7); C=1 table full (A=$FF)
-**Clobbers:** A, X, Y.
+**Clobbers:** A, X, Y, `rp_ptr` (holds the address).
 
 If a user-visible slot already holds `addr`, return that slot (C=0)
 and change nothing — an address has at most one breakpoint, so `c`
 past it never re-breaks at the same place.  Otherwise find the first
-empty user-visible slot and install `(addr, saved=0, enabled=1)`.
-Search is linear over slots 0–7.
+empty user-visible slot and install `(addr, saved=0, flags=1)`
+(enabled, not patched).  Search is linear over slots 0–7.
+
+`addr = $0000` matches the first empty slot as an "existing"
+breakpoint: the call returns C=0 with that slot in A and stores
+nothing (C=1 only when all eight slots are in use).
 
 ### dbg_bp_del
 **In:** A = slot number (0–7)
@@ -91,10 +107,12 @@ untouched.
 
 ### dbg_bp_find
 **In:** A = addr lo, X = addr hi
-**Out:** C=0 found (A = slot 0–7); C=1 not found (A=$FF)
-**Clobbers:** A, X, Y.
+**Out:** C=0 found (A = slot 0–7); C=1 not found (A=$FF); `rp_ptr`
+= the address searched for.
+**Clobbers:** A, X, Y, `rp_ptr`.
 
-Linear scan over slots 0–7.  The first exact address match wins.
+Linear scan over slots 0–7.  The first exact address match wins
+(`$0000` matches the first empty slot).
 
 ### patch_all
 **In:** none
@@ -125,7 +143,9 @@ overlap rationale.
 **Out:** slots 8–9 (step pair) zeroed.  Slots 0–7 (user) untouched.
 **Clobbers:** A, X.
 
-Called by `debugger.s::arm_step_bp` before installing fresh step BPs.
+Called by `debugger.s::arm_step_bp` before installing fresh step BPs
+and by `repl.s::step_cleanup` when a step ends, is refused, or the
+session ends.
 
 ### Memory
 
@@ -138,11 +158,15 @@ makes the module bundle-testable at Tier U with a minimal stub.
 ## Test contract
 
 `tests/unit/test_breakpoints.py`.  Tier U via
-`breakpoints + zp + breakpoints_test_stub` bundle.  21 tests covering:
+`breakpoints + zp + breakpoints_test_stub` bundle.  35 tests covering:
 
 - `TestBpInit` — table zeroing + `dbg_bp_hit = $FF` seed.
 - `TestBpSet` / `TestBpDel` / `TestBpClear` / `TestBpFind` — full
   CRUD matrix including table-full, invalid-slot, not-found edges.
+- `TestBpSetDuplicate` — a second `dbg_bp_set` of the same address
+  returns the existing slot.
+- `TestBpHitInvalidation` — deleting the hit slot, or clearing the
+  table, sets `dbg_bp_hit = $FF`.
 - `TestBpCount` — 0/1/many cases.
 - `TestBpPatch` / `TestBpUnpatch` / `TestBpPatchedFlag` — round-trip
   invariant (patch → unpatch → original bytes restored), the
@@ -153,8 +177,8 @@ makes the module bundle-testable at Tier U with a minimal stub.
 - `TestOverlap` — a step slot on a breakpoint's address, and both
   step slots on one address: the user's byte survives.
 
-The step/BRK/userland-transition state machine (the remainder of the
-old `debugger.s`) is covered at integration tier by
+The step/BRK/userland-transition state machine that drives the table
+([debugger.md](debugger.md)) is covered at integration tier by
 `tests/integration/test_kernel_transition.py` and
 `tests/integration/test_step_rom.py`.
 
@@ -168,10 +192,12 @@ BP that shares the same address.  Unified table + forward-patch /
 reverse-unpatch order solves both.
 
 **Why `dbg_bp_hit` is here and not in `debugger.s`.**  Its semantics
-are "which slot of `bp_table` was the one that fired."  The byte is
-WRITTEN by the L4 BRK handler (after classification), but its
-MEANING indexes into this module's table.  Ownership follows
-semantics, not write site.
+are "which slot of `bp_table` was the one that fired."  The BRK
+handler sets it after classification, but its meaning indexes into
+this module's table — and the table operations that remove a slot
+(`dbg_bp_del`, `dbg_bp_clear`) must invalidate it, so `c` never
+deletes an unrelated breakpoint that later took the hit slot.
+Ownership follows semantics, not write site.
 
 **What does NOT belong here.**  Anything that transitions between
 kernel and userland, dispatches interrupts, or manipulates CPU
