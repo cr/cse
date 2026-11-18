@@ -18,11 +18,8 @@
 
         ; Gap-buffer symbols (ed_insert_string, ed_read_*,
         ; ed_ensure_init, ed_total_lines, src_top, src_bot,
-        ; define_ws_syms) now live in gap_buffer.s (L3) and are
-        ; imported directly by consumers (main.s, repl.s, asm_src.s)
-        ; — no re-export through editor.s needed.  See the 2026-04-20
-        ; split; consumer `.import` lines were updated in the same
-        ; commit to reference gap_buffer.s's exports.
+        ; define_ws_syms) are gap_buffer.s (L3) exports; consumers
+        ; (main.s, repl.s, asm_src.s) import them from there.
 
         ; From gap_buffer.s (L3, strictly-downward):
         .import gb_init
@@ -112,8 +109,7 @@ _load_overflow: .res 1         ; sticky: set if any insert during load
 save_phase:     .res 1          ; 0=pre-gap, 1=post-gap
 repl_cur_x:     .res 1          ; saved REPL cursor X
 repl_cur_y:     .res 1          ; saved REPL cursor Y
-; (ws_buf removed — smart indent uses inline $A0 insert, no buffer)
-; src_top / src_bot moved to gap_buffer.s (L3) — they describe the
+; src_top / src_bot live in gap_buffer.s (L3) — they describe the
 ; buffer bounds and move with gb_ensure_room's allocation.
 
 ; ── RODATA ───────────────────────────────────────────────────
@@ -234,8 +230,7 @@ _ed_cur_row:
 @done:  rts
 .endproc
 
-; ── check_buf_end — check if ed_scr >= BUF_END ───────────────
-
+; check_buf_end (ed_scr >= BUF_END → C=1) is gap_buffer.s's.
 
 ; ── blank_row — fill screen row X with spaces ─────────────────
 ; Clobbers: A, Y, ed_tmp
@@ -1036,7 +1031,8 @@ _ed_cur_row:
 ;
 ; Walks forward from ed_scr, summing char_width for each byte
 ; until CR, EOF, or 8-bit overflow.  Transparent over the gap.
-; Used by the renderer to detect lines wider than 39 columns.
+; Used via cursor_line_vwidth by the INS / TAB / printable cap
+; checks (the renderer clips on its own column count).
 .proc line_vwidth
         ldx #0                  ; X = accumulating vcol
 @loop:
@@ -1852,8 +1848,8 @@ _ed_cur_row:
         ; gap_hi == BUF_END.  Checking only gap_lo is wrong — after
         ; ed_load_source the cursor is rewound to the start, so
         ; gap_lo == buf_base holds even though loaded content fills
-        ; [gap_hi, BUF_END).  See doc/modules/editor.md § enter_editor
-        ; step 4.
+        ; [gap_hi, BUF_END).  See doc/modules/editor.md § Mode switching,
+        ; enter_editor step 4.
         lda gap_lo
         cmp buf_base
         bne @has_content
@@ -2081,7 +2077,8 @@ _ed_cur_row:
 
 ; ── ed_load_source — load SEQ file into buffer ────────────────
 ; Input: A/X = name pointer
-; Returns: A = 0 on success, nonzero on error
+; Returns: A = 0 success, 1 disk error / empty file, 2 too large;
+;          X = 0 and Z = 1 on every path (test A, not Z).
 ;
 ; No line-width enforcement — lines are stored as-is.
 .proc ed_load_source

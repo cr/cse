@@ -126,7 +126,7 @@ class TestSmartIndent:
     def test_colon_strips_gutter(self, cse_prg):
         """Typing ':' removes leading $A0 in real time."""
         emu = make_emu(cse_prg)
-        # Seed tab with correct ed_cur_col via C=+SPACE keystroke
+        # Seed tab with correct ed_cur_col via SHIFT+SPACE keystroke
         type_keys(emu, [0xA0])
         type_keys(emu, b"LOOP:")
         assert read_back(emu) == b"LOOP:"
@@ -171,7 +171,7 @@ class TestSmartIndent:
         emu = make_emu(cse_prg)
         # Type label + tab + instruction via keystrokes
         type_keys(emu, b"LOOP:")
-        type_keys(emu, [0xA0])  # C=+SPACE (tab)
+        type_keys(emu, [0xA0])  # SHIFT+SPACE (tab)
         type_keys(emu, b"RTS")
         # Move cursor to between : and tab
         type_keys(emu, [0x13])  # HOME
@@ -381,7 +381,7 @@ class TestBufferOverflow:
             "printable keystroke must be refused on full buffer (no col advance)"
 
     def test_full_buffer_refuses_tab(self, cse_prg):
-        """C=+SPACE ($A0) on a full buffer must be refused."""
+        """SHIFT+SPACE ($A0) on a full buffer must be refused."""
         emu = make_emu(cse_prg)
         TestBufferOverflow._force_full(emu)
         col_before = emu.memory[emu.sym("ed_cur_col")]
