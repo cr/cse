@@ -278,6 +278,25 @@ class TestListDirectory:
         assert rows[0] == '; "testprg         " 23 2a'
         assert rows[1] == 'l "t-count,s"; 1 blocks' and len(rows) == 11
 
+    def test_stop_breaks_the_listing(self, drv):
+        """STOP waiting in the keyboard buffer ends the listing after
+        the entry in progress, with the break message."""
+        e, d = drv
+        for i in range(5):
+            d.put(f"F{i}", b"x")
+        e.inject_key(3)                           # STOP queued
+        assert self._list(e) == ['; "cse test        " 01 2a', "break"]
+        assert e.memory[0xC6] == 0, "the key was taken"
+
+    def test_another_key_is_dropped_and_the_listing_goes_on(self, drv):
+        e, d = drv
+        for i in range(5):
+            d.put(f"F{i}", b"x")
+        e.inject_key(0x41)
+        rows = self._list(e)
+        assert len(rows) == 7 and rows[-1] == "; 659 blocks free."
+        assert e.memory[0xC6] == 0
+
     def test_no_drive_lists_nothing(self, emu):
         emu.set_cursor(2, 0)
         emu.jsr(emu.sym("list_directory"), a=8)

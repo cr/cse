@@ -539,7 +539,8 @@ floppy_status:
         jsr newline
 
 @check_stop:
-        jsr io_kbhit
+        jsr io_kbhit            ; A = keys waiting (Z is ldx #0's)
+        tay
         bne @user_key
         jsr @check_next
         jne @entry

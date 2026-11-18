@@ -63,8 +63,10 @@ cleared to the end of the row, then `newline`):
   load the file;
 - last: `; N blocks free.`
 
-A key press during the listing is consumed; RUN/STOP stops it with
-`break`.  On a LOAD error nothing is printed.
+A key in the keyboard buffer between entries is taken: RUN/STOP ends
+the listing early with `break` (no blocks-free line); any other key
+is dropped and the listing goes on.  On a LOAD error nothing is
+printed.
 **Clobbers:** A, X, Y, `disk_ptr`, `_io_tmp`, `fl_buf`, the
 workspace from `$0801` to the end of the loaded directory (~5 KB for
 a full disk), and what `newline` clobbers
