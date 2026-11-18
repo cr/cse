@@ -35,7 +35,9 @@ No underscore (not typeable on C64 keyboard).
 | local label | a dot, then one or more letters and digits | `.loop:`, `.1:` |
 
 Local labels (dot prefix) are scoped to the last preceding global
-label and stored as `global.local` in the symbol table.  A label that
+label and stored as `global.local` in the symbol table.  A reference
+to a local label with no global label above it is `;?N: exp val`;
+start the source with a global label before the first local one.  A label that
 breaks the grammar — `a_b:`, `5x:`, `a.b:`, `.:` — is `;?N: exp id`
 and is not defined.
 
@@ -189,18 +191,21 @@ names below exactly, followed by whitespace, a `;` comment or the end
 of the line; anything else (`.oops`, `.co`, `.dbx`) is
 `;?N: bad insn`.
 
-| Directive | Args | Pass 0 (collect) | Pass 1 (emit) |
-|-----------|------|-------------------|---------------|
-| `.org` | expr | Set `asm_pc` and `_asm_org` | Set `asm_pc` only |
-| `.const` | name expr | `sym_define(name, expr_val)` | Skip |
-| `.cpu` | model | Set `asm_cpu` | Set `asm_cpu` |
-| `.db` | expr [, ...] | Advance `asm_pc` by count | Emit bytes |
-| `.dw` | expr [, ...] | Advance `asm_pc` by 2×count | Emit words (little-endian) |
-| `.str` | "text" [, ...] | Advance `asm_pc` by length | Emit PETSCII bytes |
-| `.scr` | "text" [, ...] | Advance `asm_pc` by length | Emit screen code bytes |
-| `.res` | count [, fill] | Advance `asm_pc` by count | Emit fill bytes (default $00) |
-| `.align` | boundary | Advance `asm_pc` to next multiple | Emit $00 padding |
-| `.bas` | ["text"] | Advance `asm_pc` past stub | Emit BASIC SYS stub |
+| Directive | Args | Effect |
+|-----------|------|--------|
+| `.org` | expr | Set the program counter |
+| `.const` | name expr | Define a constant |
+| `.cpu` | model | Set the CPU mode for the following lines |
+| `.db` | expr [, ...] | Emit bytes |
+| `.dw` | expr [, ...] | Emit words (little-endian) |
+| `.str` | "text" [, ...] | Emit PETSCII bytes |
+| `.scr` | "text" [, ...] | Emit screen code bytes |
+| `.res` | count [, fill] | Emit `count` fill bytes (default $00) |
+| `.align` | boundary | Emit $00 up to the next multiple |
+| `.bas` | ["text"] | Set the program counter to $0801 and emit a BASIC SYS stub |
+
+The assembler runs two passes over the source (sizing, then
+emission); the pass mechanics are [asm_src.md](modules/asm_src.md).
 
 ### `.org` — Set Origin
 
@@ -209,8 +214,9 @@ of the line; anything else (`.oops`, `.co`, `.dbx`) is
 ```
 
 Sets the program counter. All subsequent code/data emits to this address.
-Default: `$0800`.  Code before the first `.org` is assembled at the
-default origin.
+The default origin, for code before the first `.org`, is the REPL's
+current address when `a` runs (`$0800` after start-up; set it with
+`@`).
 
 **Output stays in the workspace.**  Every byte the assembler emits —
 instructions and data directives alike — must land in the workspace,
@@ -272,9 +278,9 @@ Emits 16-bit values in little-endian order (lo byte first).
 .str "hello", 0     ; string followed by explicit NUL
 ```
 
-Emits PETSCII bytes for each character. Does NOT automatically
-NUL-terminate — add `, 0` if needed. Supports escape sequences:
-(TBD — probably none for v1, raw PETSCII).
+Emits the bytes of the characters as typed (PETSCII), with no escape
+sequences.  Does NOT automatically NUL-terminate — add `, 0` if
+needed.
 
 ### `.scr` — Screen Code String
 
@@ -347,18 +353,17 @@ not read a later-defined symbol: `.const k later+1` is
 ### `.bas` — Emit BASIC SYS Stub
 
 ```
-.org $0801
 .bas                ; emit "0 SYS <addr>"
 ```
 
 ```
-.org $0801
-.bas "MY PROGRAM"   ; emit "0 SYS <addr>:REM MY PROGRAM"
+.bas "my program"   ; emit "0 SYS <addr>:REM my program"
 ```
 
-Emits a single-line BASIC program that calls the code immediately
-following the stub via `SYS`.  Makes the assembled PRG auto-runnable:
-`LOAD "FILE",8,1` then `RUN`.
+`.bas` is an implicit `.org $0801` (the start of BASIC): it sets the
+program counter to $0801 and emits a single-line BASIC program that
+calls the code immediately following the stub via `SYS`.  Makes the
+assembled PRG auto-runnable: `LOAD "FILE",8,1` then `RUN`.
 
 The SYS address (always 5 decimal digits) is the first byte after
 the BASIC end marker — where `asm_pc` points after `.bas` completes.
@@ -374,41 +379,50 @@ Byte layout:
 | +2 | 2 | Line number 0 |
 | +4 | 1 | SYS token ($9E) |
 | +5 | 5 | 5-digit decimal SYS address |
-| +10 | 0 or 2+len | `:` + REM token + string (if present) |
+| +10 | 0 or 3+len | `:` + REM token + space + string (if present) |
 | | 1 | Null terminator |
 | | 2 | $0000 end of BASIC program |
 
-Total: 13 bytes (no string) or 15 + len (with string).
+Total: 13 bytes (no string) or 16 + len (with string); the code after
+the stub starts at $080E or $0811 + len.
 
 ## Assembly Output
 
-On successful assembly, the `a` command prints:
+On success the `a` command prints, for example (a `.bas` stub, then
+code at $1000 and data at $2000):
 
 ```
 ; asm...
-; org  0801-0814  20b
-; org  1000-1002  3b
-; org  2000-2003  4b
+; org  0801-080e    14b
+; org  1000-1002     3b
+; org  2000-2003     4b
 ; ok
-0801:s "t-org,p" $2004
+0801:s "out" $2003
 ```
 
-- **Header:** `; asm...` — the repl header (stays open during pass 1).
-- **Segment lines:** One `; org  AAAA-BBBB  NNb` line per `.org`
-  or `.bas` block.  Printed inline during pass 1.  Addresses are
-  plain hex (no `$` prefix).  Empty segments (0 bytes) are suppressed.
-- **OK line:** `; ok` — printed after successful pass 1.
-- **Save command:** Executable REPL line placed last so
-  cursor-up+return saves the assembled PRG.  Format:
-  `AAAA:s "name,p" $EEEE` where AAAA is the lowest origin,
-  EEEE is the highest byte (inclusive, matching the `AAAA-BBBB`
-  range convention used everywhere), and name is the loaded
-  filename with `,s` → `,p` suffix (or `"out,p"` if none).
-  Suppressed when no bytes were emitted.
+- **Header:** `; asm...`.
+- **Segment rows:** one `; org  AAAA-BBBB  NNb` row per block of
+  output (the default origin, each `.org`, `.bas`), printed as the
+  block closes on the emitting pass.  Addresses are plain hex; empty
+  blocks are not shown.
+- **OK row:** `; ok`.
+- **Save line:** an executable REPL line, so cursor-up + RETURN saves
+  the assembled PRG: `AAAA:s "name" $EEEE`, where AAAA is the lowest
+  emitted address, EEEE the highest (inclusive, the `AAAA-BBBB`
+  convention) and `name` the current project name (`out` if none).
+  The address argument makes it a PRG save to `name.`
+  ([repl.md § Project-name and filename semantics](modules/repl.md#project-name-and-filename-semantics-l-and-s)).
+  It covers everything from the lowest to the highest address,
+  gaps included.  Not shown when no bytes were emitted.
 
-On error, the segment lines still appear (they print during pass 1)
-but the ok and save lines are suppressed.  The error count is shown:
-`; N errors`.
+After `; ok` the REPL's current address moves to `main` if the source
+defines it.  On errors each one is a row `;?N: <message>` (`N` = the
+source line, e.g. `;?2: undef`), the segment rows still appear, and
+the summary is `; N err` instead of `; ok` and the save line.  A line
+of 39 characters or more gets a warning `;!N: truncated`; the
+assembler reads its first 39 characters (a line of exactly 39 loses
+nothing, but is warned about too).  The messages:
+[README.md § Source-assembly messages](../README.md#source-assembly-messages).
 
 ## Example Program
 
