@@ -4098,8 +4098,16 @@ prg_ok_done:
         sec
         sbc #'0'
         pha
-        ; dev = dev * 10 + digit
+        ; dev = dev * 10 + digit.  dev >= 4 before another digit means
+        ; >= 40 (out of range): pin it at $FF instead of letting the
+        ; 8-bit product wrap back into 4-30 (`$ 260` would be 4).
         lda rp_tmp2
+        cmp #4
+        bcc @dev_mul
+        pla
+        lda #$FF
+        bne @dev_set            ; always
+@dev_mul:
         asl                     ; *2
         sta rp_tmp
         asl                     ; *4
@@ -4110,6 +4118,7 @@ prg_ok_done:
         pla
         clc
         adc rp_tmp2
+@dev_set:
         sta rp_tmp2
         inc rp_ptr
         bne @dev_lp

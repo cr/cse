@@ -621,7 +621,8 @@ class TestDirDevice:
 
     @pytest.mark.parametrize("cmd,dev", [("$", 8), ("$ 9", 9), ("$ 30", 30),
                                          ("$ 4", 4), ("$ 3", 8), ("$ 31", 8),
-                                         ("$ 255", 8)])
+                                         ("$ 255", 8), ("$ 260", 8),
+                                         ("$ 1009", 8)])
     def test_device_parse(self, rsyms, cmd, dev):
         cpu = make_cpu(rsyms)
         set_line_buf(cpu, rsyms, cmd)
