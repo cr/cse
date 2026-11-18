@@ -917,8 +917,9 @@ documentation round that follows this filing.
   `make` only when the PRG or map is missing; `.inc` files are not
   prerequisites in the Makefile or the bundles.
   Fixed 2026-11-18: conftest runs `make` once per session unconditionally; objects depend on their includes (`ca65 --create-dep`); bundles on `src/*.inc`, test test_build_freshness.py.
-- [ ] **`make … PLATFORM=m65` silently builds the C64 PRGs** — add a
+- [x] **`make … PLATFORM=m65` silently builds the C64 PRGs** — add a
   refusal guard until S2-1 (or fold into B1).
+  Fixed 2026-11-18: the Makefile stops every PRG target with an error when PLATFORM≠c64, test test_makefile_guards.py.
 - [ ] **`oplen_tbl` keeps the last row where a 6510 and a 65C02
   opcode share a byte**; the generator should refuse a conflict.
 - [ ] **Mutable bytes in CODE**: `main.s` `@key` and `dasm.s` `@adj`

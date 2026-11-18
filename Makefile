@@ -36,6 +36,19 @@ VICE      ?= x64sc
 C1541     ?= c1541
 EXOMIZER  ?= exomizer
 
+# ── Platform selection ───────────────────────────────────────────────────
+# PLATFORM=c64 (default) is the only platform with PRGs so far; the m65
+# PRG arrives with R7 slice 2 (the platform layer).  Until then every
+# PRG-building target refuses PLATFORM=m65 instead of silently building
+# the C64 PRGs.  See doc/build_system.md § Builds and CPU sets.
+PLATFORM ?= c64
+_NON_PRG_GOALS := help themes clean clean-tables tables m65-rom check-roms
+ifneq ($(PLATFORM),c64)
+  ifneq ($(filter-out $(_NON_PRG_GOALS),$(or $(MAKECMDGOALS),all)),)
+    $(error PLATFORM=$(PLATFORM): no PRG for this platform yet (R7 slice 2, the platform layer); only PLATFORM=c64 builds PRGs)
+  endif
+endif
+
 # ── CPU target selection ──────────────────────────────────────────────────
 # CPU= selects target for run/disk/size.  release/debug build all three.
 # make CPU=6502   → MN6 assembler, disassembler in 6502 mode

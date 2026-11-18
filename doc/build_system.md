@@ -21,6 +21,7 @@
 | [`tests/unit/test_golden_asm_dasm.py`](../tests/unit/test_golden_asm_dasm.py) | test contract — behaviour and speed against the golden files (TODO § M65, gates 2–3) |
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — C64 release PRG sizes within budget (TODO § M65, gate 1) |
 | [`tests/unit/test_build_freshness.py`](../tests/unit/test_build_freshness.py) | test contract — no test runs on a stale binary: the PRG fixtures always run `make`, objects depend on their includes, bundles on `src/*.inc` |
+| [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — the Makefile refuses `PLATFORM=m65` PRG targets until R7 slice 2 |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
 | [`tests/unit/test_dasm_tables.py`](../tests/unit/test_dasm_tables.py) | test contract — the disassembler model of `dev/dasm_tables.py` |
@@ -283,7 +284,7 @@ absolute address.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG and D81 ([§ The m65 PRG](#the-m65-prg)) and the m65 test bundles |
+| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG and D81 ([§ The m65 PRG](#the-m65-prg)) and the m65 test bundles; until R7 slice 2 every PRG target refuses `PLATFORM=m65` with an error (`help`, `themes`, `clean`, `tables` still run) |
 | `XMEGA65` | `xmega65` | The xmega65 executable for `make run` and Tier X on `m65` (on macOS: `/Applications/xmega65.app/Contents/MacOS/xmega65`) |
 | `CPU` | `6510` on `c64`, `45gs02` on `m65` | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`; `m65`: `45gs02` only) |
 | `THEME` | `GREENLAND` | Named theme or 3-digit hex code (`make themes` for list) |
