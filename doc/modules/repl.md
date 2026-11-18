@@ -848,6 +848,10 @@ for the symbol table and heap, `cse` for banked data (stack
 snapshots, KDATA tables, REPL screen save), and `rom` for actual
 KERNAL ROM.
 
+Contract pinned by `TestInfoFullMode`: the rows run in address
+order and cover `$0000`–`$FFFF` without gap or overlap; the `src`
+row appears only when source is loaded.
+
 ### `C` — Color (uppercase)
 
 Accepts 1, 2, or 3 single hex digits and applies them at once

@@ -1237,3 +1237,49 @@ class TestClearScreen:
         run_at(cpu, rsyms.exec_line)
         assert all(cpu.memory[SCREEN + i] == 0x20 for i in range(1000))
 
+
+
+class TestInfoFullMode:
+    """repl.md § `i`: the full memory map — rows in address order that
+    cover $0000-$FFFF without gap or overlap; a src row when source is
+    loaded."""
+
+    def _rows(self, cpu, rsyms):
+        import re
+        set_line_buf(cpu, rsyms, "i")
+        run_at(cpu, rsyms.exec_line)
+        rows = []
+        for r in range(ROWS):
+            m = re.match(r"; (\w+)\s+([0-9a-f]{4})-([0-9a-f]{4})",
+                         cpu.screen_text(r))
+            if m:
+                rows.append((m.group(1), int(m.group(2), 16),
+                             int(m.group(3), 16)))
+        return rows
+
+    def _assert_covers(self, rows):
+        assert rows[0][1] == 0x0000 and rows[-1][2] == 0xFFFF
+        for (_, _, end), (tag, start, _) in zip(rows, rows[1:]):
+            assert start == end + 1, f"gap/overlap before {tag} ${start:04X}"
+
+    def test_full_map_no_source(self, rsyms):
+        cpu = make_cpu(rsyms)
+        cpu.jsr(cpu.sym("ed_ensure_init"))
+        rows = self._rows(cpu, rsyms)
+        self._assert_covers(rows)
+        tags = [t for t, _, _ in rows]
+        assert tags[:9] == ["cpu", "zp", "sys", "stk", "sys", "low", "sys",
+                            "low", "scr"]
+        assert "src" not in tags and tags[-3:] == ["io", "cse", "rom"]
+
+    def test_full_map_with_source(self, rsyms):
+        cpu = make_cpu(rsyms)
+        cpu.jsr(cpu.sym("ed_ensure_init"))
+        buf = 0x7000
+        for i, ch in enumerate(b" rts\r"):
+            cpu.memory[buf + i] = ch
+        cpu.memory[buf + 5] = 0
+        cpu.jsr(cpu.sym("ed_insert_string"), a=buf & 0xFF, x=buf >> 8)
+        rows = self._rows(cpu, rsyms)
+        self._assert_covers(rows)
+        assert "src" in [t for t, _, _ in rows]
