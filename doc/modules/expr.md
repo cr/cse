@@ -78,9 +78,8 @@ would run past `$FFFF`, so `expr_error_str` names that error `ovfl`
 
 ### Memory
 
-**ZP (3 bytes):** `_ex_tmp` (2), `_ex_digits` (1).  `_ex_wide_tmp`
-is allocated in zp.s but unused ([zp.md](zp.md)): the left operand's
-width lives on the hardware stack.
+**ZP (3 bytes):** `_ex_tmp` (2), `_ex_digits` (1).  The left
+operand's width lives on the stack.
 
 **BSS (7 bytes):** `last_err` (1, exported), `_ex_depth` (1, nesting
 depth), `expr_fwd` (1, exported), `_mul_tmp` (2), `_div_rem` (2).

@@ -25,7 +25,7 @@ _asm_saved_sp:  .res 1          ; saved 6502 SP for asm_error recovery
 
 ; ── asm_vars: assembler I/O + symbol table + expression parser ────────── $09
         .exportzp asm_pc, asm_out, asm_cpu, asm_len
-        .exportzp asm_slot, asm_prof, asm_pidx, asm_base, asm_bit, asm_mode
+        .exportzp asm_slot, asm_prof, asm_pidx, asm_base, asm_mode
         .exportzp asm_tmp, asm_tmp2
         .exportzp sym_name, sym_val, sym_wide
         .exportzp expr_ptr, expr_val, expr_wide
@@ -37,7 +37,7 @@ asm_slot:       .res 1          ; hash slot from mn_classify
 asm_prof:       .res 1          ; raw packed profile byte
 asm_pidx:       .res 1          ; effective profile index
 asm_base:       .res 1          ; base opcode from mn7_base_op
-asm_bit:        .res 1          ; bit index 0–7 for Zone D/E
+                .res 1          ; $13 unallocated (held so later addresses stay put)
 asm_mode:       .res 1          ; addressing-mode index (0–15)
 asm_tmp:        .res 1          ; general scratch byte
 asm_tmp2:       .res 1          ; second scratch byte (REL offset)
@@ -84,10 +84,10 @@ _io_scr:        .res 2          ; screen row pointer for io_putc
 disk_ptr:       .res 2          ; filename pointer for disk functions
 
 ; ── expr.s: expression parser scratch ─────────────────────────────────── $33
-        .exportzp _ex_tmp, _ex_digits, _ex_wide_tmp
+        .exportzp _ex_tmp, _ex_digits
 _ex_tmp:        .res 2          ; scratch for expression evaluation
 _ex_digits:     .res 1          ; digit counter
-_ex_wide_tmp:   .res 1          ; saved wide flag for left operand
+                .res 1          ; $36 unallocated (held so later addresses stay put)
 
 ; ── symtab.s: hash table state ────────────────────────────────────────── $37
         .exportzp _st_hash, _st_idx, _st_ptr, _st_nptr, _st_heap, _st_heap_base

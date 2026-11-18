@@ -35,13 +35,13 @@
 
         .export asm_line
         .export _asm_line_core
-        .import asm_error, asm_syntax_error, asm_cpu_error   ; asm_err.s
+        .import asm_error, asm_cpu_error   ; asm_err.s
         .import asm_expr_error, last_err, expr_fwd           ; asm_err.s, expr.s
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
 
         ; zero-page variables (zp.s)
         .importzp asm_pc, asm_out, asm_len
-        .importzp asm_slot, asm_prof, asm_pidx, asm_base, asm_bit, asm_mode, asm_cpu
+        .importzp asm_slot, asm_prof, asm_pidx, asm_base, asm_mode, asm_cpu
         .importzp asm_tmp, asm_tmp2
 
         ; addr_mode.s interface

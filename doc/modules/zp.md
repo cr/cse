@@ -17,7 +17,7 @@ contains a `.segment "ZEROPAGE"` section.
 This document owns the ZP allocation table and the cross-module flag
 table below; other documents point here instead of restating them.
 
-### Exported symbols (120 bytes, $02–$79)
+### Exported symbols ($02–$79: 117 bytes exported, 3 unallocated)
 
 "Section" is the zp.s block the bytes are listed under; "Used by" is
 every module that `.importzp`s at least one of the block's variables
@@ -27,7 +27,7 @@ every module that `.importzp`s at least one of the block's variables
 |-------|---------|-----------|---------|
 | $02–$07 | runtime scratch | `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) | `rp_ptr`: repl, main, debugger, breakpoints, log; `rp_ptr2`: repl, debugger, log, asm_src; `rp_tmp`: repl, log; `rp_tmp2`: repl |
 | $08 | asm_line error recovery | `_asm_saved_sp` (1) | written by asm_line (`asm_line` entry), read by asm_err (`asm_error` longjmp) |
-| $09–$20 | assembler I/O | `asm_pc` (2), `asm_out` (2), `asm_cpu` (1), `asm_len` (1), `asm_slot` (1), `asm_prof` (1), `asm_pidx` (1), `asm_base` (1), `asm_bit` (1), `asm_mode` (1), `asm_tmp` (1), `asm_tmp2` (1), `sym_name` (2), `sym_val` (2), `sym_wide` (1), `expr_ptr` (2), `expr_val` (2), `expr_wide` (1) | asm_line, asm_src, addr_mode, opcode_lookup, expr, symtab, gap_buffer, dasm (`asm_cpu`), debugger (`asm_cpu`), main (`asm_cpu`), repl |
+| $09–$20 | assembler I/O | `asm_pc` (2), `asm_out` (2), `asm_cpu` (1), `asm_len` (1), `asm_slot` (1), `asm_prof` (1), `asm_pidx` (1), `asm_base` (1), $13 unallocated (1), `asm_mode` (1), `asm_tmp` (1), `asm_tmp2` (1), `sym_name` (2), `sym_val` (2), `sym_wide` (1), `expr_ptr` (2), `expr_val` (2), `expr_wide` (1) | asm_line, asm_src, addr_mode, opcode_lookup, expr, symtab, gap_buffer, dasm (`asm_cpu`), debugger (`asm_cpu`), main (`asm_cpu`), repl |
 | $21–$23 | asm_src | `_as_ptr` (2), `_as_wsize` (1) | asm_src |
 | $24–$26 | mnemonic classifier inputs | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) | written by asm_line, read by mn7 / mn6 |
 | $27 | mn7 / mn6 | `mn7_h_tmp` / `mn6_h_tmp` (1, aliased — only one classifier is linked) | mn7 or mn6 |
@@ -35,7 +35,8 @@ every module that `.importzp`s at least one of the block's variables
 | $2C | — | unallocated (1) — see [TODO § M65](../TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1), A3b | — |
 | $2D–$30 | cse_io | `_io_tmp` (2), `_io_scr` (2) | `_io_tmp`: cse_io, disk, repl; `_io_scr`: cse_io, screen |
 | $31–$32 | disk | `disk_ptr` (2) | disk, editor, repl |
-| $33–$36 | expr | `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1) | expr (`_ex_wide_tmp`: none) |
+| $33–$35 | expr | `_ex_tmp` (2), `_ex_digits` (1) | expr |
+| $36 | — | unallocated (1) | — |
 | $37–$40 | symtab | `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_heap` (2), `_st_heap_base` (2) | symtab |
 | $41–$48 | dasm | `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) | dasm |
 | $49–$56 | editor / gap buffer | `gap_lo` (2), `gap_hi` (2), `buf_base` (2), `ed_top_ptr` (2), `read_ptr` (2), `ed_tmp` (2), `ed_scr` (2) | editor, gap_buffer; `buf_base` also asm_src, repl |
@@ -44,11 +45,8 @@ every module that `.importzp`s at least one of the block's variables
 | $6F–$77 | **shared output scratch** | `rp_addr` (2), `rp_cnt` (2), `rp_save` (1), `rp_save2` (1), `rp_next_lo` (2), `_info_mode` (1) | repl (command-handler scratch), log (range-line calling convention), asm_src (`rp_addr`, `rp_cnt`, `rp_save2`) |
 | $78–$79 | screen | `scr_src` (2) — `scroll_up`'s source row pointer | screen |
 
-Allocated but unused: `asm_bit` ($13; imported by asm_line, never
-read or written) and `_ex_wide_tmp` ($36; no module imports it —
-`expr` stacks each operand's width instead, see
-[expr.md § Width propagation](expr.md#width-propagation)).  Both keep
-their bytes so every later address stays put.
+Unallocated holes: $13, $2C and $36 — held so every later address
+stays put; recompaction is TODO § M65, A3b.
 
 First free byte: $7A.  $7A–$7F is not allocated by CSE.  Which zero
 page a user program may use is
