@@ -1048,9 +1048,14 @@ documentation round that follows this filing.
   Fixed 2026-11-18: the shift count is the full 16-bit operand; 16 or
   more gives 0 (expr.md § Caveats). Tests test_positive[shl/shr by *]
   (test_expr.py).
-- [ ] Latent: `mode_parse`'s accumulator test assumes `A` at offset 0
+- [x] Latent: `mode_parse`'s accumulator test assumes `A` at offset 0
   (`ldy #1`) and has no CR/LF in its peek; production strips leading
   whitespace first.
+  Fixed 2026-11-18: the ACC peek commits the leading whitespace first
+  (_au_commit) and tests the following char with _au_is_end (NUL, CR,
+  LF, ';', '//') plus whitespace and '#' (addr_mode.md § ACC vs
+  label). Tests test_parse_ok[ A, A\\r, ...], test_stop_position[ACC
+  after leading ws].
 
 ### Code bugs — editor, build, tooling
 

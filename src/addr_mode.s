@@ -168,6 +168,18 @@ _au_expect_x:
         jmp asm_syntax_error
 :       rts
 
+; ─── _au_commit ─────────────────────────────────────────────────────────────
+; asm_ptr += Y; Y = 0.  Clobbers A.
+_au_commit:
+        tya
+        clc
+        adc asm_ptr
+        sta asm_ptr
+        bcc :+
+        inc asm_ptr+1
+:       ldy #0
+        rts
+
 ; ─── _au_read_val ────────────────────────────────────────────────────────────
 ; Parse an operand value via expr_eval_nb.  Advances asm_ptr by Y first,
 ; syncs to expr_ptr, calls expr_eval_nb, stores result in asm_opr.
@@ -177,7 +189,8 @@ _au_expect_x:
 ;       asm_ptr updated past consumed expression; Y = 0
 ; Error (bad expression): jmp asm_syntax_error
 _au_read_val:
-        ; Advance asm_ptr by Y (commit chars consumed so far)
+        ; Advance asm_ptr by Y (commit chars consumed so far; inline —
+        ; this is the hot path, _au_commit is for the ACC peek)
         tya
         clc
         adc asm_ptr
@@ -256,30 +269,26 @@ mode_parse:
         bne @not_acc
         ldx _au_no_acc
         bne @not_acc            ; A still = SC_A; falls through to label parse
-        ; Peek at char after 'A' — if it's a letter/digit, 'A' starts a label
+        ; Peek at the char after 'A' (relative to the operand start: commit
+        ; the leading whitespace first, so 'A' is at Y=0) — whitespace, '#'
+        ; or an end-of-expression mark → ACC; anything else → label.
+        jsr _au_commit          ; 'A' at (asm_ptr),0
         iny
-        lda (asm_ptr),y
-        dey                     ; restore Y=0
-        ; Space, tab, NUL, ';', '#' → ACC;  letter/digit → label
+        lda (asm_ptr),y         ; Y=1: char after 'A' (Z set for NUL)
+        jsr _au_is_end          ; NUL, CR, LF, ';', '//' (A kept if not)
+        bcs @is_acc
         cmp #' '
         beq @is_acc
         cmp #$A0
         beq @is_acc
-        cmp #0
-        beq @is_acc
-        cmp #SC_SEMI
-        beq @is_acc
         cmp #SC_HASH
         beq @is_acc
-        cmp #SC_SLASH           ; could be '//' comment
-        beq @is_acc
-        ; Anything else (letter, digit) → not ACC, fall through
+        dey                     ; Y=0: back at 'A' → label parse
         lda #SC_A
         jmp @not_acc
 @is_acc:
-        ; Pass-1 shadow detection runs FIRST (with Y=0 invariant from
-        ; the peek-ahead's `dey`), then we explicitly set Y=1 to match
-        ; the iny we'd otherwise need.  This avoids a tya/pha/pla/tay
+        ; Pass-1 shadow detection runs FIRST, then we explicitly set Y=1
+        ; (past the 'A', which _au_commit put at offset 0).  This avoids a tya/pha/pla/tay
         ; pair around sym_lookup + log_warn — both clobber Y, but Y is
         ; dead until we set it for `_au_check_end` below.  Pass 0 is
         ; suppressed so each shadow site produces exactly one warning

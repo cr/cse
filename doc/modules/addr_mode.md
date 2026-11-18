@@ -124,6 +124,12 @@ caller (asm_line) before the call:
 | empty / pure whitespace | MODE_IMP (asm_line promotes to MODE_ACC for ACC-accepting profiles — see [asm_line.md](asm_line.md)) | MODE_IMP |
 | anything else (`#`, `(`, digit, `$`, `*`, …) | normal parse | normal parse |
 
+"Exactly `A` followed by end-of-expr" means: optional leading
+whitespace, `A`, then whitespace, `#`, or an end-of-expression mark —
+NUL, CR, LF, `;`, `//` (the same set `_au_is_end` tests).  The test is
+relative to wherever the operand starts, not to offset 0 of the
+argument string.
+
 The decision is **purely textual + caller-flag-based**.  It does not
 consult symtab to *change* the parse choice — only to detect the
 shadow case for the warning.  Pass 0 sees identical bytes for `A`

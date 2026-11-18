@@ -84,6 +84,12 @@ CASES = [
     ("A ; comment",    ACC,   0, 0x00, 0x00),
     ("A // end",       ACC,   0, 0x00, 0x00),
     ("A #ann",         ACC,   0, 0x00, 0x00),  # trailing '#' = end
+    # leading whitespace before `A`, and CR/LF after it (the ACC test is
+    # relative to the operand start, not offset 0 — addr_mode.md § ACC)
+    (" A",             ACC,   0, 0x00, 0x00),
+    ("  A ; c",        ACC,   0, 0x00, 0x00),
+    ("A\r",            ACC,   0, 0x00, 0x00),
+    ("A\n",            ACC,   0, 0x00, 0x00),
 
     # ── IMM ──────────────────────────────────────────────────────────────────
     ("#$00",           IMM,   1, 0x00, 0x00),
@@ -271,6 +277,7 @@ class TestModeParseStopContract:
         ("($42)",          ZPI,    5, "ZPI → past ')' to NUL"),
         ("$42 ; comment",  ZP,     4, "ZP + comment → stop at ';'"),
         ("A ; cmt",        ACC,    2, "ACC + comment → stop at ';'"),
+        (" A",             ACC,    2, "ACC after leading ws → past 'A'"),
         ("$1234,X ; note", ABX,    8, "ABX + comment → stop at ';'"),
         ("$42,$10",        ZPREL,  7, "ZPREL → past 2nd operand to NUL"),
     ]
