@@ -36,3 +36,68 @@ def test_c64_prgs_are_the_recorded_ones(release_built, prg):
     assert hashlib.sha256(data).hexdigest() == HASHES[prg], (
         f"{prg} differs from the recorded build: a C64 change must be "
         "deliberate and re-record tests/fixtures/golden/c64_prg_sha256.json")
+
+
+# ── the literal audit (platform_layer.md § The rule), as a ratchet ──
+
+import importlib.util as _ilu
+
+_spec = _ilu.spec_from_file_location(
+    "audit_platform_literals", ROOT / "dev" / "audit_platform_literals.py")
+AUDIT = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(AUDIT)
+BASELINE = ROOT / "tests" / "fixtures" / "platform_literals_baseline.json"
+
+
+def test_no_platform_literal_outside_the_seams():
+    """Each file's count of platform literals equals the baseline:
+    higher is a new site, lower is a moved site whose baseline was not
+    lowered.  When the baseline file is gone, every count must be 0."""
+    want = (json.loads(BASELINE.read_text())["counts"]
+            if BASELINE.exists() else {})
+    assert AUDIT.counts() == want
+
+
+def _audit_source(tmp_path, name, text):
+    (tmp_path / name).write_text(text)
+    return [(cls, n) for n, cls, _ in AUDIT.sites(tmp_path / name)]
+
+
+@pytest.mark.parametrize("line,cls", [
+    ("        jsr $FFD2", "rom"),
+    ("CHROUT = $FFD2", "rom"),
+    ("        sta $D020", "io"),
+    ("        lda #<$0400", "screen"),
+    ("        sta $0291", "page23"),
+    ("        .addr $0801", "basic"),
+    ("        lda $C6", "zpcell"),
+    ("CUR_COL = $D3", "zpcell"),
+    ("        lda $01,x", "zpcell"),
+])
+def test_audit_flags_a_platform_literal(tmp_path, line, cls):
+    assert _audit_source(tmp_path, "m.s", line + "\n") == [(cls, 1)]
+
+
+@pytest.mark.parametrize("text", [
+    "        lda #$C6\n",                       # an immediate value
+    "        .byte $D3, $FF, $0400\n",          # data
+    "        nop                     ; jsr $FFD2\n",  # a comment
+    "        jsr CHROUT              ; $FFD2\n",  # a name; the comment
+    "        lda $7A\n",                         # CSE's own ZP
+    ".ifdef PLATFORM_C64\n        jsr $FFD2\n.endif\n",
+    ".ifdef PLATFORM_M65\n  .ifdef DEBUG\n        sta $D020\n  .endif\n.endif\n",
+])
+def test_audit_passes_what_is_not_a_platform_literal(tmp_path, text):
+    assert _audit_source(tmp_path, "m.s", text) == []
+
+
+def test_audit_skips_platform_files_and_platform_inc(tmp_path):
+    for name in ("platform.inc", "c64_cse.cfg.in", "m65_cse.cfg.in"):
+        (tmp_path / name).write_text("X = $FFD2\n")
+    (tmp_path / "m.s").write_text("X = $FFD2\n")
+    assert [f.name for f in AUDIT.audited_files(tmp_path)] == ["m.s"]
+
+
+def test_a_non_platform_ifdef_does_not_shelter(tmp_path):
+    assert _audit_source(tmp_path, "m.s",
+                         ".ifdef DEBUG\n        sta $D020\n.endif\n") == [("io", 2)]

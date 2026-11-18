@@ -21,10 +21,10 @@ states the seam's contract and points there.
 |------|------|
 | `src/platform.inc` | header — every platform constant and macro, selected by `.ifdef` (planned, P0) |
 | `src/m45_ops.inc` | header — the 45GS02-only instructions as raw-byte macros ([§ Raw-byte instructions](#raw-byte-instructions); planned, P0) |
-| `dev/audit_platform_literals.py` | implementation — the literal audit (planned, P0) |
+| [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit: the address-literal classes, the per-file counts, the baseline writer |
 | [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the audit's rule, the raw-byte audit and the pending-body count as they land (P0) |
 | [`tests/fixtures/golden/c64_prg_sha256.json`](../tests/fixtures/golden/c64_prg_sha256.json) | generated — the recorded SHA-256 of each C64 release PRG; back-link-exempt (JSON data) |
-| `tests/fixtures/platform_literals_baseline.json` | generated — the literal audit's ratchet: the sites not yet moved onto the seams (planned, P0; deleted when empty) |
+| [`tests/fixtures/platform_literals_baseline.json`](../tests/fixtures/platform_literals_baseline.json) | generated — the literal audit's ratchet: each file's count of sites not yet moved onto the seams (deleted when empty); back-link-exempt (JSON data) |
 
 The files are listed as they will exist; until P0 lands they are not
 in the repository.
@@ -37,10 +37,11 @@ colour base, a banking value, a memory home, the shape of an
 interrupt frame — every such fact is either a constant or a macro in
 `src/platform.inc`, or code inside a `.ifdef PLATFORM_<platform>`
 block.  A module may *expand* a `platform.inc` macro anywhere; it may
-not *name* a platform fact outside such a block.  The audit
-(`dev/audit_platform_literals.py`) enumerates the literal classes over
-`src/*.s`, `src/*.inc` and `src/*.cfg.in` and fails on any outside
-those places.
+not *name* a platform fact outside such a block; a file named for
+its platform (`c64_cse.cfg.in`) is itself such a block.  The audit
+(`dev/audit_platform_literals.py`) enumerates the address literals of
+these facts — its classes are listed in the tool — over `src/*.s`,
+`src/*.inc` and `src/*.cfg.in` and fails on any outside those places.
 
 **One module, one interface, bodies selected at assembly time.**  A
 seam is one name — a constant, a macro or an exported routine — with

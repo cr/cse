@@ -499,8 +499,10 @@ lands, except T1, which is green by construction):
 - [x] T1. The C64 hash gate: `c64_prg_sha256.json` recorded before the
   first refactor commit, in a commit of its own.  (Done 2026-11-18:
   `test_platform_audit.py::test_c64_prgs_are_the_recorded_ones`.)
-- [ ] T2. The literal audit as a ratchet (baseline fixture of today's
-  sites; unit tests of the audit on synthetic sources).
+- [x] T2. The literal audit as a ratchet (baseline fixture of today's
+  sites; unit tests of the audit on synthetic sources).  (Done
+  2026-11-18: 142 sites in 13 files; the address-literal classes are
+  in `dev/audit_platform_literals.py`.)
 - [ ] T3. The raw-byte audit (static); clean mode by PC region (run
   time).
 - [ ] T4. The m65 build: test_makefile_guards' refusal tests become
