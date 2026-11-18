@@ -333,10 +333,12 @@ class HypervisorNotModelled(Exception):
 
 class Hypervisor(Device):
     """The Hypervisor traps ($D640-$D67F): a store there traps.  Only
-    the two services the m65 loader uses are modelled —
-    hyppo_getversion ($D640 <- $00) sets A X Y Z, hyppo_rom_writeenable
-    ($D641 <- $02) lifts M65Memory's ROM protection; anything else, and
-    any read, raises.  `cpu` is set once the CPU exists; `version` is
+    the services CSE uses are modelled — hyppo_getversion ($D640 <- $00)
+    sets A X Y Z, hyppo_rom_writeenable ($D641 <- $02) lifts
+    M65Memory's ROM protection, hyppo_get_mapping ($D640 <- $74) writes
+    MAP's X A Z Y operands and the two megabytes at Y's page in the CPU
+    view, keeping every register (recorded); anything else, its error
+    path (Y > $7E) and any read raise.  `cpu` is set once the CPU exists; `version` is
     what hyppo_getversion answers (a test may set an older one)."""
 
     FIRST, LAST = 0x640, 0x67F
@@ -354,5 +356,12 @@ class Hypervisor(Device):
             self.cpu.a, self.cpu.x, self.cpu.y, self.cpu.z = self.version
         elif (off, v) == (0x641, 0x02):
             self.mem.rom_protect = False
+        elif (off, v) == (0x640, 0x74):
+            cpu = self.cpu
+            if cpu.y > 0x7E:
+                raise HypervisorNotModelled("hyppo_get_mapping's error path (Y > $7E)")
+            for k, b in enumerate((cpu.mapl >> 8, cpu.mapl, cpu.maph >> 8,
+                                   cpu.maph, cpu.map_lo_mb, cpu.map_hi_mb)):
+                self.mem[cpu.y << 8 | k] = b & 0xFF
         else:
             raise HypervisorNotModelled(f"trap ${v:02X} through $D{off:03X}")

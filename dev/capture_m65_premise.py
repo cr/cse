@@ -12,7 +12,12 @@ script reads what a RUN-started PRG finds: the registers, MAP and P,
 the stack bytes above SP and the address their RTS returns to, the
 CPU port, $D030, the VIC-IV registers of the screen and the speed,
 and how many bytes of 0.1600-0.1EFF and of CSE's page 0.1F00-0.1FFF
-are not zero.  Then it calls hyppo_getversion and records A X Y Z.
+are not zero.  Then it calls hyppo_getversion and records A X Y Z,
+and hyppo_get_mapping under five maps (the run premise's, the CSE
+map, one with an Attic megabyte, one whose destination page is in a
+mapped block, and the premise's again with interrupts enabled): the
+six bytes, where they landed (flat bank 0 or the CPU view), the
+registers after the trap and whether it touched the stack.
 One entry per ROM goes into tests/fixtures/golden/m65_premise.json
 (no ROM content, so it is committed; tests/unit/test_m65_premise.py
 holds memory_design.md's premise to it).  The script refuses to record
@@ -83,7 +88,56 @@ def capture(xm):
     xm.cmd(f"g {PARK - len(code) + 3:x}")
     r = xm.run_to(PARK)
     entry["hyppo_getversion"] = [r["a"], r["x"], r["y"], r["z"]]
+    entry["hyppo_get_mapping"] = [get_mapping(xm, *g) for g in GET_MAPPING]
     return entry
+
+
+def trap_at_park(xm, body):
+    """Run `body` (bytes) followed by a JMP to PARK, which parks; the
+    registers there."""
+    code = list(body) + [0x4C, PARK & 0xFF, PARK >> 8]
+    start = PARK - len(code) + 3
+    xm.write(start, code)
+    xm.cmd(f"g {start:x}")
+    return xm.run_to(PARK)
+
+
+# (name, MAPL, MAPH, lower MB, upper MB, destination page, CLI first)
+GET_MAPPING = (
+    ("user map", 0xE000, 0x8300, 0x00, 0x00, 0x1F, False),
+    ("CSE map", 0xE300, 0xB300, 0x00, 0x00, 0x1F, False),
+    ("lower megabyte $80", 0x2400, 0x8300, 0x80, 0x00, 0x1F, False),
+    ("destination in a mapped block", 0xE400, 0x8300, 0x00, 0x00, 0x40, False),
+    ("user map, interrupts on", 0xE000, 0x8300, 0x00, 0x00, 0x1F, True),
+)
+
+
+def get_mapping(xm, name, mapl, maph, mb_lo, mb_hi, page, cli):
+    """hyppo_get_mapping (lda #$74 · sta $D640 · clv, Y = page) under a
+    map set by code in block 0 with interrupts off."""
+    xm.set_map(PARK - 0x100, mapl, maph, mb_lo, mb_hi)
+    before = xm.regs()
+    sp = 0x100 | before["sp"] & 0xFF
+    below = bytes((0xC3 + 7 * k) & 0xFF for k in range(32))
+    xm.write(sp - 31, below)
+    dest = page << 8
+    blocks = (mapl if dest < 0x8000 else maph) >> 12
+    mapped = blocks >> (dest >> 13 & 3) & 1
+    cpu_flat = (((mb_lo << 20) + ((((mapl & 0xFFF) << 8) + dest) & 0xFFFFF))
+                if mapped else dest)
+    for a in {dest, cpu_flat}:
+        xm.write(a, bytes([0xEE] * 8))
+    r = trap_at_park(xm, ([0x58] if cli else [])
+                     + [0xA0, page, 0xA9, 0x74, 0x8D, 0x40, 0xD6, 0xB8])
+    return dict(name=name, mapl=mapl, maph=maph, mb_lo=mb_lo, mb_hi=mb_hi,
+                page=page, cli=cli,
+                bank0=list(xm.read(dest, 8)),
+                cpu_view=list(xm.read(cpu_flat, 8)),
+                cpu_view_flat=f"{cpu_flat:07X}",
+                regs_before={k: before[k] for k in ("a", "x", "y", "z", "b", "p", "sp")},
+                regs_after={k: r[k] for k in ("a", "x", "y", "z", "b", "p", "sp",
+                                              "mapl", "maph")},
+                stack_below_sp_kept=xm.read(sp - 31, 32) == below)
 
 
 def record(rom_path):

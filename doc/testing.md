@@ -239,9 +239,13 @@ protocol of layer 1: `memory[addr16]`, `read_flat()`, `write_flat()`, `flat_of()
 
 - **The flat store** (28-bit): 384 KB chip RAM with the ROM image at
   `$20000`–`$3FFFF`, colour RAM at `$FF80000` (32 KB; its first 2 KB
-  is the same memory as chip RAM `$1F800`–`$1FFFF`), attic RAM at
-  `$8000000` (sparse).  While ROM protection is on — as after boot —
-  writes to `$20000`–`$3FFFF` are dropped, flat or mapped.
+  is the same memory as chip RAM `$1F800`–`$1FFFF`), the four I/O
+  windows `$FFD0000`–`$FFD3FFF` (each the one register bank the CPU
+  view's I/O page shows), attic RAM at `$8000000` (sparse).  Flat `$0`
+  and `$1` are RAM: the CPU port is in the CPU view only.  Both
+  recorded (`m65_mem.json` `flat_io`, `flat_port`).  While ROM
+  protection is on — as after boot — writes to `$20000`–`$3FFFF` are
+  dropped, flat or mapped.
 - **The CPU's 16-bit view**, per 4 KB page, in the hardware's order:
   1. `MAP` (per 8 KB block, lower half `$0000`–`$7FFF`, upper half
      `$8000`–`$FFFF`): a mapped block reads and writes megabyte +
@@ -346,13 +350,16 @@ models none of them either.
 
 - **The Hypervisor traps** (`$D640`–`$D67F`).  A store there is a
   trap, as on the MEGA65 (`lda #service` · `sta register` · `clv`).
-  Two are modelled, the services the m65 loader uses
+  Three are modelled, the services CSE uses
   ([platform_layer.md § Constants](platform_layer.md#constants)):
   `$D640 ← $00`, `hyppo_getversion`, sets A, X, Y and Z to the answer
   `m65_premise.json` recorded (Hyppo 1.2, HDOS 1.3); `$D641 ← $02`,
-  `hyppo_rom_writeenable`, clears `M65Memory`'s ROM protection.  Any
-  other store there, and any read, raises `HypervisorNotModelled`:
-  `hyppo_reset` and the rest of the Hypervisor are Tier X.
+  `hyppo_rom_writeenable`, clears `M65Memory`'s ROM protection;
+  `$D640 ← $74`, `hyppo_get_mapping`, writes the six bytes at Y's page
+  through the CPU view and keeps every register, as recorded.  Any
+  other store there, its error path (Y > `$7E`), and any read, raise
+  `HypervisorNotModelled`: `hyppo_reset` and the rest of the
+  Hypervisor are Tier X.
 
 The floppy controller (`$D080`) is not modelled: a test that needs it
 is Tier X.
@@ -647,7 +654,8 @@ The installed machine they check is
   ([platform_layer.md § Constants](platform_layer.md#constants)):
   M65Emu models `hyppo_getversion` and `hyppo_rom_writeenable` as
   layer 3's Hypervisor traps ([§ M65Emu](#m65emu--the-m65-integration-harness)),
-  and from P1 the debugger's `hyppo_get_mapping`.
+  and from P1 the debugger's `hyppo_get_mapping` (its five recorded
+  probes per ROM replayed in `test_m65devices.py`).
   `hyppo_reset`, which ends a session, is Tier X only.
 - **Tier X, boot and quit** (`tests/emulator/test_m65_boot.py`, on
   each ROM through the SD clone).  xmega65 starts the PRG through
@@ -703,8 +711,9 @@ The installed machine they check is
 - **M65Emu for P1.**  Two facts the flat accesses rest on, recorded
   in xmega65 into `m65_mem.json` (`dev/capture_m65_mem.py`) and
   modelled by `M65Memory`: a flat access to `0.0000`/`0.0001`
-  reaches the CPU port; `FFD.3000–FFD.3FFF` is the I/O register bank
-  of the MEGA65 personality, whatever `$D02F` selects.  An NMI line
+  reaches the RAM beneath the CPU port, with block 0 mapped or not;
+  the flat I/O windows `FFD.0000–FFD.3FFF` show the one register bank,
+  as the CPU view does, whatever `$D02F` selects.  An NMI line
   on `MPU45GS02`, taken through the KERNAL's NMI entry.  The
   Hypervisor device's third service, `hyppo_get_mapping`, recorded
   into `m65_premise.json` (`dev/capture_m65_premise.py`) on both

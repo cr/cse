@@ -14,8 +14,11 @@ test_m65memory.py).
 
 The flat store: chip RAM $00000-$5FFFF (the ROM image at
 $20000-$3FFFF, write-protected while `rom_protect`), colour RAM
-$FF80000-$FF87FFF (its first 2 KB is chip RAM $1F800-$1FFFF), and
-everything else sparse (attic RAM at $8000000).
+$FF80000-$FF87FFF (its first 2 KB is chip RAM $1F800-$1FFFF), the
+four I/O windows $FFD0000-$FFD3FFF (each the one register bank, as
+recorded under every $D02F key), and everything else sparse (attic
+RAM at $8000000).  Flat $0/$1 are RAM: the CPU port lives in the CPU
+view only (recorded).
 
 The CPU's view, per 4 KB page: MAP (per 8 KB block) first, then the
 banking of the CPU port and $D030, else RAM.  A page-table entry is
@@ -35,6 +38,7 @@ import collections
 _M28 = (1 << 28) - 1
 _OWN_REGISTERS = (0x02F, 0x030)   # modelled here, so not in io_log
 COLOUR = 0xFF80000         # colour RAM, 32 KB
+IO_FLAT = 0xFFD0000        # the four I/O windows, 4 x 4 KB
 _SHARED = 0x1F800          # chip RAM $1F800-$1FFFF = colour RAM $000-$7FF
 _IO = -1                   # page-table entry of the I/O page
 
@@ -90,12 +94,17 @@ class M65Memory:
         a &= _M28
         if a < 0x60000:
             return self.chip[a]
+        if IO_FLAT <= a < IO_FLAT + 0x4000:
+            return self.io_read(a & 0xFFF)
         store, i = self._cell(a)
         return store[i]
 
     def write_flat(self, a, v):
         a &= _M28
         if self.rom_protect and 0x20000 <= a < 0x40000:
+            return
+        if IO_FLAT <= a < IO_FLAT + 0x4000:
+            self.io_write(a & 0xFFF, v & 0xFF)
             return
         store, i = self._cell(a)
         store[i] = v & 0xFF

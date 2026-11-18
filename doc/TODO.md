@@ -756,9 +756,10 @@ recorded by role in zp.md) and of the pending sites (P1: 4).  Found:
 - **A user address needs a translation, not a bank**: `$C000–$FFFF`
   under the user map is the interface ROM, I/O and the KERNAL, which
   a bank-0 flat access misses (a `t` at a break inside a KERNAL call
-  would disassemble RAM).  From the xemu source, to be recorded: a
-  flat access to `0`/`1` reaches the CPU port; the MEGA65
-  personality's I/O is at `FFD.3000`.
+  would disassemble RAM).  The MEGA65 personality's I/O is at
+  `FFD.3000` (recorded with T1).  T1's recording overruled the xemu
+  source on the other point: a flat access to `0`/`1` reaches the RAM
+  beneath the port, never the port.
 - **The workspace gates compare against `buf_base`** (`b`, the step
   gate, the assembler's emit gate), which on m65 is an offset in the
   source bank: the upper bound becomes a platform fact (`buf_base` /
@@ -816,11 +817,15 @@ real KERNAL's interrupt entry, so no frame is faked (unlike the C64's
 writes the screen through P2's row tables.  Tier X confirms the two
 recorded behaviours M65Emu models and one round trip end to end.
 
-- [ ] T1. M65Emu, flat accesses: `capture_m65_mem.py` records a flat
-  read and write of `0.0000`/`0.0001` (the CPU port, under both maps)
-  and of `FFD.3000–FFD.3FFF` under each `$D02F` key; `M65Memory` models
-  both; `test_m65memory.py` replays them.  (Harness, `tests/m65emu/`.)
-- [ ] T2. M65Emu, `hyppo_get_mapping`: `capture_m65_premise.py`
+- [x] T1. M65Emu, flat accesses: `capture_m65_mem.py` records a flat
+  read and write of `0.0000`/`0.0001` (with block 0 unmapped and
+  mapped) and of the windows `FFD.0000–FFD.3FFF` under each `$D02F`
+  key; `M65Memory` models both; `test_m65memory.py` replays them.
+  (Harness, `tests/m65emu/`.)  Recorded 2026-11-18, feedback round:
+  `0`/`1` flat are the RAM beneath the port (the delta had said the
+  port; platform_layer.md and testing.md corrected); every window
+  shows the one register bank, as `M65Memory` already models it.
+- [x] T2. M65Emu, `hyppo_get_mapping`: `capture_m65_premise.py`
   records, on both ROMs, the six bytes for the user map, the CSE map
   and a map with a megabyte offset (the Attic's `$80`; MB `$08`
   crashes xmega65), whether `Y` names a CPU-view or a flat bank-0
@@ -828,14 +833,22 @@ recorded behaviours M65Emu models and one round trip end to end.
   interrupt handler with I set; the `Hypervisor` device answers it,
   every other trap still raises (`test_m65devices.py`).  A recording
   that contradicts the delta (the destination, a clobber) is a
-  feedback round before the stub is written.
-- [ ] T3. M65Emu, the NMI: `schedule_nmi` on the m65 snapshot enters
+  feedback round before the stub is written.  Recorded 2026-11-18,
+  identical on 920413 and 920421: the six bytes are `MAP`'s X A Z Y
+  operands and the two megabytes; the page is a CPU-view address
+  under the current map (the stub's `$1F00` needs block 0 unmapped,
+  which § 5.5 already asks); registers, flags and stack kept — no
+  contradiction.
+- [x] T3. M65Emu, the NMI: `schedule_nmi` on the m65 snapshot enters
   the KERNAL's NMI entry, which pushes the five-byte frame and jumps
-  through `INMI` (`test_m65emu_harness.py`); and `MAP` holds an NMI
-  until `EOM` (the stress test T10 n relies on it).
+  through `INMI`; and `MAP` holds an NMI until `EOM` (T9's stress case
+  relies on it).  Done 2026-11-18 in `tests/integration/test_m65emu.py`
+  (it needs the snapshot's ROM, so not `test_m65emu_harness.py`).
+  Green at once: `MPU45GS02` already modelled both; the tests pin them
+  (a mutant without the `MAP` hold fails).
 - [ ] T4. `FAR_USER` / `far_user` and `FAR_BANK`'s megabyte, in the m65
   macro bundle on M65Emu in clean mode (`test_platform_m65.py`): each
-  row's edges — `$0000`, `$0001` (the live port), `$1F00`, `$BFFF`,
+  row's edges — `$0000`, `$0001` (the RAM beneath the port), `$1F00`, `$BFFF`,
   `$C000`, `$CFFF`, `$D000`, `$D020`, `$DFFF`, `$E000`, `$FFFF` — read
   and written through the pointer; A, X, Y preserved by the routine;
   a pointer set to I/O and then `FAR_BANK`'d reaches bank 3, not

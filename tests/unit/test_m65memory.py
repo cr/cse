@@ -9,9 +9,10 @@ image stands in).  Every banking state recorded in xmega65
 (tests/fixtures/golden/m65_mem.json, dev/capture_m65_mem.py) is set
 up on M65Memory through the CPU's view, as the recorder set it up, and
 each probed address must read from and write to the recorded flat
-address; the recording's three extra observations (a flat write into
+address; the recording's five extra observations (a flat write into
 ROM, an I/O register across modes, the CPU port under a mapped block
-0) are replayed too.  Targeted tests pin the shared colour RAM, flat
+0, the CPU's flat access to 0/1 and to the I/O windows) are replayed
+too, the last two by running the recorder's own code.  Targeted tests pin the shared colour RAM, flat
 access, the CPU port, the page-table triggers, and that the memory
 follows the CPU's MAP registers however they change.
 """
@@ -118,6 +119,73 @@ def test_cpu_port_under_a_mapped_block_0_as_recorded():
     assert [mem.read_flat(0), mem.read_flat(1)] == rec["ram_after"]
     cpu.mapl = 0
     assert [mem[0], mem[1]] == rec["port_after_unmap"]
+
+
+# The recorder's flat probes run this code (capture_m65_mem.py
+# run_flat): SEI, B = $19, Z = 0, the body, B = 0; pointers at $1980.
+CODE, PTRS, OUT = 0x1800, 0x1980, 0x1990
+
+
+def run_flat(cpu, ptrs, body):
+    mem = cpu.memory
+    for k, p in enumerate(ptrs):
+        for i, byte in enumerate(p.to_bytes(4, "little")):
+            mem[PTRS + 4 * k + i] = byte
+    code = [[0x78], [0xA9, PTRS >> 8], [0x5B], [0xA3, 0x00]] + body \
+        + [[0xA9, 0x00], [0x5B]]
+    flat = [b for ins in code for b in ins]
+    for i, byte in enumerate(flat):
+        mem[CODE + i] = byte
+    cpu.pc = CODE
+    while cpu.pc != CODE + len(flat):
+        cpu.step()
+
+
+def flat_load(k, out):
+    return [[0xEA], [0xB2, (PTRS & 0xFF) + 4 * k], [0x8D, out & 0xFF, out >> 8]]
+
+
+def flat_store(k, value):
+    return [[0xA9, value], [0xEA], [0x92, (PTRS & 0xFF) + 4 * k]]
+
+
+@pytest.mark.parametrize("name", sorted(GOLDEN["flat_port"]))
+def test_flat_access_to_0_and_1_reaches_the_ram_as_recorded(name):
+    """A flat access to 0.0000/0.0001 is the RAM beneath the CPU port,
+    with block 0 unmapped or mapped (platform_layer.md § Base page)."""
+    rec = GOLDEN["flat_port"][name]
+    cpu = machine()
+    mem = cpu.memory
+    mem[0x0000], mem[0x0001] = rec["ddr"], rec["port"]
+    cpu.mapl = rec["mapl"]
+    mem.load(0, bytes(rec["ram"]))
+    (addr, value), = rec["written"].items()
+    run_flat(cpu, [0, 1], flat_load(0, OUT) + flat_load(1, OUT + 1)
+             + flat_store(1, value))
+    assert [mem[OUT], mem[OUT + 1]] == rec["reads"]
+    assert [mem.read_flat(0), mem.read_flat(1)] == rec["ram_after"]
+    cpu.mapl = 0
+    assert [mem[0], mem[1]] == rec["port_after"]
+
+
+@pytest.mark.parametrize("mode", sorted(GOLDEN["flat_io"]))
+def test_flat_io_windows_show_the_register_bank_as_recorded(mode):
+    """Every flat I/O window FFD.0000-FFD.3FFF reads and writes the
+    register the CPU view shows, under each $D02F key (the FAR_USER
+    I/O row, platform_layer.md § Far memory)."""
+    rec = GOLDEN["flat_io"][mode]
+    cpu = machine()
+    mem = cpu.memory
+    mem[0x0001] = 0x35
+    mem[0xD02F], mem[0xD02F] = IO_KEYS["vic4"]
+    mem[0xD02F], mem[0xD02F] = IO_KEYS[mode]
+    addr = int(rec["addr"], 16)
+    mem[addr] = rec["written"]
+    windows = [int(w, 16) for w in rec["windows"]]
+    body = [ins for k in range(4) for ins in flat_load(k, OUT + k)]
+    run_flat(cpu, windows, body + flat_store(3, rec["flat_written"]))
+    assert [mem[OUT + k] for k in range(4)] == rec["reads"]
+    assert mem[addr] == rec["cpu_reads_after"]
 
 
 def test_cpu_port_lives_only_in_the_cpu_view():

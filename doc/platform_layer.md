@@ -153,7 +153,7 @@ is `lda #<service>` · `sta <register>` · `clv`:
 |---|---|---|---|
 | `hyppo_getversion` | `$D640 ← $00` | Out: A.X = Hyppo version, Y.Z = HDOS version | — |
 | `hyppo_rom_writeenable` | `$D641 ← $02` | — | banks 2–3 become writable; idempotent |
-| `hyppo_get_mapping` | `$D640 ← $74` | In: Y = the destination page (`$00–$7E`) | the current `MAP` setting written to `$YY00–$YY05`: MAPLO, MAPHI (big-endian words), the two megabytes (book N-45) — the resident stub's capture |
+| `hyppo_get_mapping` | `$D640 ← $74` | In: Y = the destination page (`$00–$7E`) | the current `MAP` setting written to `$YY00–$YY05`: MAPLO, MAPHI (big-endian words), the two megabytes (book N-45) — `MAP`'s X, A, Z, Y operands in that order, then the lower and upper megabytes.  Recorded on both ROMs: `$YY00` is a CPU-view address under the current map (not flat bank 0); every register, every flag (the I flag among them) and the stack are kept — the resident stub's capture |
 | `hyppo_reset` | `$D640 ← $7E` | does not return | warm boot: the ROM banks are reloaded from the SD card and the KERNAL boots to BASIC 65 |
 
 ### KERNAL calls
@@ -238,8 +238,10 @@ bodies with the save range two bytes long — `ZP_SAVE_LO` = 0,
 `ZP_SAVE_LEN` = 2, and `userland_zp_buf` the captured port in CSE's
 base page, addressed `BP_ABS(userland_zp_buf)` (on c64 the same
 expansion as today).  A flat access to `0.0000`/`0.0001` reaches the
-live port (the xemu source; recorded with P1), which is the kernel's
-while CSE runs and is therefore never shown.
+RAM beneath the port, not the port, whether block 0 is mapped or not
+(recorded, `m65_mem.json` `flat_port`; the xemu source suggested the
+port): the port is reached only through the CPU view, with absolute
+addressing, and a far pointer never shows it.
 
 ### Stack
 
@@ -332,9 +334,9 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
 
   | User address | Far address (m65) |
   |---|---|
-  | `$0000–$BFFF` | `0.0000–0.BFFF`: base page 0 (the CPU port at `$00`/`$01`), the stack, the KERNAL's pages, CSE's page, the program region |
+  | `$0000–$BFFF` | `0.0000–0.BFFF`: base page 0 (at `$00`/`$01` the RAM beneath the CPU port — the user-ZP view shows the captured port there instead), the stack, the KERNAL's pages, CSE's page, the program region |
   | `$C000–$CFFF` | `2.C000–2.CFFF`: the interface ROM |
-  | `$D000–$DFFF` | `FFD.3000–FFD.3FFF`: the I/O registers of the MEGA65 personality (offset `$3000–$3FFF`, bank `$FD`, megabyte `$0F`) — the one row that rewrites the offset's high byte |
+  | `$D000–$DFFF` | `FFD.3000–FFD.3FFF`: the I/O registers of the MEGA65 personality (offset `$3000–$3FFF`, bank `$FD`, megabyte `$0F`) — the one row that rewrites the offset's high byte.  Recorded: a register reads and writes the same through every window `FFD.0000–FFD.3FFF` and the CPU view, under every `$D02F` key (`m65_mem.json` `flat_io`) |
   | `$E000–$FFFF` | `3.E000–3.FFFF`: the KERNAL |
 
   The translation is made where the pointer is set, for the row of

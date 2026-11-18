@@ -15,7 +15,11 @@ the keyboard queue.  The parity calls reach the real KERNAL as on the
 C64: a jiffy tick runs the IRQ handler's frame work (the STOP scan
 into $91) and is acknowledged, press_stop() makes STOP ($FFE1) report
 the key, press_restore() enters the NMI handler, which reads $DD0D,
-and set_cursor() moves the cursor where PLOT reads it back.
+and set_cursor() moves the cursor where PLOT reads it back.  An NMI
+reaches INMI ($0318) through the KERNAL's entry with the five-byte
+frame the debugger's handlers read, and MAP holds it until EOM (the
+debugger's map switches rely on both: platform_layer.md § Interrupt
+frame, § User transitions).
 """
 
 import pytest
@@ -142,6 +146,56 @@ def test_restore_enters_the_kernals_nmi_handler(emu):
     assert hits[:2] == [LOOP, handler]
     assert emu.pc == LOOP                            # back in the loop
     assert emu.memory[0xDD0D] == 0                   # the handler read it
+
+
+NMI_TARGET = 0x1E40                      # a JMP-self loop the test points INMI at
+
+
+def park_inmi(emu):
+    emu.memory.load(NMI_TARGET, bytes([0x4C, NMI_TARGET & 0xFF, NMI_TARGET >> 8]))
+    emu.write_word(0x0318, NMI_TARGET)
+
+
+def frame(emu):
+    """The eight bytes above SP: B Z Y X A, then the CPU's P PCL PCH."""
+    return [emu.memory[0x100 | (emu.cpu.sp + k) & 0xFF] for k in range(1, 9)]
+
+
+def test_nmi_reaches_inmi_with_the_kernals_five_byte_frame(emu):
+    """The KERNAL's NMI entry pushes A X Y Z B, sets B = 0, keeps the
+    map and jumps through INMI — the frame cse_nmi_handler finds."""
+    idle(emu, cli=False)
+    park_inmi(emu)
+    cpu = emu.cpu
+    cpu.a, cpu.x, cpu.y, cpu.z, cpu.b = 0x11, 0x22, 0x33, 0x44, 0x16
+    p, sp, maps = cpu.p, cpu.sp, (cpu.mapl, cpu.maph)
+    emu.schedule_nmi(1)
+    emu.run_steps(300)
+    assert emu.pc == NMI_TARGET
+    assert frame(emu) == [0x16, 0x44, 0x33, 0x22, 0x11, p & ~cpu.BREAK,
+                          LOOP & 0xFF, LOOP >> 8]
+    assert cpu.sp == sp - 8                          # 16-bit SP, page 1
+    assert cpu.b == 0
+    assert (cpu.mapl, cpu.maph) == maps
+
+
+def test_map_holds_an_nmi_until_eom(emu):
+    """An NMI due right after MAP is taken only once EOM has run: the
+    stacked PC is the instruction after EOM (book 14-23, K-7/8)."""
+    code = 0x1E00
+    cpu = emu.cpu
+    body = [0x5C, 0xE8, 0xE8, 0xEA]                   # MAP · INX · INX · EOM
+    park = code + len(body)
+    emu.memory.load(code, bytes(body + [0x4C, park & 0xFF, park >> 8]))
+    park_inmi(emu)
+    cpu.p |= cpu.INTERRUPT
+    cpu.a, cpu.x = cpu.mapl & 0xFF, cpu.mapl >> 8      # MAP onto the same map
+    cpu.y, cpu.z = cpu.maph & 0xFF, cpu.maph >> 8
+    emu.pc = code
+    emu.schedule_nmi(1)
+    emu.run_steps(300)
+    assert emu.pc == NMI_TARGET
+    assert frame(emu)[6:] == [park & 0xFF, park >> 8]
 
 
 def test_set_cursor_moves_the_cursor_plot_reads(emu):

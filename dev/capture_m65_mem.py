@@ -26,10 +26,14 @@ recording: the model behind the candidate list is wrong.  A write
 candidate changed means it was dropped.  I/O registers other than the
 colour window are never written.
 
-Three things the page probes cannot show are recorded on their own: a
+Five things the page probes cannot show are recorded on their own: a
 flat `STA [zp],Z` into ROM; one I/O register written in VIC-IV mode
-and read back in every mode; and the CPU port while MAP covers
-block 0 (mapped onto itself, so the code keeps running).
+and read back in every mode; the CPU port while MAP covers block 0
+(mapped onto itself, so the code keeps running); the CPU's flat
+access to `0.0000`/`0.0001` (the port or the RAM beneath, with block
+0 unmapped and mapped); and the CPU's flat access to the I/O windows
+`FFD.0000–FFD.3FFF` under each `$D02F` key.  The last two run CPU
+code — the monitor's own flat accesses reach RAM at `0`/`1`.
 
     python dev/capture_m65_mem.py              # all states
     python dev/capture_m65_mem.py --only MAP   # states named MAP*, printed
@@ -238,6 +242,69 @@ def port_under_map(xm):
                 port_after_unmap=list(xm.read_cpu(0, 2)))
 
 
+# The flat-access probes run this code at CODE with B = $19, so the
+# four-byte pointers live at $1980 (base page $80) and the bytes read
+# are stored at $1990.
+PTRS, OUT = 0x1980, 0x1990
+
+
+def run_flat(xm, ptrs, body):
+    """Put the pointers at PTRS, run `body` (instructions) between
+    `SEI · B ← $19 · Z ← 0` and `B ← 0`."""
+    xm.write(PTRS, b"".join(p.to_bytes(4, "little") for p in ptrs))
+    xm.run(CODE, [[0x78], [0xA9, PTRS >> 8], [0x5B], [0xA3, 0x00]]
+           + body + [[0xA9, 0x00], [0x5B]])
+
+
+def flat_load(k, out):
+    """LDA [ptr k],Z · STA out"""
+    return [[0xEA], [0xB2, (PTRS & 0xFF) + 4 * k], [0x8D, out & 0xFF, out >> 8]]
+
+
+def flat_store(k, value):
+    """LDA #value · STA [ptr k],Z"""
+    return [[0xA9, value], [0xEA], [0x92, (PTRS & 0xFF) + 4 * k]]
+
+
+def flat_port(xm):
+    """The CPU's flat access to 0.0000/0.0001 — the CPU port, or the
+    RAM beneath it — with block 0 unmapped and mapped onto itself."""
+    ddr, port, ram, value = 0xFF, 0x35, [0xA5, 0x5A], 0x36
+    out = {}
+    for name, mapl in (("unmapped", 0x0000), ("block 0 mapped", 0x1000)):
+        set_state(xm, state(name, ddr=ddr, port=port, mapl=mapl))
+        xm.write(0, bytes(ram))
+        run_flat(xm, [0, 1], flat_load(0, OUT) + flat_load(1, OUT + 1)
+                 + flat_store(1, value))
+        out[name] = dict(mapl=mapl, ddr=ddr, port=port, ram=ram,
+                         reads=list(xm.read(OUT, 2)),
+                         written={"0001": value},
+                         ram_after=list(xm.read(0, 2)))
+        xm.set_map(CODE, 0, 0)
+        out[name]["port_after"] = list(xm.read_cpu(0, 2))
+    return out
+
+
+def flat_io(xm):
+    """The CPU's flat access to the four I/O windows FFD.x000 under
+    each `$D02F` key: a register written through the CPU view, read
+    back through each window, and one written through FFD.3000."""
+    addr, value, flat_value = 0xD000, 0x5A, 0xA7          # sprite 0 X
+    windows = [0xFFD0000 + (k << 12) + (addr & 0xFFF) for k in range(4)]
+    out = {}
+    for mode in ("vic4", "vic3", "vic2"):
+        set_state(xm, state(f"flat I/O {mode}", key=mode))
+        cpu_write(xm, addr, value)
+        body = [ins for k in range(4) for ins in flat_load(k, OUT + k)]
+        run_flat(xm, windows, body + flat_store(3, flat_value))
+        out[mode] = dict(addr=f"{addr:04X}", written=value,
+                         windows=[f"{w:07X}" for w in windows],
+                         reads=list(xm.read(OUT, 4)),
+                         flat_written=flat_value,
+                         cpu_reads_after=xm.read_cpu(addr, 1)[0])
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--only", help="record only states whose name starts so; print, do not write")
@@ -255,7 +322,8 @@ def main():
                 print(json.dumps(recorded[-1]))
         extra = dict(flat_rom_write=flat_rom_write(xm),
                      io_register=io_register(xm),
-                     port_under_map=port_under_map(xm))
+                     port_under_map=port_under_map(xm),
+                     flat_port=flat_port(xm), flat_io=flat_io(xm))
     if args.only:
         print(json.dumps(extra))
         return

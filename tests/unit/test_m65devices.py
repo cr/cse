@@ -13,8 +13,10 @@ the CIA2 interrupt control register ($DD0D, RESTORE until read) read
 as xmega65 recorded them (tests/fixtures/golden/m65_latches.json).  Also: claimed
 registers leave the unmodelled-I/O log, and devices claim only their
 own registers.  The Hypervisor traps: `hyppo_getversion` and
-`hyppo_rom_writeenable` as the loader uses them, anything else
-raising (the recorded answer is pinned in test_m65_premise.py).  The
+`hyppo_rom_writeenable` as the loader uses them, `hyppo_get_mapping`
+as the debugger's stub uses it (each probe xmega65 recorded on each
+ROM, tests/fixtures/golden/m65_premise.json, replayed), anything else
+raising (the recorded version answer is pinned in test_m65_premise.py).  The
 matrix calls themselves are in
 test_emu_parity.py; GETIN, STOP and RESTORE on the real KERNAL in
 tests/integration/test_m65emu.py.
@@ -29,6 +31,10 @@ from m65emu import M65Emu
 from m65emu.devices import HYPPO_GETVERSION, HypervisorNotModelled
 from m65emu.memory import VIC4
 
+PREMISE = json.loads((pathlib.Path(__file__).resolve().parents[1] / "fixtures"
+                      / "golden" / "m65_premise.json").read_text())
+GET_MAPPING = [(rom["rom"], probe) for rom in PREMISE["roms"]
+               for probe in rom["hyppo_get_mapping"]]
 LATCHES = json.loads((pathlib.Path(__file__).resolve().parents[1] / "fixtures"
                       / "golden" / "m65_latches.json").read_text())
 
@@ -219,6 +225,48 @@ def test_hyppo_rom_writeenable_lifts_the_rom_protection(emu):
 def test_any_other_trap_raises(emu, register, service):
     with pytest.raises(HypervisorNotModelled):
         trap(emu, register, service)
+
+
+@pytest.mark.parametrize("rom,probe", GET_MAPPING,
+                         ids=[f"{r}-{p['name']}" for r, p in GET_MAPPING])
+def test_hyppo_get_mapping_as_recorded(emu, rom, probe):
+    """The six bytes (MAP's X A Z Y operands, then the two megabytes)
+    land at Y's page in the CPU view; every register, flag and the
+    stack are as the trap's own instructions leave them
+    (platform_layer.md § Constants, Hypervisor services)."""
+    cpu, mem = emu.cpu, emu.memory
+    for reg, value in probe["regs_before"].items():
+        setattr(cpu, reg, value & 0xFF if reg == "sp" else value)
+    cpu.map_lo_mb, cpu.map_hi_mb = probe["mb_lo"], probe["mb_hi"]
+    cpu.mapl, cpu.maph = probe["mapl"], probe["maph"]
+    dest, cpu_flat = probe["page"] << 8, int(probe["cpu_view_flat"], 16)
+    for a in {dest, cpu_flat}:
+        for k in range(8):
+            mem.write_flat(a + k, 0xEE)
+    below = bytes(mem[0x100 | (cpu.sp - 31 + k) & 0xFF] for k in range(32))
+    code = ([0x58] if probe["cli"] else []) \
+        + [0xA0, probe["page"], 0xA9, 0x74, 0x8D, 0x40, 0xD6, 0xB8]
+    mem.load(0x1800, bytes(code))
+    cpu.pc = 0x1800
+    while cpu.pc != 0x1800 + len(code):
+        cpu.step()
+    assert [mem.read_flat(dest + k) for k in range(8)] == probe["bank0"]
+    assert [mem.read_flat(cpu_flat + k) for k in range(8)] == probe["cpu_view"]
+    after = probe["regs_after"]
+    for reg in ("a", "x", "y", "z", "b", "p", "mapl", "maph"):
+        assert getattr(cpu, reg) == after[reg], reg
+    assert 0x100 | cpu.sp & 0xFF == after["sp"]
+    assert (bytes(mem[0x100 | (cpu.sp - 31 + k) & 0xFF] for k in range(32))
+            == below) == probe["stack_below_sp_kept"]
+
+
+def test_hyppo_get_mapping_error_path_is_not_modelled(emu):
+    """Y > $7E is the trap's error ($10, book N-45), not recorded."""
+    emu.cpu.y = 0x7F
+    code = [0xA9, 0x74, 0x8D, 0x40, 0xD6, 0x60]
+    emu.memory.load(0x1800, bytes(code))
+    with pytest.raises(HypervisorNotModelled):
+        emu.jsr(0x1800, y=0x7F)
 
 
 def test_reading_a_hypervisor_register_raises(emu):
