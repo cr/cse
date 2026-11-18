@@ -295,6 +295,35 @@ class TestKernalGetin:
         assert emu.memory[0xC6] == 0
 
 
+# ── Serial bus: no device attached ─────────────────────────────────────────
+
+class TestSerialBusEmpty:
+    """CIA2 port A models an IEC bus with no device: the KERNAL's
+    serial routines report "device not present" at once instead of
+    spinning on the bus lines."""
+
+    def test_open_on_serial_device_fails_with_device_not_present(self):
+        emu = C64Emu()
+        code = [0xA9, 0x02, 0xA2, 0x08, 0xA0, 0x02, 0x20, 0xBA, 0xFF,  # SETLFS 2,8,2
+                0xA9, 0x01, 0xA2, 0x00, 0xA0, 0x21, 0x20, 0xBD, 0xFF,  # SETNAM 1,$2100
+                0x20, 0xC0, 0xFF,                                        # OPEN
+                0x60]
+        emu.memory[0x2100] = ord("X")
+        for i, b in enumerate(code):
+            emu.memory[0x2000 + i] = b
+        emu.jsr(0x2000, max_cycles=200_000)
+        assert emu.carry and emu.a == 5                 # ?DEVICE NOT PRESENT
+        assert emu.memory[0x90] & 0x80                  # ST: device not present
+
+    def test_bus_lines_read_back_inverted_outputs(self):
+        emu = C64Emu()
+        emu.memory[0xDD00] = 0x03                        # CLK, DATA released
+        assert emu.memory[0xDD00] & 0xC0 == 0xC0
+        emu.memory[0xDD00] = 0x33                        # CLK, DATA pulled low
+        assert emu.memory[0xDD00] & 0xC0 == 0x00
+        assert emu.memory[0xDD00] & 0x3F == 0x33        # VIC bank, outputs kept
+
+
 # ── Screen helpers ──────────────────────────────────────────────────────────
 
 class TestScreenHelpers:

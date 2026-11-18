@@ -135,6 +135,15 @@ class BankedMemory:
             val = self.cia2_nmi_latch
             self.cia2_nmi_latch = 0
             return val
+        # CIA2 port A: the serial (IEC) bus with no device attached.
+        # The open-collector lines are pulled high unless the C64
+        # itself pulls them low through its inverting drivers, so
+        # CLK IN (bit 6) = NOT CLK OUT (bit 4) and DATA IN (bit 7) =
+        # NOT DATA OUT (bit 5).  The KERNAL's serial routines then
+        # see "device not present" (ST = $80, error 5) at once.
+        if addr == 0xDD00 and self.hiram and self.charen:
+            val = self.ram[0xDD00]
+            return (val & 0x3F) | ((~val << 2) & 0xC0)
         # DDR-gated $01 read: output bits return latched, input bits
         # return external pin state.
         if addr == 0x01:

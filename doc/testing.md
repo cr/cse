@@ -1259,6 +1259,13 @@ On construction:
   ($CC = 1), text colour ($0286) = $01, keyboard buffer empty
   ($C6 = 0).
 - CPU stack pointer at $FF.
+- An empty serial (IEC) bus: CIA2 port A (`$DD00`) reads CLK IN
+  (bit 6) and DATA IN (bit 7) as the inverse of the C64's own CLK
+  OUT (bit 4) and DATA OUT (bit 5) — no device ever pulls a line —
+  so a KERNAL `OPEN`/`LOAD`/`SAVE` on a serial device fails at once
+  with "device not present" (`ST` = `$80`, error 5), as on a C64 with
+  no drive.  A disk with files would need a virtual IEC device
+  (not modelled).
 
 The KERNAL is **not** initialised via the reset vector — ZP state
 is set up directly.  This avoids the KERNAL init routine's
