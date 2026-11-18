@@ -1036,7 +1036,6 @@ end_debug_body:
         sta dbg_reason
         sta run_user_pending
         sta in_userland
-        sta kernal_out
         sta stop_cooldown
         sta last_cmd
         sta cold_preview_done
@@ -1052,6 +1051,13 @@ end_debug_body:
 refresh_body:
         lda #ST_REPL
         sta state
+        ; KERNAL in: an NMI can land inside a bank-out window (`a`'s
+        ; passes hold kernal_out = 1, $01 = $34); reset_screen needs
+        ; the ROM.  The interrupted batch is abandoned.
+        lda #BANK_IN
+        sta MEM_CONFIG
+        lda #0
+        sta kernal_out
         jsr reset_screen
         lda #SCREEN_HEIGHT - 1
         jsr splash_row

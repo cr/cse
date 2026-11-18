@@ -1717,3 +1717,38 @@ class TestRefreshInEditor:
         assert s.v("state") == 1
         s.keys(b"X")
         assert s.v("ed_dirty") == dirty, "key went into the source"
+
+
+class TestRestoreDuringAssembly:
+    """main.md § Layer 3 refresh_body: RUN/STOP+RESTORE inside a
+    bank-out window (here `a`) banks the KERNAL in and lands at a
+    working prompt — no fault recovery."""
+
+    def test_restore_mid_assembly(self, session):
+        s, e = session, session.e
+        src = "".join(" LDA #$%02X\r STA $D020\r" % i for i in range(40))
+        src += "MAIN RTS\r"
+        buf = 0x7000
+        for i, ch in enumerate(src):
+            e.memory[buf + i] = ord(ch)
+        e.memory[buf + len(src)] = 0
+        pc, sp = e._cpu.pc, e._cpu.sp
+        e.jsr(e.sym("ed_insert_string"), a=buf & 0xFF, x=buf >> 8)
+        e._cpu.pc, e._cpu.sp = pc, sp
+        s.start("a")
+        for _ in range(3_000_000):
+            if s.v("kernal_out"):
+                break
+            e._cpu.step()
+            e._steps += 1
+            if e._pending:
+                e._dispatch_pending()
+        assert s.v("kernal_out") == 1
+        recover = e.sym("cse_recover")
+        e.press_restore()
+        hits = e.run_until_with_watch(s.WAIT, [recover], max_cycles=3_000_000)
+        assert hits == [], "RESTORE during `a` went through cse_recover"
+        s.idle()
+        assert s.v("kernal_out") == 0 and e.memory.ram[1] & 0x02
+        s.type("? $10")
+        assert "$10" in s.screen()

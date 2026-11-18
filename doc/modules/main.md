@@ -312,15 +312,18 @@ hw_reinit_body   — SP, $01, setup_interrupts, dbg_init, reset_globals,
                    Idempotent; may be called from any CSE state.
 
 end_debug_body   — dbg_reason/step_state/run_user_pending/in_userland
-                   to 0; reg_sp to $FF; kernal_out to 0;
+                   to 0; reg_sp to $FF;
                    stop_cooldown to 0; rp_dis_bp/dbg_bp_hit reset;
                    unpatch_all (restores user's in-memory bytes that
                    breakpoints had overwritten with $00); last_cmd
                    cleared.  Editor state and bp_table untouched.
 
-refresh_body     — state := ST_REPL, reset_screen, splash_row,
-                   io_clear_eol.  Puts the cursor on the bottom row,
-                   column 0 of the REPL screen it draws.
+refresh_body     — state := ST_REPL, KERNAL banked in ($01 = $36,
+                   kernal_out = 0: an NMI may arrive inside a
+                   bank-out window, e.g. RUN/STOP+RESTORE during `a`,
+                   which abandons the assembly), reset_screen,
+                   splash_row, io_clear_eol.  Puts the cursor on the
+                   bottom row, column 0 of the REPL screen it draws.
 ```
 
 Composition:

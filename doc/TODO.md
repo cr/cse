@@ -827,9 +827,13 @@ documentation round that follows this filing.
   `state = ST_EDIT`; the next keys silently edit the source.
   Fixed 2026-11-18: `refresh_body` sets `state = ST_REPL` (the view
   it draws; the source is kept), test `TestRefreshInEditor`.
-- [ ] **RUN/STOP+RESTORE during `a`** refreshes with `kernal_out = 1`
+- [x] **RUN/STOP+RESTORE during `a`** refreshes with `kernal_out = 1`
   and `$01 = $34` → kernel BRK → `cse_recover` (assembly abandoned,
   globals and breakpoints reset).
+  Fixed 2026-11-18: `refresh_body` banks the KERNAL in (`$01` = $36,
+  `kernal_out` = 0; moved there from `end_debug_body`), so RESTORE
+  abandons the assembly and lands at a working prompt, test
+  `TestRestoreDuringAssembly`.
 - [ ] **`j <bad expression>` runs anyway**: `try_expr` returns C=0 for
   both empty and error, so `j nosuchsym` prints `;?expr undef` and
   jumps to the old `cur_addr`.  Same shape in `+`/`-` (moves by
