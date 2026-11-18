@@ -47,10 +47,12 @@ KERNAL machinery because that lives at L4.
   are pre-cursor content.
 - **`gap_hi`** — first byte after the gap.  Bytes `[gap_hi, BUF_END)`
   are post-cursor content.
-- **`BUF_END`** (= `__CODE_RUN__`) — ceiling, exclusive.  Fixed at
-  link time as the start of runtime code.
-- **`__BUF_FLOOR__`** — the lowest address the buffer may grow to,
-  computed per build by `dev/compute_layout.py`
+- **`BUF_END`** (c64: `__CODE_RUN__`) — ceiling, exclusive.  Fixed at
+  link time as the start of runtime code.  Defined once, in
+  platform.inc, with `BUF_FLOOR`; editor.s and gap_buffer.s both use
+  it ([platform_layer.md § Constants](../platform_layer.md#constants)).
+- **`BUF_FLOOR`** (c64: `__BUF_FLOOR__`) — the lowest address the
+  buffer may grow to, computed per build by `dev/compute_layout.py`
   (`$0800` + one ninth of the workspace, page-aligned down), so the
   source text and the assembled output growing up from `$0800` meet
   at about the same time.  It must be page-aligned (the growth check
@@ -65,8 +67,8 @@ KERNAL machinery because that lives at L4.
 
 **On m65** the layout is the same, in the source region
 ([memory_design.md § Source Code Storage](../memory_design.md#source-code-storage)):
-`BUF_END` and `__BUF_FLOOR__` are platform constants, offsets inside
-the source bank.  The buffer's pointers are far pointers
+`BUF_END` and `BUF_FLOOR` are platform constants, offsets inside
+the source bank (`$C000` and `$4000`).  The buffer's pointers are far pointers
 ([zp.md](zp.md)): their 16-bit offsets are the arithmetic above, the
 same code on both platforms, and their bank is set to the source bank
 wherever they are set into the text (`FAR_BANK`).  The byte accesses

@@ -911,13 +911,13 @@ _CMOS_REL_MAP = ROOT / "build" / "release" / "cmos" / "cse.map"
 _MADE = set()
 
 
-def _make(profile):
-    """Run `make <profile>` once per session (unconditionally: an
-    existing PRG may be stale)."""
-    if profile not in _MADE:
-        subprocess.run(["make", profile], cwd=ROOT, check=True,
-                       capture_output=True)
-        _MADE.add(profile)
+def _make(profile, platform="c64"):
+    """Run `make <profile> PLATFORM=<platform>` once per session
+    (unconditionally: an existing PRG may be stale)."""
+    if (platform, profile) not in _MADE:
+        subprocess.run(["make", profile, f"PLATFORM={platform}"], cwd=ROOT,
+                       check=True, capture_output=True)
+        _MADE.add((platform, profile))
 
 
 def _ensure_debug_built():
@@ -985,15 +985,8 @@ _M65_DIR = {p: ROOT / "build" / p / "m65" for p in ("debug", "release")}
 
 
 def _m65_prg(profile):
-    _make_m65(profile)
+    _make(profile, "m65")
     return _M65_DIR[profile] / "cse-m65.prg", _M65_DIR[profile] / "cse.map"
-
-
-def _make_m65(profile):
-    if ("m65", profile) not in _MADE:
-        subprocess.run(["make", profile, "PLATFORM=m65"], cwd=ROOT,
-                       check=True, capture_output=True)
-        _MADE.add(("m65", profile))
 
 
 @pytest.fixture(scope="session")

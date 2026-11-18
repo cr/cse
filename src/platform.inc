@@ -109,6 +109,12 @@ STACK_TOP       = $FF           ; the whole page
 HIMEM           = $D000         ; first byte past the runtime image
 BASIC_START     = $0801         ; BASIC's program start (TXTTAB)
 WORKSTART       = $0800         ; the workspace's first byte
+; the gap buffer's bounds: the runtime start (the linker's) and the
+; source-growth floor (compute_layout.py's), both linker symbols
+        .import __CODE_RUN__
+        .import __BUF_FLOOR__
+.define BUF_END   __CODE_RUN__
+.define BUF_FLOOR __BUF_FLOOR__
 SYM_TABLE       = $E000         ; under the KERNAL: the symbol table
 SYM_HEAP        = $E600         ;   the name heap …
 SYM_HEAP_END    = $EF00         ;   … up to here (exclusive)

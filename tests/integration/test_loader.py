@@ -53,22 +53,21 @@ def test_loader_entry_matches_python_relocation(cse_prg_per_cpu):
 import pytest                                               # noqa: E402
 
 from m65emu import M65Emu                                   # noqa: E402
-from m65emu.harness import run_premise                      # noqa: E402
+from m65emu.harness import (BANK_CSE, CSE_BP, CSE_MAP, STACK_TOP,  # noqa: E402
+                            STUB_BASE, USER_MAP, flat, run_premise)
 
-CSE_BP, STUB_BASE, STACK_TOP = 0x1F, 0x1FB0, 0xF1
-CSE_MAP, USER_MAP = (0xE300, 0xB300), (0xE000, 0x8300)
-BANK3 = 0x30000
-JUMP_TABLE = 0x3FF00                     # $FF00 of the KERNAL, 3.FF00
+JUMP_TABLE = flat(BANK_CSE, 0xFF00)      # the KERNAL's $FF00
 REFUSAL = "cse needs mega65 rom 920413+ (hyppo 1.2+)"
+# what a refused install leaves untouched: CSE's page and its regions of bank 3
+UNTOUCHED = {"CSE's page 0.1F00": (CSE_BP << 8, 0x2000),
+             "bank 3's CSE regions": (flat(BANK_CSE, 0x2000), flat(BANK_CSE, 0xC000))}
 
 
 def _at_sys_entry(snapshot, prg_path, map_path):
     """M65Emu at the PRG's SYS entry: the snapshot, the PRG in bank 0
     as LOAD put it, the ROM's run premise; the symbols only."""
     emu = M65Emu(snapshot)
-    load_addr, payload = emu._read_prg(prg_path)
-    emu._ram[load_addr:load_addr + len(payload)] = payload
-    emu._load_symbols(map_path)
+    emu.place_prg(prg_path, map_path)
     premise = run_premise(snapshot["state"]["rom"])
     emu.enter_premise(premise)
     return emu, premise
@@ -82,7 +81,7 @@ def test_m65_loader_installs_the_machine(cse_m65_prg, m65_snapshot):
     prg_path, map_path = cse_m65_prg
     emu, _ = _at_sys_entry(m65_snapshot, prg_path, map_path)
     s = emu.sym
-    bss, bss_size = BANK3 + s("__BSS_RUN__"), s("__BSS_SIZE__")
+    bss, bss_size = flat(BANK_CSE, s("__BSS_RUN__")), s("__BSS_SIZE__")
     assert any(_flat(emu, bss, bss + bss_size)), "the ROM's bytes, not zero"
     emu.run_until(s("_main"), start_at=s("loader_entry"), max_cycles=2_000_000)
 
@@ -105,7 +104,8 @@ def test_m65_loader_installs_the_machine(cse_m65_prg, m65_snapshot):
              s("__CODE_SIZE__") + s("__RODATA_SIZE__")),
             ("KDATA", s("__KDATA_LOAD__"), s("__KDATA_RUN__"), s("__KDATA_SIZE__"))]:
         assert size > 0
-        assert _flat(emu, BANK3 + run, BANK3 + run + size) == _flat(emu, load, load + size), name
+        run = flat(BANK_CSE, run)
+        assert _flat(emu, run, run + size) == _flat(emu, load, load + size), name
     assert not any(_flat(emu, bss, bss + bss_size)), "BSS not cleared"
     assert not emu.memory.rom_protect
 
@@ -133,13 +133,10 @@ def test_m65_install_prg_is_the_loaders_install(cse_m65_prg, m65_snapshot):
 
 def _refused(emu, premise):
     """Run the loader to the premise's SYS return; the gate refused."""
-    before = {name: _flat(emu, lo, hi) for name, lo, hi in [
-        ("CSE's page 0.1F00", CSE_BP << 8, 0x2000),
-        ("bank 3's CSE regions", BANK3 + 0x2000, BANK3 + 0xC000)]}
+    before = {name: _flat(emu, lo, hi) for name, (lo, hi) in UNTOUCHED.items()}
     emu.run_until(premise["rts_target"], start_at=emu.sym("loader_entry"),
                   max_cycles=2_000_000)
-    for name, (lo, hi) in {"CSE's page 0.1F00": (CSE_BP << 8, 0x2000),
-                           "bank 3's CSE regions": (BANK3 + 0x2000, BANK3 + 0xC000)}.items():
+    for name, (lo, hi) in UNTOUCHED.items():
         assert _flat(emu, lo, hi) == before[name], f"{name} written"
     assert emu.memory.rom_protect, "banks 2-3 made writable"
     assert (emu.cpu.mapl, emu.cpu.maph) == USER_MAP and emu.b == 0

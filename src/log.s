@@ -47,8 +47,6 @@
 .include "log.inc"
 .include "macros.inc"           ; `puts` macro (calls puts_imm below)
 
-; C64 screen editor registers (matches repl.s definitions)
-
 .segment "CODE"
 
 ; ── Convenience entry points ─────────────────────────────

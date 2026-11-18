@@ -42,10 +42,7 @@
 ; ── Constants ────────────────────────────────────────────────
 ED_LINES     = 22            ; visible source lines
 ED_STATUS    = 22            ; status bar row
-.import __CODE_RUN__
-.import __BUF_FLOOR__
-.define BUF_END __CODE_RUN__   ; exclusive end of buffer (= runtime start)
-.define BUF_FLOOR __BUF_FLOOR__ ; source growth limit (compute_layout.py)
+; BUF_END (exclusive) and BUF_FLOOR: platform.inc's
 
 ; ── Tab width (build-time constant) ──────────────────────────
 ; TAB_WIDTH is set via `-DTAB_WIDTH=N` in the Makefile (default 8,
@@ -60,8 +57,6 @@ TAB_WIDTH = 8
 .error "TAB_WIDTH must be 1, 2, 4, 8, 16 or 32"
 .endif
 TAB_MASK = TAB_WIDTH - 1
-
-; KERNAL locations
 
 ; State constants
 ST_REPL      = 1

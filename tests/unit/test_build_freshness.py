@@ -28,7 +28,9 @@ def test_prg_fixture_runs_make_although_the_prg_exists(monkeypatch):
     monkeypatch.setattr(conftest, "_MADE", set(), raising=False)
     conftest._ensure_debug_built()
     conftest._ensure_debug_built()
-    assert calls == [["make", "debug"]]
+    conftest._make("debug", "m65")                 # another platform: its own run
+    assert calls == [["make", "debug", "PLATFORM=c64"],
+                     ["make", "debug", "PLATFORM=m65"]]
 
 
 def test_makefile_rebuilds_the_includers_of_an_inc_file():

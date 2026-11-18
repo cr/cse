@@ -231,11 +231,32 @@ loader_entry:
         bne @msg
 @done:  rts
 
-; The low bytes of the jump-table entries CSE calls ($FFxx).
+; The low bytes of the jump-table entries CSE calls: each one asserted
+; to lie in KERNAL_JUMP_PAGE, or the gate would test a stray byte.
+.macro ENTRY e
+        .assert >(e) = >KERNAL_JUMP_PAGE, error, "a jump-table entry outside $FFxx"
+        .byte <(e)
+.endmacro
 entries:
-        .byte <GETIN, <PLOT, <SETLFS, <SETNAM, <OPEN, <CLOSE, <CHKIN
-        .byte <CHKOUT, <CLRCHN, <CHRIN, <CHROUT, <LOAD, <READST
-        .byte <LISTEN, <UNLSN, <VECTOR, <SETBNK, <SCRORG, <SYSFLAGS
+        ENTRY GETIN
+        ENTRY PLOT
+        ENTRY SETLFS
+        ENTRY SETNAM
+        ENTRY OPEN
+        ENTRY CLOSE
+        ENTRY CHKIN
+        ENTRY CHKOUT
+        ENTRY CLRCHN
+        ENTRY CHRIN
+        ENTRY CHROUT
+        ENTRY LOAD
+        ENTRY READST
+        ENTRY LISTEN
+        ENTRY UNLSN
+        ENTRY VECTOR
+        ENTRY SETBNK
+        ENTRY SCRORG
+        ENTRY SYSFLAGS
 entries_end:
 
 refusal:
@@ -270,9 +291,5 @@ install_jobs:
         .byte BANK_CSE
         .byte $00
         .word 0
-
-        .assert >GETIN = >KERNAL_JUMP_PAGE, error, "a jump-table entry outside $FFxx"
-        .assert >SETBNK = >KERNAL_JUMP_PAGE, error, "a jump-table entry outside $FFxx"
-        .assert >SYSFLAGS = >KERNAL_JUMP_PAGE, error, "a jump-table entry outside $FFxx"
 
 .endif ; PLATFORM_M65

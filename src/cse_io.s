@@ -27,10 +27,6 @@
 
 COLS    = SCREEN_WIDTH
 
-; KERNAL ZP locations
-
-; SID registers (only for io_blip)
-
         .importzp _io_tmp, _io_scr
 
 ; ── BSS ─────────────────────────────────────────────────────

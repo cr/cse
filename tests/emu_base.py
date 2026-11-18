@@ -387,15 +387,21 @@ class EmuBase:
         data = pathlib.Path(prg_path).read_bytes()
         return data[0] | data[1] << 8, data[2:]
 
-    def load_prg(self, prg_path, map_path=None):
-        """Put the payload at its load address, load the symbols of
-        the .lbl beside the map (default: the PRG's .map), and copy
-        each segment whose load and run addresses differ to its run
-        address, as the loader does; return the load address."""
+    def place_prg(self, prg_path, map_path=None):
+        """Put the payload at its load address, as LOAD does, and load
+        the symbols of the .lbl beside the map (default: the PRG's
+        .map); return the load address.  Nothing is relocated."""
         prg_path = pathlib.Path(prg_path)
         load_addr, payload = self._read_prg(prg_path)
         self._ram[load_addr:load_addr + len(payload)] = payload
         self._load_symbols(map_path or prg_path.with_suffix(".map"))
+        return load_addr
+
+    def load_prg(self, prg_path, map_path=None):
+        """place_prg(), then copy each segment whose load and run
+        addresses differ to its run address, as the loader does;
+        return the load address."""
+        load_addr = self.place_prg(prg_path, map_path)
         self._relocate_segments()
         return load_addr
 

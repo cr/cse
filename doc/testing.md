@@ -66,6 +66,11 @@ are static Tier U tests in `tests/unit/test_platform_audit.py`:
   zero, with unit tests on synthetic sources.  The macros themselves
   are pinned by `tests/unit/test_m45_ops.py`: each assembles to the
   compendium's encoding of the instruction it names.
+- *The KERNAL-call check* — the same tool: no bare `jsr` or `jmp` to
+  a KERNAL jump-table entry (platform.inc's `$FFxx` names) outside
+  platform.inc and loader.s — every call is a `KCALL` / `KJMP`
+  ([platform_layer.md § KERNAL calls](platform_layer.md#kernal-calls));
+  zero, with unit tests on synthetic sources.
 - *The pending-body count* — the same tool: the `PLAT_PENDING` sites
   of the m65 build per milestone
   ([platform_layer.md § Pending bodies](platform_layer.md#pending-bodies))

@@ -38,14 +38,11 @@
         .export save_userland_zp, restore_userland_zp
         .export save_kernel_zp, restore_kernel_zp
         .export userland_zp_buf, kernel_zp_buf
-        .export ZP_SAVE_LO, ZP_SAVE_LEN
 .endif
 
 ; ── Imports ──────────────────────────────────────────────────
         .import __ZP_LAST__
         .importzp kernal_out                    ; zp.s
-
-; ── Constants ────────────────────────────────────────────────
 
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
@@ -64,8 +61,6 @@ kernel_zp_buf:  .res ZP_SAVE_LEN  ; kernel's ZP snapshot (exit capture)
 userland_zp_buf:    .res ZP_SAVE_LEN  ; user's ZP snapshot (exit capture,
                                    ; restored on re-entry)
 .endif ; PLATFORM_C64
-
-.import __CODE_RUN__
 
 
 ; ── CODE ─────────────────────────────────────────────────────

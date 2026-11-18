@@ -44,13 +44,29 @@ FORMAT = 3                  # of the snapshot; state.json's "format"
 PREMISE = ROOT / "tests" / "fixtures" / "golden" / "m65_premise.json"
 
 # The installed machine (memory_design.md § Memory Map — m65,
-# platform.inc's m65 block): the CSE map's MAP operands, B, the stack
-# top, the base page the loader clears, the bank CSE runs in.
+# platform.inc's m65 block), the one home of these numbers on the test
+# side: the two maps' MAP operands and register values, B, the stub,
+# the stack top, the base page the loader clears, the banks.
 MAP_CSE = (0x00, 0xE3, 0x00, 0xB3)          # A X Y Z
+MAP_USER = (0x00, 0xE0, 0x00, 0x83)
 CSE_BP = 0x1F
+STUB_BASE = 0x1FB0
 STACK_TOP = 0xF1
 BP_CLEARED = 0xB0                           # 0.1F00-0.1FAF (ZP_FILL_END)
-BANK_CSE = 0x30000
+BANK_USER, BANK_SRC, BANK_CSE, BANK_SCREEN50 = 0, 2, 3, 4
+
+
+def map_registers(a, x, y, z):
+    """(MAPL, MAPH) as MAP sets them from A X Y Z."""
+    return x << 8 | a, z << 8 | y
+
+
+CSE_MAP, USER_MAP = map_registers(*MAP_CSE), map_registers(*MAP_USER)
+
+
+def flat(bank, addr=0):
+    """The flat address of `addr` in `bank`."""
+    return bank << 16 | addr
 
 
 def run_premise(rom):
@@ -164,10 +180,7 @@ class M65Emu(EmuBase):
         2-3 writable, SP at STACK_TOP, interrupts off, the CSE map and
         B = CSE_BP with A X Y Z as the stub's MAP leaves them, PC at
         _main.  Return the load address."""
-        prg_path = pathlib.Path(prg_path)
-        load_addr, payload = self._read_prg(prg_path)
-        self._ram[load_addr:load_addr + len(payload)] = payload
-        self._load_symbols(map_path or prg_path.with_suffix(".map"))
+        load_addr = self.place_prg(prg_path, map_path)
         mem, cpu, s = self._mem, self._cpu, self.sym
         stub = s("__STUB_RUN__")
         self._ram[stub:stub + s("__STUB_SIZE__")] = \
@@ -179,12 +192,12 @@ class M65Emu(EmuBase):
                 (s("__CODE_LOAD__"), s("__CODE_RUN__"),
                  s("__CODE_SIZE__") + s("__RODATA_SIZE__")),
                 (s("__KDATA_LOAD__"), s("__KDATA_RUN__"), s("__KDATA_SIZE__"))]:
-            mem.load(BANK_CSE + run, bytes(self._ram[load:load + size]))
-        mem.load(BANK_CSE + s("__BSS_RUN__"), bytes(s("__BSS_SIZE__")))
+            mem.load(flat(BANK_CSE, run), bytes(self._ram[load:load + size]))
+        mem.load(flat(BANK_CSE, s("__BSS_RUN__")), bytes(s("__BSS_SIZE__")))
         cpu.sp = 0x0100 | STACK_TOP
         cpu.p |= 0x04
-        a, x, y, z = MAP_CSE
-        cpu.mapl, cpu.maph = x << 8 | a, z << 8 | y
+        cpu.mapl, cpu.maph = CSE_MAP
+        _, x, y, z = MAP_CSE
         cpu.a, cpu.x, cpu.y, cpu.z, cpu.b = CSE_BP, x, y, z, CSE_BP
         cpu.pc = s("_main")
         return load_addr

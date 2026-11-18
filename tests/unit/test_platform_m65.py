@@ -20,9 +20,8 @@ import pytest
 
 from conftest import BUILD, DEV, Bundle, SymbolTable
 from m65emu import M65Emu, m45_ops
-
-CSE_BP = 0x1F
-BANK_USER, BANK_SRC, BANK_CSE, BANK_SCREEN50 = 0, 2, 3, 4
+from m65emu.harness import (BANK_CSE, BANK_SCREEN50, BANK_SRC, BANK_USER,
+                            CSE_BP)
 
 _BUNDLE = Bundle("m65_macros_test", [DEV / "m65_macros_test.s"], [],
                  tag="m65m", cfg=DEV / "m65_test.cfg", platform="m65")

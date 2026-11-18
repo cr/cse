@@ -43,9 +43,13 @@ The raw-byte audit: outside src/m45_ops.inc, every `.byte` in an
 opcode position starts with a literal 6502 opcode
 (platform_layer.md § Raw-byte instructions).  Zero from the start.
 
-The pending-body count: the PLAT_PENDING sites per milestone
-(platform_layer.md § Pending bodies), held by the test to a recorded
-count that only goes down.
+The KERNAL-call check: no bare `jsr` / `jmp` to a KERNAL jump-table
+entry outside platform.inc and loader.s — every call is a KCALL / KJMP
+(platform_layer.md § KERNAL calls).  Zero from the start.
+
+The pending-body count: the PLAT_PENDING and PLAT_PENDING_VALUE sites
+per milestone (platform_layer.md § Pending bodies), held by the test
+to a recorded count that only goes down.
 
 And the stack-top check: no literal `#$FF` put in SP or `reg_sp`; the
 stack top is STACK_TOP (platform_layer.md § Stack).  Zero from the
@@ -91,7 +95,7 @@ def strip_comment(line):
     return "".join(out)
 
 
-def classify(value, digits, immediate, equate):
+def classify(value, digits, immediate):
     """The literal class of `$value` written with `digits` hex digits,
     or None."""
     if digits >= 4:
@@ -131,11 +135,9 @@ def sites(path):
             continue
         if any(stack) or (not is_cfg and _BYTE.match(line)):
             continue
-        equate = bool(_EQUATE.match(line))
         for hm in _HEX.finditer(line):
             digits = hm.group(2)
-            cls = classify(int(digits, 16), len(digits), bool(hm.group(1)),
-                           equate)
+            cls = classify(int(digits, 16), len(digits), bool(hm.group(1)))
             if cls:
                 out.append((n, cls, raw.strip()))
     return out
@@ -295,8 +297,11 @@ def raw_byte_sites(path):
     `.byte` in an executable segment or a macro body right after an
     instruction that can fall through (labels between do not count);
     after `brk` it is a signature byte, after a transfer or data it is
-    data."""
+    data.  A macro defined above in the file counts as what its body
+    ends with (data for a table-building macro); any other macro as an
+    instruction that falls through."""
     out, seg, saved, prev = [], None, None, None
+    macros, defining = {}, None
     ops = opcodes_6502()
     for n, raw in enumerate(path.read_text(errors="replace").splitlines(), 1):
         line = strip_comment(raw)
@@ -313,8 +318,11 @@ def raw_byte_sites(path):
             seg, prev = _SEG_DIRECTIVES[word], None
         elif word in (".macro", ".mac"):
             saved, seg, prev = seg, None, None
+            defining = rest.split()[0].lower() if rest else None
         elif word in (".endmacro", ".endmac"):
-            seg, prev = saved, None
+            if defining:
+                macros[defining] = prev
+            seg, prev, defining = saved, None, None
         elif word in _DATA:
             if word in (".byte", ".byt") and prev == "fall" and seg in _EXEC_SEGMENTS:
                 if _literal(rest.split(",")[0]) not in ops:
@@ -322,6 +330,8 @@ def raw_byte_sites(path):
             prev = "data"
         elif word.startswith("."):
             continue                        # .if, .proc, .export, ...: transparent
+        elif word in macros:
+            prev = macros[word] or "fall"
         else:
             prev = _TRANSFERS.get(word, "fall")
     return out
@@ -331,6 +341,46 @@ def raw_byte_count(src=SRC):
     files = sorted(list(src.glob("*.s")) + list(src.glob("*.inc")))
     return {f.name: len(s) for f in files
             if f.name != "m45_ops.inc" and (s := raw_byte_sites(f))}
+
+
+# ── the KERNAL-call check (platform_layer.md § KERNAL calls) ────────
+# Every call of a KERNAL jump-table entry is a KCALL / KJMP: a bare
+# `jsr` or `jmp` to one would run the entry with B = CSE_BP on m65.
+# The entries are the $FFxx names platform.inc defines (every platform
+# block; the page base itself has low byte 0 and is not an entry).
+# loader.s is exempt: both its bodies run before CSE's base page
+# exists, with B = 0.
+
+_KERNAL_ENTRY = re.compile(r"^\s*(\w+)\s*=\s*\$(FF[0-9A-Fa-f]{2})\b")
+KERNAL_CALL_EXEMPT = {"platform.inc", "loader.s"}
+
+
+def kernal_entries(src=SRC):
+    """The names of the KERNAL jump-table entries platform.inc defines."""
+    names = set()
+    for line in (src / "platform.inc").read_text().splitlines():
+        m = _KERNAL_ENTRY.match(strip_comment(line))
+        if m and int(m.group(2), 16) & 0xFF:
+            names.add(m.group(1))
+    return names
+
+
+def kernal_call_sites(path, entries):
+    """[(line number, text)] of a bare `jsr` / `jmp` to a KERNAL entry."""
+    pat = re.compile(r"^\s*(?:[@\w]+:)?\s*(?:jsr|jmp)\s+(\w+)\s*$", re.I)
+    out = []
+    for n, raw in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        m = pat.match(strip_comment(raw))
+        if m and m.group(1) in entries:
+            out.append((n, raw.strip()))
+    return out
+
+
+def kernal_call_count(src=SRC):
+    entries = kernal_entries(src)
+    return {f.name: len(s) for f in sorted(src.glob("*.s"))
+            if f.name not in KERNAL_CALL_EXEMPT
+            and (s := kernal_call_sites(f, entries))}
 
 
 # ── the pending-body count (platform_layer.md § Pending bodies) ─────
@@ -370,6 +420,9 @@ def main(argv):
             print(f"base page: {f.name}:{n}: {text[:60]}")
         for n, text in stack_top_sites(f):
             print(f"stack top: {f.name}:{n}: {text[:60]}")
+    for name in kernal_call_count():
+        for n, text in kernal_call_sites(SRC / name, kernal_entries()):
+            print(f"bare KERNAL call: {name}:{n}: {text[:60]}")
     for n, c in sorted(pending_counts().items()):
         print(f"pending P{n}: {c}")
     for name in raw_byte_count():

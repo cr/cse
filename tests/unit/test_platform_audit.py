@@ -183,6 +183,10 @@ def test_no_raw_45gs02_opcode_outside_m45_ops():
     ("        lda #1\n.segment \"RODATA\"\n        .byte $5C\n", False),
     (".macro M\n        lda #1\n        .byte $5C\n.endmacro\n", True),
     (".macro P n\n        brk\n        .byte n\n.endmacro\n", False),
+    # a macro defined above counts as what its body ends with
+    (".macro E e\n        .byte <(e)\n.endmacro\n        lda #1\n        E 1\n        .byte $5C\n", False),
+    (".macro K\n        lda #1\n.endmacro\n        K\n        .byte $5C\n", True),
+    ("        KCALL X\n        .byte $5C\n", True),         # an unknown macro: falls through
 ])
 def test_raw_byte_audit(tmp_path, text, flagged):
     (tmp_path / "m.s").write_text(text)
@@ -193,6 +197,33 @@ def test_raw_byte_audit_skips_m45_ops(tmp_path):
     for name in ("m45_ops.inc", "m.inc", "m.s"):
         (tmp_path / name).write_text("        lda #1\n        .byte $5C\n")
     assert sorted(AUDIT.raw_byte_count(tmp_path)) == ["m.inc", "m.s"]
+
+
+# ── the KERNAL-call check (platform_layer.md § KERNAL calls) ──
+
+def test_no_bare_kernal_call():
+    """Every call of a KERNAL jump-table entry is a KCALL / KJMP; a bare
+    `jsr` would run the entry with B = CSE_BP on m65.  loader.s, whose
+    bodies run before CSE's base page exists, is exempt."""
+    assert AUDIT.kernal_call_count() == {}
+
+
+def test_kernal_call_check(tmp_path):
+    (tmp_path / "platform.inc").write_text(
+        "CHROUT          = $FFD2         ; c\n"
+        "KERNAL_JUMP_PAGE = $FF00\n"
+        "VIC_BRD         = $D020\n")
+    assert AUDIT.kernal_entries(tmp_path) == {"CHROUT"}
+    (tmp_path / "m.s").write_text(
+        "        jsr CHROUT\n"
+        "@l:     jmp CHROUT      ; c\n"
+        "        KCALL CHROUT\n"
+        "        jsr chrout_wrapper\n"
+        "        jsr VIC_BRD\n"
+        "        lda KERNAL_JUMP_PAGE,x\n")
+    (tmp_path / "loader.s").write_text("        jsr CHROUT\n")
+    assert [n for n, _ in AUDIT.kernal_call_sites(tmp_path / "m.s", {"CHROUT"})] == [1, 2]
+    assert AUDIT.kernal_call_count(tmp_path) == {"m.s": 2}
 
 
 # ── the pending-body count (platform_layer.md § Pending bodies) ──

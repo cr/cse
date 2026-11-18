@@ -24,8 +24,7 @@ src_ptr = scr_src       ; 2 bytes (zp.s)
 dst_ptr = _io_scr       ; 2 bytes (zp.s, cse_io)
 
 
-; ── C64 hardware ─────────────────────────────────────────
-
+; ── Screen geometry ──────────────────────────────────────
 SCR_W     = SCREEN_WIDTH
 SCR_H     = SCREEN_HEIGHT
 

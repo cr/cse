@@ -21,8 +21,8 @@ states the seam's contract and points there.
 |------|------|
 | [`src/platform.inc`](../src/platform.inc) | header — every platform constant and macro, selected by `.ifdef` |
 | [`src/m45_ops.inc`](../src/m45_ops.inc) | header — the 45GS02-only instructions as raw-byte macros ([§ Raw-byte instructions](#raw-byte-instructions)) |
-| [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit (the address-literal classes, the per-file counts), the base-page, stack-top and raw-byte checks |
-| [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top and raw-byte checks; the count of pending bodies and values |
+| [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit (the address-literal classes, the per-file counts), the base-page, stack-top, raw-byte and KERNAL-call checks, the pending count |
+| [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top, raw-byte and KERNAL-call checks; the count of pending bodies and values |
 | [`tests/unit/test_platform_m65.py`](../tests/unit/test_platform_m65.py) | test contract — the m65 macro bodies on M65Emu in clean mode: `KCALL` / `KJMP` (B = 0 for the KERNAL, registers through), the far accesses in banks 0, 2, 3, 4, `FAR_BANK`, `PLAT_SETBNK` |
 | [`dev/m65_macros_test.s`](../dev/m65_macros_test.s), [`dev/m65_test.cfg`](../dev/m65_test.cfg) | test helper — the m65 macro bundle and its linker config (base page at `0.1F00`, code at `$4000`) |
 | [`tests/unit/test_m45_ops.py`](../tests/unit/test_m45_ops.py) | test contract — each raw-byte macro is the compendium's encoding of its instruction |
@@ -165,6 +165,13 @@ N/Z.
 |---|---|---|
 | c64 | `jsr entry` | `jmp entry` (cse_io.s's `io_sync`, disk.s's final `CLOSE`) |
 | m65 | `pha` · `lda #0` · `tab` · `pla` · `jsr entry` · `pha` · `lda #CSE_BP` · `tab` · `pla` — the jump table needs `B = 0` (book I-3); CSE runs with its own base page | `KCALL entry` · `rts` |
+
+Every call of a jump-table entry is a `KCALL` or `KJMP`: a bare `jsr`
+or `jmp` to an entry's name is a site the KERNAL-call check refuses
+([§ Gates](#gates)), because on m65 it would run the entry with
+`B = CSE_BP`.  The entries are the `$FFxx` names of [§ Constants](#constants);
+loader.s is exempt, as both its bodies run before CSE's base page
+exists, with `B = 0`.
 
 `KC_BRANCH op, inverse, target` (macro): a conditional branch across
 `KCALL`s.  c64: `op target`.  m65: `inverse` over a `jmp target` — a
@@ -514,8 +521,11 @@ it is an instruction that can fall through — anything but `rts`,
 CPU falls into it.  An opcode position starts with a literal 6502
 opcode (the BIT-skip idiom, `.byte $2C`).  A `.byte` after `brk` is
 a signature byte (`brk_stub`'s, `PLAT_PENDING`'s) and one after a
-transfer or other data is data; neither is decoded.  The audit is
-the static half; the run-time half is M65Emu's clean mode
+transfer or other data is data; neither is decoded.  A macro call
+counts as what the macro's body ends with when the macro is defined
+above in the same file (loader.s's `ENTRY` ends in data), and as an
+instruction that falls through otherwise.  The audit is the static
+half; the run-time half is M65Emu's clean mode
 ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
 
 On the 45GS02 every
@@ -542,8 +552,11 @@ code.
    ([§ Base page](#base-page); zero from the start), the stack-top
    check ([§ Stack](#stack): no literal `#$FF` put in SP or `reg_sp`;
    zero from the start), the raw-byte
-   audit ([§ Raw-byte instructions](#raw-byte-instructions)) and the
-   pending-body count ([§ Pending bodies](#pending-bodies)).
+   audit ([§ Raw-byte instructions](#raw-byte-instructions)), the
+   KERNAL-call check ([§ KERNAL calls](#kernal-calls): no bare `jsr`
+   or `jmp` to a jump-table entry outside platform.inc and loader.s;
+   zero from the start — it found the one site the seam had missed)
+   and the pending-body count ([§ Pending bodies](#pending-bodies)).
 3. **Per-seam tests.**  Each seam's platform body is pinned at the
    tier its host module uses ([testing.md](testing.md)): the m65
    bodies on M65Emu, the c64 bodies by the existing suite.

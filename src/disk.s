@@ -24,8 +24,6 @@
         .importzp disk_ptr
         .import str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf
 
-; ── KERNAL entry points ──────────────────────────────────
-
 CH_STOP = 3
 
 ; ── ZP temporaries ──────────────────────────────────────
@@ -240,7 +238,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         ; read bytes into fl_buf
         ldy #0
-@read:  jsr READST
+@read:  KCALL READST
         bne @close              ; any status = done
         KCALL CHRIN
         cpy #30                 ; buffer limit

@@ -95,8 +95,6 @@
 ; ── Constants ────────────────────────────────────────────────
         .include "log.inc"
 
-; KERNAL vectors
-
 P_B_FLAG     = $10            ; mask: bit 4 of stacked P
 
 ; Reason codes (dbg_reason) — one definition, shared with repl.s.

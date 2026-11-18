@@ -28,16 +28,14 @@ import shutil
 
 import pytest
 
-from conftest import _m65_prg
 from m65emu import M65Emu
-from m65emu.harness import CSE_BP, load_snapshot, snapshot_dirs
+from m65emu.harness import (BANK_CSE, CSE_BP, CSE_MAP, STACK_TOP, flat,
+                            load_snapshot, snapshot_dirs)
 from xmega65 import SDIMG, XMEGA65, XMega65
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORK = ROOT / "build" / "m65_boot"
-CSE_MAP = (0xE300, 0xB300)
-BANK3 = 0x30000
-RESERVE = 0x3C000                      # 3.C000-3.CFFF, CSE's unused reserve
+RESERVE = flat(BANK_CSE, 0xC000)       # 3.C000-3.CFFF, CSE's unused reserve
 # The ROM's parts CSE does not take (memory_design.md § Memory Map —
 # m65): CBDOS, the interface ROM, the monitor, character set B and the
 # KERNAL.  The loader overwrites CSE's own regions of banks 2-3.
@@ -57,28 +55,29 @@ def _missing():
     return None
 
 
-pytestmark = pytest.mark.skipif(_missing() is not None, reason=str(_missing()))
+_MISSING = _missing()
+pytestmark = pytest.mark.skipif(_MISSING is not None, reason=str(_MISSING))
 
 
 @pytest.fixture(scope="module",
                 params=_SNAPSHOTS or [None],
                 ids=[d.name for d in _SNAPSHOTS] or ["no-snapshot"])
-def booted(request):
+def booted(request, cse_m65_prg):
     """(xmega65's machine at _main, M65Emu's install_prg() machine) on
     one ROM: the registers at the hit, and the regions compared."""
     if request.param is None:
         pytest.skip("no M65Emu snapshot (it holds the ROM): "
                     "python dev/capture_m65_state.py --rom PATH")
     snap = load_snapshot(request.param)
-    prg, map_path = _m65_prg("debug")
+    prg, map_path = cse_m65_prg
     ref = M65Emu(snap)
     ref.install_prg(prg, map_path)
     s = ref.sym
     regions = {
         "CSE's page 0.1F00": (CSE_BP << 8, 0x100),
-        "CODE + RODATA": (BANK3 + s("__CODE_RUN__"),
+        "CODE + RODATA": (flat(BANK_CSE, s("__CODE_RUN__")),
                           s("__CODE_SIZE__") + s("__RODATA_SIZE__")),
-        "KDATA + BSS": (BANK3 + s("__KDATA_RUN__"),
+        "KDATA + BSS": (flat(BANK_CSE, s("__KDATA_RUN__")),
                         s("__KDATA_SIZE__") + s("__BSS_SIZE__")),
     }
     work = WORK / request.param.name
@@ -119,7 +118,7 @@ def test_main_is_entered_under_the_cse_map_with_cses_base_page(booted):
     hit = booted["hit"]
     assert (hit["mapl"], hit["maph"]) == CSE_MAP
     assert hit["b"] == CSE_BP
-    assert hit["sp"] == 0x01F1                       # STACK_TOP
+    assert hit["sp"] == 0x0100 | STACK_TOP
     assert hit["p"] & 0x04, "interrupts off"
 
 
