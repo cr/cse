@@ -95,7 +95,7 @@ STEP_OVER = 2
         .importzp sym_name, sym_val
 
 ;── Imports: disk I/O ──────────────────────────────────────
-        .import floppy_status, floppy_read_status, fl_buf
+        .import floppy_read_status, fl_buf
         .import list_directory
         .import disk_load_prg, disk_save_prg
 
@@ -2915,11 +2915,16 @@ io_err_save:
 
 ; ═══════════════════════════════════════════════════════════
 ; disk_done — shared exit for l/s: drive status + clear prompt row.
+; Prints the status the transfer itself read into fl_buf (every
+; disk.s transfer leaves it there; reading it again would show
+; "00, ok" — the drive clears its message once read).
 ; Callers must leave the cursor on a fresh row (prg_line, log_err,
 ; etc. all end with a newline already).
 ; ═══════════════════════════════════════════════════════════
 disk_done:
-        jsr floppy_status
+        lda #<fl_buf
+        ldx #>fl_buf
+        jsr log_info
         jmp io_clear_eol
 
 ; ═══════════════════════════════════════════════════════════

@@ -498,6 +498,19 @@ class TestEdDiskErrors:
         assert emu.memory[emu.sym("ed_dirty")] == 1, "unsaved: still dirty"
         assert read_back(emu) == b"\xa0NOP\r"
 
+    def test_save_refused_by_the_drive_returns_1_and_keeps_buffer_dirty(self, cse_prg):
+        """Write protect: the drive takes nothing, so the source is
+        still unsaved."""
+        emu = make_emu(cse_prg)
+        emu.attach_drive(8).write_protect = True
+        insert_text(emu, b"\xa0NOP\r")
+        emu.memory[emu.sym("ed_dirty")] = 1
+        _set_name(emu)
+        emu.jsr(emu.sym("ed_save_source"), a=_NAME & 0xFF, x=_NAME >> 8)
+        assert (emu.a, emu.x) == (1, 0) and not emu.zero
+        assert emu.memory[emu.sym("ed_dirty")] == 1
+        assert emu.drive(8).files == []
+
     def test_load_with_no_drive_returns_1_and_leaves_empty_buffer(self, cse_prg):
         emu = make_emu(cse_prg)
         insert_text(emu, b"\xa0NOP\r")

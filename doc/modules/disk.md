@@ -83,6 +83,7 @@ channel-I/O bugs).  The caller reads the drive status afterwards
 filename
 **Out:** A/X = end address (KERNAL LOAD's end: the first byte after
 the data), A = X = 0 on error.  LFN 1 is closed on both paths.
+`fl_buf` = the drive's status.
 **Clobbers:** A, X, Y, `_io_tmp`, `ptr`
 
 KERNAL SETLFS secondary address selects the load mode:
@@ -92,7 +93,9 @@ KERNAL SETLFS secondary address selects the load mode:
 ### disk_save_prg
 **In:** A/X = size in bytes; `disk_ptr` = filename; `_io_tmp` = start
 address
-**Out:** A = 0, X = 0 on success; A = 1, X = 0 if the OPEN failed.
+**Out:** A = 0, X = 0, Z = 1 on success; A = 1, X = 0, Z = 0 if the
+OPEN failed or the drive refused the file (its status code is not
+`0x`: write protect, disk full).  `fl_buf` = the drive's status.
 Writes the 2-byte load-address header (the start address,
 little-endian), then `size` bytes from the start address.
 **Clobbers:** A, X, Y, `_io_tmp` (left past the last byte written),
@@ -108,7 +111,7 @@ SAVE call.
 **Out:** A = 0, X = 0 on success.  A = 1, X = 0 if the OPEN failed,
 READST reported an error (bits 0, 1 or 7) at the end, or the file
 was empty.  After a successful OPEN, `disk_seq_bytes` = bytes read
-and `disk_seq_lines` = CRs + 1.
+and `disk_seq_lines` = CRs + 1.  `fl_buf` = the drive's status.
 **Clobbers:** A, X, Y, `ptr`, `open_buf`, `eof_flag`, `callback`, and
 what the callback clobbers
 
@@ -120,9 +123,10 @@ the callback before the error is detected.
 
 ### disk_save_seq
 **In:** A/X = read callback; `disk_ptr` = filename
-**Out:** A = 0, X = 0 on success; A = 1, X = 0 if the OPEN failed.
+**Out:** A = 0, X = 0, Z = 1 on success; A = 1, X = 0, Z = 0 if the
+OPEN failed or the drive refused the file (status code not `0x`).
 After a successful OPEN, `disk_seq_bytes` / `disk_seq_lines` = bytes
-and CRs + 1 written.
+and CRs + 1 written.  `fl_buf` = the drive's status.
 **Clobbers:** A, X, Y, `ptr`, `open_buf`, `callback`, and what the
 callback clobbers
 
@@ -150,7 +154,7 @@ what user code may assume about that range is
 |----------|------|---------|
 | `disk_seq_bytes` | 2 | Bytes transferred (last SEQ op) |
 | `disk_seq_lines` | 2 | Lines transferred (last SEQ op) |
-| `fl_buf` | 32 | Drive status line / directory line buffer (exported) |
+| `fl_buf` | 32 | Drive status line (left by every transfer) / directory line buffer (exported) |
 | `open_buf` | 28 | Filename build buffer for CBM open |
 | `callback` | 2 | SEQ I/O function pointer |
 | `eof_flag` | 1 | READST value after the last CHRIN of a SEQ read |
@@ -196,12 +200,16 @@ C = 1 — otherwise every later OPEN 2 would fail with "file open".
 (before the callback) to capture the EOF flag — the callback may
 clobber the KERNAL status byte at $90.
 
-**Error channel:** disk.s does not read the drive's error channel
-after a transfer — opening channel 15 between OPEN and CHKIN
-disrupts the serial bus channel.  The caller does it: the REPL's
-`l` / `s` end in `disk_done` → `floppy_status`, and `$` prints
-`floppy_read_status`'s line.  That status line is also the only
-report of a write error after a successful OPEN.
+**Error channel:** Every transfer (`disk_load_prg`, `disk_save_prg`,
+`disk_load_seq`, `disk_save_seq`) ends, after its CLOSE, by reading
+the drive's error channel (channel 15) into `fl_buf`, on success and
+on error — empty when no drive answers.  (Never between OPEN and
+CHKIN: that disrupts the serial bus channel.)  The drive clears its
+message once it is read, so this is the only read: a save checks the
+code there (a drive can accept the OPEN and still refuse the file —
+write protect, disk full — which ST does not show), and the REPL
+prints `fl_buf` after `l` / `s` without reading again; `$` prints
+`floppy_read_status`'s line.
 
 ## Caveats
 

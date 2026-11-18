@@ -288,6 +288,27 @@ floppy_status:
         jmp log_info
 
 ; ═════════════════════════════════════════════════════════
+; _close2_status — end of a save: CLRCHN, CLOSE 2, then the
+; drive's status into fl_buf (the drive may refuse a file it
+; accepted at OPEN: write protect, disk full).
+; _status_ret — just the status part.
+;   Out: A = 0, Z = 1 if the status code is 0x (no error);
+;        else A = 1, Z = 0.  X = 0.  fl_buf = the status.
+; ═════════════════════════════════════════════════════════
+_close2_status:
+        jsr CLRCHN
+        lda #2
+        jsr CLOSE
+_status_ret:
+        jsr floppy_read_status
+        ldx #0
+        lda fl_buf
+        eor #'0'                ; "0x,..." → 0
+        beq @ok
+        lda #1
+@ok:    rts
+
+; ═════════════════════════════════════════════════════════
 ; list_directory(device) — LOAD-based directory listing
 ;   A = device
 ;
@@ -663,21 +684,17 @@ floppy_status:
         ldx _io_tmp             ; dest lo
         ldy _io_tmp+1           ; dest hi
         jsr LOAD
-        bcs @error
-        ; X/Y = end address on success
+        bcc @ok
+        ldx #0                  ; error: end = 0
+        ldy #0
+@ok:    ; X/Y = end address (0 on error)
         stx _io_tmp
         sty _io_tmp+1
         lda #1
         jsr CLOSE
+        jsr floppy_read_status  ; the drive's word into fl_buf
         lda _io_tmp
         ldx _io_tmp+1
-        rts
-
-@error:
-        lda #1
-        jsr CLOSE
-        lda #0
-        tax
         rts
 .endproc
 
@@ -756,6 +773,7 @@ floppy_status:
         jsr CLRCHN
         lda #2
         jsr CLOSE
+        jsr floppy_read_status  ; the drive's word into fl_buf
 
         ; Check for read errors (timeout/device not present).
         ; For non-existent files the drive returns a garbage byte
@@ -780,8 +798,9 @@ floppy_status:
         rts
 
 @err:                           ; OPEN failed (_disk_open_buf closed LFN 2)
-        lda #1
+        jsr floppy_read_status
         ldx #0
+        lda #1
         rts
 
 ; Call the callback function pointer with A as argument
@@ -853,16 +872,10 @@ floppy_status:
         jmp @write
 
 @done:
-        jsr CLRCHN
-        lda #2
-        jsr CLOSE
-        lda #0
-        tax
-        rts
+        jmp _close2_status      ; A = 0 unless the drive refused
 
-@err:
+@err:   jsr _status_ret         ; OPEN failed: fl_buf = status
         lda #1
-        ldx #0
         rts
 
 @do_callback:
@@ -928,17 +941,12 @@ floppy_status:
 :       dec @size_lo
         jmp @lp
 
-@done:  jsr CLRCHN
-        lda #2
-        jsr CLOSE
-        lda #0
-        tax
-        rts
+@done:  jmp _close2_status      ; A = 0 unless the drive refused
 
 @err:   pla                     ; drop saved size from stack
         pla                     ; (OPEN failed; _disk_open_buf closed LFN 2)
+        jsr _status_ret         ; fl_buf = status
         lda #1
-        ldx #0
         rts
 
 @size_lo: .byte 0

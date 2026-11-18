@@ -152,7 +152,7 @@ class TestLoadPrg:
         e.jsr(e.sym("disk_load_prg"), a=0, x=0)
         assert (e.a, e.x) == (0, 0)
         assert e.memory[LDTND] == 0
-        assert d.status.startswith("62,")
+        assert _fl_buf(e).startswith(b"62,")
 
 
 class TestSavePrg:
@@ -209,7 +209,7 @@ class TestSeq:
         _name(e, b"NOPE")
         e.jsr(e.sym("disk_load_seq"), a=LOAD_FN & 0xFF, x=LOAD_FN >> 8)
         assert (e.a, e.x) == (1, 0)
-        assert d.status.startswith("62,") and e.memory[LDTND] == 0
+        assert _fl_buf(e).startswith(b"62,") and e.memory[LDTND] == 0
 
     def test_load_of_an_empty_file_is_an_error(self, drv):
         e, d = drv
@@ -301,3 +301,58 @@ class TestListDirectory:
         emu.set_cursor(2, 0)
         emu.jsr(emu.sym("list_directory"), a=8)
         assert all(not emu.screen_text(r) for r in range(2, 25))
+
+
+class TestDriveStatusAfterTransfer:
+    """Each transfer leaves the drive's status in fl_buf; a save the
+    drive refuses (status code not 0x) is an error."""
+
+    def _save_seq(self, e, text=b"X\r"):
+        e.memory[SRC_BUF:SRC_BUF + len(text)] = list(text)
+        e.memory[SRC_LEN] = len(text)
+        e.jsr(e.sym("disk_save_seq"), a=SAVE_FN & 0xFF, x=SAVE_FN >> 8)
+
+    @pytest.mark.parametrize("save", ["prg", "seq"])
+    def test_write_protected_save_is_an_error(self, drv, save):
+        e, d = drv
+        d.write_protect = True
+        _save_prg(e) if save == "prg" else self._save_seq(e)
+        assert (e.a, e.x) == (1, 0)
+        assert _fl_buf(e) == b"26,WRITE PROTECT ON,00,00"
+        assert d.files == [] and e.memory[LDTND] == 0
+
+    def test_disk_full_save_is_an_error(self, drv):
+        e, d = drv
+        d.put("BIG", bytes(254 * 664))
+        self._save_seq(e)
+        assert (e.a, e.x) == (1, 0)
+        assert _fl_buf(e) == b"72,DISK FULL,00,00"
+
+    @pytest.mark.parametrize("save", ["prg", "seq"])
+    def test_saved_status_is_ok(self, drv, save):
+        e, d = drv
+        _save_prg(e) if save == "prg" else self._save_seq(e)
+        assert (e.a, e.x) == (0, 0)
+        assert _fl_buf(e) == b"00, OK,00,00"
+
+    def test_load_prg_leaves_the_status(self, drv):
+        e, d = drv
+        _name(e, b"NOPE")
+        e.jsr(e.sym("disk_load_prg"), a=0, x=0)
+        assert _fl_buf(e) == b"62,FILE NOT FOUND,00,00"
+        d.put("NOPE", b"\x00\xc0\x01")
+        e.jsr(e.sym("disk_load_prg"), a=0, x=0)
+        assert (e.a | e.x << 8) == 0xC001
+        assert _fl_buf(e) == b"00, OK,00,00"
+
+    def test_load_seq_leaves_the_status(self, drv):
+        e, d = drv
+        _name(e, b"NOPE")
+        e.jsr(e.sym("disk_load_seq"), a=LOAD_FN & 0xFF, x=LOAD_FN >> 8)
+        assert _fl_buf(e) == b"62,FILE NOT FOUND,00,00"
+
+    def test_no_drive_leaves_it_empty(self, emu):
+        fl = emu.sym("fl_buf")
+        emu.memory[fl] = 0x41
+        _save_prg(emu)
+        assert emu.memory[fl] == 0

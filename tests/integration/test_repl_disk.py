@@ -210,6 +210,16 @@ class TestSaveCommand:
         run(emu, "s $0900")
         assert emu.drive(8).get("PREV.") == b"\x00\x08" + data
 
+    def test_save_refused_by_the_drive_fails_with_its_status(self, emu):
+        """A write-protected disk: `;?fail` and the drive's own message
+        (read once, by the save), nothing on the disk."""
+        emu.drive(8).write_protect = True
+        set_cur_addr(emu, 0x0800)
+        run(emu, 's "foo" $0900')
+        assert rows(emu) == ['; save "foo."...', ";?fail",
+                             "; 26,write protect on,00,00"]
+        assert emu.drive(8).files == []
+
     def test_save_replaces_the_file_on_disk(self, emu):
         emu.drive(8).put("FOO.", b"old", "PRG")
         set_cur_addr(emu, 0x0800)
