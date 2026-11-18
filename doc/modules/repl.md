@@ -870,7 +870,10 @@ first `cse` row runs from `cse_start` (the runtime start) to
 `cmd_info`; the fixed rows come from the `info_tbl_*` tables in
 repl.s.  The banked row's bounds ($E000–$F8D9) are fixed in the table
 and do not follow the KERNAL-RAM layout
-([memory_design.md § Banked layout](../memory_design.md#banked-layout-e000ffff)).
+([memory_design.md § Banked layout](../memory_design.md#banked-layout-e000ffff)):
+the `rom` row ($F8DA–$FFFF, tagged `kernal`) also covers CSE's
+cold-init ZP snapshot (`COLD_ZP`, $F8DA–$F958, main.s) in the RAM
+under the ROM.
 
 Contract pinned by `TestInfoFullMode`: the rows run in address
 order and cover `$0000`–`$FFFF` without gap or overlap; the `src`
