@@ -93,7 +93,8 @@ Called by `main_loop_top` after user code broke back into the kernel
 **Out:** `;!stk N` (LOG_WARN) when `reg_sp` < 64
 (`KSTK_MIN`, the kernel stack budget — [userland_contract.md § Kernel stack budget](../userland_contract.md#kernel-stack-budget));
 then, if a step was running, `step_cleanup`; then the break panel
-(`show_break_result`, [debugger.md § Step output](debugger.md));
+(`show_break_result`, debugger.md § Break panel); after a
+clean exit (`; rts`) the `pc:` field shows `cur_addr` at exit time;
 `cur_addr` = `brk_pc`.  After a step that ended the session
 (`DBG_RTS`) `last_cmd` = 0, so RETURN does not repeat the step.
 **Clobbers:** A, X, Y and the REPL's ZP scratch.
@@ -515,7 +516,7 @@ SHIFT+CLR/HOME) are main.s's: [main.md § Keyboard](main.md#keyboard).
 | `c` | continue | —    | `c`              | Resume a resumable session (`DBG_BRK`/`DBG_NMI`), else `;?no ctx`.  Deletes the breakpoint that was hit, steps past a user `BRK` at `brk_pc`, then resumes; after a cold preview it is a fresh start ([debugger.md § `c`](debugger.md)). |
 
 The debug-session gates of these commands, `t`/`o`, `a` and `R` are
-[debugger.md § `dbg_reason` × command matrix](debugger.md) (owner).
+[debugger.md § `dbg_reason` × command matrix](debugger.md#dbg_reason--command-matrix) (owner).
 
 ### Commands — Debug / Trace
 
@@ -733,7 +734,7 @@ Gate matrix (the commands that use this pattern):
 Without a prompt the command runs directly: `a`/`j`/`g` outside a
 resumable session, `l` with a clean buffer, every PRG `l`, every `s`.
 The debug-session part of this matrix is
-[debugger.md § `dbg_reason` × command matrix](debugger.md) (owner).
+[debugger.md § `dbg_reason` × command matrix](debugger.md#dbg_reason--command-matrix) (owner).
 `c`, `t`, `o` are not gated; they refuse with `;?no ctx` where the
 session does not allow them.
 

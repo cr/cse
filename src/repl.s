@@ -195,15 +195,16 @@ rp_next_hi:     .res 2          ; 16-bit scratch pair (rp_next_lo lives in zp.s)
 rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
 rp_hexbuf:      .res 3          ; cmd_dot hex byte parse
-cold_preview_done: .res 1       ; cmd_step cold-preview marker.  Set
-                                ; by cmd_step's cold-preview branch
+cold_preview_done: .res 1       ; cold-preview marker.  Set by
+                                ; cmd_step's cold-preview branch
                                 ; (alongside dbg_reason promotion to
                                 ; DBG_BRK), consumed and cleared by
-                                ; the next cmd_step's MODE selection
-                                ; to force MODE_JUMP — the first real
-                                ; step after a cold preview must push
-                                ; a fresh sentinel (the preview itself
-                                ; never crossed the gate).
+                                ; set_run_mode (the next t/o/c) to
+                                ; force MODE_JUMP — the first real run
+                                ; after a cold preview must push a
+                                ; fresh sentinel (the preview itself
+                                ; never crossed the gate).  Cleared
+                                ; by main.s's end_debug_body too.
 
 zp_stage_buf:   .res 8          ; staging buffer for the user-ZP
                                 ; read redirect — `m` dump (8 B) and
@@ -1248,8 +1249,8 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ;
 ; Unified return-to-REPL path after running user code.  Emits the
 ; break panel: tag info line, regs row, and (for non-RTS variants)
-; a lookahead disassembly.  See doc/modules/debugger.md § Step
-; output for the panel anatomy.
+; a lookahead disassembly.  See doc/modules/debugger.md § Break
+; panel for the panel anatomy.
 ;
 ; Tag classification — one-tier from dbg_reason (NO opcode peek):
 ;
@@ -1259,7 +1260,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ;                                    exit, so the displayed value
 ;                                    would be the j-target, not the
 ;                                    rts location.  See debugger.md
-;                                    § panel anatomy.)
+;                                    § Break panel.)
 ;   DBG_BRK → "; brk at $PC"        (default — step trap, user BP,
 ;                                    or unplanned user BRK).  If
 ;                                    dbg_bp_hit != $FF, appends the
