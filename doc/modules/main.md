@@ -10,219 +10,189 @@
 
 **Test coverage** — Pattern A (out-of-tier) per
 [testing.md § Principle 9](../testing.md).  No dedicated test file
-for `main.s`.  The dispatcher classification logic
-(`cse_brk_handler` → debugger / breakpoint / step-BRK / brk_stub
-branches; `cse_nmi_handler` swallow vs. break-into-debugger) is
-exercised at Tier I via
-[`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py)
-(BRK/RTI/RTS classification, dbg_reason promotion) and
+for `main.s`; it is exercised at Tier I on the production PRG in
+[`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py):
+vectors (`TestSetupInterrupts`), cold init (`TestColdInitHandoff`,
+`TestColdInitTerminalState`, `TestBootsCleanly`), the BRK/NMI
+dispatch and its classification (`TestBreakpointHit`,
+`TestNmiUserland`, `TestNmiKernelMode`, `TestBrkKernelFault`,
+`TestStepChain`, `TestTagClassification`, `TestDecimalFlag`), the
+warmstart bodies (`TestWarmstartBodySubs`, `TestWarmCont`,
+`TestRecoverKeepsBreakpoints`, `TestRefreshKeepsSession`,
+`TestRefreshInEditor`, `TestRestoreDuringAssembly`), the IRQ
+early entry (`TestIrqKeepsBanking`), the REPL keys
+(`TestReplInsKey`), `TestMainCodeReadOnly` and `TestExitToBasic`.
 [`tests/integration/test_step_rom.py`](../../tests/integration/test_step_rom.py)
-(step-into-KERNAL gates).  Vector installation (`setup_interrupts`)
-and cold-init are covered transitively by every C64Emu integration
-test, since each runs the production PRG through the full loader
-→ `_main` → `main_loop` boot path.  Unit-tier isolation is not
-productive: the synthesised state needed to drive the dispatcher
-in isolation (vector table, banking config, BRK frame, ZP flags)
-is essentially the integration-tier setup minus the work that
-makes it observable.
+covers the step-into-KERNAL fallback.  Every C64Emu integration test
+also boots the production PRG through the loader → `_main` →
+`main_loop` path.  Unit-tier isolation is not productive: the
+synthesised state needed to drive the dispatcher in isolation
+(vector table, banking config, BRK frame, ZP flags) is essentially
+the integration-tier setup minus the work that makes it observable.
 
 ## Interface
 
-- `_main` — entry point (jumped to by `loader.s` after
-  relocation, BSS zero, KDATA copy).  Contains four layers:
-  `cse_cold_init`, `setup_interrupts`, the warmstart entry points
-  (`cse_recover` / `cse_end_debug` / `cse_refresh`), and `main_loop`.
-**Cross-module flags hosted in `zp.s`** (main.s writes them;
-reader modules import them as ZP):
-
-- `state` — 0=STOP, 1=REPL, 2=EDIT
-- `in_userland` — 1 = user code is currently running, 0 = kernel.
-  Set by `return_to_userland` (debugger.s), cleared on BRK handler
-  entry.  Read by `cse_nmi_handler` to pick its dispatch (swallow
-  vs. break-into-debugger).
-- `warm_cont` — 0 = fresh prompt, 1 = replay `line_buf` at
-  `main_loop_top`
-- `stop_cooldown` — RUN/STOP edge filter
-- `dbg_reason` — active debug session flag (owned conceptually by
-  debugger, hosted in zp.s so all readers avoid a debugger import)
-
-**Interrupt handlers (owned by main.s):**
-
-### cse_brk_handler
-**In:** invoked via $0316 (kernal-in path) or $FFFE early-entry
-(kernal-out path).  CPU + KERNAL have pushed Y/X/A/P/PChi/PClo onto
-the stack (6 bytes total).
-**Out:** does not return to caller — longjmps SP to main_loop's
-known value and `jmp main_loop_top`.
-**Clobbers:** all registers, all of $00–$7F (after capture)
-
-The unified BRK dispatcher.  Its first instruction is `cld`: user
-code may break with the decimal flag set (NMOS interrupts do not clear
-D), and every `adc`/`sbc` in the handler and the kernel after it
-(`reg_sp`, `brk_pc − 2`, the REPL's arithmetic) must run in binary.
-The user's D survives in `reg_p` and is restored by the next resume.
-Classifies the BRK source and routes:
-
-- $FFFE early-entry path (kernal banked out at BRK time): bank
-  kernal in, then fall through to standard path.  See § IRQ
-  early-entry bank-out below for the IRQ subcase.
-- B=0 (a real IRQ that fired while kernal was banked out):
-  delegate to kernal IRQ via stack surgery so the kernal's natural
-  RTI routes through a bank-out stub.  Returns via RTI to original
-  code with kernal banked back out.
-- B=1 (BRK):
-  - PC-2 == `brk_stub` → user clean exit.  Handler sets
-    `dbg_reason = DBG_RTS` and resets `brk_pc := cur_addr` so
-    downstream display shows a user-meaningful address.  This
-    is the *only* site in the handler that sets `DBG_RTS`.
-  - PC-2 matches an armed breakpoint slot → breakpoint hit
-    (`dbg_reason = DBG_BRK`, `dbg_bp_hit = slot`).
-  - PC-2 matches an armed step-BRK slot → step iteration; the
-    handler-resident state machine (see [debugger.md § Single-step](debugger.md))
-    decides chain-or-finish.  `dbg_reason = DBG_BRK` on a
-    landed-on-RTS step — intentional; the SECOND `t` on the
-    same address is what promotes to `DBG_RTS` via cmd_step's
-    RTS-early-stop path.
-  - Otherwise → unplanned user BRK (`dbg_reason = DBG_BRK`,
-    `dbg_bp_hit = $FF`).
-
-  The handler does **not peek opcode bytes** for classification.
-  Opcode-based promotion to `DBG_RTS` happens only in
-  cmd_step's RTS-early-stop path (via `step_next_pc`'s existing
-  dispatch).  See [debugger.md § `dbg_reason` enum](debugger.md#dbg_reason-enum--ordered-by-liveness).
-
-After classification, the handler captures user state into the
-`reg_*` shadows (debugger.s), clears `in_userland`, runs `vic_reset`
-and SID voice-gate clear, calls `unpatch_all` and restores CSE ZP
-from `kernel_zp_buf`, then performs the longjmp:
-
-```
-        ldx kernel_init_sp
-        txs
-        jmp main_loop_top
-```
-
-### cse_nmi_handler
-**In:** invoked via $0318 (kernal-in path) or $FFFA early-entry
-(kernal-out path).  CPU has pushed P/PChi/PClo (3 bytes); A/X/Y
-are still live in the CPU registers.
-**Out:** either swallows (RTI back to interrupted code) or routes
-through the BRK-style entry path (does not return).
-**Clobbers:** A on swallow path; everything on break path.
-
-Like `cse_brk_handler` it starts with `cld` (the user's D stays in
-the stacked P and so in `reg_p`).  Dispatches on `in_userland`:
-
-```
-cse_nmi_handler:
-        bit in_userland         ; bit 7 → N, bit 0 → Z (after BIT)
-        bne @break_user         ; in_userland != 0 → break into debugger
-        ; kernel mode: user wants the view back.  Discard the NMI
-        ; frame and jump to the refresh entry point.
-        jmp cse_refresh
-
-@break_user:
-        ; userland mode: stash live A/X/Y, fall into BRK path
-        sta reg_a / stx reg_x / sty reg_y
-        jmp cse_brk_handler_userland_entry
-```
-
-The two branches correspond to two distinct user intents:
-
-- **NMI in userland** (user pressed RUN/STOP+RESTORE while their
-  code was running) → break into the debugger.  Indistinguishable
-  at the hardware level from a BRK breakpoint; the same capture
-  logic runs.
-- **NMI in kernel** (user pressed RUN/STOP+RESTORE at the REPL
-  prompt) → `cse_refresh`.  The classic C64 affordance: "my view
-  got messed up, give me a clean screen."  Debug context (if any)
-  is preserved.
+### _main
+**In:** jumped to by `loader.s` after relocation (BSS zero, KDATA in
+place); SP = `$FF`.
+**Out:** does not return — runs the cold-init sequence (§ Layer 1)
+and `jmp main_loop_top`.
+**Clobbers:** everything.
 
 ### setup_interrupts
 **In:** none
-**Out:** $0316/$0317, $0318/$0319, $FFFA/$FFFB, $FFFE/$FFFF all
-patched to point at handler labels
-**Clobbers:** A, X
+**Out:** $0316/$0317 → `cse_brk_handler`; $0318/$0319 and $FFFA/$FFFB
+→ `cse_nmi_handler`; $FFFE/$FFFF → `cse_brk_handler_early`.
+**Clobbers:** A
 
-Called once during cold init, **before any bank-out**.  Also
-re-called by `cse_recover` for idempotent fault recovery.
+Called by `_main` (step 4, before any bank-out) and by
+`hw_reinit_body`.  Direct stores; writes to $FFFA/$FFFE reach the RAM
+under the KERNAL regardless of `$01`.
 
 | Vector | Address | Patched to |
 |--------|---------|------------|
-| IBRK | $0316/$0317 | `cse_brk_handler` (kernal-in entry) |
-| INMIV | $0318/$0319 | `cse_nmi_handler` (kernal-in entry) |
-| NMI shadow | $FFFA/$FFFB | `cse_nmi_handler` (direct — see note) |
-| IRQ/BRK shadow | $FFFE/$FFFF | `cse_brk_handler_early` |
+| IBRK | $0316/$0317 | `cse_brk_handler` (KERNAL-in entry, after $FF48's push) |
+| INMIV | $0318/$0319 | `cse_nmi_handler` (KERNAL-in entry, via $FE43) |
+| NMI shadow | $FFFA/$FFFB | `cse_nmi_handler` (KERNAL-out entry) |
+| IRQ/BRK shadow | $FFFE/$FFFF | `cse_brk_handler_early` (KERNAL-out entry) |
 
-Direct stores; no kernal VECTOR call (step 1 of the design — see
-`doc/design_cse_as_kernel.md` § 6).  A future step 2 may migrate
-the $0316/$0318 patches to use `KERNAL_VECTOR` ($FF8D) for
-cross-kernal compatibility (R3 universal C64/C128 binary).
+### cse_brk_handler
+**In:** entered via $0316 (KERNAL in, after $FF48 pushed A/X/Y) or
+from `cse_brk_handler_early` (same stack shape): SP+1..SP+6 = Y, X,
+A, P, PCL, PCH.
+**Out:** does not return.  Kernel fault → `cse_recover`; userland
+break → `restore_userland_state` (step chain) or `handler_finalize`
+(→ `main_loop_top` with SP = `reg_sp`).
+**Clobbers:** everything; live ZP $00–$7F becomes the kernel's
+again.
 
-**No NMI early-entry shim.**  BRK's early-entry does real work
-(`bank_out_stub` insertion when $FFFE fires as IRQ with kernal
-banked out — see `cse_brk_handler_early`).  NMI has no such need:
-the 6502 hardware sets I=1 as part of the NMI vector sequence
-(push PC, push P with B=0, **set I**, fetch $FFFA), so IRQs are
-already masked when the handler runs.  Both entry paths (kernal-in
-via KERNAL's $FE43 dispatch through $0318, kernal-out via direct
-$FFFA fetch) land at the same `cse_nmi_handler` label with the
-same stack shape.
+### cse_nmi_handler
+**In:** entered via $0318 (KERNAL in, after $FE43) or $FFFA (KERNAL
+out): SP+1..SP+3 = P, PCL, PCH; A/X/Y live.
+**Out:** does not return.  Kernel mode → `cse_refresh`; userland →
+`handler_finalize` with `dbg_reason = DBG_NMI`.
+**Clobbers:** everything.
 
-### Memory
+### cse_brk_handler_early
+**In:** the $FFFE RAM-shadow entry, taken when an IRQ or BRK arrives
+with the KERNAL banked out: SP+1..SP+3 = P, PCL, PCH; A/X/Y live.
+**Out:** B=1 (BRK) → `cse_brk_handler` with the $FF48 stack shape;
+B=0 (IRQ) → the KERNAL IRQ body `$EA31` with `$01 = $36` and a second
+RTI frame aimed at `bank_out_stub` (§ IRQ early-entry bank-out).
+**Clobbers:** nothing the interrupted code can see — A/X/Y reach
+`$EA31` / `cse_brk_handler` as they were; `_irq_saved_a`.
 
-**ZP (6 bytes):** `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1),
-`rp_tmp2` (1) — scratch pointers/bytes shared by repl.s,
-debugger.s, asm_line.s.
+### bank_out_stub
+**In:** reached only by the KERNAL IRQ body's closing RTI, with the
+interrupted `$01` value on top of the stack and the original
+interrupt frame below it.
+**Out:** `$01` = the interrupted value; RTI to the interrupted code.
+**Clobbers:** nothing visible (A preserved via `_irq_saved_a`).
 
-**BSS (6 bytes):** `warm_guard` (1), `kernel_init_sp` (1),
-`run_user_pending` (1), `_irq_saved_a` (1), `stop_cooldown` (1),
-`main_key` (1, the key `main_loop` is dispatching).  main.s keeps no
-mutable byte in CODE (memory_design.md: no self-modifying code).
+### cse_recover
+**In:** any state — reached by `jmp` from `cse_brk_handler` on a BRK
+in kernel code (`in_userland = 0`).
+**Out:** does not return.  SP = `$FF`, `kernel_init_sp = $FF`,
+`hw_reinit_body`, `end_debug_body`, `refresh_body`, then
+`main_loop_top`.  A second entry before the first finished
+(`warm_guard`) jumps to the KERNAL cold start `$FCE2`.
+**Clobbers:** everything.
 
-The shared flags `state`, `in_userland`, `warm_cont`, `stop_cooldown`
-live in `zp.s` as `.exportzp` bytes — see the note at the top of
-the Interface section.
+### cse_end_debug
+**In:** a gate set `warm_cont` (or not) and jumped here — `repl.s`'s
+`a` and `j`/`g` gates on "yes".
+**Out:** does not return.  SP = `kernel_init_sp`, `end_debug_body`,
+`main_loop_top`.
+**Clobbers:** everything.
 
-`kernel_init_sp` is the SP value the warmstart entry points
-longjmp to when returning control to the REPL.  Set once during
-cold init, just before the cold-init userland handoff:
-`tsx; stx kernel_init_sp`.  Read by `cse_brk_handler` tail
-(`ldx kernel_init_sp; txs`) and by `cse_recover` for hard recovery.
+### cse_refresh
+**In:** jumped to by `cse_nmi_handler` (NMI in kernel mode),
+`main_loop` (CLR, i.e. SHIFT+CLR/HOME, or ESC in the REPL) and
+`repl.s`'s `R` (after `end_debug_body`).
+**Out:** does not return.  SP = `reg_sp` (the user's SP at the
+break, `$FF` without a session), `refresh_body`, falls through into
+`main_loop_top`.  A live debug session is kept.
+**Clobbers:** everything.
 
-`warm_cont` (0 = fresh prompt, 1 = replay `line_buf`) is the
-continuation flag gates set before jumping to a warmstart entry
-point.  `main_loop_top` consumes it on each iteration.  See
-Layer 4 above.
+### hw_reinit_body
+**In:** none
+**Out:** `$01 = $36`; vectors re-installed (`setup_interrupts`);
+`dbg_init` (step state, `reg_*`, `dbg_reason`; not the breakpoint
+table); `reset_globals` (`state = ST_REPL`, `cur_addr = $0800`,
+`block_size = $10`, `cur_device = 8`, `run_user_pending = 0`);
+`io_init`, `theme_init`, `restore_colors`, `set_charset`.
+**Clobbers:** A, X, Y (and what its callees clobber).
 
-`run_user_pending` is the command → main_loop handoff for userland
-execution.  Commands (`j`, `g`, `c`, `t`, `o`) stage their state
-and rts normally after setting this to `MODE_JUMP` (push sentinel →
-fresh start) or `MODE_RESUME` (reuse existing sentinel).  The
-main_loop dispatches via `jmp return_to_userland` / `jmp
-restore_userland_state` at top level — never RTI from within a jsr
-frame.  Cleared by main_loop before each `exec_line` call, and
-again after `post_run_cleanup` consumes it.
+Caller: `cse_recover`.
 
-`stop_cooldown` is main_loop's RUN/STOP edge-filter: set to 1 when
-a STOP press is processed (so autorepeat doesn't re-toggle) or by
-`hygiene_after_userland` on an NMI break (the STOP key was held to
-cause the break; the stale CH_STOP in $C6 must be swallowed).
-Cleared by main_loop's `@wait` poll as soon as the C64-specific
-STOP shadow $91 reports STOP released.  See `main_loop` for the
-edge-trigger discipline.
+### end_debug_body
+**In:** none
+**Out:** the debug session is gone: `unpatch_all` (every patched
+breakpoint's byte restored); `dbg_reason`, `run_user_pending`,
+`in_userland`, `stop_cooldown`, `last_cmd`, `cold_preview_done` = 0;
+`reg_sp = $FF`; `dbg_bp_hit = $FF`; then `repl.s::step_cleanup`
+(`step_state` / `step_remaining` = 0, step slots zeroed, a breakpoint
+a step disabled enabled again).  Editor state and the breakpoint
+table are kept.
+**Clobbers:** A, X, Y, `rp_ptr`.
 
-**KBSS (cold-init snapshot, under kernal ROM):**
-- `COLD_ZP` (127 B) — snapshot of $01-$7F at cold-init entry
+Callers: `cse_recover`, `cse_end_debug`, `repl.s`'s `R`.
 
-**Depends on:** repl, editor, debugger, asm_line, screen, cse_io,
-symtab, log, mem, strings, zp
+### refresh_body
+**In:** none
+**Out:** `state = ST_REPL`; `$01 = $36` and `kernal_out = 0` (an NMI
+can land inside a bank-out window, e.g. RUN/STOP+RESTORE during `a`,
+which abandons the assembly); `reset_screen`; cursor at row 24,
+column 0, that row cleared.
+**Clobbers:** A, X, Y.
+
+Callers: `cse_recover`, `cse_refresh`.
+
+### main_loop_top
+**In:** any SP the caller set (§ Longjmp SP convention).
+**Out:** does not return — `cli`, then: `state = ST_STOP` →
+`cse_exit_to_basic`; `warm_cont` set → consume it, replay `line_buf`
+through `exec_line` and dispatch its `run_user_pending`; otherwise
+`post_run_cleanup` if `dbg_reason`, `step_state` or
+`run_user_pending` is nonzero (the break panel), `show_prompt`, and
+into `main_loop`.
+**Clobbers:** everything.
+
+Reached from `_main`, `handler_finalize`, `cse_recover`,
+`cse_end_debug` and (falling through) `cse_refresh`.
+
+**State** — **BSS (6 bytes):** (main.s keeps no mutable byte in
+CODE — [memory_design.md](../memory_design.md): no self-modifying
+code)
+
+| Variable | Exported | Purpose |
+|---|---|---|
+| `kernel_init_sp` | yes (no importer) | SP for `cse_end_debug`; `tsx` at the end of cold init (`$FF`), `$FF` again by `cse_recover`. |
+| `run_user_pending` | yes (repl.s) | `MODE_NONE` (0) / `MODE_JUMP` (1) / `MODE_RESUME` (2): set by `j`/`g`/`c`/`t`/`o`, dispatched by `main_loop` after `exec_line` returns. |
+| `stop_cooldown` | yes (repl.s) | RUN/STOP edge filter (§ Keyboard). |
+| `warm_guard` | no | `cse_recover` re-entry guard. |
+| `_irq_saved_a` | no | A while `cse_brk_handler_early` / `bank_out_stub` work. |
+| `main_key` | no | the key `main_loop` is dispatching. |
+
+`COLD_ZP` (`$F8DA`, 127 B under the KERNAL) holds the `$01–$7F`
+snapshot taken at cold init for `cse_exit_to_basic`.
+
+The cross-module flags main.s reads and writes (`state`,
+`in_userland`, `warm_cont`, `kernal_out`, `dbg_reason`, `cur_device`)
+live in `zp.s`; their meaning and writers are
+[zp.md § Cross-module flag semantics](zp.md#cross-module-flag-semantics).
+The `dbg_reason` values come from `src/dbg_reason.inc`
+([debugger.md § `dbg_reason` enum](debugger.md#dbg_reason-enum)).
+
+**Depends on:** repl, editor, gap_buffer, debugger, breakpoints,
+asm_line (`reg_p`, `reg_sp`), screen, cse_io, symtab, log, mem,
+strings, zp
 
 ## Design
 
 ### Four-layer architecture
 
-#### Layer 1: `cse_cold_init` (one-time setup)
+#### Layer 1: `_main` (cold init, one-time setup)
 
 Runs once after `loader.s` jumps to `_main`.  Sequence is
 ordered by dependency: each step's prerequisites are satisfied
@@ -230,390 +200,299 @@ by earlier steps, with no hidden cross-subsystem reach-ins.
 
 1. **Keyboard / charset-switch setup.**  `KEY_REPEAT` |= $80;
    `$0291` = $80 (disable C= + SHIFT charset toggle).
-2. **Save $01-$7F to KBSS.**  Snapshot the user's ZP and CPU-port
-   into `COLD_ZP` (under-KERNAL RAM) so `cse_exit_to_basic` can
-   restore it on clean exit.
+2. **Save $01-$7F to `COLD_ZP`** (RAM under the KERNAL) so
+   `cse_exit_to_basic` can restore BASIC's ZP and CPU port.
 3. **Unmap BASIC ROM** (`$01 &= ~1` → $36).  CSE owns $A000-$BFFF
-   from this point; LORAM=0 must hold for the rest of cold init.
+   from this point.
 4. **`setup_interrupts`** — patch all four vectors.  Must happen
-   before any bank-out so the early-entry handlers are reachable.
+   before any bank-out so the KERNAL-out entries are reachable.
 5. **`bp_init` + `dbg_init`** — zero the breakpoint table (cold
-   init only — `hw_reinit_body` runs `dbg_init` alone, so
-   breakpoints survive `cse_recover`), zero the step state, seed `userland_zp_buf`
-   and `kernel_zp_buf` with the CPU-port default ($00=$2F, $01=$36)
-   so the first user entry via `return_to_userland` has sane
-   banking.
-6. **`sym_clear`** — wipe 256 hash slots, reset `_st_heap` to the
-   heap base.  **Strictly precedes any `sym_define` caller** —
-   any `sym_define` call before this point would write through
-   `_st_heap = $0000` (BSS-zero) and corrupt `$0000-$0007` (DDR
-   + CPU-port latch).  See [§ Caveats — cold-init sequence
-   prerequisite](#caveats).
-7. **`ed_ensure_init`** — first-time `gb_init` (sets `buf_base =
-   gap_lo = gap_hi = ed_top_ptr = src_top = src_bot = BUF_END`,
-   `ed_total_lines = 1`, `ed_dirty = 0`).  `gb_init` is a leaf —
-   it does not touch the symbol table.  The workspace symbols
-   are registered by step 8.
-8. **`define_ws_syms`** — register `workstart = $0800` (fixed),
-   then fall through to `update_workend` which registers
-   `workend = buf_base - 1` (uses `buf_base` set by step 7).
-9. **CPU-mode default** — `lda #DEFAULT_CPU; sta asm_cpu`.
-10. **Free-ZP fill** — `$FF` from `cse_zp_end` to `$80`.
-    Sentinel for unused ZP.
-11. **Free-workspace fill** — `$00` from `WORKSTART` to
-    `cse_start`.  Clears user RAM.
-12. **HW + screen** — `io_init`, `theme_init`, `reset_screen`,
+   init only: `hw_reinit_body` runs `dbg_init` alone, so breakpoints
+   survive `cse_recover`), zero the step state and `reg_*`, seed the
+   CPU-port bytes of both ZP save buffers
+   ([debugger.md § dbg_init](debugger.md#dbg_init)).
+6. **`sym_clear`** — empty the symbol table.  Strictly precedes
+   step 8, the first `sym_define` caller (§ Caveats).
+7. **`ed_ensure_init`** — first-time gap-buffer init, which sets
+   `buf_base` ([gap_buffer.md](gap_buffer.md)).  A leaf: no symbol
+   table contact.
+8. **`define_ws_syms`** — register `workstart` and `workend`
+   (`buf_base - 1`, so after step 7).
+9. **CPU-mode default** — `asm_cpu = DEFAULT_CPU`.
+10. **Free-ZP fill** — `$FF` from `cse_zp_end` through `$7F`.
+11. **Workspace fill** — `$00` from `$0800` up to the page of
+    `cse_start` (this also wipes the BASIC stub and the loader).
+12. **I/O + screen** — `io_init`, `theme_init`, `reset_screen`,
     `set_charset`.
-13. **Global state** — `reset_globals` (state=ST_REPL,
-    cur_device=8, block_size=$10, cur_addr=$0800,
-    run_user_pending=0).
-14. **Splash** — version string, `cmd_info` (splash mode),
-    manual line, prompt row.
-15. **Capture `kernel_init_sp`** — `tsx; stx kernel_init_sp` —
-    setjmp target for `cse_recover` / `cse_end_debug` /
-    `cse_refresh`.
-16. **`jmp main_loop_top`** — enter the REPL.  Splash is already
-    drawn; the prompt is drawn by the REPL's first
-    `jsr show_prompt`.
+13. **Global state** — `reset_globals` (as in `hw_reinit_body`).
+14. **Splash** — version line, `cmd_info` in splash mode (its rows:
+    [repl.md § Splash screen](repl.md#splash-screen)), manual line,
+    cursor to the prompt row.
+15. **Capture `kernel_init_sp`** — `tsx; stx kernel_init_sp`.
+16. **`jmp main_loop_top`** — enter the REPL.  The screen is not
+    cleared again, so the splash stays; the prompt is drawn by
+    `main_loop_top`'s `show_prompt`.
 
 The order is load-bearing.  `_main` must reach `main_loop_top`
 without `cse_brk_handler` or `cse_recover` ever being entered —
 see [testing.md § Principles (Cold-init terminal-state
-assertion)](../testing.md#principles).
-
-A cold-init BRK-into-kernel handoff was considered (would share
-the first-prompt code path with userland clean-exit recovery)
-but not implemented: unnecessary failure surface at startup.
+assertion)](../testing.md#principles).  No user code runs during cold
+init: the first transition to userland is the user's first
+`j`/`g`/`c`/`t`/`o`.
 
 #### Layer 2: `setup_interrupts`
 
-See Interface above.  Runs as step 4 of cold init, before any
-banking activity.
+See Interface above.  The four vectors stay pointed at CSE for the
+program's lifetime; only `cse_exit_to_basic` undoes the page-3 pair
+(KERNAL RESTOR).
 
 #### Layer 3: Reason-named warmstart entry points
 
-Three orthogonal entry points, each named after **why** control
-arrived here (the triggering event), not what it does (which may
-shift over time).  All three jump to `main_loop_top` when finished;
-`main_loop_top` consults `warm_cont` to decide whether the next
-iteration shows a fresh prompt or replays the pre-warmstart
-command line (see Layer 4).
+Three entry points, each named after **why** control arrived (the
+triggering event), not what it does:
 
-| Entry point | Reason | Used by |
-|-------------|--------|---------|
-| `cse_recover` | CSE internal fault (unexpected BRK in kernel code) | `cse_brk_handler` @not_clean_in_kernel |
-| `cse_end_debug` | user chose to end the current debug session | `a`/`l` gates; `R` command when debug active |
-| `cse_refresh` | user asked for the view back (screen recovery) | NMI-in-kernel; ESC/CLR; `R` command |
+| Entry point | Reason | Reached from |
+|-------------|--------|--------------|
+| `cse_recover` | CSE internal fault (BRK in kernel code) | `cse_brk_handler` with `in_userland = 0` |
+| `cse_end_debug` | the user chose to end the debug session | `a`, `j`/`g` gates (`warm_cont = 1`, replay) |
+| `cse_refresh` | the user asked for the view back | NMI in kernel mode; CLR / ESC in the REPL; `R` |
 
-The three entry points compose via a trio of rts-returning "body"
-subroutines:
+They compose the three body subroutines (Interface above):
 
 ```
-hw_reinit_body   — SP, $01, setup_interrupts, dbg_init, reset_globals,
-                   io_init, theme_init, restore_colors, set_charset.
-                   Idempotent; may be called from any CSE state.
-
-end_debug_body   — dbg_reason/step_state/run_user_pending/in_userland
-                   to 0; reg_sp to $FF;
-                   stop_cooldown to 0; rp_dis_bp/dbg_bp_hit reset;
-                   unpatch_all (restores user's in-memory bytes that
-                   breakpoints had overwritten with $00); last_cmd
-                   cleared.  Editor state and bp_table untouched.
-
-refresh_body     — state := ST_REPL, KERNAL banked in ($01 = $36,
-                   kernal_out = 0: an NMI may arrive inside a
-                   bank-out window, e.g. RUN/STOP+RESTORE during `a`,
-                   which abandons the assembly), reset_screen,
-                   splash_row, io_clear_eol.  Puts the cursor on the
-                   bottom row, column 0 of the REPL screen it draws.
-```
-
-Composition:
-
-```
-cse_recover:     jsr hw_reinit_body
+cse_recover:     ldx #$FF / txs / stx kernel_init_sp
+                 jsr hw_reinit_body
                  jsr end_debug_body
                  jsr refresh_body
                  jmp main_loop_top
 
-cse_end_debug:   jsr end_debug_body
+cse_end_debug:   ldx kernel_init_sp / txs
+                 jsr end_debug_body
                  jmp main_loop_top
 
-cse_refresh:     jsr refresh_body
-                 ; falls through to main_loop_top (-3 B)
+cse_refresh:     ldx reg_sp / txs
+                 jsr refresh_body
+                 ; falls through
 main_loop_top:   ...
 ```
 
-`cse_recover` and `cse_end_debug` reset SP to `kernel_init_sp`
-(`$FF`) — both end any debug session.  `cse_refresh` keeps the
-session, so it resets SP to `reg_sp`, the user's stack pointer at
-the break: the user's stack above it (the `brk_stub` sentinel and
+`cse_recover` and `cse_end_debug` end any debug session and reset SP
+to `$FF`.  `cse_refresh` keeps the session, so it resets SP to
+`reg_sp`: the user's stack above it (the `brk_stub` sentinel and
 whatever the program pushed) stays intact under the kernel's own
-calls, and `c`/`t`/`o` resume correctly after CLR/HOME, ESC or
+calls, and `c`/`t`/`o` resume correctly after CLR, ESC or
 RUN/STOP+RESTORE at the prompt.  With no session `reg_sp` is `$FF`.
+On the next `main_loop_top` pass a live session's break panel is
+shown again (`post_run_cleanup`).
 
-`cse_recover` guards against re-entry (`warm_guard`) to prevent
-infinite BRK→recover loops; falls through to kernal cold start
-($FCE2) as last resort.
+`cse_recover` also resets the REPL globals (`reset_globals`:
+`cur_addr`, `block_size`, `cur_device`) and the step state; the
+breakpoint table survives, with `end_debug_body` unpatching any
+breakpoint that was patched at the fault.  The invariants every
+entry point keeps (editor state, breakpoint table) are
+[memory_design.md § Warmstart entry points](../memory_design.md#warmstart-entry-points)'s.
 
-**Invariants preserved by every warmstart entry point** (documented
-in [memory_design.md § Warmstart entry points](../memory_design.md#warmstart-entry-points)):
+#### Layer 4: `main_loop` (event loop)
 
-1. Editor state — `buf_base`, `gap_lo`, `gap_hi`, `gap_sz`, `ed_dirty`,
-   `ed_top_ptr`, and the buffer-backed memory pages — is untouched by
-   any entry point.  User's source survives every warmstart.
-2. Breakpoint table (`bp_table`) is preserved as the user's *intent*;
-   `end_debug_body` calls `unpatch_all` to restore the in-memory
-   bytes, but the slots themselves remain.  Next `j`/`g` re-patches.
+`main_loop_top` (Interface above) is the iteration entry after any
+non-local transfer; `main_loop` is the per-key loop.  RETURN runs
+`read_line` + `exec_line` with `run_user_pending = 0` first; after
+`exec_line` returns:
 
-#### Layer 4: `main_loop` (event loop / ISR body)
+- `run_user_pending = MODE_JUMP` → `jmp return_to_userland` (fresh
+  start: the `brk_stub` sentinel is pushed);
+- `MODE_RESUME` → `jmp restore_userland_state`;
+- otherwise `show_prompt` and the next key.
 
-The REPL is the body of an interrupt service routine.  Each
-iteration resets SP to a known value (`main_loop_top`) so that
-the BRK handler's longjmp lands on a clean stack frame.
+Commands never RTI from inside a `jsr` frame: they stage state, set
+`run_user_pending` and return; the transfer happens at this top
+level.  Control comes back from userland only through the BRK/NMI
+handlers.
 
-```
-main_loop_top:
-        ldx kernel_init_sp
-        txs
-        cli
-        lda warm_cont           ; continuation flag set by a gate?
-        beq @normal
-        lda #0
-        sta warm_cont           ; consume
-        jsr exec_line           ; replay the gated command's line_buf
-        jmp main_loop_top
-@normal:
-        ; (post_run_cleanup if returning from userland)
-        jsr show_prompt
-        jsr read_line
-        jsr exec_line
-        jmp main_loop_top
-```
-
-For non-execution commands, `exec_line` returns normally and the
-loop re-iterates.  For execution commands (`j`, `g`, `c`, `t`,
-`o`), `exec_line`'s handler eventually calls `return_to_userland`
-which RTIs into user code; control comes back via
-`cse_brk_handler`'s longjmp to `main_loop_top`.
-
-**Continuation flag (`warm_cont`).**  BSS byte.  Set by gate code
-(see [repl.md § Gating pattern](repl.md#gating-pattern)) before
-jumping to a warmstart entry point; consumed once at the next
-`main_loop_top` pass.
-
-| Value | Meaning |
-|-------|---------|
-| 0 | No continuation — fresh prompt (default). |
-| 1 | Replay `line_buf` through `exec_line` — the gate user said "yes" to re-runs the command they typed. |
-
-`line_buf` is BSS and untouched by any warmstart body, so the
-replayed command always has the arguments the user typed.  `a`
-(no args) and `l "PROJ"` (arg in line_buf) both work identically.
-
-### Permanent hooks
-
-Installed by `setup_interrupts` during cold init.  All four
-vectors are CSE-owned and remain pointed at CSE handlers for the
-program's lifetime; only `cse_exit_to_basic` undoes them via
-KERNAL RESTOR.
-
-### IRQ early-entry bank-out
-
-When an IRQ fires while kernal is banked out, the CPU reads the
-$FFFE RAM shadow → jumps into `cse_brk_handler`'s early-entry
-label.  At that moment:
-
-- `$01` bit 1 is clear (kernal banked out).
-- CPU has pushed P, PChi, PClo (3 bytes).
-- A/X/Y are still live in CPU registers.
-
-The early-entry handler must:
-
-1. Save A/X/Y (replicating $FF48's prologue).
-2. Test the B flag in stacked P.
-3. **B=1 (BRK):** continue into the standard BRK path; banking
-   doesn't matter for BRK because the handler will run to longjmp
-   anyway.
-4. **B=0 (real IRQ):** delegate to kernal's IRQ body, but route
-   the kernal's eventual RTI through a bank-out stub so the
-   interrupted code resumes with kernal banked back out.  The stub
-   restores `$01` to the exact value the interrupted code had (it is
-   pushed under the second frame and pulled by `bank_out_stub`), so
-   `$35` (KERNAL out, I/O in), `$34`, `$30` all survive the IRQ.
-
-The IRQ delegation uses **stack frame surgery**:
-
-```
-; Stack at early-entry (SP = original_SP - 3):
-;   SP+1: P     (CPU push)
-;   SP+2: PClo  (CPU push)
-;   SP+3: PChi  (CPU push)
-
-cse_brk_handler_early:                 ; vector $FFFE points here
-        pha
-        txa / pha
-        tya / pha                      ; 6-byte stack now (Y,X,A,P,PCL,PCH)
-        tsx
-        lda $0104,x                    ; stacked P
-        and #$10                       ; B-flag test
-        bne @brk_path                  ; B=1 → BRK dispatch (kernal-out
-                                       ; doesn't matter, handler longjmps)
-        ; ── B=0: real IRQ during kernal-out ──
-        ; Goal: hand off to kernal IRQ body with kernal banked in;
-        ; arrange so its RTI lands at our bank-out stub.
-
-        ; Step 1: replace stacked PClo/PChi with bank_out_stub.
-        ; The kernal IRQ body's final RTI will pop our addr and
-        ; "return" into the stub, which banks kernal out and RTIs
-        ; the original frame.
-        lda #<bank_out_stub
-        sta $0105,x                    ; PClo slot (BRK semantics: PC was
-                                       ; pushed PC-of-IRQ; we OK because
-                                       ; for IRQ, pushed PC = exact return)
-        lda #>bank_out_stub
-        sta $0106,x
-
-        ; Wait — RTI pops in order: P, PClo, PChi.  We need the
-        ; kernal IRQ body's RTI to pop P (whatever the kernal pushed
-        ; last) and return to bank_out_stub which then RTIs the
-        ; outer frame back to the original interrupted PC.
-        ;
-        ; Concretely, we push a SECOND frame (P + bank_out_stub) on
-        ; top of the existing one, then JMP to kernal IRQ body.
-        ; Kernal sees Y/X/A on top (just like $FF48 entry pattern),
-        ; runs IRQ body, RTIs → pops second-frame P + bank_out_stub
-        ; → lands at bank_out_stub.  Stub does sta $01 / RTI →
-        ; original frame popped → real return.
-        ;
-        ; Order of pushes:
-        ;   pha {P=current}     ← becomes second-frame P
-        ;   pha {PCH=stub-hi}   ← second-frame PCH
-        ;   pha {PCL=stub-lo}   ← second-frame PCL
-        ; Then bank kernal in; jmp $EA31 (kernal IRQ body).
-
-        php                            ; current P → second frame
-        lda #>bank_out_stub
-        pha
-        lda #<bank_out_stub
-        pha
-        lda #$36
-        sta $01                        ; bank kernal in
-        jmp $EA31                      ; kernal IRQ body entry
-
-@brk_path:
-        jmp cse_brk_handler            ; standard B=1 dispatch (already
-                                       ; common to both kernal-in and
-                                       ; kernal-out arrival paths)
-
-; ── bank_out_stub ─────────────────────────────────────────────
-; Reached via the kernal IRQ body's RTI popping the second frame
-; we synthesised above.  Banks kernal back out and RTIs the
-; outer (original) frame back to the interrupted PC.
-bank_out_stub:
-        pha                            ; preserve A across $01 store
-        lda #$34
-        sta $01                        ; bank kernal out
-        pla
-        rti                            ; pop original frame, resume
-```
-
-**Reentrance under NMI:** if NMI fires while we are inside the
-kernal IRQ body (after the `jmp $EA31`), the NMI handler runs at
-its own bank-state (kernal in, since we just banked it in).  The
-NMI handler swallows or breaks-into-debugger as usual.  On NMI
-RTI, control returns to the kernal IRQ body which finishes
-normally and then RTIs through our bank-out stub.  No conflict
-with the bank-out stub: it runs only after the IRQ body's RTI,
-which only happens once.
-
-**Note on the bank_out_stub's P preservation:** the stub's
-`pha/pla` around `sta $01` keeps A clean for the original
-interrupted code.  P is not modified by the stub itself; the RTI
-pops the original P from the outer frame.
+**Continuation flag (`warm_cont`).**  Set by a gate
+([repl.md § Gating pattern](repl.md#gating-pattern)) before it jumps
+to `cse_end_debug`; consumed at the next `main_loop_top` pass, which
+replays `line_buf` through `exec_line` (`line_buf` survives every
+warmstart body, so the replayed command has the arguments the user
+typed) and dispatches the replayed command's `run_user_pending`
+itself.  It must not fall back to `main_loop_top` with
+`run_user_pending` set: that pass would read it as "just returned
+from userland" and show a break panel for a run that never happened.
 
 ### Longjmp SP convention
 
-`kernel_init_sp` (BSS, 1 byte) is captured during cold init right
-before the cold-init userland handoff and used by every BRK
-handler longjmp to reset SP to a known value.  This is the kernel's
-"setjmp" point; the BRK handler's `ldx kernel_init_sp; txs` is the
-"longjmp."
+`main_loop` never resets SP; each entry to `main_loop_top` sets it
+once and the loop's own stack use is balanced:
 
-`main_loop_top` is reached only via this longjmp — from
-`cse_brk_handler` or from any of the three warmstart entry points
-(`cse_recover`, `cse_end_debug`, `cse_refresh`).  Each iteration
-of `main_loop` therefore starts from a guaranteed-clean SP.
+| Entry | SP |
+|---|---|
+| `_main` | `$FF` (loader's reset; balanced `jsr`s) |
+| `handler_finalize` (end of every userland break) | `reg_sp` — the user's SP at the break |
+| `cse_refresh` | `reg_sp` (`$FF` without a session) |
+| `cse_recover` | `$FF` |
+| `cse_end_debug` | `kernel_init_sp` (`$FF`) |
+
+The kernel runs on the user's stack page below `reg_sp`, so the
+user's frames — the `brk_stub` sentinel among them — survive a break
+and a later resume.  The stack contract itself (headroom, user
+budget) is [memory_design.md § Stack contract](../memory_design.md#stack-contract)
+and [userland_contract.md § 4](../userland_contract.md#4-stack-contract).
+
+### BRK dispatch
+
+`cse_brk_handler` starts with `cld`: user code may break with the
+decimal flag set (NMOS interrupts do not clear D), and every
+`adc`/`sbc` in the handler and the kernel after it (`reg_sp`,
+`brk_pc − 2`, the REPL's arithmetic) must run in binary.  The user's
+D stays in `reg_p` and is restored by the next resume.
+
+Then:
+
+1. `in_userland = 0` → kernel fault → `jmp cse_recover`.
+2. `in_userland := 0`; `save_userland_state` (debugger.s: `reg_*`,
+   `brk_pc`, `reg_sp`, ZP swap); `reg_p &= $DF`; `brk_pc -= 2`;
+   `dbg_reason = DBG_BRK`, `dbg_bp_hit = $FF`.
+3. `brk_pc == brk_stub` → the user's top-level RTS popped the
+   sentinel: `brk_pc := cur_addr`, `dbg_reason = DBG_RTS`,
+   `handler_finalize`.  This is the only site that sets `DBG_RTS`.
+4. `dbg_bp_find(brk_pc)` hits → `dbg_bp_hit = slot`,
+   `handler_finalize`.
+5. Stepping (`step_state ≠ 0`), `step_remaining ≠ 0` and `brk_pc`
+   equals step slot 8 or 9 → chain: `unpatch_all`, `step_next_pc`,
+   `arm_step_bp`, `step_remaining -= 1` (16-bit),
+   `jmp restore_userland_state`
+   ([debugger.md § Single-step](debugger.md#single-step)).
+6. Otherwise (last step landed, or an unplanned user BRK) →
+   `handler_finalize`.
+
+`handler_finalize`: `unpatch_all`, `hygiene_after_userland` (repl.s:
+VIC, colours, SID gates, `$CC`, keyboard buffer, KERNAL screen state),
+SP := `reg_sp`, `jmp main_loop_top`.  Hygiene runs before the `txs`
+so its `jsr`s cannot overwrite the user's stack above `reg_sp`, and
+it runs here (not in `post_run_cleanup`) so clean `j`/`g` exits get
+it too.
+
+The handler never peeks opcodes; the panel's tag follows from
+`dbg_reason` alone ([debugger.md § Break panel](debugger.md#break-panel)).
+
+### NMI dispatch
+
+`cse_nmi_handler` also starts with `cld`, then tests `in_userland`
+with `bit` / `bmi` — A holds the user's live value and must not be
+loaded over before the decision, which is why `in_userland` uses the
+`$80` / 0 convention (set to `$80` by `restore_userland_state`,
+cleared by both handlers and `end_debug_body`).
+
+- **Userland** (RUN/STOP+RESTORE while user code runs): push A, X, Y
+  so the stack has the $FF48 BRK shape, `in_userland := 0`,
+  `save_userland_state`, `reg_p &= $CF`, `brk_pc` unchanged (an NMI
+  stacks the exact PC), `dbg_reason = DBG_NMI`, `dbg_bp_hit = $FF`,
+  `handler_finalize`.
+- **Kernel** (RUN/STOP+RESTORE at the prompt, in the editor, or
+  during a command): `jmp cse_refresh` — the interrupted kernel work
+  is abandoned, the REPL is redrawn, a debug session is kept.
+
+No SEI is needed on either path: the 6502 sets I as part of the NMI
+sequence.  Both entries (KERNAL-in via $FE43 and $0318, KERNAL-out
+via $FFFA) arrive with the same stack shape, so NMI needs no early
+entry stub.
+
+### IRQ early-entry bank-out
+
+When an IRQ fires while the KERNAL is banked out (user code with
+`$01 = $35`/`$34`/`$30`, or CSE's own bank-out windows), the CPU
+reads the $FFFE RAM shadow and enters `cse_brk_handler_early` with
+P, PCL, PCH stacked and A/X/Y live.
+
+```
+cse_brk_handler_early:
+        pha / txa / pha         ; user A, X (X must be saved before tsx)
+        tsx
+        lda $0103,x / and #$10  ; B flag of the stacked P
+        beq @to_irq_path
+        tya / pha               ; B=1: complete the $FF48 shape
+        jmp cse_brk_handler
+@to_irq_path:
+        pla / tax / pla         ; back to [P, PCL, PCH], A/X restored
+@irq_path:
+        sta _irq_saved_a
+        lda $01 / pha           ; the interrupted $01
+        lda #>bank_out_stub / pha
+        lda #<bank_out_stub / pha
+        php                     ; second RTI frame → bank_out_stub
+        lda _irq_saved_a / pha / txa / pha / tya / pha   ; $FF48 shape
+        lda #$36 / sta $01      ; KERNAL in
+        jmp $EA31               ; KERNAL IRQ body
+
+bank_out_stub:                  ; the IRQ body's RTI lands here
+        sta _irq_saved_a
+        pla / sta $01           ; the interrupted $01, exactly
+        lda _irq_saved_a
+        rti                     ; original frame → interrupted code
+```
+
+Stack handed to `$EA31` (top first): Y, X, A, P', `bank_out_stub`
+(lo, hi), the interrupted `$01`, then the original P, PCL, PCH.  The
+KERNAL IRQ body restores Y/X/A and RTIs into `bank_out_stub`, which
+puts back the exact `$01` the interrupted code had — `$35` (KERNAL
+out, I/O in) keeps its I/O — and RTIs the original frame.
 
 ### Exit path
 
-`cse_exit_to_basic`: RESTOR ($FF8A) restores $0314-$0333
-defaults (also overwriting $FFFA/$FFFE shadows via kernal's
-own routine), $01-$7F restored from KBSS snapshot, writes $00
-to `($2B)-1` (byte before TXTTAB) so BASIC's program link chain
-is clean, CINT ($FF81) reinits screen, `jmp ($A002)` enters
-BASIC warm start.
-
-### Splash screen
-
-Shows zp, lo02, lo03, and work free ranges at startup.  Drawn
-before the cold-init userland handoff; remains visible because the
-handoff jumps directly to `main_loop_top`, which does not clear
-the screen.
+`cse_exit_to_basic` (reached when `state = ST_STOP`, set by `Q`):
+`sei`; `$0291 = 0` (charset toggle allowed again); KERNAL RESTOR
+(`$FF8A`: the $0314–$0333 vectors back to the KERNAL's — the
+$FFFA/$FFFE RAM shadows keep CSE's addresses but are not seen while
+the KERNAL is mapped); KERNAL out to read `COLD_ZP`; `$02–$7F`
+restored from it, then `$01`; `cli`; `$0800 = 0` (the byte before
+BASIC's program start, so the program link chain is clean); CINT
+(`$FF81`); `jmp ($A002)` (BASIC warm start).
 
 ## Keyboard
 
-The main loop reads keys via `io_getc()` and dispatches based on the
-current mode.  Some keys are handled globally (before mode dispatch),
-others are mode-specific.
+`main_loop` reads keys with `io_getc` and dispatches by `state`.
 
 ### Global keys (both modes)
 
 | Key | Action |
 |-----|--------|
-| RUN/STOP | Toggle REPL ↔ editor (handled inline in the main loop, with key-release debounce so holding it only toggles once) |
-| RUN/STOP+RESTORE | NMI break — handled by `cse_nmi_handler`.  In userland: breaks into the debugger (same path as BRK).  In kernel mode: routes to `cse_refresh` (screen recovery; debug context preserved).  `cse_refresh` always lands in the REPL (`state = ST_REPL`): pressed in the editor it returns to the REPL with the source kept, so the next keys are REPL keys, matching the screen. |
+| RUN/STOP | Toggle REPL ↔ editor (`enter_editor` / `leave_editor`).  Edge-filtered by `stop_cooldown`: a press sets it, and while it is set further STOPs are swallowed; the `@wait` poll clears it when the KERNAL's STOP shadow `$91` reports the key released.  `hygiene_after_userland` sets it after an NMI break, so the STOP still held from RUN/STOP+RESTORE does not toggle. |
+| RUN/STOP+RESTORE | NMI — § NMI dispatch.  In userland: break into the debugger.  Otherwise `cse_refresh`, which always lands in the REPL (`state = ST_REPL`, the editor source kept), so the next keys are REPL keys, matching the screen. |
 
 ### REPL mode keys
 
 | Key | Action |
 |-----|--------|
-| Printable characters | Insert at cursor.  Refused (audible blip) at col 39. |
-| Cursor keys | Move within screen, no wrap.  Refused (audible blip) at the screen edges. |
-| RETURN | `read_line` the cursor row, `exec_line`, `show_prompt` |
-| DEL | Backspace, shifting row left.  Refused at col 0, or at or before col 5 of an `AAAA:cmd` row. |
+| Printable characters | Written at the cursor (overwrite, `io_putc`).  Refused (audible blip) at col 39. |
+| Cursor keys | Move within the screen, no wrap.  Refused (blip) at the screen edges. |
+| RETURN | `read_line` the cursor row, `exec_line`, then the userland dispatch or `show_prompt` (§ Layer 4). |
+| DEL | Backspace, shifting the rest of the row left.  Refused at col 0, or below col 6 on an `AAAA:cmd` row (`:` in col 4). |
 | INS | Right-shift the row from the cursor, opening a space there (any column, 0 included); the character pushed into column 39 is dropped, column 39 stays blank.  Only the cursor row changes. |
-| HOME | Cursor to col 0 of current row |
-| Shift+HOME / ESC | `reset_screen` + `show_prompt` |
+| HOME | Cursor to col 0 of the current row. |
+| CLR (SHIFT+CLR/HOME) / ESC | `cse_refresh`: redraw the REPL screen, prompt on the bottom row; a debug session is kept. |
 
 ### Editor mode keys
 
-Handled by `ed_handle_key()`.  See [editor.md](editor.md).
+Handled by `ed_handle_key`.  See [editor.md](editor.md).
 
 ## Caveats
 
-- Hex parsing helpers (`hex_val`, `parse_hex*`, `skip_sp`) are
-  local to repl.s.
-- `cse_brk_handler` and `cse_nmi_handler` are owned by main.s
-  but classification logic for BRK source delegates to
-  `dbg_bp_find` (debugger.s).
+- **Cold-init sequence prerequisite.**  `sym_clear` (step 6) must run
+  before any code that can call `sym_define` — in `_main` that is
+  `define_ws_syms` (step 8).  Before `sym_clear`, `_st_heap` is
+  BSS-zero and a `sym_define` would copy its name through `$0000`,
+  over the CPU port and CSE's ZP.  The same constraint applies to any
+  caller added to cold init.
 - `cse_brk_handler`'s longjmp to `main_loop_top` discards the
-  kernel's pre-`return_to_userland` stack frames.  This is by design:
-  `return_to_userland` is the last statement in its caller's effective
-  control flow — there is nothing for the kernel to return to.
-- `src_top`/`src_bot` are owned by editor.s.
-- **Cold-init sequence prerequisite.**  `sym_clear` must run
-  before any code path that can call `sym_define`.  In `_main`
-  the order is `sym_clear` (step 6) → `ed_ensure_init` (step 7,
-  pure leaf — sets `buf_base` only) → `define_ws_syms` (step 8,
-  registers `workstart` and `workend`).  Reversing steps 6 and
-  7 corrupts `$0000-$0007` because `_st_heap` is BSS-zero and
-  `gb_init`'s symbol-publication path would write through it.
-  This was bug e47efdf (Phase 24).  The same constraint
-  applies to any future caller introduced into cold init.
-- None of the warmstart entry points (`cse_recover`, `cse_end_debug`,
-  `cse_refresh`) call `leave_editor` or touch editor state — the
-  editor invariant says the source survives every warmstart.
-- The cold-init userland handoff uses the same code path as a
-  clean `j`-then-RTS.  This sharing is the design's main lever
-  for code economy; keep it.
+  kernel's frames below `reg_sp` that led to the userland transfer.
+  By design: `return_to_userland` / `restore_userland_state` are the
+  last statement of `main_loop`'s control flow — there is nothing to
+  return to.
+- An NMI in kernel mode abandons whatever CSE was doing (an assembly,
+  a disk command, a scroll); `refresh_body` banks the KERNAL in and
+  clears `kernal_out` so the redraw works from any bank-out window.
+- None of the warmstart entry points call `leave_editor` or touch the
+  editor's buffer — the source survives every warmstart.
+- `kernel_init_sp` is exported but imported by no module; only
+  `cse_end_debug` reads it.
+- `main.s` imports `log_line` without using it.

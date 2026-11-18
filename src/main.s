@@ -1,9 +1,9 @@
 ; main.s — CSE application shell: cold init, warm start, main loop,
 ; Owner: doc/modules/main.md
-;          permanent interrupt dispatch (Phase 18 — ISR-kernel model).
+;          permanent interrupt dispatch (ISR-kernel model).
 ;
 ; Four-layer architecture:
-;   cse_cold_init   — one-time setup (jumped to by loader.s)
+;   _main           — cold init, one-time setup (jumped to by loader.s)
 ;   setup_interrupts — vectors → CSE handlers (before any bank-out)
 ;   cse_recover    — internal CSE fault (unexpected BRK in kernel)
 ;   cse_end_debug  — user-initiated debug-session termination
@@ -187,7 +187,7 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
 .segment "CODE"
 
 ; ═════════════════════════════════════════════════════════════
-; Layer 1: cse_cold_init
+; Layer 1: _main (cold init)
 ; ═════════════════════════════════════════════════════════════
 .proc _main
         ; ── 1. Keyboard / charset-switch setup ──
@@ -220,10 +220,9 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         jsr dbg_init
 
         ; ── 6. Symbol table ──
-        ; Must precede any sym_define caller (e.g. ed_ensure_init,
-        ; which reaches sym_define transitively via gb_init →
-        ; update_workend pre-F2).  See doc/modules/main.md
-        ; § Caveats — cold-init sequence prerequisite.
+        ; Must precede any sym_define caller (define_ws_syms, step 8).
+        ; See doc/modules/main.md § Caveats — cold-init sequence
+        ; prerequisite.
         jsr sym_clear
 
         ; ── 7. Init editor buffer ──
@@ -304,8 +303,8 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
 ;
 ; Three composable entry points, each named after the reason it
 ; was reached.  They share three rts-returning body subroutines:
-;   hw_reinit_body  — HW + software re-init (SP, $01, vectors,
-;                     dbg state, I/O, theme, charset).
+;   hw_reinit_body  — HW + software re-init ($01, vectors,
+;                     dbg state, globals, I/O, theme, charset).
 ;   end_debug_body  — discard any active debug context; unpatch_all
 ;                     so the program as-written is what's in memory.
 ;   refresh_body    — reset screen, draw prompt row, position cursor.
@@ -368,10 +367,9 @@ cse_refresh:
 ;
 ; main_loop_top is the target of:
 ;   * cse_brk_handler's longjmp (handler_finalize) — SP = reg_sp.
-;   * cse_recover and cse_end_debug (warmstart `jmp`s);
-;     cse_refresh falls through directly above.
-;     SP = kernel_init_sp ($FF) on all three.
-;   * The cold-init userland handoff (`_main`'s final jmp).
+;   * cse_recover ($FF) and cse_end_debug (kernel_init_sp) — warmstart
+;     `jmp`s; cse_refresh (SP = reg_sp) falls through directly above.
+;   * `_main`'s final jmp (SP = $FF).
 ; All are valid entries; main_loop's internal stack use is balanced.
 ; ═════════════════════════════════════════════════════════════
 main_loop_top:
@@ -401,8 +399,7 @@ main_loop_top:
         ; @check_post_run below would interpret run_user_pending as a
         ; "just returned from userland" signal, running post_run_cleanup
         ; against a fresh brk_pc=cur_addr and falsely reporting a brk
-        ; at the user's program start (rc4 bug: a+g+NMI+g produced a
-        ; phantom brk on the first replay after "go? y/n").
+        ; at the user's program start.
         lda run_user_pending
         beq :+
         cmp #MODE_JUMP
@@ -518,8 +515,7 @@ main_loop:
         ;     "enter anywhere" half of log.md's Contract.
         ; Homing CUR_COL=0 here would force log_open to see a
         ; "safe at col 0" state and skip its advance, overwriting
-        ; the user's typed command line.  See Escape Analysis for
-        ; the 2026-04-20 log contract regression.
+        ; the user's typed command line.
         lda #0
         sta run_user_pending    ; clear before exec_line
         jsr exec_line
@@ -962,12 +958,12 @@ handler_finalize:
 ; already masked on entry.
 ;
 ; At NMI entry A holds the user's live register value.  We can't
-; clobber it with `lda in_userland` before deciding the dispatch,
-; because on the swallow path we'd have no way to restore it.
-; Use `bit in_userland / bmi` instead: bit 7 of the operand goes
-; directly into the N flag, independent of A.  This relies on
-; in_userland using the $80 / 0 convention (set by restore_userland_
-; state; cleared by this handler and cse_brk_handler).
+; clobber it with `lda in_userland` before deciding the dispatch:
+; the userland path must still push it.  Use `bit in_userland / bmi`
+; instead: bit 7 of the operand goes directly into the N flag,
+; independent of A.  This relies on in_userland using the $80 / 0
+; convention (set by restore_userland_state; cleared by this
+; handler, cse_brk_handler and end_debug_body).
 ; ═════════════════════════════════════════════════════════════
 cse_nmi_handler:
         cld                     ; as cse_brk_handler: kernel runs binary
