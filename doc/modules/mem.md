@@ -1,4 +1,4 @@
-# mem — Memory manager: banking, ZP save/restore, segment queries
+# mem — Memory manager: banking, ZP save/restore, segment queries, the m65 resident stub
 
 **Template:** [module](../templates/module.md)
 
@@ -11,9 +11,8 @@
 
 ## Interface
 
-mem.s hosts three seams of the platform driver layer — banking, the
-user-memory macros' pointer conventions and, on m65, the resident
-stub ([platform_layer.md](../platform_layer.md)).  The entries below
+mem.s hosts the banking seam, the user-ZP swap of the base-page seam
+and, on m65, the resident stub ([platform_layer.md](../platform_layer.md)).  The entries below
 state the c64 body; each **On m65** paragraph states the m65 body of
 the same entry.
 
@@ -30,8 +29,8 @@ nonzero, then nothing changes.  The I flag is not touched.
 **Clobbers:** A
 
 **On m65:** both are `rts` and clobber nothing.  Nothing of CSE's is
-under the KERNAL: the data area is the data bank, mapped in the CSE
-map at all times ([platform_layer.md § Banking](../platform_layer.md#banking)).
+under the KERNAL: the data window is mapped in the CSE map at all
+times ([platform_layer.md § Banking](../platform_layer.md#banking)).
 Their callers are platform-neutral and stay as they are.
 
 ### save_userland_zp / save_kernel_zp
@@ -48,6 +47,9 @@ primitives rely on).
 written before $00, so every data bit latches before the DDR is
 re-applied.
 **Clobbers:** A, X
+
+**On m65:** the four primitives are not assembled — there is no ZP
+swap (§ Design, *ZP swap on m65*).
 
 The four primitives swap live ZP against the two buffers at every
 kernel↔userland transition.  Callers (debugger.s, the only ones):
@@ -67,8 +69,9 @@ save/restore).
 **Out:** A/X = `__CODE_RUN__` (runtime start address, lo/hi)
 **Clobbers:** A, X
 
-**On m65:** A/X = `$D000`.  CSE does not run in bank 0, so the user
-region ends at the I/O page, and this is the first byte above it.
+**On m65:** A/X = `PROG_HI + 1`: CSE does not run in bank 0, and the
+program region ends below the interface ROM
+([memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode)).
 
 Callers: `main.s` cold init (end of the workspace fill), `repl.s`
 (`i` map).
@@ -80,7 +83,7 @@ Callers: `main.s` cold init (end of the workspace fill), `repl.s`
 
 Caller: `repl.s` (`i` map).
 
-**On m65:** unchanged (`$D000`).
+**On m65:** A/X = `PROG_HI + 1`, as `cse_start`.
 
 ### cse_zp_end
 **In:** none
@@ -93,31 +96,37 @@ Caller: `main.s` cold init (fills the free ZP with `$FF` from there to
 
 ### The resident stub (m65 only)
 
-The code of the `STUB` segment, which the loader copies to `0.1600`
-and which runs there in both maps
-([memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode),
-[platform_layer.md § User transitions](../platform_layer.md#user-transitions)).
-Assembled only under `.ifdef PLATFORM_M65`.
+The entries of the `STUB` segment, assembled only under `.ifdef
+PLATFORM_M65`; the loader copies it to `STUB_BASE`, where it runs in
+both maps (§ Design, *The resident stub*).
 
-| Entry | Reached by | Does | Out |
-|---|---|---|---|
-| `stub_brk` | the `IBRK` vector, with the KERNAL's frame on the stack | `MAP` CSE · `EOM` · `jmp (stub_brk_target)` | in `cse_brk_handler`, frame and registers as the KERNAL left them, I flag unchanged |
-| `stub_nmi` | the `INMI` vector | `MAP` CSE · `EOM` · `jmp (stub_nmi_target)` | in `cse_nmi_handler`, likewise |
-| `stub_cold` | the loader | `MAP` CSE · `EOM` · `jmp (stub_cold_target)` | in `_main` |
-| `stub_user` | `PLAT_TO_USER` in `_rtu_body` (debugger.s), with the user's A, X, Y, Z, B pushed above the RTI frame | `MAP` user · `EOM` · pull B, Z, Y, X, A · `rti` | in user code, every register the user's |
+#### stub_brk / stub_nmi
+**In:** reached through the `IBRK` / `INMI` vector, in either map,
+with the KERNAL's frame on the stack and `B = 0` (the KERNAL's entry
+set it).
+**Out:** in `cse_brk_handler` / `cse_nmi_handler` under the CSE map
+with `B = CSE_BP`; the frame as the KERNAL left it; the I flag
+unchanged.
+**Clobbers:** A, X, Y, Z (their user values are in the frame); B.
 
-**Clobbers:** the three CSE-bound entries clobber A, X, Y, Z (the
-`MAP` operands); the user's values are already saved, in the
-KERNAL's frame on the stack.  `stub_user` ends with every register
-the user's: it takes them from the stack, not from the snapshot
-cells, which the user map does not show
-([platform_layer.md § User transitions](../platform_layer.md#user-transitions)).
+#### stub_cold
+**In:** reached from the loader by `jmp`, interrupts off; no frame.
+**Out:** in `_main` under the CSE map with `B = CSE_BP`.
+**Clobbers:** A, X, Y, Z, B.
 
-**State** (in the stub, `0.1600`+): `stub_brk_target`,
-`stub_nmi_target`, `stub_cold_target` — one word each, written by
-`setup_interrupts` (main.s) and the loader.  The stub holds no
-address of CSE's code itself and imports nothing from a higher
-layer.
+#### stub_user
+**In:** reached from `PLAT_TO_USER` (`_rtu_body`, debugger.s) by
+`jmp`, with the user's A, X, Y, Z, B pushed above the RTI frame.
+**Out:** in user code under the user map, every register, P and SP
+the user's.
+**Clobbers:** nothing of the user's.
+
+#### brk_stub
+**In:** reached when a program's final `RTS` pops the sentinel
+`return_to_userland` pushed.
+**Out:** a BRK, which the debugger classifies as the program's clean
+exit ([debugger.md](debugger.md)).
+**Clobbers:** — (the BRK's own frame).
 
 **State:**
 
@@ -125,6 +134,10 @@ layer.
 |----------|------|---------|---------|
 | `userland_zp_buf` | `ZP_SAVE_LEN` | BSS | User's `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` snapshot (captured on userland exit, restored on entry) |
 | `kernel_zp_buf` | `ZP_SAVE_LEN` | BSS | Kernel's snapshot over the same range (captured on userland entry, restored on exit) |
+| `stub_brk_target`, `stub_nmi_target`, `stub_cold_target` | 2 each | `STUB` (m65) | where the stub's CSE entries jump; written by `setup_interrupts` (main.s) and the loader |
+
+On m65 the two ZP buffers are not assembled (§ Design, *ZP swap on
+m65*).
 
 The `kernal_out` batch-banking flag is not owned here; it is one of the
 cross-module flags in `zp.s` ([zp.md](zp.md)).
@@ -141,7 +154,9 @@ cross-module flags in `zp.s` ([zp.md](zp.md)).
 view) take their range check and buffer index from these constants.
 
 **Depends on:** zp (`kernal_out`); linker symbols `__ZP_LAST__`,
-`__CODE_RUN__`; on m65 `src/m45_ops.inc` (the stub's `MAP`/`EOM`)
+`__CODE_RUN__`; on m65 `src/m45_ops.inc` (`MAP`, `EOM`, `LDZ`,
+`TAB`, `PLZ`, `PLY`, `PLX`) and `platform.inc` (`CSE_BP`, the two
+maps' operands).
 
 ## Design
 
@@ -200,12 +215,41 @@ c64 ([platform_layer.md § Constants](../platform_layer.md#constants))
 — so the first transition (before any userland has populated
 `userland_zp_buf`) doesn't restore zeros into the live CPU port.
 
-**On m65** the primitives are the same code: `$0000–$1FFF` is
-unmapped in both maps, so `$00`/`$01` are the CPU port and base page
-0 is the KERNAL's in both, and the DDR protocol above holds as on the
-C64 (M65Emu models the port with the C64's rule).  `B` is 0 at every
-transition; a private user base page is analysis task A2 of
-[TODO § M65 slice 2](../TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer).
+### ZP swap on m65
+
+The four primitives, their buffers and the seeds are not assembled on
+m65: CSE's zero page is its own base page, so the user's base page 0
+is never touched and there is nothing to swap — the transitions
+switch `B`, and the user's `B` travels in the interrupt frame
+([platform_layer.md § Base page](../platform_layer.md#base-page)).
+The m65 kernel never reaches the CPU port.  The user-ZP view of `m`
+and `.` reads base page 0 through far pointers instead of the buffers
+([repl.md](repl.md), *stated with P1*).
+
+### The resident stub
+
+CSE's only code in bank 0, at the top of CSE's base page; it is
+visible in both maps because `$0000–$1FFF` is unmapped in both
+([memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode)).
+
+    stub_brk    MAP CSE · EOM · B ← CSE_BP · JMP (stub_brk_target)
+    stub_nmi    MAP CSE · EOM · B ← CSE_BP · JMP (stub_nmi_target)
+    stub_cold   MAP CSE · EOM · B ← CSE_BP · JMP (stub_cold_target)
+    stub_user   MAP user · EOM · PLA TAB · PLZ · PLY · PLX · PLA · RTI
+    brk_stub    BRK + signature
+    targets     three words
+
+`MAP` takes its operands in A, X, Y and Z, and the register snapshot
+is in the data window, which the user map does not show — so
+`PLAT_TO_USER` pushes the user's registers and `stub_user` pulls them
+after the switch.  `brk_stub` is here, not in debugger.s as on c64,
+because a program's final `RTS` runs in the user map, which shows
+bank 0 but not CSE's code — as the KERNAL keeps its own `SYS` return
+path in page 3.  The targets are data written from above (main.s, the
+loader), so the stub holds no address of CSE's code and imports
+nothing from a higher layer.  It replaces the C64's
+`cse_brk_handler_early`, `bank_out_stub` and RAM shadows: on m65 the
+KERNAL is mapped in every map.
 
 ## Caveats
 

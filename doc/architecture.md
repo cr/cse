@@ -190,13 +190,11 @@ of the `dbg_reason` values.
    No module hosts a flag read by a *lower* layer.
 8. **All .s modules are self-contained** with explicit `.import`/
    `.export`.  No implicit-scope leakage.
-9. **Platform knowledge stays at the seams.**  The platform driver
-   layer ([platform_layer.md](platform_layer.md)) is a role of the
-   existing leaves — `platform.inc` (L0), mem and cse_io (L1), screen
-   (L2) — plus the entry and exit bodies of main and loader; no
-   other module names a machine address, a KERNAL cell or a
-   register, and a platform's body is selected by `.ifdef`, never
-   duplicated.
+9. **Platform knowledge stays at the seams**
+   ([platform_layer.md § The rule](platform_layer.md#the-rule)): a
+   role of the existing leaves — `platform.inc` (L0), mem and cse_io
+   (L1), screen (L2) — plus main's and loader's entry and exit
+   bodies.
 
 ## Calling Conventions
 

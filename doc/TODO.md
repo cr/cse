@@ -294,27 +294,40 @@ the screen and keyboard (P2).  Phase B and P3–P5 follow.
 
 ### Rulings (operator, 2026-11-17/18)
 
-- **Native, not GO64.**  The m65 build runs in MEGA65 mode, on BASIC
-  65 and the MEGA65 KERNAL.
+- **Native, not GO64.**  The m65 build runs in MEGA65 mode on the
+  MEGA65 KERNAL.  **ROM floor: 920413** (the stable release, 0.97); a
+  later beta becomes the floor only for a good reason.  No C65 ROMs
+  (2026-11-18).
 - **Distribution: PRG, D81 and a MEGA65-style CRT** per the
   MEGA65-style cartridge standard
   ([wiki, work in progress](https://mega65.atlassian.net/wiki/spaces/MEGA65/pages/36962324/MEGA65+Style+Cartridge+Work+in+Progress));
   the standard is in flux, we follow it.  The CRT has its own bank
   and is fully visible; it is a **32 K type-0 image**, raw.
-- **Home: the BASIC ROM banks.**  The loader copies the code into
-  the BASIC ROM area and lifts the ROM write protection first; the
-  24 K C65 BASIC bank holds the code, the 16 K graphics bank our
-  memory structures.  **Nothing under the KERNAL, no C64-style
-  banking tricks.**
-- **Leave the machine to the user's programs**: CSE tucks itself
-  away at the upper end so the user lives at the start; what is the
-  user's is stated, not implied.  A private base page and stack for
-  user programs (`B`, the 16-bit `SP`) is analysis task A2.
-- **The source text lives high up in bank 1**, growing down from
-  `1.F700`, relocatable — not in banks 4 and 5, which user programs
-  may want for bank-based double buffering.
+- **Home: the ROM banks.**  The loader lifts the ROM write
+  protection and installs the code in C65 BASIC's 24 K (`3.2000`) and
+  the data structures in BASIC's 16 K graphics bank (`3.8000`).
+  **Nothing under the KERNAL, no C64-style banking tricks.**
+- **The premise is a RUN-started program** (2026-11-18): user code
+  runs in the machine a BASIC 65 `SYS` gives — its map, registers,
+  stack and free memory — as closely as sensibly possible, and CSE
+  moves to where it least disturbs that: ROM banks 2–3 (C65 BASIC,
+  BASIC 65's graphics material, the C64-mode ROMs — nothing the
+  MEGA65-mode KERNAL uses) and one page of bank 0, `0.1F00`, BASIC
+  65's bitmap base page.  Bank 0 (with `0.1600–0.1EFF`), bank 1,
+  banks 4 and 5 and the Attic stay the user's.
+- **The source text lives in bank 2**, `2.4000–2.BFFF` (32 K), with
+  its base and ceiling as constants so it can move (2026-11-18).
+- **Cross-bank pointers are 32-bit** (D1, 2026-11-18): every pointer
+  that may reach memory outside the kernel's 16-bit view is a far
+  pointer — 4 bytes on m65, the bank set where the pointer is set;
+  CSE runs with its own base page (`0.1F00`, `B = $1F`) to hold
+  them, and calls the KERNAL with `B = 0` (`KCALL`).  No MAP windows:
+  `MAP`'s one offset per 32 K half is taken by the KERNAL (upper) and
+  bank 0 plus the code (lower).
+- **Inline platform sites are macros** (D2, 2026-11-18): their c64
+  expansion is today's code, so the C64 builds stay byte-identical.
 - **The ROM is RAM loaded by the Hypervisor**, not a shadow: quitting
-  (`Q`) ends in a Hypervisor reset.  No stash.
+  (`Q`) ends in a Hypervisor reset (`hyppo_reset`).  No stash.
 - **No exomizer on m65**; the PRG and the D81 ship raw.
 - **The KERNAL API, not its internals**: jump table and vector
   table only; full past-present-future KERNAL compatibility
@@ -345,7 +358,7 @@ xmega65 by the milestone that relies on it.
 | Document | Owns, for m65 |
 |---|---|
 | [platform_layer.md](platform_layer.md) | the seams and their contracts per platform; the no-literals rule; the gates |
-| [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) | the two maps, the banks, the stub, the install sequence, interrupts, exit; § Source Code Storage for bank 1 |
+| [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) | the run premise, the two maps, the banks, the stub's place, the installed machine, interrupts; § Source Code Storage for bank 2 |
 | [userland_contract.md](userland_contract.md) | what a user program owns and may rely on, per platform; what survives a run and `Q` |
 | [build_system.md § The m65 builds](build_system.md#the-m65-builds) | `PLATFORM=m65`, the defines, the linker layout per bank, the PRG, the D81, the CRT image, no exomizer, the m65 gates |
 | [testing.md](testing.md) | the m65 PRG fixture and Tier I on M65Emu, Tier X, the ROM versions the port is verified on, the byte-identical gate and the literal audit as tests |
@@ -358,7 +371,7 @@ xmega65 by the milestone that relies on it.
 
 **P0 — the build exists and boots to the cold vector.**
 
-Step-1 delta (what the documents will state):
+Step-1 delta, first round (2026-11-18; **superseded** where the second round below differs — kept as the record):
 - [x] [platform_layer.md](platform_layer.md): the rule, the seams, the
   c64 column in full, the m65 column for the memory, transition,
   vector, frame, cold-start/exit and loader seams.  (Written and approved
@@ -398,26 +411,108 @@ Step-1 delta (what the documents will state):
   no user-memory block copy; no cold-init ZP snapshot on m65; the
   quit command is `Q`, not `x`.
 
-**P0's CDD Analysis checks, besides doc against code** (each a
-recording or a trace in xmega65 before code is written against it):
-the MEGA65 KERNAL's use of base page 0 while CSE runs (P-Q4); that
-the KERNAL is content with `Z` = 0 at every call CSE makes and keeps
-it; `M65_MIN_ROM`, the oldest ROM the port is verified on; what the
-`$D640 ← $70` trap does to the protection, for M65Emu's model; that
-the interrupt entry's frame is A X Y Z B as the book says.
+**P0 analysis record (2026-11-18).**  Doc against code: an
+exhaustive inventory of the C64 code's platform sites (≈ 400 in 17
+modules), re-verified; the machine: probes in headless xmega65
+0870689e on ROMs 920413 and 920421 (Hyppo 1.2, HDOS 1.3), identical
+on both.  Recorded:
+
+- The `SYS` entry of a RUN-started PRG: `A X Y Z B` = 0, P = `$20`
+  (`E` = 1, `I` = 0), SP `$01EF` with a return into the KERNAL's page-3
+  `SYS` return path; map MAPLO `$E000` / MAPHI `$8300`; CPU port
+  `$FF`/`$85`; `$D030` = `$64`, so `$C000` is the interface ROM, which
+  the KERNAL needs (its default `IBRK` is there); 80 × 25 at `0.0800`,
+  40 MHz; `0.1600–0.1EFF` untouched.
+- The KERNAL's interrupt entry (identical bytes in both ROMs) pushes A
+  X Y Z B, sets `B = 0`, keeps the map, and jumps through
+  `$0314/$0316/$0318`; the frame is confirmed under both maps.
+- Base page 0: the IRQ writes nothing in it; CSE's call mix writes
+  only `$C2–$C5 $DA $E0 $E1 $E8 $E9 $EB $EC`; with `$02–$7F` patterned
+  results and screen are identical.  A private base page at `0.1F00`
+  (`B = $1F`) survives interrupts, and KERNAL calls work with `B = 0`
+  around them.
+- `Z`: any value is fine at a call; some calls change it.
+- Hypervisor services: `hyppo_getversion` 1.2; `hyppo_rom_writeenable`
+  enables writes to banks 2–3, idempotently (`$D640 ← $70` toggles);
+  `hyppo_reset` boots back to BASIC 65 with banks 2–3 reloaded, banks
+  0, 4, 5 kept, bank 1 cleared.
+- With `3.2000–3.CFFF`, `2.4000–2.BFFF` and `2.D000–2.FFFF` zeroed, the
+  IRQ, the call mix and ESC 4 / 5 / 8 behave identically.  (A first
+  attempt at this did not overwrite anything — the monitor's writes
+  respect the ROM protection — and was redone with the protection
+  lifted and the zeros verified.)
+- 920413 lacks `VERSIONQ`, `RESET_RUN`, `CURSOR`; it has every other
+  entry CSE uses.
+
+Doc corrections it forced (written in P0's second delta below): the
+c64 column (STOP never called, the real file-call list, `$EA31` and
+`$FCE2` the only internals, `TXTTAB` = `$0801`, `$0314` untouched, the
+missing cells and homes), 13 classes of site no seam covered, the
+user map's values and the `$C000` ROM, no `Z` invariant, the ROM
+floor and the Hypervisor services, the layout below.  Decisions: D1
+32-bit far pointers + CSE base page (no MAP windows), D2 macros, D3
+recording on 920413 through an SD clone (mtools).
+
+**Second delta round (2026-11-18)** — written and approved:
+- [x] [platform_layer.md](platform_layer.md) rewritten: the rule
+  (platform facts only in `platform.inc` or `.ifdef` blocks), the
+  corrected c64 column, new seams (KERNAL calls, Base page, Far
+  memory; the banking, terminal and display macros), the m65 column
+  as recorded, `P_KEEP` (P bit 5 is `E`), `brk_stub` in the stub.
+- [x] [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode):
+  the premise, the two maps as recorded, the bank table (CSE in banks
+  2–3 and `0.1F00`), the stub at `0.1FB0`, the install gate,
+  interrupts; § Source Code Storage (bank 2); § Target Compatibility
+  (920413).
+- [x] [build_system.md § The m65 builds](build_system.md#the-m65-builds)
+  (ROM floor, `STUB` and `ZEROPAGE` areas, non-segment regions),
+  [testing.md § The m65 PRG on M65Emu](testing.md#the-m65-prg-on-m65emu)
+  (per-ROM snapshots, the SD-clone ROM, the gate, the two modelled
+  Hypervisor services).
+- [x] [loader.md](modules/loader.md) (the gate, the six-step install),
+  [mem.md](modules/mem.md) (the stub and `brk_stub`, no ZP swap on
+  m65, `cse_start`/`cse_end` = `$C000`), [main.md](modules/main.md)
+  (`B`, `KCALL VECTOR`, the base-page fill, `hyppo_reset`),
+  [gap_buffer.md](modules/gap_buffer.md) (bank 2, far pointers),
+  [zp.md](modules/zp.md) (CSE's base page, `FAR_PTR`).
+- [x] [userland_contract.md § 3](userland_contract.md#3-memory-regions)
+  (the m65 regions and the run premise), [glossary.md](glossary.md),
+  [architecture.md](architecture.md) rule 9.
+- [x] A CDD Quality pass over the round (2026-11-18): two independent
+  readers (correctness and consistency; duplication, layering and
+  readability), each finding verified before it was fixed.  Fixed:
+  the `KCALL` base-page operand; tail calls (`KJMP`); banking macros
+  that compose byte-identically; the far-access clobbers; a false
+  `E`-flag hazard (`RTI` does not load `E`, recorded); the 80 × 50
+  screen in bank 4 (recorded: `$D062` = 4); one owner per fact —
+  routine bodies in the module docs, the stub in mem.md, the install
+  in loader.md, the premise and maps in memory_design.md, the
+  Hypervisor services, ROM floor and raw-byte list in
+  platform_layer.md, user rights and `Q` in userland_contract.md, the
+  far-pointer list in zp.md; c64-only statements in memory_design.md
+  scoped; the snapshot per ROM; terms defined in the glossary.
 
 Then: CDD Analysis and approval; TDD Analysis; the code, in this
 order — (1) the C64 build moved onto the seams as a pure refactor,
-byte-identical, under the full suite (the platform.inc constants,
-the `UMEM` macros on every user-memory site, `plat_*` in mem.s and
-main.s, `PLAT_SETBNK`, the `i` rows as a block, the literal audit);
+byte-identical, under the full suite, one commit per seam (Constants;
+KERNAL calls; Banking; Far memory; Base page; Terminal; Display;
+Vectors and frame; Cold start and exit; Disk bank; Info map; Loader;
+then the literal audit and the hash gate);
 (2) `src/m45_ops.inc` and its audit; (3) the m65 bodies of the
-memory seams, the stub and the loader; (4) the build target, the
-fixture, the Tier I and Tier X tests.  Gate: the m65 PRG reaches
-`_main` in M65Emu and xmega65 with the map, the stub and the ROM
+memory seams, the base page, the stub and the loader; (4) the build
+target, the fixtures and the 920413 snapshot, the Tier I and Tier X
+tests.  Gate: the m65 PRG reaches `_main` in M65Emu and xmega65, on
+920413 and 920421, with the map, the base page, the stub and the ROM
 protection as memory_design.md states; the C64 PRGs byte-identical.
 
 **P1 — running user code: maps, vectors, debugger.**
+
+Found by P0's analysis, for this delta: `brk_stub` moves to the
+resident stub; the user-ZP view of `m` and `.` reads base page 0
+through far pointers (no swap buffers on m65); `reg_z`, `reg_b` join
+the register snapshot and `r`.  (The C64 handlers' clearing of P bit
+5 — `E` on the 45GS02 — is harmless: `RTI` and `PLP` do not load
+`E`, recorded.)
 
 Step-1 delta:
 - [ ] [userland_contract.md](userland_contract.md) for m65 in full:
@@ -431,7 +526,7 @@ Step-1 delta:
   early entry on m65), [debugger.md](modules/debugger.md)
   (`save_userland_state` on `FRAME_DEPTH`, `return_to_userland`
   through `PLAT_TO_USER`), [breakpoints.md](modules/breakpoints.md)
-  (patching through the user-memory seam), [design_cse_as_kernel.md](design_cse_as_kernel.md)
+  (patching through the far-memory seam), [design_cse_as_kernel.md](design_cse_as_kernel.md)
   (the transitions in two-map terms).
 - [ ] [testing.md](testing.md): the lifecycle matrix on m65, the
   step and breakpoint suites on the m65 PRG, Tier X's BRK in user
@@ -478,12 +573,11 @@ Step-1 delta:
   `$8000` with the vectors, flags and magic at `$8000–$8009`, the
   payload DMA'd from the cartridge's bank, the `.CRT` writer in
   `dev/` following the draft format.
-- [ ] [main.md § Exit path](modules/main.md#exit-path): `Q` ending in the
-  Hypervisor reset.
 - [ ] [README.md](../README.md): starting from PRG, D81 and CRT; what
   `Q` does on the MEGA65.
-- [ ] [testing.md](testing.md): Tier X boots each format to the
-  prompt; `Q` returns to a working BASIC 65.
+- [ ] [testing.md](testing.md): Tier X boots the D81 and the cartridge
+  to the prompt (the PRG and `Q` are P0's); the disk calls through
+  CBDOS run with CSE's ROM-bank regions in use.
 
 **P4 — the CPU layer on the platform** = slice 1 Phase B (B1–B7,
 B4b, its prerequisite bugs), now with an m65 build to run on.  Its
@@ -491,8 +585,8 @@ deltas are slice 1's ([assembler_syntax.md](assembler_syntax.md),
 the CPU-layer module docs).
 
 **P5 — the contract closed:** the ROM versions the port is verified
-on (`M65_MIN_ROM` and the current one; the Open ROMs boot to C64 mode
-and cannot run the m65 build — [build_system.md § MEGA65 ROM](build_system.md#mega65-rom)) in Tier I; the
+on (920413, the floor, and the current one; the Open ROMs boot to C64
+mode and cannot run the m65 build — [build_system.md § MEGA65 ROM](build_system.md#mega65-rom)) in Tier I; the
 m65 size and cycle gates; every *stated with P<n>* resolved; the CDD
 Report.
 
@@ -507,11 +601,11 @@ Report.
   [platform_layer.md](platform_layer.md) that still says *stated
   with P<n>*.
 - [ ] **A2. Zero page and low memory** (after P1; changes the
-  userland contract).  Which of `0.0002–0.15FF` the KERNAL needs
-  while CSE runs, what CSE takes, what is granted to user programs;
-  and a private base page (`B` ≠ 0, `TAB`) and 16-bit stack (`E`
-  clear) for user programs — what it costs at every KERNAL call and
-  transition, what it buys.  Output: a delta to
+  userland contract).  Answered by P0's analysis: CSE's own base page
+  (`0.1F00`), base page 0 wholly the user's and the KERNAL's.  Still
+  open: which cells of base page 0 and `0.0200–0.15FF` the KERNAL
+  needs (a list for the user), and a private 16-bit stack (`E`
+  clear) for user programs — what it costs, what it buys.  Output: a delta to
   [userland_contract.md](userland_contract.md) and
   [zp.md](modules/zp.md).
 - [ ] **A3. The MEGA65 cartridge standard** (before P3): the wiki
@@ -522,20 +616,14 @@ Report.
 
 ### Open design items (settled by a milestone's analysis)
 
-- **P-Q1.** The source region's cap below `1.F700` and whether its
-  base is a build constant, an `i`-visible setting or a command
-  (P0's analysis; memory_design.md § Source Code Storage).
-- **P-Q2.** What a Hypervisor reset leaves in bank 0 (P1; the
-  userland contract's `Q` clause).
 - **P-Q3.** The `"m65"` magic's last byte (A3).
-- **P-Q4.** Whether the MEGA65 KERNAL leaves base page 0's `$02–$7F`
-  to CSE while CSE runs — its IRQ handler and every call CSE makes.
-  `JSRFAR` takes its parameters at `$02–$09` (book I-31), so BASIC 65's
-  base page is not the C64's.  If CSE's block collides with the
-  KERNAL's, CSE's variables move to a private base page (`B` ≠ 0),
-  with `B` = 0 around every KERNAL call — the KERNAL's interrupt
-  entry already saves `B` in its frame.  Settled in P0's analysis;
-  [zp.md](modules/zp.md) states the m65 layout only once it is.
+- **P-Q5.** Whether the source region's base is only a build constant
+  or also a run-time setting (the far pointers allow both).
+
+**Settled 2026-11-18:** P-Q1 (the source region: `2.4000–2.BFFF`,
+32 K), P-Q2 (after `Q`: banks 0, 4, 5 kept, bank 1 cleared, the
+source text gone), P-Q4 (CSE has its own base page; base page 0 is the
+user's).
 
 ### Stretch goal — CSE on the Open ROMs
 
@@ -549,11 +637,9 @@ no C65 jump table besides `PRIMM`.  Neither is a supported target
 today ([memory_design.md § Target Compatibility](memory_design.md#target-compatibility)).
 
 - [ ] **OR1. The C64 builds on the Open ROMs' C64 build.**  Which of
-  the KERNAL internals the C64 builds call directly (the platform
-  layer's c64 constants: `$EA31`, `$EA81`, `$FE43`, `$F8DA`, `$E544`,
-  `$E9D6`, `$FCE2`, `$F6ED`) and which KERNAL cells they touch (`$C6`,
-  `$CC`, `$D1`–`$D3`, `$D6`, `$F3`–`$F4`, `$91`, `$0291`) the Open
-  ROMs provide with the same meaning; the gaps become a ROM variant of
+  the KERNAL internals and cells the C64 builds use
+  ([platform_layer.md § Constants](platform_layer.md#constants), the
+  c64 column) the Open ROMs provide with the same meaning; the gaps become a ROM variant of
   the c64 column in [platform_layer.md](platform_layer.md) (a define
   beside `PLATFORM_C64`, not a fork).  Tier I: C64Emu on
   `kernal_mega.bin` runs the platform-neutral suites.
@@ -1488,6 +1574,15 @@ Stale against the code, by document (each item verified both ways):
 ## Bugs
 
 Open bugs, roughly ordered by priority.
+
+- [ ] **disk.s writes `$FD`/`$FE`, which the userland contract keeps
+  free.**  [userland_contract.md](userland_contract.md) § 2, § 3 and
+  § 7 promise that CSE never writes the C64's free cells `$FB–$FE`;
+  disk.s's private pointer is `ptr = $FD` (`str_setup` stores it),
+  outside the swapped `$00–$7F`, so a disk command clobbers the
+  user's `$FD`/`$FE`.  Found by the P0 quality pass, 2026-11-18.  Own
+  CDD cycle: move the pointer into CSE's ZP block (zp.s; the C64 builds
+  change, so not part of the byte-identical platform refactor).
 
 - [x] ~~**BUG** `m` dump line is not re-executable — cursor-up
   + RETURN on a memory-dump row logs `;?syntax`.~~  (v0.1-rc3

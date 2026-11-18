@@ -45,9 +45,10 @@ place); SP = `$FF`.
 and `jmp main_loop_top`.
 **Clobbers:** everything.
 
-**On m65:** reached from `stub_cold` under the CSE map, after the
-loader's install ([loader.md](loader.md)); SP = `$FF`, `B` = 0,
-`Z` = 0.  Same sequence, with the per-step differences of § Layer 1.
+**On m65:** reached from the resident stub's cold entry under the CSE
+map, after the loader's install ([loader.md](loader.md)); SP = `$FF`,
+`B = CSE_BP`, interrupts off.  Same sequence, with the per-step
+differences of § Layer 1.
 
 ### setup_interrupts
 **In:** none
@@ -67,11 +68,12 @@ under the KERNAL regardless of `$01`.
 | IRQ/BRK shadow | $FFFE/$FFFF | `cse_brk_handler_early` (KERNAL-out entry) |
 
 **On m65:** **In:** interrupts disabled (the caller's `sei`).
-**Out:** the KERNAL's vector table read with `VECTOR`, `IBRK` (offset
-2) → `stub_brk`, `INMI` (offset 4) → `stub_nmi`, the table written
-back with `VECTOR`; the stub's target words `stub_brk_target` →
-`cse_brk_handler`, `stub_nmi_target` → `cse_nmi_handler`.  `IIRQ`
-untouched; no RAM shadows (the KERNAL is mapped in every map).
+**Out:** the KERNAL's vector table read with `KCALL VECTOR` into the
+data window, `IBRK` (offset 2) → `stub_brk`, `INMI` (offset 4) →
+`stub_nmi`, the table written back with `KCALL VECTOR`; the stub's
+target words `stub_brk_target` → `cse_brk_handler`, `stub_nmi_target`
+→ `cse_nmi_handler`.  `IIRQ` untouched; no RAM shadows (the KERNAL is
+mapped in every map).
 **Clobbers:** A, X, Y, Z ([platform_layer.md § Vectors](../platform_layer.md#vectors)).
 
 ### cse_brk_handler
@@ -84,12 +86,16 @@ break → `restore_userland_state` (step chain) or `handler_finalize`
 **Clobbers:** everything; live ZP $00–$7F becomes the kernel's
 again.
 
+**On m65:** *stated with P1* ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame), § Banking).
+
 ### cse_nmi_handler
 **In:** entered via $0318 (KERNAL in, after $FE43) or $FFFA (KERNAL
 out): SP+1..SP+3 = P, PCL, PCH; A/X/Y live.
 **Out:** does not return.  Kernel mode → `cse_refresh`; userland →
 `handler_finalize` with `dbg_reason = DBG_NMI`.
 **Clobbers:** everything.
+
+**On m65:** *stated with P1* ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame), § Banking).
 
 ### cse_brk_handler_early
 c64 only (`.ifdef PLATFORM_C64`; [platform_layer.md § IRQ early
@@ -117,8 +123,8 @@ in kernel code (`in_userland = 0`).
 `hw_reinit_body`, `end_debug_body`, `refresh_body`, then
 `main_loop_top`.  A second entry before the first finished
 (`warm_guard`) jumps to the platform's cold-start fallback,
-`PLAT_COLD_START` — the KERNAL cold start `$FCE2` on c64, `RESET_RUN`
-A=1 on m65 ([platform_layer.md § Cold start and exit](../platform_layer.md#cold-start-and-exit)).
+`PLAT_COLD_START` — the KERNAL cold start `$FCE2` on c64,
+`hyppo_reset` on m65 ([platform_layer.md § Cold start and exit](../platform_layer.md#cold-start-and-exit)).
 **Clobbers:** everything.
 
 ### cse_end_debug
@@ -148,6 +154,8 @@ table); `reset_globals` (`state = ST_REPL`, `cur_addr = $0800`,
 
 Caller: `cse_recover`.
 
+**On m65:** *stated with P1* ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame), § Banking).
+
 ### end_debug_body
 **In:** none
 **Out:** the debug session is gone: `unpatch_all` (every patched
@@ -170,6 +178,8 @@ column 0, that row cleared.
 **Clobbers:** A, X, Y.
 
 Callers: `cse_recover`, `cse_refresh`.
+
+**On m65:** *stated with P1* ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame), § Banking).
 
 ### main_loop_top
 **In:** any SP the caller set (§ Longjmp SP convention).
@@ -264,7 +274,9 @@ by earlier steps, with no hidden cross-subsystem reach-ins.
 | 2 | absent: quitting is a Hypervisor reset, so BASIC's ZP is never restored and `COLD_ZP` does not exist |
 | 3 | absent: no BASIC ROM to unmap — the CSE map is in place since `stub_cold` |
 | 4 | `setup_interrupts`' m65 body (Interface above) |
-| 11 | `$00` over the user region `0.2000–0.CFFF` by one DMA fill job (this wipes the PRG image and the loader, as on the C64) |
+| 5 | `dbg_init` without the CPU-port seeds: there are no ZP save buffers ([mem.md § ZP swap on m65](mem.md#zp-swap-on-m65)) |
+| 10 | the free part of CSE's base page (from `cse_zp_end`) is filled; base page 0, the user's, is not touched |
+| 11 | `$00` over the program region (`PROG_LO`–`PROG_HI`) by one DMA fill job (this wipes the PRG image and the loader, as on the C64) |
 | 12, 14 | the screen and the `i` rows of the m65 bodies — *stated with P2* |
 
 The order is load-bearing.  `_main` must reach `main_loop_top`
@@ -482,12 +494,12 @@ restored from it, then `$01`; `cli`; `$0800 = 0` (the byte before
 BASIC's program start, so the program link chain is clean); CINT
 (`$FF81`); `jmp ($A002)` (BASIC warm start).
 
-**On m65:** `cse_exit_to_basic` is `RESET_RUN` with A=1, a Hypervisor
-reset: the Hypervisor reloads the ROM banks CSE overwrote and the
-KERNAL boots to BASIC 65's READY prompt.  Nothing is restored by
-hand — no vectors, no ZP, no CPU port.  What of bank 0 survives the
-reset is open item P-Q2; the userland contract promises nothing
-across `Q` ([platform_layer.md § Cold start and exit](../platform_layer.md#cold-start-and-exit)).
+**On m65:** `cse_exit_to_basic` is `hyppo_reset`
+([platform_layer.md § Constants](../platform_layer.md#constants)):
+the Hypervisor reloads the ROM banks CSE took and the KERNAL boots to
+BASIC 65's READY prompt.  Nothing is restored by hand — no vectors,
+no ZP, no CPU port.  What a user may expect afterwards is
+[userland_contract.md § 3](../userland_contract.md#3-memory-regions)'s.
 
 ## Keyboard
 

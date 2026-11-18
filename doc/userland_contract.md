@@ -167,34 +167,51 @@ port: see § 5.3.
 
 ### On m65
 
-The m65 build leaves bank 0 to the user's program and keeps itself
-in the BASIC ROM banks and bank 1
-([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)).
-User code runs in the *user map* — the machine a `SYS` from BASIC 65
-gives: bank 0 RAM to `$CFFF`, I/O at `$D000`, the KERNAL at `$E000`.
+A program run under CSE on the MEGA65 finds the machine a BASIC 65
+program finds when `RUN` starts it — the *run premise* of
+[memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) —
+as far as CSE can leave it so: the KERNAL's `SYS` map, an 8-bit
+stack in page 1, and all memory the KERNAL does not use, except CSE's
+one page in bank 0.
 
 | Region | Address | User code may use |
 |--------|---------|-------------------|
-| Base page 0 | `0.0000–0.00FF` | as on the C64 (`$00–$7F` the user's, swapped at every transition) — subject to open item P-Q4, settled with P0 |
+| Base page 0 | `0.0000–0.00FF` | Yes — CSE never touches it; the KERNAL's own cells in it stay the KERNAL's, as for a program started from BASIC |
 | Stack page | `0.0100–0.01FF` | § 4 |
-| KERNAL variables, screen | `0.0200–0.15FF` | **No** — the MEGA65 KERNAL's (screen at `0.0800`); only through the KERNAL's jump table |
-| Resident stub | `0.1600` – the stub's end | **No** — CSE's only code in bank 0; overwriting it breaks every break and return |
-| Free | the stub's end – `0.1EFF` | Yes |
-| Free if no bitmap graphics | `0.1F00–0.1FFF` | Yes (BASIC 65's graphics base page; CSE does not use it) |
-| Workspace | `0.2000–0.CFFF` | Yes — the user's; CSE writes it only when asked (`a`, `m`, `.`, `l`).  `workstart` = `$2000`, `workend` = `$CFFF` |
+| KERNAL variables, screen | `0.0200–0.15FF` | **No** — the MEGA65 KERNAL's (the screen at `0.0800` in 40 × 25 and 80 × 25); only through the KERNAL's jump table |
+| Free for programs | `0.1600–0.1EFF` | Yes — untouched by CSE |
+| CSE's page | `0.1F00–0.1FFF` | **No** — CSE's base page and resident stub; overwriting it breaks every break and return |
+| Program region | `0.2000–0.BFFF` | Yes — the user's; CSE writes it only when asked (`a`, `m`, `.`, `l`).  `workstart` = `$2000`, `workend` = `$BFFF` |
+| Interface ROM | `$C000–$CFFF` | **No** — the KERNAL needs it there |
 | I/O | `$D000–$DFFF` | Yes |
-| KERNAL | `$E000–$FFFF` (→ `3.E000`) | **No** — must stay mapped for interrupts (§ 5) |
+| KERNAL | `$E000–$FFFF` | **No** — must stay mapped while interrupts can occur |
+| RAM behind ROM, I/O and KERNAL | `0.C000–0.FFFF` | Yes, through flat access or `MAP` — CSE does not use it |
 | DOS buffers | `1.0000–1.1FFF` | **No** — the KERNAL's |
-| Source text | `1.2000–1.F6FF` | **No** — the editor's buffer |
+| Bank 1 | `1.2000–1.F6FF` | Yes — free when a program is `RUN` from BASIC 65; CSE never touches it |
 | Colour RAM window, reserved | `1.F700–1.FFFF` | through the screen only |
-| ROM | `2.0000–2.FFFF` | **No** |
-| CSE | `3.0000–3.FFFF` | **No** — CSE's code and data, and the KERNAL |
-| Banks 4, 5, Attic RAM | `4.0000–5.FFFF`, `800.0000`+ | Yes — CSE never touches them (bitmap and double buffering are the user's) |
+| ROM banks | `2.0000–3.FFFF` | **No** — CBDOS, the interface ROM, the KERNAL, and CSE's code, data and source text |
+| Banks 4, 5 | `4.0000–5.FFFF` | Yes — CSE never touches them (bitmaps, double buffering); in 80 × 50 the KERNAL's screen is at `4.0800–4.179F` |
+| Attic RAM | `800.0000`+ | Yes — CSE never touches it |
 
-The stub's end is a link-time value; `i` shows it.  What survives a
-quit (`Q` is a Hypervisor reset) is nothing this contract promises.
-The rest of the m65 contract — state tiers, the stack, the vector
-and map hazards — is stated with P1 of
+**A run starts as `RUN` starts a program:** in the `SYS` map, with
+the registers `r` shows (initially `A X Y Z B` = 0 and P = `$20`: the
+8-bit stack, interrupts on), and a return address on the stack that
+the program's final `RTS` takes back to CSE — to `brk_stub` in CSE's
+page, as BASIC's `SYS` returns through the KERNAL's page 3.  The
+KERNAL's vectors differ from BASIC's in one way: BRK and NMI lead to
+CSE's debugger.  BASIC 65 itself is gone while CSE runs; a program
+that calls into BASIC 65's ROM code does not work under CSE.
+
+**Zero page.**  `m` and `.` on `$00–$FF` show and edit base page 0
+itself: there is no swapped image on m65 — *stated with P1*.
+
+**Quitting (`Q`)** is a Hypervisor reset.  This contract promises
+nothing across it; the source text is lost (CSE warns when it is
+unsaved).  Observed, not promised: banks 0, 4 and 5 keep what they
+hold, bank 1 is cleared.
+
+The rest of the m65 contract — the state tiers, the stack, the
+vector and map hazards — is stated with P1 of
 [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer).
 
 ## 4. Stack contract

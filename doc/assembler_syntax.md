@@ -221,7 +221,7 @@ current address when `a` runs (`$0800` after start-up; set it with
 **Output stays in the workspace.**  Every byte the assembler emits —
 instructions and data directives alike — must land in the workspace,
 `workstart` ≤ address ≤ `workend` (`$0800` up to the byte below the
-source text; [memory_design.md § Memory Map](memory_design.md#memory-map--runtime-all-targets)),
+source text; [memory_design.md § Memory Map](memory_design.md#memory-map--runtime-c64-builds)),
 the same range the breakpoint gate accepts.  A byte outside it (CSE's
 own code above the source, I/O, the RAM under the KERNAL, zero page,
 or past `$FFFF`) is not written, and its line reports `;?N: range`

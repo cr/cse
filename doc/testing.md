@@ -300,12 +300,16 @@ models none of them either.
   then `$00`).
 
 The hypervisor (`$D640`–`$D67F`) and the floppy controller (`$D080`)
-are not modelled: a test that needs them is Tier X.
+are not modelled — except the two Hypervisor services the m65 loader
+uses ([§ The m65 PRG on M65Emu](#the-m65-prg-on-m65emu)): a test that
+needs anything else of them is Tier X.
 
 **Starting state.**  M65Emu does not emulate the boot.
-`dev/capture_m65_state.py` (run by hand; about 25 s) boots xmega65 to
-the BASIC 65 prompt, stops the CPU in trace mode and reads, over
-uartmon, a post-boot state into `build/m65_state/`:
+`dev/capture_m65_state.py` (run by hand; about 25 s) boots xmega65 on
+a given MEGA65 ROM to the BASIC 65 prompt, stops the CPU in trace mode
+and reads, over uartmon, a post-boot state into
+`build/m65_state/<ROM version>/` — one snapshot per ROM M65Emu is
+checked on:
 
 - `chip.bin` (384 KB, the ROM image included), `colour.bin` (32 KB),
   `io.bin` (the I/O page `$D000`–`$D7FF` in VIC-IV mode; not the
@@ -521,34 +525,45 @@ What the m65 build's Tier I and Tier X tests rest on (planned, P0 of
 The installed machine they check is
 [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode).
 
+- **ROMs.**  The m65 Tier I suite runs on each post-boot snapshot:
+  the ROM floor ([platform_layer.md § Platforms and defines](platform_layer.md#platforms-and-defines))
+  and the ROM xmega65 ships.  Tier X, and the snapshot recorder, boot
+  xmega65 on a wanted ROM by putting it on the session's SD clone
+  (`mcopy` into the FAT partition) and starting with `-romfromsd`; the
+  user's xmega65 data directory is never changed.
 - **Fixtures.**  `cse_m65_prg` (the debug m65 PRG with its map and
   labels) and `cse_m65_release_prg`, built by `make debug
   PLATFORM=m65` / `make release PLATFORM=m65` on the same freshness
-  rule as the C64 fixtures; skipped with the reason when the
-  post-boot snapshot is absent (it holds the ROM and is never
-  committed).
+  rule as the C64 fixtures; skipped with the reason when a snapshot is
+  absent (they hold the ROM and are never committed).
 - **The loader runs for real** (`tests/integration/test_loader.py`,
   as for the C64 builds).  The PRG is placed at `$2001` in the
-  post-boot state, the `SYS 8205` entry is taken with the KERNAL's
-  `SYS` map, and the real `loader_entry` runs until `_main`'s first
-  instruction.  Then: `3.2000` holds the CODE + RODATA image, the
-  data bank holds KDATA and a cleared BSS, `0.1600` holds the stub
-  with `_main` in its cold target, the ROM write protection is off,
-  and MAPLO / MAPHI are `$E300` / `$B300`.
+  post-boot state and entered with the run premise, and the real
+  `loader_entry` runs until `_main`'s first instruction; the machine
+  must then be the installed machine of memory_design.md, field by
+  field.  A machine failing the loader's gate
+  ([loader.md § Design](modules/loader.md#design)) is refused with
+  nothing written.
 - **`load_prg()` and `init_cse()`** put the m65 PRG into that same
-  installed state from Python — the code image into bank 3, the
-  stub into `0.1600`, the map — so other Tier I tests start there
+  installed state from Python, so other Tier I tests start there
   without running the loader; the loader test proves the two equal,
   as it does for the C64's `_relocate_segments()`.
-- **The Hypervisor trap the loader uses.**  M65Emu models no
-  Hypervisor, except the one trap the install needs: a write of
-  `$70` to `$D640` toggles the ROM write protection of banks 2–3.  The
-  Tier X boot test records the protection state after the trap in
-  xmega65, and the model follows that recording.
-- **Tier X, boot.**  xmega65 starts the PRG through `-prg` in MEGA65
-  mode and stops at a `uartmon` breakpoint on `_main`; the test reads
-  the map, the stub and the protection state and compares them with
-  the Tier I loader test's.  The D81 and the cartridge join with P3.
+- **The Hypervisor services the loader uses**
+  ([platform_layer.md § Constants](platform_layer.md#constants)):
+  M65Emu models `hyppo_getversion` (answering Hyppo 1.2, HDOS 1.3, as
+  recorded) and `hyppo_rom_writeenable`.  `hyppo_reset`, which ends a
+  session, is Tier X only.
+- **Tier X, boot and quit.**  xmega65 starts the PRG through `-prg`
+  and stops at a `uartmon` breakpoint on `_main`; the test reads the
+  map, the stub, the base page and the protection state and compares
+  them with the Tier I loader test's.  `Q` ends in BASIC 65 at READY
+  with banks 2–3 reloaded.  The D81 and the cartridge join with P3.
+- **The recordings behind the m65 column.**  The P0 analysis probes
+  (entry state, base page, `Z`, the frame, the maps, the Hypervisor
+  services, the regions CSE takes, all on both ROMs) become committed
+  recorders and golden files under the existing regime
+  ([§ M65Emu](#m65emu--the-m65-integration-harness)) when the tests
+  that rely on them land.
 
 ## The TDD Method
 

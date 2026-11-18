@@ -31,7 +31,7 @@
 | [`tests/m65emu/`](../tests/m65emu/) | implementation — M65Emu, the m65 harness: `MPU45GS02` (`mpu45gs02.py`), its decode table from the compendium fixture (`isa.py`), the CPU golden-file format (`golden.py`), `M65Memory` (`memory.py`), the devices — DMA controller, keyboard queue, CIA1 matrix port, VIC interrupt latch, CIA2 interrupt control (`devices.py`) —, the `M65Emu` harness and its snapshot loading (`harness.py`) ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)) |
 | [`tests/xmega65.py`](../tests/xmega65.py) | implementation — the xmega65 driver (headless start on a cloned SD image, uartmon commands) for Tier X and the M65Emu recordings |
 | [`dev/capture_m65_golden.py`](../dev/capture_m65_golden.py) | implementation — records `m65_cpu.json` in xmega65 |
-| [`dev/capture_m65_state.py`](../dev/capture_m65_state.py) | implementation — records M65Emu's post-boot snapshot and its reference runs from xmega65 into `build/m65_state/`, refusing a booted ROM other than `rom/mega65.rom` (run by hand; holds the ROM, never committed) |
+| [`dev/capture_m65_state.py`](../dev/capture_m65_state.py) | implementation — records M65Emu's post-boot snapshot for a given ROM and its reference runs from xmega65 into `build/m65_state/<ROM>/`, refusing a booted ROM other than the one given (default `rom/mega65.rom`) (run by hand; holds the ROM, never committed) |
 | [`dev/capture_m65_dma.py`](../dev/capture_m65_dma.py) | implementation — records `m65_dma.json` (DMA jobs as xmega65 runs them) |
 | [`dev/capture_m65_latches.py`](../dev/capture_m65_latches.py) | implementation — records `m65_latches.json` (the `$D019` and `$DD0D` interrupt latches as xmega65 shows them) |
 | [`dev/capture_m65_mem.py`](../dev/capture_m65_mem.py) | implementation — records `m65_mem.json` (the CPU view's translation per banking state) in xmega65 |
@@ -362,7 +362,7 @@ python`), `PYTEST` (`pipenv run pytest`), `VICE` (`x64sc`), `C1541`,
                           test bundles (`conftest.Bundle`, built with -g;
                           list in testing.md § conftest bundles)
       <module>_<tag>.o    their objects
-      m65_state/          M65Emu's post-boot snapshot (dev/capture_m65_state.py)
+      m65_state/<ROM>/    M65Emu's post-boot snapshots, one per ROM (dev/capture_m65_state.py)
 
 PRG names are the same in both profiles — the `release/` vs `debug/`
 directory disambiguates.
@@ -442,7 +442,9 @@ until then `PLATFORM=m65` with a PRG target is refused.
 ### The m65 builds
 
 The m65-45gs02 build is a native MEGA65 program: it runs in MEGA65
-mode, on BASIC 65 and the MEGA65 KERNAL — not in GO64.  Where its
+mode on the MEGA65 KERNAL, within the ROM floor of
+[platform_layer.md § Platforms and defines](platform_layer.md#platforms-and-defines)
+— not in GO64.  Where its
 parts live at run time is [memory_design.md § Memory Map —
 m65](memory_design.md#memory-map--m65-mega65-mode); how its
 platform bodies are selected is [platform_layer.md](platform_layer.md).
@@ -456,12 +458,9 @@ selects ca65's string translation to PETSCII, which MEGA65 mode
 shares, and cse sets its CPU with `.setcpu` in every module.
 
 **Clean 6502 code.**  Every module is assembled with
-`.setcpu "6502"`.  A 45GS02-only instruction the platform layer
-needs — `MAP`, `EOM`, the DMA trigger, flat access through
-`[zp],Z`, the `Z` register — is written as raw bytes by a macro from
-`src/m45_ops.inc`, the one place that encodes them.  An audit test
-refuses a 45GS02-only opcode emitted anywhere else
-([testing.md § Tier U](testing.md#tier-u--unit-module--linking-down)).
+`.setcpu "6502"`; the 45GS02-only instructions the platform bodies
+need are raw bytes from `src/m45_ops.inc`
+([platform_layer.md § Raw-byte instructions](platform_layer.md#raw-byte-instructions)).
 
 **Segments and the linker config** (`src/m65_cse.cfg.in`): one
 MEMORY area per place the code runs, each bounded by its region's
@@ -472,18 +471,23 @@ neighbour:
 |---|---|---|---|---|
 | `LOADADDR`, `EXEHDR` | `$2001` | bank 0, the PRG image | — | the file |
 | `LOADER` | `$200D` | bank 0, the PRG image (discarded) | — | the file |
-| `STUB` | `$1600` | `0.1600` | `$0900` (to `0.1EFF`) | the file, copied by the loader |
+| `STUB` | `$1FB0` | `0.1FB0` | `$0050` (to `0.1FFF`) | the file, copied by the loader |
 | `CODE`, `RODATA` | `$2000` | `3.2000` | `$6000` (24 K) | the file, DMA'd by the loader |
-| `KDATA` | `$8000`+ | `3.8000` | inside the data bank | the file, DMA'd by the loader |
-| `BSS` (incl. the former KBSS) | after `KDATA` | `3.8000` | the rest of `$4000` (16 K) | cleared by the loader |
-| `ZEROPAGE` | `$02` | base page 0 | as on the C64 ([zp.md](modules/zp.md)) | — |
+| `KDATA` | `$8000`+ | the data window `3.8000` | inside the window | the file, DMA'd by the loader |
+| `BSS` (incl. the C64's KBSS) | after `KDATA` | the data window | the rest of `$4000` (16 K) | cleared by the loader |
+| `ZEROPAGE` | `$00` (base-page offsets) | CSE's base page `0.1F00` (`B = $1F`) | `$00B0` (to `0.1FAF`) | cleared by the loader |
+
+The source region (`2.4000–2.BFFF`) and the reserves (`2.D000–2.FFFF`,
+`3.C000–3.CFFF`) are not segments: they hold nothing at load time and
+are reached through far pointers.
 
 There is no two-pass layout on m65 (`compute_layout.py` is the C64
 builds' runtime-start computation): every run address is fixed by
 the region it lives in.  The C64's KBSS under the KERNAL (symbol
 table, name heap, REPL screen save; the cold-init ZP snapshot has no
-m65 counterpart) is
-ordinary BSS of the data bank on m65.
+m65 counterpart) is ordinary BSS of the data window on m65, and CSE's
+zero page is the same layout as the C64's with each far pointer
+widened to 4 bytes ([zp.md](modules/zp.md)).
 
 **Load and start.**  The PRG loads at `$2001`.  Its BASIC 65 stub
 (`SYS 8205`) starts the loader at `$200D`, which installs the stub,
@@ -582,7 +586,7 @@ the spirit of the golden files:
   acceptance gate 1); moving the C64 builds onto the platform layer
   leaves them byte-identical ([platform_layer.md § Gates](platform_layer.md#gates)).
 - **The m65 build** joins `BUDGET` with its first measured PRG; its
-  code bank and data bank are bounded by the linker as well
+  code window and data window are bounded by the linker as well
   ([§ The m65 builds](#the-m65-builds)).
 
 `tests/fixtures/golden/m65_cpu.json` records the 45GS02 as xmega65
@@ -730,10 +734,12 @@ prints its version (`V920421` …, at offset `$16`); it exits non-zero,
 listing the places searched, when there is none.  The xmega65 driver finds
 the SD image (`mega65.img`) in the same directory.
 
-M65Emu takes its ROM from the post-boot snapshot, not from this
-file; `dev/capture_m65_state.py` runs the discovery first and
-refuses to record when the ROM xmega65 booted differs from
-`rom/mega65.rom`, so the snapshot's ROM is always the one in `rom/`.
+M65Emu takes its ROM from a post-boot snapshot, not from this file.
+`dev/capture_m65_state.py` records one snapshot per ROM it is given —
+by default `rom/mega65.rom`, after the discovery — booting xmega65 on
+it through the session's SD clone, and refuses to record when the ROM
+xmega65 booted differs from the one given
+([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
 
 `rom/mega65_open.rom`, the MEGA65 build of the Open ROMs — the
 project's only MEGA65 image — is committed next to it, pinned to an

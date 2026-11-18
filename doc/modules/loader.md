@@ -28,32 +28,44 @@ not by name.
 
 **On m65** (one entry, its body by `.ifdef PLATFORM_M65`;
 [platform_layer.md § Loader](../platform_layer.md#loader)):
-**In:** BASIC 65 has just `SYS 8205`-jumped here (the BASIC 65 stub at
-`$2001`; `loader_entry` at `$200D`), under the KERNAL's `SYS` map:
-`$2000–$7FFF` bank 0 RAM, the KERNAL at `$E000`, `B` = 0, `Z` = 0.
-**Out:** on a ROM older than the one the port is verified on
-(`VERSIONQ` below `M65_MIN_ROM`, a [platform constant](../platform_layer.md#constants)):
-prints `cse needs a newer MEGA65 ROM` through `PRIMM` and returns to
-BASIC with nothing changed.  Otherwise does not return: the machine
-is installed as [memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode)
-states — the stub at `0.1600` with `_main` in its cold target, CODE +
-RODATA at `3.2000`, KDATA in the data bank and its BSS cleared, the
-ROM write protection off — and control is in `_main` under the CSE
-map, reached through `stub_cold`.
-**Clobbers:** A, X, Y, Z; SP (reset to `$FF`); the base-page pointers
-the DMA jobs use; the DMA registers; the LOADER segment's memory,
-which `_main` leaves to the user.
+**In:** the run premise: the `SYS` line at `$2001` (`SYS 8205`) has
+just entered here, `$200D`
+([memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode)).
+**Out:** on a machine without what CSE uses (§ Design, step 1):
+prints `cse needs MEGA65 ROM 920413+ (Hyppo 1.2+)` through `CHROUT`
+and returns to BASIC with nothing changed.  Otherwise does not
+return: the machine is installed — memory_design.md § Memory Map —
+m65, *The installed machine* — and control is in `_main`, reached
+through the resident stub's cold entry.
+**Clobbers:** A, X, Y, Z, B; SP (reset to `$FF`); the DMA registers;
+the LOADER segment's memory, which `_main` clears with the rest of
+the program region.
 
 **State:** none — the loader runs once and is overwritten.
 **Depends on:** main (`_main`) — the loader's final `jmp` target after
 relocation is complete (on m65: the address it writes into the
 stub's cold target); on m65 also mem (the `STUB` segment's image,
-which it copies to `0.1600`, and `stub_cold`), the KERNAL's
-`VERSIONQ` and `PRIMM`, and `src/m45_ops.inc`; plus the
+which it copies to `STUB_BASE`, and `stub_cold`), the Hypervisor's
+`hyppo_getversion` and `hyppo_rom_writeenable`
+([platform_layer.md § Constants](../platform_layer.md#constants)),
+the KERNAL's `CHROUT`, and `src/m45_ops.inc`; plus the
 linker-supplied symbols
 `__CODE_LOAD__`, `__CODE_RUN__`, `__CODE_SIZE__`, `__RODATA_SIZE__`,
 `__BSS_RUN__`, `__BSS_SIZE__`, `__KDATA_LOAD__`, `__KDATA_RUN__`,
 `__KDATA_SIZE__`.
+
+## Test contract
+
+- **c64.**  Tier I, `test_loader.py`: the unrelocated PRG of each C64
+  build is put in memory and the real `loader_entry` runs up to its
+  `jmp _main`; every relocated segment must equal what
+  `EmuBase._relocate_segments()` (the Python relocation every other
+  Tier I test loads through) produces, and the BSS must be zeroed.
+  Unit-tier isolation would need synthesised linker symbols and is
+  not productive ([testing.md § Principle 9](../testing.md), Pattern A).
+- **m65.**  The same test file on the m65 PRG, entered with the run
+  premise, checked against the installed machine; and the gate's
+  refusal — [testing.md § The m65 PRG on M65Emu](../testing.md#the-m65-prg-on-m65emu).
 
 ## Design
 
@@ -90,45 +102,32 @@ copy is always safe under this layout.  See
 `zp.s`'s `rp_ptr` / `rp_ptr2`, but the loader runs strictly before
 `_main` so there is no temporal conflict.
 
-**Test coverage.**  Tier I, `test_loader.py`: the unrelocated PRG
-of each C64 build is put in memory and the real `loader_entry` runs
-up to its `jmp _main`; every relocated segment must equal what
-`EmuBase._relocate_segments()` (the Python relocation every other
-Tier I test loads through) produces, and the BSS must be zeroed.
-Unit-tier isolation would need synthesised linker symbols and is not
-productive ([testing.md § Principle 9](../testing.md), Pattern A).
-
 **The m65 sequence** (LOADER at `$200D`, load = run, inside the PRG
 image in bank 0):
 
-1. `VERSIONQ`; below `M65_MIN_ROM`, `PRIMM` the message and `rts` to
-   BASIC — before anything is written.
-2. Assert the MEGA65 I/O personality (`$D02F ← $47, $53`; BASIC 65
-   already runs in it, so this is defensive).
-3. Reset the stack pointer to `$FF`.
-4. Copy the `STUB` image to `0.1600` and write `_main`'s address into
-   its cold target.
-5. Lift the ROM write protection (Hypervisor trap `$D640 ← $70`,
-   then `CLV`).
-6. One DMA job list: CODE + RODATA image → `3.2000`, KDATA image →
-   the data bank, BSS → zero.  The job list is data in the LOADER
+1. The gate, before anything is written: `hyppo_getversion` reports
+   Hyppo 1.2 or later, and every jump-table entry CSE calls
+   ([platform_layer.md § Constants](../platform_layer.md#constants))
+   holds `$4C` or `$6C`.  Otherwise the message through `CHROUT`, and
+   `rts` to BASIC.  The gate checks capabilities, not a ROM version
+   number (ROM 920413, the floor, has no `VERSIONQ`).
+2. `sei`; reset the stack pointer to `$FF`.
+3. Copy the `STUB` image to `STUB_BASE`; clear CSE's base page;
+   write `_main`'s address into the stub's cold target.
+4. `hyppo_rom_writeenable`: banks 2–3 writable.
+5. One DMA job list: CODE + RODATA image → `3.2000`, KDATA image →
+   the data window, BSS → zero.  The job list is data in the LOADER
    segment.
-7. `jmp stub_cold`, which `MAP`s the CSE map and jumps to `_main`.
-   The loader does not execute the `MAP` itself: it runs in the
-   `$2000–$7FFF` window the CSE map replaces.
+6. `jmp stub_cold`, which `MAP`s the CSE map, sets `B = CSE_BP` and
+   jumps to `_main` (its `EOM` leaves the I flag as `sei` left it;
+   `_main` enables interrupts).  The loader does not execute the `MAP`
+   itself: it runs in the `$2000–$7FFF` window the CSE map replaces.
 
 The m65 body does the C64 body's work (relocate, clear BSS, place
 KDATA) with the platform's means; the two share the entry, the
 contract shape and this document.  The cartridge bootstrap is the
 same body assembled with `PLAT_CRT`, reading its images from the
 cartridge's bank instead of the PRG (*stated with P3*).
-
-**m65 test coverage.**  Tier I, `test_loader.py` on the m65 PRG: the
-real `loader_entry` runs from the `SYS 8205` entry state until
-`_main`'s first instruction, and the installed machine is checked
-against memory_design.md; a ROM below `M65_MIN_ROM` is refused with
-nothing written.  Tier X boots the PRG in xmega65 to the same point
-([testing.md § The m65 PRG on M65Emu](../testing.md#the-m65-prg-on-m65emu)).
 
 ## Caveats
 
@@ -142,8 +141,9 @@ nothing written.  Tier X boots the PRG in xmega65 to the same point
   leftovers, not BASIC's.
 - Only assembled with `.setcpu "6502"` — never use illegal or CMOS
   opcodes here.  The loader runs on every CSE target regardless of
-  build profile.  The m65 body's 45GS02-only instructions (the DMA
-  trigger, `LDZ`) come from `src/m45_ops.inc`.
+  build profile.  The m65 body's 45GS02-only instructions come from
+  `src/m45_ops.inc` ([platform_layer.md § Raw-byte instructions](../platform_layer.md#raw-byte-instructions)).
 - On m65 nothing the loader writes overlaps the PRG image it reads
-  from: the DMA jobs write only bank 3, the stub copy only
-  `0.1600–0.1EFF`, below the image at `$2001`.
+  from: the DMA jobs write only bank 3, the stub copy and the
+  base-page clear only CSE's page `0.1F00–0.1FFF`, below the image at
+  `$2001`.
