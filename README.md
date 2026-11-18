@@ -67,62 +67,92 @@ running, and debugging code.  Every command operates on the
 
 The **editor** is a full-screen text editor for writing assembly
 source.  The `a` command in the REPL assembles the editor's content
-into memory at the current address.
+into memory.
+
+**Type in lowercase.**  CSE runs in the C64's lowercase character
+set: commands, mnemonics, labels and hex digits are typed without
+SHIFT (`lda $d020`).  SHIFTed letters are separate keys — `B`, `C`,
+`Q` and `R` are commands of their own — and hex digits must be
+lowercase: `$d020` is a number, `$D020` typed with SHIFT is an error.
+
+### Your workspace
+
+Your programs and data live in the **workspace**, from `$0800`
+(`workstart`) up to the byte below your source text (`workend`).
+CSE itself sits above it.  The assembler refuses to write outside
+the workspace (`;?N: range`), and breakpoints must be inside it.
+Type `i` to see where `workend` is right now; it moves down as your
+source grows.  Every example address in this manual (`$1000`,
+`$2000`) is a workspace address.
 
 ### The edit-assemble-run cycle
 
 1. Write source in the editor (RUN/STOP to enter).
 2. Switch back to the REPL (RUN/STOP).
-3. Set the origin: `@ $C000` (or use `.org` or `.bas` in source).
+3. Set the origin: `.org $1000` in the source, or `@ $1000` in the
+   REPL before assembling (or `.bas` in the source for a program
+   that starts with `RUN`).
 4. Assemble: `a`
-5. Run: `g` (jumps to `main:` label).
+5. Run: `g` (jumps to the `main:` label).
 6. Inspect: `d` to disassemble, `m` to hex-dump, `r` for registers.
-7. Debug: `b $C010` to set a breakpoint, `g` to run, `t` or `o` to step,
-   `c` to continue.
+7. Debug: `b ADDR` to set a breakpoint on an instruction of your
+   program, `g` to run, `t` or `o` to step, `c` to continue.
 
 Repeat.  The source stays in the editor buffer between runs.
-Save the source with `s "PROJ"` — it stores the source as a SEQ file
-with the project name.  Save the assembled binary with any PRG-mode
-form (e.g. `s "PROJ" $end`) — it stores as `PROJ.` (trailing dot) so
-source and binary never collide.
+Save the source with `s "proj"` — it stores the source as a SEQ file
+with the project name.  Save the assembled binary with the save line
+`a` prints, or any PRG-mode form (e.g. `s "proj" $1000 $10ff`) — it stores
+as `proj.` (trailing dot) so source and binary never collide.
 
 ### Current address
 
 The REPL prompt shows `AAAA:` — this is the *current address*.
-It determines where `d`, `m`, `.`, `a`, `j` operate.  Set it
-explicitly with `@ EXPR` or navigate with `+`/`-`.  After
-assembly, the current address advances to the `main:` label
-if one was defined.
+It determines where `d`, `m`, `.`, `j`, `t` operate and is the
+default origin for `a`.  Set it explicitly with `@ EXPR`, by typing
+an `AAAA:` prefix in front of a command, or navigate with `+`/`-`.
+`d`, `m` and `.` leave it after the bytes they showed.  After a
+successful `a`, the current address moves to the `main:` label if
+the source defines one; a break in your program moves it to the
+break address.
 
 ### Block size
 
 Commands like `d` (disassemble) and `m` (memory dump) operate on
-a chunk of *block size* bytes.  Default is $10 (16).  Change it
+a chunk of *block size* bytes.  Default is `$10` (16).  Change it
 with `B EXPR`.  `+` and `-` also advance/retreat by the block size.
 
 ### Screen editing
 
-`m`, `d`, and `$` output multiple lines to the screen.  For `m`
-and `d`, each output line is a valid `.` command.  Move the
-cursor to any line, edit the values directly on screen, and
-press RETURN to execute the modified line.  This is the C64
-screen-editor workflow: the screen *is* your input buffer.
+`m` and `d` print rows that are themselves commands: an `m` row is
+an `m` edit command, a `d` row a `.` command.  Move the cursor to
+any row, edit the values directly on screen, and press RETURN to
+execute the modified row.  This is the C64 screen-editor workflow:
+the screen *is* your input buffer.
 
 For example, `d` might show:
 
-    1000:. A9 42     LDA #$42
-    1002:. 8D 20 D0  STA $D020
-    1005:. 60        RTS
+    1000:.  a9 42     lda #$42
+    1002:.  8d 20 d0  sta $d020
+    1005:.  60        rts
 
-Cursor up to the first line, change `42` to `07`, press RETURN —
-the byte at $1000 is now patched.
+Cursor up to the first row, change `42` to `07`, press RETURN — the
+byte at `$1001` is now patched and the row reads `lda #$07`.
+Changing the mnemonic or operand instead re-assembles the
+instruction.  Pressing RETURN on an empty prompt repeats the last
+`d`, `m`, `.`, `t` or `o` — `d` RETURN RETURN pages on through the
+code.
+
+One limit: the REPL assembles the accumulator form only bare —
+`. asl` works, `. asl a` is `;?syntax` — so RETURN on a `d` row that
+shows `asl a` needs the `a` removed first.
 
 ### Expressions
 
 Anywhere CSE expects a number — command arguments, assembler
 operands, directive values — you can use a full expression with
-arithmetic, labels, and lo/hi byte operators.  See
-[Assembler syntax](#expressions-1) for details.
+arithmetic, labels, and lo/hi byte operators.  Bare digits are
+decimal; hex needs a `$`.  See [Assembler syntax](#expressions-1)
+for details.
 
 ## Quick start
 
@@ -176,11 +206,17 @@ command.
 </tr>
 <tr>
   <td align="center"><img src="img/theme-C128.png" width="160" alt="C128"><br><sub>C128</sub></td>
-  <td colspan="3" align="left" valign="top"><sub>Or specify any 3-digit hex code directly: <code>make THEME=cb5</code> (border, background, foreground — C64 palette $0–$F).  At runtime, <code>C B G F</code> sets all three.</sub></td>
+  <td colspan="3" align="left" valign="top"><sub>Or specify any 3-digit hex code directly: <code>make THEME=cb5</code> (border, background, foreground — C64 palette <code>0</code>–<code>f</code>).  At runtime, <code>C bgf</code> (three adjacent hex digits, e.g. <code>C d5d</code>) sets all three.</sub></td>
 </tr>
 </table>
 
 ## REPL commands
+
+A command is one character, optionally after an `AAAA:` address
+prefix (four hex digits and a colon, which set the current address
+first), followed by its arguments.  `;` starts a comment.  `EXPR`
+and `ADDR` are expressions ([Expressions](#expressions)); `HH` is two
+hex digits.
 
 ### Navigation
 
@@ -189,19 +225,22 @@ command.
 | `@` | `@ EXPR` | Set current address |
 | `+` | `+ [EXPR]` | Advance by EXPR (default: block size) |
 | `-` | `- [EXPR]` | Retreat by EXPR (default: block size) |
-| `B` | `B [EXPR]` | Show or set block size (default $10) |
+| `B` | `B [EXPR]` | Show or set block size (default `$10`); `B` is SHIFT+B |
 
 ### Inspect and edit memory
 
 | Command | Syntax | Description |
 |---------|--------|-------------|
 | `.` | `.` | Disassemble one instruction at current address |
-| `.` | `. HH [HH] [HH]` | Poke 1--3 hex bytes at current address |
+| `.` | `. HH [HH] [HH]` | Poke 1–3 hex bytes at current address |
 | `.` | `. MNEM [OPERAND]` | Assemble one instruction at current address |
 | `d` | `d` | Disassemble block-size bytes |
-| `m` | `m` | Hex+ASCII dump of block-size bytes |
-| `m` | `m [HH] [HH] ...` | Edit up to 8 bytes at current address |
+| `m` | `m [HHHH]` | Hex+character dump of block-size bytes (at `HHHH` if given) |
+| `m` | `m HH [HH] ...` | Write up to 8 bytes at current address |
 | `i` | `i` | Show full memory map |
+
+`m` and `.` show and edit **your** zero page: `$00`–`$7f` as your
+program sees it, not CSE's own values there.
 
 <p align="center">
   <img src="img/disassembly.png" alt="d-command disassembly output" width="320">
@@ -213,53 +252,78 @@ command.
 
 | Command | Syntax | Description |
 |---------|--------|-------------|
-| `a` | `a` | Assemble source from editor at current address |
-| `u` | `u [MODE]` | Show or set CPU mode: `6502`, `6510`, `65c02` (available modes depend on build) |
+| `a` | `a` | Assemble the source in the editor; code before the first `.org` goes to the current address |
+| `u` | `u [MODE]` | Show or set CPU mode: `6502` on every build, `6510` on the 6510 build, `65c02` on the 65C02 build |
 
-After `a`, the current address advances past the assembled code.
-If the source defines a `main:` label, `g` will jump there.
+`a` prints one `; org AAAA-BBBB NNb` row per block of code, then
+`; ok` and a ready-made save line (`AAAA:s "proj" $bbbb` — cursor up
+and RETURN saves the binary), or `; N err` after the error rows.
+After a successful `a`, the current address moves to `main:` if the
+source defines it, and `g` runs it.
 
 ### Run and debug
 
 | Command | Syntax | Description |
 |---------|--------|-------------|
-| `j` | `j [ADDR]` | Execute code at address (default: current) |
-| `g` | `g` | Execute at label `main` |
-| `t` | `t [EXPR]` | Step into (N instructions, default 1) |
-| `o` | `o [EXPR]` | Step over (N instructions, default 1) |
-| `c` | `c` | Continue from breakpoint (errors with `;?no ctx` if no active debug session) |
+| `j` | `j [ADDR]` | Run your code at ADDR (default: current address) |
+| `g` | `g` | Run at label `main` (current address if there is no `main`) |
+| `t` | `t [EXPR]` | Step into, EXPR instructions (default 1) |
+| `o` | `o [EXPR]` | Step over — a `jsr` runs as one step (EXPR instructions, default 1) |
+| `c` | `c` | Continue after a break |
 | `b` | `b` | List breakpoints |
-| `b` | `b ADDR` | Set breakpoint (8 slots) |
-| `b` | `b -N` | Delete breakpoint N |
+| `b` | `b ADDR` | Set breakpoint (8 slots; ADDR must be in the workspace) |
+| `b` | `b -N` | Delete breakpoint N (1–8) |
 | `b` | `b *` | Clear all breakpoints |
-| `r` | `r` | Show registers (A, X, Y, SP, flags) |
-| `r` | `r A:XX X:XX ...` | Set registers |
+| `r` | `r` | Show registers (PC, A, X, Y, SP, flags) |
+| `r` | `r a:HH x:HH ...` | Set registers |
 
-RUN/STOP+RESTORE triggers an NMI break into the debugger while
-user code is running.  Pressed at the REPL prompt, it refreshes
-the screen (classic C64 behaviour, preserves any active debug
-session).
+Your program runs until it returns with `rts` (`; rts` and the
+final registers), hits a breakpoint or a `brk` (`; brk at $PC`,
+registers, and the next instruction), or you press
+RUN/STOP+RESTORE (`; nmi at $PC`).  A break opens a **debug
+session**: `t`, `o`, `c` and `r` work on the stopped program.
+
+- `t` / `o` with no session show a **preview** (`; dbg at $PC`,
+  registers, the instruction) of the code at the current address
+  without running it; the next `t` / `o` / `c` starts it.
+- Each step prints the instruction that ran, then the new break
+  panel.  Pressing RETURN on an empty prompt takes another step.
+- `c` right after a breakpoint stop deletes that breakpoint, then
+  continues — set it again with `b` to keep stopping there.  `c`
+  steps over a `brk` you put in your code.
+- A step whose next instruction lies outside the workspace (a jump
+  into ROM or into CSE) is refused with `;!range`; the session
+  stays, `c` runs on.  Stepping into a `jsr` to the KERNAL ROM
+  (`$e000`–`$ffff`) steps over it instead.
+- After the program has returned (`; rts`) the session is over:
+  `c`, `t` and `o` answer `;?no ctx`; run it again with `j` or `g`.
+
+`r` fields go in any order and any subset: `a:HH` `x:HH` `y:HH`
+`s:HH` `pc:HHHH` and the 8-character flags field `nv-bdizc`
+(uppercase = set, lowercase or `-` = clear).  A bad field is
+`;?syntax` and changes nothing.  Edit a shown `r` row on screen and
+press RETURN to set it.
+
+RUN/STOP+RESTORE breaks into the debugger while your code is
+running.  Pressed at the REPL prompt or in the editor, it redraws the
+REPL screen (classic C64 behaviour) and keeps any debug session.
 
 <p align="center">
   <img src="img/tracing.png" alt="Step-tracing with t command, register display, breakpoint" width="384">
 </p>
 
-Stepping into a JSR whose target is in KERNAL ROM ($E000--$FFFF)
-automatically falls back to step-over.
-
-**Ending a debug session.**  If a break is active and you want
-to start fresh without running to completion, use `R` (reset)
-or just invoke a command that needs a clean stack (`a`, `l`) —
-CSE will prompt `; end debug? y/n` and discard the break context
-on yes.
+**Ending a debug session.**  `a`, `j` and `g` need a clean session;
+while one is stopped at a break they ask first (`;!debug`, then
+`;!asm? y/n` or `;!go? y/n`); `y` ends the session and runs the
+command.  `R` (reset) asks `;!init? y/n` and ends any session.
 
 ### Files
 
 | Command | Syntax | Description |
 |---------|--------|-------------|
-| `l` | `l "PROJ"` / `l "PROJ" 0` / `l "PROJ" $addr` / `l "PROJ,p"` | Load source (SEQ) or binary (PRG); `0` uses PRG header addr |
-| `s` | `s "PROJ"` / `s "PROJ" $end` / `s "PROJ" $start $end` | Save source (SEQ) or binary (PRG) |
-| `$` | `$ [DEVICE]` | Directory listing (default device 8) |
+| `l` | `l "proj"` / `l "proj" 0` / `l "proj" $2000` / `l "proj,p"` | Load source (SEQ) or binary (PRG); `0` uses the PRG's own load address |
+| `s` | `s "proj"` / `s "proj" $end` / `s "proj" $start $end` | Save source (SEQ) or binary (PRG) |
+| `$` | `$ [DEVICE]` | Directory listing; DEVICE (decimal 4–30) also becomes the current drive (default 8) |
 
 CSE is source-centric: a **project name** is a stem like `demo` that
 stands for both the source and the binary.  Disk filenames are derived:
@@ -268,88 +332,116 @@ can't collide in the CBM DOS directory.
 
 - Bare `l "demo"` / `s "demo"` loads/saves the **source**.
 - Any address argument forces **PRG** mode: `s "demo" $2000` saves the
-  binary as `demo.`; `l "demo" $1000` loads the binary to `$1000`,
+  binary as `demo.`; `l "demo" $2000` loads the binary to `$2000`,
   `l "demo" 0` loads at the PRG header address.
 - Explicit `,s` or `,p` suffix bypasses derivation: `s "foo,p"` saves
   as literal `foo` PRG; `l "foo,s"` loads literal `foo` SEQ.
 - Bare `s` or `l` (no string) reuses the last project name (default `out`).
 
-PRG save addresses: one arg is end (start = cur_addr); two args are
-start and end.  **End is inclusive** — `s "proj" $1000 $2000` saves
-bytes `$1000..$2000` inclusive, i.e. `$1001` bytes.  If end ≤ start,
-the arg is treated as a length (size = end).  End = 0 defaults the
-size to `block_size`.
+PRG save addresses: one arg is end (start = current address); two
+args are start and end.  **End is inclusive** — `s "proj" $1000 $2000`
+saves bytes `$1000..$2000` inclusive, i.e. `$1001` bytes.  If end ≤
+start, the arg is treated as a length.  End = 0 saves one block size.
+
+After a source load or save CSE prints `; Nl Mb` (lines, bytes) and
+warns `;!long LNN` for each line wider than the editor's 39 columns.
+Loading source over unsaved edits asks `;!load? y/n` first.
 
 ### Utility
 
 | Command | Syntax | Description |
 |---------|--------|-------------|
-| `?` | `? EXPR` | Calculator -- shows hex, decimal, binary, signed |
-| `C` | `C [B] [G] [F]` | Show or set colors (border, background, foreground) |
-| `k` | `k` | Delete source (with confirmation) |
+| `?` | `? EXPR` | Calculator — shows hex and decimal; values below 256 also binary and signed |
+| `C` | `C [F \| GF \| BGF]` | Show or set colours: 1–3 adjacent hex digits (SHIFT+C) |
+| `k` | `k` | Delete the source (asks `;!del src? y/n`) |
 | `x` | `x` | Clear screen |
-| `R` | `R` | Warmstart -- clears screen and ends any active debug session (with confirmation) |
-| `Q` | `Q` | Quit CSE (with unsaved guard) |
+| `R` | `R` | Warmstart — redraws the screen and ends any debug session (asks `;!init? y/n`; SHIFT+R) |
+| `Q` | `Q` | Quit CSE (asks `;!quit? y/n`; SHIFT+Q) |
 
-Color values are single hex digits 0--F (C64 palette).
-`C F` sets foreground only; `C B F` sets border+foreground;
-`C B G F` sets all three.
+`k`, `Q` and a source `l` first warn `;!unsaved` when the source has
+unsaved edits.  Any key other than `y` cancels.
 
-**Recovering the display.**  If user code or a misbehaving program
-has trashed the screen, press CLR/HOME or ESC at the REPL prompt
-to redraw the CSE display.  Active debug context is preserved.
+Colour values are hex digits `0`–`f` (C64 palette), written
+together: `C 6` sets the text colour; `C 06` background and text;
+`C 0e6` border, background and text.  `C` alone shows the current
+three (`; color: d5d`).
+
+**Recovering the display.**  If your program has trashed the
+screen, press SHIFT+CLR/HOME at the REPL prompt to redraw the CSE
+display (or type `x` to clear it).  An active debug session is
+kept.
+
+### REPL keys
+
+| Key | Action |
+|-----|--------|
+| RETURN | Execute the row the cursor is on |
+| Cursor keys | Move anywhere on the screen (no wrap) |
+| Printable keys | Type over the character at the cursor (up to column 38) |
+| DEL | Delete left; never deletes into an `AAAA:` prompt |
+| INS | Open a space at the cursor |
+| HOME | Cursor to column 0 |
+| SHIFT+CLR/HOME | Redraw the CSE display |
+| RUN/STOP | Switch to the editor |
+| RUN/STOP+RESTORE | Break into running code; at the prompt, redraw |
 
 ## Error and warning messages
 
 CSE uses a BASIC-style `;?<tag>` for errors and `;!<tag>` for
-warnings.  All tags are short and lowercase; the leading `;` makes
-them easy to scan for in mixed log output.
+warnings and questions.  All tags are short and lowercase; the
+leading `;` makes the row a comment, so RETURN on it does nothing.
 
 ### Errors (`;?`)
 
 | Tag | Meaning |
 |-----|---------|
-| `;?syntax` | Generic parse / addressing-mode / unknown-mnemonic error |
-| `;?cpu` | Mnemonic isn't valid for the current CPU mode (e.g. `PHY` on 6502, illegal opcodes on 65C02) |
-| `;?expr <detail>` | Expression error.  `<detail>` is one of: `exp val` (expected a value), `ovfl` (overflow), `exp )` (mismatched parenthesis), `undef` (undefined symbol), `div0` (divide by zero) |
-| `;?bad val` | Value out of range for the context (e.g. block size = 0) |
-| `;?range` | Address outside permitted range (e.g. `b` setting a breakpoint outside workspace) |
+| `;?syntax` | The command or instruction could not be parsed: unknown mnemonic or addressing mode, extra text after the arguments, a bad `r` field, a missing closing `"` |
+| `;?cpu` | Mnemonic isn't valid for the current CPU mode (e.g. `phy` on 6502, illegal opcodes on 65C02) |
+| `;?expr <detail>` | Expression error.  `<detail>` is one of: `exp val` (expected a value), `ovfl` (overflow), `exp )` (missing parenthesis), `undef` (undefined symbol), `div0` (divide by zero) |
+| `;?bad val` | `b -N` with N not 1–8 |
+| `;?range` | Address outside the workspace (`b`), or a save of 0 bytes |
+| `;?full` | All 8 breakpoints are in use |
 | `;?cmd` | Unknown REPL command |
-| `;?no name` | No filename available (and no remembered project name) |
-| `;?no ctx` | Debugger command (`c`, `t`, `o`) issued with no active break |
+| `;?no ctx` | `c` with no program stopped at a break; `t` / `o` after the program has ended |
 | `;?fail` | Disk I/O failed |
-| `;?too big` | File too large for the gap buffer |
-| `;?full` | Symbol table full |
+| `;?too big` | Source file too large for the free memory |
 
-When the source assembler reports an error, the line number prefixes
-the tag: `;?42 : undef` means undefined symbol on line 42.  The `;?42 :`
-prefix replaces `;?expr ` for source-assembly errors (the line
-number is more useful than repeating `expr`).
+A command with an expression error does nothing else: `j nosuch`
+runs nothing, `+ nosuch` moves nowhere.
 
-### Warnings (`;!`)
+### Warnings and questions (`;!`)
 
 | Tag | Meaning |
 |-----|---------|
-| `;!unsaved` | Buffer has unsaved changes (gating prompts for `k`, `q`, `R`) |
-| `;!debug` | An active debug session is being ended (gating prompts for `a`, `l`, `R`) |
-| `;!a shadow` | Source line wrote `<acc-mne> A` (e.g. `ASL A`) but a label `A` is also defined.  The accumulator wins; the label is shadowed for that mnemonic.  Use a different name or write the address explicitly to access the label from one of the six ACC-accepting mnemonics. |
-| `;!stk N` | Kernel stack approached its 64-byte budget — `N` is the decimal headroom remaining.  Indicates a deeply-nested user expression or a future kernel-recursion bug. |
-| `;!range` | Step BRK arming refused outside `[workstart, workend]`. |
+| `;!unsaved` | The source has unsaved changes (before the `k`, `Q` and source-`l` questions) |
+| `;!debug` | A debug session is stopped at a break (before the `a`, `j`, `g` questions) |
+| `;!<action>? y/n` | Confirm `del src` (`k`), `quit` (`Q`), `init` (`R`), `load`, `asm`, `go`; `y` proceeds, any other key cancels |
+| `;!range` | A step was refused: its next instruction is outside the workspace |
+| `;!stk N` | Your program's stack pointer was below `$40` at the break (`N` is its value, decimal): CSE needs 64 bytes of stack below it |
+| `;!long LNN` | Source line `NN` is wider than 39 columns (after a load or save) |
+| `;!a shadow` | Source line wrote `<acc-mne> a` (e.g. `asl a`) but a label `a` is also defined.  The accumulator wins; the label is shadowed for that mnemonic.  Use a different name or write the address explicitly to reach the label from one of the six ACC-accepting mnemonics. |
 
-### Source-assembly line errors
+### Source-assembly messages
 
-These appear as `;?<line>: <message>` from the source assembler:
+The assembler reports problems in the source as `;?N: <message>`,
+where `N` is the line number (`;?42: undef` — undefined symbol on
+line 42), and ends with `; N err` instead of `; ok`.
 
 | Message | Cause |
 |---------|-------|
-| `bad insn` | Invalid mnemonic / addressing-mode combination |
-| `bad val` | Numeric value out of range for the directive |
-| `cpu` | CPU-gate rejection (same as REPL `;?cpu`) |
-| `exp id` | `.const` expected an identifier name |
+| `bad insn` | Unknown mnemonic, addressing mode or directive |
+| `cpu` | Mnemonic not valid for the CPU mode (same as REPL `;?cpu`) |
+| `undef`, `ovfl`, `exp val`, `exp )`, `div0` | Expression error (as in the REPL's `;?expr`) |
+| `bad val` | A directive's value is missing or unusable (`.const k` without a value, an unknown `.cpu` model, a bad `.db`/`.dw`/`.res`/`.align` value) |
+| `exp id` | A label or `.const` name is missing or breaks the name rules |
 | `exp "` | `.str` / `.scr` expected an opening quote |
-| `fwd ref` | Forward reference in `.res` / `.align` (the value drives the directive's pass-0 size — must be defined before use) |
+| `fwd ref` | `.res` / `.align` (or a `.const`) uses a symbol defined further down |
+| `too long` | Label longer than 23 characters, or an instruction too long after local labels are expanded |
 | `sym full` | Symbol table full |
-| `: truncated` | Source line was longer than 39 characters and got truncated by `ed_read_line` |
+| `range` | The line would write outside the workspace; nothing is written |
+
+`;!N: truncated` warns that line `N` is longer than 39 characters;
+the assembler reads only the first 39.
 
 ## Editor
 
@@ -369,15 +461,13 @@ Press RUN/STOP to enter the editor from the REPL and back.
 **Smart indent.**  New lines start with a tab (SHIFT+SPACE).
 Typing `:` slides the current line to column 0 — labels are
 recognised by the colon and move to the left edge automatically.
+A colon after a `;` (in a comment) leaves the line where it is.
 RETURN after a colon also strips the gutter from the label line.
 
-*Known quirk:* a colon in a comment (`; note:`) will also strip
-the line's leading tab.  Re-add it with SHIFT+SPACE if needed.
-
-The editor uses a gap buffer that grows downward from the CSE
-runtime start address (determined at link time, typically ~$7B00).
-The status bar shows the cursor position, line count, dirty flag,
-and free bytes.
+The source text sits in memory directly below CSE; as it grows, the
+end of your workspace (`workend`) moves down.  The status bar shows
+`*` when there are unsaved changes, the project name, the free
+workspace (`free:0800-XXXX`) and the cursor's line and column.
 
 ## Assembler syntax
 
@@ -392,59 +482,65 @@ Full syntax spec: [doc/assembler_syntax.md](doc/assembler_syntax.md)
     main:           ; global
     .loop:          ; local (scoped to last global)
 
-Case-insensitive. Characters: a--z, 0--9, dot.
+A global label is a letter followed by letters and digits; a local
+label is a dot followed by letters and digits.  At most 23
+characters (for a local, after the dot).  Case-insensitive.  Refer
+to another global's local as `main.loop`.  Put a global label before
+the first local one: a reference to a local with no global above it
+is `;?N: exp val`.
 
 ### Addressing modes
 
-    LDA #$42        ; immediate
-    LDA $42         ; zero page
-    LDA $42,X       ; zero page,X
-    LDA $1000       ; absolute
-    LDA $1000,X     ; absolute,X
-    LDA $1000,Y     ; absolute,Y
-    LDA ($42,X)     ; (indirect,X)
-    LDA ($42),Y     ; (indirect),Y
-    JMP ($1000)     ; indirect
-    LDA ($42)       ; zero page indirect (65C02 build only)
-    JMP ($1000,X)   ; absolute indirect,X (65C02 build only)
-    ROL             ; accumulator (bare form)
-    ROL A           ; accumulator (explicit form, equivalent)
-    BEQ .loop       ; relative (assembler computes offset)
+    lda #$42        ; immediate
+    lda $42         ; zero page
+    lda $42,x       ; zero page,x
+    lda $1000       ; absolute
+    lda $1000,x     ; absolute,x
+    lda $1000,y     ; absolute,y
+    lda ($42,x)     ; (indirect,x)
+    lda ($42),y     ; (indirect),y
+    jmp ($1000)     ; indirect
+    lda ($42)       ; zero page indirect (65C02 build only)
+    jmp ($1000,x)   ; absolute indirect,x (65C02 build only)
+    rol             ; accumulator (bare form)
+    rol a           ; accumulator (explicit form, equivalent)
+    beq .loop       ; relative (assembler computes offset)
 
 ### Directives
 
     .org $2000              ; set origin
-    .const NAME EXPR        ; define constant
+    .const name expr        ; define constant
     .cpu 6502               ; set CPU mode
     .db $41, $42, 0         ; emit bytes
     .dw $1234, label        ; emit words (little-endian)
     .str "hello", 0         ; emit PETSCII string
-    .scr "HELLO"            ; emit screen codes
-    .res 256, $EA           ; reserve and fill
+    .scr "hello"            ; emit screen codes
+    .res 256, $ea           ; reserve and fill
     .align 256              ; align to boundary
-    .bas                    ; emit BASIC SYS stub
-    .bas "title"            ; emit BASIC SYS stub with REM
+    .bas                    ; BASIC SYS stub at $0801
+    .bas "title"            ; BASIC SYS stub with REM
 
 ### Expressions
 
 Anywhere a value is expected:
 
-    LDA #<screen            ; lo byte
-    STA table+40            ; arithmetic
-    LDX #cols-1             ; constant
-    LDA #mask & $0F         ; bitwise
+    lda #<screen            ; lo byte
+    sta table+40            ; arithmetic
+    ldx #cols-1             ; constant
+    lda #mask & $0f         ; bitwise
 
-Number formats: `$FF` hex, `42` decimal, `%10101010` binary, `*` PC.
+Number formats: `$ff` hex (digits `0`–`9`, `a`–`f`, lowercase),
+`42` decimal, `%10101010` binary, `*` the current PC.
 
 Operators (loosest to tightest):
 
-    \pounds & ^             ; OR AND XOR
+    £ & ^                   ; OR (pound key) AND XOR (↑ key)
     + -                     ; add subtract
     * / << >>               ; multiply divide shift
     - ! < >                 ; negate NOT lo-byte hi-byte (unary)
     ( )                     ; grouping
 
-Width rule: `$XX` (1--2 hex digits) is zero-page; `$0XX`+ (3--4
+Width rule: `$xx` (1–2 hex digits) is zero-page; `$0xx`+ (3–4
 digits) forces absolute.  Width is sticky across operators.
 
 ### Example
@@ -452,7 +548,7 @@ digits) forces absolute.  Width is sticky across operators.
     .cpu 6502
     .org $1000
 
-    .const border $D020
+    .const border $d020
 
     main:   ldx #0
     .loop:  stx border
@@ -468,69 +564,78 @@ Assemble and run:
     a               ; assemble (.org in source sets the address)
     g               ; run (jumps to main:)
 
+`a` answers `; org  1000-100d    14b`, `; ok` and the save line
+`1000:s "out" $100d`; `g` flashes the border and ends with `; rts`.
+To watch the loop, set `b $1002` (the `stx`) before `g`, then step
+with `t`.
+
 ## Memory layout
 
 At startup CSE shows the free memory available:
 
-      zp 0002-007F       37b free
-    lo02 02A7-02FF       89b free
-    lo03 0334-03FF      204b free
-    work 0800-XXXX    NNNNNb free
+    ; zp   0002-007f   126b free
+    ; low  02a7-02ff    89b free
+    ; low  0334-03ff   204b free
+    ; work 0800-XXXX NNNNNb free
+
+`i` shows the whole map, including where your source text and CSE
+sit right now.
 
 | Region | Address | Use |
 |--------|---------|-----|
-| User ZP | $0002--$007F | Your zero-page variables (saved/restored across run) |
-| Low page 2 | $02A7--$02FF | Free RAM (89 bytes) |
-| Low page 3 | $0334--$03FF | Free RAM (204 bytes, includes tape buffer) |
-| Screen | $0400--$07FF | VIC-II screen RAM |
-| Workspace | $0800--workend | Your programs and data |
-| CSE | workend+1--$CFFF | CSE runtime code and data |
-| I/O | $D000--$DFFF | VIC-II, SID, CIA |
-| KERNAL ROM (and CSE data behind it) | $E000--$FFFF | Symbol table, lookup tables, REPL screen save, KERNAL ROM, NMI/BRK vectors |
+| Your ZP | `$0002`–`$007f` | Your zero-page variables (saved/restored across a run) |
+| Low page 2 | `$02a7`–`$02ff` | Free RAM (89 bytes) |
+| Low page 3 | `$0334`–`$03ff` | Free RAM (204 bytes, includes tape buffer) |
+| Screen | `$0400`–`$07ff` | VIC-II screen RAM |
+| Workspace | `$0800`–`workend` | Your programs and data |
+| Source text | above `workend` | The editor's source |
+| CSE | above the source, up to `$cfff` | CSE runtime code and data |
+| I/O | `$d000`–`$dfff` | VIC-II, SID, CIA |
+| KERNAL ROM (and CSE data behind it) | `$e000`–`$ffff` | Symbol table, lookup tables, REPL screen save, KERNAL ROM, NMI/BRK vectors |
 
-CSE unmaps BASIC ROM, so the full $0800--$CFFF range is available
-as contiguous workspace.  Several large CSE structures (symbol
+CSE banks the BASIC ROM out, so the workspace runs unbroken from
+`$0800` up to the source text.  Several large CSE structures (symbol
 table, name heap, lookup tables, REPL screen save) live in RAM
-under KERNAL ROM at $E000+; CSE banks the KERNAL out temporarily
-when accessing them.  The NMI ($FFFA) and IRQ/BRK ($FFFE) vectors
-are patched to CSE handlers so RUN/STOP+RESTORE and `BRK` route
-through the debugger.  See [doc/memory_design.md](doc/memory_design.md)
-for the full address-by-address breakdown.
+under the KERNAL ROM at `$e000`+; CSE banks the KERNAL out
+temporarily when accessing them.  The NMI and IRQ/BRK vectors point
+to CSE's handlers so RUN/STOP+RESTORE and `brk` route through the
+debugger.  See [doc/memory_design.md](doc/memory_design.md) for the
+full address-by-address breakdown.
 
 ### What your code can use
 
-When you run code with `j`, `g`, `t`, or `o`, your program may
+When you run code with `j`, `g`, `c`, `t`, or `o`, your program may
 freely use:
 
-- **$02--$7F** — CSE saves and restores these across your run.
-- **$02A7--$02FF** — 89 bytes of free low RAM.
-- **$0334--$03FF** — 204 bytes (tape buffer at $033C--$03FB is
+- **`$02`–`$7f`** — CSE saves and restores these across your run.
+- **`$02a7`–`$02ff`** — 89 bytes of free low RAM.
+- **`$0334`–`$03ff`** — 204 bytes (tape buffer at `$033c`–`$03fb` is
   included; restore it if you need tape I/O).
-- **$0800--workend** — your workspace.
+- **`$0800`–`workend`** — your workspace.
 
 Your code **must preserve:**
 
-- **$80--$FF** — KERNAL zero page.
-- **$0100--$01FF** — hardware stack (use normally, but balance
-  pushes and pops).
-- **$0200--$02A6** — KERNAL editor state.
-- **$0300--$0333** — KERNAL/CSE vectors.
+- **`$80`–`$ff`** — KERNAL zero page.
+- **`$0100`–`$01ff`** — hardware stack (use normally, but balance
+  pushes and pops, and leave CSE 64 bytes below your stack pointer).
+- **`$0200`–`$02a6`** — KERNAL editor state.
+- **`$0300`–`$0333`** — KERNAL/CSE vectors.
 
 Your code may use KERNAL I/O (CHROUT, GETIN, etc.) normally.
-CSE restores screen colors, charset, and cursor state on return.
+CSE restores screen colours, charset, and cursor state on return.
 If your code clears or repaints the screen, type `x` in the
-REPL to restore the display.
+REPL to clear it, or press SHIFT+CLR/HOME to redraw it.
 
 ## Built-in symbols
 
 | Symbol | Value | Description |
 |--------|-------|-------------|
-| `workstart` | first free byte after CSE | Start of workspace |
-| `workend` | CSE runtime start - 1 (adjusts with editor) | End of workspace |
+| `workstart` | `$0800` | Start of the workspace |
+| `workend` | the byte below the source text (moves as the source grows) | End of the workspace |
 
 Use in assembler: `.org workstart`
 
-Use in REPL: `@ workstart`, `j workstart`
+Use in REPL: `@ workstart`, `? workend`
 
 ## Development
 
