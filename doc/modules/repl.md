@@ -530,7 +530,7 @@ The debug-session gates of these commands, `t`/`o`, `a` and `R` are
 
 `t`/`o` take the count as a 16-bit expression; 0 and an empty
 argument mean 1.  An expression error in the count is reported and
-the command then runs with count 1 (unlike `j`).
+nothing else happens — no step, no cold preview (as `j`).
 
 ### Commands — Navigation
 

@@ -1178,6 +1178,41 @@ class TestBadExpressionAborts:
         assert cpu.memory[pending] == 0, "j ran after an expression error"
         assert "undef" in "".join(cpu.screen_text(r) for r in range(25))
 
+    def _step_setup(self, rsyms, cmd, reason):
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x3000)
+        set_word(cpu, cpu.sym("brk_pc"), 0x3000)
+        cpu.memory[0x3000] = 0xEA            # NOP: a steppable insn
+        set_word(cpu, cpu.sym("buf_base"), 0x8000)  # workend for the gate
+        cpu.memory[rsyms.dbg_reason] = reason
+        cpu.memory[cpu.sym("run_user_pending")] = 0
+        cpu.memory[cpu.sym("cold_preview_done")] = 0
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        return cpu
+
+    @pytest.mark.parametrize("cmd", ["t", "o"])
+    def test_step_control_does_step(self, rsyms, cmd):
+        """Control for the test below: the same setup without an
+        argument does step."""
+        cpu = self._step_setup(rsyms, cmd, 2)
+        assert cpu.memory[cpu.sym("run_user_pending")] != 0
+
+    @pytest.mark.parametrize("reason", [0, 2], ids=["none", "brk"])
+    @pytest.mark.parametrize("cmd", ["t nosuchsym", "o nosuchsym"])
+    def test_bad_step_count_neither_steps_nor_previews(self, rsyms, cmd,
+                                                       reason):
+        """t/o: a bad count is an error, not the default count 1 — no
+        step (DBG_BRK) and no cold preview (DBG_NONE)."""
+        cpu = self._step_setup(rsyms, cmd, reason)
+        pending = cpu.sym("run_user_pending")
+        preview = cpu.sym("cold_preview_done")
+        assert cpu.memory[pending] == 0, f"{cmd} stepped after an error"
+        assert cpu.memory[preview] == 0, f"{cmd} did a cold preview"
+        assert cpu.memory[rsyms.dbg_reason] == reason
+        text = "".join(cpu.screen_text(r) for r in range(25))
+        assert "undef" in text and "dbg" not in text
+
     @pytest.mark.parametrize("cmd,addr", [("+", 0x3010), ("-", 0x2FF0)])
     def test_empty_moves_by_block_size(self, rsyms, cmd, addr):
         cpu = make_cpu(rsyms)

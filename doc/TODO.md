@@ -1155,9 +1155,10 @@ documentation round that follows this filing.
   form**: `? $1000` prints `;   $00   4096` (`@calc_16bit` falls back
   to the 8-bit form when the low byte is 0).
   Fixed 2026-11-18: the low-byte fallback is gone, a value ≥ 256 always shows `$xxxx` (−10 B, budget lowered), test test_calc_hex_form_follows_the_value.
-- [ ] **`t nosuchsym` / `o nosuchsym` step anyway** after `;?expr
+- [x] **`t nosuchsym` / `o nosuchsym` step anyway** after `;?expr
   undef` (or do a cold preview) — the shape of the fixed `j` bug:
   `cmd_step` treats an error as an empty argument.
+  Fixed 2026-11-18: `cmd_step` returns on try_expr's Z=0 (error) before the gate, as `j` does (+2 B), test test_bad_step_count_neither_steps_nor_previews.
 - [ ] **`b nosuch` prints `;?expr undef` and then an extra `;?syntax`.**
 - [ ] **`;!N: truncated` fires for a line of exactly 39 characters**,
   which is not truncated.

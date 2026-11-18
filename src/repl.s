@@ -2112,7 +2112,8 @@ pre_userland_run:
 ;
 ; Argument parsing: try_expr_or_err parses the count + rejects
 ; trailing garbage via the pop-trick (so `t10xyz` aborts cleanly
-; with ";?syntax" before any state is written).  Default count 1.
+; with ";?syntax" before any state is written).  Default count 1;
+; an expression error (try_expr Z=0) returns at once, like `j`.
 ;
 ; In: rp_ptr = args, A = is_next (0=into, 1=over)
 ; ═══════════════════════════════════════════════════════════
@@ -2125,7 +2126,7 @@ pre_userland_run:
         ; overrides (e.g. `t10` = step 10 instructions).  No state
         ; has been written yet, so a garbage-escape is clean.
         jsr try_expr_or_err
-        bcc @def_count
+        bcc @no_arg
         lda expr_val
         ora expr_val+1
         beq @def_count          ; zero → default
@@ -2134,6 +2135,8 @@ pre_userland_run:
         lda expr_val+1
         sta rp_cnt+1
         jmp @got_cnt
+@no_arg:
+        bne @ret                ; Z=0: expression error — no step
 @def_count:
         lda #1
         sta rp_cnt
@@ -2167,7 +2170,7 @@ pre_userland_run:
         sta dbg_reason
         lda #1
         sta cold_preview_done
-        rts
+@ret:   rts
 @no_ctx:
         lda #<str_no_ctx
         ldx #>str_no_ctx
