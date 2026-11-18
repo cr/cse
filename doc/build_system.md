@@ -333,7 +333,7 @@ Passed as `make OPTION=value`:
 | `CPU` | `c64`: `6502` `6510` `65c02`; `m65`: `45gs02` | `6510` / `45gs02` | Selects the build within the platform; sets its defines ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
 | `ROMSET` | `cbm` `mega` | `cbm` | ROM set for `make run` (see below) |
 | `THEME` | name or hex | default | Colour theme for the REPL |
-| `TAB_WIDTH` | 1..32 | `8` | Editor tab stop interval.  Must be a power of two for `col mod TAB_WIDTH` to collapse to a single `and` — non-power-of-two values compile but pay a 10-cycle modulo loop per tab render.  8 matches every C64-era toolchain convention. |
+| `TAB_WIDTH` | 1 2 4 8 16 32 | `8` | Editor tab stop interval.  A power of two, so `col mod TAB_WIDTH` is a single `and`; any other value is a build error.  8 matches every C64-era toolchain convention. |
 
 ### Builds and CPU sets
 

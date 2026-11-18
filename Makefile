@@ -62,8 +62,8 @@ endif
 # _cpu_defs, _mn_srcs, _subdir, _prg_name for each variant.
 
 # TAB_WIDTH is a build-time constant for the editor's tab stop interval.
-# Power-of-two values get a fast `and #TAB_MASK` modulo; other values
-# assemble but pay a runtime loop.  See doc/modules/editor.md.
+# A power of two in 1..32 (`col mod TAB_WIDTH` is `and #TAB_MASK`);
+# any other value is a build error.  See doc/modules/editor.md.
 TAB_WIDTH ?= 8
 
 _6510_DEFS    = -DCPU_6510 -DDEFAULT_CPU=0 -DCPU_CEIL=1 -DTAB_WIDTH=$(TAB_WIDTH)

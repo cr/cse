@@ -57,16 +57,16 @@ ED_STATUS    = 22            ; status bar row
 REPL_SCREEN  = $F4F2         ; banked RAM under KERNAL
 
 ; ── Tab width (build-time constant) ──────────────────────────
-; TAB_WIDTH is set via `-DTAB_WIDTH=N` in the Makefile (default 8).
-; Power-of-two values collapse `col mod TAB_WIDTH` to a single
-; `and #TAB_MASK`, so the default 8 (matching every C64-era
-; toolchain convention) is the fast path.  Any value outside
-; 1..32 is a build error.  See doc/modules/editor.md.
+; TAB_WIDTH is set via `-DTAB_WIDTH=N` in the Makefile (default 8,
+; matching every C64-era toolchain convention).  `col mod TAB_WIDTH`
+; is computed as `and #TAB_MASK`, so TAB_WIDTH must be a power of
+; two in 1..32; anything else is a build error.  See
+; doc/modules/editor.md.
 .ifndef TAB_WIDTH
 TAB_WIDTH = 8
 .endif
-.if TAB_WIDTH < 1 .or TAB_WIDTH > 32
-.error "TAB_WIDTH must be in 1..32"
+.if TAB_WIDTH < 1 .or TAB_WIDTH > 32 .or (TAB_WIDTH & (TAB_WIDTH - 1)) <> 0
+.error "TAB_WIDTH must be 1, 2, 4, 8, 16 or 32"
 .endif
 TAB_MASK = TAB_WIDTH - 1
 

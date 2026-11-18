@@ -421,3 +421,25 @@ class TestBufferOverflow:
                      | (emu.memory[gap_lo_addr + 1] << 8))
         assert gap_before == gap_after, \
             "INS refused must not move gap_lo"
+
+
+# ── TAB_WIDTH build guard (editor.md § Tab width) ─────────────────────────
+
+import pathlib as _pathlib
+import subprocess as _subprocess
+
+_SRC = _pathlib.Path(__file__).resolve().parents[2] / "src"
+
+
+@pytest.mark.parametrize("width,ok", [(1, True), (2, True), (4, True),
+                                      (8, True), (16, True), (32, True),
+                                      (3, False), (6, False), (12, False),
+                                      (0, False), (64, False)])
+def test_tab_width_must_be_power_of_two(tmp_path, width, ok):
+    """TAB_WIDTH is a power of two in 1..32; `col and TAB_WIDTH-1` is
+    the column modulo, so any other value must not assemble."""
+    r = _subprocess.run(["ca65", "-t", "c64", "-DCPU_65C02",
+                         f"-DTAB_WIDTH={width}", str(_SRC / "editor.s"),
+                         "-o", str(tmp_path / "editor.o")],
+                        capture_output=True, text=True)
+    assert (r.returncode == 0) == ok, r.stderr

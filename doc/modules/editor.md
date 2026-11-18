@@ -48,7 +48,9 @@ of the reader, buffer-growth semantics).
 **Tab width:** `TAB_WIDTH` is a **build-time constant**
 (`-DTAB_WIDTH=N`, default 8).  It is not runtime-mutable; there is
 no `T` REPL command, no `tab_width` BSS variable.  `TAB_WIDTH`
-must be a value in 1..32 at build time.  The default of 8 matches
+must be a power of two in 1..32 — 1, 2, 4, 8, 16 or 32 — at build
+time; any other value is a build error (the tab width is computed
+as `col and TAB_WIDTH-1`).  The default of 8 matches
 every C64-era assembler toolchain (Turbo Assembler, MasterSeka,
 Relaunch64, ca65 `.lst` output) and makes `col mod TAB_WIDTH`
 collapse to `and #$07` on the 6502.
