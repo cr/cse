@@ -239,7 +239,9 @@ _one: $(PRG) $(PRG_EXO)
 	  "$$(wc -c < $(PRG_EXO) | tr -d ' ')"
 endif
 
-$(BUILD)/src/:
+# No trailing slash: make 3.81 stops matching the %.o pattern rule on a
+# `dir/` order-only prerequisite once the first object created it.
+$(BUILD)/src:
 	mkdir -p $@
 
 # Pattern rule: assemble src/*.s → build/{profile}/{cpu}/src/*.o
@@ -249,7 +251,7 @@ $(BUILD)/src/:
 # exactly its includers.  The .d is itself a prerequisite (empty rule
 # below), so an object without one — built before dependency tracking —
 # is rebuilt once and gets one.
-$(BUILD)/src/%.o: $(SRC)/%.s $(BUILD)/src/%.d $(FLAGS_STAMP) $(BUILD)/version.inc | $(BUILD)/src/
+$(BUILD)/src/%.o: $(SRC)/%.s $(BUILD)/src/%.d $(FLAGS_STAMP) $(BUILD)/version.inc | $(BUILD)/src
 	$(CA65) $(AFLAGS) --create-dep $(@:.o=.d) -o $@ $<
 
 $(BUILD)/src/%.d: ;

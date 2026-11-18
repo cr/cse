@@ -1165,9 +1165,10 @@ documentation round that follows this filing.
   step can patch `$00` into I/O or ROM-shadow memory.
 - [ ] **`warn_long_lines` keeps mutable bytes in CODE** (`@vcol`,
   `@line`, `@tw`) — the same class as "Mutable bytes in CODE".
-- [ ] **A clean `make release debug` fails** with "No rule to make
+- [x] **A clean `make release debug` fails** with "No rule to make
   target …/src/loader.o" (the `.d` dependency bootstrap); a second run
   succeeds.
+  Fixed 2026-11-18: not the `.d` files — the objects' order-only directory prerequisite `$(BUILD)/src/` had a trailing slash, which make 3.81 stops matching once the first object created the directory; now `$(BUILD)/src`, test test_fresh_worktree_builds_in_one_make.
 
 ### Code bugs — found by the editor/disk doc group (2026-11-18)
 

@@ -21,6 +21,7 @@
 | [`tests/unit/test_golden_asm_dasm.py`](../tests/unit/test_golden_asm_dasm.py) | test contract — behaviour and speed against the golden files (TODO § M65, gates 2–3) |
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — C64 release PRG sizes within budget (TODO § M65, gate 1) |
 | [`tests/unit/test_build_freshness.py`](../tests/unit/test_build_freshness.py) | test contract — no test runs on a stale binary: the PRG fixtures always run `make`, objects depend on their includes, bundles on `src/*.inc` |
+| [`tests/unit/test_clean_build.py`](../tests/unit/test_clean_build.py) | test contract — a fresh `git worktree` of `HEAD` builds with one `make release` (no re-run) |
 | [`tests/integration/test_release_smoke.py`](../tests/integration/test_release_smoke.py) | test contract — the release CMOS PRG boots from `SYS 2061` to the main loop and shows its splash |
 | [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — the Makefile refuses `PLATFORM=m65` PRG targets until R7 slice 2 |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
@@ -158,6 +159,16 @@ every file it `.include`s (`macros.inc`, `log.inc`, `dasm_mne_idx.s`,
 the object), the flags stamp and `version.inc`.  A changed include
 rebuilds exactly its includers; a no-op `make debug` takes a fraction
 of a second.
+
+**Clean builds.**  On a fresh checkout (no `build/`) a single `make`
+(or `make release debug`) succeeds; no re-run is needed.  The object
+directory `build/<profile>/<cpu>/src` is an order-only prerequisite
+named without a trailing slash: with a trailing slash, GNU make 3.81
+(macOS's `/usr/bin/make`) stops matching the pattern rule once the
+first object's recipe has created the directory, and every later
+object fails with "No rule to make target".
+`tests/unit/test_clean_build.py` builds a fresh `git worktree` of
+`HEAD` once.
 
 ### The ld65 load/run split
 
