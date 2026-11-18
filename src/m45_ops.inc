@@ -52,6 +52,12 @@ M45_OPS_INC = 1
         .byte $FB               ; PLZ
 .endmacro
 
+; ── the 65C02's indexed indirect jump (the stub's dispatch) ──────────
+.macro M45_JMP_IND_X addr
+        .byte $7C               ; JMP (addr,X)
+        .word addr
+.endmacro
+
 ; ── flat access: the EOM prefix before (zp),Z — a 32-bit pointer ─────
 .macro M45_FAR_LDA zp
         .byte $EA, $B2, zp      ; LDA [zp],Z

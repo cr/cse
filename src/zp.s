@@ -13,6 +13,23 @@
 
 .segment "ZEROPAGE"
 
+.ifdef PLATFORM_M65
+; ── the bank state and the stub's targets (m65; mem.md § Interface) ── $00
+; hyppo_get_mapping writes at a page start, so um_map is the base page's
+; first six bytes.  The resident stub writes the port image under the
+; user map (absolute, 0.1Fxx); its CSE entries jump through the targets
+; once the CSE map is back.
+        .exportzp um_map, userland_zp_buf, um_d030
+        .exportzp stub_brk_target, stub_nmi_target, stub_cold_target
+um_map:         .res 6          ; MAP's X A Z Y operands, the two megabytes
+userland_zp_buf: .res ZP_SAVE_LEN ; the user's CPU port: $00, $01
+um_d030:        .res 1          ; the user's $D030
+stub_brk_target: .res 2         ; where the stub's entries jump, by X:
+stub_nmi_target: .res 2         ;   0 BRK, 2 NMI, 4 cold
+stub_cold_target: .res 2
+        .assert um_map = 0, error, "hyppo_get_mapping writes at the page start"
+.endif
+
 ; ── main.s: runtime scratch ───────────────────────────────────────────── $02
         .exportzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
         FAR_PTR rp_ptr          ; scratch pointer (repl.s, debugger.s, mem.s)

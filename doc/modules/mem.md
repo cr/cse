@@ -131,7 +131,8 @@ RUN/STOP+RESTORE at the prompt) nothing is captured.
 with `in_userland` set, the CPU port.
 
 #### stub_cold
-**In:** reached from the loader by `jmp`, interrupts off; no frame.
+**In:** reached from the loader by `jmp` with X = 4 (the cold
+target's index), interrupts off; no frame.
 **Out:** in `_main` under the CSE map with `B = CSE_BP`.
 **Clobbers:** A, X, Y, Z, B.
 
@@ -158,7 +159,7 @@ exit ([debugger.md](debugger.md)).
 |----------|------|---------|---------|
 | `userland_zp_buf` | `ZP_SAVE_LEN` | BSS | User's `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` snapshot (captured on userland exit, restored on entry) |
 | `kernel_zp_buf` | `ZP_SAVE_LEN` | BSS | Kernel's snapshot over the same range (captured on userland entry, restored on exit) |
-| `stub_brk_target`, `stub_nmi_target`, `stub_cold_target` | 2 each | `STUB` (m65) | where the stub's CSE entries jump; written by `setup_interrupts` (main.s) and the loader |
+| `stub_brk_target`, `stub_nmi_target`, `stub_cold_target` | 2 each | CSE's base page (m65; zp.s) | where the stub's CSE entries jump, indexed by X = 0, 2, 4 once the CSE map is back; written by `setup_interrupts` (main.s) and the loader.  Not in the stub: the dispatch runs under the CSE map, and the stub's 80 bytes are full |
 | `um_map` | 6 | CSE's base page, `$00–$05` (m65) | the user's `MAP` setting as `hyppo_get_mapping` writes it — the trap writes at a page start, so these are the page's first six bytes |
 | `userland_zp_buf` (m65) | 2 | CSE's base page (m65) | the user's CPU port, `$00` and `$01`: the stub writes it under the user map, where only bank 0 is visible |
 | `um_d030` | 1 | CSE's base page (m65) | the user's `$D030` |
@@ -263,12 +264,15 @@ visible in both maps because `$0000–$1FFF` is unmapped in both
 ([memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode)).
 
     stub_brk    X ← 0 ┐
-    stub_nmi    X ← 2 ├ in_userland? port saved, premise port, hyppo_get_mapping
-    stub_cold   X ← 4 ┘ · MAP CSE · EOM · B ← CSE_BP · JMP (targets,X)
+    stub_nmi    X ← 2 ┘ in_userland? port saved, premise port, hyppo_get_mapping
+    stub_cold   (X = 4 from the loader) PHA X · MAP megabytes 0 · MAP CSE · EOM
+                · B ← CSE_BP · PLA X · JMP (targets,X)
     stub_user   MAP megabytes · PLZ PLY PLX PLA · MAP · EOM
                 · PLA TAB · PLZ · PLY · PLX · PLA · RTI
     brk_stub    BRK + signature
-    targets     three words
+
+The targets are in CSE's base page; the dispatch is `JMP (abs,X)`
+(`M45_JMP_IND_X`).
 
 The three CSE entries share one body, the entry's index kept on the
 stack across `MAP` (which takes every register).  The capture runs

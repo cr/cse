@@ -102,7 +102,9 @@ differences; the addresses are the linker map's
   setting at a page start; beside them the rest of the user's bank
   state, the captured CPU port (`userland_zp_buf`, 2) and `um_d030`
   ([mem.md § Interface](mem.md#interface)) — 9 bytes, written by the
-  resident stub under the user map with absolute addressing.
+  resident stub under the user map with absolute addressing; then the
+  stub's three targets (6 bytes, written by `setup_interrupts` and the
+  loader).
 - **disk.s's private pointer** (`DISK_LOCAL_PTR`) lives here — *stated
   with P3*.
 

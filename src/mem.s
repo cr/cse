@@ -324,50 +324,74 @@ cse_zp_end:
 ; ═════════════════════════════════════════════════════════════
 ; The resident stub (m65 only) — doc/modules/mem.md § The resident
 ; stub.  CSE's only code in bank 0, at STUB_BASE (0.1FB0), visible in
-; both maps; the loader copies the STUB segment there.  Its CSE
-; entries map the CSE map, set B = CSE_BP and jump through a target
-; word written from above (main.s, the loader), so the stub imports
-; nothing of a higher layer.  MAP holds interrupts off until EOM.
+; both maps; the loader copies the STUB segment there.  Its CSE entry
+; captures a program's bank state (userland breaks only), maps the CSE
+; map — megabytes too: they outlast a one-MAP switch (book 14-40) —
+; sets B = CSE_BP and jumps through a target in CSE's base page,
+; written from above (main.s, the loader), so the stub imports nothing
+; of a higher layer.  MAP holds interrupts off until EOM.
 ; ═════════════════════════════════════════════════════════════
 .ifdef PLATFORM_M65
 
         .export stub_brk, stub_nmi, stub_cold, stub_user, brk_stub
-        .export stub_brk_target, stub_nmi_target, stub_cold_target
+        .importzp in_userland, userland_zp_buf, stub_brk_target
+        .assert MAP_CSE_A = 0 && MAP_CSE_Y = 0, error, "stub_cold relies on A = Y = 0"
 
-; MAP the CSE map, B = CSE_BP, jump through `target`.
-; Clobbers A, X, Y, Z, B.
-.macro TO_CSE target
-        lda #MAP_CSE_A
-        ldx #MAP_CSE_X
-        ldy #MAP_CSE_Y
+.segment "STUB"
+
+; BRK / NMI through the KERNAL's vectors, in the program's map or the
+; CSE map; its frame on the stack, B = 0 (its entry set it).
+stub_brk:
+        ldx #0
+        .byte $2C               ; BIT abs: skip the next ldx
+stub_nmi:
+        ldx #2
+        ; A program was running: capture its bank state.  B = 0, so
+        ; $00/$01 are the CPU port; CSE's page is reached absolutely.
+        bit a:BP_ABS(in_userland)
+        bpl stub_cold           ; kernel code: nothing of a program's
+        lda CPU_DDR
+        sta a:BP_ABS(userland_zp_buf) + CPU_DDR
+        lda CPU_PORT
+        sta a:BP_ABS(userland_zp_buf) + CPU_PORT
+        lda #DDR_SEED           ; the premise's port: I/O in, for the trap
+        sta CPU_DDR
+        lda #PORT_SEED
+        sta CPU_PORT
+        ldy #CSE_BP             ; hyppo_get_mapping -> um_map (0.1F00)
+        lda #HYPPO_GET_MAPPING
+        sta HYPPO_TRAP
+        clv
+
+; From the loader by jmp with X = 4, interrupts off.
+stub_cold:
+        txa
+        pha
+        lda #0                  ; megabytes 0
+        tay
+        ldx #MAP_MB
+        M45_LDZ_IMM MAP_MB
+        M45_MAP
+        ldx #MAP_CSE_X          ; A = MAP_CSE_A, Y = MAP_CSE_Y: both 0
         M45_LDZ_IMM MAP_CSE_Z
         M45_MAP
         M45_EOM
         lda #CSE_BP
         M45_TAB
-        jmp (target)
-.endmacro
+        pla
+        tax
+        M45_JMP_IND_X BP_ABS(stub_brk_target)
 
-.segment "STUB"
-
-; BRK / NMI through the KERNAL's vectors, in either map; its frame on
-; the stack, B = 0 (its entry set it).
-stub_brk:
-        TO_CSE stub_brk_target
-stub_nmi:
-        TO_CSE stub_nmi_target
-
-; From the loader by jmp, interrupts off.
-stub_cold:
-        TO_CSE stub_cold_target
-
-; From PLAT_TO_USER: the user's A X Y Z B pushed above the RTI frame.
+; From PLAT_TO_USER: the user's A X Y Z B and the second MAP's operands
+; pushed above the RTI frame, the megabyte operands in A X Y Z; the
+; user's CPU port and $D030 already in place, interrupts off.
 stub_user:
-        lda #MAP_USER_A
-        ldx #MAP_USER_X
-        ldy #MAP_USER_Y
-        M45_LDZ_IMM MAP_USER_Z
-        M45_MAP
+        M45_MAP                 ; the program's megabytes
+        M45_PLZ
+        M45_PLY
+        M45_PLX
+        pla
+        M45_MAP                 ; its offsets and masks
         M45_EOM
         pla
         M45_TAB
@@ -382,10 +406,6 @@ stub_user:
 brk_stub:
         brk
         .byte $42               ; signature (arbitrary non-$00)
-
-stub_brk_target:  .word 0
-stub_nmi_target:  .word 0
-stub_cold_target: .word 0
 stub_end:
 
         .assert stub_end - stub_brk <= $0050, error, "the resident stub overflows 0.1FB0-0.1FFF"

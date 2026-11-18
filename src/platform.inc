@@ -187,6 +187,24 @@ HYPPO_TRAP_ROM  = $D641
 HYPPO_GETVERSION = $00              ; via HYPPO_TRAP; A.X Hyppo, Y.Z HDOS
 HYPPO_ROM_WRITEENABLE = $02         ; via HYPPO_TRAP_ROM: banks 2-3 writable
 HYPPO_RESET     = $7E               ; via HYPPO_TRAP: does not return
+HYPPO_GET_MAPPING = $74             ; via HYPPO_TRAP; Y = the page: MAP's
+                                    ;   X A Z Y operands, the two megabytes
+
+; ── The bank state (§ User transitions): the CPU port, $D030, MAP ────
+CPU_DDR         = $00
+CPU_PORT        = $01
+DDR_SEED        = $FF               ; the run premise's port: the kernel's
+PORT_SEED       = $85               ;   while CSE runs, and a fresh start's
+D030_ROMBANK    = $D030             ; VIC-III ROM banking
+D030_SEED       = $64               ; the run premise's
+ZP_SAVE_LO      = $00               ; the user-ZP view's image: the CPU
+ZP_SAVE_LEN     = 2                 ;   port, $00-$01 (userland_zp_buf)
+MAP_MB          = $0F               ; MAP's X / Z for the megabyte form
+
+; ── The KERNAL's vector table, through VECTOR (book I-79/80) ─────────
+VEC_SIZE        = 56
+VEC_IBRK        = 2                 ; offsets: IIRQ 0, IBRK 2, INMI 4
+VEC_INMI        = 4
 
 ; ── CSE's base page, the resident stub ───────────────────────────────
 CSE_BP          = $1F               ; B while kernel code runs: 0.1F00
@@ -283,6 +301,61 @@ BP_PENDING      = $AB               ; their cells, $AB-$AF of CSE's base page
 ; Macros — one contract each (doc/platform_layer.md § Seam contracts),
 ; a body per platform.
 ; ═════════════════════════════════════════════════════════════════════
+
+; ── The kernel -> user transition (§ User transitions) ──────────────
+; The tail of debugger.s's _rtu_body: the RTI frame (PC, P) is on the
+; stack.  c64: the registers from the snapshot, RTI (in_userland set
+; before).  m65: a MAP of the CSE map onto itself first — MAP holds
+; IRQ and NMI off until stub_user's EOM, so nothing breaks in before
+; the user's map is in place; then in_userland; $D030 and the CPU
+; port back to the user's while the kernel's code is still mapped;
+; the registers and the second MAP's operands (offsets, masks) pushed
+; for stub_user, the megabyte operands in A X Y Z; into the stub.
+.macro PLAT_TO_USER
+  .ifdef PLATFORM_C64
+        ldx reg_x
+        ldy reg_y
+        lda reg_a
+        rti
+  .else
+        lda #MAP_CSE_A              ; the hold: the CSE map onto itself
+        ldx #MAP_CSE_X
+        ldy #MAP_CSE_Y
+        M45_LDZ_IMM MAP_CSE_Z
+        M45_MAP
+        lda #$80
+        sta in_userland
+        lda um_d030
+        sta D030_ROMBANK
+        lda userland_zp_buf + CPU_DDR
+        sta a:CPU_DDR
+        lda userland_zp_buf + CPU_PORT
+        sta a:CPU_PORT
+        lda reg_a
+        pha
+        lda reg_x
+        pha
+        lda reg_y
+        pha
+        lda reg_z
+        pha
+        lda reg_b
+        pha
+        lda um_map + 1              ; MAPLO's A
+        pha
+        lda um_map + 0              ;   X
+        pha
+        lda um_map + 3              ; MAPHI's Y
+        pha
+        lda um_map + 2              ;   Z
+        pha
+        lda um_map + 4              ; MAPLO's megabyte
+        ldx #MAP_MB
+        ldy um_map + 5              ; MAPHI's megabyte
+        M45_LDZ_IMM MAP_MB
+        jmp stub_user
+  .endif
+.endmacro
 
 ; ── KERNAL calls (§ KERNAL calls) ────────────────────────────────────
 ; Call / tail-jump to a KERNAL jump-table entry under the KERNAL's

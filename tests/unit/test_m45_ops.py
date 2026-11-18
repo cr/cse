@@ -28,6 +28,7 @@ CONTRACT = {
     "M45_FAR_LDA": ("LDA", "[indirect],Z"),
     "M45_FAR_STA": ("STA", "[indirect],Z"),
     "M45_FAR_ORA": ("ORA", "[indirect],Z"),
+    "M45_JMP_IND_X": ("JMP", "(indirect,X)"),
 }
 
 
@@ -41,7 +42,8 @@ def test_each_macro_is_the_compendium_encoding(name):
     key, row = m45_ops.decode(code)
     assert (row.mnemonic, row.mode) == CONTRACT[name]
     assert len(code) == row.length
-    assert code[len(key):] == bytes([m45_ops.OPERAND] * (row.length - len(key)))
+    width = row.length - len(key)                  # the operand: a byte or a word
+    assert code[len(key):] == (m45_ops.OPERAND.to_bytes(width, "little") if width else b"")
 
 
 def test_allowed_keys_are_the_macros_decode_keys():

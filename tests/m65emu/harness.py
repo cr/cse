@@ -53,6 +53,7 @@ CSE_BP = 0x1F
 STUB_BASE = 0x1FB0
 STACK_TOP = 0xF1
 BP_CLEARED = 0xB0                           # 0.1F00-0.1FAF (ZP_FILL_END)
+STUB_COLD_INDEX = 4                         # the loader enters stub_cold with X = 4
 BANK_USER, BANK_SRC, BANK_CSE, BANK_SCREEN50 = 0, 2, 3, 4
 
 
@@ -175,18 +176,19 @@ class M65Emu(EmuBase):
         machine its loader installs (loader.md § Design, m65) — where
         EmuBase's load_prg(), which M65Emu shares with C64Emu, copies
         segments within bank 0: the stub
-        at STUB_BASE with _main in its cold target, CSE's base page
-        cleared, CODE + RODATA and KDATA in bank 3, BSS cleared, banks
-        2-3 writable, SP at STACK_TOP, interrupts off, the CSE map and
-        B = CSE_BP with A X Y Z as the stub's MAP leaves them, PC at
-        _main.  Return the load address."""
+        at STUB_BASE, CSE's base page cleared but for the stub's cold
+        target (_main), CODE + RODATA and KDATA in bank 3, BSS cleared,
+        banks 2-3 writable, SP at STACK_TOP, interrupts off, the CSE map
+        and B = CSE_BP with A X Y Z as the stub's cold entry leaves them
+        (A and X its dispatch index 4, pushed and pulled: the byte stays at
+        the stack top), PC at _main.  Return the load address."""
         load_addr = self.place_prg(prg_path, map_path)
         mem, cpu, s = self._mem, self._cpu, self.sym
         stub = s("__STUB_RUN__")
         self._ram[stub:stub + s("__STUB_SIZE__")] = \
             self._ram[s("__STUB_LOAD__"):s("__STUB_LOAD__") + s("__STUB_SIZE__")]
         self._ram[CSE_BP << 8:(CSE_BP << 8) + BP_CLEARED] = bytes(BP_CLEARED)
-        self.write_word(s("stub_cold_target"), s("_main"))
+        self.write_word(CSE_BP << 8 | s("stub_cold_target"), s("_main"))
         mem.rom_protect = False
         for load, run, size in [
                 (s("__CODE_LOAD__"), s("__CODE_RUN__"),
@@ -198,7 +200,8 @@ class M65Emu(EmuBase):
         cpu.p |= 0x04
         cpu.mapl, cpu.maph = CSE_MAP
         _, x, y, z = MAP_CSE
-        cpu.a, cpu.x, cpu.y, cpu.z, cpu.b = CSE_BP, x, y, z, CSE_BP
+        self._ram[0x0100 | STACK_TOP] = STUB_COLD_INDEX
+        cpu.a, cpu.x, cpu.y, cpu.z, cpu.b = STUB_COLD_INDEX, STUB_COLD_INDEX, y, z, CSE_BP
         cpu.pc = s("_main")
         return load_addr
 

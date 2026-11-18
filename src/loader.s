@@ -157,7 +157,8 @@ zero_pages:
 .ifdef PLATFORM_M65
 
         .import _main
-        .import stub_cold, stub_cold_target
+        .import stub_cold
+        .importzp stub_cold_target              ; CSE's base page (zp.s)
         .import __STUB_LOAD__, __STUB_RUN__, __STUB_SIZE__
         .import __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
         .import __RODATA_SIZE__
@@ -203,10 +204,10 @@ loader_entry:
 @bp:    sta CSE_BP * 256 - 1,x
         dex
         bne @bp
-        lda #<_main
-        sta stub_cold_target
+        lda #<_main                             ; B = 0: CSE's page absolutely
+        sta a:BP_ABS(stub_cold_target)
         lda #>_main
-        sta stub_cold_target + 1
+        sta a:BP_ABS(stub_cold_target) + 1
 
         ; ── 4. Banks 2-3 writable ──
         HYPPO HYPPO_ROM_WRITEENABLE, HYPPO_TRAP_ROM
@@ -220,6 +221,7 @@ loader_entry:
         sta DMA_START_ENH
 
         ; ── 6. Into _main through the stub, which MAPs the CSE map ──
+        ldx #4                                  ; the cold target
         jmp stub_cold
 
 @refuse:

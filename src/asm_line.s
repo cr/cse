@@ -39,6 +39,9 @@
         .import asm_error, asm_cpu_error   ; asm_err.s
         .import asm_expr_error, last_err, expr_fwd           ; asm_err.s, expr.s
         .export reg_a, reg_x, reg_y, reg_sp, reg_p
+.ifdef PLATFORM_M65
+        .export reg_z, reg_b
+.endif
 
         ; zero-page variables (zp.s)
         .importzp asm_pc, asm_out, asm_len
@@ -85,6 +88,10 @@ reg_y:         .res 1          ; saved Y
 reg_sp:        .res 1          ; saved SP
 reg_p:         .res 1          ; saved P (status flags)
 _asm_sink:     .res 3          ; bytes past a $FFFF wrap land here (refused)
+.ifdef PLATFORM_M65
+reg_z:         .res 1          ; saved Z  } the KERNAL's frame carries them
+reg_b:         .res 1          ; saved B  } on m65 (debugger.md § save_userland_state)
+.endif
 
 ; (kernel_zp_buf and userland_zp_buf — the ZP save/restore buffers for
 ; the kernel↔userland transitions — live in mem.s alongside the

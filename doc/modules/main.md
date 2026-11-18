@@ -67,14 +67,15 @@ under the KERNAL regardless of `$01`.
 | NMI shadow | $FFFA/$FFFB | `cse_nmi_handler` (KERNAL-out entry) |
 | IRQ/BRK shadow | $FFFE/$FFFF | `cse_brk_handler_early` (KERNAL-out entry) |
 
-**On m65:** **In:** interrupts disabled (the caller's `sei`).
-**Out:** the KERNAL's vector table read with `KCALL VECTOR` into the
-data window, `IBRK` (offset 2) → `stub_brk`, `INMI` (offset 4) →
-`stub_nmi`, the table written back with `KCALL VECTOR`; the stub's
-target words `stub_brk_target` → `cse_brk_handler`, `stub_nmi_target`
-→ `cse_nmi_handler`.  `IIRQ` untouched; no RAM shadows (the KERNAL is
-mapped in every map).
-**Clobbers:** A, X, Y, Z ([platform_layer.md § Vectors](../platform_layer.md#vectors)).
+**On m65:** **In:** none — it holds interrupts off itself around the
+two `VECTOR` calls (`php` · `sei` … `plp`; book I-80).
+**Out:** the KERNAL's vector table (56 bytes) read with `KCALL
+VECTOR` into the data window, `IBRK` (offset 2) → `stub_brk`, `INMI`
+(offset 4) → `stub_nmi`, the table written back with `KCALL VECTOR`;
+the stub's targets in CSE's base page, `stub_brk_target` →
+`cse_brk_handler`, `stub_nmi_target` → `cse_nmi_handler`.  `IIRQ`
+untouched; no RAM shadows (the KERNAL is mapped in every map).
+**Clobbers:** A, X, Y ([platform_layer.md § Vectors](../platform_layer.md#vectors)).
 
 ### cse_brk_handler
 **In:** entered via $0316 (KERNAL in, after $FF48 pushed A/X/Y) or
@@ -92,8 +93,8 @@ CSE_BP`: SP+1..SP+8 = B, Z, Y, X, A, P, PCL, PCH — the KERNAL's
 frame ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame)).
 **Out:** as on c64; `reg_z` and `reg_b` captured beside the other
 registers; the user's bank state captured — the port and the map by
-the stub, `$D030` (into `um_d030`, then the premise's `$64`) by the
-handler's first steps, before `save_userland_state`; base page 0
+the stub, `$D030` (into `um_d030`, then the premise's `$64`) by
+`save_userland_state`'s m65 tail; base page 0
 untouched (no swap).  The same sequence
 (§ BRK dispatch); `brk_stub` is the stub's
 ([mem.md § The resident stub](mem.md#the-resident-stub-m65-only)).
@@ -110,8 +111,7 @@ out): SP+1..SP+3 = P, PCL, PCH; A/X/Y live.
 (`stub_nmi`, reached through `INMI`) under the CSE map with `B =
 CSE_BP`, the KERNAL's frame as for a BRK: SP+1..SP+8 = B, Z, Y, X,
 A, P, PCL, PCH; on the userland path the stub has captured the port
-and the map, and the handler captures `$D030` as `cse_brk_handler`
-does.  **Out:** as on c64.  The userland path pushes
+and the map, and `save_userland_state` captures `$D030`.  **Out:** as on c64.  The userland path pushes
 nothing — the frame already has the BRK shape — and the user's A is
 in the frame, not live, so the `bit` / `bmi` test is kept only
 because it is the shared code.  **Clobbers:** everything.

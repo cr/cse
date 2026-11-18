@@ -870,14 +870,14 @@ recorded behaviours M65Emu models and one round trip end to end.
   reads bank 0.  Step (2) done 2026-11-18: `r x:05 a:3c` applies both
   fields (it timed out in the KERNAL before the root's `FAR_BANK`);
   `z:` / `b:` and the malformed field join with step (4).
-- [ ] T7. The user-ZP view on m65 (`jsr` on the installed PRG):
+- [x] T7. The user-ZP view on m65 (`jsr` on the installed PRG):
   `zp_stage_prep` and `peek_user` take `$00`/`$01` from the captured
   port and every other base-page byte live from base page 0;
   `zp_poke` to `$00`/`$01` lands in the captured port, to `$02` in
   base page 0; a run from `$FFFC` stages the port from the image for
   its wrapped part (the c64 code's wrap) — the live part follows
   D-P1-2.
-- [ ] T8. The transitions (`test_m65_debugger.py`, each ROM; the m65
+- [x] T8. The transitions (`test_m65_debugger.py`, each ROM; the m65
   counterpart of `test_kernel_transition.py`, real user code entered
   through `return_to_userland` / `restore_userland_state`, stopped at
   `hygiene_after_userland`, or at `cse_refresh` / `cse_recover`): a.
@@ -894,7 +894,7 @@ recorded behaviours M65Emu models and one round trip end to end.
   i. `reg_sp` = the SP before the BRK (the 8-byte frame); j. base page
   0 untouched by the kernel across a break and resume (all 256 bytes,
   a pattern).
-- [ ] T9. The bank state (`test_m65_debugger.py`, each ROM; Principle
+- [x] T9. The bank state (`test_m65_debugger.py`, each ROM; Principle
   7's stress shape): parametrised over a program that maps its own
   window (MAPLO offset, MAPHI with the Attic megabyte), one that banks
   the I/O out through the port, one that changes `$D030`, and all
@@ -904,6 +904,17 @@ recorded behaviours M65Emu models and one round trip end to end.
   the run premise's state.  The stress case: an NMI scheduled at each
   instruction from `PLAT_TO_USER`'s first store to `stub_user`'s `RTI`,
   each run resumed with `c` — the program completes as without it.
+  Step (3) done 2026-11-18 (T7–T9 green on both ROMs).  The stress
+  case found a real bug: an NMI in `PLAT_TO_USER` before the stub's
+  `MAP` recorded the CSE map and CSE's registers as the program's —
+  fixed by opening the m65 tail with a `MAP` hold and setting
+  `in_userland` inside it.  Feedback round, into the docs: a megabyte
+  outlasts a one-`MAP` switch, so the stub's switch to the CSE map is
+  the two-`MAP` form; the stub's targets live in CSE's base page (the
+  stub's 80 bytes are full); `$D030` is captured in
+  `save_userland_state`; `setup_interrupts` holds interrupts itself;
+  `BP_ABS` needs `a:` where the instruction has a zero-page form.
+  P1's pending count is 0.
 - [ ] T10. Tier X (`tests/emulator/test_m65_boot.py`, each ROM): a
   user `BRK` stopped at `hygiene_after_userland` with the snapshot, the
   CSE map and `B = CSE_BP` as M65Emu has them; a program that maps a

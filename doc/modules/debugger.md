@@ -98,7 +98,8 @@ command set `run_user_pending = MODE_JUMP` (`j`, `g`, and the first
 3. SP := `reg_sp`.
 4. (`return_to_userland` only) push the sentinel.
 5. Push PCH, PCL (from `brk_pc`), P (`reg_p`).
-6. `in_userland := $80` (bit 7, for `cse_nmi_handler`'s `bit`/`bmi`).
+6. `in_userland := $80` (bit 7, for `cse_nmi_handler`'s `bit`/`bmi`);
+   on m65 inside step 7, once its `MAP` holds the NMI off.
 7. `PLAT_TO_USER`: on c64 X, Y, A from `reg_*` and `rti`; on m65
    `reg_a`, `reg_x`, `reg_y`, `reg_z`, `reg_b` pushed and `jmp
    stub_user`, which installs the user's map and restores them;

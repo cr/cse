@@ -57,6 +57,9 @@
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
 .ifdef PLATFORM_C64
         .import kernel_zp_buf, userland_zp_buf
+.else
+        .import reg_z, reg_b, stub_user
+        .importzp userland_zp_buf, um_map, um_d030
 .endif
         .importzp in_userland     ; zp.s
         .importzp dbg_reason      ; zp.s
@@ -129,6 +132,10 @@ dbg_init:
         sta reg_x
         sta reg_y
         sta reg_p
+.ifdef PLATFORM_M65
+        sta reg_z
+        sta reg_b
+.endif
         sta dbg_reason
         lda #STACK_TOP
         sta reg_sp              ; user's stack begins empty
@@ -155,7 +162,8 @@ dbg_init:
         ;   and save_kernel_zp (in mem.s) overwrite these seeds with
         ;   real captured values.
         ;
-        ;   m65: no ZP buffers, no seeds (mem.md § ZP swap on m65).
+        ;   m65: reg_z / reg_b zeroed; the saved bank state seeded with
+        ;   the run premise's (seed_bank_state); no kernel_zp_buf.
 .ifdef PLATFORM_C64
         lda #DDR_SEED
         sta userland_zp_buf + CPU_DDR
@@ -163,8 +171,32 @@ dbg_init:
         lda #PORT_SEED
         sta userland_zp_buf + CPU_PORT
         sta kernel_zp_buf + CPU_PORT
-.endif
         rts
+.endif                          ; m65: fall through
+
+.ifdef PLATFORM_M65
+; ── seed_bank_state (m65) ───────────────────────────────────────────
+; The saved bank state := the run premise's (platform_layer.md § User
+; transitions): the user map, the port $FF/$85, $D030 = $64.  um_map,
+; userland_zp_buf and um_d030 are contiguous in CSE's base page (zp.s).
+; Clobbers: A, X.
+BANK_STATE_SIZE = 6 + ZP_SAVE_LEN + 1
+seed_bank_state:
+        ldx #BANK_STATE_SIZE - 1
+@s:     lda bank_premise,x
+        sta um_map,x
+        dex
+        bpl @s
+        rts
+        .assert userland_zp_buf = um_map + 6 && um_d030 = userland_zp_buf + ZP_SAVE_LEN, error, "the bank state is one block"
+
+.segment "RODATA"
+bank_premise:
+        .byte MAP_USER_X, MAP_USER_A, MAP_USER_Z, MAP_USER_Y, 0, 0
+        .byte DDR_SEED, PORT_SEED
+        .byte D030_SEED
+.segment "CODE"
+.endif
 
 ; ═══════════════════════════════════════════════════════════════════════
 ; Gate primitive — userland → kernel.
@@ -220,6 +252,12 @@ save_userland_state:
         sta brk_pc
         lda _SUS_P + 2,x
         sta brk_pc+1
+.ifdef PLATFORM_M65
+        lda _SUS_P - 4,x        ; the KERNAL's frame: B Z above Y X A
+        sta reg_z
+        lda _SUS_P - 5,x
+        sta reg_b
+.endif
 
         ; 2. reg_sp = user's pre-interrupt SP = current SP + the jsr
         ;    return address + the frame + the CPU's P PCL PCH (c64: 8).
@@ -246,11 +284,17 @@ save_userland_state:
         ; kernel_zp_buf's [0]/[1], seeded by dbg_init and maintained
         ; by save_kernel_zp on every k→u transition).
         ;
-        ; m65: no swap — the transitions switch B (§ Base page).
+        ; m65: no swap — the transitions switch B (§ Base page).  The
+        ; stub captured the port and the map; $D030 is captured here,
+        ; and the premise's set before the kernel uses the interface ROM.
 .ifdef PLATFORM_C64
         jsr save_userland_zp
         jmp restore_kernel_zp       ; tail call (rts via restore_kernel_zp)
 .else
+        lda D030_ROMBANK
+        sta um_d030
+        lda #D030_SEED
+        sta D030_ROMBANK
         rts
 .endif
 
@@ -272,6 +316,9 @@ save_userland_state:
 ; pushing another would creep the stack by 2 bytes per resume.
 ; Resume paths jump to restore_userland_state directly.
 return_to_userland:
+.ifdef PLATFORM_M65
+        jsr seed_bank_state     ; a fresh start begins as RUN does
+.endif
         lda #1
         sta _rtu_need_sentinel
         jmp _rtu_body
@@ -342,13 +389,13 @@ _rtu_body:
         ; can test it via `bit / bmi` (N flag = bit 7 of operand,
         ; independent of A).  At NMI entry A holds the user's live
         ; value and we can't reliably clobber it with `lda`.
+        ; m65: set inside PLAT_TO_USER, once MAP holds the NMI off.
+.ifdef PLATFORM_C64
         lda #$80
         sta in_userland
+.endif
 
-        ldx reg_x
-        ldy reg_y
-        lda reg_a
-        rti
+        PLAT_TO_USER            ; platform_layer.md § User transitions
 
 ; ── brk_stub ────────────────────────────────────────────────────────
 ; Fixed code address where user's top-level RTS lands after popping
@@ -614,22 +661,24 @@ brk_stub:
 ; user's ZP image (userland_zp_buf — the live ZP is the kernel's while
 ; CSE runs), everything else is read live.  Clobbers: Y.
 ;
-; m65: base page 0 through the far pointer — stated with P1.
+; m65: the image is the CPU port's two bytes (platform_layer.md
+; § Base page); the rest of base page 0 is read live.
 peek_user:
-.ifdef PLATFORM_C64
         ldy #0
         lda rp_ptr+1
         bne @live
         lda rp_ptr
+.if ZP_SAVE_LEN = $80
         bmi @live               ; $80-$FF: not in the save range
+.else
+        cmp #ZP_SAVE_LO + ZP_SAVE_LEN
+        bcs @live               ; m65: past the port's image
+.endif
         tay
-        lda userland_zp_buf,y
+        lda BP_ABS(userland_zp_buf),y
         rts
 @live:  FAR_LDA rp_ptr
         rts
-.else
-        PLAT_PENDING 1
-.endif
 
 ; ── compute_rel_target ──────────────────────────────────────────────
 ; step_next_lo = brk_pc + 2 + sign_extend(byte_at(rp_ptr2+1)).

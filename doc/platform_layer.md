@@ -220,6 +220,10 @@ anything but `LDX` / `STX`) or a 16-bit pointer to one (`#<sym` /
 
 The expansion opens with a unary `+` so that `BP_ABS(sym),y` stays
 absolute-indexed (an operand opening with `(` parses as `(zp),y`).
+Where the instruction also has a zero-page form (`lda`, `sta`, `bit`
+without an index), ca65 picks it for a zero-page symbol's
+expression, so such a site writes `a:BP_ABS(sym)` (the resident stub,
+the loader: both run with `B = 0`).
 A static check pins the rule ([§ Gates](#gates)).
 
 The user-ZP swap is mem.s's four primitives, their two buffers and
@@ -405,26 +409,34 @@ and the Hypervisor's `hyppo_get_mapping` does ([§ Constants](#constants)).
   state): the CPU port saved and set to the run premise's (`$FF` /
   `$85`), which makes the I/O visible for the trap whatever the
   program banked out; `hyppo_get_mapping` into the first six bytes of
-  CSE's base page (the trap writes at a page start: `0.1F00`).  The
-  handler then saves `$D030` and sets the premise's (`$64`) before
-  the kernel uses the interface ROM.
-- **Install** (`PLAT_TO_USER` and `stub_user`): `$D030`, then the
-  CPU port, back to the captured values while the kernel's code is
-  still mapped (neither moves the CSE map's code and data windows,
-  which `MAP` places); the map in `stub_user`, megabytes first, then
-  offsets and masks — the second `MAP`'s operands on the stack —
-  and `EOM` once.
+  CSE's base page (the trap writes at a page start: `0.1F00`).
+  `save_userland_state`, which both handlers call on their userland
+  path, then saves `$D030` and sets the premise's (`$64`).  The
+  stub's switch to the CSE map is the two-`MAP` form — megabytes 0,
+  then the CSE map — because a megabyte outlasts a one-`MAP` switch
+  (book 14-40): a program's megabyte would otherwise move CSE's code
+  window.
+- **Install** (`PLAT_TO_USER` and `stub_user`): first a `MAP` of the
+  CSE map onto itself, which holds IRQ and NMI off until `stub_user`'s
+  `EOM` (recorded, T3); then `in_userland` (on m65 set here, inside
+  the hold); `$D030`, then the CPU port, back to the captured values
+  while the kernel's code is still mapped (neither moves the CSE map's
+  code and data windows, which `MAP` places); the map in `stub_user`,
+  megabytes first, then offsets and masks — the second `MAP`'s
+  operands on the stack — and `EOM` once.
 - **Fresh start** (`j`, `g`): the bank state is the run premise's —
   the user map, the port `$FF` / `$85`, `$D030` = `$64` — written into
   the saved state by `return_to_userland`, so a run starts as `RUN`
   starts a program whatever the last one left.
 
-The transition is atomic only between `MAP` and `EOM`; a break
-elsewhere in it is resumable: before `stub_user`'s `MAP` the
-interrupted code is the kernel's tail under the CSE map with
-`in_userland` set, and the resume re-enters that tail with the
-operands still on the stack above `reg_sp`; after `EOM` it is the
-stub's pops under the user map.  Every such point is a test
+The transition is atomic from `PLAT_TO_USER`'s hold to `stub_user`'s
+`EOM`.  The hold is needed: an NMI in the kernel's tail with
+`in_userland` set would record the CSE map and the kernel's transient
+registers as the program's (the stress test found it).  After `EOM` a
+break is resumable: it interrupts the stub's pops under the user map,
+the program's registers still on the stack above `reg_sp`, and the
+resume re-enters the stub, which pops them.  An NMI at every
+instruction of the transition is a test
 ([testing.md § The m65 PRG on M65Emu](testing.md#the-m65-prg-on-m65emu)).
 
 The resident stub, its entries and `brk_stub`'s place in it are
@@ -606,6 +618,7 @@ The macros are the instructions the m65 platform bodies use:
 | `M45_LDZ_IMM value` | `LDZ #value` |
 | `M45_TAB` | `TAB` |
 | `M45_PHY`, `M45_PLY`, `M45_PLX`, `M45_PLZ` | `PHY`, `PLY`, `PLX`, `PLZ` |
+| `M45_JMP_IND_X addr` | `JMP (addr,X)` — the resident stub's dispatch to its three CSE targets |
 | `M45_FAR_LDA zp`, `M45_FAR_STA zp`, `M45_FAR_ORA zp` | `LDA [zp],Z`, `STA [zp],Z`, `ORA [zp],Z`: the `EOM` prefix before `(zp),Z` |
 
 The DMAgic's job lists are data and its trigger a store to an I/O

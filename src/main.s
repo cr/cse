@@ -193,6 +193,17 @@ prog_fill_job:
         .byte BANK_USER
         .byte $00                               ; sub-command
         .word 0                                 ; modulo
+
+; setup_interrupts: IBRK, INMI -> the stub; the stub's BRK, NMI
+; targets -> the handlers.
+        .import stub_brk, stub_nmi
+        .importzp stub_brk_target
+vec_new:
+        .word stub_brk, stub_nmi
+        .word cse_brk_handler, cse_nmi_handler
+
+.segment "BSS"
+vec_buf:           .res VEC_SIZE   ; the KERNAL's vector table, via VECTOR
 .endif
 
 ; ── CODE ────────────────────────────────────────────────────
@@ -693,7 +704,9 @@ main_loop:
 ; MUST run before any bank-out in cold init.
 ; Clobbers: A.
 ; ═════════════════════════════════════════════════════════════
-; m65: through VECTOR, interrupts off — stated with P1.
+; m65 (main.md § setup_interrupts): the KERNAL's vector table through
+; VECTOR, interrupts held off around it (book I-80); no RAM shadows.
+; Clobbers: A, X, Y.
 .proc setup_interrupts
 .ifdef PLATFORM_C64
         lda #<cse_brk_handler
@@ -712,7 +725,26 @@ main_loop:
         sta IRQ_VEC_RAM + 1
         rts
 .else
-        PLAT_PENDING 1
+        php
+        sei
+        sec                     ; read the table
+        ldx #<vec_buf
+        ldy #>vec_buf
+        KCALL VECTOR
+        ldx #3
+@v:     lda vec_new,x
+        sta vec_buf + VEC_IBRK,x
+        lda vec_new + 4,x
+        sta stub_brk_target,x   ; and stub_nmi_target
+        dex
+        bpl @v
+        clc                     ; write it back
+        ldx #<vec_buf
+        ldy #>vec_buf
+        KCALL VECTOR
+        plp
+        rts
+        .assert VEC_INMI = VEC_IBRK + 2, error, "IBRK and INMI are adjacent"
 .endif
 .endproc
 
@@ -1031,11 +1063,14 @@ cse_nmi_handler:
         ; Normalize stack to match $FF48-BRK shape (Y/X/A/P/PClo/PChi)
         ; so save_userland_state can be shared.  The CPU didn't push
         ; A/X/Y on NMI; they're user's live values.
+        ; m65: the KERNAL's NMI entry pushed A X Y Z B — the BRK shape.
+.ifdef PLATFORM_C64
         pha                     ; A
         txa
         pha                     ; X
         tya
         pha                     ; Y (top of frame after these three)
+.endif
         lda #0
         sta in_userland
 

@@ -118,13 +118,15 @@ image in bank 0):
    number (ROM 920413, the floor, has no `VERSIONQ`).
 2. `sei`; reset the stack pointer to `STACK_TOP`.
 3. Copy the `STUB` image to `STUB_BASE`; clear CSE's base page;
-   write `_main`'s address into the stub's cold target.
+   write `_main`'s address into the stub's cold target, which is in
+   CSE's base page (`a:BP_ABS(stub_cold_target)`: the loader runs with
+   `B = 0`).
 4. `hyppo_rom_writeenable`: banks 2–3 writable.
 5. One DMA job list: CODE + RODATA image → `3.2000`, KDATA image →
    the data window, BSS → zero.  The job list is data in the LOADER
    segment.
-6. `jmp stub_cold`, which `MAP`s the CSE map, sets `B = CSE_BP` and
-   jumps to `_main` (its `EOM` leaves the I flag as `sei` left it;
+6. `ldx #4` · `jmp stub_cold` (X selects the stub's cold target),
+   which `MAP`s the CSE map, sets `B = CSE_BP` and jumps to `_main` (its `EOM` leaves the I flag as `sei` left it;
    `_main` enables interrupts).  The loader does not execute the `MAP`
    itself: it runs in the `$2000–$7FFF` window the CSE map replaces.
 

@@ -59,6 +59,8 @@
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
 .ifdef PLATFORM_C64
         .import userland_zp_buf
+.else
+        .importzp userland_zp_buf       ; zp.s: the CPU port's image
 .endif
         .import step_state, step_remaining
         .import step_next_pc, arm_step_bp
@@ -1041,9 +1043,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; Introspection build: no redirect.  rp_ptr2 already points
         ; at the live address; downstream consumers read live ZP.
         rts
-.elseif .defined(PLATFORM_M65)
-        PLAT_PENDING 1                  ; base page 0 through far pointers
-.else
+.else                                   ; m65: the save range is the port
         ldx rp_ptr2+1                   ; only a page-$00 or page-$FF
         inx                             ; base can reach the save range
         cpx #2                          ; (an 8-byte run from $FFF9+
@@ -1069,6 +1069,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         sta rp_ptr2
         lda #>zp_stage_buf
         sta rp_ptr2+1
+        FAR_BANK rp_ptr2, BANK_CSE
 @done:  rts
 .endif
 .endproc
@@ -1095,9 +1096,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; Introspection build: no redirect.  Direct live write.
         FAR_STA rp_ptr2
         rts
-.elseif .defined(PLATFORM_M65)
-        PLAT_PENDING 1                  ; base page 0 through far pointers
-.else
+.else                                   ; m65: the save range is the port
         pha
         tya
         clc

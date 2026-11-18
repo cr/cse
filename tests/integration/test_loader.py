@@ -90,14 +90,15 @@ def test_m65_loader_installs_the_machine(cse_m65_prg, m65_snapshot):
     assert emu.b == CSE_BP
     assert emu.sp == 0x0100 | STACK_TOP
     assert emu.cpu.p & 0x04, "I set"
-    # the stub at 0.1FB0, its cold target _main; CSE's base page cleared
+    # the stub at 0.1FB0; CSE's base page cleared but for the stub's
+    # cold target, _main
     stub = _flat(emu, s("__STUB_LOAD__"), s("__STUB_LOAD__") + s("__STUB_SIZE__"))
-    stub_run = _flat(emu, STUB_BASE, STUB_BASE + s("__STUB_SIZE__"))
-    tgt = s("stub_cold_target") - STUB_BASE
-    assert stub_run[:tgt] == stub[:tgt] and stub_run[tgt + 2:] == stub[tgt + 2:]
-    assert emu.memory.read_flat(s("stub_cold_target")) | \
-        emu.memory.read_flat(s("stub_cold_target") + 1) << 8 == s("_main")
-    assert not any(_flat(emu, CSE_BP << 8, STUB_BASE)), "base page not cleared"
+    assert _flat(emu, STUB_BASE, STUB_BASE + s("__STUB_SIZE__")) == stub
+    tgt = CSE_BP << 8 | s("stub_cold_target")
+    assert emu.memory.read_flat(tgt) | emu.memory.read_flat(tgt + 1) << 8 == s("_main")
+    page = bytearray(_flat(emu, CSE_BP << 8, STUB_BASE))
+    page[tgt & 0xFF:(tgt & 0xFF) + 2] = b"\0\0"
+    assert not any(page), "base page not cleared"
     # CODE + RODATA and KDATA in bank 3, BSS cleared, banks 2-3 writable
     for name, load, run, size in [
             ("CODE+RODATA", s("__CODE_LOAD__"), s("__CODE_RUN__"),
