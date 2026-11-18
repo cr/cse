@@ -651,3 +651,25 @@ class TestStatusLineNumber:
         row = emu.screen_text(22)
         assert row[33:40] == text, repr(row)
         assert row[29:33] != "    ", "free address overwritten"
+
+
+class TestCodeReadOnly:
+    """memory_design.md § Design Principles: no self-modifying code —
+    editing, cursor movement and rendering write no byte of editor.s's
+    CODE (its scratch lives in BSS)."""
+
+    def test_editing_session_leaves_code_unchanged(self, cse_prg):
+        import pathlib, re
+        emu = make_emu(cse_prg)
+        m = re.search(r"^editor\.o:\n\s+CODE\s+Offs=([0-9A-F]+)\s+Size=([0-9A-F]+)",
+                      pathlib.Path(cse_prg[1]).read_text(), re.M)
+        start = emu.sym("__CODE_RUN__") + int(m.group(1), 16)
+        size = int(m.group(2), 16)
+        before = bytes(emu.memory[start + i] for i in range(size))
+        # tabs, RETURNs (smart indent), cursor up/down/left/right,
+        # DEL joining two lines, typing into the joined line
+        type_keys(emu, b"START\xa0LDA #1\rNOP\r\xa0RTS")
+        type_keys(emu, [0x91, 0x91, 0x11, 0x9D, 0x1D, 0x13, 0x14, 0x41, 0x11, 0x11])
+        after = bytes(emu.memory[start + i] for i in range(size))
+        diff = [hex(start + i) for i in range(size) if before[i] != after[i]]
+        assert diff == [], f"editor.s CODE written at {diff}"

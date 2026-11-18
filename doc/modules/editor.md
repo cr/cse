@@ -142,7 +142,11 @@ layout](gap_buffer.md#buffer-layout)).
 | `repl_cur_x` | 1 | saved REPL cursor column |
 | `repl_cur_y` | 1 | saved REPL cursor row |
 
-Several routines also keep one-byte locals in CODE (§ Caveats).
+Fifteen proc-local scratch bytes (`ed_render_line`, `div10`,
+`ed_render_status`, `ed_render_range`, `visual_col`, `line_vwidth`,
+`advance_to_vcol`, `ed_cursor_up` / `ed_cursor_down`, `ed_handle_key`)
+are BSS too, declared inside their `.proc`; CODE is never written
+(memory_design.md § Design Principles).
 
 ### Internal functions
 
@@ -414,10 +418,4 @@ REPL's business (`l` / `s`), not the editor's.
   0 before the edit; `gb_insert` / `gb_backspace` set it first, so in
   practice col 0 is drawn by the full `ed_render_status` that every
   edit runs.
-- Mutable locals live in CODE, not BSS: `ed_render_line` (`@save_col`,
-  `@tw_save`), `div10` (`@rem`), `ed_render_status` (`@fn_len`),
-  `ed_render_range` (`@from`, `@to`, `@save_x`), `visual_col`,
-  `line_vwidth`, `advance_to_vcol`, `ed_cursor_up` / `ed_cursor_down`
-  (`@target`) and `ed_handle_key` (`@key`, `@new_col`, `@join_col`).
-  They block a ROM build (memory_design.md § Design Principles).
 - `BUF_END` is the link-time constant `__CODE_RUN__`, not a variable.

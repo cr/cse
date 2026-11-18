@@ -1183,9 +1183,10 @@ documentation round that follows this filing.
   oversize file prints the stats instead of `;?fail` / `;?too big` —
   the pattern fixed for `ed_save_source`.
   Fixed 2026-11-18 (aae55f8 on the IEC track: `ed_load_source` sets Z from A; `;?fail` / `;?too big` shown, test on the virtual drive).
-- [ ] **Mutable bytes in CODE, the full set**: besides `disk_save_prg`,
+- [x] **Mutable bytes in CODE, the full set**: besides `disk_save_prg`,
   editor.s has ~15 `.byte` locals, disk.s ~16, repl.s ~4
   (`warn_long_lines`' among them) — all to BSS/ZP scratch.
+  Fixed 2026-11-18: disk.s (d153321), repl.s (953405d), main.s (be86231) and now editor.s's 15 locals are BSS (−15 B, budget lowered); no `.byte` scratch is left in any CODE segment, test TestCodeReadOnly::test_editing_session_leaves_code_unchanged.
 - [x] **A disk write error after a successful OPEN is not detected**:
   SEQ and PRG saves report success and clear `ed_dirty`; read the
   status (ST / the command channel) after the write.

@@ -384,8 +384,10 @@ _ed_cur_row:
         lda #0
         rts
 
-@save_col: .byte 0
-@tw_save:  .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@save_col: .res 1
+@tw_save:  .res 1
+        .segment "CODE"
 .endproc
 
 ; ── skip_one_line — advance ed_scr past one line ─────────────
@@ -573,7 +575,9 @@ _ed_cur_row:
         bne @loop
         lda @rem                ; remainder in A
         rts
-@rem:   .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@rem:   .res 1
+        .segment "CODE"
 .endproc
 
 ; ── ed_status_pos — update cursor position (cols 33-39) ───────
@@ -797,7 +801,9 @@ _ed_cur_row:
         jsr ed_status_free
         jmp ed_status_pos       ; tail call
 
-@fn_len:  .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@fn_len:  .res 1
+        .segment "CODE"
 .endproc
 
 ; ── ed_render_range — render screen rows from..to ─────────────
@@ -846,9 +852,11 @@ _ed_cur_row:
 
 @done:  rts
 
-@from:   .byte 0
-@to:     .byte 0
-@save_x: .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@from:   .res 1
+@to:     .res 1
+@save_x: .res 1
+        .segment "CODE"
 .endproc
 
 ; ── ed_render — full redraw (22 lines + status) ──────────────
@@ -1015,7 +1023,9 @@ _ed_cur_row:
         txa
         rts
 
-@vc_save: .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@vc_save: .res 1
+        .segment "CODE"
 .endproc
 
 ; ── line_vwidth — visual width of a line ───────────────────────
@@ -1064,7 +1074,9 @@ _ed_cur_row:
         txa
         rts
 
-@vw_save: .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@vw_save: .res 1
+        .segment "CODE"
 .endproc
 
 ; ── find_line_start — walk gap_lo back to the line start ──────
@@ -1220,7 +1232,9 @@ _ed_cur_row:
         jmp @loop
 @done:  rts
 
-@target: .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@target: .res 1
+        .segment "CODE"
 .endproc
 
 ; ── ed_cursor_up ──────────────────────────────────────────────
@@ -1265,7 +1279,9 @@ _ed_cur_row:
 @noop:  clc                     ; refused
         rts
 
-@target: .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@target: .res 1
+        .segment "CODE"
 .endproc
 
 ; ── ed_cursor_down ────────────────────────────────────────────
@@ -1331,7 +1347,9 @@ _ed_cur_row:
 @noop:  clc                     ; refused
         rts
 
-@target: .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@target: .res 1
+        .segment "CODE"
 .endproc
 
 ; ── ed_mark_edited — set dirty flag, update status ────────────
@@ -1784,9 +1802,11 @@ _ed_cur_row:
 @repos:
         jmp ed_sync_cursor
 
-@key:          .byte 0
-@new_col:      .byte 0
-@join_col: .byte 0
+        .segment "BSS"      ; CODE stays read-only
+@key:          .res 1
+@new_col:      .res 1
+@join_col: .res 1
+        .segment "CODE"
 .endproc
 
 ; ── Mode switching ───────────────────────────────────────────
