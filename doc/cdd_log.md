@@ -34,6 +34,85 @@ is per-session, the project's working state recap.
 
 ---
 
+## R7 — CDD Maintenance + first Quality Sweep (2026-11-18)
+
+A repo-wide CDD Maintenance pass ("the contract drives the code, not
+the other way around"), then the first CDD Quality Sweep after its
+backport from bbbc64.  Output mode: file everything in TODO.md
+§ "CDD Maintenance + Quality Sweep findings", then fix every item,
+one commit each.  About 80 items, closed in ~220 commits on `m65`
+by parallel worktree tracks (debugger, assembler, editor/build, IEC
+drive, cleanup, REPL leftovers, six doc groups) and a final merge.
+
+### What worked
+
+- **Six lenses, disjoint yields.**  Doc-slice (Maintenance item 3)
+  found the doc drift; the source-first assembler edge probe 13 code
+  bugs; the lifecycle matrix 8 (state left behind: `bp_table` wiped
+  by `cse_recover`, `$00` left in user code by `unpatch_all`); live
+  example execution 7; cross-doc fact clusters the restated-facts
+  families; the task-driven cold reader the missing guidance (REPL
+  dispatch, asm_src helpers, size-gate procedure).  No lens found
+  another's class.
+- **Reproduce before filing.**  Every prober finding was re-run from
+  a script under the session scratchpad before it reached TODO.md;
+  none filed that way was refuted later.
+- **The ownership audit as merge oracle.**  After the merge it flagged
+  `dev/repl_test_stub.s` as unclaimed: a modify/delete conflict had
+  resurrected a file the disk track deleted.  No test noticed (nothing
+  links it).
+- **A "dead code" item hid a bug.**  `ed_status_dirty` was filed as
+  dead.  Asking which path it was meant to cover found RETURN on the
+  bottom row: `ed_scroll_up` redraws no status, so a clean source
+  stayed without its `*`.  The fix pinned the scroll path first.
+- **Separate budget commits.**  Every fix that grew a PRG left the
+  budget to its own commit, so the merged re-measure
+  (20 918 / 21 261 / 21 841 B) was one auditable step, and the CODE→BSS
+  and dead-code fixes lowered it again (20 886 / 21 229 / 21 809 B).
+
+### What didn't
+
+- ***Tracks cut from the wrong base.***  The worktrees were created
+  from `main`, not `m65`; every agent had to reset first.  Evidence:
+  the setup step added to the fix and doc briefs.
+- ***Per-branch ratchets do not compose.***  Each track lowered or
+  raised `BUDGET` against its own base, so the merged file held the
+  last branch's number, not the merged size.  The gate failed until
+  re-measured.
+- ***Tests written against a stub of a layer another track replaced.***
+  `test_save_prg_payload_leaves_code_read_only` stubbed the KERNAL
+  vectors because C64Emu had no drive; the IEC track's status read
+  then made it fail at the merge.  It now saves to the virtual 1541.
+- ***Duplicate filing.***  "Chained steps skip the `;!range` gate"
+  was filed in two subsections; one track ticked one copy.
+- ***Renames leave audit exclusions behind.***  `ddd_log.md` →
+  `cdd_log.md` left the numbers and phase-marker audits excluding a
+  file that no longer exists, so the log's quotes read as drift.
+
+### Suggested amendments
+
+- **C3. Parallel tracks: base, budget, merge check.**  Cut every fix
+  worktree from the integration branch; re-measure `BUDGET` once at
+  the merge in its own commit; after the merge run the ownership
+  audit (it catches resurrected files) and the full suite before
+  ticking.  Home: [testing.md](testing.md) or
+  [build_system.md § size gate](build_system.md).  Likely **Tier C**.
+- **A-R7. Filing dedup.**  Before filing a finding, search the open
+  findings section for the same defect; one item per defect, with
+  cross-references.  Home: [README § CDD Quality Sweep](README.md#cdd-quality-sweep)
+  discipline.  Likely **Tier A**.
+
+### Closing summary
+
+The contract now drives the code again: every finding is fixed or
+ticked with its commit, every gating audit is clean (no known link
+suspects left), and no CODE segment holds mutable bytes.  The sweep
+proved the six-lens fan-out and added one technique to the inventory
+(dead-code purpose).  The next round inherits the m65 slice-2 work
+and amendments C3 / A-R7.
+
+---
+
 ## Phase 26 — v0.1 Release
 
 **Scope:** the v0.1 release-cycle session covering rc1 → rc4 → v0.1.

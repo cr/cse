@@ -490,6 +490,11 @@ process-level layers, not at the principle-list layer.*
   missing test, and the contract/principle amendment land as one
   auditable unit).
 
+- [ ] **Filing dedup** (A-R7, [CDD Log R7](cdd_log.md)).  Before
+  filing a Quality Sweep finding, search the open findings for the
+  same defect: one item per defect, with cross-references.  Home:
+  README.md § CDD Quality Sweep, Discipline.
+
 ### Tier B — Domain-class amendments
 
 *Apply only to projects of a particular shape.  Not universal:
@@ -554,6 +559,14 @@ out of class.*
 *Tracked further down under § Planned / Corpus.  The items
 there are mechanical fixes; this header just acknowledges they
 belong in the same taxonomy.*
+
+#### C3. Parallel fix tracks (CDD Log R7, 2026-11-18)
+
+- [ ] Cut every fix worktree from the integration branch; re-measure
+  `BUDGET` once at the merge, in its own commit; after the merge run
+  the ownership audit (a modify/delete conflict can resurrect a
+  deleted file) and the full suite before ticking.  Home:
+  build_system.md § size gate and testing.md.
 
 ### Phase 24 retrospective — amendment candidates (2026-04-27)
 

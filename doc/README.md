@@ -656,6 +656,10 @@ techniques prove out).
   merely that the link resolves.
 - **Ownership ≠ resolving link** — the link audit proves anchors
   resolve, not that the target owns the content.
+- **Dead-code purpose** — before deleting code that never runs, ask
+  which path it was written to cover and drive that path; the code is
+  often dead because a sibling path covers the common case, and the
+  uncommon one is the bug (`ed_status_dirty`: the scrolling RETURN).
 - **Depth-first deep-read** — periodically trade a breadth fan-out
   for one adversarial single-doc read, and re-verify your own earlier
   edits while there.
