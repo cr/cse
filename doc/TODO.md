@@ -911,9 +911,10 @@ documentation round that follows this filing.
   (`and #TAB_MASK`); add a power-of-two `.error` and narrow the doc.
 - [ ] **RETURN at one byte of room**: the gutter-tab insert ignores
   carry; `ed_cur_col` drifts (editor.md says it cannot).
-- [ ] **Tier I tests run against a stale PRG**: `conftest.py` calls
+- [x] **Tier I tests run against a stale PRG**: `conftest.py` calls
   `make` only when the PRG or map is missing; `.inc` files are not
   prerequisites in the Makefile or the bundles.
+  Fixed 2026-11-18: conftest runs `make` once per session unconditionally; objects depend on their includes (`ca65 --create-dep`); bundles on `src/*.inc`, test test_build_freshness.py.
 - [ ] **`make … PLATFORM=m65` silently builds the C64 PRGs** — add a
   refusal guard until S2-1 (or fold into B1).
 - [ ] **`oplen_tbl` keeps the last row where a 6510 and a 65C02

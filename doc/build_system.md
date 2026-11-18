@@ -20,6 +20,7 @@
 | [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<cpu set>.json`, one per C64 CPU set, by `dev/capture_golden.py`; `m65_cpu.json`, the 45GS02 as xmega65 executes it, by `dev/capture_m65_golden.py`; `m65_mem.json`, the CPU view's translation per banking state, by `dev/capture_m65_mem.py`; `m65_dma.json`, DMA jobs, by `dev/capture_m65_dma.py`; `m65_latches.json`, the VIC and CIA2 interrupt latches, by `dev/capture_m65_latches.py`; back-link-exempt (JSON has no comment syntax) |
 | [`tests/unit/test_golden_asm_dasm.py`](../tests/unit/test_golden_asm_dasm.py) | test contract — behaviour and speed against the golden files (TODO § M65, gates 2–3) |
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — C64 release PRG sizes within budget (TODO § M65, gate 1) |
+| [`tests/unit/test_build_freshness.py`](../tests/unit/test_build_freshness.py) | test contract — no test runs on a stale binary: the PRG fixtures always run `make`, objects depend on their includes, bundles on `src/*.inc` |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
 | [`tests/unit/test_dasm_tables.py`](../tests/unit/test_dasm_tables.py) | test contract — the disassembler model of `dev/dasm_tables.py` |
@@ -135,6 +136,13 @@ correct runtime addresses.  CODE and RODATA use ld65's `load`/`run`
 address split — they are placed in the file after the loader
 (load address ≈ $0870) but all symbol references resolve to the
 runtime address (≈ $7D00+).  The loader copies them at boot.
+
+**Incremental builds.**  Each object's prerequisites are its source,
+every file it `.include`s (`macros.inc`, `log.inc`, `dasm_mne_idx.s`,
+`version.inc` — recorded by `ca65 --create-dep` in a `.d` file beside
+the object), the flags stamp and `version.inc`.  A changed include
+rebuilds exactly its includers; a no-op `make debug` takes a fraction
+of a second.
 
 ### The ld65 load/run split
 
@@ -523,8 +531,11 @@ own `.lbl` files with complete symbol coverage.
 
 ### How it works
 
-1. `conftest.py` invokes `make debug` (or `make release`) to
-   rebuild the CMOS PRG if sources changed.
+1. `conftest.py` runs `make debug` (or `make release`) once per
+   session, whether or not the PRG exists — make is incremental, so
+   the PRG is never older than its sources.  The conftest bundles
+   rebuild likewise when a source, a shared include (`src/*.inc`),
+   the linker config or the `-D` set changed.
 2. `conftest.py` parses the `.lbl` file (VICE label format) for
    all symbols at absolute addresses.
 3. Each test creates a fresh `C64Emu`, loads the PRG, looks up

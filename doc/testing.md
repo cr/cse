@@ -1384,7 +1384,8 @@ variant is named after its CPU set (the generator's `CPU_SETS`) and
 uses the production `-D` set of its build (`conftest.PROD_DEFS`;
 [build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
 One `conftest.Bundle` builds every variant and rebuilds it when a
-source, the linker config or the `-D` set changed.
+source, a shared include (`src/*.inc`), the linker config or the `-D`
+set changed.
 | `log` | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |
 
 The `asm_core` bundle includes the `asm_err` leaf module for
@@ -1483,8 +1484,9 @@ address pushed by `jsr()`, halting the emulation loop.
   (`$41`, `$61`) for PETSCII values in code shared across both
   build modes.  The asm_core bundle builds without `-t c64`.
 
-- **Auto-rebuild:** `conftest.py` invokes `make debug` (or
-  `make release`) which handles dependency tracking.  PRGs are
+- **Auto-rebuild:** `conftest.py` runs `make debug` (or
+  `make release`) once per session, even when the PRG exists; make
+  handles dependency tracking, includes included.  PRGs are
   cached in `build/debug/` and `build/release/`.
 
 - **xfail:** Known limitations (e.g. CMOS gate bugs) are marked

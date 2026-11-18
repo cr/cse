@@ -227,11 +227,16 @@ PROD_DEFS = {
 }
 
 
+# Files the sources `.include` (besides generated tables named per
+# bundle in `deps`): a change to one must rebuild every test binary.
+_INC_DEPS = sorted(SRC.glob("*.inc"))
+
+
 class Bundle:
     """One py65 test binary: sources, `-D` flags, linker config.
 
     ensure() rebuilds it when the binary is missing or older than a
-    source or the linker config, or when it was built with other flags
+    source, an included file (`src/*.inc`) or the linker config, or when it was built with other flags
     (recorded in a `.flags` stamp beside the binary — mtimes alone miss
     a flag change)."""
 
@@ -241,7 +246,9 @@ class Bundle:
         self.lbl = BUILD / f"{stem}.lbl"
         self.sources, self.flags, self.tag = list(sources), list(flags), tag
         self.cfg = cfg or DEV / "test.cfg"
-        self.ca65, self.deps = list(ca65), list(deps)
+        # Every bundle also depends on the shared include files
+        # (`src/*.inc`): a changed macro rebuilds the bundle.
+        self.ca65, self.deps = list(ca65), list(deps) + _INC_DEPS
 
     def _stale(self):
         stamp = self.bin.with_suffix(".flags")
@@ -630,7 +637,7 @@ def _mem_needs_rebuild():
         return True
     bin_mtime = _MEM_BIN.stat().st_mtime
     return any(s.stat().st_mtime > bin_mtime
-               for s in _MEM_SOURCES + [DEV / "test.cfg"])
+               for s in _MEM_SOURCES + _INC_DEPS + [DEV / "test.cfg"])
 
 
 def _mem_build():
@@ -735,7 +742,7 @@ def _log_needs_rebuild():
         return True
     bin_mtime = _LOG_BIN.stat().st_mtime
     return any(s.stat().st_mtime > bin_mtime
-               for s in _LOG_SOURCES + [DEV / "test.cfg"])
+               for s in _LOG_SOURCES + _INC_DEPS + [DEV / "test.cfg"])
 
 
 def _log_build():
@@ -852,7 +859,7 @@ def _gb_needs_rebuild():
         return True
     bin_mtime = _GB_BIN.stat().st_mtime
     return any(s.stat().st_mtime > bin_mtime
-               for s in _GB_SOURCES + [DEV / "test.cfg"])
+               for s in _GB_SOURCES + _INC_DEPS + [DEV / "test.cfg"])
 
 
 def _gb_build():
@@ -982,18 +989,31 @@ _CMOS_REL_PRG = ROOT / "build" / "release" / "cmos" / "cse-cmos.prg"
 _CMOS_REL_MAP = ROOT / "build" / "release" / "cmos" / "cse.map"
 
 
-def _ensure_debug_built():
-    """Build the debug CMOS PRG if not present."""
-    if not _CMOS_DBG_PRG.exists() or not _CMOS_DBG_MAP.exists():
-        subprocess.run(["make", "debug"], cwd=ROOT, check=True,
+# Profiles brought up to date in this session.  `make` is incremental
+# (object prerequisites include every `.include`d file, build_system.md
+# § Main build pipeline), so running it once per session costs ~0.2 s
+# when nothing changed and rebuilds exactly what a changed source
+# touched — a test never runs against a PRG older than its sources.
+_MADE = set()
+
+
+def _make(profile):
+    """Run `make <profile>` once per session (unconditionally: an
+    existing PRG may be stale)."""
+    if profile not in _MADE:
+        subprocess.run(["make", profile], cwd=ROOT, check=True,
                        capture_output=True)
+        _MADE.add(profile)
+
+
+def _ensure_debug_built():
+    """Bring the debug PRGs up to date."""
+    _make("debug")
 
 
 def _ensure_release_built():
-    """Build the release CMOS PRG if not present."""
-    if not _CMOS_REL_PRG.exists() or not _CMOS_REL_MAP.exists():
-        subprocess.run(["make", "release"], cwd=ROOT, check=True,
-                       capture_output=True)
+    """Bring the release PRGs up to date."""
+    _make("release")
 
 
 @pytest.fixture(scope="session")
@@ -1031,11 +1051,8 @@ _PER_CPU_PRG = {
 
 
 def _ensure_all_debug_built():
-    """Build all three debug PRGs if any is missing."""
-    if not all(p.exists() and m.exists()
-               for p, m in _PER_CPU_PRG.values()):
-        subprocess.run(["make", "debug"], cwd=ROOT, check=True,
-                       capture_output=True)
+    """Bring all three debug PRGs up to date (one `make debug`)."""
+    _make("debug")
 
 
 @pytest.fixture(scope="session", params=["6510", "6502", "cmos"])

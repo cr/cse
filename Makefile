@@ -223,11 +223,19 @@ $(BUILD)/src/:
 	mkdir -p $@
 
 # Pattern rule: assemble src/*.s → build/{profile}/{cpu}/src/*.o
-$(BUILD)/src/%.o: $(SRC)/%.s $(FLAGS_STAMP) $(BUILD)/version.inc | $(BUILD)/src/
-	$(CA65) $(AFLAGS) -o $@ $<
+# ca65 --create-dep writes build/…/src/%.d: the object's prerequisites,
+# i.e. its source plus every file it .includes (macros.inc, log.inc,
+# dasm_mne_idx.s, version.inc).  A changed include therefore rebuilds
+# exactly its includers.  The .d is itself a prerequisite (empty rule
+# below), so an object without one — built before dependency tracking —
+# is rebuilt once and gets one.
+$(BUILD)/src/%.o: $(SRC)/%.s $(BUILD)/src/%.d $(FLAGS_STAMP) $(BUILD)/version.inc | $(BUILD)/src/
+	$(CA65) $(AFLAGS) --create-dep $(@:.o=.d) -o $@ $<
 
-# dasm.s .includes its generated constants.
-$(BUILD)/src/dasm.o: $(SRC)/dasm_mne_idx.s
+$(BUILD)/src/%.d: ;
+.PRECIOUS: $(BUILD)/src/%.d
+
+-include $(ASM_OBJS:.o=.d)
 
 # The stamp file itself
 $(FLAGS_STAMP): | $(BUILD)/
