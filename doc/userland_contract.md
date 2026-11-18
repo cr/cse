@@ -8,7 +8,9 @@ user code can break the kernel's recovery guarantees if it crosses
 specific lines.
 
 For the design rationale that motivates this contract see
-[design_cse_as_kernel.md](design_cse_as_kernel.md).
+[design_cse_as_kernel.md](design_cse_as_kernel.md); for the memory
+map and the kernel side of the stack contract see
+[memory_design.md](memory_design.md).
 
 ---
 
@@ -17,57 +19,49 @@ For the design rationale that motivates this contract see
 CSE has two execution modes:
 
 - **Kernel mode** — the CPU is running CSE code (REPL, editor,
-  assembler, debugger).  Tracked implicitly: `in_userland = 0`.
+  assembler, debugger).  `in_userland = 0`.
 - **Userland mode** — the CPU is running the user's program.
-  Tracked by `in_userland = 1`.
+  `in_userland = $80`.
 
 Transitions:
 
-- **kernel → userland**: `return_to_userland` synthesises an RTI frame
-  from `reg_*` shadows, pushes `brk_stub - 1` onto the stack as
-  user's top-level RTS sentinel, sets `in_userland = 1`, and RTIs.
+- **kernel → userland**: the kernel restores the user's ZP and
+  registers, switches SP to the user's `reg_sp`, and enters the user
+  code with an RTI.  A fresh start (`j`, `g`, and the first run after
+  a cold preview) first pushes `brk_stub - 1` as the program's
+  top-level return address (§ 4); a resume (`c`, `t`, `o`) does not.
 - **userland → kernel**: any of three events:
-  - **BRK** at a debugger breakpoint or step-BRK slot.
-  - **BRK** at `brk_stub` (user's top-level RTS popped the sentinel).
-  - **NMI** (RUN/STOP+RESTORE) — handler dispatches on
-    `in_userland`.
+  - **BRK** at a debugger breakpoint, a step breakpoint, or the
+    program's own `brk`.
+  - **BRK** at `brk_stub` (the program's top-level RTS popped the
+    sentinel) — a clean exit, shown as `; rts`.
+  - **NMI** (RUN/STOP+RESTORE).
 
-The shared `cse_brk_handler` performs classification (bp / step /
-clean / NMI / unplanned).  The `cse_nmi_handler` dispatches on
-`in_userland`: userland NMI routes through the BRK path (breaks
-into the debugger); kernel NMI routes to `cse_refresh` (the
-classic RUN/STOP+RESTORE screen-recovery affordance; debug context
-is preserved).
+The BRK handler classifies the break and records the user's state;
+the NMI handler routes a userland NMI the same way (a break into
+the debugger) and a kernel-mode NMI to `cse_refresh` (the classic
+RUN/STOP+RESTORE screen recovery; the debug context is kept).
+Mechanism: [main.md § cse_brk_handler](modules/main.md#cse_brk_handler),
+[§ cse_nmi_handler](modules/main.md#cse_nmi_handler).
 
 ### Ending a debug session
 
-User programs can't be counted on to run to completion while
-debugging.  Three gated REPL commands let the user discard an
-active break context on demand:
+A break leaves a debug session behind (`c`, `t`, `o` continue it).
+Commands that cannot share the machine with a live session — `j`,
+`g`, `a`, and `R` — ask before ending it; the full per-command
+behaviour is the
+[debugger.md § dbg_reason × command matrix](modules/debugger.md#dbg_reason--command-matrix).
 
-- **`R`** (reset) — always prompts.  With an active debug session:
-  `;!debug` warn + `; end debug? y/n`; on yes, ends the session and
-  refreshes the screen.  Without one: `; init? y/n`; on yes, just
-  refreshes.
-- **`a`** (assemble from editor) — runs directly when no debug is
-  active.  With an active session: `;!debug` warn + `; asm? y/n`;
-  on yes, ends the session and replays the `a` command.
-- **`l`** (load source or binary) — similar gate when a session is
-  active and/or the editor has unsaved changes.
+Ending a session restores the bytes under patched breakpoints,
+clears the break state, and resets the user's SP to $FF.  The editor
+buffer, the breakpoint table and the user's ZP image are kept.
+See [memory_design.md § Warmstart entry points](memory_design.md#warmstart-entry-points).
 
-Ending a session resets SP to `kernel_init_sp`, clears `dbg_reason`
-(→ `DBG_NONE`) / `step_state` / `run_user_pending` / `in_userland`,
-restores any breakpoint-patched opcodes via `unpatch_all`, and jumps to
-`main_loop_top`.  The editor buffer and the breakpoint table
-(`bp_table` slots themselves) are preserved across the reset.
-See [main.md § Layer 3](modules/main.md) and
-[memory_design.md § Warmstart entry points](memory_design.md#warmstart-entry-points).
-
-## 2. Three-tier state contract
+## 2. State contract
 
 User code's view of CPU and memory state, by tier:
 
-### Preserved — kernel guarantees these survive every user run
+### Preserved — the kernel guarantees these survive every user run
 
 - **CPU registers**: `A`, `X`, `Y`, `P`, `PC`, `SP` are saved on
   user→kernel transition and restored on the next kernel→userland
@@ -75,168 +69,165 @@ User code's view of CPU and memory state, by tier:
   This includes the decimal flag: user code may stop with D set
   (`SED` then `RTS`, a breakpoint, RUN/STOP+RESTORE); the kernel
   clears D on entry and keeps the user's value in `reg_p`.
-- **ZP `$80–$FF`** — kernal work area; CSE never writes here.
-- **The user's own memory** outside the kernel's regions:
-  workspace ($0800–workend), heap, page-2 / page-3 free fragments
-  (provided the user owns those bytes per § 4 below).
+- **ZP `$00–$7F`** — the user's own image of this range, swapped out
+  at every user→kernel transition and back in at the next
+  kernel→userland transition (§ 3).
+- **ZP `$80–$FF`**, except the KERNAL cells listed under *Clobbered*.
+  The C64's free cells `$FB–$FE` are never written.
+- **The user's stack** — every byte above the user's SP (§ 4).
+- **The user's own memory** outside the kernel's regions: the
+  workspace below the source text, the free fragments of pages 2
+  and 3 (§ 3).
 
-### Clobbered — kernel freely modifies; documented for reference
+### Clobbered — the kernel modifies these; documented for reference
 
-- **Screen RAM** ($0400–$07E7) and **color RAM** ($D800–$DBE7).
-  REPL renders prompt/disassembly/logs across the screen.
-- **VIC registers** are forced to a readable text-mode state on
-  every userland → kernel transition (display on, 25 rows, text
-  mode, no extended/bitmap, sprites off, raster IRQ off, charset
-  pointer = lowercase/uppercase, scroll = 0).  See `vic_reset` in
-  screen.s.
-- **ZP `$00–$7F`** — CSE's half of zero page.  Saved at userland
-  entry to `kernel_zp_buf` and restored at userland exit; the live
-  view between break and resume reflects the user's ZP, not CSE's.
-- **Cursor position and related kernal ZP** ($D1/$D2, $D3/$D6,
-  $F3/$F4, $CC) — REPL re-syncs via `io_sync` on every kernel
-  display.
-- **SID voice gate bits** ($D404 / $D40B / $D412 bit 0) are cleared
-  at userland → kernel transition to stop stuck notes.  The other
-  SID register values are preserved so the user can inspect what
-  was set.
+- **Screen RAM** ($0400–$07E7) and **colour RAM** ($D800–$DBE7).
+  The REPL renders its prompt, listings and logs across the screen;
+  a screen clear also overwrites the sprite pointers ($07F8–$07FF).
+- **VIC registers**, forced to a readable text-mode state on every
+  return from user code (`vic_reset`, screen.s): `$D011` = $1B
+  (display on, 25 rows, text, no extended/bitmap mode), `$D016` = $C8
+  (40 columns, no multicolour), `$D018` = $16 (screen $0400,
+  lower/upper-case charset), `$D015` = 0 (sprites off), `$D01A` = 0
+  (no raster or collision IRQs), pending VIC IRQs acknowledged.
+  Border, background (`$D020`/`$D021`), colour RAM and the KERNAL
+  text colour (`$0286`) are set to the CSE theme.
+- **KERNAL cells CSE writes**:
+  - `$C6` (keyboard-buffer count) — zeroed before a run, so the
+    program's first `GETIN`/`CHRIN` sees an empty queue, and after
+    it, so keys typed during the run do not reach the REPL.
+  - `$CC` (cursor blink switch) — set to 1: the KERNAL cursor stays
+    off, CSE draws its own.
+  - `$D3`/`$D6` (cursor column/row); `$D1`/`$D2` and `$F3`/`$F4`
+    (screen and colour line pointers, through the KERNAL's `PLOT`).
+  - `$CE`, `$D4`, `$D5`, `$D8` and the screen-line link table
+    `$D9–$F1` — reset to a clean screen-editor state after every run
+    (`kernal_screen_reset`, screen.s).
+  - `$0291` — set to $80 (the SHIFT+C= charset toggle stays locked);
+    `$028A` bit 7 — set at cold init (all keys repeat).
+  - Whatever the KERNAL routines CSE calls write in their own work
+    areas: `PLOT` for the cursor, the disk routines for `l`, `s`, `$`.
+- **SID**: the three voice control registers (`$D404`, `$D40B`,
+  `$D412`) are zeroed — waveform and gate — on every return from user
+  code, to stop stuck notes.  (They are write-only, so the gate bit
+  alone cannot be cleared.)  CSE's reject blip (`io_blip`, on refused
+  input) writes voice 1's frequency and control and sets the volume
+  (`$D418`) to 10.
+- **Stack bytes below the user's SP** — the kernel runs there while
+  the REPL is active (§ 4).
 
 ### Compromised — neither side should expect recovery
 
-- **IEC bus state** — CSE uses disk for `l`/`s` and directory; any
-  in-flight user disk operation is forfeit.
+- **IEC bus state** — CSE uses the disk for `l`/`s` and the
+  directory; any in-flight user disk operation is forfeit.
 - **Tape / RS-232 state** — same.
-- **Kernal-internal ZP `$80–$FF`** — kernel calls kernal routines
-  that mutate this region.
 - **Interrupt-timing-sensitive behaviour** — CIA timers, user raster
-  IRQs, anything that depends on cycle-precise IRQ delivery.  CSE
-  blocks IRQs around its bank-toggle windows.
+  IRQs, anything that depends on cycle-precise IRQ delivery.  The
+  KERNAL's IRQ keeps running while the kernel is active, and user
+  raster IRQs are switched off at every return.
 
-### Untouched — kernel does not read or write these
+### Untouched — the kernel does not write these
 
-- **SID registers** ($D400–$D41C) beyond the voice-gate clear
-  above.  User SID register values are preserved across the break.
-- **Sprites** — registers untouched.  Sprites may render over the
-  REPL visually, but state survives.
-- **CIAs** beyond what kernal IRQ handling perturbs.
+- **SID registers** ($D400–$D41C) other than those named above.
+- **Sprite registers** other than the enable register `$D015`:
+  positions, colours, expansion and priority survive.
+- **CIAs** beyond what the KERNAL's IRQ handling perturbs.
 
 ## 3. Memory regions
 
 | Region | Address | User code may use |
 |--------|---------|-------------------|
-| User ZP | $00–$7F | Yes — saved/restored per run |
-| Kernal ZP | $80–$FF | **No** — must preserve |
-| Stack page | $0100–$01FF | Yes — see § 5 (Stack contract) |
-| Kernal editor state | $0200–$02A6 | **No** |
+| User ZP | $00–$7F | Yes — the whole range is the user's during a run (see below) |
+| KERNAL ZP | $80–$FF | **No** — must preserve; `$FB–$FE` are free (CSE never writes them) |
+| Stack page | $0100–$01FF | Yes — see § 4 (Stack contract) |
+| KERNAL editor state | $0200–$02A6 | **No** |
 | Free | $02A7–$02FF | Yes (89 B) |
-| Kernal vectors | $0300–$0333 | **No** — CSE hooks live here |
-| Free (incl. tape buffer) | $0334–$03FB | Yes (200 B; restore if using tape) |
-| BSOUT save | $03FC–$03FF | Avoid |
-| Screen + sprite ptrs | $0400–$07FF | Clobbered each kernel display |
-| Workspace | $0800–workend | User owns this — kernel never writes |
-| CSE runtime | workend+1 – $CFFF | **No** — overwriting CSE is fatal |
+| KERNAL vectors | $0300–$0333 | **No** — CSE hooks live here |
+| Free (incl. tape buffer) | $0334–$03FF | Yes (204 B; the tape buffer $033C–$03FB is inside it — restore it if the program uses tape) |
+| Screen + sprite ptrs | $0400–$07FF | Clobbered by the REPL (§ 2) |
+| Workspace | $0800–workend | Yes — the user's; CSE writes it only when asked (`a`, `m`, `.`, `l`) |
+| Source text | workend+1 – runtime start − 1 | **No** — the editor's buffer |
+| CSE runtime | runtime start – $CFFF | **No** — overwriting CSE is fatal |
 | I/O | $D000–$DFFF | Yes |
-| Banked under kernal | $E000–$FFFF | **No** — CSE owns banked layout |
+| Banked under KERNAL | $E000–$FFFF | **No** — CSE owns the banked layout |
+
+`workend` and the runtime start move with the source text and the
+build; `i` shows them, and `workend` is a predefined symbol
+([memory_design.md § Source Code Storage](memory_design.md#source-code-storage)).
+
+**Zero page.**  User code may use all of $00–$7F.  The kernel saves
+the whole range ($00–$7F) when user code stops and restores it when
+user code runs again, so CSE's own ZP variables never meet the
+user's.  Between runs, `m` and `.` on $00–$7F show and edit the
+user's image, not CSE's live ZP.  Before the first run the image is
+zero except the CPU port: `$00` = $2F, `$01` = $36.  That CSE leaves
+$7A–$7F unallocated ([zp.md](modules/zp.md)) concerns CSE only; it
+does not change what user code may use.  `$00`/`$01` are the CPU
+port: see § 5.3.
 
 ## 4. Stack contract
 
 CSE and user code **share** the single 6502 stack page.  There is no
 two-image swap; user→kernel and kernel→user transitions are flat
-RTI/RTS-driven and cost ~20 cycles.
+RTI/RTS-driven and cost about 20 cycles.
 
 ### Layout at userland entry
 
-Just before `return_to_userland`'s RTI, the stack from SP downward looks
-like:
+A fresh start pushes the sentinel at the user's SP (`reg_sp`, $FF
+unless changed with `r s:`), then an RTI frame below it.  For
+`reg_sp` = $FF, just before the RTI:
 
 ```
-$01XX  PClo  ─┐
-$01XX-1 PChi │ RTI frame (popped by RTI)
-$01XX-2 P    ─┘
-$01XX-3 (brk_stub - 1) lo  ─┐  user's top-level RTS sentinel
-$01XX-4 (brk_stub - 1) hi  ─┘
-... below: kernel state from the moment of return_to_userland ...
+$01FF  (brk_stub - 1) hi  ─┐  the program's top-level return address
+$01FE  (brk_stub - 1) lo  ─┘
+$01FD  PC hi  ─┐
+$01FC  PC lo   │  RTI frame (popped by the RTI)
+$01FB  P      ─┘
 ```
 
-The kernel state below the sentinel is *not used after the RTI*: the
-BRK handler longjmps back to `main_loop` and discards everything
-above its target SP.  User code can therefore safely overwrite any
-byte below its current SP — those bytes will never be read again by
-the kernel.
+The user code starts with **SP = $FD**: 254 bytes of free stack
+below the sentinel.  Its top-level RTS pops the sentinel and lands
+at `brk_stub`, which ends the run cleanly.  A resume (`c`, `t`, `o`)
+enters with SP at the user's `reg_sp` and pushes no sentinel — the
+one from the fresh start is still in place.
 
-### User stack budget
+User code may reset SP to $FF and claim the entire page; it then
+overwrites the sentinel, and its top-level RTS must land somewhere
+meaningful itself (or the program ends by a BRK or a jump).
 
-User code starts with **~240 bytes** of free stack on first entry.
-Concretely: SP at the moment of RTI ≈ $FF − (kernel call chain) − 5
-(sentinel + RTI frame).  Worst-case kernel chain at `return_to_userland`
-is small (main_loop → exec_line → cmd_X → return_to_userland, ≤ 8
-bytes), so first-entry user SP is around $F2.
+### What the kernel touches on the stack
 
-User code may reset SP to $FF and claim the entire 256-byte page;
-if it does so, the brk_stub sentinel is overwritten and the user's
-top-level RTS must explicitly land somewhere meaningful (or the
-program must terminate via BRK / forced jump rather than RTS).
+When user code stops, the kernel runs on the stack below the user's
+SP: the BRK frame, the handler, and every REPL command typed at the
+break push there.  It never writes a byte above the user's SP —
+the user's return addresses, pushed data and the sentinel survive,
+so `c` can resume.  Bytes below the user's SP are scratch for the
+kernel and must not be relied on across a break.
 
 ### Kernel stack budget
 
-The user contract: **user code must leave at least 64 bytes of stack
-headroom when calling kernal routines or when a debugger break may
-occur.**  "Headroom" here means stack-page bytes below the user's
-current SP (i.e. `reg_sp` addresses $00..$(reg_sp - 1) in the stack
-page remain available for kernel pushes).
+**User code must leave at least 64 bytes of stack below its SP** when
+a break may occur.  The 64 bytes hold the BRK frame (6 bytes: 3 CPU,
+3 KERNAL push), the handler's call chain, and the REPL commands
+typed at a break (`m`, `.`, `d`, `r`, stepping), with margin.
 
-The 64 B has to cover:
+The deepest kernel path, the assembler, never runs on a break's
+stack: `a` with a live session ends the session first (§ 1), which
+resets SP to $FF.  `tests/unit/test_asm_src.py::TestKernelStackDepth`
+measures the assembler's depth from a fresh SP and pins ceilings
+(80 B for realistic programs, 160 B for deeply nested expressions).
+Typing a deeply nested expression at a break while the user's SP is
+already low can still underrun; that is known and not gated.
 
-- BRK frame: 6 B (3 hardware + 3 kernal $FF48 push sequence).
-- BRK-handler internal call chain from entry to longjmp: ~8 B peak
-  (`jsr save_userland_state` → `jsr save_userland_zp` +
-  `jsr restore_kernel_zp` — non-nested).
-- The deepest kernel call chain that may legitimately run from the
-  BRK handler tail before returning to the REPL.  **Worst case
-  reference: the assembler pipeline (`asm_src` → `asm_line` →
-  `expr_eval` → recursive descent), which is the deepest kernel
-  path in the system.**  Future debugger features (conditional
-  breakpoints with expression evaluation, trace BPs that print via
-  io_puts, watchpoints) may add comparable depth on the BRK path.
-- Safety margin.
-
-**Measured characterisation** (B2, Phase 19 — see
-`tests/unit/test_asm_src.py::TestKernelStackDepth`): from a fresh SP,
-the assembler pipeline itself uses ~30 B for a trivial source,
-~50 B for a realistic short program, and up to ~130 B for
-degenerate 8-level paren nesting in an expression operand.  The
-pipeline only runs when the user opts into `a` at the REPL, which
-happens above `main_loop`'s SP — NOT directly from a BRK handler
-tail.  The 64 B contract protects the more common paths (`m`, `.`,
-`d`, `r`, single-line disassembly, stepping).  Users typing deeply
-nested expressions during a break while reg_sp is already tight
-can still underrun; that's known and not gated.
-
-**Runtime warning** (B3, Phase 19): on every userland exit,
+**Runtime warning**: on every return from user code,
 `post_run_cleanup` checks `reg_sp`.  When `reg_sp < 64` the REPL
-emits `;!stk N` (where N is the decimal value of reg_sp — the
-remaining headroom from the bottom of the stack page) before
-showing the break result.  Users can then see at a glance whether
-their program is operating too close to the limit.
+emits `;!stk N` (N = `reg_sp` in decimal — the bytes left below the
+user's SP) before showing the break result.
 
-User code that runs deep recursion to within the budgeted bytes of
-stack exhaustion and then triggers a break will overflow the page
-and corrupt low memory ($00FF↓ wraps).  This is the documented
-limit; the kernel cannot guard against it (only warn, after the
-empirical measurement TODO lands).
-
-### Cold-start sentinel
-
-On boot, cold init synthesises the very first userland frame:
-
-- SP set to a known value (e.g. $FE) with `(brk_stub - 1)` at $01FF.
-- RTI frame for PC = `brk_stub`, P = clean.
-- RTI → CPU lands at `brk_stub` → BRK fires immediately.
-
-The BRK handler classifies this as a clean exit (PC-1 == brk_stub)
-and flows into the warm-start tail at the late-entry label that
-skips the screen clear (the splash screen is already drawn).  The
-REPL then runs normally.  Cold init shares its post-init code path
-with userland-recovery via this mechanism.
+User code that recurses to within the budget of stack exhaustion and
+then breaks overflows the page: the kernel's pushes wrap below $0100
+and corrupt the top of the stack page.  The kernel cannot guard
+against it; it can only warn.
 
 ## 5. Interrupt vector and banking hazards
 
@@ -309,27 +300,35 @@ as a terminal**:
 - `jsr GETIN` ($FFE4) likewise non-blocking.
 
 This makes CSE a host environment for "just print debug messages"
-style development:
+style development.  Typed into the editor (local labels are written
+`.name` and belong to the global label before them):
 
 ```asm
+main:
         ldx #0
-@l:     lda msg,x
-        beq @done
-        jsr $FFD2            ; CHROUT
+.l:     lda msg,x
+        beq .done
+        jsr $ffd2            ; chrout
         inx
-        bne @l
-@done:  rts                  ; clean exit → REPL prompt below output
+        bne .l
+.done:  rts                  ; clean exit → back to the REPL
 
 msg:    .str "hello, world", 13, 0
 ```
 
-After `g`, the REPL reads:
+After `a` and `g`, the REPL reads:
 
 ```
 0800:g
 hello, world
+; rts
+r pc:0800 a:00 x:0d y:00 s:ff nv-BdiZc
 0800:
 ```
+
+The program's output comes first; `; rts` reports the clean exit
+through `brk_stub`, and the register line shows the state the
+program returned with.
 
 This is an intentional affordance, not a leak.  The userland contract
 documents it as supported behaviour: CHROUT/CHRIN/GETIN work, and
@@ -339,24 +338,24 @@ their output integrates with REPL display.
 
 When user code is `j`/`g`/`c`/`t`/`o`-launched, it can rely on:
 
-1. The screen is text-mode, lowercase charset, sprites off, IRQs
-   running at the kernal jiffy rate.
+1. The screen is in text mode with the lower/upper-case charset,
+   CSE's theme colours, and the KERNAL's IRQ running at the jiffy
+   rate.
 2. `JSR $FFD2` (CHROUT) writes to the visible REPL cursor.
-3. CPU registers and ZP $00–$7F are restored to whatever the user
-   set with `r` (or to the values from the previous break).
-4. The hardware stack page is the user's; the kernel will not
-   touch any byte below the user's current SP.
+3. CPU registers and ZP $00–$7F are what the previous break left, as
+   edited with `r` (registers) and `m`/`.` (ZP).
+4. The kernel never writes a byte above the user's SP.
 5. RUN/STOP+RESTORE will break into the debugger.
-6. Top-level RTS will return cleanly to the REPL (regardless of
-   whether the user reset SP, provided their RTS puts a valid
-   address on the stack).
-7. The workspace ($0800–workend) is the user's exclusively; CSE
-   reads it only for assembly source / disassembly / hex dump.
+6. A top-level RTS returns cleanly to the REPL (unless the program
+   overwrote the sentinel, § 4).
+7. The workspace ($0800–workend) is the user's; CSE writes it only
+   when asked.
 
 User code **must**:
 
-1. Preserve $80–$FF, $0200–$02A6, $0300–$0333.
-2. Not overwrite the CSE runtime (workend+1 to $CFFF).
+1. Preserve $80–$FF (except `$FB–$FE`), $0200–$02A6, $0300–$0333.
+2. Not overwrite the source text or the CSE runtime (workend+1 to
+   $CFFF).
 3. Leave at least 64 bytes of stack headroom if a break may occur.
 4. Not leave the kernal banked out across an IRQ if it has also
    redirected $FFFE/$FFFA away from CSE handlers.
@@ -365,9 +364,9 @@ Beyond these, user code is free.
 
 ## 8. Cross-references
 
-- [design_cse_as_kernel.md](design_cse_as_kernel.md) — design synthesis
-- [memory_design.md](memory_design.md) § Stack contract — implementation
+- [design_cse_as_kernel.md](design_cse_as_kernel.md) — design rationale
+- [memory_design.md](memory_design.md) § Stack contract — the kernel side
 - [modules/main.md](modules/main.md) — `cse_brk_handler`,
-  `cse_nmi_handler`, `setup_interrupts`, `in_userland`
+  `cse_nmi_handler`, `setup_interrupts`, the warmstart entry points
 - [modules/debugger.md](modules/debugger.md) — `return_to_userland`,
-  `brk_stub`, register save/restore
+  `brk_stub`, register save/restore, the gate matrix
