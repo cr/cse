@@ -923,7 +923,8 @@ documentation round that follows this filing.
 - [x] **`oplen_tbl` keeps the last row where a 6510 and a 65C02
   opcode share a byte**; the generator should refuse a conflict.
   Fixed 2026-11-18: `oplen_lengths()` refuses a length conflict; a crash (JAM) row yields, so `$D2` is 2 (65C02 `CMP (zp)`, was 1), tests test_oplen_*.
-- [ ] **Mutable bytes in CODE**: `main.s` `@key` and `dasm.s` `@adj`
+- [ ] **Mutable bytes in CODE**: `main.s` `@key`, `dasm.s` `@adj`,
+  `disk.s` `disk_save_prg`'s `@size_lo`/`@size_hi`
   (blocks a ROM/CRT build; memory_design.md "no self-modifying code").
 - [x] `disk.s` closes LFN 1 on an OPEN failure although the file is
   LFN 2; the SEQ error paths close nothing.
@@ -964,9 +965,11 @@ documentation round that follows this filing.
 - [ ] **The assembler writes outside the workspace**: `.org $c000`
   assembles over CSE's own code with no error (the breakpoint range
   gate already refuses such addresses); add the same guard to emit.
-- [ ] **`scroll_up` uses `$FB–$FE`** — the C64's free user ZP —
+- [x] **`scroll_up` uses `$FB–$FE`** — the C64's free user ZP —
   although userland_contract.md promises CSE never writes `$80–$FF`
   beyond the listed KERNAL cells; use CSE's own ZP.
+  Fixed 2026-11-18 (d01cc76 on the track branch): `scr_src` at `$78–$79`,
+  destination reuses `_io_scr`; user-free ZP is now `$7A–$7F`.
 
 ### Test gaps
 
