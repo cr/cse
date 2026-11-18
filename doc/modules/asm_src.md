@@ -201,6 +201,10 @@ terminates the line.
    instruction assembler (see [asm_line.md](asm_line.md)).
 
 Directives are handled directly by asm_src.s, not via asm_line.
+`process_directive` matches the word after the dot against the name
+table `_dir_names` exactly (the word must end at whitespace, `;` or
+the end of the line), sets `expr_ptr` past it and dispatches through
+`_dir_lo`/`_dir_hi`; an unknown word is `bad insn`.
 See [assembler_syntax.md § Directives](../assembler_syntax.md#directives)
 for the full list, parameters, and per-pass behaviour.
 

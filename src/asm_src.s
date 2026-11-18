@@ -798,7 +798,7 @@ seg_print_save:
 
 ; ── emit_bas ──────────────────────────────────────────────────────────────
 ; Emit a single-line BASIC SYS stub at asm_pc.
-; _as_ptr points past ".bas" keyword.
+; expr_ptr points past the ".bas" keyword.
 ;
 ; Without string: `0 SYS NNNNN`
 ; With string:    `0 SYS NNNNN:REM TEXT`
@@ -813,9 +813,7 @@ BASIC_REM = $8F
 
 .proc emit_bas
         ; ── Parse optional string argument ─────────────────────────────
-        lda #3
-        jsr set_expr_off        ; expr_ptr = _as_ptr + 3 (skip "bas")
-        jsr skipws_ep
+        jsr skipws_ep           ; expr_ptr is past "bas" (process_directive)
         lda #0
         sta _eb_idx             ; string length = 0 (no REM)
         ldy #0
@@ -916,36 +914,53 @@ BASIC_REM = $8F
 
 ; ── process_directive ──────────────────────────────────────────────────────
 ; _as_ptr = first char of keyword (after '.').
-; Out: C=0 recognized; C=1 unknown (caller treats as local label).
+; The word must be one of _dir_names exactly, ending at whitespace, ';'
+; or NUL (assembler_syntax.md § Directives).  expr_ptr is set past it and
+; the handler entered through _dir_lo/_dir_hi (RTS dispatch).
+; Out: C=0 recognized (handled); C=1 unknown word.
 .proc process_directive
-        ldy #0
-        lda (_as_ptr),y
-        cmp #'a'
-        bne @nb
-        ; .align — check [4]='n' as rough disambiguator
-        ldy #4
-        lda (_as_ptr),y
-        cmp #'n'
-        beq :+
-        jmp @unk
-:
-        lda #5
-        jsr set_expr_off
+        ldx #0                  ; offset into _dir_names
+        stx asm_tmp             ; directive index
+@name:  ldy #0
+@cmp:   lda _dir_names,x
+        beq @end                ; table name complete
+        cmp (_as_ptr),y
+        bne @next
+        inx
+        iny
+        bne @cmp
+@end:   lda (_as_ptr),y         ; the word must end here
+        beq @hit
+        cmp #' '
+        beq @hit
+        cmp #$a0
+        beq @hit
+        cmp #';'
+        beq @hit
+@next:  lda _dir_names,x        ; skip the rest of this name + NUL
+        inx
+        cmp #0
+        bne @next
+        inc asm_tmp
+        lda _dir_names,x
+        bpl @name               ; $FF ends the table
+        sec                     ; unknown directive
+        rts
+@hit:   tya
+        jsr set_expr_off        ; expr_ptr = past the name
+        ldx asm_tmp
+        lda _dir_hi,x
+        pha
+        lda _dir_lo,x
+        pha
+        rts
+
+d_align:
         jsr skipws_ep
         jsr emit_align
         clc
         rts
-@nb:    cmp #'b'
-        bne @nc
-        ; .bas — check [1]='a', [2]='s'
-        ldy #1
-        lda (_as_ptr),y
-        cmp #'a'
-        bne @nb_unk
-        iny
-        lda (_as_ptr),y
-        cmp #'s'
-        bne @nb_unk
+d_bas:
         ; .bas is an implicit .org $0801
         jsr _seg_log_close      ; close previous segment
         lda #$01
@@ -957,29 +972,11 @@ BASIC_REM = $8F
         jsr emit_bas
         clc
         rts
-@nb_unk: jmp @unk
-@nc:    cmp #'c'
-        beq :+
-        jmp @nd
-:
-        ldy #1
-        lda (_as_ptr),y
-        cmp #'p'
-        bne @const
-        ; .cpu
-        lda #3
-        jsr set_expr_off
+d_cpu:
         jsr set_cpu
         clc
         rts
-@const:
-        cmp #'o'
-        beq :+
-        jmp @unk
-:
-        ; .const name expr
-        lda #5
-        jsr set_expr_off        ; expr_ptr = _as_ptr + 5 (past "const")
+d_const:
         jsr skipws_ep           ; skip spaces; A = first char of name
         jsr is_ident
         bcc :+
@@ -999,6 +996,12 @@ BASIC_REM = $8F
         bne @cscan
 @cend:  cpy #0
         beq @const_noname
+        lda (sym_name),y        ; name ends the line → no value
+        bne :+                  ; (and nothing past the NUL to read)
+        jsr _bad_val_err
+        clc
+        rts
+:
         ; Fold name in-place, save length, NUL-terminate temporarily
         jsr fold_block          ; fold (sym_name)[0..Y-1]; Y preserved
         sty _as_wsize           ; save name length
@@ -1063,37 +1066,14 @@ BASIC_REM = $8F
         jsr _exp_name_err
         clc
         rts
-@nd:    cmp #'d'
-        bne @no
-        ldy #1
-        lda (_as_ptr),y
-        cmp #'b'
-        bne @dw
-        ; .db
-        lda #1
+d_db:   lda #1
+        .byte $2C               ; BIT abs: skip lda #2
+d_dw:  lda #2
         sta _as_wsize
-        lda #2
-        jsr set_expr_off
         jsr emit_data_bytes
         clc
         rts
-@dw:    cmp #'w'
-        beq :+
-        jmp @unk
-:
-        ; .dw
-        lda #2
-        sta _as_wsize
-        lda #2
-        jsr set_expr_off
-        jsr emit_data_bytes
-        clc
-        rts
-@no:    cmp #'o'
-        bne @nr
-        ; .org
-        lda #3
-        jsr set_expr_off
+d_org:
         jsr skipws_ep
         jsr expr_eval
         cmp #2
@@ -1118,39 +1098,30 @@ BASIC_REM = $8F
         jsr _seg_log_open
         clc
         rts
-@nr:    cmp #'r'
-        bne @ns
-        ; .res
-        lda #3
-        jsr set_expr_off
+d_res:
         jsr skipws_ep
         jsr emit_reserve
         clc
         rts
-@ns:    cmp #'s'
-        bne @unk
-        ldy #1
-        lda (_as_ptr),y
-        cmp #'t'
-        bne @scr
-        ; .str
-        lda #3
-        jsr set_expr_off
-        lda #0                  ; no screen-code conversion
+d_str: lda #0                  ; no screen-code conversion
+        .byte $2C               ; BIT abs: skip lda #1
+d_scr: lda #1                  ; convert to screen codes
         jsr emit_string
         clc
         rts
-@scr:   cmp #'c'
-        bne @unk
-        ; .scr
-        lda #3
-        jsr set_expr_off
-        lda #1                  ; convert to screen codes
-        jsr emit_string
-        clc
-        rts
-@unk:   sec                     ; unrecognized: might be local label
-        rts
+
+; Name table and handlers, in the same order.
+.segment "RODATA"
+_dir_names:
+        .byte "align", 0, "bas", 0, "cpu", 0, "const", 0, "db", 0
+        .byte "dw", 0, "org", 0, "res", 0, "str", 0, "scr", 0, $FF
+_dir_lo:
+        .lobytes d_align-1, d_bas-1, d_cpu-1, d_const-1, d_db-1
+        .lobytes d_dw-1, d_org-1, d_res-1, d_str-1, d_scr-1
+_dir_hi:
+        .hibytes d_align-1, d_bas-1, d_cpu-1, d_const-1, d_db-1
+        .hibytes d_dw-1, d_org-1, d_res-1, d_str-1, d_scr-1
+.segment "CODE"
 .endproc
 
 ; ── define_label ───────────────────────────────────────────────────────────
@@ -1317,7 +1288,7 @@ _too_long_err:
         inc _as_ptr+1
 :       jsr process_directive
         bcc :+
-        jmp @bad
+        jmp @bad_syn            ; unknown directive → bad insn
 :
         rts
 

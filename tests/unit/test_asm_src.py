@@ -270,6 +270,13 @@ MANUAL_TESTS = [
         "expect_errors": 0,
     },
     {
+        "name": "directives followed by a comment",
+        "source": ".org $c000 ;x\n.db 1;x\n.dw 2 ; x\n.res 1;x\n.align 2;x",
+        "expect_org": 0xC000,
+        "expect_bytes": [0x01, 0x02, 0x00, 0x00],
+        "expect_errors": 0,
+    },
+    {
         "name": ".res directive",
         "source": ".org $c000\n.res 4, $ea\n  rts",
         "expect_org": 0xC000,
@@ -508,6 +515,23 @@ ERROR_TESTS = [
     {"name": "immediate > 255", "source": ".org $c000\n lda #$1234",
      "expect_min_errors": 1},
     {"name": "immediate of a forward label", "source": ".org $c000\n lda #fwd\nfwd: rts",
+     "expect_min_errors": 1},
+    # a directive is the exact word (assembler_syntax.md § Directives)
+    {"name": "directive .oops", "source": ".org $c000\n.oops $1000\n rts",
+     "expect_min_errors": 1},
+    {"name": "directive .o", "source": ".org $c000\n.o $d000\n rts",
+     "expect_min_errors": 1},
+    {"name": "directive .rx", "source": ".org $c000\n.rx 2\n rts",
+     "expect_min_errors": 1},
+    {"name": "directive .co", "source": ".org $c000\n.co x 1\n rts",
+     "expect_min_errors": 1},
+    {"name": "directive .cp", "source": ".org $c000\n.cp 6502\n rts",
+     "expect_min_errors": 1},
+    {"name": "directive .dbx", "source": ".org $c000\n.dbx 1\n rts",
+     "expect_min_errors": 1},
+    {"name": "directive .orgy", "source": ".org $c000\n.orgy $1000\n rts",
+     "expect_min_errors": 1},
+    {"name": ".const without a value", "source": ".org $c000\n.const k\n rts",
      "expect_min_errors": 1},
     # A `:` with no name is `exp id`, not an endless re-scan of the
     # same word (assembler_syntax.md § Labels).

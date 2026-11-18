@@ -52,7 +52,8 @@ instruction buffer; a longer one is `;?N: too long` as well.
 ```
 
 `.const name expression` defines a constant.  The expression is
-evaluated immediately.  Width (ZP/ABS) is inherited from the
+required (`.const k` alone is `;?N: bad val`) and evaluated
+immediately.  Width (ZP/ABS) is inherited from the
 expression.
 
 ## Instructions
@@ -166,6 +167,11 @@ rules.
 ## Directives
 
 ### Summary
+
+A directive is the whole word after the dot and must be one of the
+names below exactly, followed by whitespace, a `;` comment or the end
+of the line; anything else (`.oops`, `.co`, `.dbx`) is
+`;?N: bad insn`.
 
 | Directive | Args | Pass 0 (collect) | Pass 1 (emit) |
 |-----------|------|-------------------|---------------|

@@ -985,9 +985,14 @@ documentation round that follows this filing.
   stamp commit), so a symbol that does not fit is `;?N: sym full`
   where errors are vocal; contract in assembler_syntax.md § Labels.
   Test TestSymbolTableFull.
-- [ ] **Directives read past their NUL**: `.o…` matches `.org` on the
+- [x] **Directives read past their NUL**: `.o…` matches `.org` on the
   first letter (`.oops` = `.org`), `.co`/`.cp` likewise; `.const k`
   with no value reads stale `_line_buf` bytes.
+  Fixed 2026-11-18: process_directive matches the whole word against a
+  name table (ending at whitespace, ';' or NUL), unknown words are
+  `bad insn`; `.const k` without a value is `bad val`
+  (assembler_syntax.md § Directives). Tests test_errors[directive *,
+  .const without a value].
 - [ ] **`.cpu` in source changes `asm_cpu` for pass 1 from the start**
   (lines before the directive) and leaks into the REPL afterwards; not
   restored by `asm_assemble`.
