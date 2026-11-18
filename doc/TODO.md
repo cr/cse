@@ -938,8 +938,12 @@ documentation round that follows this filing.
   long` (assembler_syntax.md § Labels); the operand is expanded
   straight into a bounded _insn_buf (_expr_buf gone). Test
   TestLabelLength.
-- [ ] **Expression nesting has no depth limit**: ~30 `(` wrap the
+- [x] **Expression nesting has no depth limit**: ~30 `(` wrap the
   hardware stack (`expr.s` parse_factor recursion).
+  Fixed 2026-11-18: at most 10 nested levels (each `(` or unary
+  prefix); the 11th returns 3 (overflow) — parse_factor counts its
+  entries; errors under unary -/! now propagate. Test TestNestingDepth
+  (test_expr.py).
 - [ ] **Pass-0 forward references with an offset size to 0 bytes.**
   `lda tbl+1` (also `jsr fwd+3`, `bne fwd+2`, `sta fwd+1,x`)
   substitutes `asm_pc + 2` but leaves `expr_ptr` after the name, so

@@ -43,7 +43,7 @@ undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 | 0 | Success, ZP-eligible (value ≤ $FF, no wide factors) |
 | 1 | Success, ABS (16-bit or forced wide) |
 | 2 | Error: expected value |
-| 3 | Error: overflow |
+| 3 | Error: overflow (literal too large, or nesting deeper than 10 levels) |
 | 4 | Error: mismatched parentheses |
 | 5 | Error: undefined symbol |
 | 6 | Error: division by zero |
@@ -56,7 +56,8 @@ undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 
 **ZP (4 bytes):** `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1).
 
-**BSS (5 bytes):** `last_err` (1), `_mul_tmp` (2), `_div_rem` (2);
+**BSS (6 bytes):** `last_err` (1), `_ex_depth` (1, nesting depth),
+`_mul_tmp` (2), `_div_rem` (2);
 on `MEGA_SUPPORT` also `expr_fwd` (1).
 
 **Depends on:** symtab (`sym_lookup` for label resolution),
@@ -168,6 +169,12 @@ operator peek fails, `expr_ptr` stays where `skip_sp` last parked it.
   means PC; between two values it means multiply.
 - **Unary minus** (`-expr`) is supported as a prefix operator.
   `-1` evaluates to `$FFFF` (two's complement).
+- **Nesting depth:** at most 10 nested levels — each `(` and each
+  unary prefix `-` `!` `<` `>` is one level (`<(` is two).  The 11th
+  level returns 3 (overflow) without recursing further, which bounds
+  the recursive descent's hardware-stack use; deeper input used to
+  wrap the stack page.  An error inside any level, including under a
+  unary prefix, propagates unchanged to the caller.
 - **16-bit wraparound:** Arithmetic on computed results silently
   wraps: `$FFFF + 1 = $0000`, `$100 * $100 = $0000`.  Overflow
   errors only apply to literal parsing (5+ hex digits, decimal

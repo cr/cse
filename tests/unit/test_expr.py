@@ -279,6 +279,10 @@ NEGATIVE = [
     ("$10+",            ERR_EXPECTED,  False, "trailing +"),
     ("+$10",            ERR_EXPECTED,  False, "leading + (no anon labels)"),
     (")",               ERR_EXPECTED,  False, "bare close paren"),
+    # an error under a unary `-` / `!` propagates (it used to be cleared)
+    ("-nosuch",         ERR_UNDEFINED, True,  "undefined under negate"),
+    ("!nosuch",         ERR_UNDEFINED, True,  "undefined under NOT"),
+    ("-(1",             ERR_PAREN,     False, "paren error under negate"),
 ]
 
 NEGATIVE_ANY = [
@@ -398,6 +402,56 @@ def test_negative_any(asm_syms, input_str, needs_sym, purpose):
         _define_symbols(asm_syms, mpu, mem)
     rc, _ = _eval(asm_syms, mpu, mem, input_str)
     assert rc >= 2, f"{purpose}: '{input_str}' should fail, got rc={rc}"
+
+
+# ── Nesting depth (expr.md § Caveats) ───────────────────────────────────────
+#
+# At most EXPR_MAX_DEPTH = 10 nested factor levels — each `(` and each
+# unary prefix `-` `!` `<` `>` is one level.  The eleventh returns
+# ERR_OVERFLOW without recursing, so ~30 `(` no longer wrap the
+# hardware stack.
+
+class TestNestingDepth:
+
+    @pytest.mark.parametrize("opener", ["(", "-", "!", "<", ">"])
+    def test_ten_levels_evaluate(self, asm_syms, opener):
+        mpu, mem = _setup(asm_syms)
+        closer = ")" if opener == "(" else ""
+        rc, _ = _eval(asm_syms, mpu, mem, opener * 10 + "1" + closer * 10)
+        assert rc <= 1
+
+    @pytest.mark.parametrize("opener", ["(", "-", "!", "<", ">"])
+    def test_eleven_levels_overflow(self, asm_syms, opener):
+        mpu, mem = _setup(asm_syms)
+        closer = ")" if opener == "(" else ""
+        rc, _ = _eval(asm_syms, mpu, mem, opener * 11 + "1" + closer * 11)
+        assert rc == ERR_OVERFLOW
+
+    def test_mixed_prefixes_count_together(self, asm_syms):
+        mpu, mem = _setup(asm_syms)
+        rc, _ = _eval(asm_syms, mpu, mem, "<(" * 5 + "1" + ")" * 5)
+        assert rc <= 1
+        rc, _ = _eval(asm_syms, mpu, mem, "<(" * 5 + "-1" + ")" * 5)
+        assert rc == ERR_OVERFLOW
+
+    def test_deep_input_keeps_the_stack(self, asm_syms):
+        """40 `(` stop at the limit: SP stays far above the page bottom."""
+        mpu, mem = _setup(asm_syms)
+        low = [0xFF]
+        step = mpu.step
+        def tracked():
+            step()
+            low[0] = min(low[0], mpu.sp)
+        mpu.step = tracked
+        rc, _ = _eval(asm_syms, mpu, mem, "(" * 40 + "1")
+        assert rc == ERR_OVERFLOW
+        assert low[0] > 0x80, f"expr used the stack down to ${low[0]:02X}"
+
+    def test_depth_resets_between_calls(self, asm_syms):
+        mpu, mem = _setup(asm_syms)
+        _eval(asm_syms, mpu, mem, "(" * 11 + "1")
+        rc, val = _eval(asm_syms, mpu, mem, "(" * 10 + "7" + ")" * 10)
+        assert rc == 0 and val == 7
 
 
 # ── expr_eval bank-state contract ───────────────────────────────────────────

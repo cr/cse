@@ -56,6 +56,8 @@ ERR_PAREN    = 4
 ERR_UNDEFINED = 5
 ERR_DIVZERO  = 6
 
+EXPR_MAX_DEPTH = 10             ; nested factor levels: each '(' or unary prefix
+
 ; ── ZP imports ─────────────────────────────────────────────
 .importzp expr_ptr, expr_val, expr_wide
 .importzp asm_pc
@@ -66,6 +68,7 @@ ERR_DIVZERO  = 6
 ; ── BSS ────────────────────────────────────────────────────
 .segment "BSS"
 last_err:    .res 1
+_ex_depth:   .res 1              ; parse_factor nesting depth (reset per eval)
 _mul_tmp:    .res 2              ; multiply: shifted operand copy
 _div_rem:    .res 2              ; divide: remainder
 
@@ -130,6 +133,7 @@ expr_eval_nb:
 .proc _expr_eval_inner
         lda #0
         sta expr_wide            ; start narrow
+        sta _ex_depth
         jsr skip_sp
         jsr parse_expr
         bcs @err
@@ -533,8 +537,23 @@ _ex_op_setup:
 
 ; ═══════════════════════════════════════════════════════════
 ; parse_factor — single value or unary operator
+;   Depth guard: every '(' and unary prefix recurses through here,
+;   so counting entries bounds the recursion (and its stack use) at
+;   EXPR_MAX_DEPTH levels; one more returns ERR_OVERFLOW.  `dec`
+;   keeps the body's A and C.
 ; ═══════════════════════════════════════════════════════════
-.proc parse_factor
+parse_factor:
+        inc _ex_depth
+        lda _ex_depth
+        cmp #EXPR_MAX_DEPTH+2   ; levels above the innermost value
+        bcs @deep
+        jsr _parse_factor_body
+        dec _ex_depth
+        rts
+@deep:  lda #ERR_OVERFLOW        ; C=1 from the cmp
+        rts
+
+.proc _parse_factor_body
         jsr skip_sp
         PEEK_CHAR
 
@@ -650,7 +669,7 @@ _ex_op_setup:
 @complement:
         jsr _ex_adv_ptr
         jsr parse_factor
-        bcs @ret3
+        bcs @ret2               ; error: keep C=1 and the code in A
         lda expr_val
         eor #$FF
         sta expr_val
@@ -669,7 +688,7 @@ _ex_op_setup:
 @negate:
         jsr _ex_adv_ptr
         jsr parse_factor
-        bcs @ret3b
+        bcs @ret2               ; error: keep C=1 and the code in A
         ; two's complement: EOR $FF, then INC16
         lda expr_val
         eor #$FF
