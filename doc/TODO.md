@@ -766,12 +766,16 @@ documentation round that follows this filing.
 
 ### Code bugs — debugger and breakpoints
 
-- [ ] **A breakpoint that never ran writes `$00` into user code.**
+- [x] **A breakpoint that never ran writes `$00` into user code.**
   `dbg_bp_set` stores `saved = 0` (`breakpoints.s` set path) and
   `unpatch_all` restores `saved` for every enabled slot, patched or
   not, so `b ADDR` followed by any `end_debug_body` (`R`, the
   `a`/`j`/`g` end-debug gate) writes `$00` at ADDR.  Track "patched"
   per slot or skip unpatched slots.
+  Fixed 2026-11-18: flags bit 7 marks a patched slot; `patch_all`
+  sets it (and skips patched slots), `unpatch_all` restores and
+  clears only patched ones, tests `TestBpPatchedFlag`,
+  `TestBreakpointNeverRun`.
 - [ ] **`cse_recover` wipes the breakpoint table and leaves patched
   `$00` bytes behind.**  `hw_reinit_body` → `dbg_init` → `bp_init`
   zeroes `bp_table` before `end_debug_body` runs, so breakpoints

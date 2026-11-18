@@ -40,7 +40,7 @@ Slot format (4 bytes):
 | +0 | address lo |
 | +1 | address hi |
 | +2 | saved byte (the opcode that was there before we patched BRK over it) |
-| +3 | enabled flag (0 = disabled, 1 = enabled) |
+| +3 | flags: bit 0 = enabled, bit 7 = patched (the `$00` is in memory now; set by `patch_all`, cleared by `unpatch_all`) |
 
 A slot is empty when `addr_lo | addr_hi == 0`.  Slot 0 at address
 `$0000` is therefore not representable — acceptable because `$0000`
@@ -91,8 +91,11 @@ Linear scan over slots 0–7.  The first exact address match wins.
 
 ### patch_all
 **In:** none
-**Out:** every enabled slot (all 10) has its target byte saved into
-the slot's `saved` field and replaced with `$00` (BRK opcode).
+**Out:** every enabled slot (all 10) that is not already patched has
+its target byte saved into the slot's `saved` field, replaced with
+`$00` (BRK opcode), and its patched bit set.  A second `patch_all`
+without an `unpatch_all` in between changes nothing (the saved byte
+stays the user's opcode, never `$00`).
 **Clobbers:** A, X, Y, `rp_ptr`.
 
 Iteration order: slot 0 → slot 9 (forward).  The forward order pairs
@@ -101,7 +104,10 @@ user breakpoint, the user's saved byte survives round-trip correctly.
 
 ### unpatch_all
 **In:** none
-**Out:** every enabled slot's `saved` byte restored at its address.
+**Out:** every patched slot's `saved` byte restored at its address and
+its patched bit cleared.  A slot that was never patched — set by `b`
+but not yet run, or disabled — is left alone, so ending a session
+never writes a stale `saved` byte into the user's code.
 **Clobbers:** A, X, Y, `rp_ptr`.
 
 Iteration order: slot 9 → slot 0 (reverse).  See `patch_all` for the

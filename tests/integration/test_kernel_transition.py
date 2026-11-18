@@ -769,7 +769,7 @@ class TestWarmstartBodySubs:
         emu.memory[bp_table + 0] = USER & 0xFF
         emu.memory[bp_table + 1] = USER >> 8
         emu.memory[bp_table + 2] = 0xA9         # saved opcode
-        emu.memory[bp_table + 3] = 1            # slot enabled
+        emu.memory[bp_table + 3] = 0x81         # enabled + patched
         # Patch the user byte with BRK ($00) to simulate arming.
         emu.memory[USER] = 0x00
 
@@ -1530,3 +1530,17 @@ class TestDecimalFlag:
         assert s.v("reg_sp") == 0xFD, f"reg_sp=${s.v('reg_sp'):02X}"
         assert s.v("reg_p") & 0x08
         assert not s.e._cpu.p & 0x08
+
+
+class TestBreakpointNeverRun:
+    """breakpoints.md § unpatch_all: a breakpoint that was never
+    patched in leaves the user's byte alone when the session ends."""
+
+    def test_b_then_R_keeps_user_byte(self, session):
+        s = session
+        s.e.memory[0x1000] = 0xA9
+        s.type("b $1000")
+        s.start("R")
+        s.keys(b"Y")                        # init? y
+        assert s.e.memory[0x1000] == 0xA9
+        assert s.v("warm_guard") == 0

@@ -383,6 +383,45 @@ class TestBpUnpatch:
             assert mpu.memory[addr] == opc
 
 
+class TestBpPatchedFlag:
+    """breakpoints.md § Table layout: flags bit 7 = patched.  unpatch_all
+    restores only slots patch_all actually patched, and only once."""
+
+    def test_unpatch_never_patched_slot_leaves_memory(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        mpu.memory[TARGET1] = 0xA9
+        cmd_bp_set(mpu, dbg_syms, TARGET1 & 0xFF, TARGET1 >> 8)
+        cmd_bp_unpatch(mpu, dbg_syms)
+        assert mpu.memory[TARGET1] == 0xA9
+
+    def test_patch_sets_and_unpatch_clears_flag(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_bp_set(mpu, dbg_syms, TARGET1 & 0xFF, TARGET1 >> 8)
+        cmd_bp_patch(mpu, dbg_syms)
+        assert read_bp_slot(mpu, dbg_syms, 0)[3] == 0x81
+        cmd_bp_unpatch(mpu, dbg_syms)
+        assert read_bp_slot(mpu, dbg_syms, 0)[3] == 0x01
+
+    def test_second_unpatch_keeps_user_edit(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        mpu.memory[TARGET1] = 0xA9
+        cmd_bp_set(mpu, dbg_syms, TARGET1 & 0xFF, TARGET1 >> 8)
+        cmd_bp_patch(mpu, dbg_syms)
+        cmd_bp_unpatch(mpu, dbg_syms)
+        mpu.memory[TARGET1] = 0xEA          # the user edits the byte
+        cmd_bp_unpatch(mpu, dbg_syms)
+        assert mpu.memory[TARGET1] == 0xEA
+
+    def test_second_patch_keeps_original(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        mpu.memory[TARGET1] = 0xA9
+        cmd_bp_set(mpu, dbg_syms, TARGET1 & 0xFF, TARGET1 >> 8)
+        cmd_bp_patch(mpu, dbg_syms)
+        cmd_bp_patch(mpu, dbg_syms)
+        cmd_bp_unpatch(mpu, dbg_syms)
+        assert mpu.memory[TARGET1] == 0xA9
+
+
 class TestBpFind:
     def test_find_existing(self, dbg_syms):
         mpu = make_cpu(dbg_syms)

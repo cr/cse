@@ -15,7 +15,9 @@
 ;                / dbg_bp_count).
 ;     Slots 8–9: ad-hoc step BRKs (alias `step_bp`).  patch_all /
 ;                unpatch_all iterate all 10 slots.
-;     Slot format (4 bytes): [addr_lo, addr_hi, saved_byte, enabled].
+;     Slot format (4 bytes): [addr_lo, addr_hi, saved_byte, flags];
+;     flags bit 0 = enabled, bit 7 = patched (set by patch_all,
+;     cleared by unpatch_all).
 ;   * `dbg_bp_hit`: slot number of the last breakpoint that fired
 ;     ($FF when none).  Written by the BRK handler in main.s after
 ;     classification; read by `c` / `r` display helpers.  Lives here
@@ -52,6 +54,7 @@ BP_SLOTS    = 8
 STEP_SLOTS  = 2
 SLOT_SIZE   = 4
 TOTAL_SLOTS = BP_SLOTS + STEP_SLOTS     ; 10
+PATCHED     = $80                       ; flags bit 7: $00 is in memory
 
 ; ── BSS ────────────────────────────────────────────────────────────────
 .segment "BSS"
@@ -210,7 +213,8 @@ dbg_bp_find:
         rts
 
 ; ── patch_all ──────────────────────────────────────────────────────────
-; Patch every enabled slot (bp + step): save original byte, write $00.
+; Patch every enabled, not-yet-patched slot (bp + step): save original
+; byte, write $00, set the slot's patched bit (flags bit 7).
 ; Forward order: bp first, step last (so if a step slot overlaps a bp,
 ; unpatch's reverse order restores correctly).
 ; Clobbers: A, X, Y, rp_ptr.
@@ -223,6 +227,9 @@ patch_all:
         beq @next               ; empty slot
         lda bp_table+3,x
         beq @next               ; disabled
+        bmi @next               ; already patched — keep its saved byte
+        ora #PATCHED
+        sta bp_table+3,x
         lda bp_table,x
         sta rp_ptr
         lda bp_table+1,x
@@ -240,16 +247,18 @@ patch_all:
         rts
 
 ; ── unpatch_all ────────────────────────────────────────────────────────
-; Restore every patched slot: write saved byte back.  Reverse order.
+; Restore every patched slot (flags bit 7): write the saved byte back
+; and clear the bit.  A slot that was never patched (set but not yet
+; run, or disabled) is left alone.  Reverse order.
+; Clobbers: A, X, Y, rp_ptr.
 ;
 unpatch_all:
         ldx #(BP_SLOTS + STEP_SLOTS - 1) * SLOT_SIZE    ; last slot offset
         ldy #0
-@loop:  lda bp_table,x
-        ora bp_table+1,x
-        beq @next
-        lda bp_table+3,x
-        beq @next
+@loop:  lda bp_table+3,x
+        bpl @next               ; not patched
+        and #<~PATCHED
+        sta bp_table+3,x
         lda bp_table,x
         sta rp_ptr
         lda bp_table+1,x
