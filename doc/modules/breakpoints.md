@@ -144,8 +144,14 @@ makes the module bundle-testable at Tier U with a minimal stub.
 - `TestBpSet` / `TestBpDel` / `TestBpClear` / `TestBpFind` — full
   CRUD matrix including table-full, invalid-slot, not-found edges.
 - `TestBpCount` — 0/1/many cases.
-- `TestPatchUnpatch` — round-trip invariant (patch → unpatch →
-  original bytes restored), overlap handling via iteration order.
+- `TestBpPatch` / `TestBpUnpatch` / `TestBpPatchedFlag` — round-trip
+  invariant (patch → unpatch → original bytes restored), the
+  patched bit.
+- `TestStepSlots` / `TestStepClear` — slots 8–9 (`step_bp`): patched
+  and restored with the rest, invisible to the user-slot operations;
+  `dbg_step_clear` zeroes exactly them.
+- `TestOverlap` — a step slot on a breakpoint's address, and both
+  step slots on one address: the user's byte survives.
 
 The step/BRK/userland-transition state machine (the remainder of the
 old `debugger.s`) is covered at integration tier by

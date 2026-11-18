@@ -25,6 +25,7 @@
 ;   $05 = bp_patch
 ;   $06 = bp_unpatch
 ;   $07 = bp_find:  addr at $0B01/$0B02 (lo/hi)
+;   $08 = dbg_step_clear
 ;
 ; Result: A on return; $0B03 = flags (bit 0 = carry)
 ;         $0B04 = result value (slot#, count, etc.)
@@ -36,6 +37,7 @@
         .import dbg_bp_count
         .import patch_all, unpatch_all
         .import dbg_bp_find
+        .import dbg_step_clear
         .import bp_table, step_bp
         .import dbg_bp_hit
 
@@ -65,7 +67,12 @@ RVAL    = $0B04
         beq @unpatch
         cmp #$07
         beq @find
+        cmp #$08
+        beq @step_clear
         rts                     ; unknown command
+
+@step_clear:
+        jmp dbg_step_clear
 
 @init:  jmp bp_init
 

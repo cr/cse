@@ -494,3 +494,86 @@ class TestBpFind:
         assert not found
 
 
+
+
+# ── Step slots 8–9, dbg_step_clear, overlap ──────────────────
+
+def cmd_step_clear(mpu, syms):
+    mpu.memory[CMD] = 0x08
+    call(mpu, syms.entry)
+
+
+def arm_step_slot(mpu, syms, n, addr):
+    """Install a step BRK in step slot n (0/1 = table slots 8/9) the way
+    debugger.s's arm_step_bp does: addr, saved 0, enabled."""
+    base = syms.step_bp + n * BP_SIZE
+    mpu.memory[base] = addr & 0xFF
+    mpu.memory[base + 1] = addr >> 8
+    mpu.memory[base + 2] = 0
+    mpu.memory[base + 3] = 1
+
+
+class TestStepSlots:
+    """breakpoints.md § Table layout: slots 8–9 are the step pair
+    (step_bp = bp_table + 32); patch_all/unpatch_all cover them."""
+
+    def test_step_bp_is_slot_8(self, dbg_syms):
+        assert dbg_syms.step_bp == dbg_syms.bp_table + 8 * BP_SIZE
+
+    def test_step_slots_patch_and_unpatch(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        mpu.memory[TARGET1] = 0xA9
+        mpu.memory[TARGET2] = 0x8D
+        arm_step_slot(mpu, dbg_syms, 0, TARGET1)
+        arm_step_slot(mpu, dbg_syms, 1, TARGET2)
+        cmd_bp_patch(mpu, dbg_syms)
+        assert (mpu.memory[TARGET1], mpu.memory[TARGET2]) == (0, 0)
+        cmd_bp_unpatch(mpu, dbg_syms)
+        assert (mpu.memory[TARGET1], mpu.memory[TARGET2]) == (0xA9, 0x8D)
+
+    def test_step_slots_not_user_visible(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        arm_step_slot(mpu, dbg_syms, 0, TARGET1)
+        assert cmd_bp_count(mpu, dbg_syms) == 0
+        found, _ = cmd_bp_find(mpu, dbg_syms, TARGET1 & 0xFF, TARGET1 >> 8)
+        assert not found
+        cmd_bp_clear(mpu, dbg_syms)
+        assert mpu.memory[dbg_syms.step_bp] == TARGET1 & 0xFF
+
+
+class TestStepClear:
+    """breakpoints.md § dbg_step_clear: slots 8–9 zeroed, 0–7 kept."""
+
+    def test_step_clear_zeroes_only_step_slots(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_bp_set(mpu, dbg_syms, TARGET1 & 0xFF, TARGET1 >> 8)
+        arm_step_slot(mpu, dbg_syms, 0, TARGET2)
+        arm_step_slot(mpu, dbg_syms, 1, TARGET3)
+        user = [mpu.memory[dbg_syms.bp_table + i] for i in range(32)]
+        cmd_step_clear(mpu, dbg_syms)
+        assert [mpu.memory[dbg_syms.step_bp + i] for i in range(8)] == [0] * 8
+        assert [mpu.memory[dbg_syms.bp_table + i] for i in range(32)] == user
+
+
+class TestOverlap:
+    """breakpoints.md § patch_all: forward patch / reverse unpatch keep
+    the user's byte when a step slot shares a breakpoint's address."""
+
+    def test_user_bp_and_step_slot_same_addr(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        mpu.memory[TARGET1] = 0xA9
+        cmd_bp_set(mpu, dbg_syms, TARGET1 & 0xFF, TARGET1 >> 8)
+        arm_step_slot(mpu, dbg_syms, 0, TARGET1)
+        cmd_bp_patch(mpu, dbg_syms)
+        assert mpu.memory[TARGET1] == 0x00
+        cmd_bp_unpatch(mpu, dbg_syms)
+        assert mpu.memory[TARGET1] == 0xA9
+
+    def test_both_step_slots_same_addr(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        mpu.memory[TARGET1] = 0xD0
+        arm_step_slot(mpu, dbg_syms, 0, TARGET1)
+        arm_step_slot(mpu, dbg_syms, 1, TARGET1)
+        cmd_bp_patch(mpu, dbg_syms)
+        cmd_bp_unpatch(mpu, dbg_syms)
+        assert mpu.memory[TARGET1] == 0xD0
