@@ -1996,20 +1996,12 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ; Clobbers: A, X, Y (via vic_reset + restore_colors +
 ; kernal_screen_reset + io_sync).
 hygiene_after_userland:
-        lda #1
-        sta BLNSW               ; KERNAL cursor off (cse_io invariant)
-        lda #$80
-        sta CHARSET_LOCK               ; lock SHIFT+C= charset toggle (userland
-                                ;   may have cleared this to 0; KERNAL
-                                ;   honours the combo when it's 0)
-        ; SID silence: zero the voice-1/2/3 control registers to release
-        ; any gates left on by userland.  SID registers are write-only
-        ; so a read-modify-write to clear just bit 0 isn't possible;
-        ; clobbering waveform + gate is the practical silence primitive.
-        lda #0
-        sta SID_V1_CTRL
-        sta SID_V2_CTRL
-        sta SID_V3_CTRL
+        ; The KERNAL's blink off (the cse_io invariant); the SHIFT+C=
+        ; charset toggle locked (userland may have cleared the lock; the
+        ; KERNAL honours the combo when it is 0); SID voices 1–3 silenced
+        ; (their control registers zeroed to release any gates left on
+        ; — write-only registers, so no read-modify-write of bit 0).
+        PLAT_HYGIENE
         jsr vic_reset           ; $D011/$D015/$D016/$D018/$D019/$D01A
         jsr restore_colors      ; border/bg/fg + color RAM + CHROUT colour
 

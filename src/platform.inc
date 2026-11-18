@@ -188,6 +188,24 @@ DISK_LOCAL_PTR  = $FD
   .endif
 .endmacro
 
+; ── Display (§ Display) ──────────────────────────────────────────────
+; repl.s's hygiene_after_userland: the KERNAL's blink off, the charset
+; toggle locked, SID voices 1–3 gated off.  m65: stated with P2.
+.macro PLAT_HYGIENE
+  .ifdef PLATFORM_C64
+        lda #1
+        sta BLNSW               ; KERNAL cursor off (cse_io invariant)
+        lda #$80
+        sta CHARSET_LOCK        ; lock SHIFT+C= charset toggle
+        lda #0                  ; SID voices 1–3: waveform + gate off
+        sta SID_V1_CTRL         ;   (write-only registers: no RMW)
+        sta SID_V2_CTRL
+        sta SID_V3_CTRL
+  .else
+        PLAT_PENDING 2
+  .endif
+.endmacro
+
 ; ── Banking (§ Banking) ──────────────────────────────────────────────
 ; For the sites whose banking does not fit kernal_bank_out / _in's
 ; batch protocol.  They compose: BANK_PUSH · BANK_IN_A … BANK_POP.

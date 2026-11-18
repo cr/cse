@@ -74,6 +74,7 @@ theme_fg:     .res 1
 ; restore_colors — apply theme + fill color RAM
 ; ═════════════════════════════════════════════════════════
 .proc restore_colors
+.ifdef PLATFORM_C64
         lda theme_border
         sta VIC_BRD
         lda theme_bg
@@ -98,6 +99,9 @@ theme_fg:     .res 1
         inx
         bne @fill
         rts
+.else
+        PLAT_PENDING 2
+.endif
 .endproc
 
 ; ═════════════════════════════════════════════════════════
@@ -111,6 +115,7 @@ theme_fg:     .res 1
 ; Clobbers: A.
 ; ═════════════════════════════════════════════════════════
 .proc vic_reset
+.ifdef PLATFORM_C64
         lda #$1B
         sta VIC_CR1             ; DEN=1, RSEL=25, text, no ECM/BMM, YSCROLL=3
         lda #$C8
@@ -127,12 +132,16 @@ theme_fg:     .res 1
         lda #$0F
         sta VIC_IRR             ; ack any latched IRQ flags
         rts
+.else
+        PLAT_PENDING 2
+.endif
 .endproc
 
 ; ═════════════════════════════════════════════════════════
 ; reset_screen — clear screen + restore colors
 ; ═════════════════════════════════════════════════════════
 .proc reset_screen
+.ifdef PLATFORM_C64
         jsr restore_colors
         ; fill screen with spaces
         lda #$20
@@ -147,6 +156,9 @@ theme_fg:     .res 1
         sta IO_CX
         sta IO_CY
         jmp io_sync
+.else
+        PLAT_PENDING 2
+.endif
 .endproc
 
 ; ═════════════════════════════════════════════════════════
@@ -189,6 +201,7 @@ theme_fg:     .res 1
 ; Clobbers: A, X.
 ; ═════════════════════════════════════════════════════════
 .proc kernal_screen_reset
+.ifdef PLATFORM_C64
         ; LDTB1 ($D9-$F1, 25 bytes): KERNAL stores the row's
         ; screen-address page in the low 7 bits, with bit 7 set to
         ; mark a logical-line start.  E.g. row 0 (addr $0400) →
@@ -219,6 +232,9 @@ theme_fg:     .res 1
         lda #SCR_W - 1          ; 39
         sta LNMX                ; LNMX
         rts
+.else
+        PLAT_PENDING 2
+.endif
 .endproc
 
 ; ═════════════════════════════════════════════════════════

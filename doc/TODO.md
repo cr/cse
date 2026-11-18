@@ -565,8 +565,13 @@ P0 progress (step (1), one commit per seam, each byte-identical):
 - [x] Terminal — `IO_CX` / `IO_CY` at the 55 cursor-cell sites;
   `IO_STOP_DOWN`, `IO_KBHIT`, `IO_KBD_FLUSH`; cse_io.s's `io_init`,
   `io_getc`, `io_kbhit` and the row tables by platform.
-- [ ] Display, Vectors and frame, Cold start and exit, Disk bank, Info
-  map, Loader.
+- [x] Display — `PLAT_HYGIENE`; screen.s's `restore_colors`,
+  `vic_reset`, `reset_screen`, `kernal_screen_reset` by platform
+  (m65: `PLAT_PENDING 2`).  `scroll_up`, `newline` and the cursor stay
+  shared: they name no platform fact, only `scr_lo` / `scr_hi` and the
+  geometry, which P2 makes run-time.
+- [ ] Vectors and frame, Cold start and exit, Disk bank, Info map,
+  Loader.
 - Finding for P2: the screen pointers `_io_scr` (cse_io.s, screen.s's
   `dst_ptr`) and `scr_src` (screen.s's `src_ptr`) reach the screen,
   which is in bank 4 in 80 × 50, but are not in zp.md's far-pointer
