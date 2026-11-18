@@ -1385,6 +1385,9 @@ get their own small binary.
 | `mn6` / `mn7` | mn_classify + mn_vars + mn6/mn7 + tables | (none — pure leaf) | test_mn_classify |
 | `asm_src` | asm_core + asm_src | `asm_src_test_stub.s` (ed_read_line mock) | test_asm_src |
 | `dasm` | zp, dasm, dasm_tables, mem | `dasm_test_stub.s` (linker scaffolding only) | test_dasm |
+| `log` | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |
+| `mem` | zp, mem | (none; `__CODE_RUN__` via `ld65 -D`) | test_mem |
+| `gap_buffer` | zp, strings, mem, symtab, gap_buffer | (none; `__CODE_RUN__`, `__BUF_FLOOR__` via `ld65 -D`) | test_gap_buffer |
 
 **Variants (Principle 10).**  Each bundle ships one variant per CPU
 set its modules are built for: `asm_core` and `dasm` — `6502`,
@@ -1396,8 +1399,9 @@ uses the production `-D` set of its build (`conftest.PROD_DEFS`;
 [build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
 One `conftest.Bundle` builds every variant and rebuilds it when a
 source, a shared include (`src/*.inc`), the linker config or the `-D`
-set changed.
-| `log` | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |
+set changed.  The bundles whose modules have no CPU-gated code (`log`,
+`mem`, `gap_buffer` and the leaf bundles below) build one variant,
+with the `65c02` `-D` set and `-t c64`, as production does.
 
 The `asm_core` bundle includes the `asm_err` leaf module for
 error-state primitives that `addr_mode`, `opcode_lookup`, and
@@ -1435,21 +1439,39 @@ Policy:
 - New mocks require explicit sign-off via CDD Method (contract
   clause + test policy change).  Not an ad-hoc decision.
 
+**Recorded bundle-local mocks.**  Two assembler bundles predate the
+policy and stand in for modules they do not link.  Each is recorded
+here with its justification; the behaviour they replace is covered
+at Tier I on the full PRG (`test_repl.py`'s `a` / `.` tests), and a
+stub that grows behaviour beyond this list is a policy violation.
+
+| Stub | Replaces | Behaviour | Why |
+|---|---|---|---|
+| `asm_core_test_stub.s` | `log_warn` (log.s) | counts calls in `_warn_witness` | The bundle does not link log.s (screen, cse_io, PLOT); the counter is how test_addr_mode observes the ACC label-shadow warning. |
+| `asm_src_test_stub.s` | `ed_read_line`, `ed_read_rewind` (gap_buffer.s) | read NUL-separated lines from `_test_src_buf` (`$FF` = EOF); OR `$01` into `_bank_witness` | Keeps the test input a flat byte image, and the witness proves `asm_assemble` reads its source with the KERNAL banked out. |
+| `asm_src_test_stub.s` | `log_open` (log.s) | counts LOG_WARN opens in `_warn_witness` | Observes the truncation warning without a screen. |
+| `asm_src_test_stub.s` | `io_puts`, `io_putdec`, `io_putc`, `io_puthex4`, `io_clear_eol`, `newline` (cse_io.s, screen.s); `log_close`, `log_warn`, `seg_line` (log.s); `define_ws_syms` (gap_buffer.s) | no-ops | The bundle has no screen; output is not under test there. |
+| `asm_src_test_stub.s` | `io_utoa`, `dec_buf` (cse_io.s); `puts_imm` (log.s) | minimal decimal formatter (no CLC/SEC padding); skips the inline string word | Callers in asm_src need the symbols and the stack shape, not the text. |
+
 #### Leaf module tests
 
 Well-encapsulated leaf modules — those with zero or near-zero
-cross-module dependencies — build their own test binaries inline.
-The stub provides only linker-required scaffolding (banking
-helpers, BSS buffers), not reimplementations of other modules.
+cross-module dependencies — declare their own `conftest.Bundle` in
+the test file (same build rules, `PROD_DEFS` and rebuild tracking as
+the conftest bundles).  The stub provides only linker-required
+scaffolding (banking helpers, BSS buffers, a test entry point), not
+reimplementations of other modules.
 
 | Test file | Module | Stub | Why leaf |
 |-----------|--------|------|----------|
 | `test_cse_io.py` | cse_io.s | `cse_io_test_stub.s` | Zero imports |
 | `test_symtab.py` | symtab.s | `symtab_test_stub.s` | Only banking helpers |
-| `test_debugger.py` | debugger.s | `debugger_test_stub.s` | Only register BSS buffers |
+| `test_breakpoints.py` | breakpoints.s | `breakpoints_test_stub.s` | Only ZP |
 
-Leaf tests build with `ca65 -g` + `ld65 -Ln` and use `SymbolTable`
-for all symbol lookups — the same encapsulation as conftest bundles.
+Leaf tests use `SymbolTable` for all symbol lookups — the same
+encapsulation as conftest bundles.  `test_repl_disk.py` still builds
+its own bare-MPU binary with stubbed disk calls; it moves to C64Emu
+with the virtual IEC disk (Tranche 4).
 
 Complex modules with substantive production dependencies should NOT
 build standalone test binaries.  They belong in a conftest bundle

@@ -21,6 +21,7 @@
 | [`tests/unit/test_golden_asm_dasm.py`](../tests/unit/test_golden_asm_dasm.py) | test contract — behaviour and speed against the golden files (TODO § M65, gates 2–3) |
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — C64 release PRG sizes within budget (TODO § M65, gate 1) |
 | [`tests/unit/test_build_freshness.py`](../tests/unit/test_build_freshness.py) | test contract — no test runs on a stale binary: the PRG fixtures always run `make`, objects depend on their includes, bundles on `src/*.inc` |
+| [`tests/integration/test_release_smoke.py`](../tests/integration/test_release_smoke.py) | test contract — the release CMOS PRG boots from `SYS 2061` to the main loop and shows its splash |
 | [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — the Makefile refuses `PLATFORM=m65` PRG targets until R7 slice 2 |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
@@ -522,9 +523,10 @@ protocol works regardless of which KERNAL is loaded.
 `make test` requires both the **debug** and **release** builds.
 Most tests (including C64Emu-based tests) run against the debug
 CMOS PRG (`build/debug/cmos/cse-cmos.prg`), which has full symbol
-coverage via its `.lbl` file (~1800 symbols).  A `cse_release_prg`
-fixture is available for E2E integration tests that verify the
-actual shipping binary.
+coverage via its `.lbl` file (~1800 symbols).  The `cse_release_prg`
+fixture serves the shipping binary: `test_release_smoke.py` boots the
+release CMOS PRG from its `SYS` target through the loader to the main
+loop.
 
 Test bundles (asm_core, mn6, mn7, asm_src, dasm) are built by
 `conftest.py` with `ca65 -g` and `ld65 -Ln`, producing their

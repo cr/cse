@@ -238,9 +238,12 @@ class Bundle:
     ensure() rebuilds it when the binary is missing or older than a
     source, an included file (`src/*.inc`) or the linker config, or when it was built with other flags
     (recorded in a `.flags` stamp beside the binary — mtimes alone miss
-    a flag change)."""
+    a flag change).  Every bundle is assembled with the production
+    `-D` set of its CPU set (PROD_DEFS) — and `-t c64` where its
+    modules use PETSCII literals, as the production build does."""
 
-    def __init__(self, stem, sources, flags, *, tag, cfg=None, ca65=(), deps=()):
+    def __init__(self, stem, sources, flags, *, tag, cfg=None, ca65=(), deps=(),
+                 ld65=()):
         self.bin = BUILD / f"{stem}.bin"
         self.map = BUILD / f"{stem}.map"
         self.lbl = BUILD / f"{stem}.lbl"
@@ -249,12 +252,16 @@ class Bundle:
         # Every bundle also depends on the shared include files
         # (`src/*.inc`): a changed macro rebuilds the bundle.
         self.ca65, self.deps = list(ca65), list(deps) + _INC_DEPS
+        self.ld65 = list(ld65)          # e.g. -D for linker-provided symbols
+
+    def _stamp(self):
+        return " ".join(self.ca65 + self.flags + self.ld65)
 
     def _stale(self):
         stamp = self.bin.with_suffix(".flags")
         if not (self.bin.exists() and self.lbl.exists() and stamp.exists()):
             return True
-        if stamp.read_text() != " ".join(self.flags):
+        if stamp.read_text() != self._stamp():
             return True
         built = self.bin.stat().st_mtime
         return any(f.stat().st_mtime > built
@@ -271,10 +278,17 @@ class Bundle:
                             "-I", str(SRC), "-I", str(BUILD), str(src), "-o", str(obj)],
                            check=True)
             objs.append(str(obj))
-        subprocess.run(["ld65", "-C", str(self.cfg), *objs, "-o", str(self.bin),
+        subprocess.run(["ld65", "-C", str(self.cfg), *self.ld65, *objs, "-o", str(self.bin),
                         "-m", str(self.map), "-Ln", str(self.lbl)], check=True)
-        self.bin.with_suffix(".flags").write_text(" ".join(self.flags))
+        self.bin.with_suffix(".flags").write_text(self._stamp())
         return self
+
+    def load_into(self, memory):
+        """Write the binary into a 64 KB memory: ZP page at $0000, the
+        rest at dev/test.cfg's CODE start ($4000)."""
+        raw = self.bin.read_bytes()
+        memory[_ZP_START:_ZP_START + _ZP_SIZE] = raw[:_ZP_SIZE]
+        memory[_CODE_START:_CODE_START + len(raw) - _ZP_SIZE] = raw[_ZP_SIZE:]
 
 
 def _variant_stem(base, config):
@@ -622,56 +636,24 @@ def dasm_syms():
 # dependencies (just the linker-provided __ZP_LAST__ and __CODE_RUN__
 # symbols plus the `kernal_out` ZP byte from zp.s).
 
-_MEM_BIN = BUILD / "mem_test.bin"
-_MEM_MAP = BUILD / "mem_test.map"
-_MEM_LBL = BUILD / "mem_test.lbl"
-
 _MEM_SOURCES = [
     SRC / "zp.s",
     SRC / "mem.s",
 ]
 
-
-def _mem_needs_rebuild():
-    if not _MEM_BIN.exists() or not _MEM_LBL.exists():
-        return True
-    bin_mtime = _MEM_BIN.stat().st_mtime
-    return any(s.stat().st_mtime > bin_mtime
-               for s in _MEM_SOURCES + _INC_DEPS + [DEV / "test.cfg"])
-
-
-def _mem_build():
-    BUILD.mkdir(exist_ok=True)
-    obj_files = []
-    for src in _MEM_SOURCES:
-        obj = BUILD / f"{src.stem}_mem.o"
-        cmd = ["ca65", "-g", "--cpu", "6502",
-               "-I", str(BUILD),
-               str(src), "-o", str(obj)]
-        subprocess.run(cmd, check=True)
-        obj_files.append(str(obj))
-    subprocess.run(
-        ["ld65", "-C", str(DEV / "test.cfg"),
-         # mem.s imports __CODE_RUN__ from the production link
-         # config; test.cfg doesn't generate it, so synthesise
-         # a placeholder for cse_start to return.
-         "-D", "__CODE_RUN__=$4000",
-         *obj_files,
-         "-o", str(_MEM_BIN),
-         "-m", str(_MEM_MAP),
-         "-Ln", str(_MEM_LBL)],
-        check=True,
-    )
+# mem.s imports __CODE_RUN__ from the production link config; test.cfg
+# doesn't generate it, so a placeholder is defined for cse_start.
+_MEM = Bundle("mem_test", _MEM_SOURCES, PROD_DEFS["65c02"], tag="mem",
+              ca65=["-t", "c64"], ld65=["-D", "__CODE_RUN__=$4000"])
 
 
 class MemSymbols:
     """Resolved symbol addresses + binary loader for the mem.s test bundle."""
 
     def __init__(self):
-        if _mem_needs_rebuild():
-            _mem_build()
+        self._bundle = _MEM.ensure()
 
-        s = SymbolTable(_MEM_LBL)
+        s = SymbolTable(self._bundle.lbl)
 
         # Entry points
         self.kernal_bank_out     = s["kernal_bank_out"]
@@ -699,13 +681,8 @@ class MemSymbols:
         # lbl file (debug build exports @local labels too).
         self._zp_end_val = s.get("_zp_end_val")
 
-        raw = _MEM_BIN.read_bytes()
-        self._zp_blob   = raw[:_ZP_SIZE]
-        self._code_blob = raw[_ZP_SIZE:]
-
     def load_into(self, memory):
-        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
-        memory[_CODE_START : _CODE_START + len(self._code_blob)]  = self._code_blob
+        self._bundle.load_into(memory)
 
 
 @pytest.fixture(scope="session")
@@ -723,10 +700,6 @@ def mem_syms():
 # and cse_io (L1); cse_io's one KERNAL dependency is PLOT, which the
 # shared stub handles.  No behavioural mocks beyond PLOT.
 
-_LOG_BIN = BUILD / "log_test.bin"
-_LOG_MAP = BUILD / "log_test.map"
-_LOG_LBL = BUILD / "log_test.lbl"
-
 _LOG_SOURCES = [
     SRC / "zp.s",
     SRC / "strings.s",
@@ -736,38 +709,10 @@ _LOG_SOURCES = [
     DEV / "cse_io_test_stub.s",     # shared kplot_stub
 ]
 
-
-def _log_needs_rebuild():
-    if not _LOG_BIN.exists() or not _LOG_LBL.exists():
-        return True
-    bin_mtime = _LOG_BIN.stat().st_mtime
-    return any(s.stat().st_mtime > bin_mtime
-               for s in _LOG_SOURCES + _INC_DEPS + [DEV / "test.cfg"])
-
-
-def _log_build():
-    BUILD.mkdir(exist_ok=True)
-    obj_files = []
-    for src in _LOG_SOURCES:
-        obj = BUILD / f"{src.stem}_log.o"
-        # -t c64 enables PETSCII char-literal translation, matching
-        # the production build (Makefile AFLAGS).  Without it, ca65
-        # encodes 'b' as ASCII $62 instead of PETSCII $42, which
-        # breaks pet_to_scr's screen-code output for log.s's 'b'
-        # byte-size suffix literal.
-        cmd = ["ca65", "-g", "-t", "c64", "--cpu", "6502",
-               "-I", str(BUILD),
-               str(src), "-o", str(obj)]
-        subprocess.run(cmd, check=True)
-        obj_files.append(str(obj))
-    subprocess.run(
-        ["ld65", "-C", str(DEV / "test.cfg"),
-         *obj_files,
-         "-o", str(_LOG_BIN),
-         "-m", str(_LOG_MAP),
-         "-Ln", str(_LOG_LBL)],
-        check=True,
-    )
+# -t c64: PETSCII char literals as in production (log.s's 'b' size
+# suffix must reach pet_to_scr as $42).
+_LOG = Bundle("log_test", _LOG_SOURCES, PROD_DEFS["65c02"], tag="log",
+              ca65=["-t", "c64"])
 
 
 class LogSymbols:
@@ -780,10 +725,9 @@ class LogSymbols:
     """
 
     def __init__(self):
-        if _log_needs_rebuild():
-            _log_build()
+        self._bundle = _LOG.ensure()
 
-        self.s = SymbolTable(_LOG_LBL)
+        self.s = SymbolTable(self._bundle.lbl)
         s = self.s
 
         # log.s entry points
@@ -814,13 +758,8 @@ class LogSymbols:
         self.newline         = s["newline"]
         self.kplot_stub      = s["kplot_stub"]
 
-        raw = _LOG_BIN.read_bytes()
-        self._zp_blob   = raw[:_ZP_SIZE]
-        self._code_blob = raw[_ZP_SIZE:]
-
     def load_into(self, memory):
-        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
-        memory[_CODE_START : _CODE_START + len(self._code_blob)]  = self._code_blob
+        self._bundle.load_into(memory)
 
 
 @pytest.fixture(scope="session")
@@ -841,10 +780,6 @@ def log_syms():
 # sym_table at $E000 is writable RAM in the bare-py65 harness,
 # so the real symtab code runs without any mocking.
 
-_GB_BIN = BUILD / "gap_buffer_test.bin"
-_GB_MAP = BUILD / "gap_buffer_test.map"
-_GB_LBL = BUILD / "gap_buffer_test.lbl"
-
 _GB_SOURCES = [
     SRC / "zp.s",
     SRC / "strings.s",
@@ -853,40 +788,13 @@ _GB_SOURCES = [
     SRC / "gap_buffer.s",
 ]
 
-
-def _gb_needs_rebuild():
-    if not _GB_BIN.exists() or not _GB_LBL.exists():
-        return True
-    bin_mtime = _GB_BIN.stat().st_mtime
-    return any(s.stat().st_mtime > bin_mtime
-               for s in _GB_SOURCES + _INC_DEPS + [DEV / "test.cfg"])
-
-
-def _gb_build():
-    BUILD.mkdir(exist_ok=True)
-    obj_files = []
-    for src in _GB_SOURCES:
-        obj = BUILD / f"{src.stem}_gb.o"
-        cmd = ["ca65", "-g", "-t", "c64", "--cpu", "6502",
-               "-I", str(BUILD),
-               str(src), "-o", str(obj)]
-        subprocess.run(cmd, check=True)
-        obj_files.append(str(obj))
-    subprocess.run(
-        ["ld65", "-C", str(DEV / "test.cfg"),
-         # gap_buffer.s defines BUF_END := __CODE_RUN__ and
-         # BUF_FLOOR := __BUF_FLOOR__.  The test bundle picks
-         # production-representative values: CODE_RUN high in the
-         # $4000-region test code area (leaving $1500..$3FFF as
-         # workspace) and BUF_FLOOR at the same $1500 mark.
-         "-D", "__CODE_RUN__=$4000",
-         "-D", "__BUF_FLOOR__=$1500",
-         *obj_files,
-         "-o", str(_GB_BIN),
-         "-m", str(_GB_MAP),
-         "-Ln", str(_GB_LBL)],
-        check=True,
-    )
+# gap_buffer.s defines BUF_END := __CODE_RUN__ and BUF_FLOOR :=
+# __BUF_FLOOR__.  Production-representative values: CODE_RUN at the
+# $4000 test code area (leaving $1500..$3FFF as workspace), BUF_FLOOR
+# at $1500.
+_GB = Bundle("gap_buffer_test", _GB_SOURCES, PROD_DEFS["65c02"], tag="gb",
+             ca65=["-t", "c64"],
+             ld65=["-D", "__CODE_RUN__=$4000", "-D", "__BUF_FLOOR__=$1500"])
 
 
 class GapBufferSymbols:
@@ -898,10 +806,9 @@ class GapBufferSymbols:
     """
 
     def __init__(self):
-        if _gb_needs_rebuild():
-            _gb_build()
+        self._bundle = _GB.ensure()
 
-        self.s = SymbolTable(_GB_LBL)
+        self.s = SymbolTable(self._bundle.lbl)
         s = self.s
 
         # gap_buffer.s entry points
@@ -952,13 +859,8 @@ class GapBufferSymbols:
         self.s_workstart = s["s_workstart"]
         self.s_workend   = s["s_workend"]
 
-        raw = _GB_BIN.read_bytes()
-        self._zp_blob   = raw[:_ZP_SIZE]
-        self._code_blob = raw[_ZP_SIZE:]
-
     def load_into(self, memory):
-        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
-        memory[_CODE_START : _CODE_START + len(self._code_blob)]  = self._code_blob
+        self._bundle.load_into(memory)
 
 
 @pytest.fixture(scope="session")

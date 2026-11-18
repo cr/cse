@@ -995,6 +995,7 @@ documentation round that follows this filing.
   are outside the mock policy; the mem, log, gap_buffer, symtab,
   breakpoints and cse_io bundles are hand-rolled, not `Bundle`;
   `cse_release_prg` is unused.
+  Done 2026-11-18 except Tranche 4: the six bundles are `conftest.Bundle` with `PROD_DEFS` and `-t c64`; the stubs' mocks are recorded in testing.md § Shared slim mocks; `cse_release_prg` feeds test_release_smoke.py.  Open: `test_repl_disk.py` — blocked on a virtual IEC disk (C64Emu models only an empty serial bus).
 
 ### Doc drift (to fix in the documentation round)
 

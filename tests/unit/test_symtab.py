@@ -33,18 +33,9 @@ Bundle: zp + strings + symtab + mem + symtab_test_stub.s
         (mem is pulled in for kernal_bank_out/in used during probe).
 """
 
-import subprocess, pathlib, pytest
+import pytest
 from py65.devices.mpu6502 import MPU
-from conftest import SymbolTable
-
-ROOT  = pathlib.Path(__file__).parent.parent.parent
-BUILD = ROOT / "build"
-SRC   = ROOT / "src"
-DEV   = ROOT / "dev"
-
-BIN = BUILD / "symtab_test.bin"
-MAP = BUILD / "symtab_test.map"
-LBL = BUILD / "symtab_test.lbl"
+from conftest import SymbolTable, Bundle, PROD_DEFS, SRC, DEV
 
 _ZP_START   = 0x0000
 _CODE_START = 0x4000
@@ -57,30 +48,13 @@ _RETURN     = 0x0F00
 _SOURCES = [SRC / "zp.s", SRC / "strings.s", SRC / "symtab.s", SRC / "mem.s",
             DEV / "symtab_test_stub.s"]
 
-def _needs_rebuild():
-    if not BIN.exists() or not LBL.exists(): return True
-    t = BIN.stat().st_mtime
-    return any(s.stat().st_mtime > t for s in _SOURCES + [DEV / "test.cfg"])
-
-def _build():
-    BUILD.mkdir(exist_ok=True)
-    objs = []
-    for src in _SOURCES:
-        obj = BUILD / f"{src.stem}_st.o"
-        subprocess.run(["ca65", "-g", "--cpu", "6502", "-t", "c64",
-                        "-I", str(BUILD),
-                        str(src), "-o", str(obj)], check=True)
-        objs.append(str(obj))
-    subprocess.run(["ld65", "-C", str(DEV / "test.cfg"),
-                    *objs,
-                    "-o", str(BIN), "-m", str(MAP),
-                    "-Ln", str(LBL)], check=True)
+_BUNDLE = Bundle("symtab_test", _SOURCES, PROD_DEFS["65c02"], tag="st",
+                 ca65=["-t", "c64"])
 
 class SymtabSyms:
     def __init__(self):
-        if _needs_rebuild(): _build()
-        s = SymbolTable(LBL)
-        self._raw = BIN.read_bytes()
+        self._bundle = _BUNDLE.ensure()
+        s = SymbolTable(self._bundle.lbl)
         # Entry points
         self.sym_define = s["test_define"]
         self.sym_lookup = s["test_lookup"]
@@ -90,9 +64,7 @@ class SymtabSyms:
         self.sym_wide   = s.get("sym_wide")
 
     def load_into(self, mem):
-        mem[_ZP_START:_ZP_START + _ZP_SIZE] = self._raw[:_ZP_SIZE]
-        code = self._raw[_ZP_SIZE:]
-        mem[_CODE_START:_CODE_START + len(code)] = code
+        self._bundle.load_into(mem)
 
 @pytest.fixture(scope="session")
 def symt():

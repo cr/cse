@@ -24,18 +24,9 @@ scaffolding only — no behavioural mocks).
 Protocol: write command byte + args at $0B00, JSR bp_test_entry.
 """
 
-import subprocess, pathlib, pytest
+import pytest
 from py65.devices.mpu6502 import MPU
-from conftest import SymbolTable
-
-ROOT  = pathlib.Path(__file__).parent.parent.parent
-BUILD = ROOT / "build"
-SRC   = ROOT / "src"
-DEV   = ROOT / "dev"
-
-BIN = BUILD / "breakpoints_test.bin"
-MAP = BUILD / "breakpoints_test.map"
-LBL = BUILD / "breakpoints_test.lbl"
+from conftest import SymbolTable, Bundle, PROD_DEFS, SRC, DEV
 
 _ZP_START   = 0x0000
 _CODE_START = 0x4000
@@ -56,32 +47,16 @@ BP_SIZE  = 4
 _SOURCES = [SRC / "zp.s", SRC / "breakpoints.s",
             DEV / "breakpoints_test_stub.s"]
 
-def _needs_rebuild():
-    if not BIN.exists() or not LBL.exists(): return True
-    t = BIN.stat().st_mtime
-    return any(s.stat().st_mtime > t for s in _SOURCES + [DEV / "test.cfg"])
-
-def _build():
-    BUILD.mkdir(exist_ok=True)
-    objs = []
-    for src in _SOURCES:
-        obj = BUILD / f"{src.stem}_bp.o"
-        subprocess.run(["ca65", "-g", "--cpu", "6502",
-                        str(src), "-o", str(obj)], check=True)
-        objs.append(str(obj))
-    subprocess.run(["ld65", "-C", str(DEV / "test.cfg"),
-                    *objs,
-                    "-o", str(BIN), "-m", str(MAP),
-                    "-Ln", str(LBL)], check=True)
+_BUNDLE = Bundle("breakpoints_test", _SOURCES, PROD_DEFS["65c02"], tag="bp",
+                 ca65=["-t", "c64"])
 
 
 # ── Fixture ──────────────────────────────────────────────────
 
 class BpSymbols:
     def __init__(self):
-        if _needs_rebuild():
-            _build()
-        s = SymbolTable(LBL)
+        self._bundle = _BUNDLE.ensure()
+        s = SymbolTable(self._bundle.lbl)
 
         self.entry       = s["bp_test_entry"]
 
@@ -89,13 +64,9 @@ class BpSymbols:
         self.bp_table    = s["bp_table"]
         self.step_bp     = s["step_bp"]
         self.dbg_bp_hit  = s["dbg_bp_hit"]
-        raw = BIN.read_bytes()
-        self._zp_blob   = raw[:_ZP_SIZE]
-        self._code_blob = raw[_ZP_SIZE:]
 
     def load_into(self, memory):
-        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
-        memory[_CODE_START : _CODE_START + len(self._code_blob)]   = self._code_blob
+        self._bundle.load_into(memory)
 
 
 @pytest.fixture(scope="session")

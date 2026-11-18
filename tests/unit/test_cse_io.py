@@ -55,20 +55,9 @@ _SOURCES).  The stub replaces KERNAL PLOT at $FFF0 with a py65
 equivalent using cse_io's own scr_lo/scr_hi row tables.
 """
 
-import subprocess
-import pathlib
 import pytest
 from py65.devices.mpu6502 import MPU
-from conftest import SymbolTable
-
-ROOT  = pathlib.Path(__file__).parent.parent.parent
-BUILD = ROOT / "build"
-SRC   = ROOT / "src"
-DEV   = ROOT / "dev"
-
-IO_BIN = BUILD / "cse_io_test.bin"
-IO_MAP = BUILD / "cse_io_test.map"
-IO_LBL = BUILD / "cse_io_test.lbl"
+from conftest import SymbolTable, Bundle, PROD_DEFS, SRC, DEV
 
 SCREEN = 0x0400
 COLS   = 40
@@ -81,32 +70,14 @@ _CODE_START = 0x4000
 
 _SOURCES = [SRC / "zp.s", SRC / "strings.s", SRC / "cse_io.s", DEV / "cse_io_test_stub.s"]
 
-def _needs_rebuild():
-    if not IO_BIN.exists() or not IO_LBL.exists():
-        return True
-    mtime = IO_BIN.stat().st_mtime
-    return any(s.stat().st_mtime > mtime for s in _SOURCES + [DEV / "test.cfg"])
-
-
-def _build():
-    BUILD.mkdir(exist_ok=True)
-    objs = []
-    for src in _SOURCES:
-        obj = BUILD / f"{src.stem}_io.o"
-        subprocess.run(["ca65", "-g", "--cpu", "6502",
-                        "-I", str(BUILD),
-                        str(src), "-o", str(obj)], check=True)
-        objs.append(str(obj))
-    subprocess.run(["ld65", "-C", str(DEV / "test.cfg"),
-                    *objs,
-                    "-o", str(IO_BIN), "-m", str(IO_MAP),
-                    "-Ln", str(IO_LBL)], check=True)
+_BUNDLE = Bundle("cse_io_test", _SOURCES, PROD_DEFS["65c02"], tag="io",
+                 ca65=["-t", "c64"])
 
 
 class IoSymbols:
     def __init__(self):
-        if _needs_rebuild(): _build()
-        s = SymbolTable(IO_LBL)
+        self._bundle = _BUNDLE.ensure()
+        s = SymbolTable(self._bundle.lbl)
         self.io_init      = s["io_init"]
         self.io_sync      = s["io_sync"]
         self.io_putc      = s["io_putc"]
@@ -132,12 +103,9 @@ class IoSymbols:
         self._io_scr_setup = s["_io_scr_setup"]
         self._io_tmp      = s.get("_io_tmp", 0)
         self._io_scr      = s.get("_io_scr", 0)
-        self._raw = IO_BIN.read_bytes()
 
     def load_into(self, memory):
-        memory[0:_ZP_SIZE] = self._raw[:_ZP_SIZE]
-        code_blob = self._raw[_ZP_SIZE:]
-        memory[_CODE_START:_CODE_START + len(code_blob)] = code_blob
+        self._bundle.load_into(memory)
 
 
 @pytest.fixture(scope="session")
