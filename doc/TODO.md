@@ -1217,7 +1217,7 @@ documentation round that follows this filing.
   (test_log.py::TestInfoLine), `$A0` / leading whitespace
   (test_addr_mode.py test_parse_ok / TestModeParseStopContract cases).
   Fixed 2026-11-18: the editor's remaining part runs on C64Emu's virtual 1541 — ed_save_source / ed_load_source success, code 1 on a missing or empty file, code 2 (file too large) — the explained skip is gone, tests test_editor.py::TestEdDiskOnADrive.
-- [ ] Bundle hygiene: `test_repl_disk.py` still builds its own
+- [x] Bundle hygiene: `test_repl_disk.py` still builds its own
   bare-MPU binary with stubbed disk calls and a map regex (Tranche 4);
   behavioural stubs in `asm_core_test_stub.s` (`log_warn`) and
   `asm_src_test_stub.s` (log, cse_io, editor, gap_buffer routines)
@@ -1225,6 +1225,7 @@ documentation round that follows this filing.
   breakpoints and cse_io bundles are hand-rolled, not `Bundle`;
   `cse_release_prg` is unused.
   Done 2026-11-18 except Tranche 4: the six bundles are `conftest.Bundle` with `PROD_DEFS` and `-t c64`; the stubs' mocks are recorded in testing.md § Shared slim mocks; `cse_release_prg` feeds test_release_smoke.py.  Open: `test_repl_disk.py` — blocked on a virtual IEC disk (C64Emu models only an empty serial bus).
+  Fixed 2026-11-18: C64Emu has a virtual 1541 (attach_drive); test_repl_disk.py runs on it with the production PRG, dev/repl_test_stub.s and dev/repl_test.cfg are deleted, tests test_repl_disk.py (TestSaveCommand, TestLoadCommand, TestDirDevice).
 
 ### Doc drift (to fix in the documentation round)
 
@@ -2635,7 +2636,7 @@ systems, ASM stubs, and test-specific linker configs.
 
 ### Test restructure Tranche 4 — `test_repl.py` → C64Emu
 
-- [ ] **Migrate `tests/integration/test_repl.py` from the bare-MPU +
+- [x] **Migrate `tests/integration/test_repl.py` from the bare-MPU +
   `dev/repl_test_stub.s` harness to full C64Emu + production PRG.**
   Blocked on the C64Emu virtual-IEC-disk extension (see the
   C64Emu extension roadmap below) because `TestSaveCommand` and
@@ -2658,6 +2659,7 @@ systems, ASM stubs, and test-specific linker configs.
   the bare-MPU `_build()` / `_parse_map()` / `ReplSymbols` scaffolding
   in test_repl.py, and the `sym_refs` RODATA table workaround.
   Net: -400–500 LOC of test harness, zero new test logic.
+  Fixed 2026-11-18: the non-disk half had moved already; the disk half (test_repl_disk.py) now runs on C64Emu's virtual 1541, the stub and its config are deleted, tests test_repl_disk.py.
 
 ### C64Emu extension roadmap
 
@@ -2681,13 +2683,14 @@ discussion).  Each block is independent; do in any order.
   `d426040`).  `enable_jiffy_clock` / `disable_jiffy_clock` on top
   of the scheduled-IRQ infra; default 16421 cycles matches KERNAL.
 
-- [ ] **Virtual IEC disk (D64-backed)** — intercept KERNAL IEC entry
+- [x] **Virtual IEC disk (D64-backed)** — intercept KERNAL IEC entry
   points (`$FFC0` OPEN, `$FFD5` LOAD, `$FFD8` SAVE, `$FFCF` CHRIN,
   `$FFD2` CHROUT, etc.) with a Python callback backed by a virtual
   D64 image.  Unlocks Tranche 4 (test_repl migration) + hazard tests
   (overwrite, file-not-found, device-not-present).  Moderate-to-high
   effort; timing-accuracy concerns — flagged as out-of-scope at
   extension-planning time.
+  Fixed 2026-11-18: traps one level lower, on the KERNAL's serial routines (TALK…UNLSN), so OPEN/CHKIN/LOAD/SAVE stay the ROM's own; Drive1541 is an in-memory 1541 (channels, command channel, DOS status, `$`, write protect, disk full) with a .d64 reader; no timing; contract testing.md § Virtual IEC drives, tests tests/unit/test_c64emu_disk.py.
 
 - [ ] **VIC raster counter auto-increment** — `$D012` derived from
   cycle counter (~63 cycles/line).  Unlocks raster-synced user
