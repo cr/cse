@@ -357,9 +357,13 @@ cse_end_debug:
         jmp main_loop_top
 
 ; ── cse_refresh — user asked for the view back ──────────────
-; Falls through into main_loop_top (saves the trailing `jmp`).
+; Keeps the debug session, so SP goes to reg_sp (the user's SP at the
+; break; $FF without a session): the user's stack above it — the
+; brk_stub sentinel, the program's own pushes — must survive the
+; kernel's calls.  Falls through into main_loop_top (saves the
+; trailing `jmp`).
 cse_refresh:
-        ldx kernel_init_sp
+        ldx reg_sp
         txs
         jsr refresh_body
 
@@ -971,8 +975,8 @@ cse_nmi_handler:
         bit in_userland
         bmi @userland_nmi
         ; Kernel mode: user wants the view back.  The NMI frame on
-        ; stack is discarded by cse_refresh's `ldx kernel_init_sp /
-        ; txs`; debug context (if any) is preserved.
+        ; stack is discarded by cse_refresh's `ldx reg_sp / txs`;
+        ; debug context (if any) is preserved.
         jmp cse_refresh
 
 @userland_nmi:

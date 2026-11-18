@@ -313,7 +313,7 @@ preserved across every warmstart — see invariants below.
 |-------------|--------|----------|
 | `cse_recover` | Internal CSE fault (unexpected BRK in kernel code) | hw_reinit + end_debug + refresh |
 | `cse_end_debug` | User ended the current debug session (via an `a`/`l`/`R` gate) | end_debug |
-| `cse_refresh` | User asked for the view back (NMI-in-kernel, ESC/CLR, `R` without active debug) | refresh |
+| `cse_refresh` | User asked for the view back (NMI-in-kernel, ESC/CLR, `R` without active debug) | refresh; SP := `reg_sp` (the debug session's user stack is kept) |
 
 Each entry point composes from rts-returning **body subroutines**
 defined in `main.s`:

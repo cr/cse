@@ -1666,3 +1666,36 @@ class TestBpHitAfterTableEdit:
         s.type("c")
         assert e.read_word(e.sym("bp_table")) == 0x3003
         assert s.v("dbg_reason") == DBG_BRK and s.w("brk_pc") == 0x3003
+
+
+class TestRefreshKeepsSession:
+    """main.md § Layer 3: cse_refresh keeps the debug session — SP goes
+    to reg_sp, so the user's stack (the brk_stub sentinel) survives
+    CLR/HOME, ESC and RESTORE at the prompt."""
+
+    def _break(self, s):
+        for i, b in enumerate((0xA9, 0x05, 0xA2, 0x07, 0xE8, 0x60)):
+            s.e.memory[0x1000 + i] = b      # LDA #5; LDX #7; INX; RTS
+        s.type("b $1004")
+        s.type("j $1000")
+        assert s.v("dbg_reason") == DBG_BRK
+
+    @pytest.mark.parametrize("key", [0x93, 0x1B], ids=["clr", "esc"])
+    def test_key_then_c(self, session, key):
+        s = session
+        self._break(s)
+        s.keys(bytes([key]))
+        s.type("c")
+        assert s.v("warm_guard") == 0
+        assert s.v("dbg_reason") == DBG_RTS
+        assert s.v("reg_x") == 8
+
+    def test_restore_then_c(self, session):
+        s = session
+        self._break(s)
+        s.e.press_restore()
+        s.e.run_steps(10)                   # let the NMI fire
+        s.idle()
+        s.type("c")
+        assert s.v("dbg_reason") == DBG_RTS
+        assert s.v("reg_x") == 8

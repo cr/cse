@@ -338,6 +338,14 @@ cse_refresh:     jsr refresh_body
 main_loop_top:   ...
 ```
 
+`cse_recover` and `cse_end_debug` reset SP to `kernel_init_sp`
+(`$FF`) — both end any debug session.  `cse_refresh` keeps the
+session, so it resets SP to `reg_sp`, the user's stack pointer at
+the break: the user's stack above it (the `brk_stub` sentinel and
+whatever the program pushed) stays intact under the kernel's own
+calls, and `c`/`t`/`o` resume correctly after CLR/HOME, ESC or
+RUN/STOP+RESTORE at the prompt.  With no session `reg_sp` is `$FF`.
+
 `cse_recover` guards against re-entry (`warm_guard`) to prevent
 infinite BRK→recover loops; falls through to kernal cold start
 ($FCE2) as last resort.
