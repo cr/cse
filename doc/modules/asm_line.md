@@ -157,7 +157,7 @@ opcode_lookup (`asm_opcode_lookup`), mn_asm_tables (`asm_oplen`,
 `ASM_ZONE_G`), mn_classify (`mn_classify`, `mn_base_op`,
 `mn_profile`), mn_modes (`mn_modes_lo` — the ACC-bit test that sets
 `_au_no_acc`), asm_err (`asm_error`, `asm_expr_error`,
-`asm_cpu_error`; `asm_syntax_error` is imported but unused), mem
+`asm_cpu_error`), mem
 (`kernal_bank_out` / `kernal_bank_in`), zp (`_asm_saved_sp`,
 `asm_pc`, `asm_out`, `asm_len`, `asm_cpu`, `asm_slot`, `asm_prof`,
 `asm_pidx`, `asm_base`, `asm_mode`, `asm_tmp`, `asm_ptr`, `asm_opr`,
