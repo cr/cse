@@ -1170,3 +1170,23 @@ class TestBadExpressionAborts:
         set_line_buf(cpu, rsyms, cmd)
         run_at(cpu, rsyms.exec_line)
         assert get_cur_addr(cpu, rsyms) == addr
+
+
+class TestEditWrapPastFFFF:
+    """repl.md § User-ZP view: an edit run past $FFFF wraps into the
+    user's ZP image, never the live CPU port or CSE's ZP."""
+
+    @pytest.mark.parametrize("cmd", ["m fffc 00 00 00 00 2f 30",
+                                     "fffe:. 4c 2f 30"])
+    def test_wrap_lands_in_user_zp(self, rsyms, cmd):
+        cpu = make_cpu(rsyms)
+        live0, live1 = cpu.memory[0x00], cpu.memory.ram[0x01]
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        buf = rsyms.userland_zp_buf
+        if cmd.startswith("m"):
+            assert (cpu.memory[buf], cpu.memory[buf + 1]) == (0x2F, 0x30)
+        else:
+            assert cpu.memory[buf] == 0x30
+        assert cpu.memory.ram[0x01] == live1, "live CPU port written"
+        assert cpu.memory[0x00] == live0

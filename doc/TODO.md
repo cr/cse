@@ -856,6 +856,12 @@ documentation round that follows this filing.
   I/O and crashes; `ffff:. 4c 2f 30` sets `$01` to `$32`; CSE's own ZP
   `$02`–`$07` is overwritten.  The user-ZP redirect applies only when
   the base's high byte is 0.
+  REPL side fixed 2026-11-18: `zp_poke` (`m` edit, `.` hex poke) computes the
+  16-bit effective address, so a run wrapping past `$FFFF` lands in
+  `userland_zp_buf`, test `TestEditWrapPastFFFF`.  Open: the
+  assembler's `asm_out` wrap (`.` mnemonic, `a`) belongs to the
+  assembler track; the `m`/`.` display of a wrapping run still reads
+  live ZP (`zp_stage_prep` stages only page-0 bases).
 - [ ] **INS at column 0 of the REPL hangs and writes the workspace**
   (`main.s` `@ins_loop`: unsigned `cpy CUR_COL` with CUR_COL = 0 never
   ends; Y wraps over `(rp_ptr)+0..255`).

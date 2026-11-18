@@ -1045,10 +1045,12 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ; ═══════════════════════════════════════════════════════════
 ; zp_poke — user-ZP write redirect for m/. edits.
 ;
-; Writes A to the effective address (rp_ptr2 + Y), substituting
+; Writes A to the effective address (rp_ptr2 + Y, 16-bit, wrapping
+; past $FFFF to $00xx as (rp_ptr2),y does), substituting
 ; userland_zp_buf[addr - ZP_SAVE_LO] when the effective address
 ; is in [ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN).  Otherwise stores
-; through (rp_ptr2),y as normal.  Unconditional — user-ZP edits
+; through (rp_ptr2),y as normal.  An edit run from $FFFC on thus
+; never reaches the live CPU port or CSE's own ZP.  Unconditional — user-ZP edits
 ; always land in userland_zp_buf so they're the image `c` restores
 ; on the next userland entry.  See repl.md § User-ZP view.
 ;
@@ -1064,15 +1066,15 @@ zp_stage_prep_addr:                     ; convenience entry: load
         rts
 .else
         pha
-        lda rp_ptr2+1
-        bne @pop
         tya
         clc
         adc rp_ptr2
-        bcs @pop                        ; wrap past $FF
-        cmp #<(ZP_SAVE_LO + ZP_SAVE_LEN)
+        tax                             ; effective lo
+        lda rp_ptr2+1
+        adc #0                          ; effective hi ($00 also after
+        bne @pop                        ; a wrap past $FFFF)
+        cpx #<(ZP_SAVE_LO + ZP_SAVE_LEN)
         bcs @pop                        ; addr ≥ save end → live
-        tax
         pla
         sta userland_zp_buf - ZP_SAVE_LO,x
         rts

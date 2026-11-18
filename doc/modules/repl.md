@@ -306,7 +306,11 @@ through the redirect:
 | `.` mnemonic | asm_line emits via `asm_pc` | **no** — goes to live memory (documented; see mode 2 above) |
 
 The redirect gate: effective address in `[ZP_SAVE_LO, ZP_SAVE_LO
-+ ZP_SAVE_LEN)` (currently $00–$7F).  Outside that range, reads
++ ZP_SAVE_LEN)` (currently $00–$7F).  For writes the effective
+address is the full 16-bit `base + offset`, which wraps past
+`$FFFF` to `$0000` as the CPU's `(zp),y` does: an edit run that
+starts at `$FFFC` lands its fifth byte in the user's `$00`
+(`userland_zp_buf`), never in the live CPU port or CSE's own ZP.  Outside that range, reads
 and writes go to live memory — $80–$FF is KERNAL territory and
 not mirrored in `userland_zp_buf`, and addresses past page 0 are
 real workspace.
