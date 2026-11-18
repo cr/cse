@@ -1132,11 +1132,49 @@ _dir_hi:
 .segment "CODE"
 .endproc
 
+; ── _name_ok ───────────────────────────────────────────────────────────────
+; C=0 iff (sym_name) is a valid label: a letter then letters/digits
+; (global), or '.' then one or more letters/digits (local).  The name is
+; already folded to $41-$5A.  Clobbers A, Y.
+.proc _name_ok
+        ldy #0
+        lda (sym_name),y
+        cmp #'.'
+        bne @glob
+        iny                     ; local: the part after the dot
+        lda (sym_name),y
+        bne @lp                 ; "." alone → bad
+        beq @bad
+@glob:  cmp #$41
+        bcc @bad                ; must start with a letter
+        cmp #$5B
+        bcs @bad
+@lp:    lda (sym_name),y
+        beq @good
+        cmp #$30
+        bcc @bad
+        cmp #$3A
+        bcc @next               ; digit
+        cmp #$41
+        bcc @bad
+        cmp #$5B
+        bcs @bad                ; not a letter
+@next:  iny
+        bne @lp
+@bad:   sec
+        rts
+@good:  clc
+        rts
+.endproc
+
 ; ── define_label ───────────────────────────────────────────────────────────
 ; sym_name = NUL-terminated label name (caller replaced ':' with NUL).
 ; Stores label address in symbol table (pass 0 only).
 .proc define_label
-        ldy #0
+        jsr _name_ok            ; grammar (assembler_syntax.md § Labels)
+        bcc :+
+        jmp _exp_name_err       ; a_b:, 5x:, a.b:, .: → exp id
+:       ldy #0
         lda (sym_name),y
         cmp #'.'
         bne @global
@@ -1344,6 +1382,10 @@ _too_long_err:
         beq @asm_insn
         cmp #'.'
         bne @ecp
+        ldx _ib_idx             ; a dot inside a name (main.loop) is
+        lda _insn_buf-1,x       ; qualified: no scope prefix
+        jsr is_ident
+        bcc @ecp
         iny
         lda (_as_ptr),y
         jsr is_ident

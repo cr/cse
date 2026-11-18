@@ -291,6 +291,21 @@ MANUAL_TESTS = [
         "expect_bytes": [0xEA, 0x4C, 0x01, 0xC0],
         "expect_errors": 0,
     },
+    # label grammar and qualified references (assembler_syntax.md § Labels)
+    {
+        "name": "qualified local reference",
+        "source": ".org $c000\nmain:\n.loop: nop\n jmp main.loop",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xEA, 0x4C, 0x00, 0xC0],
+        "expect_errors": 0,
+    },
+    {
+        "name": "qualified local from another scope",
+        "source": ".org $c000\nmain:\n.loop: nop\nother:\n.loop: jmp main.loop\n jmp other.loop",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xEA, 0x4C, 0x00, 0xC0, 0x4C, 0x01, 0xC0],
+        "expect_errors": 0,
+    },
     {
         "name": ".res directive",
         "source": ".org $c000\n.res 4, $ea\n  rts",
@@ -547,6 +562,14 @@ ERROR_TESTS = [
     {"name": "directive .orgy", "source": ".org $c000\n.orgy $1000\n rts",
      "expect_min_errors": 1},
     {"name": ".const without a value", "source": ".org $c000\n.const k\n rts",
+     "expect_min_errors": 1},
+    {"name": "label with underscore", "source": ".org $c000\na_b: nop",
+     "expect_min_errors": 1},
+    {"name": "label starting with a digit", "source": ".org $c000\n5x: nop",
+     "expect_min_errors": 1},
+    {"name": "global label with a dot", "source": ".org $c000\na.b: nop",
+     "expect_min_errors": 1},
+    {"name": "local label without a name", "source": ".org $c000\nm:\n.: nop",
      "expect_min_errors": 1},
     # A `:` with no name is `exp id`, not an endless re-scan of the
     # same word (assembler_syntax.md § Labels).

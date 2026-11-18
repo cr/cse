@@ -25,11 +25,25 @@ or followed by an instruction.  A `:` with no name in front of it
 line is skipped.
 
 Case insensitive (input is folded to uppercase internally).
-Characters: a-z, 0-9, dot.  No underscore (not typeable on C64
-keyboard).
+No underscore (not typeable on C64 keyboard).
+
+**Grammar.**
+
+| Form | Rule | Examples |
+|------|------|----------|
+| global label | a letter, then letters and digits | `main:`, `loop2:` |
+| local label | a dot, then one or more letters and digits | `.loop:`, `.1:` |
 
 Local labels (dot prefix) are scoped to the last preceding global
-label and stored as `global.local` in the symbol table.
+label and stored as `global.local` in the symbol table.  A label that
+breaks the grammar — `a_b:`, `5x:`, `a.b:`, `.:` — is `;?N: exp id`
+and is not defined.
+
+**References.**  In an operand or expression a name is a global
+(`main`), a local of the current scope (`.loop` — the assembler
+prefixes the current global), or a *qualified* local of any scope
+(`main.loop`).  Only a dot that starts a name gets the scope prefixed;
+a dot inside a name never does.
 
 The symbol table holds 256 symbols (labels, constants and the
 built-ins `workstart`/`workend`) with 2304 bytes of names; a label or
