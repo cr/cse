@@ -1183,16 +1183,53 @@ class TestNoWrapPastFFFF:
         errors, _, _ = _run_mem(as_syms, ".org $ffff\n.res 8, $42")
         assert errors == 1
 
-    def test_last_byte_at_ffff_is_fine(self, as_syms):
-        errors, mem, _ = _run_mem(as_syms, ".org $fffd\n lda $1234")
-        assert errors == 0
-        assert list(mem[0xFFFD:0x10000]) == [0xAD, 0x34, 0x12]
-
     def test_org_after_wrap_emits_again(self, as_syms):
         errors, mem, _ = _run_mem(
             as_syms, ".org $ffff\n nop\n nop\n.org $c000\n rts")
-        assert errors == 1
+        assert errors == 2                  # both nops: outside, wrapped
         assert mem[0xC000] == 0x60
+
+    def test_wrap_does_not_reach_the_workspace(self, as_syms):
+        # 2051 bytes from $FFFF: past the wrap, $0000-$07FF and then
+        # $0800+ — the wrapped tail must not land in the workspace.
+        errors, mem, _ = _run_mem(as_syms, ".org $ffff\n.res 2051, $42")
+        assert errors == 1
+        assert mem[0x0800] != 0x42
+
+
+# ── Workspace guard (assembler_syntax.md § .org, asm_src.md § Emission) ─────
+#
+# Output lands only in the workspace, $0800 <= addr < buf_base (the
+# bundle stub sets buf_base = $E000; production: the gap buffer's base).
+
+class TestWorkspaceGuard:
+
+    def test_ends_at_workend(self, as_syms):
+        errors, mem, _ = _run_mem(as_syms, ".org $dffd\n lda $1234")
+        assert errors == 0
+        assert list(mem[0xDFFD:0xE000]) == [0xAD, 0x34, 0x12]
+
+    def test_straddling_workend_refused(self, as_syms):
+        errors, mem, _ = _run_mem(as_syms, ".org $dffe\n lda $1234")
+        assert errors == 1
+        assert mem[0xE000] != 0x12
+
+    @pytest.mark.parametrize("org", ["$e000", "$f100", "$07ff", "$0400", "$0002"])
+    def test_outside_refused(self, as_syms, org):
+        before = None
+        errors, mem, _ = _run_mem(as_syms, f".org {org}\n.db $5a")
+        assert errors == 1
+        assert mem[int(org[1:], 16)] != 0x5A
+
+    def test_workstart_accepted(self, as_syms):
+        errors, mem, _ = _run_mem(as_syms, ".org $0800\n nop")
+        assert errors == 0 and mem[0x0800] == 0xEA
+
+    def test_pc_still_advances(self, as_syms):
+        # nop at $07ff is refused, but x: is still $0800 and rts lands there
+        errors, mem, _ = _run_mem(as_syms, ".org $07ff\n nop\nx: rts\n jmp x")
+        assert errors == 1
+        assert list(mem[0x0800:0x0804]) == [0x60, 0x4C, 0x00, 0x08]
 
 
 def _asm_line_at(as_syms, text, addr):
@@ -1236,3 +1273,45 @@ class TestAsmLineNoWrap:
         n, mem, _ = _asm_line_at(as_syms, "lda #$42", 0xFFFE)
         assert n == 2
         assert list(mem[0xFFFE:0x10000]) == [0xA9, 0x42]
+
+
+# ── The same guard on the production PRG (C64Emu) ───────────────────────────
+#
+# Real memory map: CSE's code sits above the source text, so `.org` at a
+# CSE routine must not overwrite it (it used to, silently).
+
+def _c64_assemble(cse_prg, source):
+    """Insert `source` into a fresh editor buffer and run asm_assemble.
+    Returns (emu, error count)."""
+    from c64emu import C64Emu
+    emu = C64Emu()
+    emu.load_prg(*cse_prg)
+    emu.init_cse(editor=True)
+    data = [0x0D if ch == "\n" else
+            (ord(ch) - 0x20 if "a" <= ch <= "z" else ord(ch))
+            for ch in source] + [0]
+    buf = 0x3000
+    emu.memory[buf:buf + len(data)] = data
+    emu.jsr(emu.sym("ed_insert_string"), a=buf & 0xFF, x=buf >> 8,
+            max_cycles=5_000_000)
+    emu.jsr(emu.sym("asm_assemble"), a=0x00, x=0x08, max_cycles=20_000_000)
+    return emu, emu.a | (emu.x << 8)
+
+
+class TestWorkspaceGuardC64:
+
+    def test_org_over_cse_code_refused(self, cse_prg):
+        from c64emu import C64Emu
+        probe = C64Emu()
+        probe.load_prg(*cse_prg)
+        target = probe.sym("asm_assemble")
+        emu, errors = _c64_assemble(
+            cse_prg, f".org ${target:04x}\n nop\n nop\n rts")
+        assert errors == 3
+        assert list(emu.memory[target:target + 3]) == \
+            list(probe.memory[target:target + 3])
+
+    def test_workspace_output_written(self, cse_prg):
+        emu, errors = _c64_assemble(cse_prg, ".org $1000\n lda #1\n rts")
+        assert errors == 0
+        assert list(emu.memory[0x1000:0x1003]) == [0xA9, 0x01, 0x60]

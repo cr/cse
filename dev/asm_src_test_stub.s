@@ -80,6 +80,9 @@ asm_src_test_entry:
         sta _src_done
         sta _bank_witness       ; reset witnesses to 0
         sta _warn_witness
+        sta buf_base            ; bundle workspace: $0800..$DFFF (the
+        lda #>$E000             ; production buf_base comes from the
+        sta buf_base+1          ; gap buffer; asm_src emits below it)
         lda #<$0800             ; default origin
         ldx #>$0800
         jsr asm_assemble        ; A/X = error count

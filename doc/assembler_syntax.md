@@ -175,11 +175,21 @@ rules.
 ### `.org` — Set Origin
 
 ```
-.org $c000
+.org $1000
 ```
 
 Sets the program counter. All subsequent code/data emits to this address.
 Default: `$0800`.
+
+**Output stays in the workspace.**  Every byte the assembler emits —
+instructions and data directives alike — must land in the workspace,
+`workstart` ≤ address ≤ `workend` (`$0800` up to the byte below the
+source text; [memory_design.md § Memory Map](memory_design.md#memory-map--runtime-all-targets)),
+the same range the breakpoint gate accepts.  A byte outside it (CSE's
+own code above the source, I/O, the RAM under the KERNAL, zero page,
+or past `$FFFF`) is not written, and its line reports `;?N: range`
+once.  The program counter still advances, so labels stay where the
+layout puts them.
 
 ### `.cpu` — Set CPU Mode
 
@@ -363,7 +373,7 @@ but the ok and save lines are suppressed.  The error count is shown:
 ; simple border color cycler
 
 .cpu 6502
-.org $c000
+.org $1000
 
 .const border $d020
 .const delay  4

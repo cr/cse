@@ -32,7 +32,7 @@
         .import         define_ws_syms                             ; editor.s
         .import         ed_read_line, ed_read_rewind              ; editor.s
         .importzp       cur_project_name           ; zp.s
-        .importzp       buf_base                ; editor.s — gap buffer low bound
+        .importzp       buf_base                ; zp.s — gap buffer low bound = workend+1
         .importzp       rp_ptr2                 ; zp.s — scratch pointer (repl/info_line)
         .importzp       asm_pc, asm_out, asm_len, asm_cpu, asm_tmp, asm_tmp2
         .importzp       expr_ptr, expr_val, expr_wide
@@ -229,19 +229,32 @@ inc_pc_size:
 
 ; ── _emit_byte ────────────────────────────────────────────────────────────
 ; Emit byte in A to (asm_pc) on pass 1; advance asm_pc+asm_size always.
-; The single gate for every output byte: past $FFFF (_pc_wrap) the byte
-; is dropped and _oor set — do_pass reports `range` once for the line.
+; The single gate for every output byte: only the workspace,
+; WORKSTART <= asm_pc < buf_base (workstart..workend, as bp_range_check),
+; and never after a wrap past $FFFF (_pc_wrap).  Otherwise the byte is
+; dropped and _oor set — do_pass reports `range` once for the line.
 ; Preserves X.
+WORKSTART = $0800
 _emit_byte:
         ldy asm_pass
         beq @skip
         ldy _pc_wrap
         bne @oor
-        ldy #0
+        ldy asm_pc+1
+        cpy #>WORKSTART
+        bcc @oor                ; below $0800
+        cpy buf_base+1
+        bcc @ok
+        bne @oor                ; at/above the source text
+        ldy asm_pc
+        cpy buf_base
+        bcs @oor
+@ok:    ldy #0
         sta (asm_pc),y
 @skip:  jmp inc_pc_size
-@oor:   sty _oor
-        jmp inc_pc_size
+@oor:   ldy #1
+        sty _oor
+        bne @skip               ; always
 
 ; ── _emit_word ────────────────────────────────────────────────────────────
 ; Emit 16-bit little-endian word from A (lo) / X (hi).

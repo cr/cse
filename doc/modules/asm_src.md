@@ -115,10 +115,13 @@ Two passes over the editor source:
 buffer (`_insn_out`, overlaying `_full_label`); `process_line` then
 emits its bytes one by one through `_emit_byte`, like the directives.
 So every byte of the output passes one gate: `_emit_byte` writes only
-on pass 1 and never past `$FFFF` — once `asm_pc` has wrapped to
-`$0000` (`_pc_wrap`, cleared by `.org`/`.bas`) the byte is dropped
-and the line reports `;?N: range` once (`do_pass`).  Pass 0 writes
-nothing at all.
+on pass 1, and only inside the workspace, `$0800` ≤ `asm_pc` <
+`buf_base` (`workstart`..`workend`, the range `bp_range_check` uses;
+[assembler_syntax.md § `.org`](../assembler_syntax.md#org--set-origin)).
+A byte outside — CSE's code, I/O, KERNAL RAM, zero page, or anything
+after a wrap past `$FFFF` — is dropped (`asm_pc` still advances) and
+the line reports `;?N: range` once (`_oor`, checked by `do_pass`).
+Pass 0 writes nothing at all.
 
 **Pass 1:** Resolve references, emit bytes, count errors.
 - Same scan as pass 0 but `asm_line` writes bytes to memory.
