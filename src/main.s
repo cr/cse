@@ -240,7 +240,7 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         jsr cse_start
         ldy #0
         tya
-@work:  sta (rp_ptr),y
+@work:  FAR_STA rp_ptr
         inc rp_ptr
         bne :+
         inc rp_ptr+1
@@ -524,7 +524,7 @@ main_loop:
         lda scr_hi,x
         sta rp_ptr+1
         ldy #4
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #$3A
         bne @del_min0
         lda CUR_COL
@@ -539,15 +539,15 @@ main_loop:
         ldy CUR_COL
 @del_loop:
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         dey
-        sta (rp_ptr),y
+        FAR_STA rp_ptr
         iny
         cpy #SCREEN_WIDTH - 1
         bcc @del_loop
         lda #$20
         ldy #SCREEN_WIDTH - 1
-        sta (rp_ptr),y
+        FAR_STA rp_ptr
         jmp main_loop
 @not_del:
 
@@ -562,9 +562,9 @@ main_loop:
         cpy CUR_COL
         bcc @ins_pad            ; cursor at col 39: nothing to shift
 @ins_loop:                      ; move cols CUR_COL..38 one right
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         iny
-        sta (rp_ptr),y
+        FAR_STA rp_ptr
         dey
         cpy CUR_COL
         beq @ins_blank          ; ends at CUR_COL, also when it is 0
@@ -572,11 +572,11 @@ main_loop:
         bpl @ins_loop           ; always (Y <= 37)
 @ins_blank:
         lda #$20                ; Y = CUR_COL: the opened space
-        sta (rp_ptr),y
+        FAR_STA rp_ptr
 @ins_pad:
         lda #$20
         ldy #SCREEN_WIDTH - 1
-        sta (rp_ptr),y
+        FAR_STA rp_ptr
         jmp main_loop
 @not_ins:
 

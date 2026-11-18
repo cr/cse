@@ -233,7 +233,7 @@ _ed_cur_row:
         sta ed_tmp+1
         lda #$20
         ldy #SCREEN_WIDTH - 1
-@blank: sta (ed_tmp),y
+@blank: FAR_STA ed_tmp
         dey
         bpl @blank
         rts
@@ -271,7 +271,7 @@ _ed_cur_row:
         ; Skip remaining content until CR or EOF.
         lda #$3E                ; '>' (normal, not reversed)
         ldy #SCREEN_WIDTH - 1
-        sta (ed_tmp),y
+        FAR_STA ed_tmp
         jmp @skip_rest
 :
         jsr skip_gap_scr
@@ -280,7 +280,7 @@ _ed_cur_row:
         ; Read byte
         sty @save_col           ; save col (Y)
         ldy #0
-        lda (ed_scr),y
+        FAR_LDA ed_scr
         ldy @save_col           ; restore col
 
         ; Check CR
@@ -311,7 +311,7 @@ _ed_cur_row:
         jmp @store
 @no_conv:
 @store:
-        sta (ed_tmp),y          ; scr[col] = sc
+        FAR_STA ed_tmp          ; scr[col] = sc
         iny                     ; ++col
         ; ++ed_scr
         inc ed_scr
@@ -333,7 +333,7 @@ _ed_cur_row:
         cpy #SCREEN_WIDTH
         bcs @tab_advance
         lda #$20
-        sta (ed_tmp),y
+        FAR_STA ed_tmp
         iny
         dex
         bne @tab_fill
@@ -354,7 +354,7 @@ _ed_cur_row:
         cpy #SCREEN_WIDTH
         bcs @pad_done
         lda #$20
-        sta (ed_tmp),y
+        FAR_STA ed_tmp
         iny
         bne @pad                ; Y never wraps to 0 within 40 iterations
 
@@ -364,7 +364,7 @@ _ed_cur_row:
         jsr check_buf_end
         bcs @pad_done
         ldy #0
-        lda (ed_scr),y
+        FAR_LDA ed_scr
         inc ed_scr
         bne :+
         inc ed_scr+1
@@ -395,7 +395,7 @@ _ed_cur_row:
         jsr check_buf_end
         bcs @done
 @read:  ldy #0
-        lda (ed_scr),y
+        FAR_LDA ed_scr
         inc ed_scr
         bne :+
         inc ed_scr+1
@@ -485,7 +485,7 @@ _ed_cur_row:
 @check_cr:
         ; Check if *prev == $0D
         ldy #0
-        lda (ed_tmp),y
+        FAR_LDA ed_tmp
         cmp #$0D
         beq @done               ; found previous line's CR
         ; ed_scr = prev
@@ -516,7 +516,7 @@ _ed_cur_row:
         lda st_hx,x
         ora #$80
         ldy #0
-        sta (ed_scr),y
+        FAR_STA ed_scr
 
         lda ed_tmp+1
         and #$0F
@@ -524,7 +524,7 @@ _ed_cur_row:
         lda st_hx,x
         ora #$80
         iny
-        sta (ed_scr),y
+        FAR_STA ed_scr
 
         lda ed_tmp
         lsr
@@ -535,7 +535,7 @@ _ed_cur_row:
         lda st_hx,x
         ora #$80
         iny
-        sta (ed_scr),y
+        FAR_STA ed_scr
 
         lda ed_tmp
         and #$0F
@@ -543,7 +543,7 @@ _ed_cur_row:
         lda st_hx,x
         ora #$80
         iny
-        sta (ed_scr),y
+        FAR_STA ed_scr
         rts
 .endproc
 
@@ -594,18 +594,18 @@ _ed_cur_row:
         adc #$30
         ora #$80
         ldy #39
-        sta (ed_scr),y          ; ones digit
+        FAR_STA ed_scr          ; ones digit
 
         lda ed_tmp              ; tens
         clc
         adc #$30
         ora #$80
         dey                     ; Y=38
-        sta (ed_scr),y
+        FAR_STA ed_scr
 
         lda #($2C | $80)        ; comma, reversed
         dey                     ; Y=37
-        sta (ed_scr),y
+        FAR_STA ed_scr
 
         ; Line (1-based): up to 4 digits right-aligned in cols 33-36,
         ; blank-padded (col 33 is the separator below line 1000),
@@ -631,7 +631,7 @@ _ed_cur_row:
 @lconv: ldy #36
 @ldig:  jsr div10               ; A = next digit, ed_tmp = rest (keeps Y)
         ora #($30 | $80)
-        sta (ed_scr),y
+        FAR_STA ed_scr
         dey
         lda ed_tmp
         ora ed_tmp+1
@@ -639,7 +639,7 @@ _ed_cur_row:
         lda #$A0                ; reversed space
 @lpad:  cpy #33
         bcc @ldone
-        sta (ed_scr),y
+        FAR_STA ed_scr
         dey
         bne @lpad               ; always (Y >= 32)
 @ldone: rts
@@ -675,7 +675,7 @@ _ed_cur_row:
         ; Fill with reversed spaces
         lda #$A0
         ldy #SCREEN_WIDTH - 1
-@fill:  sta (ed_scr),y
+@fill:  FAR_STA ed_scr
         dey
         bpl @fill
 
@@ -687,7 +687,7 @@ _ed_cur_row:
 @clean: lda #$A0
 @dirty_done:
         ldy #0
-        sta (ed_scr),y
+        FAR_STA ed_scr
 
         ; Filename (cols 1-17)
         lda cur_project_name
@@ -730,7 +730,7 @@ _ed_cur_row:
         sbc #$40
 @fn_noconv:
         ora #$80                ; reversed
-        sta (ed_scr),y
+        FAR_STA ed_scr
         inx
         iny
         bne @fn_loop            ; Y never wraps here
@@ -739,19 +739,19 @@ _ed_cur_row:
         ; "free:" label (cols 19-23)
         ldy #19
         lda #($06 | $80)        ; 'f' reversed screencode
-        sta (ed_scr),y
+        FAR_STA ed_scr
         iny
         lda #($12 | $80)        ; 'r'
-        sta (ed_scr),y
+        FAR_STA ed_scr
         iny
         lda #($05 | $80)        ; 'e'
-        sta (ed_scr),y
+        FAR_STA ed_scr
         iny
         lda #($05 | $80)        ; 'e'
-        sta (ed_scr),y
+        FAR_STA ed_scr
         iny
         lda #($3A | $80)        ; ':'
-        sta (ed_scr),y
+        FAR_STA ed_scr
 
         ; Lower free address (cols 24-27)
         lda ed_scr
@@ -777,7 +777,7 @@ _ed_cur_row:
         ; ed_scr is now at col 24, need col 28 = +4
         lda #($2D | $80)        ; '-' reversed
         ldy #4
-        sta (ed_scr),y
+        FAR_STA ed_scr
 
         ; Upper free + cursor pos via partial updaters
         jsr ed_status_free
@@ -881,8 +881,8 @@ _ed_cur_row:
         lda scr_hi,x
         sta save_ptr+1
         ldy #SCREEN_WIDTH - 1
-@byte:  lda (save_ptr),y
-        sta (ed_scr),y
+@byte:  FAR_LDA save_ptr
+        FAR_STA ed_scr
         dey
         bpl @byte
         cpx #ED_LINES - 1       ; just copied from row 21? → done
@@ -939,8 +939,8 @@ _ed_cur_row:
         lda scr_hi,x
         sta save_ptr+1
         ldy #SCREEN_WIDTH - 1
-@byte:  lda (save_ptr),y
-        sta (ed_scr),y
+@byte:  FAR_LDA save_ptr
+        FAR_STA ed_scr
         dey
         bpl @byte
         cpx #0                  ; just copied from row 0? → done
@@ -984,7 +984,7 @@ _ed_cur_row:
         beq @done               ; reached gap_lo → done
 @fwd_read:
         ldy #0
-        lda (ed_scr),y
+        FAR_LDA ed_scr
         cmp #$A0                ; tab?
         beq @fwd_tab
         ; Non-tab: width = 1
@@ -1029,7 +1029,7 @@ _ed_cur_row:
         bcs @done
         ; Read byte
         ldy #0
-        lda (ed_scr),y
+        FAR_LDA ed_scr
         cmp #$0D
         beq @done               ; CR → end of line
         cmp #$A0
@@ -1087,7 +1087,7 @@ _ed_cur_row:
         sbc #0
         sta ed_tmp+1
         ldy #0
-        lda (ed_tmp),y
+        FAR_LDA ed_tmp
         cmp #$0D
         beq @done               ; CR found → ed_scr is line start
         lda ed_tmp
@@ -1121,7 +1121,7 @@ _ed_cur_row:
         cmp gap_lo+1
         beq @ok                 ; reached cursor → no semicolon
 @peek:  ldy #0
-        lda (ed_scr),y
+        FAR_LDA ed_scr
         cmp #';'
         beq @skip               ; comment → don't strip
         inc ed_scr
@@ -1139,7 +1139,7 @@ _ed_cur_row:
 .proc _strip_leading_tab
         jsr find_line_start     ; ed_scr = start of current line
         ldy #0
-        lda (ed_scr),y
+        FAR_LDA ed_scr
         cmp #$A0
         bne @done               ; no leading tab → nothing to do
         ; Shift content left by 1, overwriting the $A0
@@ -1157,9 +1157,9 @@ _ed_cur_row:
         beq @shifted
 @do_shift:
         ldy #1
-        lda (ed_scr),y
+        FAR_LDA ed_scr
         dey
-        sta (ed_scr),y
+        FAR_STA ed_scr
         inc ed_scr
         bne @shift
         inc ed_scr+1
@@ -1193,7 +1193,7 @@ _ed_cur_row:
 @in_buf:
         ; Check *gap_hi != $0D
         ldy #0
-        lda (gap_hi),y
+        FAR_LDA gap_hi
         cmp #$0D
         beq @done
 
@@ -1300,7 +1300,7 @@ _ed_cur_row:
         bcs @past_cr
 @in_buf:
         ldy #0
-        lda (gap_hi),y
+        FAR_LDA gap_hi
         cmp #$0D
         beq @found_cr
         jsr gb_cursor_right
@@ -1345,7 +1345,7 @@ _ed_cur_row:
         jsr _ed_scr_row
         lda #($2A | $80)        ; '*' reversed, col 0
         ldy #0
-        sta (ed_scr),y
+        FAR_STA ed_scr
         jsr ed_status_free
         jmp ed_status_pos
 .endproc
@@ -1409,7 +1409,7 @@ _ed_cur_row:
         cmp #SCREEN_WIDTH - 1
         jcs @reject
         ldy #0
-        lda (gap_hi),y
+        FAR_LDA gap_hi
         cmp #$0D
         jeq @reject             ; end of line
         jsr gb_cursor_right
@@ -1574,7 +1574,7 @@ _ed_cur_row:
         dec gap_lo+1
 :       dec gap_lo
         ldy #0
-        lda (gap_lo),y
+        FAR_LDA gap_lo
         cmp #$A0
         beq @strip_left         ; $A0 → absorbed into gap, loop
         ; Not $A0 — restore gap_lo (undo the dec)
@@ -1593,7 +1593,7 @@ _ed_cur_row:
         bcs @step3              ; at EOF
 @peek_r:
         ldy #0
-        lda (gap_hi),y
+        FAR_LDA gap_hi
         cmp #$A0
         bne @step3
         ; $A0 → advance gap_hi (absorb into gap)
@@ -1617,7 +1617,7 @@ _ed_cur_row:
         dec gap_lo+1
 :       dec gap_lo
         ldy #0
-        lda (gap_lo),y
+        FAR_LDA gap_lo
         ; restore gap_lo
         inc gap_lo
         bne :+
@@ -1759,7 +1759,7 @@ _ed_cur_row:
         bcs @do_smart_colon
 @peek_eol:
         ldy #0
-        lda (gap_hi),y
+        FAR_LDA gap_hi
         cmp #$0D
         bne @print_done
 @do_smart_colon:
@@ -1802,8 +1802,8 @@ _ed_cur_row:
 .proc copy_1000
         ldx #3
         ldy #0
-@page:  lda (save_ptr),y
-        sta (ed_scr),y
+@page:  FAR_LDA save_ptr
+        FAR_STA ed_scr
         iny
         bne @page
         inc save_ptr+1
@@ -1811,8 +1811,8 @@ _ed_cur_row:
         dex
         bne @page
         ldx #232
-@rem:   lda (save_ptr),y
-        sta (ed_scr),y
+@rem:   FAR_LDA save_ptr
+        FAR_STA ed_scr
         iny
         dex
         bne @rem
@@ -1882,7 +1882,7 @@ _ed_cur_row:
         lda #$20
         ldy #0
 @clr_pg:
-        sta (ed_scr),y
+        FAR_STA ed_scr
         iny
         bne @clr_pg
         inc ed_scr+1
@@ -1891,7 +1891,7 @@ _ed_cur_row:
         ; 880 - 768 = 112 remaining
         ldx #112
 @clr_rem:
-        sta (ed_scr),y
+        FAR_STA ed_scr
         iny
         dex
         bne @clr_rem
@@ -1934,8 +1934,8 @@ _ed_cur_row:
         ; Copy 80 bytes (2 rows)
         jsr kernal_bank_out
         ldy #79
-@ctx:   lda (save_ptr),y
-        sta (ed_scr),y
+@ctx:   FAR_LDA save_ptr
+        FAR_STA ed_scr
         dey
         bpl @ctx
         jsr kernal_bank_in
@@ -2010,7 +2010,7 @@ _ed_cur_row:
         rts
 @read_byte:
         ldy #0
-        lda (save_ptr),y        ; byte in A; survives the inc-pair below (no A-touch)
+        FAR_LDA save_ptr        ; byte in A; survives the inc-pair below (no A-touch)
         inc save_ptr
         bne :+
         inc save_ptr+1

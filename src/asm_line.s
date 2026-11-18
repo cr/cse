@@ -32,6 +32,7 @@
 ;   not return — unwinds to _asm_saved_sp).  See asm_line.md § Design.
 
         .setcpu "6502"
+        .include "platform.inc"
 
         .export asm_line
         .export _asm_line_core
@@ -178,7 +179,7 @@ _asm_adv:
 ; Write A to [asm_out]; advance asm_out; increment asm_len.
 _asm_emit:
         ldy #0
-        sta (asm_out),y
+        FAR_STA asm_out
         ; advance output pointer
         inc asm_out
         bne :+

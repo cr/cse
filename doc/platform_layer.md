@@ -225,17 +225,19 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   pointer that serves user memory and CSE scratch alike carries
   whichever bank it was set to.
 - **Access:** `FAR_LDA name` / `FAR_STA name` — `A` ← / → the byte at
-  the pointer + `Y`.
+  the pointer + `Y`; `FAR_ORA name` — `A` ← `A` OR that byte (disk.s's
+  directory walk tests a link for zero).
 
-| Platform | `FAR_LDA` / `FAR_STA` | Clobbers |
+| Platform | `FAR_LDA` / `FAR_STA` / `FAR_ORA` | Clobbers |
 |---|---|---|
-| c64 | `lda (name),y` / `sta (name),y` | load: A, N/Z; store: nothing |
-| m65 | `TYZ` · `lda [name],z` / `sta [name],z` | load: A, N/Z, the `Z` register; store: N/Z, the `Z` register |
+| c64 | `lda (name),y` / `sta (name),y` / `ora (name),y` | load and or: A, N/Z; store: nothing |
+| m65 | `TYZ` · `lda [name],z` / `sta [name],z` / `ora [name],z` | load and or: A, N/Z, the `Z` register; store: N/Z, the `Z` register |
 | c128 | `(name),y` with the MMU's bank, settled by R3 | — |
 
 The store's added N/Z clobber matters only at a site that tests a
-flag set before the store; the P0 refactor checks each `FAR_STA`
-site.  The KERNAL keeps no invariant on the `Z` register.  User-stack
+flag set before the store; no `FAR_STA` site does (checked by the P0
+refactor: each is followed by an instruction that sets N/Z itself, a
+`jmp`, or an `rts` whose callers do not test N/Z).  The KERNAL keeps no invariant on the `Z` register.  User-stack
 peeks (`lda $0100,x` in debugger.s) need no far access: page 1 is
 bank 0, visible in both maps.  What user memory is per platform is
 [userland_contract.md § 3](userland_contract.md#3-memory-regions);

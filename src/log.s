@@ -196,7 +196,7 @@ info_line_head:
 
         ; pad tag to 5 cols (4 chars + 1 space separator)
         ldy #0
-@tlen:  lda (rp_ptr2),y
+@tlen:  FAR_LDA rp_ptr2
         beq @tpad
         iny
         cpy #4
@@ -268,9 +268,9 @@ info_line_tail:
 @inv_lp:
         cpy #16
         bcs @inv_done
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         ora #$80
-        sta (rp_ptr),y
+        FAR_STA rp_ptr
         iny
         bne @inv_lp
 @inv_done:
@@ -281,7 +281,7 @@ info_line_tail:
 @npad:  cpy #SCREEN_WIDTH
         bcs @done
         lda #$20
-        sta (rp_ptr),y
+        FAR_STA rp_ptr
         iny
         bne @npad
 

@@ -223,8 +223,8 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         ; Copy full pages
         cpx #0
         beq @partial
-@page:  lda (save_ptr),y
-        sta (ed_scr),y
+@page:  FAR_LDA save_ptr
+        FAR_STA ed_scr
         iny
         bne @page
         inc save_ptr+1
@@ -236,8 +236,8 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         ldx ed_tmp              ; remaining bytes
         beq @copy_done
         ldy #0
-@rem:   lda (save_ptr),y
-        sta (ed_scr),y
+@rem:   FAR_LDA save_ptr
+        FAR_STA ed_scr
         iny
         dex
         bne @rem
@@ -303,7 +303,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         bcc @full               ; no room
         pla
         ldy #0
-        sta (gap_lo),y
+        FAR_STA gap_lo
         ; bump gap_lo
         inc gap_lo
         bne :+
@@ -344,7 +344,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 :       dec gap_lo
         ; check if deleted byte is $0D
         ldy #0
-        lda (gap_lo),y
+        FAR_LDA gap_lo
         cmp #$0D
         bne @not_cr
         ; --ed_total_lines
@@ -371,8 +371,8 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         bcs @done
 @ok:
         ldy #0
-        lda (gap_hi),y          ; byte at gap_hi
-        sta (gap_lo),y          ; copy to gap_lo
+        FAR_LDA gap_hi          ; byte at gap_hi
+        FAR_STA gap_lo          ; copy to gap_lo
         ; ++gap_lo
         inc gap_lo
         bne :+
@@ -409,8 +409,8 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 :       dec gap_lo
         ; copy byte from gap_lo to gap_hi
         ldy #0
-        lda (gap_lo),y
-        sta (gap_hi),y
+        FAR_LDA gap_lo
+        FAR_STA gap_hi
 @done:  rts
 .endproc
 
@@ -434,7 +434,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         jsr ed_ensure_init
 @loop:
         ldy #0
-        lda (save_ptr),y
+        FAR_LDA save_ptr
         beq @done               ; NUL terminator
         tax                     ; byte to insert → X (gb_insert takes A)
         lda save_ptr+1
@@ -495,7 +495,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         bcs @eof
 @ok:
         ldy #0
-        lda (read_ptr),y        ; byte in A; survives the inc-pair below (no A-touch)
+        FAR_LDA read_ptr        ; byte in A; survives the inc-pair below (no A-touch)
         inc read_ptr
         bne :+
         inc read_ptr+1
@@ -530,7 +530,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         ldy ed_tmp              ; current len
         cpy #39
         bcs @drop               ; buffer full: drop the byte
-        sta (ed_scr),y
+        FAR_STA ed_scr
         inc ed_tmp              ; ++len (1..39, never 0)
         bne @loop
 @drop:  sty ed_tmp+1            ; Y = 39: "dropped"
@@ -543,7 +543,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         ; NUL-terminate, return len and the dropped flag
         ldy ed_tmp
         lda #0
-        sta (ed_scr),y
+        FAR_STA ed_scr
         lda ed_tmp
         ldx ed_tmp+1
         rts
@@ -592,7 +592,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         sbc #0
         sta ed_tmp+1
         ldy #0
-        lda (ed_tmp),y
+        FAR_LDA ed_tmp
         cmp #$0D
         beq @done
         jsr gb_cursor_left

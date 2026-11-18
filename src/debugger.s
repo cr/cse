@@ -368,7 +368,7 @@ brk_stub:
         sta rp_ptr2+1
 
         ldy #0
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         sta step_save           ; opcode
 
         jeq @stop               ; BRK $00
@@ -395,12 +395,12 @@ brk_stub:
         bcc @not_7c
         ; JMP (abs,x)
         ldy #1
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         clc
         adc reg_x
         sta rp_ptr
         iny
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         adc #0
         sta rp_ptr+1
         jmp @vec                ; asm_cpu = 65C02 here: no page wrap
@@ -480,7 +480,7 @@ brk_stub:
         ; INTO: step into only if target is RAM (<$E000).  KERNAL ROM
         ; can't be BRK-patched.
         ldy #2
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         cmp #ROM_BASE_HI
         bcc @jsr_into
 @jsr_over:
@@ -494,28 +494,28 @@ brk_stub:
         rts
 @jsr_into:
         ldy #1
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         sta step_next_lo
         iny
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         sta step_next_lo+1
         rts
 
 @jmp_abs:
         ldy #1
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         sta step_next_lo
         iny
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         sta step_next_lo+1
         rts
 
 @jmp_ind:
         ldy #1
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         sta rp_ptr
         iny
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         sta rp_ptr+1
 @vec:   ; Read the vector at rp_ptr as the CPU will: through the user's
         ; ZP image for $00-$7F (peek_user).  High byte: the NMOS CPU
@@ -589,7 +589,7 @@ peek_user:
         tay
         lda userland_zp_buf,y
         rts
-@live:  lda (rp_ptr),y
+@live:  FAR_LDA rp_ptr
         rts
 
 ; ── compute_rel_target ──────────────────────────────────────────────
@@ -598,7 +598,7 @@ peek_user:
 ;
 .proc compute_rel_target
         ldy #1
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         bpl @pos
         ldy #$FF
         .byte $2C               ; BIT abs — skip next 2 bytes

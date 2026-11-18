@@ -544,6 +544,26 @@ X (T10).  Gate: the m65 PRG reaches `_main` in M65Emu and xmega65, on
 protection as memory_design.md states; the C64 PRGs byte-identical;
 every test above green.
 
+P0 progress (step (1), one commit per seam, each byte-identical):
+- [x] Constants — the literal baseline 142 → 20 (repl.s's info map).
+- [x] KERNAL calls — `KCALL` / `KJMP` at the 45 jump-table sites.
+- [x] Banking — the `BANK_*` macros; mem.s's two routines by platform.
+- [x] Far memory — `FAR_PTR` for zp.md's 14 pointers, `FAR_LDA` /
+  `FAR_STA` / `FAR_ORA` at their 170 accesses.  Feedback round:
+  `FAR_ORA` added to the contract (disk.s's directory walk, two
+  sites).  `FAR_BANK` is placed with the m65 bodies (step (4)), where
+  each set site's bank is decided; on c64 it is empty.
+- [ ] Base page — finding for this seam: on m65 an access to a CSE
+  base-page symbol in an *absolute* mode (`jmp (rp_ptr2)` in repl.s's
+  dispatch, `lda zpvar,y` as abs,y) reaches page `0.00xx`, not CSE's
+  page `0.1F00`; the seam must list and route those sites.
+- [ ] Terminal, Display, Vectors and frame, Cold start and exit, Disk
+  bank, Info map, Loader.
+- Finding for P2: the screen pointers `_io_scr` (cse_io.s, screen.s's
+  `dst_ptr`) and `scr_src` (screen.s's `src_ptr`) reach the screen,
+  which is in bank 4 in 80 × 50, but are not in zp.md's far-pointer
+  list (`ed_scr` is); P2's delta adds them.
+
 **P1 — running user code: maps, vectors, debugger.**
 
 Found by P0's analysis, for this delta: `brk_stub` moves to the

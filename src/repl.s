@@ -358,7 +358,7 @@ warn_if_debug:
 ; ───────────────────────────────────────────────────────────
 skip_sp_ptr1:
         ldy #0
-@lp:    lda (rp_ptr),y
+@lp:    FAR_LDA rp_ptr
         cmp #' '
         bne @done
         inc rp_ptr
@@ -374,7 +374,7 @@ skip_sp_ptr1:
 skip_peek_ptr1:
         jsr skip_sp_ptr1
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         rts
 
 ; ───────────────────────────────────────────────────────────
@@ -394,7 +394,7 @@ load_curaddr:
 ;   Clobbers A.
 ; ───────────────────────────────────────────────────────────
 is_eow_at_ptr1_y:
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         beq @r                  ; NUL → Z set
         cmp #' '
         beq @r                  ; SPC → Z set
@@ -458,7 +458,7 @@ _hex_val_to_char:
 ;   Returns: Z=0 if hex, Z=1 if not. Preserves Y.
 ; ───────────────────────────────────────────────────────────
 is_hex_at_ptr1:
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         jmp _is_hex             ; tail call; Z flag set on return
 
 ; ───────────────────────────────────────────────────────────
@@ -482,7 +482,7 @@ is_hex4_at_ptr1:
 ;   Returns nibble in A (0-15). Preserves Y.
 ; ───────────────────────────────────────────────────────────
 hex_val_at_ptr1:
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         jmp _hex_val
 
 ; ───────────────────────────────────────────────────────────
@@ -491,7 +491,7 @@ hex_val_at_ptr1:
 ; ───────────────────────────────────────────────────────────
 parse_hex2_ptr1:
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         jsr _hex_val
         asl
         asl
@@ -499,7 +499,7 @@ parse_hex2_ptr1:
         asl
         sta rp_tmp
         ldy #1
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         jsr _hex_val
         ora rp_tmp
         pha
@@ -518,7 +518,7 @@ parse_hex2_ptr1:
 ; ───────────────────────────────────────────────────────────
 parse_hex4_ptr1:
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         jsr _hex_val
         asl
         asl
@@ -526,12 +526,12 @@ parse_hex4_ptr1:
         asl
         sta rp_tmp2                ; hi nibble of high byte
         ldy #1
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         jsr _hex_val
         ora rp_tmp2
         sta rp_tmp2                ; high byte complete
         ldy #2
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         jsr _hex_val
         asl
         asl
@@ -539,7 +539,7 @@ parse_hex4_ptr1:
         asl
         sta rp_tmp
         ldy #3
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         jsr _hex_val
         ora rp_tmp                ; A = lo byte
         pha
@@ -587,7 +587,7 @@ parse_hex4_ptr1:
 ; would discard the wrong frame.
 ; ═══════════════════════════════════════════════════════════
 _require_eoi_or_err:
-@lp:    lda (rp_ptr),y
+@lp:    FAR_LDA rp_ptr
         beq @ok
         cmp #';'
         beq @ok
@@ -805,7 +805,7 @@ _syntax_err:
         lda brk_pc+1
         sta rp_ptr+1
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         bne @done               ; not $00 — not a user BRK
         lda brk_pc
         clc
@@ -939,7 +939,7 @@ _syntax_err:
         sta rp_ptr+1
 
         ldy #0
-@loop:  lda (rp_ptr),y
+@loop:  FAR_LDA rp_ptr
         and #$7F                ; strip reverse-video bit
         jsr scr_to_pet          ; screen code → PETSCII
         sta line_buf,y
@@ -1031,7 +1031,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         bcs @live                       ; addr ≥ save end → live
         lda userland_zp_buf - ZP_SAVE_LO,x
         bcc @stg                        ; C=0 here (bcs-not-taken)
-@live:  lda (rp_ptr2),y
+@live:  FAR_LDA rp_ptr2
 @stg:   sta zp_stage_buf,y
         iny
         cpy #8
@@ -1064,7 +1064,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 .proc zp_poke
 .ifdef INTROSPECT
         ; Introspection build: no redirect.  Direct live write.
-        sta (rp_ptr2),y
+        FAR_STA rp_ptr2
         rts
 .else
         pha
@@ -1081,7 +1081,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         sta userland_zp_buf - ZP_SAVE_LO,x
         rts
 @pop:   pla
-        sta (rp_ptr2),y
+        FAR_STA rp_ptr2
         rts
 .endif
 .endproc
@@ -1100,7 +1100,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         sty rp_tmp
         jsr io_putc
         ldy rp_tmp
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         sty rp_tmp
         jsr io_puthex2
         ldy rp_tmp
@@ -1130,7 +1130,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; dasm_insn_pre owns its KERNAL banking — we hand it the
         ; (possibly staged) bytes and the real PC for branch targets.
         ldy #2
-@cp:    lda (rp_ptr2),y
+@cp:    FAR_LDA rp_ptr2
         sta _dasm_in,y
         dey
         bpl @cp
@@ -1199,7 +1199,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ldy #0
 @asc:   cpy rp_opc
         bcs @adone
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         cmp #$20
         bcc @dot
         cmp #$7F
@@ -1450,7 +1450,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 
         ; Copy mnemonic (a-z)
         ldy #0
-@mne:   lda (rp_ptr),y
+@mne:   FAR_LDA rp_ptr
         cmp #'a'
         bcc @md
         cmp #'z'+1
@@ -1473,7 +1473,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         jsr skip_sp_ptr1
 
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         jeq @implied
         cmp #';'
         jeq @implied
@@ -1487,7 +1487,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 
         ; prefix: # and/or (
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #'#'
         bne @noh
         ldy rp_save
@@ -1499,7 +1499,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         inc rp_ptr+1
 :       jsr skip_sp_ptr1
 @noh:   ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #'('
         bne @nop
         ldy rp_save
@@ -1574,7 +1574,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; copy suffix
         jsr skip_sp_ptr1
 @sfx:   ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         beq @done
         cmp #';'
         beq @done
@@ -1667,7 +1667,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         sty rp_save             ; changed flag
 @cmp:   cpy rp_cnt
         bcs @cmp_done
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         cmp rp_hexbuf,y
         beq @cmatch
         lda #1
@@ -2334,7 +2334,7 @@ set_run_mode:
         jsr skip_sp_ptr1
 
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         bne :+
         jmp @list_all
 :       cmp #'*'
@@ -2425,7 +2425,7 @@ set_run_mode:
 
 @delete_one:
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #'1'
         bcc @bad_slot
         cmp #'9'
@@ -2514,12 +2514,12 @@ set_run_mode:
         dex
         bpl @lbl
         ; No label: the 8-character flags field, then end of field.
-@fl:    lda (rp_ptr),y
+@fl:    FAR_LDA rp_ptr
         eor str_flag_ch,y
         beq @f0                 ; lowercase reference → clear
         cmp #$80
         beq @f1                 ; uppercase reference → set (C=1)
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #'-'
         beq @f0
         cmp #'.'
@@ -2549,11 +2549,11 @@ set_run_mode:
         iny
         cpx #4
         bne @colon
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #'c'
         bne @err
         iny
-@colon: lda (rp_ptr),y
+@colon: FAR_LDA rp_ptr
         cmp #':'
         bne @err
         iny
@@ -2564,7 +2564,7 @@ set_run_mode:
         sta rp_tmp
         sta rp_tmp2
         tay
-@dig:   lda (rp_ptr),y
+@dig:   FAR_LDA rp_ptr
         jsr _hex_val
         cmp #$10
         bcs @err
@@ -2628,7 +2628,7 @@ adv_ptr1:
 ; ═══════════════════════════════════════════════════════════
 .proc strip_and_classify
         ldy #0
-@len:   lda (rp_ptr2),y
+@len:   FAR_LDA rp_ptr2
         beq @got_len
         iny
         bne @len
@@ -2636,7 +2636,7 @@ adv_ptr1:
         cpy #2
         bcc @none               ; too short for ",m" suffix
         dey
-        lda (rp_ptr2),y         ; last char
+        FAR_LDA rp_ptr2         ; last char
         ; Accept both 'p'/'s' ($50/$53, our default lowercase) and
         ; 'P'/'S' ($D0/$D3, canonical uppercase).  Fold uppercase
         ; → lowercase by clearing bit 7.
@@ -2647,11 +2647,11 @@ adv_ptr1:
         bne @none
 @got:   tax                     ; X = classified char ('s' or 'p')
         dey
-        lda (rp_ptr2),y         ; char before letter
+        FAR_LDA rp_ptr2         ; char before letter
         cmp #','
         bne @none
         lda #0                  ; truncate at comma
-        sta (rp_ptr2),y
+        FAR_STA rp_ptr2
         txa                     ; return classified char in A
         rts
 @none:  lda #0
@@ -2669,7 +2669,7 @@ adv_ptr1:
 ; ═══════════════════════════════════════════════════════════
 .proc copy_stem_to_project
         ldy #0
-@cp:    lda (rp_ptr2),y
+@cp:    FAR_LDA rp_ptr2
         sta cur_project_name,y
         beq @strip              ; copy hit NUL → start trailing-dot strip
         iny
@@ -2697,7 +2697,7 @@ adv_ptr1:
 .proc parse_filename
         jsr skip_sp_ptr1
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #$22                ; quote char
         bne @fail               ; no quote → no filename
         ; skip opening quote
@@ -2711,7 +2711,7 @@ adv_ptr1:
         ; scan for closing quote.  NUL before a closing quote is an
         ; unterminated-string syntax error — see @unterm.
         ldy #0
-@scan:  lda (rp_ptr),y
+@scan:  FAR_LDA rp_ptr
         beq @unterm
         cmp #$22
         beq @close
@@ -2719,7 +2719,7 @@ adv_ptr1:
         bne @scan
 @close: ; NUL-terminate at closing quote, advance past it
         lda #0
-        sta (rp_ptr),y
+        FAR_STA rp_ptr
         iny
         tya
         clc
@@ -2730,7 +2730,7 @@ adv_ptr1:
 @done:  jsr skip_sp_ptr1
         ; check if name is empty (e.g. "")
         ldy #0
-        lda (rp_ptr2),y
+        FAR_LDA rp_ptr2
         beq @fail
         lda #1                  ; A=1, Z=0: name found
         rts
@@ -3050,7 +3050,7 @@ parse_ls_args:
 .proc compose_disk_name
         pha                     ; keep mode on stack across body
         ldy #0
-@cp:    lda (rp_ptr2),y
+@cp:    FAR_LDA rp_ptr2
         sta disk_name_buf,y
         beq @end
         iny
@@ -3335,28 +3335,28 @@ prg_ok_done:
         lda rp_next_hi+1
         sta rp_ptr+1
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta rp_ptr2
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta rp_ptr2+1
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta rp_addr
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta rp_addr+1
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta rp_cnt
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta rp_cnt+1
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         pha                     ; desc lo
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         pha                     ; desc hi
         lda rp_next_hi
         clc
@@ -3574,7 +3574,7 @@ prg_ok_done:
         jsr is_hex4_at_ptr1
         beq @no_prefix
         ldy #4
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #':'
         bne @no_prefix
         ; parse 4 hex digits
@@ -3591,7 +3591,7 @@ prg_ok_done:
 
         ; read command char
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta rp_opc              ; save cmd char
 
         ; ── Empty / semicolon ──
@@ -3626,7 +3626,7 @@ prg_ok_done:
         inc rp_ptr+1
 :       ; skip optional space after command
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #' '
         bne @save_repeat
         inc rp_ptr
@@ -3836,14 +3836,14 @@ prg_ok_done:
         cmp #'6'
         bne @u_show
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #'5'
         bne @u_show
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta rp_tmp
         iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta rp_tmp2
         ldx #0
 @u_scan:
@@ -4097,7 +4097,7 @@ prg_ok_done:
         sta rp_tmp2                ; dev
 @dev_lp:
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         cmp #'0'
         bcc @dev_done
         cmp #'9'+1

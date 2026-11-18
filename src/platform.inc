@@ -196,4 +196,42 @@ DISK_LOCAL_PTR  = $FD
   .endif
 .endmacro
 
+; ── Far memory (§ Far memory) ────────────────────────────────────────
+; A far pointer may reach memory outside the kernel's 16-bit view;
+; zp.md lists which.  c64: the 2-byte pointer as it is.
+
+.ifdef PLATFORM_C64
+FAR_SIZE        = 2
+.endif
+
+; Reserve a far pointer (zp.s).
+.macro FAR_PTR name
+name:   .res FAR_SIZE
+.endmacro
+
+; Set the pointer's bank wherever the pointer is set.  c64: empty.
+.macro FAR_BANK name, bank
+.endmacro
+
+; A ← the byte at the pointer + Y.
+.macro FAR_LDA name
+  .ifdef PLATFORM_C64
+        lda (name),y
+  .endif
+.endmacro
+
+; A → the byte at the pointer + Y.
+.macro FAR_STA name
+  .ifdef PLATFORM_C64
+        sta (name),y
+  .endif
+.endmacro
+
+; A ← A | the byte at the pointer + Y.
+.macro FAR_ORA name
+  .ifdef PLATFORM_C64
+        ora (name),y
+  .endif
+.endmacro
+
 .endif ; PLATFORM_INC

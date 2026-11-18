@@ -9,13 +9,14 @@
 ; Allocation table and user-ZP rules: doc/modules/zp.md.
 
         .setcpu "6502"
+        .include "platform.inc"
 
 .segment "ZEROPAGE"
 
 ; ── main.s: runtime scratch ───────────────────────────────────────────── $02
         .exportzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
-rp_ptr:         .res 2          ; scratch pointer (repl.s, debugger.s, mem.s)
-rp_ptr2:        .res 2          ; scratch pointer (repl.s)
+        FAR_PTR rp_ptr          ; scratch pointer (repl.s, debugger.s, mem.s)
+        FAR_PTR rp_ptr2         ; scratch pointer (repl.s)
 rp_tmp:         .res 1          ; scratch byte (repl.s)
 rp_tmp2:        .res 1          ; scratch byte (repl.s)
 
@@ -29,8 +30,8 @@ _asm_saved_sp:  .res 1          ; saved 6502 SP for asm_error recovery
         .exportzp asm_tmp, asm_tmp2
         .exportzp sym_name, sym_val, sym_wide
         .exportzp expr_ptr, expr_val, expr_wide
-asm_pc:         .res 2          ; current PC (lo, hi)
-asm_out:        .res 2          ; output buffer pointer (lo, hi)
+        FAR_PTR asm_pc          ; current PC (lo, hi)
+        FAR_PTR asm_out         ; output buffer pointer (lo, hi)
 asm_cpu:        .res 1          ; CPU target: 0=6502, 1=6510, 2=65C02
 asm_len:        .res 1          ; bytes asm_line emitted for the instruction
 asm_slot:       .res 1          ; hash slot from mn_classify
@@ -76,12 +77,12 @@ asm_opr:        .res 2          ; output operand bytes (lo, hi)
 
 ; ── cse_io.s: screen I/O scratch ──────────────────────────────────────── $2D
         .exportzp _io_tmp, _io_scr
-_io_tmp:        .res 2          ; string pointer / putdec dividend
+        FAR_PTR _io_tmp         ; string pointer / putdec dividend
 _io_scr:        .res 2          ; screen row pointer for io_putc
 
 ; ── disk.s: filename pointer ──────────────────────────────────────────── $31
         .exportzp disk_ptr
-disk_ptr:       .res 2          ; filename pointer for disk functions
+        FAR_PTR disk_ptr        ; filename pointer for disk functions
 
 ; ── expr.s: expression parser scratch ─────────────────────────────────── $33
         .exportzp _ex_tmp, _ex_digits
@@ -100,7 +101,7 @@ _st_heap_base:  .res 2          ; heap base (fixed at $E600)
 
 ; ── dasm.s: disassembler scratch ──────────────────────────────────────── $41
         .exportzp _dasm_ptr, _dasm_opc, _dasm_mne, _dasm_wptr, _dasm_midx, _dasm_mode
-_dasm_ptr:      .res 2          ; instruction address
+        FAR_PTR _dasm_ptr       ; instruction address
 _dasm_opc:      .res 1          ; saved opcode byte
 _dasm_mne:      .res 2          ; packed mnemonic (2 bytes)
 _dasm_wptr:     .res 1          ; write index into dasm_buf
@@ -110,13 +111,13 @@ _dasm_mode:     .res 1          ; mode index
 ; ── editor.s: gap-buffer state ────────────────────────────────────────── $49
         .exportzp gap_lo, gap_hi, buf_base, ed_top_ptr
         .exportzp read_ptr, ed_tmp, ed_scr
-gap_lo:         .res 2          ; first byte of gap (insert point)
-gap_hi:         .res 2          ; first byte after gap (read point)
-buf_base:       .res 2          ; lowest address of buffer
-ed_top_ptr:     .res 2          ; cached buffer pos for first visible line
-read_ptr:       .res 2          ; sequential reader/save position (overlaps save_ptr)
-ed_tmp:         .res 2          ; scratch (16-bit)
-ed_scr:         .res 2          ; screen pointer for rendering
+        FAR_PTR gap_lo          ; first byte of gap (insert point)
+        FAR_PTR gap_hi          ; first byte after gap (read point)
+        FAR_PTR buf_base        ; lowest address of buffer
+        FAR_PTR ed_top_ptr      ; cached buffer pos for first visible line
+        FAR_PTR read_ptr        ; sequential reader/save position (overlaps save_ptr)
+        FAR_PTR ed_tmp          ; scratch (16-bit)
+        FAR_PTR ed_scr          ; screen pointer for rendering
 
 ; ── Cross-module flags ───────────────────────────────────────────────── $57
 ; Shared 1-byte state bytes read across module boundaries — typically by

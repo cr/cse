@@ -248,7 +248,7 @@ _emit_byte:
         cpy buf_base
         bcs @oor
 @ok:    ldy #0
-        sta (asm_pc),y
+        FAR_STA asm_pc
 @skip:  jmp inc_pc_size
 @oor:   ldy #1
         sty _oor

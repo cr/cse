@@ -195,7 +195,7 @@ io_puts:
         sta _io_tmp
         stx _io_tmp+1
 @loop:  ldy #0
-        lda (_io_tmp),y
+        FAR_LDA _io_tmp
         beq @done
         jsr io_putc
         inc _io_tmp

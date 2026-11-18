@@ -37,6 +37,7 @@
 ; userland-transition gates that drive this table.
 
         .setcpu "6502"
+        .include "platform.inc"
 
         .export bp_init
         .export bp_table, step_bp
@@ -247,10 +248,10 @@ patch_all:
         sta rp_ptr
         lda bp_table+1,x
         sta rp_ptr+1
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta bp_table+2,x
         lda #$00
-        sta (rp_ptr),y
+        FAR_STA rp_ptr
 @next:  inx
         inx
         inx
@@ -277,7 +278,7 @@ unpatch_all:
         lda bp_table+1,x
         sta rp_ptr+1
         lda bp_table+2,x
-        sta (rp_ptr),y
+        FAR_STA rp_ptr
 @next:  dex
         dex
         dex

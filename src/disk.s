@@ -350,9 +350,9 @@ _status_ret:
 
         ; First 2 bytes are the link pointer of the first line
         ldy #0
-        lda (disk_ptr),y        ; link lo
+        FAR_LDA disk_ptr        ; link lo
         iny
-        ora (disk_ptr),y        ; link hi — if both 0, empty dir
+        FAR_ORA disk_ptr        ; link hi — if both 0, empty dir
         jeq @done
 
         ; Advance past link to block count
@@ -365,17 +365,17 @@ _status_ret:
 @entry:
         ; Read 2-byte block count (line number)
         ldy #0
-        lda (disk_ptr),y
+        FAR_LDA disk_ptr
         sta @blocks
         iny
-        lda (disk_ptr),y
+        FAR_LDA disk_ptr
         sta @blocks+1
         lda #2
         jsr @advance_dp
 
         ; Read line text into fl_buf (terminated by $00)
         ldy #0
-@rdtxt: lda (disk_ptr),y
+@rdtxt: FAR_LDA disk_ptr
         beq @got_line           ; $00 = line end
         cpy #30
         bcs @skip_char          ; truncate: skip but keep scanning
@@ -585,9 +585,9 @@ _status_ret:
 @cn_ok:
         ; Read link pointer
         ldy #0
-        lda (disk_ptr),y        ; link lo
+        FAR_LDA disk_ptr        ; link lo
         iny
-        ora (disk_ptr),y        ; link hi
+        FAR_ORA disk_ptr        ; link hi
         beq @cn_end             ; link = 0 → end of directory
         ; Valid entry follows — advance past link
         lda #2
@@ -618,9 +618,9 @@ _status_ret:
         sta _io_tmp+1
         ldy CUR_COL
         dey
-        lda (_io_tmp),y
+        FAR_LDA _io_tmp
         ora #$80
-        sta (_io_tmp),y
+        FAR_STA _io_tmp
         rts
 
         .segment "BSS"          ; CODE stays read-only
@@ -949,7 +949,7 @@ _status_ret:
 @lp:    lda @size_lo
         ora @size_hi
         beq @done
-        lda (_io_tmp),y
+        FAR_LDA _io_tmp
         KCALL CHROUT
         ; advance _io_tmp
         inc _io_tmp

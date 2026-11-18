@@ -22,6 +22,7 @@
 ; A bit-digit key (MNE_DIGIT_LO..HI) is listed with the opcode's bits 6:4
 ; as its digit (RMB3).
 
+        .include "platform.inc"
         .include "dasm_mne_idx.s"   ; MNE_UNK, MNE_DIGIT_*, DASM_SUBSET
 
         .export dasm_insn, dasm_insn_pre, _dasm_in
@@ -84,7 +85,7 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         ; the user address — it's used by branch-target arithmetic in
         ; format_operand to compute PC-relative destinations.
         ldy #2
-@cp:    lda (_dasm_ptr),y
+@cp:    FAR_LDA _dasm_ptr
         sta _dasm_in,y
         dey
         bpl @cp
