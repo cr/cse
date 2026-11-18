@@ -24,14 +24,14 @@ CPU-mode gate (asm_cpu × category matrix — see asm_line.md):
                             mn6 rejects CMOS/illegals at classify tier)
 
 Adjacent modules in this bundle (their own test files):
-  opcode_lookup.s → tests/unit/test_opcode_lookup.py (asm_validate_mode)
+  opcode_lookup.s → tests/unit/test_opcode_lookup.py (asm_opcode_lookup)
   addr_mode.s     → tests/unit/test_addr_mode.py (mode_parse, asm_skip_ws)
   expr.s          → tests/unit/test_expr.py
   symtab.s + mem.s→ tests/unit/{test_symtab,test_mem}.py
 asm_opcode_lookup's opcode-byte correctness is proven by the
 exhaustive test_assemble sweep below (every MNEMONICS[mne][mode]
-byte is checked), so test_opcode_lookup.py focuses on
-asm_validate_mode's standalone predicate contract.
+byte is checked), so test_opcode_lookup.py focuses on its
+standalone (profile, mode) → opcode / C=1 contract.
 
 Test generation
 ---------------
@@ -402,10 +402,10 @@ class TestRegShadows:
             assert mem[addr] == 0x10 + i
 
 
-# asm_validate_mode and asm_skip_ws tests retired from this file.
+# The opcode-lookup and asm_skip_ws tests live with their modules.
 # They now live with their owning modules per the one-file-per-module
 # principle:
-#   - TestAsmValidateMode  → tests/unit/test_opcode_lookup.py
+#   - TestAsmOpcodeLookup  → tests/unit/test_opcode_lookup.py
 #   - TestAsmSkipWs        → tests/unit/test_addr_mode.py
 
 

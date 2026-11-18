@@ -519,16 +519,16 @@ ERROR_TESTS = [
     },
     {
         # .res's count drives pass-0 size, so a forward-ref count is
-        # rejected vocally on BOTH passes (not silent on pass 0 like
-        # other expression errors).  Without this rule, pass 0 sizes
+        # rejected vocally on pass 0 (not silent there like other
+        # expression errors).  Without this rule, pass 0 sizes
         # the directive as 0 bytes and any label defined after it
         # drifts; the user's binary is silently wrong.  See
         # asm_src.s::emit_reserve and _vocal_fwd_err.
         "name": ".res with forward-ref count rejects vocally",
         "source": ".org $c000\n.res N\ntarget:\n  rts\n.const N $04",
-        # Both passes emit ";? : fwd ref" → asm_errors >= 2 (one per
-        # pass); the strict count isn't important — we just need the
-        # error to be VISIBLE (silent pass-0 drift is the bug).
+        # Pass 0 emits ";?N: fwd ref" and counts it; the strict count
+        # isn't important — we just need the error to be VISIBLE
+        # (silent pass-0 drift is the bug).
         "expect_min_errors": 1,
     },
     {

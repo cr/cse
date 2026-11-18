@@ -306,8 +306,8 @@ Advances PC by N bytes. In pass 1, emits N copies of the fill byte
 
 **Forward refs not allowed.**  The count and fill expressions must
 resolve on pass 0 — the directive's pass-0 size depends on the
-count's value.  `.res FORWARD_LABEL` reports `;?<line>: fwd ref` on
-both passes.  Define the count above the directive that uses it
+count's value.  `.res FORWARD_LABEL` reports `;?<line>: fwd ref`
+(on pass 0, counted once) and the assembly fails.  Define the count above the directive that uses it
 (`.const COUNT 16` then `.res COUNT`), or use a literal number.
 
 ### `.align` — Align PC
@@ -341,7 +341,8 @@ end:    rts
 
 The exception is `.res` and `.align`, where the *value* of the
 expression determines how much PC advances on pass 0.  Those two
-directives reject forward refs vocally on both passes.
+directives reject a forward reference with `;?<line>: fwd ref` on
+pass 0, and the assembly fails.
 
 A forward reference is always sized **absolute**, even when the
 symbol's value later turns out to fit in a byte: `lda zp` above

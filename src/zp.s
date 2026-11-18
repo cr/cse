@@ -32,7 +32,7 @@ _asm_saved_sp:  .res 1          ; saved 6502 SP for asm_error recovery
 asm_pc:         .res 2          ; current PC (lo, hi)
 asm_out:        .res 2          ; output buffer pointer (lo, hi)
 asm_cpu:        .res 1          ; CPU target: 0=6502, 1=6510, 2=65C02
-asm_len:        .res 1          ; bytes written by _asm_line_core
+asm_len:        .res 1          ; bytes asm_line emitted for the instruction
 asm_slot:       .res 1          ; hash slot from mn_classify
 asm_prof:       .res 1          ; raw packed profile byte
 asm_pidx:       .res 1          ; effective profile index

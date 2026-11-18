@@ -8,9 +8,10 @@ Coverage of the documented contract
 -----------------------------------
 2 exported entry points:
 
-  mode_parse     — test_parse_ok (41 parametrised cases across all 16
-                    addressing modes: IMP, ACC, IMM, ZP, ZPX, ZPY, ABS,
-                    ABX, ABY, IND, INX, INY, REL, ZPI, AIX, ZPREL),
+  mode_parse     — test_parse_ok (parametrised cases across the 15
+                    modes it returns: IMP, ACC, IMM, ZP, ZPX, ZPY, ABS,
+                    ABX, ABY, IND, INX, INY, ZPI, AIX, ZPREL; a branch
+                    target comes back as ZP/ABS, never REL),
                     plus test_parse_error (7 syntax-error cases)
   asm_skip_ws    — TestAsmSkipWs vocal skip.  Transitively exercised
                     by test_parse_ok's whitespace operand forms per
@@ -60,7 +61,7 @@ ABY   = 8
 IND   = 9
 INX   = 10
 INY   = 11
-REL   = 12   # syntactically identical to ZP; Zone B path remaps
+REL   = 12   # never returned: a branch target parses as ZP/ABS
 ZPI   = 13
 AIX   = 14
 ZPREL = 15
