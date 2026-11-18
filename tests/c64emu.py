@@ -41,6 +41,7 @@ ROWS       = 25
 CUR_LINE_LO = 0xD1     # current screen line pointer lo
 CUR_LINE_HI = 0xD2     # current screen line pointer hi
 CUR_COL     = 0xD3     # cursor column
+LINE_MAX    = 0xD5     # LNMX: last column of the logical line
 CUR_ROW     = 0xD6     # cursor row
 COLOR_LO    = 0xF3     # current color RAM pointer lo
 COLOR_HI    = 0xF4     # current color RAM pointer hi
@@ -48,6 +49,9 @@ CURSOR_FLAG = 0xCC     # 0 = cursor enabled, 1 = disabled
 KBD_BUF     = 0x0277   # keyboard buffer (10 bytes)
 KBD_COUNT   = 0xC6     # number of keys in buffer
 CHR_COLOR   = 0x0286   # current text colour
+LDTND       = 0x98     # number of open logical files
+DFLTN       = 0x99     # default input device
+DFLTO       = 0x9A     # default output device
 
 
 class BankedMemory:
@@ -241,6 +245,14 @@ class C64Emu(EmuBase):
         self._mem.ram[KBD_COUNT] = 0
         self._mem.ram[CHR_COLOR] = 0x01  # white text
 
+        # -- KERNAL I/O defaults, as its cold start leaves them --
+        # (RAMTAS zeroes page 0, CINT sets the default devices)
+        self._mem.ram[LDTND] = 0         # no open files
+        self._mem.ram[DFLTN] = 0         # input: keyboard
+        self._mem.ram[DFLTO] = 3         # output: screen
+        for addr in (0xB8, 0xB9, 0xBA):  # LA, SA, FA: no file selected
+            self._mem.ram[addr] = 0
+
         # -- screen editor state --
         # HIBASE: screen memory page (high byte of $0400)
         self._mem.ram[0x0288] = (SCREEN >> 8) & 0xFF
@@ -271,6 +283,7 @@ class C64Emu(EmuBase):
         col = COLOR_RAM + row * COLS
         self._mem.ram[CUR_LINE_LO] = scr & 0xFF
         self._mem.ram[CUR_LINE_HI] = (scr >> 8) & 0xFF
+        self._mem.ram[LINE_MAX] = COLS - 1   # a one-row logical line
         self._mem.ram[COLOR_LO] = col & 0xFF
         self._mem.ram[COLOR_HI] = (col >> 8) & 0xFF
 

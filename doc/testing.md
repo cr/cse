@@ -1287,18 +1287,18 @@ On construction:
 - Screen RAM ($0400–$07E7) filled with $20 (space).
 - Color RAM ($D800–$DBE7) filled with $01 (white).
 - KERNAL ZP state initialised: cursor at row 0 col 0, screen line
-  pointers ($D1/$D2, $F3/$F4) set for row 0, cursor disabled
+  pointers ($D1/$D2, $F3/$F4) set for row 0, the logical line's last
+  column (LNMX `$D5`) = 39, cursor disabled
   ($CC = 1), text colour ($0286) = $01, keyboard buffer empty
   ($C6 = 0), screen page `$0288` = `$04`, the line-link table
   ($D9–$F1) with every row a line of its own.
 - The page-3 vectors ($0314–$0333) as the KERNAL's `RESTOR` sets
   them (run once in a scratch CPU).
-- **Not set:** the default devices `$99` (DFLTN) and `$9A` (DFLTO)
-  stay 0, where a C64 after reset has 0 and 3, and CSE's cold init
-  does not set them either.  A user program's `CHROUT` therefore goes
-  to device 0, not the screen: its characters never appear in screen
-  RAM.  A test of user-program output must set `$9A` = 3 itself until
-  the harness does (fix pending).
+- KERNAL I/O defaults as its cold start leaves them: no open files
+  (LDTND `$98` = 0), input from the keyboard (DFLTN `$99` = 0),
+  output to the screen (DFLTO `$9A` = 3), no file selected (LA, SA,
+  FA `$B8`–`$BA` = 0) — so a program's own `CHROUT` prints on the
+  screen, and `OPEN`/`CLRCHN`/`CLOSE` start from an empty file table.
 - CPU stack pointer at $FF.
 - An empty serial (IEC) bus: CIA2 port A (`$DD00`) reads CLK IN
   (bit 6) and DATA IN (bit 7) as the inverse of the C64's own CLK

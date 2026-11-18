@@ -55,6 +55,28 @@ class TestConstruction:
         emu = C64Emu()
         assert emu.memory[0xC6] == 0
 
+    def test_kernal_io_defaults_as_after_cold_start(self):
+        """DFLTN ($99) keyboard, DFLTO ($9A) screen, no open files
+        ($98), no file selected ($B8-$BA), as the KERNAL's reset
+        leaves them."""
+        emu = C64Emu()
+        assert [emu.memory[a] for a in (0x98, 0x99, 0x9A)] == [0, 0, 3]
+        assert emu.memory[0xB8:0xBB] == [0, 0, 0]
+        assert emu.memory[0xD5] == 39, "LNMX: a one-row logical line"
+
+    def test_user_code_chrout_prints_on_the_screen(self):
+        """A program's own CHROUT goes to the screen (DFLTO = 3), not
+        to the keyboard device (DFLTO = 0 misroutes to a BRK), and the
+        cursor advances along the row (LNMX = 39; 0 broke the line
+        after the first character)."""
+        emu = C64Emu()
+        code = [0xA9, 0x48, 0x20, 0xD2, 0xFF,      # LDA #'H' / JSR CHROUT
+                0xA9, 0x49, 0x20, 0xD2, 0xFF,      # LDA #'I' / JSR CHROUT
+                0x60]
+        emu.memory[0x2000:0x2000 + len(code)] = code
+        emu.jsr(0x2000)
+        assert emu.screen_text(0) == "hi"
+
 
 # ── Bank switching ──────────────────────────────────────────────────────────
 
