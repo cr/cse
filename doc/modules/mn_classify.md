@@ -51,7 +51,7 @@ The gate that reads `cat` is [asm_line.md § asm_cpu × category gate
 matrix](asm_line.md#asm_cpu--category-gate-matrix).
 
 **Depends on:** zp (`mn_c1`, `mn_c2`, `mn_c3`, `mn7_h_tmp` /
-`mn6_h_tmp`), mn7_tables or mn6_tables (GENERATED — `mn7_hash_t`,
+`mn6_h_tmp`), mn7 or mn6 (`mn{7,6}_classify`), mn7_tables or mn6_tables (GENERATED — `mn7_hash_t`,
 `mn7_fp`, `mn7_base_op`, `mn7_profile`; or `mn6_hash_t`, `mn6_fp_c2`,
 `mn6_fp`, `mn6_base_op`, `mn6_profile`; selected per build-time
 `USE_MN6`)

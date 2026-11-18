@@ -150,10 +150,10 @@ in CODE ([§ Caveats](#caveats)).
 
 **Depends on:** asm_src (`asm_assemble`, `seg_print_save`), asm_line
 (`asm_line`, `reg_a`/`reg_x`/`reg_y`/`reg_sp`/`reg_p`), asm_err
-(`asm_err_code`), dasm (`dasm_insn`, `dasm_buf`), expr (`expr_eval`,
+(`asm_err_code`), dasm (`dasm_insn_pre`, `_dasm_in`, `dasm_buf`), expr (`expr_eval`,
 `expr_error_str`), symtab (`sym_lookup`), breakpoints (`dbg_bp_set`,
 `dbg_bp_del`, `dbg_bp_clear`, `dbg_step_clear`, `bp_table`,
-`step_bp`, `dbg_bp_hit`), debugger (`brk_pc`, `brk_stub`,
+`dbg_bp_hit`), debugger (`brk_pc`, `brk_stub`,
 `step_next_pc`, `arm_step_bp`, `step_state`, `step_remaining`,
 `step_next_lo`, `step_next_hi`), main (`run_user_pending`,
 `stop_cooldown`, `cse_refresh`, `cse_end_debug`, `end_debug_body`),
@@ -163,7 +163,7 @@ editor (`ed_save_source`, `ed_load_source`, `ed_new`,
 `src_bot`), disk (`list_directory`, `disk_load_prg`,
 `disk_save_prg`, `floppy_read_status`, `fl_buf`),
 mem (`userland_zp_buf`, `ZP_SAVE_LO`, `ZP_SAVE_LEN`, `cse_start`,
-`cse_end`), log (`log_*`, `seg_line`, `prg_line`, `free_line`,
+`cse_end`), log (`log_*`, `prg_line`, `free_line`,
 `info_line*`, `puts_imm`), cse_io, screen, strings, zp (`state`,
 `dbg_reason`, `warm_cont`, `ed_dirty`, `buf_base`, `asm_cpu`,
 `cur_device`, `cur_project_name`, the `rp_*` scratch)
@@ -469,8 +469,9 @@ mirrored.
 
 `zp_stage_prep` fills the 8-byte `zp_stage_buf` from `(rp_ptr2)`,
 taking `userland_zp_buf` bytes for in-range offsets and live bytes
-for the rest, then points `rp_ptr2` at the buffer, so `dasm_insn`,
-`emit_hex_cols` and `cmd_dot`'s compare loop read the view
+for the rest, then points `rp_ptr2` at the buffer, so `emit_dot` (which copies
+the staged bytes into `_dasm_in` and enters `dasm_insn_pre` with the
+real PC, so branch targets stay right), `emit_hex_cols` and `cmd_dot`'s compare loop read the view
 uniformly.  `zp_poke` (A = byte, `rp_ptr2` + Y = address) mirrors it
 for single-byte writes.  Both assume the save range lies in page 0
 and `ZP_SAVE_LO` = 0 (the lower-bound test is elided); the
@@ -946,11 +947,3 @@ paths; each starts at column 0 and ends with `io_clear_eol`.
 - `warn_long_lines` keeps 4 mutable bytes (`@vcol`, `@line`, `@tw`) in
   the CODE segment, like the open TODO § Code bugs "Mutable bytes in
   CODE" items.
-- Dead imports in repl.s: `dbg_bp_count`, `io_utoa`, `dec_buf`,
-  `io_kbhit`, `dec_pow_lo`/`hi`, `kernal_bank_out`/`in`,
-  `cse_zp_end`, `oplen_tbl`, `__CODE_RUN__`, `str_no_name`,
-  `str_end_dbg`, `str_free_suf`, `str_tag_prg` (TODO § Code bugs
-  "Dead code and imports").
-- `KSTK_MIN` (64) duplicates debugger.s's `kernel_stack_budget`; it
-  stays a local literal so the repl-only test binary builds without
-  debugger.s.

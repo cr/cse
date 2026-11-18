@@ -27,7 +27,7 @@ workspace.
 not by name.
 
 **State:** none — the loader runs once and is overwritten.
-**Depends on:** `_main` — the loader's final `jmp` target after
+**Depends on:** main (`_main`) — the loader's final `jmp` target after
 relocation is complete; plus the linker-supplied symbols
 `__CODE_LOAD__`, `__CODE_RUN__`, `__CODE_SIZE__`, `__RODATA_SIZE__`,
 `__BSS_RUN__`, `__BSS_SIZE__`, `__KDATA_LOAD__`, `__KDATA_RUN__`,

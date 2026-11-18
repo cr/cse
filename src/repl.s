@@ -58,7 +58,6 @@
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
         .import userland_zp_buf
         .importzp ZP_SAVE_LO, ZP_SAVE_LEN       ; equates (zero-page range constants)
-        .import oplen_tbl
         .import step_state, step_remaining
         .import step_next_pc, arm_step_bp
         .import step_next_lo, step_next_hi
