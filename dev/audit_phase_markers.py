@@ -103,10 +103,10 @@ def main():
 
     # Closed/struck-through items in TODO.md are intentional
     # historical record — filter them.  Same for retrospective
-    # files (ddd_log.md, project_phase*_complete.md).
+    # files (cdd_log.md, project_phase*_complete.md).
     def is_intentionally_historical(path, line):
         rel = path.as_posix()
-        if "ddd_log.md" in rel:
+        if "cdd_log.md" in rel:
             return True
         if "project_phase" in rel and "_complete.md" in rel:
             return True
@@ -126,7 +126,7 @@ def main():
 
     print(f"Raw hits:      {total_raw}")
     print(f"After filter:  {total_filt}  "
-          f"(excluded ddd_log.md, project_phase*_complete.md, "
+          f"(excluded cdd_log.md, project_phase*_complete.md, "
           f"and ~~struck-through~~ lines)")
     print()
 

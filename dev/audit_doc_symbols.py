@@ -191,7 +191,7 @@ def all_md_files():
 
 
 # Files where every backticked symbol must be currently defined.
-# Other docs (ddd_log, optimization, TODO, glossary, project) include
+# Other docs (cdd_log, optimization, TODO, glossary, project) include
 # historical references, proposed names, retired terminology — the
 # audit can't distinguish those from genuine drift, so we exclude them.
 STRICT_SPEC_GLOB = ("README.md", "doc/modules/*.md")
