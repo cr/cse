@@ -576,7 +576,16 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   `bank_out_stub`, `_irq_saved_a`) under `PLATFORM_C64`.  The two
   handlers stay shared until P1 states their m65 bodies (the NMI
   handler's A X Y push is the c64 frame's shape).
-- [ ] Cold start and exit, Disk bank, Info map, Loader.
+- [x] Cold start and exit — `PLAT_COLD_START`; `_main`'s steps 1–3,
+  `set_charset` and `cse_exit_to_basic` by platform (m65: step 1 and
+  `set_charset` `PLAT_PENDING 2`; steps 2–3 absent).
+- [ ] Disk bank, Info map, Loader.
+- The m65 bodies the docs state for P0, written in step (4) with the
+  harness that tests them: `KCALL` / `KJMP`, `FAR_SIZE` and the far
+  access macros, `FAR_BANK` at every far pointer's set sites,
+  `BP_PAGE = CSE_BP`, `PLAT_COLD_START` and `cse_exit_to_basic`
+  (`hyppo_reset`), `_main`'s steps 10–11 (the base-page fill bound,
+  the program-region DMA fill), the resident stub, the loader.
 - Finding for P2: the screen pointers `_io_scr` (cse_io.s, screen.s's
   `dst_ptr`) and `scr_src` (screen.s's `src_ptr`) reach the screen,
   which is in bank 4 in 80 × 50, but are not in zp.md's far-pointer

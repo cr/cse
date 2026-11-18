@@ -206,6 +206,14 @@ DISK_LOCAL_PTR  = $FD
   .endif
 .endmacro
 
+; ── Cold start and exit (§ Cold start and exit) ──────────────────────
+; Restart the machine when recovery is impossible.
+.macro PLAT_COLD_START
+  .ifdef PLATFORM_C64
+        jmp KERNAL_COLD
+  .endif
+.endmacro
+
 ; ── Banking (§ Banking) ──────────────────────────────────────────────
 ; For the sites whose banking does not fit kernal_bank_out / _in's
 ; batch protocol.  They compose: BANK_PUSH · BANK_IN_A … BANK_POP.

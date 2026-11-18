@@ -180,13 +180,21 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
 ; ═════════════════════════════════════════════════════════════
 .proc _main
         ; ── 1. Keyboard / charset-switch setup ──
+.ifdef PLATFORM_C64
         lda KEY_REPEAT
         ora #$80
         sta KEY_REPEAT
         lda #$80
         sta CHARSET_LOCK
+.else
+        PLAT_PENDING 2          ; through SYSFLAGS
+.endif
 
         ; ── 2. Save $01-$7F to KBSS ──
+        ; ── 3. Unmap BASIC ROM ──
+        ; m65: both absent — Q is a Hypervisor reset, and the CSE map
+        ; has no BASIC ROM in it (doc/modules/main.md § Layer 1).
+.ifdef PLATFORM_C64
         ldx #0
 @save_zp:
         lda CPU_PORT,x
@@ -195,10 +203,10 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         cpx #$7F
         bne @save_zp
 
-        ; ── 3. Unmap BASIC ROM ──
         lda CPU_PORT
         and #$FE
         sta CPU_PORT
+.endif
 
         ; ── 4. Install interrupt hooks BEFORE any bank-out ──
         jsr setup_interrupts
@@ -331,7 +339,7 @@ cse_recover:
         jmp main_loop_top
 
 @hard_fail:
-        jmp KERNAL_COLD               ; KERNAL cold start — last resort
+        PLAT_COLD_START         ; the machine's cold start — last resort
 
 ; ── cse_end_debug — explicit debug-session termination ──────
 cse_end_debug:
@@ -690,10 +698,14 @@ reset_globals:
         rts
 
 set_charset:
+.ifdef PLATFORM_C64
         lda VIC_MEMCTL
         ora #$02
         sta VIC_MEMCTL
         rts
+.else
+        PLAT_PENDING 2
+.endif
 
 splash_row:
         sta IO_CY
@@ -1067,13 +1079,12 @@ refresh_body:
 ; cse_exit_to_basic
 ; ═════════════════════════════════════════════════════════════
 cse_exit_to_basic:
+.ifdef PLATFORM_C64
         sei
         lda #$00
         sta CHARSET_LOCK
         KCALL RESTOR
-        lda CPU_PORT
-        and #$FD
-        sta CPU_PORT
+        BANK_FORCE_OUT          ; COLD_ZP is under the KERNAL
         ldx #1
 @rzp:   lda COLD_ZP,x
         sta CPU_PORT,x
@@ -1087,3 +1098,4 @@ cse_exit_to_basic:
         sta BASIC_START - 1
         KCALL CINT             ; KERNAL CINT
         jmp (BASIC_WARM)
+.endif
