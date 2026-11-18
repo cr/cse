@@ -1164,9 +1164,10 @@ documentation round that follows this filing.
 - [x] **`;!N: truncated` fires for a line of exactly 39 characters**,
   which is not truncated.
   Fixed 2026-11-18: `ed_read_line` returns X ≠ 0 when it dropped characters past the 39th and `do_pass` warns on that flag, not on length 39 (−17 B, budget lowered; README corrected to "more than 39"), tests test_dropped_characters_set_x, test_warns_only_when_characters_were_dropped.
-- [ ] **Steps chained inside the handler (`t N`, N > 1) skip the
+- [x] **Steps chained inside the handler (`t N`, N > 1) skip the
   `;!range` gate** — only the first step is range-checked, so a chained
   step can patch `$00` into I/O or ROM-shadow memory.
+  Fixed 2026-11-18 (b5d31eb; the same item, filed again under § Code bugs "Chained steps skip the `;!range` gate"), test TestChainedStepRange.
 - [x] **`warn_long_lines` keeps mutable bytes in CODE** (`@vcol`,
   `@line`, `@tw`) — the same class as "Mutable bytes in CODE".
   Fixed 2026-11-18: the counters are `wl_vcol` / `wl_line` in BSS and the tab step is `(vcol | TAB_MASK) + 1`, so `@tw` is gone (−14 B, budget lowered), test TestWarnLongLines::test_counts_in_bss_and_warns.
