@@ -1096,13 +1096,14 @@ documentation round that follows this filing.
 - [x] `disk.s` closes LFN 1 on an OPEN failure although the file is
   LFN 2; the SEQ error paths close nothing.
   Fixed 2026-11-18: `_disk_open_buf` closes LFN 2 when OPEN fails (dead `@err_close` removed); C64Emu models an empty serial bus, test test_disk.py.
-- [ ] Dead code and imports: `kernel_stack_budget` (exported, unused;
+- [x] Dead code and imports: `kernel_stack_budget` (exported, unused;
   repl.s duplicates it as `KSTK_MIN`), `str_end_dbg`, `str_no_name`,
   `io_color` (written, never read), `mn_vars.s` (empty shell); dead
   imports in `asm_src.s` (`buf_base`, `dec_pow_lo/hi`), `symtab.s`
   (`kernal_out`), `editor.s` (seven), `disk.s` (`io_color`, `io_puts`,
   `io_puthex2/4`), `repl.s` (`oplen_tbl`), `asm_src_test_stub.s`
   (`_min_pc`, `_max_pc`); `test_asm_src.py`'s dead `xfail` path.
+  Fixed 2026-11-18: `kernel_stack_budget` defined once in repl.s; `str_no_name` and `io_color` deleted; `mn_vars.s` retired; the listed imports and a further sweep (asm_line, expr `err_*`, main, test stubs) dropped; `asm_src.s` `buf_base` is in use (workspace range check), kept.  `_ex_wide_tmp` / `asm_bit` ZP holes left to the parallel track that freed them.  Checked by the full suite (no behaviour change).
 - [x] `ed_insert_string` has no production caller and ignores
   `gb_insert`'s carry — keep as a test-only export (documented) or
   retire.
