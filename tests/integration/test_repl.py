@@ -1142,3 +1142,31 @@ class TestRegisterFieldsByLabel:
         run_at(cpu, rsyms.exec_line)
         assert self._regs(cpu, rsyms) == [0x11, 0x22, 0x33, 0xF0, 0x04]
         assert "syntax" in "".join(cpu.screen_text(r) for r in range(25))
+
+
+class TestBadExpressionAborts:
+    """repl.md § Single-expression command contract: a bad expression
+    is an error, not an empty argument — j does not run, +/- do not
+    move."""
+
+    @pytest.mark.parametrize("cmd", ["j nosuchsym", "+ nosuchsym",
+                                     "- nosuchsym"])
+    def test_bad_expr_changes_nothing(self, rsyms, cmd):
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x3000)
+        cpu.memory[rsyms.dbg_reason] = 0
+        pending = cpu.sym("run_user_pending")
+        cpu.memory[pending] = 0
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        assert get_cur_addr(cpu, rsyms) == 0x3000
+        assert cpu.memory[pending] == 0, "j ran after an expression error"
+        assert "undef" in "".join(cpu.screen_text(r) for r in range(25))
+
+    @pytest.mark.parametrize("cmd,addr", [("+", 0x3010), ("-", 0x2FF0)])
+    def test_empty_moves_by_block_size(self, rsyms, cmd, addr):
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0x3000)
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        assert get_cur_addr(cpu, rsyms) == addr

@@ -834,10 +834,14 @@ documentation round that follows this filing.
   `kernal_out` = 0; moved there from `end_debug_body`), so RESTORE
   abandons the assembly and lands at a working prompt, test
   `TestRestoreDuringAssembly`.
-- [ ] **`j <bad expression>` runs anyway**: `try_expr` returns C=0 for
+- [x] **`j <bad expression>` runs anyway**: `try_expr` returns C=0 for
   both empty and error, so `j nosuchsym` prints `;?expr undef` and
   jumps to the old `cur_addr`.  Same shape in `+`/`-` (moves by
   `block_size` after the error).
+  Fixed 2026-11-18: `try_expr` returns Z=0 for an error, Z=1 for
+  empty; `j` runs only on success or empty, `expr_or_blocksize`
+  drops the `+`/`-` handler on an error, test
+  `TestBadExpressionAborts`.
 - [ ] **`cse_zp_end` returns `$79`, not the first free byte `$78`**
   (`mem.s` `<(__ZP_LAST__ + 1)`; ld65's `__ZP_LAST__` already is the
   first free byte); cold init leaves `$78` unfilled.

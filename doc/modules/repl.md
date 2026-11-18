@@ -600,6 +600,14 @@ rejection cases for each command:
 Plus whitespace / comment acceptance tests where relevant to
 distinguish valid-empty-tail cases from garbage.
 
+**A bad expression is not an empty one.**  `try_expr` returns C=1 on
+success; on C=0 it sets Z=1 for an empty argument and Z=0 for an
+expression error (whose `;?expr …` line it has already printed).  A
+command whose argument is optional acts on "empty" only: `j` with no
+argument jumps to `cur_addr`, `+`/`-` with none move by `block_size`,
+but `j nosuchsym` or `+ 1/0` print the error and do nothing — no run,
+no move.  (`TestBadExpressionAborts`.)
+
 **Not (yet) covered:** `+` and `-` share the class but are
 complicated by their `expr_or_blocksize` fallback (empty → use
 block_size).  Adding the EOI check without emitting a double

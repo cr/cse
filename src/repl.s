@@ -662,7 +662,8 @@ _syntax_err:
 ; ═══════════════════════════════════════════════════════════
 ; try_expr — evaluate expression at rp_ptr
 ;   C=1: success (result in expr_val, rp_ptr advanced)
-;   C=0: empty or error (error printed)
+;   C=0, Z=1: empty (NUL or ';')
+;   C=0, Z=0: expression error (`;?expr …` already printed)
 ; ═══════════════════════════════════════════════════════════
 .proc try_expr
         jsr skip_peek_ptr1
@@ -693,9 +694,11 @@ _syntax_err:
         jsr expr_error_str
         jsr io_puts             ; "undef main" etc.
         jsr log_close
+        lda #1                  ; Z=0: error, not empty
         clc
         rts
-@empty: clc
+@empty: lda #0                  ; Z=1: empty
+        clc
         rts
 .endproc
 
@@ -818,11 +821,14 @@ _syntax_err:
 
 ; ───────────────────────────────────────────────────────────
 ; expr_or_blocksize — expr_val := expression or block_size if empty/zero
-;   Returns with expr_val populated.
+;   Returns with expr_val populated.  On an expression error (already
+;   printed) it does not return: it drops its caller's frame (the
+;   `+`/`-` handler, one jsr deep from exec_line — the pop-trick of
+;   _require_eoi_or_err) so the command does nothing.
 ; ───────────────────────────────────────────────────────────
 .proc expr_or_blocksize
         jsr try_expr
-        bcc @blk
+        bcc @none
         lda expr_val
         ora expr_val+1
         bne @r
@@ -831,6 +837,10 @@ _syntax_err:
         lda block_size+1
         sta expr_val+1
 @r:     rts
+@none:  beq @blk                ; empty → block_size
+        pla                     ; error: abandon the + / - handler
+        pla
+        rts
 .endproc
 
 ; ───────────────────────────────────────────────────────────
@@ -3698,18 +3708,20 @@ prg_ok_done:
         jmp nl_clear
 
 @h_j:   ; j — jump/execute
-        ; Same pattern as @h_at: parse+EOI-check, then apply.  On
-        ; bare `j` or expr-error, preserve the existing behaviour of
-        ; jumping with whatever cur_addr holds (try_expr already
-        ; emitted its own error if there was one).
+        ; Same pattern as @h_at: parse+EOI-check, then apply.  Bare
+        ; `j` jumps to cur_addr; an expression error (already printed
+        ; by try_expr) runs nothing.
         jsr try_expr_or_err     ; parse + reject garbage (pop-trick)
-        bcc @j_run              ; empty/error → jump with current cur_addr
+        bcc @j_none
         lda expr_val
         sta cur_addr
         lda expr_val+1
         sta cur_addr+1
 @j_run:
         jmp cmd_jmp
+@j_none:
+        beq @j_run              ; empty → jump with current cur_addr
+        rts                     ; error → no run
 
 @h_g:   ; g — go (sym_lookup "main")
         lda #<str_main
