@@ -976,8 +976,9 @@ documentation round that follows this filing.
 - [x] `test_mem.py`'s TOP-RISK CPU-port skip is closable — C64Emu
   models the DDR; add the Tier I test.
   Fixed 2026-11-18: the skip is a C64Emu test on the PRG (fails if save_userland_zp skips the DDR unmask), test test_dollar_01_reads_fully_latched_under_ddr_ff.
-- [ ] No oracle test for `oplen_tbl` (testing.md claims test_dasm
+- [x] No oracle test for `oplen_tbl` (testing.md claims test_dasm
   guards it; no bundle links it).
+  Fixed 2026-11-18: the table is read out of each C64 PRG and held to instruction_set.py per opcode, test test_oplen_tbl_in_each_prg_matches_instruction_set.
 - [ ] Untested contracts: `dbg_step_clear`, `dbg_init`'s outputs,
   breakpoint overlap and step slots 8–9; `leave_editor`,
   `ed_save_source`, `ed_load_source` (return codes 1/2);

@@ -819,7 +819,9 @@ tests are written, when they are written, and what they test.
 
     **Transitive coverage is the contract.**  Every bundled test
     that links an axiomatic module is a data-integrity test for
-    that module.  A corrupt `oplen_tbl[$A9]` fails `test_dasm`; a
+    that module.  A corrupt `oplen_tbl[$A9]` fails the oplen oracle
+    (`test_mnemonic_tables.py`, which reads the table out of each C64
+    PRG — no bundle links it); a
     misaligned ZP slot crashes any bundle that uses it; a wrong
     `mn_modes` bit fails `test_addr_mode`.  Axiomatic-module bugs
     can't hide — they manifest in every bundle that links the
@@ -838,7 +840,9 @@ tests are written, when they are written, and what they test.
     are tested against an oracle, not against themselves.  The
     generator's own model (profile placement, row minimality, no
     foreign entries per CPU set) is pinned by
-    `tests/unit/test_mnemonic_tables.py`.
+    `tests/unit/test_mnemonic_tables.py`, which also holds the
+    `oplen_tbl` in each C64 PRG to `instruction_set.py` opcode by
+    opcode.
 
     **TDD Maintenance rule.**  Axiomatic modules are not flagged
     as untested.  The per-module tier table below uses `—` in the

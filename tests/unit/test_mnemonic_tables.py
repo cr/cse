@@ -168,3 +168,37 @@ def test_oplen_same_length_coincidence_is_accepted():
     """6510 illegals and 65C02 opcodes sharing a byte with one length
     (e.g. $07 SLO zp / RMB0 zp) are not a conflict."""
     assert M.oplen_lengths()[0x07] == 2
+
+
+# ── oplen_tbl oracle: the assembled table against instruction_set.py ────────
+
+_CRASH = {'CIM', 'HLT', 'JAM', 'KIL'}     # halt the CPU; their length is moot
+
+
+def test_oplen_tbl_in_each_prg_matches_instruction_set(cse_prg_per_cpu):
+    """The debugger steps with the `oplen_tbl` linked into each C64
+    PRG.  Read it from the PRG and hold every opcode to
+    dev/instruction_set.py, the independent source: each non-crash
+    OPCODES row has length 1 + its mode's operand bytes; an opcode no
+    row names has length 1."""
+    from conftest import SymbolTable
+    prg_path, map_path = cse_prg_per_cpu
+    data = prg_path.read_bytes()
+    load = data[0] | data[1] << 8
+    s = SymbolTable(map_path.with_suffix(".lbl"))
+    # oplen_tbl is RODATA: in the PRG at its load position.
+    off = s["oplen_tbl"] - s["__RODATA_RUN__"] + s["__RODATA_LOAD__"] - load + 2
+    tbl = data[off:off + 64]
+    length = [(tbl[op >> 2] >> ((op & 3) * 2)) & 3 for op in range(256)]
+
+    named = set()
+    for mne, modes in M.I.OPCODES.items():
+        for mode, op in modes.items():
+            if op is None:
+                continue
+            named.add(op)
+            if mne not in _CRASH:
+                assert length[op] == 1 + M.I.MODE_OPERAND_BYTES[mode], \
+                    f"${op:02X} {mne} {mode}: oplen {length[op]}"
+    for op in set(range(256)) - named:
+        assert length[op] == 1, f"${op:02X} (no instruction): oplen {length[op]}"
