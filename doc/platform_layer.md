@@ -24,6 +24,7 @@ states the seam's contract and points there.
 | `dev/audit_platform_literals.py` | implementation — the literal audit (planned, P0) |
 | `tests/unit/test_platform_audit.py` | test contract — the audit's rule, the raw-byte audit and the byte-identical gate (planned, P0) |
 | `tests/fixtures/golden/c64_prg_sha256.json` | generated — the recorded SHA-256 of each C64 release PRG (planned, P0) |
+| `tests/fixtures/platform_literals_baseline.json` | generated — the literal audit's ratchet: the sites not yet moved onto the seams (planned, P0; deleted when empty) |
 
 The files are listed as they will exist; until P0 lands they are not
 in the repository.
@@ -74,7 +75,11 @@ proc.
 The Makefile passes exactly one platform define to every assembly,
 the C64 builds included.  A seam whose body is the same on two
 platforms states so once.  Where the m65 column says *stated with
-P<n>*, that milestone's doc delta fills it in.  The Open ROMs are a
+P<n>*, that milestone's doc delta fills it in; until then the m65
+build still assembles every module, and the seam's m65 body is
+`PLAT_PENDING` ([§ Pending bodies](#pending-bodies)).  The m65 build
+is m65-6502 until its CPU layer lands in P4
+([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).  The Open ROMs are a
 stretch target, not a platform
 ([memory_design.md § Target Compatibility](memory_design.md#target-compatibility)).
 
@@ -374,6 +379,18 @@ body per platform: the C64's copy loop; the m65's gate and install
 bootstrap is the same body assembled with `PLAT_CRT`, reading its
 payload from the cartridge's bank (*stated with P3*).
 
+## Pending bodies
+
+`PLAT_PENDING n` (macro, m65 only): the m65 body of a seam whose m65
+contract is *stated with P<n>* but not yet stated.  It assembles to a
+`BRK` followed by the signature byte `n` (the milestone), so the m65
+build links every module from P0 on, and executing a pending body
+stops in a recognisable break instead of running C64 code on a
+MEGA65.  It is never an expansion on c64.  The pending sites are
+counted by a test whose recorded count only goes down; it is zero
+when P3 closes, and a milestone is not done while one of its pending
+sites remains ([§ Gates](#gates)).
+
 ## Raw-byte instructions
 
 All code is assembled as 6502 code; a 45GS02-only instruction is a
@@ -397,8 +414,14 @@ code.
    ([testing.md § Tier U](testing.md#tier-u--unit-module--linking-down));
    the size and golden gates stand beside it
    ([build_system.md § Size gate](build_system.md#size-gate)).
-2. **The literal audit** ([§ The rule](#the-rule)) and the raw-byte
-   audit ([§ Raw-byte instructions](#raw-byte-instructions)).
+2. **The literal audit** ([§ The rule](#the-rule)), held as a
+   ratchet while the C64 build moves onto the seams: a recorded
+   baseline of the sites not yet moved, which each seam's commit
+   lowers and which is empty when the last seam lands — so every
+   commit of the refactor is green and none can add a site.  Then the
+   test asserts zero.  Beside it, the raw-byte audit
+   ([§ Raw-byte instructions](#raw-byte-instructions)) and the
+   pending-body count ([§ Pending bodies](#pending-bodies)).
 3. **Per-seam tests.**  Each seam's platform body is pinned at the
    tier its host module uses ([testing.md](testing.md)): the m65
    bodies on M65Emu, the c64 bodies by the existing suite.

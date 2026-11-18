@@ -31,9 +31,9 @@ tightly-coupled neighbours).
 [TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
 B1) run on M65Emu's CPU, `MPU45GS02`
 ([§ M65Emu](#m65emu--the-m65-integration-harness)), in *clean* mode:
-it admits the 6502's documented opcodes plus the opcodes of the
-raw-byte macros in `src/m45_ops.inc`, and any other opcode stops the
-test.  That is the run-time half of the clean-6502 rule; the static
+it admits, within CSE's own code, the 6502's documented opcodes plus
+the opcodes of the raw-byte macros in `src/m45_ops.inc`, and any other
+opcode there stops the test.  That is the run-time half of the clean-6502 rule; the static
 half is an audit test that refuses a 45GS02-only opcode emitted
 outside `m45_ops.inc`.
 
@@ -43,7 +43,19 @@ are static Tier U tests in `tests/unit/test_platform_audit.py`:
 - *The literal audit* — `dev/audit_platform_literals.py` over `src/`:
   no ROM address, KERNAL cell, I/O register, screen or colour base or
   banking value outside `src/platform.inc` and the seams' platform
-  bodies.
+  bodies.  While the C64 build moves onto the seams it is a ratchet:
+  the sites not yet moved are recorded in
+  `tests/fixtures/platform_literals_baseline.json`, the test fails on
+  any site outside it, and each seam's commit removes its sites from
+  the baseline; when it is empty, the fixture is deleted and the test
+  asserts zero.  The audit itself is pinned by unit tests on small
+  synthetic sources.
+- *The raw-byte audit* — no `.byte` in a CODE segment outside
+  `src/m45_ops.inc` emits a 45GS02-only opcode (the 4510 rows the
+  6502 lacks, from `dev/instruction_set.py`).
+- *The pending-body count* — the `PLAT_PENDING` sites of the m65 build
+  ([platform_layer.md § Pending bodies](platform_layer.md#pending-bodies))
+  are counted against a recorded number that only goes down.
 - *The C64 PRGs are the recorded ones* — the SHA-256 of each C64
   release PRG equals `tests/fixtures/golden/c64_prg_sha256.json`.  It
   is re-recorded only by a commit that deliberately changes what a
@@ -177,10 +189,14 @@ mode select a semantic and an addressing routine; one routine serves
 an operation at every width it comes in (8 bits, the 16-bit word
 shifts, the 32-bit Q forms).  Cycle counts are not part of its
 contract (the speed gate is the C64 builds'); `processorCycles`
-counts steps.  In *clean* mode it admits only the
-6502's 151 documented opcodes and the decode keys it is given — the
+counts steps.  In *clean* mode it admits, while the PC is in the
+regions it is given (CSE's code window and its bank-0 page on the m65
+build; the whole bundle for a Tier U bundle), only the 6502's 151
+documented opcodes and the decode keys it is given — the
 `m45_ops.inc` macros' ([§ Tier U](#tier-u--unit-module--linking-down))
-— and raises `UncleanOpcode` on anything else.
+— and raises `UncleanOpcode` on anything else there.  Outside those
+regions — the MEGA65 KERNAL, which uses 4510 opcodes — every opcode
+runs.
 
 It reads and writes through `memory[addr]` (the CPU's 16-bit view)
 and `memory.read_flat()` / `memory.write_flat()` (the 28-bit space).

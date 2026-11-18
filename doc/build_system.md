@@ -322,7 +322,7 @@ absolute address.
 |----------|---------|--------|
 | `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG, D81 and cartridge ([§ The m65 builds](#the-m65-builds)) and the m65 test bundles; until R7 slice 2 every PRG target refuses `PLATFORM=m65` with an error (`help`, `themes`, `clean`, `clean-tables`, `tables`, `m65-rom`, `check-roms` still run) |
 | `XMEGA65` | `/Applications/xmega65.app/Contents/MacOS/xmega65` | The xmega65 executable; an environment variable read by `tests/xmega65.py` (Tier X, the M65Emu recordings).  The Makefile option for `make run PLATFORM=m65` is planned with the m65 PRG |
-| `CPU` | `6510` on `c64`, `45gs02` on `m65` | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`; `m65`: `45gs02` only) |
+| `CPU` | `6510` on `c64`; on `m65` the platform's one build (`6502` until P4, then `45gs02`) | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`) |
 | `THEME` | `GREENLAND` | Named theme or 3-digit hex code (`make themes` for list) |
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
 | `VERSION` | `0.1` | Version string embedded in splash + D64 label |
@@ -378,7 +378,7 @@ Passed as `make OPTION=value`:
 | Option | Values | Default | Effect |
 |--------|--------|---------|--------|
 | `PLATFORM` | `c64` `m65` | `c64` | Selects the platform's builds ([§ Builds and CPU sets](#builds-and-cpu-sets)); sets `PLATFORM_C64` or `PLATFORM_M65` |
-| `CPU` | `c64`: `6502` `6510` `65c02`; `m65`: `45gs02` | `6510` / `45gs02` | Selects the build within the platform; sets its defines ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
+| `CPU` | `c64`: `6502` `6510` `65c02`; `m65`: `6502` until P4, then `45gs02` | `6510` / the m65 build's | Selects the build within the platform; sets its defines ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
 | `ROMSET` | `cbm` `mega` | `cbm` | ROM set for `make run` (see below) |
 | `THEME` | name or hex | default | Colour theme for the REPL |
 | `TAB_WIDTH` | 1 2 4 8 16 32 | `8` | Editor tab stop interval.  A power of two, so `col mod TAB_WIDTH` is a single `and`; any other value is a build error.  8 matches every C64-era toolchain convention. |
@@ -397,7 +397,8 @@ member, as a global enumeration — **0 = 6502, 1 = 6510, 2 = 65C02,
 | c64-6502 | `c64` / `6502` | `PLATFORM_C64` `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
 | c64-6510 | `c64` / `6510` | `PLATFORM_C64` `CPU_6510` `CPU_CEIL=1` | 6502, 6510 (0, 1) | 0 | `mn7` |
 | c64-65c02 | `c64` / `65c02` | `PLATFORM_C64` `CPU_65C02` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 6510, 65C02 (0, 1, 2) | 2 | `mn7` |
-| m65-45gs02 | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 4510, 45GS02 (0, 3, 4) | 4 | `mn7`, m65 keys |
+| m65-6502 (P0–P3) | `m65` / `6502` | `PLATFORM_M65` `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
+| m65-45gs02 (from P4) | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 4510, 45GS02 (0, 3, 4) | 4 | `mn7`, m65 keys |
 
 Exactly one `PLATFORM_<platform>` define is set per build — the C64
 builds carry `PLATFORM_C64` as the m65 build carries `PLATFORM_M65`,
@@ -405,8 +406,12 @@ so a platform body is always selected by its own name
 ([platform_layer.md § Platforms and defines](platform_layer.md#platforms-and-defines)).
 Exactly one `CPU_<top>` define is set per build.  It selects the
 build's generated table block ([§ Table generation](#table-generation)).
-m65-45gs02 is the only m65 build: its CPU set is fixed, and the 6502
-and the 4510 are selected at run time.  Code
+The m65 platform has one build at a time.  Until its CPU layer exists
+(slice 1 Phase B = slice 2 P4), it is **m65-6502**: the platform
+layer is built and tested on the 6502 CPU set, whose tables and
+classifier already exist and whose code is the cleanest for a
+45GS02.  From P4 on it is **m65-45gs02** — its CPU set fixed, the 6502
+and the 4510 selected at run time — and m65-6502 is retired.  Code
 paths are gated by the feature defines: `.ifdef CMOS_SUPPORT` (65C02
 paths), `.ifdef MEGA_SUPPORT` (the 4510's modes and mnemonics and the
 45GS02's Q and far prefixes).  No code path is 6510-specific: the
@@ -427,7 +432,7 @@ the consumer is part of):
 | asm_line CPU gate ([asm_line.md](modules/asm_line.md#asm_cpu--category-gate-matrix)) | legal NMOS, NMOS profiles | + 6510 illegals | + 65C02 extension and 65C02-only keys | + 4510 extension and 4510-only keys | as 3 + Q forms and far operands |
 | dasm view ([dasm.md](modules/dasm.md#design)) | 6502 view bitmap | 6510 map | 65C02 map | 4510 map | 4510 map + prefix peel |
 | `.cpu` (`set_cpu`) and `u` | accepted in every build | c64-6510, c64-65c02 | c64-65c02 | m65-45gs02 | m65-45gs02 |
-| `DEFAULT_CPU` (main.s) | c64-6502, c64-6510 | — | c64-65c02 | — | m65-45gs02 |
+| `DEFAULT_CPU` (main.s) | c64-6502, c64-6510, m65-6502 | — | c64-65c02 | — | m65-45gs02 |
 | debugger step (`cmp #2` paths) | NMOS step | NMOS step | + `JMP (a,X)`, `BRA` (c64-65c02) | — (no m65 debugger in R7 slice 1) | — (same) |
 
 The m65 build ships as a PRG, a D81 and a cartridge image
@@ -441,7 +446,7 @@ until then `PLATFORM=m65` with a PRG target is refused.
 
 ### The m65 builds
 
-The m65-45gs02 build is a native MEGA65 program: it runs in MEGA65
+The m65 build is a native MEGA65 program: it runs in MEGA65
 mode on the MEGA65 KERNAL, within the ROM floor of
 [platform_layer.md § Platforms and defines](platform_layer.md#platforms-and-defines)
 — not in GO64.  Where its
@@ -451,8 +456,8 @@ platform bodies are selected is [platform_layer.md](platform_layer.md).
 Status: planned ([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer));
 P0 brings the PRG, P3 the D81 and the cartridge.
 
-**Defines.**  `PLATFORM_M65`, `CPU_45GS02`, `MEGA_SUPPORT`,
-`CPU_CEIL=4`, `DEFAULT_CPU=4` ([§ Builds and CPU sets](#builds-and-cpu-sets)).
+**Defines.**  `PLATFORM_M65` and the CPU set's defines: m65-6502's
+until P4, m65-45gs02's from then on ([§ Builds and CPU sets](#builds-and-cpu-sets)).
 ca65 assembles it with `-t c64`, as the C64 builds: the target
 selects ca65's string translation to PETSCII, which MEGA65 mode
 shares, and cse sets its CPU with `.setcpu` in every module.

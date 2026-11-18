@@ -492,18 +492,54 @@ recording on 920413 through an SD clone (mtools).
   far-pointer list in zp.md; c64-only statements in memory_design.md
   scoped; the snapshot per ROM; terms defined in the glossary.
 
-Then: CDD Analysis and approval; TDD Analysis; the code, in this
-order — (1) the C64 build moved onto the seams as a pure refactor,
-byte-identical, under the full suite, one commit per seam (Constants;
-KERNAL calls; Banking; Far memory; Base page; Terminal; Display;
-Vectors and frame; Cold start and exit; Disk bank; Info map; Loader;
-then the literal audit and the hash gate);
-(2) `src/m45_ops.inc` and its audit; (3) the m65 bodies of the
-memory seams, the base page, the stub and the loader; (4) the build
-target, the fixtures and the 920413 snapshot, the Tier I and Tier X
-tests.  Gate: the m65 PRG reaches `_main` in M65Emu and xmega65, on
+**P0 TDD analysis (2026-11-18), approved with its feedback round.**
+The tests, written first, in this order (each red until its code
+lands, except T1, which is green by construction):
+
+- [ ] T1. The C64 hash gate: `c64_prg_sha256.json` recorded before the
+  first refactor commit, in a commit of its own.
+- [ ] T2. The literal audit as a ratchet (baseline fixture of today's
+  sites; unit tests of the audit on synthetic sources).
+- [ ] T3. The raw-byte audit (static); clean mode by PC region (run
+  time).
+- [ ] T4. The m65 build: test_makefile_guards' refusal tests become
+  build tests (`make release/debug PLATFORM=m65`, m65-6502); a region
+  overflow fails the link.
+- [ ] T5. M65Emu: one post-boot snapshot per ROM, the `m65_snapshot`
+  fixture, the existing m65 suites on each; `capture_m65_state.py
+  --rom`.
+- [ ] T6. M65Emu: `hyppo_getversion` and `hyppo_rom_writeenable`;
+  any other trap raises.
+- [ ] T7. The m65 macro bodies in a small m65 bundle on M65Emu
+  (`KCALL`/`KJMP` keep `B`; far loads and stores across banks 0, 2, 3,
+  4; `FAR_BANK` keeps A).
+- [ ] T8. The loader on each ROM: the install field by field; the gate's
+  two refusals; `load_prg()`/`init_cse()` equal to the real loader.
+- [ ] T9. The run premise and the services' answers as a golden file
+  (`capture_m65_premise.py` → `m65_premise.json`, per ROM).
+- [ ] T10. Tier X: the PRG boots to `_main` on both ROMs through the SD
+  clone (`tests/xmega65.py` gains `prg=`, `rom=`).
+- [ ] T11. The `PLAT_PENDING` count (only goes down).
+
+Feedback round, written into the docs (I1–I4): the m65 build is
+m65-6502 until P4 (build_system.md § Builds and CPU sets); pending
+m65 bodies are `PLAT_PENDING` (platform_layer.md § Pending bodies);
+clean mode by PC region (testing.md § M65Emu); the literal audit is a
+ratchet until the last seam (platform_layer.md § Gates, testing.md
+§ Tier U).
+
+Then the code, in this order — (1) T1; the C64 build moved onto the
+seams as a pure refactor, byte-identical, under the full suite, one
+commit per seam (Constants; KERNAL calls; Banking; Far memory; Base
+page; Terminal; Display; Vectors and frame; Cold start and exit; Disk
+bank; Info map; Loader), each lowering T2's baseline to empty;
+(2) `src/m45_ops.inc` and T3; (3) the harness: T5, T6, T9; (4) the
+m65 bodies of the memory seams, the base page, the stub and the
+loader, with T7, T8, T11; (5) the m65-6502 build target (T4) and Tier
+X (T10).  Gate: the m65 PRG reaches `_main` in M65Emu and xmega65, on
 920413 and 920421, with the map, the base page, the stub and the ROM
-protection as memory_design.md states; the C64 PRGs byte-identical.
+protection as memory_design.md states; the C64 PRGs byte-identical;
+every test above green.
 
 **P1 — running user code: maps, vectors, debugger.**
 
@@ -580,7 +616,8 @@ Step-1 delta:
   CBDOS run with CSE's ROM-bank regions in use.
 
 **P4 — the CPU layer on the platform** = slice 1 Phase B (B1–B7,
-B4b, its prerequisite bugs), now with an m65 build to run on.  Its
+B4b, its prerequisite bugs), now with an m65 build to run on: the
+m65-45gs02 build replaces m65-6502.  Its
 deltas are slice 1's ([assembler_syntax.md](assembler_syntax.md),
 the CPU-layer module docs).
 
