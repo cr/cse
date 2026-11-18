@@ -1390,3 +1390,22 @@ class TestSymbolTableFull:
         src = "\n".join(f"l{i:03d}:" for i in range(256)) + "\n.const k 1"
         _, _, errors = _run(as_syms, src, max_steps=40_000_000)
         assert errors == 1
+
+
+class TestCodeBeforeFirstOrg:
+    """asm_src.md § asm_assemble: each pass starts at the default origin,
+    so code before the first `.org` is laid out and emitted at the same
+    addresses (pass 1 used to start at the first `.org` while labels
+    kept their pass-0 addresses)."""
+
+    def test_emitted_at_default_origin(self, as_syms):
+        errors, mem, _ = _run_mem(as_syms, " nop\nx: jmp x\n.org $c000\n jmp x")
+        assert errors == 0
+        assert list(mem[0x0800:0x0804]) == [0xEA, 0x4C, 0x01, 0x08]
+        assert list(mem[0xC000:0xC003]) == [0x4C, 0x01, 0x08]
+
+    def test_asm_org_is_the_default_segment(self, as_syms):
+        org, _, errors, seg = _run_segs(as_syms, " nop\n.org $c000\n rts")
+        assert errors == 0
+        assert org == 0x0800
+        assert seg == {"min_pc": 0x0800, "max_pc": 0xC001}

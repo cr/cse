@@ -965,9 +965,12 @@ documentation round that follows this filing.
   reading a later symbol is `fwd ref`; pass 0 writes nothing (emission
   commit). Tests test_assemble[later-defined ZP constant*],
   TestPassStamp (test_symtab.py), TestPassZeroWritesNothing.
-- [ ] **Code before the first `.org`** gets labels from the pass-0
+- [x] **Code before the first `.org`** gets labels from the pass-0
   layout (default origin) while pass 1 emits at the first `.org`
   (`_set_first_org` overwrites `asm_org`; every pass starts at it).
+  Fixed 2026-11-18: every pass starts at the default origin
+  (_def_org); asm_org is the first .org only when nothing was emitted
+  before it. Test TestCodeBeforeFirstOrg.
 - [x] **Emitting past `$FFFF` wraps into `$0000`/`$0001`** (the CPU
   port) — no wrap check in `_asm_emit` / `_emit_byte`.
   Fixed 2026-11-18: asm_src assembles each instruction into a scratch

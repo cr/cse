@@ -183,7 +183,8 @@ rules.
 ```
 
 Sets the program counter. All subsequent code/data emits to this address.
-Default: `$0800`.
+Default: `$0800`.  Code before the first `.org` is assembled at the
+default origin.
 
 **Output stays in the workspace.**  Every byte the assembler emits —
 instructions and data directives alike — must land in the workspace,

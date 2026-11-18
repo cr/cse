@@ -20,7 +20,11 @@ is owned by [build_system.md](../build_system.md).
 **Clobbers:** all
 
 **Exported state (BSS):**
-- `asm_org` (2B) — origin address of first segment
+- `asm_org` (2B) — origin address of the first segment: the default
+  origin (A/X) if any byte is emitted before the first `.org`/`.bas`,
+  else the first `.org`/`.bas` address.  Each pass starts at the
+  default origin (`_def_org`), so code before the first `.org` is laid
+  out and emitted at the same addresses on both passes.
 - `asm_size` (2B) — total bytes emitted across all segments
 - `asm_errors` (2B) — error count (pass 1 only)
 

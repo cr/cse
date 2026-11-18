@@ -51,7 +51,8 @@ SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp
 
 ; ── BSS (all reset by asm_assemble before each run) ─────────────────────
 .segment "BSS"
-asm_org:       .res 2          ; assembly origin address
+asm_org:       .res 2          ; origin of the first segment
+_def_org:      .res 2          ; default origin (A/X): every pass starts here
 asm_size:      .res 2          ; total bytes emitted
 asm_errors:    .res 2          ; error count (pass 1 only)
 _line_num:      .res 2
@@ -726,6 +727,9 @@ _set_first_org:
         lda _org_set
         bne @ret
         inc _org_set
+        lda asm_size            ; bytes before the first .org: the
+        ora asm_size+1          ; default segment is the first one
+        bne @ret
         lda asm_pc
         sta asm_org
         lda asm_pc+1
@@ -1440,10 +1444,11 @@ _too_long_err:
         sta _line_num
         sta _line_num+1
         sta _pc_wrap
-        lda asm_org
+        lda _def_org
         sta asm_pc
-        lda asm_org+1
+        lda _def_org+1
         sta asm_pc+1
+        jsr _seg_log_open       ; open the default segment
 @loop:  ; Call ed_read_line(_line_buf)
         lda #<_line_buf
         ldx #>_line_buf
@@ -1495,6 +1500,8 @@ _too_long_err:
 .proc asm_assemble
         sta asm_org
         stx asm_org+1
+        sta _def_org
+        stx _def_org+1
         lda #0
         sta asm_errors
         sta asm_errors+1
@@ -1523,13 +1530,7 @@ _too_long_err:
         ; Pass 0: collect labels/constants
         lda #0
         sta asm_pass
-        ; Set asm_pc = asm_org for initial segment open
-        lda asm_org
-        sta asm_pc
-        lda asm_org+1
-        sta asm_pc+1
-        jsr _seg_log_open           ; open default segment at asm_pc
-        jsr do_pass
+        jsr do_pass                 ; starts at _def_org, default segment open
         jsr _seg_log_close          ; close final segment from pass 0
 
         ; Pass 1: emit code — reset seg table so pass 1 re-records
@@ -1542,13 +1543,7 @@ _too_long_err:
         sta _seg_open
         sta sym_stamp           ; pass-1 stamp (also the stamp after)
         jsr define_ws_syms      ; re-stamp the built-ins
-        ; Reset asm_pc from asm_org before opening default segment
-        lda asm_org
-        sta asm_pc
-        lda asm_org+1
-        sta asm_pc+1
-        jsr _seg_log_open           ; open default segment for pass 1
-        jsr do_pass
+        jsr do_pass                 ; starts at _def_org, default segment open
         jsr _seg_log_close          ; close final segment from pass 1
 
         ; Bank in KERNAL — clear flag FIRST so the bank_in actually fires.
