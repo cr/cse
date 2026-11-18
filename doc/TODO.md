@@ -920,8 +920,9 @@ documentation round that follows this filing.
 - [x] **`make … PLATFORM=m65` silently builds the C64 PRGs** — add a
   refusal guard until S2-1 (or fold into B1).
   Fixed 2026-11-18: the Makefile stops every PRG target with an error when PLATFORM≠c64, test test_makefile_guards.py.
-- [ ] **`oplen_tbl` keeps the last row where a 6510 and a 65C02
+- [x] **`oplen_tbl` keeps the last row where a 6510 and a 65C02
   opcode share a byte**; the generator should refuse a conflict.
+  Fixed 2026-11-18: `oplen_lengths()` refuses a length conflict; a crash (JAM) row yields, so `$D2` is 2 (65C02 `CMP (zp)`, was 1), tests test_oplen_*.
 - [ ] **Mutable bytes in CODE**: `main.s` `@key` and `dasm.s` `@adj`
   (blocks a ROM/CRT build; memory_design.md "no self-modifying code").
 - [ ] `disk.s` closes LFN 1 on an OPEN failure although the file is

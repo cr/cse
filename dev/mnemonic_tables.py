@@ -440,20 +440,45 @@ def write_classifier_tables(cls, models, extra_rodata=()):
     print(f"wrote {path}  ({len(slot_mne)}/{cls.SLOTS} slots)")
 
 
+# The 6510's crash opcodes: they halt the CPU, so their length never
+# matters to the debugger's step and yields to any other row's.
+_CRASH_MNEMONICS = frozenset({'CIM', 'HLT', 'JAM', 'KIL'})
+
+
+def oplen_lengths(opcodes=None):
+    """Opcode → instruction length (opcode + operand bytes), 256 entries.
+
+    One content for all C64 CPU sets: every OPCODES row's length.  Where
+    a 6510 and a 65C02 row share an opcode with different lengths, a
+    crash row (JAM) yields to the other; any other length conflict is a
+    ModelError — the table cannot serve both.
+    """
+    opcodes = OPCODES if opcodes is None else opcodes
+    rows = {}                                   # opcode → {length: [mnemonics]}
+    for mne, modes in opcodes.items():
+        for mode, opcode in modes.items():
+            if opcode is not None:
+                rows.setdefault(opcode, {}).setdefault(
+                    1 + MODE_OPERAND_BYTES[mode], []).append(mne)
+    lengths, errors = [1] * 256, []
+    for opcode, by_len in sorted(rows.items()):
+        live = {n: m for n, m in by_len.items() if not set(m) <= _CRASH_MNEMONICS} or by_len
+        if len(live) > 1:
+            errors.append(f"${opcode:02X}: " + ", ".join(
+                f"{'/'.join(sorted(m))} = {n} B" for n, m in sorted(live.items())))
+        lengths[opcode] = max(live)
+    if errors:
+        raise ModelError("oplen_tbl: opcode length conflict:\n  " + "\n  ".join(errors))
+    return lengths
+
+
 def write_oplen_table():
     """oplen_tbl.s — packed opcode → length, 2 bits per opcode, 64 bytes.
 
-    Packing: byte[opc >> 2], bits (opc & 3) * 2.  The length counts the
-    opcode and its operand.  One content for all C64 CPU sets: every
-    OPCODES row's length (last row wins where a 6510 and a 65C02 opcode
-    coincide).  The debugger steps every C64 build with it; a JAM opcode,
-    the only place the lengths differ in effect, halts the CPU anyway.
+    Packing: byte[opc >> 2], bits (opc & 3) * 2; lengths from
+    oplen_lengths().  The debugger steps every C64 build with it.
     """
-    lengths = [1] * 256
-    for modes in OPCODES.values():
-        for mode, opcode in modes.items():
-            if opcode is not None:
-                lengths[opcode] = 1 + MODE_OPERAND_BYTES[mode]
+    lengths = oplen_lengths()
     packed = [sum((lengths[i + j] & 3) << (j * 2) for j in range(4)) for i in range(0, 256, 4)]
 
     lines = _header('oplen_tbl.s', [

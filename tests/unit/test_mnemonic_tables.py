@@ -145,3 +145,26 @@ def test_standalone_key_shares_a_pair_member():
     }
     profiles, zone_g, pidx = M.place_profiles(entries)
     assert profiles == [nmos, ext] and pidx['TRB'] == pidx['BIT'] == 0
+
+
+# ── oplen_tbl: one length per opcode, conflicts refused ─────────────────────
+
+def test_oplen_length_conflict_is_refused():
+    """Two OPCODES rows giving one opcode different lengths (neither a
+    crash opcode) stop the generator instead of keeping the last row."""
+    opcodes = dict(M.OPCODES, XXX={M.I.ABS: 0xEA})      # NOP is 1 byte
+    with pytest.raises(M.ModelError, match=r"\$EA"):
+        M.oplen_lengths(opcodes)
+
+
+def test_oplen_crash_opcode_yields_to_the_real_instruction():
+    """$D2 is CMP (zp) on the 65C02 (2 B) and the CIM crash on the 6510:
+    the crash halts the CPU whatever its length, so the real
+    instruction's length wins."""
+    assert M.oplen_lengths()[0xD2] == 2
+
+
+def test_oplen_same_length_coincidence_is_accepted():
+    """6510 illegals and 65C02 opcodes sharing a byte with one length
+    (e.g. $07 SLO zp / RMB0 zp) are not a conflict."""
+    assert M.oplen_lengths()[0x07] == 2
