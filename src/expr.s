@@ -2,10 +2,9 @@
 ; Owner: doc/modules/expr.md
 ;
 ; Grammar:
-;   expr     = bool_term (('£' | '&' | '^') bool_term)*
-;   bool_term = add_term (('+' | '-') add_term)*
-;   add_term  = mul_term (('*' | '/' | '<<' | '>>') mul_term)*
-;   mul_term  = factor
+;   expr     = add_term (('£' | '&' | '^') add_term)*      [parse_expr]
+;   add_term = mul_term (('+' | '-') mul_term)*             [parse_add]
+;   mul_term = factor (('*' | '/' | '<<' | '>>') factor)*   [parse_mul]
 ;   factor = '$' hex | '%' binary | decimal | '*'(PC) | label
 ;          | '-' factor | '!' factor | '<' factor | '>' factor
 ;          | '(' expr ')'
@@ -32,13 +31,14 @@
 ;   - * → wide if PC > $FF
 ;   - < and > → always narrow (clear wide)
 ;   - - (negate), ! → width from result
-;   - +, -, &, £, ^ → wide if either operand wide OR result > $FF
+;   - +, -, *, /, <<, >>, &, £, ^ → wide if either operand wide OR
+;     result > $FF (the left operand's width is stacked with its value)
 
         .export expr_eval
         .export expr_eval_nb            ; no-banking variant for callers already banked out
         .export expr_error_str
         .export last_err                ; asm_line sets 3 (overflow) on a $FFFF wrap
-        .export expr_fwd                ; nonzero: an undefined symbol was read
+        .export expr_fwd                ; bit 7: undefined read; other bits: sym_fwd read
 
         .import sym_lookup, sym_fwd
         .import kernal_bank_out, kernal_bank_in
@@ -111,10 +111,10 @@ _div_rem:    .res 2              ; divide: remainder
 ; it.  Symbol lookups inside the expression go through sym_lookup,
 ; which reads sym_table / sym_heap under KERNAL.  By bracketing
 ; the whole evaluation with one bank pair here, the inner
-; sym_lookup calls short-circuit (when run inside an asm_assemble
-; batch, kernal_out=1 is already set; in REPL contexts, this
-; wrapper IS the bank pair).  Either way, callers of expr_eval
-; never need to think about KERNAL banking.
+; sym_lookup calls keep this banking (they save and restore $01;
+; inside an asm_assemble batch, kernal_out=1 makes both helpers
+; no-ops).  Either way, callers of expr_eval never need to think
+; about KERNAL banking.
 ;
 ; Same wrapper structure as asm_line and dasm_insn.
 ; ═══════════════════════════════════════════════════════════
@@ -130,7 +130,7 @@ _div_rem:    .res 2              ; divide: remainder
 ; ── _expr_eval_inner / expr_eval_nb — the actual evaluator ──
 ; Runs with KERNAL banked out (or pre-banked by an outer batch).
 ; expr_eval_nb is the public alias for callers already banked out
-; (e.g. mode_parse inside _asm_line_core).
+; (mode_parse inside asm_line).
 ; Returns A = 0 (ZP), 1 (ABS), or 2+ (error).
 expr_eval_nb:
 .proc _expr_eval_inner
@@ -202,7 +202,7 @@ _ex_op_setup:
         jmp skip_sp
 
 ; ═══════════════════════════════════════════════════════════
-; parse_expr — bool_term (('&' | '£' | '^') bool_term)*
+; parse_expr — add_term (('&' | '£' | '^') add_term)*
 ; ═══════════════════════════════════════════════════════════
 .proc parse_expr
         jsr parse_add
@@ -283,7 +283,7 @@ _ex_op_setup:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; parse_add — add_term (('+' | '-') add_term)*
+; parse_add — mul_term (('+' | '-') mul_term)*
 ; ═══════════════════════════════════════════════════════════
 .proc parse_add
         jsr parse_mul
@@ -347,7 +347,7 @@ _ex_op_setup:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; parse_mul — mul_term (('*' | '/' | '<<' | '>>') mul_term)*
+; parse_mul — factor (('*' | '/' | '<<' | '>>') factor)*
 ;   Note: '*' alone (no operator context) = PC in parse_factor.
 ;   Here '*' is binary multiply (between two values).
 ; ═══════════════════════════════════════════════════════════

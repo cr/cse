@@ -12,64 +12,84 @@
 ## Interface
 
 ### expr_eval
-**In:** `expr_ptr` (ZP, pointer to PETSCII expression string),
-`asm_pc` (ZP, current PC for `*` operator)
-**Out:** `expr_val` (ZP, 16-bit result), `expr_wide` (ZP, 0=ZP 1=ABS).
-Returns A = return code.  Also `expr_fwd` (BSS, exported): nonzero
-iff the expression read a symbol that is undefined (rc 5, see
-[§ Undefined symbols](#undefined-symbols)) or one that `sym_lookup`
-reported with `sym_fwd` — a forward reference in the current pass
+**In:** `expr_ptr` (ZP, pointer to the PETSCII expression text),
+`asm_pc` (ZP, value of the `*` operand)
+**Out:** A = return code (table below), also stored in `last_err`;
+`expr_val` (ZP, 16-bit result), `expr_wide` (ZP, 0 = ZP-eligible,
+1 = ABS); `expr_ptr` advanced to the first unparsed byte
+([§ Partial-mode contract](#partial-mode-contract)); `expr_fwd`
+(BSS, exported): nonzero iff the expression read a symbol that is
+undefined (rc 5, see [§ Undefined symbols](#undefined-symbols)) or
+one that `sym_lookup` reported with `sym_fwd` — a forward reference
+in the current pass
 ([symtab.md § Pass stamp](symtab.md#pass-stamp-mega_support)).  Bit 7
 marks the undefined case (rc 5); a `sym_fwd` read only sets other
 bits and also makes the result wide, matching the ABS size pass 0
 gave the then-undefined symbol.
-**Clobbers:** A, X, Y, `_ex_tmp`, `_ex_digits`
+**Clobbers:** A, X, Y; `_ex_tmp`, `_ex_digits` (ZP); `_ex_depth`,
+`_mul_tmp`, `_div_rem` (BSS); `sym_name`, and through `sym_lookup`
+`sym_val`, `sym_wide`, `sym_fwd` and symtab's ZP scratch.  **Writes
+the input text:** a shifted letter ($C1–$DA) inside a label is folded
+to $41–$5A in place, and the byte after each label is NUL'd for the
+lookup and then restored.
 
-`expr_eval` owns its own KERNAL banking — callers don't manage it.
-The expression evaluator calls `sym_lookup` to resolve labels;
-`sym_lookup` reads `sym_table` and `sym_heap` under KERNAL ROM.
-By bracketing the whole evaluation with one bank pair here, the
-inner `sym_lookup` calls short-circuit (when called inside an
-`asm_assemble` batch, `kernal_out=1` is already set; in REPL
-contexts, this wrapper IS the bank pair).  Either way, callers
-of `expr_eval` never need to think about KERNAL banking.
-
-Same wrapper structure as `asm_line` (`asm_line.s`) and
-`dasm_insn` (`dasm.s`).  Test contract:
+`expr_eval` owns its KERNAL banking — callers don't manage it.  It
+brackets the evaluation with `kernal_bank_out` / `kernal_bank_in`
+because `sym_lookup` reads `sym_table` and `sym_heap` under the
+KERNAL ROM.  `sym_lookup` saves and restores the caller's `$01`, so it
+keeps this banking; inside an `asm_assemble` batch (`kernal_out` = 1)
+both helpers are no-ops.  Same wrapper structure as `asm_line`
+(`asm_line.s`) and `dasm_insn` (`dasm.s`).  Test contract:
 `tests/unit/test_expr.py::TestExprEvalBankContract` pins that every
-exit path (success ZP, success ABS, error, sym_lookup hit,
-undefined symbol) leaves `$01` bit 1 set and the I flag clear.
+exit path (success ZP, success ABS, error, sym_lookup hit, undefined
+symbol) leaves `$01` bit 1 set and the I flag clear.
 
 **Return codes:**
 
-| A | Meaning |
-|---|---------|
-| 0 | Success, ZP-eligible (value ≤ $FF, no wide factors) |
-| 1 | Success, ABS (16-bit or forced wide) |
-| 2 | Error: expected value |
-| 3 | Error: overflow (literal too large, or nesting deeper than 10 levels) |
-| 4 | Error: mismatched parentheses |
-| 5 | Error: undefined symbol |
-| 6 | Error: division by zero |
+| A | Meaning | `expr_error_str` text |
+|---|---------|------|
+| 0 | Success, ZP-eligible (value ≤ $FF, no wide factors) | (empty) |
+| 1 | Success, ABS (16-bit or forced wide) | (empty) |
+| 2 | Error: expected value | `exp val` |
+| 3 | Error: overflow (literal too large, or nesting deeper than 10 levels) | `ovfl` |
+| 4 | Error: mismatched parentheses | `exp )` |
+| 5 | Error: undefined symbol | `undef` |
+| 6 | Error: division by zero | `div0` |
+
+### expr_eval_nb
+The evaluator without the banking bracket, for callers that already
+run with the KERNAL banked out — `mode_parse` (addr_mode.s) inside
+`asm_line`.  **In / Out / Clobbers:** as `expr_eval`; `$01` is
+neither read nor written by the evaluator itself (`sym_lookup`
+restores whatever it found).
 
 ### expr_error_str
-**In:** none (uses last error state)
-**Out:** A/X = pointer to NUL-terminated error message
+**In:** `last_err` (BSS)
+**Out:** A/X = pointer (lo/hi) to the NUL-terminated message for
+`last_err` (table above, from `err_str_lo` / `err_str_hi` in
+strings.s).  A `last_err` of 7 or more reads as 0 (empty string).
+**Clobbers:** A, X
+
+### last_err
+Exported BSS byte: the last return code (`expr_eval` writes it on
+every exit).  `asm_line` also stores 3 into it when an instruction
+would run past `$FFFF`, so `expr_error_str` names that error `ovfl`
+([asm_line.md](asm_line.md)).
 
 ### Memory
 
-**ZP (3 bytes):** `_ex_tmp` (2), `_ex_digits` (1).  (`_ex_wide_tmp`,
-still reserved in zp.s, is no longer used: the left operand's width
-lives on the stack.)
+**ZP (3 bytes):** `_ex_tmp` (2), `_ex_digits` (1).  `_ex_wide_tmp`
+is allocated in zp.s but unused ([zp.md](zp.md)): the left operand's
+width lives on the hardware stack.
 
-**BSS (7 bytes):** `last_err` (1; exported — `asm_line` sets it to 3
-when an instruction would wrap past `$FFFF`, so `expr_error_str`
-names it), `_ex_depth` (1, nesting depth), `expr_fwd` (1),
-`_mul_tmp` (2), `_div_rem` (2).
+**BSS (7 bytes):** `last_err` (1, exported), `_ex_depth` (1, nesting
+depth), `expr_fwd` (1, exported), `_mul_tmp` (2), `_div_rem` (2).
 
-**Depends on:** symtab (`sym_lookup` for label resolution),
-mem (`kernal_bank_out` / `kernal_bank_in` for the wrapper),
-strings (err_str_lo/hi, error string labels)
+**Depends on:** symtab (`sym_lookup`, `sym_fwd`), mem
+(`kernal_bank_out` / `kernal_bank_in` for the wrapper), strings
+(`err_str_lo` / `err_str_hi`, the `err_*` strings), zp (`expr_ptr`,
+`expr_val`, `expr_wide`, `asm_pc`, `sym_name`, `sym_val`, `sym_wide`,
+`_ex_tmp`, `_ex_digits`)
 
 ## Design
 
@@ -84,10 +104,11 @@ factor     = '$'hex | '%'bin | decimal | '*' | label        [parse_factor]
            | '(' expr ')'
 ```
 
-**Width tracking:** The ZP flag `expr_wide` determines whether the
-result selects 2-byte (ZP) or 3-byte (ABS) instruction encoding.
-It is reset to 0 (narrow) at the start of each `expr_eval` call
-and accumulates via OR — once wide, always wide.
+### Width propagation
+
+The ZP flag `expr_wide` decides whether the result selects 2-byte (ZP)
+or 3-byte (ABS) instruction encoding.  `expr_eval` resets it to 0
+(narrow) on entry; leaves set it, operators combine it.
 
 Width sources (leaves):
 
@@ -99,7 +120,7 @@ Width sources (leaves):
 | Label | `sym_wide` = 0 at definition, read backward | `sym_wide` = 1 at definition, or a forward read (`sym_fwd`), or undefined |
 | `*` (PC) | `asm_pc` ≤ $FF | `asm_pc` > $FF |
 
-Width propagation (operators):
+Operators:
 
 | Operator | Rule |
 |----------|------|
@@ -110,23 +131,24 @@ Width propagation (operators):
 | `!` (NOT) | Inherits from operand; wide if result > $FF |
 | `( )` | Transparent — inherits from inner expression |
 
-Each binary operator keeps its left operand's width on the hardware
-stack while the right operand is parsed, so a nested `<`/`>` or a
+Each binary operator pushes its left operand's width onto the
+hardware stack with the left operand's value while the right operand
+is parsed, and ORs it back in afterwards, so a nested `<`/`>` or a
 nested operator never erases an outer operand's width:
 `$0000+(<$12+1)` is ABS.
 
-The sticky-OR rule means `$00 + $0000` → ABS even though the result
-is $0000 and fits in a byte.  This is deliberate: the programmer
-wrote a 4-digit literal, signalling absolute intent.
+The either-operand rule means `$00 + $0000` → ABS even though the
+result is $0000 and fits in a byte.  This is deliberate: the
+programmer wrote a 4-digit literal, signalling absolute intent.
 
 **Operators (C64 keyboard mapping):**
 - `£` = OR (pound key), `&` = AND, `^` = XOR (↑ key)
 - `!` = NOT (bitwise complement)
 - `<` = lo byte, `>` = hi byte (unary prefix)
 
-**Label resolution:** Sets `sym_name` to point into the expression
-buffer, NUL-terminates at the end of the identifier, calls
-`sym_lookup`, restores the original char.
+**Label resolution:** sets `sym_name` to point into the expression
+text, NUL-terminates it at the end of the identifier, calls
+`sym_lookup`, and restores the original byte.
 
 ## Undefined symbols
 
@@ -185,10 +207,15 @@ operator peek fails, `expr_ptr` stays where `skip_sp` last parked it.
   § Partial-mode contract above for the formal statement).
 - `expr_wide` is reset to 0 at the start of each `expr_eval` call.
   No contamination from previous calls.
-- Label charset: letters, digits, `.` (dot).  No underscore (not
-  typeable on C64 keyboard).  Accepts PETSCII $41–$5A (the letter
-  keys); no case folding needed since the C64 keyboard produces
-  only one PETSCII range for letters.
+- Label characters: a label starts with a letter or `.` and continues
+  with letters, digits and `.`.  Letters are PETSCII $41–$5A (the
+  unshifted letter keys); a shifted letter ($C1–$DA) is folded to
+  $41–$5A **in the input text** and then matches.  No underscore.  The
+  label grammar the assembler enforces at definition is
+  [assembler_syntax.md § Labels](../assembler_syntax.md#labels).
+- Hex digits: `0`–`9` and the letters `a`–`f` as typed unshifted
+  (PETSCII $41–$46, or ASCII $61–$66); shifted letters are not hex
+  digits.
 - The `*` symbol is context-dependent: alone or after an operator it
   means PC; between two values it means multiply.
 - **Unary minus** (`-expr`) is supported as a prefix operator.
@@ -196,12 +223,12 @@ operator peek fails, `expr_ptr` stays where `skip_sp` last parked it.
 - **Nesting depth:** at most 10 nested levels — each `(` and each
   unary prefix `-` `!` `<` `>` is one level (`<(` is two).  The 11th
   level returns 3 (overflow) without recursing further, which bounds
-  the recursive descent's hardware-stack use; deeper input used to
-  wrap the stack page.  An error inside any level, including under a
-  unary prefix, propagates unchanged to the caller.
+  the recursive descent's hardware-stack use.  An error inside any
+  level, including under a unary prefix, propagates unchanged to the
+  caller.
 - **Shifts:** the count is the full 16-bit right operand; a count of
   16 or more shifts every bit out (`1<<256` = 0, `$8000>>16` = 0).
 - **16-bit wraparound:** Arithmetic on computed results silently
   wraps: `$FFFF + 1 = $0000`, `$100 * $100 = $0000`.  Overflow
-  errors only apply to literal parsing (5+ hex digits, decimal
-  >65535, 17+ binary digits).
+  (3) comes only from literal parsing (5+ hex digits, decimal
+  >65535, 17+ binary digits) and from the nesting limit.
