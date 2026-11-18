@@ -8,14 +8,15 @@
 |------|------|
 | [`src/opcode_lookup.s`](../../src/opcode_lookup.s) | implementation |
 | [`src/mn_asm_tables.s`](../../src/mn_asm_tables.s) | generated — one block per CPU set: `asm_row` (1 B per profile) + `asm_delta` (one row per delta row) + `asm_oplen` (operand bytes per mode; read by asm_line) + `ASM_ZONE_G`, produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
-| [`src/mn_modes.s`](../../src/mn_modes.s) | generated — one block per CPU set: the profile validity masks, one plane per 8 modes (`mn_modes_lo`, `mn_modes_hi`; `mn_modes_x` on `MEGA_SUPPORT`), 1 B per profile per plane, produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
-| [`src/oplen_tbl.s`](../../src/oplen_tbl.s) | generated — packed opcode → single-byte-instruction length (64 B, 2 bits/opcode; prefixes not counted).  One content for all C64 CPU sets (every `OPCODES` row's length; where a 6510 crash opcode (JAM) shares a byte with another row, e.g. `$D2` CIM / 65C02 `CMP (zp)`, the other row's length wins; any other length conflict stops the generator); the m65 CPU set gets its own block.  Produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Consumers: `debugger.s`, `repl.s` (cmd_step).; back-link-exempt (generated) |
+| [`src/mn_modes.s`](../../src/mn_modes.s) | generated — one block per CPU set: the profile validity masks, one plane per 8 modes (`mn_modes_lo`, `mn_modes_hi`; a third plane `mn_modes_x` is planned for `MEGA_SUPPORT`), 1 B per profile per plane, produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
+| [`src/oplen_tbl.s`](../../src/oplen_tbl.s) | generated — packed opcode → single-byte-instruction length (64 B, 2 bits/opcode; prefixes not counted).  One content for all C64 CPU sets (every `OPCODES` row's length; where a 6510 crash opcode (JAM) shares a byte with another row, e.g. `$D2` CIM / 65C02 `CMP (zp)`, the other row's length wins; any other length conflict stops the generator); an m65 block is planned ([TODO § M65](../TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1), B1/B6).  Produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Consumer: `debugger.s` (`step_next_pc`); `repl.s` imports it without using it; back-link-exempt (generated) |
 | [`tests/unit/test_opcode_lookup.py`](../../tests/unit/test_opcode_lookup.py) | test contract (every profile × mode of every C64 CPU set; end to end by test_asm_line.py::test_assemble) |
 
 ## Interface
 
 ### asm_opcode_lookup
-**In:** `asm_pidx`, `asm_base`, `asm_mode` (all ZP)
+**In:** `asm_pidx`, `asm_base`, `asm_mode` (all ZP; `asm_mode` 0–15
+on the C64 builds); KERNAL banked out (the tables are KDATA).
 **Out:** C=0 and A = opcode byte
 (`asm_base ^ asm_delta[asm_row[asm_pidx] + asm_mode]`) if the profile
 accepts the mode; C=1 (A undefined) if not.
@@ -23,13 +24,18 @@ accepts the mode; C=1 (A undefined) if not.
 
 ### Memory
 
-**ZP:** none.
+**ZP:** none of its own (reads `asm_pidx`, `asm_base`, `asm_mode`).
 
 **RODATA (8 bytes):** `_bit_tab` (8) — bit masks for the mode's bit
 within its mask plane.
 
-**Depends on:** mn_modes (validity masks), mn_asm_tables (`asm_row`,
-`asm_delta`), zp
+**KDATA (generated, per CPU set):** `mn_modes_lo`, `mn_modes_hi`,
+`asm_row`, `asm_delta`, `asm_oplen` — in RAM under the KERNAL, so
+`asm_line`'s bank-out covers the lookup.
+
+**Depends on:** mn_modes (`mn_modes_lo`, `mn_modes_hi`),
+mn_asm_tables (`asm_row`, `asm_delta`), zp (`asm_pidx`, `asm_base`,
+`asm_mode`)
 
 ## Design
 
@@ -63,7 +69,8 @@ generator.
 **Mode constants** (the catalogue index of `dev/instruction_set.py`
 `ALL_MODES`; append-only): 0 IMP, 1 ACC, 2 IMM, 3 ZP, 4 ZPX, 5 ZPY,
 6 ABS, 7 ABX, 8 ABY, 9 IND, 10 INX, 11 INY, 12 REL, 13 ZPI, 14 AIX,
-15 ZPREL; on `MEGA_SUPPORT` also 16 IMM16, 17 REL16, 18 ISPY, 19 ZPIZ.
+15 ZPREL; on `MEGA_SUPPORT` (planned) also 16 IMM16, 17 REL16, 18 ISPY,
+19 ZPIZ.
 
 **Profile index layout (`pidx`).**  The generator numbers the profiles
 of a CPU set in zones.  A key's zone is how asm_line *parses* it, not
@@ -78,7 +85,7 @@ only what it encodes:
 | D | digit-zone ZP (`RMB`/`SMB`) | asm_line inline |
 | E | digit-zone ZPREL (`BBR`/`BBS`) | asm_line inline |
 | G | multi-mode extension pairs: (NMOS profile, extension profile) adjacent | mode_parse + lookup |
-| Q | (`MEGA_SUPPORT` only) the 45GS02 quad groups: (NMOS, extension, Q) or (plain, Q), adjacent | mode_parse + lookup |
+| Q | (`MEGA_SUPPORT` only, planned) the 45GS02 quad groups: (NMOS, extension, Q) or (plain, Q), adjacent | mode_parse + lookup |
 | H | the remaining multi-mode profiles | mode_parse + lookup |
 
 - The **fixed zones** come first, in the order A B F C D E, one
@@ -87,7 +94,7 @@ only what it encodes:
   6510: A B F C; 65C02: all six), so no set carries an empty profile
   and asm_line's jump table is indexed by `pidx` directly.
 - **`ASM_ZONE_G`** (generated) is the first multi-mode `pidx`; the
-  m65 block adds the bounds its dispatch needs (the branch zone's
+  planned m65 block adds the bounds its dispatch needs (the branch zone's
   range, `ASM_ZONE_Q`, `ASM_ZONE_H`).
 - The two members of an **extension pair** are adjacent — the
   extension of a key is at `pidx + 1` — and both multi-mode; where a
