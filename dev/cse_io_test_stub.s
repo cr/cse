@@ -7,7 +7,6 @@
 
         .export kplot_stub
 
-        .import io_sync
 
 ; Import the row address tables from cse_io.s
         .import scr_lo, scr_hi

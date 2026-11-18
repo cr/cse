@@ -38,8 +38,6 @@
         .import patch_all, unpatch_all
         .import dbg_bp_find
         .import dbg_step_clear
-        .import bp_table, step_bp
-        .import dbg_bp_hit
 
 .segment "CODE"
 

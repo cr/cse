@@ -46,8 +46,7 @@
         .export __CODE_RUN__    : absolute = $4000
 
         .import asm_assemble
-        .import _min_pc, _max_pc
-        .importzp buf_base, rp_ptr, rp_ptr2, rp_tmp
+        .importzp buf_base
 
 HEAP_START = $4000          ; symbol-table heap (above all code/BSS)
 CPU_PORT   = $01

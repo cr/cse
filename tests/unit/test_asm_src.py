@@ -601,8 +601,6 @@ ERROR_TESTS = [
 
 @pytest.mark.parametrize("tc", MANUAL_TESTS, ids=lambda t: t["name"])
 def test_assemble(as_syms, tc):
-    if "xfail" in tc:
-        pytest.xfail(tc["xfail"])
     org, data, errors = _run(as_syms, tc["source"])
     assert errors == tc["expect_errors"], (
         f"error count: got {errors}, expected {tc['expect_errors']}"
