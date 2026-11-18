@@ -24,7 +24,6 @@ states the seam's contract and points there.
 | [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit: the address-literal classes, the per-file counts, the baseline writer |
 | [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the audit's rule, the raw-byte audit and the pending-body count as they land (P0) |
 | [`tests/fixtures/golden/c64_prg_sha256.json`](../tests/fixtures/golden/c64_prg_sha256.json) | generated — the recorded SHA-256 of each C64 release PRG; back-link-exempt (JSON data) |
-| [`tests/fixtures/platform_literals_baseline.json`](../tests/fixtures/platform_literals_baseline.json) | generated — the literal audit's ratchet: each file's count of sites not yet moved onto the seams (deleted when empty); back-link-exempt (JSON data) |
 
 The files are listed as they will exist; until P0 lands they are not
 in the repository.
@@ -393,7 +392,11 @@ build loads it to `BASIC_START`) is *stated with P3*.
 
 The rows of the `i` command ([repl.md](modules/repl.md)) are a data
 block per platform (`.ifdef`), each stating that platform's map in
-[memory_design.md](memory_design.md)'s terms.
+[memory_design.md](memory_design.md)'s terms: the fixed rows
+(`info_tbl_*`) and the bounds of the fixed free holes (`INFO_ZP_*`,
+`INFO_LOW1_*`, `INFO_LOW2_*`).  `cmd_info`'s sequence of fixed and
+dynamic rows is the c64 map's; on m65 it is `PLAT_PENDING 2` until
+P2 states that map's rows.
 
 ### Loader
 
@@ -438,12 +441,11 @@ code.
    ([testing.md § Tier U](testing.md#tier-u--unit-module--linking-down));
    the size and golden gates stand beside it
    ([build_system.md § Size gate](build_system.md#size-gate)).
-2. **The literal audit** ([§ The rule](#the-rule)), held as a
-   ratchet while the C64 build moves onto the seams: a recorded
-   baseline of the sites not yet moved, which each seam's commit
-   lowers and which is empty when the last seam lands — so every
-   commit of the refactor is green and none can add a site.  Then the
-   test asserts zero.  Beside it, the base-page check
+2. **The literal audit** ([§ The rule](#the-rule)): zero sites.
+   (While the C64 build moved onto the seams it was a ratchet against
+   a recorded baseline, which each seam's commit lowered, so every
+   commit of the refactor was green and none could add a site; the
+   Info map seam emptied it.)  Beside it, the base-page check
    ([§ Base page](#base-page); zero from the start), the raw-byte
    audit ([§ Raw-byte instructions](#raw-byte-instructions)) and the
    pending-body count ([§ Pending bodies](#pending-bodies)).

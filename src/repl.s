@@ -218,6 +218,16 @@ reg_labels:      .byte "axysp"
 ; ── info tables: 8 bytes per row: tag(2) lo(2) hi(2) desc(2) ──
 ; These stay in repl.s because INFO_TBL_*_ROWS are compile-time
 ; constants computed from segment arithmetic (can't be imported).
+; One data block per platform (doc/platform_layer.md § Info map):
+; the fixed rows and the bounds of the fixed free holes.
+
+.ifdef PLATFORM_C64
+INFO_ZP_LO      = $02           ; zp   0002-007f  free (the user ZP)
+INFO_ZP_HI      = $7F
+INFO_LOW1_LO    = $02A7         ; low  02a7-02ff  free
+INFO_LOW1_HI    = $02FF
+INFO_LOW2_LO    = $0334         ; low  0334-03ff  free
+INFO_LOW2_HI    = $03FF
 
 info_tbl_h1:
         .addr str_tag_cpu,  $0000, $0001, str_ioport         ; cpu  0000-0001
@@ -245,6 +255,7 @@ info_tbl_tail:
         .addr str_tag_cse,  $E000, $F8D9, str_banked         ; cse  e000-f8d9  banked
         .addr str_tag_rom,  $F8DA, $FFFF, str_kernal         ; rom  f8da-ffff  kernal
 INFO_TBL_TAIL_ROWS = (* - info_tbl_tail) / 8
+.endif ; PLATFORM_C64
 
 ; ── CODE ───────────────────────────────────────────────────
 .segment "CODE"
@@ -3384,6 +3395,7 @@ prg_ok_done:
         lda #0
         adc #0
         sta _info_mode
+.ifdef PLATFORM_C64                     ; m65: its map's rows — P2
 
         ; ── cpu ──
         lda #<info_tbl_h1
@@ -3399,9 +3411,9 @@ prg_ok_done:
         lda #0
         sta rp_addr+1
         sta rp_cnt+1
-        lda #$02
+        lda #INFO_ZP_LO
         sta rp_addr
-        lda #$7F
+        lda #INFO_ZP_HI
         sta rp_cnt
         jsr free_line
 
@@ -3422,13 +3434,13 @@ prg_ok_done:
         sta rp_ptr2
         lda #>str_tag_low
         sta rp_ptr2+1
-        lda #<$02A7
+        lda #<INFO_LOW1_LO
         sta rp_addr
-        lda #>$02A7
+        lda #>INFO_LOW1_LO
         sta rp_addr+1
-        lda #<$02FF
+        lda #<INFO_LOW1_HI
         sta rp_cnt
-        lda #>$02FF
+        lda #>INFO_LOW1_HI
         sta rp_cnt+1
         jsr free_line
 
@@ -3443,13 +3455,13 @@ prg_ok_done:
         sta rp_ptr2
         lda #>str_tag_low
         sta rp_ptr2+1
-        lda #<$0334
+        lda #<INFO_LOW2_LO
         sta rp_addr
-        lda #>$0334
+        lda #>INFO_LOW2_LO
         sta rp_addr+1
-        lda #<$03FF
+        lda #<INFO_LOW2_HI
         sta rp_cnt
-        lda #>$03FF
+        lda #>INFO_LOW2_HI
         sta rp_cnt+1
         jsr free_line
 
@@ -3554,6 +3566,9 @@ prg_ok_done:
         jsr info_emit_rows
 
 @done:  jmp io_clear_eol
+.else
+        PLAT_PENDING 2
+.endif
 .endproc
 
 

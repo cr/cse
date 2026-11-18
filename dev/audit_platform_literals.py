@@ -28,28 +28,23 @@ for its platform (`c64_cse.cfg.in`, `m65_cse.cfg.in`): such a file is
 itself a platform block.  A use of a name (`jsr CHROUT`) is not a
 literal; the name's definition is.
 
-While the C64 build moves onto the seams the audit is a ratchet:
-`tests/fixtures/platform_literals_baseline.json` holds each file's
-exact count, and test_platform_audit.py fails when a count differs —
-higher (a new site) or lower (a moved site whose baseline was not
-lowered).  When every count is zero the fixture is deleted.
+test_platform_audit.py asserts that no file has a site.  (While the
+C64 build moved onto the seams it was a ratchet against a recorded
+baseline; the last seam emptied it.)
 
     python3 dev/audit_platform_literals.py            # per-file counts
     python3 dev/audit_platform_literals.py --sites    # every site
-    python3 dev/audit_platform_literals.py --write-baseline
 
 Beside it, the base-page check: no absolute-mode access to a CSE
 base-page symbol, nor a pointer to one, unless written BP_ABS(sym)
 (platform_layer.md § Base page).  It asserts zero from the start.
 """
-import json
 import pathlib
 import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-BASELINE = ROOT / "tests" / "fixtures" / "platform_literals_baseline.json"
 
 EXEMPT = {"platform.inc", "m45_ops.inc", "mn6_tables.s", "mn7_tables.s",
           "mn_asm_tables.s", "mn_modes.s", "oplen_tbl.s", "dasm_tables.s",
@@ -220,15 +215,6 @@ def base_page_count(src=SRC):
 
 
 def main(argv):
-    if "--write-baseline" in argv:
-        BASELINE.write_text(json.dumps(
-            {"comment": "The literal audit's ratchet: each file's exact count "
-                        "of platform literals not yet moved onto the seams "
-                        "(doc/platform_layer.md § Gates).  Lowered by every "
-                        "seam's commit; deleted when empty.",
-             "counts": counts()}, indent=1, sort_keys=True) + "\n")
-        print(f"wrote {BASELINE.relative_to(ROOT)}")
-        return 0
     total = 0
     for f in audited_files():
         found = sites(f)

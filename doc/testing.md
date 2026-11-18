@@ -43,12 +43,8 @@ are static Tier U tests in `tests/unit/test_platform_audit.py`:
 - *The literal audit* — `dev/audit_platform_literals.py` over `src/`:
   no ROM address, KERNAL cell, I/O register, screen or colour base or
   banking value outside `src/platform.inc` and the seams' platform
-  bodies.  While the C64 build moves onto the seams it is a ratchet:
-  the sites not yet moved are recorded in
-  `tests/fixtures/platform_literals_baseline.json`, the test fails on
-  any site outside it, and each seam's commit removes its sites from
-  the baseline; when it is empty, the fixture is deleted and the test
-  asserts zero.  The audit itself is pinned by unit tests on small
+  bodies: zero sites (a ratchet against a recorded baseline while the
+  C64 build moved onto the seams, emptied by the last one).  The audit itself is pinned by unit tests on small
   synthetic sources.
 - *The base-page check* — the same tool: no absolute-mode access to
   a CSE base-page symbol (zp.s's exports and their aliases), nor a

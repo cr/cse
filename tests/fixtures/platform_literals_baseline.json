@@ -1,6 +1,0 @@
-{
- "comment": "The literal audit's ratchet: each file's exact count of platform literals not yet moved onto the seams (doc/platform_layer.md \u00a7 Gates).  Lowered by every seam's commit; deleted when empty.",
- "counts": {
-  "repl.s": 20
- }
-}

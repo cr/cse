@@ -38,7 +38,7 @@ def test_c64_prgs_are_the_recorded_ones(release_built, prg):
         "deliberate and re-record tests/fixtures/golden/c64_prg_sha256.json")
 
 
-# ── the literal audit (platform_layer.md § The rule), as a ratchet ──
+# ── the literal audit (platform_layer.md § The rule) ──
 
 import importlib.util as _ilu
 
@@ -46,16 +46,12 @@ _spec = _ilu.spec_from_file_location(
     "audit_platform_literals", ROOT / "dev" / "audit_platform_literals.py")
 AUDIT = _ilu.module_from_spec(_spec)
 _spec.loader.exec_module(AUDIT)
-BASELINE = ROOT / "tests" / "fixtures" / "platform_literals_baseline.json"
 
 
 def test_no_platform_literal_outside_the_seams():
-    """Each file's count of platform literals equals the baseline:
-    higher is a new site, lower is a moved site whose baseline was not
-    lowered.  When the baseline file is gone, every count must be 0."""
-    want = (json.loads(BASELINE.read_text())["counts"]
-            if BASELINE.exists() else {})
-    assert AUDIT.counts() == want
+    """No ROM address, KERNAL cell, I/O register, screen base or BASIC
+    address outside platform.inc and the `.ifdef PLATFORM_*` blocks."""
+    assert AUDIT.counts() == {}
 
 
 def _audit_source(tmp_path, name, text):

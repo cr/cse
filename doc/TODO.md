@@ -581,7 +581,11 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   `set_charset` `PLAT_PENDING 2`; steps 2–3 absent).
 - [x] Disk bank — `PLAT_SETBNK` before disk.s's three `OPEN`s and
   two `LOAD`s (before `LOAD`'s register arguments).
-- [ ] Info map, Loader.
+- [x] Info map — the `info_tbl_*` rows and the free holes' bounds in
+  one `PLATFORM_C64` data block; `cmd_info`'s body `PLAT_PENDING 2`
+  on m65.  The literal audit reached zero: the baseline fixture is
+  deleted and the test asserts zero.
+- [ ] Loader.
 - The m65 bodies the docs state for P0, written in step (4) with the
   harness that tests them: `KCALL` / `KJMP`, `FAR_SIZE` and the far
   access macros, `FAR_BANK` at every far pointer's set sites,
