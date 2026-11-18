@@ -12,43 +12,68 @@
 ## Interface
 
 ### mode_parse
-**In:** `asm_ptr` (ZP, pointer to operand string in PETSCII), Y=0
+**In:** `asm_ptr` (ZP, pointer to the operand text, PETSCII,
+NUL-terminated), Y = 0 (offset); `_au_no_acc` (BSS, set by the
+caller); `asm_pass` (asm_err.s) and `asm_pc` for the forward-reference
+rule; KERNAL banked out (it calls `expr_eval_nb`).
 **Out:** A = mode index (0–15 on C64 builds; 0–19 on the m65 build —
 [opcode_lookup.md § Mode constants](opcode_lookup.md#design)),
 X = operand byte count (0–2), `asm_opr[0..1]` = operand bytes
-(little-endian); on `MEGA_SUPPORT` also `_au_far` (BSS).
+(little-endian; for ZPREL `asm_opr[1]` is the low byte of the second
+value as written); `asm_ptr` advanced past the consumed text; on
+`MEGA_SUPPORT` (planned) also `_au_far` (BSS).
 **Partial-result state** (per testing.md § Principle 13): the
 combined position `asm_ptr + Y` on return points at the first byte
-beyond the recognised operand — NUL (end of input), `';'` (comment
-start), or post-whitespace NUL for the IMP-empty case.  asm_line
-depends on this to recognise end-of-instruction without a separate
-EOI scan; see `tests/unit/test_addr_mode.py::TestModeParseStopContract`
-for the position-pinning witness.
-**Clobbers:** A, X, Y
+beyond the recognised operand and its trailing whitespace — NUL (end
+of input), `;`, `//`, `#` (a trailing comment), or the post-whitespace
+NUL for the IMP-empty case.  mode_parse itself requires that end
+(`_au_check_end`, else `asm_syntax_error`), so its callers need no
+end-of-operand scan; asm_line does not read Y afterwards.  See
+`tests/unit/test_addr_mode.py::TestModeParseStopContract` for the
+position-pinning witness.
+**Errors:** `jmp asm_syntax_error` for a malformed operand,
+`jmp asm_expr_error` for an expression error (except an undefined
+symbol on pass 0, § Forward-reference handling) — neither returns
+([asm_err.md](asm_err.md)).
+**Clobbers:** A, X, Y; `asm_opr`, `expr_ptr`, `expr_val`, `expr_wide`
+and everything `expr_eval_nb` clobbers ([expr.md](expr.md)); on the
+pass-1 shadow path also `sym_name` and what `sym_lookup` / `log_warn`
+clobber.
 
 ### asm_skip_ws
 **In:** `asm_ptr`, Y = current offset
-**Out:** Y advanced past spaces ($20) and tabs ($A0).
+**Out:** Y advanced past spaces ($20) and tabs ($A0); A = the first
+other byte.
 **Partial-result state** (Principle 13): `asm_skip_ws` is itself a
-partial-result function (Y is the ancillary state), but its
-contract is transitively pinned by every `test_parse_ok` case in
+partial-result function (Y is the ancillary state); its contract is
+pinned transitively by every `test_parse_ok` case in
 `tests/unit/test_addr_mode.py` whose operand contains leading,
-trailing, or embedded whitespace — the resulting `asm_ptr + Y`
-witness proves the skip's Y-advance is correct in situ.  A direct
-test would re-exercise the same bytes through a thinner harness.
+trailing, or embedded whitespace (spaces and `$A0`), and by
+`TestModeParseStopContract`'s offsets (`TestAsmSkipWs` is a vocal
+skip that says so).
 **Clobbers:** A
+
+### _au_no_acc
+Exported BSS byte, the caller's ACC signal for the next `mode_parse`:
+0 = a bare `A` operand is the accumulator, nonzero = `A` is a label
+([§ ACC vs label disambiguation](#acc-vs-label-disambiguation)).
+`asm_line` writes it once per instruction from the profile's mode
+mask.
 
 ### Memory
 
-**ZP (4 bytes):** `asm_ptr` (2), `asm_opr` (2).
-Also uses `expr_ptr`, `expr_val`, `expr_wide` (defined in zp.s).
+**ZP:** none of its own; it uses `asm_ptr`, `asm_opr`, `expr_ptr`,
+`expr_val`, `expr_wide`, `asm_pc`, `sym_name` ([zp.md](zp.md)).
 
-**BSS (1 byte):**
+**RODATA (2 bytes):** `_str_A` — `"A"`, the `sym_lookup` probe for the
+shadow warning.
+
+**BSS (1 byte; 2 on `MEGA_SUPPORT`):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
 | `_au_no_acc` | 1 | Caller signal: 0 = ACC syntax allowed, nonzero = the literal `A` operand must be parsed as a label.  Written by `asm_line.s` per profile.  Read by mode_parse's SC_A branch. |
-| `_au_far` | 1 | `MEGA_SUPPORT` only.  Result: 1 = the operand was written in brackets (`[e]`, `[e],z`), 0 otherwise.  Written by every mode_parse call; read by asm_line (far prefix). |
+| `_au_far` | 1 | `MEGA_SUPPORT` only (planned).  Result: 1 = the operand was written in brackets (`[e]`, `[e],z`), 0 otherwise.  Written by every mode_parse call; read by asm_line (far prefix). |
 
 **Depends on:** expr (expr_eval_nb), asm_err (asm_syntax_error,
 asm_expr_error, asm_pass), symtab (sym_lookup — for shadow detection),
@@ -75,12 +100,15 @@ mode syntaxes:
 | `(expr)` (wide) | IND | 9 |
 | `(expr,X)` (narrow) | INX | 10 |
 | `(expr),Y` (narrow) | INY | 11 |
-| `expr` (branch context) | REL | 12 |
 | `(expr)` (narrow) | ZPI | 13 |
 | `(expr,X)` (wide) | AIX | 14 |
 | `expr,expr` | ZPREL | 15 |
 
-On `MEGA_SUPPORT` (m65-45gs02) also:
+REL (12) is never returned: a branch target is returned as ZP (3) or
+ABS (6) and asm_line's zone B computes the offset
+([asm_line.md § Branches](asm_line.md#branches-zone-b)).
+
+On `MEGA_SUPPORT` (the planned m65-45gs02 build) also:
 
 | Syntax | Mode | Index |
 |--------|------|-------|
@@ -95,20 +123,26 @@ and the far forms, which set `_au_far` (asm_line accepts them at
 | `[expr]` (narrow) | ZPI (13) | 1 |
 | `[expr],Z` (narrow) | ZPIZ (19) | 1 |
 
-`IMM16` (16) and `REL16` (17) are never returned: `#expr` is always
-IMM, and asm_line promotes it to IMM16 on a profile that has IMM16 and
-no IMM (`PHW`); a branch target is returned as ZP/ABS and asm_line
-selects REL or REL16 ([asm_line.md § Branches](asm_line.md#branches-zone-b)).
-A wide value in a narrow-only form (`(expr),Z`, `(expr,SP),Y`,
-`[expr]`) is a syntax error, as for `(expr,X)` today.
+`IMM16` (16) and `REL16` (17) are never returned either: `#expr` is
+always IMM, and asm_line promotes it to IMM16 on a profile that has
+IMM16 and no IMM (`PHW`); for a branch target asm_line selects REL or
+REL16.  A wide value in a narrow-only form (`(expr),Z`, `(expr,SP),Y`,
+`[expr]`) is a syntax error, as a wide `(expr),Y` is on every build.
 
 Operand values parsed by `expr_eval_nb` (no-banking variant of
 `expr_eval`).  Accepts `$hex`, `%binary`, decimal, labels, `*` (PC),
 and arithmetic expressions.  ZP vs ABS determined by `expr_wide`:
 narrow (0) → ZP modes, wide (1) → ABS modes.
 
+`#` has two roles.  At the start of the operand it is the IMM prefix
+(whitespace may follow: `# $10` = `#$10`); a `#` followed only by
+whitespace and an end mark is a comment and yields IMP.  After a
+complete operand, and after a bare `A`, `#` ends the operand like `;`
+(a trailing comment).
+
 Character constants for PETSCII: A=$41, X=$58, Y=$59, #=$23,
-$=$24, (=$28, )=$29, ,=$2C.
+(=$28, )=$29, ,=$2C.  Only these exact bytes are register letters:
+the unshifted keys.
 
 ### ACC vs label disambiguation
 
@@ -132,12 +166,11 @@ argument string.
 
 The decision is **purely textual + caller-flag-based**.  It does not
 consult symtab to *change* the parse choice — only to detect the
-shadow case for the warning.  Pass 0 sees identical bytes for `A`
-as ACC vs `A` as label-with-undef-symbol (both 1 byte: ACC is 1, the
-ABS sizing fallback is 2; ACC always wins for ACC-accepting profiles
-regardless of symbol state).  This is a deliberate choice: the
-parse must be invariant across passes, and "is `A` a defined symbol
-*right now*?" is not — symbols can be defined later in the source.
+shadow case for the warning.  ACC always wins for ACC-accepting
+profiles regardless of symbol state, so both passes choose the same
+mode and size.  This is a deliberate choice: the parse must be
+invariant across passes, and "is `A` a defined symbol *right now*?"
+is not — symbols can be defined later in the source.
 
 The shadow rule means a user who defines `A:` somewhere and then
 writes `ASL A` gets accumulator mode, *not* a memory access to the
@@ -160,21 +193,25 @@ the routine substitutes `asm_pc + 2` (wide) rather than signalling
 expression ([expr.md § Undefined symbols](expr.md#undefined-symbols)),
 so `expr_ptr` is past it and the operand's tail — `tbl+1`, `fwd+3,x`,
 `(fwd+1),y` — is parsed as on pass 1.  This lets the sizing pass
-proceed past forward references with the same size pass 1 will use;
-the second pass sees the now-defined symbols and emits the correct
-bytes.
+proceed past forward references with the same size pass 1 will use.
+On pass 1 the symbol is defined (pass 0 defined it), but its pass
+stamp marks it as a forward read, so `expr_eval_nb` makes it wide —
+the same ABS size — and the operand gets the real value
+([symtab.md § Pass stamp](symtab.md#pass-stamp)).
 
 ## Caveats
 
 - Input is PETSCII.  Register letters are A=$41, X=$58, Y=$59; on
-  the m65 build also S=$53, P=$50 (in `,SP`) and Z=$5A.  `[`=$5B and
+  the planned m65 build also S=$53, P=$50 (in `,SP`) and Z=$5A.  `[`=$5B and
   `]`=$5D (typed SHIFT+`:` / SHIFT+`;` on the C64 keyboard).
 - Operand values delegated to `expr_eval_nb` (expr.s), which handles
   `$hex`, `%binary`, decimal, labels, `*`, and operators.
 - Whitespace: space ($20) and tab ($A0).
-- End-of-expression: NUL, CR ($0D), LF ($0A), `;`, `//`.
+- End-of-expression (`_au_is_end`): NUL, CR ($0D), LF ($0A), `;`,
+  `//`; after an operand also `#` (`_au_check_end`).
 - On syntax error: `jmp asm_syntax_error` (in asm_err.s) — writes
-  `asm_err_code=0`.
+  `asm_err_code=0`.  On the C64 builds `asm_syntax_error` is the same
+  entry as `asm_error`.
 - On expression error: `jmp asm_expr_error` (in asm_err.s) — writes
   `asm_err_code=1` so callers can print the expr-specific message
   via `expr_error_str`.  See

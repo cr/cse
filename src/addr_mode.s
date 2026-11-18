@@ -1,7 +1,6 @@
 ; ─────────────────────────────────────────────────────────────────────────────
 ; Owner: doc/modules/addr_mode.md
 ; addr_mode.s  –  addressing-mode and operand parser
-;   (renamed from au_mode.s in Phase 21)
 ;
 ; Parses a null-terminated PETSCII argument string.
 ; Operand values parsed by expr_eval_nb: $hex, %binary, decimal,
@@ -10,23 +9,24 @@
 ; Whitespace (space $20, tab $A0) is tolerated between tokens.
 ; End-of-expression: null ($00), CR ($0D), LF ($0A), ';', '//'.
 ; '#' terminates when it appears after the operand; at the start of the
-; argument it is the IMM prefix ('#$nn') – '#' not followed by '$' → IMP.
+; argument it is the IMM prefix ('#$nn', '# 5') – a '#' followed only by
+; whitespace and an end mark is a comment → IMP.
 ;
 ; Entry:
 ;   asm_ptr (ZP word)  – pointer to argument string (PETSCII), set by caller
 ;   Y = 0
 ;
 ; Exit:
-;   A   – mode index (0 = IMP .. 15 = ZPREL; matches ALL_MODES order in
-;          dev/mnemonic_tables.py)
+;   A   – mode index (0 = IMP .. 15 = ZPREL, never 12 = REL; matches
+;          ALL_MODES order in dev/mnemonic_tables.py)
 ;   X   – operand byte count (0, 1, or 2)
 ;   asm_opr[0]  – first (or only) operand byte
 ;   asm_opr[1]  – second operand byte  (absolute addresses: hi byte;
-;                 ZPREL: relative offset)
+;                 ZPREL: low byte of the second value, as written)
 ;   For 2-byte absolute addresses $nnnn the bytes are little-endian:
 ;     asm_opr[0] = lo byte ($nn), asm_opr[1] = hi byte ($nn)
 ;
-; Error: jmp asm_syntax_error (does not return)
+; Error: jmp asm_syntax_error / asm_expr_error (does not return)
 ; ─────────────────────────────────────────────────────────────────────────────
 
         .setcpu "6502"
@@ -72,8 +72,8 @@ MODE_ABY  = 8   ; absolute, Y                   $nnnn,Y
 MODE_IND  = 9   ; indirect                      ($nnnn)
 MODE_INX  = 10  ; (indirect, X)                 ($nn,X)
 MODE_INY  = 11  ; (indirect), Y                 ($nn),Y
-MODE_REL  = 12  ; relative  NOTE: syntactically = ZP; Zone B assembler path
-                ;                 remaps ZP→REL and treats asm_opr[0] as offset
+MODE_REL  = 12  ; relative  NOTE: never returned — a branch target is ZP/ABS;
+                ;                 asm_line's zone B computes the offset
 MODE_ZPI  = 13  ; (zero page)  [65C02]          ($nn)
 MODE_AIX  = 14  ; (absolute, X)  [65C02 JMP]    ($nnnn,X)
 MODE_ZPREL= 15  ; zero page + relative  [65C02]  $nn,$rr
@@ -187,7 +187,7 @@ _au_commit:
 ; Out:  A = 0 (ZP/narrow) or 1 (ABS/wide)
 ;       asm_opr[0..1] = little-endian value from expr_val
 ;       asm_ptr updated past consumed expression; Y = 0
-; Error (bad expression): jmp asm_syntax_error
+; Error (bad expression): jmp asm_expr_error (pass 0 undefined: dummy value)
 _au_read_val:
         ; Advance asm_ptr by Y (commit chars consumed so far; inline —
         ; this is the hot path, _au_commit is for the ACC peek)
@@ -466,7 +466,7 @@ mode_parse:
         ; 1-byte: ZP / ZPX / ZPY / ZPREL  (asm_opr already set by _au_read_val)
         jsr _au_ws_load
         jsr _au_is_end
-        bcs @ret_zp             ; → ZP (Zone B remaps to REL)
+        bcs @ret_zp             ; → ZP
         cmp #SC_COMM            ; A preserved by _au_is_end
         beq :+
         jmp asm_syntax_error
@@ -503,7 +503,7 @@ mode_parse:
         rts
 
 @ret_zp:
-        lda #MODE_ZP            ; NOTE: Zone B assembler path treats this as REL
+        lda #MODE_ZP            ; (zone B takes it as a zero-page branch target)
         ldx #1
         rts
 
