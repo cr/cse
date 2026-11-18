@@ -37,6 +37,7 @@ ROOT_DOCS = [ROOT / "README.md", ROOT / "background.md"]
 #   <a href="url">           — raw HTML anchor
 LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
 IMG_RE  = re.compile(r'<img\s+[^>]*src="([^"]+)"', re.IGNORECASE)
+CODE_SPAN_RE = re.compile(r"(\[[^\]]*\]\([^)]+\))|`[^`]*`")    # a link, or a span outside one
 HREF_RE = re.compile(r'<a\s+[^>]*href="([^"]+)"', re.IGNORECASE)
 
 
@@ -158,6 +159,9 @@ def main():
                 continue
             if in_fence:
                 continue
+            # an inline code span is not a link; `[x](y)` inside one
+            # is an example.  Spans inside link text stay links.
+            line = CODE_SPAN_RE.sub(lambda m: m.group(1) or "", line)
             for pattern, kind in (
                     (LINK_RE, "md-link"),
                     (IMG_RE, "img"),
