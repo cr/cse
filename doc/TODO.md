@@ -1029,8 +1029,12 @@ documentation round that follows this filing.
   -128..-1), else expression overflow (asm_line.md § Immediate range);
   _asm_imm_chk in zones C and G/H. Tests TestImmediateRange
   (test_asm_line.py), test_errors[immediate *] (test_asm_src.py).
-- [ ] **`//` comments are parsed as division** (`lda #1 // c` → expr
+- [x] **`//` comments are parsed as division** (`lda #1 // c` → expr
   error), though addr_mode.md lists `//` as end-of-expression.
+  Fixed 2026-11-18: parse_mul treats '/' followed by '/' as the end of
+  the expression, not a divide (expr.md § Partial-mode contract).
+  Tests test_stop_position[// is a comment*] (test_expr.py),
+  test_double_slash_comment (test_asm_line.py).
 - [ ] **Shift counts ignore their high byte**: `1<<256` = 1,
   `$8000>>256` = `$8000`.
 - [ ] Latent: `mode_parse`'s accumulator test assumes `A` at offset 0

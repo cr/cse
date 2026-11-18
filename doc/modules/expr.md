@@ -169,6 +169,7 @@ a syntax error at the caller's contract tier.  See
 | `"1 x"` | 1 | `'x'` (offset 2 — space consumed by `parse_mul::skip_sp`) |
 | `"1,2"` | 1 | `','` (offset 1 — `,` is not a recognised operator) |
 | `"42;cmt"` | 42 | `';'` (offset 2) |
+| `"1 // c"` | 1 | the first `'/'` (offset 2 — `//` starts a comment, it is not a divide) |
 
 **Greediness.**  The parser is greedy within each grammar production:
 `parse_expr`, `parse_add`, and `parse_mul` each call `skip_sp`

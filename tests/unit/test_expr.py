@@ -601,6 +601,9 @@ class TestStopContract:
         ("$10 ",        0x0010, 4,  "hex + trailing space → consumed to NUL"),
         ("42)",         42,     2,  "unmatched ')' stops parsing"),
         ("1 1",         0x0001, 2,  "second operand without operator stops there"),
+        ("1 // c",      0x0001, 2,  "// is a comment, not a divide"),
+        ("8//2",        0x0008, 1,  "// right after a value"),
+        ("8/2",         0x0004, 3,  "single / still divides"),
     ]
 
     @pytest.mark.parametrize("input_str,val,offset,note", STOP_CASES,

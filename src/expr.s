@@ -360,7 +360,12 @@ _ex_op_setup:
         cmp #'*'
         beq @mul
         cmp #'/'
-        beq @div
+        bne @chk_shl
+        ldy #1                  ; '//' starts a comment: not a divide
+        cmp (expr_ptr),y
+        bne @div
+        beq @done_clc
+@chk_shl:
         cmp #'<'
         bne @chk_shr
         ; peek next char — << or just < (end of expr)?

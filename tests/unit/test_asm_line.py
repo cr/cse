@@ -910,3 +910,15 @@ class TestImmediateRange:
         syms = asm_6510_syms if cpu == 1 else asm_syms
         got, err, _ = R.run_asm(syms, source, cpu)
         assert got is None and err == 1, f"{source!r} → {got!r}"
+
+
+# ── `//` comment after an operand (addr_mode.md § Caveats) ──────────────────
+
+@pytest.mark.parametrize("source,expected", [
+    ("LDA #1 // C", bytes([0xA9, 0x01])),
+    ("STA $D020 // BORDER", bytes([0x8D, 0x20, 0xD0])),
+    ("LDA $10,X//X", bytes([0xB5, 0x10])),
+])
+def test_double_slash_comment(asm_syms, source, expected):
+    got, _, _ = R.run_asm(asm_syms, source, 2)
+    assert got == expected
