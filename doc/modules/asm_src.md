@@ -243,7 +243,10 @@ references expanded, NUL — `@put` refuses the 58th byte with
   uppercase ($41–$5A).  Plain uppercase passes through unchanged.
 - The `.const` handler NUL-terminates the name in the source buffer,
   then advances `expr_ptr` by name_len+1 to skip past the NUL before
-  evaluating the value expression.
+  evaluating the value expression.  It keeps the name pointer in
+  `asm_tmp`/`asm_tmp2` across `expr_eval` — a symbol in the value
+  (`.const border vic + $20`) repoints `sym_name` — and restores it
+  before defining the name and restoring the displaced byte.
 - Forward-reference dummy uses `asm_pc+2` (not $0000) so branch
   instructions get correct 2-byte size in pass 0.
 - Error messages are only printed in pass 1 (`emit_error` checks

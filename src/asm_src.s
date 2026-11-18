@@ -983,11 +983,14 @@ d_const:
         bcc :+
         jmp @const_noname
 :
-        ; sym_name = expr_ptr (name start)
+        ; sym_name = expr_ptr (name start); asm_tmp/2 keep it across
+        ; expr_eval, whose label lookups repoint sym_name
         lda expr_ptr
         sta sym_name
+        sta asm_tmp
         lda expr_ptr+1
         sta sym_name+1
+        sta asm_tmp2
         ; Scan name length into Y
         ldy #0
 @cscan: lda (sym_name),y
@@ -1023,6 +1026,10 @@ d_const:
         jsr skipws_ep           ; expr_ptr now at expression
         jsr expr_eval          ; evaluate; rc in A
         sta _as_ptr             ; save rc (lo byte of _as_ptr used as scratch)
+        lda asm_tmp             ; the name again (a symbol in the value
+        sta sym_name            ; expression moved sym_name)
+        lda asm_tmp2
+        sta sym_name+1
         ; Check eval result
         lda _as_ptr
         cmp #2

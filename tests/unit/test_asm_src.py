@@ -276,6 +276,21 @@ MANUAL_TESTS = [
         "expect_bytes": [0x01, 0x02, 0x00, 0x00],
         "expect_errors": 0,
     },
+    # .const whose expression reads a symbol (assembler_syntax.md § Constants)
+    {
+        "name": ".const from another constant",
+        "source": ".const vic $d000\n.const border vic + $20\n.org $c000\n sta border",
+        "expect_org": 0xC000,
+        "expect_bytes": [0x8D, 0x20, 0xD0],
+        "expect_errors": 0,
+    },
+    {
+        "name": ".const from a label",
+        "source": ".org $c000\nstart: nop\n.const here start+1\n jmp here",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xEA, 0x4C, 0x01, 0xC0],
+        "expect_errors": 0,
+    },
     {
         "name": ".res directive",
         "source": ".org $c000\n.res 4, $ea\n  rts",
