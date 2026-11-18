@@ -316,6 +316,53 @@ def test_info_line_tail_pads_to_40_and_newlines(log_syms):
     assert row[-1] == SC_SPACE, f"last col not padded: ${row[-1]:02X}"
 
 
+class TestInfoLine:
+    """log.md § info_line: `"; TAG  AAAA-BBBB <desc>"` at the cursor,
+    the range optionally highlighted (rp_save2), padded to 40 columns,
+    then a newline — head + desc (rp_ptr) + tail in one call."""
+
+    def _line(self, log_syms, highlight, col=0):
+        cpu, mem = _setup(log_syms, col=col)
+        tag = log_syms.s["str_tag_org"]
+        mem[log_syms.rp_ptr2]     = tag & 0xFF
+        mem[log_syms.rp_ptr2 + 1] = tag >> 8
+        mem[log_syms.rp_addr]     = 0x00
+        mem[log_syms.rp_addr + 1] = 0x10
+        mem[log_syms.rp_cnt]      = 0xFF
+        mem[log_syms.rp_cnt + 1]  = 0x1F
+        mem[log_syms.rp_save2]    = highlight
+        _write_string(mem, CONTENT_ADDR, "DESC")
+        rp_ptr = log_syms.s["rp_ptr"]
+        mem[rp_ptr]     = CONTENT_ADDR & 0xFF
+        mem[rp_ptr + 1] = CONTENT_ADDR >> 8
+        _run(cpu, log_syms.info_line)
+        return mem
+
+    def test_layout(self, log_syms):
+        mem = self._line(log_syms, highlight=0)
+        assert _row_text(mem).lower() == "; org  1000-1fff desc"
+        assert mem[0xD6] == TEST_ROW + 1 and mem[0xD3] == 0
+
+    def test_padded_to_40(self, log_syms):
+        mem = self._line(log_syms, highlight=0)
+        assert _row(mem)[21:] == [SC_SPACE] * 19
+
+    def test_highlight_covers_the_range_only(self, log_syms):
+        mem = self._line(log_syms, highlight=1)
+        row = _row(mem)
+        inv = [c for c in range(COLS) if row[c] & 0x80]
+        assert inv == list(range(7, 16))        # "1000-1fff"
+
+    def test_no_highlight(self, log_syms):
+        mem = self._line(log_syms, highlight=0)
+        assert not any(b & 0x80 for b in _row(mem))
+
+    def test_enter_mid_line(self, log_syms):
+        mem = self._line(log_syms, highlight=0, col=5)
+        # auto-advanced: the line is on the next row
+        assert _row_text(mem, TEST_ROW + 1).lower() == "; org  1000-1fff desc"
+
+
 # ── log_open auto-newline contract (enter-anywhere, exit-at-col-0) ──
 
 def test_log_open_auto_advances_when_cursor_mid_line(log_syms):

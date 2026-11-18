@@ -84,6 +84,16 @@ CASES = [
     ("A ; comment",    ACC,   0, 0x00, 0x00),
     ("A // end",       ACC,   0, 0x00, 0x00),
     ("A #ann",         ACC,   0, 0x00, 0x00),  # trailing '#' = end
+    # $A0 (SHIFT+SPACE, the tab) is whitespace everywhere a space is
+    ("\xa0A",          ACC,   0, 0x00, 0x00),
+    ("A\xa0; c",       ACC,   0, 0x00, 0x00),
+    ("\xa0#$42",       IMM,   1, 0x42, 0x00),
+    ("#\xa0$42",       IMM,   1, 0x42, 0x00),
+    ("\xa0$1234\xa0,\xa0X", ABX, 2, 0x34, 0x12),
+    ("(\xa0$42\xa0),\xa0Y", INY, 1, 0x42, 0x00),
+    ("(\xa0$1234\xa0)", IND,  2, 0x34, 0x12),
+    ("\xa0 \xa0$42",   ZP,    1, 0x42, 0x00),   # mixed leading ws
+    ("\xa0",           IMP,   0, 0x00, 0x00),   # tab only
     # leading whitespace before `A`, and CR/LF after it (the ACC test is
     # relative to the operand start, not offset 0 — addr_mode.md § ACC)
     (" A",             ACC,   0, 0x00, 0x00),
@@ -278,6 +288,9 @@ class TestModeParseStopContract:
         ("$42 ; comment",  ZP,     4, "ZP + comment → stop at ';'"),
         ("A ; cmt",        ACC,    2, "ACC + comment → stop at ';'"),
         (" A",             ACC,    2, "ACC after leading ws → past 'A'"),
+        ("  $42",          ZP,     5, "leading spaces → past '$42'"),
+        ("\xa0$42",        ZP,     4, "leading tab → past '$42'"),
+        ("\xa0\xa0",       IMP,    2, "tabs only → past them, at NUL"),
         ("$1234,X ; note", ABX,    8, "ABX + comment → stop at ';'"),
         ("$42,$10",        ZPREL,  7, "ZPREL → past 2nd operand to NUL"),
     ]

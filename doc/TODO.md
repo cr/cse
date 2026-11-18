@@ -1164,6 +1164,10 @@ documentation round that follows this filing.
   (TestBreakCommand), `cse_exit_to_basic` (TestExitToBasic).  Still
   open: the editor, asm_src, log and addr_mode contracts of this
   item.
+  Assembler-track part closed 2026-11-18: `seg_print_save`
+  (test_asm_src.py::TestSegPrintSave), `info_line`
+  (test_log.py::TestInfoLine), `$A0` / leading whitespace
+  (test_addr_mode.py test_parse_ok / TestModeParseStopContract cases).
 - [ ] Bundle hygiene: `test_repl_disk.py` still builds its own
   bare-MPU binary with stubbed disk calls and a map regex (Tranche 4);
   behavioural stubs in `asm_core_test_stub.s` (`log_warn`) and

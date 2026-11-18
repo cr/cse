@@ -1517,3 +1517,37 @@ class TestCpuDirectiveScope:
             as_syms, ".cpu 65c02\n.org $c000\n phy", cpu=0)
         assert errors == 0
         assert after == 0
+
+
+class TestSegPrintSave:
+    """asm_src.md § Interface: seg_print_save prints the executable save
+    line `AAAA:s "name" $BBBB` — lowest origin, project name (or "out"),
+    inclusive end — and nothing when no byte was emitted."""
+
+    def _print(self, cse_prg, source, project=None):
+        emu, errors = _c64_assemble(cse_prg, source)
+        assert errors == 0
+        if project:
+            name = emu.sym("cur_project_name")
+            data = [ord(c) - 0x20 if "a" <= c <= "z" else ord(c) for c in project]
+            emu.memory[name:name + len(data) + 1] = data + [0]
+        emu.set_cursor(10, 0)
+        emu.jsr(emu.sym("seg_print_save"))
+        return emu
+
+    def test_default_name(self, cse_prg):
+        emu = self._print(cse_prg, ".org $1000\n nop\n rts")
+        assert emu.screen_text(10) == '1000:s "out" $1001'
+        assert emu.screen_text(11) == ""
+
+    def test_project_name(self, cse_prg):
+        emu = self._print(cse_prg, ".org $1000\n nop", project="demo")
+        assert emu.screen_text(10) == '1000:s "demo" $1000'
+
+    def test_spans_all_segments(self, cse_prg):
+        emu = self._print(cse_prg, ".org $2000\n nop\n.org $1000\n.db 1,2")
+        assert emu.screen_text(10) == '1000:s "out" $2000'
+
+    def test_nothing_emitted_prints_nothing(self, cse_prg):
+        emu = self._print(cse_prg, "; only a comment")
+        assert emu.screen_text(10) == ""
