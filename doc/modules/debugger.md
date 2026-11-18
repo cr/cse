@@ -47,6 +47,14 @@ Called by `_main` at cold init and by `hw_reinit_body`
 The seed keeps the first restore of a ZP buffer from writing `$00`
 into the DDR ([mem.md § CPU-port aware ZP save/restore](mem.md#cpu-port-aware-zp-saverestore)).
 
+**On m65:** `reg_z` and `reg_b` are zeroed with the others; the
+saved bank state (`um_map`, the port in `userland_zp_buf`, `um_d030`)
+is seeded with the run premise's — the user map, `$FF` / `$85`,
+`$64`; there is no `kernel_zp_buf`.  The registers a fresh start installs
+are the run premise's: `A X Y Z B` = 0, and P as the CPU keeps it —
+`E` = 1, which `RTI` does not load
+([userland_contract.md § 3](../userland_contract.md#on-m65)).
+
 ### save_userland_state
 **In:** called (`jsr`) by `cse_brk_handler` / `cse_nmi_handler` with
 the $FF48-shape frame above the return address: SP+3..SP+8 = Y, X,
@@ -59,6 +67,13 @@ before the interrupt; `userland_zp_buf` = the user's ZP; live ZP =
 
 Masking P and the BRK `brk_pc − 2` are the calling handler's job,
 because they differ by source ([main.md § BRK dispatch](main.md#brk-dispatch)).
+
+**On m65:** the frame is the KERNAL's, SP+3..SP+10 = B, Z, Y, X, A,
+P, PCL, PCH; `reg_z` and `reg_b` are captured as well (P − 4, P − 5),
+`reg_sp` = SP + 10, and nothing is swapped: base page 0 is the
+user's throughout ([platform_layer.md § Base page](../platform_layer.md#base-page));
+the bank state was captured before it ran (the stub, the handler).
+Every offset derives from `FRAME_DEPTH`.
 
 ### return_to_userland
 **In:** `brk_pc`, `reg_a/x/y/p`, `reg_sp` = the state to install;
@@ -83,7 +98,14 @@ command set `run_user_pending = MODE_JUMP` (`j`, `g`, and the first
 4. (`return_to_userland` only) push the sentinel.
 5. Push PCH, PCL (from `brk_pc`), P (`reg_p`).
 6. `in_userland := $80` (bit 7, for `cse_nmi_handler`'s `bit`/`bmi`).
-7. X, Y, A from `reg_*`; `rti`.
+7. `PLAT_TO_USER`: on c64 X, Y, A from `reg_*` and `rti`; on m65
+   `reg_a`, `reg_x`, `reg_y`, `reg_z`, `reg_b` pushed and `jmp
+   stub_user`, which installs the user's map and restores them;
+   before it, with interrupts off, `$D030` and the CPU port are the
+   user's again ([platform_layer.md § User transitions](../platform_layer.md#user-transitions)).
+   Step 2 is c64 only.  `return_to_userland` also seeds the bank
+   state with the run premise's, so every fresh start begins as a
+   `RUN` does.
 
 **Clobbers:** everything.
 
@@ -102,7 +124,10 @@ handlers' `save_userland_state` + `unpatch_all`.
 ### brk_stub
 **Address:** CODE label, exported (imported by main.s and repl.s).
 
-`BRK` followed by the signature byte `$42`.  The user program's
+`BRK` followed by the signature byte `$42`.  On m65 it is part of
+the resident stub at `0.1FB0–0.1FFF`, which the user map shows
+([mem.md § brk_stub](mem.md#brk_stub)); `bp_range_check_step`
+accepts it as on c64.  The user program's
 top-level RTS pops the `brk_stub − 1` sentinel, lands here, and the
 BRK fires; `cse_brk_handler` recognises `brk_pc = brk_stub`, sets
 `dbg_reason = DBG_RTS` and `brk_pc := cur_addr` (the address the REPL
@@ -117,7 +142,11 @@ in $00–$7F).
 second stop for a branch under STEP_INTO; 0 = none (both 0 for BRK).
 **Clobbers:** A, X, Y, `rp_ptr`, `rp_ptr2`, `step_save`
 
-The table is § Next-PC.  Callers: `repl.s::cmd_step` (first step)
+The table is § Next-PC.  It reads the instruction and its vectors
+at user addresses: `rp_ptr` and `rp_ptr2` are set with `FAR_USER`
+([platform_layer.md § Far memory](../platform_layer.md#far-memory)),
+a vector in base page 0 through `peek_user` (the image on c64, base
+page 0 itself on m65).  Callers: `repl.s::cmd_step` (first step)
 and `cse_brk_handler` (each chained step).
 
 ### arm_step_bp
@@ -443,6 +472,27 @@ Changed registers are installed by the next transfer to user code
 (`c`, `t`, `o`, `j`, `g`); `j`/`g` replace `pc:` with their start
 address.  `s:` moves the user's SP.
 
+**On m65** the line has two more fields, `z:` and `b:` (two hex
+digits each), after `y:`, and its layout depends on the screen
+width.  In 80 columns (80 × 25, 80 × 50) it is one line of 48
+characters:
+
+```
+r pc:XXXX a:XX x:XX y:XX z:XX b:XX s:XX nv-bdizc
+```
+
+In 40 columns (ESC 4) that line does not fit; the m65 40-column
+layout of `r` is not yet stated
+([TODO § M65 slice 2](../TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer),
+P2).  Whatever it becomes, the echoed form re-executes unchanged, as
+on c64.  The parse accepts the fields in any layout.
+
+Bit 5 of the flags field is `E` on the 45GS02; it stays `-` and
+cannot be set, because `RTI` does not load it — user code runs with
+the CPU's `E` = 1.  The fields are assembled under `.ifdef
+PLATFORM_M65` (the KERNAL's frame carries Z and B on the platform,
+whatever the build's CPU set).
+
 ## Workflow example
 
 The program: `1000 ldx #$05 / jsr $1010 / dex / bne $1002 / rts`,
@@ -476,8 +526,10 @@ session can no longer be resumed.
   The kernel runs again only through `cse_brk_handler` /
   `cse_nmi_handler` and their jump to `main_loop_top`.
 - Breakpoints and step BRKs work only in workspace RAM: `b` refuses
-  addresses outside `$0800 ≤ addr < buf_base` (`;?range`), and every
-  step — chained ones included — refuses targets outside it
+  addresses outside `WORKSTART ≤ addr <` the workspace's upper bound
+  (`;?range`) — `$0800 ≤ addr < buf_base` on c64, `$2000 ≤ addr <
+  $C000` on m65 ([platform_layer.md § Constants](../platform_layer.md#constants)) —
+  and every step — chained ones included — refuses targets outside it
   (`;!range`).
 - `o` over a `JSR` or a branch whose fall-through is never reached
   (a routine that does not return, a loop that exits sideways) runs
@@ -485,6 +537,12 @@ session can no longer be resumed.
 - Self-modifying code may overwrite a patched BRK byte between the
   patch and the hit, losing the breakpoint, and `unpatch_all` then
   writes the saved byte over the program's own change.
+- On m65 a break captures the program's bank state (`MAP`, the CPU
+  port, `$D030`) through `hyppo_get_mapping` and the registers
+  themselves, and the resume installs it again; `m d030` shows the
+  kernel's `$D030` while CSE runs (the user's is in `um_d030`), as
+  the c64 shows the VIC registers CSE set
+  ([userland_contract.md § 5.5](../userland_contract.md#55-on-m65)).
 - $0316/$0318 (BRK/NMI vectors) and $FFFE/$FFFA (RAM shadows) belong
   to CSE.  User code that overwrites them bypasses the corresponding
   path ([userland_contract.md § 5](../userland_contract.md#5-interrupt-vector-and-banking-hazards)).

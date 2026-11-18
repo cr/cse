@@ -202,7 +202,7 @@ of the line; anything else (`.oops`, `.co`, `.dbx`) is
 | `.scr` | "text" [, ...] | Emit screen code bytes |
 | `.res` | count [, fill] | Emit `count` fill bytes (default $00) |
 | `.align` | boundary | Emit $00 up to the next multiple |
-| `.bas` | ["text"] | Set the program counter to $0801 and emit a BASIC SYS stub |
+| `.bas` | ["text"] | Set the program counter to BASIC's program start (`$0801`; `$2001` on m65) and emit a BASIC SYS stub |
 
 The assembler runs two passes over the source (sizing, then
 emission); the pass mechanics are [asm_src.md](modules/asm_src.md).
@@ -365,6 +365,13 @@ not read a later-defined symbol: `.const k later+1` is
 program counter to $0801 and emits a single-line BASIC program that
 calls the code immediately following the stub via `SYS`.  Makes the
 assembled PRG auto-runnable: `LOAD "FILE",8,1` then `RUN`.
+
+On m65 the start of BASIC is `$2001` (BASIC 65's, `BASIC_START` in
+[platform_layer.md § Constants](platform_layer.md#constants)): `.bas`
+is an implicit `.org $2001`, and the same line — BASIC 65 has the
+C64's `SYS` and `REM` tokens and line layout — is a program `RUN`
+starts in MEGA65 mode.  The link pointer is computed from the PC, so
+the layout below holds on both platforms.
 
 The SYS address (always 5 decimal digits) is the first byte after
 the BASIC end marker — where `asm_pc` points after `.bas` completes.

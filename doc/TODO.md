@@ -269,11 +269,9 @@ compendium until its golden file, recorded in xmega65, says otherwise.
 
 ## M65 slice 2 — the MEGA65 platform (R7, platform layer)
 
-**Branch:** `m65`.  **Status (2026-11-18):** the harness (S2-3) is
-done; the Step-1 doc delta of P0 has begun
-([platform_layer.md](platform_layer.md), [memory_design.md § Memory
-Map — m65](memory_design.md#memory-map--m65-mega65-mode)); nothing
-else has landed.
+**Branch:** `m65`.  **Status (2026-11-18):** the harness (S2-3) and
+P0 are done (the m65 PRG installs itself and reaches `_main`); P1's
+Step-1 delta is written and its CDD Analysis awaits approval.
 
 **How this plan is read.**  Under CDD the documents are the truth:
 each milestone below is a **Step-1 doc delta** — the documents that
@@ -699,30 +697,223 @@ the register snapshot and `r`.  (The C64 handlers' clearing of P bit
 5 — `E` on the 45GS02 — is harmless: `RTI` and `PLP` do not load
 `E`, recorded.)
 
-Step-1 delta:
-- [ ] `FAR_BANK` at the set sites of the user-memory pointers
-  (`rp_ptr`, `rp_ptr2`, `_dasm_ptr`, `asm_out`, `asm_pc`), each bank
-  checked by the m65 tests of `m`, `.`, `d`, `a` and the debugger.
-- [ ] [userland_contract.md](userland_contract.md) for m65 in full:
-  mode model, state tiers, regions, the vector hazards in
-  vector-table terms, what survives a run and what survives `Q`
-  (nothing promised; checked in xmega65 after the Hypervisor reset).
-- [ ] [platform_layer.md](platform_layer.md): the m65 bodies of
-  the vector, frame and transition seams confirmed against the
-  recording (the five-byte frame, `VECTOR`'s table).
-- [ ] [main.md](modules/main.md) (§ BRK dispatch, § NMI dispatch; no
-  early entry on m65), [debugger.md](modules/debugger.md)
-  (`save_userland_state` on `FRAME_DEPTH`, `return_to_userland`
-  through `PLAT_TO_USER`), [breakpoints.md](modules/breakpoints.md)
-  (patching through the far-memory seam), [design_cse_as_kernel.md](design_cse_as_kernel.md)
-  (the transitions in two-map terms).
-- [ ] [testing.md](testing.md): the lifecycle matrix on m65, the
-  step and breakpoint suites on the m65 PRG, Tier X's BRK in user
-  code.
+Step-1 delta (written 2026-11-18; approved with the CDD Analysis and the revised D-P1-3, 2026-11-18):
+- [x] `FAR_BANK` / `FAR_USER` at the set sites of the user-memory
+  pointers (`rp_ptr`, `rp_ptr2`, `_dasm_ptr`, `asm_out`, `asm_pc`):
+  a **user address** is the address the program sees under the user
+  map, translated by `FAR_USER` (four rows: bank 0, the interface ROM
+  `2.C000`, the I/O bank `FFD.3000`, the KERNAL `3.E000`), each
+  pointer's sites by role in [zp.md](modules/zp.md);
+  [platform_layer.md § Far memory](platform_layer.md#far-memory),
+  [mem.md § far_user](modules/mem.md#far_user-m65-only).
+- [x] [userland_contract.md](userland_contract.md) for m65 in full:
+  the mode model in two-map terms (§ 1), the state tiers with the
+  bank state preserved (§ 2 On m65), base page 0 live, the port's
+  image and the addresses (§ 3), the 8-byte frame in the stack budget
+  (§ 4), the hazards in vector-table terms, reachability and `E`
+  (§ 5.5), the must-list (§ 7).  What survives `Q` was stated with
+  P0.
+- [x] The **bank state** (D-P1-3, revised 2026-11-18): the program's
+  `MAP` setting, CPU port and `$D030` captured at every break — the
+  map through `hyppo_get_mapping` in the resident stub, into the
+  first six bytes of CSE's base page — and installed at every resume;
+  the run premise's at a fresh start;
+  [platform_layer.md § User transitions](platform_layer.md#user-transitions),
+  [mem.md](modules/mem.md) (the stub's shared CSE entry, `stub_user`'s
+  two `MAP`s, `um_map`, `um_d030`, the port as a two-byte
+  `userland_zp_buf`), [zp.md](modules/zp.md),
+  [glossary.md](glossary.md) (*bank state*).
+- [x] [platform_layer.md](platform_layer.md): the user-ZP view's m65
+  body (§ Base page), `FAR_USER` and `FAR_BANK`'s megabyte (§ Far
+  memory), the transition's map and its interrupt window (§ User
+  transitions), `reg_z` / `reg_b` from the frame (§ Interrupt frame),
+  the workspace's upper bound (§ Constants).
+- [x] [main.md](modules/main.md) (`cse_brk_handler`, `cse_nmi_handler`
+  on m65; § BRK dispatch, § NMI dispatch), [debugger.md](modules/debugger.md)
+  (`dbg_init`, `save_userland_state`, `restore_userland_state` through
+  `PLAT_TO_USER`, `brk_stub`, `step_next_pc`, `r` with `z:` and `b:`,
+  the caveats), [breakpoints.md](modules/breakpoints.md) (bank 0 once
+  per loop), [repl.md](modules/repl.md) (the user-ZP view, the range
+  gates, `emit_reg`), [design_cse_as_kernel.md](design_cse_as_kernel.md)
+  (§ 3 and § 4 in two-map terms), [assembler_syntax.md](assembler_syntax.md)
+  (`.bas` at `BASIC_START`).
+- [x] [testing.md § The m65 PRG on M65Emu](testing.md#the-m65-prg-on-m65emu):
+  the debugger at the routine level on M65Emu, the two flat facts and
+  the NMI line in M65Emu, Tier X's break in user code.
 
-Then analysis, TDD and code.  Gate: every debugger contract that is
-platform-neutral passes on the m65 build; `j`, `g`, `c`, `t`, `o`
-and breakpoints work in M65Emu and xmega65.
+**P1 analysis record (2026-11-18), doc against code — approved 2026-11-18.**
+An inventory of every set site of the five pointers (66 sites;
+recorded by role in zp.md) and of the pending sites (P1: 4).  Found:
+
+- **`rp_ptr` is mostly CSE's line parser**, not a user pointer: 22
+  of its 35 sites walk `line_buf` (bank 3), rooted at one `exec_line`
+  site and three restores from `expr_ptr` / `rp_addr`.  On m65 today
+  every parse reads bank 0 — the bank the loader left — so the m65
+  REPL could not have parsed a line; the four root sites get `FAR_BANK
+  rp_ptr, BANK_CSE`.  Its user sites (`brk_skip_user`, `step_next_pc`,
+  the breakpoint loops) all run after the line is parsed.  Four sites
+  are the screen (P2).
+- **A user address needs a translation, not a bank**: `$C000–$FFFF`
+  under the user map is the interface ROM, I/O and the KERNAL, which
+  a bank-0 flat access misses (a `t` at a break inside a KERNAL call
+  would disassemble RAM).  From the xemu source, to be recorded: a
+  flat access to `0`/`1` reaches the CPU port; the MEGA65
+  personality's I/O is at `FFD.3000`.
+- **The workspace gates compare against `buf_base`** (`b`, the step
+  gate, the assembler's emit gate), which on m65 is an offset in the
+  source bank: the upper bound becomes a platform fact (`buf_base` /
+  `HIMEM`).  `bp_range_check`'s `cpx #$08` is `WORKSTART`'s literal.
+- **`.bas` hard-codes `$0801`** (asm_src.s `d_bas`), a literal the
+  audit's address classes miss: it becomes `BASIC_START`.
+- `asm_pc` and `_dasm_ptr` need no set site (gated / not read in the
+  product); `asm_out` switches between a user address (`.`) and CSE's
+  buffers (`a`); `compose_disk_name` reads `rp_ptr2` set either in
+  bank 3 or in CSE's base page (bank 0).
+- `hygiene_after_userland` (`PLAT_HYGIENE`, the display) is P2's, so
+  on m65 every return from user code ends at a pending body until P2:
+  P1's tests stop there (testing.md).
+
+Decisions for approval:
+- **D-P1-1** User addresses through the user map (`FAR_USER`, four
+  rows), not bank 0 only — +~35 B on m65, nothing on c64.
+- **D-P1-2** A run past a row's edge is not translated again (`m
+  bffc`'s last columns show `0.C000`; past `$FFFF` reaches `4.0000`):
+  documented, not handled.
+- **D-P1-3** (revised; operator, 2026-11-18: "the debugger must
+  remain transparent … we go the hyppo route") The program's bank
+  state is captured at every break and installed at every resume:
+  the map through `hyppo_get_mapping` (the CPU has no instruction
+  that reads `MAP`, book 14-42; the KERNAL's own convention — whoever
+  sets `MAP` keeps its record, I-31, I-79/80 — cannot be asked of a
+  debugged program), and with it the CPU port, which the trap needs
+  (it is an I/O store) and which makes `m 00`/`m 01` the program's as
+  on c64, and `$D030`.  The first draft's "the map is lost at a
+  break, it cannot be read" was a claim from memory, not checked
+  against the book — withdrawn.  Costs: one Hypervisor trap per
+  break; the stub's shared CSE entry (≈ 80 of 80 bytes — if it does
+  not fit, `STUB_BASE` moves down); M65Emu models the trap, recorded
+  on both ROMs.
+- **D-P1-4** `r` shows `z:` and `b:` on m65; bit 5 (`E`) stays `-`.
+  The layout depends on the width (operator, 2026-11-18): the one-line
+  80-column form now, the 40-column form a P2 item.
+- **D-P1-5** The gate below is met at the routine level; the typed
+  commands on m65 move to P2's gate.
+
+Gate: every debugger contract that is platform-neutral passes on the
+m65 build at the routine level — a fresh start, `RTS`, a user `BRK`,
+a breakpoint and its resume, the NMI in user and kernel code, the `t`
+/ `o` chain — in M65Emu, and a break in user code in xmega65; the
+pending count for P1 at zero; the C64 PRGs byte-identical.  The same
+commands typed at the prompt are P2's gate.
+
+**P1 TDD analysis (2026-11-18) — approved 2026-11-18**, with `r`'s
+layout split by width (80 columns now, 40 columns a P2 item).  The tests, written
+first, in this order; each is red until its code lands.  Automation
+judgement: everything P1 states is automatable on M65Emu with the real
+ROM and the installed PRG — the BRKs, NMIs and `MAP`s run through the
+real KERNAL's interrupt entry, so no frame is faked (unlike the C64's
+`_fake_brk_at`); only what is *rendered* waits, because `io_putc`
+writes the screen through P2's row tables.  Tier X confirms the two
+recorded behaviours M65Emu models and one round trip end to end.
+
+- [ ] T1. M65Emu, flat accesses: `capture_m65_mem.py` records a flat
+  read and write of `0.0000`/`0.0001` (the CPU port, under both maps)
+  and of `FFD.3000–FFD.3FFF` under each `$D02F` key; `M65Memory` models
+  both; `test_m65memory.py` replays them.  (Harness, `tests/m65emu/`.)
+- [ ] T2. M65Emu, `hyppo_get_mapping`: `capture_m65_premise.py`
+  records, on both ROMs, the six bytes for the user map, the CSE map
+  and a map with a megabyte offset (the Attic's `$80`; MB `$08`
+  crashes xmega65), whether `Y` names a CPU-view or a flat bank-0
+  page, the registers and SP after the trap, and the trap from an
+  interrupt handler with I set; the `Hypervisor` device answers it,
+  every other trap still raises (`test_m65devices.py`).  A recording
+  that contradicts the delta (the destination, a clobber) is a
+  feedback round before the stub is written.
+- [ ] T3. M65Emu, the NMI: `schedule_nmi` on the m65 snapshot enters
+  the KERNAL's NMI entry, which pushes the five-byte frame and jumps
+  through `INMI` (`test_m65emu_harness.py`); and `MAP` holds an NMI
+  until `EOM` (the stress test T10 n relies on it).
+- [ ] T4. `FAR_USER` / `far_user` and `FAR_BANK`'s megabyte, in the m65
+  macro bundle on M65Emu in clean mode (`test_platform_m65.py`): each
+  row's edges — `$0000`, `$0001` (the live port), `$1F00`, `$BFFF`,
+  `$C000`, `$CFFF`, `$D000`, `$D020`, `$DFFF`, `$E000`, `$FFFF` — read
+  and written through the pointer; A, X, Y preserved by the routine;
+  a pointer set to I/O and then `FAR_BANK`'d reaches bank 3, not
+  `FFD.xxxx`; D-P1-2's edge pinned (`$BFFC` + Y = 4 reaches `0.C000`).
+- [ ] T5. The workspace bound on m65, on the installed PRG by `jsr`
+  (`tests/integration/test_m65_debugger.py`): `bp_range_check` refuses
+  `$1FFF` and `$C000` and takes `$2000` and `$BFFF`;
+  `bp_range_check_step` also takes `brk_stub`; `_emit_byte` writes
+  `$2000` and `$BFFF` and drops `$C000` with `_oor` set.  The c64 side
+  is the existing suite plus the hash gate.
+- [ ] T6. The line parser in bank 3: `exec_line` on m65 with `r z:12
+  b:16 x:05` in `line_buf`, stopped at `emit_reg` (rendering is P2's):
+  `reg_x` = 5, `reg_z` = `$12`, `reg_b` = `$16`; a malformed field
+  changes nothing (`;?syntax` path reached).  Red today: the parser
+  reads bank 0.
+- [ ] T7. The user-ZP view on m65 (`jsr` on the installed PRG):
+  `zp_stage_prep` and `peek_user` take `$00`/`$01` from the captured
+  port and every other base-page byte live from base page 0;
+  `zp_poke` to `$00`/`$01` lands in the captured port, to `$02` in
+  base page 0; a run from `$FFFC` stages the port from the image for
+  its wrapped part (the c64 code's wrap) — the live part follows
+  D-P1-2.
+- [ ] T8. The transitions (`test_m65_debugger.py`, each ROM; the m65
+  counterpart of `test_kernel_transition.py`, real user code entered
+  through `return_to_userland` / `restore_userland_state`, stopped at
+  `hygiene_after_userland`, or at `cse_refresh` / `cse_recover`): a.
+  fresh start and `RTS` (`DBG_RTS`, `brk_pc` = `cur_addr`, the sentinel
+  at `$01F0`/`$01F1`); b. a user `BRK` with every register non-zero,
+  `Z` and `B` among them (`B` set to a page of the program's); c. a
+  breakpoint hit, the byte restored, then the resume running on to
+  the `RTS`; d. an NMI in user code (`DBG_NMI`, the exact PC); e. an
+  NMI in kernel code → `cse_refresh`, a live session's captured
+  state unchanged; f. a `BRK` in kernel code → `cse_recover`, likewise;
+  g. a `t` / `o` chain over a `JSR` and a taken branch, with
+  `step_next_pc` and `arm_step_bp` as `cmd_step` uses them, SP bounded
+  over 20 steps; h. user pushes above SP survive a break and a resume;
+  i. `reg_sp` = the SP before the BRK (the 8-byte frame); j. base page
+  0 untouched by the kernel across a break and resume (all 256 bytes,
+  a pattern).
+- [ ] T9. The bank state (`test_m65_debugger.py`, each ROM; Principle
+  7's stress shape): parametrised over a program that maps its own
+  window (MAPLO offset, MAPHI with the Attic megabyte), one that banks
+  the I/O out through the port, one that changes `$D030`, and all
+  three; each breaks by breakpoint, step, user `BRK` and NMI, and after
+  the resume reads back exactly what it set (`memory.flat_of()` over
+  the CPU view, the port, `$D030`).  A `j` after such a run starts with
+  the run premise's state.  The stress case: an NMI scheduled at each
+  instruction from `PLAT_TO_USER`'s first store to `stub_user`'s `RTI`,
+  each run resumed with `c` — the program completes as without it.
+- [ ] T10. Tier X (`tests/emulator/test_m65_boot.py`, each ROM): a
+  user `BRK` stopped at `hygiene_after_userland` with the snapshot, the
+  CSE map and `B = CSE_BP` as M65Emu has them; a program that maps a
+  window and banks the I/O out, breaks, is resumed through
+  `restore_userland_state` from the monitor, and stores what it reads
+  back where the test finds it.
+- [ ] T11. The gates: the P1 pending count zero
+  (`test_platform_audit.py`'s recorded counts: P1 4 → 0); the C64
+  release PRGs byte-identical after every commit (T1 of P0); the m65
+  areas bounded (P0's T4 — the stub's 80 bytes among them).
+
+Not automated now, by design (vocal skips in `test_m65_debugger.py`,
+pattern A, pointing at P2): the break panel, `emit_reg`'s line with
+`z:` and `b:`, `m`'s and `.`'s rendering, and every command typed at
+the prompt — P2's gate (D-P1-5).  `.bas` at `$2001` runs only through
+`a`, whose source side is P2's: the c64 bytes are pinned by the hash
+gate now, the m65 address by P2's `a` test.
+
+Then the code, in this order — (1) the harness: T1, T2, T3; (2) the
+far pointers: `far_user` and `FAR_USER`, `FAR_BANK`'s megabyte, the
+set sites by zp.md's roles, the workspace bound, `.bas` — T4, T5, T6;
+(3) the bank state, the stub and the handlers: `um_map`, `um_d030`,
+the port image (`ZP_SAVE_LEN` 2), the stub's shared entry and
+`stub_user`, `PLAT_TO_USER`, `setup_interrupts` through `VECTOR`, the
+handlers' m65 bodies, `save_userland_state`'s `Z` and `B`, the seeds
+— T7, T8, T9; (4) `r`'s `z:` / `b:` fields (T6's last part), Tier X
+(T10), the pending count (T11).  One commit per step at least, the
+hash gate green in each; optimization.md applies to every m65 body
+(the stub first: it must fit its 80 bytes).
 
 **P2 — the KERNAL API layer: screen and keyboard.**
 
@@ -742,6 +933,13 @@ Step-1 delta:
   [log.md](modules/log.md): width-driven layouts (`m`/`d`/`.` line
   formats, the status bar, `warn_long_lines`' width), no platform
   literals; the screen save sized by the mode.
+- [ ] **`r` in 40 columns on m65** (operator, 2026-11-18: `r` must
+  differentiate between the 40- and 80-column layouts; 80 first).
+  The m65 line with `z:` and `b:` is 48 characters, too wide for 40 ×
+  25: state its 40-column layout in
+  [debugger.md § `r`](modules/debugger.md#r) — one that re-executes
+  when echoed and edited in place, as the 80-column line does — and
+  `emit_reg`'s choice by the current width.
 - [ ] [README.md](../README.md): the MEGA65 chapter's screen modes
   and keys (TAB as the editor's tab, HELP, F9–F14, ALT/MEGA/CTRL
   combinations), function-key macros off while CSE runs.
@@ -750,7 +948,9 @@ Step-1 delta:
   commands through the typing queue.
 
 Gate: `?`, `m`, `.`, the editor and `Q` at 80 × 25 in M65Emu and
-xmega65; 40 × 25 and 80 × 50 render.
+xmega65; 40 × 25 and 80 × 50 render; the debugger commands typed at
+the prompt (`j`, `g`, `c`, `t`, `o`, `b`, `r`, `d`) and the lifecycle
+matrix through the REPL (moved from P1, D-P1-5).
 
 **P3 — disk, exit and the three distribution formats.**
 

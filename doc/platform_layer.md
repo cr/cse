@@ -131,13 +131,15 @@ platform lacks is absent there, so a stray use fails to assemble.
 | `FRAME_DEPTH` | 3 | 5 ([§ Interrupt frame](#interrupt-frame)) |
 | Homes — the names (`HIMEM`, `WORKSTART`, `BASIC_START`, `SYM_TABLE`, `SYM_HEAP`, `KDATA_RUN`, `REPL_SCREEN`, `COLD_ZP`, `CSE_BP`, `STUB_BASE`, `BUF_FLOOR`, `BUF_END`, `PROG_LO`, `PROG_HI`) | values: [memory_design.md § Memory Map — Runtime](memory_design.md#memory-map--runtime-c64-builds) and § Banked layout | values: [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) |
 | `ROM_BASE_HI` (the debugger does not step into ROM) | `$E0` | `$C0` (the interface ROM at `$C000` in the user map) |
+| The workspace's upper bound (`b`, the step gate, the assembler's emit gate: `WORKSTART` ≤ address < the bound) | `buf_base`: the source text's base, dynamic ([gap_buffer.md](modules/gap_buffer.md)) | `HIMEM` (`$C000`): fixed and page-aligned, so a high-byte compare; the source text is not in bank 0 |
 | User ZP | [§ Base page](#base-page) | [§ Base page](#base-page) |
 | `STACK_TOP` | [§ Stack](#stack) | [§ Stack](#stack) |
 | Screen geometry | `SCREEN $0400`, `COLOR_RAM $D800`, `SCREEN_WIDTH 40`, `SCREEN_HEIGHT 25` and the sizes derived from them (the editor's 22 rows, its status columns, the 1000-, 920-, 880- and 80-byte copies) | read from the hardware and `SCRORG` at run time — *stated with P2* |
 | VIC | `$D011`, `$D015`, `$D016`, `$D018`, `$D019`, `$D01A`, `$D020`, `$D021` | VIC-IV — *stated with P2* |
 | SID | `$D400`, `$D401`, `$D404`, `$D40B`, `$D412`, `$D418` | the same |
 | BASIC format | `SYS` token `$9E`, `REM` token `$8F` | the same in BASIC 65 |
-| CPU-port seeds | `$00 = $2F`, `$01 = $36` | none: the m65 build never touches the CPU port |
+| CPU-port seeds | `$00 = $2F`, `$01 = $36` | the run premise's `$00 = $FF`, `$01 = $85`: the kernel's port while CSE runs, and a fresh start's ([§ User transitions](#user-transitions)) |
+| `$D030` seed (m65) | — | `$64`, the run premise's: the kernel's while CSE runs, and a fresh start's |
 | DMAgic | none | the job-list address and trigger registers `$D700–$D705` (the loader's install, `_main`'s step 11); the F018B option and the job commands |
 | The free-ZP fill (`_main` step 10) | `ZP_BASE` `$00`, `ZP_FILL_END` `$80` | `ZP_BASE` `$00`, `ZP_FILL_END` = `STUB_BASE`'s low byte: the free part of CSE's base page |
 | The jump-table page (the loader's gate) | none | `KERNAL_JUMP_PAGE` `$FF00`: every entry CSE calls is in it |
@@ -151,6 +153,7 @@ is `lda #<service>` · `sta <register>` · `clv`:
 |---|---|---|---|
 | `hyppo_getversion` | `$D640 ← $00` | Out: A.X = Hyppo version, Y.Z = HDOS version | — |
 | `hyppo_rom_writeenable` | `$D641 ← $02` | — | banks 2–3 become writable; idempotent |
+| `hyppo_get_mapping` | `$D640 ← $74` | In: Y = the destination page (`$00–$7E`) | the current `MAP` setting written to `$YY00–$YY05`: MAPLO, MAPHI (big-endian words), the two megabytes (book N-45) — the resident stub's capture |
 | `hyppo_reset` | `$D640 ← $7E` | does not return | warm boot: the ROM banks are reloaded from the SD card and the KERNAL boots to BASIC 65 |
 
 ### KERNAL calls
@@ -200,9 +203,10 @@ On m65 `B = CSE_BP` is set by the resident stub's CSE entries and
 restored by every `KCALL`; the KERNAL's interrupt entry saves `B` and
 sets `B = 0` for itself ([§ Interrupt frame](#interrupt-frame)), so
 an interrupt during kernel code finds its own base page, and the
-user's `B` travels in the frame.  Three consequences for code: the
-m65 kernel never reaches the CPU port (with `B = $1F` a base-page
-access to `$00` is `0.1F00`); a KERNAL cell in base page 0, where one
+user's `B` travels in the frame.  Three consequences for code: a
+base-page access never reaches the CPU port (with `B = $1F` a
+base-page access to `$00` is `0.1F00`; the transitions reach it with
+absolute addressing); a KERNAL cell in base page 0, where one
 must be read, is read with absolute addressing (`a:$xx`); and the
 converse — an access to a CSE base-page symbol in an *absolute* mode
 (`jmp (sym)`, `op sym,y` where no zero-page,y form exists, i.e.
@@ -220,9 +224,22 @@ A static check pins the rule ([§ Gates](#gates)).
 
 The user-ZP swap is mem.s's four primitives, their two buffers and
 debugger.s's seeds, all `.ifdef PLATFORM_C64`; on m65 the transitions
-switch `B` and `save_userland_state`'s swap tail is an `rts`.  The
-user-ZP view of `m` and `.` (repl.s's `zp_stage_prep`, `zp_poke`;
-debugger.s's `peek_user`) is `PLAT_PENDING 1` on m65.
+switch `B` and `save_userland_state`'s swap tail is an `rts`.
+
+The **user-ZP view** of `m`, `.` and the step engine (repl.s's
+`zp_stage_prep`, `zp_poke`; debugger.s's `peek_user`): on c64 the
+saved image `userland_zp_buf` for `$00–$7F`
+([repl.md § User-ZP view](modules/repl.md#user-zp-view)); on m65
+base page 0 itself, live, through the far pointer, except the CPU
+port: CSE never writes base page 0, but it swaps the port at every
+transition ([§ User transitions](#user-transitions)), so `$00`/`$01`
+have an image, the captured port.  The three routines are the c64
+bodies with the save range two bytes long — `ZP_SAVE_LO` = 0,
+`ZP_SAVE_LEN` = 2, and `userland_zp_buf` the captured port in CSE's
+base page, addressed `BP_ABS(userland_zp_buf)` (on c64 the same
+expansion as today).  A flat access to `0.0000`/`0.0001` reaches the
+live port (the xemu source; recorded with P1), which is the kernel's
+while CSE runs and is therefore never shown.
 
 ### Stack
 
@@ -288,16 +305,51 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   `BANK_USER` (0: user memory, the screen in 40 × 25 and 80 × 25, the
   KERNAL's pages), `BANK_SCREEN50` (4: the screen in 80 × 50),
   `BANK_SRC` (2: the source region), `BANK_CSE` (3: CSE's code and
-  data — the CSE map's `$2000–$BFFF` is flat `3.2000–3.BFFF`).  A
-  pointer that serves user memory and CSE scratch alike carries
-  whichever bank it was set to.  A pointer's `FAR_BANK` sites are
-  written with the milestone whose tests first run its module on m65,
-  so each bank is decided where a test can check it: P1 the
-  user-memory pointers (`rp_ptr`, `rp_ptr2`, `_dasm_ptr`, `asm_out`,
-  `asm_pc`), P2 the screen, string and source pointers (`ed_scr`,
-  `_io_tmp`, `gap_lo`, `gap_hi`, `buf_base`, `ed_top_ptr`,
+  data — the CSE map's `$2000–$BFFF` is flat `3.2000–3.BFFF`).  On
+  m65 `FAR_BANK` also clears byte 3 (the megabyte), which only
+  `FAR_USER` sets.  A pointer that serves user memory and CSE scratch
+  alike carries whichever bank it was set to.  A pointer's `FAR_BANK`
+  sites are written with the milestone whose tests first run its
+  module on m65, so each bank is decided where a test can check it:
+  P1 the user-memory pointers (`rp_ptr`, `rp_ptr2`, `_dasm_ptr`,
+  `asm_out`, `asm_pc`), P2 the screen, string and source pointers
+  (`ed_scr`, `_io_tmp`, `gap_lo`, `gap_hi`, `buf_base`, `ed_top_ptr`,
   `read_ptr`, `ed_tmp`), P3 `disk_ptr`.  Until then a far pointer's
-  bank is 0 (`BANK_USER`): the loader clears CSE's base page.
+  bank is 0 (`BANK_USER`): the loader clears CSE's base page.  A
+  pointer that only ever reaches bank 0 below `$C000` has no set
+  site at all: its bank is the loader's 0 for the whole session, and
+  zp.md says so in its entry.
+- **User addresses:** `FAR_USER name` (macro) — the pointer's
+  offset holds a *user address*, the 16-bit address user code sees
+  (what `m`, `.`, `d`, `a`, `b`, `j`, `g`, `brk_pc` and the step
+  engine name); it sets the bank and megabyte to where that address
+  is in the user map
+  ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)).
+  c64: empty — the kernel's view is the user's (`$01 = $36`, the
+  user-ZP view aside).  m65: `ldx #name` · `jsr far_user` (mem.s,
+  [mem.md § far_user](modules/mem.md#far_user-m65-only)); **Clobbers:**
+  X, N/Z.
+
+  | User address | Far address (m65) |
+  |---|---|
+  | `$0000–$BFFF` | `0.0000–0.BFFF`: base page 0 (the CPU port at `$00`/`$01`), the stack, the KERNAL's pages, CSE's page, the program region |
+  | `$C000–$CFFF` | `2.C000–2.CFFF`: the interface ROM |
+  | `$D000–$DFFF` | `FFD.3000–FFD.3FFF`: the I/O registers of the MEGA65 personality (offset `$3000–$3FFF`, bank `$FD`, megabyte `$0F`) — the one row that rewrites the offset's high byte |
+  | `$E000–$FFFF` | `3.E000–3.FFFF`: the KERNAL |
+
+  The translation is made where the pointer is set, for the row of
+  the address it is set to.  An access or a walk that runs past the
+  row's end (pointer + `Y`, or an `inc` of the high byte, across
+  `$C000`, `$D000`, `$E000` or `$FFFF`) is not translated again: it
+  reaches the next flat bytes of the same bank — `m bffc` shows
+  `0.C000–0.C003` in its last four columns, not the interface ROM,
+  and a run past `$FFFF` reaches `4.0000`, not `$0000`.  Only the
+  rows' edges are affected; the c64 is not.  Code that needs the user
+  address after `FAR_USER` reads it from where it came (`rp_addr`,
+  `brk_pc`, the breakpoint table), never from the pointer, whose high
+  byte the I/O row rewrites.  The P1 analysis lists every set site of
+  the five user-memory pointers with its row
+  ([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)).
 - **Access:** `FAR_LDA name` / `FAR_STA name` — `A` ← / → the byte at
   the pointer + `Y`; `FAR_ORA name` — `A` ← `A` OR that byte (disk.s's
   directory walk tests a link for zero).
@@ -331,7 +383,47 @@ user's registers, P and SP, in the user machine of
 | Platform | `PLAT_TO_USER` | User → kernel |
 |---|---|---|
 | c64 | `ldx reg_x` · `ldy reg_y` · `lda reg_a` · `rti` | the vectors reach the handlers directly |
-| m65 | push `reg_a`, `reg_x`, `reg_y`, `reg_z`, `reg_b` above the RTI frame; `jmp stub_user` | the vectors reach the resident stub's BRK and NMI entries, which restore the CSE map and base page and jump to the handlers |
+| m65 | `$D030` and the CPU port back to the user's; push `reg_a`, `reg_x`, `reg_y`, `reg_z`, `reg_b` and the user map's `MAP` operands above the RTI frame, load the megabyte operands; `jmp stub_user` | the vectors reach the resident stub's BRK and NMI entries, which capture the user's bank state, restore the CSE map and base page and jump to the handlers |
+
+**The user's bank state (m65).**  The debugger is transparent to the
+program's banking as it is to its registers: a break captures the
+**bank state** — the `MAP` setting (both halves' offsets, selection
+masks and megabytes), the CPU port (`$00`, `$01`) and `$D030` — and
+the resume installs exactly that state again.  A program cannot be
+expected to tell the kernel how it mapped (the KERNAL's own
+convention, that whoever sets `MAP` keeps its record — book I-31,
+I-79/80 — covers cooperating code, not a debugged program), so CSE
+reads it: the CPU has no instruction that reads `MAP` (book 14-42),
+and the Hypervisor's `hyppo_get_mapping` does ([§ Constants](#constants)).
+
+- **Capture** (the stub's BRK and NMI entries, under the program's
+  map, before they switch maps; userland only — an entry with
+  `in_userland` clear captures nothing, so a kernel fault or a
+  RUN/STOP+RESTORE at the prompt never overwrites a live session's
+  state): the CPU port saved and set to the run premise's (`$FF` /
+  `$85`), which makes the I/O visible for the trap whatever the
+  program banked out; `hyppo_get_mapping` into the first six bytes of
+  CSE's base page (the trap writes at a page start: `0.1F00`).  The
+  handler then saves `$D030` and sets the premise's (`$64`) before
+  the kernel uses the interface ROM.
+- **Install** (`PLAT_TO_USER` and `stub_user`): `$D030`, then the
+  CPU port, back to the captured values while the kernel's code is
+  still mapped (neither moves the CSE map's code and data windows,
+  which `MAP` places); the map in `stub_user`, megabytes first, then
+  offsets and masks — the second `MAP`'s operands on the stack —
+  and `EOM` once.
+- **Fresh start** (`j`, `g`): the bank state is the run premise's —
+  the user map, the port `$FF` / `$85`, `$D030` = `$64` — written into
+  the saved state by `return_to_userland`, so a run starts as `RUN`
+  starts a program whatever the last one left.
+
+The transition is atomic only between `MAP` and `EOM`; a break
+elsewhere in it is resumable: before `stub_user`'s `MAP` the
+interrupted code is the kernel's tail under the CSE map with
+`in_userland` set, and the resume re-enters that tail with the
+operands still on the stack above `reg_sp`; after `EOM` it is the
+stub's pops under the user map.  Every such point is a test
+([testing.md § The m65 PRG on M65Emu](testing.md#the-m65-prg-on-m65emu)).
 
 The resident stub, its entries and `brk_stub`'s place in it are
 [mem.md § The resident stub](modules/mem.md#the-resident-stub-m65-only)'s;
@@ -364,8 +456,13 @@ PCL, PCH) when control reaches `cse_brk_handler` or
 
 On m65 `RTI` and `PLP` do not load the `E` flag (P bit 5); the stack
 mode is the CPU's, not the frame's.  The c64 handlers' clearing of
-bit 5 in `reg_p` is therefore harmless on m65.  The m65 handler bodies
-are *stated with P1*.
+bit 5 in `reg_p` is therefore harmless on m65.
+
+On m65 `save_userland_state` also reads `reg_z` (P − 4) and `reg_b`
+(P − 5); the BRK and the NMI frame are the same shape, so
+`cse_nmi_handler` pushes nothing of its own there.  The handler
+bodies are [main.md § cse_brk_handler](modules/main.md#cse_brk_handler)'s
+and [§ cse_nmi_handler](modules/main.md#cse_nmi_handler)'s.
 
 ### IRQ early entry
 

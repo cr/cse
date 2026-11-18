@@ -44,6 +44,19 @@ RUN/STOP+RESTORE screen recovery; the debug context is kept).
 Mechanism: [main.md § cse_brk_handler](modules/main.md#cse_brk_handler),
 [§ cse_nmi_handler](modules/main.md#cse_nmi_handler).
 
+**On m65** the model is the same; what moves is the map and the base
+page.  Kernel mode runs under the CSE map with `B = $1F` (CSE's own
+base page, `0.1F00`); userland runs under the program's map — the
+user map at a fresh start, whatever the program set since — with the
+user's `B`.  The resident stub in CSE's page switches them: its user
+entry installs the program's map and registers before the RTI,
+and every BRK and NMI reaches it through the KERNAL's interrupt
+entry, which pushes A X Y Z B and sets `B = 0`, and leaves it under
+the CSE map ([platform_layer.md § User transitions](platform_layer.md#user-transitions)).
+The program's bank state (its map, CPU port and `$D030`) is captured
+at the break and installed at the resume; nothing else of base page 0
+is swapped, because CSE never writes it.
+
 ### Ending a debug session
 
 A break leaves a debug session behind (`c`, `t`, `o` continue it).
@@ -133,6 +146,33 @@ User code's view of CPU and memory state, by tier:
   positions, colours, expansion and priority survive.
 - **CIAs** beyond what the KERNAL's IRQ handling perturbs.
 
+### On m65
+
+The four tiers, for a program run under CSE on the MEGA65
+([§ 3 On m65](#on-m65) for the regions):
+
+- **Preserved:** the registers `A`, `X`, `Y`, `Z`, `B`, `P`, `PC` and
+  `SP` (the decimal flag as on c64; `E` stays 1, § 5.5); the **bank
+  state** — the `MAP` setting, the CPU port and `$D030` — captured at
+  every break and installed again by every resume, so a break inside
+  the program's own mapping resumes inside it; base page 0 entirely,
+  wherever `B` points — CSE never writes it, so there is no image to
+  swap (the port aside); the user's stack above SP (§ 4); the user's memory:
+  `0.1600–0.1EFF`, the program region, bank 1 above the DOS buffers,
+  banks 4 and 5, the Attic RAM.
+- **Clobbered:** the screen and colour RAM, the VIC-IV state CSE
+  forces on every return, the KERNAL cells the calls CSE makes write,
+  the SID's three voice gates — the screen-side list is *stated with
+  P2*; the stack below the user's SP (§ 4).
+- **Compromised:** the IEC and disk state, interrupt timing — as on
+  c64.
+- **Untouched:** the I/O personality; bank 1, banks 4–5 and the Attic
+  RAM.
+
+A fresh start (`j`, `g`) does not take the last run's bank state: it
+installs the run premise's — the user map, the port `$FF` / `$85`,
+`$D030` = `$64` — as `RUN` would.
+
 ## 3. Memory regions
 
 | Region | Address | User code may use |
@@ -203,7 +243,21 @@ CSE's debugger.  BASIC 65 itself is gone while CSE runs; a program
 that calls into BASIC 65's ROM code does not work under CSE.
 
 **Zero page.**  `m` and `.` on `$00–$FF` show and edit base page 0
-itself: there is no swapped image on m65 — *stated with P1*.
+itself, live, because CSE never writes it — except `$00` and `$01`,
+the CPU port, which CSE swaps like the rest of the bank state: there
+`m` and `.` show and edit the program's port, as on c64.
+A program that sets `B` elsewhere has its base page there; `m` shows
+memory by address, and `r` shows `B`.
+
+**Addresses.**  An address given to `m`, `.`, `d`, `a`, `b`, `j` or
+`g`, and the PC of a break, is the 16-bit address the program sees
+under the user map: `$0000–$BFFF` bank 0, `$C000–$CFFF` the
+interface ROM, `$D000–$DFFF` the I/O registers, `$E000–$FFFF` the
+KERNAL ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
+Breakpoints and step targets must lie in the program region,
+`$2000–$BFFF` ([debugger.md § Caveats](modules/debugger.md#caveats)).
+The other banks are reached by the program itself, not by these
+commands.
 
 **Stack.**  Shared as on c64 (§ 4), with its top at `$01F1`
 (`STACK_TOP`, [platform_layer.md § Stack](platform_layer.md#stack)):
@@ -217,9 +271,8 @@ nothing across it; the source text is lost (CSE warns when it is
 unsaved).  Observed, not promised: banks 0, 4 and 5 keep what they
 hold, bank 1 is cleared.
 
-The rest of the m65 contract — the state tiers, the vector and map
-hazards — is stated with P1 of
-[TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer).
+The state tiers on m65 are [§ 2 On m65](#on-m65)'s, the vector and
+map hazards [§ 5.5](#55-on-m65)'s.
 
 ## 4. Stack contract
 
@@ -264,8 +317,9 @@ kernel and must not be relied on across a break.
 
 **User code must leave at least 64 bytes of stack below its SP** when
 a break may occur.  The 64 bytes hold the BRK frame (6 bytes: 3 CPU,
-3 KERNAL push), the handler's call chain, and the REPL commands
-typed at a break (`m`, `.`, `d`, `r`, stepping), with margin.
+3 KERNAL push; on m65 8 bytes: 3 CPU, 5 KERNAL push), the handler's
+call chain, and the REPL commands typed at a break (`m`, `.`, `d`,
+`r`, stepping), with margin.
 
 The deepest kernel path, the assembler, never runs on a break's
 stack: `a` with a live session ends the session first (§ 1), which
@@ -342,6 +396,36 @@ banking are individually safe but combined dangerously**.  The
 kernel's invariant is "vectors at $FFFE/$FFFA always point at code
 that is reachable in the current banking state."
 
+### 5.5 On m65
+
+The KERNAL's vector table ([platform_layer.md § Vectors](platform_layer.md#vectors))
+replaces the C64's page-3 vectors and RAM shadows; the hazards are
+stated in its terms.
+
+- **`IBRK` and `INMI`** (vector-table offsets 2 and 4) lead to CSE's
+  resident stub.  A program that replaces them through `VECTOR` (or
+  writes the table) loses breakpoints, the clean exit and the
+  RUN/STOP+RESTORE escape as in § 5.1 and § 5.2; a program that wants
+  its own BRK handling chains to the vector it found there.  `IIRQ`
+  is the program's as it is BASIC's program's.
+- **CSE's page** (`0.1F00–0.1FFF`: the base page and the stub) must
+  survive: every break and every return passes through the stub, and
+  a program that overwrites it breaks both.
+- **`MAP`, the CPU port and `$D030`.**  A program may map and bank as
+  it likes while it runs; the debugger captures all three at a break
+  and installs them again at the resume (§ 2 On m65).  What a break
+  needs is only that it can reach CSE: the KERNAL mapped at `$E000`
+  while interrupts can occur (its interrupt entry and the vector
+  fetch run under the current map — book 14-23) and CSE's page
+  visible at `$1F00` (block 0 unmapped) — a program that maps either
+  away cannot break, as it could not take an interrupt under BASIC
+  65.  The capture runs the Hypervisor's `hyppo_get_mapping`, so a
+  break costs one Hypervisor trap.
+- **`E`** (the 8-bit stack).  User code runs with `E` = 1 and must
+  have it set again when a break can occur; a break with `E` = 0 puts
+  the KERNAL's frame where an 8-bit stack does not find it.  A
+  private 16-bit stack for programs is analysis task A2's.
+
 ## 6. KERNAL-as-terminal affordance
 
 Because CSE leaves the kernal functional and the REPL writes through
@@ -406,6 +490,13 @@ When user code is `j`/`g`/`c`/`t`/`o`-launched, it can rely on:
    overwrote the sentinel, § 4).
 7. The workspace ($0800–workend) is the user's; CSE writes it only
    when asked.
+
+On m65 items 3 and 5–7 hold as stated, with the program region
+(`$2000–$BFFF`) for the workspace; item 1 waits for P2's screen
+contract.  User code on m65 **must** keep CSE's page
+(`0.1F00–0.1FFF`), the KERNAL's pages (`0.0200–0.15FF`), `IBRK` and
+`INMI`, the KERNAL mapped at `$E000` and block 0 unmapped, and `E` =
+1 at a break (§ 5.5).
 
 User code **must**:
 

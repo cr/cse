@@ -86,7 +86,18 @@ break → `restore_userland_state` (step chain) or `handler_finalize`
 **Clobbers:** everything; live ZP $00–$7F becomes the kernel's
 again.
 
-**On m65:** *stated with P1* ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame), § Banking).
+**On m65:** **In:** entered from the resident stub's BRK entry
+(`stub_brk`, reached through `IBRK`) under the CSE map with `B =
+CSE_BP`: SP+1..SP+8 = B, Z, Y, X, A, P, PCL, PCH — the KERNAL's
+frame ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame)).
+**Out:** as on c64; `reg_z` and `reg_b` captured beside the other
+registers; the user's bank state captured — the port and the map by
+the stub, `$D030` (into `um_d030`, then the premise's `$64`) by the
+handler's first steps, before `save_userland_state`; base page 0
+untouched (no swap).  The same sequence
+(§ BRK dispatch); `brk_stub` is the stub's
+([mem.md § The resident stub](mem.md#the-resident-stub-m65-only)).
+**Clobbers:** everything.
 
 ### cse_nmi_handler
 **In:** entered via $0318 (KERNAL in, after $FE43) or $FFFA (KERNAL
@@ -95,7 +106,15 @@ out): SP+1..SP+3 = P, PCL, PCH; A/X/Y live.
 `handler_finalize` with `dbg_reason = DBG_NMI`.
 **Clobbers:** everything.
 
-**On m65:** *stated with P1* ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame), § Banking).
+**On m65:** **In:** entered from the resident stub's NMI entry
+(`stub_nmi`, reached through `INMI`) under the CSE map with `B =
+CSE_BP`, the KERNAL's frame as for a BRK: SP+1..SP+8 = B, Z, Y, X,
+A, P, PCL, PCH; on the userland path the stub has captured the port
+and the map, and the handler captures `$D030` as `cse_brk_handler`
+does.  **Out:** as on c64.  The userland path pushes
+nothing — the frame already has the BRK shape — and the user's A is
+in the frame, not live, so the `bit` / `bmi` test is kept only
+because it is the shared code.  **Clobbers:** everything.
 
 ### cse_brk_handler_early
 c64 only (`.ifdef PLATFORM_C64`; [platform_layer.md § IRQ early
@@ -418,6 +437,16 @@ so its `jsr`s cannot overwrite the user's stack above `reg_sp`, and
 it runs here (not in `post_run_cleanup`) so clean `j`/`g` exits get
 it too.
 
+**On m65** the sequence is the same; the differences are below it:
+the stub has already restored the CSE map and `B = CSE_BP`;
+`save_userland_state` also captures `reg_z` and `reg_b` and swaps
+nothing; `brk_stub` is the stub's address in `0.1FB0–0.1FFF`; the
+chain's `restore_userland_state` ends in `PLAT_TO_USER`.  The user's
+bank state — map, CPU port, `$D030` — is captured at the break and
+installed again by the resume
+([platform_layer.md § User transitions](../platform_layer.md#user-transitions)),
+so a break inside a program's own mapping resumes inside it.
+
 The handler never peeks opcodes; the panel's tag follows from
 `dbg_reason` alone ([debugger.md § Break panel](debugger.md#break-panel)).
 
@@ -437,6 +466,11 @@ cleared by both handlers and `end_debug_body`).
 - **Kernel** (RUN/STOP+RESTORE at the prompt, in the editor, or
   during a command): `jmp cse_refresh` — the interrupted kernel work
   is abandoned, the REPL is redrawn, a debug session is kept.
+
+On m65 both paths start from the stub with the KERNAL's frame in
+place, which already has the BRK shape (B, Z, Y, X, A above P), so
+the userland path skips the A, X, Y push (`.ifdef PLATFORM_C64`);
+everything after it is shared.
 
 No SEI is needed on either path: the 6502 sets I as part of the NMI
 sequence.  Both entries (KERNAL-in via $FE43 and $0318, KERNAL-out

@@ -90,6 +90,25 @@ pushes no second sentinel.
     the step run.
   - otherwise → an unplanned BRK (crash / `$00` opcode).
 
+**On the MEGA65** the same primitive and the same dispatcher run in
+two-map terms.  The kernel runs under the CSE map (its code and data
+in bank 3) with its own base page (`B = $1F`); user code runs under
+the user map — the `SYS` map a `RUN`-started program finds — with
+its own `B`.  The one piece of code both maps show, the resident stub
+in CSE's page `0.1F00`, makes every switch: the primitive's last step
+pushes the user's A X Y Z B and jumps into the stub, which installs
+the user map, pops them and RTIs; a BRK or an NMI reaches the stub
+through the KERNAL's vectors, the KERNAL's entry having pushed A X Y
+Z B and set `B = 0`, and the stub installs the CSE map and `B = $1F`
+and jumps to the dispatcher.  What is swapped is the bank state — the
+program's map, CPU port and `$D030`, captured at the break and
+installed at the resume; base page 0 is the user's throughout, and
+the stack is shared as on the C64 (§ 2).
+There is no `B=0` IRQ case: the KERNAL is mapped in both maps, so an
+IRQ always runs the KERNAL's own handler.  The kernel reaches user
+memory through far pointers, translating each user address through
+the user map ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
+
 ## 4. Interrupt vectors without trampolines
 
 The RAM shadows of `$FFFA` and `$FFFE` point directly at the
@@ -128,6 +147,20 @@ bank-out](modules/main.md#irq-early-entry-bank-out).
 > CSE and will require a warm start or reset.
 
 Formalised in [userland_contract.md § 5](userland_contract.md#5-interrupt-vector-and-banking-hazards).
+
+**On the MEGA65** there is one hook site, the KERNAL's vector table,
+written through `VECTOR` with interrupts off, and no RAM shadows:
+the KERNAL's interrupt entry is mapped in every map, so the early
+entry has no reason to exist.  `IBRK` and `INMI` lead to the
+resident stub, `IIRQ` stays the KERNAL's; the stub's CSE entries are
+the only trampoline, and they exist because the kernel's code is not
+visible in the user map ([§ 3](#3-user-entry-and-exit)).  The
+banking clause becomes a reachability clause: a program may map and
+bank as it likes — the stub captures its map (through the
+Hypervisor's `hyppo_get_mapping`, as the CPU cannot read `MAP`), its
+CPU port and `$D030` at every break, and the resume installs them
+again — provided the KERNAL and CSE's page stay where an interrupt
+finds them ([userland_contract.md § 5.5](userland_contract.md#55-on-m65)).
 
 ## 5. NMI contract
 

@@ -484,6 +484,16 @@ for single-byte writes.  Both assume the save range lies in page 0
 and `ZP_SAVE_LO` = 0 (the lower-bound test is elided); the
 `INTROSPECT` build compiles both to plain live access.
 
+**On m65** the save range is the CPU port, `$00–$01`
+(`ZP_SAVE_LEN` = 2): the transitions swap the port and nothing else
+of base page 0, which CSE never writes
+([platform_layer.md § Base page](../platform_layer.md#base-page)).
+The same routines serve both platforms: `m 00` and `m 01` show and
+edit the user's port in `userland_zp_buf`, and every other address is
+read and written live through `rp_ptr2` / `rp_ptr` set with
+`FAR_USER`.  `zp_stage_prep`'s pointer to `zp_stage_buf` carries
+`BANK_CSE`.
+
 ### Line format and address handling
 
 `AAAA:cmd [args]` or bare `cmd [args]`; `;` ends parsing.  The
@@ -801,16 +811,20 @@ and runs nothing.  In a resumable session it sets `step_state`,
 skips a user `BRK` at `brk_pc` for `o`, disables the hit breakpoint
 (`rp_dis_bp`), computes the next PC(s) with `step_next_pc`, refuses
 with `;!range` (and `step_cleanup`) when a step BRK would land
-outside the workspace (`bp_range_check_step`: $0800 ≤ addr <
-`buf_base`, or `brk_stub`), for a single step re-prints the
+outside the workspace (`bp_range_check_step`: `WORKSTART` ≤ addr <
+the workspace's upper bound, or `brk_stub`), for a single step re-prints the
 instruction about to run three rows up, arms the step BRKs
 (`arm_step_bp`), sets `step_remaining` = count − 1 and returns via
 `set_run_mode`.  Later iterations chain inside the BRK handler
 ([debugger.md § Single-step](debugger.md)); the kernel stack use is
 the same for `t 100` as for `t 1`.
 
-`bp_range_check` (the `b` gate) is the strict form: $0800 ≤ addr <
-`buf_base`, the same workspace the assembler's emit gate uses.
+`bp_range_check` (the `b` gate) is the strict form: `WORKSTART` ≤
+addr < the workspace's upper bound, the same workspace the
+assembler's emit gate uses — `$0800`–`buf_base` on c64, `$2000`–`$C000`
+on m65 ([platform_layer.md § Constants](../platform_layer.md#constants)).
+On m65 the upper bound is page-aligned and fixed, so both gates
+compare the high byte only (`.ifdef` bodies).
 
 ### Splash screen
 
@@ -935,7 +949,9 @@ paths; each starts at column 0 and ends with `io_clear_eol`.
 - `emit_mem(rp_addr, A = columns 1–8)` — `AAAA:m HH … HH;cccccccc`
   (characters $20–$7E as themselves, others `.`).
 - `emit_reg()` — `r pc:xxxx a:xx x:xx y:xx s:xx nv-bdizc` (set flags
-  uppercase).
+  uppercase); on m65 in 80 columns `r pc:xxxx a:xx x:xx y:xx z:xx
+  b:xx s:xx nv-bdizc`; the 40-column layout is P2's
+  ([debugger.md § `r`](debugger.md#r)).
 
 ## Caveats
 

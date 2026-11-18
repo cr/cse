@@ -94,6 +94,18 @@ the first address past the ZEROPAGE segment; X = 0
 Caller: `main.s` cold init (fills the free ZP with `$FF` from there to
 `$7F`).
 
+### far_user (m65 only)
+**In:** X = a far pointer's base-page offset; the pointer's offset
+(bytes 0–1) holds a user address.
+**Out:** bytes 2–3 (bank, megabyte) set by the user map's row for
+that address; for `$D000–$DFFF` byte 1 rewritten to the I/O row's
+offset (`$3x`) — [platform_layer.md § Far memory](../platform_layer.md#far-memory).
+**Clobbers:** N/Z.  A, X, Y preserved.
+
+The body of `FAR_USER` on m65 (the macro loads X); on c64 there is no
+routine and `FAR_USER` is empty.  It lives here because mem.s is the
+memory driver; the four rows are one compare chain on the high byte.
+
 ### The resident stub (m65 only)
 
 The entries of the `STUB` segment, assembled only under `.ifdef
@@ -106,8 +118,13 @@ with the KERNAL's frame on the stack and `B = 0` (the KERNAL's entry
 set it).
 **Out:** in `cse_brk_handler` / `cse_nmi_handler` under the CSE map
 with `B = CSE_BP`; the frame as the KERNAL left it; the I flag
-unchanged.
-**Clobbers:** A, X, Y, Z (their user values are in the frame); B.
+unchanged.  With `in_userland` set, the user's bank state captured
+first ([platform_layer.md § User transitions](../platform_layer.md#user-transitions)):
+the CPU port into `userland_zp_buf` and set to the run premise's,
+then `hyppo_get_mapping` into `um_map`; with it clear (a kernel fault,
+RUN/STOP+RESTORE at the prompt) nothing is captured.
+**Clobbers:** A, X, Y, Z (their user values are in the frame); B;
+with `in_userland` set, the CPU port.
 
 #### stub_cold
 **In:** reached from the loader by `jmp`, interrupts off; no frame.
@@ -116,9 +133,12 @@ unchanged.
 
 #### stub_user
 **In:** reached from `PLAT_TO_USER` (`_rtu_body`, debugger.s) by
-`jmp`, with the user's A, X, Y, Z, B pushed above the RTI frame.
-**Out:** in user code under the user map, every register, P and SP
-the user's.
+`jmp`, interrupts off, the CPU port and `$D030` already the user's;
+on the stack above the RTI frame the user's A, X, Y, Z, B and above
+them the `MAP` operands of the user's offsets and masks; in A, X, Y,
+Z the `MAP` operands of the user's megabytes.
+**Out:** in user code under the user's map (megabytes, then offsets
+and masks, one `EOM`), every register, P and SP the user's.
 **Clobbers:** nothing of the user's.
 
 #### brk_stub
@@ -135,9 +155,12 @@ exit ([debugger.md](debugger.md)).
 | `userland_zp_buf` | `ZP_SAVE_LEN` | BSS | User's `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` snapshot (captured on userland exit, restored on entry) |
 | `kernel_zp_buf` | `ZP_SAVE_LEN` | BSS | Kernel's snapshot over the same range (captured on userland entry, restored on exit) |
 | `stub_brk_target`, `stub_nmi_target`, `stub_cold_target` | 2 each | `STUB` (m65) | where the stub's CSE entries jump; written by `setup_interrupts` (main.s) and the loader |
+| `um_map` | 6 | CSE's base page, `$00–$05` (m65) | the user's `MAP` setting as `hyppo_get_mapping` writes it — the trap writes at a page start, so these are the page's first six bytes |
+| `userland_zp_buf` (m65) | 2 | CSE's base page (m65) | the user's CPU port, `$00` and `$01`: the stub writes it under the user map, where only bank 0 is visible |
+| `um_d030` | 1 | CSE's base page (m65) | the user's `$D030` |
 
-On m65 the two ZP buffers are not assembled (§ Design, *ZP swap on
-m65*).
+On m65 `kernel_zp_buf` is not assembled, and `userland_zp_buf` is the
+captured CPU port (§ Design, *ZP swap on m65*).
 
 The `kernal_out` batch-banking flag is not owned here; it is one of the
 cross-module flags in `zp.s` ([zp.md](zp.md)).
@@ -147,7 +170,7 @@ cross-module flags in `zp.s` ([zp.md](zp.md)).
 | Symbol | Value | Purpose |
 |--------|-------|---------|
 | `ZP_SAVE_LO` | $00 | First ZP address covered by the save buffers |
-| `ZP_SAVE_LEN` | 128 | Length of the save range (so `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` = $00..$7F) |
+| `ZP_SAVE_LEN` | 128; 2 on m65 | Length of the save range (so `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` = $00..$7F; on m65 the CPU port, $00..$01) |
 
 `userland_zp_buf[i]` mirrors live ZP address `ZP_SAVE_LO + i`.
 `repl.s::zp_stage_prep` and `repl.s::zp_poke` (the `m` / `.` user-ZP
@@ -222,9 +245,12 @@ m65: CSE's zero page is its own base page, so the user's base page 0
 is never touched and there is nothing to swap — the transitions
 switch `B`, and the user's `B` travels in the interrupt frame
 ([platform_layer.md § Base page](../platform_layer.md#base-page)).
-The m65 kernel never reaches the CPU port.  The user-ZP view of `m`
-and `.` reads base page 0 through far pointers instead of the buffers
-([repl.md](repl.md), *stated with P1*).
+The CPU port is the one exception: the transitions swap it, through
+absolute addressing — the stub saves the user's into `userland_zp_buf`
+and sets the premise's, `PLAT_TO_USER` writes the user's back — so
+the c64's user-ZP view, with a two-byte save range, shows and edits
+the user's port; the rest of base page 0 is read live
+([platform_layer.md § Base page](../platform_layer.md#base-page)).
 
 ### The resident stub
 
@@ -232,17 +258,27 @@ CSE's only code in bank 0, at the top of CSE's base page; it is
 visible in both maps because `$0000–$1FFF` is unmapped in both
 ([memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode)).
 
-    stub_brk    MAP CSE · EOM · B ← CSE_BP · JMP (stub_brk_target)
-    stub_nmi    MAP CSE · EOM · B ← CSE_BP · JMP (stub_nmi_target)
-    stub_cold   MAP CSE · EOM · B ← CSE_BP · JMP (stub_cold_target)
-    stub_user   MAP user · EOM · PLA TAB · PLZ · PLY · PLX · PLA · RTI
+    stub_brk    X ← 0 ┐
+    stub_nmi    X ← 2 ├ in_userland? port saved, premise port, hyppo_get_mapping
+    stub_cold   X ← 4 ┘ · MAP CSE · EOM · B ← CSE_BP · JMP (targets,X)
+    stub_user   MAP megabytes · PLZ PLY PLX PLA · MAP · EOM
+                · PLA TAB · PLZ · PLY · PLX · PLA · RTI
     brk_stub    BRK + signature
     targets     three words
 
+The three CSE entries share one body, the entry's index kept on the
+stack across `MAP` (which takes every register).  The capture runs
+under the program's map with `B = 0`, so its stores into CSE's page
+are absolute (`0.1Fxx`).  It must fit the stub's area,
+`0.1FB0–0.1FFF` (the segment's assert); if the implementation cannot
+make it fit, `STUB_BASE` moves down within the page and the base
+page's bound with it — a delta to memory_design.md and zp.md, not a
+second page.
+
 `MAP` takes its operands in A, X, Y and Z, and the register snapshot
 is in the data window, which the user map does not show — so
-`PLAT_TO_USER` pushes the user's registers and `stub_user` pulls them
-after the switch.  `brk_stub` is here, not in debugger.s as on c64,
+`PLAT_TO_USER` pushes the user's registers and the second `MAP`'s
+operands, and `stub_user` pulls them after the switch.  `brk_stub` is here, not in debugger.s as on c64,
 because a program's final `RTS` runs in the user map, which shows
 bank 0 but not CSE's code — as the KERNAL keeps its own `SYS` return
 path in page 3.  The targets are data written from above (main.s, the

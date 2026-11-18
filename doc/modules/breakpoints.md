@@ -138,6 +138,15 @@ never writes a stale `saved` byte into the user's code.
 Iteration order: slot 9 → slot 0 (reverse).  See `patch_all` for the
 overlap rationale.
 
+**On m65** (both routines): a slot's address is a user address in
+the workspace — `b` and the step gate refuse every other address but
+`brk_stub` ([debugger.md § Caveats](debugger.md#caveats)) — so every
+target is in bank 0 below `$C000`, the first row of
+[platform_layer.md § Far memory](../platform_layer.md#far-memory)'s
+user-address table.  Each routine sets `rp_ptr`'s bank once, `FAR_BANK
+rp_ptr, BANK_USER`, before its loop, and the loop rewrites only the
+offset; the reads and writes are `FAR_LDA` / `FAR_STA`.
+
 ### dbg_step_clear
 **In:** none
 **Out:** slots 8–9 (step pair) zeroed.  Slots 0–7 (user) untouched.

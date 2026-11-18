@@ -71,9 +71,36 @@ differences; the addresses are the linker map's
   `rp_ptr`, `rp_ptr2`, `asm_pc`, `asm_out`, `_dasm_ptr`, `disk_ptr`,
   `_io_tmp`, `gap_lo`, `gap_hi`, `buf_base`, `ed_top_ptr`, `read_ptr`
   (and its alias `save_ptr`), `ed_tmp`, `ed_scr` — 14 pointers, 28
-  bytes more than on c64.
+  bytes more than on c64.  How each user-memory pointer gets its
+  bank (P1; [platform_layer.md § Far memory](../platform_layer.md#far-memory)):
+  - `rp_ptr` — CSE's line parser (`line_buf`, bank 3) at its root in
+    `exec_line` and the three restores from `expr_ptr` / `rp_addr`;
+    a user address (`FAR_USER`) in `brk_skip_user` and `step_next_pc`;
+    bank 0 for the breakpoint table's targets (`patch_all`,
+    `unpatch_all`); the screen in `read_line`, `main_loop`'s INS/DEL
+    and `log.s`'s row tails — *stated with P2*.  A user set never
+    precedes a further read of the line within one command.
+  - `rp_ptr2` — a user address (`FAR_USER`) in `step_next_pc`,
+    `zp_stage_prep_addr`, `cmd_dot` and `cmd_mem`; bank 3 for CSE's
+    strings and tables (`parse_filename`, `info_emit_rows`, the
+    segment and `prg` log lines) and for `zp_stage_prep`'s
+    `zp_stage_buf`; bank 0 for `get_filename`'s
+    `BP_ABS(cur_project_name)`.  `exec_line`'s `jmp (BP_ABS(rp_ptr2))`
+    is a 16-bit jump and needs none.
+  - `asm_out` — a user address (`FAR_USER`) in `dot_assemble`; bank 3
+    for the assembler's `_insn_out` and `_asm_sink`.
+  - `asm_pc` and `_dasm_ptr` — no set site: `asm_pc` is dereferenced
+    only behind the workspace gate (bank 0, below `$C000`), and the
+    product reads nothing through `_dasm_ptr` (`emit_dot` enters the
+    decoder after the copy loop; `dasm_insn`'s own read serves the
+    tests); their bank is the loader's 0.
 - **The segment starts at `$00`:** with `B = CSE_BP` the base page's
-  `$00` and `$01` are ordinary bytes.
+  `$00` and `$01` are ordinary bytes.  Its first six bytes are
+  `um_map`, because `hyppo_get_mapping` writes the user's `MAP`
+  setting at a page start; beside them the rest of the user's bank
+  state, the captured CPU port (`userland_zp_buf`, 2) and `um_d030`
+  ([mem.md § Interface](mem.md#interface)) — 9 bytes, written by the
+  resident stub under the user map with absolute addressing.
 - **disk.s's private pointer** (`DISK_LOCAL_PTR`) lives here — *stated
   with P3*.
 

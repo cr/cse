@@ -646,7 +646,8 @@ The installed machine they check is
 - **The Hypervisor services the loader uses**
   ([platform_layer.md § Constants](platform_layer.md#constants)):
   M65Emu models `hyppo_getversion` and `hyppo_rom_writeenable` as
-  layer 3's Hypervisor traps ([§ M65Emu](#m65emu--the-m65-integration-harness)).
+  layer 3's Hypervisor traps ([§ M65Emu](#m65emu--the-m65-integration-harness)),
+  and from P1 the debugger's `hyppo_get_mapping`.
   `hyppo_reset`, which ends a session, is Tier X only.
 - **Tier X, boot and quit** (`tests/emulator/test_m65_boot.py`, on
   each ROM through the SD clone).  xmega65 starts the PRG through
@@ -660,6 +661,65 @@ The installed machine they check is
   it).  `Q` ends in BASIC 65 at READY with banks 2–3 reloaded — with
   P2, when the REPL first runs on m65.  The D81 and the cartridge
   join with P3.
+- **The debugger on m65** (P1, `tests/integration/test_m65_debugger.py`,
+  on each ROM).  The REPL needs P2's display bodies, so P1's suites
+  drive the transitions at the routine level on the installed PRG
+  (`install_prg()`): a test puts the debug state in place (`brk_pc`,
+  the registers, the breakpoint table, the step state), enters
+  `return_to_userland` or `restore_userland_state` as `main_loop`
+  would, and stops at `hygiene_after_userland` — the first P2 body on
+  the way back — where it checks the snapshot (`reg_a … reg_b`,
+  `reg_p`, `reg_sp`, `brk_pc`, `dbg_reason`, `dbg_bp_hit`), the map
+  and `B`, and that the bytes under the breakpoints are restored.
+  While user code runs it checks the user map, the user's `B`, and
+  base page 0 untouched.  The rows: the platform-neutral rows of the
+  [debugger.md § `dbg_reason` × command matrix](modules/debugger.md#dbg_reason--command-matrix)
+  — a fresh start ending in the program's `RTS` (`DBG_RTS`, SP back
+  at `STACK_TOP`'s sentinel), a user `BRK`, a breakpoint hit and its
+  resume, an NMI in user code (M65Emu raises the NMI line) and in
+  kernel code (to `cse_refresh`), a step chain of `t` and `o` over a
+  `JSR` and a branch (the handler's chain, with `step_next_pc` and
+  `arm_step_bp` as `cmd_step` calls them), `brk_skip_user`; the
+  registers `Z` and `B` round-tripped through a break; the stack
+  budget with the 8-byte frame.  **Transparency of the bank state:**
+  a program that maps its own window (a non-zero offset and megabyte
+  in either half), banks out the I/O through the CPU port, or changes
+  `$D030`, then breaks — at a breakpoint, a step, a user `BRK`, an
+  NMI — finds after `c` exactly the map, port and `$D030` it had
+  (checked by `memory.flat_of()` over the CPU view and the port
+  registers); `j` after such a run starts with the run premise's; a
+  kernel-mode NMI or fault leaves a live session's captured state
+  unchanged; `m 00`/`m 01` show and edit the captured port.  An NMI
+  raised at each instruction of the kernel → user transition, from
+  `PLAT_TO_USER`'s first store to the `RTI`, is resumable: the
+  program then runs as without it.  `FAR_USER`'s four rows and their
+  edges (`$0000`, `$0001`, `$1F00`, `$BFFF`, `$C000`, `$D020`,
+  `$E000`, `$FFFF`) and the user-ZP view (`zp_stage_prep`, `zp_poke`,
+  `peek_user` on base page 0, the CPU port at `$00`/`$01`) as routine
+  calls in clean mode.  The command-level suites — `j`, `g`, `c`, `t`,
+  `o`, `b`, `r`, `m`, `.` and `d` typed at the prompt, the lifecycle
+  matrix through the REPL — run on the m65 PRG from P2, when the REPL
+  runs there.
+- **M65Emu for P1.**  Two facts the flat accesses rest on, recorded
+  in xmega65 into `m65_mem.json` (`dev/capture_m65_mem.py`) and
+  modelled by `M65Memory`: a flat access to `0.0000`/`0.0001`
+  reaches the CPU port; `FFD.3000–FFD.3FFF` is the I/O register bank
+  of the MEGA65 personality, whatever `$D02F` selects.  An NMI line
+  on `MPU45GS02`, taken through the KERNAL's NMI entry.  The
+  Hypervisor device's third service, `hyppo_get_mapping`, recorded
+  into `m65_premise.json` (`dev/capture_m65_premise.py`) on both
+  ROMs: the six bytes for the user map, the CSE map and a map with
+  megabyte offsets, the destination as a CPU-view or a flat bank-0
+  page, the registers and the stack after the trap, and the trap
+  from inside an interrupt handler with I set.
+- **Tier X, a break in user code** (`tests/emulator/test_m65_boot.py`,
+  each ROM).  A program with a `BRK` is placed in the program region
+  and entered through `return_to_userland` from a `uartmon`
+  breakpoint; the run stops at `hygiene_after_userland` with the
+  snapshot, the CSE map and `B = CSE_BP` as M65Emu has them.  A
+  second program maps its own window and banks out the I/O before its
+  `BRK`; after the resume it reads its window and the port back as it
+  set them.
 - **The recordings behind the m65 column.**  The P0 analysis probes
   (entry state, base page, `Z`, the frame, the maps, the Hypervisor
   services, the regions CSE takes, all on both ROMs) become committed
