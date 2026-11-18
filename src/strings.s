@@ -14,7 +14,7 @@
 ;   ";!..."        warning (dirty buffer, etc.)
 ;   ";?tag"        terse error tag, BASIC-style  (no space after ';?')
 ;   ";?word ..."   long error explanation
-;   "; ...? y/n"  yes/no confirmation prompt (trailing space for cursor)
+;   ";!...? y/n"  yes/no confirmation prompt (query_user, LOG_WARN)
 ;
 ; Always lowercase.  Always a single space after ';' for status
 ; lines (the BASIC-error style ';?' is the one exception, and is
@@ -54,7 +54,7 @@
         .export str_65c02
 .endif
 
-        ; ── mem strings ──
+        ; ── gap_buffer strings (built-in symbol names) ──
         .export s_workstart, s_workend
 
         ; ── main strings ──
@@ -191,7 +191,7 @@ str_blk_free:   .byte " blocks free.", 0
 str_blk_pre:    .byte "; ", 0
 str_blk_suf:    .byte " blocks", 0
 
-; ── mem strings ─────────────────────────────────────────────
+; ── gap_buffer strings (built-in symbol names) ──────────────
 
 s_workstart:    .byte "workstart", 0
 s_workend:      .byte "workend", 0
