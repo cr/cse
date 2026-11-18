@@ -266,7 +266,7 @@ nl_clear:
 io_addr_cmd:
         pha
         lda #0
-        sta CUR_COL
+        sta IO_CX
         lda rp_addr
         ldx rp_addr+1
         jsr io_puthex4
@@ -917,7 +917,7 @@ _syntax_err:
 ; read_line — read current screen row into line_buf
 ;
 ; In:
-;   CUR_ROW   = screen row to read
+;   IO_CY   = screen row to read
 ;
 ; Out:
 ;   line_buf  = NUL-terminated text, trailing spaces trimmed
@@ -934,7 +934,7 @@ _syntax_err:
 ;   Everything else is kept as-is after stripping bit 7.
 ; ═══════════════════════════════════════════════════════════
 .proc read_line
-        ldx CUR_ROW
+        ldx IO_CY
         lda scr_lo,x
         sta rp_ptr
         lda scr_hi,x
@@ -967,7 +967,7 @@ _syntax_err:
 ; ═══════════════════════════════════════════════════════════
 .proc show_prompt
         lda #0
-        sta CUR_COL
+        sta IO_CX
         lda cur_addr
         ldx cur_addr+1
         jsr io_puthex4
@@ -1225,7 +1225,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ; ═══════════════════════════════════════════════════════════
 .proc emit_reg
         lda #0
-        sta CUR_COL
+        sta IO_CX
         puts str_r_pc
         lda brk_pc
         ldx brk_pc+1
@@ -1427,7 +1427,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; DBG_RTS: skip the lookahead disas — the program's done
         ; (clean exit via brk_stub).  Newline + clreol so show_prompt
         ; lands on a fresh row instead of overwriting the regs row
-        ; (show_prompt only resets CUR_COL, doesn't advance CUR_ROW).
+        ; (show_prompt only resets IO_CX, doesn't advance IO_CY).
         lda dbg_reason
         cmp #DBG_RTS
         bne @disas
@@ -2079,7 +2079,7 @@ pre_userland_run:
         jsr newline
         jsr io_clear_eol
         lda #0
-        sta NDX
+        IO_KBD_FLUSH
         rts
 
 ; ═══════════════════════════════════════════════════════════
@@ -2264,16 +2264,16 @@ pre_userland_run:
         lda rp_cnt
         cmp #2
         bcs @skip_log
-        ; CUR_ROW := max(CUR_ROW - 3, 0)
-        lda CUR_ROW
+        ; IO_CY := max(IO_CY - 3, 0)
+        lda IO_CY
         sec
         sbc #3
         bcs @set_row
         lda #0
 @set_row:
-        sta CUR_ROW
+        sta IO_CY
         lda #0
-        sta CUR_COL
+        sta IO_CX
         jsr io_sync
         ; Emit pre-step disas at brk_pc.  No closing newline —
         ; pre_userland_run's newline advances cursor to the row
@@ -2494,7 +2494,7 @@ set_run_mode:
         sta rp_ptr+1
         inc rp_save2            ; pass 2: apply
         jsr reg_fields
-@show:  ; emit_reg already sets CUR_COL=0, so it overwrites the
+@show:  ; emit_reg already sets IO_CX=0, so it overwrites the
         ; current row — the edited `r …` line is replaced in place
         ; with the authoritative formatted register state.  nl_clear
         ; then advances to a fresh row for the next prompt.
@@ -4186,7 +4186,7 @@ prg_ok_done:
         jsr brk_skip_user
         ; Drain KERNAL keyboard buffer.
         lda #0
-        sta NDX
+        IO_KBD_FLUSH
         ; Resume (reuse the sentinel from the session's fresh start),
         ; or a fresh start if a cold preview set the session up.
         jmp set_run_mode

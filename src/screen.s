@@ -144,8 +144,8 @@ theme_fg:     .res 1
         inx
         bne @clr
         lda #0
-        sta CUR_COL
-        sta CUR_ROW
+        sta IO_CX
+        sta IO_CY
         jmp io_sync
 .endproc
 
@@ -308,11 +308,11 @@ theme_fg:     .res 1
         pla                     ; A = n (saved at entry)
         eor #$FF
         sec
-        adc CUR_ROW             ; A = io_cy - n (via two's complement add)
+        adc IO_CY               ; A = io_cy - n (via two's complement add)
         bcs @set_row
         lda #0
 @set_row:
-        sta CUR_ROW
+        sta IO_CY
         jmp io_sync
 .endproc
 
@@ -320,19 +320,19 @@ theme_fg:     .res 1
 ; newline — advance to next row, scroll if at bottom
 ; ═════════════════════════════════════════════════════════
 .proc newline
-        lda CUR_ROW
+        lda IO_CY
         cmp #SCR_H-1
         bcc @no_scroll
         ; at bottom row — scroll up 1
         lda #1
         jsr scroll_up
         lda #SCR_H-1
-        sta CUR_ROW
+        sta IO_CY
         bne @col0               ; always taken (SCR_H-1 = 24 ≠ 0)
 @no_scroll:
-        inc CUR_ROW
+        inc IO_CY
 @col0:  lda #0
-        sta CUR_COL
+        sta IO_CX
         jmp io_sync
 .endproc
 
@@ -341,8 +341,8 @@ theme_fg:     .res 1
 ; cursor_show / cursor_hide — XOR $80 at cursor position
 ; ═════════════════════════════════════════════════════════
 .proc cursor_show
-        jsr _io_scr_setup       ; _io_scr ← screen row for CUR_ROW
-        ldy CUR_COL
+        jsr _io_scr_setup       ; _io_scr ← screen row for IO_CY
+        ldy IO_CX
         lda (_io_scr),y
         eor #$80
         sta (_io_scr),y

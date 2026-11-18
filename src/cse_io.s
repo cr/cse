@@ -40,6 +40,7 @@ dec_buf:  .res 6       ; io_utoa: 5-digit PETSCII decimal + NUL
 ; ── RODATA ──────────────────────────────────────────────────
 .segment "RODATA"
 
+.ifdef PLATFORM_C64                     ; m65: run-time tables — P2
 scr_lo:
         .repeat 25, i
         .byte <(SCREEN + i * 40)
@@ -48,6 +49,7 @@ scr_hi:
         .repeat 25, i
         .byte >(SCREEN + i * 40)
         .endrepeat
+.endif
 
 hex_tab:                ; screen codes for hex digits 0-9, a-f
         .byte $30,$31,$32,$33,$34,$35,$36,$37
@@ -62,15 +64,18 @@ dec_pow_hi:     .byte >1, >10, >100, >1000, >10000
 
 ; ── io_init — must be called once at startup ──────────────────────────
 ; Disables KERNAL cursor ($CC=1).  All cse_io IRQ safety depends on this.
+; m65: nothing — the KERNAL keeps its blink off for code started by SYS.
 io_init:
+.ifdef PLATFORM_C64
         lda #1
         sta BLNSW               ; KERNAL cursor off — required invariant
+.endif
         rts
 
-; ── _io_scr_setup — set _io_scr to screen line address for CUR_ROW ───
+; ── _io_scr_setup — set _io_scr to screen line address for IO_CY ───
 ; Clobbers A, X.
 _io_scr_setup:
-        ldx CUR_ROW
+        ldx IO_CY
         lda scr_lo,x
         sta _io_scr
         lda scr_hi,x
@@ -82,8 +87,8 @@ _io_scr_setup:
 ; Uses KERNAL PLOT to keep all internal state consistent,
 ; preventing the IRQ cursor blinker from corrupting pointers.
 io_sync:
-        ldx CUR_ROW
-        ldy CUR_COL
+        ldx IO_CY
+        ldy IO_CX
         clc                     ; CLC = set position
         KJMP  PLOT              ; KERNAL PLOT: sets $D1/$D2/$D3/$D6/$F3/$F4
 
@@ -162,17 +167,17 @@ io_putc:
         tay
         jsr _io_scr_setup      ; preserves Y
         tya
-        ldy CUR_COL
+        ldy IO_CX
         sta (_io_scr),y
         iny
         ; fall through to _col_clamp
 
-; ── _col_clamp — clamp Y to COLS-1 and store to CUR_COL ─────
+; ── _col_clamp — clamp Y to COLS-1 and store to IO_CX ─────
 _col_clamp:
         cpy #COLS
         bcc :+
         ldy #COLS-1
-:       sty CUR_COL
+:       sty IO_CX
         rts
 
 ; ── io_repc — repeat PETSCII char at cursor, advance  ─────────
@@ -226,7 +231,7 @@ io_puthex2:
         lsr
         tax
         lda hex_tab,x           ; screen code for hi nibble
-        ldy CUR_COL
+        ldy IO_CX
         sta (_io_scr),y
         iny
         pla                     ; recover byte
@@ -322,7 +327,7 @@ io_utoa:
 ; ── io_clear_eol — fill spaces from cursor to end of row ────
 io_clear_eol:
         jsr _io_scr_setup
-        ldy CUR_COL
+        ldy IO_CX
 @loop:  cpy #COLS
         bcs @done
         lda #$20                ; space screen code
@@ -333,16 +338,24 @@ io_clear_eol:
 
 ; ── io_getc — blocking keyboard read ────────────────────────
 io_getc:
+.ifdef PLATFORM_C64
         KCALL GETIN             ; KERNAL GETIN
         beq io_getc            ; loop until key pressed
         ldx #0
         rts
+.else
+        PLAT_PENDING 2          ; the typing queue
+.endif
 
 ; ── io_kbhit — non-blocking keyboard check ──────────────────
 io_kbhit:
+.ifdef PLATFORM_C64
         lda NDX                 ; keyboard buffer count
         ldx #0
         rts
+.else
+        PLAT_PENDING 2          ; the typing queue
+.endif
 
 ; ── io_blip — short audible reject blip ────────────────────
 ;

@@ -245,9 +245,9 @@ _ed_cur_row:
         jsr _ed_cur_row
         cmp #ED_LINES
         bcs @done
-        sta CUR_ROW
+        sta IO_CY
         lda ed_cur_col
-        sta CUR_COL
+        sta IO_CX
         jsr io_sync
 @done:  rts
 .endproc
@@ -1822,9 +1822,9 @@ _ed_cur_row:
 ; ── enter_editor — switch from REPL to editor ─────────────────
 .proc enter_editor
         ; Save REPL cursor position
-        lda CUR_COL
+        lda IO_CX
         sta repl_cur_x
-        lda CUR_ROW
+        lda IO_CY
         sta repl_cur_y
 
         ; Save REPL screen RAM to banked RAM at REPL_SCREEN.
@@ -1968,9 +1968,9 @@ _ed_cur_row:
 
         ; Restore REPL cursor position
         lda repl_cur_x
-        sta CUR_COL
+        sta IO_CX
         lda repl_cur_y
-        sta CUR_ROW
+        sta IO_CY
         jsr io_sync
 
         lda #ST_REPL

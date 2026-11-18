@@ -16,7 +16,7 @@
 ;   LOG_INFO = ' '   →  "; "   info
 ;
 ; Symmetric "enter anywhere, exit at col 0" contract: log_open (and
-; info_line_head) auto-advance to a fresh row when CUR_COL != 0, and
+; info_line_head) auto-advance to a fresh row when IO_CX != 0, and
 ; log_close does `io_clear_eol + newline`.  Callers do NOT need to
 ; `jsr newline` before opening a log line — the wrappers handle both
 ; the handler-entry case (already at col 0) and the mid-line case
@@ -83,14 +83,14 @@ log_info:
 ; ── log_open — open a log line at current cursor ─────────
 ; Y = level char
 ; Clobbers: A, X, Y, _io_scr (+ newline's when mid-line)
-; Auto-advances to a fresh row when CUR_COL != 0, so callers
+; Auto-advances to a fresh row when IO_CX != 0, so callers
 ; never need a defensive `jsr newline` before log_open.  Paired
 ; with log_close's clear-eol + newline, this gives the log family
 ; a symmetric "enter anywhere, exit at col 0" contract.
 log_open:
         tya                     ; park level char across newline
         pha
-        lda CUR_COL
+        lda IO_CX
         beq :+
         jsr newline
 :       lda #';'
@@ -174,11 +174,11 @@ info_line:
 
 info_line_head:
         ; Auto-advance to fresh row if mid-line (mirrors log_open).
-        lda CUR_COL
+        lda IO_CX
         beq :+
         jsr newline
 :       ; save screen addr for invert pass later
-        ldx CUR_ROW
+        ldx IO_CY
         lda scr_lo,x
         sta rp_next_lo
         lda scr_hi,x
@@ -250,7 +250,7 @@ seg_line:
 
 info_line_tail:
         ; save col position
-        lda CUR_COL
+        lda IO_CX
         sta rp_save
 
         ; copy screen pointer to ZP rp_ptr for indirect access

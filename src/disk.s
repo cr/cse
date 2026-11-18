@@ -610,13 +610,13 @@ _status_ret:
 ; Helper: print char in A inverted (io_putc then OR $80 on screen)
 @putc_inv:
         jsr io_putc
-        ; flip bit 7 on the char we just wrote (at CUR_COL - 1)
-        ldx CUR_ROW
+        ; flip bit 7 on the char we just wrote (at IO_CX - 1)
+        ldx IO_CY
         lda scr_lo,x
         sta _io_tmp
         lda scr_hi,x
         sta _io_tmp+1
-        ldy CUR_COL
+        ldy IO_CX
         dey
         FAR_LDA _io_tmp
         ora #$80

@@ -562,8 +562,11 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   repl.s's `jmp (rp_ptr2)` dispatch), pinned by the base-page check.
   `PLAT_PENDING` is defined; its signature byte follows `BRK`, so the
   raw-byte audit (T3) must not read it as an opcode.
-- [ ] Terminal, Display, Vectors and frame, Cold start and exit, Disk
-  bank, Info map, Loader.
+- [x] Terminal — `IO_CX` / `IO_CY` at the 55 cursor-cell sites;
+  `IO_STOP_DOWN`, `IO_KBHIT`, `IO_KBD_FLUSH`; cse_io.s's `io_init`,
+  `io_getc`, `io_kbhit` and the row tables by platform.
+- [ ] Display, Vectors and frame, Cold start and exit, Disk bank, Info
+  map, Loader.
 - Finding for P2: the screen pointers `_io_scr` (cse_io.s, screen.s's
   `dst_ptr`) and `scr_src` (screen.s's `src_ptr`) reach the screen,
   which is in bank 4 in 80 × 50, but are not in zp.md's far-pointer

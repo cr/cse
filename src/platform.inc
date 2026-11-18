@@ -66,6 +66,10 @@ CHARSET_LOCK    = $0291         ; MODE: $80 locks SHIFT+C= charset switching
 ; ── CSE's base page ──────────────────────────────────────────────────
 BP_PAGE         = $00           ; the page CSE's zero page is in (BP_ABS)
 
+; ── Terminal (§ Terminal) ────────────────────────────────────────────
+IO_CX           = CUR_COL       ; the cursor cells
+IO_CY           = CUR_ROW
+
 ; ── The CPU port and the user ZP ─────────────────────────────────────
 CPU_DDR         = $00
 CPU_PORT        = $01
@@ -150,6 +154,37 @@ DISK_LOCAL_PTR  = $FD
 .macro KJMP entry
   .ifdef PLATFORM_C64
         jmp entry
+  .endif
+.endmacro
+
+; ── Terminal (§ Terminal) ────────────────────────────────────────────
+; The inline keyboard sites outside cse_io.s.  m65: stated with P2.
+
+; A ← the STOP row; Z set while STOP is held (main_loop's test).
+.macro IO_STOP_DOWN
+  .ifdef PLATFORM_C64
+        lda STKEY
+        cmp #$7F
+  .else
+        PLAT_PENDING 2
+  .endif
+.endmacro
+
+; A ← the count of typed keys waiting; Z set when none.
+.macro IO_KBHIT
+  .ifdef PLATFORM_C64
+        lda NDX
+  .else
+        PLAT_PENDING 2
+  .endif
+.endmacro
+
+; Drop the typed keys waiting.  In: A = 0.
+.macro IO_KBD_FLUSH
+  .ifdef PLATFORM_C64
+        sta NDX
+  .else
+        PLAT_PENDING 2
   .endif
 .endmacro
 

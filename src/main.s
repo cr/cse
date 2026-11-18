@@ -445,13 +445,12 @@ main_loop:
         ; R3 (universal C64/C128 binary) will need to abstract this
         ;   into a leaf function — other kernals may not expose the
         ;   same shadow layout.  See TODO.md § R3.
-        lda STKEY
-        cmp #$7F
+        IO_STOP_DOWN
         beq @still_down
         lda #0
         sta stop_cooldown
 @still_down:
-        lda NDX                 ; kb buffer count (non-blocking kbhit)
+        IO_KBHIT                ; kb buffer count (non-blocking kbhit)
         beq @wait
         jsr io_getc
         sta main_key
@@ -494,11 +493,11 @@ main_loop:
         ; — typically mid-line at the end of their typed command.
         ; Command handlers reposition as needed:
         ;   - Display emitters (`.`, `m`, `d`) call io_addr_cmd which
-        ;     explicitly sets CUR_COL=0 to overwrite the prompt row.
+        ;     explicitly sets IO_CX=0 to overwrite the prompt row.
         ;   - Log-emitting commands let log_open's auto-advance
-        ;     (CUR_COL != 0 → newline) move to a fresh row — the
+        ;     (IO_CX != 0 → newline) move to a fresh row — the
         ;     "enter anywhere" half of log.md's Contract.
-        ; Homing CUR_COL=0 here would force log_open to see a
+        ; Homing IO_CX=0 here would force log_open to see a
         ; "safe at col 0" state and skip its advance, overwriting
         ; the user's typed command line.
         lda #0
@@ -518,7 +517,7 @@ main_loop:
 
         cmp #CH_DEL
         bne @not_del
-        ldx CUR_ROW
+        ldx IO_CY
         lda scr_lo,x
         sta rp_ptr
         lda scr_hi,x
@@ -527,16 +526,16 @@ main_loop:
         FAR_LDA rp_ptr
         cmp #$3A
         bne @del_min0
-        lda CUR_COL
+        lda IO_CX
         cmp #6
         jcc @reject
         jmp @del_shift
 @del_min0:
-        lda CUR_COL
+        lda IO_CX
         jeq @reject
 @del_shift:
-        dec CUR_COL
-        ldy CUR_COL
+        dec IO_CX
+        ldy IO_CX
 @del_loop:
         iny
         FAR_LDA rp_ptr
@@ -553,25 +552,25 @@ main_loop:
 
         cmp #CH_INS
         bne @not_ins
-        ldx CUR_ROW
+        ldx IO_CY
         lda scr_lo,x
         sta rp_ptr
         lda scr_hi,x
         sta rp_ptr+1
         ldy #SCREEN_WIDTH - 2
-        cpy CUR_COL
+        cpy IO_CX
         bcc @ins_pad            ; cursor at col 39: nothing to shift
-@ins_loop:                      ; move cols CUR_COL..38 one right
+@ins_loop:                      ; move cols IO_CX..38 one right
         FAR_LDA rp_ptr
         iny
         FAR_STA rp_ptr
         dey
-        cpy CUR_COL
-        beq @ins_blank          ; ends at CUR_COL, also when it is 0
+        cpy IO_CX
+        beq @ins_blank          ; ends at IO_CX, also when it is 0
         dey
         bpl @ins_loop           ; always (Y <= 37)
 @ins_blank:
-        lda #$20                ; Y = CUR_COL: the opened space
+        lda #$20                ; Y = IO_CX: the opened space
         FAR_STA rp_ptr
 @ins_pad:
         lda #$20
@@ -582,44 +581,44 @@ main_loop:
 
         cmp #CH_CURS_UP
         bne @not_up
-        lda CUR_ROW
+        lda IO_CY
         jeq @reject
-        dec CUR_ROW
+        dec IO_CY
         jsr io_sync
         jmp main_loop
 @not_up:
 
         cmp #CH_CURS_DOWN
         bne @not_down
-        lda CUR_ROW
+        lda IO_CY
         cmp #SCREEN_HEIGHT - 1
         jcs @reject
-        inc CUR_ROW
+        inc IO_CY
         jsr io_sync
         jmp main_loop
 @not_down:
 
         cmp #CH_CURS_LEFT
         bne @not_left
-        lda CUR_COL
+        lda IO_CX
         jeq @reject
-        dec CUR_COL
+        dec IO_CX
         jmp main_loop
 @not_left:
 
         cmp #CH_CURS_RIGHT
         bne @not_right
-        lda CUR_COL
+        lda IO_CX
         cmp #SCREEN_WIDTH - 1
         jcs @reject
-        inc CUR_COL
+        inc IO_CX
         jmp main_loop
 @not_right:
 
         cmp #CH_HOME
         bne @not_home
         lda #0
-        sta CUR_COL
+        sta IO_CX
         jmp main_loop
 @not_home:
 
@@ -630,7 +629,7 @@ main_loop:
 @do_clr:
         jmp cse_refresh
 @default:
-        lda CUR_COL
+        lda IO_CX
         cmp #SCREEN_WIDTH - 1
         jcs @reject
         lda main_key
@@ -688,9 +687,9 @@ set_charset:
         rts
 
 splash_row:
-        sta CUR_ROW
+        sta IO_CY
         lda #0
-        sta CUR_COL
+        sta IO_CX
         jmp io_sync
 
 ; ═════════════════════════════════════════════════════════════

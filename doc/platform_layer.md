@@ -336,8 +336,10 @@ is impossible.
 
 ### Terminal
 
-cse_io.s ([cse_io.md § Interface](modules/cse_io.md#interface)) and
-five `platform.inc` macros for the inline sites in other modules.
+cse_io.s ([cse_io.md § Interface](modules/cse_io.md#interface)), and
+for the inline sites in other modules two `platform.inc` cells
+(`IO_CX`, `IO_CY`) and three macros.  A routine or macro whose m65
+column says *P2* is `PLAT_PENDING 2` until then.
 
 | Name | c64 | m65 |
 |---|---|---|
