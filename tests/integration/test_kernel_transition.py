@@ -2139,3 +2139,35 @@ class TestContinueCommand:
         s.type("c")
         assert s.v("dbg_reason") == DBG_RTS
         assert e.memory[0x3100] == 0xF0
+
+
+class TestExitToBasic:
+    """main.md § Exit path: `Q`/y leaves through cse_exit_to_basic —
+    KERNAL vectors restored, $01-$7F back from the cold-init snapshot,
+    the byte before TXTTAB zeroed, BASIC warm start entered."""
+
+    def test_q_yes_restores_and_enters_basic(self, session):
+        s, e = session, session.e
+        cold = [e.memory.ram[0xF8DA + i] for i in range(0x7F)]   # COLD_ZP
+        warm = e.memory.rom_basic[2] | (e.memory.rom_basic[3] << 8)
+        e.memory[0x0800] = 0x55
+        s.start("Q")
+        e.inject_keys(b"Y")
+        cpu = e._cpu
+        for _ in range(3_000_000):
+            if cpu.pc == warm:
+                break
+            if cpu.pc == 0xFF5E:            # CINT waits for raster line 0;
+                e.memory[0xD012] = 0        # C64Emu's VIC is flat RAM
+            cpu.step()
+            e._steps += 1
+            if e._pending:
+                e._dispatch_pending()
+        assert cpu.pc == warm, f"BASIC warm start not reached (${cpu.pc:04X})"
+        # $02-$7F come back from the snapshot ($01 too, but the KERNAL
+        # init that follows sets its own default $01 afterwards).
+        assert [e.memory.ram[0x01 + i] for i in range(1, 0x7F)] == cold[1:]
+        assert e.memory[0x0291] == 0
+        assert e.read_word(0x0316) == 0xFE66            # KERNAL BRK
+        assert e.read_word(0x0318) == 0xFE47            # KERNAL NMI
+        assert e.memory[0x0800] == 0
