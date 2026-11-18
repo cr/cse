@@ -850,3 +850,22 @@ class TestNonLetterKeys:
     def test_letter_forms_accepted(self, asm_syms, source, expected):
         got, _, _ = R.run_asm(asm_syms, source, 2)
         assert got == expected
+
+
+# ── Implied takes no operand; the key is one word (asm_line.md) ─────────────
+
+class TestImpliedAndWordEnd:
+
+    @pytest.mark.parametrize("source", [
+        "RTS GARBAGE", "NOP $1234", "NOP 1", "INX #1", "CLC (", "BRK X",
+        "INXY", "LDA4 #1", "NOPX", "RTS1", "LDA#1", "DEX,"])
+    def test_refused(self, asm_syms, source):
+        got, err, _ = R.run_asm(asm_syms, source, 2)
+        assert got is None and err == 0, f"{source!r} → {got!r}"
+
+    @pytest.mark.parametrize("source,expected", [
+        ("NOP", b"\xea"), ("NOP ", b"\xea"), ("NOP ;c", b"\xea"),
+        ("NOP;c", b"\xea"), ("RTS // done", b"\x60")])
+    def test_accepted(self, asm_syms, source, expected):
+        got, _, _ = R.run_asm(asm_syms, source, 2)
+        assert got == expected

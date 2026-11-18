@@ -1006,9 +1006,13 @@ documentation round that follows this filing.
   $61-$7A, $C1-$DA; AND #$5F) and refuses anything else with ;?syntax
   before mn_classify, so an empty line no longer assembles to BRK.
   Test TestNonLetterKeys (test_asm_line.py).
-- [ ] **Implied instructions ignore their operand**: `rts garbage`,
+- [x] **Implied instructions ignore their operand**: `rts garbage`,
   `nop $1234`, `inxy` assemble silently (zone A has no end check;
   asm_line.md says a fifth character is `;?syntax`).
+  Fixed 2026-11-18: zone A requires an empty operand (end, ';' or
+  '//'), and the character after the three-letter key must be
+  whitespace, end or ';' (asm_line.md § Mnemonic word, § Zone
+  dispatch). Test TestImpliedAndWordEnd (test_asm_line.py).
 - [ ] **A narrow branch operand is emitted as a raw offset**:
   `BNE $10` → `D0 10` (asm_line.md: the operand is the target).
 - [ ] **`expr` loses the wide flag after a nested `<`/`>`**:

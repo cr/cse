@@ -492,6 +492,11 @@ ERROR_TESTS = [
     },
     {"name": ".const reading a later label", "expect_min_errors": 1,
      "source": ".org $c000\n.const k later\n rts\nlater: rts"},
+    # implied takes no operand; the key is one word (asm_line.md)
+    {"name": "implied with operand", "source": ".org $c000\n nop $1234",
+     "expect_min_errors": 1},
+    {"name": "key with a fourth letter", "source": ".org $c000\n inxy",
+     "expect_min_errors": 1},
     # A `:` with no name is `exp id`, not an endless re-scan of the
     # same word (assembler_syntax.md § Labels).
     {"name": "lone colon", "source": ".org $c000\n:\n rts",

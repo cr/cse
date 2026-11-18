@@ -236,6 +236,18 @@ _asm_line_core:
         jsr _asm_rd_upper
         sta mn_c3
 
+        ; The key is one word: whitespace, end of line or ';' must follow
+        ; (no C64 key takes a suffix — asm_line.md § Mnemonic word).
+        lda (asm_ptr),y
+        beq @word_ok
+        cmp #' '
+        beq @word_ok
+        cmp #$A0
+        beq @word_ok
+        cmp #';'
+        beq @word_ok
+        jmp asm_error
+@word_ok:
         ; Advance asm_ptr past the mnemonic (Y bytes consumed so far).
         jsr _asm_adv            ; asm_ptr += Y; Y = 0
 
@@ -346,11 +358,22 @@ _asm_line_core:
         .byte >(@zone_a-1), >(@zone_b-1), >(@zone_f-1)
         .byte >(@zone_c-1), >(@zone_d-1), >(@zone_e-1)
 
-; ── Zone A: implied — no operand ─────────────────────────────────────────────
+; ── Zone A: implied — the operand must be empty ──────────────────────────────
+; End of line, ';' or '//' comment (whitespace already skipped, Y=0).
 @zone_a:
-        lda asm_base
+        lda (asm_ptr),y
+        beq @a_ok
+        cmp #';'
+        beq @a_ok
+        cmp #'/'
+        bne @a_bad
+        iny
+        cmp (asm_ptr),y         ; '//'?
+        bne @a_bad
+@a_ok:  lda asm_base
         clc
         jmp _asm_emit           ; tail-call; _asm_emit preserves C
+@a_bad: jmp asm_error
 
 ; ── Zone B: REL — branch target (absolute or raw offset) ─────────────────────
 @zone_b:

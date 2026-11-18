@@ -76,6 +76,10 @@ one-character **suffix** directly after it.
 A digit on any other key, a digit-zone key without a digit, `q` on a
 key with no Q form, any other fourth character, or a fifth character
 is `;?syntax`.  `lda x` is `LDA` with the label `x`; `ldax` is no word.
+On the C64 builds no key takes a suffix (the digit zones D/E are not
+assembled there), so the character after the three-letter key must
+be whitespace, the end of the line or `;` — `inxy`, `lda4`, `nopx`
+are `;?syntax`.
 
 **Accepted spellings on the m65 build** — a second spelling is accepted
 only when the scanner alone can map it onto an existing row (it adds
@@ -209,7 +213,7 @@ directly (order A B F C D E); the rest is multi-mode:
 
 | Zone | Mode | Examples |
 |------|------|---------|
-| A | Implied | BRK, CLC, DEX, NOP, RTS; on m65 also TAZ, MAP, EOM, … |
+| A | Implied — the operand must be empty (end of line, `;` or `//` comment), else `;?syntax` | BRK, CLC, DEX, NOP, RTS; on m65 also TAZ, MAP, EOM, … |
 | B | Branch (REL; REL16 on `MEGA_SUPPORT`) | BCC, BEQ, BNE, BPL, …; on m65 also BSR |
 | C | Immediate only | illegal ANC/ALR/…; on m65 RTN |
 | D | Bit-op ZP (RMB/SMB) | RMB0–7, SMB0–7 |
