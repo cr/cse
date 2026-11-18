@@ -950,7 +950,7 @@ cse_brk_handler:
 ; where dbg_reason=0 and step_state=0, so post_run_cleanup is
 ; skipped — still get their colours / VIC / $CC / kbd-buffer
 ; reset.  save_userland_state has already restored the kernel's
-; ZP by this point, so hygiene's reads of theme_* / io_color /
+; ZP by this point, so hygiene's reads of theme_* /
 ; scr_lo/hi all hit the kernel's ZP view as intended.
 ; ═════════════════════════════════════════════════════════════
 handler_finalize:

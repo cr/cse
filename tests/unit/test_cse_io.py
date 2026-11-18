@@ -43,8 +43,8 @@ io_sync, io_putc writes to the right row for every row 0..24.
 
 Out-of-scope (shared internals, not user-facing API)
 ----------------------------------------------------
-`scr_lo`, `scr_hi`, `_io_scr_setup`, `dec_pow_lo`, `dec_pow_hi`,
-`io_color` are exported for use by sibling L2 modules (screen.s,
+`scr_lo`, `scr_hi`, `_io_scr_setup`, `dec_pow_lo`, `dec_pow_hi`
+are exported for use by sibling L2 modules (screen.s,
 disk.s) but are not part of the documented API.  They are exercised
 implicitly whenever the API functions that use them are tested.
 
@@ -95,7 +95,6 @@ class IoSymbols:
         self.io_getc      = s["io_getc"]
         self.io_blip      = s["io_blip"]
         self.dec_buf      = s["dec_buf"]
-        self.io_color     = s["io_color"]
         self.scr_lo       = s["scr_lo"]
         self.scr_hi       = s["scr_hi"]
         self.dec_pow_lo   = s["dec_pow_lo"]
@@ -1024,29 +1023,6 @@ class TestIoScrSetup:
         cpu.memory[0xD6] = 7
         jsr(cpu, io._io_scr_setup)
         assert cpu.memory[0xD6] == 7
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# §18  io_color — exported BSS byte (used by screen.s / disk.s)
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# cse_io.s exports `io_color` but does not read or write it itself.
-# It is a shared-state byte: screen.s writes it during theme_init and
-# uses it to fill color RAM on screen clears.  The contract is only:
-# the symbol is addressable at a known location, size 1 byte.  Nothing
-# to test beyond existence and load-time default.
-
-class TestIoColor:
-    def test_addressable_and_zero_at_load(self, io):
-        """io_color lives in BSS; after load the test runner clears
-        the whole ZP+BSS blob, so the byte must be $00."""
-        cpu = make_cpu(io)
-        assert cpu.memory[io.io_color] == 0x00
-
-    # test_survives_round_trip_through_memory retired — it asserted only
-    # that cpu.memory[addr] works as a byte array, which is a property
-    # of the harness, not of cse_io.  The addressability check above
-    # is sufficient for the contract.
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

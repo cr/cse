@@ -167,9 +167,7 @@ what user code may assume about that range is
 **Depends on:** log (puts_imm, log_info), screen (newline), cse_io
 (io_putc, io_putdec, io_getc, io_kbhit, io_clear_eol, scr_lo,
 scr_hi), strings (str_dname, str_dir_brk, str_blk_free, str_blk_pre,
-str_blk_suf), zp (disk_ptr, _io_tmp, cur_device).  disk.s also
-imports io_puts, io_puthex2, io_puthex4 and io_color without using
-them (dead imports, [TODO.md § Code bugs](../TODO.md)).
+str_blk_suf), zp (disk_ptr, _io_tmp, cur_device).
 
 ## Design
 

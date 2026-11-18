@@ -24,10 +24,9 @@ back to the build default.
 
 ### restore_colors
 **In:** none (reads `theme_border`, `theme_bg`, `theme_fg`)
-**Out:** VIC border ($D020) and background ($D021) set; `io_color`
-and the KERNAL text colour `$0286` (the colour CHROUT writes) =
-`theme_fg`; all 1024 bytes of colour RAM from $D800 filled with
-`theme_fg`.
+**Out:** VIC border ($D020) and background ($D021) set; the KERNAL
+text colour `$0286` (the colour CHROUT writes) = `theme_fg`; all 1024
+bytes of colour RAM from $D800 filled with `theme_fg`.
 **Clobbers:** A, X
 
 Writing `$0286` keeps user code that prints with `jsr $FFD2` in the
@@ -151,9 +150,8 @@ by the REPL's `C` command, read by `restore_colors` and the REPL's
 colour display.  BSS, not RODATA, so this works on the planned CRT
 target where RODATA lives in ROM.
 
-**Depends on:** cse_io (io_sync, io_color, scr_lo, scr_hi,
-_io_scr_setup, _io_scr), zp (scr_src).  screen.s also imports
-`io_puts` without using it (dead import).
+**Depends on:** cse_io (io_sync, scr_lo, scr_hi, _io_scr_setup),
+zp (_io_scr, scr_src).
 
 ## Theme System
 

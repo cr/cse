@@ -10,7 +10,7 @@
         .export theme_init
         .export vic_reset
         .export kernal_screen_reset
-        .import io_puts, io_sync, io_color
+        .import io_sync
         .import scr_lo, scr_hi
         .import _io_scr_setup
         .importzp _io_scr, scr_src
@@ -91,7 +91,6 @@ theme_fg:     .res 1
         lda theme_bg
         sta VIC_BG
         lda theme_fg
-        sta io_color
         ; Also update the KERNAL's text-colour variable at
         ; $0286 (CHRCOLOR — page-2 RAM, part of the KERNAL
         ; work area, NOT zero page).  KERNAL CHROUT ($FFD2)
@@ -102,7 +101,7 @@ theme_fg:     .res 1
         ; behind, and the wrong colour persists until CSE next
         ; calls restore_colors after the user code returns.
         sta $0286
-        ; fill color RAM with io_color
+        ; fill color RAM with theme_fg
         ldx #0
 @fill:  sta COLOR_RAM,x
         sta COLOR_RAM+$100,x

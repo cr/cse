@@ -29,7 +29,6 @@ Allocated in zp.s ([zp.md](zp.md)).
 
 | Name | Size | Purpose | Consumers |
 |------|------|---------|-----------|
-| `io_color` | 1 | Text colour (= `theme_fg`) | **Exported** — written by screen.s's `restore_colors`; nothing reads it (disk.s imports it unused).  cse_io itself neither reads nor writes it. |
 | `dec_buf` | 6 | `io_utoa` output: 5 PETSCII digits + NUL at [5] | **Exported** — `io_putdec` / `io_putdec_pd` print from it; asm_src.s reads it directly after `io_utoa` (the `.bas` SYS line). |
 
 ### KERNAL Locations Used

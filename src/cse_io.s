@@ -18,7 +18,6 @@
         .export io_clear_eol
         .export io_getc, io_kbhit
         .export io_sync
-        .export io_color
         .export io_blip
         .export scr_lo, scr_hi  ; shared row address tables (cse_io.md § RODATA)
         .export _io_scr_setup   ; shared row pointer setup (used by screen.s)
@@ -45,7 +44,6 @@ SID_VOL        = $D418
 
 ; ── BSS ─────────────────────────────────────────────────────
 .segment "BSS"
-io_color: .res 1       ; text color for screen clears
 dec_buf:  .res 6       ; io_utoa: 5-digit PETSCII decimal + NUL
 
 ; ── RODATA ──────────────────────────────────────────────────

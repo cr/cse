@@ -15,8 +15,8 @@
         .export disk_seq_bytes, disk_seq_lines
 
         .import puts_imm, log_info              ; log.s
-        .import io_puts, io_putc, io_putdec, io_puthex2, io_puthex4
-        .import io_getc, io_kbhit, io_clear_eol, io_color
+        .import io_putc, io_putdec
+        .import io_getc, io_kbhit, io_clear_eol
         .import newline
         .importzp cur_device                    ; zp.s
         .import scr_lo, scr_hi
