@@ -1,7 +1,6 @@
 ; screen.s — Screen management (scroll, newline, cursor, color)
 ; Owner: doc/modules/screen.md
 ;
-; Replaces screen.c with direct 6502 implementation.
 ; Requires $CC=1 (KERNAL cursor disabled).
 
         .export restore_colors, reset_screen
@@ -15,8 +14,6 @@
         .import scr_lo, scr_hi
         .import _io_scr_setup
         .importzp _io_scr, scr_src
-
-; NOTE: No runtime ZP dependencies (no sp, popax, etc.)
 
 ; ── ZP pointers (CSE's own ZP — never the user's $80–$FF) ─
 ; dst_ptr reuses cse_io's _io_scr: it is transient (every reader
@@ -46,8 +43,9 @@ SCR_SIZE  = 1000          ; 25 * 40
 
 ; ── Theme (BSS — defaults applied by theme_init at startup) ─
 ; Build-time selection: -DTHEME_BOR=x -DTHEME_BG=x -DTHEME_FG=x
-; where x is a C64 color index 0-F.
-; Default: RADIOACTIVITY (cb5)
+; where x is a C64 color index 0-F.  The Makefile always passes them
+; (default THEME=GREENLAND, d5d); the fallback below (RADIOACTIVITY,
+; cb5) applies only to a build without the flags.
 ;
 ; BSS (not RODATA) because the `c BFS` REPL command rewrites
 ; these at runtime — on the planned CRT target RODATA lives in
@@ -71,7 +69,8 @@ theme_fg:     .res 1
 
 ; ═════════════════════════════════════════════════════════
 ; theme_init — apply build-time theme defaults to BSS
-; Called once from main.s startup, before restore_colors.
+; Called from main.s cold init and hw_reinit_body (cse_recover),
+; before restore_colors.
 ; ═════════════════════════════════════════════════════════
 .proc theme_init
         lda #THEME_BOR
@@ -175,17 +174,13 @@ theme_fg:     .res 1
 ; eaten keystroke + a double-jump on the next) and the REPL
 ; (cursor drifts off-screen, line-wrap math wrong).
 ;
-; CALL SITE — exactly one: `refresh_body` in main.s, on the
-; cse_refresh path (kernel-mode NMI dispatch).  NOT called from
-; cold-init's reset_screen, the `x` (clear screen) command, or
-; scroll_up's full-clear path — those callers own the screen
-; transition and do not have a transiently-mid-CHROUT KERNAL
-; state to recover from.  Reseting LDTB1 / $D5 wholesale on those
-; paths regressed userland CHROUT positioning (rc1-rc2 finding):
-; KERNAL line-link state established by prior REPL output is the
-; correct context for subsequent userland CHROUT, and wiping it
-; on every reset_screen left the screen-editor in a state that
-; disagreed with the displayed content.
+; CALL SITE — exactly one: `hygiene_after_userland` in repl.s, run
+; on every return from user code (main.s handler_finalize).  NOT
+; called from reset_screen (cold init, the `x` command, cse_refresh,
+; scroll_up's full clear) — those paths have no mid-CHROUT KERNAL
+; state to recover from, and resetting LDTB1 / $D5 there would wipe
+; the line-link state that matches the displayed content and that
+; later userland CHROUT positions against.
 ;
 ; Reset (post-init values from CINT/$E544):
 ;   $C6        NDX     ← 0     drain key buffer (in-flight keys
@@ -202,8 +197,8 @@ theme_fg:     .res 1
 ;                              (matches the just-cleared screen).
 ;
 ; Bytes deliberately NOT reset: $D1/$D2/$D3/$D6/$F3/$F4 — these
-; are set by the io_sync (KERNAL PLOT) call that follows in
-; refresh_body's reset_screen.
+; are set by the io_sync (KERNAL PLOT) tail call that follows in
+; hygiene_after_userland.
 ; Clobbers: A, X.
 ; ═════════════════════════════════════════════════════════
 .proc kernal_screen_reset
@@ -370,4 +365,4 @@ theme_fg:     .res 1
 ; cursor_hide is identical
 cursor_hide = cursor_show
 
-; Color RAM tables removed — color RAM is static (set once at init).
+; Color RAM is static: restore_colors fills it, nothing scrolls it.
