@@ -585,7 +585,8 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   one `PLATFORM_C64` data block; `cmd_info`'s body `PLAT_PENDING 2`
   on m65.  The literal audit reached zero: the baseline fixture is
   deleted and the test asserts zero.
-- [ ] Loader.
+- [x] Loader — loader.s's copy loop and main.s's `SYS 2061` stub
+  under `PLATFORM_C64`.  Step (1) is complete.
 - The m65 bodies the docs state for P0, written in step (4) with the
   harness that tests them: `KCALL` / `KJMP`, `FAR_SIZE` and the far
   access macros, `FAR_BANK` at every far pointer's set sites,

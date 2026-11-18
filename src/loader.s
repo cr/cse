@@ -14,6 +14,12 @@
 ; load/run split.
 
         .setcpu "6502"
+        .include "platform.inc"
+
+; One entry, a body per platform (doc/platform_layer.md § Loader):
+; the C64's copy loop below; the m65's gate and install
+; (doc/modules/loader.md § Design).
+.ifdef PLATFORM_C64
 
 ; ── Imports ──────────────────────────────────────────────────
         .import _main
@@ -139,3 +145,5 @@ zero_pages:
         dex
         bne @rlp
 @done:  rts
+
+.endif ; PLATFORM_C64

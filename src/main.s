@@ -165,12 +165,15 @@ stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
         .word BASIC_START
 
 ; ── EXEHDR — BASIC stub ─────────────────────────────────────
+; `2026 SYS 2061`: loader_entry is the LOADER segment's first byte.
+.ifdef PLATFORM_C64
 .segment "EXEHDR"
         .word @next
         .word 2026
         .byte $9E
         .byte "2061", 0
 @next:  .word 0
+.endif
 
 ; ── CODE ────────────────────────────────────────────────────
 .segment "CODE"
