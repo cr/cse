@@ -98,8 +98,10 @@ ed_read_rewind:
         rts
 
 ; ── ed_read_line ─────────────────────────────────────────────────────────────
-; Input: A/X = buf pointer. Maxlen hardcoded to 40.
-; Returns: A/X = line length (≥0), or $FF/$FF = -1 on EOF.
+; Input: A/X = buf pointer (40 bytes: 39 characters + NUL).
+; Returns: A = line length (0–39), X = 0, or X = 39 when characters
+; past the 39th were dropped; $FF/$FF = -1 on EOF (gap_buffer.md
+; § ed_read_line).
 ;
 ; Source encoding (written by the Python test harness):
 ;   - lines are NUL-terminated
@@ -130,29 +132,31 @@ ed_read_line:
         lda (_src_ptr),y
         cmp #$FF
         beq @hit_eof
-        ; Copy up to 39 chars from _src_ptr to _buf_ptr
-        ; (Y already 0 from the sentinel check.)
+        ; Copy up to 39 chars from _src_ptr to _buf_ptr, skip the rest
+        ; of the line (X = 39: dropped).  Y already 0.
+        ldx #0
 @cp:    lda (_src_ptr),y
         beq @eol                ; NUL = end of line
-        sta (_buf_ptr),y
-        iny
         cpy #39
-        bcc @cp
-@eol:   ; NUL-terminate dest buf
-        lda #0
+        bcs @skip
         sta (_buf_ptr),y
-        ; Advance _src_ptr past line content + NUL separator
+        bcc @nx                 ; always
+@skip:  ldx #39
+@nx:    iny
+        bne @cp
+@eol:   ; Y = raw length.  Advance _src_ptr past it + the NUL separator.
         tya
-        clc
+        sec
         adc _src_ptr
         sta _src_ptr
         bcc :+
         inc _src_ptr+1
-:       inc _src_ptr            ; skip the NUL separator
-        bne :+
-        inc _src_ptr+1
-:       tya                     ; A = line length
-        ldx #0
+:       cpy #39                 ; stored length = min(Y, 39)
+        bcc :+
+        ldy #39
+:       lda #0
+        sta (_buf_ptr),y        ; NUL-terminate dest buf
+        tya                     ; A = line length; X = dropped flag
         rts
 @hit_eof:
         lda #1

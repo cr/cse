@@ -1161,8 +1161,9 @@ documentation round that follows this filing.
   Fixed 2026-11-18: `cmd_step` returns on try_expr's Z=0 (error) before the gate, as `j` does (+2 B), test test_bad_step_count_neither_steps_nor_previews.
 - [x] **`b nosuch` prints `;?expr undef` and then an extra `;?syntax`.**
   Fixed 2026-11-18: `cmd_brk` returns on try_expr's Z=0; only the empty case is `;?syntax` (±0 B), test test_bad_expr_is_one_error_row.
-- [ ] **`;!N: truncated` fires for a line of exactly 39 characters**,
+- [x] **`;!N: truncated` fires for a line of exactly 39 characters**,
   which is not truncated.
+  Fixed 2026-11-18: `ed_read_line` returns X ≠ 0 when it dropped characters past the 39th and `do_pass` warns on that flag, not on length 39 (−17 B, budget lowered; README corrected to "more than 39"), tests test_dropped_characters_set_x, test_warns_only_when_characters_were_dropped.
 - [ ] **Steps chained inside the handler (`t N`, N > 1) skip the
   `;!range` gate** — only the first step is range-checked, so a chained
   step can patch `$00` into I/O or ROM-shadow memory.

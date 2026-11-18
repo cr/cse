@@ -175,15 +175,16 @@ lands inside the gap).
 **Clobbers:** A, X, Y.
 
 ### ed_read_line
-**In:** A/X = destination buffer pointer (at least 40 bytes; maxlen
-is fixed at 40).
-**Out:** A = length copied (0–39), X = 0, buffer NUL-terminated; or
-A = X = $FF at EOF (nothing left to read).  Copies bytes from
-`read_ptr` up to the next CR or EOF; the CR is consumed, not stored.
-A line longer than 39 bytes is **truncated**: the first 39 bytes are
-stored, the rest is consumed up to the CR and dropped.  Length 39
-therefore means "39 bytes or more" — the caller cannot tell an exact
-39-byte line from a truncated one.
+**In:** A/X = destination buffer pointer (40 bytes: at most 39
+characters and the NUL).
+**Out:** A = length copied (0–39), buffer NUL-terminated; X = 0 when
+the whole line fit, X = 39 (non-zero, positive) when characters past
+the 39th were dropped; or A = X = $FF at EOF (nothing left to read).
+Copies bytes from `read_ptr` up to the next CR or EOF; the CR is
+consumed, not stored.  A line longer than 39 characters is
+**truncated**: the first 39 are stored, the rest is consumed up to
+the CR and dropped, and X says so — a line of exactly 39 characters
+returns X = 0.
 **Clobbers:** A, X, Y, `ed_scr`, `ed_tmp`.
 
 ### Partial-result contract
@@ -249,7 +250,7 @@ Full Tier U coverage via `tests/unit/test_gap_buffer.py` (36 tests):
 | Test class | Coverage |
 |---|---|
 | `TestGapBufferInsert` (5) | `ed_insert_string`, `gb_insert`, `ed_total_lines` bump on CR, `ed_dirty` flag. |
-| `TestEdReadLine` (7) | `ed_read_rewind`, `ed_read_byte`, `ed_read_line` + 4 position-pinning cases (exact delta for CR-terminated, empty-line, no-CR-last-line, post-EOF idempotency). |
+| `TestEdReadLine` (8) | `ed_read_rewind`, `ed_read_byte`, `ed_read_line`, the dropped-characters flag (38/39/40/60 characters, CR- and EOF-ended) + 4 position-pinning cases (exact delta for CR-terminated, empty-line, no-CR-last-line, post-EOF idempotency). |
 | `TestGbBackspace` (5) | `gb_backspace` content shortening, gap_lo decrement (ancillary state), CR-deletion decrements `ed_total_lines`, no-op at buf_base. |
 | `TestGbCursorMove` (6) | `gb_cursor_left` / `gb_cursor_right` content preservation, round-trip, gap_lo/gap_hi co-movement, no-op at buffer ends. |
 | `TestGbHome` (3) | `gb_home` single-line → buf_base, multi-line → just past CR, already-at-start no-op. |

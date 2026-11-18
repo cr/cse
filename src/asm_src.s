@@ -1502,17 +1502,16 @@ _too_long_err:
 @loop:  ; Call ed_read_line(_line_buf)
         lda #<_line_buf
         ldx #>_line_buf
-        jsr ed_read_line       ; A = length (lo), X = sign byte (hi)
-        pha                     ; save length BEFORE txa clobbers A
+        jsr ed_read_line       ; A = length, X = 0 / dropped / $FF EOF
         txa
-        bmi @done_pop           ; EOF (sign byte negative) — pull and exit
+        bmi @done               ; EOF
         inc _line_num
         bne :+
         inc _line_num+1
-        ; Check for truncation (returned length == maxlen-1 == 39)
-:       pla
-        cmp #39
-        bne @no_trunc
+        ; Characters past the 39th were dropped (X != 0)?  A line of
+        ; exactly 39 fits whole and is not truncated.
+:       txa
+        beq @no_trunc
         lda asm_pass
         beq @no_trunc
         jsr _bank_in_tmp
@@ -1538,8 +1537,6 @@ _too_long_err:
         ldx #>str_range
         jsr emit_error
         jmp @loop
-@done_pop:
-        pla                     ; discard saved length on EOF
 @done:  rts
 .endproc
 

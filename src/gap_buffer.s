@@ -508,14 +508,17 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 
 ; ══════════════════════════════════════════════════════════
 ; ══════════════════════════════════════════════════════════
-; Returns: A/X = length, or A=$FF/X=$FF at EOF
+; ed_read_line — copy the next line (up to CR or EOF) into A/X.
+; The buffer is 40 bytes: at most 39 characters, then the NUL.
+; Returns: A = length (0–39), X = 0 when the line fit whole, X = 39
+;          (non-zero, positive) when characters past the 39th were
+;          dropped; A = X = $FF at EOF.
 .proc ed_read_line
         sta ed_scr              ; buf lo
         stx ed_scr+1            ; buf hi
-        lda #40
-        sta ed_tmp+1            ; maxlen
         lda #0
         sta ed_tmp              ; len = 0
+        sta ed_tmp+1            ; dropped = 0
 @loop:
         jsr ed_read_byte
         cpx #$FF
@@ -523,34 +526,25 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         ; Got a byte in A
         cmp #$0D
         beq @eol                ; end of line
-        ; Store if room: len < maxlen - 1
-        ldx ed_tmp              ; current len
-        inx                     ; len + 1
-        cpx ed_tmp+1            ; compare with maxlen
-        bcs @loop               ; len+1 >= maxlen → truncate (don't store)
-        ; Store byte
-        ldy ed_tmp
+        ldy ed_tmp              ; current len
+        cpy #39
+        bcs @drop               ; buffer full: drop the byte
         sta (ed_scr),y
-        inc ed_tmp              ; ++len
-        jmp @loop
-@eol:
-        ; NUL-terminate
-        ldy ed_tmp
-        lda #0
-        sta (ed_scr),y
-        lda ed_tmp              ; return len
-        ldx #0
-        rts
+        inc ed_tmp              ; ++len (1..39, never 0)
+        bne @loop
+@drop:  sty ed_tmp+1            ; Y = 39: "dropped"
+        bcs @loop               ; always (C=1)
 @eof_check:
         ; EOF — return what we have, or -1 if nothing
         lda ed_tmp
         beq @eof_empty
-        ; NUL-terminate and return len
+@eol:
+        ; NUL-terminate, return len and the dropped flag
         ldy ed_tmp
         lda #0
         sta (ed_scr),y
         lda ed_tmp
-        ldx #0
+        ldx ed_tmp+1
         rts
 @eof_empty:
         lda #$FF

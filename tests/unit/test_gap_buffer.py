@@ -163,6 +163,27 @@ class TestEdReadLine:
         _, eof = _read_one_line(cpu, mem, gb_syms)
         assert eof is True
 
+    # ── Truncation signal (gap_buffer.md § ed_read_line) ──
+
+    @pytest.mark.parametrize("n,dropped", [(38, False), (39, False),
+                                           (40, True), (60, True)])
+    @pytest.mark.parametrize("cr", [True, False], ids=["cr", "eof"])
+    def test_dropped_characters_set_x(self, gb_syms, n, dropped, cr):
+        """At most 39 characters are kept; X != 0 exactly when some
+        were dropped — a 39-character line fits whole."""
+        cpu, mem = make_cpu(gb_syms)
+        text = bytes(0x41 + i % 26 for i in range(n))
+        _insert_text(cpu, mem, gb_syms, text + (b"\rZ\r" if cr else b""))
+        _jsr(cpu, mem, gb_syms.ed_read_rewind)
+        line, eof = _read_one_line(cpu, mem, gb_syms)
+        assert not eof
+        assert line == text[:39]
+        assert mem[_LINE_BUF + len(line)] == 0
+        assert (cpu.x != 0) == dropped and cpu.x < 0x80
+        if cr:                                  # the next line is intact
+            assert _read_one_line(cpu, mem, gb_syms) == (b"Z", False)
+            assert cpu.x == 0
+
     # ── Partial-result contract (Principle 13) ──
 
     def test_advances_read_ptr_on_success(self, gb_syms):

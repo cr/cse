@@ -313,7 +313,7 @@ documents point here.
 | Line | Printed by | When |
 |---|---|---|
 | `;?N: msg` | `emit_error` | an error on source line `N` (decimal, 1-based), pass 1 — and `fwd ref` from `.res`/`.align` on pass 0 |
-| `;!N: truncated` | `do_pass` | pass 1, a line `ed_read_line` cut to 39 characters |
+| `;!N: truncated` | `do_pass` | pass 1, a line longer than 39 characters (`ed_read_line` dropped the rest) |
 | `;!a shadow` | `addr_mode.s::mode_parse` | pass 1, `ASL A` style operand while a symbol `A` is defined |
 | `; org  AAAA-BBBB NNNNNb` | `_seg_log_close` → `seg_line` (log.s) | pass 1, each non-empty segment |
 | `; N err` | repl.s `exec_line` (`a`) | after the assembly, `N` = `asm_assemble`'s nonzero error count |
@@ -333,10 +333,12 @@ convention.  The `;?` / `;!` / `; ` prefixes come from `log_open`
 
 ### Other caveats
 
-- `ed_read_line` truncates at 40 raw bytes.  If truncation occurs
-  (returned length == 39), the assembler emits the warning above.
-  This is not a fatal error — assembly continues with the truncated
-  line.  In practice only trailing comments are lost.
+- `ed_read_line` keeps at most 39 characters of a line.  When it
+  dropped characters (X ≠ 0 on return) the assembler emits the
+  warning above; a line of exactly 39 characters is read whole and
+  gets no warning.  This is not a fatal error — assembly continues
+  with the truncated line.  In practice only trailing comments are
+  lost.
 - Label length is bounded by the buffers above
   ([assembler_syntax.md § Labels](../assembler_syntax.md#labels)):
   `define_label` refuses a global label over 23 characters or a local
