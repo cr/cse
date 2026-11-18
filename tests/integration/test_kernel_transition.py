@@ -273,6 +273,18 @@ class TestColdInitTerminalState:
                 "expected $FF (post-cold-init free-ZP fill)"
             )
 
+    def test_zp_end_is_first_byte_after_cse_zp(self, emu, cse_prg):
+        """mem.md § cse_zp_end: the first free ZP byte is the byte right
+        after the ZEROPAGE segment's last byte (map file), so cold init
+        fills every unallocated byte."""
+        import re, pathlib
+        text = pathlib.Path(cse_prg[1]).read_text()
+        m = re.search(r"^ZEROPAGE\s+([0-9A-F]+)\s+([0-9A-F]+)", text, re.M)
+        seg_end = int(m.group(2), 16)
+        emu.jsr(emu.sym("cse_zp_end"))
+        assert emu.a == seg_end + 1, \
+            f"cse_zp_end ${emu.a:02X}, ZEROPAGE ends ${seg_end:02X}"
+
     def test_free_workspace_filled_with_zero(self, emu):
         """Free workspace from `WORKSTART` ($0800) up to (but not
         including) the page containing `__CODE_RUN__` must be `$00`

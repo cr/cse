@@ -344,11 +344,12 @@ class TestCseEnd:
 
 
 class TestCseZpEnd:
-    def test_returns_zp_last_plus_one_low_byte(self, mem_syms):
-        """cse_zp_end returns A = low(__ZP_LAST__ + 1); X = 0."""
+    def test_returns_zp_last_low_byte(self, mem_syms):
+        """cse_zp_end returns A = low(__ZP_LAST__); X = 0.  ld65's
+        __ZP_LAST__ already is the first byte after the segment."""
         cpu = make_cpu(mem_syms)
         jsr(cpu, mem_syms.cse_zp_end)
-        expected = (mem_syms.zp_last + 1) & 0xFF
+        expected = mem_syms.zp_last & 0xFF
         assert cpu.a == expected, \
             f"cse_zp_end A=${cpu.a:02X}, expected ${expected:02X}"
         assert cpu.x == 0, \

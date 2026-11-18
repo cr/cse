@@ -842,10 +842,14 @@ documentation round that follows this filing.
   empty; `j` runs only on success or empty, `expr_or_blocksize`
   drops the `+`/`-` handler on an error, test
   `TestBadExpressionAborts`.
-- [ ] **`cse_zp_end` returns `$79`, not the first free byte `$78`**
+- [x] **`cse_zp_end` returns `$79`, not the first free byte `$78`**
   (`mem.s` `<(__ZP_LAST__ + 1)`; ld65's `__ZP_LAST__` already is the
   first free byte); cold init leaves `$78` unfilled.
   `test_mem.py` pins the `+ 1`.
+  Fixed 2026-11-18: `cse_zp_end` returns `<__ZP_LAST__` (immediate;
+  the RODATA byte is gone), so cold init fills $78; tests `TestColdI
+  nitTerminalState::test_zp_end_is_first_byte_after_cse_zp`,
+  `TestCseZpEnd::test_returns_zp_last_low_byte`.
 - [ ] **Edits past `$FFFF` wrap into the live CPU port.**  `m`, `.`
   and assembly wrap `(zp),y` / `asm_out` to `$0000`/`$0001` — not the
   user-ZP image — e.g. `m fffc 00 00 00 00 2f 30` banks out KERNAL and

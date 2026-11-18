@@ -63,12 +63,7 @@ kernel_zp_buf:  .res ZP_SAVE_LEN  ; kernel's ZP snapshot (exit capture)
 userland_zp_buf:    .res ZP_SAVE_LEN  ; user's ZP snapshot (exit capture,
                                    ; restored on re-entry)
 
-; ── RODATA ───────────────────────────────────────────────────
-.segment "RODATA"
-
 .import __CODE_RUN__
-
-_zp_end_val:    .byte <(__ZP_LAST__ + 1)
 
 
 ; ── CODE ─────────────────────────────────────────────────────
@@ -137,7 +132,7 @@ cse_end:
 ; cse_zp_end — return first free ZP byte in A
 ; ═════════════════════════════════════════════════════════════
 cse_zp_end:
-        lda _zp_end_val
+        lda #<__ZP_LAST__       ; ld65: first byte past ZEROPAGE
         ldx #0
         rts
 

@@ -57,7 +57,9 @@ Called by `debugger.s`:
 
 ### cse_zp_end
 **In:** none
-**Out:** A = first free ZP byte (`__ZP_LAST__ + 1`)
+**Out:** A = first free ZP byte — the byte right after CSE's
+ZEROPAGE segment, which is ld65's `__ZP_LAST__` itself (ld65 defines
+`__<seg>_LAST__` as the first address past the segment); X = 0
 
 **State:**
 
