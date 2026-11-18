@@ -190,30 +190,38 @@ dbg_init:
 ; Clobbers: A, X, Y.  Stack contents preserved (caller may still need
 ; to reference them via tsx; save_userland_state only reads).
 ;
+; The frame offsets derive from FRAME_DEPTH (platform_layer.md
+; § Interrupt frame): the stacked P sits FRAME_DEPTH bytes above the
+; frame's top, which is just past this routine's 2-byte return
+; address; A X Y are 1 2 3 below P on every platform (m65's Z and B
+; lie above them).
+_SUS_RET  = 2                           ; jsr return address
+_SUS_P    = $0100 + 1 + _SUS_RET + FRAME_DEPTH  ; stacked P, indexed by SP
+
 save_userland_state:
         ; 1. Extract CPU + KERNAL push frame.
         ; Called via jsr — 2 extra bytes (return addr) sit on top of
         ; the interrupt frame.  tsx gives SP at function entry (after
-        ; the jsr push); the frame is at SP+3..SP+8 (not SP+1..SP+6).
+        ; the jsr push); on c64 the frame is at SP+3..SP+8.
         tsx
-        lda $0103,x
+        lda _SUS_P - 3,x
         sta reg_y
-        lda $0104,x
+        lda _SUS_P - 2,x
         sta reg_x
-        lda $0105,x
+        lda _SUS_P - 1,x
         sta reg_a
-        lda $0106,x
+        lda _SUS_P,x
         sta reg_p
-        lda $0107,x
+        lda _SUS_P + 1,x
         sta brk_pc
-        lda $0108,x
+        lda _SUS_P + 2,x
         sta brk_pc+1
 
-        ; 2. reg_sp = user's pre-interrupt SP = current SP + 8
-        ;    (2 jsr ret addr + 6 interrupt frame).
+        ; 2. reg_sp = user's pre-interrupt SP = current SP + the jsr
+        ;    return address + the frame + the CPU's P PCL PCH (c64: 8).
         txa
         clc
-        adc #8
+        adc #_SUS_RET + FRAME_DEPTH + 3
         sta reg_sp
 
         ; 3. Swap ZP: user's live → userland_zp_buf, then kernel's

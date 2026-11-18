@@ -570,8 +570,13 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   (m65: `PLAT_PENDING 2`).  `scroll_up`, `newline` and the cursor stay
   shared: they name no platform fact, only `scr_lo` / `scr_hi` and the
   geometry, which P2 makes run-time.
-- [ ] Vectors and frame, Cold start and exit, Disk bank, Info map,
-  Loader.
+- [x] Vectors and frame — `setup_interrupts` by platform (m65:
+  `PLAT_PENDING 1`); `save_userland_state`'s offsets and `reg_sp`
+  derived from `FRAME_DEPTH`; the IRQ early entry (`cse_brk_handler_early`,
+  `bank_out_stub`, `_irq_saved_a`) under `PLATFORM_C64`.  The two
+  handlers stay shared until P1 states their m65 bodies (the NMI
+  handler's A X Y push is the c64 frame's shape).
+- [ ] Cold start and exit, Disk bank, Info map, Loader.
 - Finding for P2: the screen pointers `_io_scr` (cse_io.s, screen.s's
   `dst_ptr`) and `scr_src` (screen.s's `src_ptr`) reach the screen,
   which is in bank 4 in 80 × 50, but are not in zp.md's far-pointer

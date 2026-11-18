@@ -46,8 +46,10 @@
         .export end_debug_body
         .export main_loop_top
         .export cse_brk_handler, cse_nmi_handler
+.ifdef PLATFORM_C64                     ; the IRQ early entry: c64 only
         .export cse_brk_handler_early
         .export bank_out_stub
+.endif
         .export setup_interrupts
         ; MODE_NONE / MODE_JUMP / MODE_RESUME are equates — repl.s
         ; redefines them locally (ca65 doesn't propagate `=` through
@@ -138,11 +140,13 @@ kernel_init_sp:    .res 1      ; setjmp SP target for cse_recover /
 run_user_pending:  .res 1      ; MODE_NONE / MODE_JUMP / MODE_RESUME —
                                 ; set by command handlers, read by
                                 ; main_loop after exec_line rts.
+.ifdef PLATFORM_C64
 _irq_saved_a:      .res 1      ; scratch for cse_brk_handler_early's
                                 ; @irq_path: user A is saved here
                                 ; while we clobber A with the
                                 ; bank_out_stub address bytes, then
                                 ; restored for the FF48-style push.
+.endif
 main_key:          .res 1      ; main_loop: the key being dispatched
 stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
                                 ;   set to 1 when (a) we process a STOP
@@ -647,7 +651,9 @@ main_loop:
 ; MUST run before any bank-out in cold init.
 ; Clobbers: A.
 ; ═════════════════════════════════════════════════════════════
+; m65: through VECTOR, interrupts off — stated with P1.
 .proc setup_interrupts
+.ifdef PLATFORM_C64
         lda #<cse_brk_handler
         sta IBRK_VEC
         lda #>cse_brk_handler
@@ -663,6 +669,9 @@ main_loop:
         lda #>cse_brk_handler_early
         sta IRQ_VEC_RAM + 1
         rts
+.else
+        PLAT_PENDING 1
+.endif
 .endproc
 
 ; ── reset_globals ────────────────────────────────────────────
@@ -692,6 +701,7 @@ splash_row:
         sta IO_CX
         jmp io_sync
 
+.ifdef PLATFORM_C64                     ; doc/platform_layer.md § IRQ early entry
 ; ═════════════════════════════════════════════════════════════
 ; cse_brk_handler_early — $FFFE RAM-shadow entry (kernal-out).
 ;
@@ -796,6 +806,7 @@ bank_out_stub:
         sta CPU_PORT
         lda _irq_saved_a
         rti
+.endif ; PLATFORM_C64
 
 ; ═════════════════════════════════════════════════════════════
 ; cse_brk_handler — unified BRK dispatcher.
