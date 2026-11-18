@@ -1474,3 +1474,46 @@ class TestReplDotAfterSymbol:
         emu.jsr(emu.sym("asm_line"), a=0x00, x=0x30)
         assert emu.a == len(expect)
         assert list(emu.memory[0x2000:0x2000 + len(expect)]) == expect
+
+
+class TestCpuDirectiveScope:
+    """assembler_syntax.md § .cpu: `.cpu` applies from its line on, the
+    same on both passes, and asm_cpu is restored after the assembly
+    (it used to stay changed for pass 1 from the start, and leak into
+    the REPL)."""
+
+    def _cpu_addr(self):
+        from conftest import SymbolTable, _AS
+        return SymbolTable(_AS.ensure().lbl)["asm_cpu"]
+
+    def _run_cpu(self, as_syms, src, cpu):
+        cpu_zp = self._cpu_addr()
+        mpu = MPU()
+        mem = mpu.memory
+        as_syms.load_into(mem)
+        for i, b in enumerate(_petscii(src)):
+            mem[as_syms.test_src_buf + i] = b
+        mem[cpu_zp] = cpu
+        mpu.sp = 0xFF
+        mem[0x01FF] = 0xFF
+        mem[0x01FE] = 0xFE
+        mpu.sp = 0xFD
+        mpu.pc = as_syms.asm_src_test_entry
+        for _ in range(_MAX_STEPS):
+            if mpu.pc == 0xFFFF:
+                break
+            mpu.step()
+        errors = mem[as_syms.asm_errors] | (mem[as_syms.asm_errors + 1] << 8)
+        return errors, mem, mem[cpu_zp]
+
+    def test_lines_above_use_the_start_cpu(self, as_syms):
+        errors, mem, _ = self._run_cpu(
+            as_syms, ".org $c000\n phy\n.cpu 65c02\n phy", cpu=0)
+        assert errors == 1                     # the first phy only
+        assert mem[0xC000] == 0x5A
+
+    def test_cpu_restored_after_assembly(self, as_syms):
+        errors, _, after = self._run_cpu(
+            as_syms, ".cpu 65c02\n.org $c000\n phy", cpu=0)
+        assert errors == 0
+        assert after == 0

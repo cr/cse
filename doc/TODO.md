@@ -993,9 +993,12 @@ documentation round that follows this filing.
   `bad insn`; `.const k` without a value is `bad val`
   (assembler_syntax.md § Directives). Tests test_errors[directive *,
   .const without a value].
-- [ ] **`.cpu` in source changes `asm_cpu` for pass 1 from the start**
+- [x] **`.cpu` in source changes `asm_cpu` for pass 1 from the start**
   (lines before the directive) and leaks into the REPL afterwards; not
   restored by `asm_assemble`.
+  Fixed 2026-11-18: asm_assemble saves the caller's asm_cpu, starts
+  every pass with it and restores it at the end (assembler_syntax.md §
+  .cpu). Test TestCpuDirectiveScope.
 - [x] **REPL `.` with a symbol operand reads tables from ROM.**
   `sym_lookup`'s `kernal_bank_in` really banks in inside `asm_line`
   (non-nesting helpers), so `.asl $12,zz` emits `A2 12 02`, 0 errors.

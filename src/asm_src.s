@@ -53,6 +53,7 @@ SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp
 .segment "BSS"
 asm_org:       .res 2          ; origin of the first segment
 _def_org:      .res 2          ; default origin (A/X): every pass starts here
+_cpu_save:     .res 1          ; caller's asm_cpu: each pass starts with it
 asm_size:      .res 2          ; total bytes emitted
 asm_errors:    .res 2          ; error count (pass 1 only)
 _line_num:      .res 2
@@ -1415,6 +1416,8 @@ _too_long_err:
         sta _line_num
         sta _line_num+1
         sta _pc_wrap
+        lda _cpu_save           ; lines above a .cpu use the start CPU
+        sta asm_cpu
         lda _def_org
         sta asm_pc
         lda _def_org+1
@@ -1473,6 +1476,8 @@ _too_long_err:
         stx asm_org+1
         sta _def_org
         stx _def_org+1
+        lda asm_cpu
+        sta _cpu_save           ; .cpu scope: restored per pass and after
         lda #0
         sta asm_errors
         sta asm_errors+1
@@ -1522,6 +1527,8 @@ _too_long_err:
         sta kernal_out
         jsr kernal_bank_in
 
+        lda _cpu_save           ; .cpu never leaks out of the assembly
+        sta asm_cpu
         lda asm_errors
         ldx asm_errors+1
         rts

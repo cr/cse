@@ -218,7 +218,9 @@ layout puts them.
 
 Affects which mnemonics and addressing modes are accepted.  Only the
 members of the build's CPU set are accepted; any other value is an
-error.
+error.  `.cpu` applies from its line to the end of the source (or the
+next `.cpu`); lines above it use the CPU the assembly started with —
+on both passes.  After the assembly the REPL's CPU (`u`) is unchanged.
 
 ### `.db` — Define Bytes
 

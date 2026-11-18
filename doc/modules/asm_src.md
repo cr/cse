@@ -150,6 +150,11 @@ A `.const` whose expression reads a later-defined symbol cannot be
 defined on pass 0; on pass 1 it is `;?N: fwd ref` and stays
 undefined.
 
+**`.cpu` scope:** `asm_assemble` saves the caller's `asm_cpu`
+(`_cpu_save`); every pass starts with it, and it is restored when the
+assembly ends, so a `.cpu` line changes the CPU only for the lines
+after it, identically on both passes, and never leaks into the REPL.
+
 **KERNAL banking:** `asm_assemble` holds the KERNAL banked out
 across both passes.  Inside the batch, `asm_line`'s own
 `kernal_bank_out`/`kernal_bank_in` calls short-circuit, so each
