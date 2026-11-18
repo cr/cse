@@ -822,6 +822,8 @@ bank_out_stub:
 ; cse_brk_handler_early (same stack shape after its prologue).
 ; ═════════════════════════════════════════════════════════════
 cse_brk_handler:
+        cld                     ; user code may have left D set; every
+                                ; adc/sbc below and in the kernel is binary
         lda in_userland
         bne @userland_brk
         ; Kernel fault — BRK in kernel code.
@@ -963,6 +965,7 @@ handler_finalize:
 ; state; cleared by this handler and cse_brk_handler).
 ; ═════════════════════════════════════════════════════════════
 cse_nmi_handler:
+        cld                     ; as cse_brk_handler: kernel runs binary
         bit in_userland
         bmi @userland_nmi
         ; Kernel mode: user wants the view back.  The NMI frame on

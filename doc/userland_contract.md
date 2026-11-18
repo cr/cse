@@ -72,6 +72,9 @@ User code's view of CPU and memory state, by tier:
 - **CPU registers**: `A`, `X`, `Y`, `P`, `PC`, `SP` are saved on
   user→kernel transition and restored on the next kernel→userland
   transition (so `c`, `t`, `o` resume seamlessly after a break).
+  This includes the decimal flag: user code may stop with D set
+  (`SED` then `RTS`, a breakpoint, RUN/STOP+RESTORE); the kernel
+  clears D on entry and keeps the user's value in `reg_p`.
 - **ZP `$80–$FF`** — kernal work area; CSE never writes here.
 - **The user's own memory** outside the kernel's regions:
   workspace ($0800–workend), heap, page-2 / page-3 free fragments

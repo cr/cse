@@ -56,7 +56,12 @@ the stack (6 bytes total).
 known value and `jmp main_loop_top`.
 **Clobbers:** all registers, all of $00–$7F (after capture)
 
-The unified BRK dispatcher.  Classifies the BRK source and routes:
+The unified BRK dispatcher.  Its first instruction is `cld`: user
+code may break with the decimal flag set (NMOS interrupts do not clear
+D), and every `adc`/`sbc` in the handler and the kernel after it
+(`reg_sp`, `brk_pc − 2`, the REPL's arithmetic) must run in binary.
+The user's D survives in `reg_p` and is restored by the next resume.
+Classifies the BRK source and routes:
 
 - $FFFE early-entry path (kernal banked out at BRK time): bank
   kernal in, then fall through to standard path.  See § IRQ
@@ -105,7 +110,8 @@ are still live in the CPU registers.
 through the BRK-style entry path (does not return).
 **Clobbers:** A on swallow path; everything on break path.
 
-Dispatches on `in_userland`:
+Like `cse_brk_handler` it starts with `cld` (the user's D stays in
+the stacked P and so in `reg_p`).  Dispatches on `in_userland`:
 
 ```
 cse_nmi_handler:

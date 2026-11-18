@@ -1406,3 +1406,127 @@ class TestOutputHygiene:
             f"repl.md principle 11 violated: blank rows at {blanks} "
             f"in emitter-output window [{first_row}..{last_row}]"
         )
+
+
+# ── 16. Keyboard-driven session lifecycle (production chain) ──────
+
+def _local_after(map_path, scope, local):
+    """Address of `local` inside `scope` from the .lbl beside the map.
+    ld65 lists a scope's cheap locals just before (above) its global
+    in descending address order, so scan the file backwards."""
+    import pathlib
+    lines = pathlib.Path(map_path).with_suffix(".lbl").read_text().split("\n")
+    seen = False
+    for ln in reversed(lines):
+        p = ln.split()
+        if len(p) < 3:
+            continue
+        if p[2] == "." + scope:
+            seen = True
+            continue
+        if seen and p[2] == "." + local:
+            return int(p[1], 16)
+    raise KeyError(f"{scope}/{local}")
+
+
+def _scr(ch):
+    """ASCII → screen code for typing onto the prompt row."""
+    c = ord(ch)
+    if 0x61 <= c <= 0x7A:
+        return c - 0x60
+    if c == 0x40:
+        return 0
+    return c
+
+
+class Session:
+    """Real cold init, then commands typed on the prompt row and
+    executed by RETURN through main_loop — the path a user takes.
+    `idle()` runs until main_loop polls an empty keyboard buffer."""
+
+    def __init__(self, cse_prg):
+        prg, map_path = cse_prg
+        e = self.e = C64Emu()
+        e.load_prg(prg, map_path)
+        self.WAIT = _local_after(map_path, "main_loop", "@wait")
+        e.run_until(e.sym("main_loop_top"), start_at=e.sym("_main"),
+                    max_cycles=3_000_000)
+        self.idle()
+
+    def v(self, name):
+        return self.e.memory[self.e.sym(name)]
+
+    def w(self, name):
+        return self.e.read_word(self.e.sym(name))
+
+    def idle(self, max_steps=3_000_000):
+        e, cpu = self.e, self.e._cpu
+        for _ in range(max_steps):
+            if cpu.pc == self.WAIT and e.memory[0xC6] == 0:
+                return
+            cpu.step()
+            e._steps += 1
+            if e._pending:
+                e._dispatch_pending()
+        raise TimeoutError(f"main_loop not idle, pc=${cpu.pc:04X}")
+
+    def keys(self, data, **kw):
+        self.e.inject_keys(data)
+        self.idle(**kw)
+
+    def type(self, cmd, **kw):
+        """Write `cmd` after the 5-column prompt, press RETURN, and
+        run until main_loop is idle again."""
+        self.start(cmd)
+        self.idle(**kw)
+
+    def start(self, cmd):
+        """Write `cmd` after the 5-column prompt and queue RETURN."""
+        e = self.e
+        base = 0x0400 + e.memory[0xD6] * 40
+        for i in range(5, 40):
+            e.memory[base + i] = 0x20
+        for i, ch in enumerate(cmd):
+            e.memory[base + 5 + i] = _scr(ch)
+        e.memory[0xD3] = 5 + len(cmd)
+        e.inject_keys(b"\x0d")
+
+    def screen(self):
+        return "\n".join(self.e.screen_text(r) for r in range(25))
+
+
+@pytest.fixture
+def session(cse_prg):
+    return Session(cse_prg)
+
+
+class TestDecimalFlag:
+    """main.md § cse_brk_handler / cse_nmi_handler: every kernel entry
+    clears D before its first arithmetic; the user's D survives in
+    reg_p (userland_contract.md § 2)."""
+
+    def test_sed_rts_is_clean_exit(self, session):
+        s = session
+        s.e.memory[0x3000] = 0xF8          # SED
+        s.e.memory[0x3001] = 0x60          # RTS
+        s.type("j $3000")
+        assert s.v("warm_guard") == 0 and s.v("dbg_reason") == DBG_RTS, \
+            "decimal-mode user exit must classify as a clean rts"
+        assert s.v("reg_p") & 0x08, "user's D flag kept in reg_p"
+        assert not s.e._cpu.p & 0x08, "kernel runs with D clear"
+        s.type("+ $0a")
+        assert s.w("cur_addr") == 0x300A
+
+    def test_nmi_with_d_set_captures_sp(self, session):
+        s = session
+        for i, b in enumerate((0xF8, 0x4C, 0x01, 0x30)):   # SED; JMP *
+            s.e.memory[0x3000 + i] = b
+        s.start("j $3000")
+        s.e.run_steps(200_000)
+        s.e.press_restore()
+        s.idle()
+        assert s.v("warm_guard") == 0
+        assert s.v("dbg_reason") == DBG_NMI
+        assert s.v("reg_sp") == 0xFD, f"reg_sp=${s.v('reg_sp'):02X}"
+        assert s.v("reg_p") & 0x08
+        assert not s.e._cpu.p & 0x08

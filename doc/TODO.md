@@ -779,11 +779,14 @@ documentation round that follows this filing.
   memory_design.md § Breakpoint invariant ("survives every
   warmstart").  `reset_globals` also resets `cur_addr`,
   `block_size`, `cur_device` on recovery (undocumented).
-- [ ] **The decimal flag leaks from user code into the kernel.**
+- [x] **The decimal flag leaks from user code into the kernel.**
   `SED; RTS` → `save_userland_state`'s `adc #8` and the brk_pc
   `sbc #2` run in decimal → bad `reg_sp`, missed brk_stub match →
   kernel BRK → `cse_recover`; D stays set afterwards (`+ $0a` gives
   `$0314`).  No `cld` on any kernel entry (BRK, NMI, IRQ early entry).
+  Fixed 2026-11-18: `cld` first in `cse_brk_handler` and
+  `cse_nmi_handler` (the user's D stays in `reg_p`), test
+  `TestDecimalFlag`.
 - [ ] **A cold preview (`t` with no session) counts as resumable.**
   It promotes `dbg_reason` to DBG_BRK with `reg_sp = $FF` and no
   sentinel; `c` then resumes and the user's RTS jumps into zero page
