@@ -307,15 +307,12 @@ mode_parse:
         ; form; see doc/modules/addr_mode.md § ACC vs label disambiguation.
         ; mode_parse runs banked out; the screen output needs the KERNAL
         ; (io_sync → PLOT), so bank it in around the warning.
-        lda CPU_PORT
-        pha
-        ora #$02
-        sta CPU_PORT
+        BANK_PUSH
+        BANK_IN_A
         lda #<s_a_shadow
         ldx #>s_a_shadow
         jsr log_warn
-        pla
-        sta CPU_PORT                 ; back to the caller's banking
+        BANK_POP                ; back to the caller's banking
 @no_shdw:
         ldy #1                  ; consume 'A' (was iny — Y is dead here)
         jsr _au_check_end       ; validate end (Y advances past trailing ws)

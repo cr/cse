@@ -1008,8 +1008,7 @@ cse_nmi_handler:
 
 ; hw_reinit_body — full HW + software re-init.  Idempotent.
 hw_reinit_body:
-        lda #BANK_IN
-        sta CPU_PORT
+        BANK_KERNEL
         jsr setup_interrupts
         jsr dbg_init
         jsr reset_globals
@@ -1046,8 +1045,7 @@ refresh_body:
         ; KERNAL in: an NMI can land inside a bank-out window (`a`'s
         ; passes hold kernal_out = 1, $01 = $34); reset_screen needs
         ; the ROM.  The interrupted batch is abandoned.
-        lda #BANK_IN
-        sta CPU_PORT
+        BANK_KERNEL
         lda #0
         sta kernal_out
         jsr reset_screen

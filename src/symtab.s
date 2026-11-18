@@ -259,8 +259,8 @@ sym_table    = SYM_TABLE
         lda _st_hash
         sta _st_idx             ; SYM_MASK=$FF: no masking needed for 8-bit ZP
 
-        lda CPU_PORT                 ; nesting guard: keep the caller's banking
-        pha                     ; (restored on every exit, never bank_in)
+        BANK_PUSH               ; nesting guard: keep the caller's banking
+                                ; (restored on every exit, never bank_in)
         jsr kernal_bank_out
 
         ; Probe loop: linear probe, stop on empty or name match.
@@ -324,8 +324,7 @@ sym_table    = SYM_TABLE
         bne @probe              ; haven't wrapped → keep probing
 
 @full:  sec
-@exit:  pla
-        sta CPU_PORT                 ; caller's banking (C kept)
+@exit:  BANK_POP                ; caller's banking (C kept)
         rts
 .endproc
 
@@ -340,8 +339,7 @@ sym_table    = SYM_TABLE
         lda _st_hash
         sta _st_idx             ; SYM_MASK=$FF: no masking needed for 8-bit ZP
 
-        lda CPU_PORT                 ; nesting guard (see sym_define)
-        pha
+        BANK_PUSH               ; nesting guard (see sym_define)
         jsr kernal_bank_out
 
 @probe: jsr entry_ptr
@@ -389,7 +387,6 @@ sym_table    = SYM_TABLE
 
 @notfound:
         sec
-@exit:  pla
-        sta CPU_PORT                 ; caller's banking (C kept)
+@exit:  BANK_POP                ; caller's banking (C kept)
         rts
 .endproc

@@ -130,14 +130,10 @@ _org_set:       .res 1          ; non-zero after first .org on pass 0
 ; vector (cse_brk_handler_early) handles IRQs while KERNAL is banked
 ; out.
 _bank_in_tmp:
-        lda CPU_PORT
-        ora #$02
-        sta CPU_PORT
+        BANK_FORCE_IN
         rts
 _bank_out_tmp:
-        lda CPU_PORT
-        and #$FD
-        sta CPU_PORT
+        BANK_FORCE_OUT
         rts
 
 ; ── skipws_ep ──────────────────────────────────────────────────────────────

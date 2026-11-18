@@ -142,4 +142,58 @@ DISK_LOCAL_PTR  = $FD
   .endif
 .endmacro
 
+; ── Banking (§ Banking) ──────────────────────────────────────────────
+; For the sites whose banking does not fit kernal_bank_out / _in's
+; batch protocol.  They compose: BANK_PUSH · BANK_IN_A … BANK_POP.
+; m65: empty — nothing of CSE's is under the KERNAL.
+
+; A ← the caller's configuration, pushed.
+.macro BANK_PUSH
+  .ifdef PLATFORM_C64
+        lda CPU_PORT
+        pha
+  .endif
+.endmacro
+
+; The pushed configuration back; C kept.
+.macro BANK_POP
+  .ifdef PLATFORM_C64
+        pla
+        sta CPU_PORT
+  .endif
+.endmacro
+
+; Bank the KERNAL in from the configuration in A.
+.macro BANK_IN_A
+  .ifdef PLATFORM_C64
+        ora #$02
+        sta CPU_PORT
+  .endif
+.endmacro
+
+; Bank the KERNAL in / out regardless of kernal_out.
+.macro BANK_FORCE_IN
+  .ifdef PLATFORM_C64
+        lda CPU_PORT
+        ora #$02
+        sta CPU_PORT
+  .endif
+.endmacro
+
+.macro BANK_FORCE_OUT
+  .ifdef PLATFORM_C64
+        lda CPU_PORT
+        and #$FD
+        sta CPU_PORT
+  .endif
+.endmacro
+
+; The kernel's configuration: KERNAL in, BASIC out.
+.macro BANK_KERNEL
+  .ifdef PLATFORM_C64
+        lda #BANK_IN
+        sta CPU_PORT
+  .endif
+.endmacro
+
 .endif ; PLATFORM_INC

@@ -93,21 +93,29 @@ userland_zp_buf:    .res ZP_SAVE_LEN  ; user's ZP snapshot (exit capture,
 ;
 ; Pure writers under KERNAL ($E000–$FFFF) do NOT need either helper:
 ; stores pass through to the underlying RAM regardless of $01 bit 1.
+; m65: plain rts — nothing of CSE's is under the KERNAL; the data
+; window is mapped at all times (doc/platform_layer.md § Banking).
 kernal_bank_out:
+.ifdef PLATFORM_C64
         lda kernal_out
         bne @skip               ; flag set → already banked out
         lda CPU_PORT
         and #$FD                ; clear bit 1 → RAM under KERNAL
         sta CPU_PORT
-@skip:  rts
+@skip:
+.endif
+        rts
 
 kernal_bank_in:
+.ifdef PLATFORM_C64
         lda kernal_out
         bne @skip               ; flag set → stay banked out (caller manages)
         lda CPU_PORT
         ora #$02                ; set bit 1 → KERNAL ROM restored
         sta CPU_PORT
-@skip:  rts
+@skip:
+.endif
+        rts
 
 ; ═════════════════════════════════════════════════════════════
 ; cse_start — return runtime start address in A/X
