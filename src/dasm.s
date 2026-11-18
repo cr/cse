@@ -24,7 +24,7 @@
 
         .include "dasm_mne_idx.s"   ; MNE_UNK, MNE_DIGIT_*, DASM_SUBSET
 
-        .export dasm_insn
+        .export dasm_insn, dasm_insn_pre, _dasm_in
         .export dasm_buf
 
         .importzp asm_cpu
@@ -88,6 +88,11 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         sta _dasm_in,y
         dey
         bpl @cp
+; dasm_insn_pre — entry for a caller that has filled _dasm_in (3 B)
+; and _dasm_ptr (the bytes' real PC, for branch targets) itself:
+; the REPL's user-ZP staged view.  A label only, so the decoder's
+; layout and cycle counts are unchanged.
+::dasm_insn_pre:
         jsr kernal_bank_out
         jsr dasm_decode         ; A = length on return
         pha                     ; save length before bank_in clobbers A

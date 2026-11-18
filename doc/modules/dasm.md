@@ -30,6 +30,13 @@ B6); that code does not exist in `dasm.s` yet.
 ### dasm_buf
 Exported BSS (24 B): the output text of the last `dasm_insn`.
 
+### dasm_insn_pre
+As `dasm_insn`, but the caller has already filled `_dasm_in` (3 B)
+with the instruction bytes and `_dasm_ptr` with their real address
+(used for branch targets).  `repl.s::emit_dot` uses it for its
+user-ZP staged view, whose bytes are not at the address shown.  It
+is a label inside `dasm_insn`, so the decoder's layout is unchanged.
+
 `dasm_insn` owns its own KERNAL banking: it banks out at entry,
 calls the inner `dasm_decode` (which reads the generated tables
 under KERNAL), and banks back in at every exit.  Callers —

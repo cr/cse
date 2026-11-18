@@ -44,7 +44,8 @@
 
 ; ── Imports: assembler / disassembler ──────────────────────
         .import asm_line, asm_err_code
-        .import dasm_insn, dasm_buf
+        .import dasm_insn_pre, _dasm_in, dasm_buf
+        .importzp _dasm_ptr
         .import asm_assemble, seg_print_save
 
 ; ── Imports: debugger ──────────────────────────────────────
@@ -982,7 +983,8 @@ _syntax_err:
 ;
 ; Stages 8 bytes from (rp_ptr2) into zp_stage_buf, substituting
 ; userland_zp_buf[addr - ZP_SAVE_LO] for any offset whose
-; effective address (rp_ptr2 + Y) falls in [ZP_SAVE_LO,
+; effective address (rp_ptr2 + Y, 16-bit, wrapping past $FFFF to
+; $00xx as (rp_ptr2),y does) falls in [ZP_SAVE_LO,
 ; ZP_SAVE_LO + ZP_SAVE_LEN).  Bytes outside that range fall
 ; through to live (rp_ptr2),y reads.  On completion, rp_ptr2 is
 ; repointed at zp_stage_buf so downstream consumers ((rp_ptr2),y
@@ -1003,7 +1005,7 @@ _syntax_err:
 ;
 ; In:  rp_ptr2 = source base address.
 ; Out: zp_stage_buf populated; rp_ptr2 := zp_stage_buf when the
-;      source was in page 0 (hi = 0).  Callers that branch on
+;      source was in page $00 or $FF.  Callers that branch on
 ;      page-0-ness must inspect rp_ptr2+1 themselves.
 ; Clobbers: A, X, Y.
 zp_stage_prep_addr:                     ; convenience entry: load
@@ -1018,16 +1020,20 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; at the live address; downstream consumers read live ZP.
         rts
 .else
-        lda rp_ptr2+1                   ; hi != 0 → whole 8-byte
-        bne @done                       ; range is outside page 0
+        ldx rp_ptr2+1                   ; only a page-$00 or page-$FF
+        inx                             ; base can reach the save range
+        cpx #2                          ; (an 8-byte run from $FFF9+
+        bcs @done                       ; wraps to $00xx)
         ldy #0
 @lp:    tya
         clc
-        adc rp_ptr2                     ; effective.lo
-        bcs @live                       ; wrap past $FF → live
-        cmp #<(ZP_SAVE_LO + ZP_SAVE_LEN)
+        adc rp_ptr2
+        tax                             ; effective lo
+        lda rp_ptr2+1
+        adc #0                          ; effective hi ($00 also after
+        bne @live                       ; a wrap past $FFFF)
+        cpx #<(ZP_SAVE_LO + ZP_SAVE_LEN)
         bcs @live                       ; addr ≥ save end → live
-        tax
         lda userland_zp_buf - ZP_SAVE_LO,x
         bcc @stg                        ; C=0 here (bcs-not-taken)
 @live:  lda (rp_ptr2),y
@@ -1126,10 +1132,18 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; rp_ptr2 uniformly.
         jsr zp_stage_prep_addr
 
-        ; dasm_insn owns its KERNAL banking — we just call it.
-        lda rp_ptr2
-        ldx rp_ptr2+1
-        jsr dasm_insn
+        ; dasm_insn_pre owns its KERNAL banking — we hand it the
+        ; (possibly staged) bytes and the real PC for branch targets.
+        ldy #2
+@cp:    lda (rp_ptr2),y
+        sta _dasm_in,y
+        dey
+        bpl @cp
+        lda rp_addr
+        sta _dasm_ptr
+        lda rp_addr+1
+        sta _dasm_ptr+1
+        jsr dasm_insn_pre
         pha                     ; save olen for later use
 
         lda #'.'

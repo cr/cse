@@ -850,7 +850,7 @@ documentation round that follows this filing.
   the RODATA byte is gone), so cold init fills $78; tests `TestColdI
   nitTerminalState::test_zp_end_is_first_byte_after_cse_zp`,
   `TestCseZpEnd::test_returns_zp_last_low_byte`.
-- [ ] **Edits past `$FFFF` wrap into the live CPU port.**  `m`, `.`
+- [x] **Edits past `$FFFF` wrap into the live CPU port.**  `m`, `.`
   and assembly wrap `(zp),y` / `asm_out` to `$0000`/`$0001` — not the
   user-ZP image — e.g. `m fffc 00 00 00 00 2f 30` banks out KERNAL and
   I/O and crashes; `ffff:. 4c 2f 30` sets `$01` to `$32`; CSE's own ZP
@@ -862,6 +862,7 @@ documentation round that follows this filing.
   2026-11-18 (30e963f on the assembler track): output past `$FFFF` is
   refused.  Open: the `m`/`.` display of a wrapping run still reads live
   ZP (`zp_stage_prep` stages only page-0 bases).
+  Fixed 2026-11-18: `zp_stage_prep` stages page-$FF bases with the 16-bit effective address, and `emit_dot` hands `dasm_insn_pre` the real PC (staged branch targets were relative to `zp_stage_buf`), tests `TestEditWrapPastFFFF::test_wrapped_display_reads_user_zp` / `test_staged_branch_target_is_the_real_pc`.
 - [x] **INS at column 0 of the REPL hangs and writes the workspace**
   (`main.s` `@ins_loop`: unsigned `cpy CUR_COL` with CUR_COL = 0 never
   ends; Y wraps over `(rp_ptr)+0..255`).

@@ -1188,6 +1188,29 @@ class TestEditWrapPastFFFF:
         assert cpu.memory.ram[0x01] == live1, "live CPU port written"
         assert cpu.memory[0x00] == live0
 
+    @pytest.mark.parametrize("cmd,want", [("m fffc", " a1 a2 a3 a4;"),
+                                          ("ffff:.", ".  ff a1 a2  isc $a2a1,x")])
+    def test_wrapped_display_reads_user_zp(self, rsyms, cmd, want):
+        cpu = make_cpu(rsyms)
+        buf = rsyms.userland_zp_buf
+        for i, v in enumerate((0xA1, 0xA2, 0xA3, 0xA4)):
+            cpu.memory[buf + i] = v
+        set_line_buf(cpu, rsyms, cmd)
+        run_at(cpu, rsyms.exec_line)
+        screen = "\n".join(cpu.screen_text(r) for r in range(ROWS))
+        assert want in screen, screen
+
+    def test_staged_branch_target_is_the_real_pc(self, rsyms):
+        """A staged `.` line computes a branch target from the user
+        address, not from the staging buffer's."""
+        cpu = make_cpu(rsyms)
+        buf = rsyms.userland_zp_buf
+        cpu.memory[buf + 0x10], cpu.memory[buf + 0x11] = 0xD0, 0xFE
+        set_line_buf(cpu, rsyms, "0010:.")
+        run_at(cpu, rsyms.exec_line)
+        screen = "\n".join(cpu.screen_text(r) for r in range(ROWS))
+        assert "bne $0010" in screen, screen
+
 
 class TestColorApply:
     """repl.md § `C`: 1, 2 or 3 hex digits set fg / bg+fg /

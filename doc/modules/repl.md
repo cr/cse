@@ -457,15 +457,15 @@ to or accepted from the REPL user:
 | `.` hex poke | write each parsed byte | yes — lands in `userland_zp_buf` |
 | `.` mnemonic | `asm_line` emits at `asm_pc` | **no** — live memory |
 
-For writes (`zp_poke`) the effective address is the full 16-bit
-`base + offset`, which wraps past `$FFFF` to `$0000` as `(zp),y`
-does: an edit run that starts at `$FFFC` lands its fifth byte in the
-user's `$00` (`userland_zp_buf`), never in the live CPU port or CSE's
-own ZP.  Reads (`zp_stage_prep`) are redirected only when the base
-address is in page 0; a display run that wraps past `$FFFF` reads
-live ZP (open, TODO § Code bugs "Edits past `$FFFF`").  Outside the
-save range reads and writes go to memory: $80–$FF is KERNAL ZP and
-not mirrored.
+For reads (`zp_stage_prep`) and writes (`zp_poke`) the effective
+address is the full 16-bit `base + offset`, which wraps past `$FFFF`
+to `$0000` as `(zp),y` does: an edit run that starts at `$FFFC` lands
+its fifth byte in the user's `$00` (`userland_zp_buf`), never in the
+live CPU port or CSE's own ZP, and `m fffc` shows the user's
+`$00`–`$03` in its last four columns.  Only a base in page 0 or page
+`$FF` is staged; other runs are read in place.  Outside the save
+range reads and writes go to memory: $80–$FF is KERNAL ZP and not
+mirrored.
 
 `zp_stage_prep` fills the 8-byte `zp_stage_buf` from `(rp_ptr2)`,
 taking `userland_zp_buf` bytes for in-range offsets and live bytes
