@@ -796,7 +796,8 @@ for the two callers (`o` and `c`).
   a cold preview and no user code has run yet.  The first
   transition into userland after it — a step (`t`/`o`) or `c` —
   is a fresh start (MODE_JUMP: the `brk_stub` sentinel is pushed)
-  and consumes the flag.
+  and consumes the flag.  `end_debug_body` clears it with the rest
+  of the session, so it never outlives the preview's session.
 
 - `_rtu_need_sentinel` — 1 = the next userland transition (via
   `restore_userland_state`) must push a fresh brk_stub sentinel

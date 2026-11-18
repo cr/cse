@@ -1583,3 +1583,23 @@ class TestColdPreviewSession:
         assert s.v("dbg_reason") == DBG_RTS, "user RTS must hit brk_stub"
         assert s.v("reg_x") == 1
         assert s.v("cold_preview_done") == 0
+
+    def test_end_debug_clears_cold_preview(self, session):
+        """A cold preview ended by `R` must not make a later real
+        session's step push a second sentinel."""
+        s, e = session, session.e
+        for a, b in {0x3000: 0x20, 0x3001: 0x10, 0x3002: 0x30,   # JSR $3010
+                     0x3003: 0xE8, 0x3004: 0x60,                  # INX; RTS
+                     0x3010: 0xEA, 0x3011: 0x60}.items():         # NOP; RTS
+            e.memory[a] = b
+        s.type("@ $3000")
+        s.type("t")                         # cold preview
+        s.start("R")
+        s.keys(b"Y")
+        assert s.v("cold_preview_done") == 0
+        s.type("b $3010")
+        s.type("j $3000")
+        s.type("t")
+        s.type("t")                         # steps the sub's RTS
+        assert s.v("dbg_reason") == DBG_BRK
+        assert s.w("brk_pc") == 0x3003

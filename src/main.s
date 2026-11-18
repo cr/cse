@@ -76,7 +76,7 @@
         .importzp dbg_reason, kernal_out, cur_device    ; zp.s
         .import brk_pc, dbg_bp_hit
         .import reg_p, reg_sp
-        .import rp_dis_bp, last_cmd
+        .import rp_dis_bp, last_cmd, cold_preview_done
         .import ed_ensure_init
         .import exec_line, read_line, show_prompt, cmd_info
         .import post_run_cleanup, hygiene_after_userland
@@ -1035,6 +1035,7 @@ end_debug_body:
         sta kernal_out
         sta stop_cooldown
         sta last_cmd
+        sta cold_preview_done
         lda #$FF
         sta reg_sp                      ; userland SP reset
         sta dbg_bp_hit

@@ -12,7 +12,7 @@
 ; ── Exports ────────────────────────────────────────────────
         .export exec_line, read_line, show_prompt, cmd_info
         .export cur_addr, block_size
-        .export line_buf, last_cmd, rp_dis_bp
+        .export line_buf, last_cmd, rp_dis_bp, cold_preview_done
 
 ; ── Imports: log.s ─────────────────────────────────────────
         .import log_line, log_open, log_close

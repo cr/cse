@@ -804,9 +804,12 @@ documentation round that follows this filing.
   Fixed 2026-11-18: `c` and `t`/`o` share `set_run_mode`: after a
   cold preview the first run is MODE_JUMP (sentinel pushed) and
   consumes `cold_preview_done`, test `TestColdPreviewSession`.
-- [ ] **`cold_preview_done` survives `end_debug_body`.**  A later real
+- [x] **`cold_preview_done` survives `end_debug_body`.**  A later real
   step uses MODE_JUMP and pushes a second sentinel; the subroutine's
   RTS ends the session early (`; rts`).
+  Fixed 2026-11-18: `end_debug_body` clears `cold_preview_done`
+  (exported by repl.s), test
+  `TestColdPreviewSession::test_end_debug_clears_cold_preview`.
 - [ ] **A refused step (`;!range`) leaves the hit breakpoint disabled
   and `step_state` set** (`cmd_step` writes them before the range
   gate; `@oor_warn` undoes nothing; `end_debug_body` does not
