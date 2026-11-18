@@ -1336,24 +1336,28 @@ Stale against the code, by document (each item verified both ways):
 
 ### Duplication and layering (systemic; a scoped arc each)
 
-- [ ] Facts restated in many docs, several already contradicting each
+- [x] Facts restated in many docs, several already contradicting each
   other: the ZP allocation table, the KERNAL-RAM banked layout, the
   interrupt vectors, the stack contract, the cold-init sequence, the
   user memory regions, the cross-module flags, the `dbg_reason` enum,
   the breakpoint table, warmstart bodies, the runtime start address.
   Keep one owner each; the copies become pointers.
-- [ ] memory_design.md restates module interfaces (mem.s exports,
+  Fixed 2026-11-18 by the doc-drift round: each fact has one owner (zp.md 108f742, memory_design.md eac9ca1, main.md 5704c74, debugger.md df2fe92, breakpoints.md 0136ba8, userland_contract.md 74a2dd5, build_system.md 72d5863); project.md (afec8cc), glossary.md (f35cc50) and the module docs link to them.
+- [x] memory_design.md restates module interfaces (mem.s exports,
   loader steps, warmstart bodies, `return_to_userland` and the BRK
   handler) — move to the module docs, keep the invariants.
-- [ ] The user manual carries mechanism (gap buffer, internal names,
+  Fixed 2026-11-18 (eac9ca1): memory_design.md keeps the maps, banked layout and invariants and links mem.md, loader.md, main.md and debugger.md for the mechanisms.
+- [x] The user manual carries mechanism (gap buffer, internal names,
   runtime start) and lacks a REPL-keys table; project.md and the
   glossary restate addresses and sizes.
-- [ ] Missing guidance for agents: the REPL command-dispatch table
+  Fixed 2026-11-18: README.md speaks of the workspace and has a REPL-keys table (c76280c, bd2825c); project.md (afec8cc) and glossary.md (f35cc50) link instead of restating addresses.
+- [x] Missing guidance for agents: the REPL command-dispatch table
   and handler entry contract (`rp_ptr`, `try_expr`'s C=0 meaning, the
   one-jsr-deep rule, the repeat list); the asm_src directive switch
   and its helper contracts (`_emit_byte`, `emit_error`,
   `_bad_val_err`, `_vocal_fwd_err`); the asm_src test input format;
   the size gate's growth procedure.
+  Fixed 2026-11-18: repl.md § dispatch table, handler entry, `try_expr`, one-jsr-deep rule and repeat list (bc55a57); asm_src.md § helper specs and directive recognition (eb8495d); testing.md the asm_src case format (cf1985a); build_system.md the size gate's growth procedure (72d5863).
 - [x] Audit tooling: `audit_doc_depends_on.py` checks only doc →
   import (add import → doc); `dev/check_deps.py` (architecture.md
   cites it) does not exist.
