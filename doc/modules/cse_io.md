@@ -12,70 +12,85 @@
 ## Interface
 
 cse_io.s provides screen output, keyboard input, and cursor management
-for CSE.  All output goes to screen RAM
-at $0400.  Cursor position uses KERNAL locations $D3 (column) and
-$D6 (row).
+for CSE.  All output goes to screen RAM at $0400; colour RAM is never
+written here.  Cursor position uses KERNAL locations $D3 (column)
+and $D6 (row).  Single arguments in A or A/X.
 
 ### ZP Variables
 
-| Address | Name | Size | Purpose |
-|---------|------|------|---------|
-| (alloc) | _io_tmp | 2 | Scratch: string pointer (io_puts), dividend (io_putdec) |
-| (alloc) | _io_scr | 2 | Screen row pointer (computed per write call) |
+Allocated in zp.s ([zp.md](zp.md)).
+
+| Name | Size | Purpose |
+|------|------|---------|
+| `_io_tmp` | 2 | Scratch: string pointer (`io_puts`), dividend (`io_utoa`), repeat counter (`io_repc`) |
+| `_io_scr` | 2 | Screen row pointer, re-derived by `_io_scr_setup` before every use (screen.s reuses it as `scroll_up`'s destination pointer) |
 
 ### BSS Variables
 
 | Name | Size | Purpose | Consumers |
 |------|------|---------|-----------|
-| io_color | 1 | Text color for screen clears | **Exported** — written by screen.s (theme_init) and read by screen.s/disk.s when filling color RAM.  cse_io itself neither reads nor writes it. |
-| dec_buf | 6 | io_utoa output: 5-digit PETSCII + permanent NUL at [5] | **Exported** — io_putdec / io_putdec_pd produce output here; callers may read it directly after io_utoa returns (e.g. inspecting the five-digit field before output). |
+| `io_color` | 1 | Text colour (= `theme_fg`) | **Exported** — written by screen.s's `restore_colors`; nothing reads it (disk.s imports it unused).  cse_io itself neither reads nor writes it. |
+| `dec_buf` | 6 | `io_utoa` output: 5 PETSCII digits + NUL at [5] | **Exported** — `io_putdec` / `io_putdec_pd` print from it; asm_src.s reads it directly after `io_utoa` (the `.bas` SYS line). |
 
 ### KERNAL Locations Used
 
 | Address | Name | Read/Write | Purpose |
 |---------|------|-----------|---------|
-| $D3 | CUR_COL | R/W | Cursor column (0–39).  Cursor column register.|
-| $D6 | CUR_ROW | R/W | Cursor row (0–24).  Cursor row register.|
+| $D3 | CUR_COL | R/W | Cursor column (0–39) |
+| $D6 | CUR_ROW | R/W | Cursor row (0–24) |
 | $D1/$D2 | SCR_PTR | — | NOT used by cse_io; updated by io_sync via KERNAL PLOT |
 | $F3/$F4 | COL_PTR | — | NOT used by cse_io; updated by io_sync via KERNAL PLOT |
-| $C6 | KEY_COUNT | R | Keyboard buffer count (io_kbhit) |
-| $CC | CURS_FLAG | — | Set to 1 by io_init at startup; not modified afterward |
+| $C6 | NDX | R | Keyboard buffer count (`io_kbhit`) |
+| $CC | BLNSW | W | Set to 1 (KERNAL cursor blink off) by `io_init` |
 
 ### RODATA
 
 | Name | Size | Contents | Consumers |
 |------|------|---------|-----------|
-| scr_lo[25] | 25 | Low bytes of $0400 + row×40 for rows 0–24 | **Exported** — imported by screen.s (scroll, clear) and log.s (info_line_head snapshot row pointer). |
-| scr_hi[25] | 25 | High bytes of same | **Exported** — same callers as scr_lo. |
-| hex_tab[16] | 16 | Screen codes for hex digits: $30–$39, $01–$06 | Internal — used by io_puthex2.  Not exported. |
-| dec_pow_lo[5] | 5 | Powers of 10: <1, <10, <100, <1000, <10000 | **Exported** — asm_src.s and repl.s reuse them for their own decimal-conversion paths. |
-| dec_pow_hi[5] | 5 | Powers of 10: >1, >10, >100, >1000, >10000 | **Exported** — same callers as dec_pow_lo. |
+| `scr_lo[25]` | 25 | Low bytes of $0400 + row×40 for rows 0–24 | **Exported** — imported by screen.s, editor.s, log.s, disk.s, main.s and repl.s. |
+| `scr_hi[25]` | 25 | High bytes of same | **Exported** — same importers as `scr_lo`. |
+| `hex_tab[16]` | 16 | Screen codes for hex digits: $30–$39, $01–$06 | Internal — used by io_puthex2.  Not exported. |
+| `dec_pow_lo[5]` | 5 | Powers of 10: <1, <10, <100, <1000, <10000 | **Exported**; only `io_utoa` uses them (asm_src.s and repl.s import them without using them). |
+| `dec_pow_hi[5]` | 5 | Powers of 10: >1, >10, >100, >1000, >10000 | **Exported** — as `dec_pow_lo`. |
+
+### io_init
+**In:** none
+**Out:** `$CC` = 1 (KERNAL cursor blink off) — the invariant every
+IRQ-safety claim below rests on.
+**Clobbers:** A
+
+Called by `main.s` cold init and `hw_reinit_body` (`cse_recover`).
+`hygiene_after_userland` (repl.s) re-asserts `$CC` = 1 after user
+code.  Clearing and colouring the screen is screen.s's job
+(`reset_screen`, `restore_colors`).
 
 ### pet_to_scr
 
-**Input:** A = PETSCII byte
-**Output:** A = screen code
+**In:** A = PETSCII byte
+**Out:** A = screen code
 **Clobbers:** flags only
 
 Pure conversion function.  See § Character Encoding Reference for
-the full 8-row mapping.  Extracted from io_putc for testability.
+the full 8-row mapping.
 
 ### scr_to_pet
 
-**Input:** A = screen code (bit 7 must be stripped by caller)
-**Output:** A = PETSCII byte
+**In:** A = screen code (bit 7 must be stripped by caller)
+**Out:** A = PETSCII byte
 **Clobbers:** flags only
 
-Pure conversion function.  $00–$1F → $40–$5F (A + $40),
-$20–$7F → identity.  Extracted from read_line for testability.
+Pure conversion function, used by repl.s's `read_line`:
+$00–$1F → $40–$5F (`ORA #$40`), $20–$3F identity,
+$40–$5F → $C0–$DF (`ORA #$80`), $60–$7F identity.
 
 ### io_putc
 
-**Input:** A = PETSCII character
+**In:** A = PETSCII character
 **Precondition:** CUR_ROW and CUR_COL are valid (0–24, 0–39)
+**Clobbers:** A, X, Y, `_io_scr`
 
 **Behavior:**
-1. Convert PETSCII `ch` to screen code using the table above
+1. Convert PETSCII to a screen code (`pet_to_scr`)
 2. Compute screen address: `addr = scr_lo[CUR_ROW] | (scr_hi[CUR_ROW] << 8)`
 3. Write screen code to `addr + CUR_COL`
 4. Increment CUR_COL (clamped at 39: if CUR_COL was 39, stays 39)
@@ -84,8 +99,7 @@ $20–$7F → identity.  Extracted from read_line for testability.
 - Exactly 1 byte written to screen RAM at row CUR_ROW, column (original CUR_COL)
 - CUR_COL = min(original_CUR_COL + 1, 39)
 - CUR_ROW unchanged
-- _io_scr clobbered (used internally)
-- _io_tmp preserved (safe to call from io_puts)
+- `_io_tmp` preserved (safe to call from io_puts)
 
 **Does NOT:**
 - Write to color RAM
@@ -95,21 +109,22 @@ $20–$7F → identity.  Extracted from read_line for testability.
 
 ### io_puts
 
-**Input:** A/X = pointer to NUL-terminated PETSCII string
+**In:** A/X = pointer to NUL-terminated PETSCII string
 **Precondition:** CUR_ROW and CUR_COL are valid
+**Clobbers:** A, X, Y, `_io_tmp`, `_io_scr`
 
-**Behavior:**
-For each byte in `s` until NUL: call io_putc(byte).
+**Behavior:** For each byte until NUL: `io_putc(byte)`.
 
 **Postconditions:**
 - N bytes written to screen RAM starting at (CUR_ROW, original_CUR_COL)
-- CUR_COL = min(original_CUR_COL + strlen(s), 39)
+- CUR_COL = min(original_CUR_COL + strlen(s), 39) — characters past
+  col 39 overwrite col 39
 - CUR_ROW unchanged
-- _io_tmp clobbered (used for string pointer)
 
 ### io_puthex2
 
-**Input:** A = byte value
+**In:** A = byte value
+**Clobbers:** A, X, Y, `_io_scr`
 
 **Behavior:**
 1. Compute screen address from scr_lo/scr_hi[CUR_ROW]
@@ -117,51 +132,56 @@ For each byte in `s` until NUL: call io_putc(byte).
 3. Write hex_tab[v & $0F] at CUR_COL + 1
 4. Advance CUR_COL by 2 (clamped at 39)
 
-**Output screen codes:** hex_tab values: $30–$39 for 0–9, $01–$06 for A–F
+**Output screen codes:** hex_tab values: $30–$39 for 0–9, $01–$06
+for a–f (lowercase).
 
 ### io_puthex4
 
-**Input:** A = lo byte, X = hi byte
+**In:** A = lo byte, X = hi byte
+**Clobbers:** A, X, Y, `_io_scr`
 
-**Behavior:** Call io_puthex2(hi), then io_puthex2(lo).
-Writes 4 hex digits, advances CUR_COL by 4.
+**Behavior:** `io_puthex2(hi)`, then `io_puthex2(lo)`.  Writes 4 hex
+digits, advances CUR_COL by 4 (clamped at 39).
 
 ### io_repc
 
-**Input:** A = PETSCII character, X = repeat count (0 = no-op)
+**In:** A = PETSCII character, X = repeat count (0 = no-op)
+**Out:** A unchanged
+**Clobbers:** X, Y, `_io_tmp`, `_io_scr`
 
-**Behavior:** Call io_putc(A) X times.  If X=0, returns immediately.
-
-**Clobbers:** X, Y, _io_tmp
+**Behavior:** Call `io_putc(A)` X times.  If X=0, returns immediately.
 
 ### io_utoa
 
-**Input:** A = lo byte, X = hi byte.  Carry flag selects mode:
+**In:** A = lo byte, X = hi byte.  Carry flag selects mode:
 - CLC → skip leading zeros, return offset to first significant digit
 - SEC → replace leading zeros with spaces, return 0
+**Out:** `dec_buf` = 5 PETSCII characters + NUL at [5]; A = offset
+into `dec_buf` (CLC: 0–4, SEC: always 0)
+**Clobbers:** A, X, Y, `_io_tmp`, flags
 
 **Behavior:**
 1. Convert A/X to 5 PETSCII digits in dec_buf[0..4]
-2. Scan leading '0's: replace with ' ' (space)
-3. Return offset in A (CLC: 0–4, SEC: always 0)
+2. Replace leading '0's with ' ' (the last digit always stays)
+3. Return the offset in A
 
-dec_buf[5] is a permanent NUL (BSS-zeroed, never written by io_utoa).
-io_utoa only writes positions 0–4.
-
-**Clobbers:** X, Y, _io_tmp, flags
+`dec_buf[5]` holds the buffer position during the conversion and
+gets its NUL at the end — callers see the NUL, never the scratch.
 
 ### io_putdec
 
-**Input:** A = lo byte, X = hi byte
+**In:** A = lo byte, X = hi byte
+**Clobbers:** A, X, Y, `_io_tmp`, `_io_scr`
 
 **Behavior:** CLC + io_utoa + io_puts.  Prints decimal at cursor,
 leading zeros suppressed ("0"–"65535").
 
 ### io_putdec_pd
 
-**Input:** A = lo byte, X = hi byte.  Caller sets C flag:
+**In:** A = lo byte, X = hi byte.  Caller sets C flag:
 - CLC → zero-suppressed (same as io_putdec)
 - SEC → space-padded 5-digit field ("    0"–"65535")
+**Clobbers:** A, X, Y, `_io_tmp`, `_io_scr`
 
 **Behavior:** io_utoa + io_puts.  Entry point between CLC and
 jsr io_utoa in io_putdec — caller's carry passes through.
@@ -169,6 +189,7 @@ jsr io_utoa in io_putdec — caller's carry passes through.
 ### io_clear_eol
 
 **Precondition:** CUR_ROW and CUR_COL are valid
+**Clobbers:** A, X, Y, `_io_scr`
 
 **Behavior:**
 1. Compute screen address from scr_lo/scr_hi[CUR_ROW]
@@ -181,21 +202,24 @@ jsr io_utoa in io_putdec — caller's carry passes through.
 
 ### io_getc
 
-**Output:** A = PETSCII key code (nonzero)
+**Out:** A = PETSCII key code (nonzero), X = 0
+**Clobbers:** Y (KERNAL GETIN)
 
 **Behavior:** Call KERNAL GETIN ($FFE4) in a loop until nonzero.
-Return the PETSCII key code.
-
-**Note:** Returns raw KERNAL codes.  RETURN = $0D.
+Returns raw KERNAL codes (RETURN = $0D, RUN/STOP = $03, SHIFT+SPACE
+= $A0).
 
 ### io_kbhit
 
-**Output:** A = $C6 (keyboard buffer count)
+**Out:** A = $C6 (keyboard buffer count), X = 0; Z set from X (test A)
 
 **Behavior:** Return the value of $C6.  0 = no key pending,
 nonzero = keys waiting.
 
 ### io_sync
+
+**In:** CUR_ROW, CUR_COL
+**Clobbers:** A, X, Y (KERNAL PLOT)
 
 **Behavior:** Call KERNAL PLOT ($FFF0) with CLC, X=CUR_ROW, Y=CUR_COL.
 This updates $D1/$D2 (screen line pointer) and $F3/$F4 (color
@@ -207,29 +231,33 @@ modifying only CUR_COL ($D3).
 **Note:** cse_io's output functions (io_putc, io_puts, io_puthex*,
 io_putdec, io_clear_eol) do NOT use $D1/$D2.  They compute the
 screen address directly from scr_lo/scr_hi[CUR_ROW].  io_sync exists
-for the KERNAL's benefit (cursor blink, screen editor state).
+for the KERNAL's benefit (screen editor state, and user code that
+prints with CHROUT).
 
 ### io_blip
 
-**Behavior:** Short audible reject blip via SID voice 1 (triangle).
-Called by editor and REPL on refused input (line cap, backspace
-into left wall, unknown command).
+**Out:** a short triangle pulse (~0.2 ms) on SID voice 1; SID volume
+($D418) left at 10.
+**Clobbers:** A, X.  Preserves Y.
+
+Audible feedback for refused input.  Callers: the editor
+(`ed_handle_key`) and the REPL key handling in main.s (line cap,
+backspace into the left wall, cursor at a screen edge).  The volume
+byte stays set after the first call so later blips skip the
+re-init; user code that wants its own SID setup re-initialises it.
 
 ### _io_scr_setup
 
-**Input:** `CUR_ROW` ($D6)
-**Output:** `_io_scr` / `_io_scr+1` = `scr_lo[CUR_ROW] | (scr_hi[CUR_ROW] << 8)`
-**Clobbers:** A, X
+**In:** `CUR_ROW` ($D6)
+**Out:** `_io_scr` / `_io_scr+1` = `scr_lo[CUR_ROW] | (scr_hi[CUR_ROW] << 8)`
+**Clobbers:** A, X.  Preserves Y.
 
 Populates the `_io_scr` ZP pointer with the screen-RAM address of
-the current row.  Leading underscore marks it as a shared internal
-helper rather than a user-facing API entry point — but it IS
-exported because screen.s uses it in its own scroll/clear routines
-instead of duplicating the two-byte load.
-
-Not called directly by most clients; the io_putc/io_puts/io_puthex*
-family calls this internally before writing.  Documented here
-because it crosses a module boundary to screen.s.
+the current row.  The leading underscore marks it as a shared
+internal helper rather than a user-facing API entry point — it is
+exported because screen.s (`cursor_show`) uses it instead of
+duplicating the two-byte load.  The io_putc / io_puthex* /
+io_clear_eol family calls it before every write.
 
 ### Cursor Position
 
@@ -239,7 +267,8 @@ Cursor position is read/written directly via KERNAL ZP:
 
 Call `io_sync` after changing CUR_ROW to update line pointers.
 
-**Depends on:** KERNAL (GETIN $FFE4, PLOT $FFF0)
+**Depends on:** KERNAL (GETIN $FFE4, PLOT $FFF0), zp (`_io_tmp`,
+`_io_scr`)
 
 ## Design
 
@@ -279,18 +308,19 @@ $A0–$BF and $E0–$FF produce identical screencodes ($60–$7F).
 
 CSE uses the $C0–$FF range as canonical for uppercase/shifted
 content because that's what the KERNAL keyboard input layer and
-ca65 `-t c64` character literals produce.  The $60–$BF range is
-avoided:
+ca65 `-t c64` character literals produce:
 
 | Screencodes | Canonical PETSCII | Avoid | Why |
 |-------------|-------------------|-------|-----|
-| $40–$5F | **$C0–$DF** | $60–$7F | KERNAL GETIN returns $C1–$DA for shifted letters; `'A'` (ca65) = $C1 |
-| $60–$7F | **$E0–$FF** | $A0–$BF | Matches the shifted-uppercase convention; $E0-$FF is what scr_to_pet produces |
+| $40–$5F | **$C0–$DF** | $60–$7F | KERNAL GETIN returns $C1–$DA for shifted letters; `'A'` (ca65) = $C1; `scr_to_pet` produces $C0–$DF |
+| $60–$7F | **$E0–$FF** | $A0–$BF | Matches the shifted-uppercase convention |
 
 **Rule:** uppercase letters everywhere in CSE (string constants,
 generated output, keyboard input, screen-read input) live in
-$C0–$DF.  The $60–$7F range should not appear; if it does, it's
-a bug (case-insensitive comparators should still tolerate both).
+$C0–$DF.  Case-insensitive comparators should still tolerate both.
+Exceptions to the canonical ranges: SHIFT+SPACE (tab) is $A0, and
+`scr_to_pet` returns graphics screen codes $60–$7F as PETSCII
+$60–$7F (identity) — see § Screen Code → PETSCII.
 
 #### Screen codes (what VIC reads from $0400)
 
@@ -318,9 +348,7 @@ In the lower/upper charset:
 
 The $C0–$FF row is the canonical uppercase/shifted range.  A single
 operation (A − $80) covers both the $60–$7F (uppercase letters)
-and $A0–$BF (graphics) duplications.  The round-trip through screen
-RAM is **lossy for the avoided ranges** — any $60–$BF value that
-somehow reached the screen comes back as $C0–$FF.
+and $A0–$BF (graphics) duplications.
 
 #### Screen Code → PETSCII (scr_to_pet, used by read_line)
 
@@ -341,6 +369,11 @@ $C1–$DA for shifted letters) and ca65 `-t c64` character literals
 lowercase `b` (screen $02) → PETSCII $42, uppercase `B` (screen
 $42) → PETSCII $C2.
 
+The round trip is **not closed for graphics**: screen $60–$7F reads
+back as PETSCII $60–$7F, which `pet_to_scr` displays as $40–$5F
+(uppercase letters).  Reverse video is lost by `read_line`'s
+`AND #$7F`.
+
 #### Where $C0–$DF uppercase PETSCII appears
 
 $C0–$DF is the canonical uppercase range in CSE.  It appears from
@@ -351,14 +384,13 @@ two sources:
 - **`scr_to_pet`** — screen code $40–$5F (uppercase on screen)
   maps to $C0–$DF via ORA #$80.
 
-Code that needs case-insensitive comparison (assembler, expression
-parser, symbol table) must fold $C0–$DF → $40–$5F:
+Code that needs case-insensitive comparison or display folds it:
 
 - `fold_char` in `symtab.s` — folds $C0–$DF → $40–$5F
 - Label scanner in `expr.s` — folds $C0–$DF in-place
-- Assembler in `asm_src.s` — folds $C0–$DF for mnemonics
+- `fold_block` / `fold_char_a` in `asm_src.s` — folds $C0–$DF for mnemonics
 - `_hex_val` in `repl.s` — accepts $C0–$DF for hex A–F
-- `editor.s` — key handler folds $C0–$DF → screencodes for display
+- `editor.s` renderer — maps $C1–$DA → screen codes $41–$5A
 
 ### IRQ Safety
 
@@ -384,8 +416,9 @@ CSE keeps $CC=1 at all times and manages the cursor via cursor_show/hide.
 
 ## Caveats
 
-- Set `$CC=1` (`io_cursor_off()`) at startup.  Never re-enable KERNAL cursor.
-- Call `io_sync()` after changing `CUR_ROW`.
-- Fill screen RAM and color RAM at startup (`memset`).
-- Use `SEI`/`CLI` around screen RAM memmove in `scroll_up` (cosmetic).
-- Manage cursor visibility via `cursor_show()`/`cursor_hide()`.
+- `io_init` must run before any output (`$CC` = 1).  Never re-enable
+  the KERNAL cursor.
+- Call `io_sync` after changing `CUR_ROW`.
+- Output never wraps or scrolls: everything past col 39 lands on
+  col 39.  Line breaks are screen.s's `newline`.
+- `io_getc` and `io_kbhit` return X = 0, so Z reflects X — test A.

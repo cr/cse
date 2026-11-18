@@ -8,7 +8,7 @@
 ; INVARIANT: $CC must be 1 (KERNAL cursor disabled).  io_init
 ; enforces this.  All IRQ safety guarantees depend on it.
 ;
-; Code: ~330 bytes.  RODATA: 76 bytes.  ZP: 4 bytes.  BSS: 2 bytes.
+; Code: ~340 bytes.  RODATA: 76 bytes.  ZP: 4 bytes (zp.s).  BSS: 7 bytes.
 
         .export io_init
         .export io_putc, io_repc, io_puts
@@ -20,7 +20,7 @@
         .export io_sync
         .export io_color
         .export io_blip
-        .export scr_lo, scr_hi  ; shared row address tables (used by screen.s, disk.s)
+        .export scr_lo, scr_hi  ; shared row address tables (cse_io.md § RODATA)
         .export _io_scr_setup   ; shared row pointer setup (used by screen.s)
 
         .export dec_pow_lo, dec_pow_hi
@@ -77,10 +77,6 @@ io_init:
         lda #1
         sta $CC                 ; KERNAL cursor off — required invariant
         rts
-
-; NMI handler lives in main.s (cse_nmi_handler); the Phase-18
-; swallow-in-kernel model eliminated the nmi_pending flag that
-; formerly lived here.
 
 ; ── _io_scr_setup — set _io_scr to screen line address for CUR_ROW ───
 ; Clobbers A, X.
@@ -287,7 +283,7 @@ io_utoa:
         ; Power index = 4-X (X=0→10000, X=4→1)
         ldx #4                 ; power-of-10 index (4=10000..0=1)
         ldy #0                 ; buf position
-@pow:   sty dec_buf+5          ; save buf pos (reuse NUL slot as temp)
+@pow:   sty dec_buf+5          ; save buf pos (NUL slot as temp; NUL stored below)
         ldy #0                 ; digit counter
 @sub:   lda _io_tmp
         sec
@@ -363,9 +359,7 @@ io_kbhit:
 ;
 ; Plays a brief triangle pulse on SID voice 1 as audible
 ; feedback for refused input (line cap, backspace into the
-; left wall, refused commands).  Originally implemented as
-; click_sound() in the project's very first commit (28fb2dd),
-; where it fired on backspace at column 0.
+; left wall, cursor at a screen edge).
 ;
 ; The volume register stays set to 10 after the first call
 ; (the SID's amp/filter byte at $D418).  This is intentional:
