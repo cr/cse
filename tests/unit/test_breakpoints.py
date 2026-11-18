@@ -218,6 +218,18 @@ class TestBpSet:
         assert hi == 0x20
 
 
+class TestBpSetDuplicate:
+    """breakpoints.md § dbg_bp_set: one breakpoint per address."""
+
+    def test_set_same_addr_returns_existing_slot(self, dbg_syms):
+        mpu = make_cpu(dbg_syms)
+        cmd_bp_set(mpu, dbg_syms, 0x00, 0x30)
+        cmd_bp_set(mpu, dbg_syms, 0x10, 0x30)
+        ok, slot = cmd_bp_set(mpu, dbg_syms, 0x00, 0x30)
+        assert ok and slot == 0
+        assert cmd_bp_count(mpu, dbg_syms) == 2
+
+
 class TestBpDel:
     def test_del_valid(self, dbg_syms):
         mpu = make_cpu(dbg_syms)

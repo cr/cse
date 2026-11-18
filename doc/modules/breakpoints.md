@@ -63,8 +63,11 @@ seeding separately.
 **Out:** C=0 success (A = slot 0–7); C=1 table full (A=$FF)
 **Clobbers:** A, X, Y.
 
-Find the first empty user-visible slot and install
-`(addr, saved=0, enabled=1)`.  Search is linear over slots 0–7.
+If a user-visible slot already holds `addr`, return that slot (C=0)
+and change nothing — an address has at most one breakpoint, so `c`
+past it never re-breaks at the same place.  Otherwise find the first
+empty user-visible slot and install `(addr, saved=0, enabled=1)`.
+Search is linear over slots 0–7.
 
 ### dbg_bp_del
 **In:** A = slot number (0–7)

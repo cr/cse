@@ -90,16 +90,17 @@ bp_init:
         rts
 
 ; ── dbg_bp_set ────────────────────────────────────────────────────────
-; Set a breakpoint at the given address (user-visible slots 0–7).
+; Set a breakpoint at the given address (user-visible slots 0–7).  An
+; address that already has a breakpoint keeps its slot (no duplicate).
 ; In:  A = addr lo, X = addr hi
 ; Out: C=0 success, A = slot number (0–7); C=1 table full (A=$FF).
-; Clobbers: A, X, Y.
+; Clobbers: A, X, Y, rp_ptr.
 ;
 dbg_bp_set:
-        sta rp_ptr
-        stx rp_ptr+1
-
-        ldy #0
+        jsr dbg_bp_find         ; leaves the address in rp_ptr
+        bcs @new
+        rts                     ; already set: A = its slot, C = 0
+@new:   ldy #0
         ldx #0
 @find:  lda bp_table,x
         ora bp_table+1,x

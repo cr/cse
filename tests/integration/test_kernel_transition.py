@@ -1459,6 +1459,13 @@ class Session:
     def w(self, name):
         return self.e.read_word(self.e.sym(name))
 
+    def call(self, name, **regs):
+        """jsr a routine from the idle main_loop, then put PC/SP back."""
+        e = self.e
+        pc, sp = e._cpu.pc, e._cpu.sp
+        e.jsr(e.sym(name), **regs)
+        e._cpu.pc, e._cpu.sp = pc, sp
+
     def idle(self, max_steps=3_000_000):
         e, cpu = self.e, self.e._cpu
         for _ in range(max_steps):
@@ -1833,3 +1840,21 @@ class TestStepCount:
         s.type("j $3000")
         s.type(f"t {n}", max_steps=30_000_000)
         assert s.w("brk_pc") == 0x3000 + n
+
+
+class TestDuplicateBreakpoint:
+    """breakpoints.md § dbg_bp_set: `b` on an address that already has
+    a breakpoint reuses its slot; `c` past it does not re-break."""
+
+    def test_duplicate_b_then_c_runs_on(self, session):
+        s, e = session, session.e
+        e.memory[0x3000] = 0xEA
+        e.memory[0x3001] = 0x60
+        s.type("b $3000")
+        s.type("b $3000")
+        s.call("dbg_bp_count")
+        assert e.a == 1
+        s.type("j $3000")
+        assert s.v("dbg_reason") == DBG_BRK
+        s.type("c")
+        assert s.v("dbg_reason") == DBG_RTS

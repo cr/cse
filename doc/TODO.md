@@ -878,8 +878,11 @@ documentation round that follows this filing.
   Fixed 2026-11-18: `step_remaining` is 16-bit (cmd_step stores both
   bytes, the handler tests and decrements both), test
   `TestStepCount`.
-- [ ] **`b` accepts a duplicate address**: a second slot re-breaks at
+- [x] **`b` accepts a duplicate address**: a second slot re-breaks at
   the same place after `c`; duplicates fill the table.
+  Fixed 2026-11-18: `dbg_bp_set` returns the slot that already holds
+  the address, tests `TestBpSetDuplicate`,
+  `TestDuplicateBreakpoint`.
 - [ ] **The editor status bar shows lines ≥ 1000 as garbage**
   (`:00`, `<34`, `t00`) — no clamp on the 3-digit field.
 
