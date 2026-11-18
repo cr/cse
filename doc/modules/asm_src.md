@@ -185,9 +185,12 @@ for the full list, parameters, and per-pass behaviour.
 **ZP locals:** `_as_ptr` (2B, parse pointer), `_as_wsize` (1B, scratch)
 
 **BSS:** `asm_pass` (1B), `_line_num` (2B), `_line_buf` (40B),
-`_scope_name` (24B), `_full_label` (48B), `_insn_buf` (32B),
-`_expr_buf` (48B), `_as_conv` (1B, screen code conversion flag),
-`_eb_idx` (1B, write index into _expr_buf),
+`_scope_name` (24B: a global label ≤ 23 chars + NUL),
+`_full_label` (48B: scope + `.` + local ≤ 23 + NUL),
+`_insn_buf` (58B: mnemonic word ≤ 8 + space + operand with local
+references expanded, NUL — `@put` refuses the 58th byte with
+`too long`), `_as_conv` (1B, screen code conversion flag),
+`_eb_idx` (1B, `.bas` string length),
 `_ib_idx` (1B, write index into _insn_buf),
 `_seg_pc` (2B, current segment start), `_min_pc` (2B),
 `_max_pc` (2B), `_seg_open` (1B), `_org_set` (1B)
@@ -198,6 +201,11 @@ for the full list, parameters, and per-pass behaviour.
   (returned length == 39), the assembler emits a line warning.
   This is not a fatal error — assembly continues with the
   truncated line.  In practice only trailing comments are lost.
+- Label length is bounded by the buffers above
+  ([assembler_syntax.md § Labels](../assembler_syntax.md#labels)):
+  `define_label` refuses a global label over 23 characters or a local
+  name over 23 characters after its dot with `too long`, before any
+  byte past the buffer is written.
 - `_insn_buf` is rebuilt as PETSCII each pass.  `asm_line` operates
   on PETSCII directly — no encoding conversion.
 - `fold_block` folds PETSCII shifted uppercase ($C1–$DA) to plain

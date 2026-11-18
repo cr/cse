@@ -1080,3 +1080,56 @@ class TestTruncationWarning:
         warn_count = self._assemble(as_syms, src)
         assert warn_count == 2, \
             f"two 39-char lines should emit two warnings; got {warn_count}"
+
+
+# ── Label length bound (assembler_syntax.md § Labels) ───────────────────────
+#
+# A label name is at most 23 characters (a local: after its dot); a longer
+# one is `too long`, and an instruction whose operand expands (local
+# references → scope.name) past the 57-character instruction buffer is
+# `too long` too.  Before the bound, a long global plus a local overran
+# _scope_name / _full_label / _expr_buf into the segment-tracking BSS.
+
+_G23 = "abcdefghijklmnopqrstuvw"            # 23 chars
+_G24 = _G23 + "x"                           # 24 chars
+
+
+class TestLabelLength:
+
+    def test_23_char_global_and_local_accepted(self, as_syms):
+        src = f".org $c000\n{_G23}:\n.{_G23}: nop\n jmp .{_G23}"
+        data, val = _run_and_lookup(as_syms, src, f"{_G23}.{_G23}")
+        assert data == [0xEA, 0x4C, 0x00, 0xC0]
+        assert val == 0xC000
+
+    def test_24_char_global_is_too_long(self, as_syms):
+        _, _, errors, seg = _run_segs(
+            as_syms, f".org $c000\n{_G24}:\n.l: nop\n rts")
+        assert errors >= 1
+        assert seg == {"min_pc": 0xC000, "max_pc": 0xC002}
+
+    def test_24_char_local_is_too_long(self, as_syms):
+        _, _, errors, seg = _run_segs(
+            as_syms, f".org $c000\n{_G23}:\n.{_G24}: nop\n rts")
+        assert errors >= 1
+        assert seg == {"min_pc": 0xC000, "max_pc": 0xC002}
+
+    def test_long_global_is_not_defined(self, as_syms):
+        _, val = _run_and_lookup(as_syms, f".org $c000\n{_G24}: rts", _G24)
+        assert val is None
+
+    def test_expanded_operand_too_long(self, as_syms):
+        # 20-char scope, three local references: 3 × 23 + 5 > 48
+        g = _G23[:20]
+        _, _, errors, seg = _run_segs(
+            as_syms, f".org $c000\n{g}:\n.ab: lda .ab+.ab+.ab\n rts")
+        assert errors >= 1
+        # the refused lda emits nothing (both passes); only rts remains
+        assert seg == {"min_pc": 0xC000, "max_pc": 0xC001}
+
+    def test_expanded_operand_that_fits(self, as_syms):
+        g = _G23[:20]
+        src = f".org $c000\n{g}:\n.ab: lda .ab+.ab\n rts"
+        org, data, errors = _run(as_syms, src)
+        assert errors == 0
+        assert data == [0xAD, 0x00, 0x80, 0x60]

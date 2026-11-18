@@ -64,6 +64,7 @@
         .export s_err_sep, s_bad_val, s_exp_name, s_sym_full
         .export s_exp_quot, s_bad_insn, s_a_shadow, s_fwd_ref
         .export s_save_s, s_save_q_sp, s_save_default, s_trunc
+        .export s_too_long
 
         ; ── disk strings ──
         .export str_dname, str_dir_brk, str_blk_free, str_blk_pre, str_blk_suf
@@ -214,6 +215,7 @@ s_save_s:       .byte "s ", $22, 0
 s_save_q_sp:    .byte $22, " $", 0
 s_save_default: .byte "out", 0
 s_trunc:        .byte ": truncated", 0
+s_too_long:     .byte "too long", 0
 
 ; ── expr error strings + dispatch tables ────────────────────
 

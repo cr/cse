@@ -928,11 +928,16 @@ documentation round that follows this filing.
   Fixed 2026-11-18: heap_copy_name measures the name and refuses it
   before writing; _st_heap never passes $EF00. Test TestHeapOverflow
   (test_symtab.py, replaces the vocal skip).
-- [ ] **Long labels overrun BSS.**  A global label of ≥ 24 characters
+- [x] **Long labels overrun BSS.**  A global label of ≥ 24 characters
   followed by a local overruns `_scope_name` / `_full_label` /
   `_expr_buf` (no bounds), corrupting `_seg_pc`, `_min_pc`,
   `_max_pc`, `kernel_zp_buf`, `userland_zp_buf`.  No label-length
   limit is documented.
+  Fixed 2026-11-18: labels are at most 23 characters (local: after the
+  dot) and the expanded instruction text at most 57, else `;?N: too
+  long` (assembler_syntax.md § Labels); the operand is expanded
+  straight into a bounded _insn_buf (_expr_buf gone). Test
+  TestLabelLength.
 - [ ] **Expression nesting has no depth limit**: ~30 `(` wrap the
   hardware stack (`expr.s` parse_factor recursion).
 - [ ] **Pass-0 forward references with an offset size to 0 bytes.**

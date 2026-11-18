@@ -31,6 +31,13 @@ keyboard).
 Local labels (dot prefix) are scoped to the last preceding global
 label and stored as `global.local` in the symbol table.
 
+A label name is at most **23 characters** — for a local label, the
+part after the dot.  A longer one is `;?N: too long` and is not
+defined (a too-long global label also clears the scope).  An
+instruction's text, after each local reference `.name` in its operand
+is expanded to `global.name`, must fit the assembler's 57-character
+instruction buffer; a longer one is `;?N: too long` as well.
+
 ## Constants
 
 ```

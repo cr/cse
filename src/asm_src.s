@@ -44,6 +44,7 @@
         .import s_err_sep, s_bad_val, s_exp_name, s_sym_full
         .import s_exp_quot, s_bad_insn, s_fwd_ref, str_cpu_err
         .import s_save_s, s_save_q_sp, s_save_default, s_trunc
+        .import s_too_long
         .import dec_pow_lo, dec_pow_hi
 
 ; ── BSS (all reset by asm_assemble before each run) ─────────────────────
@@ -53,12 +54,13 @@ asm_size:      .res 2          ; total bytes emitted
 asm_errors:    .res 2          ; error count (pass 1 only)
 _line_num:      .res 2
 _line_buf:      .res 40
-_scope_name:    .res 24         ; last global label (for .local expansion)
-_full_label:    .res 48         ; scratch: "scope.local"
-_insn_buf:      .res 32         ; rebuilt instruction text for asm_line
-_expr_buf:      .res 48         ; operand with local labels expanded
+MAX_LABEL = 23                  ; label name chars (local: after the dot)
+INSN_MAX  = 57                  ; _insn_buf text chars (+ NUL)
+_scope_name:    .res MAX_LABEL+1        ; last global label (for .local expansion)
+_full_label:    .res 2*MAX_LABEL+2      ; scratch: "scope.local"
+_insn_buf:      .res INSN_MAX+1 ; instruction text for asm_line, locals expanded
 _as_conv:       .res 1          ; emit_string convert-to-screen-code flag
-_eb_idx:        .res 1          ; write index into _expr_buf
+_eb_idx:        .res 1          ; .bas string length
 _ib_idx:        .res 1          ; write index into _insn_buf
 
 ; ── Segment tracking (streaming during pass 1) ──────────────────────────
@@ -1134,6 +1136,8 @@ BASIC_REM = $8F
         ldy #1                  ; skip the '.' prefix in sym_name
 @lc:    lda (sym_name),y
         beq @lc_done
+        cpy #MAX_LABEL+1        ; Y = 1-based index into the local name
+        beq @long               ; 24th char → too long, define nothing
         sta _full_label,x
         inx
         iny
@@ -1153,7 +1157,11 @@ BASIC_REM = $8F
         sta _scope_name,y
         beq @set_val
         iny
+        cpy #MAX_LABEL+1
         bne @gs
+        lda #0                  ; 24th char copied → too long:
+        sta _scope_name         ; drop the scope, define nothing
+@long:  jmp _too_long_err
 @set_val:
         lda asm_pc
         sta sym_val
@@ -1180,6 +1188,14 @@ BASIC_REM = $8F
 _exp_name_err:
         lda #<s_exp_name
         ldx #>s_exp_name
+        jmp emit_error
+
+; ── _too_long_err ──────────────────────────────────────────────────────────
+; Shared "too long" error tail: a label over MAX_LABEL characters
+; (define_label) or instruction text over INSN_MAX (process_line @put).
+_too_long_err:
+        lda #<s_too_long
+        ldx #>s_too_long
         jmp emit_error
 
 ; ── process_line ───────────────────────────────────────────────────────────
@@ -1298,56 +1314,47 @@ _exp_name_err:
         cmp #';'
         beq @asm_insn
 
-        lda #0
-        sta _eb_idx
+        ; Operand: copy into _insn_buf after a space, expanding each
+        ; local reference `.name` to `scope.name`.  @put bounds every
+        ; byte (INSN_MAX) — a longer text is `too long`.
+        lda #' '
+        jsr @put
 @exp:   ldy #0
         lda (_as_ptr),y
-        beq @exp_done
+        beq @asm_insn
         cmp #';'
-        beq @exp_done
+        beq @asm_insn
         cmp #'.'
         bne @ecp
-        ldy #1
+        iny
         lda (_as_ptr),y
         jsr is_ident
         bcs @ecp
-        ldx _eb_idx
         ldy #0
 @sc2:   lda _scope_name,y
-        beq @sc2_done
-        sta _expr_buf,x
-        inx
+        beq @ecp
+        jsr @put
         iny
         bne @sc2
-@sc2_done:
-        stx _eb_idx
 @ecp:   ldy #0
         lda (_as_ptr),y
-        ldx _eb_idx
-        sta _expr_buf,x
-        inc _eb_idx
+        jsr @put
         inc _as_ptr
         bne @exp
         inc _as_ptr+1
         jmp @exp
-@exp_done:
-        ldx _eb_idx
-        lda #0
-        sta _expr_buf,x
 
-        ldx _ib_idx
-        lda #' '
+; @put — append A to _insn_buf; on overflow drop the return address and
+; report `too long` (ends the line).  Preserves Y.  Clobbers X.
+@put:   ldx _ib_idx
+        cpx #INSN_MAX
+        bcs @long
         sta _insn_buf,x
-        inx
-        ldy #0
-@cpy:   lda _expr_buf,y
-        beq @cpy_done
-        sta _insn_buf,x
-        inx
-        iny
-        bne @cpy
-@cpy_done:
-        stx _ib_idx
+        inc _ib_idx
+        rts
+@long:  pla
+        pla
+        jmp _too_long_err
 
 ; ── 4. Assemble instruction ─────────────────────────────────────────────────
 @asm_insn:
