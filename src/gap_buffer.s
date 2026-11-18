@@ -59,11 +59,14 @@
         .importzp sym_name, sym_val, sym_wide
 
         ; Linker-provided workspace ceiling (= runtime code start)
-        ; and floor (source-growth limit from compute_layout.py).
+        ; and floor (source-growth limit from compute_layout.py);
+        ; m65: platform.inc's, offsets in the source bank.
+.ifdef PLATFORM_C64
         .import __CODE_RUN__
         .import __BUF_FLOOR__
         .define BUF_END   __CODE_RUN__    ; exclusive end of buffer
         .define BUF_FLOOR __BUF_FLOOR__   ; source-growth limit
+.endif
 
 ; save_ptr aliases read_ptr — the sequential reader and the insert
 ; helpers share the same ZP word (they're never live simultaneously).

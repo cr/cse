@@ -335,12 +335,14 @@ def raw_byte_count(src=SRC):
 
 # ── the pending-body count (platform_layer.md § Pending bodies) ─────
 
-_PENDING = re.compile(r"^\s*(?:[@\w]+:)?\s*PLAT_PENDING\s+(\d+)\s*$")
+_PENDING = re.compile(r"^\s*(?:[@\w]+:)?\s*PLAT_PENDING"
+                      r"(?:\s+|_VALUE\s+\w+\s*,\s*[^,]+,\s*)(\d+)\s*$")
 
 
 def pending_counts(src=SRC):
-    """{milestone: the number of PLAT_PENDING sites}, over src/*.s and
-    src/*.inc (a site in a macro body counts once)."""
+    """{milestone: the number of PLAT_PENDING and PLAT_PENDING_VALUE
+    sites}, over src/*.s and src/*.inc (a site in a macro body counts
+    once)."""
     counts = {}
     for f in sorted(list(src.glob("*.s")) + list(src.glob("*.inc"))):
         for raw in f.read_text(errors="replace").splitlines():

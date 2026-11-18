@@ -193,6 +193,12 @@ def test_hyppo_getversion_answers_hyppo_1_2_hdos_1_3(emu):
     assert (emu.a, emu.x, emu.y, emu.z) == HYPPO_GETVERSION == (1, 2, 1, 3)
 
 
+def test_hyppo_getversion_answers_the_version_a_test_sets(emu):
+    emu.hypervisor.version = (1, 1, 1, 3)        # older than the ROM floor's
+    trap(emu, 0xD640, 0x00)
+    assert (emu.a, emu.x, emu.y, emu.z) == (1, 1, 1, 3)
+
+
 def test_hyppo_rom_writeenable_lifts_the_rom_protection(emu):
     mem = emu.memory
     mem.write_flat(0x32000, 0x5A)

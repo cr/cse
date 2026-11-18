@@ -17,8 +17,8 @@
 ;     kernel_zp_buf      BSS (128 B): kernel's ZP snapshot
 ;
 ;   Misc queries:
-;     cse_start          returns runtime start (XXXX) in A/X
-;     cse_end            returns $D000 in A/X
+;     cse_start          returns the runtime start in A/X (m65: HIMEM)
+;     cse_end            returns HIMEM in A/X
 ;     cse_zp_end         returns first free ZP byte in A
 
         .setcpu "6502"
@@ -122,16 +122,21 @@ kernal_bank_in:
         rts
 
 ; ═════════════════════════════════════════════════════════════
-; cse_start — return runtime start address in A/X
+; cse_start — return the runtime start address in A/X (m65: HIMEM)
 ; ═════════════════════════════════════════════════════════════
 cse_start:
+.ifdef PLATFORM_M65
+        lda #<HIMEM             ; CSE is not in bank 0: the program
+        ldx #>HIMEM             ; region ends where it starts
+.else
         lda #<__CODE_RUN__
         ldx #>__CODE_RUN__
+.endif
         rts
 
 ; ═════════════════════════════════════════════════════════════
 ; cse_end — return first byte past runtime in A/X
-;   Always $D000 (BSS ends just before I/O).
+;   HIMEM: c64 $D000 (BSS ends just before I/O), m65 PROG_HI + 1.
 ; ═════════════════════════════════════════════════════════════
 cse_end:
         lda #<HIMEM

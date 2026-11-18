@@ -507,9 +507,12 @@ lands, except T1, which is green by construction):
   time).  (Done 2026-11-18: `raw_byte_sites` in the audit tool,
   `test_m45_ops.py`, `MPU45GS02(clean=[(first, last), ...])` by the
   PC's flat address through `memory.flat_of`.)
-- [ ] T4. The m65 build: test_makefile_guards' refusal tests become
+- [x] T4. The m65 build: test_makefile_guards' refusal tests become
   build tests (`make release/debug PLATFORM=m65`, m65-6502); a region
-  overflow fails the link.
+  overflow fails the link.  (Done 2026-11-18: the m65 `disk`, `run`,
+  `size` and an unknown platform refused; each of the four areas of
+  `src/m65_cse.cfg` bounded as stated, shrunk by one byte it fails the
+  link; the m65 PRG in `BUDGET`.)
 - [x] T5. M65Emu: one post-boot snapshot per ROM, the `m65_snapshot`
   fixture, the existing m65 suites on each; `capture_m65_state.py
   --rom`.  (Done 2026-11-18: `build/m65_state/920413/`, `920421/`,
@@ -521,15 +524,24 @@ lands, except T1, which is green by construction):
   (`KCALL`/`KJMP` keep `B`; far loads and stores across banks 0, 2, 3,
   4; `FAR_BANK` keeps A).  (Done 2026-11-18: `test_platform_m65.py`,
   clean mode, plus `PLAT_SETBNK`.)
-- [ ] T8. The loader on each ROM: the install field by field; the gate's
+- [x] T8. The loader on each ROM: the install field by field; the gate's
   two refusals; `load_prg()`/`init_cse()` equal to the real loader.
-  (Moved to step (5): it runs the real loader in the linked m65 PRG.)
+  (Moved to step (5): it runs the real loader in the linked m65 PRG.
+  Done 2026-11-18: `test_loader.py` on both snapshots, entered with
+  each ROM's premise; `M65Emu.install_prg()` equals the loader over all
+  of chip RAM; refusals for Hyppo 1.1 / 0.9 and a non-`JMP` entry, with
+  nothing of CSE's written.  `init_cse()` on m65 waits for the display
+  bodies, P2.)
 - [x] T9. The run premise and the services' answers as a golden file
   (`capture_m65_premise.py` → `m65_premise.json`, per ROM).  (Done
   2026-11-18: memory_design.md's premise holds on both ROMs; they
   differ only in their own `SYS` return path — `$039D` / `$03A1`.)
-- [ ] T10. Tier X: the PRG boots to `_main` on both ROMs through the SD
-  clone (`tests/xmega65.py` gains `prg=`, `rom=`).
+- [x] T10. Tier X: the PRG boots to `_main` on both ROMs through the SD
+  clone (`tests/xmega65.py` gains `prg=`, `rom=`).  (Done 2026-11-18:
+  `tests/emulator/test_m65_boot.py`, each ROM taken from its snapshot;
+  at `_main` the CSE map, `B = $1F`, SP `$01F1`, the stub, the base
+  page and bank 3 equal to `install_prg()`'s, banks 2–3 writable — the
+  probe reads protected at READY.)
 - [x] T11. The `PLAT_PENDING` count (only goes down).  (Done
   2026-11-18: `pending_counts` in the audit tool; P1 4, P2 13,
   recorded exactly.)
@@ -651,6 +663,28 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   `BP_PAGE = CSE_BP`, `STACK_TOP = $F1`, `PLAT_SETBNK`, `PLAT_COLD_START` and `cse_exit_to_basic`
   (`hyppo_reset`), `_main`'s steps 10–11 (the base-page fill bound,
   the program-region DMA fill), the resident stub, the loader.
+- [x] Step (5): the m65-6502 build — `make release/debug
+  PLATFORM=m65` (`src/m65_cse.cfg`, no layout pass, no exomizer;
+  21 054 B, CODE + RODATA to `$6F84`, KDATA + BSS to `$840A`, the base
+  page to `$93`); T4, T8, T10.  The first link forced a doc delta
+  (2026-11-18), written before the code: **pending values**
+  (`PLAT_PENDING_VALUE`, platform_layer.md § Pending bodies) for the
+  constants inline code names whose m65 value P2 / P3 states —
+  `IO_CX`, `IO_CY`, `SCREEN`, `SCREEN_WIDTH`, `SCREEN_HEIGHT` (P2),
+  `ST`, `DISK_LOCAL_PTR` (P3) — the cells in `BP_PENDING` (`$AB–$AF`
+  of CSE's base page), counted with the pending bodies (P2 13 → 18,
+  P3 0 → 2: the one raise of the count, at the first link); the data
+  window's fixed homes (`SYM_TABLE` `$A100`, `SYM_HEAP` `$A700`,
+  `SYM_HEAP_END` / `REPL_SCREEN` `$B000`; memory_design.md); `HIMEM`
+  = `PROG_HI + 1` for `cse_start` / `cse_end`; `BUF_FLOOR` / `BUF_END`
+  `$4000` / `$C000`; the SID registers; `scr_lo` / `scr_hi` as BSS
+  run-time tables (filled in P2); `KC_BRANCH` for three disk.s
+  branches a 14-byte `KCALL` puts out of range; the linker config
+  `src/m65_cse.cfg` (no `.in`: nothing to compute).
+- **P0 gate met (2026-11-18):** the m65 PRG reaches `_main` in M65Emu
+  and xmega65 on 920413 and 920421, with the map, the base page, the
+  stub and the ROM protection as memory_design.md states; the C64
+  PRGs byte-identical; T1–T11 green.
 - Finding for P2: the screen pointers `_io_scr` (cse_io.s, screen.s's
   `dst_ptr`) and `scr_src` (screen.s's `src_ptr`) reach the screen,
   which is in bank 4 in 80 × 50, but are not in zp.md's far-pointer

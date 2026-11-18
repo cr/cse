@@ -221,7 +221,7 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         KCALL LISTEN
         KCALL UNLSN
         lda ST
-        bmi @done               ; device not present
+        KC_BRANCH bmi, bpl, @done       ; device not present
 
         ; OPEN 14,8,15,""
         lda #0
@@ -668,7 +668,7 @@ _status_ret:
 
         lda _io_tmp
         ora _io_tmp+1
-        bne @set_lfs
+        KC_BRANCH bne, beq, @set_lfs
         ; No address: read the header.  OPEN 2,dev,2,name
         lda #2
         ldx cur_device
@@ -746,7 +746,7 @@ _status_ret:
         ldx #'s'
         jsr build_open_str      ; A = length
         jsr _disk_open_buf
-        bcs @err
+        KC_BRANCH bcs, bcc, @err
 
         ; CHKIN 2 — no drive error check here; opening channel 15
         ; between OPEN and CHKIN disrupts the serial bus channel.

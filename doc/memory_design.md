@@ -408,8 +408,9 @@ to `_main`.
 
 The m65 build is a native MEGA65-mode program on the MEGA65 KERNAL,
 within the ROM floor of [platform_layer.md § Platforms and
-defines](platform_layer.md#platforms-and-defines).  Status: planned
-([build_system.md § The m65 builds](build_system.md#the-m65-builds)).
+defines](platform_layer.md#platforms-and-defines).  Status: the PRG
+installs this machine and enters `_main` (P0,
+[build_system.md § The m65 builds](build_system.md#the-m65-builds)).
 Its premise is the machine a BASIC 65 program finds when `RUN` starts
 it through its `SYS` line; user programs run in that machine, and CSE
 keeps out of it.  The facts below that are not book citations were
@@ -482,6 +483,21 @@ pointers ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
     4.0000–5.FFFF  free, except the screen in 80 × 50           the KERNAL in 80 × 50
                    (4.0800–4.179F)
     800.0000+      Attic RAM                                    —
+
+**The data window (`3.8000–3.BFFF`).**  KDATA and BSS from its
+start, in one linker area bounded below the fixed homes; above them,
+the C64's under-KERNAL homes at fixed addresses, page-aligned as the
+C64's (symtab.s indexes its table from a page boundary):
+
+    3.8000–3.A0FF  KDATA, then BSS (8.25 K; the linker bounds it)
+    3.A100–3.A6FF  SYM_TABLE: the symbol table (256 × 6 bytes)
+    3.A700–3.AFFF  SYM_HEAP … SYM_HEAP_END ($B000): the name heap
+    3.B000–3.BF9F  REPL_SCREEN: the REPL screen save (80 × 50 = 4000)
+    3.BFA0–3.BFFF  free
+
+`HIMEM` (`cse_end`) is `PROG_HI + 1` = `$C000`: the first byte past
+the program region, which is what the user's map offers
+([mem.md § cse_end](modules/mem.md#cse_end)).
 
 CSE's regions in banks 2–3 held C65 BASIC, BASIC 65's graphics
 material and the C64-mode ROMs (C64 BASIC, C64 KERNAL, character sets

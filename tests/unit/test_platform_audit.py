@@ -197,9 +197,11 @@ def test_raw_byte_audit_skips_m45_ops(tmp_path):
 
 # ── the pending-body count (platform_layer.md § Pending bodies) ──
 
-# The PLAT_PENDING sites per milestone, recorded; a commit that writes
-# an m65 body lowers its number here.  Every number is 0 when P3 closes.
-PENDING_RECORDED = {1: 4, 2: 13}
+# The PLAT_PENDING and PLAT_PENDING_VALUE sites per milestone,
+# recorded; a commit that writes an m65 body or states a value lowers
+# its number here.  Every number is 0 when P3 closes.  (Raised once, by
+# P0 step (5): the first m65 link found the pending values.)
+PENDING_RECORDED = {1: 4, 2: 18, 3: 2}
 
 
 def test_pending_bodies_are_the_recorded_count():
@@ -217,3 +219,12 @@ def test_pending_count_counts_sites_not_mentions(tmp_path):
         "; PLAT_PENDING 2 in a comment\n"
         ".macro PLAT_PENDING n\n")
     assert AUDIT.pending_counts(tmp_path) == {1: 1, 2: 1}
+
+
+def test_pending_count_counts_pending_values(tmp_path):
+    (tmp_path / "m.inc").write_text(
+        "        PLAT_PENDING_VALUE IO_CX, BP_PENDING + 1, 2\n"
+        "        PLAT_PENDING_VALUE SCREEN, $0800, 3   ; c\n"
+        ".macro PLAT_PENDING_VALUE name, value, n\n"
+        "; PLAT_PENDING_VALUE ST, 1, 3 in a comment\n")
+    assert AUDIT.pending_counts(tmp_path) == {2: 1, 3: 1}

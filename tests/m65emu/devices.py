@@ -336,20 +336,22 @@ class Hypervisor(Device):
     the two services the m65 loader uses are modelled —
     hyppo_getversion ($D640 <- $00) sets A X Y Z, hyppo_rom_writeenable
     ($D641 <- $02) lifts M65Memory's ROM protection; anything else, and
-    any read, raises.  `cpu` is set once the CPU exists."""
+    any read, raises.  `cpu` is set once the CPU exists; `version` is
+    what hyppo_getversion answers (a test may set an older one)."""
 
     FIRST, LAST = 0x640, 0x67F
 
     def __init__(self, mem):
         self.mem = mem
         self.cpu = None
+        self.version = HYPPO_GETVERSION
 
     def read(self, off):
         raise HypervisorNotModelled(f"read of $D{off:03X}")
 
     def write(self, off, v):
         if (off, v) == (0x640, 0x00):
-            self.cpu.a, self.cpu.x, self.cpu.y, self.cpu.z = HYPPO_GETVERSION
+            self.cpu.a, self.cpu.x, self.cpu.y, self.cpu.z = self.version
         elif (off, v) == (0x641, 0x02):
             self.mem.rom_protect = False
         else:

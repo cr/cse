@@ -136,10 +136,9 @@ share: the recording session and the file writer):
 - **Output:** `-dumpscreen`, `-dumpmem`, `-screenshot`, written when
   the test ends xmega65 with SIGTERM.
 
-Tests will live in `tests/emulator/` (planned with P0 of
-[TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer);
-today `tests/xmega65.py` serves the golden-file recorders) and
-are skipped, with the reason, when
+Tests live in `tests/emulator/`, outside pyproject.toml's
+`testpaths`, so a plain `pytest` never starts xmega65; they run by
+path (`pytest tests/emulator`), and are skipped, with the reason, when
 `$(XMEGA65)` (the driver reads the `XMEGA65` environment variable) or
 the SD image is absent.  Boot to the prompt takes
 about 5–8 s, so Tier X holds the m65 boot, hypervisor and disk tests
@@ -591,7 +590,7 @@ compendium row, so it raises).
 
 ### The m65 PRG on M65Emu
 
-What the m65 build's Tier I and Tier X tests rest on (planned, P0 of
+What the m65 build's Tier I and Tier X tests rest on (P0 of
 [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)).
 The installed machine they check is
 [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode).
@@ -608,30 +607,54 @@ The installed machine they check is
 - **Fixtures.**  `cse_m65_prg` (the debug m65 PRG with its map and
   labels) and `cse_m65_release_prg`, built by `make debug
   PLATFORM=m65` / `make release PLATFORM=m65` on the same freshness
-  rule as the C64 fixtures; skipped with the reason when a snapshot is
-  absent (they hold the ROM and are never committed).
+  rule as the C64 fixtures.  A test that runs the PRG on M65Emu also
+  takes `m65_snapshot`, so it runs once per ROM and is skipped, with
+  the reason, when no snapshot is present (they hold the ROM and are
+  never committed).
 - **The loader runs for real** (`tests/integration/test_loader.py`,
   as for the C64 builds).  The PRG is placed at `$2001` in the
-  post-boot state and entered with the run premise, and the real
-  `loader_entry` runs until `_main`'s first instruction; the machine
-  must then be the installed machine of memory_design.md, field by
-  field.  A machine failing the loader's gate
-  ([loader.md § Design](modules/loader.md#design)) is refused with
-  nothing written.
-- **`load_prg()` and `init_cse()`** put the m65 PRG into that same
-  installed state from Python, so other Tier I tests start there
-  without running the loader; the loader test proves the two equal,
-  as it does for the C64's `_relocate_segments()`.
+  post-boot state and entered with the run premise of that ROM
+  (`m65_premise.json`: the registers, the user map, the stack bytes
+  above SP), and the real `loader_entry` runs until `_main`'s first
+  instruction; the machine must then be the installed machine of
+  memory_design.md, field by field: the CSE map, `B = CSE_BP`, SP,
+  the stub and its cold target, CSE's base page cleared, CODE +
+  RODATA and KDATA in bank 3, BSS cleared, banks 2–3 writable.  A
+  machine failing the loader's gate
+  ([loader.md § Design](modules/loader.md#design)) — the Hypervisor
+  answering 1.1 (M65Emu's Hypervisor device takes the version to
+  answer), or a jump-table entry that is not a `JMP` — is refused:
+  the message on the screen, an `RTS` to the premise's `SYS` return,
+  and nothing of CSE's written (the stub, CSE's base page, bank 3,
+  the protection).
+- **`install_prg()`** (M65Emu's) puts the m65 PRG into that same
+  installed state from Python — the segments to their run banks, the
+  stub, the base page, the map, `B`, SP, the protection — so other
+  Tier I tests start there without running the loader; the loader
+  test proves the two equal over all of chip RAM, as it does for the
+  C64's `_relocate_segments()`.  (`load_prg()`, which M65Emu shares
+  with C64Emu, copies a segment within bank 0, which is not where the
+  m65 PRG's segments run.)  `enter_premise()` puts a ROM's run
+  premise in place for a test that runs the loader itself.  `init_cse()` then runs CSE's cold-init
+  routines on it, once their m65 bodies are stated (P2: the display
+  routines among them).
 - **The Hypervisor services the loader uses**
   ([platform_layer.md § Constants](platform_layer.md#constants)):
   M65Emu models `hyppo_getversion` and `hyppo_rom_writeenable` as
   layer 3's Hypervisor traps ([§ M65Emu](#m65emu--the-m65-integration-harness)).
   `hyppo_reset`, which ends a session, is Tier X only.
-- **Tier X, boot and quit.**  xmega65 starts the PRG through `-prg`
-  and stops at a `uartmon` breakpoint on `_main`; the test reads the
-  map, the stub, the base page and the protection state and compares
-  them with the Tier I loader test's.  `Q` ends in BASIC 65 at READY
-  with banks 2–3 reloaded.  The D81 and the cartridge join with P3.
+- **Tier X, boot and quit** (`tests/emulator/test_m65_boot.py`, on
+  each ROM through the SD clone).  xmega65 starts the PRG through
+  `-prg` and stops at a `uartmon` breakpoint on `_main`'s address
+  with `B = CSE_BP` (under the CSE map, which is BASIC 65's own map,
+  the same address is BASIC's code until the loader replaces it); the
+  test reads the map, `B`, SP, the stub, the base page and bank 3's
+  code image and compares them with the PRG's, and checks banks 2–3
+  writable (the monitor's writes respect the ROM protection, so a
+  write to the reserve `3.C000` reads back only when the loader lifted
+  it).  `Q` ends in BASIC 65 at READY with banks 2–3 reloaded — with
+  P2, when the REPL first runs on m65.  The D81 and the cartridge
+  join with P3.
 - **The recordings behind the m65 column.**  The P0 analysis probes
   (entry state, base page, `Z`, the frame, the maps, the Hypervisor
   services, the regions CSE takes, all on both ROMs) become committed

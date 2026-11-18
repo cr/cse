@@ -22,7 +22,7 @@ states the seam's contract and points there.
 | [`src/platform.inc`](../src/platform.inc) | header — every platform constant and macro, selected by `.ifdef` |
 | [`src/m45_ops.inc`](../src/m45_ops.inc) | header — the 45GS02-only instructions as raw-byte macros ([§ Raw-byte instructions](#raw-byte-instructions)) |
 | [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit (the address-literal classes, the per-file counts), the base-page, stack-top and raw-byte checks |
-| [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top and raw-byte checks; the pending-body count with the m65 bodies (P0 step (4)) |
+| [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top and raw-byte checks; the count of pending bodies and values |
 | [`tests/unit/test_platform_m65.py`](../tests/unit/test_platform_m65.py) | test contract — the m65 macro bodies on M65Emu in clean mode: `KCALL` / `KJMP` (B = 0 for the KERNAL, registers through), the far accesses in banks 0, 2, 3, 4, `FAR_BANK`, `PLAT_SETBNK` |
 | [`dev/m65_macros_test.s`](../dev/m65_macros_test.s), [`dev/m65_test.cfg`](../dev/m65_test.cfg) | test helper — the m65 macro bundle and its linker config (base page at `0.1F00`, code at `$4000`) |
 | [`tests/unit/test_m45_ops.py`](../tests/unit/test_m45_ops.py) | test contract — each raw-byte macro is the compendium's encoding of its instruction |
@@ -90,7 +90,7 @@ stretch target, not a platform
 | Seam | Host | What the upper layers see |
 |---|---|---|
 | [Constants](#constants) | `platform.inc` (L0) | named entries, cells, homes, sizes; never a literal |
-| [KERNAL calls](#kernal-calls) | `platform.inc` | `KCALL entry`, `KJMP entry` |
+| [KERNAL calls](#kernal-calls) | `platform.inc` | `KCALL entry`, `KJMP entry`, `KC_BRANCH` |
 | [Base page](#base-page) | `platform.inc`; zp.s (L0), mem.s (L1) | where CSE's zero page is; `BP_PAGE`, `BP_ABS`; the user-ZP swap |
 | [Stack](#stack) | `platform.inc` | `STACK_TOP` |
 | [Banking](#banking) | mem.s (L1), `platform.inc` | `kernal_bank_out` / `kernal_bank_in`, `kernal_out`; `BANK_PUSH`, `BANK_POP`, `BANK_IN_A`, `BANK_FORCE_IN`, `BANK_FORCE_OUT`, `BANK_KERNEL` |
@@ -165,6 +165,11 @@ N/Z.
 |---|---|---|
 | c64 | `jsr entry` | `jmp entry` (cse_io.s's `io_sync`, disk.s's final `CLOSE`) |
 | m65 | `pha` · `lda #0` · `tab` · `pla` · `jsr entry` · `pha` · `lda #CSE_BP` · `tab` · `pla` — the jump table needs `B = 0` (book I-3); CSE runs with its own base page | `KCALL entry` · `rts` |
+
+`KC_BRANCH op, inverse, target` (macro): a conditional branch across
+`KCALL`s.  c64: `op target`.  m65: `inverse` over a `jmp target` — a
+`KCALL` is 14 bytes there, so a C64 short branch across some is out
+of range (disk.s, three sites).
 
 ### Base page
 
@@ -461,6 +466,26 @@ MEGA65.  It is never an expansion on c64.  The pending sites are
 counted by a test whose recorded count only goes down; it is zero
 when P3 closes, and a milestone is not done while one of its pending
 sites remains ([§ Gates](#gates)).
+
+`PLAT_PENDING_VALUE name, value, n` (macro, m65 only): the m65 value
+of a constant whose m65 contract is *stated with P<n>* — a cell or a
+size that inline code in several modules names, where no body can
+stand in for it.  It defines `name` as a placeholder so the m65 build
+links; the code that names it runs only past a pending body (`_main`
+stops at its first one in P0), so the placeholder is never read as
+the machine's fact.  A placeholder cell is a byte of CSE's own base
+page set aside for them (`BP_PENDING`, `$AB–$AF`; [zp.md](modules/zp.md)),
+so a stray access touches nothing of the user's or the KERNAL's; a
+placeholder size is the run premise's default (80 × 25 at `0.0800`).
+The test counts them with the pending bodies, under the same
+milestone:
+
+| Name | Placeholder | Stated with |
+|---|---|---|
+| `IO_CX`, `IO_CY` (the cursor cells) | `BP_PENDING`, `BP_PENDING + 1` | P2 ([§ Terminal](#terminal)) |
+| `SCREEN`, `SCREEN_WIDTH`, `SCREEN_HEIGHT` | `$0800`, 80, 25 | P2 ([§ Display](#display)) |
+| `ST` (the I/O status disk.s reads) | `BP_PENDING + 2` | P3 ([§ Disk bank](#disk-bank)) |
+| `DISK_LOCAL_PTR` (disk.s's private pointer) | `BP_PENDING + 3` (2 bytes) | P3 ([§ Constants](#constants)) |
 
 ## Raw-byte instructions
 

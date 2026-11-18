@@ -977,6 +977,37 @@ def cse_prg_per_cpu(request):
     return _PER_CPU_PRG[request.param]
 
 
+# ── The m65 PRG (testing.md § The m65 PRG on M65Emu, *Fixtures*) ──────────
+# `make debug PLATFORM=m65` / `make release PLATFORM=m65`, once per
+# session, as the C64 fixtures.
+
+_M65_DIR = {p: ROOT / "build" / p / "m65" for p in ("debug", "release")}
+
+
+def _m65_prg(profile):
+    _make_m65(profile)
+    return _M65_DIR[profile] / "cse-m65.prg", _M65_DIR[profile] / "cse.map"
+
+
+def _make_m65(profile):
+    if ("m65", profile) not in _MADE:
+        subprocess.run(["make", profile, "PLATFORM=m65"], cwd=ROOT,
+                       check=True, capture_output=True)
+        _MADE.add(("m65", profile))
+
+
+@pytest.fixture(scope="session")
+def cse_m65_prg():
+    """Session-scoped: the debug m65 PRG (prg, map), full labels."""
+    return _m65_prg("debug")
+
+
+@pytest.fixture(scope="session")
+def cse_m65_release_prg():
+    """Session-scoped: the release m65 PRG (prg, map)."""
+    return _m65_prg("release")
+
+
 # ── M65Emu's post-boot snapshots, one per ROM ─────────────────────────────
 # testing.md § The m65 PRG on M65Emu, *ROMs*: a test taking
 # `m65_snapshot` runs once per snapshot under build/m65_state/ (ids: the

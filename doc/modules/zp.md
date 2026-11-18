@@ -77,8 +77,12 @@ differences; the addresses are the linker map's
 - **disk.s's private pointer** (`DISK_LOCAL_PTR`) lives here — *stated
   with P3*.
 
-The m65 segment ends below `$B0`, where the resident stub begins (the
-linker bounds it).  The KERNAL needs nothing of CSE's base page
+The m65 segment ends below `$AB` (the linker bounds it): `$AB–$AF` is
+`BP_PENDING`, the cells of the pending values — placeholders for
+`IO_CX`, `IO_CY`, `ST` and `DISK_LOCAL_PTR` until P2 and P3 state them
+([platform_layer.md § Pending bodies](../platform_layer.md#pending-bodies));
+when the last is stated, the segment's bound returns to `$B0`, where
+the resident stub begins.  The KERNAL needs nothing of CSE's base page
 ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame),
 § KERNAL calls).
 

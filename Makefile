@@ -41,15 +41,21 @@ C1541     ?= c1541
 EXOMIZER  ?= exomizer
 
 # ── Platform selection ───────────────────────────────────────────────────
-# PLATFORM=c64 (default) is the only platform with PRGs so far; the m65
-# PRG arrives with R7 slice 2 (the platform layer).  Until then every
-# PRG-building target refuses PLATFORM=m65 instead of silently building
-# the C64 PRGs.  See doc/build_system.md § Builds and CPU sets.
+# PLATFORM=c64 (default) builds the three C64 PRGs; PLATFORM=m65 builds
+# the one m65 build, m65-6502 until P4 (release and debug only: disk,
+# run and size arrive with the D81 in P3).  Any other platform, and an
+# m65 target that does not exist yet, is refused instead of silently
+# building the C64 PRGs.  See doc/build_system.md § Builds and CPU sets.
 PLATFORM ?= c64
 _NON_PRG_GOALS := help themes clean clean-tables tables m65-rom check-roms
-ifneq ($(PLATFORM),c64)
+ifeq ($(PLATFORM),m65)
+  ifneq ($(filter disk run size,$(MAKECMDGOALS)),)
+    $(error PLATFORM=m65: no $(filter disk run size,$(MAKECMDGOALS)) for the m65 build yet (the D81 is R7 slice 2, P3); make release / debug PLATFORM=m65 build its PRG)
+  endif
+  override CPU := 6502
+else ifneq ($(PLATFORM),c64)
   ifneq ($(filter-out $(_NON_PRG_GOALS),$(or $(MAKECMDGOALS),all)),)
-    $(error PLATFORM=$(PLATFORM): no PRG for this platform yet (R7 slice 2, the platform layer); only PLATFORM=c64 builds PRGs)
+    $(error PLATFORM=$(PLATFORM): no PRG for this platform; PLATFORM=c64 and PLATFORM=m65 build PRGs)
   endif
 endif
 
@@ -89,8 +95,7 @@ endif
 TAB_WIDTH ?= 8
 
 # The platform define: exactly one per assembly (doc/platform_layer.md
-# § Platforms and defines).  The m65 PRG targets are still refused
-# (test_makefile_guards.py); its define serves the m65 test bundles.
+# § Platforms and defines).
 _c64_PDEFS    = -DPLATFORM_C64
 _m65_PDEFS    = -DPLATFORM_M65
 PLATFORM_DEFS = $(_$(PLATFORM)_PDEFS)
@@ -110,10 +115,17 @@ _65c02_MN     = mn7 mn7_tables
 _65c02_SUBDIR = cmos
 _65c02_PRG    = cse-cmos.prg
 
-# Resolve selected CPU
+# Resolve selected CPU (and platform: the m65 build has its own
+# directory and name, doc/build_system.md § The m65 builds)
 CPU_DEFS  = $(_$(CPU)_DEFS)
 MN_SRCS   = $(_$(CPU)_MN)
-PRG_NAME  = $(_$(CPU)_PRG)
+ifeq ($(PLATFORM),m65)
+  SUBDIR   = m65
+  PRG_NAME = cse-m65.prg
+else
+  SUBDIR   = $(_$(CPU)_SUBDIR)
+  PRG_NAME = $(_$(CPU)_PRG)
+endif
 
 # ── Build profile ────────────────────────────────────────────────────────
 # _PROFILE selects debug or release (set by recursive make).
@@ -122,10 +134,10 @@ PRG_NAME  = $(_$(CPU)_PRG)
 _PROFILE ?= release
 
 ifeq ($(_PROFILE),debug)
-  BUILD  = $(ROOT)build/debug/$(_$(CPU)_SUBDIR)
+  BUILD  = $(ROOT)build/debug/$(SUBDIR)
   AFLAGS = -g -t c64 -DDEBUG $(PLATFORM_DEFS) $(CPU_DEFS) $(THEME_DEFS) $(INTROSPECT_DEFS) -I$(ROOT) -I$(BUILD)
 else
-  BUILD  = $(ROOT)build/release/$(_$(CPU)_SUBDIR)
+  BUILD  = $(ROOT)build/release/$(SUBDIR)
   AFLAGS = -t c64 $(PLATFORM_DEFS) $(CPU_DEFS) $(THEME_DEFS) $(INTROSPECT_DEFS) -I$(ROOT) -I$(BUILD)
 endif
 
@@ -168,9 +180,14 @@ else
 endif
 
 # ── Linker config ────────────────────────────────────────────────────────
+# c64: two passes (compute_layout.py); m65: src/m65_cse.cfg as it is.
 TRIAL_CFG = $(SRC)/c64_trial.cfg
 CFG_TMPL  = $(SRC)/c64_cse.cfg.in
-LCFG      = $(BUILD)/c64_cse.cfg
+ifeq ($(PLATFORM),m65)
+  LCFG    = $(SRC)/m65_cse.cfg
+else
+  LCFG    = $(BUILD)/c64_cse.cfg
+endif
 LFLAGS    = -C $(LCFG)
 
 # -----------------------------------------------------------------------
@@ -183,11 +200,16 @@ all: release
 # release — optimized builds + exomizer + distribution D64
 # -----------------------------------------------------------------------
 .PHONY: release
+ifeq ($(PLATFORM),m65)
+release:
+	@$(MAKE) --no-print-directory _one PLATFORM=m65 _PROFILE=release TARGET="m65   cse-m65.prg"
+else
 release:
 	@$(MAKE) --no-print-directory _one CPU=6510  _PROFILE=release TARGET="6510  cse.prg"
 	@$(MAKE) --no-print-directory _one CPU=6502  _PROFILE=release TARGET="6502  cse-6502.prg"
 	@$(MAKE) --no-print-directory _one CPU=65c02 _PROFILE=release TARGET="65c02 cse-cmos.prg"
 	@$(MAKE) --no-print-directory _dist
+endif
 
 # -----------------------------------------------------------------------
 # debug — builds with -g debug info, full .lbl symbol files
@@ -197,10 +219,15 @@ release:
 # typically ~2040 symbols vs ~410 without -g.
 # No exomizer step for debug builds.
 .PHONY: debug
+ifeq ($(PLATFORM),m65)
+debug:
+	@$(MAKE) --no-print-directory _one PLATFORM=m65 _PROFILE=debug TARGET="m65   cse-m65.prg"
+else
 debug:
 	@$(MAKE) --no-print-directory _one CPU=6510  _PROFILE=debug TARGET="6510  cse.prg"
 	@$(MAKE) --no-print-directory _one CPU=6502  _PROFILE=debug TARGET="6502  cse-6502.prg"
 	@$(MAKE) --no-print-directory _one CPU=65c02 _PROFILE=debug TARGET="65c02 cse-cmos.prg"
+endif
 
 # -----------------------------------------------------------------------
 # _one — shared sub-target for a single CPU build (used by both profiles)
@@ -234,7 +261,7 @@ ASM_SRCS = zp loader main strings \
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 
 .PHONY: _one
-ifeq ($(_PROFILE),debug)
+ifneq ($(or $(filter debug,$(_PROFILE)),$(filter m65,$(PLATFORM))),)
 _one: $(PRG)
 	@printf "  %s  %s bytes  lbl %s syms\n" \
 	  "$(TARGET)" "$$(wc -c < $(PRG) | tr -d ' ')" \
@@ -279,11 +306,13 @@ $(BUILD)/version.inc: $(FLAGS_STAMP) | $(BUILD)/
 # Two-pass link: trial measures sizes, compute_layout.py generates config
 TRIAL_MAP = $(BUILD)/trial.map
 
+ifneq ($(PLATFORM),m65)
 $(TRIAL_MAP): $(ASM_OBJS) $(TRIAL_CFG) | $(BUILD)/
 	$(LD65) -C $(TRIAL_CFG) -o $(BUILD)/trial.prg -m $@ $(ASM_OBJS)
 
 $(LCFG): $(TRIAL_MAP) $(CFG_TMPL)
 	$(PYTHON) $(DEV)/compute_layout.py $(TRIAL_MAP) $(CFG_TMPL) > $@
+endif
 
 $(PRG): $(ASM_OBJS) $(LCFG) | $(BUILD)/
 	$(LD65) $(LFLAGS) -o $@ --dbgfile $(DBG) -m $(MAP) -Ln $(LBL) $(ASM_OBJS)
@@ -456,7 +485,7 @@ help:
 	@printf "%-15s %s\n" "themes"       "List available color themes"
 	@printf "%-15s %s\n" "help"         "Show this message"
 	@printf "\nOptions (prefix any target):\n"
-	@printf "  %-20s %s\n" "PLATFORM=c64"        "platform (default: c64; m65 has no PRG yet)"
+	@printf "  %-20s %s\n" "PLATFORM=c64|m65"    "platform (default: c64; m65: release / debug, one PRG)"
 	@printf "  %-20s %s\n" "CPU=6510|6502|65c02" "target CPU (default: 6510)"
 	@printf "  %-20s %s\n" "THEME=NAME|BGF"      "colour theme (default: GREENLAND)"
 	@printf "  %-20s %s\n" "TAB_WIDTH=N"         "editor tab width, 1|2|4|8|16|32 (default: 8)"

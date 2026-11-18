@@ -49,6 +49,11 @@ scr_hi:
         .repeat 25, i
         .byte >(SCREEN + i * 40)
         .endrepeat
+.else
+.segment "BSS"                          ; run-time tables, up to 50 rows,
+scr_lo: .res 50                         ; filled from the geometry (P2)
+scr_hi: .res 50
+.segment "RODATA"
 .endif
 
 hex_tab:                ; screen codes for hex digits 0-9, a-f

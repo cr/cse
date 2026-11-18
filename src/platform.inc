@@ -19,6 +19,18 @@ PLATFORM_INC = 1
   .endif
 .endif
 
+; ── Pending values (doc/platform_layer.md § Pending bodies) ──────────
+; The m65 value of a constant stated with milestone P<n>: `name` is
+; `value`, a placeholder (a cell of BP_PENDING, or the run premise's
+; default size); only code past a pending body names it.  m65 only.
+.macro PLAT_PENDING_VALUE name, value, n
+  .ifdef PLATFORM_C64
+        .error "PLAT_PENDING_VALUE is an m65 value only"
+  .else
+        name = value
+  .endif
+.endmacro
+
 ; ═════════════════════════════════════════════════════════════════════
 .ifdef PLATFORM_C64
 ; ═════════════════════════════════════════════════════════════════════
@@ -213,8 +225,37 @@ STACK_TOP       = $F1               ; a fresh start's SP is the premise's $EF
 BASIC_START     = $2001             ; BASIC 65's program start (the PRG)
 PROG_LO         = $2000             ; the program region, bank 0
 PROG_HI         = $BFFF
+HIMEM           = PROG_HI + 1       ; cse_start / cse_end
 WORKSTART       = PROG_LO
 ROM_BASE_HI     = $C0               ; the interface ROM at $C000 (user map)
+BUF_FLOOR       = $4000             ; the source region 2.4000-2.BFFF: the
+BUF_END         = $C000             ;   gap buffer's offsets in BANK_SRC
+; the data window's fixed homes, above KDATA + BSS (CSE map, bank 3)
+SYM_TABLE       = $A100             ; the symbol table, 256 x 6 bytes
+SYM_HEAP        = $A700             ;   the name heap …
+SYM_HEAP_END    = $B000             ;   … up to here (exclusive)
+REPL_SCREEN     = $B000             ; the REPL screen save, 80 x 50
+        .assert SYM_HEAP - SYM_TABLE = 256 * 6, error, "SYM_TABLE size"
+        .assert REPL_SCREEN + 80 * 50 <= $C000, error, "REPL_SCREEN overflows the data window"
+
+; ── SID ──────────────────────────────────────────────────────────────
+SID_V1_FREQ_LO  = $D400
+SID_V1_FREQ_HI  = $D401
+SID_V1_CTRL     = $D404
+SID_V2_CTRL     = $D40B
+SID_V3_CTRL     = $D412
+SID_VOL         = $D418
+
+; ── Pending values (§ Pending bodies): placeholders until P<n> ────────
+BP_PENDING      = $AB               ; their cells, $AB-$AF of CSE's base page
+        PLAT_PENDING_VALUE IO_CX, BP_PENDING, 2
+        PLAT_PENDING_VALUE IO_CY, BP_PENDING + 1, 2
+        PLAT_PENDING_VALUE SCREEN, $0800, 2
+        PLAT_PENDING_VALUE SCREEN_WIDTH, 80, 2
+        PLAT_PENDING_VALUE SCREEN_HEIGHT, 25, 2
+        PLAT_PENDING_VALUE ST, BP_PENDING + 2, 3
+        PLAT_PENDING_VALUE DISK_LOCAL_PTR, BP_PENDING + 3, 3
+        .assert BP_PENDING + 5 <= <STUB_BASE, error, "BP_PENDING overlaps the stub"
 
 .endif ; PLATFORM_M65
 
@@ -256,6 +297,18 @@ ROM_BASE_HI     = $C0               ; the interface ROM at $C000 (user map)
   .else
         KCALL entry
         rts
+  .endif
+.endmacro
+
+; A conditional branch across KCALLs: `op target` on c64; on m65,
+; where a KCALL is 14 bytes, `inverse` over a JMP.  KC_BRANCH bmi, bpl, @t
+.macro KC_BRANCH op, inverse, target
+  .ifdef PLATFORM_C64
+        op target
+  .else
+        inverse :+
+        jmp target
+:
   .endif
 .endmacro
 

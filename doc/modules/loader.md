@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/loader.s`](../../src/loader.s) | implementation |
-| [`tests/integration/test_loader.py`](../../tests/integration/test_loader.py) | test contract — `loader_entry` on the unrelocated PRG equals `EmuBase._relocate_segments()`, BSS zeroed |
+| [`tests/integration/test_loader.py`](../../tests/integration/test_loader.py) | test contract — c64: `loader_entry` on the unrelocated PRG equals `EmuBase._relocate_segments()`, BSS zeroed; m65, per ROM: the install field by field, equal to `M65Emu.install_prg()`, the gate's refusals |
 
 ## Interface
 
@@ -63,9 +63,14 @@ linker-supplied symbols
   Tier I test loads through) produces, and the BSS must be zeroed.
   Unit-tier isolation would need synthesised linker symbols and is
   not productive ([testing.md § Principle 9](../testing.md), Pattern A).
-- **m65.**  The same test file on the m65 PRG, entered with the run
-  premise, checked against the installed machine; and the gate's
-  refusal — [testing.md § The m65 PRG on M65Emu](../testing.md#the-m65-prg-on-m65emu).
+- **m65.**  The same test file on the m65 PRG, on each ROM's
+  snapshot entered with that ROM's run premise: the installed machine
+  field by field, the whole of chip RAM and the registers equal to
+  `M65Emu.install_prg()`'s; the gate's refusals (Hyppo 1.1 and 0.9, a
+  jump-table entry that is not a `JMP`) with the message on the screen
+  and nothing of CSE's written; Tier X boots it in xmega65
+  (`tests/emulator/test_m65_boot.py`) —
+  [testing.md § The m65 PRG on M65Emu](../testing.md#the-m65-prg-on-m65emu).
 
 ## Design
 

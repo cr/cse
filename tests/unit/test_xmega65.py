@@ -43,3 +43,39 @@ def test_start_args_are_headless_with_the_rom_and_prg_options():
     assert "-headless" in base and "-romfromsd" not in base
     assert start_args(rom=True)[-1] == "-romfromsd"
     assert start_args(prg="p.prg")[-4:] == ["-prg", "p.prg", "-prgmode", "65"]
+
+
+class _FakeMonitor:
+    """The monitor socket: each line sent gets the next canned reply."""
+
+    def __init__(self, replies):
+        self.replies, self.sent = list(replies), []
+
+    def sendall(self, data):
+        self.sent.append(data)
+
+    def recv(self, n):
+        return self.replies.pop(0)
+
+
+_HEAD = (b"\r\nPC   A  X  Y  Z  B  SP   MAPH MAPL LAST-OP In     P  P-FLAGS"
+         b"   RGP uS IO ws h RECA8LHC\r\n")
+
+
+def _dump(pc, b):
+    return _HEAD + (f"{pc:04X} 1F E3 00 B3 {b:02X} 01F1 B300 E300 00       24 ..E..I.. "
+                    f"\r\n").encode()
+
+
+def test_run_to_at_hit_returns_the_registers_of_the_hit_report():
+    """The CPU runs one more instruction after the hit (here: a BRK),
+    so `at_hit` reads the registers the hit reported."""
+    from xmega65 import XMega65, _PROMPT
+    xm = XMega65.__new__(XMega65)
+    xm.sock = _FakeMonitor([b"\r\n.\r\n",                       # b 2000
+                            _dump(0x2000, 0x1F),                # the hit
+                            _dump(0xE1C0, 0x00) + _PROMPT,      # t1
+                            _dump(0xE1C0, 0x00) + _PROMPT])     # r
+    r = xm.run_to(0x2000, at_hit=True)
+    assert (r["pc"], r["b"], r["sp"], r["mapl"], r["maph"]) == \
+        (0x2000, 0x1F, 0x01F1, 0xE300, 0xB300)

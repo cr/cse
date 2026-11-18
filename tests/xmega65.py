@@ -211,12 +211,13 @@ class XMega65:
                 raise Interrupted(r)
         return r
 
-    def run_to(self, addr, timeout=60):
+    def run_to(self, addr, timeout=60, at_hit=False):
         """Run at full speed (from trace mode) until PC reaches `addr`,
         then pause; return the registers.  The monitor reports the hit
         by itself — a register dump without a prompt — and the CPU runs
         one more instruction before it stops, so park the code at
-        `addr` (e.g. JMP to itself)."""
+        `addr` (e.g. JMP to itself), or take `at_hit`: the registers of
+        the hit report, as they were at `addr`."""
         self.cmd(f"b {addr:x}")
         self.sock.sendall(b"t0\n")
         want = f"\r\n{addr:04X} ".encode()
@@ -229,6 +230,8 @@ class XMega65:
             except socket.timeout:
                 pass
         self.cmd("t1")
+        if at_hit:
+            return self.regs(buf.decode(errors="replace"))
         return self.regs()
 
     def set_map(self, addr, mapl, maph, mb_lo=0, mb_hi=0):

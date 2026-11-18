@@ -7,8 +7,10 @@ Contract source: [doc/testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65
 MPU45GS02 on M65Memory behind EmuBase's surface (the one C64Emu has:
 M65Emu supplies EmuBase's hooks — interrupt entry through the CPU, a
 jiffy tick that latches $D019's raster bit, RESTORE in $DD0D, keys
-into the hardware queue, load_prg() into bank 0; the two Hypervisor
-services the loader uses), started either blank or from a post-boot
+into the hardware queue; the two Hypervisor services the loader uses),
+plus the m65 PRG's start: enter_premise() puts a ROM's run premise in
+place (run_premise() reads it from m65_premise.json), install_prg()
+the machine the m65 loader installs.  Started either blank or from a post-boot
 snapshot that dev/capture_m65_state.py records from xmega65, one per
 ROM, into build/m65_state/<ROM version>/ (snapshot_dirs() lists them;
 the fixture m65_snapshot in tests/conftest.py runs a test on each):
@@ -35,9 +37,30 @@ from .devices import (CIA1Ports, CIA2InterruptControl, DMAController,
 from .memory import COLOUR, M65Memory
 from .mpu45gs02 import MPU45GS02
 
-STATE_DIR = pathlib.Path(__file__).resolve().parents[2] / "build" / "m65_state"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+STATE_DIR = ROOT / "build" / "m65_state"
 CAPTURE = "python dev/capture_m65_state.py [--rom PATH]..."
 FORMAT = 3                  # of the snapshot; state.json's "format"
+PREMISE = ROOT / "tests" / "fixtures" / "golden" / "m65_premise.json"
+
+# The installed machine (memory_design.md § Memory Map — m65,
+# platform.inc's m65 block): the CSE map's MAP operands, B, the stack
+# top, the base page the loader clears, the bank CSE runs in.
+MAP_CSE = (0x00, 0xE3, 0x00, 0xB3)          # A X Y Z
+CSE_BP = 0x1F
+STACK_TOP = 0xF1
+BP_CLEARED = 0xB0                           # 0.1F00-0.1FAF (ZP_FILL_END)
+BANK_CSE = 0x30000
+
+
+def run_premise(rom):
+    """The run premise m65_premise.json records for ROM `rom`
+    (e.g. "V920413")."""
+    for entry in json.loads(PREMISE.read_text())["roms"]:
+        if entry["rom"] == rom:
+            return entry
+    raise KeyError(f"no run premise recorded for {rom} in {PREMISE.name}; "
+                   f"run: python dev/capture_m65_premise.py --rom PATH")
 
 
 class SnapshotMissing(FileNotFoundError):
@@ -118,6 +141,53 @@ class M65Emu(EmuBase):
         if snapshot is not None:
             for name, value in snapshot["state"]["regs"].items():
                 setattr(cpu, name, value)
+
+    # ── the m65 PRG's start ───────────────────────────────────────
+
+    def enter_premise(self, premise):
+        """The machine at a RUN-started PRG's SYS entry: the recorded
+        registers, MAP and P, and the stack bytes above SP (the SYS
+        return path's)."""
+        cpu = self._cpu
+        for name, value in premise["regs"].items():
+            setattr(cpu, name, value)
+        above = bytes.fromhex(premise["stack_above_sp"])
+        self._mem.load(cpu.sp + 1, above)
+
+    def install_prg(self, prg_path, map_path=None):
+        """The m65 PRG in bank 0 as LOAD puts it, its symbols, and the
+        machine its loader installs (loader.md § Design, m65) — where
+        EmuBase's load_prg(), which M65Emu shares with C64Emu, copies
+        segments within bank 0: the stub
+        at STUB_BASE with _main in its cold target, CSE's base page
+        cleared, CODE + RODATA and KDATA in bank 3, BSS cleared, banks
+        2-3 writable, SP at STACK_TOP, interrupts off, the CSE map and
+        B = CSE_BP with A X Y Z as the stub's MAP leaves them, PC at
+        _main.  Return the load address."""
+        prg_path = pathlib.Path(prg_path)
+        load_addr, payload = self._read_prg(prg_path)
+        self._ram[load_addr:load_addr + len(payload)] = payload
+        self._load_symbols(map_path or prg_path.with_suffix(".map"))
+        mem, cpu, s = self._mem, self._cpu, self.sym
+        stub = s("__STUB_RUN__")
+        self._ram[stub:stub + s("__STUB_SIZE__")] = \
+            self._ram[s("__STUB_LOAD__"):s("__STUB_LOAD__") + s("__STUB_SIZE__")]
+        self._ram[CSE_BP << 8:(CSE_BP << 8) + BP_CLEARED] = bytes(BP_CLEARED)
+        self.write_word(s("stub_cold_target"), s("_main"))
+        mem.rom_protect = False
+        for load, run, size in [
+                (s("__CODE_LOAD__"), s("__CODE_RUN__"),
+                 s("__CODE_SIZE__") + s("__RODATA_SIZE__")),
+                (s("__KDATA_LOAD__"), s("__KDATA_RUN__"), s("__KDATA_SIZE__"))]:
+            mem.load(BANK_CSE + run, bytes(self._ram[load:load + size]))
+        mem.load(BANK_CSE + s("__BSS_RUN__"), bytes(s("__BSS_SIZE__")))
+        cpu.sp = 0x0100 | STACK_TOP
+        cpu.p |= 0x04
+        a, x, y, z = MAP_CSE
+        cpu.mapl, cpu.maph = x << 8 | a, z << 8 | y
+        cpu.a, cpu.x, cpu.y, cpu.z, cpu.b = CSE_BP, x, y, z, CSE_BP
+        cpu.pc = s("_main")
+        return load_addr
 
     z = register("z", 0xFF)             # the 45GS02's own registers
     b = register("b", 0xFF)
