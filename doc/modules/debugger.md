@@ -252,7 +252,7 @@ run the same command line).  This matrix is the contract.
 | `reg_a/x/y/p/sp` | 5 | User register shadows |
 | `reg_pc_lo/hi` | 2 | User PC shadow (= `brk_pc` low/hi) |
 | `step_state` | 1 | 0=not stepping, 1=`t`, 2=`o` (handler-resident state machine) |
-| `step_remaining` | 1 | Iterations left after current step |
+| `step_remaining` | 2 | Iterations left after current step (16-bit) |
 
 **No KBSS** — Phase 18 dropped the two 256-byte stack image
 buffers (`user_stack_buf`, `cse_stack_buf`) and the `cse_sp` BSS
@@ -444,7 +444,7 @@ State (BSS in debugger.s):
 | Variable | Size | Purpose |
 |----------|------|---------|
 | `step_state` | 1 | 0 = not stepping; 1 = `t` (into); 2 = `o` (over) |
-| `step_remaining` | 1 | Iterations left after current step |
+| `step_remaining` | 2 | Iterations left after current step (16-bit) |
 
 Plus the existing `step_bp` slots (2 × 4 B) for the temporary
 breakpoint addresses.
@@ -640,7 +640,8 @@ t N             step N instructions (N in hex)
 ```
 
 `t N` with N > 1 is an internal chain via the handler-resident
-state machine.  Each iteration computes the next-PC, arms a
+state machine.  N is a full 16-bit count (`t 300` steps 300
+instructions; 0 means 1); `step_remaining` is two bytes.  Each iteration computes the next-PC, arms a
 temporary step BRK, and enters user code for one instruction.
 
 Bare `t` is single-step (count = 1).  `t N` overrides for this

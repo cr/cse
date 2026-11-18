@@ -1818,3 +1818,18 @@ class TestStepIndirectJump:
         e.jsr(e.sym("step_next_pc"))
         e._cpu.pc, e._cpu.sp = pc, sp
         assert e.read_word(e.sym("step_next_lo")) == 0x3000
+
+
+class TestStepCount:
+    """debugger.md § `t`: N is a 16-bit count."""
+
+    @pytest.mark.parametrize("n", [2, 256, 257, 300])
+    def test_t_n_steps_n(self, session, n):
+        s, e = session, session.e
+        for i in range(700):
+            e.memory[0x3000 + i] = 0xEA     # NOP × 700
+        e.memory[0x3000 + 700] = 0x60
+        s.type("b $3000")
+        s.type("j $3000")
+        s.type(f"t {n}", max_steps=30_000_000)
+        assert s.w("brk_pc") == 0x3000 + n

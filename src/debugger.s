@@ -3,7 +3,7 @@
 ;                (Phase 18 — ISR-kernel model)
 ;
 ; Owns:
-;   * Step state machine: `step_state`, `step_remaining`, `step_next_*`,
+;   * Step state machine: `step_state`, `step_remaining` (16-bit), `step_next_*`,
 ;     step_save, step_next_pc, arm_step_bp.
 ;   * `brk_pc`: the PC where the last break occurred (resume address).
 ;   * `save_userland_state` / `restore_userland_state`: the two
@@ -76,21 +76,21 @@ STEP_OVER = 2
 ; tightens the contract post-audit.
 kernel_stack_budget = 64
 
-; Size of the step-state BSS window zeroed by dbg_init (10 bytes:
+; Size of the step-state BSS window zeroed by dbg_init (11 bytes:
 ; brk_pc, step_state, step_remaining, step_next_lo, step_next_hi,
 ; step_save, _rtu_need_sentinel — declared contiguously below).
-STEP_STATE_SIZE = 10
+STEP_STATE_SIZE = 11
 
 ; ── BSS ────────────────────────────────────────────────────────────────
 .segment "BSS"
 
-; Ten bytes, declared contiguously so dbg_init can zero them in one
-; sweep (brk_pc..._rtu_need_sentinel, total 10 bytes = STEP_STATE_SIZE).
+; Eleven bytes, declared contiguously so dbg_init can zero them in one
+; sweep (brk_pc..._rtu_need_sentinel, total 11 bytes = STEP_STATE_SIZE).
 brk_pc:        .res 2          ; PC where break occurred / resume address
 
 ; Handler-resident step-chain state.
 step_state:    .res 1          ; STEP_NONE / STEP_INTO / STEP_OVER
-step_remaining: .res 1         ; iterations left after current step
+step_remaining: .res 2         ; iterations left after current step (16-bit)
 
 ; step_next_pc output.
 step_next_lo:  .res 2          ; first candidate next-PC (0 = stop)

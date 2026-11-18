@@ -873,8 +873,11 @@ documentation round that follows this filing.
   `peek_user` (`userland_zp_buf` for $00-$7F), tests
   `TestStepIndirectJump::test_jmp_zp_vector_from_user_zp` /
   `test_jmp_abs_x_vector_from_user_zp_65c02`.
-- [ ] **`t N` / `o N` take N mod 256** (`t 257` steps 1, `t 300`
+- [x] **`t N` / `o N` take N mod 256** (`t 257` steps 1, `t 300`
   steps 44): `step_remaining` is one byte.
+  Fixed 2026-11-18: `step_remaining` is 16-bit (cmd_step stores both
+  bytes, the handler tests and decrements both), test
+  `TestStepCount`.
 - [ ] **`b` accepts a duplicate address**: a second slot re-breaks at
   the same place after `c`; duplicates fill the table.
 - [ ] **The editor status bar shows lines ≥ 1000 as garbage**

@@ -2276,6 +2276,9 @@ pre_userland_run:
         sec
         sbc #1
         sta step_remaining
+        lda rp_cnt+1
+        sbc #0
+        sta step_remaining+1
 
         jsr pre_userland_run
         jmp set_run_mode        ; tail-call
@@ -4122,6 +4125,7 @@ step_cleanup:
         lda #STEP_NONE
         sta step_state
         sta step_remaining
+        sta step_remaining+1
         jsr dbg_step_clear
         ldx rp_dis_bp
         cpx #$FF

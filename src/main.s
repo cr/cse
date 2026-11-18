@@ -895,6 +895,7 @@ cse_brk_handler:
         lda step_state
         beq handler_finalize    ; not stepping — unplanned user BRK
         lda step_remaining
+        ora step_remaining+1
         beq handler_finalize    ; stepping done, finalise
 
         lda step_bp
@@ -925,7 +926,10 @@ cse_brk_handler:
         jsr unpatch_all
         jsr step_next_pc
         jsr arm_step_bp
-        dec step_remaining
+        lda step_remaining      ; 16-bit decrement
+        bne :+
+        dec step_remaining+1
+:       dec step_remaining
         jmp restore_userland_state
 
 ; ── handler_finalize ─────────────────────────────────────────
