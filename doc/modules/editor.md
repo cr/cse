@@ -31,7 +31,7 @@ Owned by editor.s (L4):
 - `ed_handle_key(ch)` — process one keystroke (A = PETSCII key)
 - `ed_init()` — full reset: calls `gb_init`, zeros rendering state, calls `update_workend` to republish the `workend` symbol against the new `buf_base`
 - `ed_new()` — clear source buffer (calls `ed_init` + clears filename)
-- `ed_save_source(name)` — save source as SEQ file; A=0 on success (clears `ed_dirty`), nonzero on a disk error (`ed_dirty` and the buffer unchanged)
+- `ed_save_source(name)` — save source as SEQ file; A=0 on success (clears `ed_dirty`), nonzero on a disk error (`ed_dirty` and the buffer unchanged); X=0 and Z set from A
 - `ed_load_source(name)` — load SEQ file into buffer; A=0 on success, 1 on a disk error or an empty file, 2 when the file does not fit; on 1 or 2 the buffer is left empty
 
 Owned by gap_buffer.s (L3), re-listed here for editor-consumer convenience:

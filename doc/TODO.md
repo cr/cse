@@ -987,6 +987,7 @@ documentation round that follows this filing.
   yes/no outcome; `cse_exit_to_basic`; `$A0` / leading whitespace in
   `test_addr_mode`.
   Editor part, 2026-11-18: `leave_editor` and `ed_load_source` code 1 tested (TestLeaveEditor, TestEdDiskErrors on C64Emu's empty serial bus); code 2 and the success paths are an explained skip until a virtual IEC disk exists.
+  `ed_save_source` code 1, 2026-11-18: it reported success on a disk error (Z taken from `disk_save_seq`'s `ldx #0`) and cleared `ed_dirty`; fixed, test test_save_with_no_drive_returns_1_and_keeps_buffer_dirty.
 - [ ] Bundle hygiene: `test_repl_disk.py` still builds its own
   bare-MPU binary with stubbed disk calls and a map regex (Tranche 4);
   behavioural stubs in `asm_core_test_stub.s` (`log_warn`) and

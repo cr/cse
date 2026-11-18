@@ -2039,7 +2039,7 @@ _ed_cur_row:
 
 ; ── ed_save_source — save source as SEQ file ──────────────────
 ; Input: A/X = name pointer
-; Returns: A = 0 on success, nonzero on error
+; Returns: A = 0 on success, nonzero on error; X = 0, Z set from A
 .proc ed_save_source
         ; Store name for disk_save_seq
         sta disk_ptr
@@ -2060,7 +2060,8 @@ _ed_cur_row:
         ; name is on parameter stack, read_fn in A/X
         lda #<save_read_fn
         ldx #>save_read_fn
-        jsr disk_save_seq      ; A = error (lda sets Z)
+        jsr disk_save_seq      ; A = error, X = 0 (Z is X's: test A)
+        cmp #0
         bne @err
 
         ; Success
@@ -2077,10 +2078,7 @@ _ed_cur_row:
         lda #0
         tax
         rts
-@err:
-        ; Return error code
-        ldx #0
-        rts
+@err:   rts                     ; A = error code (Z=0), X = 0
 .endproc
 
 ; ── load_insert — insert callback for ed_load_source ─────────
