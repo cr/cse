@@ -7,8 +7,8 @@
 | File | Role |
 |------|------|
 | [`src/dasm.s`](../../src/dasm.s) | implementation — entry, prefix peel, map decode, operand formatter |
-| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — one block per CPU set: the map blocks, the per-`asm_cpu` view tables (`dasm_cpu_map_lo/hi`; `dasm_cpu_bm` + `dasm_view_bm` where a view is a subset bitmap), `dasm_mode_len` and `dasm_mode_fmt` (one byte per mode) in RODATA; the packed mnemonic strings (the set's names only) in KDATA; on `MEGA_SUPPORT` also the Q map.  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
-| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated, `.include`d by `dasm.s` — one block per CPU set: `MNE_UNK` (= 0), and only where the set needs them the decoder's switches `DASM_SUBSET`, `MNE_DIGIT_LO/HI` (on `MEGA_SUPPORT` also `MNE_QSFX_*`, `MNE_QNAME_*`).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
+| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — one block per CPU set: the map blocks, the per-`asm_cpu` view tables (`dasm_cpu_map_lo/hi`; `dasm_cpu_bm` + `dasm_view_bm` where a view is a subset bitmap), `dasm_mode_len` and `dasm_mode_fmt` (one byte per mode) in RODATA; the packed mnemonic strings (the set's names only) in KDATA; on `MEGA_SUPPORT` (planned) also the Q map.  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
+| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated, `.include`d by `dasm.s` — one block per CPU set: `MNE_UNK` (= 0), and only where the set needs them the decoder's switches `DASM_SUBSET`, `MNE_DIGIT_LO/HI` (on the planned `MEGA_SUPPORT` also `MNE_QSFX_*`, `MNE_QNAME_*`).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
 | [`tests/unit/test_dasm.py`](../../tests/unit/test_dasm.py) | test contract |
 | [`tests/integration/test_dasm_rom.py`](../../tests/integration/test_dasm_rom.py) | test contract — Tier I: `dasm_insn` reads the bytes of `$E000`+ through the caller's banking (KERNAL ROM at the REPL prompt) |
 
@@ -19,9 +19,16 @@
 the CPU view — one member of the build's CPU set
 ([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)).
 **Out:** A = instruction length (1–3 on C64 builds; 1–5 on the
-m65 build, prefixes included).  `dasm_buf` filled with NUL-terminated
-PETSCII string.
-**Clobbers:** A, X, Y, all _dasm_* ZP vars
+planned m65 build, prefixes included).  `dasm_buf` filled with
+NUL-terminated PETSCII string.  `$01` as the caller had it.
+**Clobbers:** A, X, Y, all `_dasm_*` ZP vars, `_dasm_in`
+
+Statements marked `MEGA_SUPPORT` or m65 describe the planned m65 build
+([TODO § M65](../TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
+B6); that code does not exist in `dasm.s` yet.
+
+### dasm_buf
+Exported BSS (24 B): the output text of the last `dasm_insn`.
 
 `dasm_insn` owns its own KERNAL banking: it banks out at entry,
 calls the inner `dasm_decode` (which reads the generated tables
@@ -45,7 +52,7 @@ mapped out by accident.
 instruction text (PETSCII + NUL); `_dasm_in` (3 on C64 builds, 5 on
 the m65 build) — input snapshot of the maximum-length instruction read
 from the user's address before banking out (see Caveats);
-`_dasm_pfx` (1, `MEGA_SUPPORT` only) — the peeled prefix enumeration,
+`_dasm_pfx` (1, `MEGA_SUPPORT` only, planned) — the peeled prefix enumeration,
 0 = none, 1 = Q, 2 = far, 3 = Q + far.
 
 **No mutable bytes in CODE:** every scratch value lives in ZP or BSS
@@ -54,8 +61,11 @@ from the user's address before banking out (see Caveats);
 ([memory_design.md § Design Principles](../memory_design.md#design-principles),
 "No self-modifying code").
 
-**Depends on:** dasm_tables (GENERATED), dasm_mne_idx,
-kernal_bank_out / kernal_bank_in (mem.s)
+**Depends on:** dasm_tables (GENERATED — `dasm_mne_str`,
+`dasm_mode_len`, `dasm_mode_fmt`, `dasm_cpu_map_lo/hi`; `dasm_cpu_bm`,
+`dasm_view_bm` where `DASM_SUBSET`), dasm_mne_idx, mem
+(`kernal_bank_out` / `kernal_bank_in`), zp (`asm_cpu`, `_dasm_*`).
+`dasm_mne_idx.s` is `.include`d (generated constants), not linked.
 
 ## Design
 
@@ -87,7 +97,7 @@ bitmap, the flag table and the check (`DASM_SUBSET`).
 | {6502} | 6502 | — |
 | {6502, 6510} | 6510 | 6502, over the 6510 map |
 | {6502, 6510, 65C02} | 65C02; 6510 | 6502, over the 65C02 map |
-| {6502, 4510, 45GS02} | 4510 | 6502, over the 4510 map |
+| {6502, 4510, 45GS02} (planned) | 4510 | 6502, over the 4510 map |
 
 The per-`asm_cpu` tables are padded to the platform's top `asm_cpu`
 (3 entries on C64 sets, 5 on m65); a value outside the build's set
@@ -115,7 +125,8 @@ CPU set lists `$EA` as `EOM` in every view.
 
 ### Prefix peel
 
-On `MEGA_SUPPORT` with `asm_cpu` = 4 (45GS02), before the map lookup:
+Planned (`MEGA_SUPPORT`, TODO § M65 B6).  With `asm_cpu` = 4 (45GS02),
+before the map lookup:
 
 1. **Q:** bytes 0–1 are `$42 $42`, and byte 2 has a Q form in the
    **Q map** (2 bits per opcode, 64 B: 0 = no Q form, 1 = Q form,
@@ -164,7 +175,7 @@ and `_dasm_pfx` exist only on `MEGA_SUPPORT`.
   (operand, longest are `($XX,sp),y` and ZPREL `$XX,$XXXX`) + NUL +
   padding.
 - **KERNAL ROM snapshot.**  `dasm_insn` snapshots the maximum
-  instruction length (3 or 5 bytes) from the user's address into
+  instruction length (3 bytes; 5 on the planned m65 build) from the user's address into
   `_dasm_in` BEFORE banking out, using whatever bank state the caller
   had in force.  The decoder then reads opcode/operand bytes from
   `_dasm_in` via `lda _dasm_in,y` instead of `(_dasm_ptr),y`.
