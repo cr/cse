@@ -27,12 +27,12 @@ SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp
         .import         kernal_bank_out, kernal_bank_in     ; mem.s
         .importzp       kernal_out                          ; zp.s
         .import         io_puts, io_putc, io_putdec, io_puthex4, io_clear_eol, newline
-        .import         io_utoa, dec_buf
+        .import         io_utoa, dec_buf                    ; cse_io.s (newline: screen.s)
         .import         log_open, log_close, seg_line, puts_imm   ; log.s
         .importzp       rp_addr, rp_cnt, rp_save2                 ; zp.s
         .import         str_tag_org
-        .import         define_ws_syms                             ; editor.s
-        .import         ed_read_line, ed_read_rewind              ; editor.s
+        .import         define_ws_syms                             ; gap_buffer.s
+        .import         ed_read_line, ed_read_rewind              ; gap_buffer.s
         .importzp       cur_project_name           ; zp.s
         .importzp       buf_base                ; zp.s — gap buffer low bound = workend+1
         .importzp       rp_ptr2                 ; zp.s — scratch pointer (repl/info_line)
@@ -47,7 +47,7 @@ SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp
         .import s_exp_quot, s_bad_insn, s_fwd_ref, str_cpu_err
         .import s_save_s, s_save_q_sp, s_save_default, s_trunc
         .import s_too_long, str_range, err_overflow
-        .import dec_pow_lo, dec_pow_hi
+        .import dec_pow_lo, dec_pow_hi          ; (unused)
 
 ; ── BSS (all reset by asm_assemble before each run) ─────────────────────
 .segment "BSS"
@@ -126,9 +126,9 @@ _org_set:       .res 1          ; non-zero after first .org on pass 0
 ; These bypass mem.s's kernal_bank_in/out on purpose: asm_assemble
 ; sets `kernal_out = 1` for the duration of the passes so that the
 ; flag-gated helpers no-op — but emit_error / seg logging need real
-; banking to reach the screen.  No SEI/CLI is needed: Phase 18's
-; $FFFE early-entry transparently handles IRQs while KERNAL is
-; banked out.
+; banking to reach the screen.  No SEI/CLI is needed: the $FFFE RAM
+; vector (cse_brk_handler_early) handles IRQs while KERNAL is banked
+; out.
 _bank_in_tmp:
         lda $01
         ora #$02
@@ -217,9 +217,8 @@ _bank_out_tmp:
         rts
 .endproc
 
-; ── adv_pc_size ────────────────────────────────────────────────────────────
-; asm_pc += _as_wsize;  asm_size += _as_wsize
-; inc_pc_size: increment asm_pc and asm_size by 1
+; ── inc_pc_size ────────────────────────────────────────────────────────────
+; Increment asm_pc and asm_size by 1; an asm_pc wrap past $FFFF sets _pc_wrap.
 inc_pc_size:
         inc asm_pc
         bne :+
@@ -277,6 +276,8 @@ _bad_val_err:
         ldx #>s_bad_val
         jmp emit_error
 
+; ── adv_pc_size ────────────────────────────────────────────────────────────
+; asm_pc += _as_wsize;  asm_size += _as_wsize
 .proc adv_pc_size
         lda _as_wsize
         clc
@@ -294,7 +295,8 @@ _bad_val_err:
 .endproc
 
 ; ── fold_block ─────────────────────────────────────────────────────────────
-; Fold (sym_name)[0..Y-1] to lowercase in-place.  Y preserved.  Clobbers A.
+; Fold shifted letters in (sym_name)[0..Y-1] to $41-$5A in place.
+; Y preserved.  Clobbers A.
 .proc fold_block
         tya
         pha                     ; save original Y
@@ -469,11 +471,12 @@ _bad_val_err:
 ; .res count [,fill]  In: expr_ptr = operand start
 ;
 ; The count expression must resolve on pass 0 — its value drives the
-; directive's pass-0 size.  Forward refs there would cause silent PC
-; drift between passes (pass 0 sizes as 0; pass 1 advances by the
-; resolved count), so a forward ref is a hard error on both passes.
-; Other expression errors (parse, paren, overflow, divzero) follow
-; the usual silent-pass-0 / vocal-pass-1 convention via emit_error.
+; directive's pass-0 size.  A forward ref there is reported (and
+; counted) on pass 0 via _vocal_fwd_err and lays out nothing; on pass 1
+; the symbol is defined, so the count is used — the assembly has
+; already failed (asm_src.md § Design).  Other expression errors
+; (parse, paren, overflow, divzero) follow the usual silent-pass-0 /
+; vocal-pass-1 convention via emit_error.
 .proc emit_reserve
         jsr expr_eval
         cmp #2
@@ -526,8 +529,8 @@ _bad_val_err:
 ; .align boundary   In: expr_ptr = operand start
 ;
 ; Like .res, the boundary value drives pass-0 size (padding count).
-; Forward refs in the boundary are a hard error on both passes — see
-; emit_reserve for the rationale.
+; A forward ref in the boundary is reported on pass 0 — see
+; emit_reserve.
 .proc emit_align
         jsr expr_eval
         cmp #2
@@ -588,6 +591,7 @@ _bad_val_err:
 
 ; ── set_cpu ────────────────────────────────────────────────────────────────
 ; .cpu 6502 / 6510 / 65c02   In: expr_ptr = text after "cpu"
+; (accepted on every build — no CPU-set check yet, TODO § M65)
 .proc set_cpu
         jsr skipws_ep
         ldy #0
@@ -1192,7 +1196,8 @@ _dir_hi:
 
 ; ── define_label ───────────────────────────────────────────────────────────
 ; sym_name = NUL-terminated label name (caller replaced ':' with NUL).
-; Stores label address in symbol table (pass 0 only).
+; Stores the label address in the symbol table (both passes; pass 1
+; re-stamps).
 .proc define_label
         jsr _name_ok            ; grammar (assembler_syntax.md § Labels)
         bcc :+
@@ -1462,7 +1467,7 @@ _too_long_err:
 @done:  rts
 @bad:   ; Dispatch error tag from asm_err_code (asm_err.s):
         ;   0 = ;?<line>: bad insn   (syntax)
-        ;   1 = ;?<line>: expr <detail>
+        ;   1 = ;?<line>: <detail>   (expr_error_str text, no prefix)
         ;   2 = ;?<line>: cpu        (CPU gate rejected mnemonic)
         lda asm_err_code
         beq @bad_syn
