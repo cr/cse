@@ -203,44 +203,50 @@ SYM_HEAP_END = $EF00
 
 ; ═════════════════════════════════════════════════════════
 ; heap_copy_name — copy string at (sym_name) into heap
-;   Returns heap address of the copy in _st_nptr.
-;   Advances _st_heap past the copied string + NUL.
-;   Returns C=1 if heap would overflow SYM_HEAP_END.
+;   Measures the name first: if name + NUL would end past
+;   SYM_HEAP_END, returns C=1 having written nothing and left
+;   _st_heap unchanged.  Otherwise copies it, returns its heap
+;   address in _st_nptr, advances _st_heap past the NUL, C=0.
 ;   Heap is under KERNAL — caller must have it banked out.
-;   Clobbers A, Y.
+;   Clobbers A, X, Y.
 ; ═════════════════════════════════════════════════════════
+.assert <SYM_HEAP_END <> $FF, error, "heap_copy_name bound compare"
 .proc heap_copy_name
-        ; Save current heap position as the name address
-        lda _st_heap
-        sta _st_nptr
-        lda _st_heap+1
-        sta _st_nptr+1
-        ; Copy bytes
         ldy #0
-@loop:  lda (sym_name),y
-        sta (_st_heap),y
-        beq @done               ; copied the NUL
+@len:   lda (sym_name),y
+        beq @fit
         iny
-        bne @loop
-@done:  ; Advance heap pointer past the NUL
+        bne @len
+@fit:   ; new end = _st_heap + Y + 1 (exclusive) must be <= SYM_HEAP_END
         tya
         sec                     ; +1 for the NUL byte
         adc _st_heap
-        sta _st_heap
-        bcc :+
-        inc _st_heap+1
-:       ; Check heap overflow
+        tax                     ; X = new end lo
         lda _st_heap+1
+        adc #0                  ; A = new end hi
         cmp #>SYM_HEAP_END
-        bcc @ok                 ; hi < limit → safe
-        bne @overflow           ; hi > limit → overflow
+        bcc @ok                 ; hi < limit → fits
+        bne @overflow           ; hi > limit → refuse
+        cpx #<SYM_HEAP_END+1
+        bcs @overflow           ; lo > limit lo → refuse
+@ok:    pha                     ; new end hi
         lda _st_heap
-        cmp #<SYM_HEAP_END
-        bcc @ok                 ; lo < limit → safe
+        sta _st_nptr            ; name address = old heap top
+        lda _st_heap+1
+        sta _st_nptr+1
+        stx _st_heap
+        pla
+        sta _st_heap+1
+        ldy #0
+@copy:  lda (sym_name),y
+        sta (_st_nptr),y
+        beq @done               ; copied the NUL
+        iny
+        bne @copy
+@done:  clc
+        rts
 @overflow:
         sec
-        rts
-@ok:    clc
         rts
 .endproc
 

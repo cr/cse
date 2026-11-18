@@ -23,11 +23,7 @@ Plus contract invariants:
     Hash 0 is valid (not empty sentinel)   — TestDesignGuarantees
     Name heap isolation from source buffer — TestDesignGuarantees
 
-Out-of-scope (vocal skip — see TestHeapOverflow)
-------------------------------------------------
-Name-heap overflow detection (`heap_copy_name` vs SYM_HEAP_END) is
-documented but too fragile to drive at unit tier.  Enforcement is
-code-review + grep.  See the ⚠ MID-RISK L2 GAP preamble on that skip.
+    Name-heap bound (refuse before writing) — TestHeapOverflow
 
 Bundle: zp + strings + symtab + mem + symtab_test_stub.s
         (mem is pulled in for kernal_bank_out/in used during probe).
@@ -483,36 +479,56 @@ class TestDesignGuarantees:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Contract clauses intentionally not automated (vocal skips)
+# Name-heap bound
 # ═══════════════════════════════════════════════════════════════════
-#
-# Skip policy per doc/testing.md § Principle 9.
 
-# ⚠  MID-RISK L2 GAP (per coverage audit 2026-04-20):
-#    The name heap lives at fixed $E600–$EEFF (2304 bytes) under
-#    KERNAL ROM.  `heap_copy_name` checks `_st_heap` against
-#    `SYM_HEAP_END` after each byte copy and returns C=1 on
-#    overflow — but at unit tier, the test bundle's heap is
-#    relocated by `dev/symtab_test_stub.s` and driving it to
-#    overflow would require injecting ~2000+ long names (fragile,
-#    ZP-pointer-dependent).  The overflow branch is not exercised
-#    today.  A regression (e.g. missing boundary check, off-by-one
-#    on `SYM_HEAP_END`) would manifest only after sustained source
-#    assembly with many long labels — hard to reproduce in CI.
+_HEAP_END = 0xEF00      # SYM_HEAP_END (symtab.md § Name heap)
+
 
 class TestHeapOverflow:
+    """symtab.md § Caveats: a name that does not fit below SYM_HEAP_END
+    is refused (C=1) before any byte of it is written — nothing at or
+    above $EF00 (the user-stack window, then KDATA) changes, and the
+    heap pointer never passes the end."""
 
-    @pytest.mark.skip(reason=(
-        "Name-heap overflow detection (symtab.md § Name heap): "
-        "`heap_copy_name` compares `_st_heap` against `SYM_HEAP_END` "
-        "($EF00) after each byte copy and returns C=1 on overflow. "
-        "Exercising this at unit tier requires a contrived ~2304-byte "
-        "sequence of long names or a manipulated `_st_heap` starting "
-        "value — both fragile and implementation-coupled.  Enforcement "
-        "today: code review of `heap_copy_name` in src/symtab.s + "
-        "grep for SYM_HEAP_END references (currently only "
-        "heap_copy_name).  A manual VICE workflow that defines labels "
-        "until overflow would confirm behaviour; not scripted."
-    ))
+    def _fill(self, symt):
+        mpu, mem = _setup_cpu(symt)
+        _clear(symt, mpu, mem)
+        for a in range(_HEAP_END, _HEAP_END + 0x100):
+            mem[a] = 0xA5
+        names = []
+        for i in range(200):
+            name = f"n{i:03d}" + "x" * 34          # 38 chars + NUL
+            if not _define(symt, mpu, mem, name, i):
+                return mpu, mem, names, name
+            names.append(name)
+        pytest.fail("heap never reported full")
+
     def test_sym_define_returns_carry_set_on_heap_overflow(self, symt):
-        pass
+        _mpu, _mem, names, _ = self._fill(symt)
+        # 2304-byte heap / 39 bytes per name
+        assert len(names) == (_HEAP_END - 0xE600) // 39
+
+    def test_overflow_writes_nothing_past_heap_end(self, symt):
+        _mpu, mem, _, _ = self._fill(symt)
+        changed = [a for a in range(_HEAP_END, _HEAP_END + 0x100)
+                   if mem[a] != 0xA5]
+        assert not changed, f"heap overflow wrote ${changed[0]:04X}"
+        heap = SymbolTable(LBL)["_st_heap"]
+        ptr = mem[heap] | (mem[heap + 1] << 8)
+        assert ptr <= _HEAP_END, f"_st_heap ran to ${ptr:04X}"
+
+    def test_names_before_overflow_still_found(self, symt):
+        mpu, mem, names, refused = self._fill(symt)
+        for i, n in enumerate(names):
+            found, val, _ = _lookup(symt, mpu, mem, n)
+            assert found and val == i, n
+        found, _, _ = _lookup(symt, mpu, mem, refused)
+        assert not found
+
+    def test_short_name_still_fits_after_refusal(self, symt):
+        mpu, mem, names, _ = self._fill(symt)
+        # 59 × 39 = 2301 bytes used → 3 bytes left: "ab" + NUL fits
+        assert _define(symt, mpu, mem, "ab", 0x1234)
+        found, val, _ = _lookup(symt, mpu, mem, "ab")
+        assert found and val == 0x1234

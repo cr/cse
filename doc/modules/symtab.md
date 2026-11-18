@@ -242,5 +242,8 @@ Wraparound to start index → C=1 (not found, table full).
   typical lookup.  Inside an `asm_assemble` batch (kernal_out=1),
   the inner bank helpers are no-ops, so the only banking cost
   is the single outer pair.
-- Name heap overflow: `heap_copy_name` checks `_st_heap` against
-  `SYM_HEAP_END` ($EF00) after each copy.  Returns C=1 on overflow.
+- Name heap overflow: `heap_copy_name` measures the name first and
+  refuses it (C=1, `sym_define` reports full) when name + NUL would
+  end past `SYM_HEAP_END` ($EF00).  Nothing is written and `_st_heap`
+  does not move, so the bytes at $EF00+ (user-stack window, KDATA)
+  are never touched, and a shorter name may still fit afterwards.

@@ -919,12 +919,15 @@ documentation round that follows this filing.
   `@adv_lbl`).
   Fixed 2026-11-18: a ':' with no name is `;?N: exp id` (shared
   _exp_name_err tail), test test_errors[lone colon*].
-- [ ] **Symbol-heap overflow corrupts KDATA.**  `heap_copy_name`
+- [x] **Symbol-heap overflow corrupts KDATA.**  `heap_copy_name`
   advances `_st_heap` before its bound check and never rolls back;
   enough long labels overwrite `$F100`+ (KDATA) and the REPL screen
   save — the assembler and disassembler stay broken until reload
   (`NOP` disassembles as `VBX`).  symtab.md claims the check prevents
   it.
+  Fixed 2026-11-18: heap_copy_name measures the name and refuses it
+  before writing; _st_heap never passes $EF00. Test TestHeapOverflow
+  (test_symtab.py, replaces the vocal skip).
 - [ ] **Long labels overrun BSS.**  A global label of ≥ 24 characters
   followed by a local overruns `_scope_name` / `_full_label` /
   `_expr_buf` (no bounds), corrupting `_seg_pc`, `_min_pc`,
