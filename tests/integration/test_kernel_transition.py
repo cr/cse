@@ -1943,3 +1943,33 @@ class TestDbgReasonSingleDefinition:
         hits = sorted(p.name for p in list(src.glob("*.s")) + list(src.glob("*.inc"))
                       if re.search(r"^\s*DBG_BRK\s*=", p.read_text(), re.M))
         assert hits == ["dbg_reason.inc"]
+
+
+class TestDbgInitOutputs:
+    """debugger.md § dbg_init: its documented outputs, and the
+    breakpoint table left alone."""
+
+    def test_outputs(self, emu):
+        e = emu
+        names = ["brk_pc", "step_state", "step_remaining", "step_next_lo",
+                 "step_next_hi", "reg_a", "reg_x", "reg_y", "reg_p",
+                 "dbg_reason", "reg_sp"]
+        for n in names:
+            e.memory[e.sym(n)] = 0x5A
+        for n in ("brk_pc", "step_remaining", "step_next_lo", "step_next_hi"):
+            e.memory[e.sym(n) + 1] = 0x5A
+        bt = e.sym("bp_table")
+        for i in range(40):
+            e.memory[bt + i] = 0x11
+        for buf in ("userland_zp_buf", "kernel_zp_buf"):
+            e.memory[e.sym(buf)] = 0
+            e.memory[e.sym(buf) + 1] = 0
+        e.jsr(e.sym("dbg_init"))
+        for n in names[:-1]:
+            assert e.memory[e.sym(n)] == 0, n
+        for n in ("brk_pc", "step_remaining", "step_next_lo", "step_next_hi"):
+            assert e.memory[e.sym(n) + 1] == 0, n + "+1"
+        assert e.memory[e.sym("reg_sp")] == 0xFF
+        for buf in ("userland_zp_buf", "kernel_zp_buf"):
+            assert (e.memory[e.sym(buf)], e.memory[e.sym(buf) + 1]) == (0x2F, 0x36)
+        assert [e.memory[bt + i] for i in range(40)] == [0x11] * 40
