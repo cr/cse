@@ -1217,7 +1217,7 @@ No entries are active.
 | **gap_buffer** | 3 | U | conftest `gap_buffer` bundle — gap-buffer primitives + sequential reader |
 | **debugger** | 4 | I | step/BRK state + userland-transition gates; BP-table CRUD is `breakpoints`' (L3) |
 | **asm_src** | 4 | U | `asm_src` bundle |
-| **disk** | 4 | I | needs KERNAL LOAD/SAVE/CHKIN |
+| **disk** | 4 | I | needs KERNAL LOAD/SAVE/CHKIN; on C64Emu with a virtual 1541 (§ Virtual IEC drives) |
 | **editor** | 4 | I | observable behaviour goes through screen RAM + keys; gap-buffer primitives are `gap_buffer`'s (L3) |
 | **repl / main** | 5 | I | Layer-5 cycle; only testable full-PRG |
 | **loader** | 6 | I | `test_loader.py`: `loader_entry` against `load_prg`'s Python relocation |

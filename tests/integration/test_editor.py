@@ -470,12 +470,10 @@ class TestLeaveEditor:
 
 # ── ed_save_source / ed_load_source return codes (editor.md § File I/O) ────
 #
-# C64Emu models a serial bus with no drive (testing.md § C64Emu), so the
-# disk-error paths run for real.  A successful transfer and code 2 (file
-# too large) need a drive that delivers bytes — a virtual IEC disk, which
-# C64Emu does not model (TODO § C64Emu extension roadmap); load_insert's
-# overflow flag, the mechanism behind code 2, is pinned in
-# TestBufferOverflow above.
+# Without a drive C64Emu models an empty serial bus (testing.md § C64Emu),
+# so the disk-error paths run for real; with attach_drive() a virtual 1541
+# delivers the bytes (§ Virtual IEC drives) for the success paths and for
+# code 2 (file too large).
 
 _NAME = 0x3800
 
@@ -521,15 +519,94 @@ class TestEdDiskErrors:
         assert read_back(emu) == b"", "a failed load leaves a clean empty buffer"
         assert total_lines(emu) == 1
 
-    @pytest.mark.skip(reason=(
-        "ed_load_source code 2 (file too large) and the success paths "
-        "of ed_save_source / ed_load_source need a drive that delivers "
-        "bytes: C64Emu models only an empty serial bus, no virtual IEC "
-        "disk (TODO § C64Emu extension roadmap).  Covered by "
-        "TestBufferOverflow (load_insert's overflow flag) and the VICE "
-        "checklist (l / s on a D64)."))
-    def test_load_too_large_returns_2(self, cse_prg):
-        pass
+
+class TestEdDiskOnADrive:
+    """The transfers themselves, on a virtual 1541 as device 8."""
+
+    SRC = b"\xa0LDA #1\r\xa0RTS\r; END"
+
+    def _emu(self, cse_prg):
+        emu = make_emu(cse_prg)
+        _set_name(emu)
+        return emu, emu.attach_drive(8)
+
+    def test_save_writes_the_source_clears_dirty_and_counts(self, cse_prg):
+        emu, d = self._emu(cse_prg)
+        insert_text(emu, self.SRC)
+        emu.memory[emu.sym("ed_dirty")] = 1
+        emu.jsr(emu.sym("ed_save_source"), a=_NAME & 0xFF, x=_NAME >> 8)
+        assert (emu.a, emu.x) == (0, 0) and emu.zero
+        assert d.get("SRC") == self.SRC and d.find("SRC").type == "SEQ"
+        assert emu.memory[emu.sym("ed_dirty")] == 0
+        assert emu.read_word(emu.sym("ed_save_bytes")) == len(self.SRC)
+        assert emu.read_word(emu.sym("ed_save_lines")) == 3
+        assert read_back(emu) == self.SRC, "the buffer is untouched"
+
+    def test_save_replaces_the_file(self, cse_prg):
+        emu, d = self._emu(cse_prg)
+        d.put("SRC", b"old", "SEQ")
+        insert_text(emu, b"\xa0NOP\r")
+        emu.jsr(emu.sym("ed_save_source"), a=_NAME & 0xFF, x=_NAME >> 8)
+        assert emu.a == 0 and d.get("SRC") == b"\xa0NOP\r"
+
+    def test_load_fills_the_buffer_cursor_at_the_top_clean(self, cse_prg):
+        emu, d = self._emu(cse_prg)
+        d.put("SRC", self.SRC, "SEQ")
+        insert_text(emu, b"\xa0OLD\r")
+        emu.memory[emu.sym("ed_dirty")] = 1
+        emu.jsr(emu.sym("ed_load_source"), a=_NAME & 0xFF, x=_NAME >> 8)
+        assert (emu.a, emu.x) == (0, 0) and emu.zero
+        assert read_back(emu) == self.SRC, "the old text is gone"
+        assert total_lines(emu) == 3
+        assert emu.memory[emu.sym("ed_dirty")] == 0
+        assert emu.read_word(emu.sym("ed_cur_line")) == 0
+        assert emu.memory[emu.sym("ed_cur_col")] == 0
+        assert emu.read_word(emu.sym("ed_top_line")) == 0
+        assert emu.read_word(emu.sym("gap_lo")) == emu.read_word(emu.sym("buf_base"))
+        assert emu.read_word(emu.sym("ed_save_bytes")) == len(self.SRC)
+        assert emu.read_word(emu.sym("ed_save_lines")) == 3
+
+    def test_round_trip(self, cse_prg):
+        emu, d = self._emu(cse_prg)
+        insert_text(emu, self.SRC)
+        emu.jsr(emu.sym("ed_save_source"), a=_NAME & 0xFF, x=_NAME >> 8)
+        emu.jsr(emu.sym("ed_new"))
+        emu.jsr(emu.sym("ed_load_source"), a=_NAME & 0xFF, x=_NAME >> 8)
+        assert emu.a == 0 and read_back(emu) == self.SRC
+
+    @pytest.mark.parametrize("setup", [lambda d: None,
+                                       lambda d: d.put("SRC", b"", "SEQ")],
+                             ids=["missing", "empty"])
+    def test_load_missing_or_empty_returns_1_and_an_empty_buffer(self, cse_prg, setup):
+        emu, d = self._emu(cse_prg)
+        setup(d)
+        insert_text(emu, b"\xa0OLD\r")
+        emu.jsr(emu.sym("ed_load_source"), a=_NAME & 0xFF, x=_NAME >> 8)
+        assert (emu.a, emu.x) == (1, 0) and not emu.zero
+        assert read_back(emu) == b"" and total_lines(emu) == 1
+
+    def test_load_too_large_returns_2_and_an_empty_buffer(self, cse_prg):
+        """Code 2: the buffer runs out mid-load.  Filling the 30 KB
+        workspace byte by byte is too slow under py65, so a trap on
+        disk_load_seq's entry — after ed_load_source has reset the
+        buffer — pins buf_base at BUF_FLOOR with no gap left
+        (TestBufferOverflow._force_full's state): the drive's bytes
+        then meet a full buffer through the real load_insert."""
+        emu, d = self._emu(cse_prg)
+        d.put("SRC", self.SRC, "SEQ")
+        floor = emu.sym("__BUF_FLOOR__")
+
+        def full(e):
+            for sym in ("buf_base", "gap_lo", "gap_hi"):
+                e.write_word(e.sym(sym), floor)
+            e.remove_trap(e.sym("disk_load_seq"))
+        emu.add_trap(emu.sym("disk_load_seq"), full)
+        emu.jsr(emu.sym("ed_load_source"), a=_NAME & 0xFF, x=_NAME >> 8)
+        assert (emu.a, emu.x) == (2, 0) and not emu.zero
+        assert emu.memory[emu.sym("_load_overflow")] == 1
+        assert read_back(emu) == b"", "the partial load is wiped"
+        assert total_lines(emu) == 1
+        assert d.get("SRC") == self.SRC, "the file is untouched"
 
 
 # ── TAB_WIDTH build guard (editor.md § Tab width) ─────────────────────────

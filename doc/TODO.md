@@ -1193,7 +1193,7 @@ documentation round that follows this filing.
 - [x] No oracle test for `oplen_tbl` (testing.md claims test_dasm
   guards it; no bundle links it).
   Fixed 2026-11-18: the table is read out of each C64 PRG and held to instruction_set.py per opcode, test test_oplen_tbl_in_each_prg_matches_instruction_set.
-- [ ] Untested contracts: `dbg_step_clear`, `dbg_init`'s outputs,
+- [x] Untested contracts: `dbg_step_clear`, `dbg_init`'s outputs,
   breakpoint overlap and step slots 8–9; `leave_editor`,
   `ed_save_source`, `ed_load_source` (return codes 1/2);
   `seg_print_save`; `info_line`; REPL `k`, `Q`, `R`, `x`, `$`, `i`
@@ -1216,6 +1216,7 @@ documentation round that follows this filing.
   (test_asm_src.py::TestSegPrintSave), `info_line`
   (test_log.py::TestInfoLine), `$A0` / leading whitespace
   (test_addr_mode.py test_parse_ok / TestModeParseStopContract cases).
+  Fixed 2026-11-18: the editor's remaining part runs on C64Emu's virtual 1541 — ed_save_source / ed_load_source success, code 1 on a missing or empty file, code 2 (file too large) — the explained skip is gone, tests test_editor.py::TestEdDiskOnADrive.
 - [ ] Bundle hygiene: `test_repl_disk.py` still builds its own
   bare-MPU binary with stubbed disk calls and a map regex (Tranche 4);
   behavioural stubs in `asm_core_test_stub.s` (`log_warn`) and
