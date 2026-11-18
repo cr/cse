@@ -216,6 +216,30 @@ MANUAL_TESTS = [
         "expect_bytes": [0x05, 0xC0, 0x4C, 0x05, 0xC0, 0x60],
         "expect_errors": 0,
     },
+    # ── Forward references with an offset size like pass 1 ──────────
+    # (expr.md § Undefined symbols): pass 0 used to stop at the name
+    # and size `lda tbl+1` as 0 bytes, shifting every later label.
+    {
+        "name": "forward ref with offset (abs)",
+        "source": ".org $c000\n lda tbl+1\n jmp end\nend: rts\ntbl: .db 1,2",
+        "expect_org": 0xC000,
+        "expect_bytes": [0xAD, 0x08, 0xC0, 0x4C, 0x06, 0xC0, 0x60, 0x01, 0x02],
+        "expect_errors": 0,
+    },
+    {
+        "name": "forward ref with offset (jsr, bne, abs,x)",
+        "source": ".org $c000\n jsr fwd+3\n bne fwd+2\n sta fwd+1,x\nfwd: rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0x20, 0x0B, 0xC0, 0xD0, 0x05, 0x9D, 0x09, 0xC0, 0x60],
+        "expect_errors": 0,
+    },
+    {
+        "name": "forward ref with offset in .db list",
+        "source": ".org $c000\n.db <fwd+1, 2\nfwd: rts",
+        "expect_org": 0xC000,
+        "expect_bytes": [0x03, 0x02, 0x60],
+        "expect_errors": 0,
+    },
     {
         "name": ".res directive",
         "source": ".org $c000\n.res 4, $ea\n  rts",

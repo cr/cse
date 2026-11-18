@@ -944,12 +944,17 @@ documentation round that follows this filing.
   prefix); the 11th returns 3 (overflow) — parse_factor counts its
   entries; errors under unary -/! now propagate. Test TestNestingDepth
   (test_expr.py).
-- [ ] **Pass-0 forward references with an offset size to 0 bytes.**
+- [x] **Pass-0 forward references with an offset size to 0 bytes.**
   `lda tbl+1` (also `jsr fwd+3`, `bne fwd+2`, `sta fwd+1,x`)
   substitutes `asm_pc + 2` but leaves `expr_ptr` after the name, so
   the operand is a syntax error on pass 0 (silent there) and later
   labels shift: `.org $c000 / lda tbl+1 / jmp end / end: rts /
   tbl: .db 1,2` → `ad 05 c0 4c 03 c0`, 0 errors.
+  Fixed 2026-11-18: an undefined symbol reads as 0 (wide), sets
+  expr_fwd and the parse continues to the end of the expression (rc 5
+  unless a hard error follows), so pass 0 sizes `tbl+1` like pass 1.
+  Tests TestUndefinedParsesOn (test_expr.py), test_assemble[forward
+  ref with offset*] (test_asm_src.py).
 - [ ] **Pass-0/pass-1 width mismatch for later-defined ZP constants.**
   `lda zp` with `.const zp $10` after it is sized ABS on pass 0 and ZP
   on pass 1; following labels are one byte off (`jmp` into its own

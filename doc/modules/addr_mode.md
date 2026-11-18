@@ -145,10 +145,14 @@ six ACC-accepting mnemonics (ASL/LSR/ROL/ROR; INC/DEC on CMOS).
 
 During pass 0, `_au_read_val` consults `asm_pass` (in `asm_err.s`).
 When `asm_pass == 0` and the expression uses an undefined symbol,
-the routine substitutes `asm_pc + 2` rather than signalling
-`asm_expr_error`.  This lets the sizing pass proceed past forward
-references; the second pass sees the now-defined symbols and emits
-the correct bytes.
+the routine substitutes `asm_pc + 2` (wide) rather than signalling
+`asm_expr_error`.  expr_eval has already parsed the *whole*
+expression ([expr.md § Undefined symbols](expr.md#undefined-symbols)),
+so `expr_ptr` is past it and the operand's tail — `tbl+1`, `fwd+3,x`,
+`(fwd+1),y` — is parsed as on pass 1.  This lets the sizing pass
+proceed past forward references with the same size pass 1 will use;
+the second pass sees the now-defined symbols and emits the correct
+bytes.
 
 ## Caveats
 

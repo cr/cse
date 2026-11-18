@@ -84,7 +84,6 @@ reg_y:         .res 1          ; saved Y
 reg_sp:        .res 1          ; saved SP
 reg_p:         .res 1          ; saved P (status flags)
 _asm_sink:     .res 3          ; bytes past a $FFFF wrap land here (refused)
-        .assert >(_asm_sink+3) = >_asm_sink, error, "_asm_sink must not cross a page"
 
 ; (kernel_zp_buf and userland_zp_buf — the ZP save/restore buffers for
 ; the kernel↔userland transitions — live in mem.s alongside the
@@ -128,13 +127,14 @@ asm_line:
 
         ; ── output wrapped past $FFFF with bytes to spare? _asm_emit
         ; parked them in _asm_sink: refuse as an expression overflow.
-        lda asm_out+1
-        cmp #>_asm_sink
-        bne @fits
         lda asm_out
         sec
         sbc #<(_asm_sink+1)
-        cmp #3                  ; asm_out in _asm_sink+1 .. +3 ?
+        tax
+        lda asm_out+1
+        sbc #>(_asm_sink+1)
+        bne @fits
+        cpx #3                  ; asm_out in _asm_sink+1 .. +3 ?
         bcs @fits
         lda #3                  ; ERR_OVERFLOW (expr.md)
         sta last_err

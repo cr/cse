@@ -637,6 +637,47 @@ class TestStopContract:
             f"expected expr_ptr at offset 3 (the 'x'), got {final_ptr - _STR_BUF}"
 
 
+class TestUndefinedParsesOn:
+    """expr.md § Undefined symbols: an undefined symbol reads as 0 and
+    the parse continues, so expr_ptr ends after the whole expression
+    (pass 0 of the assembler relies on it to size `tbl+1`)."""
+
+    # (input, expected_ptr_offset, expected rc)
+    CASES = [
+        ("nosuch+1",       8, ERR_UNDEFINED),
+        ("nosuch+1,x",     8, ERR_UNDEFINED),
+        ("(nosuch+1),y",  10, ERR_UNDEFINED),
+        ("<nosuch",        7, ERR_UNDEFINED),
+        ("1+nosuch*2 ;c", 11, ERR_UNDEFINED),
+    ]
+
+    @pytest.mark.parametrize("text,offset,rc_want", CASES,
+                             ids=[c[0] for c in CASES])
+    def test_parse_continues(self, asm_syms, text, offset, rc_want):
+        mpu, mem = _setup(asm_syms)
+        _define_symbols(asm_syms, mpu, mem)
+        rc, _ = _eval(asm_syms, mpu, mem, text)
+        assert rc == rc_want
+        ptr = mem[asm_syms.expr_ptr] | (mem[asm_syms.expr_ptr + 1] << 8)
+        assert ptr - _STR_BUF == offset
+
+    def test_hard_error_after_undefined_wins(self, asm_syms):
+        mpu, mem = _setup(asm_syms)
+        _define_symbols(asm_syms, mpu, mem)
+        rc, _ = _eval(asm_syms, mpu, mem, "nosuch+(1")
+        assert rc == ERR_PAREN
+
+    def test_expr_fwd_flag(self, asm_syms):
+        from conftest import SymbolTable, _AC
+        fwd = SymbolTable(_AC[asm_syms.config].ensure().lbl)["expr_fwd"]
+        mpu, mem = _setup(asm_syms)
+        _define_symbols(asm_syms, mpu, mem)
+        _eval(asm_syms, mpu, mem, "start+1")
+        assert mem[fwd] == 0
+        _eval(asm_syms, mpu, mem, "start+nosuch")
+        assert mem[fwd] != 0
+
+
 class TestExprErrorStr:
     """expr_error_str: returns A/X = pointer to err_str[last_err]."""
 

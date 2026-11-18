@@ -15,8 +15,9 @@
 **In:** `expr_ptr` (ZP, pointer to PETSCII expression string),
 `asm_pc` (ZP, current PC for `*` operator)
 **Out:** `expr_val` (ZP, 16-bit result), `expr_wide` (ZP, 0=ZP 1=ABS).
-Returns A = return code.  On `MEGA_SUPPORT` also `expr_fwd` (BSS):
-nonzero iff the expression read a symbol that is undefined (rc 5) or
+Returns A = return code.  Also `expr_fwd` (BSS, exported): nonzero
+iff the expression read a symbol that is undefined (rc 5, see
+[§ Undefined symbols](#undefined-symbols)); on `MEGA_SUPPORT` also one
 that `sym_lookup` reported with `sym_fwd` — a forward reference in the
 current pass ([symtab.md § Pass stamp](symtab.md#pass-stamp-mega_support)).
 **Clobbers:** A, X, Y, `_ex_tmp`, `_ex_digits`, `_ex_wide_tmp`
@@ -56,11 +57,10 @@ undefined symbol) leaves `$01` bit 1 set and the I flag clear.
 
 **ZP (4 bytes):** `_ex_tmp` (2), `_ex_digits` (1), `_ex_wide_tmp` (1).
 
-**BSS (6 bytes):** `last_err` (1; exported — `asm_line` sets it to 3
+**BSS (7 bytes):** `last_err` (1; exported — `asm_line` sets it to 3
 when an instruction would wrap past `$FFFF`, so `expr_error_str`
-names it), `_ex_depth` (1, nesting depth),
-`_mul_tmp` (2), `_div_rem` (2);
-on `MEGA_SUPPORT` also `expr_fwd` (1).
+names it), `_ex_depth` (1, nesting depth), `expr_fwd` (1),
+`_mul_tmp` (2), `_div_rem` (2).
 
 **Depends on:** symtab (`sym_lookup` for label resolution),
 mem (`kernal_bank_out` / `kernal_bank_in` for the wrapper),
@@ -117,6 +117,17 @@ wrote a 4-digit literal, signalling absolute intent.
 **Label resolution:** Sets `sym_name` to point into the expression
 buffer, NUL-terminates at the end of the identifier, calls
 `sym_lookup`, restores the original char.
+
+## Undefined symbols
+
+An undefined symbol does not stop the parse.  It reads as 0 (wide)
+and sets `expr_fwd`; the parse goes on to the end of the expression,
+so `expr_ptr` stops where it would for a defined symbol.  A later
+hard error (2, 3, 4, 6) is still returned as such; otherwise the
+return code is 5 (undefined).  Callers that tolerate a forward
+reference — the assembler's pass 0 ([addr_mode.md § Forward-reference handling](addr_mode.md#forward-reference-handling),
+`.db`/`.dw`) — thereby see the expression's full extent and size the
+statement exactly as pass 1 will.
 
 ## Partial-mode contract
 

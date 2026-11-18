@@ -38,6 +38,7 @@
         .export expr_eval_nb            ; no-banking variant for callers already banked out
         .export expr_error_str
         .export last_err                ; asm_line sets 3 (overflow) on a $FFFF wrap
+        .export expr_fwd                ; nonzero: an undefined symbol was read
 
         .import sym_lookup
         .import kernal_bank_out, kernal_bank_in
@@ -70,6 +71,7 @@ EXPR_MAX_DEPTH = 10             ; nested factor levels: each '(' or unary prefix
 .segment "BSS"
 last_err:    .res 1
 _ex_depth:   .res 1              ; parse_factor nesting depth (reset per eval)
+expr_fwd:    .res 1              ; nonzero iff an undefined symbol was read
 _mul_tmp:    .res 2              ; multiply: shifted operand copy
 _div_rem:    .res 2              ; divide: remainder
 
@@ -135,10 +137,15 @@ expr_eval_nb:
         lda #0
         sta expr_wide            ; start narrow
         sta _ex_depth
+        sta expr_fwd
         jsr skip_sp
         jsr parse_expr
         bcs @err
-        ; Success: determine return code from wide flag
+        lda expr_fwd             ; parsed through an undefined symbol?
+        beq :+
+        lda #ERR_UNDEFINED       ; soft error: expr_ptr is past the
+        bne @err                 ; whole expression (always)
+:       ; Success: determine return code from wide flag
         lda expr_val+1
         bne @abs                 ; result > $FF → ABS
         lda expr_wide
@@ -777,9 +784,14 @@ parse_factor:
         clc
         rts
 
-@err_undef:
-        lda #ERR_UNDEFINED
-        sec
+@err_undef:                      ; undefined: read as 0 (wide), note it,
+        inc expr_fwd             ; and parse on (expr.md § Undefined symbols)
+        lda #0
+        sta expr_val
+        sta expr_val+1
+        lda #1
+        sta expr_wide
+        clc
         rts
 .endproc
 
