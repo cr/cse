@@ -346,6 +346,11 @@ holds:
   run address, as the loader does;
 - `set_cursor(row, col)`: the KERNAL's `PLOT` (`$FFF0`, carry clear),
   called through `jsr()`;
+- `add_trap(addr, fn)` / `remove_trap(addr)`: `fn(emu)` runs each time
+  the run loops reach `addr`, before the instruction there; if it moves
+  PC (it stood in for the routine) the loop goes on from there, else
+  the instruction runs.  A trap costs no step.  C64Emu's virtual IEC
+  drives are built on it;
 - `init_cse(editor=False)`: cse's cold-init routines by symbol
   (`theme_init`, `restore_colors`, `setup_interrupts`, `bp_init`,
   `dbg_init`, `sym_clear`; `ed_ensure_init` with `editor`) — the
@@ -1300,8 +1305,8 @@ On construction:
   OUT (bit 4) and DATA OUT (bit 5) — no device ever pulls a line —
   so a KERNAL `OPEN`/`LOAD`/`SAVE` on a serial device fails at once
   with "device not present" (`ST` = `$80`, error 5), as on a C64 with
-  no drive.  A disk with files would need a virtual IEC device
-  (not modelled).
+  no drive.  `attach_drive()` puts a virtual drive on the bus
+  ([§ Virtual IEC drives](#virtual-iec-drives)).
 
 The KERNAL is **not** initialised via the reset vector — ZP state
 is set up directly.  This avoids the KERNAL init routine's
@@ -1388,6 +1393,89 @@ the hardware environment (PLOT, GETIN, screen RAM, banking).
 Application-level test setup (writing input buffers, pre-loading
 symbols, preparing gap-buffer content) is done from Python by
 writing directly to memory at the symbol's address.
+
+#### Virtual IEC drives
+
+```python
+drive = emu.attach_drive(8)             # a fresh, empty 1541 as device 8
+drive.put("FOO", b"\x00\xc0...", type="PRG")
+emu.jsr(emu.sym("exec_line"))           # cse's own disk code runs
+assert drive.get("BAR") == b"..."       # what the drive received
+assert drive.status == "00, OK,00,00"
+emu.attach_drive(9, Drive1541.from_d64("dev/test.d64"))
+```
+
+`attach_drive(device=8, drive=None)` puts a drive on the serial bus as
+device 8–11 (a fresh `Drive1541` unless one is given) and returns it;
+`detach_drive(device)` takes it off, and with the last drive gone the
+bus is the empty one above again.  `emu.drive(device)` is the drive
+attached there.
+
+**The bus.**  While a drive is attached, the KERNAL's serial-bus
+routines — `TALK`, `LISTEN`, `SECOND`, `TKSA`, `CIOUT`, `ACPTR`,
+`UNTLK`, `UNLSN`, at the addresses the KERNAL's jump table names — are
+trapped (`EmuBase.add_trap()`): each carries its byte to or from the
+addressed drive in Python and returns as the routine would (carry
+clear, X and Y kept).  Everything above them is the KERNAL's own code:
+`OPEN`, `CLOSE`, `CHKIN`, `CHKOUT`, `CHRIN`, `CHROUT`, `CLRCHN`,
+`LOAD`, `SAVE`, the file table, `ST`.  So:
+
+- a device number with no drive sets `ST` bit 7 (device not present;
+  `OPEN` and `LOAD` fail with error 5);
+- `ACPTR` sets `ST` bit 6 (EOI) with a file's last byte; from a channel
+  with nothing to send (a file that failed to open, or one read out)
+  it returns `$0D` with `ST` = `$42` (EOI + read timeout) — so `LOAD`
+  of a missing file fails with error 4, "file not found", and `CHRIN`
+  returns `$0D` with that status, as on a real 1541;
+- no bit timing, no ATN handshake, no cycle cost: a trap is free.
+
+**The drive** (`Drive1541`) is an in-memory 1541: a directory of
+named files (`DiskFile`: name as PETSCII bytes, data, type `PRG` /
+`SEQ` / `USR` / `REL`, locked), a disk name and ID, `write_protect`,
+and the DOS as the bus sees it:
+
+- **Channels 0–14** open a file by the name sent under `OPEN`:
+  `[@][d:]name[,type][,mode]` with type `S`/`P`/`U`/`L` and mode
+  `R`/`W`/`A`.  Without a mode, channel 1 writes (a `PRG`) and the
+  others read; a write without a type makes a `SEQ`.  A read takes the
+  first file matching the name (`?` and `*` wildcards, any type unless
+  one is given).  A write commits the file when its channel is closed;
+  `@` replaces an existing file in its directory slot.  Channel 0 with
+  `$` (also `$0`, `$:pattern`) reads the directory.
+- **Channel 15** takes commands — sent as `OPEN`'s name or `PRINT#`ed
+  and run at `UNLSN` — and sends the status.  Commands: `S:pat[,pat…]`
+  scratch (unlocked files only), `R:new=old` rename, `N:name[,id]` new
+  (empties the directory), `I` and `V` (no-ops), `UJ` reset.  Closing
+  channel 15 closes every channel.
+- **The status** is the CBM DOS string `NN,TEXT,TT,SS` sent with a
+  trailing CR, EOI on the CR; once read out it is `00, OK,00,00`.  At
+  attach it is `73,CBM DOS V2.6 1541,00,00`.  Codes: 00 OK, 01 FILES
+  SCRATCHED (TT = the count), 26 WRITE PROTECT ON (a write, scratch,
+  rename or new on a protected disk), 30/31/33/34 SYNTAX ERROR (bad
+  parameter, unknown command, wildcard in a written name, no name),
+  62 FILE NOT FOUND, 63 FILE EXISTS (a write without `@`, a rename
+  onto a name in use), 64 FILE TYPE MISMATCH, 72 DISK FULL (a close
+  that would pass 664 blocks; the file is dropped), 73 at reset.
+- **The directory** (`directory()`, the `$` file) is a BASIC program
+  loading at `$0401`, as the 1541 formats it: link `$0101` per line;
+  the header, line 0: RVS ON, the disk name in quotes padded to 16
+  bytes with shifted spaces (`$A0`), the ID, `$A0`, `2A`; one line per
+  file — line number = blocks (254 data bytes each, at least 1), 3/2/1
+  leading spaces for 1/2/3 digits, the name in quotes padded to 16,
+  a space, the type, `<` if locked, the text padded to 27 bytes; last
+  `BLOCKS FREE.` (664 less the files' blocks) and the `$0000` end.
+- **Host side** for tests: `put(name, data, type)`, `get(name)`
+  (`KeyError` if absent), `find(name)`, `names()`, `files`,
+  `blocks_free`, `status`, `write_protect`.
+- `Drive1541.from_d64(path)` reads a 35-track `.d64` image once (disk
+  name, ID, every closed file of a known type, with its
+  data from the sector chain); nothing is written back.
+
+Not modelled: disk geometry and the BAM (blocks are counted, not
+allocated), relative files, `M-R`/`M-W`/`B-` commands, timing, `@`'s
+replace bug, more than one disk per drive.  The unit tests of the
+model are `tests/unit/test_c64emu_disk.py`; cse's disk paths run on it
+in `test_disk.py`, `test_repl_disk.py` and `test_editor.py`.
 
 ### SymbolTable — encapsulated symbol resolution
 

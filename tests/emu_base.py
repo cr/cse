@@ -10,7 +10,8 @@ harnesses the same surface: the registers and flags, the run loops
 from the `.lbl` file beside a PRG, the screen-code decoding behind
 `screen_text()`, the interrupt scheduler and the jiffy tick, the
 keyboard matrix (`KeyMatrix`) with STOP and RESTORE, key injection,
-`load_prg()` with segment relocation, `set_cursor()` and `init_cse()`.
+`load_prg()` with segment relocation, `set_cursor()`, `init_cse()`, and
+PC traps (`add_trap()`) through which a harness stands in for a routine.
 
 A subclass supplies `SENTINEL`, `screen_row()`, the attributes `_keys`
 (its `KeyMatrix`) and `_ram` (the 64 KB load_prg() writes), and:
@@ -140,6 +141,7 @@ class EmuBase:
         self._steps = 0
         self._pending = []
         self._jiffy_interval = 0
+        self._traps = {}            # pc → fn(emu), see add_trap()
 
     # ── registers ─────────────────────────────────────────────────
 
@@ -193,10 +195,15 @@ class EmuBase:
         watched = set(watch)
         hits = []
         cpu = self._cpu
+        traps = self._traps
         for n in range(max_cycles):
             pc = cpu.pc
             if pc == stop:
                 return n, hits
+            if traps and pc in traps:
+                traps[pc](self)
+                if cpu.pc != pc:            # the trap ran the routine
+                    continue
             if pc in watched:
                 hits.append((pc, n))
             cpu.step()
@@ -240,6 +247,17 @@ class EmuBase:
             self._cpu.pc = start_at
         return self._run(stop_addr, max_cycles, watch=watch_addrs,
                          what=f"run_until_with_watch(${stop_addr:04X})")[1]
+
+    def add_trap(self, addr, fn):
+        """Call `fn(emu)` each time the run loops reach `addr`, before
+        the instruction there runs.  If `fn` moves PC (it emulated the
+        routine, say, and returned from it) the loop goes on from the
+        new PC; else the instruction at `addr` runs as usual.  A trap
+        costs no step."""
+        self._traps[addr] = fn
+
+    def remove_trap(self, addr):
+        self._traps.pop(addr, None)
 
     def run_steps(self, steps, watch=()):
         """Run exactly `steps` steps — for code that never ends, such

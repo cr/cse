@@ -13,8 +13,8 @@
 | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | implementation — mnemonic table generator |
 | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | implementation — disassembler table generator |
 | [`tests/conftest.py`](../tests/conftest.py) | implementation — test fixtures and auto-rebuild |
-| [`tests/c64emu.py`](../tests/c64emu.py) | implementation — C64 emulator class (C64Emu) |
-| [`tests/emu_base.py`](../tests/emu_base.py) | implementation — `EmuBase`, what C64Emu and M65Emu share: registers, run loops, word access, symbols, screen-code decoding, `run_steps()`, the interrupt scheduler and jiffy tick, `KeyMatrix` and the keyboard calls, `load_prg()` with segment relocation, `screen_text()`, `set_cursor()`, `init_cse()` |
+| [`tests/c64emu.py`](../tests/c64emu.py) | implementation — C64 emulator class (C64Emu), with its virtual IEC drives (`Drive1541`, `IECBus`) |
+| [`tests/emu_base.py`](../tests/emu_base.py) | implementation — `EmuBase`, what C64Emu and M65Emu share: registers, run loops, word access, symbols, screen-code decoding, `run_steps()`, the interrupt scheduler and jiffy tick, `KeyMatrix` and the keyboard calls, `load_prg()` with segment relocation, `screen_text()`, `set_cursor()`, `init_cse()`, PC traps (`add_trap()`) |
 | [`tests/asm_dasm_runner.py`](../tests/asm_dasm_runner.py) | implementation — exhaustive asm_line / dasm_insn sweeps on py65 (output + cycles) |
 | [`dev/capture_golden.py`](../dev/capture_golden.py) | implementation — records the asm/dasm golden files from a known-good tree |
 | [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<cpu set>.json`, one per C64 CPU set, by `dev/capture_golden.py`; `m65_cpu.json`, the 45GS02 as xmega65 executes it, by `dev/capture_m65_golden.py`; `m65_mem.json`, the CPU view's translation per banking state, by `dev/capture_m65_mem.py`; `m65_dma.json`, DMA jobs, by `dev/capture_m65_dma.py`; `m65_latches.json`, the VIC and CIA2 interrupt latches, by `dev/capture_m65_latches.py`; back-link-exempt (JSON has no comment syntax) |
@@ -41,6 +41,7 @@
 | [`tests/unit/test_m65devices.py`](../tests/unit/test_m65devices.py) | test contract — the keyboard queue and `inject_key()`, the CIA1 matrix port, the VIC interrupt latch (`$D019`) and the CIA2 interrupt register (`$DD0D`) against `m65_latches.json`, device claims and the unmodelled-I/O log |
 | [`tests/unit/test_m65memory.py`](../tests/unit/test_m65memory.py) | test contract — `M65Memory` against every state of `m65_mem.json`, plus colour RAM, ROM protection, the CPU port, the page-table triggers and `MAP` run on `MPU45GS02` |
 | [`tests/integration/test_c64emu.py`](../tests/integration/test_c64emu.py) | test contract — exercises the C64Emu harness itself (construction, banking, `jsr`, the KERNAL buffer, `PLOT`, `GETIN`, screen access) |
+| [`tests/unit/test_c64emu_disk.py`](../tests/unit/test_c64emu_disk.py) | test contract — C64Emu's virtual IEC drive: the `Drive1541` model (channels, commands, status, directory, the D64 reader) and the drive under the real KERNAL (`OPEN`/`CHKIN`/`CHRIN`/`CHKOUT`/`CHROUT`/`CLOSE`/`LOAD`/`SAVE`), `add_trap()` |
 | [`tests/integration/test_c64emu_banking.py`](../tests/integration/test_c64emu_banking.py) | test contract — `$01` banking + KERNAL/BASIC ROM mapping |
 | [`tests/integration/test_c64emu_cia.py`](../tests/integration/test_c64emu_cia.py) | test contract — C64-only: the matrix hidden under the character ROM (CHAREN=0) |
 | [`tests/integration/test_c64emu_interrupts.py`](../tests/integration/test_c64emu_interrupts.py) | test contract — C64-only: the interrupt vector fetched through the banking |
