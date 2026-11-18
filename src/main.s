@@ -76,7 +76,7 @@
         .importzp dbg_reason, kernal_out, cur_device    ; zp.s
         .import brk_pc, dbg_bp_hit
         .import reg_p, reg_sp
-        .import rp_dis_bp, last_cmd, cold_preview_done
+        .import last_cmd, cold_preview_done, step_cleanup
         .import ed_ensure_init
         .import exec_line, read_line, show_prompt, cmd_info
         .import post_run_cleanup, hygiene_after_userland
@@ -1026,10 +1026,10 @@ hw_reinit_body:
 ; editor state and bp_table; unpatches live breakpoints so the
 ; user's program memory reflects what they actually wrote.
 end_debug_body:
+        jsr unpatch_all                 ; first: step_cleanup zeroes the
+                                        ; step slots it would restore
         lda #0
         sta dbg_reason
-        sta step_state
-        sta step_remaining
         sta run_user_pending
         sta in_userland
         sta kernal_out
@@ -1039,8 +1039,8 @@ end_debug_body:
         lda #$FF
         sta reg_sp                      ; userland SP reset
         sta dbg_bp_hit
-        sta rp_dis_bp
-        jmp unpatch_all                 ; tail-call
+        jmp step_cleanup                ; tail-call (re-enables a bp a
+                                        ; step disabled, rp_dis_bp=$FF)
 
 ; refresh_body — reset screen, draw prompt row, position cursor.
 refresh_body:

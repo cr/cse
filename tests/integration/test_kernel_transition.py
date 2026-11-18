@@ -1603,3 +1603,46 @@ class TestColdPreviewSession:
         s.type("t")                         # steps the sub's RTS
         assert s.v("dbg_reason") == DBG_BRK
         assert s.w("brk_pc") == 0x3003
+
+
+class TestRefusedStep:
+    """debugger.md § `t`: a step refused with `;!range` leaves the
+    session as it was."""
+
+    def _hit(self, s):
+        e = s.e
+        e.memory[0x3000] = 0xEA                                 # NOP
+        for i, b in enumerate((0x4C, 0x00, 0xC0)):             # JMP $C000
+            e.memory[0x3001 + i] = b
+        s.type("b $3001")
+        s.type("j $3000")
+        assert s.w("brk_pc") == 0x3001 and s.v("dbg_bp_hit") == 0
+
+    def test_refused_step_restores_state(self, session):
+        s = session
+        self._hit(s)
+        s.type("t")
+        assert ";!range" in s.screen()
+        assert s.v("step_state") == 0
+        assert s.v("rp_dis_bp") == 0xFF
+        assert s.e.memory[s.e.sym("bp_table") + 3] == 1, "bp left disabled"
+
+    def test_rerun_after_refused_step_hits_bp(self, session):
+        s = session
+        self._hit(s)
+        s.type("t")
+        s.start("j $3000")
+        s.keys(b"Y")                        # go? y
+        assert s.v("dbg_reason") == DBG_BRK
+        assert s.w("brk_pc") == 0x3001
+
+    def test_end_debug_reenables_disabled_bp(self, session):
+        s, e = session, session.e
+        self._hit(s)
+        bt = e.sym("bp_table")
+        e.memory[bt + 3] = 0                # as cmd_step disables it
+        e.memory[e.sym("rp_dis_bp")] = 0
+        e.run_until(e.sym("main_loop_top"), start_at=e.sym("cse_end_debug"),
+                    max_cycles=200_000)
+        assert e.memory[bt + 3] == 1
+        assert s.v("rp_dis_bp") == 0xFF

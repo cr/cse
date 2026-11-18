@@ -12,7 +12,8 @@
 ; ── Exports ────────────────────────────────────────────────
         .export exec_line, read_line, show_prompt, cmd_info
         .export cur_addr, block_size
-        .export line_buf, last_cmd, rp_dis_bp, cold_preview_done
+        .export line_buf, last_cmd, cold_preview_done
+        .export step_cleanup
 
 ; ── Imports: log.s ─────────────────────────────────────────
         .import log_line, log_open, log_close
@@ -2284,6 +2285,8 @@ pre_userland_run:
         ; Warn and refuse the step — user keeps their session
         ; (dbg_reason and brk_pc unchanged), can `c` to run past
         ; the offending region or `r pc:XXXX` to relocate.
+        ; Undo the step set-up above (step_state, disabled bp).
+        jsr step_cleanup
         lda #<str_range
         ldx #>str_range
         jmp log_warn
@@ -4110,6 +4113,25 @@ prg_ok_done:
         .byte >@h_c, >@h_reset
 .endproc
 
+; ── step_cleanup — end a step: no step state, step slots zeroed, the
+; breakpoint cmd_step disabled (rp_dis_bp = slot × 4) enabled again,
+; rp_dis_bp := $FF.  Shared by post_run_cleanup (step landed), cmd_step
+; (step refused) and main.s's end_debug_body (session ended).
+; Clobbers: A, X.
+step_cleanup:
+        lda #STEP_NONE
+        sta step_state
+        sta step_remaining
+        jsr dbg_step_clear
+        ldx rp_dis_bp
+        cpx #$FF
+        beq :+
+        lda #1
+        sta bp_table+3,x
+:       lda #$FF
+        sta rp_dis_bp
+        rts
+
 ; ═══════════════════════════════════════════════════════════
 ; post_run_cleanup — called from main_loop_top after a userland
 ; break has longjmped back (dbg_reason != 0, step_state != 0, or
@@ -4153,18 +4175,7 @@ KSTK_MIN = 64
         beq @not_step
 
         ; Stepping just finished.
-        lda #STEP_NONE
-        sta step_state
-        sta step_remaining
-        jsr dbg_step_clear
-        ; Re-enable any bp cmd_step disabled.
-        ldx rp_dis_bp
-        cpx #$FF
-        beq :+
-        lda #1
-        sta bp_table+3,x
-:       lda #$FF
-        sta rp_dis_bp
+        jsr step_cleanup
 
         ; Per spec: every brk emits info+regs+lookahead.  All step
         ; landings — including landings on rts/rti opcodes — go

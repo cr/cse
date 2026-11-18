@@ -645,6 +645,14 @@ cadence.
 
 JSR: steps into the subroutine.
 
+A step whose next PC lies outside the workspace (`$0800` ≤ addr <
+`buf_base`, `brk_stub` excepted) is refused with `;!range` before
+any user code runs.  A refused step changes nothing: `step_state`
+stays 0 and a breakpoint the step had disabled (the one just hit)
+is enabled again, so the session is exactly as before the `t`.
+Likewise `end_debug_body` re-enables such a breakpoint, so ending a
+session never leaves a disabled slot behind.
+
 The loop exits early if:
 - A BRK opcode is encountered (user BRK, not a debugger breakpoint)
 - An NMI fires or a regular breakpoint is hit mid-sequence

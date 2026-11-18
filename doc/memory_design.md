@@ -326,7 +326,9 @@ defined in `main.s`:
   `theme_init`, `restore_colors`, `set_charset`.  Idempotent.
 - `end_debug_body` — zeroes `dbg_reason`, `step_state`,
   `run_user_pending`, `in_userland`, `kernal_out`, `stop_cooldown`,
-  `rp_dis_bp`, `dbg_bp_hit`, `last_cmd`, `cold_preview_done`; resets `reg_sp` to $FF;
+  `dbg_bp_hit`, `last_cmd`, `cold_preview_done`; clears the step
+  state (`step_cleanup`: step slots zeroed, a breakpoint a step had
+  disabled re-enabled, `rp_dis_bp` = $FF); resets `reg_sp` to $FF;
   calls `unpatch_all` (restores user's in-memory bytes that any
   live breakpoints had overwritten with $00).
 - `refresh_body` — `reset_screen`, `splash_row`, `io_clear_eol`.

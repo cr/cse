@@ -810,10 +810,14 @@ documentation round that follows this filing.
   Fixed 2026-11-18: `end_debug_body` clears `cold_preview_done`
   (exported by repl.s), test
   `TestColdPreviewSession::test_end_debug_clears_cold_preview`.
-- [ ] **A refused step (`;!range`) leaves the hit breakpoint disabled
+- [x] **A refused step (`;!range`) leaves the hit breakpoint disabled
   and `step_state` set** (`cmd_step` writes them before the range
   gate; `@oor_warn` undoes nothing; `end_debug_body` does not
   re-enable the slot).
+  Fixed 2026-11-18: new `step_cleanup` (repl.s) undoes a step — step
+  state, step slots, the disabled bp — and runs on the refusal,
+  after a step lands, and in `end_debug_body` (after its
+  `unpatch_all`), test `TestRefusedStep`.
 - [ ] **`dbg_bp_hit` survives `b *` / `b ADDR`**: `c` then deletes the
   unrelated breakpoint now in that slot.
 - [ ] **RUN/STOP+RESTORE in the editor** redraws the REPL but leaves
