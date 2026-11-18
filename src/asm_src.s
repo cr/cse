@@ -789,8 +789,8 @@ seg_print_save:
         puts s_save_default     ; "out"
         jmp @name_done
 @have_name:
-        lda #<cur_project_name
-        ldx #>cur_project_name
+        lda #<BP_ABS(cur_project_name)
+        ldx #>BP_ABS(cur_project_name)
         jsr io_puts
 @name_done:
         puts s_save_q_sp        ; "" $"

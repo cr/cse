@@ -553,10 +553,15 @@ P0 progress (step (1), one commit per seam, each byte-identical):
   `FAR_ORA` added to the contract (disk.s's directory walk, two
   sites).  `FAR_BANK` is placed with the m65 bodies (step (4)), where
   each set site's bank is decided; on c64 it is empty.
-- [ ] Base page — finding for this seam: on m65 an access to a CSE
-  base-page symbol in an *absolute* mode (`jmp (rp_ptr2)` in repl.s's
-  dispatch, `lda zpvar,y` as abs,y) reaches page `0.00xx`, not CSE's
-  page `0.1F00`; the seam must list and route those sites.
+- [x] Base page — the swap primitives, buffers and seeds under
+  `PLATFORM_C64`; the user-ZP view `PLAT_PENDING 1` on m65.  Feedback
+  round: an access to a CSE base-page symbol in an *absolute* mode
+  reaches page `0.00xx` on m65, not CSE's `0.1F00` — now `BP_ABS(sym)`
+  ([platform_layer.md § Base page](platform_layer.md#base-page)) at
+  the nine sites (`cur_project_name`'s abs,y accesses and pointers,
+  repl.s's `jmp (rp_ptr2)` dispatch), pinned by the base-page check.
+  `PLAT_PENDING` is defined; its signature byte follows `BRK`, so the
+  raw-byte audit (T3) must not read it as an opcode.
 - [ ] Terminal, Display, Vectors and frame, Cold start and exit, Disk
   bank, Info map, Loader.
 - Finding for P2: the screen pointers `_io_scr` (cse_io.s, screen.s's

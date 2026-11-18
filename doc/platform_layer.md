@@ -173,10 +173,29 @@ On m65 `B = CSE_BP` is set by the resident stub's CSE entries and
 restored by every `KCALL`; the KERNAL's interrupt entry saves `B` and
 sets `B = 0` for itself ([§ Interrupt frame](#interrupt-frame)), so
 an interrupt during kernel code finds its own base page, and the
-user's `B` travels in the frame.  Two consequences for code: the m65
-kernel never reaches the CPU port (with `B = $1F` a base-page access
-to `$00` is `0.1F00`), and a KERNAL cell in base page 0, where one
-must be read, is read with absolute addressing (`a:$xx`).
+user's `B` travels in the frame.  Three consequences for code: the
+m65 kernel never reaches the CPU port (with `B = $1F` a base-page
+access to `$00` is `0.1F00`); a KERNAL cell in base page 0, where one
+must be read, is read with absolute addressing (`a:$xx`); and the
+converse — an access to a CSE base-page symbol in an *absolute* mode
+(`jmp (sym)`, `op sym,y` where no zero-page,y form exists, i.e.
+anything but `LDX` / `STX`) or a 16-bit pointer to one (`#<sym` /
+`#>sym`, `.word sym`) is written `BP_ABS(sym)`:
+
+| Name | c64 | m65 |
+|---|---|---|
+| `BP_PAGE` (constant) | `$00` | `CSE_BP` |
+| `BP_ABS(sym)` (`.define`) | `sym` (+ `BP_PAGE · 256` = 0) | `sym + $1F00`: the page `0.1F00`, bank 0 in the CSE map, so a far pointer to it carries `BANK_USER` |
+
+The expansion opens with a unary `+` so that `BP_ABS(sym),y` stays
+absolute-indexed (an operand opening with `(` parses as `(zp),y`).
+A static check pins the rule ([§ Gates](#gates)).
+
+The user-ZP swap is mem.s's four primitives, their two buffers and
+debugger.s's seeds, all `.ifdef PLATFORM_C64`; on m65 the transitions
+switch `B` and `save_userland_state`'s swap tail is an `rts`.  The
+user-ZP view of `m` and `.` (repl.s's `zp_stage_prep`, `zp_poke`;
+debugger.s's `peek_user`) is `PLAT_PENDING 1` on m65.
 
 ### Banking
 
@@ -422,8 +441,9 @@ code.
    baseline of the sites not yet moved, which each seam's commit
    lowers and which is empty when the last seam lands — so every
    commit of the refactor is green and none can add a site.  Then the
-   test asserts zero.  Beside it, the raw-byte audit
-   ([§ Raw-byte instructions](#raw-byte-instructions)) and the
+   test asserts zero.  Beside it, the base-page check
+   ([§ Base page](#base-page); zero from the start), the raw-byte
+   audit ([§ Raw-byte instructions](#raw-byte-instructions)) and the
    pending-body count ([§ Pending bodies](#pending-bodies)).
 3. **Per-seam tests.**  Each seam's platform body is pinned at the
    tier its host module uses ([testing.md](testing.md)): the m65

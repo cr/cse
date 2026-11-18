@@ -101,3 +101,38 @@ def test_audit_skips_platform_files_and_platform_inc(tmp_path):
 def test_a_non_platform_ifdef_does_not_shelter(tmp_path):
     assert _audit_source(tmp_path, "m.s",
                          ".ifdef DEBUG\n        sta $D020\n.endif\n") == [("io", 2)]
+
+
+# ── the base-page check (platform_layer.md § Base page) ──
+
+def test_no_base_page_symbol_in_an_absolute_mode():
+    """An absolute-mode access to a CSE base-page symbol, or a pointer
+    to one, is written BP_ABS(sym) — on m65 CSE's zero page is the
+    page CSE_BP, which a bare `$00xx` misses."""
+    assert AUDIT.base_page_count() == {}
+
+
+@pytest.mark.parametrize("line,flagged", [
+    ("        jmp (bp_ptr)", True),
+    ("        sta bp_buf,y", True),
+    ("        lda bp_buf+1,y", True),
+    ("        lda #<bp_buf", True),
+    ("        ldx #>bp_buf", True),
+    ("        .word bp_buf", True),
+    ("        sta alias,y", True),            # an alias of a base-page symbol
+    ("        jmp (BP_ABS(bp_ptr))", False),
+    ("        sta BP_ABS(bp_buf),y", False),
+    ("        lda #<BP_ABS(bp_buf)", False),
+    ("        lda (bp_ptr),y", False),         # zero-page indirect: B applies
+    ("        lda bp_buf,x", False),           # zero-page,x
+    ("        ldx bp_buf,y", False),           # LDX has zero-page,y
+    ("        lda bp_buf", False),
+    ("        sta other,y", False),            # not a base-page symbol
+    ("        lda #bp_len", False),            # a value, not an address
+])
+def test_base_page_check(tmp_path, line, flagged):
+    (tmp_path / "zp.s").write_text(
+        "        .exportzp bp_ptr, bp_buf\n")
+    (tmp_path / "m.s").write_text("alias = bp_buf\n" + line + "\n")
+    names = AUDIT.base_page_symbols(tmp_path)
+    assert bool(AUDIT.base_page_sites(tmp_path / "m.s", names)) == flagged

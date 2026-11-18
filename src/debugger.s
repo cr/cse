@@ -51,13 +51,17 @@
 
         .importzp rp_ptr, rp_ptr2
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
+.ifdef PLATFORM_C64
         .import kernel_zp_buf, userland_zp_buf
+.endif
         .importzp in_userland     ; zp.s
         .importzp dbg_reason      ; zp.s
         .import oplen_tbl
         .importzp asm_cpu
+.ifdef PLATFORM_C64
         .import save_userland_zp, restore_userland_zp
         .import save_kernel_zp, restore_kernel_zp
+.endif
 
         ; From breakpoints.s (L3, strictly-downward):
         .import patch_all
@@ -146,12 +150,16 @@ dbg_init:
         ;   After the very first user-exit cycle, save_userland_zp
         ;   and save_kernel_zp (in mem.s) overwrite these seeds with
         ;   real captured values.
+        ;
+        ;   m65: no ZP buffers, no seeds (mem.md § ZP swap on m65).
+.ifdef PLATFORM_C64
         lda #DDR_SEED
         sta userland_zp_buf + CPU_DDR
         sta kernel_zp_buf + CPU_DDR
         lda #PORT_SEED
         sta userland_zp_buf + CPU_PORT
         sta kernel_zp_buf + CPU_PORT
+.endif
         rts
 
 ; ═══════════════════════════════════════════════════════════════════════
@@ -225,8 +233,14 @@ save_userland_state:
         ; Post-exit invariant: live $00=$2F, $01=$36 (from
         ; kernel_zp_buf's [0]/[1], seeded by dbg_init and maintained
         ; by save_kernel_zp on every k→u transition).
+        ;
+        ; m65: no swap — the transitions switch B (§ Base page).
+.ifdef PLATFORM_C64
         jsr save_userland_zp
         jmp restore_kernel_zp       ; tail call (rts via restore_kernel_zp)
+.else
+        rts
+.endif
 
 ; ═══════════════════════════════════════════════════════════════════════
 ; Gate primitive — kernel → userland.
@@ -282,8 +296,11 @@ _rtu_body:
         ; Swap ZP: kernel's live → kernel_zp_buf, then user's
         ; userland_zp_buf → live.  Both helpers are CPU-port aware
         ; (see mem.s § CPU-port aware ZP save/restore).
+        ; m65: no swap — the transitions switch B (§ Base page).
+.ifdef PLATFORM_C64
         jsr save_kernel_zp
         jsr restore_userland_zp
+.endif
 
         ; Switch SP to user's reg_sp (see header).
         ldx reg_sp
@@ -580,7 +597,9 @@ brk_stub:
 ; user's ZP image (userland_zp_buf — the live ZP is the kernel's while
 ; CSE runs), everything else is read live.  Clobbers: Y.
 ;
+; m65: base page 0 through the far pointer — stated with P1.
 peek_user:
+.ifdef PLATFORM_C64
         ldy #0
         lda rp_ptr+1
         bne @live
@@ -591,6 +610,9 @@ peek_user:
         rts
 @live:  FAR_LDA rp_ptr
         rts
+.else
+        PLAT_PENDING 1
+.endif
 
 ; ── compute_rel_target ──────────────────────────────────────────────
 ; step_next_lo = brk_pc + 2 + sign_extend(byte_at(rp_ptr2+1)).

@@ -37,6 +37,10 @@ lowered).  When every count is zero the fixture is deleted.
     python3 dev/audit_platform_literals.py            # per-file counts
     python3 dev/audit_platform_literals.py --sites    # every site
     python3 dev/audit_platform_literals.py --write-baseline
+
+Beside it, the base-page check: no absolute-mode access to a CSE
+base-page symbol, nor a pointer to one, unless written BP_ABS(sym)
+(platform_layer.md § Base page).  It asserts zero from the start.
 """
 import json
 import pathlib
@@ -149,6 +153,72 @@ def counts(src=SRC):
     return out
 
 
+# ── The base-page check (platform_layer.md § Base page) ──────────────
+# An access to a CSE base-page symbol in an absolute mode, or a 16-bit
+# pointer to one, is written BP_ABS(sym): on m65 CSE's zero page is the
+# page CSE_BP, which an absolute address reaches only with that page.
+
+_INSN = re.compile(r"^\s*(?:[@\w]+:)?\s*([A-Za-z]{3})\s+(.+?)\s*$")
+_ALIAS = re.compile(r"^\s*([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\b")
+_WORD = re.compile(r"^\s*(?:[@\w]+:)?\s*\.(?:word|addr)\s+(.*)$", re.I)
+_ID = r"([A-Za-z_]\w*)"
+
+
+def base_page_symbols(src=SRC):
+    """zp.s's exported symbols and every module's aliases of them."""
+    names = set()
+    for line in (src / "zp.s").read_text().splitlines():
+        m = re.match(r"\s*\.exportzp\s+(.*)", strip_comment(line))
+        if m:
+            names |= {n.strip() for n in m.group(1).split(",") if n.strip()}
+    grew = True
+    while grew:
+        grew = False
+        for f in src.glob("*.s"):
+            for line in f.read_text(errors="replace").splitlines():
+                m = _ALIAS.match(strip_comment(line))
+                if m and m.group(2) in names and m.group(1) not in names:
+                    names.add(m.group(1))
+                    grew = True
+    return names
+
+
+def base_page_sites(path, names):
+    """[(line number, text)] of absolute-mode uses of a base-page symbol
+    not written BP_ABS(sym): `jmp (sym)`, `op sym,y` (no zero-page,y
+    form except LDX / STX), `#<sym` / `#>sym`, `.word sym`."""
+    out = []
+    for n, raw in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        line = strip_comment(raw)
+        if "BP_ABS(" in line:
+            continue
+        hit = False
+        m = _WORD.match(line)
+        if m:
+            hit = any(re.match(_ID, a.strip()) and
+                      re.match(_ID, a.strip()).group(1) in names
+                      for a in m.group(1).split(","))
+        m = _INSN.match(line)
+        if m and not hit:
+            op, arg = m.group(1).lower(), m.group(2)
+            for pat in (r"^#[<>]\s*" + _ID, r"^\(\s*" + _ID + r"[^,]*\)\s*$"):
+                mm = re.match(pat, arg)
+                if mm and mm.group(1) in names and (pat[1] == "#" or op == "jmp"):
+                    hit = True
+            mm = re.match(_ID + r"[^,(]*,\s*[yY]\s*$", arg)
+            if mm and mm.group(1) in names and op not in ("ldx", "stx"):
+                hit = True
+        if hit:
+            out.append((n, raw.strip()))
+    return out
+
+
+def base_page_count(src=SRC):
+    names = base_page_symbols(src)
+    return {f.name: len(s) for f in sorted(src.glob("*.s"))
+            if f.name != "zp.s" and (s := base_page_sites(f, names))}
+
+
 def main(argv):
     if "--write-baseline" in argv:
         BASELINE.write_text(json.dumps(
@@ -169,6 +239,10 @@ def main(argv):
                 for n, cls, text in found:
                     print(f"    {n:5d} {cls:7s} {text[:70]}")
     print(f"{'total':24s} {total:4d}")
+    names = base_page_symbols()
+    for f in sorted(SRC.glob("*.s")):
+        for n, text in ([] if f.name == "zp.s" else base_page_sites(f, names)):
+            print(f"base page: {f.name}:{n}: {text[:60]}")
     return 0
 
 

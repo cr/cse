@@ -50,6 +50,11 @@ are static Tier U tests in `tests/unit/test_platform_audit.py`:
   the baseline; when it is empty, the fixture is deleted and the test
   asserts zero.  The audit itself is pinned by unit tests on small
   synthetic sources.
+- *The base-page check* — the same tool: no absolute-mode access to
+  a CSE base-page symbol (zp.s's exports and their aliases), nor a
+  16-bit pointer to one, unless written `BP_ABS(sym)`
+  ([platform_layer.md § Base page](platform_layer.md#base-page));
+  zero, with unit tests on synthetic sources.
 - *The raw-byte audit* — no `.byte` in a CODE segment outside
   `src/m45_ops.inc` emits a 45GS02-only opcode (the 4510 rows the
   6502 lacks, from `dev/instruction_set.py`).

@@ -63,6 +63,9 @@ CHRCOLOR        = $0286         ; the colour CHROUT writes
 KEY_REPEAT      = $028A         ; RPTFLG
 CHARSET_LOCK    = $0291         ; MODE: $80 locks SHIFT+C= charset switching
 
+; ── CSE's base page ──────────────────────────────────────────────────
+BP_PAGE         = $00           ; the page CSE's zero page is in (BP_ABS)
+
 ; ── The CPU port and the user ZP ─────────────────────────────────────
 CPU_DDR         = $00
 CPU_PORT        = $01
@@ -121,6 +124,14 @@ SID_VOL         = $D418
 DISK_LOCAL_PTR  = $FD
 
 .endif ; PLATFORM_C64
+
+; ── Base page (§ Base page) ──────────────────────────────────────────
+; The 16-bit address of a CSE base-page symbol, for an access in an
+; absolute mode (`jmp (sym)`, `sta sym,y` with no zero-page form) and
+; for a pointer to one.  c64: the symbol itself.  The leading unary +
+; keeps `BP_ABS(sym),y` absolute-indexed: an operand that opens with
+; `(` would parse as `(zp),y`.
+.define BP_ABS(sym) +((sym) + BP_PAGE * 256)
 
 ; ═════════════════════════════════════════════════════════════════════
 ; Macros — one contract each (doc/platform_layer.md § Seam contracts),
@@ -231,6 +242,18 @@ name:   .res FAR_SIZE
 .macro FAR_ORA name
   .ifdef PLATFORM_C64
         ora (name),y
+  .endif
+.endmacro
+
+; ── Pending bodies (§ Pending bodies) ────────────────────────────────
+; The m65 body of a seam stated with milestone P<n> but not yet
+; written: BRK and the signature byte n.  Never an expansion on c64.
+.macro PLAT_PENDING n
+  .ifdef PLATFORM_C64
+        .error "PLAT_PENDING is an m65 body only"
+  .else
+        brk
+        .byte n
   .endif
 .endmacro
 

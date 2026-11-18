@@ -34,10 +34,12 @@
 ; ── Exports ──────────────────────────────────────────────────
         .export kernal_bank_out, kernal_bank_in
         .export cse_start, cse_end, cse_zp_end
+.ifdef PLATFORM_C64                     ; m65: no ZP swap (§ Base page)
         .export save_userland_zp, restore_userland_zp
         .export save_kernel_zp, restore_kernel_zp
         .export userland_zp_buf, kernel_zp_buf
         .export ZP_SAVE_LO, ZP_SAVE_LEN
+.endif
 
 ; ── Imports ──────────────────────────────────────────────────
         .import __ZP_LAST__
@@ -48,6 +50,7 @@
 ; ── BSS ──────────────────────────────────────────────────────
 .segment "BSS"
 
+.ifdef PLATFORM_C64
 ; ── ZP save/restore buffers ─────────────────────────────────
 ; Cover the full user-accessible page-zero range $00..$7F.  CSE
 ; allocates only part of it for its own variables (zp.s), but the
@@ -60,6 +63,7 @@
 kernel_zp_buf:  .res ZP_SAVE_LEN  ; kernel's ZP snapshot (exit capture)
 userland_zp_buf:    .res ZP_SAVE_LEN  ; user's ZP snapshot (exit capture,
                                    ; restored on re-entry)
+.endif ; PLATFORM_C64
 
 .import __CODE_RUN__
 
@@ -142,6 +146,8 @@ cse_zp_end:
         ldx #0
         rts
 
+.ifdef PLATFORM_C64                     ; m65: no ZP swap (doc/modules/mem.md
+                                        ; § ZP swap on m65)
 ; ═══════════════════════════════════════════════════════════════════════════
 ; CPU-port aware ZP save/restore — kernel↔userland ZP swap primitives
 ;
@@ -271,3 +277,4 @@ cse_zp_end:
         rts
 .endproc
 
+.endif ; PLATFORM_C64

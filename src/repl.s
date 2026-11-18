@@ -57,7 +57,9 @@
         .import dbg_bp_hit
         .import brk_pc, brk_stub
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
+.ifdef PLATFORM_C64
         .import userland_zp_buf
+.endif
         .import step_state, step_remaining
         .import step_next_pc, arm_step_bp
         .import step_next_lo, step_next_hi
@@ -1014,6 +1016,8 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; Introspection build: no redirect.  rp_ptr2 already points
         ; at the live address; downstream consumers read live ZP.
         rts
+.elseif .defined(PLATFORM_M65)
+        PLAT_PENDING 1                  ; base page 0 through far pointers
 .else
         ldx rp_ptr2+1                   ; only a page-$00 or page-$FF
         inx                             ; base can reach the save range
@@ -1066,6 +1070,8 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; Introspection build: no redirect.  Direct live write.
         FAR_STA rp_ptr2
         rts
+.elseif .defined(PLATFORM_M65)
+        PLAT_PENDING 1                  ; base page 0 through far pointers
 .else
         pha
         tya
@@ -2670,21 +2676,21 @@ adv_ptr1:
 .proc copy_stem_to_project
         ldy #0
 @cp:    FAR_LDA rp_ptr2
-        sta cur_project_name,y
+        sta BP_ABS(cur_project_name),y
         beq @strip              ; copy hit NUL → start trailing-dot strip
         iny
         cpy #FILENAME_MAX
         bcc @cp
         lda #0
-        sta cur_project_name,y  ; force NUL at max
+        sta BP_ABS(cur_project_name),y ; force NUL at max
 @strip: ; back up over any trailing dots, replacing with NUL
 @sl:    dey
         bmi @done               ; string was entirely dots (or empty)
-        lda cur_project_name,y
+        lda BP_ABS(cur_project_name),y
         cmp #'.'
         bne @done
         lda #0
-        sta cur_project_name,y
+        sta BP_ABS(cur_project_name),y
         jmp @sl
 @done:  rts
 .endproc
@@ -2803,9 +2809,9 @@ adv_ptr1:
         dex
         bpl @fd
 @ok:
-        lda #<cur_project_name
+        lda #<BP_ABS(cur_project_name)
         sta rp_ptr2
-        lda #>cur_project_name
+        lda #>BP_ABS(cur_project_name)
         sta rp_ptr2+1
         lda #1
         rts
@@ -3660,7 +3666,7 @@ prg_ok_done:
         sta rp_ptr2
         lda @cmd_hi,y
         sta rp_ptr2+1
-        jmp (rp_ptr2)
+        jmp (BP_ABS(rp_ptr2))
 @unknown:
         lda #<str_cmd
         ldx #>str_cmd
