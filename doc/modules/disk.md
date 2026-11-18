@@ -217,12 +217,14 @@ prints `fl_buf` after `l` / `s` without reading again; `$` prints
 
 ## Caveats
 
-- PRG load uses KERNAL LOAD; PRG save and both SEQ paths use
-  OPEN / CHKOUT or CHKIN / CHROUT or CHRIN / CLOSE.
+- PRG load uses KERNAL LOAD (after an OPEN / CHKIN / CHRIN read of
+  the header when no address is given); PRG save and both SEQ paths
+  use OPEN / CHKOUT or CHKIN / CHROUT or CHRIN / CLOSE.
 - Saves use the `@:` prefix: an existing file is replaced silently,
   no "file exists" error.
-- Write errors after a successful OPEN are not detected: the save
-  entries return 0 (see § Design, Error channel).
+- A drive's refusal after a successful OPEN is detected by its
+  status code after CLOSE (§ Design, Error channel), not as it
+  happens: the bytes are sent first.
 - An empty SEQ file (0 bytes read) is treated as an error by
   `disk_load_seq` (returns 1).
 - `build_open_str` uses `open_buf` (28B BSS) as scratch.

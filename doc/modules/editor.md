@@ -65,9 +65,8 @@ editor cursor.  A refused key blips (`io_blip`) and changes nothing.
 — A = 1, X = 0, Z = 0; `ed_dirty` and the buffer unchanged.  Writes
 the pre-gap then the post-gap bytes as a SEQ file through
 `disk_save_seq` (`@:` replace, see [disk.md](disk.md)).  "Disk
-error" means the OPEN failed; a write error after a successful OPEN
-is not detected (success is returned, the drive status line the
-REPL prints shows it).
+error" means the OPEN failed or the drive refused the file (its
+status code is not `0x`: write protect, disk full).
 **Clobbers:** A, X, Y, `disk_ptr`, `read_ptr` (= save_ptr), and what
 `disk_save_seq` clobbers.
 
