@@ -910,8 +910,9 @@ documentation round that follows this filing.
 - [x] **`TAB_WIDTH` accepts 1..32 but only powers of two work**
   (`and #TAB_MASK`); add a power-of-two `.error` and narrow the doc.
   Fixed 2026-11-18: editor.s refuses any TAB_WIDTH but 1/2/4/8/16/32 at build time; editor.md and build_system.md narrowed, test test_tab_width_must_be_power_of_two.
-- [ ] **RETURN at one byte of room**: the gutter-tab insert ignores
+- [x] **RETURN at one byte of room**: the gutter-tab insert ignores
   carry; `ed_cur_col` drifts (editor.md says it cannot).
+  Fixed 2026-11-18: a failed gutter-tab insert leaves `ed_cur_col` = 0 (CR kept, no indent), test test_return_with_one_byte_of_room_opens_line_without_indent.
 - [x] **Tier I tests run against a stale PRG**: `conftest.py` calls
   `make` only when the PRG or map is missing; `.inc` files are not
   prerequisites in the Makefile or the bundles.

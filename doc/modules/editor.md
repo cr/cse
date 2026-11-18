@@ -358,9 +358,12 @@ full visual width of that tab in one keystroke.
 2. Strip all $A0 tabs adjacent to the cursor (left and right).
 3. If the byte now left of the cursor is `:`, strip all leading
    $A0 tabs from the current line (label slides to column 0).
-4. Insert $0D + $A0 tab.
+4. Insert $0D + $A0 tab.  With room for the $0D only (one byte
+   left at `BUF_FLOOR`), the new line opens without its tab and
+   `ed_cur_col` = 0; with no room, RETURN is refused (§ Buffer-full
+   refuse).
 
-Every new line gets a gutter tab (step 4).  Labels lose their
+Every new line gets a gutter tab (step 4) when it fits.  Labels lose their
 gutter when RETURN follows a colon (step 3).  Splitting a line
 in mid-gutter removes the tabs around the split point (step 2)
 so neither side gets a double tab.

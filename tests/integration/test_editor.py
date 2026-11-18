@@ -422,6 +422,27 @@ class TestBufferOverflow:
         assert gap_before == gap_after, \
             "INS refused must not move gap_lo"
 
+    def test_return_with_one_byte_of_room_opens_line_without_indent(self, cse_prg):
+        """RETURN mid-content with room for the CR but not the gutter
+        tab: the CR lands, the indent does not, so the cursor is at
+        column 0 of the new line — ed_cur_col matches the buffer."""
+        emu = make_emu(cse_prg)
+        floor = TestBufferOverflow.BUF_FLOOR
+        for sym, val in (("buf_base", floor), ("gap_lo", floor + 2),
+                         ("gap_hi", floor + 3)):
+            emu.write_word(emu.sym(sym), val)
+        emu.memory[floor:floor + 4] = b"AB\x00\r"   # "AB" | 1-byte gap | CR
+        emu.memory[emu.sym("ed_cur_col")] = 2
+        emu.write_word(emu.sym("ed_cur_line"), 0)
+        emu.write_word(emu.sym("ed_top_line"), 0)
+        emu.write_word(emu.sym("ed_top_ptr"), floor)
+        type_keys(emu, b"\r")
+        gap_lo = emu.read_word(emu.sym("gap_lo"))
+        assert gap_lo == floor + 3 and emu.memory[floor + 2] == 0x0D
+        assert emu.read_word(emu.sym("ed_cur_line")) == 1
+        assert emu.memory[emu.sym("ed_cur_col")] == 0, \
+            "the tab did not fit: the cursor is at column 0"
+
 
 # ── TAB_WIDTH build guard (editor.md § Tab width) ─────────────────────────
 

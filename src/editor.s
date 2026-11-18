@@ -1657,13 +1657,12 @@ _ed_cur_row:
         bne :+
         inc ed_cur_line+1
 :       lda #$A0
-        jsr gb_insert           ; second insert may fail on the very last
-                                ; byte of capacity; accept partial state
-                                ; (CR landed, indent missed) — bookkeeping
-                                ; below assumes the tab succeeded but
-                                ; that's only cosmetic on the new line.
-        lda #TAB_WIDTH
-        sta ed_cur_col
+        jsr gb_insert           ; may fail on the very last byte of
+                                ; capacity: the CR stays, the line opens
+        lda #TAB_WIDTH          ; without its indent (C=0 → column 0)
+        bcs :+
+        lda #0
+:       sta ed_cur_col
         jmp @enter_render
 
         ; Step 1 (BOL path): just insert CR
