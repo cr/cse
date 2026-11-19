@@ -170,7 +170,7 @@ disassembler (A4) followed: see A4 below.
   [symtab.md § Pass stamp](modules/symtab.md#pass-stamp-mega_support));
   what is left is zone B's `REL` / `REL16` choice reading `expr_fwd`
   (B4).
-- [ ] B5. `.cpu` / `u` on m65 ([assembler_syntax.md](assembler_syntax.md),
+- [x] B5. `.cpu` / `u` on m65 ([assembler_syntax.md](assembler_syntax.md),
   [repl.md](modules/repl.md)).
 - [ ] B6. `dasm_insn`: prefix peel, m65 modes, 1–5-byte length
   ([dasm.md](modules/dasm.md)).
@@ -1651,6 +1651,10 @@ in a source (test_m65_asm_src.py) on m65 too.  Found while coding:
 rejection path (a rejected mode 8–15 read as accepted, opcode `$00`).
 m65-45gs02 24 141 B.  C64 PRGs byte-identical.
 
+Step (6) done 2026-11-19 by step (2)'s table: `cpu_names` holds the m65
+set under `CPU_45GS02`, so `.cpu` and `u` take 6502, 65c02, 4510 and
+45gs02 and refuse 6510 on m65 — tests only (T6).
+
 **P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
 first, step by step; each is red until its code lands.  Automation
 judgement: all of it is automatable — the generators on the host,
@@ -1712,7 +1716,7 @@ hardware: O1 and O3, as before.
   nothing at `$0000`/`$0001`.  Source assembly (`test_asm_src.py`,
   m65): a forward and a backward far branch give the same addresses
   in both passes.
-- [ ] T6. `.cpu` / `u` on m65 (step 6; M65Session): `.cpu 6502`,
+- [x] T6. `.cpu` / `u` on m65 (step 6; M65Session): `.cpu 6502`,
   `65c02`, `4510`, `45gs02` set 0 / 2 / 3 / 4, `6510` refused;
   `u` lists `6502 65c02 4510 45gs02` with the active one marked.
 - [ ] T7. The disassembler on m65 (step 7; the m65 `dasm` bundle):

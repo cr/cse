@@ -491,3 +491,29 @@ def test_j_in_a_session_y_ends_it_and_runs(s):
 def test_the_cold_start_selects_the_45gs02(s):
     """DEFAULT_CPU = 4 (build_system.md § Builds and CPU sets)."""
     assert s.v("asm_cpu") == 4
+
+
+# ── P4 T6: `.cpu` and `u` on m65 — the set {6502, 65c02, 4510, 45gs02} ──
+
+@pytest.mark.parametrize("name,value", [("6502", 0), ("65c02", 2), ("4510", 3),
+                                        ("45gs02", 4), ("6510", None)])
+def test_u_selects_the_m65_set(s, name, value):
+    s.type("u 6502")
+    s.type(f"u {name}")
+    assert s.v("asm_cpu") == (0 if value is None else value)
+    s.find(r"^; cpu: 6502" + ("\\*" if value in (0, None) else "") + r" 65c02")
+
+
+def test_u_lists_the_set_with_the_active_one_marked(s):
+    s.type("u")
+    s.find(r"^; cpu: 6502 65c02 4510 45gs02\*$")
+
+
+@pytest.mark.parametrize("name,errors", [("65c02", 0), ("4510", 0), ("6510", 1)])
+def test_cpu_directive_on_m65(s, name, errors):
+    s.call("ed_ensure_init")
+    for ch in f"\xa0.cpu {name}\r\xa0.org $3000\r\xa0nop\r".upper().encode("latin-1"):
+        s.call("gb_insert", a=ch)
+    s.type("a", max_steps=6_000_000)
+    assert s.w("asm_errors") == errors
+    assert s.v("asm_cpu") == 4                     # the REPL's CPU is kept
