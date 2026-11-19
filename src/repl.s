@@ -277,8 +277,8 @@ INFO_TBL_TAIL_ROWS = (* - info_tbl_tail) / 8
 ; m65: memory_design.md § Memory Map — m65's bank table, each row with
 ; its bank.  9 bytes per row: tag(2) lo(2) hi(2) desc(2; 0 = a free
 ; row, its size computed) bank(1).  Part A is banks 0 and 1, part B
-; the rest; the last two rows (banks 4 and 5) are left out in 80 × 50,
-; whose screen is in bank 4.
+; the rest; the bank-4 row is left out in 80 × 50, whose screen is
+; there (4.0800-4.179F).
 INFO_M65_ROW    = 9
 info_m65:
         .addr str_tag_low,  $1600,   $1EFF,   0         ; free for programs
@@ -294,9 +294,10 @@ INFO_M65_A = * - info_m65
         .byte BANK_CSE
         .addr str_tag_cse,  $8000,   $BFFF,   str_data  ; KDATA, BSS, homes
         .byte BANK_CSE
-INFO_M65_B50 = * - info_m65
+INFO_M65_BANK4 = * - info_m65
         .addr str_tag_ext,  $0000,   $FFFF,   0
         .byte 4
+INFO_M65_BANK5 = * - info_m65
         .addr str_tag_ext,  $0000,   $FFFF,   0
         .byte 5
 INFO_M65_END = * - info_m65
@@ -1282,7 +1283,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; `m` edit path's _require_eoi_or_err recognises `;` as
         ; valid EOI.  Without this, `m XX XX ... XX XX ASCII`
         ; would syntax-err on the ASCII column.  Same width as
-        ; the previous space — the line still fits in 40 cols.
+        ; the previous space — the row still fits its width.
         lda #';'
         jsr io_putc
 
@@ -2977,7 +2978,7 @@ TAB_WIDTH = 8
 .endif
 TAB_MASK_WL = TAB_WIDTH - 1
 
-; warn_long_lines — print ";!long LNN" for each line > 39 vcols
+; warn_long_lines — print ";!long LNN" for each line > LINE_MAX vcols
 ;
 ; Walks the buffer via ed_read_byte, computing visual width per
 ; line.  Prints one warning per overflowing line.  TAB_WIDTH is
@@ -3013,7 +3014,7 @@ TAB_MASK_WL = TAB_WIDTH - 1
         sta wl_vcol
         jmp @byte
 
-@eol:   ; End of line — check if vcol > 39
+@eol:   ; End of line — check if vcol > LINE_MAX
         jsr @check_vcol
         ; Advance line counter, reset vcol
         inc wl_line
@@ -3722,8 +3723,10 @@ prg_ok_done:
         lda scr_height
         cmp #50
         bcc :+
-        ldy #INFO_M65_B50               ; 80 × 50: the screen is in bank 4; banks 4-5
-                                        ;   are rows in the other modes (§ Info map)
+        ldy #INFO_M65_BANK4             ; 80 × 50: bank 4 holds the screen,
+        jsr info_m65_rows               ;   so up to bank 3, then bank 5
+        ldx #INFO_M65_BANK5
+        ldy #INFO_M65_END
 :       jsr info_m65_rows
         lda #0
         sta info_bank                   ; the other range rows: bank 0

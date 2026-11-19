@@ -851,8 +851,8 @@ The work row ends at `buf_base - 1` and follows the build's runtime
 start and the loaded source.
 
 On m65 the splash's free rows are the user's regions with their
-banks (in 80 × 50 without the two bank rows, whose bank 4 holds the
-screen), from row height − 10:
+banks (in 80 × 50 without the bank-4 row: the screen is there), from
+row height − 10:
 
     ; low  0.1600-1eff  2304b free
     ; work 0.2000-bfff 40960b free
@@ -935,8 +935,8 @@ bank table, in bank order, each range written `b.aaaa-bbbb`:
     ; src  2.XXXX-XXXX Nl NNb            the source text (only when loaded)
     ; cse  3.2000-7fff code              CODE + RODATA
     ; cse  3.8000-bfff data              KDATA, BSS and the homes
-    ; ext  4.0000-ffff 65536b free       not in 80 x 50
-    ; ext  5.0000-ffff 65536b free       not in 80 x 50
+    ; ext  4.0000-ffff 65536b free       not in 80 x 50 (its screen)
+    ; ext  5.0000-ffff 65536b free
 
 The fixed rows are the `info_m65` table (9 bytes a row: tag, lo, hi,
 desc — 0 for a free row, whose size is computed — and the bank),

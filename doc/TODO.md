@@ -1231,10 +1231,16 @@ matrix through the REPL (moved from P1, D-P1-5).
   drops a meaningless `ldx #0`; the test helpers `cell` and the text
   modes moved into `M65Emu` / `harness.TEXT_MODES`; stale c64 numbers
   in shared comments (rows, columns, byte counts) rewritten in the
-  operand defines' terms.  m65-6502 22 753 → 22 665 B.  Not changed,
-  by the approved design: banks 4–5 are `i` rows in 40 × 25 and 80 × 25
-  only (bank 5 is free in 80 × 50 too), and a fresh start's `SYSFLAGS`
-  is the premise's `$00` whole (D-P2-3).
+  operand defines' terms.  m65-6502 22 753 → 22 665 B.  Second pass
+  (the review's open items): `i` and the splash list bank 5 in 80 × 50
+  too — measured on M65Emu on both ROMs, the KERNAL's 80 × 50 (mode
+  switches, scrolling, the editor's save and restore) writes nothing in
+  banks 4–5 but its screen, 4.0800–4.179F, so the delta's "banks 4–5
+  in 40 × 25 and 80 × 25" hid a free bank (amended: platform_layer.md
+  § Info map, memory_design.md, repl.md); `warn_long_lines`' comments in
+  `LINE_MAX` terms.  Not changed: a fresh start's `SYSFLAGS` is the
+  premise's `$00` whole — D-P2-3, the operator's ruling, and the
+  recorded premise.
 
 **P3 — disk, exit and the three distribution formats.**
 
@@ -3956,6 +3962,21 @@ Defined scope, needs work.
 
 ### Assembler
 
+- [ ] `.` REPL command: accept the explicit accumulator form (`. asl a`,
+  `. rol a`, `. lsr a`, `. ror a`, and on 65C02 / m65 `. inc a`,
+  `. dec a`).  Today it is `;?syntax` (checked 2026-11-19: `. asl`
+  assembles `$0A`, `. asl a` does not), while the source assembler
+  takes both forms (asm_line.md § ACC mode handling) and the
+  disassembler lists `asl a` — so RETURN on a `d` row that shows
+  `asl a` fails, and README.md § REPL states that as a limit
+  ("the REPL assembles the accumulator form only bare").  Cause: the
+  same as the item below — `dot_assemble` pre-evaluates the operand
+  through `expr_eval`, so `mode_parse`'s SC_A path never sees the bare
+  `a`.  Done when `. asl a` assembles the ACC opcode on every build
+  (and still reaches a defined label `a` on mnemonics without ACC, as
+  `lda a` does), a `d` row with `asl a` re-executes, and the README's
+  limit paragraph is deleted.  Fixing the item below by option (b)
+  fixes this one too.
 - [ ] `.` REPL command: emit ACC label-shadow warning to match the
   source-assembler behaviour.  `dot_assemble` (in repl.s) pre-
   evaluates expressions via `expr_eval` *before* calling `asm_line`

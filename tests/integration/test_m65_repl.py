@@ -288,12 +288,14 @@ def test_i_prints_the_m65_rows_with_their_banks(s):
     assert s.row(k + len(INFO)) == "2000:"
 
 
-def test_i_in_80x50_has_no_bank_4_and_5_rows(s):
+def test_i_in_80x50_has_no_bank_4_row(s):
+    """Bank 4 holds the 80 x 50 screen (4.0800-4.179F); bank 5 stays
+    free — measured: the KERNAL's 80 x 50 writes nothing else there."""
     s.mode("5")
     s.type("i")
     k, _ = s.find(r"^; low  0\.1600")
-    assert s.rows()[k:k + 6] == INFO[:6]
-    assert s.row(k + 6) == "2000:"
+    assert s.rows()[k:k + 7] == INFO[:6] + INFO[7:]
+    assert s.row(k + 7) == "2000:"
 
 
 def test_i_shows_a_loaded_source_in_bank_2(s):

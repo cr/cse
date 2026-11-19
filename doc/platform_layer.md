@@ -635,8 +635,8 @@ block per platform (`.ifdef`), each stating that platform's map in
 dynamic rows is the c64 map's.  On m65 the rows are
 [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)'s
 bank table — the user's regions (`0.1600–0.1EFF`, the program region
-with `workstart` / `workend`, bank 1 above the DOS buffers, banks 4–5
-in 40 × 25 and 80 × 25), CSE's page, the source region, CSE's code and
+with `workstart` / `workend`, bank 1 above the DOS buffers, bank 4
+in 40 × 25 and 80 × 25, bank 5), CSE's page, the source region, CSE's code and
 data windows — each written with its bank, `b.aaaa-bbbb`
 ([glossary.md](glossary.md)).
 

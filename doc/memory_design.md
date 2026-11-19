@@ -482,8 +482,9 @@ pointers ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
     3.C000–3.CFFF  reserve (4 K)                                CSE (unused)
     3.D000–3.DFFF  character set B                              the ROM
     3.E000–3.FFFF  KERNAL                                       the KERNAL
-    4.0000–5.FFFF  free, except the screen in 80 × 50           the KERNAL in 80 × 50
-                   (4.0800–4.179F)
+    4.0000–5.FFFF  free, except the screen in 80 × 50           the KERNAL's screen
+                   (4.0800–4.179F; the KERNAL writes nothing     in 80 × 50
+                   else in banks 4–5, measured on M65Emu)
     800.0000+      Attic RAM                                    —
 
 **The data window (`3.8000–3.BFFF`).**  KDATA and BSS from its
