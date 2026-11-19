@@ -172,7 +172,7 @@ disassembler (A4) followed: see A4 below.
   (B4).
 - [x] B5. `.cpu` / `u` on m65 ([assembler_syntax.md](assembler_syntax.md),
   [repl.md](modules/repl.md)).
-- [ ] B6. `dasm_insn`: prefix peel, m65 modes, 1–5-byte length
+- [x] B6. `dasm_insn`: prefix peel, m65 modes, 1–5-byte length
   ([dasm.md](modules/dasm.md)).
 - [ ] B7. REPL `.` / `d`: hex columns = the build's maximum length;
   `dot_assemble` passes suffixes, `[`, `,z`, `,sp`
@@ -1655,6 +1655,16 @@ Step (6) done 2026-11-19 by step (2)'s table: `cpu_names` holds the m65
 set under `CPU_45GS02`, so `.cpu` and `u` take 6502, 65c02, 4510 and
 45gs02 and refuse 6510 on m65 — tests only (T6).
 
+Step (7) done 2026-11-19: dasm.s on `MEGA_SUPPORT` snapshots 5 bytes,
+peels the prefixes at `asm_cpu` 4 (Q by the Q map, far by the map's
+`ZPIZ`, both; the snapshot shifted, `_dasm_pfx`), adds them to the
+length, lists Q names and `q` stems, and formats `#$1234`, 16-bit
+targets, `),z`, `,sp),y`, `[ ]`, `ZPIZ` as `($nn)` (the 65C02 view, the
+Q-map-2 forms) and the accumulator bare.  test_dasm_m65.py: every
+opcode at `asm_cpu` 0 / 2 / 3 / 4 as its view, every prefixed row at
+4, no peel below, and the asm → dasm → asm round trip over the 45GS02
+view.  m65-45gs02 24 484 B.
+
 **P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
 first, step by step; each is red until its code lands.  Automation
 judgement: all of it is automatable — the generators on the host,
@@ -1719,7 +1729,7 @@ hardware: O1 and O3, as before.
 - [x] T6. `.cpu` / `u` on m65 (step 6; M65Session): `.cpu 6502`,
   `65c02`, `4510`, `45gs02` set 0 / 2 / 3 / 4, `6510` refused;
   `u` lists `6502 65c02 4510 45gs02` with the active one marked.
-- [ ] T7. The disassembler on m65 (step 7; the m65 `dasm` bundle):
+- [x] T7. The disassembler on m65 (step 7; the m65 `dasm` bundle):
   every opcode at `asm_cpu` 0 / 2 / 3 / 4 and every prefix sequence
   the peel accepts (`$42 $42` + each Q opcode, `$EA` + each
   far-capable one, both) lists as the oracle, with its length; the

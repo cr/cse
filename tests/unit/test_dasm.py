@@ -124,7 +124,7 @@ def expected_length(cpu, opc):
 def gen_cases():
     cases = []
     for config, cpus in R.CONFIG_CPUS.items():
-        if config in M65_CONFIGS:            # the m65 set: with P4 step (7)
+        if config in M65_CONFIGS:            # the m65 set: test_dasm_m65.py
             continue
         for cpu in cpus:
             tag = R.CPU_VIEW[cpu].upper()

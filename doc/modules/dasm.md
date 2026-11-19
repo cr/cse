@@ -10,6 +10,7 @@
 | [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — one block per CPU set: the map blocks, the per-`asm_cpu` view tables (`dasm_cpu_map_lo/hi`; `dasm_cpu_bm` + `dasm_view_bm` where a view is a subset bitmap), `dasm_mode_len` and `dasm_mode_fmt` (one byte per mode) in RODATA; the packed mnemonic strings (the set's names only) in KDATA; on `MEGA_SUPPORT` also the Q map, and on m65 the map blocks in KDATA instead (§ Design).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
 | [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated, `.include`d by `dasm.s` — one block per CPU set: `MNE_UNK` (= 0), and only where the set needs them the decoder's switches `DASM_SUBSET`, `MNE_DIGIT_LO/HI` (on `MEGA_SUPPORT` also `MNE_QSFX_*`, `MNE_QNAME_*`).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
 | [`tests/unit/test_dasm.py`](../../tests/unit/test_dasm.py) | test contract |
+| [`tests/unit/test_dasm_m65.py`](../../tests/unit/test_dasm_m65.py) | test contract — the m65 set on its bundle (M65Emu): every opcode at `asm_cpu` 0 / 2 / 3 / 4, every prefixed row at 4, no peel below, the asm → dasm → asm round trip |
 | [`tests/integration/test_dasm_rom.py`](../../tests/integration/test_dasm_rom.py) | test contract — Tier I: `dasm_insn` reads the bytes of `$E000`+ through the caller's banking (KERNAL ROM at the REPL prompt) |
 
 ## Interface
@@ -55,8 +56,9 @@ mapped out by accident.
 instruction text (PETSCII + NUL); `_dasm_in` (3 on C64 builds, 5 on
 the m65 build) — input snapshot of the maximum-length instruction read
 from the user's address before banking out (see Caveats);
-`_dasm_pfx` (1, `MEGA_SUPPORT` only) — the peeled prefix enumeration,
-0 = none, 1 = Q, 2 = far, 3 = Q + far.
+`_dasm_pfx` (1, `MEGA_SUPPORT` only) — the peeled prefixes: bit 0 Q,
+bit 1 far, bit 2 a Q-map-2 form (its `ZPIZ` printed `($nn)`); the
+length adds 2 for Q, 1 for far.
 
 **No mutable bytes in CODE:** every scratch value lives in ZP or BSS
 (the branch-target adjustment is folded into the arithmetic of
@@ -168,7 +170,8 @@ for branch-target arithmetic.
 **Mode formatting.**  `dasm_mode_fmt` (one byte per mode, generated
 from `MODE_SHAPE` and `MODE_OPERAND_BYTES`) encodes prefix, operand
 size and suffix: hi nybble 0 = none, 1 = `$`+8, 2 = `$`+16, 3 = `#$`+8,
-4 = `($`+8, 5 = `($`+16, 6 = `a`, 7 = branch target (REL), 8 = ZPREL,
+4 = `($`+8, 5 = `($`+16, 6 = `a` (bare on m65: after a Q form `a`
+would read back as a label), 7 = branch target (REL), 8 = ZPREL,
 9 = `#$`+16 (IMM16), 10 = branch target (REL16); lo nybble 0 = none,
 1 = `,x`, 2 = `,y`, 3 = `)`, 4 = `,x)`, 5 = `),y`, 6 = `),z`,
 7 = `,sp),y`.  A far prefix prints `[` / `]` in place of `(` / `)`; a

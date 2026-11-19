@@ -8,6 +8,7 @@
 |------|------|
 | [`src/asm_src.s`](../../src/asm_src.s) | implementation |
 | [`tests/unit/test_asm_src.py`](../../tests/unit/test_asm_src.py) | test contract |
+| [`tests/integration/test_m65_asm_src.py`](../../tests/integration/test_m65_asm_src.py) | test contract — on the m65 PRG: a far backward and a forward branch pass-stable in a source |
 
 Its test bundle's stub, [`dev/asm_src_test_stub.s`](../../dev/asm_src_test_stub.s),
 is owned by [build_system.md](../build_system.md).

@@ -34,6 +34,16 @@
 .ifdef DASM_SUBSET
         .import dasm_cpu_bm, dasm_view_bm
 .endif
+.ifdef MEGA_SUPPORT
+        .import dasm_q_map
+DASM_INSN_MAX = 5               ; $42 $42 $EA, the opcode, an operand byte
+PFX_Q     = %00000001           ; _dasm_pfx: $42 $42 peeled
+PFX_FAR   = %00000010           ;            $EA peeled: [ ] for ( )
+PFX_ASZPI = %00000100           ;            ZPIZ printed ($nn): a Q-map 2 form
+MODE_ZPIZ = 19
+.else
+DASM_INSN_MAX = 3
+.endif
         .import kernal_bank_out, kernal_bank_in
 
 ; ── ZP usage ─────────────────────────────────────────────
@@ -42,12 +52,15 @@
 ; ── BSS ──────────────────────────────────────────────────
 .segment "BSS"
 dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
-_dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
+_dasm_in:      .res DASM_INSN_MAX ; input snapshot (the longest insn) read from
                                ; the user's address with the caller's bank
                                ; state still in force, so KERNAL ROM at
                                ; $E000+ is captured BEFORE dasm_insn banks
                                ; out for its internal table reads.  See the
                                ; rationale in dasm_insn's docstring.
+.ifdef MEGA_SUPPORT
+_dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix peel
+.endif
 
 ; ── CODE ─────────────────────────────────────────────────
 .segment "CODE"
@@ -84,12 +97,12 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         ; bank state is still in force.  _dasm_ptr stays pointing at
         ; the user address — it's used by branch-target arithmetic in
         ; format_operand to compute PC-relative destinations.
-        ldy #2
+        ldy #DASM_INSN_MAX - 1
 @cp:    FAR_LDA _dasm_ptr
         sta _dasm_in,y
         dey
         bpl @cp
-; dasm_insn_pre — entry for a caller that has filled _dasm_in (3 B)
+; dasm_insn_pre — entry for a caller that has filled _dasm_in (3 B; 5 on m65)
 ; and _dasm_ptr (the bytes' real PC, for branch targets) itself:
 ; the REPL's user-ZP staged view.  A label only, so the decoder's
 ; layout and cycle counts are unchanged.
@@ -114,6 +127,15 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         sta _dasm_mne
         lda dasm_cpu_map_hi,x
         sta _dasm_mne+1
+.ifdef MEGA_SUPPORT
+        lda #0
+        sta _dasm_pfx
+        cpx #4                  ; the 45GS02: peel its prefixes
+        bne :+
+        jsr _dasm_peel
+        ldx asm_cpu
+:
+.endif
         ldy _dasm_in            ; opcode
         sty _dasm_opc
 
@@ -188,8 +210,19 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         sta dasm_buf,x
         ; Return instruction length from mode
         ldx _dasm_mode
+.ifdef MEGA_SUPPORT
+        lda _dasm_pfx           ; + the prefixes' length: Q 2, far 1
+        and #PFX_Q | PFX_FAR
+        tay
+        lda dasm_mode_len,x
+        clc
+        adc @pfx_len,y
+        rts
+@pfx_len: .byte 0, 2, 1, 3
+.else
         lda dasm_mode_len,x
         rts
+.endif
 .endproc
 
 ; ════════════════════════════════════════════════════════════
@@ -197,6 +230,20 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
 ; ════════════════════════════════════════════════════════════
 .proc print_mne
         lda _dasm_midx
+.ifdef MEGA_SUPPORT
+        ; Under a Q prefix a Q-name stem (LDA STA ORA DEC INC) lists by the
+        ; name after it (ldq) — dasm.md § Design, *Mnemonic strings*.
+        tay
+        lda _dasm_pfx
+        and #PFX_Q
+        beq :+
+        cpy #MNE_QNAME_LO
+        bcc :+
+        cpy #MNE_QNAME_HI + 1
+        bcs :+
+        iny
+:       tya
+.endif
         asl                     ; ×2
         tax
         lda dasm_mne_str,x
@@ -249,6 +296,20 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         jsr buf_putc
 @space:
 .endif
+.ifdef MEGA_SUPPORT
+        ; Under a Q prefix a Q-suffix stem lists with its `q` (adcq).
+        lda _dasm_pfx
+        and #PFX_Q
+        beq @sp
+        lda _dasm_midx
+        cmp #MNE_QSFX_LO
+        bcc @sp
+        cmp #MNE_QSFX_HI + 1
+        bcs @sp
+        lda #$51                ; 'Q'
+        jsr buf_putc
+@sp:
+.endif
         lda #$20
         jmp buf_putc
 .endproc
@@ -279,7 +340,23 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         cpx #$07
         beq @rel
         cpx #$08
+.ifndef MEGA_SUPPORT
         beq @zprel
+.else
+        bne :+
+        jmp @zprel
+:
+        cpx #$0A
+        beq @rel16
+        cpx #$09
+        bne :+
+        lda #$23                ; IMM16: '#$' and 16 bits
+        jsr buf_putc
+        lda #$24
+        jsr buf_putc
+        jmp @op16
+:
+.endif
 
         ; Regular prefixed operand
         ; Emit prefix chars based on hi nybble
@@ -296,13 +373,17 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         jmp @operand
 
 @paren_prefix:
+.ifdef MEGA_SUPPORT
+        jsr _dasm_open          ; '(' or, far, '['
+.else
         lda #$28                ; '('
         jsr buf_putc
+.endif
         lda #$24                ; '$'
         jsr buf_putc
 
 @operand:
-        ; Is operand 16-bit? Hi nybble 2 or 5 = 16-bit
+        ; Is operand 16-bit? Hi nybble 2 or 5 = 16-bit (9, IMM16, goes direct)
         pla                     ; restore format byte
         pha
         lsr
@@ -329,9 +410,12 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         jsr buf_hex2
         jmp @suffix
 
-@acc:   ; Accumulator mode: print 'a'
+@acc:   ; Accumulator mode: print 'a' (m65: bare — after a Q form `a`
+        ; would read back as a label; asm_line.md § Mnemonic word)
+.ifndef MEGA_SUPPORT
         lda #$41                ; 'a' PETSCII
         jsr buf_putc
+.endif
         pla                     ; discard format byte
         rts
 
@@ -339,6 +423,23 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         ldy #1
         jsr _compute_branch_target
         jmp _emit_target
+
+.ifdef MEGA_SUPPORT
+@rel16: ; REL16: target = the instruction's last byte (PC + 2) + offset16
+        clc
+        lda _dasm_ptr
+        adc _dasm_in+1
+        tay
+        lda _dasm_ptr+1
+        adc _dasm_in+2
+        tax
+        tya
+        clc
+        adc #2
+        bcc :+
+        inx
+:       jmp _emit_target
+.endif
 
 @zprel: ; ZPREL: $XX,$XXXX (BBR/BBS)
         ; Emit "$XX," for the ZP byte first, then the branch target
@@ -358,7 +459,13 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         ; Lo nybble of format byte → suffix
         pla                     ; format byte
         and #$0F
+.ifdef MEGA_SUPPORT
+        bne :+
+        rts                     ; 0 = no suffix
+:
+.else
         beq @done               ; 0 = no suffix
+.endif
         cmp #$01
         beq @comma_x
         cmp #$02
@@ -367,6 +474,12 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         beq @close_paren
         cmp #$04
         beq @comma_x_paren
+.ifdef MEGA_SUPPORT
+        cmp #$06
+        beq @paren_z
+        cmp #$07
+        beq @sp_paren_y
+.endif
         ; must be 5: ),y
         lda #$29                ; ')'
         jsr buf_putc
@@ -388,8 +501,39 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         jmp buf_putc
 
 @close_paren:
+.ifdef MEGA_SUPPORT
+        jmp _dasm_close         ; ')' or, far, ']'
+
+@paren_z:                       ; ),z — or ($nn) in the 65C02 view and for
+        jsr _dasm_close         ;   a Q-map 2 form (dasm.md § Design)
+        lda _dasm_pfx
+        and #PFX_ASZPI
+        bne @done
+        lda asm_cpu
+        cmp #2
+        beq @done
+        lda #$2C                ; ','
+        jsr buf_putc
+        lda #$5A                ; 'z'
+        jmp buf_putc
+
+@sp_paren_y:                    ; ,sp),y
+        lda #$2C
+        jsr buf_putc
+        lda #$53                ; 's'
+        jsr buf_putc
+        lda #$50                ; 'p'
+        jsr buf_putc
+        lda #$29                ; ')'
+        jsr buf_putc
+        lda #$2C
+        jsr buf_putc
+        lda #$59                ; 'y'
+        jmp buf_putc
+.else
         lda #$29                ; ')'
         jmp buf_putc
+.endif
 
 @comma_x_paren:
         lda #$2C
@@ -401,6 +545,109 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
 
 @done:  rts
 .endproc
+
+.ifdef MEGA_SUPPORT
+; ════════════════════════════════════════════════════════════
+; _dasm_peel — the 45GS02's prefixes (dasm.md § Prefix peel), asm_cpu 4:
+;   $42 $42 op      Q, when op has a Q form
+;   $42 $42 $EA op  Q + far, when op is far-capable with a Q form
+;   $EA op          far, when op is far-capable (its mode ZPIZ)
+; The snapshot is shifted left by the prefixes' length; _dasm_pfx says
+; which.  In: _dasm_mne = the map block.  Clobbers A, X, Y.
+; ════════════════════════════════════════════════════════════
+.proc _dasm_peel
+        lda _dasm_in
+        cmp #$EA
+        beq @far
+        cmp #$42
+        bne @none
+        cmp _dasm_in+1
+        bne @none
+        ldy _dasm_in+2
+        cpy #$EA
+        bne @q
+        ldy _dasm_in+3          ; $42 $42 $EA op
+        jsr @farcap
+        bne @none
+        jsr @qform
+        beq @none
+        lda #PFX_Q | PFX_FAR
+        ldx #3
+        bne @shift
+@q:     jsr @qform              ; $42 $42 op
+        beq @none
+        lda #PFX_Q
+        ldx #2
+        bne @shift
+@far:   ldy _dasm_in+1          ; $EA op
+        jsr @farcap
+        bne @none
+        lda #PFX_FAR
+        ldx #1
+@shift: sta _dasm_pfx
+        ldy #0
+:       lda _dasm_in,x
+        sta _dasm_in,y
+        iny
+        inx
+        cpx #DASM_INSN_MAX
+        bcc :-
+        lda _dasm_pfx           ; a Q form whose ZPIZ is written ($nn)
+        and #PFX_Q
+        beq @none
+        ldy _dasm_in
+        jsr @qform
+        cmp #2
+        bne @none
+        lda _dasm_pfx
+        ora #PFX_ASZPI
+        sta _dasm_pfx
+@none:  rts
+
+; @qform — A = the Q-map value of opcode Y (0 none, 1, 2); Z = 1: none.
+@qform: tya
+        lsr
+        lsr
+        tax
+        tya
+        and #3
+        tay
+        lda dasm_q_map,x
+:       dey
+        bmi :+
+        lsr
+        lsr
+        bpl :-                  ; (always)
+:       and #3
+        rts
+
+; @farcap — Z = 1 when opcode Y's mode in the map is ZPIZ (far-capable).
+@farcap:
+        inc _dasm_mne+1         ; the mode bytes (block + 256)
+        lda (_dasm_mne),y
+        dec _dasm_mne+1
+        cmp #MODE_ZPIZ
+        rts
+.endproc
+
+; _dasm_open / _dasm_close — '(' / ')', or '[' / ']' under a far prefix
+_dasm_open:
+        lda _dasm_pfx
+        and #PFX_FAR
+        beq :+
+        lda #$5B                ; '['
+        jmp buf_putc
+:       lda #$28                ; '('
+        jmp buf_putc
+_dasm_close:
+        lda _dasm_pfx
+        and #PFX_FAR
+        beq :+
+        lda #$5D                ; ']'
+        jmp buf_putc
+:       lda #$29                ; ')'
+        jmp buf_putc
+.endif
 
 ; ════════════════════════════════════════════════════════════
 ; Branch-target helpers — shared between format_operand's
