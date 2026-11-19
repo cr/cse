@@ -4,13 +4,13 @@
 Owner: doc/build_system.md
 
 Runs the exhaustive sweeps of tests/asm_dasm_runner.py against the
-current source, once per C64 CPU set, and writes
+current source, once per CPU set (the m65 set on M65Emu), and writes
 tests/fixtures/golden/asm_dasm_<cpu set>.json: per case the output and
-the py65 cycle count.  tests/unit/test_golden_asm_dasm.py holds later
+the cycle count (py65's; on M65Emu, instructions).  tests/unit/test_golden_asm_dasm.py holds later
 code to the recorded output and cycles.
 
 When to re-record (doc/build_system.md § Golden files): only in a
-commit that deliberately changes what a C64 build assembles or lists,
+commit that deliberately changes what a build assembles or lists,
 or what it costs — never to make a refactor pass.  That commit states
 the reason and the measured cycle change.  `source_rev` is the commit
 the files were recorded from, with `-dirty` when the tree had

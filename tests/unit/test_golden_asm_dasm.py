@@ -6,10 +6,11 @@ Contract source: [doc/TODO.md § M65](../../doc/TODO.md#m65--the-45gs02-assemble
 *Acceptance gates*; [doc/testing.md § Principle 7](../../doc/testing.md#principles).
 
 The golden files (tests/fixtures/golden/asm_dasm_<cpu set>.json) were
-recorded by dev/capture_golden.py from the C64 assembler and
-disassembler *before* the move to the generated table formats.  For
-every C64 CPU set this test re-runs the same exhaustive sweeps on the
-current source and asserts:
+recorded by dev/capture_golden.py: the C64 sets' from the assembler and
+disassembler *before* the move to the generated table formats, the m65
+set's (45gs02, its prefixed cases included) when P4 closed.  For every
+CPU set this test re-runs the same exhaustive sweeps on the current
+source and asserts:
 
   * **Behaviour (gate 3)** — every case's output (dasm text + length;
     asm bytes or error code) equals the golden one, except the cases

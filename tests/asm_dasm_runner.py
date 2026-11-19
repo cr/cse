@@ -11,6 +11,12 @@ Golden sweep cases are keyed by strings so the files stay diffable:
 
     dasm  "<asm_cpu>:<opcode hex>"      → [text, length, cycles]
     asm   "<asm_cpu>:<source>"          → [hex bytes | "E<code>", cycles]
+
+A set with the 45GS02 (m65) adds prefixed dasm cases, keyed by the
+prefix bytes before the opcode ("4:4242A5", "4:EAB2", "4:4242EAB2"),
+and the asm sources of its 4510 and 45GS02 rows (m65_sources).  On
+M65Emu a "cycle" is an instruction (MPU45GS02 counts one per
+instruction): the m65 speed gate counts instructions.
 """
 
 import pathlib
@@ -123,12 +129,24 @@ def run_dasm(syms, cpu, insn_bytes):
     return text, mpu.a, mpu.processorCycles - start
 
 
-def dasm_sweep(syms, config):
-    out = {}
+def dasm_cases(config):
+    """(key, asm_cpu, bytes): every opcode in every view of the set, and
+    with the 45GS02 each opcode behind each prefix (5 bytes at most)."""
     for cpu in CONFIG_CPUS[config]:
         for opc in range(256):
-            text, length, cyc = run_dasm(syms, cpu, [opc, *DASM_OPERANDS])
-            out[f"{cpu}:{opc:02X}"] = [text, length, cyc]
+            yield f"{cpu}:{opc:02X}", cpu, [opc, *DASM_OPERANDS]
+    if "45gs02" in MT.CPU_SETS[config][1]:
+        cpu = MT.ASM_CPU["45gs02"]
+        for pfx in (I.PREFIX_Q, I.PREFIX_FAR, I.PREFIX_Q + I.PREFIX_FAR):
+            for opc in range(256):
+                yield (f"{cpu}:{pfx.hex().upper()}{opc:02X}", cpu,
+                       (list(pfx) + [opc, *DASM_OPERANDS])[:5])
+
+
+def dasm_sweep(syms, config):
+    out = {}
+    for key, cpu, insn in dasm_cases(config):
+        out[key] = list(run_dasm(syms, cpu, insn))
     return out
 
 
@@ -231,10 +249,39 @@ def run_asm(syms, source, cpu, **m65):
     return got, mem[syms.asm_err_code], mpu.processorCycles - start
 
 
+# The m65 modes' spellings (MODE_EXAMPLES holds the C64 ones), and the
+# far forms'.  REL16's targets: in reach of an 8-bit branch at asm_pc 0,
+# forward out of it, backward out of it.
+M65_EXAMPLES = {"IMM16": ["#$1234", "#$00FF"], "REL16": ["$0002", "$1234", "$FF00"],
+                "ISPY": ["($12,SP),Y", "($12,S),Y", "( $12 , SP ) , Y"],
+                "ZPIZ": ["($12),Z", "( $12 ) , Z"]}
+FAR_EXAMPLES = {"ZPI": ["[$12]", "[ $12 ]"], "ZPIZ": ["[$12],Z", "[ $12 ] , Z"]}
+
+
+def m65_sources(config):
+    """Every row of the set's 4510 and 45GS02 views with each spelling of
+    its mode (none for a C64 set): the Q names and suffixes, the far
+    forms, REL16 targets out of an 8-bit branch's reach."""
+    lines = []
+    for view in MT.CPU_SETS[config][1]:
+        if view not in ("4510", "45gs02"):
+            continue
+        for r in I.instructions(view):
+            if I.PREFIX_FAR in r.prefix:
+                srcs = FAR_EXAMPLES[r.mode]
+            else:
+                srcs = M65_EXAMPLES.get(r.mode) or [
+                    s for s, _ in I.MODE_EXAMPLES.get(r.mode, [])
+                    if not any("a" <= c <= "z" for c in s)]
+            lines += [f"{r.mnemonic} {s}".strip() for s in srcs]
+    return lines
+
+
 def asm_sweep(syms, config):
+    sources = list(dict.fromkeys(asm_sources() + m65_sources(config)))
     out = {}
     for cpu in CONFIG_CPUS[config]:
-        for src in asm_sources():
+        for src in sources:
             got, err, cyc = run_asm(syms, src, cpu)
             out[f"{cpu}:{src}"] = [got.hex() if got is not None else f"E{err}", cyc]
     return out

@@ -17,9 +17,9 @@
 | [`tests/c64emu.py`](../tests/c64emu.py) | implementation — C64 emulator class (C64Emu) |
 | [`tests/iec_drive.py`](../tests/iec_drive.py) | implementation — the virtual IEC drive C64Emu and M65Emu share (`Drive1541`, `IECBus`; `EmuBase.attach_drive()` puts one on a unit) |
 | [`tests/emu_base.py`](../tests/emu_base.py) | implementation — `EmuBase`, what C64Emu and M65Emu share: registers, run loops, word access, symbols, screen-code decoding, `run_steps()`, the interrupt scheduler and jiffy tick, `KeyMatrix` and the keyboard calls, `place_prg()` and `load_prg()` (placement with segment relocation), `screen_text()`, `set_cursor()`, `init_cse()`, PC traps (`add_trap()`), the virtual drives (`attach_drive()`, `detach_drive()`, `drive()`) |
-| [`tests/asm_dasm_runner.py`](../tests/asm_dasm_runner.py) | implementation — exhaustive asm_line / dasm_insn sweeps on py65 (output + cycles) |
+| [`tests/asm_dasm_runner.py`](../tests/asm_dasm_runner.py) | implementation — exhaustive asm_line / dasm_insn sweeps on py65, or M65Emu for the m65 set (output + cycles) |
 | [`dev/capture_golden.py`](../dev/capture_golden.py) | implementation — records the asm/dasm golden files from a known-good tree |
-| [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<cpu set>.json`, one per C64 CPU set, by `dev/capture_golden.py`; `m65_cpu.json`, the 45GS02 as xmega65 executes it, by `dev/capture_m65_golden.py`; `m65_mem.json`, the CPU view's translation per banking state, by `dev/capture_m65_mem.py`; `m65_dma.json`, DMA jobs, by `dev/capture_m65_dma.py`; `m65_latches.json`, the VIC and CIA2 interrupt latches, by `dev/capture_m65_latches.py`; `m65_premise.json`, the run premise and the Hypervisor's answers per ROM, by `dev/capture_m65_premise.py`; `m65_editor.json`, the MEGA65 screen editor's API as the terminal and display seams would use it, per ROM, by `dev/capture_m65_editor.py`; back-link-exempt (JSON has no comment syntax) |
+| [`tests/fixtures/golden/`](../tests/fixtures/golden/) | generated — `asm_dasm_<cpu set>.json`, one per CPU set, by `dev/capture_golden.py`; `m65_cpu.json`, the 45GS02 as xmega65 executes it, by `dev/capture_m65_golden.py`; `m65_mem.json`, the CPU view's translation per banking state, by `dev/capture_m65_mem.py`; `m65_dma.json`, DMA jobs, by `dev/capture_m65_dma.py`; `m65_latches.json`, the VIC and CIA2 interrupt latches, by `dev/capture_m65_latches.py`; `m65_premise.json`, the run premise and the Hypervisor's answers per ROM, by `dev/capture_m65_premise.py`; `m65_editor.json`, the MEGA65 screen editor's API as the terminal and display seams would use it, per ROM, by `dev/capture_m65_editor.py`; back-link-exempt (JSON has no comment syntax) |
 | [`tests/unit/test_golden_asm_dasm.py`](../tests/unit/test_golden_asm_dasm.py) | test contract — behaviour and speed against the golden files (TODO § M65, gates 2–3) |
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — the C64 and m65 release PRG sizes within budget (TODO § M65, gate 1) |
 | [`tests/unit/test_build_freshness.py`](../tests/unit/test_build_freshness.py) | test contract — no test runs on a stale binary: the PRG fixtures always run `make`, objects depend on their includes, bundles on `src/*.inc` |
@@ -596,8 +596,8 @@ m65 set (`asm_dasm_45gs02.json`, recorded first in P4 — its baseline; the
 prefix sequence the peel accepts).  `test_golden_asm_dasm.py` holds the
 current source to them: identical output, total cycles no higher, no
 case more than 10 % slower.  They are re-recorded only by a commit
-that deliberately changes what a C64 build assembles or lists, or
-what it costs — never to make a refactor pass; that commit states the
+that deliberately changes what a build assembles or lists, or what
+it costs — never to make a refactor pass; that commit states the
 reason and the measured cycle change.
 
 ### Size gate
