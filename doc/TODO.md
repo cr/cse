@@ -1336,7 +1336,10 @@ Decisions (approved 2026-11-19):
 - **D-P3-6** Fix the filed `@putc_inv` bug in P3 on both platforms,
   since the routine changes anyway: the C64 PRGs change by that fix
   alone (their hashes re-recorded in its own commit).  (Alternative:
-  leave it filed.)
+  leave it filed.)  **Amended in step (2), on a new fact:** the bug
+  is unreachable — the header it inverts is at most 32 columns
+  (`fl_buf` keeps 30 characters) — so it is closed, not fixed, and the
+  C64 PRGs stay byte-identical (§ Bugs).
 - **D-P3-7** `make size PLATFORM=m65`: `size_report.py` takes the
   platform and prints the segment and module parts only.
 
@@ -1372,9 +1375,11 @@ CBDOS on the D81 in xmega65 (Tier X).
   `M65Session`): `$10` (and `cur_device` 10 after it), `s` / `l` of a
   PRG range and of the source (the editor's text back in bank 2),
   `;!long` after a SEQ load at `LINE_MAX`.
-- [ ] T4. `@putc_inv` (D-P3-6, both platforms): the directory's header
+- [x] ~~T4. `@putc_inv` (D-P3-6, both platforms): the directory's header
   reversed at the right cells when the clamp holds the cursor at the
-  last column — a C64 test in `test_disk.py` and its m65 twin in T2.
+  last column — a C64 test in `test_disk.py` and its m65 twin in T2.~~
+  Dropped with D-P3-6's amendment: no directory header reaches the
+  last column.
 - [ ] T5. The build (`test_makefile_guards.py`): `make disk` and
   `make release PLATFORM=m65` write `build/cse-m65.d81` with `c1541
   -format "cse <version>,01" d81` and the PRG as `cse-m65`; `make run
@@ -1387,12 +1392,12 @@ CBDOS on the D81 in xmega65 (Tier X).
   equal); the source saved from the editor and loaded back; the status
   `00, OK,00,00`.
 - [ ] T7. The gates: P3's pending count 2 → 0 (`PLAT_PENDING_VALUE`,
-  `BP_PENDING` gone); the C64 PRGs byte-identical except by T4's fix
-  (`c64_prg_sha256.json` re-recorded in its own commit); the m65
-  budget raised in a commit of its own.
+  `BP_PENDING` gone); the C64 PRGs byte-identical; the m65 budget
+  raised in a commit of its own.
 
 Then the code, in this order — (1) the harness: T1; (2) the C64
-`@putc_inv` fix: T4 (its own commit, the hashes re-recorded); (3)
+`@putc_inv` fix: T4 (its own commit, the hashes re-recorded — dropped,
+D-P3-6 amended); (3)
 disk.s on m65 — `READSS`, `disk_local_ptr`, `DIR_BUF`, the pointer
 banks, `PLAT_SETBNK [bank]`, the pending values gone: T2, T3, T7; (4)
 the build: T5; (5) Tier X: T6; then the P3 close (Step 5, the gate).
@@ -2512,11 +2517,13 @@ Open bugs, roughly ordered by priority.
   last column puts its second digit into the next row's first cell
   (`io_putc` clamps, `io_puthex2` does not).  Both platforms.  Found by
   P2's geometry inventory, 2026-11-19.  Own CDD cycle.
-- [ ] **disk.s's `@putc_inv` inverts the wrong cell at the last
-  column.**  It inverts the character at `IO_CX − 1`; when `io_putc`'s
-  clamp held the cursor at the last column, that is the cell before
-  the one just written.  Both platforms.  Found by P2's geometry
-  inventory, 2026-11-19.  Own CDD cycle.
+- [x] ~~**disk.s's `@putc_inv` inverts the wrong cell at the last
+  column.**~~  Closed 2026-11-19 (P3, step 2) as unreachable: its only
+  caller is `list_directory`'s header, a line `fl_buf` truncates to 30
+  characters (`cpy #30`), after `"; "` — it ends by column 31, so the
+  clamp never holds the cursor there, in 40 columns or 80.  Fixing it
+  would cost every build bytes for a path that cannot run.  Reopen if
+  `@putc_inv` gets a caller that can reach the last column.
 
 - [ ] **disk.s writes `$FD`/`$FE`, which the userland contract keeps
   free.**  [userland_contract.md](userland_contract.md) § 2, § 3 and
