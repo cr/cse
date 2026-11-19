@@ -296,7 +296,9 @@ the screen and keyboard (P2).  Phase B and P3–P5 follow.
   MEGA65 KERNAL.  **ROM floor: 920413** (the stable release, 0.97); a
   later beta becomes the floor only for a good reason.  No C65 ROMs
   (2026-11-18).
-- **Distribution: PRG, D81 and a MEGA65-style CRT** per the
+- **Distribution: PRG, D81 and a MEGA65-style CRT** (amended
+  2026-11-19: the first release is PRG and D81 only, the CRT a later
+  release's — § Later release: the m65 cartridge) per the
   MEGA65-style cartridge standard
   ([wiki, work in progress](https://mega65.atlassian.net/wiki/spaces/MEGA65/pages/36962324/MEGA65+Style+Cartridge+Work+in+Progress));
   the standard is in flux, we follow it.  The CRT has its own bank
@@ -1427,6 +1429,22 @@ D-P3-6 amended); (3)
 disk.s on m65 — `READSS`, `disk_local_ptr`, `DIR_BUF`, the pointer
 banks, `PLAT_SETBNK [bank]`, the pending values gone: T2, T3, T7; (4)
 the build: T5; (5) Tier X: T6; then the P3 close (Step 5, the gate).
+
+- **P3 gate met (2026-11-19):** T1–T3 and T5–T7 green on 920413 and
+  920421 — in M65Emu (`test_m65_disk.py` on IEC unit 10, the IEC rows
+  of `test_m65emu.py`, the map-record rows of `test_m65_debugger.py`)
+  and in xmega65 (`test_m65_d81.py`: the D81 through CBDOS on unit 8,
+  with `test_m65_boot.py` and `test_m65_break.py`); the P3 pending
+  count 0, no pending value left; the C64 PRGs byte-identical;
+  m65-6502 22 750 B, within the P2 budget (22 753 B: no raise in P3).
+  Code commits 016f9aa, ffd9b1d, d1c86a4, b92b388, f9e3ddf.  Found on
+  the way, fixed: D-P3-8 (CBDOS's calls return under the KERNAL's map
+  record), `M65Session.idle()` bypassing the traps; recorded: the
+  KERNAL's serial vectors, `ST` / `LDTND` / `MSGFLG` / `$A2`, CBDOS's
+  status format (`00,ok,00,00`).  Closed, not fixed: `@putc_inv`'s
+  last-column case (unreachable, D-P3-6).  The cartridge is a later
+  release's (below).  Left manual: real drive timing, a physical
+  MEGA65's internal drive.
 
 **Later release: the m65 cartridge** (not in R7's first release;
 operator, 2026-11-19).  Starts from A3's record (§ Analysis tasks):
