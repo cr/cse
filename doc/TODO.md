@@ -1989,7 +1989,7 @@ not deleted, unless its subject goes (the debugger's 65C02 paths).
   the PRG (test_repl's `u` / bit-op `.`, test_asm_src's per-build
   `.cpu`) hold the two C64 sets; their 65C02 cases live in the CMOS
   bundles (T2).
-- [ ] T5. The debugger (step 5; `test_kernel_transition.py`): on the
+- [x] T5. The debugger (step 5; `test_kernel_transition.py`): on the
   C64 builds the opcodes the 65C02 gives other meanings are the
   6510 view's — `$0F` (`SLO` abs) 3 bytes, `$80` (`SKB` #) 2, `$7C`
   1 (no row names it; `d` lists `...`) — and `JMP ($xxFF)` wraps,
@@ -2029,6 +2029,12 @@ branch, the 65C02 block of `_asm_m65_mode`, `@b_try16`'s 65C02 check
 and `@paren_z`'s gone; `cpu_names` offers 65c02 on `CPU_65C02` only.
 `asm_dasm_45gs02.json` re-recorded (only the `asm_cpu` 2 cases gone,
 the rest identical).  m65-45gs02 24 595 → 24 458 B.
+
+Step (5) done 2026-11-19: the debugger's `.if CMOS or MEGA` blocks
+are `.ifdef MEGA_SUPPORT`, the C64 `asm_cpu` checks and the
+`CMOS_SUPPORT` no-wrap path gone, `asm_cpu` imported on m65 only — no
+build assembled them since step (4), so all three PRGs are
+byte-identical (T5's tests, `TestNmosStep`, landed with step (4)).
 
 **P5 — the contract closed:** the ROM versions the port is verified
 on (920413, the floor, and the current one; the Open ROMs boot to C64

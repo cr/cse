@@ -69,7 +69,9 @@
 .else
         .import oplen_tbl
 .endif
-        .importzp asm_cpu
+.ifdef MEGA_SUPPORT
+        .importzp asm_cpu       ; saved, set to 4 and restored for the disassembler
+.endif
 .ifdef PLATFORM_C64
         .import save_userland_zp, restore_userland_zp
         .import save_kernel_zp, restore_kernel_zp
@@ -468,15 +470,15 @@ brk_stub:
 ; (debugger.md § Next-PC has the table).  Writes step_next_lo /
 ; step_next_hi (0 = unused; the two slots are alike).
 ;
-;   Linear:        step_next_lo = brk_pc + length (oplen_tbl; on m65
+;   Linear:        step_next_lo = brk_pc + length (oplen_tbl, the 6510's; on m65
 ;                  the disassembler's 45GS02 length, prefixes included)
 ;   Cond branch:   STEP_INTO arms the taken target and the fall-through,
-;                  STEP_OVER the fall-through; BBR / BBS (65C02 view,
-;                  m65) and the 16-bit branches (m65) likewise
-;   BRA:           the target (65C02 view, m65; BRA $83 16-bit)
-;   JMP abs / (ind) / (abs,X):  the operand / the vector, read through
-;                  the user's ZP image for $00-$7F; JMP ($xxFF) takes
-;                  its high byte from $xx00 on the NMOS view only
+;                  STEP_OVER the fall-through; on m65 BBR / BBS and the
+;                  16-bit branches likewise
+;   BRA (m65):     the target (BRA $83 16-bit)
+;   JMP abs / (ind) / (abs,X m65):  the operand / the vector, read
+;                  through the user's ZP image for $00-$7F; JMP ($xxFF)
+;                  takes its high byte from $xx00 on the C64 (NMOS)
 ;   JSR abs (m65 also BSR, JSR (ind), JSR (abs,X)):  STEP_INTO into a
 ;                  RAM target (below ROM_BASE_HI) — the target; else
 ;                  brk_pc + 3 (over)
@@ -554,12 +556,7 @@ brk_stub:
         cmp #$6C
         jeq @jmp_ind
 
-.if .defined(CMOS_SUPPORT) .or .defined(MEGA_SUPPORT)
-.ifndef MEGA_SUPPORT
-        ldx asm_cpu             ; $7C, $80, $xF: the 65C02's forms
-        cpx #2
-        bcc @not_bb
-.endif
+.ifdef MEGA_SUPPORT
         cmp #$7C
         bne @not_7c
         ; JMP (abs,x)
@@ -573,7 +570,7 @@ brk_stub:
         FAR_LDA rp_ptr2
         adc #0
         sta rp_ptr+1
-        jmp @vec                ; 65C02 / 45GS02: no page wrap
+        jmp @vec                ; the 45GS02: no page wrap
 @not_7c:
         cmp #$80                ; BRA
         bne @not_bra
@@ -639,7 +636,7 @@ brk_stub:
         sta step_next_lo+1
         rts
 
-.if .defined(CMOS_SUPPORT) .or .defined(MEGA_SUPPORT)
+.ifdef MEGA_SUPPORT
 @pc3:   lda #3                  ; step_next_lo = PC + 3 (a bit or 16-bit
         jsr @add                ; branch); out: Z=0 for STEP_OVER
         lda step_state
@@ -754,7 +751,7 @@ brk_stub:
         ; Read the vector at rp_ptr as the CPU will: through the user's
         ; ZP image for $00-$7F (peek_user).  High byte: the NMOS CPU
         ; only increments the low byte of the vector address, so
-        ; JMP ($xxFF) reads its high byte from $xx00.  The 65C02
+        ; JMP ($xxFF) reads its high byte from $xx00.  The 45GS02
         ; carries into the page.
         jsr peek_user
         sta step_next_lo
@@ -762,12 +759,6 @@ brk_stub:
 .ifdef MEGA_SUPPORT
         bne @ind_hi
         inc rp_ptr+1            ; the 45GS02: no wrap
-.elseif .defined(CMOS_SUPPORT)
-        bne @ind_hi
-        lda asm_cpu
-        cmp #2
-        bcc @ind_hi             ; NMOS: page wrap
-        inc rp_ptr+1            ; 65C02: no wrap
 .endif
 @ind_hi:
         jsr peek_user
