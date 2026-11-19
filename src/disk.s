@@ -214,11 +214,17 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         ; turnaround (TKSA waits for a talker to pull CLK).
         lda #0
         sta fl_buf              ; empty status if no drive answers
+.ifdef PLATFORM_C64
         sta ST
-        lda cur_device
+.endif                                  ; m65: no KERNAL cell; LISTEN starts
+        lda cur_device                  ;   a new operation, READSS reports it
         KCALL LISTEN
         KCALL UNLSN
+.ifdef PLATFORM_C64
         lda ST
+.else
+        KCALL READST
+.endif
         KC_BRANCH bmi, bpl, @done       ; device not present
 
         ; OPEN 14,8,15,""
@@ -330,11 +336,12 @@ _status_ret:
         ldy #0
         KCALL SETLFS
 
-        ; LOAD directory to workspace at $0801 (same as BASIC)
-        PLAT_SETBNK
+        ; LOAD directory to DIR_BUF: c64 the workspace at $0801 (same as
+        ; BASIC), m65 CSE's reserve 2.D000
+        PLAT_SETBNK DIR_BANK
         lda #0                  ; 0 = LOAD (not VERIFY)
-        ldx #<BASIC_START
-        ldy #>BASIC_START
+        ldx #<DIR_BUF
+        ldy #>DIR_BUF
         KCALL LOAD
         jcs @err                ; carry set = error
 
@@ -342,12 +349,13 @@ _status_ret:
         stx @end_lo
         sty @end_hi
 
-        ; disk_ptr = walk pointer into loaded data ($0801)
+        ; disk_ptr = walk pointer into the loaded data (DIR_BUF)
         ; (disk_ptr is free here: list_directory takes no filename)
-        lda #<BASIC_START
+        lda #<DIR_BUF
         sta disk_ptr
-        lda #>BASIC_START
+        lda #>DIR_BUF
         sta disk_ptr+1
+        FAR_BANK disk_ptr, DIR_BANK
 
         ; First 2 bytes are the link pointer of the first line
         ldy #0
@@ -617,6 +625,7 @@ _status_ret:
         sta _io_tmp
         lda scr_hi,x
         sta _io_tmp+1
+        FAR_BANK_SCREEN _io_tmp
         ldy IO_CX
         dey
         FAR_LDA _io_tmp
@@ -943,7 +952,8 @@ _status_ret:
         lda _io_tmp+1
         KCALL CHROUT
 
-        ; Write payload: size bytes from _io_tmp
+        ; Write payload: size bytes from _io_tmp (a user address)
+        FAR_USER _io_tmp
         pla                     ; size hi
         sta @size_hi
         pla                     ; size lo

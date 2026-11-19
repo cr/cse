@@ -19,18 +19,6 @@ PLATFORM_INC = 1
   .endif
 .endif
 
-; ── Pending values (doc/platform_layer.md § Pending bodies) ──────────
-; The m65 value of a constant stated with milestone P<n>: `name` is
-; `value`, a placeholder (a cell of BP_PENDING, or the run premise's
-; default size); only code past a pending body names it.  m65 only.
-.macro PLAT_PENDING_VALUE name, value, n
-  .ifdef PLATFORM_C64
-        .error "PLAT_PENDING_VALUE is an m65 value only"
-  .else
-        name = value
-  .endif
-.endmacro
-
 ; ═════════════════════════════════════════════════════════════════════
 .ifdef PLATFORM_C64
 ; ═════════════════════════════════════════════════════════════════════
@@ -160,6 +148,8 @@ SID_VOL         = $D418
 
 ; ── disk.s's private pointer (in the KERNAL half; TODO § Bugs) ───────
 DISK_LOCAL_PTR  = $FD
+; ── list_directory's buffer: the workspace from BASIC's start ───────
+DIR_BUF         = BASIC_START
 
 .endif ; PLATFORM_C64
 
@@ -300,11 +290,10 @@ SID_V2_CTRL     = $D40B
 SID_V3_CTRL     = $D412
 SID_VOL         = $D418
 
-; ── Pending values (§ Pending bodies): placeholders until P<n> ────────
-BP_PENDING      = $AD               ; their cells, $AD-$AF of CSE's base page
-        PLAT_PENDING_VALUE ST, BP_PENDING, 3
-        PLAT_PENDING_VALUE DISK_LOCAL_PTR, BP_PENDING + 1, 3
-        .assert BP_PENDING + 3 <= <STUB_BASE, error, "BP_PENDING overlaps the stub"
+; ── list_directory's buffer: CSE's 12 K reserve 2.D000-2.FFFF, not the
+; user's memory (a full D81 directory is under 10 K; disk.md § On m65)
+DIR_BUF         = $D000
+DIR_BANK        = BANK_SRC
 
 SCREEN_WIDTH_MAX = 80               ; the widest mode (line_buf)
 MEM_ROW_MAX     = 16                ; an `m` row: 16 bytes in 80 columns (8 in 40),
@@ -315,7 +304,7 @@ LINE_MAX        = 79                ; a source line's length (D-P2-5): 80 column
 ; CSE's base-page cells (zp.s), named at inline sites through these
 ; defines; an operand define is the immediate on c64 and the cell here.
   .ifndef ZP_S                  ; the hot cells: CSE's base page (zp.s)
-        .importzp io_cx, io_cy, io_key, scr_width, scr_last_col
+        .importzp io_cx, io_cy, io_key, scr_width, scr_last_col, disk_local_ptr
   .endif
   .ifndef CSE_IO_S              ; the rest of the geometry: cse_io.s's BSS
         .import scr_height, scr_last_row, scr_ed_rows, scr_ed_last, scr_bank, scr_size
@@ -329,6 +318,7 @@ LINE_MAX        = 79                ; a source line's length (D-P2-5): 80 column
 .define ED_ROWS         scr_ed_rows
 .define ED_STATUS_ROW   scr_ed_rows
 .define ED_LAST         scr_ed_last
+.define DISK_LOCAL_PTR  disk_local_ptr  ; disk.s's filename pointer (a plain one)
 
 .endif ; PLATFORM_M65
 
@@ -527,10 +517,14 @@ LINE_MAX        = 79                ; a source line's length (D-P2-5): 80 column
 ; Precedes each OPEN and LOAD (before LOAD's register arguments): the
 ; banks of the data and of the filename.  c64: empty.  m65: clobbers
 ; A, X.
-.macro PLAT_SETBNK
+.macro PLAT_SETBNK bank
   .ifdef PLATFORM_M65
-        lda #BANK_USER
-        ldx #BANK_CSE
+    .ifblank bank
+        lda #BANK_USER              ; the data: the user's bank 0
+    .else
+        lda #bank
+    .endif
+        ldx #BANK_CSE               ; the filename: CSE's view
         KCALL SETBNK
   .endif
 .endmacro

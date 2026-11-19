@@ -106,16 +106,20 @@ class M65Session:
 
     # ── driving main_loop ──
     def idle(self, max_steps=3_000_000):
+        """Run until main_loop polls with no key waiting — through the
+        harness's run loop, so its traps (the virtual drive's) serve."""
         e, cpu = self.e, self.e.cpu
         key = self.cell("io_key")
-        for _ in range(max_steps):
-            if cpu.pc == self.WAIT and not e.keyboard.queue and e.memory[key] == 0:
-                return
-            cpu.step()
-            e._steps += 1
-            if e._pending:
-                e._dispatch_pending()
-        raise TimeoutError(f"main_loop not idle, pc=${cpu.pc:04X}")
+        end = e._steps + max_steps
+        while not (cpu.pc == self.WAIT and not e.keyboard.queue and e.memory[key] == 0):
+            if e._steps >= end:
+                raise TimeoutError(f"main_loop not idle, pc=${cpu.pc:04X}")
+            if cpu.pc == self.WAIT:
+                e.run_steps(1)                  # on past the poll
+            try:
+                e.run_until(self.WAIT, max_cycles=max(1, end - e._steps))
+            except TimeoutError:
+                raise TimeoutError(f"main_loop not idle, pc=${cpu.pc:04X}") from None
 
     def keys(self, data, **kw):
         self.e.inject_keys(data)

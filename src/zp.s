@@ -36,12 +36,14 @@ stub_cold_target: .res 2
 ; through platform.inc's IO_CX / IO_CY and WIDTH / HEIGHT defines.
 ; The hot ones only (every character's clamp); the rest of the
 ; geometry is cse_io.s's BSS — the base page is full.
-        .exportzp io_cx, io_cy, io_key, scr_width, scr_last_col
+        .exportzp io_cx, io_cy, io_key, scr_width, scr_last_col, disk_local_ptr
 io_cx:          .res 1          ; the cursor column
 io_cy:          .res 1          ;   and row
 io_key:         .res 1          ; io_kbhit's lookahead (0: none)
 scr_width:      .res 1
 scr_last_col:   .res 1          ; width - 1
+disk_local_ptr: .res 2          ; disk.s's filename pointer (DISK_LOCAL_PTR): it
+                                ; reads only CSE's own view, so no bank
 .endif
 
 ; ── main.s: runtime scratch ───────────────────────────────────────────── $02

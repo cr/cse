@@ -820,7 +820,10 @@ The installed machine they check is
   (`tests/emulator/test_m65_disk.py`) boots `cse-m65.d81` (`-8`,
   `-autoload`) to the prompt and, on unit 8, lists it (`$` equals
   `c1541`'s listing), saves and loads a PRG and a source, and reads
-  the status.
+  the status.  `M65Session.idle()` runs main_loop through the
+  harness's run loop, so the drive's traps serve typed commands too
+  (stepping the CPU directly would bypass them, and the KERNAL's own
+  serial code would find the bus empty).
 - **The recordings behind the m65 column.**  The P0 analysis probes
   (entry state, base page, `Z`, the frame, the maps, the Hypervisor
   services, the regions CSE takes, all on both ROMs) become committed

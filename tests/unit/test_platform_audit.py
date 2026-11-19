@@ -232,7 +232,7 @@ def test_kernal_call_check(tmp_path):
 # recorded; a commit that writes an m65 body or states a value lowers
 # its number here.  Every number is 0 when P3 closes.  (Raised once, by
 # P0 step (5): the first m65 link found the pending values.)
-PENDING_RECORDED = {1: 0, 2: 0, 3: 2}      # P2 closed: the screen values
+PENDING_RECORDED = {1: 0, 2: 0, 3: 0}      # P3: ST and DISK_LOCAL_PTR stated
 
 
 def test_pending_bodies_are_the_recorded_count():

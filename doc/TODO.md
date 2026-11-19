@@ -1349,7 +1349,7 @@ judgement: everything but real drive timing is automatable — the
 KERNAL's IEC path on M65Emu (a virtual drive behind the jump table),
 CBDOS on the D81 in xmega65 (Tier X).
 
-- [ ] T1. The virtual drive, shared (`tests/emu_base.py`): C64Emu's
+- [x] T1. The virtual drive, shared (`tests/emu_base.py`): C64Emu's
   `attach_drive`, `Drive1541`, `IECBus` move to `EmuBase`, behaviour-
   neutral — every C64 disk test (`test_disk.py`, `test_repl_disk.py`,
   `test_editor.py`'s) green unchanged.  The bus accepts a `JMP` or a
@@ -1361,7 +1361,7 @@ CBDOS on the D81 in xmega65 (Tier X).
   fails with device not present instead of hanging — M65Emu's `$D012`
   advances (a raster counter beside the latch), which the KERNAL's IEC
   delays poll.
-- [ ] T2. disk.s on m65 (`tests/integration/test_m65_disk.py`, new,
+- [x] T2. disk.s on m65 (`tests/integration/test_m65_disk.py`, new,
   owner disk.md, each ROM, unit 10): `test_disk.py`'s contract —
   without a drive: the error codes, no file left open, an empty
   status, no hang; with one: a PRG loaded to its header address and to
@@ -1371,7 +1371,7 @@ CBDOS on the D81 in xmega65 (Tier X).
   blocks free and the STOP break — into `DIR_BUF` (`2.D000`) with the
   program region `0.2000–0.BFFF` untouched, its reversed header in the
   screen's bank in 80 × 25, 40 × 25 and 80 × 50.
-- [ ] T3. The REPL over it (`test_m65_disk.py`, typed through
+- [x] T3. The REPL over it (`test_m65_disk.py`, typed through
   `M65Session`): `$10` (and `cur_device` 10 after it), `s` / `l` of a
   PRG range and of the source (the editor's text back in bank 2),
   `;!long` after a SEQ load at `LINE_MAX`.
@@ -1391,9 +1391,20 @@ CBDOS on the D81 in xmega65 (Tier X).
   `c1541 -list` does; `s` of a PRG range and `l` back (the bytes
   equal); the source saved from the editor and loaded back; the status
   `00, OK,00,00`.
-- [ ] T7. The gates: P3's pending count 2 → 0 (`PLAT_PENDING_VALUE`,
+- [x] T7. The gates: P3's pending count 2 → 0 (`PLAT_PENDING_VALUE`,
   `BP_PENDING` gone); the C64 PRGs byte-identical; the m65 budget
   raised in a commit of its own.
+
+Steps (1)–(3) done 2026-11-19 (016f9aa, ffd9b1d, and step (3)'s
+commit).  Found in step (1), recorded on both ROMs: the KERNAL's serial
+entries are `JMP (vector)`; its `LISTEN` / `TALK` note a slow device in
+`$A2` bit 7 and `LOAD` takes its byte-by-byte path only then (else a
+fast loader); `ST` and `LDTND` are base page 0's `$90` and `$98`; a
+`RUN`-started PRG has `MSGFLG` `$00` (the snapshot `$80`).  In step
+(3): `M65Session.idle()` stepped the CPU past the harness's traps —
+fixed (P2's harness); a filename for `SETBNK`'s filename bank must be
+in CSE's view at `$2000` and up (all of CSE's are).  The m65 PRG
+stayed within its budget (22 703 B): no raise.
 
 Then the code, in this order — (1) the harness: T1; (2) the C64
 `@putc_inv` fix: T4 (its own commit, the hashes re-recorded — dropped,
