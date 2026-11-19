@@ -27,8 +27,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 BUDGET = {
     "c64-6502":  (ROOT / "build/release/6502/cse-6502.prg", 20_834),
     "c64-6510":  (ROOT / "build/release/6510/cse.prg",      21_192),
-    "c64-65c02": (ROOT / "build/release/cmos/cse-cmos.prg", 21_843),
-    "m65-45gs02": (ROOT / "build/release/m65/cse-m65.prg",  24_510),
+    "c64-65c02": (ROOT / "build/release/cmos/cse-cmos.prg", 21_879),
+    "m65-45gs02": (ROOT / "build/release/m65/cse-m65.prg",  24_714),
 }
 
 
