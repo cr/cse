@@ -151,11 +151,14 @@ was at — the `j` target, or the last break's address).
 ### step_next_pc
 **In:** `brk_pc` (the instruction about to run), `step_state`
 (STEP_INTO / STEP_OVER); `reg_sp` (RTS/RTI), `reg_x` (JMP (abs,X)),
-`asm_cpu` (65C02 rules, CMOS builds only; not read on m65, where the
-step follows the 45GS02), `userland_zp_buf` (vectors in $00–$7F).
+`asm_cpu` (65C02 rules, CMOS builds only; on m65 saved, set to 4 for
+the disassembler and restored — the step follows the 45GS02),
+`userland_zp_buf` (vectors in $00–$7F).
 **Out:** `step_next_lo` = where the step stops, `step_next_hi` = a
 second stop for a branch under STEP_INTO; 0 = none (both 0 for BRK).
-**Clobbers:** A, X, Y, `rp_ptr`, `rp_ptr2`, `step_save`
+**Clobbers:** A, X, Y, `rp_ptr`, `rp_ptr2`, `step_save`; on m65 also
+`step_len` and what `dasm_insn` clobbers (the `_dasm_*` ZP,
+`_dasm_in`, `dasm_buf`)
 
 The table is § Next-PC.  It reads the instruction and its vectors
 at user addresses: `rp_ptr` and `rp_ptr2` are set with `FAR_USER`
@@ -382,22 +385,24 @@ opcodes are linear.  The ROM boundary is `ROM_BASE_HI`: `$E000` on
 the C64, `$C000` on m65 (the interface ROM).
 
 **On m65** the step follows the CPU that runs the program — always a
-45GS02 — whatever `u` selects for listing (operator, 2026-11-19):
+45GS02 — whatever `u` selects for listing.  The rows below replace
+the matching rows above; the others apply unchanged:
 
 | Instruction at `brk_pc` | `step_next_lo` | `step_next_hi` |
 |---|---|---|
-| prefixed (`$42 $42` Q, `$EA` far, as [dasm.md § Prefix peel](dasm.md#prefix-peel) defines them) | the base opcode's row, its length plus the prefixes' (2–5 bytes) | as the base row |
-| linear | `PC + length` (the disassembler's 45GS02 length, `dasm_insn_pre` at `asm_cpu` = 4; m65 links no `oplen_tbl`) | — |
-| 16-bit conditional branch (`$x3`), `t` | `PC + 3` | taken target (`PC + 2` + 16-bit offset) |
+| prefixed (`$42 $42` Q, `$EA` far, as [dasm.md § Prefix peel](dasm.md#prefix-peel) defines them) | the base opcode's row, its length plus the prefixes' (3–5 bytes) | as the base row |
+| linear | `PC + length` (the disassembler's 45GS02 length, `dasm_insn` at `asm_cpu` = 4; m65's `oplen_tbl` is empty) | — |
+| 16-bit conditional branch (`$13` `$33` … `$F3`), `t` | `PC + 3` | taken target (`PC + 2` + 16-bit offset) |
 | 16-bit conditional branch, `o` | `PC + 3` | — |
 | `BRA` (`$80`, `$83`) | target | — |
 | `BSR` (`$63`) | as `JSR`, length 3, its target `PC + 2` + 16-bit offset | — |
-| `JSR (ind)` (`$22`), `JSR (abs,X)` (`$23`) | `t`: the vector (as `JMP (ind)` / `JMP (abs,X)`); `o`: `PC + 3` | — |
+| `JSR (ind)` (`$22`), `JSR (abs,X)` (`$23`) | as `JSR`, length 3, its target the vector (read as `JMP (ind)` / `JMP (abs,X)` read it) | — |
 | `RTN #n` (`$62`) | as `RTS` (the return address is above the bytes it drops) | — |
 | `JMP (ind)` (`$6C`), `JMP (abs,X)` (`$7C`) | the vector, no page wrap | — |
 
-The 16-bit offsets count from the instruction's last byte (open
-question O1; xmega65 agrees).  The user stack is page 1 (`E` = 1, the
+The 16-bit offsets count from the instruction's last byte, the
+target `PC + 2` + offset ([TODO § Open questions](../TODO.md#open-questions-hardware),
+O1: xmega65 agrees).  The user stack is page 1 (`E` = 1, the
 run premise).
 
 `RTS` and `RTI` are followed through the user's stack, so stepping

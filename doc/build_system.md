@@ -150,9 +150,8 @@ checks compare the high byte only.  It fills three placeholders of
 `c64_cse.cfg.in` to produce `build/<profile>/<cpu>/c64_cse.cfg`:
 `@@RUNTIME_START@@`, `@@BSS_START@@` (`RUNTIME_START` + CODE +
 RODATA + DATA, rounded up to an even address: the BSS segment is
-2-aligned, so `disk.s`'s `jmp (callback)` never reads its vector
-across a page — the NMOS CPUs take `$xxFF`'s high byte from `$xx00`;
-the `+ 1` above pays for the pad byte) and `@@BUF_FLOOR@@` (the source/output split of the
+2-aligned, [disk.md § Caveats](modules/disk.md#caveats); the `+ 1`
+above pays for the pad byte) and `@@BUF_FLOOR@@` (the source/output split of the
 workspace: `$0800` + one ninth of the workspace, rounded down to a
 page).  It prints the result as a `layout:` line, and stops the
 build when `RUNTIME_START` falls below `$0900`.
@@ -332,7 +331,7 @@ absolute address.
 |----------|---------|--------|
 | `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG and D81 ([§ The m65 builds](#the-m65-builds)) and the m65 test bundles.  Every target works on m65 (`release`, `debug`, `disk`, `run`, `size`; `help`, `themes`, `clean`, `clean-tables`, `tables`, `m65-rom`, `check-roms`); an unknown platform is refused.  `TARGET=` on the command line is a synonym (`make run TARGET=m65`); giving both with different values is an error |
 | `XMEGA65` | `/Applications/xmega65.app/Contents/MacOS/xmega65` | The xmega65 executable: `make run PLATFORM=m65` starts it, and `tests/xmega65.py` reads the same environment variable (Tier X, the M65Emu recordings) |
-| `CPU` | `6510` on `c64`; on `m65` the platform's one build (`6502` until P4, then `45gs02`) | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`) |
+| `CPU` | `6510` on `c64`; `45gs02` on `m65` (fixed) | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`) |
 | `THEME` | `CLOUDY` | Named theme or 3-digit hex code (`make themes` for list) |
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
 | `VERSION` | `0.1` | Version string embedded in splash + D64 label |
@@ -388,7 +387,7 @@ Passed as `make OPTION=value`:
 | Option | Values | Default | Effect |
 |--------|--------|---------|--------|
 | `PLATFORM` | `c64` `m65` | `c64` | Selects the platform's builds ([§ Builds and CPU sets](#builds-and-cpu-sets)); sets `PLATFORM_C64` or `PLATFORM_M65` |
-| `CPU` | `c64`: `6502` `6510` `65c02`; `m65`: `6502` until P4, then `45gs02` | `6510` / the m65 build's | Selects the build within the platform; sets its defines ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
+| `CPU` | `c64`: `6502` `6510` `65c02`; `m65`: `45gs02` (fixed) | `6510` / `45gs02` | Selects the build within the platform; sets its defines ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
 | `ROMSET` | `cbm` `mega` | `cbm` | ROM set for `make run` (see below) |
 | `THEME` | name or hex | `CLOUDY` | Colour theme for the REPL |
 | `TAB_WIDTH` | 1 2 4 8 16 32 | `8` | Editor tab stop interval.  A power of two, so `col mod TAB_WIDTH` is a single `and`; any other value is a build error.  8 matches every C64-era toolchain convention. |
@@ -407,8 +406,7 @@ member, as a global enumeration — **0 = 6502, 1 = 6510, 2 = 65C02,
 | c64-6502 | `c64` / `6502` | `PLATFORM_C64` `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
 | c64-6510 | `c64` / `6510` | `PLATFORM_C64` `CPU_6510` `CPU_CEIL=1` | 6502, 6510 (0, 1) | 0 | `mn7` |
 | c64-65c02 | `c64` / `65c02` | `PLATFORM_C64` `CPU_65C02` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 6510, 65C02 (0, 1, 2) | 2 | `mn7` |
-| m65-6502 (P0–P3, retired with P4) | `m65` / `6502` | `PLATFORM_M65` `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
-| m65-45gs02 (from P4) | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 65C02, 4510, 45GS02 (0, 2, 3, 4) | 4 | `mn7`, m65 keys |
+| m65-45gs02 | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 65C02, 4510, 45GS02 (0, 2, 3, 4) | 4 | `mn7`, m65 keys |
 
 Exactly one `PLATFORM_<platform>` define is set per build — the C64
 builds carry `PLATFORM_C64` as the m65 build carries `PLATFORM_M65`,
@@ -418,11 +416,9 @@ Exactly one `CPU_<top>` define is set per build.  It selects the
 build's generated table block ([§ Table generation](#table-generation)).
 The m65 platform has one build, **m65-45gs02** — its CPU set fixed,
 the 6502, the 65C02 and the 4510 selected at run time; the 6510 is not
-in it, as the 45GS02 runs none of the 6510's illegal opcodes (operator,
-2026-11-19).  The m65 tables and gate serve its 65C02 member; the
-`CMOS_SUPPORT` paths are the C64 65C02 build's.  (P0–P3 built and tested
-the platform layer on **m65-6502**, the 6502 CPU set whose tables and
-classifier existed; P4 retired it.)  Code
+in it, as the 45GS02 runs none of the 6510's illegal opcodes.  The m65
+tables and gate serve its 65C02 member; the `CMOS_SUPPORT` paths are
+the C64 65C02 build's.  Code
 paths are gated by the feature defines: `.ifdef CMOS_SUPPORT` (65C02
 paths), `.ifdef MEGA_SUPPORT` (the 4510's modes and mnemonics and the
 45GS02's Q and far prefixes).  No code path is 6510-specific: the
@@ -444,7 +440,7 @@ the consumer is part of):
 | dasm view ([dasm.md](modules/dasm.md#design)) | 6502 view bitmap | 6510 map | 65C02 map (c64); m65: 65C02 view bitmap over the 4510 map | 4510 map | 4510 map + prefix peel |
 | `.cpu` (`set_cpu`) and `u` | accepted in every build | c64-6510, c64-65c02 | c64-65c02, m65-45gs02 | m65-45gs02 | m65-45gs02 |
 | `DEFAULT_CPU` (main.s) | c64-6502, c64-6510 | — | c64-65c02 | — | m65-45gs02 |
-| debugger step ([debugger.md § Next-PC](modules/debugger.md#next-pc)) | NMOS step (c64); m65: the 45GS02 step | NMOS step | + `JMP (a,X)`, `BRA`, `BBR` / `BBS` (c64-65c02) | the 45GS02 step | the 45GS02 step (m65 does not read `asm_cpu`) |
+| debugger step ([debugger.md § Next-PC](modules/debugger.md#next-pc)) | NMOS step (c64); m65: the 45GS02 step | NMOS step | + `JMP (a,X)`, `BRA`, `BBR` / `BBS` (c64-65c02); m65: the 45GS02 step | the 45GS02 step | the 45GS02 step (m65 does not read `asm_cpu`) |
 
 The m65 build ships as a PRG and a D81
 ([§ The m65 builds](#the-m65-builds)).  `PLATFORM=m65` builds the
@@ -461,9 +457,6 @@ mode on the MEGA65 KERNAL, within the ROM floor of
 parts live at run time is [memory_design.md § Memory Map —
 m65](memory_design.md#memory-map--m65-mega65-mode); how its
 platform bodies are selected is [platform_layer.md](platform_layer.md).
-Status: the PRG builds (P0, [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer))
-and runs the REPL and the editor (P2), the disk and the D81 (P3),
-the 45GS02 assembler and disassembler (P4).
 
 **Defines.**  `PLATFORM_M65` and m65-45gs02's CPU-set defines
 ([§ Builds and CPU sets](#builds-and-cpu-sets)).
@@ -591,7 +584,7 @@ write ca65 only, and bbbc64 adopts the asm model in its own cycle
 what every instruction assembles to, how every opcode lists under
 every `asm_cpu`, and the cycles of each case (`dev/capture_golden.py`):
 py65's for the C64 sets, `MPU45GS02`'s — one per instruction — for the
-m65 set (`asm_dasm_45gs02.json`, recorded first in P4 — its baseline; the
+m65 set (`asm_dasm_45gs02.json`; the
 45GS02's instructions include the prefixed forms, its listing every
 prefix sequence the peel accepts).  `test_golden_asm_dasm.py` holds the
 current source to them: identical output, total cycles no higher, no
@@ -616,11 +609,11 @@ the spirit of the golden files:
   that caused it.
 - **m65 work** may not grow any C64 build at all
   ([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
-  acceptance gate 1); moving the C64 builds onto the platform layer
+  acceptance gate 1); a C64 defect it finds is fixed as a C64 change
+  under *Growth*, in its own commit; moving the C64 builds onto the platform layer
   leaves them byte-identical ([platform_layer.md § Gates](platform_layer.md#gates)).
-- **The m65 build** joined `BUDGET` with its first link (P0 step
-  (5): m65-6502, 21 054 B), under the same ratchet — as m65-45gs02
-  from P4; its code window
+- **The m65 build**, m65-45gs02, is in `BUDGET` under the same
+  ratchet; its code window
   and data window are bounded by the linker as well
   ([§ The m65 builds](#the-m65-builds)).
 

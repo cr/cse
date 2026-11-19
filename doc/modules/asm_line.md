@@ -139,11 +139,12 @@ form (`aslq a` names the label `a`).
 error-category byte `asm_err_code` is BSS of asm_err.s.  `asm_tmp`
 holds the digit suffix from the word scan to zone D / E (`bit << 4 |
 1`, 0 for none — bit 0 is set in every digit-zone opcode, so the
-`ora` keeps it); the branch-offset helper `_asm_rel8` (zones B and E)
-takes it afterwards.  ZPREL's zero-page byte comes in `asm_tmp2`
+`ora` keeps it); zone E saves the opcode before the branch-offset
+helper (`_asm_rel8` on the C64 builds, `_asm_reld` on m65; zones B
+and E) reuses `asm_tmp` as scratch.  ZPREL's zero-page byte comes in `asm_tmp2`
 ([addr_mode.md](addr_mode.md)).
 
-**BSS (8 bytes):**
+**BSS (8 bytes; 13 on m65):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
@@ -152,6 +153,7 @@ takes it afterwards.  ZPREL's zero-page byte comes in `asm_tmp2`
 | `reg_y` | 1 | user Y register |
 | `reg_sp` | 1 | user stack pointer |
 | `reg_p` | 1 | user status flags |
+| `reg_z`, `reg_b` | 1 each (m65 only) | user Z and B registers |
 | `_asm_sink` | 3 (4 on `MEGA_SUPPORT`) | bytes emitted past a `$FFFF` wrap land here (refused) |
 
 **BSS (`MEGA_SUPPORT`, 2 bytes):** `asm_pfx` — the instruction's
@@ -177,7 +179,7 @@ mn_classify (`mn_classify`, `mn_base_op`, `mn_profile`), mn7_tables
 
 ## Build-time variants
 
-Three C64 CPU sets build, and the m65 one (see
+Four CPU sets build — three C64, one m65 (see
 [build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)).
 Each instantiates this module with different `-D` flags.  The
 classifier choice and the in-binary gate behaviour depend on the
@@ -198,13 +200,14 @@ On mn6 builds, unsupported mnemonics are rejected at the classifier
 tier (mn6 doesn't hash them), so the in-binary gate never sees
 them — but the gate code is linked anyway (the `cat` byte paths
 sit dormant without cost).  On mn7 builds, the classifier accepts
-all 114 mnemonics; the gate is the sole defence against the user
+every key of the set (114 on the C64, 98 on m65); the gate is the sole defence against the user
 asking for an instruction the current `asm_cpu` shouldn't emit.
 
 Bundle-test parity: each production variant has a matching unit-test
 bundle in [conftest.py](../../tests/conftest.py) (`AsmCoreSymbols(config=…)`)
 and a test class in [test_asm_line.py](../../tests/unit/test_asm_line.py)
-(`TestCpuGateCmosBundle`, `TestCpuGate6510Bundle`, `TestAsmLine6502Bundle`).
+(`TestCpuGateCmosBundle`, `TestCpuGate6510Bundle`, `TestAsmLine6502Bundle`);
+the m65 variant's tests are [test_asm_m65.py](../../tests/unit/test_asm_m65.py).
 See [testing.md § Principle 10](../testing.md).
 
 ## asm_cpu × category gate matrix
@@ -306,8 +309,8 @@ makes a profile that has `REL16` take it whatever the distance.  The
 REPL's `.` sets it when the bytes it re-assembles over are a 16-bit
 branch ([repl.md § The `.` command in detail](repl.md#the--command-in-detail)),
 so a `d` row re-entered unchanged keeps its width — `REL16` lists
-like `REL` (operator, 2026-11-19).  `asm_line` clears it after every
-instruction; the source assembler never sets it.
+like `REL`.  `_asm_line_core` clears it on entry (BSS above), so it
+applies to one instruction; the source assembler never sets it.
 
 ### Immediate range
 

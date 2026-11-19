@@ -7,10 +7,10 @@
 | File | Role |
 |------|------|
 | [`src/opcode_lookup.s`](../../src/opcode_lookup.s) | implementation |
-| [`src/mn_asm_tables.s`](../../src/mn_asm_tables.s) | generated — one block per CPU set: `asm_row` (1 B per profile) + `asm_delta` (one row per delta row) + `asm_oplen` (operand bytes per mode; read by asm_line) + `ASM_ZONE_G` (and `ASM_ZONE_D` where the set has the digit zones), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
+| [`src/mn_asm_tables.s`](../../src/mn_asm_tables.s) | generated — one block per CPU set: `asm_row` (1 B per profile) + `asm_delta` (one row per delta row) + `asm_oplen` (operand bytes per mode; read by asm_line) + `ASM_ZONE_G` (and `ASM_ZONE_D` where the set has the digit zones; on m65 also `ASM_ZONE_B`, `ASM_ZONE_F`, `ASM_ZONE_Q`, `ASM_ZONE_H`), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/mn_modes.s`](../../src/mn_modes.s) | generated — one block per CPU set: the profile validity masks, one plane per 8 modes (`mn_modes_lo`, `mn_modes_hi`; on `MEGA_SUPPORT`, with 20 modes, a third plane `mn_modes_x`), 1 B per profile per plane, produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/oplen_tbl.s`](../../src/oplen_tbl.s) | generated — packed opcode → single-byte-instruction length (64 B, 2 bits/opcode; prefixes not counted).  One content for all C64 CPU sets (every `OPCODES` row's length; where a 6510 crash opcode (JAM) shares a byte with another row, e.g. `$D2` CIM / 65C02 `CMP (zp)`, the other row's length wins; any other length conflict stops the generator); empty on m65 (`CPU_45GS02`), where the step takes the disassembler's 45GS02 length, prefixes included ([debugger.md § Next-PC](debugger.md#next-pc)).  Produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Consumer: `debugger.s` (`step_next_pc`, C64); back-link-exempt (generated) |
-| [`tests/unit/test_opcode_lookup.py`](../../tests/unit/test_opcode_lookup.py) | test contract (every profile × mode of every C64 CPU set; end to end by test_asm_line.py::test_assemble) |
+| [`tests/unit/test_opcode_lookup.py`](../../tests/unit/test_opcode_lookup.py) | test contract (every profile × mode of every CPU set; end to end by test_asm_line.py::test_assemble) |
 
 ## Interface
 
@@ -33,7 +33,7 @@ within its mask plane.
 (and `mn_modes_x` on `MEGA_SUPPORT`), `asm_row`, `asm_delta`, `asm_oplen` — in RAM under the KERNAL, so
 `asm_line`'s bank-out covers the lookup.
 
-**Depends on:** mn_modes (`mn_modes_lo`, `mn_modes_hi`),
+**Depends on:** mn_modes (`mn_modes_lo`, `mn_modes_hi`; `mn_modes_x` on m65),
 mn_asm_tables (`asm_row`, `asm_delta`), zp (`asm_pidx`, `asm_base`,
 `asm_mode`)
 
@@ -106,8 +106,10 @@ only what it encodes:
   ([asm_line.md § Gate](asm_line.md#asm_cpu--category-gate-matrix)).
 - **Sharing.**  A multi-mode key shares the `pidx` of any multi-mode
   profile identical to its own (a pair member included), never a
-  fixed-zone profile's: the 4510's zero-page-only `DEW`/`INW` encode
-  like zone D's profile but are not bit-digit keys.
+  fixed-zone profile's (the 4510's zero-page-only `DEW`/`INW` encode
+  like zone D's profile but are not bit-digit keys), and on m65 never
+  one in zone Q, which admits the `q` suffix (`TSB`'s `{ZP, ABS}`
+  stays apart from `BIT`'s, so `tsbq` is no word).
 
 The generator refuses to write tables that break any of these rules.
 

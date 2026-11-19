@@ -9,7 +9,7 @@
 | [`src/mn_classify.s`](../../src/mn_classify.s) | implementation — dispatcher |
 | [`src/mn7.s`](../../src/mn7.s) | implementation — 7-bit hash classifier (C64 `mn7` keys; the m65 key set uses it over its own tables) |
 | [`src/mn6.s`](../../src/mn6.s) | implementation — 6-bit hash classifier |
-| [`src/mn7_tables.s`](../../src/mn7_tables.s) | generated — one block per `mn7` CPU set: `mn7_hash_t` (27 B) + `mn7_fp` / `mn7_base_op` / `mn7_profile` (3×128 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
+| [`src/mn7_tables.s`](../../src/mn7_tables.s) | generated — one block per `mn7` CPU set: `mn7_hash_t` (27 B) + `mn7_fp` / `mn7_base_op` / `mn7_profile` (3×128 B); the m65 block also `mn7_c02` (16 B, KDATA), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/mn6_tables.s`](../../src/mn6_tables.s) | generated — the `mn6` block (CPU set {6502}): `mn6_hash_t` (27 B) + `mn6_fp_c2` (27 B, `(c2·218) & $FF`) + `mn6_fp` / `mn6_base_op` / `mn6_profile` (3×64 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`tests/unit/test_mn_classify.py`](../../tests/unit/test_mn_classify.py) | test contract |
 

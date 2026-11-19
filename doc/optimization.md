@@ -474,11 +474,11 @@ cpu_names: .byte 0, "6502", 0, 1, "6510", 0, 2, "65c02", 0, $FF
 
 The table holds only what the build has (`.ifdef` per entry), so it
 is the validation too: no companion mask.  One scan loop serves the
-parser of both callers and the listing.
+parser of both callers; the `u` listing walks the same table.
 
 Used in: `asm_src.s` — `cpu_lookup` for `.cpu` and the REPL's `u`
-(P4 step (2) replaced two parsers and a pair table + mask with it:
-−40 to −61 B per build).
+(one parser and one table where there were two parsers and a pair
+table + mask: −40 to −61 B per build).
 
 ## 24. Extract behavioral units, not byte patterns
 

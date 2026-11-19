@@ -114,7 +114,7 @@ CSE targets:
 - Stock C64 KERNAL ROM
 - Stock C128 KERNAL ROM (C64 mode)
 - The MEGA65 KERNAL in MEGA65 mode, ROM 920413 (release 0.97) or
-  later — the planned m65 build only
+  later — the m65 build only
   ([§ Memory Map — m65](#memory-map--m65-mega65-mode))
 
 Stretch targets — not supported until their TODO items close

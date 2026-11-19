@@ -273,12 +273,10 @@ prints `fl_buf` after `l` / `s` without reading again; `$` prints
   `disk_load_seq` (returns 1).
 - `build_open_str` uses `open_buf` (28B BSS) as scratch.
 - `callback` is the first BSS byte pair, on an even address
-  (`.align 2`, the BSS segment 2-aligned in every linker config): the
-  SEQ paths call it through `jmp (callback)`, which an NMOS CPU reads
-  wrongly from `$xxFF`.  The debug c64-65c02 build had it at `$CEFF`
-  (found in P4 step (1); ld65 warned, nothing failed).
-- Mutable locals live in CODE, not BSS: `write_name_at` (`@nlen`),
-  `build_open_str` (`@mode`, `@type`, `@nlen`), `list_directory`
-  (ten bytes: `@is_first` … `@fn_tmp`) and `disk_save_prg`
-  (`@size_lo`, `@size_hi`).  They block a ROM build
+  (`.align 2`, the BSS segment 2-aligned in every production linker
+  config): the SEQ paths call it through `jmp (callback)`, and the
+  NMOS CPUs take `$xxFF`'s high byte from `$xx00`.
+- The routines' mutable locals (`write_name_at`'s `@nlen`,
+  `build_open_str`'s, `list_directory`'s, `disk_save_prg`'s) are BSS
+  in their procs; CODE stays read-only
   (memory_design.md § Design Principles).

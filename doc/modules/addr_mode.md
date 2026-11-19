@@ -35,7 +35,7 @@ position-pinning witness.
 `jmp asm_expr_error` for an expression error (except an undefined
 symbol on pass 0, § Forward-reference handling) — neither returns
 ([asm_err.md](asm_err.md)).
-**Clobbers:** A, X, Y; `asm_opr`, `expr_ptr`, `expr_val`, `expr_wide`
+**Clobbers:** A, X, Y; `asm_opr`, `asm_tmp2` (ZPREL), `_au_far` (m65), `expr_ptr`, `expr_val`, `expr_wide`
 and everything `expr_eval_nb` clobbers ([expr.md](expr.md)); on the
 pass-1 shadow path also `sym_name` and what `sym_lookup` / `log_warn`
 clobber.

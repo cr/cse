@@ -85,8 +85,8 @@ rol a
 rol                  ; same as `rol a` — bare form = ACC
 ```
 
-Standard 6502/6510/65C02 mnemonics on C64 builds; 6502/4510/45GS02
-mnemonics on the m65 build — the CPUs of the build's CPU set
+The mnemonics of the build's CPU set — 6502, 6510 and 65C02 on the
+C64 builds; 6502, 65C02, 4510 and 45GS02 on the m65 build
 ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
 Operands support the full expression syntax (labels, arithmetic, lo/hi
 byte operators, etc.).
@@ -232,7 +232,7 @@ layout puts them.
 
 ```
 .cpu 6502           ; legal opcodes only
-.cpu 6510           ; legal + illegal opcodes        (C64 builds)
+.cpu 6510           ; legal + illegal opcodes        (c64-6510, c64-65c02)
 .cpu 65c02          ; legal + CMOS extensions        (c64-65c02, m65)
 .cpu 4510           ; 65C02 set + 4510 additions     (m65)
 .cpu 45gs02         ; 4510 + Q and far forms         (m65, default)
@@ -246,8 +246,10 @@ on both passes.  After the assembly the REPL's CPU (`u`) is unchanged.
 
 On m65, `.cpu 65c02` assembles the 65C02's spellings, `lda ($12)`
 among them.  The 45GS02 runs that opcode as `lda ($12),z`, so the
-code behaves as on a 65C02 while Z is 0 — as the MEGA65's KERNAL and
-BASIC keep it.  The 6510 is not offered on m65.
+code behaves as on a 65C02 while Z is 0
+([asm_line.md § asm_cpu × category gate matrix](modules/asm_line.md#asm_cpu--category-gate-matrix)).
+The 6510 is not offered on m65
+([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
 
 ### `.db` — Define Bytes
 

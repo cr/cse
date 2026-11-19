@@ -261,7 +261,7 @@ program sees it, not CSE's own values there.
 | Command | Syntax | Description |
 |---------|--------|-------------|
 | `a` | `a` | Assemble the source in the editor; code before the first `.org` goes to the current address |
-| `u` | `u [MODE]` | Show or set CPU mode: `6502` on every build, `6510` on the 6510 build, `65c02` on the 65C02 build |
+| `u` | `u [MODE]` | Show or set CPU mode, one of the build's CPU set: `6502` on every build, `6510` on the 6510 and 65C02 builds, `65c02` on the 65C02 build (MEGA65: § On the MEGA65) |
 
 `a` prints one `; org AAAA-BBBB NNb` row per block of code, then
 `; ok` and a ready-made save line (`AAAA:s "proj" $bbbb` — cursor up
@@ -508,8 +508,8 @@ is `;?N: exp val`.
     lda ($42,x)     ; (indirect,x)
     lda ($42),y     ; (indirect),y
     jmp ($1000)     ; indirect
-    lda ($42)       ; zero page indirect (65C02 build only)
-    jmp ($1000,x)   ; absolute indirect,x (65C02 build only)
+    lda ($42)       ; zero page indirect (65C02 / MEGA65)
+    jmp ($1000,x)   ; absolute indirect,x (65C02 / MEGA65)
     rol             ; accumulator (bare form)
     rol a           ; accumulator (explicit form, equivalent)
     beq .loop       ; relative (assembler computes offset)
@@ -678,10 +678,8 @@ Where it differs from the C64 build:
 - **The CPU.**  The assembler and the disassembler speak the
   45GS02 by default — its 4510 instructions, the quad `q`
   instructions and 32-bit `[ ]` addressing — and the 4510, the 65C02
-  or the 6502 on request (`.cpu`, `u`; not the 6510, whose illegal
-  opcodes the MEGA65 does not run;
-  [assembler_syntax.md](doc/assembler_syntax.md)).  65C02 code runs
-  as such while Z is 0, as the MEGA65 keeps it.  A `d` row has room
+  or the 6502 on request (`.cpu`, `u`;
+  [assembler_syntax.md § `.cpu`](doc/assembler_syntax.md)).  A `d` row has room
   for five bytes, the longest instruction.
 - **The editor** uses the whole screen of the current mode, and a
   source line may be 79 columns wide (39 on the C64; the C64 build

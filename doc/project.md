@@ -68,7 +68,8 @@ showing how much room is left.
 ### The Assembler
 
 A two-pass assembler for the CPUs of the build's platform — 6502,
-6510 and 65C02 on the C64; 6502, 4510 and 45GS02 on the MEGA65 — with:
+6510 and 65C02 on the C64; 6502, 65C02, 4510 and 45GS02 on the
+MEGA65 — with:
 
 - Global and local labels, constants, forward references
 - Full expression language (arithmetic, bitwise, lo/hi byte, grouping)
@@ -76,8 +77,8 @@ A two-pass assembler for the CPUs of the build's platform — 6502,
   `.cpu`, `.const`
 - Automatic ZP/ABS mode selection — no manual overrides needed
 - Runtime CPU switching within the build's CPU set: legal-only 6502,
-  6510 with illegals, or 65C02 on the C64; legal-only 6502, 4510, or
-  45GS02 (Q and far forms) on the MEGA65
+  6510 with illegals, or 65C02 on the C64; legal-only 6502, 65C02,
+  4510, or 45GS02 (Q and far forms) on the MEGA65
 
 ### The Disassembler
 

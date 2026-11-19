@@ -34,6 +34,59 @@ is per-session, the project's working state recap.
 
 ---
 
+## P4 — Quality Sweep and code review of the milestone (2026-11-19)
+
+Operator-invoked over P4's commits (`c339e39^..86d5f2f`): five
+independent reviewers at once — two doc lenses (doc slice → code,
+measured; defect classes: status, superseded rulings, duplication,
+layering, readability), the assembler side, the disassembler / REPL /
+debugger side, the tests — each finding verified against the live
+code before it was resolved.  Output mode: resolve, one commit for
+the docs, one for the code and tests.
+
+### What worked
+
+- The two doc lenses agreed where they overlapped (the README `u`
+  row, the prefixed length "2–5" that is 3–5, dasm's KDATA) and
+  otherwise found disjoint classes: measured facts (asm_line's BSS is
+  13 B on m65, the `$x3` branch class is `(op & $1F) = $13`, a stale
+  "mutable locals in CODE" caveat from before P3) against structure
+  (rulings D-P4-10 amended but quoted unamended in four places, the
+  retired m65 `oplen_tbl` still promised by D-P4-5 and T3).
+- The code reviewers reproduced their two bugs on M65Emu: a failed
+  `.` re-entry left `asm_rel16` set for the next branch; `t` on
+  `JSR (ind)` into ROM did not step over as `JSR` and `BSR` do.
+- The test reviewer mutated a copy and found a test that could not
+  fail (`assert x == a if c else b` parses as a conditional assert)
+  — the Q peel enabled at `asm_cpu` 3 passed every behaviour test;
+  only the golden file's speed total caught it, by chance.
+
+### What didn't
+
+- The milestone's Step 5 again left future tense ("`6502` until P4")
+  and slice 1's header as plan; the P3 amendment (grep the milestone's
+  name in future tense) was not run at the close.
+- Rulings amended mid-milestone (D-P4-10 adding the 65C02) were
+  amended where decided, not where restated — the P3 lesson again.
+- Tests written against a new contract checked the error count, not
+  the effect (`.cpu`, `u` starting from the value they set).
+
+### Suggested amendments
+
+- **Tier C:** the milestone close runs the P3 grep, and for each
+  ruling amended during the milestone a grep of its old wording.
+- **Testing:** a selection test starts from a state the selection
+  changes; a contract test asserts the effect, not only "no error".
+
+### Closing summary
+
+About 60 doc findings resolved; on the code side two bugs fixed with
+tests, `dasm_insn` made bank-correct and the debugger's caller, m65
+code simplified (MEGA-only, C64 PRGs byte-identical), one cannot-fail
+test fixed and the weak ones strengthened.
+
+---
+
 ## P3 — Quality Sweep and code review of the milestone (2026-11-19)
 
 Operator-invoked over P3's commits (`654b442..678c93b`): a scoped

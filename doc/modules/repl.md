@@ -151,15 +151,15 @@ in zero page; see [zp.md](zp.md).
 | `rp_next_hi` | 2 | 16-bit scratch pair (`rp_next_lo` is in zp.s) |
 | `rp_opc` | 1 | Command character / scratch (`emit_mem` columns, `info_emit_rows` count) |
 | `rp_dis_bp` | 1 | `cmd_step`: disabled breakpoint slot × 4 ($FF = none) |
-| `rp_hexbuf` | 3 | `cmd_dot` hex byte parse |
+| `rp_hexbuf` | 3 (m65 5; `DOT_MAX`) | `cmd_dot` hex byte parse: up to `DOT_MAX` pairs, the longest instruction |
 | `cold_preview_done` | 1 | Cold-preview marker |
 | `zp_stage_buf` | 8 (m65 16; `MEM_ROW_MAX`) | User-ZP staging buffer for `m` dump and `.` disasm ([§ User-ZP view](#user-zp-view)) |
 | `wl_vcol` | 1 | `warn_long_lines`: visual column of the current line |
 | `wl_line` | 2 | `warn_long_lines`: 0-based line number |
 
 **Depends on:** asm_src (`asm_assemble`, `seg_print_save`), asm_line
-(`asm_line`, `reg_a`/`reg_x`/`reg_y`/`reg_sp`/`reg_p`), asm_err
-(`asm_err_code`), dasm (`dasm_insn_pre`, `_dasm_in`, `dasm_buf`), expr (`expr_eval`,
+(`asm_line`, `reg_a`/`reg_x`/`reg_y`/`reg_sp`/`reg_p`; m65 `asm_rel16`), asm_err
+(`asm_err_code`), dasm (`dasm_insn_pre`, `_dasm_in`, `_dasm_ptr`, `dasm_buf`; m65 `_dasm_mode`), expr (`expr_eval`,
 `expr_error_str`), symtab (`sym_lookup`), breakpoints (`dbg_bp_set`,
 `dbg_bp_del`, `dbg_bp_clear`, `dbg_step_clear`, `bp_table`,
 `dbg_bp_hit`), debugger (`brk_pc`, `brk_stub`,
@@ -393,8 +393,7 @@ The `.` handler (`cmd_dot`) has three modes:
    The instruction keeps its width: on m65, when the matched bytes are
    a 16-bit branch (`REL16`, which lists like an 8-bit one), the text
    is assembled as `REL16` (`asm_rel16`, [asm_line.md § Branches](asm_line.md#branches-zone-b)),
-   so RETURN on an unchanged row writes the same bytes (operator,
-   2026-11-19).
+   so RETURN on an unchanged row writes the same bytes.
 3. **No arguments:** disassemble one instruction at `cur_addr`.
 
 **Expression support.**  In mode 2 (and for a bare `. mne opr`) the
@@ -408,8 +407,8 @@ full expressions work:
 Symbols from the last `a` are available (the symbol table persists
 between assemblies).
 
-`dot_assemble` copies the mnemonic word (`a`–`z` and a trailing
-digit `0`–`7`, at most 8 — the bit-op mnemonics such as `rmb3`;
+`dot_assemble` copies the mnemonic word (letters and, on mn7 builds,
+digits — asm_line judges them; at most 8 — the bit-op mnemonics such as `rmb3`;
 on m65 also the `q` names and the `q` suffix,
 [asm_line.md § Mnemonic word](asm_line.md#mnemonic-word)), keeps a
 leading `#`, `(` and, on m65, `[`, evaluates the operand to `$XX` or
@@ -980,7 +979,7 @@ Tests: `TestColorApply`, `TestColorCommand`.
 and always prints them, the active one marked `*`
 (`; cpu: 6502* 6510`).  The modes are the build's CPU set
 ([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)):
-the 65C02 build offers 6502, 6510 and 65c02 (ruling D2); the m65
+the 65C02 build offers 6502, 6510 and 65c02; the m65
 build 6502, 65c02, 4510 and 45gs02 (`; cpu: 6502 65c02 4510 45gs02*`).
 `u` selects the assembler's CPU and the disassembler's view; the
 debugger's step follows the real CPU ([debugger.md § Next-PC](debugger.md#next-pc)).
@@ -1000,7 +999,7 @@ paths; each starts at column 0 and ends with `io_clear_eol`.
 
 - `emit_dot(rp_addr)` — `AAAA:.  HH HH HH  mne opr`, returns the
   instruction length in A.  On m65 five byte columns, in every screen
-  mode (operator, 2026-11-19): the mnemonic at
+  mode: the mnemonic at
   column 24, a row 38 columns at most (`lda ($12,sp),y`), so it fits
   40 columns.
 - `emit_mem(rp_addr, A = columns 1–8)` — `AAAA:m HH … HH;cccccccc`

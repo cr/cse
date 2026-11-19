@@ -4,14 +4,16 @@
 
 **Branch:** `m65` (cut from `main` @ 910d96d, 2026-11-16).
 **Goal:** the m65 platform's CPU layer — line assembler, source
-assembler and disassembler for the 45GS02, with the 4510 and the
-6502 as runtime alternatives — built from the one instruction set
-that serves every build.  The rest of R7 (screen driver, memory
+assembler and disassembler for the 45GS02, with the 4510, the 65C02
+and the 6502 as runtime alternatives (D-P4-10) — built from the one
+instruction set that serves every build.  The rest of R7 (screen driver, memory
 model, KERNAL interface, debugger) is not this slice: it is
 [slice 2](#m65-slice-2--the-mega65-platform-r7-platform-layer), the
 platform layer.  **Order (operator, 2026-11-18):** Phase B and A3b
-wait for slice 2's P0–P2 — the m65 build must exist, boot and run
-user code before the CPU layer is finished on it.
+waited for slice 2's P0–P2 — the m65 build had to exist, boot and run
+user code before the CPU layer was finished on it.  **Status
+(2026-11-19):** Phase A done but A5; Phase B done as slice 2's P4;
+A3b deferred (D-P4-4).
 
 **Hard constraint (operator, 2026-11-16):** no change made for the
 m65 target may make any C64 build bigger or significantly slower.
@@ -19,8 +21,8 @@ Tables grow only where the platform is m65.
 
 **Rationale — one source, one format, sized per build.**
 `dev/instruction_set.py` is the single source of every opcode fact
-for every build (operator ruling, 2026-11-16).  Today two consumers
-re-state facts in hand-written code: `opcode_lookup.s` (five
+for every build (operator ruling, 2026-11-16).  Before Phase A two
+consumers re-stated facts in hand-written code: `opcode_lookup.s` (five
 exception steps, the `dir` bit, the zone-3 `ABY` conflict) and the
 bit-slice decoder in `dasm.s` (`g1_mne`/`g1_mode`, the per-CPU
 exception chains, `mode_len`, `dasm_mode_fmt`), plus `asm_line.s`'s
@@ -44,8 +46,9 @@ build gets that format sized to its own CPU set:
   the map lookup.  Instruction length becomes 1–5 on the m65 build.
 
 **Model for the m65 set (2026-11-16, `instruction_set.py` via exact
-row colouring, 20 modes; not yet built):** 36 profiles, 7 delta rows,
-≈ 284 B of masks + rows + index.  The C64 sets are built — see
+row colouring, 20 modes):** 36 profiles, 7 delta rows, ≈ 284 B of
+masks + rows + index — an estimate; the set built in P4 step (3) has
+45 profiles and 7 × 20 rows (its record below).  The C64 sets are built — see
 *Measured* below.
 
 **Baseline (measured 2026-11-16, fresh `make release` at 910d96d +
@@ -148,13 +151,14 @@ disassembler (A4) followed: see A4 below.
   worst single case +5.7 % (an unknown opcode, which the bit-slice
   short-circuited); all 1536 dasm golden cases identical.)
 - [ ] A5. Gates 1–3 measured and recorded here; asm → dasm → asm
-  round trip over every row; generator tests (placement rules refuse
+  round trip over every row (done for the m65 set in P4, T7); generator tests (placement rules refuse
   violating input, minimal row count, no foreign entries per block).
 
 ### Phase B — the m65 build (m65-45gs02)
 
 - [x] B1. Build defines `PLATFORM_M65`, `CPU_45GS02`, `MEGA_SUPPORT`;
-  `asm_cpu` values 3 and 4 (6502 and 4510 selectable at run time); m65
+  `asm_cpu` values 3 and 4 (6502 and 4510 selectable at run time;
+  D-P4-10 added the 65C02, `asm_cpu` 2); m65
   test bundles ([build_system.md](build_system.md)).
 - [x] B2. Classifier: `mn7` over the m65 key set
   ([mn_classify.md § Variants](modules/mn_classify.md#variants)).
@@ -168,8 +172,7 @@ disassembler (A4) followed: see A4 below.
   every build with the later-defined ZP constant fix (f13e739:
   `sym_stamp` / `sym_fwd`, `expr_fwd`, asm_src's per-pass stamp —
   [symtab.md § Pass stamp](modules/symtab.md#pass-stamp-mega_support));
-  what is left is zone B's `REL` / `REL16` choice reading `expr_fwd`
-  (B4).
+  zone B's `REL` / `REL16` choice reads `expr_fwd` (B4, P4 step (5)).
 - [x] B5. `.cpu` / `u` on m65 ([assembler_syntax.md](assembler_syntax.md),
   [repl.md](modules/repl.md)).
 - [x] B6. `dasm_insn`: prefix peel, m65 modes, 1–5-byte length
@@ -207,7 +210,7 @@ disassembler (A4) followed: see A4 below.
 
 ### Known issues filed by the Step-2 handoff audit (not this slice)
 
-- [ ] **Debugger single-step on m65.**  `debugger.s::step_next_pc`
+- [x] **Debugger single-step on m65.**  (Done in P4 step (9), 60c2c1c.)  `debugger.s::step_next_pc`
   takes `brk_pc + oplen_tbl[opcode]`; on a Q or far instruction that
   is the prefix's length, so the step BRK would land inside the
   instruction.  Also missing: `REL16` branches, `BSR`, `JSR (ind)` /
@@ -233,7 +236,8 @@ disassembler (A4) followed: see A4 below.
 ### Step-2 rulings (operator, 2026-11-16)
 
 - **Single m65 build.**  m65-45gs02 is the only m65 target: 45GS02 by
-  default, 6502 and 4510 selectable at run time.  One feature define,
+  default, 6502 and 4510 selectable at run time (amended by D-P4-10:
+  the 65C02 too).  One feature define,
   `MEGA_SUPPORT`.
 - **D1. Branch width under forward references:** the per-pass symbol
   stamp (B4b) — a target read before its definition in the current
@@ -1458,7 +1462,8 @@ a banked type for the hardware (an unbanked cartridge shows 16 K) or
 xmega65's flat 32 K, `Q`'s exit (a reset restarts the cartridge), the
 `.CRT` writer in `dev/`, and Tier X with `-cart`.
 
-**P4 — the CPU layer on the platform** = slice 1 Phase B (B1–B7,
+**P4 — the CPU layer on the platform.**  **Gate met (2026-11-19)** —
+below, after the TDD plan.  P4 = slice 1 Phase B (B1–B7,
 B4b, its prerequisite bugs) and the debugger's 45GS02 step, now with
 an m65 build to run on: the m65-45gs02 build replaces m65-6502.  Its
 deltas are slice 1's ([assembler_syntax.md](assembler_syntax.md),
@@ -1500,7 +1505,7 @@ Step-1 delta (written 2026-11-19; approved 2026-11-19 with the analysis):
   "planned"), `_asm_sink` 4 B on `MEGA_SUPPORT`, zone B a range on
   m65, zones D/E assembled, `asm_rel16`.
 - [x] [opcode_lookup.md](modules/opcode_lookup.md) (`mn_modes_x`, the
-  m65 `oplen_tbl` block), [dasm.md](modules/dasm.md) (KDATA map blocks
+  m65 `oplen_tbl` block — retired in step (9)), [dasm.md](modules/dasm.md) (KDATA map blocks
   on m65, the 6502 and 65C02 views over the 4510 map — D-P4-10 — no
   "planned"), [addr_mode.md](modules/addr_mode.md),
   [mn_classify.md](modules/mn_classify.md), [symtab.md](modules/symtab.md):
@@ -1563,11 +1568,12 @@ Step-1 delta (written 2026-11-19; approved 2026-11-19 with the analysis):
 
 Decisions (approved 2026-11-19):
 - **D-P4-5** The generators: cse's `mnemonic_tables.py` and
-  `dasm_tables.py` gain the m65 set {6502, 4510, 45GS02} — m65
+  `dasm_tables.py` gain the m65 set {6502, 65C02, 4510, 45GS02} — m65
   categories, the Q zone, zone B as a range, a third mask plane;
   byte-wide modes, the Q map, the listing-name rule across views,
   the 6502 and 65C02 subset views (D-P4-10), five view entries,
-  `mn7_c02`; an m65 `oplen_tbl` block.  bbbc64's `asm_tables.py`
+  `mn7_c02`; an m65 `oplen_tbl` block (retired in step (9): the step
+  takes the disassembler's length).  bbbc64's `asm_tables.py`
   and `mn7gs` are the reference, not the source (cse selects the CPU at
   run time; bbbc64 does not).
 - **D-P4-6** On m65 the generated tables live in KDATA (the data
@@ -1736,7 +1742,7 @@ hardware: O1 and O3, as before.
   over it (`ZPI` = `ZPIZ` for the 65C02 view), `$EA` `EOM` in every
   view; five view entries; `mn7_c02` equal to the 65C02 view's keys
   and extensions; the m65 `oplen_tbl` block = the 4510's
-  lengths; the m65 `mn7` `T` with no false positive over the invalid
+  lengths (retired in step (9) with its test); the m65 `mn7` `T` with no false positive over the invalid
   strings (as the C64 test).  The C64 blocks byte-identical (the C64
   PRG hashes hold).
 - [x] T4. The m65-45gs02 build (step 4; `test_makefile_guards.py`,
@@ -1774,7 +1780,7 @@ hardware: O1 and O3, as before.
   far-capable one, both) lists as the oracle, with its length; the
   peel only at `asm_cpu` 4 (`$42` alone `neg`, a lone `$EA` `eom` in
   every view); the 65C02 view lists `$B2 $12` as `lda ($12)` and a
-  4510-only opcode as `???`;
+  4510-only opcode as `...`;
   the formats: `#$1234`, a 16-bit branch target counted from the last
   byte, `($12),z`, `($12,sp),y`, `[$12],z`, the Q names and
   decorations, the seven `($nn)` Q forms.  Round trip: every row
@@ -1792,7 +1798,7 @@ hardware: O1 and O3, as before.
   existing tests).
 - [x] T9. The 45GS02 step (step 9; `test_m65_debugger.py`): every row
   of debugger.md's m65 Next-PC table through `step_next_pc`, at
-  `asm_cpu` 0, 3 and 4 alike — prefixed lengths (Q, far, both), the
+  `asm_cpu` 0, 2, 3 and 4 alike — prefixed lengths (Q, far, both), the
   16-bit branches under `t` and `o`, `BRA`, `BSR`, `JSR (ind)` /
   `(abs,X)`, `RTN #`, `JMP (ind)` without the page wrap — and `t` /
   `o` run on M65Emu landing where the CPU goes.  On c64-65c02 (C64Emu)
@@ -5138,11 +5144,11 @@ relocated ZP internals in native mode, VIC-IV) requiring bigger
 adaptations than a compatibility shim.  Alongside C128 native
 (R3/R4), this would be a distinct platform target with its own
 screen driver and memory model.  Slice 1 — the CPU layer (assembler
-and disassembler) — is active: see
-[M65](#m65--the-45gs02-assembler-and-disassembler-r7-slice-1).
+and disassembler) — is done but A3b and A5, its Phase B as slice 2's
+P4: see [M65](#m65--the-45gs02-assembler-and-disassembler-r7-slice-1).
 Slice 2 — the platform layer: a native MEGA65-mode program living
 in the BASIC ROM banks, shipped as PRG and D81 (a MEGA65-style CRT
-in a later release) — is in progress, P0–P3 done: see
+in a later release) — is in progress, P0–P4 done, P5 next: see
 [M65 slice 2](#m65-slice-2--the-mega65-platform-r7-platform-layer).
 Slice 2 does the c64/m65 leaf-function isolation R3 asks for; R3
 later adds the C128 to it.

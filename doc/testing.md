@@ -27,13 +27,12 @@ Tests live in `tests/unit/`.  One pytest file per module (or
 per bundle — the `asm_core` and `mn6`/`mn7` bundles group
 tightly-coupled neighbours).
 
-**m65 bundles** (`dev/m65_macros_test.s` with
-`tests/unit/test_platform_m65.py` runs `platform.inc`'s m65 macro
-bodies; from P4 the `asm_core` and `dasm` bundles of m65-45gs02,
-[TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1)
-B1 — `conftest.M65_CONFIGS`, linked by `dev/m65_test.cfg`, loaded by
+**m65 bundles.**  `dev/m65_macros_test.s` (with
+`tests/unit/test_platform_m65.py`) runs `platform.inc`'s m65 macro
+bodies.  The `asm_core` and `dasm` bundles have an m65-45gs02 variant
+(`conftest.M65_CONFIGS`), linked by `dev/m65_test.cfg`, loaded by
 `load_into_emu()` with the base page at `0.1F00` and run by
-`asm_dasm_runner`'s M65Emu path with B = `CSE_BP`) run on M65Emu's CPU, `MPU45GS02`
+`asm_dasm_runner`'s M65Emu path with B = `CSE_BP`.  All of them run on M65Emu's CPU, `MPU45GS02`
 ([§ M65Emu](#m65emu--the-m65-integration-harness)), in *clean* mode:
 it admits, within CSE's own code, the 6502's documented opcodes plus
 the opcodes of the raw-byte macros in `src/m45_ops.inc`, and any other
@@ -148,7 +147,7 @@ Tests live in `tests/emulator/`, outside pyproject.toml's
 path (`pytest tests/emulator`), and are skipped, with the reason, when
 `$(XMEGA65)` (the driver reads the `XMEGA65` environment variable) or
 the SD image is absent.  Boot to the prompt takes
-about 5–8 s, so Tier X holds the m65 boot, hypervisor and disk tests
+about 5–8 s, so Tier X holds end-to-end runs on the real machine
 and the recording of M65Emu's golden files, not sweeps; the sweeps
 run on M65Emu.  xmega65 is an emulator: an answer it gives to a
 hardware question (TODO O1, O3) is provisional until the hardware
@@ -1870,10 +1869,10 @@ get their own small binary.
 
 | Bundle (fixture) | Modules | Stub | Tests |
 |--------|---------|------|-------|
-| `asm_core` (`asm_syms`, `asm_6510_syms`, `asm_6502_syms`, `AsmCoreSymbols(config)`) | zp, strings, opcode_lookup, asm_line, asm_err, addr_mode, expr, symtab, mem, mn_modes, mn_asm_tables, mn_classify + mn7, mn7_tables (6510, 65c02) or mn6, mn6_tables (6502) | `asm_core_test_stub.s` (linker symbols; `log_warn` mock) | test_addr_mode, test_asm_line, test_opcode_lookup, test_expr, test_asm_err, test_golden_asm_dasm |
+| `asm_core` (`asm_syms`, `asm_6510_syms`, `asm_6502_syms`, `AsmCoreSymbols(config)`) | zp, strings, opcode_lookup, asm_line, asm_err, addr_mode, expr, symtab, mem, mn_modes, mn_asm_tables, mn_classify + mn7, mn7_tables (6510, 65c02, 45gs02) or mn6, mn6_tables (6502) | `asm_core_test_stub.s` (linker symbols; `log_warn` mock); the `45gs02` variant links with `dev/m65_test.cfg` | test_addr_mode, test_asm_line, test_opcode_lookup, test_expr, test_asm_err, test_golden_asm_dasm, test_asm_m65, test_mn_classify (m65 keys) |
 | `mn6` / `mn7` (`mn6_syms`, `mn7_syms`) | zp, mn6/mn7 + tables, mn_classify | (none — pure leaf) | test_mn_classify |
 | `asm_src` (`as_syms`) | asm_core's modules (mn7 set) + asm_src | `asm_src_test_stub.s` (source reader and output mocks); `dev/asm_src_test.cfg` | test_asm_src |
-| `dasm` (`dasm_syms`, `dasm_bundle(config)`) | zp, dasm, dasm_tables, mem | `dasm_test_stub.s` (linker scaffolding only) | test_dasm, test_golden_asm_dasm |
+| `dasm` (`dasm_syms`, `dasm_bundle(config)`) | zp, dasm, dasm_tables, mem | `dasm_test_stub.s` (linker scaffolding only); the `45gs02` variant links with `dev/m65_test.cfg` | test_dasm, test_golden_asm_dasm, test_dasm_m65 |
 | `log` (`log_syms`) | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |
 | `mem` (`mem_syms`) | zp, mem | (none; `__CODE_RUN__` via `ld65 -D`) | test_mem |
 | `gap_buffer` (`gb_syms`) | zp, strings, mem, symtab, gap_buffer | (none; `__CODE_RUN__`, `__BUF_FLOOR__` via `ld65 -D`) | test_gap_buffer |
@@ -1885,12 +1884,11 @@ Every bundle links with `dev/test.cfg` (ZP at `$0000`, the rest at
 
 **Variants (Principle 10).**  A bundle ships one variant per CPU
 set whose build-time code paths differ in its modules: `asm_core` and
-`dasm` — `6502`, `6510`, `65c02`; `mn6` — `6502`; `mn7` — `65c02`
-(the C64 key set is the same in both `mn7` builds); `asm_src` —
-`65c02`.  The `m65` variants (`asm_core`, `dasm`, `mn7`, `asm_src`,
-`symtab`) are planned with the m65 build
-([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
-B1).  Each variant is named after its CPU set (the generator's
+`dasm` — `6502`, `6510`, `65c02`, `45gs02` (on M65Emu); `mn6` —
+`6502`; `mn7` — `65c02` (the C64 key set is the same in both `mn7`
+builds; the m65 keys are tested through `asm_core`'s `45gs02`
+variant); `asm_src` — `65c02` (on m65 the source assembler is tested
+on the PRG, `test_m65_asm_src.py`).  Each variant is named after its CPU set (the generator's
 `CPU_SETS`) and uses the production `-D` set of its build
 (`conftest.PROD_DEFS`, held to the Makefile by `test_build_parity.py`;
 [build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets));

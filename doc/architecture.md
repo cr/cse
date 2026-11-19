@@ -131,7 +131,7 @@ sibling permitted by [rule 2](#dependency-rules).
 | editor | disk, gap_buffer, mem, cse_io, zp (+ linker symbols) |
 | disk | screen, log, cse_io, strings, zp |
 | debugger | asm_line, breakpoints, oplen_tbl (C64), dasm (m65), mem, zp |
-| asm_line | addr_mode, opcode_lookup, expr, mn_classify, mn_asm_tables, mn_modes, asm_err, mem, zp |
+| asm_line | addr_mode, opcode_lookup, expr, mn_classify, mn_asm_tables, mn_modes, mn7_tables (m65), asm_err, mem, zp |
 | breakpoints | zp |
 | gap_buffer | symtab, strings, zp (+ linker symbols) |
 | addr_mode | expr, symtab, log, asm_err, strings, zp |
