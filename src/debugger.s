@@ -108,6 +108,9 @@ step_save:     .res 1          ; opcode/packed-oplen scratch
 ; Sentinel-push flag for the shared restore tail.  Set by
 ; return_to_userland (=1) or restore_userland_state (=0).
 _rtu_need_sentinel: .res 1
+.ifdef PLATFORM_M65
+um_sysflags:    .res 1          ; the program's SYSFLAGS (its bank state, P2)
+.endif
 
 ; ── CODE ───────────────────────────────────────────────────────────────
 .segment "CODE"
@@ -187,6 +190,8 @@ seed_bank_state:
         sta um_map,x
         dex
         bpl @s
+        inx                     ; X = 0: the premise's SYSFLAGS
+        stx um_sysflags
         rts
         .assert userland_zp_buf = um_map + 6 && um_d030 = userland_zp_buf + ZP_SAVE_LEN, error, "the bank state is one block"
 
@@ -295,6 +300,9 @@ save_userland_state:
         sta um_d030
         lda #D030_SEED
         sta D030_ROMBANK
+        sec                     ; and the program's SYSFLAGS (P2): CSE's
+        KCALL SYSFLAGS          ;   bits are set by the hygiene after
+        sta um_sysflags
         rts
 .endif
 
@@ -351,6 +359,11 @@ restore_userland_state:
 
 _rtu_body:
         jsr patch_all
+.ifdef PLATFORM_M65
+        lda um_sysflags         ; the program's SYSFLAGS back (P2), here:
+        clc                     ;   a KERNAL call cannot run inside
+        KCALL SYSFLAGS          ;   PLAT_TO_USER's MAP hold
+.endif
 
         ; Swap ZP: kernel's live → kernel_zp_buf, then user's
         ; userland_zp_buf → live.  Both helpers are CPU-port aware

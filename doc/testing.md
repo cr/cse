@@ -345,8 +345,9 @@ models none of them either.
 - **The VIC-IV's hot registers** (`$D011`, `$D016`, `$D018`, `$D031`),
   after xemu's vic4.c: with HOTREG on (`$D05D` bit 7, set after boot),
   a write that changes `$D011` or `$D016`, or any write to `$D018` or
-  `$D031`, re-derives the legacy text layout — the character count and
-  line step (80 or 40 by H640), the screen and sprite pointers, the
+  `$D031`, re-derives the legacy text layout — the character pointer
+  (from `$D018`), the character count and line step (80 or 40 by
+  H640), the screen and sprite pointers, the
   colour-RAM base, the display rows (24 or 49 by V400).  The KERNAL's
   `ESC 4` / `5` / `8` rely on it; `m65_editor.json`'s register sets per
   mode are the check (`test_m65_editor.py`).  The VIC bank from

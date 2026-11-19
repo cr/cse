@@ -26,7 +26,7 @@ CSE_IO_S = 1                    ; platform.inc: the BSS geometry is defined here
         .export scr_lo, scr_hi  ; shared row address tables (cse_io.md § RODATA)
         .export _io_scr_setup   ; shared row pointer setup (used by screen.s)
 .ifdef PLATFORM_M65
-        .export io_geometry, io_kbd_flush
+        .export io_geometry, io_kbd_flush, io_cse_keys
 .endif
 
         .export dec_pow_lo, dec_pow_hi
@@ -435,6 +435,17 @@ io_kbhit:
         sta io_key
 @r:     ldx #0
         rts
+
+; ── io_cse_keys — SYSFLAGS for CSE (m65; PLAT_HYGIENE, _main) ───────
+; Bits 5 (function keys raw, no BASIC macros) and 7 (Mega+Shift locked)
+; set, the others kept (the book: preserve the reserved bits 0–3).
+; Clobbers A.
+io_cse_keys:
+        sec
+        KCALL SYSFLAGS          ; read
+        ora #SYSFLAGS_CSE
+        clc
+        KJMP SYSFLAGS           ; write
 
 ; ── io_kbd_flush — drop every key waiting (m65; IO_KBD_FLUSH) ───────
 ; Out: A = 0.

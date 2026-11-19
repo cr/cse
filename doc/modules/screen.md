@@ -8,6 +8,7 @@
 |------|------|
 | [`src/screen.s`](../../src/screen.s) | implementation |
 | [`tests/integration/test_screen.py`](../../tests/integration/test_screen.py) | test contract — Tier I (full PRG via `C64Emu`) |
+| [`tests/integration/test_m65_display.py`](../../tests/integration/test_m65_display.py) | tier-I tests on the m65 PRG (P2 T5): `screen_mode_set`, `vic_reset` against the recorded register sets, colours, clear, scroll, newline, cursor, `kernal_screen_reset`, the hygiene |
 
 ## Interface
 

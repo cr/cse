@@ -188,6 +188,15 @@ SCRORG          = $FFED
 SYSFLAGS        = $FF47
 SCANSTOPKEY     = $FFEA             ; A = $7F while STOP is held (A1)
 VIC4_SCREEN_BANK = $D062            ; the screen pointer's bank (4 in 80 x 50)
+VIC_BASE        = $D000             ; the VIC-IV registers (vic_reset's table)
+VIC_SP_EN       = $D015
+VIC_BRD         = $D020
+VIC_BG          = $D021
+COLOUR_RAM_BANK = $08               ; colour RAM: FF8.0000 — bank $08 of
+COLOUR_RAM_MB   = $FF               ;   megabyte $FF (the modes' offset is 0, A1)
+DMA_OPT_DST_MB  = $81               ; DMA option: the destination's megabyte
+SYSFLAGS_CSE    = $A0               ; bit 5 raw function keys, bit 7 Mega+Shift
+                                    ;   locked: CSE's, while it reads keys
 ADDKEY          = $FF4A
 
 ; ── Hypervisor services (book Appendix N): lda #service · sta trap · clv
@@ -474,7 +483,15 @@ BP_PENDING      = $AD               ; their cells, $AD-$AF of CSE's base page
         sta SID_V2_CTRL
         sta SID_V3_CTRL
   .else
-        PLAT_PENDING 2
+    .ifndef io_cse_keys
+        .import io_cse_keys
+    .endif
+        jsr io_cse_keys         ; SYSFLAGS: CSE's bits (the program's are
+                                ;   in its bank state)
+        lda #0                  ; SID voices 1–3: waveform + gate off
+        sta SID_V1_CTRL
+        sta SID_V2_CTRL
+        sta SID_V3_CTRL
   .endif
 .endmacro
 

@@ -430,9 +430,10 @@ and the Hypervisor's `hyppo_get_mapping` does ([§ Constants](#constants)).
 - **The program's `SYSFLAGS`** (function-key macros, the Mega + Shift
   and No Scroll locks) travels with the bank state, though it is KERNAL
   state, not banking: `save_userland_state` reads it (`KCALL
-  SYSFLAGS`, C = 1) into `um_sysflags` and sets CSE's (bits 5 and 7,
-  [§ Display](#display)); `_rtu_body` writes the program's back before
-  `PLAT_TO_USER`; a fresh start gives the run premise's `$00` (P2,
+  SYSFLAGS`, C = 1) into `um_sysflags` (debugger.s's BSS), the
+  hygiene sets CSE's (bits 5 and 7, [§ Display](#display)); `_rtu_body`
+  writes the program's back before `PLAT_TO_USER` (a KERNAL call cannot
+  run inside its `MAP` hold); a fresh start gives the run premise's `$00` (P2,
   operator 2026-11-18: CSE reads raw function keys, a program finds
   its own).
 - **Fresh start** (`j`, `g`): the bank state is the run premise's —
@@ -538,7 +539,7 @@ cse_io.s's geometry, and two macros.
 
 | Name | c64 | m65 |
 |---|---|---|
-| `vic_reset` | VIC-II registers to CSE's text mode | the current mode's VIC-IV register set, as the KERNAL leaves it after `ESC 4` / `5` / `8` (recorded per ROM: a RODATA table per mode), the screen's content kept — a program's `BSOUT` output stays visible, as on c64.  `$D01A` is the KERNAL's (its raster IRQ), not 0 |
+| `vic_reset` | VIC-II registers to CSE's text mode | the current mode's VIC-IV register set, as the KERNAL leaves it after `ESC 4` / `5` / `8` (recorded per ROM: a RODATA table per mode), the hot registers first; sprites off; then `$0E` through `BSOUT`, because `$D018`'s hot write reset the character pointer to the upper-case set.  The screen's content kept — a program's `BSOUT` output stays visible, as on c64.  `$D01A` is the KERNAL's (its raster IRQ), not 0 |
 | `restore_colors` | border, background, `CHRCOLOR`, a 1 K fill of `$D800–$DBFF` | border and background as on c64; the text colour as a colour code through `BSOUT`; the colour RAM of the current mode — width × height bytes from the colour-RAM offset the VIC-IV names — filled by one DMA job |
 | `kernal_screen_reset` | the KERNAL's screen-editor cells re-seeded | `ESC O`, `HOME HOME`, `io_sync` (A1; below) |
 | `reset_screen` | colours, clear, home | the same: the screen's width × height bytes in the mode's bank filled by one DMA job, then home |

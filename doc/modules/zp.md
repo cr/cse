@@ -107,8 +107,8 @@ differences; the addresses are the linker map's
   ([mem.md § Interface](mem.md#interface)) — 9 bytes, written by the
   resident stub under the user map with absolute addressing; then the
   stub's three targets (6 bytes, written by `setup_interrupts` and the
-  loader).  From P2 also: `um_sysflags` (the program's `SYSFLAGS`);
-  the terminal's `IO_CX`, `IO_CY` (the cursor — they replace the
+  loader).  From P2 also (the program's `SYSFLAGS`, `um_sysflags`, is
+  debugger.s's BSS: no stub code touches it): the terminal's `IO_CX`, `IO_CY` (the cursor — they replace the
   `BP_PENDING` placeholders) and `io_key` (the key lookahead); the
   geometry's hot cells `scr_width` and `scr_last_col` — the rest of the
   geometry is cse_io's BSS, the base page being full

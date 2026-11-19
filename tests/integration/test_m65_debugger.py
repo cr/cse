@@ -410,8 +410,13 @@ def test_user_pushes_survive_a_break_and_a_resume(emu):
 def test_base_page_0_is_untouched_by_a_break(emu):
     ready(emu)
     m = emu.memory
-    pattern = bytes((k * 37 + 11) & 0xFF for k in range(0x100))
-    m.load(0, pattern)
+    m.load(0, bytes((k * 37 + 11) & 0xFF for k in range(0x100)))
+    # a fresh start writes the premise's SYSFLAGS ($00) through the
+    # KERNAL, into its own cell here: the program's state, not a
+    # clobber — so the snapshot is taken with it already $00
+    emu.jsr(0xFF47, b=0, a=0x00, carry=False)
+    emu.cpu.b = CSE_BP                             # kernel code runs with its own
+    pattern = bytes(m.read_flat(k) for k in range(0x100))
     user_code(emu, [0x00, 0x00])
     run_user(emu, USER)
     assert bytes(m.read_flat(k) for k in range(0x100)) == pattern
@@ -534,3 +539,39 @@ def test_an_nmi_anywhere_in_the_transition_is_resumable(cse_m65_prg, m65_snapsho
         assert m[cell(emu, "dbg_reason")] == DBG_RTS, f"NMI at step {k}"
         got = [m.read_flat(0x1700 + i) for i in range(4)]
         assert got == [0xFF, 0x34, 0x00, 0xC7], f"NMI at step {k}: {got}"
+
+
+# ── T6 (P2): the program's SYSFLAGS travel with its bank state ─────
+
+SYSFLAGS = 0xFF47
+
+
+def test_a_programs_sysflags_survive_a_break(emu):
+    """The program sets SYSFLAGS $50 (No Scroll locked, GO64 locked),
+    breaks, CSE runs with its own bits (raw F-keys, Mega+Shift
+    locked), and after `c` the program reads its $50 back."""
+    ready(emu)
+    m = emu.memory
+    #   LDA #$50 · CLC · JSR SYSFLAGS · BRK · SEC · JSR SYSFLAGS · STA $1700 · RTS
+    user_code(emu, [0xA9, 0x50, 0x18, 0x20, 0x47, 0xFF, 0x00, 0x00,
+                    0x38, 0x20, 0x47, 0xFF, 0x8D, 0x00, 0x17, 0x60], at=CODE)
+    run_user(emu, CODE)
+    assert m[cell(emu, "dbg_reason")] == DBG_BRK
+    assert m[cell(emu, "um_sysflags")] == 0x50
+    emu.jsr(emu.sym("hygiene_after_userland"), b=CSE_BP)
+    emu.jsr(SYSFLAGS, b=0, carry=True)
+    assert emu.a & 0xA0 == 0xA0                    # CSE's, while it reads keys
+    emu.write_word(cell(emu, "brk_pc"), word(emu, "brk_pc") + 2)
+    resume(emu)
+    assert m[cell(emu, "dbg_reason")] == DBG_RTS
+    assert m.read_flat(0x1700) == 0x50
+
+
+def test_a_fresh_start_gets_the_premises_sysflags(emu):
+    ready(emu)
+    emu.jsr(SYSFLAGS, b=0, a=0xF0, carry=False)    # whatever CSE had
+    emu.cpu.b = CSE_BP
+    #   SEC · JSR SYSFLAGS · STA $1700 · RTS
+    user_code(emu, [0x38, 0x20, 0x47, 0xFF, 0x8D, 0x00, 0x17, 0x60], at=CODE)
+    run_user(emu, CODE)
+    assert emu.memory.read_flat(0x1700) == 0x00

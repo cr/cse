@@ -326,7 +326,8 @@ class VICHotRegisters(Device):
     """The VIC-IV's "hot registers" ($D011, $D016, $D018, $D031), after
     xemu's vic4.c: with HOTREG on ($D05D bit 7), a write to $D011 or
     $D016 that changes it, or any write to $D018 or $D031, re-derives
-    the legacy text layout — the character count $D05E and the line
+    the legacy text layout — the character pointer $D068-$D06A from
+    $D018's charset bits, the character count $D05E and the line
     step $D058-$D059 (80 with H640, $D031 bit 7, else 40), the screen
     pointer $D060-$D063 from $D018's screen bits, the sprite pointer
     $D06C-$D06E, the colour-RAM base $D064-$D065 (0) and the display
@@ -355,6 +356,7 @@ class VICHotRegisters(Device):
         h640, v400 = io[0x031] & 0x80, io[0x031] & 0x08
         width = 80 if h640 else 40
         screen = io[0x018] >> 4
+        io[0x068], io[0x069], io[0x06A] = 0, (io[0x018] & 14) << 2, 0  # charset
         io[0x05E] = width
         io[0x063] &= 0xCF
         io[0x058], io[0x059] = width, 0

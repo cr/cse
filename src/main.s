@@ -63,6 +63,9 @@
         .import io_getc, io_clear_eol
         .import reset_screen, restore_colors, newline, theme_init
         .import cursor_show, cursor_hide
+.ifdef PLATFORM_M65
+        .import io_cse_keys
+.endif
         .import scr_lo, scr_hi
         .import define_ws_syms
         .import cse_zp_end, cse_start
@@ -221,7 +224,7 @@ vec_buf:           .res VEC_SIZE   ; the KERNAL's vector table, via VECTOR
         lda #$80
         sta CHARSET_LOCK
 .else
-        PLAT_PENDING 2          ; through SYSFLAGS
+        jsr io_cse_keys         ; SYSFLAGS: raw F-keys, Mega+Shift locked
 .endif
 
         ; ── 2. Save $01-$7F to KBSS ──
@@ -770,7 +773,8 @@ set_charset:
         sta VIC_MEMCTL
         rts
 .else
-        PLAT_PENDING 2
+        lda #$0E                ; the lower/upper-case set: the KERNAL's
+        KJMP CHROUT             ;   control code (A1)
 .endif
 
 splash_row:

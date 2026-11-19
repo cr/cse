@@ -1096,7 +1096,7 @@ and `Q`; what a human sees (colours, flicker) stays manual.
   cse_io's BSS, and `BP_PENDING` moved to `$AD`; `TZA` joined the
   raw-byte macros (`SCRORG`'s address high byte comes in Z);
   `ScanStopKey` joined the loader's gate.  P2's pending count 18 → 11.
-- [ ] T5. The display on m65: `vic_reset` after a program changed the
+- [x] T5. The display on m65: `vic_reset` after a program changed the
   VIC-IV registers (bitmap, 40 columns, raster IRQ off) writes the
   mode's recorded set back and keeps the screen's content;
   `restore_colors` fills the mode's colour RAM (width × height) and
@@ -1104,11 +1104,20 @@ and `Q`; what a human sees (colours, flicker) stays manual.
   the mode's bank; `scroll_up` in each mode; `kernal_screen_reset` turns
   a program's quote mode and window off; `screen_mode_set` round trips
   4 → 5 → 8; `PLAT_HYGIENE` gates the SID voices and sets CSE's
-  `SYSFLAGS` bits.
-- [ ] T6. The program's `SYSFLAGS` (`test_m65_debugger.py`, T9's
+  `SYSFLAGS` bits.  Step (3) done 2026-11-19 in
+  `tests/integration/test_m65_display.py` (owner screen.md).  Found:
+  `$D018`'s hot write resets the character pointer, so `vic_reset`
+  ends with `$0E` through `BSOUT` (the KERNAL's lowercase switch moves
+  `$D069` only); M65Emu's hot-register model gained the character
+  pointer; a char literal `'O'` under `-t c64` is `$CF` — ESC O is
+  written `$4F`.
+- [x] T6. The program's `SYSFLAGS` (`test_m65_debugger.py`, T9's
   shape): a program that sets bits 4–7, breaks and resumes reads them
   back; CSE reads raw function keys meanwhile; a fresh start gets
-  `$00`.
+  `$00`.  Done: the KERNAL keeps `SYSFLAGS` in base page 0, so a fresh
+  start's `$00` writes that cell — the program's state, not a clobber
+  (the base-page test takes its snapshot with it set).  `um_sysflags`
+  is BSS (the base page is full).
 - [ ] T7. Cold start on m65: `_main` to `main_loop_top` with Principle
   16's watchers (no `cse_brk_handler`, no `cse_recover`); the splash
   and the prompt at 80 × 25 as screen rows; the pending count's P2
