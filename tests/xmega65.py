@@ -102,7 +102,22 @@ _PROMPT = b"\r\n.\r\n"
 
 
 ADDKEY = 0xFF4A                 # the KERNAL's: a key into its buffer
-ADDKEY_DRIVER = 0x1E00          # 0.1E00: free for programs, below CSE's page
+DRIVER = 0x1E00                 # 0.1E00, a test's driver code: free for
+                                # programs, the same in BASIC 65's map and CSE's
+CHIP_ROM = slice(0x20000, 0x40000)  # the ROM in chip RAM: banks 2-3
+
+
+def missing(*tools):
+    """Why Tier X cannot run here (None: it can): xmega65, the
+    configured SD image, mcopy (the ROM onto the SD clone), `tools`."""
+    if not pathlib.Path(XMEGA65).exists():
+        return f"no xmega65 at {XMEGA65} (set $XMEGA65)"
+    if not SDIMG.exists():
+        return f"no configured MEGA65 SD image at {SDIMG}"
+    for tool in ("mcopy", *tools):
+        if shutil.which(tool) is None:
+            return f"no {tool}"
+    return None
 
 
 def addkey_driver(keys, back):
@@ -260,6 +275,16 @@ class XMega65:
             return self.regs(buf.decode(errors="replace"))
         return self.regs()
 
+    def run_to_page(self, addr, b, tries=50):
+        """`run_to(addr, at_hit=True)` until the hit has B = `b`: the
+        same address runs in other base pages too (BASIC 65's code
+        under the CSE map, before the loader); return the hit."""
+        for _ in range(tries):
+            hit = self.run_to(addr, at_hit=True)
+            if hit["b"] == b:
+                return hit
+        raise Interrupted(hit)
+
     def set_map(self, addr, mapl, maph, mb_lo=0, mb_hi=0):
         """Run, at `addr`, the code that sets the megabyte selectors
         and then both MAP halves, with interrupts off; EOM ends each."""
@@ -289,7 +314,7 @@ class XMega65:
             out += bytes.fromhex(m.group(1))
         return bytes(out[addr & 15:(addr & 15) + length])
 
-    def addkeys(self, keys, at=ADDKEY_DRIVER):
+    def addkeys(self, keys, at=DRIVER):
         """Type `keys` (PETSCII): a driver at `at` (bank 0, below
         `$2000`: the same in BASIC 65's map and in CSE's) `ADDKEY`s
         each into the KERNAL's buffer with B = 0, every register and P

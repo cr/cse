@@ -212,12 +212,14 @@ eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
         ; Probe the drive first: OPEN with an empty name sends nothing,
         ; and CHKIN on a missing device hangs in the KERNAL's talk
         ; turnaround (TKSA waits for a talker to pull CLK).
+        ; m65: no KERNAL cell is written: LISTEN starts a new operation
+        ; and READSS reports it.
         lda #0
         sta fl_buf              ; empty status if no drive answers
 .ifdef PLATFORM_C64
         sta ST
-.endif                                  ; m65: no KERNAL cell; LISTEN starts
-        lda cur_device                  ;   a new operation, READSS reports it
+.endif
+        lda cur_device
         KCALL LISTEN
         KCALL UNLSN
 .ifdef PLATFORM_C64
@@ -306,14 +308,16 @@ _status_ret:
 ; list_directory(device) — LOAD-based directory listing
 ;   A = device
 ;
-; Uses KERNAL LOAD to read the directory into workspace at
-; $0801, then walks the in-memory buffer to display entries.
+; Uses KERNAL LOAD to read the directory into DIR_BUF (c64: the
+; workspace at $0801; m65: the directory buffer 2.D000, DIR_BANK),
+; then walks the in-memory buffer to display entries.
 ; This works on both stock CBM KERNAL and MEGA65 Open-KERNAL
 ; (Open-KERNAL has multiple IEC channel-I/O bugs that break
 ; the traditional OPEN+CHKIN+CHRIN approach; see
 ; MEGA65/open-roms#116, #117).
 ;
-; Clobbers workspace at $0801+ (up to ~5 KB for a full disk).
+; c64: clobbers the workspace at $0801+ (up to ~5 KB for a full disk);
+; m65: the user's memory untouched.
 ;
 ; Output format:
 ;   AAAA:; "disk name" id

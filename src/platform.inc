@@ -306,7 +306,8 @@ LINE_MAX        = 79                ; a source line's length (D-P2-5): 80 column
 ; CSE's base-page cells (zp.s), named at inline sites through these
 ; defines; an operand define is the immediate on c64 and the cell here.
   .ifndef ZP_S                  ; the hot cells: CSE's base page (zp.s)
-        .importzp io_cx, io_cy, io_key, scr_width, scr_last_col, disk_local_ptr
+        .importzp io_cx, io_cy, io_key, scr_width, scr_last_col
+        .importzp disk_local_ptr    ; disk.s's filename pointer
   .endif
   .ifndef CSE_IO_S              ; the rest of the geometry: cse_io.s's BSS
         .import scr_height, scr_last_row, scr_ed_rows, scr_ed_last, scr_bank, scr_size
@@ -366,6 +367,11 @@ LINE_MAX        = 79                ; a source line's length (D-P2-5): 80 column
         sta a:CPU_DDR
         lda userland_zp_buf + CPU_PORT
         sta a:CPU_PORT
+        ldx #3                      ; the KERNAL's map record: the
+:       lda um_kmap,x               ;   program's (held: a kernel NMI
+        sta KMAP_REC,x              ;   would refresh under it)
+        dex
+        bpl :-
         lda reg_a
         pha
         lda reg_x
@@ -517,8 +523,8 @@ LINE_MAX        = 79                ; a source line's length (D-P2-5): 80 column
 
 ; ── Disk bank (§ Disk bank) ──────────────────────────────────────────
 ; Precedes each OPEN and LOAD (before LOAD's register arguments): the
-; banks of the data and of the filename.  c64: empty.  m65: clobbers
-; A, X.
+; banks of the data (`bank`, BANK_USER when blank) and of the filename
+; (CSE's view).  c64: empty.  m65: clobbers A, X.
 .macro PLAT_SETBNK bank
   .ifdef PLATFORM_M65
     .ifblank bank
@@ -601,8 +607,8 @@ name:   .res FAR_SIZE
 .endmacro
 
 ; Set the pointer's bank wherever the pointer is set.  c64: empty.
-; m65: A kept; clobbers N/Z.
-.macro FAR_BANK name, bank          ; m65: clobbers A (no site needs it kept)
+; m65: clobbers A (no site needs it kept).
+.macro FAR_BANK name, bank
   .ifdef PLATFORM_M65
         lda #bank
         sta name+2

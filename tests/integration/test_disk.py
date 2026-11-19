@@ -286,7 +286,7 @@ class TestListDirectory:
 
     def test_d64_image(self, drv, tmp_path):
         import pathlib
-        from c64emu import Drive1541
+        from iec_drive import Drive1541
         e, _ = drv
         e.attach_drive(10, Drive1541.from_d64(
             pathlib.Path(__file__).resolve().parents[2] / "dev" / "test.d64"))

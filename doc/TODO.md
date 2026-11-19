@@ -1283,7 +1283,7 @@ analysis):
   testing.md, README.md.
 - [x] D-P3-8's feedback round (step (5)): the KERNAL's map record in
   the bank state — [platform_layer.md § User transitions](platform_layer.md#user-transitions),
-  [debugger.md](modules/debugger.md) (`kmap_swap`, `um_kmap`),
+  [debugger.md](modules/debugger.md) (`bank_state_swap`, `um_kmap`),
   [main.md](modules/main.md), [glossary.md](glossary.md) (*bank
   state*), [userland_contract.md](userland_contract.md), testing.md
   (the run premise's record).
@@ -1360,9 +1360,10 @@ Decisions (approved 2026-11-19):
   the record holds the `SYS` map, so a PRG `s` / `l` came back with
   CSE's code mapped away (a BRK in bank 0's zeros).  M65Emu's IEC unit
   never takes that path.  The fix: the record is part of the bank
-  state — the CSE map while CSE runs (`kmap_swap` at every break and,
-  through `dbg_init`, at the cold start), the program's own at every
-  resume (`um_kmap`), the user map at a fresh start.  The one KERNAL cell CSE writes on m65;
+  state — the CSE map while CSE runs (`bank_state_swap` at every break
+  and, through `dbg_init`, at the cold start), the program's own at
+  every resume (`um_kmap`, written inside `PLAT_TO_USER`'s hold — the
+  P3 code review), the user map at a fresh start.  The one KERNAL cell CSE writes on m65;
   the alternative, a bank-0 trampoline restoring CSE's map after each
   call, needed bank-0 space CSE does not have.
 

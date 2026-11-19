@@ -53,7 +53,7 @@ into the DDR ([mem.md § CPU-port aware ZP save/restore](mem.md#cpu-port-aware-z
 saved bank state (`um_map`, the port in `userland_zp_buf`, `um_d030`,
 `um_kmap`, `um_sysflags`) is seeded with the run premise's — the user
 map, `$FF` / `$85`, `$64`, `um_kmap` the user map, `SYSFLAGS` 0 —
-after `kmap_swap` has written the CSE map into the KERNAL's map
+after `bank_state_swap` has written the CSE map into the KERNAL's map
 record, which the cold start thus leaves CSE's
 ([platform_layer.md § User transitions](../platform_layer.md#user-transitions));
 there is no `kernel_zp_buf`.  The registers a fresh start installs
@@ -79,9 +79,10 @@ P, PCL, PCH; `reg_z` and `reg_b` are captured as well (P − 4, P − 5),
 `reg_sp` = SP + 10, and nothing is swapped: base page 0 is the
 user's throughout ([platform_layer.md § Base page](../platform_layer.md#base-page));
 the bank state was captured before it ran (the stub, the handler);
-its m65 tail captures `$D030`, the program's `SYSFLAGS`
-(`um_sysflags`) and the KERNAL's map record `0.011C–011F`
-(`um_kmap`), and writes the CSE map into the record (`kmap_swap`)
+its m65 tail, `bank_state_swap`, captures the KERNAL's map record
+`0.011C–011F` (`um_kmap`) and writes the CSE map into it, then
+`$D030` (`um_d030`, the premise's `$64` in its place) and the
+program's `SYSFLAGS` (`um_sysflags`)
 ([platform_layer.md § User transitions](../platform_layer.md#user-transitions)).
 Every offset derives from `FRAME_DEPTH`.
 
@@ -112,13 +113,13 @@ command set `run_user_pending = MODE_JUMP` (`j`, `g`, and the first
 7. `PLAT_TO_USER`: on c64 X, Y, A from `reg_*` and `rti`; on m65
    `reg_a`, `reg_x`, `reg_y`, `reg_z`, `reg_b` pushed and `jmp
    stub_user`, which installs the user's map and restores them;
-   before it, with interrupts off, `$D030` and the CPU port are the
-   user's again ([platform_layer.md § User transitions](../platform_layer.md#user-transitions)).
+   before it, inside its `MAP` hold, `$D030`, the CPU port and the
+   KERNAL's map record (`um_kmap`) are the user's again
+   ([platform_layer.md § User transitions](../platform_layer.md#user-transitions)).
    Step 2 is c64 only.  `return_to_userland` also seeds the bank
    state with the run premise's, so every fresh start begins as a
-   `RUN` does.  On m65, after step 1, the program's `SYSFLAGS` and
-   KERNAL map record go back (`um_sysflags`, `um_kmap`): KERNAL state,
-   written before `PLAT_TO_USER`'s `MAP` hold.
+   `RUN` does.  On m65, after step 1, the program's `SYSFLAGS` goes
+   back (`um_sysflags`): a KERNAL call, made before the hold.
 
 **Clobbers:** everything.
 

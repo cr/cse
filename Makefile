@@ -11,7 +11,8 @@
 #   test         Build debug + release, check the ROMs, run all pytest tests
 #   check-roms   Fail with copy instructions when rom/kernal_cbm.bin is missing
 #   m65-rom      Copy the MEGA65 ROM from xmega65's data into rom/mega65.rom
-#   disk         Create D64 disk image (uses CPU= for PRG selection)
+#   disk         Create a D64 disk image (uses CPU= for PRG selection);
+#                PLATFORM=m65: release's D81
 #   run          Build release and launch in VICE (PLATFORM=m65: xmega65)
 #   size         Exhaustive size breakdown of selected PRG
 #   clean        Remove build/
@@ -365,14 +366,15 @@ _dist:
 	@echo "  disk  $$(c1541 -attach $(DIST_D64) -list 2>/dev/null | grep -c prg) files on cse.d64"
 
 # -----------------------------------------------------------------------
-# disk — single-CPU D64 (for quick iteration with make CPU=... disk)
+# disk — single-CPU D64 (for quick iteration with make CPU=... disk);
+#        m65: the release's D81
 # -----------------------------------------------------------------------
 # Uses the release profile.
 D64 = $(ROOT)build/release/$(_$(CPU)_SUBDIR)/cse.d64
 
 .PHONY: disk
 ifeq ($(PLATFORM),m65)
-disk: release                   # release writes the D81
+disk: release
 else
 disk:
 	@$(MAKE) --no-print-directory _one CPU=$(CPU) _PROFILE=release _LABEL="$(CPU) $(PRG_NAME)"
@@ -408,7 +410,8 @@ $(TABLE_OUTS): $(TABLES_STAMP)
 # run — build release, then launch in VICE (c64) or xmega65 (m65)
 # -----------------------------------------------------------------------
 # m65: xmega65 with the user's own configuration (SD image, ROM, keymap);
-# -prg loads the PRG and RUNs it once BASIC 65 is up.  Never from
+# -prg loads the PRG and RUNs it once BASIC 65 is up, -8 mounts the
+# release's D81 on unit 8.  Never from
 # automation: Tier X starts xmega65 -headless (tests/xmega65.py).
 .PHONY: run
 ifeq ($(PLATFORM),m65)
@@ -514,7 +517,7 @@ help:
 	@printf "%-15s %s\n" ""             "  build/release/{6510,6502,cmos}/cse*.prg"
 	@printf "%-15s %s\n" "debug"        "Build all three CPU targets with -g (full symbols)"
 	@printf "%-15s %s\n" ""             "  build/debug/{6510,6502,cmos}/cse*.prg"
-	@printf "%-15s %s\n" "disk"         "Create D64 with compressed PRG (CPU=6510|6502|65c02)"
+	@printf "%-15s %s\n" "disk"         "Create D64 with compressed PRG (CPU=6510|6502|65c02); PLATFORM=m65: the D81"
 	@printf "%-15s %s\n" "run"          "Build release + launch in VICE (CPU=, ROMSET=cbm|mega); PLATFORM=m65: xmega65"
 	@printf "%-15s %s\n" "tables"       "Regenerate the generated tables in src/ (both generators)"
 	@printf "%-15s %s\n" "test"         "Run all pytest tests (builds both debug + release)"
@@ -526,7 +529,7 @@ help:
 	@printf "%-15s %s\n" "themes"       "List available color themes"
 	@printf "%-15s %s\n" "help"         "Show this message"
 	@printf "\nOptions (prefix any target):\n"
-	@printf "  %-20s %s\n" "PLATFORM=c64|m65"    "platform (default: c64; m65: release / debug, one PRG)"
+	@printf "  %-20s %s\n" "PLATFORM=c64|m65"    "platform (default: c64; m65: one PRG, its D81)"
 	@printf "  %-20s %s\n" "CPU=6510|6502|65c02" "target CPU (default: 6510)"
 	@printf "  %-20s %s\n" "THEME=NAME|BGF"      "colour theme (default: GREENLAND; m65 MEGA)"
 	@printf "  %-20s %s\n" "TAB_WIDTH=N"         "editor tab width, 1|2|4|8|16|32 (default: 8)"

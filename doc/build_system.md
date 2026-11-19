@@ -31,7 +31,7 @@
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
 | [`tests/unit/test_dasm_tables.py`](../tests/unit/test_dasm_tables.py) | test contract — the disassembler model of `dev/dasm_tables.py` |
 | [`tests/m65emu/`](../tests/m65emu/) | implementation — M65Emu, the m65 harness: `MPU45GS02` (`mpu45gs02.py`), its decode table from the compendium fixture (`isa.py`), the CPU golden-file format (`golden.py`), `M65Memory` (`memory.py`), the devices — DMA controller, keyboard queue, CIA1 matrix port, VIC interrupt latch, CIA2 interrupt control, the Hypervisor traps (`devices.py`) —, the `M65Emu` harness, its per-ROM snapshot loading, the run premise (`enter_premise`, `run_premise`) and the m65 PRG's installed machine (`install_prg`) (`harness.py`), the raw-byte macros as the CPU decodes them (`m45_ops.py`) ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)) |
-| [`tests/xmega65.py`](../tests/xmega65.py) | implementation — the xmega65 driver (headless start on a cloned SD image, optionally with a given ROM on it and a PRG it runs or a D81 it autoloads; uartmon commands; typing through the `ADDKEY` driver, `addkeys()`; the mounted D81 read back, `mounted_d81()`) for Tier X and the M65Emu recordings |
+| [`tests/xmega65.py`](../tests/xmega65.py) | implementation — the xmega65 driver (headless start on a cloned SD image, optionally with a given ROM on it and a PRG it runs or a D81 it autoloads; uartmon commands; typing through the `ADDKEY` driver, `addkeys()`; a breakpoint hit in a given base page, `run_to_page()`; the mounted D81 read back, `mounted_d81()`; why Tier X cannot run here, `missing()`) for Tier X and the M65Emu recordings |
 | [`tests/unit/test_xmega65.py`](../tests/unit/test_xmega65.py) | test contract — the driver's pure parts: the FAT partition's offset from the clone's MBR, the start arguments with a ROM, a PRG and a D81, `run_to`'s registers at the hit, the `ADDKEY` driver's code |
 | [`dev/capture_m65_golden.py`](../dev/capture_m65_golden.py) | implementation — records `m65_cpu.json` in xmega65 |
 | [`dev/capture_m65_state.py`](../dev/capture_m65_state.py) | implementation — records M65Emu's post-boot snapshot for a given ROM and its reference runs from xmega65 into `build/m65_state/<ROM>/`, refusing a booted ROM other than the one given (default `rom/mega65.rom`) (run by hand; holds the ROM, never committed) |
@@ -300,7 +300,7 @@ Exomizer serves the C64 builds only, with its default target (`-t
 | Tests | `make test` | Build both debug + release, check the ROMs, then run all pytest tests |
 | Check ROMs | `make check-roms` | Fail with copy instructions when `rom/kernal_cbm.bin` is missing (a prerequisite of `test`) |
 | MEGA65 ROM | `make m65-rom` | Copy the MEGA65 ROM from xmega65's data directory to `rom/mega65.rom` ([§ MEGA65 ROM](#mega65-rom)) |
-| Size | `make size` | Size breakdown of selected release PRG (`CPU=`); on `m65` the per-segment and per-module parts (the memory-map part is the C64's) |
+| Size | `make size` | Size breakdown of selected release PRG (`CPU=`): the segments in file order (their sum the PRG's size), the modules, the categories; the memory map on `c64` only |
 | Clean | `make clean` | Remove `build/` directory |
 | Clean tables | `make clean-tables` | Remove the generated table sources in `src/` and the tables stamp |
 | Themes | `make themes` | List available colour themes |

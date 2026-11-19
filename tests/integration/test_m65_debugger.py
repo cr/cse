@@ -28,13 +28,15 @@ rendered is P2's (testing.md, D-P1-5).
   back), or at cse_refresh / cse_recover.
 - The bank state (T9): a program's MAP (megabytes too), CPU port and
   $D030 survive a break and a resume exactly; a fresh start gets the
-  run premise's.
+  run premise's.  With P2 its SYSFLAGS, with P3 the KERNAL's map
+  record (0.011C-011F): CSE's map in it whenever the kernel runs, an
+  NMI in a resume's kernel part included.
 """
 
 import pytest
 
 from m65emu import M65Emu
-from m65emu.harness import CSE_BP, CSE_MAP, STACK_TOP, USER_MAP, flat
+from m65emu.harness import CSE_BP, CSE_MAP, KMAP_REC, MAP_CSE, MAP_USER, STACK_TOP, USER_MAP, flat
 
 DBG_RTS, DBG_BRK, DBG_NMI = 1, 2, 3      # src/dbg_reason.inc
 STEP_INTO, STEP_OVER = 1, 2              # src/debugger.s
@@ -572,13 +574,18 @@ def test_a_fresh_start_gets_the_premises_sysflags(emu):
 
 # ── D-P3-8: the KERNAL's map record travels with the bank state ───
 
-from m65emu.harness import KMAP_REC as KMAP, MAP_CSE, MAP_USER  # noqa: E402
-
-KMAP_CSE, KMAP_USER = list(MAP_CSE), list(MAP_USER)
 
 
 def kmap(emu):
-    return [emu.memory.read_flat(KMAP + k) for k in range(4)]
+    return [emu.memory.read_flat(KMAP_REC + k) for k in range(4)]
+
+
+def copy_kmap_to_1700():
+    """User code: the record's four bytes to $1700-$1703."""
+    code = []
+    for k in range(4):
+        code += [0xAD, (KMAP_REC + k) & 0xFF, (KMAP_REC + k) >> 8, 0x8D, k, 0x17]
+    return code
 
 
 def test_the_cold_start_records_the_cse_map(cse_m65_prg, m65_snapshot):
@@ -586,7 +593,7 @@ def test_the_cold_start_records_the_cse_map(cse_m65_prg, m65_snapshot):
     far call (CBDOS) returns to CSE's map."""
     from test_m65_repl import M65Session
     s = M65Session(cse_m65_prg, m65_snapshot)
-    assert kmap(s.e) == KMAP_CSE
+    assert kmap(s.e) == list(MAP_CSE)
 
 
 def test_a_programs_map_record_survives_a_break(emu):
@@ -596,15 +603,12 @@ def test_a_programs_map_record_survives_a_break(emu):
     m = emu.memory
     store = []
     for k, v in enumerate((0x11, 0x22, 0x33, 0x44)):
-        store += [0xA9, v, 0x8D, (KMAP + k) & 0xFF, (KMAP + k) >> 8]
-    load = []
-    for k in range(4):
-        load += [0xAD, (KMAP + k) & 0xFF, (KMAP + k) >> 8, 0x8D, k, 0x17]
-    user_code(emu, store + [0x00, 0x00] + load + [0x60], at=CODE)
+        store += [0xA9, v, 0x8D, (KMAP_REC + k) & 0xFF, (KMAP_REC + k) >> 8]
+    user_code(emu, store + [0x00, 0x00] + copy_kmap_to_1700() + [0x60], at=CODE)
     run_user(emu, CODE)
     assert m[emu.cell("dbg_reason")] == DBG_BRK
     assert [m[emu.cell("um_kmap") + k] for k in range(4)] == [0x11, 0x22, 0x33, 0x44]
-    assert kmap(emu) == KMAP_CSE
+    assert kmap(emu) == list(MAP_CSE)
     emu.write_word(emu.cell("brk_pc"), word(emu, "brk_pc") + 2)
     resume(emu)
     assert m[emu.cell("dbg_reason")] == DBG_RTS
@@ -613,11 +617,32 @@ def test_a_programs_map_record_survives_a_break(emu):
 
 def test_a_fresh_start_gets_the_user_map_record(emu):
     ready(emu)
-    for k, v in enumerate(KMAP_CSE):
-        emu.memory.write_flat(KMAP + k, v)          # as CSE leaves it
-    load = []
-    for k in range(4):
-        load += [0xAD, (KMAP + k) & 0xFF, (KMAP + k) >> 8, 0x8D, k, 0x17]
-    user_code(emu, load + [0x60], at=CODE)
+    for k, v in enumerate(MAP_CSE):
+        emu.memory.write_flat(KMAP_REC + k, v)      # as CSE leaves it
+    user_code(emu, copy_kmap_to_1700() + [0x60], at=CODE)
     run_user(emu, CODE)
-    assert [emu.memory.read_flat(0x1700 + k) for k in range(4)] == KMAP_USER
+    assert [emu.memory.read_flat(0x1700 + k) for k in range(4)] == list(MAP_USER)
+
+
+def _steps_to_the_hold(emu):
+    """The steps from restore_userland_state to PLAT_TO_USER's MAP hold
+    (an NMI from there on is held, then taken in userland)."""
+    emu.pc = emu.sym("restore_userland_state")
+    k = 0
+    while emu.memory[emu.pc] != 0x5C:               # MAP
+        emu.cpu.step()
+        k += 1
+    return k
+
+
+def test_the_kernel_keeps_the_cse_map_record_through_an_nmi(cse_m65_prg, m65_snapshot):
+    """An NMI at each instruction of a resume's kernel part — up to
+    PLAT_TO_USER's MAP hold — reaches cse_refresh with the
+    CSE map in the KERNAL's map record (nothing on the refresh path
+    writes it), so a CBDOS call from the REPL still returns to CSE."""
+    for k in range(_steps_to_the_hold(_broken_program(cse_m65_prg, m65_snapshot))):
+        emu = _broken_program(cse_m65_prg, m65_snapshot)
+        emu.schedule_nmi(k)
+        emu.run_until(emu.sym("cse_refresh"),
+                      start_at=emu.sym("restore_userland_state"), max_cycles=300_000)
+        assert kmap(emu) == list(MAP_CSE), f"NMI at step {k}"

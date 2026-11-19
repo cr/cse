@@ -36,9 +36,11 @@ with open(DBG) as f:
     for line in f:
         m = re.match(r'seg\s+id=(\d+),name="(\w+)",start=(0x[0-9a-fA-F]+),size=(0x[0-9a-fA-F]+)', line)
         if m:
+            ooffs = re.search(r',ooffs=(\d+)', line)
             segments[m.group(2)] = {
                 'start': int(m.group(3), 16),
                 'size':  int(m.group(4), 16),
+                'ooffs': int(ooffs.group(1)) if ooffs else None,  # None: not in the PRG
             }
 
 # ── Parse per-module contributions from map file ─────────────────
@@ -161,22 +163,23 @@ print(f"  {'Segment':<12s} {'Start':>6s} {'End':>6s} {'Size':>6s} {'Bytes':>6s}"
 print(f"  {'─'*12} {'─'*6} {'─'*6} {'─'*6} {'─'*6}")
 total_rom = 0
 total_ram = 0
-for name in ['LOADADDR','EXEHDR','STARTUP','CODE','RODATA','DATA','INIT','ONCE','BSS','ZEROPAGE']:
-    if name not in segments:
-        continue
+# The PRG's segments in file order, then the ones only in RAM.
+in_file = sorted((n for n, s in segments.items() if s['ooffs'] is not None),
+                 key=lambda n: segments[n]['ooffs'])
+in_ram = sorted(n for n, s in segments.items() if s['ooffs'] is None)
+for name in in_file + in_ram:
     s = segments[name]
     if s['size'] == 0:
         continue
     end = s['start'] + s['size'] - 1
-    kind = 'ram' if name in ('BSS', 'ZEROPAGE') else 'rom'
-    if kind == 'rom':
+    if s['ooffs'] is not None:
         total_rom += s['size']
     else:
         total_ram += s['size']
     print(f"  {name:<12s} ${s['start']:04X}   ${end:04X}   {s['size']:#06x} {s['size']:5d}")
 print(f"  {'─'*12} {'─'*6} {'─'*6} {'─'*6} {'─'*6}")
-print(f"  {'PRG (rom)':<12s} {'':>6s} {'':>6s} {total_rom:#06x} {total_rom:5d}")
-print(f"  {'RAM (bss+zp)':<12s} {'':>6s} {'':>6s} {total_ram:#06x} {total_ram:5d}")
+print(f"  {'PRG (file)':<12s} {'':>6s} {'':>6s} {total_rom:#06x} {total_rom:5d}")
+print(f"  {'RAM only':<12s} {'':>6s} {'':>6s} {total_ram:#06x} {total_ram:5d}")
 
 # Per-module breakdown
 print(f"\n{'─'*W}")
@@ -214,7 +217,7 @@ print("  Category Totals (CODE + RODATA)")
 print(f"{'─'*W}")
 print(f"  {'Category':<20s} {'CODE':>6s} {'RODATA':>6s} {'Total':>6s} {'%':>5s}")
 print(f"  {'─'*20} {'─'*6} {'─'*6} {'─'*6} {'─'*5}")
-grand = total_rom
+grand = sum(t['CODE'] + t['RODATA'] for t in cat_totals.values())
 for cat in ['core', 'assembler', 'disassembler', 'cse-io', 'other']:
     if cat not in cat_totals:
         continue

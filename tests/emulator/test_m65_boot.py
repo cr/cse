@@ -41,7 +41,7 @@ from emu_base import decode_screen_codes
 from m65emu import M65Emu
 from m65emu.harness import (BANK_CSE, CSE_BP, CSE_MAP, STACK_TOP, flat,
                             load_snapshot, snapshot_dirs)
-from xmega65 import SDIMG, XMEGA65, XMega65
+from xmega65 import CHIP_ROM, XMega65, missing
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests" / "integration"))
@@ -57,17 +57,7 @@ ROM_KEPT = ((0x20000, 0x24000), (0x2C000, 0x2D000), (0x30000, 0x32000),
 _SNAPSHOTS = snapshot_dirs()
 
 
-def _missing():
-    if not pathlib.Path(XMEGA65).exists():
-        return f"no xmega65 at {XMEGA65} (set $XMEGA65)"
-    if not SDIMG.exists():
-        return f"no configured MEGA65 SD image at {SDIMG}"
-    if shutil.which("mcopy") is None:
-        return "no mcopy (mtools) to put the ROM onto the SD clone"
-    return None
-
-
-_MISSING = _missing()
+_MISSING = missing()
 pytestmark = pytest.mark.skipif(_MISSING is not None, reason=str(_MISSING))
 
 
@@ -96,15 +86,10 @@ def booted(request, cse_m65_prg):
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     rom = work / "rom.bin"
-    rom.write_bytes(snap["chip"][0x20000:0x40000])
+    rom.write_bytes(snap["chip"][CHIP_ROM])
     try:
         with XMega65(work / "run", rom=rom, prg=prg) as xm:
-            for _ in range(50):
-                hit = xm.run_to(s("_main"), at_hit=True)
-                if hit["b"] == CSE_BP:
-                    break
-            else:
-                pytest.fail(f"_main not reached with B = CSE_BP: {hit}")
+            hit = xm.run_to_page(s("_main"), CSE_BP)
             got = {name: xm.read(lo, n) for name, (lo, n) in regions.items()}
             old = xm.read(RESERVE, 1)[0]
             xm.write(RESERVE, [old ^ 0xFF])
@@ -188,12 +173,10 @@ def typed(request, cse_m65_prg):
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     rom = work / "rom.bin"
-    rom.write_bytes(snap["chip"][0x20000:0x40000])
+    rom.write_bytes(snap["chip"][CHIP_ROM])
     try:
         with XMega65(work / "run", rom=rom, prg=prg) as xm:
-            for _ in range(50):
-                if xm.run_to(s("_main"), at_hit=True)["b"] == CSE_BP:
-                    break
+            xm.run_to_page(s("_main"), CSE_BP)
             cold = xm.run_to(s("main_loop_top"), at_hit=True)
             xm.run_to(s("main_loop"))
             got = [_screen_text(xm.read, *geometry(xm.read))]
@@ -222,7 +205,7 @@ def typed(request, cse_m65_prg):
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return dict(cold=cold, got=got, want=want, ready=ready,
-                banks_ok=banks == snap["chip"][0x20000:0x40000])
+                banks_ok=banks == snap["chip"][CHIP_ROM])
 
 
 def test_the_cold_start_reaches_the_prompt(typed):

@@ -281,15 +281,6 @@ class M65Emu(EmuBase):
         loader.  A 1541 is slow, so the drive leaves the bit set."""
         self._mem[IEC_FLAGS] |= 0x80
 
-    def _rts(self):
-        """Return from the routine PC is in, as its RTS would: through
-        the stack in page 1 (E = 1, an 8-bit stack pointer)."""
-        cpu, mem = self._cpu, self._mem
-        sp = cpu.sp & 0xFF
-        lo = mem[0x0100 | ((sp + 1) & 0xFF)]
-        hi = mem[0x0100 | ((sp + 2) & 0xFF)]
-        cpu.sp = (cpu.sp & 0xFF00) | ((sp + 2) & 0xFF)
-        cpu.pc = ((hi << 8 | lo) + 1) & 0xFFFF
 
     # ── the screen, where the VIC-IV shows it ─────────────────────
 

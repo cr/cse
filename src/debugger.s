@@ -181,12 +181,14 @@ dbg_init:
 .ifdef PLATFORM_M65
 ; ── seed_bank_state (m65) ───────────────────────────────────────────
 ; The saved bank state := the run premise's (platform_layer.md § User
-; transitions): the user map, the port $FF/$85, $D030 = $64.  um_map,
-; userland_zp_buf and um_d030 are contiguous in CSE's base page (zp.s).
-; Clobbers: A, X.
+; transitions): the user map, the port $FF/$85, $D030 = $64, the user
+; map in the KERNAL's map record, SYSFLAGS 0 — after bank_state_swap
+; has put CSE's in place (what it captures, the seed overwrites).
+; um_map, userland_zp_buf and um_d030 are contiguous in CSE's base page
+; (zp.s); um_kmap and um_sysflags in debugger.s's BSS.  Clobbers: A, X.
 BANK_STATE_SIZE = 6 + ZP_SAVE_LEN + 1
 seed_bank_state:
-        jsr kmap_swap           ; the record: CSE's (the cold start's, D-P3-8)
+        jsr bank_state_swap     ; CSE's record and $D030 (the cold start's)
         ldx #BANK_STATE_SIZE - 1
 @s:     lda bank_premise,x
         sta um_map,x
@@ -199,13 +201,14 @@ seed_bank_state:
         bpl @k
         rts
         .assert userland_zp_buf = um_map + 6 && um_d030 = userland_zp_buf + ZP_SAVE_LEN, error, "the bank state is one block"
+        .assert um_sysflags = um_kmap + 4, error, "kmap_user's last byte is um_sysflags'"
 
 .segment "RODATA"
 bank_premise:
         .byte MAP_USER_X, MAP_USER_A, MAP_USER_Z, MAP_USER_Y, 0, 0
         .byte DDR_SEED, PORT_SEED
         .byte D030_SEED
-kmap_user:
+kmap_user:                      ; um_kmap, um_sysflags
         .byte MAP_USER_A, MAP_USER_X, MAP_USER_Y, MAP_USER_Z, 0
 kmap_cse_rec:
         .byte MAP_CSE_A, MAP_CSE_X, MAP_CSE_Y, MAP_CSE_Z
@@ -300,27 +303,23 @@ save_userland_state:
         ; by save_kernel_zp on every k→u transition).
         ;
         ; m65: no swap — the transitions switch B (§ Base page).  The
-        ; stub captured the port and the map; $D030 is captured here,
-        ; and the premise's set before the kernel uses the interface ROM.
+        ; stub captured the port and the map; the rest of the bank
+        ; state is the kernel's to swap (bank_state_swap, below).
 .ifdef PLATFORM_C64
         jsr save_userland_zp
         jmp restore_kernel_zp       ; tail call (rts via restore_kernel_zp)
 .else
-        lda D030_ROMBANK
-        sta um_d030
-        lda #D030_SEED
-        sta D030_ROMBANK
-        sec                     ; and the program's SYSFLAGS (P2): CSE's
-        KCALL SYSFLAGS          ;   bits are set by the hygiene after
-        sta um_sysflags
-        ; fall through: and its map record (P3)
+        ; fall through
 
-; ── kmap_swap (m65) ─────────────────────────────────────────────────
-; The KERNAL's map record (0.011C-011F) → um_kmap, and the CSE map into
-; it, so a KERNAL far call (CBDOS's disk calls) MAPs back to CSE
-; (platform_layer.md § User transitions, D-P3-8).  At every break, and
-; first in seed_bank_state: the cold start's (dbg_init).  Clobbers: A, X.
-kmap_swap:
+; ── bank_state_swap (m65) ───────────────────────────────────────────
+; The bank state the kernel holds (platform_layer.md § User
+; transitions): the program's into um_kmap, um_d030 and um_sysflags,
+; CSE's in place — the CSE map into the KERNAL's map record first, so
+; a KERNAL far call (CBDOS's disk calls) MAPs back to CSE, then the
+; premise's $D030 before the kernel uses the interface ROM.  CSE's
+; SYSFLAGS bits come with the hygiene.  At every break, and first in
+; seed_bank_state (the cold start's).  Clobbers: A, X.
+bank_state_swap:
         ldx #3
 @k:     lda KMAP_REC,x
         sta um_kmap,x
@@ -328,6 +327,13 @@ kmap_swap:
         sta KMAP_REC,x
         dex
         bpl @k
+        lda D030_ROMBANK
+        sta um_d030
+        lda #D030_SEED
+        sta D030_ROMBANK
+        sec
+        KCALL SYSFLAGS
+        sta um_sysflags
         rts
 .endif
 
@@ -388,11 +394,6 @@ _rtu_body:
         lda um_sysflags         ; the program's SYSFLAGS back (P2), here:
         clc                     ;   a KERNAL call cannot run inside
         KCALL SYSFLAGS          ;   PLAT_TO_USER's MAP hold
-        ldx #3                  ; and its map record (P3), after the
-@k:     lda um_kmap,x           ;   last KERNAL call
-        sta KMAP_REC,x
-        dex
-        bpl @k
 .endif
 
         ; Swap ZP: kernel's live → kernel_zp_buf, then user's

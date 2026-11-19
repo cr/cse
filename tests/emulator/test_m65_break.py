@@ -32,30 +32,19 @@ import pytest
 from m65emu import M65Emu
 from m65emu.harness import (BANK_CSE, CSE_BP, CSE_MAP, flat, load_snapshot,
                             snapshot_dirs)
-from xmega65 import SDIMG, XMEGA65, XMega65
+from xmega65 import CHIP_ROM, DRIVER, XMega65, missing
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "integration"))
 import test_m65_debugger as T                                   # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORK = ROOT / "build" / "m65_break"
-DRIVER = 0x1E00                  # bank 0, block 0: visible in the CSE map
 WINDOW = 0x44000                 # what the program maps at $4000
 
 _SNAPSHOTS = snapshot_dirs()
 
 
-def _missing():
-    if not pathlib.Path(XMEGA65).exists():
-        return f"no xmega65 at {XMEGA65} (set $XMEGA65)"
-    if not SDIMG.exists():
-        return f"no configured MEGA65 SD image at {SDIMG}"
-    if shutil.which("mcopy") is None:
-        return "no mcopy (mtools) to put the ROM onto the SD clone"
-    return None
-
-
-_MISSING = _missing()
+_MISSING = missing()
 pytestmark = pytest.mark.skipif(_MISSING is not None, reason=str(_MISSING))
 
 # The user BRK: every register non-zero (as test_m65_debugger's T8).
@@ -133,22 +122,13 @@ def runs(request, cse_m65_prg):
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     rom = work / "rom.bin"
-    rom.write_bytes(snap["chip"][0x20000:0x40000])
+    rom.write_bytes(snap["chip"][CHIP_ROM])
     try:
         with XMega65(work / "run", rom=rom, prg=prg) as xm:
-            for _ in range(50):
-                hit = xm.run_to(s("_main"), at_hit=True)
-                if hit["b"] == CSE_BP:
-                    break
-            else:
-                pytest.fail(f"_main not reached with B = CSE_BP: {hit}")
+            xm.run_to_page(s("_main"), CSE_BP)
 
             def to_stop():
-                for _ in range(50):
-                    h = xm.run_to(stop, at_hit=True)
-                    if h["b"] == CSE_BP:
-                        return h
-                pytest.fail(f"hygiene_after_userland not reached: {h}")
+                return xm.run_to_page(stop, CSE_BP)
 
             # 1. the user BRK
             xm.write(T.USER, BRK_PROGRAM)

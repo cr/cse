@@ -37,7 +37,7 @@ import pytest
 
 from emu_base import decode_screen_codes
 from m65emu.harness import CSE_BP, load_snapshot, snapshot_dirs
-from xmega65 import SDIMG, XMEGA65, XMega65
+from xmega65 import CHIP_ROM, XMega65, missing
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests" / "integration"))
@@ -51,18 +51,7 @@ DATA = bytes((k * 11 + 3) & 0xFF for k in range(32))
 _SNAPSHOTS = snapshot_dirs()
 
 
-def _missing():
-    if not pathlib.Path(XMEGA65).exists():
-        return f"no xmega65 at {XMEGA65} (set $XMEGA65)"
-    if not SDIMG.exists():
-        return f"no configured MEGA65 SD image at {SDIMG}"
-    for tool in ("mcopy", "c1541"):
-        if shutil.which(tool) is None:
-            return f"no {tool}"
-    return None
-
-
-_MISSING = _missing()
+_MISSING = missing("c1541")
 pytestmark = pytest.mark.skipif(_MISSING is not None, reason=str(_MISSING))
 
 
@@ -91,18 +80,14 @@ def run(request, cse_m65_prg):
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     rom = work / "rom.bin"
-    rom.write_bytes(snap["chip"][0x20000:0x40000])
+    rom.write_bytes(snap["chip"][CHIP_ROM])
     d81 = work / "cse.d81"
     c1541("-format", "cse test,01", "d81", str(d81), "-write", str(prg), "cse-m65")
     listing = c1541("-attach", str(d81), "-list")
     out = {"c1541": listing}
     try:
         with XMega65(work / "run", rom=rom, d81=d81) as xm:
-            for _ in range(50):
-                if xm.run_to(s("_main"), at_hit=True)["b"] == CSE_BP:
-                    break
-            else:
-                pytest.fail("the D81's CSE did not reach _main")
+            xm.run_to_page(s("_main"), CSE_BP)
             xm.run_to(s("main_loop"), timeout=60)
             out["prompt"] = screen(xm)
 

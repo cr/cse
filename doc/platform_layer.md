@@ -22,7 +22,7 @@ states the seam's contract and points there.
 | [`src/platform.inc`](../src/platform.inc) | header — every platform constant and macro, selected by `.ifdef` |
 | [`src/m45_ops.inc`](../src/m45_ops.inc) | header — the 45GS02-only instructions as raw-byte macros ([§ Raw-byte instructions](#raw-byte-instructions)) |
 | [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit (the address-literal classes, the per-file counts), the base-page, stack-top, raw-byte and KERNAL-call checks, the pending count |
-| [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top, raw-byte and KERNAL-call checks; the count of pending bodies and values |
+| [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top, raw-byte and KERNAL-call checks; the count of pending bodies |
 | [`tests/unit/test_platform_m65.py`](../tests/unit/test_platform_m65.py) | test contract — the m65 macro bodies on M65Emu in clean mode: `KCALL` / `KJMP` (B = 0 for the KERNAL, registers through), the far accesses in banks 0, 2, 3, 4, `FAR_BANK`, `PLAT_SETBNK` |
 | [`dev/m65_macros_test.s`](../dev/m65_macros_test.s), [`dev/m65_test.cfg`](../dev/m65_test.cfg) | test helper — the m65 macro bundle and its linker config (base page at `0.1F00`, code at `$4000`) |
 | [`tests/unit/test_m45_ops.py`](../tests/unit/test_m45_ops.py) | test contract — each raw-byte macro is the compendium's encoding of its instruction |
@@ -427,9 +427,10 @@ and the Hypervisor's `hyppo_get_mapping` does ([§ Constants](#constants)).
 - **Install** (`PLAT_TO_USER` and `stub_user`): first a `MAP` of the
   CSE map onto itself, which holds IRQ and NMI off until `stub_user`'s
   `EOM` (recorded, T3); then `in_userland` (on m65 set here, inside
-  the hold); `$D030`, then the CPU port, back to the captured values
-  while the kernel's code is still mapped (neither moves the CSE map's
-  code and data windows, which `MAP` places); the map in `stub_user`,
+  the hold); `$D030`, then the CPU port, then the KERNAL's map record
+  back to the captured values while the kernel's code is still mapped
+  (none moves the CSE map's code and data windows, which `MAP`
+  places); the map in `stub_user`,
   megabytes first, then offsets and masks — the second `MAP`'s
   operands on the stack — and `EOM` once.
 - **The program's `SYSFLAGS`** (function-key macros, the Mega + Shift
@@ -448,13 +449,17 @@ and the Hypervisor's `hyppo_get_mapping` does ([§ Constants](#constants)).
   `3.F263` on 920413, `3.F2C2` on 920421; recorded).  A KERNAL call through CBDOS made
   under CSE's map would return under the record's map — the `SYS` map
   — with CSE's code mapped away (Tier X found it, P3).  So while CSE
-  runs the record holds the CSE map: `kmap_swap` captures the
-  program's into `um_kmap` (debugger.s's BSS) and writes the CSE map —
-  at every break (`save_userland_state`'s tail), and first in
+  runs the record holds the CSE map: `bank_state_swap`, the kernel's
+  half of the capture, takes the program's into `um_kmap` (debugger.s's
+  BSS) and writes the CSE map first, before `$D030` and `SYSFLAGS` — at
+  every break (`save_userland_state`'s tail), and first in
   `seed_bank_state` (the cold start's `dbg_init`, every fresh start's
-  `return_to_userland`), whose seed then overwrites `um_kmap`; `_rtu_body`
-  writes the program's back before `PLAT_TO_USER`; a fresh start gives
-  the run premise's, the user map (`00 E0 00 83`).  The one KERNAL
+  `return_to_userland`), whose seed then overwrites what it captured;
+  `PLAT_TO_USER` writes the program's back inside its hold, so a kernel
+  NMI (`cse_refresh`) after a resume began never finds the program's
+  record live (one at a break's entry, before `bank_state_swap`, finds
+  it and `$D030` the program's, as any capture in progress); a fresh
+  start gives the run premise's, the user map (`00 E0 00 83`).  The one KERNAL
   cell CSE writes on m65 (P3, operator 2026-11-19: D-P3-8).
 - **Fresh start** (`j`, `g`): the bank state is the run premise's —
   the user map, the port `$FF` / `$85`, `$D030` = `$64`, `SYSFLAGS`

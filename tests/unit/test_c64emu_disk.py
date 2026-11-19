@@ -14,7 +14,8 @@ import pathlib
 
 import pytest
 
-from c64emu import C64Emu, Drive1541, cbm_blocks, cbm_match
+from c64emu import C64Emu
+from iec_drive import Drive1541, cbm_blocks, cbm_match
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 ST = 0x90

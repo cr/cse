@@ -22,7 +22,6 @@ import pathlib
 from py65.devices.mpu6502 import MPU
 
 from emu_base import EmuBase, KeyMatrix, register
-from iec_drive import Drive1541, cbm_blocks, cbm_match  # noqa: F401 (re-exported)
 
 _ROM_DIR     = pathlib.Path(__file__).parent.parent / "rom"
 _ROM_KERNAL  = _ROM_DIR / "kernal_cbm.bin"
@@ -377,10 +376,3 @@ class C64Emu(EmuBase):
         or not."""
         return self._mem.rom_kernal[addr - 0xE000]
 
-    def _rts(self):
-        """Return from the routine PC is in, as its RTS would."""
-        sp = self._cpu.sp
-        lo = self._mem.ram[0x0100 + ((sp + 1) & 0xFF)]
-        hi = self._mem.ram[0x0100 + ((sp + 2) & 0xFF)]
-        self._cpu.sp = (sp + 2) & 0xFF
-        self._cpu.pc = (((hi << 8) | lo) + 1) & 0xFFFF

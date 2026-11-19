@@ -25,8 +25,7 @@ units 8 and 9 (CBDOS's) are Tier X.  test_disk.py's contract, on m65:
 
 import pytest
 
-from iec_drive import Drive1541  # noqa: F401  (the drive the tests attach)
-from m65emu.harness import CSE_BP, flat
+from m65emu.harness import flat
 from test_m65_repl import M65Session
 
 UNIT = 10

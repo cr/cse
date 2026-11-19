@@ -26,6 +26,8 @@ A subclass supplies `SENTINEL`, `screen_row()`, the attributes `_keys`
 import pathlib
 import re
 
+from iec_drive import Drive1541, IECBus
+
 
 def decode_screen_codes(codes):
     """Screen codes as text, in the lowercase/uppercase charset (CSE's
@@ -249,6 +251,17 @@ class EmuBase:
         return self._run(stop_addr, max_cycles, watch=watch_addrs,
                          what=f"run_until_with_watch(${stop_addr:04X})")[1]
 
+    def _rts(self):
+        """Return from the routine PC is in, as its RTS would: through
+        the stack in page 1, the stack pointer's low byte (the 45GS02's
+        E = 1: an 8-bit stack, SPH kept)."""
+        cpu, mem = self._cpu, self._mem
+        sp = cpu.sp & 0xFF
+        lo = mem[0x0100 | ((sp + 1) & 0xFF)]
+        hi = mem[0x0100 | ((sp + 2) & 0xFF)]
+        cpu.sp = (cpu.sp & 0xFF00) | ((sp + 2) & 0xFF)
+        cpu.pc = ((hi << 8 | lo) + 1) & 0xFFFF
+
     def add_trap(self, addr, fn):
         """Call `fn(emu)` each time the run loops reach `addr`, before
         the instruction there runs.  If `fn` moves PC (it emulated the
@@ -385,7 +398,6 @@ class EmuBase:
         drive installs the bus traps (`IECBus`).  On the MEGA65,
         units 8 and 9 are usually CBDOS's: the KERNAL reaches the
         serial bus for the others."""
-        from iec_drive import Drive1541, IECBus
         if not 8 <= device <= 11:
             raise ValueError(f"device {device}: a 1541 answers as 8-11")
         if self._bus is None:

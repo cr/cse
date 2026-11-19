@@ -47,8 +47,7 @@ The KERNAL-call check: no bare `jsr` / `jmp` to a KERNAL jump-table
 entry outside platform.inc and loader.s — every call is a KCALL / KJMP
 (platform_layer.md § KERNAL calls).  Zero from the start.
 
-The pending-body count: the PLAT_PENDING and PLAT_PENDING_VALUE sites
-per milestone (platform_layer.md § Pending bodies), held by the test
+The pending-body count: the PLAT_PENDING sites per milestone (platform_layer.md § Pending bodies), held by the test
 to a recorded count that only goes down.
 
 And the stack-top check: no literal `#$FF` put in SP or `reg_sp`; the
@@ -385,13 +384,11 @@ def kernal_call_count(src=SRC):
 
 # ── the pending-body count (platform_layer.md § Pending bodies) ─────
 
-_PENDING = re.compile(r"^\s*(?:[@\w]+:)?\s*PLAT_PENDING"
-                      r"(?:\s+|_VALUE\s+\w+\s*,\s*[^,]+,\s*)(\d+)\s*$")
+_PENDING = re.compile(r"^\s*(?:[@\w]+:)?\s*PLAT_PENDING\s+(\d+)\s*$")
 
 
 def pending_counts(src=SRC):
-    """{milestone: the number of PLAT_PENDING and PLAT_PENDING_VALUE
-    sites}, over src/*.s and src/*.inc (a site in a macro body counts
+    """{milestone: the number of PLAT_PENDING sites}, over src/*.s and src/*.inc (a site in a macro body counts
     once)."""
     counts = {}
     for f in sorted(list(src.glob("*.s")) + list(src.glob("*.inc"))):

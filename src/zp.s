@@ -35,15 +35,19 @@ stub_cold_target: .res 2
 ; run-time geometry io_geometry (cse_io.s) sets; named at inline sites
 ; through platform.inc's IO_CX / IO_CY and WIDTH / HEIGHT defines.
 ; The hot ones only (every character's clamp); the rest of the
-; geometry is cse_io.s's BSS — the base page is full.
-        .exportzp io_cx, io_cy, io_key, scr_width, scr_last_col, disk_local_ptr
+; geometry is cse_io.s's BSS — the base page has no room for it.
+        .exportzp io_cx, io_cy, io_key, scr_width, scr_last_col
 io_cx:          .res 1          ; the cursor column
 io_cy:          .res 1          ;   and row
 io_key:         .res 1          ; io_kbhit's lookahead (0: none)
 scr_width:      .res 1
 scr_last_col:   .res 1          ; width - 1
-disk_local_ptr: .res 2          ; disk.s's filename pointer (DISK_LOCAL_PTR): it
-                                ; reads only CSE's own view, so no bank
+
+; ── disk.s (m65; disk.md § On m65) ───────────────────────────────────
+; The filename pointer DISK_LOCAL_PTR (c64: $FD): it reads only CSE's
+; own view, so a plain pointer, no bank.
+        .exportzp disk_local_ptr
+disk_local_ptr: .res 2
 .endif
 
 ; ── main.s: runtime scratch ───────────────────────────────────────────── $02
