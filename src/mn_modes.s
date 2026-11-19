@@ -4,6 +4,7 @@
 ; Profile validity masks (doc/modules/opcode_lookup.md § Design), indexed by pidx.
 ;   mn_modes_lo bits 0-7: IMP ACC IMM ZP ZPX ZPY ABS ABX
 ;   mn_modes_hi bits 0-7: ABY IND INX INY REL ZPI AIX ZPREL
+;   mn_modes_x  bits 0-3: IMM16 REL16 ISPY ZPIZ (m65 only)
 ; One block per CPU set, selected by the build's CPU_<top> define
 ; (doc/build_system.md § Table generation).
 
@@ -45,5 +46,31 @@ mn_modes_hi:
         .byte   $0D,$2D,$00,$00,$00,$00,$02,$42
         .byte   $00,$01,$00,$00,$00,$00,$0D,$04
         .byte   $00,$00,$09,$01,$00,$00
+.endif
+
+.ifdef CPU_45GS02
+; ── CPU set 45gs02 ────────────────────────────────────────
+        .export mn_modes_x
+mn_modes_lo:
+        .byte   $01,$00,$00,$00,$40,$04,$08,$00
+        .byte   $40,$40,$58,$D8,$68,$68,$40,$40
+        .byte   $DC,$DC,$48,$D8,$DA,$DA,$DA,$DA
+        .byte   $D8,$D8,$48,$48,$DC,$48,$1A,$1A
+        .byte   $DC,$DC,$48,$6C,$4C,$48,$D8,$08
+        .byte   $C4,$02,$4C,$40,$DC
+mn_modes_hi:
+        .byte   $00,$10,$10,$00,$00,$00,$00,$80
+        .byte   $02,$42,$00,$00,$00,$01,$00,$42
+        .byte   $0D,$0D,$20,$00,$00,$00,$00,$00
+        .byte   $0D,$0D,$20,$00,$00,$00,$00,$00
+        .byte   $0D,$0D,$00,$01,$00,$00,$00,$00
+        .byte   $00,$00,$00,$00,$00
+mn_modes_x:
+        .byte   $00,$00,$02,$02,$00,$00,$00,$00
+        .byte   $00,$00,$00,$00,$00,$00,$00,$00
+        .byte   $00,$08,$00,$00,$00,$00,$00,$00
+        .byte   $00,$0C,$00,$00,$00,$00,$00,$00
+        .byte   $00,$0C,$08,$00,$00,$00,$00,$00
+        .byte   $00,$00,$00,$01,$00
 .endif
 

@@ -7,6 +7,7 @@
 ;   asm_oplen  = operand bytes per mode
 ;   ASM_ZONE_G = first multi-mode pidx (lower ones are asm_line's fixed zones)
 ;   ASM_ZONE_D = the digit zone D's pidx (E follows), where the set has it
+;   m65 also: ASM_ZONE_B / _F (the branch range B..F-1), _Q, _H (the quad zone Q..H-1)
 ; Rows are as wide as the set's highest used mode index + 1.
 ; One block per CPU set, selected by the build's CPU_<top> define
 ; (doc/build_system.md § Table generation).
@@ -64,5 +65,33 @@ asm_delta:
         .byte   $00,$00,$04,$00,$10,$00,$08,$18,$00,$00,$00,$00,$00,$00,$00,$00
 asm_oplen:
         .byte   $00,$00,$01,$01,$01,$01,$02,$02,$02,$02,$01,$01,$01,$01,$02,$02
+.endif
+
+.ifdef CPU_45GS02
+; ── CPU set 45gs02 ────────────────────────────────────────
+ASM_ZONE_G = 8
+ASM_ZONE_B = 1
+ASM_ZONE_F = 4
+ASM_ZONE_D = 6
+ASM_ZONE_Q = 16
+ASM_ZONE_H = 35
+        .export ASM_ZONE_B, ASM_ZONE_F, ASM_ZONE_D, ASM_ZONE_Q, ASM_ZONE_H
+asm_row:
+        .byte   $00,$00,$00,$14,$14,$00,$00,$00
+        .byte   $28,$28,$3C,$3C,$3C,$3C,$14,$14
+        .byte   $78,$78,$3C,$50,$50,$50,$64,$64
+        .byte   $50,$50,$3C,$3C,$50,$3C,$14,$14
+        .byte   $78,$78,$3C,$64,$3C,$3C,$00,$00
+        .byte   $14,$00,$64,$14,$64
+asm_delta:
+        .byte   $00,$00,$00,$00,$10,$00,$F8,$FA,$00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$00
+        .byte   $00,$07,$08,$00,$10,$00,$00,$10,$00,$02,$00,$00,$00,$00,$03,$00,$08,$00,$00,$00
+        .byte   $00,$00,$00,$00,$00,$00,$00,$00,$00,$20,$00,$00,$00,$00,$30,$00,$00,$00,$00,$00
+        .byte   $00,$00,$16,$00,$10,$10,$08,$0F,$1D,$00,$00,$00,$00,$17,$00,$00,$00,$00,$00,$17
+        .byte   $00,$FC,$AD,$00,$10,$00,$08,$18,$1C,$00,$04,$14,$00,$00,$00,$00,$00,$00,$07,$17
+        .byte   $00,$0C,$04,$00,$10,$10,$08,$18,$18,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+        .byte   $00,$00,$0C,$00,$10,$00,$08,$18,$1C,$00,$04,$14,$00,$00,$00,$00,$00,$00,$47,$17
+asm_oplen:
+        .byte   $00,$00,$01,$01,$01,$01,$02,$02,$02,$02,$01,$01,$01,$01,$02,$02,$02,$02,$01,$01
 .endif
 

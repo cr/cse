@@ -11,13 +11,25 @@ MNE_UNK = 0
 
 .ifdef CPU_6510
 MNE_UNK = 0
-DASM_SUBSET = 1                 ; a CPU view is the subset bitmap
+DASM_SUBSET = 1                 ; a CPU view is a subset bitmap
 .endif
 
 .ifdef CPU_65C02
 MNE_UNK = 0
-DASM_SUBSET = 1                 ; a CPU view is the subset bitmap
+DASM_SUBSET = 1                 ; a CPU view is a subset bitmap
 MNE_DIGIT_LO = 1
 MNE_DIGIT_HI = 4
+.endif
+
+.ifdef CPU_45GS02
+MNE_UNK = 0
+DASM_SUBSET = 1                 ; a CPU view is a subset bitmap
+MNE_DIGIT_LO = 1
+MNE_DIGIT_HI = 4
+MNE_QSFX_LO = 5
+MNE_QSFX_HI = 15
+MNE_QNAME_LO = 16
+MNE_QNAME_HI = 25
+DASM_BYTE_MODES = 1             ; one mode byte per opcode
 .endif
 

@@ -31,16 +31,28 @@ def model(request):
 def _decode(model, cpu, op):
     """(key, mode) the tables give opcode `op` under asm_cpu `cpu`, or None."""
     _, vm = model.maps[model.cpu_map[cpu]]
-    if model.cpu_bm[cpu] and op not in model.bitmap:
+    bm = model.cpu_bm[cpu]
+    if bm and op not in model.bitmaps[(bm - 1) // 32]:
         return None
     return vm.get(op)
+
+
+def _listed(model, view):
+    """What `view` lists: its rows, on m65 with $EA as EOM in every view (D3)
+    and the 65C02's (zp) as the 4510's ZPIZ (printed ($nn) in that view)."""
+    want = D.view_map(view)
+    if model.cpu_set in MT.M65_SETS:
+        want = {op: (('EOM', m) if op == 0xEA else
+                     (k, 'ZPIZ') if (view, m) == ('65c02', 'ZPI') else (k, m))
+                for op, (k, m) in want.items()}
+    return want
 
 
 def test_every_view_decodes_from_the_tables(model):
     _, views, _ = MT.CPU_SETS[model.cpu_set]
     for view in views:
         cpu = MT.ASM_CPU[view]
-        want = D.view_map(view)
+        want = _listed(model, view)
         for op in range(256):
             assert _decode(model, cpu, op) == want.get(op), (model.cpu_set, view, hex(op))
 
@@ -48,9 +60,11 @@ def test_every_view_decodes_from_the_tables(model):
 def test_asm_cpu_tables_padded_to_the_top_cpu(model):
     _, views, _ = MT.CPU_SETS[model.cpu_set]
     top = MT.ASM_CPU[views[-1]]
-    assert len(model.cpu_map) == len(model.cpu_bm) == D.N_ASM_CPU
+    n = D.n_asm_cpu(model.cpu_set)
+    assert n == (5 if model.cpu_set in MT.M65_SETS else 3)
+    assert len(model.cpu_map) == len(model.cpu_bm) == n
     in_set = {MT.ASM_CPU[v] for v in views}
-    for cpu in range(D.N_ASM_CPU):
+    for cpu in range(n):
         if cpu not in in_set:
             assert (model.cpu_map[cpu], model.cpu_bm[cpu]) == \
                 (model.cpu_map[top], model.cpu_bm[top])
@@ -67,10 +81,46 @@ def test_names_keep_the_decoder_range_compares_valid(model):
         assert model.digit_range is None
 
 
-def test_one_map_per_distinct_view_at_most_one_bitmap(model):
+def test_one_map_per_distinct_view_and_its_bitmaps(model):
     views = [v for v, _ in model.maps]
     assert len(views) == len(set(views))
-    assert sum(model.cpu_bm) <= D.N_ASM_CPU
+    if model.cpu_set in MT.M65_SETS:            # one map, the 6502 and 65C02 views
+        assert views == ['4510'] and len(model.bitmaps) == 2
+        assert model.cpu_bm == [1, 0, 33, 0, 0]
+    else:
+        assert len(model.bitmaps) <= 1 and set(model.cpu_bm) <= {0, 1}
+
+
+# ── the m65 set (dasm.md § Design, § Prefix peel; D-P4-10) ─────────────────
+
+@pytest.fixture(scope="module")
+def m65():
+    return D.build_dasm_model('45gs02')
+
+
+def test_m65_modes_are_bytes_and_every_table_kdata(m65):
+    assert m65.byte_modes and m65.n_modes == 20
+    assert len(D.map_block(m65, m65.maps[0][1])) == 512
+
+
+def test_m65_q_map_is_the_q_forms(m65):
+    host = m65.maps[0][1]
+    want = [0] * 256
+    for r in I.instructions('45gs02'):
+        if r.prefix == I.PREFIX_Q:
+            want[r.opcode] = 2 if (r.mode, host[r.opcode][1]) == ('ZPI', 'ZPIZ') else 1
+    assert m65.qmap == want
+    assert sum(v == 2 for v in m65.qmap) == 7     # adcq andq cmpq eorq orq sbcq stq
+
+
+def test_m65_name_ranges(m65):
+    lo, hi = m65.qsfx_range
+    assert sorted(m65.names[lo:hi + 1]) == sorted(I.Q_SUFFIX_STEMS)
+    lo, hi = m65.qname_range
+    pairs = m65.names[lo:hi + 1]
+    assert [(pairs[i], pairs[i + 1]) for i in range(0, len(pairs), 2)] == \
+        [(s, q) for s in ('LDA', 'STA', 'ORA', 'DEC', 'INC')
+         for q, st in I.Q_NAMES.items() if st == s]
 
 
 # dasm.md § Design, *Mode formatting*: hi nybble prefix/size, lo nybble suffix.

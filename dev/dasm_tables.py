@@ -28,7 +28,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # asm_cpu tables are padded to the platform's top asm_cpu, so a value
 # outside the build's CPU set reads the top CPU's view, never past the table.
-N_ASM_CPU = 1 + max(MT.ASM_CPU.values())
+def n_asm_cpu(cpu_set):
+    return 5 if cpu_set in MT.M65_SETS else 3     # C64: 6502 6510 65c02
 
 # Listing-name order (dasm.md § Design, *Listing name*): where several rows
 # name one opcode, the name whose key comes last here wins.
@@ -75,15 +76,70 @@ class DasmModel:
     cpu_set: str
     define: str
     maps: list                # [(view, opcode → (key, mode))], map blocks in order
-    cpu_map: list             # asm_cpu → map index (padded to N_ASM_CPU)
-    cpu_bm: list              # asm_cpu → 1 if the subset bitmap applies
-    bitmap: set               # opcodes the subset view defines (None if no subset view)
+    cpu_map: list             # asm_cpu → map index (padded per platform)
+    cpu_bm: list              # asm_cpu → 0, or 1 + 32 × the subset bitmap's number
+    bitmaps: list             # [opcodes a subset view defines], in bitmap order
     names: list               # mnemonic index → name; 0 = '...'
     digit_range: tuple        # (lo, hi) of the bit-digit keys' indexes, or None
     n_modes: int
+    qmap: list = None         # m65: opcode → 0 / 1 Q form / 2 Q form written ($nn)
+    qsfx_range: tuple = None  # m65: the Q-suffix stems' indexes
+    qname_range: tuple = None # m65: LDA LDQ STA STQ … — a stem, then its Q name
+
+    @property
+    def bitmap(self):         # the C64 sets' one subset bitmap (or None)
+        return self.bitmaps[0] if self.bitmaps else None
+
+    @property
+    def byte_modes(self):     # m65: one mode byte per opcode, not a nibble
+        return self.n_modes > 16
+
+
+def _m65_subset(view, host):
+    """The opcodes of `view` as a subset of the 4510 map `host`: each lists
+    there as in the view, after D3 ($EA lists EOM in every view) and, for
+    the 65C02, ZPI = ZPIZ — the decoder prints the 65C02 view's ZPIZ as
+    ($nn) (dasm.md § Design)."""
+    vm = view_map(view)
+    for op, (key, mode) in vm.items():
+        hk, hm = host[op]
+        same_mode = hm == mode or (view == '65c02' and (mode, hm) == ('ZPI', 'ZPIZ'))
+        if not (same_mode and (hk == key or (op == 0xEA and hk == 'EOM'))):
+            raise DasmModelError(f"{view} ${op:02X} {key} {mode}: not {hk} {hm} of the 4510 map")
+    return set(vm)
+
+
+def build_m65_model(cpu_set):
+    """The m65 set: the 4510 map (the 45GS02's, plus the prefix peel), the
+    6502 and 65C02 views as bitmaps over it, the Q map (D-P4-10)."""
+    define, views, _cls = MT.CPU_SETS[cpu_set]
+    host = view_map('4510')
+    bitmaps = [_m65_subset('6502', host), _m65_subset('65c02', host)]
+    cpu_bm = [1, 0, 1 + 32, 0, 0]                     # asm_cpu 0 6502, 2 65C02
+    qmap = [0] * 256
+    for r in I.instructions('45gs02'):
+        if r.prefix == I.PREFIX_Q:
+            qmap[r.opcode] = 2 if (r.mode, host[r.opcode][1]) == ('ZPI', 'ZPIZ') else 1
+    used = sorted({k for k, _ in host.values()})
+    digit = [k for k in used if k in I.BIT_DIGIT_MNEMONICS]
+    qsfx = sorted(k for k in used if k in I.Q_SUFFIX_STEMS)
+    qname = [n for stem in ('LDA', 'STA', 'ORA', 'DEC', 'INC')
+             for n in (stem, next(q for q, s in I.Q_NAMES.items() if s == stem))]
+    rest = [k for k in used if k not in I.BIT_DIGIT_MNEMONICS
+            and k not in qsfx and k not in qname]
+    names = ['...'] + digit + qsfx + qname + rest
+    n_modes = 1 + max(I.ALL_MODES.index(md) for _, md in host.values())
+    if len(names) > 128:
+        raise DasmModelError(f"{cpu_set}: {len(names)} names do not fit")
+    lo = 1 + len(digit)
+    return DasmModel(cpu_set, define, [('4510', host)], [0] * 5, cpu_bm, bitmaps,
+                     names, (1, len(digit)), n_modes, qmap,
+                     (lo, lo + len(qsfx) - 1), (lo + len(qsfx), lo + len(qsfx) + len(qname) - 1))
 
 
 def build_dasm_model(cpu_set):
+    if cpu_set in MT.M65_SETS:
+        return build_m65_model(cpu_set)
     define, views, _cls = MT.CPU_SETS[cpu_set]
     maps, cpu_map, cpu_bm, bitmap = [], {}, {}, None
     for view in reversed(views):                       # top CPU first
@@ -99,8 +155,8 @@ def build_dasm_model(cpu_set):
             bitmap = set(vm)
             cpu_map[MT.ASM_CPU[view]], cpu_bm[MT.ASM_CPU[view]] = host, 1
     top = MT.ASM_CPU[views[-1]]
-    pad_map = [cpu_map.get(c, cpu_map[top]) for c in range(N_ASM_CPU)]
-    pad_bm = [cpu_bm.get(c, cpu_bm[top]) for c in range(N_ASM_CPU)]
+    pad_map = [cpu_map.get(c, cpu_map[top]) for c in range(n_asm_cpu(cpu_set))]
+    pad_bm = [cpu_bm.get(c, cpu_bm[top]) for c in range(n_asm_cpu(cpu_set))]
 
     used = sorted({k for _, m in maps for k, _ in m.values()})
     digit = [k for k in used if k in I.BIT_DIGIT_MNEMONICS]
@@ -108,7 +164,8 @@ def build_dasm_model(cpu_set):
     n_modes = 1 + max(I.ALL_MODES.index(md) for _, m in maps for _, md in m.values())
     if len(names) > 128 or n_modes > 16:
         raise DasmModelError(f"{cpu_set}: {len(names)} names / {n_modes} modes do not fit")
-    return DasmModel(cpu_set, define, maps, pad_map, pad_bm, bitmap, names,
+    return DasmModel(cpu_set, define, maps, pad_map, pad_bm,
+                     [bitmap] if bitmap is not None else [], names,
                      (1, len(digit)) if digit else None, n_modes)
 
 
@@ -121,11 +178,13 @@ def pack_name(s):
 
 
 def map_block(model, m):
-    """256 mnemonic indexes, then 128 bytes of packed modes (even opcode in
-    the low nibble)."""
+    """256 mnemonic indexes, then the modes: 128 bytes packed (even opcode
+    in the low nibble), or on m65 256 bytes, one per opcode."""
     idx = {n: i for i, n in enumerate(model.names)}
     mne = [idx[m[op][0]] if op in m else 0 for op in range(256)]
     mode = [I.ALL_MODES.index(m[op][1]) if op in m else 0 for op in range(256)]
+    if model.byte_modes:
+        return mne + mode
     return mne + [mode[i] | (mode[i + 1] << 4) for i in range(0, 256, 2)]
 
 
@@ -159,34 +218,50 @@ def write(models, out):
          '; in sets where a CPU view is the subset bitmap over a map.',
          '']
     for m in models:
-        t += [f'.ifdef {m.define}', f'; ── CPU set {m.cpu_set} ' + '─' * 40, '.segment "RODATA"']
+        # m65: every table in KDATA, the data window (D-P4-6)
+        seg = '.segment "KDATA"' if m.cpu_set in MT.M65_SETS else '.segment "RODATA"'
+        t += [f'.ifdef {m.define}', f'; ── CPU set {m.cpu_set} ' + '─' * 40, seg]
         t += ['dasm_cpu_map_lo:', f'        .byte   ' + ','.join(f'<_dasm_map_{i}' for i in m.cpu_map)]
         t += ['dasm_cpu_map_hi:', f'        .byte   ' + ','.join(f'>_dasm_map_{i}' for i in m.cpu_map)]
-        if m.bitmap is not None:
-            bm = [0] * 32
-            for op in m.bitmap:
-                bm[op >> 3] |= 1 << (op & 7)
+        if m.bitmaps:
+            bm = [0] * (32 * len(m.bitmaps))
+            for k, ops in enumerate(m.bitmaps):
+                for op in ops:
+                    bm[32 * k + (op >> 3)] |= 1 << (op & 7)
             t += ['        .export dasm_cpu_bm, dasm_view_bm']
             t += _bytes('dasm_cpu_bm', m.cpu_bm)
-            t += ['; subset-view bitmap: bit (opcode & 7) of byte (opcode >> 3)']
+            t += ['; subset-view bitmaps, 32 B each: bit (opcode & 7) of byte (opcode >> 3);',
+                  '; dasm_cpu_bm[asm_cpu] = 0, or 1 + the bitmap\'s offset']
             t += _bytes('dasm_view_bm', bm)
+        if m.qmap is not None:
+            q = [sum(m.qmap[i + j] << (2 * j) for j in range(4)) for i in range(0, 256, 4)]
+            t += ['        .export dasm_q_map',
+                  '; Q map, 2 bits per opcode (byte opcode >> 2, bits (opcode & 3) * 2):',
+                  '; 0 no Q form, 1 a Q form, 2 a Q form whose ZPIZ is written ($nn)']
+            t += _bytes('dasm_q_map', q)
         t += _bytes('dasm_mode_len', [1 + I.MODE_OPERAND_BYTES[md] for md in I.ALL_MODES[:m.n_modes]])
         t += _bytes('dasm_mode_fmt', [mode_format(md) for md in I.ALL_MODES[:m.n_modes]])
+        mode_rows = (16 if m.byte_modes else 32)
         for i, (view, vm) in enumerate(m.maps):
             t += [f'; map {i}: the {view} view']
             t += _bytes(f'_dasm_map_{i}', map_block(m, vm),
                         names=[f'${r:02X}-${r + 15:02X}' for r in range(0, 256, 16)]
-                        + [f'modes ${r:02X}-${r + 31:02X}' for r in range(0, 256, 32)])
+                        + [f'modes ${r:02X}-${r + mode_rows - 1:02X}'
+                           for r in range(0, 256, mode_rows)])
         t += ['.segment "KDATA"', 'dasm_mne_str:']
         for i, n in enumerate(m.names):
             hi, lo = pack_name(n)
             t.append(f'        .byte   ${hi:02X},${lo:02X}    ; {i:3d} {n}')
         t += ['.endif', '']
         x += [f'.ifdef {m.define}', 'MNE_UNK = 0']
-        if m.bitmap is not None:
-            x += ['DASM_SUBSET = 1                 ; a CPU view is the subset bitmap']
+        if m.bitmaps:
+            x += ['DASM_SUBSET = 1                 ; a CPU view is a subset bitmap']
         if m.digit_range:
             x += [f'MNE_DIGIT_LO = {m.digit_range[0]}', f'MNE_DIGIT_HI = {m.digit_range[1]}']
+        if m.qsfx_range:
+            x += [f'MNE_QSFX_LO = {m.qsfx_range[0]}', f'MNE_QSFX_HI = {m.qsfx_range[1]}',
+                  f'MNE_QNAME_LO = {m.qname_range[0]}', f'MNE_QNAME_HI = {m.qname_range[1]}',
+                  'DASM_BYTE_MODES = 1             ; one mode byte per opcode']
         x += ['.endif', '']
     (out / 'dasm_tables.s').write_text('\n'.join(t) + '\n')
     (out / 'dasm_mne_idx.s').write_text('\n'.join(x) + '\n')
@@ -201,11 +276,14 @@ def main(argv=None):
     models = [build_dasm_model(c) for c in MT.CPU_SETS]
     write(models, out)
     for m in models:
-        size = (2 + (1 if m.bitmap else 0)) * N_ASM_CPU + (32 if m.bitmap else 0) \
-            + 2 * m.n_modes + 384 * len(m.maps)
+        n = len(m.cpu_map)
+        size = (2 + (1 if m.bitmaps else 0)) * n + 32 * len(m.bitmaps) \
+            + 2 * m.n_modes + (512 if m.byte_modes else 384) * len(m.maps) \
+            + (64 if m.qmap else 0)
+        where = 'KDATA' if m.cpu_set in MT.M65_SETS else 'RODATA'
         print(f"CPU set {m.cpu_set}: {len(m.maps)} map(s), "
-              f"{'1 subset bitmap, ' if m.bitmap else ''}{len(m.names)} names; "
-              f"RODATA {size} B + KDATA {2 * len(m.names)} B")
+              f"{len(m.bitmaps)} subset bitmap(s), {len(m.names)} names; "
+              f"{where} {size} B + KDATA {2 * len(m.names)} B")
 
 
 if __name__ == '__main__':

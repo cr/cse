@@ -119,7 +119,8 @@ dasm_cpu_map_hi:
         .export dasm_cpu_bm, dasm_view_bm
 dasm_cpu_bm:
         .byte   $01,$00,$00
-; subset-view bitmap: bit (opcode & 7) of byte (opcode >> 3)
+; subset-view bitmaps, 32 B each: bit (opcode & 7) of byte (opcode >> 3);
+; dasm_cpu_bm[asm_cpu] = 0, or 1 + the bitmap's offset
 dasm_view_bm:
         .byte   $63,$67,$63,$63,$73,$77,$63,$63,$63,$77,$63,$63,$63,$77,$63,$63
         .byte   $72,$75,$73,$27,$77,$77,$73,$77,$73,$77,$63,$63,$73,$77,$63,$63
@@ -250,7 +251,8 @@ dasm_cpu_map_hi:
         .export dasm_cpu_bm, dasm_view_bm
 dasm_cpu_bm:
         .byte   $01,$00,$00
-; subset-view bitmap: bit (opcode & 7) of byte (opcode >> 3)
+; subset-view bitmaps, 32 B each: bit (opcode & 7) of byte (opcode >> 3);
+; dasm_cpu_bm[asm_cpu] = 0, or 1 + the bitmap's offset
 dasm_view_bm:
         .byte   $63,$67,$63,$63,$73,$77,$63,$63,$63,$77,$63,$63,$63,$77,$63,$63
         .byte   $72,$75,$73,$27,$77,$77,$73,$77,$73,$77,$63,$63,$73,$77,$63,$63
@@ -407,5 +409,172 @@ dasm_mne_str:
         .byte   $56,$62    ;  92 USB
         .byte   $60,$21    ;  93 XAA
         .byte   $60,$33    ;  94 XAS
+.endif
+
+.ifdef CPU_45GS02
+; ── CPU set 45gs02 ────────────────────────────────────────
+.segment "KDATA"
+dasm_cpu_map_lo:
+        .byte   <_dasm_map_0,<_dasm_map_0,<_dasm_map_0,<_dasm_map_0,<_dasm_map_0
+dasm_cpu_map_hi:
+        .byte   >_dasm_map_0,>_dasm_map_0,>_dasm_map_0,>_dasm_map_0,>_dasm_map_0
+        .export dasm_cpu_bm, dasm_view_bm
+dasm_cpu_bm:
+        .byte   $01,$00,$21,$00,$00
+; subset-view bitmaps, 32 B each: bit (opcode & 7) of byte (opcode >> 3);
+; dasm_cpu_bm[asm_cpu] = 0, or 1 + the bitmap's offset
+dasm_view_bm:
+        .byte   $63,$67,$63,$63,$73,$77,$63,$63,$63,$77,$63,$63,$63,$77,$63,$63
+        .byte   $72,$75,$73,$27,$77,$77,$73,$77,$73,$77,$63,$63,$73,$77,$63,$63
+        .byte   $F3,$F7,$F7,$F7,$F3,$F7,$F7,$F7,$E3,$F7,$E7,$E7,$F3,$F7,$F7,$F7
+        .byte   $F3,$F7,$F7,$F7,$F7,$F7,$F7,$F7,$F3,$F7,$E7,$E7,$F3,$F7,$E7,$E7
+        .export dasm_q_map
+; Q map, 2 bits per opcode (byte opcode >> 2, bits (opcode & 3) * 2):
+; 0 no Q form, 1 a Q form, 2 a Q form whose ZPIZ is written ($nn)
+dasm_q_map:
+        .byte   $00,$14,$10,$14,$20,$10,$10,$10,$00,$15,$10,$15,$20,$10,$10,$10
+        .byte   $40,$15,$10,$14,$20,$11,$00,$10,$00,$14,$10,$14,$20,$10,$00,$10
+        .byte   $00,$04,$00,$04,$20,$00,$00,$00,$00,$04,$00,$04,$10,$00,$00,$00
+        .byte   $00,$14,$00,$14,$20,$10,$00,$10,$00,$14,$00,$14,$20,$10,$00,$10
+dasm_mode_len:
+        .byte   $01,$01,$02,$02,$02,$02,$03,$03,$03,$03,$02,$02,$02,$02,$03,$03
+        .byte   $03,$03,$02,$02
+dasm_mode_fmt:
+        .byte   $00,$60,$30,$10,$11,$12,$20,$21,$22,$53,$44,$45,$70,$43,$54,$80
+        .byte   $90,$A0,$47,$46
+; map 0: the 4510 view
+_dasm_map_0:
+        .byte   $22,$14,$28,$4F,$5A,$14,$07,$03,$3F,$14,$07,$5C,$5A,$14,$07,$01  ; $00-$0F
+        .byte   $20,$14,$14,$20,$59,$14,$07,$03,$26,$14,$18,$36,$59,$14,$07,$01  ; $10-$1F
+        .byte   $38,$06,$38,$38,$09,$06,$0D,$03,$45,$06,$0D,$60,$09,$06,$0D,$01  ; $20-$2F
+        .byte   $1E,$06,$06,$1E,$09,$06,$0D,$03,$4D,$06,$16,$31,$09,$06,$0D,$01  ; $30-$3F
+        .byte   $4A,$0B,$3D,$08,$08,$0B,$0C,$03,$3E,$0B,$0C,$57,$37,$0B,$0C,$01  ; $40-$4F
+        .byte   $24,$0B,$0B,$24,$08,$0B,$0C,$03,$29,$0B,$42,$54,$3C,$0B,$0C,$01  ; $50-$5F
+        .byte   $4C,$05,$4B,$23,$53,$05,$0E,$03,$44,$05,$0E,$61,$37,$05,$0E,$01  ; $60-$6F
+        .byte   $25,$05,$05,$25,$53,$05,$0E,$03,$50,$05,$47,$58,$37,$05,$0E,$01  ; $70-$7F
+        .byte   $21,$12,$12,$21,$52,$12,$51,$04,$30,$09,$5D,$52,$52,$12,$51,$02  ; $80-$8F
+        .byte   $1B,$12,$12,$1B,$52,$12,$51,$04,$5F,$12,$5E,$51,$53,$12,$53,$02  ; $90-$9F
+        .byte   $3A,$10,$39,$3B,$3A,$10,$39,$04,$56,$10,$55,$3B,$3A,$10,$39,$02  ; $A0-$AF
+        .byte   $1C,$10,$10,$1C,$3A,$10,$39,$04,$2A,$10,$5B,$3B,$3A,$10,$39,$02  ; $B0-$BF
+        .byte   $2C,$0A,$2D,$2E,$2C,$0A,$16,$04,$35,$0A,$2F,$1A,$2C,$0A,$16,$02  ; $C0-$CF
+        .byte   $1F,$0A,$0A,$1F,$2D,$0A,$16,$04,$27,$0A,$41,$43,$2D,$0A,$16,$02  ; $D0-$DF
+        .byte   $2B,$0F,$10,$33,$2B,$0F,$18,$04,$34,$0F,$32,$49,$2B,$0F,$18,$02  ; $E0-$EF
+        .byte   $1D,$0F,$0F,$1D,$40,$0F,$18,$04,$4E,$0F,$46,$48,$40,$0F,$18,$02  ; $F0-$FF
+        .byte   $00,$0A,$00,$00,$03,$03,$03,$03,$00,$02,$01,$00,$06,$06,$06,$0F  ; modes $00-$0F
+        .byte   $0C,$0B,$13,$11,$03,$04,$04,$03,$00,$08,$01,$00,$06,$07,$07,$0F  ; modes $10-$1F
+        .byte   $06,$0A,$09,$0E,$03,$03,$03,$03,$00,$02,$01,$00,$06,$06,$06,$0F  ; modes $20-$2F
+        .byte   $0C,$0B,$13,$11,$04,$04,$04,$03,$00,$08,$01,$00,$07,$07,$07,$0F  ; modes $30-$3F
+        .byte   $00,$0A,$01,$01,$03,$03,$03,$03,$00,$02,$01,$00,$06,$06,$06,$0F  ; modes $40-$4F
+        .byte   $0C,$0B,$13,$11,$04,$04,$04,$03,$00,$08,$00,$00,$00,$07,$07,$0F  ; modes $50-$5F
+        .byte   $00,$0A,$02,$11,$03,$03,$03,$03,$00,$02,$01,$00,$09,$06,$06,$0F  ; modes $60-$6F
+        .byte   $0C,$0B,$13,$11,$04,$04,$04,$03,$00,$08,$00,$00,$0E,$07,$07,$0F  ; modes $70-$7F
+        .byte   $0C,$0A,$12,$11,$03,$03,$03,$03,$00,$02,$00,$07,$06,$06,$06,$0F  ; modes $80-$8F
+        .byte   $0C,$0B,$13,$11,$04,$04,$05,$03,$00,$08,$00,$08,$06,$07,$07,$0F  ; modes $90-$9F
+        .byte   $02,$0A,$02,$02,$03,$03,$03,$03,$00,$02,$00,$06,$06,$06,$06,$0F  ; modes $A0-$AF
+        .byte   $0C,$0B,$13,$11,$04,$04,$05,$03,$00,$08,$00,$07,$07,$07,$08,$0F  ; modes $B0-$BF
+        .byte   $02,$0A,$02,$03,$03,$03,$03,$03,$00,$02,$00,$06,$06,$06,$06,$0F  ; modes $C0-$CF
+        .byte   $0C,$0B,$13,$11,$03,$04,$04,$03,$00,$08,$00,$00,$06,$07,$07,$0F  ; modes $D0-$DF
+        .byte   $02,$0A,$12,$03,$03,$03,$03,$03,$00,$02,$00,$06,$06,$06,$06,$0F  ; modes $E0-$EF
+        .byte   $0C,$0B,$13,$11,$10,$04,$04,$03,$00,$08,$00,$00,$06,$07,$07,$0F  ; modes $F0-$FF
+.segment "KDATA"
+dasm_mne_str:
+        .byte   $6F,$7B    ;   0 ...
+        .byte   $08,$52    ;   1 BBR
+        .byte   $08,$53    ;   2 BBS
+        .byte   $49,$A2    ;   3 RMB
+        .byte   $4D,$A2    ;   4 SMB
+        .byte   $04,$83    ;   5 ADC
+        .byte   $05,$C4    ;   6 AND
+        .byte   $06,$6C    ;   7 ASL
+        .byte   $06,$72    ;   8 ASR
+        .byte   $09,$34    ;   9 BIT
+        .byte   $0D,$B0    ;  10 CMP
+        .byte   $15,$F2    ;  11 EOR
+        .byte   $32,$72    ;  12 LSR
+        .byte   $49,$EC    ;  13 ROL
+        .byte   $49,$F2    ;  14 ROR
+        .byte   $4C,$43    ;  15 SBC
+        .byte   $30,$81    ;  16 LDA
+        .byte   $30,$91    ;  17 LDQ
+        .byte   $4E,$81    ;  18 STA
+        .byte   $4E,$91    ;  19 STQ
+        .byte   $3E,$41    ;  20 ORA
+        .byte   $3E,$51    ;  21 ORQ
+        .byte   $10,$A3    ;  22 DEC
+        .byte   $10,$B1    ;  23 DEQ
+        .byte   $25,$C3    ;  24 INC
+        .byte   $25,$D1    ;  25 INQ
+        .byte   $06,$77    ;  26 ASW
+        .byte   $08,$63    ;  27 BCC
+        .byte   $08,$73    ;  28 BCS
+        .byte   $08,$B1    ;  29 BEQ
+        .byte   $09,$A9    ;  30 BMI
+        .byte   $09,$C5    ;  31 BNE
+        .byte   $0A,$0C    ;  32 BPL
+        .byte   $0A,$41    ;  33 BRA
+        .byte   $0A,$4B    ;  34 BRK
+        .byte   $0A,$72    ;  35 BSR
+        .byte   $0A,$C3    ;  36 BVC
+        .byte   $0A,$D3    ;  37 BVS
+        .byte   $0D,$83    ;  38 CLC
+        .byte   $0D,$84    ;  39 CLD
+        .byte   $0D,$85    ;  40 CLE
+        .byte   $0D,$89    ;  41 CLI
+        .byte   $0D,$96    ;  42 CLV
+        .byte   $0E,$18    ;  43 CPX
+        .byte   $0E,$19    ;  44 CPY
+        .byte   $0E,$1A    ;  45 CPZ
+        .byte   $10,$B7    ;  46 DEW
+        .byte   $10,$B8    ;  47 DEX
+        .byte   $10,$B9    ;  48 DEY
+        .byte   $10,$BA    ;  49 DEZ
+        .byte   $15,$ED    ;  50 EOM
+        .byte   $25,$D7    ;  51 INW
+        .byte   $25,$D8    ;  52 INX
+        .byte   $25,$D9    ;  53 INY
+        .byte   $25,$DA    ;  54 INZ
+        .byte   $29,$B0    ;  55 JMP
+        .byte   $2A,$72    ;  56 JSR
+        .byte   $30,$98    ;  57 LDX
+        .byte   $30,$99    ;  58 LDY
+        .byte   $30,$9A    ;  59 LDZ
+        .byte   $34,$30    ;  60 MAP
+        .byte   $38,$A7    ;  61 NEG
+        .byte   $41,$01    ;  62 PHA
+        .byte   $41,$10    ;  63 PHP
+        .byte   $41,$17    ;  64 PHW
+        .byte   $41,$18    ;  65 PHX
+        .byte   $41,$19    ;  66 PHY
+        .byte   $41,$1A    ;  67 PHZ
+        .byte   $41,$81    ;  68 PLA
+        .byte   $41,$90    ;  69 PLP
+        .byte   $41,$98    ;  70 PLX
+        .byte   $41,$99    ;  71 PLY
+        .byte   $41,$9A    ;  72 PLZ
+        .byte   $49,$F7    ;  73 ROW
+        .byte   $4A,$89    ;  74 RTI
+        .byte   $4A,$8E    ;  75 RTN
+        .byte   $4A,$93    ;  76 RTS
+        .byte   $4C,$A3    ;  77 SEC
+        .byte   $4C,$A4    ;  78 SED
+        .byte   $4C,$A5    ;  79 SEE
+        .byte   $4C,$A9    ;  80 SEI
+        .byte   $4E,$98    ;  81 STX
+        .byte   $4E,$99    ;  82 STY
+        .byte   $4E,$9A    ;  83 STZ
+        .byte   $50,$22    ;  84 TAB
+        .byte   $50,$38    ;  85 TAX
+        .byte   $50,$39    ;  86 TAY
+        .byte   $50,$3A    ;  87 TAZ
+        .byte   $50,$41    ;  88 TBA
+        .byte   $52,$42    ;  89 TRB
+        .byte   $52,$62    ;  90 TSB
+        .byte   $52,$78    ;  91 TSX
+        .byte   $52,$79    ;  92 TSY
+        .byte   $53,$01    ;  93 TXA
+        .byte   $53,$13    ;  94 TXS
+        .byte   $53,$21    ;  95 TYA
+        .byte   $53,$33    ;  96 TYS
+        .byte   $53,$41    ;  97 TZA
 .endif
 

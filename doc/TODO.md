@@ -1612,6 +1612,17 @@ value + name), and one scan, `cpu_lookup` (asm_src.s), serve `.cpu`,
 shrank: c64-6502 −40, c64-6510 −61, c64-65c02 −55, m65-6502 −49 B
 (budgets lowered).
 
+Step (3) done 2026-11-19, host-side: `mnemonic_tables.py` builds the
+m65 set (45 profiles — G pairs and Q groups repeat their members — 7
+rows × 20 modes, three mask planes, zones B 1–3 F 4 C 5 D 6 E 7 G 8
+Q 16 H 35; `mn7gs`, 0 false positives; `mn7_c02`; the 4510's
+`oplen_tbl` block), validated derive-or-die over the four views and
+the prefixed rows; `dasm_tables.py` the one 4510 map with the 6502 and
+65C02 bitmaps, the Q map, byte modes, 98 names, all in KDATA (695 +
+196 B), the view tables padded per platform so the C64 blocks stay
+byte-identical.  The bundle-driven sweeps take a set once it has a
+bundle (`PROD_DEFS`, step (4)).
+
 **P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
 first, step by step; each is red until its code lands.  Automation
 judgement: all of it is automatable — the generators on the host,
@@ -1633,7 +1644,7 @@ hardware: O1 and O3, as before.
   `.cpu` accepts exactly the build's set and refuses any other value
   as it refuses an unknown one today; `u 6510` works on c64-65c02; `u`
   lists the set, the active one marked.
-- [ ] T3. The generators' m65 set (step 3; host tests, the
+- [x] T3. The generators' m65 set (step 3; host tests, the
   `model` fixtures of `test_mnemonic_tables.py` and
   `test_dasm_tables.py` parametrised over it): every existing rule
   holds for the m65 set; three mask planes; zone B a range in the

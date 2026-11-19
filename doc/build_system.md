@@ -563,13 +563,20 @@ every build comes from `dev/instruction_set.py`; no source file
 restates one by hand.  Each generated file holds one block per CPU
 set that uses it, guarded by that set's `CPU_<top>` define, so a build
 assembles only its own block (`mn6_tables.s` has the one `{6502}`
-block, `mn7_tables.s` the 6510 and 65C02 blocks).  The *format* of a
-table is the same in every block; its *content and size* are the CPU
-set's — a C64 block never carries 4510 or 45GS02 entries.  The
-exception is `oplen_tbl.s`: one 64-byte table (2 bits per opcode)
-shared by every C64 build, the union of the 6510 and 65C02 lengths;
-the generator refuses an opcode whose lengths conflict, and a crash
-(JAM) row yields to the real instruction.
+block, `mn7_tables.s` the 6510, 65C02 and m65 blocks — the m65 one
+over `mn7gs`, mn7's form with its own `T`, defined in
+`mnemonic_tables.py`).  The *format* of a table is the same in every
+block; its *content and size* are the CPU set's — a C64 block never
+carries 4510 or 45GS02 entries.  The m65 block adds what only its set
+needs: a third mask plane, the zone bounds, `mn7_c02`, the Q map,
+byte-wide dasm modes, and its tables in KDATA.  The exception is
+`oplen_tbl.s`: one 64-byte table (2 bits per opcode) shared by every
+C64 build, the union of the 6510 and 65C02 lengths — the generator
+refuses an opcode whose lengths conflict, and a crash (JAM) row
+yields to the real instruction — and one for m65, the 4510's.  A set
+is validated derive-or-die: the tables must reproduce every row of
+every view of the set (on m65 the prefixed rows too) and mask out
+everything else.
 
 `instruction_set.py` and `hashes.py` are shared with bbbc64 and
 identical in both repositories.  `mnemonic_tables.py` and

@@ -20,6 +20,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "dev"))
 import mnemonic_tables as M                      # noqa: E402
+import instruction_set as I                      # noqa: E402
 from mnemonic_tables import Entry, Profile       # noqa: E402
 
 
@@ -32,12 +33,18 @@ def model(request):
 
 def test_no_empty_and_no_duplicate_profile(model):
     assert all(p.modes for p in model.profiles)
-    assert len(set(model.profiles[model.zone_g:])) == len(model.profiles[model.zone_g:])
+    if model.zones:                 # m65: zone H unique; G pairs and Q groups repeat
+        h = model.profiles[model.zones['H']:]
+        assert len(set(h)) == len(h)
+    else:
+        assert len(set(model.profiles[model.zone_g:])) == len(model.profiles[model.zone_g:])
 
 
 def test_extension_is_adjacent(model):
     """The CMOS upgrade is `inc asm_pidx`: a category-1 key's extension
     profile sits right after its NMOS profile, both multi-mode."""
+    if model.zones:
+        return                      # m65: test_m65_extension_is_adjacent
     for key, prof in model.key_prof.items():
         if prof >> 6 == 1 and M.EXT_VIEW in M.CPU_SETS[model.cpu_set][1]:
             pidx = prof & 0x3F
@@ -202,3 +209,80 @@ def test_oplen_tbl_in_each_prg_matches_instruction_set(cse_prg_per_cpu):
                     f"${op:02X} {mne} {mode}: oplen {length[op]}"
     for op in set(range(256)) - named:
         assert length[op] == 1, f"${op:02X} (no instruction): oplen {length[op]}"
+
+
+
+# ── the m65 set (opcode_lookup.md § Design, mn_classify.md; D-P4-10) ───────
+
+@pytest.fixture(scope="module")
+def m65():
+    return M.build_asm_model('45gs02')
+
+
+def test_m65_three_mask_planes(m65):
+    assert m65.n_modes == 20 and len(m65.rows) * m65.n_modes <= 256
+
+
+def test_m65_branch_zone_is_a_range(m65):
+    b = m65.zones['B']
+    assert [m65.profiles[b + i].modes for i in range(3)] == \
+        [{'REL'}, {'REL', 'REL16'}, {'REL16'}]
+    assert m65.zones['F'] == b + 3
+    assert m65.key_prof['BNE'] & 0x3F == b and m65.key_prof['BNE'] >> 6 == 1
+    assert m65.key_prof['BRA'] & 0x3F == b + 1
+    assert m65.key_prof['BSR'] & 0x3F == b + 2
+
+
+def test_m65_extension_is_adjacent(m65):
+    for key, prof in m65.key_prof.items():
+        if prof >> 6 == 1:
+            pidx = prof & 0x3F
+            assert m65.effective_pidx(key, '4510') == pidx + 1, key
+            assert m65.profiles[pidx].modes < m65.profiles[pidx + 1].modes, key
+
+
+def test_m65_q_profile_follows_the_effective_one(m65):
+    q0, q1 = m65.zones['Q'], m65.zones['H']
+    for key in I.QUAD_STEMS:
+        eff = m65.effective_pidx(key, '45gs02')
+        assert q0 <= eff < q1, key
+        assert eff + 1 < q1
+    for qname, stem in I.Q_NAMES.items():
+        assert m65.key_prof[qname] >> 6 == 2
+        assert m65.key_prof[qname] & 0x3F == m65.effective_pidx(stem, '45gs02') + 1
+
+
+def test_m65_no_other_key_in_the_quad_zone(m65):
+    """The `q` suffix is admitted by zone Q: no other key may land there."""
+    q0, q1 = m65.zones['Q'], m65.zones['H']
+    for key in m65.key_prof:
+        if key in I.QUAD_STEMS or key in I.Q_NAMES:
+            continue
+        for view in ('6502', '65c02', '4510', '45gs02'):
+            eff = m65.effective_pidx(key, view)
+            assert eff is None or not q0 <= eff < q1, (key, view)
+
+
+@pytest.mark.parametrize("key,cat", [("NOP", 0), ("LDX", 0), ("LDA", 1), ("BNE", 1),
+                                     ("JSR", 1), ("LDQ", 2), ("TAZ", 3), ("STZ", 3)])
+def test_m65_categories(m65, key, cat):
+    assert m65.key_prof[key] >> 6 == cat
+
+
+def test_m65_c02_marks_what_the_65c02_has(m65):
+    """mn_classify.md: the keys and extensions the 65C02 has."""
+    want = {'ADC', 'AND', 'CMP', 'EOR', 'LDA', 'ORA', 'SBC', 'STA', 'BIT', 'DEC',
+            'INC', 'JMP', 'BRA', 'PHX', 'PHY', 'PLX', 'PLY', 'STZ', 'TRB', 'TSB',
+            'RMB', 'SMB', 'BBR', 'BBS'}
+    assert {k for k, c in m65.key_c02.items() if c} == want
+
+
+def test_m65_classifier_t_is_the_search_and_exact():
+    M.mn7gs.verify()
+    assert M.mn7gs.verify_fingerprint() == []
+
+
+def test_m65_oplen_is_the_4510s():
+    lengths = M.m65_oplen_lengths()
+    for r in I.instructions('4510'):
+        assert lengths[r.opcode] == 1 + I.MODE_OPERAND_BYTES[r.mode], hex(r.opcode)

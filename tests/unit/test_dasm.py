@@ -35,7 +35,7 @@ from py65.devices.mpu6502 import MPU
 
 import asm_dasm_runner as R
 from asm_dasm_runner import run_dasm
-from conftest import dasm_bundle
+from conftest import PROD_DEFS, dasm_bundle
 
 I = R.I
 
@@ -124,6 +124,8 @@ def expected_length(cpu, opc):
 def gen_cases():
     cases = []
     for config, cpus in R.CONFIG_CPUS.items():
+        if config not in PROD_DEFS:          # no bundle yet (m65: P4 step (4))
+            continue
         for cpu in cpus:
             tag = R.CPU_VIEW[cpu].upper()
             for opc in range(256):

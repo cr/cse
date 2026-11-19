@@ -94,9 +94,13 @@ defines decodes identically there — or gets a map of its own.  A
 subset view is the **view bitmap** `dasm_view_bm` (32 B, one bit per
 opcode) over its host map, flagged by `dasm_cpu_bm[asm_cpu]`; an
 opcode whose bit is clear decodes as `MNE_UNK`, mode IMP, length 1.
-A C64 set has at most one subset view, the m65 set two (one bitmap
-each, `dasm_cpu_bm[asm_cpu]` naming the bitmap); only a set with one
-carries the bitmaps, the flag table and the check (`DASM_SUBSET`).
+A C64 set has at most one subset view, the m65 set two, one 32-byte
+bitmap each, back to back in `dasm_view_bm`; `dasm_cpu_bm[asm_cpu]`
+is 0 for a full view, else 1 + the bitmap's offset (1 and 33 on m65:
+the 6502 and the 65C02).  Only a set with a subset view carries the
+bitmaps, the flag table and the check (`DASM_SUBSET`).  On m65 the
+map's modes are one byte per opcode (`DASM_BYTE_MODES`) and the Q map
+is `dasm_q_map`.
 
 | CPU set | Maps | Subset view |
 |---|---|---|

@@ -130,3 +130,68 @@ mn7_profile:
         .byte   $00,$00,$01,$88,$00,$9B,$00,$00  ; DEY --- BMI RRA --- SXA --- ---
 .endif
 
+.ifdef CPU_45GS02
+; ── CPU set 45gs02 ────────────────────────────────────────
+.segment "RODATA"
+mn7_hash_t:
+        .byte   $FF,$1A,$18,$02,$0A,$00,$00,$00,$27
+        .byte   $12,$00,$00,$0B,$24,$08,$57,$00,$00
+        .byte   $7C,$08,$10,$00,$21,$00,$07,$28,$05
+.segment "KDATA"
+mn7_fp:
+        .byte   $46,$46,$0E,$0E,$0E,$90,$00,$00  ; PHY PHZ TAX TAY TAZ BRA --- ---
+        .byte   $00,$00,$00,$CC,$00,$18,$00,$92  ; --- --- --- TYS --- BCC --- BRK
+        .byte   $71,$20,$00,$28,$83,$71,$00,$00  ; AND ADC --- DEC BPL BNE --- ---
+        .byte   $9B,$2C,$60,$61,$61,$1C,$9C,$7C  ; ASL BEQ CLC CLD CLE BCS ASR NOP
+        .byte   $62,$2C,$9C,$9D,$86,$86,$86,$2D  ; CLI DEQ BSR ASW CPX CPY CPZ DEW
+        .byte   $2E,$2E,$2E,$7B,$B0,$65,$4D,$70  ; DEX DEY DEZ ROL BVC CLV BIT INC
+        .byte   $00,$7C,$14,$14,$00,$6A,$7D,$00  ; --- ROR BBR BBS --- BMI ROW ---
+        .byte   $00,$90,$00,$20,$B4,$74,$00,$29  ; --- ORA --- LDA BVS INQ --- NEG
+        .byte   $6C,$00,$9C,$75,$76,$76,$76,$00  ; CMP --- JSR INW INX INY INZ ---
+        .byte   $00,$94,$9C,$24,$60,$00,$90,$28  ; --- ORQ LSR LDQ PLA --- TRB SEC
+        .byte   $29,$29,$26,$26,$26,$2A,$D0,$00  ; SED SEE LDX LDY LDZ SEI TZA ---
+        .byte   $C0,$00,$98,$64,$6C,$A0,$0C,$00  ; TXA --- TSB PLP JMP STA MAP ---
+        .byte   $00,$A2,$00,$66,$66,$66,$A3,$10  ; --- RTI --- PLX PLY PLZ RTN SBC
+        .byte   $40,$10,$C4,$A4,$08,$A4,$68,$00  ; PHA TBA TXS RTS TAB STQ RMB ---
+        .byte   $9E,$9E,$68,$00,$A6,$A6,$A6,$44  ; TSX TSY SMB --- STX STY STZ PHP
+        .byte   $7B,$C8,$00,$00,$00,$7C,$45,$46  ; EOM TYA --- --- --- EOR PHW PHX
+mn7_base_op:
+        .byte   $5A,$DB,$AA,$A8,$4B,$80,$00,$00  ; PHY PHZ TAX TAY TAZ BRA --- ---
+        .byte   $00,$00,$00,$2B,$00,$90,$00,$00  ; --- --- --- TYS --- BCC --- BRK
+        .byte   $25,$65,$00,$C6,$10,$D0,$00,$00  ; AND ADC --- DEC BPL BNE --- ---
+        .byte   $06,$F0,$18,$D8,$02,$B0,$44,$EA  ; ASL BEQ CLC CLD CLE BCS ASR NOP
+        .byte   $58,$C6,$63,$CB,$E4,$C4,$D4,$C3  ; CLI DEQ BSR ASW CPX CPY CPZ DEW
+        .byte   $CA,$88,$3B,$26,$50,$B8,$24,$E6  ; DEX DEY DEZ ROL BVC CLV BIT INC
+        .byte   $00,$66,$0F,$8F,$00,$30,$EB,$00  ; --- ROR BBR BBS --- BMI ROW ---
+        .byte   $00,$05,$00,$A5,$70,$E6,$00,$42  ; --- ORA --- LDA BVS INQ --- NEG
+        .byte   $C5,$00,$20,$E3,$E8,$C8,$1B,$00  ; CMP --- JSR INW INX INY INZ ---
+        .byte   $00,$05,$46,$A5,$68,$00,$14,$38  ; --- ORQ LSR LDQ PLA --- TRB SEC
+        .byte   $F8,$03,$A6,$A4,$AB,$78,$6B,$00  ; SED SEE LDX LDY LDZ SEI TZA ---
+        .byte   $8A,$00,$04,$28,$4C,$85,$5C,$00  ; TXA --- TSB PLP JMP STA MAP ---
+        .byte   $00,$40,$00,$FA,$7A,$FB,$62,$E5  ; --- RTI --- PLX PLY PLZ RTN SBC
+        .byte   $48,$7B,$9A,$60,$5B,$85,$07,$00  ; PHA TBA TXS RTS TAB STQ RMB ---
+        .byte   $BA,$0B,$87,$00,$86,$84,$64,$08  ; TSX TSY SMB --- STX STY STZ PHP
+        .byte   $EA,$98,$00,$00,$00,$45,$FC,$DA  ; EOM TYA --- --- --- EOR PHW PHX
+mn7_profile:
+        .byte   $C0,$C0,$00,$00,$C0,$C2,$00,$00  ; PHY PHZ TAX TAY TAZ BRA --- ---
+        .byte   $00,$00,$00,$C0,$00,$41,$00,$00  ; --- --- --- TYS --- BCC --- BRK
+        .byte   $50,$50,$00,$53,$41,$41,$00,$00  ; AND ADC --- DEC BPL BNE --- ---
+        .byte   $16,$41,$00,$00,$C0,$41,$DE,$00  ; ASL BEQ CLC CLD CLE BCS ASR NOP
+        .byte   $00,$95,$C3,$C4,$2A,$2A,$E4,$E7  ; CLI DEQ BSR ASW CPX CPY CPZ DEW
+        .byte   $00,$00,$C0,$16,$41,$00,$5B,$53  ; DEX DEY DEZ ROL BVC CLV BIT INC
+        .byte   $00,$16,$C7,$C7,$00,$41,$C4,$00  ; --- ROR BBR BBS --- BMI ROW ---
+        .byte   $00,$50,$00,$60,$41,$95,$00,$E9  ; --- ORA --- LDA BVS INQ --- NEG
+        .byte   $50,$00,$4E,$E7,$00,$00,$C0,$00  ; CMP --- JSR INW INX INY INZ ---
+        .byte   $00,$92,$16,$A2,$00,$00,$E5,$00  ; --- ORQ LSR LDQ PLA --- TRB SEC
+        .byte   $00,$C0,$23,$2C,$E8,$00,$C0,$00  ; SED SEE LDX LDY LDZ SEI TZA ---
+        .byte   $00,$00,$E5,$00,$48,$58,$C0,$00  ; TXA --- TSB PLP JMP STA MAP ---
+        .byte   $00,$00,$00,$C0,$C0,$C0,$C5,$50  ; --- RTI --- PLX PLY PLZ RTN SBC
+        .byte   $00,$C0,$00,$00,$C0,$9A,$C6,$00  ; PHA TBA TXS RTS TAB STQ RMB ---
+        .byte   $00,$C0,$C6,$00,$4C,$4A,$E6,$00  ; TSX TSY SMB --- STX STY STZ PHP
+        .byte   $C0,$00,$00,$00,$00,$50,$EB,$C0  ; EOM TYA --- --- --- EOR PHW PHX
+        .export mn7_c02
+mn7_c02:
+        .byte   $21,$00,$0B,$00,$00,$C0,$0C,$0A
+        .byte   $01,$40,$00,$34,$98,$40,$44,$A0
+.endif
+

@@ -30,7 +30,7 @@ import sys
 
 import pytest
 
-from conftest import AsmCoreSymbols, make_cpu, push_rts_sentinel, step_until_pc
+from conftest import AsmCoreSymbols, PROD_DEFS, make_cpu, push_rts_sentinel, step_until_pc
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "dev"))
 import mnemonic_tables as MT                      # noqa: E402
@@ -55,7 +55,7 @@ def _lookup(syms, pidx, mode, base):
     return cpu.p & 0x01, cpu.a
 
 
-@pytest.mark.parametrize("cpu_set", list(MT.CPU_SETS))
+@pytest.mark.parametrize("cpu_set", [c for c in MT.CPU_SETS if c in PROD_DEFS])
 class TestAsmOpcodeLookup:
     """asm_opcode_lookup: C=1 for a rejected mode, else C=0 and
     A = asm_base ^ asm_delta[asm_row[pidx] + mode]."""
