@@ -182,7 +182,7 @@ Press RUN/STOP to toggle between the REPL and the source editor.
 
 ### Themes
 
-CSE ships with thirteen compile time colour themes — pick one
+CSE ships with fourteen compile time colour themes — pick one
 with `make THEME=NAME`, or change the colours with the `C` REPL
 command.
 
@@ -210,6 +210,9 @@ command.
   <td colspan="3" align="left" valign="top"><sub>Or specify any 3-digit hex code directly: <code>make THEME=cb5</code> (border, background, foreground — C64 palette <code>0</code>–<code>f</code>).  At runtime, <code>C bgf</code> (three adjacent hex digits, e.g. <code>C d5d</code>) sets all three.</sub></td>
 </tr>
 </table>
+
+The fourteenth, MEGA (`661`: white on blue, the MEGA65's own colours),
+is the default of the MEGA65 build ([§ On the MEGA65](#on-the-mega65)).
 
 ## REPL commands
 
@@ -644,6 +647,9 @@ A native MEGA65 build is in development (branch `m65`); how to start
 it from a PRG, a D81 or a cartridge comes with its first release.
 Where it differs from the C64 build:
 
+- **Colours.**  The default theme is MEGA, the MEGA65's own white on
+  blue (GREENLAND on the C64); `make THEME=…` and `C` work as on the
+  C64.
 - **Screen modes.**  80 × 25 by default; ESC 4 switches to 40 × 25,
   ESC 5 to 80 × 50, ESC 8 back to 80 × 25 — at the prompt, not in the
   editor.  A switch clears the screen.

@@ -174,7 +174,10 @@ Three BSS bytes control the color scheme: `theme_border`,
 `theme_bg`, `theme_fg`.  Values are C64 color indices 0–F.
 
 **Build-time selection:** `make THEME=NAME` or `make THEME=BGF`
-(three hex nybbles: border, background, foreground).  The Makefile
+(three hex nybbles: border, background, foreground).  The default is
+the platform's: GREENLAND on c64, MEGA on m65 — the MEGA65's own
+white on blue (the colours BASIC 65 boots with, `$D020` / `$D021` =
+6).  The Makefile
 maps names through `_THEME_MAP` and passes
 `-DTHEME_BOR=N -DTHEME_BG=N -DTHEME_FG=N`
 ([build_system.md](../build_system.md)).
@@ -197,7 +200,8 @@ maps names through `_THEME_MAP` and passes
 | MUDDY         | 990  | brown  | brown  | black  |
 | CLOUDY        | cbc  | grey   | dk grey| grey   |
 | C64           | e6e  | lt blue| blue   | lt blue|
-| C128          | dbd  | lt grn | lt grey| lt grn |
+| C128          | dbd  | lt grn | dk grey| lt grn |
+| MEGA          | 661  | blue   | blue   | white  |
 
 Default: GREENLAND (d5d) — the Makefile's `THEME ?= GREENLAND`.
 screen.s's own fallback (cb5) applies only when it is assembled

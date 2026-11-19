@@ -223,3 +223,14 @@ def test_hygiene_gates_the_sid_and_sets_cses_sysflags(emu):
     assert all(m[reg] == 0 for reg in (0xD404, 0xD40B, 0xD412))
     kernal(emu, SYSFLAGS, carry=True)
     assert emu.a & 0xA0 == 0xA0                          # raw F-keys, Mega+Shift locked
+
+
+# ── the default theme ──────────────────────────────────────────────
+
+def test_the_default_theme_is_mega(emu):
+    """The m65 build's default THEME is MEGA, 661: the MEGA65's own
+    white on blue (screen.md § Theme System)."""
+    call(emu, "theme_init")
+    m = emu.memory
+    assert (m[addr(emu, "theme_border")], m[addr(emu, "theme_bg")],
+            m[addr(emu, "theme_fg")]) == (6, 6, 1)
