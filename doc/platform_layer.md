@@ -105,7 +105,7 @@ stretch target, not a platform
 | [Screen save](#screen-save) | editor.s | the REPL screen saved and restored around the editor |
 | [Disk bank](#disk-bank) | disk.s, `platform.inc` | `PLAT_SETBNK` |
 | [Info map](#info-map) | repl.s | the rows of `i`, one `.ifdef` data block per platform |
-| [Loader](#loader) | loader.s (L6) | `loader_entry`; the cartridge bootstrap under `PLAT_CRT` |
+| [Loader](#loader) | loader.s (L6) | `loader_entry` (a cartridge bootstrap, `PLAT_CRT`, is a later release's) |
 
 Layering ([architecture.md](architecture.md)): the layer is a role of
 the existing leaves, not a new layer.  `platform.inc` is L0 data and
@@ -143,7 +143,8 @@ platform lacks is absent there, so a stray use fails to assemble.
 | DMAgic | none | the job-list address and trigger registers `$D700–$D705` (the loader's install, `_main`'s step 11); the F018B option and the job commands |
 | The free-ZP fill (`_main` step 10) | `ZP_BASE` `$00`, `ZP_FILL_END` `$80` | `ZP_BASE` `$00`, `ZP_FILL_END` = `STUB_BASE`'s low byte: the free part of CSE's base page |
 | The jump-table page (the loader's gate) | none | `KERNAL_JUMP_PAGE` `$FF00`: every entry CSE calls is in it |
-| `DISK_LOCAL_PTR` (disk.s's private pointer) | `$FD` — in the KERNAL half; see [TODO § Bugs](TODO.md#bugs) | a far pointer in CSE's base page — *stated with P3* |
+| `DISK_LOCAL_PTR` (disk.s's private pointer) | `$FD` — in the KERNAL half; see [TODO § Bugs](TODO.md#bugs) | `disk_local_ptr`, a 2-byte cell of CSE's base page (zp.s): it reads only filenames in CSE's own view, so it needs no bank ([disk.md § On m65](modules/disk.md#on-m65)) |
+| The directory buffer (`list_directory`'s `LOAD "$"`) | the workspace from `BASIC_START` (`$0801`) | `DIR_BUF` `$D000` in `DIR_BANK` 2: `2.D000–2.FFFF`, CSE's 12 K reserve ([memory_design.md](memory_design.md) § Memory Map — m65) |
 
 **Hypervisor services (m65).**  The documented Hypervisor traps the
 m65 build uses (book Appendix N, "available since Hyppo 1.2"); each
@@ -619,11 +620,17 @@ platform: `restore_colors` repaints it.
 
 ### Disk bank
 
-`PLAT_SETBNK` (macro) precedes each `OPEN` and `LOAD` in disk.s
-([disk.md](modules/disk.md)).  c64: empty.  m65: `KCALL SETBNK` with
-`SETBNK`'s data-bank argument `BANK_USER` and its filename-bank
-argument `BANK_CSE`.  Where the directory listing is loaded (the C64
-build loads it to `BASIC_START`) is *stated with P3*.
+`PLAT_SETBNK [bank]` (macro) precedes each `OPEN` and `LOAD` in
+disk.s ([disk.md](modules/disk.md)).  c64: empty.  m65: `KCALL
+SETBNK` with `SETBNK`'s data-bank argument `bank` (default
+`BANK_USER`: a PRG `l` lands in the user's bank 0) and its
+filename-bank argument `BANK_CSE`.  `list_directory` passes
+`DIR_BANK`: the directory is loaded to `DIR_BUF` (`2.D000`), CSE's
+12 K reserve, where it touches nothing of the user's (the C64 build
+loads it to `BASIC_START`, into the workspace).  The unit decides the
+path, not CSE: units 8 and 9 are usually CBDOS's (the internal drive,
+a mounted D81), the others the IEC bus's — `READSS` reports either's
+status.
 
 ### Info map
 
@@ -644,9 +651,10 @@ data windows — each written with its bank, `b.aaaa-bbbb`
 
 `loader_entry` ([loader.md](modules/loader.md)) is one entry with a
 body per platform: the C64's copy loop; the m65's gate and install
-([loader.md § Design](modules/loader.md#design)).  The cartridge
-bootstrap is the same body assembled with `PLAT_CRT`, reading its
-payload from the cartridge's bank (*stated with P3*).
+([loader.md § Design](modules/loader.md#design)).  A cartridge
+bootstrap — the same body assembled with `PLAT_CRT`, reading its
+payload from the cartridge — is a later release's (A3's record in
+TODO § Analysis tasks).
 
 ## Pending bodies
 
@@ -674,16 +682,13 @@ placeholder size is the run premise's default (80 × 25 at `0.0800`).
 The test counts them with the pending bodies, under the same
 milestone:
 
-| Name | Placeholder | Stated with |
-|---|---|---|
-| `ST` (the I/O status disk.s reads) | `BP_PENDING` | P3 ([§ Disk bank](#disk-bank)) |
-| `DISK_LOCAL_PTR` (disk.s's private pointer) | `BP_PENDING + 1` (2 bytes) | P3 ([§ Constants](#constants)) |
-
-(`IO_CX` and `IO_CY` were placeholders until P2 stated them: CSE's own
-cursor cells, [§ Terminal](#terminal).  `SCREEN`, `SCREEN_WIDTH` and
-`SCREEN_HEIGHT` were too, until P2 removed every m65 use: the
-geometry is run-time state there, [§ Display](#display), *The
-geometry*; the three are c64 constants only.)
+None is left: `IO_CX` and `IO_CY` were placeholders until P2 stated
+them (CSE's own cursor cells, [§ Terminal](#terminal)); `SCREEN`,
+`SCREEN_WIDTH` and `SCREEN_HEIGHT` too, until P2 removed every m65
+use (the geometry is run-time state there, [§ Display](#display),
+*The geometry*); `ST` and `DISK_LOCAL_PTR` until P3 (`READSS` and
+`disk_local_ptr`, [§ Constants](#constants)).  `BP_PENDING` and the
+macro go with them.
 
 ## Raw-byte instructions
 

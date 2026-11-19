@@ -643,12 +643,23 @@ Use in REPL: `@ workstart`, `? workend`
 
 ## On the MEGA65
 
-A native MEGA65 build is in development (branch `m65`); how to start
-it from a D81 or a cartridge comes with its first release.  To try the
-PRG, `make run PLATFORM=m65` starts it in xmega65.  xmega65's default
-keymap puts RUN/STOP on the PC's End key (fn+→ on a Mac) and RESTORE
-on Page Down; the PC's Escape is the MEGA65's ESC.
+A native MEGA65 build is in development (branch `m65`).  It runs in
+MEGA65 mode, not GO64.  To start it, put `cse-m65.d81` in a drive (or
+mount it from the SD card: `MOUNT "CSE-M65.D81"`) and type
+`DLOAD "CSE-M65"`, then `RUN`.  The first release ships the PRG and
+the D81.  To try it, `make run PLATFORM=m65` starts it in xmega65
+with the D81 on unit 8; xmega65's default keymap puts RUN/STOP on the
+PC's End key (fn+→ on a Mac) and RESTORE on Page Down; the PC's
+Escape is the MEGA65's ESC.  `Q` (and `y`) leaves CSE through the
+Hypervisor's reset: the MEGA65 restarts into BASIC 65, as at power-on;
+your program's bank 0 survives it, CSE's source text does not — save
+it first (`Q` warns when it is unsaved).
 Where it differs from the C64 build:
+
+- **Disks.**  `$`, `l` and `s` work on any unit: units 8 and 9 are
+  the internal drive or a mounted D81, the others IEC drives.  `$`
+  does not touch your memory (on the C64 it overwrites the workspace
+  from `$0801`).
 
 - **Colours.**  The default theme is MEGA, the MEGA65's own white on
   blue (GREENLAND on the C64); `make THEME=…` and `C` work as on the

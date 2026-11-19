@@ -133,9 +133,10 @@ image in bank 0):
 
 The m65 body does the C64 body's work (relocate, clear BSS, place
 KDATA) with the platform's means; the two share the entry, the
-contract shape and this document.  The cartridge bootstrap is the
-same body assembled with `PLAT_CRT`, reading its images from the
-cartridge's bank instead of the PRG (*stated with P3*).
+contract shape and this document.  A cartridge bootstrap (the same
+body assembled with `PLAT_CRT`, reading its images from the cartridge
+instead of the PRG) is a later release's: the first release ships the
+PRG and the D81.
 
 ## Caveats
 

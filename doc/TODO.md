@@ -1242,26 +1242,117 @@ matrix through the REPL (moved from P1, D-P1-5).
   premise's `$00` whole — D-P2-3, the operator's ruling, and the
   recorded premise.
 
-**P3 — disk, exit and the three distribution formats.**
+**P3 — disk, exit and the distribution formats (PRG and D81).**
+Operator, 2026-11-19: "Postpone CRT to a later release, first release
+will be PRG/D81 only" — the cartridge leaves P3 (§ Later release:
+the m65 cartridge, below).
 
-Step-1 delta:
-- [ ] `FAR_BANK` at `disk_ptr`'s set sites.
-- [ ] [disk.md](modules/disk.md): `PLAT_SETBNK`, the load target in
-  the user's bank through the seam, `l`/`s` and the editor's
-  load/save on M65Emu's virtual drive (C64Emu's 1541 moved to the
-  shared base) and on the D81 in xmega65.
-- [ ] [build_system.md](build_system.md): `make disk PLATFORM=m65`
-  (`c1541`, the raw PRG), `make run PLATFORM=m65` with the D81 on
-  drive 8 (the PRG alone since 2026-11-19, operator: `-prg … -prgmode
-  65`; never from automation), the 32 K CRT image — bootstrap at
-  `$8000` with the vectors, flags and magic at `$8000–$8009`, the
-  payload DMA'd from the cartridge's bank, the `.CRT` writer in
-  `dev/` following the draft format.
-- [ ] [README.md](../README.md): starting from PRG, D81 and CRT; what
-  `Q` does on the MEGA65.
-- [ ] [testing.md](testing.md): Tier X boots the D81 and the cartridge
-  to the prompt (the PRG and `Q` are P0's); the disk calls through
-  CBDOS run with CSE's ROM-bank regions in use.
+Step-1 delta (written 2026-11-19; approved 2026-11-19 with the
+analysis):
+- [x] [disk.md § On m65](modules/disk.md#on-m65): the units (8/9
+  CBDOS's, the others IEC — the KERNAL routes), `ST` through `READSS`,
+  the probe without clearing `ST`, `ptr` = `disk_local_ptr`, the
+  directory into `DIR_BUF` `2.D000` (`PLAT_SETBNK DIR_BANK`, `FAR_BANK
+  disk_ptr`), the pointer banks (`FAR_USER _io_tmp` in `disk_save_prg`,
+  `FAR_BANK_SCREEN _io_tmp` in `@putc_inv`), the load targets.
+- [x] [platform_layer.md](platform_layer.md): § Constants
+  (`DISK_LOCAL_PTR`, the directory buffer), § Disk bank (`PLAT_SETBNK
+  [bank]`, the units), § Pending bodies (no pending value left;
+  `BP_PENDING` and `PLAT_PENDING_VALUE` go).
+- [x] [zp.md](modules/zp.md) (`disk_local_ptr`; the segment bound back
+  to `$B0`), [memory_design.md](memory_design.md) (`2.D000–2.FFFF` the
+  directory buffer).
+- [x] [build_system.md](build_system.md): every target works on m65;
+  the D81 from `release` and `disk` (`c1541`, `cse <version>,01`, the
+  PRG as `cse-m65`); `make run` adds `-8 cse-m65.d81`; `make size` on
+  m65; the guard test's row.
+- [x] [testing.md § The m65 PRG on M65Emu](testing.md#the-m65-prg-on-m65emu),
+  *The disk on m65*: the virtual drive moved to `EmuBase`, M65Emu's
+  traps at the jump table (recorded), `ST` at `0.0090` (recorded),
+  `$D012` advancing, `test_m65_disk.py` on unit 10; Tier X on the
+  D81, unit 8.
+- [x] [README.md § On the MEGA65](../README.md#on-the-mega65): starting
+  from the D81, `make run`'s keys, `Q`, `$` / `l` / `s` on any unit.
+- [x] The cartridge out of the first release: build_system.md (the
+  targets, the tree, the CRT paragraph rewritten from A3's record),
+  platform_layer.md § Loader, loader.md, memory_design.md,
+  testing.md, README.md.
+
+**P3 analysis record (2026-11-19), doc against code — approved 2026-11-19**
+(D-P3-1 as amended by the operator: no cartridge in the first release).
+Recorded on M65Emu with both ROMs (920413, 920421):
+
+- **The disk path.**  `$` on unit 8 hangs in M65Emu: the KERNAL hands
+  unit 8 to CBDOS, which polls the floppy controller in the interface
+  ROM (`$C9E7–$CB06`), and M65Emu models none.  On unit 10 (IEC) the
+  KERNAL reaches `LISTEN` through the jump table (`OPEN` → `$F426` →
+  `jsr $FFB1` → `JMP ($0336)` → `$CC69`, the interface ROM); all eight
+  serial entries are `JMP (vector)` into `$0334–$0343` on both ROMs.
+  So C64Emu's virtual drive (traps at the jump table) serves IEC units
+  on M65Emu unchanged.  Without a drive, the KERNAL's IEC delay loop
+  polls `$D012` (`$CB9A`) — static in M65Emu, so it hangs: M65Emu needs
+  a raster line that advances.
+- **`ST`.**  `READST` (`$FFB7`) is `JMP` to `lda $90` · `rts` on both
+  ROMs: the MEGA65 KERNAL keeps `ST` in base page 0's `$90`.  disk.s
+  writes `ST` (the probe clears it) and reads it directly — no KERNAL
+  cell on m65: `READSS` only (D-A1-1's rule).
+- **`DISK_LOCAL_PTR`.**  `ptr` reads only filenames in CSE's view —
+  `str_setup`'s `(ptr),y`, then `SETNAM` with `ptr`'s value — so a
+  plain 2-byte base-page cell does: not a far pointer, as the delta
+  had it.  CSE's base page uses `$00–$AB`; with it, `$00–$AD`.
+- **The directory.**  `list_directory` loads `$` to `BASIC_START`
+  (`0.2001` on m65, the user's program region) and walks it through
+  `disk_ptr`, whose bank nothing sets.  A full D81 directory is under
+  10 K; `2.D000–2.FFFF` is CSE's unused 12 K reserve.
+- **The pointer banks.**  `disk_save_prg` reads the program through
+  `_io_tmp`, left at `BANK_CSE` by `io_puts` — so the m65 `s` would
+  save CSE's bank 3, not the user's program; `@putc_inv` writes the
+  screen through `_io_tmp` without the screen's bank (bank 4 in
+  80 × 50).  And the filed edge bug: `@putc_inv` inverts the wrong cell
+  when the clamp held the cursor at the last column (both platforms).
+- **The build.**  `make disk` / `size` with `PLATFORM=m65` are refused;
+  `size_report.py` prints a C64 memory map whatever the build.
+- **The cartridge** (P3's third format): A3's record (§ Analysis
+  tasks) — the ROM copies 8 K and jumps to `$8000`; a hardware
+  cartridge shows 16 K unbanked; `Q` from a cartridge start would
+  restart CSE (the reset path finds the cartridge again).  Postponed
+  to a later release (the operator's ruling above).
+
+Decisions (approved 2026-11-19):
+- **D-P3-1** P3 is the disk on m65 and the D81 (this delta); the
+  cartridge is a later release's (operator: the first release is PRG
+  and D81 only).
+- **D-P3-2** M65Emu's disk tests use an IEC unit (10) and the shared
+  virtual drive; CBDOS (units 8/9) is Tier X with `cse-m65.d81`.
+  (Alternative: model the floppy controller and a D81 in M65Emu — the
+  CBDOS path in Tier I, at the cost of a device model.)
+- **D-P3-3** The directory buffer is `2.D000–2.FFFF`: `$` leaves the
+  user's memory alone on m65.  (Alternative: the C64's way, the
+  program region from `BASIC_START`.)
+- **D-P3-4** `DISK_LOCAL_PTR` = `disk_local_ptr`, a plain 2-byte cell.
+- **D-P3-5** `make run PLATFORM=m65` = `-prg` as now plus `-8
+  cse-m65.d81` (CSE starts at once; the D81 is there for `$` / `l` /
+  `s`).  (Alternative: `-8` with `-autoload`, the D81's own start.)
+- **D-P3-6** Fix the filed `@putc_inv` bug in P3 on both platforms,
+  since the routine changes anyway: the C64 PRGs change by that fix
+  alone (their hashes re-recorded in its own commit).  (Alternative:
+  leave it filed.)
+- **D-P3-7** `make size PLATFORM=m65`: `size_report.py` takes the
+  platform and prints the segment and module parts only.
+
+Once approved, the TDD analysis (Step 3) follows: Tier I
+`test_m65_disk.py` (the probe and status, `$` into `DIR_BUF` with the
+program region untouched, PRG and SEQ load and save on unit 10, `l` /
+`s` of the source), the harness (the virtual drive moved, M65Emu's
+traps, `ST` at `0.0090`, `$D012`), Tier X `test_m65_disk.py` on the D81,
+the Makefile guards, the pending count 2 → 0.
+
+**Later release: the m65 cartridge** (not in R7's first release;
+operator, 2026-11-19).  Starts from A3's record (§ Analysis tasks):
+its own delta settles the bootstrap that fetches past the ROM's 8 K,
+a banked type for the hardware (an unbanked cartridge shows 16 K) or
+xmega65's flat 32 K, `Q`'s exit (a reset restarts the cartridge), the
+`.CRT` writer in `dev/`, and Tier X with `-cart`.
 
 **P4 — the CPU layer on the platform** = slice 1 Phase B (B1–B7,
 B4b, its prerequisite bugs), now with an m65 build to run on: the
@@ -1347,15 +1438,48 @@ Report.
   clear) for user programs — what it costs, what it buys.  Output: a delta to
   [userland_contract.md](userland_contract.md) and
   [zp.md](modules/zp.md).
-- [ ] **A3. The MEGA65 cartridge standard** (before P3): the wiki
+- [x] **A3. The MEGA65 cartridge standard** (before P3): the wiki
   page, the ROM's implementation (mega65-rom-public issue 62, the
   `"m65"` magic's last byte — `$34` or `$35`), the test cartridge,
   what xmega65 supports.  Output: the CRT section of
-  [build_system.md](build_system.md).
+  [build_system.md](build_system.md) — a later release's delta (§ Later release: the m65 cartridge).
+
+  **A3 record (2026-11-19).**  From the ROMs'
+  code (920413 and 920421 byte-identical here; disassembled, the key
+  bytes re-checked by hand), xemu's `targets/mega65/cart.c`, the
+  wiki's draft ("MEGA65 Style Cartridge (Work in Progress)") and
+  mega65-rom-public issue 62 (public, closed 2023-12-03):
+
+  | Question | Answer | Source |
+  |---|---|---|
+  | Where the check runs | the reset path, not `PHOENIX` (`$FF5C` boots the floppy): `3.FFFC` → `$FB1A` → `JMP $C800` (2.C800, the interface ROM): standard C65 map, IOINIT, `JSR $C85E` | ROM code |
+  | The signature | through a 28-bit pointer at `$400.8006`: flags bit 0 set (auto-start), then `$4D $36 $35` at `$400.8007–9` — "M65" in upper case; the last byte is `$35` (the wiki's prose and an issue comment say `$34`; its code sample and the ROM say `$35`) | ROM code |
+  | The cold start | one F018B DMA copy of **8 K** (`$2000`) from `$400.8000` to `0.8000`; `MAP` with A = X = Y = 0, `Z = $83` (only `$E000–$FFFF` → `3.E000`, the KERNAL; BASIC not mapped); `JMP $8000` — a JMP *instruction* at `$8000`, not a vector | ROM code |
+  | The state at `$8000` | A = X = 0, **Z = `$83`**, B = 0, E = 1, SP `$01FF`, interrupts on; RESTOR, CINT and the DOS initialised, BASIC not; `$D030` = `$64` (IOINIT's, inferred) | ROM code |
+  | The warm start | RUN/STOP + RESTORE: the KERNAL's NMI path re-inits, `JMP ($1100)` → `2.C892`, which re-copies the 8 K and does `JMP $8003` (a second JMP instruction) — while the program leaves `$0318` and `$1100` alone | ROM code |
+  | Hardware visibility | the port decodes /ROML for `$8000–$9FFF` and /ROMH for `$A000–$BFFF` and `$E000–$FFFF` (mirrored): a cartridge without banking shows 8 K + 8 K; `$400.C000–$400.DFFF` reaches neither | mega65-core `expansion_port_controller.vhdl` |
+  | xmega65 `-cart` | a `.CRT` with `"MEGA65 CARTRIDGE"` (and only that: C64 CRTs are refused) — header assumed `$40` bytes, of each CHIP packet only the load address and size used — or a raw binary whose bytes 7–9 are `"M65"`, at `$8000`, up to 32 K; seen flat at `$400.0000–$400.FFFF`, no banking, no EXROM / GAME; auto-start by the ROM's own check | xemu `cart.c`, `memory_mapper.c` |
+  | The `.CRT` container | VICE's layout (big-endian; signature, header length `$40`, version, hardware type, EXROM, GAME, name; CHIP packets: length, type, bank, load address, size) with the signature `"MEGA65 CARTRIDGE"`; proposed types 0 generic, 1 EasyFlash, 2 GMod2 — a draft its author calls unverified | wiki, issue 62 |
+
+  Found for CSE: (1) the ROM copies **8 K**, not the 32 K the draft
+  plan assumed: the bootstrap at `$8000` must fetch the rest itself,
+  from `$400.A000` up; (2) on real hardware an unbanked 32 K image
+  shows only 16 K (8 K ROML + 8 K ROMH) — the full 32 K is xmega65's
+  flat view, so a 32 K cartridge for hardware needs a banked type;
+  (3) **`Q` from a cartridge start restarts CSE**: the Hypervisor
+  reset runs the reset path, which finds the cartridge again; (4)
+  `Z = $83` at entry — CSE's code is clean 6502 but its far
+  accesses and `(zp),z` macros assume what `PHY · PLZ` sets, so the
+  bootstrap needs no `ldz #0` beyond that, while RESTORE re-entering
+  at `$8003` is a path CSE's own NMI vector replaces (it installs
+  `INMI`).  These are the later release's decisions (§ Later
+  release: the m65 cartridge); build_system.md's CRT paragraph now
+  states the first release has none, with these facts.
 
 ### Open design items (settled by a milestone's analysis)
 
-- **P-Q3.** The `"m65"` magic's last byte (A3).
+- ~~**P-Q3.** The `"m65"` magic's last byte (A3).~~  Settled by A3:
+  `$35` — the magic is `$4D $36 $35`, "M65".
 - **P-Q5.** Whether the source region's base is only a build constant
   or also a run-time setting (the far pointers allow both).
 

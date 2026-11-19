@@ -474,7 +474,8 @@ pointers ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
     2.0000–2.3FFF  CBDOS                                        the KERNAL
     2.4000–2.BFFF  the source region (32 K)                     CSE
     2.C000–2.CFFF  the interface ROM                            the KERNAL
-    2.D000–2.FFFF  reserve (12 K)                               CSE (unused)
+    2.D000–2.FFFF  the directory buffer (`$`; 12 K, a full      CSE
+                   D81 directory takes under 10 K)
     3.0000–3.1FFF  the monitor                                  the ROM
     3.2000–3.7FFF  CODE + RODATA                                CSE
     3.8000–3.BFFF  BSS, KDATA, symbol table and heap,           CSE
@@ -541,9 +542,10 @@ $1F`.  The PRG image:
     $200D        loader (discardable; its DMA jobs are data)
       ...        the stub image, the CODE + RODATA image, the KDATA image
 
-The D81's PRG is the same file; the cartridge's bootstrap installs
-the same machine from the cartridge's bank
+The D81's PRG is the same file
 ([build_system.md § The m65 builds](build_system.md#the-m65-builds)).
+A cartridge, a later release's, would install the same machine from
+the cartridge.
 
 **Instructions.**  All code is 6502 code; the 45GS02-only
 instructions the platform bodies use are raw bytes

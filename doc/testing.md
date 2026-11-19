@@ -677,8 +677,8 @@ The installed machine they check is
   writable (the monitor's writes respect the ROM protection, so a
   write to the reserve `3.C000` reads back only when the loader lifted
   it).  `Q` ends in BASIC 65 at READY with banks 2–3 reloaded — with
-  P2, when the REPL first runs on m65.  The D81 and the cartridge
-  join with P3.
+  P2, when the REPL first runs on m65.  The D81 joins with P3 (a
+  cartridge is a later release's).
 - **The debugger on m65** (P1, `tests/integration/test_m65_debugger.py`,
   on each ROM).  The REPL needs P2's display bodies, so P1's suites
   drive the transitions at the routine level on the installed PRG
@@ -777,6 +777,32 @@ The installed machine they check is
   after the same typed commands (typed through `ADDKEY` from a driver:
   the monitor cannot type a key); `Q` ends in BASIC 65 at READY with
   banks 2–3 reloaded.
+- **The disk on m65** (P3).  Units 8 and 9 are CBDOS's on the
+  MEGA65 (the internal drive, a mounted D81), every other unit the
+  IEC bus's; the KERNAL routes each call, disk.s does not
+  ([disk.md § On m65](modules/disk.md#on-m65)).  M65Emu models no
+  floppy controller, so its disk tests use an IEC unit: the virtual
+  drive of [§ Virtual IEC drives](#virtual-iec-drives) moves to
+  `EmuBase` (C64Emu and M65Emu share `attach_drive`, `Drive1541` and
+  the traps), and on M65Emu the traps sit at the same jump-table
+  addresses — the MEGA65 KERNAL reaches its serial routines through
+  them (`LISTEN` is `JMP ($0336)` into the interface ROM; recorded:
+  `OPEN` on unit 10 calls `$FFB1`), and the drive sets the status
+  where the MEGA65 KERNAL keeps it, base page 0's `$90` (`READSS` is
+  `lda $90` · `rts` on both ROMs — a harness fact; CSE reads it only
+  through `READSS`).  The m65 disk tests
+  (`tests/integration/test_m65_disk.py`) run `test_disk.py`'s
+  contract on unit 10: the probe and status (`READSS`), the
+  directory into `DIR_BUF` with the user's region untouched, PRG and
+  SEQ load and save, the source through `l` / `s`.  With no drive on
+  the unit the KERNAL's own serial code runs, whose delays poll the
+  raster line: M65Emu's `$D012` advances with the steps (a raster
+  counter, the latch's sibling), so an absent device fails as on the
+  MEGA65 instead of hanging.  CBDOS is Tier X: **Tier X, the disk**
+  (`tests/emulator/test_m65_disk.py`) boots `cse-m65.d81` (`-8`,
+  `-autoload`) to the prompt and, on unit 8, lists it (`$` equals
+  `c1541`'s listing), saves and loads a PRG and a source, and reads
+  the status.
 - **The recordings behind the m65 column.**  The P0 analysis probes
   (entry state, base page, `Z`, the frame, the maps, the Hypervisor
   services, the regions CSE takes, all on both ROMs) become committed

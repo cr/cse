@@ -119,16 +119,16 @@ differences; the addresses are the linker map's
   geometry's hot cells `scr_width` and `scr_last_col` — the rest of the
   geometry is cse_io's BSS, the base page being full
   ([platform_layer.md § Display](../platform_layer.md#display)).
-- **disk.s's private pointer** (`DISK_LOCAL_PTR`) lives here — *stated
-  with P3*.
+- **disk.s's private pointer** (`DISK_LOCAL_PTR`) lives here too:
+  `disk_local_ptr`, 2 bytes, a plain pointer — it reads only filenames
+  in CSE's view ([disk.md § On m65](disk.md#on-m65)).
 
-The m65 segment ends below `$AD` (the linker bounds it): `$AD–$AF` is
-`BP_PENDING`, the cells of the pending values — placeholders for `ST`
-and `DISK_LOCAL_PTR` until P3 states them (P2 stated `IO_CX` and
-`IO_CY`)
-([platform_layer.md § Pending bodies](../platform_layer.md#pending-bodies));
-when the last is stated, the segment's bound returns to `$B0`, where
-the resident stub begins.  The KERNAL needs nothing of CSE's base page
+The m65 segment ends below `$B0`, where the resident stub begins (the
+linker bounds it).  Until P3 `$AD–$AF` was `BP_PENDING`, the cells of
+the pending values ([platform_layer.md § Pending bodies](../platform_layer.md#pending-bodies));
+P3 states the last two — `ST` is `READSS`, no cell, and
+`DISK_LOCAL_PTR` is `disk_local_ptr` — so the segment's bound returns
+to `$B0`.  The KERNAL needs nothing of CSE's base page
 ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame),
 § KERNAL calls).
 

@@ -138,6 +138,44 @@ The callback returns a byte in A with X = 0, or X = $FF for the end
 (the editor's returns A = X = $FF).  The file is opened with `@:`
 and `,s,w`.
 
+### On m65
+
+The same entries with the same contracts, on the MEGA65 KERNAL's
+jump table ([platform_layer.md](../platform_layer.md) § Constants,
+§ Disk bank).  What differs:
+
+- **The units.**  Units 8 and 9 are usually CBDOS's (the internal
+  drive or a mounted D81 image; the book, 6-3), every other unit the
+  IEC bus's.  disk.s does not tell them apart: the KERNAL routes each
+  call.  Tested: CBDOS units in xmega65 (Tier X, `cse.d81` on unit
+  8), IEC units in M65Emu (Tier I, a virtual drive on unit 10 —
+  [testing.md](../testing.md) § The m65 PRG on M65Emu).
+- **`ST`.**  No KERNAL cell is read or written
+  ([platform_layer.md](../platform_layer.md) § Constants, *KERNAL
+  cells*): the status comes from `READSS` (`$FFB7`, as `READST`).
+  `floppy_read_status`'s device probe is `LISTEN` · `UNLSN` ·
+  `READSS`, bit 7 = device not present; the C64 body clears `ST`
+  first, which the m65 body cannot and need not do — `LISTEN` starts
+  a new operation, and `READSS` reports it.
+- **The filename pointer** `ptr` is `disk_local_ptr`, a 2-byte cell
+  of CSE's base page (not `$FD`): it only ever reads filenames in
+  CSE's own view, `(ptr),y`, so it needs no bank.
+- **The directory buffer.**  `list_directory` loads `$` into
+  `DIR_BUF`, `2.D000–2.FFFF` (CSE's 12 K reserve in the source bank —
+  [memory_design.md](../memory_design.md) § Memory Map — m65), not
+  into the user's program region: a full D81 directory (296 entries)
+  is under 10 K.  `PLAT_SETBNK DIR_BANK` gives `LOAD` that bank; the
+  walk reads it through `disk_ptr` with `FAR_BANK disk_ptr, DIR_BANK`.
+  So `$` leaves the user's memory alone on m65 (on c64 it clobbers
+  the workspace from `$0801`).
+- **The pointer banks.**  `disk_save_prg` reads the program through
+  `_io_tmp` as a user address (`FAR_USER _io_tmp`);
+  `list_directory`'s reverse-video cell (`@putc_inv`) is a screen
+  pointer (`FAR_BANK_SCREEN _io_tmp`).
+- **The load target** of a PRG `l` is the user's bank 0
+  (`PLAT_SETBNK`'s default `BANK_USER`), a SEQ `l` goes through
+  `CHRIN` into the source region (gap_buffer.s), unchanged.
+
 ### Memory
 
 **ZP** (allocation in [zp.md](zp.md)): `disk_ptr` (2, filename
@@ -150,7 +188,9 @@ address, `list_directory`'s reverse-video pointer), `cur_device`
 `str_setup` / `build_open_str`, written by every entry that takes a
 filename.  It lies outside CSE's ZEROPAGE segment, in `$80`–`$FF`;
 what user code may assume about that range is
-[userland_contract.md § 2](../userland_contract.md)'s.
+[userland_contract.md § 2](../userland_contract.md)'s.  On m65 it is
+`disk_local_ptr` in CSE's own base page (zp.s), not a hardcoded
+address (§ On m65).
 
 **BSS (84 bytes):**
 
