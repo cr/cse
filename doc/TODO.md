@@ -1380,7 +1380,7 @@ CBDOS on the D81 in xmega65 (Tier X).
   last column — a C64 test in `test_disk.py` and its m65 twin in T2.~~
   Dropped with D-P3-6's amendment: no directory header reaches the
   last column.
-- [ ] T5. The build (`test_makefile_guards.py`): `make disk` and
+- [x] T5. The build (`test_makefile_guards.py`): `make disk` and
   `make release PLATFORM=m65` write `build/cse-m65.d81` with `c1541
   -format "cse <version>,01" d81` and the PRG as `cse-m65`; `make run
   PLATFORM=m65` adds `-8` with it; `make size PLATFORM=m65` runs

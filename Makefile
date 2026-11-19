@@ -43,10 +43,9 @@ XMEGA65   ?= /Applications/xmega65.app/Contents/MacOS/xmega65
 
 # ── Platform selection ───────────────────────────────────────────────────
 # PLATFORM=c64 (default) builds the three C64 PRGs; PLATFORM=m65 builds
-# the one m65 build, m65-6502 until P4 (release, debug and run — in
-# xmega65; disk and size arrive with the D81 in P3).  Any other
-# platform, and an m65 target that does not exist yet, is refused
-# instead of silently building the C64 PRGs.  TARGET= on the command
+# the one m65 build, m65-6502 until P4, its D81 (release, disk), runs
+# it in xmega65 (run) and reports it (size).  Any other platform is
+# refused instead of silently building the C64 PRGs.  TARGET= on the command
 # line is PLATFORM's synonym (make run TARGET=m65).  See
 # doc/build_system.md § Builds and CPU sets.
 ifeq ($(origin TARGET),command line)
@@ -60,9 +59,6 @@ endif
 PLATFORM ?= c64
 _NON_PRG_GOALS := help themes clean clean-tables tables m65-rom check-roms
 ifeq ($(PLATFORM),m65)
-  ifneq ($(filter disk size,$(MAKECMDGOALS)),)
-    $(error PLATFORM=m65: no $(filter disk size,$(MAKECMDGOALS)) for the m65 build yet (the D81 is R7 slice 2, P3); make release / debug / run PLATFORM=m65 build and run its PRG)
-  endif
   override CPU := 6502
 else ifneq ($(PLATFORM),c64)
   ifneq ($(filter-out $(_NON_PRG_GOALS),$(or $(MAKECMDGOALS),all)),)
@@ -220,6 +216,7 @@ all: release
 ifeq ($(PLATFORM),m65)
 release:
 	@$(MAKE) --no-print-directory _one PLATFORM=m65 _PROFILE=release _LABEL="m65   cse-m65.prg"
+	@$(MAKE) --no-print-directory _d81
 else
 release:
 	@$(MAKE) --no-print-directory _one CPU=6510  _PROFILE=release _LABEL="6510  cse.prg"
@@ -348,6 +345,15 @@ $(PRG_EXO): $(PRG)
 # -----------------------------------------------------------------------
 _REL = $(ROOT)build/release
 DIST_D64 = $(ROOT)build/cse.d64
+DIST_D81 = $(ROOT)build/cse-m65.d81
+
+# _d81 — the m65 distribution D81: the raw PRG as "cse-m65" (no exomizer)
+.PHONY: _d81
+_d81:
+	@rm -f $(DIST_D81)
+	$(C1541) -format "cse $(VERSION),01" d81 $(DIST_D81) \
+	  -write $(_REL)/m65/cse-m65.prg cse-m65
+	@echo "  disk  cse-m65.d81"
 
 .PHONY: _dist
 _dist:
@@ -365,11 +371,15 @@ _dist:
 D64 = $(ROOT)build/release/$(_$(CPU)_SUBDIR)/cse.d64
 
 .PHONY: disk
+ifeq ($(PLATFORM),m65)
+disk: release                   # release writes the D81
+else
 disk:
 	@$(MAKE) --no-print-directory _one CPU=$(CPU) _PROFILE=release _LABEL="$(CPU) $(PRG_NAME)"
 	@rm -f $(D64)
 	$(C1541) -format "cse $(VERSION),01" d64 $(D64) \
 	  -write $(ROOT)build/release/$(_$(CPU)_SUBDIR)/$(basename $(PRG_NAME))-exo.prg cse
+endif
 
 # -----------------------------------------------------------------------
 # tables — regenerate generated .s table files from Python
@@ -403,7 +413,7 @@ $(TABLE_OUTS): $(TABLES_STAMP)
 .PHONY: run
 ifeq ($(PLATFORM),m65)
 run: release
-	$(XMEGA65) -prg $(ROOT)build/release/m65/cse-m65.prg -prgmode 65
+	$(XMEGA65) -prg $(ROOT)build/release/m65/cse-m65.prg -prgmode 65 -8 $(DIST_D81)
 else
 run: release
 	$(VICE) -kernal $(KERNAL_IMG) -basic $(BASIC_IMG) -chargen $(CHARGEN_IMG) \
@@ -449,9 +459,15 @@ test: debug release check-roms
 # size — exhaustive size breakdown of selected PRG (release profile)
 # -----------------------------------------------------------------------
 .PHONY: size
+ifeq ($(PLATFORM),m65)
+size:
+	@$(MAKE) --no-print-directory _one PLATFORM=m65 _PROFILE=release _LABEL="m65   cse-m65.prg"
+	@BUILD=$(ROOT)build/release/m65 PRG=$(ROOT)build/release/m65/cse-m65.prg $(PYTHON) $(DEV)/size_report.py --platform m65
+else
 size:
 	@$(MAKE) --no-print-directory _one CPU=$(CPU) _PROFILE=release _LABEL="$(CPU) $(PRG_NAME)"
 	@BUILD=$(ROOT)build/release/$(_$(CPU)_SUBDIR) $(PYTHON) $(DEV)/size_report.py
+endif
 
 # -----------------------------------------------------------------------
 # clean

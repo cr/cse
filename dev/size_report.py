@@ -5,10 +5,14 @@ dev/size_report.py — Exhaustive size breakdown of cse.prg
 Owner: doc/build_system.md
 
 Reads the ld65 map file and debug file to produce:
-  1. C64 memory map (like the `i` command)
+  1. C64 memory map (like the `i` command; the C64 builds only)
   2. Per-segment sizes
   3. Per-module breakdown within each segment
   4. Functional category breakdown
+
+`--platform m65` reports the m65 build (no C64 map: its regions are
+memory_design.md § Memory Map — m65's, in banks); $BUILD is the build
+directory, $PRG the PRG (default $BUILD/cse.prg).
 """
 
 import re
@@ -19,7 +23,8 @@ ROOT  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD = os.environ.get("BUILD", os.path.join(ROOT, "build", "6510"))
 MAP   = os.path.join(BUILD, "cse.map")
 DBG   = os.path.join(BUILD, "cse.dbg")
-PRG   = os.path.join(BUILD, "cse.prg")
+PRG   = os.environ.get("PRG", os.path.join(BUILD, "cse.prg"))
+PLATFORM = sys.argv[sys.argv.index("--platform") + 1] if "--platform" in sys.argv else "c64"
 
 if not os.path.exists(MAP):
     print("ERROR: build/cse.map not found. Run: make clean && make", file=sys.stderr)
@@ -102,50 +107,51 @@ print("=" * W)
 print(f"  CSE Size Report — {prg_size} bytes ({prg_blocks} blocks)")
 print("=" * W)
 
-# Memory map
-print(f"\n{'─'*W}")
-print("  C64 Memory Map")
-print(f"{'─'*W}")
+if PLATFORM == "c64":
+    # Memory map
+    print(f"\n{'─'*W}")
+    print("  C64 Memory Map")
+    print(f"{'─'*W}")
 
-regions = []
-for name, s in sorted(segments.items(), key=lambda x: x[1]['start']):
-    if s['size'] == 0:
-        continue
-    end = s['start'] + s['size'] - 1
-    regions.append((s['start'], end, name, s['size']))
+    regions = []
+    for name, s in sorted(segments.items(), key=lambda x: x[1]['start']):
+        if s['size'] == 0:
+            continue
+        end = s['start'] + s['size'] - 1
+        regions.append((s['start'], end, name, s['size']))
 
-# Add system regions
-sys_regions = [
-    (0x0000, 0x0001, 'cpu-port', 2),
-    (0x0100, 0x01FF, '6502-stack', 256),
-    (0x0400, 0x07E7, 'screen', 1000),
-    (0xD000, 0xDFFF, 'i/o', 4096),
-    (0xE000, 0xFFFF, 'kernal-rom', 8192),
-]
+    # Add system regions
+    sys_regions = [
+        (0x0000, 0x0001, 'cpu-port', 2),
+        (0x0100, 0x01FF, '6502-stack', 256),
+        (0x0400, 0x07E7, 'screen', 1000),
+        (0xD000, 0xDFFF, 'i/o', 4096),
+        (0xE000, 0xFFFF, 'kernal-rom', 8192),
+    ]
 
-all_regions = regions + sys_regions
-all_regions.sort(key=lambda x: x[0])
+    all_regions = regions + sys_regions
+    all_regions.sort(key=lambda x: x[0])
 
-# Find free gaps
-covered = set()
-for start, end, _, _ in all_regions:
-    for a in range(start, end + 1):
-        covered.add(a)
+    # Find free gaps
+    covered = set()
+    for start, end, _, _ in all_regions:
+        for a in range(start, end + 1):
+            covered.add(a)
 
-prev_end = -1
-output_regions = []
-for start, end, name, size in all_regions:
-    if start > prev_end + 1 and prev_end >= 0:
-        gap_start = prev_end + 1
-        gap_size = start - gap_start
-        if gap_size > 0 and gap_start >= 0x0002:
-            output_regions.append((gap_start, start - 1, '** FREE **', gap_size, True))
-    output_regions.append((start, end, name, size, False))
-    prev_end = max(prev_end, end)
+    prev_end = -1
+    output_regions = []
+    for start, end, name, size in all_regions:
+        if start > prev_end + 1 and prev_end >= 0:
+            gap_start = prev_end + 1
+            gap_size = start - gap_start
+            if gap_size > 0 and gap_start >= 0x0002:
+                output_regions.append((gap_start, start - 1, '** FREE **', gap_size, True))
+        output_regions.append((start, end, name, size, False))
+        prev_end = max(prev_end, end)
 
-for start, end, name, size, is_free in output_regions:
-    marker = '>>>' if is_free else '   '
-    print(f"  {marker} ${start:04X}-${end:04X}  {size:5d}  {name}")
+    for start, end, name, size, is_free in output_regions:
+        marker = '>>>' if is_free else '   '
+        print(f"  {marker} ${start:04X}-${end:04X}  {size:5d}  {name}")
 
 # Segment summary
 print(f"\n{'─'*W}")

@@ -6,10 +6,11 @@ Contract source: [build_system.md § Builds and CPU sets](../../doc/build_system
 and [§ The m65 builds](../../doc/build_system.md#the-m65-builds) (T4 of
 TODO § M65 slice 2, P0): `make release` / `make debug` with
 `PLATFORM=m65` build the m65-6502 PRG into build/<profile>/m65/ through
-src/m65_cse.cfg; `run` with `PLATFORM=m65` (or `TARGET=m65`) builds the
-release PRG and starts $(XMEGA65) with it, never VICE; `disk` and `size`
-with `PLATFORM=m65` are refused until P3, and an unknown platform is
-refused for every PRG target — neither silently builds the C64 PRGs.  Each region of the m65
+src/m65_cse.cfg; `release` and `disk` with `PLATFORM=m65` write the D81
+with c1541; `run` with `PLATFORM=m65` (or `TARGET=m65`) builds the
+release PRG and the D81 and starts $(XMEGA65) with both, never VICE;
+`size` reports the m65 PRG; an unknown platform is refused for every
+PRG target — it never silently builds the C64 PRGs.  Each region of the m65
 config is bounded as stated, so an overflow fails the link.
 [build_system.md § Introspection builds](../../doc/build_system.md#introspection-builds-introspect1):
 only `INTROSPECT=1` passes `-DINTROSPECT`.
@@ -48,8 +49,9 @@ def test_m65_prg_targets_build_the_m65_6502_prg(target, profile):
     assert len(ld65) == 1, "one link, no trial pass"
     assert f"-C {M65_CFG}" in ld65[0]
     assert f"build/{profile}/m65/cse-m65.prg" in ld65[0]
-    for tool in ("exomizer", "c1541", "compute_layout"):
+    for tool in ("exomizer", "compute_layout"):
         assert tool not in r.stdout
+    assert ("c1541" in r.stdout) == (profile == "release")      # the D81
 
 
 def test_m65_ignores_cpu():
@@ -67,6 +69,7 @@ def test_m65_run_starts_xmega65_with_the_release_prg(platform):
     assert len(start) == 1, r.stdout
     assert "build/release/m65/cse-m65.prg" in start[0]
     assert "-prgmode 65" in start[0] and "-headless" not in start[0]
+    assert "-8 " in start[0] and start[0].endswith("build/cse-m65.d81")
     assert "x64" not in r.stdout and "-autostart" not in r.stdout   # not VICE
 
 
@@ -76,12 +79,24 @@ def test_target_and_platform_must_agree():
     assert "TARGET" in r.stderr and "PLATFORM" in r.stderr
 
 
-@pytest.mark.parametrize("target", ["disk", "size"])
-def test_m65_targets_without_a_d81_are_refused(target):
-    r = _make_n(target, "PLATFORM=m65")
-    assert r.returncode != 0
-    assert "PLATFORM=m65" in r.stderr
-    assert "ca65" not in r.stdout
+@pytest.mark.parametrize("target", ["release", "disk"])
+def test_m65_release_and_disk_write_the_d81(target):
+    r = _make_n(target, "PLATFORM=m65", "C1541=c1541x", "VERSION=9.9")
+    assert r.returncode == 0, r.stderr
+    lines = r.stdout.replace("\\\n", " ").splitlines()      # join `\` continuations
+    write = [ln for ln in lines if ln.startswith("c1541x ")]
+    assert len(write) == 1, r.stdout
+    cmd = write[0]
+    assert '-format "cse 9.9,01" d81' in cmd and "build/cse-m65.d81" in cmd
+    assert "-write" in cmd and "build/release/m65/cse-m65.prg cse-m65" in cmd
+    assert "d64" not in cmd and "exo" not in cmd
+
+
+def test_m65_size_reports_the_m65_prg():
+    r = _make_n("size", "PLATFORM=m65")
+    assert r.returncode == 0, r.stderr
+    report = [ln for ln in r.stdout.splitlines() if "size_report.py" in ln]
+    assert report and "build/release/m65" in report[0] and "--platform m65" in report[0]
 
 
 @pytest.mark.parametrize("target", ["release", "debug", "all", "disk", "run", "size"])
