@@ -1,0 +1,11 @@
+{"source": "xemu targets/mega65/input_devices.c (matrix_*_to_petscii, after mega65-core's keymapper): the PETSCII the hardware typing queue ($D619) presents for the MEGA65's keys; the monitor cannot type a key, so there is no xmega65 recording",
+ "modifiers_D60A": {"SHIFT left": 1, "SHIFT right": 2, "CTRL": 4, "MEGA": 8, "ALT": 16, "NO SCROLL": 32, "CAPS LOCK": 64},
+ "petscii": {
+  "TAB": 9, "SHIFT TAB": 26, "MEGA TAB": 24,
+  "HELP": 132, "ESC": 27,
+  "F9": 16, "F10": 21, "F11": 22, "F12": 23, "F13": 25, "F14": 26,
+  "F1": 133, "F2": 137, "F3": 134, "F4": 138, "F5": 135, "F6": 139, "F7": 136, "F8": 140,
+  "CTRL P": 16, "CTRL U": 21, "CTRL V": 22, "CTRL W": 23, "CTRL Y": 25, "CTRL Z": 26
+ },
+ "no_petscii": ["ALT combinations: the hardware gives them an ASCII code only ($D610), PETSCIIKEY reads $FF"]
+}

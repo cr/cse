@@ -33,7 +33,8 @@ import re
 from emu_base import EmuBase, KeyMatrix, register
 
 from .devices import (CIA1Ports, CIA2InterruptControl, DMAController,
-                      Hypervisor, KeyboardQueue, VICInterruptLatch)
+                      Hypervisor, KeyboardQueue, VICHotRegisters,
+                      VICInterruptLatch)
 from .memory import COLOUR, M65Memory
 from .mpu45gs02 import MPU45GS02
 
@@ -143,6 +144,9 @@ class M65Emu(EmuBase):
         mem.attach(self.cia1, 0xC00, 0xC01)
         mem.attach(self.cia2_icr, 0xD0D)
         mem.attach(self.vic_irq, 0x019)
+        self.vic_hot = VICHotRegisters(mem)
+        for off in VICHotRegisters.REGISTERS:
+            mem.attach(self.vic_hot, off)
         self.hypervisor = Hypervisor(mem)
         mem.attach(self.hypervisor, Hypervisor.FIRST, Hypervisor.LAST)
         if snapshot is not None:

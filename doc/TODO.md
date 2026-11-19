@@ -1050,7 +1050,7 @@ shows it), provided M65Emu answers the editor calls as xmega65 does —
 T1 checks that first.  Tier X confirms the prompt, the typed commands
 and `Q`; what a human sees (colours, flicker) stays manual.
 
-- [ ] T1. M65Emu against the editor: `capture_m65_editor.py` also
+- [x] T1. M65Emu against the editor: `capture_m65_editor.py` also
   records the VIC-IV register set (`$D011`, `$D016`, `$D018`, `$D01A`,
   `$D031`, `$D054`, `$D058–$D05E`, `$D060–$D065`, `$D07B`) and the
   colour-RAM offset the KERNAL leaves after `ESC 4` / `5` / `8`;
@@ -1059,12 +1059,24 @@ and `Q`; what a human sees (colours, flicker) stays manual.
   `SCRORG` / `PLOT` per mode and window, logical lines, the interrupted
   `BSOUT` (a sample), quote and insert mode, the keyboard calls, the
   base-page cells, the register sets.  A mismatch is an M65Emu fix
-  (or a feedback round) before any P2 code.
-- [ ] T2. The MEGA65's keys: `GETIN`'s PETSCII for TAB, HELP, F9–F14
+  (or a feedback round) before any P2 code.  Done 2026-11-19: the
+  register sets are identical on both ROMs (the modes differ in
+  `$D016`, `$D031` `$E0 / $E8 / $60`, `$D058` / `$D05E` 80 / 40, `$D062`,
+  `$D07B` 24 / 49; the colour RAM at offset 0 in every mode, `$D01A`
+  `$E1`).  Two mismatches, both fixed: M65Emu lacked the VIC-IV's hot
+  registers (a write to `$D011` / `$D016` / `$D018` / `$D031` re-derives
+  the text layout; the KERNAL's mode switches rely on it — the
+  `VICHotRegisters` device, after xemu's vic4.c); the base-page probe
+  measured from an arbitrary state (now from a fixed one).
+- [x] T2. The MEGA65's keys: `GETIN`'s PETSCII for TAB, HELP, F9–F14
   and the ALT / MEGA / CTRL combinations, from the KERNAL's key table
   on M65Emu (typing events injected as the hardware queue presents
   them, xemu's mapping), recorded as a fixture the REPL and editor
-  tests share; `$D60A`'s modifier bits per the book (F-3).
+  tests share; `$D60A`'s modifier bits per the book (F-3).  Done:
+  the hardware, not the KERNAL, translates keys (`$D619`); the codes
+  from xemu's tables in `tests/fixtures/m65_keys.json`; `GETIN` passes
+  each through with the macros off and expands F1 with them on.
+  Found: F9–F14 send CTRL + P / U / V / W / Y / Z's codes.
 - [ ] T3. The geometry (`test_m65_repl.py`, new, each ROM, the installed
   PRG): `io_geometry` in 80 × 25, 40 × 25 and 80 × 50 sets `scr_width`,
   `scr_height`, `scr_last_col`, `scr_last_row`, `scr_ed_rows`,

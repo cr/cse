@@ -15,6 +15,8 @@ and records what they do:
 - the jump table: the opcode at each entry CSE may call (a missing
   entry is not a JMP);
 - SCRORG in 80 x 25, 80 x 50, 40 x 25 and under a window (ESC T / B);
+- the VIC-IV register set the KERNAL leaves for each text mode (P2:
+  vic_reset writes it back);
   PLOT relative to the window, its error, and HOME HOME leaving it;
 - logical lines: a RETURN after printing past the right margin, after
   the rows were then overwritten directly in screen RAM, and after
@@ -40,6 +42,7 @@ Needs xmega65, mtools and the user's configured MEGA65 SD image; about
 monitor).  Run by hand; pytest never starts xmega65.
 """
 import argparse
+import contextlib
 import datetime
 import pathlib
 import shutil
@@ -106,7 +109,11 @@ def regs(r, *names):
 
 
 def base_page_diff(xm, body):
-    """Run body; the base-page-0 cells it changed."""
+    """Run body from a fixed state (80 x 25 cleared, the cursor at
+    12,40); the base-page-0 cells it changed.  A change, not a write:
+    a write of the value already there is invisible to a program, and
+    the fixed start makes the answer the same on every machine."""
+    call(xm, bsout(ESC, ord("8")) + plot_set(12, 40))
     before = xm.read(0x0000, 0x100)
     call(xm, body)
     after = xm.read(0x0000, 0x100)
@@ -149,6 +156,24 @@ def scrorg(xm):
     out["window: PLOT 20,70 outside"] = dict(c=r["p"] & 1)
     call(xm, bsout(HOME, HOME))
     out["after HOME HOME"] = ask()
+    return out
+
+
+# The VIC-IV registers a text mode consists of (book Q): control,
+# memory pointers, the IRQ mask, the speed and H640/V400 bits, the line
+# step, character count, the screen and colour-RAM pointers, the rows.
+VIC_REGS = (0x11, 0x16, 0x18, 0x1A, 0x31, 0x54, 0x58, 0x59, 0x5A, 0x5B,
+            0x5C, 0x5D, 0x5E, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x7B)
+
+
+def vic_modes(xm):
+    """The VIC-IV register set the KERNAL leaves after ESC 8, ESC 5 and
+    ESC 4 — what vic_reset writes back for each mode."""
+    out = {}
+    for mode, key in (("80x25", "8"), ("80x50", "5"), ("40x25", "4")):
+        call(xm, bsout(ESC, ord(key)))
+        out[mode] = {f"D0{r:02X}": xm.read_cpu(0xD000 + r, 1)[0] for r in VIC_REGS}
+    call(xm, bsout(ESC, ord("8")))
     return out
 
 
@@ -239,21 +264,21 @@ MODE_FIXES = (("none", []), ("ESC O", [ESC, ord("O")]), ("RETURN", [CR]),
 MODE_SETUPS = (("plain", []), ("quote", [0x22]), ("insert", [0x94] * 3))
 
 
-def editor_modes(rom_path, prg):
+def editor_modes(fresh):
     """Quote and insert mode, left on as a program can leave them: what
     cancels them through BSOUT?  Each case on a fresh machine — a mode
     left on survives into the next probe (ESC 8 is then printed, not
-    obeyed).  After setup and fix, row 12 is cleared directly in screen
-    RAM, the cursor put at (12,5), and a cursor-right ($1D) sent: it
-    moves the cursor over a blank (the mode is off) or prints a reverse
-    glyph there (still on).  "plain" checks the probe itself."""
+    obeyed); `fresh()` is a context manager giving a parked machine.
+    After setup and fix, row 12 is cleared directly in screen RAM, the
+    cursor put at (12,5), and a cursor-right ($1D) sent: it moves the
+    cursor over a blank (the mode is off) or prints a reverse glyph
+    there (still on).  "plain" checks the probe itself."""
     out = {}
     for name, setup in MODE_SETUPS:
         for fix_name, fix in MODE_FIXES:
             if name == "plain" and fix_name != "none":
                 continue
-            with XMega65(WORK / "modes", rom=rom_path, prg=prg) as xm:
-                park(xm)
+            with fresh() as xm:
                 call(xm, plot_set(6, 0) + bsout(ord("X")) + bsout(*setup)
                      + bsout(*fix))
                 xm.write(SCREEN + 12 * 80, b"\x20" * 80)
@@ -311,9 +336,17 @@ def park(xm):
 def capture(xm):
     park(xm)
     return dict(jump_table=jump_table(xm), clobbers=clobbers(xm),
-                scrorg=scrorg(xm), logical_lines=logical_lines(xm),
+                scrorg=scrorg(xm), vic_modes=vic_modes(xm),
+                logical_lines=logical_lines(xm),
                 keyboard_and_flags=keyboard_and_flags(xm),
                 interrupted_bsout=interrupted_bsout(xm, spread))
+
+
+@contextlib.contextmanager
+def _parked(rom_path, prg):
+    with XMega65(WORK / "modes", rom=rom_path, prg=prg) as xm:
+        park(xm)
+        yield xm
 
 
 def record(rom_path):
@@ -327,7 +360,7 @@ def record(rom_path):
             entry = capture(xm)
             check_booted(xm.booted_rom(), target=rom_path)
             version = xm.version()
-        entry["editor_modes"] = editor_modes(rom_path, prg)
+        entry["editor_modes"] = editor_modes(lambda: _parked(rom_path, prg))
     finally:
         shutil.rmtree(WORK, ignore_errors=True)
     print(f"{rom_version(data)}: recorded")

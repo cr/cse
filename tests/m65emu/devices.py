@@ -322,6 +322,53 @@ class VICInterruptLatch(Device):
         self._update()
 
 
+class VICHotRegisters(Device):
+    """The VIC-IV's "hot registers" ($D011, $D016, $D018, $D031), after
+    xemu's vic4.c: with HOTREG on ($D05D bit 7), a write to $D011 or
+    $D016 that changes it, or any write to $D018 or $D031, re-derives
+    the legacy text layout — the character count $D05E and the line
+    step $D058-$D059 (80 with H640, $D031 bit 7, else 40), the screen
+    pointer $D060-$D063 from $D018's screen bits, the sprite pointer
+    $D06C-$D06E, the colour-RAM base $D064-$D065 (0) and the display
+    rows $D07B (49 with V400, $D031 bit 3, else 24).  The KERNAL's mode
+    switches (ESC 4 / 5 / 8) rely on it; m65_editor.json's vic_modes
+    are the check.  Simplified: the VIC bank from $DD00 is taken as 0
+    and V400 as effective (no $D051 / Y-scale exception)."""
+
+    REGISTERS = (0x011, 0x016, 0x018, 0x031)
+
+    def __init__(self, mem):
+        self.mem = mem
+
+    def read(self, off):
+        return self.mem.io[off]
+
+    def write(self, off, v):
+        io = self.mem.io
+        touched = off in (0x018, 0x031) or io[off] != v
+        io[off] = v
+        if touched and io[0x05D] & 0x80:
+            self._interpret()
+
+    def _interpret(self):
+        io = self.mem.io
+        h640, v400 = io[0x031] & 0x80, io[0x031] & 0x08
+        width = 80 if h640 else 40
+        screen = io[0x018] >> 4
+        io[0x05E] = width
+        io[0x063] &= 0xCF
+        io[0x058], io[0x059] = width, 0
+        io[0x060] = 0
+        io[0x061] = (io[0x061] & 0xC0) | (((screen & 14) << 2) if h640 else (screen << 2))
+        io[0x062] = 0
+        io[0x063] &= 0xF0
+        io[0x06C] = 0xF8
+        io[0x06D] = ((screen << 2) | 0x03 | (0x04 if h640 or v400 else 0)) & 0x3F
+        io[0x06E] &= 0x80
+        io[0x064] = io[0x065] = 0
+        io[0x07B] = 49 if v400 else 24
+
+
 # hyppo_getversion's answer: A.X = Hyppo 1.2, Y.Z = HDOS 1.3, as
 # tests/fixtures/golden/m65_premise.json recorded it on both ROMs
 HYPPO_GETVERSION = (1, 2, 1, 3)

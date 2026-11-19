@@ -529,7 +529,7 @@ column says *P2* is `PLAT_PENDING 2` until then.
 | `IO_KBD_FLUSH` (repl's drains) | `sta $C6` (A = 0) | `GETIN` until it answers 0 (recorded: empty answers A = 0, C = 0), the lookahead emptied |
 | `scr_lo` / `scr_hi`, the width | RODATA tables of `SCREEN` + 40·row; `COLS = 40` | run-time tables and width from `SCRORG` after `HOME HOME`: A / Z the top-left address, X + 1 columns, Y + 1 rows (recorded: X / Y are the window's right column and bottom row, not the book's width and height); the bank from `$D062` (80 × 50: 4) |
 | `io_blip` | SID voice 1 | the same |
-| The MEGA65's keys (TAB, HELP, F9–F14, ALT / MEGA / CTRL combinations) | — | `GETIN`'s codes for them — the typing queue's ASCII codes are the book's (F-5/6: TAB `$09`, HELP `$1F`, F9 / F11 / F13 `$F9 $FB $FD`, shifted `$FA $FC $FE`); the PETSCII codes `GETIN` answers, and the modifier mask (`$D60A`, F-3), are taken from the KERNAL's key table by P2's analysis (xmega65's monitor cannot type a key) |
+| The MEGA65's keys (TAB, HELP, F9–F14, ALT / MEGA / CTRL combinations) | — | the PETSCII the hardware typing queue presents (`$D619`) and `GETIN` passes on unchanged with the macros off (P2 T2, `tests/fixtures/m65_keys.json` from xemu's tables): TAB `$09`, HELP `$84`, ESC `$1B`, F9 / F11 / F13 `$10 $16 $19`, F10 / F12 / F14 (shifted) `$15 $17 $1A` — the codes of CTRL + P, V, Y, U, W, Z, so `GETIN` cannot tell them apart; the ALT combinations have no PETSCII.  `$D60A`'s modifier bits: SHIFT left / right 0 / 1, CTRL 2, MEGA 3, ALT 4, NO SCROLL 5, CAPS LOCK 6 (book F-3).  With the macros on (the run premise) `GETIN` expands a function key into its BASIC macro |
 
 ### Display
 
