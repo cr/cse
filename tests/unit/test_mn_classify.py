@@ -507,3 +507,55 @@ class TestEncodingAgnostic:
             results.append((carry, slot))
         assert results[0] == results[1] == results[2], \
             f"encoding-dependent result: {results}"
+
+
+# ─── The m65 set: mn7 over the mn7gs keys (P4 T4) ────────────────────────────
+#
+# The m65-45gs02 asm_core bundle's classifier, on M65Emu (CSE's base page
+# at 0.1F00): every three-letter string, and every key's table bytes
+# against the generator's model (mnemonic_tables.py, which validates the
+# model against instruction_set.py derive-or-die).
+
+def _m65_classifier():
+    import asm_dasm_runner as R
+    from conftest import _AC, AsmCoreSymbols, SymbolTable
+    syms = AsmCoreSymbols("45gs02")
+    s = SymbolTable(_AC["45gs02"].lbl)
+    return R._M65Bundle(syms), s
+
+
+def test_mn7gs_full_sweep():
+    import mnemonic_tables as MT
+    from hashes import sc
+    m, s = _m65_classifier()
+    cls = MT.mn7gs
+    slots, fp = cls.build_slot_map(), cls.fingerprint_table()
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    found, bad = set(), []
+    for a in letters:
+        for b in letters:
+            for c in letters:
+                c1, c2, c3 = sc(a), sc(b), sc(c)
+                m.poke(s["mn_c1"], c1)
+                m.poke(s["mn_c2"], c2)
+                m.poke(s["mn_c3"], c3)
+                m.call(s["mn_classify"], 0x0F00)
+                carry = m.emu.carry
+                if not carry:
+                    found.add(a + b + c)
+                    if slots.get(m.emu.a) != a + b + c:
+                        bad.append(a + b + c)
+    assert not bad
+    assert found == cls.KEYS and len(found) == 98
+
+
+def test_mn7gs_table_values():
+    import mnemonic_tables as MT
+    m, s = _m65_classifier()
+    model = MT.build_asm_model("45gs02")
+    slots = MT.mn7gs.build_slot_map()
+    c02 = m.peek(s["mn7_c02"], 16)
+    for slot, key in slots.items():
+        assert m.peek(s["mn_base_op"] + slot)[0] == model.key_base[key], key
+        assert m.peek(s["mn_profile"] + slot)[0] == model.key_prof[key], key
+        assert bool(c02[slot >> 3] >> (slot & 7) & 1) == model.key_c02[key], key

@@ -38,9 +38,63 @@ DASM_RETURN    = 0x0F00
 DASM_OPERANDS  = (0x42, 0x34)
 
 
+# ── the m65 bundles: M65Emu, CSE's base page at 0.1F00 ─────────────────────
+
+class _M65Bundle:
+    """An m65 bundle loaded into an M65Emu, run as kernel code runs (B =
+    CSE_BP).  `poke` / `peek` take a bundle symbol's address: below $100 a
+    base-page offset, else a bank-0 address."""
+
+    def __init__(self, syms):
+        from m65emu import M65Emu
+        from m65emu.harness import CSE_BP
+        self.bp = CSE_BP << 8
+        from m65emu import m45_ops
+        self.emu = M65Emu()
+        syms.load_into_emu(self.emu)
+        self.mem = self.emu.memory
+        cpu = self.emu.cpu                  # clean mode (testing.md § m65 bundles):
+        cpu.clean = True                    # the 6502's opcodes and m45_ops.inc's
+        cpu.allowed = cpu.allowed | m45_ops.allowed_keys()
+
+    def _flat(self, a):
+        return self.bp | a if a < 0x100 else a
+
+    def poke(self, a, *vals):
+        for k, v in enumerate(vals):
+            self.mem.write_flat(self._flat(a) + k, v)
+
+    def peek(self, a, n=1):
+        return bytes(self.mem.read_flat(self._flat(a) + k) for k in range(n))
+
+    def call(self, entry, ret, *, sp=0xFD, y=0):
+        """Run from `entry` until PC = `ret` (the RTS of a frame whose return
+        address, ret - 1, sits at $01FE/$01FF); return the cycle count."""
+        from m65emu.harness import CSE_BP
+        cpu = self.emu.cpu
+        self.mem.write_flat(0x01FF, (ret - 1) >> 8)
+        self.mem.write_flat(0x01FE, (ret - 1) & 0xFF)
+        cpu.sp = (cpu.sp & 0xFF00) | sp
+        cpu.b, cpu.y, cpu.pc = CSE_BP, y, entry
+        start = cpu.processorCycles
+        self.emu.run_until(ret, max_cycles=200_000)
+        return cpu.processorCycles - start
+
+
+def _run_dasm_m65(syms, cpu, insn_bytes):
+    m = _M65Bundle(syms)
+    m.poke(DASM_INSN_ADDR, *insn_bytes)
+    m.poke(syms.asm_cpu, cpu)
+    cyc = m.call(syms.dasm_test_entry, DASM_RETURN)
+    buf = m.peek(syms.dasm_buf, 24)
+    return buf.split(b"\0")[0].decode("latin-1"), m.emu.a, cyc
+
+
 def run_dasm(syms, cpu, insn_bytes):
     """Disassemble `insn_bytes` at DASM_INSN_ADDR with asm_cpu=`cpu`.
     Returns (text, length, cycles)."""
+    if getattr(syms, "platform", "c64") == "m65":
+        return _run_dasm_m65(syms, cpu, insn_bytes)
     mpu = MPU()
     mem = bytearray(0x10000)
     syms.load_into(mem)
@@ -110,10 +164,27 @@ def asm_sources():
     return list(dict.fromkeys(lines))
 
 
+def _run_asm_m65(syms, source, cpu):
+    m = _M65Bundle(syms)
+    m.poke(ASM_IN_BUF, *source.encode('ascii'), 0)
+    m.poke(syms.asm_ptr, ASM_IN_BUF & 0xFF, ASM_IN_BUF >> 8)
+    m.poke(syms.asm_pc, ASM_PC & 0xFF, ASM_PC >> 8, 0, 0)          # far pointers:
+    m.poke(syms.asm_out, ASM_OUT_BUF & 0xFF, ASM_OUT_BUF >> 8, 0, 0)  # bank 0
+    m.poke(syms.asm_cpu, cpu)
+    m.poke(syms.asm_err_code, 0)
+    m.poke(syms._asm_saved_sp, 0xFD)            # asm_error unwinds to the frame
+    cyc = m.call(syms._asm_line_core, ASM_SENTINEL)
+    n = m.peek(syms.asm_len)[0]
+    got = m.peek(ASM_OUT_BUF, n) if n else None
+    return got, m.peek(syms.asm_err_code)[0], cyc
+
+
 def run_asm(syms, source, cpu):
     """Assemble `source` with asm_cpu=`cpu` through _asm_line_core.
     Returns (bytes or None, asm_err_code, cycles); None means asm_len = 0,
     i.e. an error exit."""
+    if getattr(syms, "platform", "c64") == "m65":
+        return _run_asm_m65(syms, source, cpu)
     mpu = MPU()
     mem = mpu.memory
     syms.load_into(mem)

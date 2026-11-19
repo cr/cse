@@ -119,18 +119,29 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
 
 .ifdef DASM_SUBSET
         ; Subset view: an opcode outside the bitmap lists as "...".
-        lda dasm_cpu_bm,x
+        lda dasm_cpu_bm,x       ; 0, or 1 + the view's bitmap offset
         beq @mapped
         tya
         lsr
         lsr
         lsr
+.ifdef DASM_BYTE_MODES          ; m65: two bitmaps, back to back
+        clc
+        adc dasm_cpu_bm,x
+        tax                     ; X = (opcode >> 3) + 1 + the offset
+        tya
+        and #$07
+        tay
+        lda _bit_tab,y
+        and dasm_view_bm-1,x
+.else
         tax                     ; X = opcode >> 3
         tya
         and #$07
         tay
         lda _bit_tab,y
         and dasm_view_bm,x
+.endif
         bne @in_view
         lda #MNE_UNK
         sta _dasm_midx
@@ -142,6 +153,10 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
 .endif
         lda (_dasm_mne),y       ; mnemonic index
         sta _dasm_midx
+.ifdef DASM_BYTE_MODES
+        inc _dasm_mne+1         ; → the mode bytes (block + 256)
+        lda (_dasm_mne),y
+.else
         inc _dasm_mne+1         ; → the mode nibbles (block + 256)
         tya
         lsr                     ; C = opcode bit 0
@@ -153,6 +168,7 @@ _dasm_in:      .res 3          ; input snapshot (3 bytes max-insn) read from
         lsr
         lsr
 @even:  and #$0F
+.endif
         sta _dasm_mode
         ; fall through
 .endproc

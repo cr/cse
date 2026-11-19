@@ -589,8 +589,8 @@ write ca65 only, and bbbc64 adopts the asm model in its own cycle
 `tests/fixtures/golden/asm_dasm_<cpu set>.json` record, per CPU set,
 what every instruction assembles to, how every opcode lists under
 every `asm_cpu`, and the cycles of each case (`dev/capture_golden.py`):
-py65's for the C64 sets, `MPU45GS02`'s for the m65 set
-(`asm_dasm_45gs02.json`, recorded first in P4 — its baseline; the
+py65's for the C64 sets, `MPU45GS02`'s — one per instruction — for the
+m65 set (`asm_dasm_45gs02.json`, recorded first in P4 — its baseline; the
 45GS02's instructions include the prefixed forms, its listing every
 prefix sequence the peel accepts).  `test_golden_asm_dasm.py` holds the
 current source to them: identical output, total cycles no higher, no

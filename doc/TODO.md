@@ -1623,6 +1623,18 @@ the prefixed rows; `dasm_tables.py` the one 4510 map with the 6502 and
 byte-identical.  The bundle-driven sweeps take a set once it has a
 bundle (`PROD_DEFS`, step (4)).
 
+Step (4) done 2026-11-19: the m65 build is m65-45gs02 (`_45gs02_DEFS`;
+m65-6502 retired), 23 642 B (budget eaa3662).  dasm.s reads the m65
+map — byte-wide modes, the bitmap offset in `dasm_cpu_bm` — and the
+C64 gate makes the build a 6502 assembler until step (5); `$EA` lists
+`eom` (D3).  The m65 `asm_core` and `dasm` bundles (`M65_CONFIGS`)
+link by `dev/m65_test.cfg` and run on M65Emu in clean mode through
+`asm_dasm_runner`; the classifier sweep and table check over the 98
+keys pass.  Found on the way: `mnemonic_tables.py` iterated a
+frozenset, so the m65 profile numbering changed with Python's hash
+seed — sorted now, and a test generates under two seeds.  Tier I and
+Tier X (52) green on the new build.
+
 **P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
 first, step by step; each is red until its code lands.  Automation
 judgement: all of it is automatable — the generators on the host,
@@ -1658,7 +1670,7 @@ hardware: O1 and O3, as before.
   lengths; the m65 `mn7` `T` with no false positive over the invalid
   strings (as the C64 test).  The C64 blocks byte-identical (the C64
   PRG hashes hold).
-- [ ] T4. The m65-45gs02 build (step 4; `test_makefile_guards.py`,
+- [x] T4. The m65-45gs02 build (step 4; `test_makefile_guards.py`,
   `conftest.PROD_DEFS`): `PLATFORM=m65` passes `CPU_45GS02`
   `MEGA_SUPPORT` `CPU_CEIL=4` `DEFAULT_CPU=4`; the m65 `asm_core` and
   `dasm` bundles link and run on `MPU45GS02` in clean mode; the

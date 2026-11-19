@@ -31,7 +31,9 @@ tightly-coupled neighbours).
 `tests/unit/test_platform_m65.py` runs `platform.inc`'s m65 macro
 bodies; from P4 the `asm_core` and `dasm` bundles of m65-45gs02,
 [TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1)
-B1) run on M65Emu's CPU, `MPU45GS02`
+B1 — `conftest.M65_CONFIGS`, linked by `dev/m65_test.cfg`, loaded by
+`load_into_emu()` with the base page at `0.1F00` and run by
+`asm_dasm_runner`'s M65Emu path with B = `CSE_BP`) run on M65Emu's CPU, `MPU45GS02`
 ([§ M65Emu](#m65emu--the-m65-integration-harness)), in *clean* mode:
 it admits, within CSE's own code, the 6502's documented opcodes plus
 the opcodes of the raw-byte macros in `src/m45_ops.inc`, and any other

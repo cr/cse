@@ -286,3 +286,21 @@ def test_m65_oplen_is_the_4510s():
     lengths = M.m65_oplen_lengths()
     for r in I.instructions('4510'):
         assert lengths[r.opcode] == 1 + I.MODE_OPERAND_BYTES[r.mode], hex(r.opcode)
+
+
+def test_generation_does_not_depend_on_the_hash_seed(tmp_path):
+    """Python randomises str hashes per process: a model built by iterating
+    a set would number its profiles differently from run to run.  Both
+    generators, under two seeds, write the same files."""
+    import os
+    import subprocess
+    dev = pathlib.Path(__file__).resolve().parents[2] / "dev"
+    outs = []
+    for seed in ("1", "2"):
+        out = tmp_path / seed
+        env = dict(os.environ, PYTHONHASHSEED=seed)
+        for gen in ("mnemonic_tables.py", "dasm_tables.py"):
+            subprocess.run([sys.executable, gen, "--out", str(out)], cwd=dev, env=env,
+                           check=True, capture_output=True)
+        outs.append({p.name: p.read_bytes() for p in sorted(out.iterdir())})
+    assert outs[0] == outs[1]

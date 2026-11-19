@@ -274,7 +274,7 @@ def m65_entries():
     rows = {v: view_rows(v) for v in ('6502', '65c02', '4510')}
     qrows = q_rows()
     entries = {}
-    for key in mn7gs.KEYS:
+    for key in sorted(mn7gs.KEYS):          # sorted: a frozenset's order varies per run
         if key in I.Q_NAMES:
             ops = qrows[I.Q_NAMES[key]]
             base = base_of(ops)

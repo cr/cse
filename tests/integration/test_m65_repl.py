@@ -348,11 +348,11 @@ def test_break_panel_and_t_re_print(s, key, panel):
     assert rows[h - 1] == "3001:"
     assert rows[h - 2 - panel] .startswith("2000:j $3000")
     assert rows[h - 1 - panel] == "; brk 1 at $3001"
-    assert rows[h - 2] == "3001:.  ea        nop"
+    assert rows[h - 2] == "3001:.  ea        eom"
     s.type("t")
     rows = s.rows()
     assert rows[h - 1] == "3002:"
-    assert rows[h - 2 - panel] == "3001:.  ea        nop"   # the pre-step row
+    assert rows[h - 2 - panel] == "3001:.  ea        eom"   # the pre-step row
     assert rows[h - 3 - panel].startswith("2000:j $3000")
     assert rows[h - 1 - panel] == "; brk at $3002"
     assert rows[h - 2] == "3002:.  e8        inx"
@@ -484,3 +484,10 @@ def test_j_in_a_session_y_ends_it_and_runs(s):
     s.start("j $3010")
     s.keys(b"Y")
     assert s.v("dbg_reason") == DBG_RTS and s.v("reg_x") == 1
+
+
+# ── P4 T4: the m65-45gs02 build starts as a 45GS02 ─────────────────
+
+def test_the_cold_start_selects_the_45gs02(s):
+    """DEFAULT_CPU = 4 (build_system.md § Builds and CPU sets)."""
+    assert s.v("asm_cpu") == 4

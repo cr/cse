@@ -44,7 +44,7 @@ XMEGA65   ?= /Applications/xmega65.app/Contents/MacOS/xmega65
 
 # ── Platform selection ───────────────────────────────────────────────────
 # PLATFORM=c64 (default) builds the three C64 PRGs; PLATFORM=m65 builds
-# the one m65 build, m65-6502 until P4, its D81 (release, disk), runs
+# the one m65 build, m65-45gs02, its D81 (release, disk), runs
 # it in xmega65 (run) and reports it (size).  Any other platform is
 # refused instead of silently building the C64 PRGs.  TARGET= on the command
 # line is PLATFORM's synonym (make run TARGET=m65).  See
@@ -60,7 +60,7 @@ endif
 PLATFORM ?= c64
 _NON_PRG_GOALS := help themes clean clean-tables tables m65-rom check-roms
 ifeq ($(PLATFORM),m65)
-  override CPU := 6502
+  override CPU := 45gs02
 else ifneq ($(PLATFORM),c64)
   ifneq ($(filter-out $(_NON_PRG_GOALS),$(or $(MAKECMDGOALS),all)),)
     $(error PLATFORM=$(PLATFORM): no PRG for this platform; PLATFORM=c64 and PLATFORM=m65 build PRGs)
@@ -122,6 +122,10 @@ _65c02_DEFS   = -DCPU_65C02 -DCMOS_SUPPORT -DDEFAULT_CPU=2 -DCPU_CEIL=2 -DTAB_WI
 _65c02_MN     = mn7 mn7_tables
 _65c02_SUBDIR = cmos
 _65c02_PRG    = cse-cmos.prg
+
+# the m65 build (PLATFORM=m65 sets CPU): 6502, 65C02, 4510, 45GS02 at run time
+_45gs02_DEFS  = -DCPU_45GS02 -DMEGA_SUPPORT -DDEFAULT_CPU=4 -DCPU_CEIL=4 -DTAB_WIDTH=$(TAB_WIDTH)
+_45gs02_MN    = mn7 mn7_tables
 
 # Resolve selected CPU (and platform: the m65 build has its own
 # directory and name, doc/build_system.md § The m65 builds)

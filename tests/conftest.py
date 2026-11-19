@@ -216,6 +216,7 @@ _AC_CLASSIFIER_SOURCES = {
     "65c02": [SRC / "mn7.s", SRC / "mn7_tables.s"],
     "6510": [SRC / "mn7.s", SRC / "mn7_tables.s"],
     "6502": [SRC / "mn6.s", SRC / "mn6_tables.s"],
+    "45gs02": [SRC / "mn7.s", SRC / "mn7_tables.s"],
 }
 
 
@@ -237,7 +238,43 @@ PROD_DEFS = {
     "6502":  ["-DCPU_6502", "-DUSE_MN6", "-DDEFAULT_CPU=0", "-DCPU_CEIL=0"],
     "6510":  ["-DCPU_6510", "-DDEFAULT_CPU=0", "-DCPU_CEIL=1"],
     "65c02": ["-DCPU_65C02", "-DCMOS_SUPPORT", "-DDEFAULT_CPU=2", "-DCPU_CEIL=2"],
+    "45gs02": ["-DCPU_45GS02", "-DMEGA_SUPPORT", "-DDEFAULT_CPU=4", "-DCPU_CEIL=4"],
 }
+
+# The m65 set's bundles are assembled for the m65 platform and linked by
+# dev/m65_test.cfg — CSE's base page ($B0 bytes, loaded at 0.1F00, B =
+# CSE_BP), then the code at $4000 — and run on M65Emu (testing.md
+# § m65 bundles): their far stores need the 45GS02.
+M65_CONFIGS = frozenset({"45gs02"})
+
+
+def _bundle_layout(config):
+    """(platform, linker config, base-page bytes) of a config's bundles."""
+    if config in M65_CONFIGS:
+        return "m65", DEV / "m65_test.cfg", 0xB0
+    return "c64", None, _ZP_SIZE
+
+
+class _BundleImage:
+    """Load a bundle's binary: on c64 into a 64 KB memory (ZP page at $0000,
+    the rest at $4000); on m65 into an M65Emu (base page at 0.1F00)."""
+
+    def _split(self, bundle, config):
+        self.config = config
+        self.platform, _cfg, bp = _bundle_layout(config)
+        raw = bundle.bin.read_bytes()
+        self._zp_blob, self._code_blob = raw[:bp], raw[bp:]
+
+    def load_into(self, memory):
+        """Write the test binary into a 64 KB memory bytearray (c64)."""
+        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
+        memory[_CODE_START : _CODE_START + len(self._code_blob)]   = self._code_blob
+
+    def load_into_emu(self, emu):
+        """Write the test binary into an M65Emu: the base page at 0.1F00."""
+        from m65emu.harness import CSE_BP
+        emu.memory.load(CSE_BP << 8, self._zp_blob)
+        emu.memory.load(_CODE_START, self._code_blob)
 
 
 # Files the sources `.include` (besides generated tables named per
@@ -310,11 +347,12 @@ def _variant_stem(base, config):
     return f"{base}_test" if config == "65c02" else f"{base}_{config}_test"
 
 
-_AC = {c: Bundle(_variant_stem("asm_core", c), _ac_sources(c), PROD_DEFS[c], tag=f"ac_{c}")
+_AC = {c: Bundle(_variant_stem("asm_core", c), _ac_sources(c), PROD_DEFS[c], tag=f"ac_{c}",
+                 platform=_bundle_layout(c)[0], cfg=_bundle_layout(c)[1])
        for c in PROD_DEFS}
 
 
-class AsmCoreSymbols:
+class AsmCoreSymbols(_BundleImage):
     """Resolved symbol addresses + binary loader for the asm_core bundle.
 
     Provides addresses for both addr_mode tests (mode_parse, asm_ptr, asm_opr)
@@ -398,14 +436,7 @@ class AsmCoreSymbols:
         # emitted the ACC label-shadow warning.
         self._warn_witness    = s["_warn_witness"]
 
-        raw = bundle.bin.read_bytes()
-        self._zp_blob   = raw[:_ZP_SIZE]
-        self._code_blob = raw[_ZP_SIZE:]
-
-    def load_into(self, memory):
-        """Write the test binary into a 64 KB memory bytearray."""
-        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
-        memory[_CODE_START : _CODE_START + len(self._code_blob)]   = self._code_blob
+        self._split(bundle, config)
 
 
 @pytest.fixture(scope="session")
@@ -599,11 +630,12 @@ _DASM_SOURCES = [
 ]
 
 _DASM = {c: Bundle(_variant_stem("dasm", c), _DASM_SOURCES, PROD_DEFS[c],
-                   tag=f"dasm_{c}", deps=[SRC / "dasm_mne_idx.s"])
+                   tag=f"dasm_{c}", deps=[SRC / "dasm_mne_idx.s"],
+                   platform=_bundle_layout(c)[0], cfg=_bundle_layout(c)[1])
          for c in PROD_DEFS}
 
 
-class DasmSymbols:
+class DasmSymbols(_BundleImage):
     """Resolved symbol addresses + binary loader for one dasm variant.
 
     All symbols resolved from .lbl file (debug build).
@@ -619,13 +651,7 @@ class DasmSymbols:
         self.asm_cpu         = s["asm_cpu"]
         self.dasm_buf        = s["dasm_buf"]
 
-        raw = bundle.bin.read_bytes()
-        self._zp_blob   = raw[:_ZP_SIZE]
-        self._code_blob = raw[_ZP_SIZE:]
-
-    def load_into(self, memory):
-        memory[_ZP_START   : _ZP_START   + _ZP_SIZE]              = self._zp_blob
-        memory[_CODE_START : _CODE_START + len(self._code_blob)]   = self._code_blob
+        self._split(bundle, config)
 
 
 _DASM_CACHE = {}

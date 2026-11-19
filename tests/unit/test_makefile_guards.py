@@ -37,12 +37,13 @@ def _make_n(*args):
                                              ("debug", "debug"),
                                              ("all", "release"),
                                              (None, "release")])
-def test_m65_prg_targets_build_the_m65_6502_prg(target, profile):
+def test_m65_prg_targets_build_the_m65_45gs02_prg(target, profile):
     r = _make_n(*([target] if target else []), "PLATFORM=m65")
     assert r.returncode == 0, r.stderr
     ca65 = [ln for ln in r.stdout.splitlines() if ln.startswith("ca65 ")]
-    assert ca65 and all("-DPLATFORM_M65" in ln and "-DCPU_6502" in ln
-                        and "-DUSE_MN6" in ln and "-DCPU_CEIL=0" in ln
+    assert ca65 and all("-DPLATFORM_M65" in ln and "-DCPU_45GS02" in ln
+                        and "-DMEGA_SUPPORT" in ln and "-DDEFAULT_CPU=4" in ln
+                        and "-DCPU_CEIL=4" in ln and "-DUSE_MN6" not in ln
                         and "-DPLATFORM_C64" not in ln for ln in ca65)
     assert all((" -g " in ln) == (profile == "debug") for ln in ca65)
     ld65 = [ln for ln in r.stdout.splitlines() if ln.startswith("ld65 ")]
@@ -57,7 +58,7 @@ def test_m65_prg_targets_build_the_m65_6502_prg(target, profile):
 def test_m65_ignores_cpu():
     r = _make_n("release", "PLATFORM=m65", "CPU=65c02")
     assert r.returncode == 0, r.stderr
-    assert "-DCPU_65C02" not in r.stdout and "-DCPU_6502" in r.stdout
+    assert "-DCPU_65C02" not in r.stdout and "-DCPU_45GS02" in r.stdout
 
 
 @pytest.mark.parametrize("platform", ["PLATFORM=m65", "TARGET=m65"])
