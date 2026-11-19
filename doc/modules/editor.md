@@ -353,6 +353,38 @@ the buffer is empty so the first line is ready for an instruction.
 The sequential reader passes `$A0` through as is; the assembler's
 whitespace skipper treats `$A0` as whitespace.
 
+### On m65: the layout follows the mode
+
+The editor uses the whole screen of the current mode (operator,
+2026-11-18).  Every number in § Screen layout is the run-time
+geometry ([platform_layer.md § Display](../platform_layer.md#display),
+*The geometry*):
+
+```
+Rows 0 … H−4   Source text (ED_ROWS = H − 3: 22 in 40 × 25 and 80 × 25, 47 in 80 × 50)
+Row  H−3       Status bar
+Rows H−2, H−1  Context strip: the 2 REPL rows above the prompt
+```
+
+The status bar keeps the c64 fields and their order.  Cols 0–18 (the
+dirty flag, the project name, at most 16 characters) are as on c64;
+the `free:` field and the position field are anchored to the right
+edge — `free:aaaa-bbbb` at W − 21 … W − 8, `LLLL,CC` at W − 7 … W − 1 —
+so in 40 columns the bar is the c64 bar and in 80 columns the gap
+between is blank.  The free field shows the program region,
+`workstart`–`workend` (`2000`–`BFFF`): fixed on m65, because the source
+text is not in bank 0.  The screen save around the editor is the
+mode's width × height ([platform_layer.md § Screen save](../platform_layer.md#screen-save));
+`ESC 4` / `5` / `8` are refused while the editor runs.
+
+**Line length on m65:** `LINE_MAX` = 79 visual columns (operator,
+2026-11-18), a platform constant (c64 39), not the width.  Typing is
+refused at `LINE_MAX` and at the screen's last column, whichever is
+smaller: in 40 × 25 the cap is 39, and a longer line (written in 80
+columns, or loaded) shows `>` in col 39 as on c64 and cannot grow
+there.  A source with lines over 39 columns assembles on m65 and is
+truncated, with the warning, by the C64 build.
+
 ### Long lines and the overflow indicator
 
 Typing never makes a line wider than 39 visual columns (printable,

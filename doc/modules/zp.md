@@ -70,8 +70,11 @@ differences; the addresses are the linker map's
   ([platform_layer.md § Far memory](../platform_layer.md#far-memory)):
   `rp_ptr`, `rp_ptr2`, `asm_pc`, `asm_out`, `_dasm_ptr`, `disk_ptr`,
   `_io_tmp`, `gap_lo`, `gap_hi`, `buf_base`, `ed_top_ptr`, `read_ptr`
-  (and its alias `save_ptr`), `ed_tmp`, `ed_scr` — 14 pointers, 28
-  bytes more than on c64.  How each user-memory pointer gets its
+  (and its alias `save_ptr`), `ed_tmp`, `ed_scr`, and from P2 the
+  screen pointers `_io_scr` and `scr_src` (the 80 × 50 screen is in
+  bank 4) — 16 pointers, 32 bytes more than on c64.  The P2 banks: a
+  screen pointer `FAR_BANK_SCREEN` (`scr_bank`), a source pointer
+  `BANK_SRC`, the screen save's `BANK_CSE`.  How each user-memory pointer gets its
   bank (P1; [platform_layer.md § Far memory](../platform_layer.md#far-memory)):
   - `rp_ptr` — CSE's line parser (`line_buf`, bank 3) at its root in
     `exec_line`; its walks and the four restores from `expr_ptr` /
@@ -104,7 +107,12 @@ differences; the addresses are the linker map's
   ([mem.md § Interface](mem.md#interface)) — 9 bytes, written by the
   resident stub under the user map with absolute addressing; then the
   stub's three targets (6 bytes, written by `setup_interrupts` and the
-  loader).
+  loader).  From P2 also: `um_sysflags` (the program's `SYSFLAGS`);
+  the terminal's `IO_CX`, `IO_CY` (the cursor — they replace the
+  `BP_PENDING` placeholders) and `io_key` (the key lookahead); the
+  geometry `scr_width`, `scr_height`, `scr_last_col`, `scr_last_row`,
+  `scr_ed_rows`, `scr_bank` and `scr_size` (2)
+  ([platform_layer.md § Display](../platform_layer.md#display)).
 - **disk.s's private pointer** (`DISK_LOCAL_PTR`) lives here — *stated
   with P3*.
 

@@ -333,7 +333,8 @@ convention.  The `;?` / `;!` / `; ` prefixes come from `log_open`
 
 ### Other caveats
 
-- `ed_read_line` keeps at most 39 characters of a line.  When it
+- `ed_read_line` keeps at most `LINE_MAX` characters of a line (39;
+  79 on m65, whose `_line_buf` is 80 bytes).  When it
   dropped characters (X ≠ 0 on return) the assembler emits the
   warning above; a line of exactly 39 characters is read whole and
   gets no warning.  This is not a fatal error — assembly continues

@@ -144,7 +144,7 @@ in zero page; see [zp.md](zp.md).
 | `disk_name_buf` | 18 | Composed disk filename (FILENAME_MAX + 2) |
 | `_verbatim_type` | 1 | 0 / 's' / 'p' from `strip_and_classify` |
 | `_arg_count` | 1 | Numeric argument count from the last `l`/`s` parse (0–2) |
-| `line_buf` | 42 | Screen line capture buffer |
+| `line_buf` | 42 (m65 82) | Screen line capture buffer: the widest row, its NUL and a spare |
 | `dot_asm_buf` | 24 | `.` instruction text handed to `asm_line` |
 | `rp_next_hi` | 2 | 16-bit scratch pair (`rp_next_lo` is in zp.s) |
 | `rp_opc` | 1 | Command character / scratch (`emit_mem` columns, `info_emit_rows` count) |
@@ -348,6 +348,14 @@ data in bulk.  It has two phases: **dump** and **edit**.
   re-executable: `_require_eoi_or_err` accepts `;` as the end of
   input, so RETURN on the row treats the characters as a comment and
   the 8 hex bytes as an edit.
+
+**By width** (operator, 2026-11-18): an `m` row holds 8 bytes in 40
+columns and **16 bytes in 80 columns** — `AAAA:m` + 16 × ` HH` + `;` +
+16 characters, 71 columns; on m65 the width decides at each row, on
+c64 it is always 8.  An edit accepts up to 16 bytes on m65 (8 on c64),
+whatever the width, so a 16-byte row typed in 80 columns and recalled
+in 40 still executes.  `zp_stage_buf` holds 16 bytes on m65.  `d`
+rows and every other emitter fit 40 columns and do not change.
 
 The block command clears the final prompt row and stops.  The screen
 is now a buffer of editable commands.
@@ -641,8 +649,9 @@ A size of 0 is `;?range`.
   BBBB its last byte.
 
 After a successful SEQ load or save the REPL prints `; Nl Mb` and
-one `;!long LNN` per line wider than 39 columns (`warn_long_lines`;
-the editor shows such lines with `>` in column 39); a PRG load or
+one `;!long LNN` per line wider than `LINE_MAX` columns (39; 79 on
+m65 — `warn_long_lines`; the editor shows such lines with `>` in its
+last column); a PRG load or
 save prints `; prg AAAA-BBBB NNb` ([log.md](log.md)).  Both end with
 the drive status row.
 
@@ -950,8 +959,10 @@ paths; each starts at column 0 and ends with `io_clear_eol`.
   (characters $20–$7E as themselves, others `.`).
 - `emit_reg()` — `r pc:xxxx a:xx x:xx y:xx s:xx nv-bdizc` (set flags
   uppercase); on m65 in 80 columns `r pc:xxxx a:xx x:xx y:xx z:xx
-  b:xx s:xx nv-bdizc`; the 40-column layout is P2's
-  ([debugger.md § `r`](debugger.md#r)).
+  b:xx s:xx nv-bdizc`, in 40 columns that c64 line and a second row
+  `r z:xx b:xx` ([debugger.md § `r`](debugger.md#r)).  The break panel
+  is a row taller in m65's 40 columns, and `cmd_step`'s re-print moves
+  up by the panel's height, not by 3.
 
 ## Caveats
 

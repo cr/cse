@@ -11,6 +11,18 @@
 
 ## Interface
 
+**On m65** each entry below has the body of
+[platform_layer.md § Display](../platform_layer.md#display)'s m65
+column: `vic_reset` writes the current mode's recorded VIC-IV
+register set and keeps the screen's content; `restore_colors` fills
+the mode's colour RAM by one DMA job; `reset_screen` clears width ×
+height bytes in the screen's bank by one DMA job; `scroll_up` moves
+the rows by one DMA copy; `kernal_screen_reset` is `ESC O`, `HOME
+HOME`, `io_sync`.  `screen_mode_set` (m65 only): `ESC 4` / `5` / `8`
+through `BSOUT`, then `io_geometry` and `restore_colors`; the editor
+refuses it while it runs.  Every size is the run-time geometry
+(`WIDTH`, `HEIGHT`, `scr_size`).
+
 ### theme_init
 **In:** none
 **Out:** `theme_border` / `theme_bg` / `theme_fg` = the build-time
@@ -140,9 +152,9 @@ scrolls up 1 instead of incrementing.  Calls `io_sync`.
 
 ### Memory
 
-**ZP (from zp.s, allocation in [zp.md](zp.md)):** `scr_src` (2) —
-`scroll_up`'s source row pointer.  The destination row pointer is
-cse_io's transient `_io_scr`.
+**ZP (from zp.s, allocation in [zp.md](zp.md)):** `scr_src` (2; m65
+4, far, the screen's bank) — `scroll_up`'s source row pointer.  The
+destination row pointer is cse_io's transient `_io_scr`.
 
 **BSS (3 bytes):** `theme_border` (1), `theme_bg` (1),
 `theme_fg` (1) — runtime color theme, set by `theme_init`, rewritten

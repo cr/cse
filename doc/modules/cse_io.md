@@ -16,6 +16,32 @@ for CSE.  All output goes to screen RAM at $0400; colour RAM is never
 written here.  Cursor position uses KERNAL locations $D3 (column)
 and $D6 (row).  Single arguments in A or A/X.
 
+**On m65** ([platform_layer.md § Terminal](../platform_layer.md#terminal),
+§ Display): output goes to the screen of the current mode — `0.0800`,
+or `4.0800` in 80 × 50 — through the far pointer `_io_scr` with the
+screen's bank; the cursor is CSE's own `IO_CX` / `IO_CY` in its base
+page (no KERNAL cell), told to the KERNAL by `io_sync` (`PLOT`).
+`io_init` also runs `io_geometry`.  Every width and height is the
+run-time geometry (`WIDTH`, `LAST_COL`, `HEIGHT`, `LAST_ROW`): `io_putc`
+clamps at the current last column, `io_clear_eol` clears to it.
+
+### io_geometry (m65)
+**In:** none.  **Out:** `HOME HOME` sent (the full screen is the
+editor's window); `scr_width`, `scr_height`, `scr_last_col`,
+`scr_last_row`, `scr_ed_rows`, `scr_size` (width × height), `scr_bank`
+and the tables `scr_lo` / `scr_hi` (one entry per row, stride the
+width) set from `SCRORG` and `$D062` (A1: X / Y are the right column
+and bottom row).  **Clobbers:** A, X, Y, Z.  Called by `io_init` and
+`screen_mode_set`.  On c64 there is no routine: the geometry is
+constants and the tables are RODATA.
+
+### io_kbhit / io_getc on m65
+`io_kbhit`: a key waiting in the one-key lookahead `io_key` (CSE's
+base page), or, if it is empty, `KCALL GETIN` into it — so a peek
+sees all three of `GETIN`'s sources (A1).  `io_getc` takes the
+lookahead first, then `GETIN`.  `IO_KBD_FLUSH` empties the lookahead
+and drains `GETIN` to 0.
+
 ### ZP Variables
 
 Allocated in zp.s ([zp.md](zp.md)).
@@ -23,7 +49,7 @@ Allocated in zp.s ([zp.md](zp.md)).
 | Name | Size | Purpose |
 |------|------|---------|
 | `_io_tmp` | 2 | Scratch: string pointer (`io_puts`), dividend (`io_utoa`), repeat counter (`io_repc`) |
-| `_io_scr` | 2 | Screen row pointer, re-derived by `_io_scr_setup` before every use (screen.s reuses it as `scroll_up`'s destination pointer) |
+| `_io_scr` | 2 (m65: 4, far) | Screen row pointer, re-derived by `_io_scr_setup` before every use (screen.s reuses it as `scroll_up`'s destination pointer); on m65 its bank is the screen's (`FAR_BANK_SCREEN`) |
 
 ### BSS Variables
 

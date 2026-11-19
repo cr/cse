@@ -155,23 +155,33 @@ The four tiers, for a program run under CSE on the MEGA65
   `SP` (the decimal flag as on c64; `E` stays 1, § 5.5); the **bank
   state** — the `MAP` setting, the CPU port and `$D030` — captured at
   every break and installed again by every resume, so a break inside
-  the program's own mapping resumes inside it; base page 0 entirely,
+  the program's own mapping resumes inside it; its `SYSFLAGS`
+  (function-key macros and the keyboard locks), likewise; base page 0
+  entirely,
   wherever `B` points — CSE never writes it, so there is no image to
   swap (the port aside); the user's stack above SP (§ 4); the user's memory:
   `0.1600–0.1EFF`, the program region, bank 1 above the DOS buffers,
   banks 4 and 5, the Attic RAM.
-- **Clobbered:** the screen and colour RAM, the VIC-IV state CSE
-  forces on every return, the KERNAL cells the calls CSE makes write,
-  the SID's three voice gates — the screen-side list is *stated with
-  P2*; the stack below the user's SP (§ 4).
+- **Clobbered:** the screen and the colour RAM of the current mode
+  (`0.0800` and its colour RAM, `4.0800` in 80 × 50) — CSE writes the
+  REPL there, and a program's `BSOUT` output stays visible as on c64;
+  the VIC-IV text-mode registers CSE writes back on every return (the
+  register set the KERNAL leaves for the current mode — a program's
+  bitmap, sprite or raster setup does not survive a break); the border
+  and background colours (the theme); the KERNAL screen editor's
+  modes and window (`ESC O`, `HOME HOME`: quote and insert mode off,
+  the full screen); the KERNAL cells in base page 0 that the calls CSE
+  makes write (`BSOUT` and `PLOT`: `$C4 $C5 $DA $E0 $E1 $E8 $E9 $EA $EB
+  $EC $EF $F0`, recorded); the SID's three voice gates; the stack
+  below the user's SP (§ 4).
 - **Compromised:** the IEC and disk state, interrupt timing — as on
   c64.
-- **Untouched:** the I/O personality; bank 1, banks 4–5 and the Attic
-  RAM.
+- **Untouched:** the I/O personality; bank 1, banks 4–5 (but for the
+  80 × 50 screen at `4.0800–4.179F`) and the Attic RAM.
 
 A fresh start (`j`, `g`) does not take the last run's bank state: it
 installs the run premise's — the user map, the port `$FF` / `$85`,
-`$D030` = `$64` — as `RUN` would.
+`$D030` = `$64`, `SYSFLAGS` = `$00` — as `RUN` would.
 
 ## 3. Memory regions
 

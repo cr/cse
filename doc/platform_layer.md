@@ -134,8 +134,8 @@ platform lacks is absent there, so a stray use fails to assemble.
 | The workspace's upper bound (`b`, the step gate, the assembler's emit gate: `WORKSTART` ≤ address < the bound) | `buf_base`: the source text's base, dynamic ([gap_buffer.md](modules/gap_buffer.md)) | `HIMEM` (`$C000`): fixed and page-aligned, so a high-byte compare; the source text is not in bank 0 |
 | User ZP | [§ Base page](#base-page) | [§ Base page](#base-page) |
 | `STACK_TOP` | [§ Stack](#stack) | [§ Stack](#stack) |
-| Screen geometry | `SCREEN $0400`, `COLOR_RAM $D800`, `SCREEN_WIDTH 40`, `SCREEN_HEIGHT 25` and the sizes derived from them (the editor's 22 rows, its status columns, the 1000-, 920-, 880- and 80-byte copies) | read from the hardware and `SCRORG` at run time — *stated with P2* |
-| VIC | `$D011`, `$D015`, `$D016`, `$D018`, `$D019`, `$D01A`, `$D020`, `$D021` | VIC-IV — *stated with P2* |
+| Screen geometry | `SCREEN $0400`, `COLOR_RAM $D800`, `SCREEN_WIDTH 40`, `SCREEN_HEIGHT 25` and the sizes derived from them (the editor's 22 rows, its status columns, the 1000-, 920-, 880- and 80-byte copies) | run-time state: `io_geometry` reads it from `SCRORG` and `$D060–$D063` after every mode change ([§ Display](#display), *The geometry*) |
+| VIC | `$D011`, `$D015`, `$D016`, `$D018`, `$D019`, `$D01A`, `$D020`, `$D021` | VIC-IV: the register set the KERNAL leaves for each text mode, recorded per mode and ROM (`m65_editor.json`), which `vic_reset` writes back ([§ Display](#display)); `$D020` / `$D021` as on c64 |
 | SID | `$D400`, `$D401`, `$D404`, `$D40B`, `$D412`, `$D418` | the same |
 | BASIC format | `SYS` token `$9E`, `REM` token `$8F` | the same in BASIC 65 |
 | CPU-port seeds | `$00 = $2F`, `$01 = $36` | the run premise's `$00 = $FF`, `$01 = $85`: the kernel's port while CSE runs, and a fresh start's ([§ User transitions](#user-transitions)) |
@@ -320,7 +320,10 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   P1 the user-memory pointers (`rp_ptr`, `rp_ptr2`, `_dasm_ptr`,
   `asm_out`, `asm_pc`), P2 the screen, string and source pointers
   (`ed_scr`, `_io_tmp`, `gap_lo`, `gap_hi`, `buf_base`, `ed_top_ptr`,
-  `read_ptr`, `ed_tmp`), P3 `disk_ptr`.  Until then a far pointer's
+  `read_ptr`, `ed_tmp`, and `_io_scr` / `scr_src`, far from P2: the
+  screen is in bank 4 in 80 × 50) — a screen pointer by
+  `FAR_BANK_SCREEN` (the mode's bank, [§ Display](#display)), a source
+  pointer `BANK_SRC`, the screen save's `BANK_CSE`; P3 `disk_ptr`.  Until then a far pointer's
   bank is 0 (`BANK_USER`): the loader clears CSE's base page.  A
   pointer that only ever reaches bank 0 below `$C000` has no set
   site at all: its bank is the loader's 0 for the whole session, and
@@ -424,6 +427,14 @@ and the Hypervisor's `hyppo_get_mapping` does ([§ Constants](#constants)).
   code and data windows, which `MAP` places); the map in `stub_user`,
   megabytes first, then offsets and masks — the second `MAP`'s
   operands on the stack — and `EOM` once.
+- **The program's `SYSFLAGS`** (function-key macros, the Mega + Shift
+  and No Scroll locks) travels with the bank state, though it is KERNAL
+  state, not banking: `save_userland_state` reads it (`KCALL
+  SYSFLAGS`, C = 1) into `um_sysflags` and sets CSE's (bits 5 and 7,
+  [§ Display](#display)); `_rtu_body` writes the program's back before
+  `PLAT_TO_USER`; a fresh start gives the run premise's `$00` (P2,
+  operator 2026-11-18: CSE reads raw function keys, a program finds
+  its own).
 - **Fresh start** (`j`, `g`): the bank state is the run premise's —
   the user map, the port `$FF` / `$85`, `$D030` = `$64` — written into
   the saved state by `return_to_userland`, so a run starts as `RUN`
@@ -518,21 +529,48 @@ column says *P2* is `PLAT_PENDING 2` until then.
 | `IO_KBD_FLUSH` (repl's drains) | `sta $C6` (A = 0) | `GETIN` until it answers 0 (recorded: empty answers A = 0, C = 0), the lookahead emptied |
 | `scr_lo` / `scr_hi`, the width | RODATA tables of `SCREEN` + 40·row; `COLS = 40` | run-time tables and width from `SCRORG` after `HOME HOME`: A / Z the top-left address, X + 1 columns, Y + 1 rows (recorded: X / Y are the window's right column and bottom row, not the book's width and height); the bank from `$D062` (80 × 50: 4) |
 | `io_blip` | SID voice 1 | the same |
+| The MEGA65's keys (TAB, HELP, F9–F14, ALT / MEGA / CTRL combinations) | — | `GETIN`'s codes for them — the typing queue's ASCII codes are the book's (F-5/6: TAB `$09`, HELP `$1F`, F9 / F11 / F13 `$F9 $FB $FD`, shifted `$FA $FC $FE`); the PETSCII codes `GETIN` answers, and the modifier mask (`$D60A`, F-3), are taken from the KERNAL's key table by P2's analysis (xmega65's monitor cannot type a key) |
 
 ### Display
 
-screen.s ([screen.md § Interface](modules/screen.md#interface)) and
-one macro; the m65 bodies are *stated with P2*.
+screen.s ([screen.md § Interface](modules/screen.md#interface)),
+cse_io.s's geometry, and two macros.
 
-| Name | c64 |
-|---|---|
-| `vic_reset` | VIC-II registers to CSE's text mode |
-| `restore_colors` | border, background, `CHRCOLOR`, a 1 K fill of `$D800–$DBFF` |
-| `kernal_screen_reset` | the KERNAL's screen-editor cells re-seeded |
-| `reset_screen` | colours, clear, home |
-| `scroll_up`, `newline`, `cursor_show` / `hide` | through `scr_lo`/`scr_hi` |
-| `PLAT_HYGIENE` (repl's `hygiene_after_userland`) | `$CC ← 1`, `$0291 ← $80`, SID voices 1–3 gated off |
-| `screen_mode_set`, `screen_geometry` | constants, no-op (m65: ESC 4 / 5 / 8 through `CHROUT`, then the geometry from `SCRORG` and `$D062`, [§ Terminal](#terminal)) |
+| Name | c64 | m65 |
+|---|---|---|
+| `vic_reset` | VIC-II registers to CSE's text mode | the current mode's VIC-IV register set, as the KERNAL leaves it after `ESC 4` / `5` / `8` (recorded per ROM: a RODATA table per mode), the screen's content kept — a program's `BSOUT` output stays visible, as on c64.  `$D01A` is the KERNAL's (its raster IRQ), not 0 |
+| `restore_colors` | border, background, `CHRCOLOR`, a 1 K fill of `$D800–$DBFF` | border and background as on c64; the text colour as a colour code through `BSOUT`; the colour RAM of the current mode — width × height bytes from the colour-RAM offset the VIC-IV names — filled by one DMA job |
+| `kernal_screen_reset` | the KERNAL's screen-editor cells re-seeded | `ESC O`, `HOME HOME`, `io_sync` (A1; below) |
+| `reset_screen` | colours, clear, home | the same: the screen's width × height bytes in the mode's bank filled by one DMA job, then home |
+| `scroll_up`, `newline`, `cursor_show` / `hide` | through `scr_lo`/`scr_hi` | the same, through far pointers with the screen's bank; `scroll_up` moves the rows with one DMA copy and one fill |
+| `PLAT_HYGIENE` (repl's `hygiene_after_userland`) | `$CC ← 1`, `$0291 ← $80`, SID voices 1–3 gated off | SID voices 1–3 gated off; `SYSFLAGS` bit 5 (function-key macros off) and bit 7 (Mega + Shift locked) set for CSE — the program's `SYSFLAGS` is part of its bank state ([§ User transitions](#user-transitions)) |
+| `screen_mode_set` (screen.s) | — (one mode) | `ESC 4` / `5` / `8` through `BSOUT` (each clears the screen), then `io_geometry`, `restore_colors` |
+| `io_geometry` (cse_io.s) | — (constants) | `HOME HOME`, then `SCRORG`: A / Z the screen's address, X + 1 the width, Y + 1 the height (A1: X / Y are the right column and bottom row); the bank from `$D062`; then `scr_lo` / `scr_hi` filled for that width and height |
+
+**The geometry.**  On c64 the width, height and screen address are
+constants; on m65 they are run-time state in CSE's base page —
+`scr_width`, `scr_height`, `scr_bank`, with `scr_lo` / `scr_hi` (50
+rows) in BSS — set by `io_geometry` at cold start and after every mode
+change.  An inline site names them through **operand defines**, which
+expand to an immediate on c64 (byte-identical) and to a base-page cell
+on m65:
+
+| Define | c64 | m65 |
+|---|---|---|
+| `WIDTH`, `LAST_COL` | `#40`, `#39` | `scr_width`, `scr_last_col` |
+| `HEIGHT`, `LAST_ROW` | `#25`, `#24` | `scr_height`, `scr_last_row` |
+| `ED_ROWS`, `ED_STATUS_ROW` (the editor: height − 3, its status row) | `#22`, `#22` | `scr_ed_rows`, the same cell |
+
+so `cpy WIDTH` is `cpy #40` on c64 and `cpy scr_width` on m65.  A
+size a loop counts (a screen copy, the save) is a DMA job's length on
+m65 (width × height, computed by `io_geometry` into `scr_size`), not a
+loop bound.  Every screen pointer is a far pointer; `FAR_BANK_SCREEN
+name` sets its bank from `scr_bank` (c64: empty; m65: `lda scr_bank` ·
+`sta name+2` · `lda #0` · `sta name+3`, A kept) — zp.md lists them.
+The modes: 80 × 25 (default) and 40 × 25 at `0.0800`, 80 × 50 at
+`4.0800`; `ESC 4` / `5` / `8` typed at the prompt or in the editor
+reach `screen_mode_set` (CSE reads its keys itself, so it obeys these
+sequences itself).
 
 `kernal_screen_reset` on m65 (A1, recorded): `ESC O` through `BSOUT`
 — quote and insert mode off (a program can leave either on; both
@@ -542,7 +580,7 @@ survive a break, CSE needs the full screen), then `io_sync`.  There is no line-l
 editor's logical lines follow the screen's content, and a `BSOUT` a
 program's NMI abandoned leaves nothing `PLOT` does not resync.  The
 rest of the display's m65 bodies (VIC-IV registers, colours, the
-fill) are *stated with P2*.
+fill) are the table's.
 
 On m65 the screen is at `0.0800` in 40 × 25 and 80 × 25 and at
 `4.0800` in 80 × 50 (recorded), so the display bodies reach it
@@ -554,8 +592,11 @@ The editor saves and restores the REPL screen around itself
 ([editor.md](modules/editor.md)) into a buffer whose home is
 `REPL_SCREEN`: under the KERNAL on c64, bracketed by the banking
 calls where it reads the buffer; in the data window on m65, sized for
-80 × 50, the screen side reached through a far pointer with the
-mode's bank — *stated with P2*.
+80 × 50 (4000 bytes), saved and restored by one DMA copy of the
+current mode's width × height bytes between the screen's bank and
+`3.B000`.  A mode change while the editor runs is refused (the saved
+screen is the mode's).  The colour RAM is not saved on either
+platform: `restore_colors` repaints it.
 
 ### Disk bank
 
@@ -572,8 +613,13 @@ block per platform (`.ifdef`), each stating that platform's map in
 [memory_design.md](memory_design.md)'s terms: the fixed rows
 (`info_tbl_*`) and the bounds of the fixed free holes (`INFO_ZP_*`,
 `INFO_LOW1_*`, `INFO_LOW2_*`).  `cmd_info`'s sequence of fixed and
-dynamic rows is the c64 map's; on m65 it is `PLAT_PENDING 2` until
-P2 states that map's rows.
+dynamic rows is the c64 map's.  On m65 the rows are
+[memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)'s
+bank table — the user's regions (`0.1600–0.1EFF`, the program region
+with `workstart` / `workend`, bank 1 above the DOS buffers, banks 4–5
+in 40 × 25 and 80 × 25), CSE's page, the source region, CSE's code and
+data windows — each written with its bank, `b.aaaa-bbbb`
+([glossary.md](glossary.md)).
 
 ### Loader
 

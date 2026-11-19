@@ -192,7 +192,9 @@ lands inside the gap).
 
 ### ed_read_line
 **In:** A/X = destination buffer pointer (40 bytes: at most 39
-characters and the NUL).
+characters and the NUL; on m65 80 bytes: `LINE_MAX` = 79, the source
+line length there — [editor.md § On m65](editor.md#on-m65-the-layout-follows-the-mode);
+every 39 below is `LINE_MAX`).
 **Out:** A = length copied (0–39), buffer NUL-terminated; X = 0 when
 the whole line fit, X = 39 (non-zero, positive) when characters past
 the 39th were dropped; or A = X = $FF at EOF (nothing left to read).

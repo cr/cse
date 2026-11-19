@@ -48,6 +48,7 @@ and what keeps the promise honest — see [background.md](background.md).
 - [Assembler syntax](#assembler-syntax)
 - [Memory layout](#memory-layout)
 - [Built-in symbols](#built-in-symbols)
+- [On the MEGA65](#on-the-mega65)
 - [Development](#development)
 - [License](#license)
 
@@ -636,6 +637,32 @@ REPL to clear it, or press SHIFT+CLR/HOME to redraw it.
 Use in assembler: `.org workstart`
 
 Use in REPL: `@ workstart`, `? workend`
+
+## On the MEGA65
+
+A native MEGA65 build is in development (branch `m65`); how to start
+it from a PRG, a D81 or a cartridge comes with its first release.
+Where it differs from the C64 build:
+
+- **Screen modes.**  80 × 25 by default; ESC 4 switches to 40 × 25,
+  ESC 5 to 80 × 50, ESC 8 back to 80 × 25 — at the prompt, not in the
+  editor.  A switch clears the screen.
+- **Wider rows.**  In 80 columns an `m` row shows 16 bytes (8 in 40
+  columns); an `m` edit takes up to 16 bytes in any mode.  `r` shows
+  two more registers, `z:` and `b:` — on one row in 80 columns, on a
+  second row `r z:XX b:XX` in 40.
+- **The editor** uses the whole screen of the current mode, and a
+  source line may be 79 columns wide (39 on the C64; the C64 build
+  truncates longer lines with a warning).  In 40 columns a longer line
+  shows `>` at its edge, as on the C64.
+- **Keys.**  TAB is the editor's tab (as SHIFT+SPACE).  The function
+  keys reach CSE raw: their BASIC macros are off while CSE reads keys,
+  and a program you run finds them as you left them.  HELP, F9–F14 and
+  the ALT and MEGA combinations do nothing in CSE yet.
+- **Your program runs as `RUN` would start it**, in BASIC 65's `SYS`
+  map, and a break or a step keeps its own memory map, CPU port and
+  `$D030`.  What it may use is
+  [doc/userland_contract.md § 3](doc/userland_contract.md#3-memory-regions).
 
 ## Development
 

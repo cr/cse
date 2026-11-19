@@ -484,11 +484,17 @@ characters:
 r pc:XXXX a:XX x:XX y:XX z:XX b:XX s:XX nv-bdizc
 ```
 
-In 40 columns (ESC 4) that line does not fit; the m65 40-column
-layout of `r` is not yet stated
-([TODO § M65 slice 2](../TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer),
-P2).  Whatever it becomes, the echoed form re-executes unchanged, as
-on c64.  The parse accepts the fields in any layout.
+In 40 columns (ESC 4) that line does not fit; `r` then prints two
+rows — the c64 line, and `r z:XX b:XX` below it:
+
+```
+r pc:XXXX a:XX x:XX y:XX s:XX nv-bdizc
+r z:XX b:XX
+```
+
+Each row re-executes unchanged on its own, because `r` sets the fields
+it is given and leaves the rest (§ `r`).  `emit_reg` chooses by the
+current width at each call.
 
 Bit 5 of the flags field is `E` on the 45GS02; it stays `-` and
 cannot be set, because `RTI` does not load it — user code runs with

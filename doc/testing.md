@@ -731,6 +731,35 @@ The installed machine they check is
   second program maps its own window and banks out the I/O before its
   `BRK`; after the resume it reads its window and the port back as it
   set them.
+- **The REPL on m65** (P2).  From P2 the m65 PRG runs its whole
+  cold start on M65Emu (`_main` to `main_loop_top`, Principle 16's
+  watchers on `cse_brk_handler` / `cse_recover`), and the suites type
+  their commands: `inject_keys` puts them in the typing queue, where
+  `GETIN` takes them, and the screen is read where the VIC-IV shows it
+  (`screen_row`, `$D058–$D063`).  The rows: the prompt and splash at
+  80 × 25; `?`, `m` (16 bytes a row in 80 columns, 8 in 40; edits of up
+  to 16), `.`, `d`, `r` (one row in 80 columns, two in 40), `i` (the
+  m65 rows); the debugger commands typed at the prompt and the
+  lifecycle matrix through the REPL (from P1, D-P1-5); the editor in
+  each mode (its rows, the status bar anchored right, lines of up to
+  79 columns, `>` in 40 columns, the screen saved and restored); `ESC
+  4` / `5` / `8` round trips with the geometry cells and the screen in
+  bank 4 for 80 × 50; after a run that changed the VIC-IV registers,
+  the recorded register set of the mode back and the screen's content
+  kept; the program's `SYSFLAGS` round trip; `Q` (Tier X).
+- **M65Emu against the editor recording.**  `test_m65_editor.py`
+  replays `m65_editor.json`'s probes on M65Emu (the real ROM, its DMA
+  and keyboard devices): the jump table, `SCRORG` and `PLOT` per mode
+  and window, logical lines, the interrupted `BSOUT`, the modes, the
+  keyboard calls — so the REPL suites rest on a harness that answers
+  as xmega65 does.  The recorder also records, for P2, the VIC-IV
+  register set the KERNAL leaves after `ESC 4` / `5` / `8` and the
+  colour-RAM offset per mode, which `vic_reset` writes back.
+- **Tier X, the REPL** (`tests/emulator/test_m65_boot.py`, each ROM):
+  the PRG boots to the prompt; xmega65's screen rows equal M65Emu's
+  after the same typed commands (typed through `ADDKEY` from a driver:
+  the monitor cannot type a key); `Q` ends in BASIC 65 at READY with
+  banks 2–3 reloaded.
 - **The recordings behind the m65 column.**  The P0 analysis probes
   (entry state, base page, `Z`, the frame, the maps, the Hypervisor
   services, the regions CSE takes, all on both ROMs) become committed

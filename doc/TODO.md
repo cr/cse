@@ -956,35 +956,181 @@ hash gate green in each; optimization.md applies to every m65 body
 
 **P2 — the KERNAL API layer: screen and keyboard.**
 
-Step-1 delta:
-- [ ] `FAR_BANK` at the set sites of the screen, string and source
+Step-1 delta (written 2026-11-19; approved with the CDD Analysis,
+2026-11-19; it builds on A1):
+- [x] `FAR_BANK` at the set sites of the screen, string and source
   pointers (`ed_scr`, `_io_tmp`, `gap_lo`, `gap_hi`, `buf_base`,
-  `ed_top_ptr`, `read_ptr`, `ed_tmp`), with the screen's bank by mode
-  and the source region's `BANK_SRC`.
-- [ ] [platform_layer.md](platform_layer.md) § Terminal and
-  § Display: the m65 bodies (from analysis task A1), the new
-  `screen_mode_set` / `screen_geometry` contracts, the key codes of
-  the MEGA65's new keys and the modifier mask.
-- [ ] [cse_io.md](modules/cse_io.md), [screen.md](modules/screen.md):
-  the per-platform Interface entries; width and height as runtime
-  state; the colour fill as one job.
-- [ ] [editor.md](modules/editor.md), [repl.md](modules/repl.md),
-  [log.md](modules/log.md): width-driven layouts (`m`/`d`/`.` line
-  formats, the status bar, `warn_long_lines`' width), no platform
-  literals; the screen save sized by the mode.
-- [ ] **`r` in 40 columns on m65** (operator, 2026-11-18: `r` must
-  differentiate between the 40- and 80-column layouts; 80 first).
-  The m65 line with `z:` and `b:` is 48 characters, too wide for 40 ×
-  25: state its 40-column layout in
-  [debugger.md § `r`](modules/debugger.md#r) — one that re-executes
-  when echoed and edited in place, as the 80-column line does — and
-  `emit_reg`'s choice by the current width.
-- [ ] [README.md](../README.md): the MEGA65 chapter's screen modes
-  and keys (TAB as the editor's tab, HELP, F9–F14, ALT/MEGA/CTRL
-  combinations), function-key macros off while CSE runs.
-- [ ] [testing.md](testing.md): the prompt at 80 × 25 on M65Emu and in
-  xmega65's screen dump; the ESC 4 / 5 / 8 round trip; typed
-  commands through the typing queue.
+  `ed_top_ptr`, `read_ptr`, `ed_tmp`, and `_io_scr` / `scr_src`, far
+  from P2), with the screen's bank by mode (`FAR_BANK_SCREEN`) and the
+  source region's `BANK_SRC` ([platform_layer.md § Far memory](platform_layer.md#far-memory),
+  [zp.md](modules/zp.md)).
+- [x] [platform_layer.md](platform_layer.md) § Terminal and
+  § Display: the m65 bodies (A1's means), `screen_mode_set` and
+  `io_geometry`, *The geometry* (run-time cells, operand defines), the
+  MEGA65's keys; § Screen save (DMA, 80 × 50, refused mode change);
+  § Info map (the m65 rows, `b.aaaa-bbbb`); § User transitions (the
+  program's `SYSFLAGS`); § Constants (geometry, VIC-IV).
+- [x] [cse_io.md](modules/cse_io.md), [screen.md](modules/screen.md):
+  the m65 entries (`io_geometry`, the lookahead, far screen pointers,
+  DMA fill / copy).
+- [x] [editor.md](modules/editor.md) (§ On m65: the layout follows the
+  mode, `LINE_MAX` 79), [repl.md](modules/repl.md) (`m` rows by width,
+  `line_buf`, `emit_reg`, the panel's height), [debugger.md § `r`](modules/debugger.md#r)
+  (40 columns: two rows), [gap_buffer.md](modules/gap_buffer.md) and
+  [asm_src.md](modules/asm_src.md) (`LINE_MAX`).  log.md needs nothing:
+  its rows are at most 28 columns and pad to the width.
+- [x] [README.md § On the MEGA65](../README.md#on-the-mega65): the
+  modes, the wider rows, the editor, the keys, the program's state.
+- [x] [userland_contract.md § 2 On m65](userland_contract.md#on-m65):
+  the clobbered screen-side list, `SYSFLAGS` preserved.
+- [x] [testing.md § The m65 PRG on M65Emu](testing.md#the-m65-prg-on-m65emu):
+  the REPL on m65, M65Emu against the editor recording, Tier X's REPL
+  and `Q`.
+
+**P2 analysis record (2026-11-19), doc against code — approved 2026-11-19.**
+An inventory of every geometry and display site (all of `src/`): about
+35 width sites (40, 39, 38), 11 height sites, 20 editor-row sites (22
+rows, row 22, rows 23–24), the 1000-, 920-, 880- and 80-byte copies, 14
+walks of `scr_lo` / `scr_hi`, 3 routines on VIC registers, 1 on colour
+RAM; 9 pending bodies and 4 pending macros of P2.  Found:
+
+- **`line_buf` overflows on m65** (42 bytes; `read_line` writes the
+  width + 1): 82 bytes.
+- **The source-line cap disagrees on m65**: the editor caps at the
+  width − 1, the assembler at 39 (`ed_read_line`, `_line_buf`,
+  `warn_long_lines`) — `LINE_MAX`, one platform constant.
+- **`_io_scr` and `scr_src` are 16-bit** and cannot reach the 80 × 50
+  screen in bank 4 (P0's finding); and about 20 far screen-pointer
+  sites (the editor, `read_line`, main's INS / DEL, log's row tail,
+  disk's `@putc_inv`) set no bank: `FAR_BANK_SCREEN`.
+- **`vic_reset` clears `$D01A`** — on the MEGA65 that is the KERNAL's
+  raster IRQ: the KERNAL's value instead.
+- `cmd_step` moves up 3 rows for the break panel; the editor's status
+  bar has its columns as literals; `emit_reg` has no m65 form;
+  `BANK_SCREEN50` is used nowhere; the documented
+  `screen_mode_set` / `screen_geometry` did not exist.
+- Two edge bugs on both platforms, filed, not P2's: `io_puthex2`
+  writes its second digit past the last column into the next row;
+  disk.s's `@putc_inv` inverts the wrong cell when the clamp held the
+  cursor at the last column.
+
+Decisions (operator, 2026-11-18):
+- **D-P2-1** An `m` row follows the width: 16 bytes in 80 columns, 8
+  in 40; an edit takes up to 16 on m65.
+- **D-P2-2** The display reset rewrites the VIC-IV registers to the
+  KERNAL's set for the current mode (recorded per ROM) and keeps the
+  screen's content.
+- **D-P2-3** Function-key macros off while CSE reads keys; the
+  program's `SYSFLAGS` is captured and restored with its bank state;
+  a fresh start gets `$00`.  (Settles D-A1-5.)
+- **D-P2-4** The editor uses the whole screen of the mode.
+- **D-P2-5** `LINE_MAX` = 79 on m65 in every mode (c64 39); in 40
+  columns a longer line shows `>` and cannot grow.
+
+Decisions (approved 2026-11-19):
+- **D-P2-6** `r` in 40 columns on m65: two rows, the c64 line and `r
+  z:XX b:XX` — each re-executes on its own.
+- **D-P2-7** The MEGA65's extra keys in P2: TAB is the editor's tab;
+  HELP, F9–F14 and the ALT / MEGA combinations do nothing yet.
+- **D-P2-8** The geometry as base-page cells set by `io_geometry`,
+  named at inline sites through operand defines (`cpy WIDTH`:
+  `#40` on c64, `scr_width` on m65), so the C64 builds stay
+  byte-identical.
+- **D-P2-9** A mode switch is `ESC 4` / `5` / `8` at the prompt (CSE
+  obeys the sequence itself), clears the screen, and is refused in
+  the editor.
+- **D-P2-10** Clears, colour fills, scrolls and the screen save are
+  one DMA job each on m65 (width × height, and 80 × 50 is 4000 bytes).
+
+**P2 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
+first, in this order; each is red until its code lands.  Automation
+judgement: all of P2 is automatable on M65Emu (the real ROM; the
+typing queue takes `inject_keys`; the screen is read where the VIC-IV
+shows it), provided M65Emu answers the editor calls as xmega65 does —
+T1 checks that first.  Tier X confirms the prompt, the typed commands
+and `Q`; what a human sees (colours, flicker) stays manual.
+
+- [ ] T1. M65Emu against the editor: `capture_m65_editor.py` also
+  records the VIC-IV register set (`$D011`, `$D016`, `$D018`, `$D01A`,
+  `$D031`, `$D054`, `$D058–$D05E`, `$D060–$D065`, `$D07B`) and the
+  colour-RAM offset the KERNAL leaves after `ESC 4` / `5` / `8`;
+  `tests/integration/test_m65_editor.py` replays every probe of
+  `m65_editor.json` on M65Emu with each snapshot's ROM — the jump table,
+  `SCRORG` / `PLOT` per mode and window, logical lines, the interrupted
+  `BSOUT` (a sample), quote and insert mode, the keyboard calls, the
+  base-page cells, the register sets.  A mismatch is an M65Emu fix
+  (or a feedback round) before any P2 code.
+- [ ] T2. The MEGA65's keys: `GETIN`'s PETSCII for TAB, HELP, F9–F14
+  and the ALT / MEGA / CTRL combinations, from the KERNAL's key table
+  on M65Emu (typing events injected as the hardware queue presents
+  them, xemu's mapping), recorded as a fixture the REPL and editor
+  tests share; `$D60A`'s modifier bits per the book (F-3).
+- [ ] T3. The geometry (`test_m65_repl.py`, new, each ROM, the installed
+  PRG): `io_geometry` in 80 × 25, 40 × 25 and 80 × 50 sets `scr_width`,
+  `scr_height`, `scr_last_col`, `scr_last_row`, `scr_ed_rows`,
+  `scr_size`, `scr_bank` and the row tables as `SCRORG` and `$D062`
+  give them; under a program's window it first leaves it.
+- [ ] T4. The terminal on m65: `io_putc`, `io_puts`, `io_puthex2`,
+  `io_clear_eol` land in the mode's screen (bank 4 in 80 × 50) and
+  clamp at its last column; `io_sync` puts the KERNAL's cursor where
+  CSE's is (a `BSOUT` after it lands there); `io_kbhit` / `io_getc` /
+  `IO_KBD_FLUSH` over a key typed into the queue and one `ADDKEY`ed;
+  `IO_STOP_DOWN` with STOP held and released (`press_stop`).
+- [ ] T5. The display on m65: `vic_reset` after a program changed the
+  VIC-IV registers (bitmap, 40 columns, raster IRQ off) writes the
+  mode's recorded set back and keeps the screen's content;
+  `restore_colors` fills the mode's colour RAM (width × height) and
+  sets border and background; `reset_screen` clears width × height in
+  the mode's bank; `scroll_up` in each mode; `kernal_screen_reset` turns
+  a program's quote mode and window off; `screen_mode_set` round trips
+  4 → 5 → 8; `PLAT_HYGIENE` gates the SID voices and sets CSE's
+  `SYSFLAGS` bits.
+- [ ] T6. The program's `SYSFLAGS` (`test_m65_debugger.py`, T9's
+  shape): a program that sets bits 4–7, breaks and resumes reads them
+  back; CSE reads raw function keys meanwhile; a fresh start gets
+  `$00`.
+- [ ] T7. Cold start on m65: `_main` to `main_loop_top` with Principle
+  16's watchers (no `cse_brk_handler`, no `cse_recover`); the splash
+  and the prompt at 80 × 25 as screen rows; the pending count's P2
+  sites gone from the path.
+- [ ] T8. The REPL typed: `?`, `m` (16 bytes a row in 80 columns, 8 in
+  40; a 16-byte edit in either), `.`, `d`, `r` (one row in 80, two in
+  40, each re-executing), `i` (the m65 rows, `b.aaaa-bbbb`), a command
+  line 80 columns wide (`line_buf`), `ESC 4` / `5` / `8` at the prompt,
+  the break panel and `t`'s re-print in 40 and 80 columns.
+- [ ] T9. The debugger typed (moved from P1, D-P1-5): `j`, `g`, `c`,
+  `t`, `o`, `b`, `r`, `d` at the prompt and the
+  [dbg_reason × command matrix](modules/debugger.md#dbg_reason--command-matrix)
+  through the REPL on the m65 PRG — the C64 suites' rows, parametrised
+  over the platform where their assertions are platform-neutral.
+- [ ] T10. The editor on m65, each mode: its rows (`ED_ROWS`), the
+  status bar (fields anchored right), typing up to `LINE_MAX` 79 and
+  the cap at the last column in 40 × 25 with `>`, the screen saved and
+  restored, `ESC 4` / `5` / `8` refused; the assembler reads 79
+  columns (`;!N: truncated` past them), `warn_long_lines` at 79.
+- [ ] T11. Tier X (`tests/emulator/test_m65_boot.py`): the PRG to the
+  prompt; xmega65's screen rows equal M65Emu's after the same commands
+  (typed through `ADDKEY` from a driver); `Q` ends in BASIC 65 at
+  READY with banks 2–3 reloaded.
+- [ ] T12. The gates: the P2 pending count (18) to 0 — the bodies and
+  the five values `IO_CX`, `IO_CY`, `SCREEN`, `SCREEN_WIDTH`,
+  `SCREEN_HEIGHT`; the C64 PRGs byte-identical after every commit; the
+  m65 budget raised in commits of their own.
+
+Not automated: what the screen looks like (colours, the 80 × 50
+font, flicker) — manual in xmega65 and on hardware, a checklist row.
+
+Then the code, in this order — (1) the harness: T1, T2; (2) the
+geometry and the terminal: the operand defines (byte-identical on
+c64), `io_geometry`, the far screen pointers and `FAR_BANK_SCREEN`,
+cse_io's m65 bodies, the lookahead, `ScanStopKey` — T3, T4; (3) the
+display: screen.s's m65 bodies, the DMA jobs, the VIC-IV tables, the
+mode switch, `PLAT_HYGIENE`, `SYSFLAGS` in the bank state — T5, T6;
+(4) the cold start and the REPL: `_main`'s steps, `set_charset`, the
+splash, `line_buf`, `m`, `r`, `i`, the panel — T7, T8, T9; (5) the
+editor and `LINE_MAX` — T10; (6) Tier X and the gates — T11, T12.  One
+commit per step at least, the hash gate green in each; optimization.md
+applies to every m65 body.
 
 Gate: `?`, `m`, `.`, the editor and `Q` at 80 × 25 in M65Emu and
 xmega65; 40 × 25 and 80 × 50 render; the debugger commands typed at
@@ -2080,6 +2226,17 @@ Stale against the code, by document (each item verified both ways):
 ## Bugs
 
 Open bugs, roughly ordered by priority.
+
+- [ ] **`io_puthex2` writes past the last column.**  It stores its two
+  digits at Y and Y + 1 with no bound, so a hex pair started in the
+  last column puts its second digit into the next row's first cell
+  (`io_putc` clamps, `io_puthex2` does not).  Both platforms.  Found by
+  P2's geometry inventory, 2026-11-19.  Own CDD cycle.
+- [ ] **disk.s's `@putc_inv` inverts the wrong cell at the last
+  column.**  It inverts the character at `IO_CX − 1`; when `io_putc`'s
+  clamp held the cursor at the last column, that is the cell before
+  the one just written.  Both platforms.  Found by P2's geometry
+  inventory, 2026-11-19.  Own CDD cycle.
 
 - [ ] **disk.s writes `$FD`/`$FE`, which the userland contract keeps
   free.**  [userland_contract.md](userland_contract.md) § 2, § 3 and
