@@ -1340,12 +1340,62 @@ Decisions (approved 2026-11-19):
 - **D-P3-7** `make size PLATFORM=m65`: `size_report.py` takes the
   platform and prints the segment and module parts only.
 
-Once approved, the TDD analysis (Step 3) follows: Tier I
-`test_m65_disk.py` (the probe and status, `$` into `DIR_BUF` with the
-program region untouched, PRG and SEQ load and save on unit 10, `l` /
-`s` of the source), the harness (the virtual drive moved, M65Emu's
-traps, `ST` at `0.0090`, `$D012`), Tier X `test_m65_disk.py` on the D81,
-the Makefile guards, the pending count 2 → 0.
+**P3 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
+first, in this order; each is red until its code lands.  Automation
+judgement: everything but real drive timing is automatable — the
+KERNAL's IEC path on M65Emu (a virtual drive behind the jump table),
+CBDOS on the D81 in xmega65 (Tier X).
+
+- [ ] T1. The virtual drive, shared (`tests/emu_base.py`): C64Emu's
+  `attach_drive`, `Drive1541`, `IECBus` move to `EmuBase`, behaviour-
+  neutral — every C64 disk test (`test_disk.py`, `test_repl_disk.py`,
+  `test_editor.py`'s) green unchanged.  The bus accepts a `JMP` or a
+  `JMP (vector)` at each of the eight entries and returns through the
+  platform's stack (M65Emu: the 45GS02's, E = 1); `ST` is the KERNAL's
+  `$90` on both.  New, on M65Emu (each ROM): `attach_drive(10)` serves
+  `OPEN` · `CHKIN` · `CHRIN` of a file through the real KERNAL;
+  `READSS` reports EOI at its end; with no drive on unit 10 `OPEN`
+  fails with device not present instead of hanging — M65Emu's `$D012`
+  advances (a raster counter beside the latch), which the KERNAL's IEC
+  delays poll.
+- [ ] T2. disk.s on m65 (`tests/integration/test_m65_disk.py`, new,
+  owner disk.md, each ROM, unit 10): `test_disk.py`'s contract —
+  without a drive: the error codes, no file left open, an empty
+  status, no hang; with one: a PRG loaded to its header address and to
+  a given one in bank 0, saved from bank 0 (the bytes of the user's
+  program, not CSE's bank 3), replaced with `@`; SEQ save and load with
+  their counts; the status line; `list_directory`'s header, entries,
+  blocks free and the STOP break — into `DIR_BUF` (`2.D000`) with the
+  program region `0.2000–0.BFFF` untouched, its reversed header in the
+  screen's bank in 80 × 25, 40 × 25 and 80 × 50.
+- [ ] T3. The REPL over it (`test_m65_disk.py`, typed through
+  `M65Session`): `$10` (and `cur_device` 10 after it), `s` / `l` of a
+  PRG range and of the source (the editor's text back in bank 2),
+  `;!long` after a SEQ load at `LINE_MAX`.
+- [ ] T4. `@putc_inv` (D-P3-6, both platforms): the directory's header
+  reversed at the right cells when the clamp holds the cursor at the
+  last column — a C64 test in `test_disk.py` and its m65 twin in T2.
+- [ ] T5. The build (`test_makefile_guards.py`): `make disk` and
+  `make release PLATFORM=m65` write `build/cse-m65.d81` with `c1541
+  -format "cse <version>,01" d81` and the PRG as `cse-m65`; `make run
+  PLATFORM=m65` adds `-8` with it; `make size PLATFORM=m65` runs
+  `size_report.py` for the m65 PRG (segments and modules, no C64 map).
+- [ ] T6. Tier X (`tests/emulator/test_m65_disk.py`, each ROM): the
+  D81 (`-8`, `-autoload`) starts CSE to the prompt; on unit 8, through
+  CBDOS, typed as in `test_m65_boot.py`: `$` lists `cse-m65` as
+  `c1541 -list` does; `s` of a PRG range and `l` back (the bytes
+  equal); the source saved from the editor and loaded back; the status
+  `00, OK,00,00`.
+- [ ] T7. The gates: P3's pending count 2 → 0 (`PLAT_PENDING_VALUE`,
+  `BP_PENDING` gone); the C64 PRGs byte-identical except by T4's fix
+  (`c64_prg_sha256.json` re-recorded in its own commit); the m65
+  budget raised in a commit of its own.
+
+Then the code, in this order — (1) the harness: T1; (2) the C64
+`@putc_inv` fix: T4 (its own commit, the hashes re-recorded); (3)
+disk.s on m65 — `READSS`, `disk_local_ptr`, `DIR_BUF`, the pointer
+banks, `PLAT_SETBNK [bank]`, the pending values gone: T2, T3, T7; (4)
+the build: T5; (5) Tier X: T6; then the P3 close (Step 5, the gate).
 
 **Later release: the m65 cartridge** (not in R7's first release;
 operator, 2026-11-19).  Starts from A3's record (§ Analysis tasks):
