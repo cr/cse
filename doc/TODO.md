@@ -282,7 +282,7 @@ compendium until its golden file, recorded in xmega65, says otherwise.
 maps, vectors and the debugger on m65), P2 (the screen, the keyboard,
 the REPL and the editor) and P3 (the disk and the D81) and P4 (the 45GS02 assembler, disassembler
 and step — slice 1's Phase B) are done; P4b (no 65C02 on the targets)
-is in its TDD analysis; P5 follows.
+is in its code steps; P5 follows.
 
 **How this plan is read.**  Under CDD the documents are the truth:
 each milestone below is a **Step-1 doc delta** — the documents that
@@ -1945,6 +1945,59 @@ mode (gate, digit scan, `cpu_names`); (3) m65 without the 65C02
 (asm_line, dasm, asm_src); (4) the build and the fixtures (Makefile,
 default PRG, budget, hashes, parity); (5) the debugger's 65C02 paths;
 (6) the close — full suite, Tier X, Step 5, the P4b record.
+
+**P4b TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests,
+written first, step by step; each is red until its code lands.  Where
+a test holds today's 65C02 answer it is rewritten to the new contract,
+not deleted, unless its subject goes (the debugger's 65C02 paths).
+- [ ] T1. The generators (step 1; `test_mnemonic_tables.py`,
+  `test_dasm_tables.py`, `test_mn_classify.py`): the `65c02` set's
+  views are 6502 and 65c02; each set's classifier block holds exactly
+  its keys (6510 102, CMOS 68, the m65 98), the C64 and CMOS blocks
+  over one `T`, no false positive in either; `oplen_tbl` is the 6510
+  view's lengths (`$x2` 1, no conflict path left); the CMOS mode's
+  zones A B F C D E with an unused C; the m65 set's views 6502, 4510,
+  45gs02, no `mn7_c02`, one view bitmap; the CMOS set's disassembler
+  one map and a 6502 bitmap.  `test_m65_c02_marks_what_the_65c02_has`
+  goes with `mn7_c02`; the `mn7` bundle has `6510` and `65c02`
+  variants.
+- [ ] T2. The assembler on the C64 sets and in the CMOS mode (step 2;
+  `test_asm_line.py`, `test_asm_src.py`, the golden files): every
+  cell of asm_line.md's C64 / CMOS gate matrix per bundle — on
+  `asm_6510_syms` a 65C02 key (`stz`, `rmb0`, `bra`) is `;?syntax`,
+  on the CMOS bundle a 6510 illegal (`lax`) is `;?syntax` and `.cpu
+  6510` an error; the digit scan absent from c64-6510 (`rmb0`, `lda4`
+  `;?syntax`); `.cpu` takes exactly each set.  The CMOS bundle's
+  existing tests that use 6510 illegals move to `asm_6510_syms`.
+  `asm_dasm_65c02.json` and `asm_dasm_6510.json` re-recorded (D-P4b-9).
+- [ ] T3. m65 without the 65C02 (step 3; `test_asm_m65.py`,
+  `test_dasm_m65.py`, `test_m65_repl.py`): the views 6502, 4510,
+  45gs02 (`asm_cpu` 0, 3, 4); the gate matrix without the `asm_cpu`
+  2 row; `u 65c02` and `.cpu 65c02` refused, `u` listing `6502 4510
+  45gs02*`; the lower-CPU refusals 6502 → 4510 and 4510 → 45gs02.
+  `asm_dasm_45gs02.json` re-recorded.
+- [ ] T4. The build and the fixtures (step 4; `test_makefile_guards.py`,
+  `test_build_parity.py`, `test_build_freshness.py`,
+  `test_clean_build.py`, `test_size_budget.py`, `test_platform_audit.py`,
+  conftest): `make CPU=65c02` refused; `make release` / `debug` build
+  the 6502 and 6510 PRGs (and m65), the D64 two files; parity over the
+  Makefile's sets (the CMOS mode excluded by name); `BUDGET` and the
+  hashes without c64-65c02, the 6510 and 6502 hashes re-recorded
+  (D-P4b-5); `cse_prg` / `cse_release_prg` the 6510 PRGs,
+  `cse_prg_per_cpu` {6510, 6502}; the bundles with no CPU-gated code
+  on the `6510` `-D` set.  The C64Emu tests that ran 65C02 behaviour on
+  the PRG (test_repl's `u` / bit-op `.`, test_asm_src's per-build
+  `.cpu`) hold the two C64 sets; their 65C02 cases live in the CMOS
+  bundles (T2).
+- [ ] T5. The debugger (step 5; `test_kernel_transition.py`): on the
+  C64 builds the opcodes the 65C02 gives other meanings are the
+  6510's — `$0F` (`SLO` abs), `$7C` (`NOP` abs,X), `$80` (`NOP` #)
+  step linearly — and `JMP ($xxFF)` wraps, whatever `asm_cpu` holds; `TestStepBitBranch`, `test_jmp_ind_no_wrap_65c02` and
+  `test_jmp_abs_x_vector_from_user_zp_65c02` go with the code they
+  test.  The m65 step tests (`test_m65_debugger.py`) hold unchanged
+  at `asm_cpu` 0, 3, 4.
+- [ ] T6. The close (step 6): the full suite, Tier X, the C64 hashes
+  and budgets at their new values, the audits clean.
 
 **P5 — the contract closed:** the ROM versions the port is verified
 on (920413, the floor, and the current one; the Open ROMs boot to C64
