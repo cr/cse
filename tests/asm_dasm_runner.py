@@ -164,27 +164,41 @@ def asm_sources():
     return list(dict.fromkeys(lines))
 
 
-def _run_asm_m65(syms, source, cpu):
+def _run_asm_m65(syms, source, cpu, *, pc=ASM_PC, out=ASM_OUT_BUF, asm_pass=None,
+                 rel16=False, keep=False):
+    """As run_asm; `pc` / `out` place the instruction, `asm_pass` sets the
+    pass, `rel16` the caller's width request (asm_rel16).  With `out` or
+    `rel16` given, asm_line itself runs (its $FFFF refusal, the request's
+    clearing); else _asm_line_core.  `keep` also returns the machine."""
     m = _M65Bundle(syms)
     m.poke(ASM_IN_BUF, *source.encode('ascii'), 0)
     m.poke(syms.asm_ptr, ASM_IN_BUF & 0xFF, ASM_IN_BUF >> 8)
-    m.poke(syms.asm_pc, ASM_PC & 0xFF, ASM_PC >> 8, 0, 0)          # far pointers:
-    m.poke(syms.asm_out, ASM_OUT_BUF & 0xFF, ASM_OUT_BUF >> 8, 0, 0)  # bank 0
+    m.poke(syms.asm_pc, pc & 0xFF, pc >> 8, 0, 0)          # far pointers:
+    m.poke(syms.asm_out, out & 0xFF, out >> 8, 0, 0)       # bank 0
     m.poke(syms.asm_cpu, cpu)
     m.poke(syms.asm_err_code, 0)
-    m.poke(syms._asm_saved_sp, 0xFD)            # asm_error unwinds to the frame
-    cyc = m.call(syms._asm_line_core, ASM_SENTINEL)
+    if asm_pass is not None:
+        m.poke(syms.asm_pass, asm_pass)
+    if rel16:
+        m.poke(syms.asm_rel16, 0x80)
+    if out != ASM_OUT_BUF or rel16:
+        m.emu.a, m.emu.x = ASM_IN_BUF & 0xFF, ASM_IN_BUF >> 8
+        cyc = m.call(syms.asm_line, ASM_SENTINEL)
+    else:
+        m.poke(syms._asm_saved_sp, 0xFD)        # asm_error unwinds to the frame
+        cyc = m.call(syms._asm_line_core, ASM_SENTINEL)
     n = m.peek(syms.asm_len)[0]
-    got = m.peek(ASM_OUT_BUF, n) if n else None
-    return got, m.peek(syms.asm_err_code)[0], cyc
+    err = m.peek(syms.asm_err_code)[0]
+    got = None if (n == 0 or err) else bytes(m.mem.read_flat(out + k) for k in range(n))
+    return (got, err, cyc, m) if keep else (got, err, cyc)
 
 
-def run_asm(syms, source, cpu):
+def run_asm(syms, source, cpu, **m65):
     """Assemble `source` with asm_cpu=`cpu` through _asm_line_core.
     Returns (bytes or None, asm_err_code, cycles); None means asm_len = 0,
-    i.e. an error exit."""
+    i.e. an error exit.  The m65 path takes _run_asm_m65's options."""
     if getattr(syms, "platform", "c64") == "m65":
-        return _run_asm_m65(syms, source, cpu)
+        return _run_asm_m65(syms, source, cpu, **m65)
     mpu = MPU()
     mem = mpu.memory
     syms.load_into(mem)

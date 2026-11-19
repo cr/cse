@@ -158,13 +158,13 @@ disassembler (A4) followed: see A4 below.
   test bundles ([build_system.md](build_system.md)).
 - [ ] B2. Classifier: `mn7` over the m65 key set
   ([mn_classify.md § Variants](modules/mn_classify.md#variants)).
-- [ ] B3. `mode_parse`: `(e),z`, `(e,sp),y`, `[e]`, `[e],z`
+- [x] B3. `mode_parse`: `(e),z`, `(e,sp),y`, `[e]`, `[e],z`
   ([addr_mode.md](modules/addr_mode.md)); the wide immediate is
   asm_line's IMM16 promotion (B4).
-- [ ] B4. `asm_line`: mnemonic suffix (digit, `q`), Q zone, far flag,
+- [x] B4. `asm_line`: mnemonic suffix (digit, `q`), Q zone, far flag,
   prefix emission, `REL`/`REL16` selection, the m65 gate matrix
   ([asm_line.md](modules/asm_line.md)).
-- [ ] B4b. Pass-stable branch width.  The pass stamp itself landed on
+- [x] B4b. Pass-stable branch width.  The pass stamp itself landed on
   every build with the later-defined ZP constant fix (f13e739:
   `sym_stamp` / `sym_fwd`, `expr_fwd`, asm_src's per-pass stamp —
   [symtab.md § Pass stamp](modules/symtab.md#pass-stamp-mega_support));
@@ -1635,6 +1635,22 @@ frozenset, so the m65 profile numbering changed with Python's hash
 seed — sorted now, and a test generates under two seeds.  Tier I and
 Tier X (52) green on the new build.
 
+Step (5) done 2026-11-19: mode_parse reads `(e),z`, `(e,sp),y` /
+`(e,s),y`, `[e]`, `[e],z` (`_au_far`); asm_line on `MEGA_SUPPORT` reads
+the `q` suffix, gates by the m65 matrix (the 65C02 row through
+`mn7_c02`), takes the Q profile at effective + 1, dispatches the
+zone-B range, chooses REL / REL16 from one 16-bit distance (forward:
+REL; the `asm_rel16` request), applies the far / 65C02 / IMM16 rules
+and emits `$42 $42` / `$EA` before the opcode; `_asm_sink` is 4 B;
+`asm_opcode_lookup` reads the third plane.  test_asm_m65.py: all 950
+rows of the four views assemble at their CPU, the gate matrix, the
+word, the Z rule, far, stack-relative, IMM16, branch width, the
+`$FFFF` edge; test_opcode_lookup's sweep and a pass-stable far branch
+in a source (test_m65_asm_src.py) on m65 too.  Found while coding:
+`asm_opcode_lookup`'s new third-plane test cleared C on the hi-plane
+rejection path (a rejected mode 8–15 read as accepted, opcode `$00`).
+m65-45gs02 24 141 B.  C64 PRGs byte-identical.
+
 **P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
 first, step by step; each is red until its code lands.  Automation
 judgement: all of it is automatable — the generators on the host,
@@ -1677,7 +1693,7 @@ hardware: O1 and O3, as before.
   classifier test over every m65 key and the invalid strings; after
   the cold start `asm_cpu` = 4.  Every m65 Tier I and Tier X suite of
   P0–P3 stays green on the new build.
-- [ ] T5. The assembler on m65 (step 5; the m65 `asm_core` bundle):
+- [x] T5. The assembler on m65 (step 5; the m65 `asm_core` bundle):
   every row of the 6502, 65C02, 4510 and 45GS02 views through
   `asm_line` at each `asm_cpu` gives the oracle's bytes or error (the
   sweep the golden file records); targeted: the m65 gate matrix cell

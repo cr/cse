@@ -30,7 +30,7 @@ import sys
 
 import pytest
 
-from conftest import M65_CONFIGS, AsmCoreSymbols, make_cpu, push_rts_sentinel, step_until_pc
+from conftest import AsmCoreSymbols, make_cpu, push_rts_sentinel, step_until_pc
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "dev"))
 import mnemonic_tables as MT                      # noqa: E402
@@ -44,7 +44,16 @@ def _bundle(cpu_set):
 
 
 def _lookup(syms, pidx, mode, base):
-    """Call asm_opcode_lookup; return (carry, A)."""
+    """Call asm_opcode_lookup; return (carry, A).  The m65 bundle runs on
+    M65Emu (asm_dasm_runner's m65 path)."""
+    if syms.platform == "m65":
+        import asm_dasm_runner as R
+        m = R._M65Bundle(syms)
+        m.poke(syms.asm_pidx, pidx)
+        m.poke(syms.asm_mode, mode)
+        m.poke(syms.asm_base, base)
+        m.call(syms.asm_opcode_lookup, 0x0F00)
+        return int(m.emu.carry), m.emu.a
     cpu, mem = make_cpu(syms)
     mem[syms.asm_pidx] = pidx
     mem[syms.asm_mode] = mode
@@ -55,8 +64,7 @@ def _lookup(syms, pidx, mode, base):
     return cpu.p & 0x01, cpu.a
 
 
-@pytest.mark.parametrize("cpu_set", [c for c in MT.CPU_SETS        # the m65 set: with
-                                     if c not in M65_CONFIGS])     # P4 step (5)
+@pytest.mark.parametrize("cpu_set", list(MT.CPU_SETS))
 class TestAsmOpcodeLookup:
     """asm_opcode_lookup: C=1 for a rejected mode, else C=0 and
     A = asm_base ^ asm_delta[asm_row[pidx] + mode]."""
@@ -65,7 +73,7 @@ class TestAsmOpcodeLookup:
         syms, model = _bundle(cpu_set)
         bad = []
         for pidx in range(len(model.profiles)):
-            for mode in range(N_CATALOGUE_MODES):
+            for mode in range(max(N_CATALOGUE_MODES, model.n_modes)):
                 accepted = (model.mask(pidx) >> mode) & 1
                 for base in (0x00, 0xA5):
                     carry, a = _lookup(syms, pidx, mode, base)

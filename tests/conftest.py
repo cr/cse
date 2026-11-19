@@ -382,6 +382,9 @@ class AsmCoreSymbols(_BundleImage):
 
         # asm_line entry points
         self._asm_line_core   = s["_asm_line_core"]
+        self.asm_line         = s["asm_line"]
+        if config in M65_CONFIGS:
+            self.asm_rel16    = s["asm_rel16"]    # the width request (m65)
         self.asm_error        = s["asm_error"]
 
         # ZP variable addresses

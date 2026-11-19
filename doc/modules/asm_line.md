@@ -152,17 +152,20 @@ takes it afterwards.  ZPREL's zero-page byte comes in `asm_tmp2`
 | `reg_p` | 1 | user status flags |
 | `_asm_sink` | 3 (4 on `MEGA_SUPPORT`) | bytes emitted past a `$FFFF` wrap land here (refused) |
 
-**BSS (`MEGA_SUPPORT`, 2 bytes):** `asm_pfx` — prefix enumeration for
-the instruction being assembled: 0 = none, 1 = Q, 2 = far, 3 = Q + far;
-`asm_rel16` — the caller's width request for a branch
-([§ Branches](#branches-zone-b)), cleared by `asm_line` after each
-instruction.
+**BSS (`MEGA_SUPPORT`, 2 bytes):** `asm_pfx` — the instruction's
+prefixes: bit 0 Q (`$42 $42`), bit 1 far (`$EA`), bit 6 the word's `q`
+suffix, bit 7 the width request; `asm_rel16` (exported) — the
+caller's width request for a branch, `$80`
+([§ Branches](#branches-zone-b)): `_asm_line_core` moves it into
+`asm_pfx` bit 7 and clears it first thing, so no exit — the error
+unwind included — leaves it set.
 
 **Depends on:** expr (`last_err`, `expr_fwd`), addr_mode (`mode_parse`,
 `asm_skip_ws`, `_au_no_acc`; `_au_far` on `MEGA_SUPPORT`),
 opcode_lookup (`asm_opcode_lookup`), mn_asm_tables (`asm_oplen`,
-`ASM_ZONE_G`, `ASM_ZONE_D`), mn_classify (`mn_classify`, `mn_base_op`,
-`mn_profile`), mn_modes (`mn_modes_lo` — the ACC-bit test that sets
+`ASM_ZONE_G`, `ASM_ZONE_D`; on m65 `ASM_ZONE_B` `_F` `_Q` `_H`),
+mn_classify (`mn_classify`, `mn_base_op`, `mn_profile`), mn7_tables
+(`mn7_c02`, m65), mn_modes (`mn_modes_lo` — the ACC-bit test that sets
 `_au_no_acc`), asm_err (`asm_error`, `asm_expr_error`,
 `asm_cpu_error`), mem
 (`kernal_bank_out` / `kernal_bank_in`), zp (`_asm_saved_sp`,
@@ -251,7 +254,9 @@ and `TestCpuGate6510Bundle` (test_asm_line.py).
 ([opcode_lookup.md § Profile index layout](opcode_lookup.md#design))
 determines which path assembles the instruction.  A `pidx` below the
 generated `ASM_ZONE_G` is a fixed zone and indexes the jump table
-directly (order A B F C D E); the rest is multi-mode:
+directly (order A B F C D E) — on m65, where zone B is the range
+`ASM_ZONE_B`..`ASM_ZONE_F` − 1, the index is 0 for A, 1 for B and
+`pidx − ASM_ZONE_F + 2` from F on; the rest is multi-mode:
 
 | Zone | Mode | Examples |
 |------|------|---------|
@@ -289,6 +294,10 @@ range (`;?syntax`).  Both passes see the same forward/backward split,
 so the width — and every later address — is pass-stable.  A forward
 `REL` whose target is out of reach on pass 1 is an error; the source
 then needs a backward target or a `jmp`.
+
+On m65 zone B computes `d = target − (asm_pc + 2)` once, 16 bits:
+`REL`'s offset when it fits a byte, `REL16`'s in any case, probing
+the profile for each mode through `asm_opcode_lookup`.
 
 **Width request** (`MEGA_SUPPORT`): `asm_rel16` set by the caller
 makes a profile that has `REL16` take it whatever the distance.  The
@@ -356,6 +365,12 @@ When the profile rejects ACC, `_au_no_acc` is nonzero and the SC_A
 path in mode_parse falls through to label resolution.  This is what
 lets `JMP A`, `LDA A`, `JSR A`, `BNE A`, etc. resolve a defined
 single-letter symbol `A` instead of failing with `;?syntax`.
+
+On m65 a Q form (the `q` suffix or a Q name) sets `_au_no_acc` too —
+after a Q form `a` is a label — and the bare promotion does not read
+it: IMP always becomes ACC in zones G / Q / H, since no multi-mode
+profile takes IMP, so `asm_opcode_lookup` judges (`aslq` is the Q
+accumulator, `aslq a` the label `a`).
 
 ### Label-shadow warning
 

@@ -22,6 +22,9 @@
 
         .importzp asm_pidx, asm_base, asm_mode
         .import   mn_modes_lo, mn_modes_hi
+.ifdef MEGA_SUPPORT
+        .import   mn_modes_x            ; modes 16-19 (m65)
+.endif
         .import   asm_row, asm_delta
 
 ; ── RODATA ────────────────────────────────────────────────────────────────────
@@ -48,7 +51,13 @@ asm_opcode_lookup:
         bne @ok
         sec
         rts
-@hi:    and mn_modes_hi,x       ; modes 8–15: hi plane
+@hi:
+.ifdef MEGA_SUPPORT
+        cpy #16
+        bcs @x
+        sec                     ; (the cpy cleared C: a rejection returns C = 1)
+.endif
+        and mn_modes_hi,x       ; modes 8–15: hi plane
         beq @done               ; rejected: C=1 from the bcs above
 @ok:    tya                     ; asm_mode
         clc
@@ -57,3 +66,8 @@ asm_opcode_lookup:
         lda asm_delta,x
         eor asm_base
 @done:  rts
+.ifdef MEGA_SUPPORT
+@x:     and mn_modes_x,x        ; modes 16–19: the third plane
+        beq @done               ; rejected: C=1 from the cpy
+        bne @ok
+.endif

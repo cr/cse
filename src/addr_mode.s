@@ -79,12 +79,25 @@ MODE_REL  = 12  ; relative  NOTE: never returned — a branch target is ZP/ABS;
 MODE_ZPI  = 13  ; (zero page)  [65C02]          ($nn)
 MODE_AIX  = 14  ; (absolute, X)  [65C02 JMP]    ($nnnn,X)
 MODE_ZPREL= 15  ; zero page + relative  [65C02]  $nn,$rr
+.ifdef MEGA_SUPPORT
+MODE_ISPY = 18  ; (stack, SP), Y  [4510]         ($nn,SP),Y
+MODE_ZPIZ = 19  ; (zero page), Z  [4510]         ($nn),Z
+SC_S    = $53   ; 'S'
+SC_P    = $50   ; 'P'
+SC_Z    = $5A   ; 'Z'
+SC_LBRK = $5B   ; '['  (far: a 32-bit pointer, 45GS02)
+SC_RBRK = $5D   ; ']'
+.endif
 
 ; ── BSS ──────────────────────────────────────────────────────────────────────
         .segment "BSS"
 ; ACC vs label disambiguation flag.  See doc/modules/addr_mode.md
 ; § ACC vs label disambiguation.
 _au_no_acc:    .res 1   ; caller signal: 0 = `A` is ACC, nonzero = `A` is a label
+.ifdef MEGA_SUPPORT
+        .export _au_far
+_au_far:       .res 1   ; result: 1 = the operand was written in brackets ([e], [e],z)
+.endif
 
 ; ── RODATA ───────────────────────────────────────────────────────────────────
         .segment "RODATA"
@@ -254,6 +267,10 @@ _au_read_val:
 ; mode_parse  –  main entry point
 ; ─────────────────────────────────────────────────────────────────────────────
 mode_parse:
+.ifdef MEGA_SUPPORT
+        lda #0
+        sta _au_far
+.endif
         jsr _au_ws_load
 
         ; ── IMP: empty / end-of-expression ───────────────────────────────────
@@ -341,6 +358,28 @@ mode_parse:
         rts
 
 @not_hash:
+.ifdef MEGA_SUPPORT
+        ; ── Far: '[' — [$nn] → ZPI, [$nn],Z → ZPIZ, _au_far = 1 ──────────────
+        cmp #SC_LBRK
+        bne @not_far
+        iny                     ; consume '['
+        jsr asm_skip_ws
+        jsr _au_read_val
+        beq :+                  ; narrow only
+        jmp asm_syntax_error
+:       inc _au_far
+        jsr _au_ws_load
+        cmp #SC_RBRK
+        beq :+
+        jmp asm_syntax_error
+:       iny                     ; consume ']'
+        jsr _au_ws_load
+        jsr _au_is_end
+        bcc :+
+        jmp @ret_zpi
+:       jmp @ind_z              ; ',Z' → ZPIZ (A preserved)
+@not_far:
+.endif
         ; ── Indirect family: '(' ─────────────────────────────────────────────
         cmp #SC_LPAR
         beq :+
@@ -387,12 +426,23 @@ mode_parse:
         jsr _au_ws_load
         jsr _au_is_end
         bcs @ret_zpi            ; ($nn) end → ZPI
+.ifdef MEGA_SUPPORT
+@ind_z:
+.endif
         cmp #SC_COMM            ; A preserved by _au_is_end
         beq :+
         jmp asm_syntax_error
 :
         iny                     ; consume ','
         jsr _au_ws_load
+.ifdef MEGA_SUPPORT
+        cmp #SC_Z
+        beq @zpiz
+        ldx _au_far             ; [$nn],Y is no form
+        beq :+
+        jmp asm_syntax_error
+:
+.endif
         cmp #SC_Y
         beq :+
         jmp asm_syntax_error
@@ -402,6 +452,13 @@ mode_parse:
         lda #MODE_INY           ; ($nn),Y → INY
         ldx #1
         rts
+.ifdef MEGA_SUPPORT
+@zpiz:  iny                     ; consume 'Z'
+        jsr _au_check_end
+        lda #MODE_ZPIZ          ; ($nn),Z / [$nn],Z → ZPIZ
+        ldx #1
+        rts
+.endif
 
 @ret_zpi:
         lda #MODE_ZPI           ; ($nn) → ZPI
@@ -411,6 +468,10 @@ mode_parse:
 @ind_1b_ix:                     ; ($nn,X) → INX
         iny                     ; consume ','
         jsr _au_ws_load
+.ifdef MEGA_SUPPORT
+        cmp #SC_S
+        beq @ispy
+.endif
         jsr _au_expect_x
         iny                     ; consume 'X'
         jsr _au_ws_load
@@ -420,6 +481,32 @@ mode_parse:
         lda #MODE_INX           ; ($nn,X) → INX
         ldx #1
         rts
+
+.ifdef MEGA_SUPPORT
+@ispy:                          ; ($nn,SP),Y or ($nn,S),Y → ISPY
+        iny                     ; consume 'S'
+        lda (asm_ptr),y
+        cmp #SC_P
+        bne :+
+        iny                     ; consume 'P'
+:       jsr _au_ws_load
+        jsr _au_expect_rpar
+        iny                     ; consume ')'
+        jsr _au_ws_load
+        cmp #SC_COMM
+        beq :+
+        jmp asm_syntax_error
+:       iny                     ; consume ','
+        jsr _au_ws_load
+        cmp #SC_Y
+        beq :+
+        jmp asm_syntax_error
+:       iny                     ; consume 'Y'
+        jsr _au_check_end
+        lda #MODE_ISPY
+        ldx #1
+        rts
+.endif
 
 @not_lpar:
         ; ── Direct addressing: value expression ──────────────────────────────

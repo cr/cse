@@ -88,7 +88,23 @@ MODE_IMM   = 2
 MODE_ZP    = 3
 MODE_ABS   = 6
 MODE_REL   = 12
+MODE_ZPI   = 13
 MODE_ZPREL = 15
+.ifdef MEGA_SUPPORT
+MODE_IMM16 = 16
+MODE_REL16 = 17
+MODE_ISPY  = 18
+MODE_ZPIZ  = 19
+PFX_Q      = %00000001      ; asm_pfx: emit $42 $42
+PFX_FAR    = %00000010      ;          emit $EA
+PFX_QSFX   = %01000000      ;          the word had the `q` suffix
+PFX_W16    = %10000000      ;          the caller's REL16 request
+        .importzp ASM_ZONE_B, ASM_ZONE_F, ASM_ZONE_Q, ASM_ZONE_H
+        .import   mn7_c02, _au_far
+SINK_SIZE  = 4                  ; a 5-byte instruction may overrun by 4
+.else
+SINK_SIZE  = 3
+.endif
 
         .importzp _asm_saved_sp
 
@@ -106,7 +122,12 @@ reg_p:         .res 1          ; saved P (status flags)
 reg_z:         .res 1          ; saved Z  } the KERNAL's frame carries them on
 reg_b:         .res 1          ; saved B  } m65; reg_a + 5 / + 6 for `r` (repl.s)
 .endif
-_asm_sink:     .res 3          ; bytes past a $FFFF wrap land here (refused)
+_asm_sink:     .res SINK_SIZE  ; bytes past a $FFFF wrap land here (refused)
+.ifdef MEGA_SUPPORT
+        .export asm_rel16
+asm_pfx:       .res 1          ; this instruction's prefixes (PFX_*)
+asm_rel16:     .res 1          ; caller: $80 = a branch takes REL16 (cleared here)
+.endif
 
 ; (kernel_zp_buf and userland_zp_buf — the ZP save/restore buffers for
 ; the kernel↔userland transitions — live in mem.s alongside the
@@ -157,7 +178,7 @@ asm_line:
         lda asm_out+1
         sbc #>(_asm_sink+1)
         bne @fits
-        cpx #3                  ; asm_out in _asm_sink+1 .. +3 ?
+        cpx #SINK_SIZE          ; asm_out in _asm_sink+1 .. +SINK_SIZE ?
         bcs @fits
         lda #3                  ; ERR_OVERFLOW (expr.md)
         sta last_err
@@ -283,6 +304,103 @@ _asm_rel8:
 @ok:    tax
         rts
 
+.ifdef MEGA_SUPPORT
+; ── _asm_c02 — the key's mn7_c02 bit ──────────────────────────────────────────
+; Out: A = 1 when the 65C02 has the key (cat 11) or its extension (cat 01)
+; (mn_classify.md), else 0.  Clobbers X, Y.
+_asm_c02:
+        lda asm_slot
+        lsr
+        lsr
+        lsr
+        tax
+        lda asm_slot
+        and #7
+        tay
+        lda mn7_c02,x
+:       dey
+        bmi :+
+        lsr
+        bpl :-                  ; (always: lsr clears bit 7)
+:       and #1
+        rts
+
+; ── _asm_fits8 — C = 0 when asm_opr (16 bits) is −128..127 ────────────────────
+_asm_fits8:
+        lda asm_opr
+        asl                     ; C = the low byte's sign
+        lda #0
+        sbc #0                  ; $00 if C, else $FF ...
+        eor #$FF                ; ... so the sign extension: $FF if C
+        cmp asm_opr+1
+        bne :+
+        clc
+        rts
+:       sec
+        rts
+
+; ── _asm_m65_mode — the m65 rules on a parsed mode ────────────────────────────
+; In: asm_mode.  Out: asm_mode, A = it; asm_pfx gains PFX_FAR.
+; Far ([e], [e],z) on the 45GS02 only (;?cpu); on the 65C02 `(e,sp),y` is
+; ;?cpu, a written `,z` ;?syntax and `(e)` the 4510's ZPIZ where the
+; profile has no ZPI; `#e` on a profile without IMM but with IMM16 is
+; IMM16 (asm_line.md § Prefixes, § IMM16 promotion, § gate matrix).
+_asm_m65_mode:
+        lda _au_far
+        beq @not_far
+        lda asm_cpu
+        cmp #4
+        bne @cpu
+        lda asm_pfx
+        ora #PFX_FAR
+        sta asm_pfx
+@not_far:
+        lda asm_cpu
+        cmp #2
+        bne @imm16
+        lda asm_mode
+        cmp #MODE_ISPY
+        beq @cpu
+        cmp #MODE_ZPIZ
+        beq @syntax
+        cmp #MODE_ZPI
+        bne @imm16
+        jsr asm_opcode_lookup   ; C = 0: the profile has ZPI itself
+        bcc @imm16
+        lda #MODE_ZPIZ
+        sta asm_mode
+@imm16: lda asm_mode
+        cmp #MODE_IMM
+        bne @done
+        jsr asm_opcode_lookup   ; C = 0: IMM
+        bcc @done
+        lda #MODE_IMM16
+        sta asm_mode
+@done:  lda asm_mode
+        rts
+@cpu:   jmp asm_cpu_error
+@syntax:
+        jmp asm_error
+
+; ── _asm_prefixes — emit the instruction's prefixes; A kept ──────────────────
+_asm_prefixes:
+        pha
+        lda asm_pfx
+        and #PFX_Q
+        beq :+
+        lda #$42
+        jsr _asm_emit
+        lda #$42
+        jsr _asm_emit
+:       lda asm_pfx
+        and #PFX_FAR
+        beq :+
+        lda #$EA
+        jsr _asm_emit
+:       pla
+        rts
+.endif
+
 ; ── _asm_emit_base_opr — emit asm_base then asm_opr[0] ──────────────────────
 _asm_emit_base_opr:
         lda asm_base
@@ -294,7 +412,14 @@ _asm_emit_base_opr:
 ; _asm_line_core  —  assembler core
 ; ═════════════════════════════════════════════════════════════════════════════
 _asm_line_core:
+.ifdef MEGA_SUPPORT
+        lda asm_rel16           ; the caller's width request starts asm_pfx;
+        sta asm_pfx             ;   cleared now, so no exit leaves it set
         lda #0
+        sta asm_rel16
+.else
+        lda #0
+.endif
         sta asm_len             ; initialise byte counter
 
         ldy #0
@@ -325,6 +450,20 @@ _asm_line_core:
         tax
         iny
 :       stx asm_tmp
+.endif
+.ifdef MEGA_SUPPORT
+        ; Or the `q` suffix: the Q form of a quad stem (judged after the gate).
+        txa
+        bne @no_q               ; a digit already
+        lda (asm_ptr),y
+        and #$5F
+        cmp #$51                ; 'Q'
+        bne @no_q
+        iny
+        lda asm_pfx
+        ora #PFX_QSFX
+        sta asm_pfx
+@no_q:
 .endif
 
         ; The word ends here: whitespace, end of line or ';' must follow
@@ -382,6 +521,44 @@ _asm_line_core:
         ; cat=01/10/11 are never produced by the classifier, so the
         ; reject paths sit dormant without cost.
 
+.ifdef MEGA_SUPPORT
+        ; m65 (asm_line.md § gate matrix, m65 table): cat 00 accept; 01
+        ; the extension on 4510 / 45GS02, and on the 65C02 where mn7_c02
+        ; says so; 10 a Q name, 45GS02 only (its Q prefix); 11 on 4510 /
+        ; 45GS02, and on the 65C02 where mn7_c02 says so.
+        lda asm_prof
+        and #$C0
+        beq @no_upgrade         ; cat 00
+        ldx asm_cpu
+        beq @cpu_err            ; the 6502: only cat 00 / cat 01's NMOS
+        cmp #$80
+        beq @qname
+        cpx #2
+        bne @m_4510             ; 4510, 45GS02
+        pha
+        jsr _asm_c02            ; A = the key's mn7_c02 bit (Z = 0: has it)
+        tax
+        pla
+        cpx #0
+        beq @c02_no
+@m_4510:
+        cmp #$40
+        bne @no_upgrade         ; cat 11: accept
+        inc asm_pidx            ; cat 01: the extension profile
+        bne @no_upgrade         ; (always)
+@c02_no:
+        cmp #$40
+        beq @no_upgrade         ; cat 01: the NMOS profile on the 65C02
+@cpu_err:
+        cmp #$40                ; (A = cat; from asm_cpu 0: cat 01 is fine)
+        beq @no_upgrade
+        jmp asm_cpu_error
+@qname: cpx #4
+        bne @cpu_err
+        lda asm_pfx
+        ora #PFX_Q
+        sta asm_pfx
+.else
         lda asm_prof
         and #$C0
         beq @no_upgrade         ; cat=00 (legal NMOS) → accept
@@ -408,7 +585,37 @@ _asm_line_core:
         bcc @no_upgrade         ; 6502/6510 → no upgrade (use NMOS profile)
         inc asm_pidx            ; 65C02 → upgrade to CMOS profile
 .endif ; CMOS_SUPPORT
+.endif
 @no_upgrade:
+
+.ifdef MEGA_SUPPORT
+        ; ── the `q` suffix: a quad stem's Q form, on the 45GS02 ────────────
+        ; Accepted iff the key is no Q name and its effective profile lies in
+        ; zone Q; the Q profile is the next.  Else ;?cpu for a quad stem off
+        ; the 45GS02, ;?syntax for any other key (asm_line.md § gate matrix).
+        bit asm_pfx
+        bvc @q_done             ; no `q`
+        lda asm_prof
+        and #$C0
+        cmp #$80
+        beq @q_bad              ; a Q name takes no suffix
+        lda asm_pidx
+        cmp #ASM_ZONE_Q
+        bcc @q_bad
+        cmp #ASM_ZONE_H
+        bcs @q_bad              ; no quad stem
+        ldx asm_cpu
+        cpx #4
+        beq :+
+        jmp asm_cpu_error
+:       inc asm_pidx            ; the Q profile
+        lda asm_pfx
+        ora #PFX_Q
+        sta asm_pfx
+        bne @q_done             ; (always)
+@q_bad: jmp asm_error
+@q_done:
+.endif
 
 .ifndef USE_MN6
         ; ── the digit suffix: exactly on the digit zones D/E ──────────────
@@ -440,6 +647,13 @@ _asm_line_core:
         and #$02                ; isolate MODE_ACC bit: $02 if accepted, $00 if not
         eor #$02                ; invert: $00 if accepted, $02 if not
         sta _au_no_acc
+.ifdef MEGA_SUPPORT
+        lda asm_pfx             ; after a Q form `a` is a label: bare only
+        and #PFX_Q              ;   (asm_line.md § Mnemonic word)
+        beq :+
+        sta _au_no_acc
+:
+.endif
 
         ; ── reset Y=0 before zone dispatch ────────────────────────────────────
         ; mn7_classify clobbers Y (sets Y=mn_c2 for the hash table lookup).
@@ -455,6 +669,18 @@ _asm_line_core:
         bcc :+
         jmp @zone_gh            ; multi-mode G/H
 :
+.ifdef MEGA_SUPPORT
+        ; m65: zone B is a range, ASM_ZONE_B .. ASM_ZONE_F - 1 — the
+        ; table's index is 0 for A, 1 for B, then F C D E from 2.
+        cmp #ASM_ZONE_B
+        bcc @zidx               ; A
+        cmp #ASM_ZONE_F
+        lda #1
+        bcc @zidx               ; B
+        lda asm_pidx
+        sbc #ASM_ZONE_F - 2     ; (C = 1)
+@zidx:
+.endif
         tax
         lda @ztbl_hi,x
         pha
@@ -497,6 +723,68 @@ _asm_line_core:
         beq @rel_abs
         jmp asm_error           ; neither ABS nor ZP
 @rel_abs:
+.ifdef MEGA_SUPPORT
+        ; asm_opr := d = target − (asm_pc + 2), 16 bits: REL's offset if
+        ; it fits a byte, REL16's in any case (from the last byte).
+        sec
+        lda asm_opr
+        sbc asm_pc
+        tax
+        lda asm_opr+1
+        sbc asm_pc+1
+        tay
+        txa
+        sec
+        sbc #2
+        sta asm_opr
+        bcs :+
+        dey
+:       sty asm_opr+1
+        ; The width (asm_line.md § Branches): the caller's REL16 request
+        ; where the profile has REL16; else REL for a forward target or
+        ; one in reach; else REL16; else out of range.
+        bit asm_pfx
+        bpl @b_auto
+        jsr @b_try16
+        bcc @b_emit16
+@b_auto:
+        lda #MODE_REL
+        sta asm_mode
+        jsr asm_opcode_lookup   ; C = 1: no REL (BSR)
+        bcs @b_16
+        pha                     ; the REL opcode
+        lda expr_fwd
+        bne @b_8                ; a forward target takes REL
+        jsr _asm_fits8
+        bcc @b_8
+        pla
+@b_16:  jsr @b_try16
+        bcs @b_err
+@b_emit16:
+        jsr _asm_emit
+        lda asm_opr
+        jsr _asm_emit
+        lda asm_opr+1
+        clc
+        jmp _asm_emit
+@b_8:   jsr _asm_fits8          ; (pla keeps C)
+        pla
+        bcs @b_err              ; a forward REL out of reach
+        jsr _asm_emit
+        lda asm_opr
+        clc
+        jmp _asm_emit
+@b_try16:                       ; C = 0, A = the REL16 opcode; the 65C02 has none
+        lda asm_cpu
+        cmp #2
+        sec
+        beq :+
+        lda #MODE_REL16
+        sta asm_mode
+        jmp asm_opcode_lookup
+:       rts
+@b_err: jmp asm_error
+.else
         lda #2                  ; the instruction's length
         jsr _asm_rel8           ; X = offset
         lda asm_base
@@ -504,6 +792,7 @@ _asm_line_core:
         txa
         clc
         jmp _asm_emit           ; tail-call; _asm_emit preserves C
+.endif
 
 ; ── Zone C: IMM — immediate byte ─────────────────────────────────────────────
 @zone_c:
@@ -562,6 +851,9 @@ _asm_line_core:
         ; Parse the addressing-mode argument.
         jsr mode_parse
         sta asm_mode
+.ifdef MEGA_SUPPORT
+        jsr _asm_m65_mode       ; far, the 65C02's forms, IMM16; A = asm_mode
+.endif
         cmp #MODE_IMM
         bne :+
         jsr _asm_imm_chk        ; A = MODE_IMM kept (≠ 0)
@@ -579,10 +871,12 @@ _asm_line_core:
         ; path).  See doc/modules/asm_line.md § ACC mode handling.
         cmp #0                  ; MODE_IMP = 0
         bne @lookup
+.ifndef MEGA_SUPPORT
         lda _au_no_acc
         bne @lookup             ; nonzero → ACC rejected → keep IMP
-        lda #MODE_ACC
-        sta asm_mode
+.endif                          ; m65: ACC always — after a Q form `a` is a
+        lda #MODE_ACC           ;   label, but bare is ACC; no multi-mode
+        sta asm_mode            ;   profile takes IMP, so the lookup judges
 @lookup:
         ; Validate the mode against the effective profile and compute the
         ; opcode: base ^ delta[row[pidx] + mode] (opcode_lookup.s).
@@ -591,6 +885,9 @@ _asm_line_core:
 @err_mode:
         jmp asm_error
 @mode_ok:
+.ifdef MEGA_SUPPORT
+        jsr _asm_prefixes       ; $42 $42 if Q, $EA if far (A kept)
+.endif
         jsr _asm_emit           ; emit opcode byte
 
         ; Emit operand bytes: 0, 1, or 2 depending on the mode.
