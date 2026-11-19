@@ -34,6 +34,55 @@ is per-session, the project's working state recap.
 
 ---
 
+## P3 — Quality Sweep and code review of the milestone (2026-11-19)
+
+Operator-invoked over P3's commits (`654b442..678c93b`): a scoped
+Quality Sweep with two doc lenses, *doc-slice + code-first → doc* and
+*doc-defect-class fan-out* (duplication, layering, status/temporal,
+readability, the cartridge ruling), then a code review of the same
+range.  Output mode: resolve, one commit for the docs, one for the
+code.
+
+### What worked
+
+- Two lenses, disjoint finds.  The doc-slice prober measured (map,
+  `.lbl`, ROM bytes) and found wrong facts: `3.F263` is 920413's
+  address, not both ROMs'; the Tier X D81 test boots the *debug* PRG
+  on its own D81, not the release image; `kmap_swap` runs at every
+  fresh start too; `make size` on m65 omits 689 B of segments.  The
+  defect-class prober found structure: the cartridge postponement
+  restated nine times, `PLAT_CRT` binding to nothing, the CBDOS unit
+  rule in five docs, milestone history inside module contracts.
+- Verifying a prober's suspect against the ROM images settled it in
+  one script (both snapshots' `LDQ $011C` sites).
+- The code reviewer reproduced its one correctness finding on
+  M65Emu (an NMI in `_rtu_body`'s window) instead of reporting a
+  smell.
+
+### What didn't
+
+- The milestone's own Step 5 left the status line two milestones
+  stale, the P3 block half plan, half record, and a ruling ("32 K
+  type-0 CRT") its own analysis had refuted.  A ruling amended by
+  the operator was amended where it is quoted, not everywhere it is
+  restated.
+- Restating a decision "for context" in every doc it touches is the
+  duplication that decays: each restatement of "a cartridge is a
+  later release's" had to be found and deleted.
+
+### Suggested amendments
+
+- **Tier C:** at a milestone's close, grep the corpus for the
+  milestone's own name in future tense ("with P<n>", "P<n> adds",
+  "until P<n>") and for every operator ruling it amended.
+
+### Closing summary
+
+About 40 doc findings resolved (status, duplication, layering, wrong
+facts); the code findings went to the code-review commit.
+
+---
+
 ## R7 — CDD Maintenance + first Quality Sweep (2026-11-18)
 
 A repo-wide CDD Maintenance pass ("the contract drives the code, not

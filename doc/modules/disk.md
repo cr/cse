@@ -8,8 +8,8 @@
 |------|------|
 | [`src/disk.s`](../../src/disk.s) | implementation |
 | [`tests/integration/test_disk.py`](../../tests/integration/test_disk.py) | test contract — every export on the real PRG: with no drive (error codes, no file left open, no hang) and on a virtual 1541 (transfers, status, directory) |
-| [`tests/emulator/test_m65_d81.py`](../../tests/emulator/test_m65_d81.py) | test contract (Tier X) — the D81 through CBDOS (unit 8) in xmega65: the prompt, `$` as `c1541 -list`, PRG `s` / `l`, the source `s` (§ On m65) |
 | [`tests/integration/test_m65_disk.py`](../../tests/integration/test_m65_disk.py) | test contract — the same on the m65 PRG, on IEC unit 10 (§ On m65): `$` into `DIR_BUF` with the program region untouched, the header in each mode's bank, PRG / SEQ load and save, `s` / `l` typed |
+| [`tests/emulator/test_m65_d81.py`](../../tests/emulator/test_m65_d81.py) | test contract (Tier X) — the D81 through CBDOS (unit 8) in xmega65: the prompt, `$` as `c1541 -list`, PRG `s` / `l`, the source `s`, the display's font kept (§ On m65) |
 
 **Test coverage** — Tier I on the real PRG (`test_disk.py`).  With no
 drive, C64Emu models an empty serial bus, so every KERNAL OPEN / LOAD
@@ -24,9 +24,10 @@ every export runs its transfer through the KERNAL for real:
 files), `floppy_read_status` / `floppy_status`, `list_directory`
 (header, entries, blocks free, other devices, a D64 image).  The REPL
 commands over them (`l`, `s`, `$`) are tested in
-`test_repl_disk.py`.  Real-hardware specifics the model leaves out
-(bus timing, the MEGA65 Open-KERNAL's channel I/O) remain VICE /
-xmega65 walks.
+`test_repl_disk.py`.  On m65 the same contract runs on M65Emu on an
+IEC unit (`test_m65_disk.py`), and CBDOS on a D81 in xmega65
+(`test_m65_d81.py`).  Left to manual walks: real drive timing, a
+physical MEGA65's internal drive, the release D81's `DLOAD` start.
 
 ## Interface
 
@@ -149,8 +150,8 @@ jump table ([platform_layer.md](../platform_layer.md) § Constants,
 - **The units.**  Units 8 and 9 are usually CBDOS's (the internal
   drive or a mounted D81 image; the book, 6-3), every other unit the
   IEC bus's.  disk.s does not tell them apart: the KERNAL routes each
-  call.  Tested: CBDOS units in xmega65 (Tier X, `cse.d81` on unit
-  8), IEC units in M65Emu (Tier I, a virtual drive on unit 10 —
+  call.  Tested: CBDOS units in xmega65 (Tier X, a D81 on unit 8),
+  IEC units in M65Emu (Tier I, a virtual drive on unit 10 —
   [testing.md](../testing.md) § The m65 PRG on M65Emu).
 - **`ST`.**  No KERNAL cell is read or written
   ([platform_layer.md](../platform_layer.md) § Constants, *KERNAL
@@ -163,13 +164,15 @@ jump table ([platform_layer.md](../platform_layer.md) § Constants,
   of CSE's base page (not `$FD`): it only ever reads filenames in
   CSE's own view, `(ptr),y`, so it needs no bank.
 - **The directory buffer.**  `list_directory` loads `$` into
-  `DIR_BUF`, `2.D000–2.FFFF` (CSE's 12 K reserve in the source bank —
-  [memory_design.md](../memory_design.md) § Memory Map — m65), not
-  into the user's program region: a full D81 directory (296 entries)
+  `DIR_BUF`, `2.D000–2.FFFF` (the directory buffer, 12 K of the source
+  bank — [memory_design.md](../memory_design.md) § Memory Map — m65),
+  not into the user's program region: a full D81 directory (296 entries)
   is under 10 K.  `PLAT_SETBNK DIR_BANK` gives `LOAD` that bank; the
   walk reads it through `disk_ptr` with `FAR_BANK disk_ptr, DIR_BANK`.
   So `$` leaves the user's memory alone on m65 (on c64 it clobbers
-  the workspace from `$0801`).
+  the workspace from `$0801`).  It overwrites the ROM's font C copy
+  at `2.D000`, which the display does not use: the screen keeps the
+  VIC-IV's internal character set (CHARPTR `$001800`).
 - **The pointer banks.**  `disk_save_prg` reads the program through
   `_io_tmp` as a user address (`FAR_USER _io_tmp`);
   `list_directory`'s reverse-video cell (`@putc_inv`) is a screen

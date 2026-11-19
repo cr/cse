@@ -77,13 +77,15 @@ cse/
 │   ├── conftest.py         Bundle, bundle and PRG fixtures, SymbolTable
 │   ├── emu_base.py         EmuBase: what C64Emu and M65Emu share
 │   ├── c64emu.py           C64Emu (py65 + the C64 KERNAL ROM)
+│   ├── iec_drive.py        the virtual IEC drive (Drive1541, IECBus), both harnesses
 │   ├── m65emu/             M65Emu: MPU45GS02, M65Memory, devices, harness
 │   ├── xmega65.py          xmega65 driver (recorders; Tier X)
 │   ├── asm_dasm_runner.py  Exhaustive asm_line / dasm_insn sweeps
 │   ├── fixtures/           Golden files (golden/*.json), MEGA65 compendium tables (CSV)
 │   ├── unit/test_*.py      Tier U — module bundles (bare py65 MPU), MPU45GS02 and
 │   │                       M65Memory, generator, audit and build-gate tests
-│   └── integration/test_*.py   Tier I — C64Emu / M65Emu + full PRG
+│   ├── integration/test_*.py   Tier I — C64Emu / M65Emu + full PRG
+│   └── emulator/test_*.py      Tier X — xmega65 (run by path)
 │
 ├── rom/                    ROM images (rom/README.md: source, licence)
 │   ├── README.md

@@ -411,8 +411,8 @@ within the ROM floor of [platform_layer.md § Platforms and
 defines](platform_layer.md#platforms-and-defines).  Status: the PRG
 installs this machine (P0, [build_system.md § The m65 builds](build_system.md#the-m65-builds)),
 runs user code under the debugger (P1) and runs the REPL and the
-editor in the three text modes, back to BASIC 65 by `Q` (P2); the
-disk is P3's.
+editor in the three text modes, back to BASIC 65 by `Q` (P2), and
+the disk, started from the D81 (P3).
 Its premise is the machine a BASIC 65 program finds when `RUN` starts
 it through its `SYS` line; user programs run in that machine, and CSE
 keeps out of it.  The facts below that are not book citations were
@@ -544,8 +544,6 @@ $1F`.  The PRG image:
 
 The D81's PRG is the same file
 ([build_system.md § The m65 builds](build_system.md#the-m65-builds)).
-A cartridge, a later release's, would install the same machine from
-the cartridge.
 
 **Instructions.**  All code is 6502 code; the 45GS02-only
 instructions the platform bodies use are raw bytes

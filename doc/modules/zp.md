@@ -80,7 +80,10 @@ differences; the addresses are the linker map's
   view).  The gap buffer's: [gap_buffer.md § On m65](gap_buffer.md)
   (`gap_lo`, `gap_hi`, `buf_base`, `ed_top_ptr` set once by `gb_init`;
   `ed_scr`, `ed_tmp`, `read_ptr` / `save_ptr` per routine, source or
-  screen).  How each user-memory pointer gets its
+  screen).  The P3 banks, disk.s's: `disk_ptr` `DIR_BANK` for the
+  directory walk; `_io_tmp` a user address (`FAR_USER`) in
+  `disk_save_prg` and the screen's bank in `@putc_inv`
+  ([disk.md § On m65](disk.md#on-m65)).  How each user-memory pointer gets its
   bank (P1; [platform_layer.md § Far memory](../platform_layer.md#far-memory)):
   - `rp_ptr` — CSE's line parser (`line_buf`, bank 3) at its root in
     `exec_line`; its walks and the four restores from `expr_ptr` /
@@ -113,22 +116,18 @@ differences; the addresses are the linker map's
   ([mem.md § Interface](mem.md#interface)) — 9 bytes, written by the
   resident stub under the user map with absolute addressing; then the
   stub's three targets (6 bytes, written by `setup_interrupts` and the
-  loader).  From P2 also (the program's `SYSFLAGS`, `um_sysflags`, is
-  debugger.s's BSS: no stub code touches it): the terminal's `IO_CX`, `IO_CY` (the cursor — they replace the
-  `BP_PENDING` placeholders) and `io_key` (the key lookahead); the
-  geometry's hot cells `scr_width` and `scr_last_col` — the rest of the
-  geometry is cse_io's BSS, the base page being full
-  ([platform_layer.md § Display](../platform_layer.md#display)).
+  loader).  The rest of the bank state — the program's KERNAL map
+  record and `SYSFLAGS`, `um_kmap` and `um_sysflags` — is debugger.s's
+  BSS: no stub code touches it.  Then the terminal's `IO_CX`, `IO_CY`
+  (the cursor) and `io_key` (the key lookahead); the geometry's hot
+  cells `scr_width` and `scr_last_col` — the rest of the geometry is
+  cse_io's BSS ([platform_layer.md § Display](../platform_layer.md#display)).
 - **disk.s's private pointer** (`DISK_LOCAL_PTR`) lives here too:
   `disk_local_ptr`, 2 bytes, a plain pointer — it reads only filenames
   in CSE's view ([disk.md § On m65](disk.md#on-m65)).
 
 The m65 segment ends below `$B0`, where the resident stub begins (the
-linker bounds it).  Until P3 `$AD–$AF` was `BP_PENDING`, the cells of
-the pending values ([platform_layer.md § Pending bodies](../platform_layer.md#pending-bodies));
-P3 states the last two — `ST` is `READSS`, no cell, and
-`DISK_LOCAL_PTR` is `disk_local_ptr` — so the segment's bound returns
-to `$B0`.  The KERNAL needs nothing of CSE's base page
+linker bounds it).  The KERNAL needs nothing of CSE's base page
 ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame),
 § KERNAL calls).
 

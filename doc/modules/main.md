@@ -93,8 +93,10 @@ CSE_BP`: SP+1..SP+8 = B, Z, Y, X, A, P, PCL, PCH — the KERNAL's
 frame ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame)).
 **Out:** as on c64; `reg_z` and `reg_b` captured beside the other
 registers; the user's bank state captured — the port and the map by
-the stub, `$D030` (into `um_d030`, then the premise's `$64`) by
-`save_userland_state`'s m65 tail; base page 0
+the stub, `$D030` (into `um_d030`, then the premise's `$64`), the
+program's `SYSFLAGS` and the KERNAL's map record (`um_sysflags`,
+`um_kmap`, the CSE map into the record) by `save_userland_state`'s
+m65 tail; base page 0
 untouched (no swap).  The same sequence
 (§ BRK dispatch); `brk_stub` is the stub's
 ([mem.md § The resident stub](mem.md#the-resident-stub-m65-only)).
@@ -179,8 +181,7 @@ mapped in both maps, and the CPU port is the kernel's whenever kernel
 code runs: a kernel fault captures nothing); `setup_interrupts` goes
 through `VECTOR`; `dbg_init` seeds the saved bank state with the run
 premise's, as the session ends anyway (`end_debug_body`), and writes
-the CSE map into the KERNAL's map record, so a KERNAL disk call
-through CBDOS returns to CSE's map ([debugger.md § dbg_init](debugger.md#dbg_init));
+the CSE map into the KERNAL's map record ([debugger.md § dbg_init](debugger.md#dbg_init));
 `restore_colors` and `set_charset` are the display's m65 bodies
 ([platform_layer.md § Display](../platform_layer.md#display)).
 
@@ -458,7 +459,8 @@ the stub has already restored the CSE map and `B = CSE_BP`;
 `save_userland_state` also captures `reg_z` and `reg_b` and swaps
 nothing; `brk_stub` is the stub's address in `0.1FB0–0.1FFF`; the
 chain's `restore_userland_state` ends in `PLAT_TO_USER`.  The user's
-bank state — map, CPU port, `$D030` — is captured at the break and
+bank state — map, CPU port, `$D030`, `SYSFLAGS`, the KERNAL's map
+record — is captured at the break and
 installed again by the resume
 ([platform_layer.md § User transitions](../platform_layer.md#user-transitions)),
 so a break inside a program's own mapping resumes inside it.

@@ -11,7 +11,7 @@
 | [`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py) | tier-I tests: kernel↔user transitions, step chains, the command matrix |
 | [`tests/integration/test_step_rom.py`](../../tests/integration/test_step_rom.py) | tier-I tests: step-into-ROM fallback |
 | [`tests/emulator/test_m65_break.py`](../../tests/emulator/test_m65_break.py) | tier-X tests (xmega65, P1): a user BRK's snapshot equals M65Emu's; a program's bank state survives a break and a resume |
-| [`tests/integration/test_m65_debugger.py`](../../tests/integration/test_m65_debugger.py) | tier-I tests on the m65 PRG (P1): `far_user`, the workspace bound, the line parser in bank 3, the user-ZP view, the transitions and the bank state |
+| [`tests/integration/test_m65_debugger.py`](../../tests/integration/test_m65_debugger.py) | tier-I tests on the m65 PRG (P1–P3): `far_user`, the workspace bound, the line parser in bank 3, the user-ZP view, the transitions and the bank state (with the KERNAL's map record, P3) |
 
 The debugger is the kernel's **userland gateway**: the two gate
 primitives that move the machine between CSE and user code, the
@@ -52,10 +52,11 @@ into the DDR ([mem.md § CPU-port aware ZP save/restore](mem.md#cpu-port-aware-z
 **On m65:** `reg_z` and `reg_b` are zeroed with the others; the
 saved bank state (`um_map`, the port in `userland_zp_buf`, `um_d030`,
 `um_kmap`, `um_sysflags`) is seeded with the run premise's — the user
-map, `$FF` / `$85`, `$64`, the user map in the record, `SYSFLAGS` 0 —
+map, `$FF` / `$85`, `$64`, `um_kmap` the user map, `SYSFLAGS` 0 —
 after `kmap_swap` has written the CSE map into the KERNAL's map
-record, so the cold start leaves it CSE's (D-P3-8); there is no
-`kernel_zp_buf`.  The registers a fresh start installs
+record, which the cold start thus leaves CSE's
+([platform_layer.md § User transitions](../platform_layer.md#user-transitions));
+there is no `kernel_zp_buf`.  The registers a fresh start installs
 are the run premise's: `A X Y Z B` = 0, and P as the CPU keeps it —
 `E` = 1, which `RTI` does not load
 ([userland_contract.md § 3](../userland_contract.md#on-m65)).
@@ -171,7 +172,7 @@ on the way out).
 
 Callers: as `step_next_pc`.
 
-**State** — **BSS (11 bytes):**
+**State** — **BSS (11 bytes):** (16 on m65, with `um_kmap` and `um_sysflags`)
 
 | Variable | Size | Exported | Purpose |
 |---|---|---|---|
@@ -182,8 +183,8 @@ Callers: as `step_next_pc`.
 | `step_next_hi` | 2 | yes (repl.s) | `step_next_pc` result, second stop |
 | `step_save` | 1 | no | opcode scratch of `step_next_pc` |
 | `_rtu_need_sentinel` | 1 | no | per call: 1 from `return_to_userland`, 0 from `restore_userland_state`; read by `_rtu_body` |
-| `um_kmap` | 4 (m65 only) | yes (tests) | the program's KERNAL map record `0.011C–011F` (its bank state; P3) |
-| `um_sysflags` | 1 (m65 only) | yes (tests) | the program's `SYSFLAGS` (its bank state; P2) |
+| `um_kmap` | 4 (m65 only) | no (debug labels: tests) | the program's KERNAL map record `0.011C–011F` (its bank state; P3) |
+| `um_sysflags` | 1 (m65 only) | no (debug labels: tests) | the program's `SYSFLAGS` (its bank state; P2) |
 
 `dbg_reason` and `in_userland` are cross-module flags in `zp.s`
 ([zp.md § Cross-module flags](zp.md#cross-module-flags));

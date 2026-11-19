@@ -685,9 +685,8 @@ The installed machine they check is
   code image and compares them with the PRG's, and checks banks 2–3
   writable (the monitor's writes respect the ROM protection, so a
   write to the reserve `3.C000` reads back only when the loader lifted
-  it).  `Q` ends in BASIC 65 at READY with banks 2–3 reloaded — with
-  P2, when the REPL first runs on m65.  The D81 joins with P3 (a
-  cartridge is a later release's).
+  it).  `Q` ends in BASIC 65 at READY with banks 2–3 reloaded (P2).
+  The D81's start is **Tier X, the disk** (below).
 - **The debugger on m65** (P1, `tests/integration/test_m65_debugger.py`,
   on each ROM).  The REPL needs P2's display bodies, so P1's suites
   drive the transitions at the routine level on the installed PRG
@@ -772,7 +771,10 @@ The installed machine they check is
   goes on to `main_loop` again — and compares the screen, as text,
   with M65Session's after the same keys; `Q` and `y` end at BASIC 65's
   READY with banks 2–3 the ROM's.  Suites: `test_m65_repl.py` (T7–T9),
-  `test_m65_source_editor.py` (T10).
+  `test_m65_source_editor.py` (T10).  `M65Session` (`test_m65_repl.py`) runs `main_loop` through the
+  harness's run loop, so the harness's traps (the virtual drive's)
+  serve typed commands too; stepping the CPU directly would bypass
+  them.
 - **M65Emu against the editor recording.**  `test_m65_editor.py`
   replays `m65_editor.json`'s probes on M65Emu (the real ROM, its DMA
   and keyboard devices): the jump table, `SCRORG` and `PLOT` per mode
@@ -786,49 +788,46 @@ The installed machine they check is
   after the same typed commands (typed through `ADDKEY` from a driver:
   the monitor cannot type a key); `Q` ends in BASIC 65 at READY with
   banks 2–3 reloaded.
-- **The disk on m65** (P3).  Units 8 and 9 are CBDOS's on the
-  MEGA65 (the internal drive, a mounted D81), every other unit the
-  IEC bus's; the KERNAL routes each call, disk.s does not
+- **The disk on m65** (P3).  The KERNAL routes a unit to CBDOS or
+  to the IEC bus, disk.s does not
   ([disk.md § On m65](modules/disk.md#on-m65)).  M65Emu models no
-  floppy controller, so its disk tests use an IEC unit: the virtual
-  drive of [§ Virtual IEC drives](#virtual-iec-drives) moves to
-  `EmuBase` (C64Emu and M65Emu share `attach_drive`, `Drive1541` and
-  the traps), and on M65Emu the traps sit at the same jump-table
-  addresses — the MEGA65 KERNAL reaches its serial routines through
-  them (`LISTEN` is `JMP ($0336)` into the interface ROM; recorded:
-  `OPEN` on unit 10 calls `$FFB1`), and the drive sets the status
-  where the MEGA65 KERNAL keeps it, base page 0's `$90` (`READSS` is
-  `lda $90` · `rts` on both ROMs — a harness fact; CSE reads it only
-  through `READSS`).  Two more MEGA65 facts the drive needs, recorded
-  on both ROMs: the KERNAL's `LISTEN` / `TALK` note in base page 0's
-  `$A2` bit 7 that the device did not answer the fast-serial handshake
-  (`2.CC0C`), and `LOAD` reads byte by byte only for such a slow device
-  (otherwise its fast loader, `$CCCF`) — so the drive, a 1541, sets
-  that bit when it takes the bus (`_iec_slow_device()`); and a
-  `RUN`-started PRG has the KERNAL's messages off (`MSGFLG` `$9D` =
-  `$00` at `_main`, recorded in xmega65; the post-boot snapshot is
-  direct mode, `$80`), which `enter_premise()` and `install_prg()`
-  set — with messages on, `LOAD` prints LOADING — and its map record
-  `0.011C–011F` holds the `SYS` map (the post-boot snapshot: BASIC 65's,
-  `00 E3 00 B3`, the CSE map's own values), which they set too, so a
-  test sees `dbg_init` write the CSE map there (D-P3-8).  The m65 disk tests
-  (`tests/integration/test_m65_disk.py`) run `test_disk.py`'s
-  contract on unit 10: the probe and status (`READSS`), the
-  directory into `DIR_BUF` with the user's region untouched, PRG and
-  SEQ load and save, the source through `l` / `s`.  With no drive on
-  the unit the KERNAL's own serial code runs, whose delays poll the
-  raster line: M65Emu's `$D012` advances with the steps (a raster
-  counter, the latch's sibling), so an absent device fails as on the
-  MEGA65 instead of hanging.  CBDOS is Tier X: **Tier X, the disk**
-  (`tests/emulator/test_m65_d81.py`) boots a D81 written as `make disk
-  PLATFORM=m65` writes it (`-8`, `-autoload`) to the prompt and, on
-  unit 8, lists it (`$` equals `c1541`'s listing; CHARPTR stays the
-  internal set's), saves and loads a PRG, saves a source from the
-  editor, and reads both files back with `c1541` (a SEQ as `name,s`).
-  CBDOS's status has no space after the code: `00,ok,00,00`.  `M65Session.idle()` runs main_loop through the
-  harness's run loop, so the drive's traps serve typed commands too
-  (stepping the CPU directly would bypass them, and the KERNAL's own
-  serial code would find the bus empty).
+  floppy controller, so its disk tests use an IEC unit, 10: the
+  virtual drive of [§ Virtual IEC drives](#virtual-iec-drives)
+  (`tests/iec_drive.py`, attached through `EmuBase.attach_drive`)
+  serves M65Emu too, its traps at the same jump-table addresses — the
+  MEGA65 KERNAL reaches its serial routines through them (`LISTEN` is
+  `JMP ($0336)` into the interface ROM; recorded: `OPEN` on unit 10
+  calls `$FFB1`).  With no drive on the unit the KERNAL's own serial
+  code runs, whose delays poll the raster line: M65Emu's `$D012`
+  advances with the steps (a raster counter, the latch's sibling), so
+  an absent device fails as on the MEGA65 instead of hanging.
+- **The MEGA65 KERNAL facts the drive needs** (recorded on both
+  ROMs; harness facts — CSE reads none of these cells):
+  - the status is base page 0's `$90` (`READSS` is `lda $90` · `rts`),
+    where the drive sets it;
+  - `LISTEN` / `TALK` note in base page 0's `$A2` bit 7 that the device
+    did not answer the fast-serial handshake (`2.CC0C`), and `LOAD`
+    reads byte by byte only for such a slow device (otherwise its fast
+    loader, `$CCCF`), so the drive, a 1541, sets that bit when it takes
+    the bus (`_iec_slow_device()`);
+  - a `RUN`-started PRG finds the KERNAL's messages off (`MSGFLG` `$9D`
+    = `$00`; with them on, `LOAD` prints LOADING) and the `SYS` map in
+    the KERNAL's map record `0.011C–011F`.  The post-boot snapshot is
+    direct mode: `$80`, and BASIC 65's map in the record — which equals
+    the CSE map, so a test of `dbg_init`'s write would pass without it.
+    `enter_premise()` and `install_prg()` set both as `RUN` leaves them.
+- **Tier I, the disk** (`tests/integration/test_m65_disk.py`, each
+  ROM): `test_disk.py`'s contract on unit 10 — the probe and status
+  (`READSS`), the directory into `DIR_BUF` with the user's region
+  untouched, PRG and SEQ load and save, the source through `l` / `s`.
+- **Tier X, the disk** (`tests/emulator/test_m65_d81.py`, each ROM):
+  the debug PRG on a D81 formatted as `make disk PLATFORM=m65` formats
+  it, started with `-8` and `-autoload`; on unit 8, through CBDOS, `$`
+  equals `c1541`'s listing (CHARPTR stays the internal set's), a PRG
+  saved and loaded back, a source saved from the editor, both files
+  read back with `c1541` (a SEQ as `name,s`).  CBDOS's status has no
+  space after the code: `00,ok,00,00`.  The release D81 and the
+  README's `DLOAD` start are left manual.
 - **The recordings behind the m65 column.**  The P0 analysis probes
   (entry state, base page, `Z`, the frame, the maps, the Hypervisor
   services, the regions CSE takes, all on both ROMs) become committed
@@ -1565,13 +1564,15 @@ tests/
 ├── conftest.py          — Bundle, the bundle and PRG fixtures, SymbolTable
 ├── emu_base.py          — EmuBase: what C64Emu and M65Emu share
 ├── c64emu.py            — C64Emu, the C64 harness
+├── iec_drive.py         — the virtual IEC drive, both harnesses' (§ Virtual IEC drives)
 ├── m65emu/              — M65Emu, the m65 harness (§ M65Emu)
 ├── xmega65.py           — the xmega65 driver (recorders; Tier X)
 ├── asm_dasm_runner.py   — exhaustive asm_line / dasm_insn sweeps (golden files)
 ├── fixtures/            — golden files, the MEGA65 compendium tables
 ├── unit/                — Tier U tests (bare MPU + bundles; generator,
 │                          audit and build-gate tests)
-└── integration/         — Tier I tests (C64Emu / M65Emu + full PRG)
+├── integration/         — Tier I tests (C64Emu / M65Emu + full PRG)
+└── emulator/            — Tier X tests (xmega65; run by path)
 ```
 
 Unit-tier tests load a small bundle binary (module + its
@@ -1816,7 +1817,8 @@ Not modelled: disk geometry and the BAM (blocks are counted, not
 allocated), relative files, `M-R`/`M-W`/`B-` commands, timing, `@`'s
 replace bug, more than one disk per drive.  The unit tests of the
 model are `tests/unit/test_c64emu_disk.py`; cse's disk paths run on it
-in `test_disk.py`, `test_repl_disk.py` and `test_editor.py`.
+in `test_disk.py`, `test_repl_disk.py` and `test_editor.py`, and on
+M65Emu in `test_m65_disk.py`.
 
 ### SymbolTable — encapsulated symbol resolution
 

@@ -269,9 +269,11 @@ compendium until its golden file, recorded in xmega65, says otherwise.
 
 ## M65 slice 2 — the MEGA65 platform (R7, platform layer)
 
-**Branch:** `m65`.  **Status (2026-11-18):** the harness (S2-3), P0
-(the m65 PRG installs itself and reaches `_main`) and P1 (user code,
-maps, vectors and the debugger on m65) are done; P2 is next.
+**Branch:** `m65`.  **Status (2026-11-19):** the harness (S2-3), P0
+(the m65 PRG installs itself and reaches `_main`), P1 (user code,
+maps, vectors and the debugger on m65), P2 (the screen, the keyboard,
+the REPL and the editor) and P3 (the disk and the D81) are done; P4 is
+next.
 
 **How this plan is read.**  Under CDD the documents are the truth:
 each milestone below is a **Step-1 doc delta** — the documents that
@@ -301,8 +303,8 @@ the screen and keyboard (P2).  Phase B and P3–P5 follow.
   release's — § Later release: the m65 cartridge) per the
   MEGA65-style cartridge standard
   ([wiki, work in progress](https://mega65.atlassian.net/wiki/spaces/MEGA65/pages/36962324/MEGA65+Style+Cartridge+Work+in+Progress));
-  the standard is in flux, we follow it.  The CRT has its own bank
-  and is fully visible; it is a **32 K type-0 image**, raw.
+  the standard is in flux, we follow it.  (The image's type and size
+  are the later release's: A3's record.)
 - **Home: the ROM banks.**  The loader lifts the ROM write
   protection and installs the code in C65 BASIC's 24 K (`3.2000`) and
   the data structures in BASIC's 16 K graphics bank (`3.8000`).
@@ -360,10 +362,10 @@ xmega65 by the milestone that relies on it.
 | [platform_layer.md](platform_layer.md) | the seams and their contracts per platform; the no-literals rule; the gates |
 | [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) | the run premise, the two maps, the banks, the stub's place, the installed machine, interrupts; § Source Code Storage for bank 2 |
 | [userland_contract.md](userland_contract.md) | what a user program owns and may rely on, per platform; what survives a run and `Q` |
-| [build_system.md § The m65 builds](build_system.md#the-m65-builds) | `PLATFORM=m65`, the defines, the linker layout per bank, the PRG, the D81, the CRT image, no exomizer, the m65 gates |
+| [build_system.md § The m65 builds](build_system.md#the-m65-builds) | `PLATFORM=m65`, the defines, the linker layout per bank, the PRG, the D81, no exomizer, the m65 gates |
 | [testing.md](testing.md) | the m65 PRG fixture and Tier I on M65Emu, Tier X, the ROM versions the port is verified on, the byte-identical gate and the literal audit as tests |
 | [architecture.md](architecture.md) | the driver as a role of the leaves (rule 9) |
-| [README.md](../README.md) | the MEGA65 chapter: starting from PRG / D81 / CRT, screen modes, keys, memory for your programs, `Q`, `i` |
+| [README.md](../README.md) | the MEGA65 chapter: starting from the PRG or the D81, screen modes, keys, memory for your programs, `Q`, `i` |
 | [glossary.md](glossary.md) | CSE map, user map, resident stub, seam, the `b.xxxx` notation |
 | module docs | each seam host's Interface states the per-platform body or points to platform_layer.md: [mem.md](modules/mem.md), [cse_io.md](modules/cse_io.md), [screen.md](modules/screen.md), [main.md](modules/main.md), [loader.md](modules/loader.md), [disk.md](modules/disk.md), [gap_buffer.md](modules/gap_buffer.md), [debugger.md](modules/debugger.md), [breakpoints.md](modules/breakpoints.md), [zp.md](modules/zp.md); [editor.md](modules/editor.md), [repl.md](modules/repl.md), [log.md](modules/log.md) state that they carry no platform knowledge and are width-driven |
 
@@ -1244,8 +1246,8 @@ matrix through the REPL (moved from P1, D-P1-5).
   premise's `$00` whole — D-P2-3, the operator's ruling, and the
   recorded premise.
 
-**P3 — disk, exit and the distribution formats (PRG and D81).**
-Operator, 2026-11-19: "Postpone CRT to a later release, first release
+**P3 — the disk and the distribution formats (PRG and D81).**  **Gate
+met (2026-11-19)** — below, after the TDD plan.  Operator, 2026-11-19: "Postpone CRT to a later release, first release
 will be PRG/D81 only" — the cartridge leaves P3 (§ Later release:
 the m65 cartridge, below).
 
@@ -1279,6 +1281,12 @@ analysis):
   targets, the tree, the CRT paragraph rewritten from A3's record),
   platform_layer.md § Loader, loader.md, memory_design.md,
   testing.md, README.md.
+- [x] D-P3-8's feedback round (step (5)): the KERNAL's map record in
+  the bank state — [platform_layer.md § User transitions](platform_layer.md#user-transitions),
+  [debugger.md](modules/debugger.md) (`kmap_swap`, `um_kmap`),
+  [main.md](modules/main.md), [glossary.md](glossary.md) (*bank
+  state*), [userland_contract.md](userland_contract.md), testing.md
+  (the run premise's record).
 
 **P3 analysis record (2026-11-19), doc against code — approved 2026-11-19**
 (D-P3-1 as amended by the operator: no cartridge in the first release).
@@ -1342,6 +1350,8 @@ Decisions (approved 2026-11-19):
   is unreachable — the header it inverts is at most 32 columns
   (`fl_buf` keeps 30 characters) — so it is closed, not fixed, and the
   C64 PRGs stay byte-identical (§ Bugs).
+- **D-P3-7** `make size PLATFORM=m65`: `size_report.py` takes the
+  platform and prints the segment and module parts only.
 - **D-P3-8** (feedback round, step (5); operator 2026-11-19: "Swap
   the map record").  Tier X on the D81 found: a KERNAL disk call
   through CBDOS (unit 8) returns under the KERNAL's map record
@@ -1351,16 +1361,14 @@ Decisions (approved 2026-11-19):
   CSE's code mapped away (a BRK in bank 0's zeros).  M65Emu's IEC unit
   never takes that path.  The fix: the record is part of the bank
   state — the CSE map while CSE runs (`kmap_swap` at every break and,
-  through `dbg_init`, at the cold start), the program's own at every resume (`um_kmap`), the
-  user map at a fresh start.  The one KERNAL cell CSE writes on m65;
+  through `dbg_init`, at the cold start), the program's own at every
+  resume (`um_kmap`), the user map at a fresh start.  The one KERNAL cell CSE writes on m65;
   the alternative, a bank-0 trampoline restoring CSE's map after each
   call, needed bank-0 space CSE does not have.
-- **D-P3-7** `make size PLATFORM=m65`: `size_report.py` takes the
-  platform and prints the segment and module parts only.
 
 **P3 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
-first, in this order; each is red until its code lands.  Automation
-judgement: everything but real drive timing is automatable — the
+first, in this order; each was written red, before its code.
+Automation judgement: everything but real drive timing is automatable — the
 KERNAL's IEC path on M65Emu (a virtual drive behind the jump table),
 CBDOS on the D81 in xmega65 (Tier X).
 
@@ -1410,23 +1418,10 @@ CBDOS on the D81 in xmega65 (Tier X).
   space after the code, unlike a 1541's).  It found D-P3-8.
 - [x] T7. The gates: P3's pending count 2 → 0 (`PLAT_PENDING_VALUE`,
   `BP_PENDING` gone); the C64 PRGs byte-identical; the m65 budget
-  raised in a commit of its own.
+  held (22 750 B within 22 753 B: no raise).
 
-Steps (1)–(3) done 2026-11-19 (016f9aa, ffd9b1d, and step (3)'s
-commit).  Found in step (1), recorded on both ROMs: the KERNAL's serial
-entries are `JMP (vector)`; its `LISTEN` / `TALK` note a slow device in
-`$A2` bit 7 and `LOAD` takes its byte-by-byte path only then (else a
-fast loader); `ST` and `LDTND` are base page 0's `$90` and `$98`; a
-`RUN`-started PRG has `MSGFLG` `$00` (the snapshot `$80`).  In step
-(3): `M65Session.idle()` stepped the CPU past the harness's traps —
-fixed (P2's harness); a filename for `SETBNK`'s filename bank must be
-in CSE's view at `$2000` and up (all of CSE's are).  The m65 PRG
-stayed within its budget (22 703 B): no raise.
-
-Then the code, in this order — (1) the harness: T1; (2) the C64
-`@putc_inv` fix: T4 (its own commit, the hashes re-recorded — dropped,
-D-P3-6 amended); (3)
-disk.s on m65 — `READSS`, `disk_local_ptr`, `DIR_BUF`, the pointer
+The code went in this order — (1) the harness: T1; (2) the C64
+`@putc_inv` fix: T4 (dropped, D-P3-6 amended); (3) disk.s on m65 — `READSS`, `disk_local_ptr`, `DIR_BUF`, the pointer
 banks, `PLAT_SETBNK [bank]`, the pending values gone: T2, T3, T7; (4)
 the build: T5; (5) Tier X: T6; then the P3 close (Step 5, the gate).
 
@@ -1439,9 +1434,15 @@ the build: T5; (5) Tier X: T6; then the P3 close (Step 5, the gate).
   m65-6502 22 750 B, within the P2 budget (22 753 B: no raise in P3).
   Code commits 016f9aa, ffd9b1d, d1c86a4, b92b388, f9e3ddf.  Found on
   the way, fixed: D-P3-8 (CBDOS's calls return under the KERNAL's map
-  record), `M65Session.idle()` bypassing the traps; recorded: the
-  KERNAL's serial vectors, `ST` / `LDTND` / `MSGFLG` / `$A2`, CBDOS's
-  status format (`00,ok,00,00`).  Closed, not fixed: `@putc_inv`'s
+  record), `M65Session.idle()` stepping past the harness's traps (P2's
+  harness); recorded on both ROMs: the KERNAL's serial entries are
+  `JMP (vector)`; `LISTEN` / `TALK` note a slow device in `$A2` bit 7
+  and `LOAD` reads byte by byte only then (else its fast loader); `ST`
+  and `LDTND` are base page 0's `$90` and `$98`; a `RUN`-started PRG
+  has `MSGFLG` `$00` (the snapshot `$80`) and the `SYS` map in the
+  KERNAL's map record; a filename for `SETBNK`'s filename bank must be
+  in CSE's view (`$2000` and up — all of CSE's are); CBDOS's status
+  reads `00,ok,00,00`.  Closed, not fixed: `@putc_inv`'s
   last-column case (unreachable, D-P3-6).  The cartridge is a later
   release's (below).  Left manual: real drive timing, a physical
   MEGA65's internal drive.
@@ -4770,8 +4771,8 @@ screen driver and memory model.  Slice 1 — the CPU layer (assembler
 and disassembler) — is active: see
 [M65](#m65--the-45gs02-assembler-and-disassembler-r7-slice-1).
 Slice 2 — the platform layer: a native MEGA65-mode program living
-in the BASIC ROM banks, shipped as PRG, D81 and a MEGA65-style CRT —
-is planned and comes first: see
+in the BASIC ROM banks, shipped as PRG and D81 (a MEGA65-style CRT
+in a later release) — is in progress, P0–P3 done: see
 [M65 slice 2](#m65-slice-2--the-mega65-platform-r7-platform-layer).
 Slice 2 does the c64/m65 leaf-function isolation R3 asks for; R3
 later adds the C128 to it.

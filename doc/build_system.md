@@ -31,8 +31,8 @@
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
 | [`tests/unit/test_dasm_tables.py`](../tests/unit/test_dasm_tables.py) | test contract — the disassembler model of `dev/dasm_tables.py` |
 | [`tests/m65emu/`](../tests/m65emu/) | implementation — M65Emu, the m65 harness: `MPU45GS02` (`mpu45gs02.py`), its decode table from the compendium fixture (`isa.py`), the CPU golden-file format (`golden.py`), `M65Memory` (`memory.py`), the devices — DMA controller, keyboard queue, CIA1 matrix port, VIC interrupt latch, CIA2 interrupt control, the Hypervisor traps (`devices.py`) —, the `M65Emu` harness, its per-ROM snapshot loading, the run premise (`enter_premise`, `run_premise`) and the m65 PRG's installed machine (`install_prg`) (`harness.py`), the raw-byte macros as the CPU decodes them (`m45_ops.py`) ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)) |
-| [`tests/xmega65.py`](../tests/xmega65.py) | implementation — the xmega65 driver (headless start on a cloned SD image, optionally with a given ROM on it and a PRG it runs; uartmon commands) for Tier X and the M65Emu recordings |
-| [`tests/unit/test_xmega65.py`](../tests/unit/test_xmega65.py) | test contract — the driver's pure parts: the FAT partition's offset from the clone's MBR, the start arguments with a ROM and a PRG, `run_to`'s registers at the hit |
+| [`tests/xmega65.py`](../tests/xmega65.py) | implementation — the xmega65 driver (headless start on a cloned SD image, optionally with a given ROM on it and a PRG it runs or a D81 it autoloads; uartmon commands; typing through the `ADDKEY` driver, `addkeys()`; the mounted D81 read back, `mounted_d81()`) for Tier X and the M65Emu recordings |
+| [`tests/unit/test_xmega65.py`](../tests/unit/test_xmega65.py) | test contract — the driver's pure parts: the FAT partition's offset from the clone's MBR, the start arguments with a ROM, a PRG and a D81, `run_to`'s registers at the hit, the `ADDKEY` driver's code |
 | [`dev/capture_m65_golden.py`](../dev/capture_m65_golden.py) | implementation — records `m65_cpu.json` in xmega65 |
 | [`dev/capture_m65_state.py`](../dev/capture_m65_state.py) | implementation — records M65Emu's post-boot snapshot for a given ROM and its reference runs from xmega65 into `build/m65_state/<ROM>/`, refusing a booted ROM other than the one given (default `rom/mega65.rom`) (run by hand; holds the ROM, never committed) |
 | [`dev/capture_m65_dma.py`](../dev/capture_m65_dma.py) | implementation — records `m65_dma.json` (DMA jobs as xmega65 runs them) |
@@ -46,7 +46,7 @@
 | [`tests/unit/test_mpu45gs02.py`](../tests/unit/test_mpu45gs02.py) | test contract — `MPU45GS02` against the fixture, the 45GS02-specific behaviour and every case of `m65_cpu.json` |
 | [`tests/unit/test_m65emu_harness.py`](../tests/unit/test_m65emu_harness.py) | test contract — the M65Emu harness without a snapshot: `jsr`, `run_until`, registers, `load_prg` into bank 0, `screen_text`, the I/O log, `restore()`, `load_snapshot()` refusing a missing or outdated snapshot, the per-ROM snapshot directories |
 | [`tests/integration/test_m65_editor.py`](../tests/integration/test_m65_editor.py) | test contract — M65Emu against `m65_editor.json`: the recorder's own probes, run on M65Emu with each snapshot's ROM, answer as xmega65 recorded (P2 T1) |
-| [`tests/integration/test_m65emu.py`](../tests/integration/test_m65emu.py) | test contract — M65Emu on the real MEGA65 KERNAL: the reference runs (`CHROUT`, the DMA scroll) match xmega65's, `GETIN` reads injected keys, and the parity calls reach the KERNAL — the jiffy tick's frame work, STOP through the matrix, RESTORE's NMI, `PLOT` (skipped without the snapshot) |
+| [`tests/integration/test_m65emu.py`](../tests/integration/test_m65emu.py) | test contract — M65Emu on the real MEGA65 KERNAL: the reference runs (`CHROUT`, the DMA scroll) match xmega65's, `GETIN` reads injected keys, and the parity calls reach the KERNAL — the jiffy tick's frame work, STOP through the matrix, RESTORE's NMI, `PLOT`; the virtual IEC drive behind the KERNAL's jump table — `OPEN` · `CHKIN` · `CHRIN`, `LOAD`, an absent unit failing without a hang (skipped without the snapshot) |
 | [`tests/unit/test_m65dma.py`](../tests/unit/test_m65dma.py) | test contract — the DMA controller against every job of `m65_dma.json`, plus snapshot restore and the modes that raise |
 | [`tests/unit/test_m65devices.py`](../tests/unit/test_m65devices.py) | test contract — the keyboard queue and `inject_key()`, the CIA1 matrix port, the VIC interrupt latch (`$D019`) and the CIA2 interrupt register (`$DD0D`) against `m65_latches.json`, the Hypervisor traps, device claims and the unmodelled-I/O log |
 | [`tests/unit/test_m65memory.py`](../tests/unit/test_m65memory.py) | test contract — `M65Memory` against every state of `m65_mem.json`, plus colour RAM, ROM protection, the CPU port, the page-table triggers and `MAP` run on `MPU45GS02` |
@@ -294,7 +294,7 @@ Exomizer serves the C64 builds only, with its default target (`-t
 | All (default) | `make` | Same as `release` |
 | Release | `make release` | `c64`: all three CPU variants, optimized + exomizer + D64; `m65`: the m65 PRG + D81, uncompressed |
 | Debug | `make debug` | The platform's builds with `-g` (full symbols in `.lbl`) |
-| Disk (single) | `make disk` | Per-build disk image in the build dir — D64 on `c64`, D81 on `m65` (for quick iteration) |
+| Disk (single) | `make disk` | `c64`: a D64 per build in the build dir (for quick iteration); `m65`: as `release`, the distribution D81 |
 | Run | `make run` | Build release + launch in VICE (`c64`) or xmega65 (`m65`) |
 | Tables | `make tables` | Run both generators, `dev/mnemonic_tables.py` and `dev/dasm_tables.py`, when a generator or its input is newer than `build/.tables.stamp` ([§ Table generation](#table-generation)) |
 | Tests | `make test` | Build both debug + release, check the ROMs, then run all pytest tests |
@@ -306,10 +306,7 @@ Exomizer serves the C64 builds only, with its default target (`-t
 | Themes | `make themes` | List available colour themes |
 | Help | `make help` | List all targets and options |
 
-With `PLATFORM=m65`, `release` and `debug` build the m65 PRG from P0
-on, `run` starts it in xmega65 from P2, and P3 adds the D81 (`release`,
-`disk`) and `size` ([§ Builds and CPU sets](#builds-and-cpu-sets)); a
-cartridge image is a later release's.
+Every target works with `PLATFORM=m65` ([§ The m65 builds](#the-m65-builds)).
 
 ### Build profiles
 
@@ -379,8 +376,7 @@ PRG names are the same in both profiles — the `release/` vs `debug/`
 directory disambiguates.
 
 A C64 cartridge is a planned future target (R5) using the same source
-with a different linker config; an m65 cartridge is a later release's
-too ([§ The m65 builds](#the-m65-builds)).
+with a different linker config.
 
 ## Build-time options
 
@@ -453,9 +449,7 @@ slice 1, Phase B
 B1; `conftest.PROD_DEFS` holds the three C64 sets only), its PRG slice
 2 — the platform layer
 ([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)):
-`make release PLATFORM=m65` and `make debug PLATFORM=m65` build the
-m65-6502 PRG from P0 on; `run` from P2; `disk`, `size` and the D81
-with P3.
+`PLATFORM=m65` builds the m65-6502 PRG and its D81.
 
 ### The m65 builds
 
@@ -467,7 +461,7 @@ parts live at run time is [memory_design.md § Memory Map —
 m65](memory_design.md#memory-map--m65-mega65-mode); how its
 platform bodies are selected is [platform_layer.md](platform_layer.md).
 Status: the PRG builds (P0, [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer))
-and runs the REPL and the editor (P2); P3 brings the disk and the D81.
+and runs the REPL and the editor (P2), the disk and the D81 (P3).
 
 **Defines.**  `PLATFORM_M65` and the CPU set's defines: m65-6502's
 until P4, m65-45gs02's from then on ([§ Builds and CPU sets](#builds-and-cpu-sets)).
@@ -531,14 +525,8 @@ uncompressed.
   disk tool writes D81 as well as D64; disk name `cse <version>`, id
   `01`), holding the PRG as `cse-m65`: `DLOAD "CSE-M65"` and `RUN`
   start it.
-- No cartridge in the first release (operator, 2026-11-19: PRG and
-  D81 only).  A later release's cartridge starts from A3's record
-  ([TODO § Analysis tasks](TODO.md#analysis-tasks-own-cycles-their-results-are-doc-deltas)):
-  the ROM copies the first 8 K from `$400.8000` to `$8000` and jumps
-  there (the flags at `$8006`, bit 0 = auto-start; the magic `$4D $36
-  $35` at `$8007`), so the bootstrap fetches the rest; an unbanked
-  cartridge shows 16 K on the hardware; and `Q`, a reset, would start
-  the cartridge again.
+- No cartridge yet: a later release's, from A3's record
+  ([TODO § Analysis tasks](TODO.md#analysis-tasks-own-cycles-their-results-are-doc-deltas)).
 
 **Run.**  `make run PLATFORM=m65` builds the release PRG and the D81
 and starts `$(XMEGA65)` with both: `-prg build/release/m65/cse-m65.prg

@@ -105,7 +105,7 @@ stretch target, not a platform
 | [Screen save](#screen-save) | editor.s | the REPL screen saved and restored around the editor |
 | [Disk bank](#disk-bank) | disk.s, `platform.inc` | `PLAT_SETBNK` |
 | [Info map](#info-map) | repl.s | the rows of `i`, one `.ifdef` data block per platform |
-| [Loader](#loader) | loader.s (L6) | `loader_entry` (a cartridge bootstrap, `PLAT_CRT`, is a later release's) |
+| [Loader](#loader) | loader.s (L6) | `loader_entry` |
 
 Layering ([architecture.md](architecture.md)): the layer is a role of
 the existing leaves, not a new layer.  `platform.inc` is L0 data and
@@ -126,7 +126,7 @@ platform lacks is absent there, so a stray use fails to assemble.
 |---|---|---|
 | KERNAL entries CSE calls | `GETIN $FFE4`, `PLOT $FFF0`, `RESTOR $FF8A`, `CINT $FF81`; the file calls `SETLFS $FFBA`, `SETNAM $FFBD`, `OPEN $FFC0`, `CLOSE $FFC3`, `CHKIN $FFC6`, `CHKOUT $FFC9`, `CLRCHN $FFCC`, `CHRIN $FFCF`, `CHROUT $FFD2`, `LOAD $FFD5`, `READST $FFB7`, `LISTEN $FFB1`, `UNLSN $FFAE` | the same addresses for the same calls (book I-5/6), except `RESTOR` and `CINT`, which the m65 exit does not need; plus `VECTOR $FF8D`, `SETBNK $FF6B`, `SCRORG $FFED`, `SYSFLAGS $FF47`, `ScanStopKey $FFEA`.  `BSOUT` (`CHROUT`), `BASIN` (`CHRIN`), `GETIN` and `STOP` are `JMP ($nnnn)` in the jump table, the others `JMP` (recorded, A1).  ROM 920413 lacks `VERSIONQ`, `RESET_RUN` and `CURSOR` (recorded: `$FF35` holds `$FF`); CSE does not use them |
 | KERNAL internals called directly | `$EA31` (the IRQ body, from the early entry), `$FCE2` (cold start, the fallback); BASIC's warm-start vector `($A002)` | none |
-| KERNAL cells | `ST $90`, the STOP row `$91`, the key count `$C6`, the blink switch `$CC`, `$CE`, the cursor column `$D3`, `$D4`, `$D5`, the cursor row `$D6`, `$D8`, the line-link table `$D9–$F1`, `CHRCOLOR $0286`, `KEY_REPEAT $028A`, the charset lock `$0291` | none, read or written (book 14-13: KERNAL variables are not an interface), but the KERNAL's map record `0.011C–011F`, kept as CSE's map while CSE runs ([§ User transitions](#user-transitions), D-P3-8): `ST` → `READSS`; STOP → `ScanStopKey`; the keys → `GETIN`; the cursor → CSE's cells and `PLOT`; the editor's modes and lines → `ESC O`, `HOME HOME`, `PLOT`; the colour → a colour code through `BSOUT`; the charset lock → `SYSFLAGS` bit 7; key repeat → the hardware's, no setting ([§ Terminal](#terminal), A1 in [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)) |
+| KERNAL cells | `ST $90`, the STOP row `$91`, the key count `$C6`, the blink switch `$CC`, `$CE`, the cursor column `$D3`, `$D4`, `$D5`, the cursor row `$D6`, `$D8`, the line-link table `$D9–$F1`, `CHRCOLOR $0286`, `KEY_REPEAT $028A`, the charset lock `$0291` | none, read or written (book 14-13: KERNAL variables are not an interface): `ST` → `READSS`; STOP → `ScanStopKey`; the keys → `GETIN`; the cursor → CSE's cells and `PLOT`; the editor's modes and lines → `ESC O`, `HOME HOME`, `PLOT`; the colour → a colour code through `BSOUT`; the charset lock → `SYSFLAGS` bit 7; key repeat → the hardware's, no setting ([§ Terminal](#terminal), A1 in [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)).  One exception: the KERNAL's map record `0.011C–011F`, which holds the CSE map while CSE runs ([§ User transitions](#user-transitions)) |
 | Vector table | `$0316` (`IBRK`), `$0318` (`INMI`) written directly; RAM shadows `$FFFA`/`$FFFE`; `$0314` (`IIRQ`) untouched | the KERNAL's table, read and written only through `VECTOR` |
 | `FRAME_DEPTH` | 3 | 5 ([§ Interrupt frame](#interrupt-frame)) |
 | Homes — the names (`HIMEM`, `WORKSTART`, `BASIC_START`, `SYM_TABLE`, `SYM_HEAP`, `KDATA_RUN`, `REPL_SCREEN`, `COLD_ZP`, `CSE_BP`, `STUB_BASE`, `BUF_FLOOR`, `BUF_END`, `PROG_LO`, `PROG_HI`) | values: [memory_design.md § Memory Map — Runtime](memory_design.md#memory-map--runtime-c64-builds) and § Banked layout | values: [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) |
@@ -144,7 +144,7 @@ platform lacks is absent there, so a stray use fails to assemble.
 | The free-ZP fill (`_main` step 10) | `ZP_BASE` `$00`, `ZP_FILL_END` `$80` | `ZP_BASE` `$00`, `ZP_FILL_END` = `STUB_BASE`'s low byte: the free part of CSE's base page |
 | The jump-table page (the loader's gate) | none | `KERNAL_JUMP_PAGE` `$FF00`: every entry CSE calls is in it |
 | `DISK_LOCAL_PTR` (disk.s's private pointer) | `$FD` — in the KERNAL half; see [TODO § Bugs](TODO.md#bugs) | `disk_local_ptr`, a 2-byte cell of CSE's base page (zp.s): it reads only filenames in CSE's own view, so it needs no bank ([disk.md § On m65](modules/disk.md#on-m65)) |
-| The directory buffer (`list_directory`'s `LOAD "$"`) | the workspace from `BASIC_START` (`$0801`) | `DIR_BUF` `$D000` in `DIR_BANK` 2: `2.D000–2.FFFF`, CSE's 12 K reserve ([memory_design.md](memory_design.md) § Memory Map — m65) |
+| The directory buffer (`list_directory`'s `LOAD "$"`) | the workspace from `BASIC_START` (`$0801`) | `DIR_BUF` `$D000` in `DIR_BANK` 2: `2.D000–2.FFFF` ([memory_design.md](memory_design.md) § Memory Map — m65) |
 
 **Hypervisor services (m65).**  The documented Hypervisor traps the
 m65 build uses (book Appendix N, "available since Hyppo 1.2"); each
@@ -325,8 +325,11 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   `read_ptr`, `ed_tmp`, and `_io_scr` / `scr_src`, far from P2: the
   screen is in bank 4 in 80 × 50) — a screen pointer by
   `FAR_BANK_SCREEN` (the mode's bank, [§ Display](#display)), a source
-  pointer `BANK_SRC`, the screen save's `BANK_CSE`; P3 `disk_ptr`.  Until then a far pointer's
-  bank is 0 (`BANK_USER`): the loader clears CSE's base page.  A
+  pointer `BANK_SRC`, the screen save's `BANK_CSE`; P3 disk.s's:
+  `disk_ptr` (`DIR_BANK` for the directory walk), `_io_tmp`
+  (`FAR_USER` in `disk_save_prg`, `FAR_BANK_SCREEN` in `@putc_inv`).
+  Before its set site a far pointer's bank is 0 (`BANK_USER`): the
+  loader clears CSE's base page.  A
   pointer that only ever reaches bank 0 below `$C000` has no set
   site at all: its bank is the loader's 0 for the whole session, and
   zp.md says so in its entry.
@@ -441,19 +444,21 @@ and the Hypervisor's `hyppo_get_mapping` does ([§ Constants](#constants)).
 - **The KERNAL's map record** (`0.011C–011F`, A X Y Z for `MAP`),
   likewise KERNAL state: the "KERNAL-managed memory map" `JSRFAR`
   restores (book I-31) — and so do the interface ROM's IEC / DOS calls
-  (`LDQ $011C` · `MAP` at `2.CBF6`, and the KERNAL's at `3.F2C2` /
-  `3.F263`, recorded on both ROMs).  A KERNAL call through CBDOS made
+  (`LDQ $011C` · `MAP` at `2.CBF6` on both ROMs, and the KERNAL's at
+  `3.F263` on 920413, `3.F2C2` on 920421; recorded).  A KERNAL call through CBDOS made
   under CSE's map would return under the record's map — the `SYS` map
   — with CSE's code mapped away (Tier X found it, P3).  So while CSE
   runs the record holds the CSE map: `kmap_swap` captures the
   program's into `um_kmap` (debugger.s's BSS) and writes the CSE map —
-  at every break (`save_userland_state`'s tail) and at the cold start
-  (`dbg_init`, through `seed_bank_state`); `_rtu_body`
+  at every break (`save_userland_state`'s tail), and first in
+  `seed_bank_state` (the cold start's `dbg_init`, every fresh start's
+  `return_to_userland`), whose seed then overwrites `um_kmap`; `_rtu_body`
   writes the program's back before `PLAT_TO_USER`; a fresh start gives
   the run premise's, the user map (`00 E0 00 83`).  The one KERNAL
   cell CSE writes on m65 (P3, operator 2026-11-19: D-P3-8).
 - **Fresh start** (`j`, `g`): the bank state is the run premise's —
-  the user map, the port `$FF` / `$85`, `$D030` = `$64` — written into
+  the user map, the port `$FF` / `$85`, `$D030` = `$64`, `SYSFLAGS`
+  `$00`, the user map in the KERNAL's map record — written into
   the saved state by `return_to_userland`, so a run starts as `RUN`
   starts a program whatever the last one left.
 
@@ -639,12 +644,10 @@ disk.s ([disk.md](modules/disk.md)).  c64: empty.  m65: `KCALL
 SETBNK` with `SETBNK`'s data-bank argument `bank` (default
 `BANK_USER`: a PRG `l` lands in the user's bank 0) and its
 filename-bank argument `BANK_CSE`.  `list_directory` passes
-`DIR_BANK`: the directory is loaded to `DIR_BUF` (`2.D000`), CSE's
-12 K reserve, where it touches nothing of the user's (the C64 build
-loads it to `BASIC_START`, into the workspace).  The unit decides the
-path, not CSE: units 8 and 9 are usually CBDOS's (the internal drive,
-a mounted D81), the others the IEC bus's — `READSS` reports either's
-status.
+`DIR_BANK`: the directory goes to `DIR_BUF`, the directory buffer
+([§ Constants](#constants)).  The unit decides the path, not CSE
+([disk.md § On m65](modules/disk.md#on-m65)); `READSS` reports either
+path's status.
 
 ### Info map
 
@@ -665,10 +668,7 @@ data windows — each written with its bank, `b.aaaa-bbbb`
 
 `loader_entry` ([loader.md](modules/loader.md)) is one entry with a
 body per platform: the C64's copy loop; the m65's gate and install
-([loader.md § Design](modules/loader.md#design)).  A cartridge
-bootstrap — the same body assembled with `PLAT_CRT`, reading its
-payload from the cartridge — is a later release's (A3's record in
-TODO § Analysis tasks).
+([loader.md § Design](modules/loader.md#design)).
 
 ## Pending bodies
 
@@ -678,31 +678,18 @@ contract is *stated with P<n>* but not yet stated.  It assembles to a
 build links every module from P0 on, and executing a pending body
 stops in a recognisable break instead of running C64 code on a
 MEGA65.  It is never an expansion on c64.  The pending sites are
-counted by a test whose recorded count only goes down; it is zero
-when P3 closes, and a milestone is not done while one of its pending
-sites remains ([§ Gates](#gates)).
+counted by a test whose recorded count only goes down, and a
+milestone is not done while one of its pending sites remains
+([§ Gates](#gates)).
 
-`PLAT_PENDING_VALUE name, value, n` (macro, m65 only): the m65 value
-of a constant whose m65 contract is *stated with P<n>* — a cell or a
-size that inline code in several modules names, where no body can
-stand in for it.  It defines `name` as a placeholder so the m65 build
-links; the code that names it runs only past a pending body (`_main`
-stops at its first one in P0), so the placeholder is never read as
-the machine's fact.  A placeholder cell is a byte of CSE's own base
-page set aside for them (`BP_PENDING`, `$AD–$AF` since P2 stated the
-cursor cells; [zp.md](modules/zp.md)),
-so a stray access touches nothing of the user's or the KERNAL's; a
-placeholder size is the run premise's default (80 × 25 at `0.0800`).
-The test counts them with the pending bodies, under the same
-milestone:
-
-None is left: `IO_CX` and `IO_CY` were placeholders until P2 stated
-them (CSE's own cursor cells, [§ Terminal](#terminal)); `SCREEN`,
-`SCREEN_WIDTH` and `SCREEN_HEIGHT` too, until P2 removed every m65
-use (the geometry is run-time state there, [§ Display](#display),
-*The geometry*); `ST` and `DISK_LOCAL_PTR` until P3 (`READSS` and
-`disk_local_ptr`, [§ Constants](#constants)).  `BP_PENDING` and the
-macro go with them.
+None is left since P3.  Up to P3 a companion macro,
+`PLAT_PENDING_VALUE`, gave the m65 build placeholder values for the
+constants inline code named before their milestone stated them
+(`IO_CX`, `IO_CY`, `SCREEN`, `SCREEN_WIDTH`, `SCREEN_HEIGHT`, `ST`,
+`DISK_LOCAL_PTR`), with cells in CSE's base page (`BP_PENDING`); P2
+and P3 stated them all, and the macro and the cells are gone
+([§ Constants](#constants), [§ Terminal](#terminal),
+[§ Display](#display)).
 
 ## Raw-byte instructions
 
