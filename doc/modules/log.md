@@ -70,7 +70,8 @@ table), and:
   the range, 1 = not; copied inverted into `rp_save2`).
 **Out:** `"; TAG  AAAA-BBBB NNNNNb"` (`free_line`: `… NNNNNb free`)
 line at a fresh row, padded with spaces to column 40, then newline.
-`NNNNN` is the inclusive size, right-aligned in five columns.
+`NNNNN` is the inclusive size, right-aligned in five columns; on m65
+a whole bank (`0000`–`FFFF`, a size that wraps 16 bits) is `65536`.
 **Clobbers:** A, X, Y, `rp_ptr`, `rp_save`, `rp_next_lo`,
 `_io_tmp`, `_io_scr`, newline's clobbers; `prg_line` also `rp_ptr2`,
 `rp_save2` and `rp_cnt` (decremented); `free_line` also `rp_save2`
@@ -90,7 +91,16 @@ for `info_line_tail`)
 highlighted (reverse) on the `AAAA-BBBB` columns, padded to 40 cols +
 newline.  `info_line_head` prints the prefix up to and including the
 space after `BBBB` and leaves the row's screen address in
-`rp_next_lo`; `info_line_tail` pads, highlights and newlines.
+`rp_next_lo`; `info_line_tail` pads to the width (`WIDTH`), highlights
+and newlines, through `rp_ptr` with the screen's bank
+(`FAR_BANK_SCREEN`).
+
+**On m65** every range is written with its bank, `b.AAAA-BBBB`
+([glossary.md](../glossary.md)): `info_line_head` prints the digit in
+`info_bank` (log.s's BSS) and `.` before `AAAA`, and the highlight
+covers columns 7–17.  `info_bank` is 0 — the program region's bank,
+so the assembler's segment and PRG rows read `0.aaaa-bbbb` — except
+while `cmd_info` writes its rows.
 **Clobbers:** A, X, Y, `rp_save`, `rp_next_lo`, `rp_ptr`, `_io_tmp`,
 `_io_scr`, newline's clobbers
 
@@ -151,6 +161,7 @@ range line that doubles as a log line (leading `;` + space at column 0):
 
 ```
 ; TAG  AAAA-BBBB NNNNNb [free]
+; TAG  b.AAAA-BBBB NNNNNb [free]       (m65)
 ```
 
 Used in three contexts:

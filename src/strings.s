@@ -31,6 +31,9 @@
         .export str_range, str_fail, str_too_big
         .export str_expr, str_no_ctx
         .export str_r_pc, str_a, str_x, str_y, str_s
+.ifdef PLATFORM_M65
+        .export str_z, str_b
+.endif
         .export str_lines, str_bytes, str_long
         .export str_unsaved, str_ok, str_blk_eq
         .export str_del_src, str_quit, str_load
@@ -39,13 +42,18 @@
         .export str_color, str_cpu, str_cpu_err, str_stk_warn
         .export str_asm_ing, str_load_pfx, str_save_pfx, str_dots
         .export str_errors, str_dashes, str_colon_sp, str_pct
-        .export str_ioport, str_stack, str_kernal, str_screen
         .export str_main
-        .export str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
+        .export str_tag_cpu
         .export str_tag_work, str_tag_src
         .export str_tag_low
+.ifdef PLATFORM_C64
+        .export str_ioport, str_stack, str_kernal, str_screen
+        .export str_tag_zp, str_tag_stk, str_tag_sys
         .export str_tag_rom
         .export str_banked
+.else
+        .export str_page, str_code, str_data, str_tag_ext
+.endif
 
 .ifdef CPU_6510
         .export str_6510
@@ -108,6 +116,10 @@ str_a:          .byte " a:", 0
 str_x:          .byte " x:", 0
 str_y:          .byte " y:", 0
 str_s:          .byte " s:", 0
+.ifdef PLATFORM_M65
+str_z:          .byte " z:", 0
+str_b:          .byte " b:", 0
+.endif
 str_lines:      .byte "l ", 0
 str_bytes:      .byte "b", 0
 str_long:       .byte "long L", 0
@@ -145,39 +157,55 @@ str_colon_sp:   .byte ": ", 0
 str_pct:        .byte "  %", 0
 
 ; info display strings
+.ifdef PLATFORM_C64
 str_ioport:     .byte "port", 0
 str_stack:      .byte "stack", 0
 str_kernal:     .byte "kernal", 0
 str_screen:     .byte "scr", 0
+.else
+str_page:       .byte "page", 0
+str_code:       .byte "code", 0
+str_data:       .byte "data", 0
+str_tag_ext:    .byte "ext", 0
+.endif
 str_bytes_free: .byte " free", 0
 str_main:       .byte "main", 0
 
 ; info_line tag strings
 str_tag_cpu:    .byte "cpu", 0
+.ifdef PLATFORM_C64
 str_tag_zp:     .byte "zp", 0
 str_tag_stk:    .byte "stk", 0
 str_tag_sys:    .byte "sys", 0
+.endif
 str_tag_work:   .byte "work", 0
 str_tag_src     = str_del_src + 4        ; "src" is suffix of "del src"
 str_tag_low:    .byte "low", 0
+.ifdef PLATFORM_C64
 str_tag_rom:    .byte "rom", 0
 str_banked:     .byte "banked", 0
+.endif
 
 ; ── duplicate aliases (resolved here, one copy of data) ─────
 
+str_tag_cse     = s_manual + 19          ; "cse" is suffix of "man: github.com/cr/cse"
+.ifdef PLATFORM_C64
 str_cse_rt      = str_tag_cse           ; both "cse"
 str_tag_scr     = str_screen            ; both "scr"
-str_tag_cse     = s_manual + 19          ; "cse" is suffix of "man: github.com/cr/cse"
 str_tag_io      = str_io               ; both "io"
 str_io:        .byte "io", 0           ; canonical copy
+.endif
 str_free_suf    = str_bytes_free        ; " free" suffix for free_line
 s_bad_val       = str_bad_val           ; asm_src.s alias
 s_err_sep       = str_colon_sp          ; asm_src.s alias, both ": "
 
 str_tag_org:    .byte "org", 0
 str_tag_prg:    .byte "prg", 0
-        .export str_cse_rt, str_tag_scr, str_tag_cse
+        .export str_tag_cse
+.ifdef PLATFORM_C64
+        .export str_cse_rt, str_tag_scr
         .export str_tag_io, str_io
+.endif
         .export str_free_suf, str_tag_org, str_tag_prg
 
 ; ── disk strings ────────────────────────────────────────────

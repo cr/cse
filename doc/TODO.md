@@ -1118,20 +1118,36 @@ and `Q`; what a human sees (colours, flicker) stays manual.
   start's `$00` writes that cell — the program's state, not a clobber
   (the base-page test takes its snapshot with it set).  `um_sysflags`
   is BSS (the base page is full).
-- [ ] T7. Cold start on m65: `_main` to `main_loop_top` with Principle
+- [x] T7. Cold start on m65: `_main` to `main_loop_top` with Principle
   16's watchers (no `cse_brk_handler`, no `cse_recover`); the splash
   and the prompt at 80 × 25 as screen rows; the pending count's P2
   sites gone from the path.
-- [ ] T8. The REPL typed: `?`, `m` (16 bytes a row in 80 columns, 8 in
+- [x] T8. The REPL typed: `?`, `m` (16 bytes a row in 80 columns, 8 in
   40; a 16-byte edit in either), `.`, `d`, `r` (one row in 80, two in
   40, each re-executing), `i` (the m65 rows, `b.aaaa-bbbb`), a command
   line 80 columns wide (`line_buf`), `ESC 4` / `5` / `8` at the prompt,
   the break panel and `t`'s re-print in 40 and 80 columns.
-- [ ] T9. The debugger typed (moved from P1, D-P1-5): `j`, `g`, `c`,
+- [x] T9. The debugger typed (moved from P1, D-P1-5): `j`, `g`, `c`,
   `t`, `o`, `b`, `r`, `d` at the prompt and the
   [dbg_reason × command matrix](modules/debugger.md#dbg_reason--command-matrix)
   through the REPL on the m65 PRG — the C64 suites' rows, parametrised
   over the platform where their assertions are platform-neutral.
+  Step (4) done 2026-11-19: T7–T9 in `tests/integration/test_m65_repl.py`
+  (owner repl.md; `M65Session`, the C64 Session on M65Emu — the C64
+  rows re-stated there rather than parametrised, since the C64 suites
+  drive `$C6` / `$D3` directly).  The code: `cmd_info`'s m65 rows (the
+  `info_m65` table, `info_m65_rows`, `b.aaaa-bbbb` by `info_bank`, a
+  whole bank's `65536b`); the splash and prompt rows, main_loop's keys,
+  `read_line` and log's row tail on the run-time geometry with the
+  screen's bank; `line_buf` `2 + SCREEN_WIDTH_MAX`; `m` rows by width
+  (`mem_row`), edits up to `MEM_ROW_MAX`; `emit_reg`'s m65 rows and
+  `cmd_step`'s panel height; ESC 4 / 5 / 8 at the prompt
+  (`esc_armed`); `cur_addr` = `workstart`; the C64-only info strings
+  and `info_emit_rows` gated off m65.  Found: **`io_kbhit` left Z from
+  X** on m65 (`ldx #0` last), so main_loop's `beq @wait` never saw a
+  key — fixed, Z from A as `IO_KBHIT`'s `lda $C6`; **`io_puts` set no
+  bank** for its far `_io_tmp` — now `BANK_CSE`.  P2's pending count
+  4 → 3 (the three values, T12).
 - [ ] T10. The editor on m65, each mode: its rows (`ED_ROWS`), the
   status bar (fields anchored right), typing up to `LINE_MAX` 79 and
   the cap at the last column in 40 × 25 with `>`, the screen saved and

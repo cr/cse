@@ -267,6 +267,7 @@ io_repc:
 io_puts:
         sta _io_tmp
         stx _io_tmp+1
+        FAR_BANK _io_tmp, BANK_CSE      ; a string in CSE's view
 @loop:  ldy #0
         FAR_LDA _io_tmp
         beq @done
@@ -429,12 +430,12 @@ io_kbhit:
         ldx #0
         rts
 .else
+        ldx #0
         lda io_key
         bne @r
         KCALL GETIN             ; no KERNAL means peeks: take one, keep it
-        sta io_key
-@r:     ldx #0
-        rts
+        sta io_key              ; (KCALL's PLA: Z from A)
+@r:     rts                     ; Z from A, as IO_KBHIT's `lda NDX`
 
 ; ── io_cse_keys — SYSFLAGS for CSE (m65; PLAT_HYGIENE, _main) ───────
 ; Bits 5 (function keys raw, no BASIC macros) and 7 (Mega+Shift locked)

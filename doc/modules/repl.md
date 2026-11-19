@@ -74,7 +74,8 @@ previous handler's job, [§ Command handler principles](#command-handler-princip
 startup screen).
 **Out:** the memory-map rows ([§ `i` — Memory map](#i--memory-map));
 `_info_mode` = 0 full / 1 splash.  Splash mode prints only the free
-rows (zp, the two low fragments, work).
+rows (zp, the two low fragments, work; m65: low, work and the `ext`
+banks).  On m65 `info_bank` is 0 again on return.
 **Clobbers:** A, X, Y, `rp_ptr`, `rp_ptr2`, `rp_addr`, `rp_cnt`,
 `rp_save2`, `rp_next_hi`, `rp_opc`; with source loaded also
 `ed_save_lines` / `ed_save_bytes`.
@@ -151,7 +152,7 @@ in zero page; see [zp.md](zp.md).
 | `rp_dis_bp` | 1 | `cmd_step`: disabled breakpoint slot × 4 ($FF = none) |
 | `rp_hexbuf` | 3 | `cmd_dot` hex byte parse |
 | `cold_preview_done` | 1 | Cold-preview marker |
-| `zp_stage_buf` | 8 | User-ZP staging buffer for `m` dump and `.` disasm ([§ User-ZP view](#user-zp-view)) |
+| `zp_stage_buf` | 8 (m65 16; `MEM_ROW_MAX`) | User-ZP staging buffer for `m` dump and `.` disasm ([§ User-ZP view](#user-zp-view)) |
 | `wl_vcol` | 1 | `warn_long_lines`: visual column of the current line |
 | `wl_line` | 2 | `warn_long_lines`: 0-based line number |
 
@@ -849,6 +850,16 @@ Splash mode prints only the free rows:
 The work row ends at `buf_base - 1` and follows the build's runtime
 start and the loaded source.
 
+On m65 the splash's free rows are the user's regions with their
+banks (in 80 × 50 without the two bank rows, whose bank 4 holds the
+screen), from row height − 10:
+
+    ; low  0.1600-1eff  2304b free
+    ; work 0.2000-bfff 40960b free
+    ; ext  1.2000-f6ff 55040b free
+    ; ext  4.0000-ffff 65536b free
+    ; ext  5.0000-ffff 65536b free
+
 ### `B` — Block size (uppercase)
 
 `B` sets the 16-bit block size used by `m`, `d`, `+`/`-` and a bare
@@ -912,6 +923,27 @@ under the ROM.
 Contract pinned by `TestInfoFullMode`: the rows run in address
 order and cover `$0000`–`$FFFF` without gap or overlap; the `src`
 row appears only when source is loaded.
+
+**On m65** ([platform_layer.md § Info map](../platform_layer.md#info-map))
+the rows are [memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode)'s
+bank table, in bank order, each range written `b.aaaa-bbbb`:
+
+    ; low  0.1600-1eff  2304b free
+    ; cse  0.1f00-1fff page             CSE's base page and the stub
+    ; work 0.2000-bfff 40960b free       the program region, workstart-workend
+    ; ext  1.2000-f6ff 55040b free       above the DOS buffers
+    ; src  2.XXXX-XXXX Nl NNb            the source text (only when loaded)
+    ; cse  3.2000-7fff code              CODE + RODATA
+    ; cse  3.8000-bfff data              KDATA, BSS and the homes
+    ; ext  4.0000-ffff 65536b free       not in 80 x 50
+    ; ext  5.0000-ffff 65536b free       not in 80 x 50
+
+The fixed rows are the `info_m65` table (9 bytes a row: tag, lo, hi,
+desc — 0 for a free row, whose size is computed — and the bank),
+written by `info_m65_rows`; a whole bank's size is `65536b`.  The
+`src` row is the shared dynamic row with `info_bank` = `BANK_SRC`.
+The map is not a cover of the 28-bit space: the KERNAL's and the
+ROM's banks are not listed.  Tests: `tests/integration/test_m65_repl.py`.
 
 ### `C` — Color (uppercase)
 

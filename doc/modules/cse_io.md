@@ -42,7 +42,9 @@ constants and the tables are RODATA.
 base page), or, if it is empty, `KCALL GETIN` into it — so a peek
 sees all three of `GETIN`'s sources (A1).  `io_getc` takes the
 lookahead first, then `GETIN`.  `IO_KBD_FLUSH` empties the lookahead
-and drains `GETIN` to 0.
+and drains `GETIN` to 0.  `io_kbhit` returns Z from A (X = 0 is
+loaded first), as `IO_KBHIT`'s c64 body `lda $C6` does — main_loop's
+`beq @wait` tests it.
 
 ### ZP Variables
 
@@ -140,7 +142,9 @@ $40–$5F → $C0–$DF (`ORA #$80`), $60–$7F identity.
 **Precondition:** CUR_ROW and CUR_COL are valid
 **Clobbers:** A, X, Y, `_io_tmp`, `_io_scr`
 
-**Behavior:** For each byte until NUL: `io_putc(byte)`.
+**Behavior:** For each byte until NUL: `io_putc(byte)`.  On m65 the
+string is in CSE's view (a CPU address under the CSE map): `_io_tmp`'s
+bank is set to `BANK_CSE` each call.
 
 **Postconditions:**
 - N bytes written to screen RAM starting at (CUR_ROW, original_CUR_COL)

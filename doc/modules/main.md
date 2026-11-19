@@ -166,7 +166,8 @@ break, `$FF` without a session), `refresh_body`, falls through into
 **In:** none
 **Out:** `$01 = $36`; vectors re-installed (`setup_interrupts`);
 `dbg_init` (step state, `reg_*`, `dbg_reason`; not the breakpoint
-table); `reset_globals` (`state = ST_REPL`, `cur_addr = $0800`,
+table); `reset_globals` (`state = ST_REPL`, `cur_addr = $0800` — m65
+`workstart`, `$2000`,
 `block_size = $10`, `cur_device = 8`, `run_user_pending = 0`);
 `io_init`, `theme_init`, `restore_colors`, `set_charset`.
 **Clobbers:** A, X, Y (and what its callees clobber).
@@ -307,7 +308,9 @@ by earlier steps, with no hidden cross-subsystem reach-ins.
 | 5 | `dbg_init` without the CPU-port seeds: there are no ZP save buffers ([mem.md § ZP swap on m65](mem.md#zp-swap-on-m65)) |
 | 10 | the free part of CSE's base page (from `cse_zp_end`) is filled; base page 0, the user's, is not touched |
 | 11 | `$00` over the program region (`PROG_LO`–`PROG_HI`) by one DMA fill job (this wipes the PRG image and the loader, as on the C64) |
-| 12, 14 | the screen and the `i` rows of the m65 bodies — *stated with P2* |
+| 12 | `io_init` reads the geometry (`io_geometry`); `reset_screen` and `set_charset` are screen.s's m65 bodies ([screen.md](screen.md)) |
+| 13 | `reset_globals` sets `cur_addr` to `workstart` (`$2000`): `$0800` is the screen |
+| 14 | the splash from row height − 10, `cmd_info`'s m65 free rows ([repl.md § Splash screen](repl.md#splash-screen)), the prompt on the last row |
 
 The order is load-bearing.  `_main` must reach `main_loop_top`
 without `cse_brk_handler` or `cse_recover` ever being entered —
@@ -561,13 +564,14 @@ no ZP, no CPU port.  What a user may expect afterwards is
 
 | Key | Action |
 |-----|--------|
-| Printable characters | Written at the cursor (overwrite, `io_putc`).  Refused (audible blip) at col 39. |
+| Printable characters | Written at the cursor (overwrite, `io_putc`).  Refused (audible blip) at the last column (col 39; m65 `LAST_COL`). |
 | Cursor keys | Move within the screen, no wrap.  Refused (blip) at the screen edges. |
 | RETURN | `read_line` the cursor row, `exec_line`, then the userland dispatch or `show_prompt` (§ Layer 4). |
 | DEL | Backspace, shifting the rest of the row left.  Refused at col 0, or below col 6 on an `AAAA:cmd` row (`:` in col 4). |
 | INS | Right-shift the row from the cursor, opening a space there (any column, 0 included); the character pushed into column 39 is dropped, column 39 stays blank.  Only the cursor row changes. |
 | HOME | Cursor to col 0 of the current row. |
 | CLR (SHIFT+CLR/HOME) / ESC | `cse_refresh`: redraw the REPL screen, prompt on the bottom row; a debug session is kept. |
+| ESC 4 / 5 / 8 (m65) | ESC refreshes as above and arms `esc_armed`; a `4`, `5` or `8` as the next key switches the mode (`screen_mode_set`: 40 × 25, 80 × 50, 80 × 25) and refreshes again — the screen cleared, the prompt on the mode's last row (D-P2-9).  Any other key ends the sequence and is handled as usual.  ESC is armed in the REPL only, so the editor never switches. |
 
 ### Editor mode keys
 

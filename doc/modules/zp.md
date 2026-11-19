@@ -73,8 +73,11 @@ differences; the addresses are the linker map's
   (and its alias `save_ptr`), `ed_tmp`, `ed_scr`, and from P2 the
   screen pointers `_io_scr` and `scr_src` (the 80 × 50 screen is in
   bank 4) — 16 pointers, 32 bytes more than on c64.  The P2 banks: a
-  screen pointer `FAR_BANK_SCREEN` (`scr_bank`), a source pointer
-  `BANK_SRC`, the screen save's `BANK_CSE`.  How each user-memory pointer gets its
+  screen pointer `FAR_BANK_SCREEN` (`scr_bank`) — also `rp_ptr` where
+  it walks a screen row (`read_line`, main_loop's DEL / INS, log.s's
+  `info_line_tail`) — a source pointer `BANK_SRC`, the screen save's
+  `BANK_CSE`; `_io_tmp` is `BANK_CSE` in `io_puts` (a string in CSE's
+  view).  How each user-memory pointer gets its
   bank (P1; [platform_layer.md § Far memory](../platform_layer.md#far-memory)):
   - `rp_ptr` — CSE's line parser (`line_buf`, bank 3) at its root in
     `exec_line`; its walks and the four restores from `expr_ptr` /

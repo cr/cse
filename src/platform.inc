@@ -127,6 +127,8 @@ SCREEN          = $0400
 COLOR_RAM       = $D800
 SCREEN_WIDTH    = 40
 SCREEN_HEIGHT   = 25
+SCREEN_WIDTH_MAX = SCREEN_WIDTH ; the widest mode (line_buf)
+MEM_ROW_MAX     = 8             ; the most bytes an `m` row shows or edits
 ; the geometry's operand defines (§ Display): immediates here, cells on m65
 .define WIDTH           #SCREEN_WIDTH
 .define LAST_COL        #SCREEN_WIDTH - 1
@@ -302,6 +304,10 @@ BP_PENDING      = $AD               ; their cells, $AD-$AF of CSE's base page
         PLAT_PENDING_VALUE ST, BP_PENDING, 3
         PLAT_PENDING_VALUE DISK_LOCAL_PTR, BP_PENDING + 1, 3
         .assert BP_PENDING + 3 <= <STUB_BASE, error, "BP_PENDING overlaps the stub"
+
+SCREEN_WIDTH_MAX = 80               ; the widest mode (line_buf)
+MEM_ROW_MAX     = 16                ; an `m` row: 16 bytes in 80 columns (8 in 40),
+                                    ; an edit up to 16 in either (repl.md, By width)
 
 ; ── The terminal's cells and the geometry (§ Terminal, § Display) ────
 ; CSE's base-page cells (zp.s), named at inline sites through these

@@ -29,22 +29,24 @@ UI / debugger / assembler chrome strings consumed by repl.s:
 `str_rts`, `str_at`, `str_nmi`, `str_dbg`, `str_bp_clr`,
 `str_deleted`, `str_syntax`, `str_bad_val`, `str_full`, `str_cmd`,
 `str_range`, `str_fail`, `str_too_big`, `str_expr`, `str_no_ctx`,
-`str_r_pc`, `str_a`, `str_x`, `str_y`, `str_s`,
+`str_r_pc`, `str_a`, `str_x`, `str_y`, `str_s`, `str_z`†, `str_b`†,
 `str_lines`, `str_bytes`, `str_long`,
 `str_ok`, `str_blk_eq`,
 `str_color`, `str_cpu`, `str_cpu_err`, `str_stk_warn`,
 `str_6510`\*, `str_65c02`\*,
 `str_asm_ing`, `str_load_pfx`, `str_save_pfx`, `str_dots`,
 `str_errors`, `str_dashes`, `str_colon_sp`, `str_pct`,
-`str_ioport`, `str_stack`, `str_kernal`, `str_screen`,
-`str_cse_rt`, `str_io`, `str_main`,
-`str_tag_cpu`, `str_tag_zp`, `str_tag_stk`, `str_tag_sys`,
-`str_tag_scr`, `str_tag_cse`, `str_tag_work`, `str_tag_low`,
-`str_tag_src`, `str_tag_io`, `str_tag_rom`, `str_banked`,
+`str_ioport`‡, `str_stack`‡, `str_kernal`‡, `str_screen`‡,
+`str_cse_rt`‡, `str_io`‡, `str_main`,
+`str_tag_cpu`, `str_tag_zp`‡, `str_tag_stk`‡, `str_tag_sys`‡,
+`str_tag_scr`‡, `str_tag_cse`, `str_tag_work`, `str_tag_low`,
+`str_tag_src`, `str_tag_io`‡, `str_tag_rom`‡, `str_banked`‡,
+`str_page`†, `str_code`†, `str_data`†, `str_tag_ext`†,
 `s_save_default` (also asm_src).
 
 \* conditional: `str_6510` requires `CPU_6510`,
-`str_65c02` requires `CMOS_SUPPORT`.
+`str_65c02` requires `CMOS_SUPPORT`.  † m65 only (`emit_reg`'s
+`z:` / `b:`, the m65 `i` rows); ‡ c64 only (the C64 `i` rows).
 
 ##### Gating strings
 

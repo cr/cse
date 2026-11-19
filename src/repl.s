@@ -57,6 +57,9 @@
         .import dbg_bp_hit
         .import brk_pc, brk_stub
         .import reg_a, reg_x, reg_y, reg_sp, reg_p
+.ifdef PLATFORM_M65
+        .import reg_z, reg_b, str_z, str_b
+.endif
 .ifdef PLATFORM_C64
         .import userland_zp_buf
 .else
@@ -136,12 +139,19 @@ STEP_OVER = 2
         .import str_asm_ing, str_load_pfx, str_save_pfx, str_dots
         .import s_save_default
         .import str_errors, str_dashes, str_colon_sp, str_pct
+        .import str_main
+        .import str_tag_cse, str_tag_work
+        .import str_tag_src, str_tag_low
+.ifdef PLATFORM_C64
         .import str_ioport, str_stack, str_kernal, str_screen
-        .import str_cse_rt, str_io, str_main
+        .import str_cse_rt, str_io
         .import str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
-        .import str_tag_scr, str_tag_cse, str_tag_work
-        .import str_tag_src, str_tag_low, str_tag_io
+        .import str_tag_scr, str_tag_io
         .import str_tag_rom, str_banked
+.else
+        .import str_tag_ext, str_page, str_code, str_data
+        .import info_bank
+.endif
 .ifdef CPU_6510
         .import str_6510
 .endif
@@ -185,7 +195,7 @@ disk_name_buf:     .res FILENAME_MAX + 2   ; composed disk name (stem + optional
 _verbatim_type:    .res 1          ; 0 / 's' / 'p' from strip_and_classify
 _arg_count:        .res 1          ; 0, 1, or 2 — numeric args in last parse
 
-line_buf:       .res 42
+line_buf:       .res 2 + SCREEN_WIDTH_MAX
 dot_asm_buf:    .res 24
 rp_next_hi:     .res 2          ; 16-bit scratch pair (rp_next_lo lives in zp.s)
 rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
@@ -202,8 +212,8 @@ cold_preview_done: .res 1       ; cold-preview marker.  Set by
                                 ; never crossed the gate).  Cleared
                                 ; by main.s's end_debug_body too.
 
-zp_stage_buf:   .res 8          ; staging buffer for the user-ZP
-                                ; read redirect — `m` dump (8 B) and
+zp_stage_buf:   .res MEM_ROW_MAX ; staging buffer for the user-ZP
+                                ; read redirect — `m` dump (a row) and
                                 ; `.` disasm (3 B).  See repl.md
                                 ; § User-ZP view.
 
@@ -263,7 +273,34 @@ info_tbl_tail:
         .addr str_tag_cse,  $E000, $F8D9, str_banked         ; cse  e000-f8d9  banked
         .addr str_tag_rom,  $F8DA, $FFFF, str_kernal         ; rom  f8da-ffff  kernal
 INFO_TBL_TAIL_ROWS = (* - info_tbl_tail) / 8
-.endif ; PLATFORM_C64
+.else
+; m65: memory_design.md § Memory Map — m65's bank table, each row with
+; its bank.  9 bytes per row: tag(2) lo(2) hi(2) desc(2; 0 = a free
+; row, its size computed) bank(1).  Part A is banks 0 and 1, part B
+; the rest; the last two rows (banks 4 and 5) are left out in 80 × 50,
+; whose screen is in bank 4.
+INFO_M65_ROW    = 9
+info_m65:
+        .addr str_tag_low,  $1600,   $1EFF,   0         ; free for programs
+        .byte BANK_USER
+        .addr str_tag_cse,  CSE_BP << 8, $1FFF, str_page  ; base page + stub
+        .byte BANK_USER
+        .addr str_tag_work, PROG_LO, PROG_HI, 0         ; the program region
+        .byte BANK_USER
+        .addr str_tag_ext,  $2000,   $F6FF,   0         ; above the DOS buffers
+        .byte 1
+INFO_M65_A = * - info_m65
+        .addr str_tag_cse,  $2000,   $7FFF,   str_code  ; CODE + RODATA
+        .byte BANK_CSE
+        .addr str_tag_cse,  $8000,   $BFFF,   str_data  ; KDATA, BSS, homes
+        .byte BANK_CSE
+INFO_M65_B50 = * - info_m65
+        .addr str_tag_ext,  $0000,   $FFFF,   0
+        .byte 4
+        .addr str_tag_ext,  $0000,   $FFFF,   0
+        .byte 5
+INFO_M65_END = * - info_m65
+.endif
 
 ; ── CODE ───────────────────────────────────────────────────
 .segment "CODE"
@@ -971,6 +1008,7 @@ _syntax_err:
         sta rp_ptr
         lda scr_hi,x
         sta rp_ptr+1
+        FAR_BANK_SCREEN rp_ptr
 
         ldy #0
 @loop:  FAR_LDA rp_ptr
@@ -978,11 +1016,11 @@ _syntax_err:
         jsr scr_to_pet          ; screen code → PETSCII
         sta line_buf,y
         iny
-        cpy #SCREEN_WIDTH
+        cpy WIDTH
         bcc @loop
 
         ; trim trailing spaces, then NUL-terminate
-        ldy #SCREEN_WIDTH
+        ldy WIDTH
 @trim:  dey
         bmi @zero               ; line was all spaces
         lda line_buf,y
@@ -1069,7 +1107,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 @live:  FAR_LDA rp_ptr2
 @stg:   sta zp_stage_buf,y
         iny
-        cpy #8
+        cpy #MEM_ROW_MAX
         bcc @lp
         lda #<zp_stage_buf
         sta rp_ptr2
@@ -1203,6 +1241,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 ;   rp_addr = address, A = cols (0→8, >8→8)
 ; ═══════════════════════════════════════════════════════════
 .proc emit_mem
+.ifdef PLATFORM_C64
         cmp #0
         bne @n0
         lda #8
@@ -1210,6 +1249,16 @@ zp_stage_prep_addr:                     ; convenience entry: load
         bcc @ok
         lda #8
 @ok:    sta rp_opc              ; cols (borrowing rp_opc)
+.else
+        sta rp_opc              ; cols (borrowing rp_opc)
+        jsr mem_row             ; A = the row's bytes in this width
+        ldx rp_opc
+        beq @row                ; 0 → a full row
+        cmp rp_opc
+        bcs @ok                 ; cols ≤ the row
+@row:   sta rp_opc
+@ok:
+.endif
 
         lda #'m'
         jsr io_addr_cmd
@@ -1218,7 +1267,11 @@ zp_stage_prep_addr:                     ; convenience entry: load
 
         lda rp_opc
         sta rp_save
+.ifdef PLATFORM_C64
         lda #8
+.else
+        jsr mem_row
+.endif
         sta rp_save2
         jsr emit_hex_cols
 
@@ -1250,6 +1303,17 @@ zp_stage_prep_addr:                     ; convenience entry: load
 @adone: jmp io_clear_eol
 .endproc
 
+.ifdef PLATFORM_M65
+; ── mem_row — A = an `m` row's bytes: 16 in 80 columns, 8 in 40 ──
+; (repl.md, By width).  Clobbers A.
+mem_row:
+        lda scr_width
+        and #$E0                ; 80 → $40, 40 → $20
+        lsr
+        lsr
+        rts
+.endif
+
 ; ═══════════════════════════════════════════════════════════
 ; emit_reg — print register dump
 ; ═══════════════════════════════════════════════════════════
@@ -1269,6 +1333,12 @@ zp_stage_prep_addr:                     ; convenience entry: load
         puts str_y
         lda reg_y
         jsr io_puthex2
+.ifdef PLATFORM_M65
+        bit scr_width           ; V = bit 6: 80 ($50) set, 40 ($28) clear
+        bvc :+                  ; 40 columns: z and b on a row of their own
+        jsr @zb
+:
+.endif
         puts str_s
         lda reg_sp
         jsr io_puthex2
@@ -1294,7 +1364,25 @@ zp_stage_prep_addr:                     ; convenience entry: load
         inx
         cpx #8
         bcc @fl
+.ifdef PLATFORM_M65
+        bit scr_width
+        bvs @eol
+        jsr io_clear_eol        ; 40 columns: "r z:xx b:xx" below
+        jsr newline
+        lda #'r'
+        jsr io_putc
+        jsr @zb
+@eol:
+.endif
         jmp io_clear_eol
+.ifdef PLATFORM_M65
+@zb:    puts str_z              ; " z:xx b:xx"
+        lda reg_z
+        jsr io_puthex2
+        puts str_b
+        lda reg_b
+        jmp io_puthex2
+.endif
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
@@ -1896,7 +1984,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         lda #0
         sta rp_cnt              ; nbytes
 @ed_lp: lda rp_cnt
-        cmp #8
+        cmp #MEM_ROW_MAX
         bcs @ed_done
         ldy #0
         jsr is_hex_at_ptr1
@@ -1951,7 +2039,8 @@ zp_stage_prep_addr:                     ; convenience entry: load
 @d_lp:  lda rp_cnt
         ora rp_cnt+1
         beq @d_done
-        ; cols = min(remaining, 8)
+        ; cols = min(remaining, the row)
+.ifdef PLATFORM_C64
         lda rp_cnt+1
         bne @full
         lda rp_cnt
@@ -1959,6 +2048,15 @@ zp_stage_prep_addr:                     ; convenience entry: load
         bcc @partial
 @full:  lda #8
 @partial:
+.else
+        jsr mem_row
+        ldx rp_cnt+1
+        bne @partial            ; ≥ 256 left: a full row
+        cmp rp_cnt
+        bcc @partial            ; more than a row left
+        lda rp_cnt
+@partial:
+.endif
         sta rp_save             ; cols
         jsr emit_mem
         ; addr += cols
@@ -2289,10 +2387,17 @@ pre_userland_run:
         lda rp_cnt
         cmp #2
         bcs @skip_log
-        ; IO_CY := max(IO_CY - 3, 0)
+        ; IO_CY := max(IO_CY - panel height, 0)
+.ifdef PLATFORM_C64
         lda IO_CY
         sec
         sbc #3
+.else
+        lda scr_width
+        cmp #80                 ; C = 0 in 40 columns: the panel's `r`
+        lda IO_CY               ; is two rows there, so − 4
+        sbc #3
+.endif
         bcs @set_row
         lda #0
 @set_row:
@@ -3355,6 +3460,7 @@ prg_ok_done:
         jmp log_err   
 .endproc
 
+.ifdef PLATFORM_C64                     ; m65: info_m65_rows
 ; ───────────────────────────────────────────────────────────
 ; info_emit_rows — emit N rows from info table
 ;   A/X = table ptr, Y = row count
@@ -3412,6 +3518,7 @@ prg_ok_done:
         bne @lp
 @exit:  rts
 .endproc
+.endif
 
 ; ── cmd_info — memory map display ─────────────────────────
 ; In:  C=0 full mode (i command), C=1 splash mode (free only)
@@ -3423,7 +3530,7 @@ prg_ok_done:
         lda #0
         adc #0
         sta _info_mode
-.ifdef PLATFORM_C64                     ; m65: its map's rows — P2
+.ifdef PLATFORM_C64
 
         ; ── cpu ──
         lda #<info_tbl_h1
@@ -3517,10 +3624,20 @@ prg_ok_done:
         sbc #0
         sta rp_cnt+1
         jsr free_line
+.else
+        FAR_BANK rp_ptr2, BANK_CSE      ; the tags are RODATA
+        ldx #0
+        ldy #INFO_M65_A
+        jsr info_m65_rows               ; banks 0 and 1
+.endif
 
         ; ── sections below are full-mode only ──
         lda _info_mode
+.ifdef PLATFORM_C64
         jne @done
+.else
+        bne @rows_b                     ; splash: the rest's free rows
+.endif
 
         ; ── Dynamic: source (skip if empty: src_bot == src_top) ──
         lda src_bot
@@ -3559,10 +3676,15 @@ prg_ok_done:
         sta ed_save_bytes+1
         lda #0
         sta rp_save2
+.ifdef PLATFORM_M65
+        lda #BANK_SRC
+        sta info_bank
+.endif
         jsr info_line_head      ; "; src  AAAA-BBBB "
         jsr print_seq_stats     ; "Nl Nb" streamed
         jsr info_line_tail
 @no_src:
+.ifdef PLATFORM_C64
 
         ; ── Dynamic: cse XXXX-CFFF  cse runtime ──
         lda #0
@@ -3592,12 +3714,68 @@ prg_ok_done:
         ldx #>info_tbl_tail
         ldy #INFO_TBL_TAIL_ROWS
         jsr info_emit_rows
+.else
+@rows_b:
+        ldx #INFO_M65_A
+        ldy #INFO_M65_END
+        lda scr_height
+        cmp #50
+        bcc :+
+        ldy #INFO_M65_B50               ; 80 × 50: banks 4-5 hold the screen
+:       jsr info_m65_rows
+        lda #0
+        sta info_bank                   ; the other range rows: bank 0
+.endif
 
 @done:  jmp io_clear_eol
-.else
-        PLAT_PENDING 2
-.endif
 .endproc
+
+.ifdef PLATFORM_M65
+; ═══════════════════════════════════════════════════════════
+; info_m65_rows — cmd_info's rows of info_m65 from offset X up to
+; offset Y: a free row (desc 0) by free_line, the others by info_line
+; in full mode only.  rp_ptr2's bank is BANK_CSE.
+; Clobbers: A, X, Y, rp_opc, the info_line cells, info_bank.
+; ═══════════════════════════════════════════════════════════
+.proc info_m65_rows
+        sty rp_opc              ; the end
+@lp:    cpx rp_opc
+        bcs @rts
+        lda info_m65+0,x
+        sta rp_ptr2
+        lda info_m65+1,x
+        sta rp_ptr2+1
+        lda info_m65+2,x
+        sta rp_addr
+        lda info_m65+3,x
+        sta rp_addr+1
+        lda info_m65+4,x
+        sta rp_cnt
+        lda info_m65+5,x
+        sta rp_cnt+1
+        lda info_m65+6,x
+        sta rp_ptr
+        lda info_m65+8,x
+        sta info_bank
+        txa
+        clc
+        adc #INFO_M65_ROW
+        pha                     ; the next row
+        lda info_m65+7,x
+        sta rp_ptr+1
+        beq @free               ; desc 0: a free row
+        lda _info_mode
+        bne @next               ; splash: free rows only
+        sta rp_save2            ; no highlight
+        jsr info_line
+        jmp @next
+@free:  jsr free_line
+@next:  pla
+        tax
+        bne @lp                 ; always (offset > 0)
+@rts:   rts
+.endproc
+.endif
 
 
 ; ═══════════════════════════════════════════════════════════

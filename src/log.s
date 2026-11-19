@@ -35,6 +35,9 @@
         .export puts_imm
         .export seg_line, prg_line, free_line
         .export info_line, info_line_head, info_line_tail
+.ifdef PLATFORM_M65
+        .export info_bank
+.endif
 
         .import io_putc, io_puts, io_puthex4, io_putdec_pd, io_repc
         .import io_clear_eol, newline
@@ -46,6 +49,16 @@
 
 .include "log.inc"
 .include "macros.inc"           ; `puts` macro (calls puts_imm below)
+
+.ifdef PLATFORM_M65
+.segment "BSS"
+info_bank:      .res 1          ; the bank info_line_head writes before
+                                ; the range (b.aaaa-bbbb); 0 but while
+                                ; cmd_info writes its rows
+INFO_INV_END    = 18            ; the inverted range: cols 7–17
+.else
+INFO_INV_END    = 16            ; cols 7–15
+.endif
 
 .segment "CODE"
 
@@ -207,6 +220,13 @@ info_line_head:
         lda #' '
         jsr io_repc
 
+.ifdef PLATFORM_M65
+        lda info_bank           ; the range's bank: "b." (a digit)
+        ora #'0'
+        jsr io_putc
+        lda #'.'
+        jsr io_putc
+.endif
         ; print lo-hi + space
         lda rp_addr
         ldx rp_addr+1
@@ -257,15 +277,16 @@ info_line_tail:
         sta rp_ptr
         lda rp_next_lo+1
         sta rp_ptr+1
+        FAR_BANK_SCREEN rp_ptr
 
         ; inv or normal pad
         lda rp_save2
         beq @normal_pad
 
-        ; inv: set bit 7 on AAAA-BBBB only (cols 7-15)
+        ; inv: set bit 7 on the range only (AAAA-BBBB, m65 b.AAAA-BBBB)
         ldy #7
 @inv_lp:
-        cpy #16
+        cpy #INFO_INV_END
         bcs @inv_done
         FAR_LDA rp_ptr
         ora #$80
@@ -277,7 +298,7 @@ info_line_tail:
 @normal_pad:
         ; fill rest with $20 (space)
         ldy rp_save
-@npad:  cpy #SCREEN_WIDTH
+@npad:  cpy WIDTH
         bcs @done
         lda #$20
         FAR_STA rp_ptr
@@ -302,7 +323,18 @@ _range_core:
         adc #1
         bcc :+
         inx
+.ifdef PLATFORM_M65
+        beq @bank               ; X wrapped: a whole bank, 65536
+.endif
 :       sec                     ; right-aligned
         jsr io_putdec_pd
         lda #'b'
         jmp io_putc
+.ifdef PLATFORM_M65
+@bank:  puts str_bank_size
+        rts
+
+.segment "RODATA"
+str_bank_size:  .byte "65536b", 0
+.segment "CODE"
+.endif

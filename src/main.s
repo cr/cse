@@ -64,7 +64,7 @@
         .import reset_screen, restore_colors, newline, theme_init
         .import cursor_show, cursor_hide
 .ifdef PLATFORM_M65
-        .import io_cse_keys
+        .import io_cse_keys, screen_mode_set
 .endif
         .import scr_lo, scr_hi
         .import define_ws_syms
@@ -149,6 +149,10 @@ _irq_saved_a:      .res 1      ; scratch for cse_brk_handler_early's
                                 ; restored for the FF48-style push.
 .endif
 main_key:          .res 1      ; main_loop: the key being dispatched
+.ifdef PLATFORM_M65
+esc_armed:         .res 1      ; the REPL's last key was ESC: a 4, 5 or 8
+                                ; next switches the mode (D-P2-9)
+.endif
 stop_cooldown:     .res 1      ; RUN/STOP edge-filter:
                                 ;   set to 1 when (a) we process a STOP
                                 ;     press (so the same hold doesn't
@@ -317,7 +321,13 @@ vec_buf:           .res VEC_SIZE   ; the KERNAL's vector table, via VECTOR
         jsr reset_globals
 
         ; ── 14. Splash ──
+.ifdef PLATFORM_C64
         lda #SCREEN_HEIGHT - 10
+.else
+        lda scr_last_row
+        sec
+        sbc #9                  ; height − 10
+.endif
         jsr splash_row
         lda #<VERSION_STR
         ldx #>VERSION_STR
@@ -330,7 +340,7 @@ vec_buf:           .res VEC_SIZE   ; the KERNAL's vector table, via VECTOR
         ldx #>s_manual
         jsr log_info
         ; Prompt row
-        lda #SCREEN_HEIGHT - 1
+        lda LAST_ROW
         jsr splash_row
         jsr io_clear_eol
 
@@ -515,6 +525,23 @@ main_loop:
         jsr io_getc
         sta main_key
         jsr cursor_hide
+.ifdef PLATFORM_M65
+        ldx esc_armed           ; ESC 4 / 5 / 8: the mode switch; any
+        lda #0                  ; key ends the sequence.  ESC is armed
+        sta esc_armed           ; in the REPL only, so the editor
+        txa                     ; never switches (D-P2-9)
+        beq @no_esc
+        lda main_key
+        cmp #$34                ; '4'
+        beq @mode
+        cmp #$35                ; '5'
+        beq @mode
+        cmp #$38                ; '8'
+        bne @no_esc
+@mode:  jsr screen_mode_set
+        jmp cse_refresh
+@no_esc:
+.endif
 
         lda main_key
         cmp #CH_STOP
@@ -582,6 +609,7 @@ main_loop:
         sta rp_ptr
         lda scr_hi,x
         sta rp_ptr+1
+        FAR_BANK_SCREEN rp_ptr
         ldy #4
         FAR_LDA rp_ptr
         cmp #$3A
@@ -602,10 +630,10 @@ main_loop:
         dey
         FAR_STA rp_ptr
         iny
-        cpy #SCREEN_WIDTH - 1
+        cpy LAST_COL
         bcc @del_loop
         lda #$20
-        ldy #SCREEN_WIDTH - 1
+        ldy LAST_COL
         FAR_STA rp_ptr
         jmp main_loop
 @not_del:
@@ -617,7 +645,13 @@ main_loop:
         sta rp_ptr
         lda scr_hi,x
         sta rp_ptr+1
+        FAR_BANK_SCREEN rp_ptr
+.ifdef PLATFORM_C64
         ldy #SCREEN_WIDTH - 2
+.else
+        ldy scr_last_col
+        dey
+.endif
         cpy IO_CX
         bcc @ins_pad            ; cursor at col 39: nothing to shift
 @ins_loop:                      ; move cols IO_CX..38 one right
@@ -634,7 +668,7 @@ main_loop:
         FAR_STA rp_ptr
 @ins_pad:
         lda #$20
-        ldy #SCREEN_WIDTH - 1
+        ldy LAST_COL
         FAR_STA rp_ptr
         jmp main_loop
 @not_ins:
@@ -651,7 +685,7 @@ main_loop:
         cmp #CH_CURS_DOWN
         bne @not_down
         lda IO_CY
-        cmp #SCREEN_HEIGHT - 1
+        cmp LAST_ROW
         jcs @reject
         inc IO_CY
         jsr io_sync
@@ -669,7 +703,7 @@ main_loop:
         cmp #CH_CURS_RIGHT
         bne @not_right
         lda IO_CX
-        cmp #SCREEN_WIDTH - 1
+        cmp LAST_COL
         jcs @reject
         inc IO_CX
         jmp main_loop
@@ -686,11 +720,14 @@ main_loop:
         beq @do_clr
         cmp #CH_ESC
         bne @default
+.ifdef PLATFORM_M65
+        inc esc_armed           ; 0 → 1: the next key may pick a mode
+.endif
 @do_clr:
         jmp cse_refresh
 @default:
         lda IO_CX
-        cmp #SCREEN_WIDTH - 1
+        cmp LAST_COL
         jcs @reject
         lda main_key
         jsr io_putc
@@ -763,6 +800,9 @@ reset_globals:
         sta run_user_pending
         lda #$08                ; cur_device + cur_addr+1 share the value
         sta cur_device
+.ifdef PLATFORM_M65
+        lda #>WORKSTART         ; cur_addr = workstart
+.endif
         sta cur_addr+1
         rts
 
@@ -1147,7 +1187,7 @@ refresh_body:
         lda #0
         sta kernal_out
         jsr reset_screen
-        lda #SCREEN_HEIGHT - 1
+        lda LAST_ROW
         jsr splash_row
         jmp io_clear_eol                ; tail-call
 

@@ -526,7 +526,7 @@ column says *P2* is `PLAT_PENDING 2` until then.
 | `io_getc` / `io_kbhit` | `GETIN`; `$C6` | `KCALL GETIN` — its three sources: a function-key macro, the KERNAL buffer `ADDKEY` feeds, the hardware typing queue (book I-30s, F-3); `io_kbhit` through a one-key lookahead that `GETIN` fills (no KERNAL means peeks), which `io_getc` takes first |
 | `IO_CX`, `IO_CY` (the cursor cells; main, repl, editor, log, disk, screen, cse_io) | `$D3`, `$D6` | CSE's own two cells in its base page — no KERNAL cell is read or written on m65 (book 14-13); `io_sync` tells the KERNAL |
 | `IO_STOP_DOWN` (main_loop's STOP-held test) | `lda $91` · `cmp #$7F` | `KCALL ScanStopKey` · `cmp #$7F`: A = `$7F` while STOP is held, `$FF` otherwise (recorded), no side effects |
-| `IO_KBHIT` (main_loop's inline peek) | `lda $C6` | `jsr io_kbhit` (the lookahead) |
+| `IO_KBHIT` (main_loop's inline peek; A ≠ 0 and Z clear when a key waits) | `lda $C6` | `jsr io_kbhit` (the lookahead; Z from A) |
 | `IO_KBD_FLUSH` (repl's drains) | `sta $C6` (A = 0) | `GETIN` until it answers 0 (recorded: empty answers A = 0, C = 0), the lookahead emptied |
 | `scr_lo` / `scr_hi`, the width | RODATA tables of `SCREEN` + 40·row; `COLS = 40` | run-time tables and width from `SCRORG` after `HOME HOME`: A / Z the top-left address, X + 1 columns, Y + 1 rows (recorded: X / Y are the window's right column and bottom row, not the book's width and height); the bank from `$D062` (80 × 50: 4) |
 | `io_blip` | SID voice 1 | the same |
@@ -563,6 +563,14 @@ on m65:
 | `WIDTH`, `LAST_COL` | `#40`, `#39` | `scr_width`, `scr_last_col` |
 | `HEIGHT`, `LAST_ROW` | `#25`, `#24` | `scr_height`, `scr_last_row` |
 | `ED_ROWS`, `ED_STATUS_ROW` (the editor: height − 3, its status row) | `#22`, `#22` | `scr_ed_rows`, the same cell |
+
+Two build-time maxima size the buffers that hold a row:
+`SCREEN_WIDTH_MAX` (40; m65 80 — `line_buf` is 2 more) and
+`MEM_ROW_MAX`, the most bytes an `m` row shows or an edit takes (8;
+m65 16 — `zp_stage_buf`; repl.md, *By width*).  A routine that
+depends on the mode reads the cells: `mem_row` (repl.s, m65) gives 16
+in 80 columns, 8 in 40; `emit_reg` and `cmd_step`'s panel height test
+`scr_width` against 80.
 
 so `cpy WIDTH` is `cpy #40` on c64 and `cpy scr_width` on m65.  A
 size a loop counts (a screen copy, the save) is a DMA job's length on
