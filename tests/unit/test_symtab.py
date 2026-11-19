@@ -44,7 +44,7 @@ _RETURN     = 0x0F00
 _SOURCES = [SRC / "zp.s", SRC / "strings.s", SRC / "symtab.s", SRC / "mem.s",
             DEV / "symtab_test_stub.s"]
 
-_BUNDLE = Bundle("symtab_test", _SOURCES, PROD_DEFS["65c02"], tag="st",
+_BUNDLE = Bundle("symtab_test", _SOURCES, PROD_DEFS["6510"], tag="st",
                  ca65=["-t", "c64"])
 
 class SymtabSyms:

@@ -132,8 +132,11 @@ def _run(asm_syms, source: str, asm_cpu: int = 2):
 
 @pytest.mark.parametrize("source,expected,asm_cpu", _CASES,
                          ids=[c[0] for c in _CASES])
-def test_assemble(asm_syms, source, expected, asm_cpu):
-    got = _run(asm_syms, source, asm_cpu=asm_cpu)
+def test_assemble(request, source, expected, asm_cpu):
+    """Every example at a CPU that has it: an illegal on the 6510 set,
+    the rest in the CMOS mode (asm_cpu 2, so cat 01 takes its upgrade)."""
+    syms = request.getfixturevalue("asm_6510_syms" if asm_cpu == 1 else "asm_syms")
+    got = _run(syms, source, asm_cpu=asm_cpu)
     assert got == expected, (
         f"assembling {source!r} (asm_cpu={asm_cpu}): "
         f"got {got.hex()} expected {expected.hex()}"
@@ -159,22 +162,22 @@ def test_assemble(asm_syms, source, expected, asm_cpu):
 #   | 1 (6510) | yes   | REJECT | yes     |
 #   | 2 (65C02)| yes   | yes    | REJECT  |
 #
-# The gate lives in asm_line.s:247-267.  Parts of it are wrapped in
-# `.ifdef CMOS_SUPPORT`, which means the GATE BEHAVIOUR depends on the
-# build config.  Production has three configs (Makefile _*_DEFS):
+# The gate is per CPU set (asm_line.s, the CPU-mode gate): each set's
+# classifier holds only its own keys, so each sees its own categories —
 #
-#   6502 build  : no -DCMOS_SUPPORT, -DUSE_MN6  (mn6 — 56 legal only)
-#   6510 build  : no -DCMOS_SUPPORT, mn7         (114 incl. CMOS + illegals)
-#   65C02 build : -DCMOS_SUPPORT, mn7            (gate fully present)
+#   6502 build  : -DUSE_MN6, mn6 (56 legal keys; no gate)
+#   6510 build  : mn7, 102 keys (legal + illegal)
+#   the CMOS mode (no build): -DCMOS_SUPPORT, mn7, 68 keys (legal + CMOS)
 #
-# This file exercises the gate against BOTH bundle configs:
+# This file exercises the gate on each bundle:
 #
-#   asm_syms       — CMOS bundle (matches 65C02 production)
-#   asm_6510_syms  — non-CMOS bundle (matches 6510 production)
+#   asm_syms       — the CMOS mode
+#   asm_6510_syms  — c64-6510
+#   asm_6502_syms  — c64-6502
 #
-# Splitting by config is load-bearing: bugs in the ifdef-wrapped gate
-# are invisible under asm_syms alone (as happened — CMOS reject gate
-# silently missing in 6510 prod binary).
+# Splitting by config is load-bearing: a gate path compiled into one set
+# is invisible under another's bundle (as happened — a CMOS reject gate
+# once silently missing from the 6510 binary).
 
 
 # Pure-CMOS mnemonics (cat=11): rejected on asm_cpu < 2.
@@ -218,66 +221,43 @@ def _expect_accept(syms, source, asm_cpu, build_label):
     assert len(got) > 0
 
 
-# ─── CMOS bundle (asm_syms) — mirrors 65C02 production build ─────────────────
+# ─── the gate matrix per set (asm_line.md § asm_cpu × category gate matrix) ──
+#
+# A category the set has no key of cannot occur: its mnemonics are no
+# word (`;?syntax`), whatever asm_cpu holds.  A key of the set the
+# current asm_cpu lacks is `;?cpu`.
 
 class TestCpuGateCmosBundle:
-    """Gate matrix under the CMOS-SUPPORT bundle (matches 65C02 production).
-    The gate is fully compiled in; only mn7 classifier semantics apply."""
+    """The CMOS mode (asm_syms): {6502, 65C02}, no 6510 member."""
 
     @pytest.mark.parametrize("source", _CMOS_CASES)
-    def test_asm_cpu_0_rejects_cmos(self, asm_syms, source):
-        _expect_reject(asm_syms, source, asm_cpu=0, build_label="cmos")
-
-    @pytest.mark.parametrize("source", _CMOS_CASES)
-    def test_asm_cpu_1_rejects_cmos(self, asm_syms, source):
-        _expect_reject(asm_syms, source, asm_cpu=1, build_label="cmos")
+    def test_asm_cpu_0_refuses_cmos_as_cpu(self, asm_syms, source):
+        assert _asm(asm_syms, source, 0) == ("E", CPU)
 
     @pytest.mark.parametrize("source", _CMOS_CASES)
     def test_asm_cpu_2_accepts_cmos(self, asm_syms, source):
         _expect_accept(asm_syms, source, asm_cpu=2, build_label="cmos")
 
+    @pytest.mark.parametrize("cpu", [0, 2])
     @pytest.mark.parametrize("source", _ILLEGAL_CASES)
-    def test_asm_cpu_1_accepts_illegals(self, asm_syms, source):
-        _expect_accept(asm_syms, source, asm_cpu=1, build_label="cmos")
+    def test_an_illegal_is_no_word(self, asm_syms, source, cpu):
+        assert _asm(asm_syms, source, cpu) == ("E", SYNTAX)
 
-    @pytest.mark.parametrize("source", _ILLEGAL_CASES)
-    def test_asm_cpu_0_rejects_illegals(self, asm_syms, source):
-        """Currently FAILS: asm_line.s has no cat=$80 (illegal) gate.
-        Independent bug from the CMOS-under-ifdef issue below."""
-        _expect_reject(asm_syms, source, asm_cpu=0, build_label="cmos")
-
-    @pytest.mark.parametrize("source", _ILLEGAL_CASES)
-    def test_asm_cpu_2_rejects_illegals(self, asm_syms, source):
-        """Currently FAILS: same cat=$80 gap — 65C02 accepts NMOS illegals
-        that map to legitimate CMOS opcodes on real silicon."""
-        _expect_reject(asm_syms, source, asm_cpu=2, build_label="cmos")
-
-
-# ─── 6510 bundle (asm_6510_syms) — mirrors 6510 production build ─────────────
 
 class TestCpuGate6510Bundle:
-    """Gate matrix under the non-CMOS-SUPPORT bundle (matches 6510 production).
+    """c64-6510 (asm_6510_syms): {6502, 6510}, no 65C02 key."""
 
-    The reject half of the CMOS gate in asm_line.s:251-267 is wrapped in
-    `.ifdef CMOS_SUPPORT`, so it's compiled OUT of this bundle.  But mn7
-    still recognizes CMOS mnemonics (PHY, PHX, BRA, ...).  Result: the
-    classifier returns a valid slot, there's no gate to reject, and the
-    assembler emits the CMOS opcode on any asm_cpu.
-
-    These tests currently FAIL — they expose the long-standing bug where
-    the 6510 production binary silently accepts CMOS instructions."""
-
+    @pytest.mark.parametrize("cpu", [0, 1])
     @pytest.mark.parametrize("source", _CMOS_CASES)
-    def test_asm_cpu_0_rejects_cmos(self, asm_6510_syms, source):
-        _expect_reject(asm_6510_syms, source, asm_cpu=0, build_label="6510")
+    def test_a_cmos_mnemonic_is_no_word(self, asm_6510_syms, source, cpu):
+        assert _asm(asm_6510_syms, source, cpu) == ("E", SYNTAX)
 
-    @pytest.mark.parametrize("source", _CMOS_CASES)
-    def test_asm_cpu_1_rejects_cmos(self, asm_6510_syms, source):
-        _expect_reject(asm_6510_syms, source, asm_cpu=1, build_label="6510")
+    @pytest.mark.parametrize("source", _ILLEGAL_CASES)
+    def test_asm_cpu_0_refuses_illegals_as_cpu(self, asm_6510_syms, source):
+        assert _asm(asm_6510_syms, source, 0) == ("E", CPU)
 
     @pytest.mark.parametrize("source", _ILLEGAL_CASES)
     def test_asm_cpu_1_accepts_illegals(self, asm_6510_syms, source):
-        """Positive case — 6510 bundle correctly allows illegals on cpu=1."""
         _expect_accept(asm_6510_syms, source, asm_cpu=1, build_label="6510")
 
 
@@ -496,10 +476,10 @@ class TestErrorCategoryDispatch:
         code = _run_expecting_err(asm_syms, "PHY", asm_cpu=0)
         assert code == 2, f"expected ERR_CPU (2), got {code}"
 
-    def test_cpu_gate_illegal_rejected_writes_cpu(self, asm_syms):
-        """Illegal NMOS mnemonic on asm_cpu=2 → CPU gate rejects via
-        asm_cpu_error → code 2."""
-        code = _run_expecting_err(asm_syms, "SLO $42", asm_cpu=2)
+    def test_cpu_gate_illegal_rejected_writes_cpu(self, asm_6510_syms):
+        """Illegal NMOS mnemonic on asm_cpu=0 (c64-6510) → CPU gate
+        rejects via asm_cpu_error → code 2."""
+        code = _run_expecting_err(asm_6510_syms, "SLO $42", asm_cpu=0)
         assert code == 2, f"expected ERR_CPU (2), got {code}"
 
 
@@ -977,9 +957,10 @@ class TestBitOps:
     def test_bit_ops_need_the_65c02(self, asm_syms):
         assert _asm(asm_syms, "RMB3 $12", 0) == ("E", CPU)
 
-    def test_6510_build_knows_the_key_but_not_the_cpu(self, asm_6510_syms):
-        assert _asm(asm_6510_syms, "RMB0 $12", 1) == ("E", CPU)
-        assert _asm(asm_6510_syms, "LDA3 #$01", 1) == ("E", SYNTAX)
+    @pytest.mark.parametrize("source", ["RMB0 $12", "LDA3 #$01", "LDA4 $12", "BBR0 $12,$0010"])
+    def test_6510_build_has_no_digit_word(self, asm_6510_syms, source):
+        """No key of the 6510 set takes a digit (D-P4b-4, D-P4b-7)."""
+        assert _asm(asm_6510_syms, source, 1) == ("E", SYNTAX)
 
     def test_6502_build_has_no_such_word(self, asm_6502_syms):
         assert _asm(asm_6502_syms, "RMB0 $12", 0) == ("E", SYNTAX)

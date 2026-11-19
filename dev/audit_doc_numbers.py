@@ -33,7 +33,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 def zp_size_from_lbl():
     """Read __ZP_LAST__ from the linker map.  This is the FIRST FREE
     byte after CSE's ZP.  CSE ZP runs $02..__ZP_LAST__-1."""
-    lbl = ROOT / "build" / "debug" / "cmos" / "cse.lbl"
+    lbl = ROOT / "build" / "debug" / "6510" / "cse.lbl"
     if not lbl.exists():
         return None
     try:
@@ -125,16 +125,6 @@ CHECKS = [
         "context": "6502 PRG size",
         "tolerance": 200,
     },
-    {
-        "name": "PRG size cmos / 65C02",
-        "regex": re.compile(
-            r"(?:65[Cc]02|cmos)(?:[^\n]{0,80}?)(\d{5})\s*(?:B|bytes)\b",
-            re.IGNORECASE),
-        "claimed": lambda m: int(m.group(1)),
-        "expected": lambda m: prg_size("cmos"),
-        "context": "65C02 PRG size",
-        "tolerance": 200,
-    },
     # Test-count claims "N tests passing", "N passing"
     # Tolerance ~25 covers (a) the ~18 currently-skipped tests, since
     # the doc may say "passing" while collect-only counts everything,
@@ -214,7 +204,6 @@ def main():
     print(f"  ZP free bytes:  {zp_free_bytes()}")
     print(f"  PRG 6510:       {prg_size('6510')} B")
     print(f"  PRG 6502:       {prg_size('6502')} B")
-    print(f"  PRG cmos:       {prg_size('cmos')} B")
     print(f"  Test count:     {test_count()}")
     print()
 

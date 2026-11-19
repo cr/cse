@@ -17,7 +17,7 @@ the files were recorded from, with `-dirty` when the tree had
 uncommitted source changes.
 
     python dev/capture_golden.py            # all configs
-    python dev/capture_golden.py cmos       # one config
+    python dev/capture_golden.py 65c02      # one config
 """
 import json
 import pathlib

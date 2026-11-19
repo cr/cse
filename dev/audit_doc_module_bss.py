@@ -8,7 +8,7 @@ to catch per-module BSS byte-count drift like the dasm.md "BSS
 For each `doc/modules/*.md`:
   - Find `**BSS (N bytes)**` claim.
   - Look up the corresponding `<module>.o` BSS size in the linker
-    map (build/debug/cmos/cse.map).
+    map (build/debug/6510/cse.map, the default build).
   - Report mismatch.
 
 Linker-map source-of-truth handles `.res EXPR` cases that simple
@@ -28,7 +28,7 @@ import pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 MODULES_DIR = ROOT / "doc" / "modules"
-MAP_PATH = ROOT / "build" / "debug" / "cmos" / "cse.map"
+MAP_PATH = ROOT / "build" / "debug" / "6510" / "cse.map"
 
 # Match `**BSS (N bytes)**` or `**BSS (N B)**` etc.
 BSS_CLAIM_RE = re.compile(

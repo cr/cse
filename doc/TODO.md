@@ -1950,7 +1950,7 @@ default PRG, budget, hashes, parity); (5) the debugger's 65C02 paths;
 written first, step by step; each is red until its code lands.  Where
 a test holds today's 65C02 answer it is rewritten to the new contract,
 not deleted, unless its subject goes (the debugger's 65C02 paths).
-- [ ] T1. The generators (step 1; `test_mnemonic_tables.py`,
+- [x] T1. The generators (step 1; `test_mnemonic_tables.py`,
   `test_dasm_tables.py`, `test_mn_classify.py`): the `65c02` set's
   views are 6502 and 65c02; each set's classifier block holds exactly
   its keys (6510 102, CMOS 68, the m65 98), the C64 and CMOS blocks
@@ -1961,7 +1961,7 @@ not deleted, unless its subject goes (the debugger's 65C02 paths).
   one map and a 6502 bitmap.  `test_m65_c02_marks_what_the_65c02_has`
   goes with `mn7_c02`; the `mn7` bundle has `6510` and `65c02`
   variants.
-- [ ] T2. The assembler on the C64 sets and in the CMOS mode (step 2;
+- [x] T2. The assembler on the C64 sets and in the CMOS mode (step 2;
   `test_asm_line.py`, `test_asm_src.py`, the golden files): every
   cell of asm_line.md's C64 / CMOS gate matrix per bundle — on
   `asm_6510_syms` a 65C02 key (`stz`, `rmb0`, `bra`) is `;?syntax`,
@@ -1976,7 +1976,7 @@ not deleted, unless its subject goes (the debugger's 65C02 paths).
   2 row; `u 65c02` and `.cpu 65c02` refused, `u` listing `6502 4510
   45gs02*`; the lower-CPU refusals 6502 → 4510 and 4510 → 45gs02.
   `asm_dasm_45gs02.json` re-recorded.
-- [ ] T4. The build and the fixtures (step 4; `test_makefile_guards.py`,
+- [x] T4. The build and the fixtures (step 4; `test_makefile_guards.py`,
   `test_build_parity.py`, `test_build_freshness.py`,
   `test_clean_build.py`, `test_size_budget.py`, `test_platform_audit.py`,
   conftest): `make CPU=65c02` refused; `make release` / `debug` build
@@ -1991,13 +1991,35 @@ not deleted, unless its subject goes (the debugger's 65C02 paths).
   bundles (T2).
 - [ ] T5. The debugger (step 5; `test_kernel_transition.py`): on the
   C64 builds the opcodes the 65C02 gives other meanings are the
-  6510's — `$0F` (`SLO` abs), `$7C` (`NOP` abs,X), `$80` (`NOP` #)
-  step linearly — and `JMP ($xxFF)` wraps, whatever `asm_cpu` holds; `TestStepBitBranch`, `test_jmp_ind_no_wrap_65c02` and
+  6510 view's — `$0F` (`SLO` abs) 3 bytes, `$80` (`SKB` #) 2, `$7C`
+  1 (no row names it; `d` lists `...`) — and `JMP ($xxFF)` wraps,
+  whatever `asm_cpu` holds; `TestStepBitBranch`, `test_jmp_ind_no_wrap_65c02` and
   `test_jmp_abs_x_vector_from_user_zp_65c02` go with the code they
   test.  The m65 step tests (`test_m65_debugger.py`) hold unchanged
   at `asm_cpu` 0, 3, 4.
 - [ ] T6. The close (step 6): the full suite, Tier X, the C64 hashes
   and budgets at their new values, the audits clean.
+
+Steps (1), (2) and (4) done 2026-11-19, one commit: the generators'
+set change moves the assembler and the PRGs at once, so they could not
+land apart.  `mn7_6510` / `mn7_cmos` (mn7 over each set's categories,
+one `T`; `hashes.py` untouched, it is shared with bbbc64); a legal key
+is `cat` 1 only in a set with the 65C02, so the C64 blocks — c64-6502's
+too — hold `cat` 00 and 10 alone; the CMOS mode's unused zone-C
+profile; `oplen_tbl` from the 6510 view (`$7C` is 1 byte: no 6510 row
+names it, and `d` lists `...` — before P4b the 65C02's `JMP (a,X)` made
+it 3).  asm_line: a gate per set (none on c64-6502), the digit scan
+under `BIT_OPS`; asm_src: `.cpu 6510` only on `CPU_6510`.  The Makefile
+builds 6502 and 6510 and refuses any other C64 `CPU` (there was no
+such guard; `CPU=6503` built a broken PRG).  Tests: the gate matrices
+assert the error category; `test_assemble` runs an illegal on the 6510
+bundle; `TestDotBitOps` went (no C64 set has a digit key; m65 covers
+`. rmb3`); the debugger's 65C02 tests went and `TestNmosStep` (T5's)
+holds the C64 step at `asm_cpu` 0, 1, 2.  Goldens re-recorded: 6510
+(294 CMOS cases `;?cpu` → `;?syntax`, disassembly identical) and the
+CMOS mode (the `asm_cpu` 1 cases gone, 1068 illegals `;?cpu` →
+`;?syntax`).  c64-6510 21 192 → 21 153 B, c64-6502 20 834 → 20 808 B,
+both hashes re-recorded (the deliberate C64 change); m65 unchanged.
 
 **P5 — the contract closed:** the ROM versions the port is verified
 on (920413, the floor, and the current one; the Open ROMs boot to C64

@@ -154,40 +154,69 @@ def test_standalone_key_shares_a_pair_member():
     assert profiles == [nmos, ext] and pidx['TRB'] == pidx['BIT'] == 0
 
 
-# ── oplen_tbl: one length per opcode, conflicts refused ─────────────────────
+# ── the CPU sets and their keys (build_system.md § Builds and CPU sets) ────
+
+def test_the_cmos_mode_is_6502_and_65c02():
+    assert M.CPU_SETS['65c02'][1] == ('6502', '65c02')
+    assert M.CPU_SETS['6510'][1] == ('6502', '6510')
+
+
+def _set_keys(cpu_set):
+    return {r.key for v in M.CPU_SETS[cpu_set][1] for r in I.instructions(v)}
+
+
+@pytest.mark.parametrize("cpu_set,n", [("6502", 56), ("6510", 102), ("65c02", 68),
+                                       ("45gs02", 98)])
+def test_each_set_holds_exactly_its_keys(cpu_set, n):
+    """No key of a CPU outside the set (D-P4b-4): its classifier block
+    and its model hold the set's keys and no other."""
+    cls = M.CPU_SETS[cpu_set][2]
+    assert set(cls.build_slot_map().values()) == _set_keys(cpu_set)
+    assert set(M.build_asm_model(cpu_set).key_prof) == _set_keys(cpu_set)
+    assert len(_set_keys(cpu_set)) == n
+
+
+def test_the_6510_and_the_cmos_mode_share_one_t():
+    a, b = M.CPU_SETS['6510'][2], M.CPU_SETS['65c02'][2]
+    assert a.T == b.T == M.mn7.T and a is not b
+    assert a.verify_fingerprint() == b.verify_fingerprint() == []
+
+
+def test_the_cmos_mode_keeps_zone_c_unused():
+    """No CMOS key is zone C's (D-P4b-6): one unused profile there keeps
+    D and E at their pidx, so asm_line's table stays indexed by pidx."""
+    m = M.build_asm_model('65c02')
+    assert m.zone_g == 6 and m.profiles[3].modes == {'IMM'}
+    assert 3 not in {p & 0x3F for p in m.key_prof.values()}
+
+
+# ── oplen_tbl: the 6510's lengths (D-P4b-5) ─────────────────────────────────
+
+def test_oplen_is_the_6510_views_lengths():
+    want = [1] * 256
+    for r in I.instructions('6510'):
+        want[r.opcode] = 1 + I.MODE_OPERAND_BYTES[r.mode]
+    assert M.oplen_lengths() == want
+    assert M.oplen_lengths()[0xD2] == 1                  # CIM: a crash, 1 byte
+
 
 def test_oplen_length_conflict_is_refused():
-    """Two OPCODES rows giving one opcode different lengths (neither a
-    crash opcode) stop the generator instead of keeping the last row."""
-    opcodes = dict(M.OPCODES, XXX={M.I.ABS: 0xEA})      # NOP is 1 byte
+    """Two rows giving one opcode different lengths stop the generator
+    instead of keeping the last row."""
+    rows = list(I.instructions('6510')) + [I.Instruction('XXX', 'XXX', '', 'XXX', 'ABS', b'', 0xEA)]
     with pytest.raises(M.ModelError, match=r"\$EA"):
-        M.oplen_lengths(opcodes)
-
-
-def test_oplen_crash_opcode_yields_to_the_real_instruction():
-    """$D2 is CMP (zp) on the 65C02 (2 B) and the CIM crash on the 6510:
-    the crash halts the CPU whatever its length, so the real
-    instruction's length wins."""
-    assert M.oplen_lengths()[0xD2] == 2
-
-
-def test_oplen_same_length_coincidence_is_accepted():
-    """6510 illegals and 65C02 opcodes sharing a byte with one length
-    (e.g. $07 SLO zp / RMB0 zp) are not a conflict."""
-    assert M.oplen_lengths()[0x07] == 2
+        M.oplen_lengths(rows)
 
 
 # ── oplen_tbl oracle: the assembled table against instruction_set.py ────────
-
-_CRASH = {'CIM', 'HLT', 'JAM', 'KIL'}     # halt the CPU; their length is moot
 
 
 def test_oplen_tbl_in_each_prg_matches_instruction_set(cse_prg_per_cpu):
     """The debugger steps with the `oplen_tbl` linked into each C64
     PRG.  Read it from the PRG and hold every opcode to
-    dev/instruction_set.py, the independent source: each non-crash
-    OPCODES row has length 1 + its mode's operand bytes; an opcode no
-    row names has length 1."""
+    dev/instruction_set.py, the independent source: each row of the
+    6510 view has length 1 + its mode's operand bytes; an opcode no row
+    names has length 1."""
     from conftest import SymbolTable
     prg_path, map_path = cse_prg_per_cpu
     data = prg_path.read_bytes()
@@ -199,14 +228,10 @@ def test_oplen_tbl_in_each_prg_matches_instruction_set(cse_prg_per_cpu):
     length = [(tbl[op >> 2] >> ((op & 3) * 2)) & 3 for op in range(256)]
 
     named = set()
-    for mne, modes in M.I.OPCODES.items():
-        for mode, op in modes.items():
-            if op is None:
-                continue
-            named.add(op)
-            if mne not in _CRASH:
-                assert length[op] == 1 + M.I.MODE_OPERAND_BYTES[mode], \
-                    f"${op:02X} {mne} {mode}: oplen {length[op]}"
+    for r in I.instructions('6510'):
+        named.add(r.opcode)
+        assert length[r.opcode] == 1 + I.MODE_OPERAND_BYTES[r.mode], \
+            f"${r.opcode:02X} {r.key} {r.mode}: oplen {length[r.opcode]}"
     for op in set(range(256)) - named:
         assert length[op] == 1, f"${op:02X} (no instruction): oplen {length[op]}"
 

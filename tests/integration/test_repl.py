@@ -5,7 +5,7 @@ Owner: doc/modules/repl.md
 
 Tests the REPL command loop (exec_line), screen I/O (read_line,
 show_prompt), and all command handlers via table-driven tests on
-C64Emu + the production CMOS PRG.
+C64Emu + the production 6510 PRG.
 
 The tests use the real production binary through C64Emu, so they
 exercise the same code that runs on the C64.
@@ -30,7 +30,7 @@ CUR_ROW = 0xD6
 class ReplSymbols:
     """Production-PRG symbol addresses + a factory for fresh emulators.
 
-    Backed by C64Emu + the production cse-cmos.prg.  Attribute names
+    Backed by C64Emu + the production cse.prg (6510).  Attribute names
     mirror the old bare-MPU harness so test bodies need no changes
     (rsyms.exec_line, rsyms.cur_addr, rsyms.line_buf, …).
     """
@@ -999,7 +999,7 @@ class TestCpuSelect:
 
     CASES = [
         ("u6502",  0),
-        ("u65c02", 2),
+        ("u6510",  1),
     ]
 
     @pytest.mark.parametrize("cmd,expected", CASES,
@@ -1012,11 +1012,10 @@ class TestCpuSelect:
 
 
 
-# The CPU set per build (build_system.md § Builds and CPU sets; ruling D2:
-# c64-65c02 offers the 6510 too).  `u NAME` selects a member, anything
-# else is ignored; `u` lists the set, the active member marked `*`.
-CPU_SETS = {"6502": ["6502"], "6510": ["6502", "6510"],
-            "cmos": ["6502", "6510", "65c02"]}
+# The CPU set per C64 build (build_system.md § Builds and CPU sets).
+# `u NAME` selects a member, anything else is ignored; `u` lists the set,
+# the active member marked `*`.
+CPU_SETS = {"6502": ["6502"], "6510": ["6502", "6510"]}
 CPU_VALUE = {"6502": 0, "6510": 1, "65c02": 2, "4510": 3, "45gs02": 4}
 
 
@@ -1053,24 +1052,6 @@ class TestCpuSetPerBuild:
 
 
 # ── P. Dot command (. with hex edit) ─────────────────────────
-
-class TestDotBitOps:
-    """`dot_assemble` keeps a bit-op's digit (repl.md § The `.` command in
-    detail): `. rmb3 $12`, `. bbs7 $12,$3010`."""
-
-    @pytest.mark.parametrize("text,expect", [
-        (". rmb3 $12", [0x37, 0x12]),
-        (". smb0 $fe", [0x87, 0xFE]),
-        (". bbs7 $12,$3010", [0xFF, 0x12, 0x0D]),
-    ])
-    def test_bit_op(self, rsyms, text, expect):
-        cpu = make_cpu(rsyms)
-        cpu.memory[rsyms.asm_cpu] = 2                   # 65C02
-        set_cur_addr(cpu, rsyms, 0x3000)
-        set_line_buf(cpu, rsyms, text)
-        run_at(cpu, rsyms.exec_line)
-        assert list(cpu.memory[0x3000:0x3000 + len(expect)]) == expect
-
 
 class TestDotHexEdit:
     """'.' with hex bytes pokes them at cur_addr."""

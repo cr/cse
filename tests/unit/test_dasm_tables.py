@@ -89,6 +89,8 @@ def test_one_map_per_distinct_view_and_its_bitmaps(model):
         assert model.cpu_bm == [1, 0, 1 + 32, 0, 0]       # asm_cpu 0, 2: 1 + 32 B × bitmap
     else:
         assert len(model.bitmaps) <= 1 and set(model.cpu_bm) <= {0, 1}
+    if model.cpu_set == '65c02':                # the CMOS mode: 6502 over 65C02
+        assert views == ['65c02'] and len(model.bitmaps) == 1
 
 
 # ── the m65 set (dasm.md § Design, § Prefix peel; D-P4-10) ─────────────────

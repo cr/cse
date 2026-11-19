@@ -22,8 +22,8 @@
 #
 # CPU= selects the target for run/disk/size (default: 6510).
 # Both 'release' and 'debug' always build all three variants:
-#   build/release/{6510,6502,cmos}/cse*.prg   (optimized + exomizer)
-#   build/debug/{6510,6502,cmos}/cse*.prg     (with -g, full .lbl)
+#   build/release/{6510,6502}/cse*.prg   (optimized + exomizer)
+#   build/debug/{6510,6502}/cse*.prg     (with -g, full .lbl)
 #
 # The VS64 extension manages build/build.ninja for IDE builds; this
 # Makefile is the command-line interface and covers the full pipeline.
@@ -68,15 +68,15 @@ else ifneq ($(PLATFORM),c64)
 endif
 
 # ── CPU target selection ──────────────────────────────────────────────────
-# CPU= selects target for run/disk/size.  release/debug build all three.
+# CPU= selects target for run/disk/size.  release/debug build both.
 # Each build serves a CPU set; DEFAULT_CPU is the asm_cpu it starts with
 # (`.cpu` / `u` switch within the set).  See doc/build_system.md
 # § Builds and CPU sets.
 # make CPU=6502   → mn6 classifier; CPU set 6502; starts as 6502
 # make CPU=6510   → mn7 classifier; CPU set 6502, 6510; starts as 6502
 #                   (the default target)
-# make CPU=65c02  → mn7 + CMOS_SUPPORT; CPU set 6502, 6510, 65C02;
-#                   starts as 65C02
+# Any other CPU is refused.  No target has the 65C02: the assembler's CMOS
+# mode (CPU_65C02, CMOS_SUPPORT) is built only as test bundles.
 CPU ?= 6510
 
 # ── ROM set selection ────────────────────────────────────────────────────
@@ -118,12 +118,15 @@ _6502_MN      = mn6 mn6_tables
 _6502_SUBDIR  = 6502
 _6502_PRG     = cse-6502.prg
 
-_65c02_DEFS   = -DCPU_65C02 -DCMOS_SUPPORT -DDEFAULT_CPU=2 -DCPU_CEIL=2 -DTAB_WIDTH=$(TAB_WIDTH)
-_65c02_MN     = mn7 mn7_tables
-_65c02_SUBDIR = cmos
-_65c02_PRG    = cse-cmos.prg
+ifeq ($(PLATFORM),c64)
+  ifeq ($(filter 6510 6502,$(CPU)),)
+    ifneq ($(filter-out $(_NON_PRG_GOALS),$(or $(MAKECMDGOALS),all)),)
+      $(error CPU=$(CPU): no such c64 build; CPU=6510 and CPU=6502 are)
+    endif
+  endif
+endif
 
-# the m65 build (PLATFORM=m65 sets CPU): 6502, 65C02, 4510, 45GS02 at run time
+# the m65 build (PLATFORM=m65 sets CPU): 6502, 4510, 45GS02 at run time
 _45gs02_DEFS  = -DCPU_45GS02 -DMEGA_SUPPORT -DDEFAULT_CPU=4 -DCPU_CEIL=4 -DTAB_WIDTH=$(TAB_WIDTH)
 _45gs02_MN    = mn7 mn7_tables
 
@@ -219,7 +222,6 @@ else
 release:
 	@$(MAKE) --no-print-directory _one CPU=6510  _PROFILE=release _LABEL="6510  cse.prg"
 	@$(MAKE) --no-print-directory _one CPU=6502  _PROFILE=release _LABEL="6502  cse-6502.prg"
-	@$(MAKE) --no-print-directory _one CPU=65c02 _PROFILE=release _LABEL="65c02 cse-cmos.prg"
 	@$(MAKE) --no-print-directory _dist
 endif
 
@@ -238,7 +240,6 @@ else
 debug:
 	@$(MAKE) --no-print-directory _one CPU=6510  _PROFILE=debug _LABEL="6510  cse.prg"
 	@$(MAKE) --no-print-directory _one CPU=6502  _PROFILE=debug _LABEL="6502  cse-6502.prg"
-	@$(MAKE) --no-print-directory _one CPU=65c02 _PROFILE=debug _LABEL="65c02 cse-cmos.prg"
 endif
 
 # -----------------------------------------------------------------------
@@ -358,8 +359,7 @@ _dist:
 	@rm -f $(DIST_D64)
 	$(C1541) -format "cse $(VERSION),01" d64 $(DIST_D64) \
 	  -write $(_REL)/6510/cse-exo.prg cse \
-	  -write $(_REL)/6502/cse-6502-exo.prg cse-6502 \
-	  -write $(_REL)/cmos/cse-cmos-exo.prg cse-cmos
+	  -write $(_REL)/6502/cse-6502-exo.prg cse-6502
 	@echo "  disk  $$(c1541 -attach $(DIST_D64) -list 2>/dev/null | grep -c prg) files on cse.d64"
 
 # -----------------------------------------------------------------------
@@ -511,10 +511,10 @@ themes:
 help:
 	@printf "%-15s %s\n" "all"          "Build release (default)"
 	@printf "%-15s %s\n" "release"      "Build all three CPU targets, optimized + exomizer + D64"
-	@printf "%-15s %s\n" ""             "  build/release/{6510,6502,cmos}/cse*.prg"
+	@printf "%-15s %s\n" ""             "  build/release/{6510,6502}/cse*.prg"
 	@printf "%-15s %s\n" "debug"        "Build all three CPU targets with -g (full symbols)"
-	@printf "%-15s %s\n" ""             "  build/debug/{6510,6502,cmos}/cse*.prg"
-	@printf "%-15s %s\n" "disk"         "Create D64 with compressed PRG (CPU=6510|6502|65c02); PLATFORM=m65: the D81"
+	@printf "%-15s %s\n" ""             "  build/debug/{6510,6502}/cse*.prg"
+	@printf "%-15s %s\n" "disk"         "Create D64 with compressed PRG (CPU=6510|6502); PLATFORM=m65: the D81"
 	@printf "%-15s %s\n" "run"          "Build release + launch in VICE (CPU=, ROMSET=cbm|mega); PLATFORM=m65: xmega65"
 	@printf "%-15s %s\n" "tables"       "Regenerate the generated tables in src/ (both generators)"
 	@printf "%-15s %s\n" "test"         "Run all pytest tests (builds both debug + release)"
@@ -527,7 +527,7 @@ help:
 	@printf "%-15s %s\n" "help"         "Show this message"
 	@printf "\nOptions (prefix any target):\n"
 	@printf "  %-20s %s\n" "PLATFORM=c64|m65"    "platform (default: c64; m65: one PRG, its D81)"
-	@printf "  %-20s %s\n" "CPU=6510|6502|65c02" "target CPU (default: 6510)"
+	@printf "  %-20s %s\n" "CPU=6510|6502" "target CPU (default: 6510)"
 	@printf "  %-20s %s\n" "THEME=NAME|BGF"      "colour theme (default: CLOUDY)"
 	@printf "  %-20s %s\n" "TAB_WIDTH=N"         "editor tab width, 1|2|4|8|16|32 (default: 8)"
 	@printf "  %-20s %s\n" "VERSION=STRING"      "version string (default: 0.1)"

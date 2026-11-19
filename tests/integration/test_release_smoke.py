@@ -4,7 +4,7 @@ Owner: doc/build_system.md
 
 Contract source: [build_system.md § Test build pipeline](../../doc/build_system.md#test-build-pipeline):
 every other Tier I test runs the debug PRG; this one boots the release
-CMOS PRG (`cse_release_prg`) the way a user does — the unrelocated
+6510 PRG (`cse_release_prg`) the way a user does — the unrelocated
 payload at $0801, started at its `SYS 2061` target ($080D, the
 loader), through the real loader and cold init up to `main_loop_top`
 — and checks the splash is on screen.

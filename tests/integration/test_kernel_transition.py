@@ -53,9 +53,9 @@ def emu(cse_prg):
 def emu_per_cpu(cse_prg_per_cpu):
     """Multi-CPU emulator fixture (testing.md Principle 18) — yields a
     fresh C64Emu loaded with each production debug PRG in turn
-    (6510 / 6502 / cmos).  Used by `TestBootsCleanly` to prove the
+    (6510 / 6502).  Used by `TestBootsCleanly` to prove the
     cold-init path executes on every variant; detailed contract
-    assertions live with `emu` (CMOS-only)."""
+    assertions live with `emu` (the 6510 build)."""
     prg, map_path = cse_prg_per_cpu
     e = C64Emu()
     e.load_prg(prg, map_path)
@@ -318,12 +318,12 @@ class TestColdInitTerminalState:
 
 class TestBootsCleanly:
     """Coarse smoke check: cold init runs to completion on every
-    production CPU build (6510 / 6502 / cmos).  Pytest expands the
+    production CPU build (6510 / 6502).  Pytest expands the
     consuming test once per variant via `cse_prg_per_cpu`.
 
     This class deliberately does NOT duplicate the per-target
     contract assertions in `TestColdInitTerminalState` — those live
-    on the canonical CMOS-only `emu` fixture and prevent the bug at
+    on the canonical `emu` fixture (the 6510 build) and prevent the bug at
     its source.  This class's job is the complementary one: ensure
     the boot path *executes* on each variant, so a layout-dependent
     failure that would otherwise be invisible (because the
@@ -1837,17 +1837,6 @@ class TestStepIndirectJump:
         assert s.w("brk_pc") == 0x3000
         assert e.memory[0x4000] == 0xEA, "stale step BRK left behind"
 
-    def test_jmp_ind_no_wrap_65c02(self, session):
-        s, e = session, session.e
-        self._wrap_prog(e)
-        e.memory[e.sym("asm_cpu")] = 2
-        e.memory[e.sym("step_state")] = 1                  # STEP_INTO
-        e.write_word(e.sym("brk_pc"), 0x1001)
-        pc, sp = e._cpu.pc, e._cpu.sp
-        e.jsr(e.sym("step_next_pc"))
-        e._cpu.pc, e._cpu.sp = pc, sp
-        assert e.read_word(e.sym("step_next_lo")) == 0x4000
-
     def test_jmp_zp_vector_from_user_zp(self, session):
         s, e = session, session.e
         self._poke(e, 0x1000, [0xA9, 0x00, 0x85, 0x50,       # LDA #0; STA $50
@@ -1860,31 +1849,14 @@ class TestStepIndirectJump:
         assert s.v("dbg_reason") == DBG_BRK
         assert s.w("brk_pc") == 0x3000
 
-    def test_jmp_abs_x_vector_from_user_zp_65c02(self, session):
-        s, e = session, session.e
-        self._poke(e, 0x1000, [0x7C, 0x40, 0x00])           # JMP ($0040,X)
-        zp = e.sym("userland_zp_buf")
-        e.memory[zp + 0x42] = 0x00
-        e.memory[zp + 0x43] = 0x30
-        e.memory[e.sym("asm_cpu")] = 2
-        e.memory[e.sym("reg_x")] = 2
-        e.memory[e.sym("step_state")] = 1
-        e.write_word(e.sym("brk_pc"), 0x1000)
-        pc, sp = e._cpu.pc, e._cpu.sp
-        e.jsr(e.sym("step_next_pc"))
-        e._cpu.pc, e._cpu.sp = pc, sp
-        assert e.read_word(e.sym("step_next_lo")) == 0x3000
+class TestNmosStep:
+    """debugger.md § Next-PC (D-P4b-3): the C64 step is the NMOS one
+    whatever asm_cpu holds.  The opcodes the 65C02 gives other meanings
+    step by the 6510 view's lengths (oplen_tbl): $0F (SLO abs) 3, $80
+    (SKB #) 2, $7C 1 — no 6510 row names it, so `d` lists it `...`
+    too; JMP ($xxFF) takes its high byte from $xx00."""
 
-
-class TestStepBitBranch:
-    """debugger.md § Next-PC (D-P4-3): BBR / BBS ($xF) at asm_cpu 2 is a
-    branch — step_next_lo = PC + 3, and INTO arms step_next_hi = the
-    taken target (PC + 3 + offset); at asm_cpu 0 the opcode is a 3-byte
-    linear one.  C64Emu runs the NMOS CPU, which has no BBR, so the step
-    is held at step_next_pc (as JMP (abs,X) above)."""
-
-    def _next(self, e, code, cpu, state):
-        at = 0x1000
+    def _next(self, e, code, cpu, state=1, at=0x1000):
         for i, b in enumerate(code):
             e.memory[at + i] = b
         e.memory[e.sym("asm_cpu")] = cpu
@@ -1896,18 +1868,19 @@ class TestStepBitBranch:
         e._cpu.pc, e._cpu.sp = pc, sp
         return e.read_word(e.sym("step_next_lo")), e.read_word(e.sym("step_next_hi"))
 
-    @pytest.mark.parametrize("code,want", [
-        ([0x3F, 0x12, 0x10], (0x1003, 0x1013)),     # BBR3 $12, forward
-        ([0xFF, 0x12, 0xF0], (0x1003, 0x0FF3)),     # BBS7 $12, backward
-    ])
-    def test_into_arms_both(self, emu, code, want):
-        assert self._next(emu, code, 2, 1) == want
+    @pytest.mark.parametrize("cpu", [0, 1, 2])
+    @pytest.mark.parametrize("code,length", [([0x0F, 0x12, 0x10], 3),
+                                             ([0x7C, 0x40, 0x00], 1),
+                                             ([0x80, 0x05], 2)])
+    def test_the_65c02s_opcodes_are_linear(self, emu, code, length, cpu):
+        assert self._next(emu, code, cpu) == (0x1000 + length, 0)
 
-    def test_over_arms_the_fall_through(self, emu):
-        assert self._next(emu, [0x3F, 0x12, 0x10], 2, 2) == (0x1003, 0)
-
-    def test_nmos_view_is_linear(self, emu):
-        assert self._next(emu, [0x3F, 0x12, 0x10], 0, 1) == (0x1003, 0)
+    @pytest.mark.parametrize("cpu", [0, 1, 2])
+    def test_jmp_ind_wraps_the_page(self, emu, cpu):
+        emu.memory[0x20FF] = 0x00
+        emu.memory[0x2000] = 0x30                    # NMOS high byte → $3000
+        emu.memory[0x2100] = 0x40
+        assert self._next(emu, [0x6C, 0xFF, 0x20], cpu) == (0x3000, 0)
 
 
 class TestStepCount:

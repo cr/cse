@@ -9,8 +9,8 @@ Coverage of the documented contract
 2 exported items:
 
   dasm_insn        — test_dasm (256 opcodes × every asm_cpu of every
-                      C64 build: 6502 ×1, 6510 ×2, 65c02 ×3 = 1536
-                      cases) against the oracle built from
+                      C64 set and the CMOS mode: 6502 ×1, 6510 ×2,
+                      65c02 ×2 = 1280 cases) against the oracle built from
                       instruction_set.instructions(variant);
                       test_dasm_boundary_operands (operand edge cases);
                       TestDasmBankContract (banking state post-call)
@@ -23,11 +23,12 @@ screen RAM, no cursor state — tests read the buffer directly.
 CPU modes:
   0 = 6502    (legal opcodes only; others → "...")
   1 = 6510    (legal + NMOS illegals)
-  2 = 65C02   (legal + CMOS extensions)
+  2 = 65C02   (legal + CMOS extensions; the CMOS mode)
 
-Bundles: dasm + dasm_tables + dasm_test_stub, one per C64 build
-(`dasm_bundle(config)`, config ∈ 6502 / 6510 / 65c02, production -D
-sets); the single-variant tests below use `dasm_syms` (65c02).
+Bundles: dasm + dasm_tables + dasm_test_stub, one per C64 set and the
+CMOS mode (`dasm_bundle(config)`, config ∈ 6502 / 6510 / 65c02, the
+PROD_DEFS -D sets); the single-variant tests below use `dasm_syms`
+(65c02, the CMOS mode).
 """
 
 import pytest

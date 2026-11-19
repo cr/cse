@@ -430,7 +430,7 @@ MANUAL_TESTS = [
     {
         "name": "hello-world style (blank between sections)",
         "source": (
-            ".cpu 6510\n"
+            ".cpu 6502\n"
             ".const chrout $ffd2\n"
             ".org $6000\n"
             "\n"
@@ -1121,7 +1121,7 @@ class TestKernelStackDepth:
     def test_realistic_program(self, as_syms):
         """A representative short program — typical user workload."""
         source = (
-            ".cpu 6510\n"
+            ".cpu 6502\n"
             ".const chrout $ffd2\n"
             ".const border $d020\n"
             ".org $c000\n"
@@ -1414,8 +1414,7 @@ class TestAsmLineNoWrap:
 
 # ── `.cpu` takes exactly the build's CPU set (assembler_syntax.md § .cpu) ──
 
-_SETS = {"6502": {"6502"}, "6510": {"6502", "6510"},
-         "cmos": {"6502", "6510", "65c02"}}
+_SETS = {"6502": {"6502"}, "6510": {"6502", "6510"}}
 
 
 @pytest.mark.parametrize("name", ["6502", "6510", "65c02", "4510", "45gs02", "6503", "65c0"])
@@ -1577,6 +1576,15 @@ class TestCpuDirectiveScope:
             as_syms, ".org $c000\n phy\n.cpu 65c02\n phy", cpu=0)
         assert errors == 1                     # the first phy only
         assert mem[0xC000] == 0x5A
+
+    @pytest.mark.parametrize("name,errors", [("6502", 1), ("65c02", 0), ("6510", 2)])
+    def test_the_cmos_mode_takes_its_set(self, as_syms, name, errors):
+        """The CMOS mode is {6502, 65C02} (D-P4b-2): `.cpu 6510` is an
+        error and the lines after it stay at the start CPU (6502), where
+        `phy` is `;?cpu`; `lax` is no word in any of its CPUs."""
+        got, _, _ = self._run_cpu(
+            as_syms, f".cpu {name}\n.org $c000\n phy\n lax $12", cpu=0)
+        assert got == errors + 1               # + the lax
 
     def test_cpu_restored_after_assembly(self, as_syms):
         errors, _, after = self._run_cpu(

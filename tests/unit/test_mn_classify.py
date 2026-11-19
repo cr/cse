@@ -48,6 +48,7 @@ from py65.devices.mpu6502 import MPU
 # Make dev/ importable
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent / "dev"))
 from hashes import mn6, mn7
+import mnemonic_tables as MT
 from instruction_set import sc
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -186,19 +187,27 @@ def test_mn6_full_sweep(mn6_syms):
     assert n_invalid == 17576 - 72
 
 
-def test_mn7_full_sweep(mn7_syms):
+# The mn7 sets: the bundle fixture and the key count (mn_classify.md § Variants).
+_MN7 = {"6510": ("mn7_6510_syms", 102), "65c02": ("mn7_syms", 68)}
+
+
+@pytest.mark.parametrize("cpu_set", list(_MN7))
+def test_mn7_full_sweep(request, cpu_set):
     """
-    Exhaustive sweep: all 17,576 three-letter strings through mn7_classify.
+    Exhaustive sweep: all 17,576 three-letter strings through mn7_classify,
+    on each mn7 set's block (one T, its own keys).
 
     Verified properties
     -------------------
-    • All 114 mnemonics (legal + illegal + CMOS) → carry=0, correct slot.
+    • Every key of the set (6510: legal + illegal; the CMOS mode: legal +
+      CMOS) → carry=0, correct slot; the other set's keys → carry=1.
     • Zero false positives: every other string → carry=1.
     • ASM and Python agree exactly on every string.
     """
-    n_valid, n_invalid = _full_sweep(mn7, mn7_syms)
-    assert n_valid   == 114,          f"Expected 114 carry=0, got {n_valid}"
-    assert n_invalid == 17576 - 114
+    fixture, n = _MN7[cpu_set]
+    n_valid, n_invalid = _full_sweep(MT.CPU_SETS[cpu_set][2], request.getfixturevalue(fixture))
+    assert n_valid   == n,          f"Expected {n} carry=0, got {n_valid}"
+    assert n_invalid == 17576 - n
 
 
 # ─── Table-value coverage ────────────────────────────────────────────────────
@@ -212,8 +221,8 @@ def test_mn7_full_sweep(mn7_syms):
 #
 #   base  — the key's own zero-page opcode, else its absolute opcode,
 #           else its lowest mode's, taken from the key's home CPU
-#   cat   — 0 legal NMOS, 1 legal with a 65C02 extension, 2 illegal,
-#           3 65C02-only
+#   cat   — 0 legal NMOS, 1 legal with a 65C02 extension (the CMOS
+#           mode only), 2 illegal, 3 65C02-only
 #
 # The pidx bits are covered end to end: every (mnemonic, mode) must
 # assemble to the instruction set's opcode (test_asm_line, and per CPU
@@ -225,10 +234,12 @@ import instruction_set as I  # noqa: E402 — import after sys.path tweak above
 _HOME = {'legal': '6502', 'illegal': '6510', 'cmos': '65c02'}
 
 
-def _expected(mne):
-    """(base opcode, cat) of a key in the bundle's CPU set."""
+def _expected(mne, cpu_set):
+    """(base opcode, cat) of a key in the bundle's CPU set: a legal key is
+    cat 1 only in a set with the 65C02 (its extension profile)."""
     _profile, cmos_bit, category = I.MNEMONICS[mne]
-    cat = {'legal': 1 if cmos_bit else 0, 'illegal': 2, 'cmos': 3}[category]
+    ext = '65c02' in MT.CPU_SETS[cpu_set][1]
+    cat = {'legal': 1 if cmos_bit and ext else 0, 'illegal': 2, 'cmos': 3}[category]
     ops = {r.mode: r.opcode for r in I.instructions(_HOME[category])
            if r.key == mne and r.suffix in ('', '0')}
     for mode in ('ZP', 'ABS', *I.ALL_MODES):
@@ -253,13 +264,14 @@ def _run_once(cpu, mem, syms, c1, c2, c3, entry_addr):
     raise TimeoutError(f"timeout calling ${entry_addr:04X}")
 
 
-def _table_check(cls, syms_fixture):
+def _table_check(cpu_set, syms_fixture):
+    cls = MT.CPU_SETS[cpu_set][2]
     cpu = MPU()
     mem = cpu.memory
     syms_fixture.load_into(mem)
     errors = []
     for slot, mne in cls.build_slot_map().items():
-        want_base, want_cat = _expected(mne)
+        want_base, want_cat = _expected(mne, cpu_set)
         got_base = mem[syms_fixture.mn_base_op + slot]
         got_cat = mem[syms_fixture.mn_profile + slot] >> 6
         if (got_base, got_cat) != (want_base, want_cat):
@@ -269,14 +281,15 @@ def _table_check(cls, syms_fixture):
         f"{len(errors)} table mismatches:\n" + "\n".join(errors[:20])
 
 
-def test_mn7_table_values(mn7_syms):
-    """Every mn7 key's base opcode and category at its hash slot (65C02 set)."""
-    _table_check(mn7, mn7_syms)
+@pytest.mark.parametrize("cpu_set", list(_MN7))
+def test_mn7_table_values(request, cpu_set):
+    """Every mn7 key's base opcode and category at its hash slot."""
+    _table_check(cpu_set, request.getfixturevalue(_MN7[cpu_set][0]))
 
 
 def test_mn6_table_values(mn6_syms):
     """Every mn6 key's base opcode and category at its hash slot."""
-    _table_check(mn6, mn6_syms)
+    _table_check('6502', mn6_syms)
 
 
 # ─── Internal tables: NOT tested for content (implementation detail) ─────────
@@ -407,7 +420,7 @@ class TestDispatcherForwarding:
                 f"{slot_disp} / expected {slot}"
 
     def test_mn7_dispatcher(self, mn7_syms):
-        self._compare(mn7, mn7_syms)
+        self._compare(MT.CPU_SETS['65c02'][2], mn7_syms)
 
     def test_mn6_dispatcher(self, mn6_syms):
         self._compare(mn6, mn6_syms)

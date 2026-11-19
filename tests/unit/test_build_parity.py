@@ -19,7 +19,10 @@ from conftest import PROD_DEFS
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # The Makefile names each build's -D set `_<cpu set>_DEFS` (m65: 45gs02).
-_MAKE_VAR = {c: f"_{c}_DEFS" for c in ("6502", "6510", "65c02", "45gs02")}
+# The CMOS mode (65c02) has no build: its bundles' set lives in PROD_DEFS
+# alone (build_system.md § Builds and CPU sets).
+_MAKE_VAR = {c: f"_{c}_DEFS" for c in ("6502", "6510", "45gs02")}
+_NO_BUILD = {"65c02"}
 
 
 def _makefile_defs(var):
@@ -30,7 +33,8 @@ def _makefile_defs(var):
 
 
 def test_prod_defs_cover_exactly_the_builds():
-    assert set(PROD_DEFS) == set(_MAKE_VAR)
+    assert set(PROD_DEFS) == set(_MAKE_VAR) | _NO_BUILD
+    assert "_65c02_DEFS" not in (ROOT / "Makefile").read_text()
 
 
 def test_prod_defs_match_makefile():

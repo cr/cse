@@ -189,3 +189,23 @@ def test_introspect_only_when_1(value, on):
     r = _make_n("-B", "debug", f"INTROSPECT={value}")
     assert r.returncode == 0, r.stderr
     assert ("-DINTROSPECT" in r.stdout) == on
+
+
+# ── PLATFORM=c64: the 6502 and 6510 builds (D-P4b-1) ───────────────
+
+@pytest.mark.parametrize("cpu", ["65c02", "4510", "6503"])
+def test_an_unknown_c64_cpu_is_refused(cpu):
+    """No c64 build has the 65C02 (the CMOS mode has no build), nor any
+    other CPU outside 6502 and 6510."""
+    r = _make_n("disk", f"CPU={cpu}")
+    assert r.returncode != 0
+    assert f"CPU={cpu}" in r.stderr
+
+
+@pytest.mark.parametrize("target", ["release", "debug"])
+def test_c64_builds_are_the_6502_and_the_6510(target):
+    r = _make_n(target)
+    assert r.returncode == 0, r.stderr
+    prgs = set(re.findall(r"build/\w+/(\w+)/cse[\w-]*\.prg", r.stdout))
+    assert prgs == {"6510", "6502"}
+    assert "CMOS_SUPPORT" not in r.stdout and "cse-cmos" not in r.stdout

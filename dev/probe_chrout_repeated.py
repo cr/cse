@@ -14,7 +14,7 @@ from c64emu import C64Emu
 
 
 def setup():
-    prg = ROOT / "build" / "debug" / "cmos" / "cse-cmos.prg"
+    prg = ROOT / "build" / "debug" / "6510" / "cse.prg"
     map_path = ROOT / "build" / "debug" / "cmos" / "cse.map"
     emu = C64Emu()
     emu.load_prg(prg, map_path)

@@ -12,12 +12,12 @@
 .segment "RODATA"
 
 oplen_tbl:
-        .byte   $99,$AA,$99,$FF,$AA,$AA,$DD,$FF
-        .byte   $9B,$AA,$99,$FF,$AA,$AA,$DD,$FF
-        .byte   $99,$A9,$99,$FF,$AA,$A9,$DD,$FD
-        .byte   $99,$AA,$99,$FF,$AA,$AA,$DD,$FF
-        .byte   $9A,$AA,$99,$FF,$AA,$AA,$DD,$FF
-        .byte   $AA,$AA,$99,$FF,$AA,$AA,$DD,$FF
-        .byte   $9A,$AA,$99,$FF,$AA,$A9,$DD,$FD
-        .byte   $9A,$AA,$99,$FF,$AA,$A9,$DD,$FD
+        .byte   $99,$AA,$99,$FF,$9A,$AA,$DD,$FF
+        .byte   $9B,$AA,$99,$FF,$9A,$A9,$DD,$FD
+        .byte   $99,$A9,$99,$FF,$9A,$A9,$DD,$FD
+        .byte   $99,$A9,$99,$FF,$9A,$A9,$DD,$FD
+        .byte   $9A,$AA,$95,$FF,$9A,$AA,$DD,$FF
+        .byte   $AA,$AA,$99,$FF,$9A,$AA,$DD,$FF
+        .byte   $9A,$AA,$99,$FF,$9A,$A9,$DD,$FD
+        .byte   $9A,$AA,$99,$FF,$9A,$A9,$DD,$FD
 .endif

@@ -70,7 +70,7 @@ _CODE_START = 0x4000
 
 _SOURCES = [SRC / "zp.s", SRC / "strings.s", SRC / "cse_io.s", DEV / "cse_io_test_stub.s"]
 
-_BUNDLE = Bundle("cse_io_test", _SOURCES, PROD_DEFS["65c02"], tag="io",
+_BUNDLE = Bundle("cse_io_test", _SOURCES, PROD_DEFS["6510"], tag="io",
                  ca65=["-t", "c64"])
 
 

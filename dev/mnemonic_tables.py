@@ -104,12 +104,25 @@ class mn7gs(mn7):
         return slot_mne
 
 
+class mn7_6510(mn7):
+    """mn7 over the 6510 set's keys: legal and illegal (mn_classify.md
+    § Variants).  mn7's T, collision-free over every C64 name."""
+    CATEGORIES = frozenset({'legal', 'illegal'})
+
+
+class mn7_cmos(mn7):
+    """mn7 over the CMOS mode's keys: legal and 65C02 (D-P4b-2)."""
+    CATEGORIES = frozenset({'legal', 'cmos'})
+
+
 # CPU set → (block define, its CPU views low to high, classifier class).
 # The set's name is its top CPU; test bundles and golden files use it too.
+# Each set's classifier holds exactly its keys (D-P4b-4).  '65c02' is the
+# CMOS mode: no build, its test bundles only (D-P4b-2).
 CPU_SETS = {
     '6502':  ('CPU_6502',  ('6502',),                 mn6),
-    '6510':  ('CPU_6510',  ('6502', '6510'),          mn7),
-    '65c02': ('CPU_65C02', ('6502', '6510', '65c02'), mn7),
+    '6510':  ('CPU_6510',  ('6502', '6510'),          mn7_6510),
+    '65c02': ('CPU_65C02', ('6502', '65c02'),         mn7_cmos),
     '45gs02': ('CPU_45GS02', ('6502', '65c02', '4510', '45gs02'), mn7gs),
 }
 M65_SETS = frozenset({'45gs02'})      # the m65 platform's (D-P4-10)
@@ -123,9 +136,10 @@ M65_SETS = frozenset({'45gs02'})      # the m65 platform's (D-P4-10)
 PLATFORM_VIEWS = ('6502', '6510', '65c02')
 EXT_VIEW = '65c02'
 
-# Fixed single-shape zones, in pidx order.  The order makes every C64 set's
-# present zones a prefix (6502: A B F; 6510: A B F C; 65C02: all six), so no
-# set carries an empty profile.  D and E are the bit-digit keys' zones.
+# Fixed single-shape zones, in pidx order.  The order makes the C64 sets'
+# present zones a prefix (6502: A B F; 6510: A B F C), so no C64 set carries
+# an empty profile.  D and E are the bit-digit keys' zones; the CMOS mode has
+# them but no zone C key, so its C is one unused profile (D-P4b-6).
 FIXED_ZONES = 'ABFCDE'
 _ZONE_OF_MODES = {frozenset({'IMP'}): 'A', frozenset({'REL'}): 'B',
                   frozenset({'ABS'}): 'F', frozenset({'IMM'}): 'C'}
@@ -177,7 +191,7 @@ class Entry:
     """One classifier key in one CPU set."""
     cat: int
     base: int = 0
-    prof: Profile = None      # None: the key has no row in this set
+    prof: Profile = None      # its (NMOS) profile
     ext: Profile = None       # extension profile (cat 1, sets with the extension CPU)
     zone: str = None          # fixed zone letter, or None for the multi-mode zones
     q: Profile = None         # m65: the Q profile of a quad stem
@@ -246,10 +260,11 @@ def _profile(opcodes, base):
                    tuple(sorted((m, op ^ base) for m, op in opcodes.items())))
 
 
-def key_category(key, rows):
-    """`rows`: view → view_rows(view) over PLATFORM_VIEWS."""
+def key_category(key, rows, views=PLATFORM_VIEWS):
+    """`rows`: view → view_rows(view) over PLATFORM_VIEWS.  A legal key has
+    category 1 only in a set with the extension CPU."""
     if key in rows['6502']:
-        return 1 if rows[EXT_VIEW][key] != rows['6502'][key] else 0
+        return 1 if EXT_VIEW in views and rows[EXT_VIEW][key] != rows['6502'][key] else 0
     return 2 if key in rows['6510'] else 3
 
 
@@ -309,12 +324,11 @@ def set_entries(cpu_set):
     _, views, classifier = CPU_SETS[cpu_set]
     rows = {v: view_rows(v) for v in PLATFORM_VIEWS}
     entries = {}
-    for key in classifier.build_slot_map().values():
-        cat = key_category(key, rows)
+    for key in sorted(classifier.build_slot_map().values()):
+        cat = key_category(key, rows, views)
         home = ('6502', '6502', '6510', EXT_VIEW)[cat]
         if home not in views:
-            entries[key] = Entry(cat)
-            continue
+            raise ModelError(f"{cpu_set}: {key} is no key of its set")
         ops = rows[home][key]
         base = base_of(ops)
         prof = _profile(ops, base)
@@ -399,7 +413,9 @@ def place_profiles(entries):
     """Number the profiles: (profiles, zone_g, key → pidx).
 
     Fixed zones first, one profile each, in FIXED_ZONES order and only
-    while present.  Then the multi-mode profiles — extension pairs adjacent
+    while present — but C, where the set has D and E and no zone-C key:
+    one unused IMM profile there keeps D and E at their pidx.  Then the
+    multi-mode profiles — extension pairs adjacent
     (NMOS, extension), every other profile shared by identity with any
     multi-mode profile already placed, never with a fixed-zone one: a
     key's zone is how asm_line parses it, not only what it encodes.
@@ -409,6 +425,8 @@ def place_profiles(entries):
         if e.zone:
             if fixed.setdefault(e.zone, e.prof) != e.prof:
                 raise ModelError(f"zone {e.zone} holds more than one profile ({key})")
+    if 'D' in fixed and 'C' not in fixed:     # the CMOS mode (D-P4b-6)
+        fixed['C'] = Profile(frozenset({'IMM'}), (('IMM', 0),))
     present = [z for z in FIXED_ZONES if z in fixed]
     if present != list(FIXED_ZONES[:len(present)]):
         raise ModelError(f"fixed zones {present} are not a prefix of {FIXED_ZONES}")
@@ -425,9 +443,7 @@ def place_profiles(entries):
                 index.setdefault(p, len(profiles))
                 profiles.append(p)
     for key, e in entries.items():
-        if e.prof is None:
-            pidx_of[key] = 0                 # never used: the gate rejects the key
-        elif e.zone:
+        if e.zone:
             pidx_of[key] = present.index(e.zone)
         elif e.ext:
             pidx_of[key] = pair_at[(e.prof, e.ext)]
@@ -708,33 +724,23 @@ def write_classifier_tables(cls, models, extra_rodata=()):
     print(f"wrote {path}  ({', '.join(f'{m.cpu_set}: {len(m.key_prof)} keys' for m in models if issubclass(m.classifier, cls))})")
 
 
-# The 6510's crash opcodes: they halt the CPU, so their length never
-# matters to the debugger's step and yields to any other row's.
-_CRASH_MNEMONICS = frozenset({'CIM', 'HLT', 'JAM', 'KIL'})
-
-
-def oplen_lengths(opcodes=None):
-    """Opcode → instruction length (opcode + operand bytes), 256 entries.
-
-    One content for all C64 CPU sets: every OPCODES row's length.  Where
-    a 6510 and a 65C02 row share an opcode with different lengths, a
-    crash row (JAM) yields to the other; any other length conflict is a
-    ModelError — the table cannot serve both.
+def oplen_lengths(rows=None):
+    """Opcode → instruction length (opcode + operand bytes), 256 entries:
+    one content for both C64 sets, the 6510 view's lengths (every 6502 row
+    is a 6510 row; D-P4b-5).  An opcode two rows give different lengths
+    is a ModelError — the table cannot serve both.
     """
-    opcodes = OPCODES if opcodes is None else opcodes
-    rows = {}                                   # opcode → {length: [mnemonics]}
-    for mne, modes in opcodes.items():
-        for mode, opcode in modes.items():
-            if opcode is not None:
-                rows.setdefault(opcode, {}).setdefault(
-                    1 + MODE_OPERAND_BYTES[mode], []).append(mne)
+    rows = I.instructions('6510') if rows is None else rows
+    by_op = {}                                  # opcode → {length: [mnemonics]}
+    for r in rows:
+        by_op.setdefault(r.opcode, {}).setdefault(
+            1 + MODE_OPERAND_BYTES[r.mode], []).append(r.key)
     lengths, errors = [1] * 256, []
-    for opcode, by_len in sorted(rows.items()):
-        live = {n: m for n, m in by_len.items() if not set(m) <= _CRASH_MNEMONICS} or by_len
-        if len(live) > 1:
+    for opcode, by_len in sorted(by_op.items()):
+        if len(by_len) > 1:
             errors.append(f"${opcode:02X}: " + ", ".join(
-                f"{'/'.join(sorted(m))} = {n} B" for n, m in sorted(live.items())))
-        lengths[opcode] = max(live)
+                f"{'/'.join(sorted(m))} = {n} B" for n, m in sorted(by_len.items())))
+        lengths[opcode] = max(by_len)
     if errors:
         raise ModelError("oplen_tbl: opcode length conflict:\n  " + "\n  ".join(errors))
     return lengths

@@ -39,7 +39,7 @@ def test_makefile_rebuilds_the_includers_of_an_inc_file():
     subprocess.run(["make", "debug"], cwd=ROOT, check=True, capture_output=True)
     out = subprocess.run(
         ["make", "-n", "-W", str(SRC / "macros.inc"), "--no-print-directory",
-         "_one", "CPU=65c02", "_PROFILE=debug"],
+         "_one", "CPU=6510", "_PROFILE=debug"],
         cwd=ROOT, check=True, capture_output=True, text=True).stdout
     rebuilt = {pathlib.Path(w).stem for line in out.splitlines()
                if line.startswith("ca65") for w in line.split() if w.endswith(".o")}

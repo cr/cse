@@ -32,7 +32,7 @@ production-representative initialization path — the natural home
 for a module whose whole contract is "pokes VIC registers, scrolls
 screen RAM, syncs cursor via PLOT."
 
-Requires: build/cmos/cse-cmos.prg (auto-built by cse_prg fixture).
+Requires: build/debug/6510/cse.prg (auto-built by the cse_prg fixture).
 """
 
 import pytest
@@ -40,7 +40,7 @@ from c64emu import C64Emu, SCREEN, COLS, ROWS, COLOR_RAM
 
 
 def make_emu(cse_prg):
-    """Fresh C64Emu with CMOS PRG loaded + screen initialized."""
+    """Fresh C64Emu with the 6510 PRG loaded + screen initialized."""
     prg, map_path = cse_prg
     emu = C64Emu()
     emu.load_prg(prg, map_path)

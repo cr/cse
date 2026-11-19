@@ -39,13 +39,13 @@ mn6_base_op:
         .byte   $E8,$28,$A5,$A8,$98,$E6,$00,$00  ; INX PLP LDA TAY TYA INC --- ---
         .byte   $65,$00,$00,$48,$46,$90,$45,$C8  ; ADC --- --- PHA LSR BCC EOR INY
 mn6_profile:
-        .byte   $47,$48,$0B,$0D,$43,$00,$00,$01  ; BIT JMP STX CPX AND SEC CLC BPL
-        .byte   $00,$43,$05,$09,$05,$46,$01,$01  ; DEX CMP ASL LDX ROL DEC BVS BEQ
-        .byte   $00,$0C,$0D,$00,$00,$00,$00,$00  ; PLA STY CPY BRK SED CLD TSX DEY
+        .byte   $05,$08,$0C,$06,$03,$00,$00,$01  ; BIT JMP STX CPX AND SEC CLC BPL
+        .byte   $00,$03,$04,$09,$04,$07,$01,$01  ; DEX CMP ASL LDX ROL DEC BVS BEQ
+        .byte   $00,$0D,$06,$00,$00,$00,$00,$00  ; PLA STY CPY BRK SED CLD TSX DEY
         .byte   $01,$00,$0A,$01,$00,$00,$01,$00  ; BMI RTI LDY BNE PHP TXA BVC SEI
-        .byte   $00,$43,$00,$00,$00,$43,$05,$00  ; CLI SBC --- CLV TAX ORA ROR ---
-        .byte   $00,$44,$00,$00,$02,$01,$00,$00  ; NOP STA --- TXS JSR BCS --- RTS
-        .byte   $00,$00,$43,$00,$00,$46,$00,$00  ; INX PLP LDA TAY TYA INC --- ---
-        .byte   $43,$00,$00,$00,$05,$01,$43,$00  ; ADC --- --- PHA LSR BCC EOR INY
+        .byte   $00,$03,$00,$00,$00,$03,$04,$00  ; CLI SBC --- CLV TAX ORA ROR ---
+        .byte   $00,$0B,$00,$00,$02,$01,$00,$00  ; NOP STA --- TXS JSR BCS --- RTS
+        .byte   $00,$00,$03,$00,$00,$07,$00,$00  ; INX PLP LDA TAY TYA INC --- ---
+        .byte   $03,$00,$00,$00,$04,$01,$03,$00  ; ADC --- --- PHA LSR BCC EOR INY
 .endif
 

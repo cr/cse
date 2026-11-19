@@ -31,7 +31,7 @@ def test_fresh_worktree_builds_in_one_make(tmp_path):
                            cwd=wt, capture_output=True, text=True)
         assert r.returncode == 0, r.stderr[-2000:]
         assert "No rule to make target" not in r.stderr
-        for prg in ("6510/cse.prg", "6502/cse-6502.prg", "cmos/cse-cmos.prg"):
+        for prg in ("6510/cse.prg", "6502/cse-6502.prg"):
             assert (wt / "build/release" / prg).is_file()
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(wt)],

@@ -47,7 +47,7 @@ BP_SIZE  = 4
 _SOURCES = [SRC / "zp.s", SRC / "breakpoints.s",
             DEV / "breakpoints_test_stub.s"]
 
-_BUNDLE = Bundle("breakpoints_test", _SOURCES, PROD_DEFS["65c02"], tag="bp",
+_BUNDLE = Bundle("breakpoints_test", _SOURCES, PROD_DEFS["6510"], tag="bp",
                  ca65=["-t", "c64"])
 
 

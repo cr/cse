@@ -597,7 +597,7 @@ _bad_val_err:
 .segment "RODATA"
 cpu_names:
         .byte 0, "6502", 0
-.if .defined(CPU_6510) .or .defined(CPU_65C02)
+.ifdef CPU_6510
         .byte 1, "6510", 0
 .endif
 .if .defined(CPU_65C02) .or .defined(CPU_45GS02)

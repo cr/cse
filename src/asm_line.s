@@ -67,9 +67,8 @@
         .import   asm_oplen             ; operand bytes per mode (generated)
         .importzp ASM_ZONE_G            ; first multi-mode pidx (generated constant)
 
-; The digit zones D/E (RMB SMB BBR BBS) exist on the 65C02 and 4510 sets;
-; every mn7 build reads a digit suffix, so mn7's other keys can answer
-; it (asm_line.md § Mnemonic word).
+; The digit zones D/E (RMB SMB BBR BBS) exist in the CMOS mode and the
+; 4510 set; only they read a digit suffix (asm_line.md § Mnemonic word).
 .ifdef CMOS_SUPPORT
   BIT_OPS = 1
 .endif
@@ -450,7 +449,7 @@ _asm_line_core:
         jsr _asm_rd_upper
         sta mn_c3
 
-.ifndef USE_MN6
+.ifdef BIT_OPS
         ; An optional digit suffix 0-7: asm_tmp = bit << 4 | 1, else 0
         ; (bit 0 is set in every digit-zone opcode, so `ora` keeps it).
         ldx #0
@@ -520,23 +519,14 @@ _asm_line_core:
 
         ; ── CPU-mode gate ─────────────────────────────────────────────────
         ;
-        ; Gate matrix (asm_prof bits 7:6 encode category):
-        ;   cat=00 (legal NMOS)    — accept on any asm_cpu
-        ;   cat=01 (legal + CMOS)  — accept; upgrade pidx on asm_cpu>=2 (CMOS_SUPPORT only)
-        ;   cat=10 (illegal NMOS)  — accept on asm_cpu=1 only (6510)
-        ;   cat=11 (pure CMOS)     — accept on asm_cpu>=2 (CMOS_SUPPORT only)
-        ;
-        ; See doc/modules/asm_line.md § asm_cpu × category matrix.
-        ;
-        ; Reject paths are compiled unconditionally — the 6510 build
-        ; (no CMOS_SUPPORT) uses mn7, which recognises CMOS and
-        ; illegal mnemonics, so the gate must filter them by asm_cpu
-        ; even though CMOS extensions aren't supported here.  Only the
-        ; CMOS accept-and-upgrade paths stay under .ifdef CMOS_SUPPORT
-        ; because they reference the CMOS profile table, which is
-        ; absent in non-CMOS builds.  On mn6 builds (6502, USE_MN6)
-        ; cat=01/10/11 are never produced by the classifier, so the
-        ; reject paths sit dormant without cost.
+        ; asm_prof bits 7:6 are the key's category; a set holds only its
+        ; own keys, so each set's gate sees only its own categories
+        ; (asm_line.md § asm_cpu × category gate matrix):
+        ;   c64-6502      cat 00 only — no gate
+        ;   c64-6510      00 accept; 10 (illegal) on the 6510 only
+        ;   the CMOS mode 00 accept; 01 the CMOS profile on the 65C02,
+        ;                 the NMOS one on the 6502; 11 on the 65C02 only
+        ;   m65           below
 
 .ifdef MEGA_SUPPORT
         ; m65 (asm_line.md § gate matrix, m65 table): cat 00 accept; 01
@@ -572,33 +562,28 @@ _asm_line_core:
         lda asm_pfx
         ora #PFX_Q
         sta asm_pfx
-.else
+.elseif .defined(CMOS_SUPPORT)
         lda asm_prof
         and #$C0
-        beq @no_upgrade         ; cat=00 (legal NMOS) → accept
-        cmp #$C0                ; cat=11 (pure CMOS)?
-        bne @chk_illegal
-.ifdef CMOS_SUPPORT
-        lda asm_cpu
-        cmp #2
-        bcs @no_upgrade         ; 65C02 (+ CMOS_SUPPORT) → accept
-.endif
-        jmp asm_cpu_error       ; else reject — `;?cpu` (pure-CMOS on non-CMOS CPU)
-@chk_illegal:
-        cmp #$80                ; cat=10 (illegal NMOS)?
-        bne @chk_ext
-        lda asm_cpu
+        beq @no_upgrade         ; cat 00
+        ldx asm_cpu
+        beq @c_6502
+        cmp #$40
+        bne @no_upgrade         ; cat 11 on the 65C02: accept
+        inc asm_pidx            ; cat 01: the CMOS profile
+        bne @no_upgrade         ; (always)
+@c_6502:
+        cmp #$40
+        beq @no_upgrade         ; cat 01 on the 6502: its NMOS profile
+        jmp asm_cpu_error       ; cat 11: `;?cpu`
+.elseif .defined(CPU_6510)
+        lda asm_prof
+        and #$C0
+        beq @no_upgrade         ; cat 00
+        lda asm_cpu             ; cat 10 (illegal): the 6510 only
         cmp #1
-        beq @no_upgrade         ; 6510 → accept
-        jmp asm_cpu_error       ; 6502 / 65C02 → reject — `;?cpu` (illegal mnemonic on non-6510)
-@chk_ext:
-        ; Fell through — cat=01 (legal + CMOS extension).
-.ifdef CMOS_SUPPORT
-        lda asm_cpu
-        cmp #2
-        bcc @no_upgrade         ; 6502/6510 → no upgrade (use NMOS profile)
-        inc asm_pidx            ; 65C02 → upgrade to CMOS profile
-.endif ; CMOS_SUPPORT
+        beq @no_upgrade
+        jmp asm_cpu_error
 .endif
 @no_upgrade:
 
@@ -631,9 +616,8 @@ _asm_line_core:
 @q_done:
 .endif
 
-.ifndef USE_MN6
-        ; ── the digit suffix: exactly on the digit zones D/E ──────────────
 .ifdef BIT_OPS
+        ; ── the digit suffix: exactly on the digit zones D/E ──────────────
         lda asm_pidx
         sec
         sbc #ASM_ZONE_D
@@ -643,9 +627,6 @@ _asm_line_core:
         bne @digit_ok           ; a digit zone with its digit
         jmp asm_error
 @no_dz:
-.else
-        lda asm_tmp
-.endif
         beq @digit_ok           ; no digit on another key
         jmp asm_error
 @digit_ok:

@@ -31,7 +31,7 @@ from collections import defaultdict
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-LBL_PATH = ROOT / "build" / "debug" / "cmos" / "cse.lbl"
+LBL_PATH = ROOT / "build" / "debug" / "6510" / "cse.lbl"
 SRC_DIR  = ROOT / "src"
 
 # Backticked single-token candidates.  We require at least one

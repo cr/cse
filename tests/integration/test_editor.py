@@ -6,7 +6,7 @@ Owner: doc/modules/editor.md
 Tests the real editor.s code (gap buffer, insert, read-back, line reader)
 against the production binary.  Replaces the Python mirror anti-pattern.
 
-Requires: build/cmos/cse-cmos.prg (auto-built by cse_prg fixture).
+Requires: build/debug/6510/cse.prg (auto-built by the cse_prg fixture).
 """
 
 import pytest
@@ -14,7 +14,7 @@ from c64emu import C64Emu
 
 
 def make_emu(cse_prg):
-    """Fresh C64Emu with CMOS PRG loaded + editor initialized."""
+    """Fresh C64Emu with the 6510 PRG loaded + editor initialized."""
     prg, map_path = cse_prg
     emu = C64Emu()
     emu.load_prg(prg, map_path)

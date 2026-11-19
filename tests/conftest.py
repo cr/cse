@@ -14,20 +14,20 @@ SymbolTable.
 
 Fixtures provided
 -----------------
-asm_syms        — asm_core bundle, 65c02 PROD_DEFS (CMOS_SUPPORT)
+asm_syms        — asm_core bundle, the CMOS mode (65c02 PROD_DEFS, CMOS_SUPPORT)
 asm_6510_syms   — asm_core bundle, 6510 PROD_DEFS (no CMOS_SUPPORT)
 asm_6502_syms   — asm_core bundle, 6502 PROD_DEFS (USE_MN6)
 dasm_bundle(c)  — dasm bundle per C64 CPU set (c ∈ PROD_DEFS)
-dasm_syms       — dasm bundle, 65c02   (test_dasm.py)
+dasm_syms       — dasm bundle, the CMOS mode (test_dasm.py)
 mn6_syms        — mn6 hash test binary  (test_mn_classify.py)
 mn7_syms        — mn7 hash test binary  (test_mn_classify.py)
 as_syms         — asm_src bundle        (test_asm_src.py)
 mem_syms        — zp + mem bundle       (test_mem.py)
 log_syms        — log bundle            (test_log.py)
 gb_syms         — gap_buffer bundle     (test_gap_buffer.py)
-cse_prg         — debug CMOS PRG (prg, map) for C64Emu
-cse_release_prg — release CMOS PRG (prg, map)
-cse_prg_per_cpu — each debug PRG in turn (6510, 6502, cmos)
+cse_prg         — debug 6510 PRG (prg, map) for C64Emu
+cse_release_prg — release 6510 PRG (prg, map)
+cse_prg_per_cpu — each debug C64 PRG in turn (6510, 6502)
 
 Test bundle architecture
 ------------------------
@@ -188,10 +188,10 @@ class SymbolTable:
 # One variant per C64 CPU set (PROD_DEFS below), each built with its
 # production `-D` set:
 #
-#   "65c02" — CMOS_SUPPORT + mn7.  Default for most asm_core tests.
-#   "6510"  — mn7 without CMOS_SUPPORT: the classifier still recognises
-#             CMOS mnemonics, so only this variant exercises the CMOS
-#             reject gate's non-CMOS compile-time path.
+#   "65c02" — the CMOS mode (CMOS_SUPPORT + mn7): no build has it, so
+#             these bundles are what keeps it supported.  Default for
+#             most asm_core tests.
+#   "6510"  — c64-6510 (mn7, legal + illegal keys).
 #   "6502"  — USE_MN6 + mn6: only the 56 legal NMOS mnemonics classify.
 
 # Common sources across all three asm_core bundle configs.
@@ -362,8 +362,8 @@ class AsmCoreSymbols(_BundleImage):
     All symbols resolved from .lbl file (debug build).
 
     Parameter `config`:
-      "65c02" — bundle built with -DCMOS_SUPPORT (matches 65C02 prod
-               build config).  Default for all existing tests.
+      "65c02" — the CMOS mode (-DCMOS_SUPPORT; no production build).
+               The default.
       "6510" — bundle built without -DCMOS_SUPPORT (matches 6510 prod
                build config).  Used by asm_cpu gate tests where the
                CMOS reject gate is ifdef-wrapped and thus config-sensitive.
@@ -447,7 +447,7 @@ class AsmCoreSymbols(_BundleImage):
 
 @pytest.fixture(scope="session")
 def asm_syms():
-    """Session-scoped asm_core binary, 65C02 build (-DCMOS_SUPPORT)."""
+    """Session-scoped asm_core binary, the CMOS mode (-DCMOS_SUPPORT)."""
     return AsmCoreSymbols()
 
 
@@ -487,17 +487,21 @@ _MN_SOURCES = {
             SRC / "mn_classify.s"],
 }
 
-# mn6 is the classifier of CPU set {6502}; mn7's bundle uses the 65C02
-# build's set (its C64 key set is the same in both mn7 builds).
-_MN = {v: Bundle(f"{v}_test", _MN_SOURCES[v], PROD_DEFS[c], tag=v)
-       for v, c in (('mn6', '6502'), ('mn7', '65c02'))}
+# mn6 is the classifier of CPU set {6502}; mn7's of the 6510 set and of
+# the CMOS mode (one T, each block its set's keys) — a variant each, the
+# CMOS mode's un-suffixed.
+_MN = {(v, c): Bundle(f"{v}_test" if c in ('6502', '65c02') else f"{v}_{c}_test",
+                      _MN_SOURCES[v], PROD_DEFS[c], tag=f"{v}_{c}")
+       for v, c in (('mn6', '6502'), ('mn7', '65c02'), ('mn7', '6510'))}
 
 
 class MnHashBinary:
     """Compiled mn6 or mn7 test binary with resolved symbol addresses."""
 
-    def __init__(self, variant):
-        bundle = _MN[variant].ensure()
+    def __init__(self, variant, config=None):
+        config = config or {'mn6': '6502', 'mn7': '65c02'}[variant]
+        self.config = config
+        bundle = _MN[(variant, config)].ensure()
 
         s = SymbolTable(bundle.lbl)
 
@@ -533,8 +537,14 @@ def mn6_syms():
 
 @pytest.fixture(scope="session")
 def mn7_syms():
-    """Session-scoped mn7 hash binary + symbol addresses."""
+    """Session-scoped mn7 hash binary + symbol addresses (the CMOS mode)."""
     return MnHashBinary('mn7')
+
+
+@pytest.fixture(scope="session")
+def mn7_6510_syms():
+    """Session-scoped mn7 hash binary of the 6510 set."""
+    return MnHashBinary('mn7', '6510')
 
 
 # ── asm_src test binary ───────────────────────────────────────────────────────
@@ -671,7 +681,7 @@ def dasm_bundle(config):
 
 @pytest.fixture(scope="session")
 def dasm_syms():
-    """Session-scoped dasm test binary, 65C02 build."""
+    """Session-scoped dasm test binary, the CMOS mode."""
     return dasm_bundle("65c02")
 
 
@@ -688,7 +698,7 @@ _MEM_SOURCES = [
 
 # mem.s imports __CODE_RUN__ from the production link config; test.cfg
 # doesn't generate it, so a placeholder is defined for cse_start.
-_MEM = Bundle("mem_test", _MEM_SOURCES, PROD_DEFS["65c02"], tag="mem",
+_MEM = Bundle("mem_test", _MEM_SOURCES, PROD_DEFS["6510"], tag="mem",
               ca65=["-t", "c64"], ld65=["-D", "__CODE_RUN__=$4000"])
 
 
@@ -756,7 +766,7 @@ _LOG_SOURCES = [
 
 # -t c64: PETSCII char literals as in production (log.s's 'b' size
 # suffix must reach pet_to_scr as $42).
-_LOG = Bundle("log_test", _LOG_SOURCES, PROD_DEFS["65c02"], tag="log",
+_LOG = Bundle("log_test", _LOG_SOURCES, PROD_DEFS["6510"], tag="log",
               ca65=["-t", "c64"])
 
 
@@ -837,7 +847,7 @@ _GB_SOURCES = [
 # __BUF_FLOOR__.  Production-representative values: CODE_RUN at the
 # $4000 test code area (leaving $1500..$3FFF as workspace), BUF_FLOOR
 # at $1500.
-_GB = Bundle("gap_buffer_test", _GB_SOURCES, PROD_DEFS["65c02"], tag="gb",
+_GB = Bundle("gap_buffer_test", _GB_SOURCES, PROD_DEFS["6510"], tag="gb",
              ca65=["-t", "c64"],
              ld65=["-D", "__CODE_RUN__=$4000", "-D", "__BUF_FLOOR__=$1500"])
 
@@ -916,7 +926,7 @@ def gb_syms():
 
 # ── C64Emu-based fixtures ──────────────────────────────────────────────────
 #
-# These fixtures load the CMOS PRG into C64Emu and provide symbol
+# These fixtures load the 6510 PRG into C64Emu and provide symbol
 # resolution via the .map/.lbl file.  Two profiles are available:
 #
 #   cse_prg         — debug build (full .lbl with all symbols)
@@ -927,13 +937,13 @@ def gb_syms():
 
 import subprocess
 
-# Debug CMOS PRG (default for most tests)
-_CMOS_DBG_PRG = ROOT / "build" / "debug" / "cmos" / "cse-cmos.prg"
-_CMOS_DBG_MAP = ROOT / "build" / "debug" / "cmos" / "cse.map"
+# Debug 6510 PRG, the default build (default for most tests)
+_DBG_PRG = ROOT / "build" / "debug" / "6510" / "cse.prg"
+_DBG_MAP = ROOT / "build" / "debug" / "6510" / "cse.map"
 
-# Release CMOS PRG (for E2E integration tests)
-_CMOS_REL_PRG = ROOT / "build" / "release" / "cmos" / "cse-cmos.prg"
-_CMOS_REL_MAP = ROOT / "build" / "release" / "cmos" / "cse.map"
+# Release 6510 PRG (for E2E integration tests)
+_REL_PRG = ROOT / "build" / "release" / "6510" / "cse.prg"
+_REL_MAP = ROOT / "build" / "release" / "6510" / "cse.map"
 
 
 # Profiles brought up to date in this session.  `make` is incremental
@@ -965,47 +975,44 @@ def _ensure_release_built():
 
 @pytest.fixture(scope="session")
 def cse_prg():
-    """Session-scoped: debug CMOS PRG — used by most C64Emu tests."""
+    """Session-scoped: debug 6510 PRG — used by most C64Emu tests."""
     _ensure_debug_built()
-    return _CMOS_DBG_PRG, _CMOS_DBG_MAP
+    return _DBG_PRG, _DBG_MAP
 
 
 @pytest.fixture(scope="session")
 def cse_release_prg():
-    """Session-scoped: release CMOS PRG — for E2E integration tests."""
+    """Session-scoped: release 6510 PRG — for E2E integration tests."""
     _ensure_release_built()
-    return _CMOS_REL_PRG, _CMOS_REL_MAP
+    return _REL_PRG, _REL_MAP
 
 
 # Per-CPU-build PRG fixture for multi-CPU integration-test parity
-# (testing.md Principle 18).  Yields the (prg, map) tuple for each
-# variant in turn — pytest expands a consuming test 3× under the
-# parameter id "6510" / "6502" / "cmos".  Reuses `make debug`'s
-# all-three-variants build output.
+# (testing.md Principle 18).  Yields the (prg, map) tuple for each C64
+# build in turn — pytest expands a consuming test 2× under the parameter
+# id "6510" / "6502".  Reuses `make debug`'s output.
 #
-# Use this for COARSE smoke checks of the boot path on each variant
+# Use this for COARSE smoke checks of the boot path on each build
 # (e.g. "cold init reaches main_loop_top").  Detailed per-target
-# contract assertions stay on the canonical CMOS-only `cse_prg`
-# fixture — see Principle 18 for the division of labour.
+# contract assertions stay on the canonical `cse_prg` fixture (the 6510
+# build) — see Principle 18 for the division of labour.
 
 _PER_CPU_PRG = {
-    "6510": (ROOT / "build" / "debug" / "6510" / "cse.prg",
-             ROOT / "build" / "debug" / "6510" / "cse.map"),
+    "6510": (_DBG_PRG, _DBG_MAP),
     "6502": (ROOT / "build" / "debug" / "6502" / "cse-6502.prg",
              ROOT / "build" / "debug" / "6502" / "cse.map"),
-    "cmos": (_CMOS_DBG_PRG, _CMOS_DBG_MAP),
 }
 
 
 def _ensure_all_debug_built():
-    """Bring all three debug PRGs up to date (one `make debug`)."""
+    """Bring both debug C64 PRGs up to date (one `make debug`)."""
     _make("debug")
 
 
-@pytest.fixture(scope="session", params=["6510", "6502", "cmos"])
+@pytest.fixture(scope="session", params=["6510", "6502"])
 def cse_prg_per_cpu(request):
-    """Session-scoped: yields each production debug PRG in turn.
-    Pytest parametrises the consuming test once per variant."""
+    """Session-scoped: yields each C64 debug PRG in turn.
+    Pytest parametrises the consuming test once per build."""
     _ensure_all_debug_built()
     return _PER_CPU_PRG[request.param]
 
