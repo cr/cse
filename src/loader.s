@@ -259,6 +259,7 @@ entries:
         ENTRY SETBNK
         ENTRY SCRORG
         ENTRY SYSFLAGS
+        ENTRY SCANSTOPKEY
 entries_end:
 
 refusal:

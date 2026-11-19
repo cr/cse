@@ -59,3 +59,9 @@ t_far_bank:
 t_setbnk:
         PLAT_SETBNK
         rts
+
+t_stop_down:                    ; Z: STOP held (IO_STOP_DOWN's contract)
+        IO_STOP_DOWN
+        php
+        pla
+        rts

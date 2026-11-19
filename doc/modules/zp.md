@@ -110,15 +110,16 @@ differences; the addresses are the linker map's
   loader).  From P2 also: `um_sysflags` (the program's `SYSFLAGS`);
   the terminal's `IO_CX`, `IO_CY` (the cursor — they replace the
   `BP_PENDING` placeholders) and `io_key` (the key lookahead); the
-  geometry `scr_width`, `scr_height`, `scr_last_col`, `scr_last_row`,
-  `scr_ed_rows`, `scr_bank` and `scr_size` (2)
+  geometry's hot cells `scr_width` and `scr_last_col` — the rest of the
+  geometry is cse_io's BSS, the base page being full
   ([platform_layer.md § Display](../platform_layer.md#display)).
 - **disk.s's private pointer** (`DISK_LOCAL_PTR`) lives here — *stated
   with P3*.
 
-The m65 segment ends below `$AB` (the linker bounds it): `$AB–$AF` is
-`BP_PENDING`, the cells of the pending values — placeholders for
-`IO_CX`, `IO_CY`, `ST` and `DISK_LOCAL_PTR` until P2 and P3 state them
+The m65 segment ends below `$AD` (the linker bounds it): `$AD–$AF` is
+`BP_PENDING`, the cells of the pending values — placeholders for `ST`
+and `DISK_LOCAL_PTR` until P3 states them (P2 stated `IO_CX` and
+`IO_CY`)
 ([platform_layer.md § Pending bodies](../platform_layer.md#pending-bodies));
 when the last is stated, the segment's bound returns to `$B0`, where
 the resident stub begins.  The KERNAL needs nothing of CSE's base page

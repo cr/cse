@@ -2,14 +2,17 @@
 ; Owner: doc/modules/cse_io.md
 ;
 ; Screen I/O functions.  Single arg in A or A/X.
-; Cursor position uses KERNAL's $D3 (column) and $D6 (row).
-; Call io_sync after changing $D6 to update screen line pointers.
+; Cursor position: IO_CX / IO_CY — the KERNAL's $D3 / $D6 on c64, CSE's
+; own base-page cells on m65.  Call io_sync after changing IO_CY to
+; tell the KERNAL.  m65: the geometry is run-time (io_geometry), the
+; screen pointer far, in the screen's bank (doc/modules/cse_io.md).
 ;
 ; INVARIANT: $CC must be 1 (KERNAL cursor disabled).  io_init
 ; enforces this.  All IRQ safety guarantees depend on it.
 ;
 ; Code: ~340 bytes.  RODATA: 76 bytes.  ZP: 4 bytes (zp.s).  BSS: 7 bytes.
 
+CSE_IO_S = 1                    ; platform.inc: the BSS geometry is defined here
         .include "platform.inc"
         .export io_init
         .export io_putc, io_repc, io_puts
@@ -22,16 +25,26 @@
         .export io_blip
         .export scr_lo, scr_hi  ; shared row address tables (cse_io.md § RODATA)
         .export _io_scr_setup   ; shared row pointer setup (used by screen.s)
+.ifdef PLATFORM_M65
+        .export io_geometry, io_kbd_flush
+.endif
 
         .export dec_pow_lo, dec_pow_hi
-
-COLS    = SCREEN_WIDTH
 
         .importzp _io_tmp, _io_scr
 
 ; ── BSS ─────────────────────────────────────────────────────
 .segment "BSS"
 dec_buf:  .res 6       ; io_utoa: 5-digit PETSCII decimal + NUL
+.ifdef PLATFORM_M65
+; the geometry beyond the base page's hot cells (io_geometry sets it)
+        .export scr_height, scr_last_row, scr_ed_rows, scr_bank, scr_size
+scr_height:     .res 1
+scr_last_row:   .res 1          ; height - 1
+scr_ed_rows:    .res 1          ; height - 3: the editor's source rows
+scr_bank:       .res 1          ; the screen's bank (4 in 80 x 50)
+scr_size:       .res 2          ; width x height
+.endif
 
 ; ── RODATA ──────────────────────────────────────────────────
 .segment "RODATA"
@@ -47,7 +60,7 @@ scr_hi:
         .endrepeat
 .else
 .segment "BSS"                          ; run-time tables, up to 50 rows,
-scr_lo: .res 50                         ; filled from the geometry (P2)
+scr_lo: .res 50                         ; filled by io_geometry
 scr_hi: .res 50
 .segment "RODATA"
 .endif
@@ -65,13 +78,66 @@ dec_pow_hi:     .byte >1, >10, >100, >1000, >10000
 
 ; ── io_init — must be called once at startup ──────────────────────────
 ; Disables KERNAL cursor ($CC=1).  All cse_io IRQ safety depends on this.
-; m65: nothing — the KERNAL keeps its blink off for code started by SYS.
+; m65: the KERNAL keeps its blink off for code started by SYS; the
+; geometry is read (io_geometry, tail call).
 io_init:
 .ifdef PLATFORM_C64
         lda #1
         sta BLNSW               ; KERNAL cursor off — required invariant
-.endif
         rts
+.else
+        ; fall through
+.endif
+
+.ifdef PLATFORM_M65
+; ── io_geometry — the screen's geometry (cse_io.md § io_geometry) ───
+; HOME HOME (out of a program's window), then SCRORG: A / Z the
+; top-left address, X / Y the right column and bottom row (A1: not
+; the book's width / height); the bank from the VIC-IV.  Fills the
+; geometry cells and the row tables.  Clobbers A, X, Y, _io_tmp.
+io_geometry:
+        lda #$13                ; HOME
+        KCALL CHROUT
+        lda #$13                ; HOME again: the window is the screen
+        KCALL CHROUT
+        KCALL SCRORG
+        stx scr_last_col
+        inx
+        stx scr_width
+        sty scr_last_row
+        iny
+        sty scr_height
+        dey
+        dey
+        dey
+        sty scr_ed_rows         ; height - 3
+        sta _io_tmp
+        M45_TZA
+        sta _io_tmp+1
+        ldx #0
+@row:   lda _io_tmp             ; row x at base + x * width
+        sta scr_lo,x
+        clc
+        adc scr_width
+        sta _io_tmp
+        lda _io_tmp+1
+        sta scr_hi,x
+        adc #0                  ; C from the low byte's adc
+        sta _io_tmp+1
+        inx
+        cpx scr_height
+        bcc @row
+        lda _io_tmp             ; size = the end - the base
+        sec
+        sbc scr_lo
+        sta scr_size
+        lda _io_tmp+1
+        sbc scr_hi
+        sta scr_size+1
+        lda VIC4_SCREEN_BANK
+        sta scr_bank
+        rts
+.endif
 
 ; ── _io_scr_setup — set _io_scr to screen line address for IO_CY ───
 ; Clobbers A, X.
@@ -81,6 +147,7 @@ _io_scr_setup:
         sta _io_scr
         lda scr_hi,x
         sta _io_scr+1
+        FAR_BANK_SCREEN _io_scr
         rts
 
 ; ── io_sync — update screen/color line pointers from cursor position ──
@@ -169,15 +236,15 @@ io_putc:
         jsr _io_scr_setup      ; preserves Y
         tya
         ldy IO_CX
-        sta (_io_scr),y
+        FAR_STA _io_scr
         iny
         ; fall through to _col_clamp
 
-; ── _col_clamp — clamp Y to COLS-1 and store to IO_CX ─────
+; ── _col_clamp — clamp Y to the last column and store to IO_CX ─────
 _col_clamp:
-        cpy #COLS
+        cpy WIDTH
         bcc :+
-        ldy #COLS-1
+        ldy LAST_COL
 :       sty IO_CX
         rts
 
@@ -233,13 +300,13 @@ io_puthex2:
         tax
         lda hex_tab,x           ; screen code for hi nibble
         ldy IO_CX
-        sta (_io_scr),y
+        FAR_STA _io_scr
         iny
         pla                     ; recover byte
         and #$0F
         tax
         lda hex_tab,x           ; screen code for lo nibble
-        sta (_io_scr),y
+        FAR_STA _io_scr
         iny
         jmp _col_clamp
 
@@ -329,10 +396,10 @@ io_utoa:
 io_clear_eol:
         jsr _io_scr_setup
         ldy IO_CX
-@loop:  cpy #COLS
+@loop:  cpy WIDTH
         bcs @done
         lda #$20                ; space screen code
-        sta (_io_scr),y
+        FAR_STA _io_scr
         iny
         bne @loop               ; always (Y < 256)
 @done:  rts
@@ -345,17 +412,38 @@ io_getc:
         ldx #0
         rts
 .else
-        PLAT_PENDING 2          ; the typing queue
+        lda io_key              ; the lookahead first (io_kbhit)
+        bne @got
+@wait:  KCALL GETIN             ; macro, KERNAL buffer, typing queue
+        beq @wait
+@got:   ldx #0
+        stx io_key
+        rts
 .endif
 
 ; ── io_kbhit — non-blocking keyboard check ──────────────────
+; A ≠ 0 when a key waits (m65: the key, kept in the lookahead).
 io_kbhit:
 .ifdef PLATFORM_C64
         lda NDX                 ; keyboard buffer count
         ldx #0
         rts
 .else
-        PLAT_PENDING 2          ; the typing queue
+        lda io_key
+        bne @r
+        KCALL GETIN             ; no KERNAL means peeks: take one, keep it
+        sta io_key
+@r:     ldx #0
+        rts
+
+; ── io_kbd_flush — drop every key waiting (m65; IO_KBD_FLUSH) ───────
+; Out: A = 0.
+io_kbd_flush:
+        lda #0
+        sta io_key
+@drain: KCALL GETIN
+        bne @drain
+        rts
 .endif
 
 ; ── io_blip — short audible reject blip ────────────────────

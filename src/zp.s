@@ -9,6 +9,7 @@
 ; Allocation table and user-ZP rules: doc/modules/zp.md.
 
         .setcpu "6502"
+ZP_S = 1                        ; platform.inc: the m65 cells are defined here
         .include "platform.inc"
 
 .segment "ZEROPAGE"
@@ -28,6 +29,19 @@ stub_brk_target: .res 2         ; where the stub's entries jump, by X:
 stub_nmi_target: .res 2         ;   0 BRK, 2 NMI, 4 cold
 stub_cold_target: .res 2
         .assert um_map = 0, error, "hyppo_get_mapping writes at the page start"
+
+; ── the terminal and the geometry (m65; platform_layer.md § Display) ──
+; CSE's own cursor (no KERNAL cell on m65), the key lookahead, and the
+; run-time geometry io_geometry (cse_io.s) sets; named at inline sites
+; through platform.inc's IO_CX / IO_CY and WIDTH / HEIGHT defines.
+; The hot ones only (every character's clamp); the rest of the
+; geometry is cse_io.s's BSS — the base page is full.
+        .exportzp io_cx, io_cy, io_key, scr_width, scr_last_col
+io_cx:          .res 1          ; the cursor column
+io_cy:          .res 1          ;   and row
+io_key:         .res 1          ; io_kbhit's lookahead (0: none)
+scr_width:      .res 1
+scr_last_col:   .res 1          ; width - 1
 .endif
 
 ; ── main.s: runtime scratch ───────────────────────────────────────────── $02
@@ -95,7 +109,7 @@ asm_opr:        .res 2          ; output operand bytes (lo, hi)
 ; ── cse_io.s: screen I/O scratch ──────────────────────────────────────── $2D
         .exportzp _io_tmp, _io_scr
         FAR_PTR _io_tmp         ; string pointer / putdec dividend
-_io_scr:        .res 2          ; screen row pointer for io_putc
+        FAR_PTR _io_scr         ; screen row pointer for io_putc (m65: far, the screen's bank)
 
 ; ── disk.s: filename pointer ──────────────────────────────────────────── $31
         .exportzp disk_ptr
@@ -191,7 +205,7 @@ _info_mode:     .res 1          ; cmd_info / free_line mode flag
 ; cse_io's transient _io_scr).  Here, not at the C64's free $FB–$FE:
 ; CSE never writes the user's ZP $80–$FF (userland_contract.md § 2).
         .exportzp scr_src
-scr_src:        .res 2          ; scroll_up source row pointer
+        FAR_PTR scr_src         ; scroll_up source row pointer (m65: far)
 
 ; ── First free byte ($7A) ─────────────────────────────────────────────
 ; User programs may use $7A–$7F (6 bytes).  __ZP_LAST__ is auto-

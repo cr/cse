@@ -1077,17 +1077,25 @@ and `Q`; what a human sees (colours, flicker) stays manual.
   from xemu's tables in `tests/fixtures/m65_keys.json`; `GETIN` passes
   each through with the macros off and expands F1 with them on.
   Found: F9–F14 send CTRL + P / U / V / W / Y / Z's codes.
-- [ ] T3. The geometry (`test_m65_repl.py`, new, each ROM, the installed
+- [x] T3. The geometry (`test_m65_terminal.py`, new, each ROM, the installed
   PRG): `io_geometry` in 80 × 25, 40 × 25 and 80 × 50 sets `scr_width`,
   `scr_height`, `scr_last_col`, `scr_last_row`, `scr_ed_rows`,
   `scr_size`, `scr_bank` and the row tables as `SCRORG` and `$D062`
   give them; under a program's window it first leaves it.
-- [ ] T4. The terminal on m65: `io_putc`, `io_puts`, `io_puthex2`,
+- [x] T4. The terminal on m65: `io_putc`, `io_puts`, `io_puthex2`,
   `io_clear_eol` land in the mode's screen (bank 4 in 80 × 50) and
   clamp at its last column; `io_sync` puts the KERNAL's cursor where
   CSE's is (a `BSOUT` after it lands there); `io_kbhit` / `io_getc` /
   `IO_KBD_FLUSH` over a key typed into the queue and one `ADDKEY`ed;
-  `IO_STOP_DOWN` with STOP held and released (`press_stop`).
+  `IO_STOP_DOWN` with STOP held and released (`press_stop`).  Step (2)
+  done 2026-11-19: T3 and T4 in `tests/integration/test_m65_terminal.py`
+  (owner cse_io.md; the plan's `test_m65_repl.py` is for T8),
+  `IO_STOP_DOWN` in the m65 macro bundle with a stand-in `ScanStopKey`.
+  Feedback round: the base page could not take all the geometry —
+  `scr_width` / `scr_last_col` stay there (the clamp's), the rest is
+  cse_io's BSS, and `BP_PENDING` moved to `$AD`; `TZA` joined the
+  raw-byte macros (`SCRORG`'s address high byte comes in Z);
+  `ScanStopKey` joined the loader's gate.  P2's pending count 18 → 11.
 - [ ] T5. The display on m65: `vic_reset` after a program changed the
   VIC-IV registers (bitmap, 40 columns, raster IRQ off) writes the
   mode's recorded set back and keeps the screen's content;

@@ -36,6 +36,10 @@ M45_OPS_INC = 1
         .byte $5B               ; TAB: B = A (the base page)
 .endmacro
 
+.macro M45_TZA
+        .byte $6B               ; TZA: A = Z (SCRORG's address high byte)
+.endmacro
+
 .macro M45_PHY
         .byte $5A               ; PHY
 .endmacro

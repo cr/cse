@@ -492,7 +492,7 @@ link instead of overwriting the neighbour:
 | `CODE`, `RODATA` | `$2000` | `3.2000` | `$6000` (24 K) | the file, DMA'd by the loader |
 | `KDATA` | `$8000` | the data window `3.8000` | with `BSS`: `$2100`, to `SYM_TABLE` | the file, DMA'd by the loader |
 | `BSS` | after `KDATA` | the data window | (the same area) | cleared by the loader |
-| `ZEROPAGE` | `$00` (base-page offsets) | CSE's base page `0.1F00` (`B = $1F`) | `$00AB`, below `BP_PENDING` (`$00B0` once P3 empties it) | cleared by the loader |
+| `ZEROPAGE` | `$00` (base-page offsets) | CSE's base page `0.1F00` (`B = $1F`) | `$00AD`, below `BP_PENDING` (`$00B0` once P3 empties it) | cleared by the loader |
 
 The source region (`2.4000–2.BFFF`) and the reserves (`2.D000–2.FFFF`,
 `3.C000–3.CFFF`) are not segments: they hold nothing at load time and

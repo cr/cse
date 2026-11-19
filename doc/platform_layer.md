@@ -548,10 +548,12 @@ cse_io.s's geometry, and two macros.
 | `io_geometry` (cse_io.s) | — (constants) | `HOME HOME`, then `SCRORG`: A / Z the screen's address, X + 1 the width, Y + 1 the height (A1: X / Y are the right column and bottom row); the bank from `$D062`; then `scr_lo` / `scr_hi` filled for that width and height |
 
 **The geometry.**  On c64 the width, height and screen address are
-constants; on m65 they are run-time state in CSE's base page —
-`scr_width`, `scr_height`, `scr_bank`, with `scr_lo` / `scr_hi` (50
-rows) in BSS — set by `io_geometry` at cold start and after every mode
-change.  An inline site names them through **operand defines**, which
+constants; on m65 they are run-time state — `scr_width` and
+`scr_last_col` in CSE's base page (every character's clamp reads
+them), `scr_height`, `scr_last_row`, `scr_ed_rows`, `scr_bank`,
+`scr_size` and `scr_lo` / `scr_hi` (50 rows) in cse_io's BSS (the base
+page is full) — set by `io_geometry` at cold start and after every
+mode change.  An inline site names them through **operand defines**, which
 expand to an immediate on c64 (byte-identical) and to a base-page cell
 on m65:
 
@@ -648,7 +650,8 @@ stand in for it.  It defines `name` as a placeholder so the m65 build
 links; the code that names it runs only past a pending body (`_main`
 stops at its first one in P0), so the placeholder is never read as
 the machine's fact.  A placeholder cell is a byte of CSE's own base
-page set aside for them (`BP_PENDING`, `$AB–$AF`; [zp.md](modules/zp.md)),
+page set aside for them (`BP_PENDING`, `$AD–$AF` since P2 stated the
+cursor cells; [zp.md](modules/zp.md)),
 so a stray access touches nothing of the user's or the KERNAL's; a
 placeholder size is the run premise's default (80 × 25 at `0.0800`).
 The test counts them with the pending bodies, under the same
@@ -656,10 +659,12 @@ milestone:
 
 | Name | Placeholder | Stated with |
 |---|---|---|
-| `IO_CX`, `IO_CY` (the cursor cells) | `BP_PENDING`, `BP_PENDING + 1` | P2 ([§ Terminal](#terminal)) |
 | `SCREEN`, `SCREEN_WIDTH`, `SCREEN_HEIGHT` | `$0800`, 80, 25 | P2 ([§ Display](#display)) |
-| `ST` (the I/O status disk.s reads) | `BP_PENDING + 2` | P3 ([§ Disk bank](#disk-bank)) |
-| `DISK_LOCAL_PTR` (disk.s's private pointer) | `BP_PENDING + 3` (2 bytes) | P3 ([§ Constants](#constants)) |
+| `ST` (the I/O status disk.s reads) | `BP_PENDING` | P3 ([§ Disk bank](#disk-bank)) |
+| `DISK_LOCAL_PTR` (disk.s's private pointer) | `BP_PENDING + 1` (2 bytes) | P3 ([§ Constants](#constants)) |
+
+(`IO_CX` and `IO_CY` were placeholders until P2 stated them: CSE's own
+cursor cells, [§ Terminal](#terminal).)
 
 ## Raw-byte instructions
 
@@ -672,7 +677,7 @@ The macros are the instructions the m65 platform bodies use:
 |---|---|
 | `M45_MAP`, `M45_EOM` | `MAP`, `EOM` (`EOM` is the 6502's `NOP`; the macro names the intent) |
 | `M45_LDZ_IMM value` | `LDZ #value` |
-| `M45_TAB` | `TAB` |
+| `M45_TAB`, `M45_TZA` | `TAB`, `TZA` |
 | `M45_PHY`, `M45_PLY`, `M45_PLX`, `M45_PLZ` | `PHY`, `PLY`, `PLX`, `PLZ` |
 | `M45_JMP_IND_X addr` | `JMP (addr,X)` — the resident stub's dispatch to its three CSE targets |
 | `M45_FAR_LDA zp`, `M45_FAR_STA zp`, `M45_FAR_ORA zp` | `LDA [zp],Z`, `STA [zp],Z`, `ORA [zp],Z`: the `EOM` prefix before `(zp),Z` |

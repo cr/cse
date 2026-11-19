@@ -89,7 +89,7 @@ def test_c64_platform_builds():
 
 # memory area → (start, size): build_system.md § The m65 builds
 M65_AREAS = {
-    "ZP":      (0x0000, 0x00AB),        # CSE's base page, below BP_PENDING
+    "ZP":      (0x0000, 0x00AD),        # CSE's base page, below BP_PENDING ($AD, P2)
     "STUB":    (0x1FB0, 0x0050),        # 0.1FB0-0.1FFF
     "CODEWIN": (0x2000, 0x6000),        # 3.2000-3.7FFF
     "DATAWIN": (0x8000, 0x2100),        # 3.8000, below SYM_TABLE

@@ -21,6 +21,7 @@ CONTRACT = {
     "M45_EOM": ("EOM", "implied"),
     "M45_LDZ_IMM": ("LDZ", "immediate 8bit"),
     "M45_TAB": ("TAB", "implied"),
+    "M45_TZA": ("TZA", "implied"),
     "M45_PHY": ("PHY", "implied"),
     "M45_PLY": ("PLY", "implied"),
     "M45_PLX": ("PLX", "implied"),

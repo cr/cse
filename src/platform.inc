@@ -127,6 +127,12 @@ SCREEN          = $0400
 COLOR_RAM       = $D800
 SCREEN_WIDTH    = 40
 SCREEN_HEIGHT   = 25
+; the geometry's operand defines (§ Display): immediates here, cells on m65
+.define WIDTH           #SCREEN_WIDTH
+.define LAST_COL        #SCREEN_WIDTH - 1
+.define HEIGHT          #SCREEN_HEIGHT
+.define LAST_ROW        #SCREEN_HEIGHT - 1
+.define ED_ROWS         #SCREEN_HEIGHT - 3
 
 ; ── VIC-II ───────────────────────────────────────────────────────────
 VIC_CR1         = $D011         ; DEN/BMM/ECM/RSEL/YSCROLL
@@ -180,6 +186,9 @@ VECTOR          = $FF8D             ; read / write the vector table
 SETBNK          = $FF6B             ; A: the data's bank, X: the filename's
 SCRORG          = $FFED
 SYSFLAGS        = $FF47
+SCANSTOPKEY     = $FFEA             ; A = $7F while STOP is held (A1)
+VIC4_SCREEN_BANK = $D062            ; the screen pointer's bank (4 in 80 x 50)
+ADDKEY          = $FF4A
 
 ; ── Hypervisor services (book Appendix N): lda #service · sta trap · clv
 HYPPO_TRAP      = $D640
@@ -277,15 +286,30 @@ SID_V3_CTRL     = $D412
 SID_VOL         = $D418
 
 ; ── Pending values (§ Pending bodies): placeholders until P<n> ────────
-BP_PENDING      = $AB               ; their cells, $AB-$AF of CSE's base page
-        PLAT_PENDING_VALUE IO_CX, BP_PENDING, 2
-        PLAT_PENDING_VALUE IO_CY, BP_PENDING + 1, 2
+BP_PENDING      = $AD               ; their cells, $AD-$AF of CSE's base page
         PLAT_PENDING_VALUE SCREEN, $0800, 2
         PLAT_PENDING_VALUE SCREEN_WIDTH, 80, 2
         PLAT_PENDING_VALUE SCREEN_HEIGHT, 25, 2
-        PLAT_PENDING_VALUE ST, BP_PENDING + 2, 3
-        PLAT_PENDING_VALUE DISK_LOCAL_PTR, BP_PENDING + 3, 3
-        .assert BP_PENDING + 5 <= <STUB_BASE, error, "BP_PENDING overlaps the stub"
+        PLAT_PENDING_VALUE ST, BP_PENDING, 3
+        PLAT_PENDING_VALUE DISK_LOCAL_PTR, BP_PENDING + 1, 3
+        .assert BP_PENDING + 3 <= <STUB_BASE, error, "BP_PENDING overlaps the stub"
+
+; ── The terminal's cells and the geometry (§ Terminal, § Display) ────
+; CSE's base-page cells (zp.s), named at inline sites through these
+; defines; an operand define is the immediate on c64 and the cell here.
+  .ifndef ZP_S                  ; the hot cells: CSE's base page (zp.s)
+        .importzp io_cx, io_cy, io_key, scr_width, scr_last_col
+  .endif
+  .ifndef CSE_IO_S              ; the rest of the geometry: cse_io.s's BSS
+        .import scr_height, scr_last_row, scr_ed_rows, scr_bank, scr_size
+  .endif
+.define IO_CX           io_cx
+.define IO_CY           io_cy
+.define WIDTH           scr_width
+.define LAST_COL        scr_last_col
+.define HEIGHT          scr_height
+.define LAST_ROW        scr_last_row
+.define ED_ROWS         scr_ed_rows
 
 .endif ; PLATFORM_M65
 
@@ -406,25 +430,33 @@ BP_PENDING      = $AB               ; their cells, $AB-$AF of CSE's base page
         lda STKEY
         cmp #$7F
   .else
-        PLAT_PENDING 2
+        KCALL SCANSTOPKEY       ; A = $7F while STOP is held (A1)
+        cmp #$7F
   .endif
 .endmacro
 
-; A ← the count of typed keys waiting; Z set when none.
+; A ← the count of typed keys waiting (m65: the key itself); Z set
+; when none.
 .macro IO_KBHIT
   .ifdef PLATFORM_C64
         lda NDX
   .else
-        PLAT_PENDING 2
+    .ifndef io_kbhit
+        .import io_kbhit
+    .endif
+        jsr io_kbhit            ; the one-key lookahead (cse_io.s)
   .endif
 .endmacro
 
-; Drop the typed keys waiting.  In: A = 0.
+; Drop the typed keys waiting.  In: A = 0.  Out: A = 0.
 .macro IO_KBD_FLUSH
   .ifdef PLATFORM_C64
         sta NDX
   .else
-        PLAT_PENDING 2
+    .ifndef io_kbd_flush
+        .import io_kbd_flush
+    .endif
+        jsr io_kbd_flush        ; GETIN until 0, the lookahead emptied
   .endif
 .endmacro
 
@@ -556,6 +588,20 @@ name:   .res FAR_SIZE
         lda #0                      ; yet constant inside a .proc (ca65)
     .endif
         sta name+3                  ; the megabyte: only FAR_USER's I/O row sets it
+        pla
+  .endif
+.endmacro
+
+; A screen pointer: its bank is the current mode's (scr_bank, 4 in
+; 80 x 50), set wherever the pointer is set (§ Display).  c64: empty.
+; m65: A kept; clobbers N/Z.
+.macro FAR_BANK_SCREEN name
+  .ifdef PLATFORM_M65
+        pha
+        lda scr_bank
+        sta name+2
+        lda #0
+        sta name+3
         pla
   .endif
 .endmacro

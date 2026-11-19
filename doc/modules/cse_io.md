@@ -8,6 +8,7 @@
 |------|------|
 | [`src/cse_io.s`](../../src/cse_io.s) | implementation |
 | [`tests/unit/test_cse_io.py`](../../tests/unit/test_cse_io.py) | test contract |
+| [`tests/integration/test_m65_terminal.py`](../../tests/integration/test_m65_terminal.py) | tier-I tests on the m65 PRG (P2 T3 T4): `io_geometry` per mode and under a window, output in the mode's bank with the clamp, `io_sync`, the key lookahead and flush |
 
 ## Interface
 
@@ -31,7 +32,8 @@ editor's window); `scr_width`, `scr_height`, `scr_last_col`,
 `scr_last_row`, `scr_ed_rows`, `scr_size` (width × height), `scr_bank`
 and the tables `scr_lo` / `scr_hi` (one entry per row, stride the
 width) set from `SCRORG` and `$D062` (A1: X / Y are the right column
-and bottom row).  **Clobbers:** A, X, Y, Z.  Called by `io_init` and
+and bottom row).  `scr_width` and `scr_last_col` are base-page cells
+(zp.s), the rest BSS here.  **Clobbers:** A, X, Y, Z.  Called by `io_init` and
 `screen_mode_set`.  On c64 there is no routine: the geometry is
 constants and the tables are RODATA.
 

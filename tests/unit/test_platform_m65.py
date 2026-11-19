@@ -16,6 +16,8 @@ only — with B = CSE_BP, as kernel code runs:
   flat bytes of the pointer's bank (D-P1-2).
 - PLAT_SETBNK calls SETBNK with the data's bank BANK_USER and the
   filename's BANK_CSE.
+- IO_STOP_DOWN answers Z set exactly when ScanStopKey reports STOP
+  held ($7F), with B = 0 for the KERNAL.
 """
 
 import pytest
@@ -119,4 +121,15 @@ def test_setbnk_names_the_user_data_bank_and_cses_filename_bank(emu, syms):
     emu.jsr(syms["t_setbnk"], b=CSE_BP)
     assert (emu.memory.read_flat(0x4F00), emu.memory.read_flat(0x4F01)) == \
         (BANK_USER, BANK_CSE)
+    assert emu.b == CSE_BP
+
+
+# ── IO_STOP_DOWN (platform_layer.md § Terminal) ───────────────────
+
+@pytest.mark.parametrize("answer,held", [(0x7F, True), (0xFF, False)])
+def test_io_stop_down_is_scanstopkey(emu, syms, answer, held):
+    # a stand-in ScanStopKey at $FFEA (the KERNAL ROM page): lda #answer, rts
+    emu.memory.load(0x2FFEA, bytes([0xA9, answer, 0x60]))
+    emu.jsr(syms["t_stop_down"], b=CSE_BP)
+    assert bool(emu.a & 0x02) is held          # the pushed P's Z
     assert emu.b == CSE_BP
