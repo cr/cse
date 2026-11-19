@@ -293,6 +293,26 @@ class CIA2InterruptControl(Device):
         return v
 
 
+class IECPort(Device):
+    """CIA2's port A ($DD00) as the serial (IEC) bus with no device on
+    it — C64Emu's model: the open-collector lines float high unless the
+    machine pulls them low through its inverting drivers, so CLK IN
+    (bit 6) = NOT CLK OUT (bit 4) and DATA IN (bit 7) = NOT DATA OUT
+    (bit 5).  The KERNAL's serial routines then see "device not
+    present" at once.  A unit served by the virtual drive never gets
+    here: its routines are trapped above the port."""
+
+    def __init__(self, mem):
+        self.mem = mem
+
+    def read(self, off):
+        v = self.mem.io[off]
+        return (v & 0x3F) | ((~v << 2) & 0xC0)
+
+    def write(self, off, v):
+        self.mem.io[off] = v
+
+
 class VICInterruptLatch(Device):
     """The VIC's interrupt latch ($D019), as xmega65 shows it
     (tests/fixtures/golden/m65_latches.json): bits 0-3 latched by
@@ -320,6 +340,26 @@ class VICInterruptLatch(Device):
     def write(self, off, v):
         self.latched &= ~v & 0x0F
         self._update()
+
+
+class RasterLine(Device):
+    """The VIC's raster line ($D012): it advances with the CPU's steps,
+    `STEPS_PER_LINE` a line, so the KERNAL's delays that wait for the
+    next line (its IEC code, `$CB9A`: `ldx $D012` · `cpx $D012` · `beq`)
+    end; a write sets the compare value, plain storage.  No timing is
+    modelled — a line is a few steps, not 63 µs."""
+
+    STEPS_PER_LINE = 8
+
+    def __init__(self, mem, steps):
+        self.mem = mem
+        self.steps = steps                  # the emulator's step counter
+
+    def read(self, off):
+        return (self.steps() // self.STEPS_PER_LINE) & 0xFF
+
+    def write(self, off, v):
+        self.mem.io[off] = v
 
 
 class VICHotRegisters(Device):

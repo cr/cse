@@ -142,6 +142,7 @@ class EmuBase:
         self._pending = []
         self._jiffy_interval = 0
         self._traps = {}            # pc → fn(emu), see add_trap()
+        self._bus = None            # the serial bus: empty until attach_drive()
 
     # ── registers ─────────────────────────────────────────────────
 
@@ -371,6 +372,41 @@ class EmuBase:
     def inject_keys(self, data):
         for b in data:
             self.inject_key(b)
+
+    # ── Virtual IEC drives (iec_drive.py) ─────────────────────────
+
+    def _iec_slow_device(self):
+        """A drive took the bus: what the KERNAL's own LISTEN / TALK
+        would note of a 1541 (default: nothing)."""
+
+    def attach_drive(self, device=8, drive=None):
+        """Put a drive (a fresh `Drive1541` unless one is given) on
+        the serial bus as `device` (8-11); return it.  The first
+        drive installs the bus traps (`IECBus`).  On the MEGA65,
+        units 8 and 9 are usually CBDOS's: the KERNAL reaches the
+        serial bus for the others."""
+        from iec_drive import Drive1541, IECBus
+        if not 8 <= device <= 11:
+            raise ValueError(f"device {device}: a 1541 answers as 8-11")
+        if self._bus is None:
+            self._bus = IECBus(self)
+        drive = drive if drive is not None else Drive1541()
+        self._bus.drives[device] = drive
+        return drive
+
+    def detach_drive(self, device):
+        """Take a drive off the bus; with the last one gone the bus is
+        empty again (no traps)."""
+        if self._bus is None:
+            return
+        self._bus.drives.pop(device, None)
+        if not self._bus.drives:
+            self._bus.remove()
+            self._bus = None
+
+    def drive(self, device=8):
+        """The drive attached as `device`."""
+        return self._bus.drives[device]
 
     # ── memory, PRG loading and symbols ───────────────────────────
 

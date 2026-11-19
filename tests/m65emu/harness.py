@@ -33,8 +33,8 @@ import re
 from emu_base import EmuBase, KeyMatrix, register
 
 from .devices import (CIA1Ports, CIA2InterruptControl, DMAController,
-                      Hypervisor, KeyboardQueue, VICHotRegisters,
-                      VICInterruptLatch)
+                      Hypervisor, IECPort, KeyboardQueue, RasterLine,
+                      VICHotRegisters, VICInterruptLatch)
 from .memory import COLOUR, M65Memory
 from .mpu45gs02 import MPU45GS02
 
@@ -55,6 +55,9 @@ STUB_BASE = 0x1FB0
 STACK_TOP = 0xF1
 BP_CLEARED = 0xB0                           # 0.1F00-0.1FAF (ZP_FILL_END)
 STUB_COLD_INDEX = 4                         # the loader enters stub_cold with X = 4
+IEC_FLAGS = 0xA2            # bit 7: the serial device is slow (no fast serial)
+MSGFLG = 0x9D               # the KERNAL's message flag: $00 at a RUN-started PRG's
+                            # _main, $80 in the direct-mode snapshot (recorded, both ROMs)
 BANK_USER, BANK_SRC, BANK_CSE, BANK_SCREEN50 = 0, 2, 3, 4
 # the text modes (platform_layer.md § Display): the key after ESC that
 # selects one, its width, height and the screen's bank
@@ -147,7 +150,9 @@ class M65Emu(EmuBase):
             mem.attach(self.keyboard, off)
         mem.attach(self.cia1, 0xC00, 0xC01)
         mem.attach(self.cia2_icr, 0xD0D)
+        mem.attach(IECPort(mem), 0xD00)
         mem.attach(self.vic_irq, 0x019)
+        mem.attach(RasterLine(mem, lambda: self._steps), 0x012)
         self.vic_hot = VICHotRegisters(mem)
         for off in VICHotRegisters.REGISTERS:
             mem.attach(self.vic_hot, off)
@@ -171,13 +176,15 @@ class M65Emu(EmuBase):
 
     def enter_premise(self, premise):
         """The machine at a RUN-started PRG's SYS entry: the recorded
-        registers, MAP and P, and the stack bytes above SP (the SYS
-        return path's)."""
+        registers, MAP and P, the stack bytes above SP (the SYS return
+        path's), and the KERNAL's messages off (MSGFLG $00, recorded at
+        _main; the snapshot is direct mode, $80)."""
         cpu = self._cpu
         for name, value in premise["regs"].items():
             setattr(cpu, name, value)
         above = bytes.fromhex(premise["stack_above_sp"])
         self._mem.load(cpu.sp + 1, above)
+        self._ram[MSGFLG] = 0x00                # RUN's: the KERNAL's messages off
 
     def install_prg(self, prg_path, map_path=None):
         """The m65 PRG in bank 0 as LOAD puts it, its symbols, and the
@@ -189,7 +196,9 @@ class M65Emu(EmuBase):
         banks 2-3 writable, SP at STACK_TOP, interrupts off, the CSE map
         and B = CSE_BP with A X Y Z as the stub's cold entry leaves them
         (A and X its dispatch index 4, pushed and pulled: the byte stays at
-        the stack top), PC at _main.  Return the load address."""
+        the stack top), PC at _main; and of the run premise, what RUN
+        leaves that the direct-mode snapshot lacks: the KERNAL's
+        messages off (MSGFLG $00).  Return the load address."""
         load_addr = self.place_prg(prg_path, map_path)
         mem, cpu, s = self._mem, self._cpu, self.sym
         stub = s("__STUB_RUN__")
@@ -209,6 +218,7 @@ class M65Emu(EmuBase):
         cpu.mapl, cpu.maph = CSE_MAP
         _, x, y, z = MAP_CSE
         self._ram[0x0100 | STACK_TOP] = STUB_COLD_INDEX
+        self._ram[MSGFLG] = 0x00                # RUN's: the KERNAL's messages off
         cpu.a, cpu.x, cpu.y, cpu.z, cpu.b = STUB_COLD_INDEX, STUB_COLD_INDEX, y, z, CSE_BP
         cpu.pc = s("_main")
         return load_addr
@@ -248,6 +258,31 @@ class M65Emu(EmuBase):
     def _queue_key(self, petscii):
         """Into the hardware keyboard queue (no limit)."""
         self.keyboard.push(petscii)
+
+    # ── the virtual drive's hooks (iec_drive.IECBus) ─────────────
+
+    def _kernal_byte(self, addr):
+        """The KERNAL's byte at `addr` as the CPU sees it (the jump
+        table at `$FF00`: both maps put the KERNAL at `$E000`)."""
+        return self._mem[addr]
+
+    def _iec_slow_device(self):
+        """The KERNAL's LISTEN / TALK note whether the device answered
+        the fast-serial handshake in `$A2` bit 7 (1: slow — `2.CC0C`
+        clears and sets it, both ROMs); `LOAD` takes its byte-by-byte
+        path only for a slow device (`BBS7 $A2`) and otherwise the fast
+        loader.  A 1541 is slow, so the drive leaves the bit set."""
+        self._mem[IEC_FLAGS] |= 0x80
+
+    def _rts(self):
+        """Return from the routine PC is in, as its RTS would: through
+        the stack in page 1 (E = 1, an 8-bit stack pointer)."""
+        cpu, mem = self._cpu, self._mem
+        sp = cpu.sp & 0xFF
+        lo = mem[0x0100 | ((sp + 1) & 0xFF)]
+        hi = mem[0x0100 | ((sp + 2) & 0xFF)]
+        cpu.sp = (cpu.sp & 0xFF00) | ((sp + 2) & 0xFF)
+        cpu.pc = ((hi << 8 | lo) + 1) & 0xFFFF
 
     # ── the screen, where the VIC-IV shows it ─────────────────────
 

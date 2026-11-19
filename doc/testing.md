@@ -352,6 +352,15 @@ models none of them either.
   `ESC 4` / `5` / `8` rely on it; `m65_editor.json`'s register sets per
   mode are the check (`test_m65_editor.py`).  The VIC bank from
   `$DD00` is taken as 0.
+- **The raster line** (`$D012`): it advances with the steps, a line
+  every few steps (no timing), so the KERNAL's delays that wait for
+  the next line — its IEC code's — end; a write is the compare value,
+  plain storage.
+- **The IEC port** (`$DD00`, CIA2 port A): the serial bus with no
+  device on it, C64Emu's model (CLK IN = NOT CLK OUT, DATA IN = NOT
+  DATA OUT), so the KERNAL's serial routines find "device not
+  present" at once; a unit the virtual drive serves never reaches it
+  ([§ Virtual IEC drives](#virtual-iec-drives)).
 - **The CIA2 interrupt control register** (`$DD0D`): bit 4 latched by
   `press_restore()`, which also raises an NMI, as `C64Emu` does;
   reading returns the latch and clears it — as xmega65 does for a
@@ -790,7 +799,16 @@ The installed machine they check is
   `OPEN` on unit 10 calls `$FFB1`), and the drive sets the status
   where the MEGA65 KERNAL keeps it, base page 0's `$90` (`READSS` is
   `lda $90` · `rts` on both ROMs — a harness fact; CSE reads it only
-  through `READSS`).  The m65 disk tests
+  through `READSS`).  Two more MEGA65 facts the drive needs, recorded
+  on both ROMs: the KERNAL's `LISTEN` / `TALK` note in base page 0's
+  `$A2` bit 7 that the device did not answer the fast-serial handshake
+  (`2.CC0C`), and `LOAD` reads byte by byte only for such a slow device
+  (otherwise its fast loader, `$CCCF`) — so the drive, a 1541, sets
+  that bit when it takes the bus (`_iec_slow_device()`); and a
+  `RUN`-started PRG has the KERNAL's messages off (`MSGFLG` `$9D` =
+  `$00` at `_main`, recorded in xmega65; the post-boot snapshot is
+  direct mode, `$80`), which `enter_premise()` and `install_prg()`
+  set — with messages on, `LOAD` prints LOADING.  The m65 disk tests
   (`tests/integration/test_m65_disk.py`) run `test_disk.py`'s
   contract on unit 10: the probe and status (`READSS`), the
   directory into `DIR_BUF` with the user's region untouched, PRG and
@@ -1712,6 +1730,10 @@ assert drive.status == "00, OK,00,00"
 emu.attach_drive(9, Drive1541.from_d64("dev/test.d64"))
 ```
 
+The drive is `tests/iec_drive.py`'s and the calls are `EmuBase`'s, so
+C64Emu and M65Emu share them; on M65Emu it serves the units CBDOS does
+not manage (10, 11), as [§ The m65 PRG on M65Emu](#the-m65-prg-on-m65emu)
+(*The disk on m65*) states.
 `attach_drive(device=8, drive=None)` puts a drive on the serial bus as
 device 8–11 (a fresh `Drive1541` unless one is given) and returns it;
 `detach_drive(device)` takes it off, and with the last drive gone the

@@ -19,7 +19,11 @@ and set_cursor() moves the cursor where PLOT reads it back.  An NMI
 reaches INMI ($0318) through the KERNAL's entry with the five-byte
 frame the debugger's handlers read, and MAP holds it until EOM (the
 debugger's map switches rely on both: platform_layer.md § Interrupt
-frame, § User transitions).
+frame, § User transitions).  A virtual drive on an IEC unit (10)
+serves the KERNAL's own OPEN / CHKIN / CHRIN / LOAD, with READSS
+reporting EOI; with no drive on the unit OPEN fails as "device not
+present" — $D012 advances, so the KERNAL's IEC delays end
+(testing.md § The m65 PRG on M65Emu, *The disk on m65*).
 """
 
 import pytest
@@ -202,3 +206,62 @@ def test_set_cursor_moves_the_cursor_plot_reads(emu):
     emu.set_cursor(5, 10)
     emu.jsr(0xFFF0, carry=True)                      # PLOT: read
     assert (emu.x, emu.y) == (5, 10)
+
+
+# ── the virtual drive on an IEC unit (P3 T1) ──────────────────────
+
+UNIT = 10                               # not CBDOS's (8 / 9)
+SETNAM, SETLFS, SETBNK, OPEN, CLOSE = 0xFFBD, 0xFFBA, 0xFF6B, 0xFFC0, 0xFFC3
+CHKIN, CHRIN, CLRCHN, READST, LOAD = 0xFFC6, 0xFFCF, 0xFFCC, 0xFFB7, 0xFFD5
+SETMSG = 0xFF90
+NAME = 0x1600                           # bank 0, free for programs
+
+
+def kernal(emu, entry, **regs):
+    emu.jsr(entry, b=0, **regs)
+
+
+def open_file(emu, name, lfn=2, sa=2):
+    emu.memory.load(NAME, name)
+    kernal(emu, SETNAM, a=len(name), x=NAME & 0xFF, y=NAME >> 8)
+    kernal(emu, SETBNK, a=0, x=0)
+    kernal(emu, SETLFS, a=lfn, x=UNIT, y=sa)
+    kernal(emu, OPEN)
+
+
+def test_a_drive_on_an_iec_unit_serves_the_kernals_open_and_chrin(emu):
+    drive = emu.attach_drive(UNIT)
+    drive.put("HELLO", b"ABC", type="SEQ")
+    open_file(emu, b"HELLO,S,R")
+    assert not emu.carry
+    kernal(emu, CHKIN, x=2)
+    got = []
+    for _ in range(3):
+        kernal(emu, CHRIN)
+        got.append(emu.a)
+        kernal(emu, READST)
+        status = emu.a
+    assert bytes(got) == b"ABC"
+    assert status & 0x40                       # EOI with the last byte
+    kernal(emu, CLRCHN)
+    kernal(emu, CLOSE, a=2)
+
+
+def test_a_drive_on_an_iec_unit_serves_load(emu):
+    """The KERNAL's messages off, as for a RUN-started program (the
+    snapshot is BASIC's direct mode, where LOAD prints LOADING)."""
+    kernal(emu, SETMSG, a=0)
+    emu.attach_drive(UNIT).put("PROG", bytes([0x00, 0x30, 1, 2, 3]))
+    emu.memory.load(NAME, b"PROG")
+    kernal(emu, SETNAM, a=4, x=NAME & 0xFF, y=NAME >> 8)
+    kernal(emu, SETBNK, a=0, x=0)
+    kernal(emu, SETLFS, a=1, x=UNIT, y=1)
+    kernal(emu, LOAD, a=0)
+    assert not emu.carry
+    assert [emu.memory.read_flat(0x3000 + k) for k in range(3)] == [1, 2, 3]
+
+
+def test_an_absent_iec_unit_fails_instead_of_hanging(emu):
+    open_file(emu, b"NOTHING,S,R")
+    kernal(emu, READST)
+    assert emu.a & 0x80                        # device not present
