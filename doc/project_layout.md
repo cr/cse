@@ -106,8 +106,8 @@ cse/
 │
 └── build/                  Build output (git-ignored;
                             build_system.md § Directory layout)
-    ├── release/{6510,6502,cmos}/   Optimized PRGs, exomizer SFX, map, lbl, objects
-    ├── debug/{6510,6502,cmos}/     -g PRGs with full .lbl
+    ├── release/{6510,6502,m65}/    Optimized PRGs, exomizer SFX, map, lbl, objects
+    ├── debug/{6510,6502,m65}/      -g PRGs with full .lbl
     ├── cse.d64             Distribution D64 (all CPU variants, compressed)
     └── *_test.*, *.o       Test bundles and their objects
 ```

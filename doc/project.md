@@ -4,7 +4,7 @@
 
 CSE (C64 Screen Editor) is an integrated assembler development
 environment for the Commodore 64.  It also runs on the C128 in C64
-mode, with 65C02 support for the 8502 CPU.
+mode (the 8502 is an NMOS 6510).
 
 CSE serves **two audiences on one surface**.  For the seasoned
 developer it is a sketchpad — write a few lines of code, assemble,
@@ -68,8 +68,7 @@ showing how much room is left.
 ### The Assembler
 
 A two-pass assembler for the CPUs of the build's platform — 6502,
-6510 and 65C02 on the C64; 6502, 65C02, 4510 and 45GS02 on the
-MEGA65 — with:
+6510 on the C64; 6502, 4510 and 45GS02 on the MEGA65 — with:
 
 - Global and local labels, constants, forward references
 - Full expression language (arithmetic, bitwise, lo/hi byte, grouping)
@@ -77,8 +76,8 @@ MEGA65 — with:
   `.cpu`, `.const`
 - Automatic ZP/ABS mode selection — no manual overrides needed
 - Runtime CPU switching within the build's CPU set: legal-only 6502,
-  6510 with illegals, or 65C02 on the C64; legal-only 6502, 65C02,
-  4510, or 45GS02 (Q and far forms) on the MEGA65
+  6510 with illegals on the C64; legal-only 6502, 4510, or 45GS02
+  (Q and far forms) on the MEGA65
 
 ### The Disassembler
 
@@ -129,13 +128,14 @@ on an empty line repeats the last command at the next address.
 |------|-----------|----------|
 | `6502` | 56 legal | Standard NMOS, portable code |
 | `6510` | 56 + illegals | C64-native, undocumented opcodes |
-| `65c02` | 56 + CMOS | C128 (8502), WDC boards |
 
 Both assembler and disassembler respect the active CPU mode.
 
 Which modes a build offers is fixed at build time by its CPU set
 ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
-A 6502-only build excludes all illegal and CMOS code, saving space.
+A 6502-only build excludes all illegal code, saving space.  No
+target has a 65C02; the assembler and disassembler keep a tested CMOS
+mode for a later port to one ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
 
 **Expression calculator** (`?` command):
 
@@ -269,8 +269,7 @@ must be excluded at compile time — not gated at runtime.  Each build
 serves a CPU set ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets));
 the Makefile defines its top CPU (`CPU_<top>`, `CPU_CEIL`) and its
 feature defines (`CMOS_SUPPORT`, `MEGA_SUPPORT`).  A build must not contain instruction paths, tables or
-decode logic for a CPU outside its set (one exception, the C64 `mn7`
-key set, is stated there).  This keeps the binary small
+decode logic for a CPU outside its set.  This keeps the binary small
 on constrained targets, and keeps the C64 builds untouched by the
 MEGA65's larger CPU.
 

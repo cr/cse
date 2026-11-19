@@ -1445,7 +1445,7 @@ tests are written, when they are written, and what they test.
 
     **CSE implementation:** [conftest.py](
     ../tests/conftest.py)'s `cse_prg_per_cpu` fixture
-    (params=`["6510", "6502", "cmos"]`) yields the per-variant
+    (params=`["6510", "6502"]`) yields the per-variant
     PRG; `test_kernel_transition.py::TestBootsCleanly`
     consumes it.
 
@@ -1595,8 +1595,8 @@ linking-down closure + a stub for linker scaffolding) into a bare
 `py65.MPU`.  No KERNAL, no banked memory, no interrupts — just the
 module's code + its data.
 
-Integration-tier tests load the debug CMOS PRG
-(`build/debug/cmos/cse-cmos.prg`) into `C64Emu` and call into any
+Integration-tier tests load the debug 6510 PRG
+(`build/debug/6510/cse.prg`, the default build) into `C64Emu` and call into any
 function by its `.lbl`-file address.  Debug builds include `-g`
 symbols, so the `.lbl` file contains all labels (~2040 symbols)
 rather than just exports (~410).  For build details see
@@ -1886,13 +1886,16 @@ Every bundle links with `dev/test.cfg` (ZP at `$0000`, the rest at
 
 **Variants (Principle 10).**  A bundle ships one variant per CPU
 set whose build-time code paths differ in its modules: `asm_core` and
-`dasm` — `6502`, `6510`, `65c02`, `45gs02` (on M65Emu); `mn6` —
-`6502`; `mn7` — `65c02` (the C64 key set is the same in both `mn7`
-builds; the m65 keys are tested through `asm_core`'s `45gs02`
-variant); `asm_src` — `65c02` (on m65 the source assembler is tested
-on the PRG, `test_m65_asm_src.py`).  Each variant is named after its CPU set (the generator's
-`CPU_SETS`) and uses the production `-D` set of its build
-(`conftest.PROD_DEFS`, held to the Makefile by `test_build_parity.py`;
+`dasm` — `6502`, `6510`, `65c02` (the CMOS mode), `45gs02` (on
+M65Emu); `mn6` — `6502`; `mn7` — `6510`, `65c02` (one `T`, each
+block its set's keys; the m65 keys are tested through `asm_core`'s
+`45gs02` variant); `asm_src` — `65c02` (on the C64 builds and m65 the
+source assembler is tested on the PRG too).  The `65c02` variants are
+the CMOS mode's only build: no PRG has the set, so they are what
+keeps it supported.  Each variant is named after its CPU set (the
+generator's `CPU_SETS`) and uses the `-D` set of its build
+(`conftest.PROD_DEFS`, held to the Makefile by `test_build_parity.py`
+for every set the Makefile builds;
 [build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets));
 the `65c02` variants keep the un-suffixed names (`asm_core_test`),
 the others carry the set (`asm_core_6510_test`).  One
@@ -1901,7 +1904,7 @@ missing, older than a source, a shared include (`src/*.inc`), a
 listed generated dependency or the linker config, or built with
 another `-D` set (its `.flags` stamp).  The bundles whose modules
 have no CPU-gated code (`log`, `mem`, `gap_buffer` and the leaf
-bundles below) build one variant, with the `65c02` `-D` set and
+bundles below) build one variant, with the `6510` `-D` set and
 `-t c64`, as production does.
 
 The `asm_core` bundle includes the `asm_err` leaf module for
@@ -1984,7 +1987,7 @@ integration tests (if they depend on most of the codebase).
 ### Running a test
 
 **A routine on the full PRG** (Tier I).  The `cse_prg` fixture is the
-debug CMOS PRG's `(prg, map)` pair:
+debug 6510 PRG's `(prg, map)` pair:
 
 ```python
 from c64emu import C64Emu
@@ -2010,8 +2013,7 @@ session-scoped `rsyms` fixture resolves the REPL's symbols once
 `rsyms.new_emu()` returns a fresh emulator with the PRG loaded,
 `init_cse()` run, the cursor at row 5 and the REPL defaults the full
 cold init would set (`block_size` = `$0010`, `cur_device` = 8,
-`asm_cpu` = 1 — the 6510, although the PRG is the CMOS build, so a
-65C02-only test sets `asm_cpu` itself).  A command is the text
+`asm_cpu` = 1 — the 6510).  A command is the text
 `read_line` would have produced, run through `exec_line`:
 
 ```python

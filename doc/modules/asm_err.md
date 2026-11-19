@@ -48,7 +48,7 @@ The detail is in expr.s's `last_err`.
 **Out:** the same unwind, with `asm_err_code = 2`.
 
 Jumped to by `asm_line.s`'s CPU-mode gate when a mnemonic is rejected
-for the current `asm_cpu` (PHY on 6502, illegal NMOS opcode on 65C02,
+for the current `asm_cpu` (LAX on 6502, a 65C02-only opcode at 6502 in the CMOS mode,
 …).  The distinct code lets the dispatcher emit `;?cpu` instead of the
 strictly-correct-but-misleading `;?syntax`.
 

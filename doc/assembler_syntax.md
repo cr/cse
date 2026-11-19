@@ -85,8 +85,8 @@ rol a
 rol                  ; same as `rol a` — bare form = ACC
 ```
 
-The mnemonics of the build's CPU set — 6502, 6510 and 65C02 on the
-C64 builds; 6502, 65C02, 4510 and 45GS02 on the m65 build
+The mnemonics of the build's CPU set — 6502 and 6510 on the C64
+builds; 6502, 4510 and 45GS02 on the m65 build
 ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
 Operands support the full expression syntax (labels, arithmetic, lo/hi
 byte operators, etc.).
@@ -115,8 +115,8 @@ Branch width and forward references:
 
 ### Accumulator addressing — bare and explicit forms
 
-The six mnemonics ASL, LSR, ROL, ROR (always) and INC, DEC (CMOS
-only) accept accumulator mode in two equivalent forms:
+The six mnemonics ASL, LSR, ROL, ROR (always) and INC, DEC (4510
+and the CMOS mode only) accept accumulator mode in two equivalent forms:
 
 | Form | Example | Bytes |
 |------|---------|-------|
@@ -232,8 +232,7 @@ layout puts them.
 
 ```
 .cpu 6502           ; legal opcodes only
-.cpu 6510           ; legal + illegal opcodes        (c64-6510, c64-65c02)
-.cpu 65c02          ; legal + CMOS extensions        (c64-65c02, m65)
+.cpu 6510           ; legal + illegal opcodes        (c64-6510)
 .cpu 4510           ; 65C02 set + 4510 additions     (m65)
 .cpu 45gs02         ; 4510 + Q and far forms         (m65, default)
 ```
@@ -244,11 +243,8 @@ error.  `.cpu` applies from its line to the end of the source (or the
 next `.cpu`); lines above it use the CPU the assembly started with —
 on both passes.  After the assembly the REPL's CPU (`u`) is unchanged.
 
-On m65, `.cpu 65c02` assembles the 65C02's spellings, `lda ($12)`
-among them.  The 45GS02 runs that opcode as `lda ($12),z`, so the
-code behaves as on a 65C02 while Z is 0
-([asm_line.md § asm_cpu × category gate matrix](modules/asm_line.md#asm_cpu--category-gate-matrix)).
-The 6510 is not offered on m65
+`.cpu 65c02` (legal + CMOS extensions) belongs to the CMOS mode, which
+no target build has.  The 6510 is not offered on m65
 ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).
 
 ### `.db` — Define Bytes

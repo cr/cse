@@ -9,7 +9,7 @@
 | [`src/mn_classify.s`](../../src/mn_classify.s) | implementation — dispatcher |
 | [`src/mn7.s`](../../src/mn7.s) | implementation — 7-bit hash classifier (C64 `mn7` keys; the m65 key set uses it over its own tables) |
 | [`src/mn6.s`](../../src/mn6.s) | implementation — 6-bit hash classifier |
-| [`src/mn7_tables.s`](../../src/mn7_tables.s) | generated — one block per `mn7` CPU set: `mn7_hash_t` (27 B) + `mn7_fp` / `mn7_base_op` / `mn7_profile` (3×128 B); the m65 block also `mn7_c02` (16 B, KDATA), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
+| [`src/mn7_tables.s`](../../src/mn7_tables.s) | generated — one block per `mn7` CPU set: `mn7_hash_t` (27 B) + `mn7_fp` / `mn7_base_op` / `mn7_profile` (3×128 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/mn6_tables.s`](../../src/mn6_tables.s) | generated — the `mn6` block (CPU set {6502}): `mn6_hash_t` (27 B) + `mn6_fp_c2` (27 B, `(c2·218) & $FF`) + `mn6_fp` / `mn6_base_op` / `mn6_profile` (3×64 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`tests/unit/test_mn_classify.py`](../../tests/unit/test_mn_classify.py) | test contract |
 
@@ -40,21 +40,16 @@ profile index, numbered per CPU set by the generator — see
 [opcode_lookup.md § Profile index layout](opcode_lookup.md#design)).
 `cat` is the key's CPU category; its meaning is per platform:
 
-| `cat` | C64 CPU sets | m65 CPU set |
+| `cat` | C64 CPU sets and the CMOS mode | m65 CPU set |
 |---|---|---|
 | 00 | legal NMOS | legal NMOS |
-| 01 | legal NMOS with a 65C02 extension profile at `pidx + 1` | legal NMOS with a 4510 extension profile at `pidx + 1` |
-| 10 | 6510 illegal | Q name (`LDQ` `STQ` `ORQ` `DEQ` `INQ`): `pidx` is the Q profile |
-| 11 | 65C02-only | not NMOS: 4510-only, or 65C02 and 4510 |
+| 01 | legal NMOS with a 65C02 extension profile at `pidx + 1` (the CMOS mode) | legal NMOS with a 4510 extension profile at `pidx + 1` |
+| 10 | 6510 illegal (c64-6510) | Q name (`LDQ` `STQ` `ORQ` `DEQ` `INQ`): `pidx` is the Q profile |
+| 11 | 65C02-only (the CMOS mode) | not NMOS: the 4510's (the 65C02's among them) |
 
-On m65 one more generated table, **`mn7_c02`** (16 B, one bit per
-slot, KDATA), marks what the 65C02 has: for a `cat` 01 key, that its
-extension profile serves the 65C02 too (`ADC` … `STA`, `BIT`, `DEC`,
-`INC`, `JMP`; not the branches, `JSR`, `STX`, `STY`, whose extension
-is the 4510's alone); for a `cat` 11 key, that the 65C02 has the key
-(`BRA` `PHX` `PHY` `PLX` `PLY` `STZ` `TRB` `TSB` and the bit-ops).
-
-The gate that reads `cat` and `mn7_c02` is [asm_line.md § asm_cpu × category gate
+A set holds only its own keys, so a category it has no key of never
+occurs: the C64 sets have no `cat` 01 or 11 key, the CMOS mode no
+`cat` 10 one.  The gate that reads `cat` is [asm_line.md § asm_cpu × category gate
 matrix](asm_line.md#asm_cpu--category-gate-matrix).
 
 **Depends on:** zp (`mn_c1`, `mn_c2`, `mn_c3`, `mn7_h_tmp` /
@@ -76,18 +71,22 @@ matrix](asm_line.md#asm_cpu--category-gate-matrix).
 
 ## Variants
 
-|  | mn6 | mn7 (C64) | mn7 (m65) |
-|--|-----|-----|-----|
-| Builds | c64-6502 | c64-6510, c64-65c02 | m65-45gs02 |
-| File | mn6.s + mn6_tables.s | mn7.s + mn7_tables.s | mn7.s + mn7_tables.s |
-| Keys | 56 (legal NMOS only) | 114 (legal + CMOS + illegal) | 98 (legal + 65C02 + 4510 + the five Q names) |
-| Hash bits | 6 | 7 | 7 |
-| Slots | 64 | 128 | 128 |
-| Hash | `(c1*8 + c3*15 + T[c2]) & $3F` | `(c1*4 + c3 + T[c2]) & $7F` | same as mn7, its own `T` |
-| Fingerprint | `(c1 + c2*218) & $FF` | `(c2<<3) \| (c3>>2)` | same as mn7 |
-| False positives | 16 / 17576 (0.09%) | 0 / 17576 | 0 / 17576 |
-| Table size | 3×64 + 27 + 27 = 246 B | 3×128 + 27 = 411 B | 3×128 + 27 + 16 (`mn7_c02`) = 427 B |
-| Build flag | `-D USE_MN6` | default | default |
+|  | mn6 | mn7 (6510) | mn7 (the CMOS mode) | mn7 (m65) |
+|--|-----|-----|-----|-----|
+| Builds | c64-6502 | c64-6510 | its bundles | m65-45gs02 |
+| File | mn6.s + mn6_tables.s | mn7.s + mn7_tables.s | mn7.s + mn7_tables.s | mn7.s + mn7_tables.s |
+| Keys | 56 (legal NMOS only) | 102 (legal + illegal) | 68 (legal + CMOS) | 98 (legal + 4510 + the five Q names) |
+| Hash bits | 6 | 7 | 7 | 7 |
+| Slots | 64 | 128 | 128 | 128 |
+| Hash | `(c1*8 + c3*15 + T[c2]) & $3F` | `(c1*4 + c3 + T[c2]) & $7F` | as the 6510's, the same `T` | same as mn7, its own `T` |
+| Fingerprint | `(c1 + c2*218) & $FF` | `(c2<<3) \| (c3>>2)` | same as mn7 | same as mn7 |
+| False positives | 16 / 17576 (0.09%) | 0 / 17576 | 0 / 17576 | 0 / 17576 |
+| Table size | 3×64 + 27 + 27 = 246 B | 3×128 + 27 = 411 B | 411 B | 411 B |
+| Build flag | `-D USE_MN6` | default | default | default |
+
+The 6510 and the CMOS mode share mn7's `T`, collision-free over the
+114 C64 names (legal, illegal and CMOS); each block holds its own
+set's keys, and a name of the other set hashes to an empty slot.
 
 The m65 `mn7` is the same routine over the m65 key set's
 tables (bbbc64 names that table set `mn7gs`): the form admits no false positive for

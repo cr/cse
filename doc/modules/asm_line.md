@@ -104,7 +104,7 @@ one-character **suffix** directly after it.
 
 | Suffix | Builds | Meaning |
 |---|---|---|
-| digit `0`–`7` | the 65C02 and 4510 sets (c64-65c02, m65-45gs02) | the bit number of a digit-zone key (`RMB` `SMB` `BBR` `BBS`), ORed into the opcode's bits 6:4 |
+| digit `0`–`7` | the 65C02 and 4510 sets (the CMOS mode, m65-45gs02) | the bit number of a digit-zone key (`RMB` `SMB` `BBR` `BBS`), ORed into the opcode's bits 6:4 |
 | `q` | `MEGA_SUPPORT` | the Q form of a quad stem ([§ Prefixes](#prefixes-45gs02)) |
 
 The character after the word must be whitespace ($20 or $A0), the
@@ -112,7 +112,7 @@ end of the line or `;`.  A digit on any other key, a digit-zone key
 without a digit, `q` on a key with no Q form, any other fourth
 character, or a fifth character is `;?syntax` — `inxy`, `lda4`,
 `nopx`.  On a build without the digit zones (c64-6502, c64-6510)
-`rmb0` is `;?syntax` (mn6) or `;?cpu` (mn7: the key is known).  `lda
+`rmb0` is `;?syntax`: `RMB` is no key of its set.  `lda
 x` is `LDA` with the label `x`; `ldax` is no word.
 
 **Accepted spellings on the m65 build** (`MEGA_SUPPORT`) — a second
@@ -122,7 +122,7 @@ existing row (it adds no row and no table fact):
 | Form | Accepted | Listed by the disassembler as |
 |---|---|---|
 | accumulator | bare or `a`; after a Q form bare only | bare |
-| zero-page indirect | `(e),z` where the CPU adds Z; `(e)` on the seven Q forms that do not (`adcq` `andq` `cmpq` `eorq` `orq` `sbcq` `stq`); at `asm_cpu` 2 `(e)` only, the 65C02's spelling of the same opcode | as accepted; in the 65C02 view `(e)` |
+| zero-page indirect | `(e),z` where the CPU adds Z; `(e)` on the seven Q forms that do not (`adcq` `andq` `cmpq` `eorq` `orq` `sbcq` `stq`) | as accepted |
 | far (32-bit pointer) | `[e],z` / `[e]`, by the same Z rule | as accepted |
 | stack-relative | `(e,sp),y` or `(e,s),y` | `(e,sp),y` |
 | `$EA` | `nop`, `eom` | `eom` |
@@ -168,8 +168,7 @@ unwind included — leaves it set.
 `asm_skip_ws`, `_au_no_acc`; `_au_far` on `MEGA_SUPPORT`),
 opcode_lookup (`asm_opcode_lookup`), mn_asm_tables (`asm_oplen`,
 `ASM_ZONE_G`, `ASM_ZONE_D`; on m65 `ASM_ZONE_Q`, `ASM_ZONE_H`),
-mn_classify (`mn_classify`, `mn_base_op`, `mn_profile`), mn7_tables
-(`mn7_c02`, m65), mn_modes (`mn_modes_lo` — the ACC-bit test that sets
+mn_classify (`mn_classify`, `mn_base_op`, `mn_profile`), mn_modes (`mn_modes_lo` — the ACC-bit test that sets
 `_au_no_acc`), asm_err (`asm_error`, `asm_expr_error`,
 `asm_cpu_error`), mem
 (`kernal_bank_out` / `kernal_bank_in`), zp (`_asm_saved_sp`,
@@ -189,9 +188,9 @@ contract.
 | Variant | Feature `-D` flags | Classifier | CMOS reject gate | CMOS upgrade | Illegal gate | Accepts |
 |---|---|---|---|---|---|---|
 | **c64-6502** | `CPU_6502` `USE_MN6` | mn6 (56 legal only) | — (unreachable) | — | — (unreachable) | legal NMOS |
-| **c64-6510** | `CPU_6510` | mn7 (114) | **compiled in** | — (tables absent) | **compiled in** | legal + illegals |
-| **c64-65c02** | `CPU_65C02` `CMOS_SUPPORT` | mn7 (114) | compiled in | compiled in | compiled in | legal + CMOS |
-| **m65-45gs02** | `CPU_45GS02` `MEGA_SUPPORT` | mn7, m65 keys (98) | compiled in | compiled in (4510 extension) | — | legal + 65C02 + 4510; Q and far forms at `asm_cpu=4` |
+| **c64-6510** | `CPU_6510` | mn7 (102: legal + illegal) | — (no CMOS key) | — | **compiled in** | legal + illegals |
+| **the CMOS mode** (bundles only) | `CPU_65C02` `CMOS_SUPPORT` | mn7 (68: legal + CMOS) | compiled in | compiled in | — (no illegal key) | legal + CMOS |
+| **m65-45gs02** | `CPU_45GS02` `MEGA_SUPPORT` | mn7gs, m65 keys (98) | compiled in | compiled in (4510 extension) | — | legal + 4510 (the 65C02's instructions among them); Q and far forms at `asm_cpu=4` |
 
 Every build also passes `DEFAULT_CPU`, `CPU_CEIL` and `TAB_WIDTH`
 (Makefile `_<cpu>_DEFS`); asm_line reads none of them.
@@ -200,10 +199,12 @@ On mn6 builds, unsupported mnemonics are rejected at the classifier
 tier (mn6 doesn't hash them), so the in-binary gate never sees
 them — but the gate code is linked anyway (the `cat` byte paths
 sit dormant without cost).  On mn7 builds, the classifier accepts
-every key of the set (114 on the C64, 98 on m65); the gate is the sole defence against the user
-asking for an instruction the current `asm_cpu` shouldn't emit.
+every key of the set (102 on c64-6510, 68 in the CMOS mode, 98 on
+m65) and no other; the gate is the sole defence against the user
+asking for an instruction of a set member the current `asm_cpu` is
+not.
 
-Bundle-test parity: each production variant has a matching unit-test
+Bundle-test parity: each variant — the CMOS mode's too — has a matching unit-test
 bundle in [conftest.py](../../tests/conftest.py) (`AsmCoreSymbols(config=…)`)
 and a test class in [test_asm_line.py](../../tests/unit/test_asm_line.py)
 (`TestCpuGateCmosBundle`, `TestCpuGate6510Bundle`, `TestAsmLine6502Bundle`);
@@ -218,21 +219,21 @@ below.  Reject cells `jmp asm_cpu_error` (so the caller selects the
 `;?cpu` tag rather than the strictly-correct-but-misleading
 `;?syntax`); accept cells fall through with the appropriate profile
 (upgraded to the CMOS variant — `pidx` + 1 — when `cat=01` and
-`asm_cpu>=2` under `CMOS_SUPPORT`).
+`asm_cpu>=2` under `CMOS_SUPPORT`).  A category no key of the set
+has cannot occur (—): the C64 sets have no CMOS key, the CMOS mode no
+illegal one.
 
 | | `cat=00` legal NMOS | `cat=01` legal + CMOS-ext | `cat=10` illegal NMOS | `cat=11` pure CMOS |
 |---|---|---|---|---|
-| `asm_cpu=0` (6502)  | accept | accept (NMOS profile) | **REJECT** | **REJECT** |
-| `asm_cpu=1` (6510)  | accept | accept (NMOS profile) | accept | **REJECT** |
-| `asm_cpu=2` (65C02) | accept | accept (CMOS profile, needs `CMOS_SUPPORT`) | **REJECT** | accept (needs `CMOS_SUPPORT`) |
+| `asm_cpu=0` (6502), every C64 set | accept | accept (NMOS profile; the CMOS mode) | **REJECT** (c64-6510) | **REJECT** (the CMOS mode) |
+| `asm_cpu=1` (6510), c64-6510 | accept | — | accept | — |
+| `asm_cpu=2` (65C02), the CMOS mode | accept | accept (CMOS profile) | — | accept |
 
-**m65 build** (`MEGA_SUPPORT`, `asm_cpu` ∈ {0, 2, 3, 4}; `c02` is the
-key's bit in `mn7_c02`, [mn_classify.md](mn_classify.md)):
+**m65 build** (`MEGA_SUPPORT`, `asm_cpu` ∈ {0, 3, 4}):
 
 | | `cat=00` legal NMOS | `cat=01` legal + extension | `cat=10` Q name | `cat=11` not NMOS |
 |---|---|---|---|---|
 | `asm_cpu=0` (6502)   | accept | accept (NMOS profile) | **REJECT** | **REJECT** |
-| `asm_cpu=2` (65C02)  | accept | accept (extension profile if `c02`, else NMOS profile) | **REJECT** | accept if `c02`, else **REJECT** |
 | `asm_cpu=3` (4510)   | accept | accept (extension profile) | **REJECT** | accept |
 | `asm_cpu=4` (45GS02) | accept | accept (extension profile) | accept (Q, `pidx` is the Q profile) | accept |
 
@@ -240,18 +241,11 @@ The **effective profile** is `pidx` after the extension upgrade.  The
 `q` suffix is accepted iff `asm_cpu=4`, `cat≠10`, and the effective
 profile lies in zone Q ([opcode_lookup.md § Profile index layout](opcode_lookup.md#design));
 the Q profile is then effective + 1.  Otherwise `q` is `;?cpu` on
-`asm_cpu` 0/2/3 for a quad stem, `;?syntax` for any other key.
+`asm_cpu` 0/3 for a quad stem, `;?syntax` for any other key.
 
-At `asm_cpu=2` the extension profile is the 4510's, so the modes the
-65C02 lacks are refused after `mode_parse`: `(e,sp),y` and a far
-operand are `;?cpu`, a written `,z` is `;?syntax` (the 65C02 spells
-the opcode `(e)`), and a branch takes `REL` only (out of reach
-`;?syntax`, as on c64-65c02).  The 65C02 code it assembles runs on the
-45GS02 as 65C02 code while Z = 0 — the CPU adds Z to every `(e)`;
-the MEGA65's KERNAL and BASIC keep Z = 0.
-
-Every C64 cell is tested per variant bundle in `TestCpuGateCmosBundle`
-and `TestCpuGate6510Bundle` (test_asm_line.py).
+Every cell of the C64 sets and the CMOS mode is tested per variant
+bundle in `TestCpuGateCmosBundle` and `TestCpuGate6510Bundle`
+(test_asm_line.py), the m65 cells in test_asm_m65.py.
 
 ## Design
 
@@ -346,7 +340,7 @@ a far operand is `;?cpu`.
 ### ACC mode handling
 
 Six mnemonics accept the accumulator addressing mode: ASL, LSR, ROL,
-ROR (always); INC, DEC (65C02 only).  Each maps to an operand profile
+ROR (always); INC, DEC (the CMOS mode and the 4510).  Each maps to an operand profile
 whose mode set includes ACC (`{ACC, ZP, ABS, ZPX, ABX}`; the profile's
 index differs per CPU set — the generator numbers them).  Both
 syntactic forms produce the ACC opcode:
@@ -419,8 +413,8 @@ an immediate out of range and an output wrap past `$FFFF`;
   which `AND #$5F` folds onto them — in the key).  `_asm_rd_upper`
   refuses anything else.
 - `asm_cpu` values: 0=6502, 1=6510, 2=65C02, 3=4510, 4=45GS02 (one
-  global enumeration).  The C64 CMOS gate's compares are compiled
-  only into the C64 builds, the m65 gate's (65C02 by `mn7_c02`, 4510,
+  global enumeration).  The C64 / CMOS gate's compares are compiled
+  only into the C64 builds and the CMOS mode, the m65 gate's (4510,
   45GS02) only into the m65 build, so each build compares within its
   own CPU set.
 - `mn7_classify` clobbers Y (sets Y=mn_c2).  `ldy #0` is required

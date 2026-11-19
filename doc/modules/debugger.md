@@ -151,8 +151,8 @@ was at — the `j` target, or the last break's address).
 ### step_next_pc
 **In:** `brk_pc` (the instruction about to run), `step_state`
 (STEP_INTO / STEP_OVER); `reg_sp` (RTS/RTI), `reg_x` (JMP (abs,X)),
-`asm_cpu` (65C02 rules, CMOS builds only; on m65 saved, set to 4 for
-the disassembler and restored — the step follows the 45GS02),
+`asm_cpu` (on m65 saved, set to 4 for the disassembler and restored —
+the step follows the 45GS02; the C64 step reads none),
 `userland_zp_buf` (vectors in $00–$7F).
 **Out:** `step_next_lo` = where the step stops, `step_next_hi` = a
 second stop for a branch under STEP_INTO; 0 = none (both 0 for BRK).
@@ -202,8 +202,8 @@ is breakpoints.s's; `reg_*` are asm_line.s's; `kernel_zp_buf` /
 `reg_p`), mem (`save_userland_zp`, `restore_userland_zp`,
 `save_kernel_zp`, `restore_kernel_zp`, `kernel_zp_buf`,
 `userland_zp_buf`), breakpoints (`patch_all`, `step_bp`,
-`dbg_step_clear`), oplen_tbl (C64) or, on m65, dasm (`dasm_insn_pre`,
-`_dasm_in`, `_dasm_ptr`, `_dasm_opc`), zp (`rp_ptr`, `rp_ptr2`,
+`dbg_step_clear`), oplen_tbl (C64) or, on m65, dasm (`dasm_insn`,
+`_dasm_in`, `_dasm_pfx`), zp (`rp_ptr`, `rp_ptr2`,
 `in_userland`, `dbg_reason`, `asm_cpu`)
 
 ## Debug session
@@ -360,12 +360,12 @@ leaves a disabled slot behind.
 | linear | `PC + length` (`oplen_tbl`) | — |
 | conditional branch, `t` | taken target | `PC + 2` |
 | conditional branch, `o` | `PC + 2` | — |
-| `BBR` / `BBS` (65C02 builds, m65), `t` | `PC + 3` | taken target (`PC + 3` + offset) |
-| `BBR` / `BBS`, `o` | `PC + 3` | — |
-| `BRA` (65C02, `asm_cpu` = 65C02; m65) | target | — |
+| `BBR` / `BBS` (m65), `t` | `PC + 3` | taken target (`PC + 3` + offset) |
+| `BBR` / `BBS` (m65), `o` | `PC + 3` | — |
+| `BRA` (m65) | target | — |
 | `JMP abs` | operand | — |
-| `JMP (ind)` | the vector at the operand; `JMP ($xxFF)` takes its high byte from `$xx00` (NMOS) unless `asm_cpu` = 65C02 | — |
-| `JMP (abs,X)` (65C02) | the vector at operand + `reg_x`, no page wrap | — |
+| `JMP (ind)` | the vector at the operand; `JMP ($xxFF)` takes its high byte from `$xx00` (NMOS; on m65 no wrap, below) | — |
+| `JMP (abs,X)` (m65) | the vector at operand + `reg_x`, no page wrap | — |
 | `JSR`, `t`, target below the ROM boundary | target (into the subroutine) | — |
 | `JSR`, `o`, or target at or above the ROM boundary | `PC + 3` (over) | — |
 | `RTS` | user stack `($0100 + reg_sp + 1)` + 1 | — |
@@ -379,9 +379,8 @@ sharing the linear row's add).
 
 Vectors are read as the CPU will read them: `$00–$7F` from
 `userland_zp_buf` (the live ZP is the kernel's while CSE runs),
-everything else live (`peek_user`).  The 65C02 rows apply only to
-CMOS builds with `asm_cpu` = 65C02; elsewhere on the C64 those
-opcodes are linear.  The ROM boundary is `ROM_BASE_HI`: `$E000` on
+everything else live (`peek_user`).  The rows marked m65 are the
+45GS02's; on the C64 those opcodes are the 6510's and linear.  The ROM boundary is `ROM_BASE_HI`: `$E000` on
 the C64, `$C000` on m65 (the interface ROM).
 
 **On m65** the step follows the CPU that runs the program — always a

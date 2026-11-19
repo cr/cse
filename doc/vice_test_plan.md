@@ -25,23 +25,22 @@ Each item is < 1 minute.  Tick through linearly; any RED fails
 the candidate.
 
 **Build under test:** the release candidate — write its tag and its
-`cse-cmos.prg` sizes (unpacked, exomizer SFX; `make size`) here when
+`cse.prg` sizes (unpacked, exomizer SFX; `make size`) here when
 the walk starts.
 
-## A. Boot smoke (3 variants)
+## A. Boot smoke (2 variants)
 
 Run each PRG cleanly on a freshly-booted C64.
 
-- [ ] **A1.** `LOAD "CSE",8,1` + `RUN` (CMOS build).  Splash
-      shows version, ZP/RAM/work line counts, manual URL,
-      `0800:` prompt.  No flicker, no error tones.
-- [ ] **A2.** Same with `cse-6502-exo.prg` (6502 build).  CMOS
-      mnemonics rejected by `.`/`a` with `;?syntax` (the 6502
-      build's classifier does not know them; `;?cpu` is the mn7
-      builds' answer to a mnemonic outside the active CPU).
-- [ ] **A3.** Same with `cse-exo.prg` (6510 build).  The build
-      starts as 6502 (`lax $ff` is `;?cpu`); after `u 6510`,
-      illegal opcodes are accepted by `.`/`a` (e.g. `lax $ff`).
+- [ ] **A1.** `LOAD "CSE",8,1` + `RUN` (`cse-exo.prg`, the 6510
+      build).  Splash shows version, ZP/RAM/work line counts, manual
+      URL, `0800:` prompt.  No flicker, no error tones.  The build
+      starts as 6502 (`lax $ff` is `;?cpu`); after `u 6510`, illegal
+      opcodes are accepted by `.`/`a` (e.g. `lax $ff`); `stz $12` is
+      `;?syntax` (no CPU of the set has it).
+- [ ] **A2.** Same with `cse-6502-exo.prg` (6502 build).  Illegal
+      mnemonics are rejected by `.`/`a` with `;?syntax` (the 6502
+      build's classifier does not know them).
 
 ## B. Theme gallery
 
@@ -238,10 +237,9 @@ Requires a writable .d64 attached to drive 8 in VICE.
 
 ## H. Sign-off
 
-- [ ] **H1.** All A–G items pass on the **CMOS** build.
-- [ ] **H2.** A1–A3 pass on **6510** build.
-- [ ] **H3.** A1–A3 + a representative subset (C1–C5, E1, E4)
-      pass on **6502** build.
+- [ ] **H1.** All A–G items pass on the **6510** build.
+- [ ] **H2.** A2 + a representative subset (C1–C5, E1, E4) pass on
+      the **6502** build.
 - [ ] **H4.** No new findings filed in `doc/TODO.md § Bugs`.
 
 When H1–H4 all green: tag **v0.1**.

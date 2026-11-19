@@ -9,7 +9,7 @@
 | [`src/opcode_lookup.s`](../../src/opcode_lookup.s) | implementation |
 | [`src/mn_asm_tables.s`](../../src/mn_asm_tables.s) | generated — one block per CPU set: `asm_row` (1 B per profile) + `asm_delta` (one row per delta row) + `asm_oplen` (operand bytes per mode; read by asm_line) + `ASM_ZONE_G` (and `ASM_ZONE_D` where the set has the digit zones; on m65 also `ASM_ZONE_Q`, `ASM_ZONE_H`, zone B being `pidx` 1–3), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/mn_modes.s`](../../src/mn_modes.s) | generated — one block per CPU set: the profile validity masks, one plane per 8 modes (`mn_modes_lo`, `mn_modes_hi`; on `MEGA_SUPPORT`, with 20 modes, a third plane `mn_modes_x`), 1 B per profile per plane, produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
-| [`src/oplen_tbl.s`](../../src/oplen_tbl.s) | generated — packed opcode → single-byte-instruction length (64 B, 2 bits/opcode; prefixes not counted).  One content for all C64 CPU sets (every `OPCODES` row's length; where a 6510 crash opcode (JAM) shares a byte with another row, e.g. `$D2` CIM / 65C02 `CMP (zp)`, the other row's length wins; any other length conflict stops the generator); empty on m65 (`CPU_45GS02`), where the step takes the disassembler's 45GS02 length, prefixes included ([debugger.md § Next-PC](debugger.md#next-pc)).  Produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Consumer: `debugger.s` (`step_next_pc`, C64); back-link-exempt (generated) |
+| [`src/oplen_tbl.s`](../../src/oplen_tbl.s) | generated — packed opcode → single-byte-instruction length (64 B, 2 bits/opcode; prefixes not counted).  One content for both C64 CPU sets: the 6510's lengths (every 6502 row is a 6510 row; a crash opcode (JAM) is 1 byte); empty on m65 (`CPU_45GS02`), where the step takes the disassembler's 45GS02 length, prefixes included ([debugger.md § Next-PC](debugger.md#next-pc)).  Produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Consumer: `debugger.s` (`step_next_pc`, C64); back-link-exempt (generated) |
 | [`tests/unit/test_opcode_lookup.py`](../../tests/unit/test_opcode_lookup.py) | test contract (every profile × mode of every CPU set; end to end by test_asm_line.py::test_assemble) |
 
 ## Interface
@@ -91,8 +91,10 @@ only what it encodes:
 - The **fixed zones** come first, in the order A B F C D E, one
   profile each on the C64 CPU sets, and a set numbers only the zones
   it has: the order makes every set's zones a prefix (6502: A B F;
-  6510: A B F C; 65C02: all six), so no set carries an empty profile
-  and asm_line's jump table is indexed by `pidx` directly.
+  6510: A B F C), so no C64 set carries an empty profile and
+  asm_line's jump table is indexed by `pidx` directly.  The CMOS mode
+  has D and E but no zone C key: its C is one unused profile, so D and
+  E keep their places.
 - **`ASM_ZONE_D`** (generated, on the sets with the digit zones) is
   zone D's `pidx`, E the next — asm_line's digit-suffix check.
 - **`ASM_ZONE_G`** (generated) is the first multi-mode `pidx`; the

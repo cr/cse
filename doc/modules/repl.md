@@ -451,7 +451,7 @@ by [asm_err.s](asm_err.md)):
 |---|---|---|
 | 0 | `;?syntax` | unknown mnemonic, bad mode for the profile |
 | 1 | `;?expr <detail>` | undefined symbol, overflow — `<detail>` from `expr_error_str` |
-| 2 | `;?cpu` | mnemonic refused by the CPU mode (`phy` on 6502, illegal NMOS on 65C02) |
+| 2 | `;?cpu` | mnemonic refused by the CPU mode (`lax` on 6502, `taz` on 6502 on m65) |
 
 An operand expression error found by `dot_assemble` itself (before
 `asm_line`) also returns 0; the tag then follows whatever
@@ -699,7 +699,7 @@ it a PRG save to `project.`; RETURN on the row saves the binary.
 | `k`   | kill    | —         | `k`                  | Delete the source buffer (gated) |
 | `B`   | block   | —         | `B $40` or `B`       | Set block size (expression; 0 or an error keeps it); always shows `; blk=XXXX`.  Rejects trailing garbage. |
 | `C`   | color   | —         | `C 6`, `C 06`, `C 0e6`, `C` | Set fg / bg+fg / border+bg+fg from 1–3 adjacent hex digits; bare = show.  See [§ `C`](#c--color-uppercase). |
-| `u`   | cpu     | —         | `u 6502`, `u 6510`, `u 65c02` | Set the CPU mode for `.`, `a` and the disassembler; always shows the modes. |
+| `u`   | cpu     | —         | `u 6502`, `u 6510`, `u 45gs02` | Set the CPU mode for `.`, `a` and the disassembler; always shows the modes. |
 | `Q`   | quit    | —         | `Q`                  | Exit CSE (gated) |
 | `R`   | reset   | —         | `R`                  | Warmstart (gated); ends any debug session, redraws the screen |
 | `x`   | clear   | —         | `x`                  | Clear the screen |
@@ -970,8 +970,7 @@ Tests: `TestColorApply`, `TestColorCommand`.
 ### `u` — CPU mode
 
     u 6502       standard NMOS 6502                     every build
-    u 6510       6510 (with illegal opcodes)            6510, 65C02 builds
-    u 65c02      WDC 65C02 (CMOS extensions)            65C02 build, m65
+    u 6510       6510 (with illegal opcodes)            6510 build
     u 4510       CSG 4510 (65CE02 set + MAP/EOM)        m65
     u 45gs02     45GS02 (4510 + Q and far forms)        m65
 
@@ -979,8 +978,8 @@ Tests: `TestColorApply`, `TestColorCommand`.
 and always prints them, the active one marked `*`
 (`; cpu: 6502* 6510`).  The modes are the build's CPU set
 ([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)):
-the 65C02 build offers 6502, 6510 and 65c02; the m65
-build 6502, 65c02, 4510 and 45gs02 (`; cpu: 6502 65c02 4510 45gs02*`).
+the 6510 build offers 6502 and 6510; the m65 build 6502, 4510 and
+45gs02 (`; cpu: 6502 4510 45gs02*`).
 `u` selects the assembler's CPU and the disassembler's view; the
 debugger's step follows the real CPU ([debugger.md § Next-PC](debugger.md#next-pc)).
 

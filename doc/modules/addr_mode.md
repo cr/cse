@@ -182,7 +182,7 @@ output reaches KERNAL PLOT through `io_sync`, so the warning is
 bracketed by saving `$01`, banking the KERNAL in, and restoring `$01`
 afterwards.  Use a different label name or write the address
 explicitly (`ASL <expr>`) to address symbol `A` from one of the
-six ACC-accepting mnemonics (ASL/LSR/ROL/ROR; INC/DEC on CMOS).
+six ACC-accepting mnemonics (ASL/LSR/ROL/ROR; INC/DEC on the 4510 and in the CMOS mode).
 
 ### Forward-reference handling
 

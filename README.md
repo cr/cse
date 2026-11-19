@@ -165,10 +165,9 @@ Each release attaches:
 
 | File | Use |
 |------|-----|
-| `cse.d64` | Disk image — mount in VICE or write to a real 1541; contains all three CPU variants |
+| `cse.d64` | Disk image — mount in VICE or write to a real 1541; contains both CPU variants |
 | `cse-exo.prg` | 6510 build (default — exomizer-compressed, handles illegal opcodes) |
 | `cse-6502-exo.prg` | 6502 build — strict legal opcodes only |
-| `cse-cmos-exo.prg` | 65C02 build — adds CMOS opcode set |
 
 Or [build from source](#development) if you prefer.
 
@@ -261,7 +260,7 @@ program sees it, not CSE's own values there.
 | Command | Syntax | Description |
 |---------|--------|-------------|
 | `a` | `a` | Assemble the source in the editor; code before the first `.org` goes to the current address |
-| `u` | `u [MODE]` | Show or set CPU mode, one of the build's CPU set: `6502` on every build, `6510` on the 6510 and 65C02 builds, `65c02` on the 65C02 build (MEGA65: § On the MEGA65) |
+| `u` | `u [MODE]` | Show or set CPU mode, one of the build's CPU set: `6502` on every build, `6510` on the 6510 build (MEGA65: § On the MEGA65) |
 
 `a` prints one `; org AAAA-BBBB NNb` row per block of code, then
 `; ok` and a ready-made save line (`AAAA:s "proj" $bbbb` — cursor up
@@ -404,7 +403,7 @@ leading `;` makes the row a comment, so RETURN on it does nothing.
 | Tag | Meaning |
 |-----|---------|
 | `;?syntax` | The command or instruction could not be parsed: unknown mnemonic or addressing mode, extra text after the arguments, a bad `r` field, a missing closing `"` |
-| `;?cpu` | Mnemonic isn't valid for the current CPU mode (e.g. `phy` on 6502, illegal opcodes on 65C02) |
+| `;?cpu` | Mnemonic isn't valid for the current CPU mode (e.g. `lax` in mode `6502` on the 6510 build, `taz` in mode `6502` on the MEGA65) |
 | `;?expr <detail>` | Expression error.  `<detail>` is one of: `exp val` (expected a value), `ovfl` (overflow), `exp )` (missing parenthesis), `undef` (undefined symbol), `div0` (divide by zero) |
 | `;?bad val` | `b -N` with N not 1–8 |
 | `;?range` | Address outside the workspace (`b`), or a save of 0 bytes |
@@ -508,8 +507,8 @@ is `;?N: exp val`.
     lda ($42,x)     ; (indirect,x)
     lda ($42),y     ; (indirect),y
     jmp ($1000)     ; indirect
-    lda ($42)       ; zero page indirect (65C02 / MEGA65)
-    jmp ($1000,x)   ; absolute indirect,x (65C02 / MEGA65)
+    lda ($42),z     ; zero page indirect,z (MEGA65)
+    jmp ($1000,x)   ; absolute indirect,x (MEGA65)
     rol             ; accumulator (bare form)
     rol a           ; accumulator (explicit form, equivalent)
     beq .loop       ; relative (assembler computes offset)
@@ -677,8 +676,8 @@ Where it differs from the C64 build:
   second row `r z:XX b:XX` in 40.
 - **The CPU.**  The assembler and the disassembler speak the
   45GS02 by default — its 4510 instructions, the quad `q`
-  instructions and 32-bit `[ ]` addressing — and the 4510, the 65C02
-  or the 6502 on request (`.cpu`, `u`;
+  instructions and 32-bit `[ ]` addressing — and the 4510 or the
+  6502 on request (`.cpu`, `u`;
   [assembler_syntax.md § `.cpu`](doc/assembler_syntax.md)).  A `d` row has room
   for five bytes, the longest instruction.
 - **The editor** uses the whole screen of the current mode, and a

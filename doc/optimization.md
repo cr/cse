@@ -469,7 +469,7 @@ Saves code proportional to N and scales without new branches.
 
 ```asm
 ; one entry per member of the build's CPU set: value, name, NUL
-cpu_names: .byte 0, "6502", 0, 1, "6510", 0, 2, "65c02", 0, $FF
+cpu_names: .byte 0, "6502", 0, 1, "6510", 0, $FF          ; c64-6510
 ```
 
 The table holds only what the build has (`.ifdef` per entry), so it

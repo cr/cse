@@ -24,10 +24,10 @@
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — the C64 and m65 release PRG sizes within budget (TODO § M65, gate 1) |
 | [`tests/unit/test_build_freshness.py`](../tests/unit/test_build_freshness.py) | test contract — no test runs on a stale binary: the PRG fixtures always run `make`, objects depend on their includes, bundles on `src/*.inc` |
 | [`tests/unit/test_clean_build.py`](../tests/unit/test_clean_build.py) | test contract — a fresh `git worktree` of `HEAD` builds with one `make release` (no re-run) |
-| [`tests/integration/test_release_smoke.py`](../tests/integration/test_release_smoke.py) | test contract — the release CMOS PRG boots from `SYS 2061` to the main loop and shows its splash |
+| [`tests/integration/test_release_smoke.py`](../tests/integration/test_release_smoke.py) | test contract — the release 6510 PRG boots from `SYS 2061` to the main loop and shows its splash |
 | [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — `make release` / `debug PLATFORM=m65` build the m65-45gs02 PRG through `src/m65_cse.cfg`; `make release` / `disk PLATFORM=m65` write the D81 with `c1541`; `make run PLATFORM=m65` (and `TARGET=m65`) starts `$(XMEGA65)` with the release PRG and the D81 on unit 8, not VICE; `make size PLATFORM=m65` reports the m65 PRG; an unknown platform is refused; each m65 region is bounded and an overflow fails the link |
 | [`tests/emulator/test_m65_boot.py`](../tests/emulator/test_m65_boot.py) | test contract (Tier X) — the m65 PRG boots to `_main` in xmega65 on each ROM, the installed machine M65Emu's `install_prg()` makes; `typed_run`, the typed-key loop it shares with `test_m65_step.py` and `test_m65_asm_run.py` |
-| [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
+| [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets (the CMOS mode has no Makefile build) |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
 | [`tests/unit/test_dasm_tables.py`](../tests/unit/test_dasm_tables.py) | test contract — the disassembler model of `dev/dasm_tables.py` |
 | [`tests/m65emu/`](../tests/m65emu/) | implementation — M65Emu, the m65 harness: `MPU45GS02` (`mpu45gs02.py`), its decode table from the compendium fixture (`isa.py`), the CPU golden-file format (`golden.py`), `M65Memory` (`memory.py`), the devices — DMA controller, keyboard queue, CIA1 matrix port, VIC interrupt latch, CIA2 interrupt control, the Hypervisor traps (`devices.py`) —, the `M65Emu` harness, its per-ROM snapshot loading, the run premise (`enter_premise`, `run_premise`) and the m65 PRG's installed machine (`install_prg`) (`harness.py`), the raw-byte macros as the CPU decodes them (`m45_ops.py`) ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)) |
@@ -236,7 +236,7 @@ to the binary and to the distribution disk via two mechanisms:
    `"cse $(VERSION),01"` to `c1541 -format`, so the D64 label
    (visible in `$` listings) carries the version.
 
-PRG filenames (`cse.prg`, `cse-6502.prg`, `cse-cmos.prg`) are
+PRG filenames (`cse.prg`, `cse-6502.prg`, `cse-m65.prg`) are
 **not** versioned: the CPU suffix is architectural, the version
 lives in the splash and disk label.  Downstream consumers rely
 on the stable filename layout.
@@ -295,7 +295,7 @@ Exomizer serves the C64 builds only, with its default target (`-t
 | Target | Command | Output |
 |--------|---------|--------|
 | All (default) | `make` | Same as `release` |
-| Release | `make release` | `c64`: all three CPU variants, optimized + exomizer + D64; `m65`: the m65 PRG + D81, uncompressed |
+| Release | `make release` | `c64`: both CPU variants, optimized + exomizer + D64; `m65`: the m65 PRG + D81, uncompressed |
 | Debug | `make debug` | The platform's builds with `-g` (full symbols in `.lbl`) |
 | Disk (single) | `make disk` | `c64`: a D64 per build in the build dir (for quick iteration); `m65`: as `release`, the distribution D81 |
 | Run | `make run` | Build release + launch in VICE (`c64`) or xmega65 (`m65`) |
@@ -332,7 +332,7 @@ absolute address.
 |----------|---------|--------|
 | `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG and D81 ([§ The m65 builds](#the-m65-builds)) and the m65 test bundles.  Every target works on m65 (`release`, `debug`, `disk`, `run`, `size`; `help`, `themes`, `clean`, `clean-tables`, `tables`, `m65-rom`, `check-roms`); an unknown platform is refused.  `TARGET=` on the command line is a synonym (`make run TARGET=m65`); giving both with different values is an error |
 | `XMEGA65` | `/Applications/xmega65.app/Contents/MacOS/xmega65` | The xmega65 executable: `make run PLATFORM=m65` starts it, and `tests/xmega65.py` reads the same environment variable (Tier X, the M65Emu recordings) |
-| `CPU` | `6510` on `c64`; `45gs02` on `m65` (fixed) | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`) |
+| `CPU` | `6510` on `c64`; `45gs02` on `m65` (fixed) | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510`) |
 | `THEME` | `CLOUDY` | Named theme or 3-digit hex code (`make themes` for list) |
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
 | `VERSION` | `0.1` | Version string embedded in splash + D64 label |
@@ -357,15 +357,13 @@ python`), `PYTEST` (`pipenv run pytest`), `VICE` (`x64sc`), `C1541`,
                 trial.prg  trial.map  c64_cse.cfg  version.inc
                 .build_flags  src/*.o  src/*.d
         6502/   cse-6502.prg  cse-6502-exo.prg  ...
-        cmos/   cse-cmos.prg  cse-cmos-exo.prg  ...
         m65/    cse-m65.prg  cse.map  cse.lbl  cse.dbg  version.inc
                 .build_flags  src/*.o  src/*.d  (no -exo.prg, no trial)
       debug/
         6510/   cse.prg  cse.map  cse.lbl  cse.dbg  ...  (no -exo.prg)
         6502/   cse-6502.prg  ...
-        cmos/   cse-cmos.prg  ...
         m65/    cse-m65.prg  ...
-      cse.d64             distribution D64 (from release, all three C64 CPUs)
+      cse.d64             distribution D64 (from release, both C64 CPUs)
       cse-m65.d81         distribution D81 (from release, the m65 PRG)
       .tables.stamp       `make tables`
       version.inc         the test bundles' (`VERSION_STRING "test"`)
@@ -388,7 +386,7 @@ Passed as `make OPTION=value`:
 | Option | Values | Default | Effect |
 |--------|--------|---------|--------|
 | `PLATFORM` | `c64` `m65` | `c64` | Selects the platform's builds ([§ Builds and CPU sets](#builds-and-cpu-sets)); sets `PLATFORM_C64` or `PLATFORM_M65` |
-| `CPU` | `c64`: `6502` `6510` `65c02`; `m65`: `45gs02` (fixed) | `6510` / `45gs02` | Selects the build within the platform; sets its defines ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
+| `CPU` | `c64`: `6502` `6510`; `m65`: `45gs02` (fixed) | `6510` / `45gs02` | Selects the build within the platform; sets its defines ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
 | `ROMSET` | `cbm` `mega` | `cbm` | ROM set for `make run` (see below) |
 | `THEME` | name or hex | `CLOUDY` | Colour theme for the REPL |
 | `TAB_WIDTH` | 1 2 4 8 16 32 | `8` | Editor tab stop interval.  A power of two, so `col mod TAB_WIDTH` is a single `and`; any other value is a build error.  8 matches every C64-era toolchain convention. |
@@ -406,8 +404,17 @@ member, as a global enumeration — **0 = 6502, 1 = 6510, 2 = 65C02,
 |---|---|---|---|---|---|
 | c64-6502 | `c64` / `6502` | `PLATFORM_C64` `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
 | c64-6510 | `c64` / `6510` | `PLATFORM_C64` `CPU_6510` `CPU_CEIL=1` | 6502, 6510 (0, 1) | 0 | `mn7` |
-| c64-65c02 | `c64` / `65c02` | `PLATFORM_C64` `CPU_65C02` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 6510, 65C02 (0, 1, 2) | 2 | `mn7` |
-| m65-45gs02 | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 65C02, 4510, 45GS02 (0, 2, 3, 4) | 4 | `mn7`, m65 keys |
+| m65-45gs02 | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 4510, 45GS02 (0, 3, 4) | 4 | `mn7gs` (the m65 keys) |
+| *the CMOS mode* (no build) | — | `CPU_65C02` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 65C02 (0, 2) | 2 | `mn7` |
+
+No target has a 65C02.  The assembler and the disassembler keep a
+**CMOS mode** for a later port to a 65C02 machine: the CPU set
+{6502, 65C02}, its generated table blocks and its `CMOS_SUPPORT`
+paths, built only as test bundles (`asm_core`, `dasm`, `mn7`,
+`asm_src`; [testing.md § conftest bundles](testing.md#conftest-bundles))
+and held to its golden file like every set.  No PRG, budget or hash
+belongs to it; the platform modules (the debugger, the REPL, the
+platform layer) have no 65C02 paths.
 
 Exactly one `PLATFORM_<platform>` define is set per build — the C64
 builds carry `PLATFORM_C64` as the m65 build carries `PLATFORM_M65`,
@@ -416,20 +423,18 @@ so a platform body is always selected by its own name
 Exactly one `CPU_<top>` define is set per build.  It selects the
 build's generated table block ([§ Table generation](#table-generation)).
 The m65 platform has one build, **m65-45gs02** — its CPU set fixed,
-the 6502, the 65C02 and the 4510 selected at run time; the 6510 is not
-in it, as the 45GS02 runs none of the 6510's illegal opcodes.  The m65
-tables and gate serve its 65C02 member; the `CMOS_SUPPORT` paths are
-the C64 65C02 build's.  Code
-paths are gated by the feature defines: `.ifdef CMOS_SUPPORT` (65C02
-paths), `.ifdef MEGA_SUPPORT` (the 4510's modes and mnemonics and the
-45GS02's Q and far prefixes).  No code path is 6510-specific: the
-illegal opcodes are rows of the 6510 CPU sets' tables.  A build contains no
-code path, profile, delta row or opcode-map entry for a CPU outside its
-set.  The one exception is the C64 `mn7` key set: it spans the 6510 and
-the 65C02 names in both `mn7` builds, so the CPU gate can answer a
-foreign mnemonic with `;?cpu` instead of `;?syntax`
-([asm_line.md § asm_cpu × category gate matrix](modules/asm_line.md#asm_cpu--category-gate-matrix)).  `DEFAULT_CPU` is
-the default `asm_cpu` column.
+the 6502 and the 4510 selected at run time; the 6510 is not in it, as
+the 45GS02 runs none of the 6510's illegal opcodes.  Code paths are
+gated by the feature defines: `.ifdef CMOS_SUPPORT` (the CMOS mode's
+65C02 paths), `.ifdef MEGA_SUPPORT` (the 4510's modes and mnemonics —
+the 65C02's among them — and the 45GS02's Q and far prefixes).  No
+code path is 6510-specific: the illegal opcodes are rows of the 6510
+set's tables.  A build contains no code path, profile, delta row,
+opcode-map entry or classifier key for a CPU outside its set: a
+mnemonic only another CPU has is no word (`;?syntax`), one of a set
+member the current `asm_cpu` lacks is `;?cpu`
+([asm_line.md § asm_cpu × category gate matrix](modules/asm_line.md#asm_cpu--category-gate-matrix)).
+`DEFAULT_CPU` is the default `asm_cpu` column.
 
 **`asm_cpu` × consumer** (Principle 14 of [testing.md](testing.md#principles);
 a cell names the behaviour, `—` means the value cannot occur in any build
@@ -437,16 +442,16 @@ the consumer is part of):
 
 | Consumer | 0 (6502) | 1 (6510) | 2 (65C02) | 3 (4510) | 4 (45GS02) |
 |---|---|---|---|---|---|
-| asm_line CPU gate ([asm_line.md](modules/asm_line.md#asm_cpu--category-gate-matrix)) | legal NMOS, NMOS profiles | + 6510 illegals | + 65C02 extension and 65C02-only keys (m65: by `mn7_c02`) | + 4510 extension and 4510-only keys | as 3 + Q forms and far operands |
-| dasm view ([dasm.md](modules/dasm.md#design)) | 6502 view bitmap | 6510 map | 65C02 map (c64); m65: 65C02 view bitmap over the 4510 map | 4510 map | 4510 map + prefix peel |
-| `.cpu` (`set_cpu`) and `u` | accepted in every build | c64-6510, c64-65c02 | c64-65c02, m65-45gs02 | m65-45gs02 | m65-45gs02 |
-| `DEFAULT_CPU` (main.s) | c64-6502, c64-6510 | — | c64-65c02 | — | m65-45gs02 |
-| debugger step ([debugger.md § Next-PC](modules/debugger.md#next-pc)) | NMOS step (c64); m65: the 45GS02 step | NMOS step | + `JMP (a,X)`, `BRA`, `BBR` / `BBS` (c64-65c02); m65: the 45GS02 step | the 45GS02 step | the 45GS02 step (m65 does not read `asm_cpu`) |
+| asm_line CPU gate ([asm_line.md](modules/asm_line.md#asm_cpu--category-gate-matrix)) | legal NMOS, NMOS profiles | + 6510 illegals | + 65C02 extension and 65C02-only keys (the CMOS mode) | + 4510 extension and 4510-only keys | as 3 + Q forms and far operands |
+| dasm view ([dasm.md](modules/dasm.md#design)) | 6502 view bitmap | 6510 map | 65C02 map (the CMOS mode) | 4510 map | 4510 map + prefix peel |
+| `.cpu` (`set_cpu`) and `u` | accepted in every set | c64-6510 | the CMOS mode | m65-45gs02 | m65-45gs02 |
+| `DEFAULT_CPU` (main.s) | c64-6502, c64-6510 | — | the CMOS mode | — | m65-45gs02 |
+| debugger step ([debugger.md § Next-PC](modules/debugger.md#next-pc)) | NMOS step (c64); m65: the 45GS02 step | NMOS step | — | the 45GS02 step | the 45GS02 step (m65 does not read `asm_cpu`) |
 
 The m65 build ships as a PRG and a D81
 ([§ The m65 builds](#the-m65-builds)).  `PLATFORM=m65` builds the
 m65-45gs02 PRG and its D81; `conftest.PROD_DEFS` holds its defines
-beside the three C64 sets', and its test bundles run on M65Emu's
+beside the C64 sets' and the CMOS mode's, and its test bundles run on M65Emu's
 `MPU45GS02` (its far stores need the 45GS02).
 
 ### The m65 builds
@@ -557,18 +562,18 @@ every build comes from `dev/instruction_set.py`; no source file
 restates one by hand.  Each generated file holds one block per CPU
 set that uses it, guarded by that set's `CPU_<top>` define, so a build
 assembles only its own block (`mn6_tables.s` has the one `{6502}`
-block, `mn7_tables.s` the 6510, 65C02 and m65 blocks — the m65 one
-over `mn7gs`, mn7's form with its own `T`, defined in
-`mnemonic_tables.py`).  The *format* of a table is the same in every
+block, `mn7_tables.s` the 6510, 65C02 and m65 blocks — the C64
+and CMOS ones over one `T` (the 6510 and 65C02 names), each block
+with its own set's keys, the m65 one over `mn7gs`, mn7's form with its
+own `T`, defined in `mnemonic_tables.py`).  The *format* of a table is the same in every
 block; its *content and size* are the CPU set's — a C64 block never
 carries 4510 or 45GS02 entries.  The m65 block adds what only its set
-needs: a third mask plane, the zone bounds, `mn7_c02`, the Q map,
+needs: a third mask plane, the zone bounds, the Q map,
 byte-wide dasm modes, and its tables in KDATA.  The exception is
-`oplen_tbl.s`: one 64-byte table (2 bits per opcode) shared by every
-C64 build, the union of the 6510 and 65C02 lengths — the generator
-refuses an opcode whose lengths conflict, and a crash (JAM) row
-yields to the real instruction — and none for m65, whose debugger
-steps by the disassembler's 45GS02 length.  A set
+`oplen_tbl.s`: one 64-byte table (2 bits per opcode) shared by both
+C64 builds, the 6510's lengths (every 6502 row is a 6510 row), and
+none for m65, whose debugger steps by the disassembler's 45GS02
+length.  A set
 is validated derive-or-die: the tables must reproduce every row of
 every view of the set (on m65 the prefixed rows too) and mask out
 everything else.
@@ -691,11 +696,11 @@ protocol works regardless of which KERNAL is loaded.
 
 `make test` requires both the **debug** and **release** builds.
 Most tests (including C64Emu-based tests) run against the debug
-CMOS PRG (`build/debug/cmos/cse-cmos.prg`), which has full symbol
-coverage via its `.lbl` file (~2040 symbols).  The `cse_release_prg`
-fixture serves the shipping binary: `test_release_smoke.py` boots the
-release CMOS PRG from its `SYS` target through the loader to the main
-loop.
+6510 PRG (`build/debug/6510/cse.prg`, the default build), which has
+full symbol coverage via its `.lbl` file (~2040 symbols).  The
+`cse_release_prg` fixture serves the shipping binary:
+`test_release_smoke.py` boots the release 6510 PRG from its `SYS`
+target through the loader to the main loop.
 
 Test bundles are built by `conftest.Bundle` with `ca65 -g` and
 `ld65 -Ln`, producing their own `.lbl` files with complete symbol

@@ -4,8 +4,9 @@
 
 **Branch:** `m65` (cut from `main` @ 910d96d, 2026-11-16).
 **Goal:** the m65 platform's CPU layer — line assembler, source
-assembler and disassembler for the 45GS02, with the 4510, the 65C02
-and the 6502 as runtime alternatives (D-P4-10) — built from the one
+assembler and disassembler for the 45GS02, with the 4510 and the
+6502 as runtime alternatives (D-P4b-1; D-P4-10's 65C02 member
+dropped) — built from the one
 instruction set that serves every build.  The rest of R7 (screen driver, memory
 model, KERNAL interface, debugger) is not this slice: it is
 [slice 2](#m65-slice-2--the-mega65-platform-r7-platform-layer), the
@@ -158,7 +159,7 @@ disassembler (A4) followed: see A4 below.
 
 - [x] B1. Build defines `PLATFORM_M65`, `CPU_45GS02`, `MEGA_SUPPORT`;
   `asm_cpu` values 3 and 4 (6502 and 4510 selectable at run time;
-  D-P4-10 added the 65C02, `asm_cpu` 2); m65
+  D-P4-10 added the 65C02, `asm_cpu` 2, D-P4b-1 dropped it again); m65
   test bundles ([build_system.md](build_system.md)).
 - [x] B2. Classifier: `mn7` over the m65 key set
   ([mn_classify.md § Variants](modules/mn_classify.md#variants)).
@@ -237,7 +238,7 @@ disassembler (A4) followed: see A4 below.
 
 - **Single m65 build.**  m65-45gs02 is the only m65 target: 45GS02 by
   default, 6502 and 4510 selectable at run time (amended by D-P4-10:
-  the 65C02 too).  One feature define,
+  the 65C02 too; D-P4b-1: not again).  One feature define,
   `MEGA_SUPPORT`.
 - **D1. Branch width under forward references:** the per-pass symbol
   stamp (B4b) — a target read before its definition in the current
@@ -280,7 +281,8 @@ compendium until its golden file, recorded in xmega65, says otherwise.
 (the m65 PRG installs itself and reaches `_main`), P1 (user code,
 maps, vectors and the debugger on m65), P2 (the screen, the keyboard,
 the REPL and the editor) and P3 (the disk and the D81) and P4 (the 45GS02 assembler, disassembler
-and step — slice 1's Phase B) are done; P5 is next.
+and step — slice 1's Phase B) are done; P4b (no 65C02 on the targets)
+is in its TDD analysis; P5 follows.
 
 **How this plan is read.**  Under CDD the documents are the truth:
 each milestone below is a **Step-1 doc delta** — the documents that
@@ -1482,7 +1484,8 @@ for in the analysis:
   whatever `u` selects (prefixes, 16-bit branches, `BSR`, `JSR (ind)`
   / `(abs,X)`, `RTN #`); with it the c64-65c02 `BBR` / `BBS` step bug.
 - **D-P4-4** A3b stays deferred, its own cycle.
-- **D-P4-10** (operator, 2026-11-19, after the analysis) The m65 CPU
+- **D-P4-10** (operator, 2026-11-19, after the analysis; its 65C02
+  member dropped by D-P4b-1) The m65 CPU
   set is every CPU but the 6510: {6502, 65C02, 4510, 45GS02} (`asm_cpu`
   0, 2, 3, 4; 45GS02 the default) — the 45GS02 runs none of the
   6510's illegal opcodes.  `u` selects the assembler's CPU and the
@@ -1835,6 +1838,113 @@ hardware: O1 and O3, as before.
   `a` (a Q form takes no explicit accumulator, asm_line.md); `PHW`
   pushes the low byte first; the real CPU's `JMP ($xxFF)` does not
   wrap.  Deferred: A3b (D-P4-4).
+
+**P4b — no 65C02 on the targets** (operator, 2026-11-19: "Drop cmos
+support from both our targets, but assembler and disassembler are to
+retain a fully supported and tested cmos mode for later ports").  No
+CBM machine has a 65C02; what it cost was measured first (P4 review
+follow-up): on m65 about 130 B and the hardest special cases (`(e)`
+as `ZPIZ`, `mn7_c02`, a second view bitmap); on the C64 a whole build
+with its fixtures, golden file, hash and budget, but almost no code —
+the 4510 is a 65C02 with additions, so the 65C02's machinery stays
+for m65 either way.
+
+Rulings (operator, 2026-11-19):
+- **D-P4b-1** The targets have no 65C02: the c64-65c02 build is
+  dropped (`make CPU=65c02` is refused like any unknown CPU), and the
+  m65 set is {6502, 4510, 45GS02} (`asm_cpu` 0, 3, 4) — D-P4-10's
+  65C02 member goes.
+- **D-P4b-2** The assembler and the disassembler keep a **CMOS mode**,
+  fully supported and tested, for a later 65C02 port: the CPU set
+  reshaped to {6502, 65C02} (`asm_cpu` 0, 2 — no 6510 member, whose
+  illegals no 65C02 machine runs), built only as test bundles
+  (`asm_core`, `dasm`, `mn7`, `asm_src`) and held to its golden file.
+- **D-P4b-3** The debugger's 65C02 step paths go (platform code; a
+  later port writes its own step); the 45GS02 step keeps its rows.
+
+Step-1 delta (written 2026-11-19; approved 2026-11-19 with the analysis):
+- [x] [build_system.md](build_system.md) (the builds table and the
+  CMOS mode, the consumer matrix, the classifier keys rule, the
+  `oplen_tbl` content, the directory layout, the default test PRG),
+  [testing.md](testing.md) (the default PRG, the bundle variants, the
+  per-CPU fixture), [asm_line.md](modules/asm_line.md) (variants, the
+  gate matrices, the word),
+  [mn_classify.md](modules/mn_classify.md) (key sets per set, no
+  `mn7_c02`), [dasm.md](modules/dasm.md) (one subset view per set),
+  [opcode_lookup.md](modules/opcode_lookup.md) (`oplen_tbl`, zone C in
+  the CMOS mode), [debugger.md](modules/debugger.md) (no 65C02 rows),
+  [repl.md](modules/repl.md), [assembler_syntax.md](assembler_syntax.md),
+  [project.md](project.md), README, glossary, asm_err.md,
+  addr_mode.md, architecture.md, optimization.md, project_layout.md,
+  [vice_test_plan.md](vice_test_plan.md) (two C64 variants).
+
+**P4b analysis record (2026-11-19), doc against code — approved
+2026-11-19.**
+- **Build.**  The Makefile builds c64-65c02 (`_65c02_DEFS`, the
+  `release` / `debug` / `_dist` / `disk` / `size` rules, `cmos/`
+  dirs, `cse-cmos` on the D64); `test_size_budget.py` and
+  `c64_prg_sha256.json` hold it; `test_build_parity.py` compares every
+  `PROD_DEFS` set to the Makefile.
+- **Generators.**  `CPU_SETS['65c02']` has the views 6502, 6510,
+  65c02; both C64 `mn7` blocks hold all 114 names; `oplen_lengths()`
+  merges the 6510 and 65C02 rows with the crash-yield rule; the 65c02
+  set's disassembler has two maps (65C02, 6510); fixed zones are
+  numbered as a prefix of A B F C D E, which the reshaped set breaks
+  (D and E without a C key).  On m65: the 65c02 view, `mn7_c02` /
+  `key_c02`, `C02_REFUSED`, the `ZPI` = `ZPIZ` view rule, two view
+  bitmaps (`dasm_cpu_bm` = 1 + offset).
+- **asm_line.**  The C64 gate's `cat` 11 reject and the digit scan
+  are compiled into c64-6510, which then has no `cat` 01 / 11 or digit
+  key; m65: `_asm_c02`, the gate's `asm_cpu` 2 branch, the 65C02 block
+  of `_asm_m65_mode`, `@b_try16`'s 65C02 check.
+- **dasm.**  m65: `@paren_z`'s `asm_cpu` 2 check and the two-bitmap
+  offset path.
+- **asm_src.**  `cpu_names` offers 6510 on `CPU_65C02` and 65c02 on
+  `CPU_45GS02`.
+- **debugger.**  `.if CMOS or MEGA` blocks with their C64 `asm_cpu`
+  checks, the `CMOS_SUPPORT` `JMP ($xxFF)` path, and P4 step (9)'s
+  c64-65c02 `BBR` / `BBS` step.
+- **Tests.**  `cse_prg` / `cse_release_prg` are the CMOS PRGs and
+  `cse_prg_per_cpu` has a `cmos` member; tests run 65C02 behaviour on
+  the PRG (the step's `JMP (abs,X)`, `BBR` / `BBS` and no-wrap rows,
+  `.cpu` / `u` per build, the REPL's bit-op `.`); the 6510 and 45gs02
+  golden files hold the present answers (`STZ` `;?cpu` on c64-6510,
+  `asm_cpu` 2 cases on m65).
+- **Measured cost** (P4 review follow-up): m65 ≈ 130 B; c64-65c02's
+  own code 12 sites; 910 of 6278 collected tests are its variants.
+
+Decisions (approved 2026-11-19):
+- **D-P4b-4** Every set's classifier holds exactly its own keys: the C64
+  `mn7` exception goes; c64-6510 answers `stz` with `;?syntax` (no CPU
+  of its set has it), as c64-6502 already does.  One `T` serves the
+  6510 and CMOS blocks.
+- **D-P4b-5** `oplen_tbl` is the 6510 view's lengths: the crash (JAM)
+  opcodes `$x2` are 1 byte, the conflict check and the crash-yield
+  rule go.  A deliberate C64 change (the C64 hashes re-recorded).
+- **D-P4b-6** The CMOS mode keeps the zone order A B F C D E with one
+  unused zone-C profile, so asm_line's fixed-zone table stays indexed
+  by `pidx`.
+- **D-P4b-7** The digit scan is compiled where the set has digit keys
+  (`BIT_OPS`: the CMOS mode, m65), not into c64-6510.
+- **D-P4b-8** The default C64 test PRG is the 6510 build (debug and
+  release); `cse_prg_per_cpu` is {6510, 6502}.  The un-suffixed
+  bundle names stay the `65c02` set's, now the CMOS mode, so the
+  bulk of the asm tests keep it exercised; 65C02 behaviour tested on
+  the PRG moves to the bundles, the debugger's goes with its code.
+- **D-P4b-9** Goldens: `asm_dasm_65c02.json` (reshaped set),
+  `asm_dasm_6510.json` (D-P4b-4) and `asm_dasm_45gs02.json` (no
+  `asm_cpu` 2) re-recorded, each in the commit that changes it;
+  `asm_dasm_6502.json` unchanged.  Budgets: c64-65c02 leaves
+  `BUDGET`; the others are lowered to their new sizes in the commits
+  that shrink them.
+
+Code order: (1) the generators — the CMOS mode reshaped, per-set
+keys, `oplen_tbl`, zone C, the m65 set without the 65C02 — with the
+bundle tests; (2) asm_line and asm_src on the C64 and in the CMOS
+mode (gate, digit scan, `cpu_names`); (3) m65 without the 65C02
+(asm_line, dasm, asm_src); (4) the build and the fixtures (Makefile,
+default PRG, budget, hashes, parity); (5) the debugger's 65C02 paths;
+(6) the close — full suite, Tier X, Step 5, the P4b record.
 
 **P5 — the contract closed:** the ROM versions the port is verified
 on (920413, the floor, and the current one; the Open ROMs boot to C64
