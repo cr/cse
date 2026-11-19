@@ -1477,6 +1477,17 @@ for in the analysis:
   whatever `u` selects (prefixes, 16-bit branches, `BSR`, `JSR (ind)`
   / `(abs,X)`, `RTN #`); with it the c64-65c02 `BBR` / `BBS` step bug.
 - **D-P4-4** A3b stays deferred, its own cycle.
+- **D-P4-10** (operator, 2026-11-19, after the analysis) The m65 CPU
+  set is every CPU but the 6510: {6502, 65C02, 4510, 45GS02} (`asm_cpu`
+  0, 2, 3, 4; 45GS02 the default) — the 45GS02 runs none of the
+  6510's illegal opcodes.  `u` selects the assembler's CPU and the
+  disassembler's view, as on the C64.  The 65C02 member: one
+  generated bitmap, `mn7_c02` (16 B), marks the keys and extensions
+  the 65C02 has; at `asm_cpu` 2 the 4510-only modes (`(e,sp),y`,
+  far, a written `,z`, `REL16`) are refused and `(e)` is the eight
+  `(zp)` opcodes; the disassembler's 65C02 view is a second bitmap
+  over the 4510 map, listing `ZPIZ` as `($nn)`.  (An intermediate
+  ruling, a 45GS02-only listing, was withdrawn the same day.)
 
 Step-1 delta (written 2026-11-19; approved 2026-11-19 with the analysis):
 - [x] [repl.md](modules/repl.md): five byte columns on m65 (the block
@@ -1490,7 +1501,8 @@ Step-1 delta (written 2026-11-19; approved 2026-11-19 with the analysis):
   m65, zones D/E assembled, `asm_rel16`.
 - [x] [opcode_lookup.md](modules/opcode_lookup.md) (`mn_modes_x`, the
   m65 `oplen_tbl` block), [dasm.md](modules/dasm.md) (KDATA map blocks
-  on m65, D3 across views, no "planned"), [addr_mode.md](modules/addr_mode.md),
+  on m65, the 6502 and 65C02 views over the 4510 map — D-P4-10 — no
+  "planned"), [addr_mode.md](modules/addr_mode.md),
   [mn_classify.md](modules/mn_classify.md), [symtab.md](modules/symtab.md):
   "planned" gone; [assembler_syntax.md](assembler_syntax.md): `ldq
   ($fb),z` (LDQ's row is `ZPIZ`).
@@ -1515,7 +1527,8 @@ Step-1 delta (written 2026-11-19; approved 2026-11-19 with the analysis):
   profile — the m65 branches are a range: `REL`, `REL`+`REL16`,
   `REL16`).  `dev/dasm_tables.py` dies on 20 modes in nibbles, has no
   Q map, and its subset test fails on `$EA` (the 6502 view's `NOP`
-  against the 4510 map's `EOM`, D3).  `instruction_set.py` serves the
+  against the 4510 map's `EOM`, D3); with the 65C02 view (D-P4-10)
+  the eight `(zp)` opcodes differ too (`ZPI` against `ZPIZ`).  `instruction_set.py` serves the
   `4510` / `45gs02` views (98 keys); the model is 36 profiles, 7 delta
   rows × 20 modes, 284 B (up to 45 profiles, 320 B, if adjacency
   forces copies).  `oplen_tbl` has one C64 content, linked on m65 too.
@@ -1552,8 +1565,9 @@ Decisions (approved 2026-11-19):
 - **D-P4-5** The generators: cse's `mnemonic_tables.py` and
   `dasm_tables.py` gain the m65 set {6502, 4510, 45GS02} — m65
   categories, the Q zone, zone B as a range, a third mask plane;
-  byte-wide modes, the Q map, the listing-name rule across views, five
-  view entries; an m65 `oplen_tbl` block.  bbbc64's `asm_tables.py`
+  byte-wide modes, the Q map, the listing-name rule across views,
+  the 6502 and 65C02 subset views (D-P4-10), five view entries,
+  `mn7_c02`; an m65 `oplen_tbl` block.  bbbc64's `asm_tables.py`
   and `mn7gs` are the reference, not the source (cse selects the CPU at
   run time; bbbc64 does not).
 - **D-P4-6** On m65 the generated tables live in KDATA (the data
@@ -1577,6 +1591,108 @@ B2); (5) mode_parse and asm_line on m65 (B3, B4, B4b, D-P4-8); (6)
 five columns, `.` with five pairs and `asm_rel16` (B7, D-P4-1, D-P4-2);
 (9) the 45GS02 step (D-P4-3); (10) the golden file, Tier X, the P4
 close (D-P4-9).
+
+**P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
+first, step by step; each is red until its code lands.  Automation
+judgement: all of it is automatable — the generators on the host,
+the assembler and disassembler as bundles (py65 for the C64 sets,
+`MPU45GS02` for the m65 set), the REPL and the debugger on the PRGs
+(C64Emu, M65Emu), the real CPU in xmega65 (Tier X).  Left to the
+hardware: O1 and O3, as before.
+
+- [ ] T1. Bit-op mnemonics (step 1; `test_asm_line.py`, the c64-65c02
+  bundle): `rmb0`–`rmb7` / `smb0`–`smb7 $12` assemble the opcode with
+  the digit in bits 6:4; `bbr0`–`bbs7 $12,target` likewise, the
+  target as zone B's (`REL` only, out of reach `;?syntax`); `rmb $12`,
+  `rmb8`, `lda3`, `rmb0x` are `;?syntax`; on c64-6510 `rmb0` is
+  `;?cpu`, on c64-6502 `;?syntax`.  `dot_assemble` passes `rmb3 $12`
+  (`test_repl.py`); a source line `bbs7 $12,label` assembles in both
+  passes (`test_asm_src.py`).  The 65c02 golden file is re-recorded
+  with the digit rows (their asm cases were `;?syntax` before).
+- [ ] T2. The CPU set of `.cpu` / `u` (step 2; on each C64 PRG):
+  `.cpu` accepts exactly the build's set and refuses any other value
+  as it refuses an unknown one today; `u 6510` works on c64-65c02; `u`
+  lists the set, the active one marked.
+- [ ] T3. The generators' m65 set (step 3; host tests, the
+  `model` fixtures of `test_mnemonic_tables.py` and
+  `test_dasm_tables.py` parametrised over it): every existing rule
+  holds for the m65 set; three mask planes; zone B a range in the
+  order `REL`, `REL`+`REL16`, `REL16`; the Q zone's groups adjacent;
+  the categories of mn_classify.md; byte-wide modes; the Q map equal
+  to `instruction_set.py`'s Q forms (the seven `($nn)` ones flagged
+  2); the m65 set's one map with the 6502 and 65C02 views as bitmaps
+  over it (`ZPI` = `ZPIZ` for the 65C02 view), `$EA` `EOM` in every
+  view; five view entries; `mn7_c02` equal to the 65C02 view's keys
+  and extensions; the m65 `oplen_tbl` block = the 4510's
+  lengths; the m65 `mn7` `T` with no false positive over the invalid
+  strings (as the C64 test).  The C64 blocks byte-identical (the C64
+  PRG hashes hold).
+- [ ] T4. The m65-45gs02 build (step 4; `test_makefile_guards.py`,
+  `conftest.PROD_DEFS`): `PLATFORM=m65` passes `CPU_45GS02`
+  `MEGA_SUPPORT` `CPU_CEIL=4` `DEFAULT_CPU=4`; the m65 `asm_core` and
+  `dasm` bundles link and run on `MPU45GS02` in clean mode; the
+  classifier test over every m65 key and the invalid strings; after
+  the cold start `asm_cpu` = 4.  Every m65 Tier I and Tier X suite of
+  P0–P3 stays green on the new build.
+- [ ] T5. The assembler on m65 (step 5; the m65 `asm_core` bundle):
+  every row of the 6502, 65C02, 4510 and 45GS02 views through
+  `asm_line` at each `asm_cpu` gives the oracle's bytes or error (the
+  sweep the golden file records); targeted: the m65 gate matrix cell
+  by cell, its `asm_cpu=2` row by `mn7_c02`; at `asm_cpu` 2 `lda ($12)`
+  is `$B2 $12`, `lda ($12),z` `;?syntax`, `lda ($12,sp),y` and
+  `lda [$12]` `;?cpu`, `jsr ($1234)` and `stx $1234,y` refused as on
+  a 65C02, `bra` out of reach `;?syntax`;
+  the suffix rules (`q`, digit, `staq` = `stq`, `nop` = `eom` = `$EA`);
+  the Z rule (`(e)` / `(e),z` per Q form, `,z` where Z is not added
+  refused); `(e,sp),y` and `(e,s),y`; `[e]` / `[e],z` and their
+  `;?cpu` at `asm_cpu` 0 / 3; the prefix order `$42 $42 $EA op`;
+  `PHW #$1234`; branch width — in reach `REL`, out of reach `REL16`,
+  a forward target `REL`, `BSR` `REL16` only, `asm_rel16` forcing
+  `REL16` and cleared after the instruction; the sink — a 5-byte
+  instruction ending at `$FFFF` accepted, one byte later refused,
+  nothing at `$0000`/`$0001`.  Source assembly (`test_asm_src.py`,
+  m65): a forward and a backward far branch give the same addresses
+  in both passes.
+- [ ] T6. `.cpu` / `u` on m65 (step 6; M65Session): `.cpu 6502`,
+  `65c02`, `4510`, `45gs02` set 0 / 2 / 3 / 4, `6510` refused;
+  `u` lists `6502 65c02 4510 45gs02` with the active one marked.
+- [ ] T7. The disassembler on m65 (step 7; the m65 `dasm` bundle):
+  every opcode at `asm_cpu` 0 / 2 / 3 / 4 and every prefix sequence
+  the peel accepts (`$42 $42` + each Q opcode, `$EA` + each
+  far-capable one, both) lists as the oracle, with its length; the
+  peel only at `asm_cpu` 4 (`$42` alone `neg`, a lone `$EA` `eom` in
+  every view); the 65C02 view lists `$B2 $12` as `lda ($12)` and a
+  4510-only opcode as `???`;
+  the formats: `#$1234`, a 16-bit branch target counted from the last
+  byte, `($12),z`, `($12,sp),y`, `[$12],z`, the Q names and
+  decorations, the seven `($nn)` Q forms.  Round trip: every row
+  assembled, listed and assembled again gives the same bytes (A5's
+  round trip, on the m65 set).
+- [ ] T8. The REPL on m65 (step 8; M65Session, each mode): `d` rows
+  with five columns, the mnemonic at column 24, the longest row
+  within 40 columns; `. 42 42 ea b2 10` pokes five bytes; RETURN on an
+  unchanged `d` row writes the same bytes for a sample of every mode
+  and prefix, a 16-bit branch in reach among them; an edited row
+  assembles by the usual rules; `dot_assemble` takes `rmb3`, `ldq`,
+  `staq`, `[`, `,z`, `,sp),y`; the break panel and `t`'s row show five
+  columns.  `test_m65_repl.py`'s `3001:.  ea        nop` row becomes
+  the five-column `eom` row.  The C64 rows are unchanged (the
+  existing tests).
+- [ ] T9. The 45GS02 step (step 9; `test_m65_debugger.py`): every row
+  of debugger.md's m65 Next-PC table through `step_next_pc`, at
+  `asm_cpu` 0, 3 and 4 alike — prefixed lengths (Q, far, both), the
+  16-bit branches under `t` and `o`, `BRA`, `BSR`, `JSR (ind)` /
+  `(abs,X)`, `RTN #`, `JMP (ind)` without the page wrap — and `t` /
+  `o` run on M65Emu landing where the CPU goes.  On c64-65c02 (C64Emu)
+  `BBR` / `BBS` under `t` and `o`, taken and not.  Tier X: a stepped
+  program with a Q, a far and a 16-bit branch in xmega65 stops where
+  M65Emu stops — `JMP (ind)` at `$xxFF` among them, the real CPU's
+  answer on the wrap.
+- [ ] T10. The close (step 10): `asm_dasm_45gs02.json` recorded and
+  held by `test_golden_asm_dasm.py`; `test_size_budget.py`'s
+  m65-45gs02 entry; Tier X — a program assembled by CSE (Q, far,
+  16-bit branches, `PHW`) runs in xmega65 with the results the oracle
+  predicts.
 
 **P5 — the contract closed:** the ROM versions the port is verified
 on (920413, the floor, and the current one; the Open ROMs boot to C64

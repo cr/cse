@@ -405,7 +405,7 @@ member, as a global enumeration — **0 = 6502, 1 = 6510, 2 = 65C02,
 | c64-6510 | `c64` / `6510` | `PLATFORM_C64` `CPU_6510` `CPU_CEIL=1` | 6502, 6510 (0, 1) | 0 | `mn7` |
 | c64-65c02 | `c64` / `65c02` | `PLATFORM_C64` `CPU_65C02` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 6510, 65C02 (0, 1, 2) | 2 | `mn7` |
 | m65-6502 (P0–P3, retired with P4) | `m65` / `6502` | `PLATFORM_M65` `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
-| m65-45gs02 (from P4) | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 4510, 45GS02 (0, 3, 4) | 4 | `mn7`, m65 keys |
+| m65-45gs02 (from P4) | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 65C02, 4510, 45GS02 (0, 2, 3, 4) | 4 | `mn7`, m65 keys |
 
 Exactly one `PLATFORM_<platform>` define is set per build — the C64
 builds carry `PLATFORM_C64` as the m65 build carries `PLATFORM_M65`,
@@ -414,7 +414,10 @@ so a platform body is always selected by its own name
 Exactly one `CPU_<top>` define is set per build.  It selects the
 build's generated table block ([§ Table generation](#table-generation)).
 The m65 platform has one build, **m65-45gs02** — its CPU set fixed,
-the 6502 and the 4510 selected at run time.  (P0–P3 built and tested
+the 6502, the 65C02 and the 4510 selected at run time; the 6510 is not
+in it, as the 45GS02 runs none of the 6510's illegal opcodes (operator,
+2026-11-19).  The m65 tables and gate serve its 65C02 member; the
+`CMOS_SUPPORT` paths are the C64 65C02 build's.  (P0–P3 built and tested
 the platform layer on **m65-6502**, the 6502 CPU set whose tables and
 classifier existed; P4 retired it.)  Code
 paths are gated by the feature defines: `.ifdef CMOS_SUPPORT` (65C02
@@ -434,9 +437,9 @@ the consumer is part of):
 
 | Consumer | 0 (6502) | 1 (6510) | 2 (65C02) | 3 (4510) | 4 (45GS02) |
 |---|---|---|---|---|---|
-| asm_line CPU gate ([asm_line.md](modules/asm_line.md#asm_cpu--category-gate-matrix)) | legal NMOS, NMOS profiles | + 6510 illegals | + 65C02 extension and 65C02-only keys | + 4510 extension and 4510-only keys | as 3 + Q forms and far operands |
-| dasm view ([dasm.md](modules/dasm.md#design)) | 6502 view bitmap | 6510 map | 65C02 map | 4510 map | 4510 map + prefix peel |
-| `.cpu` (`set_cpu`) and `u` | accepted in every build | c64-6510, c64-65c02 | c64-65c02 | m65-45gs02 | m65-45gs02 |
+| asm_line CPU gate ([asm_line.md](modules/asm_line.md#asm_cpu--category-gate-matrix)) | legal NMOS, NMOS profiles | + 6510 illegals | + 65C02 extension and 65C02-only keys (m65: by `mn7_c02`) | + 4510 extension and 4510-only keys | as 3 + Q forms and far operands |
+| dasm view ([dasm.md](modules/dasm.md#design)) | 6502 view bitmap | 6510 map | 65C02 map (c64); m65: 65C02 view bitmap over the 4510 map | 4510 map | 4510 map + prefix peel |
+| `.cpu` (`set_cpu`) and `u` | accepted in every build | c64-6510, c64-65c02 | c64-65c02, m65-45gs02 | m65-45gs02 | m65-45gs02 |
 | `DEFAULT_CPU` (main.s) | c64-6502, c64-6510 | — | c64-65c02 | — | m65-45gs02 |
 | debugger step ([debugger.md § Next-PC](modules/debugger.md#next-pc)) | NMOS step (c64); m65: the 45GS02 step | NMOS step | + `JMP (a,X)`, `BRA`, `BBR` / `BBS` (c64-65c02) | the 45GS02 step | the 45GS02 step (m65 does not read `asm_cpu`) |
 

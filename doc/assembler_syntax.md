@@ -233,7 +233,7 @@ layout puts them.
 ```
 .cpu 6502           ; legal opcodes only
 .cpu 6510           ; legal + illegal opcodes        (C64 builds)
-.cpu 65c02          ; legal + CMOS extensions        (C64 builds)
+.cpu 65c02          ; legal + CMOS extensions        (c64-65c02, m65)
 .cpu 4510           ; 65C02 set + 4510 additions     (m65)
 .cpu 45gs02         ; 4510 + Q and far forms         (m65, default)
 ```
@@ -243,6 +243,11 @@ members of the build's CPU set are accepted; any other value is an
 error.  `.cpu` applies from its line to the end of the source (or the
 next `.cpu`); lines above it use the CPU the assembly started with —
 on both passes.  After the assembly the REPL's CPU (`u`) is unchanged.
+
+On m65, `.cpu 65c02` assembles the 65C02's spellings, `lda ($12)`
+among them.  The 45GS02 runs that opcode as `lda ($12),z`, so the
+code behaves as on a 65C02 while Z is 0 — as the MEGA65's KERNAL and
+BASIC keep it.  The 6510 is not offered on m65.
 
 ### `.db` — Define Bytes
 

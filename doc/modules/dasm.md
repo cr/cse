@@ -94,21 +94,28 @@ defines decodes identically there — or gets a map of its own.  A
 subset view is the **view bitmap** `dasm_view_bm` (32 B, one bit per
 opcode) over its host map, flagged by `dasm_cpu_bm[asm_cpu]`; an
 opcode whose bit is clear decodes as `MNE_UNK`, mode IMP, length 1.
-A set has at most one subset view; only a set with one carries the
-bitmap, the flag table and the check (`DASM_SUBSET`).
+A C64 set has at most one subset view, the m65 set two (one bitmap
+each, `dasm_cpu_bm[asm_cpu]` naming the bitmap); only a set with one
+carries the bitmaps, the flag table and the check (`DASM_SUBSET`).
 
 | CPU set | Maps | Subset view |
 |---|---|---|
 | {6502} | 6502 | — |
 | {6502, 6510} | 6510 | 6502, over the 6510 map |
 | {6502, 6510, 65C02} | 65C02; 6510 | 6502, over the 65C02 map |
-| {6502, 4510, 45GS02} | 4510 | 6502, over the 4510 map |
+| {6502, 65C02, 4510, 45GS02} | 4510 | 6502 and 65C02, over the 4510 map |
 
 The per-`asm_cpu` tables are padded to the platform's top `asm_cpu`
 (3 entries on C64 sets, 5 on m65); a value outside the build's set
 reads the top CPU's view.
 
-The 45GS02 view is the 4510 map plus the prefix peel.
+The 45GS02 view is the 4510 map plus the prefix peel.  The 65C02 view
+is a subset of the 4510 map but for the eight `(zp)` opcodes (`$12`
+… `$F2`), which the 4510 decodes `ZPIZ`: the generator compares
+`ZPI` and `ZPIZ` as one mode for that view, and the decoder lists
+`ZPIZ` as `($nn)` in it — the 65C02's spelling of the same opcode.
+The debugger's step follows the real 45GS02 whatever the view
+([debugger.md § Next-PC](debugger.md#next-pc)).
 
 **Mnemonic strings** (`dasm_mne_str`, KDATA).  3 chars packed into
 2 bytes (5 bits per char, A=1..Z=26, 27=dot); `MNE_UNK` packs as
@@ -128,8 +135,8 @@ name whose key comes last in the listing-name order: `OPCODES` order,
 then `OPCODES_4510_ADDED` order (`dev/instruction_set.py`).  So the m65
 CPU set lists `$EA` as `EOM` in every view (ruling D3).  The generator
 applies the rule across the set's views before it compares them, so
-the 6502 view — whose `$EA` is `NOP` by itself — stays a subset of the
-4510 map.
+the 6502 and 65C02 views — whose `$EA` is `NOP` by itself — stay
+subsets of the 4510 map.
 
 ### Prefix peel
 
@@ -148,7 +155,7 @@ the 6502 view — whose `$EA` is `NOP` by itself — stays a subset of the
    prefixes.
 
 Otherwise `$42` is `NEG` and `$EA` is `EOM`, each one byte.  In the
-4510 and 6502 views no prefix is peeled.  Prefixes never precede a
+4510, 65C02 and 6502 views no prefix is peeled.  Prefixes never precede a
 branch, so `_dasm_ptr` (the instruction's own address) stays correct
 for branch-target arithmetic.
 
@@ -161,7 +168,7 @@ size and suffix: hi nybble 0 = none, 1 = `$`+8, 2 = `$`+16, 3 = `#$`+8,
 9 = `#$`+16 (IMM16), 10 = branch target (REL16); lo nybble 0 = none,
 1 = `,x`, 2 = `,y`, 3 = `)`, 4 = `,x)`, 5 = `),y`, 6 = `),z`,
 7 = `,sp),y`.  A far prefix prints `[` / `]` in place of `(` / `)`; a
-Q-map value 2 prints `ZPIZ` as `($nn)`.
+Q-map value 2, and the 65C02 view, print `ZPIZ` as `($nn)`.
 
 **Branch targets.**  REL: `PC + 2 + offset8`; ZPREL: `PC + 3 +
 offset8`; REL16: `PC + 2 + offset16` (the address of the

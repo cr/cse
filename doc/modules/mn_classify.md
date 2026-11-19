@@ -45,9 +45,16 @@ profile index, numbered per CPU set by the generator — see
 | 00 | legal NMOS | legal NMOS |
 | 01 | legal NMOS with a 65C02 extension profile at `pidx + 1` | legal NMOS with a 4510 extension profile at `pidx + 1` |
 | 10 | 6510 illegal | Q name (`LDQ` `STQ` `ORQ` `DEQ` `INQ`): `pidx` is the Q profile |
-| 11 | 65C02-only | 4510-only (the 65C02's own names included) |
+| 11 | 65C02-only | not NMOS: 4510-only, or 65C02 and 4510 |
 
-The gate that reads `cat` is [asm_line.md § asm_cpu × category gate
+On m65 one more generated table, **`mn7_c02`** (16 B, one bit per
+slot, KDATA), marks what the 65C02 has: for a `cat` 01 key, that its
+extension profile serves the 65C02 too (`ADC` … `STA`, `BIT`, `DEC`,
+`INC`, `JMP`; not the branches, `JSR`, `STX`, `STY`, whose extension
+is the 4510's alone); for a `cat` 11 key, that the 65C02 has the key
+(`BRA` `PHX` `PHY` `PLX` `PLY` `STZ` `TRB` `TSB` and the bit-ops).
+
+The gate that reads `cat` and `mn7_c02` is [asm_line.md § asm_cpu × category gate
 matrix](asm_line.md#asm_cpu--category-gate-matrix).
 
 **Depends on:** zp (`mn_c1`, `mn_c2`, `mn_c3`, `mn7_h_tmp` /
@@ -79,7 +86,7 @@ matrix](asm_line.md#asm_cpu--category-gate-matrix).
 | Hash | `(c1*8 + c3*15 + T[c2]) & $3F` | `(c1*4 + c3 + T[c2]) & $7F` | same as mn7, its own `T` |
 | Fingerprint | `(c1 + c2*218) & $FF` | `(c2<<3) \| (c3>>2)` | same as mn7 |
 | False positives | 16 / 17576 (0.09%) | 0 / 17576 | 0 / 17576 |
-| Table size | 3×64 + 27 + 27 = 246 B | 3×128 + 27 = 411 B | 3×128 + 27 = 411 B |
+| Table size | 3×64 + 27 + 27 = 246 B | 3×128 + 27 = 411 B | 3×128 + 27 + 16 (`mn7_c02`) = 427 B |
 | Build flag | `-D USE_MN6` | default | default |
 
 The m65 `mn7` is the same routine over the m65 key set's

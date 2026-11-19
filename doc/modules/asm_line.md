@@ -120,7 +120,7 @@ existing row (it adds no row and no table fact):
 | Form | Accepted | Listed by the disassembler as |
 |---|---|---|
 | accumulator | bare or `a`; after a Q form bare only | bare |
-| zero-page indirect | `(e),z` where the CPU adds Z; `(e)` on the seven Q forms that do not (`adcq` `andq` `cmpq` `eorq` `orq` `sbcq` `stq`) | as accepted |
+| zero-page indirect | `(e),z` where the CPU adds Z; `(e)` on the seven Q forms that do not (`adcq` `andq` `cmpq` `eorq` `orq` `sbcq` `stq`); at `asm_cpu` 2 `(e)` only, the 65C02's spelling of the same opcode | as accepted; in the 65C02 view `(e)` |
 | far (32-bit pointer) | `[e],z` / `[e]`, by the same Z rule | as accepted |
 | stack-relative | `(e,sp),y` or `(e,s),y` | `(e,sp),y` |
 | `$EA` | `nop`, `eom` | `eom` |
@@ -213,11 +213,13 @@ below.  Reject cells `jmp asm_cpu_error` (so the caller selects the
 | `asm_cpu=1` (6510)  | accept | accept (NMOS profile) | accept | **REJECT** |
 | `asm_cpu=2` (65C02) | accept | accept (CMOS profile, needs `CMOS_SUPPORT`) | **REJECT** | accept (needs `CMOS_SUPPORT`) |
 
-**m65 build** (`MEGA_SUPPORT`, `asm_cpu` ∈ {0, 3, 4}):
+**m65 build** (`MEGA_SUPPORT`, `asm_cpu` ∈ {0, 2, 3, 4}; `c02` is the
+key's bit in `mn7_c02`, [mn_classify.md](mn_classify.md)):
 
-| | `cat=00` legal NMOS | `cat=01` legal + 4510 ext | `cat=10` Q name | `cat=11` 4510-only |
+| | `cat=00` legal NMOS | `cat=01` legal + extension | `cat=10` Q name | `cat=11` not NMOS |
 |---|---|---|---|---|
 | `asm_cpu=0` (6502)   | accept | accept (NMOS profile) | **REJECT** | **REJECT** |
+| `asm_cpu=2` (65C02)  | accept | accept (extension profile if `c02`, else NMOS profile) | **REJECT** | accept if `c02`, else **REJECT** |
 | `asm_cpu=3` (4510)   | accept | accept (extension profile) | **REJECT** | accept |
 | `asm_cpu=4` (45GS02) | accept | accept (extension profile) | accept (Q, `pidx` is the Q profile) | accept |
 
@@ -225,7 +227,15 @@ The **effective profile** is `pidx` after the extension upgrade.  The
 `q` suffix is accepted iff `asm_cpu=4`, `cat≠10`, and the effective
 profile lies in zone Q ([opcode_lookup.md § Profile index layout](opcode_lookup.md#design));
 the Q profile is then effective + 1.  Otherwise `q` is `;?cpu` on
-`asm_cpu` 0/3 for a quad stem, `;?syntax` for any other key.
+`asm_cpu` 0/2/3 for a quad stem, `;?syntax` for any other key.
+
+At `asm_cpu=2` the extension profile is the 4510's, so the modes the
+65C02 lacks are refused after `mode_parse`: `(e,sp),y` and a far
+operand are `;?cpu`, a written `,z` is `;?syntax` (the 65C02 spells
+the opcode `(e)`), and a branch takes `REL` only (out of reach
+`;?syntax`, as on c64-65c02).  The 65C02 code it assembles runs on the
+45GS02 as 65C02 code while Z = 0 — the CPU adds Z to every `(e)`;
+the MEGA65's KERNAL and BASIC keep Z = 0.
 
 Every C64 cell is tested per variant bundle in `TestCpuGateCmosBundle`
 and `TestCpuGate6510Bundle` (test_asm_line.py).
@@ -384,9 +394,10 @@ an immediate out of range and an output wrap past `$FFFF`;
   which `AND #$5F` folds onto them — in the key).  `_asm_rd_upper`
   refuses anything else.
 - `asm_cpu` values: 0=6502, 1=6510, 2=65C02, 3=4510, 4=45GS02 (one
-  global enumeration).  The CMOS gate's `cmp #2` compares are compiled
-  only into C64 builds, the 4510 gate's `cmp #3` only into the m65 build,
-  so each build compares within its own CPU set.
+  global enumeration).  The C64 CMOS gate's compares are compiled
+  only into the C64 builds, the m65 gate's (65C02 by `mn7_c02`, 4510,
+  45GS02) only into the m65 build, so each build compares within its
+  own CPU set.
 - `mn7_classify` clobbers Y (sets Y=mn_c2).  `ldy #0` is required
   before zone dispatch.
 - `_asm_emit` clobbers A and Y and preserves X and C.

@@ -677,9 +677,12 @@ Where it differs from the C64 build:
   second row `r z:XX b:XX` in 40.
 - **The CPU.**  The assembler and the disassembler speak the
   45GS02 by default — its 4510 instructions, the quad `q`
-  instructions and 32-bit `[ ]` addressing — and the 4510 or the 6502
-  on request (`.cpu`, `u`; [assembler_syntax.md](doc/assembler_syntax.md)).
-  A `d` row has room for five bytes, the longest instruction.
+  instructions and 32-bit `[ ]` addressing — and the 4510, the 65C02
+  or the 6502 on request (`.cpu`, `u`; not the 6510, whose illegal
+  opcodes the MEGA65 does not run;
+  [assembler_syntax.md](doc/assembler_syntax.md)).  65C02 code runs
+  as such while Z is 0, as the MEGA65 keeps it.  A `d` row has room
+  for five bytes, the longest instruction.
 - **The editor** uses the whole screen of the current mode, and a
   source line may be 79 columns wide (39 on the C64; the C64 build
   truncates longer lines with a warning).  In 40 columns a longer line

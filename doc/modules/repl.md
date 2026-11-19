@@ -972,7 +972,7 @@ Tests: `TestColorApply`, `TestColorCommand`.
 
     u 6502       standard NMOS 6502                     every build
     u 6510       6510 (with illegal opcodes)            6510, 65C02 builds
-    u 65c02      WDC 65C02 (CMOS extensions)            65C02 build
+    u 65c02      WDC 65C02 (CMOS extensions)            65C02 build, m65
     u 4510       CSG 4510 (65CE02 set + MAP/EOM)        m65
     u 45gs02     45GS02 (4510 + Q and far forms)        m65
 
@@ -981,7 +981,9 @@ and always prints them, the active one marked `*`
 (`; cpu: 6502* 6510`).  The modes are the build's CPU set
 ([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)):
 the 65C02 build offers 6502, 6510 and 65c02 (ruling D2); the m65
-build 6502, 4510 and 45gs02.
+build 6502, 65c02, 4510 and 45gs02 (`; cpu: 6502 65c02 4510 45gs02*`).
+`u` selects the assembler's CPU and the disassembler's view; the
+debugger's step follows the real CPU ([debugger.md § Next-PC](debugger.md#next-pc)).
 
 ### Free / reserved keys
 
@@ -998,7 +1000,7 @@ paths; each starts at column 0 and ends with `io_clear_eol`.
 
 - `emit_dot(rp_addr)` — `AAAA:.  HH HH HH  mne opr`, returns the
   instruction length in A.  On m65 five byte columns, in every screen
-  mode and every `u` view (operator, 2026-11-19): the mnemonic at
+  mode (operator, 2026-11-19): the mnemonic at
   column 24, a row 38 columns at most (`lda ($12,sp),y`), so it fits
   40 columns.
 - `emit_mem(rp_addr, A = columns 1–8)` — `AAAA:m HH … HH;cccccccc`
