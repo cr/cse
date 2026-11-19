@@ -29,8 +29,8 @@ import instruction_set as I                      # noqa: E402
 import asm_dasm_runner as R                      # noqa: E402
 from conftest import AsmCoreSymbols              # noqa: E402
 
-SYNTAX, EXPR, CPU = 0, 1, 2
-CPUS = {"6502": 0, "65c02": 2, "4510": 3, "45gs02": 4}
+SYNTAX, EXPR, CPU = R.SYNTAX, R.EXPR, R.CPU
+CPUS = {v: R.MT.ASM_CPU[v] for v in ("6502", "65c02", "4510", "45gs02")}
 
 # An operand per mode and its bytes at asm_pc = 0 (asm_dasm_runner.ASM_PC).
 OPERAND = {
@@ -53,8 +53,7 @@ def syms():
 
 
 def asm(syms, source, cpu=4, **kw):
-    got, err, _ = R.run_asm(syms, source, cpu, **kw)
-    return got if got is not None else ("E", err)
+    return R.asm_result(syms, source, cpu, **kw)
 
 
 def _rows(view):
@@ -71,6 +70,17 @@ def _rows(view):
 def test_every_row_assembles_at_its_cpu(syms, view):
     bad = [(src, want.hex(), asm(syms, src, CPUS[view]))
            for src, want in _rows(view) if asm(syms, src, CPUS[view]) != want]
+    assert not bad, bad[:10]
+
+
+@pytest.mark.parametrize("lower,upper", [("6502", "65c02"), ("65c02", "4510"),
+                                         ("6502", "4510"), ("4510", "45gs02")])
+def test_a_row_the_lower_cpu_lacks_is_refused_there(syms, lower, upper):
+    """Every source of the upper view that the lower view has no row for
+    is refused at the lower CPU (;?cpu or ;?syntax), not assembled."""
+    have = {src for src, _ in _rows(lower)}
+    bad = [(src, got) for src, _ in _rows(upper) if src not in have
+           for got in [asm(syms, src, CPUS[lower])] if not isinstance(got, tuple)]
     assert not bad, bad[:10]
 
 

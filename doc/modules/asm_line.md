@@ -167,7 +167,7 @@ unwind included — leaves it set.
 **Depends on:** expr (`last_err`, `expr_fwd`), addr_mode (`mode_parse`,
 `asm_skip_ws`, `_au_no_acc`; `_au_far` on `MEGA_SUPPORT`),
 opcode_lookup (`asm_opcode_lookup`), mn_asm_tables (`asm_oplen`,
-`ASM_ZONE_G`, `ASM_ZONE_D`; on m65 `ASM_ZONE_B` `_F` `_Q` `_H`),
+`ASM_ZONE_G`, `ASM_ZONE_D`; on m65 `ASM_ZONE_Q`, `ASM_ZONE_H`),
 mn_classify (`mn_classify`, `mn_base_op`, `mn_profile`), mn7_tables
 (`mn7_c02`, m65), mn_modes (`mn_modes_lo` — the ACC-bit test that sets
 `_au_no_acc`), asm_err (`asm_error`, `asm_expr_error`,
@@ -259,9 +259,9 @@ and `TestCpuGate6510Bundle` (test_asm_line.py).
 ([opcode_lookup.md § Profile index layout](opcode_lookup.md#design))
 determines which path assembles the instruction.  A `pidx` below the
 generated `ASM_ZONE_G` is a fixed zone and indexes the jump table
-directly (order A B F C D E) — on m65, where zone B is the range
-`ASM_ZONE_B`..`ASM_ZONE_F` − 1, the index is 0 for A, 1 for B and
-`pidx − ASM_ZONE_F + 2` from F on; the rest is multi-mode:
+directly (order A B F C D E; on m65 zone B is three profiles,
+`pidx` 1–3 — `REL`, `REL` + `REL16`, `REL16` — and the table holds
+zone B three times); the rest is multi-mode:
 
 | Zone | Mode | Examples |
 |------|------|---------|

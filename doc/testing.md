@@ -118,7 +118,9 @@ against.  A test that needs the MEGA65's boot, its hypervisor or its
 disk drive, or that records the 45GS02's behaviour for M65Emu's golden
 files, runs in xmega65 (Xemu's MEGA65 emulator), driven by
 `tests/xmega65.py` (which also holds what the golden-file recorders
-share: the recording session and the file writer):
+share — the recording session and the file writer — and what the Tier X
+tests share: `missing()`, `PER_ROM` / `snapshot_dir()`, a module
+fixture per ROM that has an M65Emu snapshot):
 
 - **Start:** headless at full speed (`-headless -sleepless
   -skipconfigfile -besure`), the PRG through `-prg` with `-prgmode
@@ -839,8 +841,8 @@ The installed machine they check is
   each ROM): a program typed with `.` (`PHW #`, `PLA`, `LDQ` / `STQ`,
   a far `LDA`, a taken 16-bit `BEQ`) and run with `j`; the bytes it
   stores are the instruction set's prediction in xmega65 and M65Emu,
-  the assembled bytes and every screen M65Emu's.  Both typed tests
-  share `test_m65_boot.typed_run`.
+  the assembled bytes and every screen M65Emu's.  The typed Tier X
+  tests (REPL, step, this one) share `test_m65_boot.typed_run`.
 - **The recordings behind the m65 column.**  The P0 analysis probes
   (entry state, base page, `Z`, the frame, the maps, the Hypervisor
   services, the regions CSE takes, all on both ROMs) become committed

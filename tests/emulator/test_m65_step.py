@@ -24,8 +24,7 @@ import sys
 
 import pytest
 
-from m65emu.harness import snapshot_dirs
-from xmega65 import missing
+from xmega65 import PER_ROM, missing, snapshot_dir
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests" / "integration"))
@@ -33,7 +32,6 @@ sys.path.insert(0, str(ROOT / "tests" / "emulator"))
 from test_m65_boot import typed_run                              # noqa: E402
 
 WORK = ROOT / "build" / "m65_step"
-_SNAPSHOTS = snapshot_dirs()
 _MISSING = missing()
 pytestmark = pytest.mark.skipif(_MISSING is not None, reason=str(_MISSING))
 
@@ -51,21 +49,17 @@ STEPS = [b"T\r"] * 7          # the preview, then $3004 $3007 $3200 $3400 $3401,
 SCRIPT = SETUP + STEPS
 
 
-@pytest.fixture(scope="module",
-                params=_SNAPSHOTS or [None],
-                ids=[d.name for d in _SNAPSHOTS] or ["no-snapshot"])
+@pytest.fixture(scope="module", **PER_ROM)
 def stepped(request, cse_m65_prg):
     """The screens after each step of SCRIPT in xmega65 and in M65Emu."""
-    if request.param is None:
-        pytest.skip("no M65Emu snapshot (it holds the ROM): "
-                    "python dev/capture_m65_state.py --rom PATH")
-    return typed_run(request.param, cse_m65_prg, SCRIPT, WORK / request.param.name)
+    d = snapshot_dir(request)
+    return typed_run(d, cse_m65_prg, SCRIPT, WORK / d.name)
 
 
-@pytest.mark.parametrize("step", range(len(SCRIPT)),
-                         ids=[k.decode("latin-1").strip() for k in SCRIPT])
+@pytest.mark.parametrize("step", range(len(SCRIPT) + 1),
+                         ids=["splash"] + [k.decode("latin-1").strip() for k in SCRIPT])
 def test_the_screen_is_m65emus(stepped, step):
-    assert stepped["got"][step] == stepped["want"][step]
+    assert stepped["got"][step] == stepped["want"][step]        # 0: the splash
 
 
 TAGS = ["; dbg at $3000", "; brk at $3004", "; brk at $3007", "; brk at $3200",
@@ -76,5 +70,5 @@ TAGS = ["; dbg at $3000", "; brk at $3004", "; brk at $3007", "; brk at $3200",
 def test_m65emu_steps_the_documented_path(stepped, k):
     """The reference itself: each step's tag row, so a shared wrong
     answer cannot pass (the wrap would stop at $4200)."""
-    rows = stepped["want"][len(SETUP) + k]
+    rows = stepped["want"][1 + len(SETUP) + k]
     assert any(r.rstrip() == TAGS[k] for r in rows), "\n".join(rows)

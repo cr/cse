@@ -7,7 +7,9 @@
 ; Format: MNEMONIC [OPERAND]
 ;   - MNEMONIC: 3 letters (PETSCII $41–$5A, $61–$7A or $C1–$DA; AND #$5F
 ;               folds them, _asm_rd_upper maps them to 1–26 for the hash
-;               classifier); whitespace, end of line or ';' must follow
+;               classifier), then a bit digit (RMB/SMB/BBR/BBS) or, on
+;               m65, a `q` suffix (asm_line.md § Mnemonic word);
+;               whitespace, end of line or ';' must follow
 ;   - OPERAND:  addressing-mode argument, same syntax as mode_parse accepts
 ;               (expressions and symbols via expr_eval_nb).
 ;               Zone B (REL): the operand is the target (narrow or wide);
@@ -21,7 +23,8 @@
 ;   asm_ptr   — ZP word pointing to the instruction string (PETSCII, null-terminated)
 ;   asm_pc    — current PC (lo, hi); required for REL offset computation
 ;   asm_out   — output buffer pointer (lo, hi)
-;   asm_cpu   — 0 = 6502, 1 = 6510, 2 = 65C02 (global enumeration)
+;   asm_cpu   — 0 = 6502, 1 = 6510, 2 = 65C02, 3 = 4510, 4 = 45GS02
+;               (global enumeration; the build's CPU set)
 ;   (sets Y = 0 itself)
 ;
 ; Exit (success):
@@ -99,8 +102,8 @@ PFX_Q      = %00000001      ; asm_pfx: emit $42 $42
 PFX_FAR    = %00000010      ;          emit $EA
 PFX_QSFX   = %01000000      ;          the word had the `q` suffix
 PFX_W16    = %10000000      ;          the caller's REL16 request
-        .importzp ASM_ZONE_B, ASM_ZONE_F, ASM_ZONE_Q, ASM_ZONE_H
-        .import   mn7_c02, _au_far
+        .importzp ASM_ZONE_Q, ASM_ZONE_H
+        .import   mn7_c02, _au_far, _bit_tab
 SINK_SIZE  = 4                  ; a 5-byte instruction may overrun by 4
 .else
 SINK_SIZE  = 3
@@ -274,6 +277,7 @@ _asm_imm_chk:
         jmp asm_expr_error
 @ok:    rts
 
+.ifndef MEGA_SUPPORT
 ; ── _asm_rel8 — an 8-bit branch offset ───────────────────────────────────────
 ; In: A = the instruction's length, asm_opr = the target, asm_pc.
 ; Out: X = target − (asm_pc + A), which must be −128..127, else
@@ -304,39 +308,52 @@ _asm_rel8:
 @ok:    tax
         rts
 
-.ifdef MEGA_SUPPORT
+.else
 ; ── _asm_c02 — the key's mn7_c02 bit ──────────────────────────────────────────
-; Out: A = 1 when the 65C02 has the key (cat 11) or its extension (cat 01)
-; (mn_classify.md), else 0.  Clobbers X, Y.
+; Out: A ≠ 0 (and Z = 0) when the 65C02 has the key (cat 11) or its
+; extension (cat 01) (mn_classify.md), else 0.  Clobbers X, Y.
 _asm_c02:
+        lda asm_slot
+        and #7
+        tay
         lda asm_slot
         lsr
         lsr
         lsr
         tax
-        lda asm_slot
-        and #7
-        tay
-        lda mn7_c02,x
-:       dey
-        bmi :+
-        lsr
-        bpl :-                  ; (always: lsr clears bit 7)
-:       and #1
+        lda _bit_tab,y
+        and mn7_c02,x
         rts
 
+; ── _asm_reld — a branch offset, 16 bits ──────────────────────────────────────
+; In: A = the instruction's length, asm_opr = the target, asm_pc.
+; Out: asm_opr = d = target − (asm_pc + A); C = 0 when d fits a byte
+; (−128..127; REL16 counts from the same last byte).  Clobbers A, X,
+; asm_tmp.
+_asm_reld:
+        clc
+        adc asm_pc
+        sta asm_tmp
+        lda asm_pc+1
+        adc #0
+        tax                     ; X:asm_tmp = asm_pc + A
+        sec
+        lda asm_opr
+        sbc asm_tmp
+        sta asm_opr
+        stx asm_tmp
+        lda asm_opr+1
+        sbc asm_tmp
+        sta asm_opr+1
+        ; fall through
 ; ── _asm_fits8 — C = 0 when asm_opr (16 bits) is −128..127 ────────────────────
 _asm_fits8:
-        lda asm_opr
-        asl                     ; C = the low byte's sign
-        lda #0
-        sbc #0                  ; $00 if C, else $FF ...
-        eor #$FF                ; ... so the sign extension: $FF if C
-        cmp asm_opr+1
-        bne :+
         clc
-        rts
-:       sec
+        lda asm_opr
+        adc #$80                ; C = 1 from $80..$FF
+        lda asm_opr+1
+        adc #0                  ; 0 exactly for $FF80..$007F
+        cmp #1
         rts
 
 ; ── _asm_m65_mode — the m65 rules on a parsed mode ────────────────────────────
@@ -536,21 +553,18 @@ _asm_line_core:
         cpx #2
         bne @m_4510             ; 4510, 45GS02
         pha
-        jsr _asm_c02            ; A = the key's mn7_c02 bit (Z = 0: has it)
+        jsr _asm_c02            ; A ≠ 0: the 65C02 has it
         tax
         pla
         cpx #0
-        beq @c02_no
+        beq @cpu_err
 @m_4510:
         cmp #$40
         bne @no_upgrade         ; cat 11: accept
         inc asm_pidx            ; cat 01: the extension profile
         bne @no_upgrade         ; (always)
-@c02_no:
-        cmp #$40
-        beq @no_upgrade         ; cat 01: the NMOS profile on the 65C02
 @cpu_err:
-        cmp #$40                ; (A = cat; from asm_cpu 0: cat 01 is fine)
+        cmp #$40                ; (A = cat) cat 01: its NMOS profile
         beq @no_upgrade
         jmp asm_cpu_error
 @qname: cpx #4
@@ -663,25 +677,13 @@ _asm_line_core:
         ; ── zone dispatch ─────────────────────────────────────────────────────
         ; pidx < ASM_ZONE_G is a fixed zone; the generator numbers them
         ; A B F C D E and gives a CPU set only the zones it has, so the
-        ; table below is indexed by pidx directly.
+        ; table below is indexed by pidx directly (on m65 zone B is
+        ; three profiles, REL, REL + REL16, REL16: pidx 1-3).
         lda asm_pidx
         cmp #ASM_ZONE_G
         bcc :+
         jmp @zone_gh            ; multi-mode G/H
-:
-.ifdef MEGA_SUPPORT
-        ; m65: zone B is a range, ASM_ZONE_B .. ASM_ZONE_F - 1 — the
-        ; table's index is 0 for A, 1 for B, then F C D E from 2.
-        cmp #ASM_ZONE_B
-        bcc @zidx               ; A
-        cmp #ASM_ZONE_F
-        lda #1
-        bcc @zidx               ; B
-        lda asm_pidx
-        sbc #ASM_ZONE_F - 2     ; (C = 1)
-@zidx:
-.endif
-        tax
+:       tax
         lda @ztbl_hi,x
         pha
         lda @ztbl_lo,x
@@ -689,10 +691,18 @@ _asm_line_core:
         rts                     ; RTS trick → dispatches to (addr+1)
 
 @ztbl_lo:
-        .byte <(@zone_a-1), <(@zone_b-1), <(@zone_f-1)
+        .byte <(@zone_a-1), <(@zone_b-1)
+.ifdef MEGA_SUPPORT
+        .byte <(@zone_b-1), <(@zone_b-1)
+.endif
+        .byte <(@zone_f-1)
         .byte <(@zone_c-1), <(@zone_d-1), <(@zone_e-1)
 @ztbl_hi:
-        .byte >(@zone_a-1), >(@zone_b-1), >(@zone_f-1)
+        .byte >(@zone_a-1), >(@zone_b-1)
+.ifdef MEGA_SUPPORT
+        .byte >(@zone_b-1), >(@zone_b-1)
+.endif
+        .byte >(@zone_f-1)
         .byte >(@zone_c-1), >(@zone_d-1), >(@zone_e-1)
 
 ; ── Zone A: implied — the operand must be empty ──────────────────────────────
@@ -726,20 +736,8 @@ _asm_line_core:
 .ifdef MEGA_SUPPORT
         ; asm_opr := d = target − (asm_pc + 2), 16 bits: REL's offset if
         ; it fits a byte, REL16's in any case (from the last byte).
-        sec
-        lda asm_opr
-        sbc asm_pc
-        tax
-        lda asm_opr+1
-        sbc asm_pc+1
-        tay
-        txa
-        sec
-        sbc #2
-        sta asm_opr
-        bcs :+
-        dey
-:       sty asm_opr+1
+        lda #2
+        jsr _asm_reld
         ; The width (asm_line.md § Branches): the caller's REL16 request
         ; where the profile has REL16; else REL for a forward target or
         ; one in reach; else REL16; else out of range.
@@ -753,9 +751,9 @@ _asm_line_core:
         jsr asm_opcode_lookup   ; C = 1: no REL (BSR)
         bcs @b_16
         pha                     ; the REL opcode
+        jsr _asm_fits8          ; C = 0: in reach
         lda expr_fwd
         bne @b_8                ; a forward target takes REL
-        jsr _asm_fits8
         bcc @b_8
         pla
 @b_16:  jsr @b_try16
@@ -767,8 +765,7 @@ _asm_line_core:
         lda asm_opr+1
         clc
         jmp _asm_emit
-@b_8:   jsr _asm_fits8          ; (pla keeps C)
-        pla
+@b_8:   pla                     ; (keeps C)
         bcs @b_err              ; a forward REL out of reach
         jsr _asm_emit
         lda asm_opr
@@ -820,10 +817,16 @@ _asm_line_core:
         cmp #MODE_ZPREL
         bne @err_mode
         lda asm_base
-        ora asm_tmp             ; the opcode, before _asm_rel8 takes asm_tmp
+        ora asm_tmp             ; the opcode, before the offset takes asm_tmp
         pha
         lda #3                  ; the instruction's length
+.ifdef MEGA_SUPPORT
+        jsr _asm_reld
+        bcs @b_err
+        ldx asm_opr             ; X = offset
+.else
         jsr _asm_rel8           ; X = offset
+.endif
         pla
         jsr _asm_emit           ; preserves X
         lda asm_tmp2

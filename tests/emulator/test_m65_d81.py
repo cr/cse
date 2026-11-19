@@ -36,8 +36,8 @@ import sys
 import pytest
 
 from emu_base import decode_screen_codes
-from m65emu.harness import CSE_BP, load_snapshot, snapshot_dirs
-from xmega65 import CHIP_ROM, XMega65, missing
+from m65emu.harness import CSE_BP, load_snapshot
+from xmega65 import CHIP_ROM, PER_ROM, XMega65, missing, snapshot_dir
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests" / "integration"))
@@ -48,7 +48,6 @@ STOP = 0x03
 OK = "; 00,ok,00,00"             # CBDOS's status: no space after the code (a 1541's has one)
 DATA = bytes((k * 11 + 3) & 0xFF for k in range(32))
 
-_SNAPSHOTS = snapshot_dirs()
 
 
 _MISSING = missing("c1541")
@@ -65,18 +64,14 @@ def screen(xm, width=80, height=25):
     return [decode_screen_codes(raw[r * width:(r + 1) * width]) for r in range(height)]
 
 
-@pytest.fixture(scope="module",
-                params=_SNAPSHOTS or [None],
-                ids=[d.name for d in _SNAPSHOTS] or ["no-snapshot"])
+@pytest.fixture(scope="module", **PER_ROM)
 def run(request, cse_m65_prg):
     """One xmega65 session on the D81: what each step left."""
-    if request.param is None:
-        pytest.skip("no M65Emu snapshot (it holds the ROM): "
-                    "python dev/capture_m65_state.py --rom PATH")
-    snap = load_snapshot(request.param)
+    d = snapshot_dir(request)
+    snap = load_snapshot(d)
     prg, map_path = cse_m65_prg
     s = M65Session((prg, map_path), snap).e.sym
-    work = WORK / request.param.name
+    work = WORK / d.name
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     rom = work / "rom.bin"

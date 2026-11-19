@@ -25,8 +25,7 @@ import sys
 
 import pytest
 
-from m65emu.harness import snapshot_dirs
-from xmega65 import missing
+from xmega65 import PER_ROM, missing, snapshot_dir
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests" / "integration"))
@@ -34,7 +33,6 @@ sys.path.insert(0, str(ROOT / "tests" / "emulator"))
 from test_m65_boot import typed_run                              # noqa: E402
 
 WORK = ROOT / "build" / "m65_asm_run"
-_SNAPSHOTS = snapshot_dirs()
 _MISSING = missing()
 pytestmark = pytest.mark.skipif(_MISSING is not None, reason=str(_MISSING))
 
@@ -60,15 +58,11 @@ SCRIPT = [b"@ $3100\r", b". 34 56 78 9A\r",    # Q's bytes
 WANT = [0x12, 0x34, 0x34, 0x56, 0x78, 0x9A, 0xC3, 0x5A]
 
 
-@pytest.fixture(scope="module",
-                params=_SNAPSHOTS or [None],
-                ids=[d.name for d in _SNAPSHOTS] or ["no-snapshot"])
+@pytest.fixture(scope="module", **PER_ROM)
 def ran(request, cse_m65_prg):
-    if request.param is None:
-        pytest.skip("no M65Emu snapshot (it holds the ROM): "
-                    "python dev/capture_m65_state.py --rom PATH")
-    return typed_run(request.param, cse_m65_prg, SCRIPT,
-                     WORK / request.param.name, peek=[(OUT, len(WANT)), (0x3000, 0x20)])
+    d = snapshot_dir(request)
+    return typed_run(d, cse_m65_prg, SCRIPT, WORK / d.name,
+                     peek=[(OUT, len(WANT)), (0x3000, 0x20)])
 
 
 def test_the_program_stores_what_the_instruction_set_predicts(ran):
@@ -81,7 +75,7 @@ def test_the_bytes_assembled_are_m65emus(ran):
     assert ran["got_peek"][1][0x1C:0x1F] == [0xF3, 0xE2, 0x03]      # REL16
 
 
-@pytest.mark.parametrize("step", range(len(SCRIPT)),
-                         ids=[k.decode("latin-1").strip() for k in SCRIPT])
+@pytest.mark.parametrize("step", range(len(SCRIPT) + 1),
+                         ids=["splash"] + [k.decode("latin-1").strip() for k in SCRIPT])
 def test_the_screen_is_m65emus(ran, step):
-    assert ran["got"][step] == ran["want"][step]
+    assert ran["got"][step] == ran["want"][step]                # 0: the splash

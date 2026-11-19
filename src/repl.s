@@ -1192,8 +1192,9 @@ zp_stage_prep_addr:                     ; convenience entry: load
 
 ; DOT_DASM — disassemble the instruction at rp_addr as the user sees it:
 ;   rp_ptr2 → the staged image (zp_stage_buf for a page-0 base, else
-;   the user address), dasm_buf filled, A = the length.  emit_dot and
-;   cmd_dot's width check (m65) expand it; inline in emit_dot.
+;   the user address), dasm_buf filled, A = the length.  Inline in
+;   emit_dot on the C64; on m65 the proc dot_dasm, which cmd_dot's
+;   width check shares.
 .macro DOT_DASM
         jsr zp_stage_prep_addr
         ; dasm_insn_pre owns its KERNAL banking — we hand it the
@@ -1210,12 +1211,24 @@ zp_stage_prep_addr:                     ; convenience entry: load
         jsr dasm_insn_pre
 .endmacro
 
+.ifdef MEGA_SUPPORT
+.proc dot_dasm
+        DOT_DASM
+        rts
+.endproc
+.endif
+
 ; ═══════════════════════════════════════════════════════════
 ; emit_dot — disassemble and display "ADDR:. XX XX XX  mne op"
-;   rp_addr = address. Returns instruction length in A.
+;   (DOT_MAX byte columns: 3, m65 5).  rp_addr = address.  Returns
+;   the instruction length in A.
 ; ═══════════════════════════════════════════════════════════
 .proc emit_dot
+.ifdef MEGA_SUPPORT
+        jsr dot_dasm
+.else
         DOT_DASM
+.endif
         pha                     ; save olen for later use
 
         lda #'.'
@@ -1869,7 +1882,7 @@ mem_row:
         ; REL16 when the bytes are one (repl.md § The `.` command).
         lda rp_cnt
         beq :+
-        DOT_DASM
+        jsr dot_dasm
         lda _dasm_mode
         cmp #MODE_REL16
         bne :+
@@ -1880,6 +1893,10 @@ mem_row:
         jsr dot_assemble
         cmp #0
         bne @show               ; success → show result
+.ifdef MEGA_SUPPORT
+        sta asm_rel16           ; A = 0: a refusal before asm_line ran
+                                ; leaves the width request — drop it
+.endif
         ; Dispatch error category (asm_err.s § asm_err_code):
         ;   0 = syntax  → ;?syntax
         ;   1 = expr    → ;?expr <detail>

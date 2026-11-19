@@ -1038,10 +1038,11 @@ def _u(prg, cmd, start=0):
 class TestCpuSetPerBuild:
     @pytest.mark.parametrize("name", list(CPU_VALUE))
     def test_u_selects_exactly_the_set(self, cse_prg_per_cpu, name):
+        """From the set's top member, so a selection changes asm_cpu."""
         build = cse_prg_per_cpu[0].parent.name
-        got, _ = _u(cse_prg_per_cpu, f"u {name}")
-        want = CPU_VALUE[name] if name in CPU_SETS[build] else 0
-        assert got == want
+        top = CPU_VALUE[CPU_SETS[build][-1]]
+        got, _ = _u(cse_prg_per_cpu, f"u {name}", start=top)
+        assert got == (CPU_VALUE[name] if name in CPU_SETS[build] else top)
 
     def test_u_lists_the_set_and_marks_the_active_one(self, cse_prg_per_cpu):
         build = cse_prg_per_cpu[0].parent.name

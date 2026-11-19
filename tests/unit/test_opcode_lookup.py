@@ -48,11 +48,11 @@ def _lookup(syms, pidx, mode, base):
     M65Emu (asm_dasm_runner's m65 path)."""
     if syms.platform == "m65":
         import asm_dasm_runner as R
-        m = R._M65Bundle(syms)
+        m = R.M65Bundle(syms)
         m.poke(syms.asm_pidx, pidx)
         m.poke(syms.asm_mode, mode)
         m.poke(syms.asm_base, base)
-        m.call(syms.asm_opcode_lookup, 0x0F00)
+        m.call(syms.asm_opcode_lookup)
         return int(m.emu.carry), m.emu.a
     cpu, mem = make_cpu(syms)
     mem[syms.asm_pidx] = pidx

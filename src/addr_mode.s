@@ -17,8 +17,10 @@
 ;   Y = 0
 ;
 ; Exit:
-;   A   – mode index (0 = IMP .. 15 = ZPREL, never 12 = REL; matches
-;          ALL_MODES order in dev/mnemonic_tables.py)
+;   A   – mode index (0 = IMP .. 15 = ZPREL, never 12 = REL; on m65 also
+;          18 = ISPY `(e,sp),y`, 19 = ZPIZ `(e),z`; ALL_MODES order in
+;          dev/instruction_set.py)
+;   _au_far (m65) – nonzero for `[e]` / `[e],z` (ZPI / ZPIZ, far)
 ;   X   – operand byte count (0, 1, or 2)
 ;   asm_opr[0]  – first (or only) operand byte
 ;   asm_opr[1]  – second operand byte  (absolute addresses: hi byte)

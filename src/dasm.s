@@ -26,6 +26,9 @@
         .include "dasm_mne_idx.s"   ; MNE_UNK, MNE_DIGIT_*, DASM_SUBSET
 
         .export dasm_insn, dasm_insn_pre, _dasm_in
+.ifdef MEGA_SUPPORT
+        .export _dasm_pfx               ; the debugger's step reads it
+.endif
         .export dasm_buf
 
         .importzp asm_cpu
@@ -76,8 +79,8 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
 ; (kernal_out=1) the bank helpers short-circuit, so this wrapper
 ; costs only the flag check on each call from inside the batch.
 ;
-; KERNAL-ROM read fix: snapshot the 3 max-insn bytes from the
-; user's address into _dasm_in BEFORE banking out — otherwise
+; KERNAL-ROM read fix: snapshot the longest instruction's bytes
+; (DASM_INSN_MAX) from the user's address into _dasm_in BEFORE banking out — otherwise
 ; disassembly of `$E000+` would read the RAM under KERNAL (mostly
 ; $00 / $FF) and produce a stream of "brk" / "..." instead of the
 ; real KERNAL instructions.  The snapshot uses whatever bank state
@@ -93,16 +96,26 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
 .proc dasm_insn
         sta _dasm_ptr
         stx _dasm_ptr+1
-        ; Snapshot 3 bytes from the user address while the caller's
-        ; bank state is still in force.  _dasm_ptr stays pointing at
-        ; the user address — it's used by branch-target arithmetic in
-        ; format_operand to compute PC-relative destinations.
+.ifdef MEGA_SUPPORT
+        pha                     ; FAR_USER may rewrite the offset (the
+        txa                     ; I/O row): keep the user address
+        pha
+        FAR_USER _dasm_ptr
+.endif
+        ; Snapshot the bytes from the user address while the caller's
+        ; bank state is still in force.
         ldy #DASM_INSN_MAX - 1
 @cp:    FAR_LDA _dasm_ptr
         sta _dasm_in,y
         dey
         bpl @cp
-; dasm_insn_pre — entry for a caller that has filled _dasm_in (3 B; 5 on m65)
+.ifdef MEGA_SUPPORT
+        pla                     ; _dasm_ptr = the user address again:
+        sta _dasm_ptr+1         ; format_operand's branch targets
+        pla
+        sta _dasm_ptr
+.endif
+; dasm_insn_pre — entry for a caller that has filled _dasm_in (DASM_INSN_MAX B)
 ; and _dasm_ptr (the bytes' real PC, for branch targets) itself:
 ; the REPL's user-ZP staged view.  A label only, so the decoder's
 ; layout and cycle counts are unchanged.
@@ -349,13 +362,7 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         cpx #$0A
         beq @rel16
         cpx #$09
-        bne :+
-        lda #$23                ; IMM16: '#$' and 16 bits
-        jsr buf_putc
-        lda #$24
-        jsr buf_putc
-        jmp @op16
-:
+        beq @hash               ; IMM16: '#$' and 16 bits
 .endif
 
         ; Regular prefixed operand
@@ -364,7 +371,7 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         bcs @paren_prefix
         cpx #$03                ; #$+8bit?
         bcc @dollar
-        ; #$ prefix
+@hash:  ; #$ prefix
         lda #$23                ; '#'
         jsr buf_putc
 @dollar:
@@ -383,7 +390,7 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         jsr buf_putc
 
 @operand:
-        ; Is operand 16-bit? Hi nybble 2 or 5 = 16-bit (9, IMM16, goes direct)
+        ; Is operand 16-bit? Hi nybble 2 or 5 (m65 also 9, IMM16)
         pla                     ; restore format byte
         pha
         lsr
@@ -394,6 +401,10 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         beq @op16
         cmp #$05
         beq @op16
+.ifdef MEGA_SUPPORT
+        cmp #$09
+        beq @op16
+.endif
 
         ; 8-bit operand
         ldy #1
@@ -477,10 +488,17 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
 .ifdef MEGA_SUPPORT
         cmp #$06
         beq @paren_z
-        cmp #$07
-        beq @sp_paren_y
+        cmp #$07                ; 7: ,sp),y
+        bne :+
+        lda #$2C                ; ','
+        jsr buf_putc
+        lda #$53                ; 's'
+        jsr buf_putc
+        lda #$50                ; 'p'
+        jsr buf_putc
+:
 .endif
-        ; must be 5: ),y
+        ; 5 (m65 also 7): ),y
         lda #$29                ; ')'
         jsr buf_putc
         lda #$2C                ; ','
@@ -515,20 +533,6 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         lda #$2C                ; ','
         jsr buf_putc
         lda #$5A                ; 'z'
-        jmp buf_putc
-
-@sp_paren_y:                    ; ,sp),y
-        lda #$2C
-        jsr buf_putc
-        lda #$53                ; 's'
-        jsr buf_putc
-        lda #$50                ; 'p'
-        jsr buf_putc
-        lda #$29                ; ')'
-        jsr buf_putc
-        lda #$2C
-        jsr buf_putc
-        lda #$59                ; 'y'
         jmp buf_putc
 .else
         lda #$29                ; ')'
@@ -571,13 +575,17 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         bne @none
         jsr @qform
         beq @none
+        cmp #2
         lda #PFX_Q | PFX_FAR
         ldx #3
-        bne @shift
+        bne @qpfx
 @q:     jsr @qform              ; $42 $42 op
         beq @none
+        cmp #2                  ; C = 1: Q map 2, its ZPIZ written ($nn)
         lda #PFX_Q
         ldx #2
+@qpfx:  bcc @shift
+        ora #PFX_ASZPI
         bne @shift
 @far:   ldy _dasm_in+1          ; $EA op
         jsr @farcap
@@ -592,16 +600,6 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         inx
         cpx #DASM_INSN_MAX
         bcc :-
-        lda _dasm_pfx           ; a Q form whose ZPIZ is written ($nn)
-        and #PFX_Q
-        beq @none
-        ldy _dasm_in
-        jsr @qform
-        cmp #2
-        bne @none
-        lda _dasm_pfx
-        ora #PFX_ASZPI
-        sta _dasm_pfx
 @none:  rts
 
 ; @qform — A = the Q-map value of opcode Y (0 none, 1, 2); Z = 1: none.

@@ -86,7 +86,7 @@ def test_one_map_per_distinct_view_and_its_bitmaps(model):
     assert len(views) == len(set(views))
     if model.cpu_set in MT.M65_SETS:            # one map, the 6502 and 65C02 views
         assert views == ['4510'] and len(model.bitmaps) == 2
-        assert model.cpu_bm == [1, 0, 33, 0, 0]
+        assert model.cpu_bm == [1, 0, 1 + 32, 0, 0]       # asm_cpu 0, 2: 1 + 32 B × bitmap
     else:
         assert len(model.bitmaps) <= 1 and set(model.cpu_bm) <= {0, 1}
 

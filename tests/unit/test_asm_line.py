@@ -930,13 +930,11 @@ def test_double_slash_comment(asm_syms, source, expected):
 # digit is the bit number, ORed into the opcode's bits 6:4.  asm_pc is
 # R.ASM_PC (0), so a ZPREL target t gives the offset t - 3.
 
-SYNTAX, EXPR, CPU = 0, 1, 2
+SYNTAX, EXPR, CPU = R.SYNTAX, R.EXPR, R.CPU
 _BITOP_BASE = {"RMB": 0x07, "SMB": 0x87, "BBR": 0x0F, "BBS": 0x8F}
 
 
-def _asm(syms, source, cpu):
-    got, err, _ = R.run_asm(syms, source, cpu)
-    return got if got is not None else ("E", err)
+_asm = R.asm_result
 
 
 class TestBitOps:

@@ -114,8 +114,12 @@ def build_m65_model(cpu_set):
     6502 and 65C02 views as bitmaps over it, the Q map (D-P4-10)."""
     define, views, _cls = MT.CPU_SETS[cpu_set]
     host = view_map('4510')
-    bitmaps = [_m65_subset('6502', host), _m65_subset('65c02', host)]
-    cpu_bm = [1, 0, 1 + 32, 0, 0]                     # asm_cpu 0 6502, 2 65C02
+    n = n_asm_cpu(cpu_set)
+    subsets = ('6502', '65c02')
+    bitmaps = [_m65_subset(v, host) for v in subsets]
+    cpu_bm = [0] * n                                  # 1 + the bitmap's offset
+    for k, v in enumerate(subsets):                   # (32 B each)
+        cpu_bm[MT.ASM_CPU[v]] = 1 + 32 * k
     qmap = [0] * 256
     for r in I.instructions('45gs02'):
         if r.prefix == I.PREFIX_Q:
@@ -123,8 +127,7 @@ def build_m65_model(cpu_set):
     used = sorted({k for k, _ in host.values()})
     digit = [k for k in used if k in I.BIT_DIGIT_MNEMONICS]
     qsfx = sorted(k for k in used if k in I.Q_SUFFIX_STEMS)
-    qname = [n for stem in ('LDA', 'STA', 'ORA', 'DEC', 'INC')
-             for n in (stem, next(q for q, s in I.Q_NAMES.items() if s == stem))]
+    qname = [n for q, stem in I.Q_NAMES.items() for n in (stem, q)]
     rest = [k for k in used if k not in I.BIT_DIGIT_MNEMONICS
             and k not in qsfx and k not in qname]
     names = ['...'] + digit + qsfx + qname + rest
@@ -132,7 +135,7 @@ def build_m65_model(cpu_set):
     if len(names) > 128:
         raise DasmModelError(f"{cpu_set}: {len(names)} names do not fit")
     lo = 1 + len(digit)
-    return DasmModel(cpu_set, define, [('4510', host)], [0] * 5, cpu_bm, bitmaps,
+    return DasmModel(cpu_set, define, [('4510', host)], [0] * n, cpu_bm, bitmaps,
                      names, (1, len(digit)), n_modes, qmap,
                      (lo, lo + len(qsfx) - 1), (lo + len(qsfx), lo + len(qsfx) + len(qname) - 1))
 
@@ -203,9 +206,13 @@ def write(models, out):
          '; Disassembler tables (doc/modules/dasm.md § Design).  One block per CPU set,',
          '; selected by the build\'s CPU_<top> define.',
          ';   dasm_cpu_map_lo/hi[asm_cpu]  map block of that CPU\'s view',
-         ';   dasm_cpu_bm[asm_cpu]         1 = the view is the subset bitmap over that map',
-         ';                                (sets with a subset view only: DASM_SUBSET)',
-         ';   map block: 256 B mnemonic index per opcode, 128 B packed modes',
+         ';   dasm_cpu_bm[asm_cpu]         0 = the map itself; else the view is a subset',
+         ';                                bitmap over it (C64: 1; m65: 1 + its offset in',
+         ';                                dasm_view_bm) — sets with a subset view: DASM_SUBSET',
+         ';   map block: 256 B mnemonic index per opcode, then the modes — two 4-bit',
+         ';              modes per byte (128 B), or one per byte (256 B: DASM_BYTE_MODES)',
+         ';   dasm_q_map (MEGA_SUPPORT): 2 bits per opcode, its Q form (0 none, 1, 2:',
+         ';              ZPIZ written ($nn))',
          '',
          '        .export dasm_mne_str, dasm_mode_len, dasm_mode_fmt',
          '        .export dasm_cpu_map_lo, dasm_cpu_map_hi',

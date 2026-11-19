@@ -39,9 +39,8 @@ import pytest
 
 from emu_base import decode_screen_codes
 from m65emu import M65Emu
-from m65emu.harness import (BANK_CSE, CSE_BP, CSE_MAP, STACK_TOP, flat,
-                            load_snapshot, snapshot_dirs)
-from xmega65 import CHIP_ROM, XMega65, missing
+from m65emu.harness import BANK_CSE, CSE_BP, CSE_MAP, STACK_TOP, flat, load_snapshot
+from xmega65 import CHIP_ROM, PER_ROM, XMega65, missing, snapshot_dir
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests" / "integration"))
@@ -54,23 +53,16 @@ RESERVE = flat(BANK_CSE, 0xC000)       # 3.C000-3.CFFF, CSE's unused reserve
 ROM_KEPT = ((0x20000, 0x24000), (0x2C000, 0x2D000), (0x30000, 0x32000),
             (0x3D000, 0x40000))
 
-_SNAPSHOTS = snapshot_dirs()
-
-
 _MISSING = missing()
 pytestmark = pytest.mark.skipif(_MISSING is not None, reason=str(_MISSING))
 
 
-@pytest.fixture(scope="module",
-                params=_SNAPSHOTS or [None],
-                ids=[d.name for d in _SNAPSHOTS] or ["no-snapshot"])
+@pytest.fixture(scope="module", **PER_ROM)
 def booted(request, cse_m65_prg):
     """(xmega65's machine at _main, M65Emu's install_prg() machine) on
     one ROM: the registers at the hit, and the regions compared."""
-    if request.param is None:
-        pytest.skip("no M65Emu snapshot (it holds the ROM): "
-                    "python dev/capture_m65_state.py --rom PATH")
-    snap = load_snapshot(request.param)
+    d = snapshot_dir(request)
+    snap = load_snapshot(d)
     prg, map_path = cse_m65_prg
     ref = M65Emu(snap)
     ref.install_prg(prg, map_path)
@@ -82,7 +74,7 @@ def booted(request, cse_m65_prg):
         "KDATA + BSS": (flat(BANK_CSE, s("__KDATA_RUN__")),
                         s("__KDATA_SIZE__") + s("__BSS_SIZE__")),
     }
-    work = WORK / request.param.name
+    work = WORK / d.name
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     rom = work / "rom.bin"
@@ -153,61 +145,26 @@ def geometry_of(read, sym):
     return width, cell("scr_height"), cell("scr_bank")
 
 
-def typed_run(snap_dir, cse_m65_prg, script, work, peek=()):
+def typed_run(snap_dir, cse_m65_prg, script, work, peek=(), finish=None):
     """Type `script` (key groups) into M65Emu's M65Session and into
-    xmega65 on the snapshot's ROM, one key at a time as `typed` does.
-    Returns the screens after each group, M65Emu's (`want`) and
-    xmega65's (`got`), and the bytes at each bank-0 (addr, n) of `peek`
-    after the last group (`want_peek`, `got_peek`)."""
+    xmega65 on the snapshot's ROM, one key at a time — put into the
+    KERNAL's buffer by ADDKEY, run until main_loop polls again.
+
+    Returns the screens, M65Emu's (`want`) and xmega65's (`got`): the
+    splash, then one after each group; the bytes at each bank-0
+    (addr, n) of `peek` after the last group (`want_peek`, `got_peek`);
+    xmega65's registers at main_loop_top (`cold`); and what
+    `finish(xm, sym, snap)` returns, run in xmega65 at the end."""
     snap = load_snapshot(snap_dir)
     prg, map_path = cse_m65_prg
     ref = M65Session((prg, map_path), snap)
     s = ref.e.sym
-    want = []
+    want = [ref.rows()]
     for keys in script:
         ref.keys(keys)
         want.append(ref.rows())
     want_peek = [list(ref.peek(a, n)) for a, n in peek]
 
-    shutil.rmtree(work, ignore_errors=True)
-    work.mkdir(parents=True)
-    rom = work / "rom.bin"
-    rom.write_bytes(snap["chip"][CHIP_ROM])
-    got = []
-    try:
-        with XMega65(work / "run", rom=rom, prg=prg) as xm:
-            xm.run_to_page(s("_main"), CSE_BP)
-            xm.run_to(s("main_loop"))
-            for keys in script:
-                for k in keys:
-                    xm.addkeys([k])
-                    xm.run_to(s("main_loop"))
-                got.append(screen_text(xm.read, *geometry_of(xm.read, s)))
-            got_peek = [list(xm.read(a, n)) for a, n in peek]
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
-    return dict(want=want, got=got, want_peek=want_peek, got_peek=got_peek)
-
-
-@pytest.fixture(scope="module",
-                params=_SNAPSHOTS or [None],
-                ids=[d.name for d in _SNAPSHOTS] or ["no-snapshot"])
-def typed(request, cse_m65_prg):
-    """The screens after each step of SCRIPT in xmega65 and in M65Emu,
-    and BASIC 65 after QUIT."""
-    if request.param is None:
-        pytest.skip("no M65Emu snapshot (it holds the ROM): "
-                    "python dev/capture_m65_state.py --rom PATH")
-    snap = load_snapshot(request.param)
-    prg, map_path = cse_m65_prg
-    ref = M65Session((prg, map_path), snap)
-    s = ref.e.sym
-    want = [ref.rows()]
-    for keys in SCRIPT:
-        ref.keys(keys)
-        want.append(ref.rows())
-
-    work = WORK / ("typed-" + request.param.name)
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     rom = work / "rom.bin"
@@ -218,32 +175,43 @@ def typed(request, cse_m65_prg):
             cold = xm.run_to(s("main_loop_top"), at_hit=True)
             xm.run_to(s("main_loop"))
             got = [screen_text(xm.read, *geometry_of(xm.read, s))]
-
-            def key(k):
-                xm.addkeys([k])
-                return xm.run_to(s("main_loop"))
-
-            for keys in SCRIPT:
+            for keys in script:
                 for k in keys:
-                    key(k)
+                    xm.addkeys([k])
+                    xm.run_to(s("main_loop"))
                 got.append(screen_text(xm.read, *geometry_of(xm.read, s)))
-            key(QUIT[0])
-            xm.addkeys(QUIT[1:])        # RETURN, then y for the query's io_getc
-            xm.cmd("b 0")               # the breakpoint off main_loop (PC never 0)
-            xm.cmd("t0")                # run on
-            # BASIC 65's map is CSE's, so wait_for_basic cannot tell
-            # them apart: wait for READY on the screen instead
-            deadline = time.time() + 60
-            while True:
-                ready = decode_screen_codes(xm.read(0x0800, 80 * 25))
-                if "ready." in ready or time.time() > deadline:
-                    break
-                time.sleep(0.5)
-            banks = xm.read(0x20000, 0x20000)
+            got_peek = [list(xm.read(a, n)) for a, n in peek]
+            end = finish(xm, s, snap) if finish else {}
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    return dict(cold=cold, got=got, want=want, ready=ready,
-                banks_ok=banks == snap["chip"][CHIP_ROM])
+    return dict(want=want, got=got, want_peek=want_peek, got_peek=got_peek,
+                cold=cold, **end)
+
+
+def _quit(xm, sym, snap):
+    """`Q` and `y`: BASIC 65 at READY, banks 2-3 the ROM's again."""
+    xm.addkeys([QUIT[0]])
+    xm.run_to(sym("main_loop"))
+    xm.addkeys(QUIT[1:])        # RETURN, then y for the query's io_getc
+    xm.cmd("b 0")               # the breakpoint off main_loop (PC never 0)
+    xm.cmd("t0")                # run on
+    # BASIC 65's map is CSE's, so wait_for_basic cannot tell them
+    # apart: wait for READY on the screen instead
+    deadline = time.time() + 60
+    while True:
+        ready = decode_screen_codes(xm.read(0x0800, 80 * 25))
+        if "ready." in ready or time.time() > deadline:
+            break
+        time.sleep(0.5)
+    return dict(ready=ready, banks_ok=xm.read(0x20000, 0x20000) == snap["chip"][CHIP_ROM])
+
+
+@pytest.fixture(scope="module", **PER_ROM)
+def typed(request, cse_m65_prg):
+    """The screens after each step of SCRIPT in xmega65 and in M65Emu,
+    and BASIC 65 after QUIT."""
+    d = snapshot_dir(request)
+    return typed_run(d, cse_m65_prg, SCRIPT, WORK / ("typed-" + d.name), finish=_quit)
 
 
 def test_the_cold_start_reaches_the_prompt(typed):

@@ -29,7 +29,7 @@ def model(request):
     return M.build_asm_model(request.param)
 
 
-# ── the three C64 CPU sets ──────────────────────────────────────────────────
+# ── every CPU set (the m65 one where a rule differs: its own tests below) ──────────────────────────────────────────────────
 
 def test_no_empty_and_no_duplicate_profile(model):
     assert all(p.modes for p in model.profiles)
@@ -44,7 +44,7 @@ def test_extension_is_adjacent(model):
     """The CMOS upgrade is `inc asm_pidx`: a category-1 key's extension
     profile sits right after its NMOS profile, both multi-mode."""
     if model.zones:
-        return                      # m65: test_m65_extension_is_adjacent
+        pytest.skip("m65: test_m65_extension_is_adjacent")
     for key, prof in model.key_prof.items():
         if prof >> 6 == 1 and M.EXT_VIEW in M.CPU_SETS[model.cpu_set][1]:
             pidx = prof & 0x3F
@@ -220,11 +220,15 @@ def m65():
 
 
 def test_m65_three_mask_planes(m65):
-    assert m65.n_modes == 20 and len(m65.rows) * m65.n_modes <= 256
+    """20 modes: lo, hi and x planes (8 + 8 + 4 bits), the rows within
+    a byte index."""
+    assert m65.n_modes == 20 and -(-m65.n_modes // 8) == 3
+    assert len(m65.rows) * m65.n_modes <= 256
 
 
 def test_m65_branch_zone_is_a_range(m65):
     b = m65.zones['B']
+    assert b == 1                   # asm_line's zone table: B at pidx 1-3
     assert [m65.profiles[b + i].modes for i in range(3)] == \
         [{'REL'}, {'REL', 'REL16'}, {'REL16'}]
     assert m65.zones['F'] == b + 3

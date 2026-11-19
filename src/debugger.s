@@ -64,8 +64,8 @@
         .importzp in_userland     ; zp.s
         .importzp dbg_reason      ; zp.s
 .ifdef MEGA_SUPPORT
-        .import dasm_insn_pre, _dasm_in     ; the 45GS02's length and base opcode
-        .importzp _dasm_ptr, _dasm_opc
+        .import dasm_insn, _dasm_in, _dasm_pfx  ; the 45GS02's length,
+                                                ; base opcode, prefixes
 .else
         .import oplen_tbl
 .endif
@@ -108,7 +108,7 @@ step_remaining: .res 2         ; iterations left after current step (16-bit)
 ; step_next_pc output.
 step_next_lo:  .res 2          ; first candidate next-PC (0 = stop)
 step_next_hi:  .res 2          ; second candidate (branch alternative)
-step_save:     .res 1          ; opcode/packed-oplen scratch
+step_save:     .res 1          ; step_next_pc: the opcode
 .ifdef MEGA_SUPPORT
 step_len:      .res 1          ; the instruction's length, prefixes included
 .endif
@@ -464,27 +464,30 @@ brk_stub:
 ; ═══════════════════════════════════════════════════════════════════════
 
 ; ── step_next_pc ────────────────────────────────────────────────────
-; From the opcode at brk_pc, compute the next-PC(s) for stepping.
-; Writes step_next_lo / step_next_hi (0 = unused).
+; From the instruction at brk_pc, compute the next-PC(s) for stepping
+; (debugger.md § Next-PC has the table).  Writes step_next_lo /
+; step_next_hi (0 = unused; the two slots are alike).
 ;
-; Opcode dispatch:
-;   Linear:          step_next_lo = brk_pc + length (via oplen_tbl)
-;   Cond branch:     STEP_INTO — step_next_lo = taken,
-;                                 step_next_hi = fall-through
-;                    STEP_OVER — step_next_lo = fall-through only
-;   JMP abs:         step_next_lo = operand
-;   JMP (ind):       step_next_lo = peek16(operand), read through the
-;                    user's ZP image for $00-$7F; JMP ($xxFF) takes
-;                    its high byte from $xx00 (NMOS wrap) unless
-;                    asm_cpu = 65C02
-;   JMP (abs,x):     65C02 only — peek16(operand + x)
-;   BRA:             65C02 only — branch target
-;   JSR abs:         STEP_INTO + RAM target (<$E000) — step_next_lo = target
-;                    otherwise — step_next_lo = brk_pc + 3 (over)
-;   RTS/RTI/BRK:     both slots left 0 (caller stops)
+;   Linear:        step_next_lo = brk_pc + length (oplen_tbl; on m65
+;                  the disassembler's 45GS02 length, prefixes included)
+;   Cond branch:   STEP_INTO arms the taken target and the fall-through,
+;                  STEP_OVER the fall-through; BBR / BBS (65C02 view,
+;                  m65) and the 16-bit branches (m65) likewise
+;   BRA:           the target (65C02 view, m65; BRA $83 16-bit)
+;   JMP abs / (ind) / (abs,X):  the operand / the vector, read through
+;                  the user's ZP image for $00-$7F; JMP ($xxFF) takes
+;                  its high byte from $xx00 on the NMOS view only
+;   JSR abs (m65 also BSR, JSR (ind), JSR (abs,X)):  STEP_INTO into a
+;                  RAM target (below ROM_BASE_HI) — the target; else
+;                  brk_pc + 3 (over)
+;   RTS (m65 also RTN #n) / RTI:  the return address on the user stack
+;   BRK:           both slots left 0 (caller stops)
 ;
-; In:  brk_pc, step_state.  Out: step_next_lo, step_next_hi.
-; Clobbers: A, X, Y, rp_ptr, rp_ptr2, step_save.
+; In:  brk_pc, step_state, reg_sp, reg_x, asm_cpu (on m65 saved, set
+;      to 4 for the disassembler, restored).
+; Out: step_next_lo, step_next_hi.
+; Clobbers: A, X, Y, rp_ptr, rp_ptr2, step_save; on m65 also step_len
+;      and what dasm_insn clobbers.
 ;
 .proc step_next_pc
         lda #0
@@ -504,28 +507,19 @@ brk_stub:
         ; length, prefixes included, and its base opcode from the
         ; disassembler's 45GS02 view (dasm.md § Prefix peel).  A
         ; prefixed instruction is linear.
-        ldy #4
-:       FAR_LDA rp_ptr2
-        sta _dasm_in,y
-        dey
-        bpl :-
-        lda brk_pc
-        sta _dasm_ptr
-        lda brk_pc+1
-        sta _dasm_ptr+1
         lda asm_cpu
         pha
         lda #4
         sta asm_cpu
-        jsr dasm_insn_pre       ; A = the length
+        lda brk_pc
+        ldx brk_pc+1
+        jsr dasm_insn           ; A = the length
         sta step_len
         pla
         sta asm_cpu
-        ldy #0
-        FAR_LDA rp_ptr2
-        cmp _dasm_opc           ; the base opcode not the first byte:
-        jne @linear             ;   prefixed
-        tax                     ; (Z from the opcode again, for BRK)
+        lda _dasm_pfx
+        jne @linear             ; prefixed
+        lda _dasm_in            ; the opcode (Z for BRK)
 .else
         ldy #0
         FAR_LDA rp_ptr2
@@ -617,8 +611,7 @@ brk_stub:
         bne @r                  ; OVER
         ldx #2                  ; INTO: step_next_hi = the target
         jmp rel16_target
-:       lda step_save
-        and #$1F
+:
 .endif
         cmp #$10
         bne @linear
@@ -714,26 +707,31 @@ brk_stub:
         sta step_next_lo+1
         rts
 .ifdef MEGA_SUPPORT
-@bsr:   lda step_state          ; BSR: a JSR to PC + 2 + offset16
+        ; BSR, JSR (ind), JSR (abs,X): as JSR — over it under STEP_OVER
+        ; or into ROM; else into the target (PC + 2 + offset16, the
+        ; vector).
+@bsr:   lda step_state
         cmp #STEP_OVER
         beq @jsr_over
         jsr @bra16
-        lda step_next_lo+1
+        jmp @rom
+@jsr_ind:
+        lda step_state
+        cmp #STEP_OVER
+        beq @jsr_over
+        jsr @jmp_ind
+        jmp @rom
+@jsr_aix:
+        lda step_state
+        cmp #STEP_OVER
+        beq @jsr_over
+        jsr @jmp_aix
+@rom:   lda step_next_lo+1
         cmp #ROM_BASE_HI
         bcs @jsr_over
         rts
 @bra16: ldx #0
         jmp rel16_target
-@jsr_ind:                       ; JSR (ind): INTO the vector, OVER PC + 3
-        lda step_state
-        cmp #STEP_OVER
-        beq @jsr_over
-        jmp @jmp_ind
-@jsr_aix:
-        lda step_state
-        cmp #STEP_OVER
-        beq @jsr_over
-        jmp @jmp_aix
 .endif
 
 @jmp_abs:

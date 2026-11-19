@@ -53,7 +53,7 @@ def search_T(keys, c1=4, c3=1, bits=7):
     first, each T[c2] the smallest value that puts that letter's keys into
     distinct free slots.  T[0] = $FF (c2 is never 0); a letter with no keys
     keeps 0.  (bbbc64's dev/asm_tables.py, the same search.)"""
-    from hashes import sc
+    sc = I.sc
     keys = sorted(set(keys))
     mask = (1 << bits) - 1
     groups = {}
@@ -348,16 +348,11 @@ def place_m65(entries):
         if e.zone and e.zone != 'B':
             if fixed.setdefault(e.zone, e.prof) != e.prof:
                 raise ModelError(f"zone {e.zone} holds more than one profile ({key})")
-    branch = {e.prof.modes for e in entries.values() if e.zone == 'B'} \
-        | {e.ext.modes for e in entries.values() if e.zone == 'B' and e.ext}
-    if not branch <= set(_B_RANGE):
-        raise ModelError(f"zone B: unexpected branch profiles {branch}")
-    b_prof = {}
-    for e in entries.values():
-        if e.zone == 'B':
-            for p in (e.prof, e.ext):
-                if p is not None:
-                    b_prof[p.modes] = p
+    b_prof = {p.modes: p for e in entries.values() if e.zone == 'B'
+              for p in (e.prof, e.ext) if p is not None}
+    if set(b_prof) != set(_B_RANGE):        # asm_line's zone table: B at pidx 1-3
+        raise ModelError(f"zone B: branch profiles {set(b_prof)}, not {_B_RANGE}")
+    zones['A'] = 0
     profiles.append(fixed['A'])
     zones['B'] = len(profiles)
     for modes in _B_RANGE:
@@ -372,7 +367,7 @@ def place_m65(entries):
             pair_at[(e.prof, e.ext)] = len(profiles)
             profiles += [e.prof, e.ext]
     zones['Q'] = len(profiles)
-    for key, e in entries.items():                   # Q: the quad groups
+    for e in entries.values():                       # Q: the quad groups
         if e.q and (e.prof, e.ext, e.q) not in group_at:
             group_at[(e.prof, e.ext, e.q)] = len(profiles)
             profiles += [p for p in (e.prof, e.ext, e.q) if p is not None]
@@ -387,7 +382,7 @@ def place_m65(entries):
         elif e.zone == 'B':
             pidx_of[key] = zones['B'] + _B_RANGE.index(e.prof.modes)
         elif e.zone:
-            pidx_of[key] = 0 if e.zone == 'A' else zones[e.zone]
+            pidx_of[key] = zones[e.zone]
         elif e.q:
             pidx_of[key] = group_at[(e.prof, e.ext, e.q)]
         elif e.ext:
@@ -629,7 +624,7 @@ def write_mode_table(models):
         masks = [m.mask(p) for p in range(len(m.profiles))]
         out = (_bytes('mn_modes_lo', [x & 0xFF for x in masks])
                + _bytes('mn_modes_hi', [(x >> 8) & 0xFF for x in masks]))
-        if m.n_modes > 16:                  # m65: modes 16-19 in a third plane
+        if m.cpu_set in M65_SETS:           # m65: modes 16-19 in a third plane
             out = ['        .export mn_modes_x'] + out \
                 + _bytes('mn_modes_x', [x >> 16 for x in masks])
         return out
@@ -648,8 +643,8 @@ def write_asm_tables(models):
     """mn_asm_tables.s — asm_row, asm_delta, asm_oplen and ASM_ZONE_G."""
     def emit(m):
         if m.zones:                         # m65: the zone bounds asm_line needs
-            digit = [f'ASM_ZONE_{z} = {m.zones[z]}' for z in 'BFDQH'] \
-                + ['        .export ' + ', '.join(f'ASM_ZONE_{z}' for z in 'BFDQH')]
+            digit = [f'ASM_ZONE_{z} = {m.zones[z]}' for z in 'DQH'] \
+                + ['        .export ' + ', '.join(f'ASM_ZONE_{z}' for z in 'DQH')]
         else:
             zone_d = FIXED_ZONES.index('D')  # fixed zones are a prefix of FIXED_ZONES
             digit = ([f'ASM_ZONE_D = {zone_d}', '        .export ASM_ZONE_D']
@@ -667,7 +662,7 @@ def write_asm_tables(models):
         '  asm_oplen  = operand bytes per mode',
         '  ASM_ZONE_G = first multi-mode pidx (lower ones are asm_line\'s fixed zones)',
         '  ASM_ZONE_D = the digit zone D\'s pidx (E follows), where the set has it',
-        '  m65 also: ASM_ZONE_B / _F (the branch range B..F-1), _Q, _H (the quad zone Q..H-1)',
+        '  m65 also: ASM_ZONE_Q / _H (the quad zone Q..H-1); zone B is pidx 1-3',
         'Rows are as wide as the set\'s highest used mode index + 1.', *_PER_SET])
     lines += ['        .export asm_row, asm_delta, asm_oplen, ASM_ZONE_G', '',
               '.segment "KDATA"', '']
@@ -710,7 +705,7 @@ def write_classifier_tables(cls, models, extra_rodata=()):
     lines += ['        .export ' + ', '.join(exports), '']
     path = _write(f'{prefix}_tables.s',
                   lines + _blocks([m for m in models if issubclass(m.classifier, cls)], emit))
-    print(f"wrote {path}  ({len(slot_mne)}/{cls.SLOTS} slots)")
+    print(f"wrote {path}  ({', '.join(f'{m.cpu_set}: {len(m.key_prof)} keys' for m in models if issubclass(m.classifier, cls))})")
 
 
 # The 6510's crash opcodes: they halt the CPU, so their length never

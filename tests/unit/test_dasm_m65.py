@@ -27,7 +27,7 @@ import asm_dasm_runner as R
 from conftest import AsmCoreSymbols, dasm_bundle
 
 I = R.I
-CPUS = {"6502": 0, "65c02": 2, "4510": 3, "45gs02": 4}
+CPUS = {v: R.MT.ASM_CPU[v] for v in ("6502", "65c02", "4510", "45gs02")}
 AT = R.DASM_INSN_ADDR
 OPR = list(R.DASM_OPERANDS)                     # $42 $34
 RANK = {k: i for i, k in enumerate(list(I.OPCODES) + list(I.OPCODES_4510_ADDED))}
@@ -38,7 +38,8 @@ def dsyms():
     return dasm_bundle("45gs02")
 
 
-def operand(mode, b, at=AT, far=False):
+def operand(mode, b, far=False):
+    at = AT
     o, c = ("[", "]") if far else ("(", ")")
     b = list(b) + [0, 0]                       # every format is built below
     w = f"${b[1]:02X}{b[0]:02X}"
@@ -104,10 +105,9 @@ def test_every_prefixed_row_lists_at_the_45gs02(dsyms):
 
 @pytest.mark.parametrize("cpu", [0, 2, 3])
 def test_no_peel_below_the_45gs02(dsyms, cpu):
-    assert R.run_dasm(dsyms, cpu, [0x42, 0x42, 0x65, 0x12, 0])[:2] == \
-        ("... ", 1) if cpu in (0, 2) else ("NEG ", 1)
-    got = R.run_dasm(dsyms, cpu, [0xEA, 0xB2, 0x12, 0, 0])[:2]
-    assert got == ("EOM ", 1)
+    want = ("... ", 1) if cpu in (0, 2) else ("NEG ", 1)     # $42: the 4510's NEG
+    assert R.run_dasm(dsyms, cpu, [0x42, 0x42, 0x65, 0x12, 0])[:2] == want
+    assert R.run_dasm(dsyms, cpu, [0xEA, 0xB2, 0x12, 0, 0])[:2] == ("EOM ", 1)
 
 
 def test_a_lone_prefix_byte_is_its_own_instruction(dsyms):
@@ -129,6 +129,6 @@ def test_round_trip_over_the_45gs02_view(dsyms):
         raw = list(r.prefix) + [r.opcode] + b
         listed, n = R.run_dasm(dsyms, 4, raw + [0] * (5 - len(raw)))[:2]
         again = R.run_asm(asyms, listed.strip(), 4, pc=AT)[0]
-        if again != bytes(raw[:n]):
-            bad.append((bytes(raw).hex(), listed, again))
+        if n != len(raw) or again != bytes(raw):
+            bad.append((bytes(raw).hex(), listed, n, again))
     assert not bad, bad[:10]

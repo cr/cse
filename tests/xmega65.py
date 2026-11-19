@@ -107,6 +107,27 @@ DRIVER = 0x1E00                 # 0.1E00, a test's driver code: free for
 CHIP_ROM = slice(0x20000, 0x40000)  # the ROM in chip RAM: banks 2-3
 
 
+def _snapshots():
+    from m65emu.harness import snapshot_dirs
+    return snapshot_dirs()
+
+
+# A Tier X module fixture per ROM that has an M65Emu snapshot (the
+# snapshot holds the ROM): @pytest.fixture(scope="module", **PER_ROM),
+# its first line `d = snapshot_dir(request)`.
+PER_ROM = dict(params=_snapshots() or [None],
+               ids=[d.name for d in _snapshots()] or ["no-snapshot"])
+
+
+def snapshot_dir(request):
+    """The fixture's snapshot directory, or skip (none captured)."""
+    import pytest
+    if request.param is None:
+        pytest.skip("no M65Emu snapshot (it holds the ROM): "
+                    "python dev/capture_m65_state.py --rom PATH")
+    return request.param
+
+
 def missing(*tools):
     """Why Tier X cannot run here (None: it can): xmega65, the
     configured SD image, mcopy (the ROM onto the SD clone), `tools`."""

@@ -7,7 +7,7 @@
 ;   asm_oplen  = operand bytes per mode
 ;   ASM_ZONE_G = first multi-mode pidx (lower ones are asm_line's fixed zones)
 ;   ASM_ZONE_D = the digit zone D's pidx (E follows), where the set has it
-;   m65 also: ASM_ZONE_B / _F (the branch range B..F-1), _Q, _H (the quad zone Q..H-1)
+;   m65 also: ASM_ZONE_Q / _H (the quad zone Q..H-1); zone B is pidx 1-3
 ; Rows are as wide as the set's highest used mode index + 1.
 ; One block per CPU set, selected by the build's CPU_<top> define
 ; (doc/build_system.md § Table generation).
@@ -70,12 +70,10 @@ asm_oplen:
 .ifdef CPU_45GS02
 ; ── CPU set 45gs02 ────────────────────────────────────────
 ASM_ZONE_G = 8
-ASM_ZONE_B = 1
-ASM_ZONE_F = 4
 ASM_ZONE_D = 6
 ASM_ZONE_Q = 16
 ASM_ZONE_H = 35
-        .export ASM_ZONE_B, ASM_ZONE_F, ASM_ZONE_D, ASM_ZONE_Q, ASM_ZONE_H
+        .export ASM_ZONE_D, ASM_ZONE_Q, ASM_ZONE_H
 asm_row:
         .byte   $00,$00,$00,$14,$14,$00,$00,$00
         .byte   $28,$28,$14,$14,$3C,$3C,$3C,$3C

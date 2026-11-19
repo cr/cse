@@ -69,14 +69,14 @@ _asm_saved_sp:  .res 1          ; saved 6502 SP for asm_error recovery
         .exportzp expr_ptr, expr_val, expr_wide
         FAR_PTR asm_pc          ; current PC (lo, hi)
         FAR_PTR asm_out         ; output buffer pointer (lo, hi)
-asm_cpu:        .res 1          ; CPU target: 0=6502, 1=6510, 2=65C02
+asm_cpu:        .res 1          ; CPU target: 0=6502, 1=6510, 2=65C02, 3=4510, 4=45GS02
 asm_len:        .res 1          ; bytes asm_line emitted for the instruction
 asm_slot:       .res 1          ; hash slot from mn_classify
 asm_prof:       .res 1          ; raw packed profile byte
 asm_pidx:       .res 1          ; effective profile index
 asm_base:       .res 1          ; base opcode from mn7_base_op
                 .res 1          ; $13 unallocated (held so later addresses stay put)
-asm_mode:       .res 1          ; addressing-mode index (0–15)
+asm_mode:       .res 1          ; addressing-mode index (0–15; m65 0–19)
 asm_tmp:        .res 1          ; scratch; in asm_line the digit suffix
 asm_tmp2:       .res 1          ; scratch; mode_parse's ZPREL zero-page byte
 sym_name:       .res 2          ; pointer to NUL-terminated name string

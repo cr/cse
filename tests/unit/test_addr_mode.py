@@ -203,12 +203,10 @@ def _run(asm_syms, arg: str):
     return (mode, x, opr0, opr1)
 
 
-_LAST_MEM = None
-
-
-def _run_full(asm_syms, arg: str):
+def _run_full(asm_syms, arg: str, keep=False):
     """Like _run but also returns the combined (asm_ptr + Y) effective
-    stopping offset from the start of the input buffer."""
+    stopping offset from the start of the input buffer; with `keep` also
+    the memory (for the side outputs, asm_tmp2)."""
     from conftest import make_cpu, push_rts_sentinel, step_until_any_pc
 
     cpu, mem = make_cpu(asm_syms)
@@ -230,10 +228,9 @@ def _run_full(asm_syms, arg: str):
         final_ptr = (mem[asm_syms.asm_ptr] |
                      (mem[asm_syms.asm_ptr + 1] << 8))
         effective_off = (final_ptr - _TEST_BUF) + cpu.y
-        global _LAST_MEM
-        _LAST_MEM = mem                 # for the side outputs (asm_tmp2)
-        return (cpu.a, cpu.x, mem[asm_syms.asm_opr], mem[asm_syms.asm_opr + 1],
-                effective_off)
+        out = (cpu.a, cpu.x, mem[asm_syms.asm_opr], mem[asm_syms.asm_opr + 1],
+               effective_off)
+        return out + (mem,) if keep else out
     raise SyntaxError(f"{'asm_syntax_error' if hit == asm_syms.asm_syntax_error else 'asm_expr_error'} reached for {arg!r}")
 
 
@@ -344,10 +341,9 @@ class TestAsmSkipWs:
         pass
 
 
-
 @pytest.mark.parametrize("arg,zp", [("$42,$10", 0x42), ("$FF,$1280", 0xFF)])
 def test_zprel_zero_page_byte_in_asm_tmp2(asm_syms, arg, zp):
     """ZPREL: the branch target in asm_opr (both bytes, for the offset),
     the zero-page byte in asm_tmp2 (addr_mode.md § mode_parse)."""
-    _run_full(asm_syms, arg)
-    assert _LAST_MEM[asm_syms.asm_tmp2] == zp
+    mem = _run_full(asm_syms, arg, keep=True)[-1]
+    assert mem[asm_syms.asm_tmp2] == zp

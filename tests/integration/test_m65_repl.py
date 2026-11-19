@@ -1,4 +1,4 @@
-"""test_m65_repl.py — the cold start, the REPL and the debugger typed on the m65 PRG (P2 T7 T8 T9).
+"""test_m65_repl.py — the cold start, the REPL and the debugger typed on the m65 PRG.
 
 Owner: doc/modules/repl.md
 
@@ -24,6 +24,9 @@ is read where the VIC-IV shows it.
   / 8 at the prompt, the break panel and `t`'s re-print in both widths.
 - T9: `j`, `g`, `c`, `t`, `o`, `b`, `r`, `d` typed, and the
   dbg_reason x command matrix through the REPL.
+(P2's T7-T9.)  P4: the cold start selects the 45GS02; `u` and `.cpu`
+take the m65 set (T6); `d` / `.` rows have five byte columns, `.`
+re-entry keeps a 16-bit branch's width (T8).
 """
 
 import re
@@ -495,13 +498,20 @@ def test_the_cold_start_selects_the_45gs02(s):
 
 # ── P4 T6: `.cpu` and `u` on m65 — the set {6502, 65c02, 4510, 45gs02} ──
 
+M65_SET = ["6502", "65c02", "4510", "45gs02"]
+
+
 @pytest.mark.parametrize("name,value", [("6502", 0), ("65c02", 2), ("4510", 3),
                                         ("45gs02", 4), ("6510", None)])
 def test_u_selects_the_m65_set(s, name, value):
-    s.type("u 6502")
+    """From the cold default 4: a member selects itself, the 6510 is
+    refused and 4 stays; the listing marks the active one."""
     s.type(f"u {name}")
-    assert s.v("asm_cpu") == (0 if value is None else value)
-    s.find(r"^; cpu: 6502" + ("\\*" if value in (0, None) else "") + r" 65c02")
+    active = 4 if value is None else value
+    assert s.v("asm_cpu") == active
+    mark = M65_SET[[0, 2, 3, 4].index(active)]
+    rows = [r for r in s.rows() if r.startswith("; cpu:")]
+    assert rows[-1].rstrip() == "; cpu: " + " ".join(n + "*" * (n == mark) for n in M65_SET)
 
 
 def test_u_lists_the_set_with_the_active_one_marked(s):
@@ -509,14 +519,21 @@ def test_u_lists_the_set_with_the_active_one_marked(s):
     s.find(r"^; cpu: 6502 65c02 4510 45gs02\*$")
 
 
-@pytest.mark.parametrize("name,errors", [("65c02", 0), ("4510", 0), ("6510", 1)])
+@pytest.mark.parametrize("name,errors", [("6502", 3), ("65c02", 2), ("4510", 1),
+                                         ("45gs02", 0), ("6510", 1)])
 def test_cpu_directive_on_m65(s, name, errors):
+    """`.cpu` governs the lines after it: `stz` from the 65C02 up, `taz`
+    from the 4510, `ldq` on the 45GS02 only; the 6510 is one error and
+    the assembly stays at 45gs02."""
     s.call("ed_ensure_init")
-    for ch in f"\xa0.cpu {name}\r\xa0.org $3000\r\xa0nop\r".upper().encode("latin-1"):
+    src = f"\xa0.cpu {name}\r\xa0.org $3000\r\xa0stz $12\r\xa0taz\r\xa0ldq $12\r"
+    for ch in src.upper().encode("latin-1"):
         s.call("gb_insert", a=ch)
     s.type("a", max_steps=6_000_000)
     assert s.w("asm_errors") == errors
     assert s.v("asm_cpu") == 4                     # the REPL's CPU is kept
+    if errors == 0:
+        assert s.peek(USER, 7) == [0x64, 0x12, 0x4B, 0x42, 0x42, 0xA5, 0x12]
 
 
 # ── P4 T8: the REPL's rows on m65 — five byte columns (D-P4-1, D-P4-2) ──
@@ -530,7 +547,7 @@ def test_d_rows_have_five_columns_and_fit_40(s, name):
     s.type("@ $3000")
     s.type("d")
     k, row = s.find(r"^3000:\.  e2 12           lda \(\$12,sp\),y$")
-    assert len(row) == 38 and row.index("lda") == 24
+    assert len(row) == 38 and row.index("lda") == 24      # 24 + `lda ($12,sp),y` (14)
     assert s.row(k + 1) == "3002:.  42 42 ea b2 10  ldq [$10],z"
 
 
@@ -556,12 +573,33 @@ def test_return_on_an_unchanged_d_row_writes_the_same_bytes(s, raw):
     k, row = s.find(r"^3000:\.")
     s.enter_on(k)                       # the bytes match: mode 2 re-assembles
     assert s.peek(USER, len(raw) + 1) == raw + [0xEA]
+    assert s.w("cur_addr") == USER + len(raw)    # and it ran: the next row
 
 
-def test_an_edited_branch_row_takes_the_usual_width(s):
+def test_a_typed_branch_takes_the_usual_width(s):
     s.type("@ $3000")
     s.type(". bne $3004")
     assert s.peek(USER, 2) == [0xD0, 0x02]
+
+
+def test_an_edited_16_bit_row_keeps_its_width(s):
+    """The bytes still match, so the edited text is assembled as REL16
+    (repl.md § The `.` command, mode 2), even in reach."""
+    s.poke(USER, [0xD3, 0x02, 0x00])
+    s.type("@ $3000")
+    s.type(". d3 02 00 bne $3010")
+    assert s.peek(USER, 3) == [0xD3, 0x0E, 0x00]          # $3010 - ($3000 + 2)
+
+
+def test_a_refused_re_entry_drops_the_width_request(s):
+    """An operand refused before asm_line runs leaves no REL16 request
+    behind for the next line."""
+    s.poke(USER, [0xD3, 0x02, 0x00])
+    s.type("@ $3000")
+    s.type(". d3 02 00 bne nosuchlabel")
+    s.type("@ $3100")
+    s.type(". bne $3104")
+    assert s.peek(0x3100, 2) == [0xD0, 0x02]
 
 
 @pytest.mark.parametrize("text,raw", [

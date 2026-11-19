@@ -26,7 +26,7 @@
 | [`tests/unit/test_clean_build.py`](../tests/unit/test_clean_build.py) | test contract — a fresh `git worktree` of `HEAD` builds with one `make release` (no re-run) |
 | [`tests/integration/test_release_smoke.py`](../tests/integration/test_release_smoke.py) | test contract — the release CMOS PRG boots from `SYS 2061` to the main loop and shows its splash |
 | [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — `make release` / `debug PLATFORM=m65` build the m65-45gs02 PRG through `src/m65_cse.cfg`; `make release` / `disk PLATFORM=m65` write the D81 with `c1541`; `make run PLATFORM=m65` (and `TARGET=m65`) starts `$(XMEGA65)` with the release PRG and the D81 on unit 8, not VICE; `make size PLATFORM=m65` reports the m65 PRG; an unknown platform is refused; each m65 region is bounded and an overflow fails the link |
-| [`tests/emulator/test_m65_boot.py`](../tests/emulator/test_m65_boot.py) | test contract (Tier X) — the m65 PRG boots to `_main` in xmega65 on each ROM, the installed machine M65Emu's `install_prg()` makes; `typed_run`, the typed-key loop `test_m65_step.py` and `test_m65_asm_run.py` share |
+| [`tests/emulator/test_m65_boot.py`](../tests/emulator/test_m65_boot.py) | test contract (Tier X) — the m65 PRG boots to `_main` in xmega65 on each ROM, the installed machine M65Emu's `install_prg()` makes; `typed_run`, the typed-key loop it shares with `test_m65_step.py` and `test_m65_asm_run.py` |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
 | [`tests/unit/test_dasm_tables.py`](../tests/unit/test_dasm_tables.py) | test contract — the disassembler model of `dev/dasm_tables.py` |
@@ -143,15 +143,16 @@ wrong, but the segment **sizes** in `trial.map` are correct.
 
 `compute_layout.py` reads the sizes from `trial.map` and computes
 
-    RUNTIME_START = ($D000 − (CODE + RODATA + DATA + BSS + 1)) & $FF00
+    RUNTIME_START = ($D000 − (CODE + RODATA + DATA + PAD + BSS)) & $FF00
+    PAD           = (CODE + RODATA + DATA) & 1
 
 — rounded down to a page boundary, because the editor's `BUF_END`
 checks compare the high byte only.  It fills three placeholders of
 `c64_cse.cfg.in` to produce `build/<profile>/<cpu>/c64_cse.cfg`:
 `@@RUNTIME_START@@`, `@@BSS_START@@` (`RUNTIME_START` + CODE +
 RODATA + DATA, rounded up to an even address: the BSS segment is
-2-aligned, [disk.md § Caveats](modules/disk.md#caveats); the `+ 1`
-above pays for the pad byte) and `@@BUF_FLOOR@@` (the source/output split of the
+2-aligned, [disk.md § Caveats](modules/disk.md#caveats); `PAD`
+above is that byte) and `@@BUF_FLOOR@@` (the source/output split of the
 workspace: `$0800` + one ninth of the workspace, rounded down to a
 page).  It prints the result as a `layout:` line, and stops the
 build when `RUNTIME_START` falls below `$0900`.

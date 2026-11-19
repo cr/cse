@@ -16,9 +16,9 @@ source and asserts:
     asm bytes or error code) equals the golden one, except the cases
     listed in BASELINE_DEFECTS: a golden output that disagrees with the
     instruction-set oracle is a defect of the old code, not a contract.
-  * **Speed (gate 2)** — total py65 cycles do not exceed the golden
-    total, and no single case exceeds its golden cycles by more than
-    10 %.
+  * **Speed (gate 2)** — total cycles (py65's; on M65Emu, instructions)
+    do not exceed the golden total, and no single case exceeds its
+    golden cycles by more than 10 %.
 
 Size (gate 1) is tests/integration/test_size_budget.py.  When the
 golden files may be re-recorded: dev/capture_golden.py's docstring.

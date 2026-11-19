@@ -246,12 +246,14 @@ PROD_DEFS = {
 # CSE_BP), then the code at $4000 — and run on M65Emu (testing.md
 # § m65 bundles): their far stores need the 45GS02.
 M65_CONFIGS = frozenset({"45gs02"})
+_M65_BP_SIZE = int(re.search(r"^\s*ZP:.*size = \$([0-9A-F]+)",
+                             (DEV / "m65_test.cfg").read_text(), re.M).group(1), 16)
 
 
 def _bundle_layout(config):
     """(platform, linker config, base-page bytes) of a config's bundles."""
     if config in M65_CONFIGS:
-        return "m65", DEV / "m65_test.cfg", 0xB0
+        return "m65", DEV / "m65_test.cfg", _M65_BP_SIZE
     return "c64", None, _ZP_SIZE
 
 
@@ -372,6 +374,7 @@ class AsmCoreSymbols(_BundleImage):
         bundle = _AC[config].ensure()
 
         s = SymbolTable(bundle.lbl)
+        self.symbols = s                # every label, for an entry not named below
 
         # addr_mode entry points
         self.mode_parse       = s["mode_parse"]

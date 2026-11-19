@@ -1880,9 +1880,11 @@ class TestStepBitBranch:
     """debugger.md § Next-PC (D-P4-3): BBR / BBS ($xF) at asm_cpu 2 is a
     branch — step_next_lo = PC + 3, and INTO arms step_next_hi = the
     taken target (PC + 3 + offset); at asm_cpu 0 the opcode is a 3-byte
-    linear one."""
+    linear one.  C64Emu runs the NMOS CPU, which has no BBR, so the step
+    is held at step_next_pc (as JMP (abs,X) above)."""
 
-    def _next(self, e, code, cpu, state, at=0x1000):
+    def _next(self, e, code, cpu, state):
+        at = 0x1000
         for i, b in enumerate(code):
             e.memory[at + i] = b
         e.memory[e.sym("asm_cpu")] = cpu

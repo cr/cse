@@ -30,9 +30,8 @@ import sys
 import pytest
 
 from m65emu import M65Emu
-from m65emu.harness import (BANK_CSE, CSE_BP, CSE_MAP, flat, load_snapshot,
-                            snapshot_dirs)
-from xmega65 import CHIP_ROM, DRIVER, XMega65, missing
+from m65emu.harness import BANK_CSE, CSE_BP, CSE_MAP, flat, load_snapshot
+from xmega65 import CHIP_ROM, DRIVER, PER_ROM, XMega65, missing, snapshot_dir
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "integration"))
 import test_m65_debugger as T                                   # noqa: E402
@@ -41,7 +40,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORK = ROOT / "build" / "m65_break"
 WINDOW = 0x44000                 # what the program maps at $4000
 
-_SNAPSHOTS = snapshot_dirs()
 
 
 _MISSING = missing()
@@ -96,15 +94,11 @@ def _snapshot(read, ref):
     return out
 
 
-@pytest.fixture(scope="module",
-                params=_SNAPSHOTS or [None],
-                ids=[d.name for d in _SNAPSHOTS] or ["no-snapshot"])
+@pytest.fixture(scope="module", **PER_ROM)
 def runs(request, cse_m65_prg):
     """xmega65's two runs on one ROM, and M65Emu's for the first."""
-    if request.param is None:
-        pytest.skip("no M65Emu snapshot (it holds the ROM): "
-                    "python dev/capture_m65_state.py --rom PATH")
-    snap = load_snapshot(request.param)
+    d = snapshot_dir(request)
+    snap = load_snapshot(d)
     prg, map_path = cse_m65_prg
     ref = M65Emu(snap)
     ref.install_prg(prg, map_path)
@@ -118,7 +112,7 @@ def runs(request, cse_m65_prg):
     want = _snapshot(lambda a, n: bytes(ref.memory.read_flat(a + k) for k in range(n)), ref)
     want["map"], want["b"] = (ref.cpu.mapl, ref.cpu.maph), ref.b
 
-    work = WORK / request.param.name
+    work = WORK / d.name
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     rom = work / "rom.bin"

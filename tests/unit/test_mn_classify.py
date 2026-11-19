@@ -518,10 +518,9 @@ class TestEncodingAgnostic:
 
 def _m65_classifier():
     import asm_dasm_runner as R
-    from conftest import _AC, AsmCoreSymbols, SymbolTable
+    from conftest import AsmCoreSymbols
     syms = AsmCoreSymbols("45gs02")
-    s = SymbolTable(_AC["45gs02"].lbl)
-    return R._M65Bundle(syms), s
+    return R.M65Bundle(syms), syms.symbols
 
 
 def test_mn7gs_full_sweep():
@@ -539,7 +538,7 @@ def test_mn7gs_full_sweep():
                 m.poke(s["mn_c1"], c1)
                 m.poke(s["mn_c2"], c2)
                 m.poke(s["mn_c3"], c3)
-                m.call(s["mn_classify"], 0x0F00)
+                m.call(s["mn_classify"])
                 carry = m.emu.carry
                 if not carry:
                     found.add(a + b + c)

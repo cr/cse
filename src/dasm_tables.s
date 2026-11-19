@@ -4,9 +4,13 @@
 ; Disassembler tables (doc/modules/dasm.md § Design).  One block per CPU set,
 ; selected by the build's CPU_<top> define.
 ;   dasm_cpu_map_lo/hi[asm_cpu]  map block of that CPU's view
-;   dasm_cpu_bm[asm_cpu]         1 = the view is the subset bitmap over that map
-;                                (sets with a subset view only: DASM_SUBSET)
-;   map block: 256 B mnemonic index per opcode, 128 B packed modes
+;   dasm_cpu_bm[asm_cpu]         0 = the map itself; else the view is a subset
+;                                bitmap over it (C64: 1; m65: 1 + its offset in
+;                                dasm_view_bm) — sets with a subset view: DASM_SUBSET
+;   map block: 256 B mnemonic index per opcode, then the modes — two 4-bit
+;              modes per byte (128 B), or one per byte (256 B: DASM_BYTE_MODES)
+;   dasm_q_map (MEGA_SUPPORT): 2 bits per opcode, its Q form (0 none, 1, 2:
+;              ZPIZ written ($nn))
 
         .export dasm_mne_str, dasm_mode_len, dasm_mode_fmt
         .export dasm_cpu_map_lo, dasm_cpu_map_hi

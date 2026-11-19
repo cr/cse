@@ -1,4 +1,4 @@
-"""test_m65_debugger.py — the debugger on the m65 PRG (P1, Tier I).
+"""test_m65_debugger.py — the debugger on the m65 PRG (Tier I).
 
 Owner: doc/modules/debugger.md
 
@@ -31,6 +31,9 @@ rendered is P2's (testing.md, D-P1-5).
   run premise's.  With P2 its SYSFLAGS, with P3 the KERNAL's map
   record (0.011C-011F): CSE's map in it whenever the kernel runs, an
   NMI in a resume's kernel part included.
+- The 45GS02 step (P4 T9): every row of debugger.md's m65 Next-PC
+  table through step_next_pc at asm_cpu 0, 2, 3 and 4 alike, and `t`
+  / `o` run on M65Emu landing where the CPU goes.
 """
 
 import pytest
@@ -653,10 +656,10 @@ def test_the_kernel_keeps_the_cse_map_record_through_an_nmi(cse_m65_prg, m65_sna
 # step_next_pc follows the CPU that runs the program — always a 45GS02
 # — whatever `u` selects: each row at asm_cpu 0, 3 and 4 alike.
 
-def next_pc(emu, code, *, state=STEP_INTO, cpu=4, x=0, sp=None, at=USER):
+def next_pc(emu, code, *, state=STEP_INTO, cpu=4, x=0, sp=None):
     m = emu.memory
-    user_code(emu, code, at=at)
-    emu.write_word(emu.cell("brk_pc"), at)
+    user_code(emu, code)
+    emu.write_word(emu.cell("brk_pc"), USER)
     m[emu.cell("step_state")] = state
     m[emu.cell("asm_cpu")] = cpu
     m[emu.cell("reg_x")] = x
@@ -683,7 +686,7 @@ ROWS = [  # (name, code, STEP_INTO result, STEP_OVER result)
 ]
 
 
-@pytest.mark.parametrize("cpu", [0, 3, 4])
+@pytest.mark.parametrize("cpu", [0, 2, 3, 4])
 @pytest.mark.parametrize("name,code,into,over", ROWS, ids=[r[0] for r in ROWS])
 def test_the_45gs02_step_rows(emu, cpu, name, code, into, over):
     ready(emu)
@@ -691,7 +694,7 @@ def test_the_45gs02_step_rows(emu, cpu, name, code, into, over):
     assert next_pc(emu, code, cpu=cpu, state=STEP_OVER) == over
 
 
-@pytest.mark.parametrize("cpu", [0, 4])
+@pytest.mark.parametrize("cpu", [0, 2, 3, 4])
 def test_jsr_indirect_follows_its_vector(emu, cpu):
     ready(emu)
     emu.memory.load(0x1234, bytes([0x00, 0x40]))
@@ -700,7 +703,7 @@ def test_jsr_indirect_follows_its_vector(emu, cpu):
     assert next_pc(emu, [0x22, 0x34, 0x12], cpu=cpu, state=STEP_OVER) == (A + 3, 0)
 
 
-@pytest.mark.parametrize("cpu", [0, 4])
+@pytest.mark.parametrize("cpu", [0, 2, 3, 4])
 def test_jmp_indirect_does_not_wrap(emu, cpu):
     ready(emu)
     emu.memory.load(0x12FF, bytes([0x00, 0x40]))
@@ -708,11 +711,22 @@ def test_jmp_indirect_does_not_wrap(emu, cpu):
     assert next_pc(emu, [0x6C, 0xFF, 0x12], cpu=cpu) == (0x4000, 0)
 
 
+@pytest.mark.parametrize("cpu", [0, 2, 3, 4])
 @pytest.mark.parametrize("op", [0x60, 0x62])                                    # rts, rtn #n
-def test_rtn_returns_as_rts(emu, op):
+def test_rtn_returns_as_rts(emu, op, cpu):
     ready(emu)
     emu.memory.load(0x0181, bytes([0x34, 0x12]))    # at SP + 1, + 2 (below jsr()'s frame)
-    assert next_pc(emu, [op, 0x02], sp=0x80) == (0x1235, 0)
+    assert next_pc(emu, [op, 0x02], cpu=cpu, sp=0x80) == (0x1235, 0)
+
+
+@pytest.mark.parametrize("cpu", [0, 2, 3, 4])
+def test_jsr_indirect_into_rom_is_stepped_over(emu, cpu):
+    """As JSR and BSR: a vector at or above the ROM boundary ($C000 on
+    m65) is stepped over even under `t`."""
+    ready(emu)
+    emu.memory.load(0x1234, bytes([0x23, 0xC1]))
+    assert next_pc(emu, [0x22, 0x34, 0x12], cpu=cpu) == (A + 3, 0)           # jsr ($1234)
+    assert next_pc(emu, [0x23, 0x30, 0x12], cpu=cpu, x=4) == (A + 3, 0)      # jsr ($1230,x)
 
 
 def test_t_runs_a_q_instruction_and_a_far_branch(emu):
@@ -736,3 +750,21 @@ def test_t_runs_a_q_instruction_and_a_far_branch(emu):
     assert m[emu.cell("dbg_reason")] == DBG_BRK
     assert word(emu, "brk_pc") == 0x4000                       # taken
     assert [m.read_flat(USER + k) for k in range(7)] == code   # no step BRK left
+
+
+def test_o_runs_over_a_bsr(emu):
+    """`o` on M65Emu: BSR's subroutine runs at full speed, the step stops
+    after the 3-byte BSR."""
+    ready(emu)
+    m = emu.memory
+    user_code(emu, [0x63, 0x0E, 0x00, 0xEA, 0x60])    # $3000 BSR $3010 · NOP · RTS
+    user_code(emu, [0xC8, 0x60], at=0x3010)           # $3010 INY · RTS
+    m[emu.cell("reg_y")] = 0
+    emu.write_word(emu.cell("brk_pc"), USER)
+    m[emu.cell("step_state")] = STEP_OVER
+    emu.jsr(emu.sym("step_next_pc"), b=CSE_BP)
+    emu.jsr(emu.sym("arm_step_bp"), b=CSE_BP)
+    run_user(emu, USER)
+    assert m[emu.cell("dbg_reason")] == DBG_BRK
+    assert word(emu, "brk_pc") == USER + 3
+    assert m[emu.cell("reg_y")] == 1
