@@ -38,13 +38,10 @@ def _decode(model, cpu, op):
 
 
 def _listed(model, view):
-    """What `view` lists: its rows, on m65 with $EA as EOM in every view (D3)
-    and the 65C02's (zp) as the 4510's ZPIZ (printed ($nn) in that view)."""
+    """What `view` lists: its rows, on m65 with $EA as EOM in every view."""
     want = D.view_map(view)
     if model.cpu_set in MT.M65_SETS:
-        want = {op: (('EOM', m) if op == 0xEA else
-                     (k, 'ZPIZ') if (view, m) == ('65c02', 'ZPI') else (k, m))
-                for op, (k, m) in want.items()}
+        want = {op: (('EOM', m) if op == 0xEA else (k, m)) for op, (k, m) in want.items()}
     return want
 
 
@@ -84,11 +81,10 @@ def test_names_keep_the_decoder_range_compares_valid(model):
 def test_one_map_per_distinct_view_and_its_bitmaps(model):
     views = [v for v, _ in model.maps]
     assert len(views) == len(set(views))
-    if model.cpu_set in MT.M65_SETS:            # one map, the 6502 and 65C02 views
-        assert views == ['4510'] and len(model.bitmaps) == 2
-        assert model.cpu_bm == [1, 0, 1 + 32, 0, 0]       # asm_cpu 0, 2: 1 + 32 B × bitmap
-    else:
-        assert len(model.bitmaps) <= 1 and set(model.cpu_bm) <= {0, 1}
+    assert len(model.bitmaps) <= 1 and set(model.cpu_bm) <= {0, 1}
+    if model.cpu_set in MT.M65_SETS:            # one map, the 6502 view over it
+        assert views == ['4510'] and len(model.bitmaps) == 1
+        assert model.cpu_bm == [1, 0, 0, 0, 0]
     if model.cpu_set == '65c02':                # the CMOS mode: 6502 over 65C02
         assert views == ['65c02'] and len(model.bitmaps) == 1
 

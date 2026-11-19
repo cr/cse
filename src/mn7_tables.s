@@ -189,9 +189,5 @@ mn7_profile:
         .byte   $00,$C0,$00,$00,$C0,$A2,$C6,$00  ; PHA TBA TXS RTS TAB STQ RMB ---
         .byte   $00,$C0,$C6,$00,$4C,$4E,$EB,$00  ; TSX TSY SMB --- STX STY STZ PHP
         .byte   $C0,$00,$00,$00,$00,$50,$EA,$C0  ; EOM TYA --- --- --- EOR PHW PHX
-        .export mn7_c02
-mn7_c02:
-        .byte   $21,$00,$0B,$00,$00,$C0,$0C,$0A
-        .byte   $01,$40,$00,$34,$98,$40,$44,$A0
 .endif
 

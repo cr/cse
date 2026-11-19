@@ -287,7 +287,7 @@ def test_m65_no_other_key_in_the_quad_zone(m65):
     for key in m65.key_prof:
         if key in I.QUAD_STEMS or key in I.Q_NAMES:
             continue
-        for view in ('6502', '65c02', '4510', '45gs02'):
+        for view in M.CPU_SETS['45gs02'][1]:
             eff = m65.effective_pidx(key, view)
             assert eff is None or not q0 <= eff < q1, (key, view)
 
@@ -298,12 +298,10 @@ def test_m65_categories(m65, key, cat):
     assert m65.key_prof[key] >> 6 == cat
 
 
-def test_m65_c02_marks_what_the_65c02_has(m65):
-    """mn_classify.md: the keys and extensions the 65C02 has."""
-    want = {'ADC', 'AND', 'CMP', 'EOR', 'LDA', 'ORA', 'SBC', 'STA', 'BIT', 'DEC',
-            'INC', 'JMP', 'BRA', 'PHX', 'PHY', 'PLX', 'PLY', 'STZ', 'TRB', 'TSB',
-            'RMB', 'SMB', 'BBR', 'BBS'}
-    assert {k for k, c in m65.key_c02.items() if c} == want
+def test_m65_set_has_no_65c02(m65):
+    """D-P4b-1: the m65 set is {6502, 4510, 45GS02}; no 65C02 table."""
+    assert M.CPU_SETS['45gs02'][1] == ('6502', '4510', '45gs02')
+    assert not hasattr(m65, 'key_c02') and not hasattr(M, 'C02_REFUSED')
 
 
 def test_m65_classifier_t_is_the_search_and_exact():

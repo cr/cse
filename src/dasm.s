@@ -1,4 +1,5 @@
-; dasm.s — table-driven disassembler (6502 / 6510 / 65C02)
+; dasm.s — table-driven disassembler (6502 / 6510 / 4510 / 45GS02; the
+; CMOS mode's 65C02)
 ; Owner: doc/modules/dasm.md
 ;
 ; Interface:
@@ -154,29 +155,18 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
 
 .ifdef DASM_SUBSET
         ; Subset view: an opcode outside the bitmap lists as "...".
-        lda dasm_cpu_bm,x       ; 0, or 1 + the view's bitmap offset
+        lda dasm_cpu_bm,x       ; 1: the view is the subset bitmap
         beq @mapped
         tya
         lsr
         lsr
         lsr
-.ifdef DASM_BYTE_MODES          ; m65: two bitmaps, back to back
-        clc
-        adc dasm_cpu_bm,x
-        tax                     ; X = (opcode >> 3) + 1 + the offset
-        tya
-        and #$07
-        tay
-        lda _bit_tab,y
-        and dasm_view_bm-1,x
-.else
         tax                     ; X = opcode >> 3
         tya
         and #$07
         tay
         lda _bit_tab,y
         and dasm_view_bm,x
-.endif
         bne @in_view
         lda #MNE_UNK
         sta _dasm_midx
@@ -522,14 +512,11 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
 .ifdef MEGA_SUPPORT
         jmp _dasm_close         ; ')' or, far, ']'
 
-@paren_z:                       ; ),z — or ($nn) in the 65C02 view and for
-        jsr _dasm_close         ;   a Q-map 2 form (dasm.md § Design)
+@paren_z:                       ; ),z — or ($nn) for a Q-map 2 form
+        jsr _dasm_close         ;   (dasm.md § Design)
         lda _dasm_pfx
         and #PFX_ASZPI
         bne @done
-        lda asm_cpu
-        cmp #2
-        beq @done
         lda #$2C                ; ','
         jsr buf_putc
         lda #$5A                ; 'z'

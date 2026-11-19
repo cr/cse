@@ -13,7 +13,7 @@ The m65-45gs02 asm_core bundle on M65Emu (asm_dasm_runner's m65 path,
 clean mode).  The oracle is dev/instruction_set.py: every row of the
 6502, 65C02, 4510 and 45GS02 views — prefixed rows too — assembled at
 its CPU gives the row's bytes.  Then the rules a sweep of valid rows
-cannot show: the gate matrix cell by cell (the 65C02 row by mn7_c02),
+cannot show: the gate matrix cell by cell,
 the suffixes, the Z rule, the far and stack-relative forms, IMM16,
 the branch width with the width request, and the $FFFF edge.
 """
@@ -30,7 +30,7 @@ import asm_dasm_runner as R                      # noqa: E402
 from conftest import AsmCoreSymbols              # noqa: E402
 
 SYNTAX, EXPR, CPU = R.SYNTAX, R.EXPR, R.CPU
-CPUS = {v: R.MT.ASM_CPU[v] for v in ("6502", "65c02", "4510", "45gs02")}
+CPUS = {v: R.MT.ASM_CPU[v] for v in R.MT.CPU_SETS["45gs02"][1]}
 
 # An operand per mode and its bytes at asm_pc = 0 (asm_dasm_runner.ASM_PC).
 OPERAND = {
@@ -73,8 +73,7 @@ def test_every_row_assembles_at_its_cpu(syms, view):
     assert not bad, bad[:10]
 
 
-@pytest.mark.parametrize("lower,upper", [("6502", "65c02"), ("65c02", "4510"),
-                                         ("6502", "4510"), ("4510", "45gs02")])
+@pytest.mark.parametrize("lower,upper", [("6502", "4510"), ("4510", "45gs02")])
 def test_a_row_the_lower_cpu_lacks_is_refused_there(syms, lower, upper):
     """Every source of the upper view that the lower view has no row for
     is refused at the lower CPU (;?cpu or ;?syntax), not assembled."""
@@ -84,17 +83,17 @@ def test_a_row_the_lower_cpu_lacks_is_refused_there(syms, lower, upper):
     assert not bad, bad[:10]
 
 
-# ── the gate matrix, m65 table: one key per (cat, c02) cell ───────────────────
+# ── the gate matrix, m65 table: one key per cat cell; asm_cpu 2 is no member ──
 
 @pytest.mark.parametrize("source,want", [
-    ("LDX #$12",     {0: "ok", 2: "ok", 3: "ok", 4: "ok"}),           # cat 00
-    ("LDA ($12)",    {0: SYNTAX, 2: "ok", 3: SYNTAX, 4: SYNTAX}),     # cat 01, c02: ZPI on the 65C02 only
-    ("LDA ($12),Z",  {0: SYNTAX, 2: SYNTAX, 3: "ok", 4: "ok"}),
-    ("JSR ($1234)",  {0: SYNTAX, 2: SYNTAX, 3: "ok", 4: "ok"}),       # cat 01, no c02
-    ("STX $1234,Y",  {0: SYNTAX, 2: SYNTAX, 3: "ok", 4: "ok"}),
-    ("LDQ $12",      {0: CPU, 2: CPU, 3: CPU, 4: "ok"}),              # cat 10
-    ("STZ $12",      {0: CPU, 2: "ok", 3: "ok", 4: "ok"}),            # cat 11, c02
-    ("TAZ",          {0: CPU, 2: CPU, 3: "ok", 4: "ok"}),             # cat 11, no c02
+    ("LDX #$12",     {0: "ok", 3: "ok", 4: "ok"}),           # cat 00
+    ("LDA ($12)",    {0: SYNTAX, 3: SYNTAX, 4: SYNTAX}),     # cat 01: (e) is no 4510 form
+    ("LDA ($12),Z",  {0: SYNTAX, 3: "ok", 4: "ok"}),
+    ("JSR ($1234)",  {0: SYNTAX, 3: "ok", 4: "ok"}),
+    ("STX $1234,Y",  {0: SYNTAX, 3: "ok", 4: "ok"}),
+    ("LDQ $12",      {0: CPU, 3: CPU, 4: "ok"}),              # cat 10
+    ("STZ $12",      {0: CPU, 3: "ok", 4: "ok"}),             # cat 11
+    ("TAZ",          {0: CPU, 3: "ok", 4: "ok"}),
 ])
 def test_gate_matrix(syms, source, want):
     for cpu, w in want.items():
@@ -106,7 +105,7 @@ def test_gate_matrix(syms, source, want):
 
 @pytest.mark.parametrize("source,cpu,want", [
     ("ADCQ $12", 4, b"\x42\x42\x65\x12"),
-    ("ADCQ $12", 3, ("E", CPU)), ("ADCQ $12", 2, ("E", CPU)), ("ADCQ $12", 0, ("E", CPU)),
+    ("ADCQ $12", 3, ("E", CPU)), ("ADCQ $12", 0, ("E", CPU)),
     ("LDXQ $12", 4, ("E", SYNTAX)),         # no Q form
     ("LDQQ $12", 4, ("E", SYNTAX)),         # a Q name takes no suffix
     ("STAQ $1234", 4, b"\x42\x42\x8d\x34\x12"),
@@ -127,12 +126,11 @@ def test_mnemonic_word(syms, source, cpu, want):
     ("ADCQ ($12)", 4, b"\x42\x42\x72\x12"),
     ("LDQ ($12)", 4, ("E", SYNTAX)), ("LDQ ($12),Z", 4, b"\x42\x42\xb2\x12"),
     ("LDA [$12],Z", 4, b"\xea\xb2\x12"),
-    ("LDA [$12],Z", 3, ("E", CPU)), ("LDA [$12],Z", 2, ("E", CPU)),
+    ("LDA [$12],Z", 3, ("E", CPU)), ("LDA [$12],Z", 0, ("E", CPU)),
     ("LDQ [$12],Z", 4, b"\x42\x42\xea\xb2\x12"),   # the order: $42 $42, $EA, opcode
     ("LDA [$1234],Z", 4, ("E", SYNTAX)),    # narrow only
     ("LDA [$12],Y", 4, ("E", SYNTAX)),
     ("LDA ($12,SP),Y", 4, b"\xe2\x12"), ("LDA ($12,S),Y", 4, b"\xe2\x12"),
-    ("LDA ($12,SP),Y", 2, ("E", CPU)),
     ("LDA ($1234),Z", 4, ("E", SYNTAX)),
 ])
 def test_indirect_forms(syms, source, cpu, want):
@@ -149,7 +147,7 @@ def test_imm16_promotion(syms):
 @pytest.mark.parametrize("source,cpu,want", [
     ("BNE $0081", 4, b"\xd0\x7f"),          # in reach: REL
     ("BNE $0082", 4, b"\xd3\x80\x00"),      # out of reach: REL16
-    ("BNE $0082", 2, ("E", SYNTAX)),        # the 65C02 has no REL16
+    ("BNE $0082", 0, ("E", SYNTAX)),        # the 6502 has no REL16
     ("BRA $0010", 4, b"\x80\x0e"), ("BRA $1000", 4, b"\x83\xfe\x0f"),
     ("BSR $0010", 4, b"\x63\x0e\x00"),      # REL16 only
     ("BBS7 $12,$0010", 4, b"\xff\x12\x0d"),
@@ -167,7 +165,7 @@ def test_the_width_request_takes_rel16_and_is_cleared(syms):
     got, err, _, m = R.run_asm(syms, "BNE $0010", 4, rel16=True, keep=True)
     assert got == b"\xd3\x0e\x00"
     assert m.peek(syms.asm_rel16)[0] == 0
-    assert asm(syms, "BNE $0010", 2, rel16=True) == b"\xd0\x0e"     # 65C02: REL
+    assert asm(syms, "BNE $0010", 0, rel16=True) == b"\xd0\x0e"     # 6502: REL
     assert asm(syms, "LDA #$01", 4, rel16=True) == b"\xa9\x01"      # no branch
 
 

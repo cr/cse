@@ -13,7 +13,7 @@ Generates into src/:
     mn_asm_tables.s – asm_row, asm_delta, asm_oplen, the zone bounds
     mn6_tables.s    – mn6 classifier: hash T, fp_c2, fp / base_op / profile
     mn7_tables.s    – mn7 classifier: hash T, fp / base_op / profile (and on
-                      m65 the mn7gs keys and mn7_c02)
+                      m65 the mn7gs keys)
     oplen_tbl.s     – packed opcode → length (one content for the C64 sets,
                       none on m65)
 
@@ -123,7 +123,7 @@ CPU_SETS = {
     '6502':  ('CPU_6502',  ('6502',),                 mn6),
     '6510':  ('CPU_6510',  ('6502', '6510'),          mn7_6510),
     '65c02': ('CPU_65C02', ('6502', '65c02'),         mn7_cmos),
-    '45gs02': ('CPU_45GS02', ('6502', '65c02', '4510', '45gs02'), mn7gs),
+    '45gs02': ('CPU_45GS02', ('6502', '4510', '45gs02'), mn7gs),
 }
 M65_SETS = frozenset({'45gs02'})      # the m65 platform's (D-P4-10)
 
@@ -147,12 +147,6 @@ _ZONE_OF_MODES = {frozenset({'IMP'}): 'A', frozenset({'REL'}): 'B',
 
 class ModelError(AssertionError):
     pass
-
-
-# The modes asm_line refuses at asm_cpu 2 on m65 although the profile it
-# uses there (the 4510's extension) has them: the 65C02 lacks them.
-# (`(e)` there is the eight (zp) opcodes, the 4510's ZPIZ.)
-C02_REFUSED = frozenset({'ISPY', 'REL16', 'ZPIZ'})
 
 
 # ============================================================
@@ -195,7 +189,6 @@ class Entry:
     ext: Profile = None       # extension profile (cat 1, sets with the extension CPU)
     zone: str = None          # fixed zone letter, or None for the multi-mode zones
     q: Profile = None         # m65: the Q profile of a quad stem
-    c02: bool = False         # m65: the 65C02 has the key (cat 3) or its extension (cat 1)
 
 
 @dataclass
@@ -211,7 +204,6 @@ class AsmModel:
     key_base: dict            # key → base opcode
     key_prof: dict            # key → packed profile byte (cat << 6 | pidx)
     zones: dict = None        # m65: zone letter → first pidx (B F D Q H)
-    key_c02: dict = None      # m65: key → mn7_c02 bit
 
     def mask(self, pidx):
         return sum(1 << ALL_MODES.index(m) for m in self.profiles[pidx].modes)
@@ -219,19 +211,13 @@ class AsmModel:
     def effective_pidx(self, key, view):
         """The profile asm_line uses for `key` under CPU `view` (its gate's
         upgrade: + 1 for a category-1 key on the extension CPU — on m65 the
-        4510, and the 65C02 where mn7_c02 says so); None where the gate
-        refuses the key."""
+        4510); None where the gate refuses the key."""
         prof = self.key_prof[key]
         cat, pidx = prof >> 6, prof & 0x3F
         if self.cpu_set not in M65_SETS:
             return pidx + (1 if cat == 1 and view == EXT_VIEW else 0)
-        c02 = self.key_c02[key]
         if view == '6502':
             return pidx if cat < 2 else None
-        if view == '65c02':
-            if cat == 2 or (cat == 3 and not c02):
-                return None
-            return pidx + (1 if cat == 1 and c02 else 0)
         if cat == 2 and view != '45gs02':
             return None
         return pidx + (1 if cat == 1 else 0)
@@ -283,10 +269,9 @@ def m65_entries():
 
     cat 0 legal NMOS, the same on the 4510; 1 legal NMOS with a 4510
     extension profile at pidx + 1; 2 a Q name (its pidx is its stem's Q
-    profile); 3 not NMOS.  c02: the 65C02 has the key (cat 3) or the
-    extension (cat 1).  A quad stem's Q profile follows its group.
+    profile); 3 not NMOS.  A quad stem's Q profile follows its group.
     """
-    rows = {v: view_rows(v) for v in ('6502', '65c02', '4510')}
+    rows = {v: view_rows(v) for v in ('6502', '4510')}
     qrows = q_rows()
     entries = {}
     for key in sorted(mn7gs.KEYS):          # sorted: a frozenset's order varies per run
@@ -301,11 +286,10 @@ def m65_entries():
         nmos = rows['6502'].get(key)
         if nmos is not None:
             cat = 1 if nmos != ops else 0
-            c02 = cat == 1 and rows['65c02'][key] != nmos
             ext = prof if cat == 1 else None
             prof = _profile(nmos, base)
         else:
-            cat, c02, ext = 3, key in rows['65c02'], None
+            cat, ext = 3, None
         if key in I.BIT_DIGIT_MNEMONICS:
             zone = 'D' if prof.modes == {'ZP'} else 'E'
         elif {'REL', 'REL16'} >= prof.modes:
@@ -313,7 +297,7 @@ def m65_entries():
         else:
             zone = None if ext else _ZONE_OF_MODES.get(prof.modes)
         q = _profile(qrows[key], base) if key in qrows else None
-        entries[key] = Entry(cat, base, prof, ext, zone, q, c02)
+        entries[key] = Entry(cat, base, prof, ext, zone, q)
     return entries
 
 
@@ -517,7 +501,6 @@ def build_asm_model(cpu_set):
         key_base={k: e.base for k, e in entries.items()},
         key_prof={k: (e.cat << 6) | pidx_of[k] for k, e in entries.items()},
         zones=zones,
-        key_c02={k: e.c02 for k, e in entries.items()} if zones else None,
     )
     validate_asm_model(model)
     return model
@@ -525,8 +508,7 @@ def build_asm_model(cpu_set):
 
 def model_opcode(model, key, mode, view, digit=0, q=False):
     """The opcode the tables give (key, mode) under CPU `view`; None if masked
-    out.  m65: `q` takes the Q profile (effective + 1, a Q name its own);
-    on the 65C02 `(e)` (ZPI) is the 4510's ZPIZ and C02_REFUSED is out."""
+    out.  m65: `q` takes the Q profile (effective + 1, a Q name its own)."""
     pidx = model.effective_pidx(key, view)
     if pidx is None:
         return None
@@ -535,11 +517,6 @@ def model_opcode(model, key, mode, view, digit=0, q=False):
             if not model.zones['Q'] <= pidx < model.zones['H']:
                 return None
             pidx += 1
-        if view == '65c02':
-            if mode in C02_REFUSED:
-                return None
-            if mode == 'ZPI' and (model.mask(pidx) >> ALL_MODES.index('ZPIZ')) & 1:
-                mode = 'ZPIZ'
     m = ALL_MODES.index(mode)
     if not (model.mask(pidx) >> m) & 1:
         return None
@@ -688,7 +665,7 @@ def write_asm_tables(models):
 
 def write_classifier_tables(cls, models, extra_rodata=()):
     """mn6_tables.s / mn7_tables.s — hash T, fingerprint, base opcode, profile
-    byte; on m65 (mn7gs in mn7_tables.s) also mn7_c02, the 65C02 bitmap."""
+    byte (on m65 over mn7gs, in mn7_tables.s)."""
     prefix = cls.__name__
     slot_mne = cls.build_slot_map()
 
@@ -705,12 +682,6 @@ def write_classifier_tables(cls, models, extra_rodata=()):
                 + _bytes(f'{prefix}_fp', k.fingerprint_table(), names=names)
                 + _bytes(f'{prefix}_base_op', base, names=names)
                 + _bytes(f'{prefix}_profile', prof, names=names))
-        if m.key_c02 is not None:            # bit (slot & 7) of byte (slot >> 3)
-            bm = [0] * (k.SLOTS // 8)
-            for i, key in slots.items():
-                if m.key_c02[key]:
-                    bm[i >> 3] |= 1 << (i & 7)
-            out += ['        .export mn7_c02'] + _bytes('mn7_c02', bm)
         return out
 
     exports = [f'{prefix}_hash_t', *[lab for lab, _ in extra_rodata],

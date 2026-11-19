@@ -102,7 +102,7 @@ PFX_FAR    = %00000010      ;          emit $EA
 PFX_QSFX   = %01000000      ;          the word had the `q` suffix
 PFX_W16    = %10000000      ;          the caller's REL16 request
         .importzp ASM_ZONE_Q, ASM_ZONE_H
-        .import   mn7_c02, _au_far, _bit_tab
+        .import   _au_far
 SINK_SIZE  = 4                  ; a 5-byte instruction may overrun by 4
 .else
 SINK_SIZE  = 3
@@ -308,22 +308,6 @@ _asm_rel8:
         rts
 
 .else
-; ── _asm_c02 — the key's mn7_c02 bit ──────────────────────────────────────────
-; Out: A ≠ 0 (and Z = 0) when the 65C02 has the key (cat 11) or its
-; extension (cat 01) (mn_classify.md), else 0.  Clobbers X, Y.
-_asm_c02:
-        lda asm_slot
-        and #7
-        tay
-        lda asm_slot
-        lsr
-        lsr
-        lsr
-        tax
-        lda _bit_tab,y
-        and mn7_c02,x
-        rts
-
 ; ── _asm_reld — a branch offset, 16 bits ──────────────────────────────────────
 ; In: A = the instruction's length, asm_opr = the target, asm_pc.
 ; Out: asm_opr = d = target − (asm_pc + A); C = 0 when d fits a byte
@@ -357,10 +341,8 @@ _asm_fits8:
 
 ; ── _asm_m65_mode — the m65 rules on a parsed mode ────────────────────────────
 ; In: asm_mode.  Out: asm_mode, A = it; asm_pfx gains PFX_FAR.
-; Far ([e], [e],z) on the 45GS02 only (;?cpu); on the 65C02 `(e,sp),y` is
-; ;?cpu, a written `,z` ;?syntax and `(e)` the 4510's ZPIZ where the
-; profile has no ZPI; `#e` on a profile without IMM but with IMM16 is
-; IMM16 (asm_line.md § Prefixes, § IMM16 promotion, § gate matrix).
+; Far ([e], [e],z) on the 45GS02 only (;?cpu); `#e` on a profile without
+; IMM but with IMM16 is IMM16 (asm_line.md § Prefixes, § IMM16 promotion).
 _asm_m65_mode:
         lda _au_far
         beq @not_far
@@ -371,21 +353,7 @@ _asm_m65_mode:
         ora #PFX_FAR
         sta asm_pfx
 @not_far:
-        lda asm_cpu
-        cmp #2
-        bne @imm16
         lda asm_mode
-        cmp #MODE_ISPY
-        beq @cpu
-        cmp #MODE_ZPIZ
-        beq @syntax
-        cmp #MODE_ZPI
-        bne @imm16
-        jsr asm_opcode_lookup   ; C = 0: the profile has ZPI itself
-        bcc @imm16
-        lda #MODE_ZPIZ
-        sta asm_mode
-@imm16: lda asm_mode
         cmp #MODE_IMM
         bne @done
         jsr asm_opcode_lookup   ; C = 0: IMM
@@ -395,8 +363,6 @@ _asm_m65_mode:
 @done:  lda asm_mode
         rts
 @cpu:   jmp asm_cpu_error
-@syntax:
-        jmp asm_error
 
 ; ── _asm_prefixes — emit the instruction's prefixes; A kept ──────────────────
 _asm_prefixes:
@@ -530,9 +496,8 @@ _asm_line_core:
 
 .ifdef MEGA_SUPPORT
         ; m65 (asm_line.md § gate matrix, m65 table): cat 00 accept; 01
-        ; the extension on 4510 / 45GS02, and on the 65C02 where mn7_c02
-        ; says so; 10 a Q name, 45GS02 only (its Q prefix); 11 on 4510 /
-        ; 45GS02, and on the 65C02 where mn7_c02 says so.
+        ; the extension on 4510 / 45GS02; 10 a Q name, 45GS02 only (its Q
+        ; prefix); 11 on 4510 / 45GS02.
         lda asm_prof
         and #$C0
         beq @no_upgrade         ; cat 00
@@ -540,15 +505,6 @@ _asm_line_core:
         beq @cpu_err            ; the 6502: only cat 00 / cat 01's NMOS
         cmp #$80
         beq @qname
-        cpx #2
-        bne @m_4510             ; 4510, 45GS02
-        pha
-        jsr _asm_c02            ; A ≠ 0: the 65C02 has it
-        tax
-        pla
-        cpx #0
-        beq @cpu_err
-@m_4510:
         cmp #$40
         bne @no_upgrade         ; cat 11: accept
         inc asm_pidx            ; cat 01: the extension profile
@@ -752,15 +708,10 @@ _asm_line_core:
         lda asm_opr
         clc
         jmp _asm_emit
-@b_try16:                       ; C = 0, A = the REL16 opcode; the 65C02 has none
-        lda asm_cpu
-        cmp #2
-        sec
-        beq :+
+@b_try16:                       ; C = 0, A = the REL16 opcode
         lda #MODE_REL16
         sta asm_mode
         jmp asm_opcode_lookup
-:       rts
 @b_err: jmp asm_error
 .else
         lda #2                  ; the instruction's length
@@ -836,7 +787,7 @@ _asm_line_core:
         jsr mode_parse
         sta asm_mode
 .ifdef MEGA_SUPPORT
-        jsr _asm_m65_mode       ; far, the 65C02's forms, IMM16; A = asm_mode
+        jsr _asm_m65_mode       ; far, IMM16; A = asm_mode
 .endif
         cmp #MODE_IMM
         bne :+

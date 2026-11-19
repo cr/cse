@@ -97,13 +97,11 @@ class DasmModel:
 
 def _m65_subset(view, host):
     """The opcodes of `view` as a subset of the 4510 map `host`: each lists
-    there as in the view, after D3 ($EA lists EOM in every view) and, for
-    the 65C02, ZPI = ZPIZ — the decoder prints the 65C02 view's ZPIZ as
-    ($nn) (dasm.md § Design)."""
+    there as in the view, after D3 ($EA lists EOM in every view)."""
     vm = view_map(view)
     for op, (key, mode) in vm.items():
         hk, hm = host[op]
-        same_mode = hm == mode or (view == '65c02' and (mode, hm) == ('ZPI', 'ZPIZ'))
+        same_mode = hm == mode
         if not (same_mode and (hk == key or (op == 0xEA and hk == 'EOM'))):
             raise DasmModelError(f"{view} ${op:02X} {key} {mode}: not {hk} {hm} of the 4510 map")
     return set(vm)
@@ -111,15 +109,13 @@ def _m65_subset(view, host):
 
 def build_m65_model(cpu_set):
     """The m65 set: the 4510 map (the 45GS02's, plus the prefix peel), the
-    6502 and 65C02 views as bitmaps over it, the Q map (D-P4-10)."""
+    6502 view as a bitmap over it, the Q map."""
     define, views, _cls = MT.CPU_SETS[cpu_set]
     host = view_map('4510')
     n = n_asm_cpu(cpu_set)
-    subsets = ('6502', '65c02')
-    bitmaps = [_m65_subset(v, host) for v in subsets]
-    cpu_bm = [0] * n                                  # 1 + the bitmap's offset
-    for k, v in enumerate(subsets):                   # (32 B each)
-        cpu_bm[MT.ASM_CPU[v]] = 1 + 32 * k
+    bitmaps = [_m65_subset('6502', host)]
+    cpu_bm = [0] * n
+    cpu_bm[MT.ASM_CPU['6502']] = 1                    # the subset view
     qmap = [0] * 256
     for r in I.instructions('45gs02'):
         if r.prefix == I.PREFIX_Q:
@@ -206,9 +202,8 @@ def write(models, out):
          '; Disassembler tables (doc/modules/dasm.md § Design).  One block per CPU set,',
          '; selected by the build\'s CPU_<top> define.',
          ';   dasm_cpu_map_lo/hi[asm_cpu]  map block of that CPU\'s view',
-         ';   dasm_cpu_bm[asm_cpu]         0 = the map itself; else the view is a subset',
-         ';                                bitmap over it (C64: 1; m65: 1 + its offset in',
-         ';                                dasm_view_bm) — sets with a subset view: DASM_SUBSET',
+         ';   dasm_cpu_bm[asm_cpu]         1 = the view is the subset bitmap over that map',
+         ';                                (sets with a subset view only: DASM_SUBSET)',
          ';   map block: 256 B mnemonic index per opcode, then the modes — two 4-bit',
          ';              modes per byte (128 B), or one per byte (256 B: DASM_BYTE_MODES)',
          ';   dasm_q_map (MEGA_SUPPORT): 2 bits per opcode, its Q form (0 none, 1, 2:',

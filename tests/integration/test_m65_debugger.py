@@ -32,7 +32,7 @@ rendered is P2's (testing.md, D-P1-5).
   record (0.011C-011F): CSE's map in it whenever the kernel runs, an
   NMI in a resume's kernel part included.
 - The 45GS02 step (P4 T9): every row of debugger.md's m65 Next-PC
-  table through step_next_pc at asm_cpu 0, 2, 3 and 4 alike, and `t`
+  table through step_next_pc at asm_cpu 0, 3 and 4 alike, and `t`
   / `o` run on M65Emu landing where the CPU goes.
 """
 
@@ -686,7 +686,7 @@ ROWS = [  # (name, code, STEP_INTO result, STEP_OVER result)
 ]
 
 
-@pytest.mark.parametrize("cpu", [0, 2, 3, 4])
+@pytest.mark.parametrize("cpu", [0, 3, 4])
 @pytest.mark.parametrize("name,code,into,over", ROWS, ids=[r[0] for r in ROWS])
 def test_the_45gs02_step_rows(emu, cpu, name, code, into, over):
     ready(emu)
@@ -694,7 +694,7 @@ def test_the_45gs02_step_rows(emu, cpu, name, code, into, over):
     assert next_pc(emu, code, cpu=cpu, state=STEP_OVER) == over
 
 
-@pytest.mark.parametrize("cpu", [0, 2, 3, 4])
+@pytest.mark.parametrize("cpu", [0, 3, 4])
 def test_jsr_indirect_follows_its_vector(emu, cpu):
     ready(emu)
     emu.memory.load(0x1234, bytes([0x00, 0x40]))
@@ -703,7 +703,7 @@ def test_jsr_indirect_follows_its_vector(emu, cpu):
     assert next_pc(emu, [0x22, 0x34, 0x12], cpu=cpu, state=STEP_OVER) == (A + 3, 0)
 
 
-@pytest.mark.parametrize("cpu", [0, 2, 3, 4])
+@pytest.mark.parametrize("cpu", [0, 3, 4])
 def test_jmp_indirect_does_not_wrap(emu, cpu):
     ready(emu)
     emu.memory.load(0x12FF, bytes([0x00, 0x40]))
@@ -711,7 +711,7 @@ def test_jmp_indirect_does_not_wrap(emu, cpu):
     assert next_pc(emu, [0x6C, 0xFF, 0x12], cpu=cpu) == (0x4000, 0)
 
 
-@pytest.mark.parametrize("cpu", [0, 2, 3, 4])
+@pytest.mark.parametrize("cpu", [0, 3, 4])
 @pytest.mark.parametrize("op", [0x60, 0x62])                                    # rts, rtn #n
 def test_rtn_returns_as_rts(emu, op, cpu):
     ready(emu)
@@ -719,7 +719,7 @@ def test_rtn_returns_as_rts(emu, op, cpu):
     assert next_pc(emu, [op, 0x02], cpu=cpu, sp=0x80) == (0x1235, 0)
 
 
-@pytest.mark.parametrize("cpu", [0, 2, 3, 4])
+@pytest.mark.parametrize("cpu", [0, 3, 4])
 def test_jsr_indirect_into_rom_is_stepped_over(emu, cpu):
     """As JSR and BSR: a vector at or above the ROM boundary ($C000 on
     m65) is stepped over even under `t`."""

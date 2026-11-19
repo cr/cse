@@ -496,35 +496,35 @@ def test_the_cold_start_selects_the_45gs02(s):
     assert s.v("asm_cpu") == 4
 
 
-# ── P4 T6: `.cpu` and `u` on m65 — the set {6502, 65c02, 4510, 45gs02} ──
+# ── P4 T6, P4b T3: `.cpu` and `u` on m65 — the set {6502, 4510, 45gs02} ──
 
-M65_SET = ["6502", "65c02", "4510", "45gs02"]
+M65_SET = ["6502", "4510", "45gs02"]
 
 
-@pytest.mark.parametrize("name,value", [("6502", 0), ("65c02", 2), ("4510", 3),
-                                        ("45gs02", 4), ("6510", None)])
+@pytest.mark.parametrize("name,value", [("6502", 0), ("4510", 3), ("45gs02", 4),
+                                        ("6510", None), ("65c02", None)])
 def test_u_selects_the_m65_set(s, name, value):
-    """From the cold default 4: a member selects itself, the 6510 is
-    refused and 4 stays; the listing marks the active one."""
+    """From the cold default 4: a member selects itself, the 6510 and the
+    65C02 are refused and 4 stays; the listing marks the active one."""
     s.type(f"u {name}")
     active = 4 if value is None else value
     assert s.v("asm_cpu") == active
-    mark = M65_SET[[0, 2, 3, 4].index(active)]
+    mark = M65_SET[[0, 3, 4].index(active)]
     rows = [r for r in s.rows() if r.startswith("; cpu:")]
     assert rows[-1].rstrip() == "; cpu: " + " ".join(n + "*" * (n == mark) for n in M65_SET)
 
 
 def test_u_lists_the_set_with_the_active_one_marked(s):
     s.type("u")
-    s.find(r"^; cpu: 6502 65c02 4510 45gs02\*$")
+    s.find(r"^; cpu: 6502 4510 45gs02\*$")
 
 
-@pytest.mark.parametrize("name,errors", [("6502", 3), ("65c02", 2), ("4510", 1),
-                                         ("45gs02", 0), ("6510", 1)])
+@pytest.mark.parametrize("name,errors", [("6502", 3), ("4510", 1), ("45gs02", 0),
+                                         ("6510", 1), ("65c02", 1)])
 def test_cpu_directive_on_m65(s, name, errors):
-    """`.cpu` governs the lines after it: `stz` from the 65C02 up, `taz`
-    from the 4510, `ldq` on the 45GS02 only; the 6510 is one error and
-    the assembly stays at 45gs02."""
+    """`.cpu` governs the lines after it: `stz` and `taz` from the 4510,
+    `ldq` on the 45GS02 only; the 6510 and the 65C02 are one error each
+    and the assembly stays at 45gs02."""
     s.call("ed_ensure_init")
     src = f"\xa0.cpu {name}\r\xa0.org $3000\r\xa0stz $12\r\xa0taz\r\xa0ldq $12\r"
     for ch in src.upper().encode("latin-1"):

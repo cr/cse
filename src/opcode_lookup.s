@@ -19,9 +19,6 @@
         .setcpu "6502"
 
         .export asm_opcode_lookup
-.ifdef MEGA_SUPPORT
-        .export _bit_tab        ; asm_line's _asm_c02
-.endif
 
         .importzp asm_pidx, asm_base, asm_mode
         .import   mn_modes_lo, mn_modes_hi

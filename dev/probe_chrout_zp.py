@@ -101,7 +101,7 @@ def name(addr):
 def setup_cse(setup_fn=None):
     """Cold-init CSE; optionally apply a setup_fn(emu) before snapshotting."""
     prg = ROOT / "build" / "debug" / "6510" / "cse.prg"
-    map_path = ROOT / "build" / "debug" / "cmos" / "cse.map"
+    map_path = ROOT / "build" / "debug" / "6510" / "cse.map"
     emu = C64Emu()
     emu.load_prg(prg, map_path)
     emu.init_cse()

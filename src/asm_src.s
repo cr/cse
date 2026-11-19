@@ -600,7 +600,7 @@ cpu_names:
 .ifdef CPU_6510
         .byte 1, "6510", 0
 .endif
-.if .defined(CPU_65C02) .or .defined(CPU_45GS02)
+.ifdef CPU_65C02
         .byte 2, "65c02", 0
 .endif
 .ifdef CPU_45GS02

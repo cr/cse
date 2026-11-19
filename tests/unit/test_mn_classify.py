@@ -566,8 +566,6 @@ def test_mn7gs_table_values():
     m, s = _m65_classifier()
     model = MT.build_asm_model("45gs02")
     slots = MT.mn7gs.build_slot_map()
-    c02 = m.peek(s["mn7_c02"], 16)
     for slot, key in slots.items():
         assert m.peek(s["mn_base_op"] + slot)[0] == model.key_base[key], key
         assert m.peek(s["mn_profile"] + slot)[0] == model.key_prof[key], key
-        assert bool(c02[slot >> 3] >> (slot & 7) & 1) == model.key_c02[key], key

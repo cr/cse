@@ -1970,7 +1970,7 @@ not deleted, unless its subject goes (the debugger's 65C02 paths).
   `;?syntax`); `.cpu` takes exactly each set.  The CMOS bundle's
   existing tests that use 6510 illegals move to `asm_6510_syms`.
   `asm_dasm_65c02.json` and `asm_dasm_6510.json` re-recorded (D-P4b-9).
-- [ ] T3. m65 without the 65C02 (step 3; `test_asm_m65.py`,
+- [x] T3. m65 without the 65C02 (step 3; `test_asm_m65.py`,
   `test_dasm_m65.py`, `test_m65_repl.py`): the views 6502, 4510,
   45gs02 (`asm_cpu` 0, 3, 4); the gate matrix without the `asm_cpu`
   2 row; `u 65c02` and `.cpu 65c02` refused, `u` listing `6502 4510
@@ -2020,6 +2020,15 @@ holds the C64 step at `asm_cpu` 0, 1, 2.  Goldens re-recorded: 6510
 CMOS mode (the `asm_cpu` 1 cases gone, 1068 illegals `;?cpu` →
 `;?syntax`).  c64-6510 21 192 → 21 153 B, c64-6502 20 834 → 20 808 B,
 both hashes re-recorded (the deliberate C64 change); m65 unchanged.
+
+Step (3) done 2026-11-19: the m65 set is {6502, 4510, 45GS02} —
+`mn7_c02`, `key_c02`, `C02_REFUSED` and the `ZPI` = `ZPIZ` view rule
+gone from the generators, one view bitmap (the disassembler's
+two-bitmap offset path gone), `_asm_c02` and the gate's `asm_cpu` 2
+branch, the 65C02 block of `_asm_m65_mode`, `@b_try16`'s 65C02 check
+and `@paren_z`'s gone; `cpu_names` offers 65c02 on `CPU_65C02` only.
+`asm_dasm_45gs02.json` re-recorded (only the `asm_cpu` 2 cases gone,
+the rest identical).  m65-45gs02 24 595 → 24 458 B.
 
 **P5 — the contract closed:** the ROM versions the port is verified
 on (920413, the floor, and the current one; the Open ROMs boot to C64
