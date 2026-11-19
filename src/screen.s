@@ -29,8 +29,10 @@ dst_ptr = _io_scr       ; 2 bytes (zp.s, cse_io)
 
 
 ; ── Screen geometry ──────────────────────────────────────
-SCR_W     = SCREEN_WIDTH        ; c64 bodies only: m65's geometry is run-time
+.ifdef PLATFORM_C64                     ; m65: the geometry is run-time state
+SCR_W     = SCREEN_WIDTH
 SCR_H     = SCREEN_HEIGHT
+.endif
 
 ; ── Theme (BSS — defaults applied by theme_init at startup) ─
 ; Build-time selection: -DTHEME_BOR=x -DTHEME_BG=x -DTHEME_FG=x

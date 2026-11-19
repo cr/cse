@@ -954,7 +954,7 @@ handlers' m65 bodies, `save_userland_state`'s `Z` and `B`, the seeds
 hash gate green in each; optimization.md applies to every m65 body
 (the stub first: it must fit its 80 bytes).
 
-**P2 — the KERNAL API layer: screen and keyboard.**
+**P2 — the KERNAL API layer: screen and keyboard.**  **Gate met (2026-11-19)** — below, after the TDD plan.
 
 Step-1 delta (written 2026-11-19; approved with the CDD Analysis,
 2026-11-19; it builds on A1):
@@ -1172,14 +1172,23 @@ and `Q`; what a human sees (colours, flicker) stays manual.
   on entry.  D-P2-10 read as the REPL's scroll: the editor's row
   scrolls stay the row loop on far pointers (editor.md, *The m65
   bodies*).
-- [ ] T11. Tier X (`tests/emulator/test_m65_boot.py`): the PRG to the
+- [x] T11. Tier X (`tests/emulator/test_m65_boot.py`): the PRG to the
   prompt; xmega65's screen rows equal M65Emu's after the same commands
   (typed through `ADDKEY` from a driver); `Q` ends in BASIC 65 at
-  READY with banks 2–3 reloaded.
-- [ ] T12. The gates: the P2 pending count (18) to 0 — the bodies and
+  READY with banks 2–3 reloaded.  Done 2026-11-19: one key per driver
+  call (registers, P and `B` kept; back to where `main_loop` stopped),
+  the run on to `main_loop`; 11 screens compared as text — the splash,
+  `?`, `i`, `m`, `r`, `.`, `@`, `d`, the editor and back, 80 × 50 and
+  back — equal on both ROMs; `Q` (shifted, `$D1`) and `y` reach READY.
+  `wait_for_basic` cannot tell BASIC 65's map from CSE's (CSE's map is
+  BASIC's), so the test waits for READY on the screen.
+- [x] T12. The gates: the P2 pending count (18) to 0 — the bodies and
   the five values `IO_CX`, `IO_CY`, `SCREEN`, `SCREEN_WIDTH`,
   `SCREEN_HEIGHT`; the C64 PRGs byte-identical after every commit; the
-  m65 budget raised in commits of their own.
+  m65 budget raised in commits of their own.  Done: the three screen
+  values are no placeholders but c64 constants only — no m65 code
+  names them (screen.s's `SCR_W` / `SCR_H` gated to c64); the count
+  is 0; m65-6502 22 753 B (unchanged by the step).
 
 Not automated: what the screen looks like (colours, the 80 × 50
 font, flicker) — manual in xmega65 and on hardware, a checklist row.
@@ -1200,6 +1209,18 @@ Gate: `?`, `m`, `.`, the editor and `Q` at 80 × 25 in M65Emu and
 xmega65; 40 × 25 and 80 × 50 render; the debugger commands typed at
 the prompt (`j`, `g`, `c`, `t`, `o`, `b`, `r`, `d`) and the lifecycle
 matrix through the REPL (moved from P1, D-P1-5).
+
+- **P2 gate met (2026-11-19):** T1–T12 green on 920413 and 920421 in
+  M65Emu (`test_m65_editor.py`, `test_m65_terminal.py`,
+  `test_m65_display.py`, `test_m65_repl.py`, `test_m65_source_editor.py`,
+  the T6 rows of `test_m65_debugger.py`) and in xmega65
+  (`test_m65_boot.py`, `test_m65_break.py`); the P2 pending count 0;
+  the C64 PRGs byte-identical; m65-6502 22 753 B.  Code commits
+  a09f7ff, 254841c, d71093c, e7fd330, 9caf1c6 and step (6).  Found on
+  the way, fixed: `io_kbhit`'s Z, `io_puts`' bank, the source text's
+  bank, `workend`; filed, not P2's: the two edge bugs of the analysis
+  record (`io_puthex2`, disk.s's `@putc_inv`).  Left manual: what the
+  screen looks like (colours, the 80 × 50 font, flicker).
 
 **P3 — disk, exit and the three distribution formats.**
 

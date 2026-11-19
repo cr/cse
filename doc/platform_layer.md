@@ -673,12 +673,14 @@ milestone:
 
 | Name | Placeholder | Stated with |
 |---|---|---|
-| `SCREEN`, `SCREEN_WIDTH`, `SCREEN_HEIGHT` | `$0800`, 80, 25 | P2 ([§ Display](#display)) |
 | `ST` (the I/O status disk.s reads) | `BP_PENDING` | P3 ([§ Disk bank](#disk-bank)) |
 | `DISK_LOCAL_PTR` (disk.s's private pointer) | `BP_PENDING + 1` (2 bytes) | P3 ([§ Constants](#constants)) |
 
 (`IO_CX` and `IO_CY` were placeholders until P2 stated them: CSE's own
-cursor cells, [§ Terminal](#terminal).)
+cursor cells, [§ Terminal](#terminal).  `SCREEN`, `SCREEN_WIDTH` and
+`SCREEN_HEIGHT` were too, until P2 removed every m65 use: the
+geometry is run-time state there, [§ Display](#display), *The
+geometry*; the three are c64 constants only.)
 
 ## Raw-byte instructions
 

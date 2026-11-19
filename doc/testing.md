@@ -756,7 +756,14 @@ The installed machine they check is
   4` / `5` / `8` round trips with the geometry cells and the screen in
   bank 4 for 80 × 50; after a run that changed the VIC-IV registers,
   the recorded register set of the mode back and the screen's content
-  kept; the program's `SYSFLAGS` round trip; `Q` (Tier X).
+  kept; the program's `SYSFLAGS` round trip; `Q` (Tier X).  Tier X
+  (`tests/emulator/test_m65_boot.py`, T11) types in xmega65 one key
+  at a time — a driver in bank 0 `ADDKEY`s it with `B = 0`, every
+  register kept, and returns to where `main_loop` stopped; the run
+  goes on to `main_loop` again — and compares the screen, as text,
+  with M65Session's after the same keys; `Q` and `y` end at BASIC 65's
+  READY with banks 2–3 the ROM's.  Suites: `test_m65_repl.py` (T7–T9),
+  `test_m65_source_editor.py` (T10).
 - **M65Emu against the editor recording.**  `test_m65_editor.py`
   replays `m65_editor.json`'s probes on M65Emu (the real ROM, its DMA
   and keyboard devices): the jump table, `SCRORG` and `PLOT` per mode

@@ -15,8 +15,15 @@ is BASIC's code until the loader replaces it.  The machine must be
 the one M65Emu's install_prg() makes from the same ROM, which
 test_loader.py holds to the real loader: the CSE map, `B`, SP, the
 resident stub and CSE's base page, the images in bank 3, BSS cleared,
-banks 2-3 writable.  (`Q` back to BASIC 65 joins with P2, when the
-REPL first runs on m65; `_main` stops at its first pending body.)
+banks 2-3 writable.
+
+P2 (T11): the PRG runs on to the prompt, and commands typed in
+xmega65 — one key at a time, put into the KERNAL's buffer by `ADDKEY`
+from a driver in bank 0 that returns to where main_loop stopped —
+leave the screen M65Emu's M65Session leaves after the same keys (the
+splash, `?`, `i`, `m`, `r`, `.`, `d`, the editor and back, 80 x 50 and
+back), compared as text.  `Q` and `y` end in BASIC 65 at READY, banks
+2-3 the ROM's again.
 
 Not collected by a plain `pytest` (testpaths); run it by path:
 
@@ -133,3 +140,129 @@ def test_the_installed_machine_is_install_prgs(booted, region):
 
 def test_banks_2_3_are_writable(booted):
     assert booted["writable"]
+
+
+# ── T11: the prompt, typed commands, Q (P2) ───────────────────────
+
+import sys                                                      # noqa: E402
+import time                                                     # noqa: E402
+
+sys.path.insert(0, str(ROOT / "tests" / "integration"))
+from emu_base import decode_screen_codes                        # noqa: E402
+from test_m65_repl import M65Session                            # noqa: E402
+
+DRIVER = 0x1E00                    # bank 0: visible in the CSE map
+ADDKEY = 0xFF4A
+STOP, ESC = 0x03, 0x1B
+SCRIPT = [b"? 1+2\r", b"I\r", b"M\r", b"R\r", b". LDA #1\r", b"@ $2000\r",
+          b"D\r", bytes([STOP]) + b"NOP\r" + bytes([STOP]),
+          bytes([ESC]) + b"5" + b"? 3\r", bytes([ESC]) + b"8"]
+QUIT = bytes([0xD1, 0x0D]) + b"Y"     # `Q` is shifted: PETSCII $D1
+
+
+def _driver(keys, back):
+    """ADDKEY each of `keys` with B = 0, every register and P kept,
+    then on at `back` (where main_loop stopped)."""
+    code = [0x08, 0x48, 0xDA, 0x5A, 0xDB, 0x7B, 0x48,   # php pha phx phy phz tba pha
+            0xA9, 0x00, 0x5B]                           # lda #0, tab
+    for k in keys:
+        code += [0xA9, k, 0x20, ADDKEY & 0xFF, ADDKEY >> 8]
+    return code + [0x68, 0x5B, 0xFB, 0x7A, 0xFA, 0x68, 0x28,   # pla tab plz ply plx pla plp
+                   0x4C, back & 0xFF, back >> 8]
+
+
+# screen codes to ASCII for the READY search: $01-$1A letters, $20-$3F as is
+_SCR_TO_ASCII = bytes(range(0x40, 0x5B)) + bytes(5) + bytes(range(0x20, 0x40)) + bytes(0xC0)
+
+
+def _screen_text(read, width, height, bank):
+    raw = read(flat(bank, 0x0800), width * height)
+    return [decode_screen_codes(raw[r * width:(r + 1) * width]) for r in range(height)]
+
+
+@pytest.fixture(scope="module",
+                params=_SNAPSHOTS or [None],
+                ids=[d.name for d in _SNAPSHOTS] or ["no-snapshot"])
+def typed(request, cse_m65_prg):
+    """The screens after each step of SCRIPT in xmega65 and in M65Emu,
+    and BASIC 65 after QUIT."""
+    if request.param is None:
+        pytest.skip("no M65Emu snapshot (it holds the ROM): "
+                    "python dev/capture_m65_state.py --rom PATH")
+    snap = load_snapshot(request.param)
+    prg, map_path = cse_m65_prg
+    ref = M65Session((prg, map_path), snap)
+    s = ref.e.sym
+    want = [ref.rows()]
+    for keys in SCRIPT:
+        ref.keys(keys)
+        want.append(ref.rows())
+
+    def geometry(read):
+        cell = lambda n: read(flat(BANK_CSE, s(n)), 1)[0]        # BSS
+        width = read(CSE_BP << 8 | s("scr_width"), 1)[0]
+        return width, cell("scr_height"), cell("scr_bank")
+
+    work = WORK / ("typed-" + request.param.name)
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    rom = work / "rom.bin"
+    rom.write_bytes(snap["chip"][0x20000:0x40000])
+    try:
+        with XMega65(work / "run", rom=rom, prg=prg) as xm:
+            for _ in range(50):
+                if xm.run_to(s("_main"), at_hit=True)["b"] == CSE_BP:
+                    break
+            cold = xm.run_to(s("main_loop_top"), at_hit=True)
+            xm.run_to(s("main_loop"))
+            got = [_screen_text(xm.read, *geometry(xm.read))]
+
+            def type_in(keys):
+                back = xm.regs()["pc"]
+                xm.write(DRIVER, _driver(keys, back))
+                xm.cmd(f"g {DRIVER:x}")
+
+            def key(k):
+                type_in([k])
+                return xm.run_to(s("main_loop"))
+
+            for keys in SCRIPT:
+                for k in keys:
+                    key(k)
+                got.append(_screen_text(xm.read, *geometry(xm.read)))
+            key(QUIT[0])
+            type_in(QUIT[1:])           # RETURN, then y for the query's io_getc
+            xm.cmd("b 0")               # the breakpoint off main_loop (PC never 0)
+            xm.cmd("t0")                # run on
+            # BASIC 65's map is CSE's, so wait_for_basic cannot tell
+            # them apart: wait for READY on the screen instead
+            deadline = time.time() + 60
+            while True:
+                ready = xm.read(0x0800, 80 * 25)
+                if b"READY." in bytes(c & 0x7F for c in ready).translate(_SCR_TO_ASCII) \
+                        or time.time() > deadline:
+                    break
+                time.sleep(0.5)
+            banks = xm.read(0x20000, 0x20000)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return dict(cold=cold, got=got, want=want, ready=ready,
+                banks_ok=banks == snap["chip"][0x20000:0x40000])
+
+
+def test_the_cold_start_reaches_the_prompt(typed):
+    assert (typed["cold"]["mapl"], typed["cold"]["maph"]) == CSE_MAP
+    assert typed["got"][0][24] == "2000:"
+
+
+@pytest.mark.parametrize("step", range(len(SCRIPT) + 1),
+                         ids=["splash"] + [k.decode("latin-1").strip() or "key"
+                                           for k in SCRIPT])
+def test_the_screen_is_m65emus(typed, step):
+    assert typed["got"][step] == typed["want"][step]
+
+
+def test_q_ends_in_basic_65_with_banks_2_3_reloaded(typed):
+    text = bytes(c & 0x7F for c in typed["ready"]).translate(_SCR_TO_ASCII)
+    assert b"READY." in text
+    assert typed["banks_ok"]

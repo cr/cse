@@ -302,9 +302,6 @@ SID_VOL         = $D418
 
 ; ── Pending values (§ Pending bodies): placeholders until P<n> ────────
 BP_PENDING      = $AD               ; their cells, $AD-$AF of CSE's base page
-        PLAT_PENDING_VALUE SCREEN, $0800, 2
-        PLAT_PENDING_VALUE SCREEN_WIDTH, 80, 2
-        PLAT_PENDING_VALUE SCREEN_HEIGHT, 25, 2
         PLAT_PENDING_VALUE ST, BP_PENDING, 3
         PLAT_PENDING_VALUE DISK_LOCAL_PTR, BP_PENDING + 1, 3
         .assert BP_PENDING + 3 <= <STUB_BASE, error, "BP_PENDING overlaps the stub"

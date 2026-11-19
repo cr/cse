@@ -89,7 +89,7 @@ differences; the addresses are the linker map's
     a user address (`FAR_USER`) in `brk_skip_user` and `step_next_pc`;
     bank 0 for the breakpoint table's targets (`patch_all`,
     `unpatch_all`); the screen in `read_line`, `main_loop`'s INS/DEL
-    and `log.s`'s row tails — *stated with P2*.  A user set never
+    and `log.s`'s row tails (`FAR_BANK_SCREEN`).  A user set never
     precedes a further read of the line within one command.
   - `rp_ptr2` — a user address (`FAR_USER`) in `step_next_pc`,
     `zp_stage_prep_addr`, `cmd_dot` and `cmd_mem`; bank 3 for CSE's

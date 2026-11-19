@@ -654,7 +654,8 @@ Where it differs from the C64 build:
 - **The editor** uses the whole screen of the current mode, and a
   source line may be 79 columns wide (39 on the C64; the C64 build
   truncates longer lines with a warning).  In 40 columns a longer line
-  shows `>` at its edge, as on the C64.
+  shows `>` at its edge, as on the C64.  Switch the mode at the prompt
+  between visits: the editor opens with the cursor back on the screen.
 - **Keys.**  TAB is the editor's tab (as SHIFT+SPACE).  The function
   keys reach CSE raw: their BASIC macros are off while CSE reads keys,
   and a program you run finds them as you left them.  HELP, F9–F14 and

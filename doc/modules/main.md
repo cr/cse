@@ -179,8 +179,8 @@ mapped in both maps, and the CPU port is the kernel's whenever kernel
 code runs: a kernel fault captures nothing); `setup_interrupts` goes
 through `VECTOR`; `dbg_init` seeds the saved bank state with the run
 premise's, as the session ends anyway (`end_debug_body`);
-`restore_colors` and `set_charset` are the display's — P2's pending
-bodies until P2 ([platform_layer.md § Display](../platform_layer.md#display)).
+`restore_colors` and `set_charset` are the display's m65 bodies
+([platform_layer.md § Display](../platform_layer.md#display)).
 
 ### end_debug_body
 **In:** none
@@ -301,7 +301,7 @@ by earlier steps, with no hidden cross-subsystem reach-ins.
 
 | Step | m65 |
 |---|---|
-| 1 | the charset and key-repeat settings through the KERNAL (`SYSFLAGS`) — *stated with P2* |
+| 1 | `io_cse_keys`: `SYSFLAGS` bits 5 and 7 (function keys raw, Mega+Shift locked); key repeat is the hardware's, no setting |
 | 2 | absent: quitting is a Hypervisor reset, so BASIC's ZP is never restored and `COLD_ZP` does not exist |
 | 3 | absent: no BASIC ROM to unmap — the CSE map is in place since `stub_cold` |
 | 4 | `setup_interrupts`' m65 body (Interface above) |
