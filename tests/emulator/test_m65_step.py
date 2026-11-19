@@ -1,0 +1,108 @@
+"""test_m65_step.py — the 45GS02 step in xmega65 (Tier X, P4 T9).
+
+Owner: doc/modules/debugger.md
+
+Contract source: [debugger.md § Next-PC](../../doc/modules/debugger.md#next-pc)
+(*On m65*); T9 of TODO § M65 slice 2, P4.
+
+As test_m65_boot.py types commands (one key at a time through
+`ADDKEY`, compared as screen text with M65Emu's M65Session after the
+same keys), a program is typed with `.` and stepped with `t` from a
+cold preview: a Q instruction, a far one, a 16-bit `BRA`, and
+`JMP ($30FF)`, whose vector's high byte is at $3100 on the 45GS02 (no
+page wrap) — $3000 would send it to $4200, where a BRK waits.  Each
+step stops where M65Emu's stops, with the same registers: the real
+CPU's lengths, targets and wrap answer.
+
+Not collected by a plain `pytest` (testpaths); run it by path:
+
+    pytest tests/emulator
+"""
+
+import pathlib
+import shutil
+import sys
+
+import pytest
+
+from m65emu.harness import CSE_BP, load_snapshot, snapshot_dirs
+from xmega65 import CHIP_ROM, XMega65, missing
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tests" / "integration"))
+sys.path.insert(0, str(ROOT / "tests" / "emulator"))
+from test_m65_repl import M65Session                            # noqa: E402
+from test_m65_boot import geometry_of, screen_text              # noqa: E402
+
+WORK = ROOT / "build" / "m65_step"
+_SNAPSHOTS = snapshot_dirs()
+_MISSING = missing()
+pytestmark = pytest.mark.skipif(_MISSING is not None, reason=str(_MISSING))
+
+SETUP = [b"@ $30FF\r", b". 00 34 00 00 00\r",   # $3100: the vector's high byte, Q's bytes
+         b"@ $12\r", b". 00 31 00 00\r",        # ($12): $00003100
+         b"@ $4200\r", b". 00\r",               # the wrap's target: a BRK
+         b"@ $3000\r",
+         b". LDQ ($12),Z\r",                    # $3000: 42 42 B2 12
+         b". LDA [$12],Z\r",                    # $3004: EA B2 12
+         b". BRA $3200\r",                      # $3007: 83 F7 01
+         b"@ $3200\r", b". JMP ($30FF)\r",
+         b"@ $3400\r", b". INZ\r", b". RTS\r",
+         b"@ $3000\r"]
+STEPS = [b"T\r"] * 7          # the preview, then $3004 $3007 $3200 $3400 $3401, rts
+SCRIPT = SETUP + STEPS
+
+
+@pytest.fixture(scope="module",
+                params=_SNAPSHOTS or [None],
+                ids=[d.name for d in _SNAPSHOTS] or ["no-snapshot"])
+def stepped(request, cse_m65_prg):
+    """The screens after each step of SCRIPT in xmega65 and in M65Emu."""
+    if request.param is None:
+        pytest.skip("no M65Emu snapshot (it holds the ROM): "
+                    "python dev/capture_m65_state.py --rom PATH")
+    snap = load_snapshot(request.param)
+    prg, map_path = cse_m65_prg
+    ref = M65Session((prg, map_path), snap)
+    s = ref.e.sym
+    want = []
+    for keys in SCRIPT:
+        ref.keys(keys)
+        want.append(ref.rows())
+
+    work = WORK / request.param.name
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    rom = work / "rom.bin"
+    rom.write_bytes(snap["chip"][CHIP_ROM])
+    got = []
+    try:
+        with XMega65(work / "run", rom=rom, prg=prg) as xm:
+            xm.run_to_page(s("_main"), CSE_BP)
+            xm.run_to(s("main_loop"))
+            for keys in SCRIPT:
+                for k in keys:
+                    xm.addkeys([k])
+                    xm.run_to(s("main_loop"))
+                got.append(screen_text(xm.read, *geometry_of(xm.read, s)))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return dict(got=got, want=want)
+
+
+@pytest.mark.parametrize("step", range(len(SCRIPT)),
+                         ids=[k.decode("latin-1").strip() for k in SCRIPT])
+def test_the_screen_is_m65emus(stepped, step):
+    assert stepped["got"][step] == stepped["want"][step]
+
+
+TAGS = ["; dbg at $3000", "; brk at $3004", "; brk at $3007", "; brk at $3200",
+        "; brk at $3400", "; brk at $3401", "; rts"]
+
+
+@pytest.mark.parametrize("k", range(len(STEPS)), ids=TAGS)
+def test_m65emu_steps_the_documented_path(stepped, k):
+    """The reference itself: each step's tag row, so a shared wrong
+    answer cannot pass (the wrap would stop at $4200)."""
+    rows = stepped["want"][len(SETUP) + k]
+    assert any(r.rstrip() == TAGS[k] for r in rows), "\n".join(rows)

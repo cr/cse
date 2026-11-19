@@ -646,3 +646,93 @@ def test_the_kernel_keeps_the_cse_map_record_through_an_nmi(cse_m65_prg, m65_sna
         emu.run_until(emu.sym("cse_refresh"),
                       start_at=emu.sym("restore_userland_state"), max_cycles=300_000)
         assert kmap(emu) == list(MAP_CSE), f"NMI at step {k}"
+
+
+# ── P4 T9: the 45GS02 step (debugger.md § Next-PC, On m65; D-P4-3) ──
+#
+# step_next_pc follows the CPU that runs the program — always a 45GS02
+# — whatever `u` selects: each row at asm_cpu 0, 3 and 4 alike.
+
+def next_pc(emu, code, *, state=STEP_INTO, cpu=4, x=0, sp=None, at=USER):
+    m = emu.memory
+    user_code(emu, code, at=at)
+    emu.write_word(emu.cell("brk_pc"), at)
+    m[emu.cell("step_state")] = state
+    m[emu.cell("asm_cpu")] = cpu
+    m[emu.cell("reg_x")] = x
+    if sp is not None:
+        m[emu.cell("reg_sp")] = sp
+    emu.jsr(emu.sym("step_next_pc"), b=CSE_BP)
+    return word(emu, "step_next_lo"), word(emu, "step_next_hi")
+
+
+A = USER
+ROWS = [  # (name, code, STEP_INTO result, STEP_OVER result)
+    ("ldq ($12),z",    [0x42, 0x42, 0xB2, 0x12],       (A + 4, 0), (A + 4, 0)),
+    ("lda [$12],z",    [0xEA, 0xB2, 0x12],             (A + 3, 0), (A + 3, 0)),
+    ("ldq [$12],z",    [0x42, 0x42, 0xEA, 0xB2, 0x12], (A + 5, 0), (A + 5, 0)),
+    ("neg; lda #1",    [0x42, 0xA9, 0x01],             (A + 1, 0), (A + 1, 0)),
+    ("phw #$1234",     [0xF4, 0x34, 0x12],             (A + 3, 0), (A + 3, 0)),
+    ("lda ($12,sp),y", [0xE2, 0x12],                   (A + 2, 0), (A + 2, 0)),
+    ("bne16",          [0xD3, 0x00, 0x10],             (A + 3, A + 2 + 0x1000), (A + 3, 0)),
+    ("bne",            [0xD0, 0x05],                   (A + 7, A + 2), (A + 2, 0)),
+    ("bra",            [0x80, 0x05],                   (A + 7, 0), (A + 7, 0)),
+    ("bra16",          [0x83, 0x00, 0x10],             (A + 2 + 0x1000, 0), (A + 2 + 0x1000, 0)),
+    ("bsr",            [0x63, 0x00, 0x10],             (A + 2 + 0x1000, 0), (A + 3, 0)),
+    ("bbr3",           [0x3F, 0x12, 0x05],             (A + 3, A + 8), (A + 3, 0)),
+]
+
+
+@pytest.mark.parametrize("cpu", [0, 3, 4])
+@pytest.mark.parametrize("name,code,into,over", ROWS, ids=[r[0] for r in ROWS])
+def test_the_45gs02_step_rows(emu, cpu, name, code, into, over):
+    ready(emu)
+    assert next_pc(emu, code, cpu=cpu) == into
+    assert next_pc(emu, code, cpu=cpu, state=STEP_OVER) == over
+
+
+@pytest.mark.parametrize("cpu", [0, 4])
+def test_jsr_indirect_follows_its_vector(emu, cpu):
+    ready(emu)
+    emu.memory.load(0x1234, bytes([0x00, 0x40]))
+    assert next_pc(emu, [0x22, 0x34, 0x12], cpu=cpu) == (0x4000, 0)           # jsr ($1234)
+    assert next_pc(emu, [0x23, 0x30, 0x12], cpu=cpu, x=4) == (0x4000, 0)      # jsr ($1230,x)
+    assert next_pc(emu, [0x22, 0x34, 0x12], cpu=cpu, state=STEP_OVER) == (A + 3, 0)
+
+
+@pytest.mark.parametrize("cpu", [0, 4])
+def test_jmp_indirect_does_not_wrap(emu, cpu):
+    ready(emu)
+    emu.memory.load(0x12FF, bytes([0x00, 0x40]))
+    emu.memory.load(0x1200, bytes([0x50]))
+    assert next_pc(emu, [0x6C, 0xFF, 0x12], cpu=cpu) == (0x4000, 0)
+
+
+@pytest.mark.parametrize("op", [0x60, 0x62])                                    # rts, rtn #n
+def test_rtn_returns_as_rts(emu, op):
+    ready(emu)
+    emu.memory.load(0x0181, bytes([0x34, 0x12]))    # at SP + 1, + 2 (below jsr()'s frame)
+    assert next_pc(emu, [op, 0x02], sp=0x80) == (0x1235, 0)
+
+
+def test_t_runs_a_q_instruction_and_a_far_branch(emu):
+    """`t` on M65Emu lands where the CPU goes: past a 4-byte Q load, then
+    a 16-bit branch taken."""
+    ready(emu)
+    #   $3000 LDQ ($12),Z (1 2 3 4: Z clear) · $3004 BNE16 $4000 — the
+    #   offset counts from the last byte, $3006: $4000 - $3006 = $0FFA
+    code = [0x42, 0x42, 0xB2, 0x12, 0xD3, 0xFA, 0x0F]
+    user_code(emu, code)
+    user_code(emu, [0x60], at=0x4000)
+    m = emu.memory
+    emu.memory.load(0x12, bytes([0x00, 0x50]))                 # pointer → $5000: four non-zero bytes
+    emu.memory.load(0x5000, bytes([1, 2, 3, 4]))
+    emu.write_word(emu.cell("brk_pc"), USER)
+    m[emu.cell("step_state")] = STEP_INTO
+    emu.jsr(emu.sym("step_next_pc"), b=CSE_BP)
+    emu.jsr(emu.sym("arm_step_bp"), b=CSE_BP)
+    emu.write_word(emu.cell("step_remaining"), 1)              # `t 2`
+    run_user(emu, USER)
+    assert m[emu.cell("dbg_reason")] == DBG_BRK
+    assert word(emu, "brk_pc") == 0x4000                       # taken
+    assert [m.read_flat(USER + k) for k in range(7)] == code   # no step BRK left

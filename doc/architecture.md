@@ -126,11 +126,11 @@ sibling permitted by [rule 2](#dependency-rules).
 |---|---|
 | loader | main (+ linker symbols) |
 | main | repl, editor, debugger, asm_line, breakpoints, gap_buffer, screen, symtab, log, mem, cse_io, strings, zp |
-| repl | main, asm_src, editor, disk, debugger, asm_line, breakpoints, gap_buffer, dasm, expr, symtab, screen, log, asm_err, mem, cse_io, oplen_tbl, strings, zp (+ linker symbols) |
+| repl | main, asm_src, editor, disk, debugger, asm_line, breakpoints, gap_buffer, dasm, expr, symtab, screen, log, asm_err, mem, cse_io, strings, zp (+ linker symbols) |
 | asm_src | asm_line, gap_buffer, expr, symtab, screen, log, asm_err, mem, cse_io, strings, zp |
 | editor | disk, gap_buffer, mem, cse_io, zp (+ linker symbols) |
 | disk | screen, log, cse_io, strings, zp |
-| debugger | asm_line, breakpoints, oplen_tbl, mem, zp |
+| debugger | asm_line, breakpoints, oplen_tbl (C64), dasm (m65), mem, zp |
 | asm_line | addr_mode, opcode_lookup, expr, mn_classify, mn_asm_tables, mn_modes, asm_err, mem, zp |
 | breakpoints | zp |
 | gap_buffer | symtab, strings, zp (+ linker symbols) |

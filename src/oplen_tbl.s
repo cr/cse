@@ -3,23 +3,14 @@
 ;
 ; Packed opcode → instruction length, 64 bytes: 256 opcodes × 2 bits.
 ; byte = opcode >> 2; position = opcode & 3 (pos 0 = bits 1:0 … pos 3 = bits 7:6).
-; One content for all C64 CPU sets, one for m65 (the 4510's lengths).
+; One content for all C64 CPU sets; none on m65 (the debugger steps by
+; the disassembler's 45GS02 length).
 
+.ifndef CPU_45GS02
         .export oplen_tbl
 
 .segment "RODATA"
 
-.ifdef CPU_45GS02
-oplen_tbl:
-        .byte   $59,$AA,$59,$FF,$EA,$AA,$5D,$FF
-        .byte   $FB,$AA,$59,$FF,$EA,$AA,$5D,$FF
-        .byte   $59,$AA,$59,$FF,$EA,$AA,$5D,$FD
-        .byte   $E9,$AA,$59,$FF,$EA,$AA,$5D,$FF
-        .byte   $EA,$AA,$D9,$FF,$EA,$AA,$DD,$FF
-        .byte   $AA,$AA,$D9,$FF,$EA,$AA,$DD,$FF
-        .byte   $AA,$AA,$D9,$FF,$EA,$AA,$5D,$FF
-        .byte   $AA,$AA,$D9,$FF,$EA,$AB,$5D,$FF
-.else
 oplen_tbl:
         .byte   $99,$AA,$99,$FF,$AA,$AA,$DD,$FF
         .byte   $9B,$AA,$99,$FF,$AA,$AA,$DD,$FF

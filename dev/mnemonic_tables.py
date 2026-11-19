@@ -15,7 +15,7 @@ Generates into src/:
     mn7_tables.s    – mn7 classifier: hash T, fp / base_op / profile (and on
                       m65 the mn7gs keys and mn7_c02)
     oplen_tbl.s     – packed opcode → length (one content for the C64 sets,
-                      one for m65)
+                      none on m65)
 
     python3 dev/mnemonic_tables.py [--out DIR]
 
@@ -745,21 +745,13 @@ def oplen_lengths(opcodes=None):
     return lengths
 
 
-def m65_oplen_lengths():
-    """Opcode → length on the m65 set: the 4510's rows, every opcode defined
-    once (no conflict); prefixes are the debugger's (debugger.md § Next-PC)."""
-    lengths = [1] * 256
-    for r in I.instructions('4510'):
-        lengths[r.opcode] = 1 + MODE_OPERAND_BYTES[r.mode]
-    return lengths
-
-
 def write_oplen_table():
     """oplen_tbl.s — packed opcode → length, 2 bits per opcode, 64 bytes.
 
     Packing: byte[opc >> 2], bits (opc & 3) * 2; lengths from
-    oplen_lengths() — one content for the C64 sets — and on m65 from
-    m65_oplen_lengths().  The debugger's step reads it.
+    oplen_lengths() — one content for the C64 sets.  The C64 debugger's
+    step reads it; m65 has none (the step takes the disassembler's
+    45GS02 length, prefixes included — debugger.md § Next-PC).
     """
     def pack(lengths):
         return [sum((lengths[i + j] & 3) << (j * 2) for j in range(4)) for i in range(0, 256, 4)]
@@ -767,9 +759,9 @@ def write_oplen_table():
     lines = _header('oplen_tbl.s', [
         'Packed opcode → instruction length, 64 bytes: 256 opcodes × 2 bits.',
         'byte = opcode >> 2; position = opcode & 3 (pos 0 = bits 1:0 … pos 3 = bits 7:6).',
-        'One content for all C64 CPU sets, one for m65 (the 4510\'s lengths).'])
-    lines += ['        .export oplen_tbl', '', '.segment "RODATA"', '']
-    lines += ['.ifdef CPU_45GS02'] + _bytes('oplen_tbl', pack(m65_oplen_lengths())) + ['.else']
+        'One content for all C64 CPU sets; none on m65 (the debugger steps by',
+        'the disassembler\'s 45GS02 length).'])
+    lines += ['.ifndef CPU_45GS02', '        .export oplen_tbl', '', '.segment "RODATA"', '']
     lines += _bytes('oplen_tbl', pack(oplen_lengths())) + ['.endif']
     path = _write('oplen_tbl.s', lines)
     print(f'wrote {path}  (64 bytes)')

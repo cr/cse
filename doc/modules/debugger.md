@@ -11,7 +11,8 @@
 | [`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py) | tier-I tests: kernel↔user transitions, step chains, the command matrix |
 | [`tests/integration/test_step_rom.py`](../../tests/integration/test_step_rom.py) | tier-I tests: step-into-ROM fallback |
 | [`tests/emulator/test_m65_break.py`](../../tests/emulator/test_m65_break.py) | tier-X tests (xmega65, P1): a user BRK's snapshot equals M65Emu's; a program's bank state survives a break and a resume |
-| [`tests/integration/test_m65_debugger.py`](../../tests/integration/test_m65_debugger.py) | tier-I tests on the m65 PRG (P1–P3): `far_user`, the workspace bound, the line parser in bank 3, the user-ZP view, the transitions and the bank state (with the KERNAL's map record, P3) |
+| [`tests/emulator/test_m65_step.py`](../../tests/emulator/test_m65_step.py) | tier-X tests (xmega65, P4): a typed 45GS02 program (Q, far, a 16-bit `BRA`, `JMP ($30FF)`) stepped with `t`, each screen M65Emu's |
+| [`tests/integration/test_m65_debugger.py`](../../tests/integration/test_m65_debugger.py) | tier-I tests on the m65 PRG (P1–P4): `far_user`, the workspace bound, the line parser in bank 3, the user-ZP view, the transitions and the bank state (with the KERNAL's map record, P3), the 45GS02 step (§ Next-PC, On m65; P4) |
 
 The debugger is the kernel's **userland gateway**: the two gate
 primitives that move the machine between CSE and user code, the
@@ -173,7 +174,7 @@ on the way out).
 
 Callers: as `step_next_pc`.
 
-**State** — **BSS (11 bytes):** (16 on m65, with `um_kmap` and `um_sysflags`)
+**State** — **BSS (11 bytes):** (17 on m65, with `step_len`, `um_kmap` and `um_sysflags`)
 
 | Variable | Size | Exported | Purpose |
 |---|---|---|---|
@@ -183,6 +184,7 @@ Callers: as `step_next_pc`.
 | `step_next_lo` | 2 | yes (repl.s) | `step_next_pc` result, first stop |
 | `step_next_hi` | 2 | yes (repl.s) | `step_next_pc` result, second stop |
 | `step_save` | 1 | no | opcode scratch of `step_next_pc` |
+| `step_len` | 1 (m65 only) | no | `step_next_pc`: the instruction's length, prefixes included (the disassembler's) |
 | `_rtu_need_sentinel` | 1 | no | per call: 1 from `return_to_userland`, 0 from `restore_userland_state`; read by `_rtu_body` |
 | `um_kmap` | 4 (m65 only) | no (debug labels: tests) | the program's KERNAL map record `0.011C–011F` (its bank state; P3) |
 | `um_sysflags` | 1 (m65 only) | no (debug labels: tests) | the program's `SYSFLAGS` (its bank state; P2) |
@@ -197,8 +199,9 @@ is breakpoints.s's; `reg_*` are asm_line.s's; `kernel_zp_buf` /
 `reg_p`), mem (`save_userland_zp`, `restore_userland_zp`,
 `save_kernel_zp`, `restore_kernel_zp`, `kernel_zp_buf`,
 `userland_zp_buf`), breakpoints (`patch_all`, `step_bp`,
-`dbg_step_clear`), oplen_tbl, zp (`rp_ptr`, `rp_ptr2`, `in_userland`,
-`dbg_reason`, `asm_cpu`)
+`dbg_step_clear`), oplen_tbl (C64) or, on m65, dasm (`dasm_insn_pre`,
+`_dasm_in`, `_dasm_ptr`, `_dasm_opc`), zp (`rp_ptr`, `rp_ptr2`,
+`in_userland`, `dbg_reason`, `asm_cpu`)
 
 ## Debug session
 
@@ -354,7 +357,7 @@ leaves a disabled slot behind.
 | linear | `PC + length` (`oplen_tbl`) | — |
 | conditional branch, `t` | taken target | `PC + 2` |
 | conditional branch, `o` | `PC + 2` | — |
-| `BBR` / `BBS` (65C02 builds, m65), `t` | taken target (`PC + 3` + offset) | `PC + 3` |
+| `BBR` / `BBS` (65C02 builds, m65), `t` | `PC + 3` | taken target (`PC + 3` + offset) |
 | `BBR` / `BBS`, `o` | `PC + 3` | — |
 | `BRA` (65C02, `asm_cpu` = 65C02; m65) | target | — |
 | `JMP abs` | operand | — |
@@ -365,6 +368,11 @@ leaves a disabled slot behind.
 | `RTS` | user stack `($0100 + reg_sp + 1)` + 1 | — |
 | `RTI` | user stack PCL/PCH at `reg_sp + 2` / `+ 3` | — |
 | `BRK` | — | — |
+
+The two slots are alike: `step_targets_check` and `arm_step_bp`
+treat them the same, so which one holds the taken target is the
+code's convenience (the 3-byte branches put `PC + 3` in the first,
+sharing the linear row's add).
 
 Vectors are read as the CPU will read them: `$00–$7F` from
 `userland_zp_buf` (the live ZP is the kernel's while CSE runs),
@@ -379,8 +387,8 @@ the C64, `$C000` on m65 (the interface ROM).
 | Instruction at `brk_pc` | `step_next_lo` | `step_next_hi` |
 |---|---|---|
 | prefixed (`$42 $42` Q, `$EA` far, as [dasm.md § Prefix peel](dasm.md#prefix-peel) defines them) | the base opcode's row, its length plus the prefixes' (2–5 bytes) | as the base row |
-| linear | `PC + length` (the 4510 lengths, the m65 block of `oplen_tbl`) | — |
-| 16-bit conditional branch (`$x3`), `t` | taken target (`PC + 2` + 16-bit offset) | `PC + 3` |
+| linear | `PC + length` (the disassembler's 45GS02 length, `dasm_insn_pre` at `asm_cpu` = 4; m65 links no `oplen_tbl`) | — |
+| 16-bit conditional branch (`$x3`), `t` | `PC + 3` | taken target (`PC + 2` + 16-bit offset) |
 | 16-bit conditional branch, `o` | `PC + 3` | — |
 | `BRA` (`$80`, `$83`) | target | — |
 | `BSR` (`$63`) | as `JSR`, length 3, its target `PC + 2` + 16-bit offset | — |

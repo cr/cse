@@ -3,6 +3,6 @@
  "prgs": {
   "build/release/6502/cse-6502.prg": "905ef998db82af8e550c64c9414b075b2f78caf16e840d8c65808c1ab67fc4d5",
   "build/release/6510/cse.prg": "417820a265884e5f03c4d9099769f418670ea9483a4a45e7f2291c193c4460f1",
-  "build/release/cmos/cse-cmos.prg": "a12397c79bd3f831d9c9e3f3b5f4993f663c2ba55a42b2498990007c154d59cc"
+  "build/release/cmos/cse-cmos.prg": "128bf1d2eb580ffb469b8a16af678737403441b791f890a80a7e0380e8b8b4ab"
  }
 }

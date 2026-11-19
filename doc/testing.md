@@ -830,6 +830,12 @@ The installed machine they check is
   read back with `c1541` (a SEQ as `name,s`).  CBDOS's status has no
   space after the code: `00,ok,00,00`.  The release D81 and the
   README's `DLOAD` start are left manual.
+- **Tier X, the 45GS02 step** (`tests/emulator/test_m65_step.py`, each
+  ROM): a program typed with `.` (a Q load, a far load, a 16-bit
+  `BRA`, `JMP ($30FF)`) stepped with `t` from a cold preview; the
+  screen after every key equals M65Emu's, and M65Emu's tags follow
+  the documented path ($3004, $3007, $3200, $3400 — no page wrap —
+  $3401, `; rts`).
 - **The recordings behind the m65 column.**  The P0 analysis probes
   (entry state, base page, `Z`, the frame, the maps, the Hypervisor
   services, the regions CSE takes, all on both ROMs) become committed

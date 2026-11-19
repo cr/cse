@@ -48,7 +48,7 @@
         .import dasm_insn_pre, _dasm_in, dasm_buf
         .importzp _dasm_ptr
 .ifdef MEGA_SUPPORT
-        .import dasm_insn, asm_rel16
+        .import asm_rel16
         .importzp _dasm_mode
 DOT_MAX     = 5                 ; the longest instruction: hex pairs / columns
 MODE_REL16  = 17                ; (opcode_lookup.md § Mode constants)
@@ -1055,7 +1055,7 @@ _syntax_err:
 ; ZP_SAVE_LO + ZP_SAVE_LEN).  Bytes outside that range fall
 ; through to live (rp_ptr2),y reads.  On completion, rp_ptr2 is
 ; repointed at zp_stage_buf so downstream consumers ((rp_ptr2),y
-; loads by emit_hex_cols, dasm_insn, the compare loop in cmd_dot)
+; loads by emit_hex_cols, DOT_DASM, the compare loop in cmd_dot)
 ; see the staged image transparently.
 ;
 ; The redirect is unconditional — `m $10` always means "user ZP
@@ -1190,29 +1190,32 @@ zp_stage_prep_addr:                     ; convenience entry: load
 @done:  rts
 .endproc
 
-; ═══════════════════════════════════════════════════════════
-; emit_dot — disassemble and display "ADDR:. XX XX XX  mne op"
-;   rp_addr = address. Returns instruction length in A.
-; ═══════════════════════════════════════════════════════════
-.proc emit_dot
-        ; Stage bytes through the user-ZP redirect (page-0 bases
-        ; only).  rp_ptr2 ends up pointing at either zp_stage_buf
-        ; or rp_addr — dasm_insn and emit_hex_cols both read from
-        ; rp_ptr2 uniformly.
+; DOT_DASM — disassemble the instruction at rp_addr as the user sees it:
+;   rp_ptr2 → the staged image (zp_stage_buf for a page-0 base, else
+;   the user address), dasm_buf filled, A = the length.  emit_dot and
+;   cmd_dot's width check (m65) expand it; inline in emit_dot.
+.macro DOT_DASM
         jsr zp_stage_prep_addr
-
         ; dasm_insn_pre owns its KERNAL banking — we hand it the
         ; (possibly staged) bytes and the real PC for branch targets.
         ldy #DOT_MAX - 1
-@cp:    FAR_LDA rp_ptr2
+:       FAR_LDA rp_ptr2
         sta _dasm_in,y
         dey
-        bpl @cp
+        bpl :-
         lda rp_addr
         sta _dasm_ptr
         lda rp_addr+1
         sta _dasm_ptr+1
         jsr dasm_insn_pre
+.endmacro
+
+; ═══════════════════════════════════════════════════════════
+; emit_dot — disassemble and display "ADDR:. XX XX XX  mne op"
+;   rp_addr = address. Returns instruction length in A.
+; ═══════════════════════════════════════════════════════════
+.proc emit_dot
+        DOT_DASM
         pha                     ; save olen for later use
 
         lda #'.'
@@ -1866,9 +1869,7 @@ mem_row:
         ; REL16 when the bytes are one (repl.md § The `.` command).
         lda rp_cnt
         beq :+
-        lda rp_addr
-        ldx rp_addr+1
-        jsr dasm_insn
+        DOT_DASM
         lda _dasm_mode
         cmp #MODE_REL16
         bne :+

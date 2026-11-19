@@ -141,9 +141,16 @@ SCRIPT = [b"? 1+2\r", b"I\r", b"M\r", b"R\r", b". LDA #1\r", b"@ $2000\r",
 QUIT = bytes([0xD1, 0x0D]) + b"Y"     # `Q` is shifted: PETSCII $D1
 
 
-def _screen_text(read, width, height, bank):
+def screen_text(read, width, height, bank):
     raw = read(flat(bank, 0x0800), width * height)
     return [decode_screen_codes(raw[r * width:(r + 1) * width]) for r in range(height)]
+
+
+def geometry_of(read, sym):
+    """The REPL's screen: width, height and bank, read from CSE's cells."""
+    cell = lambda n: read(flat(BANK_CSE, sym(n)), 1)[0]          # BSS
+    width = read(CSE_BP << 8 | sym("scr_width"), 1)[0]
+    return width, cell("scr_height"), cell("scr_bank")
 
 
 @pytest.fixture(scope="module",
@@ -164,11 +171,6 @@ def typed(request, cse_m65_prg):
         ref.keys(keys)
         want.append(ref.rows())
 
-    def geometry(read):
-        cell = lambda n: read(flat(BANK_CSE, s(n)), 1)[0]        # BSS
-        width = read(CSE_BP << 8 | s("scr_width"), 1)[0]
-        return width, cell("scr_height"), cell("scr_bank")
-
     work = WORK / ("typed-" + request.param.name)
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
@@ -179,7 +181,7 @@ def typed(request, cse_m65_prg):
             xm.run_to_page(s("_main"), CSE_BP)
             cold = xm.run_to(s("main_loop_top"), at_hit=True)
             xm.run_to(s("main_loop"))
-            got = [_screen_text(xm.read, *geometry(xm.read))]
+            got = [screen_text(xm.read, *geometry_of(xm.read, s))]
 
             def key(k):
                 xm.addkeys([k])
@@ -188,7 +190,7 @@ def typed(request, cse_m65_prg):
             for keys in SCRIPT:
                 for k in keys:
                     key(k)
-                got.append(_screen_text(xm.read, *geometry(xm.read)))
+                got.append(screen_text(xm.read, *geometry_of(xm.read, s)))
             key(QUIT[0])
             xm.addkeys(QUIT[1:])        # RETURN, then y for the query's io_getc
             xm.cmd("b 0")               # the breakpoint off main_loop (PC never 0)

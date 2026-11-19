@@ -573,7 +573,8 @@ byte-wide dasm modes, and its tables in KDATA.  The exception is
 `oplen_tbl.s`: one 64-byte table (2 bits per opcode) shared by every
 C64 build, the union of the 6510 and 65C02 lengths — the generator
 refuses an opcode whose lengths conflict, and a crash (JAM) row
-yields to the real instruction — and one for m65, the 4510's.  A set
+yields to the real instruction — and none for m65, whose debugger
+steps by the disassembler's 45GS02 length.  A set
 is validated derive-or-die: the tables must reproduce every row of
 every view of the set (on m65 the prefixed rows too) and mask out
 everything else.

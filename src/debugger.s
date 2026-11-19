@@ -63,7 +63,12 @@
 .endif
         .importzp in_userland     ; zp.s
         .importzp dbg_reason      ; zp.s
+.ifdef MEGA_SUPPORT
+        .import dasm_insn_pre, _dasm_in     ; the 45GS02's length and base opcode
+        .importzp _dasm_ptr, _dasm_opc
+.else
         .import oplen_tbl
+.endif
         .importzp asm_cpu
 .ifdef PLATFORM_C64
         .import save_userland_zp, restore_userland_zp
@@ -104,6 +109,9 @@ step_remaining: .res 2         ; iterations left after current step (16-bit)
 step_next_lo:  .res 2          ; first candidate next-PC (0 = stop)
 step_next_hi:  .res 2          ; second candidate (branch alternative)
 step_save:     .res 1          ; opcode/packed-oplen scratch
+.ifdef MEGA_SUPPORT
+step_len:      .res 1          ; the instruction's length, prefixes included
+.endif
 
 ; Sentinel-push flag for the shared restore tail.  Set by
 ; return_to_userland (=1) or restore_userland_state (=0).
@@ -491,14 +499,55 @@ brk_stub:
         sta rp_ptr2+1
         FAR_USER rp_ptr2        ; brk_pc is a user address
 
+.ifdef MEGA_SUPPORT
+        ; The 45GS02 runs the program whatever `u` lists (D-P4-3): its
+        ; length, prefixes included, and its base opcode from the
+        ; disassembler's 45GS02 view (dasm.md § Prefix peel).  A
+        ; prefixed instruction is linear.
+        ldy #4
+:       FAR_LDA rp_ptr2
+        sta _dasm_in,y
+        dey
+        bpl :-
+        lda brk_pc
+        sta _dasm_ptr
+        lda brk_pc+1
+        sta _dasm_ptr+1
+        lda asm_cpu
+        pha
+        lda #4
+        sta asm_cpu
+        jsr dasm_insn_pre       ; A = the length
+        sta step_len
+        pla
+        sta asm_cpu
         ldy #0
         FAR_LDA rp_ptr2
+        cmp _dasm_opc           ; the base opcode not the first byte:
+        jne @linear             ;   prefixed
+        tax                     ; (Z from the opcode again, for BRK)
+.else
+        ldy #0
+        FAR_LDA rp_ptr2
+.endif
         sta step_save           ; opcode
 
         jeq @stop               ; BRK $00
 
         cmp #$20
         jeq @jsr
+.ifdef MEGA_SUPPORT
+        cmp #$22
+        jeq @jsr_ind            ; JSR (ind)
+        cmp #$23
+        jeq @jsr_aix            ; JSR (abs,X)
+        cmp #$63
+        jeq @bsr
+        cmp #$62
+        jeq @rts                ; RTN #n: the return address as RTS's
+        cmp #$83
+        jeq @bra16
+.endif
 
         cmp #$60
         jeq @rts                ; RTS — peek user stack
@@ -511,13 +560,16 @@ brk_stub:
         cmp #$6C
         jeq @jmp_ind
 
-.ifdef CMOS_SUPPORT
+.if .defined(CMOS_SUPPORT) .or .defined(MEGA_SUPPORT)
+.ifndef MEGA_SUPPORT
+        ldx asm_cpu             ; $7C, $80, $xF: the 65C02's forms
+        cpx #2
+        bcc @not_bb
+.endif
         cmp #$7C
         bne @not_7c
-        lda asm_cpu
-        cmp #2
-        bcc @not_7c
         ; JMP (abs,x)
+@jmp_aix:
         ldy #1
         FAR_LDA rp_ptr2
         clc
@@ -527,22 +579,47 @@ brk_stub:
         FAR_LDA rp_ptr2
         adc #0
         sta rp_ptr+1
-        jmp @vec                ; asm_cpu = 65C02 here: no page wrap
+        jmp @vec                ; 65C02 / 45GS02: no page wrap
 @not_7c:
-        lda step_save
-        cmp #$80
+        cmp #$80                ; BRA
         bne @not_bra
-        lda asm_cpu
-        cmp #2
-        bcc @not_bra
-        jsr compute_rel_target
-        rts
+        jmp compute_rel_target
 @not_bra:
+        ; BBR / BBS (opcode $xF): step_next_lo = PC + 3; INTO also
+        ; arms step_next_hi = the taken target, PC + 3 + offset at +2.
+        and #$0F
+        cmp #$0F
+        bne @not_bb
+        jsr @pc3
+        bne @r                  ; OVER
+        ldy #2
+        ldx #0
+        FAR_LDA rp_ptr2         ; the offset, sign-extended into X
+        bpl :+
+        dex
+:       clc
+        adc step_next_lo
+        sta step_next_hi
+        txa
+        adc step_next_lo+1
+        sta step_next_hi+1
+@r:     rts
+@not_bb:
 .endif
 
         ; Conditional branch: (opc & $1F) == $10
         lda step_save
         and #$1F
+.ifdef MEGA_SUPPORT
+        cmp #$13                ; a 16-bit one: (opc & $1F) == $13
+        bne :+
+        jsr @pc3                ; step_next_lo = PC + 3
+        bne @r                  ; OVER
+        ldx #2                  ; INTO: step_next_hi = the target
+        jmp rel16_target
+:       lda step_save
+        and #$1F
+.endif
         cmp #$10
         bne @linear
 
@@ -569,7 +646,18 @@ brk_stub:
         sta step_next_lo+1
         rts
 
+.if .defined(CMOS_SUPPORT) .or .defined(MEGA_SUPPORT)
+@pc3:   lda #3                  ; step_next_lo = PC + 3 (a bit or 16-bit
+        jsr @add                ; branch); out: Z=0 for STEP_OVER
+        lda step_state
+        cmp #STEP_INTO
+        rts
+.endif
+
 @linear:
+.ifdef MEGA_SUPPORT
+        lda step_len            ; next = brk_pc + the 45GS02's length
+.else
         ; Linear insn: next = brk_pc + oplen(opc).
         ; Packed oplen_tbl: 2 bits/opcode, 4 opcodes/byte.
         lda step_save
@@ -589,7 +677,8 @@ brk_stub:
         bne @len_shift
 @len_done:
         and #$03
-        clc
+.endif
+@add:   clc
         adc brk_pc
         sta step_next_lo
         lda #0
@@ -624,6 +713,28 @@ brk_stub:
         FAR_LDA rp_ptr2
         sta step_next_lo+1
         rts
+.ifdef MEGA_SUPPORT
+@bsr:   lda step_state          ; BSR: a JSR to PC + 2 + offset16
+        cmp #STEP_OVER
+        beq @jsr_over
+        jsr @bra16
+        lda step_next_lo+1
+        cmp #ROM_BASE_HI
+        bcs @jsr_over
+        rts
+@bra16: ldx #0
+        jmp rel16_target
+@jsr_ind:                       ; JSR (ind): INTO the vector, OVER PC + 3
+        lda step_state
+        cmp #STEP_OVER
+        beq @jsr_over
+        jmp @jmp_ind
+@jsr_aix:
+        lda step_state
+        cmp #STEP_OVER
+        beq @jsr_over
+        jmp @jmp_aix
+.endif
 
 @jmp_abs:
         ldy #1
@@ -650,7 +761,10 @@ brk_stub:
         jsr peek_user
         sta step_next_lo
         inc rp_ptr
-.ifdef CMOS_SUPPORT
+.ifdef MEGA_SUPPORT
+        bne @ind_hi
+        inc rp_ptr+1            ; the 45GS02: no wrap
+.elseif .defined(CMOS_SUPPORT)
         bne @ind_hi
         lda asm_cpu
         cmp #2
@@ -749,6 +863,32 @@ peek_user:
         inc step_next_lo+1
 :       rts
 .endproc
+
+.ifdef MEGA_SUPPORT
+; ── rel16_target ────────────────────────────────────────────────────
+; step_next_lo,X (X = 0: _lo, 2: _hi) = brk_pc + 2 + the 16-bit offset
+; at +1 (from the last byte; debugger.md § Next-PC, On m65).
+.proc rel16_target
+        ldy #1
+        FAR_LDA rp_ptr2
+        clc
+        adc brk_pc
+        pha
+        iny
+        FAR_LDA rp_ptr2
+        adc brk_pc+1
+        tay
+        pla
+        clc
+        adc #2
+        sta step_next_lo,x
+        bcc :+
+        iny
+:       tya
+        sta step_next_lo+1,x
+        rts
+.endproc
+.endif
 
 ; ── arm_step_bp ─────────────────────────────────────────────────────
 ; Install step_next_lo / step_next_hi into the two step_bp slots.

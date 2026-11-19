@@ -1676,6 +1676,25 @@ forms through `.`; test_m65_repl's rows are five columns wide.  Found
 on the way, in the harness: the screen-text helpers knew no `[` `]`
 (`_scr`, `decode_screen_codes`).  m65-45gs02 24 510 B.
 
+Step (9) done 2026-11-19: on `MEGA_SUPPORT` `step_next_pc` reads the
+instruction's length and base opcode from the disassembler at
+`asm_cpu` 4 (`dasm_insn_pre`, `step_len`), whatever `u` lists; a
+prefixed instruction is linear; `$x3` 16-bit branches, `BRA` `$83`,
+`BSR`, `JSR (ind)` / `(abs,X)`, `RTN #` and `JMP (ind)` without the
+wrap follow debugger.md's m65 table; `$7C`, `$80` and `$xF` need no
+`asm_cpu` check.  m65 links no `oplen_tbl` (the generator's m65 block
+retired).  c64-65c02: `BBR` / `BBS` step as branches (they were
+linear, so `t` ran a taken one through) — one `asm_cpu` check now
+guards `$7C`, `$80` and `$xF`; the 3-byte branches put `PC + 3` in
+`step_next_lo` through the linear add (the two slots are alike).
+cse-cmos.prg re-recorded (the deliberate C64 change); 6510 and 6502
+byte-identical.  Found on the way: `.`'s width check (step 8) read the
+bytes with `dasm_insn`, whose far pointer kept stale bank bytes and
+which skips the user-ZP image — it now shares `emit_dot`'s staged read
+(`DOT_DASM`).  Tier X `test_m65_step.py`: a typed program stepped in
+xmega65 lands where M65Emu does, `JMP ($30FF)` included (no wrap on
+the real CPU).  c64-65c02 21 879 B, m65-45gs02 24 714 B.
+
 **P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
 first, step by step; each is red until its code lands.  Automation
 judgement: all of it is automatable — the generators on the host,
@@ -1762,7 +1781,7 @@ hardware: O1 and O3, as before.
   columns.  `test_m65_repl.py`'s `3001:.  ea        nop` row becomes
   the five-column `eom` row.  The C64 rows are unchanged (the
   existing tests).
-- [ ] T9. The 45GS02 step (step 9; `test_m65_debugger.py`): every row
+- [x] T9. The 45GS02 step (step 9; `test_m65_debugger.py`): every row
   of debugger.md's m65 Next-PC table through `step_next_pc`, at
   `asm_cpu` 0, 3 and 4 alike — prefixed lengths (Q, far, both), the
   16-bit branches under `t` and `o`, `BRA`, `BSR`, `JSR (ind)` /

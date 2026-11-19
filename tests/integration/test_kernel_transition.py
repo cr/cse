@@ -1876,6 +1876,38 @@ class TestStepIndirectJump:
         assert e.read_word(e.sym("step_next_lo")) == 0x3000
 
 
+class TestStepBitBranch:
+    """debugger.md § Next-PC (D-P4-3): BBR / BBS ($xF) at asm_cpu 2 is a
+    branch — step_next_lo = PC + 3, and INTO arms step_next_hi = the
+    taken target (PC + 3 + offset); at asm_cpu 0 the opcode is a 3-byte
+    linear one."""
+
+    def _next(self, e, code, cpu, state, at=0x1000):
+        for i, b in enumerate(code):
+            e.memory[at + i] = b
+        e.memory[e.sym("asm_cpu")] = cpu
+        e.memory[e.sym("step_state")] = state
+        e.write_word(e.sym("brk_pc"), at)
+        e.write_word(e.sym("step_next_hi"), 0)
+        pc, sp = e._cpu.pc, e._cpu.sp
+        e.jsr(e.sym("step_next_pc"))
+        e._cpu.pc, e._cpu.sp = pc, sp
+        return e.read_word(e.sym("step_next_lo")), e.read_word(e.sym("step_next_hi"))
+
+    @pytest.mark.parametrize("code,want", [
+        ([0x3F, 0x12, 0x10], (0x1003, 0x1013)),     # BBR3 $12, forward
+        ([0xFF, 0x12, 0xF0], (0x1003, 0x0FF3)),     # BBS7 $12, backward
+    ])
+    def test_into_arms_both(self, emu, code, want):
+        assert self._next(emu, code, 2, 1) == want
+
+    def test_over_arms_the_fall_through(self, emu):
+        assert self._next(emu, [0x3F, 0x12, 0x10], 2, 2) == (0x1003, 0)
+
+    def test_nmos_view_is_linear(self, emu):
+        assert self._next(emu, [0x3F, 0x12, 0x10], 0, 1) == (0x1003, 0)
+
+
 class TestStepCount:
     """debugger.md § `t`: N is a 16-bit count."""
 
