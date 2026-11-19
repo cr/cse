@@ -6,9 +6,10 @@ Contract source: [build_system.md § Builds and CPU sets](../../doc/build_system
 and [§ The m65 builds](../../doc/build_system.md#the-m65-builds) (T4 of
 TODO § M65 slice 2, P0): `make release` / `make debug` with
 `PLATFORM=m65` build the m65-6502 PRG into build/<profile>/m65/ through
-src/m65_cse.cfg; `disk`, `run` and `size` with `PLATFORM=m65` are
-refused until P3, and an unknown platform is refused for every PRG
-target — neither silently builds the C64 PRGs.  Each region of the m65
+src/m65_cse.cfg; `run` with `PLATFORM=m65` (or `TARGET=m65`) builds the
+release PRG and starts $(XMEGA65) with it, never VICE; `disk` and `size`
+with `PLATFORM=m65` are refused until P3, and an unknown platform is
+refused for every PRG target — neither silently builds the C64 PRGs.  Each region of the m65
 config is bounded as stated, so an overflow fails the link.
 [build_system.md § Introspection builds](../../doc/build_system.md#introspection-builds-introspect1):
 only `INTROSPECT=1` passes `-DINTROSPECT`.
@@ -57,7 +58,25 @@ def test_m65_ignores_cpu():
     assert "-DCPU_65C02" not in r.stdout and "-DCPU_6502" in r.stdout
 
 
-@pytest.mark.parametrize("target", ["disk", "run", "size"])
+@pytest.mark.parametrize("platform", ["PLATFORM=m65", "TARGET=m65"])
+def test_m65_run_starts_xmega65_with_the_release_prg(platform):
+    r = _make_n("run", platform, "XMEGA65=/opt/xm65")
+    assert r.returncode == 0, r.stderr
+    assert "-DPLATFORM_M65" in r.stdout                  # the m65 PRG is built
+    start = [ln for ln in r.stdout.splitlines() if ln.startswith("/opt/xm65 ")]
+    assert len(start) == 1, r.stdout
+    assert "build/release/m65/cse-m65.prg" in start[0]
+    assert "-prgmode 65" in start[0] and "-headless" not in start[0]
+    assert "x64" not in r.stdout and "-autostart" not in r.stdout   # not VICE
+
+
+def test_target_and_platform_must_agree():
+    r = _make_n("run", "TARGET=m65", "PLATFORM=c64")
+    assert r.returncode != 0
+    assert "TARGET" in r.stderr and "PLATFORM" in r.stderr
+
+
+@pytest.mark.parametrize("target", ["disk", "size"])
 def test_m65_targets_without_a_d81_are_refused(target):
     r = _make_n(target, "PLATFORM=m65")
     assert r.returncode != 0

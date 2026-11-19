@@ -12,7 +12,7 @@
 #   check-roms   Fail with copy instructions when rom/kernal_cbm.bin is missing
 #   m65-rom      Copy the MEGA65 ROM from xmega65's data into rom/mega65.rom
 #   disk         Create D64 disk image (uses CPU= for PRG selection)
-#   run          Build release and launch in VICE
+#   run          Build release and launch in VICE (PLATFORM=m65: xmega65)
 #   size         Exhaustive size breakdown of selected PRG
 #   clean        Remove build/
 #   clean-tables Remove generated table sources in src/
@@ -39,18 +39,29 @@ PYTEST    ?= pipenv run pytest
 VICE      ?= x64sc
 C1541     ?= c1541
 EXOMIZER  ?= exomizer
+XMEGA65   ?= /Applications/xmega65.app/Contents/MacOS/xmega65
 
 # ── Platform selection ───────────────────────────────────────────────────
 # PLATFORM=c64 (default) builds the three C64 PRGs; PLATFORM=m65 builds
-# the one m65 build, m65-6502 until P4 (release and debug only: disk,
-# run and size arrive with the D81 in P3).  Any other platform, and an
-# m65 target that does not exist yet, is refused instead of silently
-# building the C64 PRGs.  See doc/build_system.md § Builds and CPU sets.
+# the one m65 build, m65-6502 until P4 (release, debug and run — in
+# xmega65; disk and size arrive with the D81 in P3).  Any other
+# platform, and an m65 target that does not exist yet, is refused
+# instead of silently building the C64 PRGs.  TARGET= on the command
+# line is PLATFORM's synonym (make run TARGET=m65).  See
+# doc/build_system.md § Builds and CPU sets.
+ifeq ($(origin TARGET),command line)
+  ifeq ($(origin PLATFORM),command line)
+    ifneq ($(TARGET),$(PLATFORM))
+      $(error TARGET=$(TARGET) and PLATFORM=$(PLATFORM) disagree: TARGET is a synonym of PLATFORM)
+    endif
+  endif
+  override PLATFORM := $(TARGET)
+endif
 PLATFORM ?= c64
 _NON_PRG_GOALS := help themes clean clean-tables tables m65-rom check-roms
 ifeq ($(PLATFORM),m65)
-  ifneq ($(filter disk run size,$(MAKECMDGOALS)),)
-    $(error PLATFORM=m65: no $(filter disk run size,$(MAKECMDGOALS)) for the m65 build yet (the D81 is R7 slice 2, P3); make release / debug PLATFORM=m65 build its PRG)
+  ifneq ($(filter disk size,$(MAKECMDGOALS)),)
+    $(error PLATFORM=m65: no $(filter disk size,$(MAKECMDGOALS)) for the m65 build yet (the D81 is R7 slice 2, P3); make release / debug / run PLATFORM=m65 build and run its PRG)
   endif
   override CPU := 6502
 else ifneq ($(PLATFORM),c64)
@@ -208,12 +219,12 @@ all: release
 .PHONY: release
 ifeq ($(PLATFORM),m65)
 release:
-	@$(MAKE) --no-print-directory _one PLATFORM=m65 _PROFILE=release TARGET="m65   cse-m65.prg"
+	@$(MAKE) --no-print-directory _one PLATFORM=m65 _PROFILE=release _LABEL="m65   cse-m65.prg"
 else
 release:
-	@$(MAKE) --no-print-directory _one CPU=6510  _PROFILE=release TARGET="6510  cse.prg"
-	@$(MAKE) --no-print-directory _one CPU=6502  _PROFILE=release TARGET="6502  cse-6502.prg"
-	@$(MAKE) --no-print-directory _one CPU=65c02 _PROFILE=release TARGET="65c02 cse-cmos.prg"
+	@$(MAKE) --no-print-directory _one CPU=6510  _PROFILE=release _LABEL="6510  cse.prg"
+	@$(MAKE) --no-print-directory _one CPU=6502  _PROFILE=release _LABEL="6502  cse-6502.prg"
+	@$(MAKE) --no-print-directory _one CPU=65c02 _PROFILE=release _LABEL="65c02 cse-cmos.prg"
 	@$(MAKE) --no-print-directory _dist
 endif
 
@@ -227,12 +238,12 @@ endif
 .PHONY: debug
 ifeq ($(PLATFORM),m65)
 debug:
-	@$(MAKE) --no-print-directory _one PLATFORM=m65 _PROFILE=debug TARGET="m65   cse-m65.prg"
+	@$(MAKE) --no-print-directory _one PLATFORM=m65 _PROFILE=debug _LABEL="m65   cse-m65.prg"
 else
 debug:
-	@$(MAKE) --no-print-directory _one CPU=6510  _PROFILE=debug TARGET="6510  cse.prg"
-	@$(MAKE) --no-print-directory _one CPU=6502  _PROFILE=debug TARGET="6502  cse-6502.prg"
-	@$(MAKE) --no-print-directory _one CPU=65c02 _PROFILE=debug TARGET="65c02 cse-cmos.prg"
+	@$(MAKE) --no-print-directory _one CPU=6510  _PROFILE=debug _LABEL="6510  cse.prg"
+	@$(MAKE) --no-print-directory _one CPU=6502  _PROFILE=debug _LABEL="6502  cse-6502.prg"
+	@$(MAKE) --no-print-directory _one CPU=65c02 _PROFILE=debug _LABEL="65c02 cse-cmos.prg"
 endif
 
 # -----------------------------------------------------------------------
@@ -270,12 +281,12 @@ ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 ifneq ($(or $(filter debug,$(_PROFILE)),$(filter m65,$(PLATFORM))),)
 _one: $(PRG)
 	@printf "  %s  %s bytes  lbl %s syms\n" \
-	  "$(TARGET)" "$$(wc -c < $(PRG) | tr -d ' ')" \
+	  "$(_LABEL)" "$$(wc -c < $(PRG) | tr -d ' ')" \
 	  "$$(wc -l < $(LBL) | tr -d ' ')"
 else
 _one: $(PRG) $(PRG_EXO)
 	@printf "  %s  %s bytes  exo %s bytes\n" \
-	  "$(TARGET)" "$$(wc -c < $(PRG) | tr -d ' ')" \
+	  "$(_LABEL)" "$$(wc -c < $(PRG) | tr -d ' ')" \
 	  "$$(wc -c < $(PRG_EXO) | tr -d ' ')"
 endif
 
@@ -355,7 +366,7 @@ D64 = $(ROOT)build/release/$(_$(CPU)_SUBDIR)/cse.d64
 
 .PHONY: disk
 disk:
-	@$(MAKE) --no-print-directory _one CPU=$(CPU) _PROFILE=release TARGET="$(CPU) $(PRG_NAME)"
+	@$(MAKE) --no-print-directory _one CPU=$(CPU) _PROFILE=release _LABEL="$(CPU) $(PRG_NAME)"
 	@rm -f $(D64)
 	$(C1541) -format "cse $(VERSION),01" d64 $(D64) \
 	  -write $(ROOT)build/release/$(_$(CPU)_SUBDIR)/$(basename $(PRG_NAME))-exo.prg cse
@@ -384,14 +395,22 @@ $(TABLES_STAMP): $(TABLE_GEN) $(TABLE_DEPS) | $(ROOT)build/
 $(TABLE_OUTS): $(TABLES_STAMP)
 
 # -----------------------------------------------------------------------
-# run — build release, then launch in VICE
+# run — build release, then launch in VICE (c64) or xmega65 (m65)
 # -----------------------------------------------------------------------
+# m65: xmega65 with the user's own configuration (SD image, ROM, keymap);
+# -prg loads the PRG and RUNs it once BASIC 65 is up.  Never from
+# automation: Tier X starts xmega65 -headless (tests/xmega65.py).
 .PHONY: run
+ifeq ($(PLATFORM),m65)
+run: release
+	$(XMEGA65) -prg $(ROOT)build/release/m65/cse-m65.prg -prgmode 65
+else
 run: release
 	$(VICE) -kernal $(KERNAL_IMG) -basic $(BASIC_IMG) -chargen $(CHARGEN_IMG) \
 	  $(VICE_ROMFLAGS) \
 	  -autostart $(ROOT)build/release/$(_$(CPU)_SUBDIR)/$(PRG_NAME) \
 	  -8 $(DIST_D64)
+endif
 
 # -----------------------------------------------------------------------
 # test — run pytest (requires both debug + release builds)
@@ -431,7 +450,7 @@ test: debug release check-roms
 # -----------------------------------------------------------------------
 .PHONY: size
 size:
-	@$(MAKE) --no-print-directory _one CPU=$(CPU) _PROFILE=release TARGET="$(CPU) $(PRG_NAME)"
+	@$(MAKE) --no-print-directory _one CPU=$(CPU) _PROFILE=release _LABEL="$(CPU) $(PRG_NAME)"
 	@BUILD=$(ROOT)build/release/$(_$(CPU)_SUBDIR) $(PYTHON) $(DEV)/size_report.py
 
 # -----------------------------------------------------------------------
@@ -480,7 +499,7 @@ help:
 	@printf "%-15s %s\n" "debug"        "Build all three CPU targets with -g (full symbols)"
 	@printf "%-15s %s\n" ""             "  build/debug/{6510,6502,cmos}/cse*.prg"
 	@printf "%-15s %s\n" "disk"         "Create D64 with compressed PRG (CPU=6510|6502|65c02)"
-	@printf "%-15s %s\n" "run"          "Build release + launch in VICE (CPU=, ROMSET=cbm|mega)"
+	@printf "%-15s %s\n" "run"          "Build release + launch in VICE (CPU=, ROMSET=cbm|mega); PLATFORM=m65: xmega65"
 	@printf "%-15s %s\n" "tables"       "Regenerate the generated tables in src/ (both generators)"
 	@printf "%-15s %s\n" "test"         "Run all pytest tests (builds both debug + release)"
 	@printf "%-15s %s\n" "check-roms"   "Fail with copy instructions if rom/kernal_cbm.bin is missing"

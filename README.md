@@ -644,7 +644,10 @@ Use in REPL: `@ workstart`, `? workend`
 ## On the MEGA65
 
 A native MEGA65 build is in development (branch `m65`); how to start
-it from a PRG, a D81 or a cartridge comes with its first release.
+it from a D81 or a cartridge comes with its first release.  To try the
+PRG, `make run PLATFORM=m65` starts it in xmega65.  xmega65's default
+keymap puts RUN/STOP on the PC's End key (fn+→ on a Mac) and RESTORE
+on Page Down; the PC's Escape is the MEGA65's ESC.
 Where it differs from the C64 build:
 
 - **Colours.**  The default theme is MEGA, the MEGA65's own white on
@@ -677,6 +680,7 @@ Where it differs from the C64 build:
 
     make            # build cse.prg + d64 (release)
     make run        # build + launch in VICE
+    make run PLATFORM=m65   # the MEGA65 build in xmega65 (TARGET=m65 works too)
     make test       # run pytest test suite
 
 See [Build requirements](#build-requirements) below for the

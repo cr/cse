@@ -24,7 +24,7 @@
 | [`tests/unit/test_build_freshness.py`](../tests/unit/test_build_freshness.py) | test contract — no test runs on a stale binary: the PRG fixtures always run `make`, objects depend on their includes, bundles on `src/*.inc` |
 | [`tests/unit/test_clean_build.py`](../tests/unit/test_clean_build.py) | test contract — a fresh `git worktree` of `HEAD` builds with one `make release` (no re-run) |
 | [`tests/integration/test_release_smoke.py`](../tests/integration/test_release_smoke.py) | test contract — the release CMOS PRG boots from `SYS 2061` to the main loop and shows its splash |
-| [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — `make release` / `debug PLATFORM=m65` build the m65-6502 PRG through `src/m65_cse.cfg`; the m65 `disk`, `run`, `size` and an unknown platform are refused; each m65 region is bounded and an overflow fails the link |
+| [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — `make release` / `debug PLATFORM=m65` build the m65-6502 PRG through `src/m65_cse.cfg`; `make run PLATFORM=m65` (and `TARGET=m65`) starts `$(XMEGA65)` with the release PRG, not VICE; the m65 `disk`, `size` and an unknown platform are refused; each m65 region is bounded and an overflow fails the link |
 | [`tests/emulator/test_m65_boot.py`](../tests/emulator/test_m65_boot.py) | test contract (Tier X) — the m65 PRG boots to `_main` in xmega65 on each ROM, the installed machine M65Emu's `install_prg()` makes |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
@@ -328,8 +328,8 @@ absolute address.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG, D81 and cartridge ([§ The m65 builds](#the-m65-builds)) and the m65 test bundles; until R7 slice 2 every PRG target refuses `PLATFORM=m65` with an error (`help`, `themes`, `clean`, `clean-tables`, `tables`, `m65-rom`, `check-roms` still run) |
-| `XMEGA65` | `/Applications/xmega65.app/Contents/MacOS/xmega65` | The xmega65 executable; an environment variable read by `tests/xmega65.py` (Tier X, the M65Emu recordings).  The Makefile option for `make run PLATFORM=m65` is planned with the m65 PRG |
+| `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG, D81 and cartridge ([§ The m65 builds](#the-m65-builds)) and the m65 test bundles.  `make release`, `debug` and `run` work on m65; `disk` and `size` refuse `PLATFORM=m65` with an error until P3 (`help`, `themes`, `clean`, `clean-tables`, `tables`, `m65-rom`, `check-roms` still run).  `TARGET=` on the command line is a synonym (`make run TARGET=m65`); giving both with different values is an error |
+| `XMEGA65` | `/Applications/xmega65.app/Contents/MacOS/xmega65` | The xmega65 executable: `make run PLATFORM=m65` starts it, and `tests/xmega65.py` reads the same environment variable (Tier X, the M65Emu recordings) |
 | `CPU` | `6510` on `c64`; on `m65` the platform's one build (`6502` until P4, then `45gs02`) | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`) |
 | `THEME` | `GREENLAND` (c64), `MEGA` (m65) | Named theme or 3-digit hex code (`make themes` for list) |
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
@@ -541,10 +541,17 @@ uncompressed.
   *Stated with P3* (analysis task A3 settles the signature's last
   byte and what the ROM implements).
 
-**Run.**  `make run PLATFORM=m65` starts `$(XMEGA65)` with the D81 on
-drive 8 and `-autoload`; a MEGA65-mode PRG at `$2001` needs no
-`-go64`.  Automation never starts xmega65 without `-headless`
-([testing.md § Tier X](testing.md#tier-x--xmega65-m65-automated)).
+**Run.**  `make run PLATFORM=m65` builds the release PRG and starts
+`$(XMEGA65)` with it: `-prg build/release/m65/cse-m65.prg -prgmode 65`,
+which loads the PRG into the MEGA65's memory and RUNs it once BASIC 65
+is up (a MEGA65-mode PRG at `$2001` needs no `-go64`).  xmega65 starts
+with its own configuration — the user's SD image and ROM, its window,
+its keymap — so the run is what the user sees on a MEGA65.  In
+xmega65's default keymap RUN/STOP is the PC's End key (fn+→ on a Mac),
+RESTORE Page Down, and the PC's Escape is the MEGA65's ESC.  From P3
+the D81 joins on drive 8.  Automation never starts xmega65 without
+`-headless` ([testing.md § Tier X](testing.md#tier-x--xmega65-m65-automated));
+`make run` is for people.
 
 **Gates.**  The C64 release PRGs stay byte-identical through every
 m65 step ([platform_layer.md § Gates](platform_layer.md#gates)); the

@@ -1231,8 +1231,9 @@ Step-1 delta:
   load/save on M65Emu's virtual drive (C64Emu's 1541 moved to the
   shared base) and on the D81 in xmega65.
 - [ ] [build_system.md](build_system.md): `make disk PLATFORM=m65`
-  (`c1541`, the raw PRG), `make run PLATFORM=m65` (never from
-  automation without `-headless`), the 32 K CRT image — bootstrap at
+  (`c1541`, the raw PRG), `make run PLATFORM=m65` with the D81 on
+  drive 8 (the PRG alone since 2026-11-19, operator: `-prg … -prgmode
+  65`; never from automation), the 32 K CRT image — bootstrap at
   `$8000` with the vectors, flags and magic at `$8000–$8009`, the
   payload DMA'd from the cartridge's bank, the `.CRT` writer in
   `dev/` following the draft format.
