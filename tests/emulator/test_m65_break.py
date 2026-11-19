@@ -73,11 +73,6 @@ def _flat_of(ref, name):
     return CSE_BP << 8 | v if v < 0x100 else flat(BANK_CSE, v)
 
 
-def _cell(ref, name):
-    """Its CPU address under the CSE map, for the driver's code."""
-    return T.cell(ref, name)
-
-
 def _abs(op, addr):
     return [op, addr & 0xFF, addr >> 8]
 
@@ -85,7 +80,7 @@ def _abs(op, addr):
 def _start_driver(ref, entry):
     """setup_interrupts, dbg_init, the globals, brk_pc = entry,
     return_to_userland (B = CSE_BP and the CSE map, as at _main)."""
-    s, c = ref.sym, lambda n: _cell(ref, n)
+    s, c = ref.sym, ref.cell
     code = _abs(0x20, s("setup_interrupts")) + _abs(0x20, s("dbg_init"))
     code += [0xA9, T.ST_REPL] + _abs(0x8D, c("state"))
     code += [0xA9, 0x00] + _abs(0x8D, c("run_user_pending"))
@@ -97,7 +92,7 @@ def _start_driver(ref, entry):
 
 def _resume_driver(ref):
     """`c`: SP back at the user's, then restore_userland_state."""
-    return _abs(0xAE, _cell(ref, "reg_sp")) + [0x9A] + \
+    return _abs(0xAE, ref.cell("reg_sp")) + [0x9A] + \
         _abs(0x4C, ref.sym("restore_userland_state"))
 
 

@@ -15,9 +15,9 @@ and records what they do:
 - the jump table: the opcode at each entry CSE may call (a missing
   entry is not a JMP);
 - SCRORG in 80 x 25, 80 x 50, 40 x 25 and under a window (ESC T / B);
+  PLOT relative to the window, its error, and HOME HOME leaving it;
 - the VIC-IV register set the KERNAL leaves for each text mode (P2:
   vic_reset writes it back);
-  PLOT relative to the window, its error, and HOME HOME leaving it;
 - logical lines: a RETURN after printing past the right margin, after
   the rows were then overwritten directly in screen RAM, and after
   ESC O; a print at the bottom row after the rows were moved up

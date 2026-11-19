@@ -606,30 +606,26 @@ name:   .res FAR_SIZE
 
 ; Set the pointer's bank wherever the pointer is set.  c64: empty.
 ; m65: A kept; clobbers N/Z.
-.macro FAR_BANK name, bank
+.macro FAR_BANK name, bank          ; m65: clobbers A (no site needs it kept)
   .ifdef PLATFORM_M65
-        pha
         lda #bank
         sta name+2
     .if .not .xmatch({bank}, BANK_USER) ; by token: a bank constant is not
         lda #0                      ; yet constant inside a .proc (ca65)
     .endif
         sta name+3                  ; the megabyte: only FAR_USER's I/O row sets it
-        pla
   .endif
 .endmacro
 
 ; A screen pointer: its bank is the current mode's (scr_bank, 4 in
 ; 80 x 50), set wherever the pointer is set (§ Display).  c64: empty.
-; m65: A kept; clobbers N/Z.
+; m65: clobbers A (no site needs it kept).
 .macro FAR_BANK_SCREEN name
   .ifdef PLATFORM_M65
-        pha
         lda scr_bank
         sta name+2
         lda #0
         sta name+3
-        pla
   .endif
 .endmacro
 

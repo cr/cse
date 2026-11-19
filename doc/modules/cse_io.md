@@ -453,3 +453,4 @@ CSE keeps $CC=1 at all times and manages the cursor via cursor_show/hide.
 - Output never wraps or scrolls: everything past col 39 lands on
   col 39.  Line breaks are screen.s's `newline`.
 - `io_getc` and `io_kbhit` return X = 0, so Z reflects X — test A.
+  On m65 `io_kbhit`'s X is the KERNAL's (`GETIN`); its Z is A's.

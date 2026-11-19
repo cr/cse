@@ -23,26 +23,15 @@ A mode is switched as the KERNAL does it — ESC 8 / 4 / 5 through BSOUT
 import pytest
 
 from m65emu import M65Emu
-from m65emu.harness import CSE_BP, flat
+from m65emu.harness import CSE_BP, TEXT_MODES as MODES, flat
 
 BSOUT, ADDKEY = 0xFFD2, 0xFF4A
 ESC = 0x1B
-MODES = {"80x25": ("8", 80, 25, 0), "40x25": ("4", 40, 25, 0),
-         "80x50": ("5", 80, 50, 4)}
-
-
 @pytest.fixture
 def emu(cse_m65_prg, m65_snapshot):
     emu = M65Emu(m65_snapshot)
     emu.install_prg(*cse_m65_prg)
     return emu
-
-
-def bp(emu, name):
-    """A CSE cell's CPU address under the CSE map: a base-page cell in
-    0.1F00, the rest (cse_io's BSS geometry) in the data window."""
-    v = emu.sym(name)
-    return CSE_BP << 8 | v if v < 0x100 else v
 
 
 def kernal(emu, entry, **regs):
@@ -62,7 +51,7 @@ def cell(emu, row, col, name="80x25"):
 
 
 def set_cursor(emu, row, col):
-    emu.memory[bp(emu, "io_cy")], emu.memory[bp(emu, "io_cx")] = row, col
+    emu.memory[emu.cell("io_cy")], emu.memory[emu.cell("io_cx")] = row, col
 
 
 # ── T3: the geometry ───────────────────────────────────────────────
@@ -72,11 +61,11 @@ def test_io_geometry_per_mode(emu, name):
     _, width, height, bank = MODES[name]
     mode(emu, name)
     m = emu.memory
-    assert (m[bp(emu, "scr_width")], m[bp(emu, "scr_height")]) == (width, height)
-    assert (m[bp(emu, "scr_last_col")], m[bp(emu, "scr_last_row")]) == (width - 1, height - 1)
-    assert m[bp(emu, "scr_ed_rows")] == height - 3
-    assert m[bp(emu, "scr_bank")] == bank
-    size = m[bp(emu, "scr_size")] | m[bp(emu, "scr_size") + 1] << 8
+    assert (m[emu.cell("scr_width")], m[emu.cell("scr_height")]) == (width, height)
+    assert (m[emu.cell("scr_last_col")], m[emu.cell("scr_last_row")]) == (width - 1, height - 1)
+    assert m[emu.cell("scr_ed_rows")] == height - 3
+    assert m[emu.cell("scr_bank")] == bank
+    size = m[emu.cell("scr_size")] | m[emu.cell("scr_size") + 1] << 8
     assert size == width * height
     lo, hi = emu.sym("scr_lo"), emu.sym("scr_hi")
     for row in range(height):
@@ -92,7 +81,7 @@ def test_io_geometry_leaves_a_programs_window(emu):
         kernal(emu, BSOUT, a=ord(key))
     emu.jsr(emu.sym("io_geometry"), b=CSE_BP)
     m = emu.memory
-    assert (m[bp(emu, "scr_width")], m[bp(emu, "scr_height")]) == (80, 25)
+    assert (m[emu.cell("scr_width")], m[emu.cell("scr_height")]) == (80, 25)
 
 
 # ── T4: output ────────────────────────────────────────────────────
@@ -108,7 +97,7 @@ def test_io_putc_lands_in_the_modes_screen_and_clamps(emu, name):
     emu.jsr(emu.sym("io_putc"), a=ord("C"), b=CSE_BP)        # clamped: overwrites B
     assert cell(emu, row, width - 2, name) == 0x01            # 'A' screen code
     assert cell(emu, row, width - 1, name) == 0x03            # 'C'
-    assert emu.memory[bp(emu, "io_cx")] == width - 1
+    assert emu.memory[emu.cell("io_cx")] == width - 1
 
 
 @pytest.mark.parametrize("name", list(MODES))

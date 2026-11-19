@@ -306,8 +306,9 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   2 on c64 (the pointer as it is), 4 on m65 (offset lo, hi, bank, 0:
   the 45GS02's flat pointer).  The c64 ZP layout does not move.
 - **Bank:** `FAR_BANK name, bank` sets the pointer's bank wherever
-  the pointer is set.  c64: empty.  m65: `pha` · `lda #bank` · `sta
-  name+2` · `pla`; **Clobbers:** N/Z.  The banks are constants:
+  the pointer is set.  c64: empty.  m65: `lda #bank` · `sta name+2` ·
+  `lda #0` · `sta name+3`; **Clobbers:** A, N/Z (no site needs A kept;
+  the same for `FAR_BANK_SCREEN`).  The banks are constants:
   `BANK_USER` (0: user memory, the screen in 40 × 25 and 80 × 25, the
   KERNAL's pages), `BANK_SCREEN50` (4: the screen in 80 × 50),
   `BANK_SRC` (2: the source region), `BANK_CSE` (3: CSE's code and
@@ -541,11 +542,11 @@ cse_io.s's geometry, and two macros.
 |---|---|---|
 | `vic_reset` | VIC-II registers to CSE's text mode | the current mode's VIC-IV register set, as the KERNAL leaves it after `ESC 4` / `5` / `8` (recorded per ROM: a RODATA table per mode), the hot registers first; sprites off; then `$0E` through `BSOUT`, because `$D018`'s hot write reset the character pointer to the upper-case set.  The screen's content kept — a program's `BSOUT` output stays visible, as on c64.  `$D01A` is the KERNAL's (its raster IRQ), not 0 |
 | `restore_colors` | border, background, `CHRCOLOR`, a 1 K fill of `$D800–$DBFF` | border and background as on c64; the text colour as a colour code through `BSOUT`; the colour RAM of the current mode — width × height bytes from the colour-RAM offset the VIC-IV names — filled by one DMA job |
-| `kernal_screen_reset` | the KERNAL's screen-editor cells re-seeded | `ESC O`, `HOME HOME`, `io_sync` (A1; below) |
+| `kernal_screen_reset` | the KERNAL's screen-editor cells re-seeded, `$C6` = 0 | `ESC O`, `HOME HOME`, `IO_KBD_FLUSH` (A1; below) — then the caller's `io_sync`, on both |
 | `reset_screen` | colours, clear, home | the same: the screen's width × height bytes in the mode's bank filled by one DMA job, then home |
 | `scroll_up`, `newline`, `cursor_show` / `hide` | through `scr_lo`/`scr_hi` | the same, through far pointers with the screen's bank; `scroll_up` moves the rows with one DMA copy and one fill |
 | `PLAT_HYGIENE` (repl's `hygiene_after_userland`) | `$CC ← 1`, `$0291 ← $80`, SID voices 1–3 gated off | SID voices 1–3 gated off; `SYSFLAGS` bit 5 (function-key macros off) and bit 7 (Mega + Shift locked) set for CSE — the program's `SYSFLAGS` is part of its bank state ([§ User transitions](#user-transitions)) |
-| `screen_mode_set` (screen.s) | — (one mode) | `ESC 4` / `5` / `8` through `BSOUT` (each clears the screen), then `io_geometry`, `restore_colors` |
+| `screen_mode_set` (screen.s) | — (one mode) | `ESC 4` / `5` / `8` through `BSOUT` (the KERNAL switches), then `io_geometry`, `vic_reset` and `reset_screen` (the colours, the clear, the cursor home) |
 | `io_geometry` (cse_io.s) | — (constants) | `HOME HOME`, then `SCRORG`: A / Z the screen's address, X + 1 the width, Y + 1 the height (A1: X / Y are the right column and bottom row); the bank from `$D062`; then `scr_lo` / `scr_hi` filled for that width and height |
 
 **The geometry.**  On c64 the width, height and screen address are
@@ -582,7 +583,7 @@ size a loop counts (a screen copy, the save) is a DMA job's length on
 m65 (width × height, computed by `io_geometry` into `scr_size`), not a
 loop bound.  Every screen pointer is a far pointer; `FAR_BANK_SCREEN
 name` sets its bank from `scr_bank` (c64: empty; m65: `lda scr_bank` ·
-`sta name+2` · `lda #0` · `sta name+3`, A kept) — zp.md lists them.
+`sta name+2` · `lda #0` · `sta name+3`, clobbering A) — zp.md lists them.
 The modes: 80 × 25 (default) and 40 × 25 at `0.0800`, 80 × 50 at
 `4.0800`; `ESC 4` / `5` / `8` typed at the prompt or in the editor
 reach `screen_mode_set` (CSE reads its keys itself, so it obeys these
@@ -592,7 +593,9 @@ sequences itself).
 — quote and insert mode off (a program can leave either on; both
 survive `PLOT` and turn every later control code, `HOME` included,
 into a printed glyph) — then `HOME HOME` (a program's window does not
-survive a break, CSE needs the full screen), then `io_sync`.  There is no line-link table to repair: the MEGA65
+survive a break, CSE needs the full screen), then `io_kbd_flush` (the
+keys typed while the program ran are dropped, as the c64 body's `$C6`
+= 0 drops them); the caller's `io_sync` follows.  There is no line-link table to repair: the MEGA65
 editor's logical lines follow the screen's content, and a `BSOUT` a
 program's NMI abandoned leaves nothing `PLOT` does not resync.  The
 rest of the display's m65 bodies (VIC-IV registers, colours, the

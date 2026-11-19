@@ -520,7 +520,7 @@ lands, except T1, which is green by construction):
   `HypervisorNotModelled`.)
 - [x] T7. The m65 macro bodies in a small m65 bundle on M65Emu
   (`KCALL`/`KJMP` keep `B`; far loads and stores across banks 0, 2, 3,
-  4; `FAR_BANK` keeps A).  (Done 2026-11-18: `test_platform_m65.py`,
+  4; `FAR_BANK` kept A until the P2 review dropped that).  (Done 2026-11-18: `test_platform_m65.py`,
   clean mode, plus `PLAT_SETBNK`.)
 - [x] T8. The loader on each ROM: the install field by field; the gate's
   two refusals; `load_prg()`/`init_cse()` equal to the real loader.
@@ -1221,6 +1221,20 @@ matrix through the REPL (moved from P1, D-P1-5).
   bank, `workend`; filed, not P2's: the two edge bugs of the analysis
   record (`io_puthex2`, disk.s's `@putc_inv`).  Left manual: what the
   screen looks like (colours, the 80 × 50 font, flicker).
+- **Review of the P2 commits (2026-11-19):** one platform divergence
+  fixed — the m65 `kernal_screen_reset` did not drop the keys typed
+  while a program ran (the c64 body's `$C6` = 0 does), so they reached
+  the REPL: now `io_kbd_flush` ends it.  Simplifications: `FAR_BANK` /
+  `FAR_BANK_SCREEN` no longer save A (no site needs it), `scr_dma`
+  writes only the job fields that vary, `screen_mode_set` ends in
+  `reset_screen`, `gb_init` shares one `lda #0`, the m65 `io_kbhit`
+  drops a meaningless `ldx #0`; the test helpers `cell` and the text
+  modes moved into `M65Emu` / `harness.TEXT_MODES`; stale c64 numbers
+  in shared comments (rows, columns, byte counts) rewritten in the
+  operand defines' terms.  m65-6502 22 753 → 22 665 B.  Not changed,
+  by the approved design: banks 4–5 are `i` rows in 40 × 25 and 80 × 25
+  only (bank 5 is free in 80 × 50 too), and a fresh start's `SYSFLAGS`
+  is the premise's `$00` whole (D-P2-3).
 
 **P3 — disk, exit and the three distribution formats.**
 

@@ -12,7 +12,7 @@ only — with B = CSE_BP, as kernel code runs:
   in both directions; B is CSE_BP again afterwards.
 - FAR_LDA / FAR_STA / FAR_ORA reach the pointer's bank + offset + Y
   in banks 0, 2, 3 and 4; FAR_BANK sets the bank, clears the
-  megabyte and keeps A; an access past a row's end reaches the next
+  megabyte (A clobbered); an access past a row's end reaches the next
   flat bytes of the pointer's bank (D-P1-2).
 - PLAT_SETBNK calls SETBNK with the data's bank BANK_USER and the
   filename's BANK_CSE.
@@ -95,11 +95,10 @@ def test_far_load_store_or_reach_bank_offset_plus_y(emu, syms, bank):
         assert emu.memory.read_flat((other << 16) + offset + y) == 0
 
 
-def test_far_bank_sets_the_bank_and_keeps_a(emu, syms):
+def test_far_bank_sets_the_bank_and_clears_the_megabyte(emu, syms):
     set_ptr(emu, syms, BANK_USER, 0x1234)
     emu.memory.write_flat(bp(syms, "fp") + 3, 0x0F)  # as FAR_USER's I/O row
     emu.jsr(syms["t_far_bank"], a=0x77, b=CSE_BP)
-    assert emu.a == 0x77
     a = bp(syms, "fp")
     assert [emu.memory.read_flat(a + k) for k in range(4)] == [0x34, 0x12, BANK_SRC, 0]
 

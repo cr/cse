@@ -7,10 +7,8 @@
 ; tell the KERNAL.  m65: the geometry is run-time (io_geometry), the
 ; screen pointer far, in the screen's bank (doc/modules/cse_io.md).
 ;
-; INVARIANT: $CC must be 1 (KERNAL cursor disabled).  io_init
+; INVARIANT (c64): $CC must be 1 (KERNAL cursor disabled).  io_init
 ; enforces this.  All IRQ safety guarantees depend on it.
-;
-; Code: ~340 bytes.  RODATA: 76 bytes.  ZP: 4 bytes (zp.s).  BSS: 7 bytes.
 
 CSE_IO_S = 1                    ; platform.inc: the BSS geometry is defined here
         .include "platform.inc"
@@ -427,14 +425,14 @@ io_getc:
 .endif
 
 ; ── io_kbhit — non-blocking keyboard check ──────────────────
-; A ≠ 0 when a key waits (m65: the key, kept in the lookahead).
+; A ≠ 0 when a key waits (m65: the key, kept in the lookahead; X is
+; the KERNAL's).
 io_kbhit:
 .ifdef PLATFORM_C64
         lda NDX                 ; keyboard buffer count
         ldx #0
         rts
 .else
-        ldx #0
         lda io_key
         bne @r
         KCALL GETIN             ; no KERNAL means peeks: take one, keep it

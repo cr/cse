@@ -32,15 +32,20 @@ Not collected by a plain `pytest` (testpaths); run it by path:
 
 import pathlib
 import shutil
+import sys
+import time
 
 import pytest
 
+from emu_base import decode_screen_codes
 from m65emu import M65Emu
 from m65emu.harness import (BANK_CSE, CSE_BP, CSE_MAP, STACK_TOP, flat,
                             load_snapshot, snapshot_dirs)
 from xmega65 import SDIMG, XMEGA65, XMega65
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tests" / "integration"))
+from test_m65_repl import M65Session                            # noqa: E402
 WORK = ROOT / "build" / "m65_boot"
 RESERVE = flat(BANK_CSE, 0xC000)       # 3.C000-3.CFFF, CSE's unused reserve
 # The ROM's parts CSE does not take (memory_design.md § Memory Map —
@@ -144,13 +149,6 @@ def test_banks_2_3_are_writable(booted):
 
 # ── T11: the prompt, typed commands, Q (P2) ───────────────────────
 
-import sys                                                      # noqa: E402
-import time                                                     # noqa: E402
-
-sys.path.insert(0, str(ROOT / "tests" / "integration"))
-from emu_base import decode_screen_codes                        # noqa: E402
-from test_m65_repl import M65Session                            # noqa: E402
-
 DRIVER = 0x1E00                    # bank 0: visible in the CSE map
 ADDKEY = 0xFF4A
 STOP, ESC = 0x03, 0x1B
@@ -169,10 +167,6 @@ def _driver(keys, back):
         code += [0xA9, k, 0x20, ADDKEY & 0xFF, ADDKEY >> 8]
     return code + [0x68, 0x5B, 0xFB, 0x7A, 0xFA, 0x68, 0x28,   # pla tab plz ply plx pla plp
                    0x4C, back & 0xFF, back >> 8]
-
-
-# screen codes to ASCII for the READY search: $01-$1A letters, $20-$3F as is
-_SCR_TO_ASCII = bytes(range(0x40, 0x5B)) + bytes(5) + bytes(range(0x20, 0x40)) + bytes(0xC0)
 
 
 def _screen_text(read, width, height, bank):
@@ -238,9 +232,8 @@ def typed(request, cse_m65_prg):
             # them apart: wait for READY on the screen instead
             deadline = time.time() + 60
             while True:
-                ready = xm.read(0x0800, 80 * 25)
-                if b"READY." in bytes(c & 0x7F for c in ready).translate(_SCR_TO_ASCII) \
-                        or time.time() > deadline:
+                ready = decode_screen_codes(xm.read(0x0800, 80 * 25))
+                if "ready." in ready or time.time() > deadline:
                     break
                 time.sleep(0.5)
             banks = xm.read(0x20000, 0x20000)
@@ -263,6 +256,5 @@ def test_the_screen_is_m65emus(typed, step):
 
 
 def test_q_ends_in_basic_65_with_banks_2_3_reloaded(typed):
-    text = bytes(c & 0x7F for c in typed["ready"]).translate(_SCR_TO_ASCII)
-    assert b"READY." in text
+    assert "ready." in typed["ready"]
     assert typed["banks_ok"]

@@ -1048,7 +1048,7 @@ _syntax_err:
 ; ═══════════════════════════════════════════════════════════
 ; zp_stage_prep — user-ZP read redirect for m/. displays.
 ;
-; Stages 8 bytes from (rp_ptr2) into zp_stage_buf, substituting
+; Stages MEM_ROW_MAX bytes from (rp_ptr2) into zp_stage_buf, substituting
 ; userland_zp_buf[addr - ZP_SAVE_LO] for any offset whose
 ; effective address (rp_ptr2 + Y, 16-bit, wrapping past $FFFF to
 ; $00xx as (rp_ptr2),y does) falls in [ZP_SAVE_LO,
@@ -1090,7 +1090,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 .else                                   ; m65: the save range is the port
         ldx rp_ptr2+1                   ; only a page-$00 or page-$FF
         inx                             ; base can reach the save range
-        cpx #2                          ; (an 8-byte run from $FFF9+
+        cpx #2                          ; (a row's run from $FFF9+
         bcs @done                       ; wraps to $00xx)
         ldy #0
 @lp:    tya
@@ -1238,7 +1238,8 @@ zp_stage_prep_addr:                     ; convenience entry: load
 
 ; ═══════════════════════════════════════════════════════════
 ; emit_mem — print memory dump line
-;   rp_addr = address, A = cols (0→8, >8→8)
+;   rp_addr = address, A = cols (0 → a full row; capped at the row:
+;   8, m65 mem_row's 8 or 16)
 ; ═══════════════════════════════════════════════════════════
 .proc emit_mem
 .ifdef PLATFORM_C64
@@ -3721,7 +3722,8 @@ prg_ok_done:
         lda scr_height
         cmp #50
         bcc :+
-        ldy #INFO_M65_B50               ; 80 × 50: banks 4-5 hold the screen
+        ldy #INFO_M65_B50               ; 80 × 50: the screen is in bank 4; banks 4-5
+                                        ;   are rows in the other modes (§ Info map)
 :       jsr info_m65_rows
         lda #0
         sta info_bank                   ; the other range rows: bank 0

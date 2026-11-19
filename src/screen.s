@@ -13,7 +13,7 @@
         .export kernal_screen_reset
 .ifdef PLATFORM_M65
         .export screen_mode_set, screen_save, screen_restore
-        .import io_geometry
+        .import io_geometry, io_kbd_flush
 .endif
         .import io_sync
         .import scr_lo, scr_hi
@@ -24,8 +24,8 @@
 ; dst_ptr reuses cse_io's _io_scr: it is transient (every reader
 ; re-derives it via _io_scr_setup right before use), and scroll_up's
 ; only caller, newline, moves the cursor anyway.
-src_ptr = scr_src       ; 2 bytes (zp.s)
-dst_ptr = _io_scr       ; 2 bytes (zp.s, cse_io)
+src_ptr = scr_src       ; FAR_PTR (zp.s)
+dst_ptr = _io_scr       ; FAR_PTR (zp.s, cse_io)
 
 
 ; ── Screen geometry ──────────────────────────────────────
@@ -176,7 +176,8 @@ KSR_LEN = * - ksr_seq
 ; ── scr_dma — run scr_job (m65) ──────────────────────────────────────
 ; In: X = the command (DMA_FILL / DMA_COPY), Y = the destination's
 ; megabyte; sj_count, sj_src, sj_dst set.  The source's megabyte is 0
-; (a new list starts with both 0).  Clobbers A.
+; (a new list starts with both 0); the options' end, sj_sub and sj_mod
+; are 0 too — BSS, and nothing writes them.  Clobbers A.
 scr_dma:
         stx sj_cmd
         sty sj_opt+2
@@ -184,11 +185,6 @@ scr_dma:
         sta sj_opt
         lda #DMA_OPT_DST_MB
         sta sj_opt+1
-        lda #0
-        sta sj_opt+3            ; the options' end
-        sta sj_sub
-        sta sj_mod
-        sta sj_mod+1
         lda #BANK_CSE           ; the job is BSS: the data window, bank 3
         sta DMA_LIST_BANK
         lda #>scr_job
@@ -355,9 +351,9 @@ _scr_copy:
 .ifdef PLATFORM_M65
 ; ═════════════════════════════════════════════════════════
 ; screen_mode_set — ESC A through BSOUT (A = '4' 40 x 25, '5' 80 x 50,
-; '8' 80 x 25: the KERNAL switches and clears), then the geometry, the
-; VIC set, the colours, the cursor home (screen.md; m65 only).
-; Clobbers A, X, Y.
+; '8' 80 x 25: the KERNAL switches), then the geometry, the VIC set,
+; and reset_screen for the colours, the clear and the cursor home
+; (screen.md; m65 only).  Clobbers A, X, Y.
 ; ═════════════════════════════════════════════════════════
 screen_mode_set:
         pha
@@ -367,16 +363,13 @@ screen_mode_set:
         KCALL CHROUT
         jsr io_geometry
         jsr vic_reset
-        jsr restore_colors
-        lda #0
-        sta IO_CX
-        sta IO_CY
-        jmp io_sync
+        jmp reset_screen
 .endif
 
 ; ═════════════════════════════════════════════════════════
 ; kernal_screen_reset — restore KERNAL screen-edit ZP to a
-; pristine post-init state.  Defends against NMI-during-CHROUT
+; pristine post-init state (the c64 body; the m65 body below has its
+; own note).  Defends against NMI-during-CHROUT
 ; corruption (RESTORE pressed mid-`$FFD2` loop): KERNAL CHROUT
 ; transiently mutates several ZP bytes that PLOT does not touch,
 ; and an interrupting NMI captures those bytes mid-update.  Left
@@ -457,7 +450,7 @@ screen_mode_set:
         inx
         cpx #KSR_LEN
         bcc @seq
-        rts
+        jmp io_kbd_flush        ; and the typed keys dropped (c64: $C6 = 0)
 .endif
 .endproc
 
@@ -594,7 +587,7 @@ screen_mode_set:
         jsr scroll_up
         lda LAST_ROW
         sta IO_CY
-        bne @col0               ; always taken (SCR_H-1 = 24 ≠ 0)
+        bne @col0               ; always taken (the last row ≠ 0)
 @no_scroll:
         inc IO_CY
 @col0:  lda #0

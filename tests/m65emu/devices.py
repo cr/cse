@@ -358,7 +358,6 @@ class VICHotRegisters(Device):
         screen = io[0x018] >> 4
         io[0x068], io[0x069], io[0x06A] = 0, (io[0x018] & 14) << 2, 0  # charset
         io[0x05E] = width
-        io[0x063] &= 0xCF
         io[0x058], io[0x059] = width, 0
         io[0x060] = 0
         io[0x061] = (io[0x061] & 0xC0) | (((screen & 14) << 2) if h640 else (screen << 2))

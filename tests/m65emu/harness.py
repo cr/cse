@@ -56,6 +56,10 @@ STACK_TOP = 0xF1
 BP_CLEARED = 0xB0                           # 0.1F00-0.1FAF (ZP_FILL_END)
 STUB_COLD_INDEX = 4                         # the loader enters stub_cold with X = 4
 BANK_USER, BANK_SRC, BANK_CSE, BANK_SCREEN50 = 0, 2, 3, 4
+# the text modes (platform_layer.md § Display): the key after ESC that
+# selects one, its width, height and the screen's bank
+TEXT_MODES = {"80x25": ("8", 80, 25, BANK_USER), "40x25": ("4", 40, 25, BANK_USER),
+              "80x50": ("5", 80, 50, BANK_SCREEN50)}
 
 
 def map_registers(a, x, y, z):
@@ -208,6 +212,12 @@ class M65Emu(EmuBase):
         cpu.a, cpu.x, cpu.y, cpu.z, cpu.b = STUB_COLD_INDEX, STUB_COLD_INDEX, y, z, CSE_BP
         cpu.pc = s("_main")
         return load_addr
+
+    def cell(self, name):
+        """The CPU address, under the CSE map, of a CSE variable: a
+        base-page symbol is in 0.1F00, the rest in the data window."""
+        v = self.sym(name)
+        return CSE_BP << 8 | v if v < 0x100 else v
 
     z = register("z", 0xFF)             # the 45GS02's own registers
     b = register("b", 0xFF)

@@ -51,13 +51,6 @@ def emu(cse_m65_prg, m65_snapshot):
     return emu
 
 
-def cell(emu, name):
-    """The CPU address (under the CSE map) of a CSE variable: a
-    base-page symbol is in 0.1F00, the rest in the data window."""
-    v = emu.sym(name)
-    return CSE_BP << 8 | v if v < 0x100 else v
-
-
 def petscii(text):
     out = []
     for ch in text.encode("ascii"):
@@ -155,16 +148,16 @@ def test_step_gate_also_takes_brk_stub(emu):
 @pytest.mark.parametrize("addr,inside", WS, ids=[f"${a:04X}" for a, _ in WS])
 def test_emit_gate_writes_the_program_region_only(emu, addr, inside):
     mem = emu.memory
-    mem[cell(emu, "asm_pass")] = 1
-    mem[cell(emu, "_pc_wrap")] = 0
-    mem[cell(emu, "_oor")] = 0
-    pc = cell(emu, "asm_pc")
+    mem[emu.cell("asm_pass")] = 1
+    mem[emu.cell("_pc_wrap")] = 0
+    mem[emu.cell("_oor")] = 0
+    pc = emu.cell("asm_pc")
     mem[pc], mem[pc + 1] = addr & 0xFF, addr >> 8
     before = mem.read_flat(addr)
     emu.jsr(emu.sym("_emit_byte"), a=before ^ 0xA5, b=CSE_BP)
     written = mem.read_flat(addr) == before ^ 0xA5
     assert written is inside
-    assert (mem[cell(emu, "_oor")] != 0) is (not inside)
+    assert (mem[emu.cell("_oor")] != 0) is (not inside)
 
 
 # ── the line parser in bank 3 (T6) ─────────────────────────────────
@@ -190,9 +183,9 @@ def ready(emu):
     emu.jsr(emu.sym("setup_interrupts"), b=CSE_BP)
     emu.jsr(emu.sym("dbg_init"), b=CSE_BP)
     mem = emu.memory
-    mem[cell(emu, "state")] = ST_REPL
-    mem[cell(emu, "run_user_pending")] = 0
-    emu.write_word(cell(emu, "cur_addr"), USER)
+    mem[emu.cell("state")] = ST_REPL
+    mem[emu.cell("run_user_pending")] = 0
+    emu.write_word(emu.cell("cur_addr"), USER)
 
 
 def user_code(emu, code, at=USER):
@@ -200,14 +193,14 @@ def user_code(emu, code, at=USER):
 
 
 def word(emu, name):
-    a = cell(emu, name)
+    a = emu.cell(name)
     return emu.memory[a] | emu.memory[a + 1] << 8
 
 
 def run_user(emu, entry, *, start="return_to_userland", stop="hygiene_after_userland",
              nmi_after=None, max_cycles=300_000):
     """Enter user code at `entry` the way main_loop does; run to `stop`."""
-    emu.write_word(cell(emu, "brk_pc"), entry)
+    emu.write_word(emu.cell("brk_pc"), entry)
     if nmi_after is not None:
         emu.schedule_nmi(nmi_after)
     emu.run_until(emu.sym(stop), start_at=emu.sym(start), max_cycles=max_cycles)
@@ -215,13 +208,13 @@ def run_user(emu, entry, *, start="return_to_userland", stop="hygiene_after_user
 
 def resume(emu, **kw):
     """`c`: SP back at the user's, the session's sentinel in place."""
-    emu.cpu.sp = 0x100 | emu.memory[cell(emu, "reg_sp")]
+    emu.cpu.sp = 0x100 | emu.memory[emu.cell("reg_sp")]
     run_user(emu, word(emu, "brk_pc"), start="restore_userland_state", **kw)
 
 
 def regs(emu):
     m = emu.memory
-    return {r: m[cell(emu, "reg_" + r)] for r in ("a", "x", "y", "z", "b", "p", "sp")}
+    return {r: m[emu.cell("reg_" + r)] for r in ("a", "x", "y", "z", "b", "p", "sp")}
 
 
 def run_line(emu, text, stop):
@@ -261,25 +254,25 @@ def test_r_shows_z_and_b_in_80_columns():
 def test_user_zp_view_shows_the_captured_port_and_base_page_0(emu):
     ready(emu)
     mem = emu.memory
-    buf = cell(emu, "userland_zp_buf")
+    buf = emu.cell("userland_zp_buf")
     mem[buf], mem[buf + 1] = 0x2F, 0x34
     for k in range(2, 8):
         mem.write_flat(k, 0x40 + k)                # base page 0 itself
-    emu.write_word(cell(emu, "rp_addr"), 0x0000)
+    emu.write_word(emu.cell("rp_addr"), 0x0000)
     emu.jsr(emu.sym("zp_stage_prep_addr"), b=CSE_BP)
-    stage = cell(emu, "zp_stage_buf")
+    stage = emu.cell("zp_stage_buf")
     assert [mem[stage + k] for k in range(8)] == [0x2F, 0x34] + [0x40 + k for k in range(2, 8)]
 
 
 def test_zp_poke_lands_the_port_in_its_image_and_the_rest_live(emu):
     ready(emu)
     mem = emu.memory
-    rp2 = cell(emu, "rp_ptr2")
+    rp2 = emu.cell("rp_ptr2")
     mem[rp2], mem[rp2 + 1] = 0x00, 0x00
     emu.jsr(emu.sym("far_user"), x=emu.sym("rp_ptr2"), b=CSE_BP)
     emu.jsr(emu.sym("zp_poke"), a=0x37, y=1, b=CSE_BP)
     emu.jsr(emu.sym("zp_poke"), a=0x99, y=2, b=CSE_BP)
-    assert mem[cell(emu, "userland_zp_buf") + 1] == 0x37
+    assert mem[emu.cell("userland_zp_buf") + 1] == 0x37
     assert mem.read_flat(2) == 0x99
     assert mem.read_flat(1) != 0x37                # never the RAM beneath
 
@@ -287,8 +280,8 @@ def test_zp_poke_lands_the_port_in_its_image_and_the_rest_live(emu):
 def test_peek_user_reads_the_port_image(emu):
     ready(emu)
     mem = emu.memory
-    mem[cell(emu, "userland_zp_buf") + 1] = 0x34
-    rp = cell(emu, "rp_ptr")
+    mem[emu.cell("userland_zp_buf") + 1] = 0x34
+    rp = emu.cell("rp_ptr")
     mem[rp], mem[rp + 1] = 0x01, 0x00
     emu.jsr(emu.sym("far_user"), x=emu.sym("rp_ptr"), b=CSE_BP)
     emu.jsr(emu.sym("peek_user"), b=CSE_BP)
@@ -307,9 +300,9 @@ def test_fresh_start_and_rts_is_a_clean_exit(emu):
     user_code(emu, [0x60])                         # RTS
     run_user(emu, USER)
     at_stop_in_cse(emu)
-    assert emu.memory[cell(emu, "dbg_reason")] == DBG_RTS
+    assert emu.memory[emu.cell("dbg_reason")] == DBG_RTS
     assert word(emu, "brk_pc") == USER             # cur_addr
-    assert emu.memory[cell(emu, "reg_sp")] == STACK_TOP
+    assert emu.memory[emu.cell("reg_sp")] == STACK_TOP
 
 
 def test_user_brk_captures_every_register(emu):
@@ -321,7 +314,7 @@ def test_user_brk_captures_every_register(emu):
     run_user(emu, USER)
     at_stop_in_cse(emu)
     m = emu.memory
-    assert m[cell(emu, "dbg_reason")] == DBG_BRK
+    assert m[emu.cell("dbg_reason")] == DBG_BRK
     assert word(emu, "brk_pc") == USER + 11
     r = regs(emu)
     assert (r["a"], r["x"], r["y"], r["z"], r["b"]) == (0x11, 0x22, 0x33, 0x44, 0x16)
@@ -335,21 +328,21 @@ def test_breakpoint_hit_restores_the_byte_and_resumes(emu):
     slot = emu.a
     run_user(emu, USER)
     m = emu.memory
-    assert m[cell(emu, "dbg_reason")] == DBG_BRK
-    assert m[cell(emu, "dbg_bp_hit")] == slot
+    assert m[emu.cell("dbg_reason")] == DBG_BRK
+    assert m[emu.cell("dbg_bp_hit")] == slot
     assert word(emu, "brk_pc") == USER + 2
     assert m.read_flat(USER + 2) == 0xEA           # unpatched
     assert regs(emu)["a"] == 0x42
     emu.jsr(emu.sym("dbg_bp_del"), a=slot, b=CSE_BP)
     resume(emu)
-    assert m[cell(emu, "dbg_reason")] == DBG_RTS
+    assert m[emu.cell("dbg_reason")] == DBG_RTS
 
 
 def test_nmi_in_user_code_breaks_at_its_pc(emu):
     ready(emu)
     user_code(emu, [0x4C, USER & 0xFF, USER >> 8])  # JMP *
     run_user(emu, USER, nmi_after=2000)            # well past the transition
-    assert emu.memory[cell(emu, "dbg_reason")] == DBG_NMI
+    assert emu.memory[emu.cell("dbg_reason")] == DBG_NMI
     assert word(emu, "brk_pc") == USER
     at_stop_in_cse(emu)
 
@@ -358,8 +351,8 @@ def test_nmi_in_user_code_breaks_at_its_pc(emu):
 def test_kernel_mode_break_keeps_a_sessions_bank_state(emu, kind, stop):
     ready(emu)
     m = emu.memory
-    state = [cell(emu, "um_map") + k for k in range(6)] + \
-        [cell(emu, "userland_zp_buf"), cell(emu, "userland_zp_buf") + 1, cell(emu, "um_d030")]
+    state = [emu.cell("um_map") + k for k in range(6)] + \
+        [emu.cell("userland_zp_buf"), emu.cell("userland_zp_buf") + 1, emu.cell("um_d030")]
     for k, a in enumerate(state):
         m[a] = 0x50 + k
     park = 0x1E00                                  # bank 0: kernel code here
@@ -368,7 +361,7 @@ def test_kernel_mode_break_keeps_a_sessions_bank_state(emu, kind, stop):
         emu.schedule_nmi(5)
     else:
         user_code(emu, [0x00, 0x00], at=park)
-    m[cell(emu, "in_userland")] = 0
+    m[emu.cell("in_userland")] = 0
     emu.run_until(emu.sym(stop), start_at=park, max_cycles=100_000)
     assert [m[a] for a in state] == [0x50 + k for k in range(len(state))]
     at_stop_in_cse(emu)
@@ -380,13 +373,13 @@ def test_step_into_chain_runs_inside_the_handler(emu):
     user_code(emu, [0xA2, 0x03, 0x20, 0x10, 0x30, 0x60])
     user_code(emu, [0xE8, 0x60], at=USER + 0x10)
     m = emu.memory
-    emu.write_word(cell(emu, "brk_pc"), USER)
-    m[cell(emu, "step_state")] = STEP_INTO
+    emu.write_word(emu.cell("brk_pc"), USER)
+    m[emu.cell("step_state")] = STEP_INTO
     emu.jsr(emu.sym("step_next_pc"), b=CSE_BP)
     emu.jsr(emu.sym("arm_step_bp"), b=CSE_BP)
-    emu.write_word(cell(emu, "step_remaining"), 3)  # `t 4`: count - 1
+    emu.write_word(emu.cell("step_remaining"), 3)  # `t 4`: count - 1
     run_user(emu, USER)
-    assert m[cell(emu, "dbg_reason")] == DBG_BRK
+    assert m[emu.cell("dbg_reason")] == DBG_BRK
     assert word(emu, "brk_pc") == USER + 5          # LDX, JSR, INX, RTS: back after the JSR
     assert regs(emu)["x"] == 4
     assert all(m.read_flat(a) == b for a, b in
@@ -400,10 +393,10 @@ def test_user_pushes_survive_a_break_and_a_resume(emu):
                     0x68, 0x8D, 0x00, 0x31, 0x68, 0x8D, 0x01, 0x31, 0x60])
     run_user(emu, USER)
     assert regs(emu)["sp"] == STACK_TOP - 4         # sentinel, two pushes
-    emu.write_word(cell(emu, "brk_pc"), USER + 8)   # past BRK + signature
+    emu.write_word(emu.cell("brk_pc"), USER + 8)   # past BRK + signature
     resume(emu)
     m = emu.memory
-    assert m[cell(emu, "dbg_reason")] == DBG_RTS
+    assert m[emu.cell("dbg_reason")] == DBG_RTS
     assert (m.read_flat(0x3100), m.read_flat(0x3101)) == (0xA5, 0x5A)
 
 
@@ -466,11 +459,11 @@ def test_a_programs_bank_state_survives_a_break(emu, name):
     m.write_flat(window, 0xC7)
     m.write_flat(0x4000, 0x3B)
     run_user(emu, CODE)
-    assert m[cell(emu, "dbg_reason")] == DBG_BRK
+    assert m[emu.cell("dbg_reason")] == DBG_BRK
     at_stop_in_cse(emu)
-    emu.write_word(cell(emu, "brk_pc"), word(emu, "brk_pc") + 2)
+    emu.write_word(emu.cell("brk_pc"), word(emu, "brk_pc") + 2)
     resume(emu)
-    assert m[cell(emu, "dbg_reason")] == DBG_RTS
+    assert m[emu.cell("dbg_reason")] == DBG_RTS
     got = [m.read_flat(0x1700 + k) for k in range(4)]
     assert got[0:2] == [0xFF, b.get("port", PREMISE_PORT[1])]
     assert got[2] == b.get("d030", PREMISE_D030)
@@ -488,7 +481,7 @@ def test_a_fresh_start_takes_the_run_premises_bank_state(emu):
     emu.cpu.sp = 0x100 | STACK_TOP
     run_user(emu, USER)                            # `j`: a fresh start
     assert (m.read_flat(0x1700), m.read_flat(0x1701)) == (PREMISE_PORT[1], PREMISE_D030)
-    assert (emu.memory[cell(emu, "um_map") + 0], emu.memory[cell(emu, "um_map") + 2]) == \
+    assert (emu.memory[emu.cell("um_map") + 0], emu.memory[emu.cell("um_map") + 2]) == \
         (USER_MAP[0] >> 8, USER_MAP[1] >> 8)
 
 
@@ -501,8 +494,8 @@ def _broken_program(cse_m65_prg, m65_snapshot):
     emu.memory.write_flat(0x44000, 0xC7)
     user_code(emu, program(**BANKINGS["all three"]), at=CODE)
     run_user(emu, CODE)
-    emu.write_word(cell(emu, "brk_pc"), word(emu, "brk_pc") + 2)
-    emu.cpu.sp = 0x100 | emu.memory[cell(emu, "reg_sp")]
+    emu.write_word(emu.cell("brk_pc"), word(emu, "brk_pc") + 2)
+    emu.cpu.sp = 0x100 | emu.memory[emu.cell("reg_sp")]
     return emu
 
 
@@ -510,7 +503,7 @@ def _transition_steps(emu):
     """The steps from restore_userland_state to the program's first
     instruction, and the first of them that runs with in_userland set
     (PLAT_TO_USER's first instruction)."""
-    flag, target = cell(emu, "in_userland"), word(emu, "brk_pc")
+    flag, target = emu.cell("in_userland"), word(emu, "brk_pc")
     emu.pc = emu.sym("restore_userland_state")
     first, k = None, 0
     while not (emu.pc == target and (emu.cpu.mapl, emu.cpu.maph) != CSE_MAP):
@@ -534,9 +527,9 @@ def test_an_nmi_anywhere_in_the_transition_is_resumable(cse_m65_prg, m65_snapsho
         emu.schedule_nmi(k)
         emu.run_until(emu.sym("hygiene_after_userland"),
                       start_at=emu.sym("restore_userland_state"), max_cycles=300_000)
-        if m[cell(emu, "dbg_reason")] == DBG_NMI:
+        if m[emu.cell("dbg_reason")] == DBG_NMI:
             resume(emu)                            # `c` after the NMI break
-        assert m[cell(emu, "dbg_reason")] == DBG_RTS, f"NMI at step {k}"
+        assert m[emu.cell("dbg_reason")] == DBG_RTS, f"NMI at step {k}"
         got = [m.read_flat(0x1700 + i) for i in range(4)]
         assert got == [0xFF, 0x34, 0x00, 0xC7], f"NMI at step {k}: {got}"
 
@@ -556,14 +549,14 @@ def test_a_programs_sysflags_survive_a_break(emu):
     user_code(emu, [0xA9, 0x50, 0x18, 0x20, 0x47, 0xFF, 0x00, 0x00,
                     0x38, 0x20, 0x47, 0xFF, 0x8D, 0x00, 0x17, 0x60], at=CODE)
     run_user(emu, CODE)
-    assert m[cell(emu, "dbg_reason")] == DBG_BRK
-    assert m[cell(emu, "um_sysflags")] == 0x50
+    assert m[emu.cell("dbg_reason")] == DBG_BRK
+    assert m[emu.cell("um_sysflags")] == 0x50
     emu.jsr(emu.sym("hygiene_after_userland"), b=CSE_BP)
     emu.jsr(SYSFLAGS, b=0, carry=True)
     assert emu.a & 0xA0 == 0xA0                    # CSE's, while it reads keys
-    emu.write_word(cell(emu, "brk_pc"), word(emu, "brk_pc") + 2)
+    emu.write_word(emu.cell("brk_pc"), word(emu, "brk_pc") + 2)
     resume(emu)
-    assert m[cell(emu, "dbg_reason")] == DBG_RTS
+    assert m[emu.cell("dbg_reason")] == DBG_RTS
     assert m.read_flat(0x1700) == 0x50
 
 

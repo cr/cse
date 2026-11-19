@@ -19,9 +19,9 @@ register set and keeps the screen's content; `restore_colors` fills
 the mode's colour RAM by one DMA job; `reset_screen` clears width ×
 height bytes in the screen's bank by one DMA job; `scroll_up` moves
 the rows by one DMA copy; `kernal_screen_reset` is `ESC O`, `HOME
-HOME`, `io_sync`.  `screen_mode_set` (m65 only): `ESC 4` / `5` / `8`
-through `BSOUT`, then `io_geometry` and `restore_colors`; the editor
-refuses it while it runs.  `screen_save` / `screen_restore` (m65
+HOME`, `io_kbd_flush`.  `screen_mode_set` (m65 only): `ESC 4` / `5` / `8`
+through `BSOUT`, then `io_geometry`, `vic_reset` and `reset_screen`;
+the editor refuses it while it runs.  `screen_save` / `screen_restore` (m65
 only, the editor's): the screen's `scr_size` bytes to / from
 `REPL_SCREEN` (`3.B000`) by one DMA copy ([platform_layer.md § Screen save](../platform_layer.md#screen-save)).
 Every size is the run-time geometry (`WIDTH`, `HEIGHT`, `scr_size`).
@@ -68,8 +68,10 @@ only when control returns from user code.
 ### kernal_screen_reset
 
 **In:** none
-**Out:** KERNAL screen-edit ZP reset to pristine post-init state
-**Clobbers:** A, X
+**Out:** KERNAL screen-edit ZP reset to pristine post-init state, the
+keyboard buffer empty (`$C6` = 0; m65: `ESC O`, `HOME HOME`,
+`io_kbd_flush` — the typed keys dropped on both platforms)
+**Clobbers:** A, X (m65: A, X, Y)
 
 Defends against userland-NMI-during-CHROUT corruption.  CSE's
 *own* screen output (`io_putc`) writes screen RAM directly and

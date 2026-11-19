@@ -102,15 +102,16 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         sta gap_hi+2            ; rewrites their offsets (gap_buffer.md)
         sta buf_base+2
         sta ed_top_ptr+2
-        lda #0
-        sta gap_lo+3
-        sta gap_hi+3
-        sta buf_base+3
-        sta ed_top_ptr+3
 .endif
         lda #0
         sta ed_dirty
         sta ed_total_lines+1
+.ifdef PLATFORM_M65
+        sta gap_lo+3            ; their megabyte
+        sta gap_hi+3
+        sta buf_base+3
+        sta ed_top_ptr+3
+.endif
         lda #1
         sta ed_total_lines
         rts                     ; leaf — caller publishes workend
@@ -537,10 +538,10 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 ; ══════════════════════════════════════════════════════════
 ; ══════════════════════════════════════════════════════════
 ; ed_read_line — copy the next line (up to CR or EOF) into A/X.
-; The buffer is 40 bytes: at most 39 characters, then the NUL.
-; Returns: A = length (0–39), X = 0 when the line fit whole, X = 39
-;          (non-zero, positive) when characters past the 39th were
-;          dropped; A = X = $FF at EOF.
+; The buffer is LINE_MAX + 1 bytes: at most LINE_MAX characters, then
+; the NUL.  Returns: A = length (0–LINE_MAX), X = 0 when the line fit
+;          whole, X = LINE_MAX (non-zero, positive) when characters
+;          past the LINE_MAX-th were dropped; A = X = $FF at EOF.
 .proc ed_read_line
         sta ed_scr              ; buf lo
         stx ed_scr+1            ; buf hi
@@ -559,9 +560,9 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         cpy #LINE_MAX
         bcs @drop               ; buffer full: drop the byte
         FAR_STA ed_scr
-        inc ed_tmp              ; ++len (1..39, never 0)
+        inc ed_tmp              ; ++len (1..LINE_MAX, never 0)
         bne @loop
-@drop:  sty ed_tmp+1            ; Y = 39: "dropped"
+@drop:  sty ed_tmp+1            ; Y = LINE_MAX: "dropped"
         bcs @loop               ; always (C=1)
 @eof_check:
         ; EOF — return what we have, or -1 if nothing

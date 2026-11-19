@@ -526,17 +526,16 @@ main_loop:
         sta main_key
         jsr cursor_hide
 .ifdef PLATFORM_M65
-        ldx esc_armed           ; ESC 4 / 5 / 8: the mode switch; any
-        lda #0                  ; key ends the sequence.  ESC is armed
-        sta esc_armed           ; in the REPL only, so the editor
-        txa                     ; never switches (D-P2-9)
-        beq @no_esc
+        lda esc_armed           ; ESC 4 / 5 / 8: the mode switch; any
+        beq @no_esc             ; key ends the sequence.  ESC is armed
+        lda #0                  ; in the REPL only, so the editor
+        sta esc_armed           ; never switches (D-P2-9)
         lda main_key
-        cmp #$34                ; '4'
+        cmp #'4'
         beq @mode
-        cmp #$35                ; '5'
+        cmp #'5'
         beq @mode
-        cmp #$38                ; '8'
+        cmp #'8'
         bne @no_esc
 @mode:  jsr screen_mode_set
         jmp cse_refresh
@@ -653,8 +652,8 @@ main_loop:
         dey
 .endif
         cpy IO_CX
-        bcc @ins_pad            ; cursor at col 39: nothing to shift
-@ins_loop:                      ; move cols IO_CX..38 one right
+        bcc @ins_pad            ; cursor at the last column: nothing to shift
+@ins_loop:                      ; move cols IO_CX..LAST_COL-1 one right
         FAR_LDA rp_ptr
         iny
         FAR_STA rp_ptr
@@ -662,7 +661,7 @@ main_loop:
         cpy IO_CX
         beq @ins_blank          ; ends at IO_CX, also when it is 0
         dey
-        bpl @ins_loop           ; always (Y <= 37)
+        bpl @ins_loop           ; always (Y <= LAST_COL-2)
 @ins_blank:
         lda #$20                ; Y = IO_CX: the opened space
         FAR_STA rp_ptr
@@ -798,13 +797,13 @@ reset_globals:
         sta block_size+1
         sta cur_addr
         sta run_user_pending
-        lda #$08                ; cur_device + cur_addr+1 share the value
+        lda #$08
         sta cur_device
 .ifdef PLATFORM_M65
-        lda #>WORKSTART         ; cur_addr = workstart
+        lda #>WORKSTART
 .endif
-        sta cur_addr+1
-        rts
+        sta cur_addr+1          ; cur_addr = workstart ($0800: the device
+        rts                     ;   number's value too; m65 $2000)
 
 set_charset:
 .ifdef PLATFORM_C64

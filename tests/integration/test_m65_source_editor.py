@@ -29,12 +29,11 @@ import re
 
 import pytest
 
-from m65emu.harness import flat
+from m65emu.harness import TEXT_MODES as MODES, flat
 from test_m65_repl import M65Session
 
 STOP, RETURN, ESC, TAB = 0x03, 0x0D, 0x1B, 0xA0
 ST_REPL, ST_EDIT = 1, 2
-MODES = {"80x25": ("8", 80, 25), "40x25": ("4", 40, 25), "80x50": ("5", 80, 50)}
 SRC_LO, SRC_HI = 0x4000, 0xC000          # the source region's offsets, bank 2
 
 
@@ -44,7 +43,7 @@ def s(cse_m65_prg, m65_snapshot):
 
 
 def in_mode(s, name):
-    key, width, height = MODES[name]
+    key, width, height, _ = MODES[name]
     if name != "80x25":
         s.mode(key)
     assert (s.width, s.height) == (width, height)

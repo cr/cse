@@ -54,8 +54,7 @@ class M65Session:
 
     # ── CSE's cells (under the CSE map) ──
     def cell(self, name):
-        v = self.e.sym(name)
-        return CSE_BP << 8 | v if v < 0x100 else v
+        return self.e.cell(name)
 
     def v(self, name):
         return self.e.memory[self.cell(name)]

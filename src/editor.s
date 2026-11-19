@@ -2,9 +2,9 @@
 ; Owner: doc/modules/editor.md
 ;
 ; Screen layout:
-;   Row  0-21  Source text (22 lines)
-;   Row 22     Status bar
-;   Row 23-24  Last 2 lines preserved from REPL
+;   Rows 0 .. ED_LAST   Source text (ED_ROWS lines: 22 on c64; m65 height − 3)
+;   Row  ED_STATUS_ROW  Status bar
+;   The two rows below  Last 2 lines preserved from REPL
 
         .include "platform.inc"
         .macpack longbranch
@@ -304,7 +304,7 @@ _ed_cur_row:
 @char_loop:
         cpy WIDTH
         bcc :+
-        ; Line overflows screen — show > indicator in col 39.
+        ; Line overflows screen — show > indicator in the last column.
         ; Skip remaining content until CR or EOF.
         lda #$3E                ; '>' (normal, not reversed)
         ldy LAST_COL
@@ -614,7 +614,8 @@ _ed_cur_row:
         .segment "CODE"
 .endproc
 
-; ── ed_status_pos — update cursor position (cols 33-39) ───────
+; ── ed_status_pos — update cursor position (cols 33-39; m65: from
+; the right edge, _ed_status_right) ──────────────────────────────
 .proc ed_status_pos
         ; Screen pointer to status row
 .ifdef PLATFORM_C64
@@ -687,7 +688,8 @@ _ed_cur_row:
 @ldone: rts
 .endproc
 
-; ── ed_status_free — update upper free address (cols 29-32) ───
+; ── ed_status_free — update upper free address (cols 29-32; m65:
+; from the right edge, and fixed: PROG_HI) ───────────────────────
 .proc ed_status_free
 .ifdef PLATFORM_C64
         ldx ED_STATUS_ROW
@@ -900,7 +902,7 @@ _ed_cur_row:
         .segment "CODE"
 .endproc
 
-; ── ed_render — full redraw (22 lines + status) ──────────────
+; ── ed_render — full redraw (ED_ROWS lines + status) ─────────
 .proc ed_render
         ldx #0
         ldy ED_ROWS
@@ -929,7 +931,7 @@ _ed_cur_row:
         bne :+
         inc ed_top_line+1
 :
-        ; Shift screen rows 1..21 → 0..20 (21 rows × 40 bytes = 840 B).
+        ; Shift screen rows 1..ED_LAST → 0..ED_LAST-1, a row at a time.
         ; Row-by-row ascending copy: at iter k, dst = row k, src = row k+1.
         ; Safe because src row and dst row never overlap.
         FAR_BANK_SCREEN save_ptr
@@ -945,14 +947,14 @@ _ed_cur_row:
         FAR_STA ed_scr
         dey
         bpl @byte
-        cpx ED_LAST       ; just copied from row 21? → done
+        cpx ED_LAST             ; just copied from the last row? → done
         bne @row
 
-        ; Render the new bottom line (row 21)
-        ; Find position: advance from ed_top_ptr by 21 lines
+        ; Render the new bottom line (ED_LAST)
+        ; Find position: advance from ed_top_ptr by ED_LAST lines
         jsr _ed_scr_top
         ldx #0
-@skip:  cpx ED_LAST      ; skip 21 lines
+@skip:  cpx ED_LAST             ; skip ED_LAST lines
         bcs @got_pos
         jsr skip_one_line
         inx
@@ -962,7 +964,7 @@ _ed_cur_row:
         jsr check_buf_end
         bcc @render_bottom
 
-        ; Past EOF — blank row 21
+        ; Past EOF — blank the last row
         ldx ED_LAST
         jsr blank_row
         jmp ed_status_pos
@@ -988,11 +990,11 @@ _ed_cur_row:
         dec ed_top_line+1
 :       dec ed_top_line
 
-        ; Shift screen rows 0..20 → 1..21 (21 rows × 40 bytes = 840 B).
+        ; Shift screen rows 0..ED_LAST-1 → 1..ED_LAST, a row at a time.
         ; Row-by-row descending copy so each src row is read before it
         ; gets overwritten by the row being shifted into it.
         FAR_BANK_SCREEN save_ptr
-        ldx ED_LAST       ; X = dst row (21); src row = X - 1
+        ldx ED_LAST             ; X = dst row (ED_LAST); src row = X - 1
 @row:   jsr _ed_scr_row
         dex                     ; X = src row
         lda scr_lo,x
@@ -1468,7 +1470,7 @@ _ed_cur_row:
         cmp #<BUF_END
         jcs @reject             ; past EOF
 @right_check:
-        ; Refuse if cursor is already at col 39 (screen edge)
+        ; Refuse if cursor is already at the last column (screen edge)
         lda ed_cur_col
         cmp LAST_COL
         jcs @reject
@@ -1507,12 +1509,12 @@ _ed_cur_row:
         bne @not_down
         jsr ed_cursor_down
         jcc @reject             ; no-op → bottom of buffer
-        ; if ed_cur_line >= ed_top_line + ED_LINES → scroll up
+        ; if ed_cur_line >= ed_top_line + ED_ROWS → scroll up
         jsr _ed_cur_row
         sta ed_tmp
         lda ed_cur_line+1
         sbc ed_top_line+1
-        bne @do_scroll_up       ; hi byte nonzero → definitely >= 22
+        bne @do_scroll_up       ; hi byte nonzero → definitely >= ED_ROWS
         lda ed_tmp
         cmp ED_ROWS
         bcs @do_scroll_up
@@ -1721,7 +1723,7 @@ _ed_cur_row:
 @enter_render:
 
         ; Scroll or re-render
-        ; if ed_cur_line >= ed_top_line + ED_LINES → scroll up
+        ; if ed_cur_line >= ed_top_line + ED_ROWS → scroll up
         jsr _ed_cur_row
         sta ed_tmp
         lda ed_cur_line+1
@@ -1749,7 +1751,7 @@ _ed_cur_row:
         cmp #CH_INS
         bne @not_ins
         jsr cursor_line_vwidth
-        cmp LAST_COL   ; line full → refuse
+        cmp LAST_COL            ; line full → refuse
         jcs @reject
         lda #$20
         jsr gb_insert
@@ -1762,7 +1764,7 @@ _ed_cur_row:
         ; ── TAB ($A0) — always enabled under TAB_WIDTH ──
         cmp #$A0
         bne @not_tab
-        ; Cap check: refuse if line_vwidth + char_width(TAB, line_vwidth) > 39.
+        ; Cap check: refuse if line_vwidth + char_width(TAB, line_vwidth) > LAST_COL.
         jsr cursor_line_vwidth
         tax
         lda #$A0
@@ -1771,7 +1773,7 @@ _ed_cur_row:
         txa
         clc
         adc @new_col
-        cmp WIDTH       ; > 39 → refuse
+        cmp WIDTH               ; > LAST_COL → refuse
         jcs @reject
         ; Compute the new ed_cur_col: ed_cur_col + char_width(TAB, ed_cur_col).
         lda #$A0
@@ -1801,9 +1803,9 @@ _ed_cur_row:
         cmp #$DB
         bcs @repos_jmp          ; $DB+ → ignore
 @printable:
-        ; Refuse if the line is already at the 39-col cap.
+        ; Refuse if the line is already at the cap (LAST_COL).
         jsr cursor_line_vwidth
-        cmp LAST_COL   ; line_vwidth ≥ 39 → refuse
+        cmp LAST_COL            ; line_vwidth ≥ LAST_COL → refuse
         bcs @reject
         lda @key
         jsr gb_insert
