@@ -272,6 +272,11 @@ prints `fl_buf` after `l` / `s` without reading again; `$` prints
 - An empty SEQ file (0 bytes read) is treated as an error by
   `disk_load_seq` (returns 1).
 - `build_open_str` uses `open_buf` (28B BSS) as scratch.
+- `callback` is the first BSS byte pair, on an even address
+  (`.align 2`, the BSS segment 2-aligned in every linker config): the
+  SEQ paths call it through `jmp (callback)`, which an NMOS CPU reads
+  wrongly from `$xxFF`.  The debug c64-65c02 build had it at `$CEFF`
+  (found in P4 step (1); ld65 warned, nothing failed).
 - Mutable locals live in CODE, not BSS: `write_name_at` (`@nlen`),
   `build_open_str` (`@mode`, `@type`, `@nlen`), `list_directory`
   (ten bytes: `@is_first` … `@fn_tmp`) and `disk_save_prg`

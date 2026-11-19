@@ -32,11 +32,15 @@ ptr     = DISK_LOCAL_PTR                   ; 2 bytes, local pointer
 
 ; ── BSS ──────────────────────────────────────────────────
         .segment "BSS"
+; callback first, on an even address: `jmp (callback)` must not read
+; its vector across a page, which the NMOS CPUs take from the page's
+; own start ($xxFF, $xx00)
+        .align 2
+callback:        .res 2     ; function pointer for SEQ I/O
 disk_seq_bytes: .res 2
 disk_seq_lines: .res 2
 fl_buf:          .res 32
 open_buf:        .res 28    ; filename build buffer
-callback:        .res 2     ; function pointer for SEQ I/O
 eof_flag:        .res 1     ; READST EOF flag for SEQ read loop
 
         .segment "CODE"

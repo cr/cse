@@ -28,5 +28,5 @@ SEGMENTS {
     RODATA:   load = LOADIMG,  run = RUNTIME, type = ro, define = yes;
     KDATA:    load = LOADIMG,  run = KDATA,   type = ro, define = yes;
     DATA:     load = LOADIMG,  run = RUNTIME, type = rw;
-    BSS:      load = BSS,      type = bss, define = yes;
+    BSS:      load = BSS,      type = bss, define = yes, align = 2;
 }

@@ -48,7 +48,9 @@ def main():
     data_size = sizes.get("DATA", 0)
     bss_size = sizes.get("BSS", 0)
 
-    runtime_total = code_size + rodata_size + data_size + bss_size
+    # + 1: BSS starts on an even address (its segment is 2-aligned for
+    # disk.s's jmp vector), which may cost a pad byte
+    runtime_total = code_size + rodata_size + data_size + bss_size + 1
     runtime_start_raw = 0xD000 - runtime_total
     # Page-align downward: editor.s has hi-byte-only BUF_END checks
     # that assume BUF_END (= __CODE_RUN__) is page-aligned.
@@ -73,6 +75,7 @@ def main():
         template = f.read()
 
     bss_start = runtime_start + code_size + rodata_size + data_size
+    bss_start += bss_start & 1        # BSS is 2-aligned (disk.s's jmp vector)
 
     # BUF_FLOOR: optimal source/output split point.
     #

@@ -143,13 +143,16 @@ wrong, but the segment **sizes** in `trial.map` are correct.
 
 `compute_layout.py` reads the sizes from `trial.map` and computes
 
-    RUNTIME_START = ($D000 − (CODE + RODATA + DATA + BSS)) & $FF00
+    RUNTIME_START = ($D000 − (CODE + RODATA + DATA + BSS + 1)) & $FF00
 
 — rounded down to a page boundary, because the editor's `BUF_END`
 checks compare the high byte only.  It fills three placeholders of
 `c64_cse.cfg.in` to produce `build/<profile>/<cpu>/c64_cse.cfg`:
 `@@RUNTIME_START@@`, `@@BSS_START@@` (`RUNTIME_START` + CODE +
-RODATA + DATA) and `@@BUF_FLOOR@@` (the source/output split of the
+RODATA + DATA, rounded up to an even address: the BSS segment is
+2-aligned, so `disk.s`'s `jmp (callback)` never reads its vector
+across a page — the NMOS CPUs take `$xxFF`'s high byte from `$xx00`;
+the `+ 1` above pays for the pad byte) and `@@BUF_FLOOR@@` (the source/output split of the
 workspace: `$0800` + one ninth of the workspace, rounded down to a
 page).  It prints the result as a `layout:` line, and stops the
 build when `RUNTIME_START` falls below `$0900`.
