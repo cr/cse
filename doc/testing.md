@@ -1872,7 +1872,7 @@ get their own small binary.
 | Bundle (fixture) | Modules | Stub | Tests |
 |--------|---------|------|-------|
 | `asm_core` (`asm_syms`, `asm_6510_syms`, `asm_6502_syms`, `AsmCoreSymbols(config)`) | zp, strings, opcode_lookup, asm_line, asm_err, addr_mode, expr, symtab, mem, mn_modes, mn_asm_tables, mn_classify + mn7, mn7_tables (6510, 65c02, 45gs02) or mn6, mn6_tables (6502) | `asm_core_test_stub.s` (linker symbols; `log_warn` mock); the `45gs02` variant links with `dev/m65_test.cfg` | test_addr_mode, test_asm_line, test_opcode_lookup, test_expr, test_asm_err, test_golden_asm_dasm, test_asm_m65, test_mn_classify (m65 keys) |
-| `mn6` / `mn7` (`mn6_syms`, `mn7_syms`) | zp, mn6/mn7 + tables, mn_classify | (none — pure leaf) | test_mn_classify |
+| `mn6` / `mn7` (`mn6_syms`, `mn7_syms` the CMOS mode, `mn7_6510_syms`) | zp, mn6/mn7 + tables, mn_classify | (none — pure leaf) | test_mn_classify |
 | `asm_src` (`as_syms`) | asm_core's modules (mn7 set) + asm_src | `asm_src_test_stub.s` (source reader and output mocks); `dev/asm_src_test.cfg` | test_asm_src |
 | `dasm` (`dasm_syms`, `dasm_bundle(config)`) | zp, dasm, dasm_tables, mem | `dasm_test_stub.s` (linker scaffolding only); the `45gs02` variant links with `dev/m65_test.cfg` | test_dasm, test_golden_asm_dasm, test_dasm_m65 |
 | `log` (`log_syms`) | zp, strings, cse_io, screen, log | `cse_io_test_stub.s` (shared `kplot_stub`) | test_log |

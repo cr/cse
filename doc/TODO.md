@@ -281,8 +281,8 @@ compendium until its golden file, recorded in xmega65, says otherwise.
 (the m65 PRG installs itself and reaches `_main`), P1 (user code,
 maps, vectors and the debugger on m65), P2 (the screen, the keyboard,
 the REPL and the editor) and P3 (the disk and the D81) and P4 (the 45GS02 assembler, disassembler
-and step — slice 1's Phase B) are done; P4b (no 65C02 on the targets)
-is in its code steps; P5 follows.
+and step — slice 1's Phase B) and P4b (no 65C02 on the targets; the
+assembler's CMOS mode bundle-only) are done; P5 is next.
 
 **How this plan is read.**  Under CDD the documents are the truth:
 each milestone below is a **Step-1 doc delta** — the documents that
@@ -1839,7 +1839,8 @@ hardware: O1 and O3, as before.
   pushes the low byte first; the real CPU's `JMP ($xxFF)` does not
   wrap.  Deferred: A3b (D-P4-4).
 
-**P4b — no 65C02 on the targets** (operator, 2026-11-19: "Drop cmos
+**P4b — no 65C02 on the targets.**  **Gate met (2026-11-19)** — below,
+after the TDD plan.  Operator, 2026-11-19: "Drop cmos
 support from both our targets, but assembler and disassembler are to
 retain a fully supported and tested cmos mode for later ports").  No
 CBM machine has a 65C02; what it cost was measured first (P4 review
@@ -1997,7 +1998,7 @@ not deleted, unless its subject goes (the debugger's 65C02 paths).
   `test_jmp_abs_x_vector_from_user_zp_65c02` go with the code they
   test.  The m65 step tests (`test_m65_debugger.py`) hold unchanged
   at `asm_cpu` 0, 3, 4.
-- [ ] T6. The close (step 6): the full suite, Tier X, the C64 hashes
+- [x] T6. The close (step 6): the full suite, Tier X, the C64 hashes
   and budgets at their new values, the audits clean.
 
 Steps (1), (2) and (4) done 2026-11-19, one commit: the generators'
@@ -2035,6 +2036,17 @@ are `.ifdef MEGA_SUPPORT`, the C64 `asm_cpu` checks and the
 `CMOS_SUPPORT` no-wrap path gone, `asm_cpu` imported on m65 only — no
 build assembled them since step (4), so all three PRGs are
 byte-identical (T5's tests, `TestNmosStep`, landed with step (4)).
+
+- **P4b gate met (2026-11-19):** T1–T6 green — 5958 passed, Tier X
+  168 passed on 920413 and 920421, the gating doc audits clean.  The
+  builds are c64-6502, c64-6510 and m65-45gs02 ({6502, 4510, 45GS02});
+  the CMOS mode {6502, 65C02} lives in its bundles and its golden file.
+  Sizes: c64-6510 21 153 B, c64-6502 20 808 B (both hashes
+  re-recorded, deliberate), m65-45gs02 24 458 B; c64-65c02 left
+  `BUDGET`.  Code commits 7b8eefd, f51fbe3, 4d3bf53 and the close.
+  Found on the way: the Makefile had no guard against an unknown C64
+  `CPU` (`CPU=6503` built a broken PRG), now refused; the doc audits
+  read the cmos debug build (now the 6510's).
 
 **P5 — the contract closed:** the ROM versions the port is verified
 on (920413, the floor, and the current one; the Open ROMs boot to C64
