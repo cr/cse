@@ -836,6 +836,12 @@ The installed machine they check is
   screen after every key equals M65Emu's, and M65Emu's tags follow
   the documented path ($3004, $3007, $3200, $3400 — no page wrap —
   $3401, `; rts`).
+- **Tier X, a CSE-assembled program** (`tests/emulator/test_m65_asm_run.py`,
+  each ROM): a program typed with `.` (`PHW #`, `PLA`, `LDQ` / `STQ`,
+  a far `LDA`, a taken 16-bit `BEQ`) and run with `j`; the bytes it
+  stores are the instruction set's prediction in xmega65 and M65Emu,
+  the assembled bytes and every screen M65Emu's.  Both typed tests
+  share `test_m65_boot.typed_run`.
 - **The recordings behind the m65 column.**  The P0 analysis probes
   (entry state, base page, `Z`, the frame, the maps, the Hypervisor
   services, the regions CSE takes, all on both ROMs) become committed

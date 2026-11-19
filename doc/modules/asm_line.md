@@ -9,6 +9,7 @@
 | [`src/asm_line.s`](../../src/asm_line.s) | implementation — line assembler core, KERNAL banking, error recovery |
 | [`tests/unit/test_asm_line.py`](../../tests/unit/test_asm_line.py) | test contract |
 | [`tests/unit/test_asm_m65.py`](../../tests/unit/test_asm_m65.py) | test contract — the m65 set on its bundle (M65Emu): every row of the four views at its CPU, the m65 gate matrix, the word, the Z rule, far, stack-relative, IMM16, branch width and the width request, the `$FFFF` edge |
+| [`tests/emulator/test_m65_asm_run.py`](../../tests/emulator/test_m65_asm_run.py) | tier-X tests (xmega65, P4): a program typed with `.` (`PHW #`, Q, far, a 16-bit branch) and run with `j` stores the predicted bytes, each screen M65Emu's |
 
 Its ZP definitions are in [`src/zp.s`](../../src/zp.s), owned by
 [zp.md](zp.md).

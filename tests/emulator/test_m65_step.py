@@ -20,19 +20,17 @@ Not collected by a plain `pytest` (testpaths); run it by path:
 """
 
 import pathlib
-import shutil
 import sys
 
 import pytest
 
-from m65emu.harness import CSE_BP, load_snapshot, snapshot_dirs
-from xmega65 import CHIP_ROM, XMega65, missing
+from m65emu.harness import snapshot_dirs
+from xmega65 import missing
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests" / "integration"))
 sys.path.insert(0, str(ROOT / "tests" / "emulator"))
-from test_m65_repl import M65Session                            # noqa: E402
-from test_m65_boot import geometry_of, screen_text              # noqa: E402
+from test_m65_boot import typed_run                              # noqa: E402
 
 WORK = ROOT / "build" / "m65_step"
 _SNAPSHOTS = snapshot_dirs()
@@ -61,33 +59,7 @@ def stepped(request, cse_m65_prg):
     if request.param is None:
         pytest.skip("no M65Emu snapshot (it holds the ROM): "
                     "python dev/capture_m65_state.py --rom PATH")
-    snap = load_snapshot(request.param)
-    prg, map_path = cse_m65_prg
-    ref = M65Session((prg, map_path), snap)
-    s = ref.e.sym
-    want = []
-    for keys in SCRIPT:
-        ref.keys(keys)
-        want.append(ref.rows())
-
-    work = WORK / request.param.name
-    shutil.rmtree(work, ignore_errors=True)
-    work.mkdir(parents=True)
-    rom = work / "rom.bin"
-    rom.write_bytes(snap["chip"][CHIP_ROM])
-    got = []
-    try:
-        with XMega65(work / "run", rom=rom, prg=prg) as xm:
-            xm.run_to_page(s("_main"), CSE_BP)
-            xm.run_to(s("main_loop"))
-            for keys in SCRIPT:
-                for k in keys:
-                    xm.addkeys([k])
-                    xm.run_to(s("main_loop"))
-                got.append(screen_text(xm.read, *geometry_of(xm.read, s)))
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
-    return dict(got=got, want=want)
+    return typed_run(request.param, cse_m65_prg, SCRIPT, WORK / request.param.name)
 
 
 @pytest.mark.parametrize("step", range(len(SCRIPT)),

@@ -153,10 +153,10 @@ disassembler (A4) followed: see A4 below.
 
 ### Phase B — the m65 build (m65-45gs02)
 
-- [ ] B1. Build defines `PLATFORM_M65`, `CPU_45GS02`, `MEGA_SUPPORT`;
+- [x] B1. Build defines `PLATFORM_M65`, `CPU_45GS02`, `MEGA_SUPPORT`;
   `asm_cpu` values 3 and 4 (6502 and 4510 selectable at run time); m65
   test bundles ([build_system.md](build_system.md)).
-- [ ] B2. Classifier: `mn7` over the m65 key set
+- [x] B2. Classifier: `mn7` over the m65 key set
   ([mn_classify.md § Variants](modules/mn_classify.md#variants)).
 - [x] B3. `mode_parse`: `(e),z`, `(e,sp),y`, `[e]`, `[e],z`
   ([addr_mode.md](modules/addr_mode.md)); the wide immediate is
@@ -275,8 +275,8 @@ compendium until its golden file, recorded in xmega65, says otherwise.
 **Branch:** `m65`.  **Status (2026-11-19):** the harness (S2-3), P0
 (the m65 PRG installs itself and reaches `_main`), P1 (user code,
 maps, vectors and the debugger on m65), P2 (the screen, the keyboard,
-the REPL and the editor) and P3 (the disk and the D81) are done; P4 is
-next.
+the REPL and the editor) and P3 (the disk and the D81) and P4 (the 45GS02 assembler, disassembler
+and step — slice 1's Phase B) are done; P5 is next.
 
 **How this plan is read.**  Under CDD the documents are the truth:
 each milestone below is a **Step-1 doc delta** — the documents that
@@ -1695,6 +1695,15 @@ which skips the user-ZP image — it now shares `emit_dot`'s staged read
 xmega65 lands where M65Emu does, `JMP ($30FF)` included (no wrap on
 the real CPU).  c64-65c02 21 879 B, m65-45gs02 24 714 B.
 
+Step (10) done 2026-11-19: the golden sweeps take the m65 set's cases
+(every opcode behind each prefix; every 4510 and 45GS02 row with each
+spelling of its mode) and `asm_dasm_45gs02.json` is recorded from
+063220c; `test_golden_asm_dasm.py` holds it.  Tier X
+`test_m65_asm_run.py`: a program typed with `.` (`PHW #`, `PLA`, `LDQ`
+/ `STQ`, a far `LDA`, a taken 16-bit `BEQ`) and run with `j` stores
+the predicted bytes in xmega65 and M65Emu; the typed-run loop is
+`test_m65_boot.typed_run`, shared with `test_m65_step.py`.
+
 **P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
 first, step by step; each is red until its code lands.  Automation
 judgement: all of it is automatable — the generators on the host,
@@ -1791,11 +1800,35 @@ hardware: O1 and O3, as before.
   program with a Q, a far and a 16-bit branch in xmega65 stops where
   M65Emu stops — `JMP (ind)` at `$xxFF` among them, the real CPU's
   answer on the wrap.
-- [ ] T10. The close (step 10): `asm_dasm_45gs02.json` recorded and
+- [x] T10. The close (step 10): `asm_dasm_45gs02.json` recorded and
   held by `test_golden_asm_dasm.py`; `test_size_budget.py`'s
   m65-45gs02 entry; Tier X — a program assembled by CSE (Q, far,
   16-bit branches, `PHW`) runs in xmega65 with the results the oracle
   predicts.
+
+- **P4 gate met (2026-11-19):** T1–T10 green — Tier U and I on
+  M65Emu and the C64 bundles (6195 passed), Tier X on 920413 and
+  920421 in xmega65 (164 passed)
+  (`test_m65_boot.py`, `test_m65_break.py`, `test_m65_d81.py`, and
+  P4's `test_m65_step.py`, `test_m65_asm_run.py`).  The m65 build is
+  m65-45gs02 (m65-6502 retired): the CPU set {6502, 65C02, 4510,
+  45GS02}, `asm_cpu` 4 by default; five byte columns in `d` / `.`;
+  the debugger steps the 45GS02 whatever `u` lists.
+  `asm_dasm_45gs02.json` recorded (1792 dasm + 6520 asm cases; a
+  cycle on M65Emu is an instruction).  Sizes: m65-45gs02 24 714 B;
+  c64-6510 21 192 B, c64-6502 20 834 B, c64-65c02 21 879 B — every
+  C64 change deliberate and recorded (steps (1), (2), (9)).  Code
+  commits 853a533, 5de8c9e, f4cbc93, fe0eabe, 98965a0, 2b3dd38,
+  7cd6ed4, 035bb97, 7a931c5, 60c2c1c, 063220c and the close.  Found
+  on the way, fixed: the bit-op mnemonics and the CPU-set gate (the
+  prerequisite bugs), disk.s's callback on an odd address (BSS
+  2-aligned), mode_parse's ZPREL output (the whole target),
+  opcode_lookup's third-plane C, the generators' iteration order
+  (hash-seed test), `.`'s width-check read (`DOT_DASM`), c64-65c02's
+  `BBR` / `BBS` step.  Recorded: `aslq a` is `ASLQ` with the label
+  `a` (a Q form takes no explicit accumulator, asm_line.md); `PHW`
+  pushes the low byte first; the real CPU's `JMP ($xxFF)` does not
+  wrap.  Deferred: A3b (D-P4-4).
 
 **P5 — the contract closed:** the ROM versions the port is verified
 on (920413, the floor, and the current one; the Open ROMs boot to C64

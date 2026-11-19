@@ -153,6 +153,42 @@ def geometry_of(read, sym):
     return width, cell("scr_height"), cell("scr_bank")
 
 
+def typed_run(snap_dir, cse_m65_prg, script, work, peek=()):
+    """Type `script` (key groups) into M65Emu's M65Session and into
+    xmega65 on the snapshot's ROM, one key at a time as `typed` does.
+    Returns the screens after each group, M65Emu's (`want`) and
+    xmega65's (`got`), and the bytes at each bank-0 (addr, n) of `peek`
+    after the last group (`want_peek`, `got_peek`)."""
+    snap = load_snapshot(snap_dir)
+    prg, map_path = cse_m65_prg
+    ref = M65Session((prg, map_path), snap)
+    s = ref.e.sym
+    want = []
+    for keys in script:
+        ref.keys(keys)
+        want.append(ref.rows())
+    want_peek = [list(ref.peek(a, n)) for a, n in peek]
+
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    rom = work / "rom.bin"
+    rom.write_bytes(snap["chip"][CHIP_ROM])
+    got = []
+    try:
+        with XMega65(work / "run", rom=rom, prg=prg) as xm:
+            xm.run_to_page(s("_main"), CSE_BP)
+            xm.run_to(s("main_loop"))
+            for keys in script:
+                for k in keys:
+                    xm.addkeys([k])
+                    xm.run_to(s("main_loop"))
+                got.append(screen_text(xm.read, *geometry_of(xm.read, s)))
+            got_peek = [list(xm.read(a, n)) for a, n in peek]
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return dict(want=want, got=got, want_peek=want_peek, got_peek=got_peek)
+
+
 @pytest.fixture(scope="module",
                 params=_SNAPSHOTS or [None],
                 ids=[d.name for d in _SNAPSHOTS] or ["no-snapshot"])
