@@ -126,7 +126,7 @@ platform lacks is absent there, so a stray use fails to assemble.
 |---|---|---|
 | KERNAL entries CSE calls | `GETIN $FFE4`, `PLOT $FFF0`, `RESTOR $FF8A`, `CINT $FF81`; the file calls `SETLFS $FFBA`, `SETNAM $FFBD`, `OPEN $FFC0`, `CLOSE $FFC3`, `CHKIN $FFC6`, `CHKOUT $FFC9`, `CLRCHN $FFCC`, `CHRIN $FFCF`, `CHROUT $FFD2`, `LOAD $FFD5`, `READST $FFB7`, `LISTEN $FFB1`, `UNLSN $FFAE` | the same addresses for the same calls (book I-5/6), except `RESTOR` and `CINT`, which the m65 exit does not need; plus `VECTOR $FF8D`, `SETBNK $FF6B`, `SCRORG $FFED`, `SYSFLAGS $FF47`, `ScanStopKey $FFEA`.  `BSOUT` (`CHROUT`), `BASIN` (`CHRIN`), `GETIN` and `STOP` are `JMP ($nnnn)` in the jump table, the others `JMP` (recorded, A1).  ROM 920413 lacks `VERSIONQ`, `RESET_RUN` and `CURSOR` (recorded: `$FF35` holds `$FF`); CSE does not use them |
 | KERNAL internals called directly | `$EA31` (the IRQ body, from the early entry), `$FCE2` (cold start, the fallback); BASIC's warm-start vector `($A002)` | none |
-| KERNAL cells | `ST $90`, the STOP row `$91`, the key count `$C6`, the blink switch `$CC`, `$CE`, the cursor column `$D3`, `$D4`, `$D5`, the cursor row `$D6`, `$D8`, the line-link table `$D9–$F1`, `CHRCOLOR $0286`, `KEY_REPEAT $028A`, the charset lock `$0291` | none, read or written (book 14-13: KERNAL variables are not an interface): `ST` → `READSS`; STOP → `ScanStopKey`; the keys → `GETIN`; the cursor → CSE's cells and `PLOT`; the editor's modes and lines → `ESC O`, `HOME HOME`, `PLOT`; the colour → a colour code through `BSOUT`; the charset lock → `SYSFLAGS` bit 7; key repeat → the hardware's, no setting ([§ Terminal](#terminal), A1 in [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)) |
+| KERNAL cells | `ST $90`, the STOP row `$91`, the key count `$C6`, the blink switch `$CC`, `$CE`, the cursor column `$D3`, `$D4`, `$D5`, the cursor row `$D6`, `$D8`, the line-link table `$D9–$F1`, `CHRCOLOR $0286`, `KEY_REPEAT $028A`, the charset lock `$0291` | none, read or written (book 14-13: KERNAL variables are not an interface), but the KERNAL's map record `0.011C–011F`, kept as CSE's map while CSE runs ([§ User transitions](#user-transitions), D-P3-8): `ST` → `READSS`; STOP → `ScanStopKey`; the keys → `GETIN`; the cursor → CSE's cells and `PLOT`; the editor's modes and lines → `ESC O`, `HOME HOME`, `PLOT`; the colour → a colour code through `BSOUT`; the charset lock → `SYSFLAGS` bit 7; key repeat → the hardware's, no setting ([§ Terminal](#terminal), A1 in [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)) |
 | Vector table | `$0316` (`IBRK`), `$0318` (`INMI`) written directly; RAM shadows `$FFFA`/`$FFFE`; `$0314` (`IIRQ`) untouched | the KERNAL's table, read and written only through `VECTOR` |
 | `FRAME_DEPTH` | 3 | 5 ([§ Interrupt frame](#interrupt-frame)) |
 | Homes — the names (`HIMEM`, `WORKSTART`, `BASIC_START`, `SYM_TABLE`, `SYM_HEAP`, `KDATA_RUN`, `REPL_SCREEN`, `COLD_ZP`, `CSE_BP`, `STUB_BASE`, `BUF_FLOOR`, `BUF_END`, `PROG_LO`, `PROG_HI`) | values: [memory_design.md § Memory Map — Runtime](memory_design.md#memory-map--runtime-c64-builds) and § Banked layout | values: [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) |
@@ -438,6 +438,20 @@ and the Hypervisor's `hyppo_get_mapping` does ([§ Constants](#constants)).
   run inside its `MAP` hold); a fresh start gives the run premise's `$00` (P2,
   operator 2026-11-18: CSE reads raw function keys, a program finds
   its own).
+- **The KERNAL's map record** (`0.011C–011F`, A X Y Z for `MAP`),
+  likewise KERNAL state: the "KERNAL-managed memory map" `JSRFAR`
+  restores (book I-31) — and so do the interface ROM's IEC / DOS calls
+  (`LDQ $011C` · `MAP` at `2.CBF6`, and the KERNAL's at `3.F2C2` /
+  `3.F263`, recorded on both ROMs).  A KERNAL call through CBDOS made
+  under CSE's map would return under the record's map — the `SYS` map
+  — with CSE's code mapped away (Tier X found it, P3).  So while CSE
+  runs the record holds the CSE map: `kmap_swap` captures the
+  program's into `um_kmap` (debugger.s's BSS) and writes the CSE map —
+  at every break (`save_userland_state`'s tail) and at the cold start
+  (`dbg_init`, through `seed_bank_state`); `_rtu_body`
+  writes the program's back before `PLAT_TO_USER`; a fresh start gives
+  the run premise's, the user map (`00 E0 00 83`).  The one KERNAL
+  cell CSE writes on m65 (P3, operator 2026-11-19: D-P3-8).
 - **Fresh start** (`j`, `g`): the bank state is the run premise's —
   the user map, the port `$FF` / `$85`, `$D030` = `$64` — written into
   the saved state by `return_to_userland`, so a run starts as `RUN`

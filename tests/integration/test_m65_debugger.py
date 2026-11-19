@@ -568,3 +568,56 @@ def test_a_fresh_start_gets_the_premises_sysflags(emu):
     user_code(emu, [0x38, 0x20, 0x47, 0xFF, 0x8D, 0x00, 0x17, 0x60], at=CODE)
     run_user(emu, CODE)
     assert emu.memory.read_flat(0x1700) == 0x00
+
+
+# ── D-P3-8: the KERNAL's map record travels with the bank state ───
+
+from m65emu.harness import KMAP_REC as KMAP, MAP_CSE, MAP_USER  # noqa: E402
+
+KMAP_CSE, KMAP_USER = list(MAP_CSE), list(MAP_USER)
+
+
+def kmap(emu):
+    return [emu.memory.read_flat(KMAP + k) for k in range(4)]
+
+
+def test_the_cold_start_records_the_cse_map(cse_m65_prg, m65_snapshot):
+    """_main writes the CSE map into the KERNAL's record, so a KERNAL
+    far call (CBDOS) returns to CSE's map."""
+    from test_m65_repl import M65Session
+    s = M65Session(cse_m65_prg, m65_snapshot)
+    assert kmap(s.e) == KMAP_CSE
+
+
+def test_a_programs_map_record_survives_a_break(emu):
+    """The program writes its own record, breaks: CSE's map is in the
+    record while CSE runs, and after `c` the program reads its own."""
+    ready(emu)
+    m = emu.memory
+    store = []
+    for k, v in enumerate((0x11, 0x22, 0x33, 0x44)):
+        store += [0xA9, v, 0x8D, (KMAP + k) & 0xFF, (KMAP + k) >> 8]
+    load = []
+    for k in range(4):
+        load += [0xAD, (KMAP + k) & 0xFF, (KMAP + k) >> 8, 0x8D, k, 0x17]
+    user_code(emu, store + [0x00, 0x00] + load + [0x60], at=CODE)
+    run_user(emu, CODE)
+    assert m[emu.cell("dbg_reason")] == DBG_BRK
+    assert [m[emu.cell("um_kmap") + k] for k in range(4)] == [0x11, 0x22, 0x33, 0x44]
+    assert kmap(emu) == KMAP_CSE
+    emu.write_word(emu.cell("brk_pc"), word(emu, "brk_pc") + 2)
+    resume(emu)
+    assert m[emu.cell("dbg_reason")] == DBG_RTS
+    assert [m.read_flat(0x1700 + k) for k in range(4)] == [0x11, 0x22, 0x33, 0x44]
+
+
+def test_a_fresh_start_gets_the_user_map_record(emu):
+    ready(emu)
+    for k, v in enumerate(KMAP_CSE):
+        emu.memory.write_flat(KMAP + k, v)          # as CSE leaves it
+    load = []
+    for k in range(4):
+        load += [0xAD, (KMAP + k) & 0xFF, (KMAP + k) >> 8, 0x8D, k, 0x17]
+    user_code(emu, load + [0x60], at=CODE)
+    run_user(emu, CODE)
+    assert [emu.memory.read_flat(0x1700 + k) for k in range(4)] == KMAP_USER

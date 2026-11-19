@@ -50,9 +50,12 @@ The seed keeps the first restore of a ZP buffer from writing `$00`
 into the DDR ([mem.md § CPU-port aware ZP save/restore](mem.md#cpu-port-aware-zp-saverestore)).
 
 **On m65:** `reg_z` and `reg_b` are zeroed with the others; the
-saved bank state (`um_map`, the port in `userland_zp_buf`, `um_d030`)
-is seeded with the run premise's — the user map, `$FF` / `$85`,
-`$64`; there is no `kernel_zp_buf`.  The registers a fresh start installs
+saved bank state (`um_map`, the port in `userland_zp_buf`, `um_d030`,
+`um_kmap`, `um_sysflags`) is seeded with the run premise's — the user
+map, `$FF` / `$85`, `$64`, the user map in the record, `SYSFLAGS` 0 —
+after `kmap_swap` has written the CSE map into the KERNAL's map
+record, so the cold start leaves it CSE's (D-P3-8); there is no
+`kernel_zp_buf`.  The registers a fresh start installs
 are the run premise's: `A X Y Z B` = 0, and P as the CPU keeps it —
 `E` = 1, which `RTI` does not load
 ([userland_contract.md § 3](../userland_contract.md#on-m65)).
@@ -74,7 +77,11 @@ because they differ by source ([main.md § BRK dispatch](main.md#brk-dispatch)).
 P, PCL, PCH; `reg_z` and `reg_b` are captured as well (P − 4, P − 5),
 `reg_sp` = SP + 10, and nothing is swapped: base page 0 is the
 user's throughout ([platform_layer.md § Base page](../platform_layer.md#base-page));
-the bank state was captured before it ran (the stub, the handler).
+the bank state was captured before it ran (the stub, the handler);
+its m65 tail captures `$D030`, the program's `SYSFLAGS`
+(`um_sysflags`) and the KERNAL's map record `0.011C–011F`
+(`um_kmap`), and writes the CSE map into the record (`kmap_swap`)
+([platform_layer.md § User transitions](../platform_layer.md#user-transitions)).
 Every offset derives from `FRAME_DEPTH`.
 
 ### return_to_userland
@@ -108,7 +115,9 @@ command set `run_user_pending = MODE_JUMP` (`j`, `g`, and the first
    user's again ([platform_layer.md § User transitions](../platform_layer.md#user-transitions)).
    Step 2 is c64 only.  `return_to_userland` also seeds the bank
    state with the run premise's, so every fresh start begins as a
-   `RUN` does.
+   `RUN` does.  On m65, after step 1, the program's `SYSFLAGS` and
+   KERNAL map record go back (`um_sysflags`, `um_kmap`): KERNAL state,
+   written before `PLAT_TO_USER`'s `MAP` hold.
 
 **Clobbers:** everything.
 
@@ -173,6 +182,8 @@ Callers: as `step_next_pc`.
 | `step_next_hi` | 2 | yes (repl.s) | `step_next_pc` result, second stop |
 | `step_save` | 1 | no | opcode scratch of `step_next_pc` |
 | `_rtu_need_sentinel` | 1 | no | per call: 1 from `return_to_userland`, 0 from `restore_userland_state`; read by `_rtu_body` |
+| `um_kmap` | 4 (m65 only) | yes (tests) | the program's KERNAL map record `0.011C–011F` (its bank state; P3) |
+| `um_sysflags` | 1 (m65 only) | yes (tests) | the program's `SYSFLAGS` (its bank state; P2) |
 
 `dbg_reason` and `in_userland` are cross-module flags in `zp.s`
 ([zp.md § Cross-module flags](zp.md#cross-module-flags));

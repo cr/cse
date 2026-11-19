@@ -149,24 +149,11 @@ def test_banks_2_3_are_writable(booted):
 
 # ── T11: the prompt, typed commands, Q (P2) ───────────────────────
 
-DRIVER = 0x1E00                    # bank 0: visible in the CSE map
-ADDKEY = 0xFF4A
 STOP, ESC = 0x03, 0x1B
 SCRIPT = [b"? 1+2\r", b"I\r", b"M\r", b"R\r", b". LDA #1\r", b"@ $2000\r",
           b"D\r", bytes([STOP]) + b"NOP\r" + bytes([STOP]),
           bytes([ESC]) + b"5" + b"? 3\r", bytes([ESC]) + b"8"]
 QUIT = bytes([0xD1, 0x0D]) + b"Y"     # `Q` is shifted: PETSCII $D1
-
-
-def _driver(keys, back):
-    """ADDKEY each of `keys` with B = 0, every register and P kept,
-    then on at `back` (where main_loop stopped)."""
-    code = [0x08, 0x48, 0xDA, 0x5A, 0xDB, 0x7B, 0x48,   # php pha phx phy phz tba pha
-            0xA9, 0x00, 0x5B]                           # lda #0, tab
-    for k in keys:
-        code += [0xA9, k, 0x20, ADDKEY & 0xFF, ADDKEY >> 8]
-    return code + [0x68, 0x5B, 0xFB, 0x7A, 0xFA, 0x68, 0x28,   # pla tab plz ply plx pla plp
-                   0x4C, back & 0xFF, back >> 8]
 
 
 def _screen_text(read, width, height, bank):
@@ -211,13 +198,8 @@ def typed(request, cse_m65_prg):
             xm.run_to(s("main_loop"))
             got = [_screen_text(xm.read, *geometry(xm.read))]
 
-            def type_in(keys):
-                back = xm.regs()["pc"]
-                xm.write(DRIVER, _driver(keys, back))
-                xm.cmd(f"g {DRIVER:x}")
-
             def key(k):
-                type_in([k])
+                xm.addkeys([k])
                 return xm.run_to(s("main_loop"))
 
             for keys in SCRIPT:
@@ -225,7 +207,7 @@ def typed(request, cse_m65_prg):
                     key(k)
                 got.append(_screen_text(xm.read, *geometry(xm.read)))
             key(QUIT[0])
-            type_in(QUIT[1:])           # RETURN, then y for the query's io_getc
+            xm.addkeys(QUIT[1:])        # RETURN, then y for the query's io_getc
             xm.cmd("b 0")               # the breakpoint off main_loop (PC never 0)
             xm.cmd("t0")                # run on
             # BASIC 65's map is CSE's, so wait_for_basic cannot tell

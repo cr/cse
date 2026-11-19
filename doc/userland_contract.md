@@ -156,7 +156,9 @@ The four tiers, for a program run under CSE on the MEGA65
   state** — the `MAP` setting, the CPU port and `$D030` — captured at
   every break and installed again by every resume, so a break inside
   the program's own mapping resumes inside it; its `SYSFLAGS`
-  (function-key macros and the keyboard locks), likewise; base page 0
+  (function-key macros and the keyboard locks) and the KERNAL's map
+  record (`0.011C–011F`, the map the KERNAL's far calls return to),
+  likewise; base page 0
   entirely,
   wherever `B` points — CSE never writes it, so there is no image to
   swap (the port aside); the user's stack above SP (§ 4); the user's memory:
@@ -181,7 +183,8 @@ The four tiers, for a program run under CSE on the MEGA65
 
 A fresh start (`j`, `g`) does not take the last run's bank state: it
 installs the run premise's — the user map, the port `$FF` / `$85`,
-`$D030` = `$64`, `SYSFLAGS` = `$00` — as `RUN` would.
+`$D030` = `$64`, `SYSFLAGS` = `$00`, the KERNAL's map record the user
+map — as `RUN` would.
 
 ## 3. Memory regions
 

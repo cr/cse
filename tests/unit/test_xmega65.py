@@ -43,6 +43,15 @@ def test_start_args_are_headless_with_the_rom_and_prg_options():
     assert "-headless" in base and "-romfromsd" not in base
     assert start_args(rom=True)[-1] == "-romfromsd"
     assert start_args(prg="p.prg")[-4:] == ["-prg", "p.prg", "-prgmode", "65"]
+    assert start_args(d81="d.d81")[-3:] == ["-8", "d.d81", "-autoload"]
+
+
+def test_the_addkey_driver_keeps_the_registers_and_returns():
+    from xmega65 import addkey_driver
+    code = addkey_driver(b"AB", 0x1234)
+    assert code[:10] == [0x08, 0x48, 0xDA, 0x5A, 0xDB, 0x7B, 0x48, 0xA9, 0x00, 0x5B]
+    assert code[10:20] == [0xA9, 0x41, 0x20, 0x4A, 0xFF, 0xA9, 0x42, 0x20, 0x4A, 0xFF]
+    assert code[-3:] == [0x4C, 0x34, 0x12]
 
 
 class _FakeMonitor:

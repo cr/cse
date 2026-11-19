@@ -808,7 +808,10 @@ The installed machine they check is
   `RUN`-started PRG has the KERNAL's messages off (`MSGFLG` `$9D` =
   `$00` at `_main`, recorded in xmega65; the post-boot snapshot is
   direct mode, `$80`), which `enter_premise()` and `install_prg()`
-  set — with messages on, `LOAD` prints LOADING.  The m65 disk tests
+  set — with messages on, `LOAD` prints LOADING — and its map record
+  `0.011C–011F` holds the `SYS` map (the post-boot snapshot: BASIC 65's,
+  `00 E3 00 B3`, the CSE map's own values), which they set too, so a
+  test sees `dbg_init` write the CSE map there (D-P3-8).  The m65 disk tests
   (`tests/integration/test_m65_disk.py`) run `test_disk.py`'s
   contract on unit 10: the probe and status (`READSS`), the
   directory into `DIR_BUF` with the user's region untouched, PRG and
@@ -817,10 +820,12 @@ The installed machine they check is
   raster line: M65Emu's `$D012` advances with the steps (a raster
   counter, the latch's sibling), so an absent device fails as on the
   MEGA65 instead of hanging.  CBDOS is Tier X: **Tier X, the disk**
-  (`tests/emulator/test_m65_disk.py`) boots `cse-m65.d81` (`-8`,
-  `-autoload`) to the prompt and, on unit 8, lists it (`$` equals
-  `c1541`'s listing), saves and loads a PRG and a source, and reads
-  the status.  `M65Session.idle()` runs main_loop through the
+  (`tests/emulator/test_m65_d81.py`) boots a D81 written as `make disk
+  PLATFORM=m65` writes it (`-8`, `-autoload`) to the prompt and, on
+  unit 8, lists it (`$` equals `c1541`'s listing; CHARPTR stays the
+  internal set's), saves and loads a PRG, saves a source from the
+  editor, and reads both files back with `c1541` (a SEQ as `name,s`).
+  CBDOS's status has no space after the code: `00,ok,00,00`.  `M65Session.idle()` runs main_loop through the
   harness's run loop, so the drive's traps serve typed commands too
   (stepping the CPU directly would bypass them, and the KERNAL's own
   serial code would find the bus empty).

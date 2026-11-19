@@ -260,6 +260,8 @@ MAP_USER_A      = $00               ; $0000-$BFFF bank 0, KERNAL 3.E000
 MAP_USER_X      = $E0
 MAP_USER_Y      = $00
 MAP_USER_Z      = $83
+KMAP_REC        = $011C             ; the KERNAL's map record, 0.011C-011F:
+                                    ;   A X Y Z, what its far calls MAP back
 
 ; ── The interrupt frame, the stack top ───────────────────────────────
 FRAME_DEPTH     = 5                 ; B Z Y X A above the CPU's P PCL PCH

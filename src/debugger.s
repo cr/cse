@@ -109,7 +109,8 @@ step_save:     .res 1          ; opcode/packed-oplen scratch
 ; return_to_userland (=1) or restore_userland_state (=0).
 _rtu_need_sentinel: .res 1
 .ifdef PLATFORM_M65
-um_sysflags:    .res 1          ; the program's SYSFLAGS (its bank state, P2)
+um_kmap:        .res 4          ; the program's KERNAL map record (P3) and
+um_sysflags:    .res 1          ;   its SYSFLAGS (P2): its bank state
 .endif
 
 ; ── CODE ───────────────────────────────────────────────────────────────
@@ -185,13 +186,17 @@ dbg_init:
 ; Clobbers: A, X.
 BANK_STATE_SIZE = 6 + ZP_SAVE_LEN + 1
 seed_bank_state:
+        jsr kmap_swap           ; the record: CSE's (the cold start's, D-P3-8)
         ldx #BANK_STATE_SIZE - 1
 @s:     lda bank_premise,x
         sta um_map,x
         dex
         bpl @s
-        inx                     ; X = 0: the premise's SYSFLAGS
-        stx um_sysflags
+        ldx #4                  ; the record: the user map; SYSFLAGS 0
+@k:     lda kmap_user,x
+        sta um_kmap,x
+        dex
+        bpl @k
         rts
         .assert userland_zp_buf = um_map + 6 && um_d030 = userland_zp_buf + ZP_SAVE_LEN, error, "the bank state is one block"
 
@@ -200,7 +205,12 @@ bank_premise:
         .byte MAP_USER_X, MAP_USER_A, MAP_USER_Z, MAP_USER_Y, 0, 0
         .byte DDR_SEED, PORT_SEED
         .byte D030_SEED
+kmap_user:
+        .byte MAP_USER_A, MAP_USER_X, MAP_USER_Y, MAP_USER_Z, 0
+kmap_cse_rec:
+        .byte MAP_CSE_A, MAP_CSE_X, MAP_CSE_Y, MAP_CSE_Z
 .segment "CODE"
+
 .endif
 
 ; ═══════════════════════════════════════════════════════════════════════
@@ -303,6 +313,21 @@ save_userland_state:
         sec                     ; and the program's SYSFLAGS (P2): CSE's
         KCALL SYSFLAGS          ;   bits are set by the hygiene after
         sta um_sysflags
+        ; fall through: and its map record (P3)
+
+; ── kmap_swap (m65) ─────────────────────────────────────────────────
+; The KERNAL's map record (0.011C-011F) → um_kmap, and the CSE map into
+; it, so a KERNAL far call (CBDOS's disk calls) MAPs back to CSE
+; (platform_layer.md § User transitions, D-P3-8).  At every break, and
+; first in seed_bank_state: the cold start's (dbg_init).  Clobbers: A, X.
+kmap_swap:
+        ldx #3
+@k:     lda KMAP_REC,x
+        sta um_kmap,x
+        lda kmap_cse_rec,x
+        sta KMAP_REC,x
+        dex
+        bpl @k
         rts
 .endif
 
@@ -363,6 +388,11 @@ _rtu_body:
         lda um_sysflags         ; the program's SYSFLAGS back (P2), here:
         clc                     ;   a KERNAL call cannot run inside
         KCALL SYSFLAGS          ;   PLAT_TO_USER's MAP hold
+        ldx #3                  ; and its map record (P3), after the
+@k:     lda um_kmap,x           ;   last KERNAL call
+        sta KMAP_REC,x
+        dex
+        bpl @k
 .endif
 
         ; Swap ZP: kernel's live → kernel_zp_buf, then user's

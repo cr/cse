@@ -19,7 +19,11 @@ Use it as a context manager, so xmega65 never outlives the caller:
 partition as MEGA65.ROM (mcopy, at the partition's offset from the
 clone's MBR) and xmega65 starts with -romfromsd; `booted_rom()` reads
 back what it booted.  `prg=` makes xmega65 load and RUN a PRG in
-MEGA65 mode (-prg, -prgmode 65).
+MEGA65 mode (-prg, -prgmode 65); `d81=` mounts a copy of a D81 (in the
+run directory, so the original is never written) on unit 8 and
+autoloads its first program (-8, -autoload).  `addkeys()` types keys:
+a driver `ADDKEY`s them into the KERNAL's buffer (the monitor cannot
+type) and returns to where the CPU stopped.
 
 Never start xmega65 without `-headless` from automation (not even
 `-h`): it opens the GUI and blocks on an error dialog.
@@ -74,13 +78,16 @@ def fat_partition_offset(mbr):
     raise ValueError("the MBR lists no FAT partition")
 
 
-def start_args(rom=False, prg=None):
+def start_args(rom=False, prg=None, d81=None):
     """xmega65's arguments: headless at full speed on sd.img with the
-    monitor on um.sock; the ROM from the SD card, a PRG to RUN."""
+    monitor on um.sock; the ROM from the SD card, a PRG to RUN, a D81
+    on unit 8 to autoload."""
     args = ["-skipconfigfile", "-headless", "-sleepless", "-besure",
             "-sdimg", "sd.img", "-uartmon", "um.sock"]
     if prg is not None:
         args += ["-prg", str(prg), "-prgmode", "65"]
+    if d81 is not None:
+        args += ["-8", str(d81), "-autoload"]
     if rom:
         args += ["-romfromsd"]
     return args
@@ -94,16 +101,32 @@ _DUMP = re.compile(r":[0-9A-F]{8}:([0-9A-F]{32})")
 _PROMPT = b"\r\n.\r\n"
 
 
+ADDKEY = 0xFF4A                 # the KERNAL's: a key into its buffer
+ADDKEY_DRIVER = 0x1E00          # 0.1E00: free for programs, below CSE's page
+
+
+def addkey_driver(keys, back):
+    """The code `addkeys()` runs: php pha phx phy phz tba pha, B = 0,
+    lda #key · jsr ADDKEY per key, then pla tab plz ply plx pla plp
+    and jmp back."""
+    code = [0x08, 0x48, 0xDA, 0x5A, 0xDB, 0x7B, 0x48, 0xA9, 0x00, 0x5B]
+    for k in keys:
+        code += [0xA9, k, 0x20, ADDKEY & 0xFF, ADDKEY >> 8]
+    return code + [0x68, 0x5B, 0xFB, 0x7A, 0xFA, 0x68, 0x28,
+                   0x4C, back & 0xFF, back >> 8]
+
+
 class Interrupted(RuntimeError):
     """A stepped sequence did not run straight through (an interrupt
     got in); the caller may retry it."""
 
 
 class XMega65:
-    def __init__(self, work, rom=None, prg=None):
+    def __init__(self, work, rom=None, prg=None, d81=None):
         self.work = pathlib.Path(work)
         self.rom = None if rom is None else pathlib.Path(rom)
         self.prg = None if prg is None else pathlib.Path(prg)
+        self.d81 = None if d81 is None else pathlib.Path(d81)
         self.work.mkdir(parents=True, exist_ok=True)
         self.proc = self.sock = None
         self.log = open(self.work / "xmega65.log", "w")
@@ -123,14 +146,17 @@ class XMega65:
             subprocess.run(["mcopy", "-o", "-i", f"{sd}@@{offset}",
                             str(self.rom), "::MEGA65.ROM"], check=True,
                            env=dict(os.environ, MTOOLS_SKIP_CHECK="1"))
-        prg = None
+        prg = d81 = None
         if self.prg is not None:
             prg = "run.prg"
             shutil.copy(self.prg, self.work / prg)
+        if self.d81 is not None:
+            d81 = "disk.d81"
+            shutil.copy(self.d81, self.work / d81)
         sock = self.work / "um.sock"
         sock.unlink(missing_ok=True)
         self.proc = subprocess.Popen(
-            [XMEGA65] + start_args(rom=self.rom is not None, prg=prg),
+            [XMEGA65] + start_args(rom=self.rom is not None, prg=prg, d81=d81),
             cwd=self.work, stdout=self.log, stderr=subprocess.STDOUT)
         deadline = time.time() + 10
         while not sock.exists():
@@ -262,6 +288,19 @@ class XMega65:
                 raise RuntimeError(f"cannot parse memory dump: {text!r}")
             out += bytes.fromhex(m.group(1))
         return bytes(out[addr & 15:(addr & 15) + length])
+
+    def addkeys(self, keys, at=ADDKEY_DRIVER):
+        """Type `keys` (PETSCII): a driver at `at` (bank 0, below
+        `$2000`: the same in BASIC 65's map and in CSE's) `ADDKEY`s
+        each into the KERNAL's buffer with B = 0, every register and P
+        kept, and jumps back to where the CPU stopped."""
+        back = self.regs()["pc"]
+        self.write(at, addkey_driver(keys, back))
+        self.cmd(f"g {at:x}")
+
+    def mounted_d81(self):
+        """The D81 copy xmega65 has on unit 8 (its writes land there)."""
+        return self.work / "disk.d81"
 
     def read_cpu(self, addr, length):
         """`length` bytes as the CPU sees them at the 16-bit `addr`."""

@@ -8,6 +8,7 @@
 |------|------|
 | [`src/disk.s`](../../src/disk.s) | implementation |
 | [`tests/integration/test_disk.py`](../../tests/integration/test_disk.py) | test contract — every export on the real PRG: with no drive (error codes, no file left open, no hang) and on a virtual 1541 (transfers, status, directory) |
+| [`tests/emulator/test_m65_d81.py`](../../tests/emulator/test_m65_d81.py) | test contract (Tier X) — the D81 through CBDOS (unit 8) in xmega65: the prompt, `$` as `c1541 -list`, PRG `s` / `l`, the source `s` (§ On m65) |
 | [`tests/integration/test_m65_disk.py`](../../tests/integration/test_m65_disk.py) | test contract — the same on the m65 PRG, on IEC unit 10 (§ On m65): `$` into `DIR_BUF` with the program region untouched, the header in each mode's bank, PRG / SEQ load and save, `s` / `l` typed |
 
 **Test coverage** — Tier I on the real PRG (`test_disk.py`).  With no

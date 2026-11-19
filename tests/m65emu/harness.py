@@ -58,6 +58,8 @@ STUB_COLD_INDEX = 4                         # the loader enters stub_cold with X
 IEC_FLAGS = 0xA2            # bit 7: the serial device is slow (no fast serial)
 MSGFLG = 0x9D               # the KERNAL's message flag: $00 at a RUN-started PRG's
                             # _main, $80 in the direct-mode snapshot (recorded, both ROMs)
+KMAP_REC = 0x011C           # the KERNAL's map record, A X Y Z: SYS's map at a RUN-started
+                            # PRG (D-P3-8, Tier X), BASIC's ($00 $E3 $00 $B3) in the snapshot
 BANK_USER, BANK_SRC, BANK_CSE, BANK_SCREEN50 = 0, 2, 3, 4
 # the text modes (platform_layer.md § Display): the key after ESC that
 # selects one, its width, height and the screen's bank
@@ -177,14 +179,19 @@ class M65Emu(EmuBase):
     def enter_premise(self, premise):
         """The machine at a RUN-started PRG's SYS entry: the recorded
         registers, MAP and P, the stack bytes above SP (the SYS return
-        path's), and the KERNAL's messages off (MSGFLG $00, recorded at
-        _main; the snapshot is direct mode, $80)."""
+        path's), and what RUN leaves (_run_leaves)."""
         cpu = self._cpu
         for name, value in premise["regs"].items():
             setattr(cpu, name, value)
         above = bytes.fromhex(premise["stack_above_sp"])
         self._mem.load(cpu.sp + 1, above)
-        self._ram[MSGFLG] = 0x00                # RUN's: the KERNAL's messages off
+        self._run_leaves()
+
+    def _run_leaves(self):
+        """What RUN leaves that the direct-mode snapshot lacks: the
+        KERNAL's messages off, its map record the SYS map."""
+        self._ram[MSGFLG] = 0x00
+        self._ram[KMAP_REC:KMAP_REC + 4] = bytes(MAP_USER)
 
     def install_prg(self, prg_path, map_path=None):
         """The m65 PRG in bank 0 as LOAD puts it, its symbols, and the
@@ -197,8 +204,8 @@ class M65Emu(EmuBase):
         and B = CSE_BP with A X Y Z as the stub's cold entry leaves them
         (A and X its dispatch index 4, pushed and pulled: the byte stays at
         the stack top), PC at _main; and of the run premise, what RUN
-        leaves that the direct-mode snapshot lacks: the KERNAL's
-        messages off (MSGFLG $00).  Return the load address."""
+        leaves that the direct-mode snapshot lacks (_run_leaves).
+        Return the load address."""
         load_addr = self.place_prg(prg_path, map_path)
         mem, cpu, s = self._mem, self._cpu, self.sym
         stub = s("__STUB_RUN__")
@@ -218,7 +225,7 @@ class M65Emu(EmuBase):
         cpu.mapl, cpu.maph = CSE_MAP
         _, x, y, z = MAP_CSE
         self._ram[0x0100 | STACK_TOP] = STUB_COLD_INDEX
-        self._ram[MSGFLG] = 0x00                # RUN's: the KERNAL's messages off
+        self._run_leaves()
         cpu.a, cpu.x, cpu.y, cpu.z, cpu.b = STUB_COLD_INDEX, STUB_COLD_INDEX, y, z, CSE_BP
         cpu.pc = s("_main")
         return load_addr

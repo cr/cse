@@ -178,7 +178,9 @@ Caller: `cse_recover`.
 mapped in both maps, and the CPU port is the kernel's whenever kernel
 code runs: a kernel fault captures nothing); `setup_interrupts` goes
 through `VECTOR`; `dbg_init` seeds the saved bank state with the run
-premise's, as the session ends anyway (`end_debug_body`);
+premise's, as the session ends anyway (`end_debug_body`), and writes
+the CSE map into the KERNAL's map record, so a KERNAL disk call
+through CBDOS returns to CSE's map ([debugger.md § dbg_init](debugger.md#dbg_init));
 `restore_colors` and `set_charset` are the display's m65 bodies
 ([platform_layer.md § Display](../platform_layer.md#display)).
 

@@ -1340,6 +1340,19 @@ Decisions (approved 2026-11-19):
   is unreachable — the header it inverts is at most 32 columns
   (`fl_buf` keeps 30 characters) — so it is closed, not fixed, and the
   C64 PRGs stay byte-identical (§ Bugs).
+- **D-P3-8** (feedback round, step (5); operator 2026-11-19: "Swap
+  the map record").  Tier X on the D81 found: a KERNAL disk call
+  through CBDOS (unit 8) returns under the KERNAL's map record
+  `0.011C–011F` — the interface ROM's IEC / DOS wrapper and the
+  KERNAL's far-call return end in `LDQ $011C` · `MAP` (both ROMs) — and
+  the record holds the `SYS` map, so a PRG `s` / `l` came back with
+  CSE's code mapped away (a BRK in bank 0's zeros).  M65Emu's IEC unit
+  never takes that path.  The fix: the record is part of the bank
+  state — the CSE map while CSE runs (`kmap_swap` at every break and,
+  through `dbg_init`, at the cold start), the program's own at every resume (`um_kmap`), the
+  user map at a fresh start.  The one KERNAL cell CSE writes on m65;
+  the alternative, a bank-0 trampoline restoring CSE's map after each
+  call, needed bank-0 space CSE does not have.
 - **D-P3-7** `make size PLATFORM=m65`: `size_report.py` takes the
   platform and prints the segment and module parts only.
 
@@ -1385,12 +1398,14 @@ CBDOS on the D81 in xmega65 (Tier X).
   -format "cse <version>,01" d81` and the PRG as `cse-m65`; `make run
   PLATFORM=m65` adds `-8` with it; `make size PLATFORM=m65` runs
   `size_report.py` for the m65 PRG (segments and modules, no C64 map).
-- [ ] T6. Tier X (`tests/emulator/test_m65_disk.py`, each ROM): the
+- [x] T6. Tier X (`tests/emulator/test_m65_d81.py`, each ROM): the
   D81 (`-8`, `-autoload`) starts CSE to the prompt; on unit 8, through
   CBDOS, typed as in `test_m65_boot.py`: `$` lists `cse-m65` as
-  `c1541 -list` does; `s` of a PRG range and `l` back (the bytes
-  equal); the source saved from the editor and loaded back; the status
-  `00, OK,00,00`.
+  `c1541 -list` does, the display keeping the VIC-IV's own font
+  (CHARPTR `$001800`); `s` of a PRG range and `l` back (the bytes
+  equal, the file as `c1541` reads it); the source saved from the
+  editor, read back by `c1541`; CBDOS's status `00,ok,00,00` (no
+  space after the code, unlike a 1541's).  It found D-P3-8.
 - [x] T7. The gates: P3's pending count 2 → 0 (`PLAT_PENDING_VALUE`,
   `BP_PENDING` gone); the C64 PRGs byte-identical; the m65 budget
   raised in a commit of its own.
