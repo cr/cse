@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/opcode_lookup.s`](../../src/opcode_lookup.s) | implementation |
-| [`src/mn_asm_tables.s`](../../src/mn_asm_tables.s) | generated — one block per CPU set: `asm_row` (1 B per profile) + `asm_delta` (one row per delta row) + `asm_oplen` (operand bytes per mode; read by asm_line) + `ASM_ZONE_G`, produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
+| [`src/mn_asm_tables.s`](../../src/mn_asm_tables.s) | generated — one block per CPU set: `asm_row` (1 B per profile) + `asm_delta` (one row per delta row) + `asm_oplen` (operand bytes per mode; read by asm_line) + `ASM_ZONE_G` (and `ASM_ZONE_D` where the set has the digit zones), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/mn_modes.s`](../../src/mn_modes.s) | generated — one block per CPU set: the profile validity masks, one plane per 8 modes (`mn_modes_lo`, `mn_modes_hi`; on `MEGA_SUPPORT`, with 20 modes, a third plane `mn_modes_x`), 1 B per profile per plane, produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/oplen_tbl.s`](../../src/oplen_tbl.s) | generated — packed opcode → single-byte-instruction length (64 B, 2 bits/opcode; prefixes not counted).  One content for all C64 CPU sets (every `OPCODES` row's length; where a 6510 crash opcode (JAM) shares a byte with another row, e.g. `$D2` CIM / 65C02 `CMP (zp)`, the other row's length wins; any other length conflict stops the generator); the m65 block holds the 4510's lengths (no conflicts; prefixes are the debugger's, [debugger.md § Next-PC](debugger.md#next-pc)).  Produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Consumer: `debugger.s` (`step_next_pc`); `repl.s` imports it without using it; back-link-exempt (generated) |
 | [`tests/unit/test_opcode_lookup.py`](../../tests/unit/test_opcode_lookup.py) | test contract (every profile × mode of every C64 CPU set; end to end by test_asm_line.py::test_assemble) |
@@ -93,6 +93,8 @@ only what it encodes:
   it has: the order makes every set's zones a prefix (6502: A B F;
   6510: A B F C; 65C02: all six), so no set carries an empty profile
   and asm_line's jump table is indexed by `pidx` directly.
+- **`ASM_ZONE_D`** (generated, on the sets with the digit zones) is
+  zone D's `pidx`, E the next — asm_line's digit-suffix check.
 - **`ASM_ZONE_G`** (generated) is the first multi-mode `pidx`; the
   m65 block adds the bounds its dispatch needs (the branch zone's
   range, `ASM_ZONE_Q`, `ASM_ZONE_H`).

@@ -24,8 +24,9 @@ real keyboard timing, real RUN/STOP+RESTORE behaviour, and real
 Each item is < 1 minute.  Tick through linearly; any RED fails
 the candidate.
 
-**Build under test:** v0.1-rc3 (cse-cmos.prg, 21688 B unpacked,
-14313 B exomizer SFX).
+**Build under test:** the release candidate — write its tag and its
+`cse-cmos.prg` sizes (unpacked, exomizer SFX; `make size`) here when
+the walk starts.
 
 ## A. Boot smoke (3 variants)
 

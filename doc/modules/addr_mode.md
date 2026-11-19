@@ -19,8 +19,8 @@ rule; KERNAL banked out (it calls `expr_eval_nb`).
 **Out:** A = mode index (0–15 on C64 builds; 0–19 on the m65 build —
 [opcode_lookup.md § Mode constants](opcode_lookup.md#design)),
 X = operand byte count (0–2), `asm_opr[0..1]` = operand bytes
-(little-endian; for ZPREL `asm_opr[1]` is the low byte of the second
-value as written); `asm_ptr` advanced past the consumed text; on
+(little-endian; for ZPREL `asm_opr` is the second value, the branch
+target, both bytes, and `asm_tmp2` the first, the zero-page byte); `asm_ptr` advanced past the consumed text; on
 `MEGA_SUPPORT` also `_au_far` (BSS).
 **Partial-result state** (per testing.md § Principle 13): the
 combined position `asm_ptr + Y` on return points at the first byte

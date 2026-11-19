@@ -21,8 +21,9 @@
 ;          ALL_MODES order in dev/mnemonic_tables.py)
 ;   X   – operand byte count (0, 1, or 2)
 ;   asm_opr[0]  – first (or only) operand byte
-;   asm_opr[1]  – second operand byte  (absolute addresses: hi byte;
-;                 ZPREL: low byte of the second value, as written)
+;   asm_opr[1]  – second operand byte  (absolute addresses: hi byte)
+;   ZPREL: asm_opr = the second value, the branch target (both bytes);
+;          asm_tmp2 = the first, the zero-page byte
 ;   For 2-byte absolute addresses $nnnn the bytes are little-endian:
 ;     asm_opr[0] = lo byte ($nn), asm_opr[1] = hi byte ($nn)
 ;
@@ -44,7 +45,7 @@
         .import s_a_shadow              ; warning string (strings.s)
         .importzp expr_ptr, expr_val, expr_wide
         .importzp asm_pc                ; for forward-ref dummy value
-        .importzp asm_ptr, asm_opr
+        .importzp asm_ptr, asm_opr, asm_tmp2   ; asm_tmp2: ZPREL's zero-page byte
         .importzp sym_name              ; sym_lookup input
 
 ; ── PETSCII character constants ──────────────────────────────────────────────
@@ -475,14 +476,11 @@ mode_parse:
         beq @zpx
         cmp #SC_Y
         beq @zpy
-        ; Not X or Y → ZPREL: expr,expr
-        lda asm_opr             ; save first operand (ZP address)
-        pha
-        jsr _au_read_val        ; parse second operand → asm_opr[0]
-        lda asm_opr             ; grab second operand lo byte
-        sta asm_opr+1           ; store as relative offset
-        pla
-        sta asm_opr             ; restore first operand (ZP address)
+        ; Not X or Y → ZPREL: expr,expr — the zero-page byte to asm_tmp2,
+        ; the branch target (both bytes) to asm_opr
+        lda asm_opr
+        sta asm_tmp2
+        jsr _au_read_val        ; parse second operand → asm_opr
         jsr _au_check_end
         lda #MODE_ZPREL
         ldx #2

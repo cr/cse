@@ -180,7 +180,7 @@ disassembler (A4) followed: see A4 below.
 
 ### Prerequisite bug (separate fix, lands before B4)
 
-- [ ] **Bit-op mnemonics are not assembled.**  `asm_line.s` zones D/E
+- [x] **Bit-op mnemonics are not assembled.**  (Fixed in P4 step (1), 2026-11-19.)  `asm_line.s` zones D/E
   (`RMB`/`SMB`/`BBR`/`BBS`) are `jmp asm_error` ("not yet tested"),
   while [asm_line.md](modules/asm_line.md) documents them as working;
   `dot_assemble` also stops the mnemonic at the first digit.  Affects
@@ -1592,6 +1592,20 @@ five columns, `.` with five pairs and `asm_rel16` (B7, D-P4-1, D-P4-2);
 (9) the 45GS02 step (D-P4-3); (10) the golden file, Tier X, the P4
 close (D-P4-9).
 
+Step (1) done 2026-11-19 (budget e24cc75, then the feature commit):
+every mn7 build reads the digit; zones D / E assemble on c64-65c02;
+mode_parse's ZPREL now hands asm_line the whole target (`asm_opr`)
+and the zero-page byte (`asm_tmp2`) — the old low-byte-only output
+could not compute a far offset (a contract change found while
+coding, addr_mode.md).  Measured: c64-6510 +24 B, c64-65c02 +89 B
+(budgets raised), c64-6502 −12 B and m65-6502 −15 B (the shared
+offset helper; budgets lowered); asm sweep cycles over the old cases
+6502 −0.02 %, 6510 +1.9 %, 65c02 +2.5 %, worst case +9.4 %; the three
+golden files re-recorded with the 768 digit rows (96 accepted on
+65c02).  Found on the way, fixed in its own commit (853a533):
+`disk.s`'s `jmp (callback)` vector at `$CEFF` in the debug c64-65c02
+build — the BSS segment is now 2-aligned.
+
 **P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
 first, step by step; each is red until its code lands.  Automation
 judgement: all of it is automatable — the generators on the host,
@@ -1600,7 +1614,7 @@ the assembler and disassembler as bundles (py65 for the C64 sets,
 (C64Emu, M65Emu), the real CPU in xmega65 (Tier X).  Left to the
 hardware: O1 and O3, as before.
 
-- [ ] T1. Bit-op mnemonics (step 1; `test_asm_line.py`, the c64-65c02
+- [x] T1. Bit-op mnemonics (step 1; `test_asm_line.py`, the c64-65c02
   bundle): `rmb0`–`rmb7` / `smb0`–`smb7 $12` assemble the opcode with
   the digit in bits 6:4; `bbr0`–`bbs7 $12,target` likewise, the
   target as zone B's (`REL` only, out of reach `;?syntax`); `rmb $12`,

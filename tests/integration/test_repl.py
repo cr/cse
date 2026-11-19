@@ -1013,6 +1013,24 @@ class TestCpuSelect:
 
 # ── P. Dot command (. with hex edit) ─────────────────────────
 
+class TestDotBitOps:
+    """`dot_assemble` keeps a bit-op's digit (repl.md § The `.` command in
+    detail): `. rmb3 $12`, `. bbs7 $12,$3010`."""
+
+    @pytest.mark.parametrize("text,expect", [
+        (". rmb3 $12", [0x37, 0x12]),
+        (". smb0 $fe", [0x87, 0xFE]),
+        (". bbs7 $12,$3010", [0xFF, 0x12, 0x0D]),
+    ])
+    def test_bit_op(self, rsyms, text, expect):
+        cpu = make_cpu(rsyms)
+        cpu.memory[rsyms.asm_cpu] = 2                   # 65C02
+        set_cur_addr(cpu, rsyms, 0x3000)
+        set_line_buf(cpu, rsyms, text)
+        run_at(cpu, rsyms.exec_line)
+        assert list(cpu.memory[0x3000:0x3000 + len(expect)]) == expect
+
+
 class TestDotHexEdit:
     """'.' with hex bytes pokes them at cur_addr."""
 

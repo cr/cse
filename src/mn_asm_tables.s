@@ -6,6 +6,7 @@
 ;   asm_row    = the profile's delta-row byte offset (row × row width)
 ;   asm_oplen  = operand bytes per mode
 ;   ASM_ZONE_G = first multi-mode pidx (lower ones are asm_line's fixed zones)
+;   ASM_ZONE_D = the digit zone D's pidx (E follows), where the set has it
 ; Rows are as wide as the set's highest used mode index + 1.
 ; One block per CPU set, selected by the build's CPU_<top> define
 ; (doc/build_system.md § Table generation).
@@ -47,6 +48,8 @@ asm_oplen:
 .ifdef CPU_65C02
 ; ── CPU set 65c02 ────────────────────────────────────────
 ASM_ZONE_G = 6
+ASM_ZONE_D = 4
+        .export ASM_ZONE_D
 asm_row:
         .byte   $00,$00,$10,$00,$00,$00,$20,$20
         .byte   $20,$20,$20,$20,$20,$40,$10,$10

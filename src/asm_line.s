@@ -64,6 +64,20 @@
         .import   asm_oplen             ; operand bytes per mode (generated)
         .importzp ASM_ZONE_G            ; first multi-mode pidx (generated constant)
 
+; The digit zones D/E (RMB SMB BBR BBS) exist on the 65C02 and 4510 sets;
+; every mn7 build reads a digit suffix, so mn7's other keys can answer
+; it (asm_line.md § Mnemonic word).
+.ifdef CMOS_SUPPORT
+  BIT_OPS = 1
+.endif
+.ifdef MEGA_SUPPORT
+  BIT_OPS = 1
+.endif
+.ifdef BIT_OPS
+        .importzp ASM_ZONE_D            ; zone D's pidx, E = D + 1 (generated)
+        .importzp asm_tmp2              ; ZPREL's zero-page byte (mode_parse)
+.endif
+
         ; banking
         .import kernal_bank_out, kernal_bank_in
 
@@ -74,6 +88,7 @@ MODE_IMM   = 2
 MODE_ZP    = 3
 MODE_ABS   = 6
 MODE_REL   = 12
+MODE_ZPREL = 15
 
         .importzp _asm_saved_sp
 
@@ -238,6 +253,36 @@ _asm_imm_chk:
         jmp asm_expr_error
 @ok:    rts
 
+; ── _asm_rel8 — an 8-bit branch offset ───────────────────────────────────────
+; In: A = the instruction's length, asm_opr = the target, asm_pc.
+; Out: X = target − (asm_pc + A), which must be −128..127, else
+; asm_error (`;?syntax`).  Clobbers A, Y, asm_tmp.
+_asm_rel8:
+        sta asm_tmp             ; the length
+        sec
+        lda asm_opr
+        sbc asm_pc
+        tay
+        lda asm_opr+1
+        sbc asm_pc+1
+        tax                     ; X:Y = target − asm_pc
+        tya
+        sec
+        sbc asm_tmp
+        bcs :+
+        dex                     ; X:A = the offset, 16 bits
+:       cpx #0                  ; in reach iff X is A's sign extension
+        beq @pos
+        inx
+        bne @range              ; X neither $00 nor $FF
+        cmp #$80
+        bcs @ok                 ; −128..−1
+@range: jmp asm_error
+@pos:   cmp #$80
+        bcs @range              ; above 127
+@ok:    tax
+        rts
+
 ; ── _asm_emit_base_opr — emit asm_base then asm_opr[0] ──────────────────────
 _asm_emit_base_opr:
         lda asm_base
@@ -263,8 +308,27 @@ _asm_line_core:
         jsr _asm_rd_upper
         sta mn_c3
 
-        ; The key is one word: whitespace, end of line or ';' must follow
-        ; (no C64 key takes a suffix — asm_line.md § Mnemonic word).
+.ifndef USE_MN6
+        ; An optional digit suffix 0-7: asm_tmp = bit << 4 | 1, else 0
+        ; (bit 0 is set in every digit-zone opcode, so `ora` keeps it).
+        ldx #0
+        lda (asm_ptr),y
+        sec
+        sbc #$30                ; '0'
+        cmp #8
+        bcs :+
+        asl
+        asl
+        asl
+        asl
+        ora #1
+        tax
+        iny
+:       stx asm_tmp
+.endif
+
+        ; The word ends here: whitespace, end of line or ';' must follow
+        ; (asm_line.md § Mnemonic word).
         lda (asm_ptr),y
         beq @word_ok
         cmp #' '
@@ -346,6 +410,26 @@ _asm_line_core:
 .endif ; CMOS_SUPPORT
 @no_upgrade:
 
+.ifndef USE_MN6
+        ; ── the digit suffix: exactly on the digit zones D/E ──────────────
+.ifdef BIT_OPS
+        lda asm_pidx
+        sec
+        sbc #ASM_ZONE_D
+        cmp #2                  ; C = 0: zone D or E
+        lda asm_tmp             ; Z = 1: no digit (C kept)
+        bcs @no_dz
+        bne @digit_ok           ; a digit zone with its digit
+        jmp asm_error
+@no_dz:
+.else
+        lda asm_tmp
+.endif
+        beq @digit_ok           ; no digit on another key
+        jmp asm_error
+@digit_ok:
+.endif
+
         ; ── ACC-vs-label disambiguation flag ──────────────────────────────────
         ; Tell mode_parse whether the literal `A` operand is the ACC token
         ; (profile accepts ACC → flag = 0) or a single-letter label
@@ -412,44 +496,14 @@ _asm_line_core:
         cmp #MODE_ZP
         beq @rel_abs
         jmp asm_error           ; neither ABS nor ZP
-
 @rel_abs:
-        ; Compute signed offset = target − (asm_pc + 2)
-        ; target = asm_opr[1]:asm_opr[0] (16-bit, little-endian)
-        sec
-        lda asm_opr             ; target lo
-        sbc asm_pc              ; − pc lo
-        sta asm_tmp
-        lda asm_opr+1           ; target hi
-        sbc asm_pc+1            ; − pc hi
-        tax                     ; X = high byte of (target − pc)
-        lda asm_tmp
-        sec
-        sbc #2                  ; − 2 (instruction size)
-        bcs :+
-        dex                     ; borrow propagated to hi byte
-:       sta asm_tmp             ; asm_tmp = offset byte
-        ; Validate: hi byte must be $00 (offset 0..+127) or $FF (−128..−1)
-        cpx #$00
-        beq @chk_pos
-        cpx #$FF
-        bne @err_range          ; hi neither $00 nor $FF → out of ±128 range
-        lda asm_tmp
-        cmp #$80                ; negative offset must be ≥ $80
-        bcc @err_range
-        bcs @emit_rel           ; always taken (C=1 from cmp)
-@chk_pos:
-        lda asm_tmp
-        cmp #$80                ; positive offset must be < $80
-        bcs @err_range
-@emit_rel:
+        lda #2                  ; the instruction's length
+        jsr _asm_rel8           ; X = offset
         lda asm_base
-        jsr _asm_emit
-        lda asm_tmp
+        jsr _asm_emit           ; preserves X
+        txa
         clc
         jmp _asm_emit           ; tail-call; _asm_emit preserves C
-@err_range:
-        jmp asm_error
 
 ; ── Zone C: IMM — immediate byte ─────────────────────────────────────────────
 @zone_c:
@@ -460,10 +514,38 @@ _asm_line_core:
         clc
         jmp _asm_emit_base_opr  ; tail-call; _asm_emit preserves C
 
-; ── Zone D/E: bit-ops (RMB, SMB, BBR, BBS) — not assembled yet ───────────────
-@zone_d:
+; ── Zone D/E: bit-ops — the digit (asm_tmp) is the bit ────────────────────────
+.ifdef BIT_OPS
+@zone_d:                        ; RMB / SMB zp
+        jsr mode_parse
+        cmp #MODE_ZP
+        bne @err_mode
+        lda asm_base
+        ora asm_tmp
+        jsr _asm_emit
+        lda asm_opr
+        clc
+        jmp _asm_emit           ; tail-call; _asm_emit preserves C
+@zone_e:                        ; BBR / BBS zp,target
+        jsr mode_parse          ; ZPREL: asm_opr = target, asm_tmp2 = zp
+        cmp #MODE_ZPREL
+        bne @err_mode
+        lda asm_base
+        ora asm_tmp             ; the opcode, before _asm_rel8 takes asm_tmp
+        pha
+        lda #3                  ; the instruction's length
+        jsr _asm_rel8           ; X = offset
+        pla
+        jsr _asm_emit           ; preserves X
+        lda asm_tmp2
+        jsr _asm_emit
+        txa
+        clc
+        jmp _asm_emit
+.else
+@zone_d:                        ; (no digit zone in this CPU set)
 @zone_e:
-        jmp asm_error
+.endif
 
 ; ── Zone F: ABS — JSR only ───────────────────────────────────────────────────
 @zone_f:

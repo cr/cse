@@ -22,7 +22,8 @@ verifies:
   A           = mode index (0=IMP .. 15=ZPREL)
   X           = operand byte count (0, 1, or 2)
   asm_opr[0]  = first / lo operand byte
-  asm_opr[1]  = second / hi operand byte (ABS hi, or ZPREL rel offset)
+  asm_opr[1]  = second / hi operand byte (ABS hi; ZPREL: asm_opr is the
+                branch target, both bytes, and asm_tmp2 the zero-page byte)
 
 Bundle: asm_core (addr_mode.s + expr.s + asm_err.s + rest).  Fixture
 named `asm_syms` for historical reasons — same AsmCoreSymbols object as
@@ -158,10 +159,10 @@ CASES = [
     ("($42)",          ZPI,   1, 0x42, 0x00),
     ("( $42 )",        ZPI,   1, 0x42, 0x00),
 
-    # ── ZPREL $nn,$rr ────────────────────────────────────────────────────────
-    ("$42,$10",        ZPREL, 2, 0x42, 0x10),
+    # ── ZPREL $nn,target: asm_opr = the target (zero page: asm_tmp2) ────────
+    ("$42,$10",        ZPREL, 2, 0x10, 0x00),
     ("$00,$00",        ZPREL, 2, 0x00, 0x00),
-    ("$FF,$80",        ZPREL, 2, 0xFF, 0x80),
+    ("$FF,$1280",      ZPREL, 2, 0x80, 0x12),
 
     # ── Expression operands (expr_eval integration) ──────────────────────
     ("#42",            IMM,   1, 0x2A, 0x00),  # bare decimal
@@ -202,6 +203,9 @@ def _run(asm_syms, arg: str):
     return (mode, x, opr0, opr1)
 
 
+_LAST_MEM = None
+
+
 def _run_full(asm_syms, arg: str):
     """Like _run but also returns the combined (asm_ptr + Y) effective
     stopping offset from the start of the input buffer."""
@@ -226,6 +230,8 @@ def _run_full(asm_syms, arg: str):
         final_ptr = (mem[asm_syms.asm_ptr] |
                      (mem[asm_syms.asm_ptr + 1] << 8))
         effective_off = (final_ptr - _TEST_BUF) + cpu.y
+        global _LAST_MEM
+        _LAST_MEM = mem                 # for the side outputs (asm_tmp2)
         return (cpu.a, cpu.x, mem[asm_syms.asm_opr], mem[asm_syms.asm_opr + 1],
                 effective_off)
     raise SyntaxError(f"{'asm_syntax_error' if hit == asm_syms.asm_syntax_error else 'asm_expr_error'} reached for {arg!r}")
@@ -336,3 +342,12 @@ class TestAsmSkipWs:
     ))
     def test_asm_skip_ws_contract(self, asm_syms):
         pass
+
+
+
+@pytest.mark.parametrize("arg,zp", [("$42,$10", 0x42), ("$FF,$1280", 0xFF)])
+def test_zprel_zero_page_byte_in_asm_tmp2(asm_syms, arg, zp):
+    """ZPREL: the branch target in asm_opr (both bytes, for the offset),
+    the zero-page byte in asm_tmp2 (addr_mode.md § mode_parse)."""
+    _run_full(asm_syms, arg)
+    assert _LAST_MEM[asm_syms.asm_tmp2] == zp

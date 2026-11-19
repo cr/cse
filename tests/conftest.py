@@ -356,6 +356,7 @@ class AsmCoreSymbols:
         self._asm_saved_sp    = s["_asm_saved_sp"]
         self.asm_pass         = s["asm_pass"]
         self.asm_err_code     = s["asm_err_code"]
+        self.asm_tmp2         = s["asm_tmp2"]         # ZPREL's zero-page byte
 
         # expr.s + symtab.s entry points (linked into asm_core; used
         # by test_expr.py after Tranche 3 folded it into this bundle).

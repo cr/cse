@@ -77,8 +77,8 @@ asm_pidx:       .res 1          ; effective profile index
 asm_base:       .res 1          ; base opcode from mn7_base_op
                 .res 1          ; $13 unallocated (held so later addresses stay put)
 asm_mode:       .res 1          ; addressing-mode index (0–15)
-asm_tmp:        .res 1          ; general scratch byte
-asm_tmp2:       .res 1          ; second scratch byte (REL offset)
+asm_tmp:        .res 1          ; scratch; in asm_line the digit suffix
+asm_tmp2:       .res 1          ; scratch; mode_parse's ZPREL zero-page byte
 sym_name:       .res 2          ; pointer to NUL-terminated name string
 sym_val:        .res 2          ; 16-bit symbol value
 sym_wide:       .res 1          ; width flag: 0=ZP, nonzero=ABS

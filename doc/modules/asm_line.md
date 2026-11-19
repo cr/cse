@@ -134,7 +134,12 @@ form (`aslq a` names the label `a`).
 
 **ZP:** none of its own.  It writes the shared assembler ZP of
 [zp.md](zp.md) (`asm_*`, `mn_c1`–`mn_c3`, `_asm_saved_sp`); the
-error-category byte `asm_err_code` is BSS of asm_err.s.
+error-category byte `asm_err_code` is BSS of asm_err.s.  `asm_tmp`
+holds the digit suffix from the word scan to zone D / E (`bit << 4 |
+1`, 0 for none — bit 0 is set in every digit-zone opcode, so the
+`ora` keeps it); the branch-offset helper `_asm_rel8` (zones B and E)
+takes it afterwards.  ZPREL's zero-page byte comes in `asm_tmp2`
+([addr_mode.md](addr_mode.md)).
 
 **BSS (8 bytes):**
 
@@ -156,13 +161,13 @@ instruction.
 **Depends on:** expr (`last_err`, `expr_fwd`), addr_mode (`mode_parse`,
 `asm_skip_ws`, `_au_no_acc`; `_au_far` on `MEGA_SUPPORT`),
 opcode_lookup (`asm_opcode_lookup`), mn_asm_tables (`asm_oplen`,
-`ASM_ZONE_G`), mn_classify (`mn_classify`, `mn_base_op`,
+`ASM_ZONE_G`, `ASM_ZONE_D`), mn_classify (`mn_classify`, `mn_base_op`,
 `mn_profile`), mn_modes (`mn_modes_lo` — the ACC-bit test that sets
 `_au_no_acc`), asm_err (`asm_error`, `asm_expr_error`,
 `asm_cpu_error`), mem
 (`kernal_bank_out` / `kernal_bank_in`), zp (`_asm_saved_sp`,
 `asm_pc`, `asm_out`, `asm_len`, `asm_cpu`, `asm_slot`, `asm_prof`,
-`asm_pidx`, `asm_base`, `asm_mode`, `asm_tmp`, `asm_ptr`, `asm_opr`,
+`asm_pidx`, `asm_base`, `asm_mode`, `asm_tmp`, `asm_tmp2`, `asm_ptr`, `asm_opr`,
 `mn_c1`–`mn_c3`).
 
 ## Build-time variants

@@ -596,6 +596,15 @@ ERROR_TESTS = [
      "expect_min_errors": 1},
 ]
 
+# The bit-op mnemonics (asm_line.md § Mnemonic word): the digit is the
+# bit; a BBR / BBS target forward and backward, the same in both passes.
+MANUAL_TESTS += [
+    {"name": "bit-ops forward and backward",
+     "source": ".cpu 65c02\n.org $c000\nl0: bbs7 $12,l1\nrmb0 $34\nl1: smb7 $56\nbbr3 $78,l0",
+     "expect_errors": 0, "expect_org": 0xC000,
+     "expect_bytes": [0xFF, 0x12, 0x02, 0x07, 0x34, 0xF7, 0x56, 0x3F, 0x78, 0xF6]},
+]
+
 
 # ── Parametrised tests ────────────────────────────────────────────────────────
 

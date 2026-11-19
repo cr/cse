@@ -393,7 +393,10 @@ def write_mode_table(models):
 def write_asm_tables(models):
     """mn_asm_tables.s — asm_row, asm_delta, asm_oplen and ASM_ZONE_G."""
     def emit(m):
-        return ([f'ASM_ZONE_G = {m.zone_g}']
+        zone_d = FIXED_ZONES.index('D')     # fixed zones are a prefix of FIXED_ZONES
+        digit = ([f'ASM_ZONE_D = {zone_d}', '        .export ASM_ZONE_D']
+                 if m.zone_g > zone_d else [])
+        return ([f'ASM_ZONE_G = {m.zone_g}'] + digit
                 + _bytes('asm_row', [r * m.n_modes for r in m.row_of])
                 + _bytes('asm_delta', [d for row in m.rows for d in row], per=m.n_modes)
                 + _bytes('asm_oplen', [MODE_OPERAND_BYTES[x] for x in ALL_MODES[:m.n_modes]],
@@ -405,6 +408,7 @@ def write_asm_tables(models):
         '  asm_row    = the profile\'s delta-row byte offset (row × row width)',
         '  asm_oplen  = operand bytes per mode',
         '  ASM_ZONE_G = first multi-mode pidx (lower ones are asm_line\'s fixed zones)',
+        '  ASM_ZONE_D = the digit zone D\'s pidx (E follows), where the set has it',
         'Rows are as wide as the set\'s highest used mode index + 1.', *_PER_SET])
     lines += ['        .export asm_row, asm_delta, asm_oplen, ASM_ZONE_G', '',
               '.segment "KDATA"', '']

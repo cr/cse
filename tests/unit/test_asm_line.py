@@ -922,3 +922,66 @@ class TestImmediateRange:
 def test_double_slash_comment(asm_syms, source, expected):
     got, _, _ = R.run_asm(asm_syms, source, 2)
     assert got == expected
+
+
+# ─── Bit-op mnemonics: the digit suffix (asm_line.md § Mnemonic word) ────────
+#
+# RMB0-7 / SMB0-7 zp and BBR0-7 / BBS0-7 zp,target on the 65C02 set: the
+# digit is the bit number, ORed into the opcode's bits 6:4.  asm_pc is
+# R.ASM_PC (0), so a ZPREL target t gives the offset t - 3.
+
+SYNTAX, EXPR, CPU = 0, 1, 2
+_BITOP_BASE = {"RMB": 0x07, "SMB": 0x87, "BBR": 0x0F, "BBS": 0x8F}
+
+
+def _asm(syms, source, cpu):
+    got, err, _ = R.run_asm(syms, source, cpu)
+    return got if got is not None else ("E", err)
+
+
+class TestBitOps:
+    @pytest.mark.parametrize("key", ["RMB", "SMB"])
+    @pytest.mark.parametrize("bit", range(8))
+    def test_zone_d_digit_is_the_bit(self, asm_syms, key, bit):
+        assert _asm(asm_syms, f"{key}{bit} $12", 2) == \
+            bytes([_BITOP_BASE[key] | bit << 4, 0x12])
+
+    @pytest.mark.parametrize("key", ["BBR", "BBS"])
+    @pytest.mark.parametrize("bit", range(8))
+    def test_zone_e_digit_is_the_bit_then_a_branch(self, asm_syms, key, bit):
+        assert _asm(asm_syms, f"{key}{bit} $12,$0010", 2) == \
+            bytes([_BITOP_BASE[key] | bit << 4, 0x12, 0x0D])
+
+    @pytest.mark.parametrize("target,offset", [(0x0003, 0x00), (0x0082, 0x7F),
+                                               (0xFF83, 0x80), (0x0002, 0xFF)])
+    def test_zone_e_offset_counts_from_the_next_instruction(self, asm_syms, target, offset):
+        assert _asm(asm_syms, f"BBS7 $FE,${target:04X}", 2) == bytes([0xFF, 0xFE, offset])
+
+    @pytest.mark.parametrize("target", [0x0083, 0xFF82])
+    def test_zone_e_out_of_reach_is_syntax(self, asm_syms, target):
+        assert _asm(asm_syms, f"BBR0 $12,${target:04X}", 2) == ("E", SYNTAX)
+
+    @pytest.mark.parametrize("source", [
+        "RMB $12",          # a digit-zone key without its digit
+        "BBR $12,$0010",
+        "RMB8 $12",         # not a bit number
+        "RMB0X $12",        # a fifth character
+        "LDA3 #$01",        # a digit on another key
+        "NOP0",
+        "RMB0 $1234",       # zone D takes zero page only
+        "RMB0 #$12",
+        "BBR0 $1234,$0010",
+        "BBR0 $12",         # zone E needs the target
+    ])
+    def test_misspelt_bit_ops_are_syntax(self, asm_syms, source):
+        assert _asm(asm_syms, source, 2) == ("E", SYNTAX)
+
+    def test_bit_ops_need_the_65c02(self, asm_syms):
+        assert _asm(asm_syms, "RMB3 $12", 0) == ("E", CPU)
+
+    def test_6510_build_knows_the_key_but_not_the_cpu(self, asm_6510_syms):
+        assert _asm(asm_6510_syms, "RMB0 $12", 1) == ("E", CPU)
+        assert _asm(asm_6510_syms, "LDA3 #$01", 1) == ("E", SYNTAX)
+
+    def test_6502_build_has_no_such_word(self, asm_6502_syms):
+        assert _asm(asm_6502_syms, "RMB0 $12", 0) == ("E", SYNTAX)

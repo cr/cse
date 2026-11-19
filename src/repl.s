@@ -1574,14 +1574,21 @@ mem_row:
         lda #>dot_asm_buf
         sta rp_ptr2+1
 
-        ; Copy mnemonic (a-z)
+        ; Copy the mnemonic word (a-z; on mn7 builds 0-9 too: a bit-op's
+        ; digit — asm_line judges it)
         ldy #0
 @mne:   FAR_LDA rp_ptr
+.ifndef USE_MN6
+        cmp #'0'
+        bcc @md
+        cmp #'9'+1
+        bcc @mch
+.endif
         cmp #'a'
         bcc @md
         cmp #'z'+1
         bcs @md
-        cpy #8
+@mch:   cpy #8
         bcs @md
         sta dot_asm_buf,y
         iny

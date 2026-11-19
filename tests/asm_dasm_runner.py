@@ -100,8 +100,14 @@ def examples():
 
 
 def asm_sources():
-    """Every distinct source line of examples(), in order."""
-    return list(dict.fromkeys(f"{mne} {src}".strip() for mne, _, src, _ in examples()))
+    """Every distinct source line of examples(), in order, then each
+    digit-zone key (`RMB` `SMB` `BBR` `BBS`) with each bit number — the
+    examples give those keys without the digit their row needs."""
+    lines = [f"{mne} {src}".strip() for mne, _, src, _ in examples()]
+    for mne, mode, src, _ in examples():
+        if I.OPCODES[mne].get(mode) is None:        # digit-encoded row
+            lines += [f"{mne}{bit} {src}" for bit in range(8)]
+    return list(dict.fromkeys(lines))
 
 
 def run_asm(syms, source, cpu):
