@@ -135,7 +135,8 @@ disassembler (A4) followed: see A4 below.
   trimmed the row width, merged validate into `asm_opcode_lookup`,
   wired `ASM_ZONE_G`, and fixed the sharing rule that would have put
   the 4510's `DEW`/`INW` into zone D — figures under *Measured* above.)
-- [ ] A3b. *(follow-up, own CDD cycle)* Recompact ZP over the freed
+- [ ] A3b. *(follow-up, own CDD cycle; deferred past P4, operator
+  2026-11-19 — P4 puts its new state in BSS)* Recompact ZP over the freed
   `$2C`: every later allocation moves down one byte and the user ZP
   becomes `$77–$7F` (9 bytes) — a userland-contract change
   ([userland_contract.md](userland_contract.md)), so not bundled.
@@ -157,16 +158,18 @@ disassembler (A4) followed: see A4 below.
   test bundles ([build_system.md](build_system.md)).
 - [ ] B2. Classifier: `mn7` over the m65 key set
   ([mn_classify.md § Variants](modules/mn_classify.md#variants)).
-- [ ] B3. `mode_parse`: `(e),z`, `(e,sp),y`, `[e]`, `[e],z`, wide
-  immediate ([addr_mode.md](modules/addr_mode.md)).
+- [ ] B3. `mode_parse`: `(e),z`, `(e,sp),y`, `[e]`, `[e],z`
+  ([addr_mode.md](modules/addr_mode.md)); the wide immediate is
+  asm_line's IMM16 promotion (B4).
 - [ ] B4. `asm_line`: mnemonic suffix (digit, `q`), Q zone, far flag,
   prefix emission, `REL`/`REL16` selection, the m65 gate matrix
   ([asm_line.md](modules/asm_line.md)).
-- [ ] B4b. Pass stamp for pass-stable branch width: `sym_stamp` /
-  `sym_fwd` ([symtab.md § Pass stamp](modules/symtab.md#pass-stamp-mega_support)),
-  `expr_fwd` ([expr.md](modules/expr.md)), per-pass stamp and built-in
-  refresh in asm_src ([asm_src.md](modules/asm_src.md)) — all
-  `MEGA_SUPPORT` only, so the C64 builds do not grow.
+- [ ] B4b. Pass-stable branch width.  The pass stamp itself landed on
+  every build with the later-defined ZP constant fix (f13e739:
+  `sym_stamp` / `sym_fwd`, `expr_fwd`, asm_src's per-pass stamp —
+  [symtab.md § Pass stamp](modules/symtab.md#pass-stamp-mega_support));
+  what is left is zone B's `REL` / `REL16` choice reading `expr_fwd`
+  (B4).
 - [ ] B5. `.cpu` / `u` on m65 ([assembler_syntax.md](assembler_syntax.md),
   [repl.md](modules/repl.md)).
 - [ ] B6. `dasm_insn`: prefix peel, m65 modes, 1–5-byte length
@@ -1456,10 +1459,124 @@ xmega65's flat 32 K, `Q`'s exit (a reset restarts the cartridge), the
 `.CRT` writer in `dev/`, and Tier X with `-cart`.
 
 **P4 — the CPU layer on the platform** = slice 1 Phase B (B1–B7,
-B4b, its prerequisite bugs), now with an m65 build to run on: the
-m65-45gs02 build replaces m65-6502.  Its
+B4b, its prerequisite bugs) and the debugger's 45GS02 step, now with
+an m65 build to run on: the m65-45gs02 build replaces m65-6502.  Its
 deltas are slice 1's ([assembler_syntax.md](assembler_syntax.md),
-the CPU-layer module docs).
+the CPU-layer module docs), brought up to slice 2's reality below.
+
+Operator, 2026-11-19 ("Go for P4.  Mind that the line disassembler
+needs to make room for up to five hex bytes"), and the rulings asked
+for in the analysis:
+- **D-P4-1** `d` / `.` rows on m65 always have five byte columns —
+  every `u` view, every screen mode; the mnemonic at column 24, a row
+  38 columns at most, so 40 columns hold it.  C64 stays at three.
+- **D-P4-2** A `.` row re-entered over matching bytes keeps its width:
+  a 16-bit branch lists like an 8-bit one, so `.` passes `asm_rel16`
+  and the unchanged row writes the same bytes.
+- **D-P4-3** The debugger's step is in P4 and follows the real 45GS02
+  whatever `u` selects (prefixes, 16-bit branches, `BSR`, `JSR (ind)`
+  / `(abs,X)`, `RTN #`); with it the c64-65c02 `BBR` / `BBS` step bug.
+- **D-P4-4** A3b stays deferred, its own cycle.
+
+Step-1 delta (written 2026-11-19; approved 2026-11-19 with the analysis):
+- [x] [repl.md](modules/repl.md): five byte columns on m65 (the block
+  dump, § Line format, `emit_dot`), `.` takes up to 5 pairs, mode 2
+  keeps the width (`asm_rel16`), `dot_assemble`'s word with a digit
+  and the m65 forms, `u` per build (6510 on c64-65c02, D2).
+- [x] [README.md](../README.md): the poke's 1–5 bytes on the MEGA65;
+  § On the MEGA65 *The CPU*.
+- [x] [asm_line.md](modules/asm_line.md): the suffixes as built (no
+  "planned"), `_asm_sink` 4 B on `MEGA_SUPPORT`, zone B a range on
+  m65, zones D/E assembled, `asm_rel16`.
+- [x] [opcode_lookup.md](modules/opcode_lookup.md) (`mn_modes_x`, the
+  m65 `oplen_tbl` block), [dasm.md](modules/dasm.md) (KDATA map blocks
+  on m65, D3 across views, no "planned"), [addr_mode.md](modules/addr_mode.md),
+  [mn_classify.md](modules/mn_classify.md), [symtab.md](modules/symtab.md):
+  "planned" gone; [assembler_syntax.md](assembler_syntax.md): `ldq
+  ($fb),z` (LDQ's row is `ZPIZ`).
+- [x] [debugger.md](modules/debugger.md) § Next-PC: the m65 table,
+  `BBR` / `BBS`, the ROM boundary per platform.
+- [x] [build_system.md](build_system.md): m65-45gs02 the one m65 build
+  (m65-6502 retired), the consumer matrix's debugger row, golden files
+  per CPU set (`asm_dasm_45gs02.json`); [platform_layer.md](platform_layer.md);
+  [testing.md](testing.md) (the m65 `asm_core` / `dasm` bundles).
+- [x] Slice 1's list: B3 (the wide immediate is B4's), B4b (the stamp
+  landed in f13e739), A3b deferred.
+
+**P4 analysis record (2026-11-19), doc against code — approved 2026-11-19.**
+- **The build.**  The Makefile forces `CPU := 6502` on m65; no source
+  defines or reads `MEGA_SUPPORT` / `CPU_45GS02`; `CPU_CEIL` is passed
+  and read by nothing.  `conftest.PROD_DEFS` has the C64 sets only;
+  `Bundle(platform="m65")` works.  The m65 asm bundles must run on
+  `MPU45GS02` (`_asm_emit` stores through `FAR_STA`, `[ptr],z`).
+- **The generators.**  `dev/mnemonic_tables.py` knows the C64 sets
+  only; given the 45gs02 set it dies in validation (no m65
+  categories, no Q zone, two mask planes for 20 modes, zone B a single
+  profile — the m65 branches are a range: `REL`, `REL`+`REL16`,
+  `REL16`).  `dev/dasm_tables.py` dies on 20 modes in nibbles, has no
+  Q map, and its subset test fails on `$EA` (the 6502 view's `NOP`
+  against the 4510 map's `EOM`, D3).  `instruction_set.py` serves the
+  `4510` / `45gs02` views (98 keys); the model is 36 profiles, 7 delta
+  rows × 20 modes, 284 B (up to 45 profiles, 320 B, if adjacency
+  forces copies).  `oplen_tbl` has one C64 content, linked on m65 too.
+- **The classifier.**  mn6 on m65 today; mn7 over the m65 keys needs
+  its own `T` (bbbc64's `mn7gs` search is the reference).
+- **The assembler.**  No suffix scan; zones D/E are `jmp asm_error`
+  (the prerequisite bug — on m65 the 4510 keeps all four bit-ops);
+  zone B handles `REL` only; the gate has the CMOS `cmp #2` path only;
+  `_asm_sink` is 3 B (`cpx #3`), short for a 5-byte instruction at
+  `$FFFF`; addr_mode has none of the m65 forms.  `asm_pc` / `asm_out`
+  are far pointers already and `_asm_emit` stores far.
+- **`.cpu` / `u`.**  `set_cpu` accepts `65xx` only and checks no set
+  (`.cpu 65c02` works on m65-6502); `u` cannot parse `4510` /
+  `45gs02` and masks by build.
+- **The disassembler.**  No peel, no IMM16 / REL16 formats, no `,z` /
+  `,sp),y` suffixes (an unknown suffix falls into `),y`), no `[ ]`,
+  8-bit branch targets only, 4-bit modes; `_dasm_in` 3 B.
+- **The REPL.**  `emit_dot` hard-codes 3 columns; `.` parses 3 pairs
+  (`rp_hexbuf` 3 B, the poke's `cmp #3`), so a 5-byte row re-entered
+  would hand bytes to `dot_assemble`; `dot_assemble` stops at a digit.
+  A REL16 branch re-entered unchanged would shrink (D-P4-2).
+- **The debugger.**  `step_next_pc` uses the C64 `oplen_tbl` and the
+  `(op & $1F) = $10` branch test; its BRA / `JMP (a,X)` paths are
+  `CMOS_SUPPORT` only, absent on m65; `BBR` / `BBS` are linear, so a
+  taken one escapes the step on c64-65c02 too.
+- **Room.**  m65-6502 is 22 750 B (budget 22 753).  Code window
+  `$2000–$7FFF`: 2 529 B free; data window `3.8000–3.A0FF`: about
+  7 200 B free; CSE's base page: 2 B free (P4 needs none).  Estimated
+  growth: classifier +150, asm tables +250, asm_line / addr_mode
+  +250–400, dasm tables +250 (KDATA) and peel / formats +150, REPL and
+  debugger +200 — roughly 1.2–1.5 K, most of it code.
+
+Decisions (approved 2026-11-19):
+- **D-P4-5** The generators: cse's `mnemonic_tables.py` and
+  `dasm_tables.py` gain the m65 set {6502, 4510, 45GS02} — m65
+  categories, the Q zone, zone B as a range, a third mask plane;
+  byte-wide modes, the Q map, the listing-name rule across views, five
+  view entries; an m65 `oplen_tbl` block.  bbbc64's `asm_tables.py`
+  and `mn7gs` are the reference, not the source (cse selects the CPU at
+  run time; bbbc64 does not).
+- **D-P4-6** On m65 the generated tables live in KDATA (the data
+  window, always mapped while CSE runs), the code window kept for code.
+- **D-P4-7** The two prerequisite bugs land first, each in its own
+  step: the bit-op mnemonics (c64-65c02 assembles `RMB` … `BBS`;
+  the 65c02 golden file re-recorded) and the `.cpu` / `u` CPU set (D2).
+  Each C64 build they grow gets its budget raise in a commit of its
+  own.  The KDATA-bound bug is C64-only and stays out of P4.
+- **D-P4-8** `_asm_sink` is 4 B on `MEGA_SUPPORT` only.
+- **D-P4-9** m65-45gs02 gets its golden file and speed baseline in P4
+  (`asm_dasm_45gs02.json`, cycles from `MPU45GS02`); its size budget
+  is raised in a commit of its own before each step that grows it.
+
+The code, in this order — (1) the bit-op mnemonics (D-P4-7); (2) the
+CPU set of `.cpu` / `u` (D2); (3) the generators' m65 set, host tests
+only (D-P4-5, D-P4-6); (4) the m65-45gs02 build: defines, the m65
+bundles on `MPU45GS02`, mn7 over the m65 keys, m65-6502 retired (B1,
+B2); (5) mode_parse and asm_line on m65 (B3, B4, B4b, D-P4-8); (6)
+`.cpu` / `u` on m65 (B5); (7) the disassembler (B6); (8) the REPL's
+five columns, `.` with five pairs and `asm_rel16` (B7, D-P4-1, D-P4-2);
+(9) the 45GS02 step (D-P4-3); (10) the golden file, Tier X, the P4
+close (D-P4-9).
 
 **P5 — the contract closed:** the ROM versions the port is verified
 on (920413, the floor, and the current one; the Open ROMs boot to C64

@@ -25,7 +25,7 @@
 | [`tests/unit/test_build_freshness.py`](../tests/unit/test_build_freshness.py) | test contract — no test runs on a stale binary: the PRG fixtures always run `make`, objects depend on their includes, bundles on `src/*.inc` |
 | [`tests/unit/test_clean_build.py`](../tests/unit/test_clean_build.py) | test contract — a fresh `git worktree` of `HEAD` builds with one `make release` (no re-run) |
 | [`tests/integration/test_release_smoke.py`](../tests/integration/test_release_smoke.py) | test contract — the release CMOS PRG boots from `SYS 2061` to the main loop and shows its splash |
-| [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — `make release` / `debug PLATFORM=m65` build the m65-6502 PRG through `src/m65_cse.cfg`; `make release` / `disk PLATFORM=m65` write the D81 with `c1541`; `make run PLATFORM=m65` (and `TARGET=m65`) starts `$(XMEGA65)` with the release PRG and the D81 on unit 8, not VICE; `make size PLATFORM=m65` reports the m65 PRG; an unknown platform is refused; each m65 region is bounded and an overflow fails the link |
+| [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — `make release` / `debug PLATFORM=m65` build the m65-45gs02 PRG through `src/m65_cse.cfg`; `make release` / `disk PLATFORM=m65` write the D81 with `c1541`; `make run PLATFORM=m65` (and `TARGET=m65`) starts `$(XMEGA65)` with the release PRG and the D81 on unit 8, not VICE; `make size PLATFORM=m65` reports the m65 PRG; an unknown platform is refused; each m65 region is bounded and an overflow fails the link |
 | [`tests/emulator/test_m65_boot.py`](../tests/emulator/test_m65_boot.py) | test contract (Tier X) — the m65 PRG boots to `_main` in xmega65 on each ROM, the installed machine M65Emu's `install_prg()` makes |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
@@ -404,7 +404,7 @@ member, as a global enumeration — **0 = 6502, 1 = 6510, 2 = 65C02,
 | c64-6502 | `c64` / `6502` | `PLATFORM_C64` `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
 | c64-6510 | `c64` / `6510` | `PLATFORM_C64` `CPU_6510` `CPU_CEIL=1` | 6502, 6510 (0, 1) | 0 | `mn7` |
 | c64-65c02 | `c64` / `65c02` | `PLATFORM_C64` `CPU_65C02` `CMOS_SUPPORT` `CPU_CEIL=2` | 6502, 6510, 65C02 (0, 1, 2) | 2 | `mn7` |
-| m65-6502 (P0–P3) | `m65` / `6502` | `PLATFORM_M65` `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
+| m65-6502 (P0–P3, retired with P4) | `m65` / `6502` | `PLATFORM_M65` `CPU_6502` `USE_MN6` `CPU_CEIL=0` | 6502 (0) | 0 | `mn6` |
 | m65-45gs02 (from P4) | `m65` / `45gs02` | `PLATFORM_M65` `CPU_45GS02` `MEGA_SUPPORT` `CPU_CEIL=4` | 6502, 4510, 45GS02 (0, 3, 4) | 4 | `mn7`, m65 keys |
 
 Exactly one `PLATFORM_<platform>` define is set per build — the C64
@@ -413,12 +413,10 @@ so a platform body is always selected by its own name
 ([platform_layer.md § Platforms and defines](platform_layer.md#platforms-and-defines)).
 Exactly one `CPU_<top>` define is set per build.  It selects the
 build's generated table block ([§ Table generation](#table-generation)).
-The m65 platform has one build at a time.  Until its CPU layer exists
-(slice 1 Phase B = slice 2 P4), it is **m65-6502**: the platform
-layer is built and tested on the 6502 CPU set, whose tables and
-classifier already exist and whose code is the cleanest for a
-45GS02.  From P4 on it is **m65-45gs02** — its CPU set fixed, the 6502
-and the 4510 selected at run time — and m65-6502 is retired.  Code
+The m65 platform has one build, **m65-45gs02** — its CPU set fixed,
+the 6502 and the 4510 selected at run time.  (P0–P3 built and tested
+the platform layer on **m65-6502**, the 6502 CPU set whose tables and
+classifier existed; P4 retired it.)  Code
 paths are gated by the feature defines: `.ifdef CMOS_SUPPORT` (65C02
 paths), `.ifdef MEGA_SUPPORT` (the 4510's modes and mnemonics and the
 45GS02's Q and far prefixes).  No code path is 6510-specific: the
@@ -439,17 +437,14 @@ the consumer is part of):
 | asm_line CPU gate ([asm_line.md](modules/asm_line.md#asm_cpu--category-gate-matrix)) | legal NMOS, NMOS profiles | + 6510 illegals | + 65C02 extension and 65C02-only keys | + 4510 extension and 4510-only keys | as 3 + Q forms and far operands |
 | dasm view ([dasm.md](modules/dasm.md#design)) | 6502 view bitmap | 6510 map | 65C02 map | 4510 map | 4510 map + prefix peel |
 | `.cpu` (`set_cpu`) and `u` | accepted in every build | c64-6510, c64-65c02 | c64-65c02 | m65-45gs02 | m65-45gs02 |
-| `DEFAULT_CPU` (main.s) | c64-6502, c64-6510, m65-6502 | — | c64-65c02 | — | m65-45gs02 |
-| debugger step (`cmp #2` paths) | NMOS step | NMOS step | + `JMP (a,X)`, `BRA` (c64-65c02) | — (no m65 debugger in R7 slice 1) | — (same) |
+| `DEFAULT_CPU` (main.s) | c64-6502, c64-6510 | — | c64-65c02 | — | m65-45gs02 |
+| debugger step ([debugger.md § Next-PC](modules/debugger.md#next-pc)) | NMOS step (c64); m65: the 45GS02 step | NMOS step | + `JMP (a,X)`, `BRA`, `BBR` / `BBS` (c64-65c02) | the 45GS02 step | the 45GS02 step (m65 does not read `asm_cpu`) |
 
 The m65 build ships as a PRG and a D81
-([§ The m65 builds](#the-m65-builds)).  Its test bundles are R7
-slice 1, Phase B
-([TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
-B1; `conftest.PROD_DEFS` holds the three C64 sets only), its PRG slice
-2 — the platform layer
-([TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer)):
-`PLATFORM=m65` builds the m65-6502 PRG and its D81.
+([§ The m65 builds](#the-m65-builds)).  `PLATFORM=m65` builds the
+m65-45gs02 PRG and its D81; `conftest.PROD_DEFS` holds its defines
+beside the three C64 sets', and its test bundles run on M65Emu's
+`MPU45GS02` (its far stores need the 45GS02).
 
 ### The m65 builds
 
@@ -461,10 +456,11 @@ parts live at run time is [memory_design.md § Memory Map —
 m65](memory_design.md#memory-map--m65-mega65-mode); how its
 platform bodies are selected is [platform_layer.md](platform_layer.md).
 Status: the PRG builds (P0, [TODO § M65 slice 2](TODO.md#m65-slice-2--the-mega65-platform-r7-platform-layer))
-and runs the REPL and the editor (P2), the disk and the D81 (P3).
+and runs the REPL and the editor (P2), the disk and the D81 (P3),
+the 45GS02 assembler and disassembler (P4).
 
-**Defines.**  `PLATFORM_M65` and the CPU set's defines: m65-6502's
-until P4, m65-45gs02's from then on ([§ Builds and CPU sets](#builds-and-cpu-sets)).
+**Defines.**  `PLATFORM_M65` and m65-45gs02's CPU-set defines
+([§ Builds and CPU sets](#builds-and-cpu-sets)).
 ca65 assembles it with `-t c64`, as the C64 builds: the target
 selects ca65's string translation to PETSCII, which MEGA65 mode
 shares, and cse sets its CPU with `.setcpu` in every module.
@@ -507,7 +503,7 @@ the same layout as the C64's with each far pointer widened to 4 bytes
 PLATFORM=m65` each build the one m65 build into
 `build/<profile>/m65/`: `cse-m65.prg`, `cse.map`, `cse.lbl` (the
 debug profile with `-g`), `cse.dbg`.  `PLATFORM=m65` selects the
-m65-6502 CPU set whatever `CPU` says.
+m65-45gs02 CPU set whatever `CPU` says.
 
 **Load and start.**  The PRG loads at `$2001`.  Its BASIC 65 stub
 (`SYS 8205`) starts the loader at `$200D`, which installs the stub,
@@ -577,10 +573,13 @@ write ca65 only, and bbbc64 adopts the asm model in its own cycle
 
 ### Golden files
 
-`tests/fixtures/golden/asm_dasm_<cpu set>.json` record, per C64 CPU
-set, what every instruction assembles to, how every opcode lists
-under every `asm_cpu`, and the py65 cycles of each case
-(`dev/capture_golden.py`).  `test_golden_asm_dasm.py` holds the
+`tests/fixtures/golden/asm_dasm_<cpu set>.json` record, per CPU set,
+what every instruction assembles to, how every opcode lists under
+every `asm_cpu`, and the cycles of each case (`dev/capture_golden.py`):
+py65's for the C64 sets, `MPU45GS02`'s for the m65 set
+(`asm_dasm_45gs02.json`, recorded first in P4 — its baseline; the
+45GS02's instructions include the prefixed forms, its listing every
+prefix sequence the peel accepts).  `test_golden_asm_dasm.py` holds the
 current source to them: identical output, total cycles no higher, no
 case more than 10 % slower.  They are re-recorded only by a commit
 that deliberately changes what a C64 build assembles or lists, or
@@ -606,7 +605,8 @@ the spirit of the golden files:
   acceptance gate 1); moving the C64 builds onto the platform layer
   leaves them byte-identical ([platform_layer.md § Gates](platform_layer.md#gates)).
 - **The m65 build** joined `BUDGET` with its first link (P0 step
-  (5): m65-6502, 21 054 B), under the same ratchet; its code window
+  (5): m65-6502, 21 054 B), under the same ratchet — as m65-45gs02
+  from P4; its code window
   and data window are bounded by the linker as well
   ([§ The m65 builds](#the-m65-builds)).
 

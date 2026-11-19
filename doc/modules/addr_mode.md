@@ -21,7 +21,7 @@ rule; KERNAL banked out (it calls `expr_eval_nb`).
 X = operand byte count (0–2), `asm_opr[0..1]` = operand bytes
 (little-endian; for ZPREL `asm_opr[1]` is the low byte of the second
 value as written); `asm_ptr` advanced past the consumed text; on
-`MEGA_SUPPORT` (planned) also `_au_far` (BSS).
+`MEGA_SUPPORT` also `_au_far` (BSS).
 **Partial-result state** (per testing.md § Principle 13): the
 combined position `asm_ptr + Y` on return points at the first byte
 beyond the recognised operand and its trailing whitespace — NUL (end
@@ -73,7 +73,7 @@ shadow warning.
 | Variable | Size | Purpose |
 |----------|------|---------|
 | `_au_no_acc` | 1 | Caller signal: 0 = ACC syntax allowed, nonzero = the literal `A` operand must be parsed as a label.  Written by `asm_line.s` per profile.  Read by mode_parse's SC_A branch. |
-| `_au_far` | 1 | `MEGA_SUPPORT` only (planned).  Result: 1 = the operand was written in brackets (`[e]`, `[e],z`), 0 otherwise.  Written by every mode_parse call; read by asm_line (far prefix). |
+| `_au_far` | 1 | `MEGA_SUPPORT` only.  Result: 1 = the operand was written in brackets (`[e]`, `[e],z`), 0 otherwise.  Written by every mode_parse call; read by asm_line (far prefix). |
 
 **Depends on:** expr (expr_eval_nb), asm_err (asm_syntax_error,
 asm_expr_error, asm_pass), symtab (sym_lookup — for shadow detection),
@@ -108,7 +108,7 @@ REL (12) is never returned: a branch target is returned as ZP (3) or
 ABS (6) and asm_line's zone B computes the offset
 ([asm_line.md § Branches](asm_line.md#branches-zone-b)).
 
-On `MEGA_SUPPORT` (the planned m65-45gs02 build) also:
+On `MEGA_SUPPORT` (the m65-45gs02 build) also:
 
 | Syntax | Mode | Index |
 |--------|------|-------|
@@ -202,7 +202,7 @@ the same ABS size — and the operand gets the real value
 ## Caveats
 
 - Input is PETSCII.  Register letters are A=$41, X=$58, Y=$59; on
-  the planned m65 build also S=$53, P=$50 (in `,SP`) and Z=$5A.  `[`=$5B and
+  the m65 build also S=$53, P=$50 (in `,SP`) and Z=$5A.  `[`=$5B and
   `]`=$5D (typed SHIFT+`:` / SHIFT+`;` on the C64 keyboard).
 - Operand values delegated to `expr_eval_nb` (expr.s), which handles
   `$hex`, `%binary`, decimal, labels, `*`, and operators.

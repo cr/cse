@@ -240,7 +240,7 @@ hex digits.
 | Command | Syntax | Description |
 |---------|--------|-------------|
 | `.` | `.` | Disassemble one instruction at current address |
-| `.` | `. HH [HH] [HH]` | Poke 1–3 hex bytes at current address |
+| `.` | `. HH [HH] [HH]` | Poke 1–3 hex bytes at current address (1–5 on the MEGA65) |
 | `.` | `. MNEM [OPERAND]` | Assemble one instruction at current address |
 | `d` | `d` | Disassemble block-size bytes |
 | `m` | `m [HHHH]` | Hex+character dump of block-size bytes (at `HHHH` if given) |
@@ -675,6 +675,11 @@ Where it differs from the C64 build:
   columns); an `m` edit takes up to 16 bytes in any mode.  `r` shows
   two more registers, `z:` and `b:` — on one row in 80 columns, on a
   second row `r z:XX b:XX` in 40.
+- **The CPU.**  The assembler and the disassembler speak the
+  45GS02 by default — its 4510 instructions, the quad `q`
+  instructions and 32-bit `[ ]` addressing — and the 4510 or the 6502
+  on request (`.cpu`, `u`; [assembler_syntax.md](doc/assembler_syntax.md)).
+  A `d` row has room for five bytes, the longest instruction.
 - **The editor** uses the whole screen of the current mode, and a
   source line may be 79 columns wide (39 on the C64; the C64 build
   truncates longer lines with a warning).  In 40 columns a longer line

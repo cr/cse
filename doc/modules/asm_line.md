@@ -12,10 +12,7 @@
 Its ZP definitions are in [`src/zp.s`](../../src/zp.s), owned by
 [zp.md](zp.md).
 
-Statements marked `MEGA_SUPPORT` describe the planned m65 build
-([TODO § M65](../TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
-B1–B7); no build defines `MEGA_SUPPORT` yet, so that code does not
-exist in `asm_line.s` today.
+Statements marked `MEGA_SUPPORT` describe the m65-45gs02 build.
 
 ## Interface
 
@@ -45,8 +42,9 @@ back in and returns the byte count.
 **Output never wraps.**  An instruction whose bytes would run past
 `$FFFF` is refused: `last_err` = 3 and `asm_expr_error` (the REPL
 shows `;?expr ovfl`), and nothing is written at `$0000`/`$0001` (the
-CPU port).  `_asm_emit` parks any byte after the wrap in the 3-byte
-`_asm_sink`; `asm_line` refuses when one landed there.  An
+CPU port).  `_asm_emit` parks any byte after the wrap in
+`_asm_sink` (3 bytes; 4 on `MEGA_SUPPORT`, where an instruction is up
+to 5 bytes); `asm_line` refuses when one landed there.  An
 instruction whose last byte is at `$FFFF` is accepted.  The source
 assembler never reaches this check — it assembles into a scratch
 buffer and places the bytes itself
@@ -99,20 +97,21 @@ back-edge; their meaning is owned by [debugger.md](debugger.md).
 
 ### Mnemonic word
 
-The mnemonic is one word: a three-letter **key** and, on the planned
-builds below, an optional one-character **suffix** directly after it.
+The mnemonic is one word: a three-letter **key** and an optional
+one-character **suffix** directly after it.
 
 | Suffix | Builds | Meaning |
 |---|---|---|
-| digit `0`–`7` | planned: 65C02 / 4510 sets ([TODO § M65](../TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1), prerequisite bug "Bit-op mnemonics are not assembled") | the bit number of a digit-zone key (`RMB` `SMB` `BBR` `BBS`), ORed into the opcode's bits 6:4 |
+| digit `0`–`7` | the 65C02 and 4510 sets (c64-65c02, m65-45gs02) | the bit number of a digit-zone key (`RMB` `SMB` `BBR` `BBS`), ORed into the opcode's bits 6:4 |
 | `q` | `MEGA_SUPPORT` | the Q form of a quad stem ([§ Prefixes](#prefixes-45gs02)) |
 
-Today no key takes a suffix: the character after the three-letter key
-must be whitespace ($20 or $A0), the end of the line or `;` —
-`inxy`, `lda4`, `nopx`, `rmb0` are `;?syntax`.  `lda x` is `LDA` with
-the label `x`; `ldax` is no word.  With suffixes, a digit on any other
-key, a digit-zone key without a digit, `q` on a key with no Q form,
-any other fourth character, or a fifth character is `;?syntax`.
+The character after the word must be whitespace ($20 or $A0), the
+end of the line or `;`.  A digit on any other key, a digit-zone key
+without a digit, `q` on a key with no Q form, any other fourth
+character, or a fifth character is `;?syntax` — `inxy`, `lda4`,
+`nopx`.  On a build without the digit zones (c64-6502, c64-6510)
+`rmb0` is `;?syntax` (mn6) or `;?cpu` (mn7: the key is known).  `lda
+x` is `LDA` with the label `x`; `ldax` is no word.
 
 **Accepted spellings on the m65 build** (`MEGA_SUPPORT`) — a second
 spelling is accepted only when the scanner alone can map it onto an
@@ -146,10 +145,13 @@ error-category byte `asm_err_code` is BSS of asm_err.s.
 | `reg_y` | 1 | user Y register |
 | `reg_sp` | 1 | user stack pointer |
 | `reg_p` | 1 | user status flags |
-| `_asm_sink` | 3 | bytes emitted past a `$FFFF` wrap land here (refused) |
+| `_asm_sink` | 3 (4 on `MEGA_SUPPORT`) | bytes emitted past a `$FFFF` wrap land here (refused) |
 
-**BSS (`MEGA_SUPPORT`, 1 byte):** `asm_pfx` — prefix enumeration for
-the instruction being assembled: 0 = none, 1 = Q, 2 = far, 3 = Q + far.
+**BSS (`MEGA_SUPPORT`, 2 bytes):** `asm_pfx` — prefix enumeration for
+the instruction being assembled: 0 = none, 1 = Q, 2 = far, 3 = Q + far;
+`asm_rel16` — the caller's width request for a branch
+([§ Branches](#branches-zone-b)), cleared by `asm_line` after each
+instruction.
 
 **Depends on:** expr (`last_err`, `expr_fwd`), addr_mode (`mode_parse`,
 `asm_skip_ws`, `_au_no_acc`; `_au_far` on `MEGA_SUPPORT`),
@@ -165,7 +167,7 @@ opcode_lookup (`asm_opcode_lookup`), mn_asm_tables (`asm_oplen`,
 
 ## Build-time variants
 
-Three C64 CPU sets build today, a fourth (m65) is planned (see
+Three C64 CPU sets build, and the m65 one (see
 [build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)).
 Each instantiates this module with different `-D` flags.  The
 classifier choice and the in-binary gate behaviour depend on the
@@ -177,7 +179,7 @@ contract.
 | **c64-6502** | `CPU_6502` `USE_MN6` | mn6 (56 legal only) | — (unreachable) | — | — (unreachable) | legal NMOS |
 | **c64-6510** | `CPU_6510` | mn7 (114) | **compiled in** | — (tables absent) | **compiled in** | legal + illegals |
 | **c64-65c02** | `CPU_65C02` `CMOS_SUPPORT` | mn7 (114) | compiled in | compiled in | compiled in | legal + CMOS |
-| **m65-45gs02** (planned) | `CPU_45GS02` `MEGA_SUPPORT` | mn7, m65 keys (98) | compiled in | compiled in (4510 extension) | — | legal + 65C02 + 4510; Q and far forms at `asm_cpu=4` |
+| **m65-45gs02** | `CPU_45GS02` `MEGA_SUPPORT` | mn7, m65 keys (98) | compiled in | compiled in (4510 extension) | — | legal + 65C02 + 4510; Q and far forms at `asm_cpu=4` |
 
 Every build also passes `DEFAULT_CPU`, `CPU_CEIL` and `TAB_WIDTH`
 (Makefile `_<cpu>_DEFS`); asm_line reads none of them.
@@ -239,10 +241,10 @@ directly (order A B F C D E); the rest is multi-mode:
 | Zone | Mode | Examples |
 |------|------|---------|
 | A | Implied — the operand must be empty (end of line, `;` or `//` comment), else `;?syntax` | BRK, CLC, DEX, NOP, RTS; on m65 also TAZ, MAP, EOM, … |
-| B | Branch (REL; REL16 on `MEGA_SUPPORT`) | BCC, BEQ, BNE, BPL, …; on m65 also BSR |
+| B | Branch (REL; REL16 on `MEGA_SUPPORT`, where zone B is a range of profiles: `REL`, `REL` + `REL16`, `REL16` only) | BCC, BEQ, BNE, BPL, …; on m65 also BRA, BSR |
 | C | Immediate only | illegal ANC/ALR/…; on m65 RTN |
-| D | Bit-op ZP (RMB/SMB) — not assembled yet: `jmp asm_error` (unreachable today, see § Mnemonic word) | RMB0–7, SMB0–7 |
-| E | Bit-op ZP,REL (BBR/BBS) — as D | BBR0–7, BBS0–7 |
+| D | Bit-op ZP (RMB/SMB): the digit suffix is the bit | RMB0–7, SMB0–7 |
+| E | Bit-op ZP,REL (BBR/BBS): the digit is the bit, then a branch target as zone B (`REL` only) | BBR0–7, BBS0–7 |
 | F | Absolute only | JSR (C64); ASW, ROW (m65) |
 | G | Multi-mode extension pairs | DEC, INC, BIT, JMP, LDA, …; JSR on m65 |
 | Q | Multi-mode quad groups (`MEGA_SUPPORT`) | LDA/LDQ, ADC/ADCQ, ASL/ASLQ, … |
@@ -272,6 +274,14 @@ range (`;?syntax`).  Both passes see the same forward/backward split,
 so the width — and every later address — is pass-stable.  A forward
 `REL` whose target is out of reach on pass 1 is an error; the source
 then needs a backward target or a `jmp`.
+
+**Width request** (`MEGA_SUPPORT`): `asm_rel16` set by the caller
+makes a profile that has `REL16` take it whatever the distance.  The
+REPL's `.` sets it when the bytes it re-assembles over are a 16-bit
+branch ([repl.md § The `.` command in detail](repl.md#the--command-in-detail)),
+so a `d` row re-entered unchanged keeps its width — `REL16` lists
+like `REL` (operator, 2026-11-19).  `asm_line` clears it after every
+instruction; the source assembler never sets it.
 
 ### Immediate range
 

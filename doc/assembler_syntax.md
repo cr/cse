@@ -99,7 +99,7 @@ lda ($fb),z         ; 4510: zero-page indirect adds Z
 lda ($02,sp),y      ; 4510: stack-relative, also written ($02,s),y
 phw #$1234          ; 4510: push word (16-bit immediate)
 bne far_away        ; 8-bit or 16-bit offset, chosen by distance
-ldq ($fb)           ; 45GS02: 32-bit load into Q (A,X,Y,Z)
+ldq ($fb),z         ; 45GS02: 32-bit load into Q (A,X,Y,Z)
 adcq $10            ; 45GS02: Q form, stem + q
 staq $2000          ; 45GS02: same as `stq $2000`
 lda [$fb],z         ; 45GS02: far — 32-bit pointer at $fb

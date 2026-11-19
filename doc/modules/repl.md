@@ -344,7 +344,9 @@ data in bulk.  It has two phases: **dump** and **edit**.
 **Dump phase** — `d` and `m` (without edit bytes) operate on
 `block_size` bytes and print executable rows:
 
-- `d` prints `AAAA:.  HH HH HH  mne opr` rows (`emit_dot`).
+- `d` prints `AAAA:.  HH HH HH  mne opr` rows (`emit_dot`); on m65
+  five byte columns, `AAAA:.  HH HH HH HH HH  mne opr`
+  ([§ Line format and address handling](#line-format-and-address-handling)).
 - `m` prints `AAAA:m HH HH HH HH HH HH HH HH;cccccccc` rows
   (`emit_mem`).  The `;` before the character column makes the row
   re-executable: `_require_eoi_or_err` accepts `;` as the end of
@@ -356,8 +358,8 @@ columns and **16 bytes in 80 columns** — `AAAA:m` + 16 × ` HH` + `;` +
 16 characters, 71 columns; on m65 the width decides at each row, on
 c64 it is always 8.  An edit accepts up to 16 bytes on m65 (8 on c64),
 whatever the width, so a 16-byte row typed in 80 columns and recalled
-in 40 still executes.  `zp_stage_buf` holds 16 bytes on m65.  `d`
-rows and every other emitter fit 40 columns and do not change.
+in 40 still executes.  `zp_stage_buf` holds 16 bytes on m65.  The
+other emitters do not change with the width.
 
 The block command clears the final prompt row and stops.  The screen
 is now a buffer of editable commands.
@@ -388,6 +390,11 @@ The `.` handler (`cmd_dot`) has three modes:
 1. **Hex bytes that differ from memory:** write them at `cur_addr`.
 2. **Hex bytes that match memory, followed by text:** assemble the
    text (mnemonic + operand) — the path a re-executed `d` row takes.
+   The instruction keeps its width: on m65, when the matched bytes are
+   a 16-bit branch (`REL16`, which lists like an 8-bit one), the text
+   is assembled as `REL16` (`asm_rel16`, [asm_line.md § Branches](asm_line.md#branches-zone-b)),
+   so RETURN on an unchanged row writes the same bytes (operator,
+   2026-11-19).
 3. **No arguments:** disassemble one instruction at `cur_addr`.
 
 **Expression support.**  In mode 2 (and for a bare `. mne opr`) the
@@ -401,17 +408,17 @@ full expressions work:
 Symbols from the last `a` are available (the symbol table persists
 between assemblies).
 
-`dot_assemble` copies the mnemonic letters (`a`–`z`, at most 8; a
-digit ends the word, so bit-op mnemonics such as `rmb3` are not
-assembled here — TODO § M65 "Bit-op mnemonics are not assembled"),
-keeps a leading `#` and `(`, evaluates the operand to `$XX` or
+`dot_assemble` copies the mnemonic word (`a`–`z` and a trailing
+digit `0`–`7`, at most 8 — the bit-op mnemonics such as `rmb3`;
+on m65 also the `q` names and the `q` suffix,
+[asm_line.md § Mnemonic word](asm_line.md#mnemonic-word)), keeps a
+leading `#`, `(` and, on m65, `[`, evaluates the operand to `$XX` or
 `$XXXX` (by `expr_eval`'s width result), copies the rest of the
 operand (`,x`, `)`, `),y` …) unchanged, and passes the text to
 `asm_line` with `asm_pc` = `asm_out` = `cur_addr`.  An operand that is
 the bare accumulator `a` is evaluated as an expression too, so
 `. asl a` is `;?syntax`; write `. asl` (TODO § Planned › Assembler).
-The m65 build's prefixes and suffixes (`[`, `,z`, `,sp`) are planned
-(TODO § M65 B7).
+On m65 the operand's rest includes `],z`, `),z` and `,sp),y`.
 
 In all three modes the handler finishes by disassembling the
 instruction at `cur_addr` and rewriting its row with the result.
@@ -428,12 +435,13 @@ Testing matrix: `tests/integration/test_repl.py::TestDotHexEdit`.
 |---|---|---|
 | Nothing (`NUL`) | Redisplay of the current instruction | `.` |
 | `;` comment | Redisplay | `. ; note` |
-| Two hex digits + space/`;`/NUL, up to 3 pairs | Hex-byte poke at `cur_addr` | `. a9 42` |
+| Two hex digits + space/`;`/NUL, up to 3 pairs (5 on m65) | Hex-byte poke at `cur_addr` | `. a9 42` |
 | Letter `a`–`z` (mnemonic start) | Assemble via `dot_assemble` | `. lda #$00` |
 | **Anything else** | **`;?syntax`** | `. .`, `. ,`, `. $`, `. 123` |
 
-On the m65 build (planned, TODO § M65 B7) the poke takes up to 5
-pairs, the build's maximum instruction length.
+The pair limit is the build's longest instruction: 3 on c64, 5 on
+m65 (a 45GS02 instruction with its prefixes).  Every mnemonic has at
+least three letters, so a mnemonic is never read as a pair.
 
 #### Error tag dispatch (mnemonic-assemble path)
 
@@ -515,6 +523,7 @@ sets it to `main` when the source defines one.
 Row formats (40 columns):
 
     AAAA:.  HH HH HH  mne opr                 . / d (3 byte columns)
+    AAAA:.  HH HH HH HH HH  mne opr           . / d on m65 (5 columns)
     AAAA:m HH HH HH HH HH HH HH HH;cccccccc   m
     r pc:XXXX a:XX x:XX y:XX s:XX nv-bdizc    r (set flags uppercase)
 
@@ -962,16 +971,17 @@ Tests: `TestColorApply`, `TestColorCommand`.
 ### `u` — CPU mode
 
     u 6502       standard NMOS 6502                     every build
-    u 6510       6510 (with illegal opcodes)            6510 build
+    u 6510       6510 (with illegal opcodes)            6510, 65C02 builds
     u 65c02      WDC 65C02 (CMOS extensions)            65C02 build
-    u 4510       CSG 4510 (65CE02 set + MAP/EOM)        m65 (planned)
-    u 45gs02     45GS02 (4510 + Q and far forms)        m65 (planned)
+    u 4510       CSG 4510 (65CE02 set + MAP/EOM)        m65
+    u 45gs02     45GS02 (4510 + Q and far forms)        m65
 
 `u` accepts only the modes its build offers, ignores anything else,
 and always prints them, the active one marked `*`
-(`; cpu: 6502* 6510`).  The 65C02 build offers 6502 and 65c02 (TODO
-§ M65 "`.cpu` and `u` do not enforce the CPU set" plans 6510 there
-too; [build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)).
+(`; cpu: 6502* 6510`).  The modes are the build's CPU set
+([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)):
+the 65C02 build offers 6502, 6510 and 65c02 (ruling D2); the m65
+build 6502, 4510 and 45gs02.
 
 ### Free / reserved keys
 
@@ -987,7 +997,10 @@ Single-line output routines, called by both edit-mode and block-mode
 paths; each starts at column 0 and ends with `io_clear_eol`.
 
 - `emit_dot(rp_addr)` — `AAAA:.  HH HH HH  mne opr`, returns the
-  instruction length in A.
+  instruction length in A.  On m65 five byte columns, in every screen
+  mode and every `u` view (operator, 2026-11-19): the mnemonic at
+  column 24, a row 38 columns at most (`lda ($12,sp),y`), so it fits
+  40 columns.
 - `emit_mem(rp_addr, A = columns 1–8)` — `AAAA:m HH … HH;cccccccc`
   (characters $20–$7E as themselves, others `.`).
 - `emit_reg()` — `r pc:xxxx a:xx x:xx y:xx s:xx nv-bdizc` (set flags

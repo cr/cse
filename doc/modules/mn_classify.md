@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/mn_classify.s`](../../src/mn_classify.s) | implementation — dispatcher |
-| [`src/mn7.s`](../../src/mn7.s) | implementation — 7-bit hash classifier (C64 `mn7` keys; the planned m65 key set uses it over its own tables) |
+| [`src/mn7.s`](../../src/mn7.s) | implementation — 7-bit hash classifier (C64 `mn7` keys; the m65 key set uses it over its own tables) |
 | [`src/mn6.s`](../../src/mn6.s) | implementation — 6-bit hash classifier |
 | [`src/mn7_tables.s`](../../src/mn7_tables.s) | generated — one block per `mn7` CPU set: `mn7_hash_t` (27 B) + `mn7_fp` / `mn7_base_op` / `mn7_profile` (3×128 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/mn6_tables.s`](../../src/mn6_tables.s) | generated — the `mn6` block (CPU set {6502}): `mn6_hash_t` (27 B) + `mn6_fp_c2` (27 B, `(c2·218) & $FF`) + `mn6_fp` / `mn6_base_op` / `mn6_profile` (3×64 B), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
@@ -40,7 +40,7 @@ profile index, numbered per CPU set by the generator — see
 [opcode_lookup.md § Profile index layout](opcode_lookup.md#design)).
 `cat` is the key's CPU category; its meaning is per platform:
 
-| `cat` | C64 CPU sets | m65 CPU set (planned) |
+| `cat` | C64 CPU sets | m65 CPU set |
 |---|---|---|
 | 00 | legal NMOS | legal NMOS |
 | 01 | legal NMOS with a 65C02 extension profile at `pidx + 1` | legal NMOS with a 4510 extension profile at `pidx + 1` |
@@ -71,7 +71,7 @@ matrix](asm_line.md#asm_cpu--category-gate-matrix).
 
 |  | mn6 | mn7 (C64) | mn7 (m65) |
 |--|-----|-----|-----|
-| Builds | c64-6502 | c64-6510, c64-65c02 | m65-45gs02 (planned) |
+| Builds | c64-6502 | c64-6510, c64-65c02 | m65-45gs02 |
 | File | mn6.s + mn6_tables.s | mn7.s + mn7_tables.s | mn7.s + mn7_tables.s |
 | Keys | 56 (legal NMOS only) | 114 (legal + CMOS + illegal) | 98 (legal + 65C02 + 4510 + the five Q names) |
 | Hash bits | 6 | 7 | 7 |
@@ -82,7 +82,7 @@ matrix](asm_line.md#asm_cpu--category-gate-matrix).
 | Table size | 3×64 + 27 + 27 = 246 B | 3×128 + 27 = 411 B | 3×128 + 27 = 411 B |
 | Build flag | `-D USE_MN6` | default | default |
 
-The planned m65 `mn7` is the same routine over the m65 key set's
+The m65 `mn7` is the same routine over the m65 key set's
 tables (bbbc64 names that table set `mn7gs`): the form admits no false positive for
 any key set on a 7-bit table, so only `T` differs, found by the
 generator's displacement search over the sorted keys.

@@ -150,8 +150,8 @@ was at — the `j` target, or the last break's address).
 ### step_next_pc
 **In:** `brk_pc` (the instruction about to run), `step_state`
 (STEP_INTO / STEP_OVER); `reg_sp` (RTS/RTI), `reg_x` (JMP (abs,X)),
-`asm_cpu` (65C02 rules, CMOS builds only), `userland_zp_buf` (vectors
-in $00–$7F).
+`asm_cpu` (65C02 rules, CMOS builds only; not read on m65, where the
+step follows the 45GS02), `userland_zp_buf` (vectors in $00–$7F).
 **Out:** `step_next_lo` = where the step stops, `step_next_hi` = a
 second stop for a branch under STEP_INTO; 0 = none (both 0 for BRK).
 **Clobbers:** A, X, Y, `rp_ptr`, `rp_ptr2`, `step_save`
@@ -354,12 +354,14 @@ leaves a disabled slot behind.
 | linear | `PC + length` (`oplen_tbl`) | — |
 | conditional branch, `t` | taken target | `PC + 2` |
 | conditional branch, `o` | `PC + 2` | — |
-| `BRA` (65C02, `asm_cpu` = 65C02) | target | — |
+| `BBR` / `BBS` (65C02 builds, m65), `t` | taken target (`PC + 3` + offset) | `PC + 3` |
+| `BBR` / `BBS`, `o` | `PC + 3` | — |
+| `BRA` (65C02, `asm_cpu` = 65C02; m65) | target | — |
 | `JMP abs` | operand | — |
 | `JMP (ind)` | the vector at the operand; `JMP ($xxFF)` takes its high byte from `$xx00` (NMOS) unless `asm_cpu` = 65C02 | — |
 | `JMP (abs,X)` (65C02) | the vector at operand + `reg_x`, no page wrap | — |
-| `JSR`, `t`, target < `$E000` | target (into the subroutine) | — |
-| `JSR`, `o`, or target ≥ `$E000` | `PC + 3` (over) | — |
+| `JSR`, `t`, target below the ROM boundary | target (into the subroutine) | — |
+| `JSR`, `o`, or target at or above the ROM boundary | `PC + 3` (over) | — |
 | `RTS` | user stack `($0100 + reg_sp + 1)` + 1 | — |
 | `RTI` | user stack PCL/PCH at `reg_sp + 2` / `+ 3` | — |
 | `BRK` | — | — |
@@ -367,8 +369,28 @@ leaves a disabled slot behind.
 Vectors are read as the CPU will read them: `$00–$7F` from
 `userland_zp_buf` (the live ZP is the kernel's while CSE runs),
 everything else live (`peek_user`).  The 65C02 rows apply only to
-CMOS builds with `asm_cpu` = 65C02; elsewhere those opcodes are
-linear.
+CMOS builds with `asm_cpu` = 65C02; elsewhere on the C64 those
+opcodes are linear.  The ROM boundary is `ROM_BASE_HI`: `$E000` on
+the C64, `$C000` on m65 (the interface ROM).
+
+**On m65** the step follows the CPU that runs the program — always a
+45GS02 — whatever `u` selects for listing (operator, 2026-11-19):
+
+| Instruction at `brk_pc` | `step_next_lo` | `step_next_hi` |
+|---|---|---|
+| prefixed (`$42 $42` Q, `$EA` far, as [dasm.md § Prefix peel](dasm.md#prefix-peel) defines them) | the base opcode's row, its length plus the prefixes' (2–5 bytes) | as the base row |
+| linear | `PC + length` (the 4510 lengths, the m65 block of `oplen_tbl`) | — |
+| 16-bit conditional branch (`$x3`), `t` | taken target (`PC + 2` + 16-bit offset) | `PC + 3` |
+| 16-bit conditional branch, `o` | `PC + 3` | — |
+| `BRA` (`$80`, `$83`) | target | — |
+| `BSR` (`$63`) | as `JSR`, length 3, its target `PC + 2` + 16-bit offset | — |
+| `JSR (ind)` (`$22`), `JSR (abs,X)` (`$23`) | `t`: the vector (as `JMP (ind)` / `JMP (abs,X)`); `o`: `PC + 3` | — |
+| `RTN #n` (`$62`) | as `RTS` (the return address is above the bytes it drops) | — |
+| `JMP (ind)` (`$6C`), `JMP (abs,X)` (`$7C`) | the vector, no page wrap | — |
+
+The 16-bit offsets count from the instruction's last byte (open
+question O1; xmega65 agrees).  The user stack is page 1 (`E` = 1, the
+run premise).
 
 `RTS` and `RTI` are followed through the user's stack, so stepping
 continues past a return.  Stepping over the program's top-level RTS

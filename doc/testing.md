@@ -27,11 +27,11 @@ Tests live in `tests/unit/`.  One pytest file per module (or
 per bundle — the `asm_core` and `mn6`/`mn7` bundles group
 tightly-coupled neighbours).
 
-**m65 bundles** (planned with the m65 build:
-[TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
-B1; the first, `dev/m65_macros_test.s` with
-`tests/unit/test_platform_m65.py`, runs `platform.inc`'s m65 macro
-bodies) run on M65Emu's CPU, `MPU45GS02`
+**m65 bundles** (`dev/m65_macros_test.s` with
+`tests/unit/test_platform_m65.py` runs `platform.inc`'s m65 macro
+bodies; from P4 the `asm_core` and `dasm` bundles of m65-45gs02,
+[TODO § M65](TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1)
+B1) run on M65Emu's CPU, `MPU45GS02`
 ([§ M65Emu](#m65emu--the-m65-integration-harness)), in *clean* mode:
 it admits, within CSE's own code, the 6502's documented opcodes plus
 the opcodes of the raw-byte macros in `src/m45_ops.inc`, and any other

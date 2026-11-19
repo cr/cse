@@ -80,8 +80,8 @@ platforms states so once.  Where the m65 column says *stated with
 P<n>*, that milestone's doc delta fills it in; until then the m65
 build still assembles every module, and the seam's m65 body is
 `PLAT_PENDING` ([§ Pending bodies](#pending-bodies)).  The m65 build
-is m65-6502 until its CPU layer lands in P4
-([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).  The Open ROMs are a
+is m65-45gs02 ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets);
+P0–P3 ran on m65-6502).  The Open ROMs are a
 stretch target, not a platform
 ([memory_design.md § Target Compatibility](memory_design.md#target-compatibility)).
 

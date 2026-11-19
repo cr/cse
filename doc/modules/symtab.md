@@ -110,7 +110,7 @@ An operand's size must be decided identically in both passes:
 on the C64 a symbol read before its definition is sized ABS on pass 0
 (it is undefined there), so pass 1 must size it ABS too even when its
 value turns out to be ZP; the 4510's two branch widths need the same
-([asm_line.md § Branches](asm_line.md#branches-zone-b), planned m65
+([asm_line.md § Branches](asm_line.md#branches-zone-b), the m65
 build).  The stamp tells a reader whether a symbol is defined *so far in the
 current pass*: `sym_define` stamps every entry it writes with
 `sym_stamp`, and asm_src gives each pass its own stamp — `SYM_P0`
