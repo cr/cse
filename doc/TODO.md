@@ -187,7 +187,7 @@ disassembler (A4) followed: see A4 below.
   c64-65c02 today; the 4510 keeps all four.  Fix under its own CDD
   cycle (digit suffix scan + digit zone), then B4 builds on it.
 
-- [ ] **`.cpu` and `u` do not enforce the CPU set.**  `asm_src.s::set_cpu`
+- [x] **`.cpu` and `u` do not enforce the CPU set.**  (Fixed in P4 step (2), 2026-11-19.)  `asm_src.s::set_cpu`
   accepts `6502`/`6510`/`65c02` on every build (no ceiling check,
   though [assembler_syntax.md § `.cpu`](assembler_syntax.md#cpu--set-cpu-mode)
   says "limited by the build-time CPU ceiling"); `repl.s` `u` refuses
@@ -1606,6 +1606,12 @@ golden files re-recorded with the 768 digit rows (96 accepted on
 `disk.s`'s `jmp (callback)` vector at `$CEFF` in the debug c64-65c02
 build — the BSS segment is now 2-aligned.
 
+Step (2) done 2026-11-19: one table, `cpu_names` (the build's members,
+value + name), and one scan, `cpu_lookup` (asm_src.s), serve `.cpu`,
+`u` and `u`'s listing; c64-65c02 offers the 6510 (D2).  Every build
+shrank: c64-6502 −40, c64-6510 −61, c64-65c02 −55, m65-6502 −49 B
+(budgets lowered).
+
 **P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
 first, step by step; each is red until its code lands.  Automation
 judgement: all of it is automatable — the generators on the host,
@@ -1623,7 +1629,7 @@ hardware: O1 and O3, as before.
   (`test_repl.py`); a source line `bbs7 $12,label` assembles in both
   passes (`test_asm_src.py`).  The 65c02 golden file is re-recorded
   with the digit rows (their asm cases were `;?syntax` before).
-- [ ] T2. The CPU set of `.cpu` / `u` (step 2; on each C64 PRG):
+- [x] T2. The CPU set of `.cpu` / `u` (step 2; on each C64 PRG):
   `.cpu` accepts exactly the build's set and refuses any other value
   as it refuses an unknown one today; `u 6510` works on c64-65c02; `u`
   lists the set, the active one marked.

@@ -18,6 +18,7 @@
         .export         asm_assemble
         .export         asm_org, asm_size, asm_errors
         .export         seg_print_save
+        .export         cpu_names, cpu_lookup           ; repl.s `u`
 
         .import         asm_line                            ; asm_line.s
         .import         asm_err_code, asm_pass              ; asm_err.s
@@ -590,53 +591,71 @@ _bad_val_err:
 @done:  rts
 .endproc
 
+; ── The build's CPU set (build_system.md § Builds and CPU sets) ────────────
+; Each member: its asm_cpu value, its name, NUL; $FF ends the list.
+; `.cpu` and the REPL's `u` accept exactly these names.
+.segment "RODATA"
+cpu_names:
+        .byte 0, "6502", 0
+.if .defined(CPU_6510) .or .defined(CPU_65C02)
+        .byte 1, "6510", 0
+.endif
+.if .defined(CPU_65C02) .or .defined(CPU_45GS02)
+        .byte 2, "65c02", 0
+.endif
+.ifdef CPU_45GS02
+        .byte 3, "4510", 0
+        .byte 4, "45gs02", 0
+.endif
+        .byte $FF
+.segment "CODE"
+
+; ── cpu_lookup ─────────────────────────────────────────────────────────────
+; In: expr_ptr → a word.  Out: C = 0 and A = the asm_cpu value when the
+; word (ended by NUL, whitespace or ';') names a member of the build's
+; CPU set; else C = 1.  Clobbers X, Y, asm_tmp.
+cpu_lookup:
+        ldx #0
+@entry: lda cpu_names,x
+        bmi @none               ; $FF: no member has that name
+        sta asm_tmp
+        ldy #0
+@char:  inx
+        lda cpu_names,x
+        beq @name_end
+        cmp (expr_ptr),y
+        bne @skip
+        iny
+        bne @char
+@name_end:
+        lda (expr_ptr),y        ; the word must end with the name
+        beq @hit
+        cmp #' '
+        beq @hit
+        cmp #$A0
+        beq @hit
+        cmp #';'
+        beq @hit
+        inx                     ; past the NUL: the next member
+        bne @entry
+@skip:  inx                     ; to the name's NUL
+        lda cpu_names,x
+        bne @skip
+        inx
+        bne @entry
+@hit:   lda asm_tmp
+        clc
+        rts
+@none:  sec
+        rts
+
 ; ── set_cpu ────────────────────────────────────────────────────────────────
-; .cpu 6502 / 6510 / 65c02   In: expr_ptr = text after "cpu"
-; (accepted on every build — no CPU-set check yet, TODO § M65)
+; `.cpu NAME` (assembler_syntax.md § .cpu): a member of the build's set.
 .proc set_cpu
         jsr skipws_ep
-        ldy #0
-        lda (expr_ptr),y
-        cmp #'6'
-        bne @bad
-        iny
-        lda (expr_ptr),y
-        cmp #'5'
-        bne @bad
-        iny
-        lda (expr_ptr),y        ; [2]
-        cmp #'0'
-        bne @no6502
-        iny
-        lda (expr_ptr),y        ; [3]
-        cmp #'2'
-        bne @bad
-        lda #0
-        sta asm_cpu              ; 6502
-        rts
-@no6502:
-        cmp #'1'
-        bne @no6510
-        iny
-        lda (expr_ptr),y        ; [3]
-        cmp #'0'
-        bne @bad
-        lda #1
-        sta asm_cpu              ; 6510
-        rts
-@no6510:
-        cmp #'c'                ; "65c02"
-        bne @bad
-        iny
-        lda (expr_ptr),y        ; [3]
-        cmp #'0'
-        bne @bad
-        iny
-        lda (expr_ptr),y        ; [4]
-        cmp #'2'
-        bne @bad
-        lda #2
-        sta asm_cpu              ; 65c02
+        jsr cpu_lookup
+        bcs @bad
+        sta asm_cpu
         rts
 @bad:   jmp _bad_val_err
 .endproc

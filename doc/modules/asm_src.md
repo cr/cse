@@ -40,6 +40,18 @@ caller's again (`.cpu` never leaks).  The KERNAL is banked in
   the vocal forward-reference errors of pass 0
   ([§ `_vocal_fwd_err`](#_vocal_fwd_err)).
 
+### The CPU set
+
+`cpu_names` (RODATA) lists the build's CPU set
+([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)):
+per member its `asm_cpu` value, its name and a NUL, `$FF` at the
+end — selected by the build's `CPU_<top>` define.  `cpu_lookup`
+(**In:** `expr_ptr` → a word; **Out:** C = 0 and A = the member's
+`asm_cpu` value when the word, ended by NUL, whitespace or `;`, names
+a member, else C = 1; **Clobbers:** X, Y, `asm_tmp`) serves `.cpu`
+and the REPL's `u`, which also lists `cpu_names`
+([repl.md § `u`](repl.md#u--cpu-mode)).
+
 ### seg_print_save
 Prints the executable save line `AAAA:s "NAME" $BBBB` for the
 assembled range — `AAAA` = `_min_pc`, `BBBB` = `_max_pc - 1`
@@ -361,8 +373,5 @@ convention.  The `;?` / `;!` / `; ` prefixes come from `log_open`
 - `.db` on pass 1 checks each value against a byte ($00–$FF or
   −128..−1): a wider value is `ovfl`, and its low byte is still
   emitted so the layout does not move.
-- `.cpu` (`set_cpu`) accepts `6502`, `6510` and `65c02` on every build
-  — it does not check the build's CPU set yet
-  ([TODO § M65](../TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
-  "`.cpu` and `u` do not enforce the CPU set"); anything else is
-  `bad val`.
+- `.cpu` (`set_cpu`) accepts exactly the build's CPU set (§ The CPU
+  set); anything else is `bad val`.

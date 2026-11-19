@@ -468,18 +468,17 @@ a scan loop over a packed table beats N×(cmp/bne) chains.
 Saves code proportional to N and scales without new branches.
 
 ```asm
-; before (~60 bytes): nested cmp/beq for 3 alternatives
-; after (~30 bytes): 9-byte table + 3-byte mask + scan loop
-
-cpu_pair_tbl:  .byte '0','2',0, '1','0',1, 'c','0',2
-cpu_mask_bits: .byte 1,2,4
+; one entry per member of the build's CPU set: value, name, NUL
+cpu_names: .byte 0, "6502", 0, 1, "6510", 0, 2, "65c02", 0, $FF
 ```
 
-The table encodes (key1, key2, result_id) triples; the loop
-scans linearly.  A companion bitmask table validates the result
-against the compile-time CPU configuration.
+The table holds only what the build has (`.ifdef` per entry), so it
+is the validation too: no companion mask.  One scan loop serves the
+parser of both callers and the listing.
 
-Used in: `repl.s` — CPU mode command (`u 6502`/`u 6510`/`u 65c02`).
+Used in: `asm_src.s` — `cpu_lookup` for `.cpu` and the REPL's `u`
+(P4 step (2) replaced two parsers and a pair table + mask with it:
+−40 to −61 B per build).
 
 ## 24. Extract behavioral units, not byte patterns
 

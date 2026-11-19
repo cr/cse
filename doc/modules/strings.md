@@ -33,7 +33,6 @@ UI / debugger / assembler chrome strings consumed by repl.s:
 `str_lines`, `str_bytes`, `str_long`,
 `str_ok`, `str_blk_eq`,
 `str_color`, `str_cpu`, `str_cpu_err`, `str_stk_warn`,
-`str_6510`\*, `str_65c02`\*,
 `str_asm_ing`, `str_load_pfx`, `str_save_pfx`, `str_dots`,
 `str_errors`, `str_dashes`, `str_colon_sp`, `str_pct`,
 `str_ioport`‡, `str_stack`‡, `str_kernal`‡, `str_screen`‡,
@@ -44,8 +43,7 @@ UI / debugger / assembler chrome strings consumed by repl.s:
 `str_page`†, `str_code`†, `str_data`†, `str_tag_ext`†,
 `s_save_default` (also asm_src).
 
-\* conditional: `str_6510` requires `CPU_6510`,
-`str_65c02` requires `CMOS_SUPPORT`.  † m65 only (`emit_reg`'s
+† m65 only (`emit_reg`'s
 `z:` / `b:`, the m65 `i` rows); ‡ c64 only (the C64 `i` rows).
 
 ##### Gating strings
@@ -174,8 +172,6 @@ semantic role.
   bytes that are not visible in the label name.
 - `s_exp_quot` also contains an embedded `$22` (the error shows the
   expected quote character).
-- `str_6510` and `str_65c02` are conditionally assembled; code that
-  references them must be inside matching `.ifdef` guards.
 - Suffix aliases (`str_dots`, `str_full`, `str_tag_src`,
   `str_tag_cse`, `str_dname`) depend on the
   host string's layout — changing the host string content will silently

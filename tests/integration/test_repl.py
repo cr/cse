@@ -1011,6 +1011,46 @@ class TestCpuSelect:
         assert cpu.memory[rsyms.asm_cpu] == expected
 
 
+
+# The CPU set per build (build_system.md § Builds and CPU sets; ruling D2:
+# c64-65c02 offers the 6510 too).  `u NAME` selects a member, anything
+# else is ignored; `u` lists the set, the active member marked `*`.
+CPU_SETS = {"6502": ["6502"], "6510": ["6502", "6510"],
+            "cmos": ["6502", "6510", "65c02"]}
+CPU_VALUE = {"6502": 0, "6510": 1, "65c02": 2, "4510": 3, "45gs02": 4}
+
+
+def _u(prg, cmd, start=0):
+    from c64emu import C64Emu
+    emu = C64Emu()
+    emu.load_prg(*prg)
+    emu.init_cse()
+    emu.set_cursor(5, 0)
+    emu.memory[emu.sym("asm_cpu")] = start
+    line = emu.sym("line_buf")
+    for i, b in enumerate(cmd.encode("ascii") + b"\0"):
+        emu.memory[line + i] = ascii_to_petscii(b)
+    emu.jsr(emu.sym("exec_line"))
+    from emu_base import decode_screen_codes
+    return emu.memory[emu.sym("asm_cpu")], decode_screen_codes(emu.screen_row(5))
+
+
+class TestCpuSetPerBuild:
+    @pytest.mark.parametrize("name", list(CPU_VALUE))
+    def test_u_selects_exactly_the_set(self, cse_prg_per_cpu, name):
+        build = cse_prg_per_cpu[0].parent.name
+        got, _ = _u(cse_prg_per_cpu, f"u {name}")
+        want = CPU_VALUE[name] if name in CPU_SETS[build] else 0
+        assert got == want
+
+    def test_u_lists_the_set_and_marks_the_active_one(self, cse_prg_per_cpu):
+        build = cse_prg_per_cpu[0].parent.name
+        top = CPU_SETS[build][-1]
+        _, row = _u(cse_prg_per_cpu, "u", start=CPU_VALUE[top])
+        assert row.strip() == "; cpu: " + " ".join(
+            n + ("*" if n == top else "") for n in CPU_SETS[build])
+
+
 # ── P. Dot command (. with hex edit) ─────────────────────────
 
 class TestDotBitOps:

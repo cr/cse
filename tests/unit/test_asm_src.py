@@ -1412,6 +1412,19 @@ class TestAsmLineNoWrap:
         assert list(mem[0xFFFE:0x10000]) == [0xA9, 0x42]
 
 
+# ── `.cpu` takes exactly the build's CPU set (assembler_syntax.md § .cpu) ──
+
+_SETS = {"6502": {"6502"}, "6510": {"6502", "6510"},
+         "cmos": {"6502", "6510", "65c02"}}
+
+
+@pytest.mark.parametrize("name", ["6502", "6510", "65c02", "4510", "45gs02", "6503", "65c0"])
+def test_cpu_directive_takes_the_build_set(cse_prg_per_cpu, name):
+    build = cse_prg_per_cpu[0].parent.name
+    _, errors = _c64_assemble(cse_prg_per_cpu, f".cpu {name}\n.org $1000\nnop")
+    assert errors == (0 if name in _SETS[build] else 1)
+
+
 # ── The same guard on the production PRG (C64Emu) ───────────────────────────
 #
 # Real memory map: CSE's code sits above the source text, so `.org` at a

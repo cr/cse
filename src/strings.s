@@ -55,12 +55,6 @@
         .export str_page, str_code, str_data, str_tag_ext
 .endif
 
-.ifdef CPU_6510
-        .export str_6510
-.endif
-.ifdef CMOS_SUPPORT
-        .export str_65c02
-.endif
 
         ; ── gap_buffer strings (built-in symbol names) ──
         .export s_workstart, s_workend
@@ -139,14 +133,8 @@ str_qynq:       .byte "? y/n", 0
 str_ok:         .byte "ok", 0
 str_blk_eq:       .byte "blk=", 0
 str_color:      .byte "color: ", 0
-str_cpu:        .byte "cpu: 6502", 0
+str_cpu:        .byte "cpu:", 0
 str_stk_warn:   .byte "stk ", 0
-.ifdef CPU_6510
-str_6510:       .byte " 6510", 0
-.endif
-.ifdef CMOS_SUPPORT
-str_65c02:      .byte " 65c02", 0
-.endif
 str_asm_ing:    .byte "asm...", 0          ; no trailing space: "asm...ok:"
 str_load_pfx:   .byte "load ", 0
 str_save_pfx:   .byte "save ", 0

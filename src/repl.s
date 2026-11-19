@@ -152,12 +152,7 @@ STEP_OVER = 2
         .import str_tag_ext, str_page, str_code, str_data
         .import info_bank
 .endif
-.ifdef CPU_6510
-        .import str_6510
-.endif
-.ifdef CMOS_SUPPORT
-        .import str_65c02
-.endif
+        .import cpu_names, cpu_lookup   ; asm_src.s: the build's CPU set
 
 ; ── Imports: runtime ZP ────────────────────────────────────
         .importzp rp_ptr, rp_ptr2, rp_tmp, rp_tmp2
@@ -219,10 +214,6 @@ zp_stage_buf:   .res MEM_ROW_MAX ; staging buffer for the user-ZP
 
 ; ── RODATA ─────────────────────────────────────────────────
 .segment "RODATA"
-
-; cpu parse helpers: pair chars after "65" -> cpu id
-cpu_pair_tbl:    .byte '0','2',0,  '1','0',1,  'c','0',2
-cpu_mask_bits:   .byte 1,2,4
 
 ; r command field labels: reg_a / reg_x / reg_y / reg_sp order, then pc
 reg_labels:      .byte "axysp"      ; reg_a + index; 'p' is pc:
@@ -4064,84 +4055,40 @@ prg_ok_done:
         jsr show_theme_colors
         jmp io_clear_eol
 
-@h_u:   ; u — cpu mode
-        jsr skip_peek_ptr1
-        cmp #'6'
-        bne @u_show
-        iny
-        FAR_LDA rp_ptr
-        cmp #'5'
-        bne @u_show
-        iny
-        FAR_LDA rp_ptr
-        sta rp_tmp
-        iny
-        FAR_LDA rp_ptr
-        sta rp_tmp2
-        ldx #0
-@u_scan:
-        lda cpu_pair_tbl,x
-        cmp rp_tmp
-        bne @u_next
-        lda cpu_pair_tbl+1,x
-        cmp rp_tmp2
-        bne @u_next
-        lda cpu_pair_tbl+2,x
-        tay
-        lda cpu_mask_bits,y
-.ifdef CMOS_SUPPORT
-        and #5
-.elseif .defined(CPU_6510)
-        and #3
-.else
-        and #1
-.endif
-        beq @u_show
-        tya
+@h_u:   ; u — cpu mode: a member of the build's CPU set, or just the list
+        jsr skip_peek_ptr1      ; rp_ptr at the word (CSE's own line_buf)
+        lda rp_ptr
+        sta expr_ptr
+        lda rp_ptr+1
+        sta expr_ptr+1
+        jsr cpu_lookup
+        bcs @u_show             ; not a member: ignored
         sta asm_cpu
-        jmp @u_show
-@u_next:
-        txa
-        clc
-        adc #3
-        tax
-        cpx #9
-        bcc @u_scan
-
 @u_show:
         ldy #LOG_INFO
         jsr log_open
-        puts str_cpu
-        lda asm_cpu
-        bne @u_no_star0
-        lda #'*'
-        jmp @u_p0
-@u_no_star0:
+        puts str_cpu            ; "cpu:"
+        ldx #0
+@u_ent: lda cpu_names,x         ; asm_cpu value, $FF = end
+        bmi @u_end
+        pha
+        stx rp_tmp
         lda #' '
-@u_p0:  jsr io_putc
-.ifdef CPU_6510
-        puts str_6510
-        lda asm_cpu
-        cmp #1
-        bne @u_no_star1
+@u_ch:  jsr io_putc
+        inc rp_tmp
+        ldx rp_tmp
+        lda cpu_names,x
+        bne @u_ch
+        pla
+        cmp asm_cpu
+        bne @u_next
         lda #'*'
-        jmp @u_p1
-@u_no_star1:
-        lda #' '
-@u_p1:  jsr io_putc
-.endif
-.ifdef CMOS_SUPPORT
-        puts str_65c02
-        lda asm_cpu
-        cmp #2
-        bne @u_no_star2
-        lda #'*'
-        jmp @u_p2
-@u_no_star2:
-        lda #' '
-@u_p2:  jsr io_putc
-.endif
-        jmp log_close   
+        jsr io_putc
+@u_next:
+        ldx rp_tmp
+        inx
+        bne @u_ent
+@u_end: jmp log_close
 @h_a:   ; a — assemble source.  Per debugger.md § dbg_reason ×
         ; command matrix: warn + ask + end-debug-replay only for
         ; resumable sessions (DBG_BRK / DBG_NMI).  DBG_NONE / DBG_RTS
