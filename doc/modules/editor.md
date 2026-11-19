@@ -8,6 +8,7 @@
 |------|------|
 | [`src/editor.s`](../../src/editor.s) | implementation |
 | [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py) | test contract |
+| [`tests/integration/test_m65_source_editor.py`](../../tests/integration/test_m65_source_editor.py) | test contract — the editor on the m65 PRG in each text mode (P2 T10, § On m65) |
 
 ## Purpose
 
@@ -106,6 +107,7 @@ gb_backspace, gb_cursor_left, gb_cursor_right, gb_home,
 check_buf_end, ed_total_lines, update_workend), cse_io (io_sync,
 io_blip, scr_lo, scr_hi), mem (kernal_bank_out, kernal_bank_in),
 disk (disk_save_seq, disk_load_seq, disk_seq_bytes, disk_seq_lines),
+screen (m65: screen_save, screen_restore),
 zp (cur_project_name, state, ed_dirty, disk_ptr and the editor ZP
 below).  Linker-provided `__CODE_RUN__` (= `BUF_END`).  editor.s
 also imports gb_ensure_room, ed_insert_string, ed_read_rewind,

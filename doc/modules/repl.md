@@ -27,6 +27,7 @@ framing.  The user-facing command reference is the root
 |------|------|
 | [`src/repl.s`](../../src/repl.s) | implementation (assembly) |
 | [`tests/integration/test_repl.py`](../../tests/integration/test_repl.py) | test contract — Tier I (full PRG via `C64Emu`) |
+| [`tests/integration/test_m65_repl.py`](../../tests/integration/test_m65_repl.py) | test contract — Tier I on the m65 PRG: the cold start, the REPL and the debugger typed (P2 T7–T9) |
 | [`tests/integration/test_repl_disk.py`](../../tests/integration/test_repl_disk.py) | test contract — Tier I disk-command paths (`l`, `s`, `$`) routed through `exec_line`, on C64Emu with a virtual 1541 |
 
 Further REPL contracts live with the subsystem they exercise:

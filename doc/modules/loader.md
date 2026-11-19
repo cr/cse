@@ -48,7 +48,8 @@ stub's cold target); on m65 also mem (the `STUB` segment's image,
 which it copies to `STUB_BASE`, and `stub_cold`), the Hypervisor's
 `hyppo_getversion` and `hyppo_rom_writeenable`
 ([platform_layer.md § Constants](../platform_layer.md#constants)),
-the KERNAL's `CHROUT`, and `src/m45_ops.inc`; plus the
+zp (`stub_cold_target`, the cold target's cell), the KERNAL's
+`CHROUT`, and `src/m45_ops.inc`; plus the
 linker-supplied symbols
 `__CODE_LOAD__`, `__CODE_RUN__`, `__CODE_SIZE__`, `__RODATA_SIZE__`,
 `__BSS_RUN__`, `__BSS_SIZE__`, `__KDATA_LOAD__`, `__KDATA_RUN__`,
