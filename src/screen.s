@@ -37,7 +37,7 @@ SCR_H     = SCREEN_HEIGHT
 ; ── Theme (BSS — defaults applied by theme_init at startup) ─
 ; Build-time selection: -DTHEME_BOR=x -DTHEME_BG=x -DTHEME_FG=x
 ; where x is a C64 color index 0-F.  The Makefile always passes them
-; (default THEME=GREENLAND, d5d); the fallback below (RADIOACTIVITY,
+; (default THEME=CLOUDY, fc1); the fallback below (RADIOACTIVITY,
 ; cb5) applies only to a build without the flags.
 ;
 ; BSS (not RODATA) because the `c BFS` REPL command rewrites

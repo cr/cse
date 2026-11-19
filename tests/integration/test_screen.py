@@ -15,7 +15,8 @@ All 8 exported entry points + 3 BSS theme bytes:
     newline             — TestNewline      (advance + scroll at bottom)
     cursor_show         — TestCursorToggle (XOR $80 at cursor)
     cursor_hide         — TestCursorToggle (alias; restores via second toggle)
-    theme_border / theme_bg / theme_fg (BSS) — TestRestoreColors
+    theme_border / theme_bg / theme_fg (BSS) — TestRestoreColors, the
+                        default theme
 
 Out-of-scope (vocal skips — see TestVicHardwareBehaviour)
 ---------------------------------------------------------
@@ -56,6 +57,16 @@ def fill_row(emu, row, sc):
 def row_is(emu, row, sc):
     base = SCREEN + row * COLS
     return all(emu.memory[base + c] == sc for c in range(COLS))
+
+
+# ── the default theme ───────────────────────────────────────────────────────
+
+def test_the_default_theme_is_cloudy(cse_prg):
+    """The default THEME is CLOUDY, fc1: light grey, grey, white
+    (screen.md § Theme System)."""
+    emu = make_emu(cse_prg)
+    assert [emu.memory[emu.sym(n)] for n in ("theme_border", "theme_bg", "theme_fg")] \
+        == [0xF, 0xC, 0x1]
 
 
 # ── restore_colors ──────────────────────────────────────────────────────────

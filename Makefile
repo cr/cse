@@ -150,23 +150,16 @@ else
 endif
 
 # ── Theme selection ──────────────────────────────────────────────────────
-# make THEME=d5d  →  border=D bg=5 fg=D (GREENLAND, the c64 default)
-# Predefined names:
-#   RADIOACTIVITY GREENLAND MRSPIGGY BRUCELEE LEEBRUCE MATRIX
-#   MILKYWAY HERCULES ORANGE MUDDY CLOUDY C64 C128 MEGA
-#   or a 3-digit hex code: make THEME=cb5
-# The default is the platform's: MEGA (661, the MEGA65's own white on
-# blue) on m65.
-ifeq ($(PLATFORM),m65)
-  THEME ?= MEGA
-else
-  THEME ?= GREENLAND
-endif
+# make THEME=fc1  →  border=F bg=C fg=1 (CLOUDY, the default on every
+# platform).  Predefined names: `make themes` (screen.md § Theme System
+# owns the table), or a 3-digit hex code: make THEME=cb5
+THEME ?= CLOUDY
 
 # Named theme → 3-digit hex code
-_THEME_MAP = RADIOACTIVITY=cb5 GREENLAND=d5d MRSPIGGY=a21 BRUCELEE=770 \
-             LEEBRUCE=007 MATRIX=005 MILKYWAY=001 HERCULES=009 \
-             ORANGE=880 MUDDY=990 CLOUDY=cbc C64=e6e C128=dbd MEGA=661
+_THEME_MAP = CLOUDY=fc1 CONCRETE=fbf ASPHALT=fc0 JIFFY=e61 \
+             GREENLAND=d51 MOSS=d5d RADIOACTIVITY=cb5 MATRIX=005 \
+             HERCULES=009 MILKYWAY=001 BRUCELEE=770 LEEBRUCE=007 \
+             MRSPIGGY=a21 ORANGE=880 MUDDY=990 C64=e6e C128=dbd MEGA=661
 _THEME_CODE := $(patsubst $(THEME)=%,%,$(filter $(THEME)=%,$(_THEME_MAP)))
 ifeq ($(_THEME_CODE),)
   _THEME_CODE := $(THEME)
@@ -531,7 +524,7 @@ help:
 	@printf "\nOptions (prefix any target):\n"
 	@printf "  %-20s %s\n" "PLATFORM=c64|m65"    "platform (default: c64; m65: one PRG, its D81)"
 	@printf "  %-20s %s\n" "CPU=6510|6502|65c02" "target CPU (default: 6510)"
-	@printf "  %-20s %s\n" "THEME=NAME|BGF"      "colour theme (default: GREENLAND; m65 MEGA)"
+	@printf "  %-20s %s\n" "THEME=NAME|BGF"      "colour theme (default: CLOUDY)"
 	@printf "  %-20s %s\n" "TAB_WIDTH=N"         "editor tab width, 1|2|4|8|16|32 (default: 8)"
 	@printf "  %-20s %s\n" "VERSION=STRING"      "version string (default: 0.1)"
 	@printf "  %-20s %s\n" "ROMSET=cbm|mega"     "KERNAL set for 'run' (default: cbm)"

@@ -222,10 +222,10 @@ def test_hygiene_gates_the_sid_and_sets_cses_sysflags(emu):
 
 # ── the default theme ──────────────────────────────────────────────
 
-def test_the_default_theme_is_mega(emu):
-    """The m65 build's default THEME is MEGA, 661: the MEGA65's own
-    white on blue (screen.md § Theme System)."""
+def test_the_default_theme_is_cloudy(emu):
+    """The default THEME is CLOUDY, fc1, on m65 as on the C64: white
+    on grey (screen.md § Theme System)."""
     call(emu, "theme_init")
     m = emu.memory
     assert (m[emu.cell("theme_border")], m[emu.cell("theme_bg")],
-            m[emu.cell("theme_fg")]) == (6, 6, 1)
+            m[emu.cell("theme_fg")]) == (0xF, 0xC, 0x1)

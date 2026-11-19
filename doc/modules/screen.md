@@ -177,9 +177,9 @@ Three BSS bytes control the color scheme: `theme_border`,
 
 **Build-time selection:** `make THEME=NAME` or `make THEME=BGF`
 (three hex nybbles: border, background, foreground).  The default is
-the platform's: GREENLAND on c64, MEGA on m65 — the MEGA65's own
-white on blue (the colours BASIC 65 boots with, `$D020` / `$D021` =
-6).  The Makefile
+CLOUDY on every platform: white on grey, readable on a C64 monitor
+and on the MEGA65's (GREENLAND's green on green was not, on
+xmega65).  The Makefile
 maps names through `_THEME_MAP` and passes
 `-DTHEME_BOR=N -DTHEME_BG=N -DTHEME_FG=N`
 ([build_system.md](../build_system.md)).
@@ -190,8 +190,13 @@ maps names through `_THEME_MAP` and passes
 
 | Name          | Code | Border | Bg     | Fg     |
 |---------------|------|--------|--------|--------|
-| RADIOACTIVITY | cb5  | lt grey| dk grey| green  |
-| GREENLAND     | d5d  | lt grn | green  | lt grn |
+| CLOUDY        | fc1  | lt grey| grey   | white  |
+| CONCRETE      | fbf  | lt grey| dk grey| lt grey|
+| ASPHALT       | fc0  | lt grey| grey   | black  |
+| JIFFY         | e61  | lt blue| blue   | white  |
+| GREENLAND     | d51  | lt grn | green  | white  |
+| MOSS          | d5d  | lt grn | green  | lt grn |
+| RADIOACTIVITY | cb5  | grey   | dk grey| green  |
 | MRSPIGGY      | a21  | lt red | red    | white  |
 | BRUCELEE      | 770  | yellow | yellow | black  |
 | LEEBRUCE      | 007  | black  | black  | yellow |
@@ -200,12 +205,11 @@ maps names through `_THEME_MAP` and passes
 | HERCULES      | 009  | black  | black  | brown |
 | ORANGE        | 880  | orange | orange | black  |
 | MUDDY         | 990  | brown  | brown  | black  |
-| CLOUDY        | cbc  | grey   | dk grey| grey   |
 | C64           | e6e  | lt blue| blue   | lt blue|
 | C128          | dbd  | lt grn | dk grey| lt grn |
 | MEGA          | 661  | blue   | blue   | white  |
 
-Default: GREENLAND (d5d) — the Makefile's `THEME ?= GREENLAND`.
+Default: CLOUDY (fc1) — the Makefile's `THEME ?= CLOUDY`.
 screen.s's own fallback (cb5) applies only when it is assembled
 without the `-DTHEME_*` flags.
 

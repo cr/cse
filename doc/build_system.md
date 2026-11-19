@@ -330,7 +330,7 @@ absolute address.
 | `PLATFORM` | `c64` | Target platform (`c64` / `m65`).  `m65` builds the MEGA65 PRG and D81 ([§ The m65 builds](#the-m65-builds)) and the m65 test bundles.  Every target works on m65 (`release`, `debug`, `disk`, `run`, `size`; `help`, `themes`, `clean`, `clean-tables`, `tables`, `m65-rom`, `check-roms`); an unknown platform is refused.  `TARGET=` on the command line is a synonym (`make run TARGET=m65`); giving both with different values is an error |
 | `XMEGA65` | `/Applications/xmega65.app/Contents/MacOS/xmega65` | The xmega65 executable: `make run PLATFORM=m65` starts it, and `tests/xmega65.py` reads the same environment variable (Tier X, the M65Emu recordings) |
 | `CPU` | `6510` on `c64`; on `m65` the platform's one build (`6502` until P4, then `45gs02`) | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510` / `65c02`) |
-| `THEME` | `GREENLAND` (c64), `MEGA` (m65) | Named theme or 3-digit hex code (`make themes` for list) |
+| `THEME` | `CLOUDY` | Named theme or 3-digit hex code (`make themes` for list) |
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
 | `VERSION` | `0.1` | Version string embedded in splash + D64 label |
 | `ROMSET` | `cbm` | KERNAL/BASIC/CHARGEN set for `run` (`cbm` / `mega`) |
@@ -387,7 +387,7 @@ Passed as `make OPTION=value`:
 | `PLATFORM` | `c64` `m65` | `c64` | Selects the platform's builds ([§ Builds and CPU sets](#builds-and-cpu-sets)); sets `PLATFORM_C64` or `PLATFORM_M65` |
 | `CPU` | `c64`: `6502` `6510` `65c02`; `m65`: `6502` until P4, then `45gs02` | `6510` / the m65 build's | Selects the build within the platform; sets its defines ([§ Builds and CPU sets](#builds-and-cpu-sets)) |
 | `ROMSET` | `cbm` `mega` | `cbm` | ROM set for `make run` (see below) |
-| `THEME` | name or hex | `GREENLAND` (c64), `MEGA` (m65) | Colour theme for the REPL |
+| `THEME` | name or hex | `CLOUDY` | Colour theme for the REPL |
 | `TAB_WIDTH` | 1 2 4 8 16 32 | `8` | Editor tab stop interval.  A power of two, so `col mod TAB_WIDTH` is a single `and`; any other value is a build error.  8 matches every C64-era toolchain convention. |
 
 ### Builds and CPU sets

@@ -182,37 +182,41 @@ Press RUN/STOP to toggle between the REPL and the source editor.
 
 ### Themes
 
-CSE ships with fourteen compile time colour themes — pick one
+CSE ships with eighteen compile time colour themes — pick one
 with `make THEME=NAME`, or change the colours with the `C` REPL
-command.
+command.  CLOUDY is the default on the C64 and the MEGA65.
 
 <table>
 <tr>
-  <td align="center"><img src="img/theme-GREENLAND.png" width="160" alt="GREENLAND"><br><sub>GREENLAND <i>(default)</i></sub></td>
-  <td align="center"><img src="img/theme-RADIOACTIVITY.png" width="160" alt="RADIOACTIVITY"><br><sub>RADIOACTIVITY</sub></td>
-  <td align="center"><img src="img/theme-MATRIX.png" width="160" alt="MATRIX"><br><sub>MATRIX</sub></td>
-  <td align="center"><img src="img/theme-HERCULES.png" width="160" alt="HERCULES"><br><sub>HERCULES</sub></td>
+  <td align="center"><img src="img/theme-CLOUDY.png" width="160" alt="CLOUDY"><br><sub>CLOUDY <i>(default)</i></sub></td>
+  <td align="center"><img src="img/theme-CONCRETE.png" width="160" alt="CONCRETE"><br><sub>CONCRETE</sub></td>
+  <td align="center"><img src="img/theme-ASPHALT.png" width="160" alt="ASPHALT"><br><sub>ASPHALT</sub></td>
+  <td align="center"><img src="img/theme-JIFFY.png" width="160" alt="JIFFY"><br><sub>JIFFY</sub></td>
 </tr>
 <tr>
+  <td align="center"><img src="img/theme-GREENLAND.png" width="160" alt="GREENLAND"><br><sub>GREENLAND</sub></td>
+  <td align="center"><img src="img/theme-MOSS.png" width="160" alt="MOSS"><br><sub>MOSS</sub></td>
+  <td align="center"><img src="img/theme-RADIOACTIVITY.png" width="160" alt="RADIOACTIVITY"><br><sub>RADIOACTIVITY</sub></td>
+  <td align="center"><img src="img/theme-MATRIX.png" width="160" alt="MATRIX"><br><sub>MATRIX</sub></td>
+</tr>
+<tr>
+  <td align="center"><img src="img/theme-HERCULES.png" width="160" alt="HERCULES"><br><sub>HERCULES</sub></td>
   <td align="center"><img src="img/theme-MILKYWAY.png" width="160" alt="MILKYWAY"><br><sub>MILKYWAY</sub></td>
   <td align="center"><img src="img/theme-BRUCELEE.png" width="160" alt="BRUCELEE"><br><sub>BRUCELEE</sub></td>
   <td align="center"><img src="img/theme-LEEBRUCE.png" width="160" alt="LEEBRUCE"><br><sub>LEEBRUCE</sub></td>
-  <td align="center"><img src="img/theme-MRSPIGGY.png" width="160" alt="MRSPIGGY"><br><sub>MRSPIGGY</sub></td>
 </tr>
 <tr>
+  <td align="center"><img src="img/theme-MRSPIGGY.png" width="160" alt="MRSPIGGY"><br><sub>MRSPIGGY</sub></td>
   <td align="center"><img src="img/theme-ORANGE.png" width="160" alt="ORANGE"><br><sub>ORANGE</sub></td>
   <td align="center"><img src="img/theme-MUDDY.png" width="160" alt="MUDDY"><br><sub>MUDDY</sub></td>
-  <td align="center"><img src="img/theme-CLOUDY.png" width="160" alt="CLOUDY"><br><sub>CLOUDY</sub></td>
   <td align="center"><img src="img/theme-C64.png" width="160" alt="C64"><br><sub>C64</sub></td>
 </tr>
 <tr>
   <td align="center"><img src="img/theme-C128.png" width="160" alt="C128"><br><sub>C128</sub></td>
-  <td colspan="3" align="left" valign="top"><sub>Or specify any 3-digit hex code directly: <code>make THEME=cb5</code> (border, background, foreground — C64 palette <code>0</code>–<code>f</code>).  At runtime, <code>C bgf</code> (three adjacent hex digits, e.g. <code>C d5d</code>) sets all three.</sub></td>
+  <td align="center"><img src="img/theme-MEGA.png" width="160" alt="MEGA"><br><sub>MEGA <i>(the MEGA65's own)</i></sub></td>
+  <td colspan="2" align="left" valign="top"><sub>Or specify any 3-digit hex code directly: <code>make THEME=cb5</code> (border, background, foreground — C64 palette <code>0</code>–<code>f</code>).  At runtime, <code>C bgf</code> (three adjacent hex digits, e.g. <code>C fc1</code>) sets all three.</sub></td>
 </tr>
 </table>
-
-The fourteenth, MEGA (`661`: white on blue, the MEGA65's own colours),
-is the default of the MEGA65 build ([§ On the MEGA65](#on-the-mega65)).
 
 ## REPL commands
 
@@ -368,7 +372,7 @@ unsaved edits.  Any key other than `y` cancels.
 Colour values are hex digits `0`–`f` (C64 palette), written
 together: `C 6` sets the text colour; `C 06` background and text;
 `C 0e6` border, background and text.  `C` alone shows the current
-three (`; color: d5d`).
+three (`; color: fc1`).
 
 **Recovering the display.**  If your program has trashed the
 screen, press SHIFT+CLR/HOME at the REPL prompt to redraw the CSE
@@ -661,9 +665,9 @@ Where it differs from the C64 build:
   does not touch your memory (on the C64 it overwrites the workspace
   from `$0801`).
 
-- **Colours.**  The default theme is MEGA, the MEGA65's own white on
-  blue (GREENLAND on the C64); `make THEME=…` and `C` work as on the
-  C64.
+- **Colours.**  The themes, their default CLOUDY, `make THEME=…` and
+  `C` work as on the C64; `make THEME=MEGA` gives the MEGA65's own
+  white on blue.
 - **Screen modes.**  80 × 25 by default; ESC 4 switches to 40 × 25,
   ESC 5 to 80 × 50, ESC 8 back to 80 × 25 — at the prompt, not in the
   editor.  A switch clears the screen.

@@ -47,8 +47,8 @@ Run each PRG cleanly on a freshly-booted C64.
 `make THEME=NAME && exomizer && load on VICE`.  At least four
 to spot-check the palette decoder.
 
-- [ ] **B1.** `make THEME=GREENLAND` (default) — light-green
-      border, green canvas, light-green text.
+- [ ] **B1.** `make THEME=CLOUDY` (default) — light-grey
+      border, grey canvas, white text.
 - [ ] **B2.** `make THEME=MATRIX` — black canvas, green text.
 - [ ] **B3.** `make THEME=C64` — light-blue / blue / light-blue
       classic.
