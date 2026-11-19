@@ -1446,8 +1446,8 @@ def _scr(ch):
     c = ord(ch)
     if 0x61 <= c <= 0x7A:
         return c - 0x60
-    if c == 0x40:
-        return 0
+    if c in (0x40, 0x5B, 0x5D):     # '@' '[' ']': screen codes $00 $1B $1D
+        return c - 0x40
     return c
 
 

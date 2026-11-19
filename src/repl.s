@@ -47,6 +47,14 @@
         .import asm_line, asm_err_code
         .import dasm_insn_pre, _dasm_in, dasm_buf
         .importzp _dasm_ptr
+.ifdef MEGA_SUPPORT
+        .import dasm_insn, asm_rel16
+        .importzp _dasm_mode
+DOT_MAX     = 5                 ; the longest instruction: hex pairs / columns
+MODE_REL16  = 17                ; (opcode_lookup.md § Mode constants)
+.else
+DOT_MAX     = 3
+.endif
         .import asm_assemble, seg_print_save
 
 ; ── Imports: debugger ──────────────────────────────────────
@@ -195,7 +203,7 @@ dot_asm_buf:    .res 24
 rp_next_hi:     .res 2          ; 16-bit scratch pair (rp_next_lo lives in zp.s)
 rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
-rp_hexbuf:      .res 3          ; cmd_dot hex byte parse
+rp_hexbuf:      .res DOT_MAX    ; cmd_dot hex byte parse
 cold_preview_done: .res 1       ; cold-preview marker.  Set by
                                 ; cmd_step's cold-preview branch
                                 ; (alongside dbg_reason promotion to
@@ -1195,7 +1203,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 
         ; dasm_insn_pre owns its KERNAL banking — we hand it the
         ; (possibly staged) bytes and the real PC for branch targets.
-        ldy #2
+        ldy #DOT_MAX - 1
 @cp:    FAR_LDA rp_ptr2
         sta _dasm_in,y
         dey
@@ -1212,11 +1220,11 @@ zp_stage_prep_addr:                     ; convenience entry: load
         lda #' '
         jsr io_putc
 
-        ; emit_hex_cols(rp_ptr2 already set, olen, 3)
+        ; emit_hex_cols(rp_ptr2 already set, olen, DOT_MAX)
         pla                     ; olen
         pha
         sta rp_save             ; count
-        lda #3
+        lda #DOT_MAX
         sta rp_save2            ; max
         jsr emit_hex_cols
 
@@ -1624,9 +1632,13 @@ mem_row:
 :       jsr skip_sp_ptr1
 @noh:   ldy #0
         FAR_LDA rp_ptr
+.ifdef MEGA_SUPPORT
+        cmp #$5B                ; '[' a far operand: kept as '(' is
+        beq @paren
+.endif
         cmp #'('
         bne @nop
-        ldy rp_save
+@paren: ldy rp_save
         sta dot_asm_buf,y
         iny
         sty rp_save
@@ -1751,13 +1763,13 @@ mem_row:
 
         jsr skip_sp_ptr1
 
-        ; Parse up to 3 hex byte pairs
+        ; Parse up to DOT_MAX hex byte pairs (the longest instruction)
         lda #0
         sta rp_cnt              ; nbytes
 
 @hex_lp:
         lda rp_cnt
-        cmp #3
+        cmp #DOT_MAX
         bcs @hex_done
         ldy #0
         jsr is_hex_at_ptr1
@@ -1848,6 +1860,22 @@ mem_row:
         bcc @syn_err            ; non-letter garbage → syntax error
         cmp #'z'+1
         bcs @syn_err            ; above 'z' → syntax error
+.ifdef MEGA_SUPPORT
+        ; Re-entered over matching bytes (mode 2): keep the width — a
+        ; 16-bit branch lists like an 8-bit one, so ask asm_line for
+        ; REL16 when the bytes are one (repl.md § The `.` command).
+        lda rp_cnt
+        beq :+
+        lda rp_addr
+        ldx rp_addr+1
+        jsr dasm_insn
+        lda _dasm_mode
+        cmp #MODE_REL16
+        bne :+
+        lda #$80
+        sta asm_rel16
+:
+.endif
         jsr dot_assemble
         cmp #0
         bne @show               ; success → show result

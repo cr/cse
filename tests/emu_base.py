@@ -31,8 +31,8 @@ from iec_drive import Drive1541, IECBus
 
 def decode_screen_codes(codes):
     """Screen codes as text, in the lowercase/uppercase charset (CSE's
-    runtime mode): $00 '@', $01-$1A 'a'-'z', $20-$3F as is, $41-$5A
-    'A'-'Z', anything else '?'.  Bit 7 (reverse) is ignored; trailing
+    runtime mode): $00 '@', $01-$1A 'a'-'z', $1B '[', $1D ']', $20-$3F as
+    is, $41-$5A 'A'-'Z', anything else '?'.  Bit 7 (reverse) is ignored; trailing
     blanks are stripped."""
     chars = []
     for sc in codes:
@@ -41,6 +41,8 @@ def decode_screen_codes(codes):
             chars.append("@")
         elif 0x01 <= sc <= 0x1A:
             chars.append(chr(sc + 0x60))
+        elif sc in (0x1B, 0x1D):
+            chars.append(chr(sc + 0x40))
         elif 0x20 <= sc <= 0x3F:
             chars.append(chr(sc))
         elif 0x41 <= sc <= 0x5A:

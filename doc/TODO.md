@@ -174,7 +174,7 @@ disassembler (A4) followed: see A4 below.
   [repl.md](modules/repl.md)).
 - [x] B6. `dasm_insn`: prefix peel, m65 modes, 1–5-byte length
   ([dasm.md](modules/dasm.md)).
-- [ ] B7. REPL `.` / `d`: hex columns = the build's maximum length;
+- [x] B7. REPL `.` / `d`: hex columns = the build's maximum length;
   `dot_assemble` passes suffixes, `[`, `,z`, `,sp`
   ([repl.md](modules/repl.md)).
 
@@ -1665,6 +1665,17 @@ opcode at `asm_cpu` 0 / 2 / 3 / 4 as its view, every prefixed row at
 4, no peel below, and the asm → dasm → asm round trip over the 45GS02
 view.  m65-45gs02 24 484 B.
 
+Step (8) done 2026-11-19: `DOT_MAX` (3 c64, 5 m65) sizes `.`'s pairs,
+`rp_hexbuf`, `emit_dot`'s copy and columns; `.` re-entered over
+matching bytes disassembles them first and passes `asm_rel16` for a
+16-bit branch; `dot_assemble` keeps `[`.  M65Session tests: five
+columns in every mode (the 38-column row at column 24 in 40), a
+five-byte poke, unchanged rows re-entered byte for byte (16-bit
+branches in reach among them), an edited branch by distance, the m65
+forms through `.`; test_m65_repl's rows are five columns wide.  Found
+on the way, in the harness: the screen-text helpers knew no `[` `]`
+(`_scr`, `decode_screen_codes`).  m65-45gs02 24 510 B.
+
 **P4 TDD analysis (2026-11-19) — approved 2026-11-19.**  The tests, written
 first, step by step; each is red until its code lands.  Automation
 judgement: all of it is automatable — the generators on the host,
@@ -1741,7 +1752,7 @@ hardware: O1 and O3, as before.
   decorations, the seven `($nn)` Q forms.  Round trip: every row
   assembled, listed and assembled again gives the same bytes (A5's
   round trip, on the m65 set).
-- [ ] T8. The REPL on m65 (step 8; M65Session, each mode): `d` rows
+- [x] T8. The REPL on m65 (step 8; M65Session, each mode): `d` rows
   with five columns, the mnemonic at column 24, the longest row
   within 40 columns; `. 42 42 ea b2 10` pokes five bytes; RETURN on an
   unchanged `d` row writes the same bytes for a sample of every mode

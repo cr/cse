@@ -31,7 +31,7 @@ import re
 import pytest
 
 from m65emu import M65Emu
-from m65emu.harness import CSE_BP, flat
+from m65emu.harness import TEXT_MODES, CSE_BP, flat
 from test_kernel_transition import _local_after, _scr
 
 DBG_NONE, DBG_RTS, DBG_BRK = 0, 1, 2     # src/dbg_reason.inc
@@ -239,10 +239,10 @@ def test_an_80_column_m_row_re_executes(s):
 def test_dot_assembles_and_d_disassembles(s):
     s.type(". lda #$01")
     assert s.peek(0x2000, 2) == [0xA9, 0x01]
-    s.find(r"^2000:\.  a9 01     lda #\$01$")
+    s.find(r"^2000:\.  a9 01           lda #\$01$")
     s.type("@ $2000")
     s.type("d")
-    s.find(r"^2000:\.  a9 01     lda #\$01$")
+    s.find(r"^2000:\.  a9 01           lda #\$01$")
 
 
 REG80 = r"^r pc:[0-9a-f]{4} a:[0-9a-f]{2} x:[0-9a-f]{2} y:[0-9a-f]{2} " \
@@ -348,14 +348,14 @@ def test_break_panel_and_t_re_print(s, key, panel):
     assert rows[h - 1] == "3001:"
     assert rows[h - 2 - panel] .startswith("2000:j $3000")
     assert rows[h - 1 - panel] == "; brk 1 at $3001"
-    assert rows[h - 2] == "3001:.  ea        eom"
+    assert rows[h - 2] == "3001:.  ea              eom"
     s.type("t")
     rows = s.rows()
     assert rows[h - 1] == "3002:"
-    assert rows[h - 2 - panel] == "3001:.  ea        eom"   # the pre-step row
+    assert rows[h - 2 - panel] == "3001:.  ea              eom"   # the pre-step row
     assert rows[h - 3 - panel].startswith("2000:j $3000")
     assert rows[h - 1 - panel] == "; brk at $3002"
-    assert rows[h - 2] == "3002:.  e8        inx"
+    assert rows[h - 2] == "3002:.  e8              inx"
 
 
 # ── T9: the debugger typed, the matrix through the REPL ───────────
@@ -431,7 +431,7 @@ def test_d_after_a_break_shows_the_users_bytes(s):
     s.type("j $3000")
     s.type("@ $3000")
     s.type("d")
-    s.find(r"^3000:\.  a9 07     lda #\$07$")
+    s.find(r"^3000:\.  a9 07           lda #\$07$")
 
 
 # the matrix (debugger.md § dbg_reason x command matrix)
@@ -517,3 +517,61 @@ def test_cpu_directive_on_m65(s, name, errors):
     s.type("a", max_steps=6_000_000)
     assert s.w("asm_errors") == errors
     assert s.v("asm_cpu") == 4                     # the REPL's CPU is kept
+
+
+# ── P4 T8: the REPL's rows on m65 — five byte columns (D-P4-1, D-P4-2) ──
+
+@pytest.mark.parametrize("name", list(TEXT_MODES))
+def test_d_rows_have_five_columns_and_fit_40(s, name):
+    key = TEXT_MODES[name][0]
+    if name != "80x25":
+        s.mode(key)
+    s.poke(USER, [0xE2, 0x12, 0x42, 0x42, 0xEA, 0xB2, 0x10])   # lda ($12,sp),y; ldq [$10],z
+    s.type("@ $3000")
+    s.type("d")
+    k, row = s.find(r"^3000:\.  e2 12           lda \(\$12,sp\),y$")
+    assert len(row) == 38 and row.index("lda") == 24
+    assert s.row(k + 1) == "3002:.  42 42 ea b2 10  ldq [$10],z"
+
+
+def test_dot_pokes_five_bytes(s):
+    s.type("@ $3000")
+    s.type(". 42 42 ea b2 10")
+    assert s.peek(0x3000, 5) == [0x42, 0x42, 0xEA, 0xB2, 0x10]
+    s.find(r"^3000:\.  42 42 ea b2 10  ldq \[\$10\],z$")
+
+
+@pytest.mark.parametrize("raw", [
+    [0xD3, 0x02, 0x00],                 # bne, 16 bits, target in reach
+    [0x83, 0x05, 0x00],                 # bra, 16 bits
+    [0x42, 0x42, 0xEA, 0xB2, 0x10],     # ldq [$10],z
+    [0x42, 0x42, 0x72, 0x12],           # adcq ($12)
+    [0xE2, 0x12], [0xF4, 0x34, 0x12], [0x37, 0x12], [0xFF, 0x12, 0x02],
+    [0x1A], [0x42, 0x42, 0x0A],         # inc (bare), aslq
+])
+def test_return_on_an_unchanged_d_row_writes_the_same_bytes(s, raw):
+    s.poke(USER, raw + [0xEA] * 5)
+    s.type("@ $3000")
+    s.type("d")
+    k, row = s.find(r"^3000:\.")
+    s.enter_on(k)                       # the bytes match: mode 2 re-assembles
+    assert s.peek(USER, len(raw) + 1) == raw + [0xEA]
+
+
+def test_an_edited_branch_row_takes_the_usual_width(s):
+    s.type("@ $3000")
+    s.type(". bne $3004")
+    assert s.peek(USER, 2) == [0xD0, 0x02]
+
+
+@pytest.mark.parametrize("text,raw", [
+    (". rmb3 $12", [0x37, 0x12]),
+    (". ldq ($12),z", [0x42, 0x42, 0xB2, 0x12]),
+    (". staq $1234", [0x42, 0x42, 0x8D, 0x34, 0x12]),
+    (". lda [$12],z", [0xEA, 0xB2, 0x12]),
+    (". lda ($12,sp),y", [0xE2, 0x12]),
+])
+def test_dot_assembles_the_m65_forms(s, text, raw):
+    s.type("@ $3000")
+    s.type(text)
+    assert s.peek(USER, len(raw)) == raw
