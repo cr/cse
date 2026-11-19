@@ -382,7 +382,29 @@ mode's width × height ([platform_layer.md § Screen save](../platform_layer.md#
 refused at `LINE_MAX` and at the screen's last column, whichever is
 smaller: in 40 × 25 the cap is 39, and a longer line (written in 80
 columns, or loaded) shows `>` in col 39 as on c64 and cannot grow
-there.  A source with lines over 39 columns assembles on m65 and is
+there.  Since `LINE_MAX` is 80 columns' last column, the editor's
+caps (printable, INS, TAB, RIGHT) are `LAST_COL` in every mode — the
+c64 code with its 39 named by the operand define.
+
+**Entering after a mode change.**  The cursor's line and column
+outlive the editor between visits, the mode may not: on entry a
+column past the last column puts the cursor at its line's start
+(`gb_home`), and a cursor row at or below `ED_ROWS` makes the
+cursor's line the top of the view (as the DEL join's top adjustment).
+The source is not changed.
+
+**The m65 bodies.**  The screen save is screen.s's `screen_save` /
+`screen_restore` (one DMA copy of the mode's width × height); the
+context rows are copied from the save by the far byte loop; the
+source rows are not cleared first (`ed_render` writes every one).
+The row scrolls (`ed_scroll_up` / `ed_scroll_down`) stay the c64
+row-by-row copies on far pointers, `ED_LAST` rows of `WIDTH` bytes:
+D-P2-10's one-DMA-job scroll is screen.s's `scroll_up`, the REPL's.
+The status bar's right fields are written through `_ed_status_right`
+(the row's address + width − 40, so the c64 columns 19–39 serve);
+`free:` shows `PROG_LO`–`PROG_HI` and is not redrawn by
+`ed_mark_edited`, since it never changes.  Tests:
+`tests/integration/test_m65_source_editor.py`.  A source with lines over 39 columns assembles on m65 and is
 truncated, with the warning, by the C64 build.
 
 ### Long lines and the overflow indicator

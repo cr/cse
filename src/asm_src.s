@@ -57,7 +57,7 @@ _cpu_save:     .res 1          ; caller's asm_cpu: each pass starts with it
 asm_size:      .res 2          ; total bytes emitted
 asm_errors:    .res 2          ; error count (pass 1 only)
 _line_num:      .res 2
-_line_buf:      .res 40
+_line_buf:      .res LINE_MAX + 1
 MAX_LABEL = 23                  ; label name chars (local: after the dot)
 INSN_MAX  = 57                  ; _insn_buf text chars (+ NUL)
 _scope_name:    .res MAX_LABEL+1        ; last global label (for .local expansion)
@@ -1512,8 +1512,8 @@ _too_long_err:
         inc _line_num
         bne :+
         inc _line_num+1
-        ; Characters past the 39th were dropped (X != 0)?  A line of
-        ; exactly 39 fits whole and is not truncated.
+        ; Characters past the LINE_MAX-th were dropped (X != 0)?  A
+        ; line of exactly LINE_MAX fits whole and is not truncated.
 :       txa
         beq @no_trunc
         lda asm_pass

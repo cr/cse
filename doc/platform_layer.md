@@ -551,7 +551,7 @@ cse_io.s's geometry, and two macros.
 **The geometry.**  On c64 the width, height and screen address are
 constants; on m65 they are run-time state — `scr_width` and
 `scr_last_col` in CSE's base page (every character's clamp reads
-them), `scr_height`, `scr_last_row`, `scr_ed_rows`, `scr_bank`,
+them), `scr_height`, `scr_last_row`, `scr_ed_rows`, `scr_ed_last`, `scr_bank`,
 `scr_size` and `scr_lo` / `scr_hi` (50 rows) in cse_io's BSS (the base
 page is full) — set by `io_geometry` at cold start and after every
 mode change.  An inline site names them through **operand defines**, which
@@ -563,11 +563,16 @@ on m65:
 | `WIDTH`, `LAST_COL` | `#40`, `#39` | `scr_width`, `scr_last_col` |
 | `HEIGHT`, `LAST_ROW` | `#25`, `#24` | `scr_height`, `scr_last_row` |
 | `ED_ROWS`, `ED_STATUS_ROW` (the editor: height − 3, its status row) | `#22`, `#22` | `scr_ed_rows`, the same cell |
+| `ED_LAST` (the editor's last source row: height − 4) | `#21` | `scr_ed_last` |
 
 Two build-time maxima size the buffers that hold a row:
 `SCREEN_WIDTH_MAX` (40; m65 80 — `line_buf` is 2 more) and
 `MEM_ROW_MAX`, the most bytes an `m` row shows or an edit takes (8;
-m65 16 — `zp_stage_buf`; repl.md, *By width*).  A routine that
+m65 16 — `zp_stage_buf`; repl.md, *By width*).  `LINE_MAX` (39; m65
+79) is a source line's length: the assembler's read (`_line_buf` is
+one more) and `warn_long_lines`; the editor's typing cap is the last
+column (`LAST_COL`), which equals `LINE_MAX` in 80 columns and is 39
+in 40.  A routine that
 depends on the mode reads the cells: `mem_row` (repl.s, m65) gives 16
 in 80 columns, 8 in 40; `emit_reg` and `cmd_step`'s panel height test
 `scr_width` against 80.
@@ -605,7 +610,7 @@ The editor saves and restores the REPL screen around itself
 calls where it reads the buffer; in the data window on m65, sized for
 80 × 50 (4000 bytes), saved and restored by one DMA copy of the
 current mode's width × height bytes between the screen's bank and
-`3.B000`.  A mode change while the editor runs is refused (the saved
+`3.B000` (screen.s's `screen_save` / `screen_restore`).  A mode change while the editor runs is refused (the saved
 screen is the mode's).  The colour RAM is not saved on either
 platform: `restore_colors` repaints it.
 

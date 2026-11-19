@@ -3031,7 +3031,7 @@ TAB_MASK_WL = TAB_WIDTH - 1
 
 @check_vcol:
         lda wl_vcol
-        cmp #40                 ; > 39 ?
+        cmp #LINE_MAX + 1       ; > LINE_MAX ?
         bcc @ok
         ; Print ";!long LNN" (1-based line number)
         ldy #LOG_WARN

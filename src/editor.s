@@ -32,6 +32,9 @@
         .import update_workend
 
         .import io_sync, io_blip
+.ifdef PLATFORM_M65
+        .import screen_save, screen_restore
+.endif
         .import kernal_bank_out, kernal_bank_in
         .import disk_save_seq, disk_load_seq
         .import disk_seq_bytes, disk_seq_lines
@@ -40,8 +43,9 @@
         .importzp disk_ptr
 
 ; ── Constants ────────────────────────────────────────────────
-ED_LINES     = 22            ; visible source lines
-ED_STATUS    = 22            ; status bar row
+; The rows (platform.inc's operand defines; m65 run-time cells):
+; ED_ROWS source rows (0 .. ED_LAST), the status bar on ED_STATUS_ROW,
+; the two context rows below it.
 ; BUF_END (exclusive) and BUF_FLOOR: platform.inc's
 
 ; ── Tab width (build-time constant) ──────────────────────────
@@ -117,31 +121,67 @@ _ed_scr_row:
         sta ed_scr
         lda scr_hi,x
         sta ed_scr+1
+        FAR_BANK_SCREEN ed_scr  ; m65: the screen's bank
         rts
+
+; ed_scr is a screen pointer (_ed_scr_row) or a buffer pointer (the
+; three below, m65: BANK_SRC); a routine that walks it from there
+; rewrites the offset only (gap_buffer.md, On m65).
 
 ; _ed_scr_top — set ed_scr = ed_top_ptr
 _ed_scr_top:
         lda ed_top_ptr
         sta ed_scr
         lda ed_top_ptr+1
+.ifdef PLATFORM_C64
         sta ed_scr+1
         rts
+.else
+        jmp _ed_scr_src
+.endif
 
 ; _ed_scr_ghi — set ed_scr = gap_hi
 _ed_scr_ghi:
         lda gap_hi
         sta ed_scr
         lda gap_hi+1
+.ifdef PLATFORM_C64
         sta ed_scr+1
         rts
+.else
+        jmp _ed_scr_src
+.endif
 
 ; _ed_scr_glo — set ed_scr = gap_lo
 _ed_scr_glo:
         lda gap_lo
         sta ed_scr
         lda gap_lo+1
+.ifdef PLATFORM_C64
         sta ed_scr+1
         rts
+.else
+_ed_scr_src:                    ; A = the offset's high byte
+        sta ed_scr+1
+        FAR_BANK ed_scr, BANK_SRC
+        rts
+
+; _ed_status_right — ed_scr = the status row + (width − 40), so the
+; c64 bar's columns 19–39 (free: and LLLL,CC) are anchored to the
+; right edge (editor.md, On m65).  Clobbers A, X.
+_ed_status_right:
+        ldx ED_STATUS_ROW
+        jsr _ed_scr_row
+        lda scr_width
+        sec
+        sbc #40
+        clc
+        adc ed_scr
+        sta ed_scr
+        bcc :+
+        inc ed_scr+1
+:       rts
+.endif
 
 ; _ed_cur_row — A = ed_cur_line - ed_top_line (screen row)
 ; Leaves carry from the low-byte subtraction intact for callers that
@@ -226,8 +266,9 @@ _ed_cur_row:
         sta ed_tmp
         lda scr_hi,x
         sta ed_tmp+1
+        FAR_BANK_SCREEN ed_tmp
         lda #$20
-        ldy #SCREEN_WIDTH - 1
+        ldy LAST_COL
 @blank: FAR_STA ed_tmp
         dey
         bpl @blank
@@ -238,7 +279,7 @@ _ed_cur_row:
 ; Off-screen cursor rows are ignored.
 .proc ed_sync_cursor
         jsr _ed_cur_row
-        cmp #ED_LINES
+        cmp ED_ROWS
         bcs @done
         sta IO_CY
         lda ed_cur_col
@@ -257,15 +298,16 @@ _ed_cur_row:
         sta ed_tmp
         lda scr_hi,x
         sta ed_tmp+1
+        FAR_BANK_SCREEN ed_tmp
         ldy #0                  ; col = 0
 
 @char_loop:
-        cpy #SCREEN_WIDTH
+        cpy WIDTH
         bcc :+
         ; Line overflows screen — show > indicator in col 39.
         ; Skip remaining content until CR or EOF.
         lda #$3E                ; '>' (normal, not reversed)
-        ldy #SCREEN_WIDTH - 1
+        ldy LAST_COL
         FAR_STA ed_tmp
         jmp @skip_rest
 :
@@ -325,7 +367,7 @@ _ed_cur_row:
         sbc @tw_save            ; width = TAB_WIDTH - (col mod TAB_WIDTH)
         tax                     ; X = width counter
 @tab_fill:
-        cpy #SCREEN_WIDTH
+        cpy WIDTH
         bcs @tab_advance
         lda #$20
         FAR_STA ed_tmp
@@ -346,7 +388,7 @@ _ed_cur_row:
         inc ed_scr+1
 @pad:
         ; Pad rest of row with spaces
-        cpy #SCREEN_WIDTH
+        cpy WIDTH
         bcs @pad_done
         lda #$20
         FAR_STA ed_tmp
@@ -403,6 +445,7 @@ _ed_cur_row:
 ; Input/Output: ed_scr
 ; Clobbers: A, Y
 .proc prev_line_start
+        FAR_BANK ed_tmp, BANK_SRC       ; ed_tmp walks the buffer here
         ; If ed_scr == gap_hi → set to gap_lo
         lda ed_scr
         cmp gap_hi
@@ -574,8 +617,12 @@ _ed_cur_row:
 ; ── ed_status_pos — update cursor position (cols 33-39) ───────
 .proc ed_status_pos
         ; Screen pointer to status row
-        ldx #ED_STATUS
+.ifdef PLATFORM_C64
+        ldx ED_STATUS_ROW
         jsr _ed_scr_row
+.else
+        jsr _ed_status_right
+.endif
 
         ; Column: 2 digits (1-based)
         lda ed_cur_col
@@ -642,7 +689,8 @@ _ed_cur_row:
 
 ; ── ed_status_free — update upper free address (cols 29-32) ───
 .proc ed_status_free
-        ldx #ED_STATUS
+.ifdef PLATFORM_C64
+        ldx ED_STATUS_ROW
         lda scr_lo,x
         clc
         adc #29
@@ -658,18 +706,31 @@ _ed_cur_row:
         lda buf_base+1
         sbc #0
         sta ed_tmp+1
+.else
+        jsr _ed_status_right
+        lda ed_scr
+        clc
+        adc #29
+        sta ed_scr
+        bcc :+
+        inc ed_scr+1
+:       lda #<PROG_HI           ; workend: the program region's, fixed
+        sta ed_tmp
+        lda #>PROG_HI
+        sta ed_tmp+1
+.endif
         jmp st_hex4
 .endproc
 
 ; ── ed_render_status — full status bar rebuild ────────────────
 .proc ed_render_status
         ; Get screen pointer to status row
-        ldx #ED_STATUS
+        ldx ED_STATUS_ROW
         jsr _ed_scr_row
 
         ; Fill with reversed spaces
         lda #$A0
-        ldy #SCREEN_WIDTH - 1
+        ldy LAST_COL
 @fill:  FAR_STA ed_scr
         dey
         bpl @fill
@@ -730,6 +791,9 @@ _ed_cur_row:
         iny
         bne @fn_loop            ; Y never wraps here
 @no_name:
+.ifdef PLATFORM_M65
+        jsr _ed_status_right    ; the fields below anchored right
+.endif
 
         ; "free:" label (cols 19-23)
         ldy #19
@@ -804,7 +868,7 @@ _ed_cur_row:
 @render:
         cpx @to
         bcs @done
-        cpx #ED_LINES
+        cpx ED_ROWS
         bcs @done
 
         ; Skip gap
@@ -839,7 +903,7 @@ _ed_cur_row:
 ; ── ed_render — full redraw (22 lines + status) ──────────────
 .proc ed_render
         ldx #0
-        ldy #ED_LINES
+        ldy ED_ROWS
         jsr ed_render_range
         jmp ed_render_status
 .endproc
@@ -868,6 +932,7 @@ _ed_cur_row:
         ; Shift screen rows 1..21 → 0..20 (21 rows × 40 bytes = 840 B).
         ; Row-by-row ascending copy: at iter k, dst = row k, src = row k+1.
         ; Safe because src row and dst row never overlap.
+        FAR_BANK_SCREEN save_ptr
         ldx #0                  ; X = dst row; src row = X + 1
 @row:   jsr _ed_scr_row
         inx                     ; X = src row
@@ -875,19 +940,19 @@ _ed_cur_row:
         sta save_ptr
         lda scr_hi,x
         sta save_ptr+1
-        ldy #SCREEN_WIDTH - 1
+        ldy LAST_COL
 @byte:  FAR_LDA save_ptr
         FAR_STA ed_scr
         dey
         bpl @byte
-        cpx #ED_LINES - 1       ; just copied from row 21? → done
+        cpx ED_LAST       ; just copied from row 21? → done
         bne @row
 
         ; Render the new bottom line (row 21)
         ; Find position: advance from ed_top_ptr by 21 lines
         jsr _ed_scr_top
         ldx #0
-@skip:  cpx #ED_LINES - 1      ; skip 21 lines
+@skip:  cpx ED_LAST      ; skip 21 lines
         bcs @got_pos
         jsr skip_one_line
         inx
@@ -898,12 +963,12 @@ _ed_cur_row:
         bcc @render_bottom
 
         ; Past EOF — blank row 21
-        ldx #ED_LINES - 1
+        ldx ED_LAST
         jsr blank_row
         jmp ed_status_pos
 
 @render_bottom:
-        ldx #ED_LINES - 1
+        ldx ED_LAST
         jsr ed_render_line
         jmp ed_status_pos
 .endproc
@@ -926,14 +991,15 @@ _ed_cur_row:
         ; Shift screen rows 0..20 → 1..21 (21 rows × 40 bytes = 840 B).
         ; Row-by-row descending copy so each src row is read before it
         ; gets overwritten by the row being shifted into it.
-        ldx #ED_LINES - 1       ; X = dst row (21); src row = X - 1
+        FAR_BANK_SCREEN save_ptr
+        ldx ED_LAST       ; X = dst row (21); src row = X - 1
 @row:   jsr _ed_scr_row
         dex                     ; X = src row
         lda scr_lo,x
         sta save_ptr
         lda scr_hi,x
         sta save_ptr+1
-        ldy #SCREEN_WIDTH - 1
+        ldy LAST_COL
 @byte:  FAR_LDA save_ptr
         FAR_STA ed_scr
         dey
@@ -1063,6 +1129,7 @@ _ed_cur_row:
 ; Clobbers: A, Y, ed_tmp.  Preserves X.
 .proc find_line_start
         jsr _ed_scr_glo
+        FAR_BANK ed_tmp, BANK_SRC       ; ed_tmp walks the buffer here
 @back:
         lda ed_scr+1
         cmp buf_base+1
@@ -1336,12 +1403,14 @@ _ed_cur_row:
 .proc ed_mark_edited
         lda #1
         sta ed_dirty
-        ldx #ED_STATUS
+        ldx ED_STATUS_ROW
         jsr _ed_scr_row
         lda #($2A | $80)        ; '*' reversed, col 0
         ldy #0
         FAR_STA ed_scr
-        jsr ed_status_free
+.ifdef PLATFORM_C64
+        jsr ed_status_free      ; m65: the free field is fixed
+.endif
         jmp ed_status_pos
 .endproc
 
@@ -1401,7 +1470,7 @@ _ed_cur_row:
 @right_check:
         ; Refuse if cursor is already at col 39 (screen edge)
         lda ed_cur_col
-        cmp #SCREEN_WIDTH - 1
+        cmp LAST_COL
         jcs @reject
         ldy #0
         FAR_LDA gap_hi
@@ -1445,7 +1514,7 @@ _ed_cur_row:
         sbc ed_top_line+1
         bne @do_scroll_up       ; hi byte nonzero → definitely >= 22
         lda ed_tmp
-        cmp #ED_LINES
+        cmp ED_ROWS
         bcs @do_scroll_up
         jmp @status_repos
 @do_scroll_up:
@@ -1481,7 +1550,7 @@ _ed_cur_row:
         ; Re-render from current row to bottom
         jsr _ed_cur_row
         tax                     ; from_row
-        ldy #ED_LINES
+        ldy ED_ROWS
         jsr ed_render_rows
         jsr ed_mark_edited
         jmp @repos
@@ -1534,7 +1603,7 @@ _ed_cur_row:
 @del_render:
         jsr _ed_cur_row
         tax                     ; from_row
-        ldy #ED_LINES
+        ldy ED_ROWS
         jsr ed_render_rows
 @del_edited:
         jmp @edited_repos
@@ -1659,13 +1728,13 @@ _ed_cur_row:
         sbc ed_top_line+1
         bne @enter_scroll       ; hi nonzero → scroll
         lda ed_tmp
-        cmp #ED_LINES
+        cmp ED_ROWS
         bcs @enter_scroll
         ; No scroll — re-render from previous row
         tax                     ; scr_row = ed_cur_line - ed_top_line
         beq @enter_full         ; scr_row == 0 → full render
         dex                     ; from scr_row - 1
-        ldy #ED_LINES
+        ldy ED_ROWS
         jsr ed_render_rows
         jmp @edited_repos
 @enter_full:
@@ -1680,7 +1749,7 @@ _ed_cur_row:
         cmp #CH_INS
         bne @not_ins
         jsr cursor_line_vwidth
-        cmp #SCREEN_WIDTH - 1   ; line full → refuse
+        cmp LAST_COL   ; line full → refuse
         jcs @reject
         lda #$20
         jsr gb_insert
@@ -1702,7 +1771,7 @@ _ed_cur_row:
         txa
         clc
         adc @new_col
-        cmp #SCREEN_WIDTH       ; > 39 → refuse
+        cmp WIDTH       ; > 39 → refuse
         jcs @reject
         ; Compute the new ed_cur_col: ed_cur_col + char_width(TAB, ed_cur_col).
         lda #$A0
@@ -1734,7 +1803,7 @@ _ed_cur_row:
 @printable:
         ; Refuse if the line is already at the 39-col cap.
         jsr cursor_line_vwidth
-        cmp #SCREEN_WIDTH - 1   ; line_vwidth ≥ 39 → refuse
+        cmp LAST_COL   ; line_vwidth ≥ 39 → refuse
         bcs @reject
         lda @key
         jsr gb_insert
@@ -1792,6 +1861,7 @@ _ed_cur_row:
 
 ; ── Mode switching ───────────────────────────────────────────
 
+.ifdef PLATFORM_C64                     ; m65: screen_save / screen_restore
 ; ── copy_1000 — copy 1000 bytes from (save_ptr) to (ed_scr) ──
 ; Ascending copy: 3 pages + 232 bytes
 .proc copy_1000
@@ -1813,6 +1883,7 @@ _ed_cur_row:
         bne @rem
         rts
 .endproc
+.endif
 
 ; ── enter_editor — switch from REPL to editor ─────────────────
 .proc enter_editor
@@ -1822,6 +1893,7 @@ _ed_cur_row:
         lda IO_CY
         sta repl_cur_y
 
+.ifdef PLATFORM_C64
         ; Save REPL screen RAM to banked RAM at REPL_SCREEN.
         ; Pure writer to the under-KERNAL region — stores pass through
         ; to RAM regardless of $01 bit 1, so no banking is required.
@@ -1835,6 +1907,9 @@ _ed_cur_row:
         lda #>REPL_SCREEN
         sta ed_scr+1
         jsr copy_1000
+.else
+        jsr screen_save         ; the mode's width x height to REPL_SCREEN
+.endif
 
         ; Init gap buffer if needed
         jsr ed_ensure_init
@@ -1867,6 +1942,36 @@ _ed_cur_row:
         sta ed_dirty            ; seed is not a user edit
 @has_content:
 
+.ifdef PLATFORM_M65
+        ; The mode may have changed since the last visit: the cursor back
+        ; on the screen — past the last column to its line's start, below
+        ; the last row with its line as the top (editor.md, On m65).
+        lda LAST_COL
+        cmp ed_cur_col
+        bcs :+                  ; col ≤ the last
+        jsr gb_home
+        lda #0
+        sta ed_cur_col
+:       jsr _ed_cur_row
+        tax                     ; the row (low byte)
+        lda ed_cur_line+1
+        sbc ed_top_line+1
+        bne @top
+        cpx ED_ROWS
+        bcc @in_view
+@top:   jsr find_line_start     ; ed_scr = the cursor line's start
+        lda ed_scr
+        sta ed_top_ptr
+        lda ed_scr+1
+        sta ed_top_ptr+1
+        lda ed_cur_line
+        sta ed_top_line
+        lda ed_cur_line+1
+        sta ed_top_line+1
+@in_view:
+.endif
+
+.ifdef PLATFORM_C64
         ; Clear editor area (rows 0-21) with spaces
         lda #<SCREEN
         sta ed_scr
@@ -1934,6 +2039,44 @@ _ed_cur_row:
         dey
         bpl @ctx
         jsr kernal_bank_in
+.else
+        ; ed_render draws every source row and the bar; the context rows
+        ; (height − 2, − 1) are the REPL rows max(0, cy − 2) and the next,
+        ; from the saved screen
+        lda repl_cur_y
+        sec
+        sbc #2
+        bcs :+
+        lda #0
+:       tax
+        lda scr_lo,x            ; the row's offset in the save
+        sec
+        sbc scr_lo
+        sta save_ptr
+        lda scr_hi,x
+        sbc scr_hi
+        sta save_ptr+1
+        lda save_ptr
+        clc
+        adc #<REPL_SCREEN
+        sta save_ptr
+        lda save_ptr+1
+        adc #>REPL_SCREEN
+        sta save_ptr+1
+        FAR_BANK save_ptr, BANK_CSE
+        ldx LAST_ROW
+        dex
+        jsr _ed_scr_row         ; ed_scr = row height − 2
+        lda scr_width
+        asl
+        sta ed_tmp              ; two rows: the count
+        ldy #0
+@ctx:   FAR_LDA save_ptr
+        FAR_STA ed_scr
+        iny
+        cpy ed_tmp
+        bne @ctx
+.endif
 
         ; Full render
         jsr ed_render
@@ -1948,6 +2091,7 @@ _ed_cur_row:
 
 ; ── leave_editor — switch from editor to REPL ─────────────────
 .proc leave_editor
+.ifdef PLATFORM_C64
         ; Restore REPL screen from banked RAM
         jsr kernal_bank_out
         lda #<REPL_SCREEN
@@ -1960,6 +2104,9 @@ _ed_cur_row:
         sta ed_scr+1
         jsr copy_1000
         jsr kernal_bank_in
+.else
+        jsr screen_restore      ; REPL_SCREEN to the mode's screen
+.endif
 
         ; Restore REPL cursor position
         lda repl_cur_x
@@ -2029,6 +2176,7 @@ _ed_cur_row:
         sta save_ptr
         lda buf_base+1
         sta save_ptr+1
+        FAR_BANK save_ptr, BANK_SRC
         lda #0
         sta save_phase
 

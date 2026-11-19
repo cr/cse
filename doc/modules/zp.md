@@ -77,7 +77,10 @@ differences; the addresses are the linker map's
   it walks a screen row (`read_line`, main_loop's DEL / INS, log.s's
   `info_line_tail`) — a source pointer `BANK_SRC`, the screen save's
   `BANK_CSE`; `_io_tmp` is `BANK_CSE` in `io_puts` (a string in CSE's
-  view).  How each user-memory pointer gets its
+  view).  The gap buffer's: [gap_buffer.md § On m65](gap_buffer.md)
+  (`gap_lo`, `gap_hi`, `buf_base`, `ed_top_ptr` set once by `gb_init`;
+  `ed_scr`, `ed_tmp`, `read_ptr` / `save_ptr` per routine, source or
+  screen).  How each user-memory pointer gets its
   bank (P1; [platform_layer.md § Far memory](../platform_layer.md#far-memory)):
   - `rp_ptr` — CSE's line parser (`line_buf`, bank 3) at its root in
     `exec_line`; its walks and the four restores from `expr_ptr` /

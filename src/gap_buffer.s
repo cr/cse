@@ -96,6 +96,18 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         sta ed_top_ptr+1
         sta src_top+1
         sta src_bot+1
+.ifdef PLATFORM_M65
+        lda #BANK_SRC           ; the four live in the source region: their
+        sta gap_lo+2            ; banks are set here only, every other site
+        sta gap_hi+2            ; rewrites their offsets (gap_buffer.md)
+        sta buf_base+2
+        sta ed_top_ptr+2
+        lda #0
+        sta gap_lo+3
+        sta gap_hi+3
+        sta buf_base+3
+        sta ed_top_ptr+3
+.endif
         lda #0
         sta ed_dirty
         sta ed_total_lines+1
@@ -144,6 +156,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 ; Called after any buf_base change (ed_init, gb_ensure_room) and
 ; also falls-into from define_ws_syms above.
 .proc update_workend
+.ifdef PLATFORM_C64
         lda buf_base
         sec
         sbc #1
@@ -151,6 +164,12 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         lda buf_base+1
         sbc #0
         sta sym_val+1
+.else
+        lda #<PROG_HI           ; the program region's end: the source
+        sta sym_val             ; is not in bank 0
+        lda #>PROG_HI
+        sta sym_val+1
+.endif
         lda #<s_workend
         sta sym_name
         lda #>s_workend
@@ -212,6 +231,14 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         clc
         adc #1
         sta save_ptr+1          ; src hi = buf_base+1 + 1
+.ifdef PLATFORM_M65
+        lda #BANK_SRC
+        sta ed_scr+2
+        sta save_ptr+2
+        lda #0
+        sta ed_scr+3
+        sta save_ptr+3
+.endif
 
         ; Copy ed_tmp bytes ascending (src → dst)
         ; pre_size could be > 256, use page loop
@@ -430,6 +457,8 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         stx save_ptr+1
         jsr ed_ensure_init
 @loop:
+        FAR_BANK save_ptr, BANK_CSE     ; the text, in CSE's view (again
+                                        ; after gb_insert's growth used it)
         ldy #0
         FAR_LDA save_ptr
         beq @done               ; NUL terminator
@@ -462,6 +491,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         sta read_ptr
         lda buf_base+1
         sta read_ptr+1
+        FAR_BANK read_ptr, BANK_SRC
         rts
 .endproc
 
@@ -514,6 +544,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 .proc ed_read_line
         sta ed_scr              ; buf lo
         stx ed_scr+1            ; buf hi
+        FAR_BANK ed_scr, BANK_CSE       ; the caller's line buffer
         lda #0
         sta ed_tmp              ; len = 0
         sta ed_tmp+1            ; dropped = 0
@@ -525,7 +556,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         cmp #$0D
         beq @eol                ; end of line
         ldy ed_tmp              ; current len
-        cpy #39
+        cpy #LINE_MAX
         bcs @drop               ; buffer full: drop the byte
         FAR_STA ed_scr
         inc ed_tmp              ; ++len (1..39, never 0)
@@ -571,6 +602,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 ; ══════════════════════════════════════════════════════════
 ; ── gb_home — move gap to start of current line ──────────────
 .proc gb_home
+        FAR_BANK ed_tmp, BANK_SRC       ; ed_tmp walks the buffer here
 @loop:
         ; Check gap_lo > buf_base
         lda gap_lo

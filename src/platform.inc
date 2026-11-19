@@ -129,12 +129,16 @@ SCREEN_WIDTH    = 40
 SCREEN_HEIGHT   = 25
 SCREEN_WIDTH_MAX = SCREEN_WIDTH ; the widest mode (line_buf)
 MEM_ROW_MAX     = 8             ; the most bytes an `m` row shows or edits
+LINE_MAX        = 39            ; a source line's length (the assembler's read,
+                                ; warn_long_lines); the editor's cap is LAST_COL
 ; the geometry's operand defines (§ Display): immediates here, cells on m65
 .define WIDTH           #SCREEN_WIDTH
 .define LAST_COL        #SCREEN_WIDTH - 1
 .define HEIGHT          #SCREEN_HEIGHT
 .define LAST_ROW        #SCREEN_HEIGHT - 1
 .define ED_ROWS         #SCREEN_HEIGHT - 3
+.define ED_STATUS_ROW   #SCREEN_HEIGHT - 3
+.define ED_LAST         #SCREEN_HEIGHT - 4
 
 ; ── VIC-II ───────────────────────────────────────────────────────────
 VIC_CR1         = $D011         ; DEN/BMM/ECM/RSEL/YSCROLL
@@ -308,6 +312,7 @@ BP_PENDING      = $AD               ; their cells, $AD-$AF of CSE's base page
 SCREEN_WIDTH_MAX = 80               ; the widest mode (line_buf)
 MEM_ROW_MAX     = 16                ; an `m` row: 16 bytes in 80 columns (8 in 40),
                                     ; an edit up to 16 in either (repl.md, By width)
+LINE_MAX        = 79                ; a source line's length (D-P2-5): 80 columns' last
 
 ; ── The terminal's cells and the geometry (§ Terminal, § Display) ────
 ; CSE's base-page cells (zp.s), named at inline sites through these
@@ -316,7 +321,7 @@ MEM_ROW_MAX     = 16                ; an `m` row: 16 bytes in 80 columns (8 in 4
         .importzp io_cx, io_cy, io_key, scr_width, scr_last_col
   .endif
   .ifndef CSE_IO_S              ; the rest of the geometry: cse_io.s's BSS
-        .import scr_height, scr_last_row, scr_ed_rows, scr_bank, scr_size
+        .import scr_height, scr_last_row, scr_ed_rows, scr_ed_last, scr_bank, scr_size
   .endif
 .define IO_CX           io_cx
 .define IO_CY           io_cy
@@ -325,6 +330,8 @@ MEM_ROW_MAX     = 16                ; an `m` row: 16 bytes in 80 columns (8 in 4
 .define HEIGHT          scr_height
 .define LAST_ROW        scr_last_row
 .define ED_ROWS         scr_ed_rows
+.define ED_STATUS_ROW   scr_ed_rows
+.define ED_LAST         scr_ed_last
 
 .endif ; PLATFORM_M65
 

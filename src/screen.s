@@ -12,7 +12,7 @@
         .export vic_reset
         .export kernal_screen_reset
 .ifdef PLATFORM_M65
-        .export screen_mode_set
+        .export screen_mode_set, screen_save, screen_restore
         .import io_geometry
 .endif
         .import io_sync
@@ -226,6 +226,38 @@ fill_rows_from:
         pla
         sta sj_src
         ldx #DMA_FILL
+        ldy #0
+        jmp scr_dma
+
+; ── screen_save / screen_restore — the screen (width x height, the
+; mode's bank) to / from REPL_SCREEN (3.B000) by one DMA copy (m65;
+; platform_layer.md § Screen save).  Clobbers A, X, Y.
+screen_save:
+        ldx #0
+        jsr rows_from           ; sj_dst = the screen, sj_count = its size
+        ldx #2
+@mv:    lda sj_dst,x            ; the screen is the source
+        sta sj_src,x
+        dex
+        bpl @mv
+        lda #<REPL_SCREEN
+        sta sj_dst
+        lda #>REPL_SCREEN
+        sta sj_dst+1
+        lda #BANK_CSE
+        sta sj_dst+2
+        bne _scr_copy           ; always
+screen_restore:
+        ldx #0
+        jsr rows_from
+        lda #<REPL_SCREEN
+        sta sj_src
+        lda #>REPL_SCREEN
+        sta sj_src+1
+        lda #BANK_CSE
+        sta sj_src+2
+_scr_copy:
+        ldx #DMA_COPY
         ldy #0
         jmp scr_dma
 .endif

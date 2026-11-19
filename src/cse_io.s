@@ -38,10 +38,12 @@ CSE_IO_S = 1                    ; platform.inc: the BSS geometry is defined here
 dec_buf:  .res 6       ; io_utoa: 5-digit PETSCII decimal + NUL
 .ifdef PLATFORM_M65
 ; the geometry beyond the base page's hot cells (io_geometry sets it)
-        .export scr_height, scr_last_row, scr_ed_rows, scr_bank, scr_size
+        .export scr_height, scr_last_row, scr_ed_rows, scr_ed_last, scr_bank, scr_size
 scr_height:     .res 1
 scr_last_row:   .res 1          ; height - 1
-scr_ed_rows:    .res 1          ; height - 3: the editor's source rows
+scr_ed_rows:    .res 1          ; height - 3: the editor's source rows,
+                                ; and its status row
+scr_ed_last:    .res 1          ; height - 4: the editor's last source row
 scr_bank:       .res 1          ; the screen's bank (4 in 80 x 50)
 scr_size:       .res 2          ; width x height
 .endif
@@ -111,6 +113,8 @@ io_geometry:
         dey
         dey
         sty scr_ed_rows         ; height - 3
+        dey
+        sty scr_ed_last         ; height - 4
         sta _io_tmp
         M45_TZA
         sta _io_tmp+1

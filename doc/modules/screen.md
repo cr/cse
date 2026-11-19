@@ -21,8 +21,10 @@ height bytes in the screen's bank by one DMA job; `scroll_up` moves
 the rows by one DMA copy; `kernal_screen_reset` is `ESC O`, `HOME
 HOME`, `io_sync`.  `screen_mode_set` (m65 only): `ESC 4` / `5` / `8`
 through `BSOUT`, then `io_geometry` and `restore_colors`; the editor
-refuses it while it runs.  Every size is the run-time geometry
-(`WIDTH`, `HEIGHT`, `scr_size`).
+refuses it while it runs.  `screen_save` / `screen_restore` (m65
+only, the editor's): the screen's `scr_size` bytes to / from
+`REPL_SCREEN` (`3.B000`) by one DMA copy ([platform_layer.md § Screen save](../platform_layer.md#screen-save)).
+Every size is the run-time geometry (`WIDTH`, `HEIGHT`, `scr_size`).
 
 ### theme_init
 **In:** none

@@ -1148,11 +1148,30 @@ and `Q`; what a human sees (colours, flicker) stays manual.
   key — fixed, Z from A as `IO_KBHIT`'s `lda $C6`; **`io_puts` set no
   bank** for its far `_io_tmp` — now `BANK_CSE`.  P2's pending count
   4 → 3 (the three values, T12).
-- [ ] T10. The editor on m65, each mode: its rows (`ED_ROWS`), the
+- [x] T10. The editor on m65, each mode: its rows (`ED_ROWS`), the
   status bar (fields anchored right), typing up to `LINE_MAX` 79 and
   the cap at the last column in 40 × 25 with `>`, the screen saved and
   restored, `ESC 4` / `5` / `8` refused; the assembler reads 79
   columns (`;!N: truncated` past them), `warn_long_lines` at 79.
+  Step (5) done 2026-11-19 in `tests/integration/test_m65_source_editor.py`
+  (owner editor.md, 25 tests × 2 ROMs).  The code: the editor's rows
+  and caps through the operand defines (`ED_ROWS`, `ED_STATUS_ROW`,
+  the new `ED_LAST` / `scr_ed_last`, `WIDTH`, `LAST_COL`); the status
+  bar's right fields by `_ed_status_right`, `free:` the program
+  region; `screen_save` / `screen_restore` (screen.s, one DMA copy
+  each); the context rows from the save; `LINE_MAX` (platform.inc)
+  in `ed_read_line`, `_line_buf`, `warn_long_lines`.  Found: **the
+  source text had no bank** — the gap buffer's far pointers were never
+  given `BANK_SRC`, so the text landed in bank 0's program region
+  (`$4000–$BFFF`) — now set by `gb_init` for the four that live in the
+  text and per routine for the shared scratch pointers (`gb_home`'s
+  `ed_tmp` was the last found, by the cursor-up test); **`workend`
+  followed `buf_base`** on m65 — now `PROG_HI`.  Feedback round (CDD
+  amendment, editor.md): a cursor left past the last column or below
+  the last row by a mode change between editor visits is brought back
+  on entry.  D-P2-10 read as the REPL's scroll: the editor's row
+  scrolls stay the row loop on far pointers (editor.md, *The m65
+  bodies*).
 - [ ] T11. Tier X (`tests/emulator/test_m65_boot.py`): the PRG to the
   prompt; xmega65's screen rows equal M65Emu's after the same commands
   (typed through `ADDKEY` from a driver); `Q` ends in BASIC 65 at

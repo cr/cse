@@ -71,7 +71,17 @@ KERNAL machinery because that lives at L4.
 the source bank (`$C000` and `$4000`).  The buffer's pointers are far pointers
 ([zp.md](zp.md)): their 16-bit offsets are the arithmetic above, the
 same code on both platforms, and their bank is set to the source bank
-wherever they are set into the text (`FAR_BANK`).  The byte accesses
+wherever they are set into the text (`FAR_BANK`): `gap_lo`, `gap_hi`,
+`buf_base` and `ed_top_ptr` live in the text, so `gb_init` sets their
+banks once and every other site rewrites their offsets only; the
+shared scratch pointers get theirs in the routine that points them —
+`ed_tmp` in `gb_home` (and editor.s's `find_line_start`,
+`prev_line_start`), `ed_scr` / `save_ptr` in `gb_ensure_room`'s copy
+and `read_ptr` in `ed_read_rewind` (`BANK_SRC`); `ed_read_line`'s
+destination and `ed_insert_string`'s text are in CSE's view
+(`BANK_CSE`, the latter again after each `gb_insert`, whose growth
+borrows `save_ptr`).  editor.s points `ed_scr`, `ed_tmp` and `save_ptr`
+at the screen with `FAR_BANK_SCREEN`.  The byte accesses
 go through `FAR_LDA` / `FAR_STA`
 ([platform_layer.md § Far memory](../platform_layer.md#far-memory)),
 whose m65 clobbers (the `Z` register; N/Z on a store) no caller here

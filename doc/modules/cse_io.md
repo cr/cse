@@ -29,7 +29,7 @@ clamps at the current last column, `io_clear_eol` clears to it.
 ### io_geometry (m65)
 **In:** none.  **Out:** `HOME HOME` sent (the full screen is the
 editor's window); `scr_width`, `scr_height`, `scr_last_col`,
-`scr_last_row`, `scr_ed_rows`, `scr_size` (width × height), `scr_bank`
+`scr_last_row`, `scr_ed_rows`, `scr_ed_last` (height − 4), `scr_size` (width × height), `scr_bank`
 and the tables `scr_lo` / `scr_hi` (one entry per row, stride the
 width) set from `SCRORG` and `$D062` (A1: X / Y are the right column
 and bottom row).  `scr_width` and `scr_last_col` are base-page cells
