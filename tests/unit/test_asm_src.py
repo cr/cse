@@ -1641,3 +1641,25 @@ class TestShadowWarningOnC64:
         assert list(emu.memory[0x1000:0x1002]) == [0x0A, 0xEA]
         text = [emu.screen_text(r) for r in range(25)]
         assert any(t.startswith(";!") and "shadow" in t for t in text), text
+
+
+# ── A refused data value keeps the layout (TODO § Bugs › Both platforms,
+#    fixed 2026-11-20): pass 1 reports it and still lays out its bytes,
+#    as pass 0 counted them, and the line's later values follow ──────
+
+class TestRefusedDataKeepsTheLayout:
+
+    def test_a_refused_word_keeps_the_later_label(self, as_syms):
+        errors, mem, _ = _run_mem(
+            as_syms, ".org $c000\n jmp after\n.dw nosuch\nafter:\n rts")
+        assert errors == 1
+        assert list(mem[0xC000:0xC003]) == [0x4C, 0x05, 0xC0]
+        assert mem[0xC005] == 0x60                  # where pass 0 put `after`
+
+    def test_the_values_after_a_refused_one_are_laid_out(self, as_syms):
+        errors, mem, _ = _run_mem(
+            as_syms, ".org $c000\n.dw $1111, nosuch, $2222\n.db 7, nosuch, 9\n rts")
+        assert errors == 2
+        assert list(mem[0xC000:0xC002]) == [0x11, 0x11]
+        assert list(mem[0xC004:0xC006]) == [0x22, 0x22]
+        assert (mem[0xC006], mem[0xC008], mem[0xC009]) == (7, 9, 0x60)

@@ -355,7 +355,9 @@ documents point here.
 `msg` is one of: `bad insn` (asm_line syntax error or unknown
 directive), `cpu` (CPU gate), the expression text of `expr_error_str`
 for an instruction operand (`exp val`, `ovfl`, `exp )`, `undef`,
-`div0`), `bad val` (a directive's value), `ovfl` (`.db` value outside
+`div0`), `bad val` (a directive's value — a refused `.db` / `.dw` /
+`.dd` value still lays out its bytes, so the layout pass 0 counted
+holds and the line's later values follow), `ovfl` (`.db` value outside
 a byte), `exp id` (missing or malformed name), `exp "` (string
 directive without a quote), `fwd ref`, `sym full`, `too long`,
 `range`.  There is no `expr` prefix in a source error — `;?12: undef`,

@@ -214,3 +214,14 @@ def test_a_flat_segment_line_leaves_info_bank_0(s):
 def test_a_negative_org_is_its_low_word(s):
     assert assemble(s, "\t.org $3000-$10000\r\tnop\r") == 0
     assert fpeek(s, 0, 0x3000) == [0xEA]
+
+
+def test_refused_data_values_keep_the_layout(s):
+    """TODO § Bugs › Both platforms (fixed 2026-11-20): `.dw` of another
+    bank's value and an undefined `.dd` are reported and still lay out
+    their bytes, so `after` stays where pass 0 put it."""
+    src = ("\t.org $3000\r\tjmp after\r\t.dw 4.2000\r\t.dd nosuch\r"
+           "after:\trts\r")
+    assert assemble(s, src) == 2
+    assert fpeek(s, 0, 0x3000, 3) == [0x4C, 0x09, 0x30]
+    assert fpeek(s, 0, 0x3009) == [0x60]

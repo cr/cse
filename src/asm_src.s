@@ -366,7 +366,11 @@ _bad_val_err:
         inc expr_ptr+1
 @ql:    ldy #0
         lda (expr_ptr),y
+.ifdef PLATFORM_M65
+        jeq @done               ; (the .dd paths lengthen the proc)
+.else
         beq @done
+.endif
         cmp #'"'
         beq @qc
         jsr _emit_byte
@@ -391,12 +395,23 @@ _bad_val_err:
 @rc:    ; .db/.dw size is value-independent: every arg occupies
         ; exactly _as_wsize bytes whether the expression resolves
         ; or not.  Skip the rc check on pass 0; let _emit_byte's
-        ; pass-aware advance handle size.  Pass 1 errors normally.
+        ; pass-aware advance handle size.  Pass 1 reports a refused
+        ; value and still lays out its _as_wsize bytes (whatever
+        ; expr_val holds), so the layout pass 0 counted holds and the
+        ; line's later values follow.
         ldy asm_pass
         beq @emit               ; pass 0: any rc → advance PC
         cmp #2
         bcc @emit               ; pass 1 success → emit
-        jmp _bad_val_err
+        jsr _bad_val_err        ; reported (returns here)
+        lda _as_wsize
+        cmp #2
+        beq @word               ; no `.db` range check on top of it
+.ifdef PLATFORM_M65
+        cmp #4
+        beq @dword
+.endif
+        bne @byte               ; always
 @emit:  lda _as_wsize
         cmp #2
         beq @word

@@ -87,18 +87,6 @@ are under [§ Records](#records).
 
 ### Both platforms
 
-- [ ] **A refused `.db` / `.dw` value moves the layout.**  On pass 1
-  `emit_data_bytes` jumps to `_bad_val_err` before emitting, and the
-  error tail returns past the directive, so the value — and every
-  value after it on the line — lays out no bytes, while pass 0 counted
-  them.  The labels after it then sit lower in pass 1 than pass 0 put
-  them, and branches and forward references computed from pass 0
-  shift (cascading errors; the assembly has failed already).  The
-  `.db` overflow path shows the fix: report, then emit the bytes
-  anyway.  On m65 also `.dd`, and F5a/F5b add triggers (`.dw` of
-  another bank's value, `.dw $12345`).  Found by the F5 code review
-  (2026-11-20).
-
 ### Latent
 
 Real in the code but unreachable today, or theoretical.
@@ -4360,6 +4348,20 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
   Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
 ### Fixed bugs
+
+- [x] (fixed 2026-11-20: pass 1 reports the value with `jsr
+  _bad_val_err` and lays out its bytes; tests in test_asm_src.py and
+  test_m65_asm_src.py) **A refused `.db` / `.dw` value moves the layout.**  On pass 1
+  `emit_data_bytes` jumps to `_bad_val_err` before emitting, and the
+  error tail returns past the directive, so the value — and every
+  value after it on the line — lays out no bytes, while pass 0 counted
+  them.  The labels after it then sit lower in pass 1 than pass 0 put
+  them, and branches and forward references computed from pass 0
+  shift (cascading errors; the assembly has failed already).  The
+  `.db` overflow path shows the fix: report, then emit the bytes
+  anyway.  On m65 also `.dd`, and F5a/F5b add triggers (`.dw` of
+  another bank's value, `.dw $12345`).  Found by the F5 code review
+  (2026-11-20).
 
 - [x] (fixed 2026-11-20: `dot_assemble` hands `asm_line` the line
   itself — no pre-evaluation, `asm_pass` = 1; tests in test_repl.py and
