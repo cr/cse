@@ -21,8 +21,8 @@ states the seam's contract and points there.
 |------|------|
 | [`src/platform.inc`](../src/platform.inc) | header — every platform constant and macro, selected by `.ifdef` |
 | [`src/m45_ops.inc`](../src/m45_ops.inc) | header — the 45GS02-only instructions as raw-byte macros ([§ Raw-byte instructions](#raw-byte-instructions)) |
-| [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit (the address-literal classes, the per-file counts), the base-page, stack-top, raw-byte and KERNAL-call checks, the pending count |
-| [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top, raw-byte and KERNAL-call checks; the count of pending bodies |
+| [`dev/audit_platform_literals.py`](../dev/audit_platform_literals.py) | implementation — the literal audit (the address-literal classes, the per-file counts), the base-page, stack-top, raw-byte and KERNAL-call checks |
+| [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top, raw-byte and KERNAL-call checks |
 | [`tests/unit/test_platform_m65.py`](../tests/unit/test_platform_m65.py) | test contract — the m65 macro bodies on M65Emu in clean mode: `KCALL` / `KJMP` (B = 0 for the KERNAL, registers through), the far accesses in banks 0, 2, 3, 4, `FAR_BANK`, `PLAT_SETBNK` |
 | [`dev/m65_macros_test.s`](../dev/m65_macros_test.s), [`dev/m65_test.cfg`](../dev/m65_test.cfg) | test helper — the m65 macro bundle, and the linker config of every m65 test bundle (base page at `0.1F00`, code and data at `$4000`; the m65-45gs02 `asm_core` and `dasm` bundles too) |
 | [`tests/unit/test_m45_ops.py`](../tests/unit/test_m45_ops.py) | test contract — each raw-byte macro is the compendium's encoding of its instruction |
@@ -76,10 +76,8 @@ proc.
 
 The Makefile passes exactly one platform define to every assembly,
 the C64 builds included.  A seam whose body is the same on two
-platforms states so once.  Where the m65 column says *stated with
-P<n>*, that milestone's doc delta fills it in; until then the m65
-build still assembles every module, and the seam's m65 body is
-`PLAT_PENDING` ([§ Pending bodies](#pending-bodies)).  The m65 build
+platforms states so once.  Every seam has its m65 body (P0–P3 stated
+them milestone by milestone, [§ Pending bodies](#pending-bodies)).  The m65 build
 is m65-45gs02 ([build_system.md § Builds and CPU sets](build_system.md#builds-and-cpu-sets)).  The Open ROMs are a
 stretch target, not a platform
 ([memory_design.md § Target Compatibility](memory_design.md#target-compatibility)).
@@ -541,8 +539,7 @@ is impossible.
 
 cse_io.s ([cse_io.md § Interface](modules/cse_io.md#interface)), and
 for the inline sites in other modules two `platform.inc` cells
-(`IO_CX`, `IO_CY`) and three macros.  A routine or macro whose m65
-column says *P2* is `PLAT_PENDING 2` until then.
+(`IO_CX`, `IO_CY`) and three macros.
 
 | Name | c64 | m65 |
 |---|---|---|
@@ -676,24 +673,15 @@ body per platform: the C64's copy loop; the m65's gate and install
 
 ## Pending bodies
 
-`PLAT_PENDING n` (macro, m65 only): the m65 body of a seam whose m65
-contract is *stated with P<n>* but not yet stated.  It assembles to a
-`BRK` followed by the signature byte `n` (the milestone), so the m65
-build links every module from P0 on, and executing a pending body
-stops in a recognisable break instead of running C64 code on a
-MEGA65.  It is never an expansion on c64.  The pending sites are
-counted by a test whose recorded count only goes down, and a
-milestone is not done while one of its pending sites remains
-([§ Gates](#gates)).
-
-None is left since P3.  Up to P3 a companion macro,
-`PLAT_PENDING_VALUE`, gave the m65 build placeholder values for the
-constants inline code named before their milestone stated them
-(`IO_CX`, `IO_CY`, `SCREEN`, `SCREEN_WIDTH`, `SCREEN_HEIGHT`, `ST`,
-`DISK_LOCAL_PTR`), with cells in CSE's base page (`BP_PENDING`); P2
-and P3 stated them all, and the macro and the cells are gone
-([§ Constants](#constants), [§ Terminal](#terminal),
-[§ Display](#display)).
+No m65 body is pending.  From P0 to P3, a seam whose m65 contract was
+*stated with P<n>* but not yet written assembled to `PLAT_PENDING n`
+(a `BRK` and the milestone as its signature byte), so the m65 build
+linked every module from P0 on and a pending body stopped in a
+recognisable break; a companion, `PLAT_PENDING_VALUE`, gave the
+constants inline code named before their milestone placeholder values
+in CSE's base page.  A test held the count of pending sites, which
+only went down; the last went with P3, and P5 retired the macros and
+the count.
 
 ## Raw-byte instructions
 
@@ -757,8 +745,7 @@ code.
    audit ([§ Raw-byte instructions](#raw-byte-instructions)), the
    KERNAL-call check ([§ KERNAL calls](#kernal-calls): no bare `jsr`
    or `jmp` to a jump-table entry outside platform.inc and loader.s;
-   zero from the start — it found the one site the seam had missed)
-   and the pending-body count ([§ Pending bodies](#pending-bodies)).
+   zero from the start — it found the one site the seam had missed).
 3. **Per-seam tests.**  Each seam's platform body is pinned at the
    tier its host module uses ([testing.md](testing.md)): the m65
    bodies on M65Emu, the c64 bodies by the existing suite.

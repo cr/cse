@@ -72,11 +72,6 @@ are static Tier U tests in `tests/unit/test_platform_audit.py`:
   platform.inc and loader.s — every call is a `KCALL` / `KJMP`
   ([platform_layer.md § KERNAL calls](platform_layer.md#kernal-calls));
   zero, with unit tests on synthetic sources.
-- *The pending-body count* — the same tool: the `PLAT_PENDING` sites
-  of the m65 build per milestone
-  ([platform_layer.md § Pending bodies](platform_layer.md#pending-bodies))
-  equal the numbers recorded in the test; a commit that writes an m65
-  body lowers its number, and none may rise.
 - *The C64 PRGs are the recorded ones* — the SHA-256 of each C64
   release PRG equals `tests/fixtures/golden/c64_prg_sha256.json`.  It
   is re-recorded only by a commit that deliberately changes what a
@@ -393,7 +388,11 @@ default `rom/mega65.rom`) to the BASIC 65 prompt, stops the CPU in
 trace mode and reads, over uartmon, a post-boot state into
 `build/m65_state/<ROM version>/` (the six digits of the ROM's
 `V9xxxxx` string, e.g. `920413/`) — one snapshot per ROM M65Emu is
-checked on.  The ROM reaches xmega65 on the session's SD clone
+checked on.  The m65 tiers run on every snapshot present, and the
+verified ROMs ([build_system.md § MEGA65 ROM](build_system.md#mega65-rom))
+must all be there: a run with some snapshots but not every verified
+ROM's fails (`test_m65_roms.py`), naming the capture to run; with
+none, the m65 tests skip.  The ROM reaches xmega65 on the session's SD clone
 ([§ Tier X](#tier-x--xmega65-m65-automated)):
 
 - `chip.bin` (384 KB, the ROM image included), `colour.bin` (32 KB),

@@ -26,6 +26,7 @@
 | [`tests/unit/test_clean_build.py`](../tests/unit/test_clean_build.py) | test contract — a fresh `git worktree` of `HEAD` builds with one `make release` (no re-run) |
 | [`tests/integration/test_release_smoke.py`](../tests/integration/test_release_smoke.py) | test contract — the release 6510 PRG boots from `SYS 2061` to the main loop and shows its splash |
 | [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — `make release` / `debug PLATFORM=m65` build the m65-45gs02 PRG through `src/m65_cse.cfg`; `make release` / `disk PLATFORM=m65` write the D81 with `c1541`; `make run PLATFORM=m65` (and `TARGET=m65`) starts `$(XMEGA65)` with the release PRG and the D81 on unit 8, not VICE; `make size PLATFORM=m65` reports the m65 PRG; an unknown platform is refused; each m65 region is bounded and an overflow fails the link |
+| [`tests/integration/test_m65_roms.py`](../tests/integration/test_m65_roms.py) | test contract — the verified MEGA65 ROMs (§ MEGA65 ROM): with any M65Emu snapshot present, each verified ROM has one, of the current snapshot format |
 | [`tests/emulator/test_m65_boot.py`](../tests/emulator/test_m65_boot.py) | test contract (Tier X) — the m65 PRG boots to `_main` in xmega65 on each ROM, the installed machine M65Emu's `install_prg()` makes; `typed_run`, the typed-key loop it shares with `test_m65_step.py` and `test_m65_asm_run.py` |
 | [`tests/unit/test_build_parity.py`](../tests/unit/test_build_parity.py) | test contract — bundle `PROD_DEFS` equal the Makefile's `-D` sets (the CMOS mode has no Makefile build) |
 | [`tests/unit/test_mnemonic_tables.py`](../tests/unit/test_mnemonic_tables.py) | test contract — the profile-row model of `dev/mnemonic_tables.py` |
@@ -590,7 +591,8 @@ write ca65 only, and bbbc64 adopts the asm model in its own cycle
 what every instruction assembles to, how every opcode lists under
 every `asm_cpu`, and the cycles of each case (`dev/capture_golden.py`):
 py65's for the C64 sets, `MPU45GS02`'s — one per instruction — for the
-m65 set (`asm_dasm_45gs02.json`; the
+m65 set (`asm_dasm_45gs02.json`; M65Emu has no cycle model, so the
+m65 speed gate is an instruction-count gate; the
 45GS02's instructions include the prefixed forms, its listing every
 prefix sequence the peel accepts).  `test_golden_asm_dasm.py` holds the
 current source to them: identical output, total cycles no higher, no
@@ -776,6 +778,15 @@ by default `rom/mega65.rom`, after the discovery — booting xmega65 on
 it through the session's SD clone, and refuses to record when the ROM
 xmega65 booted differs from the one given
 ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
+
+**The verified ROMs.**  The m65 build is verified on two MEGA65 ROMs,
+in Tier I (M65Emu, from each ROM's snapshot) and Tier X (xmega65 on
+each ROM): **920413**, the floor (MEGA65 release 0.97; the loader
+refuses anything older), and **920421**, the current ROM — the one
+the installed xmega65 ships, which `make m65-rom` copies.  A newer ROM
+joins the list by its own commit: its snapshot captured, the m65
+tiers green on it, this paragraph and `test_m65_roms.py`'s list
+updated.
 
 `rom/mega65_open.rom`, the MEGA65 build of the Open ROMs — the
 project's only MEGA65 image — is committed next to it, pinned to an

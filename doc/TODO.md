@@ -154,6 +154,7 @@ disassembler (A4) followed: see A4 below.
 - [ ] A5. Gates 1–3 measured and recorded here; asm → dasm → asm
   round trip over every row (done for the m65 set in P4, T7); generator tests (placement rules refuse
   violating input, minimal row count, no foreign entries per block).
+  Closes with slice 2's P5 (D-P5-4).
 
 ### Phase B — the m65 build (m65-45gs02)
 
@@ -284,7 +285,7 @@ compendium until its golden file, recorded in xmega65, says otherwise.
 maps, vectors and the debugger on m65), P2 (the screen, the keyboard,
 the REPL and the editor) and P3 (the disk and the D81) and P4 (the 45GS02 assembler, disassembler
 and step — slice 1's Phase B) and P4b (no 65C02 on the targets; the
-assembler's CMOS mode bundle-only) are done; P5 is next.
+assembler's CMOS mode bundle-only) are done; P5 is in its code steps.
 
 **How this plan is read.**  Under CDD the documents are the truth:
 each milestone below is a **Step-1 doc delta** — the documents that
@@ -2084,6 +2085,77 @@ on (920413, the floor, and the current one; the Open ROMs boot to C64
 mode and cannot run the m65 build — [build_system.md § MEGA65 ROM](build_system.md#mega65-rom)) in Tier I; the
 m65 size and cycle gates; every *stated with P<n>* resolved; the CDD
 Report.
+
+Step-1 delta (written 2026-11-20; approved 2026-11-20 with the analysis):
+- [x] [build_system.md](build_system.md) § MEGA65 ROM: *the verified
+  ROMs* (920413 the floor, 920421 the current one) and how a newer
+  joins; § Golden files: the m65 speed gate is an instruction-count
+  gate (no cycle model); the `test_m65_roms.py` row.
+  [testing.md](testing.md) § M65Emu: the m65 tiers need every verified
+  ROM's snapshot; the pending-body count gone from Tier U.
+  [platform_layer.md](platform_layer.md): every seam has its m65 body;
+  § Pending bodies a history note (the macros and the count retired).
+  [memory_design.md](memory_design.md): verified on 920413 and 920421.
+  [dasm.md](modules/dasm.md): test_dasm holds the round trip of every
+  set.
+
+**P5 analysis record (2026-11-20), doc against code — approved
+2026-11-20.**
+- **ROMs.**  Snapshots exist for 920413 and 920421 (`build/m65_state/`,
+  format 3); `rom/mega65.rom` is V920421.  Every m65 Tier I fixture
+  and every Tier X fixture runs on each snapshot present
+  (`snapshot_dirs()`), but nothing names the verified ROMs: a machine
+  with only one snapshot runs half the matrix and reports green.
+- **Gates.**  Size: `BUDGET` holds m65-45gs02 (24 400 B).  Speed:
+  `test_golden_asm_dasm.py` holds `asm_dasm_45gs02.json`'s totals and
+  per-case limits — in instructions, as `MPU45GS02` counts one per
+  instruction; no m65 gate is in cycles, and M65Emu has no cycle
+  model.  Behaviour: the 45gs02 golden file.  A5's round trip exists
+  for the m65 set only (`test_round_trip_over_the_45gs02_view`), not
+  for the C64 sets or the CMOS mode.
+- **Pending bodies.**  No `PLAT_PENDING` site since P3; the macro
+  (`platform.inc`), the audit's `pending_counts()` and two tests in
+  `test_platform_audit.py` hold a count of zero and guard nothing.
+- **CDD Report.**  Neither slice has one.
+- **Open items carried past R7's first release** (not P5's work; the
+  report lists them): A3b (ZP recompaction, D-P4-4), the KDATA linker
+  bound (C64), bbbc64's shared-file contract, the hand-numbered profile
+  scheme in `instruction_set.py`, the m65 cartridge.
+
+Decisions (approved 2026-11-20):
+- **D-P5-1** The verified ROMs are 920413 and 920421, named in
+  build_system.md § MEGA65 ROM; `test_m65_roms.py` fails a run that has
+  any snapshot but not every verified ROM's (naming the capture
+  command), and passes vacuously with none (the m65 tests skip).
+- **D-P5-2** The m65 speed gate is the instruction-count gate it is;
+  no cycle model is added to M65Emu (the 45GS02's timing — 40 MHz,
+  wait states, the bus — is not what the gate guards: a regression in
+  work done).
+- **D-P5-3** `PLAT_PENDING`, its count and its tests are retired.
+- **D-P5-4** A5 closes in P5: the asm → dasm → asm round trip over
+  every row of every set (the C64 sets and the CMOS mode on py65), and
+  gates 1–3 measured for every build and recorded under A5.
+- **D-P5-5** The CDD Report of R7's CPU and platform layers is an entry
+  of [cdd_log.md](cdd_log.md) — the changes, the unplanned ones, the
+  follow-ups — and the slice-2 status line closes.
+
+**P5 TDD analysis (2026-11-20) — approved 2026-11-20.**
+- [ ] T1. The verified ROMs (`tests/integration/test_m65_roms.py`, owner
+  build_system.md): the list equals build_system.md's; with the real
+  `build/m65_state/` each verified ROM has a snapshot of the current
+  format; on a temporary directory holding one of the two, the check
+  fails and names the missing ROM; on an empty one it skips.
+- [ ] T2. The round trip (`test_dasm.py`): every row of every view of
+  the 6502, 6510 and CMOS sets assembled, listed and assembled again
+  gives the same bytes and the listed length is the row's.
+- [ ] T3. The pending mechanism gone (`test_platform_audit.py`): its
+  two tests removed; the platform-literal audit names no
+  `PLAT_PENDING`; `platform.inc` defines neither macro.
+- [ ] T4. The close: the gates measured (sizes, golden totals per set)
+  recorded under A5; full suite, Tier X on both ROMs, audits clean.
+
+Code order: (1) T1 and the ROM list; (2) T2; (3) the pending
+mechanism retired; (4) the gate record, the CDD Report, the close.
 
 ### Analysis tasks (own cycles; their results are doc deltas)
 
