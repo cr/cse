@@ -416,7 +416,7 @@ leading `#`, `(` and, on m65, `[`, evaluates the operand to `$XX` or
 operand (`,x`, `)`, `),y` …) unchanged, and passes the text to
 `asm_line` with `asm_pc` = `asm_out` = `cur_addr`.  An operand that is
 the bare accumulator `a` is evaluated as an expression too, so
-`. asl a` is `;?syntax`; write `. asl` (TODO § Planned › Assembler).
+`. asl a` is `;?syntax`; write `. asl` (TODO § Bugs › Both platforms).
 On m65 the operand's rest includes `],z`, `),z` and `,sp),y`.
 
 In all three modes the handler finishes by disassembling the

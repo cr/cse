@@ -1,6 +1,776 @@
 # CSE — TODO
 
-## M65 — the 45GS02 assembler and disassembler (R7, slice 1)
+Open work first: § Next (the queue), § Bugs, § M65 (R7's open items),
+§ CDD amendments pending (the amendment inbox), § Planned, § Roadmap
+and § Ideas.  Closed work — the R7 plans and milestone records, the
+landed amendments, the fixed bugs, the done items — is kept under [§
+Records](#records) for its reasoning; nothing there is open.
+
+**Status (2026-11-20):** R7's first release (the m65 PRG and D81) is
+code-complete on branch `m65`, in review as cr/cse#1; its hardware
+walk and release pre-flight are under § M65.
+
+## Next
+
+The queue, in order.
+
+- [ ] **README theme gallery: equal tiles.**  The eighteen screenshots
+  (`img/theme-*.png`) are all 384 × 272, yet the gallery table in the
+  root README.md (§ Themes) renders them at different sizes: each
+  `<img>` sets only its width, and the column widths follow the
+  captions and the last row's `colspan` note.  The caption "MEGA *(the
+  MEGA65's own)*" is the longest and widens its column, which breaks
+  the grid.
+
+  Done when every tile renders at the same size on GitHub, light and
+  dark: width and height on every `<img>`; one short caption per tile
+  — "MEGA" without the aside (the theme's origin goes into the text
+  above the table); the hex-code note moved out of the table, below
+  it.
+
+- [ ] **Full CDD Maintenance and Quality Sweep.**  The first
+  whole-repository pass since R7: the last full round ran
+  2026-11-17/18, at slice 2's start, before P0–P5 brought the m65
+  build, most of platform_layer.md, the m65 sections of the module
+  docs and the Tier X tests.  CDD Maintenance items 1–10 over the
+  whole repository ([README.md § CDD
+  Maintenance](README.md#cdd-maintenance)), then a Quality Sweep with
+  every lens ([§ CDD Quality Sweep](README.md#cdd-quality-sweep)).
+  Output mode fix-the-docs: doc defects fixed inline, code and test
+  findings filed under § Bugs, doc-only changes leaving every release
+  PRG byte-identical; each finding verified against the live code; the
+  round recorded in the [CDD Log](cdd_log.md).
+
+- [ ] **Full code review.**  Every module in `src/` on both platforms,
+  the generators in `dev/`, and the harnesses (`tests/c64emu.py`,
+  `tests/m65emu/`, `tests/xmega65.py`, conftest's bundles) — the P3,
+  P4 and P4b reviews covered only their milestones' commits.
+  Correctness first, then simplicity, readability and elegance: dead
+  code and write-only cells, duplication across modules, hand-restated
+  generated facts, comments that no longer describe the code.  A
+  reproduced bug gets a test and an Escape Analysis; fixes land in
+  separate commits by class, behaviour-neutral ones byte-identical on
+  the C64 builds or with the budget lowered in the same commit.
+
+## Bugs
+
+Open bugs, by where they bite; each is its own CDD cycle.  Fixed bugs
+are under [§ Records](#records).
+
+### C64
+
+- [ ] **disk.s writes `$FD`/`$FE`, which the userland contract keeps
+  free.**  [userland_contract.md](userland_contract.md) § 2, § 3 and §
+  7 promise that CSE never writes the C64's free cells `$FB–$FE`;
+  disk.s's private pointer is `DISK_LOCAL_PTR = $FD` (platform.inc;
+  `str_setup` stores it on every load and save, PRG or SEQ), outside
+  the swapped `$00–$7F`, so a disk command clobbers the user's
+  `$FD`/`$FE`.  Found by the P0 quality pass, 2026-11-18; still so
+  2026-11-20.  Fix: the C64 takes zp.s's `disk_local_ptr` too, as m65
+  does — it lands in CSE's free `$7A–$7B`, inside the swap; both C64
+  PRGs change, their size should not.
+
+- [ ] **The linker does not bound KDATA.**  memory_design.md gives
+  KDATA `$F100–$F4F1` (1010 B), with KBSS (the REPL screen save) from
+  `$F4F2`, but `src/c64_cse.cfg.in` declares the KDATA area `size =
+  $0EFA`, so a KDATA overflow would silently overwrite the KBSS area
+  instead of failing the link.  Latent: usage on 2026-11-20 (release
+  builds) is 681 B (6510) and 400 B (6502).  Fix: `size = $03F2`, plus
+  KBSS in the config so the linker sees both — a config change only,
+  the PRGs byte-identical.  Filed 2026-11-16 (slice 1, B4's
+  prerequisites).
+
+- [ ] **`$` can overwrite the source text.**  On the C64 `$` loads the
+  directory with KERNAL `LOAD` at `$0801` (`DIR_BUF`; disk.s
+  `list_directory`), with no upper bound, while the gap buffer may
+  grow down to `BUF_FLOOR` (`$1500` in the 6510 release build: 3.3 K
+  above `$0801`).  A full 1541 directory is about 4.6 K, a 1581's up
+  to about 9.5 K; once the source is large enough that `buf_base` lies
+  below the listing's end (roughly 19–24 K of source), `$` overwrites
+  the start of the source text silently.  Derived from the layout
+  (2026-11-20), not yet reproduced.  Fix options: refuse the listing
+  when it could reach `buf_base`; or read the directory through `OPEN`
+  / `CHRIN` with no buffer, which would also end `$` overwriting the
+  workspace (README § On the MEGA65, *Disks*).  m65 is not affected:
+  its `DIR_BUF` is CSE's own reserve.  (Replaces the Planned › Editor
+  item *Gap buffer floor above directory load area*.)
+
+### m65
+
+- [ ] **The TAB key does nothing in the editor.**  D-P2-7 and the user
+  manual (README § On the MEGA65, *Keys*) say TAB is the editor's tab,
+  as SHIFT+SPACE.  The MEGA65's TAB reaches `GETIN` as `$09`
+  ([platform_layer.md § Terminal](platform_layer.md#terminal),
+  `m65_keys.json`), and `ed_handle_key` ignores every code below
+  `$20`, so only SHIFT+SPACE (`$A0`) inserts a tab.  Reproduced on
+  M65Emu (2026-11-20): in a fresh editor, `$09` then `A` leaves the
+  buffer as the smart-indent seed's `$A0` and `A`; `$A0` then `A`
+  gives `$A0 $A0 A`.  No test caught it because
+  test_m65_source_editor.py types `$A0` as its "TAB".  Fix: take `$09`
+  as `$A0` on m65 at the key read, with a test that types the MEGA65's
+  own code.
+
+### Both platforms
+
+- [ ] **`.` refuses `asl a` and never warns of an `a` label.**  The
+  REPL's `.` takes the accumulator form only bare: `. asl` assembles
+  `$0A`, `. asl a` (`rol a`, `lsr a`, `ror a`; on m65 also `inc a`,
+  `dec a`) is `;?syntax` (checked 2026-11-19; `dot_assemble` unchanged
+  since).  So RETURN on a `d` row that lists `asl a` fails, and
+  README.md § REPL states the limit.  The source assembler takes both
+  forms (asm_line.md § ACC mode handling) and, when a label `a`
+  exists, warns `;!a shadow`; `.` with a label `a` instead assembles
+  the label's address, silently.
+
+  One cause: `dot_assemble` (repl.s) evaluates the operand with
+  `expr_eval` before `asm_line` sees it and rebuilds it as a `$xxxx`
+  literal, so `mode_parse`'s accumulator path and `_au_warn_shdw`
+  never see the bare `a`.  Options: (a) skip the pre-evaluation for a
+  bare `a` when the mnemonic has an accumulator mode — a small special
+  case; (b) drop the pre-evaluation and let `asm_line` evaluate, as
+  the source assembler does — larger, and it closes the other
+  asymmetries too.  Done when `. asl a` assembles the accumulator
+  opcode on every build, a defined `a` still reaches mnemonics without
+  an accumulator mode (`lda a`) and warns where the source assembler
+  warns, a `d` row with `asl a` re-executes, and the README's limit
+  paragraph is gone.  (Merges two Planned › Assembler items,
+  2026-11-20.)
+
+### Latent
+
+Real in the code but unreachable today, or theoretical.
+
+- [ ] **`io_puthex2` writes past the last column.**  It stores its two
+  digits at Y and Y + 1 with no bound, so a hex pair started in the
+  last column puts its second digit into the next row's first cell
+  (`io_putc` clamps, `io_puthex2` does not).  Both platforms.  Found by
+  P2's geometry inventory, 2026-11-19.  Own CDD cycle.
+  Unreachable today (2026-11-20): every caller's hex pair ends by
+  column 38 in 40 columns and by column 70 in 80 (`m` rows, `r`, `?`,
+  `d`), so no pair starts in the last column — the verdict `@putc_inv`
+  got in P3.  Bound it, or close it with a reopen condition, when a
+  caller can reach the last column.
+
+- [ ] **Close the `cse_refresh` micro-race on `run_user_pending`.**
+  When kernel-mode NMI fires in the ~5–10 cycle window
+  between a command setting `run_user_pending` (e.g.
+  `cmd_jmp.@run`'s `sta run_user_pending`) and `main_loop
+  @not_enter`'s post-exec dispatch reading it, `cse_refresh`
+  runs while the flag is set.  Falls through to
+  `main_loop_top @check_post_run` which interprets the flag
+  as a "just returned from userland" signal and runs
+  `post_run_cleanup` against `brk_pc=cur_addr` — phantom
+  break display.
+
+  Not exploitable in practice: the window is microseconds in
+  idle code paths and the user can recover by typing the
+  command again.  But it's the only remaining path where
+  the rc4 bug class can manifest, so worth closing.
+
+  Two ways to close it:
+  - **Cheap:** `lda #0; sta run_user_pending` in
+    `refresh_body` (or in `cse_refresh` proper).  +4 B.
+    Side effect: also clears the flag on legitimate RESTORE-
+    after-userland-return cycles, suppressing any redisplay
+    of break/regs that depended on the dual-purpose flag.
+    **Verify** the existing "show break info on RESTORE"
+    behaviour against
+    `tests/integration/test_kernel_transition.py::TestNmiKernelMode::test_refresh_preserves_run_user_pending`
+    — that test pins the current preserve-the-flag contract;
+    landing this fix means flipping the test's assertion.
+  - **Comprehensive:** Land the `run_user_pending` split (§ Planned › Architecture);
+    `cse_refresh` clears `run_pending_mode` but not
+    `run_returned`.  Race window closes cleanly without
+    affecting the redisplay behaviour.
+
+  Recommendation: bundle with the dual-purpose split (the
+  comprehensive option) rather than landing the cheap fix
+  in isolation.
+
+## M65 — open work (R7)
+
+R7's slice 1 (the CPU layer) and slice 2 (the platform layer) are done
+for the first release; their plans, rulings and milestone records are
+under [§ Records](#records).
+
+### The first release
+
+- [ ] **Walk the m65 build on a real MEGA65.**  The open questions O1
+  (the `REL16` offset base) and O3 (the Q-mode edge rows), which
+  xmega65 answered provisionally ([§ Open questions
+  (hardware)](#open-questions-hardware)); the three screen modes' look
+  (colours, the 80 × 50 font, flicker); real drive timing
+  ([disk.md](modules/disk.md)).  Then [build_system.md § Release
+  pre-flight](build_system.md#release-pre-flight), the merge of `m65`
+  (cr/cse#1) and the tag.
+
+### Analysis and design
+
+- [ ] **A2. Zero page and low memory** (after P1; changes the
+  userland contract).  Answered by P0's analysis: CSE's own base page
+  (`0.1F00`), base page 0 wholly the user's and the KERNAL's.  Still
+  open: which cells of base page 0 and `0.0200–0.15FF` the KERNAL
+  needs (a list for the user), and a private 16-bit stack (`E`
+  clear) for user programs — what it costs, what it buys.  Output: a delta to
+  [userland_contract.md](userland_contract.md) and
+  [zp.md](modules/zp.md).
+
+- [ ] **P-Q5.** Whether the source region's base is only a build constant
+  or also a run-time setting (the far pointers allow both).
+
+### Keys
+
+- [ ] **HELP, F9–F14 and the ALT / MEGA combinations** do nothing in
+  CSE (D-P2-7).  F9–F14 reach `GETIN` as the codes of CTRL + P, V, Y,
+  U, W and Z, so CSE cannot tell them from those ([platform_layer.md §
+  Terminal](platform_layer.md#terminal)); the ALT combinations have no
+  PETSCII.  Decide what they do; the C64's F1–F8 are an Idea (§ Ideas
+  › Keyboard & input).
+
+### The m65 cartridge (later release)
+
+- [ ] **The m65 cartridge** — not in R7's first release (operator,
+  2026-11-19).  Its scope is *Later release: the m65 cartridge* under
+  slice 2's P3 record, its facts A3's record ([§ Analysis
+  tasks](#analysis-tasks-own-cycles-their-results-are-doc-deltas)).
+
+### Shared files with bbbc64
+
+- [ ] **bbbc64's shared-file contract.**  Since A1
+  `dev/mnemonic_tables.py` is cse's own (per-CPU-set blocks, ca65
+  only; the `--syntax acme` paths went with the old writers), and
+  bbbc64's golden copies of cse's tables (pinned at cse 910d96d) no
+  longer describe cse's output.  `instruction_set.py`, `hashes.py` and
+  `dasm_tables.py` are still identical in both repositories.  bbbc64
+  adopts the model in its own CDD cycle; its `asm_tables.py` holds the
+  same profile-row logic for ACME.
+
+- [ ] **Retire the hand-numbered profile scheme in
+  `instruction_set.py`.**  `OPERAND_PROFILES`' index order, `cmos_bit`,
+  `_CMOS_PAIRS`, `_BIT_OPERAND` and the `JMP`/`TRB`/`TSB`/`AHX` entries
+  of `_BASE_OPCODE_OVERRIDES` no longer drive any table: the generator
+  derives profiles, categories and bases from `instructions(view)`.
+  `OPCODES` already lists every mode per mnemonic, so `MNEMONICS`
+  could shrink to (key → category).  The file is shared with bbbc64 —
+  own CDD cycle, coordinated with the item above.
+
+### Stretch goal — CSE on the Open ROMs
+
+Operator, 2026-11-18: supporting CSE on the Open ROMs on both
+platforms is a stretch goal.  Both images are mirrored and pinned
+([rom/README.md](../rom/README.md)): the C64 (generic) build as
+`rom/*_mega.bin`, the MEGA65 build as `rom/mega65_open.rom` — the
+project's only MEGA65 image, starting in its legacy (C64) mode, its
+own native mode (`GO 65`) running on the same C64-style KERNAL with
+no C65 jump table besides `PRIMM`.  Neither is a supported target
+today ([memory_design.md § Target Compatibility](memory_design.md#target-compatibility)).
+
+- [ ] **OR1. The C64 builds on the Open ROMs' C64 build.**  Which of
+  the KERNAL internals and cells the C64 builds use
+  ([platform_layer.md § Constants](platform_layer.md#constants), the
+  c64 column) the Open ROMs provide with the same meaning; the gaps become a ROM variant of
+  the c64 column in [platform_layer.md](platform_layer.md) (a define
+  beside `PLATFORM_C64`, not a fork).  Tier I: C64Emu on
+  `kernal_mega.bin` runs the platform-neutral suites.
+
+  Known from the Ideas item this one absorbed (2026-11-20):
+  MEGA65 Open-KERNAL compatibility (C64-compatible mode):
+  `$` works (LOAD-based).  Floppy status empty (shows `; `)
+  — blocked on upstream IEC channel-I/O fixes
+  (MEGA65/open-roms#116, #117).  Channel-based dir code
+  preserved in `1348247` for when fixes land.  All other
+  features work.  Native mode is roadmap R7.
+- [ ] **OR2. The m65 build on the Open ROMs' MEGA65 build.**  Its
+  native mode lacks `VECTOR`, `SETBNK`, `SCRORG`, `JSRFAR`,
+  `VERSIONQ`, the `SYS` map and BASIC 65's banks; what the m65 seams
+  would need there (a ROM variant of the m65 column: the C64-style
+  vectors, the C64-style screen editor at 80 columns, its own bank
+  layout) is the analysis.  The layer is shaped for it: a ROM variant
+  is one more column of bodies under `.ifdef`, never a second copy.
+- Both stay outside every milestone's gate; neither may cost a byte
+  in the supported builds.
+
+## CDD amendments pending
+
+The amendment inbox: a CDD Log's suggested amendments and an Escape
+Analysis's amendments are filed here, under their tier, and leave when
+they land ([README.md § CDD Log](README.md#cdd-log)).  **None is open
+(2026-11-20).**  The landed ones are under § Records › CDD amendments
+— landed.
+
+Items are classified by **scope of applicability**, not by their
+source.  *Universal* amendments tighten the CDD/TDD method itself;
+*domain-class* amendments apply only to projects of a particular
+shape; *project-specific* items belong to CSE alone.
+
+## Planned
+
+Defined scope, needs work.
+
+### REPL
+
+- [ ] `/` command: search for byte pattern in memory.
+- [ ] `f` command: fill memory range with byte.
+- [ ] `>` command: transfer/copy memory block.
+- [ ] `=` command: define/query symbols from REPL.
+
+- [ ] `?` command: for values < 256, show PETSCII and screen code
+  character interpretation alongside the hex/decimal/binary output.
+
+- [ ] New `S` command for scratching files. Requires confirmation.
+
+- [ ] SID silence command.  Every return from user code already
+  silences voices 1–3 (`hygiene_after_userland` → `PLAT_HYGIENE`:
+  their control registers zeroed, both platforms).  Still open: a REPL
+  command, or a key chord, that zeroes every SID register
+  (`$D400–$D418`, filter and volume too) on demand.
+
+- [ ] Disk command channel: unified under `$` (`$ s:file`, `$9`, etc.).
+
+- [ ] Floppy status consistency: `$` prints status inline (always
+  shows), `l`/`s` use `floppy_status` via `disk_done`.  Verify
+  both paths produce identical output on stock KERNAL.
+
+- [ ] SHIFT+RETURN in REPL: clear the repeat buffer (so the next
+  RETURN starts empty instead of re-executing the last command) and
+  open a fresh prompt line.  Useful for breaking out of a repeated
+  `t`/`RETURN` stepping rhythm without having to type a cancel.
+
+- [ ] `e` command: open editor at decimal line number (`e 42`).
+  Centers the target line on screen as much as possible.  Ties
+  into assembler error line numbers — assemble, see error at
+  line 42, type `e 42` to jump straight there.
+
+- [ ] `l`/`s` log line: always show the effective CBM DOS type
+  (SEQ vs PRG) in the `; load/save "name"...` output.  Under the
+  project-name refactor the on-disk name is derived (`stem` vs
+  `stem.`) and the user should still see which classification path
+  was taken when derivation was automatic.
+
+### Debugger
+
+- [ ] `t` into a `JSR` whose target is ROM (`$E000+`) steps over it,
+  as designed — a ROM target cannot take the step BRK — but silently.
+  Print a note (e.g. `; rom → over`) so the user sees why the step did
+  not go in.  The same holds on m65 for `BSR`, `JSR (ind)` and `JSR
+  (abs,X)` into ROM (`step_next_pc`, `@rom`).
+
+- [ ] Fast turnaround in the BRK handler for long trace loops.
+  Today every step iteration runs the full save/restore_userland_zp
+  + save/restore_kernel_zp pair — two 128-byte ZP copies (one
+  user→buf, one buf→live) per break/resume cycle.  For `t 100`-class
+  stepping the ZP churn dwarfs the actual user instruction cost.
+  Opportunity: detect "we're mid-chain, no REPL code will run
+  between break and resume, kernel ZP state hasn't been consumed"
+  and skip the ZP swap entirely — keep user ZP live across the
+  handler's chain body (step_next_pc doesn't touch user ZP, only
+  reads abs/stack addresses).  NMI breakouts: if NMI fires during
+  the fast-turnaround chain, fall back to the full ZP swap and
+  longjmp so post_run_cleanup sees a consistent ZP view.  Consider
+  a flag (`step_fast_chain` or similar) that save_userland_state
+  tests to skip the ZP swap when set, armed by cmd_step's seed +
+  the handler's chain path.  Expected saving: ~2 * 128 = 256
+  cycles per step iteration.
+
+- [ ] Show wall-clock execution time on the `j`/`g` clean-exit
+  panel.  Sample KERNAL jiffy clock ($A0/$A1/$A2, the TOD-style
+  3-byte counter incremented by the IRQ at 60 Hz on NTSC,
+  50 Hz on PAL) at userland entry (in `_rtu_body` just before
+  the RTI) and again at handler entry (`cse_brk_handler`),
+  store the delta somewhere the panel can read (e.g. a 3-byte
+  `run_jiffies` slot).  Format on the DBG_RTS panel:
+    < 1 s        → `Nms` (jiffy * 1000 / clock_hz, 0–999)
+    1 s ..< 1 m  → `Ns` or `N.NNNs`
+    1 m ..< 1 h  → `NmNs`
+    >= 1 h       → `NhNmNs`
+  Render as a tail field on the info or regs row, e.g.
+  `; rts at $0800  3.4s` or `r pc:0800 ... s:ff  217ms`.
+  Notes:
+    - Jiffy clock wraps after ~4.7 days (24-bit counter at
+      60 Hz) — fine for typical debug sessions; longer runs
+      get `>4d` clamp.
+    - PAL/NTSC detection: the assembled binary already knows
+      via build flag (CMOS / 6502 / 6510 builds may differ);
+      otherwise sample $02A6 at startup (KERNAL sets 0=NTSC,
+      1=PAL).
+    - Jiffy clock pauses while the kernel runs (IRQ disabled
+      during handler), so the delta excludes our overhead —
+      only user code time is reported.  Good.
+    - `t`/`o` step-result panels probably DON'T need this
+      (single steps are sub-microsecond), but a `t100`-class
+      batch could surface aggregate time.
+
+### Help
+
+- [ ] In-app help system.  Help text lives in KDATA (under
+  KERNAL ROM, $F100 area), not RODATA — must not bloat the
+  relocatable runtime.  Minimal CODE overhead: a small dispatcher
+  that pages through KDATA strings.  Candidates: one-screen
+  REPL command cheat sheet, editor key summary, assembler
+  syntax quick ref.  Paging output (see below) would pair
+  naturally.
+
+### Output
+
+- [ ] Paging for commands that produce more than ~23 lines of
+  output (`d`, `m`, `$`, assembler messages).  Pause with
+  "more" prompt, any key continues, RUN/STOP aborts.  The
+  `log_line` output wrappers already funnel all command output
+  through a single path — hooking a line counter there should
+  be straightforward.
+
+### Assembler
+
+- [ ] Assembly `; ok` line: show symbol count (`; ok  NNN syms`).
+  Needs `sym_count` (2B BSS) in symtab.s, incremented by `sym_define`,
+  but only if the symbol didn't exist before.
+
+### Editor
+
+- [ ] Gap buffer shrink.  `buf_base` moves down as the buffer grows
+  (`gb_ensure_room`) and back to `BUF_END` only on `n` or a load
+  (`gb_init`); deleting lines leaves it low, and `workend` with it,
+  until then.  Shrinking on delete costs a copy of the text below the
+  gap; decide whether `workend` is worth it.
+
+- [ ] Page up/down with shift+cursor or F-keys.
+- [ ] Search (ctrl+f equivalent via F-key).
+- [ ] Goto line number (see `e` command)
+
+- [ ] `$09` in source text.  The assembler's whitespace is `$20` and
+  `$A0` only (`asm_skip_ws`), and the editor renders only `$A0` as a
+  tab, so a SEQ file written elsewhere with ASCII tabs does not read
+  as indented source.  Treat `$09` as `$A0` — at load time, or in the
+  assembler and the editor.  (The keyboard half of this item is the
+  m65 TAB bug, § Bugs › m65.)
+
+### Tests and harness
+
+- [ ] Editor scroll and render tests on the C64: no test drives
+  `ed_scroll_down` / `ed_render_line` through screen RAM.  The old
+  blocker is gone — `enter_editor` runs on C64Emu (test_editor.py's
+  smart-indent tests) — so the path through `ed_handle_key` with the
+  cursor keys is open.  (test_m65_source_editor.py covers scrolling on
+  m65.)
+
+- [ ] README cross-reference tests: parse command tables in
+  `README.md`, verify each command key has a handler symbol in the
+  `.lbl` file.  See CDD Maintenance item 8.
+
+- [ ] **Doc-audit Step 5 — examples-as-tests.**  The seven
+  audit scripts under `dev/` (driven by `dev/audit_doc.py`)
+  catch structural drift mechanically — broken cross-refs,
+  numerical claims, BSS counts, owned-files coverage,
+  depends-on accuracy.  What they don't catch is *executable*
+  drift: code fences that no longer assemble, REPL command
+  examples that no longer parse, or build-command snippets
+  whose targets have been renamed.
+
+  Step 5 of the doc-audit plan proposed a permanent regression
+  net: a pytest fixture that, for each fenced code block in
+  README.md / `doc/assembler_syntax.md` / `doc/modules/*.md`:
+
+  1. Classifies the block by language hint (asm / repl /
+     shell / output-sample).
+  2. For asm blocks: feeds them through asm_assemble + checks
+     for clean assembly (zero `;?<line>` errors).
+  3. For repl blocks: parses the `AAAA:CMD` shape and
+     dispatches via the test harness's `set_line_buf` +
+     `exec_line`, asserting no error logs.
+  4. For shell blocks: extracts `make TARGET` invocations and
+     verifies the targets exist in the current Makefile.
+  5. Output-samples (lines starting with `;` or matching the
+     `; org AAAA-BBBB Nb` shape) are inert — skip with a
+     comment.
+
+  A *semantic* dimension beyond "it assembles" (CDD Log Phase 26,
+  A8): every `$XXXX` in user-facing prose that names a memory location
+  is classified safe or unsafe against the runtime memory map (CSE's
+  image, BSS, ROM under RAM are unsafe) and the unsafe ones flagged.
+
+  Estimated effort: ~1 full session (the harness already has
+  most pieces — `cse_prg` fixture, `set_line_buf`, `exec_line`,
+  `asm_assemble` test stubs).  Build-block extraction is the
+  novel part.
+
+  Why not v0.1: the structural audits already cover ~95% of
+  documented drift.  Code-block drift is rare and self-flagging
+  (a maintainer trying the example sees it fail).  Defer to
+  v0.2 architecture sweep.
+
+- [ ] **VIC raster counter auto-increment** — `$D012` derived from
+  cycle counter (~63 cycles/line).  Unlocks raster-synced user
+  programs.  Not needed for CSE itself (no raster tricks); low
+  priority.  ~30 LOC.
+
+- [ ] **REU / cartridge emulation** — out of scope until R5 (CRT
+  build target).  Placeholder for the roadmap.
+
+### Size optimization
+
+- [ ] **Phase C — promote hot state out of BSS into ZP, and out of
+  the hardware stack into ZP scratch.**  Three sub-items:
+  1. [screen.s scroll_up] Replace the `pha/pla` pairs for `n` /
+     `src_row` / `dst_row` with ZP temps.  ZP is scarce now: 11 free
+     bytes on the C64 ([zp.md](modules/zp.md)).  Saves ~6 stack bytes per scroll + cycles
+     per row.
+  2. [asm_src.s .const handling] Similar `pha/pla` dance around
+     name-folding.  Move to ZP scratch.  ~4 stack bytes, ~15 B code.
+  3. Promote hot BSS flags to ZP: `stop_cooldown` and
+     `run_user_pending` (`dbg_reason` is in ZP already) — each read at multiple hot sites.  Each
+     ZP promotion saves ~1 B code per access and a cycle per read.
+     `in_userland` is debatable (only read in interrupt dispatch).
+  Total estimate: ~20 B code, ~6 B kernel stack headroom, plus
+  hot-path cycle wins in main_loop's `@wait` and scroll_up's row
+  loop.
+
+- [ ] [main.s setup_interrupts] Four vector-write pairs could use a
+  small helper or indexed loop.  ~10 B.
+
+- [ ] [debugger.s _rtu_body sentinel push] Branch pattern could be
+  slightly tighter.  ~2 B.
+
+- [ ] **CSE exit cleanup via KERNAL TIMB ($FE66).**  Instead of `cse_exit_to_basic`
+  hand-rolling the ZP restore + MEM_CONFIG reset + `jsr KERNAL_CINT +
+  jmp ($A002)` sequence, do only what's ours to undo (e.g. restore the
+  editor-specific ZP state we disturbed), then `jmp $FE66` (KERNAL's
+  TIMB — "warm-restart" entry used by BASIC's STOP+RESTORE path).
+  $FE66 reinitialises I/O, resets vectors, redraws screen, and drops
+  into BASIC READY.  Eliminates our manual teardown (~30 B code plus
+  the COLD_ZP KBSS area we reserve just for the restore).  Verify that
+  the KERNAL routine's prerequisites (banking, stack shape) are met
+  from our exit context.
+
+- [ ] Table-drive `cmd_info`: replace procedural line-by-line
+  memory map display with a data table + loop (~50-80 B saving).
+
+- [ ] PRG/SEQ save dedup: `cmd_write` and `cmd_load` have shared
+  patterns in filename parsing and stats display (~30-50 B).
+
+- [ ] `exec_line` handler code sharing: inline `@h_*` handlers
+  share common tail code (log_close, nl_clear, error paths).
+  Factor into shared exit points.
+
+- [ ] Disassembler `format_operand`: investigate table-driven
+  formatting (packed format byte per mode, like Woz's Apple II
+  disassembler) instead of procedural per-mode branches.
+  Currently 220 B, could save ~80-100 B.
+  The figures predate slice 1's A4 decoder; re-measure first.
+
+### Architecture
+
+- [ ] **ZP compaction (c64).**  *(From slice 1's A3b, 2026-11-20.)*  CSE's
+  C64 zero page has five one-byte holes left by retired cells —
+  `$0F` (`asm_slot`), `$13`, `$2C` (`_asm_ok_tmp`), `$36`, `$43`
+  (`_dasm_opc`) — held so later addresses stay put, and `$7A–$7F`
+  free above `scr_src`: 11 bytes, six of them contiguous.  Compacting
+  moves every later cell down and gives CSE one free block at the top
+  for its next ZP needs.  It changes **nothing for user code**: the
+  kernel swaps the whole of `$00–$7F` around every user run
+  (`ZP_SAVE_LEN` = 128, fixed by the userland contract, not by CSE's
+  footprint), so neither the swap buffers nor its cost shrink.  Cost:
+  every moved address in [zp.md](modules/zp.md) and the module docs,
+  both C64 PRGs' recorded hashes (a deliberate change), and the m65
+  base-page layout checked for any shared offset.  Low priority;
+  until it runs, a new ZP cell takes a hole.
+
+- [ ] **ZP swap: extend isolation to KERNAL screen-edit zone
+  (`$C0-$FF`).**  Today `save_userland_zp` / `save_kernel_zp`
+  swap only `$00-$7F` between userland and CSE-kernel views
+  (`ZP_SAVE_LO=$00`, `ZP_SAVE_LEN=128`, see [doc/modules/mem.md](
+  modules/mem.md)).  The KERNAL screen-edit zone (`$C6/$C8/$CC/
+  $CE/$D0-$F2`) is shared — userland code that touches any of
+  these bytes (custom IRQ, screen tricks, tape state) leaks into
+  CSE-kernel CHROUT and vice-versa.
+
+  *C-split* design (analysed 2026-04-30 alongside the
+  RESTORE-during-CHROUT bug fix above): keep the existing
+  `$00-$7F` zone, add a second `$C0-$FF` zone (64 B, two buffers
+  → +128 B BSS).  Skip `$80-$BF` to avoid disturbing the KERNAL
+  jiffy clock at `$A0-$A2` (continuously running across modes
+  today; userland may rely on this) and tape/file scratch state.
+  Cost: +128 B BSS, +~25 B code (second loop body), +~1 K cycles
+  (≈1 ms) per userland↔kernel transition.
+
+  Side benefit: provides a free generalisation of the rc1-fix
+  Approach B above.  Today `screen.s::_kernal_screen_reset`
+  resets a *fixed enumeration* of bytes (`$D5/$D9-$F1/$D8/$D4/
+  $CE/$C6`); with C-split + a one-shot pristine snapshot
+  captured at init, the kernel-mode NMI path could `restore
+  kernel_zp` from that snapshot and recover *any* corrupted
+  byte in `$C0-$FF` — not just the enumerated ones.  Eliminates
+  the "did we list every byte CHROUT touches?" risk that was
+  Approach B's documented weakness.
+
+  Pairs naturally with a future architectural sweep that
+  audits userland↔kernel state isolation; not blocking on the
+  RESTORE bug fix (B already covers it for v0.1).
+  See `doc/TODO.md` § Bugs § RESTORE-during-CHROUT for the full
+  three-way A/B/C analysis that produced this entry.
+
+- [ ] **Split `run_user_pending` into pre-dispatch and
+  post-return flags.**  Today the byte serves two purposes:
+
+  - (A) "Command set MODE; needs userland dispatch" — written
+    by `cmd_jmp` / `cmd_step` / `cmd_continue`, consumed by
+    `main_loop @not_enter` and (since the rc4 fix) by
+    `main_loop_top @live` warm-cont path.  Drives `jmp
+    return_to_userland` / `jmp restore_userland_state`.
+  - (B) "User code returned; needs cleanup" — same byte
+    survives the RTI/userland round-trip; consumed by
+    `main_loop_top @check_post_run` to fire `post_run_cleanup`.
+
+  Phase A → B transition relies on the dispatch *not* clearing
+  the flag.  Any caller that runs `exec_line` and then
+  re-enters `main_loop_top` without dispatching falsely
+  conflates A as B — exactly the rc4 bug shape (a+g+NMI+g
+  produced a phantom brk because the warm-cont replay set A
+  but no dispatch fired, then `@check_post_run` consumed it
+  as B).  Fixed in `main.s` commit `5bd916b` by adding the
+  dispatch.
+
+  Proposed split: `run_pending_mode` (A) and `run_returned`
+  (B).  Each has a single writer-set, single reader-consume
+  contract.  The dispatch (return_to_userland or
+  restore_userland_state's prologue) sets `run_returned` and
+  clears `run_pending_mode`.  The handler/userland-return
+  path leaves `run_returned` set; `@check_post_run` consumes
+  it.  Cost: +1 B BSS, ~+10 B code (extra clearing logic),
+  removes the dual-purpose ambiguity entirely.
+
+  Not blocking: rc4's fix closes the only known manifestation.
+  File for the v0.2 architecture sweep.  See [§ Bugs](#bugs)
+  § "BUG a+g+NMI+g phantom brk" for the rc4 audit chain.
+
+- [ ] BSS optimization: collapse `disk_seq_bytes`/`disk_seq_lines`
+  with `ed_save_bytes`/`ed_save_lines` (saves 4 B).
+
+- [ ] BSS optimization: overlap `rp_next_lo`/`rp_next_hi` with
+  `rp_hexbuf` + `@new_col` (saves 3-4 B).
+
+## Roadmap
+
+Long-term milestones in dependency order.
+
+### R1 — Compile-time CPU gating (done)
+
+All CPU-specific code gated with `.ifdef`/`.ifndef` instead of
+runtime checks.
+
+### R2 — Relocating startup (done)
+
+CSE runtime relocated to high memory (floating start, page-aligned,
+ending at $CFFF).  Discardable loader at $080D copies CODE+RODATA
+at boot.  Two-pass link auto-computes runtime start address.
+Workspace at $0800, ~30 KB free.  Exomizer SFX compression for
+D64 distribution (~38% smaller).
+
+### R3 — Universal C64/C128 binary
+
+Single PRG runs on both machines.  Machine differences isolated to
+three leaf functions (banking, NMI trampoline, keyboard).
+
+### R4 — 80-column VDC mode (C128 only)
+
+Self-contained VDC display driver, same interface as VIC-II routines.
+
+### R5 — Cartridge ROM (CRT)
+
+Build target for at least one CRT layout.  Candidates: Ocean Type 1
+(simple banked ROM, wide emulator support) or EasyFlash (2×64 banks,
+writable, real-hardware friendly).  Dual linker configs — one for
+PRG, one for CRT.  Instant boot, no loader needed.  R2 (relocating
+startup) provides the foundation: CODE+RODATA already position-
+independent relative to their link address.
+
+### R6 — Port C to asm (done)
+
+All C ported to assembly.  cc65 C compiler eliminated.
+
+### R7 — MEGA65 native support (in progress)
+
+Native MEGA65 platform target, separate from C64-compatible mode.
+The MEGA65 is a much more capable machine (32-bit address space,
+relocated ZP internals in native mode, VIC-IV) requiring bigger
+adaptations than a compatibility shim.  Alongside C128 native
+(R3/R4), this would be a distinct platform target with its own
+screen driver and memory model.  Slice 1 — the CPU layer (assembler
+and disassembler) — is done, its Phase B as slice 2's
+P4: see [M65](#m65--the-45gs02-assembler-and-disassembler-r7-slice-1).
+Slice 2 — the platform layer: a native MEGA65-mode program living
+in the BASIC ROM banks, shipped as PRG and D81 (a MEGA65-style CRT
+in a later release) — is done for R7's first release, P0–P5
+(R7 — CDD Report in [cdd_log.md](cdd_log.md)); the CRT and the
+hardware walks remain: see
+[M65 slice 2](#m65-slice-2--the-mega65-platform-r7-platform-layer).
+Slice 2 does the c64/m65 leaf-function isolation R3 asks for; R3
+later adds the C128 to it.
+
+## Ideas
+
+Exploratory, not yet scoped.
+
+### Keyboard & input
+
+- [ ] KERNAL keyboard CTRL combos: explore what key combinations
+  the default KERNAL keyboard I/O delivers.  CTRL+key produces
+  PETSCII control codes ($01–$1F) — identify which are usable
+  without conflicting with KERNAL screen editor behaviour.
+
+- [ ] SHIFT+CLR/HOME in REPL: clear screen.  C=+CLR/HOME: clear
+  from cursor to end of screen.  Both use KERNAL screen editor
+  codes (SHIFT+CLR = $93, CLR/HOME = $13).
+
+- [ ] F-key bindings: assign useful functions to F1–F8 in both
+  REPL and editor.  REPL candidates: help, repeat last command,
+  toggle hex/dec, disassemble at PC.  Editor candidates: save,
+  assemble, goto line, search.
+
+### Features
+
+- [ ] `$` command: filter directory listing by filename glob.
+- [ ] `d` command: show ASCII alongside disassembly (like `m`).
+- [ ] `.` command: show help when mnemonic given without operand.
+- [ ] Color command `C`: show color preview swatches.
+- [ ] Disk I/O: timeout handling for unresponsive drives.
+- [ ] REU support for large source files.
+- [ ] Macro support: .macro/.endmacro.
+- [ ] Conditional assembly: .if/.else/.endif.
+- [ ] Include files: .inc.
+
+- [ ] `.brk [n]` directive: emit a 2-byte BRK instruction (BRK
+  opcode + signature byte).  Optional `n` is the signature byte
+  (default 0).  Replaces the verbose `brk; .db $XX` pattern that
+  the lazy-debug user-BRK workflow currently requires (see
+  debugger.md § User BRK workflow).  Without `.brk`, the user
+  must manually pair `brk` with `.db $XX`; forgetting the .db
+  loses the next code byte to CSE's STEP_OVER / continue +2 skip.
+  `.brk` makes the convention explicit and forgive-by-default.
+  Use cases: `.brk` (default sig byte 0), `.brk $42` (custom),
+  `.brk MARKER` (expression).  Single line in source maps to
+  the canonical 2-byte BRK that matches CPU's RTI semantics.
+  *(Demoted from Planned 2026-04-28: nice-to-have, not release-
+  relevant — the manual `brk; .db $XX` pairing is documented and
+  works.)*
+
+- [ ] Assembler error display: show source line number + context.
+  *(Demoted from Planned 2026-04-28: nice-to-have, not release-
+  relevant — current `;? <line> : <message>` carries the line
+  number; the source-context preview is a polish item.)*
+
+- [ ] Detect PAL/NTSC at startup.
+
+- [ ] CDD back-reference tracking: link source files to their
+  documentation via a machine-readable index.  CDD Maintenance
+  verifies code changes trigger doc updates for all covering
+  documents.
+
+## Records
+
+Closed work, kept for its reasoning.  An open item a record mentions
+is filed above.
+
+### M65 — the 45GS02 assembler and disassembler (R7, slice 1)
 
 **Branch:** `m65` (cut from `main` @ 910d96d, 2026-11-16).
 **Goal:** the m65 platform's CPU layer — line assembler, source
@@ -87,7 +857,7 @@ disassembler (A4) followed: see A4 below.
    oracle; each such case is a baseline defect, listed in the Phase A
    report and filed under Bugs.
 
-### Phase A — C64 builds move to the generated formats (no behaviour change)
+#### Phase A — C64 builds move to the generated formats (no behaviour change)
 
 - [x] ~~A0. Sync the four shared generator files from bbbc64
   (`instruction_set.py`, `hashes.py`, `mnemonic_tables.py`,
@@ -182,7 +952,7 @@ disassembler (A4) followed: see A4 below.
   `test_dasm_tables.py` (each view decodes from the tables, one subset
   view).
 
-### Phase B — the m65 build (m65-45gs02)
+#### Phase B — the m65 build (m65-45gs02)
 
 - [x] B1. Build defines `PLATFORM_M65`, `CPU_45GS02`, `MEGA_SUPPORT`;
   `asm_cpu` values 3 and 4 (6502 and 4510 selectable at run time;
@@ -209,7 +979,7 @@ disassembler (A4) followed: see A4 below.
   `dot_assemble` passes suffixes, `[`, `,z`, `,sp`
   ([repl.md](modules/repl.md)).
 
-### Prerequisite bug (separate fix, lands before B4)
+#### Prerequisite bug (separate fix, lands before B4)
 
 - [x] **Bit-op mnemonics are not assembled.**  (Fixed in P4 step (1), 2026-11-19.)  `asm_line.s` zones D/E
   (`RMB`/`SMB`/`BBR`/`BBS`) are `jmp asm_error` ("not yet tested"),
@@ -229,14 +999,7 @@ disassembler (A4) followed: see A4 below.
   accept it and `set_cpu` to refuse values outside the set — own CDD
   cycle, before B5.
 
-- [ ] **The linker does not bound KDATA.**  memory_design.md gives KDATA
-  $F100–$F4F1 (1010 B), with KBSS (the REPL screen save) from $F4F2,
-  but `src/c64_cse.cfg.in` declares the KDATA area `size = $0EFA`, so
-  a KDATA overflow would silently overwrite the KBSS area instead of
-  failing the link.  Usage today: 400 / 681 / 776 B.  Own CDD cycle:
-  `size = $03F2`, plus KBSS in the config so the linker sees both.
-
-### Known issues filed by the Step-2 handoff audit (not this slice)
+#### Known issues filed by the Step-2 handoff audit (not this slice)
 
 - [x] **Debugger single-step on m65.**  (Done in P4 step (9), 60c2c1c.)  `debugger.s::step_next_pc`
   takes `brk_pc + oplen_tbl[opcode]`; on a Q or far instruction that
@@ -244,24 +1007,8 @@ disassembler (A4) followed: see A4 below.
   instruction.  Also missing: `REL16` branches, `BSR`, `JSR (ind)` /
   `(abs,X)`, `RTS #`.  Belongs to the R7 debugger slice; it must use
   the prefix rule of [dasm.md § Prefix peel](modules/dasm.md#prefix-peel).
-- [ ] **bbbc64's shared-file contract.**  Since A1
-  `dev/mnemonic_tables.py` is cse's own (per-CPU-set blocks, ca65
-  only; the `--syntax acme` paths went with the old writers), and
-  bbbc64's golden copies of cse's tables (pinned at cse 910d96d) no
-  longer describe cse's output.  `instruction_set.py`, `hashes.py` and
-  `dasm_tables.py` are still identical in both repositories.  bbbc64
-  adopts the model in its own CDD cycle; its `asm_tables.py` holds the
-  same profile-row logic for ACME.
-- [ ] **Retire the hand-numbered profile scheme in
-  `instruction_set.py`.**  `OPERAND_PROFILES`' index order, `cmos_bit`,
-  `_CMOS_PAIRS`, `_BIT_OPERAND` and the `JMP`/`TRB`/`TSB`/`AHX` entries
-  of `_BASE_OPCODE_OVERRIDES` no longer drive any table: the generator
-  derives profiles, categories and bases from `instructions(view)`.
-  `OPCODES` already lists every mode per mnemonic, so `MNEMONICS`
-  could shrink to (key → category).  The file is shared with bbbc64 —
-  own CDD cycle, coordinated with the item above.
 
-### Step-2 rulings (operator, 2026-11-16)
+#### Step-2 rulings (operator, 2026-11-16)
 
 - **Single m65 build.**  m65-45gs02 is the only m65 target: 45GS02 by
   default, 6502 and 4510 selectable at run time (amended by D-P4-10:
@@ -281,7 +1028,7 @@ disassembler (A4) followed: see A4 below.
 - **doc/README.md** § Authoritative data files gets its row update
   after the operator's pending README edits are committed.
 
-### Open questions (hardware)
+#### Open questions (hardware)
 
 - **O1. `REL16` offset base.**  Contract states `target − (PC + 2)`
   (the address of the instruction's last byte).  Verify against the
@@ -304,7 +1051,7 @@ compendium until its golden file, recorded in xmega65, says otherwise.
   `Z` to the pointer (case `LDQ ($20),Z Z=03`), `ASLQ $nn,X` shifts the
   four bytes at base page + `X` (case `ASLQ base-page quad,X`).
 
-## M65 slice 2 — the MEGA65 platform (R7, platform layer)
+### M65 slice 2 — the MEGA65 platform (R7, platform layer)
 
 **Branch:** `m65`.  **Status (2026-11-20):** the harness (S2-3), P0
 (the m65 PRG installs itself and reaches `_main`), P1 (user code,
@@ -333,7 +1080,7 @@ itself where it belongs and reach the cold boot vector (P0); then
 user code, maps, vectors and the debugger (P1, foundational), then
 the screen and keyboard (P2).  Phase B and P3–P5 follow.
 
-### Rulings (operator, 2026-11-17/18)
+#### Rulings (operator, 2026-11-17/18)
 
 - **Native, not GO64.**  The m65 build runs in MEGA65 mode on the
   MEGA65 KERNAL.  **ROM floor: 920413** (the stable release, 0.97); a
@@ -389,7 +1136,7 @@ the screen and keyboard (P2).  Phase B and P3–P5 follow.
   hardware confirms (S2-3, done).
 - **Commits** name the model that made the major contribution.
 
-### The doc layer
+#### The doc layer
 
 The documents that carry the m65 contract, and what each owns.  The
 MEGA65 Book and the cartridge wiki page are the authorities for the
@@ -410,7 +1157,7 @@ xmega65 by the milestone that relies on it.
 | [glossary.md](glossary.md) | CSE map, user map, resident stub, seam, the `b.xxxx` notation |
 | module docs | each seam host's Interface states the per-platform body or points to platform_layer.md: [mem.md](modules/mem.md), [cse_io.md](modules/cse_io.md), [screen.md](modules/screen.md), [main.md](modules/main.md), [loader.md](modules/loader.md), [disk.md](modules/disk.md), [gap_buffer.md](modules/gap_buffer.md), [debugger.md](modules/debugger.md), [breakpoints.md](modules/breakpoints.md), [zp.md](modules/zp.md); [editor.md](modules/editor.md), [repl.md](modules/repl.md), [log.md](modules/log.md) state that they carry no platform knowledge and are width-driven |
 
-### Milestones
+#### Milestones
 
 **P0 — the build exists and boots to the cold vector.**
 
@@ -2195,7 +2942,7 @@ mechanism retired; (4) the gate record, the CDD Report, the close.
   rows, 332 m65).  Code commits f001a69, 9bb2f3c, 6967f90 and the
   close.  The CDD Report: [cdd_log.md § R7 — CDD Report](cdd_log.md#r7--cdd-report-the-mega65-ports-cpu-and-platform-layers-2026-11-1620).
 
-### Analysis tasks (own cycles; their results are doc deltas)
+#### Analysis tasks (own cycles; their results are doc deltas)
 
 - [x] **A1. KERNAL API survey** (before P1 and P2).  For every KERNAL
   call, ROM internal and KERNAL cell the C64 build uses, the MEGA65
@@ -2259,14 +3006,6 @@ mechanism retired; (4) the gate record, the CDD Report, the close.
   - **D-A1-5** Function-key macros: open for P2 — `SYSFLAGS` bit 5 set
     while CSE reads keys, and what a program finds (the premise's
     `$00`) — README's P2 item says "off while CSE runs".
-- [ ] **A2. Zero page and low memory** (after P1; changes the
-  userland contract).  Answered by P0's analysis: CSE's own base page
-  (`0.1F00`), base page 0 wholly the user's and the KERNAL's.  Still
-  open: which cells of base page 0 and `0.0200–0.15FF` the KERNAL
-  needs (a list for the user), and a private 16-bit stack (`E`
-  clear) for user programs — what it costs, what it buys.  Output: a delta to
-  [userland_contract.md](userland_contract.md) and
-  [zp.md](modules/zp.md).
 - [x] **A3. The MEGA65 cartridge standard** (before P3): the wiki
   page, the ROM's implementation (mega65-rom-public issue 62, the
   `"m65"` magic's last byte — `$34` or `$35`), the test cartridge,
@@ -2305,47 +3044,17 @@ mechanism retired; (4) the gate record, the CDD Report, the close.
   release: the m65 cartridge); build_system.md's CRT paragraph now
   states the first release has none, with these facts.
 
-### Open design items (settled by a milestone's analysis)
+#### Open design items (settled by a milestone's analysis)
 
 - ~~**P-Q3.** The `"m65"` magic's last byte (A3).~~  Settled by A3:
   `$35` — the magic is `$4D $36 $35`, "M65".
-- **P-Q5.** Whether the source region's base is only a build constant
-  or also a run-time setting (the far pointers allow both).
 
 **Settled 2026-11-18:** P-Q1 (the source region: `2.4000–2.BFFF`,
 32 K), P-Q2 (after `Q`: banks 0, 4, 5 kept, bank 1 cleared, the
 source text gone), P-Q4 (CSE has its own base page; base page 0 is the
 user's).
 
-### Stretch goal — CSE on the Open ROMs
-
-Operator, 2026-11-18: supporting CSE on the Open ROMs on both
-platforms is a stretch goal.  Both images are mirrored and pinned
-([rom/README.md](../rom/README.md)): the C64 (generic) build as
-`rom/*_mega.bin`, the MEGA65 build as `rom/mega65_open.rom` — the
-project's only MEGA65 image, starting in its legacy (C64) mode, its
-own native mode (`GO 65`) running on the same C64-style KERNAL with
-no C65 jump table besides `PRIMM`.  Neither is a supported target
-today ([memory_design.md § Target Compatibility](memory_design.md#target-compatibility)).
-
-- [ ] **OR1. The C64 builds on the Open ROMs' C64 build.**  Which of
-  the KERNAL internals and cells the C64 builds use
-  ([platform_layer.md § Constants](platform_layer.md#constants), the
-  c64 column) the Open ROMs provide with the same meaning; the gaps become a ROM variant of
-  the c64 column in [platform_layer.md](platform_layer.md) (a define
-  beside `PLATFORM_C64`, not a fork).  Tier I: C64Emu on
-  `kernal_mega.bin` runs the platform-neutral suites.
-- [ ] **OR2. The m65 build on the Open ROMs' MEGA65 build.**  Its
-  native mode lacks `VECTOR`, `SETBNK`, `SCRORG`, `JSRFAR`,
-  `VERSIONQ`, the `SYS` map and BASIC 65's banks; what the m65 seams
-  would need there (a ROM variant of the m65 column: the C64-style
-  vectors, the C64-style screen editor at 80 columns, its own bank
-  layout) is the analysis.  The layer is shaped for it: a ROM variant
-  is one more column of bodies under `.ifdef`, never a second copy.
-- Both stay outside every milestone's gate; neither may cost a byte
-  in the supported builds.
-
-### Done (S2-3, the harness)
+#### Done (S2-3, the harness)
 
 - [x] S2-3. M65Emu, the m65 integration harness
   ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
@@ -2388,18 +3097,10 @@ today ([memory_design.md § Target Compatibility](memory_design.md#target-compat
 **Superseded:** the earlier S2-1/2/4/5/6/7/8 items and S2-Q1–Q6 are
 folded into the milestones and rulings above.
 
-## CDD amendments pending
+### CDD amendments — landed
 
 Session retrospective findings (debugger trace workflow,
 2026-04-22 to -24) and 2026-04-25 CDD Maintenance round.
-
-Items are classified by **scope of applicability**, not by their
-source.  *Universal* amendments tighten the CDD/TDD method itself;
-*domain-class* amendments apply only to projects of a particular
-shape; *project-specific* items belong to CSE alone.
-
-**Status (2026-11-20):** every amendment filed here has landed or been
-closed as superseded; none is open.
 
 **Status (2026-04-27):** Tier A landed three amendments to
 README.md (CDD Method + Escape Analysis); Tier B landed two
@@ -2415,7 +3116,7 @@ multi-CPU integration-test parity) were promoted from the
 bug-entry candidates into testing.md.  `mn_config.s` retirement
 closed cleanly under § Architecture.
 
-### Tier A — Universal CDD System amendments
+#### Tier A — Universal CDD System amendments
 
 *Apply to any project under CDD discipline, regardless of domain.
 These amendments belong in [doc/README.md](README.md) (CDD Method
@@ -2447,13 +3148,13 @@ process-level layers, not at the principle-list layer.*
   2026-11-20).  Landed as *File each defect once* in README.md § CDD
   Quality Sweep, Discipline.
 
-### Tier B — Domain-class amendments
+#### Tier B — Domain-class amendments
 
 *Apply only to projects of a particular shape.  Not universal:
 a project outside the named class does not need the amendment.
 Each item names the class it depends on.*
 
-#### B1. State-machine projects
+##### B1. State-machine projects
 
 *Projects with enumerated states consumed by multiple sites:
 compilers, debuggers, protocol implementations, workflow engines,
@@ -2467,7 +3168,7 @@ game logic.  Pure libraries and stateless tools are out of class.*
   states consumed by multiple sites — explicitly NOT universal
   per the Tier B1 classification.
 
-#### B2. Projects with rendered output / UX
+##### B2. Projects with rendered output / UX
 
 *Projects whose contract surface includes pixels, screen layout,
 or stream-formatted output: TUI tools, GUIs, REPLs with on-screen
@@ -2490,9 +3191,9 @@ out of class.*
   line: docs specify abstract behaviour, tests assert abstract
   visible results, code owns the render.
 
-### Tier C — Project-specific (CSE)
+#### Tier C — Project-specific (CSE)
 
-#### C1. Process / methodology debt
+##### C1. Process / methodology debt
 
 - [x] ~~**Test-harness layout fragility investigation**~~
   (closed 2026-04-27 alongside the cold-init bug fix).  The
@@ -2531,13 +3232,13 @@ out of class.*
   fact, its book page or the recording that will confirm it; Step 2
   checks the list.
 
-#### C2. Corpus-coverage gaps (CDD Maintenance 2026-04-25)
+##### C2. Corpus-coverage gaps (CDD Maintenance 2026-04-25)
 
 *Tracked further down under § Planned / Corpus.  The items
 there are mechanical fixes; this header just acknowledges they
 belong in the same taxonomy.*
 
-#### C3. Parallel fix tracks (CDD Log R7, 2026-11-18)
+##### C3. Parallel fix tracks (CDD Log R7, 2026-11-18)
 
 - [x] (Closed 2026-11-20.)  Landed as *Parallel fix tracks* in
   build_system.md § Size gate.  ~~Cut every fix worktree from the integration branch; re-measure
@@ -2546,7 +3247,7 @@ belong in the same taxonomy.*
   deleted file) and the full suite before ticking.  Home:
   build_system.md § size gate and testing.md.~~
 
-### Phase 24 retrospective — amendment candidates (2026-04-27)
+#### Phase 24 retrospective — amendment candidates (2026-04-27)
 
 *Findings from the Phase-24 session retrospective (cold-init bug
 fix + warm/cold init survey).  These are candidates for a future
@@ -2627,7 +3328,7 @@ CDD Review round; not yet triaged into Tier A / B / C.*
   Likely **Tier C** (CSE-specific: depends on this project's
   build target layout).
 
-### Phase 25 retrospective — amendment candidates (2026-04-29)
+#### Phase 25 retrospective — amendment candidates (2026-04-29)
 
 *Findings from the Phase-25 release-polish session CDD Log.
 See [doc/cdd_log.md § Phase 25](cdd_log.md) for the full
@@ -2689,7 +3390,7 @@ as universal (Tier A).*
   amendment to the glossary entry to lock that cadence in.
   Likely **Tier A**.
 
-### Milestone-log amendments (P3–P4b, Phase 26)
+#### Milestone-log amendments (P3–P4b, Phase 26)
 
 *Suggested in the [CDD Log](cdd_log.md) entries named, not filed
 here before; landed 2026-11-20.*
@@ -2710,7 +3411,7 @@ here before; landed 2026-11-20.*
   memory-map-aware scanner it asks for belongs to *Doc-audit Step 5 —
   examples-as-tests* (§ Architecture), still open.
 
-## CDD Maintenance + Quality Sweep findings (2026-11-17/18)
+### CDD Maintenance + Quality Sweep findings (2026-11-17/18)
 
 Findings of the repo-wide CDD Maintenance pass (eight doc-vs-code
 reviewers) and the first CDD Quality Sweep
@@ -2722,7 +3423,7 @@ the sweep notes); every doc item was read on both sides.  Code and
 test items go through the CDD Method; doc-drift items are fixed in the
 documentation round that follows this filing.
 
-### Code bugs — debugger and breakpoints
+#### Code bugs — debugger and breakpoints
 
 - [x] **A breakpoint that never ran writes `$00` into user code.**
   `dbg_bp_set` stores `saved = 0` (`breakpoints.s` set path) and
@@ -2880,7 +3581,7 @@ documentation round that follows this filing.
   (`step_state` bit 7 → `post_run_cleanup` prints `;!range` with the panel),
   session kept, test `TestChainedStepRange`.
 
-### Code bugs — assembler
+#### Code bugs — assembler
 
 - [x] **A lone `:` hangs `a`** (`:`, ` : nop`, `x: : nop`): a
   zero-length label re-scans the same word forever (`asm_src.s`
@@ -3025,7 +3726,7 @@ documentation round that follows this filing.
   label). Tests test_parse_ok[ A, A\\r, ...], test_stop_position[ACC
   after leading ws].
 
-### Code bugs — editor, build, tooling
+#### Code bugs — editor, build, tooling
 
 - [x] **`TAB_WIDTH` accepts 1..32 but only powers of two work**
   (`and #TAB_MASK`); add a power-of-two `.error` and narrow the doc.
@@ -3071,7 +3772,7 @@ documentation round that follows this filing.
   debugger.md), included by main.s and repl.s, test
   `TestDbgReasonSingleDefinition`.
 
-### Code bugs — found by the live example run (2026-11-18)
+#### Code bugs — found by the live example run (2026-11-18)
 
 - [x] **`.const` with a symbol in its expression defines nothing**:
   `.const vic $d000 / .const border vic + $20 / sta border` →
@@ -3107,7 +3808,7 @@ documentation round that follows this filing.
   Fixed 2026-11-18 (d01cc76 on the track branch): `scr_src` at `$78–$79`,
   destination reuses `_io_scr`; user-free ZP is now `$7A–$7F`.
 
-### Code bugs — found by the doc-drift round (2026-11-18)
+#### Code bugs — found by the doc-drift round (2026-11-18)
 
 - [x] **`?` shows a 16-bit value whose low byte is 0 in the 8-bit
   form**: `? $1000` prints `;   $00   4096` (`@calc_16bit` falls back
@@ -3134,7 +3835,7 @@ documentation round that follows this filing.
   succeeds.
   Fixed 2026-11-18: not the `.d` files — the objects' order-only directory prerequisite `$(BUILD)/src/` had a trailing slash, which make 3.81 stops matching once the first object created the directory; now `$(BUILD)/src`, test test_fresh_worktree_builds_in_one_make.
 
-### Code bugs — found by the editor/disk doc group (2026-11-18)
+#### Code bugs — found by the editor/disk doc group (2026-11-18)
 
 - [x] **`l` of a SEQ file reports every failed load as a success**:
   `ed_load_source` ends with `ldx #0` (Z=1 on every path) and
@@ -3154,7 +3855,7 @@ documentation round that follows this filing.
   `gb_backspace` set `ed_dirty` before `ed_mark_edited` checks it.
   Fixed 2026-11-18: not only dead — a RETURN that scrolled (ed_scroll_up redraws no status) left a clean source without its `*`. `ed_mark_edited` now always draws the marker, `ed_status_dirty` is folded into it (−17 B, budget lowered), tests TestDirtyMarker.
 
-### Test gaps
+#### Test gaps
 
 - [x] The loader never runs in a test (`load_prg` relocates in
   Python); add one Tier I test running `loader_entry`.
@@ -3199,9 +3900,9 @@ documentation round that follows this filing.
   Done 2026-11-18 except Tranche 4: the six bundles are `conftest.Bundle` with `PROD_DEFS` and `-t c64`; the stubs' mocks are recorded in testing.md § Shared slim mocks; `cse_release_prg` feeds test_release_smoke.py.  Open: `test_repl_disk.py` — blocked on a virtual IEC disk (C64Emu models only an empty serial bus).
   Fixed 2026-11-18: C64Emu has a virtual 1541 (attach_drive); test_repl_disk.py runs on it with the production PRG, dev/repl_test_stub.s and dev/repl_test.cfg are deleted, tests test_repl_disk.py (TestSaveCommand, TestLoadCommand, TestDirDevice).
 
-### Doc drift (to fix in the documentation round)
+#### Doc drift (fixed in the documentation round, 2026-11-18)
 
-Stale against the code, by document (each item verified both ways):
+Stale against the code, by document (each item verified both ways).  **Closed 2026-11-18** by the documentation round (`e1c0e1d` and the commits before it); spot-checked 2026-11-20 against the current docs.
 
 - **debugger.md** — next-PC table and RTS/RTI stepping; the
   `_rtu_need_sentinel` description; NMI in kernel mode (refresh, not
@@ -3292,7 +3993,7 @@ Stale against the code, by document (each item verified both ways):
   — a closed v0.1 checklist.  **optimization.md** — seven stale
   symbols.
 
-### Duplication and layering (systemic; a scoped arc each)
+#### Duplication and layering (systemic; a scoped arc each)
 
 - [x] Facts restated in many docs, several already contradicting each
   other: the ZP allocation table, the KERNAL-RAM banked layout, the
@@ -3321,15 +4022,8 @@ Stale against the code, by document (each item verified both ways):
   cites it) does not exist.
   Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
-## Bugs
+### Fixed bugs
 
-Open bugs, roughly ordered by priority.
-
-- [ ] **`io_puthex2` writes past the last column.**  It stores its two
-  digits at Y and Y + 1 with no bound, so a hex pair started in the
-  last column puts its second digit into the next row's first cell
-  (`io_putc` clamps, `io_puthex2` does not).  Both platforms.  Found by
-  P2's geometry inventory, 2026-11-19.  Own CDD cycle.
 - [x] ~~**disk.s's `@putc_inv` inverts the wrong cell at the last
   column.**~~  Closed 2026-11-19 (P3, step 2) as unreachable: its only
   caller is `list_directory`'s header, a line `fl_buf` truncates to 30
@@ -3337,15 +4031,6 @@ Open bugs, roughly ordered by priority.
   clamp never holds the cursor there, in 40 columns or 80.  Fixing it
   would cost every build bytes for a path that cannot run.  Reopen if
   `@putc_inv` gets a caller that can reach the last column.
-
-- [ ] **disk.s writes `$FD`/`$FE`, which the userland contract keeps
-  free.**  [userland_contract.md](userland_contract.md) § 2, § 3 and
-  § 7 promise that CSE never writes the C64's free cells `$FB–$FE`;
-  disk.s's private pointer is `ptr = $FD` (`str_setup` stores it),
-  outside the swapped `$00–$7F`, so a disk command clobbers the
-  user's `$FD`/`$FE`.  Found by the P0 quality pass, 2026-11-18.  Own
-  CDD cycle: move the pointer into CSE's ZP block (zp.s; the C64 builds
-  change, so not part of the byte-identical platform refactor).
 
 - [x] ~~**BUG** `m` dump line is not re-executable — cursor-up
   + RETURN on a memory-dump row logs `;?syntax`.~~  (v0.1-rc3
@@ -3952,32 +4637,41 @@ Open bugs, roughly ordered by priority.
     BRK frame to identify origin.
 
 - [x] ~~Disable C64 SHIFT+C= mode switch on CSE init~~ (fixed: main.s)
+
 - [x] ~~`i` command output shows stale memory map~~ (fixed: repl.s
   tail table now shows sym $E000-$EEFF, cse $EF00-$F8D9 banked,
   rom $F8DA-$FFFF instead of single rom $E000-$FFFF)
+
 - [x] ~~`.const FOO` then `sta FOO` not found~~ (fixed: expr.s label
   scanner now folds $C1-$DA → $41-$5A in-place; shifted uppercase
   letters from the lowercase/uppercase charset are accepted)
+
 - [x] ~~Uppercase REPL commands parsed as lowercase.~~  (fixed:
   `scr_to_pet` now maps screen code $40–$5F → PETSCII $C0–$DF.
   Latent bug from Phase 6 — `read_line`'s screen→PETSCII
   conversion always collapsed uppercase into the lowercase
   range.  Dispatch table entries $C2/$C3/$D1 were unreachable.
   Phase 17)
+
 - [x] ~~INS in REPL: overwrites char under cursor~~ (fixed: main.s
   INS shift loop had off-by-one — `beq` exited before copying the
   char at cursor position; removed the early exit)
+
 - [x] ~~`?` calculator wrong decimal for >= $2000~~ (fixed: repl.s
   `put_dec5_sp` replaced with `io_putdec` delegation; `utoa_sub`
   rewritten with pha/pla pattern from io_putdec)
+
 - [x] ~~`a` save line writes filename "oup"~~ (fixed: asm_src.s
   seg_print_save now checks for `,s` suffix before poking; if no
   suffix, appends `,p` instead of overwriting last char)
+
 - [x] ~~`l "out,p" $2000` doesn't load to $2000~~ (fixed: disk.s
   SETLFS secondary address was inverted — SA=0 means use X/Y addr,
   SA=1 means use PRG header addr; code had them backwards)
+
 - [x] ~~RUN/STOP debounce~~ (already debounced: `@deb_wait` polls
   $91 until key released, then drains keyboard buffer)
+
 - [x] ~~`.` and `m` show CSE ZP instead of user ZP after j/debugger
   context.~~  (Phase 19 — fixed: unified user-ZP redirect for
   both read and write across `m` and `.` via `zp_stage_prep` /
@@ -3985,26 +4679,31 @@ Open bugs, roughly ordered by priority.
   Inline mnemonic assembly into ZP during a break remains
   unredirected by design — the hex-poke form handles the real
   use case.)
+
 - [x] ~~**CRITICAL**: save writes wrong memory region~~ (fixed:
   disk.s had a local `_io_tmp = $FB` shadowing the canonical
   symbol in zp.s at `$2D`.  Commit `278a2f6` changed repl.s's
   `sta $FB` → `sta _io_tmp` which resolved to `$2D`, but
   disk.s still read from `$FB`.  Fix: removed the local
   define; disk.s now imports `_io_tmp` from zp.s.  Phase 17.)
+
 - [x] ~~One too many newline before floppy status~~ (fixed:
   disk_done's `log_close` was redundant — callers (prg_line,
   log_err) already close their line with a newline.  Phase 17.)
+
 - [x] ~~l/s accumulates `,p,p,p...` in cur_filename~~ (fixed
   twice in Phase 17.  First pass: `seg_print_save` recognised an
   existing `,p` suffix.  Final fix: the project-name refactor —
   `cur_project_name` stores a clean stem (no suffix, no trailing
   dot), so accumulation is impossible at the source.  See the
   "Refactor internal default filename" item below.)
+
 - [x] ~~`r` command flags decode: the dash becomes a strange char~~
   (fixed: added `cmp #'a'; bcc @fp` before the `and #$DF` so
   non-alphabetic chars like `-` pass through unchanged.  The
   dash now displays as `-` regardless of P-bit state.  The
   deeper convention/flip bug is tracked separately.  Phase 17.)
+
 - [x] ~~`r` command flags handling inverted/broken~~ (fixed:
   display now `cmp #'a'; bcc; ora #$80` for alphabetic letters
   only (lowercase → canonical uppercase $C0-$DF); parser now
@@ -4014,15 +4713,18 @@ Open bugs, roughly ordered by priority.
   own flag letter.  Userland update works automatically via
   `@tramp` in dbg_enter which reads reg_a/x/y/p at JSR-to-
   user-code time.  Phase 17.)
+
 - [x] ~~NIT: `.bas` stub lacks a space after `REM`~~ (fixed:
   asm_src's emit_bas now emits a space byte between the REM
   token and the string text.  Stub length adjusted +1.  Phase 17.)
+
 - [x] ~~NIT: unsaved-changes prompt appears twice~~ (fixed:
   merged `check_unsaved` and per-command prompts into a shared
   `confirm_action` helper.  `k`, `q` show `"; del src? y/n"` /
   `"; quit? y/n"` when clean, `";!unsaved. del src? y/n"` /
   `";!unsaved. quit? y/n"` when dirty.  LOG_WARN level when
   dirty, LOG_INFO when clean.  Phase 17.)
+
 - [x] ~~`s:name` overwrite~~ (fixed: PRG save now uses OPEN+CHKOUT+
   CHROUT+CLOSE like SEQ save, with `"@:<name>,p,w"` constructed
   via the shared `build_open_str` helper.  Both paths now have
@@ -4030,6 +4732,7 @@ Open bugs, roughly ordered by priority.
   semantics.  PRG payload writes a 2-byte load-address header
   then the bytes.  `build_open_str` generalised to take type
   ('s' or 'p') in X in addition to mode in A.  Phase 17.)
+
 - [x] ~~Debugger: stepping into a subroutine then `c` (continue)
   cannot return through the original JSR's pushed return address.~~
   (fixed via the Phase 18 shared-stack model: user and kernel share
@@ -4038,9 +4741,11 @@ Open bugs, roughly ordered by priority.
   break/resume cycles.  The old two-image swap design was
   superseded before implementation.  See
   [memory_design.md § Stack contract](memory_design.md#stack-contract).)
+
 - [x] ~~Assembler: `bne <nonexisting>` reports "bad insn"~~ (fixed:
   `asm_expr_error` entry point sets `asm_expr_err=1`; `.` command
   and source assembler now print `expr_error_str` detail e.g. "undef")
+
 - [x] ~~**TDD Maintenance finding** (Principle 13 sweep 2026-04-20):
   `editor.ed_read_line` has no position-pinning witness.~~  (resolved
   via option b: four new test methods in
@@ -4052,6 +4757,7 @@ Open bugs, roughly ordered by priority.
   imprecise — the *first* EOF call may advance (to cross the gap
   and reach BUF_END); what callers rely on is that subsequent EOF
   calls are idempotent.  Closes L4 TDD parity with L0–L3.)
+
 - [x] ~~**BUG** (class-wide, Escape Analysis 2026-04-20): REPL commands
   that take a single expression silently accept trailing garbage.~~
   (resolved: extracted `_require_eoi_or_err` helper in repl.s and
@@ -4108,6 +4814,7 @@ Open bugs, roughly ordered by priority.
     untouched after aborted parse.
   - **Cost:** +13 B per production variant.
   - **Test suite:** 3088 passed / 18 skipped (was 3085 / 18).
+
 - [x] ~~**BUG** Assembler: `.dw` / `.db` with a forward-ref label
   silently sizes as zero bytes on pass 0, causing labels defined
   afterward to drift to too-low addresses; pass 1 then emits both
@@ -4290,6 +4997,7 @@ Open bugs, roughly ordered by priority.
   else → @syn_err.  repl.md now documents the `.` command's input-
   shape matrix as a four-cell commitment; testing.md Principle 11
   gains this as a second cautionary example after the asm_cpu gate.)
+
 - [x] ~~**BUG**: not all log functions honour the "enter anywhere,
   exit at col 0" contract~~ (resolved via Escape Analysis: the
   bug turned out to be under-testing, not under-implementation —
@@ -4304,6 +5012,7 @@ Open bugs, roughly ordered by priority.
   enumerates the per-function behaviour as a table (enter-anywhere
   × exit-at-col-0 matrix), turning the compositional guarantee
   into a per-function commitment per Principle 8.)
+
 - [x] ~~Userland exit does not restore screen state.~~ (fixed:
   `vic_reset` in screen.s forces $D011=$1B, $D016=$C8, $D018=$15,
   $D015=0, $D01A=0, $D019=$0F on every userland → kernel
@@ -4311,6 +5020,7 @@ Open bugs, roughly ordered by priority.
   `ora #$02` on $D018 replaced by absolute `lda #$15 / sta`.
   `restore_colors` still applies theme + colour RAM.  Promotes
   the Planned `vic_reset` item below to Done.)
+
 - [x] ~~Debugger: what do we do if we trace into an actual BRK?~~
   Resolved (see debugger.md § User BRK workflow).  Rules: `o` and
   `c` skip past via `brk_skip_user` (advance brk_pc by 2 — past
@@ -4320,6 +5030,7 @@ Open bugs, roughly ordered by priority.
   time distinguishes user BRK from step BRK / user BP via the
   centralised `brk_skip_user` helper.  IRQ vector is never
   invoked — we side-step BRK entirely.
+
 - [x] ~~**Phase 18 — CSE as a Kernel.**~~  (done.  ISR-style kernel
   model: shared flat stack with 64-byte kernel headroom contract,
   direct vector patching via `setup_interrupts`, unified
@@ -4383,6 +5094,7 @@ Open bugs, roughly ordered by priority.
   dropped from `compute_layout.py`.  CODE + RODATA can now grow
   up to `runtime_start`.  See [build_system.md § Copy direction](build_system.md#the-ld65-loadrun-split).
   +11 B in the discardable LOADER segment.)
+
 - [x] ~~Debugger: refuse to write breakpoints outside workspace memory~~
   (fixed: cmd_brk now rejects BP addresses outside [$0800, __CODE_RUN__)
   with a "; ? range" error before calling dbg_bp_set.  Phase 17.)
@@ -4542,7 +5254,7 @@ Open bugs, roughly ordered by priority.
     parameter through both call sites — net cost in clarity
     likely exceeds the ~9-12 B saving.  Decision recorded.
 
-### Fixed bugs (reference)
+#### Fixed bugs (reference)
 
 <details>
 <summary>Click to expand</summary>
@@ -4585,12 +5297,12 @@ Open bugs, roughly ordered by priority.
 
 </details>
 
-## Phase 9 — Test harness rewrite
+### Phase 9 — Test harness rewrite
 
 `C64Emu` emulator class + production PRG replaces per-test build
 systems, ASM stubs, and test-specific linker configs.
 
-### Done
+#### Done
 
 - [x] `tests/c64emu.py` — C64Emu class: py65 + KERNAL ROM overlay,
   $01 bank switching, screen RAM, jsr(), sym(), keyboard injection.
@@ -4607,33 +5319,38 @@ systems, ASM stubs, and test-specific linker configs.
 - [x] `c64emu.py` load/run segment relocation: auto-copies segments
   with load ≠ run addresses (mirrors loader.s).
 
-### Open
+#### Closed (Phase 9 open list)
 
 - [x] ~~Review l/s command tests~~ (fixed: test_repl.py now resolves
   `save_addr`/`save_size`/`load_result` via RODATA `sym_refs` table
   slots 11–13, replacing fragile hardcoded BSS offsets)
-- [ ] Use debug builds and `od65 --dump-all foo.o` for extracting
+
+- [x] Use debug builds and `od65 --dump-all foo.o` for extracting
   all symbols (exported and unexported) from object files for
   testing.  Use stripped production builds only for superficial
   end-to-end integration tests.  This eliminates fragile BSS
   offset computation and map-file parsing in test harnesses.
-- [ ] Migrate remaining test files to C64Emu + full PRG.  Each old
+  **Closed 2026-11-20:** superseded — the bundles and the C64Emu /
+  M65Emu tests read every symbol, exported or not, from ld65's map and
+  `.lbl` files (`conftest`'s map-file exports).
+
+- [x] Migrate remaining test files to C64Emu + full PRG.  Each old
   test file (test_repl, test_cse_io, test_expr, test_symtab,
   test_debugger, test_addr_mode, test_mn_classify, test_asm_line,
   test_dasm, test_asm_src) has its own build system, map parser,
   and run loop.  Migration removes ~1200 lines of harness code,
   9 ASM stub files, and 3 linker configs.
-- [ ] Editor scroll/render screen-RAM tests.  `ed_scroll_down` and
-  `ed_render_line` are `.proc`-scoped (not in .lbl); test path is
-  through `ed_handle_key` with cursor keys, which needs full editor
-  state.  Deferred until `enter_editor` can be called via C64Emu.
-- [ ] Retire `test_editor.py` mirror tests once ASM-level coverage
-  is complete.
-- [ ] README cross-reference tests: parse command tables in
-  `README.md`, verify each command key has a handler symbol in the
-  `.lbl` file.  See CDD Maintenance item 8.
+  **Closed 2026-11-20:** superseded — the per-module binaries became
+  the bundles of bundled unit testing on purpose (testing.md Principle
+  10); the REPL tests moved to C64Emu (Tranche 4).
 
-### Test restructure Tranche 4 — `test_repl.py` → C64Emu
+- [x] Retire `test_editor.py` mirror tests once ASM-level coverage
+  is complete.
+  **Closed 2026-11-20:** done — test_editor.py runs the real editor on
+  C64Emu; testing.md § Mirror tests records the anti-pattern as
+  retired.
+
+#### Test restructure Tranche 4 — `test_repl.py` → C64Emu
 
 - [x] **Migrate `tests/integration/test_repl.py` from the bare-MPU +
   `dev/repl_test_stub.s` harness to full C64Emu + production PRG.**
@@ -4660,7 +5377,7 @@ systems, ASM stubs, and test-specific linker configs.
   Net: -400–500 LOC of test harness, zero new test logic.
   Fixed 2026-11-18: the non-disk half had moved already; the disk half (test_repl_disk.py) now runs on C64Emu's virtual 1541, the stub and its config are deleted, tests test_repl_disk.py.
 
-### C64Emu extension roadmap
+#### C64Emu extensions landed
 
 Planned emulator feature additions (scoped during test-restructure
 discussion).  Each block is independent; do in any order.
@@ -4669,15 +5386,19 @@ discussion).  Each block is independent; do in any order.
   (commit `77ef7a4`).  Three-bit banking (LORAM/HIRAM/CHAREN) with
   BASIC + CHARGEN ROM overlays.  Default `$01` now `$36` (CSE
   runtime config) instead of `$37`.
+
 - [x] ~~**DDR-aware `$00`/`$01` model**~~ — landed with extension 1.
   `$01` read returns `(latched & DDR) | (external & ~DDR)`.
+
 - [x] ~~**Scheduled interrupts**~~ — landed as extension 2 (commit
   `a755c9d`).  `schedule_irq` / `schedule_nmi` / `cancel_pending_interrupts`
   + cycle-accurate pending queue honouring I flag + NMI edge.
+
 - [x] ~~**CIA1/CIA2 register shadows + keyboard matrix**~~ — landed
   as extension 3 (commit `30d9dbf`).  `$DC00/$DC01` 8×8 matrix,
   `press_key` / `release_key` / `press_stop` / `press_restore`,
   CIA2 `$DD0D` NMI latch.
+
 - [x] ~~**Jiffy clock tick**~~ — landed as extension 4 (commit
   `d426040`).  `enable_jiffy_clock` / `disable_jiffy_clock` on top
   of the scheduled-IRQ infra; default 16421 cycles matches KERNAL.
@@ -4691,19 +5412,9 @@ discussion).  Each block is independent; do in any order.
   extension-planning time.
   Fixed 2026-11-18: traps one level lower, on the KERNAL's serial routines (TALK…UNLSN), so OPEN/CHKIN/LOAD/SAVE stay the ROM's own; Drive1541 is an in-memory 1541 (channels, command channel, DOS status, `$`, write protect, disk full) with a .d64 reader; no timing; contract testing.md § Virtual IEC drives, tests tests/unit/test_c64emu_disk.py.
 
-- [ ] **VIC raster counter auto-increment** — `$D012` derived from
-  cycle counter (~63 cycles/line).  Unlocks raster-synced user
-  programs.  Not needed for CSE itself (no raster tricks); low
-  priority.  ~30 LOC.
+### Done from Planned and Ideas
 
-- [ ] **REU / cartridge emulation** — out of scope until R5 (CRT
-  build target).  Placeholder for the roadmap.
-
-## Planned
-
-Defined scope, needs work.
-
-### Corpus
+#### Done — Corpus
 
 - [x] ~~**CDD follow-up for the 2026-04-22 Design Priorities expansion.**~~
   Closed 2026-04-25 by Phase 23 CDD Streamlining maintenance round.
@@ -4785,68 +5496,39 @@ Defined scope, needs work.
   entry under § Architecture (line ~1285, "Missing module doc:
   `src/loader.s`") is now obsolete and removed.
 
-### REPL
+#### Done — REPL
 
 - [x] ~~`.` without args: behave like `d` (disassemble one instruction).~~
   (already the behaviour: `cmd_dot` falls through to `emit_dot`
   when no hex bytes and no mnemonic were parsed.)
-- [ ] `/` command: search for byte pattern in memory.
-- [ ] `f` command: fill memory range with byte.
-- [ ] `>` command: transfer/copy memory block.
-- [ ] `=` command: define/query symbols from REPL.
+
 - [x] `r` command: uppercase set flags (`Nv-bDizc` vs `nv-bdizc`). (Phase 16)
-- [ ] `?` command: for values < 256, show PETSCII and screen code
-  character interpretation alongside the hex/decimal/binary output.
-- [ ] `m` address argument: accept expression (`m screen+40`).
+
+- [x] `m` address argument: accept expression (`m screen+40`).
   Currently plain 4-digit hex only.
-- [ ] New `S` command for scratching files. Requires confirmation.
+  **Closed 2026-11-20:** done — `@h_m` parses its address with
+  `try_expr_or_err`, so `m screen+40` works.
+
 - [x] ~~VIC sanity reset on kernel/userland boundary.~~ (done:
   `vic_reset` in screen.s forces $D011=$1B, $D016=$C8, $D018=$15,
   $D015=0, $D01A=0, $D019=$0F.  Called from `hygiene_after_userland`
   on every break/resume cycle.  Future work: call from
   `cse_refresh` too so ESC/CLR recovers from a kernel-resident
   program that glitched VIC.)
-- [ ] SID silence: stop stuck notes when user code leaves SID running.
-  Two complementary mechanisms:
-  1. **REPL command** (probably one of the existing mnemonic-free
-     letters, or a dedicated key chord) — zeroes all SID registers
-     (`$D400-$D418`).  Useful when the user's code has SID voices
-     playing and leaves them running after a break.
-  2. **Contractually at the kernel/userland boundary** — on every
-     transition from user code back into the CSE kernel (BRK,
-     breakpoint, NMI-userland-break, brk_stub return), zero the
-     SID's gate bits (`$D404`/`$D40B`/`$D412` bit 0) to release
-     voices.  Keeps SID register values otherwise intact so the
-     user can see what was set.  ~6 bytes on the BRK handler
-     path.  Pairs with dropping `io_blip` to give the contract
-     clause "SID is yours except voice gates at debug entry."
-  The two together give the user a clean audio environment on
-  break, and a manual way to silence mid-session if a user
-  command (like `j` into a program) leaves SID noisy.
-- [ ] Disk command channel: unified under `$` (`$ s:file`, `$9`, etc.).
-- [ ] Floppy status consistency: `$` prints status inline (always
-  shows), `l`/`s` use `floppy_status` via `disk_done`.  Verify
-  both paths produce identical output on stock KERNAL.
-- [ ] `l` command PRG mode: report actual load address in stats
+
+- [x] `l` command PRG mode: report actual load address in stats
   line.  Currently shows `cur_addr` which may be wrong when the
   PRG loads at its own header address (addr=0 path).
-- [ ] PRG range display: unify format to `AAAA-EEEE  NNNb` (range
+  **Closed 2026-11-20:** done — `cmd_load` reports where the file
+  landed (`_io_tmp`, set by `disk_load_prg`), not `cur_addr`.
+
+- [x] PRG range display: unify format to `AAAA-EEEE  NNNb` (range
   first, size second).  Currently `l` PRG stats prints `NNNb AAAA-EEEE`
   (size first).  Shared `print_prg_range` should use the same
   order as the assembler `; org` lines and the splash screen.
-- [ ] SHIFT+RETURN in REPL: clear the repeat buffer (so the next
-  RETURN starts empty instead of re-executing the last command) and
-  open a fresh prompt line.  Useful for breaking out of a repeated
-  `t`/`RETURN` stepping rhythm without having to type a cancel.
-- [ ] `e` command: open editor at decimal line number (`e 42`).
-  Centers the target line on screen as much as possible.  Ties
-  into assembler error line numbers — assemble, see error at
-  line 42, type `e 42` to jump straight there.
-- [ ] `l`/`s` log line: always show the effective CBM DOS type
-  (SEQ vs PRG) in the `; load/save "name"...` output.  Under the
-  project-name refactor the on-disk name is derived (`stem` vs
-  `stem.`) and the user should still see which classification path
-  was taken when derivation was automatic.
+  **Closed 2026-11-20:** done — `prg_ok_done` prints `; prg AAAA-BBBB
+  NNNb` (range first) through `prg_line`.
+
 - [x] ~~Refactor internal default filename to a project name~~
   (Phase 17.  `cur_filename` → `cur_project_name`, stem only
   (no `,s`/`,p` suffix, no trailing dot).  Derivation: SEQ = stem,
@@ -4856,61 +5538,7 @@ Defined scope, needs work.
   derivation.  See `doc/modules/repl.md` § Project-name and
   filename semantics.)
 
-### Debugger
-
-- [ ] `t1` over a JSR to KERNAL ROM ($E000+) silently falls back to
-  step-over (per @jsr's RAM-target check).  Show a one-line note
-  (e.g. `; rom step → over`) so the user knows.  The workspace
-  gate added later — step-BRK arming refuses outside [workstart,
-  workend] with `;!range` — catches the broader cases, but this
-  specific JSR-to-ROM path still slips through silently because
-  `step_next_pc` rewrites the lookahead to PC+3 (in-workspace)
-  before the gate sees it.
-
-- [ ] Fast turnaround in the BRK handler for long trace loops.
-  Today every step iteration runs the full save/restore_userland_zp
-  + save/restore_kernel_zp pair — two 128-byte ZP copies (one
-  user→buf, one buf→live) per break/resume cycle.  For `t 100`-class
-  stepping the ZP churn dwarfs the actual user instruction cost.
-  Opportunity: detect "we're mid-chain, no REPL code will run
-  between break and resume, kernel ZP state hasn't been consumed"
-  and skip the ZP swap entirely — keep user ZP live across the
-  handler's chain body (step_next_pc doesn't touch user ZP, only
-  reads abs/stack addresses).  NMI breakouts: if NMI fires during
-  the fast-turnaround chain, fall back to the full ZP swap and
-  longjmp so post_run_cleanup sees a consistent ZP view.  Consider
-  a flag (`step_fast_chain` or similar) that save_userland_state
-  tests to skip the ZP swap when set, armed by cmd_step's seed +
-  the handler's chain path.  Expected saving: ~2 * 128 = 256
-  cycles per step iteration.
-
-- [ ] Show wall-clock execution time on the `j`/`g` clean-exit
-  panel.  Sample KERNAL jiffy clock ($A0/$A1/$A2, the TOD-style
-  3-byte counter incremented by the IRQ at 60 Hz on NTSC,
-  50 Hz on PAL) at userland entry (in `_rtu_body` just before
-  the RTI) and again at handler entry (`cse_brk_handler`),
-  store the delta somewhere the panel can read (e.g. a 3-byte
-  `run_jiffies` slot).  Format on the DBG_RTS panel:
-    < 1 s        → `Nms` (jiffy * 1000 / clock_hz, 0–999)
-    1 s ..< 1 m  → `Ns` or `N.NNNs`
-    1 m ..< 1 h  → `NmNs`
-    >= 1 h       → `NhNmNs`
-  Render as a tail field on the info or regs row, e.g.
-  `; rts at $0800  3.4s` or `r pc:0800 ... s:ff  217ms`.
-  Notes:
-    - Jiffy clock wraps after ~4.7 days (24-bit counter at
-      60 Hz) — fine for typical debug sessions; longer runs
-      get `>4d` clamp.
-    - PAL/NTSC detection: the assembled binary already knows
-      via build flag (CMOS / 6502 / 6510 builds may differ);
-      otherwise sample $02A6 at startup (KERNAL sets 0=NTSC,
-      1=PAL).
-    - Jiffy clock pauses while the kernel runs (IRQ disabled
-      during handler), so the delta excludes our overhead —
-      only user code time is reported.  Good.
-    - `t`/`o` step-result panels probably DON'T need this
-      (single steps are sub-microsecond), but a `t100`-class
-      batch could surface aggregate time.
+#### Done — Debugger
 
 - [x] ~~BRK tracer rewrite: use BRK's signature byte ($00 XX)~~
   Scratched: BRK must remain 1 byte only.  The 6502 BRK
@@ -4926,6 +5554,7 @@ Defined scope, needs work.
   — and the cold-preview / warm-step / step-through-rts work
   in 9c6abaf..d591a13.  `t / RETURN / RETURN / ...` now does
   rapid single-stepping with full panel after each step.)
+
 - [x] ~~Extend userland ZP backup to $00–$7F~~  (done: Phase 17.
   ZP_SAVE_LO/HI widened to $00/$7F (128 B), covering the full
   user-accessible half.  `m`/`.` now read a uniform user-ZP view —
@@ -4935,58 +5564,7 @@ Defined scope, needs work.
   zp_save_buf since $01 is inside the saved range).  +80 B BSS,
   −7 B CODE in repl.s, −4 B CODE from the removed $01 dance.)
 
-### Help
-
-- [ ] In-app help system.  Help text lives in KDATA (under
-  KERNAL ROM, $F100 area), not RODATA — must not bloat the
-  relocatable runtime.  Minimal CODE overhead: a small dispatcher
-  that pages through KDATA strings.  Candidates: one-screen
-  REPL command cheat sheet, editor key summary, assembler
-  syntax quick ref.  Paging output (see below) would pair
-  naturally.
-
-### Output
-
-- [ ] Paging for commands that produce more than ~23 lines of
-  output (`d`, `m`, `$`, assembler messages).  Pause with
-  "more" prompt, any key continues, RUN/STOP aborts.  The
-  `log_line` output wrappers already funnel all command output
-  through a single path — hooking a line counter there should
-  be straightforward.
-
-### Assembler
-
-- [ ] `.` REPL command: accept the explicit accumulator form (`. asl a`,
-  `. rol a`, `. lsr a`, `. ror a`, and on 65C02 / m65 `. inc a`,
-  `. dec a`).  Today it is `;?syntax` (checked 2026-11-19: `. asl`
-  assembles `$0A`, `. asl a` does not), while the source assembler
-  takes both forms (asm_line.md § ACC mode handling) and the
-  disassembler lists `asl a` — so RETURN on a `d` row that shows
-  `asl a` fails, and README.md § REPL states that as a limit
-  ("the REPL assembles the accumulator form only bare").  Cause: the
-  same as the item below — `dot_assemble` pre-evaluates the operand
-  through `expr_eval`, so `mode_parse`'s SC_A path never sees the bare
-  `a`.  Done when `. asl a` assembles the ACC opcode on every build
-  (and still reaches a defined label `a` on mnemonics without ACC, as
-  `lda a` does), a `d` row with `asl a` re-executes, and the README's
-  limit paragraph is deleted.  Fixing the item below by option (b)
-  fixes this one too.
-- [ ] `.` REPL command: emit ACC label-shadow warning to match the
-  source-assembler behaviour.  `dot_assemble` (in repl.s) pre-
-  evaluates expressions via `expr_eval` *before* calling `asm_line`
-  and rebuilds the operand as a `$xxxx` literal, so `mode_parse`
-  never sees the bare `A` token and the `_au_warn_shdw` path is
-  never entered.  Net effect: typing `.asl a` against a defined
-  `a:` gets the labelled memory address (because `expr_eval`
-  resolves `a` first), with no warning.  Source-assembly users
-  get accumulator mode + the `;!a shadow` warning — this is the
-  asymmetry.  Resolution options: (a) Make `dot_assemble` skip
-  the pre-eval for bare-`A` operands when the mnemonic is in
-  profile 11 — small special case; (b) move the entire pre-eval
-  out of `dot_assemble` and let `asm_line`'s expression-aware
-  pipeline handle everything (larger change, also closes other
-  asymmetries).  Low priority — the `.` command shows immediate
-  output, so the user sees what was assembled.
+#### Done — Assembler
 
 - [x] `.bas` directive: emit a BASIC SYS stub.  (Phase 12, done)
   Single BASIC line: `.bas` → `0 SYS NNNNN`.
@@ -5019,15 +5597,13 @@ Defined scope, needs work.
     § cmd_dot gains the dispatch table for the user-visible tags.
   - **Cost:** +29 B per production variant.  Suite 3103 passed /
     18 skipped (was 3097 / 18; +6 new asm_err + dispatch tests).
+
 - [x] Per-segment assembly summary — bug fixes + streaming design.
   Fixed bugs (pass-0 output, stale asm_pc, asm_org clobber,
   expr_val clobber, filename `,s`→`,p`).  Streaming segment lines
   during pass 1, `; ok` + save command after.  +70 B, 6 tests.
-- [ ] Assembly `; ok` line: show symbol count (`; ok  NNN syms`).
-  Needs `sym_count` (2B BSS) in symtab.s, incremented by `sym_define`,
-  but only if the symbol didn't exist before.
 
-### Editor
+#### Done — Editor
 
 - [x] ~~Handle files > gap buffer capacity (show error, don't crash).~~
   (Phase 25 fix.)  Two paths covered:
@@ -5053,178 +5629,8 @@ Defined scope, needs work.
     contract and the load-path mechanism.
   - **Cost:** +25 B per production variant (5 × `jcc @reject`).
   - **Test suite:** 3109 passed / 18 skipped.
-- [ ] Gap buffer floor above directory load area: if `list_directory`
-  stays LOAD-based (loads to $0801, max ~5.1 KB), set gap buffer
-  bottom to $0801+$1400=$1C01 so `$` can never clobber source.
-  Currently BUF_FLOOR is computed dynamically by `compute_layout.py`
-  — would need a minimum floor of $1C01.
-- [ ] Gap buffer compaction: `buf_base` only grows down (via
-  `gb_ensure_room`), never shrinks.  `ed_init`/`n` should reset
-  `buf_base` to BUF_END.  Line deletion could trigger compaction
-  but consider the trade-off (O(n) vs immediate undo).
-- [ ] Page up/down with shift+cursor or F-keys.
-- [ ] Search (ctrl+f equivalent via F-key).
-- [ ] Goto line number (see `e` command)
-- [ ] `$A0` and `$09` should be both be interpreted as TAB, both from
-  keyboard input, and when handled in source code.
 
-### Size optimization
-
-**Post-Phase-18 optimization sweep.**  Exhaustive three-agent review
-after Phase 18 landed.  Ongoing — see commits `7351292` (A),
-`fc52046` (B), `8e60b62` (SEI/CLI), `778a1f4` (disk) for progress.
-Net so far: ~−80 B across all builds.
-
-*Done:*
-
-- [x] ~~Phase A: repl.s stale TODO comment removed; loader.s
-  `copy_pages` + `zero_pages` helpers; debugger.s `dbg_init` /
-  `clear_bp_x` unified sweep; repl.s `peek_brk_opcode` dedup.~~
-  (`7351292`)
-- [x] ~~Phase B: repl.s `pre_userland_run` helper; dasm.s
-  `_compute_branch_target` + `_emit_target` helpers.~~  (`fc52046`)
-- [x] ~~SEI/CLI guards dropped from mem.s `kernal_bank_in/out` and
-  asm_src.s `_bank_in_tmp` / `_bank_out_tmp` — the Phase 18 IRQ
-  early-entry + `bank_out_stub` handles IRQ-during-bank-out
-  transparently, so the I-flag management is redundant.~~
-  (`8e60b62`)
-- [x] ~~disk.s `_disk_open_buf` helper for the three SEQ/PRG OPEN
-  sites (disk_load_seq, disk_save_seq, disk_save_prg).~~  (`778a1f4`)
-
-*Evaluated and declined:*
-
-- ~~Phase A: cse_exit_to_basic `and #$FD` removal — **false
-  positive**.  That bank-out is required so the subsequent COLD_ZP
-  reads resolve to the saved RAM copy at $F8DA (under KERNAL ROM),
-  not to the ROM bytes.~~
-- ~~Phase A: step_next_pc CMOS gating — **already done**.~~
-- ~~Phase B: centralize `_bank_in_tmp` / `_bank_out_tmp` into mem.s
-  — **false positive**.  They bypass mem.s's flag-gated helpers on
-  purpose (asm_src runs inside a batch with `kernal_out = 1`).~~
-- ~~Phase B: skipws_ep / skipws_as consolidation — **no net
-  saving**.  Wrapper/macro approaches match or exceed current
-  size.~~
-- ~~Phase B: patch_all / unpatch_all shared skeleton — **load-
-  bearing by design**.  The forward/reverse order is a correctness
-  contract for overlapping user-bp / step-bp slots at the same
-  address: forward-patch saves the real byte first (later slots
-  save $00); reverse-unpatch writes the $00s first and the real
-  byte last, leaving the user's RAM correct.  Uniform direction
-  would corrupt overlapping addresses.~~
-- ~~Phase D: editor.s ed_handle_key table dispatch — **not a size
-  win**.  ~10-key cmp/bne chain is ~40 B; table + scan loop +
-  indirect-jump glue would be ~56 B.  Could be a clarity win paired
-  with handler-tail consolidation, but that's a separate refactor.~~
-
-*Open — Phase C (stack / ZP wins, ~20 B code + ~6 B kernel stack):*
-
-- [ ] **Phase C — promote hot state out of BSS into ZP, and out of
-  the hardware stack into ZP scratch.**  Three sub-items:
-  1. [screen.s scroll_up] Replace the `pha/pla` pairs for `n` /
-     `src_row` / `dst_row` with ZP temps.  ~37 B ZP is free at
-     $5B–$7F per zp.s.  Saves ~6 stack bytes per scroll + cycles
-     per row.
-  2. [asm_src.s .const handling] Similar `pha/pla` dance around
-     name-folding.  Move to ZP scratch.  ~4 stack bytes, ~15 B code.
-  3. Promote hot BSS flags to ZP: `stop_cooldown`, `dbg_reason`,
-     `run_user_pending` — each read at multiple hot sites.  Each
-     ZP promotion saves ~1 B code per access and a cycle per read.
-     `in_userland` is debatable (only read in interrupt dispatch).
-  Total estimate: ~20 B code, ~6 B kernel stack headroom, plus
-  hot-path cycle wins in main_loop's `@wait` and scroll_up's row
-  loop.
-
-*Open — other small wins flagged during the sweep:*
-
-- [ ] [main.s setup_interrupts] Four vector-write pairs could use a
-  small helper or indexed loop.  ~10 B.
-- [ ] [debugger.s _rtu_body sentinel push] Branch pattern could be
-  slightly tighter.  ~2 B.
-
-**CSE exit cleanup via KERNAL TIMB ($FE66).**  Instead of `cse_exit_to_basic`
-hand-rolling the ZP restore + MEM_CONFIG reset + `jsr KERNAL_CINT +
-jmp ($A002)` sequence, do only what's ours to undo (e.g. restore the
-editor-specific ZP state we disturbed), then `jmp $FE66` (KERNAL's
-TIMB — "warm-restart" entry used by BASIC's STOP+RESTORE path).
-$FE66 reinitialises I/O, resets vectors, redraws screen, and drops
-into BASIC READY.  Eliminates our manual teardown (~30 B code plus
-the COLD_ZP KBSS area we reserve just for the restore).  Verify that
-the KERNAL routine's prerequisites (banking, stack shape) are met
-from our exit context.
-
-- [ ] Table-drive `cmd_info`: replace procedural line-by-line
-  memory map display with a data table + loop (~50-80 B saving).
-- [ ] PRG/SEQ save dedup: `cmd_write` and `cmd_load` have shared
-  patterns in filename parsing and stats display (~30-50 B).
-- [ ] `exec_line` handler code sharing: inline `@h_*` handlers
-  share common tail code (log_close, nl_clear, error paths).
-  Factor into shared exit points.
-- [ ] Disassembler `format_operand`: investigate table-driven
-  formatting (packed format byte per mode, like Woz's Apple II
-  disassembler) instead of procedural per-mode branches.
-  Currently 220 B, could save ~80-100 B.
-- [ ] Disassembler opcode table: investigate replacing the
-  `aaabbbcc` bit-slice decoder with a compact 256-byte opcode
-  lookup table.  Trades CODE (~350 B decode_cc00_mem alone)
-  for RODATA (256 B).  Changes the architecture fundamentally.
-
-### Architecture
-
-- [ ] **ZP compaction (c64).**  *(From slice 1's A3b, 2026-11-20.)*  CSE's
-  C64 zero page has five one-byte holes left by retired cells —
-  `$0F` (`asm_slot`), `$13`, `$2C` (`_asm_ok_tmp`), `$36`, `$43`
-  (`_dasm_opc`) — held so later addresses stay put, and `$7A–$7F`
-  free above `scr_src`: 11 bytes, six of them contiguous.  Compacting
-  moves every later cell down and gives CSE one free block at the top
-  for its next ZP needs.  It changes **nothing for user code**: the
-  kernel swaps the whole of `$00–$7F` around every user run
-  (`ZP_SAVE_LEN` = 128, fixed by the userland contract, not by CSE's
-  footprint), so neither the swap buffers nor its cost shrink.  Cost:
-  every moved address in [zp.md](modules/zp.md) and the module docs,
-  both C64 PRGs' recorded hashes (a deliberate change), and the m65
-  base-page layout checked for any shared offset.  Low priority;
-  until it runs, a new ZP cell takes a hole.
-
-- [ ] **Doc-audit Step 5 — examples-as-tests.**  The seven
-  audit scripts under `dev/` (driven by `dev/audit_doc.py`)
-  catch structural drift mechanically — broken cross-refs,
-  numerical claims, BSS counts, owned-files coverage,
-  depends-on accuracy.  What they don't catch is *executable*
-  drift: code fences that no longer assemble, REPL command
-  examples that no longer parse, or build-command snippets
-  whose targets have been renamed.
-
-  Step 5 of the doc-audit plan proposed a permanent regression
-  net: a pytest fixture that, for each fenced code block in
-  README.md / `doc/assembler_syntax.md` / `doc/modules/*.md`:
-
-  1. Classifies the block by language hint (asm / repl /
-     shell / output-sample).
-  2. For asm blocks: feeds them through asm_assemble + checks
-     for clean assembly (zero `;?<line>` errors).
-  3. For repl blocks: parses the `AAAA:CMD` shape and
-     dispatches via the test harness's `set_line_buf` +
-     `exec_line`, asserting no error logs.
-  4. For shell blocks: extracts `make TARGET` invocations and
-     verifies the targets exist in the current Makefile.
-  5. Output-samples (lines starting with `;` or matching the
-     `; org AAAA-BBBB Nb` shape) are inert — skip with a
-     comment.
-
-  A *semantic* dimension beyond "it assembles" (CDD Log Phase 26,
-  A8): every `$XXXX` in user-facing prose that names a memory location
-  is classified safe or unsafe against the runtime memory map (CSE's
-  image, BSS, ROM under RAM are unsafe) and the unsafe ones flagged.
-
-  Estimated effort: ~1 full session (the harness already has
-  most pieces — `cse_prg` fixture, `set_line_buf`, `exec_line`,
-  `asm_assemble` test stubs).  Build-block extraction is the
-  novel part.
-
-  Why not v0.1: the structural audits already cover ~95% of
-  documented drift.  Code-block drift is rare and self-flagging
-  (a maintainer trying the example sees it fail).  Defer to
-  v0.2 architecture sweep.
+#### Done — Architecture
 
 - [x] ~~**Multi-CPU integration-test parity.**~~  Closed
   2026-04-27.  Implemented as a coarse smoke check
@@ -5321,8 +5727,10 @@ from our exit context.
   ACC detection in mode_parse hardened: bare 'A' only if followed
   by end/whitespace (not identifier chars like label names).
   2797 tests pass.
+
 - [x] ~~BSS optimization: overlap with `ws_buf`~~ (moot: `ws_buf`
   removed in smart indent rewrite, Phase 15)
+
 - [x] **Back-links for every test file.**  Only 16 of the 44
   Python files under `tests/` carry the `Owner:` line the
   back-link convention requires
@@ -5356,152 +5764,63 @@ from our exit context.
   ones were retired, the 17 left are load-bearing (named design
   phases, quoted docs) or the sweep's own patterns.
 
-- [ ] **ZP swap: extend isolation to KERNAL screen-edit zone
-  (`$C0-$FF`).**  Today `save_userland_zp` / `save_kernel_zp`
-  swap only `$00-$7F` between userland and CSE-kernel views
-  (`ZP_SAVE_LO=$00`, `ZP_SAVE_LEN=128`, see [doc/modules/mem.md](
-  modules/mem.md)).  The KERNAL screen-edit zone (`$C6/$C8/$CC/
-  $CE/$D0-$F2`) is shared — userland code that touches any of
-  these bytes (custom IRQ, screen tricks, tape state) leaks into
-  CSE-kernel CHROUT and vice-versa.
-
-  *C-split* design (analysed 2026-04-30 alongside the
-  RESTORE-during-CHROUT bug fix above): keep the existing
-  `$00-$7F` zone, add a second `$C0-$FF` zone (64 B, two buffers
-  → +128 B BSS).  Skip `$80-$BF` to avoid disturbing the KERNAL
-  jiffy clock at `$A0-$A2` (continuously running across modes
-  today; userland may rely on this) and tape/file scratch state.
-  Cost: +128 B BSS, +~25 B code (second loop body), +~1 K cycles
-  (≈1 ms) per userland↔kernel transition.
-
-  Side benefit: provides a free generalisation of the rc1-fix
-  Approach B above.  Today `screen.s::_kernal_screen_reset`
-  resets a *fixed enumeration* of bytes (`$D5/$D9-$F1/$D8/$D4/
-  $CE/$C6`); with C-split + a one-shot pristine snapshot
-  captured at init, the kernel-mode NMI path could `restore
-  kernel_zp` from that snapshot and recover *any* corrupted
-  byte in `$C0-$FF` — not just the enumerated ones.  Eliminates
-  the "did we list every byte CHROUT touches?" risk that was
-  Approach B's documented weakness.
-
-  Pairs naturally with a future architectural sweep that
-  audits userland↔kernel state isolation; not blocking on the
-  RESTORE bug fix (B already covers it for v0.1).
-  See `doc/TODO.md` § Bugs § RESTORE-during-CHROUT for the full
-  three-way A/B/C analysis that produced this entry.
-
-- [ ] **Split `run_user_pending` into pre-dispatch and
-  post-return flags.**  Today the byte serves two purposes:
-
-  - (A) "Command set MODE; needs userland dispatch" — written
-    by `cmd_jmp` / `cmd_step` / `cmd_continue`, consumed by
-    `main_loop @not_enter` and (since the rc4 fix) by
-    `main_loop_top @live` warm-cont path.  Drives `jmp
-    return_to_userland` / `jmp restore_userland_state`.
-  - (B) "User code returned; needs cleanup" — same byte
-    survives the RTI/userland round-trip; consumed by
-    `main_loop_top @check_post_run` to fire `post_run_cleanup`.
-
-  Phase A → B transition relies on the dispatch *not* clearing
-  the flag.  Any caller that runs `exec_line` and then
-  re-enters `main_loop_top` without dispatching falsely
-  conflates A as B — exactly the rc4 bug shape (a+g+NMI+g
-  produced a phantom brk because the warm-cont replay set A
-  but no dispatch fired, then `@check_post_run` consumed it
-  as B).  Fixed in `main.s` commit `5bd916b` by adding the
-  dispatch.
-
-  Proposed split: `run_pending_mode` (A) and `run_returned`
-  (B).  Each has a single writer-set, single reader-consume
-  contract.  The dispatch (return_to_userland or
-  restore_userland_state's prologue) sets `run_returned` and
-  clears `run_pending_mode`.  The handler/userland-return
-  path leaves `run_returned` set; `@check_post_run` consumes
-  it.  Cost: +1 B BSS, ~+10 B code (extra clearing logic),
-  removes the dual-purpose ambiguity entirely.
-
-  Not blocking: rc4's fix closes the only known manifestation.
-  File for the v0.2 architecture sweep.  See [§ Bugs](#bugs)
-  § "BUG a+g+NMI+g phantom brk" for the rc4 audit chain.
-
-- [ ] **Close the `cse_refresh` micro-race on `run_user_pending`.**
-  When kernel-mode NMI fires in the ~5–10 cycle window
-  between a command setting `run_user_pending` (e.g.
-  `cmd_jmp.@run`'s `sta run_user_pending`) and `main_loop
-  @not_enter`'s post-exec dispatch reading it, `cse_refresh`
-  runs while the flag is set.  Falls through to
-  `main_loop_top @check_post_run` which interprets the flag
-  as a "just returned from userland" signal and runs
-  `post_run_cleanup` against `brk_pc=cur_addr` — phantom
-  break display.
-
-  Not exploitable in practice: the window is microseconds in
-  idle code paths and the user can recover by typing the
-  command again.  But it's the only remaining path where
-  the rc4 bug class can manifest, so worth closing.
-
-  Two ways to close it:
-  - **Cheap:** `lda #0; sta run_user_pending` in
-    `refresh_body` (or in `cse_refresh` proper).  +4 B.
-    Side effect: also clears the flag on legitimate RESTORE-
-    after-userland-return cycles, suppressing any redisplay
-    of break/regs that depended on the dual-purpose flag.
-    **Verify** the existing "show break info on RESTORE"
-    behaviour against
-    `tests/integration/test_kernel_transition.py::TestNmiKernelMode::test_refresh_preserves_run_user_pending`
-    — that test pins the current preserve-the-flag contract;
-    landing this fix means flipping the test's assertion.
-  - **Comprehensive:** Land the run_user_pending split above;
-    `cse_refresh` clears `run_pending_mode` but not
-    `run_returned`.  Race window closes cleanly without
-    affecting the redisplay behaviour.
-
-  Recommendation: bundle with the dual-purpose split (the
-  comprehensive option) rather than landing the cheap fix
-  in isolation.
-
-- [ ] BSS optimization: collapse `disk_seq_bytes`/`disk_seq_lines`
-  with `ed_save_bytes`/`ed_save_lines` (saves 4 B).
-- [ ] BSS optimization: overlap `rp_next_lo`/`rp_next_hi` with
-  `rp_hexbuf` + `@new_col` (saves 3-4 B).
-- [ ] Test framework: migrate dasm, expr, repl test binaries to bundle
+- [x] Test framework: migrate dasm, expr, repl test binaries to bundle
   pattern or C64Emu integration tests.  Eliminates per-module stubs.
   See testing.md § Test bundle architecture.
+  **Closed 2026-11-20:** done — the disassembler runs as the `dasm`
+  bundle, `expr` inside the `asm_core` bundle, and the REPL tests on
+  C64Emu with the production PRG (testing.md § Test bundle
+  architecture).
+
 - [x] Central `zp.s` owning the entire zero-page layout.  (Phase 12, done)
   All 85 ZP bytes defined in `src/zp.s` with `.exportzp`.  13 modules
   migrated from local `.segment "ZEROPAGE"` to `.importzp`.  `asm_vars.s`
   deleted (role absorbed by zp.s).  All test stubs and configs updated
   to link zp.s.  Pure refactor: 0 bytes size change, 2797 tests pass.
+
 - [x] ~~CDD template drift~~ (fixed: moved `### Memory` before
   `**Depends on:**` in 11 module docs; Phase 15 audit remediation)
+
 - [x] ~~Missing module doc: `src/mem.s`~~ (fixed: `doc/modules/mem.md`
   created; Phase 15 audit remediation)
+
 - [x] ~~Missing module doc: `src/loader.s` has no `doc/modules/*.md`.~~
   (fixed 2026-04-25: `doc/modules/loader.md` created during Phase 23
   CDD Maintenance round.)
+
 - [x] ~~debugger.md: all symbol names use `_` prefix~~ (fixed:
   stripped `_` prefix from all symbol names throughout the document
   to match actual exports; Phase 17 CDD Maintenance)
+
 - [x] ~~README: missing `.bas` directive~~ (fixed: Phase 15 audit)
+
 - [x] ~~README: `a` command description says "advances past assembled
   code"~~ (fixed: README now reads "Assemble source from editor
   at current address")
+
 - [x] ~~README: "gap buffer grows down from $D000"~~ (fixed: Phase 15)
+
 - [x] ~~editor.md + memory_design.md: `BUF_END` / gap buffer described
   as `$D000`~~ (fixed: updated to `__CODE_RUN__` in editor.md ×3
   and memory_design.md Design Principle 5; Phase 17 CDD Maintenance)
-- [ ] Export `LOG_INFO`, `LOG_WARN`, `LOG_ERR` from repl.s so
+
+- [x] Export `LOG_INFO`, `LOG_WARN`, `LOG_ERR` from repl.s so
   consumers (main.s, asm_src.s, disk.s) can import them instead
   of redefining locally.
+  **Closed 2026-11-20:** done — `log.inc` defines `LOG_INFO`,
+  `LOG_WARN` and `LOG_ERR` for every module that logs.
+
 - [x] ~~Dedup asm_src segment formatter with cmd_info free-line~~
   (fixed: shared `range_line` with two entry points `free_line`
   (suffix "b free") and `seg_line` (suffix "b").  Right-aligned
   5-digit decimal, 1-space gutter.  `s_seg_pfx` removed.  Phase 17)
+
 - [x] ~~Rework `asm_src.s` newline handling~~ (fixed: removed 4
   redundant `jsr newline` calls; `log_close` provides trailing
   newline.  "asm..." line now uses `log_close` instead of bare
   `io_clear_eol`.  `seg_print_save` no longer needs its own
   newline.  Phase 17)
+
 - [x] ~~Global release version: single `VERSION` propagation.~~
   (Phase 19 — done: Makefile generates `build/version.inc`
   per-build; strings.s `.include`s it and composes
@@ -5509,81 +5828,8 @@ from our exit context.
   D64 label format became `cse $(VERSION),01`.  PRG filenames
   stay stable.  See [build_system.md § Version propagation](build_system.md#version-propagation).)
 
-## Roadmap
+#### Done — Keyboard & input
 
-Long-term milestones in dependency order.
-
-### R1 — Compile-time CPU gating (done)
-
-All CPU-specific code gated with `.ifdef`/`.ifndef` instead of
-runtime checks.
-
-### R2 — Relocating startup (done)
-
-CSE runtime relocated to high memory (floating start, page-aligned,
-ending at $CFFF).  Discardable loader at $080D copies CODE+RODATA
-at boot.  Two-pass link auto-computes runtime start address.
-Workspace at $0800, ~30 KB free.  Exomizer SFX compression for
-D64 distribution (~38% smaller).
-
-### R3 — Universal C64/C128 binary
-
-Single PRG runs on both machines.  Machine differences isolated to
-three leaf functions (banking, NMI trampoline, keyboard).
-
-### R4 — 80-column VDC mode (C128 only)
-
-Self-contained VDC display driver, same interface as VIC-II routines.
-
-### R5 — Cartridge ROM (CRT)
-
-Build target for at least one CRT layout.  Candidates: Ocean Type 1
-(simple banked ROM, wide emulator support) or EasyFlash (2×64 banks,
-writable, real-hardware friendly).  Dual linker configs — one for
-PRG, one for CRT.  Instant boot, no loader needed.  R2 (relocating
-startup) provides the foundation: CODE+RODATA already position-
-independent relative to their link address.
-
-### R6 — Port C to asm (done)
-
-All C ported to assembly.  cc65 C compiler eliminated.
-
-### R7 — MEGA65 native support (in progress)
-
-Native MEGA65 platform target, separate from C64-compatible mode.
-The MEGA65 is a much more capable machine (32-bit address space,
-relocated ZP internals in native mode, VIC-IV) requiring bigger
-adaptations than a compatibility shim.  Alongside C128 native
-(R3/R4), this would be a distinct platform target with its own
-screen driver and memory model.  Slice 1 — the CPU layer (assembler
-and disassembler) — is done, its Phase B as slice 2's
-P4: see [M65](#m65--the-45gs02-assembler-and-disassembler-r7-slice-1).
-Slice 2 — the platform layer: a native MEGA65-mode program living
-in the BASIC ROM banks, shipped as PRG and D81 (a MEGA65-style CRT
-in a later release) — is done for R7's first release, P0–P5
-(R7 — CDD Report in [cdd_log.md](cdd_log.md)); the CRT and the
-hardware walks remain: see
-[M65 slice 2](#m65-slice-2--the-mega65-platform-r7-platform-layer).
-Slice 2 does the c64/m65 leaf-function isolation R3 asks for; R3
-later adds the C128 to it.
-
-## Ideas
-
-Exploratory, not yet scoped.
-
-### Keyboard & input
-
-- [ ] KERNAL keyboard CTRL combos: explore what key combinations
-  the default KERNAL keyboard I/O delivers.  CTRL+key produces
-  PETSCII control codes ($01–$1F) — identify which are usable
-  without conflicting with KERNAL screen editor behaviour.
-- [ ] SHIFT+CLR/HOME in REPL: clear screen.  C=+CLR/HOME: clear
-  from cursor to end of screen.  Both use KERNAL screen editor
-  codes (SHIFT+CLR = $93, CLR/HOME = $13).
-- [ ] F-key bindings: assign useful functions to F1–F8 in both
-  REPL and editor.  REPL candidates: help, repeat last command,
-  toggle hex/dec, disassemble at PC.  Editor candidates: save,
-  assemble, goto line, search.
 - [x] Revise RUN/STOP+RESTORE and NMI handling.  (Phase 14, done)
   Permanent NMI dispatcher (`cse_nmi_handler`) at $0318.
   NMI-in-REPL → `cse_warm_screen` (clean screen recovery).
@@ -5591,40 +5837,17 @@ Exploratory, not yet scoped.
   Warm-start re-entry guard prevents infinite BRK loops.
   NMI trampoline no longer corrupts $01.
 
-### Features
+#### Done — Features
 
-- [ ] PRG load: auto-detect load address from PRG header.
-- [ ] `$` command: filter directory listing by filename glob.
-- [ ] `d` command: show ASCII alongside disassembly (like `m`).
-- [ ] `.` command: show help when mnemonic given without operand.
-- [ ] Color command `C`: show color preview swatches.
-- [ ] Disk I/O: timeout handling for unresponsive drives.
+- [x] PRG load: auto-detect load address from PRG header.
+  **Closed 2026-11-20:** done — `l "name" 0` loads a PRG at its own
+  header address (README § Disk).
+
 - [x] NMI during `j` user code.  (Phase 14, done)
   `cse_nmi_handler` dispatches on `dbg_running` — user-code
   NMI breaks into debugger immediately via `dbg_nmi_break`.
-- [ ] REU support for large source files.
-- [ ] Macro support: .macro/.endmacro.
-- [ ] Conditional assembly: .if/.else/.endif.
-- [ ] Include files: .inc.
-- [ ] `.brk [n]` directive: emit a 2-byte BRK instruction (BRK
-  opcode + signature byte).  Optional `n` is the signature byte
-  (default 0).  Replaces the verbose `brk; .db $XX` pattern that
-  the lazy-debug user-BRK workflow currently requires (see
-  debugger.md § User BRK workflow).  Without `.brk`, the user
-  must manually pair `brk` with `.db $XX`; forgetting the .db
-  loses the next code byte to CSE's STEP_OVER / continue +2 skip.
-  `.brk` makes the convention explicit and forgive-by-default.
-  Use cases: `.brk` (default sig byte 0), `.brk $42` (custom),
-  `.brk MARKER` (expression).  Single line in source maps to
-  the canonical 2-byte BRK that matches CPU's RTI semantics.
-  *(Demoted from Planned 2026-04-28: nice-to-have, not release-
-  relevant — the manual `brk; .db $XX` pairing is documented and
-  works.)*
-- [ ] Assembler error display: show source line number + context.
-  *(Demoted from Planned 2026-04-28: nice-to-have, not release-
-  relevant — current `;? <line> : <message>` carries the line
-  number; the source-context preview is a polish item.)*
-- [ ] Assembler: `a` source-assemble warn+ask when emit
+
+- [x] Assembler: `a` source-assemble warn+ask when emit
   destination is outside [workstart, workend].  `.org $f100\nlda #0`
   silently writes to KDATA today.  Same risk class as bug 3
   (CSE state corruption during a debug workflow), same gate
@@ -5640,17 +5863,9 @@ Exploratory, not yet scoped.
   CSE-shadow ranges without realising.
   *(Demoted from Bugs 2026-04-28: not release-relevant — the
   user can see workmem and is expected to comply.)*
-- [ ] Detect PAL/NTSC at startup.
-- [ ] MEGA65 Open-KERNAL compatibility (C64-compatible mode):
-  `$` works (LOAD-based).  Floppy status empty (shows `; `)
-  — blocked on upstream IEC channel-I/O fixes
-  (MEGA65/open-roms#116, #117).  Channel-based dir code
-  preserved in `1348247` for when fixes land.  All other
-  features work.  Native mode is roadmap R7.
-- [ ] CDD back-reference tracking: link source files to their
-  documentation via a machine-readable index.  CDD Maintenance
-  verifies code changes trigger doc updates for all covering
-  documents.
+  **Closed 2026-11-20:** superseded — the assembler refuses every emit
+  outside the workspace with `;?N: range` (ad3b42c, 2026-11-18).
+
 - [x] ~~**RESTORE-only screen recovery.**~~  (Phase 20 — done
   alongside the warmstart restructure.  NMI in kernel mode now
   routes directly to `cse_refresh` instead of swallowing, so
@@ -5658,3 +5873,66 @@ Exploratory, not yet scoped.
   the classic C64 affordance.  Debug context is preserved across
   the NMI.  See [main.md § cse_nmi_handler](modules/main.md)
   and [memory_design.md § Warmstart entry points](memory_design.md#warmstart-entry-points).)
+
+#### Done — Size optimization
+
+**Post-Phase-18 optimization sweep.**  Exhaustive three-agent review
+after Phase 18 landed.  Ongoing — see commits `7351292` (A),
+`fc52046` (B), `8e60b62` (SEI/CLI), `778a1f4` (disk) for progress.
+Net so far: ~−80 B across all builds.
+
+*Done:*
+
+- [x] ~~Phase A: repl.s stale TODO comment removed; loader.s
+  `copy_pages` + `zero_pages` helpers; debugger.s `dbg_init` /
+  `clear_bp_x` unified sweep; repl.s `peek_brk_opcode` dedup.~~
+  (`7351292`)
+
+- [x] ~~Phase B: repl.s `pre_userland_run` helper; dasm.s
+  `_compute_branch_target` + `_emit_target` helpers.~~  (`fc52046`)
+
+- [x] ~~SEI/CLI guards dropped from mem.s `kernal_bank_in/out` and
+  asm_src.s `_bank_in_tmp` / `_bank_out_tmp` — the Phase 18 IRQ
+  early-entry + `bank_out_stub` handles IRQ-during-bank-out
+  transparently, so the I-flag management is redundant.~~
+  (`8e60b62`)
+
+- [x] ~~disk.s `_disk_open_buf` helper for the three SEQ/PRG OPEN
+  sites (disk_load_seq, disk_save_seq, disk_save_prg).~~  (`778a1f4`)
+
+- [x] Disassembler opcode table: investigate replacing the
+  `aaabbbcc` bit-slice decoder with a compact 256-byte opcode
+  lookup table.  Trades CODE (~350 B decode_cc00_mem alone)
+  for RODATA (256 B).  Changes the architecture fundamentally.
+  **Closed 2026-11-20:** done — slice 1's A4 replaced the bit-slice
+  decoder with the generated opcode-map decoder (dasm.md).
+
+*Evaluated and declined:*
+
+- ~~Phase A: cse_exit_to_basic `and #$FD` removal — **false
+  positive**.  That bank-out is required so the subsequent COLD_ZP
+  reads resolve to the saved RAM copy at $F8DA (under KERNAL ROM),
+  not to the ROM bytes.~~
+
+- ~~Phase A: step_next_pc CMOS gating — **already done**.~~
+
+- ~~Phase B: centralize `_bank_in_tmp` / `_bank_out_tmp` into mem.s
+  — **false positive**.  They bypass mem.s's flag-gated helpers on
+  purpose (asm_src runs inside a batch with `kernal_out = 1`).~~
+
+- ~~Phase B: skipws_ep / skipws_as consolidation — **no net
+  saving**.  Wrapper/macro approaches match or exceed current
+  size.~~
+
+- ~~Phase B: patch_all / unpatch_all shared skeleton — **load-
+  bearing by design**.  The forward/reverse order is a correctness
+  contract for overlapping user-bp / step-bp slots at the same
+  address: forward-patch saves the real byte first (later slots
+  save $00); reverse-unpatch writes the $00s first and the real
+  byte last, leaving the user's RAM correct.  Uniform direction
+  would corrupt overlapping addresses.~~
+
+- ~~Phase D: editor.s ed_handle_key table dispatch — **not a size
+  win**.  ~10-key cmp/bne chain is ~40 B; table + scan loop +
+  indirect-jump glue would be ~56 B.  Could be a clarity win paired
+  with handler-tail consolidation, but that's a separate refactor.~~
