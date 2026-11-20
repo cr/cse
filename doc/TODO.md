@@ -2148,7 +2148,7 @@ Decisions (approved 2026-11-20):
 - [x] T2. The round trip (`test_dasm.py`): every row of every view of
   the 6502, 6510 and CMOS sets assembled, listed and assembled again
   gives the same bytes and the listed length is the row's.
-- [ ] T3. The pending mechanism gone (`test_platform_audit.py`): its
+- [x] T3. The pending mechanism gone (`test_platform_audit.py`): its
   two tests removed; the platform-literal audit names no
   `PLAT_PENDING`; `platform.inc` defines neither macro.
 - [ ] T4. The close: the gates measured (sizes, golden totals per set)

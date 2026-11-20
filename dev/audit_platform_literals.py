@@ -47,8 +47,6 @@ The KERNAL-call check: no bare `jsr` / `jmp` to a KERNAL jump-table
 entry outside platform.inc and loader.s — every call is a KCALL / KJMP
 (platform_layer.md § KERNAL calls).  Zero from the start.
 
-The pending-body count: the PLAT_PENDING sites per milestone (platform_layer.md § Pending bodies), held by the test
-to a recorded count that only goes down.
 
 And the stack-top check: no literal `#$FF` put in SP or `reg_sp`; the
 stack top is STACK_TOP (platform_layer.md § Stack).  Zero from the
@@ -382,24 +380,6 @@ def kernal_call_count(src=SRC):
             and (s := kernal_call_sites(f, entries))}
 
 
-# ── the pending-body count (platform_layer.md § Pending bodies) ─────
-
-_PENDING = re.compile(r"^\s*(?:[@\w]+:)?\s*PLAT_PENDING\s+(\d+)\s*$")
-
-
-def pending_counts(src=SRC):
-    """{milestone: the number of PLAT_PENDING sites}, over src/*.s and src/*.inc (a site in a macro body counts
-    once)."""
-    counts = {}
-    for f in sorted(list(src.glob("*.s")) + list(src.glob("*.inc"))):
-        for raw in f.read_text(errors="replace").splitlines():
-            m = _PENDING.match(strip_comment(raw))
-            if m:
-                n = int(m.group(1))
-                counts[n] = counts.get(n, 0) + 1
-    return counts
-
-
 def main(argv):
     total = 0
     for f in audited_files():
@@ -420,8 +400,6 @@ def main(argv):
     for name in kernal_call_count():
         for n, text in kernal_call_sites(SRC / name, kernal_entries()):
             print(f"bare KERNAL call: {name}:{n}: {text[:60]}")
-    for n, c in sorted(pending_counts().items()):
-        print(f"pending P{n}: {c}")
     for name in raw_byte_count():
         for n, text in raw_byte_sites(SRC / name):
             print(f"raw byte: {name}:{n}: {text[:60]}")

@@ -226,26 +226,14 @@ def test_kernal_call_check(tmp_path):
     assert AUDIT.kernal_call_count(tmp_path) == {"m.s": 2}
 
 
-# ── the pending-body count (platform_layer.md § Pending bodies) ──
+# ── no pending body (platform_layer.md § Pending bodies) ──
 
-# The PLAT_PENDING sites per milestone, recorded; a commit that writes
-# an m65 body lowers its number here.  None since P3 (P3 also retired
-# the pending values, PLAT_PENDING_VALUE).
-PENDING_RECORDED = {}
-
-
-def test_pending_bodies_are_the_recorded_count():
-    """Equal, not just below: a commit that writes a body records it,
-    so the number here is the state of the m65 build."""
-    counts = AUDIT.pending_counts()
-    assert {n: c for n, c in counts.items() if c} == PENDING_RECORDED
-
-
-def test_pending_count_counts_sites_not_mentions(tmp_path):
-    (tmp_path / "m.s").write_text(
-        "        PLAT_PENDING 1\n"
-        "@x:     PLAT_PENDING 2      ; c\n"
-        "; PLAT_PENDING 2 in a comment\n"
-        ".macro PLAT_PENDING n\n")
-    assert AUDIT.pending_counts(tmp_path) == {1: 1, 2: 1}
+def test_no_pending_body_mechanism_is_left():
+    """Every seam has its m65 body; P5 retired PLAT_PENDING, its value
+    form and their count (D-P5-3).  No source names them."""
+    hits = [f"{f.name}:{n}" for f in sorted(list(AUDIT.SRC.glob("*.s")) + list(AUDIT.SRC.glob("*.inc")))
+            for n, line in enumerate(f.read_text(errors="replace").splitlines(), 1)
+            if "PLAT_PENDING" in line]
+    assert hits == []
+    assert not hasattr(AUDIT, "pending_counts")
 

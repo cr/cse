@@ -681,16 +681,4 @@ name:   .res FAR_SIZE
   .endif
 .endmacro
 
-; ── Pending bodies (§ Pending bodies) ────────────────────────────────
-; The m65 body of a seam stated with milestone P<n> but not yet
-; written: BRK and the signature byte n.  Never an expansion on c64.
-.macro PLAT_PENDING n
-  .ifdef PLATFORM_C64
-        .error "PLAT_PENDING is an m65 body only"
-  .else
-        brk
-        .byte n
-  .endif
-.endmacro
-
 .endif ; PLATFORM_INC

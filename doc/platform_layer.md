@@ -710,7 +710,7 @@ it is an instruction that can fall through — anything but `rts`,
 `rti`, `jmp` and `brk`; a label between does not matter, since the
 CPU falls into it.  An opcode position starts with a literal 6502
 opcode (the BIT-skip idiom, `.byte $2C`).  A `.byte` after `brk` is
-a signature byte (`brk_stub`'s, `PLAT_PENDING`'s) and one after a
+a signature byte (`brk_stub`'s) and one after a
 transfer or other data is data; neither is decoded.  A macro call
 counts as what the macro's body ends with when the macro is defined
 above in the same file (loader.s's `ENTRY` ends in data), and as an
