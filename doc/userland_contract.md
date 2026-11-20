@@ -215,7 +215,7 @@ user code runs again, so CSE's own ZP variables never meet the
 user's.  Between runs, `m` and `.` on $00–$7F show and edit the
 user's image, not CSE's live ZP.  Before the first run the image is
 zero except the CPU port: `$00` = $2F, `$01` = $36.  That CSE leaves
-$7A–$7F unallocated ([zp.md](modules/zp.md)) concerns CSE only; it
+$7C–$7F unallocated ([zp.md](modules/zp.md)) concerns CSE only; it
 does not change what user code may use.  `$00`/`$01` are the CPU
 port: see § 5.3.
 

@@ -146,8 +146,11 @@ SID_V2_CTRL     = $D40B
 SID_V3_CTRL     = $D412
 SID_VOL         = $D418
 
-; ── disk.s's private pointer (in the KERNAL half; TODO § Bugs) ───────
-DISK_LOCAL_PTR  = $FD
+; ── disk.s's private pointer: zp.s's, in the swapped $00-$7F ─────────
+  .ifndef ZP_S
+        .importzp disk_local_ptr
+  .endif
+.define DISK_LOCAL_PTR  disk_local_ptr
 ; ── list_directory's buffer: the workspace from BASIC's start ───────
 DIR_BUF         = BASIC_START
 

@@ -66,17 +66,6 @@ are under [§ Records](#records).
 
 ### C64
 
-- [ ] **disk.s writes `$FD`/`$FE`, which the userland contract keeps
-  free.**  [userland_contract.md](userland_contract.md) § 2, § 3 and §
-  7 promise that CSE never writes the C64's free cells `$FB–$FE`;
-  disk.s's private pointer is `DISK_LOCAL_PTR = $FD` (platform.inc;
-  `str_setup` stores it on every load and save, PRG or SEQ), outside
-  the swapped `$00–$7F`, so a disk command clobbers the user's
-  `$FD`/`$FE`.  Found by the P0 quality pass, 2026-11-18; still so
-  2026-11-20.  Fix: the C64 takes zp.s's `disk_local_ptr` too, as m65
-  does — it lands in CSE's free `$7A–$7B`, inside the swap; both C64
-  PRGs change, their size should not.
-
 - [ ] **`$` can overwrite the source text.**  On the C64 `$` loads the
   directory with KERNAL `LOAD` at `$0801` (`DIR_BUF`; disk.s
   `list_directory`), with no upper bound, while the gap buffer may
@@ -4412,6 +4401,20 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
   Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
 ### Fixed bugs
+
+- [x] ~~**C64: disk.s wrote `$FD`/`$FE`, which the userland contract
+  keeps free.**~~  Fixed 2026-11-20: `DISK_LOCAL_PTR` is zp.s's
+  `disk_local_ptr` on c64 too, at `$7A`; test_disk.py checks `$FB–$FE`
+  across every load, save and `$`; the C64 PRGs' hashes re-recorded
+  (same sizes).  The report:  [userland_contract.md](userland_contract.md) § 2, § 3 and §
+  7 promise that CSE never writes the C64's free cells `$FB–$FE`;
+  disk.s's private pointer is `DISK_LOCAL_PTR = $FD` (platform.inc;
+  `str_setup` stores it on every load and save, PRG or SEQ), outside
+  the swapped `$00–$7F`, so a disk command clobbers the user's
+  `$FD`/`$FE`.  Found by the P0 quality pass, 2026-11-18; still so
+  2026-11-20.  Fix: the C64 takes zp.s's `disk_local_ptr` too, as m65
+  does — it lands in CSE's free `$7A–$7B`, inside the swap; both C64
+  PRGs change, their size should not.
 
 - [x] ~~**C64: the linker did not bound KDATA.**~~  Fixed 2026-11-20:
   both C64 configs (`c64_cse.cfg.in`, `c64_trial.cfg`) give KDATA

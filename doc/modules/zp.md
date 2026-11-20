@@ -17,7 +17,7 @@ contains a `.segment "ZEROPAGE"` section.
 This document owns the ZP allocation table and the cross-module flag
 table below; other documents point here instead of restating them.
 
-### Exported symbols ($02–$79: 117 bytes exported, 3 unallocated)
+### Exported symbols ($02–$7B: 119 bytes exported, 3 unallocated)
 
 "Section" is the zp.s block the bytes are listed under; "Used by" is
 every module that `.importzp`s at least one of the block's variables
@@ -44,13 +44,14 @@ every module that `.importzp`s at least one of the block's variables
 | $5E–$6E | **project name** | `cur_project_name` (17 = `FILENAME_MAX` + NUL) — filename stem | written by repl (`parse_ls_args`); read by editor (status bar), asm_src (`;asm "NAME"` log line, save suggestion), repl |
 | $6F–$77 | **shared output scratch** | `rp_addr` (2), `rp_cnt` (2), `rp_save` (1), `rp_save2` (1), `rp_next_lo` (2), `_info_mode` (1) | repl (command-handler scratch), log (range-line calling convention), asm_src (`rp_addr`, `rp_cnt`, `rp_save2`) |
 | $78–$79 | screen | `scr_src` (2) — `scroll_up`'s source row pointer | screen |
+| $7A–$7B | disk | `disk_local_ptr` (2) — disk.s's filename pointer `DISK_LOCAL_PTR` (c64 here since 2026-11-20, no longer the user's `$FD`; m65 in the base page, below) | disk |
 
 Unallocated holes: $0F, $13, $2C, $36 and $43 — held so every later
 address stays put; a new ZP cell takes one.  Compacting them is
 [TODO § Planned / Architecture](../TODO.md#architecture), *ZP
 compaction (c64)*; it changes nothing for user code.
 
-On c64: first free byte $7A; $7A–$7F is not allocated by CSE.  Which
+On c64: first free byte $7C; $7C–$7F is not allocated by CSE.  Which
 zero page a user program may use is
 [userland_contract.md § 3](../userland_contract.md#3-memory-regions)'s
 call (on c64 CSE saves and restores the whole of $00–$7F around every

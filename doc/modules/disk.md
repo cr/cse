@@ -32,8 +32,8 @@ physical MEGA65's internal drive, the release D81's `DLOAD` start.
 ## Interface
 
 Every entry that takes a filename reads it from `disk_ptr` (ZP, set
-by the caller; NUL-terminated PETSCII) and uses the hardcoded ZP
-pointer `ptr` = `$FD`/`$FE` for it (§ Memory).  The device is
+by the caller; NUL-terminated PETSCII) and uses its private ZP
+pointer `ptr` = `disk_local_ptr` for it (§ Memory).  The device is
 `cur_device` (zp.s) except for `list_directory`, which takes it in A.
 
 ### floppy_read_status
@@ -187,15 +187,14 @@ jump table ([platform_layer.md](../platform_layer.md) § Constants,
 pointer, set by the caller; `list_directory` also walks the loaded
 directory with it), `_io_tmp` (2, cse_io's scratch: the load / save
 address, `list_directory`'s reverse-video pointer), `cur_device`
-(1, read).
-
-**Hardcoded ZP:** `ptr` = `$FD`/`$FE` (2) — the filename pointer of
-`str_setup` / `build_open_str`, written by every entry that takes a
-filename.  It lies outside CSE's ZEROPAGE segment, in `$80`–`$FF`;
-what user code may assume about that range is
-[userland_contract.md § 2](../userland_contract.md)'s.  On m65 it is
-`disk_local_ptr` in CSE's own base page (zp.s), not a hardcoded
-address (§ On m65).
+(1, read), and `ptr` = `DISK_LOCAL_PTR` = zp.s's `disk_local_ptr`
+(2) — the filename pointer of `str_setup` / `build_open_str`,
+written by every entry that takes a filename.  On c64 it is `$7A`,
+inside the `$00`–`$7F` the kernel swaps around a run, so the user's
+free `$FB`–`$FE` stay untouched
+([userland_contract.md § 3](../userland_contract.md#3-memory-regions));
+it was `$FD`/`$FE` until 2026-11-20.  On m65 it is in CSE's own base
+page (§ On m65).
 
 **BSS (84 bytes):**
 

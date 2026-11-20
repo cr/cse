@@ -397,3 +397,38 @@ def test_save_prg_payload_leaves_code_read_only(emu, cse_prg):
     assert diff == [], f"disk.s CODE written at {diff}"
     assert d.get("FOO") == bytes((0x00, 0x40)) + bytes((i * 7) & 0xFF
                                                        for i in range(0x102))
+
+
+# ── the user's free cells (userland_contract.md § 3; TODO § Bugs › C64,
+#    fixed 2026-11-20) ────────────────────────────────────────────────
+
+FREE = range(0xFB, 0xFF)                 # $FB-$FE: CSE never writes them
+
+
+def _drv_save_seq(e):
+    e.memory[SRC_IDX], e.memory[SRC_LEN] = 0, 3
+    e.jsr(e.sym("disk_save_seq"), a=SAVE_FN & 0xFF, x=SAVE_FN >> 8)
+
+
+def _drv_load_seq(e):
+    e.jsr(e.sym("disk_load_seq"), a=LOAD_FN & 0xFF, x=LOAD_FN >> 8)
+
+
+@pytest.mark.parametrize("call", [_save_prg, _drv_save_seq, _drv_load_seq, _load_prg],
+                         ids=["save_prg", "save_seq", "load_seq", "load_prg"])
+def test_a_disk_call_leaves_the_users_free_cells(drv, call):
+    e, d = drv
+    d.put("FOO", b"\x00\x40\x01\x02\x03")
+    for a in FREE:
+        e.memory[a] = a ^ 0x5A
+    call(e)
+    assert [e.memory[a] for a in FREE] == [a ^ 0x5A for a in FREE]
+
+
+def test_the_directory_leaves_the_users_free_cells(drv):
+    e, d = drv
+    d.put("FOO", b"x")
+    for a in FREE:
+        e.memory[a] = a ^ 0x5A
+    e.jsr(e.sym("list_directory"), max_cycles=5_000_000)
+    assert [e.memory[a] for a in FREE] == [a ^ 0x5A for a in FREE]
