@@ -151,8 +151,6 @@ SID_VOL         = $D418
         .importzp disk_local_ptr
   .endif
 .define DISK_LOCAL_PTR  disk_local_ptr
-; ── list_directory's buffer: the workspace from BASIC's start ───────
-DIR_BUF         = BASIC_START
 
 .endif ; PLATFORM_C64
 

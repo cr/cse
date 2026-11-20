@@ -309,19 +309,19 @@ _status_ret:
 @ok:    rts
 
 ; ═════════════════════════════════════════════════════════
-; list_directory(device) — LOAD-based directory listing
+; list_directory(device) — the directory listing
 ;   A = device
 ;
-; Uses KERNAL LOAD to read the directory into DIR_BUF (c64: the
-; workspace at $0801; m65: the directory buffer 2.D000, DIR_BANK),
-; then walks the in-memory buffer to display entries.
-; This works on both stock CBM KERNAL and MEGA65 Open-KERNAL
-; (Open-KERNAL has multiple IEC channel-I/O bugs that break
-; the traditional OPEN+CHKIN+CHRIN approach; see
-; MEGA65/open-roms#116, #117).
-;
-; c64: clobbers the workspace at $0801+ (up to ~5 KB for a full disk);
-; m65: the user's memory untouched.
+; c64: streams the listing — OPEN "$" (SA 0) on DIR_LFN, CHKIN, CHRIN
+; — and prints each entry as it arrives: no buffer, so nothing of the
+; user's memory is written (the workspace from $0801 and the source
+; text above it stay; disk.md § list_directory).  The device is probed
+; first (LISTEN / UNLSN): CHKIN on a missing one hangs in the KERNAL.
+; The KERNAL's channel I/O is what MEGA65/open-roms#116 and #117 break,
+; so on the Open ROMs' C64 build the listing is empty (TODO § OR1).
+; m65: KERNAL LOAD into DIR_BUF (CSE's reserve 2.D000, DIR_BANK), then
+; the same walk over the buffer — the user's memory untouched too.
+; Both read the BASIC-style lines through @rd.
 ;
 ; Output format:
 ;   AAAA:; "disk name" id
@@ -329,6 +329,9 @@ _status_ret:
 ;   AAAA:l "test,s"         ;  1
 ;   AAAA:; 520 blocks free.
 ; ═════════════════════════════════════════════════════════
+.ifdef PLATFORM_C64
+DIR_LFN = 3                     ; the listing's file (SEQ uses 2, status 14)
+.endif
 .proc list_directory
         sta @dev                ; save device number
 
@@ -338,14 +341,36 @@ _status_ret:
         ldy #>str_dname
         KCALL SETNAM
 
+.ifdef PLATFORM_C64
+        lda #0                  ; probe: CHKIN on a missing device hangs
+        sta ST
+        lda @dev
+        KCALL LISTEN
+        KCALL UNLSN
+        lda ST
+        jmi @err                ; device not present: nothing printed
+        lda #DIR_LFN            ; SETLFS DIR_LFN,device,0 — the listing
+        ldx @dev
+        ldy #0
+        KCALL SETLFS
+        KCALL OPEN
+        jcs @close
+        ldx #DIR_LFN
+        KCALL CHKIN
+        jcs @close
+        lda #0
+        sta @eof
+        jsr @rd                 ; the load address: skipped
+        jsr @rd
+        jcs @done
+.else
         ; SETLFS 0,device,0  (SA=0 → load to given address)
         lda #0
         ldx @dev
         ldy #0
         KCALL SETLFS
 
-        ; LOAD directory to DIR_BUF: c64 the workspace at $0801 (same as
-        ; BASIC), m65 CSE's reserve 2.D000
+        ; LOAD the directory to DIR_BUF, CSE's reserve 2.D000
         PLAT_SETBNK DIR_BANK
         lda #0                  ; 0 = LOAD (not VERIFY)
         ldx #<DIR_BUF
@@ -357,58 +382,52 @@ _status_ret:
         stx @end_lo
         sty @end_hi
 
-        ; disk_ptr = walk pointer into the loaded data (DIR_BUF)
+        ; disk_ptr = the read pointer into the loaded data (DIR_BUF)
         ; (disk_ptr is free here: list_directory takes no filename)
         lda #<DIR_BUF
         sta disk_ptr
         lda #>DIR_BUF
         sta disk_ptr+1
         FAR_BANK disk_ptr, DIR_BANK
-
-        ; First 2 bytes are the link pointer of the first line
-        ldy #0
-        FAR_LDA disk_ptr        ; link lo
-        iny
-        FAR_ORA disk_ptr        ; link hi — if both 0, empty dir
-        jeq @done
-
-        ; Advance past link to block count
-        lda #2
-        jsr @advance_dp
+.endif
 
         lda #0
         sta @is_first           ; first entry = header
 
 @entry:
-        ; Read 2-byte block count (line number)
-        ldy #0
-        FAR_LDA disk_ptr
+        ; A line: the link (0: the end), the block count, the text
+        jsr @rd
+        jcs @done
+        sta @blocks             ; (the link's low byte, for the test)
+        jsr @rd
+        jcs @done
+        ora @blocks
+        jeq @done               ; link = 0: no more lines
+        jsr @rd
+        jcs @done
         sta @blocks
-        iny
-        FAR_LDA disk_ptr
+        jsr @rd
+        jcs @done
         sta @blocks+1
-        lda #2
-        jsr @advance_dp
 
-        ; Read line text into fl_buf (terminated by $00)
-        ldy #0
-@rdtxt: FAR_LDA disk_ptr
+        ; Read line text into fl_buf (terminated by $00), at most 30
+        lda #0
+        sta @textlen
+@rdtxt: jsr @rd
+        jcs @done
         beq @got_line           ; $00 = line end
+        ldy @textlen
         cpy #30
-        bcs @skip_char          ; truncate: skip but keep scanning
+        bcs @skip_char          ; truncate: skip but keep reading
         sta fl_buf,y
-@skip_char:
         iny
-        bne @rdtxt              ; always
+        sty @textlen
+@skip_char:
+        jmp @rdtxt
 @got_line:
+        ldy @textlen
         lda #0
         sta fl_buf,y            ; NUL-terminate
-        sty @textlen
-
-        ; Advance disk_ptr past text + NUL byte
-        iny                     ; include the $00 terminator
-        tya
-        jsr @advance_dp
 
         ; ── Header (first entry) ──────────────────────────────
         lda @is_first
@@ -567,62 +586,72 @@ _status_ret:
 @check_stop:
         jsr io_kbhit            ; A = keys waiting (Z is ldx #0's)
         tay
-        bne @user_key
-        jsr @check_next
-        jne @entry
-        jmp @done
-@user_key:
+        jeq @entry
+.ifdef PLATFORM_C64
+        KCALL CLRCHN            ; GETIN reads the keyboard again
+.endif
         jsr io_getc
         cmp #CH_STOP
         beq @user_stop
-        jsr @check_next
-        jne @entry
-        jmp @done
+.ifdef PLATFORM_C64
+        ldx #DIR_LFN            ; any other key is dropped: on with the
+        KCALL CHKIN             ; listing (the drive resumes on TALK)
+.endif
+        jmp @entry
 @user_stop:
 
         puts str_dir_brk
         jsr newline
 
 @done:
+.ifdef PLATFORM_C64
+        KCALL CLRCHN
+@close: lda #DIR_LFN            ; no file left open (an OPEN or CHKIN
+        KCALL CLOSE             ; error too: the KERNAL keeps the entry)
+.endif
 @err:
         rts
 
-; Helper: check if next directory entry exists.
-; Returns Z=1 if end (no more entries), Z=0 if entry follows.
-; If entry follows, disk_ptr is advanced past the link pointer.
-@check_next:
-        ; Bounds check: disk_ptr >= end → done
-        lda disk_ptr+1
+; Helper: A := the listing's next byte (Z from it), C=0; C=1 at its
+; end (or a read error).  Clobbers X, Y.
+.ifdef PLATFORM_C64
+@rd:    lda @eof                ; the last byte came with EOI (or an
+        bne @rd_end             ; error): the end
+        KCALL CHRIN
+        pha
+        KCALL READST
+        sta @eof
+        and #$BF                ; an error bit (not EOI): no byte
+        bne @rd_err
+        pla
+        clc
+        rts
+@rd_err:
+        pla
+@rd_end:
+        sec
+        rts
+.else
+@rd:    lda disk_ptr+1          ; the end of the loaded data?
         cmp @end_hi
-        bcc @cn_ok              ; hi < end_hi → safe
-        bne @cn_end             ; hi > end_hi → past end
+        bcc @rd_ok
+        bne @rd_end
         lda disk_ptr
         cmp @end_lo
-        bcs @cn_end             ; lo >= end_lo → at/past end
-@cn_ok:
-        ; Read link pointer
-        ldy #0
-        FAR_LDA disk_ptr        ; link lo
-        iny
-        FAR_ORA disk_ptr        ; link hi
-        beq @cn_end             ; link = 0 → end of directory
-        ; Valid entry follows — advance past link
-        lda #2
-        jsr @advance_dp
-        lda #1                  ; Z=0 (not done)
-        rts
-@cn_end:
-        lda #0                  ; Z=1 (done)
-        rts
-
-; Helper: advance disk_ptr by A bytes
-@advance_dp:
-        clc
-        adc disk_ptr
-        sta disk_ptr
-        bcc :+
+        bcs @rd_end
+@rd_ok: ldy #0
+        FAR_LDA disk_ptr
+        pha
+        inc disk_ptr
+        bne :+
         inc disk_ptr+1
-:       rts
+:       pla
+        clc
+        rts
+@rd_end:
+        sec
+        rts
+.endif
 
 ; Helper: print char in A inverted (io_putc then OR $80 on screen)
 @putc_inv:
@@ -645,8 +674,12 @@ _status_ret:
 @is_first:       .res 1
 @blocks:         .res 2
 @textlen:        .res 1
+.ifdef PLATFORM_C64
+@eof:            .res 1         ; READST after the last CHRIN
+.else
 @end_lo:         .res 1
 @end_hi:         .res 1
+.endif
 @dev:            .res 1
 @fn_start:       .res 1
 @fn_close:       .res 1

@@ -317,6 +317,34 @@ class TestListDirectory:
         emu.set_cursor(2, 0)
         emu.jsr(emu.sym("list_directory"), a=8)
         assert all(not emu.screen_text(r) for r in range(2, 25))
+        assert emu.memory[LDTND] == 0                 # no file left open
+
+    # ── the listing streams (TODO § Bugs › C64, fixed 2026-11-20): no
+    #    buffer, so the workspace and the source above it stay ──────────
+
+    def test_the_listing_leaves_the_workspace_and_the_source(self, drv):
+        e, d = drv
+        for i in range(60):                       # ~1.9 K of listing
+            d.put(f"FILE{i:02}", b"x")
+        pattern = [(a * 7 + 3) & 0xFF for a in range(0x0801, 0x4000)]
+        e.memory[0x0801:0x4000] = pattern
+        rows = self._list(e)
+        assert rows[-1] == "; 604 blocks free."
+        assert list(e.memory[0x0801:0x4000]) == pattern
+
+    def test_no_file_stays_open(self, drv):
+        e, d = drv
+        d.put("FOO", b"x")
+        self._list(e)
+        assert e.memory[LDTND] == 0
+
+    def test_no_file_stays_open_after_stop(self, drv):
+        e, d = drv
+        for i in range(5):
+            d.put(f"F{i}", b"x")
+        e.inject_key(3)
+        self._list(e)
+        assert e.memory[LDTND] == 0
 
 
 class TestDriveStatusAfterTransfer:

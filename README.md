@@ -658,8 +658,7 @@ Where it differs from the C64 build:
 
 - **Disks.**  `$`, `l` and `s` work on any unit: units 8 and 9 are
   usually the internal drive or a mounted D81, the others IEC drives.  `$`
-  does not touch your memory (on the C64 it overwrites the workspace
-  from `$0801`).
+  does not touch your memory, as on the C64.
 
 - **Colours.**  The themes, their default CLOUDY, `make THEME=…` and
   `C` work as on the C64; `make THEME=MEGA` gives the MEGA65's own

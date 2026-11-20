@@ -143,7 +143,7 @@ platform lacks is absent there, so a stray use fails to assemble.
 | The free-ZP fill (`_main` step 10) | `ZP_BASE` `$00`, `ZP_FILL_END` `$80` | `ZP_BASE` `$00`, `ZP_FILL_END` = `STUB_BASE`'s low byte: the free part of CSE's base page |
 | The jump-table page (the loader's gate) | none | `KERNAL_JUMP_PAGE` `$FF00`: every entry CSE calls is in it |
 | `DISK_LOCAL_PTR` (disk.s's private pointer) | `$FD` — in the KERNAL half; see [TODO § Bugs](TODO.md#bugs) | `disk_local_ptr`, a 2-byte cell of CSE's base page (zp.s): it reads only filenames in CSE's own view, so it needs no bank ([disk.md § On m65](modules/disk.md#on-m65)) |
-| The directory buffer (`list_directory`'s `LOAD "$"`) | the workspace from `BASIC_START` (`$0801`) | `DIR_BUF` `$D000` in `DIR_BANK` 2: `2.D000–2.FFFF` ([memory_design.md](memory_design.md) § Memory Map — m65) |
+| The directory buffer (`list_directory`'s `LOAD "$"`) | none: the listing streams (OPEN / CHKIN / CHRIN, [disk.md § list_directory](modules/disk.md#list_directory)) | `DIR_BUF` `$D000` in `DIR_BANK` 2: `2.D000–2.FFFF` ([memory_design.md](memory_design.md) § Memory Map — m65) |
 
 **Hypervisor services (m65).**  The documented Hypervisor traps the
 m65 build uses (book Appendix N, "available since Hyppo 1.2"); each

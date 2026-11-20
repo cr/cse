@@ -66,20 +66,7 @@ are under [§ Records](#records).
 
 ### C64
 
-- [ ] **`$` can overwrite the source text.**  On the C64 `$` loads the
-  directory with KERNAL `LOAD` at `$0801` (`DIR_BUF`; disk.s
-  `list_directory`), with no upper bound, while the gap buffer may
-  grow down to `BUF_FLOOR` (`$1500` in the 6510 release build: 3.3 K
-  above `$0801`).  A full 1541 directory is about 4.6 K, a 1581's up
-  to about 9.5 K; once the source is large enough that `buf_base` lies
-  below the listing's end (roughly 19–24 K of source), `$` overwrites
-  the start of the source text silently.  Derived from the layout
-  (2026-11-20), not yet reproduced.  Fix options: refuse the listing
-  when it could reach `buf_base`; or read the directory through `OPEN`
-  / `CHRIN` with no buffer, which would also end `$` overwriting the
-  workspace (README § On the MEGA65, *Disks*).  m65 is not affected:
-  its `DIR_BUF` is CSE's own reserve.  (Replaces the Planned › Editor
-  item *Gap buffer floor above directory load area*.)
+(None open.)
 
 ### m65
 
@@ -591,12 +578,14 @@ today ([memory_design.md § Target Compatibility](memory_design.md#target-compat
   `kernal_mega.bin` runs the platform-neutral suites.
 
   Known from the Ideas item this one absorbed (2026-11-20):
-  MEGA65 Open-KERNAL compatibility (C64-compatible mode):
-  `$` works (LOAD-based).  Floppy status empty (shows `; `)
-  — blocked on upstream IEC channel-I/O fixes
-  (MEGA65/open-roms#116, #117).  Channel-based dir code
-  preserved in `1348247` for when fixes land.  All other
-  features work.  Native mode is roadmap R7.
+  MEGA65 Open-KERNAL compatibility (C64-compatible mode): the
+  KERNAL's channel I/O is broken upstream (MEGA65/open-roms#116,
+  #117; open as of 2026-11-20), so the floppy status is empty
+  (shows `; `), and since 2026-11-20 `$` lists nothing — the C64
+  listing streams through the channel to stop overwriting the
+  workspace and the source (TODO § Fixed bugs).  The LOAD-based
+  listing that worked there is commit 10079b0's, for a ROM
+  variant.  Native mode is roadmap R7.
 - [ ] **OR2. The m65 build on the Open ROMs' MEGA65 build.**  Its
   native mode lacks `VECTOR`, `SETBNK`, `SCRORG`, `JSRFAR`,
   `VERSIONQ`, the `SYS` map and BASIC 65's banks; what the m65 seams
@@ -4348,6 +4337,24 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
   Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
 ### Fixed bugs
+
+- [x] (fixed 2026-11-20: the C64 listing streams — OPEN / CHKIN /
+  CHRIN, no buffer; test_disk.py checks `$0801–$3FFF` untouched and no
+  file left open; the Open ROMs' C64 build loses `$` until
+  open-roms#116 / #117 are fixed, § OR1) **`$` can overwrite the source text.**  On the C64 `$` loads the
+  directory with KERNAL `LOAD` at `$0801` (`DIR_BUF`; disk.s
+  `list_directory`), with no upper bound, while the gap buffer may
+  grow down to `BUF_FLOOR` (`$1500` in the 6510 release build: 3.3 K
+  above `$0801`).  A full 1541 directory is about 4.6 K, a 1581's up
+  to about 9.5 K; once the source is large enough that `buf_base` lies
+  below the listing's end (roughly 19–24 K of source), `$` overwrites
+  the start of the source text silently.  Derived from the layout
+  (2026-11-20), not yet reproduced.  Fix options: refuse the listing
+  when it could reach `buf_base`; or read the directory through `OPEN`
+  / `CHRIN` with no buffer, which would also end `$` overwriting the
+  workspace (README § On the MEGA65, *Disks*).  m65 is not affected:
+  its `DIR_BUF` is CSE's own reserve.  (Replaces the Planned › Editor
+  item *Gap buffer floor above directory load area*.)
 
 - [x] (fixed 2026-11-20: pass 1 reports the value with `jsr
   _bad_val_err` and lays out its bytes; tests in test_asm_src.py and

@@ -68,18 +68,26 @@ cleared to the end of the row, then `newline`):
 
 A key in the keyboard buffer between entries is taken: RUN/STOP ends
 the listing early with `break` (no blocks-free line); any other key
-is dropped and the listing goes on.  On a LOAD error nothing is
-printed.
-**Clobbers:** A, X, Y, `disk_ptr`, `_io_tmp`, `fl_buf`, the
-workspace from `$0801` to the end of the loaded directory (~5 KB for
-a full disk), and what `newline` clobbers
+is dropped and the listing goes on.  With no device, or on an open
+or read error, nothing is printed; no file is left open.
+**Clobbers:** A, X, Y, `disk_ptr` (m65), `_io_tmp`, `fl_buf`, and
+what `newline` clobbers — **none of the user's memory**.
 
-Uses KERNAL LOAD (SA 0) to read the directory into the workspace at
-$0801, then walks the in-memory BASIC-style lines.  This approach
-(vs OPEN+CHKIN+CHRIN) works on both the stock CBM KERNAL and the
-MEGA65 Open-KERNAL (see MEGA65/open-roms#116, #117 for the
-channel-I/O bugs).  The caller reads the drive status afterwards
-(the REPL's `$` prints `floppy_read_status`'s line).
+On c64 the listing **streams**: the device is probed (LISTEN /
+UNLSN, as `floppy_read_status` does — CHKIN on a missing device hangs
+in the KERNAL), then OPEN `"$"` on LFN 3 with SA 0, CHKIN, and the
+BASIC-style lines are read byte by byte (CHRIN, READST after each)
+and printed as they arrive; a key between entries is read with the
+channel cleared (CLRCHN), then CHKIN resumes the listing.  No buffer:
+the workspace from `$0801` and the source text above it stay
+untouched, whatever the directory's size.  (Until 2026-11-20 it
+used KERNAL LOAD into the workspace at `$0801`, which could reach
+the source text — TODO § Fixed bugs.)  The channel path is what the
+Open ROMs' C64 build breaks (MEGA65/open-roms#116, #117, open as of
+2026-11-20): there `$` lists nothing (TODO § OR1).  On m65 it LOADs
+into `DIR_BUF`, CSE's reserve (§ On m65), and reads the same lines
+from there.  The caller reads the drive status afterwards (the
+REPL's `$` prints `floppy_read_status`'s line).
 
 ### disk_load_prg
 **In:** A/X = load address, or 0 for the file's own; `disk_ptr` =
@@ -196,7 +204,7 @@ free `$FB`–`$FE` stay untouched
 it was `$FD`/`$FE` until 2026-11-20.  On m65 it is in CSE's own base
 page (§ On m65).
 
-**BSS (84 bytes):**
+**BSS (83 bytes; m65 84):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
@@ -206,7 +214,7 @@ page (§ On m65).
 | `open_buf` | 28 | Filename build buffer for CBM open |
 | `callback` | 2 | SEQ I/O function pointer |
 | `eof_flag` | 1 | READST value after the last CHRIN of a SEQ read |
-| proc-local `@` scratch | 17 | `str_setup`, `build_open_str`, `list_directory`, `disk_save_prg` locals — in BSS, so disk.s's CODE stays read-only |
+| proc-local `@` scratch | 16 (m65 17) | `str_setup`, `build_open_str`, `list_directory`, `disk_save_prg` locals — in BSS, so disk.s's CODE stays read-only |
 
 **Depends on:** log (puts_imm, log_info), screen (newline), cse_io
 (io_putc, io_putdec, io_getc, io_kbhit, io_clear_eol, scr_lo,
