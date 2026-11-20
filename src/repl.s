@@ -113,6 +113,9 @@ STEP_OVER = 2
 
 ; ── Imports: expression parser ─────────────────────────────
         .import expr_eval, expr_error_str
+.ifdef PLATFORM_M65
+        .import expr_eval32
+.endif
         .importzp expr_ptr, expr_val
 
 ; ── Imports: symbol table ──────────────────────────────────
@@ -1094,6 +1097,54 @@ map_fields:
         rts
 @err:   sec
         rts
+
+; ───────────────────────────────────────────────────────────
+; calc_32 — `?`'s row for a value outside 16 bits (repl.md § Banks):
+; `$` and eight hex digits, two spaces, the unsigned decimal; then
+; the log line closed.  Destroys expr_val.  Clobbers A, X, Y.
+; ───────────────────────────────────────────────────────────
+calc_32:
+        lda #'$'
+        jsr io_putc
+        lda expr_val+2
+        ldx expr_val+3
+        jsr io_puthex4
+        lda expr_val
+        ldx expr_val+1
+        jsr io_puthex4
+        puts str_2sp
+        lda #0
+        sta rp_tmp2             ; the digits pushed
+@div:   lda #0                  ; expr_val /= 10, rp_tmp = the remainder
+        sta rp_tmp
+        ldx #32
+@bit:   asl expr_val
+        rol expr_val+1
+        rol expr_val+2
+        rol expr_val+3
+        rol rp_tmp
+        lda rp_tmp
+        cmp #10
+        bcc :+
+        sbc #10
+        sta rp_tmp
+        inc expr_val            ; a quotient bit
+:       dex
+        bne @bit
+        lda rp_tmp
+        pha                     ; a digit, the lowest first
+        inc rp_tmp2
+        lda expr_val
+        ora expr_val+1
+        ora expr_val+2
+        ora expr_val+3
+        bne @div
+@put:   pla
+        ora #'0'
+        jsr io_putc
+        dec rp_tmp2
+        bne @put
+        jmp log_close
 
 .segment "KDATA"
 str_ml:         .byte " ml:", 0
@@ -5221,7 +5272,11 @@ prg_ok_done:
         sta expr_ptr
         lda rp_ptr+1
         sta expr_ptr+1
+.ifdef PLATFORM_M65
+        jsr expr_eval32         ; `?` takes 32 bits (expr.md § 32-bit values)
+.else
         jsr expr_eval
+.endif
         sta rp_save             ; rc
         cmp #2
         jcs @calc_err
@@ -5239,6 +5294,11 @@ prg_ok_done:
         ; hex display
         ldy #LOG_INFO
         jsr log_open
+.ifdef PLATFORM_M65
+        lda expr_val+2
+        ora expr_val+3
+        jne calc_32             ; outside 16 bits: the 32-bit row
+.endif
         lda expr_val+1
         bne @calc_16bit         ; >= 256: $xxxx, whatever the low byte
         jsr calc_put_u8_hex

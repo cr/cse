@@ -487,7 +487,7 @@ link instead of overwriting the neighbour:
 | `LOADER` | `$200D` | bank 0, the PRG image (discarded) | — | the file |
 | `STUB` | `$1FB0` | `0.1FB0` | `$0050` (to `0.1FFF`) | the file, copied by the loader |
 | `CODE`, `RODATA` | `$2000` | `3.2000` | `$6000` (24 K) | the file, DMA'd by the loader |
-| `KDATA` | `$8000` | the data window `3.8000` | with `KCODE` and `BSS`: `$2100`, to `SYM_TABLE` | the file, DMA'd by the loader |
+| `KDATA` | `$8000` | the data window `3.8000` | with `KCODE` and `BSS`: `$1F00`, to `SYM_TABLE` | the file, DMA'd by the loader |
 | `KCODE` | after `KDATA` | the data window | (the same area) | the file, DMA'd by the loader with `KDATA`, as one block |
 | `BSS` | after `KCODE` | the data window | (the same area) | cleared by the loader |
 

@@ -48,7 +48,11 @@
         .export asm_expr_error, asm_cpu_error
         .export asm_err_code, asm_pass
 
+.ifdef PLATFORM_M65
+        .import _asm_saved_sp           ; m65: zp.s's BSS
+.else
         .importzp _asm_saved_sp
+.endif
         .import kernal_bank_in
 
 ; ── BSS ──────────────────────────────────────────────────────

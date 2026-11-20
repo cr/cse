@@ -8,6 +8,7 @@
 |------|------|
 | [`src/expr.s`](../../src/expr.s) | implementation |
 | [`tests/unit/test_expr.py`](../../tests/unit/test_expr.py) | test contract |
+| [`tests/unit/test_expr_m65.py`](../../tests/unit/test_expr_m65.py) | test contract: the m65 32-bit values, the range, the symbol table's 4-byte values |
 
 ## Interface
 
@@ -15,8 +16,8 @@
 **In:** `expr_ptr` (ZP, pointer to the PETSCII expression text),
 `asm_pc` (ZP, value of the `*` operand)
 **Out:** A = return code (table below), also stored in `last_err`;
-`expr_val` (ZP, 16-bit result), `expr_wide` (ZP, 0 = ZP-eligible,
-1 = ABS); `expr_ptr` advanced to the first unparsed byte
+`expr_val` (ZP, 16-bit result; m65 32-bit), `expr_wide` (ZP, 0 =
+ZP-eligible, 1 = ABS; m65 3 = FAR); `expr_ptr` advanced to the first unparsed byte
 ([§ Partial-mode contract](#partial-mode-contract)); `expr_fwd`
 (BSS, exported): nonzero iff the expression read a symbol that is
 undefined (rc 5, see [§ Undefined symbols](#undefined-symbols)) or
@@ -26,8 +27,8 @@ in the current pass
 marks the undefined case (rc 5); a `sym_fwd` read only sets other
 bits and also makes the result wide, matching the ABS size pass 0
 gave the then-undefined symbol.
-**Clobbers:** A, X, Y; `_ex_tmp`, `_ex_digits` (ZP); `_ex_depth`,
-`_mul_tmp`, `_div_rem` (BSS); `sym_name`, and through `sym_lookup`
+**Clobbers:** A, X, Y; `_ex_tmp`, `_ex_digits` (ZP; m65 BSS); `_ex_depth`,
+`_mul_tmp`, `_div_rem`, on m65 `_ex_sp`, `_ex_stk`, `_ex_far` (BSS); `sym_name`, and through `sym_lookup`
 `sym_val`, `sym_wide`, `sym_fwd` and symtab's ZP scratch.  **Writes
 the input text:** a shifted letter ($C1–$DA) inside a label is folded
 to $41–$5A in place, and the byte after each label is NUL'd for the
@@ -55,6 +56,11 @@ symbol) leaves `$01` bit 1 set and the I flag clear.
 | 4 | Error: mismatched parentheses | `exp )` |
 | 5 | Error: undefined symbol | `undef` |
 | 6 | Error: division by zero | `div0` |
+| 7 | m65: the value is outside −$FFFF…$FFFF ([§ 32-bit values](#32-bit-values-m65)); never from `expr_eval32` | `range` |
+
+### expr_eval32 (m65)
+`expr_eval` without the range check — the 32-bit value as computed ([§ 32-bit values](#32-bit-values-m65)).
+**In / Out / Clobbers:** as `expr_eval`.
 
 ### expr_eval_nb
 The evaluator without the banking bracket, for callers that already
@@ -67,7 +73,8 @@ restores whatever it found).
 **In:** `last_err` (BSS)
 **Out:** A/X = pointer (lo/hi) to the NUL-terminated message for
 `last_err` (table above, from `err_str_lo` / `err_str_hi` in
-strings.s).  A `last_err` of 7 or more reads as 0 (empty string).
+strings.s).  A `last_err` of 7 or more reads as 0 (empty string)
+— on m65 8 or more.
 **Clobbers:** A, X
 
 ### last_err
@@ -79,10 +86,15 @@ would run past `$FFFF`, so `expr_error_str` names that error `ovfl`
 ### Memory
 
 **ZP (3 bytes):** `_ex_tmp` (2), `_ex_digits` (1).  The left
-operand's width lives on the stack.
+operand's width lives on the stack.  m65: none — both are expr.s's
+BSS, `_ex_tmp` 4 bytes ([zp.md § The m65 base page](zp.md#the-m65-base-page)).
 
 **BSS (7 bytes):** `last_err` (1, exported), `_ex_depth` (1, nesting
 depth), `expr_fwd` (1, exported), `_mul_tmp` (2), `_div_rem` (2).
+m65: 216 bytes — `_ex_tmp` (4), `_ex_digits` (1), `_mul_tmp` and
+`_div_rem` 4 each, `_ex_far` (1), `_ex_sp` (1) and the operand stack
+`_ex_stk` (198,
+[§ 32-bit values](#32-bit-values-m65)).
 
 **Depends on:** symtab (`sym_lookup`, `sym_fwd`), mem
 (`kernal_bank_out` / `kernal_bank_in` for the wrapper), strings
@@ -103,6 +115,57 @@ factor     = '$'hex | '%'bin | decimal | '*' | label        [parse_factor]
            | '(' expr ')'
 ```
 
+### 32-bit values (m65)
+
+On m65 a value is 32 bits (slice 3, F5a): `expr_val` is 4 bytes (base
+page), `_ex_tmp`, `_mul_tmp` and `_div_rem` 4 (BSS), and every
+operator computes in 32 bits by 4-byte loops — `*` and `/` by a
+32-bit shift-and-add / shift-and-subtract, a shift count of 32 or more
+shifts every bit out.  A result wraps at 32 bits as the c64's wraps at
+16.  The c64 stays 16-bit, its code unchanged.
+
+A pending left operand waits on an **operand stack** in BSS
+(`_ex_stk`), not the hardware stack: an entry is 6 bytes — the
+operator, the width, the 4 value bytes — pushed by `_ex_binop` before
+it parses the right operand and popped after.  At most three wait per
+expression level (one each in `parse_expr`, `parse_add`,
+`parse_mul`) and the depth guard admits 11 levels, so 33 entries (198
+bytes); a guard answers `ovfl` past them.  An error returns at once,
+leaving the stack to the next evaluation's reset.  The m65 evaluator
+therefore pushes only return addresses: its hardware-stack use is
+below the c64's 3 bytes a pending operand
+([memory_design.md § Kernel stack budget](../memory_design.md#kernel-stack-budget)).
+
+| Factor (m65) | Value | Width |
+|---|---|---|
+| `$` hex, 1–2 / 3–4 / 5–8 digits | as written (a ninth digit `ovfl`) | ZP / ABS / **FAR** |
+| decimal, `%` binary | as written, up to $FFFFFFFF (`ovfl` past it) | by value: ≤ $FF ZP, ≤ $FFFF ABS, else FAR |
+| `H.AAAA` — a flat literal, first character a digit 0–9 | `H` × $10000 + `AAAA` | FAR |
+| `*` | `asm_pc`'s low word, as on the c64 | by value |
+| a label | the symbol's 32-bit value (symtab.md) | as stored, FAR when above $FFFF |
+
+The flat literal is the REPL's (repl.md § Banks): one to four hex
+digits with a value up to $FFF, a dot, exactly four hex digits — `4.2000`,
+`0ffd.3000` (a leading digit, so `ffd.3000` stays a label).  Digits
+not in that shape are a decimal number as before (`4.200` is `4`,
+the parse stopping at the dot).
+
+`expr_wide` gains a third value: 0 ZP, 1 ABS, 3 **FAR** (bit 1: the
+value, or a factor it came from, is above $FFFF; FAR implies ABS, so
+the OR that merges two widths keeps the wider).  `<` and `>` are
+bytes 0 and 1 as before (narrow); bytes 2 and 3 are `<(x>>16)` and
+`>(x>>16)` (D-F-7).  The return code keeps its meaning: 0 ZP, 1 ABS
+or FAR (`expr_wide` tells them apart).
+
+**Range.**  `expr_eval` (and `expr_eval_nb`) serve the 16-bit
+consumers — an operand, `.db` / `.dw` / `.org` / `.res` / `.align`,
+a REPL argument — so a value outside −$FFFF…$FFFF (in range: the top
+word $0000, or $FFFF with a nonzero low word) is **rc 7, `range`**
+instead of a truncation; a value inside keeps its low word, so `-1`
+is `$FFFF` as on the c64.  **`expr_eval32`** is the same evaluator
+with the check off, for the consumers that take 32 bits: a constant
+(`.const`, symtab.md) and `?`.  The opt-in lasts one evaluation.
+
 ### Width propagation
 
 The ZP flag `expr_wide` decides whether the result selects 2-byte (ZP)
@@ -119,6 +182,8 @@ Width sources (leaves):
 | Label | `sym_wide` = 0 at definition, read backward | `sym_wide` = 1 at definition, or a forward read (`sym_fwd`), or undefined |
 | `*` (PC) | `asm_pc` ≤ $FF | `asm_pc` > $FF |
 
+On m65 a third class, FAR, above both ([§ 32-bit values](#32-bit-values-m65)).
+
 Operators:
 
 | Operator | Rule |
@@ -131,8 +196,9 @@ Operators:
 | `( )` | Transparent — inherits from inner expression |
 
 Each binary operator pushes its left operand's width onto the
-hardware stack with the left operand's value while the right operand
-is parsed, and ORs it back in afterwards, so a nested `<`/`>` or a
+hardware stack (m65: the operand stack, [§ 32-bit
+values](#32-bit-values-m65)) with the left operand's value while the
+right operand is parsed, and ORs it back in afterwards, so a nested `<`/`>` or a
 nested operator never erases an outer operand's width:
 `$0000+(<$12+1)` is ABS.
 
@@ -218,7 +284,8 @@ operator peek fails, `expr_ptr` stays where `skip_sp` last parked it.
 - The `*` symbol is context-dependent: alone or after an operator it
   means PC; between two values it means multiply.
 - **Unary minus** (`-expr`) is supported as a prefix operator.
-  `-1` evaluates to `$FFFF` (two's complement).
+  `-1` evaluates to `$FFFF` (two's complement); on m65 to
+  `$FFFFFFFF`, whose low word `$FFFF` a 16-bit consumer takes.
 - **Nesting depth:** at most 10 nested levels — each `(` and each
   unary prefix `-` `!` `<` `>` is one level (`<(` is two).  The 11th
   level returns 3 (overflow) without recursing further, which bounds
@@ -227,7 +294,11 @@ operator peek fails, `expr_ptr` stays where `skip_sp` last parked it.
   caller.
 - **Shifts:** the count is the full 16-bit right operand; a count of
   16 or more shifts every bit out (`1<<256` = 0, `$8000>>16` = 0).
+  On m65 the count is 32 bits and 32 or more shifts every bit out.
 - **16-bit wraparound:** Arithmetic on computed results silently
   wraps: `$FFFF + 1 = $0000`, `$100 * $100 = $0000`.  Overflow
   (3) comes only from literal parsing (5+ hex digits, decimal
-  >65535, 17+ binary digits) and from the nesting limit.
+  >65535, 17+ binary digits) and from the nesting limit.  On m65 the
+  arithmetic wraps at 32 bits, the literals overflow past 8 hex
+  digits, $FFFFFFFF and 32 binary digits, and a value outside
+  −$FFFF…$FFFF is `range` (7) for a 16-bit consumer.

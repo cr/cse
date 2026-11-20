@@ -13,7 +13,7 @@
 
 ### sym_define
 **In:** `sym_name` (ZP, pointer to NUL-terminated name in main RAM),
-`sym_val` (ZP, 16-bit value), `sym_wide` (ZP, 0=ZP 1=ABS),
+`sym_val` (ZP, 16-bit value; m65 32-bit), `sym_wide` (ZP, 0=ZP 1=ABS),
 `sym_stamp` (BSS, the stamp to write)
 **Out:** C=0 success; C=1 table full (probe wrapped) or name heap full
 (nothing written).  `$01` is the caller's on return.
@@ -29,7 +29,7 @@ byte gets bit 7 = width and bit 6 = `sym_stamp`
 **In:** `sym_name` (ZP, pointer to NUL-terminated name in main RAM),
 `sym_stamp` (BSS)
 **Out:** C=0 found, C=1 not found.  When found: `sym_val` (ZP,
-16-bit), `sym_wide` (ZP, 0=ZP 1=ABS), `sym_fwd` (BSS): nonzero iff the
+16-bit; m65 32-bit), `sym_wide` (ZP, 0=ZP 1=ABS), `sym_fwd` (BSS): nonzero iff the
 entry's stamp differs from `sym_stamp` — the symbol was defined in an
 earlier pass only, so this read is a forward reference in the current
 pass.  When not found, `sym_val`, `sym_wide` and `sym_fwd` are
@@ -58,7 +58,8 @@ the name heap (fixed at $E600 under KERNAL).
 
 **Banked RAM:** `sym_table` $E000–$E5FF and the name heap
 $E600–$EEFF (`SYM_HEAP_END` = $EF00, exclusive), in RAM under the
-KERNAL ROM.  The layout of the whole banked area is owned by
+KERNAL ROM.  m65: `sym_table` 3.9F00–3.A6FF, the heap 3.A700–3.AFFF,
+in the data window.  The layout of the whole banked area is owned by
 [memory_design.md § Banked layout](../memory_design.md#banked-layout-e000ffff).
 
 **Depends on:** mem (`kernal_bank_out`), zp (`sym_name`, `sym_val`,
@@ -77,6 +78,20 @@ Direct callers:
 | `asm_src.s::define_label` and the `.const` handler (`d_const`) | user symbols | per `main:` / `.loop:` / `.const` in source, on both passes (pass 1 re-stamps) |
 
 ## Design
+
+**On m65 a value is 32 bits** (slice 3, F5a): an entry is 8 bytes —
+`sym_val` is 4 bytes in the base page — so the table is 2048 bytes and
+a slot's offset is `slot × 8` (three shifts).  It sits at
+`3.9F00–3.A6FF` (`SYM_TABLE`; the name heap `3.A700–3.AFFF`), and the
+data window's KDATA / KCODE / BSS area ends at `$9F00` (O-F-4;
+[memory_design.md](../memory_design.md)).  Bytes 0–5 are the c64's
+(hash, value bytes 0–1, name_ptr, scope); bytes 6–7 are the value's
+upper word.  Every writer of `sym_val` sets all four bytes: `.const`
+the expression's 32 bits ([expr.md § 32-bit
+values](expr.md#32-bit-values-m65)), a label and the workspace
+symbols their 16-bit address with a zero upper word.  Test contract:
+`tests/unit/test_expr_m65.py` (the round trip through all 256 slots,
+`sym_clear`'s extent).  The c64 layout below does not change.
 
 ### Entry layout (6 bytes × 256 slots = 1536 bytes at $E000)
 

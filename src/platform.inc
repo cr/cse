@@ -277,11 +277,11 @@ ROM_BASE_HI     = $C0               ; the interface ROM at $C000 (user map)
 BUF_FLOOR       = $4000             ; the source region 2.4000-2.BFFF: the
 BUF_END         = $C000             ;   gap buffer's offsets in BANK_SRC
 ; the data window's fixed homes, above KDATA + BSS (CSE map, bank 3)
-SYM_TABLE       = $A100             ; the symbol table, 256 x 6 bytes
+SYM_TABLE       = $9F00             ; the symbol table, 256 x 8 bytes
 SYM_HEAP        = $A700             ;   the name heap …
 SYM_HEAP_END    = $B000             ;   … up to here (exclusive)
 REPL_SCREEN     = $B000             ; the REPL screen save, 80 x 50
-        .assert SYM_HEAP - SYM_TABLE = 256 * 6, error, "SYM_TABLE size"
+        .assert SYM_HEAP - SYM_TABLE = 256 * 8, error, "SYM_TABLE size"
         .assert REPL_SCREEN + 80 * 50 <= $C000, error, "REPL_SCREEN overflows the data window"
 
 ; ── SID ──────────────────────────────────────────────────────────────

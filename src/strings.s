@@ -237,11 +237,17 @@ err_str_lo:
         .byte <err_expected, <err_overflow
         .byte <err_paren, <err_undefined
         .byte <err_divzero
+.ifdef PLATFORM_M65
+        .byte <str_range                       ; 7: a 16-bit consumer's range
+.endif
 err_str_hi:
         .byte >err_none, >err_none
         .byte >err_expected, >err_overflow
         .byte >err_paren, >err_undefined
         .byte >err_divzero
+.ifdef PLATFORM_M65
+        .byte >str_range
+.endif
 
 err_none:      .byte 0
 err_expected:  .byte "exp val", 0

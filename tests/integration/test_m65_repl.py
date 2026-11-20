@@ -957,3 +957,49 @@ def test_a_breakpoint_outside_user_memory_is_refused(s, addr):
     s.type("b")
     assert all(r.rstrip().endswith("$----") or not r.startswith("; bp")
                for r in s.rows()), s.screen()
+
+
+# ── 32-bit values (slice 3, F5a: expr.md § 32-bit values, repl.md § Banks) ──
+
+@pytest.mark.parametrize("expr,row", [
+    ("$12345", "$00012345  74565"),
+    ("4.2000", "$00042000  270336"),
+    ("4.2000+$10>>4", "$00042001  270337"),
+    ("-1", "$ffffffff  4294967295"),
+    ("$ffffffff", "$ffffffff  4294967295"),
+    ("1<<31", "$80000000  2147483648"),
+    ("100000*3", "$000493e0  300000"),
+])
+def test_q_shows_a_value_outside_16_bits_in_32(s, expr, row):
+    s.type(f"? {expr}")
+    s.find("^; " + re.escape(row) + "$")
+
+
+@pytest.mark.parametrize("expr,row", [
+    ("$ffff", "$ffff  65535"),
+    ("4.2000>>16", "$04      4  %00000100  +4"),
+    ("$10000-1", "$ffff  65535"),
+])
+def test_q_keeps_the_16_bit_form_within_16_bits(s, expr, row):
+    s.type(f"? {expr}")
+    s.find(r"^; *" + re.escape(row) + "$")
+
+
+@pytest.mark.parametrize("cmd", ["j $12345", "@ $10000", "b $12345", "t $10000", "B -$10000"])
+def test_an_argument_outside_16_bits_is_expr_range(s, cmd):
+    s.type(cmd)
+    s.find(r"^;\?expr range$")
+
+
+def test_a_far_constant_holds_32_bits_and_a_16_bit_use_is_refused(s):
+    from test_m65_source_editor import put_source
+    put_source(s, b" .CONST FAR 4.2000\r .CONST BIG 100000\r .ORG $3000\r"
+                  b" LDA FAR\r .DW BIG\r LDA #<FAR\r .DB >(FAR>>16)\r .DB -1\r")
+    s.type("a")
+    s.find(r"^;\?4: range$")
+    s.find(r"^;\?5: bad val$")
+    assert s.w("asm_errors") == 2
+    s.type("? far")
+    s.find(r"^; \$00042000  270336$")
+    s.type("? big>>16")
+    s.find(r"^; *\$01      1  %00000001  \+1$")

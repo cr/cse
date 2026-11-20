@@ -23,6 +23,9 @@
         .import         asm_line                            ; asm_line.s
         .import         asm_err_code, asm_pass              ; asm_err.s
         .import         expr_error_str, expr_eval           ; expr.s
+.ifdef PLATFORM_M65
+        .import         expr_eval32
+.endif
         .import         sym_define, sym_clear, sym_stamp    ; symtab.s
         .import         expr_fwd                            ; expr.s
 SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp)
@@ -1076,7 +1079,11 @@ d_const:
         adc #0
         sta expr_ptr+1
         jsr skipws_ep           ; expr_ptr now at expression
+.ifdef PLATFORM_M65
+        jsr expr_eval32         ; a constant takes 32 bits (no range check)
+.else
         jsr expr_eval          ; evaluate; rc in A
+.endif
         sta _as_ptr             ; save rc (lo byte of _as_ptr used as scratch)
         lda asm_tmp             ; the name again (a symbol in the value
         sta sym_name            ; expression moved sym_name)
@@ -1097,10 +1104,19 @@ d_const:
         beq @cdef               ; define on both passes (pass 1 re-stamps)
         lda expr_fwd            ; pass 1: read a later-defined symbol?
         bne @cfwd               ; → undefined on pass 0: fwd ref
-@cdef:  lda expr_val
+@cdef:
+.ifdef PLATFORM_M65
+        ldx #3                  ; the constant's 32 bits
+:       lda expr_val,x
+        sta sym_val,x
+        dex
+        bpl :-
+.else
+        lda expr_val
         sta sym_val
         lda expr_val+1
         sta sym_val+1
+.endif
         lda expr_wide
         sta sym_wide
         jsr sym_define         ; name is still NUL-terminated here
@@ -1278,6 +1294,11 @@ _dir_hi:
         sta sym_val
         lda asm_pc+1
         sta sym_val+1
+.ifdef PLATFORM_M65
+        lda #0                  ; a 16-bit address (F5b: flat)
+        sta sym_val+2
+        sta sym_val+3
+.endif
         lda #0
         ldx asm_pc+1
         beq :+

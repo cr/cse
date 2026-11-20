@@ -139,6 +139,11 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 ; half — saves bytes vs. two independent procs.
 .proc define_ws_syms
         ; workstart ($0800, fixed)
+.ifdef PLATFORM_M65
+        lda #0                  ; 32-bit values: a zero upper word
+        sta sym_val+2
+        sta sym_val+3
+.endif
         lda #<WORKSTART
         sta sym_val
         lda #>WORKSTART
@@ -170,6 +175,9 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         sta sym_val             ; is not in bank 0
         lda #>PROG_HI
         sta sym_val+1
+        lda #0                  ; a zero upper word
+        sta sym_val+2
+        sta sym_val+3
 .endif
         lda #<s_workend
         sta sym_name

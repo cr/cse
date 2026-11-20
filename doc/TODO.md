@@ -475,7 +475,35 @@ then tests first, the code, the differential doc update, the commit.
   `0.2005`; the step-over-a-map-change case is a documented caveat
   (debugger.md § b), not a test.  The C64 breakpoint code is the same
   source, byte-identical.  m65 26 407 B (+268).
-- [ ] **F5 — 32-bit values** (D-F-6, D-F-7, D-F-8; P-F-6), and from
+- [ ] **F5 — 32-bit values** — **proposed at F5's Step 2 (2026-11-20)
+  as three cycles**, each its own delta, tests and commit: **F5a** the
+  evaluator and the symbol table in 32 bits (expr.md § 32-bit values,
+  symtab.md; `?`; every 16-bit consumer's range check, so nothing
+  truncates); **F5b** the assembler's banks (`.org` flat, flat labels,
+  the same-bank rule, `.dd`, the emit gate, `a` / `g` in `main`'s
+  bank: assembler_syntax.md); **F5c** the REPL's address arguments as
+  expressions (repl.md § Banks; `m EXPR`).  The original entry
+  follows.
+
+  - [x] **F5a — the evaluator and the symbol table in 32 bits**
+    (2026-11-20).  On m65 `expr_val` and `sym_val` are 4 bytes; every
+    operator computes in 32 bits by 4-byte loops (`*` / `/` 32
+    iterations), the pending left operands on a BSS operand stack (6
+    bytes an entry, 33 at the depth limit), so the hardware stack
+    holds only return addresses; literals to 8 hex digits, $FFFFFFFF,
+    32 binary digits; the flat literal `H.AAAA` as a factor; `expr_wide`
+    3 = FAR.  `expr_eval` refuses a value outside −$FFFF…$FFFF with rc 7
+    `range` (`;?N: range`, `;?N: bad val`, `;?expr range`);
+    `expr_eval32` — `.const` and `?` — takes 32 bits.  Symbol entries
+    8 bytes, SYM_TABLE `3.9F00`, the data window bounded at `$9F00`.
+    `?` prints `$xxxxxxxx` and the decimal outside 16 bits.  The base
+    page keeps its 20 free bytes: `_ex_tmp`, `_ex_digits` and
+    `_asm_saved_sp` moved to BSS.  Tests: `test_expr_m65.py` (the 16-bit
+    vectors' low words and the range, the 32-bit values, the symbol
+    table) and the REPL / assembler rows in `test_m65_repl.py`.  C64
+    byte-identical.  m65 26 680 B (+273).
+
+  F5 (D-F-6, D-F-7, D-F-8; P-F-6), and from
   F3: `.org H.AAAA` (the bytes go to the bank, the gate admits banks
   1, 4 and 5) and `g` / `a` in the bank `main` was assembled to (a far
   start).  Delta at

@@ -68,8 +68,11 @@ rp_tmp:         .res 1          ; scratch byte (repl.s)
 rp_tmp2:        .res 1          ; scratch byte (repl.s)
 
 ; ── asm_line.s: error recovery ────────────────────────────────────────── $08
+; m65: plain scratch, zp.s's BSS (below, with cur_project_name).
+.ifdef PLATFORM_C64
         .exportzp _asm_saved_sp
 _asm_saved_sp:  .res 1          ; saved 6502 SP for asm_error recovery
+.endif
 
 ; ── asm_vars: assembler I/O + symbol table + expression parser ────────── $09
         .exportzp asm_pc, asm_out, asm_cpu, asm_len
@@ -94,11 +97,20 @@ asm_mode:       .res 1          ; addressing-mode index (0–15; m65 0–19)
 asm_tmp:        .res 1          ; scratch; in asm_line the digit suffix
 asm_tmp2:       .res 1          ; scratch; mode_parse's ZPREL zero-page byte
 sym_name:       .res 2          ; pointer to NUL-terminated name string
+.ifdef PLATFORM_M65
+sym_val:        .res 4          ; 32-bit symbol value (expr.md § 32-bit values)
+.else
 sym_val:        .res 2          ; 16-bit symbol value
+.endif
 sym_wide:       .res 1          ; width flag: 0=ZP, nonzero=ABS
 expr_ptr:       .res 2          ; pointer to PETSCII expression string (in/out)
+.ifdef PLATFORM_M65
+expr_val:       .res 4          ; 32-bit expression result
+expr_wide:      .res 1          ; 0=ZP-eligible, 1=force ABS, 3=FAR
+.else
 expr_val:       .res 2          ; 16-bit expression result
 expr_wide:      .res 1          ; 0=ZP-eligible, 1=force ABS
+.endif
 
 ; ── asm_src.s: source assembler scratch ───────────────────────────────── $21
         .exportzp _as_ptr, _as_wsize
@@ -138,10 +150,11 @@ asm_opr:        .res 2          ; output operand bytes (lo, hi)
         FAR_PTR disk_ptr        ; filename pointer for disk functions
 
 ; ── expr.s: expression parser scratch ─────────────────────────────────── $33
+; m65: plain scratch, in expr.s's BSS (zp.md § The m65 base page).
+.ifdef PLATFORM_C64
         .exportzp _ex_tmp, _ex_digits
 _ex_tmp:        .res 2          ; scratch for expression evaluation
 _ex_digits:     .res 1          ; digit counter
-.ifdef PLATFORM_C64
                 .res 1          ; $36 unallocated (held so later addresses stay put)
 .endif
 
@@ -205,9 +218,10 @@ cur_device:     .res 1          ; floppy device number (default 8)
         .exportzp cur_project_name
 cur_project_name:       .res 17         ; FILENAME_MAX + 1
 .else
-        .export cur_project_name
+        .export cur_project_name, _asm_saved_sp
 .segment "BSS"
 cur_project_name:       .res 17         ; FILENAME_MAX + 1
+_asm_saved_sp:          .res 1          ; saved SP for asm_error recovery
 .segment "ZEROPAGE"
 .endif
 

@@ -718,7 +718,7 @@ it a PRG save to `project.`; RETURN on the row saves the binary.
 | Key   | Name    | Addressed | Example               | Notes                                |
 |-------|---------|-----------|----------------------|--------------------------------------|
 | `i`   | info    | —         | `i`                  | Show the memory map |
-| `?`   | calc    | —         | `? $1000+20`         | Expression calculator: hex (`$xx` below 256, `$xxxx` from 256 on), decimal, and for values below 256 binary and signed.  Takes exactly one expression; rejects trailing garbage. |
+| `?`   | calc    | —         | `? $1000+20`         | Expression calculator: hex (`$xx` below 256, `$xxxx` from 256 on), decimal, and for values below 256 binary and signed; on m65 a value outside 16 bits as `$xxxxxxxx` and its decimal ([§ Banks](#banks-m65)).  Takes exactly one expression; rejects trailing garbage. |
 | `k`   | kill    | —         | `k`                  | Delete the source buffer (gated) |
 | `B`   | block   | —         | `B $40` or `B`       | Set block size (expression; 0 or an error keeps it); always shows `; blk=XXXX`.  Rejects trailing garbage. |
 | `C`   | color   | —         | `C 6`, `C 06`, `C 0e6`, `C` | Set fg / bg+fg / border+bg+fg from 1–3 adjacent hex digits; bare = show.  See [§ `C`](#c--color-uppercase). |
@@ -991,9 +991,21 @@ F1–F4 have landed: both address forms, the prompt, `@`, `m`, `.`,
 bank state, `r`'s and `M`'s map, far starts — `j` with a flat
 argument or at a flat current address, a cold `t` / `o` at one — and
 flat breakpoints (`b H.AAAA`, the slots and the list flat,
-[debugger.md § `b`](debugger.md#b)) work as stated.  **Delta, not yet
-built:** `.org H.AAAA` and `g` in the bank `main` was assembled to are
-F5's — until then `g` starts `main` as a CPU address.
+[debugger.md § `b`](debugger.md#b)) work as stated.  The expression
+evaluator is 32-bit (F5a, [expr.md § 32-bit
+values](expr.md#32-bit-values-m65)): an expression argument outside
+−$FFFF…$FFFF is `;?expr range`, never truncated, and `?` shows a
+value outside 16 bits (a negative one too) in 32 bits — `$` and eight
+hex digits, two spaces, the unsigned decimal: `? 4.2000` is
+`$00042000  270336`, `? -1` `$ffffffff  4294967295`.  **Delta, not
+yet built:** `.org H.AAAA` and `g` in the bank `main` was assembled to
+are F5b's — until then `g` starts `main` as a CPU address.  F5c:
+every address argument is an expression — `@`, `j`, `b` and `m`
+take a value above `$FFFF` as a flat address (so `@ main`, `j main`,
+`b loop+3` follow a flat label, and `m screen+40` works), which
+retires `parse_flat_arg` (the expression's flat-literal factor reads
+the same text); a command that takes a 16-bit value only (`B`, `+`,
+`-`, `t N`) keeps `;?expr range` above `$FFFF`.
 
 On m65 an address is in one of two spaces, told apart by a dot
 ([glossary.md](../glossary.md), *CPU address*, *flat address*):

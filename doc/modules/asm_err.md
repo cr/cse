@@ -15,7 +15,7 @@ All four entry points are reached by `jmp`, never `jsr`, from inside
 an `asm_line` call (after `asm_line` stored `_asm_saved_sp`).
 
 ### asm_syntax_error
-**In:** `_asm_saved_sp` (ZP)
+**In:** `_asm_saved_sp` (ZP; m65 BSS, [zp.md § The m65 base page](zp.md#the-m65-base-page))
 **Out:** does not return to the jumper — writes `asm_err_code = 0`,
 restores SP from `_asm_saved_sp`, calls `kernal_bank_in`, and returns
 A = 0, X = 0 to `asm_line`'s caller.

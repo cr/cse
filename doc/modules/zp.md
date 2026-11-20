@@ -26,8 +26,8 @@ every module that `.importzp`s at least one of the block's variables
 | Range | Section | Variables | Used by |
 |-------|---------|-----------|---------|
 | $02–$07 | runtime scratch | `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) | `rp_ptr`: repl, main, debugger, breakpoints, log; `rp_ptr2`: repl, debugger, log, asm_src; `rp_tmp`: repl, log; `rp_tmp2`: repl |
-| $08 | asm_line error recovery | `_asm_saved_sp` (1) | written by asm_line (`asm_line` entry), read by asm_err (`asm_error` longjmp) |
-| $09–$20 | assembler I/O | `asm_pc` (2), `asm_out` (2), `asm_cpu` (1), `asm_len` (1), $0F unallocated (1), `asm_prof` (1), `asm_pidx` (1), `asm_base` (1), $13 unallocated (1), `asm_mode` (1), `asm_tmp` (1), `asm_tmp2` (1), `sym_name` (2), `sym_val` (2), `sym_wide` (1), `expr_ptr` (2), `expr_val` (2), `expr_wide` (1) | asm_line, asm_src, addr_mode, opcode_lookup, expr, symtab, gap_buffer, dasm (`asm_cpu`), debugger (`asm_cpu`), main (`asm_cpu`), repl |
+| $08 | asm_line error recovery | `_asm_saved_sp` (1) (m65: zp.s's BSS) | written by asm_line (`asm_line` entry), read by asm_err (`asm_error` longjmp) |
+| $09–$20 | assembler I/O | `asm_pc` (2), `asm_out` (2), `asm_cpu` (1), `asm_len` (1), $0F unallocated (1), `asm_prof` (1), `asm_pidx` (1), `asm_base` (1), $13 unallocated (1), `asm_mode` (1), `asm_tmp` (1), `asm_tmp2` (1), `sym_name` (2), `sym_val` (2; m65 4), `sym_wide` (1), `expr_ptr` (2), `expr_val` (2; m65 4), `expr_wide` (1) | asm_line, asm_src, addr_mode, opcode_lookup, expr, symtab, gap_buffer, dasm (`asm_cpu`), debugger (`asm_cpu`), main (`asm_cpu`), repl |
 | $21–$23 | asm_src | `_as_ptr` (2), `_as_wsize` (1) | asm_src |
 | $24–$26 | mnemonic classifier inputs | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) | written by asm_line, read by mn7 / mn6 |
 | $27 | mn7 / mn6 | `mn7_h_tmp` / `mn6_h_tmp` (1, aliased — only one classifier is linked) | mn7 or mn6 |
@@ -35,7 +35,7 @@ every module that `.importzp`s at least one of the block's variables
 | $2C | — | unallocated (1) — see [TODO § Planned / Architecture](../TODO.md#architecture), *ZP compaction (c64)* | — |
 | $2D–$30 | cse_io | `_io_tmp` (2), `_io_scr` (2) | `_io_tmp`: cse_io, disk, repl; `_io_scr`: cse_io, screen |
 | $31–$32 | disk | `disk_ptr` (2) | disk, editor, repl |
-| $33–$35 | expr | `_ex_tmp` (2), `_ex_digits` (1) | expr |
+| $33–$35 | expr | `_ex_tmp` (2), `_ex_digits` (1) (m65: expr.s's BSS) | expr |
 | $36 | — | unallocated (1) | — |
 | $37–$40 | symtab | `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_heap` (2), `_st_heap_base` (2) | symtab |
 | $41–$48 | dasm | `_dasm_ptr` (2), $43 unallocated (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) | dasm |
@@ -138,10 +138,14 @@ linker bounds it).  The KERNAL needs nothing of CSE's base page
 The m65 base page is CSE's own (`0.1F00–0.1FAF`, the resident stub
 above it): it is shared with no one, so its layout is not the C64's.
 Beside the C64's cells it holds 16 far pointers of 4 bytes (32 more
-than on c64) and 22 bytes of its own (the bank state, the stub's
-targets, the terminal cells, the disk filename pointer); it ends at
-`$97`, 24 bytes below the stub (slice 3's F0 took it from 2: the held
-holes and the project name went).
+than on c64), a 4-byte `expr_val` and `sym_val` (4 more: 32-bit
+values, [expr.md § 32-bit values](expr.md#32-bit-values-m65)), and 26
+bytes of its own (the bank state, the stub's targets, the terminal
+cells, the disk filename pointer, the lens pointer); it ends at `$9B`,
+20 bytes below the stub.  Slice 3's F0 took it from 2 to 24 free (the
+held holes and the project name went), F2's lens pointer took 4, and
+F5a's 32-bit values took 4 while 6 bytes of plain scratch left
+(below).
 
 On m65:
 
@@ -161,8 +165,10 @@ On m65:
 - **Pointers first.**  What stays is what needs the page: the far
   pointers and the cells used with base-page addressing modes.
   Plain scratch and flags leave it only when a later milestone needs
-  their room (F5 needs about 6 bytes for the 4-byte `expr_val` and
-  `sym_val`).
+  their room.  F5a did: expr's `_ex_tmp` (4 bytes there) and
+  `_ex_digits` are expr.s's BSS, `_asm_saved_sp` is zp.s's BSS beside
+  `cur_project_name` (imported with `.import` by asm_line and
+  asm_err).
 - **At least 20 bytes are free** below the stub, and the segment
   ends below `$B0` (the linker bounds it); `test_platform_audit.py`
   pins both from the map file.

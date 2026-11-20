@@ -74,6 +74,14 @@ required (`.const k` alone is `;?N: bad val`) and evaluated
 immediately.  Width (ZP/ABS) is inherited from the
 expression.
 
+**On m65** a constant is 32 bits — `.const far
+4.2000`, `.const big 100000` ([expr.md § 32-bit
+values](modules/expr.md#32-bit-values-m65)).  Where a 16-bit value is
+taken — an operand, `.db` / `.dw` / `.org` / `.res` / `.align` — a value
+outside −$FFFF…$FFFF is refused, never truncated: an operand is `;?N:
+range`, a directive's argument `;?N: bad val`.  `<(x>>16)` and
+`>(x>>16)` take its bytes 2 and 3 (slice 3, F5a).
+
 ## Instructions
 
 ```
@@ -206,6 +214,19 @@ of the line; anything else (`.oops`, `.co`, `.dbx`) is
 
 The assembler runs two passes over the source (sizing, then
 emission); the pass mechanics are [asm_src.md](modules/asm_src.md).
+
+**Delta (slice 3, F5b), m65:** `.org` takes a 32-bit expression.
+Above `$FFFF` it is a **flat origin** (`.org 4.2000`): the bytes go
+to that physical address, `*` and the instructions' own addresses are
+its low word — where a far start runs the code — and every label the
+segment defines has the flat value (`4.2005`).  A 16-bit operand
+(an instruction's, `.dw`'s, a branch's) takes a value above `$FFFF`
+only when its bank is the segment's — then its low word; anything
+else is `;?N: range` (the same-bank rule, P-F-6).  The emit gate
+admits a flat segment in banks 1, 4 and 5 (`X.0000–X.FFFF`, bank 1
+from `$2000` to `$F6FF`).  `.dd` (D-F-8) emits 32-bit words, low byte
+first.  After `a`, the current address is `main`'s — flat when
+`main` is — and `g` starts it (a far start, repl.md § Far starts).
 
 ### `.org` — Set Origin
 

@@ -504,8 +504,8 @@ homes; above them,
 the C64's under-KERNAL homes at fixed addresses, page-aligned as the
 C64's (symtab.s indexes its table from a page boundary):
 
-    3.8000–3.A0FF  KDATA, KCODE, then BSS (8.25 K; the linker bounds it)
-    3.A100–3.A6FF  SYM_TABLE: the symbol table (256 × 6 bytes)
+    3.8000–3.9EFF  KDATA, KCODE, then BSS (7.75 K; the linker bounds it)
+    3.9F00–3.A6FF  SYM_TABLE: the symbol table (256 × 8 bytes: 32-bit values)
     3.A700–3.AFFF  SYM_HEAP … SYM_HEAP_END ($B000): the name heap
     3.B000–3.BF9F  REPL_SCREEN: the REPL screen save (80 × 50 = 4000)
     3.BFA0–3.BFFF  free

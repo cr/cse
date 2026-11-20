@@ -92,7 +92,11 @@ SINK_SIZE  = 4                  ; a 5-byte instruction may overrun by 4
 SINK_SIZE  = 3
 .endif
 
+.ifdef PLATFORM_M65
+        .import _asm_saved_sp           ; m65: zp.s's BSS
+.else
         .importzp _asm_saved_sp
+.endif
 
 ; ── BSS ───────────────────────────────────────────────────────────────────────
 .segment "BSS"

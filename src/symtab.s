@@ -1,7 +1,8 @@
 ; symtab.s — Symbol table: hash table with linear probing + name heap
 ; Owner: doc/modules/symtab.md
 ;
-; Entry: hash(1) + value(2) + name_ptr(2) + scope(1) = 6 bytes
+; Entry: hash(1) + value(2) + name_ptr(2) + scope(1) = 6 bytes;
+; m65: + the value's upper word(2) at 6-7 = 8 bytes (32-bit values)
 ;   hash:      full 8-bit hash (all 256 values valid)
 ;   value:     16-bit symbol value
 ;   name_ptr:  pointer to name in heap ($0000 = empty slot)
@@ -32,7 +33,12 @@
 ; ── Constants ────────────────────────────────────────────
 SYM_SLOTS  = 256
 SYM_MASK   = SYM_SLOTS - 1         ; $FF
+.ifdef PLATFORM_M65
+ENTRY_SIZE = 8              ; + the value's upper word (bytes 6-7)
+.else
 ENTRY_SIZE = 6              ; hash(1) + value(2) + name_ptr(2) + scope(1)
+.endif
+        .assert <SYM_TABLE = 0, error, "entry_ptr: SYM_TABLE page-aligned"
 
 ; Capacity = 256.  All slots are real entries: the empty marker is
 ; the value name_ptr=$0000 (unreachable since the heap lives at $E600+).
@@ -69,6 +75,10 @@ sym_table    = SYM_TABLE
         sta sym_table+$300,x
         sta sym_table+$400,x
         sta sym_table+$500,x
+.ifdef PLATFORM_M65
+        sta sym_table+$600,x
+        sta sym_table+$700,x
+.endif
         inx
         bne @clr
         ; Reset heap pointer to fixed base
@@ -128,6 +138,22 @@ sym_table    = SYM_TABLE
 ;   Sets _st_ptr. Clobbers A.
 ; ═════════════════════════════════════════════════════════
 .proc entry_ptr
+.ifdef PLATFORM_M65
+        lda #0                  ; x8: three shifts into the high byte
+        sta _st_ptr+1
+        lda _st_idx
+        asl
+        rol _st_ptr+1
+        asl
+        rol _st_ptr+1
+        asl
+        rol _st_ptr+1           ; C=0: bits 7-5 of _st_idx went in
+        sta _st_ptr             ; + sym_table base (lo base = $00)
+        lda _st_ptr+1
+        adc #>sym_table
+        sta _st_ptr+1
+        rts
+.else
         lda _st_idx
         asl                     ; A = lo(×2)
         tax                     ; X = lo(×2)
@@ -150,6 +176,7 @@ sym_table    = SYM_TABLE
         adc #>sym_table         ; + base hi
         sta _st_ptr+1
         rts
+.endif
 .endproc
 
 ; ═════════════════════════════════════════════════════════
@@ -305,6 +332,14 @@ sym_table    = SYM_TABLE
         lda sym_val+1
         iny
         sta (_st_ptr),y
+.ifdef PLATFORM_M65
+        ldy #6                  ; the upper word
+        lda sym_val+2
+        sta (_st_ptr),y
+        iny
+        lda sym_val+3
+        sta (_st_ptr),y
+.endif
 
         ; Store scope byte (bit 7 = ZP/ABS, bit 6 = pass stamp)
         lda sym_wide
@@ -363,6 +398,14 @@ sym_table    = SYM_TABLE
         iny
         lda (_st_ptr),y
         sta sym_val+1
+.ifdef PLATFORM_M65
+        ldy #6                  ; the upper word
+        lda (_st_ptr),y
+        sta sym_val+2
+        iny
+        lda (_st_ptr),y
+        sta sym_val+3
+.endif
 
         ; Read scope → sym_fwd (stamp differs), sym_wide (bit 7 → 0 or 1)
         ldy #5
