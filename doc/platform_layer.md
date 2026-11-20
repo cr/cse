@@ -767,6 +767,19 @@ The m65 column rests on two sources.
   and 920421, Hyppo 1.2, HDOS 1.3; identical results on both ROMs):
   every m65 fact here and in [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)
   that is not a book citation.  Where a recording overrules the book,
-  the document says so.  The recorders become committed tools with
-  golden files when the tests that rely on them land
+  the document says so.  The recorders are committed tools
+  (`dev/capture_m65_*.py`) with golden files under
+  `tests/fixtures/golden/`, which the M65Emu tests hold the harness to
   ([testing.md § The m65 PRG on M65Emu](testing.md#the-m65-prg-on-m65emu)).
+
+**A new machine fact names its source before it enters a delta.**  A
+Step-1 delta that states a fact about the MEGA65 not yet in this
+document lists, for each such fact, the book page it rests on or the
+recording that will confirm it (a golden file, or a Tier X test that
+the TDD plan names); Step 2 checks the list, and a fact with neither
+does not enter the delta.  A fact taken from memory or from an
+emulator's source is a hypothesis.  Cautionary example (P1): "the
+45GS02 cannot read `MAP`, so the map is lost at a break" came from
+memory (the book's `hyppo_get_mapping` answers it; the operator caught
+it at Step 2), and "a flat access to `0`/`1` reaches the CPU port"
+came from the xemu source (T1's recording overruled it).

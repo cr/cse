@@ -624,6 +624,13 @@ the spirit of the golden files:
   ratchet; its code window
   and data window are bounded by the linker as well
   ([§ The m65 builds](#the-m65-builds)).
+- **Parallel fix tracks.**  When independent fixes run in parallel
+  worktrees, every worktree is cut from the integration branch, none
+  touches `BUDGET`, and the budget is re-measured once after the
+  merge, in a commit of its own.  After the merge, the ownership audit
+  (`dev/audit_doc.py`; a modify/delete conflict can resurrect a
+  deleted file) and the full suite run before any of the tracks' TODO
+  items is ticked.
 
 `tests/fixtures/golden/m65_cpu.json` records the 45GS02 as xmega65
 executes it, case by case (`dev/capture_m65_golden.py`, which needs
@@ -647,6 +654,31 @@ and `python3 dev/dasm_tables.py`.
 Generated files carry a "do not edit" comment.  Their owning docs are
 [mn_classify.md](modules/mn_classify.md),
 [opcode_lookup.md](modules/opcode_lookup.md) and [dasm.md](modules/dasm.md).
+
+## Release pre-flight
+
+Before a tag without an `-rc` suffix — a public release — every item
+holds; an `-rc` tag needs the first four.
+
+1. `python3 dev/audit_doc.py --quiet` reports every gating audit
+   clean (required, not recommended, for a release tag).
+2. The full suite passes (`pytest -q`, and `pytest tests/emulator` on
+   both verified ROMs for a release with an m65 build).
+3. `LICENSE` is present, with the right author and year; every
+   committed binary has its provenance documented, as
+   [`rom/README.md`](../rom/README.md) does for the ROMs.
+4. The user-facing examples (the root `README.md`,
+   [assembler_syntax.md](assembler_syntax.md)) use only workspace or
+   KERNAL addresses, never CSE's own runtime image
+   ([memory_design.md](memory_design.md); CDD Maintenance item 8,
+   *Semantic verification*).
+5. The release candidates' tags are pushed, and the release page
+   carries the binaries (the D64 and the PRGs; the D81 and m65 PRG
+   with an m65 release).
+
+Origin: the v0.1 release (Phase 26), where `LICENSE` and the ROM
+attribution were caught at the last minute and three `$C000`
+examples in the README would have assembled over CSE.
 
 ## ROM compatibility constraints
 

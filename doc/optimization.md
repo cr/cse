@@ -904,3 +904,29 @@ wrapper's docstring and § 36's "Used in" entry.
 Used in: `repl.s` — `try_expr_or_err` chains `try_expr` → (on
 success) `_require_eoi_or_err` tail-call.  Callers: `@h_at`,
 `@h_j`, `@h_blk`, `cmd_step`, `cmd_brk`.
+
+## 38. Reorder procs so a `jmp` becomes a fall-through
+
+When a routine ends in `jmp foo` and nothing else needs to sit
+between it and `foo`, place it directly above `foo` and drop the
+jump.  Saves 3 bytes per collapsed jump.
+
+```asm
+; before (3 B)                      ; after (0 B)
+cse_refresh:                        cse_refresh:
+        ...                                 ...
+        jmp main_loop_top                   ; falls through
+        ...                         main_loop_top:
+main_loop_top:
+```
+
+**Survey checklist.**  When surveying a code region, list the
+adjacent-proc candidates explicitly: for each `jmp` to a label in
+the same segment and module, ask whether the two could be
+neighbours.  The pass is easy to skip, because the saving sits at a
+proc *boundary* that a per-proc read never looks at; the Phase-24
+init survey missed this one on its first pass.  A fall-through
+makes the order load-bearing, so say so in a comment at both ends.
+
+Used in: `main.s` — `cse_refresh` falls through into
+`main_loop_top`.

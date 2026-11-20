@@ -2395,6 +2395,9 @@ source.  *Universal* amendments tighten the CDD/TDD method itself;
 *domain-class* amendments apply only to projects of a particular
 shape; *project-specific* items belong to CSE alone.
 
+**Status (2026-11-20):** every amendment filed here has landed or been
+closed as superseded; none is open.
+
 **Status (2026-04-27):** Tier A landed three amendments to
 README.md (CDD Method + Escape Analysis); Tier B landed two
 principles in testing.md (14 + 15) and one in README.md
@@ -2437,10 +2440,9 @@ process-level layers, not at the principle-list layer.*
   missing test, and the contract/principle amendment land as one
   auditable unit).
 
-- [ ] **Filing dedup** (A-R7, [CDD Log R7](cdd_log.md)).  Before
-  filing a Quality Sweep finding, search the open findings for the
-  same defect: one item per defect, with cross-references.  Home:
-  README.md § CDD Quality Sweep, Discipline.
+- [x] ~~**Filing dedup** (A-R7, [CDD Log R7](cdd_log.md))~~ (closed
+  2026-11-20).  Landed as *File each defect once* in README.md § CDD
+  Quality Sweep, Discipline.
 
 ### Tier B — Domain-class amendments
 
@@ -2501,7 +2503,11 @@ out of class.*
   per-test triage — exactly as the bug-entry prediction table
   forecast.  See [§ Bugs](#bugs) for the closed bug entry.
 
-- [ ] **The doc side of the pending count** (P1 Step 5, 2026-11-18).
+- [x] ~~**The doc side of the pending count** (P1 Step 5, 2026-11-18).~~
+  (Closed 2026-11-20, superseded.)  P5 retired `PLAT_PENDING` and its count
+  (D-P5-3), so there is no count to extend; the class it targeted —
+  *stated with P<n>* left in the docs — is now CDD Maintenance item 10
+  (*Milestone-close tense*) in README.md.
   The pending-body count (`test_platform_audit.py`) counts
   `PLAT_PENDING` sites in the code only; a seam whose m65 body is
   shared code but whose doc still says *stated with P<n>* escapes it.
@@ -2509,8 +2515,10 @@ out of class.*
   `refresh_body`), found by Step 5's grep, not by a gate.  Proposal:
   the audit also counts *stated with P<n>* in `doc/`, recorded per
   milestone beside the code count, zero when the milestone closes.
-- [ ] **Machine facts are cited or recorded before they enter a
-  delta** (P1, 2026-11-18).  Two P1 claims entered the delta
+- [x] ~~**Machine facts are cited or recorded before they enter a
+  delta** (P1, 2026-11-18).~~  (Closed 2026-11-20.)  Landed as *A new machine
+  fact names its source before it enters a delta* in platform_layer.md
+  § Platform references.  Two P1 claims entered the delta
   unverified: "the 45GS02 cannot read `MAP`, so the map is lost at a
   break" (from memory; the book's `hyppo_get_mapping` answers it —
   the operator caught it at Step 2), and "a flat access to `0`/`1`
@@ -2528,11 +2536,12 @@ belong in the same taxonomy.*
 
 #### C3. Parallel fix tracks (CDD Log R7, 2026-11-18)
 
-- [ ] Cut every fix worktree from the integration branch; re-measure
+- [x] (Closed 2026-11-20.)  Landed as *Parallel fix tracks* in
+  build_system.md § Size gate.  ~~Cut every fix worktree from the integration branch; re-measure
   `BUDGET` once at the merge, in its own commit; after the merge run
   the ownership audit (a modify/delete conflict can resurrect a
   deleted file) and the full suite before ticking.  Home:
-  build_system.md § size gate and testing.md.
+  build_system.md § size gate and testing.md.~~
 
 ### Phase 24 retrospective — amendment candidates (2026-04-27)
 
@@ -2540,8 +2549,10 @@ belong in the same taxonomy.*
 fix + warm/cold init survey).  These are candidates for a future
 CDD Review round; not yet triaged into Tier A / B / C.*
 
-- [ ] **Optimization survey checklist: fall-through opportunities
-  across reorderable proc boundaries.**  The Phase-24 init survey
+- [x] ~~**Optimization survey checklist: fall-through opportunities
+  across reorderable proc boundaries.**~~  (Closed 2026-11-20.)  Landed as
+  optimization.md § 38 (*Reorder procs so a `jmp` becomes a
+  fall-through*) with its survey checklist.  The Phase-24 init survey
   initially missed the warmstart fall-through (`cse_refresh` →
   `main_loop_top`) on the first pass and only caught it after the
   user prompted for a second look.  Candidate addition to
@@ -2571,8 +2582,9 @@ CDD Review round; not yet triaged into Tier A / B / C.*
   `TODO:` shows up in the report sorted by frequency, ready for
   human triage.
 
-- [ ] **TDD principle: probe assumptions before encoding them in
-  tests.**  Phase-24 hit three test-bugs in succession from
+- [x] ~~**TDD principle: probe assumptions before encoding them in
+  tests.**~~  (Closed 2026-11-20.)  Landed as testing.md Principle 19
+  (*Probe before you pin*), Tier B.  Phase-24 hit three test-bugs in succession from
   unverified assumptions: (a) PETSCII vs screencode encoding for
   `"workend"` ($57 vs $17); (b) `WORKSTART` value (0x07FF vs
   0x0800 = TXTTAB-1); (c) `cse_start` / `cse_zp_end` treated as
@@ -2597,8 +2609,12 @@ CDD Review round; not yet triaged into Tier A / B / C.*
   because the drafts were already publication-quality by the
   time the fix landed — the evidence the new note cites.
 
-- [ ] **CDD Method: build-cache awareness for tests targeting
-  debug builds.**  Phase-24 lost a debugging cycle to a stale
+- [x] ~~**CDD Method: build-cache awareness for tests targeting
+  debug builds.**~~  (Closed 2026-11-20, superseded.)  The PRG fixtures in
+  `tests/conftest.py` run `make debug` themselves (`_ensure_debug_built`,
+  `_ensure_all_debug_built`), and `test_build_freshness` holds the
+  build outputs to their sources, so a stale debug PRG can no longer
+  reach a test.  Phase-24 lost a debugging cycle to a stale
   debug PRG: `make` rebuilt only release variants, leaving the
   debug PRG (which `cse_prg` fixture uses) at the pre-fix
   binary.  Candidate addition to build_system.md or testing.md:
@@ -2659,7 +2675,9 @@ as universal (Tier A).*
   step-2 audit complements the reactive step-5(b) sweep that
   Escape Analysis already prescribes.
 
-- [ ] **Meta: CDD Log cadence.**  The glossary entry for *CDD
+- [x] ~~**Meta: CDD Log cadence.**~~  (Closed 2026-11-20.)  Landed in the
+  glossary entry for *CDD Log*, matching README.md § CDD Log's
+  trigger.  The glossary entry for *CDD
   Log* (added Phase 25) describes the practice but does not
   fix a cadence.  The Log itself recommends: *performed at each
   milestone, alongside CDD Maintenance — the Log is the
@@ -2667,6 +2685,27 @@ as universal (Tier A).*
   the artefact; the Log audits the process).*  Candidate
   amendment to the glossary entry to lock that cadence in.
   Likely **Tier A**.
+
+### Milestone-log amendments (P3–P4b, Phase 26)
+
+*Suggested in the [CDD Log](cdd_log.md) entries named, not filed
+here before; landed 2026-11-20.*
+
+- [x] ~~**Milestone-close greps** (P3, P4; Tier C).~~  Landed as CDD
+  Maintenance item 10 (*Milestone-close tense*) in README.md.
+- [x] ~~**A test proves the effect from a state the effect changes**
+  (P4).~~  Landed as testing.md Principle 20.
+- [x] ~~**Write-only cells and hand-restated generated facts** (P4b;
+  Tier C).~~  Landed as two finding techniques in README.md § CDD
+  Quality Sweep, technique inventory.
+- [x] ~~**A7. Pre-publish release checklist; A9. gating audits
+  required for a release tag** (Phase 26).~~  Landed as
+  build_system.md § Release pre-flight.
+- [x] ~~**A8. Semantic correctness of user-facing addresses**
+  (Phase 26).~~  The rule is CDD Maintenance item 8 (*Semantic
+  verification*) and § Release pre-flight item 4; the mechanical
+  memory-map-aware scanner it asks for belongs to *Doc-audit Step 5 —
+  examples-as-tests* (§ Architecture), still open.
 
 ## CDD Maintenance + Quality Sweep findings (2026-11-17/18)
 
@@ -5153,6 +5192,11 @@ from our exit context.
   5. Output-samples (lines starting with `;` or matching the
      `; org AAAA-BBBB Nb` shape) are inert — skip with a
      comment.
+
+  A *semantic* dimension beyond "it assembles" (CDD Log Phase 26,
+  A8): every `$XXXX` in user-facing prose that names a memory location
+  is classified safe or unsafe against the runtime memory map (CSE's
+  image, BSS, ROM under RAM are unsafe) and the unsafe ones flagged.
 
   Estimated effort: ~1 full session (the harness already has
   most pieces — `cse_prg` fixture, `set_line_buf`, `exec_line`,

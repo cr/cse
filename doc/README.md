@@ -261,6 +261,17 @@ the CDD System entirely.
    (`dev/search/`, history on purpose, excepted); the script
    reports matches sorted by frequency, ready for human triage.
 
+10. **Milestone-close tense** — at a milestone's close, grep the
+    corpus for the milestone's own name in the future tense ("with
+    P<n>", "P<n> adds", "until P<n>", "stated with P<n>") and, for
+    each operator ruling amended during the milestone, for its old
+    wording.  A ruling is amended where it is decided and quoted
+    unamended where it is restated; a milestone's Step 5 updates what
+    it touched and leaves the promises it kept in the future tense.
+    Cautionary example: P3 and P4 each closed with such leftovers
+    ("`6502` until P4"; D-P4-10 quoted unamended in four places),
+    found only by the review after the close.
+
 **Output:** a CDD Maintenance Report listing findings by category.
 Mechanical corrections (broken links, stale comments, formatting)
 that don't affect design intent may be fixed inline.  Substantive
@@ -569,6 +580,11 @@ far (a menu, not a fixed list — grow it):
   code, test and systemic re-layering findings as TODO items, which
   go through the CDD Method.  A doc-, comment- or test-only change
   leaves every release PRG byte-identical (rebuild and compare).
+- **File each defect once.**  Before filing a finding, search the
+  open findings for the same defect; it gets one item, and the other
+  places it was seen are cross-references in that item, not items of
+  their own.  Two items for one defect are closed twice or, worse,
+  once.
 - **Escalate like any finding.**  A confirmed bug gets a standing
   test and an [Escape Analysis](#escape-analysis); a recurring defect
   class an amendment.  A Quality Sweep is **not** a substitute for the
@@ -660,6 +676,15 @@ techniques prove out).
   which path it was written to cover and drive that path; the code is
   often dead because a sibling path covers the common case, and the
   uncommon one is the bug (`ed_status_dirty`: the scrolling RETURN).
+- **Write-only cells** — enumerate every ZP and BSS cell and grep its
+  reads; a cell that is stored and never loaded is dead state that no
+  test and no trusting reader notices (`asm_slot`, write-only since
+  before the m65 work, found in the P4b review).
+- **Hand-restated generated facts** — grep `.ifdef` / `.if` conditions
+  that combine build switches by hand; when a generator knows the rule
+  the condition encodes, it emits the switch instead (`BIT_OPS` once
+  derived from `CMOS_SUPPORT` and `MEGA_SUPPORT`, now `SET_EXT` and
+  friends in the generated `cpu_set.inc`).
 - **Depth-first deep-read** — periodically trade a breadth fan-out
   for one adversarial single-doc read, and re-verify your own earlier
   edits while there.

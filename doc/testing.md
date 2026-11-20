@@ -1449,6 +1449,43 @@ tests are written, when they are written, and what they test.
     PRG; `test_kernel_transition.py::TestBootsCleanly`
     consumes it.
 
+19. **Probe before you pin.**  *Applies to low-level projects
+    whose values pass through several encoding or layout layers
+    (character sets, memory maps, linker symbols).*
+
+    When a test asserts a number derived from a memory map, an
+    encoding or a symbol's meaning, prove the number with a
+    one-line probe first — read the PRG, `jsr` the routine and
+    read A, look the symbol up in the map — and only then write
+    it into the test.  A value pinned from memory costs a red bar
+    whose cause is the test, not the code, and a pinned wrong value
+    that happens to pass is worse.
+
+    Cautionary example (Phase 24, the cold-init tests): three
+    red-bar cycles in a row from unprobed values — `"workend"` in
+    PETSCII where the table holds screencodes (`$57` against
+    `$17`); `WORKSTART` as `$07FF` where it is `$0800` (TXTTAB−1
+    was the wrong derivation); `cse_start` and `cse_zp_end` read
+    as byte values where they are routine entry points.
+
+20. **A test proves the effect from a state the effect changes.**
+    *Universal.*
+
+    A test of a selection — a CPU set, a mode, a flag, a theme —
+    starts from a state *other* than the one it selects, so that a
+    selection that does nothing fails.  A test of a contract asserts
+    the contract's effect (the bytes stored, the state changed, the
+    line printed), not only that no error was reported.  "No error"
+    and "already in the selected state" both pass for an
+    implementation that does nothing.
+
+    Cautionary example (P4): the tests of `.cpu` and `u` started
+    from the CPU set they selected and checked only the error
+    count; and a mutated copy showed a test that could not fail at
+    all (`assert x == a if c else b` parses as a conditional
+    assert).  The P4 review rewrote them to start elsewhere and
+    assert the set that results.
+
 ## Anti-patterns
 
 These exist in the current test tree.  Don't add more of them;

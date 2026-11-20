@@ -100,9 +100,10 @@ doc update and a record in TODO).
 - **The m65 cartridge** — a later release (TODO § Later release).
 - **Hardware** — real MEGA65 drive timing and the VICE walk
   ([vice_test_plan.md](vice_test_plan.md)) stay manual.
-- **The method** — the Tier C amendments the P3, P4 and P4b entries
-  below suggest (the milestone-close greps, the dead-cell grep, the
-  generated-fact `.ifdef` check) wait in TODO § CDD amendments pending.
+- **The method** — the amendments the P3, P4 and P4b entries below
+  suggest (the milestone-close greps, the dead-cell grep, the
+  generated-fact `.ifdef` check) landed after the close, with every
+  other open item of TODO § CDD amendments pending (2026-11-20).
 
 ---
 
