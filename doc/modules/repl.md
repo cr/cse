@@ -556,7 +556,7 @@ SHIFT+CLR/HOME) are main.s's: [main.md § Keyboard](main.md#keyboard).
 
 | Key | Name     | Addressed | Example                     | Notes                                      |
 |-----|----------|-----------|-----------------------------|----------------------------------------------|
-| `m` | memory   | yes       | `1000:m` dump, `1000:m a9 00 …` edit, `m 2000` dump at $2000 | An optional 4-digit hex address (not an expression) after `m` overrides `cur_addr`.  Bare = dump `block_size` bytes; with hex pairs = edit up to 8 bytes.  Rejects trailing garbage (§ Single-expression command contract). |
+| `m` | memory   | yes       | `1000:m` dump, `1000:m a9 00 …` edit, `m 2000` dump at $2000 | An optional 4-digit hex address (not an expression) after `m` overrides `cur_addr`; on m65 any other first word that is not an edit byte is an address expression (`m main`, `m $2000`, `m 4.2000`; [§ Banks](#banks-m65)).  Bare = dump `block_size` bytes; with hex pairs = edit up to 8 bytes.  Rejects trailing garbage (§ Single-expression command contract). |
 
 ### Commands — Assembly / Disassembly
 
@@ -594,7 +594,7 @@ nothing else happens — no step, no cold preview (as `j`).
 
 | Key | Name    | Addressed | Example       | Notes                                    |
 |-----|---------|-----------|---------------|------------------------------------------|
-| `@` | seek    | —         | `@ $1000` or `@ main` | Set `cur_addr` to the expression; bare or an expression error = no change.  Rejects trailing garbage. |
+| `@` | seek    | —         | `@ $1000` or `@ main` | Set `cur_addr` to the expression (on m65 flat when it is, [§ Banks](#banks-m65)); bare or an expression error = no change.  Rejects trailing garbage. |
 | `+` | forward | —         | `+` or `+ $20` | Advance `cur_addr` by the expression, or by `block_size` when bare or 0; an expression error moves nothing.  Rejects trailing garbage. |
 | `-` | back    | —         | `-` or `- $20` | As `+`, backwards. |
 
@@ -1006,21 +1006,24 @@ flat current address takes a value in that address's bank as its low
 word (`4.2000:. jmp 4.2010` is `4c 10 20`, `dot_bank` sets
 `expr_bank` around `dot_assemble`), any other above `$FFFF` is
 refused, nothing written (the same-bank rule; the tag is § Error tag
-dispatch's).  **Delta, not yet built (F5c):** the address arguments
+dispatch's).  The address arguments (F5c)
 of `@`, `j`, `b` and `m` are 32-bit expressions
 ([expr.md § 32-bit values](expr.md#32-bit-values-m65)), so `@ main`,
 `j main` and `b loop+3` follow a flat label, `@ 4.2000+$10` is
 `4.2010`, and `m buf+$10` works.  The argument is a **flat address**
 when the expression's width is FAR — a factor above 16 bits, a flat
-literal (`0.2000` stays flat, as today) — and then must be a 28-bit
+literal (`0.2000` stays flat, as F1 made it) — and then must be a 28-bit
 address (`$0FFFFFFF` at most); a value from −$FFFF to −1 is the CPU
 address of its low word, as F5a's 16-bit consumers take it; any other
 value is `;?expr range`.  `m`'s first word keeps its shapes: four hex
 digits are a CPU address (`m 2000` is `$2000`, not decimal 2000), two
 hex digits begin the edit bytes, anything else is an expression (`m
 $2000`, `m 4.2000`, `m main`); a label that looks like four hex digits
-is written in parentheses (`m (cafe)`).  `parse_flat_arg` retires —
-the expression's flat-literal factor reads the same text; a row's
+is written in parentheses (`m (cafe)`).  `try_addr_or_err` reads such
+an argument: `try_expr` in its address mode evaluates it with
+`expr_eval32`, and `addr_flat` applies the rule into `rp_addr`,
+`rp_flat` and `rp_bank`; the expression's flat-literal factor reads
+what `parse_flat_arg` used to.  A row's
 prefix (`4.2000:`) is still read by `parse_flat_ptr1` (P-F-7).  The
 commands that take a 16-bit value only (`B`, `+`, `-`, `t N`) keep
 `;?expr range` above `$FFFF`; `d` takes no address, as before.

@@ -14,12 +14,12 @@ walk and release pre-flight are under § M65.
 
 The queue, in order.
 
-- [ ] **M65 slice 3 — banks.**  Flat addresses, the program's map,
-  far starts and 32-bit values: the plan, its rulings and the
-  milestones F0–F5 are under
-  [§ M65 › Slice 3 — banks](#slice-3--banks).  The central documents
-  carry the delta; F0 (the base page) is
-  done, F1 (flat addresses) is next.
+- [x] **M65 slice 3 — banks** (F0–F5 done 2026-11-20, unpushed on
+  `m65`).  Flat addresses, the program's map, far starts and 32-bit
+  values: the plan, its rulings and the milestones are under
+  [§ M65 › Slice 3 — banks](#slice-3--banks).  Its code review
+  (F5a + F5b) is folded into F5b's entry; a slice CDD report in
+  cdd_log.md is still to write.
 
 - [ ] **README theme gallery: equal tiles.**  The eighteen screenshots
   (`img/theme-*.png`) are all 384 × 272, yet the gallery table in the
@@ -238,9 +238,10 @@ central documents' delta are written (this section;
 § 5.6, [platform_layer.md § Far memory](platform_layer.md#far-memory),
 [repl.md § Banks](modules/repl.md#banks-m65),
 [zp.md § The m65 base page](modules/zp.md#the-m65-base-page),
-[glossary.md](glossary.md)); F0 has landed, F1 is next.  Every passage
-written ahead of the code begins **Delta (slice 3, F<n>)**; a
-milestone's Step 5 removes its markers.
+[glossary.md](glossary.md)); F0–F5 have landed (2026-11-20) and the
+documents state them as built.  Every passage written ahead of the
+code began **Delta (slice 3, F<n>)**; each milestone's Step 5 removed
+its markers.
 
 **Why.**  The m65 REPL reaches bank 0 only, and only through the
 standard user map: an address is a 16-bit address translated by a
@@ -497,7 +498,7 @@ then tests first, the code, the differential doc update, the commit.
   `0.2005`; the step-over-a-map-change case is a documented caveat
   (debugger.md § b), not a test.  The C64 breakpoint code is the same
   source, byte-identical.  m65 26 407 B (+268).
-- [ ] **F5 — 32-bit values** — **proposed at F5's Step 2 (2026-11-20)
+- [x] **F5 — 32-bit values** (done 2026-11-20: F5a, F5b, F5c) — **proposed at F5's Step 2 (2026-11-20)
   as three cycles**, each its own delta, tests and commit: **F5a** the
   evaluator and the symbol table in 32 bits (expr.md § 32-bit values,
   symtab.md; `?`; every 16-bit consumer's range check, so nothing
@@ -546,13 +547,18 @@ then tests first, the code, the differential doc update, the commit.
     `.org` was `bad val` (now its low word, as F5a reads −$FFFF…−1).
     Filed, not fixed: a refused data value drops bytes pass 0 counted
     (§ Bugs › Both platforms).  m65 26 945 B (+73).
-  - [ ] **F5c — the REPL's address arguments as expressions.**  Delta
-    at Step 1 (2026-11-20): repl.md § Banks (`@`, `j`, `b`, `m` take
-    32-bit expressions; flat when the width is FAR; `m`'s word shapes;
-    `parse_flat_arg` retires).  Tests first: `@ main`, `@ 4.2000+$10`,
-    `@ 0.2000`, `@ -1`, `@ $10000000`; `j main` far-starts; `b loop+3`;
-    `m main`, `m $2000`, `m buf+$10`, `m 2000` still hex, `m 12 34`
-    still edits; the 16-bit commands unchanged.
+  - [x] **F5c — the REPL's address arguments as expressions**
+    (2026-11-20).  `@`, `j`, `b` and `m` read their address through
+    `try_addr_or_err`: `try_expr`'s address mode evaluates with
+    `expr_eval32`, `addr_flat` makes it flat when the width is FAR (28
+    bits at most; −$FFFF…−1 a CPU address; else `;?expr range`).  `m`
+    keeps its word shapes (four hex digits a CPU address, two an edit
+    byte, else an expression).  `parse_flat_arg` retired;
+    `parse_flat_ptr1` still reads a row's prefix.  F5a's
+    `;?expr range` test keeps the 16-bit-only commands (`t`, `B`).
+    Tests: test_m65_repl.py (`@` flat or CPU by width, 28 bits, flat
+    labels for `@` / `j` / `b`, `m`'s shapes and edits, undefined).
+    C64 byte-identical.  m65 27 009 B (+64).
 
   F5 (D-F-6, D-F-7, D-F-8; P-F-6), and from
   F3: `.org H.AAAA` (the bytes go to the bank, the gate admits banks
@@ -714,7 +720,7 @@ Defined scope, needs work.
   character interpretation alongside the hex/decimal/binary output.
 
 - [ ] `m` address argument: accept an expression (`m screen+40`).
-  On m65 part of slice 3's F5 — F5c (delta: repl.md § Banks); the
+  On m65 done by slice 3's F5c (repl.md § Banks, 2026-11-20); the
   c64 keeps `m HHHH` until it is ported.
   Today `m [HHHH]` takes four bare hex digits only (`m $2000` is
   `;?syntax`), and `d` takes no address at all.  (Closed by mistake

@@ -114,7 +114,9 @@ STEP_OVER = 2
 ; ── Imports: expression parser ─────────────────────────────
         .import expr_eval, expr_error_str
 .ifdef PLATFORM_M65
-        .import expr_eval32, expr_bank, asm_def_bank
+        .import expr_eval32, expr_bank, asm_def_bank, last_err
+        .importzp expr_wide
+ERR_RANGE = 7                   ; expr.s's rc 7
 .endif
         .importzp expr_ptr, expr_val
 
@@ -233,6 +235,8 @@ map_next:       .res 3          ;   and those the next page continues
 SPC_FLAT = $80
 fl_acc:         .res 2          ; parse_flat_ptr1: the digits before the dot
 fl_y:           .res 1          ;   and the offset's first digit
+ta_flat:        .res 1          ; bit 7: the next try_expr reads an address
+ta_mode:        .res 1          ;   (try_addr_or_err); this call's copy
 .endif
 last_cmd:       .res 1          ; last command byte
 block_size:     .res 2          ; block size for I/O (init by main.s)
@@ -610,17 +614,9 @@ dot_range:
 ; (a value up to $FFF: the bank word), a dot, four hex digits.  Not
 ; advanced.  Out: C=0, Y = its length, rp_addr = the offset, rp_bank =
 ; the bank word; C=1: no flat literal there (rp_addr, rp_bank kept).
-; parse_flat_arg: the same where an argument begins — the literal's
-; first character must be a digit 0-9 (a dotted label stays a label).
-; Clobbers: A, X, Y, rp_tmp2.
+; (An argument's flat literal is the expression evaluator's, F5c:
+; try_addr_or_err.)  Clobbers: A, X, Y, rp_tmp2.
 ; ───────────────────────────────────────────────────────────
-parse_flat_arg:
-        ldy #0
-        FAR_LDA rp_ptr
-        cmp #'0'
-        jcc flat_no
-        cmp #'9' + 1
-        jcs flat_no
 parse_flat_ptr1:
         ldy #0
         sty fl_acc
@@ -733,7 +729,7 @@ bp_cpu_ok:
         jsr far_user
         jmp bp_flat_ok
 
-; bp_flat_arg — lens_ptr := the flat literal parse_flat_arg read
+; bp_flat_arg — lens_ptr := the flat address try_addr_or_err read
 ; (rp_addr, rp_bank), then bp_flat_ok.
 bp_flat_arg:
         lda rp_addr
@@ -1096,6 +1092,50 @@ map_fields:
 @ok:    clc
         rts
 @err:   sec
+        rts
+
+; ───────────────────────────────────────────────────────────
+; addr_flat — the address argument in expr_val / expr_wide (repl.md §
+; Banks, F5c): rp_addr := its low word; flat (rp_flat = SPC_FLAT,
+; rp_bank its bits 16-27) when the width is FAR and it fits 28 bits;
+; -$FFFF..-1 the CPU address of its low word; else C=1, last_err :=
+; range.  Clobbers A.
+; ───────────────────────────────────────────────────────────
+addr_flat:
+        lda expr_val
+        sta rp_addr
+        lda expr_val+1
+        sta rp_addr+1
+        lda #0
+        sta rp_flat
+        lda expr_val+2
+        sta rp_bank
+        lda expr_val+3
+        sta rp_bank+1
+        and rp_bank
+        cmp #$FF
+        bne @pos
+        lda rp_addr             ; -$FFFF..-1: a CPU address
+        ora rp_addr+1
+        beq @range
+        lda #0
+        sta rp_bank
+        sta rp_bank+1
+        clc
+        rts
+@pos:   lda expr_wide
+        and #2
+        beq @ok                 ; ZP / ABS: a CPU address
+        lda rp_bank+1
+        cmp #$10
+        bcs @range              ; above 28 bits
+        lda #SPC_FLAT
+        sta rp_flat
+@ok:    clc
+        rts
+@range: lda #ERR_RANGE
+        sta last_err
+        sec
         rts
 
 ; ───────────────────────────────────────────────────────────
@@ -1556,6 +1596,16 @@ _syntax_err:
 ; try_expr_or_err must be exactly one jsr deep from the desired
 ; escape point (top-of-handler-chain).
 ; ═══════════════════════════════════════════════════════════
+.ifdef PLATFORM_M65
+; try_addr_or_err — try_expr_or_err for an address argument (repl.md §
+; Banks): the expression in 32 bits; on success rp_addr is its low
+; word and rp_flat / rp_bank its space (addr_flat).  A jmp, so the
+; pop-trick's depth holds.
+try_addr_or_err:
+        lda #$80
+        sta ta_flat
+        ; fall through
+.endif
 .proc try_expr_or_err
         jsr try_expr
         bcc @r                  ; empty/error — return as-is
@@ -1571,6 +1621,12 @@ _syntax_err:
 ;   C=0, Z=0: expression error (`;?expr …` already printed)
 ; ═══════════════════════════════════════════════════════════
 .proc try_expr
+.ifdef PLATFORM_M65
+        lda ta_flat             ; this call's mode; the flag is one-shot
+        sta ta_mode
+        lda #0
+        sta ta_flat
+.endif
         jsr skip_peek_ptr1
         beq @empty
         cmp #';'
@@ -1580,7 +1636,16 @@ _syntax_err:
         sta expr_ptr
         lda rp_ptr+1
         sta expr_ptr+1
+.ifdef PLATFORM_M65
+        bit ta_mode
+        bmi :+
         jsr expr_eval
+        jmp @ev
+:       jsr expr_eval32         ; an address: 32 bits, addr_flat judges
+@ev:
+.else
+        jsr expr_eval
+.endif
         ; reload rp_ptr
         pha
         lda expr_ptr
@@ -1590,6 +1655,13 @@ _syntax_err:
         pla
         cmp #2
         bcs @error
+.ifdef PLATFORM_M65
+        bit ta_mode
+        bpl :+
+        jsr addr_flat           ; rp_addr, rp_flat, rp_bank; C=1 range
+        bcs @error
+:
+.endif
         sec
         rts
 @error:
@@ -2935,19 +3007,32 @@ mem_row:
         jsr skip_sp_ptr1
 
 .ifdef PLATFORM_M65
-        ; A flat address argument (`m 4.2000`)
-        jsr parse_flat_arg
-        bcs @cpu_addr
+        ; The first word (repl.md § Banks): four hex digits a CPU
+        ; address, two the edit bytes, anything else an expression
+        jsr is_hex4_at_ptr1
+        beq @m_two
+        ldy #4
         jsr is_eow_at_ptr1_y
-        bne @cpu_addr
-        tya
-        jsr adv_ptr1
-        lda #SPC_FLAT
-        sta rp_flat
-        jsr skip_sp_ptr1
+        beq @addr_ok
+@m_two: ldy #0
+        jsr is_hex_at_ptr1
+        beq @m_expr
+        ldy #1
+        jsr is_hex_at_ptr1
+        beq @m_expr
+        ldy #2
+        jsr is_eow_at_ptr1_y
+        jeq @no_addr            ; the edit bytes at the current address
+@m_expr:
+        lda #$80
+        sta ta_flat             ; an address: rp_addr / rp_flat / rp_bank
+        jsr try_expr
+        bcs :+
+        jeq @no_addr            ; empty: the current address
+        rts                     ; an error, printed
+:       jsr skip_sp_ptr1
         jmp @no_addr
-@cpu_addr:
-.endif
+.else
         ; Check for 4-digit hex address override
         jsr is_hex4_at_ptr1
         beq @no_addr
@@ -2955,6 +3040,7 @@ mem_row:
         ldy #4
         jsr is_eow_at_ptr1_y
         jne @no_addr
+.endif
 @addr_ok:
         jsr parse_hex4_ptr1
         sta rp_addr
@@ -3522,12 +3608,12 @@ set_run_mode:
         ; (Z=0) was reported by try_expr: stop there; only the
         ; empty case (`b ;…`) is a syntax error.
 .ifdef PLATFORM_M65
-        jsr parse_flat_arg      ; `b 4.2005`: a physical byte (F4)
-        bcs @cpu_arg
-        tya
-        jsr adv_ptr1
-        ldy #0
-        jsr _require_eoi_or_err ; reject trailing garbage (pop-trick)
+        jsr try_addr_or_err     ; flat (`b 4.2005`, `b loop`) or CPU
+        bcs :+
+        bne @ret                ; an error, printed
+        jmp _syntax_err         ; empty
+:       bit rp_flat
+        bpl @set                ; a CPU address: expr_val's low word
         jsr bp_flat_arg         ; lens_ptr := it; C=1 not user memory
         jcs @bp_range
         ldx #3                  ; rp_ptr := the flat address
@@ -3537,12 +3623,12 @@ set_run_mode:
         bpl @fc
         jsr dbg_bp_set_flat
         jmp @echo
-@cpu_arg:
-.endif
+.else
         jsr try_expr_or_err
         bcs @set
         bne @ret
         jmp _syntax_err
+.endif
 @ret:   rts
 @set:
         ; Range-check: bp must land in [workstart, workend] —
@@ -5017,22 +5103,14 @@ prg_ok_done:
         ; Apply only after the EOI check so garbage input leaves
         ; cur_addr untouched.
 .ifdef PLATFORM_M65
-        jsr skip_sp_ptr1
-        jsr parse_flat_arg      ; `@ 4.2000`: a flat current address
-        bcs @at_expr
-        tya
-        jsr adv_ptr1
-        ldy #0
-        jsr _require_eoi_or_err ; reject trailing garbage (pop-trick)
+        jsr try_addr_or_err     ; an expression, flat or CPU (repl.md § Banks)
+        bcc @at_done            ; empty/error → skip apply
         lda rp_addr
         sta cur_addr
         lda rp_addr+1
         sta cur_addr+1
-        lda #SPC_FLAT
-        sta rp_flat
         CUR_FROM_RP
         jmp @at_done
-@at_expr:
 .endif
         jsr try_expr_or_err     ; parse + reject garbage (pop-trick)
         bcc @at_done            ; empty/error → skip apply
@@ -5095,22 +5173,14 @@ prg_ok_done:
         ; `j` jumps to cur_addr; an expression error (already printed
         ; by try_expr) runs nothing.
 .ifdef PLATFORM_M65
-        jsr skip_sp_ptr1
-        jsr parse_flat_arg      ; `j 4.2000`: a far start (repl.md § Far starts)
-        bcs @j_expr
-        tya
-        jsr adv_ptr1
-        ldy #0
-        jsr _require_eoi_or_err ; reject trailing garbage (pop-trick)
+        jsr try_addr_or_err     ; flat: a far start (repl.md § Far starts)
+        bcc @j_none
         lda rp_addr
         sta cur_addr
         lda rp_addr+1
         sta cur_addr+1
-        lda #SPC_FLAT
-        sta rp_flat
         CUR_FROM_RP
         jmp cmd_jmp
-@j_expr:
 .endif
         jsr try_expr_or_err     ; parse + reject garbage (pop-trick)
         bcc @j_none

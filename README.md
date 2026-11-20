@@ -687,7 +687,9 @@ Where it differs from the C64 build:
   are 32 bits (`? 4.2000` is `$00042000  270336`); `.org 4.2000`
   assembles into banks 1, 4 and 5, labels there are flat, an
   instruction takes its own bank's addresses, `.dd` emits 32-bit
-  words, and `g` starts a `main` in a bank
+  words, and `g` starts a `main` in a bank.  `@`, `j`, `b` and `m`
+  take any expression as their address (`j main`, `b loop+3`,
+  `m buf+$10`; `m HHHH` stays hex)
   ([doc/modules/repl.md § Banks](doc/modules/repl.md#banks-m65)).
 - **The editor** uses the whole screen of the current mode, and a
   source line may be 79 columns wide (39 on the C64; the C64 build

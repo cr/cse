@@ -988,7 +988,7 @@ def test_q_keeps_the_16_bit_form_within_16_bits(s, expr, row):
     s.find(r"^; *" + re.escape(row) + "$")
 
 
-@pytest.mark.parametrize("cmd", ["j $12345", "@ $10000", "b $12345", "t $10000", "B -$10000"])
+@pytest.mark.parametrize("cmd", ["t $10000", "B -$10000", "B 4.2000"])   # 16 bits only (F5c)
 def test_an_argument_outside_16_bits_is_expr_range(s, cmd):
     s.type(cmd)
     s.find(r"^;\?expr range$")
@@ -1064,3 +1064,61 @@ def test_restore_during_a_leaves_no_bank_and_no_32_bit_opt_in(s):
     s.type("B $40010")
     s.find(r"^;\?expr range$")
     assert s.e.memory[bank] == 0 and s.e.memory[s.cell("_ex_far")] == 0
+
+
+# ── address arguments as expressions (slice 3, F5c: repl.md § Banks) ──
+
+@pytest.mark.parametrize("expr,shown", [
+    ("4.2000+$10", "4.2010"), ("0.2000", "0.2000"), ("$12345", "1.2345"),
+    ("$2000", "2000"), ("-1", "ffff"), ("$fffff", "f.ffff"),
+    ("$8000000", "800.0000"), ("$12345-$12000", "0.0345"),
+])
+def test_at_takes_an_expression_flat_when_its_width_is_far(s, expr, shown):
+    s.type(f"@ {expr}")
+    assert prompt(s) == f"{shown}:"
+
+
+@pytest.mark.parametrize("expr", ["$10000000", "-$10000", "$ffff0000"])
+def test_an_address_outside_28_bits_is_expr_range(s, expr):
+    s.type(f"@ {expr}")
+    s.find(r"^;\?expr range$")
+    assert prompt(s) == "2000:"
+
+
+def test_at_j_and_b_follow_a_flat_label(s):
+    assert _assemble(s, "\t.org 4.2000\rmain:\tlda #$5a\rloop:\trts\r") == 0
+    s.type("@ $3000")
+    s.type("@ main+3")
+    assert prompt(s) == "4.2003:"
+    s.type("b loop")
+    s.find(r"^; bp 1: 4\.2002$")
+    s.type("j main")                       # a far start, stopped at loop
+    k, _ = s.find(r"^; brk 1 at \$2002$")
+    assert re.search(r" a:5a .* ml:e400 mh:8300", s.row(k + 1)), s.row(k + 1)
+
+
+@pytest.mark.parametrize("arg,row", [
+    ("main", r"^4\.2000:m "), ("$2000", r"^2000:m "), ("2000", r"^2000:m "),
+    ("buf+$10", r"^3010:m "), ("(cafe)", r"^3000:m "), ("4.2000", r"^4\.2000:m "),
+])
+def test_m_takes_an_expression_and_keeps_its_hex_word(s, arg, row):
+    assert _assemble(s, "\t.const buf $3000\r\t.const cafe $3000\r"
+                        "\t.org 4.2000\rmain:\trts\r") == 0
+    s.type("@ $5000")                      # not where the argument points
+    s.type(f"m {arg}")
+    s.find(row)
+
+
+def test_m_after_an_expression_edits_there(s):
+    assert _assemble(s, "\t.org 4.2000\rmain:\trts\r") == 0
+    s.type("m main+1 11 22")
+    assert fpeek(s, 4, 0x2001, 2) == [0x11, 0x22]
+    s.type("@ $3000")
+    s.type("m 33 44")                      # two hex digits: the edit bytes
+    assert s.peek(0x3000, 2) == [0x33, 0x44]
+
+
+@pytest.mark.parametrize("cmd", ["j nosuch", "m nosuch", "@ nosuch", "b nosuch"])
+def test_an_undefined_address_is_expr_undef(s, cmd):
+    s.type(cmd)
+    s.find(r"^;\?expr undef$")
