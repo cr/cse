@@ -18,7 +18,8 @@ The queue, in order.
   far starts and 32-bit values: the plan, its rulings and the
   milestones F0–F5 are under
   [§ M65 › Slice 3 — banks](#slice-3--banks).  The central documents
-  carry the delta; F0 (the base page) starts it.
+  carry the delta; F0 (the base page) is
+  done, F1 (flat addresses) is next.
 
 - [ ] **README theme gallery: equal tiles.**  The eighteen screenshots
   (`img/theme-*.png`) are all 384 × 272, yet the gallery table in the
@@ -208,7 +209,7 @@ central documents' delta are written (this section;
 § 5.6, [platform_layer.md § Far memory](platform_layer.md#far-memory),
 [repl.md § Banks](modules/repl.md#banks-m65),
 [zp.md § The m65 base page](modules/zp.md#the-m65-base-page),
-[glossary.md](glossary.md)); no milestone has started.  Every passage
+[glossary.md](glossary.md)); F0 has landed, F1 is next.  Every passage
 written ahead of the code begins **Delta (slice 3, F<n>)**; a
 milestone's Step 5 removes its markers.
 
@@ -319,7 +320,9 @@ each fact this slice rests on, with its book page or recording.
 Each is one CDD cycle: delta, analysis, TDD plan — each approved —
 then tests first, the code, the differential doc update, the commit.
 
-- [ ] **F0 — the base page cleaned up** (D-F-9).  Delta:
+- [x] **F0 — the base page cleaned up** (D-F-9).  **Done 2026-11-20:**
+  the m65 base page ends at `$97` (24 bytes free, was 2); m65
+  24 431 B (+10).  C64 PRGs byte-identical.  Delta:
   [zp.md § The m65 base page](modules/zp.md#the-m65-base-page)
   (written), [platform_layer.md § Base page](platform_layer.md#base-page);
   at Step 1 the module documents that name a moved cell.  On m65
@@ -330,6 +333,28 @@ then tests first, the code, the differential doc update, the commit.
   and every m65 suite passes.  Tests first: the free-byte count from
   the m65 map file (`test_platform_audit.py`), the base-page check
   there kept.
+
+  **Found at F0's Step 1 (2026-11-20), fixed by F0:** on m65 `a`'s
+  save line prints garbage for a set project name — `3000:s
+  "???…` to the row's end.  asm_src passes `BP_ABS(cur_project_name)`
+  (`$1F90`) to `io_puts`, which reads CSE strings in `BANK_CSE`: it
+  reads `3.1F90`, the monitor ROM, not CSE's page `0.1F90`.  No m65
+  test runs `a` with a name.  With the name in BSS, `BANK_CSE` is
+  its bank; a regression test types `a` with a name set.
+
+  **Escape Analysis (F0's close).**  *Test miss:* no m65 test ran `a`
+  with a project name — the save line was covered on c64 only.
+  *Contract miss:* cse_io.md's `io_puts` said it reads in `BANK_CSE`
+  but not that this excludes CSE's own base page; platform_layer.md's
+  rule (a `BP_ABS` address is bank 0) was right, and the caller broke
+  it unseen.  Amended: `io_puts` states the region its strings must
+  lie in.  *Class sweep:* every other `BP_ABS` site (debugger.s,
+  loader.s, mem.s, repl.s's `jmp (BP_ABS(rp_ptr2))`) reads in bank 0
+  or jumps in the CPU view; none reaches a fixed-bank consumer.
+  *Principle:* testing.md Principle 18 (multi-CPU integration-test
+  parity) already asks that every production build run the paths; the
+  m65 column of a user-visible output path needs its own test, which
+  F1–F5's tests-first lists now name for every row they add.
 - [ ] **F1 — flat addresses in the REPL** (D-F-1, D-F-3; P-F-1,
   P-F-5, P-F-7).  Delta: [repl.md § Banks](modules/repl.md#banks-m65)
   (written), [userland_contract.md § 3 On m65](userland_contract.md#on-m65)

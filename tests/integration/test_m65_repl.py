@@ -657,3 +657,19 @@ def test_a_session_leaves_the_programs_base_page_alone(s):
     s.keys(b"AB\r")
     s.keys(bytes([0x03]))                                 # and out
     assert user_bp(s) == pat
+
+
+# ── `a`'s save line names the project (slice 3 F0's Escape Analysis) ──
+
+def test_assembly_save_line_names_the_project(s):
+    """The save line `a` prints carries the project name.  On m65 the
+    name was read in bank 3 at its base-page address (3.1F90, the
+    monitor ROM): the row filled with garbage."""
+    from test_m65_source_editor import put_source
+    put_source(s, b" .ORG $3000\r NOP\r")
+    name = s.cell("cur_project_name")     # as `l "proj"` leaves it
+    for k, c in enumerate(b"PROJ\0"):
+        s.e.memory[name + k] = c
+    s.type("a")
+    k, row = s.find(r"^3000:s ")
+    assert row.rstrip() == '3000:s "proj" $3000'

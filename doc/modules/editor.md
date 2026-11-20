@@ -128,7 +128,7 @@ layout](gap_buffer.md#buffer-layout)).
 | `save_ptr` | (2) | alias of `read_ptr`: `save_read_fn`'s position, the scroll copies' source row |
 | `ed_dirty` | 1 | buffer modified (cross-module flag: written by gap_buffer.s on every edit and by editor.s; read by repl.s's unsaved-changes gates) |
 | `state` | 1 | `ST_EDIT` / `ST_REPL`, set by `enter_editor` / `leave_editor` |
-| `cur_project_name` | 17 | shown in the status bar; cleared by `ed_new` |
+| `cur_project_name` | 17 | shown in the status bar; cleared by `ed_new`; on m65 zp.s's BSS, not the base page |
 
 ### BSS variables
 

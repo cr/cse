@@ -7,6 +7,10 @@
 ;
 ; Total: 120 bytes ($02–$79).  First free: $7A (see the tail below).
 ; Allocation table and user-ZP rules: doc/modules/zp.md.
+;
+; m65: CSE's own base page (0.1F00), shared with no one, so the C64's
+; held holes are not reserved there and cur_project_name lives in BSS
+; (zp.md § The m65 base page): `.ifdef PLATFORM_C64` around each.
 
         .setcpu "6502"
 ZP_S = 1                        ; platform.inc: the m65 cells are defined here
@@ -71,11 +75,15 @@ _asm_saved_sp:  .res 1          ; saved 6502 SP for asm_error recovery
         FAR_PTR asm_out         ; output buffer pointer (lo, hi)
 asm_cpu:        .res 1          ; CPU target: 0=6502, 1=6510, 2=65C02, 3=4510, 4=45GS02
 asm_len:        .res 1          ; bytes asm_line emitted for the instruction
-                .res 1          ; unallocated (was asm_slot; held so later addresses stay put)
+.ifdef PLATFORM_C64
+                .res 1          ; $0F unallocated (was asm_slot; held so later addresses stay put)
+.endif
 asm_prof:       .res 1          ; raw packed profile byte
 asm_pidx:       .res 1          ; effective profile index
 asm_base:       .res 1          ; base opcode from mn_base_op
+.ifdef PLATFORM_C64
                 .res 1          ; $13 unallocated (held so later addresses stay put)
+.endif
 asm_mode:       .res 1          ; addressing-mode index (0–15; m65 0–19)
 asm_tmp:        .res 1          ; scratch; in asm_line the digit suffix
 asm_tmp2:       .res 1          ; scratch; mode_parse's ZPREL zero-page byte
@@ -108,9 +116,11 @@ asm_ptr:        .res 2          ; pointer to argument string
 asm_opr:        .res 2          ; output operand bytes (lo, hi)
 
 ; ── unallocated ───────────────────────────────────────────────────────── $2C
-; One free byte, held so every later address stays put; recompaction is
-; TODO § M65 A3b (it moves the user ZP, a userland-contract change).
+; c64: one free byte, held so every later address stays put; compacting
+; is TODO § Planned › Architecture, *ZP compaction (c64)*.
+.ifdef PLATFORM_C64
                 .res 1
+.endif
 
 ; ── cse_io.s: screen I/O scratch ──────────────────────────────────────── $2D
         .exportzp _io_tmp, _io_scr
@@ -125,7 +135,9 @@ asm_opr:        .res 2          ; output operand bytes (lo, hi)
         .exportzp _ex_tmp, _ex_digits
 _ex_tmp:        .res 2          ; scratch for expression evaluation
 _ex_digits:     .res 1          ; digit counter
+.ifdef PLATFORM_C64
                 .res 1          ; $36 unallocated (held so later addresses stay put)
+.endif
 
 ; ── symtab.s: hash table state ────────────────────────────────────────── $37
         .exportzp _st_hash, _st_idx, _st_ptr, _st_nptr, _st_heap, _st_heap_base
@@ -139,7 +151,9 @@ _st_heap_base:  .res 2          ; heap base (fixed at $E600)
 ; ── dasm.s: disassembler scratch ──────────────────────────────────────── $41
         .exportzp _dasm_ptr, _dasm_mne, _dasm_wptr, _dasm_midx, _dasm_mode
         FAR_PTR _dasm_ptr       ; instruction address
-                .res 1          ; unallocated (was _dasm_opc; held so later addresses stay put)
+.ifdef PLATFORM_C64
+                .res 1          ; $43 unallocated (was _dasm_opc; held so later addresses stay put)
+.endif
 _dasm_mne:      .res 2          ; packed mnemonic (2 bytes)
 _dasm_wptr:     .res 1          ; write index into dasm_buf
 _dasm_midx:     .res 1          ; mnemonic index
@@ -177,12 +191,19 @@ cur_device:     .res 1          ; floppy device number (default 8)
 ; log line + save-suggestion emitter), and repl.s (logging).  Hosting
 ; here eliminates asm_src→repl and editor→repl back-edges.
 ;
-; NOTE: ZP promotion is partially effective for this 17-byte buffer —
-; ~40% of access sites use `(rp_ptr2),y` indirect iteration that
-; forces `abs,y` form regardless of zp placement.  See TODO.md for
-; a reconsideration item if ZP space becomes tight.
+; ZP promotion is partially effective for this 17-byte buffer — the
+; `,y` sites are absolute-indexed regardless — and on m65 it is not
+; worth the base page: there it is zp.s's BSS, imported with `.import`
+; and written bare (no BP_ABS), its far pointers' bank BANK_CSE.
+.ifdef PLATFORM_C64
         .exportzp cur_project_name
 cur_project_name:       .res 17         ; FILENAME_MAX + 1
+.else
+        .export cur_project_name
+.segment "BSS"
+cur_project_name:       .res 17         ; FILENAME_MAX + 1
+.segment "ZEROPAGE"
+.endif
 
 ; ── Shared output-formatter scratch ──────────────────────────────────── $6F
 ; General repl/log working registers.  Used by:

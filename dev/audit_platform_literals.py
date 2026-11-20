@@ -171,12 +171,41 @@ _WORD = re.compile(r"^\s*(?:[@\w]+:)?\s*\.(?:word|addr)\s+(.*)$", re.I)
 _ID = r"([A-Za-z_]\w*)"
 
 
-def base_page_symbols(src=SRC):
-    """zp.s's exported symbols and every module's aliases of them."""
-    names = set()
-    for line in (src / "zp.s").read_text().splitlines():
-        m = re.match(r"\s*\.exportzp\s+(.*)", strip_comment(line))
+_COND = re.compile(r"^\s*\.(ifdef|ifndef|if|else|endif)\b\s*(\w*)", re.I)
+
+
+def _c64_only_lines(lines):
+    """For each line, whether it is assembled on c64 only: inside an
+    `.ifdef PLATFORM_C64` branch, or the `.else` of `.ifdef
+    PLATFORM_M65` (and the converse `.ifndef` forms)."""
+    stack, out = [], []
+    for line in lines:
+        m = _COND.match(strip_comment(line))
         if m:
+            kw, arg = m.group(1).lower(), m.group(2)
+            if kw in ("ifdef", "ifndef", "if"):
+                c64 = ((kw == "ifdef" and arg == "PLATFORM_C64")
+                       or (kw == "ifndef" and arg == "PLATFORM_M65"))
+                m65 = ((kw == "ifdef" and arg == "PLATFORM_M65")
+                       or (kw == "ifndef" and arg == "PLATFORM_C64"))
+                stack.append("c64" if c64 else "m65" if m65 else None)
+            elif kw == "else" and stack:
+                stack[-1] = {"c64": "m65", "m65": "c64"}.get(stack[-1])
+            elif kw == "endif" and stack:
+                stack.pop()
+        out.append("c64" in stack)
+    return out
+
+
+def base_page_symbols(src=SRC):
+    """zp.s's zero-page exports outside its c64-only blocks — the m65
+    base page's symbols (platform_layer.md § Base page) — and every
+    module's aliases of them."""
+    names = set()
+    lines = (src / "zp.s").read_text().splitlines()
+    for line, c64_only in zip(lines, _c64_only_lines(lines)):
+        m = re.match(r"\s*\.exportzp\s+(.*)", strip_comment(line))
+        if m and not c64_only:
             names |= {n.strip() for n in m.group(1).split(",") if n.strip()}
     grew = True
     while grew:

@@ -132,7 +132,9 @@ charset toggle locked), the three SID voice control registers
   consumed by `set_run_mode`, cleared by `end_debug_body`.
 
 `cur_device` (default 8) and `cur_project_name` are REPL state kept
-in zero page; see [zp.md](zp.md).
+in zp.s; see [zp.md](zp.md) — both in zero page on c64; on m65
+`cur_project_name` is zp.s's BSS
+([zp.md § The m65 base page](zp.md#the-m65-base-page)).
 
 ### Memory
 

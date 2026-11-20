@@ -35,7 +35,11 @@ SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp
         .import         str_tag_org
         .import         define_ws_syms                             ; gap_buffer.s
         .import         ed_read_line, ed_read_rewind              ; gap_buffer.s
+.ifdef PLATFORM_C64
         .importzp       cur_project_name           ; zp.s
+.else
+        .import         cur_project_name           ; zp.s's BSS (zp.md)
+.endif
         .importzp       buf_base                ; zp.s — gap buffer low bound = workend+1
         .importzp       rp_ptr2                 ; zp.s — scratch pointer (repl/info_line)
         .importzp       asm_pc, asm_out, asm_len, asm_cpu, asm_tmp, asm_tmp2
@@ -815,8 +819,8 @@ seg_print_save:
         puts s_save_default     ; "out"
         jmp @name_done
 @have_name:
-        lda #<BP_ABS(cur_project_name)
-        ldx #>BP_ABS(cur_project_name)
+        lda #<cur_project_name
+        ldx #>cur_project_name
         jsr io_puts
 @name_done:
         puts s_save_q_sp        ; "" $"

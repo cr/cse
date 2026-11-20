@@ -108,6 +108,23 @@ def test_no_base_page_symbol_in_an_absolute_mode():
     assert AUDIT.base_page_count() == {}
 
 
+def test_a_c64_only_zero_page_export_is_no_base_page_symbol(tmp_path):
+    """The base page is m65's: a symbol zp.s exports zero-page only
+    under `.ifdef PLATFORM_C64` (cur_project_name, zp.md § The m65 base
+    page) is absolute on m65 and is written bare (slice 3, F0)."""
+    (tmp_path / "zp.s").write_text(
+        "        .exportzp bp_ptr\n"
+        ".ifdef PLATFORM_C64\n"
+        "        .exportzp c64_only\n"
+        ".else\n"
+        "        .export c64_only\n"
+        ".endif\n")
+    names = AUDIT.base_page_symbols(tmp_path)
+    assert "bp_ptr" in names and "c64_only" not in names
+    (tmp_path / "m.s").write_text("        sta c64_only,y\n")
+    assert AUDIT.base_page_sites(tmp_path / "m.s", names) == []
+
+
 @pytest.mark.parametrize("line,flagged", [
     ("        jmp (bp_ptr)", True),
     ("        sta bp_buf,y", True),
@@ -237,3 +254,32 @@ def test_no_pending_body_mechanism_is_left():
     assert hits == []
     assert not hasattr(AUDIT, "pending_counts")
 
+
+
+# ── the m65 base page (zp.md § The m65 base page; slice 3, F0) ──
+
+STUB_PAGE_OFFSET = 0xB0         # the resident stub's first byte in CSE's page
+
+
+def _m65_exports(map_path):
+    """{symbol: (value, type)} from an ld65 map's exports list."""
+    import re
+    out = {}
+    for line in map_path.read_text().splitlines():
+        for name, value, kind in re.findall(r"(\S+)\s+([0-9A-F]{6})\s+(\w+)", line):
+            out[name] = (int(value, 16), kind)
+    return out
+
+
+def test_m65_base_page_has_20_free_bytes(cse_m65_release_prg):
+    """No held holes, the project name out: at least 20 bytes free
+    between the last base-page cell and the stub."""
+    _, map_path = cse_m65_release_prg
+    last = _m65_exports(map_path)["__ZP_LAST__"][0]
+    assert STUB_PAGE_OFFSET - last >= 20, f"__ZP_LAST__ = ${last:02X}"
+
+
+def test_m65_project_name_is_not_in_the_base_page(cse_m65_release_prg):
+    _, map_path = cse_m65_release_prg
+    value, kind = _m65_exports(map_path)["cur_project_name"]
+    assert kind != "RLZ" and value >= 0x100, f"${value:04X} {kind}"

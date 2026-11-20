@@ -26,7 +26,12 @@
 ; ── Imports: zp.s ──────────────────────────────────────────
         .importzp rp_addr, rp_cnt, rp_save, rp_save2
         .importzp rp_next_lo, _info_mode
-        .importzp cur_device, cur_project_name
+        .importzp cur_device
+.ifdef PLATFORM_C64
+        .importzp cur_project_name
+.else
+        .import cur_project_name        ; zp.s's BSS (zp.md)
+.endif
 
 ; ── Imports: cse_io.s ──────────────────────────────────────
         .import io_putc, io_repc, io_puts, scr_to_pet
@@ -2858,21 +2863,21 @@ adv_ptr1:
 .proc copy_stem_to_project
         ldy #0
 @cp:    FAR_LDA rp_ptr2
-        sta BP_ABS(cur_project_name),y
+        sta cur_project_name,y
         beq @strip              ; copy hit NUL → start trailing-dot strip
         iny
         cpy #FILENAME_MAX
         bcc @cp
         lda #0
-        sta BP_ABS(cur_project_name),y ; force NUL at max
+        sta cur_project_name,y ; force NUL at max
 @strip: ; back up over any trailing dots, replacing with NUL
 @sl:    dey
         bmi @done               ; string was entirely dots (or empty)
-        lda BP_ABS(cur_project_name),y
+        lda cur_project_name,y
         cmp #'.'
         bne @done
         lda #0
-        sta BP_ABS(cur_project_name),y
+        sta cur_project_name,y
         jmp @sl
 @done:  rts
 .endproc
@@ -2992,11 +2997,11 @@ adv_ptr1:
         dex
         bpl @fd
 @ok:
-        lda #<BP_ABS(cur_project_name)
+        lda #<cur_project_name
         sta rp_ptr2
-        lda #>BP_ABS(cur_project_name)
+        lda #>cur_project_name
         sta rp_ptr2+1
-        FAR_BANK rp_ptr2, BANK_USER     ; CSE's base page is in bank 0
+        FAR_BANK rp_ptr2, BANK_CSE      ; CSE's datum (m65: zp.s's BSS)
         lda #1
         rts
 .endproc

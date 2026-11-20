@@ -38,7 +38,12 @@
         .import kernal_bank_out, kernal_bank_in
         .import disk_save_seq, disk_load_seq
         .import disk_seq_bytes, disk_seq_lines
-        .importzp cur_project_name, state, ed_dirty    ; zp.s
+        .importzp state, ed_dirty                     ; zp.s
+.ifdef PLATFORM_C64
+        .importzp cur_project_name                    ; zp.s
+.else
+        .import cur_project_name                      ; zp.s's BSS (zp.md)
+.endif
         .import scr_lo, scr_hi
         .importzp disk_ptr
 
@@ -751,8 +756,8 @@ _ed_cur_row:
         lda cur_project_name
         beq @no_name
         ; Find length of cur_project_name.  X indexes the filename so
-        ; ZP-promoted cur_project_name resolves to zp,X (2 B); LDA
-        ; cur_project_name,Y would force abs,Y (3 B).
+        ; on c64 the ZP cur_project_name resolves to zp,X (2 B; LDA
+        ; cur_project_name,Y would force abs,Y); m65: BSS, abs,X.
         ldx #0
 @flen:  lda cur_project_name,x
         beq @flen_done

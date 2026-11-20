@@ -190,9 +190,12 @@ Where CSE's zero page is, and what a transition does with the user's.
 | c64 | base page 0, `$02–$79` ([zp.md](modules/zp.md)) | `$00–$7F`, swapped at every kernel ↔ user transition by mem.s's four primitives |
 | m65 | its own base page: `B = CSE_BP` (`$1F`, the page `0.1F00`) whenever kernel code runs | base page 0, never touched by CSE: the transitions switch `B`, not bytes |
 
-**Delta (slice 3, F0):** on m65 the page's layout is its own
+On m65 the page's layout is its own
 ([zp.md § The m65 base page](modules/zp.md#the-m65-base-page)): it
-does not carry the C64's holes or the project name.
+does not carry the C64's holes or the project name.  A *base-page
+symbol*, for `BP_ABS` and its check, is one in the m65 base page:
+zp.s's `.exportzp` outside its `.ifdef PLATFORM_C64` blocks —
+`cur_project_name`, exported zero-page on c64 only, is not one.
 
 `B` names a page of the CPU's 16-bit address space, and `MAP`
 translates a base-page access like any other.  `CSE_BP` reaches bank

@@ -144,7 +144,11 @@ $40–$5F → $C0–$DF (`ORA #$80`), $60–$7F identity.
 
 **Behavior:** For each byte until NUL: `io_putc(byte)`.  On m65 the
 string is in CSE's view (a CPU address under the CSE map): `_io_tmp`'s
-bank is set to `BANK_CSE` each call.
+bank is set to `BANK_CSE` each call, so the string must lie in bank
+3's `$2000–$BFFF` — CSE's code, RODATA, KDATA or BSS.  A string in
+CSE's base page (a `BP_ABS` address, `0.1Fxx`) or in user memory is
+not one: `io_puts` would read `3.1Fxx` or bank 3 instead (the m65
+save-line bug, slice 3 F0).
 
 **Postconditions:**
 - N bytes written to screen RAM starting at (CUR_ROW, original_CUR_COL)

@@ -50,7 +50,9 @@ are static Tier U tests in `tests/unit/test_platform_audit.py`:
   C64 build moved onto the seams, emptied by the last one).  The audit itself is pinned by unit tests on small
   synthetic sources.
 - *The base-page check* — the same tool: no absolute-mode access to
-  a CSE base-page symbol (zp.s's exports and their aliases), nor a
+  a CSE base-page symbol (zp.s's zero-page exports outside its
+  `.ifdef PLATFORM_C64` blocks — the m65 base page — and their
+  aliases), nor a
   16-bit pointer to one, unless written `BP_ABS(sym)`
   ([platform_layer.md § Base page](platform_layer.md#base-page));
   zero, with unit tests on synthetic sources.

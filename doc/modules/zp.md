@@ -100,8 +100,8 @@ differences; the addresses are the linker map's
     `zp_stage_prep_addr`, `cmd_dot` and `cmd_mem`; bank 3 for CSE's
     strings and tables (`parse_filename`, the segment and `prg` log
     lines; `info_emit_rows` with P2's `i`, whose m65 rows it reads) and
-    for `zp_stage_prep`'s `zp_stage_buf`; bank 0 for `get_filename`'s
-    `BP_ABS(cur_project_name)`.  `exec_line`'s `jmp (BP_ABS(rp_ptr2))`
+    for `zp_stage_prep`'s `zp_stage_buf` and for `get_filename`'s
+    `cur_project_name` (zp.s's BSS on m65).  `exec_line`'s `jmp (BP_ABS(rp_ptr2))`
     is a 16-bit jump and needs none.
   - `asm_out` — a user address (`FAR_USER`) in `dot_assemble`; bank 3
     for the assembler's `_insn_out` and `_asm_sink`.
@@ -135,16 +135,13 @@ linker bounds it).  The KERNAL needs nothing of CSE's base page
 
 ### The m65 base page
 
-**Delta (slice 3, F0):** stated ahead of the code —
-[TODO § Slice 3 — banks](../TODO.md#slice-3--banks).
-
 The m65 base page is CSE's own (`0.1F00–0.1FAF`, the resident stub
-above it): it is shared with no one, so its layout need not be the
-C64's.  It is full today (174 of 176 bytes) because zp.s carries the
-C64 layout into it unchanged — the five held holes, the 17-byte
-project name — beside what m65 adds: 16 far pointers of 4 bytes (32
-more than on c64) and 22 bytes of its own (the bank state, the stub's
-targets, the terminal cells, the disk filename pointer).
+above it): it is shared with no one, so its layout is not the C64's.
+Beside the C64's cells it holds 16 far pointers of 4 bytes (32 more
+than on c64) and 22 bytes of its own (the bank state, the stub's
+targets, the terminal cells, the disk filename pointer); it ends at
+`$97`, 24 bytes below the stub (slice 3's F0 took it from 2: the held
+holes and the project name went).
 
 On m65:
 
@@ -152,15 +149,23 @@ On m65:
   `$2C`, `$36`, `$43` there) do not exist; every later cell follows
   the one before it.
 - **`cur_project_name` is not in the base page.**  It is a string,
-  not a pointer: 17 bytes of BSS (its home: TODO, O-F-2), reached by
-  absolute addressing.
+  not a pointer: 17 bytes of BSS, still zp.s's (`.ifdef PLATFORM_M65`:
+  a `BSS` segment in zp.s, exported with `.export`), so it stays below
+  every module that reads it and the layer DAG does not change
+  (TODO, O-F-2).  The three readers import it per platform
+  (`.importzp` on c64, `.import` on m65) and write it bare: every
+  absolute-mode site that wrote `BP_ABS(cur_project_name)` writes
+  `cur_project_name` — the same bytes on c64, where `BP_PAGE` is 0,
+  and its absolute address in bank 3 on m65.  A far pointer to it
+  carries `BANK_CSE`, as every other CSE datum's does.
 - **Pointers first.**  What stays is what needs the page: the far
   pointers and the cells used with base-page addressing modes.
   Plain scratch and flags leave it only when a later milestone needs
   their room (F5 needs about 6 bytes for the 4-byte `expr_val` and
   `sym_val`).
-- **At least 20 bytes are free** below the stub after F0, and the
-  segment still ends below `$B0` (the linker bounds it).
+- **At least 20 bytes are free** below the stub, and the segment
+  ends below `$B0` (the linker bounds it); `test_platform_audit.py`
+  pins both from the map file.
 
 The C64 layout (the table above) does not change, and the C64 PRGs
 stay byte-identical: the differences are under `.ifdef PLATFORM_M65`
