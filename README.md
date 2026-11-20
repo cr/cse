@@ -143,10 +143,6 @@ instruction.  Pressing RETURN on an empty prompt repeats the last
 `d`, `m`, `.`, `t` or `o` — `d` RETURN RETURN pages on through the
 code.
 
-One limit: the REPL assembles the accumulator form only bare —
-`. asl` works, `. asl a` is `;?syntax` — so RETURN on a `d` row that
-shows `asl a` needs the `a` removed first.
-
 ### Expressions
 
 Anywhere CSE expects a number — command arguments, assembler

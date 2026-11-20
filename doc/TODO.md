@@ -99,47 +99,6 @@ are under [§ Records](#records).
   another bank's value, `.dw $12345`).  Found by the F5 code review
   (2026-11-20).
 
-- [ ] **`.` tags its own operand errors by a stale `asm_err_code`.**
-  An operand expression error that `dot_assemble`'s pre-evaluation
-  finds (before `asm_line`) returns 0 without setting `asm_err_code`,
-  so the tag is whatever the last `asm_line` left: `. jmp nosuch` and,
-  on m65, `. lda $12345` or `. jmp 5.0000` at `4.2000` print
-  `;?syntax`, not `;?expr undef` / `;?expr range` (checked 2026-11-20;
-  repl.md § Error tag dispatch states it).  Same cause as the item
-  below (the pre-evaluation); a fix sets `asm_err_code` = 1 there,
-  which moves the C64 bytes.
-
-- [ ] **`.` refuses `asl a` and never warns of an `a` label.**  The
-  REPL's `.` takes the accumulator form only bare: `. asl` assembles
-  `$0A`, `. asl a` (`rol a`, `lsr a`, `ror a`; on m65 also `inc a`,
-  `dec a`) is `;?syntax` (checked 2026-11-19; `dot_assemble` unchanged
-  since).  So RETURN on a `d` row that lists `asl a` fails, and
-  README.md § REPL states the limit.  The source assembler takes both
-  forms (asm_line.md § ACC mode handling) and, when a label `a`
-  exists, warns `;!a shadow`; `.` with a label `a` instead assembles
-  the label's address, silently.
-
-  One cause: `dot_assemble` (repl.s) evaluates the operand with
-  `expr_eval` before `asm_line` sees it and rebuilds it as a `$xxxx`
-  literal, so `mode_parse`'s accumulator path and `_au_warn_shdw`
-  never see the bare `a`.  Options: (a) skip the pre-evaluation for a
-  bare `a` when the mnemonic has an accumulator mode — a small special
-  case; (b) drop the pre-evaluation and let `asm_line` evaluate, as
-  the source assembler does — larger, and it closes the other
-  asymmetries too.  Done when `. asl a` assembles the accumulator
-  opcode on every build, a defined `a` still reaches mnemonics without
-  an accumulator mode (`lda a`) and warns where the source assembler
-  warns, a `d` row with `asl a` re-executes, and the README's limit
-  paragraph is gone.  (Merges two Planned › Assembler items,
-  2026-11-20.)
-
-  The same cause, a third symptom (found at slice 3's F1,
-  2026-11-20): `*` in `.`'s operand is the *previous* instruction's
-  address — `dot_assemble` evaluates the operand before it sets
-  `asm_pc` — so `. lda #$01` then `. bne *` at `$3000` assembles
-  `d0 fc` (to `$3000`) where the source assembler gives `d0 fe`.
-  Both platforms.
-
 ### Latent
 
 Real in the code but unreachable today, or theoretical.
@@ -4401,6 +4360,51 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
   Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
 ### Fixed bugs
+
+- [x] (fixed 2026-11-20: `dot_assemble` hands `asm_line` the line
+  itself — no pre-evaluation, `asm_pass` = 1; tests in test_repl.py and
+  test_m65_repl.py) **`.` refuses `asl a` and never warns of an `a` label.**  The
+  REPL's `.` takes the accumulator form only bare: `. asl` assembles
+  `$0A`, `. asl a` (`rol a`, `lsr a`, `ror a`; on m65 also `inc a`,
+  `dec a`) is `;?syntax` (checked 2026-11-19; `dot_assemble` unchanged
+  since).  So RETURN on a `d` row that lists `asl a` fails, and
+  README.md § REPL states the limit.  The source assembler takes both
+  forms (asm_line.md § ACC mode handling) and, when a label `a`
+  exists, warns `;!a shadow`; `.` with a label `a` instead assembles
+  the label's address, silently.
+
+  One cause: `dot_assemble` (repl.s) evaluates the operand with
+  `expr_eval` before `asm_line` sees it and rebuilds it as a `$xxxx`
+  literal, so `mode_parse`'s accumulator path and `_au_warn_shdw`
+  never see the bare `a`.  Options: (a) skip the pre-evaluation for a
+  bare `a` when the mnemonic has an accumulator mode — a small special
+  case; (b) drop the pre-evaluation and let `asm_line` evaluate, as
+  the source assembler does — larger, and it closes the other
+  asymmetries too.  Done when `. asl a` assembles the accumulator
+  opcode on every build, a defined `a` still reaches mnemonics without
+  an accumulator mode (`lda a`) and warns where the source assembler
+  warns, a `d` row with `asl a` re-executes, and the README's limit
+  paragraph is gone.  (Merges two Planned › Assembler items,
+  2026-11-20.)
+
+  The same cause, a third symptom (found at slice 3's F1,
+  2026-11-20): `*` in `.`'s operand is the *previous* instruction's
+  address — `dot_assemble` evaluates the operand before it sets
+  `asm_pc` — so `. lda #$01` then `. bne *` at `$3000` assembles
+  `d0 fc` (to `$3000`) where the source assembler gives `d0 fe`.
+  Both platforms.
+
+- [x] (fixed 2026-11-20: `dot_assemble` hands `asm_line` the line
+  itself — no pre-evaluation, `asm_pass` = 1; tests in test_repl.py and
+  test_m65_repl.py) **`.` tags its own operand errors by a stale `asm_err_code`.**
+  An operand expression error that `dot_assemble`'s pre-evaluation
+  finds (before `asm_line`) returns 0 without setting `asm_err_code`,
+  so the tag is whatever the last `asm_line` left: `. jmp nosuch` and,
+  on m65, `. lda $12345` or `. jmp 5.0000` at `4.2000` print
+  `;?syntax`, not `;?expr undef` / `;?expr range` (checked 2026-11-20;
+  repl.md § Error tag dispatch states it).  Same cause as the item
+  below (the pre-evaluation); a fix sets `asm_err_code` = 1 there,
+  which moves the C64 bytes.
 
 - [x] ~~**C64: disk.s wrote `$FD`/`$FE`, which the userland contract
   keeps free.**~~  Fixed 2026-11-20: `DISK_LOCAL_PTR` is zp.s's

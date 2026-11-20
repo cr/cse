@@ -1545,3 +1545,83 @@ def test_a_flat_address_is_an_error_on_the_c64(rsyms, cmd, err):
     set_line_buf(cpu, rsyms, cmd)
     run_at(cpu, rsyms.exec_line)
     assert err in "".join(cpu.screen_text(r) for r in range(25))
+
+
+# ── `.` hands its line to asm_line (TODO § Bugs › Both platforms, fixed
+#    2026-11-20): the accumulator form, an `a` label, `*`, error tags ──
+
+def _screen(cpu):
+    return "\n".join(cpu.screen_text(r) for r in range(ROWS))
+
+
+def _dot(cpu, rsyms, text, addr=0x3000):
+    set_cur_addr(cpu, rsyms, addr)
+    set_line_buf(cpu, rsyms, text)
+    run_at(cpu, rsyms.exec_line)
+
+
+def _define(cpu, name, value):
+    buf = 0x3800
+    for i, c in enumerate(name.encode("ascii") + b"\0"):
+        cpu.memory[buf + i] = c
+    cpu.memory[cpu.sym("sym_name")], cpu.memory[cpu.sym("sym_name") + 1] = buf & 0xFF, buf >> 8
+    cpu.memory[cpu.sym("sym_val")], cpu.memory[cpu.sym("sym_val") + 1] = value & 0xFF, value >> 8
+    cpu.memory[cpu.sym("sym_wide")] = 1
+    cpu.jsr(cpu.sym("sym_define"))
+
+
+class TestDotHandsItsLineToAsmLine:
+
+    @pytest.mark.parametrize("text,op", [(". asl a", 0x0A), (". rol a", 0x2A),
+                                         (". lsr a", 0x4A), (". ror a", 0x6A)])
+    def test_the_accumulator_form(self, rsyms, text, op):
+        cpu = make_cpu(rsyms)
+        cpu.memory[0x3000] = 0x00
+        _dot(cpu, rsyms, text)
+        assert cpu.memory[0x3000] == op, _screen(cpu)
+        assert ";?" not in _screen(cpu)
+
+    def test_an_a_label_is_the_label_where_no_accumulator_form_exists(self, rsyms):
+        cpu = make_cpu(rsyms)
+        _define(cpu, "A", 0x1234)
+        _dot(cpu, rsyms, ". lda a")
+        assert list(cpu.memory[0x3000:0x3003]) == [0xAD, 0x34, 0x12]
+
+    def test_an_a_label_shadowed_by_the_accumulator_warns(self, rsyms):
+        cpu = make_cpu(rsyms)
+        _define(cpu, "A", 0x1234)
+        _dot(cpu, rsyms, ". asl a")
+        assert cpu.memory[0x3000] == 0x0A
+        assert ";!a shadow" in _screen(cpu), _screen(cpu)
+
+    def test_star_is_this_instructions_address(self, rsyms):
+        cpu = make_cpu(rsyms)
+        _dot(cpu, rsyms, ". lda #$01", 0x2FFE)
+        _dot(cpu, rsyms, ". bne *")
+        assert list(cpu.memory[0x3000:0x3002]) == [0xD0, 0xFE]
+
+    def test_an_undefined_operand_is_expr_undef_before_any_assembly(self, rsyms):
+        cpu = make_cpu(rsyms)
+        cpu.memory[0x3000:0x3003] = [0, 0, 0]
+        _dot(cpu, rsyms, ". jmp nosuch")
+        assert ";?expr undef" in _screen(cpu), _screen(cpu)
+        assert list(cpu.memory[0x3000:0x3003]) == [0, 0, 0]
+
+    def test_an_operand_longer_than_24_characters(self, rsyms):
+        cpu = make_cpu(rsyms)
+        _dot(cpu, rsyms, ". lda $1000+$0200+$0030+$0004,x")
+        assert list(cpu.memory[0x3000:0x3003]) == [0xBD, 0x34, 0x12], _screen(cpu)
+
+    def test_a_d_row_with_asl_a_re_executes(self, rsyms):
+        cpu = make_cpu(rsyms)
+        cpu.memory[0x3000] = 0x0A
+        set_cur_addr(cpu, rsyms, 0x3000)
+        set_line_buf(cpu, rsyms, "d")
+        run_at(cpu, rsyms.exec_line)
+        row = next(cpu.screen_text(r) for r in range(ROWS)
+                   if cpu.screen_text(r).startswith("3000:."))
+        cpu.memory[0x3000] = 0x00
+        set_line_buf(cpu, rsyms, row)
+        run_at(cpu, rsyms.exec_line)
+        assert cpu.memory[0x3000] == 0x0A
+        assert ";?" not in _screen(cpu).split(row)[-1], _screen(cpu)

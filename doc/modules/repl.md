@@ -153,7 +153,7 @@ in zp.s; see [zp.md](zp.md) — both in zero page on c64; on m65
 
 ### Memory
 
-**BSS (110 bytes):**
+**BSS (86 bytes):**
 
 | Variable | Size | Purpose |
 |----------|------|---------|
@@ -164,7 +164,6 @@ in zp.s; see [zp.md](zp.md) — both in zero page on c64; on m65
 | `_verbatim_type` | 1 | 0 / 's' / 'p' from `strip_and_classify` |
 | `_arg_count` | 1 | Numeric argument count from the last `l`/`s` parse (0–2) |
 | `line_buf` | 42 (m65 82) | Screen line capture buffer: the widest row, its NUL and a spare |
-| `dot_asm_buf` | 24 | `.` instruction text handed to `asm_line` |
 | `rp_next_hi` | 2 | 16-bit scratch pair (`rp_next_lo` is in zp.s) |
 | `rp_opc` | 1 | Command character / scratch (`emit_mem` columns, `info_emit_rows` count) |
 | `rp_dis_bp` | 1 | `cmd_step`: disabled breakpoint slot × 4 ($FF = none) |
@@ -430,17 +429,20 @@ full expressions work:
 Symbols from the last `a` are available (the symbol table persists
 between assemblies).
 
-`dot_assemble` copies the mnemonic word (letters and, on mn7 builds,
-digits — asm_line judges them; at most 8 — the bit-op mnemonics such as `rmb3`;
-on m65 also the `q` names and the `q` suffix,
-[asm_line.md § Mnemonic word](asm_line.md#mnemonic-word)), keeps a
-leading `#`, `(` and, on m65, `[`, evaluates the operand to `$XX` or
-`$XXXX` (by `expr_eval`'s width result), copies the rest of the
-operand (`,x`, `)`, `),y` …) unchanged, and passes the text to
-`asm_line` with `asm_pc` = `asm_out` = `cur_addr`.  An operand that is
-the bare accumulator `a` is evaluated as an expression too, so
-`. asl a` is `;?syntax`; write `. asl` (TODO § Bugs › Both platforms).
-On m65 the operand's rest includes `],z`, `),z` and `,sp),y`.
+`dot_assemble` hands `asm_line` the instruction where it stands in
+`line_buf` — from the mnemonic to the end of the line, a `;` or a
+`//` — with `asm_pc` = `asm_out` = `cur_addr` and `asm_pass` = 1 (one
+pass: an undefined symbol is an error, never pass 0's stand-in).
+`asm_line` reads it as it reads a source line
+([asm_line.md § Mnemonic word](asm_line.md#mnemonic-word), the
+operand through `mode_parse`), so `*` is this instruction's address,
+`. asl a` is the accumulator form (and warns `;!a shadow` when a label
+`a` exists, as the source assembler does), `. lda a` with a label `a`
+reads the label, and an operand of any length fits the line.  (Until
+2026-11-20 `dot_assemble` evaluated the operand itself and rebuilt it
+as `$XXXX` in a 24-byte buffer, which refused `asl a`, made `*` the
+previous instruction's address and tagged its own errors by a stale
+`asm_err_code`.)
 
 In all three modes the handler finishes by disassembling the
 instruction at `cur_addr` and rewriting its row with the result.
@@ -476,9 +478,9 @@ by [asm_err.s](asm_err.md)):
 | 1 | `;?expr <detail>` | undefined symbol, overflow — `<detail>` from `expr_error_str` |
 | 2 | `;?cpu` | mnemonic refused by the CPU mode (`lax` on 6502, `taz` on 6502 on m65) |
 
-An operand expression error found by `dot_assemble` itself (before
-`asm_line`) also returns 0; the tag then follows whatever
-`asm_err_code` holds.
+Every refusal comes from `asm_line`, so the tag is always its own:
+`. jmp nosuch` is `;?expr undef`, on m65 another bank's value
+`;?expr range`.
 
 ### User-ZP view
 
@@ -1005,8 +1007,7 @@ address is `main`'s value, flat when `main` is (the prompt `4.2000:`), and `g` f
 flat current address takes a value in that address's bank as its low
 word (`4.2000:. jmp 4.2010` is `4c 10 20`, `dot_bank` sets
 `expr_bank` around `dot_assemble`), any other above `$FFFF` is
-refused, nothing written (the same-bank rule; the tag is § Error tag
-dispatch's).  The address arguments (F5c)
+`;?expr range`, nothing written (the same-bank rule).  The address arguments (F5c)
 of `@`, `j`, `b` and `m` are 32-bit expressions
 ([expr.md § 32-bit values](expr.md#32-bit-values-m65)), so `@ main`,
 `j main` and `b loop+3` follow a flat label, `@ 4.2000+$10` is

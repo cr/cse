@@ -247,8 +247,8 @@ address is `main`'s — flat when `main` is — and `g` starts it: a far
 start ([repl.md § Far starts](modules/repl.md#far-starts)) in banks
 1, 4 and 5 at `$2000–$7FFF`, else `;?range`.  The REPL's `.` at a flat
 current address follows the same-bank rule with that address's bank
-(another bank's value is refused, with the tag `.` gives an operand
-error, [repl.md § Error tag dispatch](modules/repl.md#error-tag-dispatch-mnemonic-assemble-path)).
+(another bank's value is `;?expr range`,
+[repl.md § Error tag dispatch](modules/repl.md#error-tag-dispatch-mnemonic-assemble-path)).
 
 ### `.org` — Set Origin
 

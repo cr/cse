@@ -53,7 +53,7 @@
 ; _hex_val, _is_hex, _hex_val_to_char are local (below)
 
 ; ── Imports: assembler / disassembler ──────────────────────
-        .import asm_line, asm_err_code
+        .import asm_line, asm_err_code, asm_pass
         .import dasm_insn_pre, _dasm_in, dasm_buf
         .importzp _dasm_ptr
         .include "cpu_set.inc"  ; INSN_MAX (hex pairs / columns), MODE_*,
@@ -245,7 +245,6 @@ _verbatim_type:    .res 1          ; 0 / 's' / 'p' from strip_and_classify
 _arg_count:        .res 1          ; 0, 1, or 2 — numeric args in last parse
 
 line_buf:       .res 2 + SCREEN_WIDTH_MAX
-dot_asm_buf:    .res 24
 rp_next_hi:     .res 2          ; 16-bit scratch pair (rp_next_lo lives in zp.s)
 rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
@@ -2559,181 +2558,18 @@ mem_row:
 .endproc
 
 ; ═══════════════════════════════════════════════════════════
-; dot_assemble — assemble with expression support
-;   rp_addr = address, rp_ptr = text. Returns nbytes in A.
+; dot_assemble — assemble the instruction at rp_ptr (its mnemonic) to
+; rp_addr.  asm_line reads it where it stands in line_buf, to the end,
+; a `;` or `//`, and evaluates the operand itself — as the source
+; assembler's lines are read — so `*` is this address, `asl a` the
+; accumulator form (an `a` label warned of), an expression error its
+; own tag (repl.md § Error tag dispatch).  asm_pass = 1: one pass, an
+; undefined symbol an error (pass 0 would size it with a stand-in).
+;   Returns nbytes in A (0: refused, asm_err_code set).
 ; ═══════════════════════════════════════════════════════════
 .proc dot_assemble
-        lda #<dot_asm_buf
-        sta rp_ptr2
-        lda #>dot_asm_buf
-        sta rp_ptr2+1
-
-        ; Copy the mnemonic word (a-z; where the set has the digit zones
-        ; 0-9 too: a bit-op's digit — asm_line judges it)
-        ldy #0
-@mne:   FAR_LDA rp_ptr
-.ifdef HAS_ZONE_D
-        cmp #'0'
-        bcc @md
-        cmp #'9'+1
-        bcc @mch
-.endif
-        cmp #'a'
-        bcc @md
-        cmp #'z'+1
-        bcs @md
-@mch:   cpy #8
-        bcs @md
-        sta dot_asm_buf,y
-        iny
-        bne @mne
-@md:    sty rp_save             ; buf write pos
-
-        ; advance rp_ptr past mnemonic
-        tya
-        clc
-        adc rp_ptr
-        sta rp_ptr
-        bcc :+
-        inc rp_ptr+1
-:
-        jsr skip_sp_ptr1
-
-        ldy #0
-        FAR_LDA rp_ptr
-        jeq @implied
-        cmp #';'
-        jeq @implied
-
-        ; append space
-        ldy rp_save
-        lda #' '
-        sta dot_asm_buf,y
-        iny
-        sty rp_save
-
-        ; prefix: # and/or (
-        ldy #0
-        FAR_LDA rp_ptr
-        cmp #'#'
-        bne @noh
-        ldy rp_save
-        sta dot_asm_buf,y
-        iny
-        sty rp_save
-        inc rp_ptr
-        bne :+
-        inc rp_ptr+1
-:       jsr skip_sp_ptr1
-@noh:   ldy #0
-        FAR_LDA rp_ptr
-.ifdef MEGA_SUPPORT
-        cmp #$5B                ; '[' a far operand: kept as '(' is
-        beq @paren
-.endif
-        cmp #'('
-        bne @nop
-@paren: ldy rp_save
-        sta dot_asm_buf,y
-        iny
-        sty rp_save
-        inc rp_ptr
-        bne :+
-        inc rp_ptr+1
-:       jsr skip_sp_ptr1
-@nop:
-        ; evaluate expression
-        lda rp_ptr
-        sta expr_ptr
-        lda rp_ptr+1
-        sta expr_ptr+1
-        jsr expr_eval
-        cmp #2
-        jcs @err
-        pha                     ; save rc (0=ZP, 1=ABS)
-
-        lda expr_ptr
-        sta rp_ptr
-        lda expr_ptr+1
-        sta rp_ptr+1
-
-        ; append '$'
-        ldy rp_save
-        lda #'$'
-        sta dot_asm_buf,y
-        iny
-        sty rp_save
-
-        pla                     ; rc
-        cmp #1
-        bne @lo
-
-        ; ABS: 4 hex digits
-        lda expr_val+1
-        lsr
-        lsr
-        lsr
-        lsr
-        jsr _hex_val_to_char
-        ldy rp_save
-        sta dot_asm_buf,y
-        iny
-        lda expr_val+1
-        and #$0F
-        jsr _hex_val_to_char
-        sta dot_asm_buf,y
-        iny
-        sty rp_save
-
-@lo:    ; low byte: 2 hex digits
-        lda expr_val
-        lsr
-        lsr
-        lsr
-        lsr
-        jsr _hex_val_to_char
-        ldy rp_save
-        sta dot_asm_buf,y
-        iny
-        lda expr_val
-        and #$0F
-        jsr _hex_val_to_char
-        sta dot_asm_buf,y
-        iny
-        sty rp_save
-
-        ; copy suffix
-        jsr skip_sp_ptr1
-@sfx:   ldy #0
-        FAR_LDA rp_ptr
-        beq @done
-        cmp #';'
-        beq @done
-        ldy rp_save
-        cpy #22
-        bcs @done
-        sta dot_asm_buf,y
-        iny
-        sty rp_save
-        inc rp_ptr
-        bne @sfx
-        inc rp_ptr+1
-        bne @sfx
-
-@done:  ; NUL-terminate and call asm_line
-        ldy rp_save
-        lda #0
-        sta dot_asm_buf,y
-        jmp @call_asm
-
-@implied:
-        ldy rp_save
-        lda #0
-        sta dot_asm_buf,y
-
-@call_asm:
-        ; asm_line(buf) — caller sets asm_pc/asm_out, buf in A/X.
-        ; asm_line owns its own KERNAL banking; we just call it.
+        lda #1
+        sta asm_pass
         lda rp_addr
         sta asm_pc
         sta asm_out
@@ -2741,12 +2577,9 @@ mem_row:
         sta asm_pc+1
         sta asm_out+1
         FAR_CUR_W asm_out       ; `.` writes straight into user memory
-        lda #<dot_asm_buf
-        ldx #>dot_asm_buf
+        lda rp_ptr
+        ldx rp_ptr+1
         jmp asm_line            ; tail call
-
-@err:   lda #0
-        rts
 .endproc
 
 ; ═══════════════════════════════════════════════════════════

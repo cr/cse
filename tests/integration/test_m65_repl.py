@@ -1034,8 +1034,8 @@ def test_dot_at_a_flat_address_takes_its_own_banks_values(s):
     s.type(". jmp 4.2010")
     assert fpeek(s, 4, 0x2000, 3) == [0x4C, 0x10, 0x20]
     fpoke(s, 4, 0x2003, [0x00])
-    s.type(". jmp 5.0000")                 # another bank: refused (the tag:
-    k, _ = s.find(r"^;\?")                 # repl.md § Error tag dispatch)
+    s.type(". jmp 5.0000")                 # another bank: refused
+    k, _ = s.find(r"^;\?expr range$")
     assert ". jmp 5.0000" in s.row(k - 1)
     assert fpeek(s, 4, 0x2003) == [0x00]
     s.type("B $40010")                     # the bank does not outlive `.`
@@ -1121,4 +1121,27 @@ def test_m_after_an_expression_edits_there(s):
 @pytest.mark.parametrize("cmd", ["j nosuch", "m nosuch", "@ nosuch", "b nosuch"])
 def test_an_undefined_address_is_expr_undef(s, cmd):
     s.type(cmd)
+    s.find(r"^;\?expr undef$")
+
+
+# ── `.` hands its line to asm_line (TODO § Bugs › Both platforms) ──
+
+@pytest.mark.parametrize("text,op", [("asl a", 0x0A), ("rol a", 0x2A), ("lsr a", 0x4A),
+                                     ("ror a", 0x6A), ("inc a", 0x1A), ("dec a", 0x3A)])
+def test_dot_takes_the_accumulator_form(s, text, op):
+    s.poke(0x3000, [0x00])
+    s.type("@ $3000")
+    s.type(f". {text}")
+    assert s.peek(0x3000) == [op], s.screen()
+
+
+def test_dot_star_is_this_instructions_address(s):
+    s.type("@ $3000")
+    s.type(". bne *")
+    assert s.peek(0x3000, 2) == [0xD0, 0xFE]
+
+
+def test_dot_an_undefined_operand_is_expr_undef(s):
+    s.type("@ $3000")
+    s.type(". jmp nosuch")
     s.find(r"^;\?expr undef$")
