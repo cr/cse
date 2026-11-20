@@ -9,6 +9,7 @@
 | [`src/opcode_lookup.s`](../../src/opcode_lookup.s) | implementation |
 | [`src/mn_asm_tables.s`](../../src/mn_asm_tables.s) | generated — one block per CPU set: `asm_row` (1 B per profile) + `asm_delta` (one row per delta row) + `asm_oplen` (operand bytes per mode; read by asm_line) + `ASM_ZONE_G` (and `ASM_ZONE_D` where the set has the digit zones; on m65 also `ASM_ZONE_Q`, `ASM_ZONE_H`, zone B being `pidx` 1–3), produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/mn_modes.s`](../../src/mn_modes.s) | generated — one block per CPU set: the profile validity masks, one plane per 8 modes (`mn_modes_lo`, `mn_modes_hi`; on `MEGA_SUPPORT`, with 20 modes, a third plane `mn_modes_x`), 1 B per profile per plane, produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
+| [`src/cpu_set.inc`](../../src/cpu_set.inc) | generated, `.include`d by asm_line.s, addr_mode.s, dasm.s, repl.s and debugger.s — the mode constants `MODE_*` (§ Mode constants), the `asm_cpu` values `ASM_CPU_*`, and per CPU set `INSN_MAX` (the longest instruction, prefixes included: 3, m65 5), `SET_EXT` (the set has a CPU past the NMOS: extension profiles, `cat` 11 keys — the CMOS mode, m65), `HAS_ZONE_C` / `HAS_ZONE_D` (the fixed zones the set numbers; D implies E).  Produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py); back-link-exempt (generated) |
 | [`src/oplen_tbl.s`](../../src/oplen_tbl.s) | generated — packed opcode → single-byte-instruction length (64 B, 2 bits/opcode; prefixes not counted).  One content for both C64 CPU sets: the 6510's lengths (every 6502 row is a 6510 row; a crash opcode (JAM) is 1 byte); empty on m65 (`CPU_45GS02`), where the step takes the disassembler's 45GS02 length, prefixes included ([debugger.md § Next-PC](debugger.md#next-pc)).  Produced by [`dev/mnemonic_tables.py`](../../dev/mnemonic_tables.py).  Consumer: `debugger.s` (`step_next_pc`, C64); back-link-exempt (generated) |
 | [`tests/unit/test_opcode_lookup.py`](../../tests/unit/test_opcode_lookup.py) | test contract (every profile × mode of every CPU set; end to end by test_asm_line.py::test_assemble) |
 
@@ -50,7 +51,7 @@ column, every 4510 row) is a row of the tables, not code.
 **Tables.**  Per profile one mask byte per plane and one `asm_row`
 byte; per delta row one byte per mode, the row being as wide as the
 CPU set's highest used mode index + 1 (13 on the 6502 and 6510 sets,
-16 on the 65C02 set, 20 on the m65 set).  `asm_row[pidx]` holds the
+16 in the CMOS mode, 20 on the m65 set).  `asm_row[pidx]` holds the
 row's byte offset into `asm_delta` (row × width), so the lookup is a
 mask test, one indexed load and an `EOR`:
 
@@ -69,8 +70,10 @@ generator.
 **Mode constants** (the catalogue index of `dev/instruction_set.py`
 `ALL_MODES`; append-only): 0 IMP, 1 ACC, 2 IMM, 3 ZP, 4 ZPX, 5 ZPY,
 6 ABS, 7 ABX, 8 ABY, 9 IND, 10 INX, 11 INY, 12 REL, 13 ZPI, 14 AIX,
-15 ZPREL; on `MEGA_SUPPORT` also 16 IMM16, 17 REL16, 18 ISPY,
-19 ZPIZ.
+15 ZPREL, 16 IMM16, 17 REL16, 18 ISPY, 19 ZPIZ (16–19 the 4510's,
+used on `MEGA_SUPPORT`).  The generator writes them, with the
+`asm_cpu` values and the per-set switches, into `cpu_set.inc`; no
+module restates one by hand.
 
 **Profile index layout (`pidx`).**  The generator numbers the profiles
 of a CPU set in zones.  A key's zone is how asm_line *parses* it, not

@@ -47,13 +47,11 @@
         .import asm_line, asm_err_code
         .import dasm_insn_pre, _dasm_in, dasm_buf
         .importzp _dasm_ptr
+        .include "cpu_set.inc"  ; INSN_MAX (hex pairs / columns), MODE_*,
+                                ; the set's HAS_ZONE_D
 .ifdef MEGA_SUPPORT
         .import asm_rel16
         .importzp _dasm_mode
-DOT_MAX     = 5                 ; the longest instruction: hex pairs / columns
-MODE_REL16  = 17                ; (opcode_lookup.md § Mode constants)
-.else
-DOT_MAX     = 3
 .endif
         .import asm_assemble, seg_print_save
 
@@ -203,7 +201,7 @@ dot_asm_buf:    .res 24
 rp_next_hi:     .res 2          ; 16-bit scratch pair (rp_next_lo lives in zp.s)
 rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
 rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
-rp_hexbuf:      .res DOT_MAX    ; cmd_dot hex byte parse
+rp_hexbuf:      .res INSN_MAX    ; cmd_dot hex byte parse
 cold_preview_done: .res 1       ; cold-preview marker.  Set by
                                 ; cmd_step's cold-preview branch
                                 ; (alongside dbg_reason promotion to
@@ -217,7 +215,7 @@ cold_preview_done: .res 1       ; cold-preview marker.  Set by
 
 zp_stage_buf:   .res MEM_ROW_MAX ; staging buffer for the user-ZP
                                 ; read redirect — `m` dump (a row) and
-                                ; `.` disasm (3 B).  See repl.md
+                                ; `.` disasm (INSN_MAX B).  See repl.md
                                 ; § User-ZP view.
 
 ; ── RODATA ─────────────────────────────────────────────────
@@ -1199,7 +1197,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         jsr zp_stage_prep_addr
         ; dasm_insn_pre owns its KERNAL banking — we hand it the
         ; (possibly staged) bytes and the real PC for branch targets.
-        ldy #DOT_MAX - 1
+        ldy #INSN_MAX - 1
 :       FAR_LDA rp_ptr2
         sta _dasm_in,y
         dey
@@ -1220,7 +1218,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 
 ; ═══════════════════════════════════════════════════════════
 ; emit_dot — disassemble and display "ADDR:. XX XX XX  mne op"
-;   (DOT_MAX byte columns: 3, m65 5).  rp_addr = address.  Returns
+;   (INSN_MAX byte columns: 3, m65 5).  rp_addr = address.  Returns
 ;   the instruction length in A.
 ; ═══════════════════════════════════════════════════════════
 .proc emit_dot
@@ -1236,11 +1234,11 @@ zp_stage_prep_addr:                     ; convenience entry: load
         lda #' '
         jsr io_putc
 
-        ; emit_hex_cols(rp_ptr2 already set, olen, DOT_MAX)
+        ; emit_hex_cols(rp_ptr2 already set, olen, INSN_MAX)
         pla                     ; olen
         pha
         sta rp_save             ; count
-        lda #DOT_MAX
+        lda #INSN_MAX
         sta rp_save2            ; max
         jsr emit_hex_cols
 
@@ -1589,11 +1587,11 @@ mem_row:
         lda #>dot_asm_buf
         sta rp_ptr2+1
 
-        ; Copy the mnemonic word (a-z; on mn7 builds 0-9 too: a bit-op's
-        ; digit — asm_line judges it)
+        ; Copy the mnemonic word (a-z; where the set has the digit zones
+        ; 0-9 too: a bit-op's digit — asm_line judges it)
         ldy #0
 @mne:   FAR_LDA rp_ptr
-.ifndef USE_MN6
+.ifdef HAS_ZONE_D
         cmp #'0'
         bcc @md
         cmp #'9'+1
@@ -1779,13 +1777,13 @@ mem_row:
 
         jsr skip_sp_ptr1
 
-        ; Parse up to DOT_MAX hex byte pairs (the longest instruction)
+        ; Parse up to INSN_MAX hex byte pairs (the longest instruction)
         lda #0
         sta rp_cnt              ; nbytes
 
 @hex_lp:
         lda rp_cnt
-        cmp #DOT_MAX
+        cmp #INSN_MAX
         bcs @hex_done
         ldy #0
         jsr is_hex_at_ptr1

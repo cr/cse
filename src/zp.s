@@ -63,7 +63,7 @@ _asm_saved_sp:  .res 1          ; saved 6502 SP for asm_error recovery
 
 ; ── asm_vars: assembler I/O + symbol table + expression parser ────────── $09
         .exportzp asm_pc, asm_out, asm_cpu, asm_len
-        .exportzp asm_slot, asm_prof, asm_pidx, asm_base, asm_mode
+        .exportzp asm_prof, asm_pidx, asm_base, asm_mode
         .exportzp asm_tmp, asm_tmp2
         .exportzp sym_name, sym_val, sym_wide
         .exportzp expr_ptr, expr_val, expr_wide
@@ -71,10 +71,10 @@ _asm_saved_sp:  .res 1          ; saved 6502 SP for asm_error recovery
         FAR_PTR asm_out         ; output buffer pointer (lo, hi)
 asm_cpu:        .res 1          ; CPU target: 0=6502, 1=6510, 2=65C02, 3=4510, 4=45GS02
 asm_len:        .res 1          ; bytes asm_line emitted for the instruction
-asm_slot:       .res 1          ; hash slot from mn_classify
+                .res 1          ; unallocated (was asm_slot; held so later addresses stay put)
 asm_prof:       .res 1          ; raw packed profile byte
 asm_pidx:       .res 1          ; effective profile index
-asm_base:       .res 1          ; base opcode from mn7_base_op
+asm_base:       .res 1          ; base opcode from mn_base_op
                 .res 1          ; $13 unallocated (held so later addresses stay put)
 asm_mode:       .res 1          ; addressing-mode index (0–15; m65 0–19)
 asm_tmp:        .res 1          ; scratch; in asm_line the digit suffix
@@ -93,7 +93,7 @@ _as_wsize:      .res 1          ; word size or general byte scratch
 
 ; ── mn_classify: mnemonic classifier inputs ──────────────────────────── $24
         .exportzp mn_c1, mn_c2, mn_c3
-mn_c1:          .res 1          ; first letter (AND #$1F normalized, 1–26)
+mn_c1:          .res 1          ; first letter (1–26: _asm_rd_upper's A–Z)
 mn_c2:          .res 1          ; middle letter
 mn_c3:          .res 1          ; last letter
 
@@ -137,9 +137,9 @@ _st_heap:       .res 2          ; current heap write pointer
 _st_heap_base:  .res 2          ; heap base (fixed at $E600)
 
 ; ── dasm.s: disassembler scratch ──────────────────────────────────────── $41
-        .exportzp _dasm_ptr, _dasm_opc, _dasm_mne, _dasm_wptr, _dasm_midx, _dasm_mode
+        .exportzp _dasm_ptr, _dasm_mne, _dasm_wptr, _dasm_midx, _dasm_mode
         FAR_PTR _dasm_ptr       ; instruction address
-_dasm_opc:      .res 1          ; saved opcode byte
+                .res 1          ; unallocated (was _dasm_opc; held so later addresses stay put)
 _dasm_mne:      .res 2          ; packed mnemonic (2 bytes)
 _dasm_wptr:     .res 1          ; write index into dasm_buf
 _dasm_midx:     .res 1          ; mnemonic index

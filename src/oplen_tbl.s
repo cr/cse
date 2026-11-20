@@ -3,8 +3,8 @@
 ;
 ; Packed opcode → instruction length, 64 bytes: 256 opcodes × 2 bits.
 ; byte = opcode >> 2; position = opcode & 3 (pos 0 = bits 1:0 … pos 3 = bits 7:6).
-; One content for all C64 CPU sets; none on m65 (the debugger steps by
-; the disassembler's 45GS02 length).
+; One content for both C64 CPU sets, the 6510 view's lengths; none on
+; m65 (the debugger steps by the disassembler's 45GS02 length).
 
 .ifndef CPU_45GS02
         .export oplen_tbl

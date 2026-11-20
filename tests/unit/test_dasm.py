@@ -184,7 +184,7 @@ for operands, tag in BOUNDARY_OPERANDS:
         0x4C,  # JMP abs
     ]
     for opc in _REPR_OPCODES:
-        exp = _boundary_expected(CPU_6510, opc, operands)
+        exp = _boundary_expected(CPU_65C02, opc, operands)
         _BOUNDARY_CASES.append(
             pytest.param(opc, operands, exp, id=f'{tag}-${opc:02X}')
         )
@@ -192,7 +192,7 @@ for operands, tag in BOUNDARY_OPERANDS:
 @pytest.mark.parametrize("opc,operands,exp", _BOUNDARY_CASES)
 def test_dasm_boundary_operands(dasm_syms, opc, operands, exp):
     """Disassemble with boundary operand values ($00, $FF, $80)."""
-    text, _length, _ = run_dasm(dasm_syms, CPU_6510, [opc, *operands])
+    text, _length, _ = run_dasm(dasm_syms, CPU_65C02, [opc, *operands])   # dasm_syms: the CMOS mode
     assert text.upper().rstrip() == exp.upper(), \
         f'boundary ${opc:02X} ops={operands}: got {text!r}, expected {exp!r}'
 
@@ -224,7 +224,7 @@ class TestDasmBankContract:
         mem[INSN_ADDR]     = opc
         mem[INSN_ADDR + 1] = operands[0]
         mem[INSN_ADDR + 2] = operands[1]
-        mem[dasm_syms.asm_cpu] = CPU_6510
+        mem[dasm_syms.asm_cpu] = CPU_65C02      # dasm_syms: the CMOS mode
 
         # Pre-condition: $01 bit 1 = 1 (KERNAL mapped), I = 0 (interrupts on).
         mem[0x01] = 0x37

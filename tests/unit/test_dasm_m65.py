@@ -10,8 +10,8 @@ Contract source: [dasm.md § Design](../../doc/modules/dasm.md#design),
 The m65-45gs02 dasm bundle on M65Emu (asm_dasm_runner's m65 path, clean
 mode).  The oracle is dev/instruction_set.py:
 - every opcode at asm_cpu 0, 3 and 4 lists as its view's row (the
-  listing-name rule, `$EA` as `eom` in every view — D3 — the 65C02's
-  (zp) as `($nn)`; an opcode outside the view as `...`, length 1);
+  listing-name rule, `$EA` as `eom` in every view — D3; an opcode
+  outside the view as `...`, length 1);
 - at asm_cpu 4 every prefixed row — Q, far, both — lists by its own
   mnemonic and spelling, with the prefixes in its length; below 4 no
   prefix is peeled;

@@ -31,8 +31,7 @@ def model(request):
 def _decode(model, cpu, op):
     """(key, mode) the tables give opcode `op` under asm_cpu `cpu`, or None."""
     _, vm = model.maps[model.cpu_map[cpu]]
-    bm = model.cpu_bm[cpu]
-    if bm and op not in model.bitmaps[(bm - 1) // 32]:
+    if cpu == model.subset_cpu and op not in model.bitmap:
         return None
     return vm.get(op)
 
@@ -59,12 +58,11 @@ def test_asm_cpu_tables_padded_to_the_top_cpu(model):
     top = MT.ASM_CPU[views[-1]]
     n = D.n_asm_cpu(model.cpu_set)
     assert n == (5 if model.cpu_set in MT.M65_SETS else 3)
-    assert len(model.cpu_map) == len(model.cpu_bm) == n
+    assert len(model.cpu_map) == n
     in_set = {MT.ASM_CPU[v] for v in views}
     for cpu in range(n):
         if cpu not in in_set:
-            assert (model.cpu_map[cpu], model.cpu_bm[cpu]) == \
-                (model.cpu_map[top], model.cpu_bm[top])
+            assert model.cpu_map[cpu] == model.cpu_map[top] and cpu != model.subset_cpu
 
 
 def test_names_keep_the_decoder_range_compares_valid(model):
@@ -78,15 +76,15 @@ def test_names_keep_the_decoder_range_compares_valid(model):
         assert model.digit_range is None
 
 
-def test_one_map_per_distinct_view_and_its_bitmaps(model):
+def test_one_map_per_distinct_view_and_its_bitmap(model):
     views = [v for v, _ in model.maps]
     assert len(views) == len(set(views))
-    assert len(model.bitmaps) <= 1 and set(model.cpu_bm) <= {0, 1}
+    assert (model.bitmap is None) == (model.subset_cpu is None)
     if model.cpu_set in MT.M65_SETS:            # one map, the 6502 view over it
-        assert views == ['4510'] and len(model.bitmaps) == 1
-        assert model.cpu_bm == [1, 0, 0, 0, 0]
+        assert views == ['4510'] and model.bitmap is not None
+        assert model.subset_cpu == 0                # the 6502 view
     if model.cpu_set == '65c02':                # the CMOS mode: 6502 over 65C02
-        assert views == ['65c02'] and len(model.bitmaps) == 1
+        assert views == ['65c02'] and model.bitmap is not None
 
 
 # ── the m65 set (dasm.md § Design, § Prefix peel; D-P4-10) ─────────────────

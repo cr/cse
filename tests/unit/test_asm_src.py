@@ -1414,19 +1414,21 @@ class TestAsmLineNoWrap:
 
 # ── `.cpu` takes exactly the build's CPU set (assembler_syntax.md § .cpu) ──
 
-_SETS = {"6502": {"6502"}, "6510": {"6502", "6510"}}
+import asm_dasm_runner as _R
+_SETS = {c: set(_R.MT.CPU_SETS[c][1]) for c in ("6502", "6510")}      # the C64 builds
 
 
 @pytest.mark.parametrize("name", ["6502", "6510", "65c02", "4510", "45gs02", "6503", "65c0"])
 def test_cpu_directive_takes_the_build_set(cse_prg_per_cpu, name):
-    """A member is taken and governs the lines after it (`lax` the 6510's,
-    `stz` the 65C02's); anything else is one error and the CPU the
-    assembly started with stays."""
+    """A member is taken and governs the lines after it (`lax` is the
+    6510's); anything else is one error and the CPU the assembly
+    started with stays.  `stz` is no word on either C64 set (the
+    65C02's), one error at any CPU."""
     build = cse_prg_per_cpu[0].parent.name
     _, errors = _c64_assemble(cse_prg_per_cpu, f".cpu {name}\n.org $1000\nlax $12\nstz $12")
     taken = name in _SETS[build]
     cpu = name if taken else "6502"             # the REPL's (init_cse: asm_cpu 0)
-    assert errors == (not taken) + (cpu != "6510") + (cpu != "65c02")
+    assert errors == (not taken) + (cpu != "6510") + 1
 
 
 # ── The same guard on the production PRG (C64Emu) ───────────────────────────

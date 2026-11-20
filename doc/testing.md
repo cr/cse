@@ -1123,7 +1123,8 @@ tests are written, when they are written, and what they test.
     Cautionary example: the asm_cpu gate escape (doc/README.md
     § Escape Analysis, first canonical application).  The gate bug
     was invisible because only one bundle existed, matching only the
-    65C02 production build.  Adding 6510 and 6502 bundles made the
+    then c64-65c02 production build (dropped at P4b).  Adding 6510
+    and 6502 bundles made the
     bug a failing test in one commit.
 
 11. **Contract matrices drive test matrices.**  When a doc describes
@@ -1433,9 +1434,9 @@ tests are written, when they are written, and what they test.
     right things?"; coarse = "did the boot complete at all?"
 
     Cautionary example (e47efdf): the cold-init bug broke all
-    three builds (the heap-corruption root cause was
-    CPU-agnostic), but the *manifestation* differed by
-    variant — CMOS produced a clean BRK that recovered into a
+    three C64 builds of the time (the heap-corruption root cause
+    was CPU-agnostic), but the *manifestation* differed by
+    variant — the then c64-65c02 produced a clean BRK that recovered into a
     working-looking REPL (test passed via fault recovery),
     6510's BASIC-ROM bytes at the affected address didn't
     produce a clean BRK (CPU timed out wandering the ROM),

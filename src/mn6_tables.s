@@ -3,7 +3,7 @@
 ;
 ; mn6 classifier tables (doc/modules/mn_classify.md): hash T, fingerprint,
 ; base opcode, profile byte = cat (bits 7:6) | pidx (bits 5:0).
-; One block per CPU set, selected by the build's CPU_<top> define
+; One block per CPU set, selected by the set's CPU_<top> define
 ; (doc/build_system.md § Table generation).
 
         .export mn6_hash_t, mn6_fp_c2, mn6_fp, mn6_base_op, mn6_profile

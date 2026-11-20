@@ -101,7 +101,7 @@ kernel re-entry
 | mem.s | 1 | Memory manager: banking, ZP save/restore, segment queries | [mem.md](modules/mem.md) |
 | cse_io.s | 1 | Raw screen I/O, keyboard, PETSCII→screencode | [cse_io.md](modules/cse_io.md) |
 | mn_classify.s | 1 | Build-time dispatcher: selects mn6 or mn7 | [mn_classify.md](modules/mn_classify.md) |
-| mn7.s / mn6.s | 1 | Perfect hash mnemonic classifier (mn7: 114 on C64, 98 on m65; mn6: 56) | [mn_classify.md](modules/mn_classify.md) |
+| mn7.s / mn6.s | 1 | Perfect hash mnemonic classifier (mn7: 102 on c64-6510, 68 in the CMOS mode, 98 on m65; mn6: 56) | [mn_classify.md](modules/mn_classify.md) |
 | zp.s | 0 | Central zero-page layout (all user ZP + shared cross-module flags) | [zp.md](modules/zp.md) |
 | strings.s | 0 | Centralised user-facing string constants (RODATA) | [strings.md](modules/strings.md) |
 | loader.s | 6 | Discardable cold-boot stub (copies CODE+RODATA+KDATA into runtime location) | [loader.md](modules/loader.md) |
@@ -112,7 +112,7 @@ Generated files (do not edit — regenerate with `make tables`):
 |------|-----------|------------|
 | mn7_tables.s, mn6_tables.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [mn_classify.md](modules/mn_classify.md) |
 | mn_asm_tables.s, mn_modes.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [opcode_lookup.md](modules/opcode_lookup.md) |
-| oplen_tbl.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [opcode_lookup.md](modules/opcode_lookup.md) |
+| oplen_tbl.s, cpu_set.inc | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [opcode_lookup.md](modules/opcode_lookup.md) |
 | dasm_tables.s, dasm_mne_idx.s | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | [dasm.md](modules/dasm.md) |
 
 ## Dependency Graph
@@ -137,7 +137,7 @@ sibling permitted by [rule 2](#dependency-rules).
 | addr_mode | expr, symtab, log, asm_err, strings, zp |
 | opcode_lookup | mn_asm_tables, mn_modes, zp |
 | expr | symtab, mem, strings, zp |
-| dasm | dasm_tables, mem, zp (`.include`s dasm_mne_idx.s) |
+| dasm | dasm_tables, mem, zp (`.include`s dasm_mne_idx.s, cpu_set.inc) |
 | screen | cse_io, zp |
 | symtab | mem, zp |
 | log | screen, cse_io, strings, zp |

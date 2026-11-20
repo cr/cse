@@ -7,10 +7,10 @@
 | File | Role |
 |------|------|
 | [`src/dasm.s`](../../src/dasm.s) | implementation — entry, prefix peel, map decode, operand formatter |
-| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — one block per CPU set: the map blocks, the per-`asm_cpu` view tables (`dasm_cpu_map_lo/hi`; `dasm_cpu_bm` + `dasm_view_bm` where a view is a subset bitmap), `dasm_mode_len` and `dasm_mode_fmt` (one byte per mode) in RODATA; the packed mnemonic strings (the set's names only) in KDATA; on `MEGA_SUPPORT` also the Q map, and on m65 every table of the block in KDATA instead (§ Design).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
-| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated, `.include`d by `dasm.s` — one block per CPU set: `MNE_UNK` (= 0), and only where the set needs them the decoder's switches `DASM_SUBSET`, `MNE_DIGIT_LO/HI` (on `MEGA_SUPPORT` also `DASM_BYTE_MODES`, `MNE_QSFX_*`, `MNE_QNAME_*`).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
+| [`src/dasm_tables.s`](../../src/dasm_tables.s) | generated — one block per CPU set: the map blocks, the per-`asm_cpu` view tables (`dasm_cpu_map_lo/hi`; `dasm_view_bm` where a view is a subset bitmap), `dasm_mode_len` and `dasm_mode_fmt` (one byte per mode) in RODATA; the packed mnemonic strings (the set's names only) in KDATA; on `MEGA_SUPPORT` also the Q map, and on m65 every table of the block in KDATA instead (§ Design).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
+| [`src/dasm_mne_idx.s`](../../src/dasm_mne_idx.s) | generated, `.include`d by `dasm.s` — one block per CPU set: `MNE_UNK` (= 0), and only where the set needs them the decoder's switches `DASM_SUBSET_CPU` (the `asm_cpu` whose view is the subset bitmap), `MNE_DIGIT_LO/HI` (on `MEGA_SUPPORT` also `DASM_BYTE_MODES`, `MNE_QSFX_*`, `MNE_QNAME_*`).  Produced by [`dev/dasm_tables.py`](../../dev/dasm_tables.py); back-link-exempt (generated) |
 | [`tests/unit/test_dasm.py`](../../tests/unit/test_dasm.py) | test contract |
-| [`tests/unit/test_dasm_m65.py`](../../tests/unit/test_dasm_m65.py) | test contract — the m65 set on its bundle (M65Emu): every opcode at `asm_cpu` 0 / 2 / 3 / 4, every prefixed row at 4, no peel below, the asm → dasm → asm round trip |
+| [`tests/unit/test_dasm_m65.py`](../../tests/unit/test_dasm_m65.py) | test contract — the m65 set on its bundle (M65Emu): every opcode at `asm_cpu` 0 / 3 / 4, every prefixed row at 4, no peel below, the asm → dasm → asm round trip |
 | [`tests/integration/test_dasm_rom.py`](../../tests/integration/test_dasm_rom.py) | test contract — Tier I: `dasm_insn` reads the bytes of `$E000`+ through the caller's banking (KERNAL ROM at the REPL prompt) |
 
 ## Interface
@@ -55,12 +55,13 @@ mapped out by accident.
 
 ### Memory
 
-**ZP (8 bytes; 10 on m65):** `_dasm_ptr` (2; on m65 a 4-byte far pointer), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1).
+**ZP (7 bytes; 9 on m65):** `_dasm_ptr` (2; on m65 a 4-byte far pointer), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1).
 
 **BSS:** `dasm_buf` (24) — output buffer for the disassembled
-instruction text (PETSCII + NUL); `_dasm_in` (3 on C64 builds, 5 on
+instruction text (PETSCII + NUL); `_dasm_in` (`INSN_MAX`: 3 on C64 builds, 5 on
 the m65 build) — input snapshot of the maximum-length instruction read
-from the user's address before banking out (see Caveats);
+from the user's address before banking out (see Caveats); after the
+peel `_dasm_in[0]` is the base opcode;
 `_dasm_pfx` (1, `MEGA_SUPPORT` only) — the peeled prefixes: bit 0 Q,
 bit 1 far, bit 2 a Q-map-2 form (its `ZPIZ` printed `($nn)`); the
 length adds 2 for Q, 1 for far.
@@ -72,8 +73,10 @@ length adds 2 for Q, 1 for far.
 "No self-modifying code").
 
 **Depends on:** dasm_tables (GENERATED — `dasm_mne_str`,
-`dasm_mode_len`, `dasm_mode_fmt`, `dasm_cpu_map_lo/hi`; `dasm_cpu_bm`,
-`dasm_view_bm` where `DASM_SUBSET`; `dasm_q_map` on m65), dasm_mne_idx, mem
+`dasm_mode_len`, `dasm_mode_fmt`, `dasm_cpu_map_lo/hi`;
+`dasm_view_bm` where `DASM_SUBSET_CPU`; `dasm_q_map` on m65), dasm_mne_idx, mem;
+`.include`s `cpu_set.inc` (`MODE_*`, `ASM_CPU_*`, `INSN_MAX` —
+[opcode_lookup.md § Owned files](opcode_lookup.md#owned-files))
 (`kernal_bank_out` / `kernal_bank_in`), zp (`asm_cpu`, `_dasm_*`).
 `dasm_mne_idx.s` is `.include`d (generated constants), not linked.
 
@@ -99,11 +102,11 @@ mode  = block[256 + op/2]  (nibble by op bit 0)
 each either decodes as a subset of an existing map — every opcode it
 defines decodes identically there — or gets a map of its own.  A
 subset view is the **view bitmap** `dasm_view_bm` (32 B, one bit per
-opcode) over its host map, flagged by `dasm_cpu_bm[asm_cpu]`; an
-opcode whose bit is clear decodes as `MNE_UNK`, mode IMP, length 1.
-A set has at most one subset view (`dasm_cpu_bm[asm_cpu]` 0 for a
-full view, 1 for it).  Only a set with a subset view carries the
-bitmap, the flag table and the check (`DASM_SUBSET`).  On m65 the
+opcode) over its host map; an opcode whose bit is clear decodes as
+`MNE_UNK`, mode IMP, length 1.  A set has at most one subset view,
+and the generated `DASM_SUBSET_CPU` names its `asm_cpu` (the 6502's,
+0, in every set that has one); only such a set carries the bitmap
+and the check.  On m65 the
 map's modes are one byte per opcode (`DASM_BYTE_MODES`) and the Q map
 is `dasm_q_map`.
 
@@ -114,9 +117,10 @@ is `dasm_q_map`.
 | {6502, 65C02} (the CMOS mode) | 65C02 | 6502, over the 65C02 map |
 | {6502, 4510, 45GS02} | 4510 | 6502, over the 4510 map |
 
-The per-`asm_cpu` tables are padded to the platform's top `asm_cpu`
-(3 entries on C64 sets, 5 on m65); a value outside the build's set
-reads the top CPU's view.
+The per-`asm_cpu` tables are padded to the highest `asm_cpu` a set of
+the platform holds (3 entries on the C64 sets and the CMOS mode, the
+65C02's 2; 5 on m65); a value outside the build's set reads the top
+CPU's view.
 
 The 45GS02 view is the 4510 map plus the prefix peel.
 
@@ -181,8 +185,10 @@ instruction's last byte).
 **Compile-time guards:** a build assembles only its CPU set's table
 block (`.ifdef CPU_<top>`).  The decoder's optional paths are switched
 by the generated constants, not by CPU defines: the subset check by
-`DASM_SUBSET`, the digit decoration by `MNE_DIGIT_LO`; the prefix peel
-and `_dasm_pfx` exist only on `MEGA_SUPPORT`.
+`DASM_SUBSET_CPU`, the digit decoration by `MNE_DIGIT_LO`, the byte-wide
+modes by `DASM_BYTE_MODES`, the mode numbers and `INSN_MAX` by
+`cpu_set.inc`; the prefix peel and `_dasm_pfx` exist only on
+`MEGA_SUPPORT`.
 
 ## Caveats
 

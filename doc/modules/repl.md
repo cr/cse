@@ -151,7 +151,7 @@ in zero page; see [zp.md](zp.md).
 | `rp_next_hi` | 2 | 16-bit scratch pair (`rp_next_lo` is in zp.s) |
 | `rp_opc` | 1 | Command character / scratch (`emit_mem` columns, `info_emit_rows` count) |
 | `rp_dis_bp` | 1 | `cmd_step`: disabled breakpoint slot × 4 ($FF = none) |
-| `rp_hexbuf` | 3 (m65 5; `DOT_MAX`) | `cmd_dot` hex byte parse: up to `DOT_MAX` pairs, the longest instruction |
+| `rp_hexbuf` | 3 (m65 5; `INSN_MAX`) | `cmd_dot` hex byte parse: up to `INSN_MAX` pairs, the longest instruction |
 | `cold_preview_done` | 1 | Cold-preview marker |
 | `zp_stage_buf` | 8 (m65 16; `MEM_ROW_MAX`) | User-ZP staging buffer for `m` dump and `.` disasm ([§ User-ZP view](#user-zp-view)) |
 | `wl_vcol` | 1 | `warn_long_lines`: visual column of the current line |
@@ -475,9 +475,9 @@ to or accepted from the REPL user:
 
 | Command | Path | Redirect |
 |---------|------|----------|
-| `m` dump | read 8 bytes for display | yes — staged from `userland_zp_buf` into `zp_stage_buf` |
+| `m` dump | read a row (`MEM_ROW_MAX`: 8, m65 16) for display | yes — staged from `userland_zp_buf` into `zp_stage_buf` |
 | `m` edit | write each edited byte | yes — lands in `userland_zp_buf` |
-| `.` disasm | read up to 3 bytes for the disassembler | yes — staged into `zp_stage_buf` |
+| `.` disasm | read `INSN_MAX` bytes (3, m65 5) for the disassembler | yes — staged into `zp_stage_buf` |
 | `.` hex poke | write each parsed byte | yes — lands in `userland_zp_buf` |
 | `.` mnemonic | `asm_line` emits at `asm_pc` | **no** — live memory |
 
@@ -491,7 +491,7 @@ live CPU port or CSE's own ZP, and `m fffc` shows the user's
 range reads and writes go to memory: $80–$FF is KERNAL ZP and not
 mirrored.
 
-`zp_stage_prep` fills the 8-byte `zp_stage_buf` from `(rp_ptr2)`,
+`zp_stage_prep` fills `zp_stage_buf` (`MEM_ROW_MAX` bytes) from `(rp_ptr2)`,
 taking `userland_zp_buf` bytes for in-range offsets and live bytes
 for the rest, then points `rp_ptr2` at the buffer, so `emit_dot` (which copies
 the staged bytes into `_dasm_in` and enters `dasm_insn_pre` with the

@@ -11,7 +11,8 @@ BUDGET is each C64 build's unpacked release PRG size.  It is a ratchet:
 a commit that shrinks a build lowers its budget to the new size, so the
 saving cannot silently erode.  A deliberate C64 feature that grows a
 build raises the budget in its own commit, with its reason.
-(Baseline before the m65 work, 910d96d: 20 790 / 21 232 / 21 688 B.)
+(Baseline before the m65 work, 910d96d: 6502 20 790 B, 6510 21 232 B,
+the then c64-65c02 21 688 B.)
 The m65 build joined BUDGET with its first link (P0 step (5),
 [build_system.md § Size gate](../../doc/build_system.md#size-gate)).
 """
@@ -25,9 +26,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # build → (release PRG, byte budget)
 BUDGET = {
-    "c64-6502":  (ROOT / "build/release/6502/cse-6502.prg", 20_808),
-    "c64-6510":  (ROOT / "build/release/6510/cse.prg",      21_153),
-    "m65-45gs02": (ROOT / "build/release/m65/cse-m65.prg",  24_458),
+    "c64-6502":  (ROOT / "build/release/6502/cse-6502.prg", 20_732),
+    "c64-6510":  (ROOT / "build/release/6510/cse.prg",      21_080),
+    "m65-45gs02": (ROOT / "build/release/m65/cse-m65.prg",  24_400),
 }
 
 

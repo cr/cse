@@ -85,7 +85,7 @@ matrix](asm_line.md#asm_cpu--category-gate-matrix).
 | Build flag | `-D USE_MN6` | default | default | default |
 
 The 6510 and the CMOS mode share mn7's `T`, collision-free over the
-114 C64 names (legal, illegal and CMOS); each block holds its own
+114 names of both sets together (legal, illegal and CMOS); each block holds its own
 set's keys, and a name of the other set hashes to an empty slot.
 
 The m65 `mn7` is the same routine over the m65 key set's

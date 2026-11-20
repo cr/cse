@@ -35,7 +35,7 @@ position-pinning witness.
 `jmp asm_expr_error` for an expression error (except an undefined
 symbol on pass 0, § Forward-reference handling) — neither returns
 ([asm_err.md](asm_err.md)).
-**Clobbers:** A, X, Y; `asm_opr`, `asm_tmp2` (ZPREL), `_au_far` (m65), `expr_ptr`, `expr_val`, `expr_wide`
+**Clobbers:** A, X, Y; `asm_opr`, `asm_tmp2` (ZPREL, in a set with the digit zones), `_au_far` (m65), `expr_ptr`, `expr_val`, `expr_wide`
 and everything `expr_eval_nb` clobbers ([expr.md](expr.md)); on the
 pass-1 shadow path also `sym_name` and what `sym_lookup` / `log_warn`
 clobber.
@@ -102,7 +102,7 @@ mode syntaxes:
 | `(expr),Y` (narrow) | INY | 11 |
 | `(expr)` (narrow) | ZPI | 13 |
 | `(expr,X)` (wide) | AIX | 14 |
-| `expr,expr` | ZPREL | 15 |
+| `expr,expr` | ZPREL (the CMOS mode, m65 — `HAS_ZONE_D`; elsewhere `;?syntax`, as no set member has the form) | 15 |
 
 REL (12) is never returned: a branch target is returned as ZP (3) or
 ABS (6) and asm_line's zone B computes the offset

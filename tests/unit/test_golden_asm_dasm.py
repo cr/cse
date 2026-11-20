@@ -5,10 +5,11 @@ Owner: doc/build_system.md
 Contract source: [doc/TODO.md § M65](../../doc/TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1),
 *Acceptance gates*; [doc/testing.md § Principle 7](../../doc/testing.md#principles).
 
-The golden files (tests/fixtures/golden/asm_dasm_<cpu set>.json) were
-recorded by dev/capture_golden.py: the C64 sets' from the assembler and
-disassembler *before* the move to the generated table formats, the m65
-set's (45gs02, its prefixed cases included) when P4 closed.  For every
+The golden files (tests/fixtures/golden/asm_dasm_<cpu set>.json) are
+recorded by dev/capture_golden.py; each names the commit it was recorded
+from (`source_rev`): the 6502 set's from before the generated table
+formats, the 6510 set's, the CMOS mode's (65c02) and the m65 set's
+(45gs02, its prefixed cases included) re-recorded at P4b.  For every
 CPU set this test re-runs the same exhaustive sweeps on the current
 source and asserts:
 

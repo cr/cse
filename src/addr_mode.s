@@ -47,7 +47,11 @@
         .import s_a_shadow              ; warning string (strings.s)
         .importzp expr_ptr, expr_val, expr_wide
         .importzp asm_pc                ; for forward-ref dummy value
-        .importzp asm_ptr, asm_opr, asm_tmp2   ; asm_tmp2: ZPREL's zero-page byte
+        .importzp asm_ptr, asm_opr
+        .include "cpu_set.inc"          ; MODE_*, the set's HAS_ZONE_D
+.ifdef HAS_ZONE_D
+        .importzp asm_tmp2              ; ZPREL's zero-page byte
+.endif
         .importzp sym_name              ; sym_lookup input
 
 ; ── PETSCII character constants ──────────────────────────────────────────────
@@ -63,27 +67,11 @@ SC_COMM = $2C   ; ','
 SC_SLASH= $2F   ; '/'
 SC_SEMI = $3B   ; ';'
 
-; ── Mode indices (mirror ALL_MODES order in dev/mnemonic_tables.py) ───────────
-MODE_IMP  = 0   ; implied / inherent            –
-MODE_ACC  = 1   ; accumulator                   A
-MODE_IMM  = 2   ; immediate                     #$nn
-MODE_ZP   = 3   ; zero page                     $nn
-MODE_ZPX  = 4   ; zero page, X                  $nn,X
-MODE_ZPY  = 5   ; zero page, Y                  $nn,Y
-MODE_ABS  = 6   ; absolute                      $nnnn
-MODE_ABX  = 7   ; absolute, X                   $nnnn,X
-MODE_ABY  = 8   ; absolute, Y                   $nnnn,Y
-MODE_IND  = 9   ; indirect                      ($nnnn)
-MODE_INX  = 10  ; (indirect, X)                 ($nn,X)
-MODE_INY  = 11  ; (indirect), Y                 ($nn),Y
-MODE_REL  = 12  ; relative  NOTE: never returned — a branch target is ZP/ABS;
-                ;                 asm_line's zone B computes the offset
-MODE_ZPI  = 13  ; (zero page)  [65C02]          ($nn)
-MODE_AIX  = 14  ; (absolute, X)  [65C02 JMP]    ($nnnn,X)
-MODE_ZPREL= 15  ; zero page + relative  [65C02]  $nn,$rr
+; The mode indices are cpu_set.inc's MODE_* (ALL_MODES order).  MODE_REL
+; is never returned: a branch target is ZP / ABS, asm_line's zone B
+; computes the offset.  ZPI, AIX and ZPREL are the CMOS mode's and the
+; 4510's; ISPY ((e,sp),y) and ZPIZ ((e),z) the 4510's.
 .ifdef MEGA_SUPPORT
-MODE_ISPY = 18  ; (stack, SP), Y  [4510]         ($nn,SP),Y
-MODE_ZPIZ = 19  ; (zero page), Z  [4510]         ($nn),Z
 SC_S    = $53   ; 'S'
 SC_P    = $50   ; 'P'
 SC_Z    = $5A   ; 'Z'
@@ -566,7 +554,10 @@ mode_parse:
         cmp #SC_Y
         beq @zpy
         ; Not X or Y → ZPREL: expr,expr — the zero-page byte to asm_tmp2,
-        ; the branch target (both bytes) to asm_opr
+        ; the branch target (both bytes) to asm_opr.  Only a set with the
+        ; digit zones has a ZPREL row (BBR / BBS); elsewhere the form is
+        ; a syntax error, as its lookup would make it.
+.ifdef HAS_ZONE_D
         lda asm_opr
         sta asm_tmp2
         jsr _au_read_val        ; parse second operand → asm_opr
@@ -574,6 +565,9 @@ mode_parse:
         lda #MODE_ZPREL
         ldx #2
         rts
+.else
+        jmp asm_syntax_error
+.endif
 
 @zpx:   iny                     ; consume 'X'
         jsr _au_check_end

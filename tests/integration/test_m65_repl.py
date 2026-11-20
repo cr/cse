@@ -498,7 +498,8 @@ def test_the_cold_start_selects_the_45gs02(s):
 
 # ── P4 T6, P4b T3: `.cpu` and `u` on m65 — the set {6502, 4510, 45gs02} ──
 
-M65_SET = ["6502", "4510", "45gs02"]
+import asm_dasm_runner as _R
+M65_SET = list(_R.MT.CPU_SETS["45gs02"][1])
 
 
 @pytest.mark.parametrize("name,value", [("6502", 0), ("4510", 3), ("45gs02", 4),

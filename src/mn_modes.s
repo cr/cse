@@ -5,7 +5,7 @@
 ;   mn_modes_lo bits 0-7: IMP ACC IMM ZP ZPX ZPY ABS ABX
 ;   mn_modes_hi bits 0-7: ABY IND INX INY REL ZPI AIX ZPREL
 ;   mn_modes_x  bits 0-3: IMM16 REL16 ISPY ZPIZ (m65 only)
-; One block per CPU set, selected by the build's CPU_<top> define
+; One block per CPU set, selected by the set's CPU_<top> define
 ; (doc/build_system.md § Table generation).
 
         .export mn_modes_lo, mn_modes_hi

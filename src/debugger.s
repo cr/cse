@@ -66,11 +66,10 @@
 .ifdef MEGA_SUPPORT
         .import dasm_insn, _dasm_in, _dasm_pfx  ; the 45GS02's length,
                                                 ; base opcode, prefixes
+        .importzp asm_cpu       ; saved, set to the 45GS02 and restored
+        .include "cpu_set.inc"  ; ASM_CPU_45GS02
 .else
         .import oplen_tbl
-.endif
-.ifdef MEGA_SUPPORT
-        .importzp asm_cpu       ; saved, set to 4 and restored for the disassembler
 .endif
 .ifdef PLATFORM_C64
         .import save_userland_zp, restore_userland_zp
@@ -511,7 +510,7 @@ brk_stub:
         ; prefixed instruction is linear.
         lda asm_cpu
         pha
-        lda #4
+        lda #ASM_CPU_45GS02
         sta asm_cpu
         lda brk_pc
         ldx brk_pc+1
@@ -627,14 +626,8 @@ brk_stub:
         sta step_next_hi+1
         rts
 @branch_over:
-        lda brk_pc
-        clc
-        adc #2
-        sta step_next_lo
-        lda brk_pc+1
-        adc #0
-        sta step_next_lo+1
-        rts
+        lda #2                  ; step_next_lo = PC + 2
+        jmp @add
 
 .ifdef MEGA_SUPPORT
 @pc3:   lda #3                  ; step_next_lo = PC + 3 (a bit or 16-bit
@@ -685,24 +678,10 @@ brk_stub:
         ldy #2
         FAR_LDA rp_ptr2
         cmp #ROM_BASE_HI
-        bcc @jsr_into
+        bcc @jmp_abs            ; into: the target, as JMP abs
 @jsr_over:
-        lda brk_pc
-        clc
-        adc #3
-        sta step_next_lo
-        lda brk_pc+1
-        adc #0
-        sta step_next_lo+1
-        rts
-@jsr_into:
-        ldy #1
-        FAR_LDA rp_ptr2
-        sta step_next_lo
-        iny
-        FAR_LDA rp_ptr2
-        sta step_next_lo+1
-        rts
+        lda #3                  ; step_next_lo = PC + 3
+        jmp @add
 .ifdef MEGA_SUPPORT
         ; BSR, JSR (ind), JSR (abs,X): as JSR — over it under STEP_OVER
         ; or into ROM; else into the target (PC + 2 + offset16, the

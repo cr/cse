@@ -2,8 +2,8 @@
 ; Owner: doc/modules/mn_classify.md
 ;
 ; Provides common entry points that forward to either the 6-bit
-; (56-mnemonic legal-NMOS) or the 7-bit (114-mnemonic full) hash
-; classifier, depending on the USE_MN6 build define.
+; (56-mnemonic legal-NMOS) or the 7-bit hash classifier over the
+; build's CPU set, depending on the USE_MN6 build define.
 ;
 ; Exports:
 ;   mn_classify   — classify 3-letter mnemonic (JSR entry)
@@ -11,7 +11,7 @@
 ;   mn_profile    — profile table (re-exported alias)
 ;
 ; Selection:
-;   Default (no define)  →  mn7 (full 114-mnemonic hash)
+;   Default (no define)  →  mn7 (the set's keys: mn_classify.md § Variants)
 ;   ca65 -D USE_MN6      →  mn6 (legal-NMOS 56-mnemonic hash)
 
         .export mn_classify

@@ -1,11 +1,12 @@
 ; ============================================================
 ; Owner: doc/modules/mn_classify.md
-; mn7.s -- 7-bit perfect hash mnemonic classifier (all 114 mnemonics)
+; mn7.s -- 7-bit perfect hash mnemonic classifier
 ; ============================================================
 ;
-; Identifies all 114 NMOS 6502 + 65C02 mnemonics (legal, illegal,
-; CMOS) via a collision-free 7-bit hash with a zero-false-positive
-; bit-pack fingerprint.
+; Identifies the keys of the build's mn7 CPU set (mn_classify.md
+; § Variants: 102 on c64-6510, 68 in the CMOS mode, 98 on m65) via a
+; collision-free 7-bit hash with a zero-false-positive bit-pack
+; fingerprint; the C64 blocks share one T over all 114 C64 names.
 ;
 ; Algorithm
 ; ---------

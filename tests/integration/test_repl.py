@@ -1012,11 +1012,12 @@ class TestCpuSelect:
 
 
 
-# The CPU set per C64 build (build_system.md § Builds and CPU sets).
-# `u NAME` selects a member, anything else is ignored; `u` lists the set,
-# the active member marked `*`.
-CPU_SETS = {"6502": ["6502"], "6510": ["6502", "6510"]}
-CPU_VALUE = {"6502": 0, "6510": 1, "65c02": 2, "4510": 3, "45gs02": 4}
+# The CPU set per C64 build (build_system.md § Builds and CPU sets, from
+# the generator's registry).  `u NAME` selects a member, anything else is
+# ignored; `u` lists the set, the active member marked `*`.
+import asm_dasm_runner as _R
+CPU_SETS = {c: list(_R.MT.CPU_SETS[c][1]) for c in ("6502", "6510")}
+CPU_VALUE = dict(_R.MT.ASM_CPU)
 
 
 def _u(prg, cmd, start=0):
@@ -1514,3 +1515,21 @@ class TestWarnLongLines:
         assert diff == [], f"repl.s CODE written at {diff}"
         scr = "\n".join(cpu.screen_text(r) for r in range(ROWS))
         assert scr.count("long") == 1 and ";!long L2" in scr, scr
+
+
+class TestNoDigitWordOn6510:
+    """asm_line.md § Mnemonic word: on c64-6510 no key takes a digit, so
+    `. rmb3 $12` and `. lda4 $10` are `;?syntax` through the REPL — the
+    word copy stops at a letter, and the assembler has no digit scan."""
+
+    @pytest.mark.parametrize("text", [". rmb3 $12", ". lda4 $10", ". bbs7 $12,$3010"])
+    def test_digit_word_is_syntax(self, rsyms, text):
+        cpu = make_cpu(rsyms)
+        cpu.memory[rsyms.asm_cpu] = 1
+        set_cur_addr(cpu, rsyms, 0x3000)
+        before = list(cpu.memory[0x3000:0x3004])
+        set_line_buf(cpu, rsyms, text)
+        run_at(cpu, rsyms.exec_line)
+        screen = "\n".join(cpu.screen_text(r) for r in range(ROWS))
+        assert ";?syntax" in screen, screen
+        assert list(cpu.memory[0x3000:0x3004]) == before       # nothing written

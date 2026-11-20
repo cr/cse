@@ -554,7 +554,7 @@ changes:
 
 | Generator | Input | Output |
 |-----------|-------|--------|
-| `dev/mnemonic_tables.py` | `dev/instruction_set.py`, `dev/hashes.py` | `src/mn7_tables.s`, `src/mn6_tables.s`, `src/mn_asm_tables.s`, `src/mn_modes.s`, `src/oplen_tbl.s` |
+| `dev/mnemonic_tables.py` | `dev/instruction_set.py`, `dev/hashes.py` | `src/mn7_tables.s`, `src/mn6_tables.s`, `src/mn_asm_tables.s`, `src/mn_modes.s`, `src/oplen_tbl.s`, `src/cpu_set.inc` (the mode and `asm_cpu` constants, the sets' switches) |
 | `dev/dasm_tables.py` | `dev/instruction_set.py`, `dev/mnemonic_tables.py` (the CPU-set registry) | `src/dasm_tables.s`, `src/dasm_mne_idx.s` |
 
 **One source, one format, sized per build.**  Every opcode fact in

@@ -34,6 +34,40 @@ is per-session, the project's working state recap.
 
 ---
 
+## P4b — review of the assembly and disassembly chain (2026-11-20)
+
+Operator-invoked after P4b ("the cmos surgery"): strip obsolete
+complexity and duplication, update comments and docs.  Four
+reviewers at once (generators; the assembler chain; dasm, REPL and
+debugger; docs and tests), findings verified against the live code
+and, for the generators, by byte-identical regeneration.
+
+### What worked
+
+- Asking each reviewer to measure (listings, `cmp` of regenerated
+  tables, which builds' bytes a change touches) made the findings
+  actionable without a second pass: every "byte-identical" claim held.
+- The cross-file duplication (mode numbers in four files, the longest
+  instruction in two, `cpx #4` for the 45GS02) was visible only to a
+  reviewer told to look across modules; a per-module review had
+  missed it twice.  One generated include ended it.
+
+### What didn't
+
+- `asm_slot` had been a write-only ZP cell since before the m65 work:
+  dead stores are invisible to tests and to a reader who trusts a
+  name.  A dead-symbol grep belongs in the Quality Sweep.
+- Hand-derived `.ifdef` switches (`BIT_OPS` from `CMOS_SUPPORT` /
+  `MEGA_SUPPORT`) encoded a coincidence, not the rule; the generator
+  knows the rule and now emits the switch.
+
+### Suggested amendments
+
+- **Tier C:** the Quality Sweep greps for write-only ZP / BSS cells
+  and for `.ifdef` conditions that restate a generated fact by hand.
+
+---
+
 ## P4 — Quality Sweep and code review of the milestone (2026-11-19)
 
 Operator-invoked over P4's commits (`c339e39^..86d5f2f`): five

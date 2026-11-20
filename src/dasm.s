@@ -5,7 +5,7 @@
 ; Interface:
 ;   dasm_insn (A/X = addr lo/hi)
 ;     Output: NUL-terminated PETSCII string in dasm_buf
-;     Returns instruction length in A (1-3)
+;     Returns instruction length in A (1 to INSN_MAX: 3, m65 5)
 ;
 ; CPU view: asm_cpu (build_system.md § Builds and CPU sets) selects one of
 ; the build's CPU views.  Every opcode fact comes from the generated
@@ -13,9 +13,10 @@
 ;
 ;   dasm_cpu_map_lo/hi[asm_cpu]  → the view's map block:
 ;       +0    256 B  mnemonic index per opcode (0 = MNE_UNK, "...")
-;       +256  128 B  mode per opcode, two 4-bit modes per byte (even = low)
-;   dasm_cpu_bm[asm_cpu] = 1     → the view is the subset bitmap
-;       dasm_view_bm over that map (DASM_SUBSET sets only); an opcode
+;       +256  128 B  mode per opcode, two 4-bit modes per byte (even = low;
+;                    m65: one byte per opcode, 256 B — DASM_BYTE_MODES)
+;   DASM_SUBSET_CPU              → the asm_cpu whose view is the subset
+;       bitmap dasm_view_bm over its map (sets with one only); an opcode
 ;       outside it lists as "..."
 ;   dasm_mode_len / dasm_mode_fmt[mode]  → length and operand format
 ;   dasm_mne_str[index]          → 3 chars packed into 2 bytes (5 bits/char)
@@ -24,7 +25,9 @@
 ; as its digit (RMB3).
 
         .include "platform.inc"
-        .include "dasm_mne_idx.s"   ; MNE_UNK, MNE_DIGIT_*, DASM_SUBSET
+        .include "dasm_mne_idx.s"   ; MNE_UNK, MNE_DIGIT_*, DASM_SUBSET_CPU,
+                                    ; DASM_BYTE_MODES, MNE_QSFX_*, MNE_QNAME_*
+        .include "cpu_set.inc"      ; MODE_*, ASM_CPU_*, INSN_MAX
 
         .export dasm_insn, dasm_insn_pre, _dasm_in
 .ifdef MEGA_SUPPORT
@@ -35,28 +38,24 @@
         .importzp asm_cpu
         .import dasm_mne_str, dasm_mode_len, dasm_mode_fmt
         .import dasm_cpu_map_lo, dasm_cpu_map_hi
-.ifdef DASM_SUBSET
-        .import dasm_cpu_bm, dasm_view_bm
+.ifdef DASM_SUBSET_CPU
+        .import dasm_view_bm
 .endif
 .ifdef MEGA_SUPPORT
         .import dasm_q_map
-DASM_INSN_MAX = 5               ; $42 $42 $EA, the opcode, an operand byte
 PFX_Q     = %00000001           ; _dasm_pfx: $42 $42 peeled
 PFX_FAR   = %00000010           ;            $EA peeled: [ ] for ( )
 PFX_ASZPI = %00000100           ;            ZPIZ printed ($nn): a Q-map 2 form
-MODE_ZPIZ = 19
-.else
-DASM_INSN_MAX = 3
 .endif
         .import kernal_bank_out, kernal_bank_in
 
 ; ── ZP usage ─────────────────────────────────────────────
-.importzp _dasm_ptr, _dasm_opc, _dasm_mne, _dasm_wptr, _dasm_midx, _dasm_mode
+.importzp _dasm_ptr, _dasm_mne, _dasm_wptr, _dasm_midx, _dasm_mode
 
 ; ── BSS ──────────────────────────────────────────────────
 .segment "BSS"
 dasm_buf:      .res 24         ; output buffer (NUL-terminated PETSCII)
-_dasm_in:      .res DASM_INSN_MAX ; input snapshot (the longest insn) read from
+_dasm_in:      .res INSN_MAX ; input snapshot (the longest insn) read from
                                ; the user's address with the caller's bank
                                ; state still in force, so KERNAL ROM at
                                ; $E000+ is captured BEFORE dasm_insn banks
@@ -81,7 +80,7 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
 ; costs only the flag check on each call from inside the batch.
 ;
 ; KERNAL-ROM read fix: snapshot the longest instruction's bytes
-; (DASM_INSN_MAX) from the user's address into _dasm_in BEFORE banking out — otherwise
+; (INSN_MAX) from the user's address into _dasm_in BEFORE banking out — otherwise
 ; disassembly of `$E000+` would read the RAM under KERNAL (mostly
 ; $00 / $FF) and produce a stream of "brk" / "..." instead of the
 ; real KERNAL instructions.  The snapshot uses whatever bank state
@@ -105,7 +104,7 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
 .endif
         ; Snapshot the bytes from the user address while the caller's
         ; bank state is still in force.
-        ldy #DASM_INSN_MAX - 1
+        ldy #INSN_MAX - 1
 @cp:    FAR_LDA _dasm_ptr
         sta _dasm_in,y
         dey
@@ -116,7 +115,7 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         pla
         sta _dasm_ptr
 .endif
-; dasm_insn_pre — entry for a caller that has filled _dasm_in (DASM_INSN_MAX B)
+; dasm_insn_pre — entry for a caller that has filled _dasm_in (INSN_MAX B)
 ; and _dasm_ptr (the bytes' real PC, for branch targets) itself:
 ; the REPL's user-ZP staged view.  A label only, so the decoder's
 ; layout and cycle counts are unchanged.
@@ -144,19 +143,18 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
 .ifdef MEGA_SUPPORT
         lda #0
         sta _dasm_pfx
-        cpx #4                  ; the 45GS02: peel its prefixes
+        cpx #ASM_CPU_45GS02     ; peel its prefixes
         bne :+
         jsr _dasm_peel
         ldx asm_cpu
 :
 .endif
-        ldy _dasm_in            ; opcode
-        sty _dasm_opc
+        ldy _dasm_in            ; the opcode (after the peel)
 
-.ifdef DASM_SUBSET
-        ; Subset view: an opcode outside the bitmap lists as "...".
-        lda dasm_cpu_bm,x       ; 1: the view is the subset bitmap
-        beq @mapped
+.ifdef DASM_SUBSET_CPU
+        ; The subset view: an opcode outside its bitmap lists as "...".
+        cpx #DASM_SUBSET_CPU
+        bne @mapped
         tya
         lsr
         lsr
@@ -173,7 +171,7 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         sta _dasm_mode          ; MODE_IMP = 0: length 1, no operand
         jmp finish
 @in_view:
-        ldy _dasm_opc
+        ldy _dasm_in
 @mapped:
 .endif
         lda (_dasm_mne),y       ; mnemonic index
@@ -289,7 +287,7 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         bcc @space
         cmp #MNE_DIGIT_HI+1
         bcs @space
-        lda _dasm_opc
+        lda _dasm_in
         lsr
         lsr
         lsr
@@ -343,12 +341,8 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         cpx #$07
         beq @rel
         cpx #$08
-.ifndef MEGA_SUPPORT
         beq @zprel
-.else
-        bne :+
-        jmp @zprel
-:
+.ifdef MEGA_SUPPORT
         cpx #$0A
         beq @rel16
         cpx #$09
@@ -460,13 +454,7 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         ; Lo nybble of format byte → suffix
         pla                     ; format byte
         and #$0F
-.ifdef MEGA_SUPPORT
-        bne :+
-        rts                     ; 0 = no suffix
-:
-.else
         beq @done               ; 0 = no suffix
-.endif
         cmp #$01
         beq @comma_x
         cmp #$02
@@ -585,7 +573,7 @@ _dasm_pfx:     .res 1          ; the peeled prefixes (PFX_*), dasm.md § Prefix 
         sta _dasm_in,y
         iny
         inx
-        cpx #DASM_INSN_MAX
+        cpx #INSN_MAX
         bcc :-
 @none:  rts
 
@@ -721,7 +709,7 @@ _emit_target:
 
 .segment "RODATA"
 
-.ifdef DASM_SUBSET
+.ifdef DASM_SUBSET_CPU
 ; Bit masks for an opcode's bit within its bitmap byte (opcode & 7).
 _bit_tab:
         .byte $01, $02, $04, $08, $10, $20, $40, $80

@@ -16,6 +16,9 @@ Generates into src/:
                       m65 the mn7gs keys)
     oplen_tbl.s     – packed opcode → length (one content for the C64 sets,
                       none on m65)
+    cpu_set.inc     – the constants the modules `.include`: the mode index,
+                      the asm_cpu values, and per set INSN_MAX, SET_EXT,
+                      HAS_ZONE_C / HAS_ZONE_D
 
     python3 dev/mnemonic_tables.py [--out DIR]
 
@@ -127,22 +130,19 @@ CPU_SETS = {
 }
 M65_SETS = frozenset({'45gs02'})      # the m65 platform's (D-P4-10)
 
-# The C64 platform's CPU ladder.  A key's category (profile byte bits 7:6)
-# is a property of the key on the platform, the same in every CPU set:
-#   0  legal NMOS, identical on the extension CPU
-#   1  legal NMOS with more modes on the extension CPU (profile pair)
-#   2  first defined by the 6510 (illegal)
-#   3  first defined by the extension CPU
-PLATFORM_VIEWS = ('6502', '6510', '65c02')
-EXT_VIEW = '65c02'
+# A key's category (profile byte bits 7:6) in a CPU set (mn_classify.md
+# § cat): 0 legal NMOS, identical on the set's top CPU; 1 legal NMOS with
+# more modes on the top CPU (profile pair, the extension at pidx + 1);
+# 2 a 6510 illegal (the 6510 set) or a Q name (m65); 3 first defined by
+# the top CPU (65C02 in the CMOS mode, 4510 on m65).
 
 # Fixed single-shape zones, in pidx order.  The order makes the C64 sets'
 # present zones a prefix (6502: A B F; 6510: A B F C), so no C64 set carries
 # an empty profile.  D and E are the bit-digit keys' zones; the CMOS mode has
 # them but no zone C key, so its C is one unused profile (D-P4b-6).
 FIXED_ZONES = 'ABFCDE'
-_ZONE_OF_MODES = {frozenset({'IMP'}): 'A', frozenset({'REL'}): 'B',
-                  frozenset({'ABS'}): 'F', frozenset({'IMM'}): 'C'}
+_ZONE_OF_MODES = {frozenset({'IMP'}): 'A', frozenset({'ABS'}): 'F',
+                  frozenset({'IMM'}): 'C'}
 
 
 class ModelError(AssertionError):
@@ -214,8 +214,8 @@ class AsmModel:
         4510); None where the gate refuses the key."""
         prof = self.key_prof[key]
         cat, pidx = prof >> 6, prof & 0x3F
-        if self.cpu_set not in M65_SETS:
-            return pidx + (1 if cat == 1 and view == EXT_VIEW else 0)
+        if self.cpu_set not in M65_SETS:            # cat 1: the CMOS mode's 65C02
+            return pidx + (1 if cat == 1 and view == CPU_SETS[self.cpu_set][1][-1] else 0)
         if view == '6502':
             return pidx if cat < 2 else None
         if cat == 2 and view != '45gs02':
@@ -246,12 +246,26 @@ def _profile(opcodes, base):
                    tuple(sorted((m, op ^ base) for m, op in opcodes.items())))
 
 
-def key_category(key, rows, views=PLATFORM_VIEWS):
-    """`rows`: view → view_rows(view) over PLATFORM_VIEWS.  A legal key has
-    category 1 only in a set with the extension CPU."""
-    if key in rows['6502']:
-        return 1 if EXT_VIEW in views and rows[EXT_VIEW][key] != rows['6502'][key] else 0
-    return 2 if key in rows['6510'] else 3
+def _entry(key, nmos, top, cat_new, q=None):
+    """The Entry of `key` from its 6502 rows (`nmos`, or None) and its rows
+    on the set's top CPU (`top`): cat 0 / 1 for a legal key, `cat_new` for
+    one the 6502 lacks; zone D / E for a bit-digit key, B for a branch,
+    else by _ZONE_OF_MODES where the key has no extension."""
+    base = base_of(top)
+    prof = _profile(top, base)
+    if nmos is not None:
+        cat = 1 if nmos != top else 0
+        ext = prof if cat == 1 else None
+        prof = _profile(nmos, base)
+    else:
+        cat, ext = cat_new, None
+    if key in I.BIT_DIGIT_MNEMONICS:
+        zone = 'D' if prof.modes == {'ZP'} else 'E'
+    elif {'REL', 'REL16'} >= prof.modes:
+        zone = 'B'
+    else:
+        zone = None if ext else _ZONE_OF_MODES.get(prof.modes)
+    return Entry(cat, base, prof, ext, zone, q)
 
 
 def q_rows():
@@ -271,7 +285,7 @@ def m65_entries():
     extension profile at pidx + 1; 2 a Q name (its pidx is its stem's Q
     profile); 3 not NMOS.  A quad stem's Q profile follows its group.
     """
-    rows = {v: view_rows(v) for v in ('6502', '4510')}
+    nmos, top = view_rows('6502'), view_rows('4510')
     qrows = q_rows()
     entries = {}
     for key in sorted(mn7gs.KEYS):          # sorted: a frozenset's order varies per run
@@ -280,24 +294,8 @@ def m65_entries():
             base = base_of(ops)
             entries[key] = Entry(2, base, _profile(ops, base))
             continue
-        ops = rows['4510'][key]
-        base = base_of(ops)
-        prof = _profile(ops, base)
-        nmos = rows['6502'].get(key)
-        if nmos is not None:
-            cat = 1 if nmos != ops else 0
-            ext = prof if cat == 1 else None
-            prof = _profile(nmos, base)
-        else:
-            cat, ext = 3, None
-        if key in I.BIT_DIGIT_MNEMONICS:
-            zone = 'D' if prof.modes == {'ZP'} else 'E'
-        elif {'REL', 'REL16'} >= prof.modes:
-            zone = 'B'                       # the branch zone: a range on m65
-        else:
-            zone = None if ext else _ZONE_OF_MODES.get(prof.modes)
-        q = _profile(qrows[key], base) if key in qrows else None
-        entries[key] = Entry(cat, base, prof, ext, zone, q)
+        q = _profile(qrows[key], base_of(top[key])) if key in qrows else None
+        entries[key] = _entry(key, nmos.get(key), top[key], 3, q)
     return entries
 
 
@@ -306,22 +304,13 @@ def set_entries(cpu_set):
     if cpu_set in M65_SETS:
         return m65_entries()
     _, views, classifier = CPU_SETS[cpu_set]
-    rows = {v: view_rows(v) for v in PLATFORM_VIEWS}
+    nmos, top = view_rows('6502'), view_rows(views[-1])
+    cat_new = 2 if views[-1] == '6510' else 3     # illegal, or the 65C02's
     entries = {}
     for key in sorted(classifier.build_slot_map().values()):
-        cat = key_category(key, rows, views)
-        home = ('6502', '6502', '6510', EXT_VIEW)[cat]
-        if home not in views:
+        if key not in top:
             raise ModelError(f"{cpu_set}: {key} is no key of its set")
-        ops = rows[home][key]
-        base = base_of(ops)
-        prof = _profile(ops, base)
-        ext = _profile(rows[EXT_VIEW][key], base) if cat == 1 and EXT_VIEW in views else None
-        if key in I.BIT_DIGIT_MNEMONICS:
-            zone = 'D' if prof.modes == {'ZP'} else 'E'
-        else:
-            zone = None if ext else _ZONE_OF_MODES.get(prof.modes)
-        entries[key] = Entry(cat, base, prof, ext, zone)
+        entries[key] = _entry(key, nmos.get(key), top[key], cat_new)
     return entries
 
 
@@ -601,7 +590,7 @@ def _header(name, what):
             ';', *[f'; {w}' for w in what], '']
 
 
-_PER_SET = ['One block per CPU set, selected by the build\'s CPU_<top> define',
+_PER_SET = ['One block per CPU set, selected by the set\'s CPU_<top> define',
             '(doc/build_system.md § Table generation).']
 
 
@@ -667,7 +656,6 @@ def write_classifier_tables(cls, models, extra_rodata=()):
     """mn6_tables.s / mn7_tables.s — hash T, fingerprint, base opcode, profile
     byte (on m65 over mn7gs, in mn7_tables.s)."""
     prefix = cls.__name__
-    slot_mne = cls.build_slot_map()
 
     def emit(m):
         k = m.classifier                    # cls, or mn7gs in cls's file
@@ -717,6 +705,39 @@ def oplen_lengths(rows=None):
     return lengths
 
 
+def write_cpu_set_inc(models):
+    """cpu_set.inc — what the assembler, disassembler, REPL and debugger
+    know of the CPU sets at assembly time (opcode_lookup.md § Mode
+    constants): MODE_<name> (the ALL_MODES index), ASM_CPU_<name>, and per
+    set INSN_MAX (the longest instruction, prefixes included), SET_EXT (the
+    set has a CPU past the NMOS 6502 / 6510: extension profiles, cat 11
+    keys), HAS_ZONE_C / HAS_ZONE_D (the fixed zones the set numbers)."""
+    lines = _header('cpu_set.inc', [
+        'The CPU sets\' constants for `.include` (doc/modules/opcode_lookup.md § Mode',
+        'constants; build_system.md § Builds and CPU sets).  Set-independent first,',
+        'then one block per set.'])
+    lines += ['; The mode index: ALL_MODES order (append-only).']
+    lines += [f'MODE_{m:<6}= {i}' for i, m in enumerate(ALL_MODES)]
+    lines += ['', '; asm_cpu, one enumeration in every build.']
+    lines += [f'ASM_CPU_{v.upper():<7}= {n}' for v, n in ASM_CPU.items()]
+    lines += ['']
+    for m in models:
+        define, views, _ = CPU_SETS[m.cpu_set]
+        zones = m.zones or {z: i for i, z in enumerate(FIXED_ZONES[:m.zone_g])}
+        insn_max = max(len(r.prefix) + 1 + MODE_OPERAND_BYTES[r.mode]
+                       for r in I.instructions(views[-1]))
+        lines += [f'.ifdef {define}', f'; ── CPU set {m.cpu_set} ' + '─' * 40,
+                  f'INSN_MAX = {insn_max}            ; the longest instruction, prefixes included']
+        if views[-1] not in ('6502', '6510'):
+            lines.append('SET_EXT = 1             ; a CPU past the NMOS: extension profiles, cat 11 keys')
+        for z in 'CD':
+            if z in zones:
+                lines.append(f'HAS_ZONE_{z} = 1          ; the fixed zone {z}' + (' (and E)' if z == 'D' else ''))
+        lines += ['.endif', '']
+    path = _write('cpu_set.inc', lines)
+    print(f'wrote {path}')
+
+
 def write_oplen_table():
     """oplen_tbl.s — packed opcode → length, 2 bits per opcode, 64 bytes.
 
@@ -731,8 +752,8 @@ def write_oplen_table():
     lines = _header('oplen_tbl.s', [
         'Packed opcode → instruction length, 64 bytes: 256 opcodes × 2 bits.',
         'byte = opcode >> 2; position = opcode & 3 (pos 0 = bits 1:0 … pos 3 = bits 7:6).',
-        'One content for all C64 CPU sets; none on m65 (the debugger steps by',
-        'the disassembler\'s 45GS02 length).'])
+        'One content for both C64 CPU sets, the 6510 view\'s lengths; none on',
+        'm65 (the debugger steps by the disassembler\'s 45GS02 length).'])
     lines += ['.ifndef CPU_45GS02', '        .export oplen_tbl', '', '.segment "RODATA"', '']
     lines += _bytes('oplen_tbl', pack(oplen_lengths())) + ['.endif']
     path = _write('oplen_tbl.s', lines)
@@ -766,6 +787,7 @@ def main(argv=None):
     write_classifier_tables(mn6, models, extra_rodata=(('mn6_fp_c2', [(i * 218) & 0xFF for i in range(27)]),))
     write_classifier_tables(mn7, models)
     write_oplen_table()
+    write_cpu_set_inc(models)
 
 
 if __name__ == '__main__':

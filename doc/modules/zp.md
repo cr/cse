@@ -27,7 +27,7 @@ every module that `.importzp`s at least one of the block's variables
 |-------|---------|-----------|---------|
 | $02–$07 | runtime scratch | `rp_ptr` (2), `rp_ptr2` (2), `rp_tmp` (1), `rp_tmp2` (1) | `rp_ptr`: repl, main, debugger, breakpoints, log; `rp_ptr2`: repl, debugger, log, asm_src; `rp_tmp`: repl, log; `rp_tmp2`: repl |
 | $08 | asm_line error recovery | `_asm_saved_sp` (1) | written by asm_line (`asm_line` entry), read by asm_err (`asm_error` longjmp) |
-| $09–$20 | assembler I/O | `asm_pc` (2), `asm_out` (2), `asm_cpu` (1), `asm_len` (1), `asm_slot` (1), `asm_prof` (1), `asm_pidx` (1), `asm_base` (1), $13 unallocated (1), `asm_mode` (1), `asm_tmp` (1), `asm_tmp2` (1), `sym_name` (2), `sym_val` (2), `sym_wide` (1), `expr_ptr` (2), `expr_val` (2), `expr_wide` (1) | asm_line, asm_src, addr_mode, opcode_lookup, expr, symtab, gap_buffer, dasm (`asm_cpu`), debugger (`asm_cpu`), main (`asm_cpu`), repl |
+| $09–$20 | assembler I/O | `asm_pc` (2), `asm_out` (2), `asm_cpu` (1), `asm_len` (1), $0F unallocated (1), `asm_prof` (1), `asm_pidx` (1), `asm_base` (1), $13 unallocated (1), `asm_mode` (1), `asm_tmp` (1), `asm_tmp2` (1), `sym_name` (2), `sym_val` (2), `sym_wide` (1), `expr_ptr` (2), `expr_val` (2), `expr_wide` (1) | asm_line, asm_src, addr_mode, opcode_lookup, expr, symtab, gap_buffer, dasm (`asm_cpu`), debugger (`asm_cpu`), main (`asm_cpu`), repl |
 | $21–$23 | asm_src | `_as_ptr` (2), `_as_wsize` (1) | asm_src |
 | $24–$26 | mnemonic classifier inputs | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) | written by asm_line, read by mn7 / mn6 |
 | $27 | mn7 / mn6 | `mn7_h_tmp` / `mn6_h_tmp` (1, aliased — only one classifier is linked) | mn7 or mn6 |
@@ -38,7 +38,7 @@ every module that `.importzp`s at least one of the block's variables
 | $33–$35 | expr | `_ex_tmp` (2), `_ex_digits` (1) | expr |
 | $36 | — | unallocated (1) | — |
 | $37–$40 | symtab | `_st_hash` (1), `_st_idx` (1), `_st_ptr` (2), `_st_nptr` (2), `_st_heap` (2), `_st_heap_base` (2) | symtab |
-| $41–$48 | dasm | `_dasm_ptr` (2), `_dasm_opc` (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) | dasm |
+| $41–$48 | dasm | `_dasm_ptr` (2), $43 unallocated (1), `_dasm_mne` (2), `_dasm_wptr` (1), `_dasm_midx` (1), `_dasm_mode` (1) | dasm |
 | $49–$56 | editor / gap buffer | `gap_lo` (2), `gap_hi` (2), `buf_base` (2), `ed_top_ptr` (2), `read_ptr` (2), `ed_tmp` (2), `ed_scr` (2) | editor, gap_buffer; `buf_base` also asm_src, repl |
 | $57–$5D | **cross-module flags** | `in_userland` (1), `state` (1), `warm_cont` (1), `kernal_out` (1), `ed_dirty` (1), `dbg_reason` (1), `cur_device` (1) | see [Cross-module flags](#cross-module-flags) |
 | $5E–$6E | **project name** | `cur_project_name` (17 = `FILENAME_MAX` + NUL) — filename stem | written by repl (`parse_ls_args`); read by editor (status bar), asm_src (`;asm "NAME"` log line, save suggestion), repl |

@@ -233,7 +233,7 @@ layout puts them.
 ```
 .cpu 6502           ; legal opcodes only
 .cpu 6510           ; legal + illegal opcodes        (c64-6510)
-.cpu 4510           ; 65C02 set + 4510 additions     (m65)
+.cpu 4510           ; the 65C02's instructions + the 4510's (m65)
 .cpu 45gs02         ; 4510 + Q and far forms         (m65, default)
 ```
 

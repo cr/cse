@@ -244,6 +244,8 @@ disassembler (A4) followed: see A4 below.
   stamp (B4b) — a target read before its definition in the current
   pass takes `REL`; otherwise by distance.
 - **D2.** c64-65c02's CPU set includes 6510 (see the `.cpu`/`u` bug).
+  (Superseded by D-P4b-1/-2: no c64-65c02 build; the CMOS mode is
+  {6502, 65C02}.)
 - **D3.** `$EA` lists as `eom` in every view of the m65 build.
 - **D4.** `rtn #$nn` is the spelling of `$62` (`rts #$nn` refused),
   per bbbc64's leniency criterion.
@@ -2047,6 +2049,35 @@ byte-identical (T5's tests, `TestNmosStep`, landed with step (4)).
   Found on the way: the Makefile had no guard against an unknown C64
   `CPU` (`CPU=6503` built a broken PRG), now refused; the doc audits
   read the cmos debug build (now the 6510's).
+
+- **P4b review (2026-11-20, operator: "The entire assembly and
+  disassembly chain needs a full review after the cmos surgery"):**
+  four reviewers (generators, assembler, dasm / REPL / debugger, docs
+  and tests), each finding checked against the live code.  The
+  generator now writes `cpu_set.inc` — the mode index, the `asm_cpu`
+  values and per set `INSN_MAX`, `SET_EXT`, `HAS_ZONE_C` / `HAS_ZONE_D`
+  — so asm_line.s, addr_mode.s, dasm.s, repl.s and debugger.s share
+  one source for what four of them typed by hand (`MODE_*`, `DOT_MAX`
+  / `DASM_INSN_MAX`, `cpx #4`), and derive their `.ifdef`s from the
+  set instead of from `USE_MN6` / `CMOS_SUPPORT` / `MEGA_SUPPORT`
+  by hand (`BIT_OPS` became `HAS_ZONE_D`).  Stripped: the CMOS and m65
+  gates into one body (the Q-name lines MEGA-only); c64-6502's zone C
+  and c64-6510's D / E dispatch entries and bodies; the C64 ZPREL
+  parse (no C64 set has the form); the dead `asm_slot` store (a
+  write-only ZP cell since before m65) and `_dasm_opc` (a copy of
+  `_dasm_in[0]`), both cells held unallocated; the disassembler's
+  `dasm_cpu_bm` table (one subset view per set: the generated
+  `DASM_SUBSET_CPU` names it) and two m65 branch-range forks that no
+  longer needed the range; the debugger's three hand-written
+  `brk_pc + n` adds and a copy of `@jmp_abs`.  Generators: the
+  C64-platform ladder (`PLATFORM_VIEWS`, `EXT_VIEW`, `key_category`)
+  and a duplicate Entry construction replaced by one `_entry`, the
+  multi-bitmap generality gone — every table byte-identical.  Stale
+  comments and docs (114 mnemonics, 65C02 build, two bitmaps, the
+  debugger's duplicated Next-PC rows) rewritten; tests derive the CPU
+  sets from the generator's registry.  Deliberate C64 change (hashes
+  re-recorded): c64-6510 21 153 → 21 080 B, c64-6502 20 808 →
+  20 732 B; m65-45gs02 24 458 → 24 400 B.  5959 passed, Tier X 168.
 
 **P5 — the contract closed:** the ROM versions the port is verified
 on (920413, the floor, and the current one; the Open ROMs boot to C64

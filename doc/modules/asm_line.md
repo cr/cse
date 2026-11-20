@@ -8,7 +8,7 @@
 |------|------|
 | [`src/asm_line.s`](../../src/asm_line.s) | implementation — line assembler core, KERNAL banking, error recovery |
 | [`tests/unit/test_asm_line.py`](../../tests/unit/test_asm_line.py) | test contract |
-| [`tests/unit/test_asm_m65.py`](../../tests/unit/test_asm_m65.py) | test contract — the m65 set on its bundle (M65Emu): every row of the four views at its CPU, the m65 gate matrix, the word, the Z rule, far, stack-relative, IMM16, branch width and the width request, the `$FFFF` edge |
+| [`tests/unit/test_asm_m65.py`](../../tests/unit/test_asm_m65.py) | test contract — the m65 set on its bundle (M65Emu): every row of the three views at its CPU, the m65 gate matrix, the word, the Z rule, far, stack-relative, IMM16, branch width and the width request, the `$FFFF` edge |
 | [`tests/emulator/test_m65_asm_run.py`](../../tests/emulator/test_m65_asm_run.py) | tier-X tests (xmega65, P4): a program typed with `.` (`PHW #`, Q, far, a 16-bit branch) and run with `j` stores the predicted bytes, each screen M65Emu's |
 
 Its ZP definitions are in [`src/zp.s`](../../src/zp.s), owned by
@@ -30,7 +30,7 @@ m65 build, prefixes included), X = 0; the bytes at `[asm_out]`;
 **Out (error):** A = 0, X = 0, `asm_err_code` = the category
 ([asm_err.md § Error categories](asm_err.md#error-categories)); for
 an expression error `last_err` (expr.s) holds the detail code.
-**Clobbers:** A, X, Y; `asm_ptr` (advanced), `asm_opr`, `asm_slot`,
+**Clobbers:** A, X, Y; `asm_ptr` (advanced), `asm_opr`,
 `asm_base`, `asm_prof`, `asm_pidx`, `asm_mode`, `asm_tmp`,
 `mn_c1`–`mn_c3`, `_asm_saved_sp`, `_au_no_acc`, and everything
 `mode_parse` and `expr_eval_nb` clobber
@@ -172,35 +172,38 @@ mn_classify (`mn_classify`, `mn_base_op`, `mn_profile`), mn_modes (`mn_modes_lo`
 `_au_no_acc`), asm_err (`asm_error`, `asm_expr_error`,
 `asm_cpu_error`), mem
 (`kernal_bank_out` / `kernal_bank_in`), zp (`_asm_saved_sp`,
-`asm_pc`, `asm_out`, `asm_len`, `asm_cpu`, `asm_slot`, `asm_prof`,
+`asm_pc`, `asm_out`, `asm_len`, `asm_cpu`, `asm_prof`,
 `asm_pidx`, `asm_base`, `asm_mode`, `asm_tmp`, `asm_tmp2`, `asm_ptr`, `asm_opr`,
-`mn_c1`–`mn_c3`).
+`mn_c1`–`mn_c3`); `.include`s `cpu_set.inc` (`MODE_*`, `ASM_CPU_*`,
+the set's `SET_EXT`, `HAS_ZONE_C`, `HAS_ZONE_D` —
+[opcode_lookup.md § Owned files](opcode_lookup.md#owned-files)).
 
 ## Build-time variants
 
-Four CPU sets build — three C64, one m65 (see
+Four variants — two C64 builds, the CMOS mode (bundles only) and the
+m65 build (see
 [build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)).
-Each instantiates this module with different `-D` flags.  The
-classifier choice and the in-binary gate behaviour depend on the
-flags — so the module ships as distinct binaries, each with its own
-contract.
+Each instantiates this module with different `-D` flags, and the
+generated `cpu_set.inc` derives the set's switches from them: the
+classifier, the gate and the zones compiled in depend on the set — so
+the module ships as distinct binaries, each with its own contract.
 
-| Variant | Feature `-D` flags | Classifier | CMOS reject gate | CMOS upgrade | Illegal gate | Accepts |
+| Variant | Feature `-D` flags | Classifier | Gate (`SET_EXT`: extension / `cat` 11) | Illegal gate | Zones (`HAS_ZONE_C/D`) | Accepts |
 |---|---|---|---|---|---|---|
-| **c64-6502** | `CPU_6502` `USE_MN6` | mn6 (56 legal only) | — (unreachable) | — | — (unreachable) | legal NMOS |
-| **c64-6510** | `CPU_6510` | mn7 (102: legal + illegal) | — (no CMOS key) | — | **compiled in** | legal + illegals |
-| **the CMOS mode** (bundles only) | `CPU_65C02` `CMOS_SUPPORT` | mn7 (68: legal + CMOS) | compiled in | compiled in | — (no illegal key) | legal + CMOS |
-| **m65-45gs02** | `CPU_45GS02` `MEGA_SUPPORT` | mn7gs, m65 keys (98) | compiled in | compiled in (4510 extension) | — | legal + 4510 (the 65C02's instructions among them); Q and far forms at `asm_cpu=4` |
+| **c64-6502** | `CPU_6502` `USE_MN6` | mn6 (56 legal only) | — (not compiled) | — (not compiled) | A B F | legal NMOS |
+| **c64-6510** | `CPU_6510` | mn7 (102: legal + illegal) | — (not compiled) | **compiled in** | A B F C | legal + illegals |
+| **the CMOS mode** (bundles only) | `CPU_65C02` `CMOS_SUPPORT` | mn7 (68: legal + CMOS) | compiled in | — (not compiled) | A B F C D E | legal + CMOS |
+| **m65-45gs02** | `CPU_45GS02` `MEGA_SUPPORT` | mn7gs, m65 keys (98) | compiled in, with the Q names | — | A B F C D E, Q, H | legal + 4510 (the 65C02's instructions among them); Q and far forms at `asm_cpu=4` |
 
 Every build also passes `DEFAULT_CPU`, `CPU_CEIL` and `TAB_WIDTH`
 (Makefile `_<cpu>_DEFS`); asm_line reads none of them.
 
-On mn6 builds, unsupported mnemonics are rejected at the classifier
-tier (mn6 doesn't hash them), so the in-binary gate never sees
-them — but the gate code is linked anyway (the `cat` byte paths
-sit dormant without cost).  On mn7 builds, the classifier accepts
-every key of the set (102 on c64-6510, 68 in the CMOS mode, 98 on
-m65) and no other; the gate is the sole defence against the user
+A set's classifier accepts every key of the set (56 on c64-6502, 102
+on c64-6510, 68 in the CMOS mode, 98 on m65) and no other, so the
+gate sees only the set's own categories and only the gate the set
+needs is compiled: none on c64-6502 (every key is `cat` 00), the
+illegal gate on c64-6510, the extension gate (`SET_EXT`) in the CMOS
+mode and on m65.  The gate is the sole defence against the user
 asking for an instruction of a set member the current `asm_cpu` is
 not.
 
@@ -218,8 +221,8 @@ Every mnemonic's `asm_prof` byte encodes a 2-bit category in bits
 below.  Reject cells `jmp asm_cpu_error` (so the caller selects the
 `;?cpu` tag rather than the strictly-correct-but-misleading
 `;?syntax`); accept cells fall through with the appropriate profile
-(upgraded to the CMOS variant — `pidx` + 1 — when `cat=01` and
-`asm_cpu>=2` under `CMOS_SUPPORT`).  A category no key of the set
+(upgraded to the extension profile — `pidx` + 1 — when `cat=01` and
+`asm_cpu` is not the 6502, in a set with `SET_EXT`).  A category no key of the set
 has cannot occur (—): the C64 sets have no CMOS key, the CMOS mode no
 illegal one.
 
@@ -253,7 +256,8 @@ bundle in `TestCpuGateCmosBundle` and `TestCpuGate6510Bundle`
 ([opcode_lookup.md § Profile index layout](opcode_lookup.md#design))
 determines which path assembles the instruction.  A `pidx` below the
 generated `ASM_ZONE_G` is a fixed zone and indexes the jump table
-directly (order A B F C D E; on m65 zone B is three profiles,
+directly (order A B F C D E, the table holding only the zones the set
+has — `HAS_ZONE_C`, `HAS_ZONE_D`; on m65 zone B is three profiles,
 `pidx` 1–3 — `REL`, `REL` + `REL16`, `REL16` — and the table holds
 zone B three times); the rest is multi-mode:
 

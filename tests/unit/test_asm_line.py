@@ -17,11 +17,11 @@ Coverage of the documented contract
                                distinctness + writability)
 
 CPU-mode gate (asm_cpu × category matrix — see asm_line.md):
-  TestCpuGateCmosBundle  — -DCMOS_SUPPORT build (matches 65C02 prod)
-  TestCpuGate6510Bundle  — no-CMOS_SUPPORT build (matches 6510 prod,
-                            the config where the CMOS-accept bug lived)
-  TestAsmLine6502Bundle  — -DUSE_MN6 build (matches 6502 prod;
-                            mn6 rejects CMOS/illegals at classify tier)
+  TestCpuGateCmosBundle  — the CMOS mode (-DCMOS_SUPPORT; bundles only,
+                            no PRG)
+  TestCpuGate6510Bundle  — c64-6510 (mn7, legal + illegal keys)
+  TestAsmLine6502Bundle  — c64-6502 (-DUSE_MN6; mn6 knows the 56 legal
+                            keys only)
 
 Adjacent modules in this bundle (their own test files):
   opcode_lookup.s → tests/unit/test_opcode_lookup.py (asm_opcode_lookup)
@@ -48,10 +48,9 @@ Cases are skipped when OPCODES[mne][mode] is None (Zone D/E
 digit-encoded ops) or the operand uses lowercase forms mode_parse
 doesn't accept.
 
-asm_cpu selection: asm_cpu=1 for illegals, asm_cpu=2 for legal + CMOS.
-Post-Escape-Analysis gate change — the gate now rejects illegals on
-asm_cpu != 1 and CMOS on asm_cpu < 2, so the parametric sweep must
-pick the right asm_cpu per category.
+asm_cpu selection: an illegal at asm_cpu 1 on the 6510 bundle, every
+other key at asm_cpu 2 in the CMOS mode (so a cat 01 key takes its
+extension profile).
 """
 
 import sys
@@ -150,17 +149,8 @@ def test_assemble(request, source, expected, asm_cpu):
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# CPU-mode gate (asm_cpu = 0/1/2)
+# CPU-mode gate (asm_line.md § asm_cpu × category gate matrix)
 # ═════════════════════════════════════════════════════════════════════════
-#
-# asm_line.md § Caveats: `asm_cpu` values: 0=6502, 1=6510, 2=65C02.
-# Each mode should accept exactly the documented instruction set:
-#
-#   | asm_cpu  | legal | CMOS   | illegal |
-#   |----------|-------|--------|---------|
-#   | 0 (6502) | yes   | REJECT | REJECT  |
-#   | 1 (6510) | yes   | REJECT | yes     |
-#   | 2 (65C02)| yes   | yes    | REJECT  |
 #
 # The gate is per CPU set (asm_line.s, the CPU-mode gate): each set's
 # classifier holds only its own keys, so each sees its own categories —
@@ -906,7 +896,7 @@ def test_double_slash_comment(asm_syms, source, expected):
 
 # ─── Bit-op mnemonics: the digit suffix (asm_line.md § Mnemonic word) ────────
 #
-# RMB0-7 / SMB0-7 zp and BBR0-7 / BBS0-7 zp,target on the 65C02 set: the
+# RMB0-7 / SMB0-7 zp and BBR0-7 / BBS0-7 zp,target in the CMOS mode: the
 # digit is the bit number, ORed into the opcode's bits 6:4.  asm_pc is
 # R.ASM_PC (0), so a ZPREL target t gives the offset t - 3.
 

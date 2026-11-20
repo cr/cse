@@ -45,11 +45,12 @@ def test_extension_is_adjacent(model):
     profile sits right after its NMOS profile, both multi-mode."""
     if model.zones:
         pytest.skip("m65: test_m65_extension_is_adjacent")
+    top = M.CPU_SETS[model.cpu_set][1][-1]
     for key, prof in model.key_prof.items():
-        if prof >> 6 == 1 and M.EXT_VIEW in M.CPU_SETS[model.cpu_set][1]:
+        if prof >> 6 == 1:                       # the CMOS mode only
             pidx = prof & 0x3F
             assert pidx >= model.zone_g, key
-            assert model.effective_pidx(key, M.EXT_VIEW) == pidx + 1, key
+            assert model.effective_pidx(key, top) == pidx + 1, key
             assert model.profiles[pidx].modes < model.profiles[pidx + 1].modes, key
 
 

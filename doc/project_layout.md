@@ -49,6 +49,7 @@ cse/
 │   ├── mn_modes.s          │ GENERATED — do not edit
 │   ├── mn_asm_tables.s     │ (regenerate: make tables)
 │   ├── oplen_tbl.s         │
+│   ├── cpu_set.inc         │
 │   ├── dasm_tables.s       │
 │   ├── dasm_mne_idx.s      ┘
 │   ├── c64_trial.cfg       ld65 trial linker config (size measurement)
@@ -57,7 +58,7 @@ cse/
 ├── dev/                    Development tools (owner: build_system.md)
 │   ├── instruction_set.py  Authoritative opcode database (shared with bbbc64)
 │   ├── hashes.py           Hash function definitions (shared with bbbc64)
-│   ├── mnemonic_tables.py  Generator → src/mn*_tables.s, mn_modes.s, mn_asm_tables.s, oplen_tbl.s
+│   ├── mnemonic_tables.py  Generator → src/mn*_tables.s, mn_modes.s, mn_asm_tables.s, oplen_tbl.s, cpu_set.inc
 │   ├── dasm_tables.py      Generator → src/dasm_tables.s, dasm_mne_idx.s
 │   ├── compute_layout.py   Two-pass link: trial map → production config
 │   ├── size_report.py      make size

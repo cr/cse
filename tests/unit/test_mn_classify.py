@@ -7,7 +7,8 @@ Covers the four source files that the mn_classify module groups together
 ([doc/modules/mn_classify.md](../../doc/modules/mn_classify.md)):
 
     src/mn_classify.s   build-time dispatcher forwarding to mn6/mn7
-    src/mn7.s           7-bit-hash classifier (114 mnemonics, default)
+    src/mn7.s           7-bit-hash classifier (the set's keys: 102 on the
+                        6510 set, 68 in the CMOS mode, 98 on m65; default)
     src/mn6.s           6-bit-hash classifier (56 legal NMOS, -D USE_MN6)
 
 Coverage of the documented contract
@@ -360,9 +361,9 @@ def test_mn6_hash_t_contents():
 #
 #    Current mitigation (load-bearing!): test_mn6_full_sweep asserts
 #    exactly 72 carry=0 results (56 legal + 16 known FPs); a
-#    silently-mn7 mn6 bundle would return 114 carry=0 results and
-#    the count assertion would fail with a clear "Expected 72, got
-#    114" message.  Keep that assertion — it's the guard against
+#    silently-mn7 mn6 bundle would return the mn7 set's count and
+#    the count assertion would fail with a clear "Expected 72"
+#    message.  Keep that assertion — it's the guard against
 #    this entire class of harness bug.
 
 

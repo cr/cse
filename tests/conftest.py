@@ -17,7 +17,7 @@ Fixtures provided
 asm_syms        — asm_core bundle, the CMOS mode (65c02 PROD_DEFS, CMOS_SUPPORT)
 asm_6510_syms   — asm_core bundle, 6510 PROD_DEFS (no CMOS_SUPPORT)
 asm_6502_syms   — asm_core bundle, 6502 PROD_DEFS (USE_MN6)
-dasm_bundle(c)  — dasm bundle per C64 CPU set (c ∈ PROD_DEFS)
+dasm_bundle(c)  — dasm bundle per CPU set (c ∈ PROD_DEFS)
 dasm_syms       — dasm bundle, the CMOS mode (test_dasm.py)
 mn6_syms        — mn6 hash test binary  (test_mn_classify.py)
 mn7_syms        — mn7 hash test binary, the CMOS mode  (test_mn_classify.py)
@@ -195,7 +195,7 @@ class SymbolTable:
 #   "6510"  — c64-6510 (mn7, legal + illegal keys).
 #   "6502"  — USE_MN6 + mn6: only the 56 legal NMOS mnemonics classify.
 
-# Common sources across all three asm_core bundle configs.
+# Common sources across the asm_core bundle configs.
 _AC_COMMON_SOURCES = [
     SRC / "zp.s",
     SRC / "strings.s",
@@ -346,7 +346,7 @@ class Bundle:
 
 
 def _variant_stem(base, config):
-    """The 65C02 variant keeps the historical un-suffixed file names."""
+    """The CMOS mode's variant (65c02) keeps the historical un-suffixed file names."""
     return f"{base}_test" if config == "65c02" else f"{base}_{config}_test"
 
 
@@ -365,9 +365,8 @@ class AsmCoreSymbols(_BundleImage):
     Parameter `config`:
       "65c02" — the CMOS mode (-DCMOS_SUPPORT; no production build).
                The default.
-      "6510" — bundle built without -DCMOS_SUPPORT (matches 6510 prod
-               build config).  Used by asm_cpu gate tests where the
-               CMOS reject gate is ifdef-wrapped and thus config-sensitive.
+      "6510", "6502" — the C64 builds' sets (c64-6502 on mn6).
+      "45gs02" — the m65 build's set, run on M65Emu.
     """
 
     def __init__(self, config="65c02"):
@@ -454,10 +453,8 @@ def asm_syms():
 
 @pytest.fixture(scope="session")
 def asm_6510_syms():
-    """Session-scoped asm_core binary built WITHOUT -DCMOS_SUPPORT,
-    mirroring the 6510 production build config.  Used by
-    test_asm_line.py's asm_cpu gate tests to catch regressions that
-    only manifest when the CMOS reject path is ifdef'd out."""
+    """Session-scoped asm_core binary of c64-6510's set: mn7 over the
+    legal and illegal keys, no CMOS key (D-P4b-4)."""
     return AsmCoreSymbols(config="6510")
 
 
@@ -635,8 +632,8 @@ def as_syms():
 #
 # Links: dasm.s + dasm_tables.s + dasm_test_stub.s
 # The stub provides banking helpers; ZP comes from zp.s.
-# One binary per production CPU set (Principle 10), built with that
-# build's PROD_DEFS.
+# One binary per CPU set (Principle 10), built with the set's PROD_DEFS
+# (the CMOS mode's among them).
 
 _DASM_SOURCES = [
     SRC / "zp.s",

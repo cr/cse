@@ -9,7 +9,7 @@
 ;   ASM_ZONE_D = the digit zone D's pidx (E follows), where the set has it
 ;   m65 also: ASM_ZONE_Q / _H (the quad zone Q..H-1); zone B is pidx 1-3
 ; Rows are as wide as the set's highest used mode index + 1.
-; One block per CPU set, selected by the build's CPU_<top> define
+; One block per CPU set, selected by the set's CPU_<top> define
 ; (doc/build_system.md § Table generation).
 
         .export asm_row, asm_delta, asm_oplen, ASM_ZONE_G

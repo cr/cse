@@ -151,7 +151,7 @@ and documentation.
 | **C64Emu** | The C64 builds' Tier I harness: py65's 6502 on the C64 memory map with the real KERNAL ROM and a synthesised KERNAL state ([testing.md § C64Emu](testing.md#c64emu--emulator-class)). |
 | **post-boot snapshot** | M65Emu's starting state — one per MEGA65 ROM it is checked on — recorded from xmega65 at the BASIC 65 prompt by `dev/capture_m65_state.py` into `build/m65_state/` with its reference runs; it holds the MEGA65 ROM, so it is never committed. |
 | **reference run** | Code run in xmega65 from the post-boot snapshot whose registers and memory changes M65Emu must reproduce ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)). |
-| **golden file** | A recorded oracle committed under `tests/fixtures/golden/`: what the C64 builds assemble and list, or what xmega65's 45GS02, memory layout and DMA do ([build_system.md § Golden files](build_system.md#golden-files)). |
+| **golden file** | A recorded oracle committed under `tests/fixtures/golden/`: what each CPU set assembles and lists, or what xmega65's 45GS02, memory layout and DMA do ([build_system.md § Golden files](build_system.md#golden-files)). |
 | **jiffy tick** | The emulators' repeating scheduled IRQ (`enable_jiffy_clock()`), standing for the C64's CIA1 timer interrupt or the MEGA65's frame. |
 | **ca65** | 6502 assembler (part of the cc65 toolchain).  All CSE source is pure assembly. |
 | **ld65** | 6502 linker (part of the cc65 toolchain).  Links .o files into the final PRG binary. |

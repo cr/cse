@@ -1868,7 +1868,7 @@ class TestNmosStep:
         e._cpu.pc, e._cpu.sp = pc, sp
         return e.read_word(e.sym("step_next_lo")), e.read_word(e.sym("step_next_hi"))
 
-    @pytest.mark.parametrize("cpu", [0, 1, 2])
+    @pytest.mark.parametrize("cpu", [0, 1, 2])          # 2: out of the set, still NMOS
     @pytest.mark.parametrize("code,length", [([0x0F, 0x12, 0x10], 3),
                                              ([0x7C, 0x40, 0x00], 1),
                                              ([0x80, 0x05], 2)])

@@ -64,7 +64,7 @@ SRC = ROOT / "src"
 
 EXEMPT = {"platform.inc", "m45_ops.inc", "mn6_tables.s", "mn7_tables.s",
           "mn_asm_tables.s", "mn_modes.s", "oplen_tbl.s", "dasm_tables.s",
-          "dasm_mne_idx.s"}
+          "dasm_mne_idx.s", "cpu_set.inc"}
 ZPCELLS = {0x00, 0x01, 0x90, 0x91, 0xC6, 0xCC, 0xCE, 0xD1, 0xD2, 0xD3,
            0xD4, 0xD5, 0xD6, 0xD8, 0xF3, 0xF4, 0xFB, 0xFC, 0xFD, 0xFE}
 

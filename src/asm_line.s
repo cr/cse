@@ -48,7 +48,7 @@
 
         ; zero-page variables (zp.s)
         .importzp asm_pc, asm_out, asm_len
-        .importzp asm_slot, asm_prof, asm_pidx, asm_base, asm_mode, asm_cpu
+        .importzp asm_prof, asm_pidx, asm_base, asm_mode, asm_cpu
         .importzp asm_tmp
 
         ; addr_mode.s interface
@@ -67,15 +67,12 @@
         .import   asm_oplen             ; operand bytes per mode (generated)
         .importzp ASM_ZONE_G            ; first multi-mode pidx (generated constant)
 
-; The digit zones D/E (RMB SMB BBR BBS) exist in the CMOS mode and the
-; 4510 set; only they read a digit suffix (asm_line.md § Mnemonic word).
-.ifdef CMOS_SUPPORT
-  BIT_OPS = 1
-.endif
-.ifdef MEGA_SUPPORT
-  BIT_OPS = 1
-.endif
-.ifdef BIT_OPS
+        .include "cpu_set.inc"          ; MODE_*, ASM_CPU_*, the set's switches
+                                        ; (SET_EXT, HAS_ZONE_C, HAS_ZONE_D)
+
+; The digit zones D/E (RMB SMB BBR BBS, HAS_ZONE_D) exist in the CMOS mode
+; and the 4510 set; only they read a digit suffix (asm_line.md § Mnemonic word).
+.ifdef HAS_ZONE_D
         .importzp ASM_ZONE_D            ; zone D's pidx, E = D + 1 (generated)
         .importzp asm_tmp2              ; ZPREL's zero-page byte (mode_parse)
 .endif
@@ -83,20 +80,7 @@
         ; banking
         .import kernal_bank_out, kernal_bank_in
 
-; Mode index constants (mirror addr_mode.s / ALL_MODES order)
-MODE_IMP   = 0
-MODE_ACC   = 1
-MODE_IMM   = 2
-MODE_ZP    = 3
-MODE_ABS   = 6
-MODE_REL   = 12
-MODE_ZPI   = 13
-MODE_ZPREL = 15
 .ifdef MEGA_SUPPORT
-MODE_IMM16 = 16
-MODE_REL16 = 17
-MODE_ISPY  = 18
-MODE_ZPIZ  = 19
 PFX_Q      = %00000001      ; asm_pfx: emit $42 $42
 PFX_FAR    = %00000010      ;          emit $EA
 PFX_QSFX   = %01000000      ;          the word had the `q` suffix
@@ -347,7 +331,7 @@ _asm_m65_mode:
         lda _au_far
         beq @not_far
         lda asm_cpu
-        cmp #4
+        cmp #ASM_CPU_45GS02
         bne @cpu
         lda asm_pfx
         ora #PFX_FAR
@@ -415,7 +399,7 @@ _asm_line_core:
         jsr _asm_rd_upper
         sta mn_c3
 
-.ifdef BIT_OPS
+.ifdef HAS_ZONE_D
         ; An optional digit suffix 0-7: asm_tmp = bit << 4 | 1, else 0
         ; (bit 0 is set in every digit-zone opcode, so `ora` keeps it).
         ldx #0
@@ -474,7 +458,6 @@ _asm_line_core:
         bcc @found
         jmp asm_error           ; unknown mnemonic
 @found:
-        sta asm_slot
         tax
         lda mn_base_op,x
         sta asm_base
@@ -488,23 +471,22 @@ _asm_line_core:
         ; asm_prof bits 7:6 are the key's category; a set holds only its
         ; own keys, so each set's gate sees only its own categories
         ; (asm_line.md § asm_cpu × category gate matrix):
-        ;   c64-6502      cat 00 only — no gate
-        ;   c64-6510      00 accept; 10 (illegal) on the 6510 only
-        ;   the CMOS mode 00 accept; 01 the CMOS profile on the 65C02,
-        ;                 the NMOS one on the 6502; 11 on the 65C02 only
-        ;   m65           below
-
-.ifdef MEGA_SUPPORT
-        ; m65 (asm_line.md § gate matrix, m65 table): cat 00 accept; 01
-        ; the extension on 4510 / 45GS02; 10 a Q name, 45GS02 only (its Q
-        ; prefix); 11 on 4510 / 45GS02.
+        ;   c64-6502              cat 00 only — no gate
+        ;   c64-6510              00 accept; 10 (illegal) on the 6510 only
+        ;   the CMOS mode, m65    00 accept; 01 the extension profile on
+        ;   (SET_EXT)             the set's upper CPUs, the NMOS one on the
+        ;                         6502; 11 on the upper CPUs only; m65 also
+        ;                         10, a Q name, on the 45GS02 (its Q prefix)
+.ifdef SET_EXT
         lda asm_prof
         and #$C0
         beq @no_upgrade         ; cat 00
         ldx asm_cpu
-        beq @cpu_err            ; the 6502: only cat 00 / cat 01's NMOS
+        beq @cpu_err            ; the 6502: cat 01's NMOS profile only
+.ifdef MEGA_SUPPORT
         cmp #$80
         beq @qname
+.endif
         cmp #$40
         bne @no_upgrade         ; cat 11: accept
         inc asm_pidx            ; cat 01: the extension profile
@@ -513,32 +495,19 @@ _asm_line_core:
         cmp #$40                ; (A = cat) cat 01: its NMOS profile
         beq @no_upgrade
         jmp asm_cpu_error
-@qname: cpx #4
+.ifdef MEGA_SUPPORT
+@qname: cpx #ASM_CPU_45GS02
         bne @cpu_err
         lda asm_pfx
         ora #PFX_Q
         sta asm_pfx
-.elseif .defined(CMOS_SUPPORT)
-        lda asm_prof
-        and #$C0
-        beq @no_upgrade         ; cat 00
-        ldx asm_cpu
-        beq @c_6502
-        cmp #$40
-        bne @no_upgrade         ; cat 11 on the 65C02: accept
-        inc asm_pidx            ; cat 01: the CMOS profile
-        bne @no_upgrade         ; (always)
-@c_6502:
-        cmp #$40
-        beq @no_upgrade         ; cat 01 on the 6502: its NMOS profile
-        jmp asm_cpu_error       ; cat 11: `;?cpu`
+.endif
 .elseif .defined(CPU_6510)
         lda asm_prof
         and #$C0
         beq @no_upgrade         ; cat 00
         lda asm_cpu             ; cat 10 (illegal): the 6510 only
-        cmp #1
-        beq @no_upgrade
+        bne @no_upgrade
         jmp asm_cpu_error
 .endif
 @no_upgrade:
@@ -572,7 +541,7 @@ _asm_line_core:
 @q_done:
 .endif
 
-.ifdef BIT_OPS
+.ifdef HAS_ZONE_D
         ; ── the digit suffix: exactly on the digit zones D/E ──────────────
         lda asm_pidx
         sec
@@ -633,14 +602,24 @@ _asm_line_core:
         .byte <(@zone_b-1), <(@zone_b-1)
 .endif
         .byte <(@zone_f-1)
-        .byte <(@zone_c-1), <(@zone_d-1), <(@zone_e-1)
+.ifdef HAS_ZONE_C
+        .byte <(@zone_c-1)
+.endif
+.ifdef HAS_ZONE_D
+        .byte <(@zone_d-1), <(@zone_e-1)
+.endif
 @ztbl_hi:
         .byte >(@zone_a-1), >(@zone_b-1)
 .ifdef MEGA_SUPPORT
         .byte >(@zone_b-1), >(@zone_b-1)
 .endif
         .byte >(@zone_f-1)
-        .byte >(@zone_c-1), >(@zone_d-1), >(@zone_e-1)
+.ifdef HAS_ZONE_C
+        .byte >(@zone_c-1)
+.endif
+.ifdef HAS_ZONE_D
+        .byte >(@zone_d-1), >(@zone_e-1)
+.endif
 
 ; ── Zone A: implied — the operand must be empty ──────────────────────────────
 ; End of line, ';' or '//' comment (whitespace already skipped, Y=0).
@@ -723,7 +702,8 @@ _asm_line_core:
         jmp _asm_emit           ; tail-call; _asm_emit preserves C
 .endif
 
-; ── Zone C: IMM — immediate byte ─────────────────────────────────────────────
+; ── Zone C: IMM — immediate byte (the 6510's immediate-only illegals) ────────
+.ifdef HAS_ZONE_C
 @zone_c:
         jsr mode_parse
         cmp #MODE_IMM
@@ -731,9 +711,10 @@ _asm_line_core:
         jsr _asm_imm_chk
         clc
         jmp _asm_emit_base_opr  ; tail-call; _asm_emit preserves C
+.endif
 
 ; ── Zone D/E: bit-ops — the digit (asm_tmp) is the bit ────────────────────────
-.ifdef BIT_OPS
+.ifdef HAS_ZONE_D
 @zone_d:                        ; RMB / SMB zp
         jsr mode_parse
         cmp #MODE_ZP
@@ -766,9 +747,6 @@ _asm_line_core:
         txa
         clc
         jmp _asm_emit
-.else
-@zone_d:                        ; (no digit zone in this CPU set)
-@zone_e:
 .endif
 
 ; ── Zone F: ABS — JSR only ───────────────────────────────────────────────────

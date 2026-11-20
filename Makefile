@@ -387,7 +387,7 @@ TABLE_GEN  = $(DEV)/mnemonic_tables.py $(DEV)/dasm_tables.py
 TABLE_DEPS = $(DEV)/instruction_set.py $(DEV)/hashes.py
 TABLE_OUTS = $(SRC)/mn_modes.s \
              $(SRC)/mn6_tables.s $(SRC)/mn7_tables.s \
-             $(SRC)/mn_asm_tables.s $(SRC)/oplen_tbl.s \
+             $(SRC)/mn_asm_tables.s $(SRC)/oplen_tbl.s $(SRC)/cpu_set.inc \
              $(SRC)/dasm_tables.s $(SRC)/dasm_mne_idx.s
 TABLES_STAMP = $(ROOT)build/.tables.stamp
 
