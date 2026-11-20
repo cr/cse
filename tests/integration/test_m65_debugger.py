@@ -104,8 +104,22 @@ def far_of(b):
     return b[3] << 24 | b[2] << 16 | b[1] << 8 | b[0]
 
 
+def seed_premise_bank_state(emu):
+    """The bank state a fresh start installs (seed_bank_state): the user
+    map, the run premise's port $FF/$85 and $D030 = $64 — far_user
+    translates through it (mem.md § far_user, slice 3 F2)."""
+    a, x, y, z = MAP_USER
+    um = emu.cell("um_map")
+    for k, v in enumerate([x, a, z, y, 0, 0]):
+        emu.memory[um + k] = v
+    buf = emu.cell("userland_zp_buf")
+    emu.memory[buf], emu.memory[buf + 1] = 0xFF, 0x85
+    emu.memory[emu.cell("um_d030")] = 0x64
+
+
 @pytest.mark.parametrize("addr", USER_ADDRS, ids=[f"${a:04X}" for a in USER_ADDRS])
 def test_far_user_reaches_where_the_user_map_shows_the_address(emu, addr):
+    seed_premise_bank_state(emu)
     set_far(emu, "rp_ptr", addr)
     emu.jsr(emu.sym("far_user"), a=0x5A, x=emu.sym("rp_ptr"), y=0xA5, b=CSE_BP)
     assert (emu.a, emu.x, emu.y) == (0x5A, emu.sym("rp_ptr"), 0xA5)

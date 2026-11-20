@@ -8,6 +8,8 @@
 |------|------|
 | [`src/mem.s`](../../src/mem.s) | implementation |
 | [`tests/unit/test_mem.py`](../../tests/unit/test_mem.py) | test contract |
+| [`tests/integration/test_m65_lens.py`](../../tests/integration/test_m65_lens.py) | test contract — `far_user` / `far_user_w` against the recorded CPU view of every banking state in `m65_mem.json` (slice 3, F2) |
+| [`tests/emulator/test_m65_lens.py`](../../tests/emulator/test_m65_lens.py) | test contract (Tier X) — the monitor through a remapped program's map in xmega65, each ROM: `r ml:`, `m`, an edit, a row across a page edge, `M` (slice 3, F2) |
 
 ## Interface
 
@@ -94,21 +96,54 @@ the first address past the ZEROPAGE segment; X = 0
 Caller: `main.s` cold init (fills the free ZP with `$FF` from there to
 `$7F`).
 
-### far_user (m65 only)
+### far_user, far_user_w (m65 only)
 **In:** X = a far pointer's base-page offset; the pointer's offset
-(bytes 0–1) holds a user address.
-**Out:** bytes 2–3 (bank, megabyte) set by the user map's row for
-that address; for `$D000–$DFFF` byte 1 rewritten to the I/O row's
-offset (`$3x`) — [platform_layer.md § Far memory](../platform_layer.md#far-memory).
+(bytes 0–1) holds a CPU address.
+**Out:** bytes 2–3 (bank, megabyte) set to where the program's CPU
+reads (`far_user`) or writes (`far_user_w`) that address — for an I/O
+page byte 1 rewritten to the register window's offset (`$3x`);
+`lens_kind` (BSS) = `LENS_RAM` 0, `LENS_MAPPED` 1, `LENS_ROM` 2,
+`LENS_IO` 3 for the address's 4 K page ([platform_layer.md § Far
+memory](../platform_layer.md#far-memory)).
 **Clobbers:** nothing — A, X, Y and P preserved.
 
 The body of `FAR_USER` on m65 (the macro loads X, so the macro
 clobbers X and N/Z); on c64 there is no routine and `FAR_USER` is
-empty.  It lives here because mem.s is the memory driver; the four
-rows are one compare chain on the high byte.  It is not idempotent:
-the I/O row rewrites the offset's high byte, so a pointer is
-translated once per set (`zp_poke`, called per byte, leaves it to
-its callers).
+empty.  It lives here because mem.s is the memory driver, in the
+`KCODE` segment (code in the data window, [build_system.md § The m65
+builds](../build_system.md#the-m65-builds)).  It is not idempotent:
+the I/O page rewrites the offset's high byte, so a pointer is
+translated once per set.
+
+It translates through the **program's bank state** — what a resume
+would install: `um_map` (MAP's X A Z Y, the two megabyte selectors),
+the captured CPU port (`userland_zp_buf`) and `um_d030` — as the
+CPU's view does after the resume.  For the address's 4 K page:
+
+| The page | Read (`far_user`) | Write (`far_user_w`) |
+|---|---|---|
+| in an 8 K block `MAP` maps (X bits 4–7 for blocks 0–3, Z bits 4–7 for 4–7) | megabyte `mb << 20` + ((the half's 12-bit offset `<< 8`) + address) mod 1 M — the lower half's offset is X bits 0–3 and A, the upper's Z bits 0–3 and Y | the same |
+| `$8000–$9FFF`, unmapped, `$D030` bit 3 | `2.8000–2.9FFF` (ROM) | bank 0, the RAM beneath |
+| `$A000–$BFFF`, unmapped, `$D030` bit 4 or the port's LORAM+HIRAM | `2.A000–2.BFFF` | bank 0 |
+| `$C000–$CFFF`, unmapped, `$D030` bit 5 | `2.C000–2.CFFF` (the interface ROM) | bank 0 |
+| `$D000–$DFFF`, unmapped, the port's configuration above 4 | the I/O registers: `FFD.3000–FFD.3FFF` | the same |
+| `$D000–$DFFF`, unmapped, a configuration 1–4 | `2.D000–2.DFFF` (the character ROM) | bank 0 |
+| `$E000–$FFFF`, unmapped, `$D030` bit 7 or the port's HIRAM | `2.E000–2.FFFF` | bank 0 |
+| anything else | bank 0 | bank 0 |
+
+The port's configuration is `(port | ~DDR) & 7`, as the C64's; every
+row is `M65Memory._rebuild`'s, which the recordings in
+`m65_mem.json` hold.  At a fresh start the bank state is the run
+premise's, and the table gives the four rows above (`$C000` read in
+the interface ROM, `$E000` in the KERNAL through `MAP`).  A
+translation holds for one 4 K page: the REPL translates every byte of
+a row ([repl.md § Banks](repl.md#banks-m65), *the CPU space*), so a
+walk across a page edge reads what the program reads there.  The test
+oracle is the recording itself: `test_m65_lens.py` sets each banking
+state of `m65_mem.json` (all but the VIC-II personality's — CSE's
+runs keep the MEGA65 personality) and holds every probed address's
+read and write targets to xmega65's; an I/O page's `FFD.3xxx` counts
+as the colour RAM the CPU reached at `$D800+`.
 
 ### The resident stub (m65 only)
 

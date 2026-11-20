@@ -133,7 +133,8 @@ STEP_OVER = 2
         .import cse_start, cse_end
         .import src_top, src_bot
 .ifdef PLATFORM_M65
-        .import far_user, far_write_ok  ; mem.s (far_cur, the write guard)
+        .import far_user, far_user_w, far_write_ok, lens_kind ; mem.s
+        .importzp lens_ptr, um_map, um_d030     ; zp.s (the CPU lens)
 .endif
 
 ; ── Imports: global state ──────────────────────────────────
@@ -211,8 +212,16 @@ cur_flat:       .res 1
 cur_bank:       .res 2
 rp_flat:        .res 1
 rp_bank:        .res 2
+tmp_flat:       .res 1          ; `M`'s rows: a flat address to print
+tmp_bank:       .res 2
 SPC_CUR = cur_flat - spc
 SPC_RP  = rp_flat - spc
+SPC_TMP = tmp_flat - spc
+map_start:      .res 1          ; `M`: the run's first and last 4 K page,
+map_end:        .res 1
+map_kind:       .res 1          ;   its kind (lens_kind)
+map_flat:       .res 3          ;   its flat bytes 1-3 at the first page
+map_next:       .res 3          ;   and those the next page continues
 SPC_FLAT = $80
 fl_acc:         .res 2          ; parse_flat_ptr1: the digits before the dot
 fl_y:           .res 1          ;   and the offset's first digit
@@ -388,6 +397,15 @@ io_addr_cmd:
   .endif
 .endmacro
 
+; FAR_CUR_W name: the same for a write — in CPU space where the program's
+; CPU would write (far_user_w: the RAM beneath a ROM it sees).
+.macro FAR_CUR_W name
+  .ifdef PLATFORM_M65
+        ldx #name
+        jsr far_cur_w
+  .endif
+.endmacro
+
 ; RP_CARRY: rp_addr's low word wrapped — a flat address carries into its
 ; bank.  Clobbers A, N/Z.
 .macro RP_CARRY
@@ -405,6 +423,7 @@ io_addr_cmd:
 .endmacro
 
 .ifdef PLATFORM_M65
+.segment "KCODE"                        ; m65 code in the data window
 ; The bodies of SPACE_CPU (A kept), RP_CARRY (A) and CUR_FROM_RP (A, X
 ; clobbered); every one keeps C.
 space_cpu:
@@ -434,11 +453,16 @@ cur_from_rp:
 ; Flat space: bank and megabyte from rp_bank; CPU space: far_user.
 ; Preserves A, Y, P.
 ; ───────────────────────────────────────────────────────────
-.proc far_cur
+far_cur_w:
         bit rp_flat
-        bmi @flat
+        bmi far_flat
+        jmp far_user_w
+far_cur:
+        bit rp_flat
+        bmi far_flat
         jmp far_user
-@flat:  php
+far_flat:
+        php
         pha
         lda rp_bank
         sta 2,x
@@ -447,7 +471,90 @@ cur_from_rp:
         pla
         plp
         rts
-.endproc
+
+; ───────────────────────────────────────────────────────────
+; cur_write_ok — may the command write at rp_addr?  C=0 yes; C=1 the
+; byte the program's CPU would write there (or the flat byte) is in
+; the ROM banks 2-3 (far_write_ok).  Clobbers A, X.
+; ───────────────────────────────────────────────────────────
+cur_write_ok:
+        lda rp_addr
+        sta lens_ptr
+        lda rp_addr+1
+        sta lens_ptr+1
+        ldx #lens_ptr
+        jsr far_cur_w
+        jmp far_write_ok
+
+; ───────────────────────────────────────────────────────────
+; lens_stage — a CPU-space row through the CPU's lens (mem.md
+; § far_user): every byte rp_addr + Y (16-bit, wrapping) of
+; MEM_ROW_MAX translated on its own — the user-ZP view at $00/$01 —
+; into zp_stage_buf; rp_ptr2 points there (BANK_CSE).
+; Clobbers: A, X, Y.
+; ───────────────────────────────────────────────────────────
+lens_stage:
+        ldy #0
+@lp:    jsr lens_at_y           ; C=1: X = the port image's index
+        bcc @far
+        lda userland_zp_buf,x
+        bcs @st                 ; always
+@far:   ldx #lens_ptr
+        jsr far_user
+        sty rp_tmp
+        ldy #0
+        FAR_LDA lens_ptr
+        ldy rp_tmp
+@st:    sta zp_stage_buf,y
+        iny
+        cpy #MEM_ROW_MAX
+        bcc @lp
+        lda #<zp_stage_buf
+        sta rp_ptr2
+        lda #>zp_stage_buf
+        sta rp_ptr2+1
+        FAR_BANK rp_ptr2, BANK_CSE
+        rts
+
+; lens_poke — zp_poke in CPU space: A to rp_addr + Y where the
+; program's CPU would write it (the user-ZP image at $00/$01); a byte
+; that would land in banks 2-3 is not written.  Preserves A, Y.
+lens_poke:
+        pha
+        jsr lens_at_y
+        bcc @far
+        pla
+        sta userland_zp_buf,x
+        rts
+@far:   ldx #lens_ptr
+        jsr far_user_w
+        jsr far_write_ok
+        pla
+        bcs @r
+        sty rp_tmp
+        ldy #0
+        FAR_STA lens_ptr
+        ldy rp_tmp
+@r:     rts
+
+; lens_at_y — lens_ptr := rp_addr + Y (16-bit, untranslated); C=1
+; when that is the port ($00/$01: X = its index), else C=0.  Preserves Y.
+lens_at_y:
+        tya
+        clc
+        adc rp_addr
+        sta lens_ptr
+        lda rp_addr+1
+        adc #0
+        sta lens_ptr+1
+        bne @no                 ; C=0 from the add (no wrap past $FFFF
+        ldx lens_ptr            ;   leaves page 0 with C=1: page $00
+        cpx #ZP_SAVE_LEN        ;   after a wrap is the port too)
+        bcc @port
+@no:    clc
+        rts
+@port:  sec
+        rts
 
 ; dot_range — `;?range`: a write into the ROM banks (repl.md § Banks),
 ; refused before any byte; the `.` re-entry's width request dropped.
@@ -567,6 +674,304 @@ parse_flat_ptr1:
 flat_no:
         sec
         rts
+
+; ───────────────────────────────────────────────────────────
+; parse_hexn — X hex digits at rp_ptr + Y into fl_acc (16-bit).
+; Out: C=0, Y past them; C=1 a digit is not hex.  Clobbers A, X.
+; ───────────────────────────────────────────────────────────
+parse_hexn:
+        lda #0
+        sta fl_acc
+        sta fl_acc+1
+@d:     jsr hex_val_at_ptr1
+        cmp #$10
+        bcs @r
+        pha
+        lda #4
+@sh:    asl fl_acc
+        rol fl_acc+1
+        sec
+        sbc #1
+        bne @sh
+        pla
+        ora fl_acc
+        sta fl_acc
+        iny
+        dex
+        bne @d
+        clc
+@r:     rts
+
+; ───────────────────────────────────────────────────────────
+; put_map_regs — " ml:XXXX mh:XXXX": the program's MAPLO (X, A) and
+; MAPHI (Z, Y), as `r` shows them.  Clobbers A, X, Y.
+; ───────────────────────────────────────────────────────────
+put_map_regs:
+        puts str_ml
+        lda um_map              ; X
+        jsr io_puthex2
+        lda um_map+1            ; A
+        jsr io_puthex2
+        puts str_mh
+        lda um_map+2            ; Z
+        jsr io_puthex2
+        lda um_map+3            ; Y
+        jmp io_puthex2
+
+; ───────────────────────────────────────────────────────────
+; map_reg_field — `r`'s `ml:XXXX` / `mh:XXXX` at rp_ptr (Y = 0, the
+; `m`); C=1 malformed.  rp_save2 != 0: into um_map (ml: X A, mh: Z Y).
+; Clobbers A, X, Y, rp_save.
+; ───────────────────────────────────────────────────────────
+map_reg_field:
+        ldy #1
+        FAR_LDA rp_ptr
+        ldx #0
+        cmp #'l'
+        beq :+
+        ldx #2
+        cmp #'h'
+        bne @err
+:       stx rp_save
+        iny
+        FAR_LDA rp_ptr
+        cmp #':'
+        bne @err
+        iny
+        ldx #4
+        jsr parse_hexn
+        bcs @err
+        jsr is_eow_at_ptr1_y
+        bne @err
+        tya
+        jsr adv_ptr1
+        lda rp_save2
+        beq @ok
+        ldx rp_save
+        lda fl_acc+1
+        sta um_map,x
+        lda fl_acc
+        sta um_map+1,x
+@ok:    clc
+        rts
+@err:   sec
+        rts
+
+; ───────────────────────────────────────────────────────────
+; cmd_map — `M` (repl.md § Banks, *The map in r and M*): fields
+; `mb:LLUU` (the megabyte selectors) and `d030:XX` set the program's
+; bank state first (checked, then applied, as `r`'s); then one row per
+; run of 4 K pages with one translation and kind, and the editable row
+; `M mb:LLUU d030:XX`.
+; ───────────────────────────────────────────────────────────
+cmd_map:
+        jsr skip_peek_ptr1
+        beq @list
+        cmp #';'
+        beq @list
+        lda rp_ptr
+        sta rp_addr
+        lda rp_ptr+1
+        sta rp_addr+1
+        lda #0
+        sta rp_save2            ; pass 1: check only
+        jsr map_fields
+        bcc :+
+        jmp _syntax_err
+:       lda rp_addr
+        sta rp_ptr
+        lda rp_addr+1
+        sta rp_ptr+1
+        inc rp_save2            ; pass 2: apply
+        jsr map_fields
+@list:  lda #0                  ; log_open moves past the command row
+        sta map_start
+@pg:    tax                     ; A = the page
+        asl
+        asl
+        asl
+        asl
+        sta lens_ptr+1
+        lda #0
+        sta lens_ptr
+        txa
+        pha
+        ldx #lens_ptr
+        jsr far_user
+        pla
+        tax
+        cpx map_start
+        beq @new                ; page 0: the first run
+        lda lens_kind
+        cmp map_kind
+        bne @flush
+        ldy #2
+@cmp:   lda BP_ABS(lens_ptr+1),y
+        cmp map_next,y
+        bne @flush
+        dey
+        bpl @cmp
+        stx map_end             ; continues the run
+        jmp @adv
+@flush: txa
+        pha
+        jsr map_row
+        pla
+        tax
+        stx map_start
+@new:   stx map_end
+        lda lens_kind
+        sta map_kind
+        ldy #2
+@cp:    lda BP_ABS(lens_ptr+1),y
+        sta map_flat,y
+        sta map_next,y
+        dey
+        bpl @cp
+@adv:   lda map_next            ; the next page continues at +$1000
+        clc
+        adc #$10
+        sta map_next
+        bcc :+
+        inc map_next+1
+        bne :+
+        inc map_next+2
+:       inx
+        txa
+        cmp #16
+        bcc @pg
+        jsr map_row
+        lda #0                  ; the editable row: "M mb:LLUU d030:XX"
+        sta IO_CX
+        lda #$CD                ; M
+        jsr io_putc
+        puts str_mb
+        lda um_map+4
+        jsr io_puthex2
+        lda um_map+5
+        jsr io_puthex2
+        puts str_d030
+        lda um_d030
+        jsr io_puthex2
+        jmp nl_clear
+
+; map_row — "; map  AAAA-BBBB H.AAAA kind" for the run in map_*.
+map_row:
+        ldy #LOG_INFO
+        jsr log_open
+        puts str_map
+        lda map_start
+        asl
+        asl
+        asl
+        asl
+        tax
+        lda #0
+        jsr io_puthex4
+        lda #'-'
+        jsr io_putc
+        lda map_end
+        asl
+        asl
+        asl
+        asl
+        ora #$0F
+        tax
+        lda #$FF
+        jsr io_puthex4
+        lda #' '
+        jsr io_putc
+        lda #SPC_FLAT
+        sta tmp_flat
+        lda map_flat+1
+        sta tmp_bank
+        lda map_flat+2
+        sta tmp_bank+1
+        ldx #SPC_TMP
+        jsr put_bank
+        lda map_flat
+        jsr io_puthex2
+        lda #0
+        jsr io_puthex2
+        ldy map_kind            ; " mapped" / " rom" / " io"; RAM: none
+        beq :+
+        lda map_kind_lo,y
+        ldx map_kind_hi,y
+        jsr io_puts
+:       jmp log_close
+
+; map_fields — one pass over `M`'s fields (rp_save2: 0 check, 1 apply).
+; C=1 a field is malformed.
+map_fields:
+@next:  jsr skip_peek_ptr1
+        beq @ok
+        cmp #';'
+        beq @ok
+        cmp #'m'
+        beq @mb
+        cmp #'d'
+        bne @err
+        ldx #3                  ; "d030:"
+@d:     iny
+        FAR_LDA rp_ptr
+        cmp str_d030_tail,y
+        bne @err
+        dex
+        bpl @d
+        iny
+        ldx #2
+        jsr parse_hexn
+        bcs @err
+        jsr is_eow_at_ptr1_y
+        bne @err
+        tya
+        jsr adv_ptr1
+        lda rp_save2
+        beq @next
+        lda fl_acc
+        sta um_d030
+        jmp @next
+@mb:    iny
+        FAR_LDA rp_ptr
+        cmp #'b'
+        bne @err
+        iny
+        FAR_LDA rp_ptr
+        cmp #':'
+        bne @err
+        iny
+        ldx #4
+        jsr parse_hexn
+        bcs @err
+        jsr is_eow_at_ptr1_y
+        bne @err
+        tya
+        jsr adv_ptr1
+        lda rp_save2
+        beq @next
+        lda fl_acc+1
+        sta um_map+4
+        lda fl_acc
+        sta um_map+5
+        jmp @next
+@ok:    clc
+        rts
+@err:   sec
+        rts
+
+.segment "KDATA"
+str_ml:         .byte " ml:", 0
+str_mh:         .byte " mh:", 0
+str_mb:         .byte " mb:", 0
+str_d030:       .byte " "
+str_d030_tail:  .byte "d030:", 0
+str_map:        .byte "map  ", 0
+str_k_mapped:   .byte " mapped", 0
+str_k_rom:      .byte " rom", 0
+str_k_io:       .byte " io", 0
+map_kind_lo:    .byte 0, <str_k_mapped, <str_k_rom, <str_k_io  ; lens_kind
+map_kind_hi:    .byte 0, >str_k_mapped, >str_k_rom, >str_k_io
+.segment "CODE"
 .endif
 
 ; ───────────────────────────────────────────────────────────
@@ -1322,6 +1727,14 @@ _syntax_err:
 ;      page-0-ness must inspect rp_ptr2+1 themselves.
 ; Clobbers: A, X, Y.
 zp_stage_prep_addr:                     ; convenience entry: load
+.ifdef PLATFORM_M65
+.ifndef INTROSPECT
+        bit rp_flat                     ; a CPU-space row: every byte
+        bmi :+                          ;   through the CPU's lens
+        jmp lens_stage
+:
+.endif
+.endif
         lda rp_addr                     ; rp_ptr2 from rp_addr then
         sta rp_ptr2                     ; fall through into the
         lda rp_addr+1                   ; main zp_stage_prep body.
@@ -1394,6 +1807,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
 .ifdef PLATFORM_M65
         bit rp_flat                     ; a flat address: the byte itself
         bmi @live
+        jmp lens_poke                   ; CPU space: the CPU's lens
 .endif
         pha
         tya
@@ -1647,12 +2061,12 @@ mem_row:
 .ifdef PLATFORM_M65
         bit scr_width
         bvs @eol
-        jsr io_clear_eol        ; 40 columns: "r z:xx b:xx" below
+        jsr io_clear_eol        ; 40 columns: "r z:xx b:xx ml:… mh:…" below
         jsr newline
         lda #'r'
         jsr io_putc
         jsr @zb
-@eol:
+@eol:   jsr put_map_regs        ; " ml:XXXX mh:XXXX" (repl.md § Banks)
 .endif
         jmp io_clear_eol
 .ifdef PLATFORM_M65
@@ -2026,7 +2440,7 @@ mem_row:
         lda rp_addr+1
         sta asm_pc+1
         sta asm_out+1
-        FAR_CUR asm_out         ; `.` writes straight into user memory
+        FAR_CUR_W asm_out       ; `.` writes straight into user memory
         lda #<dot_asm_buf
         ldx #>dot_asm_buf
         jmp asm_line            ; tail call
@@ -2107,8 +2521,7 @@ mem_row:
         sta rp_ptr2+1
         FAR_CUR rp_ptr2
 .ifdef PLATFORM_M65
-        ldx #rp_ptr2            ; not into the ROM banks (repl.md § Banks)
-        jsr far_write_ok
+        jsr cur_write_ok        ; not into the ROM banks (repl.md § Banks)
         bcc :+
         jmp dot_range
 :
@@ -2168,13 +2581,7 @@ mem_row:
 :
 .endif
 .ifdef PLATFORM_M65
-        lda rp_addr             ; not into the ROM banks (repl.md § Banks)
-        sta rp_ptr2
-        lda rp_addr+1
-        sta rp_ptr2+1
-        FAR_CUR rp_ptr2
-        ldx #rp_ptr2
-        jsr far_write_ok
+        jsr cur_write_ok        ; not into the ROM banks (repl.md § Banks)
         bcc :+
         jmp dot_range
 :
@@ -2347,8 +2754,7 @@ mem_row:
         sta rp_ptr2+1
         FAR_CUR rp_ptr2
 .ifdef PLATFORM_M65
-        ldx #rp_ptr2            ; not into the ROM banks (repl.md § Banks)
-        jsr far_write_ok
+        jsr cur_write_ok        ; not into the ROM banks (repl.md § Banks)
         bcc :+
         jmp dot_range
 :
@@ -3027,6 +3433,14 @@ set_run_mode:
         beq @ok
         cmp #';'
         beq @ok
+.ifdef PLATFORM_M65
+        cmp #'m'                ; `ml:XXXX` / `mh:XXXX`: the program's MAP
+        bne :+
+        jsr map_reg_field
+        bcs @err
+        jmp @next
+:
+.endif
         ldx #REG_LABEL_LAST     ; 0-3 = a x y s, 4 = pc; m65 5-6 = z b
 @lbl:   cmp reg_labels,x
         beq @label
@@ -4313,6 +4727,9 @@ prg_ok_done:
 @h_s:   jmp cmd_write
 @h_i:   clc                     ; C=0 = full mode
         jmp cmd_info
+.ifdef PLATFORM_M65
+@h_map: jmp cmd_map
+.endif
 
 @h_at:  ; @ — set address.  Parse+EOI-check → apply.
         ; Apply only after the EOI check so garbage input leaves
@@ -4833,17 +5250,26 @@ prg_ok_done:
         .byte '@', '+', '-', 'j', 'g', 't', 'o', 'k'
         .byte $C2, $C3, 'u', 'a', '?', $D1, '$', 'x'
         .byte 'c', $D2
+.ifdef PLATFORM_M65
+        .byte $CD               ; M: the program's map (repl.md § Banks)
+.endif
         .byte 0                 ; sentinel
 @cmd_lo:
         .byte <@h_dot, <@h_d, <@h_m, <@h_b, <@h_r, <@h_l, <@h_s, <@h_i
         .byte <@h_at, <@h_plus, <@h_minus, <@h_j, <@h_g, <@h_t, <@h_o, <@h_k
         .byte <@h_blk, <@h_col, <@h_u, <@h_a, <@h_calc, <@h_quit, <@h_dir, <@h_x
         .byte <@h_c, <@h_reset
+.ifdef PLATFORM_M65
+        .byte <@h_map
+.endif
 @cmd_hi:
         .byte >@h_dot, >@h_d, >@h_m, >@h_b, >@h_r, >@h_l, >@h_s, >@h_i
         .byte >@h_at, >@h_plus, >@h_minus, >@h_j, >@h_g, >@h_t, >@h_o, >@h_k
         .byte >@h_blk, >@h_col, >@h_u, >@h_a, >@h_calc, >@h_quit, >@h_dir, >@h_x
         .byte >@h_c, >@h_reset
+.ifdef PLATFORM_M65
+        .byte >@h_map
+.endif
 .endproc
 
 ; ── step_cleanup — end a step: no step state, step slots zeroed, the

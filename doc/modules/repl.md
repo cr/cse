@@ -985,13 +985,12 @@ of base page 0 ([userland_contract.md § 3 On m65](../userland_contract.md#on-m6
 ### Banks (m65)
 
 **Status (slice 3, [TODO § Slice 3 — banks](../TODO.md#slice-3--banks)):**
-F1 has landed: both address forms, the prompt, `@`, `m`, `.`, `d`,
-`+`, `-` and the write refusal work as stated.  **Delta, not yet
-built:** the CPU space still reads through the standard user map
-until F2 (*the program's map*, *The map in `r` and `M`*); far starts
-are F3's — until then `j` without an argument and a cold `t` / `o`
-at a flat current address answer `;?range`; flat breakpoints are
-F4's.
+F1 and F2 have landed: both address forms, the prompt, `@`, `m`,
+`.`, `d`, `+`, `-`, the write refusal, the CPU space through the
+program's bank state, and `r`'s and `M`'s map work as stated.
+**Delta, not yet built:** far starts are F3's — until then `j`
+without an argument and a cold `t` / `o` at a flat current address
+answer `;?range`; flat breakpoints are F4's.
 
 On m65 an address is in one of two spaces, told apart by a dot
 ([glossary.md](../glossary.md), *CPU address*, *flat address*):
@@ -1060,6 +1059,22 @@ the KERNAL and CSE's page, and the upper half's one offset is the
 KERNAL's.  After a far start the program's map *is* the far map, so
 a break shows a CPU address (`2010:`) and `m`, `d` and the steps see
 the bank through it.
+
+**The CPU space.**  A CPU address reads and
+writes what the program's CPU would, through its bank state
+([mem.md § far_user](mem.md#far_user-far_user_w-m65-only)): `zp_stage_prep`
+stages every byte of a CPU-space row through `far_user` — the user-ZP
+view at `$00` / `$01` among them — and `zp_poke` writes every byte
+through `far_user_w`, so a row that crosses a 4 K page edge, or wraps
+from `$FFFF` to `$0000`, shows and edits what the program would.  A
+write to a page whose ROM the program sees goes to the RAM beneath,
+as the CPU's would: `m c000 00` writes `0.C000` (the RAM under the
+interface ROM), and the row it prints shows the ROM still.  The write
+guard applies to the translated address (`m e000 00`, the KERNAL
+through `MAP`, is `;?range`).  `.`'s assembly writes through
+`asm_out`, translated once for its first byte: an instruction across
+a page edge is written where its first byte translates (a caveat,
+§ Caveats).
 
 #### The map in `r` and `M`
 
@@ -1156,6 +1171,11 @@ paths; each starts at column 0 and ends with `io_clear_eol`.
 
 - `exec_line` modifies `cur_addr` as a side effect of the `AAAA:`
   prefix.
+- **m65, `.` across a 4 K page edge:** in CPU space `.`'s assembly
+  writes through `asm_out`, translated once for the instruction's
+  first byte; an instruction whose bytes cross a page edge is written
+  where that first byte translates (`m` and the `.` pokes translate
+  every byte, § Banks).
 - **Expression arguments:** `@`, `j`, `+`, `-`, `b`, `s`, `l`, `t`,
   `o`, `B` take full expressions (`$hex`, decimal, `%binary`,
   symbols, operators).  Bare digits are decimal — hex needs `$`, and

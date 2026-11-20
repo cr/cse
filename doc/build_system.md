@@ -487,8 +487,17 @@ link instead of overwriting the neighbour:
 | `LOADER` | `$200D` | bank 0, the PRG image (discarded) | — | the file |
 | `STUB` | `$1FB0` | `0.1FB0` | `$0050` (to `0.1FFF`) | the file, copied by the loader |
 | `CODE`, `RODATA` | `$2000` | `3.2000` | `$6000` (24 K) | the file, DMA'd by the loader |
-| `KDATA` | `$8000` | the data window `3.8000` | with `BSS`: `$2100`, to `SYM_TABLE` | the file, DMA'd by the loader |
-| `BSS` | after `KDATA` | the data window | (the same area) | cleared by the loader |
+| `KDATA` | `$8000` | the data window `3.8000` | with `KCODE` and `BSS`: `$2100`, to `SYM_TABLE` | the file, DMA'd by the loader |
+| `KCODE` | after `KDATA` | the data window | (the same area) | the file, DMA'd by the loader with `KDATA`, as one block |
+| `BSS` | after `KCODE` | the data window | (the same area) | cleared by the loader |
+
+`KCODE` is code that runs in the data window: the code window
+(`$2000–$7FFF`) had 1.4 K left at slice 3's F2, which the banking
+work alone would fill, while the data window, mapped in CSE's own
+map like the code window, had 6 K.  m65-only code that is not on a
+hot path goes there (the CPU lens, the flat-address helpers, `M`);
+the m65 test bundles' config (`dev/m65_test.cfg`) has the segment
+too.
 | `ZEROPAGE` | `$00` (base-page offsets) | CSE's base page `0.1F00` (`B = $1F`) | `$00B0`, below the resident stub | cleared by the loader |
 
 The source region (`2.4000–2.BFFF`), the directory buffer

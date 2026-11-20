@@ -343,12 +343,13 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   offset holds a *user address*, the 16-bit address user code sees
   (what `m`, `.`, `d`, `a`, `b`, `j`, `g`, `brk_pc` and the step
   engine name); it sets the bank and megabyte to where that address
-  is in the user map
-  ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)).
+  is for the program's CPU (below).
   c64: empty — the kernel's view is the user's (`$01 = $36`, the
   user-ZP view aside).  m65: `ldx #name` · `jsr far_user` (mem.s,
-  [mem.md § far_user](modules/mem.md#far_user-m65-only)); **Clobbers:**
+  [mem.md § far_user](modules/mem.md#far_user-far_user_w-m65-only)); **Clobbers:**
   X, N/Z.
+
+  At a fresh start (the run premise's user map) the translation is:
 
   | User address | Far address (m65) |
   |---|---|
@@ -357,10 +358,8 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   | `$D000–$DFFF` | `FFD.3000–FFD.3FFF`: the I/O registers of the MEGA65 personality (offset `$3000–$3FFF`, bank `$FD`, megabyte `$0F`) — the one row that rewrites the offset's high byte.  Recorded: a register reads and writes the same through every window `FFD.0000–FFD.3FFF` and the CPU view, under every `$D02F` key (`m65_mem.json` `flat_io`) |
   | `$E000–$FFFF` | `3.E000–3.FFFF`: the KERNAL |
 
-  **Delta (slice 3, F2)** — stated ahead of the code
-  ([TODO § Slice 3 — banks](TODO.md#slice-3--banks)); it replaces the
-  table above and the paragraph below.  `FAR_USER` translates a *CPU
-  address* through the **program's bank state** — the block
+  In general `FAR_USER` translates a *CPU address* through the
+  **program's bank state** — the block
   `save_userland_state` captures and a resume installs: `MAP`'s four
   operands and the two megabyte selectors, the CPU port, `$D030` —
   as the CPU would after the resume:
@@ -371,21 +370,23 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
     port and the I/O personality lay over it (the interface ROM at
     `$C000`, I/O at `$D000`: the table above is this rule for the
     standard user map; mem.md states it in full from `m65_mem.json`);
-  - the translation holds for one 8 K block: a walk that crosses a
-    block edge translates again, so `m bffc` shows what the program
-    sees at `$C000`, and a walk past `$FFFF` wraps to `$0000`.
+  - the translation holds for one 4 K page; `far_user_w` gives where
+    a write goes (the RAM beneath a ROM the program sees).
 
-  At a fresh start the bank state is the run premise's, and the
-  translation is the table above.  `M65Memory` (M65Emu), held to the
-  recordings, is the test oracle.  A **flat address** needs no
-  translation: the pointer's four bytes are the address.
+  The recordings (`m65_mem.json`) are the test oracle
+  ([mem.md § far_user](modules/mem.md#far_user-far_user_w-m65-only)).
+  A **flat address** needs no translation: the pointer's four bytes
+  are the address.
 
 - **The REPL's command address:** `FAR_CUR name` (repl.s's macro;
   [repl.md § Banks](modules/repl.md#banks-m65)) — the pointer's
   offset holds the low word of `rp_addr`; in flat space (`rp_flat`)
   it sets bank and megabyte from `rp_bank`, in CPU space it is
-  `FAR_USER`.  c64: empty.  It is used at the REPL's command sites
-  (`zp_stage_prep_addr`, `cmd_mem`'s edit, `cmd_dot`, `dot_assemble`);
+  `FAR_USER`; `FAR_CUR_W` the same for a write.  c64: empty.  The
+  REPL's CPU-space rows go further: every byte through the lens on its
+  own (`lens_stage`, `lens_poke`, repl.md § Banks).  They are used at
+  the REPL's command sites (`zp_stage_prep_addr`, `cmd_mem`'s edit,
+  `cmd_dot`, `dot_assemble`);
   the debugger's sites (`brk_pc`, the step engine) take CPU addresses
   and keep `FAR_USER`.  **`far_write_ok`** (mem.s, m65; X = the
   pointer) answers whether a set far pointer may be written: C=1 in
@@ -393,14 +394,12 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   `.` and `.`'s assembly refuse such a write with `;?range`, in
   either space.
 
-  The translation is made where the pointer is set, for the row of
-  the address it is set to.  An access or a walk that runs past the
-  row's end (pointer + `Y`, or an `inc` of the high byte, across
-  `$C000`, `$D000`, `$E000` or `$FFFF`) is not translated again: it
-  reaches the next flat bytes of the same bank — `m bffc` shows
-  `0.C000–0.C003` in its last four columns, not the interface ROM,
-  and a run past `$FFFF` reaches `4.0000`, not `$0000`.  Only the
-  rows' edges are affected; the c64 is not.  Code that needs the user
+  The translation is made where the pointer is set, for the page of
+  the address it is set to.  An access that runs past the page's end
+  through the same pointer (pointer + `Y`) is not translated again —
+  the REPL's rows translate per byte for that reason; the debugger's
+  accesses (an instruction's bytes, a vector) cross no page edge that
+  matters.  The c64 is not affected.  Code that needs the user
   address after `FAR_USER` reads it from where it came (`rp_addr`,
   `brk_pc`, the breakpoint table), never from the pointer, whose high
   byte the I/O row rewrites.  The P1 analysis lists every set site of

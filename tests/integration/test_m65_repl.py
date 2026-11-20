@@ -261,7 +261,8 @@ def test_dot_assembles_and_d_disassembles(s):
 
 
 REG80 = r"^r pc:[0-9a-f]{4} a:[0-9a-f]{2} x:[0-9a-f]{2} y:[0-9a-f]{2} " \
-        r"z:([0-9a-f]{2}) b:([0-9a-f]{2}) s:[0-9a-f]{2} [nvbdizcNVBDIZC-]{8}$"
+        r"z:([0-9a-f]{2}) b:([0-9a-f]{2}) s:[0-9a-f]{2} [nvbdizcNVBDIZC-]{8}" \
+        r" ml:[0-9a-f]{4} mh:[0-9a-f]{4}$"            # the MAP (slice 3, F2)
 REG40 = r"^r pc:[0-9a-f]{4} a:[0-9a-f]{2} x:[0-9a-f]{2} y:[0-9a-f]{2} " \
         r"s:[0-9a-f]{2} [nvbdizcNVBDIZC-]{8}$"
 
@@ -280,7 +281,7 @@ def test_r_is_two_rows_in_40_columns_each_re_executing(s):
     mode40(s)
     s.type("r z:07 b:09")
     k, _ = s.find(REG40)
-    assert s.row(k + 1) == "r z:07 b:09"
+    assert s.row(k + 1) == "r z:07 b:09 ml:e000 mh:8300"
     s.write_row(k + 1, "r z:21 b:22")
     s.enter_on(k + 1)
     assert (s.v("reg_z"), s.v("reg_b")) == (0x21, 0x22)
@@ -753,7 +754,7 @@ def test_a_walk_carries_into_the_next_bank(s):
 
 
 @pytest.mark.parametrize("cmd", ["3.2000:m 00", "2.c000:m 00", "m e000 00",
-                                 "m c000 00", "3.2000:. 00"])
+                                 "3.2000:. 00"])
 def test_writes_into_the_rom_banks_are_refused(s, cmd):
     before = [fpeek(s, 3, 0x2000), fpeek(s, 2, 0xC000), fpeek(s, 3, 0xE000)]
     (s.line if ":" in cmd else s.type)(cmd)
@@ -777,3 +778,71 @@ def test_flat_zero_is_ram_the_cpu_view_is_the_programs_port(s):
     s.line("0000:m")
     _, row = s.find(r"^0000:m ")
     assert row.split()[1] == "ff"                       # the run premise's port
+
+
+# ── the program's map (slice 3, F2: repl.md § Banks, mem.md § far_user) ──
+
+def test_r_shows_the_programs_map(s):
+    s.type("r")
+    _, row = s.find(r"^r pc:")
+    assert row.rstrip().endswith(" ml:e000 mh:8300")
+
+
+def test_r_shows_the_map_on_the_second_row_in_40_columns(s):
+    s.mode("4")
+    s.type("r")
+    k, _ = s.find(r"^r pc:")
+    assert s.row(k + 1).rstrip() == "r z:00 b:00 ml:e000 mh:8300"
+
+
+def test_a_mapped_program_is_shown_what_it_sees(s):
+    fpoke(s, 4, 0x2000, [0x5A, 0xA5])
+    s.type("r ml:e400")                     # $2000-$7FFF -> 4.2000
+    s.type("m 2000")
+    _, row = s.find(r"^2000:m ")
+    assert row.split()[1:3] == ["5a", "a5"]
+    s.type("m 2000 66")                     # and an edit lands there
+    assert fpeek(s, 4, 0x2000) == [0x66]
+    assert fpeek(s, 0, 0x2000) != [0x66]
+
+
+def test_a_row_across_a_page_edge_is_translated_again(s):
+    fpoke(s, 0, 0xBFF8, range(0x30, 0x38))
+    s.type("m bff8")
+    _, row = s.find(r"^bff8:m ")
+    want = list(range(0x30, 0x38)) + fpeek(s, 2, 0xC000, 8)   # the interface ROM
+    assert row.split(";")[0].split()[1:17] == [f"{b:02x}" for b in want]
+
+
+def test_a_write_beneath_the_interface_rom_reaches_the_ram(s):
+    rom = fpeek(s, 2, 0xC000)
+    s.type("m c000 77")
+    assert fpeek(s, 0, 0xC000) == [0x77]
+    assert fpeek(s, 2, 0xC000) == rom
+    assert ";?range" not in s.screen()
+
+
+STANDARD_MAP = ["; map  0000-1fff 0.0000",
+                "; map  2000-7fff 0.2000 mapped",
+                "; map  8000-bfff 0.8000",
+                "; map  c000-cfff 2.c000 rom",
+                "; map  d000-dfff ffd.3000 io",
+                "; map  e000-ffff 3.e000 mapped"]
+
+
+def test_M_lists_the_programs_map(s):
+    s.type("M")
+    k, _ = s.find(r"^; map  0000-")
+    assert [r.rstrip() for r in s.rows()[k:k + 6]] == STANDARD_MAP
+    assert s.row(k + 6).rstrip() == "M mb:0000 d030:64"
+
+
+def test_M_follows_an_edited_map(s):
+    s.type("r ml:e400")
+    s.type("M")
+    s.find(r"^; map  2000-7fff 4\.2000 mapped")
+
+
+def test_M_edits_the_megabytes_and_d030(s):
+    s.type("M mb:0000 d030:20")
+    assert s.v("um_d030") == 0x20

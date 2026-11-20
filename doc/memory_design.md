@@ -495,12 +495,14 @@ pointers ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
                    else in banks 4–5, measured on M65Emu)
     800.0000+      Attic RAM                                    —
 
-**The data window (`3.8000–3.BFFF`).**  KDATA and BSS from its
-start, in one linker area bounded below the fixed homes; above them,
+**The data window (`3.8000–3.BFFF`).**  KDATA, KCODE (code that runs
+in the data window, [build_system.md § The m65 builds](build_system.md#the-m65-builds))
+and BSS from its start, in one linker area bounded below the fixed
+homes; above them,
 the C64's under-KERNAL homes at fixed addresses, page-aligned as the
 C64's (symtab.s indexes its table from a page boundary):
 
-    3.8000–3.A0FF  KDATA, then BSS (8.25 K; the linker bounds it)
+    3.8000–3.A0FF  KDATA, KCODE, then BSS (8.25 K; the linker bounds it)
     3.A100–3.A6FF  SYM_TABLE: the symbol table (256 × 6 bytes)
     3.A700–3.AFFF  SYM_HEAP … SYM_HEAP_END ($B000): the name heap
     3.B000–3.BF9F  REPL_SCREEN: the REPL screen save (80 × 50 = 4000)

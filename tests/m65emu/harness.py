@@ -222,7 +222,7 @@ class M65Emu(EmuBase):
         EmuBase's load_prg(), which M65Emu shares with C64Emu, copies
         segments within bank 0: the stub
         at STUB_BASE, CSE's base page cleared but for the stub's cold
-        target (_main), CODE + RODATA and KDATA in bank 3, BSS cleared,
+        target (_main), CODE + RODATA and KDATA + KCODE in bank 3, BSS cleared,
         banks 2-3 writable, SP at STACK_TOP, interrupts off, the CSE map
         and B = CSE_BP with A X Y Z as the stub's cold entry leaves them
         (A and X its dispatch index 4, pushed and pulled: the byte stays at
@@ -240,7 +240,8 @@ class M65Emu(EmuBase):
         for load, run, size in [
                 (s("__CODE_LOAD__"), s("__CODE_RUN__"),
                  s("__CODE_SIZE__") + s("__RODATA_SIZE__")),
-                (s("__KDATA_LOAD__"), s("__KDATA_RUN__"), s("__KDATA_SIZE__"))]:
+                (s("__KDATA_LOAD__"), s("__KDATA_RUN__"),
+                 s("__KDATA_SIZE__") + s("__KCODE_SIZE__"))]:     # KCODE follows KDATA
             mem.load(flat(BANK_CSE, run), bytes(self._ram[load:load + size]))
         mem.load(flat(BANK_CSE, s("__BSS_RUN__")), bytes(s("__BSS_SIZE__")))
         cpu.sp = 0x0100 | STACK_TOP

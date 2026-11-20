@@ -146,46 +146,177 @@ cse_zp_end:
         ldx #0
         rts
 
+.ifdef PLATFORM_M65
 ; ═════════════════════════════════════════════════════════════
-; far_user — FAR_USER's m65 body (doc/modules/mem.md § far_user): the
-; far pointer at X holds a user address in its offset; set its bank
-; and megabyte to where the user map shows that address (platform.inc
-; BANK_IROM / BANK_KERNAL / BANK_IO):
-;   $0000-$BFFF bank 0 · $C000-$CFFF 2.C000 · $E000-$FFFF 3.E000 ·
-;   $D000-$DFFF FFD.3000 (the offset's high byte $Dx becomes $3x).
+; far_user / far_user_w — FAR_USER's m65 body (doc/modules/mem.md
+; § far_user): the far pointer at X holds a CPU address in its offset;
+; set its bank and megabyte (for an I/O page also the offset's high
+; byte) to where the program's CPU reads it (far_user) or writes it
+; (far_user_w), through the program's bank state — um_map (MAP's X A Z
+; Y, the two megabytes), the captured port (userland_zp_buf) and
+; um_d030 — as M65Memory._rebuild does.  lens_kind = LENS_RAM /
+; LENS_MAPPED / LENS_ROM / LENS_IO for the address's 4 K page.
 ; In: X = the pointer's base-page offset.  Preserves A, X, Y, P.
 ; ═════════════════════════════════════════════════════════════
-.ifdef PLATFORM_M65
-        .export far_user
-.proc far_user
+        .export far_user, far_user_w, lens_kind
+        .importzp um_map, um_d030, userland_zp_buf
+LENS_RAM    = 0
+LENS_MAPPED = 1
+LENS_ROM    = 2
+LENS_IO     = 3
+.segment "BSS"
+lens_kind:      .res 1
+fu_w:           .res 1          ; $80: the write lens
+fu_page:        .res 1          ; the 4 K page, 0-15
+fu_hi:          .res 1          ; the half's MAP operands: X or Z,
+fu_lo:          .res 1          ;   A or Y
+fu_mb:          .res 1          ;   and its megabyte
+fu_cfg:         .res 1          ; (port | ~DDR) & 7
+.segment "KCODE"                ; m65 code in the data window
+far_user_w:
+        php
+        pha
+        lda #$80
+        bne fu_go               ; always
+far_user:
         php
         pha
         lda #0
-        sta 3,x                 ; megabyte 0; the I/O row sets its own
+fu_go:  sta fu_w
+        tya
+        pha
         lda 1,x
-        cmp #$C0
-        bcc @user
-        cmp #$D0
-        bcc @irom
-        cmp #$E0
-        bcs @kernal
-        eor #$D0 ^ IO_FLAT_HI   ; $Dx -> $3x
+        lsr
+        lsr
+        lsr
+        lsr
+        sta fu_page
+        lsr                     ; the 8 K block
+        tay
+        cpy #4
+        bcs @upper
+        lda um_map              ; X: the lower half's enables, offset 16-19
+        sta fu_hi
+        lda um_map+1            ; A: offset 8-15
+        sta fu_lo
+        lda um_map+4
+        bcc @half               ; always (C=0 from cpy)
+@upper: lda um_map+2            ; Z
+        sta fu_hi
+        lda um_map+3            ; Y
+        sta fu_lo
+        lda um_map+5
+@half:  sta fu_mb
+        tya
+        and #3
+        tay
+        lda fu_hi               ; the enables to bits 0-3, then this block's
+        lsr                     ;   to bit 0
+        lsr
+        lsr
+        lsr
+@sh:    dey
+        bmi @tst
+        lsr
+        bpl @sh                 ; always
+@tst:   lsr
+        bcs :+
+        jmp @unmapped
+:
+        ; MAP: megabyte << 20 + ((offset << 8) + address) mod 1 M
+        lda 1,x
+        clc
+        adc fu_lo
         sta 1,x
+        lda fu_hi
+        and #$0F
+        adc #0
+        and #$0F
+        sta 2,x
+        lda fu_mb
+        asl
+        asl
+        asl
+        asl
+        ora 2,x
+        sta 2,x
+        lda fu_mb
+        lsr
+        lsr
+        lsr
+        lsr
+        sta 3,x
+        lda #LENS_MAPPED
+        jmp @done
+@unmapped:
+        lda userland_zp_buf     ; the configuration: (port | ~DDR) & 7
+        eor #$FF
+        ora userland_zp_buf+1
+        and #7
+        sta fu_cfg
+        ldy fu_page
+        cpy #8
+        bcc @ram
+        lda um_d030
+        cpy #$A
+        bcs @ab
+        and #$08                ; $8000-$9FFF: ROM8
+        bne @rom
+        beq @ram
+@ab:    cpy #$C
+        bcs @c
+        and #$10                ; $A000-$BFFF: ROMA, or LORAM+HIRAM
+        bne @rom
+        lda fu_cfg
+        and #3
+        cmp #3
+        beq @rom
+        bne @ram
+@c:     bne @def                ; Z from cpy #$C: $C000 page?
+        and #$20                ; $C000-$CFFF: ROMC
+        bne @rom
+        beq @ram
+@def:   cpy #$D
+        bne @ef
+        lda fu_cfg              ; $D000-$DFFF: I/O above 4, ROM 1-4
+        cmp #5
+        bcs @io
+        and #3
+        bne @rom
+        beq @ram
+@ef:    and #$80                ; $E000-$FFFF: ROME, or HIRAM
+        bne @rom
+        lda fu_cfg
+        and #2
+        bne @rom
+@ram:   lda #0
+        sta 2,x
+        sta 3,x
+        beq @done               ; A = LENS_RAM
+@rom:   lda #0
+        sta 3,x
+        bit fu_w                ; a write goes to the RAM beneath
+        bmi :+
+        lda #BANK_IROM          ; the ROM image, bank 2
+:       sta 2,x
+        lda #LENS_ROM
+        bne @done
+@io:    lda 1,x                 ; FFD.3000-FFD.3FFF: the MEGA65
+        and #$0F                ;   personality's registers
+        ora #IO_FLAT_HI
+        sta 1,x
+        lda #BANK_IO
+        sta 2,x
         lda #MB_IO
         sta 3,x
-        lda #BANK_IO
-        .byte $2C               ; BIT abs: skip the next lda
-@kernal:
-        lda #BANK_KERNAL
-        .byte $2C
-@irom:  lda #BANK_IROM
-        .byte $2C
-@user:  lda #BANK_USER
-        sta 2,x
+        lda #LENS_IO
+@done:  sta lens_kind
+        pla
+        tay
         pla
         plp
         rts
-.endproc
+.segment "CODE"
 .endif
 
 .ifdef PLATFORM_M65
@@ -359,7 +490,7 @@ cse_zp_end:
 .ifdef PLATFORM_M65
 
         .export stub_brk, stub_nmi, stub_cold, stub_user, brk_stub
-        .importzp in_userland, userland_zp_buf, stub_brk_target
+        .importzp in_userland, stub_brk_target
         .assert MAP_CSE_A = 0 && MAP_CSE_Y = 0, error, "stub_cold relies on A = Y = 0"
 
 .segment "STUB"

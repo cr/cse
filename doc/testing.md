@@ -232,6 +232,13 @@ reads from (clean mode's test of the PC; `None` for an I/O register).
 `FlatRAM` is the plain memory its Tier U tests run on (the CPU view is
 the first 64 KB of the flat space); `M65Memory` is the real layout.
 
+`M65Memory`'s recordings are also the oracle of the
+monitor's CPU lens: a test sets the program's bank state in CSE's base
+page, calls `far_user` / `far_user_w`, and compares each translation
+with `M65Memory.flat_of` (and its write table) under the same MAP,
+port and `$D030` — every 4 K page of every banking state in
+`m65_mem.json`.
+
 **Layer 2 — the memory layout, `M65Memory`**
 (`tests/m65emu/memory.py`).  The object `MPU45GS02` reads and writes
 through, as `C64Emu`'s `BankedMemory` is for py65 (the memory

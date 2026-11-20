@@ -52,6 +52,12 @@ scr_last_col:   .res 1          ; width - 1
 ; own view, so a plain pointer, no bank.
         .exportzp disk_local_ptr
 disk_local_ptr: .res 2
+
+; ── the monitor's CPU lens (m65; mem.md § far_user, repl.md § Banks) ──
+; One CPU address at a time through the program's bank state: the REPL's
+; per-byte staging and pokes, `M`'s pages, the edit guard.
+        .exportzp lens_ptr
+lens_ptr:       .res 4          ; a far pointer (FAR_SIZE)
 .endif
 
 ; ── main.s: runtime scratch ───────────────────────────────────────────── $02

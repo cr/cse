@@ -393,7 +393,7 @@ then tests first, the code, the differential doc update, the commit.
   (+622).  On the C64 `4.2000:m` is `;?cmd` (`4` is no command) and
   `@ 4.2000` `;?syntax`.  Found and filed: `*` in `.`'s operand is
   the previous instruction's address (§ Bugs › Both platforms).
-- [ ] **F2 — the program's map** (D-F-2, D-F-4; P-F-3).  Delta:
+- [x] **F2 — the program's map** (D-F-2, D-F-4; P-F-3).  Delta:
   [platform_layer.md § Far memory](platform_layer.md#far-memory)
   (written); at Step 1 mem.md (`far_user` through the bank state, the
   table of what an unmapped block shows), repl.md (`r`, `M`, the row
@@ -406,6 +406,19 @@ then tests first, the code, the differential doc update, the commit.
   `$2000–$7FFF` and breaks — `m 2000` shows bank 4; `r ml:` edits;
   `M`'s rows; Tier X: the same session against xmega65's CPU view
   (`read_cpu`).
+
+  **Done 2026-11-20.**  `far_user` / `far_user_w` (mem.s, `KCODE`)
+  translate through the captured bank state per 4 K page, held to
+  every non-VIC-II banking state of `m65_mem.json` (104 cases); the
+  REPL's CPU-space rows translate every byte (`lens_stage`,
+  `lens_poke`), a write going where the CPU's goes — `m c000 77`
+  writes the RAM beneath the interface ROM (operator, 2026-11-20),
+  the guard checks the write target; `r` shows and edits `ml:` /
+  `mh:`; `M` lists the map and edits `mb:` / `d030:`.  The new
+  `KCODE` segment (code in the data window, build_system.md) holds
+  the m65 helpers: the code window has 1.7 K free again.  Caveat: an
+  instruction `.` assembles across a 4 K page edge is written where
+  its first byte translates.  m65 26 025 B (+972).
 - [ ] **F3 — far starts** (D-F-5; P-F-2).  Delta:
   [userland_contract.md § 3 On m65](userland_contract.md#on-m65) *A
   run starts* and § 5.6 (written); at Step 1 debugger.md
@@ -1776,7 +1789,7 @@ Step-1 delta (written 2026-11-18; approved with the CDD Analysis and the revised
   `2.C000`, the I/O bank `FFD.3000`, the KERNAL `3.E000`), each
   pointer's sites by role in [zp.md](modules/zp.md);
   [platform_layer.md § Far memory](platform_layer.md#far-memory),
-  [mem.md § far_user](modules/mem.md#far_user-m65-only).
+  [mem.md § far_user](modules/mem.md#far_user-far_user_w-m65-only).
 - [x] [userland_contract.md](userland_contract.md) for m65 in full:
   the mode model in two-map terms (§ 1), the state tiers with the
   bank state preserved (§ 2 On m65), base page 0 live, the port's
