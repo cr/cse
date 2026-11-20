@@ -34,6 +34,78 @@ is per-session, the project's working state recap.
 
 ---
 
+## R7 — CDD Report: the MEGA65 port's CPU and platform layers (2026-11-16/20)
+
+Branch `m65`, `910d96d..` the P5 close: 338 commits over five days,
+under the CDD Method, milestone by milestone (doc delta, analysis,
+TDD plan — each approved — then code tests-first, the differential
+doc update and a record in TODO).
+
+### What R7 delivered
+
+- **Slice 1, Phase A** — every opcode fact from one source,
+  `dev/instruction_set.py`: per-CPU-set generated tables for the
+  assembler (profile rows) and an opcode-map disassembler, with size,
+  speed and behaviour gates against golden files.
+- **Slice 2** — a native MEGA65-mode build: P0 the PRG that installs
+  itself in the ROM banks and reaches `_main`; P1 user code, maps,
+  vectors and the debugger; P2 the screen, keyboard, REPL and editor
+  through the KERNAL API; P3 the disk and the D81; P4 (slice 1's
+  Phase B) the 45GS02 assembler, disassembler and debugger step, five
+  byte columns; P4b no 65C02 on either target, the assembler's CMOS
+  mode kept as test bundles; P5 the verified ROMs, the gates recorded,
+  the pending mechanism retired.
+- **The harness** — M65Emu, a 45GS02 emulator held to xmega65
+  recordings (CPU, memory, DMA, latches, the run premise, the editor
+  API), and Tier X tests driving xmega65 itself on both ROMs.
+
+### The changes in numbers
+
+- Builds: c64-6502 20 790 → 20 732 B, c64-6510 21 232 → 21 080 B,
+  m65-45gs02 24 400 B (new); c64-65c02 (21 688 B) dropped.  Every C64
+  byte change was deliberate and recorded (hashes, budgets).
+- Repository: 247 files, +100 692 / −14 068 lines — source 42 files
+  (+6 800 / −3 868), tests 97 files (+76 378, most of it golden
+  recordings), docs 42 files (+13 064 / −5 641).
+- Tests: 5968 (Tier U and I) and 168 Tier X on 920413 and 920421.
+
+### Unplanned changes
+
+- **P4b** — dropping the 65C02 from both targets came mid-way, after
+  P4 had added it to the m65 set (D-P4-10); it took a delta, two
+  approvals and five code steps, and simplified more than it removed.
+- **Prerequisite bugs** found by P4's analysis and fixed first: the
+  bit-op mnemonics were never assembled; `.cpu` / `u` did not enforce
+  the build's CPU set.
+- **Found while coding, fixed**: CBDOS's calls return under the
+  KERNAL's map record (D-P3-8); disk.s's `jmp (callback)` could sit on
+  `$xxFF` (BSS 2-aligned); mode_parse's ZPREL kept only a low byte;
+  the Makefile accepted any `CPU` (`CPU=6503` built a broken PRG).
+- **Found by the reviews**: a failed `.` re-entry left a REL16 request
+  set; `t` on `JSR (ind)` into ROM did not step over; `dasm_insn` read
+  through a far pointer with stale bank bytes; a test that could not
+  fail; `asm_slot`, a write-only ZP cell since before m65.
+- **Outside the plan, at the operator's request**: the themes
+  (CLOUDY the default everywhere).
+
+### Follow-ups
+
+- **A3b** — recompact ZP over the freed bytes ($0F, $13, $2C, $43): a
+  userland-contract change, its own cycle (D-P4-4).
+- **The C64 KDATA bound** — the linker does not stop a KDATA overflow
+  into KBSS (TODO § M65, known issues).
+- **bbbc64** — its golden copies of cse's tables are stale, and the
+  hand-numbered profile scheme in the shared `instruction_set.py` no
+  longer drives anything; one coordinated cycle in both repositories.
+- **The m65 cartridge** — a later release (TODO § Later release).
+- **Hardware** — real MEGA65 drive timing and the VICE walk
+  ([vice_test_plan.md](vice_test_plan.md)) stay manual.
+- **The method** — the Tier C amendments the P3, P4 and P4b entries
+  below suggest (the milestone-close greps, the dead-cell grep, the
+  generated-fact `.ifdef` check) wait in TODO § CDD amendments pending.
+
+---
+
 ## P4b — review of the assembly and disassembly chain (2026-11-20)
 
 Operator-invoked after P4b ("the cmos surgery"): strip obsolete

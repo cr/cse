@@ -151,10 +151,34 @@ disassembler (A4) followed: see A4 below.
   1578 → 1113 / 1961 → 1550 B; dasm sweep cycles −3.8 / −7.5 / −4.7 %,
   worst single case +5.7 % (an unknown opcode, which the bit-slice
   short-circuited); all 1536 dasm golden cases identical.)
-- [ ] A5. Gates 1–3 measured and recorded here; asm → dasm → asm
+- [x] A5. Gates 1–3 measured and recorded here; asm → dasm → asm
   round trip over every row (done for the m65 set in P4, T7); generator tests (placement rules refuse
   violating input, minimal row count, no foreign entries per block).
   Closes with slice 2's P5 (D-P5-4).
+
+  **A5 record (P5, 2026-11-20).**  Gate 1, size (release PRGs,
+  `test_size_budget.py`): c64-6502 20 732 B (baseline 910d96d: 20 790),
+  c64-6510 21 080 B (21 232), m65-45gs02 24 400 B; c64-65c02 (21 688)
+  no longer builds.  Gates 2 and 3, speed and behaviour
+  (`test_golden_asm_dasm.py`, the sweeps of every row through
+  `asm_line` and every opcode × every `asm_cpu` of the set through
+  `dasm_insn`):
+
+  | CPU set | golden recorded at | asm cases / total | dasm cases / total |
+  |---|---|---|---|
+  | 6502 | e24cc75 | 1248 / 1 174 588 cycles | 256 / 147 237 cycles |
+  | 6510 | 1bd6e18 (P4b) | 2496 / 3 047 438 cycles | 512 / 322 203 cycles |
+  | 65c02 (the CMOS mode) | 1bd6e18 (P4b) | 2496 / 2 623 584 cycles | 512 / 325 069 cycles |
+  | 45gs02 | 7b8eefd (P4b) | 4890 / 1 722 752 instructions | 1536 / 364 931 instructions |
+
+  Every later commit holds them (identical output, totals no higher,
+  no case > 10 % slower).  The round trip: every row of every view —
+  6502 151, 6510 432, the CMOS mode 361 (`test_dasm.py`), 45GS02 332,
+  prefixed rows included (`test_dasm_m65.py`).  Generator tests:
+  `test_mnemonic_tables.py` (a zone gap and two profiles in a fixed
+  zone refused, the minimal row count, each set's own modes and keys),
+  `test_dasm_tables.py` (each view decodes from the tables, one subset
+  view).
 
 ### Phase B — the m65 build (m65-45gs02)
 
@@ -284,8 +308,10 @@ compendium until its golden file, recorded in xmega65, says otherwise.
 (the m65 PRG installs itself and reaches `_main`), P1 (user code,
 maps, vectors and the debugger on m65), P2 (the screen, the keyboard,
 the REPL and the editor) and P3 (the disk and the D81) and P4 (the 45GS02 assembler, disassembler
-and step — slice 1's Phase B) and P4b (no 65C02 on the targets; the
-assembler's CMOS mode bundle-only) are done; P5 is in its code steps.
+and step — slice 1's Phase B), P4b (no 65C02 on the targets; the
+assembler's CMOS mode bundle-only) and P5 (the contract closed) are
+done: slice 2 is complete for R7's first release (PRG and D81).  What
+follows is listed in the CDD Report.
 
 **How this plan is read.**  Under CDD the documents are the truth:
 each milestone below is a **Step-1 doc delta** — the documents that
@@ -2151,11 +2177,20 @@ Decisions (approved 2026-11-20):
 - [x] T3. The pending mechanism gone (`test_platform_audit.py`): its
   two tests removed; the platform-literal audit names no
   `PLAT_PENDING`; `platform.inc` defines neither macro.
-- [ ] T4. The close: the gates measured (sizes, golden totals per set)
+- [x] T4. The close: the gates measured (sizes, golden totals per set)
   recorded under A5; full suite, Tier X on both ROMs, audits clean.
 
 Code order: (1) T1 and the ROM list; (2) T2; (3) the pending
 mechanism retired; (4) the gate record, the CDD Report, the close.
+
+- **P5 gate met (2026-11-20):** T1–T4 green — 5968 passed, Tier X 168
+  passed on 920413 and 920421, the gating doc audits clean.  The
+  verified ROMs named and held (`test_m65_roms.py`); the m65 size gate
+  (24 400 B) and instruction-count speed gate (`asm_dasm_45gs02.json`)
+  in place; no pending body and no pending mechanism; A5 closed (its
+  record above, with the round trip over every set — 944 C64 and CMOS
+  rows, 332 m65).  Code commits f001a69, 9bb2f3c, 6967f90 and the
+  close.  The CDD Report: [cdd_log.md § R7 — CDD Report](cdd_log.md#r7--cdd-report-the-mega65-ports-cpu-and-platform-layers-2026-11-1620).
 
 ### Analysis tasks (own cycles; their results are doc deltas)
 
