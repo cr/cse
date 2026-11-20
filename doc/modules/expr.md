@@ -62,6 +62,11 @@ symbol) leaves `$01` bit 1 set and the I flag clear.
 `expr_eval` without the range check — the 32-bit value as computed ([§ 32-bit values](#32-bit-values-m65)).
 **In / Out / Clobbers:** as `expr_eval`.
 
+### expr_reset (m65)
+**Out:** `expr_bank` = 0 and the `expr_eval32` opt-in cleared — the
+state an assembly or an evaluation that RESTORE abandoned leaves
+([main.md § refresh_body](main.md#refresh_body)).  **Clobbers:** A.
+
 ### expr_eval_nb
 The evaluator without the banking bracket, for callers that already
 run with the KERNAL banked out — `mode_parse` (addr_mode.s) inside

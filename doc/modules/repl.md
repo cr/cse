@@ -999,19 +999,31 @@ value outside 16 bits (a negative one too) in 32 bits — `$` and eight
 hex digits, two spaces, the unsigned decimal: `? 4.2000` is
 `$00042000  270336`, `? -1` `$ffffffff  4294967295`.  The assembler
 takes banks (F5b, [assembler_syntax.md § Directives](../assembler_syntax.md#directives)):
-after `a` the current address is `main`'s value, flat when `main` is
-(the prompt `4.2000:`), and `g` far-starts it as `j` would; `.` at a
+`a` at a flat current address assembles the code before the first
+`.org` there (`a_bank` sets `asm_def_bank`); after `a` the current
+address is `main`'s value, flat when `main` is (the prompt `4.2000:`), and `g` far-starts it as `j` would; `.` at a
 flat current address takes a value in that address's bank as its low
 word (`4.2000:. jmp 4.2010` is `4c 10 20`, `dot_bank` sets
 `expr_bank` around `dot_assemble`), any other above `$FFFF` is
 refused, nothing written (the same-bank rule; the tag is § Error tag
-dispatch's).  **Delta, not yet built (F5c):**
-every address argument is an expression — `@`, `j`, `b` and `m`
-take a value above `$FFFF` as a flat address (so `@ main`, `j main`,
-`b loop+3` follow a flat label, and `m screen+40` works), which
-retires `parse_flat_arg` (the expression's flat-literal factor reads
-the same text); a command that takes a 16-bit value only (`B`, `+`,
-`-`, `t N`) keeps `;?expr range` above `$FFFF`.
+dispatch's).  **Delta, not yet built (F5c):** the address arguments
+of `@`, `j`, `b` and `m` are 32-bit expressions
+([expr.md § 32-bit values](expr.md#32-bit-values-m65)), so `@ main`,
+`j main` and `b loop+3` follow a flat label, `@ 4.2000+$10` is
+`4.2010`, and `m buf+$10` works.  The argument is a **flat address**
+when the expression's width is FAR — a factor above 16 bits, a flat
+literal (`0.2000` stays flat, as today) — and then must be a 28-bit
+address (`$0FFFFFFF` at most); a value from −$FFFF to −1 is the CPU
+address of its low word, as F5a's 16-bit consumers take it; any other
+value is `;?expr range`.  `m`'s first word keeps its shapes: four hex
+digits are a CPU address (`m 2000` is `$2000`, not decimal 2000), two
+hex digits begin the edit bytes, anything else is an expression (`m
+$2000`, `m 4.2000`, `m main`); a label that looks like four hex digits
+is written in parentheses (`m (cafe)`).  `parse_flat_arg` retires —
+the expression's flat-literal factor reads the same text; a row's
+prefix (`4.2000:`) is still read by `parse_flat_ptr1` (P-F-7).  The
+commands that take a 16-bit value only (`B`, `+`, `-`, `t N`) keep
+`;?expr range` above `$FFFF`; `d` takes no address, as before.
 
 On m65 an address is in one of two spaces, told apart by a dot
 ([glossary.md](../glossary.md), *CPU address*, *flat address*):

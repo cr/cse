@@ -22,6 +22,11 @@
 ;   4 = error: mismatched parentheses
 ;   5 = error: undefined symbol
 ;   6 = error: division by zero
+;   7 = error: range (m65: outside -$FFFF..$FFFF for expr_eval; never
+;       from expr_eval32)
+;
+; m65: values are 32 bits, expr_wide 3 = FAR; the literals, the flat
+; literal H.AAAA and the range rules are expr.md § 32-bit values.
 ;
 ; Width rule:
 ;   - $XX (1-2 hex digits) → narrow
@@ -42,6 +47,7 @@
 .ifdef PLATFORM_M65
         .export expr_eval32             ; 32 bits, no range check (expr.md § 32-bit values)
         .export expr_bank               ; the bank a 16-bit consumer also takes
+        .export expr_reset              ; an abandoned batch's state cleared
 .endif
 
         .import sym_lookup, sym_fwd
@@ -1756,6 +1762,20 @@ _ex_no_digits:
 @bad:   sec
         rts
 .endproc
+
+.ifdef PLATFORM_M65
+; ═══════════════════════════════════════════════════════════
+; expr_reset — no bank, no 32-bit opt-in: after RESTORE abandoned an
+; assembly or an evaluation (main.md § refresh_body).  Clobbers A.
+; ═══════════════════════════════════════════════════════════
+.proc expr_reset
+        lda #0
+        sta _ex_far
+        sta expr_bank
+        sta expr_bank+1
+        rts
+.endproc
+.endif
 
 ; ═══════════════════════════════════════════════════════════
 ; expr_error_str — return pointer to error string

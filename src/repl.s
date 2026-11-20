@@ -114,7 +114,7 @@ STEP_OVER = 2
 ; ── Imports: expression parser ─────────────────────────────
         .import expr_eval, expr_error_str
 .ifdef PLATFORM_M65
-        .import expr_eval32, expr_bank
+        .import expr_eval32, expr_bank, asm_def_bank
 .endif
         .importzp expr_ptr, expr_val
 
@@ -1104,15 +1104,28 @@ map_fields:
 ; rule, assembler_syntax.md § Directives).  Clobbers A, X.
 ; ───────────────────────────────────────────────────────────
 dot_bank:
+        jsr cur_bank_ax
+        sta expr_bank
+        stx expr_bank+1
+        rts
+
+; a_bank — asm_def_bank := the current address's bank (0: a CPU
+; address): `a`'s default origin is the current address, flat too.
+a_bank:
+        jsr cur_bank_ax
+        sta asm_def_bank
+        stx asm_def_bank+1
+        rts
+
+; cur_bank_ax — A/X := the current address's bank when it is flat, else 0.
+cur_bank_ax:
         lda #0
         tax
         bit cur_flat
         bpl :+
         lda cur_bank
         ldx cur_bank+1
-:       sta expr_bank
-        stx expr_bank+1
-        rts
+:       rts
 
 ; ───────────────────────────────────────────────────────────
 ; calc_32 — `?`'s row for a value outside 16 bits (repl.md § Banks):
@@ -5269,6 +5282,9 @@ prg_ok_done:
         jsr log_open        ; "; "
         puts str_asm_ing        ; "asm..."
         jsr log_close           ; close line, advance to next row
+.ifdef PLATFORM_M65
+        jsr a_bank              ; the default origin's bank
+.endif
         lda cur_addr
         ldx cur_addr+1
         jsr asm_assemble       ; A/X = error count

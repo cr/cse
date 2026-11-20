@@ -81,6 +81,7 @@
         .import step_bp
 .ifdef PLATFORM_M65
         .import dbg_step_find           ; breakpoints.s: the step slots' bytes
+        .import expr_reset              ; expr.s: no bank, no 32-bit opt-in
 .endif
         .importzp dbg_reason, kernal_out, cur_device    ; zp.s
         .import brk_pc, dbg_bp_hit
@@ -1201,6 +1202,9 @@ refresh_body:
         BANK_KERNEL
         lda #0
         sta kernal_out
+.ifdef PLATFORM_M65
+        jsr expr_reset          ; nor its bank or a `?`'s 32-bit opt-in
+.endif
         jsr reset_screen
         lda LAST_ROW
         jsr splash_row

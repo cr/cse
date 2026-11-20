@@ -17,6 +17,9 @@
 
         .export         asm_assemble
         .export         asm_org, asm_size, asm_errors
+.ifdef PLATFORM_M65
+        .export         asm_def_bank
+.endif
         .export         seg_print_save
         .export         cpu_names, cpu_lookup           ; repl.s `u`
 
@@ -62,6 +65,9 @@ SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp
 .segment "BSS"
 asm_org:       .res 2          ; origin of the first segment
 _def_org:      .res 2          ; default origin (A/X): every pass starts here
+.ifdef PLATFORM_M65
+asm_def_bank:  .res 2          ; in: the default origin's bank (0: a CPU address)
+.endif
 _cpu_save:     .res 1          ; caller's asm_cpu: each pass starts with it
 asm_size:      .res 2          ; total bytes emitted
 asm_errors:    .res 2          ; error count (pass 1 only)
@@ -797,6 +803,10 @@ _seg_log_close:
         lda asm_tmp2            ; end_hi
         sta rp_cnt+1
         jsr seg_line
+.ifdef PLATFORM_M65
+        lda #0                  ; info_bank is 0 outside a range row
+        sta info_bank           ; (prg_line reads it)
+.endif
         jsr _bank_out_tmp
 @clear: lda #0
         sta _seg_open
@@ -1074,6 +1084,9 @@ d_align:
 d_bas:
         ; .bas is an implicit .org BASIC_START (BASIC's program start)
         jsr _seg_log_close      ; close previous segment
+.ifdef PLATFORM_M65
+        jsr _bank_0             ; BASIC's program start is bank 0's
+.endif
         lda #<BASIC_START
         sta asm_pc
         lda #>BASIC_START
@@ -1222,7 +1235,17 @@ d_org:
         jsr expr_eval32         ; a 28-bit address: flat above $FFFF
         cmp #2
         bcs @bad
-        lda expr_val+3
+        lda expr_val+2          ; -$FFFF..-1: its low word, bank 0, as
+        and expr_val+3          ; the 16-bit consumers take it (expr.md)
+        cmp #$FF
+        bne @chk28
+        lda expr_val
+        ora expr_val+1
+        beq @bad                ; $FFFF0000: no
+        lda #0
+        sta expr_val+2
+        sta expr_val+3
+@chk28: lda expr_val+3
         cmp #$10
         bcc @org_ok
 @bad:   jsr _bad_val_err
@@ -1654,7 +1677,12 @@ _too_long_err:
         lda _def_org+1
         sta asm_pc+1
 .ifdef PLATFORM_M65
-        jsr _bank_0             ; the default segment: bank 0
+        lda asm_def_bank        ; the default segment: the default
+        sta asm_pc+2            ; origin's bank (a flat current address)
+        sta expr_bank
+        lda asm_def_bank+1
+        sta asm_pc+3
+        sta expr_bank+1
 .endif
         jsr _seg_log_open       ; open the default segment
 @loop:  ; Call ed_read_line(_line_buf)

@@ -21,7 +21,9 @@ document is the module contract behind it.
 
 ### asm_assemble
 **In:** A/X = default origin (used for code before the first `.org`;
-the REPL passes `cur_addr`); `asm_cpu` (the CPU the assembly starts
+the REPL passes `cur_addr`); on m65 `asm_def_bank` (BSS, exported, 2
+bytes: the default origin's bank, 0 for a CPU address — the REPL sets
+it from a flat current address); `asm_cpu` (the CPU the assembly starts
 with); the editor source, read through `ed_read_rewind` /
 `ed_read_line`.
 **Out:** A/X = error count (uint16) — also in `asm_errors`;
@@ -123,14 +125,17 @@ start).
 
 **On m65** (slice 3, F5b) `asm_pc` is a far pointer whose bank
 bytes (`asm_pc+2/+3`) are the segment's bank — 0 for a CPU segment,
-set by `.org` from its 28-bit value and cleared at each pass start —
+set by `.org` from its 28-bit value, by each pass start from
+`asm_def_bank`, and to 0 by `.bas` —
 and `_emit_byte` stores through it.  The gate: the megabyte 0, and
 bank 0 `$2000–$BFFF`, bank 1 `$2000–$F6FF`, or bank 4 or 5
 (assembler_syntax.md § Directives).  A label's value is `asm_pc`'s 32
 bits.  `.org` also sets `expr_bank` (expr.md § 32-bit values) to the
 segment's bank, so the 16-bit consumers take that bank's values as
-their low words; each pass starts it at 0 and `asm_assemble` leaves
-it 0.  `_seg_log_close` prints the segment's bank (`info_bank`) and
+their low words; each pass starts it at the default bank and
+`asm_assemble` leaves it 0.  `_seg_log_close` prints the segment's
+bank through `info_bank`, which it sets back to 0 (`prg_line` reads
+it), and
 keeps a flat segment out of `_min_pc` / `_max_pc`, the save
 suggestion's range.  `.dd` is `emit_data_bytes` with a word size of 4,
 through `expr_eval32`.  `_bank_0` zeroes `asm_pc`'s bank bytes and

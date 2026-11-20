@@ -15,10 +15,10 @@
 ; The heap persists until sym_clear — survives editing between assemblies.
 ;
 ; Interface (all via ZP):
-;   sym_define:  in: sym_name (ptr), sym_val (16-bit), sym_wide (0=ZP, 1=ABS)
+;   sym_define:  in: sym_name (ptr), sym_val (16-bit; m65 32-bit), sym_wide (0=ZP, 1=ABS)
 ;                out: C=1 if table full or heap overflow
 ;   sym_lookup:  in: sym_name (ptr)
-;                out: sym_val (16-bit), sym_wide (0/1), sym_fwd, C=1 if not found
+;                out: sym_val (16-bit; m65 32-bit), sym_wide (0/1), sym_fwd, C=1 if not found
 ;   Both save $01 on entry and restore it on every exit (nesting guard).
 ;   sym_clear:   (no args) — wipes all slots, resets heap
 

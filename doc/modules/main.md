@@ -202,7 +202,9 @@ Callers: `cse_recover`, `cse_end_debug`, `repl.s`'s `R`.
 **In:** none
 **Out:** `state = ST_REPL`; `$01 = $36` and `kernal_out = 0` (an NMI
 can land inside a bank-out window, e.g. RUN/STOP+RESTORE during `a`,
-which abandons the assembly); `reset_screen`; cursor at row 24,
+which abandons the assembly); on m65 `expr_reset` (expr.md: the
+abandoned assembly's `expr_bank` and an evaluation's 32-bit opt-in
+cleared); `reset_screen`; cursor at row 24,
 column 0, that row cleared.
 **Clobbers:** A, X, Y.
 
@@ -253,7 +255,7 @@ The `dbg_reason` values come from `src/dbg_reason.inc`
 
 **Depends on:** repl, editor, gap_buffer, debugger, breakpoints,
 asm_line (`reg_p`, `reg_sp`), screen, cse_io, symtab, log, mem,
-strings, zp
+strings, zp; on m65 expr (`expr_reset`)
 
 ## Design
 

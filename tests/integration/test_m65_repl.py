@@ -26,7 +26,10 @@ is read where the VIC-IV shows it.
   dbg_reason x command matrix through the REPL.
 (P2's T7-T9.)  P4: the cold start selects the 45GS02; `u` and `.cpu`
 take the m65 set (T6); `d` / `.` rows have five byte columns, `.`
-re-entry keeps a 16-bit branch's width (T8).
+re-entry keeps a 16-bit branch's width (T8).  Slice 3 (repl.md § Banks):
+flat addresses, the map in `r` and `M`, far starts, flat breakpoints
+(F1-F4); `?` in 32 bits and `;?expr range` (F5a); `g` far-starting a
+flat `main`, `.` and the same-bank rule, RESTORE leaving no bank (F5b).
 """
 
 import re
@@ -1038,3 +1041,26 @@ def test_dot_at_a_flat_address_takes_its_own_banks_values(s):
     s.type("B $40010")                     # the bank does not outlive `.`
     k, _ = s.find(r"^;\?expr range$")
     assert "B $40010" in s.row(k - 1)
+
+
+def test_restore_during_a_leaves_no_bank_and_no_32_bit_opt_in(s):
+    """RESTORE in an assembly's flat segment abandons it (main.md §
+    refresh_body); the 16-bit arguments after it keep their range."""
+    from test_m65_asm_src import rows                    # noqa: F401
+    s.call("ed_ensure_init")
+    src = "\t.org 4.2000\r" + "\tnop\r" * 300
+    for ch in src.replace("\t", "\xa0").encode("latin-1").upper():
+        s.call("gb_insert", a=ch)
+    s.start("a")
+    bank = s.cell("expr_bank")
+    for _ in range(4000):                                 # into the flat segment
+        s.e.run_steps(500)
+        if s.e.memory[bank] == 4:
+            break
+    assert s.e.memory[bank] == 4
+    s.e.memory[s.cell("_ex_far")] = 0x80                  # as if inside a `?`
+    s.e.press_restore()
+    s.idle(max_steps=6_000_000)
+    s.type("B $40010")
+    s.find(r"^;\?expr range$")
+    assert s.e.memory[bank] == 0 and s.e.memory[s.cell("_ex_far")] == 0

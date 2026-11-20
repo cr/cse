@@ -226,7 +226,9 @@ instruction's operand, a branch target, `.dw`'s and `.db`'s
 arguments — takes a value above `$FFFF` only when its bank is the
 segment's, and then its low word (the **same-bank rule**, P-F-6);
 any other is refused as F5a refuses it (`;?N: range` for an operand,
-`;?N: bad val` for a directive).  `.org 0.3000` is `.org $3000`.
+`;?N: bad val` for a directive).  `.org 0.3000` is `.org $3000`, and
+a value from −$FFFF to −1 is its low word in bank 0, as the 16-bit
+consumers take it (`.org $3000-$10000` is `.org $3000`).
 
 The emit gate admits, besides the program region `$2000–$BFFF` of
 bank 0, a flat segment in bank 1 from `1.2000` to `1.F6FF` and in
@@ -257,7 +259,8 @@ error, [repl.md § Error tag dispatch](modules/repl.md#error-tag-dispatch-mnemon
 Sets the program counter. All subsequent code/data emits to this address.
 The default origin, for code before the first `.org`, is the REPL's
 current address when `a` runs (`$0800` after start-up; set it with
-`@`).
+`@`) — on m65 a flat one too (`@ 4.2000`, then `a`: the code goes to
+bank 4).
 
 **Output stays in the workspace.**  Every byte the assembler emits —
 instructions and data directives alike — must land in the workspace,
@@ -405,7 +408,8 @@ not read a later-defined symbol: `.const k later+1` is
 .bas "my program"   ; emit "0 SYS <addr>:REM my program"
 ```
 
-`.bas` is an implicit `.org $0801` (the start of BASIC): it sets the
+`.bas` is an implicit `.org $0801` (the start of BASIC; on m65 `$2001`
+in bank 0, whatever bank the segment before it was in): it sets the
 program counter to $0801 and emits a single-line BASIC program that
 calls the code immediately following the stub via `SYS`.  Makes the
 assembled PRG auto-runnable: `LOAD "FILE",8,1` then `RUN`.

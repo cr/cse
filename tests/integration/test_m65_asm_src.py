@@ -3,13 +3,22 @@
 Owner: doc/modules/asm_src.md
 
 Contract source: [asm_line.md § Branches](../../doc/modules/asm_line.md#branches-zone-b)
-(the width rule), [symtab.md § Pass stamp](../../doc/modules/symtab.md#pass-stamp-mega_support).
+(the width rule), [symtab.md § Pass stamp](../../doc/modules/symtab.md#pass-stamp-mega_support);
+[assembler_syntax.md § Directives](../../doc/assembler_syntax.md#directives)
+and [asm_src.md § _emit_byte](../../doc/modules/asm_src.md#_emit_byte)
+(the banks, slice 3 F5b).
 
 The debug m65 PRG, cold-started as in test_m65_repl.py (M65Session,
 asm_cpu = 4), its source typed into the editor's buffer and assembled
 with `a`.  A backward branch out of reach takes REL16 and a forward one
 REL, the same in both passes: every later address stays put, so pass 1
 reports no error and the bytes are where pass 0 sized them.
+
+The banks (F5b): a flat `.org` into banks 1, 4 and 5, the emit gate's
+edges and the bank-end wrap, `.org`'s limits (28 bits; a negative one
+is its low word), flat labels, the same-bank rule's refusals, `.dd`,
+the segment and save lines, `.bas` back in bank 0, `a`'s default
+origin at a flat address, `info_bank` left 0, no bank after `a`.
 """
 
 from m65emu.harness import flat
@@ -173,3 +182,35 @@ def test_an_assembly_leaves_no_bank_to_the_repl(s):
     assemble(s, "\t.org 4.2000\rmain:\tnop\r")
     s.type("B $40010")
     s.find(r"^;\?expr range$")
+
+
+# ── review fixes (2026-11-20): the bank at `.bas`, the default origin,
+#    info_bank, a negative `.org` ─────────────────────────────────────
+
+def test_bas_after_a_flat_org_is_bank_0s(s):
+    fpoke(s, 4, 0x2001, [0x00] * 8)
+    src = "\t.org 4.2000\r\tnop\r\t.bas\r\tnop\r\tlda 4.0010\r"
+    assert assemble(s, src) == 1
+    assert ";?5: range" in rows(s)                       # no bank after .bas
+    assert fpeek(s, 0, 0x2005) == [0x9E]                 # SYS, in bank 0
+    assert fpeek(s, 4, 0x2001, 8) == [0x00] * 8
+
+
+def test_a_at_a_flat_address_assembles_there_without_an_org(s):
+    fpoke(s, 0, 0x2000, [0x00, 0x00])
+    s.type("@ 4.2000")
+    assert assemble(s, "main:\tnop\r\trts\r") == 0
+    assert fpeek(s, 4, 0x2000, 2) == [0xEA, 0x60]
+    assert fpeek(s, 0, 0x2000, 2) == [0x00, 0x00]
+    assert "; org  4.2000-2001     2b" in rows(s)
+    assert prompt(s) == "4.2000:"
+
+
+def test_a_flat_segment_line_leaves_info_bank_0(s):
+    assert assemble(s, "\t.org 4.2000\r\tnop\r") == 0
+    assert s.v("info_bank") == 0                         # prg_line reads it
+
+
+def test_a_negative_org_is_its_low_word(s):
+    assert assemble(s, "\t.org $3000-$10000\r\tnop\r") == 0
+    assert fpeek(s, 0, 0x3000) == [0xEA]

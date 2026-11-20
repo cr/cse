@@ -119,6 +119,18 @@ are under [§ Records](#records).
 
 ### Both platforms
 
+- [ ] **A refused `.db` / `.dw` value moves the layout.**  On pass 1
+  `emit_data_bytes` jumps to `_bad_val_err` before emitting, and the
+  error tail returns past the directive, so the value — and every
+  value after it on the line — lays out no bytes, while pass 0 counted
+  them.  The labels after it then sit lower in pass 1 than pass 0 put
+  them, and branches and forward references computed from pass 0
+  shift (cascading errors; the assembly has failed already).  The
+  `.db` overflow path shows the fix: report, then emit the bytes
+  anyway.  On m65 also `.dd`, and F5a/F5b add triggers (`.dw` of
+  another bank's value, `.dw $12345`).  Found by the F5 code review
+  (2026-11-20).
+
 - [ ] **`.` tags its own operand errors by a stale `asm_err_code`.**
   An operand expression error that `dot_assemble`'s pre-evaluation
   finds (before `asm_line`) returns 0 without setting `asm_err_code`,
@@ -523,7 +535,24 @@ then tests first, the code, the differential doc update, the commit.
     and `g` far-starts it.  Found: `.`'s own operand errors take a
     stale tag (§ Bugs › Both platforms).  Tests: test_m65_asm_src.py
     (the banks) and test_m65_repl.py (`g`, `.`).  C64 byte-identical.
-    m65 26 872 B (+192).
+    m65 26 872 B (+192).  **Code review of F5a + F5b** (2026-11-20, 7
+    findings, each reproduced by a test before its fix): `.bas` after
+    a flat `.org` kept the bank (now `_bank_0`); `a` at a flat current
+    address assembled into bank 0 (now `asm_def_bank`, `a_bank`);
+    `info_bank` stayed at the last flat segment's bank, so `l`'s
+    `; prg` line could name bank 4 (now reset after the segment line);
+    RESTORE during `a` or an `expr_eval32` left `expr_bank` /
+    `_ex_far` set (now `expr_reset` in `refresh_body`); a negative
+    `.org` was `bad val` (now its low word, as F5a reads −$FFFF…−1).
+    Filed, not fixed: a refused data value drops bytes pass 0 counted
+    (§ Bugs › Both platforms).  m65 26 945 B (+73).
+  - [ ] **F5c — the REPL's address arguments as expressions.**  Delta
+    at Step 1 (2026-11-20): repl.md § Banks (`@`, `j`, `b`, `m` take
+    32-bit expressions; flat when the width is FAR; `m`'s word shapes;
+    `parse_flat_arg` retires).  Tests first: `@ main`, `@ 4.2000+$10`,
+    `@ 0.2000`, `@ -1`, `@ $10000000`; `j main` far-starts; `b loop+3`;
+    `m main`, `m $2000`, `m buf+$10`, `m 2000` still hex, `m 12 34`
+    still edits; the 16-bit commands unchanged.
 
   F5 (D-F-6, D-F-7, D-F-8; P-F-6), and from
   F3: `.org H.AAAA` (the bytes go to the bank, the gate admits banks
@@ -685,7 +714,8 @@ Defined scope, needs work.
   character interpretation alongside the hex/decimal/binary output.
 
 - [ ] `m` address argument: accept an expression (`m screen+40`).
-  On m65 part of slice 3's F5.
+  On m65 part of slice 3's F5 — F5c (delta: repl.md § Banks); the
+  c64 keeps `m HHHH` until it is ported.
   Today `m [HHHH]` takes four bare hex digits only (`m $2000` is
   `;?syntax`), and `d` takes no address at all.  (Closed by mistake
   2026-11-20 and reopened the same day: the `try_expr_or_err` call
