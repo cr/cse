@@ -13,8 +13,8 @@ model, KERNAL interface, debugger) is not this slice: it is
 platform layer.  **Order (operator, 2026-11-18):** Phase B and A3b
 waited for slice 2's P0–P2 — the m65 build had to exist, boot and run
 user code before the CPU layer was finished on it.  **Status
-(2026-11-19):** Phase A done but A5; Phase B done as slice 2's P4;
-A3b deferred (D-P4-4).
+(2026-11-20):** Phase A done (A5 closed in slice 2's P5); Phase B
+done as slice 2's P4; A3b deferred (D-P4-4).
 
 **Hard constraint (operator, 2026-11-16):** no change made for the
 m65 target may make any C64 build bigger or significantly slower.
@@ -304,7 +304,7 @@ compendium until its golden file, recorded in xmega65, says otherwise.
 
 ## M65 slice 2 — the MEGA65 platform (R7, platform layer)
 
-**Branch:** `m65`.  **Status (2026-11-19):** the harness (S2-3), P0
+**Branch:** `m65`.  **Status (2026-11-20):** the harness (S2-3), P0
 (the m65 PRG installs itself and reaches `_main`), P1 (user code,
 maps, vectors and the debugger on m65), P2 (the screen, the keyboard,
 the REPL and the editor) and P3 (the disk and the D81) and P4 (the 45GS02 assembler, disassembler
@@ -320,8 +320,9 @@ CDD Analysis (doc against code), its approval, the TDD Analysis and
 the code follow *from* the delta, mechanically; an implementation
 line under a milestone only says which contract the code and tests
 will satisfy, it is not a second plan.  Where a seam's m65 body is
-not yet stated, the document says *stated with P<n>* and the
-milestone's delta fills it in.
+not yet stated, the document said *stated with P<n>* and that
+milestone's delta filled it in (none is left; P5 retired the
+mechanism).
 
 **Order (operator, 2026-11-18).**  The platform first: before the
 ZP recompaction (slice 1 A3b) and before the 45GS02 assembler and
@@ -5538,11 +5539,13 @@ relocated ZP internals in native mode, VIC-IV) requiring bigger
 adaptations than a compatibility shim.  Alongside C128 native
 (R3/R4), this would be a distinct platform target with its own
 screen driver and memory model.  Slice 1 — the CPU layer (assembler
-and disassembler) — is done but A3b and A5, its Phase B as slice 2's
+and disassembler) — is done but A3b, its Phase B as slice 2's
 P4: see [M65](#m65--the-45gs02-assembler-and-disassembler-r7-slice-1).
 Slice 2 — the platform layer: a native MEGA65-mode program living
 in the BASIC ROM banks, shipped as PRG and D81 (a MEGA65-style CRT
-in a later release) — is in progress, P0–P4 done, P5 next: see
+in a later release) — is done for R7's first release, P0–P5
+(R7 — CDD Report in [cdd_log.md](cdd_log.md)); the CRT, A3b and the
+hardware walks remain: see
 [M65 slice 2](#m65-slice-2--the-mega65-platform-r7-platform-layer).
 Slice 2 does the c64/m65 leaf-function isolation R3 asks for; R3
 later adds the C128 to it.
