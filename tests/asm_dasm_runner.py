@@ -215,12 +215,13 @@ def _run_asm_m65(syms, source, cpu, *, pc=ASM_PC, out=ASM_OUT_BUF, asm_pass=None
     return (got, err, cyc, m) if keep else (got, err, cyc)
 
 
-def run_asm(syms, source, cpu, **m65):
-    """Assemble `source` with asm_cpu=`cpu` through _asm_line_core.
-    Returns (bytes or None, asm_err_code, cycles); None means asm_len = 0,
-    i.e. an error exit.  The m65 path takes _run_asm_m65's options."""
+def run_asm(syms, source, cpu, pc=ASM_PC, **m65):
+    """Assemble `source` at asm_pc `pc` with asm_cpu=`cpu` through
+    _asm_line_core.  Returns (bytes or None, asm_err_code, cycles); None
+    means asm_len = 0, i.e. an error exit.  The m65 path takes
+    _run_asm_m65's further options."""
     if getattr(syms, "platform", "c64") == "m65":
-        return _run_asm_m65(syms, source, cpu, **m65)
+        return _run_asm_m65(syms, source, cpu, pc=pc, **m65)
     if m65:
         raise TypeError(f"run_asm: {sorted(m65)} are the m65 path's options")
     mpu = MPU()
@@ -230,8 +231,8 @@ def run_asm(syms, source, cpu, **m65):
         mem[ASM_IN_BUF + n] = b
     mem[syms.asm_ptr]     = ASM_IN_BUF & 0xFF
     mem[syms.asm_ptr + 1] = ASM_IN_BUF >> 8
-    mem[syms.asm_pc]      = ASM_PC & 0xFF
-    mem[syms.asm_pc + 1]  = ASM_PC >> 8
+    mem[syms.asm_pc]      = pc & 0xFF
+    mem[syms.asm_pc + 1]  = pc >> 8
     mem[syms.asm_out]     = ASM_OUT_BUF & 0xFF
     mem[syms.asm_out + 1] = ASM_OUT_BUF >> 8
     mem[syms.asm_cpu]     = cpu

@@ -395,3 +395,37 @@ class TestCodeIsReadOnly:
         changed = [a for a in range(lo, hi + 1)
                    if mem[a] != image[a - _CODE_START]]
         assert not changed, f"dasm wrote into CODE at ${changed[0]:04X}"
+
+
+# ── the round trip (dasm.md § Owned files; TODO A5, P5 T2) ───────────────────
+#
+# Every row of every view of the C64 sets and the CMOS mode: its bytes
+# listed at DASM_INSN_ADDR, the listing assembled there again, give the
+# same bytes, and the listed length is the row's.  (The m65 set's is
+# test_dasm_m65.py's.)
+
+def _round_trip_bad(config):
+    from conftest import AsmCoreSymbols, dasm_bundle
+    dsyms, asyms = dasm_bundle(config), AsmCoreSymbols(config=config)
+    bad = []
+    for view in R.MT.CPU_SETS[config][1]:
+        cpu = R.MT.ASM_CPU[view]
+        for r in I.instructions(view):
+            if r.mode == 'REL':
+                b = [0x10]
+            elif r.mode == 'ZPREL':
+                b = [0x12, 0x10]
+            else:
+                b = [0x12, 0x34][:I.MODE_OPERAND_BYTES[r.mode]]
+            raw = [r.opcode] + b
+            listed, n = R.run_dasm(dsyms, cpu, raw + [0] * (3 - len(raw)))[:2]
+            again = R.run_asm(asyms, listed.strip(), cpu, pc=R.DASM_INSN_ADDR)[0]
+            if n != len(raw) or again != bytes(raw):
+                bad.append((view, r.key, r.mode, bytes(raw).hex(), listed, n, again))
+    return bad
+
+
+@pytest.mark.parametrize("config", ["6502", "6510", "65c02"])
+def test_round_trip_over_every_row(config):
+    bad = _round_trip_bad(config)
+    assert not bad, f"{len(bad)} rows:\n" + "\n".join(map(str, bad[:20]))

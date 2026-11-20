@@ -2145,7 +2145,7 @@ Decisions (approved 2026-11-20):
   `build/m65_state/` each verified ROM has a snapshot of the current
   format; on a temporary directory holding one of the two, the check
   fails and names the missing ROM; on an empty one it skips.
-- [ ] T2. The round trip (`test_dasm.py`): every row of every view of
+- [x] T2. The round trip (`test_dasm.py`): every row of every view of
   the 6502, 6510 and CMOS sets assembled, listed and assembled again
   gives the same bytes and the listed length is the row's.
 - [ ] T3. The pending mechanism gone (`test_platform_audit.py`): its
