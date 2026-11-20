@@ -17,7 +17,7 @@ MEMORY {
     LOADIMG:  file = %O,  define = yes, start = __HEADER_LAST__, size = $D000 - __HEADER_LAST__;
     RUNTIME:  file = "",               start = @@RUNTIME_START@@, size = $D000 - @@RUNTIME_START@@;
     BSS:      file = "",               start = @@BSS_START@@,     size = $D000 - @@BSS_START@@;
-    KDATA:    file = "",               start = $F100,            size = $0EFA;
+    KDATA:    file = "",               start = $F100,            size = $03F2;   # to REPL_SCREEN ($F4F2)
 }
 SEGMENTS {
     ZEROPAGE: load = ZP,       type = zp;

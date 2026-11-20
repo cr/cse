@@ -120,6 +120,16 @@ def test_c64_platform_builds():
     assert "-DPLATFORM_C64" in r.stdout and "-DPLATFORM_M65" not in r.stdout
 
 
+# ── the C64 configs: KDATA bounded below the REPL screen save ─────
+# (memory_design.md: KDATA $F100-$F4F1, REPL_SCREEN from $F4F2; TODO §
+# Bugs › C64, fixed 2026-11-20)
+
+@pytest.mark.parametrize("cfg", ["c64_cse.cfg.in", "c64_trial.cfg"])
+def test_c64_config_bounds_kdata_below_the_repl_screen(cfg):
+    areas = _areas((ROOT / "src" / cfg).read_text())
+    assert areas["KDATA"] == (0xF100, 0xF4F2 - 0xF100)
+
+
 # ── src/m65_cse.cfg: each region bounded ──────────────────────────
 
 # memory area → (start, size): build_system.md § The m65 builds

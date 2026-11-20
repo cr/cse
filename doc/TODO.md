@@ -77,16 +77,6 @@ are under [§ Records](#records).
   does — it lands in CSE's free `$7A–$7B`, inside the swap; both C64
   PRGs change, their size should not.
 
-- [ ] **The linker does not bound KDATA.**  memory_design.md gives
-  KDATA `$F100–$F4F1` (1010 B), with KBSS (the REPL screen save) from
-  `$F4F2`, but `src/c64_cse.cfg.in` declares the KDATA area `size =
-  $0EFA`, so a KDATA overflow would silently overwrite the KBSS area
-  instead of failing the link.  Latent: usage on 2026-11-20 (release
-  builds) is 681 B (6510) and 400 B (6502).  Fix: `size = $03F2`, plus
-  KBSS in the config so the linker sees both — a config change only,
-  the PRGs byte-identical.  Filed 2026-11-16 (slice 1, B4's
-  prerequisites).
-
 - [ ] **`$` can overwrite the source text.**  On the C64 `$` loads the
   directory with KERNAL `LOAD` at `$0801` (`DIR_BUF`; disk.s
   `list_directory`), with no upper bound, while the gap buffer may
@@ -4422,6 +4412,19 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
   Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
 ### Fixed bugs
+
+- [x] ~~**C64: the linker did not bound KDATA.**~~  Fixed 2026-11-20:
+  both C64 configs (`c64_cse.cfg.in`, `c64_trial.cfg`) give KDATA
+  `size = $03F2`, to `REPL_SCREEN`; test_makefile_guards.py pins it;
+  the PRGs byte-identical.  The report:  memory_design.md gives
+  KDATA `$F100–$F4F1` (1010 B), with KBSS (the REPL screen save) from
+  `$F4F2`, but `src/c64_cse.cfg.in` declares the KDATA area `size =
+  $0EFA`, so a KDATA overflow would silently overwrite the KBSS area
+  instead of failing the link.  Latent: usage on 2026-11-20 (release
+  builds) is 681 B (6510) and 400 B (6502).  Fix: `size = $03F2`, plus
+  KBSS in the config so the linker sees both — a config change only,
+  the PRGs byte-identical.  Filed 2026-11-16 (slice 1, B4's
+  prerequisites).
 
 - [x] ~~**m65: the TAB key did nothing in the editor.**~~  Fixed
   2026-11-20: `io_getc` (m65) returns `$09` as `$A0`;
