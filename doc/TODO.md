@@ -321,6 +321,12 @@ Defined scope, needs work.
 - [ ] `?` command: for values < 256, show PETSCII and screen code
   character interpretation alongside the hex/decimal/binary output.
 
+- [ ] `m` address argument: accept an expression (`m screen+40`).
+  Today `m [HHHH]` takes four bare hex digits only (`m $2000` is
+  `;?syntax`), and `d` takes no address at all.  (Closed by mistake
+  2026-11-20 and reopened the same day: the `try_expr_or_err` call
+  read as `m`'s was `@`'s.)
+
 - [ ] New `S` command for scratching files. Requires confirmation.
 
 - [ ] SID silence command.  Every return from user code already
@@ -5507,11 +5513,6 @@ discussion).  Each block is independent; do in any order.
   when no hex bytes and no mnemonic were parsed.)
 
 - [x] `r` command: uppercase set flags (`Nv-bDizc` vs `nv-bdizc`). (Phase 16)
-
-- [x] `m` address argument: accept expression (`m screen+40`).
-  Currently plain 4-digit hex only.
-  **Closed 2026-11-20:** done — `@h_m` parses its address with
-  `try_expr_or_err`, so `m screen+40` works.
 
 - [x] ~~VIC sanity reset on kernel/userland boundary.~~ (done:
   `vic_reset` in screen.s forces $D011=$1B, $D016=$C8, $D018=$15,

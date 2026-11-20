@@ -643,9 +643,13 @@ def test_a_session_leaves_the_programs_base_page_alone(s):
     editor, neither CSE nor the KERNAL writes them."""
     pat = fill_user_bp(s)
     s.poke(USER, [0xA9, 0x48, 0x20, 0xD2, 0xFF, 0x60])   # LDA #'H' · JSR BSOUT · RTS
-    for cmd in ["i", "m 2000", f"d {USER:x}", "? 1+2", "@ 2000", ". lda #1",
-                f"j {USER:x}", f"@ {USER:x}", "t", "t", "t"]:
+    for cmd in ["i", "m 2000", "? 1+2", "@ $2000", ". lda #1",
+                f"@ ${USER:x}", "d", f"@ ${USER:x}", "t", "t", "t"]:
         s.type(cmd)
+    s.find(rf"^; brk at \${USER + 5:04x}")                 # stepped over the JSR
+    s.type("c")
+    k, _ = s.find(r"^; rts")                              # and ran through BSOUT
+    assert re.match(r"r pc:.... a:48 ", s.row(k + 1))      # to its RTS
     s.mode("5")
     s.type("i")
     s.mode("8")

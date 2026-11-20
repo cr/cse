@@ -8,8 +8,8 @@ program's; neither CSE nor the KERNAL writes them.
 
 A pattern is written into both stretches, then a session is typed into
 xmega65 and into M65Emu alike (as test_m65_boot.py types keys): `i`,
-`m`, a program assembled with `.` that prints through `BSOUT`, run
-with `j`, stepped with `t`, and the 80 × 50 switch and back.  After it
+`m`, a program assembled with `.` that prints through `BSOUT`, stepped
+with `t` and run on with `c`, and the 80 × 50 switch and back.  After it
 the pattern is unchanged in both machines.  (The disk calls are
 test_m65_disk.py's, on M65Emu's virtual drive.)
 
@@ -39,9 +39,10 @@ PATTERN = [(a, [(k * 37 + 0x5B) & 0xFF for k in range(lo, hi + 1)])
            for a, (lo, hi) in zip((lo for lo, _ in USER), USER)]
 SCRIPT = [b"I\r", b"M 2000\r",
           b"@ $3000\r", b". LDA #$48\r", b". JSR $FFD2\r", b". RTS\r",
-          b"J $3000\r",
-          b"@ $3000\r", b"T\r", b"T\r", b"T\r",
+          b"@ $3000\r", b"T\r", b"T\r", b"T\r",     # the preview, LDA, over the JSR
+          b"C\r",                                    # on through its RTS
           b"\x1b5", b"I\r", b"\x1b8"]
+STEPPED, RAN = 10, 11                               # screens after the last T, after C
 
 
 @pytest.fixture(scope="module", **PER_ROM)
@@ -63,4 +64,7 @@ def test_the_session_ran(ran):
     """The script did what it says: the program printed `H`, the
     steps stopped, `i` listed the zp rows — on both machines alike."""
     assert ran["got"][-1] == ran["want"][-1]
-    assert any(r.startswith("; zp   0.000a-008f") for r in ran["want"][-2])
+    for shot in (ran["got"], ran["want"]):
+        assert any(r.rstrip() == "; brk at $3005" for r in shot[STEPPED])
+        assert any(r.rstrip() == "; rts" for r in shot[RAN])
+        assert any(r.startswith("; zp   0.000a-008f") for r in shot[-2])
