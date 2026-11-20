@@ -265,3 +265,21 @@ def test_a_cursor_below_the_last_row_comes_back_on_entry(s):
     assert s.row(0) == ""                             # line 40: its seed tab
     s.keys(b"\x91")                                   # up: scrolls one line back
     assert s.w("ed_top_line") == 39 and s.row(0) == "        l39"
+
+
+# ── the MEGA65's TAB key (TODO § Bugs › m65, fixed 2026-11-20) ──────
+
+def test_the_mega65_tab_key_inserts_a_tab_as_shift_space(s):
+    """TAB reaches GETIN as $09 (m65_keys.json); io_getc gives the
+    editor $A0, the tab SHIFT+SPACE types (cse_io.md § io_getc)."""
+    edit(s)
+    s.keys(bytes([0x09]) + b"A")
+    assert source(s) == b"\xa0\xa0A"                 # the seed tab, then TAB's
+
+
+def test_the_tab_key_types_what_shift_space_types_at_the_prompt(s):
+    cy = s.v("io_cy")
+    s.keys(b"X" + bytes([0x09]) + b"Y")
+    tab = raw(s, cy)
+    s.keys(bytes([0x14] * 3) + b"X" + bytes([0xA0]) + b"Y")    # DEL x3, again
+    assert raw(s, cy) == tab

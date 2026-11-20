@@ -421,7 +421,10 @@ io_getc:
         beq @wait
 @got:   ldx #0
         stx io_key
-        rts
+        cmp #$09                ; the MEGA65's TAB: the tab SHIFT+SPACE
+        bne :+                  ; types (cse_io.md § io_getc)
+        lda #$A0
+:       rts
 .endif
 
 ; ── io_kbhit — non-blocking keyboard check ──────────────────

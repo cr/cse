@@ -242,7 +242,8 @@ jsr io_utoa in io_putdec — caller's carry passes through.
 
 **Behavior:** Call KERNAL GETIN ($FFE4) in a loop until nonzero.
 Returns raw KERNAL codes (RETURN = $0D, RUN/STOP = $03, SHIFT+SPACE
-= $A0).
+= $A0).  On m65 the MEGA65's TAB key (`$09`) returns as `$A0`, the
+tab SHIFT+SPACE types (D-P2-7; the editor ignores codes below `$20`).
 
 ### io_kbhit
 

@@ -104,18 +104,7 @@ are under [§ Records](#records).
 
 ### m65
 
-- [ ] **The TAB key does nothing in the editor.**  D-P2-7 and the user
-  manual (README § On the MEGA65, *Keys*) say TAB is the editor's tab,
-  as SHIFT+SPACE.  The MEGA65's TAB reaches `GETIN` as `$09`
-  ([platform_layer.md § Terminal](platform_layer.md#terminal),
-  `m65_keys.json`), and `ed_handle_key` ignores every code below
-  `$20`, so only SHIFT+SPACE (`$A0`) inserts a tab.  Reproduced on
-  M65Emu (2026-11-20): in a fresh editor, `$09` then `A` leaves the
-  buffer as the smart-indent seed's `$A0` and `A`; `$A0` then `A`
-  gives `$A0 $A0 A`.  No test caught it because
-  test_m65_source_editor.py types `$A0` as its "TAB".  Fix: take `$09`
-  as `$A0` on m65 at the key read, with a test that types the MEGA65's
-  own code.
+(None open.)
 
 ### Both platforms
 
@@ -4433,6 +4422,22 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
   Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
 ### Fixed bugs
+
+- [x] ~~**m65: the TAB key did nothing in the editor.**~~  Fixed
+  2026-11-20: `io_getc` (m65) returns `$09` as `$A0`;
+  test_m65_source_editor.py types the MEGA65's own `$09`, in the
+  editor and at the prompt.  The report:  D-P2-7 and the user
+  manual (README § On the MEGA65, *Keys*) say TAB is the editor's tab,
+  as SHIFT+SPACE.  The MEGA65's TAB reaches `GETIN` as `$09`
+  ([platform_layer.md § Terminal](platform_layer.md#terminal),
+  `m65_keys.json`), and `ed_handle_key` ignores every code below
+  `$20`, so only SHIFT+SPACE (`$A0`) inserts a tab.  Reproduced on
+  M65Emu (2026-11-20): in a fresh editor, `$09` then `A` leaves the
+  buffer as the smart-indent seed's `$A0` and `A`; `$A0` then `A`
+  gives `$A0 $A0 A`.  No test caught it because
+  test_m65_source_editor.py types `$A0` as its "TAB".  Fix: take `$09`
+  as `$A0` on m65 at the key read, with a test that types the MEGA65's
+  own code.
 
 - [x] ~~**disk.s's `@putc_inv` inverts the wrong cell at the last
   column.**~~  Closed 2026-11-19 (P3, step 2) as unreachable: its only
