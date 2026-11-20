@@ -42,6 +42,9 @@
         .export brk_pc
         .export save_userland_state, restore_userland_state
         .export return_to_userland
+.ifdef PLATFORM_M65
+        .export run_bank, seed_bank_state
+.endif
 .ifdef PLATFORM_C64
         .export brk_stub
 .else
@@ -120,6 +123,8 @@ _rtu_need_sentinel: .res 1
 .ifdef PLATFORM_M65
 um_kmap:        .res 4          ; the program's KERNAL map record (P3) and
 um_sysflags:    .res 1          ;   its SYSFLAGS (P2): its bank state
+run_bank:       .res 1          ; a fresh start's bank: 0 plain, else the far
+                                ;   start's (repl.md § Far starts; slice 3 F3)
 .endif
 
 ; ── CODE ───────────────────────────────────────────────────────────────
@@ -208,7 +213,12 @@ seed_bank_state:
         sta um_kmap,x
         dex
         bpl @k
-        rts
+        lda run_bank            ; a far start: $2000-$7FFF -> run_bank.2000,
+        beq @r                  ;   in MAP and in the record, as JSRFAR
+        ora #MAP_USER_X         ;   installs it (book I-31; recorded:
+        sta um_map              ;   test_m65_map_record.py)
+        sta um_kmap+1           ; the record is A X Y Z
+@r:     rts
         .assert userland_zp_buf = um_map + 6 && um_d030 = userland_zp_buf + ZP_SAVE_LEN, error, "the bank state is one block"
         .assert um_sysflags = um_kmap + 4, error, "kmap_user's last byte is um_sysflags'"
 

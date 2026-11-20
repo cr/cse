@@ -846,3 +846,74 @@ def test_M_follows_an_edited_map(s):
 def test_M_edits_the_megabytes_and_d030(s):
     s.type("M mb:0000 d030:20")
     assert s.v("um_d030") == 0x20
+
+
+# ── far starts (slice 3, F3: repl.md § Far starts) ─────────────────
+
+FAR_PROG = [0xA9, 0x48, 0x20, 0xD2, 0xFF,   # $2000 LDA #'H' · JSR BSOUT
+            0xA9, 0x5A, 0x60]               # $2005 LDA #$5A · RTS
+
+
+def far_prog(s, bank=4):
+    fpoke(s, bank, 0x2000, FAR_PROG)
+    fpoke(s, 0, 0x2000, [0xEA] * 8)         # bank 0: other bytes at $2000
+
+
+def ran_to_rts(s):
+    k, _ = s.find(r"^; rts")
+    return s.row(k + 1)
+
+
+@pytest.mark.parametrize("bank", [1, 4, 5])
+def test_j_at_a_flat_address_starts_the_bank(s, bank):
+    far_prog(s, bank)
+    s.type(f"j {bank}.2000")
+    row = ran_to_rts(s)
+    assert re.search(rf" a:5a .* ml:e{bank}00 mh:8300", row), row
+
+
+def test_a_bare_j_at_a_flat_prompt_starts_the_bank(s):
+    far_prog(s)
+    s.type("@ 4.2000")
+    s.type("j")
+    assert " a:5a " in ran_to_rts(s)
+
+
+def test_a_cold_t_previews_and_steps_in_the_bank(s):
+    far_prog(s)
+    s.type("@ 4.2000")
+    s.type("t")
+    s.find(r"^; dbg at \$2000")
+    s.find(r"^2000:\.  a9 48 .* lda #\$48")
+    _, row = s.find(r"^r pc:")
+    assert row.rstrip().endswith("ml:e400 mh:8300")
+    s.type("t")
+    s.find(r"at \$2002")
+    s.type("o")                                 # over the JSR into the KERNAL
+    s.find(r"at \$2005")
+    s.type("c")
+    s.find(r"^; rts")
+    assert fpeek(s, 4, 0x2000, len(FAR_PROG)) == FAR_PROG   # no BRK left behind
+    assert fpeek(s, 0, 0x2000, 8) == [0xEA] * 8             # bank 0 untouched
+
+
+def test_a_breakpoint_in_far_code_is_hit(s):
+    far_prog(s)
+    s.type("b $2005")
+    s.type("j 4.2000")
+    s.find(r"at \$2005")
+    assert fpeek(s, 4, 0x2005) == [0xA9]                    # unpatched
+    assert fpeek(s, 0, 0x2005, 1) == [0xEA]
+
+
+@pytest.mark.parametrize("addr", ["2.2000", "3.2000", "4.8000", "4.1000", "100.2000"])
+def test_a_far_start_outside_the_window_is_refused(s, addr):
+    s.type(f"j {addr}")
+    s.find(r"^;\?range")
+
+
+def test_j_in_bank_0_is_the_plain_start(s):
+    s.poke(0x3000, [0xA9, 0x77, 0x60])
+    s.type("j 0.3000")
+    row = ran_to_rts(s)
+    assert " a:77 " in row and row.rstrip().endswith("ml:e000 mh:8300")

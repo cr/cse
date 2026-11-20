@@ -27,6 +27,7 @@ framing.  The user-facing command reference is the root
 |------|------|
 | [`src/repl.s`](../../src/repl.s) | implementation (assembly) |
 | [`tests/integration/test_repl.py`](../../tests/integration/test_repl.py) | test contract — Tier I (full PRG via `C64Emu`) |
+| [`tests/emulator/test_m65_far_start.py`](../../tests/emulator/test_m65_far_start.py) | test contract (Tier X) — `j 4.2000` in xmega65 on each ROM: the KERNAL's map record holds the far map from the first instruction, a CBDOS call returns into bank 4, `r` shows `ml:e400` (slice 3, F3) |
 | [`tests/emulator/test_m65_flat.py`](../../tests/emulator/test_m65_flat.py) | test contract (Tier X) — flat addresses typed in xmega65 on each ROM: `@ 4.2000`, `m` and `.` into bank 4, `d`, a refused write into bank 3; the bytes and every screen M65Emu's (slice 3, F1) |
 | [`tests/integration/test_m65_repl.py`](../../tests/integration/test_m65_repl.py) | test contract — Tier I on the m65 PRG: the cold start, the REPL and the debugger typed (P2 T7–T9) |
 | [`tests/integration/test_repl_disk.py`](../../tests/integration/test_repl_disk.py) | test contract — Tier I disk-command paths (`l`, `s`, `$`) routed through `exec_line`, on C64Emu with a virtual 1541 |
@@ -985,12 +986,14 @@ of base page 0 ([userland_contract.md § 3 On m65](../userland_contract.md#on-m6
 ### Banks (m65)
 
 **Status (slice 3, [TODO § Slice 3 — banks](../TODO.md#slice-3--banks)):**
-F1 and F2 have landed: both address forms, the prompt, `@`, `m`,
-`.`, `d`, `+`, `-`, the write refusal, the CPU space through the
-program's bank state, and `r`'s and `M`'s map work as stated.
-**Delta, not yet built:** far starts are F3's — until then `j`
-without an argument and a cold `t` / `o` at a flat current address
-answer `;?range`; flat breakpoints are F4's.
+F1–F3 have landed: both address forms, the prompt, `@`, `m`, `.`,
+`d`, `+`, `-`, the write refusal, the CPU space through the program's
+bank state, `r`'s and `M`'s map, and far starts — `j` with a flat
+argument or at a flat current address, a cold `t` / `o` at one — work
+as stated.  **Delta, not yet built:** flat breakpoints are F4's (until
+then a breakpoint is patched through the map in force at the patch);
+`.org H.AAAA` and `g` in the bank `main` was assembled to are F5's —
+until then `g` starts `main` as a CPU address.
 
 On m65 an address is in one of two spaces, told apart by a dot
 ([glossary.md](../glossary.md), *CPU address*, *flat address*):

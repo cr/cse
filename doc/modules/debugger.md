@@ -99,6 +99,17 @@ The fresh-start door: `main_loop` / `main_loop_top` jump here when a
 command set `run_user_pending = MODE_JUMP` (`j`, `g`, and the first
 `t`/`o`/`c` after a cold preview).
 
+**m65:** `seed_bank_state` (which every fresh
+start runs) seeds the run premise's bank state and then, when
+`run_bank` (debugger.s BSS) is nonzero, the **far start's** map:
+`MAP`'s X = `$E0` with `run_bank` in its low nibble (`$2000–$7FFF` →
+`run_bank.2000`), the same X in the KERNAL's map record image
+(`um_kmap`), the rest as the premise — what `JSRFAR` installs for the
+call (book I-31; recorded for banks 1, 4 and 5,
+`test_m65_map_record.py`).  The REPL sets `run_bank` for every fresh
+start it begins: the bank of a flat start address, 0 for a CPU one
+([repl.md § Far starts](repl.md#far-starts)).
+
 ### restore_userland_state
 **In:** as `return_to_userland`.
 **Out:** does not return.  In order (`_rtu_body`, shared with
@@ -427,6 +438,11 @@ DBG_BRK` and `cold_preview_done := 1` (repl.s).  A count is ignored.
 r pc:1000 a:00 x:00 y:00 s:ff nv-bdizc
 1000:.  a2 05     ldx #$05
 ```
+
+**m65:** at a flat current address the cold
+preview is a far start's: `run_bank` is set and the bank state seeded
+before the panel, so the panel and the steps see the bank through the
+far map.
 
 No sentinel is on the user stack yet, so the first transition after
 the preview — `t`, `o` or `c` — is a fresh start: `set_run_mode`

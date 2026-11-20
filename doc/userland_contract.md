@@ -259,7 +259,7 @@ page, `0.1F00–0.1FFF`: CSE's page.
 | Banks 4, 5 | `4.0000–5.FFFF` | Yes — BASIC 65's bitmap graphics when BASIC runs; CSE never touches them (bitmaps, double buffering); in 80 × 50 the KERNAL's screen is at `4.0800–4.179F` |
 | Attic RAM | `800.0000`+ | Yes — CSE never touches it |
 
-**Delta (slice 3, F3):** a run started at a flat address
+A run started at a flat address
 (`j 4.2000`) **starts as `JSRFAR` starts a subroutine**: the same
 fresh registers, with `$2000–$7FFF` mapped to the address's bank and
 that map in the KERNAL's map record (§ 5.6), PC the address's low
@@ -536,7 +536,7 @@ A program that changes the map and calls the KERNAL **must**:
    not rely on KERNAL calls after `JMPFAR`, whose use of the record is
    not established.
 
-**Delta (slice 3, F3):** a program started at a flat address is in
+A program started at a flat address (`j 4.2000`) is in
 rule 2's position from its first instruction: CSE has done what
 `JSRFAR` does, the record holds its map, and it may call the KERNAL.
 

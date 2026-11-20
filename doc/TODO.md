@@ -318,7 +318,7 @@ each fact this slice rests on, with its book page or recording.
 | Reading `MAP`: `hyppo_get_mapping` | book 14-41; platform_layer.md § Constants (recorded) |
 | `JSRFAR`'s window `X.2000–X.7FFF` and its inputs | book I-31 |
 | `JSRFAR`'s map for bank 4 (`00 E4 00 83`), written into the map record for the call | recorded: `test_m65_map_record.py`, both ROMs |
-| The same for banks 1 and 5 (X = `$E0` with the bank in its low nibble) | **to record** in F3 (the same test, per bank) — an inference until then |
+| The same for banks 1 and 5 (X = `$E0` with the bank in its low nibble) | recorded at F3: `test_m65_map_record.py`, per bank, both ROMs |
 | The KERNAL's map record `0.011C–011F` and who reads it | platform_layer.md § User transitions (recorded) |
 | The Q instructions (`ADCQ`, `SBCQ`, `ANDQ`, `ORQ`, `EORQ`, `ASLQ`, `LSRQ`, `LDQ`, `STQ`) | `m65_cpu.json` |
 | Banks 2–3 are writable while CSE runs | platform_layer.md § Constants, *Hypervisor services* |
@@ -419,7 +419,12 @@ then tests first, the code, the differential doc update, the commit.
   the m65 helpers: the code window has 1.7 K free again.  Caveat: an
   instruction `.` assembles across a 4 K page edge is written where
   its first byte translates.  m65 26 025 B (+972).
-- [ ] **F3 — far starts** (D-F-5; P-F-2).  Delta:
+- [x] **F3 — far starts** (D-F-5; P-F-2).  **Approved at F3's Step 2
+  (2026-11-20):** the REPL's far starts (`j`, a cold `t` / `o`) and the
+  breakpoint patch through the lens stay in F3; `.org H.AAAA` and `g`
+  in `main`'s bank move to F5, where the flat literal becomes an
+  expression factor the assembler can use (asm_src cannot call the
+  REPL's parser: the layer DAG).  Delta:
   [userland_contract.md § 3 On m65](userland_contract.md#on-m65) *A
   run starts* and § 5.6 (written); at Step 1 debugger.md
   (`seed_bank_state`, `return_to_userland`), repl.md (`j`, `g`, `t`,
@@ -432,6 +437,20 @@ then tests first, the code, the differential doc update, the commit.
   `g`; the map and the map record at its first instruction; the range
   errors (outside the window, banks 2–3, a megabyte); a break inside
   it shows the CPU view of bank 4.
+
+  **Done 2026-11-20.**  `run_bank` (debugger.s) is the fresh start's
+  bank: `seed_bank_state` puts it into MAP's X and the map record's
+  image after the premise; `start_bank` (repl.s, `KCODE`) checks the
+  window (banks 1, 4, 5; `$2000–$7FFF`; bank 0 the plain start) for
+  `j` (a flat argument or the flat current address) and a cold `t` /
+  `o`, which seeds the bank state before its panel.  `patch_all` /
+  `unpatch_all` reach each slot through the program's bank state, so
+  step BRKs and breakpoints work in far-started code.  Recorded first:
+  `JSRFAR`'s map for banks 1 and 5 (test_m65_map_record.py, now per
+  bank).  Tier X test_m65_far_start.py runs a typed bank-4 program
+  through a CBDOS call (xmega65 alone; `typed_run` gains
+  `reference=False`).  `.org H.AAAA` and `g`'s bank moved to F5.
+  m65 26 139 B (+114).
 - [ ] **F4 — flat breakpoints and steps** (P-F-4).  Delta at Step 1:
   breakpoints.md (the slot holds a flat address: 6 bytes a slot on
   m65, 4 on c64), debugger.md (the step BRK armed at the next PC's
@@ -442,7 +461,10 @@ then tests first, the code, the differential doc update, the commit.
   after the patch — the unpatch restores the right byte; `b` given
   either form; a step over an instruction that changes the map; the
   C64 breakpoint suites unchanged.
-- [ ] **F5 — 32-bit values** (D-F-6, D-F-7, D-F-8; P-F-6).  Delta at
+- [ ] **F5 — 32-bit values** (D-F-6, D-F-7, D-F-8; P-F-6), and from
+  F3: `.org H.AAAA` (the bytes go to the bank, the gate admits banks
+  1, 4 and 5) and `g` / `a` in the bank `main` was assembled to (a far
+  start).  Delta at
   Step 1: expr.md (a 4-byte value on m65; the third width class,
   *far*; literals up to 8 hex digits; the flat literal as a factor;
   the operator stack's 5 bytes a level), symtab.md (8-byte entries,

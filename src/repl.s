@@ -134,6 +134,7 @@ STEP_OVER = 2
         .import src_top, src_bot
 .ifdef PLATFORM_M65
         .import far_user, far_user_w, far_write_ok, lens_kind ; mem.s
+        .import run_bank, seed_bank_state       ; debugger.s (far starts)
         .importzp lens_ptr, um_map, um_d030     ; zp.s (the CPU lens)
 .endif
 
@@ -673,6 +674,37 @@ parse_flat_ptr1:
         rts
 flat_no:
         sec
+        rts
+
+; ───────────────────────────────────────────────────────────
+; start_bank — a fresh start at the current address (repl.md § Far
+; starts): run_bank := its bank when flat — 1, 4 or 5, the offset in
+; $2000-$7FFF — or 0 (a CPU address, or bank 0: the plain start).
+; C=1: a flat address outside the window (`;?range`).  Clobbers A.
+; ───────────────────────────────────────────────────────────
+start_bank:
+        lda #0
+        bit cur_flat
+        bpl @set                ; a CPU address: the plain start
+        lda cur_bank+1          ; a megabyte: no
+        bne @no
+        lda cur_bank
+        beq @set                ; bank 0: the plain start
+        cmp #1
+        beq @win
+        cmp #4
+        beq @win
+        cmp #5
+        bne @no
+@win:   ldx cur_addr+1          ; $2000-$7FFF: JSRFAR's window
+        cpx #$20
+        bcc @no
+        cpx #$80
+        bcs @no
+@set:   sta run_bank
+        clc
+        rts
+@no:    sec
         rts
 
 ; ───────────────────────────────────────────────────────────
@@ -2966,6 +2998,12 @@ hygiene_after_userland:
 @cancel:
         jmp nl_clear
 @run:
+.ifdef PLATFORM_M65
+        jsr start_bank          ; run_bank: a flat address's, or 0
+        bcc :+
+        jmp dot_range
+:
+.endif
         lda cur_addr
         sta brk_pc
         lda cur_addr+1
@@ -3070,10 +3108,10 @@ pre_userland_run:
         beq @no_ctx
         ; DBG_NONE — cold preview path
 .ifdef PLATFORM_M65
-        bit cur_flat            ; a flat address: far starts are slice 3's
-        bpl :+                  ; F3 (repl.md § Far starts)
-        jmp dot_range
-:
+        jsr start_bank          ; a flat address: a far start's preview —
+        bcc :+                  ;   the bank state seeded first, so the
+        jmp dot_range           ;   panel sees the bank (debugger.md)
+:       jsr seed_bank_state
 .endif
         lda cur_addr
         sta brk_pc
@@ -4812,6 +4850,24 @@ prg_ok_done:
         ; Same pattern as @h_at: parse+EOI-check, then apply.  Bare
         ; `j` jumps to cur_addr; an expression error (already printed
         ; by try_expr) runs nothing.
+.ifdef PLATFORM_M65
+        jsr skip_sp_ptr1
+        jsr parse_flat_arg      ; `j 4.2000`: a far start (repl.md § Far starts)
+        bcs @j_expr
+        tya
+        jsr adv_ptr1
+        ldy #0
+        jsr _require_eoi_or_err ; reject trailing garbage (pop-trick)
+        lda rp_addr
+        sta cur_addr
+        lda rp_addr+1
+        sta cur_addr+1
+        lda #SPC_FLAT
+        sta rp_flat
+        CUR_FROM_RP
+        jmp cmd_jmp
+@j_expr:
+.endif
         jsr try_expr_or_err     ; parse + reject garbage (pop-trick)
         bcc @j_none
         lda expr_val
@@ -4822,18 +4878,8 @@ prg_ok_done:
 @j_run:
         jmp cmd_jmp
 @j_none:
-.ifdef PLATFORM_M65
-        bne @j_err              ; error → no run
-        bit cur_flat            ; a flat address: far starts are slice 3's
-        bpl @j_run              ; F3 (repl.md § Far starts)
-        lda #<str_range
-        ldx #>str_range
-        jmp log_err
-@j_err: rts
-.else
         beq @j_run              ; empty → jump with current cur_addr
         rts                     ; error → no run
-.endif
 
 @h_g:   ; g — go (sym_lookup "main")
         lda #<str_main

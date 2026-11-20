@@ -249,6 +249,13 @@ patch_all:
         sta rp_ptr
         lda bp_table+1,x
         sta rp_ptr+1
+.ifdef PLATFORM_M65
+        txa                     ; the slot's byte through the program's
+        pha                     ;   bank state (mem.md § far_user; flat
+        FAR_USER rp_ptr         ;   slots are slice 3's F4)
+        pla
+        tax
+.endif
         FAR_LDA rp_ptr
         sta bp_table+2,x
         lda #$00
@@ -279,6 +286,13 @@ unpatch_all:
         sta rp_ptr
         lda bp_table+1,x
         sta rp_ptr+1
+.ifdef PLATFORM_M65
+        txa                     ; through the program's bank state, as
+        pha                     ;   patch_all
+        FAR_USER rp_ptr
+        pla
+        tax
+.endif
         lda bp_table+2,x
         FAR_STA rp_ptr
 @next:  dex

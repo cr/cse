@@ -145,7 +145,8 @@ def geometry_of(read, sym):
     return width, cell("scr_height"), cell("scr_bank")
 
 
-def typed_run(snap_dir, cse_m65_prg, script, work, peek=(), finish=None, poke=()):
+def typed_run(snap_dir, cse_m65_prg, script, work, peek=(), finish=None, poke=(),
+              reference=True):
     """Type `script` (key groups) into M65Emu's M65Session and into
     xmega65 on the snapshot's ROM, one key at a time — put into the
     KERNAL's buffer by ADDKEY, run until main_loop polls again.
@@ -156,18 +157,23 @@ def typed_run(snap_dir, cse_m65_prg, script, work, peek=(), finish=None, poke=()
     xmega65's registers at main_loop_top (`cold`); and what
     `finish(xm, sym, snap)` returns, run in xmega65 at the end.  Each
     bank-0 (addr, bytes) of `poke` is written into both machines at the
-    first idle main_loop, before the script."""
+    first idle main_loop, before the script.  `reference=False` runs
+    xmega65 alone (a script M65Emu cannot follow, e.g. a CBDOS disk
+    call: it models no floppy controller); `want` and `want_peek` are
+    then None."""
     snap = load_snapshot(snap_dir)
     prg, map_path = cse_m65_prg
     ref = M65Session((prg, map_path), snap)
     s = ref.e.sym
-    for a, data in poke:
-        ref.poke(a, data)
-    want = [ref.rows()]
-    for keys in script:
-        ref.keys(keys)
-        want.append(ref.rows())
-    want_peek = [list(ref.peek(a, n)) for a, n in peek]
+    want = want_peek = None
+    if reference:
+        for a, data in poke:
+            ref.poke(a, data)
+        want = [ref.rows()]
+        for keys in script:
+            ref.keys(keys)
+            want.append(ref.rows())
+        want_peek = [list(ref.peek(a, n)) for a, n in peek]
 
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)

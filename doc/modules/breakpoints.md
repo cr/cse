@@ -25,6 +25,14 @@ on `breakpoints.s` is strictly one layer up, and `breakpoints.s`
 cannot reach into the BRK/NMI machinery because that machinery lives
 in a higher stratum.
 
+**m65:** `patch_all` and `unpatch_all` reach each
+slot's byte through the program's bank state (`FAR_USER`, [mem.md
+§ far_user](mem.md#far_user-far_user_w-m65-only)) instead of bank 0,
+so a breakpoint or a step BRK in code a far start runs in bank 4 lands
+in bank 4.  The slot still holds a CPU address: a program that remaps
+between the patch and the break would be unpatched through its new
+map — **delta:** flat slots are slice 3's F4.
+
 ## Table layout
 
 10 slots × 4 bytes = 40 bytes of BSS (`bp_table`).

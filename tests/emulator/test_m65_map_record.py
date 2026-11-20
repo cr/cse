@@ -6,8 +6,8 @@ Contract source: [userland_contract.md § 5.6](../../doc/userland_contract.md#56
 (rule 2); [platform_layer.md § User transitions](../../doc/platform_layer.md#user-transitions)
 (the map record).
 
-In xmega65 at the BASIC 65 prompt, on each ROM: code in bank 0 calls
-`JSRFAR` for `4.2000`.  The code there copies the map record
+In xmega65 at the BASIC 65 prompt, on each ROM and for each bank a far
+start uses (1, 4, 5): code in bank 0 calls `JSRFAR` for `B.2000`.  The code there copies the map record
 `0.011C–011F`, opens and closes command channel 15 on unit 8 — a CBDOS
 call, which leaves the map and reinstates the record's at `2.CBF6` —
 sets a marker and copies the record again; back in bank 0 the caller
@@ -35,7 +35,7 @@ pytestmark = pytest.mark.skipif(_MISSING is not None, reason=str(_MISSING))
 
 OUT = 0x1600                    # the copies: +0 in far code, +4 marker,
 CALLER = 0x1700                 #   +8 after the disk call, +$10 after return
-FAR = 0x42000                   # 4.2000
+BANKS = [1, 4, 5]               # the far starts' banks (repl.md § Far starts)
 
 
 def copy_record(dst):
@@ -51,46 +51,58 @@ FAR_CODE = (copy_record(0x00)
                0xA9, 0x0F, 0x20, 0xC3, 0xFF,                        # CLOSE 15
                0xA9, 0x5A, 0x8D, (OUT + 4) & 0xFF, OUT >> 8]        # the marker
             + copy_record(0x08) + [0x60])
-CALL = ([0xA9, 0x04, 0x85, 0x02, 0xA9, 0x20, 0x85, 0x03, 0xA9, 0x00,  # bank 4, $2000
-         0x85, 0x04, 0x85, 0x05, 0x85, 0x06, 0x85, 0x07, 0x85, 0x08, 0x85, 0x09,
-         0x20, 0x6E, 0xFF]                                          # JSR JSRFAR
-        + copy_record(0x10))
-PARK = CALLER + len(CALL)
-CALL += [0x4C, PARK & 0xFF, PARK >> 8]                              # JMP *
+def call_code(bank):
+    code = ([0xA9, bank, 0x85, 0x02, 0xA9, 0x20, 0x85, 0x03, 0xA9, 0x00,  # bank, $2000
+             0x85, 0x04, 0x85, 0x05, 0x85, 0x06, 0x85, 0x07, 0x85, 0x08, 0x85, 0x09,
+             0x20, 0x6E, 0xFF]                                          # JSR JSRFAR
+            + copy_record(0x10))
+    park = CALLER + len(code)
+    return code + [0x4C, park & 0xFF, park >> 8], park                 # JMP *
 
-JSRFAR_BANK4 = [0x00, 0xE4, 0x00, 0x83]   # $2000-$7FFF -> 4.2000, KERNAL at $E000
+
+def jsrfar_map(bank):
+    """$2000-$7FFF -> bank.2000, the KERNAL at $E000: A X Y Z."""
+    return [0x00, 0xE0 | bank, 0x00, 0x83]
+
+
 BASIC_MAP = [0x00, 0xE3, 0x00, 0xB3]      # the prompt's: the caller's map
 
 
+@pytest.fixture(scope="module", params=BANKS, ids=[f"bank{b}" for b in BANKS])
+def bank(request):
+    return request.param
+
+
 @pytest.fixture(scope="module", **PER_ROM)
-def ran(request):
+def ran(request, bank):
     d = snapshot_dir(request)
-    work = WORK / d.name
+    work = WORK / f"{d.name}-{bank}"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     rom = work / "rom.bin"
     rom.write_bytes(load_snapshot(d)["chip"][CHIP_ROM])
     try:
         with recording(work / "run", rom=rom) as xm:
+            call, park = call_code(bank)
             xm.write(OUT, bytes(0x14))
-            xm.write(FAR, bytes(FAR_CODE))
-            xm.write(CALLER, bytes(CALL))
+            xm.write(bank << 16 | 0x2000, bytes(FAR_CODE))
+            xm.write(CALLER, bytes(call))
             xm.cmd(f"g {CALLER:x}")
             restore = xm.run_to(0xCBF6, timeout=30, at_hit=True)
-            xm.run_to(PARK, timeout=30)
+            xm.run_to(park, timeout=30)
             out = list(xm.read(OUT, 0x14))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return dict(restore=restore, out=out)
 
 
-def test_jsrfar_writes_its_map_into_the_record(ran):
-    assert ran["out"][0:4] == JSRFAR_BANK4
+def test_jsrfar_writes_its_map_into_the_record(ran, bank):
+    assert ran["out"][0:4] == jsrfar_map(bank)
 
 
-def test_a_cbdos_call_returns_into_the_far_code(ran):
-    assert ran["out"][4] == 0x5A                       # the marker: back in 4.2000
-    assert ran["out"][8:12] == JSRFAR_BANK4           # the record unchanged by it
+def test_a_cbdos_call_returns_into_the_far_code(ran, bank):
+    assert ran["out"][4] == 0x5A                       # the marker: back in the bank
+    assert ran["out"][8:12] == jsrfar_map(bank)       # the record unchanged by it
 
 
 def test_jsrfar_restores_the_callers_map(ran):
