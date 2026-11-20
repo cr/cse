@@ -464,6 +464,53 @@ stated in its terms.
   the KERNAL's frame where an 8-bit stack does not find it.  A
   private 16-bit stack for programs is analysis task A2's.
 
+### 5.6 On m65: memory maps and KERNAL calls
+
+The CPU cannot read `MAP`, so the KERNAL keeps the map it is called
+from in its **map record**, `0.011C–011F` (A X Y Z as `MAP` takes
+them).  BASIC 65, `SYS` and `JSRFAR` write it when they set a map up;
+the KERNAL's map-switching paths — the disk calls through CBDOS
+(`LDQ $011C` · `MAP` at `2.CBF6`) and the KERNAL's own (`3.F263` on
+920413, `3.F2C2` on 920421) — read it to restore the caller's map
+before they return.  The book does not name the record; its address
+and use are recorded on both ROMs ([platform_layer.md § User
+transitions](platform_layer.md#user-transitions)).  Under CSE the
+record holds the program's map while the program runs — the user map
+at a fresh start, whatever the program wrote since — and the debugger
+captures it at a break and installs it at the resume (§ 2 On m65).
+
+A program that changes the map and calls the KERNAL **must**:
+
+1. **Call the KERNAL from the record's map.**  At every call
+   `$0000–$1FFF` → `0.0000`, `$E000–$FFFF` → `3.E000` and `B` = 0
+   (book I-3), and the CPU's map the one the record holds: a call from
+   another map can return under the record's map, with the calling
+   code mapped away.
+2. **Run code in another bank through `JSRFAR`** (`$FF6E`).  It writes
+   its map into the record for the call and restores the caller's on
+   return, so the code it calls may use the whole KERNAL API, the disk
+   included (recorded: `test_m65_map_record.py`).  The window is
+   `X.2000–X.7FFF`; the called code does not run `MAP` itself.
+3. **Keep a map of its own across KERNAL calls only** by switching to
+   the record's map around each call — through a trampoline in
+   `0.1600–0.1EFF`, which every KERNAL map leaves in bank 0 — or by
+   writing its map into the record while it is active and restoring
+   the previous value when it leaves it, as `JSRFAR` does.
+4. **Change the map only between `MAP` and `EOM`** (interrupts held),
+   from code visible under both maps, and keep `$E000–$FFFF` →
+   `3.E000` in every map that runs with interrupts on (§ 5.5); its own
+   interrupt handlers live in `0.1600–0.1EFF` and are installed
+   through `VECTOR`.
+5. **Return with `RTS` in the map it was started in**, `B` = 0, and
+   not rely on KERNAL calls after `JMPFAR`, whose use of the record is
+   not established.
+
+Data in other banks needs no remapping at all: `[zp],z` (32-bit
+base-page pointers), DMA, or the KERNAL's `LDA_FAR` / `STA_FAR` /
+`CMP_FAR` leave the map — and the record — alone.  Not yet recorded:
+nested `JSRFAR` calls, which calls reach the KERNAL's own restore
+site, and the IRQ handler's map switch for `SYS TO …,I1`.
+
 ## 6. KERNAL-as-terminal affordance
 
 Because CSE leaves the kernal functional and the REPL writes through
@@ -529,12 +576,14 @@ When user code is `j`/`g`/`c`/`t`/`o`-launched, it can rely on:
 7. The workspace ($0800–workend) is the user's; CSE writes it only
    when asked.
 
-On m65 items 3 and 5–7 hold as stated, with the program region
-(`$2000–$BFFF`) for the workspace; item 1 waits for P2's screen
-contract.  User code on m65 **must** keep CSE's page
-(`0.1F00–0.1FFF`), the KERNAL's pages (`0.0200–0.15FF`), `IBRK` and
+On m65 items 1 and 5–7 hold as stated, item 1 in the current text
+mode (§ 2 On m65), with the program region (`$2000–$BFFF`) for the
+workspace; item 3 reads base page 0, which CSE never swaps.  User code
+on m65 **must** keep CSE's page (`0.1F00–0.1FFF`), the KERNAL's base
+page (`$02–$09`, `$90–$FA`) and pages (`0.0200–0.15FF`), `IBRK` and
 `INMI`, the KERNAL mapped at `$E000` and block 0 unmapped, and `E` =
-1 at a break (§ 5.5).
+1 at a break (§ 5.5), and call the KERNAL only from the map its map
+record holds (§ 5.6).
 
 User code **must**:
 
