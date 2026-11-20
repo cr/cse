@@ -119,6 +119,16 @@ are under [§ Records](#records).
 
 ### Both platforms
 
+- [ ] **`.` tags its own operand errors by a stale `asm_err_code`.**
+  An operand expression error that `dot_assemble`'s pre-evaluation
+  finds (before `asm_line`) returns 0 without setting `asm_err_code`,
+  so the tag is whatever the last `asm_line` left: `. jmp nosuch` and,
+  on m65, `. lda $12345` or `. jmp 5.0000` at `4.2000` print
+  `;?syntax`, not `;?expr undef` / `;?expr range` (checked 2026-11-20;
+  repl.md § Error tag dispatch states it).  Same cause as the item
+  below (the pre-evaluation); a fix sets `asm_err_code` = 1 there,
+  which moves the C64 bytes.
+
 - [ ] **`.` refuses `asl a` and never warns of an `a` label.**  The
   REPL's `.` takes the accumulator form only bare: `. asl` assembles
   `$0A`, `. asl a` (`rol a`, `lsr a`, `ror a`; on m65 also `inc a`,
@@ -502,6 +512,18 @@ then tests first, the code, the differential doc update, the commit.
     vectors' low words and the range, the 32-bit values, the symbol
     table) and the REPL / assembler rows in `test_m65_repl.py`.  C64
     byte-identical.  m65 26 680 B (+273).
+  - [x] **F5b — the assembler's banks** (2026-11-20).  `.org` takes
+    a 28-bit expression; a flat origin puts `asm_pc`'s bank bytes to
+    the segment's bank, so `_emit_byte` writes into the bank, labels
+    are flat, and `expr_bank` lets the 16-bit consumers take that
+    bank's values as low words (the same-bank rule; `.` too, through
+    `dot_bank`).  The gate: bank 0 `$2000–$BFFF`, bank 1
+    `$2000–$F6FF`, banks 4 and 5.  Segment lines name the bank; the
+    save suggestion is bank 0's.  `.dd`.  `a` leaves a flat `main` flat
+    and `g` far-starts it.  Found: `.`'s own operand errors take a
+    stale tag (§ Bugs › Both platforms).  Tests: test_m65_asm_src.py
+    (the banks) and test_m65_repl.py (`g`, `.`).  C64 byte-identical.
+    m65 26 872 B (+192).
 
   F5 (D-F-6, D-F-7, D-F-8; P-F-6), and from
   F3: `.org H.AAAA` (the bytes go to the bank, the gate admits banks

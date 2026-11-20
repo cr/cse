@@ -520,6 +520,7 @@ is `;?N: exp val`.
     .cpu 6502               ; set CPU mode
     .db $41, $42, 0         ; emit bytes
     .dw $1234, label        ; emit words (little-endian)
+    .dd $12345678           ; emit 32-bit words (MEGA65)
     .str "hello", 0         ; emit PETSCII string
     .scr "hello"            ; emit screen codes
     .res 256, $ea           ; reserve and fill
@@ -680,6 +681,14 @@ Where it differs from the C64 build:
   6502 on request (`.cpu`, `u`;
   [assembler_syntax.md § `.cpu`](doc/assembler_syntax.md)).  A `d` row has room
   for five bytes, the longest instruction.
+- **Banks.**  A flat address names physical memory as bank and
+  offset, `4.2000`: `@ 4.2000`, `m`, `.`, `d` and `b` work there, and
+  `j 4.2000` starts a bank the way the KERNAL's `JSRFAR` does.  Values
+  are 32 bits (`? 4.2000` is `$00042000  270336`); `.org 4.2000`
+  assembles into banks 1, 4 and 5, labels there are flat, an
+  instruction takes its own bank's addresses, `.dd` emits 32-bit
+  words, and `g` starts a `main` in a bank
+  ([doc/modules/repl.md § Banks](doc/modules/repl.md#banks-m65)).
 - **The editor** uses the whole screen of the current mode, and a
   source line may be 79 columns wide (39 on the C64; the C64 build
   truncates longer lines with a warning).  In 40 columns a longer line

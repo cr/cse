@@ -37,3 +37,139 @@ def test_far_and_forward_branches_are_pass_stable(cse_m65_prg, m65_snapshot):
                    0xD0, 0x00,                     # fwd: the next instruction
                    0x42, 0x42, 0xB2, 0x12,         # ldq ($12),z
                    0x60]
+
+
+# ── the assembler's banks (slice 3, F5b: assembler_syntax.md § Directives,
+#    asm_src.md § _emit_byte) ──────────────────────────────────────────
+
+import re                                        # noqa: E402
+
+import pytest                                    # noqa: E402
+
+from test_m65_repl import fpeek, fpoke, prompt  # noqa: E402
+
+
+@pytest.fixture
+def s(cse_m65_prg, m65_snapshot):
+    return M65Session(cse_m65_prg, m65_snapshot)
+
+
+def assemble(s, text):
+    """`text` (a tab indents) into the buffer, then `a`."""
+    s.call("ed_ensure_init")
+    for ch in text.replace("\t", "\xa0").encode("latin-1").upper():
+        s.call("gb_insert", a=ch)
+    s.type("a", max_steps=6_000_000)
+    return s.w("asm_errors")
+
+
+def rows(s):
+    return [r.rstrip() for r in s.rows()]
+
+
+@pytest.mark.parametrize("bank", [1, 4, 5])
+def test_a_flat_org_assembles_into_the_bank(s, bank):
+    fpoke(s, 0, 0x2000, [0xEA] * 3)
+    assert assemble(s, f"\t.org {bank}.2000\rmain:\tlda #$5a\r\trts\r") == 0
+    assert fpeek(s, bank, 0x2000, 3) == [0xA9, 0x5A, 0x60]
+    assert fpeek(s, 0, 0x2000, 3) == [0xEA] * 3              # not bank 0
+    assert f"; org  {bank}.2000-2002     3b" in rows(s)
+    assert not any(':s "' in r for r in rows(s))             # bank 0 only
+    assert prompt(s) == f"{bank}.2000:"                      # main, flat
+
+
+@pytest.mark.parametrize("org", ["1.2000", "1.f6fe", "4.0000", "4.fffe", "5.0000", "5.fffe"])
+def test_the_gate_admits_the_user_memory_of_banks_1_4_5(s, org):
+    bank, addr = int(org.split(".")[0], 16), int(org.split(".")[1], 16)
+    assert assemble(s, f"\t.org {org}\r\tnop\r\tnop\r") == 0
+    assert fpeek(s, bank, addr, 2) == [0xEA, 0xEA]
+
+
+@pytest.mark.parametrize("org", ["1.1fff", "1.f700", "2.4000", "3.2000", "6.0000", "10.0000"])
+def test_the_gate_refuses_other_banks_and_writes_nothing(s, org):
+    bank, addr = int(org.split(".")[0], 16), int(org.split(".")[1], 16)
+    fpoke(s, bank, addr, [0x00])
+    assert assemble(s, f"\t.org {org}\r\tnop\r") == 1
+    assert ";?2: range" in rows(s)
+    assert fpeek(s, bank, addr) == [0x00]
+
+
+def test_a_flat_segment_wraps_at_its_banks_end_not_into_the_next(s):
+    fpoke(s, 5, 0x0000, [0x00])
+    fpoke(s, 6, 0x0000, [0x00])
+    assert assemble(s, "\t.org 5.ffff\r\tnop\r\tnop\r") == 1
+    assert ";?3: range" in rows(s)
+    assert fpeek(s, 5, 0xFFFF) == [0xEA]
+    assert fpeek(s, 5, 0x0000) == [0x00] and fpeek(s, 6, 0x0000) == [0x00]
+
+
+def test_org_above_28_bits_is_bad_val(s):
+    assert assemble(s, "\t.org $10000000\r\tnop\r") >= 1
+    assert ";?1: bad val" in rows(s)
+
+
+def test_org_in_bank_0_is_a_cpu_origin(s):
+    assert assemble(s, "\t.org 0.3000\rmain:\tnop\r") == 0
+    assert fpeek(s, 0, 0x3000) == [0xEA]
+    assert '3000:s "out" $3000' in rows(s)
+    assert prompt(s) == "3000:"
+
+
+def test_a_label_in_a_bank_is_flat_and_its_own_bank_takes_its_low_word(s):
+    src = ("\t.org 4.2000\r"
+           "loop:\tnop\r"
+           "\tbne loop\r"
+           "\tjmp loop\r"
+           "\t.dw loop\r"
+           "\tlda #<loop\r"
+           "\tlda #<(loop>>16)\r")
+    assert assemble(s, src) == 0
+    assert fpeek(s, 4, 0x2000, 12) == [0xEA, 0xD0, 0xFD, 0x4C, 0x00, 0x20,
+                                       0x00, 0x20, 0xA9, 0x00, 0xA9, 0x04]
+    s.type("? loop")
+    s.find(r"^; \$00042000  270336$")
+
+
+def test_another_banks_value_is_refused_where_16_bits_are_taken(s):
+    src = ("\t.const far 4.2000\r"         # 1
+           "\t.org $3000\r"                # 2
+           "\tjsr far\r"                   # 3: bank 0 takes no bank-4 value
+           "\t.dw far\r"                   # 4
+           "\t.org 5.2000\r"               # 5
+           "\tjmp far\r"                   # 6: nor bank 5
+           "\tjmp 5.2000\r"                # 7: its own bank: the low word
+           "\t.db >far\r"                  # 8
+           "\t.org $3100\r"                # 9: back in bank 0
+           "\tlda 5.2000\r")               # 10
+    assert assemble(s, src) == 4
+    r = rows(s)
+    assert [x for x in r if x.startswith(";?")] == [
+        ";?3: range", ";?4: bad val", ";?6: range", ";?10: range"]
+    assert fpeek(s, 5, 0x2000, 4) == [0x4C, 0x00, 0x20, 0x20]
+
+
+def test_dd_emits_32_bit_words(s):
+    src = ("\t.org $3000\r"
+           "\t.dd $12345678, 4.2000, -1\r"
+           "after:\tnop\r"
+           "\t.dd fwd\r"
+           "fwd:\tnop\r")
+    assert assemble(s, src) == 0
+    assert fpeek(s, 0, 0x3000, 18) == [0x78, 0x56, 0x34, 0x12, 0x00, 0x20, 0x04, 0x00,
+                                       0xFF, 0xFF, 0xFF, 0xFF, 0xEA,
+                                       0x11, 0x30, 0x00, 0x00, 0xEA]
+
+
+def test_segment_lines_name_their_bank_and_the_save_line_bank_0(s):
+    src = "\t.org $3000\rmain:\tnop\r\t.org 4.2000\r\tnop\r\tnop\r"
+    assert assemble(s, src) == 0
+    r = rows(s)
+    assert "; org  0.3000-3000     1b" in r
+    assert "; org  4.2000-2001     2b" in r
+    assert '3000:s "out" $3000' in r
+
+
+def test_an_assembly_leaves_no_bank_to_the_repl(s):
+    assemble(s, "\t.org 4.2000\rmain:\tnop\r")
+    s.type("B $40010")
+    s.find(r"^;\?expr range$")

@@ -1003,3 +1003,38 @@ def test_a_far_constant_holds_32_bits_and_a_16_bit_use_is_refused(s):
     s.find(r"^; \$00042000  270336$")
     s.type("? big>>16")
     s.find(r"^; *\$01      1  %00000001  \+1$")
+
+
+# ── `a`, `g` and `.` in a bank (slice 3, F5b: repl.md § Banks) ──────
+
+def _assemble(s, text):
+    from test_m65_asm_src import assemble
+    return assemble(s, text)
+
+
+def test_g_far_starts_main_in_a_bank(s):
+    assert _assemble(s, "\t.org 4.2000\rmain:\tlda #$5a\r\trts\r") == 0
+    assert prompt(s) == "4.2000:"
+    s.type("g")
+    row = ran_to_rts(s)
+    assert re.search(r" a:5a .* ml:e400 mh:8300", row), row
+
+
+def test_g_with_main_outside_the_far_window_is_range(s):
+    assert _assemble(s, "\t.org 1.9000\rmain:\trts\r") == 0
+    s.type("g")
+    s.find(r"^;\?range$")
+
+
+def test_dot_at_a_flat_address_takes_its_own_banks_values(s):
+    s.type("@ 4.2000")
+    s.type(". jmp 4.2010")
+    assert fpeek(s, 4, 0x2000, 3) == [0x4C, 0x10, 0x20]
+    fpoke(s, 4, 0x2003, [0x00])
+    s.type(". jmp 5.0000")                 # another bank: refused (the tag:
+    k, _ = s.find(r"^;\?")                 # repl.md § Error tag dispatch)
+    assert ". jmp 5.0000" in s.row(k - 1)
+    assert fpeek(s, 4, 0x2003) == [0x00]
+    s.type("B $40010")                     # the bank does not outlive `.`
+    k, _ = s.find(r"^;\?expr range$")
+    assert "B $40010" in s.row(k - 1)

@@ -166,6 +166,13 @@ is `$FFFF` as on the c64.  **`expr_eval32`** is the same evaluator
 with the check off, for the consumers that take 32 bits: a constant
 (`.const`, symtab.md) and `?`.  The opt-in lasts one evaluation.
 
+**The same-bank rule** (slice 3, F5b): the check also passes a value whose top
+word is **`expr_bank`** (BSS, exported, 2 bytes): the bank a 16-bit
+consumer takes as its own — the flat segment's while asm_src
+assembles one, the current address's around the REPL's `.` at a flat
+address, else 0 — and the consumer gets its low word (the same-bank
+rule, assembler_syntax.md § Directives).
+
 ### Width propagation
 
 The ZP flag `expr_wide` decides whether the result selects 2-byte (ZP)

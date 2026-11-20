@@ -114,7 +114,7 @@ STEP_OVER = 2
 ; ── Imports: expression parser ─────────────────────────────
         .import expr_eval, expr_error_str
 .ifdef PLATFORM_M65
-        .import expr_eval32
+        .import expr_eval32, expr_bank
 .endif
         .importzp expr_ptr, expr_val
 
@@ -1099,6 +1099,22 @@ map_fields:
         rts
 
 ; ───────────────────────────────────────────────────────────
+; dot_bank — expr_bank := the current address's bank when it is flat,
+; else 0: `.` takes its own bank's values as low words (the same-bank
+; rule, assembler_syntax.md § Directives).  Clobbers A, X.
+; ───────────────────────────────────────────────────────────
+dot_bank:
+        lda #0
+        tax
+        bit cur_flat
+        bpl :+
+        lda cur_bank
+        ldx cur_bank+1
+:       sta expr_bank
+        stx expr_bank+1
+        rts
+
+; ───────────────────────────────────────────────────────────
 ; calc_32 — `?`'s row for a value outside 16 bits (repl.md § Banks):
 ; `$` and eight hex digits, two spaces, the unsigned decimal; then
 ; the log line closed.  Destroys expr_val.  Clobbers A, X, Y.
@@ -1782,6 +1798,18 @@ _syntax_err:
         sta cur_addr
         lda sym_val+1
         sta cur_addr+1
+.ifdef PLATFORM_M65
+        lda sym_val+2           ; a flat value: a flat current address
+        sta cur_bank            ; (`a` / `g` in main's bank, F5b)
+        lda sym_val+3
+        sta cur_bank+1
+        ora cur_bank
+        beq @cpu
+        lda #SPC_FLAT
+        sta cur_flat            ; C=0 from sym_lookup
+        rts
+@cpu:
+.endif
         SPACE_CPU
 @r:     rts
 .endproc
@@ -2773,7 +2801,15 @@ mem_row:
         jmp dot_range
 :
 .endif
+.ifdef PLATFORM_M65
+        jsr dot_bank            ; the same-bank rule at a flat address:
+        jsr dot_assemble        ; its operand evaluations and asm_line's
+        ldy #0
+        sty expr_bank           ; the bank does not outlive `.`
+        sty expr_bank+1
+.else
         jsr dot_assemble
+.endif
         cmp #0
         bne @show               ; success → show result
 .ifdef MEGA_SUPPORT

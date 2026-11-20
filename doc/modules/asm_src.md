@@ -8,7 +8,7 @@
 |------|------|
 | [`src/asm_src.s`](../../src/asm_src.s) | implementation |
 | [`tests/unit/test_asm_src.py`](../../tests/unit/test_asm_src.py) | test contract |
-| [`tests/integration/test_m65_asm_src.py`](../../tests/integration/test_m65_asm_src.py) | test contract — on the m65 PRG: a far backward and a forward branch pass-stable in a source |
+| [`tests/integration/test_m65_asm_src.py`](../../tests/integration/test_m65_asm_src.py) | test contract — on the m65 PRG: a far backward and a forward branch pass-stable in a source; the banks (flat `.org`, the gate, flat labels, the same-bank rule, `.dd`, the segment and save lines) |
 
 Its test bundle's stub, [`dev/asm_src_test_stub.s`](../../dev/asm_src_test_stub.s),
 is owned by [build_system.md](../build_system.md).
@@ -120,6 +120,21 @@ start).
 **Clobbers:** Y, flags.  Preserves A and X (callers loop on X).
 
 `_emit_word` emits A (lo) then X (hi) through it.
+
+**On m65** (slice 3, F5b) `asm_pc` is a far pointer whose bank
+bytes (`asm_pc+2/+3`) are the segment's bank — 0 for a CPU segment,
+set by `.org` from its 28-bit value and cleared at each pass start —
+and `_emit_byte` stores through it.  The gate: the megabyte 0, and
+bank 0 `$2000–$BFFF`, bank 1 `$2000–$F6FF`, or bank 4 or 5
+(assembler_syntax.md § Directives).  A label's value is `asm_pc`'s 32
+bits.  `.org` also sets `expr_bank` (expr.md § 32-bit values) to the
+segment's bank, so the 16-bit consumers take that bank's values as
+their low words; each pass starts it at 0 and `asm_assemble` leaves
+it 0.  `_seg_log_close` prints the segment's bank (`info_bank`) and
+keeps a flat segment out of `_min_pc` / `_max_pc`, the save
+suggestion's range.  `.dd` is `emit_data_bytes` with a word size of 4,
+through `expr_eval32`.  `_bank_0` zeroes `asm_pc`'s bank bytes and
+`expr_bank`.
 
 ### emit_error
 **In:** A/X = pointer to a NUL-terminated message; `asm_pass`,
@@ -346,6 +361,9 @@ convention.  The `;?` / `;!` / `; ` prefixes come from `log_open`
 
 ### Other caveats
 
+- m65: a segment line prints its bank as one digit (`info_bank`), so a
+  segment the gate refuses in bank `$A` or above, or in a megabyte,
+  names a wrong bank; its bytes are `;?N: range` anyway.
 - `ed_read_line` keeps at most `LINE_MAX` characters of a line (39;
   79 on m65, whose `_line_buf` is 80 bytes).  When it
   dropped characters (X ≠ 0 on return) the assembler emits the

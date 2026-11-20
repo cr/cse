@@ -206,6 +206,7 @@ of the line; anything else (`.oops`, `.co`, `.dbx`) is
 | `.cpu` | model | Set the CPU mode for the following lines |
 | `.db` | expr [, ...] | Emit bytes |
 | `.dw` | expr [, ...] | Emit words (little-endian) |
+| `.dd` | expr [, ...] | m65: emit 32-bit words (little-endian) |
 | `.str` | "text" [, ...] | Emit PETSCII bytes |
 | `.scr` | "text" [, ...] | Emit screen code bytes |
 | `.res` | count [, fill] | Emit `count` fill bytes (default $00) |
@@ -215,18 +216,37 @@ of the line; anything else (`.oops`, `.co`, `.dbx`) is
 The assembler runs two passes over the source (sizing, then
 emission); the pass mechanics are [asm_src.md](modules/asm_src.md).
 
-**Delta (slice 3, F5b), m65:** `.org` takes a 32-bit expression.
-Above `$FFFF` it is a **flat origin** (`.org 4.2000`): the bytes go
-to that physical address, `*` and the instructions' own addresses are
-its low word — where a far start runs the code — and every label the
-segment defines has the flat value (`4.2005`).  A 16-bit operand
-(an instruction's, `.dw`'s, a branch's) takes a value above `$FFFF`
-only when its bank is the segment's — then its low word; anything
-else is `;?N: range` (the same-bank rule, P-F-6).  The emit gate
-admits a flat segment in banks 1, 4 and 5 (`X.0000–X.FFFF`, bank 1
-from `$2000` to `$F6FF`).  `.dd` (D-F-8) emits 32-bit words, low byte
-first.  After `a`, the current address is `main`'s — flat when
-`main` is — and `g` starts it (a far start, repl.md § Far starts).
+**On m65** (slice 3, F5b) `.org` takes a 32-bit expression, a
+28-bit address (above `$0FFFFFFF` it is `;?N: bad val`).  Above
+`$FFFF` it is a **flat origin** (`.org 4.2000`): the bytes go to that
+physical address, `*` and the instructions' own addresses are its low
+word — where a far start runs the code — and every label the segment
+defines has the flat value (`4.2005`).  A 16-bit value — an
+instruction's operand, a branch target, `.dw`'s and `.db`'s
+arguments — takes a value above `$FFFF` only when its bank is the
+segment's, and then its low word (the **same-bank rule**, P-F-6);
+any other is refused as F5a refuses it (`;?N: range` for an operand,
+`;?N: bad val` for a directive).  `.org 0.3000` is `.org $3000`.
+
+The emit gate admits, besides the program region `$2000–$BFFF` of
+bank 0, a flat segment in bank 1 from `1.2000` to `1.F6FF` and in
+banks 4 and 5 whole (`4.0000–5.FFFF`; the user memory of
+[userland_contract.md § 3](userland_contract.md)); any other byte is
+`;?N: range`, written nowhere.  A flat segment wraps at the end of its
+bank as a CPU segment does at `$FFFF` (later bytes refused), never
+into the next bank.  The segment line names the bank as `i`'s rows
+do (`; org  4.2000-2011   18b`); the save suggestion covers bank 0's
+segments only — `s` saves CPU memory — so a program wholly in a bank
+gets none.
+
+`.dd expr [, ...]` (D-F-8) emits 32-bit words, low byte first, of any
+32-bit value (`.dd 4.2000` is `00 20 04 00`).  After `a`, the current
+address is `main`'s — flat when `main` is — and `g` starts it: a far
+start ([repl.md § Far starts](modules/repl.md#far-starts)) in banks
+1, 4 and 5 at `$2000–$7FFF`, else `;?range`.  The REPL's `.` at a flat
+current address follows the same-bank rule with that address's bank
+(another bank's value is refused, with the tag `.` gives an operand
+error, [repl.md § Error tag dispatch](modules/repl.md#error-tag-dispatch-mnemonic-assemble-path)).
 
 ### `.org` — Set Origin
 

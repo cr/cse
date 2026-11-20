@@ -997,9 +997,15 @@ values](expr.md#32-bit-values-m65)): an expression argument outside
 −$FFFF…$FFFF is `;?expr range`, never truncated, and `?` shows a
 value outside 16 bits (a negative one too) in 32 bits — `$` and eight
 hex digits, two spaces, the unsigned decimal: `? 4.2000` is
-`$00042000  270336`, `? -1` `$ffffffff  4294967295`.  **Delta, not
-yet built:** `.org H.AAAA` and `g` in the bank `main` was assembled to
-are F5b's — until then `g` starts `main` as a CPU address.  F5c:
+`$00042000  270336`, `? -1` `$ffffffff  4294967295`.  The assembler
+takes banks (F5b, [assembler_syntax.md § Directives](../assembler_syntax.md#directives)):
+after `a` the current address is `main`'s value, flat when `main` is
+(the prompt `4.2000:`), and `g` far-starts it as `j` would; `.` at a
+flat current address takes a value in that address's bank as its low
+word (`4.2000:. jmp 4.2010` is `4c 10 20`, `dot_bank` sets
+`expr_bank` around `dot_assemble`), any other above `$FFFF` is
+refused, nothing written (the same-bank rule; the tag is § Error tag
+dispatch's).  **Delta, not yet built (F5c):**
 every address argument is an expression — `@`, `j`, `b` and `m`
 take a value above `$FFFF` as a flat address (so `@ main`, `j main`,
 `b loop+3` follow a flat label, and `m screen+40` works), which

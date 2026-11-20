@@ -41,6 +41,7 @@
         .export expr_fwd                ; bit 7: undefined read; other bits: sym_fwd read
 .ifdef PLATFORM_M65
         .export expr_eval32             ; 32 bits, no range check (expr.md § 32-bit values)
+        .export expr_bank               ; the bank a 16-bit consumer also takes
 .endif
 
         .import sym_lookup, sym_fwd
@@ -84,6 +85,7 @@ _ex_digits:  .res 1              ; digit counter
 _mul_tmp:    .res 4              ; multiply: shifted operand; divide: trial
 _div_rem:    .res 4              ; divide: remainder
 _ex_far:     .res 1              ; bit 7: this evaluation takes 32 bits
+expr_bank:   .res 2              ; a top word the range check also passes
 _ex_sp:      .res 1              ; the operand stack's top (bytes)
 ; The pending left operands, one entry per operator waiting for its
 ; right operand: the operator, the width, the 4 value bytes.  At most
@@ -184,7 +186,13 @@ expr_eval_nb:
         lda expr_val+2
         ora expr_val+3
         beq @ok                  ; 0 .. $FFFF
-        lda expr_val+2
+        lda expr_val+2           ; the caller's bank: its low word
+        cmp expr_bank            ; (the same-bank rule)
+        bne :+
+        lda expr_val+3
+        cmp expr_bank+1
+        beq @ok
+:       lda expr_val+2
         and expr_val+3
         cmp #$FF
         bne @range

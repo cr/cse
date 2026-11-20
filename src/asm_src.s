@@ -24,7 +24,8 @@
         .import         asm_err_code, asm_pass              ; asm_err.s
         .import         expr_error_str, expr_eval           ; expr.s
 .ifdef PLATFORM_M65
-        .import         expr_eval32
+        .import         expr_eval32, expr_bank              ; expr.s
+        .import         info_bank                           ; log.s
 .endif
         .import         sym_define, sym_clear, sym_stamp    ; symtab.s
         .import         expr_fwd                            ; expr.s
@@ -247,13 +248,32 @@ _emit_byte:
         beq @skip
         ldy _pc_wrap
         bne @oor
-        ldy asm_pc+1
+.ifdef PLATFORM_M65
+        ldy asm_pc+3            ; a megabyte: no
+        bne @oor
+        ldy asm_pc+2            ; the segment's bank (asm_src.md)
+        beq @b0
+        cpy #4
+        beq @ok                 ; banks 4 and 5: whole
+        cpy #5
+        beq @ok
+        cpy #1
+        bne @oor
+        ldy asm_pc+1            ; bank 1: $2000-$F6FF
+        cpy #>WORKSTART
+        bcc @oor
+        cpy #$F7
+        bcc @ok
+        bcs @oor
+@b0:    ldy asm_pc+1
         cpy #>WORKSTART
         bcc @oor                ; below the workspace
-.ifdef PLATFORM_M65
         cpy #>HIMEM
         bcs @oor                ; at/above the program region's end
 .else
+        ldy asm_pc+1
+        cpy #>WORKSTART
+        bcc @oor                ; below the workspace
         cpy buf_base+1
         bcc @ok
         bne @oor                ; at/above the source text
@@ -352,8 +372,17 @@ _bad_val_err:
         bne @comma
         inc expr_ptr+1
         bne @comma
-@expr:  jsr expr_eval
-        ; .db/.dw size is value-independent: every arg occupies
+@expr:
+.ifdef PLATFORM_M65
+        lda _as_wsize
+        cmp #4
+        bne :+
+        jsr expr_eval32         ; .dd: any 32 bits
+        jmp @rc
+:
+.endif
+        jsr expr_eval
+@rc:    ; .db/.dw size is value-independent: every arg occupies
         ; exactly _as_wsize bytes whether the expression resolves
         ; or not.  Skip the rc check on pass 0; let _emit_byte's
         ; pass-aware advance handle size.  Pass 1 errors normally.
@@ -365,6 +394,10 @@ _bad_val_err:
 @emit:  lda _as_wsize
         cmp #2
         beq @word
+.ifdef PLATFORM_M65
+        cmp #4
+        beq @dword
+.endif
         ldy asm_pass            ; .db on pass 1: the value must fit a
         beq @byte               ; byte, $00xx or -128..-1 ($FF80..)
         ldx expr_val+1
@@ -391,6 +424,15 @@ _bad_val_err:
         inc expr_ptr+1
 :       jmp @loop
 @done:  rts
+.ifdef PLATFORM_M65
+@dword: ldx #0                  ; .dd: 4 bytes, low first
+:       lda expr_val,x
+        jsr _emit_byte          ; (preserves X)
+        inx
+        cpx #4
+        bne :-
+        jmp @comma
+.endif
 .endproc
 
 ; ── emit_string ────────────────────────────────────────────────────────────
@@ -688,6 +730,11 @@ _seg_log_close:
         bne @nonempty
         jmp @clear
 @nonempty:
+.ifdef PLATFORM_M65
+        lda asm_pc+2            ; a flat segment: not in the save range
+        ora asm_pc+3            ; (`s` saves CPU memory)
+        bne @print
+.endif
         ; Update _max_pc (exclusive end = asm_pc)
         lda asm_pc+1
         cmp _max_pc+1
@@ -729,6 +776,10 @@ _seg_log_close:
         sbc #0
         sta asm_tmp2            ; end_hi
         jsr _bank_in_tmp
+.ifdef PLATFORM_M65
+        lda asm_pc+2            ; the segment's bank: "b."
+        sta info_bank
+.endif
         ; Print "; org  AAAA-BBBB NNNNNb" via shared formatter
         lda #0
         sta rp_save2            ; no highlight
@@ -783,6 +834,18 @@ _set_first_org:
         lda asm_pc+1
         sta asm_org+1
 @ret:   rts
+
+.ifdef PLATFORM_M65
+; _bank_0 — asm_pc's bank and expr_bank to 0: a CPU segment, and the
+;   16-bit consumers take no bank's values.  Clobbers A.
+_bank_0:
+        lda #0
+        sta asm_pc+2
+        sta asm_pc+3
+        sta expr_bank
+        sta expr_bank+1
+        rts
+.endif
 
 ; _seg_init — reset segment logging state.
 _seg_init:
@@ -1144,6 +1207,10 @@ d_const:
         rts
 d_db:   lda #1
         .byte $2C               ; BIT abs: skip lda #2
+.ifdef PLATFORM_M65
+d_dd:   lda #4
+        .byte $2C               ; BIT abs: skip lda #2
+.endif
 d_dw:  lda #2
         sta _as_wsize
         jsr emit_data_bytes
@@ -1151,6 +1218,34 @@ d_dw:  lda #2
         rts
 d_org:
         jsr skipws_ep
+.ifdef PLATFORM_M65
+        jsr expr_eval32         ; a 28-bit address: flat above $FFFF
+        cmp #2
+        bcs @bad
+        lda expr_val+3
+        cmp #$10
+        bcc @org_ok
+@bad:   jsr _bad_val_err
+        clc
+        rts
+@org_ok:
+        ldx #3                  ; save it — _seg_log_close clobbers asm_tmp
+:       lda expr_val,x
+        pha
+        dex
+        bpl :-
+        jsr _seg_log_close      ; the previous segment (old asm_pc)
+        ldx #0
+:       pla
+        sta asm_pc,x            ; the new origin, its bank in asm_pc+2/+3
+        inx
+        cpx #4
+        bne :-
+        lda asm_pc+2            ; the 16-bit consumers take this bank's
+        sta expr_bank           ; values as their low words
+        lda asm_pc+3
+        sta expr_bank+1
+.else
         jsr expr_eval
         cmp #2
         bcc :+
@@ -1169,6 +1264,7 @@ d_org:
         sta asm_pc
         pla
         sta asm_pc+1
+.endif
         jsr _org_set_pc
         ; Open new segment (uses new asm_pc)
         jsr _seg_log_open
@@ -1190,13 +1286,23 @@ d_scr: lda #1                  ; convert to screen codes
 .segment "RODATA"
 _dir_names:
         .byte "align", 0, "bas", 0, "cpu", 0, "const", 0, "db", 0
-        .byte "dw", 0, "org", 0, "res", 0, "str", 0, "scr", 0, $FF
+        .byte "dw", 0, "org", 0, "res", 0, "str", 0, "scr", 0
+.ifdef PLATFORM_M65
+        .byte "dd", 0           ; 32-bit words (assembler_syntax.md)
+.endif
+        .byte $FF
 _dir_lo:
         .lobytes d_align-1, d_bas-1, d_cpu-1, d_const-1, d_db-1
         .lobytes d_dw-1, d_org-1, d_res-1, d_str-1, d_scr-1
+.ifdef PLATFORM_M65
+        .lobytes d_dd-1
+.endif
 _dir_hi:
         .hibytes d_align-1, d_bas-1, d_cpu-1, d_const-1, d_db-1
         .hibytes d_dw-1, d_org-1, d_res-1, d_str-1, d_scr-1
+.ifdef PLATFORM_M65
+        .hibytes d_dd-1
+.endif
 .segment "CODE"
 .endproc
 
@@ -1295,8 +1401,9 @@ _dir_hi:
         lda asm_pc+1
         sta sym_val+1
 .ifdef PLATFORM_M65
-        lda #0                  ; a 16-bit address (F5b: flat)
+        lda asm_pc+2            ; flat: the segment's bank
         sta sym_val+2
+        lda asm_pc+3
         sta sym_val+3
 .endif
         lda #0
@@ -1546,6 +1653,9 @@ _too_long_err:
         sta asm_pc
         lda _def_org+1
         sta asm_pc+1
+.ifdef PLATFORM_M65
+        jsr _bank_0             ; the default segment: bank 0
+.endif
         jsr _seg_log_open       ; open the default segment
 @loop:  ; Call ed_read_line(_line_buf)
         lda #<_line_buf
@@ -1642,6 +1752,9 @@ _too_long_err:
         jsr define_ws_syms      ; re-stamp the built-ins
         jsr do_pass                 ; starts at _def_org, default segment open
         jsr _seg_log_close          ; close final segment from pass 1
+.ifdef PLATFORM_M65
+        jsr _bank_0                 ; no bank outlives the assembly
+.endif
 
         ; Bank in KERNAL — clear flag FIRST so the bank_in actually fires.
         lda #0
