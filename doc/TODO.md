@@ -143,6 +143,13 @@ are under [§ Records](#records).
   paragraph is gone.  (Merges two Planned › Assembler items,
   2026-11-20.)
 
+  The same cause, a third symptom (found at slice 3's F1,
+  2026-11-20): `*` in `.`'s operand is the *previous* instruction's
+  address — `dot_assemble` evaluates the operand before it sets
+  `asm_pc` — so `. lda #$01` then `. bne *` at `$3000` assembles
+  `d0 fc` (to `$3000`) where the source assembler gives `d0 fe`.
+  Both platforms.
+
 ### Latent
 
 Real in the code but unreachable today, or theoretical.
@@ -286,7 +293,8 @@ without ruling on each:
 - **O-F-1** 40 columns: a flat `m` row with 8 bytes and the ASCII
   column is 41 columns, a `d` row with more than one digit before the
   dot up to 43.  Candidates: flat `m` rows without the ASCII column
-  in 40 columns; `d` rows clipped at the edge.
+  in 40 columns; `d` rows clipped at the edge.  Proposed at F1's Step 1:
+  both (repl.md § Banks, *Rows in 40 columns*).
 - **O-F-2** Whether `cur_project_name`'s BSS home is repl.s's or a
   lower module's (the editor and asm_src read it; the layer DAG
   decides).
@@ -355,7 +363,7 @@ then tests first, the code, the differential doc update, the commit.
   parity) already asks that every production build run the paths; the
   m65 column of a user-visible output path needs its own test, which
   F1–F5's tests-first lists now name for every row they add.
-- [ ] **F1 — flat addresses in the REPL** (D-F-1, D-F-3; P-F-1,
+- [x] **F1 — flat addresses in the REPL** (D-F-1, D-F-3; P-F-1,
   P-F-5, P-F-7).  Delta: [repl.md § Banks](modules/repl.md#banks-m65)
   (written), [userland_contract.md § 3 On m65](userland_contract.md#on-m65)
   *Addresses* (written), [glossary.md](glossary.md) (written); at
@@ -371,6 +379,20 @@ then tests first, the code, the differential doc update, the commit.
   flat, a branch is computed in the low word); `d` rows; the carry
   from `4.FFFF` to `5.0000`; the write refusal; a dotted form on the
   C64 is `;?syntax`.
+
+  **Done 2026-11-20.**  repl.s keeps the space beside `cur_addr` and
+  `rp_addr` (`cur_flat` / `cur_bank`, `rp_flat` / `rp_bank`, BSS);
+  `FAR_CUR` at the four command sites; `put_bank` prints the prefix;
+  `parse_flat_ptr1` / `parse_flat_arg` read it; `far_write_ok`
+  (mem.s) guards `m`, `.` and `.`'s assembly — in CPU space too:
+  `m e000 00` no longer writes the running KERNAL's copy.  Interim
+  until F3: `j` without an argument and a cold `t` / `o` at a flat
+  address answer `;?range`.  O-F-1 settled as proposed (flat `m`
+  rows in 40 columns without the ASCII column; `d` rows clipped).
+  P-F-1, P-F-5 and P-F-7 confirmed by the approval.  m65 25 053 B
+  (+622).  On the C64 `4.2000:m` is `;?cmd` (`4` is no command) and
+  `@ 4.2000` `;?syntax`.  Found and filed: `*` in `.`'s operand is
+  the previous instruction's address (§ Bugs › Both platforms).
 - [ ] **F2 — the program's map** (D-F-2, D-F-4; P-F-3).  Delta:
   [platform_layer.md § Far memory](platform_layer.md#far-memory)
   (written); at Step 1 mem.md (`far_user` through the bank state, the

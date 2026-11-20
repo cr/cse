@@ -36,6 +36,14 @@ an expression error `last_err` (expr.s) holds the detail code.
 `mode_parse` and `expr_eval_nb` clobber
 ([addr_mode.md](addr_mode.md), [expr.md](expr.md)).
 
+**m65:** `asm_out` is a far pointer and may hold
+a flat address in any bank; `asm_pc` stays the 16-bit address the
+code will run at.  At a flat REPL address `.` sets `asm_out` to the
+flat address and `asm_pc` to its low word, so a branch's offset is
+computed for the code where a far start runs it
+([repl.md § Banks](repl.md#banks-m65)).  asm_line itself does not
+change.
+
 `asm_line` saves the 6502 SP in `_asm_saved_sp` (the unwind point of
 [asm_err.md](asm_err.md)), banks the KERNAL out, `ldy #0`, calls
 `_asm_line_core`, refuses a wrapped output (below), banks the KERNAL

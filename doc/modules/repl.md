@@ -27,6 +27,7 @@ framing.  The user-facing command reference is the root
 |------|------|
 | [`src/repl.s`](../../src/repl.s) | implementation (assembly) |
 | [`tests/integration/test_repl.py`](../../tests/integration/test_repl.py) | test contract — Tier I (full PRG via `C64Emu`) |
+| [`tests/emulator/test_m65_flat.py`](../../tests/emulator/test_m65_flat.py) | test contract (Tier X) — flat addresses typed in xmega65 on each ROM: `@ 4.2000`, `m` and `.` into bank 4, `d`, a refused write into bank 3; the bytes and every screen M65Emu's (slice 3, F1) |
 | [`tests/integration/test_m65_repl.py`](../../tests/integration/test_m65_repl.py) | test contract — Tier I on the m65 PRG: the cold start, the REPL and the debugger typed (P2 T7–T9) |
 | [`tests/integration/test_repl_disk.py`](../../tests/integration/test_repl_disk.py) | test contract — Tier I disk-command paths (`l`, `s`, `$`) routed through `exec_line`, on C64Emu with a virtual 1541 |
 
@@ -122,6 +123,19 @@ charset toggle locked), the three SID voice control registers
 - `cur_addr` (word) — the current address shown in the prompt.
   `reset_globals` (main.s) sets it to $0800 at cold start and on
   `cse_recover`.
+- **m65:** the current address carries its
+  space ([§ Banks](#banks-m65)): `cur_flat` (byte, BSS: 0 = a CPU
+  address, nonzero = flat) and `cur_bank` (word, BSS: the flat
+  address's bank and megabyte, bits 16–27).  Every site that sets
+  `cur_addr` from a CPU source — `@` with an expression,
+  `reset_globals`, a break panel, `a`'s `main`, `j` — clears
+  `cur_flat`; a prefix or `@` with a flat literal sets all three; an
+  advance (`m`, `.`, `d`, `+`, `-`) keeps the space and, in flat
+  space, carries into `cur_bank` when the low word wraps.  The
+  command scratch mirrors it: `rp_flat`, `rp_bank` beside `rp_addr`
+  (`load_curaddr` copies all of them; `exec_line` clears `rp_flat`
+  first, so a command not loaded from the current address works on a
+  CPU address).  The c64 has neither: its code is unchanged.
 - `block_size` (word) — block size for `m`, `d`, `+`, `-` and a bare
   PRG `s`; default $0010 (`reset_globals`).
 - `last_cmd` (byte) — the repeatable command RETURN repeats
@@ -386,6 +400,12 @@ mode (`.` shows one instruction, `m` dumps `block_size` bytes) and
 clear the prompt row normally.
 
 ### The `.` command in detail
+
+**m65:** at a flat current address `.` works on
+the flat bytes (§ Banks): a poke writes them there, a disassembly
+reads them there, and an assembly sets `asm_out` to the flat address
+and `asm_pc` to its low word.  A write into `2.0000–3.FFFF`, in
+either space, is `;?range`, before any byte is written.
 
 The `.` handler (`cmd_dot`) has three modes:
 
@@ -964,9 +984,14 @@ of base page 0 ([userland_contract.md § 3 On m65](../userland_contract.md#on-m6
 
 ### Banks (m65)
 
-**Delta (slice 3, F1–F3):** stated ahead of the code —
-[TODO § Slice 3 — banks](../TODO.md#slice-3--banks).  Until a
-milestone lands, the sections above describe what the build does.
+**Status (slice 3, [TODO § Slice 3 — banks](../TODO.md#slice-3--banks)):**
+F1 has landed: both address forms, the prompt, `@`, `m`, `.`, `d`,
+`+`, `-` and the write refusal work as stated.  **Delta, not yet
+built:** the CPU space still reads through the standard user map
+until F2 (*the program's map*, *The map in `r` and `M`*); far starts
+are F3's — until then `j` without an argument and a cold `t` / `o`
+at a flat current address answer `;?range`; flat breakpoints are
+F4's.
 
 On m65 an address is in one of two spaces, told apart by a dot
 ([glossary.md](../glossary.md), *CPU address*, *flat address*):
@@ -1063,9 +1088,13 @@ megabyte selectors and `$D030` that re-executes as an edit:
     M mb:0000 d030:64
 
 **Rows in 40 columns.**  A flat prefix is two to five columns wider
-than `AAAA:`; which columns a flat `m` or `d` row gives up in 40
-columns is open (TODO, O-F-1).  In 80 columns every row fits: the
-widest, an `m` row with a four-digit prefix, is 76 columns.
+than `AAAA:`.  A flat `m` row in 40 columns shows its 8 bytes without
+the ASCII column (`4.2000:m HH … HH`, at most 36 columns); a flat `d`
+row with a one-digit bank is 40 columns at most, and with a wider
+prefix it is clipped at the right edge — the mnemonic and operand
+stay readable for banks 0–9 and A–F, the cases a program uses
+(TODO, O-F-1, proposed).  In 80 columns every row fits: the widest,
+an `m` row with a four-digit prefix, is 76 columns.
 
 ### `C` — Color (uppercase)
 

@@ -90,6 +90,9 @@
         .import log_info                      ; log.s
         .importzp asm_cpu
         .import cur_addr, block_size
+.ifdef PLATFORM_M65
+        .import cur_flat
+.endif
         .import ed_handle_key, enter_editor, leave_editor
 
 ; ── Imports: strings.s ──────────────────────────────────────
@@ -800,6 +803,8 @@ reset_globals:
         lda #$08
         sta cur_device
 .ifdef PLATFORM_M65
+        lda #0
+        sta cur_flat            ; a CPU address (repl.md § Banks)
         lda #>WORKSTART
 .endif
         sta cur_addr+1          ; cur_addr = workstart ($0800: the device

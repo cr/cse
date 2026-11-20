@@ -1533,3 +1533,15 @@ class TestNoDigitWordOn6510:
         screen = "\n".join(cpu.screen_text(r) for r in range(ROWS))
         assert ";?syntax" in screen, screen
         assert list(cpu.memory[0x3000:0x3004]) == before       # nothing written
+
+
+# ── the C64 has no flat addresses (slice 3, F1: m65 only) ──────────
+
+@pytest.mark.parametrize("cmd,err", [("4.2000:m", ";?cmd"), ("@ 4.2000", ";?syntax")])
+def test_a_flat_address_is_an_error_on_the_c64(rsyms, cmd, err):
+    """No prefix of that shape: `4` is no command; `@`'s expression has
+    trailing garbage."""
+    cpu = make_cpu(rsyms)
+    set_line_buf(cpu, rsyms, cmd)
+    run_at(cpu, rsyms.exec_line)
+    assert err in "".join(cpu.screen_text(r) for r in range(25))

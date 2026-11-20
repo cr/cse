@@ -188,6 +188,31 @@ cse_zp_end:
 .endproc
 .endif
 
+.ifdef PLATFORM_M65
+; ═══════════════════════════════════════════════════════════
+; far_write_ok — may the far pointer at X be written?  C=0 yes; C=1 it
+; is in 2.0000-3.FFFF, the ROM banks CSE keeps writable (the KERNAL,
+; CSE, the source text: repl.md § Banks).  Preserves A, X, Y.
+; ═══════════════════════════════════════════════════════════
+        .export far_write_ok
+.proc far_write_ok
+        pha
+        lda 3,x                 ; megabyte
+        bne @ok
+        lda 2,x                 ; bank
+        cmp #BANK_SRC
+        bcc @ok
+        cmp #BANK_CSE + 1
+        bcs @ok
+        pla
+        sec
+        rts
+@ok:    pla
+        clc
+        rts
+.endproc
+.endif
+
 .ifdef PLATFORM_C64                     ; m65: no ZP swap (doc/modules/mem.md
                                         ; § ZP swap on m65)
 ; ═══════════════════════════════════════════════════════════════════════════

@@ -378,8 +378,20 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   At a fresh start the bank state is the run premise's, and the
   translation is the table above.  `M65Memory` (M65Emu), held to the
   recordings, is the test oracle.  A **flat address** needs no
-  translation: the pointer's four bytes are the address
-  (`FAR_FLAT`, where a module sets one from the current address).
+  translation: the pointer's four bytes are the address.
+
+- **The REPL's command address:** `FAR_CUR name` (repl.s's macro;
+  [repl.md § Banks](modules/repl.md#banks-m65)) — the pointer's
+  offset holds the low word of `rp_addr`; in flat space (`rp_flat`)
+  it sets bank and megabyte from `rp_bank`, in CPU space it is
+  `FAR_USER`.  c64: empty.  It is used at the REPL's command sites
+  (`zp_stage_prep_addr`, `cmd_mem`'s edit, `cmd_dot`, `dot_assemble`);
+  the debugger's sites (`brk_pc`, the step engine) take CPU addresses
+  and keep `FAR_USER`.  **`far_write_ok`** (mem.s, m65; X = the
+  pointer) answers whether a set far pointer may be written: C=1 in
+  `2.0000–3.FFFF`, the ROM banks CSE keeps writable — the REPL's `m`,
+  `.` and `.`'s assembly refuse such a write with `;?range`, in
+  either space.
 
   The translation is made where the pointer is set, for the row of
   the address it is set to.  An access or a walk that runs past the

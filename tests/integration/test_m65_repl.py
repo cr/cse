@@ -129,11 +129,21 @@ class M65Session:
         self.idle(**kw)
 
     def start(self, cmd):
-        """Write `cmd` after the prompt and queue RETURN."""
-        r = self.v("io_cy")
-        self.write_row(r, cmd, col=5)
-        self.e.memory[self.cell("io_cx")] = 5 + len(cmd)
+        """Write `cmd` after the prompt (where the cursor waits: `AAAA:`
+        or a flat `H.AAAA:`) and queue RETURN."""
+        r, c = self.v("io_cy"), self.v("io_cx")
+        self.write_row(r, cmd, col=c)
+        self.e.memory[self.cell("io_cx")] = c + len(cmd)
         self.e.inject_key(RETURN)
+
+    def line(self, text, **kw):
+        """Write `text` over the whole prompt row — a row with its own
+        address prefix, as a recalled row is — and RETURN on it."""
+        r = self.v("io_cy")
+        self.write_row(r, text, col=0)
+        self.e.memory[self.cell("io_cx")] = len(text)
+        self.e.inject_key(RETURN)
+        self.idle(**kw)
 
     def type(self, cmd, **kw):
         self.start(cmd)
@@ -673,3 +683,97 @@ def test_assembly_save_line_names_the_project(s):
     s.type("a")
     k, row = s.find(r"^3000:s ")
     assert row.rstrip() == '3000:s "proj" $3000'
+
+
+# ── flat addresses (slice 3, F1: repl.md § Banks) ──────────────────
+
+def fpeek(s, bank, addr, n=1):
+    return [s.e.memory.read_flat(flat(bank, addr + k)) for k in range(n)]
+
+
+def fpoke(s, bank, addr, data):
+    for k, b in enumerate(data):
+        s.e.memory.write_flat(flat(bank, addr + k), b)
+
+
+def prompt(s):
+    return s.row(s.v("io_cy")).rstrip()
+
+
+def test_at_a_flat_literal_makes_the_prompt_flat(s):
+    s.type("@ 4.2000")
+    assert prompt(s) == "4.2000:"
+    s.type("@ $2000")
+    assert prompt(s) == "2000:"
+
+
+def test_a_flat_prefix_edits_and_dumps_the_bank(s):
+    s.line("4.2000:m 11 22")
+    assert fpeek(s, 4, 0x2000, 2) == [0x11, 0x22]
+    assert fpeek(s, 0, 0x2000, 2) != [0x11, 0x22]        # not bank 0
+    fpoke(s, 4, 0x2002, range(0x41, 0x4F))
+    s.line("4.2000:m")
+    k, row = s.find(r"^4\.2000:m ")
+    assert row == '4.2000:m 11 22 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e;."abcdefghijklmn'
+    assert s.row(k + 1).rstrip() == "4.2010:"
+    s.write_row(k, row.replace("11 22", "33 44", 1))
+    s.enter_on(k)                                         # the row re-executes
+    assert fpeek(s, 4, 0x2000, 2) == [0x33, 0x44]
+
+
+def test_bank_1_is_reached_too(s):
+    s.line("1.2000:m 5a")
+    assert fpeek(s, 1, 0x2000) == [0x5A]
+
+
+def test_dot_assembles_into_a_bank_at_the_low_word(s):
+    s.type("@ 4.2000")
+    s.type(". lda #$01")
+    s.type(". bne $2000")                   # from $2004, the low word: -4
+    assert fpeek(s, 4, 0x2000, 4) == [0xA9, 0x01, 0xD0, 0xFC]
+    assert prompt(s) == "4.2004:"
+
+
+def test_d_lists_a_bank_with_branches_in_the_low_word(s):
+    fpoke(s, 4, 0x2000, [0xA9, 0x01, 0xD0, 0xFC])
+    s.type("@ 4.2000")
+    s.type("d")
+    _, row = s.find(r"^4\.2002:\. ")
+    assert row.split()[-2:] == ["bne", "$2000"]
+    _, row = s.find(r"^4\.2000:\. ")
+    assert row.split()[-2:] == ["lda", "#$01"]
+
+
+def test_a_walk_carries_into_the_next_bank(s):
+    s.type("@ 4.fff0")
+    s.type("m")
+    assert prompt(s) == "5.0000:"
+    s.type("m")
+    s.find(r"^5\.0000:m ")
+
+
+@pytest.mark.parametrize("cmd", ["3.2000:m 00", "2.c000:m 00", "m e000 00",
+                                 "m c000 00", "3.2000:. 00"])
+def test_writes_into_the_rom_banks_are_refused(s, cmd):
+    before = [fpeek(s, 3, 0x2000), fpeek(s, 2, 0xC000), fpeek(s, 3, 0xE000)]
+    (s.line if ":" in cmd else s.type)(cmd)
+    s.find(r"^;\?range")
+    assert [fpeek(s, 3, 0x2000), fpeek(s, 2, 0xC000), fpeek(s, 3, 0xE000)] == before
+
+
+def test_a_flat_m_row_in_40_columns_has_no_ascii_column(s):
+    s.mode("4")
+    fpoke(s, 4, 0x2000, range(0x41, 0x49))
+    s.line("4.2000:m")
+    _, row = s.find(r"^4\.2000:m ")
+    assert row.rstrip() == "4.2000:m 41 42 43 44 45 46 47 48"
+
+
+def test_flat_zero_is_ram_the_cpu_view_is_the_programs_port(s):
+    fpoke(s, 0, 0x0000, [0x5A])
+    s.line("0.0000:m")
+    _, row = s.find(r"^0\.0000:m ")
+    assert row.split()[1] == "5a"
+    s.line("0000:m")
+    _, row = s.find(r"^0000:m ")
+    assert row.split()[1] == "ff"                       # the run premise's port

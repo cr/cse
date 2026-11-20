@@ -13,6 +13,9 @@
 ; ── Exports ────────────────────────────────────────────────
         .export exec_line, read_line, show_prompt, cmd_info
         .export cur_addr, block_size
+.ifdef PLATFORM_M65
+        .export cur_flat
+.endif
         .export line_buf, last_cmd, cold_preview_done
         .export step_cleanup
 
@@ -129,6 +132,9 @@ STEP_OVER = 2
 ; ── Imports: memory info ───────────────────────────────────
         .import cse_start, cse_end
         .import src_top, src_bot
+.ifdef PLATFORM_M65
+        .import far_user, far_write_ok  ; mem.s (far_cur, the write guard)
+.endif
 
 ; ── Imports: global state ──────────────────────────────────
         .importzp state
@@ -195,6 +201,22 @@ ST_STOP       = 0
 .segment "BSS"
 
 cur_addr:      .res 2          ; current memory address (init by main.s)
+.ifdef PLATFORM_M65
+; The address spaces (repl.md § Banks): the current address's and the
+; command's (rp_addr's).  A flag is $80 for a flat address (bit 7: bit /
+; bmi keep A), 0 for a CPU address; a bank word is a flat address's
+; bits 16-27 (bank, megabyte).  SPC_CUR / SPC_RP index the block.
+spc:
+cur_flat:       .res 1
+cur_bank:       .res 2
+rp_flat:        .res 1
+rp_bank:        .res 2
+SPC_CUR = cur_flat - spc
+SPC_RP  = rp_flat - spc
+SPC_FLAT = $80
+fl_acc:         .res 2          ; parse_flat_ptr1: the digits before the dot
+fl_y:           .res 1          ;   and the offset's first digit
+.endif
 last_cmd:       .res 1          ; last command byte
 block_size:     .res 2          ; block size for I/O (init by main.s)
 disk_name_buf:     .res FILENAME_MAX + 2   ; composed disk name (stem + optional ".")
@@ -330,6 +352,10 @@ io_addr_cmd:
         pha
         lda #0
         sta IO_CX
+.ifdef PLATFORM_M65
+        ldx #SPC_RP
+        jsr put_bank
+.endif
         lda rp_addr
         ldx rp_addr+1
         jsr io_puthex4
@@ -342,6 +368,206 @@ io_addr_cmd:
 ; log_info) lives in log.s; repl.s imports them.  log.inc provides
 ; the LOG_ERR/WARN/INFO level constants.
 .include "log.inc"
+
+; ── The address spaces (m65; repl.md § Banks) ─────────────────────────
+; SPACE_CPU: the current and the command address are CPU addresses —
+; at every site that sets them from a CPU source.  A kept.
+.macro SPACE_CPU
+  .ifdef PLATFORM_M65
+        jsr space_cpu
+  .endif
+.endmacro
+
+; FAR_CUR name: the pointer's offset holds rp_addr's low word; set its
+; bank and megabyte for the command's space (platform_layer.md § Far
+; memory).  c64: empty, as FAR_USER.
+.macro FAR_CUR name
+  .ifdef PLATFORM_M65
+        ldx #name
+        jsr far_cur
+  .endif
+.endmacro
+
+; RP_CARRY: rp_addr's low word wrapped — a flat address carries into its
+; bank.  Clobbers A, N/Z.
+.macro RP_CARRY
+  .ifdef PLATFORM_M65
+        jsr rp_carry
+  .endif
+.endmacro
+
+; CUR_FROM_RP: the command's space becomes the current address's (an
+; advance: the offset is stored by the site).  Clobbers A, X.
+.macro CUR_FROM_RP
+  .ifdef PLATFORM_M65
+        jsr cur_from_rp
+  .endif
+.endmacro
+
+.ifdef PLATFORM_M65
+; The bodies of SPACE_CPU (A kept), RP_CARRY (A) and CUR_FROM_RP (A, X
+; clobbered); every one keeps C.
+space_cpu:
+        pha
+        lda #0
+        sta cur_flat
+        sta rp_flat
+        pla
+        rts
+rp_carry:
+        bit rp_flat
+        bpl @r
+        inc rp_bank
+        bne @r
+        inc rp_bank+1
+@r:     rts
+cur_from_rp:
+        ldx #2
+@cp:    lda rp_flat,x
+        sta cur_flat,x
+        dex
+        bpl @cp
+        rts
+
+; ───────────────────────────────────────────────────────────
+; far_cur — FAR_CUR's body.  In: X = the pointer's base-page offset.
+; Flat space: bank and megabyte from rp_bank; CPU space: far_user.
+; Preserves A, Y, P.
+; ───────────────────────────────────────────────────────────
+.proc far_cur
+        bit rp_flat
+        bmi @flat
+        jmp far_user
+@flat:  php
+        pha
+        lda rp_bank
+        sta 2,x
+        lda rp_bank+1
+        sta 3,x
+        pla
+        plp
+        rts
+.endproc
+
+; dot_range — `;?range`: a write into the ROM banks (repl.md § Banks),
+; refused before any byte; the `.` re-entry's width request dropped.
+dot_range:
+        lda #0
+        sta asm_rel16
+        lda #<str_range
+        ldx #>str_range
+        jmp log_err
+
+; ───────────────────────────────────────────────────────────
+; put_bank — the flat prefix `H.` of an address, if it is flat.
+; In: X = SPC_CUR or SPC_RP.  Prints the bank word's digits (one to
+; three: the megabyte nibble when nonzero, then the bank — one digit
+; below $10) and the dot; nothing for a CPU address.
+; Clobbers: A, X, Y.
+; ───────────────────────────────────────────────────────────
+.proc put_bank
+        lda spc,x
+        bpl @r
+        lda spc+2,x
+        and #$0F
+        beq @no_mb
+        stx rp_tmp
+        jsr _hex_val_to_char
+        jsr io_putc
+        ldx rp_tmp
+        lda spc+1,x
+        jsr io_puthex2
+        jmp @dot
+@no_mb: lda spc+1,x
+        cmp #$10
+        bcc @one
+        jsr io_puthex2
+        jmp @dot
+@one:   jsr _hex_val_to_char
+        jsr io_putc
+@dot:   lda #'.'
+        jmp io_putc
+@r:     rts
+.endproc
+
+; ───────────────────────────────────────────────────────────
+; parse_flat_ptr1 — a flat literal at rp_ptr: one to four hex digits
+; (a value up to $FFF: the bank word), a dot, four hex digits.  Not
+; advanced.  Out: C=0, Y = its length, rp_addr = the offset, rp_bank =
+; the bank word; C=1: no flat literal there (rp_addr, rp_bank kept).
+; parse_flat_arg: the same where an argument begins — the literal's
+; first character must be a digit 0-9 (a dotted label stays a label).
+; Clobbers: A, X, Y, rp_tmp2.
+; ───────────────────────────────────────────────────────────
+parse_flat_arg:
+        ldy #0
+        FAR_LDA rp_ptr
+        cmp #'0'
+        jcc flat_no
+        cmp #'9' + 1
+        jcs flat_no
+parse_flat_ptr1:
+        ldy #0
+        sty fl_acc
+        sty fl_acc+1
+@dig:   jsr hex_val_at_ptr1     ; A = the nibble, $FF if none
+        cmp #$10
+        bcs @dot
+        ldx #4
+@sh:    asl fl_acc
+        rol fl_acc+1
+        dex
+        bne @sh
+        ora fl_acc
+        sta fl_acc
+        iny
+        cpy #5
+        bcc @dig
+        bcs flat_no             ; five digits
+@dot:   cpy #0
+        beq flat_no
+        lda fl_acc+1
+        cmp #$10
+        bcs flat_no             ; above $FFF
+        FAR_LDA rp_ptr
+        cmp #'.'
+        bne flat_no
+        iny
+        sty fl_y
+        ldx #4
+@h4:    jsr is_hex_at_ptr1
+        beq flat_no
+        iny
+        dex
+        bne @h4
+        jsr is_hex_at_ptr1      ; a fifth digit: not this shape
+        bne flat_no
+        lda rp_ptr              ; parse the offset where it begins
+        pha
+        lda rp_ptr+1
+        pha
+        lda fl_y
+        jsr adv_ptr1
+        jsr parse_hex4_ptr1     ; A = lo, X = hi
+        sta rp_addr
+        stx rp_addr+1
+        pla
+        sta rp_ptr+1
+        pla
+        sta rp_ptr
+        lda fl_acc
+        sta rp_bank
+        lda fl_acc+1
+        sta rp_bank+1
+        lda fl_y
+        clc
+        adc #4
+        tay                     ; C=0 from the add
+        rts
+flat_no:
+        sec
+        rts
+.endif
 
 ; ───────────────────────────────────────────────────────────
 ; confirm_yn — show cursor, wait for key, return Z=1 if 'y'
@@ -446,6 +672,14 @@ skip_peek_ptr1:
 ; load_curaddr — copy cur_addr to rp_addr
 ; ───────────────────────────────────────────────────────────
 load_curaddr:
+.ifdef PLATFORM_M65
+        lda cur_flat
+        sta rp_flat
+        lda cur_bank
+        sta rp_bank
+        lda cur_bank+1
+        sta rp_bank+1
+.endif
         lda cur_addr
         sta rp_addr
         lda cur_addr+1
@@ -956,6 +1190,7 @@ _syntax_err:
         sta cur_addr
         lda sym_val+1
         sta cur_addr+1
+        SPACE_CPU
 @r:     rts
 .endproc
 
@@ -1045,6 +1280,10 @@ _syntax_err:
 .proc show_prompt
         lda #0
         sta IO_CX
+.ifdef PLATFORM_M65
+        ldx #SPC_CUR
+        jsr put_bank
+.endif
         lda cur_addr
         ldx cur_addr+1
         jsr io_puthex4
@@ -1087,7 +1326,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         sta rp_ptr2                     ; fall through into the
         lda rp_addr+1                   ; main zp_stage_prep body.
         sta rp_ptr2+1
-        FAR_USER rp_ptr2                ; rp_addr is a user address
+        FAR_CUR rp_ptr2                 ; rp_addr: the command's space
         ; fall through
 .proc zp_stage_prep
 .ifdef INTROSPECT
@@ -1095,6 +1334,10 @@ zp_stage_prep_addr:                     ; convenience entry: load
         ; at the live address; downstream consumers read live ZP.
         rts
 .else                                   ; m65: the save range is the port
+.ifdef PLATFORM_M65
+        bit rp_flat                     ; a flat address: no user-ZP
+        bmi @done                       ;   view, the bytes themselves
+.endif
         ldx rp_ptr2+1                   ; only a page-$00 or page-$FF
         inx                             ; base can reach the save range
         cpx #2                          ; (a row's run from $FFF9+
@@ -1148,6 +1391,10 @@ zp_stage_prep_addr:                     ; convenience entry: load
         FAR_STA rp_ptr2
         rts
 .else                                   ; m65: the save range is the port
+.ifdef PLATFORM_M65
+        bit rp_flat                     ; a flat address: the byte itself
+        bmi @live
+.endif
         pha
         tya
         clc
@@ -1162,7 +1409,7 @@ zp_stage_prep_addr:                     ; convenience entry: load
         sta userland_zp_buf - ZP_SAVE_LO,x
         rts
 @pop:   pla
-        FAR_STA rp_ptr2
+@live:  FAR_STA rp_ptr2
         rts
 .endif
 .endproc
@@ -1298,6 +1545,15 @@ zp_stage_prep_addr:                     ; convenience entry: load
 .endif
         sta rp_save2
         jsr emit_hex_cols
+.ifdef PLATFORM_M65
+        bit rp_flat             ; a flat row in 40 columns: no ASCII
+        bpl :+                  ; column — the prefix took its room
+        lda scr_width           ; (repl.md § Banks)
+        cmp #80
+        bcs :+
+        jmp io_clear_eol
+:
+.endif
 
         ; Separator between hex bytes and ASCII column.  Use `;`
         ; so that re-executing the line (cursor-up + RETURN on a
@@ -1476,6 +1732,7 @@ mem_row:
         lda brk_pc+1
         sta cur_addr+1
         sta rp_addr+1
+        SPACE_CPU
         jsr emit_dot
         jmp nl_clear
 .endproc
@@ -1565,6 +1822,7 @@ mem_row:
         sta cur_addr
         lda brk_pc+1
         sta cur_addr+1
+        SPACE_CPU
 
         ; DBG_RTS: skip the lookahead disas — the program's done
         ; (clean exit via brk_stub).  Newline + clreol so show_prompt
@@ -1768,7 +2026,7 @@ mem_row:
         lda rp_addr+1
         sta asm_pc+1
         sta asm_out+1
-        FAR_USER asm_out        ; `.` writes straight into user memory
+        FAR_CUR asm_out         ; `.` writes straight into user memory
         lda #<dot_asm_buf
         ldx #>dot_asm_buf
         jmp asm_line            ; tail call
@@ -1847,7 +2105,14 @@ mem_row:
         sta rp_ptr2
         lda rp_addr+1
         sta rp_ptr2+1
-        FAR_USER rp_ptr2
+        FAR_CUR rp_ptr2
+.ifdef PLATFORM_M65
+        ldx #rp_ptr2            ; not into the ROM banks (repl.md § Banks)
+        jsr far_write_ok
+        bcc :+
+        jmp dot_range
+:
+.endif
         ldy #0
 @write: cpy rp_cnt
         bcs @show
@@ -1865,6 +2130,11 @@ mem_row:
         lda #0
         adc rp_addr+1
         sta cur_addr+1
+.ifdef PLATFORM_M65
+        bcc :+
+        RP_CARRY                ; a flat address carries into its bank
+:       CUR_FROM_RP
+.endif
         jsr newline
         lda rp_cnt
         jeq io_clear_eol        ; nbytes == 0 → clear; else skip
@@ -1895,6 +2165,18 @@ mem_row:
         bne :+
         lda #$80
         sta asm_rel16
+:
+.endif
+.ifdef PLATFORM_M65
+        lda rp_addr             ; not into the ROM banks (repl.md § Banks)
+        sta rp_ptr2
+        lda rp_addr+1
+        sta rp_ptr2+1
+        FAR_CUR rp_ptr2
+        ldx #rp_ptr2
+        jsr far_write_ok
+        bcc :+
+        jmp dot_range
 :
 .endif
         jsr dot_assemble
@@ -1985,7 +2267,15 @@ mem_row:
         ora rp_addr+1
         bne @loop
 
-@done:  lda rp_addr
+@done:
+.ifdef PLATFORM_M65
+        lda rp_addr             ; ended by the wrap to 0: a flat address
+        ora rp_addr+1           ; carries into its bank
+        bne :+
+        RP_CARRY
+:       CUR_FROM_RP
+.endif
+        lda rp_addr
         sta cur_addr
         lda rp_addr+1
         sta cur_addr+1
@@ -2001,6 +2291,20 @@ mem_row:
 
         jsr skip_sp_ptr1
 
+.ifdef PLATFORM_M65
+        ; A flat address argument (`m 4.2000`)
+        jsr parse_flat_arg
+        bcs @cpu_addr
+        jsr is_eow_at_ptr1_y
+        bne @cpu_addr
+        tya
+        jsr adv_ptr1
+        lda #SPC_FLAT
+        sta rp_flat
+        jsr skip_sp_ptr1
+        jmp @no_addr
+@cpu_addr:
+.endif
         ; Check for 4-digit hex address override
         jsr is_hex4_at_ptr1
         beq @no_addr
@@ -2012,6 +2316,10 @@ mem_row:
         jsr parse_hex4_ptr1
         sta rp_addr
         stx rp_addr+1
+.ifdef PLATFORM_M65
+        lda #0
+        sta rp_flat             ; a CPU address
+.endif
         jsr skip_sp_ptr1
 
 @no_addr:
@@ -2021,7 +2329,11 @@ mem_row:
         jeq @dump
         ldy #1
         jsr is_hex_at_ptr1
+.ifdef PLATFORM_M65
+        jeq @dump
+.else
         beq @dump
+.endif
         ldy #2
         jsr is_eow_at_ptr1_y
         jne @dump
@@ -2033,7 +2345,14 @@ mem_row:
         sta rp_ptr2
         lda rp_addr+1
         sta rp_ptr2+1
-        FAR_USER rp_ptr2
+        FAR_CUR rp_ptr2
+.ifdef PLATFORM_M65
+        ldx #rp_ptr2            ; not into the ROM banks (repl.md § Banks)
+        jsr far_write_ok
+        bcc :+
+        jmp dot_range
+:
+.endif
         lda #0
         sta rp_cnt              ; nbytes
 @ed_lp: lda rp_cnt
@@ -2074,7 +2393,10 @@ mem_row:
         lda #0
         sta cur_addr
         sta cur_addr+1
-@ed_nl: jmp newline
+        RP_CARRY                ; a flat address carries into its bank
+@ed_nl:
+        CUR_FROM_RP
+        jmp newline
 
 @dump:  ; Reject trailing garbage after the optional ADDR (pop-trick).
         ; rp_ptr is already skipped past whitespace and past any hex4
@@ -2133,12 +2455,14 @@ mem_row:
         lda rp_addr+1
         sbc #0
         bcs @d_lp
+        RP_CARRY                ; wrapped: a flat address carries
 
 @d_done:
         lda rp_addr
         sta cur_addr
         lda rp_addr+1
         sta cur_addr+1
+        CUR_FROM_RP
         jmp io_clear_eol
 .endproc
 
@@ -2339,6 +2663,12 @@ pre_userland_run:
         cmp #DBG_RTS
         beq @no_ctx
         ; DBG_NONE — cold preview path
+.ifdef PLATFORM_M65
+        bit cur_flat            ; a flat address: far starts are slice 3's
+        bpl :+                  ; F3 (repl.md § Far starts)
+        jmp dot_range
+:
+.endif
         lda cur_addr
         sta brk_pc
         lda cur_addr+1
@@ -3847,6 +4177,32 @@ prg_ok_done:
 
         jsr skip_sp_ptr1
 
+.ifdef PLATFORM_M65
+        ; A command's address is a CPU one unless load_curaddr or an
+        ; argument makes it flat (repl.md § Banks).
+        lda #0
+        sta rp_flat
+        ; ── An H.AAAA: prefix → a flat current address ──
+        jsr parse_flat_ptr1
+        bcs @cpu_prefix
+        FAR_LDA rp_ptr          ; Y = the literal's length
+        cmp #':'
+        bne @cpu_prefix
+        iny
+        tya
+        jsr adv_ptr1            ; past the prefix and its ':'
+        lda rp_addr
+        sta cur_addr
+        lda rp_addr+1
+        sta cur_addr+1
+        lda #SPC_FLAT
+        sta rp_flat
+        CUR_FROM_RP
+        lda #0
+        sta rp_flat             ; load_curaddr sets it again
+        jmp @no_prefix
+@cpu_prefix:
+.endif
         ; ── Parse optional AAAA: prefix → sets cur_addr ──
         jsr is_hex4_at_ptr1
         beq @no_prefix
@@ -3858,6 +4214,10 @@ prg_ok_done:
         jsr parse_hex4_ptr1
         sta cur_addr
         stx cur_addr+1
+.ifdef PLATFORM_M65
+        lda #0
+        sta cur_flat            ; a CPU address
+.endif
         ; skip ':'
         inc rp_ptr
         bne :+
@@ -3957,12 +4317,31 @@ prg_ok_done:
 @h_at:  ; @ — set address.  Parse+EOI-check → apply.
         ; Apply only after the EOI check so garbage input leaves
         ; cur_addr untouched.
+.ifdef PLATFORM_M65
+        jsr skip_sp_ptr1
+        jsr parse_flat_arg      ; `@ 4.2000`: a flat current address
+        bcs @at_expr
+        tya
+        jsr adv_ptr1
+        ldy #0
+        jsr _require_eoi_or_err ; reject trailing garbage (pop-trick)
+        lda rp_addr
+        sta cur_addr
+        lda rp_addr+1
+        sta cur_addr+1
+        lda #SPC_FLAT
+        sta rp_flat
+        CUR_FROM_RP
+        jmp @at_done
+@at_expr:
+.endif
         jsr try_expr_or_err     ; parse + reject garbage (pop-trick)
         bcc @at_done            ; empty/error → skip apply
         lda expr_val
         sta cur_addr
         lda expr_val+1
         sta cur_addr+1
+        SPACE_CPU
 @at_done:
         jmp nl_clear
 
@@ -3977,6 +4356,15 @@ prg_ok_done:
         lda cur_addr+1
         adc expr_val+1
         sta cur_addr+1
+.ifdef PLATFORM_M65
+        bcc @plus_done          ; a flat address carries into its bank
+        bit cur_flat
+        bpl @plus_done
+        inc cur_bank
+        bne @plus_done
+        inc cur_bank+1
+@plus_done:
+.endif
         jmp nl_clear
 
 @h_minus:
@@ -3991,6 +4379,16 @@ prg_ok_done:
         lda cur_addr+1
         sbc expr_val+1
         sta cur_addr+1
+.ifdef PLATFORM_M65
+        bcs @minus_done         ; a flat address borrows from its bank
+        bit cur_flat
+        bpl @minus_done
+        lda cur_bank
+        bne :+
+        dec cur_bank+1
+:       dec cur_bank
+@minus_done:
+.endif
         jmp nl_clear
 
 @h_j:   ; j — jump/execute
@@ -4003,11 +4401,22 @@ prg_ok_done:
         sta cur_addr
         lda expr_val+1
         sta cur_addr+1
+        SPACE_CPU
 @j_run:
         jmp cmd_jmp
 @j_none:
+.ifdef PLATFORM_M65
+        bne @j_err              ; error → no run
+        bit cur_flat            ; a flat address: far starts are slice 3's
+        bpl @j_run              ; F3 (repl.md § Far starts)
+        lda #<str_range
+        ldx #>str_range
+        jmp log_err
+@j_err: rts
+.else
         beq @j_run              ; empty → jump with current cur_addr
         rts                     ; error → no run
+.endif
 
 @h_g:   ; g — go (sym_lookup "main")
         lda #<str_main

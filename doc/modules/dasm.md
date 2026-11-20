@@ -40,6 +40,11 @@ with the instruction bytes and `_dasm_ptr` with their real address
 view, whose bytes are not at the address shown.  It
 is a label inside `dasm_insn`, so the decoder's layout is unchanged.
 
+**m65:** the REPL's flat `d` and `.` use the
+same entry: they stage the bytes from the flat address and hand
+`_dasm_ptr` its low word, so a branch target lists in the low word
+([repl.md § Banks](repl.md#banks-m65)).  dasm.s does not change.
+
 `dasm_insn` owns its own KERNAL banking: it banks out at entry,
 calls the inner `dasm_decode` (which reads the generated tables
 under KERNAL), and banks back in at every exit.  Callers —
