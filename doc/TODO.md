@@ -14,6 +14,12 @@ walk and release pre-flight are under § M65.
 
 The queue, in order.
 
+- [ ] **M65 slice 3 — banks.**  Flat addresses, the program's map,
+  far starts and 32-bit values: the plan, its rulings and the
+  milestones F0–F5 are under
+  [§ M65 › Slice 3 — banks](#slice-3--banks).  The central documents
+  carry the delta; F0 (the base page) starts it.
+
 - [ ] **README theme gallery: equal tiles.**  The eighteen screenshots
   (`img/theme-*.png`) are all 384 × 272, yet the gallery table in the
   root README.md (§ Themes) renders them at different sizes: each
@@ -193,6 +199,217 @@ R7's slice 1 (the CPU layer) and slice 2 (the platform layer) are done
 for the first release; their plans, rulings and milestone records are
 under [§ Records](#records).
 
+### Slice 3 — banks
+
+**Flat addresses, the program's map, far starts and 32-bit values on
+m65.**  Branch `m65`.  **Status (2026-11-20):** the plan and the
+central documents' delta are written (this section;
+[userland_contract.md § 3 On m65](userland_contract.md#on-m65) and
+§ 5.6, [platform_layer.md § Far memory](platform_layer.md#far-memory),
+[repl.md § Banks](modules/repl.md#banks-m65),
+[zp.md § The m65 base page](modules/zp.md#the-m65-base-page),
+[glossary.md](glossary.md)); no milestone has started.  Every passage
+written ahead of the code begins **Delta (slice 3, F<n>)**; a
+milestone's Step 5 removes its markers.
+
+**Why.**  The m65 REPL reaches bank 0 only, and only through the
+standard user map: an address is a 16-bit address translated by a
+fixed four-row table (`far_user`).  A program that maps
+`$2000–$BFFF` elsewhere — which the userland contract allows — is
+shown the wrong bytes, and banks 1, 4 and 5, which the contract hands
+to the user, cannot be inspected, assembled to, or run.
+
+**How this plan is read** — as slice 2's: each milestone is a Step-1
+doc delta (the documents written to their desired state, and what
+they will state); the analysis, its approval, the TDD plan and the
+code follow from the delta.  The central documents carry their delta
+already; the module documents named under a milestone are written at
+that milestone's Step 1.  The user manual (the root README.md)
+follows at each milestone's Step 5, not before: it describes what a
+release does.
+
+#### Rulings (operator, 2026-11-20)
+
+- **D-F-1** A new address and prompt format `B.AAAA`, extendable to
+  more digits before the dot, for hex-based absolute pointers.
+- **D-F-2** The monitor respects the program's `MAP`: its memory
+  access goes through the same lens as the CPU's in userland.
+- **D-F-3** There is a memory access that deliberately goes around
+  `MAP`.
+- **D-F-4** `MAP` is part of the register dump.
+- **D-F-5** The execution commands support far addresses: code
+  assembled to bank 4 runs from the REPL without the user setting
+  `MAP` by hand.
+- **D-F-6** The 32-bit work on the expression evaluator comes last
+  (postponed as far as the rest allows).
+- **D-F-7** No new byte accessors for now: bytes 2 and 3 of a value
+  are `<(x>>16)` and `>(x>>16)`.
+- **D-F-8** `.dd` is the directive for 32-bit words.
+- **D-F-9** CSE's base page is cleaned up: the project name out of
+  it, the C64's holes closed, on m65 only.
+
+#### Proposed, for the Step-2 analysis to confirm
+
+The operator saw these in the design discussion and built on them
+without ruling on each:
+
+- **P-F-1 The dot is the space.**  `AAAA` (no dot) is a *CPU
+  address*, read through the program's bank state; `H.AAAA` (a dot)
+  is a *flat address*, around `MAP`.  No mode command and no hidden
+  mode: the prompt shows the space, and every output row carries its
+  own form and re-executes in it.  D-F-1, D-F-2 and D-F-3 in one rule.
+- **P-F-2 A flat address given to an execution command means "start
+  it as `JSRFAR` would"** (D-F-5): `$2000–$7FFF` mapped to the bank,
+  the KERNAL at `$E000`, the KERNAL's map record written, PC the low
+  word.  The window is `X.2000–X.7FFF` of banks 1, 4 and 5; bank 0
+  starts as today; anything else is a range error.
+- **P-F-3 `r` shows `ml:XXXX mh:XXXX`** (MAPLO, MAPHI); a new `M`
+  command prints the map as a table and holds the megabyte selectors
+  and `$D030`.
+- **P-F-4 Breakpoints are stored flat**, so an unpatch finds its
+  byte after the program remapped.
+- **P-F-5 A write into banks 2–3 is refused** (CSE makes them
+  writable; they hold the KERNAL and CSE).  Against it: on the C64 a
+  poke into CSE's runtime is the user's own business
+  ([§ Records](#records), the 2026-04-28 note on the emit gate); the
+  analysis weighs the two.
+- **P-F-6 A label's value is flat** (bank and offset); a 16-bit
+  operand takes its low word when the value is at most `$FFFF` or
+  lies in the bank being assembled, and is an error otherwise.
+- **P-F-7 A flat literal in an argument begins with a digit 0–9**
+  (`0ffd.3000`), which keeps it apart from a dotted label (`a.beef`);
+  the prefix at a line's start needs no such rule.
+
+#### Open points for the analysis
+
+- **O-F-1** 40 columns: a flat `m` row with 8 bytes and the ASCII
+  column is 41 columns, a `d` row with more than one digit before the
+  dot up to 43.  Candidates: flat `m` rows without the ASCII column
+  in 40 columns; `d` rows clipped at the edge.
+- **O-F-2** Whether `cur_project_name`'s BSS home is repl.s's or a
+  lower module's (the editor and asm_src read it; the layer DAG
+  decides).
+- **O-F-3** Multiply and divide in 32 bits: software, or the
+  MEGA65's hardware math registers — which M65Emu does not model and
+  which need a book citation and a recording first.
+- **O-F-4** The symbol table's 512 more bytes: out of the name heap
+  (`3.A700–3.AFFF`, 2304 B today) or out of the KDATA / BSS area.
+- **O-F-5** How a breakpoint lists: flat always, or in the 16-bit
+  form while it lies in bank 0.
+
+#### Machine facts and their sources
+
+Per [platform_layer.md § Platform references](platform_layer.md#platform-references):
+each fact this slice rests on, with its book page or recording.
+
+| Fact | Source |
+|---|---|
+| `MAP`'s operands, the 8 K blocks, one offset per 32 K half, the megabyte selectors | book 14-21 to 14-23, 14-40/41; M65Emu's `M65Memory`, held to `m65_mem.json` |
+| What an unmapped block shows (`$D030`'s ROM bits, the CPU port, I/O at `$D000`) | `m65_mem.json`'s banking states; mem.md states the table from it at F2's Step 1 |
+| Reading `MAP`: `hyppo_get_mapping` | book 14-41; platform_layer.md § Constants (recorded) |
+| `JSRFAR`'s window `X.2000–X.7FFF` and its inputs | book I-31 |
+| `JSRFAR`'s map for bank 4 (`00 E4 00 83`), written into the map record for the call | recorded: `test_m65_map_record.py`, both ROMs |
+| The same for banks 1 and 5 (X = `$E0` with the bank in its low nibble) | **to record** in F3 (the same test, per bank) — an inference until then |
+| The KERNAL's map record `0.011C–011F` and who reads it | platform_layer.md § User transitions (recorded) |
+| The Q instructions (`ADCQ`, `SBCQ`, `ANDQ`, `ORQ`, `EORQ`, `ASLQ`, `LSRQ`, `LDQ`, `STQ`) | `m65_cpu.json` |
+| Banks 2–3 are writable while CSE runs | platform_layer.md § Constants, *Hypervisor services* |
+
+#### Milestones
+
+Each is one CDD cycle: delta, analysis, TDD plan — each approved —
+then tests first, the code, the differential doc update, the commit.
+
+- [ ] **F0 — the base page cleaned up** (D-F-9).  Delta:
+  [zp.md § The m65 base page](modules/zp.md#the-m65-base-page)
+  (written), [platform_layer.md § Base page](platform_layer.md#base-page);
+  at Step 1 the module documents that name a moved cell.  On m65
+  zp.s's layout is its own: no holes, `cur_project_name` (17 bytes) in
+  BSS, and non-pointer scratch out of the page only where a later
+  milestone needs the room.  Done when the m65 base page has at least
+  20 free bytes below the stub, the C64 layout and PRGs are unchanged,
+  and every m65 suite passes.  Tests first: the free-byte count from
+  the m65 map file (`test_platform_audit.py`), the base-page check
+  there kept.
+- [ ] **F1 — flat addresses in the REPL** (D-F-1, D-F-3; P-F-1,
+  P-F-5, P-F-7).  Delta: [repl.md § Banks](modules/repl.md#banks-m65)
+  (written), [userland_contract.md § 3 On m65](userland_contract.md#on-m65)
+  *Addresses* (written), [glossary.md](glossary.md) (written); at
+  Step 1 repl.md's interface, memory and row-format sections,
+  asm_line.md (`.` at a flat prompt), dasm.md (`d` in flat space).
+  The current address becomes a far pointer with its space; the
+  prompt and the prefix take both forms; `@`, `m`, `.` and `d` work
+  in flat space; a flat literal is recognised by its shape, before
+  and without the expression evaluator.  The CPU space still uses
+  the fixed table.  Tests first (`test_m65_repl.py`, then Tier X):
+  the two prompt forms and their re-execution; `@ 4.2000`; `m` dump
+  and edit in banks 1 and 4; `.` at a flat prompt (the bytes land
+  flat, a branch is computed in the low word); `d` rows; the carry
+  from `4.FFFF` to `5.0000`; the write refusal; a dotted form on the
+  C64 is `;?syntax`.
+- [ ] **F2 — the program's map** (D-F-2, D-F-4; P-F-3).  Delta:
+  [platform_layer.md § Far memory](platform_layer.md#far-memory)
+  (written); at Step 1 mem.md (`far_user` through the bank state, the
+  table of what an unmapped block shows), repl.md (`r`, `M`, the row
+  walks), debugger.md (the break panel), testing.md (the oracle).
+  `FAR_USER` resolves through the captured bank state and is renewed
+  at every 8 K block edge; `r` shows and sets `ml` / `mh`; `M` prints
+  the map.  Tests first: `far_user` against `M65Memory` over every
+  block of every banking state in `m65_mem.json` (unit); `m` and `d`
+  rows across block edges; a program that maps bank 4 into
+  `$2000–$7FFF` and breaks — `m 2000` shows bank 4; `r ml:` edits;
+  `M`'s rows; Tier X: the same session against xmega65's CPU view
+  (`read_cpu`).
+- [ ] **F3 — far starts** (D-F-5; P-F-2).  Delta:
+  [userland_contract.md § 3 On m65](userland_contract.md#on-m65) *A
+  run starts* and § 5.6 (written); at Step 1 debugger.md
+  (`seed_bank_state`, `return_to_userland`), repl.md (`j`, `g`, `t`,
+  `o`), asm_src.md and assembler_syntax.md (`.org H.AAAA`: the bank
+  the bytes go to, labels still 16-bit until F5; `g` runs `main` in
+  the bank it was assembled to).  Tests first: the Tier X map-record
+  test extended to banks 1 and 5 (the fact F3 rests on); a program
+  assembled at `4.2000` that calls `BSOUT`, opens and closes a file
+  and returns — started by `j 4.2000`, by `t` from a flat prompt, by
+  `g`; the map and the map record at its first instruction; the range
+  errors (outside the window, banks 2–3, a megabyte); a break inside
+  it shows the CPU view of bank 4.
+- [ ] **F4 — flat breakpoints and steps** (P-F-4).  Delta at Step 1:
+  breakpoints.md (the slot holds a flat address: 6 bytes a slot on
+  m65, 4 on c64), debugger.md (the step BRK armed at the next PC's
+  flat address; the hit test), memory_design.md (the breakpoint
+  invariant), userland_contract.md (breakpoints and step targets in
+  any user memory, replacing "the program region").  Tests first: a
+  breakpoint in bank 4 hit after a far start; a program that remaps
+  after the patch — the unpatch restores the right byte; `b` given
+  either form; a step over an instruction that changes the map; the
+  C64 breakpoint suites unchanged.
+- [ ] **F5 — 32-bit values** (D-F-6, D-F-7, D-F-8; P-F-6).  Delta at
+  Step 1: expr.md (a 4-byte value on m65; the third width class,
+  *far*; literals up to 8 hex digits; the flat literal as a factor;
+  the operator stack's 5 bytes a level), symtab.md (8-byte entries,
+  the table 2048 bytes), memory_design.md (the data window re-cut),
+  asm_src.md and assembler_syntax.md (`.dd`; labels flat; the
+  same-bank rule; `.org` with an expression), asm_line.md and
+  addr_mode.md (one range check for every 16-bit consumer), repl.md
+  (`?` in 32 bits; `m EXPR`, which closes the Planned item), the
+  README.  Tests first: the m65 `asm_core` bundle's expression
+  vectors in 32 bits; every consumer's range error; `.dd`; the
+  same-bank rule; 256 symbols of 8 bytes; the C64 bundles unchanged.
+  The m65 speed gate (`asm_dasm_45gs02.json`) is re-recorded by the
+  commit that widens the evaluator, with the measured change stated
+  ([build_system.md § Golden files](build_system.md#golden-files)).
+
+#### Gates
+
+- The C64 release PRGs stay byte-identical at every commit
+  (`c64_prg_sha256.json`): every change is under `.ifdef` or in a
+  width constant that is 2 on c64.
+- The m65 budget moves by the ratchet
+  ([build_system.md § Size gate](build_system.md#size-gate)): growth
+  in a commit of its own, stating the feature and the bytes.
+- Every milestone closes with the full suite, Tier X on both ROMs
+  and the gating audits green; a new machine fact is recorded before
+  the code relies on it.
+
 ### The first release
 
 - [ ] **Walk the m65 build on a real MEGA65.**  The open questions O1
@@ -322,6 +539,7 @@ Defined scope, needs work.
   character interpretation alongside the hex/decimal/binary output.
 
 - [ ] `m` address argument: accept an expression (`m screen+40`).
+  On m65 part of slice 3's F5.
   Today `m [HHHH]` takes four bare hex digits only (`m $2000` is
   `;?syntax`), and `d` takes no address at all.  (Closed by mistake
   2026-11-20 and reopened the same day: the `try_expr_or_err` call

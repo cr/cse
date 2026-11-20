@@ -133,6 +133,40 @@ linker bounds it).  The KERNAL needs nothing of CSE's base page
 ([platform_layer.md § Interrupt frame](../platform_layer.md#interrupt-frame),
 § KERNAL calls).
 
+### The m65 base page
+
+**Delta (slice 3, F0):** stated ahead of the code —
+[TODO § Slice 3 — banks](../TODO.md#slice-3--banks).
+
+The m65 base page is CSE's own (`0.1F00–0.1FAF`, the resident stub
+above it): it is shared with no one, so its layout need not be the
+C64's.  It is full today (174 of 176 bytes) because zp.s carries the
+C64 layout into it unchanged — the five held holes, the 17-byte
+project name — beside what m65 adds: 16 far pointers of 4 bytes (32
+more than on c64) and 22 bytes of its own (the bank state, the stub's
+targets, the terminal cells, the disk filename pointer).
+
+On m65:
+
+- **No holes.**  The cells the C64 holds unallocated (`$0F`, `$13`,
+  `$2C`, `$36`, `$43` there) do not exist; every later cell follows
+  the one before it.
+- **`cur_project_name` is not in the base page.**  It is a string,
+  not a pointer: 17 bytes of BSS (its home: TODO, O-F-2), reached by
+  absolute addressing.
+- **Pointers first.**  What stays is what needs the page: the far
+  pointers and the cells used with base-page addressing modes.
+  Plain scratch and flags leave it only when a later milestone needs
+  their room (F5 needs about 6 bytes for the 4-byte `expr_val` and
+  `sym_val`).
+- **At least 20 bytes are free** below the stub after F0, and the
+  segment still ends below `$B0` (the linker bounds it).
+
+The C64 layout (the table above) does not change, and the C64 PRGs
+stay byte-identical: the differences are under `.ifdef PLATFORM_M65`
+in zp.s.  The m65 addresses are the map file's
+(`build/<profile>/m65/cse.map`), as before.
+
 ### Cross-module flags
 
 Seven 1-byte state values live here because they are read across

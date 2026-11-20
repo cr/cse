@@ -960,6 +960,111 @@ page `$00–$09` and `$90–$FA`, `0.0200–0.15FF`) and the KERNAL's and
 the ROM's banks are not listed; the `zp` rows are the program's part
 of base page 0 ([userland_contract.md § 3 On m65](../userland_contract.md#on-m65)).  Tests: `tests/integration/test_m65_repl.py`.
 
+### Banks (m65)
+
+**Delta (slice 3, F1–F3):** stated ahead of the code —
+[TODO § Slice 3 — banks](../TODO.md#slice-3--banks).  Until a
+milestone lands, the sections above describe what the build does.
+
+On m65 an address is in one of two spaces, told apart by a dot
+([glossary.md](../glossary.md), *CPU address*, *flat address*):
+
+| Form | Space | What it reaches |
+|---|---|---|
+| `AAAA` | **CPU address** | what the program's CPU sees at that 16-bit address: read through the program's bank state — its `MAP`, CPU port and `$D030` ([platform_layer.md § Far memory](../platform_layer.md#far-memory)) |
+| `H.AAAA` | **flat address** | physical memory, around `MAP`: one to four hex digits (bits 16–27 of the 28-bit address, megabyte and bank; a fourth digit can only be 0), a dot, four hex digits — `4.2000`, `1.f6ff`, `800.0000`, `ffd.3000` |
+
+There is no mode command.  The current address carries its space;
+the prompt shows it (`2000:` or `4.2000:`), and every row a command
+prints carries the same form and re-executes in it.
+
+**Entering a space.**  `@ 4.2000` makes the current address flat;
+`@ $2000`, `@ label` or a break (the panel sets the current address
+to the PC, a CPU address) make it a CPU address.  A row's prefix sets
+the space with the address: `4.2000:m` and `2000:m` are different
+commands.
+
+**Writing a flat address.**  At a line's start the prefix is
+recognised by its shape — hex digits, a dot, four hex digits, a
+colon.  In an argument a flat literal begins with a digit `0`–`9`
+(`0ffd.3000`), so that a dotted label (`a.beef`) stays a label; it is
+a literal, not an expression, until the evaluator knows 32 bits (F5),
+and it is read before the evaluator sees the argument.  CSE prints a
+flat address in lower case with the fewest digits before the dot.
+
+**The commands:**
+
+| Command | CPU space | Flat space |
+|---|---|---|
+| `m` (dump, edit), `.` (poke) | the bytes the program would read and write there; at `$00` / `$01` the program's port ([§ User-ZP view](#user-zp-view)) | the physical bytes; `0.0000` / `0.0001` are the RAM beneath the port |
+| `.` (assemble) | at the address, as today | the bytes go to the flat address; the instruction's own address — a branch's base, `*` — is the low word, the address the code has when its bank is started ([§ Far starts](#far-starts)) |
+| `d` | through the bank state | the physical bytes; a branch target is shown in the low word |
+| `+`, `-`, and a row's advance | wraps from `$FFFF` to `$0000`; the translation is made again at every 8 K block edge | carries into the next bank (`4.ffff` → `5.0000`) |
+| `j`, `g`, `t`, `o` | start or continue the program at the address, in its map | a far start ([§ Far starts](#far-starts)) |
+| `b` | a breakpoint at the byte the address resolves to now | a breakpoint at that byte (F4: [breakpoints.md](breakpoints.md)) |
+
+**A write into CSE's or the KERNAL's banks is refused.**  `m`, `.`
+and the assembler do not write a byte whose flat address is in
+`2.0000–3.FFFF` — in either space (`$E000` in the standard map is
+`3.E000`): CSE keeps those banks writable, and they hold the KERNAL,
+CSE and the source text.  The row answers `;?range`.
+
+#### Far starts
+
+A flat address given to `j` (or the current flat address for a bare
+`j`, a cold `t` / `o`, and `g` after an assembly to a bank) starts the
+program **as `JSRFAR` would start it**
+([userland_contract.md § 5.6](../userland_contract.md#56-on-m65-memory-maps-and-kernal-calls)):
+a fresh start with `$2000–$7FFF` mapped to the bank (`MAP` X = `$E0`
+with the bank in its low nibble, A = 0, Y = 0, Z = `$83`), the same
+four bytes in the KERNAL's map record, and PC the address's low word.
+The program may use the whole KERNAL API from its first instruction;
+its `RTS` returns to CSE as any run's does.
+
+| Flat address | `j` |
+|---|---|
+| `1.2000–1.7FFF`, `4.2000–4.7FFF`, `5.2000–5.7FFF` | a far start |
+| `0.AAAA` | the plain start at `$AAAA` (`j $AAAA`) |
+| anything else — outside `$2000–$7FFF`, banks 2–3, a megabyte | `;?range` |
+
+The window is `JSRFAR`'s (book I-31), and not CSE's choice: code runs
+at the 16-bit address it was assembled for, block 0 stays bank 0 for
+the KERNAL and CSE's page, and the upper half's one offset is the
+KERNAL's.  After a far start the program's map *is* the far map, so
+a break shows a CPU address (`2010:`) and `m`, `d` and the steps see
+the bank through it.
+
+#### The map in `r` and `M`
+
+`r` shows the two halves of the program's `MAP` after the flags, as
+the Matrix Mode monitor names them — `ml:XXXX` (MAPLO: X in the high
+byte, A in the low) and `mh:XXXX` (MAPHI: Z, Y):
+
+    r pc:2010 a:00 x:00 y:00 z:00 b:00 s:ed nv-Bdizc ml:e400 mh:8300
+
+In 40 columns they are on the second row, `r z:XX b:XX ml:XXXX
+mh:XXXX`.  Both are fields like the others: an edit changes the
+program's bank state — what the next resume installs, and what the
+CPU space shows from then on.
+
+`M` (upper case) prints the program's map, one row for every run of
+8 K blocks with the same translation, and a last row with the
+megabyte selectors and `$D030` that re-executes as an edit:
+
+    2010:M
+    ; map  0000-1fff 0.0000
+    ; map  2000-7fff 4.2000 mapped
+    ; map  8000-bfff 0.8000
+    ; map  c000-cfff 2.c000 rom
+    ; map  d000-dfff ffd.3000 io
+    ; map  e000-ffff 3.e000 mapped
+    M mb:0000 d030:64
+
+**Rows in 40 columns.**  A flat prefix is two to five columns wider
+than `AAAA:`; which columns a flat `m` or `d` row gives up in 40
+columns is open (TODO, O-F-1).  In 80 columns every row fits: the
+widest, an `m` row with a four-digit prefix, is 76 columns.
+
 ### `C` — Color (uppercase)
 
 Takes 1, 2 or 3 adjacent hex digits and applies them at once

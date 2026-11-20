@@ -259,6 +259,13 @@ page, `0.1F00–0.1FFF`: CSE's page.
 | Banks 4, 5 | `4.0000–5.FFFF` | Yes — BASIC 65's bitmap graphics when BASIC runs; CSE never touches them (bitmaps, double buffering); in 80 × 50 the KERNAL's screen is at `4.0800–4.179F` |
 | Attic RAM | `800.0000`+ | Yes — CSE never touches it |
 
+**Delta (slice 3, F3):** a run started at a flat address
+(`j 4.2000`) **starts as `JSRFAR` starts a subroutine**: the same
+fresh registers, with `$2000–$7FFF` mapped to the address's bank and
+that map in the KERNAL's map record (§ 5.6), PC the address's low
+word — in `X.2000–X.7FFF` of banks 1, 4 and 5
+([repl.md § Far starts](modules/repl.md#far-starts)).
+
 **A run starts as `RUN` starts a program:** in the `SYS` map, with
 the registers `r` shows (initially `A X Y Z B` = 0 and P = `$20`: the
 8-bit stack, interrupts on), and a return address on the stack that
@@ -296,6 +303,28 @@ Breakpoints and step targets must lie in the program region,
 `$2000–$BFFF` ([debugger.md § Caveats](modules/debugger.md#caveats)).
 The other banks are reached by the program itself, not by these
 commands.
+
+**Delta (slice 3, F1–F4)** — stated ahead of the code
+([TODO § Slice 3 — banks](TODO.md#slice-3--banks)); it replaces the
+paragraph above as the milestones land.  An address is a **CPU
+address** (`AAAA`) or a **flat address** (`H.AAAA`, with a dot):
+
+- A CPU address is the 16-bit address the program sees *under its
+  own bank state* — the `MAP`, CPU port and `$D030` a resume would
+  install (the user map at a fresh start, whatever the program set
+  since).  `m`, `.`, `d`, breakpoints and the steps reach the byte
+  the program's CPU would reach there: a program that maps
+  `$2000–$BFFF` elsewhere is shown what it sees
+  ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
+- A flat address names physical memory, around `MAP`: every bank the
+  table above gives the program — bank 1, banks 4 and 5, the RAM
+  behind the ROMs, the Attic RAM — can be shown, edited, assembled to
+  and disassembled ([repl.md § Banks](modules/repl.md#banks-m65)).
+- CSE does not write a byte in `2.0000–3.FFFF` on the user's behalf,
+  in either space (`;?range`).
+- Breakpoints and step targets may lie in any memory the table gives
+  the program, in any bank; a breakpoint belongs to its physical
+  byte, whatever the map when it is hit (F4).
 
 **Stack.**  Shared as on c64 (§ 4), with its top at `$01F1`
 (`STACK_TOP`, [platform_layer.md § Stack](platform_layer.md#stack)):
@@ -504,6 +533,10 @@ A program that changes the map and calls the KERNAL **must**:
 5. **Return with `RTS` in the map it was started in**, `B` = 0, and
    not rely on KERNAL calls after `JMPFAR`, whose use of the record is
    not established.
+
+**Delta (slice 3, F3):** a program started at a flat address is in
+rule 2's position from its first instruction: CSE has done what
+`JSRFAR` does, the record holds its map, and it may call the KERNAL.
 
 Data in other banks needs no remapping at all: `[zp],z` (32-bit
 base-page pointers), DMA, or the KERNAL's `LDA_FAR` / `STA_FAR` /

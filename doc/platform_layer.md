@@ -190,6 +190,10 @@ Where CSE's zero page is, and what a transition does with the user's.
 | c64 | base page 0, `$02–$79` ([zp.md](modules/zp.md)) | `$00–$7F`, swapped at every kernel ↔ user transition by mem.s's four primitives |
 | m65 | its own base page: `B = CSE_BP` (`$1F`, the page `0.1F00`) whenever kernel code runs | base page 0, never touched by CSE: the transitions switch `B`, not bytes |
 
+**Delta (slice 3, F0):** on m65 the page's layout is its own
+([zp.md § The m65 base page](modules/zp.md#the-m65-base-page)): it
+does not carry the C64's holes or the project name.
+
 `B` names a page of the CPU's 16-bit address space, and `MAP`
 translates a base-page access like any other.  `CSE_BP` reaches bank
 0 because both maps leave `$0000–$1FFF` unmapped
@@ -349,6 +353,30 @@ data.  Which pointers are far is [zp.md](modules/zp.md)'s list.
   | `$C000–$CFFF` | `2.C000–2.CFFF`: the interface ROM |
   | `$D000–$DFFF` | `FFD.3000–FFD.3FFF`: the I/O registers of the MEGA65 personality (offset `$3000–$3FFF`, bank `$FD`, megabyte `$0F`) — the one row that rewrites the offset's high byte.  Recorded: a register reads and writes the same through every window `FFD.0000–FFD.3FFF` and the CPU view, under every `$D02F` key (`m65_mem.json` `flat_io`) |
   | `$E000–$FFFF` | `3.E000–3.FFFF`: the KERNAL |
+
+  **Delta (slice 3, F2)** — stated ahead of the code
+  ([TODO § Slice 3 — banks](TODO.md#slice-3--banks)); it replaces the
+  table above and the paragraph below.  `FAR_USER` translates a *CPU
+  address* through the **program's bank state** — the block
+  `save_userland_state` captures and a resume installs: `MAP`'s four
+  operands and the two megabyte selectors, the CPU port, `$D030` —
+  as the CPU would after the resume:
+
+  - a block `MAP` maps → the half's offset (and megabyte selector)
+    added to the address;
+  - an unmapped block → bank 0, or what `$D030`'s ROM bits, the CPU
+    port and the I/O personality lay over it (the interface ROM at
+    `$C000`, I/O at `$D000`: the table above is this rule for the
+    standard user map; mem.md states it in full from `m65_mem.json`);
+  - the translation holds for one 8 K block: a walk that crosses a
+    block edge translates again, so `m bffc` shows what the program
+    sees at `$C000`, and a walk past `$FFFF` wraps to `$0000`.
+
+  At a fresh start the bank state is the run premise's, and the
+  translation is the table above.  `M65Memory` (M65Emu), held to the
+  recordings, is the test oracle.  A **flat address** needs no
+  translation: the pointer's four bytes are the address
+  (`FAR_FLAT`, where a module sets one from the current address).
 
   The translation is made where the pointer is set, for the row of
   the address it is set to.  An access or a walk that runs past the
