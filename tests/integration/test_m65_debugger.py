@@ -152,11 +152,13 @@ WS = [(0x1FFF, False), (0x2000, True), (0xBFFF, True), (0xC000, False),
 @pytest.mark.parametrize("addr,inside", WS, ids=[f"${a:04X}" for a, _ in WS])
 @pytest.mark.parametrize("gate", ["bp_range_check", "bp_range_check_step"])
 def test_breakpoint_gates_take_the_program_region_only(emu, gate, addr, inside):
+    seed_premise_bank_state(emu)            # the gates translate through it (F4)
     emu.jsr(emu.sym(gate), a=addr & 0xFF, x=addr >> 8, b=CSE_BP)
     assert emu.carry is (not inside)
 
 
 def test_step_gate_also_takes_brk_stub(emu):
+    seed_premise_bank_state(emu)
     stub = emu.sym("brk_stub")
     emu.jsr(emu.sym("bp_range_check_step"), a=stub & 0xFF, x=stub >> 8, b=CSE_BP)
     assert emu.carry is False

@@ -15,9 +15,10 @@
 ;                / dbg_bp_count).
 ;     Slots 8–9: ad-hoc step BRKs (alias `step_bp`).  patch_all /
 ;                unpatch_all iterate all 10 slots.
-;     Slot format (4 bytes): [addr_lo, addr_hi, saved_byte, flags];
-;     flags bit 0 = enabled, bit 7 = patched (set by patch_all,
-;     cleared by unpatch_all).
+;     Slot format (bp.inc): c64 4 bytes [addr_lo, addr_hi, saved_byte,
+;     flags]; m65 6 bytes, a flat address [offset lo, hi, bank,
+;     megabyte, saved_byte, flags].  flags bit 0 = enabled, bit 7 =
+;     patched (set by patch_all, cleared by unpatch_all).
 ;   * `dbg_bp_hit`: slot number of the last breakpoint that fired
 ;     ($FF when none).  Written by the BRK/NMI handlers and
 ;     end_debug_body in main.s, and by dbg_bp_del / dbg_bp_clear
@@ -38,6 +39,7 @@
 
         .setcpu "6502"
         .include "platform.inc"
+        .include "bp.inc"
 
         .export bp_init
         .export bp_table, step_bp
@@ -47,19 +49,21 @@
         .export dbg_bp_find
         .export patch_all, unpatch_all
         .export dbg_step_clear
+.ifdef PLATFORM_M65
+        .export dbg_bp_set_flat, dbg_bp_find_flat, dbg_step_find, step_bp_arm
+.endif
 
         .importzp rp_ptr
 
 BP_SLOTS    = 8
 STEP_SLOTS  = 2
-SLOT_SIZE   = 4
 TOTAL_SLOTS = BP_SLOTS + STEP_SLOTS     ; 10
 PATCHED     = $80                       ; flags bit 7: $00 is in memory
 
 ; ── BSS ────────────────────────────────────────────────────────────────
 .segment "BSS"
 
-; Unified breakpoint table — 10 slots × 4 bytes = 40 bytes.
+; Unified breakpoint table — 10 slots × SLOT_SIZE (40 / 60 bytes).
 ; patch_all / unpatch_all iterate all 10 in one loop.
 ; bp_set / bp_del / bp_clear / bp_count / bp_find address slots 0–7.
 bp_table:      .res (BP_SLOTS + STEP_SLOTS) * SLOT_SIZE
@@ -69,6 +73,50 @@ bp_table:      .res (BP_SLOTS + STEP_SLOTS) * SLOT_SIZE
 step_bp       = bp_table + BP_SLOTS * SLOT_SIZE
 
 dbg_bp_hit:    .res 1          ; slot# of breakpoint hit ($FF = none)
+.ifdef PLATFORM_M65
+bp_tmp:        .res 1          ; dbg_bp_del: slot × 2
+.endif
+
+; ── the slot walks (SLOT_SIZE bytes a slot) ─────────────────────────
+.macro NEXT_SLOT_X
+  .repeat SLOT_SIZE
+        inx
+  .endrepeat
+.endmacro
+.macro PREV_SLOT_X
+  .repeat SLOT_SIZE
+        dex
+  .endrepeat
+.endmacro
+.macro NEXT_SLOT_Y
+  .repeat SLOT_SIZE
+        iny
+  .endrepeat
+.endmacro
+; SLOT_PTR: rp_ptr := slot X's address — c64 its two bytes; m65 its flat
+; address, all four (a breakpoint is its physical byte: no translation,
+; so a remap since the patch cannot misplace the restore).
+.macro SLOT_PTR
+        lda bp_table,x
+        sta rp_ptr
+        lda bp_table+1,x
+        sta rp_ptr+1
+  .ifdef PLATFORM_M65
+        lda bp_table+2,x
+        sta rp_ptr+2
+        lda bp_table+3,x
+        sta rp_ptr+3
+  .endif
+.endmacro
+; A := the slot's address bytes ORed (0: an empty slot).  m65: the bank
+; too (0.0000 is no target).
+.macro SLOT_OR_X
+        lda bp_table,x
+        ora bp_table+1,x
+  .ifdef PLATFORM_M65
+        ora bp_table+2,x
+  .endif
+.endmacro
 
 ; ── CODE ───────────────────────────────────────────────────────────────
 .segment "CODE"
@@ -97,18 +145,21 @@ bp_init:
 ; Clobbers: A, X, Y, rp_ptr.
 ;
 dbg_bp_set:
+.ifdef PLATFORM_M65
+        jsr bp_to_flat          ; rp_ptr := the CPU address, translated
+; dbg_bp_set_flat — the same with the flat address already in rp_ptr.
+dbg_bp_set_flat:
+        jsr dbg_bp_find_flat
+.else
         jsr dbg_bp_find         ; leaves the address in rp_ptr
+.endif
         bcs @new
         rts                     ; already set: A = its slot, C = 0
 @new:   ldy #0
         ldx #0
-@find:  lda bp_table,x
-        ora bp_table+1,x
+@find:  SLOT_OR_X
         beq @found
-        inx
-        inx
-        inx
-        inx
+        NEXT_SLOT_X
         iny
         cpy #BP_SLOTS
         bne @find
@@ -121,10 +172,16 @@ dbg_bp_set:
         sta bp_table,x
         lda rp_ptr+1
         sta bp_table+1,x
-        lda #0
+.ifdef PLATFORM_M65
+        lda rp_ptr+2
         sta bp_table+2,x
-        lda #1
+        lda rp_ptr+3
         sta bp_table+3,x
+.endif
+        lda #0
+        sta bp_table+BP_SAVED,x
+        lda #1
+        sta bp_table+BP_FLAGS,x
         tya
         clc
         rts
@@ -143,7 +200,22 @@ dbg_bp_del:
         bne @keep
         ldx #$FF
         stx dbg_bp_hit
-@keep:  asl
+@keep:
+.ifdef PLATFORM_M65
+        asl
+        sta bp_tmp
+        asl
+        adc bp_tmp              ; slot × 6 (C=0: slot < 8)
+        tax
+        lda #0
+        sta bp_table,x
+        sta bp_table+1,x
+        sta bp_table+2,x
+        sta bp_table+3,x
+        sta bp_table+4,x
+        sta bp_table+5,x
+.else
+        asl
         asl
         tax
         lda #0
@@ -151,6 +223,7 @@ dbg_bp_del:
         sta bp_table+1,x
         sta bp_table+2,x
         sta bp_table+3,x
+.endif
         clc
         rts
 @bad:   lda #$FF
@@ -182,14 +255,15 @@ dbg_bp_count:
         ldy #0
 @cnt:   ldx bp_table,y
         bne @hit
+.ifdef PLATFORM_M65
+        ldx bp_table+2,y        ; the bank
+        bne @hit
+.endif
         ldx bp_table+1,y
         beq @skip
 @hit:   clc
         adc #1
-@skip:  iny
-        iny
-        iny
-        iny
+@skip:  NEXT_SLOT_Y
         cpy #BP_SLOTS * SLOT_SIZE
         bne @cnt
         rts
@@ -202,8 +276,14 @@ dbg_bp_count:
 ; Clobbers: A, X, Y, rp_ptr.
 ;
 dbg_bp_find:
+.ifdef PLATFORM_M65
+        jsr bp_to_flat          ; rp_ptr := the CPU address, translated
+; dbg_bp_find_flat — the same with the flat address already in rp_ptr.
+dbg_bp_find_flat:
+.else
         sta rp_ptr
         stx rp_ptr+1
+.endif
         ldy #0
         ldx #0
 @loop:  lda bp_table,x
@@ -212,13 +292,18 @@ dbg_bp_find:
         lda bp_table+1,x
         cmp rp_ptr+1
         bne @next
+.ifdef PLATFORM_M65
+        lda bp_table+2,x
+        cmp rp_ptr+2
+        bne @next
+        lda bp_table+3,x
+        cmp rp_ptr+3
+        bne @next
+.endif
         tya
         clc
         rts
-@next:  inx
-        inx
-        inx
-        inx
+@next:  NEXT_SLOT_X
         iny
         cpy #BP_SLOTS
         bne @loop
@@ -234,36 +319,21 @@ dbg_bp_find:
 ; Clobbers: A, X, Y, rp_ptr.
 ;
 patch_all:
-        FAR_BANK rp_ptr, BANK_USER      ; every target is in the workspace
         ldx #0
         ldy #0
-@loop:  lda bp_table,x
-        ora bp_table+1,x
+@loop:  SLOT_OR_X
         beq @next               ; empty slot
-        lda bp_table+3,x
+        lda bp_table+BP_FLAGS,x
         beq @next               ; disabled
         bmi @next               ; already patched — keep its saved byte
         ora #PATCHED
-        sta bp_table+3,x
-        lda bp_table,x
-        sta rp_ptr
-        lda bp_table+1,x
-        sta rp_ptr+1
-.ifdef PLATFORM_M65
-        txa                     ; the slot's byte through the program's
-        pha                     ;   bank state (mem.md § far_user; flat
-        FAR_USER rp_ptr         ;   slots are slice 3's F4)
-        pla
-        tax
-.endif
+        sta bp_table+BP_FLAGS,x
+        SLOT_PTR                ; rp_ptr := the slot's address
         FAR_LDA rp_ptr
-        sta bp_table+2,x
+        sta bp_table+BP_SAVED,x
         lda #$00
         FAR_STA rp_ptr
-@next:  inx
-        inx
-        inx
-        inx
+@next:  NEXT_SLOT_X
         cpx #(BP_SLOTS + STEP_SLOTS) * SLOT_SIZE
         bne @loop
         rts
@@ -275,35 +345,74 @@ patch_all:
 ; Clobbers: A, X, Y, rp_ptr.
 ;
 unpatch_all:
-        FAR_BANK rp_ptr, BANK_USER      ; every target is in the workspace
         ldx #(BP_SLOTS + STEP_SLOTS - 1) * SLOT_SIZE    ; last slot offset
         ldy #0
-@loop:  lda bp_table+3,x
+@loop:  lda bp_table+BP_FLAGS,x
         bpl @next               ; not patched
         and #<~PATCHED
-        sta bp_table+3,x
-        lda bp_table,x
-        sta rp_ptr
-        lda bp_table+1,x
-        sta rp_ptr+1
-.ifdef PLATFORM_M65
-        txa                     ; through the program's bank state, as
-        pha                     ;   patch_all
-        FAR_USER rp_ptr
-        pla
-        tax
-.endif
-        lda bp_table+2,x
+        sta bp_table+BP_FLAGS,x
+        SLOT_PTR                ; rp_ptr := the slot's address
+        lda bp_table+BP_SAVED,x
         FAR_STA rp_ptr
-@next:  dex
-        dex
-        dex
-        dex
+@next:  PREV_SLOT_X
         bpl @loop
         rts
 
+
+.ifdef PLATFORM_M65
+; ── bp_to_flat — rp_ptr := the CPU address A/X through the program's
+; bank state (mem.md § far_user).  Clobbers X.
+bp_to_flat:
+        sta rp_ptr
+        stx rp_ptr+1
+        FAR_USER rp_ptr
+        rts
+
+; ── dbg_step_find — is the CPU address A/X (a break's PC) one of the
+; step slots' physical bytes?  C=0 yes.  Clobbers A, X, Y, rp_ptr.
+dbg_step_find:
+        jsr bp_to_flat
+        ldx #BP_SLOTS * SLOT_SIZE
+        ldy #STEP_SLOTS
+@lp:    lda bp_table,x
+        cmp rp_ptr
+        bne @no
+        lda bp_table+1,x
+        cmp rp_ptr+1
+        bne @no
+        lda bp_table+2,x
+        cmp rp_ptr+2
+        bne @no
+        lda bp_table+3,x
+        cmp rp_ptr+3
+        bne @no
+        clc
+        rts
+@no:    NEXT_SLOT_X
+        dey
+        bne @lp
+        sec
+        rts
+
+; ── step_bp_arm — arm step slot Y (0 or SLOT_SIZE) at the CPU address
+; A/X: its physical byte under the program's bank state, enabled.
+; Clobbers A, X, rp_ptr.
+step_bp_arm:
+        jsr bp_to_flat
+        ldx #0
+@cp:    lda rp_ptr,x
+        sta step_bp,y
+        iny
+        inx
+        cpx #4
+        bne @cp
+        lda #1
+        sta step_bp+1,y         ; Y = slot + 4: the flags at slot + 5
+        rts
+.endif
+
 ; ── dbg_step_clear ────────────────────────────────────────────────────
-; Zero both step slots (last 8 bytes of bp_table).
+; Zero both step slots (the last STEP_SLOTS × SLOT_SIZE bytes).
 ; Clobbers: A, X.
 ;
 dbg_step_clear:

@@ -986,14 +986,14 @@ of base page 0 ([userland_contract.md § 3 On m65](../userland_contract.md#on-m6
 ### Banks (m65)
 
 **Status (slice 3, [TODO § Slice 3 — banks](../TODO.md#slice-3--banks)):**
-F1–F3 have landed: both address forms, the prompt, `@`, `m`, `.`,
+F1–F4 have landed: both address forms, the prompt, `@`, `m`, `.`,
 `d`, `+`, `-`, the write refusal, the CPU space through the program's
-bank state, `r`'s and `M`'s map, and far starts — `j` with a flat
-argument or at a flat current address, a cold `t` / `o` at one — work
-as stated.  **Delta, not yet built:** flat breakpoints are F4's (until
-then a breakpoint is patched through the map in force at the patch);
-`.org H.AAAA` and `g` in the bank `main` was assembled to are F5's —
-until then `g` starts `main` as a CPU address.
+bank state, `r`'s and `M`'s map, far starts — `j` with a flat
+argument or at a flat current address, a cold `t` / `o` at one — and
+flat breakpoints (`b H.AAAA`, the slots and the list flat,
+[debugger.md § `b`](debugger.md#b)) work as stated.  **Delta, not yet
+built:** `.org H.AAAA` and `g` in the bank `main` was assembled to are
+F5's — until then `g` starts `main` as a CPU address.
 
 On m65 an address is in one of two spaces, told apart by a dot
 ([glossary.md](../glossary.md), *CPU address*, *flat address*):

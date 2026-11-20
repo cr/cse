@@ -405,7 +405,7 @@ def test_user_brk_panel_and_c_skips_it(s):
 def test_b_list_and_bp_hit_then_c_deletes_it(s):
     s.poke(USER, [0xEA, 0xE8, 0x60])                # NOP INX RTS
     s.type("b $3001")
-    s.find(r"^; bp 1: \$3001$")
+    s.find(r"^; bp 1: 0\.3001$")              # a physical byte (slice 3, F4)
     s.type("j $3000")
     assert s.w("brk_pc") == 0x3001
     s.type("c")
@@ -899,7 +899,7 @@ def test_a_cold_t_previews_and_steps_in_the_bank(s):
 
 def test_a_breakpoint_in_far_code_is_hit(s):
     far_prog(s)
-    s.type("b $2005")
+    s.type("b 4.2005")                     # bank 4's byte (F4: physical)
     s.type("j 4.2000")
     s.find(r"at \$2005")
     assert fpeek(s, 4, 0x2005) == [0xA9]                    # unpatched
@@ -917,3 +917,43 @@ def test_j_in_bank_0_is_the_plain_start(s):
     s.type("j 0.3000")
     row = ran_to_rts(s)
     assert " a:77 " in row and row.rstrip().endswith("ml:e000 mh:8300")
+
+
+# ── flat breakpoints (slice 3, F4: debugger.md § b, breakpoints.md) ──
+
+def test_b_takes_a_flat_address_and_a_far_start_hits_it(s):
+    far_prog(s)
+    s.type("b 4.2005")
+    s.find(r"^; bp 1: 4\.2005$")
+    s.type("j 4.2000")
+    s.find(r"at \$2005")
+    assert fpeek(s, 4, 0x2005) == [0xA9]                    # unpatched
+    s.type("b")
+    s.find(r"^; bp 1: 4\.2005$")
+
+
+def test_a_cpu_address_breakpoint_lists_its_physical_byte(s):
+    s.type("b $2005")
+    s.find(r"^; bp 1: 0\.2005$")
+
+
+def test_a_breakpoint_belongs_to_its_physical_byte(s):
+    """A breakpoint set at $2005 in the standard map is 0.2005: a far
+    start that runs bank 4 at $2005 does not stop there, and bank 0's
+    byte is back when the run ends; bank 4 never held a BRK."""
+    far_prog(s)
+    s.type("b $2005")
+    s.type("j 4.2000")
+    row = ran_to_rts(s)
+    assert " a:5a " in row
+    assert fpeek(s, 0, 0x2005) == [0xEA]
+    assert fpeek(s, 4, 0x2000, len(FAR_PROG)) == FAR_PROG
+
+
+@pytest.mark.parametrize("addr", ["3.2000", "2.c000", "$e000", "$d020", "1.1000", "0.1000"])
+def test_a_breakpoint_outside_user_memory_is_refused(s, addr):
+    s.type(f"b {addr}")
+    s.find(r"^;\?range")
+    s.type("b")
+    assert all(r.rstrip().endswith("$----") or not r.startswith("; bp")
+               for r in s.rows()), s.screen()

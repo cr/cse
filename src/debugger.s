@@ -36,6 +36,7 @@
 
         .setcpu "6502"
         .include "platform.inc"
+        .include "bp.inc"               ; the breakpoint slot's layout
         .macpack longbranch
 
         .export dbg_init
@@ -83,6 +84,9 @@
         .import patch_all
         .import step_bp
         .import dbg_step_clear
+.ifdef PLATFORM_M65
+        .import step_bp_arm             ; breakpoints.s: a flat step slot
+.endif
 
 ; Reason codes (DBG_NONE/DBG_RTS/DBG_BRK/DBG_NMI) are defined in
 ; dbg_reason.inc (included by main.s and repl.s, which assign and test
@@ -875,6 +879,25 @@ peek_user:
 ;
 arm_step_bp:
         jsr dbg_step_clear
+.ifdef PLATFORM_M65
+        ; m65: each slot the next PC's physical byte under the program's
+        ; bank state (breakpoints.md; slice 3, F4).
+        lda step_next_lo
+        ora step_next_lo+1
+        beq @m_hi
+        lda step_next_lo
+        ldx step_next_lo+1
+        ldy #0
+        jsr step_bp_arm
+@m_hi:  lda step_next_hi
+        ora step_next_hi+1
+        beq @m_r
+        lda step_next_hi
+        ldx step_next_hi+1
+        ldy #SLOT_SIZE          ; the second step slot
+        jmp step_bp_arm
+@m_r:   rts
+.else
         lda step_next_lo
         ora step_next_lo+1
         beq @try_hi
@@ -895,6 +918,7 @@ arm_step_bp:
         lda #1
         sta step_bp+7
 @done:  rts
+.endif
 
 ; CPU-port aware ZP save/restore primitives — save_userland_zp /
 ; restore_userland_zp / save_kernel_zp / restore_kernel_zp — live

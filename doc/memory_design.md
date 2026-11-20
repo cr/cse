@@ -285,7 +285,9 @@ warmstart, fault recovery included.
 ### Breakpoint invariant
 
 `bp_table` is the user's persistent intent — it survives every
-warmstart, fault recovery included (only cold init clears it).  What
+warmstart, fault recovery included (only cold init clears it).  On
+m65 a slot names a physical byte (a flat
+address), so the intent survives the program's remapping too.  What
 changes across `end_debug_body` is the in-memory representation: the
 $00 bytes of patched breakpoints are restored to the original
 opcodes by `unpatch_all`.  The next run re-patches from `bp_table`.

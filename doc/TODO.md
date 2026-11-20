@@ -451,7 +451,7 @@ then tests first, the code, the differential doc update, the commit.
   through a CBDOS call (xmega65 alone; `typed_run` gains
   `reference=False`).  `.org H.AAAA` and `g`'s bank moved to F5.
   m65 26 139 B (+114).
-- [ ] **F4 — flat breakpoints and steps** (P-F-4).  Delta at Step 1:
+- [x] **F4 — flat breakpoints and steps** (P-F-4).  Delta at Step 1:
   breakpoints.md (the slot holds a flat address: 6 bytes a slot on
   m65, 4 on c64), debugger.md (the step BRK armed at the next PC's
   flat address; the hit test), memory_design.md (the breakpoint
@@ -461,6 +461,20 @@ then tests first, the code, the differential doc update, the commit.
   after the patch — the unpatch restores the right byte; `b` given
   either form; a step over an instruction that changes the map; the
   C64 breakpoint suites unchanged.
+
+  **Done 2026-11-20.**  The slot layout is `src/bp.inc` (`SLOT_SIZE`
+  4 / 6, `BP_SAVED`, `BP_FLAGS`): on m65 a slot holds a flat address,
+  set from a CPU address through the bank state (`dbg_bp_set` /
+  `dbg_bp_find` translate) or from `b H.AAAA` (`*_flat`); patch and
+  unpatch reach the slot's flat address itself; the handler matches a
+  break's PC through the bank state it captured (`dbg_step_find` for
+  the step slots); `arm_step_bp` arms flat (`step_bp_arm`).  Targets:
+  `0.2000–0.BFFF`, `1.2000–1.F6FF`, `4.0000–5.FFFF` (operator); the
+  list shows every slot flat (operator; O-F-5 settled).  The remap
+  case is tested as a far start that runs bank 4 past a breakpoint on
+  `0.2005`; the step-over-a-map-change case is a documented caveat
+  (debugger.md § b), not a test.  The C64 breakpoint code is the same
+  source, byte-identical.  m65 26 407 B (+268).
 - [ ] **F5 — 32-bit values** (D-F-6, D-F-7, D-F-8; P-F-6), and from
   F3: `.org H.AAAA` (the bytes go to the bank, the gate admits banks
   1, 4 and 5) and `g` / `a` in the bank `main` was assembled to (a far

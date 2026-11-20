@@ -8,6 +8,7 @@
 |------|------|
 | [`src/breakpoints.s`](../../src/breakpoints.s) | implementation |
 | [`tests/unit/test_breakpoints.py`](../../tests/unit/test_breakpoints.py) | test contract |
+| [`src/bp.inc`](../../src/bp.inc) | the slot layout: `SLOT_SIZE`, `BP_SAVED`, `BP_FLAGS` per platform (included by breakpoints.s, debugger.s, main.s, repl.s) |
 | [`dev/breakpoints_test_stub.s`](../../dev/breakpoints_test_stub.s) | Tier-U bundle stub (linker scaffolding only) |
 
 ## Purpose
@@ -25,13 +26,28 @@ on `breakpoints.s` is strictly one layer up, and `breakpoints.s`
 cannot reach into the BRK/NMI machinery because that machinery lives
 in a higher stratum.
 
-**m65:** `patch_all` and `unpatch_all` reach each
-slot's byte through the program's bank state (`FAR_USER`, [mem.md
-§ far_user](mem.md#far_user-far_user_w-m65-only)) instead of bank 0,
-so a breakpoint or a step BRK in code a far start runs in bank 4 lands
-in bank 4.  The slot still holds a CPU address: a program that remaps
-between the patch and the break would be unpatched through its new
-map — **delta:** flat slots are slice 3's F4.
+**m65:** a slot holds a **flat address**, so a breakpoint belongs to
+its physical byte whatever the map when it is hit (slice 3, F4):
+
+| Offset | c64 (4 bytes) | m65 (6 bytes) |
+|---|---|---|
+| +0, +1 | address lo, hi | the flat address's offset lo, hi |
+| +2 | saved byte | its bank |
+| +3 | flags | its megabyte (0) |
+| +4 | — | saved byte |
+| +5 | — | flags |
+
+`BP_SAVED` and `BP_FLAGS` name the two offsets on both platforms;
+`SLOT_SIZE` is 4 / 6, so the table is 40 / 60 bytes.  A slot is empty
+when its offset and bank are 0 (`0.0000` is no target).  On m65
+`dbg_bp_set` and `dbg_bp_find` take a CPU address (A/X) and translate
+it through the program's bank state (`far_user`) into `rp_ptr`, or —
+`dbg_bp_set_flat` / `dbg_bp_find_flat` — take a flat address already in
+`rp_ptr`; they compare all four bytes.  `patch_all` / `unpatch_all`
+reach the slot's flat address itself: no translation, so a remap
+between patch and break does not misplace the restore.  The BRK
+handler matches the break's PC through the bank state the break
+captured, so the hit test sees the byte the CPU executed.
 
 ## Table layout
 

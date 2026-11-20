@@ -11,6 +11,7 @@
 | [`tests/integration/test_kernel_transition.py`](../../tests/integration/test_kernel_transition.py) | tier-I tests: kernel↔user transitions, step chains, the command matrix |
 | [`tests/integration/test_step_rom.py`](../../tests/integration/test_step_rom.py) | tier-I tests: step-into-ROM fallback |
 | [`tests/emulator/test_m65_break.py`](../../tests/emulator/test_m65_break.py) | tier-X tests (xmega65, P1): a user BRK's snapshot equals M65Emu's; a program's bank state survives a break and a resume |
+| [`tests/emulator/test_m65_flat_bp.py`](../../tests/emulator/test_m65_flat_bp.py) | tier-X tests (xmega65, slice 3 F4): a bank-4 and a bank-0 breakpoint set and listed flat, a far start hits only bank 4's, both banks restored, each screen M65Emu's |
 | [`tests/emulator/test_m65_step.py`](../../tests/emulator/test_m65_step.py) | tier-X tests (xmega65, P4): a typed 45GS02 program (Q, far, a 16-bit `BRA`, `JMP ($30FF)`) stepped with `t`, each screen M65Emu's |
 | [`tests/integration/test_m65_debugger.py`](../../tests/integration/test_m65_debugger.py) | tier-I tests on the m65 PRG (P1–P4): `far_user`, the workspace bound, the line parser in bank 3, the user-ZP view, the transitions and the bank state (with the KERNAL's map record, P3), the 45GS02 step (§ Next-PC, On m65; P4) |
 
@@ -471,6 +472,20 @@ The debugger-facing semantics of the REPL commands; their parsing,
 dispatch and error conventions are [repl.md](repl.md)'s.
 
 ### `b`
+
+**m65:** `b ADDR` (a CPU address: translated
+through the program's bank state when set) and `b H.AAAA` (a flat
+literal) set a breakpoint on a physical byte; the list shows every slot
+flat (`; b0: 4.2005`, `0.2005` in bank 0 too — the slot is physical).
+A target must be user memory the contract gives
+([userland_contract.md § 3 On m65](../userland_contract.md#on-m65)):
+`0.2000–0.BFFF`, `1.2000–1.F6FF`, `4.0000–5.FFFF`; anything else,
+banks 2–3 and the I/O page among it, is `;?range`.  A step arms its
+BRKs at the next PCs' flat addresses under the map in force — the same
+rule, `brk_stub` (`0.1FBx`, CSE's page) exempt as on c64.  Caveat: a
+step over an instruction that changes the map (`MAP`, a store to the
+CPU port or `$D030`) arms the next BRK where the *old* map put the
+next PC; a breakpoint set under the new map is hit as usual.
 
 ```
 b               list slots 1-8

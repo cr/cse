@@ -305,10 +305,9 @@ The other banks are reached by the program itself, not by these
 commands.
 
 **Slice 3** ([TODO § Slice 3 — banks](TODO.md#slice-3--banks))
-replaces the paragraph above as its milestones land; F1 and F2
-have: flat addresses, the write refusal and the CPU space through the
-program's bank state work now; breakpoints in any bank (F4) are
-**delta**.  An address is a **CPU address** (`AAAA`) or a
+replaces the paragraph above: flat addresses, the write refusal,
+the CPU space through the program's bank state, far starts and
+breakpoints in any bank of user memory work (F1–F4).  An address is a **CPU address** (`AAAA`) or a
 **flat address** (`H.AAAA`, with a dot):
 
 - A CPU address is the 16-bit address the program sees *under its

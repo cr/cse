@@ -79,6 +79,9 @@
         .import step_next_pc, arm_step_bp
         .import step_state, step_remaining
         .import step_bp
+.ifdef PLATFORM_M65
+        .import dbg_step_find           ; breakpoints.s: the step slots' bytes
+.endif
         .importzp dbg_reason, kernal_out, cur_device    ; zp.s
         .import brk_pc, dbg_bp_hit
         .import reg_p, reg_sp
@@ -1010,6 +1013,13 @@ cse_brk_handler:
         ora step_remaining+1
         beq handler_finalize    ; stepping done, finalise
 
+.ifdef PLATFORM_M65
+        lda brk_pc              ; the break's physical byte against the
+        ldx brk_pc+1            ;   step slots' (breakpoints.md, F4)
+        jsr dbg_step_find
+        bcc @chain
+        jmp handler_finalize
+.else
         lda step_bp
         cmp brk_pc
         bne @chk_s1
@@ -1023,6 +1033,7 @@ cse_brk_handler:
         lda step_bp+5
         cmp brk_pc+1
         bne handler_finalize
+.endif
 
 @chain:
         ; Step chain iteration.  Sequence:

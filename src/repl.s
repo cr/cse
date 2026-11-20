@@ -7,6 +7,7 @@
 
         .setcpu "6502"
         .include "platform.inc"
+        .include "bp.inc"               ; the breakpoint slot's layout
         .macpack longbranch
         .include "macros.inc"
 
@@ -67,6 +68,9 @@
         .import dbg_step_clear
         .import dbg_bp_set, dbg_bp_del, dbg_bp_clear
         .import bp_table
+.ifdef PLATFORM_M65
+        .import dbg_bp_set_flat         ; breakpoints.s: a flat slot
+.endif
         .importzp dbg_reason
         .import dbg_bp_hit
         .import brk_pc, brk_stub
@@ -705,6 +709,106 @@ start_bank:
         clc
         rts
 @no:    sec
+        rts
+
+; ───────────────────────────────────────────────────────────
+; Breakpoints (slice 3, F4: debugger.md § b, breakpoints.md).
+; slot_offset — A := slot A × SLOT_SIZE (6).  Clobbers nothing else.
+slot_offset:
+        asl
+        sta fl_y
+        asl
+        adc fl_y                ; C=0: slot < 8
+        rts
+
+; bp_cpu_ok — bp_range_check's m65 body: the CPU address A/X through
+; the program's bank state into lens_ptr, then bp_flat_ok.
+bp_cpu_ok:
+        sta lens_ptr
+        stx lens_ptr+1
+        ldx #lens_ptr
+        jsr far_user
+        jmp bp_flat_ok
+
+; bp_flat_arg — lens_ptr := the flat literal parse_flat_arg read
+; (rp_addr, rp_bank), then bp_flat_ok.
+bp_flat_arg:
+        lda rp_addr
+        sta lens_ptr
+        lda rp_addr+1
+        sta lens_ptr+1
+        lda rp_bank
+        sta lens_ptr+2
+        lda rp_bank+1
+        sta lens_ptr+3
+; bp_flat_ok — is lens_ptr user memory a breakpoint may patch
+; (userland_contract.md § 3 On m65): 0.2000-0.BFFF, 1.2000-1.F6FF,
+; 4.0000-5.FFFF?  C=0 yes, C=1 no.  Clobbers A.
+bp_flat_ok:
+        lda lens_ptr+3          ; a megabyte: no
+        bne @no
+        lda lens_ptr+2
+        beq @b0
+        cmp #1
+        beq @b1
+        cmp #4
+        beq @yes
+        cmp #5
+        beq @yes
+@no:    sec
+        rts
+@b0:    lda lens_ptr+1
+        cmp #$20
+        bcc @no
+        cmp #$C0
+        bcs @no
+@yes:   clc
+        rts
+@b1:    lda lens_ptr+1
+        cmp #$20
+        bcc @no
+        cmp #$F7
+        bcs @no
+        bcc @yes
+
+; put_rp_flat — rp_ptr's flat address as `H.AAAA`.  Clobbers A, X, Y.
+put_rp_flat:
+        lda rp_ptr+2
+        ldy rp_ptr+3
+        ldx rp_ptr
+        stx fl_acc
+        ldx rp_ptr+1
+put_flat_axy:                   ; bank A, megabyte Y, offset fl_acc / X
+        stx fl_acc+1
+        sta tmp_bank
+        sty tmp_bank+1
+        lda #SPC_FLAT
+        sta tmp_flat
+        ldx #SPC_TMP
+        jsr put_bank
+        lda fl_acc
+        ldx fl_acc+1
+        jmp io_puthex4
+
+; list_slot_flat — slot at offset X: C=1 empty; else its flat address
+; printed, C=0.  Clobbers A, X, Y.
+list_slot_flat:
+        lda bp_table,x
+        ora bp_table+1,x
+        ora bp_table+2,x
+        bne :+
+        sec
+        rts
+:       lda bp_table,x
+        sta fl_acc
+        lda bp_table+2,x
+        ldy bp_table+3,x
+        pha
+        lda bp_table+1,x
+        tax
+        pla
+        jsr put_flat_axy
+        clc
         rts
 
 ; ───────────────────────────────────────────────────────────
@@ -1476,9 +1580,9 @@ _syntax_err:
         cpx #>WORKSTART
         bcc @oor
 .ifdef PLATFORM_M65
-        ; Upper bound: addr < HIMEM, page-aligned — C is the answer.
-        cpx #>HIMEM
-        rts
+        ; m65: the byte the address reaches through the program's bank
+        ; state must be user memory (debugger.md § b; slice 3, F4).
+        jmp bp_cpu_ok
 .else
         ; Upper bound: addr < buf_base.
         cpx buf_base+1
@@ -3155,12 +3259,16 @@ pre_userland_run:
         lda dbg_bp_hit
         cmp #$FF
         beq @no_disable
+.ifdef PLATFORM_M65
+        jsr slot_offset         ; slot × SLOT_SIZE
+.else
         asl
         asl                     ; slot × 4
+.endif
         tax
         stx rp_dis_bp
         lda #0
-        sta bp_table+3,x        ; disable flag
+        sta bp_table+BP_FLAGS,x ; disable flag
 @no_disable:
 
         ; Compute first next-PC.  step_next_pc reads opcode at brk_pc.
@@ -3313,6 +3421,24 @@ set_run_mode:
         ; "b ADDR xyz" never installs the bp.  An expression error
         ; (Z=0) was reported by try_expr: stop there; only the
         ; empty case (`b ;…`) is a syntax error.
+.ifdef PLATFORM_M65
+        jsr parse_flat_arg      ; `b 4.2005`: a physical byte (F4)
+        bcs @cpu_arg
+        tya
+        jsr adv_ptr1
+        ldy #0
+        jsr _require_eoi_or_err ; reject trailing garbage (pop-trick)
+        jsr bp_flat_arg         ; lens_ptr := it; C=1 not user memory
+        jcs @bp_range
+        ldx #3                  ; rp_ptr := the flat address
+@fc:    lda lens_ptr,x
+        sta rp_ptr,x
+        dex
+        bpl @fc
+        jsr dbg_bp_set_flat
+        jmp @echo
+@cpu_arg:
+.endif
         jsr try_expr_or_err
         bcs @set
         bne @ret
@@ -3330,6 +3456,15 @@ set_run_mode:
         lda expr_val
         ldx expr_val+1
         jsr dbg_bp_set         ; returns slot in A ($FF=full)
+.ifdef PLATFORM_M65
+@echo:  cmp #$FF                ; rp_ptr: the slot's flat address
+        bne :+
+        jmp @full
+:       jsr bp_open_slot
+        puts str_colon_sp
+        jsr put_rp_flat
+        jmp log_close
+.else
         cmp #$FF
         bne :+
         jmp @full
@@ -3342,6 +3477,7 @@ set_run_mode:
         ldx expr_val+1
         jsr io_puthex4
         jmp log_close   
+.endif
 
 @list_all:
         ldx #0                  ; slot index
@@ -3356,6 +3492,13 @@ set_run_mode:
         puts str_colon_sp
         ldx rp_save
         txa
+.ifdef PLATFORM_M65
+        jsr slot_offset
+        tax
+        jsr list_slot_flat      ; C=1 empty
+        bcs @empty_slot
+        jmp @slot_done
+.else
         asl
         asl
         tay
@@ -3371,6 +3514,7 @@ set_run_mode:
         ldx rp_addr+1
         jsr io_puthex4
         jmp @slot_done
+.endif
 @empty_slot:
         puts str_dashes
 @slot_done:
@@ -5333,7 +5477,7 @@ step_cleanup:
         cpx #$FF
         beq :+
         lda #1
-        sta bp_table+3,x
+        sta bp_table+BP_FLAGS,x
 :       lda #$FF
         sta rp_dis_bp
         rts
