@@ -172,10 +172,11 @@ The four tiers, for a program run under CSE on the MEGA65
   bitmap, sprite or raster setup does not survive a break); the border
   and background colours (the theme); the KERNAL screen editor's
   modes and window (`ESC O`, `HOME HOME`: quote and insert mode off,
-  the full screen); the KERNAL cells in base page 0 that the calls CSE
-  makes write (`BSOUT` and `PLOT`: `$C4 $C5 $DA $E0 $E1 $E8 $E9 $EA $EB
-  $EC $EF $F0`, recorded); the SID's three voice gates; the stack
-  below the user's SP (§ 4).
+  the full screen); the KERNAL's base page `$90–$FA`, which its IRQ
+  and the calls CSE makes write (`BSOUT` and `PLOT` alone: `$C4 $C5
+  $DA $E0 $E1 $E8 $E9 $EA $EB $EC $EF $F0`, recorded; the disk calls
+  more — § Zero page); the SID's three voice gates; the stack below
+  the user's SP (§ 4).
 - **Compromised:** the IEC and disk state, interrupt timing — as on
   c64.
 - **Untouched:** the I/O personality; bank 1, banks 4–5 (but for the
@@ -225,11 +226,22 @@ program finds when `RUN` starts it — the *run premise* of
 [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode) —
 as far as CSE can leave it so: the KERNAL's `SYS` map, an 8-bit
 stack in page 1, and all memory the KERNAL does not use, except CSE's
-one page in bank 0.
+one page in bank 0.  That includes everything BASIC 65 holds when it
+runs — its base-page cells, its program text and variables, bank 1's
+arrays and strings, the bitmap banks 4 and 5: BASIC 65 is gone while
+CSE runs, so a program under CSE is the machine-code program of the
+book's chapter 14, which "is free to use any region of Chip RAM that
+would otherwise be used by BASIC" and must avoid only the KERNAL's
+(14-12).  The one BASIC region CSE keeps is its bitmap-graphics base
+page, `0.1F00–0.1FFF`: CSE's page.
 
 | Region | Address | User code may use |
 |--------|---------|-------------------|
-| Base page 0 | `0.0000–0.00FF` | Yes — CSE never touches it; the KERNAL's own cells in it stay the KERNAL's, as for a program started from BASIC |
+| CPU port | `0.0000–0.0001` | Yes — swapped with the rest of the bank state (§ Zero page below) |
+| KERNAL far-call cells | `0.0002–0.0009` | **No** — the KERNAL's: the parameters of `JSRFAR` / `JMPFAR` (bank, address, P A X Y Z; book I-30/31) |
+| BASIC 65's base page | `0.000A–0.008F` | Yes — free (134 bytes): BASIC 65 is gone while CSE runs, and neither CSE nor the KERNAL uses them |
+| KERNAL base page | `0.0090–0.00FA` | **No** — the KERNAL's: I/O status `$90`, the STOP key flag `$91`, the file and disk cells, the jiffy clock, the screen editor's character attributes, insert and scroll state up to `$FA` |
+| Free base page | `0.00FB–0.00FF` | Yes — free (5 bytes), untouched by CSE and the KERNAL; the book's own example keeps a pointer at `$FD–$FF` (`PFKEY`, I-47) |
 | Stack page | `0.0100–0.01FF` | § 4 |
 | KERNAL variables, screen | `0.0200–0.15FF` | **No** — the MEGA65 KERNAL's (the screen at `0.0800` in 40 × 25 and 80 × 25); only through the KERNAL's jump table |
 | Free for programs | `0.1600–0.1EFF` | Yes — untouched by CSE |
@@ -238,12 +250,13 @@ one page in bank 0.
 | Interface ROM | `$C000–$CFFF` | **No** — the KERNAL needs it there |
 | I/O | `$D000–$DFFF` | Yes |
 | KERNAL | `$E000–$FFFF` | **No** — must stay mapped while interrupts can occur |
-| RAM behind ROM, I/O and KERNAL | `0.C000–0.FFFF` | Yes, through flat access or `MAP` — CSE does not use it |
+| RAM behind ROM, I/O and KERNAL | `0.C000–0.FEFF` | Yes, through flat access or `MAP` — the rest of BASIC 65's program text and its scalar variables when BASIC runs; CSE does not use it |
+| Shared top page | `0.FF00–0.FFFF` | **Not handed over** — reserved (book 14-11): the page shared across maps and bank switches by vectors, interrupt handlers and trampolines.  CSE does not use it; a program that does takes on those intricacies itself |
 | DOS buffers | `1.0000–1.1FFF` | **No** — the KERNAL's |
-| Bank 1 | `1.2000–1.F6FF` | Yes — free when a program is `RUN` from BASIC 65; CSE never touches it |
+| Bank 1 | `1.2000–1.F6FF` | Yes — BASIC 65's arrays and strings when BASIC runs; CSE never touches it |
 | Colour RAM window, reserved | `1.F700–1.FFFF` | through the screen only |
 | ROM banks | `2.0000–3.FFFF` | **No** — CBDOS, the interface ROM, the KERNAL, and CSE's code, data and source text |
-| Banks 4, 5 | `4.0000–5.FFFF` | Yes — CSE never touches them (bitmaps, double buffering); in 80 × 50 the KERNAL's screen is at `4.0800–4.179F` |
+| Banks 4, 5 | `4.0000–5.FFFF` | Yes — BASIC 65's bitmap graphics when BASIC runs; CSE never touches them (bitmaps, double buffering); in 80 × 50 the KERNAL's screen is at `4.0800–4.179F` |
 | Attic RAM | `800.0000`+ | Yes — CSE never touches it |
 
 **A run starts as `RUN` starts a program:** in the `SYS` map, with
@@ -255,10 +268,22 @@ KERNAL's vectors differ from BASIC's in one way: BRK and NMI lead to
 CSE's debugger.  BASIC 65 itself is gone while CSE runs; a program
 that calls into BASIC 65's ROM code does not work under CSE.
 
-**Zero page.**  `m` and `.` on `$00–$FF` show and edit base page 0
-itself, live, because CSE never writes it — except `$00` and `$01`,
-the CPU port, which CSE swaps like the rest of the bank state: there
-`m` and `.` show and edit the program's port, as on c64.
+**Zero page.**  Base page 0 is the program's and the KERNAL's, by
+the rows above: `$0A–$8F` and `$FB–$FF` are the program's (139
+bytes; `i` and the splash list them as `zp`), `$02–$09` and
+`$90–$FA` the KERNAL's — the far-call cells by the book (I-30/31),
+`$90–$FA` by the KERNAL's own use (operator, 2026-11-20): I/O status,
+the STOP key, the file, disk and clock cells, and from `$F0` the
+screen editor's character attributes, insert and scroll state.  The
+recordings confirm the program's part: through a CSE session on
+M65Emu (ROMs 920413 and 920421) and in xmega65 — output, `i`, `m`,
+`d`, `.`, a program run that calls `BSOUT`, steps, the disk commands,
+the 80 × 50 switch and the editor — no cell of `$0A–$8F` or `$FB–$FF`
+changed (`test_m65_repl.py`, `test_m65_disk.py`,
+`test_m65_base_page.py`).  `m` and `.` on `$00–$FF` show and edit
+base page 0 itself, live, because CSE never writes it — except `$00`
+and `$01`, the CPU port, which CSE swaps like the rest of the bank
+state: there `m` and `.` show and edit the program's port, as on c64.
 A program that sets `B` elsewhere has its base page there; `m` shows
 memory by address, and `r` shows `B`.
 

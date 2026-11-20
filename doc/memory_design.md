@@ -460,7 +460,11 @@ pointers ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
 **Banks and what occupies them.**  Who may use what is
 [userland_contract.md § 3](userland_contract.md#3-memory-regions)'s.
 
-    0.0000–0.00FF  base page 0                                  the user and the KERNAL
+    0.0000–0.0001  base page 0: the CPU port                    the user (swapped)
+    0.0002–0.0009    the KERNAL's far-call cells                the KERNAL
+    0.000A–0.008F    BASIC 65's cells, free under CSE           the user
+    0.0090–0.00FA    the KERNAL's cells                         the KERNAL
+    0.00FB–0.00FF    free                                       the user
     0.0100–0.01FF  the stack (8-bit, E = 1), top at $01F1       shared
     0.0200–0.15FF  KERNAL variables; the screen at 0.0800       the KERNAL
                    (40 × 25 and 80 × 25)
@@ -468,7 +472,9 @@ pointers ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
     0.1F00–0.1FAF  CSE's base page (B = $1F)                    CSE
     0.1FB0–0.1FFF  the resident stub                            CSE
     0.2000–0.BFFF  the program region                           —
-    0.C000–0.FFFF  RAM behind the interface ROM, I/O, KERNAL    —
+    0.C000–0.FEFF  RAM behind the interface ROM, I/O, KERNAL    —
+    0.FF00–0.FFFF  reserved (book 14-11): shared vectors and    —
+                   trampolines across maps; not handed over
     1.0000–1.1FFF  DOS buffers                                  the KERNAL
     1.2000–1.F6FF  free (BASIC's arrays when BASIC runs)        —
     1.F700–1.FFFF  reserved; the colour RAM window              the KERNAL

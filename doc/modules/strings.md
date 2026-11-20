@@ -37,10 +37,10 @@ UI / debugger / assembler chrome strings consumed by repl.s:
 `str_errors`, `str_dashes`, `str_colon_sp`, `str_pct`,
 `str_ioport`‡, `str_stack`‡, `str_kernal`‡, `str_screen`‡,
 `str_cse_rt`‡, `str_io`‡, `str_main`,
-`str_tag_cpu`, `str_tag_zp`‡, `str_tag_stk`‡, `str_tag_sys`‡,
+`str_tag_cpu`, `str_tag_zp`, `str_tag_stk`‡, `str_tag_sys`‡,
 `str_tag_scr`‡, `str_tag_cse`, `str_tag_work`, `str_tag_low`,
 `str_tag_src`, `str_tag_io`‡, `str_tag_rom`‡, `str_banked`‡,
-`str_page`†, `str_code`†, `str_data`†, `str_tag_ext`†,
+`str_base`†, `str_code`†, `str_data`†, `str_tag_ext`†,
 `s_save_default` (also asm_src).
 
 † m65 only (`emit_reg`'s

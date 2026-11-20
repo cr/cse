@@ -172,7 +172,9 @@ def test_cold_start_reaches_the_prompt_without_recovery(s):
     assert (s.width, s.height) == (80, 25)
 
 
-SPLASH_FREE = ["; low  0.1600-1eff  2304b free",
+SPLASH_FREE = ["; zp   0.000a-008f   134b free",
+               "; zp   0.00fb-00ff     5b free",
+               "; low  0.1600-1eff  2304b free",
                "; work 0.2000-bfff 40960b free",
                "; ext  1.2000-f6ff 55040b free",
                "; ext  4.0000-ffff 65536b free",
@@ -181,8 +183,8 @@ SPLASH_FREE = ["; low  0.1600-1eff  2304b free",
 
 def test_splash_and_prompt_at_80x25(s):
     rows = s.rows()
-    assert rows[15].startswith("; cse v")
-    assert rows[17:22] == SPLASH_FREE
+    assert rows[13].startswith("; cse v")
+    assert rows[15:22] == SPLASH_FREE
     assert rows[23].startswith("; man: ")
     assert rows[24] == "2000:"
     assert (s.v("io_cy"), s.v("io_cx")) == (24, 5)
@@ -278,8 +280,10 @@ def test_r_is_two_rows_in_40_columns_each_re_executing(s):
     assert s.v("reg_a") == 0x33
 
 
-INFO = ["; low  0.1600-1eff  2304b free",
-        "; cse  0.1f00-1fff page",
+INFO = ["; zp   0.000a-008f   134b free",
+        "; zp   0.00fb-00ff     5b free",
+        "; low  0.1600-1eff  2304b free",
+        "; cse  0.1f00-1fff base",
         "; work 0.2000-bfff 40960b free",
         "; ext  1.2000-f6ff 55040b free",
         "; cse  3.2000-7fff code",
@@ -290,7 +294,7 @@ INFO = ["; low  0.1600-1eff  2304b free",
 
 def test_i_prints_the_m65_rows_with_their_banks(s):
     s.type("i")
-    k, _ = s.find(r"^; low  0\.1600")
+    k, _ = s.find(r"^; zp   0\.000a")
     assert s.rows()[k:k + len(INFO)] == INFO
     assert s.row(k + len(INFO)) == "2000:"
 
@@ -300,9 +304,9 @@ def test_i_in_80x50_has_no_bank_4_row(s):
     free — measured: the KERNAL's 80 x 50 writes nothing else there."""
     s.mode("5")
     s.type("i")
-    k, _ = s.find(r"^; low  0\.1600")
-    assert s.rows()[k:k + 7] == INFO[:6] + INFO[7:]
-    assert s.row(k + 7) == "2000:"
+    k, _ = s.find(r"^; zp   0\.000a")
+    assert s.rows()[k:k + 9] == INFO[:8] + INFO[9:]
+    assert s.row(k + 9) == "2000:"
 
 
 def test_i_shows_a_loaded_source_in_bank_2(s):
@@ -313,7 +317,7 @@ def test_i_shows_a_loaded_source_in_bank_2(s):
     assert 0x4000 <= lo < hi <= 0xC000           # the source region's offsets
     s.type("i")
     k, _ = s.find(rf"^; src  2\.{lo:04x}-{hi - 1:04x} ")
-    assert s.row(k - 1) == INFO[3] and s.row(k + 1) == INFO[4]   # in bank order
+    assert s.row(k - 1) == INFO[5] and s.row(k + 1) == INFO[6]   # in bank order
 
 
 @pytest.mark.parametrize("key,width,height", [("4", 40, 25), ("5", 80, 50), ("8", 80, 25)])
@@ -614,3 +618,38 @@ def test_dot_assembles_the_m65_forms(s, text, raw):
     s.type("@ $3000")
     s.type(text)
     assert s.peek(USER, len(raw)) == raw
+
+
+# ── the program's base page (userland_contract.md § 3 On m65, Zero page) ──
+
+USER_BP = [*range(0x0A, 0x90), *range(0xFB, 0x100)]   # $0A-$8F, $FB-$FF
+
+
+def fill_user_bp(s):
+    """A pattern in the program's base-page cells; returns it."""
+    pat = {a: (a * 37 + 0x5B) & 0xFF for a in USER_BP}
+    for a, v in pat.items():
+        s.poke(a, [v])
+    return pat
+
+
+def user_bp(s):
+    return {a: s.peek(a)[0] for a in USER_BP}
+
+
+def test_a_session_leaves_the_programs_base_page_alone(s):
+    """$0A-$8F and $FB-$FF are the program's: through output, `i`, `m`,
+    `d`, `.`, a run that calls BSOUT, steps, the 80 x 50 switch and the
+    editor, neither CSE nor the KERNAL writes them."""
+    pat = fill_user_bp(s)
+    s.poke(USER, [0xA9, 0x48, 0x20, 0xD2, 0xFF, 0x60])   # LDA #'H' · JSR BSOUT · RTS
+    for cmd in ["i", "m 2000", f"d {USER:x}", "? 1+2", "@ 2000", ". lda #1",
+                f"j {USER:x}", f"@ {USER:x}", "t", "t", "t"]:
+        s.type(cmd)
+    s.mode("5")
+    s.type("i")
+    s.mode("8")
+    s.keys(bytes([0x03]))                                 # into the editor
+    s.keys(b"AB\r")
+    s.keys(bytes([0x03]))                                 # and out
+    assert user_bp(s) == pat

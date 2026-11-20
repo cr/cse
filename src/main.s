@@ -326,7 +326,7 @@ vec_buf:           .res VEC_SIZE   ; the KERNAL's vector table, via VECTOR
 .else
         lda scr_last_row
         sec
-        sbc #9                  ; height − 10
+        sbc #11                 ; height − 12: the m65 rows are two more
 .endif
         jsr splash_row
         lda #<VERSION_STR

@@ -147,15 +147,15 @@ STEP_OVER = 2
         .import str_errors, str_dashes, str_colon_sp, str_pct
         .import str_main
         .import str_tag_cse, str_tag_work
-        .import str_tag_src, str_tag_low
+        .import str_tag_src, str_tag_low, str_tag_zp
 .ifdef PLATFORM_C64
         .import str_ioport, str_stack, str_kernal, str_screen
         .import str_cse_rt, str_io
-        .import str_tag_cpu, str_tag_zp, str_tag_stk, str_tag_sys
+        .import str_tag_cpu, str_tag_stk, str_tag_sys
         .import str_tag_scr, str_tag_io
         .import str_tag_rom, str_banked
 .else
-        .import str_tag_ext, str_page, str_code, str_data
+        .import str_tag_ext, str_base, str_code, str_data
         .import info_bank
 .endif
         .import cpu_names, cpu_lookup   ; asm_src.s: the build's CPU set
@@ -278,9 +278,13 @@ INFO_TBL_TAIL_ROWS = (* - info_tbl_tail) / 8
 ; there (4.0800-4.179F).
 INFO_M65_ROW    = 9
 info_m65:
+        .addr str_tag_zp,   $000A,   $008F,   0         ; BASIC 65's base page
+        .byte BANK_USER
+        .addr str_tag_zp,   $00FB,   $00FF,   0         ; the free top of it
+        .byte BANK_USER
         .addr str_tag_low,  $1600,   $1EFF,   0         ; free for programs
         .byte BANK_USER
-        .addr str_tag_cse,  CSE_BP << 8, $1FFF, str_page  ; base page + stub
+        .addr str_tag_cse,  CSE_BP << 8, $1FFF, str_base  ; base page + stub
         .byte BANK_USER
         .addr str_tag_work, PROG_LO, PROG_HI, 0         ; the program region
         .byte BANK_USER

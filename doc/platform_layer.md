@@ -25,6 +25,7 @@ states the seam's contract and points there.
 | [`tests/unit/test_platform_audit.py`](../tests/unit/test_platform_audit.py) | test contract — the byte-identical gate; the literal audit, the base-page, stack-top, raw-byte and KERNAL-call checks |
 | [`tests/unit/test_platform_m65.py`](../tests/unit/test_platform_m65.py) | test contract — the m65 macro bodies on M65Emu in clean mode: `KCALL` / `KJMP` (B = 0 for the KERNAL, registers through), the far accesses in banks 0, 2, 3, 4, `FAR_BANK`, `PLAT_SETBNK` |
 | [`dev/m65_macros_test.s`](../dev/m65_macros_test.s), [`dev/m65_test.cfg`](../dev/m65_test.cfg) | test helper — the m65 macro bundle, and the linker config of every m65 test bundle (base page at `0.1F00`, code and data at `$4000`; the m65-45gs02 `asm_core` and `dasm` bundles too) |
+| [`tests/emulator/test_m65_base_page.py`](../tests/emulator/test_m65_base_page.py) | test contract (Tier X) — the program's base-page cells (`$0A–$8F`, `$FB–$FF`) keep a pattern through a typed session in xmega65 and M65Emu, on each ROM ([userland_contract.md § 3 On m65](userland_contract.md#on-m65)) |
 | [`tests/unit/test_m45_ops.py`](../tests/unit/test_m45_ops.py) | test contract — each raw-byte macro is the compendium's encoding of its instruction |
 | [`tests/m65emu/m45_ops.py`](../tests/m65emu/m45_ops.py) | test helper — the macros assembled and decoded: clean mode's allowed keys |
 | [`tests/fixtures/golden/c64_prg_sha256.json`](../tests/fixtures/golden/c64_prg_sha256.json) | generated — the recorded SHA-256 of each C64 release PRG; back-link-exempt (JSON data) |
@@ -659,9 +660,10 @@ block per platform (`.ifdef`), each stating that platform's map in
 `INFO_LOW1_*`, `INFO_LOW2_*`).  `cmd_info`'s sequence of fixed and
 dynamic rows is the c64 map's.  On m65 the rows are
 [memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)'s
-bank table — the user's regions (`0.1600–0.1EFF`, the program region
+bank table — the user's regions (base page 0's `$0A–$8F` and
+`$FB–$FF`, `0.1600–0.1EFF`, the program region
 with `workstart` / `workend`, bank 1 above the DOS buffers, bank 4
-in 40 × 25 and 80 × 25, bank 5), CSE's page, the source region, CSE's code and
+in 40 × 25 and 80 × 25, bank 5), CSE's page (`base`), the source region, CSE's code and
 data windows — each written with its bank, `b.aaaa-bbbb`
 ([glossary.md](glossary.md)).
 

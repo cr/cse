@@ -286,3 +286,16 @@ def test_s_and_l_of_the_source(drv):
     s.find(r"^; 2l 5b$")
     lo, hi = s.w("gap_hi"), 0xC000
     assert bytes(s.e.memory.read_flat(flat(2, a)) for a in range(lo, hi)) == b"\xa0INX\r"
+
+
+def test_the_disk_commands_leave_the_programs_base_page_alone(drv):
+    """`s`, `$` and `l` call the KERNAL's file and disk routines, which
+    write their own cells ($90-$FA) only: the program's $0A-$8F and
+    $FB-$FF keep their bytes (userland_contract.md § 3 On m65)."""
+    from test_m65_repl import fill_user_bp, user_bp
+    s, _ = drv
+    pat = fill_user_bp(s)
+    s.poke(0x3000, list(range(16)))
+    for cmd in ['s "bp" $3000 $3010', "$", 'l "bp" 0']:
+        s.type(cmd)
+    assert user_bp(s) == pat

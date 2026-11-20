@@ -208,10 +208,14 @@ under [§ Records](#records).
 
 - [ ] **A2. Zero page and low memory** (after P1; changes the
   userland contract).  Answered by P0's analysis: CSE's own base page
-  (`0.1F00`), base page 0 wholly the user's and the KERNAL's.  Still
-  open: which cells of base page 0 and `0.0200–0.15FF` the KERNAL
-  needs (a list for the user), and a private 16-bit stack (`E`
-  clear) for user programs — what it costs, what it buys.  Output: a delta to
+  (`0.1F00`), base page 0 wholly the user's and the KERNAL's.  Base
+  page 0's split answered 2026-11-20 (operator; confirmed on M65Emu
+  and in xmega65, both ROMs): `$0A–$8F` and `$FB–$FF` the user's,
+  `$02–$09` and `$90–$FA` the KERNAL's
+  ([userland_contract.md § 3 On m65](userland_contract.md#on-m65)).
+  Still open: which cells of `0.0200–0.15FF` the KERNAL needs (a
+  list for the user), and a private 16-bit stack (`E` clear) for user
+  programs — what it costs, what it buys.  Output: a delta to
   [userland_contract.md](userland_contract.md) and
   [zp.md](modules/zp.md).
 

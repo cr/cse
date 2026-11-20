@@ -45,14 +45,14 @@
         .export str_main
         .export str_tag_cpu
         .export str_tag_work, str_tag_src
-        .export str_tag_low
+        .export str_tag_low, str_tag_zp
 .ifdef PLATFORM_C64
         .export str_ioport, str_stack, str_kernal, str_screen
-        .export str_tag_zp, str_tag_stk, str_tag_sys
+        .export str_tag_stk, str_tag_sys
         .export str_tag_rom
         .export str_banked
 .else
-        .export str_page, str_code, str_data, str_tag_ext
+        .export str_base, str_code, str_data, str_tag_ext
 .endif
 
 
@@ -151,7 +151,7 @@ str_stack:      .byte "stack", 0
 str_kernal:     .byte "kernal", 0
 str_screen:     .byte "scr", 0
 .else
-str_page:       .byte "page", 0
+str_base:       .byte "base", 0
 str_code:       .byte "code", 0
 str_data:       .byte "data", 0
 str_tag_ext:    .byte "ext", 0
@@ -161,8 +161,8 @@ str_main:       .byte "main", 0
 
 ; info_line tag strings
 str_tag_cpu:    .byte "cpu", 0
-.ifdef PLATFORM_C64
 str_tag_zp:     .byte "zp", 0
+.ifdef PLATFORM_C64
 str_tag_stk:    .byte "stk", 0
 str_tag_sys:    .byte "sys", 0
 .endif

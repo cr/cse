@@ -691,7 +691,11 @@ Where it differs from the C64 build:
   the ALT and MEGA combinations do nothing in CSE yet.
 - **Your program runs as `RUN` would start it**, in BASIC 65's `SYS`
   map, and a break or a step keeps its own memory map, CPU port and
-  `$D030`.  What it may use is
+  `$D030`.  BASIC 65 is gone while CSE runs, so everything it would
+  hold is yours: in base page 0, `$0a`–`$8f` and `$fb`–`$ff` (the
+  KERNAL keeps `$02`–`$09` and `$90`–`$fa`; the splash and `i` list
+  them as `zp`); the program region `$2000`–`$bfff`; `$1600`–`$1eff`;
+  bank 1 above the DOS buffers; banks 4 and 5.  The full list is
   [doc/userland_contract.md § 3](doc/userland_contract.md#3-memory-regions).
 
 ## Development

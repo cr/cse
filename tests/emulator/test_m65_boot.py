@@ -145,7 +145,7 @@ def geometry_of(read, sym):
     return width, cell("scr_height"), cell("scr_bank")
 
 
-def typed_run(snap_dir, cse_m65_prg, script, work, peek=(), finish=None):
+def typed_run(snap_dir, cse_m65_prg, script, work, peek=(), finish=None, poke=()):
     """Type `script` (key groups) into M65Emu's M65Session and into
     xmega65 on the snapshot's ROM, one key at a time — put into the
     KERNAL's buffer by ADDKEY, run until main_loop polls again.
@@ -154,11 +154,15 @@ def typed_run(snap_dir, cse_m65_prg, script, work, peek=(), finish=None):
     splash, then one after each group; the bytes at each bank-0
     (addr, n) of `peek` after the last group (`want_peek`, `got_peek`);
     xmega65's registers at main_loop_top (`cold`); and what
-    `finish(xm, sym, snap)` returns, run in xmega65 at the end."""
+    `finish(xm, sym, snap)` returns, run in xmega65 at the end.  Each
+    bank-0 (addr, bytes) of `poke` is written into both machines at the
+    first idle main_loop, before the script."""
     snap = load_snapshot(snap_dir)
     prg, map_path = cse_m65_prg
     ref = M65Session((prg, map_path), snap)
     s = ref.e.sym
+    for a, data in poke:
+        ref.poke(a, data)
     want = [ref.rows()]
     for keys in script:
         ref.keys(keys)
@@ -174,6 +178,8 @@ def typed_run(snap_dir, cse_m65_prg, script, work, peek=(), finish=None):
             xm.run_to_page(s("_main"), CSE_BP)
             cold = xm.run_to(s("main_loop_top"), at_hit=True)
             xm.run_to(s("main_loop"))
+            for a, data in poke:
+                xm.write(a, bytes(data))
             got = [screen_text(xm.read, *geometry_of(xm.read, s))]
             for keys in script:
                 for k in keys:

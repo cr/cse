@@ -313,7 +313,7 @@ by earlier steps, with no hidden cross-subsystem reach-ins.
 | 11 | `$00` over the program region (`PROG_LO`–`PROG_HI`) by one DMA fill job (this wipes the PRG image and the loader, as on the C64) |
 | 12 | `io_init` reads the geometry (`io_geometry`); `reset_screen` and `set_charset` are screen.s's m65 bodies ([screen.md](screen.md)) |
 | 13 | `reset_globals` sets `cur_addr` to `workstart` (`$2000`): `$0800` is the screen |
-| 14 | the splash from row height − 10, `cmd_info`'s m65 free rows ([repl.md § Splash screen](repl.md#splash-screen)), the prompt on the last row |
+| 14 | the splash from row height − 12, `cmd_info`'s m65 free rows ([repl.md § Splash screen](repl.md#splash-screen)), the prompt on the last row |
 
 The order is load-bearing.  `_main` must reach `main_loop_top`
 without `cse_brk_handler` or `cse_recover` ever being entered —

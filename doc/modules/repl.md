@@ -860,9 +860,11 @@ The work row ends at `buf_base - 1` and follows the build's runtime
 start and the loaded source.
 
 On m65 the splash's free rows are the user's regions with their
-banks (in 80 × 50 without the bank-4 row: the screen is there), from
-row height − 10:
+banks — the two free stretches of base page 0 first (in 80 × 50
+without the bank-4 row: the screen is there), from row height − 12:
 
+    ; zp   0.000a-008f   134b free
+    ; zp   0.00fb-00ff     5b free
     ; low  0.1600-1eff  2304b free
     ; work 0.2000-bfff 40960b free
     ; ext  1.2000-f6ff 55040b free
@@ -937,8 +939,10 @@ row appears only when source is loaded.
 the rows are [memory_design.md § Memory Map — m65](../memory_design.md#memory-map--m65-mega65-mode)'s
 bank table, in bank order, each range written `b.aaaa-bbbb`:
 
+    ; zp   0.000a-008f   134b free       BASIC 65's base page
+    ; zp   0.00fb-00ff     5b free
     ; low  0.1600-1eff  2304b free
-    ; cse  0.1f00-1fff page             CSE's base page and the stub
+    ; cse  0.1f00-1fff base             CSE's base page and the stub
     ; work 0.2000-bfff 40960b free       the program region, workstart-workend
     ; ext  1.2000-f6ff 55040b free       above the DOS buffers
     ; src  2.XXXX-XXXX Nl NNb            the source text (only when loaded)
@@ -951,8 +955,10 @@ The fixed rows are the `info_m65` table (9 bytes a row: tag, lo, hi,
 desc — 0 for a free row, whose size is computed — and the bank),
 written by `info_m65_rows`; a whole bank's size is `65536b`.  The
 `src` row is the shared dynamic row with `info_bank` = `BANK_SRC`.
-The map is not a cover of the 28-bit space: the KERNAL's and the
-ROM's banks are not listed.  Tests: `tests/integration/test_m65_repl.py`.
+The map is not a cover of the 28-bit space: the KERNAL's cells (base
+page `$00–$09` and `$90–$FA`, `0.0200–0.15FF`) and the KERNAL's and
+the ROM's banks are not listed; the `zp` rows are the program's part
+of base page 0 ([userland_contract.md § 3 On m65](../userland_contract.md#on-m65)).  Tests: `tests/integration/test_m65_repl.py`.
 
 ### `C` — Color (uppercase)
 
