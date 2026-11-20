@@ -42,6 +42,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 STATE_DIR = ROOT / "build" / "m65_state"
 CAPTURE = "python dev/capture_m65_state.py [--rom PATH]..."
 FORMAT = 3                  # of the snapshot; state.json's "format"
+# The MEGA65 ROMs the m65 build is verified on (build_system.md § MEGA65
+# ROM, *The verified ROMs*): the floor and the current one.
+VERIFIED_ROMS = ("920413", "920421")
 PREMISE = ROOT / "tests" / "fixtures" / "golden" / "m65_premise.json"
 
 # The installed machine (memory_design.md § Memory Map — m65,
@@ -111,6 +114,26 @@ def snapshot_dirs(root=STATE_DIR):
         return []
     return sorted(d for d in root.iterdir()
                   if d.is_dir() and (d / "state.json").exists())
+
+
+def verified_rom_gaps(root=STATE_DIR):
+    """What keeps the snapshots under `root` from covering the verified
+    ROMs, one line each: a ROM with no snapshot, or one an older
+    recorder made.  Empty when every verified ROM has a current one —
+    or when there is no snapshot at all (the m65 tests skip)."""
+    root = pathlib.Path(root)
+    have = {d.name: d for d in snapshot_dirs(root)}
+    if not have:
+        return []
+    gaps = []
+    for rom in VERIFIED_ROMS:
+        if rom not in have:
+            gaps.append(f"no snapshot of ROM {rom} in {root}; run: {CAPTURE}")
+            continue
+        fmt = json.loads((have[rom] / "state.json").read_text()).get("format")
+        if fmt != FORMAT:
+            gaps.append(f"snapshot {rom} is format {fmt}, not {FORMAT}; run: {CAPTURE}")
+    return gaps
 
 
 def load_snapshot(state_dir):

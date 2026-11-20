@@ -2140,7 +2140,7 @@ Decisions (approved 2026-11-20):
   follow-ups — and the slice-2 status line closes.
 
 **P5 TDD analysis (2026-11-20) — approved 2026-11-20.**
-- [ ] T1. The verified ROMs (`tests/integration/test_m65_roms.py`, owner
+- [x] T1. The verified ROMs (`tests/integration/test_m65_roms.py`, owner
   build_system.md): the list equals build_system.md's; with the real
   `build/m65_state/` each verified ROM has a snapshot of the current
   format; on a temporary directory holding one of the two, the check
