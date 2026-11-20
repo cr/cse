@@ -91,7 +91,10 @@ doc update and a record in TODO).
 ### Follow-ups
 
 - **A3b** — recompact ZP over the freed bytes ($0F, $13, $2C, $43): a
-  userland-contract change, its own cycle (D-P4-4).
+  userland-contract change, its own cycle (D-P4-4).  *(2026-11-20:
+  moved out of R7 as a C64-only item, TODO § Planned, ZP compaction
+  (c64); it changes no user contract — the C64 swaps all of
+  $00–$7F.)*
 - **The C64 KDATA bound** — the linker does not stop a KDATA overflow
   into KBSS (TODO § M65, known issues).
 - **bbbc64** — its golden copies of cse's tables are stale, and the

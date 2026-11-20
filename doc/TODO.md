@@ -14,7 +14,7 @@ platform layer.  **Order (operator, 2026-11-18):** Phase B and A3b
 waited for slice 2's P0–P2 — the m65 build had to exist, boot and run
 user code before the CPU layer was finished on it.  **Status
 (2026-11-20):** Phase A done (A5 closed in slice 2's P5); Phase B
-done as slice 2's P4; A3b deferred (D-P4-4).
+done as slice 2's P4; A3b moved to § Planned as a C64 item.
 
 **Hard constraint (operator, 2026-11-16):** no change made for the
 m65 target may make any C64 build bigger or significantly slower.
@@ -139,11 +139,13 @@ disassembler (A4) followed: see A4 below.
   trimmed the row width, merged validate into `asm_opcode_lookup`,
   wired `ASM_ZONE_G`, and fixed the sharing rule that would have put
   the 4510's `DEW`/`INW` into zone D — figures under *Measured* above.)
-- [ ] A3b. *(follow-up, own CDD cycle; deferred past P4, operator
-  2026-11-19 — P4 puts its new state in BSS)* Recompact ZP over the freed
-  `$2C`: every later allocation moves down one byte and the user ZP
-  becomes `$77–$7F` (9 bytes) — a userland-contract change
-  ([userland_contract.md](userland_contract.md)), so not bundled.
+- [x] ~~A3b. Recompact ZP over the freed bytes.~~  (Moved 2026-11-20,
+  operator: not m65 work.)  On m65 CSE's ZP is its own base page and
+  base page 0 is the user's, so it buys nothing there; it survives as
+  the C64 item *ZP compaction (c64)* under
+  [§ Planned / Architecture](#architecture).  The entry's claim that
+  the user ZP would become `$77–$7F` was wrong: user code has all of
+  `$00–$7F` on the C64 already ([userland_contract.md § 3](userland_contract.md#3-memory-regions)).
 - [x] ~~A4. `dasm.s` → opcode-map decoder ([dasm.md](modules/dasm.md)).~~
   (Done 2026-11-16.  Map blocks in RODATA, the set's own mnemonic
   strings in KDATA.  Measured, release builds: PRG 20 549 → 20 220 /
@@ -5168,6 +5170,21 @@ from our exit context.
 
 ### Architecture
 
+- [ ] **ZP compaction (c64).**  *(From slice 1's A3b, 2026-11-20.)*  CSE's
+  C64 zero page has five one-byte holes left by retired cells —
+  `$0F` (`asm_slot`), `$13`, `$2C` (`_asm_ok_tmp`), `$36`, `$43`
+  (`_dasm_opc`) — held so later addresses stay put, and `$7A–$7F`
+  free above `scr_src`: 11 bytes, six of them contiguous.  Compacting
+  moves every later cell down and gives CSE one free block at the top
+  for its next ZP needs.  It changes **nothing for user code**: the
+  kernel swaps the whole of `$00–$7F` around every user run
+  (`ZP_SAVE_LEN` = 128, fixed by the userland contract, not by CSE's
+  footprint), so neither the swap buffers nor its cost shrink.  Cost:
+  every moved address in [zp.md](modules/zp.md) and the module docs,
+  both C64 PRGs' recorded hashes (a deliberate change), and the m65
+  base-page layout checked for any shared offset.  Low priority;
+  until it runs, a new ZP cell takes a hole.
+
 - [ ] **Doc-audit Step 5 — examples-as-tests.**  The seven
   audit scripts under `dev/` (driven by `dev/audit_doc.py`)
   catch structural drift mechanically — broken cross-refs,
@@ -5539,12 +5556,12 @@ relocated ZP internals in native mode, VIC-IV) requiring bigger
 adaptations than a compatibility shim.  Alongside C128 native
 (R3/R4), this would be a distinct platform target with its own
 screen driver and memory model.  Slice 1 — the CPU layer (assembler
-and disassembler) — is done but A3b, its Phase B as slice 2's
+and disassembler) — is done, its Phase B as slice 2's
 P4: see [M65](#m65--the-45gs02-assembler-and-disassembler-r7-slice-1).
 Slice 2 — the platform layer: a native MEGA65-mode program living
 in the BASIC ROM banks, shipped as PRG and D81 (a MEGA65-style CRT
 in a later release) — is done for R7's first release, P0–P5
-(R7 — CDD Report in [cdd_log.md](cdd_log.md)); the CRT, A3b and the
+(R7 — CDD Report in [cdd_log.md](cdd_log.md)); the CRT and the
 hardware walks remain: see
 [M65 slice 2](#m65-slice-2--the-mega65-platform-r7-platform-layer).
 Slice 2 does the c64/m65 leaf-function isolation R3 asks for; R3

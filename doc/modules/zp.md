@@ -32,7 +32,7 @@ every module that `.importzp`s at least one of the block's variables
 | $24–$26 | mnemonic classifier inputs | `mn_c1` (1), `mn_c2` (1), `mn_c3` (1) | written by asm_line, read by mn7 / mn6 |
 | $27 | mn7 / mn6 | `mn7_h_tmp` / `mn6_h_tmp` (1, aliased — only one classifier is linked) | mn7 or mn6 |
 | $28–$2B | addr_mode | `asm_ptr` (2), `asm_opr` (2) | addr_mode, asm_line |
-| $2C | — | unallocated (1) — see [TODO § M65](../TODO.md#m65--the-45gs02-assembler-and-disassembler-r7-slice-1), A3b | — |
+| $2C | — | unallocated (1) — see [TODO § Planned / Architecture](../TODO.md#architecture), *ZP compaction (c64)* | — |
 | $2D–$30 | cse_io | `_io_tmp` (2), `_io_scr` (2) | `_io_tmp`: cse_io, disk, repl; `_io_scr`: cse_io, screen |
 | $31–$32 | disk | `disk_ptr` (2) | disk, editor, repl |
 | $33–$35 | expr | `_ex_tmp` (2), `_ex_digits` (1) | expr |
@@ -45,8 +45,10 @@ every module that `.importzp`s at least one of the block's variables
 | $6F–$77 | **shared output scratch** | `rp_addr` (2), `rp_cnt` (2), `rp_save` (1), `rp_save2` (1), `rp_next_lo` (2), `_info_mode` (1) | repl (command-handler scratch), log (range-line calling convention), asm_src (`rp_addr`, `rp_cnt`, `rp_save2`) |
 | $78–$79 | screen | `scr_src` (2) — `scroll_up`'s source row pointer | screen |
 
-Unallocated holes: $13, $2C and $36 — held so every later address
-stays put; recompaction is TODO § M65, A3b.
+Unallocated holes: $0F, $13, $2C, $36 and $43 — held so every later
+address stays put; a new ZP cell takes one.  Compacting them is
+[TODO § Planned / Architecture](../TODO.md#architecture), *ZP
+compaction (c64)*; it changes nothing for user code.
 
 On c64: first free byte $7A; $7A–$7F is not allocated by CSE.  Which
 zero page a user program may use is
