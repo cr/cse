@@ -415,24 +415,71 @@ truncated, with the warning, by the C64 build.
 
 ### Long lines and the overflow indicator
 
-Typing never makes a line wider than 39 visual columns, and the
-cursor never goes past col 39, so `ed_cur_col` stays ≤ 39.  The
-width is measured **after** the insert (and the insert taken back
-when it is over): a character or a tab typed before a tab can push
-that tab to the next `TAB_WIDTH` stop, widening the line by up to
-`TAB_WIDTH` columns at once (32 spaces typed before the seeded tab
-would make a 40-column line).  Printable, INS and TAB are refused
-then (`_ins_capped`); RETURN opens its new line
-without the tab (§ Tab character).  RIGHT is refused when its step
-would end past col 39 (crossing a tab), and the DEL join puts the
-cursor at most at col 39.  Lines in the buffer may still be wider —
-from a loaded file or a DEL join.
+**Terminology.**  Screen columns are 0-indexed.  Typed content fills
+visual cols **0..38** — a line holds at most **39 columns** of
+content — and col **39** is the *cursor rest*, where the cursor sits
+after a full line; no typed content goes there.  `ed_cur_col` is
+this 0-indexed visual column; its range is **0..39**.  On m65 the
+cap is `LAST_COL` (79 in 80 columns, 39 in 40 × 25) and the reader's
+`LINE_MAX` 79 (§ On m65); every 39 below is `LAST_COL` there.
 
-**Rendering.**  The renderer clips at the screen edge: a line wider
-than 39 columns shows `>` (normal video) in col 39 instead of its
-40th column.  The hidden part cannot be reached — there is no
-horizontal scrolling.  The fix is manual: split the line, shorten an
-expression or a comment.
+**The invariant.**  No key makes a line wider than 39 visual
+columns, and no key puts the cursor past col 39.  This is a **hard
+invariant**: the rendering, the cursor motion, the status bar's
+position field and the row math assume `ed_cur_col` ≤ 39.  Two
+sources may still put a wider line into the buffer — a loaded file
+and the DEL join (below); such a *long line* is shown clipped,
+cannot grow, and its hidden part cannot be reached.
+
+**Width is not additive.**  A tab ends at the next `TAB_WIDTH` stop,
+so one byte inserted before a tab changes the line's width by 0 to
+`TAB_WIDTH` columns: 31 spaces and a tab are 32 columns wide, 32
+spaces and a tab 40.  A check of the width *before* the change ("is
+the line already full?") misses every such jump.  Every rule below
+therefore measures the line **after** the change, and a step of the
+cursor by the width of the byte it crosses.
+
+**The entry points.**  The only places where a line's width or the
+cursor's column changes, each with the rule that keeps the
+invariant — so no other code needs to check it:
+
+| Where | Rule |
+|-------|------|
+| Printable | Inserted, then the cursor's line measured (`_ins_capped`); wider than 39 → taken back and refused (blip), the buffer and `ed_dirty` as before. |
+| INS | The same for the opened space. |
+| TAB | The same for the `$A0`. |
+| RETURN at col 0 | `$0D` only: the rest of the line keeps its columns. |
+| RETURN mid-line | Smart indent (§ Tab character): `$0D` + `$A0`.  When the tab would make the new line wider than 39 — the rest moves right to the tab stop: a 39-column line split at col 1 would become 46 — the new line opens without its tab (`ed_cur_col` = 0); the rest then starts at col 0, no further right than it was. |
+| Smart colon | Removes one tab: the line only narrows. |
+| DEL inside a line | One byte goes: the line narrows or keeps its width (a tab after it absorbs the column). |
+| DEL at col 0 (join) | Always joins — no split, no blip (below); the joined line may be long.  The cursor goes to the join point, at most col 39. |
+| Load from SEQ | Verbatim, no width check: a file's lines may be long (§ Warnings). |
+| `enter_editor` seed, `ed_new` | One tab (`TAB_WIDTH` columns) / an empty buffer. |
+| RIGHT | Refused when the step would end past col 39: the column after it is `ed_cur_col` + the width of the byte it crosses (a tab crosses up to `TAB_WIDTH` columns at once — from col 32 a tab would land on col 40, the next screen row). |
+| LEFT, HOME | Toward col 0 only. |
+| UP, DOWN | `advance_to_vcol(ed_cur_col)`: stops at the line's end or before a byte that would overshoot, so never past the column it left. |
+| Entering after a mode change | A column past the last one puts the cursor at its line's start (§ On m65). |
+
+**Long lines.**  A line wider than 39 columns is rendered clipped: a
+normal-video `>` ($3E) in col 39 instead of its 40th column, the rest
+skipped.  It cannot grow — every insert measures over 39 and is
+refused — but it can shrink (DEL, RETURN).  The cursor stops at col
+39 (RIGHT's rule); the hidden part cannot be reached — there is no
+horizontal scrolling.
+
+**Workflow.**  The user sees the `>` and knows the line is too long.
+The fix is manual: RETURN at a visible column, a shorter expression,
+a cut comment.  This matches the C64, where the screen width is a
+hard physical constraint.
+
+**Rationale — joins and loads keep long lines.**  A DEL join or a
+load that makes or brings a line wider than 39 preserves every byte
+where the user put it.  Two other policies were tried and rejected:
+refusing the join flat (the user's edit was valid; the editor doing
+nothing surprised), and a forced newline at the largest column ≤ 39
+(no data lost, but a CR appeared where the user had not put one).
+Keeping the long line, with `>` and the `;!long` warnings, leaves the
+split to the user.
 
 **Warnings.**  After every successful SEQ load and save the REPL
 scans the buffer and prints `;!long LN` (1-based line number) for

@@ -824,3 +824,25 @@ class TestTheCap:
         assert read_back(emu) == b"Y" * 45 + b"Z"
         assert emu.memory[emu.sym("ed_cur_col")] <= 39
         assert emu.memory[0xD3] <= 39 and emu.memory[0xD6] == 0
+
+    def test_up_onto_a_long_line_stays_within_col_39(self, cse_prg):
+        emu = make_emu(cse_prg)
+        put(emu, b"Y" * 45 + b"\r" + bytes([TAB]) + b"Z" * 31)   # cursor at col 39
+        assert emu.memory[emu.sym("ed_cur_col")] == 39
+        type_keys(emu, [0x91])                                    # UP
+        assert emu.memory[emu.sym("ed_cur_col")] == 39
+        assert emu.memory[0xD3] <= 39 and emu.memory[0xD6] == 0
+
+    def test_del_before_a_tab_never_widens_the_line(self, cse_prg):
+        emu = make_emu(cse_prg)
+        put(emu, b"ABCDEFGH" + bytes([TAB]) + b"C" * 23)           # 39 wide
+        type_keys(emu, [HOME] + [RIGHT] * 8 + [DEL] * 3)
+        assert line_at(emu, 0) == b"ABCDE" + bytes([TAB]) + b"C" * 23
+        assert width(line_at(emu, 0)) == 31
+
+    def test_the_smart_colon_only_narrows(self, cse_prg):
+        emu = make_emu(cse_prg)
+        put(emu, bytes([TAB]) + b"L" * 30)                         # 38 wide
+        type_keys(emu, [ord(":")])
+        assert line_at(emu, 0) == b"L" * 30 + b":"
+        assert width(line_at(emu, 0)) == 31
