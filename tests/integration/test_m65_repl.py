@@ -1228,3 +1228,13 @@ def test_b_delete_and_clear_take_no_trailing_garbage(s, cmd):
     s.find(r"^;\?syntax$")
     s.type("b")
     s.find(r"^; bp 1: 0\.3000$")
+
+
+def test_dot_refuses_more_pairs_than_the_longest_instruction(s):
+    """TODO § Bugs (fixed 2026-11-21): a sixth pair is ;?syntax, and
+    nothing is written (it used to write five and drop the sixth)."""
+    s.poke(0x3000, [0] * 6)
+    s.type("@ $3000")
+    s.type(". a9 42 ea ea ea ea")
+    s.find(r"^;\?syntax$")
+    assert s.peek(0x3000, 6) == [0] * 6

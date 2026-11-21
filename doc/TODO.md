@@ -98,10 +98,6 @@ marked.
 
 ### Both platforms
 
-- [ ] **`.`'s hex poke ignores what follows.**  Over bytes that differ,
-  every parsed pair is written and trailing text is dropped without a
-  check: `. a9 42 ea ea ea ea` writes 5 bytes and drops the 6th (m65,
-  prober-reproduced; `INSN_MAX` pairs).
 - [ ] **A forward zero-page pointer in an indirect form never
   assembles.**  Pass 0 sizes a forward reference wide (`asm_pc`+2), and
   a `sym_fwd` read stays wide on pass 1, so `(e),y`, `(e,x)`, ZPREL's
@@ -4435,6 +4431,10 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: a pair past `INSN_MAX` is `;?syntax` and writes nothing; text after the pairs stays ignored by design — a `d` row's disassembly column) **`.`'s hex poke ignores what follows.**  Over bytes that differ,
+  every parsed pair is written and trailing text is dropped without a
+  check: `. a9 42 ea ea ea ea` writes 5 bytes and drops the 6th (m65,
+  prober-reproduced; `INSN_MAX` pairs).
 - [x] (fixed 2026-11-21: `parse_ls_args` returns past the command on an expression error or a third word) **`l` / `s` go on after a bad argument.**  `parse_ls_args` drops
   to fewer arguments on an expression error and takes no end-of-input
   check: `s "demo" 1/0` prints `;?expr div0`, then saves the source as

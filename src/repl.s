@@ -2671,7 +2671,7 @@ mem_row:
 @hex_lp:
         lda rp_cnt
         cmp #INSN_MAX
-        bcs @hex_done
+        bcs @hex_full
         ldy #0
         jsr is_hex_at_ptr1
         beq @hex_done
@@ -2691,6 +2691,17 @@ mem_row:
         jsr skip_sp_ptr1
         jmp @hex_lp
 
+@hex_full:                      ; another pair: more bytes than the
+        ldy #0                  ; longest instruction — ;?syntax, nothing
+        jsr is_hex_at_ptr1      ; written (a `d` row's mnemonic column
+        beq @hex_done           ; is never a hex pair)
+        ldy #1
+        jsr is_hex_at_ptr1
+        beq @hex_done
+        ldy #2
+        jsr is_eow_at_ptr1_y
+        bne @hex_done
+        jmp _syntax_err
 @hex_done:
         lda rp_cnt
         jeq @try_mne

@@ -502,9 +502,10 @@ Testing matrix: `tests/integration/test_repl.py::TestDotHexEdit`.
 The pair limit is the build's longest instruction: 3 on c64, 5 on
 m65 (a 45GS02 instruction with its prefixes).  Every mnemonic has at
 least three letters, so a mnemonic is never read as a pair.  The
-hex-poke path writes the pairs it parsed and takes no end-of-input
-check (TODO § Bugs: text after the last pair, and a pair past the
-limit, is dropped without `;?syntax`).
+hex-poke path takes up to `INSN_MAX` pairs (3; 5 on m65); one pair
+more is `;?syntax` and writes nothing.  Text after the pairs is
+ignored on purpose: a `d` row re-executes with its disassembly
+column behind the bytes.
 
 #### Error tag dispatch (mnemonic-assemble path)
 

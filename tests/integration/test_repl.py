@@ -1696,3 +1696,12 @@ def test_b_delete_and_clear_take_no_trailing_garbage(rsyms, cmd):
     run_at(cpu, rsyms.exec_line)
     assert ";?syntax" in _screen(cpu), _screen(cpu)
     assert cpu.memory[rsyms.bp_table] | cpu.memory[rsyms.bp_table + 1] << 8 == 0x1000
+
+
+def test_dot_refuses_more_pairs_than_the_longest_instruction(rsyms):
+    """TODO § Bugs (fixed 2026-11-21): a fourth pair on the C64."""
+    cpu = make_cpu(rsyms)
+    cpu.memory[0x3000:0x3004] = [0] * 4
+    _dot(cpu, rsyms, ". a9 42 ea ea")
+    assert ";?syntax" in _screen(cpu), _screen(cpu)
+    assert list(cpu.memory[0x3000:0x3004]) == [0] * 4
