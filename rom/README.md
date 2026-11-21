@@ -24,7 +24,10 @@ copy it from a legitimate VICE installation:
 
 VICE itself ships with these ROMs under its bundled-tools
 distribution.  The CSE test suite reads `kernal_cbm.bin` once
-at fixture init and never modifies it.
+at fixture init and never modifies it.  Without it the tests that
+need it fail — or, with `CSE_ROMLESS=1` as the CI sets it, are
+skipped, saying so ([build_system.md § KERNAL
+ROM](../doc/build_system.md#kernal-rom)).
 
 ## Open ROMs, C64 build — **committed under LGPL-3.0**
 

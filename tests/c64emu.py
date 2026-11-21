@@ -18,7 +18,10 @@ Usage:
     assert emu.a == expected
 """
 
+import os
 import pathlib
+
+import pytest
 from py65.devices.mpu6502 import MPU
 
 from emu_base import EmuBase, KeyMatrix, register
@@ -27,6 +30,12 @@ _ROM_DIR     = pathlib.Path(__file__).parent.parent / "rom"
 _ROM_KERNAL  = _ROM_DIR / "kernal_cbm.bin"
 _ROM_BASIC   = _ROM_DIR / "basic_cbm.bin"
 _ROM_CHARGEN = _ROM_DIR / "chargen_cbm.bin"
+
+# CSE_ROMLESS=1 (the CI's runners, which have no CBM ROMs to copy):
+# a missing KERNAL skips the test that needs it, naming the file,
+# instead of failing it.  Unset, a missing KERNAL fails loudly
+# (build_system.md § KERNAL ROM).
+ROMLESS = bool(os.environ.get("CSE_ROMLESS"))
 
 
 # C64 memory layout constants
@@ -197,6 +206,9 @@ class C64Emu(EmuBase):
         # missing, LORAM / CHAREN banking simply has no ROM to
         # overlay and those regions stay RAM regardless of $01 state.
         kernal_path = pathlib.Path(rom_path) if rom_path else _ROM_KERNAL
+        if ROMLESS and not kernal_path.exists():
+            pytest.skip(f"CSE_ROMLESS: no {kernal_path.name} (CBM ROM, not "
+                        "distributable; rom/README.md)")
         kernal_data = kernal_path.read_bytes()
         assert len(kernal_data) == 8192, \
             f"KERNAL ROM must be 8192 bytes, got {len(kernal_data)}"

@@ -7,6 +7,7 @@
 | File | Role |
 |------|------|
 | [`Makefile`](../Makefile) | implementation |
+| [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | implementation — the CI: the tests without CBM ROMs, VICE or xmega65, the release bundle, a tag's draft release ([§ Continuous integration](#continuous-integration)) |
 | [`src/c64_trial.cfg`](../src/c64_trial.cfg) | implementation — trial linker config (size measurement) |
 | [`src/c64_cse.cfg.in`](../src/c64_cse.cfg.in) | implementation — production linker config template |
 | [`src/m65_cse.cfg`](../src/m65_cse.cfg) | implementation — the m65 linker config, one bounded area per region ([§ The m65 builds](#the-m65-builds)) |
@@ -24,6 +25,7 @@
 | [`tests/integration/test_size_budget.py`](../tests/integration/test_size_budget.py) | test contract — the C64 and m65 release PRG sizes within budget (TODO § M65, gate 1) |
 | [`tests/unit/test_build_freshness.py`](../tests/unit/test_build_freshness.py) | test contract — no test runs on a stale binary: the PRG fixtures always run `make`, objects depend on their includes, bundles on `src/*.inc` |
 | [`tests/unit/test_clean_build.py`](../tests/unit/test_clean_build.py) | test contract — a fresh `git worktree` of `HEAD` builds with one `make release` (no re-run) |
+| [`tests/integration/test_release_bundle.py`](../tests/integration/test_release_bundle.py) | test contract — the release bundle as `make bundle` builds it: the seven files, each PRG its release build, each disk's name and files ([§ The release bundle](#the-release-bundle)) |
 | [`tests/integration/test_release_smoke.py`](../tests/integration/test_release_smoke.py) | test contract — the release 6510 PRG boots from `SYS 2061` to the main loop and shows its splash |
 | [`tests/unit/test_makefile_guards.py`](../tests/unit/test_makefile_guards.py) | test contract — `make release` / `debug PLATFORM=m65` build the m65-45gs02 PRG through `src/m65_cse.cfg`; `make release` / `disk PLATFORM=m65` write the D81 with `c1541`; `make run PLATFORM=m65` (and `TARGET=m65`) starts `$(XMEGA65)` with the release PRG and the D81 on unit 8, not VICE; `make size PLATFORM=m65` reports the m65 PRG; an unknown platform is refused; each m65 region is bounded and an overflow fails the link |
 | [`tests/integration/test_m65_roms.py`](../tests/integration/test_m65_roms.py) | test contract — the verified MEGA65 ROMs (§ MEGA65 ROM): with any M65Emu snapshot present, each verified ROM has one, of the current snapshot format |
@@ -233,14 +235,15 @@ to the binary and to the distribution disk via two mechanisms:
    `strings.s` does `.include "version.inc"` (via `ca65 -I
    $(BUILD)`) and uses the macro in the `VERSION_STR` byte
    sequence.  Result: the splash line reads `cse v<value> by cr`.
-2. **Disk label** — the `_dist` and `disk` Makefile targets pass
-   `"cse $(VERSION),01"` to `c1541 -format`, so the D64 label
-   (visible in `$` listings) carries the version.
+2. **Disk label** — the `_dist`, `_d81` and `disk` Makefile targets
+   pass `"cse $(VERSION),01"` to `c1541 -format`, so the D64's and the
+   D81's label (visible in `$` listings) carries the version.
 
-PRG filenames (`cse.prg`, `cse-6502.prg`, `cse-m65.prg`) are
-**not** versioned: the CPU suffix is architectural, the version
-lives in the splash and disk label.  Downstream consumers rely
-on the stable filename layout.
+PRG filenames (`cse.prg`, `cse-6502.prg`, `cse-m65.prg` in the build
+directories; the bundle's `cse-c64.prg` … of [§ The release
+bundle](#the-release-bundle)) are **not** versioned: the platform and
+CPU parts are architectural, the version lives in the splash and the
+disk label.  Downstream consumers rely on the stable filename layout.
 
 ### Introspection builds (`INTROSPECT=1`)
 
@@ -297,6 +300,7 @@ Exomizer serves the C64 builds only, with its default target (`-t
 |--------|---------|--------|
 | All (default) | `make` | Same as `release` |
 | Release | `make release` | `c64`: both CPU variants, optimized + exomizer + D64; `m65`: the m65 PRG + D81, uncompressed |
+| Bundle | `make bundle` | Both platforms' releases, then the release bundle in `build/bundle/` ([§ The release bundle](#the-release-bundle)) |
 | Debug | `make debug` | The platform's builds with `-g` (full symbols in `.lbl`) |
 | Disk (single) | `make disk` | `c64`: a D64 per build in the build dir (for quick iteration); `m65`: as `release`, the distribution D81 |
 | Run | `make run` | Build release + launch in VICE (`c64`) or xmega65 (`m65`) |
@@ -336,7 +340,7 @@ absolute address.
 | `CPU` | `6510` on `c64`; `45gs02` on `m65` (fixed) | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510`; any other is refused) |
 | `THEME` | `CLOUDY` | Named theme or 3-digit hex code (`make themes` for list) |
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
-| `VERSION` | `0.1` | Version string embedded in splash + D64 label |
+| `VERSION` | `0.1` | Version string embedded in splash + D64 / D81 label |
 | `ROMSET` | `cbm` | KERNAL/BASIC/CHARGEN set for `run` (`cbm` / `mega`) |
 | `INTROSPECT` | unset | `=1` disables the user-ZP redirect in `m`/`.` (see above); any other value leaves it on |
 
@@ -364,8 +368,10 @@ python`), `PYTEST` (`pipenv run pytest`), `VICE` (`x64sc`), `C1541`,
         6510/   cse.prg  cse.map  cse.lbl  cse.dbg  ...  (no -exo.prg)
         6502/   cse-6502.prg  ...
         m65/    cse-m65.prg  ...
-      cse.d64             distribution D64 (from release, both C64 CPUs)
+      cse-c64.d64         distribution D64 (from release, both C64 CPUs)
       cse-m65.d81         distribution D81 (from release, the m65 PRG)
+      bundle/             the release bundle (`make bundle`): the PRGs and
+                          both disk images under their release names
       .tables.stamp       `make tables`
       version.inc         the test bundles' (`VERSION_STRING "test"`)
       <bundle>.bin .map .lbl .flags
@@ -530,7 +536,7 @@ m65-45gs02 CPU set whatever `CPU` says.
 (`SYS 8205`) starts the loader at `$200D`, which installs the stub,
 the code and the data and enters `_main` through the stub
 ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode)).
-`RUN` after `LOAD "CSE-M65"` starts it, as `RUN` does on the C64.
+`RUN` after `LOAD "CSE"` starts it, as `RUN` does on the C64.
 
 **Distribution — raw, no exomizer.**  The 1581 and the disk images
 load fast enough that packing buys nothing; every m65 output is
@@ -540,8 +546,7 @@ uncompressed.
 - `make release PLATFORM=m65` and `make disk PLATFORM=m65` write
   `build/cse-m65.d81` too, formatted and written by `c1541` (VICE's
   disk tool writes D81 as well as D64; disk name `cse <version>`, id
-  `01`), holding the PRG as `cse-m65`: `DLOAD "CSE-M65"` and `RUN`
-  start it.
+  `01`), holding the PRG as `cse`: `DLOAD "CSE"` and `RUN` start it.
 - No cartridge yet: a later release's, from A3's record
   ([TODO § Analysis tasks](TODO.md#analysis-tasks-own-cycles-their-results-are-doc-deltas)).
 
@@ -677,6 +682,51 @@ Generated files carry a "do not edit" comment.  Their owning docs are
 [mn_classify.md](modules/mn_classify.md),
 [opcode_lookup.md](modules/opcode_lookup.md) and [dasm.md](modules/dasm.md).
 
+## The release bundle
+
+`make bundle` builds the release of both platforms and gathers what a
+release ships in `build/bundle/`: every release PRG, named
+`cse-<platform>[-<cpu>[-exo]].prg` — a platform's default CPU (`c64`:
+6510; `m65`: 45GS02) without its part — and one disk image per
+platform, `cse-<platform>.d64` / `.d81`.
+
+| File | Is |
+|------|----|
+| `cse-c64.prg` | `release/6510/cse.prg` |
+| `cse-c64-exo.prg` | `release/6510/cse-exo.prg` |
+| `cse-c64-6502.prg` | `release/6502/cse-6502.prg` |
+| `cse-c64-6502-exo.prg` | `release/6502/cse-6502-exo.prg` |
+| `cse-m65.prg` | `release/m65/cse-m65.prg` (the m65 ships raw: [§ The m65 builds](#the-m65-builds)) |
+| `cse-c64.d64` | `cse` (the 6510's exomizer build), `cse-6502` (the 6502's) |
+| `cse-m65.d81` | `cse` (the m65 PRG) |
+
+The names on a disk carry no platform part: each image holds its
+platform's default build as `cse`, so `LOAD "CSE",8,1` (c64) and
+`DLOAD "CSE"` (m65) start it.  The c64's are the exomizer builds,
+without `-exo` in the name.  Each disk is named `cse <VERSION>`, id
+`01` ([§ Version propagation](#version-propagation)).
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and `m65`,
+every pull request and every `v*` tag, on `ubuntu-24.04`:
+
+1. **Toolchain** — cc65 (`ca65`, `ld65`) and VICE (for `c1541` only)
+   from apt; exomizer 3.1.2 built from its source archive, checked
+   against its SHA-256 and cached; Python 3.14 and the `Pipfile.lock`
+   packages through pipenv.
+2. **Tests** — `pytest -q` with `CSE_ROMLESS=1`: Tier U and Tier I as
+   `testpaths` selects them.  No VICE emulator and no xmega65 run
+   (Tier X stays by path, [testing.md § Tier
+   X](testing.md#tier-x--xmega65-m65-automated)), and the tests that
+   need the CBM KERNAL or an M65Emu snapshot are skipped, each saying
+   why ([§ KERNAL ROM](#kernal-rom), [§ MEGA65 ROM](#mega65-rom)).
+3. **Bundle** — `make bundle`, uploaded as the run's `cse-bundle`
+   artifact.
+4. **Release** (a `v*` tag only) — a draft GitHub release of the tag
+   with the bundle's files attached, published by hand after the
+   [pre-flight](#release-pre-flight).
+
 ## Release pre-flight
 
 Before a tag without an `-rc` suffix — a public release — every item
@@ -695,8 +745,8 @@ holds; an `-rc` tag needs the first four.
    ([memory_design.md](memory_design.md); CDD Maintenance item 8,
    *Semantic verification*).
 5. The release candidates' tags are pushed, and the release page
-   carries the binaries (the D64 and the PRGs; the D81 and m65 PRG
-   with an m65 release).
+   carries the release bundle ([§ The release bundle](#the-release-bundle)):
+   the CI's draft release of the tag, checked and published by hand.
 
 Origin: the v0.1 release (Phase 26), where `LICENSE` and the ROM
 attribution were caught at the last minute and three `$C000`
@@ -811,6 +861,13 @@ providing real KERNAL routines (PLOT, GETIN, CHROUT, etc.) instead
 of hand-crafted ASM or Python stubs.  Bank-switching via $01 toggles
 between ROM and RAM at $E000–$FFFF.  Run `make test` for setup
 instructions if the ROM is missing.
+
+A missing KERNAL fails every test that builds a `C64Emu`, loudly —
+unless `CSE_ROMLESS` is set (to any non-empty value): then those
+tests are skipped, each saying why (`CSE_ROMLESS: no
+kernal_cbm.bin`).  The CI sets it, since its runners have no CBM ROM
+to copy ([§ Continuous integration](#continuous-integration)); a
+local run leaves it unset.
 
 ### MEGA65 ROM
 

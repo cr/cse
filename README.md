@@ -162,9 +162,11 @@ Each release attaches:
 
 | File | Use |
 |------|-----|
-| `cse.d64` | Disk image — mount in VICE or write to a real 1541; contains both CPU variants |
-| `cse-exo.prg` | 6510 build (default — exomizer-compressed, handles illegal opcodes) |
-| `cse-6502-exo.prg` | 6502 build — strict legal opcodes only |
+| `cse-c64.d64` | C64 disk image — mount in VICE or write to a real 1541: `cse` (the 6510 build) and `cse-6502`, both compressed |
+| `cse-c64.prg`, `cse-c64-exo.prg` | 6510 build (the default — handles illegal opcodes), raw and exomizer-compressed |
+| `cse-c64-6502.prg`, `cse-c64-6502-exo.prg` | 6502 build — strict legal opcodes only, raw and compressed |
+| `cse-m65.d81` | MEGA65 disk image: `cse`, the MEGA65 build |
+| `cse-m65.prg` | MEGA65 build |
 
 Or [build from source](#development) if you prefer.
 
@@ -669,7 +671,7 @@ Use in REPL: `@ workstart`, `? workend`
 A native MEGA65 build is in development (branch `m65`).  It runs in
 MEGA65 mode, not GO64.  To start it, put `cse-m65.d81` in a drive (or
 mount it from the SD card: `MOUNT "CSE-M65.D81"`) and type
-`DLOAD "CSE-M65"`, then `RUN`; the release's PRG, `cse-m65.prg`, is
+`DLOAD "CSE"`, then `RUN`; the release's PRG, `cse-m65.prg`, is
 the same file and starts the same way from any disk.  From source,
 `make run PLATFORM=m65` starts it in xmega65 (its keys:
 [build_system.md § The m65 builds](doc/build_system.md#the-m65-builds)).

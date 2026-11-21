@@ -4,7 +4,10 @@
 #
 # Targets
 #   all          Build release (default, same as 'release')
-#   release      Build all three CPU targets, optimized + exomizer + D64
+#   release      Build the platform's targets, optimized + exomizer + D64
+#                (PLATFORM=m65: the m65 PRG + D81)
+#   bundle       The release bundle in build/bundle/: both platforms'
+#                release PRGs and disk images, named for release
 #   debug        Build all three CPU targets with -g (full symbols)
 #   tables       Regenerate the generated tables in src/ (both generators:
 #                dev/mnemonic_tables.py, dev/dasm_tables.py)
@@ -343,18 +346,20 @@ $(PRG_EXO): $(PRG)
 	$(EXOMIZER) sfx sys -n -q -o $@ $<
 
 # -----------------------------------------------------------------------
-# _dist — D64 distribution image with all three compressed variants
+# _dist — the c64 distribution D64: the compressed builds, the default
+# one (6510) as "cse"; _d81 — the m65's D81: the raw PRG as "cse".  The
+# names on a disk carry no platform part (build_system.md § The
+# release bundle).
 # -----------------------------------------------------------------------
 _REL = $(ROOT)build/release
-DIST_D64 = $(ROOT)build/cse.d64
+DIST_D64 = $(ROOT)build/cse-c64.d64
 DIST_D81 = $(ROOT)build/cse-m65.d81
 
-# _d81 — the m65 distribution D81: the raw PRG as "cse-m65" (no exomizer)
 .PHONY: _d81
 _d81:
 	@rm -f $(DIST_D81)
 	$(C1541) -format "cse $(VERSION),01" d81 $(DIST_D81) \
-	  -write $(_REL)/m65/cse-m65.prg cse-m65
+	  -write $(_REL)/m65/cse-m65.prg cse
 	@echo "  disk  cse-m65.d81"
 
 .PHONY: _dist
@@ -363,7 +368,29 @@ _dist:
 	$(C1541) -format "cse $(VERSION),01" d64 $(DIST_D64) \
 	  -write $(_REL)/6510/cse-exo.prg cse \
 	  -write $(_REL)/6502/cse-6502-exo.prg cse-6502
-	@echo "  disk  $$(c1541 -attach $(DIST_D64) -list 2>/dev/null | grep -c prg) files on cse.d64"
+	@echo "  disk  $$($(C1541) -attach $(DIST_D64) -list 2>/dev/null | grep -c prg) files on cse-c64.d64"
+
+# -----------------------------------------------------------------------
+# bundle — the release bundle in build/bundle/: both platforms' release
+# PRGs, named cse-<platform>[-<cpu>[-exo]].prg (a platform's default
+# CPU without its part), and their disk images cse-c64.d64 and
+# cse-m65.d81 (build_system.md § The release bundle)
+# -----------------------------------------------------------------------
+BUNDLE = $(ROOT)build/bundle
+
+.PHONY: bundle
+bundle:
+	@$(MAKE) --no-print-directory release PLATFORM=c64
+	@$(MAKE) --no-print-directory release PLATFORM=m65
+	@mkdir -p $(BUNDLE)
+	@rm -f $(BUNDLE)/cse-*
+	cp $(_REL)/6510/cse.prg          $(BUNDLE)/cse-c64.prg
+	cp $(_REL)/6510/cse-exo.prg      $(BUNDLE)/cse-c64-exo.prg
+	cp $(_REL)/6502/cse-6502.prg     $(BUNDLE)/cse-c64-6502.prg
+	cp $(_REL)/6502/cse-6502-exo.prg $(BUNDLE)/cse-c64-6502-exo.prg
+	cp $(_REL)/m65/cse-m65.prg       $(BUNDLE)/cse-m65.prg
+	cp $(DIST_D64) $(DIST_D81) $(BUNDLE)/
+	@echo "  bundle  $$(ls $(BUNDLE) | wc -l | tr -d ' ') files in build/bundle"
 
 # -----------------------------------------------------------------------
 # disk — single-CPU D64 (for quick iteration with make CPU=... disk);

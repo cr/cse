@@ -17,6 +17,7 @@ cse/
 ├── Pipfile, Pipfile.lock   Python environment (pipenv: py65, pytest)
 ├── pyproject.toml          pytest configuration (testpaths)
 ├── .gitignore
+├── .github/workflows/ci.yml  CI: tests, the release bundle, a tag's draft release
 │
 ├── src/                    Source code (6502 assembly, ca65)
 │   ├── main.s              BASIC SYS stub, cold init, main loop, interrupt hooks
@@ -112,8 +113,9 @@ cse/
                             build_system.md § Directory layout)
     ├── release/{6510,6502,m65}/    Optimized PRGs, exomizer SFX, map, lbl, objects
     ├── debug/{6510,6502,m65}/      -g PRGs with full .lbl
-    ├── cse.d64             Distribution D64 (all CPU variants, compressed)
+    ├── cse-c64.d64         Distribution D64 (both CPU variants, compressed)
     ├── cse-m65.d81         Distribution D81 of the m65 build (the raw PRG)
+    ├── bundle/             The release bundle (make bundle)
     └── *_test.*, *.o       Test bundles and their objects
 ```
 

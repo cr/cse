@@ -9,7 +9,10 @@ TODO § M65 slice 2, P0): `make release` / `make debug` with
 src/m65_cse.cfg; `release` and `disk` with `PLATFORM=m65` write the D81
 with c1541; `run` with `PLATFORM=m65` (or `TARGET=m65`) builds the
 release PRG and the D81 and starts $(XMEGA65) with both, never VICE;
-`size` reports the m65 PRG; an unknown platform is refused for every
+`size` reports the m65 PRG; [§ The release bundle](../../doc/build_system.md#the-release-bundle):
+the D64 and the D81 hold their platform's default build as `cse` (the
+c64's compressed), and `bundle` gathers both platforms' release files
+under their release names; an unknown platform is refused for every
 PRG target — it never silently builds the C64 PRGs.  Each region of the m65
 config is bounded as stated, so an overflow fails the link.
 [build_system.md § Introspection builds](../../doc/build_system.md#introspection-builds-introspect1):
@@ -89,8 +92,55 @@ def test_m65_release_and_disk_write_the_d81(target):
     assert len(write) == 1, r.stdout
     cmd = write[0]
     assert '-format "cse 9.9,01" d81' in cmd and "build/cse-m65.d81" in cmd
-    assert "-write" in cmd and "build/release/m65/cse-m65.prg cse-m65" in cmd
+    assert cmd.rstrip().endswith("-write " + str(ROOT / "build/release/m65/cse-m65.prg") + " cse")
     assert "d64" not in cmd and "exo" not in cmd
+
+
+def test_c64_release_writes_the_d64_with_the_exo_builds_as_cse():
+    """build_system.md § The release bundle: the D64 holds the exomizer
+    builds, the default one (6510) as "cse", without the platform or
+    `-exo` in the names on the disk."""
+    r = _make_n("release", "C1541=c1541x", "VERSION=9.9")
+    assert r.returncode == 0, r.stderr
+    lines = r.stdout.replace("\\\n", " ").splitlines()
+    write = [ln for ln in lines if ln.startswith("c1541x -format")]
+    assert len(write) == 1, r.stdout
+    words = write[0].split()
+    assert words[words.index("d64") + 1] == str(ROOT / "build/cse-c64.d64")
+    pairs = [(words[i + 1], words[i + 2]) for i, w in enumerate(words) if w == "-write"]
+    assert pairs == [(str(ROOT / "build/release/6510/cse-exo.prg"), "cse"),
+                     (str(ROOT / "build/release/6502/cse-6502-exo.prg"), "cse-6502")]
+
+
+# the release bundle: name → the release file it is (build_system.md
+# § The release bundle)
+BUNDLE = {
+    "cse-c64.prg":          "build/release/6510/cse.prg",
+    "cse-c64-exo.prg":      "build/release/6510/cse-exo.prg",
+    "cse-c64-6502.prg":     "build/release/6502/cse-6502.prg",
+    "cse-c64-6502-exo.prg": "build/release/6502/cse-6502-exo.prg",
+    "cse-m65.prg":          "build/release/m65/cse-m65.prg",
+    "cse-c64.d64":          "build/cse-c64.d64",
+    "cse-m65.d81":          "build/cse-m65.d81",
+}
+
+
+def test_bundle_builds_both_platforms_and_names_every_file():
+    r = _make_n("bundle")
+    assert r.returncode == 0, r.stderr
+    out = r.stdout
+    assert "-DPLATFORM_C64" in out and "-DPLATFORM_M65" in out     # both releases
+    got = {}
+    for ln in out.splitlines():
+        if ln.startswith("cp "):
+            *srcs, dst = ln.split()[1:]
+            to_file = dst.endswith(".prg")               # else: into the directory
+            into = pathlib.Path(dst).parent if to_file else pathlib.Path(dst)
+            assert into == ROOT / "build/bundle", ln
+            for src in srcs:
+                name = pathlib.Path(dst).name if to_file else pathlib.Path(src).name
+                got[name] = str(pathlib.Path(src).relative_to(ROOT))
+    assert got == BUNDLE
 
 
 def test_m65_size_reports_the_m65_prg():

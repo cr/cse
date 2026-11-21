@@ -8,7 +8,7 @@ Contract source: [disk.md § On m65](../../doc/modules/disk.md#on-m65),
 (*The disk on m65*).
 
 On each ROM that has an M65Emu snapshot, a D81 written by c1541 as
-`make disk PLATFORM=m65` writes it (the debug PRG as "cse-m65") is
+`make disk PLATFORM=m65` writes it (the debug PRG as "cse") is
 mounted on unit 8 — CBDOS's, which M65Emu does not model — and
 xmega65 autoloads it.  Typed as test_m65_boot.py types (`addkeys()`,
 one key, then on to main_loop):
@@ -77,7 +77,7 @@ def run(request, cse_m65_prg):
     rom = work / "rom.bin"
     rom.write_bytes(snap["chip"][CHIP_ROM])
     d81 = work / "cse.d81"
-    c1541("-format", "cse test,01", "d81", str(d81), "-write", str(prg), "cse-m65")
+    c1541("-format", "cse test,01", "d81", str(d81), "-write", str(prg), "cse")
     listing = c1541("-attach", str(d81), "-list")
     out = {"c1541": listing}
     try:
@@ -120,7 +120,7 @@ def test_the_d81_starts_cse_to_the_prompt(run):
 
 
 def test_dollar_lists_the_disk_as_c1541_does(run):
-    """c1541: `0 "cse test        " 01 3d`, `90   "cse-m65"   prg`,
+    """c1541: `0 "cse test        " 01 3d`, `90   "cse"       prg`,
     `3070 blocks free.`"""
     text = run["c1541"]
     head = re.search(r'^0 (".*") (\S\S \S\S)', text, re.M)

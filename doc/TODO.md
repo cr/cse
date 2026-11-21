@@ -142,6 +142,14 @@ milestone records are under [§ Records](#records).
 
 ### The first release
 
+- [x] ~~**The release bundle and the CI**~~ — `make bundle`
+  gathers both platforms' PRGs as `cse-<platform>[-<cpu>[-exo]].prg`
+  and the disk images `cse-c64.d64` / `cse-m65.d81`, each holding its
+  platform's default build as `cse`; `.github/workflows/ci.yml` runs
+  Tier U + I on Linux without CBM ROMs (`CSE_ROMLESS`), builds the
+  bundle as an artifact and drafts a tag's release
+  ([build_system.md § The release
+  bundle](build_system.md#the-release-bundle)).
 - [ ] **Walk the m65 build on a real MEGA65.**  The open questions O1
   (the `REL16` offset base) and O3 (the Q-mode edge rows), which
   xmega65 answered provisionally ([§ Open questions

@@ -1,0 +1,103 @@
+# CI — the tests a Linux runner can run, the release bundle, a tag's
+# draft release.  Owner: doc/build_system.md § Continuous integration.
+#
+# No VICE emulator, no xmega65 (Tier X is run by hand), no CBM ROMs:
+# CSE_ROMLESS=1 skips the tests that need rom/kernal_cbm.bin, each
+# saying so.  c1541 (VICE's disk tool) writes the disk images.
+
+name: ci
+
+on:
+  push:
+    branches: [main, m65]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EXOMIZER_VERSION: 3.1.2
+  EXOMIZER_SHA256: 01713f2ee39efc86cbe54bb6011613e097efc3bc532cdc640809e7589cd9c043
+
+jobs:
+  test:
+    name: tests and the release bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: cc65 and c1541
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cc65 vice
+
+      - name: exomizer (cached)
+        id: exomizer
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/exomizer
+          key: exomizer-${{ env.EXOMIZER_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: exomizer (from source)
+        if: steps.exomizer.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/exomizer.tar.gz" \
+            "https://bitbucket.org/magli143/exomizer/get/$EXOMIZER_VERSION.tar.gz"
+          echo "$EXOMIZER_SHA256  $RUNNER_TEMP/exomizer.tar.gz" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/exomizer"
+          tar xzf "$RUNNER_TEMP/exomizer.tar.gz" -C "$RUNNER_TEMP/exomizer" --strip-components=1
+          make -C "$RUNNER_TEMP/exomizer/src" -j"$(nproc)"
+          install -D "$RUNNER_TEMP/exomizer/src/exomizer" "$HOME/.local/bin/exomizer"
+
+      - name: tools on PATH
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/exomizer" 2>&1 | head -1 || true
+          ca65 --version
+          command -v c1541
+
+      - name: Python packages
+        run: |
+          python -m pip install --upgrade pipenv
+          pipenv sync
+
+      - name: tests (Tier U + I)
+        env:
+          CSE_ROMLESS: '1'
+        run: pipenv run pytest -q -rs
+
+      - name: release bundle
+        run: make bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cse-bundle
+          path: build/bundle/
+          if-no-files-found: error
+
+  release:
+    name: draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cse-bundle
+          path: bundle
+
+      - name: draft the tag's release with the bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" bundle/* \
+            --repo "$GITHUB_REPOSITORY" --draft --generate-notes \
+            --title "cse $GITHUB_REF_NAME"
