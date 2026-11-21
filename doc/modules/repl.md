@@ -1114,7 +1114,7 @@ flat address in lower case with the fewest digits before the dot.
 | `m` (dump, edit), `.` (poke) | the bytes the program would read and write there; at `$00` / `$01` the program's port ([§ User-ZP view](#user-zp-view)) | the physical bytes; `0.0000` / `0.0001` are the RAM beneath the port |
 | `.` (assemble) | at the address | the bytes go to the flat address; the instruction's own address — a branch's base, `*` — is the low word, the address the code has when its bank is started ([§ Far starts](#far-starts)) |
 | `d` | through the bank state | the physical bytes; a branch target is shown in the low word |
-| `+`, `-`, and a row's advance | wraps from `$FFFF` to `$0000`; the translation is made again at every 4 K page edge | carries into the next bank (`4.ffff` → `5.0000`) |
+| `+`, `-`, and a row's advance | wraps from `$FFFF` to `$0000`; the translation is made again at every 4 K page edge | carries into the next bank (`4.ffff` → `5.0000`); the flat space wraps at 28 bits (`0fff.ffff` → `0.0000`, and back) |
 | `j`, `g`, `t`, `o` | start or continue the program at the address, in its map | a far start ([§ Far starts](#far-starts)) |
 | `b` | a breakpoint at the byte the address resolves to now | a breakpoint at that byte ([breakpoints.md](breakpoints.md)) |
 

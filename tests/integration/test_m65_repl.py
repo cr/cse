@@ -1238,3 +1238,14 @@ def test_dot_refuses_more_pairs_than_the_longest_instruction(s):
     s.type(". a9 42 ea ea ea ea")
     s.find(r"^;\?syntax$")
     assert s.peek(0x3000, 6) == [0] * 6
+
+
+def test_flat_walks_wrap_at_28_bits(s):
+    """TODO § Bugs › m65 (fixed 2026-11-21): the flat space is 28 bits."""
+    s.type("@ 0.0010")
+    s.type("- $20")
+    assert prompt(s) == "fff.fff0:"
+    assert s.w("cur_bank") == 0x0FFF
+    s.line("0fff.fff8:m")
+    assert prompt(s) == "0.0008:"
+    assert s.w("cur_bank") == 0x0000

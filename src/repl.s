@@ -453,7 +453,11 @@ rp_carry:
         bpl @r
         inc rp_bank
         bne @r
-        inc rp_bank+1
+        lda rp_bank+1           ; the flat space wraps at 28 bits:
+        clc                     ; 0fff.ffff + 1 is 0.0000
+        adc #1
+        and #$0F
+        sta rp_bank+1
 @r:     rts
 cur_from_rp:
         ldx #2
@@ -5127,7 +5131,11 @@ prg_ok_done:
         bpl @minus_done
         lda cur_bank
         bne :+
-        dec cur_bank+1
+        lda cur_bank+1          ; 28 bits: 0.0000 - 1 is 0fff.ffff
+        sec
+        sbc #1
+        and #$0F
+        sta cur_bank+1
 :       dec cur_bank
 @minus_done:
 .endif

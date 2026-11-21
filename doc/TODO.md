@@ -73,11 +73,6 @@ marked.
 
 ### m65
 
-- [ ] **Flat walks leave the 28-bit space.**  The `-` borrow and
-  `rp_carry` do not wrap at 28 bits: `@ 0.0010` then `- $20` shows
-  `fff.fff0:` (`cur_bank` = `$FFFF`); `0fff.fff8:m` gives `0.0008:`
-  (`cur_bank` = `$1000`) — addresses `@` itself refuses
-  (prober-reproduced).
 - [ ] **`run_bank` survives `cse_recover`.**  `dbg_init` falls into
   `seed_bank_state`, which applies the far map whenever `run_bank` ≠ 0,
   and nothing but `start_bank` writes `run_bank`: after a far start,
@@ -4431,6 +4426,11 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: `rp_carry` and the `-` borrow wrap the bank word at 12 bits) **Flat walks leave the 28-bit space.**  The `-` borrow and
+  `rp_carry` do not wrap at 28 bits: `@ 0.0010` then `- $20` shows
+  `fff.fff0:` (`cur_bank` = `$FFFF`); `0fff.fff8:m` gives `0.0008:`
+  (`cur_bank` = `$1000`) — addresses `@` itself refuses
+  (prober-reproduced).
 - [x] (fixed 2026-11-21: a pair past `INSN_MAX` is `;?syntax` and writes nothing; text after the pairs stays ignored by design — a `d` row's disassembly column) **`.`'s hex poke ignores what follows.**  Over bytes that differ,
   every parsed pair is written and trailing text is dropped without a
   check: `. a9 42 ea ea ea ea` writes 5 bytes and drops the 6th (m65,
