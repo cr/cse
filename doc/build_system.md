@@ -225,7 +225,7 @@ No C compiler, no `c64.lib` — the entire codebase is hand-written
 
 ### Version propagation
 
-`VERSION` is defined in the Makefile (default `0.1`).  It flows
+`VERSION` is defined in the Makefile (default `0.2`).  It flows
 to the binary and to the distribution disk via two mechanisms:
 
 1. **Source string** — the Makefile writes
@@ -340,7 +340,7 @@ absolute address.
 | `CPU` | `6510` on `c64`; `45gs02` on `m65` (fixed) | Target CPU for `run`/`disk`/`size` (`c64`: `6502` / `6510`; any other is refused) |
 | `THEME` | `CLOUDY` | Named theme or 3-digit hex code (`make themes` for list) |
 | `TAB_WIDTH` | `8` | Editor tab-stop column width |
-| `VERSION` | `0.1` | Version string embedded in splash + D64 / D81 label |
+| `VERSION` | `0.2` | Version string embedded in splash + D64 / D81 label |
 | `ROMSET` | `cbm` | KERNAL/BASIC/CHARGEN set for `run` (`cbm` / `mega`) |
 | `INTROSPECT` | unset | `=1` disables the user-ZP redirect in `m`/`.` (see above); any other value leaves it on |
 

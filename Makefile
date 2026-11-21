@@ -180,7 +180,7 @@ THEME_DEFS := $(shell printf '%s' "$(_THEME_CODE)" | sed 's/./& /g' | \
   printf "-DTHEME_BOR=%d -DTHEME_BG=%d -DTHEME_FG=%d", m[$$1], m[$$2], m[$$3]}')
 
 # ── Version / build date ──────────────────────────────────────────────────
-VERSION  ?= 0.1
+VERSION  ?= 0.2
 BUILD_YEAR := $(shell date +%Y)
 
 # ── Introspection flag ───────────────────────────────────────────────────
@@ -561,6 +561,6 @@ help:
 	@printf "  %-20s %s\n" "CPU=6510|6502" "target CPU (default: 6510)"
 	@printf "  %-20s %s\n" "THEME=NAME|BGF"      "colour theme (default: CLOUDY)"
 	@printf "  %-20s %s\n" "TAB_WIDTH=N"         "editor tab width, 1|2|4|8|16|32 (default: 8)"
-	@printf "  %-20s %s\n" "VERSION=STRING"      "version string (default: 0.1)"
+	@printf "  %-20s %s\n" "VERSION=STRING"      "version string (default: 0.2)"
 	@printf "  %-20s %s\n" "ROMSET=cbm|mega"     "KERNAL set for 'run' (default: cbm)"
 	@printf "  %-20s %s\n" "INTROSPECT=1"        "disable user-ZP redirect in m/. (CSE devs only)"

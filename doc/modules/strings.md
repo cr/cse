@@ -72,7 +72,7 @@ URL, the only two strings imported by main.s.
 `VERSION_STR` is composed at assemble time.  `strings.s`
 includes `version.inc` from the build directory (Makefile-
 generated, per build); the file defines `VERSION_STRING` as the
-Makefile's `VERSION` value (e.g. `"0.1"`).  The final bytes
+Makefile's `VERSION` value (e.g. `"0.2"`).  The final bytes
 are `"cse v" + VERSION_STRING + " by cr"`.  See
 [build_system.md § Version propagation](../build_system.md#version-propagation).
 

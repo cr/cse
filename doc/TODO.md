@@ -142,7 +142,7 @@ milestone records are under [§ Records](#records).
 
 ### The first release
 
-- [x] ~~**The release bundle and the CI**~~ — `make bundle`
+- [x] ~~**The release bundle and the CI**~~ (v0.2) — `make bundle`
   gathers both platforms' PRGs as `cse-<platform>[-<cpu>[-exo]].prg`
   and the disk images `cse-c64.d64` / `cse-m65.d81`, each holding its
   platform's default build as `cse`; `.github/workflows/ci.yml` runs
