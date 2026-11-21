@@ -1,11 +1,15 @@
-# CSE — THE INTEGRATED C64 ASM ENV
+# cse — the integrated 6502 environment for the C64 and the MEGA65
 
 CSE is a native, integrated assembler and debugger environment for the
-Commodore 64 — editor, assembler, disassembler, hex monitor, expression
-calculator, and step debugger sharing one screen and one command grammar.
-Its workflows are inspired by MasterSeka, radare2, and SMON. Edit,
-assemble, run, and debug in one place, natively on the C64 itself.
-Pure and simple.
+Commodore 64 and the MEGA65 — editor, assembler, disassembler, hex
+monitor, expression calculator, and step debugger sharing one screen
+and one command grammar.  Its workflows are inspired by MasterSeka,
+radare2, and SMON.  Edit, assemble, run, and debug in one place,
+natively on the machine itself.  Pure and simple.
+
+On the MEGA65 it runs in MEGA65 mode, not GO64: 80 columns (or 40, or
+80 × 50), the 45GS02's whole instruction set, every memory bank, and a
+cheat sheet on the HELP key.
 
 <p align="center">
   <img src="img/editor.png" alt="CSE editor with two REPL prompt rows pinned at the bottom" width="480">
@@ -16,7 +20,7 @@ Pure and simple.
 CSE is built for two kinds of programmer, and it refuses to compromise
 on either.
 
-**Experienced developer** who want a sketchpad. An immediate-mode
+**Experienced developers** who want a sketchpad. An immediate-mode
 6502 REPL with no toolchain, no build step, no context switch back to
 the host OS. The loop from "I want to try something" to "I am watching
 it run" feels fluent without some pipeline in the middle.
@@ -41,6 +45,7 @@ and what keeps the promise honest — see [background.md](background.md).
 
 - [Concepts](#concepts)
 - [Quick start](#quick-start)
+  - [First steps on the MEGA65](#first-steps-on-the-mega65)
   - [Themes](#themes)
 - [REPL commands](#repl-commands)
 - [Error and warning messages](#error-and-warning-messages)
@@ -172,11 +177,43 @@ Or [build from source](#development) if you prefer.
 
 ### Run
 
+**On the C64** (or in VICE), with `cse-c64.d64` in drive 8:
+
     LOAD "CSE",8,1
     RUN
 
-CSE boots into the REPL. Type commands at the `AAAA:` prompt.
+**On the MEGA65** (or in xmega65), with `cse-m65.d81` in the drive —
+or mounted from the SD card with `MOUNT "CSE-M65.D81"`:
+
+    DLOAD "CSE"
+    RUN
+
+CSE boots into the REPL.  Type commands at the `AAAA:` prompt.
 Press RUN/STOP to toggle between the REPL and the source editor.
+
+### First steps on the MEGA65
+
+Everything in this manual works on the MEGA65 too; this is what it
+adds ([On the MEGA65](#on-the-mega65) has the rest):
+
+- **HELP** opens a cheat sheet over the screen — the REPL commands,
+  the keys, the directives and the expression syntax.  The cursor keys
+  scroll it; HELP, ESC or RUN/STOP close it.
+- **Screen modes.**  80 × 25 to start; ESC 4 switches to 40 × 25,
+  ESC 5 to 80 × 50, ESC 8 back — at the prompt.  The editor uses the
+  whole screen, with lines up to 79 columns.
+- **The 45GS02.**  The assembler and the disassembler speak it by
+  default: the 4510 instructions, the quad `q` instructions, 32-bit
+  `[ ]` addressing, 16-bit branches.  `u 6502` (or `.cpu 6502`) limits
+  them to the plain 6502.
+- **Banks.**  An address can be flat, bank and offset: `@ 4.2000`,
+  `m 4.2000`, `d`, `.`, `b` and `j 4.2000` work in any bank, and
+  `.org 4.2000` assembles there.  Values are 32 bits wide.
+- **The workspace** is the fixed `$2000`–`$bfff`; the source text
+  lives in a bank of its own.
+- **Keys.**  TAB is the editor's tab, and MEGA takes the place of C=
+  in the editor's clipboard keys (MEGA+B, X, C, V) and line moves
+  (MEGA+K, J).
 
 ### Themes
 
@@ -391,6 +428,7 @@ kept.
 | SHIFT+CLR/HOME | Redraw the CSE display |
 | RUN/STOP | Switch to the editor |
 | RUN/STOP+RESTORE | Break into running code; at the prompt, redraw |
+| HELP (MEGA65) | Open the cheat sheet; also in the editor |
 
 ## Error and warning messages
 
@@ -456,13 +494,13 @@ Press RUN/STOP to enter the editor from the REPL and back.
 
 | Key | Action |
 |-----|--------|
-| Printable | Insert character (39-column visual limit; refused with audible blip if at the cap or the buffer is full) |
+| Printable | Insert character (39-column visual limit, 79 on the MEGA65; refused with audible blip if at the cap or the buffer is full) |
 | RETURN | Newline with auto-indent (see below; refused if the buffer is full) |
 | DEL | Backspace |
 | INS | Insert space at cursor (cursor stays; refused at cap / on full buffer) |
 | Cursor keys | Navigate |
 | HOME | Start of line |
-| SHIFT+SPACE | Tab (to next tab stop; refused at cap / on full buffer) |
+| SHIFT+SPACE (or TAB on the MEGA65) | Tab (to next tab stop; refused at cap / on full buffer) |
 | C=+B | Mark the cursor's line (again: unmark); the lines from the mark to the cursor are shown inverted |
 | C=+X / C=+C | Cut / copy the lines from the mark to the cursor (or the cursor's line) |
 | C=+V | Paste the clipboard's lines above the cursor's line |
@@ -668,8 +706,8 @@ Use in REPL: `@ workstart`, `? workend`
 
 ## On the MEGA65
 
-A native MEGA65 build is in development (branch `m65`).  It runs in
-MEGA65 mode, not GO64.  To start it, put `cse-m65.d81` in a drive (or
+The MEGA65 build runs natively in MEGA65 mode, not GO64.  To start
+it, put `cse-m65.d81` in a drive (or
 mount it from the SD card: `MOUNT "CSE-M65.D81"`) and type
 `DLOAD "CSE"`, then `RUN`; the release's PRG, `cse-m65.prg`, is
 the same file and starts the same way from any disk.  From source,
@@ -719,10 +757,13 @@ Where it differs from the C64 build:
   truncates longer lines with a warning).  In 40 columns a longer line
   shows `>` at its edge, as on the C64.  Switch the mode at the prompt
   between visits: the editor opens with the cursor back on the screen.
-- **Keys.**  TAB is the editor's tab (as SHIFT+SPACE).  The function
-  keys reach CSE raw: their BASIC macros are off while CSE reads keys,
-  and a program you run finds them as you left them.  HELP, F9–F14 and
-  the ALT and MEGA combinations do nothing in CSE yet.
+- **Keys.**  TAB is the editor's tab (as SHIFT+SPACE).  HELP opens the
+  cheat sheet, over the REPL or the editor
+  ([doc/modules/help.md](doc/modules/help.md)).  MEGA is the editor's
+  C= for the clipboard and the line moves ([Editor](#editor)).  The
+  function keys reach CSE raw: their BASIC macros are off while CSE
+  reads keys, and a program you run finds them as you left them.
+  F9–F14 and the ALT combinations do nothing in CSE yet.
 - **Your program runs as `RUN` would start it**, in BASIC 65's `SYS`
   map, and a break or a step keeps its own memory map, CPU port and
   `$D030`.  BASIC 65 is gone while CSE runs, so everything it would
@@ -736,9 +777,11 @@ Where it differs from the C64 build:
 
 ### Quick start
 
-    make            # build cse.prg + d64 (release)
+    make            # the C64 release: the PRGs + cse-c64.d64
     make run        # build + launch in VICE
+    make PLATFORM=m65       # the MEGA65 release: cse-m65.prg + cse-m65.d81
     make run PLATFORM=m65   # the MEGA65 build in xmega65 (TARGET=m65 works too)
+    make bundle     # both releases, named as a release ships them, in build/bundle/
     make test       # run pytest test suite
 
 See [Build requirements](#build-requirements) below for the
@@ -757,8 +800,8 @@ All design docs, module specs, and project goals live in
 - [exomizer](https://bitbucket.org/magli143/exomizer) -- PRG
   compressor used by the release build.
 - [VICE](https://vice-emu.sourceforge.io/) -- C64 emulator.
-  Required for `make run`; also bundles `c1541` which the
-  release build uses to write the `.d64` disk image.
+  Required for `make run`; also bundles `c1541`, which the
+  release builds use to write the `.d64` and `.d81` disk images.
 - Python 3 + [pipenv](https://pipenv.pypa.io/) -- pipenv manages
   the test virtualenv (py65, pytest).  `make
   tables` (auto-triggered by `make`) also runs Python.
