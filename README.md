@@ -75,28 +75,30 @@ The **editor** is a full-screen text editor for writing assembly
 source.  The `a` command in the REPL assembles the editor's content
 into memory.
 
-**Type in lowercase.**  CSE runs in the C64's lowercase character
-set: commands, mnemonics, labels and hex digits are typed without
+**Type in lowercase.**  CSE runs in the lowercase character set, on
+the C64 and the MEGA65 alike: commands, mnemonics, labels and hex digits are typed without
 SHIFT (`lda $d020`).  SHIFTed letters are separate keys — `B`, `C`,
 `Q` and `R` (and `M` on the MEGA65) are commands of their own — and hex digits must be
 lowercase: `$d020` is a number, `$D020` typed with SHIFT is an error.
 
 ### Your workspace
 
-Your programs and data live in the **workspace**, from `$0800`
-(`workstart`) up to the byte below your source text (`workend`).
-CSE itself sits above it.  The assembler refuses to write outside
-the workspace (`;?N: range`), and breakpoints must be inside it.
-Type `i` to see where `workend` is right now; it moves down as your
-source grows.  Every example address in this manual (`$1000`,
-`$2000`) is a workspace address.  On the MEGA65 the workspace is the
-fixed `$2000`–`$bfff`: the source text lives in another bank.
+Your programs and data live in the **workspace**.  On the C64 it runs
+from `$0800` (`workstart`) up to the byte below your source text
+(`workend`), with CSE itself above; type `i` to see where `workend`
+is right now — it moves down as your source grows.  On the MEGA65 it
+is the fixed `$2000`–`$bfff` in bank 0: the source text and CSE live
+in banks of their own, and banks 1, 4 and 5 are yours as well
+([On the MEGA65](#on-the-mega65)).  The assembler refuses to write
+outside your memory (`;?N: range`), and breakpoints must be inside
+it.  Every example address in this manual (`$2000`, `$3000`) is a
+workspace address on both machines.
 
 ### The edit-assemble-run cycle
 
 1. Write source in the editor (RUN/STOP to enter).
 2. Switch back to the REPL (RUN/STOP).
-3. Set the origin: `.org $1000` in the source, or `@ $1000` in the
+3. Set the origin: `.org $2000` in the source, or `@ $2000` in the
    REPL before assembling (or `.bas` in the source for a program
    that starts with `RUN`).
 4. Assemble: `a`
@@ -108,7 +110,7 @@ fixed `$2000`–`$bfff`: the source text lives in another bank.
 Repeat.  The source stays in the editor buffer between runs.
 Save the source with `s "proj"` — it stores the source as a SEQ file
 with the project name.  Save the assembled binary with the save line
-`a` prints, or any PRG-mode form (e.g. `s "proj" $1000 $10ff`) — it stores
+`a` prints, or any PRG-mode form (e.g. `s "proj" $2000 $20ff`) — it stores
 as `proj.` (trailing dot) so source and binary never collide.
 
 ### Current address
@@ -133,17 +135,18 @@ with `B EXPR`.  `+` and `-` also advance/retreat by the block size.
 `m` and `d` print rows that are themselves commands: an `m` row is
 an `m` edit command, a `d` row a `.` command.  Move the cursor to
 any row, edit the values directly on screen, and press RETURN to
-execute the modified row.  This is the C64 screen-editor workflow:
-the screen *is* your input buffer.
+execute the modified row.  This is the Commodore screen-editor
+workflow: the screen *is* your input buffer.
 
 For example, `d` might show:
 
-    1000:.  a9 42     lda #$42
-    1002:.  8d 20 d0  sta $d020
-    1005:.  60        rts
+    2000:.  a9 42     lda #$42
+    2002:.  8d 20 d0  sta $d020
+    2005:.  60        rts
 
-Cursor up to the first row, change `42` to `07`, press RETURN — the
-byte at `$1001` is now patched and the row reads `lda #$07`.
+(On the MEGA65 a `d` row has room for five bytes, the longest
+45GS02 instruction.)  Cursor up to the first row, change `42` to
+`07`, press RETURN — the byte at `$2001` is now patched and the row reads `lda #$07`.
 Changing the mnemonic or operand instead re-assembles the
 instruction.  Pressing RETURN on an empty prompt repeats the last
 `d`, `m`, `.`, `t` or `o` — `d` RETURN RETURN pages on through the
@@ -249,7 +252,7 @@ command.  CLOUDY is the default on the C64 and the MEGA65.
 <tr>
   <td align="center"><img src="img/theme-C128.png" width="160" alt="C128"><br><sub>C128</sub></td>
   <td align="center"><img src="img/theme-MEGA.png" width="160" alt="MEGA"><br><sub>MEGA <i>(the MEGA65's own)</i></sub></td>
-  <td colspan="2" align="left" valign="top"><sub>Or specify any 3-digit hex code directly: <code>make THEME=cb5</code> (border, background, foreground — C64 palette <code>0</code>–<code>f</code>).  At runtime, <code>C bgf</code> (three adjacent hex digits, e.g. <code>C fc1</code>) sets all three.</sub></td>
+  <td colspan="2" align="left" valign="top"><sub>Or specify any 3-digit hex code directly: <code>make THEME=cb5</code> (border, background, foreground — the C64 palette <code>0</code>–<code>f</code>, which the MEGA65 shares).  At runtime, <code>C bgf</code> (three adjacent hex digits, e.g. <code>C fc1</code>) sets all three.</sub></td>
 </tr>
 </table>
 
@@ -278,12 +281,14 @@ hex digits.
 | `.` | `. HH [HH] [HH]` | Poke 1–3 hex bytes at current address (1–5 on the MEGA65) |
 | `.` | `. MNEM [OPERAND]` | Assemble one instruction at current address |
 | `d` | `d` | Disassemble block-size bytes |
-| `m` | `m [HHHH]` | Hex+character dump of block-size bytes (at `HHHH` if given) |
+| `m` | `m [HHHH]` | Hex+character dump of block-size bytes (at `HHHH` if given; on the MEGA65 an expression too, `m buf+$10`) |
 | `m` | `m HH [HH] ...` | Write up to 8 bytes at current address (16 on the MEGA65) |
 | `i` | `i` | Show full memory map |
 
-`m` and `.` show and edit **your** zero page: `$00`–`$7f` as your
-program sees it, not CSE's own values there.
+`m` and `.` show and edit **your** zero page: on the C64 `$00`–`$7f`
+as your program sees it, not CSE's own values there.  On the MEGA65
+CSE has a base page of its own, so `m` and `.` show base page 0 as it
+is, and the CPU port `$00`/`$01` as your program has it.
 
 <p align="center">
   <img src="img/disassembly.png" alt="d-command disassembly output" width="320">
@@ -314,10 +319,10 @@ source defines it, and `g` runs it.
 | `o` | `o [EXPR]` | Step over — a `jsr` runs as one step (EXPR instructions, default 1) |
 | `c` | `c` | Continue after a break |
 | `b` | `b` | List breakpoints |
-| `b` | `b ADDR` | Set breakpoint (8 slots; ADDR must be in the workspace) |
+| `b` | `b ADDR` | Set breakpoint (8 slots; ADDR must be in the workspace — on the MEGA65 in any memory of yours, banks 0, 1, 4 and 5) |
 | `b` | `b -N` | Delete breakpoint N (1–8) |
 | `b` | `b *` | Clear all breakpoints |
-| `r` | `r` | Show registers (PC, A, X, Y, SP, flags) |
+| `r` | `r` | Show registers (PC, A, X, Y, SP, flags; on the MEGA65 also Z, B and the memory map) |
 | `r` | `r a:HH x:HH ...` | Set registers |
 
 Your program runs until it returns with `rts` (`; rts` and the
@@ -334,10 +339,12 @@ session**: `t`, `o`, `c` and `r` work on the stopped program.
 - `c` right after a breakpoint stop deletes that breakpoint, then
   continues — set it again with `b` to keep stopping there.  `c`
   steps over a `brk` you put in your code.
-- A step whose next instruction lies outside the workspace (a jump
-  into ROM or into CSE) is refused with `;!range`; the session
+- A step whose next instruction lies outside the workspace (on the
+  MEGA65: outside your memory) — a jump into ROM or into CSE — is
+  refused with `;!range`; the session
   stays, `c` runs on.  Stepping into a `jsr` to the KERNAL ROM
-  (`$e000`–`$ffff`) steps over it instead.
+  (`$e000`–`$ffff`; on the MEGA65 `$c000`–`$ffff`) steps over it
+  instead.
 - After the program has returned (`; rts`) the session is over:
   `c`, `t` and `o` answer `;?no ctx`; run it again with `j` or `g`.
 
@@ -349,7 +356,8 @@ press RETURN to set it.
 
 RUN/STOP+RESTORE breaks into the debugger while your code is
 running.  Pressed at the REPL prompt or in the editor, it redraws the
-REPL screen (classic C64 behaviour) and keeps any debug session.
+REPL screen (classic Commodore behaviour) and keeps any debug
+session.
 
 <p align="center">
   <img src="img/tracing.png" alt="Step-tracing with t command, register display, breakpoint" width="384">
@@ -382,8 +390,8 @@ can't collide in the CBM DOS directory.
 - Bare `s` or `l` (no string) reuses the last project name (default `out`).
 
 PRG save addresses: one arg is end (start = current address); two
-args are start and end.  **End is inclusive** — `s "proj" $1000 $2000`
-saves bytes `$1000..$2000` inclusive, i.e. `$1001` bytes.  If end ≤
+args are start and end.  **End is inclusive** — `s "proj" $2000 $3000`
+saves bytes `$2000..$3000` inclusive, i.e. `$1001` bytes.  If end ≤
 start, the arg is treated as a length.  End = 0 saves one block size.
 
 After a source load or save CSE prints `; Nl Mb` (lines, bytes) and
@@ -405,14 +413,15 @@ Loading source over unsaved edits asks `;!load? y/n` first.
 `k`, `Q` and a source `l` first warn `;!unsaved` when the source has
 unsaved edits.  Any key other than `y` cancels.
 
-Colour values are hex digits `0`–`f` (C64 palette), written
+Colour values are hex digits `0`–`f` (the C64 palette, on the MEGA65
+too), written
 together: `C 6` sets the text colour; `C 06` background and text;
 `C 0e6` border, background and text.  `C` alone shows the current
 three (`; color: fc1`).
 
 **Recovering the display.**  If your program has trashed the
-screen, press SHIFT+CLR/HOME at the REPL prompt to redraw the CSE
-display (or type `x` to clear it).  An active debug session is
+screen, press SHIFT+CLR/HOME (or ESC on the MEGA65) at the REPL
+prompt to redraw the CSE display (or type `x` to clear it).  An active debug session is
 kept.
 
 ### REPL keys
@@ -421,11 +430,12 @@ kept.
 |-----|--------|
 | RETURN | Execute the row the cursor is on |
 | Cursor keys | Move anywhere on the screen (no wrap) |
-| Printable keys | Type over the character at the cursor (up to column 38) |
+| Printable keys | Type over the character at the cursor (up to column 38; 78 in the MEGA65's 80 columns) |
 | DEL | Delete left; never deletes into an `AAAA:` prompt |
 | INS | Open a space at the cursor |
 | HOME | Cursor to column 0 |
-| SHIFT+CLR/HOME | Redraw the CSE display |
+| SHIFT+CLR/HOME | Redraw the CSE display (ESC too on the MEGA65) |
+| ESC 4 / 5 / 8 (MEGA65) | Switch to 40 × 25 / 80 × 50 / 80 × 25 |
 | RUN/STOP | Switch to the editor |
 | RUN/STOP+RESTORE | Break into running code; at the prompt, redraw |
 | HELP (MEGA65) | Open the cheat sheet; also in the editor |
@@ -461,7 +471,7 @@ runs nothing, `+ nosuch` moves nowhere.
 | `;!unsaved` | The source has unsaved changes (before the `k`, `Q` and source-`l` questions) |
 | `;!debug` | A debug session is stopped at a break (before the `a`, `j`, `g` questions) |
 | `;!<action>? y/n` | Confirm `del src` (`k`), `quit` (`Q`), `init` (`R`), `load`, `asm`, `go`; `y` proceeds, any other key cancels |
-| `;!range` | A step was refused: its next instruction is outside the workspace |
+| `;!range` | A step was refused: its next instruction is outside the workspace (on the MEGA65: outside your memory) |
 | `;!stk N` | Your program's stack pointer was below `$40` at the break (`N` is its value, decimal): CSE needs 64 bytes of stack below it |
 | `;!long LNN` | Source line `NN` is wider than 39 columns, 79 on the MEGA65 (after a load or save) |
 | `;!a shadow` | Source line wrote `<acc-mne> a` (e.g. `asl a`) but a label `a` is also defined.  The accumulator wins; the label is shadowed for that mnemonic.  Use a different name or write the address explicitly to reach the label from one of the six ACC-accepting mnemonics. |
@@ -501,10 +511,10 @@ Press RUN/STOP to enter the editor from the REPL and back.
 | Cursor keys | Navigate |
 | HOME | Start of line |
 | SHIFT+SPACE (or TAB on the MEGA65) | Tab (to next tab stop; refused at cap / on full buffer) |
-| C=+B | Mark the cursor's line (again: unmark); the lines from the mark to the cursor are shown inverted |
-| C=+X / C=+C | Cut / copy the lines from the mark to the cursor (or the cursor's line) |
-| C=+V | Paste the clipboard's lines above the cursor's line |
-| C=+K / C=+J | Swap the cursor's line with the line above / below |
+| C=+B (MEGA+B) | Mark the cursor's line (again: unmark); the lines from the mark to the cursor are shown inverted |
+| C=+X / C=+C (MEGA+X / C) | Cut / copy the lines from the mark to the cursor (or the cursor's line) |
+| C=+V (MEGA+V) | Paste the clipboard's lines above the cursor's line |
+| C=+K / C=+J (MEGA+K / J) | Swap the cursor's line with the line above / below |
 | RUN/STOP | Return to REPL |
 
 **Smart indent.**  New lines start with a tab (SHIFT+SPACE).
@@ -518,14 +528,17 @@ a line, the cursor marks the other end, C=+X or C=+C takes the lines
 in between (just the cursor's line without a mark), C=+V inserts them
 above the cursor's line — as often as you like.  The clipboard lives
 right below the source text: on the C64 it takes its length off the
-top of your workspace (`workend` moves down while it holds lines);
-when the source needs the space, the clipboard gives it up.  On the MEGA65
-the key is MEGA instead of C=.
+top of your workspace (`workend` moves down while it holds lines), on
+the MEGA65 off the source text's own bank, so your workspace keeps its
+size.  When the source needs the space, the clipboard gives it up.  On
+the MEGA65 the key is MEGA instead of C=.
 
-The source text sits in memory directly below CSE; as it grows, the
-end of your workspace (`workend`) moves down.  The status bar shows
-`*` when there are unsaved changes, the project name, the free
-workspace (`free:0800-XXXX`) and the cursor's line and column.
+On the C64 the source text sits in memory directly below CSE; as it
+grows, the end of your workspace (`workend`) moves down.  On the
+MEGA65 it has a bank of its own and the workspace stays
+`$2000`–`$bfff`.  The status bar shows `*` when there are unsaved
+changes, the project name, the free workspace (`free:0800-XXXX`;
+`free:2000-bfff` on the MEGA65) and the cursor's line and column.
 
 ## Assembler syntax
 
@@ -613,7 +626,7 @@ address `4.2000` (bank, dot, offset) is a literal
 ### Example
 
     .cpu 6502
-    .org $1000
+    .org $2000
 
     .const border $d020
 
@@ -631,12 +644,16 @@ Assemble and run:
     a               ; assemble (.org in source sets the address)
     g               ; run (jumps to main:)
 
-`a` answers `; org  1000-100d    14b`, `; ok` and the save line
-`1000:s "out" $100d`; `g` flashes the border and ends with `; rts`.
-To watch the loop, set `b $1002` (the `stx`) before `g`, then step
-with `t`.
+`a` answers `; org  2000-200d    14b`, `; ok` and the save line
+`2000:s "out" $200d`; `g` flashes the border and ends with `; rts`.
+To watch the loop, set `b $2002` (the `stx`) before `g`, then step
+with `t`.  The same source assembles and runs on the MEGA65
+(`.cpu 6502` keeps it to the plain 6502).
 
 ## Memory layout
+
+This section is the C64's; the MEGA65's map follows in [On the
+MEGA65](#memory-on-the-mega65).
 
 At startup CSE shows the free memory available:
 
@@ -692,6 +709,33 @@ Your code may use KERNAL I/O (CHROUT, GETIN, etc.) normally.
 CSE restores screen colours, charset, and cursor state on return.
 If your code clears or repaints the screen, type `x` in the
 REPL to clear it, or press SHIFT+CLR/HOME to redraw it.
+
+### Memory on the MEGA65
+
+CSE runs in MEGA65 mode and keeps itself out of your way: its code,
+data and source text live in the ROM banks 2–3 and one page of bank 0
+(`$1f00`–`$1fff`), so the free rows at startup are your memory, bank
+by bank:
+
+    ; zp   0.000a-008f   134b free
+    ; zp   0.00fb-00ff     5b free
+    ; low  0.1600-1eff  2304b free
+    ; work 0.2000-bfff 40960b free
+    ; ext  1.2000-f6ff 55040b free
+    ; ext  4.0000-ffff 65536b free
+    ; ext  5.0000-ffff 65536b free
+
+(In 80 × 50 the bank-4 row is missing: the screen is there.)  Your
+program runs as BASIC 65's `RUN` would start it, in the `SYS` memory
+map; BASIC 65 itself is gone while CSE runs, so all it would hold is
+yours.  Your code **must preserve** base page `$02`–`$09` and
+`$90`–`$fa` (the KERNAL's), `$0200`–`$15ff` (KERNAL variables and the
+screen), CSE's page `$1f00`–`$1fff`, the DOS buffers `1.0000`–`1.1fff`
+and the ROM banks 2 and 3; the interface ROM at `$c000` and the
+KERNAL at `$e000` must stay mapped; and it must leave CSE 64 bytes
+below its stack pointer, as on the C64.  The full list, the attic RAM and the
+RAM behind the ROMs included, is
+[doc/userland_contract.md § 3](doc/userland_contract.md#on-m65-memory-regions).
 
 ## Built-in symbols
 
