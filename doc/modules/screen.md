@@ -203,7 +203,7 @@ maps names through `_THEME_MAP` and passes
 | GREENLAND     | d51  | lt grn | green  | white  |
 | MOSS          | d5d  | lt grn | green  | lt grn |
 | RADIOACTIVITY | cb5  | grey   | dk grey| green  |
-| MRSPIGGY      | a21  | lt red | red    | white  |
+| MSPIGGY       | a21  | lt red | red    | white  |
 | BRUCELEE      | 770  | yellow | yellow | black  |
 | LEEBRUCE      | 007  | black  | black  | yellow |
 | MATRIX        | 005  | black  | black  | green  |
