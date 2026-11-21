@@ -151,3 +151,14 @@ def test_io_kbd_flush_drains_the_lookahead_and_both_queues(emu):
     assert emu.a == 0
     emu.jsr(emu.sym("io_kbhit"), b=CSE_BP)
     assert emu.a == 0
+
+
+# ── io_blip at 40 MHz (TODO § Bugs › m65, fixed 2026-11-21) ──────────
+
+def test_io_blip_waits_about_a_millisecond_at_40_mhz(emu):
+    """cse_io.md § io_blip: the gate stays on ~1 ms as on the C64 — at
+    40 MHz an outer loop of 80 × the C64's 200 dex/bne (≥ 32 000
+    instructions; M65Emu counts instructions, not cycles).  Y kept."""
+    steps = emu.jsr(emu.sym("io_blip"), b=CSE_BP, y=0x5A)
+    assert steps >= 80 * 200 * 2
+    assert emu.y == 0x5A

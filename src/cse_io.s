@@ -483,10 +483,20 @@ io_kbd_flush:
         sta SID_VOL
         lda #$11                ; gate=1, triangle=1
         sta SID_V1_CTRL
-        ; Brief busy-wait (~1000 cycles: ~1 ms on the C64, ~25 us at 40 MHz)
+        ; Gate on ~1 ms: 200 dex/bne are ~1000 cycles on the C64; at the
+        ; MEGA65's 40 MHz (2-3 cycles a turn) 80 rounds of them.
+.ifdef PLATFORM_M65
+        lda #80
+@round:
+.endif
         ldx #200
 @wait:  dex
         bne @wait
+.ifdef PLATFORM_M65
+        sec
+        sbc #1
+        bne @round
+.endif
         lda #$00                ; gate=0
         sta SID_V1_CTRL
         rts

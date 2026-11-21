@@ -274,10 +274,10 @@ prints with CHROUT).
 
 ### io_blip
 
-**Out:** a short triangle pulse on SID voice 1 — gate on, a
-`ldx #200` / `dex` / `bne` wait of about 1000 cycles (~1 ms on the
-C64, ~25 µs at the MEGA65's 40 MHz), gate off; SID volume ($D418)
-left at 10.
+**Out:** a short triangle pulse on SID voice 1 — gate on, a wait of
+about 1 ms, gate off; SID volume ($D418) left at 10.  The wait is a
+`ldx #200` / `dex` / `bne` loop, about 1000 cycles on the C64; on m65
+80 rounds of it, ~0.8–1.2 ms at 40 MHz (2–3 cycles a turn).
 **Clobbers:** A, X.  Preserves Y.
 
 Audible feedback for refused input.  Callers: the editor

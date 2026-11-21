@@ -73,10 +73,7 @@ marked.
 
 ### m65
 
-- [ ] **`io_blip` on the MEGA65 is ~25 µs.**  Its wait is `ldx #200` /
-  `dex` / `bne`, about 1000 cycles: ~1 ms on the C64, ~25 µs at 40 MHz
-  — likely inaudible (source; not yet listened to).  Decide the m65
-  length (cse_io.md § io_blip).
+(None open.)
 
 ### Both platforms
 
@@ -4388,6 +4385,11 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
   Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
 ### Fixed bugs
+
+- [x] (fixed 2026-11-21: m65 runs 80 rounds of the 200 dex/bne, ~0.8–1.2 ms at 40 MHz (+7 B); test_io_blip_waits_about_a_millisecond_at_40_mhz) **`io_blip` on the MEGA65 is ~25 µs.**  Its wait is `ldx #200` /
+  `dex` / `bne`, about 1000 cycles: ~1 ms on the C64, ~25 µs at 40 MHz
+  — likely inaudible (source; not yet listened to).  Decide the m65
+  length (cse_io.md § io_blip).
 
 - [x] (fixed 2026-11-21: `STEP_STATE_SIZE` = `_step_state_end − brk_pc` (11 c64, 13 m65), asserted ≤ 128; test_dbg_init_zeroes_the_whole_step_state_block) **`STEP_STATE_SIZE` is 11, the block 12 on m65.**  `step_len`
   (MEGA_SUPPORT) sits inside `brk_pc … _rtu_need_sentinel`, so
