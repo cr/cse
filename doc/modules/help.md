@@ -7,8 +7,8 @@
 | File | Role |
 |------|------|
 | [`src/help.s`](../../src/help.s) | implementation (m65 only) |
-| [`src/help.txt`](../../src/help.txt) | the cheat sheet's text, as the user reads it — the one place it is written |
-| [`src/help_text.s`](../../src/help_text.s) | generated — the text as screen codes (`make tables`, `dev/help_text.py`) |
+| [`src/help.txt`](../../src/help.txt) | the cheat sheet's text, as the user reads it — the one place it is written; back-link-exempt (every line is shown in the window: no comment syntax) |
+| [`src/help_text.s`](../../src/help_text.s) | generated — the text as screen codes (`make tables`, `dev/help_text.py`); back-link-exempt (generated) |
 | [`dev/help_text.py`](../../dev/help_text.py) | the generator: `src/help.txt` → `src/help_text.s`, refusing a line too long or a character the charset lacks |
 | [`tests/unit/test_help_text.py`](../../tests/unit/test_help_text.py) | test contract — Tier U: the text's lines, its characters, its coverage of the commands and directives; the encoding; the generated file current |
 | [`tests/integration/test_m65_help.py`](../../tests/integration/test_m65_help.py) | test contract — Tier I on the m65 PRG (`M65Session`): the window's rows in the three modes, the keys, the screen given back in the REPL and in the editor, RESTORE |
