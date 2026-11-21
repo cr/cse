@@ -198,8 +198,8 @@ open; then `process_line` runs for each line `ed_read_line` returns.
   nothing laid out.  On pass 1 the symbol is defined and the
   directive uses its value, so the layout after it differs between
   the passes — the assembly has already failed (error count ≥ 1).
-  (TODO § Bugs: a symbol defined nowhere reports `fwd ref` on both
-  passes.)
+  A symbol defined nowhere is reported the same way, once:
+  `_vocal_fwd_err` does nothing on pass 1.
 - All other errors are silent on pass 0 (`emit_error` returns).
 
 **Pass 1:** resolve references, emit bytes, count errors.

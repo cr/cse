@@ -531,7 +531,8 @@ _bad_val_err:
 ; silent-pass-0 guard by temporarily setting asm_pass=1 across the
 ; call.  Caller is expected to abort the directive after this returns.
 .proc _vocal_fwd_err
-        lda asm_pass
+        lda asm_pass            ; pass 1: already reported and counted on
+        bne @r                  ;   pass 0 (a symbol defined nowhere too)
         pha
         lda #1
         sta asm_pass
@@ -540,7 +541,7 @@ _bad_val_err:
         jsr emit_error
         pla
         sta asm_pass
-        rts
+@r:     rts
 .endproc
 
 ; ── emit_reserve ───────────────────────────────────────────────────────────

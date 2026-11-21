@@ -93,9 +93,6 @@ marked.
 
 ### Both platforms
 
-- [ ] **`.res` / `.align` with a never-defined symbol report `fwd ref`
-  twice.**  On pass 1, rc 5 also goes to `_vocal_fwd_err`, so `.res
-  nosuch` counts 2 errors and never says `undef` (prober-reproduced).
 - [ ] **breakpoints.s: `dbg_bp_find_flat` is exported, nothing imports
   it** (m65; source).  Drop the export, or the routine if nothing
   calls it inside breakpoints.s either.
@@ -4411,6 +4408,9 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: `_vocal_fwd_err` reports on pass 0 only) **`.res` / `.align` with a never-defined symbol report `fwd ref`
+  twice.**  On pass 1, rc 5 also goes to `_vocal_fwd_err`, so `.res
+  nosuch` counts 2 errors and never says `undef` (prober-reproduced).
 - [x] (fixed 2026-11-21: `process_line` checks a directive's line end on pass 1 (`bad val`); an open string is `exp "`) **Directives accept trailing text.**  `emit_data_bytes`,
   `emit_string`, `d_org`, `d_const`, `set_cpu`, `emit_reserve`,
   `emit_align` stop at the first unexpected character and return

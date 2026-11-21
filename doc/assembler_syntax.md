@@ -366,8 +366,8 @@ Advances PC by N bytes. In pass 1, emits N copies of the fill byte
 **Forward refs not allowed.**  The count and fill expressions must
 resolve on pass 0 — the directive's pass-0 size depends on the
 count's value.  `.res FORWARD_LABEL` reports `;?<line>: fwd ref`
-(on pass 0, counted once) and the assembly fails (TODO § Bugs: a
-symbol defined nowhere gets `fwd ref` twice).  Define the count
+(on pass 0, counted once) and the assembly fails; a symbol defined
+nowhere reads the same way (`fwd ref`, once).  Define the count
 above the directive that uses it (`.const COUNT 16` then
 `.res COUNT`), or use a literal number.
 

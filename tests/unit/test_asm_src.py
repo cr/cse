@@ -1718,3 +1718,11 @@ class TestDirectiveEnd:
     def test_comments_after_a_directive_are_fine(self, as_syms, src):
         errors, _, _ = _run_mem(as_syms, src)
         assert errors == 0
+
+
+@pytest.mark.parametrize("src", [".org $c000\n.res nosuch", ".org $c000\n.align nosuch",
+                                 ".org $c000\n.res 2, nosuch"])
+def test_res_align_with_a_symbol_defined_nowhere_is_one_error(as_syms, src):
+    """TODO § Bugs (fixed 2026-11-21): reported once, on pass 0."""
+    errors, _, _ = _run_mem(as_syms, src)
+    assert errors == 1
