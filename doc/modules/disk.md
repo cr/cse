@@ -173,7 +173,8 @@ jump table ([platform_layer.md](../platform_layer.md) § Constants,
 - **The filename pointer** `ptr` is `disk_local_ptr`, a 2-byte cell
   of CSE's base page (not `$FD`): it only ever reads filenames in
   CSE's own view, `(ptr),y`, so it needs no bank.
-- **The directory buffer.**  `list_directory` loads `$` into
+- **The directory buffer** is CSE's only while `$` lists; the help
+  popup also saves the screen there ([help.md](help.md)).  `list_directory` loads `$` into
   `DIR_BUF`, `2.D000–2.FFFF` (the directory buffer, 12 K of the source
   bank — [memory_design.md](../memory_design.md) § Memory Map — m65),
   not into the user's program region: a full D81 directory (296 entries)

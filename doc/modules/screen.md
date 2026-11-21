@@ -26,6 +26,11 @@ only, the editor's): the screen's `scr_size` bytes to / from
 `REPL_SCREEN` (`3.B000`) by one DMA copy ([platform_layer.md § Screen save](../platform_layer.md#screen-save)).
 Every size is the run-time geometry (`WIDTH`, `HEIGHT`, `scr_size`).
 
+`screen_stash` / `screen_unstash` (m65 only, the help
+popup's): the same copy to / from the directory buffer `DIR_BUF`
+(`2.D000`) instead of `REPL_SCREEN`, which holds the REPL's screen
+while the editor runs ([help.md § Saving the screen](help.md#saving-the-screen)).
+
 ### theme_init
 **In:** none
 **Out:** `theme_border` / `theme_bg` / `theme_fg` = the build-time

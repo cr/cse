@@ -1,0 +1,58 @@
+repl              [ ] optional
+m [addr]          dump a block
+m bb [bb ..]      edit bytes at @
+. insn            assemble at @
+. bb [bb ..] insn bytes, then insn
+d                 disassemble a block
+a                 assemble the source
+j [addr]          run at addr, or @
+g                 run at main, or @
+c                 continue a break
+t [n]   o [n]     step into / over
+b [addr]          set; bare: list
+b -n    b *       delete n / all
+r                 show registers
+r a:xx .. pc:xxxx set a x y z b s pc
+r ml:xxxx mh:xxxx the map, nv-bdizc
+M [mb:xxxx d030:xx] the map
+@ addr            current address
++ [n]   - [n]     forward / back
+l ["name"] [a [e]] load; prg with a
+s ["name"] [a [e]] save; prg with a
+$ [dev]           directory
+i                 memory map
+? expr            calculator
+B [n]             block size
+C [[b]g]f         colours, hex
+u [cpu]           6502 4510 45gs02
+k                 kill the source
+x                 clear the screen
+R    Q            reset / quit
+; text            comment
+
+keys
+run/stop          editor / repl
+esc 4  5  8       40x25 80x50 80x25
+esc  shift+clr    redraw the repl
+help              this help
+
+directives
+.org expr         set the pc
+.const name expr  a constant
+.cpu name         6502 4510 45gs02
+.db expr, ..      bytes
+.dw expr, ..      words
+.dd expr, ..      32-bit words
+.str "text", ..   petscii
+.scr "text", ..   screen codes
+.res n [, fill]   n fill bytes
+.align n          pad to a multiple
+.bas ["text"]     basic sys stub
+
+expressions
+$ff  42  %101     hex dec bin
+4.2000            flat: bank.addr
+£ & ^  + -  * /   or and xor ...
+<< >>  - ! < >    shift neg not lo hi
+*                 the current pc
+name:  .local:    labels

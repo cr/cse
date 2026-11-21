@@ -171,8 +171,9 @@ milestone records are under [§ Records](#records).
 
 ### Keys
 
-- [ ] **HELP, F9–F14 and the ALT / MEGA combinations** do nothing in
-  CSE (D-P2-7).  F9–F14 reach `GETIN` as the codes of CTRL + P, V, Y,
+- [ ] **F9–F14 and the ALT / MEGA combinations** do nothing in
+  CSE (D-P2-7); HELP opens the help popup (§ Help › The m65 help
+  popup).  F9–F14 reach `GETIN` as the codes of CTRL + P, V, Y,
   U, W and Z, so CSE cannot tell them from those ([platform_layer.md §
   Terminal](platform_layer.md#terminal)); the ALT combinations have no
   PETSCII.  Decide what they do; the C64's F1–F8 are an Idea (§ Ideas
@@ -378,7 +379,29 @@ Defined scope, needs work.
 
 ### Help
 
-- [ ] In-app help system.  Help text lives in KDATA (under
+- [x] **The m65 help popup** — done 2026-11-21 (operator's request):
+  HELP opens a bordered window over the REPL or the editor with the
+  cheat sheet of the REPL commands, the keys, the directives and the
+  expressions ([help.md](modules/help.md)).  Decisions (approved):
+  - **P-H-1** One 40-column window, the screen's full height, centred
+    in the 80-column modes; 37 columns of text.
+  - **P-H-2** CRSR ↑/↓ scroll a line (a blip at the ends), HOME to the
+    top, HELP / ESC / RUN/STOP close, other keys ignored; it opens at
+    the top.
+  - **P-H-3** The screen under it saved whole into the directory
+    buffer `2.D000` (`REPL_SCREEN` is the editor's); the colour RAM
+    untouched.
+  - **P-H-4** `src/help.txt` → `src/help_text.s` by `dev/help_text.py`
+    under `make tables`; code in KCODE, text in KDATA.
+  - **P-H-5** test_help_text.py holds the text to repl.md's commands
+    and assembler_syntax.md's directives.
+  - **P-H-6** m65 only.
+  Found on the way: the ROM's font at `3.D000` (M65Emu's only font)
+  is not the one the VIC-IV shows — its lower/upper half has `` ` ``
+  and `}` at `$40` / `$5D`; the character ROM at `$FF7E000` has the
+  line graphics there, so the border's glyphs are checked at Tier X.
+  m65 PRG 27 092 → 29 232 B; the c64 builds unchanged.
+- [ ] In-app help system (c64).  Help text lives in KDATA (under
   KERNAL ROM, $F100 area — on c64 bounded at `$F4F1`, ~330 B free on
   c64-6510 as of 2026-11-20; on m65 the data window), not RODATA — must not bloat the
   relocatable runtime.  Minimal CODE overhead: a small dispatcher

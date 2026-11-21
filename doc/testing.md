@@ -1598,7 +1598,7 @@ No entries are active.
 
 | Module | Layer | Tier | Harness |
 |---|---|---|---|
-| zp, strings, *_tables, oplen_tbl, dasm_mne_idx | 0 | — | (pure data; generator model tests in `tests/unit/test_mnemonic_tables.py`, `test_dasm_tables.py`) |
+| zp, strings, *_tables, oplen_tbl, dasm_mne_idx, help_text | 0 | — | (pure data; generator model tests in `tests/unit/test_mnemonic_tables.py`, `test_dasm_tables.py`, `test_help_text.py`) |
 | **cse_io** | 1 | U | leaf bundle in `test_cse_io.py` |
 | **mem** | 1 | U | conftest `mem` bundle (zp + mem) |
 | **mn6 / mn7 / mn_classify** | 1 | U | `mn6` / `mn7` bundles |
@@ -1616,6 +1616,7 @@ No entries are active.
 | **debugger** | 4 | I | step/BRK state + userland-transition gates; BP-table CRUD is `breakpoints`' (L3) |
 | **asm_src** | 4 | U | `asm_src` bundle |
 | **disk** | 4 | I | needs KERNAL LOAD/SAVE/CHKIN; on C64Emu with a virtual 1541 (§ Virtual IEC drives) |
+| **help** (m65) | 4 | I, X | the popup on the m65 PRG (`test_m65_help.py`, M65Emu); its border glyphs in xmega65's character ROM (`tests/emulator/test_m65_help.py`); the text and its generator at U (`test_help_text.py`) |
 | **editor** | 4 | I | observable behaviour goes through screen RAM + keys; gap-buffer primitives are `gap_buffer`'s (L3) |
 | **repl / main** | 5 | I | Layer-5 cycle; only testable full-PRG |
 | **loader** | 6 | I | `test_loader.py`: `loader_entry` against `load_prg`'s Python relocation |

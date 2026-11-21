@@ -258,7 +258,7 @@ The `dbg_reason` values come from `src/dbg_reason.inc`
 
 **Depends on:** repl, editor, gap_buffer, debugger, breakpoints,
 asm_line (`reg_p`, `reg_sp`), screen, cse_io, symtab, log, mem,
-strings, zp; on m65 expr (`expr_reset`)
+strings, zp; on m65 expr (`expr_reset`) and help (`help_popup`)
 
 ## Design
 
@@ -567,6 +567,7 @@ no ZP, no CPU port.  What a user may expect afterwards is
 | Key | Action |
 |-----|--------|
 | RUN/STOP | Toggle REPL ↔ editor (`enter_editor` / `leave_editor`).  Edge-filtered by `stop_cooldown`: a press sets it, and while it is set further STOPs are swallowed; the `@wait` poll clears it when the KERNAL's STOP shadow `$91` reports the key released.  `hygiene_after_userland` sets it after an NMI break, so the STOP still held from RUN/STOP+RESTORE does not toggle. |
+| HELP (m65) | `help_popup` ([help.md](help.md)): the cheat sheet in a bordered window over the screen, in the REPL and in the editor, after an armed ESC sequence has ended (the key ends it) and before the state dispatch.  When RUN/STOP closed the window (C = 1), `main_loop` sets `stop_cooldown`. |
 | RUN/STOP+RESTORE | NMI — § NMI dispatch.  In userland: break into the debugger.  Otherwise `cse_refresh`, which always lands in the REPL (`state = ST_REPL`, the editor source kept), so the next keys are REPL keys, matching the screen. |
 
 ### REPL mode keys

@@ -94,6 +94,7 @@ kernel re-entry
 | opcode_lookup.s | 3 | (profile, mode) → opcode byte | [opcode_lookup.md](modules/opcode_lookup.md) |
 | expr.s | 3 | Recursive-descent expression parser | [expr.md](modules/expr.md) |
 | dasm.s | 3 | Opcode-map disassembler over the CPU set's generated tables; 45GS02 prefix peel on m65 | [dasm.md](modules/dasm.md) |
+| help.s | 4 | m65: the HELP popup — the cheat sheet in a bordered window over the screen | [help.md](modules/help.md) |
 | screen.s | 2 | Scroll, newline, cursor, color theme, vic_reset | [screen.md](modules/screen.md) |
 | symtab.s | 2 | Hash-table symbol storage with name heap (banking via mem.s) | [symtab.md](modules/symtab.md) |
 | log.s | 2 | Standardised logging API (log_open / log_close / log_err / log_warn / log_info) | [log.md](modules/log.md) |
@@ -114,6 +115,7 @@ Generated files (do not edit — regenerate with `make tables`):
 | mn_asm_tables.s, mn_modes.s | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [opcode_lookup.md](modules/opcode_lookup.md) |
 | oplen_tbl.s, cpu_set.inc | [`dev/mnemonic_tables.py`](../dev/mnemonic_tables.py) | [opcode_lookup.md](modules/opcode_lookup.md) |
 | dasm_tables.s, dasm_mne_idx.s | [`dev/dasm_tables.py`](../dev/dasm_tables.py) | [dasm.md](modules/dasm.md) |
+| help_text.s (from `src/help.txt`) | [`dev/help_text.py`](../dev/help_text.py) | [help.md](modules/help.md) |
 
 ## Dependency Graph
 
@@ -125,10 +127,11 @@ sibling permitted by [rule 2](#dependency-rules).
 | Module | → depends on |
 |---|---|
 | loader | main (+ linker symbols) |
-| main | repl, editor, debugger, asm_line, breakpoints, gap_buffer, screen, symtab, log, mem, cse_io, strings, zp |
+| main | repl, editor, help (m65), debugger, asm_line, breakpoints, gap_buffer, screen, symtab, log, mem, cse_io, strings, zp |
 | repl | main, asm_src, editor, disk, debugger, asm_line, breakpoints, gap_buffer, dasm, expr, symtab, screen, log, asm_err, mem, cse_io, strings, zp (+ linker symbols) |
 | asm_src | asm_line, gap_buffer, expr, symtab, screen, log, asm_err, mem, cse_io, strings, zp |
 | editor | disk, gap_buffer, mem, cse_io, zp (+ linker symbols) |
+| help (m65) | help_text, screen, cse_io, zp |
 | disk | screen, log, cse_io, strings, zp |
 | debugger | asm_line, breakpoints, oplen_tbl (C64), dasm (m65), mem, zp |
 | asm_line | addr_mode, opcode_lookup, expr, mn_classify, mn_asm_tables, mn_modes, asm_err, mem, zp |
@@ -146,7 +149,7 @@ sibling permitted by [rule 2](#dependency-rules).
 | cse_io | zp |
 | mn_classify | mn6 / mn7, mn6_tables / mn7_tables |
 | mn6 / mn7 | mn6_tables / mn7_tables, zp |
-| zp, strings, *_tables, oplen_tbl, dasm_mne_idx | (leaves) |
+| zp, strings, *_tables, oplen_tbl, dasm_mne_idx, help_text | (leaves) |
 
 No module exports state for a higher layer to reach down into:
 the shared flags, `cur_project_name` and the output-formatter

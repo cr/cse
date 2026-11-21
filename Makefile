@@ -271,6 +271,9 @@ ASM_SRCS = zp loader main strings \
            addr_mode mn_modes mn_asm_tables opcode_lookup \
            mem cse_io screen disk expr symtab dasm dasm_tables \
            breakpoints debugger gap_buffer repl editor log oplen_tbl
+ifeq ($(PLATFORM),m65)
+ASM_SRCS += help help_text          # the HELP popup (doc/modules/help.md)
+endif
 ASM_OBJS = $(patsubst %,$(BUILD)/src/%.o,$(ASM_SRCS))
 
 .PHONY: _one
@@ -383,12 +386,12 @@ endif
 # -----------------------------------------------------------------------
 # tables — regenerate generated .s table files from Python
 # -----------------------------------------------------------------------
-TABLE_GEN  = $(DEV)/mnemonic_tables.py $(DEV)/dasm_tables.py
-TABLE_DEPS = $(DEV)/instruction_set.py $(DEV)/hashes.py
+TABLE_GEN  = $(DEV)/mnemonic_tables.py $(DEV)/dasm_tables.py $(DEV)/help_text.py
+TABLE_DEPS = $(DEV)/instruction_set.py $(DEV)/hashes.py $(SRC)/help.txt
 TABLE_OUTS = $(SRC)/mn_modes.s \
              $(SRC)/mn6_tables.s $(SRC)/mn7_tables.s \
              $(SRC)/mn_asm_tables.s $(SRC)/oplen_tbl.s $(SRC)/cpu_set.inc \
-             $(SRC)/dasm_tables.s $(SRC)/dasm_mne_idx.s
+             $(SRC)/dasm_tables.s $(SRC)/dasm_mne_idx.s $(SRC)/help_text.s
 TABLES_STAMP = $(ROOT)build/.tables.stamp
 
 .PHONY: tables
@@ -399,6 +402,7 @@ tables: $(TABLES_STAMP)
 $(TABLES_STAMP): $(TABLE_GEN) $(TABLE_DEPS) | $(ROOT)build/
 	$(PYTHON) $(DEV)/mnemonic_tables.py
 	$(PYTHON) $(DEV)/dasm_tables.py
+	$(PYTHON) $(DEV)/help_text.py
 	@touch $@
 
 $(TABLE_OUTS): $(TABLES_STAMP)

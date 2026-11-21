@@ -65,6 +65,7 @@
         .import cursor_show, cursor_hide
 .ifdef PLATFORM_M65
         .import io_cse_keys, screen_mode_set
+        .import help_popup              ; help.s (help.md)
 .endif
         .import scr_lo, scr_hi
         .import define_ws_syms
@@ -124,6 +125,7 @@ ST_EDIT      = 2
 ; Key codes
 CH_ENTER     = 13
 CH_STOP      = 3
+KEY_HELP     = 132             ; m65: the HELP key (platform_layer.md § Terminal)
 CH_DEL       = 20
 CH_INS       = 148
 CH_CURS_UP   = 145
@@ -547,6 +549,15 @@ main_loop:
 @mode:  jsr screen_mode_set
         jmp cse_refresh
 @no_esc:
+        lda main_key            ; HELP: the help popup, in either state
+        cmp #KEY_HELP           ;   (help.md); C = 1 when RUN/STOP closed
+        bne @no_help            ;   it — the key still held must not
+        jsr help_popup          ;   toggle the editor
+        bcc :+
+        lda #1
+        sta stop_cooldown
+:       jmp main_loop
+@no_help:
 .endif
 
         lda main_key
@@ -563,7 +574,7 @@ main_loop:
         jmp main_loop
 @stop_edit:
         cmp #ST_EDIT
-        bne main_loop
+        jne main_loop
         jsr leave_editor
         jmp main_loop
 @not_stop:

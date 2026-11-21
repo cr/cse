@@ -300,7 +300,7 @@ Exomizer serves the C64 builds only, with its default target (`-t
 | Debug | `make debug` | The platform's builds with `-g` (full symbols in `.lbl`) |
 | Disk (single) | `make disk` | `c64`: a D64 per build in the build dir (for quick iteration); `m65`: as `release`, the distribution D81 |
 | Run | `make run` | Build release + launch in VICE (`c64`) or xmega65 (`m65`) |
-| Tables | `make tables` | Run both generators, `dev/mnemonic_tables.py` and `dev/dasm_tables.py`, when a generator or its input is newer than `build/.tables.stamp` ([§ Table generation](#table-generation)) |
+| Tables | `make tables` | Run the generators, `dev/mnemonic_tables.py`, `dev/dasm_tables.py` and `dev/help_text.py`, when a generator or its input is newer than `build/.tables.stamp` ([§ Table generation](#table-generation)) |
 | Tests | `make test` | Build both debug + release, check the ROMs, then run all pytest tests |
 | Check ROMs | `make check-roms` | Fail with copy instructions when `rom/kernal_cbm.bin` is missing (a prerequisite of `test`) |
 | MEGA65 ROM | `make m65-rom` | Copy the MEGA65 ROM from xmega65's data directory to `rom/mega65.rom` ([§ MEGA65 ROM](#mega65-rom)) |
@@ -664,9 +664,11 @@ updated or a case or state is added; a changed recording is a
 behaviour change of the reference, which that commit states
 ([testing.md § M65Emu](testing.md#m65emu--the-m65-integration-harness)).
 
-Run with `make tables` (both generators; the stamp depends on both
-and on their inputs) or directly with `python3 dev/mnemonic_tables.py`
-and `python3 dev/dasm_tables.py`.
+Run with `make tables` (the generators; the stamp depends on them
+and on their inputs; `dev/help_text.py`'s input is `src/help.txt`,
+its output `src/help_text.s`, its owning doc [help.md](modules/help.md))
+or directly with `python3 dev/mnemonic_tables.py`,
+`python3 dev/dasm_tables.py` and `python3 dev/help_text.py`.
 Generated files carry a "do not edit" comment.  Their owning docs are
 [mn_classify.md](modules/mn_classify.md),
 [opcode_lookup.md](modules/opcode_lookup.md) and [dasm.md](modules/dasm.md).

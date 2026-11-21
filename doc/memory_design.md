@@ -498,7 +498,8 @@ pointers ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
     2.4000–2.BFFF  the source region (32 K)                     CSE
     2.C000–2.CFFF  the interface ROM                            the KERNAL
     2.D000–2.FFFF  the directory buffer (`$`; 12 K, a full      CSE
-                   D81 directory takes under 10 K)
+                   D81 directory takes under 10 K); the screen
+                   under the help window
     3.0000–3.1FFF  the monitor                                  the ROM
     3.2000–3.7FFF  CODE + RODATA                                CSE
     3.8000–3.BFFF  BSS, KDATA, symbol table and heap,           CSE
@@ -518,7 +519,8 @@ homes; above them,
 the C64's under-KERNAL homes at fixed addresses, page-aligned as the
 C64's (symtab.s indexes its table from a page boundary):
 
-    3.8000–3.9EFF  KDATA, KCODE, then BSS (7.75 K; the linker bounds it)
+    3.8000–3.9EFF  KDATA, KCODE, then BSS (7.75 K; the linker bounds it;
+                   KDATA with the help text, KCODE with help.s)
     3.9F00–3.A6FF  SYM_TABLE: the symbol table (256 × 8 bytes: 32-bit values)
     3.A700–3.AFFF  SYM_HEAP … SYM_HEAP_END ($B000): the name heap
     3.B000–3.BF9F  REPL_SCREEN: the REPL screen save (80 × 50 = 4000)

@@ -13,6 +13,7 @@
         .export kernal_screen_reset
 .ifdef PLATFORM_M65
         .export screen_mode_set, screen_save, screen_restore
+        .export screen_stash, screen_unstash
         .import io_geometry, io_kbd_flush
 .endif
         .import io_sync
@@ -229,35 +230,51 @@ fill_rows_from:
 
 ; ── screen_save / screen_restore — the screen (width x height, the
 ; mode's bank) to / from REPL_SCREEN (3.B000) by one DMA copy (m65;
-; platform_layer.md § Screen save).  Clobbers A, X, Y.
+; platform_layer.md § Screen save); screen_stash / screen_unstash the
+; same to / from the directory buffer DIR_BUF (2.D000: the help
+; popup's, help.md § Saving the screen).  Clobbers A, X, Y.
+        .assert <REPL_SCREEN = 0 && <DIR_BUF = 0, error, "_scr_buf: page-aligned buffers"
+screen_stash:
+        ldy #DIR_BANK
+        lda #>DIR_BUF
+        bne _scr_save           ; always
 screen_save:
-        ldx #0
-        jsr rows_from           ; sj_dst = the screen, sj_count = its size
-        ldx #2
-@mv:    lda sj_dst,x            ; the screen is the source
+        ldy #BANK_CSE
+        lda #>REPL_SCREEN
+_scr_save:
+        jsr _scr_buf            ; sj_src = the buffer, sj_dst = the screen
+        ldx #2                  ; swap: the screen is the source
+@sw:    lda sj_src,x
+        ldy sj_dst,x
+        sta sj_dst,x
+        tya
         sta sj_src,x
         dex
-        bpl @mv
-        lda #<REPL_SCREEN
-        sta sj_dst
-        lda #>REPL_SCREEN
-        sta sj_dst+1
-        lda #BANK_CSE
-        sta sj_dst+2
-        bne _scr_copy           ; always
+        bpl @sw
+        bmi _scr_copy           ; always
+screen_unstash:
+        ldy #DIR_BANK
+        lda #>DIR_BUF
+        bne _scr_restore        ; always
 screen_restore:
-        ldx #0
-        jsr rows_from
-        lda #<REPL_SCREEN
-        sta sj_src
+        ldy #BANK_CSE
         lda #>REPL_SCREEN
-        sta sj_src+1
-        lda #BANK_CSE
-        sta sj_src+2
+_scr_restore:
+        jsr _scr_buf
 _scr_copy:
         ldx #DMA_COPY
         ldy #0
         jmp scr_dma
+
+; ── _scr_buf — sj_src := the buffer A.00 in bank Y; sj_dst := the
+; screen, sj_count := its size (rows_from 0).  Clobbers A, X.
+_scr_buf:
+        sta sj_src+1
+        sty sj_src+2
+        lda #0
+        sta sj_src
+        tax
+        jmp rows_from
 .endif
 
 ; ═════════════════════════════════════════════════════════
