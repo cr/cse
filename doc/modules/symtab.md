@@ -283,3 +283,6 @@ Wraparound to start index → C=1 (not found, table full).
   end past `SYM_HEAP_END` ($EF00).  Nothing is written and `_st_heap`
   does not move, so the bytes at $EF00+ (user-stack window, KDATA)
   are never touched, and a shorter name may still fit afterwards.
+  On m65 the end is $B000 (3.B000), where `REPL_SCREEN` begins; the
+  same refusal leaves it untouched (test_symtab.py `TestHeapOverflow`
+  on c64, test_m65_repl.py `test_name_heap_stops_below_the_repl_screen`).

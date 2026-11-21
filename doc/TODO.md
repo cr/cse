@@ -81,9 +81,6 @@ marked.
 
 ### Test gaps
 
-- [ ] **m65: the name heap's bound.**  test_symtab.py pins only the
-  c64's `$EF00`; on m65 `SYM_HEAP_END` is `$B000`, where `REPL_SCREEN`
-  begins.  An m65 bundle test that fills the heap and checks `$B000+`.
 - [ ] **m65 breakpoints at Tier U.**  test_breakpoints.py is c64-only;
   the 6-byte slots, `dbg_bp_del`'s slot × 6, `dbg_bp_count`'s bank
   check, `dbg_step_find` and `step_bp_arm` are covered only at Tier I
@@ -4379,6 +4376,9 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: test_name_heap_stops_below_the_repl_screen — 59 names of 39 B fill 3.A700–3.AFFF, the 60th refused with $B000+ untouched) **m65: the name heap's bound.**  test_symtab.py pins only the
+  c64's `$EF00`; on m65 `SYM_HEAP_END` is `$B000`, where `REPL_SCREEN`
+  begins.  An m65 bundle test that fills the heap and checks `$B000+`.
 - [x] (fixed 2026-11-21: measured from `reg_sp` over the break and `r @ m d . ? t b` typed at it — 31 B c64, 32 B m65; TestKernelStackBudget, test_break_path_stays_within_64_bytes) **The 64-byte break-path stack budget is never measured.**
   userland_contract.md § Kernel stack budget says the 64 bytes hold the
   BRK frame, the handler and the REPL commands typed at a break;

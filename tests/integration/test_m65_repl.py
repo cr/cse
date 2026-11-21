@@ -1292,3 +1292,43 @@ def test_break_path_stays_within_64_bytes(s):
     assert s.v("reg_sp") == LOW_SP
     assert not any(r.startswith(";?") for r in s.rows())
     assert depth <= 64
+
+
+# ── the name heap's bound on m65 (TODO § Test gaps, 2026-11-21) ──────
+
+SYM_HEAP, SYM_HEAP_END = 0xA700, 0xB000     # platform.inc (m65), CSE map
+NAME_AT = 0xBF00                            # a name's scratch: REPL_SCREEN's tail
+
+
+def test_name_heap_stops_below_the_repl_screen(s):
+    """symtab.md § Caveats on m65: the heap ends at SYM_HEAP_END = $B000,
+    where REPL_SCREEN begins — a name that does not fit is refused (C=1)
+    with nothing written at $B000+, and the names before it are found."""
+    mem = s.e.memory
+    s.call("sym_clear")
+    for a in range(SYM_HEAP_END, SYM_HEAP_END + 0x100):
+        mem[a] = 0xA5
+
+    def at(name):
+        for k, ch in enumerate(name.encode() + b"\0"):
+            mem[NAME_AT + k] = ch
+        mem[s.cell("sym_name")], mem[s.cell("sym_name") + 1] = NAME_AT & 0xFF, NAME_AT >> 8
+
+    names = []
+    for i in range(100):
+        name = f"n{i:03d}" + "x" * 34          # 38 characters + NUL
+        at(name)
+        for k, b in enumerate(i.to_bytes(4, "little")):
+            mem[s.cell("sym_val") + k] = b
+        mem[s.cell("sym_wide")] = 1
+        s.call("sym_define")
+        if s.e.carry:
+            break
+        names.append(name)
+    assert len(names) == (SYM_HEAP_END - SYM_HEAP) // 39
+    assert all(mem[a] == 0xA5 for a in range(SYM_HEAP_END, SYM_HEAP_END + 0x100))
+    assert s.w("_st_heap") <= SYM_HEAP_END
+    for i, name in enumerate(names):
+        at(name)
+        s.call("sym_lookup")
+        assert not s.e.carry and s.w("sym_val") == i, name
