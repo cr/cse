@@ -9,6 +9,7 @@
 | [`src/editor.s`](../../src/editor.s) | implementation |
 | [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py) | test contract |
 | [`tests/integration/test_m65_source_editor.py`](../../tests/integration/test_m65_source_editor.py) | test contract — the editor on the m65 PRG in each text mode (P2 T10, § On m65) |
+| [`tests/integration/editor_cap.py`](../../tests/integration/editor_cap.py) | test contract — the line cap's matrix (§ Long lines and the overflow indicator): every entry point, a case that fits and one that would pass the cap, run by test_editor.py (c64) and test_m65_source_editor.py (80 × 25, 40 × 25) |
 
 ## Purpose
 
@@ -471,6 +472,13 @@ horizontal scrolling.
 The fix is manual: RETURN at a visible column, a shorter expression,
 a cut comment.  This matches the C64, where the screen width is a
 hard physical constraint.
+
+**Tests.**  `editor_cap.py` is this section's matrix: each row of the
+table with a case that fits and a case that would pass the cap, from
+a load, checked whole — the buffer, the cursor's line and column, the
+KERNAL cursor, `>` on exactly the long rows, a refusal's blip with the
+buffer and `ed_dirty` as before — on the c64 and on m65 in 80 and 40
+columns.
 
 **Rationale — joins and loads keep long lines.**  A DEL join or a
 load that makes or brings a line wider than 39 preserves every byte

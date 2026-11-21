@@ -169,14 +169,65 @@ def test_right_stops_at_the_last_column(s, name):
     assert s.v("ed_cur_col") == width - 1
 
 
-# The cap measured after the insert (editor.md § Long lines; TODO §
-# Records › Fixed bugs, 2026-11-21): a key typed before a tab pushes the
-# tab to the next stop, the line by up to 8 columns at once.
+# The line cap's contract matrix (editor.md § Long lines; editor_cap.py,
+# shared with the c64): every entry point, in 80 and in 40 columns.
+from editor_cap import Ed, matrix                  # noqa: E402
+
 CAPS = [("80x25", 79), ("40x25", 39)]
+CAP_CASES = [(name, cap, case) for name, cap in CAPS for case in matrix(cap)]
+
+
+class M65Ed(Ed):
+    """The m65 editor: M65Emu, keys through main_loop, in a mode."""
+
+    def __init__(self, s, name, cap):
+        in_mode(s, name)
+        self.s, self.cap, self.last_col = s, cap, cap
+
+    def load(self, text):
+        load_source(self.s, text)
+        self.s.e.memory[self.s.cell("ed_dirty")] = 0
+        edit(self.s)
+
+    def press(self, keys):
+        s = self.s
+        cpu, blip, n = s.e.cpu, s.e.sym("io_blip"), [0]
+        step = cpu.step
+
+        def watched():
+            if cpu.pc == blip:
+                n[0] += 1
+            step()
+        cpu.step = watched
+        try:
+            for k in keys:
+                s.keys(bytes([k]))
+        finally:
+            del cpu.step
+        return n[0]
+
+    def buffer(self):
+        return source(self.s)
+
+    def cell(self, name):
+        return self.s.v(name)
+
+    def row(self, r):
+        return raw(self.s, r)
+
+    def cursor(self):
+        return self.s.v("io_cy"), self.s.v("io_cx")
+
+
+@pytest.mark.parametrize("name,cap,case", CAP_CASES,
+                         ids=[f"{n}-{c.name}" for n, _, c in CAP_CASES])
+def test_the_line_cap(s, name, cap, case):
+    M65Ed(s, name, cap).check(case)
 
 
 @pytest.mark.parametrize("name,cap", CAPS)
 def test_spaces_before_the_seed_tab_stop_at_the_cap(s, name, cap):
+    """The reported scenario, from the seeded tab: HOME, then spaces."""
     in_mode(s, name)
     edit(s)
     s.keys(b"\x13")                                   # HOME: before the seed tab
@@ -185,28 +236,6 @@ def test_spaces_before_the_seed_tab_stop_at_the_cap(s, name, cap):
     k = cap // 8 * 8 - 1                               # the spaces that keep it ≤ cap
     assert source(s) == b" " * k + b"\xa0"
     assert raw(s, 0)[s.width - 1] != 0x3E
-
-
-@pytest.mark.parametrize("name,cap", CAPS)
-def test_right_does_not_cross_a_tab_past_the_last_column(s, name, cap):
-    in_mode(s, name)
-    stop = (cap + 1) // 8 * 8 - 8                      # a tab here ends past the cap
-    load_source(s, b" " * stop + b"\xa0Z\r")
-    edit(s)
-    s.keys(b"\x1d" * (cap + 10))
-    assert s.v("ed_cur_col") == stop
-    assert s.v("io_cy") == 0 and s.v("io_cx") <= cap
-
-
-@pytest.mark.parametrize("name,cap", CAPS)
-def test_return_opens_without_its_tab_when_it_would_pass_the_cap(s, name, cap):
-    in_mode(s, name)
-    load_source(s, b"B" * cap + b"\r")
-    edit(s)
-    s.keys(b"\x1d\r")                               # RIGHT, RETURN
-    assert source(s) == b"B\r" + b"B" * (cap - 1) + b"\r"
-    assert s.v("ed_cur_col") == 0
-    assert raw(s, 1)[s.width - 1] != 0x3E
 
 
 # ── the screen save, the mode keys, scrolling ─────────────────────

@@ -713,136 +713,66 @@ class TestDirtyMarker:
         assert emu.memory[self._col0(emu)] == 0xAA
 
 
-# ── The cap: no key makes a line wider than 39 or puts the cursor past
-# col 39 (editor.md § Long lines and the overflow indicator; TODO §
-# Records › Fixed bugs, 2026-11-21: the width was checked before the
-# insert, so a character typed before a tab pushed the tab to the next
-# stop and the line from 32 to 40 columns) ─────────────────────────
+# ── The line cap: editor.md § Long lines and the overflow indicator, its
+# contract matrix (editor_cap.py, shared with m65).  Escape Analysis
+# 2026-11-21 (TODO § Records › Fixed bugs): the width was checked before
+# the insert, so a character before a tab pushed the line past 39. ─────
 
-TAB, HOME, INS, DEL, RIGHT, RETURN = 0xA0, 0x13, 0x94, 0x14, 0x1D, 0x0D
-GT = 0x3E                                    # the overflow indicator '>'
+from editor_cap import Ed, matrix                  # noqa: E402
 
-
-def width(line):
-    """Visual width of a line's bytes (tabs to the next multiple of 8)."""
-    col = 0
-    for b in line:
-        col = (col // 8 + 1) * 8 if b == TAB else col + 1
-    return col
+CASES = matrix(39)
 
 
-def line_at(emu, n):
-    return read_back(emu).split(b"\r")[n]
+class C64Ed(Ed):
+    """The c64 editor: C64Emu, keys through ed_handle_key, screen at $0400."""
+
+    def __init__(self, cse_prg):
+        self.emu = make_emu(cse_prg)
+
+    def load(self, text):
+        """As ed_load_source leaves it: the text in, the gap at the start,
+        line 0 col 0, the view at the top, ed_dirty 0, rendered."""
+        e, m = self.emu, self.emu.memory
+        insert_text(e, text)
+        for _ in text:
+            e.jsr(e.sym("gb_cursor_left"))
+        for name, size in (("ed_cur_col", 1), ("ed_cur_line", 2), ("ed_top_line", 2),
+                           ("ed_dirty", 1)):
+            for k in range(size):
+                m[e.sym(name) + k] = 0
+        top, base = e.sym("ed_top_ptr"), e.sym("buf_base")
+        m[top], m[top + 1] = m[base], m[base + 1]
+        e.jsr(e.sym("ed_render"))
+
+    def press(self, keys):
+        e = self.emu
+        cpu, blip, n = e._cpu, e.sym("io_blip"), [0]
+        step = cpu.step
+
+        def watched():
+            if cpu.pc == blip:
+                n[0] += 1
+            step()
+        cpu.step = watched
+        try:
+            type_keys(e, keys)
+        finally:
+            del cpu.step
+        return n[0]
+
+    def buffer(self):
+        return read_back(self.emu)
+
+    def cell(self, name):
+        return self.emu.memory[self.emu.sym(name)]
+
+    def row(self, r):
+        return [self.emu.memory[0x0400 + 40 * r + k] for k in range(40)]
+
+    def cursor(self):
+        return self.emu.memory[0xD6], self.emu.memory[0xD3]
 
 
-def put(emu, text):
-    """Insert `text` (as a load does, no cap) and leave the cursor at its
-    end with ed_cur_line / ed_cur_col in step."""
-    insert_text(emu, bytes(text))
-    emu.jsr(emu.sym("visual_col"))
-    emu.memory[emu.sym("ed_cur_col")] = emu.a
-    lines = bytes(text).count(b"\r")
-    emu.memory[emu.sym("ed_cur_line")] = lines & 0xFF
-    emu.memory[emu.sym("ed_cur_line") + 1] = lines >> 8
-
-
-class TestTheCap:
-
-    def test_spaces_before_a_tab_stop_at_the_cap(self, cse_prg):
-        """HOME before the seed tab, then spaces: the tab moves to the
-        next stop every 8; the 32nd space would make the line 40 wide."""
-        emu = make_emu(cse_prg)
-        put(emu, [TAB])
-        type_keys(emu, [HOME] + [0x20] * 40)
-        assert line_at(emu, 0) == b" " * 31 + bytes([TAB])
-        assert width(line_at(emu, 0)) == 32
-        assert emu.memory[emu.sym("ed_cur_col")] == 31
-        assert emu.memory[0x0400 + 39] != GT
-
-    def test_letters_before_a_tab_in_the_middle_stop_at_the_cap(self, cse_prg):
-        emu = make_emu(cse_prg)
-        put(emu, b"AB" + bytes([TAB]) + b"C" * 30)       # 38 wide
-        type_keys(emu, [HOME, RIGHT] + [ord("X")] * 10)
-        line = line_at(emu, 0)
-        assert width(line) <= 39 and line.endswith(bytes([TAB]) + b"C" * 30)
-        assert line == b"AXXXXXB" + bytes([TAB]) + b"C" * 30   # 5 fit: a 6th makes
-                                                                # "A..B" 8 wide, the tab 16
-        assert emu.memory[0x0400 + 39] != GT
-
-    def test_ins_before_a_tab_stops_at_the_cap(self, cse_prg):
-        emu = make_emu(cse_prg)
-        put(emu, [TAB])
-        type_keys(emu, [HOME] + [INS] * 40)
-        assert line_at(emu, 0) == b" " * 31 + bytes([TAB])
-        assert emu.memory[emu.sym("ed_cur_col")] == 0
-
-    def test_tab_before_text_stays_within_the_cap(self, cse_prg):
-        emu = make_emu(cse_prg)
-        put(emu, b"X" * 7 + bytes([TAB]) + b"Y" * 23)    # 31 wide
-        type_keys(emu, [HOME] + [TAB] * 3)
-        assert width(line_at(emu, 0)) <= 39
-        assert emu.memory[0x0400 + 39] != GT
-
-    def test_typing_at_the_end_still_stops_at_col_39(self, cse_prg):
-        emu = make_emu(cse_prg)
-        put(emu, [TAB])
-        type_keys(emu, [ord("X")] * 40)
-        assert line_at(emu, 0) == bytes([TAB]) + b"X" * 31
-        assert emu.memory[emu.sym("ed_cur_col")] == 39
-
-    def test_return_opens_without_its_tab_when_the_tab_would_pass_the_cap(self, cse_prg):
-        """A 39-wide line split at col 1: the rest behind a tab would be
-        46 wide, so the new line opens at col 0 (the rest no further
-        right than it was)."""
-        emu = make_emu(cse_prg)
-        put(emu, b"B" * 39)
-        type_keys(emu, [HOME, RIGHT, RETURN])
-        assert read_back(emu) == b"B\r" + b"B" * 38
-        assert emu.memory[emu.sym("ed_cur_col")] == 0
-        assert emu.memory[0x0400 + 40 + 39] != GT
-
-    def test_return_keeps_its_tab_when_it_fits(self, cse_prg):
-        emu = make_emu(cse_prg)
-        put(emu, b"B" * 20)
-        type_keys(emu, [HOME, RIGHT, RIGHT, RETURN])
-        assert read_back(emu) == b"BB\r" + bytes([TAB]) + b"B" * 18
-        assert emu.memory[emu.sym("ed_cur_col")] == 8
-
-    def test_right_does_not_cross_a_tab_past_col_39(self, cse_prg):
-        """A loaded line, 32 spaces then a tab (to col 40): RIGHT stops
-        at col 32 instead of landing on col 40, the next screen row."""
-        emu = make_emu(cse_prg)
-        put(emu, b" " * 32 + bytes([TAB]) + b"Z")
-        type_keys(emu, [HOME] + [RIGHT] * 40)
-        assert emu.memory[emu.sym("ed_cur_col")] == 32
-        assert emu.memory[0xD3] <= 39 and emu.memory[0xD6] == 0
-
-    def test_del_join_puts_the_cursor_at_most_on_col_39(self, cse_prg):
-        emu = make_emu(cse_prg)
-        put(emu, b"Y" * 45 + b"\rZ")
-        type_keys(emu, [HOME, DEL])
-        assert read_back(emu) == b"Y" * 45 + b"Z"
-        assert emu.memory[emu.sym("ed_cur_col")] <= 39
-        assert emu.memory[0xD3] <= 39 and emu.memory[0xD6] == 0
-
-    def test_up_onto_a_long_line_stays_within_col_39(self, cse_prg):
-        emu = make_emu(cse_prg)
-        put(emu, b"Y" * 45 + b"\r" + bytes([TAB]) + b"Z" * 31)   # cursor at col 39
-        assert emu.memory[emu.sym("ed_cur_col")] == 39
-        type_keys(emu, [0x91])                                    # UP
-        assert emu.memory[emu.sym("ed_cur_col")] == 39
-        assert emu.memory[0xD3] <= 39 and emu.memory[0xD6] == 0
-
-    def test_del_before_a_tab_never_widens_the_line(self, cse_prg):
-        emu = make_emu(cse_prg)
-        put(emu, b"ABCDEFGH" + bytes([TAB]) + b"C" * 23)           # 39 wide
-        type_keys(emu, [HOME] + [RIGHT] * 8 + [DEL] * 3)
-        assert line_at(emu, 0) == b"ABCDE" + bytes([TAB]) + b"C" * 23
-        assert width(line_at(emu, 0)) == 31
-
-    def test_the_smart_colon_only_narrows(self, cse_prg):
-        emu = make_emu(cse_prg)
-        put(emu, bytes([TAB]) + b"L" * 30)                         # 38 wide
-        type_keys(emu, [ord(":")])
-        assert line_at(emu, 0) == b"L" * 30 + b":"
-        assert width(line_at(emu, 0)) == 31
+@pytest.mark.parametrize("case", CASES, ids=[c.name for c in CASES])
+def test_the_line_cap(cse_prg, case):
+    C64Ed(cse_prg).check(case)
