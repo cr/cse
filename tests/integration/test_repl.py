@@ -1671,3 +1671,14 @@ class TestMemoryEditRun:
         set_line_buf(cpu, rsyms, "m 01 02 03 04 05 06 07 08")
         run_at(cpu, rsyms.exec_line)
         assert get_cur_addr(cpu, rsyms) == 0x0004
+
+
+class TestDisasmAtTheTop:
+    """TODO § Bugs (fixed 2026-11-21): `d` at $FFFF lists the byte there."""
+
+    def test_d_lists_ffff(self, rsyms):
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0xFFFF)
+        set_line_buf(cpu, rsyms, "d")
+        run_at(cpu, rsyms.exec_line)
+        assert "ffff:." in _screen(cpu), _screen(cpu)

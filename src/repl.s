@@ -2853,49 +2853,45 @@ mem_row:
 
         jsr load_curaddr
 
-        ; end = addr + block_size
-        lda rp_addr
-        clc
-        adc block_size
+        ; block_size bytes from addr: count them down (an instruction
+        ; may end past the count); stop after one that wraps past $FFFF
+        lda block_size
         sta rp_cnt
-        lda rp_addr+1
-        adc block_size+1
+        lda block_size+1
         sta rp_cnt+1
-        ; if overflow, end = $FFFF
-        bcc @loop
-        lda #$FF
-        sta rp_cnt
-        sta rp_cnt+1
-
-@loop:  ; while addr < end
-        lda rp_addr+1
-        cmp rp_cnt+1
-        bcc @ok
-        bne @done
-        lda rp_addr
-        cmp rp_cnt
-        bcs @done
-@ok:
+@loop:  lda rp_cnt
+        ora rp_cnt+1
+        beq @done
         jsr emit_dot            ; returns olen in A
-        ; addr += olen
-        clc
+        sta rp_tmp2
+        clc                     ; addr += olen
         adc rp_addr
         sta rp_addr
-        bcc :+
-        inc rp_addr+1
-:       jsr newline
-        ; if addr wrapped to 0, break
-        lda rp_addr
-        ora rp_addr+1
-        bne @loop
+        lda rp_addr+1
+        adc #0
+        sta rp_addr+1
+        php                     ; C: wrapped past $FFFF
+        jsr newline
+        lda rp_cnt              ; count -= olen, at least 0
+        sec
+        sbc rp_tmp2
+        sta rp_cnt
+        lda rp_cnt+1
+        sbc #0
+        sta rp_cnt+1
+        bcs :+
+        lda #0
+        sta rp_cnt
+        sta rp_cnt+1
+:       plp
+        bcc @loop
+.ifdef PLATFORM_M65
+        RP_CARRY                ; wrapped: a flat address carries into its bank
+.endif
 
 @done:
 .ifdef PLATFORM_M65
-        lda rp_addr             ; ended by the wrap to 0: a flat address
-        ora rp_addr+1           ; carries into its bank
-        bne :+
-        RP_CARRY
-:       CUR_FROM_RP
+        CUR_FROM_RP
 .endif
         lda rp_addr
         sta cur_addr

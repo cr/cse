@@ -1208,3 +1208,13 @@ def test_a_cancelled_start_leaves_the_current_address(s, cmd):
     s.keys(b"N")
     s.find(r"^;!go\? y/n")
     assert prompt(s) == before
+
+
+# ── `d` at the top of memory (TODO § Bugs › Both platforms, fixed
+#    2026-11-21) ────────────────────────────────────────────────────────
+
+def test_d_lists_the_last_byte_of_a_bank_and_carries(s):
+    fpoke(s, 4, 0xFFFF, [0xEA])
+    s.line("4.ffff:d")
+    s.find(r"^4\.ffff:\.  ea +eom$")
+    assert prompt(s) == "5.0000:"

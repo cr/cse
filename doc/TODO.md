@@ -98,11 +98,6 @@ marked.
 
 ### Both platforms
 
-- [ ] **`d` at the top of memory lists nothing.**  `cmd_disasm` clamps
-  the end to `$FFFF` on overflow, so the byte at `$FFFF` is never
-  listed: `4.ffff:d` prints no row and does not advance (reproduced);
-  the bank carry happens only when an instruction ends exactly at
-  `$10000`.
 - [ ] **`b -N` and `b *` take trailing garbage.**  `@delete_one` /
   `@clear_all` have no end-of-input check: `b -12` deletes slot 1 and
   prints `; bp 1 del`, `b *xyz` clears all (reproduced) — repl.md:
@@ -4450,6 +4445,11 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: `cmd_disasm` counts `block_size` bytes down and stops on the carry out of `$FFFF`) **`d` at the top of memory lists nothing.**  `cmd_disasm` clamps
+  the end to `$FFFF` on overflow, so the byte at `$FFFF` is never
+  listed: `4.ffff:d` prints no row and does not advance (reproduced);
+  the bank carry happens only when an instruction ends exactly at
+  `$10000`.
 - [x] (fixed 2026-11-21: `j` / `g` stash the current address, `cmd_jmp` restores it on a cancel or a refusal) **A refused or cancelled `j` still moves the current address.**
   `@h_j` stores `cur_addr` before `cmd_jmp`'s session gate and before
   `start_bank`: `j 4.8000` answers `;?range` and the prompt becomes
