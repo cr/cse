@@ -97,16 +97,12 @@ STEP_NONE = 0
 STEP_INTO = 1
 STEP_OVER = 2
 
-; Size of the step-state BSS window zeroed by dbg_init (11 bytes:
-; brk_pc, step_state, step_remaining, step_next_lo, step_next_hi,
-; step_save, _rtu_need_sentinel — declared contiguously below).
-STEP_STATE_SIZE = 11
-
 ; ── BSS ────────────────────────────────────────────────────────────────
 .segment "BSS"
 
-; Eleven bytes, declared contiguously so dbg_init can zero them in one
-; sweep (brk_pc..._rtu_need_sentinel, total 11 bytes = STEP_STATE_SIZE).
+; The step-state block, declared contiguously so dbg_init can zero it in
+; one sweep: brk_pc ... _rtu_need_sentinel (11 bytes), on m65 also
+; step_len and run_bank (13).  STEP_STATE_SIZE is taken from the labels.
 brk_pc:        .res 2          ; PC where break occurred / resume address
 
 ; Handler-resident step-chain state.
@@ -125,10 +121,16 @@ step_len:      .res 1          ; the instruction's length, prefixes included
 ; return_to_userland (=1) or restore_userland_state (=0).
 _rtu_need_sentinel: .res 1
 .ifdef PLATFORM_M65
+run_bank:       .res 1          ; a fresh start's bank: 0 plain, else the far
+                                ;   start's (repl.md § Far starts; slice 3 F3);
+                                ;   0 again on cse_recover (in the block)
+.endif
+_step_state_end:
+STEP_STATE_SIZE = _step_state_end - brk_pc
+        .assert STEP_STATE_SIZE <= 128, error, "dbg_init's sweep counts down with bpl"
+.ifdef PLATFORM_M65
 um_kmap:        .res 4          ; the program's KERNAL map record (P3) and
 um_sysflags:    .res 1          ;   its SYSFLAGS (P2): its bank state
-run_bank:       .res 1          ; a fresh start's bank: 0 plain, else the far
-                                ;   start's (repl.md § Far starts; slice 3 F3)
 .endif
 
 ; ── CODE ───────────────────────────────────────────────────────────────
@@ -143,7 +145,8 @@ run_bank:       .res 1          ; a fresh start's bank: 0 plain, else the far
 ; Clobbers: A, X.
 ;
 dbg_init:
-        ; Zero the 11-byte step-state block in one sweep.
+        ; Zero the step-state block in one sweep (on m65 run_bank too:
+        ; seed_bank_state below then seeds the plain premise).
         ldx #STEP_STATE_SIZE - 1
         lda #0
 @z:     sta brk_pc,x

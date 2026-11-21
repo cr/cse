@@ -38,7 +38,7 @@ matrix, and the stepping machinery as a whole.
 **In:** none
 **Out:** the step-state block (`brk_pc`, `step_state`,
 `step_remaining`, `step_next_lo`, `step_next_hi`, `step_save`,
-`_rtu_need_sentinel`) zeroed; `reg_a`, `reg_x`, `reg_y`, `reg_p` = 0;
+`_rtu_need_sentinel`; on m65 also `step_len` and `run_bank`) zeroed; `reg_a`, `reg_x`, `reg_y`, `reg_p` = 0;
 `dbg_reason = DBG_NONE`; `reg_sp = STACK_TOP`; the CPU-port bytes of both ZP
 save buffers seeded: `userland_zp_buf` / `kernel_zp_buf` `[$00] = $2F`,
 `[$01] = $36`.  The breakpoint table is not touched.
@@ -51,9 +51,9 @@ Called by `_main` at cold init and by `hw_reinit_body`
 The seed keeps the first restore of a ZP buffer from writing `$00`
 into the DDR ([mem.md § CPU-port aware ZP save/restore](mem.md#cpu-port-aware-zp-saverestore)).
 
-The block is swept as `STEP_STATE_SIZE` = 11 bytes from `brk_pc`; on
-m65 `step_len` sits inside it, so the sweep ends one byte short and
-leaves `_rtu_need_sentinel` as it was (TODO § Bugs: B15).
+The block is swept as `STEP_STATE_SIZE` bytes from `brk_pc`, the size
+taken from its labels (`_step_state_end − brk_pc`): 11 on c64, 13 on m65,
+where `step_len` and `run_bank` are inside it.
 
 **On m65:** `reg_z` and `reg_b` are zeroed with the others; the
 saved bank state (`um_map`, the port in `userland_zp_buf`, `um_d030`,
@@ -62,9 +62,9 @@ map, `$FF` / `$85`, `$64`, `um_kmap` the user map, `SYSFLAGS` 0 —
 after `bank_state_swap` has written the CSE map into the KERNAL's map
 record, which the cold start thus leaves CSE's
 ([platform_layer.md § User transitions](../platform_layer.md#user-transitions));
-there is no `kernel_zp_buf`.  `run_bank` is not cleared, so after a
-far start the seed (and the `cse_recover` that runs it) installs the
-far start's map (TODO § Bugs: B16).  The registers a fresh start installs
+there is no `kernel_zp_buf`.  `run_bank` is in the swept block, so
+the seed is the plain premise's: a `cse_recover` after a far start
+installs the user map, not the far start's.  The registers a fresh start installs
 are the run premise's: `A X Y Z B` = 0, and P as the CPU keeps it —
 `E` = 1, which `RTI` does not load
 ([userland_contract.md § 3 On m65](../userland_contract.md#on-m65-memory-regions)).
@@ -211,7 +211,7 @@ Callers: as `step_next_pc`.
 | `_rtu_need_sentinel` | 1 | no | per call: 1 from `return_to_userland`, 0 from `restore_userland_state`; read by `_rtu_body` |
 | `um_kmap` | 4 (m65 only) | no (debug labels: tests) | the program's KERNAL map record `0.011C–011F` (its bank state; P3) |
 | `um_sysflags` | 1 (m65 only) | no (debug labels: tests) | the program's `SYSFLAGS` (its bank state; P2) |
-| `run_bank` | 1 (m65 only) | yes (repl.s) | a fresh start's bank: 0 for a CPU start, else the far start's (1, 4 or 5); read by `seed_bank_state` (§ return_to_userland) |
+| `run_bank` | 1 (m65 only) | yes (repl.s) | a fresh start's bank: 0 for a CPU start, else the far start's (1, 4 or 5); read by `seed_bank_state` (§ return_to_userland); in the step-state block, so `dbg_init` zeroes it |
 
 `dbg_reason` and `in_userland` are cross-module flags in `zp.s`
 ([zp.md § Cross-module flags](zp.md#cross-module-flags));

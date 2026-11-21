@@ -73,19 +73,6 @@ marked.
 
 ### m65
 
-- [ ] **`run_bank` survives `cse_recover`.**  `dbg_init` falls into
-  `seed_bank_state`, which applies the far map whenever `run_bank` ≠ 0,
-  and nothing but `start_bank` writes `run_bank`: after a far start,
-  `hw_reinit_body` (`cse_recover`) seeds `um_map` = `$E4…` and the
-  record with the far map instead of the run premise, so the CPU lens
-  shows the far bank (reproduced by calling `hw_reinit_body` after `j
-  4.2000`).  Fix: zero `run_bank` in `dbg_init`.
-- [ ] **`STEP_STATE_SIZE` is 11, the block 12 on m65.**  `step_len`
-  (MEGA_SUPPORT) sits inside `brk_pc … _rtu_need_sentinel`, so
-  `dbg_init`'s sweep zeroes `step_len` and misses
-  `_rtu_need_sentinel` (source; latent — both doors write the flag
-  before it is read).  Fix: compute the size from the labels, with an
-  assert.
 - [ ] **`io_blip` on the MEGA65 is ~25 µs.**  Its wait is `ldx #200` /
   `dex` / `bne`, about 1000 cycles: ~1 ms on the C64, ~25 µs at 40 MHz
   — likely inaudible (source; not yet listened to).  Decide the m65
@@ -4402,6 +4389,19 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: `STEP_STATE_SIZE` = `_step_state_end − brk_pc` (11 c64, 13 m65), asserted ≤ 128; test_dbg_init_zeroes_the_whole_step_state_block) **`STEP_STATE_SIZE` is 11, the block 12 on m65.**  `step_len`
+  (MEGA_SUPPORT) sits inside `brk_pc … _rtu_need_sentinel`, so
+  `dbg_init`'s sweep zeroes `step_len` and misses
+  `_rtu_need_sentinel` (source; latent — both doors write the flag
+  before it is read).  Fix: compute the size from the labels, with an
+  assert.
+- [x] (fixed 2026-11-21: `run_bank` moved into the step-state block, which `dbg_init` sweeps; test_hw_reinit_after_a_far_start_seeds_the_run_premise) **`run_bank` survives `cse_recover`.**  `dbg_init` falls into
+  `seed_bank_state`, which applies the far map whenever `run_bank` ≠ 0,
+  and nothing but `start_bank` writes `run_bank`: after a far start,
+  `hw_reinit_body` (`cse_recover`) seeds `um_map` = `$E4…` and the
+  record with the far map instead of the run premise, so the CPU lens
+  shows the far bank (reproduced by calling `hw_reinit_body` after `j
+  4.2000`).  Fix: zero `run_bank` in `dbg_init`.
 - [x] (fixed 2026-11-21: removed, both builds -4 B) **expr.s: an unreachable compare.**  `@chk_label`'s `cmp #'.' /
   beq @to_label` cannot be reached (`.` is below `$41` and rejected
   first); a `.name` reaches the evaluator already scoped.  Remove it

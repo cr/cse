@@ -1249,3 +1249,24 @@ def test_flat_walks_wrap_at_28_bits(s):
     s.line("0fff.fff8:m")
     assert prompt(s) == "0.0008:"
     assert s.w("cur_bank") == 0x0000
+
+
+# ── dbg_init's state (TODO § Bugs › m65, fixed 2026-11-21) ──────────
+
+def test_hw_reinit_after_a_far_start_seeds_the_run_premise(s):
+    """cse_recover runs hw_reinit_body → dbg_init: the bank state is the
+    run premise's again, not the last far start's (run_bank cleared)."""
+    premise = [s.e.memory[s.cell("um_map") + k] for k in range(6)]
+    far_prog(s, 4)
+    s.type("j 4.2000")
+    assert s.v("run_bank") == 4
+    s.call("hw_reinit_body")
+    assert s.v("run_bank") == 0
+    assert [s.e.memory[s.cell("um_map") + k] for k in range(6)] == premise
+
+
+def test_dbg_init_zeroes_the_whole_step_state_block(s):
+    for name in ("step_len", "_rtu_need_sentinel"):
+        s.e.memory[s.cell(name)] = 0xA5
+    s.call("dbg_init")
+    assert s.v("step_len") == 0 and s.v("_rtu_need_sentinel") == 0
