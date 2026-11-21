@@ -174,7 +174,12 @@ every file it `.include`s (`macros.inc`, `log.inc`, `dasm_mne_idx.s`,
 `version.inc` — recorded by `ca65 --create-dep` in a `.d` file beside
 the object), the flags stamp and `version.inc`.  A changed include
 rebuilds exactly its includers; a no-op `make debug` takes a fraction
-of a second.
+of a second.  Every recipe leaves its target newer than the files it
+writes beside it — the object after its `.d` (ca65 writes the `.d`
+last), the generated tables after `build/.tables.stamp` — because GNU
+make 4 (Linux, the CI) compares sub-second times, and a `.d` or a
+stamp a few microseconds newer would rebuild its dependents on every
+make; macOS's make 3.81 compares whole seconds and never saw it.
 
 **Clean builds.**  On a fresh checkout (no `build/`) a single `make`
 (or `make release debug`) succeeds; no re-run is needed.  The object

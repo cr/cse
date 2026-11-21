@@ -303,9 +303,12 @@ $(BUILD)/src:
 # dasm_mne_idx.s, version.inc).  A changed include therefore rebuilds
 # exactly its includers.  The .d is itself a prerequisite (empty rule
 # below), so an object without one — built before dependency tracking —
-# is rebuilt once and gets one.
+# is rebuilt once and gets one.  ca65 writes the .d after the .o, so the
+# recipe touches the .o last: GNU make 4 compares sub-second times and
+# would otherwise find every .d newer than its object, every time.
 $(BUILD)/src/%.o: $(SRC)/%.s $(BUILD)/src/%.d $(FLAGS_STAMP) $(BUILD)/version.inc | $(BUILD)/src
 	$(CA65) $(AFLAGS) --create-dep $(@:.o=.d) -o $@ $<
+	@touch $@
 
 $(BUILD)/src/%.d: ;
 .PRECIOUS: $(BUILD)/src/%.d
@@ -430,8 +433,11 @@ $(TABLES_STAMP): $(TABLE_GEN) $(TABLE_DEPS) | $(ROOT)build/
 	$(PYTHON) $(DEV)/mnemonic_tables.py
 	$(PYTHON) $(DEV)/dasm_tables.py
 	$(PYTHON) $(DEV)/help_text.py
-	@touch $@
+	@touch $@ $(TABLE_OUTS)
 
+# The outputs are touched after the stamp (above): with sub-second times
+# (GNU make 4) an output older than its stamp would rebuild its
+# includers on every make.
 $(TABLE_OUTS): $(TABLES_STAMP)
 
 # -----------------------------------------------------------------------
