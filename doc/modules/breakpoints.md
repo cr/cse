@@ -8,6 +8,7 @@
 |------|------|
 | [`src/breakpoints.s`](../../src/breakpoints.s) | implementation |
 | [`tests/unit/test_breakpoints.py`](../../tests/unit/test_breakpoints.py) | test contract |
+| [`tests/unit/test_breakpoints_m65.py`](../../tests/unit/test_breakpoints_m65.py) | test contract (m65: the flat table) |
 | [`src/bp.inc`](../../src/bp.inc) | the slot layout: `SLOT_SIZE`, `BP_SAVED`, `BP_FLAGS` per platform (included by breakpoints.s, debugger.s, main.s, repl.s) |
 | [`dev/breakpoints_test_stub.s`](../../dev/breakpoints_test_stub.s) | Tier-U bundle stub (linker scaffolding only) |
 
@@ -216,7 +217,7 @@ slot × 2).
 **Depends on:** `zp` (for `rp_ptr`); on m65 also `mem` (`far_user`,
 through `FAR_USER`: a CPU address's flat address).  Nothing else.
 This is what makes the module bundle-testable at Tier U with a
-minimal stub (c64).
+minimal stub (c64), and on m65 with `mem` and no stub.
 
 ## Test contract
 
@@ -240,8 +241,20 @@ minimal stub (c64).
 - `TestOverlap` — a step slot on a breakpoint's address, and both
   step slots on one address: the user's byte survives.
 
-The Tier-U bundle is the c64 table (4-byte slots).  The m65 table
-(6-byte flat slots) is covered at Tier I on the m65 PRG:
+`tests/unit/test_breakpoints_m65.py` is the m65 table's (6-byte flat
+slots): Tier U via the `zp + mem + breakpoints` bundle on M65Emu
+([testing.md § m65 bundles](../testing.md)), its routines called with
+their registers set.  21 tests: `bp_init` over 10 × 6 bytes; `dbg_bp_set`
+storing the flat address, translated through the program's map
+(`um_map`, a far start's bank); `dbg_bp_set_flat`; a slot whose offset
+is 0 but whose bank is not counts as set; table full; `dbg_bp_del`
+zeroing exactly its slot × 6 for each slot; the hit invalidated;
+`dbg_bp_clear` keeping the step slots; `patch_all` / `unpatch_all` on
+the physical byte in another bank, across a remap; `step_bp_arm` into
+either step slot; `dbg_step_find` matching only the step slots, by the
+physical byte; `dbg_step_clear`.
+
+At Tier I on the m65 PRG:
 `tests/integration/test_m65_repl.py` § flat breakpoints (`b H.AAAA`,
 a CPU address listed as its physical byte, a breakpoint that belongs
 to its physical byte across a remap, `;?range` outside user memory,

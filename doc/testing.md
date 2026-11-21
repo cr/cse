@@ -29,7 +29,8 @@ tightly-coupled neighbours).
 
 **m65 bundles.**  `dev/m65_macros_test.s` (with
 `tests/unit/test_platform_m65.py`) runs `platform.inc`'s m65 macro
-bodies.  The `asm_core` and `dasm` bundles have an m65-45gs02 variant
+bodies.  `tests/unit/test_breakpoints_m65.py` links zp.s + mem.s +
+breakpoints.s the same way.  The `asm_core` and `dasm` bundles have an m65-45gs02 variant
 (`conftest.M65_CONFIGS`), linked by `dev/m65_test.cfg`, loaded by
 `load_into_emu()` with the base page at `0.1F00` and run by
 `asm_dasm_runner`'s M65Emu path with B = `CSE_BP`.  All of them run on M65Emu's CPU, `MPU45GS02`
@@ -1610,7 +1611,7 @@ No entries are active.
 | **addr_mode** | 3 | U | via `asm_core` bundle (`test_addr_mode.py`) |
 | **asm_line** | 3 | U | `asm_core` bundle |
 | **dasm** | 3 | U | `dasm` bundle |
-| **breakpoints** | 3 | U | leaf bundle in `test_breakpoints.py` — BP-table CRUD |
+| **breakpoints** | 3 | U | leaf bundle in `test_breakpoints.py` — BP-table CRUD; m65: `test_breakpoints_m65.py` (zp + mem + breakpoints) |
 | **gap_buffer** | 3 | U | conftest `gap_buffer` bundle — gap-buffer primitives + sequential reader |
 | **debugger** | 4 | I | step/BRK state + userland-transition gates; BP-table CRUD is `breakpoints`' (L3) |
 | **asm_src** | 4 | U | `asm_src` bundle |
@@ -2021,6 +2022,7 @@ reimplementations of other modules.
 | `test_cse_io.py` | cse_io.s | `cse_io_test_stub.s` | Zero imports |
 | `test_symtab.py` | symtab.s | `symtab_test_stub.s` | Only banking helpers |
 | `test_breakpoints.py` | breakpoints.s | `breakpoints_test_stub.s` | Only ZP |
+| `test_breakpoints_m65.py` | breakpoints.s (m65) | none (zp.s + mem.s) | Only ZP and `far_user` |
 
 Leaf tests use `SymbolTable` for all symbol lookups — the same
 encapsulation as conftest bundles.  (The last hand-built bare-MPU

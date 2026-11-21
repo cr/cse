@@ -81,10 +81,7 @@ marked.
 
 ### Test gaps
 
-- [ ] **m65 breakpoints at Tier U.**  test_breakpoints.py is c64-only;
-  the 6-byte slots, `dbg_bp_del`'s slot × 6, `dbg_bp_count`'s bank
-  check, `dbg_step_find` and `step_bp_arm` are covered only at Tier I
-  (test_m65_repl.py, test_m65_debugger.py).
+(None open.)
 
 ### Latent
 
@@ -4375,6 +4372,11 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
   Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
 ### Fixed bugs
+
+- [x] (fixed 2026-11-21: tests/unit/test_breakpoints_m65.py — the zp + mem + breakpoints bundle on M65Emu, 21 tests; mutations of the count's bank check and del's × 6 caught) **m65 breakpoints at Tier U.**  test_breakpoints.py is c64-only;
+  the 6-byte slots, `dbg_bp_del`'s slot × 6, `dbg_bp_count`'s bank
+  check, `dbg_step_find` and `step_bp_arm` are covered only at Tier I
+  (test_m65_repl.py, test_m65_debugger.py).
 
 - [x] (fixed 2026-11-21: test_name_heap_stops_below_the_repl_screen — 59 names of 39 B fill 3.A700–3.AFFF, the 60th refused with $B000+ untouched) **m65: the name heap's bound.**  test_symtab.py pins only the
   c64's `$EF00`; on m65 `SYM_HEAP_END` is `$B000`, where `REPL_SCREEN`
