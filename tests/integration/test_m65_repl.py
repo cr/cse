@@ -1270,3 +1270,25 @@ def test_dbg_init_zeroes_the_whole_step_state_block(s):
         s.e.memory[s.cell(name)] = 0xA5
     s.call("dbg_init")
     assert s.v("step_len") == 0 and s.v("_rtu_need_sentinel") == 0
+
+
+# ── the break-path stack budget (TODO § Test gaps, 2026-11-21) ───────
+
+def test_break_path_stays_within_64_bytes(s):
+    """userland_contract.md § Kernel stack budget: the break (its 8-byte
+    frame) and the REPL commands typed at it stay within the 64 bytes
+    below the user's SP — measured from `reg_sp`."""
+    from test_kernel_transition import AT_A_BREAK, LOW_SP, lowest_sp
+    s.poke(USER, [0xA2, LOW_SP, 0x9A] + [0xEA] * 8)   # LDX #$A0 · TXS · NOPs
+    s.type("b $3003")
+
+    def at_a_break():
+        s.type("j $3000")
+        assert s.v("reg_sp") == LOW_SP
+        for cmd in AT_A_BREAK:
+            s.type(cmd)
+    depth = LOW_SP - lowest_sp(s.e.cpu, at_a_break)
+    print(f"m65 break-path depth: {depth} B")
+    assert s.v("reg_sp") == LOW_SP
+    assert not any(r.startswith(";?") for r in s.rows())
+    assert depth <= 64

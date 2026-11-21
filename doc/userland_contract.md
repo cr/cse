@@ -392,7 +392,11 @@ kernel and must not be relied on across a break.
 a break may occur.  The 64 bytes hold the BRK frame (6 bytes: 3 CPU,
 3 KERNAL push; on m65 8 bytes: 3 CPU, 5 KERNAL push), the handler's
 call chain, and the REPL commands typed at a break (`m`, `.`, `d`,
-`r`, stepping), with margin.
+`r`, stepping), with margin.  Measured from `reg_sp`, the break and
+the commands typed at it (`r`, `@`, `m`, `d`, `.`, `?`, `t`, `b`) take
+31 bytes on c64 and 32 on m65, the deepest an expression (`?`):
+`TestKernelStackBudget` (test_kernel_transition.py) and
+`test_break_path_stays_within_64_bytes` (test_m65_repl.py) gate the 64.
 
 The deepest kernel path, the assembler, never runs on a break's
 stack: `a` with a live session ends the session first (§ 1), which

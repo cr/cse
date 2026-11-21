@@ -81,13 +81,6 @@ marked.
 
 ### Test gaps
 
-- [ ] **The 64-byte break-path stack budget is never measured.**
-  userland_contract.md § Kernel stack budget says the 64 bytes hold the
-  BRK frame, the handler and the REPL commands typed at a break;
-  `TestKernelStackDepth` measures only the source assembler from a
-  fresh SP (ceilings 80 / 160 B), and repl.s calls the figure
-  "conservative-pending-empirical".  A watermark test of `.`, `m`, `d`,
-  `t` at a break, from `reg_sp`, on both platforms.
 - [ ] **m65: the name heap's bound.**  test_symtab.py pins only the
   c64's `$EF00`; on m65 `SYM_HEAP_END` is `$B000`, where `REPL_SCREEN`
   begins.  An m65 bundle test that fills the heap and checks `$B000+`.
@@ -4386,6 +4379,13 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: measured from `reg_sp` over the break and `r @ m d . ? t b` typed at it — 31 B c64, 32 B m65; TestKernelStackBudget, test_break_path_stays_within_64_bytes) **The 64-byte break-path stack budget is never measured.**
+  userland_contract.md § Kernel stack budget says the 64 bytes hold the
+  BRK frame, the handler and the REPL commands typed at a break;
+  `TestKernelStackDepth` measures only the source assembler from a
+  fresh SP (ceilings 80 / 160 B), and repl.s calls the figure
+  "conservative-pending-empirical".  A watermark test of `.`, `m`, `d`,
+  `t` at a break, from `reg_sp`, on both platforms.
 - [x] (fixed 2026-11-21: m65 runs 80 rounds of the 200 dex/bne, ~0.8–1.2 ms at 40 MHz (+7 B); test_io_blip_waits_about_a_millisecond_at_40_mhz) **`io_blip` on the MEGA65 is ~25 µs.**  Its wait is `ldx #200` /
   `dex` / `bne`, about 1000 cycles: ~1 ms on the C64, ~25 µs at 40 MHz
   — likely inaudible (source; not yet listened to).  Decide the m65

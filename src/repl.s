@@ -5658,10 +5658,11 @@ step_cleanup:
 ;     exit (terminal session — user must type a fresh command).
 ;   * Else just show break result (NMI / external BRK paths).
 ; ═══════════════════════════════════════════════════════════
-; User-side stack headroom contract (conservative-pending-empirical;
-; see userland_contract.md § 4) — its one definition; post_run_cleanup
-; is its only reader.  One-byte change here + a doc edit tightens the
-; contract post-audit.  Exported for the test harness's label lookup.
+; User-side stack headroom contract (userland_contract.md § 4) — its
+; one definition; post_run_cleanup is its only reader.  Measured: the
+; break and the commands typed at it take 31 B on c64, 32 B on m65
+; (TestKernelStackBudget); the rest is the margin for deeper
+; expressions.  Exported for the test harness's label lookup.
         .export kernel_stack_budget
 kernel_stack_budget = 64
 

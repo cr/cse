@@ -2219,3 +2219,51 @@ class TestExitToBasic:
         assert e.read_word(0x0316) == 0xFE66            # KERNAL BRK
         assert e.read_word(0x0318) == 0xFE47            # KERNAL NMI
         assert e.memory[0x0800] == 0
+
+
+def lowest_sp(cpu, fn):
+    """Run `fn` with every step of `cpu` watched; return the lowest SP
+    (its low byte) seen after a step."""
+    low = [cpu.sp & 0xFF]
+    step = cpu.step
+
+    def watched():
+        step()
+        low[0] = min(low[0], cpu.sp & 0xFF)
+    cpu.step = watched
+    try:
+        fn()
+    finally:
+        del cpu.step
+    return low[0]
+
+
+# REPL commands typed at a break (userland_contract.md § Kernel stack budget)
+AT_A_BREAK = ["r", "@ $3100", "m a9 01 ea", "m", "d", ". lda ($fb),y",
+              ". sta $1234,x", "? ($1234+5)*3", "t", "t", "b", "b -1"]
+LOW_SP = 0xA0
+
+
+class TestKernelStackBudget:
+    """userland_contract.md § Kernel stack budget: the break and the
+    REPL commands typed at it (`.`, `m`, `d`, `r`, `t`, `b`, `?`) stay
+    within the 64 bytes below the user's SP — measured, from `reg_sp`,
+    the BRK frame included."""
+
+    def test_break_path_stays_within_64_bytes(self, session):
+        s = session
+        prog = [0xA2, LOW_SP, 0x9A] + [0xEA] * 8     # LDX #$A0 · TXS · NOPs
+        for i, b in enumerate(prog):
+            s.e.memory[0x3000 + i] = b
+        s.type("b $3003")
+
+        def at_a_break():
+            s.type("j $3000")
+            assert s.v("reg_sp") == LOW_SP
+            for cmd in AT_A_BREAK:
+                s.type(cmd)
+        depth = LOW_SP - lowest_sp(s.e._cpu, at_a_break)
+        print(f"c64 break-path depth: {depth} B")
+        assert s.v("reg_sp") == LOW_SP
+        assert ";?" not in s.screen()
+        assert depth <= 64
