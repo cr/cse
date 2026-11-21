@@ -69,14 +69,7 @@ marked.
 
 ### C64
 
-- [ ] **`.` at `$00–$7F` writes CSE's live zero page.**  The userland
-  contract (§ 3, *Zero page*) says `m` and `.` on `$00–$7F` edit the
-  user's image between runs; `m` does (`zp_poke`), but `.`'s mnemonic
-  path writes through `asm_out` straight to the live cell: `0010:. nop`
-  put `$EA` into CSE's own `$10` (`asm_prof`) and left the user's image
-  unchanged (reproduced, 2026-11-21).  Fix: `.` stages into the user's
-  image as `m` does (or refuses below `$80`), with a C64Emu test.  m65
-  is not affected (CSE's base page is its own).
+(None open.)
 
 ### m65
 
@@ -4477,6 +4470,17 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
   Fixed 2026-11-18: `audit_doc_depends_on.py` check (c) names every imported-from module in the Depends-on block; `dev/check_deps.py` parses the layers from architecture.md § Modules and refuses upward imports; both run in `dev/audit_doc.py`, test `test_check_deps.py`.
 
 ### Fixed bugs
+
+- [x] (fixed 2026-11-21: `dot_assemble` assembles an instruction
+  starting below `$80` into `rp_hexbuf` and writes it through `zp_poke`;
+  test_repl.py `TestDotInTheZeroPage`) **`.` at `$00–$7F` writes CSE's live zero page.**  The userland
+  contract (§ 3, *Zero page*) says `m` and `.` on `$00–$7F` edit the
+  user's image between runs; `m` does (`zp_poke`), but `.`'s mnemonic
+  path writes through `asm_out` straight to the live cell: `0010:. nop`
+  put `$EA` into CSE's own `$10` (`asm_prof`) and left the user's image
+  unchanged (reproduced, 2026-11-21).  Fix: `.` stages into the user's
+  image as `m` does (or refuses below `$80`), with a C64Emu test.  m65
+  is not affected (CSE's base page is its own).
 
 - [x] (fixed 2026-11-20: the C64 listing streams — OPEN / CHKIN /
   CHRIN, no buffer; test_disk.py checks `$0801–$3FFF` untouched and no

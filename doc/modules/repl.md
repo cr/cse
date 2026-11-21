@@ -471,13 +471,14 @@ previous instruction's address and tagged its own errors by a stale
 In all three modes the handler finishes by disassembling the
 instruction at `cur_addr` and rewriting its row with the result.
 
-**User-ZP redirect (modes 1 and 3).**  See [§ User-ZP view](#user-zp-view).
-Mode 2 (assembly) writes through `asm_line` at `asm_out` and is not
-redirected; to put bytes into user ZP, use the hex-poke form.  ([TODO
-§ Bugs](../TODO.md#bugs): on c64 an assembly at `$00–$7F` writes
-CSE's live ZP, not the user's image —
+**User-ZP redirect (all three modes).**  See [§ User-ZP view](#user-zp-view).
+Mode 2 (assembly) writes through `asm_line` at `asm_out`; on c64, an
+instruction that starts in the save range (`$00–$7F`) is assembled
+into `rp_hexbuf` and its bytes written through `zp_poke`, so they land
+in the user's image (and live from `$80` on), as
 [userland_contract.md § 3](../userland_contract.md#3-memory-regions)
-states the intent.)
+states.  On m65 `asm_out` goes through the CPU's lens (`FAR_CUR_W`),
+which reaches the user's own zero page.
 
 #### `.` command input-shape matrix
 
@@ -535,7 +536,7 @@ to or accepted from the REPL user:
 | `m` edit | write each edited byte | yes — lands in `userland_zp_buf` |
 | `.` disasm | read `INSN_MAX` bytes (3, m65 5) for the disassembler | yes — staged into `zp_stage_buf` |
 | `.` hex poke | write each parsed byte | yes — lands in `userland_zp_buf` |
-| `.` mnemonic | `asm_line` emits at `asm_out` | **no** — not redirected (TODO § Bugs: on c64 it writes CSE's live ZP) |
+| `.` mnemonic | `asm_line` emits into `rp_hexbuf`, then `zp_poke` per byte (c64, an instruction starting below `$80`; m65: the lens) | yes — lands in `userland_zp_buf` |
 
 For reads (`zp_stage_prep`) and writes (`zp_poke`) the effective
 address is the full 16-bit `base + offset`, which wraps past `$FFFF`

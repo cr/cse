@@ -2580,6 +2580,40 @@ mem_row:
         sta asm_pc+1
         sta asm_out+1
         FAR_CUR_W asm_out       ; `.` writes straight into user memory
+.ifdef PLATFORM_C64
+        ; At $00-$7F the bytes go to the user's image, as `m`'s do
+        ; (userland_contract.md § 3): asm_line assembles into rp_hexbuf,
+        ; then zp_poke writes each byte (the image below $80, live from
+        ; $80).  No wrap past $FFFF can start there.
+        lda rp_addr+1
+        bne @direct
+        lda rp_addr
+        cmp #ZP_SAVE_LO + ZP_SAVE_LEN
+        bcs @direct
+        lda #<rp_hexbuf
+        sta asm_out
+        lda #>rp_hexbuf
+        sta asm_out+1
+        lda rp_ptr
+        ldx rp_ptr+1
+        jsr asm_line            ; A = the length (0: refused)
+        sta rp_tmp2
+        tax                     ; (asm_line's Z is its ldx #0's)
+        beq @r
+        lda rp_addr
+        sta rp_ptr2
+        lda #0
+        sta rp_ptr2+1
+        tay
+@cp:    lda rp_hexbuf,y
+        jsr zp_poke             ; (keeps Y)
+        iny
+        cpy rp_tmp2
+        bne @cp
+        lda rp_tmp2
+@r:     rts
+@direct:
+.endif
         lda rp_ptr
         ldx rp_ptr+1
         jmp asm_line            ; tail call

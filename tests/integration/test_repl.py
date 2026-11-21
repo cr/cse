@@ -1625,3 +1625,28 @@ class TestDotHandsItsLineToAsmLine:
         run_at(cpu, rsyms.exec_line)
         assert cpu.memory[0x3000] == 0x0A
         assert ";?" not in _screen(cpu).split(row)[-1], _screen(cpu)
+
+
+# ── `.` at $00-$7F edits the user's image (userland_contract.md § 3;
+#    TODO § Bugs › C64, fixed 2026-11-21) ─────────────────────────────
+
+class TestDotInTheZeroPage:
+
+    def test_dot_writes_the_users_image_not_cses_zero_page(self, rsyms):
+        cpu = make_cpu(rsyms)
+        img = rsyms.userland_zp_buf
+        cpu.memory[0x7C] = 0x77                   # live $7C: CSE leaves it free
+        cpu.memory[img + 0x7C] = 0x55
+        _dot(cpu, rsyms, ". nop", 0x007C)
+        assert cpu.memory[img + 0x7C] == 0xEA
+        assert cpu.memory[0x7C] == 0x77           # nothing written live
+        assert "007c:.  ea" in _screen(cpu), _screen(cpu)
+
+    def test_a_run_crossing_80_goes_live_from_80(self, rsyms):
+        cpu = make_cpu(rsyms)
+        img = rsyms.userland_zp_buf
+        cpu.memory[0x7F] = 0x77
+        cpu.memory[0x80] = 0x00
+        _dot(cpu, rsyms, ". lda #$42", 0x007F)
+        assert cpu.memory[img + 0x7F] == 0xA9 and cpu.memory[0x7F] == 0x77
+        assert cpu.memory[0x80] == 0x42
