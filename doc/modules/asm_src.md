@@ -305,7 +305,12 @@ with the unshifted letter keys.  On a match `expr_ptr` is set past the
 name (`set_expr_off`) and the handler at the same index of
 `_dir_lo`/`_dir_hi` is entered by the RTS trick; every handler returns
 C=0.  An unknown word returns C=1 and `process_line` reports
-`bad insn`.  Adding a directive means adding its name to `_dir_names`
+`bad insn`.  On pass 1, when the handler reported nothing
+(`asm_errors` unchanged, `_dir_errs`), `process_line` checks the
+line's end at `expr_ptr`: whitespace, then NUL, CR, LF, `;` or `//`,
+else `bad val` — so a handler leaves `expr_ptr` just past what it
+read (`set_cpu` past the name, `emit_bas` past the string and its
+quote).  Adding a directive means adding its name to `_dir_names`
 and its handler to `_dir_lo` and `_dir_hi` at the same position.
 Each directive's syntax and per-pass behaviour is
 [assembler_syntax.md § Directives](../assembler_syntax.md#directives).

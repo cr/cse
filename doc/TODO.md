@@ -93,13 +93,6 @@ marked.
 
 ### Both platforms
 
-- [ ] **Directives accept trailing text.**  `emit_data_bytes`,
-  `emit_string`, `d_org`, `d_const`, `set_cpu`, `emit_reserve`,
-  `emit_align` stop at the first unexpected character and return
-  quietly: `.db 1 2` emits `01`, `.org $c000 junk`, `.const k 5 6`, `.cpu
-  6502 junk`, `.res 2 3`, an unterminated `.db "ab` — all 0 errors
-  (prober-reproduced).  Instruction operands do check the end
-  (`_au_check_end`).  Fix: an end-of-statement check, `bad val`.
 - [ ] **`.res` / `.align` with a never-defined symbol report `fwd ref`
   twice.**  On pass 1, rc 5 also goes to `_vocal_fwd_err`, so `.res
   nosuch` counts 2 errors and never says `undef` (prober-reproduced).
@@ -4418,6 +4411,13 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: `process_line` checks a directive's line end on pass 1 (`bad val`); an open string is `exp "`) **Directives accept trailing text.**  `emit_data_bytes`,
+  `emit_string`, `d_org`, `d_const`, `set_cpu`, `emit_reserve`,
+  `emit_align` stop at the first unexpected character and return
+  quietly: `.db 1 2` emits `01`, `.org $c000 junk`, `.const k 5 6`, `.cpu
+  6502 junk`, `.res 2 3`, an unterminated `.db "ab` — all 0 errors
+  (prober-reproduced).  Instruction operands do check the end
+  (`_au_check_end`).  Fix: an end-of-statement check, `bad val`.
 - [x] (fixed 2026-11-21: `_au_fwd_narrow` sizes a forward reference narrow where the shape is zero-page-only — `(e),y`, BBR/BBS, m65 `(e),z`, `(e,sp),y`, `[e]`; `(e,x)` and the CMOS `(e)` still need the pointer defined above) **A forward zero-page pointer in an indirect form never
   assembles.**  Pass 0 sizes a forward reference wide (`asm_pc`+2), and
   a `sym_fwd` read stays wide on pass 1, so `(e),y`, `(e,x)`, ZPREL's

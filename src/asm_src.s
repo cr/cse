@@ -81,6 +81,7 @@ _insn_out       = _full_label   ; asm_line output scratch (process_line)
 _insn_buf:      .res INSN_MAX+1 ; instruction text for asm_line, locals expanded
 _as_conv:       .res 1          ; emit_string convert-to-screen-code flag
 _eb_idx:        .res 1          ; .bas string length
+_eb_end:        .res 1          ; .bas: from the string's start past its close
 _ib_idx:        .res 1          ; write index into _insn_buf
 
 ; ── Segment tracking (streaming during pass 1) ──────────────────────────
@@ -91,6 +92,7 @@ _seg_open:      .res 1          ; non-zero if a segment is open
 _pc_wrap:       .res 1          ; non-zero once asm_pc wrapped past $FFFF
 _oor:           .res 1          ; non-zero: this line dropped a byte (range)
 _org_set:       .res 1          ; non-zero after first .org on pass 0
+_dir_errs:      .res 1          ; asm_errors (low) before a directive
 
 ; ── RODATA ────────────────────────────────────────────────────────────────
 .segment "RODATA"
@@ -366,11 +368,7 @@ _bad_val_err:
         inc expr_ptr+1
 @ql:    ldy #0
         lda (expr_ptr),y
-.ifdef PLATFORM_M65
-        jeq @done               ; (the .dd paths lengthen the proc)
-.else
-        beq @done
-.endif
+        beq @open               ; the line ends inside the string
         cmp #'"'
         beq @qc
         jsr _emit_byte
@@ -378,6 +376,9 @@ _bad_val_err:
         bne @ql
         inc expr_ptr+1
         jmp @ql
+@open:  lda #<s_exp_quot        ; no closing quote
+        ldx #>s_exp_quot
+        jmp emit_error
 @qc:    inc expr_ptr            ; skip closing '"'
         bne @comma
         inc expr_ptr+1
@@ -472,7 +473,7 @@ _bad_val_err:
         inc expr_ptr+1
 @lp:    ldy #0
         lda (expr_ptr),y
-        beq @done
+        beq @open               ; the line ends inside the string
         cmp #'"'
         beq @close
         ; Screen code conversion (full PETSCII → screen code mapping)
@@ -518,6 +519,9 @@ _bad_val_err:
         sta _as_wsize
         jsr emit_data_bytes     ; handle trailing bytes (e.g. ,0)
 @done:  rts
+@open:  lda #<s_exp_quot        ; no closing quote
+        ldx #>s_exp_quot
+        jmp emit_error
 .endproc
 
 ; ── _vocal_fwd_err ─────────────────────────────────────────────────────────
@@ -726,7 +730,13 @@ cpu_lookup:
         jsr cpu_lookup
         bcs @bad
         sta asm_cpu
-        rts
+        tya                     ; expr_ptr past the name (the line's
+        clc                     ;   end check follows)
+        adc expr_ptr
+        sta expr_ptr
+        bcc :+
+        inc expr_ptr+1
+:       rts
 @bad:   jmp _bad_val_err
 .endproc
 
@@ -949,6 +959,8 @@ BASIC_REM = $8F
 
 .proc emit_bas
         ; ── Parse optional string argument ─────────────────────────────
+        lda #$FF
+        sta _eb_end             ; no string
         jsr skipws_ep           ; expr_ptr is past "bas" (process_directive)
         lda #0
         sta _eb_idx             ; string length = 0 (no REM)
@@ -964,6 +976,7 @@ BASIC_REM = $8F
         iny
         bne @slen
 @slen_done:
+        sta _eb_end             ; the closing quote, or 0: the line's end
         dey
         sty _eb_idx
         inc expr_ptr            ; skip opening quote
@@ -1044,7 +1057,25 @@ BASIC_REM = $8F
         jsr _emit_byte          ; NUL terminator
         lda #0
         tax
-        jmp _emit_word          ; end of BASIC ($0000), tail call
+        jsr _emit_word          ; end of BASIC ($0000)
+        ; expr_ptr past the string and its closing quote (the line's
+        ; end check follows); an unterminated one is `exp "`
+        lda _eb_end
+        bmi @r                  ; no string
+        ldy _eb_idx             ; at the closing quote (or the NUL)
+        tax
+        beq @open
+        iny
+        tya
+        clc
+        adc expr_ptr
+        sta expr_ptr
+        bcc @r
+        inc expr_ptr+1
+@r:     rts
+@open:  lda #<s_exp_quot
+        ldx #>s_exp_quot
+        jmp emit_error
 .endproc
 
 
@@ -1551,11 +1582,36 @@ _too_long_err:
         inc _as_ptr
         bne :+
         inc _as_ptr+1
-:       jsr process_directive
+:       lda asm_errors
+        sta _dir_errs
+        jsr process_directive
         bcc :+
         jmp @bad_syn            ; unknown directive → bad insn
-:
-        rts
+:       ; The directive's arguments end the line (pass 1, when it said
+        ; nothing itself): whitespace, then the end, `;` or `//` —
+        ; else `bad val` (assembler_syntax.md § Directives).
+        lda asm_pass
+        beq @dir_r
+        lda asm_errors
+        cmp _dir_errs
+        bne @dir_r
+        jsr skipws_ep
+        tax                     ; (skipws_ep's Z is its compare's)
+        beq @dir_r              ; NUL
+        cmp #$0D                ; CR, LF: the line's end too (as
+        beq @dir_r              ;   addr_mode's _au_is_end)
+        cmp #$0A
+        beq @dir_r
+        cmp #';'
+        beq @dir_r
+        cmp #'/'
+        bne @dir_bad
+        ldy #1
+        cmp (expr_ptr),y
+        beq @dir_r              ; `//`
+@dir_bad:
+        jmp _bad_val_err
+@dir_r: rts
 
 ; ── 3. Instruction ─────────────────────────────────────────────────────────
 @insn:

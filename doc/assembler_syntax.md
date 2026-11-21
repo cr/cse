@@ -205,7 +205,11 @@ character a digit (`4.2000`, `0ffd.3000`) — which is `H` × $10000 +
 A directive is the whole word after the dot and must be one of the
 names below exactly, followed by whitespace, a `;` comment or the end
 of the line; anything else (`.oops`, `.co`, `.dbx`) is
-`;?N: bad insn`.
+`;?N: bad insn`.  Its arguments end the line: after them only
+whitespace, a `;` or `//` comment may follow — `.db 1 2`, `.org $c000
+junk`, `.cpu 6502 x` are `;?N: bad val`, the line laid out as far as
+it was read.  A string (`.db`, `.str`, `.scr`, `.bas`) without its
+closing quote is `;?N: exp "`.
 
 | Directive | Args | Effect |
 |-----------|------|--------|

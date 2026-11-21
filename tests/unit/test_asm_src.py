@@ -1688,3 +1688,33 @@ class TestForwardZeroPagePointer:
         errors, mem, _ = _run_mem(as_syms, ".org $c000\n jmp (vec)\nvec: .dw $c000")
         assert errors == 0
         assert list(mem[0xC000:0xC003]) == [0x6C, 0x03, 0xC0]
+
+
+# ── a directive ends its line (TODO § Bugs › Both platforms, fixed
+#    2026-11-21): trailing text is `bad val`, an open string `exp "` ──
+
+class TestDirectiveEnd:
+
+    @pytest.mark.parametrize("src", [
+        ".org $c000\n.db 1 2", ".org $c000\n.db 1)", ".org $c000 junk",
+        ".const k 5 6\n.org $c000", ".cpu 6502 junk\n.org $c000",
+        ".org $c000\n.res 2 3", ".org $c000\n.align 2 junk",
+        '.org $c000\n.str "ab" x', ".org $c000\n.dw $1234 5",
+        '.bas "hi" junk'])
+    def test_trailing_text_is_one_error(self, as_syms, src):
+        errors, _, _ = _run_mem(as_syms, src)
+        assert errors == 1
+
+    @pytest.mark.parametrize("src", ['.org $c000\n.db "ab', '.org $c000\n.str "ab',
+                                     '.bas "hi'])
+    def test_an_open_string_is_one_error(self, as_syms, src):
+        errors, _, _ = _run_mem(as_syms, src)
+        assert errors == 1
+
+    @pytest.mark.parametrize("src", [
+        ".org $c000 ; origin\n.db 1, 2 ; bytes\n.db 3 // c\n.dw 4  \n rts",
+        ".cpu 6502 ; set\n.const k 5 ; k\n.org $c000\n.res 2 ; gap\n"
+        '.align 2 // a\n.str "ab" ; s\n.bas ; stub\n rts'])
+    def test_comments_after_a_directive_are_fine(self, as_syms, src):
+        errors, _, _ = _run_mem(as_syms, src)
+        assert errors == 0
