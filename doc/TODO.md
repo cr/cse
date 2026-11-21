@@ -256,34 +256,6 @@ source.  *Universal* amendments tighten the CDD/TDD method itself;
 *domain-class* amendments apply only to projects of a particular
 shape; *project-specific* items belong to CSE alone.
 
-- [ ] **Universal — a doc pass files a behavioural disagreement, it
-  does not rewrite it.**  README § Preface, goal 3 says a disagreement
-  is resolved by the doc first, never the reverse; a pass that brings
-  a doc "in line with the code" changes descriptive clauses only, and
-  every behavioural clause the code contradicts is filed as a bug (TODO
-  § Bugs) for the owner, the doc unchanged.  Candidate README § CDD
-  Maintenance rule.  From the 2026-11-21 editor cap Escape Analysis:
-  `062863e` rewrote "refused when it would push a line past 39" to the
-  code's pre-check and erased the contract the code broke.
-- [ ] **Universal — an invariant is stated and tested as an
-  invariant.**  When a contract is an invariant over state (a width
-  cap, a range, a count), the doc states the invariant, not each
-  site's mechanism, and the test matrix drives every mutator of the
-  measured quantity from states where one action changes it by more
-  than its own size (a tab stop, a carry, a page cross).  Candidate
-  refinement of testing.md Principle 11.  From the 2026-11-21 editor
-  cap Escape Analysis (TODO § Records › Fixed bugs).
-- [ ] **Universal — retiring a test re-homes its clauses.**  A commit
-  that retires tests (a mirror, a tier move) lists the contract
-  clauses they covered and names, for each, the surviving test or a
-  TODO; "coverage lives elsewhere" names the tests.  Candidate
-  testing.md principle.  From the same analysis: the cap's mirror
-  tests went with `6066d8e` / `e3c6f4e`, unported.
-- [ ] **Universal — a known limitation lives in the corpus.**  A
-  limitation accepted at commit time ("may under-refuse … rare") is
-  written into the owning doc's Caveats or a TODO, never only into a
-  commit message.  Candidate README § The CDD Method rule.  From the
-  same analysis (`0433634`).
 - [ ] **Universal — a fix's Step 5 greps the old fact.**  Before a
   change that alters a stated value (an address, a size, a range, a
   mechanism) is committed, grep the corpus for the old value and its
@@ -3499,6 +3471,18 @@ then tests first, the code, the differential doc update, the commit.
 
 ### CDD amendments — landed
 
+**2026-11-21 — the editor cap Escape Analysis** (operator, "land
+all four"):
+- [x] ~~A doc pass files a behavioural disagreement, it does not
+  rewrite it~~ — README.md § CDD Maintenance, audit item 3, *The
+  direction of a fix*.
+- [x] ~~An invariant is stated and tested as an invariant~~ —
+  testing.md Principle 11, *Invariants over state*.
+- [x] ~~Retiring a test re-homes its clauses~~ — testing.md
+  Principle 21.
+- [x] ~~A known limitation lives in the corpus~~ — README.md § The
+  CDD Method, Step 6, *Known-limitation rule*.
+
 Session retrospective findings (debugger trace workflow,
 2026-04-22 to -24) and 2026-04-25 CDD Maintenance round.
 
@@ -4466,7 +4450,8 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
   Preface, goal 3 ("never the reverse").  From then on doc and code
   agreed and no audit could see the bug.  editor.md now states the
   invariant again, and the measure after the insert.
-  *Principle candidates:* § CDD amendments pending (four, for triage).
+  *Principles:* four amendments, landed 2026-11-21 (§ Records › CDD
+  amendments — landed).
 - [x] (fixed 2026-11-21: tests/unit/test_breakpoints_m65.py — the zp + mem + breakpoints bundle on M65Emu, 21 tests; mutations of the count's bank check and del's × 6 caught) **m65 breakpoints at Tier U.**  test_breakpoints.py is c64-only;
   the 6-byte slots, `dbg_bp_del`'s slot × 6, `dbg_bp_count`'s bank
   check, `dbg_step_find` and `step_bp_arm` are covered only at Tier I

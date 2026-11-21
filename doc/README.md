@@ -167,6 +167,17 @@ stayed open in `TODO.md` long after Phase 19 had landed the
 fix; closure had been recorded only in the closed-bugs reference
 block.
 
+*Known-limitation rule.*  A limitation accepted at commit time — a
+case the change knowingly leaves unhandled, a check known to be
+conservative or incomplete — is written into the owning doc's
+Caveats or filed in `TODO.md` in the same commit, never only into
+the commit message.  A commit message is not read again; the doc
+and the TODO are.  Cautionary example: `0433634` accepted that the
+editor's TAB cap "may under-refuse" in its message alone; the same
+blind spot in the printable cap (a character before a tab moves the
+tab a whole stop) shipped for seven months (TODO § Records › Fixed
+bugs, the editor cap, 2026-11-21).
+
 **Step 7 — Final CDD Report.**  A summary of all changes made to
 the repository (documentation, tests, code), highlighting any
 unplanned changes and suggesting future improvements.
@@ -213,6 +224,21 @@ the CDD System entirely.
    flow.
 3. **Doc-code fidelity** — each module doc matches its source file:
    function signatures, ZP addresses, algorithms, clobber rules.
+
+   **The direction of a fix.**  A fidelity pass brings *descriptive*
+   clauses in line with the code (a renamed symbol, a moved cell, a
+   clobber list).  A *behavioural* clause the code contradicts — what
+   a key, a command or a routine promises to do — is not rewritten:
+   it is filed as a bug in `TODO.md` § Bugs for the owner, the doc
+   unchanged (§ Preface, goal 3: never the reverse).  Rewriting it
+   makes the doc and the code agree and erases the only record that
+   the code is wrong.  Cautionary example: `062863e` (2026-11-18), a
+   pass "interface and behaviour match editor.s", replaced "input is
+   refused when it would push a line past 39 visual columns" by the
+   code's pre-check ("refused if the line is already 39 columns
+   wide"); the cap bug the old sentence described was found three
+   days later by hand (TODO § Records › Fixed bugs, the editor cap,
+   2026-11-21).
 4. **Cross-reference integrity** — all links in the corpus resolve:
    no broken targets, no stale links pointing to renamed or removed
    sections, no missing links where a concept is referenced but not

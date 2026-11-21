@@ -1162,6 +1162,27 @@ tests are written, when they are written, and what they test.
     on asm_cpu=3") still belong in the matrix — marked with a
     vocal skip per Principle 9.
 
+    **Invariants over state.**  When a contract is an invariant over
+    state — a width cap, a range, a count — the doc states the
+    invariant ("no key makes a line wider than 39 columns"), not
+    each site's mechanism ("refused if the line is already 39
+    wide"), and the test matrix crosses every mutator of the
+    measured quantity with the states where one action changes it
+    by more than its own size: a tab stop, a carry, a page cross.
+    A mechanism written as the contract lets the doc and the code
+    agree while the invariant breaks; a matrix of only the linear
+    states (a tab-free line) cannot see the jump.
+
+    Cautionary example (editor cap, Escape Analysis 2026-11-21): a
+    character typed before a tab moves the tab to the next stop,
+    the line by up to 8 columns at once.  The cap checked the width
+    before the insert, on the premise that a printable adds exactly
+    one column; every cap test used a tab-free line, so 32 spaces
+    typed before the seeded tab made a 40-column line.  The
+    invariant now leads editor.md § Long lines, and `TestTheCap`
+    drives printable, INS, TAB, RETURN, RIGHT and the DEL join from
+    states with a tab after the cursor.
+
     Cautionary example (asm_cpu gate): same as Principle 10.
     Pre-amendment asm_line.md documented "asm_cpu values 0/1/2"
     and "the CMOS gate rejects non-CMOS" — a one-axis spec for a
@@ -1499,6 +1520,25 @@ tests are written, when they are written, and what they test.
     all (`assert x == a if c else b` parses as a conditional
     assert).  The P4 review rewrote them to start elsewhere and
     assert the set that results.
+
+21. **Retiring a test re-homes its clauses.**  *Universal.*
+
+    A commit that retires tests — a mirror test replaced, a file
+    moved to another tier, a class deleted as redundant — lists the
+    contract clauses the retired tests covered and names, for each,
+    the surviving test that covers it or a TODO entry that will.
+    "Coverage lives elsewhere" names the tests; a clause with no
+    name keeps its retired test until it has one.  Coverage that
+    disappears with a retirement disappears silently: the suite
+    stays green and nothing marks the gap.
+
+    Cautionary example (editor cap, Escape Analysis 2026-11-21): the
+    April cap tests were Python mirrors (`TabGapBuffer`).  `6066d8e`
+    moved them to `tests/retired/` and `e3c6f4e` deleted them with
+    "active coverage already lives in
+    tests/integration/test_editor.py" — true for the render and
+    scroll mirrors, false for the cap, which had no c64 test from
+    2026-04-19 until the escape seven months later.
 
 ## Anti-patterns
 
