@@ -1682,3 +1682,17 @@ class TestDisasmAtTheTop:
         set_line_buf(cpu, rsyms, "d")
         run_at(cpu, rsyms.exec_line)
         assert "ffff:." in _screen(cpu), _screen(cpu)
+
+
+@pytest.mark.parametrize("cmd", ["b -12", "b *xyz"])
+def test_b_delete_and_clear_take_no_trailing_garbage(rsyms, cmd):
+    """TODO § Bugs (fixed 2026-11-21)."""
+    cpu = make_cpu(rsyms)
+    cpu.init_cse(editor=True)                 # the workspace bound
+    cpu.set_cursor(5, 0)
+    set_line_buf(cpu, rsyms, "b $1000")
+    run_at(cpu, rsyms.exec_line)
+    set_line_buf(cpu, rsyms, cmd)
+    run_at(cpu, rsyms.exec_line)
+    assert ";?syntax" in _screen(cpu), _screen(cpu)
+    assert cpu.memory[rsyms.bp_table] | cpu.memory[rsyms.bp_table + 1] << 8 == 0x1000

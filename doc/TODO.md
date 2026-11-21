@@ -98,10 +98,6 @@ marked.
 
 ### Both platforms
 
-- [ ] **`b -N` and `b *` take trailing garbage.**  `@delete_one` /
-  `@clear_all` have no end-of-input check: `b -12` deletes slot 1 and
-  prints `; bp 1 del`, `b *xyz` clears all (reproduced) — repl.md:
-  trailing garbage is `;?syntax`.
 - [ ] **`l` / `s` go on after a bad argument.**  `parse_ls_args` drops
   to fewer arguments on an expression error and takes no end-of-input
   check: `s "demo" 1/0` prints `;?expr div0`, then saves the source as
@@ -4445,6 +4441,10 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: an end-of-input check after `*` and after the slot digit) **`b -N` and `b *` take trailing garbage.**  `@delete_one` /
+  `@clear_all` have no end-of-input check: `b -12` deletes slot 1 and
+  prints `; bp 1 del`, `b *xyz` clears all (reproduced) — repl.md:
+  trailing garbage is `;?syntax`.
 - [x] (fixed 2026-11-21: `cmd_disasm` counts `block_size` bytes down and stops on the carry out of `$FFFF`) **`d` at the top of memory lists nothing.**  `cmd_disasm` clamps
   the end to `$FFFF` on overflow, so the byte at `$FFFF` is never
   listed: `4.ffff:d` prints no row and does not advance (reproduced);

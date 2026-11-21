@@ -1218,3 +1218,13 @@ def test_d_lists_the_last_byte_of_a_bank_and_carries(s):
     s.line("4.ffff:d")
     s.find(r"^4\.ffff:\.  ea +eom$")
     assert prompt(s) == "5.0000:"
+
+
+@pytest.mark.parametrize("cmd", ["b -12", "b -1x", "b *xyz", "b * 1"])
+def test_b_delete_and_clear_take_no_trailing_garbage(s, cmd):
+    """TODO § Bugs (fixed 2026-11-21): ;?syntax, and every slot stays."""
+    s.type("b $3000")
+    s.type(cmd)
+    s.find(r"^;\?syntax$")
+    s.type("b")
+    s.find(r"^; bp 1: 0\.3000$")

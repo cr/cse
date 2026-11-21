@@ -3650,6 +3650,8 @@ set_run_mode:
         bne @list
 
 @clear_all:
+        ldy #1                  ; nothing after `*` (pop-trick: ;?syntax)
+        jsr _require_eoi_or_err
         jsr dbg_bp_clear
         lda #<str_bp_clr
         ldx #>str_bp_clr
@@ -3663,6 +3665,10 @@ set_run_mode:
         bcc @bad_slot
         cmp #'9'
         bcs @bad_slot
+        ldy #2                  ; nothing after the digit (pop-trick:
+        jsr _require_eoi_or_err ;   ;?syntax, before anything changes)
+        ldy #1
+        FAR_LDA rp_ptr
         sec
         sbc #'1'
         pha
