@@ -1121,9 +1121,7 @@ parse_factor:
         cmp #$41
         bcc @err_expected
         cmp #$5B
-        bcc @to_label
-        cmp #'.'
-        beq @to_label
+        bcc @to_label           ; (a `.name` local arrives scoped: never here)
 
 @err_expected:
         lda #ERR_EXPECTED

@@ -50,7 +50,7 @@
         .export patch_all, unpatch_all
         .export dbg_step_clear
 .ifdef PLATFORM_M65
-        .export dbg_bp_set_flat, dbg_bp_find_flat, dbg_step_find, step_bp_arm
+        .export dbg_bp_set_flat, dbg_step_find, step_bp_arm
 .endif
 
         .importzp rp_ptr

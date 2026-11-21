@@ -186,8 +186,8 @@ session ends.
 **Out, Clobbers:** as `dbg_bp_set` / `dbg_bp_find`, which translate
 their CPU address A/X through the program's bank state (`FAR_USER`)
 into `rp_ptr` and fall into these.  Caller: `repl.s::cmd_brk` calls
-`dbg_bp_set_flat` for a flat literal (`b H.AAAA`); `dbg_bp_find_flat`
-is exported with no importer (`dbg_bp_set_flat` runs it first).
+`dbg_bp_set_flat` for a flat literal (`b H.AAAA`).  `dbg_bp_find_flat`
+is internal (not exported): `dbg_bp_set_flat` runs it first.
 
 ### dbg_step_find (m65)
 **In:** A = addr lo, X = addr hi (a break's PC)

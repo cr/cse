@@ -93,13 +93,7 @@ marked.
 
 ### Both platforms
 
-- [ ] **breakpoints.s: `dbg_bp_find_flat` is exported, nothing imports
-  it** (m65; source).  Drop the export, or the routine if nothing
-  calls it inside breakpoints.s either.
-- [ ] **expr.s: an unreachable compare.**  `@chk_label`'s `cmp #'.' /
-  beq @to_label` cannot be reached (`.` is below `$41` and rejected
-  first); a `.name` reaches the evaluator already scoped.  Remove it
-  (both builds change by 4 bytes).
+(None open.)
 
 ### Test gaps
 
@@ -4408,6 +4402,14 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: removed, both builds -4 B) **expr.s: an unreachable compare.**  `@chk_label`'s `cmp #'.' /
+  beq @to_label` cannot be reached (`.` is below `$41` and rejected
+  first); a `.name` reaches the evaluator already scoped.  Remove it
+  (both builds change by 4 bytes).
+
+- [x] (fixed 2026-11-21: the export dropped; the routine is breakpoints.s's own) **breakpoints.s: `dbg_bp_find_flat` is exported, nothing imports
+  it** (m65; source).  Drop the export, or the routine if nothing
+  calls it inside breakpoints.s either.
 - [x] (fixed 2026-11-21: `_vocal_fwd_err` reports on pass 0 only) **`.res` / `.align` with a never-defined symbol report `fwd ref`
   twice.**  On pass 1, rc 5 also goes to `_vocal_fwd_err`, so `.res
   nosuch` counts 2 errors and never says `undef` (prober-reproduced).
