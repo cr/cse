@@ -4237,7 +4237,7 @@ parse_ls_args:
         beq @classify            ; no first arg
 
         jsr try_expr
-        bcc @classify            ; expression failed → treat as 0 args
+        bcc @fail                ; an expression error: no load / save
         inc _arg_count
         ; first arg lands in rp_cnt (as tentative end).  If a second
         ; arg follows, we'll promote it to start and use arg2 as end.
@@ -4248,10 +4248,10 @@ parse_ls_args:
 
         jsr @peek_args
         beq @classify
-        ; second-arg candidate present; try to parse it before we
-        ; disturb rp_addr, so a parse failure leaves 1-arg semantics.
+        ; second-arg candidate present; parse it before we disturb
+        ; rp_addr
         jsr try_expr
-        bcc @classify
+        bcc @fail
         inc _arg_count
         ; promote: rp_cnt (arg1) → rp_addr (start); expr_val (arg2) → rp_cnt (end)
         lda rp_cnt
@@ -4262,6 +4262,14 @@ parse_ls_args:
         sta rp_cnt
         lda expr_val+1
         sta rp_cnt+1
+        jsr @peek_args          ; a third word: trailing garbage
+        beq @classify
+        pla                     ; return past cmd_load / cmd_write (its
+        pla                     ;   first call): ;?syntax, nothing done
+        jmp _syntax_err
+@fail:  pla                     ; try_expr printed the error: return
+        pla                     ;   past cmd_load / cmd_write
+        rts
 
 @classify:
         ; Mode: verbatim wins; else args>0 → PRG; else SEQ.

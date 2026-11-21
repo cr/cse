@@ -359,3 +359,25 @@ class TestDirDevice:
     def test_device_with_no_drive_lists_nothing(self, emu):
         run(emu, "$ 10")
         assert rows(emu) == [";"]
+
+
+# ── a bad argument stops `s` / `l` (TODO § Bugs › Both platforms, fixed
+#    2026-11-21) ─────────────────────────────────────────────────────────
+
+class TestBadArguments:
+
+    @pytest.mark.parametrize("line,tag", [('s "demo" 1/0', ";?expr div0"),
+                                          ('s "demo" nosuch', ";?expr undef"),
+                                          ('s "demo" $1000 $1010 junk', ";?syntax"),
+                                          ('s "demo" $1000 1/0', ";?expr div0")])
+    def test_save_writes_nothing(self, emu, line, tag):
+        run(emu, line)
+        assert any(r.startswith(tag) for r in rows(emu)), rows(emu)
+        assert emu.drive(8).names() == []
+
+    def test_load_reads_nothing(self, emu):
+        emu.drive(8).put("FOO.", b"\x00\xc0\x01\x02\x03")
+        emu.memory[0xC000:0xC003] = [0, 0, 0]
+        run(emu, 'l "foo" 1/0')
+        assert any(r.startswith(";?expr div0") for r in rows(emu)), rows(emu)
+        assert emu.memory[0xC000:0xC003] == [0, 0, 0]

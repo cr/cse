@@ -684,8 +684,11 @@ This prevents dot or suffix accumulation across consecutive saves.
    the command aborts before any disk I/O or name change.  The empty
    form `""` and the bare form (no quote) both reuse the project
    name.
-2. Numeric arguments via the expression parser, up to two.  Parsing
-   stops at the first failed expression, `;` or the end of input.
+2. Numeric arguments via the expression parser, up to two, ending
+   at `;` or the end of input.  An expression error (its `;?expr …`
+   row printed) or a third word (`;?syntax`) ends the command: nothing
+   is loaded or saved (`parse_ls_args` returns past `cmd_load` /
+   `cmd_write`; test_repl_disk.py `TestBadArguments`).
 
 Count of numeric arguments → slots:
 
@@ -807,8 +810,8 @@ expression error (whose `;?expr …` row it has already printed).  A
 command whose argument is optional acts on "empty" only: `j` with no
 argument jumps to `cur_addr`, `+`/`-` with none move by
 `block_size`, but `j nosuchsym` or `+ 1/0` print the error and do
-nothing — no run, no move (`TestBadExpressionAborts`).  `@`, `B` and
-`t`/`o` likewise do nothing on an error.
+nothing — no run, no move (`TestBadExpressionAborts`).  `@`, `B`,
+`t`/`o`, `l` and `s` likewise do nothing on an error.
 
 Test contract (`tests/integration/test_repl.py`): parametrised
 trailing-garbage rejection per command —

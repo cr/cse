@@ -98,12 +98,6 @@ marked.
 
 ### Both platforms
 
-- [ ] **`l` / `s` go on after a bad argument.**  `parse_ls_args` drops
-  to fewer arguments on an expression error and takes no end-of-input
-  check: `s "demo" 1/0` prints `;?expr div0`, then saves the source as
-  SEQ; `s "demo2" $1000 $1010 junk` saves and ignores `junk`; m65 `s
-  "q" 4.2000` → `;?expr range`, then a SEQ save (prober-reproduced) —
-  repl.md: "a bad expression is not an empty one".
 - [ ] **`.`'s hex poke ignores what follows.**  Over bytes that differ,
   every parsed pair is written and trailing text is dropped without a
   check: `. a9 42 ea ea ea ea` writes 5 bytes and drops the 6th (m65,
@@ -4441,6 +4435,12 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: `parse_ls_args` returns past the command on an expression error or a third word) **`l` / `s` go on after a bad argument.**  `parse_ls_args` drops
+  to fewer arguments on an expression error and takes no end-of-input
+  check: `s "demo" 1/0` prints `;?expr div0`, then saves the source as
+  SEQ; `s "demo2" $1000 $1010 junk` saves and ignores `junk`; m65 `s
+  "q" 4.2000` → `;?expr range`, then a SEQ save (prober-reproduced) —
+  repl.md: "a bad expression is not an empty one".
 - [x] (fixed 2026-11-21: an end-of-input check after `*` and after the slot digit) **`b -N` and `b *` take trailing garbage.**  `@delete_one` /
   `@clear_all` have no end-of-input check: `b -12` deletes slot 1 and
   prints `; bp 1 del`, `b *xyz` clears all (reproduced) — repl.md:
