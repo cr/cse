@@ -161,7 +161,8 @@ are BSS too, declared inside their `.proc`; CODE is never written
 | `find_line_start` | — | `ed_scr` = start of the cursor's line | does not move the gap; preserves X |
 | `visual_col` | — | A = column | visual column of the cursor (0..254) |
 | `line_vwidth` | `ed_scr` = line start | A = width | visual width up to CR/EOF; `$FF` on 8-bit overflow |
-| `cursor_line_vwidth` | — | A = width | `find_line_start` + `line_vwidth`; the INS / TAB / printable cap checks |
+| `cursor_line_vwidth` | — | A = width | `find_line_start` + `line_vwidth`; `_ins_capped`'s measure |
+| `_ins_capped` | A = byte | C=1 inserted; C=0 refused | `gb_insert`, then taken back (the buffer and `ed_dirty` as before) when the cursor's line is wider than `LAST_COL`: the cap of printable, INS, TAB and RETURN's tab (§ Long lines) |
 | `char_width` | A = byte, X = vcol | A = width | 1, or 1..`TAB_WIDTH` for `$A0`.  **Clobbers `ed_tmp`** |
 | `advance_to_vcol` | A = target col | — | cursor right toward the target, stopping at CR/EOF or before a char that would overshoot |
 | `_strip_label_tab` / `_strip_leading_tab` | — | — | smart-colon (§ Tab character) |
@@ -282,16 +283,16 @@ means: `io_blip`, nothing changes.
 
 | Key | Action | Redraw |
 |-----|--------|--------|
-| SHIFT+SPACE ($A0) | Tab: insert one `$A0` byte, `ed_cur_col` advances to the next `TAB_WIDTH` column.  Refused if a tab at the end of the line would pass col 39, or the buffer is full. | cursor row + status |
+| SHIFT+SPACE ($A0) | Tab: insert one `$A0` byte, `ed_cur_col` advances to the next `TAB_WIDTH` column.  Refused if the line would be wider than 39 columns after it (measured after the insert, § Long lines), or the buffer is full. | cursor row + status |
 | LEFT | `gb_cursor_left`, `ed_cur_col` recomputed (`visual_col`; a tab is crossed in one step).  Refused at col 0 — LEFT does not wrap to the previous line. | status pos |
-| RIGHT | `gb_cursor_right`, `ed_cur_col` recomputed.  Refused at a CR (no wrap), at EOF, or at col 39. | status pos |
+| RIGHT | `gb_cursor_right`, `ed_cur_col` recomputed.  Refused at a CR (no wrap), at EOF, or when the step would put the cursor past col 39 (a tab is crossed in one step, so from col 32 a tab would land on col 40, the next screen row). | status pos |
 | UP | `ed_cursor_up`: home → left over the CR → home → `advance_to_vcol(old col)`.  Refused on line 1. | scroll down if above the viewport, else status pos |
 | DOWN | `ed_cursor_down`: right past the CR → `advance_to_vcol(old col)`.  Refused on the last line. | scroll up if below the viewport, else status pos |
 | HOME | `gb_home`: start of the current line, col 0 | status pos |
-| DEL | `gb_backspace` (a tab goes in one step).  At col 0 of a later line: join with the previous line (the viewport follows if the cursor leaves it).  At col 0 of line 1: refused. | cursor row to bottom + status |
-| INS | `gb_insert($20)` then `gb_cursor_left`: opens a space at the cursor, cursor stays.  Refused if the line is already 39 columns wide, or the buffer is full. | cursor row + status |
+| DEL | `gb_backspace` (a tab goes in one step).  At col 0 of a later line: join with the previous line, the cursor at the join point — at most col 39, when the previous line is wider (loaded) — and the viewport follows if the cursor leaves it.  At col 0 of line 1: refused. | cursor row to bottom + status |
+| INS | `gb_insert($20)` then `gb_cursor_left`: opens a space at the cursor, cursor stays.  Refused if the line would be wider than 39 columns after it (measured after the insert, § Long lines), or the buffer is full. | cursor row + status |
 | RETURN | Smart indent (§ Tab character).  Refused if the buffer is full. | previous row to bottom (or scroll) + status |
-| printable ($20–$7E, $C1–$DA) | Insert at the cursor, `ed_cur_col + 1`.  Refused if the line is already 39 columns wide, or the buffer is full.  `:` typed at the end of a line triggers the smart colon (§ Tab character). | cursor row + status |
+| printable ($20–$7E, $C1–$DA) | Insert at the cursor, `ed_cur_col + 1`.  Refused if the line would be wider than 39 columns after it (measured after the insert, § Long lines), or the buffer is full.  `:` typed at the end of a line triggers the smart colon (§ Tab character). | cursor row + status |
 | anything else | Ignored, no blip (control codes, $7F–$C0 but $A0, $DB–$FF). | — |
 
 UP / DOWN aim for the cursor's current visual column; on a shorter
@@ -335,7 +336,12 @@ DEL cross a tab in one keystroke.
    (below).
 4. Insert `$0D` + `$A0`.  With room for the `$0D` only (one byte
    left at `__BUF_FLOOR__`), the new line opens without its tab and
-   `ed_cur_col` = 0; with no room, RETURN is refused.
+   `ed_cur_col` = 0; with no room, RETURN is refused.  When
+   the tab would make the new line wider than 39 columns — the text
+   after the split moves right to the tab stop, so a 39-column line
+   split at col 1 would become 46 — the new line opens without its
+   tab too (`ed_cur_col` = 0): the text then starts at col 0, no
+   further right than it was.
 
 **Smart colon.**  `_strip_label_tab` removes **one** `$A0` — the
 first byte of the line, if it is a tab — so a label slides to
@@ -382,7 +388,8 @@ refused at `LINE_MAX` and at the screen's last column, whichever is
 smaller: in 40 × 25 the cap is 39, and a longer line (written in 80
 columns, or loaded) shows `>` in col 39 as on c64 and cannot grow
 there.  Since `LINE_MAX` is 80 columns' last column, the editor's
-caps (printable, INS, TAB, RIGHT) are `LAST_COL` in every mode — the
+caps (printable, INS, TAB, RIGHT; RETURN's tab, the DEL join's
+cursor) are `LAST_COL` in every mode — the
 c64 code with its 39 named by the operand define.
 
 **Entering after a mode change.**  The cursor's line and column
@@ -408,9 +415,17 @@ truncated, with the warning, by the C64 build.
 
 ### Long lines and the overflow indicator
 
-Typing never makes a line wider than 39 visual columns (printable,
-INS and TAB are refused at the cap) and RIGHT stops at col 39, so
-`ed_cur_col` stays ≤ 39.  Lines in the buffer may still be wider —
+Typing never makes a line wider than 39 visual columns, and the
+cursor never goes past col 39, so `ed_cur_col` stays ≤ 39.  The
+width is measured **after** the insert (and the insert taken back
+when it is over): a character or a tab typed before a tab can push
+that tab to the next `TAB_WIDTH` stop, widening the line by up to
+`TAB_WIDTH` columns at once (32 spaces typed before the seeded tab
+would make a 40-column line).  Printable, INS and TAB are refused
+then (`_ins_capped`); RETURN opens its new line
+without the tab (§ Tab character).  RIGHT is refused when its step
+would end past col 39 (crossing a tab), and the DEL join puts the
+cursor at most at col 39.  Lines in the buffer may still be wider —
 from a loaded file or a DEL join.
 
 **Rendering.**  The renderer clips at the screen edge: a line wider

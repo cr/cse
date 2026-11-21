@@ -1167,6 +1167,33 @@ _ed_cur_row:
 @done:  rts
 .endproc
 
+; ── _ins_capped — gb_insert A, taken back when the cursor's line is
+; then wider than LAST_COL: a byte typed before a tab moves the tab to
+; the next stop, so the width is measured after the insert (editor.md
+; § Long lines and the overflow indicator).
+; Out: C=1 inserted; C=0 refused — the buffer full, or over the cap
+; (the buffer and ed_dirty as before).
+; Clobbers: A, X, Y, ed_tmp, ed_scr, and what gb_insert clobbers.
+.proc _ins_capped
+        ldx ed_dirty
+        stx @dirty
+        jsr gb_insert
+        bcc @r                  ; the buffer full: C=0
+        jsr cursor_line_vwidth
+        cmp WIDTH
+        bcs @over               ; wider than LAST_COL
+        sec                     ; kept: C=1
+@r:     rts
+@over:  jsr gb_backspace        ; take it back
+        lda @dirty
+        sta ed_dirty
+        clc
+        rts
+        .segment "BSS"
+@dirty: .res 1
+        .segment "CODE"
+.endproc
+
 ; ── cursor_line_vwidth — visual width of the cursor's line ──────
 ; Walks back to the line start (without moving the gap), then
 ; calls line_vwidth from there.  Used by insert/tab cap checks.
@@ -1475,14 +1502,19 @@ _ed_cur_row:
         cmp #<BUF_END
         jcs @reject             ; past EOF
 @right_check:
-        ; Refuse if cursor is already at the last column (screen edge)
-        lda ed_cur_col
-        cmp LAST_COL
-        jcs @reject
         ldy #0
         FAR_LDA gap_hi
         cmp #$0D
         jeq @reject             ; end of line
+        ; Refuse a step that ends past the last column: the column after
+        ; it is ed_cur_col + the byte's width there (a tab crosses up to
+        ; TAB_WIDTH columns at once: editor.md § Long lines)
+        ldx ed_cur_col
+        jsr char_width
+        clc
+        adc ed_cur_col
+        cmp WIDTH               ; > LAST_COL → refuse
+        jcs @reject
         jsr gb_cursor_right
         jsr visual_col
         sta ed_cur_col
@@ -1578,8 +1610,11 @@ _ed_cur_row:
         jsr gb_home
         lda #0
         sta ed_cur_col
-        lda @join_col
-        jsr advance_to_vcol
+        lda @join_col           ; at most the last column (a wider
+        cmp WIDTH               ;   previous line: editor.md § Long lines)
+        bcc :+
+        lda LAST_COL
+:       jsr advance_to_vcol
         ; Adjust the viewport if the cursor moved above it.  For
         ; a single DEL at col 0 this can only happen when the
         ; user was on the topmost visible line (ed_cur_line was
@@ -1707,9 +1742,10 @@ _ed_cur_row:
         bne :+
         inc ed_cur_line+1
 :       lda #$A0
-        jsr gb_insert           ; may fail on the very last byte of
-                                ; capacity: the CR stays, the line opens
-        lda #TAB_WIDTH          ; without its indent (C=0 → column 0)
+        jsr _ins_capped         ; refused on the very last byte of
+                                ; capacity, or when the rest of the line
+                                ; would pass the cap: the CR stays, the
+        lda #TAB_WIDTH          ; line opens without its indent (col 0)
         bcs :+
         lda #0
 :       sta ed_cur_col
@@ -1755,12 +1791,9 @@ _ed_cur_row:
 @not_enter:
         cmp #CH_INS
         bne @not_ins
-        jsr cursor_line_vwidth
-        cmp LAST_COL            ; line full → refuse
-        jcs @reject
         lda #$20
-        jsr gb_insert
-        jcc @reject             ; buffer full → refuse
+        jsr _ins_capped
+        jcc @reject             ; over the cap or the buffer full → refuse
         jsr gb_cursor_left      ; cursor back onto the space
         jsr render_current_row
         jmp @edited_repos
@@ -1769,17 +1802,6 @@ _ed_cur_row:
         ; ── TAB ($A0) — always enabled under TAB_WIDTH ──
         cmp #$A0
         bne @not_tab
-        ; Cap check: refuse if line_vwidth + char_width(TAB, line_vwidth) > LAST_COL.
-        jsr cursor_line_vwidth
-        tax
-        lda #$A0
-        jsr char_width
-        sta @new_col
-        txa
-        clc
-        adc @new_col
-        cmp WIDTH               ; > LAST_COL → refuse
-        jcs @reject
         ; Compute the new ed_cur_col: ed_cur_col + char_width(TAB, ed_cur_col).
         lda #$A0
         ldx ed_cur_col
@@ -1788,8 +1810,8 @@ _ed_cur_row:
         adc ed_cur_col
         sta @new_col
         lda #$A0
-        jsr gb_insert
-        jcc @reject             ; buffer full → refuse TAB
+        jsr _ins_capped
+        jcc @reject             ; over the cap or the buffer full → refuse TAB
         lda @new_col
         sta ed_cur_col
         jsr render_current_row
@@ -1808,13 +1830,9 @@ _ed_cur_row:
         cmp #$DB
         bcs @repos_jmp          ; $DB+ → ignore
 @printable:
-        ; Refuse if the line is already at the cap (LAST_COL).
-        jsr cursor_line_vwidth
-        cmp LAST_COL            ; line_vwidth ≥ LAST_COL → refuse
-        bcs @reject
         lda @key
-        jsr gb_insert
-        jcc @reject             ; buffer full → refuse char
+        jsr _ins_capped
+        jcc @reject             ; over the cap or the buffer full → refuse char
         inc ed_cur_col
         ; Smart colon: typing ':' at EOL strips leading $A0
         lda @key

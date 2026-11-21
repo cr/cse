@@ -256,6 +256,34 @@ source.  *Universal* amendments tighten the CDD/TDD method itself;
 *domain-class* amendments apply only to projects of a particular
 shape; *project-specific* items belong to CSE alone.
 
+- [ ] **Universal — a doc pass files a behavioural disagreement, it
+  does not rewrite it.**  README § Preface, goal 3 says a disagreement
+  is resolved by the doc first, never the reverse; a pass that brings
+  a doc "in line with the code" changes descriptive clauses only, and
+  every behavioural clause the code contradicts is filed as a bug (TODO
+  § Bugs) for the owner, the doc unchanged.  Candidate README § CDD
+  Maintenance rule.  From the 2026-11-21 editor cap Escape Analysis:
+  `062863e` rewrote "refused when it would push a line past 39" to the
+  code's pre-check and erased the contract the code broke.
+- [ ] **Universal — an invariant is stated and tested as an
+  invariant.**  When a contract is an invariant over state (a width
+  cap, a range, a count), the doc states the invariant, not each
+  site's mechanism, and the test matrix drives every mutator of the
+  measured quantity from states where one action changes it by more
+  than its own size (a tab stop, a carry, a page cross).  Candidate
+  refinement of testing.md Principle 11.  From the 2026-11-21 editor
+  cap Escape Analysis (TODO § Records › Fixed bugs).
+- [ ] **Universal — retiring a test re-homes its clauses.**  A commit
+  that retires tests (a mirror, a tier move) lists the contract
+  clauses they covered and names, for each, the surviving test or a
+  TODO; "coverage lives elsewhere" names the tests.  Candidate
+  testing.md principle.  From the same analysis: the cap's mirror
+  tests went with `6066d8e` / `e3c6f4e`, unported.
+- [ ] **Universal — a known limitation lives in the corpus.**  A
+  limitation accepted at commit time ("may under-refuse … rare") is
+  written into the owning doc's Caveats or a TODO, never only into a
+  commit message.  Candidate README § The CDD Method rule.  From the
+  same analysis (`0433634`).
 - [ ] **Universal — a fix's Step 5 greps the old fact.**  Before a
   change that alters a stated value (an address, a size, a range, a
   mechanism) is committed, grep the corpus for the old value and its
@@ -4396,6 +4424,49 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21, Escape Analysis) **The editor's cap let a line
+  pass the last column, and RIGHT followed it into the next row.**  A
+  character typed before a tab pushes the tab to the next stop, the
+  line by up to 8 columns at once; the cap compared the width *before*
+  the insert (32 spaces before the seeded tab: 40 columns, `>`; m65 72
+  → 80).  RIGHT checked only `ed_cur_col < LAST_COL`, so crossing that
+  tab landed on col 40, the next screen row.  Siblings: INS (the same
+  pre-check), RETURN's split (the new line's tab moved the rest right:
+  a 39-column line split at col 1 became 46), the DEL join (the cursor
+  at a wider previous line's end).  Fix: `_ins_capped` measures after
+  the insert and takes it back (printable, INS, TAB, RETURN's tab);
+  RIGHT checks the column after the step; the join clamps the cursor.
+  Tests: test_editor.py `TestTheCap` (c64), test_m65_source_editor.py
+  (80 × 25, 40 × 25).
+  *Escape.*  The contract was right and was never implemented.  From
+  `ff01621` (2026-04-12) editor.md said "interactive input (printable
+  characters, tabs) is refused when it would push a line past 39
+  visual columns" (and since `e1297df`, a tab "whose expansion
+  crosses" col 39).  The code always compared the width *before* the
+  insert, on a false premise its own comment states (`0433634`: "each
+  printable adds exactly one column, so any insert into a full line
+  would overflow") — before a tab a printable adds 0 to 8 columns.
+  `0433634`'s message accepted that a TAB "may under-refuse" — in the
+  message only, never in a doc.  RETURN's cap regressed outright:
+  `ff01621` restored the auto-indent truncation, `8e56848` (04-14)
+  replaced auto-indent by the one-tab smart indent and dropped it.
+  *Test miss:* the April cap tests were Python mirror tests
+  (`TabGapBuffer`) encoding the code's pre-check, every row a tab-free
+  line (`bytes([CH] * N)`), so "would push" was never exercised;
+  `6066d8e` (04-19) moved them to tests/retired/ and `e3c6f4e` (04-27)
+  deleted them ("active coverage already lives in
+  tests/integration/test_editor.py") — true for the render and scroll
+  mirrors, not for the cap: from 04-19 the c64 cap had no test; m65's
+  P2 tests typed only at the end of tab-free lines.
+  *Contract miss — the decisive step:* `062863e` (2026-11-18, a doc
+  pass "interface and behaviour match editor.s") rewrote the keys
+  table and § Long lines to the code's mechanism ("refused if the line
+  is already 39 columns wide") and dropped the "would push" sentence:
+  a doc/code disagreement resolved toward the code, against README §
+  Preface, goal 3 ("never the reverse").  From then on doc and code
+  agreed and no audit could see the bug.  editor.md now states the
+  invariant again, and the measure after the insert.
+  *Principle candidates:* § CDD amendments pending (four, for triage).
 - [x] (fixed 2026-11-21: tests/unit/test_breakpoints_m65.py — the zp + mem + breakpoints bundle on M65Emu, 21 tests; mutations of the count's bank check and del's × 6 caught) **m65 breakpoints at Tier U.**  test_breakpoints.py is c64-only;
   the 6-byte slots, `dbg_bp_del`'s slot × 6, `dbg_bp_count`'s bank
   check, `dbg_step_find` and `step_bp_arm` are covered only at Tier I

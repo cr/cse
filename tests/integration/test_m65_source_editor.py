@@ -169,6 +169,46 @@ def test_right_stops_at_the_last_column(s, name):
     assert s.v("ed_cur_col") == width - 1
 
 
+# The cap measured after the insert (editor.md § Long lines; TODO §
+# Records › Fixed bugs, 2026-11-21): a key typed before a tab pushes the
+# tab to the next stop, the line by up to 8 columns at once.
+CAPS = [("80x25", 79), ("40x25", 39)]
+
+
+@pytest.mark.parametrize("name,cap", CAPS)
+def test_spaces_before_the_seed_tab_stop_at_the_cap(s, name, cap):
+    in_mode(s, name)
+    edit(s)
+    s.keys(b"\x13")                                   # HOME: before the seed tab
+    for _ in range(cap + 5):
+        s.keys(b" ")
+    k = cap // 8 * 8 - 1                               # the spaces that keep it ≤ cap
+    assert source(s) == b" " * k + b"\xa0"
+    assert raw(s, 0)[s.width - 1] != 0x3E
+
+
+@pytest.mark.parametrize("name,cap", CAPS)
+def test_right_does_not_cross_a_tab_past_the_last_column(s, name, cap):
+    in_mode(s, name)
+    stop = (cap + 1) // 8 * 8 - 8                      # a tab here ends past the cap
+    load_source(s, b" " * stop + b"\xa0Z\r")
+    edit(s)
+    s.keys(b"\x1d" * (cap + 10))
+    assert s.v("ed_cur_col") == stop
+    assert s.v("io_cy") == 0 and s.v("io_cx") <= cap
+
+
+@pytest.mark.parametrize("name,cap", CAPS)
+def test_return_opens_without_its_tab_when_it_would_pass_the_cap(s, name, cap):
+    in_mode(s, name)
+    load_source(s, b"B" * cap + b"\r")
+    edit(s)
+    s.keys(b"\x1d\r")                               # RIGHT, RETURN
+    assert source(s) == b"B\r" + b"B" * (cap - 1) + b"\r"
+    assert s.v("ed_cur_col") == 0
+    assert raw(s, 1)[s.width - 1] != 0x3E
+
+
 # ── the screen save, the mode keys, scrolling ─────────────────────
 
 @pytest.mark.parametrize("name", list(MODES))
