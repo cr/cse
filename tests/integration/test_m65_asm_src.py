@@ -226,3 +226,14 @@ def test_refused_data_values_keep_the_layout(s):
     assert assemble(s, src) == 2
     assert fpeek(s, 0, 0x3000, 3) == [0x4C, 0x09, 0x30]
     assert fpeek(s, 0, 0x3009) == [0x60]
+
+
+@pytest.mark.parametrize("insn,code", [
+    ("lda (ptr),y", [0xB1, 0xFB]), ("lda (ptr),z", [0xB2, 0xFB]),
+    ("lda [ptr],z", [0xEA, 0xB2, 0xFB]), ("lda (ptr,sp),y", [0xE2, 0xFB]),
+    ("bbr0 ptr,*", [0x0F, 0xFB, 0xFD])])
+def test_a_forward_zero_page_pointer_takes_its_form(s, insn, code):
+    """TODO § Bugs (fixed 2026-11-21): a forward reference in a
+    zero-page-only form is sized narrow on both passes."""
+    assert assemble(s, f"\t.org $3000\r\t{insn}\r\trts\r\t.const ptr $fb\r") == 0
+    assert fpeek(s, 0, 0x3000, len(code) + 1) == code + [0x60]

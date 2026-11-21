@@ -199,12 +199,16 @@ stamp marks it as a forward read, so `expr_eval_nb` makes it wide —
 the same ABS size — and the operand gets the real value
 ([symtab.md § Pass stamp](symtab.md#pass-stamp)).
 
-A form whose operand is zero-page only — `(zp),y`, `(zp,x)`, the
-CMOS `(zp)`, the `zp,rel` of BBR/BBS, and on m65 `(zp),z`, `[zp],z`
-and `(d,sp),y` — has no wide variant, so a forward symbol there is
-wide on both passes and the line fails with `;?N: bad insn`
-(`asm_syntax_error`).  Such a pointer must be defined above its use
-(TODO § Bugs: a forward zero-page pointer never assembles).
+A form whose operand is zero-page only has no wide variant.  Where
+the shape after the expression says so — `(e),y`, the `e,rel` of
+BBR/BBS, and on m65 `(e),z`, `(e,sp),y`, `[e]` and `[e],z` —
+`_au_fwd_narrow` takes a wide value that came from a forward reference
+(`expr_fwd`) narrow: always on pass 0 (the stand-in), on pass 1 when
+it fits a byte, so both passes size the form alike; a value above
+`$FF` stays wide and is `;?N: bad insn`.  `(e,x)` and the CMOS `(e)`
+are not decided by their shape — wide they are `jmp ($nnnn,x)` /
+`jmp ($nnnn)` — so a forward pointer there must be defined above its
+use (`;?N: bad insn` otherwise).
 
 ## Caveats
 

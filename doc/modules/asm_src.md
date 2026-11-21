@@ -186,9 +186,10 @@ open; then `process_line` runs for each line `ed_read_line` returns.
 - Forward references in instruction operands: `_au_read_val`
   substitutes `asm_pc+2` (wide) so the instruction gets its pass-1
   size ([addr_mode.md § Forward-reference handling](addr_mode.md#forward-reference-handling)).
-  A zero-page-only operand — `(zp),y`, `(zp,x)`, a BBR/BBS `zp`, on
-  m65 the far and stack-relative forms — has no wide size: a forward
-  symbol there ends in `;?N: bad insn` (TODO § Bugs).
+  A zero-page-only form — `(zp),y`, a BBR/BBS `zp`, on m65 `(zp),z`,
+  the far and stack-relative forms — takes a forward pointer narrow
+  ([addr_mode.md § Forward-reference handling](addr_mode.md#forward-reference-handling));
+  `(zp,x)` and the CMOS `(zp)` need it defined above.
   In `.db` / `.dw`, pass 0 ignores the return code: every `.db`
   argument is one byte and every `.dw` argument two, whatever the
   value.

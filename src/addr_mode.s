@@ -41,6 +41,7 @@
         .import asm_syntax_error        ; provided by caller / test stub
         .import asm_expr_error          ; expr-specific error (sets asm_err_code=1)
         .import expr_eval_nb            ; no-banking expr evaluator (expr.s)
+        .import expr_fwd                ; a forward / undefined read (expr.s)
         .import asm_pass                ; 0=pass 0 (sizing), 1=pass 1 (emit)
         .import sym_lookup              ; for ACC-shadow detection
         .import log_warn                ; emit ";!a shadow" directly on detection
@@ -115,6 +116,57 @@ asm_skip_ws:
 _au_ws_load:
         jsr asm_skip_ws
         lda (asm_ptr),y
+        rts
+
+; ─── _au_fwd_narrow ───────────────────────────────────────────────────────────
+; A = _au_read_val's width (0 narrow / 1 wide).  For a zero-page-only form:
+; a wide value that came from a forward reference (expr_fwd: pass 0's
+; stand-in, or a pass-1 read of a symbol defined later) is narrow — on
+; pass 0 always, on pass 1 when it fits a byte — so both passes size the
+; form alike.  Out: A = the width, Z from it.
+_au_fwd_narrow:
+        cmp #0
+        beq @r
+        lda expr_fwd
+        beq @wide
+        lda asm_pass
+        beq @narrow
+        lda asm_opr+1
+        bne @wide
+@narrow:
+        lda #0
+        rts
+@wide:  lda #1
+@r:     rts
+
+; ─── _au_ind_zp_shape ─────────────────────────────────────────────────────────
+; After an indirect operand's expression: is the shape zero-page-only —
+; `(e),…` (INY, ZPIZ), or on m65 `(e,sp),y`?  C=1 yes.  Y kept.
+_au_ind_zp_shape:
+        tya
+        pha
+        jsr _au_ws_load
+        cmp #SC_RPAR
+        bne @comma
+        iny                     ; `)` then `,`: (e),y / (e),z
+        jsr _au_ws_load
+        cmp #SC_COMM
+        bne @no
+        beq @yes
+@comma:
+.ifdef MEGA_SUPPORT
+        cmp #SC_COMM            ; `,` then `S`: (e,sp),y
+        bne @no
+        iny
+        jsr _au_ws_load
+        cmp #SC_S
+        beq @yes
+.endif
+@no:    clc
+        .byte $24               ; BIT zp: skip the sec
+@yes:   sec
+        pla
+        tay
         rts
 
 ; ─── _au_is_end ──────────────────────────────────────────────────────────────
@@ -355,6 +407,7 @@ mode_parse:
         iny                     ; consume '['
         jsr asm_skip_ws
         jsr _au_read_val
+        jsr _au_fwd_narrow      ; a forward pointer: narrow
         beq :+                  ; narrow only
         jmp asm_syntax_error
 :       inc _au_far
@@ -378,8 +431,14 @@ mode_parse:
         iny                     ; consume '('
         jsr asm_skip_ws
         jsr _au_read_val        ; parse expression → asm_opr, A=0(ZP)/1(ABS)
+        beq @ind_1b_j           ; narrow → 1-byte indirect
+        jsr _au_ind_zp_shape    ; wide: a zero-page-only shape takes a
+        bcc @ind_abs            ;   forward pointer narrow
+        lda #1
+        jsr _au_fwd_narrow
         bne @ind_abs            ; wide → 4-byte indirect
-        jmp @ind_1b             ; narrow → 1-byte indirect
+@ind_1b_j:
+        jmp @ind_1b
 
 @ind_abs:
         ; 2-byte: ($nnnn) or ($nnnn,X)
@@ -519,6 +578,13 @@ mode_parse:
         beq @abx
         cmp #SC_Y
         beq @aby
+.ifdef HAS_ZONE_D
+        lda #1                  ; `e,target`: ZPREL — a forward
+        jsr _au_fwd_narrow      ;   zero-page byte is narrow
+        bne :+
+        jmp @zprel
+:
+.endif
         jmp asm_syntax_error
 
 @abx:   iny                     ; consume 'X'
@@ -558,7 +624,7 @@ mode_parse:
         ; digit zones has a ZPREL row (BBR / BBS); elsewhere the form is
         ; a syntax error, as its lookup would make it.
 .ifdef HAS_ZONE_D
-        lda asm_opr
+@zprel: lda asm_opr
         sta asm_tmp2
         jsr _au_read_val        ; parse second operand → asm_opr
         jsr _au_check_end

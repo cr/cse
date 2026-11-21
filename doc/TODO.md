@@ -93,14 +93,6 @@ marked.
 
 ### Both platforms
 
-- [ ] **A forward zero-page pointer in an indirect form never
-  assembles.**  Pass 0 sizes a forward reference wide (`asm_pc`+2), and
-  a `sym_fwd` read stays wide on pass 1, so `(e),y`, `(e,x)`, ZPREL's
-  byte and (m65) `(e),z`, `[e]`, `(e,sp),y` — forms with no absolute
-  variant — are `;?N: bad insn` on both passes: `lda (ptr),y` with
-  `.const ptr $fb` below it (prober-reproduced, c64 bundle).  Fix: a
-  forward reference in a narrow-only form sizes narrow; until then the
-  docs say to define such a pointer above its use.
 - [ ] **Directives accept trailing text.**  `emit_data_bytes`,
   `emit_string`, `d_org`, `d_const`, `set_cpu`, `emit_reserve`,
   `emit_align` stop at the first unexpected character and return
@@ -4426,6 +4418,14 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: `_au_fwd_narrow` sizes a forward reference narrow where the shape is zero-page-only — `(e),y`, BBR/BBS, m65 `(e),z`, `(e,sp),y`, `[e]`; `(e,x)` and the CMOS `(e)` still need the pointer defined above) **A forward zero-page pointer in an indirect form never
+  assembles.**  Pass 0 sizes a forward reference wide (`asm_pc`+2), and
+  a `sym_fwd` read stays wide on pass 1, so `(e),y`, `(e,x)`, ZPREL's
+  byte and (m65) `(e),z`, `[e]`, `(e,sp),y` — forms with no absolute
+  variant — are `;?N: bad insn` on both passes: `lda (ptr),y` with
+  `.const ptr $fb` below it (prober-reproduced, c64 bundle).  Fix: a
+  forward reference in a narrow-only form sizes narrow; until then the
+  docs say to define such a pointer above its use.
 - [x] (fixed 2026-11-21: `rp_carry` and the `-` borrow wrap the bank word at 12 bits) **Flat walks leave the 28-bit space.**  The `-` borrow and
   `rp_carry` do not wrap at 28 bits: `@ 0.0010` then `- $20` shows
   `fff.fff0:` (`cur_bank` = `$FFFF`); `0fff.fff8:m` gives `0.0008:`

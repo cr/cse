@@ -405,10 +405,12 @@ A forward reference is always sized **absolute**, even when the
 symbol's value later turns out to fit in a byte: `lda zp` above
 `.const zp $10` assembles to `AD 10 00`.  Define zero-page constants
 above their first use to get the 2-byte form.  An operand that can
-only be zero-page — the pointer of `(zp),y`, `(zp,x)` and the CMOS
-`(zp)`, the `zp` of `BBR`/`BBS`, and on m65 `(zp),z`, `[zp],z` and
-`(d,sp),y` — has no absolute size, so it must be defined above its
-use: a forward one is `;?N: bad insn` (TODO § Bugs).  A `.const`
+only be zero-page is sized as one even when it is defined below: the
+pointer of `(zp),y`, the `zp` of `BBR`/`BBS`, and on m65 `(zp),z`,
+`[zp]`, `[zp],z` and `(d,sp),y` (it must then fit a byte).  The
+pointer of `(zp,x)` and the CMOS `(zp)` must be defined above its use
+— with a forward value those read as `jmp ($nnnn,x)` / `jmp ($nnnn)`
+— else `;?N: bad insn`.  A `.const`
 itself must not read a later-defined symbol: `.const k later+1` is
 `;?N: fwd ref` and `k` stays undefined.
 

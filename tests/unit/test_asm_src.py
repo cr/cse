@@ -1663,3 +1663,28 @@ class TestRefusedDataKeepsTheLayout:
         assert list(mem[0xC000:0xC002]) == [0x11, 0x11]
         assert list(mem[0xC004:0xC006]) == [0x22, 0x22]
         assert (mem[0xC006], mem[0xC008], mem[0xC009]) == (7, 9, 0x60)
+
+
+# ── a forward zero-page pointer in a zero-page-only form (TODO § Bugs ›
+#    Both platforms, fixed 2026-11-21) ────────────────────────────────
+
+class TestForwardZeroPagePointer:
+
+    @pytest.mark.parametrize("insn,code", [("lda (ptr),y", [0xB1, 0xFB]),
+                                           ("sta (ptr),y", [0x91, 0xFB])])
+    def test_a_forward_pointer_takes_the_zero_page_form(self, as_syms, insn, code):
+        errors, mem, _ = _run_mem(
+            as_syms, f".org $c000\n {insn}\n rts\n.const ptr $fb")
+        assert errors == 0
+        assert list(mem[0xC000:0xC003]) == code + [0x60]
+
+    def test_a_forward_value_above_ff_is_still_refused(self, as_syms):
+        errors, _, _ = _run_mem(as_syms, ".org $c000\n lda (ptr),y\n.const ptr $1234")
+        assert errors == 1
+
+    def test_jmp_indirect_x_forward_stays_absolute(self, as_syms):
+        # (e,x) with a wide value is jmp ($nnnn,x) on the CMOS set only;
+        # a plain forward (e) for jmp stays ($nnnn)
+        errors, mem, _ = _run_mem(as_syms, ".org $c000\n jmp (vec)\nvec: .dw $c000")
+        assert errors == 0
+        assert list(mem[0xC000:0xC003]) == [0x6C, 0x03, 0xC0]

@@ -1,7 +1,7 @@
 {
  "comment": "SHA-256 of each C64 release PRG (make release, defaults). Re-recorded only by a commit that deliberately changes what a C64 build contains, stating why (doc/platform_layer.md § Gates).",
  "prgs": {
-  "build/release/6502/cse-6502.prg": "f07ea8e0670f98406fe60b6ff9f7dea1b95727dad687d95736fb4117cbb2d70f",
-  "build/release/6510/cse.prg": "c24a4325fbed1315969a009170793604515a216065c47c9f04b5743138ad4d2a"
+  "build/release/6502/cse-6502.prg": "4fa4f27e369b9849bd838c801957c4061dd4df11cdfb644eb2b47498c29a9eea",
+  "build/release/6510/cse.prg": "d1881700d1b245564e2d2d4bed4f53ffaedde46568b69b3b598097b4b6460098"
  }
 }
