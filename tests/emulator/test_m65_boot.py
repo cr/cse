@@ -73,6 +73,7 @@ def booted(request, cse_m65_prg):
                           s("__CODE_SIZE__") + s("__RODATA_SIZE__")),
         "KDATA + BSS": (flat(BANK_CSE, s("__KDATA_RUN__")),
                         s("__KDATA_SIZE__") + s("__BSS_SIZE__")),
+        "HELP (the reserve 3.C000)": (flat(BANK_CSE, s("__HELP_RUN__")), s("__HELP_SIZE__")),
     }
     work = WORK / d.name
     shutil.rmtree(work, ignore_errors=True)

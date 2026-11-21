@@ -8,7 +8,7 @@
 
 HELP_LINES = 58
 
-.segment "KDATA"
+.segment "HELP"                 ; the reserve 3.C000 (help.md § Where it lives)
 help_text:
         .byte 30, $12, $05, $10, $0C, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $1B, $20, $1D, $20, $0F, $10, $14, $09, $0F, $0E, $01, $0C    ; repl              [ ] optional
         .byte 30, $0D, $20, $1B, $01, $04, $04, $12, $1D, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $04, $15, $0D, $10, $20, $01, $20, $02, $0C, $0F, $03, $0B    ; m [addr]          dump a block

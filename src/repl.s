@@ -438,7 +438,7 @@ io_addr_cmd:
 .endmacro
 
 .ifdef PLATFORM_M65
-.segment "KCODE"                        ; m65 code in the data window
+.segment "KCODE"                        ; m65: cold code (in the open on m65)
 ; The bodies of SPACE_CPU (A kept), RP_CARRY (A) and CUR_FROM_RP (A, X
 ; clobbered); every one keeps C.
 space_cpu:

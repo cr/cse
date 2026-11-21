@@ -429,7 +429,9 @@ also starts in banks 1, 4 and 5 as `JSRFAR` would start it
 ([repl.md § Far starts](modules/repl.md#far-starts)), expressions
 carry 32-bit values
 ([expr.md § 32-bit values (m65)](modules/expr.md#32-bit-values-m65)),
-and part of CSE's code runs in the data window as KCODE (below).
+and CSE's code and data — the cold code (KCODE) with the rest — fill
+one area of bank 3 across the code window and the data window, the
+help text the reserve above (below).
 Its premise is the machine a BASIC 65 program finds when `RUN` starts
 it through its `SYS` line; user programs run in that machine, and CSE
 keeps out of it.  The facts below that are not book citations were
@@ -501,10 +503,10 @@ pointers ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
                    D81 directory takes under 10 K); the screen
                    under the help window
     3.0000–3.1FFF  the monitor                                  the ROM
-    3.2000–3.7FFF  CODE + RODATA                                CSE
-    3.8000–3.BFFF  BSS, KDATA, symbol table and heap,           CSE
+    3.2000–3.9EFF  CODE, RODATA, KDATA, KCODE, BSS              CSE
+    3.9F00–3.BFFF  symbol table and heap,                       CSE
                    REPL screen save (sized for 80 × 50)
-    3.C000–3.CFFF  reserve (4 K)                                CSE (unused)
+    3.C000–3.CFFF  reserve (4 K): the help popup's text         CSE
     3.D000–3.DFFF  character set B                              the ROM
     3.E000–3.FFFF  KERNAL                                       the KERNAL
     4.0000–5.FFFF  free, except the screen in 80 × 50           the KERNAL's screen
@@ -512,15 +514,18 @@ pointers ([platform_layer.md § Far memory](platform_layer.md#far-memory)).
                    else in banks 4–5, measured on M65Emu)
     800.0000+      Attic RAM                                    —
 
-**The data window (`3.8000–3.BFFF`).**  KDATA, KCODE (code that runs
-in the data window, [build_system.md § The m65 builds](build_system.md#the-m65-builds))
-and BSS from its start, in one linker area bounded below the fixed
-homes; above them,
-the C64's under-KERNAL homes at fixed addresses, page-aligned as the
-C64's (symtab.s indexes its table from a page boundary):
+**CSE's window (`3.2000–3.9EFF`).**  The CSE map's two halves have one
+offset, `$30000`, so the code window and the data window show bank 3
+contiguously from `$2000` to `$BFFF`: CODE, RODATA, KDATA, KCODE (the
+cold code, glossary) and BSS are one linker area, packed in that order
+across the two halves, bounded below the fixed homes — nothing is
+placed per window
+([build_system.md § The m65 builds](build_system.md#the-m65-builds)).
+Above it, the C64's under-KERNAL homes at fixed addresses,
+page-aligned as the C64's (symtab.s indexes its table from a page
+boundary):
 
-    3.8000–3.9EFF  KDATA, KCODE, then BSS (7.75 K; the linker bounds it;
-                   KDATA with the help text, KCODE with help.s)
+    3.2000–3.9EFF  CODE, RODATA, KDATA, KCODE, then BSS (31.75 K; the linker bounds it)
     3.9F00–3.A6FF  SYM_TABLE: the symbol table (256 × 8 bytes: 32-bit values)
     3.A700–3.AFFF  SYM_HEAP … SYM_HEAP_END ($B000): the name heap
     3.B000–3.BF9F  REPL_SCREEN: the REPL screen save (80 × 50 = 4000)
@@ -560,7 +565,7 @@ current ([platform_layer.md § Interrupt frame](platform_layer.md#interrupt-fram
 ([loader.md § Design](modules/loader.md#design)): the resident stub
 at `0.1FB0`, CSE's base page cleared but for the stub's cold target
 (`_main`; the stub's targets live in the base page, [zp.md](modules/zp.md)),
-CODE + RODATA at `3.2000`, KDATA in the data window and BSS cleared,
+CODE + RODATA + KDATA + KCODE at `3.2000`, the help text at `3.C000` and BSS cleared,
 banks 2–3 writable; control in `_main` under the CSE map with `B =
 $1F`.  The PRG image:
 

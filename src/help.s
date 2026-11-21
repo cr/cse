@@ -7,8 +7,9 @@
 ; cursor keys scroll it, HELP / ESC / RUN/STOP close it and the screen
 ; is as it was.  m65 only (the Makefile builds it for PLATFORM=m65).
 ;
-; Code in KCODE and the text in KDATA: the data window, read by plain
-; CPU addressing under the CSE map (help.md § Where it lives).
+; The text is the HELP segment, in the reserve 3.C000 (the CSE map shows
+; the interface ROM there), read through a far pointer (help.md § Where
+; it lives); the code and the window's labels are CSE's window's.
 
         .setcpu "6502"
         .include "platform.inc"
@@ -44,7 +45,7 @@ help_left:      .res 1          ; the window's first column
 help_r:         .res 1          ; help_draw: the screen row
 help_row:       .res WIDE       ; one window row, built before it is written
 
-.segment "KCODE"                ; m65 code in the data window
+.segment "KCODE"                ; cold code (in the open on m65)
 
 ; ── help_popup — the window until a closing key (help.md § help_popup).
 ; Out: the screen as before; C = 1 when RUN/STOP closed it.
@@ -113,10 +114,11 @@ help_wait:                      ; waiting for a key (the tests stop here)
 ; ── help_draw — the window, its text from line help_top.
 ; Clobbers A, X, Y, _io_scr, rp_ptr.
 help_draw:
-        lda #<help_text         ; rp_ptr := line help_top (walk the lengths)
-        sta rp_ptr
+        lda #<help_text         ; rp_ptr := line help_top (walk the lengths),
+        sta rp_ptr              ;   a far pointer into the reserve
         lda #>help_text
         sta rp_ptr+1
+        FAR_BANK rp_ptr, BANK_CSE
         ldx help_top
         beq @top
 @walk:  jsr next_line
@@ -147,11 +149,11 @@ help_draw:
         cmp #<HELP_LINES + 1
         bcs @put                ; past the last line: a blank row
         ldy #0
-        lda (rp_ptr),y          ; its length
+        FAR_LDA rp_ptr          ; its length
         tax
         beq @adv
 @ch:    iny
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sta help_row + 1,y      ; from column 2
         dex
         bne @ch
@@ -194,7 +196,7 @@ put_row:
 ; ── next_line — rp_ptr past the line it points at.  Clobbers A, Y.
 next_line:
         ldy #0
-        lda (rp_ptr),y
+        FAR_LDA rp_ptr
         sec                     ; the length byte too
         adc rp_ptr
         sta rp_ptr

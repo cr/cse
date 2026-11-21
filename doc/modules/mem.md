@@ -110,8 +110,9 @@ memory](../platform_layer.md#far-memory)).
 The body of `FAR_USER` on m65 (the macro loads X, so the macro
 clobbers X and N/Z); on c64 there is no routine and `FAR_USER` is
 empty.  It lives here because mem.s is the memory driver, in the
-`KCODE` segment (code in the data window, [build_system.md § The m65
-builds](../build_system.md#the-m65-builds)).  It is not idempotent:
+`KCODE` segment (cold code: in the open in CSE's window on m65,
+[build_system.md § The m65 builds](../build_system.md#the-m65-builds)).
+It is not idempotent:
 the I/O page rewrites the offset's high byte, so a pointer is
 translated once per set.
 

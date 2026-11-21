@@ -162,8 +162,8 @@ zero_pages:
         .import __STUB_LOAD__, __STUB_RUN__, __STUB_SIZE__
         .import __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
         .import __RODATA_SIZE__
-        .import __KDATA_LOAD__, __KDATA_RUN__, __KDATA_SIZE__
-        .import __KCODE_SIZE__
+        .import __KDATA_SIZE__, __KCODE_SIZE__
+        .import __HELP_LOAD__, __HELP_RUN__, __HELP_SIZE__
         .import __BSS_RUN__, __BSS_SIZE__
 
 .segment "LOADER"
@@ -266,13 +266,13 @@ entries_end:
 refusal:
         .byte "cse needs MEGA65 ROM 920413+ (Hyppo 1.2+)", $0D, 0
 
-; The install: CODE + RODATA and KDATA + KCODE (one block: KCODE follows
-; KDATA in both places) from the PRG image (bank 0) to bank 3, then BSS
-; cleared — three chained F018B jobs.
+; The install: CODE + RODATA + KDATA + KCODE (one block, in the image
+; and in CSE's window) and HELP (to the reserve 3.C000) from the PRG image
+; (bank 0) to bank 3, then BSS cleared — three chained F018B jobs.
 install_jobs:
         .byte DMA_OPT_F018B, $00
         .byte DMA_COPY | DMA_CHAIN
-        .word __CODE_SIZE__ + __RODATA_SIZE__
+        .word __CODE_SIZE__ + __RODATA_SIZE__ + __KDATA_SIZE__ + __KCODE_SIZE__
         .word __CODE_LOAD__
         .byte BANK_USER
         .word __CODE_RUN__
@@ -281,10 +281,10 @@ install_jobs:
         .word 0
         .byte $00                               ; options: none
         .byte DMA_COPY | DMA_CHAIN
-        .word __KDATA_SIZE__ + __KCODE_SIZE__   ; KCODE follows KDATA
-        .word __KDATA_LOAD__
+        .word __HELP_SIZE__
+        .word __HELP_LOAD__
         .byte BANK_USER
-        .word __KDATA_RUN__
+        .word __HELP_RUN__
         .byte BANK_CSE
         .byte $00
         .word 0

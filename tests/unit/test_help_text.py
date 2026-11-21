@@ -140,7 +140,7 @@ def _rows(source):
 def test_render_is_a_length_byte_then_the_codes_per_line():
     lines = ["ab", "", "Q $"]
     source = H.render(lines)
-    assert 'segment "KDATA"' in source and re.search(r"^help_text:", source, re.M)
+    assert 'segment "HELP"' in source and re.search(r"^help_text:", source, re.M)
     assert re.search(r"\.export\s+help_text", source)
     count, rows = _rows(source)
     assert count == 3

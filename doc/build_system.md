@@ -486,29 +486,33 @@ link instead of overwriting the neighbour:
 | `LOADADDR`, `EXEHDR` | `$2001` | bank 0, the PRG image | — | the file |
 | `LOADER` | `$200D` | bank 0, the PRG image (discarded) | — | the file |
 | `STUB` | `$1FB0` | `0.1FB0` | `$0050` (to `0.1FFF`) | the file, copied by the loader |
-| `CODE`, `RODATA` | `$2000` | `3.2000` | `$6000` (24 K) | the file, DMA'd by the loader |
-| `KDATA` | `$8000` | the data window `3.8000` | with `KCODE` and `BSS`: `$1F00`, to `SYM_TABLE` | the file, DMA'd by the loader |
-| `KCODE` | after `KDATA` | the data window | (the same area) | the file, DMA'd by the loader with `KDATA`, as one block |
-| `BSS` | after `KCODE` | the data window | (the same area) | cleared by the loader |
+| `CODE`, `RODATA`, `KDATA`, `KCODE` | `$2000`, in that order | `3.2000` | with `BSS`: `$7F00` (CSE's window `CSEWIN`, to `SYM_TABLE`) | the file, DMA'd by the loader as one block |
+| `BSS` | after `KCODE` | CSE's window | (the same area) | cleared by the loader |
+| `HELP` | `$C000` (a far pointer's offset) | the reserve `3.C000` | `$1000` (`RESERVE`) | the file, DMA'd by the loader |
 
-`KCODE` is code that runs in the data window: the code window
-(`$2000–$7FFF`) had 1.4 K left at slice 3's F2, which the banking
-work alone would fill, while the data window, mapped in CSE's own
-map like the code window, had 6 K.  m65-only code that is not on a
-hot path goes there (the CPU lens, the flat-address helpers, `M`);
-the m65 test bundles' config (`dev/m65_test.cfg`) has the segment
-too.
+CSE's window spans both halves of the CSE map — the code window
+`$2000–$7FFF` and the data window `$8000–$BFFF` show bank 3 with one
+offset, so `3.2000–3.9EFF` is contiguous in the CPU's view — and is
+one MEMORY area: code and data are packed in segment order, with no
+placement per window.  `KCODE` marks cold code — code that could live
+somewhere harder to reach (glossary); m65 has room for it in the open,
+so it follows KDATA in CSE's window and its callers `jsr` it directly.
+The m65 test bundles' config (`dev/m65_test.cfg`) has the segment
+too.  The help popup's text (`HELP`, help.md) lives
+in the reserve `3.C000`, which the CSE map does not show (`$C000` is
+the interface ROM): read through a far pointer, it takes no room in
+CSE's window.
 | `ZEROPAGE` | `$00` (base-page offsets) | CSE's base page `0.1F00` (`B = $1F`) | `$00B0`, below the resident stub | cleared by the loader |
 
-The source region (`2.4000–2.BFFF`), the directory buffer
-(`2.D000–2.FFFF`) and the reserve `3.C000–3.CFFF` are not segments:
-they hold nothing at load time and are reached through far pointers.
+The source region (`2.4000–2.BFFF`) and the directory buffer
+(`2.D000–2.FFFF`) are not segments: they hold nothing at load time
+and are reached through far pointers, as the help text in the reserve.
 
 There is no two-pass layout on m65 (`compute_layout.py` is the C64
 builds' runtime-start computation): every run address is fixed by
 the region it lives in.  The C64's KBSS homes under the KERNAL
 (symbol table, name heap, REPL screen save) are fixed homes at the top
-of the data window on m65, constants as on the C64
+of CSE's window on m65 (`3.9F00`), constants as on the C64
 ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode));
 the cold-init ZP snapshot has no m65 counterpart.  CSE's zero page is
 its own base page with a layout of its own: the C64's cells in their
@@ -637,8 +641,8 @@ the spirit of the golden files:
   under *Growth*, in its own commit; moving the C64 builds onto the platform layer
   leaves them byte-identical ([platform_layer.md § Gates](platform_layer.md#gates)).
 - **The m65 build**, m65-45gs02, is in `BUDGET` under the same
-  ratchet; its code window
-  and data window are bounded by the linker as well
+  ratchet; CSE's window and the reserve are bounded by the linker
+  as well
   ([§ The m65 builds](#the-m65-builds)).
 - **Parallel fix tracks.**  When independent fixes run in parallel
   worktrees, every worktree is cut from the integration branch, none

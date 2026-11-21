@@ -36,7 +36,7 @@ hidden by `main_loop`)
 **Out:** the screen and CSE's state as before the call; C = 1 when
 RUN/STOP closed the window — `main_loop` then sets `stop_cooldown`, so
 the key still held does not toggle the editor
-**Clobbers:** A, X, Y, `rp_ptr`, `_io_scr`, the DMA job's cells
+**Clobbers:** A, X, Y, `rp_ptr` (its bank too), `_io_scr`, the DMA job's cells
 (`sj_*`), the directory buffer `2.D000–2.FFFF`
 
 A modal loop: save the screen, draw the window, then read keys
@@ -139,12 +139,13 @@ window's own labels (` cse help `, ` crsr scroll  help close `,
 
 ### Where it lives
 
-`help.s`'s code is `KCODE` and `help_text` is `KDATA`: both in the
-data window, the text read by plain CPU addressing under the CSE map
+`help_text` is the `HELP` segment, which the loader copies to the
+reserve `3.C000` — bank 3, but not in the CSE map (`$C000` is the
+interface ROM) — so `help_draw` reads it through `rp_ptr` as a far
+pointer (`FAR_BANK rp_ptr, BANK_CSE`, `FAR_LDA`).  The text takes no
+room in CSE's window; `help.s`'s code (`KCODE`: cold code, in the
+open on m65), its labels (`KDATA`) and its BSS are there
 ([build_system.md § The m65 builds](../build_system.md#the-m65-builds)).
-355 bytes of code, 43 of labels, 1711 of text and 44 of BSS; the data
-window keeps 1.4 K free.  In the code window only the `main_loop` hook
-and `screen_stash` / `screen_unstash` (screen.s).
 
 ## Caveats
 

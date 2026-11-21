@@ -83,7 +83,7 @@ Direct callers:
 `sym_val` is 4 bytes in the base page — so the table is 2048 bytes and
 a slot's offset is `slot × 8` (three shifts).  It sits at
 `3.9F00–3.A6FF` (`SYM_TABLE`; the name heap `3.A700–3.AFFF`), and the
-data window's KDATA / KCODE / BSS area ends at `$9F00` (O-F-4;
+CSE window's CODE / RODATA / KDATA / KCODE / BSS area ends at `$9F00` (O-F-4;
 [memory_design.md](../memory_design.md)).  Bytes 0–5 are the c64's
 (hash, value bytes 0–1, name_ptr, scope); bytes 6–7 are the value's
 upper word.  Every writer of `sym_val` sets all four bytes: `.const`

@@ -76,7 +76,7 @@ def render(lines):
            "",
            f"HELP_LINES = {len(lines)}",
            "",
-           '.segment "KDATA"',
+           '.segment "HELP"                 ; the reserve 3.C000 (help.md § Where it lives)',
            "help_text:"]
     for line in lines:
         codes = encode(line)

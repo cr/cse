@@ -172,7 +172,7 @@ fu_hi:          .res 1          ; the half's MAP operands: X or Z,
 fu_lo:          .res 1          ;   A or Y
 fu_mb:          .res 1          ;   and its megabyte
 fu_cfg:         .res 1          ; (port | ~DDR) & 7
-.segment "KCODE"                ; m65 code in the data window
+.segment "KCODE"                ; m65: cold code (CSE's window holds it in the open)
 far_user_w:
         php
         pha
